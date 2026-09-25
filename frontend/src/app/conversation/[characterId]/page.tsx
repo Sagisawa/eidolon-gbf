@@ -3,26 +3,17 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { FailureNotice } from "@/components/FailureNotice";
 import {
-  ApiError,
   createConversation,
+  listCharacters,
   listConversations,
   listMessages,
   sendTurn,
   type Message,
   type Segment,
 } from "@/lib/api";
-
-const CHARACTER_NAMES: Record<string, string> = { mano: "櫻木真乃" };
-
-type Failure = { message: string; needsKey: boolean };
-
-function toFailure(e: unknown): Failure {
-  return {
-    message: (e as Error).message,
-    needsKey: e instanceof ApiError && e.unauthorized,
-  };
-}
+import { toFailure, type Failure } from "@/lib/failure";
 
 type Entry =
   | { kind: "user"; key: string; text: string }
@@ -41,7 +32,7 @@ function toEntry(message: Message): Entry {
 
 export default function ConversationPage() {
   const { characterId } = useParams<{ characterId: string }>();
-  const name = CHARACTER_NAMES[characterId] ?? characterId;
+  const [name, setName] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState("");
@@ -53,6 +44,10 @@ export default function ConversationPage() {
     let cancelled = false;
     (async () => {
       try {
+        const characters = await listCharacters();
+        const character = characters.find((c) => c.id === characterId);
+        if (!character) throw new Error("角色不存在");
+        if (!cancelled) setName(character.name);
         const [latest] = await listConversations(characterId);
         const conversation = latest ?? (await createConversation(characterId));
         const messages = await listMessages(conversation.id);
@@ -134,9 +129,12 @@ export default function ConversationPage() {
 
   return (
     <main className="conversation">
-      <header className="conversation-header">
+      <header className="page-header">
         <h1>{name}</h1>
         <div className="header-actions">
+          <Link href="/" className="ghost-link">
+            角色
+          </Link>
           <button
             type="button"
             className="ghost"
@@ -152,7 +150,7 @@ export default function ConversationPage() {
       </header>
 
       <section className="log" aria-live="polite">
-        {entries.length === 0 && <p className="empty">和{name}打个招呼吧。</p>}
+        {entries.length === 0 && name && <p className="empty">和{name}打个招呼吧。</p>}
         {entries.map((entry) =>
           entry.kind === "user" ? (
             <p key={entry.key} className="bubble user">
@@ -175,17 +173,7 @@ export default function ConversationPage() {
         <div ref={logEnd} />
       </section>
 
-      {error && (
-        <p className="error" role="alert">
-          {error.message}
-          {error.needsKey && (
-            <>
-              {" "}
-              <Link href="/settings">前往设置</Link>
-            </>
-          )}
-        </p>
-      )}
+      {error && <FailureNotice failure={error} />}
 
       <form className="composer" onSubmit={submit}>
         <input

@@ -70,7 +70,7 @@ button.ghost {
   padding: 0 16px;
 }
 
-.conversation-header {
+.page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,7 +78,7 @@ button.ghost {
   border-bottom: 1px solid var(--border);
 }
 
-.conversation-header h1 {
+.page-header h1 {
   margin: 0;
   font-size: 1.125rem;
 }
@@ -208,4 +208,67 @@ button.ghost {
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
+}
+
+.selection {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.character-list {
+  list-style: none;
+  margin: 0;
+  padding: 16px 0;
+  display: grid;
+  gap: 12px;
+}
+
+.character-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.character-card:hover,
+.character-card:focus-visible {
+  border-color: var(--accent);
+}
+
+.avatar {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.avatar.placeholder {
+  display: grid;
+  place-items: center;
+  background: var(--user-bubble);
+  color: var(--accent);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.character-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.character-name {
+  font-weight: 600;
+}
+
+.character-intro {
+  color: var(--muted);
+  font-size: 0.875rem;
 }

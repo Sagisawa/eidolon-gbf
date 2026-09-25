@@ -28,10 +28,10 @@ export default function SettingsPage() {
 
   return (
     <main className="settings">
-      <header className="conversation-header">
+      <header className="page-header">
         <h1>设置</h1>
         <Link href="/" className="ghost-link">
-          返回对话
+          返回
         </Link>
       </header>
 

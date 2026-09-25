@@ -1,5 +1,12 @@
 import { loadAccessKey } from "@/lib/accessKey";
 
+export type Character = {
+  id: string;
+  name: string;
+  intro: string;
+  avatar_url: string | null;
+};
+
 export type Conversation = {
   id: string;
   character_id: string;
@@ -51,6 +58,10 @@ function api(path: string, init: RequestInit = {}): Promise<Response> {
   const key = loadAccessKey();
   if (key) headers.set("authorization", `Bearer ${key}`);
   return fetch(path, { ...init, headers });
+}
+
+export async function listCharacters(): Promise<Character[]> {
+  return json(await api("/api/characters"));
 }
 
 export async function listConversations(characterId: string): Promise<Conversation[]> {

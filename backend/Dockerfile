@@ -9,6 +9,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-ENV EIDOLON_DATABASE_PATH=/data/eidolon.db
+ENV EIDOLON_DATABASE_PATH=/data/eidolon.db \
+    EIDOLON_CHARACTERS_PATH=/characters/characters.toml
 EXPOSE 8000
 CMD ["/app/.venv/bin/eidolon"]

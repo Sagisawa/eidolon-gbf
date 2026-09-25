@@ -8,10 +8,10 @@ from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from eidolon.characters import CHARACTERS
+from eidolon.characters import load_characters
 from eidolon.config import Settings
 from eidolon.engine import ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
@@ -54,11 +54,12 @@ UserId = Annotated[str, Depends(current_user)]
 
 
 def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
+    characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
     llm = chat_llm or OpenAICompatLLM(
         settings.chat_llm_base_url, settings.chat_llm_api_key, settings.chat_llm_model
     )
-    engine = ConversationEngine(store, llm)
+    engine = ConversationEngine(store, llm, characters)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -79,9 +80,28 @@ def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
     def health() -> dict:
         return {"ok": True}
 
+    @app.get("/api/characters")
+    def list_characters(_: UserId) -> list[dict]:
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "intro": c.intro,
+                "avatar_url": f"/api/characters/{c.id}/avatar" if c.avatar else None,
+            }
+            for c in characters.values()
+        ]
+
+    @app.get("/api/characters/{character_id}/avatar")
+    def character_avatar(character_id: str) -> FileResponse:
+        character = characters.get(character_id)
+        if character is None or character.avatar is None:
+            raise HTTPException(404, "没有这位角色的头像")
+        return FileResponse(character.avatar)
+
     @app.post("/api/conversations", status_code=201)
     def create_conversation(body: NewConversation, user_id: UserId) -> dict:
-        if body.character_id not in CHARACTERS:
+        if body.character_id not in characters:
             raise HTTPException(404, "角色不存在")
         return asdict(store.create_conversation(user_id, body.character_id))
 

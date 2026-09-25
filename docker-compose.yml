@@ -4,6 +4,7 @@ services:
     env_file: .env
     volumes:
       - eidolon-data:/data
+      - ./characters:/characters:ro
     restart: unless-stopped
 
   frontend:

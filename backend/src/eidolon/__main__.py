@@ -22,8 +22,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command in (None, "serve"):
-        _serve()
-        return 0
+        return _serve()
 
     store = Store(args.db or database_path_from_env())
     try:
@@ -36,17 +35,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _serve() -> None:
+def _serve() -> int:
     import uvicorn
 
     from eidolon.app import create_app
     from eidolon.config import Settings
 
+    try:  # missing settings and a broken character configuration both land here
+        app = create_app(Settings.from_env())
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
     uvicorn.run(
-        create_app(Settings.from_env()),
+        app,
         host=os.environ.get("HOST", "0.0.0.0"),
         port=int(os.environ.get("PORT", "8000")),
     )
+    return 0
 
 
 def _create_user(store: Store, args: argparse.Namespace) -> None:

@@ -9,7 +9,7 @@ that fails part-way leaves no record.
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from eidolon.characters import CHARACTERS
+from eidolon.characters import Character
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.store import Conversation, Message, Store
@@ -28,8 +28,11 @@ class EmptyReply(RuntimeError):
 
 
 class ConversationEngine:
-    def __init__(self, store: Store, chat_llm: ChatLLM) -> None:
+    def __init__(
+        self, store: Store, chat_llm: ChatLLM, characters: dict[str, Character]
+    ) -> None:
         self._store = store
+        self._characters = characters
         self._llm = chat_llm
 
     async def turn(self, conversation: Conversation, text: str) -> AsyncIterator[TurnEvent]:
@@ -51,7 +54,7 @@ class ConversationEngine:
     def _prompt(
         self, conversation: Conversation, history: list[Message], text: str
     ) -> list[ChatMessage]:
-        character = CHARACTERS[conversation.character_id]
+        character = self._characters[conversation.character_id]
         prompt = [ChatMessage("system", f"{character.sheet}\n\n{FORMAT_INSTRUCTIONS}")]
         for message in history:
             if message.role == "user":

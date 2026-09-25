@@ -8,6 +8,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Settings:
     database_path: Path
+    characters_path: Path
     chat_llm_base_url: str
     chat_llm_api_key: str
     chat_llm_model: str
@@ -16,6 +17,9 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             database_path=database_path_from_env(),
+            characters_path=Path(
+                os.environ.get("EIDOLON_CHARACTERS_PATH", "../characters/characters.toml")
+            ),
             chat_llm_base_url=_required("CHAT_LLM_BASE_URL"),
             chat_llm_api_key=_required("CHAT_LLM_API_KEY"),
             chat_llm_model=_required("CHAT_LLM_MODEL"),

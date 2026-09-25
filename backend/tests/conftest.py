@@ -57,11 +57,64 @@ class Admin:
 
 ClientFactory = Callable[..., httpx.AsyncClient]
 
+MANO_SHEET = "# 人设\n你是櫻木真乃。口癖是「ほわっ」。"
+KOGANE_SHEET = "# 人设\n你是月岡恋鐘。说长崎方言。"
+AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
+
+
+class CharacterConfig:
+    """Writes a character configuration directory, the way an administrator would."""
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self.path = directory / "characters.toml"
+        self._entries: list[str] = []
+
+    def add(
+        self,
+        id: str,
+        name: str,
+        sheet: str | None,
+        *,
+        intro: str = "",
+        voice_id: str = "voice",
+        avatar: bytes | None = None,
+    ) -> "CharacterConfig":
+        entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
+        entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
+        if sheet is not None:
+            self.write(f"sheets/{id}.md", sheet)
+        if avatar is not None:
+            self.write(f"avatars/{id}.png", avatar)
+            entry += f'avatar = "avatars/{id}.png"\n'
+        self._entries.append(entry)
+        self.path.write_text("\n".join(self._entries), encoding="utf-8")
+        return self
+
+    def write(self, relative: str, content: str | bytes) -> None:
+        target = self.directory / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(content, encoding="utf-8")
+
 
 @pytest.fixture
-def settings(tmp_path: Path) -> Settings:
+def characters(tmp_path: Path) -> CharacterConfig:
+    """Mano (with an avatar) and Kogane (without one)."""
+    return (
+        CharacterConfig(tmp_path / "characters")
+        .add("mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR)
+        .add("kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像")
+    )
+
+
+@pytest.fixture
+def settings(tmp_path: Path, characters: CharacterConfig) -> Settings:
     return Settings(
         database_path=tmp_path / "eidolon.db",
+        characters_path=characters.path,
         chat_llm_base_url="http://llm.invalid/v1",
         chat_llm_api_key="test-key",
         chat_llm_model="test-model",
