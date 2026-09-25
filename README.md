@@ -26,7 +26,7 @@ docker compose up --build
 
 ## 剧情库
 
-角色能回忆的原作剧情来自 [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) 的剧情 CSV。剧情数据不进仓库（ADR-0003）：把它克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好 `SILICONFLOW_API_KEY`，然后导入：
+角色能回忆的原作剧情来自 [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) 的剧情 CSV，缺少的部分可以用游戏原始剧本 JSON 补全。剧情数据不进仓库（ADR-0003）：把它克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好 `SILICONFLOW_API_KEY`，然后导入：
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
@@ -39,7 +39,18 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 - 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。
 - 剧情目录按「角色 → 卡或活动 → 话」分层，直接由剧情库生成，所以总是和最近一次导入一致；导入结束时会列出每位角色的目录规模。
 
-本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`。
+SCTranslationData 里没有的剧情，可以用游戏原始剧本 JSON 补全（每个文件是游戏里一段剧本的帧数组，字段有 `speaker`、`text`、`select` 等）：
+
+```sh
+docker compose exec backend eidolon story import-json /corpus/scripts
+```
+
+- 剧本编号取自文件路径，可以按游戏里的路径存放（`produce_events/100100101.json`），也可以用汉化插件的命名（`produce_events_100100101.json`）。路径里没有剧本编号的文件以文件路径为主键，并给出警告。
+- 像 SCTranslationData 那样放在「出处/」目录下时，出处取目录名、标题取文件名；按游戏路径存放时，出处是去掉最后两位话数的剧本编号（如 `produce_events/2011005`），标题是 `produce_events_201100501` 这样的名字。
+- 规则和 CSV 相同：排除失败结局，制作人的选项不收录，角色对每个选项的反应都保留。
+- 同一段剧本已经从 CSV 导入过时，保留带中文翻译的 CSV 版本，JSON 不会覆盖它；反过来，之后导入的 CSV 会替换 JSON 版本。只从 JSON 导入的剧情没有中文翻译，但检索和剧情目录照常可用。
+
+本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`（`import-json` 同理）。
 
 ## 对话中的检索
 
