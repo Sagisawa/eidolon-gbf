@@ -12,7 +12,7 @@
 #   speakers  剧情台词里她的说话人名字，用来识别剧情的出场角色；修改后需要重新导入剧情库
 #
 # 人设文件、角色资料和头像不进仓库（ADR-0003）：参照 sheets/example.md 自己编写
-# sheets/mano.md 和 sheets/kogane.md，参照 facts/example.md 编写 facts/mano.md 和 facts/kogane.md，
+# sheets/mano.md 和 sheets/kogane.md（也可以先用 eidolon character draft-sheet 生成初稿再校对），参照 facts/example.md 编写 facts/mano.md 和 facts/kogane.md，
 # 头像放在 avatars/ 下。
 
 [[characters]]

@@ -18,6 +18,20 @@ docker compose up --build
 
 人设文件、角色资料和头像不进仓库（ADR-0003）。启动前参照 `characters/sheets/example.md` 写好 `characters/sheets/mano.md` 和 `characters/sheets/kogane.md`；角色资料（可选）参照 `characters/facts/example.md` 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
 
+人设也可以先让后台模型根据剧情库写一份初稿，再人工校对（需要先导入剧情库，后台模型的配置见下方「记忆」）：
+
+```sh
+uv run eidolon --db data/eidolon.db character draft-sheet mano   # 在 backend/ 下
+# docker compose 下 characters/ 是只读的，先写到数据卷再拷出来：
+docker compose exec backend eidolon character draft-sheet mano --output /data/drafts/mano.md
+docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
+```
+
+- 素材只有这位角色出场过的剧情（正式经历）。初稿依次包含身份、自称、对他人的称呼、口癖、组合成员、硬性规则几节，模型漏掉的小节会留下「待补充」。
+- 初稿第一行是草稿标记。标记在的时候人设照常可用（标记不会进入提示词），但后端启动时会提醒这份人设还没校对；校对完删掉这一行即可。
+- 已经校对过（没有草稿标记）的人设文件不会被覆盖，确实要重新生成时加 `--force`；还没校对的草稿会直接被新草稿替换。
+- 剧情素材超出一次请求的上限（`--budget`，默认 40000 字）时，先分批让后台模型做笔记，再根据笔记写初稿；素材多到超过 20 批时，先从全部剧情里均匀抽取。真乃约 220 段剧情、33 万字，大约需要请求后台模型十次。
+
 ## 语音通话
 
 在 `.env` 里填好 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 后，对话页的「语音通话」按钮就能用了：说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。通话中打字输入的内容和说的话进入同一条对话，角色同样用语音回复。「静音」开关打开后只显示文字、不合成语音。麦克风和通话音质在设置页选择。

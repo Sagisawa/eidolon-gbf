@@ -10,6 +10,9 @@
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
                                      SCTranslationData lacks
+    eidolon character draft-sheet <id>
+                                     have the background model draft a character's sheet
+                                     from the episodes she is cast in, for review
 """
 
 import argparse
@@ -20,6 +23,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from eidolon.config import characters_path_from_env, database_path_from_env
+from eidolon.sheet_draft import DEFAULT_BUDGET
 from eidolon.store import DuplicateName, NotFound, Store
 
 
@@ -30,6 +34,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _serve()
     if args.command == "story":
         return asyncio.run(_import_story(args))
+    if args.command == "character":
+        return asyncio.run(_draft_sheet(args))
 
     store = Store(args.db or database_path_from_env())
     try:
@@ -104,6 +110,63 @@ async def _import_story(args: argparse.Namespace) -> int:
     for name, catalog in catalogs.items():
         episodes = sum(len(source.episodes) for source in catalog)
         print(f"剧情目录 {name}：{len(catalog)} 张卡或活动，{episodes} 段剧情")
+    return 0
+
+
+async def _draft_sheet(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import background_llm_from_env
+    from eidolon.corpus import StoryCorpus
+    from eidolon.embedding import NoEmbedder
+    from eidolon.llm.openai_compat import LLMError, OpenAICompatLLM
+    from eidolon.sheet_draft import NoEpisodes, SheetReviewed, check_replaceable, draft_sheet
+
+    try:
+        characters = load_characters(
+            args.characters or characters_path_from_env(), require_sheets=False
+        )
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+    character = characters.get(args.character_id)
+    if character is None:
+        print(f"角色配置里没有 {args.character_id}（有 {'、'.join(characters)}）", file=sys.stderr)
+        return 1
+    target = args.output or character.sheet_path
+    assert target is not None, "characters come from a configuration file"
+    try:  # before anything is spent on it
+        path = check_replaceable(target, args.force)
+    except SheetReviewed as e:
+        print(f"{e}，不会覆盖；确实要重新生成请加 --force", file=sys.stderr)
+        return 1
+    try:
+        base_url, api_key, model = background_llm_from_env()
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    llm = OpenAICompatLLM(base_url, api_key, model)
+    corpus = StoryCorpus(args.db or database_path_from_env(), NoEmbedder())
+    try:
+        report = await draft_sheet(
+            character, corpus, llm, output=path, overwrite=args.force, budget=args.budget
+        )
+    except (NoEpisodes, LLMError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    finally:
+        corpus.close()
+        await llm.aclose()
+    sampled = (
+        f"（素材太多，均匀抽取了其中 {report.episodes_read} 段）"
+        if report.episodes_read < report.episodes
+        else ""
+    )
+    print(
+        f"已根据 {character.name} 出场的 {report.episodes} 段剧情{sampled}生成人设初稿，"
+        f"共请求后台模型 {report.requests} 次：{path}"
+    )
+    print("请人工校对，校对完成后删除文件第一行的草稿标记。")
     return 0
 
 
@@ -188,6 +251,32 @@ def _parser() -> argparse.ArgumentParser:
             type=Path,
             help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
         )
+
+    character = commands.add_parser("character", help="管理角色").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    draft = character.add_parser(
+        "draft-sheet", help="用后台模型根据角色出场的剧情生成人设初稿，写入人设文件"
+    )
+    draft.add_argument("character_id", help="角色标识，例如 mano")
+    draft.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
+    draft.add_argument(
+        "--output",
+        type=Path,
+        help="写到这个文件，而不是角色配置里的人设文件（例如在人设目录只读的容器里）",
+    )
+    draft.add_argument("--force", action="store_true", help="覆盖已经校对过的人设")
+    draft.add_argument(
+        "--budget",
+        type=int,
+        default=DEFAULT_BUDGET,
+        help=f"每次请求后台模型最多带多少字的剧情素材（默认 {DEFAULT_BUDGET}），"
+        "超出时分批总结",
+    )
     return parser
 
 

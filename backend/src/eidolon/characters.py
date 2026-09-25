@@ -9,6 +9,9 @@ themselves stay out of the repository (ADR-0003).
 
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
+
+A sheet drafted by `eidolon character draft-sheet` starts with `DRAFT_MARKER` until an
+administrator has reviewed it and removed the line; the marker never reaches the prompt.
 """
 
 import logging
@@ -22,6 +25,8 @@ log = logging.getLogger(__name__)
 _VALID_ID = re.compile(r"[a-z][a-z0-9_-]*")
 _REQUIRED = ("id", "name", "intro", "voice_id", "sheet")
 
+DRAFT_MARKER = "<!-- 人设草稿：由后台模型根据剧情生成，尚未校对。校对完成后删除这一行。 -->"
+
 
 class CharacterConfigError(RuntimeError):
     pass
@@ -34,15 +39,20 @@ class Character:
     intro: str
     voice_id: str
     sheet: str
+    """Empty when the sheet file does not exist yet (only when loaded without requiring it)."""
     avatar: Path | None
     speakers: tuple[str, ...] = ()
     """Names her lines are credited to in story scripts, e.g. 真乃."""
     facts: tuple[str, ...] = ()
     """Her character facts, one entry per section of her facts file."""
+    sheet_path: Path | None = None
 
 
-def load_characters(path: Path) -> dict[str, Character]:
-    """Read the character configuration at `path`, keyed by identifier in file order."""
+def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Character]:
+    """Read the character configuration at `path`, keyed by identifier in file order.
+
+    Without `require_sheets`, a character whose sheet file is missing is loaded with an
+    empty sheet, as when drafting it."""
     path = path.resolve()
     try:
         config = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -53,7 +63,7 @@ def load_characters(path: Path) -> dict[str, Character]:
 
     characters: dict[str, Character] = {}
     for entry in config.get("characters", []):
-        character = _parse_character(entry, path.parent)
+        character = _parse_character(entry, path.parent, require_sheets)
         if character.id in characters:
             raise CharacterConfigError(f"角色标识 {character.id} 重复")
         for other in characters.values():
@@ -67,7 +77,7 @@ def load_characters(path: Path) -> dict[str, Character]:
     return characters
 
 
-def _parse_character(entry: dict, base: Path) -> Character:
+def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
     label = entry.get("id", "（没有标识）")
     missing = [field for field in _REQUIRED if not isinstance(entry.get(field), str)]
     if missing:
@@ -79,9 +89,15 @@ def _parse_character(entry: dict, base: Path) -> Character:
     try:
         sheet = sheet_path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
-        raise CharacterConfigError(
-            f"角色 {label} 的人设文件 {sheet_path} 不存在（可参考 sheets/example.md）"
-        ) from None
+        if require_sheet:
+            raise CharacterConfigError(
+                f"角色 {label} 的人设文件 {sheet_path} 不存在"
+                "（可参考 sheets/example.md，或用 eidolon character draft-sheet 生成初稿）"
+            ) from None
+        sheet = ""
+    if is_draft(sheet):
+        log.warning("sheet %s of character %s is an unreviewed draft", sheet_path, label)
+        sheet = sheet.replace(DRAFT_MARKER, "", 1).strip()
 
     facts: tuple[str, ...] = ()
     if isinstance(entry.get("facts"), str):
@@ -109,7 +125,13 @@ def _parse_character(entry: dict, base: Path) -> Character:
         avatar=avatar,
         speakers=tuple(speakers),
         facts=facts,
+        sheet_path=sheet_path,
     )
+
+
+def is_draft(sheet: str) -> bool:
+    """Whether a sheet is a draft nobody has reviewed yet."""
+    return sheet.lstrip().startswith(DRAFT_MARKER)
 
 
 _HEADING = re.compile(r"(#{1,6})\s+(.+?)\s*#*\s*")

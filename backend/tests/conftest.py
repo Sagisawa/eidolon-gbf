@@ -105,6 +105,7 @@ class CharacterConfig:
         if speakers is not None:
             entry += f"speakers = {json.dumps(speakers, ensure_ascii=False)}\n"
         self._entries.append(entry)
+        self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")
         return self
 

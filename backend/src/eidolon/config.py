@@ -77,6 +77,18 @@ class Settings:
         )
 
 
+def background_llm_from_env() -> tuple[str, str, str]:
+    """The background model's base URL, API key and model name, for commands that need
+    only it; each falls back to the chat model's, as in `Settings.background_llm`."""
+    values = []
+    for name in ("BASE_URL", "API_KEY", "MODEL"):
+        value = os.environ.get(f"BACKGROUND_LLM_{name}") or os.environ.get(f"CHAT_LLM_{name}")
+        if not value:
+            raise RuntimeError(f"环境变量 BACKGROUND_LLM_{name}（或 CHAT_LLM_{name}）未设置")
+        values.append(value)
+    return values[0], values[1], values[2]
+
+
 def database_path_from_env() -> Path:
     return Path(os.environ.get("EIDOLON_DATABASE_PATH", "data/eidolon.db"))
 

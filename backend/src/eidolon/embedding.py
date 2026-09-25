@@ -24,6 +24,18 @@ class EmbeddingError(RuntimeError):
     pass
 
 
+class NoEmbedder:
+    """For reading the story corpus without searching it or adding to it."""
+
+    model = "none"
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        raise EmbeddingError("没有配置向量化服务")
+
+    async def embed_query(self, text: str) -> list[float]:
+        raise EmbeddingError("没有配置向量化服务")
+
+
 class SiliconFlowEmbedder:
     """OpenAI-compatible `/embeddings` endpoint. Qwen3-Embedding wants an instruction in
     front of queries and none in front of documents."""
