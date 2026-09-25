@@ -6,6 +6,7 @@ import { toFailure, type Failure } from "@/lib/failure";
 import { FailureNotice } from "@/components/FailureNotice";
 import { detectTimezone, listTimezones } from "@/lib/timezone";
 
+/** Same as the backend's MAX_FORM_OF_ADDRESS_LENGTH. */
 const MAX_FORM_OF_ADDRESS = 20;
 
 type Draft = { formOfAddress: string; gender: Gender | ""; timezone: string };
@@ -151,7 +152,7 @@ export function ProducerProfileSettings({ accessKey }: { accessKey: string | nul
           value={draft.timezone}
           onChange={(e) => update({ timezone: e.target.value })}
         >
-          <option value="">自动（{detected}）</option>
+          <option value="">自动（{detected || "当前设备的时区"}）</option>
           {timezoneOptions.map((zone) => (
             <option key={zone} value={zone}>
               {zone}

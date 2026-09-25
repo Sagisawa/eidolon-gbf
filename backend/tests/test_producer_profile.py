@@ -2,11 +2,13 @@
 key, and carried into every conversation's prompt along with the current date and time
 in the user's time zone."""
 
+import sqlite3
 from datetime import UTC, datetime
 
 import httpx
 import pytest
 
+from eidolon.config import Settings
 from tests.conftest import Admin, ClientFactory, IssuedKey
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -76,8 +78,17 @@ async def test_clearing_a_field_restores_its_default(make_client: ClientFactory)
         {"gender": "unknown"},
         {"timezone": "Mars/Olympus_Mons"},
         {"timezone": "../../etc/passwd"},
+        {"timezone": "America"},
+        {"timezone": "localtime"},
     ],
-    ids=["address-too-long", "unknown-gender", "unknown-timezone", "path-as-timezone"],
+    ids=[
+        "address-too-long",
+        "unknown-gender",
+        "unknown-timezone",
+        "path-as-timezone",
+        "region-as-timezone",
+        "server-local-time",
+    ],
 )
 async def test_invalid_profile_is_rejected(make_client: ClientFactory, profile: dict):
     client = make_client(FakeLLM())
@@ -117,7 +128,7 @@ async def test_without_a_form_of_address_the_character_sheet_decides(
     prompt = await system_prompt(client, llm)
 
     assert "你是櫻木真乃" in prompt
-    assert "称呼" not in prompt
+    assert "希望你称呼" not in prompt
 
 
 async def test_gender_enters_the_prompt_without_rewriting_the_story(
@@ -129,8 +140,8 @@ async def test_gender_enters_the_prompt_without_rewriting_the_story(
 
     prompt = await system_prompt(client, llm)
 
-    assert "女性" in prompt
-    assert "剧情" in prompt  # recalled stories stay as they happened
+    assert "制作人是女性" in prompt
+    assert "剧情中发生过的事保持原样" in prompt
 
 
 async def test_without_a_gender_the_original_producer_stands(make_client: ClientFactory):
@@ -139,6 +150,7 @@ async def test_without_a_gender_the_original_producer_stands(make_client: Client
 
     prompt = await system_prompt(client, llm)
 
+    assert "制作人是男性" in prompt
     assert "女性" not in prompt
 
 
@@ -170,7 +182,9 @@ async def test_a_timezone_set_in_the_profile_overrides_the_device(make_client: C
     assert "America/Los_Angeles" in prompt
 
 
-@pytest.mark.parametrize("header", [None, "Not/A_Zone"], ids=["missing", "unknown"])
+@pytest.mark.parametrize(
+    "header", [None, "Not/A_Zone", "America"], ids=["missing", "unknown", "region"]
+)
 async def test_without_a_usable_timezone_the_time_is_given_in_shanghai(
     make_client: ClientFactory, header: str | None
 ):
@@ -183,3 +197,18 @@ async def test_without_a_usable_timezone_the_time_is_given_in_shanghai(
 
     assert "20:30" in prompt
     assert "Asia/Shanghai" in prompt
+
+
+async def test_a_saved_timezone_no_longer_known_falls_back_instead_of_failing(
+    make_client: ClientFactory, settings: Settings
+):
+    llm = FakeLLM(REPLY)
+    client = make_client(llm, clock=clock)
+    client.headers["X-Timezone"] = "Asia/Tokyo"
+    await client.put("/api/profile", json={"timezone": "Asia/Tokyo"})
+    with sqlite3.connect(settings.database_path) as db:  # as if tzdata dropped the zone
+        db.execute("UPDATE producer_profiles SET timezone = 'Gone/Away'")
+
+    prompt = await system_prompt(client, llm)
+
+    assert "21:30" in prompt and "Asia/Tokyo" in prompt

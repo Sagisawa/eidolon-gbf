@@ -81,10 +81,10 @@ class ConversationEngine:
     ) -> list[ChatMessage]:
         character = self._characters[conversation.character_id]
         profile = self._store.get_profile(conversation.user_id)
-        producer = producer_prompt(
+        about_producer = producer_prompt(
             profile, self._clock(), effective_timezone(profile, device_timezone)
         )
-        system = f"{character.sheet}\n\n{producer}\n\n{FORMAT_INSTRUCTIONS}"
+        system = f"{character.sheet}\n\n{about_producer}\n\n{FORMAT_INSTRUCTIONS}"
         prompt = [ChatMessage("system", system)]
         for message in history:
             if message.role == "user":

@@ -2,6 +2,7 @@
 // character's "today" and "tonight" match the user's; a time zone set in the
 // producer profile takes precedence on the backend.
 
+/** Same as the backend's DEFAULT_TIMEZONE. */
 export const FALLBACK_TIMEZONE = "Asia/Shanghai";
 
 export function detectTimezone(): string {

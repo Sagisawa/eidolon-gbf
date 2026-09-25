@@ -60,11 +60,17 @@ export class ApiError extends Error {
 export async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    // A validation failure's detail is a list of problems, not a sentence to show.
-    const detail = typeof body?.detail === "string" ? body.detail : `请求失败（${res.status}）`;
-    throw new ApiError(detail, res.status);
+    throw new ApiError(describe(body?.detail) ?? `请求失败（${res.status}）`, res.status);
   }
   return res.json();
+}
+
+/** The backend's reason for a failure. A rejected request body lists its problems;
+ * the first one's message says what to fix. */
+function describe(detail: unknown): string | undefined {
+  if (typeof detail === "string") return detail;
+  const first = Array.isArray(detail) ? detail[0]?.msg : undefined;
+  return typeof first === "string" ? first.replace(/^Value error, /, "") : undefined;
 }
 
 /** The headers every backend request carries: the access key saved on the settings
