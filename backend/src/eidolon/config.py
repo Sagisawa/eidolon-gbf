@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Required, TypedDict
 
+from eidolon.embedding import DEFAULT_BASE_URL as DEFAULT_SILICONFLOW_BASE_URL
+from eidolon.embedding import DEFAULT_MODEL as DEFAULT_EMBEDDING_MODEL
+
 
 class IceServer(TypedDict, total=False):
     """One entry of WebRTC's `iceServers`; TURN servers also need a username and credential."""
@@ -37,9 +40,7 @@ class Settings:
     def from_env(cls) -> "Settings":
         return cls(
             database_path=database_path_from_env(),
-            characters_path=Path(
-                os.environ.get("EIDOLON_CHARACTERS_PATH", "../characters/characters.toml")
-            ),
+            characters_path=characters_path_from_env(),
             chat_llm_base_url=_required("CHAT_LLM_BASE_URL"),
             chat_llm_api_key=_required("CHAT_LLM_API_KEY"),
             chat_llm_model=_required("CHAT_LLM_MODEL"),
@@ -52,6 +53,27 @@ class Settings:
 
 def database_path_from_env() -> Path:
     return Path(os.environ.get("EIDOLON_DATABASE_PATH", "data/eidolon.db"))
+
+
+def characters_path_from_env() -> Path:
+    return Path(os.environ.get("EIDOLON_CHARACTERS_PATH", "../characters/characters.toml"))
+
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    """SiliconFlow's Qwen3-Embedding, which builds and searches the vector index."""
+
+    api_key: str
+    model: str = DEFAULT_EMBEDDING_MODEL
+    base_url: str = DEFAULT_SILICONFLOW_BASE_URL
+
+    @classmethod
+    def from_env(cls) -> "EmbeddingSettings":
+        return cls(
+            api_key=_required("SILICONFLOW_API_KEY"),
+            model=os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL,
+            base_url=os.environ.get("SILICONFLOW_BASE_URL") or DEFAULT_SILICONFLOW_BASE_URL,
+        )
 
 
 def _required(name: str) -> str:

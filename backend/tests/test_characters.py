@@ -119,6 +119,7 @@ def test_repository_configures_mano_and_kogane_with_their_voices(tmp_path: Path)
     }
     assert loaded["mano"].name == "櫻木真乃"
     assert loaded["kogane"].name == "月岡恋鐘"
+    assert {id: c.speakers for id, c in loaded.items()} == {"mano": ("真乃",), "kogane": ("恋鐘",)}
 
 
 def test_missing_character_sheet_is_reported_with_its_path(tmp_path: Path):
@@ -149,6 +150,16 @@ def test_character_id_must_be_safe_to_put_in_a_url(tmp_path: Path):
                  'intro = ""\nvoice_id = "v"\nsheet = "s.md"\n')
 
     with pytest.raises(CharacterConfigError, match="Mano San"):
+        load_characters(config.path)
+
+
+def test_speakers_must_be_a_list_of_names(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    config.path.write_text(
+        config.path.read_text(encoding="utf-8") + 'speakers = "真乃"\n', encoding="utf-8"
+    )
+
+    with pytest.raises(CharacterConfigError, match="speakers"):
         load_characters(config.path)
 
 

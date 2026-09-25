@@ -6,15 +6,17 @@
     eidolon key issue <user>         issue an access key; the key is shown only once
     eidolon key list <user>
     eidolon key revoke <key-id>
+    eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
 """
 
 import argparse
+import asyncio
 import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from eidolon.config import database_path_from_env
+from eidolon.config import characters_path_from_env, database_path_from_env
 from eidolon.store import DuplicateName, NotFound, Store
 
 
@@ -23,6 +25,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command in (None, "serve"):
         return _serve()
+    if args.command == "story":
+        return asyncio.run(_import_story_csv(args))
 
     store = Store(args.db or database_path_from_env())
     try:
@@ -50,6 +54,41 @@ def _serve() -> int:
         app,
         host=os.environ.get("HOST", "0.0.0.0"),
         port=int(os.environ.get("PORT", "8000")),
+    )
+    return 0
+
+
+async def _import_story_csv(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import EmbeddingSettings
+    from eidolon.corpus import StoryCorpus
+    from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
+    from eidolon.story_import import import_csv_directory
+
+    if not args.directory.is_dir():
+        print(f"找不到剧情目录 {args.directory}", file=sys.stderr)
+        return 1
+    try:
+        characters = load_characters(args.characters or characters_path_from_env())
+        settings = EmbeddingSettings.from_env()
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+    embedder = SiliconFlowEmbedder(settings.api_key, settings.model, settings.base_url)
+    corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
+    try:
+        report = await import_csv_directory(args.directory, corpus, characters.values())
+    except EmbeddingError as e:
+        print(f"导入中断（已导入的剧情会保留，重新运行即可继续）：{e}", file=sys.stderr)
+        return 1
+    finally:
+        corpus.close()
+        await embedder.aclose()
+    for warning in report.warnings:
+        print(f"注意：{warning}", file=sys.stderr)
+    print(
+        f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
+        f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 个片段"
     )
     return 0
 
@@ -112,6 +151,19 @@ def _parser() -> argparse.ArgumentParser:
     revoke = key.add_parser("revoke", help="吊销访问密钥")
     revoke.add_argument("key_id")
     revoke.set_defaults(run=_revoke_key)
+
+    story = commands.add_parser("story", help="管理剧情库").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    import_csv = story.add_parser(
+        "import-csv", help="导入 SCTranslationData 格式的剧情 CSV 目录（可重复执行）"
+    )
+    import_csv.add_argument("directory", type=Path, help="剧情 CSV 所在目录，例如 data/story")
+    import_csv.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
     return parser
 
 

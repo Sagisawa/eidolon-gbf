@@ -1,3 +1,4 @@
+import json
 import re
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -80,6 +81,7 @@ class CharacterConfig:
         intro: str = "",
         voice_id: str = "voice",
         avatar: bytes | None = None,
+        speakers: list[str] | None = None,
     ) -> "CharacterConfig":
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
@@ -88,6 +90,8 @@ class CharacterConfig:
         if avatar is not None:
             self.write(f"avatars/{id}.png", avatar)
             entry += f'avatar = "avatars/{id}.png"\n'
+        if speakers is not None:
+            entry += f"speakers = {json.dumps(speakers, ensure_ascii=False)}\n"
         self._entries.append(entry)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")
         return self
@@ -106,8 +110,11 @@ def characters(tmp_path: Path) -> CharacterConfig:
     """Mano (with an avatar) and Kogane (without one)."""
     return (
         CharacterConfig(tmp_path / "characters")
-        .add("mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR)
-        .add("kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像")
+        .add(
+            "mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR,
+            speakers=["真乃"],
+        )
+        .add("kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", speakers=["恋鐘"])
     )
 
 

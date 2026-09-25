@@ -21,3 +21,6 @@ skills-lock.json
 characters/sheets/*
 !characters/sheets/example.md
 characters/avatars/
+
+# 剧情库的原始数据和整理后的数据库都不进仓库（ADR-0003）
+/corpus/

@@ -5,6 +5,7 @@ services:
     volumes:
       - eidolon-data:/data
       - ./characters:/characters:ro
+      - ./corpus:/corpus:ro
     restart: unless-stopped
 
   frontend:

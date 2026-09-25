@@ -49,3 +49,24 @@ class FakeCalls:
     async def hang_up_all(self) -> None:
         for connection in self._connections:
             await connection.disconnect()
+
+
+class FakeEmbedder:
+    """Embeds text as counts of a few keywords, so the nearest passages are the ones
+    sharing the query's keywords. Records every text it embeds."""
+
+    KEYWORDS = ("鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け")
+
+    def __init__(self, model: str = "fake-embedding") -> None:
+        self.model = model
+        self.documents: list[str] = []
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        self.documents.extend(texts)
+        return [self._vector(t) for t in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        return self._vector(text)
+
+    def _vector(self, text: str) -> list[float]:
+        return [0.01] + [float(text.count(k)) for k in self.KEYWORDS]

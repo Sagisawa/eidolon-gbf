@@ -2,7 +2,8 @@
 
 The configuration is a TOML file listing each character's identifier, display
 name, introduction, voice and the location of her character sheet (and,
-optionally, avatar), relative to the file. Adding a character or replacing a
+optionally, avatar), relative to the file, plus the speaker names her lines carry
+in the story corpus. Adding a character or replacing a
 voice is a configuration change. The sheets and avatars themselves stay out of
 the repository (ADR-0003).
 """
@@ -31,6 +32,8 @@ class Character:
     voice_id: str
     sheet: str
     avatar: Path | None
+    speakers: tuple[str, ...] = ()
+    """Names her lines are credited to in story scripts, e.g. 真乃."""
 
 
 def load_characters(path: Path) -> dict[str, Character]:
@@ -70,6 +73,10 @@ def _parse_character(entry: dict, base: Path) -> Character:
             f"角色 {label} 的人设文件 {sheet_path} 不存在（可参考 sheets/example.md）"
         ) from None
 
+    speakers = entry.get("speakers", [])
+    if not isinstance(speakers, list) or not all(isinstance(s, str) and s for s in speakers):
+        raise CharacterConfigError(f"角色 {label} 的 speakers 应为说话人名字的列表")
+
     avatar = base / entry["avatar"] if isinstance(entry.get("avatar"), str) else None
     if avatar is not None and not avatar.is_file():
         log.warning("avatar %s of character %s is missing; showing none", avatar, label)
@@ -82,4 +89,5 @@ def _parse_character(entry: dict, base: Path) -> Character:
         voice_id=entry["voice_id"],
         sheet=sheet,
         avatar=avatar,
+        speakers=tuple(speakers),
     )
