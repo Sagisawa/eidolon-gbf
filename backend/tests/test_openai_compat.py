@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from eidolon.llm import ChatMessage, Tool, ToolCall
-from eidolon.llm.openai_compat import LLMError, OpenAICompatLLM
+from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm.openai_compat import OpenAICompatLLM
 
 RECORDED_STREAM = (
     'data: {"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,'

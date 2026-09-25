@@ -9,8 +9,6 @@ import httpx
 from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
-__all__ = ["LLMError", "OpenAICompatLLM"]
-
 
 class OpenAICompatLLM:
     def __init__(

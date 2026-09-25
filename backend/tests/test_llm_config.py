@@ -12,11 +12,9 @@ import pytest
 
 from eidolon.__main__ import main
 from eidolon.config import LLMProtocol, LLMSettings, Settings
-from eidolon.llm import LLMError
-from eidolon.llm.anthropic import AnthropicLLM
+from eidolon.llm import ChatMessage, LLMError
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.providers import check_chat_llm, open_llm
-from eidolon.llm.responses import ResponsesLLM
 from tests.conftest import CharacterConfig
 
 SLOTS = ("CHAT", "BACKGROUND")
@@ -40,7 +38,22 @@ def set_chat_model(monkeypatch: pytest.MonkeyPatch, base_url: str, **extra: str)
         monkeypatch.setenv(name, value)
 
 
-def test_each_model_slot_chooses_its_own_protocol(monkeypatch: pytest.MonkeyPatch):
+async def requested_path(settings: LLMSettings) -> str:
+    """The path the provider built from `settings` sends a turn to."""
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(200, text="data: {}\n\n")
+
+    llm = open_llm(settings, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    async for _ in llm.stream([ChatMessage("user", "你好")]):
+        pass
+    await llm.aclose()
+    return paths[0]
+
+
+async def test_each_model_slot_chooses_its_own_protocol(monkeypatch: pytest.MonkeyPatch):
     set_chat_model(
         monkeypatch,
         "https://chat.example/v1",
@@ -59,23 +72,26 @@ def test_each_model_slot_chooses_its_own_protocol(monkeypatch: pytest.MonkeyPatc
     assert background == LLMSettings(
         "https://background.example/v1", "chat-key", "chat-model", protocol="responses"
     )
-    assert isinstance(open_llm(settings.chat_llm), AnthropicLLM)
-    assert isinstance(open_llm(background), ResponsesLLM)
+    assert await requested_path(settings.chat_llm) == "/v1/messages"
+    assert await requested_path(background) == "/v1/responses"
 
 
-def test_the_protocol_defaults_to_chat_completions_and_the_background_follows_the_chat(
+async def test_the_protocol_defaults_to_chat_completions_and_the_background_follows_the_chat(
     monkeypatch: pytest.MonkeyPatch,
 ):
     set_chat_model(monkeypatch, "https://chat.example/v1")
 
     settings = Settings.from_env()
-    assert isinstance(open_llm(settings.chat_llm), OpenAICompatLLM)
+    assert await requested_path(settings.chat_llm) == "/v1/chat/completions"
 
+    # The background model follows the chat model's protocol, but not its reply cap: a cap
+    # that suits the chat could cut a drafted sheet short.
     monkeypatch.setenv("CHAT_LLM_PROTOCOL", "responses")
     monkeypatch.setenv("CHAT_LLM_MAX_TOKENS", "2048")
     settings = Settings.from_env()
+    assert settings.chat_llm.max_tokens == 2048
     assert settings.background_llm == LLMSettings(
-        "https://chat.example/v1", "chat-key", "chat-model", "responses", 2048
+        "https://chat.example/v1", "chat-key", "chat-model", "responses"
     )
 
 
@@ -85,6 +101,7 @@ def test_the_protocol_defaults_to_chat_completions_and_the_background_follows_th
         ("CHAT_LLM_PROTOCOL", "openai", "CHAT_LLM_PROTOCOL.*chat-completions"),
         ("BACKGROUND_LLM_PROTOCOL", "claude", "BACKGROUND_LLM_PROTOCOL.*anthropic"),
         ("CHAT_LLM_MAX_TOKENS", "lots", "CHAT_LLM_MAX_TOKENS.*正整数"),
+        ("BACKGROUND_LLM_MAX_TOKENS", "²", "BACKGROUND_LLM_MAX_TOKENS.*正整数"),
     ],
 )
 def test_a_misconfigured_model_is_reported(
@@ -244,3 +261,17 @@ async def test_the_check_reports_what_failed_when_both_requests_fail():
 
     with pytest.raises(LLMError, match="流式输出和工具调用"):
         await check_chat_llm(llm)
+
+
+async def test_a_passing_failure_is_not_blamed_on_tool_calls():
+    replies = iter([
+        httpx.Response(429, json={"error": "rate limited"}),
+        httpx.Response(200, text=STREAMED),
+        httpx.Response(200, text=STREAMED),
+    ])
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: next(replies))),
+    )
+
+    await check_chat_llm(llm)

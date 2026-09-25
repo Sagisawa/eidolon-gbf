@@ -98,7 +98,7 @@ def _items(message: ChatMessage) -> list[dict[str, Any]]:
             }
         ]
     items: list[dict[str, Any]] = []
-    if message.content or not message.tool_calls:
+    if message.content:
         items.append({"role": message.role, "content": message.content})
     items.extend(
         {

@@ -70,8 +70,11 @@ class LLMSettings:
             raise RuntimeError(
                 f"环境变量 {slot}_LLM_PROTOCOL 只能是 {'、'.join(LLM_PROTOCOLS)}，而不是 {protocol}"
             )
-        max_tokens = value("MAX_TOKENS")
-        if max_tokens is not None and not (max_tokens.isdigit() and int(max_tokens) > 0):
+        # Each slot's own: a cap that suits the chat could cut a drafted sheet short.
+        max_tokens = os.environ.get(f"{slot}_LLM_MAX_TOKENS") or None
+        if max_tokens is not None and not (
+            max_tokens.isascii() and max_tokens.isdigit() and int(max_tokens) > 0
+        ):
             raise RuntimeError(f"环境变量 {slot}_LLM_MAX_TOKENS 需要是正整数，而不是 {max_tokens}")
         return cls(
             base_url=required("BASE_URL"),

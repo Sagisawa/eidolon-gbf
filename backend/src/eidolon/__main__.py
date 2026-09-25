@@ -55,8 +55,8 @@ def _serve() -> int:
 
     try:  # missing settings, an unfit chat model and a broken character configuration
         settings = Settings.from_env()
-        asyncio.run(_check_chat_llm(settings))
         app = create_app(settings)
+        asyncio.run(_check_chat_llm(settings))
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1

@@ -3,13 +3,13 @@ what conversations need of it."""
 
 import httpx
 
-from eidolon.config import LLMSettings
+from eidolon.config import LLMProtocol, LLMSettings
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
 
-_PROVIDERS = {
+_PROVIDERS: dict[LLMProtocol, type[OpenAICompatLLM | ResponsesLLM | AnthropicLLM]] = {
     "chat-completions": OpenAICompatLLM,
     "responses": ResponsesLLM,
     "anthropic": AnthropicLLM,
@@ -39,16 +39,25 @@ async def check_chat_llm(llm: ChatLLM) -> None:
     """Raise an `LLMError` saying what is missing unless the model streams its reply to a
     request that offers it a tool. Whether it calls the tool is up to the model."""
     try:
-        async for _ in llm.stream(_PROBE, [_PROBE_TOOL]):
-            pass
-    except LLMError as with_tool:
-        try:  # the same request without the tool tells the two failures apart
-            async for _ in llm.stream(_PROBE):
-                pass
-        except LLMError:
-            raise LLMError(
-                f"对话模型需要支持流式输出和工具调用，但检查请求失败：{with_tool}"
-            ) from None
+        await _probe(llm, [_PROBE_TOOL])
+        return
+    except LLMError as e:
+        with_tool = e
+    try:  # the same request without the tool tells the two failures apart
+        await _probe(llm, [])
+    except LLMError:
         raise LLMError(
-            f"对话模型不支持工具调用（不提供工具时可以正常回复），无法使用「回顾剧情」：{with_tool}"
+            f"对话模型需要支持流式输出和工具调用，但检查请求失败：{with_tool}"
         ) from None
+    try:  # the first failure may have been passing, say a timeout or a rate limit
+        await _probe(llm, [_PROBE_TOOL])
+        return
+    except LLMError as e:
+        raise LLMError(
+            f"对话模型不支持工具调用（不提供工具时可以正常回复），无法使用「回顾剧情」：{e}"
+        ) from None
+
+
+async def _probe(llm: ChatLLM, tools: list[Tool]) -> None:
+    async for _ in llm.stream(_PROBE, tools):
+        pass

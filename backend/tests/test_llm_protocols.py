@@ -220,6 +220,8 @@ async def test_anthropic_system_messages_are_joined_and_an_empty_assistant_text_
             ChatMessage("system", "甲"),
             ChatMessage("system", "乙"),
             ChatMessage("user", "你好"),
+            ChatMessage("assistant", ""),
+            ChatMessage("user", "在吗"),
             ChatMessage("assistant", "", tool_calls=(ToolCall("c", "recall_story", {}),)),
             ChatMessage("tool", "结果", tool_call_id="c"),
         ],
@@ -228,8 +230,13 @@ async def test_anthropic_system_messages_are_joined_and_an_empty_assistant_text_
 
     body = json.loads(requests[0].content)
     assert body["system"] == "甲\n\n乙"
-    assert body["messages"][1]["content"] == [
-        {"type": "tool_use", "id": "c", "name": "recall_story", "input": {}}
+    assert body["messages"][:3] == [
+        {"role": "user", "content": "你好"},
+        {"role": "user", "content": "在吗"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "c", "name": "recall_story", "input": {}}],
+        },
     ]
 
 

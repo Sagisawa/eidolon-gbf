@@ -117,6 +117,6 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 for c in message.tool_calls
             )
             turns.append({"role": "assistant", "content": content})
-        else:
+        elif message.content:  # the Messages API rejects empty text
             turns.append({"role": message.role, "content": message.content})
     return turns
