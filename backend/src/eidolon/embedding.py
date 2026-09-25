@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from typing import Protocol
 
 import httpx
+import numpy as np
 
 _REQUEST_BATCH = 16
 """Texts sent in one request."""
@@ -65,3 +66,23 @@ class SiliconFlowEmbedder:
         if len(data) != len(texts):
             raise EmbeddingError(f"向量化服务返回了 {len(data)} 个向量，应为 {len(texts)} 个")
         return [d["embedding"] for d in data]
+
+
+def nearest(
+    vectors: Sequence[bytes], query: Sequence[float], limit: int
+) -> list[tuple[int, float]]:
+    """Indexes of the stored `vectors` most similar to `query` by cosine similarity, best
+    first, with their scores."""
+    if not vectors:
+        return []
+    query_vector = np.asarray(query, dtype=np.float32)
+    matrix = np.stack([np.frombuffer(v, dtype=np.float32) for v in vectors])
+    scores = matrix @ query_vector / (
+        np.linalg.norm(matrix, axis=1) * np.linalg.norm(query_vector) + 1e-12
+    )
+    return [(int(i), float(scores[i])) for i in np.argsort(-scores)[:limit]]
+
+
+def to_blob(vector: Sequence[float]) -> bytes:
+    """A vector as stored in SQLite."""
+    return np.asarray(vector, dtype=np.float32).tobytes()

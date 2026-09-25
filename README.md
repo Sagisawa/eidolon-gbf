@@ -16,7 +16,7 @@ docker compose up --build
 
 角色由 `characters/characters.toml` 配置：标识、显示名、简介、Fish Audio 音色 ID、人设文件和头像的位置。新增角色或替换音色 ID 只需要改这个文件，然后重启后端。
 
-人设文件和头像不进仓库（ADR-0003）。启动前参照 `characters/sheets/example.md` 写好 `characters/sheets/mano.md` 和 `characters/sheets/kogane.md`；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
+人设文件、角色资料和头像不进仓库（ADR-0003）。启动前参照 `characters/sheets/example.md` 写好 `characters/sheets/mano.md` 和 `characters/sheets/kogane.md`；角色资料（可选）参照 `characters/facts/example.md` 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
 
 ## 语音通话
 
@@ -39,6 +39,14 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 - 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。
 
 本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`。
+
+## 对话中的检索
+
+在 `.env` 里填好 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+
+- 每一句话先交给 Jev（通过 Vercel AI Gateway 调用）判断要不要检索；寒暄闲聊不检索，不增加延迟。Jev 出错时照常检索。
+- 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（`RERANK_MODEL` 可换）重排，最多 5 条放进提示词。检索或重排出错时，本回合不带检索结果照常回复。
+- 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
 
 ## 用户与访问密钥
 

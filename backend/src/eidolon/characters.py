@@ -2,10 +2,13 @@
 
 The configuration is a TOML file listing each character's identifier, display
 name, introduction, voice and the location of her character sheet (and,
-optionally, avatar), relative to the file, plus the speaker names her lines carry
-in the story corpus. Adding a character or replacing a
-voice is a configuration change. The sheets and avatars themselves stay out of
-the repository (ADR-0003).
+optionally, her character facts and avatar), relative to the file, plus the
+speaker names her lines carry in the story corpus. Adding a character or
+replacing a voice is a configuration change. The sheets, facts and avatars
+themselves stay out of the repository (ADR-0003).
+
+Character facts are a Markdown file; each section under a heading is one fact,
+retrieved on its own when a turn calls for it.
 """
 
 import logging
@@ -34,6 +37,8 @@ class Character:
     avatar: Path | None
     speakers: tuple[str, ...] = ()
     """Names her lines are credited to in story scripts, e.g. 真乃."""
+    facts: tuple[str, ...] = ()
+    """Her character facts, one entry per section of her facts file."""
 
 
 def load_characters(path: Path) -> dict[str, Character]:
@@ -78,6 +83,14 @@ def _parse_character(entry: dict, base: Path) -> Character:
             f"角色 {label} 的人设文件 {sheet_path} 不存在（可参考 sheets/example.md）"
         ) from None
 
+    facts: tuple[str, ...] = ()
+    if isinstance(entry.get("facts"), str):
+        facts_path = base / entry["facts"]
+        try:
+            facts = parse_facts(facts_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            log.warning("facts %s of character %s are missing; retrieving none", facts_path, label)
+
     speakers = entry.get("speakers", [])
     if not isinstance(speakers, list) or not all(isinstance(s, str) and s for s in speakers):
         raise CharacterConfigError(f"角色 {label} 的 speakers 应为说话人名字的列表")
@@ -95,4 +108,33 @@ def _parse_character(entry: dict, base: Path) -> Character:
         sheet=sheet,
         avatar=avatar,
         speakers=tuple(speakers),
+        facts=facts,
     )
+
+
+_HEADING = re.compile(r"(#{1,6})\s+(.+?)\s*#*\s*")
+
+
+def parse_facts(markdown: str) -> tuple[str, ...]:
+    """Split a facts file into entries: the text under each heading, titled with the
+    headings above it (e.g. `人物关系 / 風野灯織`). Headings with nothing under them
+    make no entry."""
+    facts: list[str] = []
+    titles: list[str] = []
+    body: list[str] = []
+
+    def flush() -> None:
+        text = "\n".join(body).strip()
+        if text:
+            facts.append(f"{' / '.join(titles)}\n{text}" if titles else text)
+        body.clear()
+
+    for line in markdown.splitlines():
+        if heading := _HEADING.fullmatch(line):
+            flush()
+            del titles[len(heading.group(1)) - 1 :]
+            titles.append(heading.group(2))
+        else:
+            body.append(line)
+    flush()
+    return tuple(facts)

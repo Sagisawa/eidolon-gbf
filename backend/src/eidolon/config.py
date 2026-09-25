@@ -20,6 +20,9 @@ DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
 
 DEFAULT_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
+
+DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
@@ -35,6 +38,9 @@ class Settings:
     soniox_api_key: str | None = None
     fish_audio_api_key: str | None = None
     fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
+    siliconflow: "SiliconFlowSettings | None" = None
+    jev: "JevSettings | None" = None
+    """Retrieval needs both SiliconFlow and Jev; without either, turns go unretrieved."""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -48,6 +54,10 @@ class Settings:
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
+            siliconflow=(
+                SiliconFlowSettings.from_env() if os.environ.get("SILICONFLOW_API_KEY") else None
+            ),
+            jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
         )
 
 
@@ -60,19 +70,39 @@ def characters_path_from_env() -> Path:
 
 
 @dataclass(frozen=True)
-class EmbeddingSettings:
-    """SiliconFlow's Qwen3-Embedding, which builds and searches the vector index."""
+class SiliconFlowSettings:
+    """SiliconFlow's Qwen3-Embedding, which builds and searches the vector index, and
+    Qwen3-Reranker, which reranks what the search finds."""
 
     api_key: str
-    model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    rerank_model: str = DEFAULT_RERANK_MODEL
     base_url: str = DEFAULT_SILICONFLOW_BASE_URL
 
     @classmethod
-    def from_env(cls) -> "EmbeddingSettings":
+    def from_env(cls) -> "SiliconFlowSettings":
         return cls(
             api_key=_required("SILICONFLOW_API_KEY"),
-            model=os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL,
+            embedding_model=os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL,
+            rerank_model=os.environ.get("RERANK_MODEL") or DEFAULT_RERANK_MODEL,
             base_url=os.environ.get("SILICONFLOW_BASE_URL") or DEFAULT_SILICONFLOW_BASE_URL,
+        )
+
+
+@dataclass(frozen=True)
+class JevSettings:
+    """Jev, reached through Vercel AI Gateway, decides whether a turn needs retrieval."""
+
+    api_key: str
+    model: str
+    base_url: str = DEFAULT_AI_GATEWAY_BASE_URL
+
+    @classmethod
+    def from_env(cls) -> "JevSettings":
+        return cls(
+            api_key=_required("AI_GATEWAY_API_KEY"),
+            model=_required("JEV_MODEL"),
+            base_url=os.environ.get("AI_GATEWAY_BASE_URL") or DEFAULT_AI_GATEWAY_BASE_URL,
         )
 
 

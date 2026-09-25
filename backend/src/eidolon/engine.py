@@ -1,7 +1,7 @@
 """The conversation engine: one conversation turn in, the character's reply out.
 
 It knows nothing about voice. Given a conversation and the user's input text it
-assembles the prompt, streams the chat model's structured reply as per-segment
+retrieves what the turn calls for, assembles the prompt, streams the chat model's structured reply as per-segment
 deltas, and records both sides of the turn once the reply is complete. A turn
 that fails part-way leaves no record.
 """
@@ -14,6 +14,7 @@ from eidolon.characters import Character
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
+from eidolon.retrieval import Reference, Retrieval, references_prompt
 from eidolon.store import Conversation, Message, Store
 
 MAX_INPUT_LENGTH = 2000
@@ -46,19 +47,26 @@ class ConversationEngine:
         chat_llm: ChatLLM,
         characters: dict[str, Character],
         clock: Clock | None = None,
+        retrieval: Retrieval | None = None,
     ) -> None:
+        """Without `retrieval`, turns carry no story or character facts."""
         self._store = store
         self._characters = characters
         self._llm = chat_llm
         self._clock = clock or _utc_now
+        self._retrieval = retrieval
 
     async def turn(
         self, conversation: Conversation, text: str, device_timezone: str | None = None
     ) -> AsyncIterator[TurnEvent]:
         """Take one turn. `device_timezone` is the time zone the user's device reports,
         used unless the producer profile sets one."""
+        character = self._characters[conversation.character_id]
         history = self._store.list_messages(conversation.id)
-        prompt = self._prompt(conversation, history, text, device_timezone)
+        references = (
+            await self._retrieval.references(character, history, text) if self._retrieval else []
+        )
+        prompt = self._prompt(conversation, character, history, references, text, device_timezone)
 
         parser = ReplyParser()
         async for chunk in self._llm.stream(prompt):
@@ -75,16 +83,20 @@ class ConversationEngine:
     def _prompt(
         self,
         conversation: Conversation,
+        character: Character,
         history: list[Message],
+        references: list[Reference],
         text: str,
         device_timezone: str | None,
     ) -> list[ChatMessage]:
-        character = self._characters[conversation.character_id]
         profile = self._store.get_profile(conversation.user_id)
         about_producer = producer_prompt(
             profile, self._clock(), effective_timezone(profile, device_timezone)
         )
-        system = f"{character.sheet}\n\n{about_producer}\n\n{FORMAT_INSTRUCTIONS}"
+        sections = [character.sheet, about_producer]
+        if references:
+            sections.append(references_prompt(references))
+        system = "\n\n".join([*sections, FORMAT_INSTRUCTIONS])
         prompt = [ChatMessage("system", system)]
         for message in history:
             if message.role == "user":

@@ -13,13 +13,12 @@ stays out of the repository (ADR-0003).
 
 import sqlite3
 import threading
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
-
-from eidolon.embedding import Embedder
+from eidolon.embedding import Embedder, nearest, to_blob
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS episodes (
@@ -104,7 +103,7 @@ class StoryCorpus:
         missing = sorted({t for texts in passages.values() for t in texts} - known.keys())
         if missing:
             vectors = await self._embedder.embed_documents(missing)
-            known.update(zip(missing, (_to_blob(v) for v in vectors), strict=True))
+            known.update(zip(missing, (to_blob(v) for v in vectors), strict=True))
 
         now = datetime.now(UTC).isoformat()
         with self._lock, self._db:
@@ -159,7 +158,12 @@ class StoryCorpus:
 
     async def search(self, query: str, character_id: str, limit: int = 5) -> list[Passage]:
         """The passages most similar to `query`, from episodes `character_id` appears in."""
-        query_vector = np.asarray(await self._embedder.embed_query(query), dtype=np.float32)
+        return self.search_by_vector(await self._embedder.embed_query(query), character_id, limit)
+
+    def search_by_vector(
+        self, query_vector: Sequence[float], character_id: str, limit: int = 5
+    ) -> list[Passage]:
+        """Like `search`, for a query already embedded with this corpus's embedder."""
         with self._lock:
             rows = self._db.execute(
                 "SELECT p.episode_id, p.text, p.embedding FROM episode_passages p"
@@ -167,22 +171,16 @@ class StoryCorpus:
                 " WHERE c.character_id = ? AND p.model = ?",
                 (character_id, self._embedder.model),
             ).fetchall()
-        if not rows:
-            return []
-        matrix = np.stack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rows])
-        scores = matrix @ query_vector / (
-            np.linalg.norm(matrix, axis=1) * np.linalg.norm(query_vector) + 1e-12
-        )
-        best = np.argsort(-scores)[:limit]
+        best = nearest([r["embedding"] for r in rows], query_vector, limit)
         episodes: dict[str, Episode] = {}
         passages = []
-        for i in best:
+        for i, score in best:
             episode_id = rows[i]["episode_id"]
             if episode_id not in episodes:
                 episode = self.get(episode_id)
                 assert episode is not None
                 episodes[episode_id] = episode
-            passages.append(Passage(episodes[episode_id], rows[i]["text"], float(scores[i])))
+            passages.append(Passage(episodes[episode_id], rows[i]["text"], score))
         return passages
 
     def close(self) -> None:
@@ -243,6 +241,3 @@ def _passages(episode: Episode) -> list[str]:
         passages.append(header + "\n".join(current))
     return passages
 
-
-def _to_blob(vector: list[float]) -> bytes:
-    return np.asarray(vector, dtype=np.float32).tobytes()

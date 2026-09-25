@@ -120,6 +120,20 @@ def test_repository_configures_mano_and_kogane_with_their_voices(tmp_path: Path)
     assert loaded["mano"].name == "櫻木真乃"
     assert loaded["kogane"].name == "月岡恋鐘"
     assert {id: c.speakers for id, c in loaded.items()} == {"mano": ("真乃",), "kogane": ("恋鐘",)}
+    assert all(c.facts == () for c in loaded.values())  # facts files are optional
+
+
+def test_character_facts_are_split_by_heading(characters: CharacterConfig):
+    characters.add(
+        "hiori", "風野灯織", "sheet",
+        facts="# 档案\n生日是2月27日。\n\n# 人物关系\n\n## 櫻木真乃\n同组合的伙伴。\n### 趣事\n一起去看鸟。\n",
+    )
+
+    assert load_characters(characters.path)["hiori"].facts == (
+        "档案\n生日是2月27日。",
+        "人物关系 / 櫻木真乃\n同组合的伙伴。",
+        "人物关系 / 櫻木真乃 / 趣事\n一起去看鸟。",
+    )
 
 
 def test_missing_character_sheet_is_reported_with_its_path(tmp_path: Path):

@@ -7,10 +7,13 @@
 #   voice_id  Fish Audio 音色 ID；公共音色下架后换成自己的私有音色即可
 #   sheet     人设文件，路径相对于本文件
 #   avatar    头像图片（可选），路径相对于本文件；文件不存在时不显示头像
+#   facts     角色资料（可选），路径相对于本文件；Markdown，每个标题下的内容是一条，对话中按需检索；
+#             文件不存在时不检索角色资料。修改后重启后端即可，不需要重新导入
 #   speakers  剧情台词里她的说话人名字，用来识别剧情的出场角色；修改后需要重新导入剧情库
 #
-# 人设文件和头像不进仓库（ADR-0003）：参照 sheets/example.md 自己编写
-# sheets/mano.md 和 sheets/kogane.md，头像放在 avatars/ 下。
+# 人设文件、角色资料和头像不进仓库（ADR-0003）：参照 sheets/example.md 自己编写
+# sheets/mano.md 和 sheets/kogane.md，参照 facts/example.md 编写 facts/mano.md 和 facts/kogane.md，
+# 头像放在 avatars/ 下。
 
 [[characters]]
 id = "mano"
@@ -19,6 +22,7 @@ intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟，常�
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
 avatar = "avatars/mano.png"
+facts = "facts/mano.md"
 speakers = ["真乃"]
 
 [[characters]]
@@ -28,4 +32,5 @@ intro = "L'Antica 的中心。来自长崎，开朗自信、说话带方言，�
 voice_id = "a11bfd046e924099a84f989fb4049e95"
 sheet = "sheets/kogane.md"
 avatar = "avatars/kogane.png"
+facts = "facts/kogane.md"
 speakers = ["恋鐘"]

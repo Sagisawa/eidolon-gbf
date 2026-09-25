@@ -21,10 +21,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from eidolon.call import Call, CallStarter, Quality, serve_calls
 from eidolon.characters import load_characters
 from eidolon.config import Settings
+from eidolon.corpus import StoryCorpus
+from eidolon.embedding import Embedder, SiliconFlowEmbedder
+from eidolon.facts import FactIndex
 from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
+from eidolon.rerank import Reranker, SiliconFlowReranker
+from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Conversation, KeyRevoked, Store
 
 log = logging.getLogger(__name__)
@@ -112,13 +117,40 @@ def create_app(
     chat_llm: ChatLLM | None = None,
     call_starter: CallStarter | None = None,
     clock: Clock | None = None,
+    jev: RetrievalJudge | None = None,
+    embedder: Embedder | None = None,
+    reranker: Reranker | None = None,
 ) -> FastAPI:
+    """Services left out are built from `settings`; retrieval is on only when Jev, the
+    embedder and the reranker are all available."""
     characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
     llm = chat_llm or OpenAICompatLLM(
         settings.chat_llm_base_url, settings.chat_llm_api_key, settings.chat_llm_model
     )
-    engine = ConversationEngine(store, llm, characters, clock)
+    clients: list[JevJudge | SiliconFlowEmbedder | SiliconFlowReranker] = []
+    if (sf := settings.siliconflow) is not None:
+        if embedder is None:
+            embedder = SiliconFlowEmbedder(sf.api_key, sf.embedding_model, sf.base_url)
+            clients.append(embedder)
+        if reranker is None:
+            reranker = SiliconFlowReranker(sf.api_key, sf.rerank_model, sf.base_url)
+            clients.append(reranker)
+    if jev is None and settings.jev is not None:
+        jev = JevJudge(settings.jev.api_key, settings.jev.model, settings.jev.base_url)
+        clients.append(jev)
+    retrieval = None
+    if jev is not None and embedder is not None and reranker is not None:
+        retrieval = Retrieval(
+            jev,
+            embedder,
+            StoryCorpus(settings.database_path, embedder),
+            FactIndex(settings.database_path, embedder),
+            reranker,
+        )
+    else:
+        log.info("retrieval is off: it needs SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY, JEV_MODEL")
+    engine = ConversationEngine(store, llm, characters, clock, retrieval)
     call_starter = call_starter or serve_calls(settings, engine)
     webrtc = SmallWebRTCRequestHandler(
         ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
@@ -130,6 +162,10 @@ def create_app(
         yield
         await webrtc.close()
         await llm.aclose()
+        for client in clients:
+            await client.aclose()
+        if retrieval is not None:
+            retrieval.close()
         store.close()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)

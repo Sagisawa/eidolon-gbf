@@ -11,7 +11,8 @@ from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.config import Settings
 from eidolon.engine import Clock
-from tests.fakes import FakeCalls, FakeLLM
+from tests.fakes import FakeCalls, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.stories import write_sample_stories
 
 
 @dataclass(frozen=True)
@@ -82,6 +83,7 @@ class CharacterConfig:
         voice_id: str = "voice",
         avatar: bytes | None = None,
         speakers: list[str] | None = None,
+        facts: str | None = None,
     ) -> "CharacterConfig":
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
@@ -90,6 +92,9 @@ class CharacterConfig:
         if avatar is not None:
             self.write(f"avatars/{id}.png", avatar)
             entry += f'avatar = "avatars/{id}.png"\n'
+        if facts is not None:
+            self.write(f"facts/{id}.md", facts)
+            entry += f'facts = "facts/{id}.md"\n'
         if speakers is not None:
             entry += f"speakers = {json.dumps(speakers, ensure_ascii=False)}\n"
         self._entries.append(entry)
@@ -116,6 +121,13 @@ def characters(tmp_path: Path) -> CharacterConfig:
         )
         .add("kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", speakers=["恋鐘"])
     )
+
+
+@pytest.fixture
+def story(tmp_path: Path) -> Path:
+    """A directory of sample story CSVs: Mano's W.I.N.G. episodes (won, and failure endings),
+    a card of Kogane's that Mano also speaks in, and an event with neither."""
+    return write_sample_stories(tmp_path / "story")
 
 
 @pytest.fixture
@@ -162,12 +174,18 @@ async def make_client(
         settings: Settings = settings,
         calls_configured: bool = True,
         clock: Clock | None = None,
+        jev: FakeJudge | None = None,
+        embedder: FakeEmbedder | None = None,
+        reranker: FakeReranker | None = None,
     ) -> httpx.AsyncClient:
         app = create_app(
             settings,
             chat_llm=llm,
             call_starter=calls if calls_configured else None,
             clock=clock,
+            jev=jev,
+            embedder=embedder,
+            reranker=reranker,
         )
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(

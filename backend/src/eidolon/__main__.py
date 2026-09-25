@@ -60,7 +60,7 @@ def _serve() -> int:
 
 async def _import_story_csv(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
-    from eidolon.config import EmbeddingSettings
+    from eidolon.config import SiliconFlowSettings
     from eidolon.corpus import StoryCorpus
     from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
     from eidolon.story_import import import_csv_directory
@@ -70,11 +70,11 @@ async def _import_story_csv(args: argparse.Namespace) -> int:
         return 1
     try:
         characters = load_characters(args.characters or characters_path_from_env())
-        settings = EmbeddingSettings.from_env()
+        settings = SiliconFlowSettings.from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
-    embedder = SiliconFlowEmbedder(settings.api_key, settings.model, settings.base_url)
+    embedder = SiliconFlowEmbedder(settings.api_key, settings.embedding_model, settings.base_url)
     try:
         corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
         try:
