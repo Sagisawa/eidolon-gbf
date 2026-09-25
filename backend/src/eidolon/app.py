@@ -144,20 +144,17 @@ def create_app(
         clients.append(jev)
     retrieval = memory = None
     if jev is not None and embedder is not None and reranker is not None:
+        memory_index = MemoryIndex(settings.database_path, store, embedder)
         retrieval = Retrieval(
             jev,
             embedder,
             StoryCorpus(settings.database_path, embedder),
             FactIndex(settings.database_path, embedder),
-            MemoryIndex(settings.database_path, store, embedder),
+            memory_index,
             reranker,
         )
-        background_llm = background_llm or OpenAICompatLLM(
-            settings.background_llm_base_url or settings.chat_llm_base_url,
-            settings.background_llm_api_key or settings.chat_llm_api_key,
-            settings.background_llm_model or settings.chat_llm_model,
-        )
-        memory = MemoryWriter(store, background_llm)
+        background_llm = background_llm or OpenAICompatLLM(*settings.background_llm())
+        memory = MemoryWriter(store, background_llm, memory_index)
     else:
         log.info(
             "retrieval and memory are off: they need SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY,"

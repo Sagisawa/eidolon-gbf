@@ -11,8 +11,9 @@ waits briefly for it, so what they just said is remembered by the time they go o
 new conversation picks up where earlier ones left off only through the memories it
 retrieves.
 
-Memories are searched like character facts: each is embedded the first time its user's
-memories are searched, and the vector is kept until the memory is gone.
+Each memory is embedded as it is written down, and the vector kept until the memory is
+gone; a memory whose embedding failed is embedded the next time its user's memories are
+searched.
 """
 
 import asyncio
@@ -26,7 +27,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
-from eidolon.embedding import Embedder, nearest, to_blob
+from eidolon.embedding import Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.store import Conversation, Memory, Message, Store
 
@@ -43,6 +44,7 @@ EXCHANGE_HISTORY = 4
 MAX_NEW_MEMORIES = 5
 """The most memories one turn writes down."""
 MAX_MEMORY_LENGTH = 200
+"""How much of a memory, in characters, is kept; longer ones are cut short."""
 
 
 _SCHEMA = """
@@ -78,12 +80,19 @@ class MemoryIndex:
         best = nearest([vectors[m.id] for m in memories], query_vector, limit)
         return [memories[i] for i, _ in best]
 
+    async def add(self, user_id: str, memories: Sequence[Memory]) -> None:
+        """Embed memories just written down, so searching does not have to."""
+        if memories:
+            await self._vectors(user_id, list(memories), forget=False)
+
     def close(self) -> None:
         self._db.close()
 
-    async def _vectors(self, user_id: str, memories: list[Memory]) -> dict[int, bytes]:
-        """The vector of each memory, embedding those not yet stored and forgetting those of
-        memories that are gone."""
+    async def _vectors(
+        self, user_id: str, memories: list[Memory], forget: bool = True
+    ) -> dict[int, bytes]:
+        """The vector of each memory, embedding those not yet stored and, if `memories` are
+        all the user's, forgetting those of memories that are gone."""
         model = self._embedder.model
         with self._lock:
             stored: dict[int, bytes] = dict(
@@ -94,7 +103,7 @@ class MemoryIndex:
                 ).fetchall()
             )
         missing = [m for m in memories if m.id not in stored]
-        stale = stored.keys() - {m.id for m in memories}
+        stale = stored.keys() - {m.id for m in memories} if forget else set()
         if missing:
             embedded = await self._embedder.embed_documents([m.text for m in missing])
             stored.update(zip((m.id for m in missing), map(to_blob, embedded), strict=True))
@@ -129,9 +138,10 @@ _INSTRUCTIONS = """\
 class MemoryWriter:
     """Has the background model write down what the user reveals in each turn."""
 
-    def __init__(self, store: Store, background_llm: ChatLLM) -> None:
+    def __init__(self, store: Store, background_llm: ChatLLM, index: MemoryIndex) -> None:
         self._store = store
         self._llm = background_llm
+        self._index = index
         self._pending: dict[str, set[asyncio.Task[None]]] = {}  # user id → writing
 
     def remember(
@@ -158,16 +168,19 @@ class MemoryWriter:
 
         task.add_done_callback(done)
 
-    async def settle(self, user_id: str, timeout: float = SETTLE_TIMEOUT) -> None:
+    async def settle(self, user_id: str) -> None:
         """Wait, a while at most, for what the user's earlier turns are writing down."""
         if pending := self._pending.get(user_id):
-            await asyncio.wait(set(pending), timeout=timeout)
+            await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
 
-    async def aclose(self, timeout: float = SETTLE_TIMEOUT) -> None:
-        """Let whatever is being written down finish, a while at most."""
+    async def aclose(self) -> None:
+        """Let whatever is being written down finish, a while at most, then give up on it."""
         tasks = {t for pending in self._pending.values() for t in pending}
         if tasks:
-            await asyncio.wait(tasks, timeout=timeout)
+            _, unfinished = await asyncio.wait(tasks, timeout=SETTLE_TIMEOUT)
+            for task in unfinished:
+                task.cancel()
+            await asyncio.gather(*unfinished, return_exceptions=True)
 
     async def _write(
         self,
@@ -181,14 +194,22 @@ class MemoryWriter:
         try:
             known = await asyncio.to_thread(self._store.list_memories, conversation.user_id)
             prompt = _extraction_prompt(character, history, text, reply, known, now)
-            said = "".join([chunk async for chunk in self._llm.stream(prompt) if isinstance(chunk, str)])
-            texts = parse_memories(said)
+            answer = "".join(
+                [chunk async for chunk in self._llm.stream(prompt) if isinstance(chunk, str)]
+            )
+            texts = parse_memories(answer)
             if texts is None:
-                log.warning("background model wrote no memories JSON: %.500s", said)
+                log.warning("background model wrote no memories JSON: %.500s", answer)
                 return
-            await asyncio.to_thread(self._store.add_memories, conversation, texts)
+            added = await asyncio.to_thread(self._store.add_memories, conversation, texts, now)
         except Exception:
             log.warning("writing memories failed in conversation %s", conversation.id,
+                        exc_info=True)
+            return
+        try:
+            await self._index.add(conversation.user_id, added)
+        except EmbeddingError:
+            log.warning("embedding new memories failed; they are embedded when searched",
                         exc_info=True)
 
 
@@ -200,7 +221,7 @@ def _extraction_prompt(
     known: Sequence[Memory],
     now: datetime,
 ) -> list[ChatMessage]:
-    lines = [f"今天是 {now.year}年{now.month}月{now.day}日（制作人所在时区）。", "", "# 已经记住的事"]
+    lines = [f"今天是 {_date(now)}（制作人所在时区）。", "", "# 已经记住的事"]
     lines += [f"- {m.text}" for m in known[-KNOWN_MEMORIES:]] or ["（还没有）"]
     lines += ["", f"# 制作人和{character.name}的对话"]
     for message in history[-EXCHANGE_HISTORY:]:
@@ -212,11 +233,11 @@ def _extraction_prompt(
     return [ChatMessage("system", _INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
 
 
-def parse_memories(said: str) -> list[str] | None:
+def parse_memories(answer: str) -> list[str] | None:
     """The memories in the background model's answer; None if it is not the JSON asked for."""
-    start, end = said.find("{"), said.rfind("}")
+    start, end = answer.find("{"), answer.rfind("}")
     try:
-        memories = json.loads(said[start : end + 1])["memories"] if start >= 0 else None
+        memories = json.loads(answer[start : end + 1])["memories"] if start >= 0 else None
     except (ValueError, KeyError, TypeError):
         return None
     if not isinstance(memories, list):
@@ -236,8 +257,7 @@ def memories_prompt(
         "像平时记得这些事一样自然地提起，不要逐条复述。",
     ]
     for memory in memories:
-        told = datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone))
-        when = f"{told.year}年{told.month}月{told.day}日"
+        when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
         if memory.source_character_id == character.id:
             lines.append(f"- {memory.text}（{when}，制作人对你说的）")
         else:
@@ -247,3 +267,7 @@ def memories_prompt(
                 f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
             )
     return "\n".join(lines)
+
+
+def _date(moment: datetime) -> str:
+    return f"{moment.year}年{moment.month}月{moment.day}日"

@@ -37,8 +37,6 @@ class Settings:
     background_llm_base_url: str | None = None
     background_llm_api_key: str | None = None
     background_llm_model: str | None = None
-    """The background model, which writes memories down; each setting left unset is the
-    chat model's."""
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
     soniox_api_key: str | None = None
     fish_audio_api_key: str | None = None
@@ -49,18 +47,15 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        chat_base_url = _required("CHAT_LLM_BASE_URL")
-        chat_api_key = _required("CHAT_LLM_API_KEY")
-        chat_model = _required("CHAT_LLM_MODEL")
         return cls(
             database_path=database_path_from_env(),
             characters_path=characters_path_from_env(),
-            chat_llm_base_url=chat_base_url,
-            chat_llm_api_key=chat_api_key,
-            chat_llm_model=chat_model,
-            background_llm_base_url=os.environ.get("BACKGROUND_LLM_BASE_URL") or chat_base_url,
-            background_llm_api_key=os.environ.get("BACKGROUND_LLM_API_KEY") or chat_api_key,
-            background_llm_model=os.environ.get("BACKGROUND_LLM_MODEL") or chat_model,
+            chat_llm_base_url=_required("CHAT_LLM_BASE_URL"),
+            chat_llm_api_key=_required("CHAT_LLM_API_KEY"),
+            chat_llm_model=_required("CHAT_LLM_MODEL"),
+            background_llm_base_url=os.environ.get("BACKGROUND_LLM_BASE_URL") or None,
+            background_llm_api_key=os.environ.get("BACKGROUND_LLM_API_KEY") or None,
+            background_llm_model=os.environ.get("BACKGROUND_LLM_MODEL") or None,
             ice_servers=_ice_servers(os.environ.get("EIDOLON_ICE_SERVERS")),
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
@@ -69,6 +64,16 @@ class Settings:
                 SiliconFlowSettings.from_env() if os.environ.get("SILICONFLOW_API_KEY") else None
             ),
             jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
+        )
+
+
+    def background_llm(self) -> tuple[str, str, str]:
+        """The background model's base URL, API key and model name. It writes memories down;
+        each setting left unset is the chat model's."""
+        return (
+            self.background_llm_base_url or self.chat_llm_base_url,
+            self.background_llm_api_key or self.chat_llm_api_key,
+            self.background_llm_model or self.chat_llm_model,
         )
 
 

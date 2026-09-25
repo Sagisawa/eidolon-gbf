@@ -296,14 +296,14 @@ class Store:
         ]
 
     def add_memories(
-        self, conversation: Conversation, texts: list[str]
+        self, conversation: Conversation, texts: list[str], now: datetime
     ) -> list[Memory]:
-        """Remember what the user told the conversation's character; returns the memories
-        that are new, leaving out any the user already has."""
+        """Remember what the user told the conversation's character just `now`; returns the
+        memories that are new, leaving out any the user already has."""
         added = []
+        created_at = now.astimezone(UTC).isoformat()
         with self._lock, self._db:
             for text in texts:
-                created_at = _now()
                 cursor = self._db.execute(
                     "INSERT OR IGNORE INTO memories"
                     " (user_id, source_character_id, conversation_id, text, created_at)"

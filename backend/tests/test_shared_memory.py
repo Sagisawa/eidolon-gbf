@@ -123,9 +123,10 @@ async def test_the_background_model_reads_the_exchange_and_what_is_already_remem
     assert "下周六我要去北海道出差" in second
     assert CAT in second  # already remembered, so it is not written down again
 
-    # Written down twice, remembered once.
+    # Written down twice, remembered once, dated the day it was told.
     memories = memories_section(llm.prompts[-1][0].content)
     assert memories.count(CAT) == 1 and memories.count(TRIP) == 1
+    assert "（2026年9月25日，制作人对櫻木真乃说的" in memories
 
 
 async def test_talk_of_the_users_own_life_retrieves_memories_only(
@@ -173,6 +174,7 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
 
     assert memories_section(llm.prompts[-1][0].content) == ""
     assert embedder.queries == []
+    assert embedder.documents == [CAT]  # embedded as it was written down, not when searched
 
 
 @pytest.mark.parametrize(
@@ -215,13 +217,11 @@ def test_the_background_model_is_configured_apart_from_the_chat_model(
 
     # Left unset, it is the chat model...
     settings = Settings.from_env()
-    assert (settings.background_llm_base_url, settings.background_llm_api_key,
-            settings.background_llm_model) == ("https://chat.example/v1", "chat-key", "chat-model")
+    assert settings.background_llm() == ("https://chat.example/v1", "chat-key", "chat-model")
 
     # ...and each setting can be changed on its own, say a cheaper model on the same service.
     monkeypatch.setenv("BACKGROUND_LLM_MODEL", "cheap-model")
     settings = Settings.from_env()
-    assert settings.background_llm_model == "cheap-model"
-    assert settings.background_llm_base_url == "https://chat.example/v1"
+    assert settings.background_llm() == ("https://chat.example/v1", "chat-key", "cheap-model")
     assert settings.chat_llm_model == "chat-model"
 
