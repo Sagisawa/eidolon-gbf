@@ -5,9 +5,10 @@ retrieves what the turn calls for, assembles the prompt, streams the chat model'
 deltas, and records both sides of the turn once the reply is complete. A turn
 that fails part-way leaves no record.
 
-When retrieval is available the chat model is offered the recall-story tool. Its
-calls are answered and the model asked again, for a few rounds at most; whatever it
-says along the way is part of the reply, and only the reply is recorded.
+When retrieval is available the chat model is offered the recall-story tool, unless
+the turn already recalled an episode. Its calls are answered and the model asked
+again, once at most since every round costs the model's time to first token; whatever
+it says along the way is part of the reply, and only the reply is recorded.
 """
 
 from collections.abc import AsyncIterator, Callable
@@ -18,13 +19,13 @@ from eidolon.characters import Character
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
-from eidolon.retrieval import RECALL_STORY_TOOL, Reference, Retrieval, references_prompt
+from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import Conversation, Message, Store
 
 MAX_INPUT_LENGTH = 2000
 """The longest thing a user can say in one turn, typed or spoken, in characters."""
-MAX_TOOL_ROUNDS = 2
-"""How many times in one turn the chat model can call tools; after that it has to answer."""
+MAX_TOOL_ROUNDS = 1
+"""How many rounds of tool calls the chat model gets in one turn; after that it has to answer."""
 
 
 @dataclass(frozen=True)
@@ -69,12 +70,16 @@ class ConversationEngine:
         used unless the producer profile sets one."""
         character = self._characters[conversation.character_id]
         history = self._store.list_messages(conversation.id)
-        references = (
-            await self._retrieval.references(character, history, text) if self._retrieval else []
+        retrieved = (
+            await self._retrieval.retrieve(character, history, text)
+            if self._retrieval
+            else Retrieved(None)
         )
-        prompt = self._prompt(conversation, character, history, references, text, device_timezone)
+        prompt = self._prompt(conversation, character, history, retrieved, text, device_timezone)
 
-        tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
+        tools: list[Tool] = (
+            [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
+        )
         parser = ReplyParser()
         for step in range(MAX_TOOL_ROUNDS + 1):
             offered = tools if step < MAX_TOOL_ROUNDS else []
@@ -115,7 +120,7 @@ class ConversationEngine:
         conversation: Conversation,
         character: Character,
         history: list[Message],
-        references: list[Reference],
+        retrieved: Retrieved,
         text: str,
         device_timezone: str | None,
     ) -> list[ChatMessage]:
@@ -124,8 +129,8 @@ class ConversationEngine:
             profile, self._clock(), effective_timezone(profile, device_timezone)
         )
         sections = [character.sheet, about_producer]
-        if references:
-            sections.append(references_prompt(references))
+        if retrieved.prompt:
+            sections.append(retrieved.prompt)
         system = "\n\n".join([*sections, FORMAT_INSTRUCTIONS])
         prompt = [ChatMessage("system", system)]
         for message in history:

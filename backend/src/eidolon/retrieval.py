@@ -1,18 +1,20 @@
 """Retrieval for a conversation turn: whether to look anything up, and what to bring back.
 
-Jev (through Vercel AI Gateway) first judges whether what the user just said calls
-for looking anything up, so small talk costs no retrieval latency. When it does,
-the story corpus (only episodes the character is cast in) and the character's facts
-are searched with the same query vector, the candidates are reranked together, and
-the best few that are relevant enough go into the prompt.
+Jev (through Vercel AI Gateway) first judges what the user just said needs: nothing,
+so small talk costs no retrieval latency; references, for which the story corpus
+(only episodes the character is cast in) and the character's facts are searched with
+the same query vector, the candidates reranked together, and the best few that are
+relevant enough go into the prompt; or recall, for a question about how some past
+episode went, for which the recall-story tool is run on what the user said and its
+result goes into the prompt, saving the chat model a round of calling it.
 
 Retrieval never fails a turn: if Jev cannot answer, the turn retrieves anyway; if
 embedding or reranking fails, the turn goes on without references.
 
 The chat model can also look an episode up itself with the recall-story tool, for
-general questions like "what happened that time with the photo book": the best
-matching episodes she is cast in come back with where they sit in her story catalog
-(card or event, and its other episodes) and what happened in them.
+general questions like "what happened that time with the photo book" that Jev did
+not catch: the best matching episodes she is cast in come back with where they sit in
+her story catalog (card or event, and its other episodes) and what happened in them.
 """
 
 import asyncio
@@ -73,11 +75,14 @@ _CANON_RULE = (
 )
 
 
+Need = Literal["nothing", "references", "recall"]
+"""What a turn needs looked up: nothing, references from the story corpus and character
+facts, or the recall of a past episode."""
+
+
 class RetrievalJudge(Protocol):
-    async def needs_retrieval(
-        self, character: Character, history: Sequence[Message], text: str
-    ) -> bool:
-        """Whether answering `text` would benefit from the story corpus or character facts."""
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
+        """What answering `text` needs looked up."""
         ...
 
 
@@ -89,6 +94,16 @@ class JudgeError(RuntimeError):
 class Reference:
     kind: Literal["episode", "fact"]
     text: str
+
+
+@dataclass(frozen=True)
+class Retrieved:
+    """What a turn looked up."""
+
+    prompt: str | None
+    """The prompt section carrying it, if anything was looked up."""
+    recalled: bool = False
+    """Whether the recall-story tool already ran, so the chat model need not call it."""
 
 
 class Retrieval:
@@ -106,19 +121,23 @@ class Retrieval:
         self._facts = facts
         self._reranker = reranker
 
-    async def references(
+    async def retrieve(
         self, character: Character, history: Sequence[Message], text: str
-    ) -> list[Reference]:
-        """What this turn's prompt should carry, most relevant first; empty when the turn
-        needs no retrieval."""
+    ) -> Retrieved:
+        """Look up what this turn needs."""
         try:
-            needed = await self._judge.needs_retrieval(character, history, text)
+            need = await self._judge.judge(character, history, text)
         except JudgeError:
             log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
-            needed = True
-        if not needed:
-            return []
+            need = "references"
+        if need == "recall":
+            return Retrieved(await self.recall_story(character, text), recalled=True)
+        if need == "references" and (references := await self._references(character, text)):
+            return Retrieved(references_prompt(references))
+        return Retrieved(None)
 
+    async def _references(self, character: Character, text: str) -> list[Reference]:
+        """The references for `text`, most relevant first."""
         try:
             query_vector = await self._embedder.embed_query(text)
             passages, facts = await asyncio.gather(
@@ -228,8 +247,17 @@ _JUDGE_QUESTION = {
         "false": "只是寒暄、闲聊、情绪回应，或只凭上文就能回答",
     },
 }
+_RECALL_QUESTION = {
+    "type": "boolean",
+    "instructions": "制作人最新的一句话，是不是在问角色过去某一次具体经历的来龙去脉"
+    "（例如「那次……是怎么回事」「还记得……那次吗」），需要回想那段经历的完整经过才能回答？",
+    "criteria": {
+        "true": "问的是过去某一次具体的事情、活动、工作或比赛的经过和当时的心情",
+        "false": "寒暄闲聊、问喜好或设定、问身边人物近况，或者只是顺口提到过去",
+    },
+}
 JUDGE_THRESHOLD = 0.5
-"""Jev's probability at or above which a turn retrieves."""
+"""Jev's probability at or above which a turn retrieves, or recalls."""
 
 
 class JevJudge:
@@ -245,9 +273,7 @@ class JevJudge:
         self._model = model
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
 
-    async def needs_retrieval(
-        self, character: Character, history: Sequence[Message], text: str
-    ) -> bool:
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
         recent = []
         for message in history[-JUDGE_HISTORY:]:
             if message.role == "user":
@@ -261,7 +287,7 @@ class JevJudge:
                 "上文": recent or "（对话刚开始）",
                 "制作人最新的一句话": text,
             },
-            "questions": {"needs_retrieval": _JUDGE_QUESTION},
+            "questions": {"needs_retrieval": _JUDGE_QUESTION, "recall": _RECALL_QUESTION},
         }
         try:
             res = await self._client.post(
@@ -272,10 +298,14 @@ class JevJudge:
         if res.status_code >= 400:
             raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
         try:
-            probability = float(res.json()["answers"]["needs_retrieval"]["probability"])
+            answers = res.json()["answers"]
+            retrieve = float(answers["needs_retrieval"]["probability"])
+            recall = float(answers["recall"]["probability"])
         except (ValueError, KeyError, TypeError) as e:
             raise JudgeError(f"Jev 的返回无法解析：{res.text[:500]}") from e
-        return probability >= JUDGE_THRESHOLD
+        if recall >= JUDGE_THRESHOLD:
+            return "recall"
+        return "references" if retrieve >= JUDGE_THRESHOLD else "nothing"
 
     async def aclose(self) -> None:
         await self._client.aclose()

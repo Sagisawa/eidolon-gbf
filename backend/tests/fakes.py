@@ -9,7 +9,7 @@ from eidolon.call import Call
 from eidolon.characters import Character
 from eidolon.embedding import EmbeddingError
 from eidolon.llm import ChatMessage, Tool, ToolCall
-from eidolon.retrieval import JudgeError
+from eidolon.retrieval import JudgeError, Need
 from eidolon.store import Message
 
 
@@ -94,13 +94,11 @@ class FakeJudge:
     """Stands in for Jev: answers every turn the same way, or fails if `answer` is None.
     Records what it was asked."""
 
-    def __init__(self, answer: bool | None = True) -> None:
-        self.answer = answer
+    def __init__(self, answer: Need | None = "references") -> None:
+        self.answer: Need | None = answer
         self.asked: list[tuple[str, str]] = []  # (character id, text)
 
-    async def needs_retrieval(
-        self, character: Character, history: Sequence[Message], text: str
-    ) -> bool:
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
         self.asked.append((character.id, text))
         if self.answer is None:
             raise JudgeError("fake Jev is down")

@@ -47,7 +47,7 @@ async def test_the_reply_is_based_on_the_recalled_episode_and_its_place_in_the_c
     llm = FakeLLM([recall("公園で鳩と歌った日")], ANSWER)
     # Jev sees no need to retrieve; the model asks for the episode itself.
     client = make_client(
-        llm, jev=FakeJudge(answer=False), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
     )
     conversation_id = await start_conversation(client)
 
@@ -78,7 +78,7 @@ async def test_a_character_only_recalls_episodes_she_is_cast_in(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM([recall("公園の鳩")], ANSWER), FakeReranker(PARK_LINE, others=0.01)
-    client = make_client(llm, jev=FakeJudge(answer=False), embedder=embedder, reranker=reranker)
+    client = make_client(llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=reranker)
     conversation_id = await start_conversation(client, "kogane")
 
     await send_turn(client, conversation_id, "那次在公园和鸽子唱歌是怎么回事？")
@@ -105,7 +105,7 @@ async def test_what_she_says_before_calling_the_tool_is_part_of_the_reply(
 ):
     llm = FakeLLM(["<ja>えっと……</ja><zh>嗯……</zh>", recall("公園")], ANSWER)
     client = make_client(
-        llm, jev=FakeJudge(answer=False), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
     )
     conversation_id = await start_conversation(client)
 
@@ -123,7 +123,7 @@ async def test_tool_calls_stop_after_a_few_rounds(
 ):
     llm = FakeLLM(*[[recall("公園", f"call_{i}")] for i in range(MAX_TOOL_ROUNDS)], ANSWER)
     client = make_client(
-        llm, jev=FakeJudge(answer=False), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
     )
     conversation_id = await start_conversation(client)
 
@@ -140,7 +140,7 @@ async def test_a_call_made_when_no_tool_was_offered_goes_unanswered(
     rounds = [[recall("公園", f"call_{i}")] for i in range(MAX_TOOL_ROUNDS)]
     llm = FakeLLM(*rounds, [*ANSWER, recall("公園", "call_last")])
     client = make_client(
-        llm, jev=FakeJudge(answer=False), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
     )
     conversation_id = await start_conversation(client)
 
@@ -154,12 +154,15 @@ async def test_a_failed_or_malformed_call_is_answered_and_the_turn_goes_on(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(
-        [ToolCall("call_1", "recall_story", None), ToolCall("call_2", "take_selfie", {})],
-        [recall("公園", "call_3")],
+        [
+            ToolCall("call_1", "recall_story", None),
+            ToolCall("call_2", "take_selfie", {}),
+            recall("公園", "call_3"),
+        ],
         ANSWER,
     )
     client = make_client(
-        llm, jev=FakeJudge(answer=False), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
     )
     conversation_id = await start_conversation(client)
     embedder.down = True
@@ -171,3 +174,42 @@ async def test_a_failed_or_malformed_call_is_answered_and_the_turn_goes_on(
     assert "take_selfie" in unknown
     assert "暂时想不起来" in failed
     assert events[-1]["type"] == "done"
+
+
+async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_the_model_answers(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm, reranker = FakeLLM(ANSWER), FakeReranker(PARK_LINE)
+    client = make_client(llm, jev=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
+
+    # One model call: the episode is already in the prompt, and the tool is not offered again.
+    [prompt] = llm.prompts
+    assert llm.tools == [[]]
+    system = prompt[0].content
+    assert "# 回顾剧情：那次在公园唱歌是怎么回事？" in system
+    assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in system
+    assert f"真乃：{PARK_LINE}" in system
+    # Recalling takes the place of the turn's general retrieval.
+    assert "# 回忆与资料" not in system
+    assert [query for query, _ in reranker.calls] == ["那次在公园唱歌是怎么回事？"]
+    assert events[-1]["type"] == "done"
+
+
+async def test_a_recall_question_about_someone_elses_episode_recalls_nothing(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM(ANSWER)
+    client = make_client(
+        llm, jev=FakeJudge(answer="recall"), embedder=embedder,
+        reranker=FakeReranker(PARK_LINE, others=0.01),
+    )
+    conversation_id = await start_conversation(client, "kogane")
+
+    await send_turn(client, conversation_id, "那次你在公园和鸽子一起唱歌是怎么回事？")
+
+    system = llm.prompts[0][0].content
+    assert PARK_LINE not in system
+    assert "没有想起" in system

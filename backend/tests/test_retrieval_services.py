@@ -73,10 +73,13 @@ def message(role: str, text: str) -> Message:
     return Message(2, "character", None, text, "", "2026-09-25T00:00:00+00:00")
 
 
-def judge_answering(requests: list[dict], probability: float) -> JevJudge:
+def judge_answering(requests: list[dict], retrieve: float, recall: float = 0.01) -> JevJudge:
     body = {
         "model": "jev",
-        "answers": {"needs_retrieval": {"type": "boolean", "probability": probability}},
+        "answers": {
+            "needs_retrieval": {"type": "boolean", "probability": retrieve},
+            "recall": {"type": "boolean", "probability": recall},
+        },
         "usage": {"inputTokens": 500, "outputTokens": 0},
     }
     return JevJudge(
@@ -85,24 +88,34 @@ def judge_answering(requests: list[dict], probability: float) -> JevJudge:
     )
 
 
-@pytest.mark.parametrize("probability, expected", [(0.89, True), (0.5, True), (0.21, False)])
-async def test_jev_answers_whether_to_retrieve(probability: float, expected: bool):
+@pytest.mark.parametrize(
+    "retrieve, recall, expected",
+    [
+        (0.89, 0.03, "references"),
+        (0.5, 0.2, "references"),
+        (0.21, 0.01, "nothing"),
+        (0.91, 0.96, "recall"),
+        (0.4, 0.5, "recall"),
+    ],
+)
+async def test_jev_answers_what_the_turn_needs(retrieve: float, recall: float, expected: str):
     requests: list[dict] = []
 
-    judge = judge_answering(requests, probability)
-    assert await judge.needs_retrieval(MANO, [], "那次比赛") is expected
-    [request] = requests
+    judge = judge_answering(requests, retrieve, recall)
+    assert await judge.judge(MANO, [], "那次比赛") == expected
+    [request] = requests  # both questions in one call
     assert request["url"] == "http://gateway.test/v1/evaluate"
     assert request["auth"] == "Bearer gw-key"
     assert request["model"] == "jev"
     assert request["questions"]["needs_retrieval"]["type"] == "boolean"
+    assert request["questions"]["recall"]["type"] == "boolean"
 
 
 async def test_jev_sees_the_latest_messages_and_what_was_just_said():
     requests: list[dict] = []
     history = [message("user", f"old {i}") for i in range(5)] + [message("character", "ほわっ")]
 
-    await judge_answering(requests, 0.1).needs_retrieval(MANO, history, "那次比赛")
+    await judge_answering(requests, 0.1).judge(MANO, history, "那次比赛")
 
     state = requests[0]["state"]
     assert state["角色"] == "櫻木真乃"
@@ -116,7 +129,7 @@ async def test_jev_errors_are_reported():
                      client(lambda _: httpx.Response(503, text="busy")))
 
     with pytest.raises(JudgeError, match="503"):
-        await judge.needs_retrieval(MANO, [], "在吗")
+        await judge.judge(MANO, [], "在吗")
 
 
 async def test_unparsable_jev_answers_are_reported():
@@ -124,4 +137,4 @@ async def test_unparsable_jev_answers_are_reported():
                      client(lambda _: httpx.Response(200, json={"answers": {}})))
 
     with pytest.raises(JudgeError, match="无法解析"):
-        await judge.needs_retrieval(MANO, [], "在吗")
+        await judge.judge(MANO, [], "在吗")

@@ -77,7 +77,7 @@ def reference_count(system: str) -> int:
 async def test_small_talk_retrieves_nothing(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
-    jev, reranker, llm = FakeJudge(answer=False), FakeReranker(), FakeLLM(REPLY)
+    jev, reranker, llm = FakeJudge(answer="nothing"), FakeReranker(), FakeLLM(REPLY)
     client = make_client(llm, jev=jev, embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "早上好")
