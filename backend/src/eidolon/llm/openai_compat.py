@@ -2,10 +2,11 @@
 
 import json
 from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import httpx
 
-from eidolon.llm import ChatMessage
+from eidolon.llm import ChatMessage, Tool, ToolCall
 
 
 class OpenAICompatLLM:
@@ -21,12 +22,27 @@ class OpenAICompatLLM:
         self._model = model
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
-    async def stream(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
-        body = {
+    async def stream(
+        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
+        body: dict[str, Any] = {
             "model": self._model,
             "stream": True,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_message(m) for m in messages],
         }
+        if tools:
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                }
+                for t in tools
+            ]
+        calls: dict[int, dict[str, str]] = {}  # index → id, name and arguments so far
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async with self._client.stream("POST", self._url, json=body, headers=headers) as res:
             if res.status_code >= 400:
@@ -42,9 +58,24 @@ class OpenAICompatLLM:
                 if event.get("error"):
                     raise LLMError(f"对话模型在流式输出中报错: {event['error']}")
                 for choice in event.get("choices") or []:
-                    content = (choice.get("delta") or {}).get("content")
-                    if content:
+                    delta = choice.get("delta") or {}
+                    if content := delta.get("content"):
                         yield content
+                    for fragment in delta.get("tool_calls") or []:
+                        call = calls.setdefault(
+                            fragment.get("index", 0), {"id": "", "name": "", "arguments": ""}
+                        )
+                        call["id"] = fragment.get("id") or call["id"]
+                        function = fragment.get("function") or {}
+                        call["name"] = function.get("name") or call["name"]
+                        arguments = function.get("arguments") or ""
+                        # A few providers send the arguments as an object rather than JSON text.
+                        if not isinstance(arguments, str):
+                            arguments = json.dumps(arguments, ensure_ascii=False)
+                        call["arguments"] += arguments
+        for index, call in sorted(calls.items()):
+            call_id = call["id"] or f"call_{index}"  # the tool result must name its call
+            yield ToolCall(call_id, call["name"], _arguments(call["arguments"]))
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -52,3 +83,33 @@ class OpenAICompatLLM:
 
 class LLMError(RuntimeError):
     pass
+
+
+def _message(message: ChatMessage) -> dict[str, Any]:
+    if message.role == "tool":
+        return {"role": "tool", "tool_call_id": message.tool_call_id, "content": message.content}
+    if message.tool_calls:
+        return {
+            "role": "assistant",
+            "content": message.content or None,
+            "tool_calls": [
+                {
+                    "id": call.id,
+                    "type": "function",
+                    "function": {
+                        "name": call.name,
+                        "arguments": json.dumps(call.arguments or {}, ensure_ascii=False),
+                    },
+                }
+                for call in message.tool_calls
+            ],
+        }
+    return {"role": message.role, "content": message.content}
+
+
+def _arguments(text: str) -> dict[str, Any] | None:
+    try:
+        arguments = json.loads(text or "{}")
+    except json.JSONDecodeError:
+        return None
+    return arguments if isinstance(arguments, dict) else None

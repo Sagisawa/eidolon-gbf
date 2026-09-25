@@ -7,6 +7,7 @@
     eidolon key list <user>
     eidolon key revoke <key-id>
     eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
+                                     and report each character's story catalog
 """
 
 import argparse
@@ -79,6 +80,7 @@ async def _import_story_csv(args: argparse.Namespace) -> int:
         corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
         try:
             report = await import_csv_directory(args.directory, corpus, characters.values())
+            catalogs = {c.name: corpus.catalog(c.id) for c in characters.values()}
         finally:
             corpus.close()
     except EmbeddingError as e:
@@ -92,6 +94,9 @@ async def _import_story_csv(args: argparse.Namespace) -> int:
         f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
         f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 段文本"
     )
+    for name, catalog in catalogs.items():
+        episodes = sum(len(source.episodes) for source in catalog)
+        print(f"剧情目录 {name}：{len(catalog)} 张卡或活动，{episodes} 段剧情")
     return 0
 
 

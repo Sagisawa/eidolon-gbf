@@ -37,6 +37,7 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 - 失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按原始剧本编号识别并排除；制作人的选项不收录。
 - 出场角色按台词的说话人识别：`characters.toml` 里每位角色的 `speakers` 列出她在剧本里的名字（如 `真乃`）。修改 `speakers` 或新增角色后需要重新导入。
 - 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。
+- 剧情目录按「角色 → 卡或活动 → 话」分层，直接由剧情库生成，所以总是和最近一次导入一致；导入结束时会列出每位角色的目录规模。
 
 本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`。
 
@@ -46,6 +47,7 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 
 - 每一句话先交给 Jev（通过 Vercel AI Gateway 调用）判断要不要检索；寒暄闲聊不检索，不增加延迟。Jev 出错时照常检索。
 - 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。检索或重排出错时，本回合不带检索结果照常回复。
+- 对话模型还可以调用「回顾剧情」工具（`recall_story`）：制作人问「那次……是怎么回事」这类问题时，角色用一句概括去查自己出场过的剧情，拿回最相关的最多 2 段剧情的原文（附带它在剧情目录中属于哪张卡或哪个活动、同一处还有哪些剧情），再据此回答。一句话最多调用 2 轮工具。对话模型需要支持工具调用。
 - 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
 
 ## 用户与访问密钥

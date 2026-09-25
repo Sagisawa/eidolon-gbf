@@ -7,6 +7,9 @@ only among the episodes the asking character is in the cast of. Passages whose
 text has not changed keep their vectors, so re-importing costs no embedding calls.
 An episode with no cast is kept but not embedded: no character could recall it.
 
+The story catalog is read from the same tables: each character's episodes, grouped
+by the card or event they belong to, so it is always in step with the last import.
+
 Everything lives in the same SQLite file as the rest of the relational data, which
 stays out of the repository (ADR-0003).
 """
@@ -76,6 +79,23 @@ class Episode:
     cast: frozenset[str]
     """Identifiers of the configured characters who appear in it."""
     lines: tuple[Line, ...]
+
+
+@dataclass(frozen=True)
+class CatalogEntry:
+    """One episode in the story catalog."""
+
+    episode_id: str
+    title: str
+
+
+@dataclass(frozen=True)
+class CatalogSource:
+    """A card or event in the story catalog, with the episodes one character is cast in."""
+
+    category: str
+    source: str
+    episodes: tuple[CatalogEntry, ...]
 
 
 @dataclass(frozen=True)
@@ -155,6 +175,29 @@ class StoryCorpus:
                     (character_id,),
                 ).fetchall()
             return [self._episode(row) for row in rows]
+
+    def catalog(self, character_id: str) -> list[CatalogSource]:
+        """The story catalog for one character: character → card or event → episode.
+
+        Cards and events come in the order of their first episode, episodes in
+        source identifier order, which is the order the game numbers them in.
+        """
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT e.id, e.category, e.source, e.title FROM episodes e"
+                " JOIN episode_cast c ON c.episode_id = e.id"
+                " WHERE c.character_id = ? ORDER BY e.id",
+                (character_id,),
+            ).fetchall()
+        sources: dict[tuple[str, str], list[CatalogEntry]] = {}
+        for row in rows:
+            sources.setdefault((row["category"], row["source"]), []).append(
+                CatalogEntry(row["id"], row["title"])
+            )
+        return [
+            CatalogSource(category, source, tuple(entries))
+            for (category, source), entries in sources.items()
+        ]
 
     async def search(self, query: str, character_id: str, limit: int = 5) -> list[Passage]:
         """The passages most similar to `query`, from episodes `character_id` appears in."""

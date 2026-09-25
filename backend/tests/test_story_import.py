@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from eidolon.characters import load_characters
-from eidolon.corpus import Episode, Line, StoryCorpus
+from eidolon.corpus import CatalogEntry, Episode, Line, StoryCorpus
 from eidolon.story_import import ImportReport, import_csv_directory, is_failure_ending
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import FakeEmbedder
@@ -149,6 +149,55 @@ async def test_adding_a_characters_speaker_name_casts_her_on_the_next_import(
 
     hits = await importer.corpus.search("公園で写真", "hiori")
     assert [p.episode.id for p in hits] == ["game_event_communications/400100401"]
+
+
+def catalog(importer: Importer, character_id: str) -> list[tuple[str, str, list[str]]]:
+    return [
+        (s.category, s.source, [e.title for e in s.episodes])
+        for s in importer.corpus.catalog(character_id)
+    ]
+
+
+async def test_the_catalog_groups_a_characters_episodes_by_card_or_event(
+    importer: Importer, story: Path
+):
+    await importer.run(story)
+
+    # Character → card or event → episode; failure endings are not in it.
+    assert catalog(importer, "mano") == [
+        ("培育剧情", "W.I.N.G.編", ["公園の歌声", "決勝後コミュ"]),
+        ("P卡剧情", "【ばりうまかブルース】月岡恋鐘", ["長崎の味"]),
+    ]
+    assert catalog(importer, "kogane") == [
+        ("P卡剧情", "【ばりうまかブルース】月岡恋鐘", ["長崎の味"]),
+    ]
+    [source] = importer.corpus.catalog("kogane")
+    assert source.episodes == (CatalogEntry("produce_events/201100401", "長崎の味"),)
+    # Nobody configured is in Hiori's event, so no one's catalog lists it.
+    assert importer.corpus.catalog("hiori") == []
+
+
+async def test_the_catalog_stays_right_when_importing_again(importer: Importer, story: Path):
+    await importer.run(story)
+    write_story(
+        story, "櫻木真乃/W.I.N.G.編/はじまりの日.csv",
+        [("1001001020010", "真乃", "今日からよろしくお願いしますっ", "今天开始请多关照")],
+        "produce_events/100100102",
+    )
+    # Kogane's card renamed upstream: the same script, filed under a new title.
+    (story / "月岡恋鐘/【ばりうまかブルース】月岡恋鐘/長崎の味.csv").rename(
+        story / "月岡恋鐘/【ばりうまかブルース】月岡恋鐘/ふるさとの味.csv"
+    )
+
+    await importer.run(story)
+
+    assert catalog(importer, "mano") == [
+        ("培育剧情", "W.I.N.G.編", ["公園の歌声", "はじまりの日", "決勝後コミュ"]),
+        ("P卡剧情", "【ばりうまかブルース】月岡恋鐘", ["ふるさとの味"]),
+    ]
+    assert catalog(importer, "kogane") == [
+        ("P卡剧情", "【ばりうまかブルース】月岡恋鐘", ["ふるさとの味"]),
+    ]
 
 
 async def test_a_failure_ending_left_from_an_earlier_import_is_removed(

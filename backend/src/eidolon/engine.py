@@ -4,6 +4,10 @@ It knows nothing about voice. Given a conversation and the user's input text it
 retrieves what the turn calls for, assembles the prompt, streams the chat model's structured reply as per-segment
 deltas, and records both sides of the turn once the reply is complete. A turn
 that fails part-way leaves no record.
+
+When retrieval is available the chat model is offered the recall-story tool. Its
+calls are answered and the model asked again, for a few rounds at most; whatever it
+says along the way is part of the reply, and only the reply is recorded.
 """
 
 from collections.abc import AsyncIterator, Callable
@@ -11,14 +15,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from eidolon.characters import Character
-from eidolon.llm import ChatLLM, ChatMessage
+from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
-from eidolon.retrieval import Reference, Retrieval, references_prompt
+from eidolon.retrieval import RECALL_STORY_TOOL, Reference, Retrieval, references_prompt
 from eidolon.store import Conversation, Message, Store
 
 MAX_INPUT_LENGTH = 2000
 """The longest thing a user can say in one turn, typed or spoken, in characters."""
+MAX_TOOL_ROUNDS = 2
+"""How many times in one turn the chat model can call tools; after that it has to answer."""
 
 
 @dataclass(frozen=True)
@@ -68,17 +74,41 @@ class ConversationEngine:
         )
         prompt = self._prompt(conversation, character, history, references, text, device_timezone)
 
+        tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
         parser = ReplyParser()
-        async for chunk in self._llm.stream(prompt):
-            for delta in parser.feed(chunk):
+        for step in range(MAX_TOOL_ROUNDS + 1):
+            offered = tools if step < MAX_TOOL_ROUNDS else []
+            said = ""
+            calls: list[ToolCall] = []
+            async for item in self._llm.stream(prompt, offered):
+                if isinstance(item, ToolCall):
+                    calls.append(item)
+                    continue
+                said += item
+                for delta in parser.feed(item):
+                    yield delta
+            for delta in parser.finish():
                 yield delta
-        for delta in parser.finish():
-            yield delta
+            if not calls or not offered:  # a call to a tool not offered goes unanswered
+                break
+            prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]
+            for call in calls:
+                result = await self._call_tool(character, call)
+                prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
 
         if not parser.segments:
             raise EmptyReply("对话模型没有返回任何内容")
         reply = self._store.add_turn(conversation.id, text, parser.segments)
         yield TurnDone(reply)
+
+    async def _call_tool(self, character: Character, call: ToolCall) -> str:
+        """The tool's result, or what went wrong, for the model to read."""
+        if call.name != RECALL_STORY_TOOL.name or self._retrieval is None:
+            return f"没有 {call.name} 这个工具。"
+        query = (call.arguments or {}).get("query")
+        if not isinstance(query, str) or not query.strip():
+            return "调用参数有误：需要 query（要回顾的事，一句概括）。"
+        return await self._retrieval.recall_story(character, query.strip())
 
     def _prompt(
         self,

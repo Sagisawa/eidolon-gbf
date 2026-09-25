@@ -8,26 +8,32 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from eidolon.call import Call
 from eidolon.characters import Character
 from eidolon.embedding import EmbeddingError
-from eidolon.llm import ChatMessage
+from eidolon.llm import ChatMessage, Tool, ToolCall
 from eidolon.retrieval import JudgeError
 from eidolon.store import Message
 
 
 class FakeLLM:
-    """Records every prompt it receives and replies from a script.
+    """Records every prompt it receives, and the tools offered with it, and replies from a
+    script.
 
-    Each scripted reply is a list of text chunks, streamed in order, so tests can
-    split the structured reply at awkward boundaries. With a `delay`, it waits that
-    many seconds before each chunk after the first, as a slow model would.
+    Each scripted reply is a list of text chunks and tool calls, streamed in order, so
+    tests can split the structured reply at awkward boundaries or have the model call a
+    tool. With a `delay`, it waits that many seconds before each chunk after the first,
+    as a slow model would.
     """
 
-    def __init__(self, *replies: Sequence[str], delay: float = 0) -> None:
+    def __init__(self, *replies: Sequence[str | ToolCall], delay: float = 0) -> None:
         self._replies = [list(r) for r in replies]
         self._delay = delay
         self.prompts: list[list[ChatMessage]] = []
+        self.tools: list[list[Tool]] = []
 
-    async def stream(self, messages: Sequence[ChatMessage]) -> AsyncIterator[str]:
+    async def stream(
+        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
         self.prompts.append(list(messages))
+        self.tools.append(list(tools))
         if not self._replies:
             raise AssertionError("FakeLLM ran out of scripted replies")
         for i, chunk in enumerate(self._replies.pop(0)):

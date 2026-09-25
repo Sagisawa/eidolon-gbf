@@ -58,7 +58,9 @@ class ReplyParser:
                 self._inside = None
 
     def finish(self) -> list[SegmentDelta]:
-        """Flush what is left. A reply that ignored the format becomes one Japanese segment."""
+        """Flush what is left at the end of a stream; the parser can then go on with the
+        next stream of the same reply. A reply that ignored the format becomes one
+        Japanese segment."""
         deltas: list[SegmentDelta] = []
         if self._inside is not None:
             keep = _partial_suffix(self._buffer, (f"</{self._inside}>",))
@@ -67,7 +69,7 @@ class ReplyParser:
                 deltas.append(self._append(self._inside, text))
         elif not self.segments and (self._stray + self._buffer).strip():
             deltas.append(self._append("ja", (self._stray + self._buffer).strip()))
-        self._buffer = ""
+        self._buffer, self._inside, self._stray = "", None, ""
         return deltas
 
     def _open_next_tag(self) -> bool:
