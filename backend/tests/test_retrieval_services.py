@@ -1,5 +1,5 @@
 """The retrieval services' own protocols: SiliconFlow's rerank endpoint, and Jev through
-Vercel AI Gateway's Chat Completions endpoint."""
+Vercel AI Gateway's evaluation endpoint."""
 
 import json
 from collections.abc import Callable
@@ -73,35 +73,42 @@ def message(role: str, text: str) -> Message:
     return Message(2, "character", None, text, "", "2026-09-25T00:00:00+00:00")
 
 
-def judge_answering(requests: list[dict], answer: str | None) -> JevJudge:
-    body = {"choices": [{"message": {"role": "assistant", "content": answer}}]}
+def judge_answering(requests: list[dict], probability: float) -> JevJudge:
+    body = {
+        "model": "jev",
+        "answers": {"needs_retrieval": {"type": "boolean", "probability": probability}},
+        "usage": {"inputTokens": 500, "outputTokens": 0},
+    }
     return JevJudge(
         "gw-key", "jev", "http://gateway.test/v1",
         client(recording(requests, httpx.Response(200, json=body))),
     )
 
 
-@pytest.mark.parametrize("answer, expected", [("YES", True), ("yes.", True), ("NO", False), (None, False)])
-async def test_jev_answers_whether_to_retrieve(answer: str | None, expected: bool):
+@pytest.mark.parametrize("probability, expected", [(0.89, True), (0.5, True), (0.21, False)])
+async def test_jev_answers_whether_to_retrieve(probability: float, expected: bool):
     requests: list[dict] = []
 
-    assert await judge_answering(requests, answer).needs_retrieval(MANO, [], "那次比赛") is expected
+    judge = judge_answering(requests, probability)
+    assert await judge.needs_retrieval(MANO, [], "那次比赛") is expected
     [request] = requests
-    assert request["url"] == "http://gateway.test/v1/chat/completions"
+    assert request["url"] == "http://gateway.test/v1/evaluate"
     assert request["auth"] == "Bearer gw-key"
     assert request["model"] == "jev"
+    assert request["questions"]["needs_retrieval"]["type"] == "boolean"
 
 
 async def test_jev_sees_the_latest_messages_and_what_was_just_said():
     requests: list[dict] = []
     history = [message("user", f"old {i}") for i in range(5)] + [message("character", "ほわっ")]
 
-    await judge_answering(requests, "NO").needs_retrieval(MANO, history, "那次比赛")
+    await judge_answering(requests, 0.1).needs_retrieval(MANO, history, "那次比赛")
 
-    prompt = requests[0]["messages"][-1]["content"]
-    assert "櫻木真乃：ほわっ" in prompt and "制作人：old 4" in prompt
-    assert "old 1" not in prompt
-    assert prompt.endswith("那次比赛")
+    state = requests[0]["state"]
+    assert state["角色"] == "櫻木真乃"
+    assert state["上文"][-1] == "櫻木真乃：ほわっ" and "制作人：old 4" in state["上文"]
+    assert "制作人：old 1" not in state["上文"]
+    assert state["制作人最新的一句话"] == "那次比赛"
 
 
 async def test_jev_errors_are_reported():
@@ -109,4 +116,12 @@ async def test_jev_errors_are_reported():
                      client(lambda _: httpx.Response(503, text="busy")))
 
     with pytest.raises(JudgeError, match="503"):
+        await judge.needs_retrieval(MANO, [], "在吗")
+
+
+async def test_unparsable_jev_answers_are_reported():
+    judge = JevJudge("k", "jev", "http://gateway.test/v1",
+                     client(lambda _: httpx.Response(200, json={"answers": {}})))
+
+    with pytest.raises(JudgeError, match="无法解析"):
         await judge.needs_retrieval(MANO, [], "在吗")

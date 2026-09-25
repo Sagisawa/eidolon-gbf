@@ -121,22 +121,29 @@ def references_prompt(references: Sequence[Reference]) -> str:
     return "\n".join(lines)
 
 
-_JUDGE_INSTRUCTIONS = """\
-你负责判断一个角色扮演对话系统是否需要检索资料。角色是《偶像大师 闪耀色彩》的偶像{name}，\
-正在和她的制作人对话。可检索的资料有两类：她亲身经历过的原作剧情，以及关于她自己和身边人物的设定\
-（档案、人物关系等）。
-如果回答制作人最新的这句话需要回忆过去的具体经历、提到具体的人物或事件、或需要确认角色设定细节，\
-回答 YES；如果只是寒暄、闲聊、情绪回应，或只凭上文就能回答，回答 NO。
-只回答 YES 或 NO。"""
+_JUDGE_QUESTION = {
+    "type": "boolean",
+    "instructions": "角色扮演对话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人对话。"
+    "可检索的资料有两类：她亲身经历过的原作剧情，以及关于她自己和身边人物的设定（档案、人物关系等）。"
+    "回答制作人最新的一句话，是否需要检索这些资料？",
+    "criteria": {
+        "true": "需要回忆过去的具体经历、提到具体的人物或事件、或需要确认角色设定细节",
+        "false": "只是寒暄、闲聊、情绪回应，或只凭上文就能回答",
+    },
+}
+JUDGE_THRESHOLD = 0.5
+"""Jev's probability at or above which a turn retrieves."""
 
 
 class JevJudge:
-    """Jev through Vercel AI Gateway's OpenAI-compatible Chat Completions endpoint."""
+    """Jev through Vercel AI Gateway's evaluation endpoint (`/v1/evaluate`): Jev is an
+    evaluation model, answering typed questions about a state with probabilities, and is
+    not served by the Chat Completions endpoint."""
 
     def __init__(
         self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
     ) -> None:
-        self._url = base_url.rstrip("/") + "/chat/completions"
+        self._url = base_url.rstrip("/") + "/evaluate"
         self._api_key = api_key
         self._model = model
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
@@ -150,18 +157,14 @@ class JevJudge:
                 recent.append(f"制作人：{message.text}")
             else:
                 recent.append(f"{character.name}：{message.ja}")
-        conversation = "\n".join(recent) or "（对话刚开始）"
         body = {
             "model": self._model,
-            "temperature": 0,
-            "max_tokens": 5,
-            "messages": [
-                {"role": "system", "content": _JUDGE_INSTRUCTIONS.format(name=character.name)},
-                {
-                    "role": "user",
-                    "content": f"上文：\n{conversation}\n\n制作人最新的一句话：\n{text}",
-                },
-            ],
+            "state": {
+                "角色": character.name,
+                "上文": recent or "（对话刚开始）",
+                "制作人最新的一句话": text,
+            },
+            "questions": {"needs_retrieval": _JUDGE_QUESTION},
         }
         try:
             res = await self._client.post(
@@ -172,10 +175,10 @@ class JevJudge:
         if res.status_code >= 400:
             raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
         try:
-            answer = res.json()["choices"][0]["message"]["content"] or ""
-        except (ValueError, KeyError, IndexError, TypeError) as e:
+            probability = float(res.json()["answers"]["needs_retrieval"]["probability"])
+        except (ValueError, KeyError, TypeError) as e:
             raise JudgeError(f"Jev 的返回无法解析：{res.text[:500]}") from e
-        return "YES" in answer.upper()
+        return probability >= JUDGE_THRESHOLD
 
     async def aclose(self) -> None:
         await self._client.aclose()
