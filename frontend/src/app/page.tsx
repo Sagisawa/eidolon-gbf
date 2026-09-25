@@ -17,7 +17,7 @@ export default function CharacterSelectionPage() {
   return (
     <main className="selection">
       <header className="page-header">
-        <h1>今天和谁聊聊？</h1>
+        <h1>选择角色</h1>
         <Link href="/settings" className="ghost-link">
           设置
         </Link>

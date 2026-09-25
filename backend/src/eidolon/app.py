@@ -74,6 +74,8 @@ def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
         conversation = store.get_conversation(conversation_id)
         if conversation is None or conversation.user_id != user_id:
             raise HTTPException(404, "对话不存在")
+        if conversation.character_id not in characters:  # removed from the configuration
+            raise HTTPException(404, "角色不存在")
         return conversation
 
     @app.get("/api/health")

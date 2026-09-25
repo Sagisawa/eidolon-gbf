@@ -15,7 +15,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-_ID = re.compile(r"[a-z][a-z0-9_-]*")
+_VALID_ID = re.compile(r"[a-z][a-z0-9_-]*")
 _REQUIRED = ("id", "name", "intro", "voice_id", "sheet")
 
 
@@ -35,6 +35,7 @@ class Character:
 
 def load_characters(path: Path) -> dict[str, Character]:
     """Read the character configuration at `path`, keyed by identifier in file order."""
+    path = path.resolve()
     try:
         config = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -44,7 +45,7 @@ def load_characters(path: Path) -> dict[str, Character]:
 
     characters: dict[str, Character] = {}
     for entry in config.get("characters", []):
-        character = _character(entry, path.parent)
+        character = _parse_character(entry, path.parent)
         if character.id in characters:
             raise CharacterConfigError(f"角色标识 {character.id} 重复")
         characters[character.id] = character
@@ -53,12 +54,12 @@ def load_characters(path: Path) -> dict[str, Character]:
     return characters
 
 
-def _character(entry: dict, base: Path) -> Character:
+def _parse_character(entry: dict, base: Path) -> Character:
     label = entry.get("id", "（没有标识）")
     missing = [field for field in _REQUIRED if not isinstance(entry.get(field), str)]
     if missing:
         raise CharacterConfigError(f"角色 {label} 缺少字段 {'、'.join(missing)}")
-    if not _ID.fullmatch(entry["id"]):
+    if not _VALID_ID.fullmatch(entry["id"]):
         raise CharacterConfigError(f"角色标识 {label} 只能包含小写字母、数字、- 和 _")
 
     sheet_path = base / entry["sheet"]
@@ -71,7 +72,7 @@ def _character(entry: dict, base: Path) -> Character:
 
     avatar = base / entry["avatar"] if isinstance(entry.get("avatar"), str) else None
     if avatar is not None and not avatar.is_file():
-        log.warning("角色 %s 的头像 %s 不存在，将不显示头像", label, avatar)
+        log.warning("avatar %s of character %s is missing; showing none", avatar, label)
         avatar = None
 
     return Character(

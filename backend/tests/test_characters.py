@@ -85,12 +85,18 @@ async def test_a_character_added_to_the_configuration_can_be_talked_to(
     assert "你是風野灯織。" in llm.prompts[0][0].content
 
 
-async def test_unknown_character_has_no_conversations(make_client: ClientFactory):
+async def test_conversation_with_a_character_removed_from_the_configuration_is_gone(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    characters.add("hiori", "風野灯織", "# 人设\n你是風野灯織。")
+    conversation_id = await start_conversation(make_client(FakeLLM()), "hiori")
+    CharacterConfig(characters.directory).add("mano", "櫻木真乃", MANO_SHEET)
     client = make_client(FakeLLM())
 
-    res = await client.post("/api/conversations", json={"character_id": "nobody"})
+    res = await client.post(f"/api/conversations/{conversation_id}/turns", json={"text": "你好"})
 
     assert res.status_code == 404
+    assert res.json()["detail"] == "角色不存在"
 
 
 def test_voice_id_is_read_from_the_configuration(characters: CharacterConfig):
