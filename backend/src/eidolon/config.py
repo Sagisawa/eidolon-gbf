@@ -26,6 +26,10 @@ DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
+DEFAULT_TURNS_PER_HOUR = 60
+DEFAULT_CALLS_PER_HOUR = 5
+"""The reference project's limit on voice connections."""
+
 
 LLMProtocol = Literal["chat-completions", "responses", "anthropic"]
 """OpenAI-compatible Chat Completions, OpenAI Responses, or Anthropic Messages."""
@@ -99,6 +103,7 @@ class Settings:
     siliconflow: "SiliconFlowSettings | None" = None
     jev: "JevSettings | None" = None
     """Retrieval needs both SiliconFlow and Jev; without either, turns go unretrieved."""
+    usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -115,6 +120,7 @@ class Settings:
                 SiliconFlowSettings.from_env() if os.environ.get("SILICONFLOW_API_KEY") else None
             ),
             jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
+            usage_limits=UsageLimits.from_env(),
         )
 
 
@@ -161,6 +167,32 @@ class JevSettings:
             model=_required("JEV_MODEL"),
             base_url=os.environ.get("AI_GATEWAY_BASE_URL") or DEFAULT_AI_GATEWAY_BASE_URL,
         )
+
+
+@dataclass(frozen=True)
+class UsageLimits:
+    """How many text turns and voice calls each user may start in any hour, counted
+    across all their access keys; None is no limit."""
+
+    turns_per_hour: int | None = DEFAULT_TURNS_PER_HOUR
+    calls_per_hour: int | None = DEFAULT_CALLS_PER_HOUR
+
+    @classmethod
+    def from_env(cls) -> "UsageLimits":
+        return cls(
+            turns_per_hour=_limit("EIDOLON_TURNS_PER_HOUR", DEFAULT_TURNS_PER_HOUR),
+            calls_per_hour=_limit("EIDOLON_CALLS_PER_HOUR", DEFAULT_CALLS_PER_HOUR),
+        )
+
+
+def _limit(name: str, default: int) -> int | None:
+    """A limit from the environment: unset is the default, 0 is no limit."""
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        return default
+    if not (value.isascii() and value.isdigit()):
+        raise RuntimeError(f"环境变量 {name} 需要是非负整数（0 表示不限制），而不是 {value}")
+    return int(value) or None
 
 
 def _required(name: str) -> str:

@@ -70,9 +70,22 @@ export class ApiError extends Error {
 export async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(describe(body?.detail) ?? `请求失败（${res.status}）`, res.status);
+    let message = describe(body?.detail) ?? `请求失败（${res.status}）`;
+    if (res.status === 429) message = overLimit(message, body?.retry_at);
+    throw new ApiError(message, res.status);
   }
   return res.json();
+}
+
+/** The user has used up this hour's turns or calls: say when they can go on, in local time. */
+function overLimit(reason: string, retryAt: unknown): string {
+  const exact = typeof retryAt === "string" ? Date.parse(retryAt) : NaN;
+  if (isNaN(exact)) return `${reason}，请稍后再试。`;
+  const at = new Date(Math.ceil(exact / 60_000) * 60_000); // shown to the minute, never early
+  const time = at.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  const sameDay = at.toDateString() === new Date().toDateString();
+  const day = sameDay ? "" : `${at.getMonth() + 1}月${at.getDate()}日 `;
+  return `${reason}，${day}${time} 之后可以再用。`;
 }
 
 /** The backend's reason for a failure. A rejected request body lists its problems;

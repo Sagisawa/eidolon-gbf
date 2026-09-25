@@ -3,13 +3,14 @@
 import asyncio
 import json
 import logging
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from aiortc import RTCIceServer
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.request_handler import (
@@ -25,7 +26,7 @@ from eidolon.config import Settings
 from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder, SiliconFlowEmbedder
 from eidolon.facts import FactIndex
-from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone
+from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone, utc_now
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 from eidolon.memory import MemoryIndex, MemoryWriter
@@ -33,6 +34,7 @@ from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile
 from eidolon.rerank import Reranker, SiliconFlowReranker
 from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Conversation, KeyRevoked, Store
+from eidolon.usage import OverLimit, UsageLimiter
 
 log = logging.getLogger(__name__)
 
@@ -129,6 +131,8 @@ def create_app(
     can find memories again."""
     characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
+    clock = clock or utc_now
+    usage = UsageLimiter(store, settings.usage_limits, clock)
     llm = chat_llm or open_llm(settings.chat_llm)
     clients: list[JevJudge | SiliconFlowEmbedder | SiliconFlowReranker] = []
     if (sf := settings.siliconflow) is not None:
@@ -185,6 +189,16 @@ def create_app(
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
     app.state.store = store
 
+    @app.exception_handler(OverLimit)
+    async def over_limit(_: Request, e: OverLimit) -> JSONResponse:
+        """Refused for now, with when the user can go on (also as `Retry-After`)."""
+        wait = max(1, math.ceil((e.retry_at - e.now).total_seconds()))
+        return JSONResponse(
+            {"detail": e.message, "retry_at": e.retry_at.isoformat()},
+            status_code=429,
+            headers={"Retry-After": str(wait)},
+        )
+
     def conversation_or_404(conversation_id: str, user_id: str) -> Conversation:
         conversation = store.get_conversation(conversation_id)
         if conversation is None or conversation.user_id != user_id:
@@ -222,6 +236,7 @@ def create_app(
             raise HTTPException(422, "缺少要通话的对话")
         else:
             conversation = conversation_or_404(body.call.conversation_id, user_id)
+            usage.take(user_id, "call")
             call = Call(
                 conversation,
                 characters[conversation.character_id],
@@ -341,6 +356,7 @@ def create_app(
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
+        usage.take(user_id, "turn")
 
         async def events() -> AsyncIterator[str]:
             try:

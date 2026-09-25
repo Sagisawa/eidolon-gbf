@@ -1,5 +1,5 @@
 """Relational storage (SQLite) for users, access keys, producer profiles, conversations
-and their messages, and memories."""
+and their messages, memories, and each user's recent usage."""
 
 import hashlib
 import json
@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at TEXT NOT NULL,
     UNIQUE (user_id, text)
 );
+CREATE TABLE IF NOT EXISTS usage (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    kind TEXT NOT NULL,
+    at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
 """
 
 
@@ -340,6 +346,32 @@ class Store:
         """Forget all of the user's memories."""
         with self._lock, self._db:
             self._db.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
+
+    def take_usage(
+        self, user_id: str, kind: str, now: datetime, window: timedelta, limit: int
+    ) -> datetime | None:
+        """Record one use of `kind` by the user at `now`, unless they already have `limit`
+        uses in the `window` before it; then record nothing and return when enough of those
+        uses will have aged out for the next to be allowed. Uses older than any window are
+        forgotten."""
+        since = (now - window).timestamp()
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM usage WHERE at <= ?", (since,))
+            recent = [
+                row["at"]
+                for row in self._db.execute(
+                    "SELECT at FROM usage WHERE user_id = ? AND kind = ? ORDER BY at",
+                    (user_id, kind),
+                )
+            ]
+            if len(recent) >= limit:
+                blocking = recent[len(recent) - limit]  # this one must age out first
+                return datetime.fromtimestamp(blocking, UTC) + window
+            self._db.execute(
+                "INSERT INTO usage (user_id, kind, at) VALUES (?, ?, ?)",
+                (user_id, kind, now.timestamp()),
+            )
+        return None
 
     def close(self) -> None:
         self._db.close()

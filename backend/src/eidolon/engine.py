@@ -44,7 +44,7 @@ Clock = Callable[[], datetime]
 """The current time, timezone-aware."""
 
 
-def _utc_now() -> datetime:
+def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
@@ -67,7 +67,7 @@ class ConversationEngine:
         self._store = store
         self._characters = characters
         self._llm = chat_llm
-        self._clock = clock or _utc_now
+        self._clock = clock or utc_now
         self._retrieval = retrieval
         self._memory = memory
         self._names = {c.id: c.name for c in characters.values()}
