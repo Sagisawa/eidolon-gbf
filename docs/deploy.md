@@ -4,13 +4,13 @@
 
 - **caddy**：HTTPS 入口。自动向 Let's Encrypt 申请、续期证书，HTTP 自动跳转到 HTTPS（浏览器只有在 HTTPS 下才允许使用麦克风）。
 - **frontend**、**backend**：只监听 127.0.0.1，不直接暴露在公网上。
-- **coturn**：STUN/TURN 服务。手机在移动网络、公司或学校的网络里，常常没法和服务器直接建立 UDP 连接，这时语音经 coturn 中继。
+- **coturn**：STUN/TURN 服务。手机在移动网络等 NAT 后面时，常常没法和服务器直接建立 UDP 连接，这时语音经 coturn 中继（UDP 或 TCP 的 3478 端口）。只放行 443 端口的网络（部分公司、学校的网络）目前连不上语音，文字对话不受影响。
 
 四个服务都用 host 网络：后端要把本机的公网地址告诉浏览器，coturn 要直接收发 UDP，用 Docker 的端口映射做不到。所以这份配置只适用于 Linux。
 
 ## 准备
 
-- 一台 Linux VPS，公网 IPv4 地址直接配在网卡上（大多数 VPS 都是这样，`ip addr` 能看到公网地址；见文末「排障」）。
+- 一台 Linux VPS，有公网 IPv4 地址。
 - 装好 Docker 和 Docker Compose 插件（`docker compose version` 能运行）。
 - 一个域名，添加一条 A 记录指向这台 VPS。国内的服务器需要域名已备案，否则 80、443 端口会被拦截。
 - 防火墙（包括云厂商控制台里的安全组）放行：
@@ -35,7 +35,8 @@ cp .env.example .env
 
 - 模型和各项服务的密钥，和本地开发时一样（见 `.env.example` 里的说明）。至少要有对话模型；语音通话需要 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY`。
 - `EIDOLON_DOMAIN`：网站的域名，例如 `eidolon.example.com`。
-- `EIDOLON_PUBLIC_IP`：这台服务器的公网 IPv4 地址。coturn 只允许把语音中继到这个地址（也就是后端），别人拿不到它当开放的中继用。
+- `EIDOLON_PUBLIC_IP`：这台服务器的公网 IPv4 地址。coturn 只允许把语音中继到这台服务器（也就是后端），别人拿不到它当开放的中继用。
+- `EIDOLON_PRIVATE_IP`：只有公网地址不在网卡上时才填，填网卡上的内网地址。在服务器上执行 `ip -4 addr`：能看到公网地址就不用填（Vultr、DigitalOcean、搬瓦工等大多如此）；只能看到 `10.`、`172.`、`192.168.` 开头的内网地址时（AWS、阿里云、腾讯云等 1:1 NAT 的云主机），填这个内网地址。这种环境还没有实际验证过，语音连不上时请看「排障」。
 - `EIDOLON_TURN_SECRET`：coturn 和后端共用的密钥，用 `openssl rand -hex 32` 生成。后端给每位用户签发 24 小时后过期的 TURN 凭据，这个密钥本身不会发给浏览器。
 
 `EIDOLON_ICE_SERVERS`、`EIDOLON_TURN_URLS` 不用填：生产配置会自动用本机的 coturn。
@@ -104,6 +105,6 @@ docker compose -f docker-compose.prod.yml cp backend:/data/backup.db ./eidolon-b
 - **打不开网站、证书申请失败**：`docker compose -f docker-compose.prod.yml logs caddy`。检查域名的 A 记录是否已经生效、80 和 443 端口是否放行。
 - **文字对话正常，语音一直「接通中」然后失败**：先看 `docker compose -f docker-compose.prod.yml logs coturn`。
   - 日志里没有任何来自浏览器的请求：3478 端口（TCP 和 UDP）没有放行。
-  - 有 `denied` 或 `Forbidden IP`：`EIDOLON_PUBLIC_IP` 填的不是后端所在的地址。
+  - 有 `denied` 或 `Forbidden IP`：`EIDOLON_PUBLIC_IP`（或 `EIDOLON_PRIVATE_IP`）和服务器网卡上的地址对不上，见上方「部署」。
   - 有 `check_stun_auth: Cannot find credentials of user`：`.env` 里的 `EIDOLON_TURN_SECRET` 改过但只重启了其中一个服务，执行一次 `docker compose -f docker-compose.prod.yml up -d` 让两边一致。
-- **公网地址不在网卡上**（AWS、阿里云等部分云主机，`ip addr` 只能看到内网地址）：这份配置没有在这种环境下验证过。需要给 coturn 加上 `--external-ip=公网地址/内网地址`，并把 `EIDOLON_PUBLIC_IP` 填成内网地址（后端监听的地址）。
+- **只放行 443 端口的网络里语音连不上**：目前的已知限制。TURN 走 443 需要和 Caddy 分用这个端口，还没有做。

@@ -1,9 +1,11 @@
 """Settings, read from environment variables."""
 
+import base64
+import hmac
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, Required, TypedDict, get_args
 
@@ -26,10 +28,6 @@ DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
-
-TURN_CREDENTIAL_LIFETIME = timedelta(hours=24)
-"""How long minted TURN credentials last. The TURN server checks them again each time a
-call refreshes its relay, so they must outlast the longest call; calls can be unlimited."""
 
 DEFAULT_TURNS_PER_HOUR = 60
 DEFAULT_CALLS_PER_HOUR = 5
@@ -190,10 +188,28 @@ class TurnSettings:
 
     @classmethod
     def from_env(cls) -> "TurnSettings | None":
-        urls = [u.strip() for u in os.environ.get("EIDOLON_TURN_URLS", "").split(",") if u.strip()]
+        urls = _comma_list(os.environ.get("EIDOLON_TURN_URLS", ""))
         if not urls:
             return None
         return cls(urls, _required("EIDOLON_TURN_SECRET"))
+
+    def credentials(self, user_id: str, now: datetime) -> IceServer:
+        """The username carries when the credentials expire; the password is the username
+        signed with the secret."""
+        expires = int((now + TURN_CREDENTIAL_LIFETIME).timestamp())
+        username = f"{expires}:{user_id}"
+        signature = hmac.new(self.secret.encode(), username.encode(), "sha1").digest()
+        return {
+            "urls": list(self.urls),
+            "username": username,
+            "credential": base64.b64encode(signature).decode(),
+        }
+
+
+TURN_CREDENTIAL_LIFETIME = timedelta(hours=24)
+"""How long minted TURN credentials last. The TURN server checks them again each time a
+call refreshes its relay, so they must outlast the longest call, and calls may have no
+time limit (`EIDOLON_CALL_MINUTES=0`)."""
 
 
 @dataclass(frozen=True)
@@ -248,4 +264,8 @@ def _ice_servers(value: str | None) -> list[IceServer]:
         ):
             raise RuntimeError("环境变量 EIDOLON_ICE_SERVERS 的每一项都需要有 urls")
         return servers
-    return [{"urls": [url.strip() for url in value.split(",") if url.strip()]}]
+    return [{"urls": _comma_list(value)}]
+
+
+def _comma_list(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
