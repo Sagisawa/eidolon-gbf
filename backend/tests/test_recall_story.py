@@ -19,7 +19,8 @@ from tests.test_text_turn import send_turn, start_conversation
 
 PARK_LINE = "公園で鳩と一緒に歌っていました"
 ANSWER = ["<ja>公園でピーちゃんたちと歌ってたんです</ja><zh>我在公园和小皮它们唱歌</zh>"]
-# Worded and verified against the real chat model (ticket 16); used as is.
+# Copied, not imported: the wording was verified against the real chat model (ticket 16),
+# so an unverified rewording should fail here.
 LAST_ROUND_NOTE = (
     "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
     "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"

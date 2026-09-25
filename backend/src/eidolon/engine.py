@@ -120,10 +120,10 @@ class ConversationEngine:
             if not calls or not offered:  # a call to a tool not offered goes unanswered
                 break
             prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]
-            last = step + 1 == MAX_TOOL_ROUNDS
+            last_round = step + 1 == MAX_TOOL_ROUNDS
             for call in calls:
                 result = await self._call_tool(character, call)
-                if last:
+                if last_round:
                     result = f"{result}\n\n{LAST_ROUND_NOTE}"
                 prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
 
