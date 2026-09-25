@@ -18,10 +18,10 @@ from pipecat.transports.smallwebrtc.request_handler import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
-from eidolon.call import Call, CallStarter, Quality, voice_calls
+from eidolon.call import Call, CallStarter, Quality, serve_calls
 from eidolon.characters import load_characters
 from eidolon.config import Settings
-from eidolon.engine import ConversationEngine, TurnDone
+from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.store import Conversation, KeyRevoked, Store
@@ -36,7 +36,7 @@ class NewConversation(BaseModel):
 
 
 class TurnInput(BaseModel):
-    text: str = Field(min_length=1, max_length=2000)
+    text: str = Field(min_length=1, max_length=MAX_INPUT_LENGTH)
 
 
 class CallRequest(BaseModel):
@@ -90,11 +90,11 @@ def create_app(
         settings.chat_llm_base_url, settings.chat_llm_api_key, settings.chat_llm_model
     )
     engine = ConversationEngine(store, llm, characters)
-    call_starter = call_starter or voice_calls(settings, engine)
+    call_starter = call_starter or serve_calls(settings, engine)
     webrtc = SmallWebRTCRequestHandler(
         ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
     )
-    call_owners: dict[str, str] = {}  # peer connection id → user id
+    calls: dict[str, tuple[str, Call]] = {}  # peer connection id → its user and call
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -133,9 +133,9 @@ def create_app(
     async def offer(body: Offer, user_id: UserId) -> dict:
         """WebRTC signalling: a new call into one of the user's conversations, or a renegotiation."""
         starter = require_voice()
-        call: Call | None = None
-        if body.pc_id is not None:
-            if call_owners.get(body.pc_id) != user_id:
+        if body.pc_id is not None:  # renegotiating, possibly on a fresh peer connection
+            owner, call = calls.get(body.pc_id, (None, None))
+            if owner != user_id or call is None:
                 raise HTTPException(404, "通话不存在")
         elif body.call is None:
             raise HTTPException(422, "缺少要通话的对话")
@@ -149,11 +149,9 @@ def create_app(
             )
 
         async def start(connection: SmallWebRTCConnection) -> None:
-            assert call is not None
-
             @connection.event_handler("closed")
             async def forget(connection: SmallWebRTCConnection) -> None:
-                call_owners.pop(connection.pc_id, None)
+                calls.pop(connection.pc_id, None)
 
             await starter(connection, call)
 
@@ -161,12 +159,12 @@ def create_app(
         answer = await webrtc.handle_web_request(request, start)
         if answer is None:
             raise HTTPException(500, "无法建立通话")
-        call_owners[answer["pc_id"]] = user_id
+        calls[answer["pc_id"]] = (user_id, call)
         return answer
 
     @app.patch("/api/offer")
     async def ice_candidates(body: SmallWebRTCPatchRequest, user_id: UserId) -> dict:
-        if call_owners.get(body.pc_id) != user_id:
+        if calls.get(body.pc_id, (None,))[0] != user_id:
             raise HTTPException(404, "通话不存在")
         await webrtc.handle_patch_request(body)
         return {"ok": True}

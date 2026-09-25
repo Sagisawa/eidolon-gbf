@@ -21,11 +21,15 @@
 实现摘要：
 
 - 后端（`eidolon.call`）：Pipecat 1.11 管线为 SmallWebRTC 输入 → Soniox（中日文语言提示，由 Soniox 自己判断一句话何时说完）→ `UserTurnProcessor`（把 Soniox 的断句变成对角色语音的打断）→ `CallTurns` → Fish Audio（该角色配置的音色）→ SmallWebRTC 输出。`CallTurns` 是对话引擎外面的薄层：每句话（语音识别的最终结果，或通话中打字发来的 `user-text` 消息）排队交给对话引擎，回复里只有日语部分作为文字交给 TTS；`user`/`delta`/`done`/`error` 事件（与文字对话的 SSE 事件同形）作为 RTVI 服务端消息经数据通道发给前端，字幕随之实时显示。没有用 Pipecat 自带的 LLM 服务和上下文聚合器。
-- 静音：前端的开关立即静音播放；同时发 `mute` 消息，之后收到的话不再合成语音，只发字幕。用户开口说话会打断正在播放的回复，这条回复仍会完整显示并写入对话记录。
-- 接口：`POST /api/offer`（WebRTC 信令，需要访问密钥；`requestData` 带对话标识、静音和音质，按对话校验归属和角色是否仍在配置中）、`PATCH /api/offer`（ICE 候选，只接受自己的通话）、`GET /api/ice-servers`。未配置 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 时这两个接口返回 503「语音通话尚未配置」，文字对话不受影响。ICE 服务器由 `EIDOLON_ICE_SERVERS` 配置。
-- 通话音质对应角色语音的合成采样率（省流量 16k / 标准 24k / 高音质 44.1k）；麦克风和音质保存在浏览器本地，在设置页选择。
+- 静音：前端的开关立即静音播放；同时发 `mute` 消息，此后开始的回复不再合成语音，只发字幕。用户开口说话会打断正在播放的回复，这条回复仍会完整显示并写入对话记录。
+- 接口：`POST /api/offer`（WebRTC 信令，需要访问密钥；`requestData` 带对话标识、静音和音质。角色由对话确定，同时校验对话归属和角色是否仍在配置中；重新协商只接受自己的通话）、`PATCH /api/offer`（ICE 候选，只接受自己的通话）、`GET /api/ice-servers`。未配置 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 时这两个接口返回 503「语音通话尚未配置」，文字对话不受影响。ICE 服务器由 `EIDOLON_ICE_SERVERS` 配置。
+- 通话音质对应角色说话声音的合成采样率（普通 16k / 清晰 24k / 高保真 44.1k），不影响网络流量（WebRTC 始终以 48k Opus 传输）；麦克风和音质保存在浏览器本地，在设置页选择。
 - 某个外部服务无法工作（例如密钥被拒）时整通电话结束，前端显示「通话已断开」，不会让用户对着没有回应的电话说话。
 - 前端用 `@pipecat-ai/client-js` 和 `@pipecat-ai/small-webrtc-transport`，但替换了传输层默认的媒体管理器：默认实现基于 Daily SDK，会从 Daily 的 CDN 下载脚本并向 Sentry 上报，国内网络下可能连不上。改为直接 `getUserMedia`（`src/lib/microphone.ts`）。
 - 测试：切入点 A 覆盖信令和 ICE 配置接口（用 aiortc 在测试里生成真实 SDP，通话启动用假实现替代）；`CallTurns` 用 Pipecat 的 `run_test` 在帧层面测试：只有日语送去合成、字幕随事件发送、打字和语音进入同一条对话、静音、失败回合、打断。另外用 Chromium（假麦克风）加脚本化 LLM 在真实 WebRTC 连接上冒烟测试了接通、通话中打字、静音、挂断和记录持久化。
 
 待人工验收：需要真实的 Soniox、Fish Audio 密钥，和真乃、恋鐘各通一次电话，确认延迟、识别效果和字幕与语音的对应。
+
+审查后的修改：去掉未使用的 silero 依赖；通话音质改名并说明不影响流量；静音状态在回复开始时读取；每个 peer connection 记下所属用户和通话，重新协商（包括重建连接）沿用同一通话；打字和语音共用输入长度上限；前端建立通话失败时释放麦克风。
+
+已知限制：用户开口打断时，当前回复停止发声，但新的一句要等当前回复的文字生成完才开始处理；没有限制同一用户同时开几通电话（按用户限流见 14）。

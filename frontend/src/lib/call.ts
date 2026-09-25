@@ -15,7 +15,8 @@ export type CallHandlers = {
   onEvent: (event: CallEvent) => void;
   /** What the user is saying so far; empty once the utterance is complete. */
   onHearing: (text: string) => void;
-  onVoice: (track: MediaStreamTrack) => void;
+  /** The character's speech, to play. */
+  onCharacterAudio: (track: MediaStreamTrack) => void;
   /** The call ended without the user hanging up. */
   onDropped: () => void;
 };
@@ -35,23 +36,23 @@ export async function startCall(
   const iceServers = await getIceServers();
   const microphone = await Microphone.open(preferences.micId);
   let hungUp = false;
-  const client = new PipecatClient({
-    transport: new SmallWebRTCTransport({ iceServers, mediaManager: microphone }),
-    enableMic: true,
-    enableCam: false,
-    callbacks: {
-      onServerMessage: (data) => handlers.onEvent(data as CallEvent),
-      onUserTranscript: (data) => handlers.onHearing(data.final ? "" : data.text),
-      onTrackStarted: (track, participant) => {
-        if (!participant?.local && track.kind === "audio") handlers.onVoice(track);
-      },
-      onDisconnected: () => {
-        if (!hungUp) handlers.onDropped();
-      },
-    },
-  });
-
+  let client: PipecatClient | null = null;
   try {
+    client = new PipecatClient({
+      transport: new SmallWebRTCTransport({ iceServers, mediaManager: microphone }),
+      enableMic: true,
+      enableCam: false,
+      callbacks: {
+        onServerMessage: (data) => handlers.onEvent(data as CallEvent),
+        onUserTranscript: (data) => handlers.onHearing(data.final ? "" : data.text),
+        onTrackStarted: (track, participant) => {
+          if (!participant?.local && track.kind === "audio") handlers.onCharacterAudio(track);
+        },
+        onDisconnected: () => {
+          if (!hungUp) handlers.onDropped();
+        },
+      },
+    });
     await client.connect({
       webrtcRequestParams: {
         endpoint: "/api/offer",
@@ -65,17 +66,18 @@ export async function startCall(
     });
   } catch (e) {
     hungUp = true;
-    await client.disconnect().catch(() => {});
+    await client?.disconnect().catch(() => {});
     await microphone.disconnect();
     throw await explain(e);
   }
 
+  const connected = client;
   return {
-    sendText: (text) => client.sendClientMessage("user-text", { text }),
-    setMuted: (muted) => client.sendClientMessage("mute", { muted }),
+    sendText: (text) => connected.sendClientMessage("user-text", { text }),
+    setMuted: (muted) => connected.sendClientMessage("mute", { muted }),
     hangUp: async () => {
       hungUp = true;
-      await client.disconnect();
+      await connected.disconnect();
     },
   };
 }

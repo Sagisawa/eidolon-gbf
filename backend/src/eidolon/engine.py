@@ -14,6 +14,9 @@ from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.store import Conversation, Message, Store
 
+MAX_INPUT_LENGTH = 2000
+"""The longest thing a user can say in one turn, typed or spoken, in characters."""
+
 
 @dataclass(frozen=True)
 class TurnDone:

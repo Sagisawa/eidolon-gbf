@@ -45,7 +45,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from eidolon.characters import Character
 from eidolon.config import Settings
-from eidolon.engine import ConversationEngine, TurnDone
+from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine, TurnDone
 from eidolon.store import Conversation
 
 log = logging.getLogger(__name__)
@@ -53,7 +53,8 @@ log = logging.getLogger(__name__)
 Quality = Literal["low", "standard", "high"]
 
 _SAMPLE_RATES: dict[Quality, int] = {"low": 16000, "standard": 24000, "high": 44100}
-"""Call quality is the sample rate the character's voice is synthesised at."""
+"""Call quality is the sample rate the character's speech is synthesised at. It does not
+change the network traffic: WebRTC always sends Opus at 48 kHz."""
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ CallStarter = Callable[[SmallWebRTCConnection, Call], Awaitable[None]]
 """Starts serving a call on a freshly negotiated connection, without waiting for it to end."""
 
 
-def voice_calls(settings: Settings, engine: ConversationEngine) -> CallStarter | None:
+def serve_calls(settings: Settings, engine: ConversationEngine) -> CallStarter | None:
     """Serves calls with Soniox and Fish Audio; None until both are configured."""
     soniox_key, fish_key = settings.soniox_api_key, settings.fish_audio_api_key
     if not soniox_key or not fish_key:
@@ -146,7 +147,7 @@ class CallTurns(FrameProcessor):
     browser gets the same events as a text turn (`user`, `delta`, `done` or
     `error`) as server messages, which carry the subtitles.
 
-    A `mute` client message decides whether later replies are voiced at all. An
+    A `mute` client message decides whether replies from then on are voiced at all. An
     interruption (the user starts talking) stops voicing the reply in progress;
     the reply still completes and is recorded, as the browser shows it in full.
     """
@@ -156,7 +157,7 @@ class CallTurns(FrameProcessor):
         self._engine = engine
         self._call = call
         self._muted = call.muted
-        self._inputs: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
+        self._inputs: asyncio.Queue[str] = asyncio.Queue()
         self._worker: asyncio.Task | None = None
         self._voicing = False
 
@@ -184,20 +185,20 @@ class CallTurns(FrameProcessor):
 
     def _take_up(self, text: str) -> None:
         if text.strip():
-            self._inputs.put_nowait((text.strip(), self._muted))
+            self._inputs.put_nowait(text.strip())
 
     def _handle_client_message(self, frame: RTVIClientMessageFrame) -> None:
         data = frame.data if isinstance(frame.data, dict) else {}
         if frame.type == "user-text" and isinstance(data.get("text"), str):
-            self._take_up(data["text"][:2000])
+            self._take_up(data["text"][:MAX_INPUT_LENGTH])
         elif frame.type == "mute" and isinstance(data.get("muted"), bool):
             self._muted = data["muted"]
 
     async def _take_turns(self) -> None:
         while True:
-            text, muted = await self._inputs.get()
+            text = await self._inputs.get()
             try:
-                await self._turn(text, voiced=not muted)
+                await self._turn(text, voiced=not self._muted)
             finally:
                 self._inputs.task_done()
 

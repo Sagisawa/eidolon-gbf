@@ -70,7 +70,7 @@ export function CallSettings() {
 
       <div className="field">
         <label htmlFor="quality">通话音质</label>
-        <p className="hint">角色语音的音质；网络不好或想省流量时选低一些。下次接通时生效。</p>
+        <p className="hint">角色说话声音的合成音质，越高越清晰，不影响流量。下次接通时生效。</p>
         <select
           id="quality"
           value={preferences.quality}

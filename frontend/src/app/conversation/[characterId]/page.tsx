@@ -72,7 +72,7 @@ export default function ConversationPage() {
   const [hearing, setHearing] = useState("");
   const call = useRef<Call | null>(null);
   const callTurn = useRef<PendingTurn | null>(null);
-  const voice = useRef<HTMLAudioElement>(null);
+  const characterAudio = useRef<HTMLAudioElement>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -155,8 +155,8 @@ export default function ConversationPage() {
       call.current = await startCall(conversationId, loadCallPreferences(), {
         onEvent: onCallEvent,
         onHearing: setHearing,
-        onVoice: (track) => {
-          if (voice.current) voice.current.srcObject = new MediaStream([track]);
+        onCharacterAudio: (track) => {
+          if (characterAudio.current) characterAudio.current.srcObject = new MediaStream([track]);
         },
         onDropped: () => {
           call.current = null;
@@ -296,7 +296,7 @@ export default function ConversationPage() {
         </label>
         {callState === "active" && <span className="call-status">通话中，直接说话即可</span>}
       </div>
-      <audio ref={voice} autoPlay muted={muted} />
+      <audio ref={characterAudio} autoPlay muted={muted} />
 
       <form className="composer" onSubmit={submit}>
         <input

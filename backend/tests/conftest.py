@@ -152,9 +152,9 @@ async def make_client(
         key: str | None = producer_key.secret,
         *,
         settings: Settings = settings,
-        voice: bool = True,
+        calls_configured: bool = True,
     ) -> httpx.AsyncClient:
-        app = create_app(settings, chat_llm=llm, call_starter=calls if voice else None)
+        app = create_app(settings, chat_llm=llm, call_starter=calls if calls_configured else None)
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers

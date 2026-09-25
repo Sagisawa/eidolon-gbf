@@ -140,7 +140,7 @@ async def test_ice_candidates_are_only_accepted_for_your_own_call(
 async def test_call_is_unavailable_until_voice_services_are_configured(
     make_client: ClientFactory, browser: RTCPeerConnection
 ):
-    client = make_client(FakeLLM(), voice=False)
+    client = make_client(FakeLLM(), calls_configured=False)
     conversation_id = await start_conversation(client)
 
     for res in [
@@ -149,3 +149,22 @@ async def test_call_is_unavailable_until_voice_services_are_configured(
     ]:
         assert res.status_code == 503
         assert "语音" in res.json()["detail"]
+
+
+async def test_only_your_own_call_can_be_renegotiated(
+    make_client: ClientFactory, admin: Admin, calls: FakeCalls, browser: RTCPeerConnection
+):
+    client = make_client(FakeLLM())
+    conversation_id = await start_conversation(client)
+    pc_id = (await call(client, browser, conversation_id=conversation_id)).json()["pc_id"]
+    renegotiation = {
+        **await offer_body(browser, conversation_id=conversation_id), "pc_id": pc_id
+    }
+
+    assert (await client.post("/api/offer", json=renegotiation)).status_code == 200
+
+    admin.create_user("stranger")
+    client.headers["Authorization"] = f"Bearer {admin.issue_key('stranger').secret}"
+
+    assert (await client.post("/api/offer", json=renegotiation)).status_code == 404
+    assert len(calls.started) == 1

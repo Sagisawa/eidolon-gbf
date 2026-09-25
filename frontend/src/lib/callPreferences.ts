@@ -4,9 +4,9 @@
 export type Quality = "low" | "standard" | "high";
 
 export const QUALITY_LABELS: Record<Quality, string> = {
-  low: "省流量",
-  standard: "标准",
-  high: "高音质",
+  low: "普通",
+  standard: "清晰",
+  high: "高保真",
 };
 
 export type CallPreferences = {
