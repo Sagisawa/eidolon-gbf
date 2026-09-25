@@ -34,7 +34,7 @@ from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile
 from eidolon.rerank import Reranker, SiliconFlowReranker
 from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Conversation, KeyRevoked, Store
-from eidolon.usage import OverLimit, UsageLimiter
+from eidolon.usage import OverLimit, Use, UsageLimiter
 
 log = logging.getLogger(__name__)
 
@@ -194,7 +194,7 @@ def create_app(
         """Refused for now, with when the user can go on (also as `Retry-After`)."""
         wait = max(1, math.ceil((e.retry_at - e.now).total_seconds()))
         return JSONResponse(
-            {"detail": e.message, "retry_at": e.retry_at.isoformat()},
+            {"detail": str(e), "retry_at": e.retry_at.isoformat()},
             status_code=429,
             headers={"Retry-After": str(wait)},
         )
@@ -228,6 +228,7 @@ def create_app(
     ) -> dict:
         """WebRTC signalling: a new call into one of the user's conversations, or a renegotiation."""
         starter = require_voice()
+        use = Use()  # renegotiating is free
         if body.pc_id is not None:  # renegotiating, possibly on a fresh peer connection
             owner, call = calls.get(body.pc_id, (None, None))
             if owner != user_id or call is None:
@@ -236,7 +237,7 @@ def create_app(
             raise HTTPException(422, "缺少要通话的对话")
         else:
             conversation = conversation_or_404(body.call.conversation_id, user_id)
-            usage.take(user_id, "call")
+            use = usage.take(user_id, "call")
             call = Call(
                 conversation,
                 characters[conversation.character_id],
@@ -253,8 +254,13 @@ def create_app(
             await starter(connection, call)
 
         request = SmallWebRTCRequest(body.sdp, body.type, body.pc_id, body.restart_pc)
-        answer = await webrtc.handle_web_request(request, start)
+        try:
+            answer = await webrtc.handle_web_request(request, start)
+        except Exception:
+            log.exception("could not set up a call")
+            answer = None
         if answer is None:
+            use.give_back()
             raise HTTPException(500, "无法建立通话")
         calls[answer["pc_id"]] = (user_id, call)
         return answer
@@ -356,7 +362,7 @@ def create_app(
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        usage.take(user_id, "turn")
+        use = usage.take(user_id, "turn")
 
         async def events() -> AsyncIterator[str]:
             try:
@@ -368,6 +374,7 @@ def create_app(
                     yield _sse(payload)
             except Exception:  # the stream has started; report instead of dropping it
                 log.exception("text turn failed in conversation %s", conversation.id)
+                use.give_back()
                 yield _sse({"type": "error", "message": "角色暂时无法回复，请稍后再试。"})
 
         return StreamingResponse(

@@ -152,3 +152,29 @@ def test_limits_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EIDOLON_CALLS_PER_HOUR", "-1")
     with pytest.raises(RuntimeError, match="EIDOLON_CALLS_PER_HOUR"):
         UsageLimits.from_env()
+
+
+async def test_a_turn_that_fails_gives_its_use_back(make_client: ClientFactory, settings: Settings):
+    llm = FakeLLM()  # no scripted reply: the first turn fails
+    client = make_client(llm, settings=limited(settings, turns=1), clock=FakeClock())
+    conversation_id = await start_conversation(client)
+
+    assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "error"
+
+    llm._replies.append(list(REPLY))
+    assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "done"
+
+
+async def test_a_call_that_cannot_be_set_up_gives_its_use_back(
+    make_client: ClientFactory, settings: Settings, calls: FakeCalls
+):
+    client = make_client(FakeLLM(), settings=limited(settings, calls=1), clock=FakeClock())
+    conversation_id = await start_conversation(client)
+    async with browser() as pc:
+        broken = {**await offer_body(pc, conversation_id=conversation_id), "type": "answer"}
+        failed = await client.post("/api/offer", json=broken)
+    assert failed.status_code == 500
+    assert failed.json()["detail"] == "无法建立通话"
+
+    async with browser() as pc:
+        assert (await call(client, pc, conversation_id=conversation_id)).status_code == 200

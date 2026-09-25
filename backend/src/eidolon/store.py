@@ -17,6 +17,8 @@ from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
 
+UsageKind = Literal["turn", "call"]
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -63,7 +65,9 @@ CREATE TABLE IF NOT EXISTS memories (
     created_at TEXT NOT NULL,
     UNIQUE (user_id, text)
 );
+-- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
 CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id),
     kind TEXT NOT NULL,
     at REAL NOT NULL
@@ -91,6 +95,14 @@ class AccessKey:
 
 class KeyRevoked(Exception):
     pass
+
+
+class LimitReached(Exception):
+    """The user has no uses left in the window; the next is allowed at `retry_at`."""
+
+    def __init__(self, retry_at: datetime) -> None:
+        super().__init__(f"limit reached until {retry_at.isoformat()}")
+        self.retry_at = retry_at
 
 
 class NotFound(LookupError):
@@ -348,15 +360,18 @@ class Store:
             self._db.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
 
     def take_usage(
-        self, user_id: str, kind: str, now: datetime, window: timedelta, limit: int
-    ) -> datetime | None:
-        """Record one use of `kind` by the user at `now`, unless they already have `limit`
-        uses in the `window` before it; then record nothing and return when enough of those
-        uses will have aged out for the next to be allowed. Uses older than any window are
-        forgotten."""
+        self, user_id: str, kind: UsageKind, now: datetime, window: timedelta, limit: int
+    ) -> int:
+        """Record one use of `kind` by the user at `now` and return its id, unless they
+        already have `limit` uses in the `window` before it: then record nothing and raise
+        LimitReached with when enough of those will have aged out. The user's older uses
+        of `kind` are forgotten."""
         since = (now - window).timestamp()
         with self._lock, self._db:
-            self._db.execute("DELETE FROM usage WHERE at <= ?", (since,))
+            self._db.execute(
+                "DELETE FROM usage WHERE user_id = ? AND kind = ? AND at <= ?",
+                (user_id, kind, since),
+            )
             recent = [
                 row["at"]
                 for row in self._db.execute(
@@ -366,12 +381,18 @@ class Store:
             ]
             if len(recent) >= limit:
                 blocking = recent[len(recent) - limit]  # this one must age out first
-                return datetime.fromtimestamp(blocking, UTC) + window
-            self._db.execute(
+                raise LimitReached(datetime.fromtimestamp(blocking, UTC) + window)
+            cursor = self._db.execute(
                 "INSERT INTO usage (user_id, kind, at) VALUES (?, ?, ?)",
                 (user_id, kind, now.timestamp()),
             )
-        return None
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    def give_back_usage(self, use_id: int) -> None:
+        """Forget a use, as if it had never been taken."""
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM usage WHERE id = ?", (use_id,))
 
     def close(self) -> None:
         self._db.close()
