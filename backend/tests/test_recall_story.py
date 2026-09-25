@@ -9,6 +9,7 @@ import pytest
 from eidolon.characters import load_characters
 from eidolon.config import Settings
 from eidolon.corpus import StoryCorpus
+from eidolon import engine
 from eidolon.engine import MAX_TOOL_ROUNDS
 from eidolon.llm import ChatMessage, ToolCall
 from eidolon.story_import import import_csv_directory
@@ -18,6 +19,11 @@ from tests.test_text_turn import send_turn, start_conversation
 
 PARK_LINE = "公園で鳩と一緒に歌っていました"
 ANSWER = ["<ja>公園でピーちゃんたちと歌ってたんです</ja><zh>我在公园和小皮它们唱歌</zh>"]
+# Worded and verified against the real chat model (ticket 16); used as is.
+LAST_ROUND_NOTE = (
+    "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
+    "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
+)
 
 
 def recall(query: str, id: str = "call_1") -> ToolCall:
@@ -72,6 +78,24 @@ async def test_the_reply_is_based_on_the_recalled_episode_and_its_place_in_the_c
         ("user", "那次在公园唱歌是怎么回事？", None),
         ("character", None, "公園でピーちゃんたちと歌ってたんです"),
     ]
+
+
+async def test_the_last_tool_results_the_model_reads_tell_it_no_more_tools_are_coming(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM([recall("公園で鳩と歌った日")], ANSWER)
+    client = make_client(
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+    )
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
+
+    [result] = tool_results(llm.prompts[-1])
+    episode, note = result.rsplit("\n\n", 1)
+    assert note == LAST_ROUND_NOTE
+    assert f"真乃：{PARK_LINE}" in episode
+    assert LAST_ROUND_NOTE not in episode
 
 
 async def test_a_character_only_recalls_episodes_she_is_cast_in(
@@ -174,6 +198,61 @@ async def test_a_failed_or_malformed_call_is_answered_and_the_turn_goes_on(
     assert "take_selfie" in unknown
     assert "暂时想不起来" in failed
     assert events[-1]["type"] == "done"
+    # Every result of the last round says no more tools are coming, the failed ones too.
+    assert all(r.endswith(LAST_ROUND_NOTE) for r in (malformed, unknown, failed))
+
+
+async def test_a_turn_without_tool_calls_asks_the_model_once_with_no_note(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM(ANSWER)
+    client = make_client(
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+    )
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, "公园那次呢？")
+
+    [prompt] = llm.prompts
+    assert not any(LAST_ROUND_NOTE in m.content for m in prompt)
+
+
+async def test_the_note_is_never_recorded_or_seen_again_in_later_turns(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM([recall("公園")], ANSWER, ANSWER)
+    client = make_client(
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+    )
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "公园那次呢？")
+    await send_turn(client, conversation_id, "后来呢？")
+
+    assert events[-1]["message"]["segments"] == [
+        {"ja": "公園でピーちゃんたちと歌ってたんです", "zh": "我在公园和小皮它们唱歌"}
+    ]
+    assert not any(LAST_ROUND_NOTE in m.content for m in llm.prompts[-1])
+    messages = (await client.get(f"/api/conversations/{conversation_id}/messages")).text
+    assert "不能再调用任何工具" not in messages
+
+
+async def test_with_more_tool_rounds_only_the_last_results_carry_the_note(
+    make_client: ClientFactory, embedder: FakeEmbedder, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(engine, "MAX_TOOL_ROUNDS", 2)
+    llm = FakeLLM([recall("公園", "call_1")], [recall("公園の鳩", "call_2")], ANSWER)
+    client = make_client(
+        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
+    )
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, "公园那次呢？")
+
+    assert [len(tools) for tools in llm.tools] == [1, 1, 0]
+    earlier, last = tool_results(llm.prompts[-1])
+    assert LAST_ROUND_NOTE not in earlier
+    assert last.endswith(LAST_ROUND_NOTE)
 
 
 async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_the_model_answers(

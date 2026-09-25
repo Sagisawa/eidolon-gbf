@@ -31,6 +31,14 @@ MAX_INPUT_LENGTH = 2000
 """The longest thing a user can say in one turn, typed or spoken, in characters."""
 MAX_TOOL_ROUNDS = 1
 """How many rounds of tool calls the chat model gets in one turn; after that it has to answer."""
+LAST_ROUND_NOTE = (
+    "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
+    "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
+)
+"""Added to each tool result the model reads just before the round that offers no tools.
+Without it the model, still wanting to look something up, writes out its own tool-call
+markup as the reply. Worded and verified against the real chat model; rewording it needs
+that verification again."""
 
 
 @dataclass(frozen=True)
@@ -112,8 +120,11 @@ class ConversationEngine:
             if not calls or not offered:  # a call to a tool not offered goes unanswered
                 break
             prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]
+            last = step + 1 == MAX_TOOL_ROUNDS
             for call in calls:
                 result = await self._call_tool(character, call)
+                if last:
+                    result = f"{result}\n\n{LAST_ROUND_NOTE}"
                 prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
 
         if not parser.segments:
