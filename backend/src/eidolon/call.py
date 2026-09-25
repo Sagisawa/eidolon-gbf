@@ -76,10 +76,13 @@ def serve_calls(settings: Settings, engine: ConversationEngine) -> CallStarter |
     soniox_key, fish_key = settings.soniox_api_key, settings.fish_audio_api_key
     if not soniox_key or not fish_key:
         return None
+    fish_model = settings.fish_audio_model
     running: set[asyncio.Task] = set()
 
     async def start(connection: SmallWebRTCConnection, call: Call) -> None:
-        task = asyncio.create_task(_serve(connection, call, engine, soniox_key, fish_key))
+        task = asyncio.create_task(
+            _serve(connection, call, engine, soniox_key, fish_key, fish_model)
+        )
         running.add(task)  # keep a reference until the call ends
         task.add_done_callback(running.discard)
 
@@ -92,6 +95,7 @@ async def _serve(
     engine: ConversationEngine,
     soniox_key: str,
     fish_key: str,
+    fish_model: str,
 ) -> None:
     sample_rate = _SAMPLE_RATES[call.quality]
     transport = SmallWebRTCTransport(
@@ -110,7 +114,7 @@ async def _serve(
     tts = FishAudioTTSService(
         api_key=fish_key,
         sample_rate=sample_rate,
-        settings=FishAudioTTSService.Settings(voice=call.character.voice_id),
+        settings=FishAudioTTSService.Settings(voice=call.character.voice_id, model=fish_model),
     )
     pipeline = Pipeline(
         [

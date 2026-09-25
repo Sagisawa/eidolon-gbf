@@ -15,6 +15,9 @@ class IceServer(TypedDict, total=False):
     credential: str
 
 
+DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
+"""Fish Audio's free-tier model: it draws on no API credit, unlike the paid ones."""
+
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 
@@ -28,6 +31,7 @@ class Settings:
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
     soniox_api_key: str | None = None
     fish_audio_api_key: str | None = None
+    fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -42,6 +46,7 @@ class Settings:
             ice_servers=_ice_servers(os.environ.get("EIDOLON_ICE_SERVERS")),
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
+            fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
         )
 
 
