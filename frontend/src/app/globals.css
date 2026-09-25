@@ -61,7 +61,7 @@ button.ghost {
   border: 1px solid var(--border);
 }
 
-.chat {
+.conversation {
   display: flex;
   flex-direction: column;
   max-width: 720px;
@@ -70,7 +70,7 @@ button.ghost {
   padding: 0 16px;
 }
 
-.chat-header {
+.conversation-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,7 +78,7 @@ button.ghost {
   border-bottom: 1px solid var(--border);
 }
 
-.chat-header h1 {
+.conversation-header h1 {
   margin: 0;
   font-size: 1.125rem;
 }

@@ -38,7 +38,10 @@ class OpenAICompatLLM:
                 data = line.removeprefix("data:").strip()
                 if data == "[DONE]":
                     break
-                for choice in json.loads(data).get("choices") or []:
+                event = json.loads(data)
+                if event.get("error"):
+                    raise LLMError(f"对话模型在流式输出中报错: {event['error']}")
+                for choice in event.get("choices") or []:
                     content = (choice.get("delta") or {}).get("content")
                     if content:
                         yield content

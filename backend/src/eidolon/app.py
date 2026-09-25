@@ -1,6 +1,7 @@
 """The backend's HTTP API."""
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -15,6 +16,8 @@ from eidolon.engine import ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.store import DEFAULT_USER_ID, Conversation, Store
+
+log = logging.getLogger(__name__)
 
 
 class NewConversation(BaseModel):
@@ -35,8 +38,7 @@ def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        if isinstance(llm, OpenAICompatLLM):
-            await llm.aclose()
+        await llm.aclose()
         store.close()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
@@ -78,8 +80,9 @@ def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
                     else:
                         payload = {"type": "delta", **asdict(event)}
                     yield _sse(payload)
-            except Exception as exc:  # the stream has started; report instead of dropping it
-                yield _sse({"type": "error", "message": f"角色暂时无法回复：{exc}"})
+            except Exception:  # the stream has started; report instead of dropping it
+                log.exception("text turn failed in conversation %s", conversation.id)
+                yield _sse({"type": "error", "message": "角色暂时无法回复，请稍后再试。"})
 
         return StreamingResponse(
             events(),

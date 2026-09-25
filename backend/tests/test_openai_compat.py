@@ -63,3 +63,19 @@ async def test_error_status_is_raised_with_the_provider_message():
 
     with pytest.raises(LLMError, match="401.*invalid api key"):
         [c async for c in llm.stream([ChatMessage("user", "你好")])]
+
+
+async def test_error_sent_inside_the_stream_is_raised():
+    stream = (
+        'data: {"choices":[{"delta":{"content":"<ja>ほわ"}}]}\n\n'
+        'data: {"error":{"message":"upstream overloaded"}}\n\n'
+    )
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "sk-test", "some-model",
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, text=stream))
+        ),
+    )
+
+    with pytest.raises(LLMError, match="upstream overloaded"):
+        [c async for c in llm.stream([ChatMessage("user", "你好")])]

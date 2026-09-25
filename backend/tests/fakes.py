@@ -22,3 +22,6 @@ class FakeLLM:
             raise AssertionError("FakeLLM ran out of scripted replies")
         for chunk in self._replies.pop(0):
             yield chunk
+
+    async def aclose(self) -> None:
+        pass

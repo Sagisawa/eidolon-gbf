@@ -28,7 +28,7 @@ function toEntry(message: Message): Entry {
       };
 }
 
-export default function ChatPage() {
+export default function ConversationPage() {
   const { characterId } = useParams<{ characterId: string }>();
   const name = CHARACTER_NAMES[characterId] ?? characterId;
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -80,9 +80,10 @@ export default function ChatPage() {
     setBusy(true);
     setError(null);
     const replyKey = `pending-${Date.now()}`;
+    const userKey = `${replyKey}-user`;
     setEntries((all) => [
       ...all,
-      { kind: "user", key: `${replyKey}-user`, text },
+      { kind: "user", key: userKey, text },
       { kind: "character", key: replyKey, segments: [], pending: true },
     ]);
     const updateReply = (update: (entry: Entry & { kind: "character" }) => Entry) =>
@@ -92,6 +93,7 @@ export default function ChatPage() {
         ),
       );
 
+    let failure: string | null = null;
     try {
       for await (const event of sendTurn(conversationId, text)) {
         if (event.type === "delta") {
@@ -102,29 +104,26 @@ export default function ChatPage() {
             return { ...entry, segments };
           });
         } else if (event.type === "error") {
-          setError(event.message);
+          failure = event.message;
         }
       }
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      // Settle the reply; drop it if nothing arrived before an error.
-      setEntries((all) =>
-        all.flatMap((entry) =>
-          entry.key !== replyKey || entry.kind !== "character"
-            ? [entry]
-            : entry.segments.length === 0
-              ? []
-              : [{ ...entry, pending: false }],
-        ),
-      );
-      setBusy(false);
+      failure = (e as Error).message;
     }
+    if (failure) {
+      // A failed turn is not recorded: take it back off the log and return the text to the input.
+      setEntries((all) => all.filter((entry) => entry.key !== replyKey && entry.key !== userKey));
+      setInput(text);
+      setError(failure);
+    } else {
+      updateReply((entry) => ({ ...entry, pending: false }));
+    }
+    setBusy(false);
   }
 
   return (
-    <main className="chat">
-      <header className="chat-header">
+    <main className="conversation">
+      <header className="conversation-header">
         <h1>{name}</h1>
         <button type="button" className="ghost" onClick={startNewConversation} disabled={busy}>
           新对话

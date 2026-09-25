@@ -2,7 +2,8 @@
 
 It knows nothing about voice. Given a conversation and the user's input text it
 assembles the prompt, streams the chat model's structured reply as per-segment
-deltas, and records both sides of the turn.
+deltas, and records both sides of the turn once the reply is complete. A turn
+that fails part-way leaves no record.
 """
 
 from collections.abc import AsyncIterator
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 
 from eidolon.characters import CHARACTERS
 from eidolon.llm import ChatLLM, ChatMessage
-from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta
+from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.store import Conversation, Message, Store
 
 
@@ -22,6 +23,10 @@ class TurnDone:
 TurnEvent = SegmentDelta | TurnDone
 
 
+class EmptyReply(RuntimeError):
+    pass
+
+
 class ConversationEngine:
     def __init__(self, store: Store, chat_llm: ChatLLM) -> None:
         self._store = store
@@ -29,7 +34,6 @@ class ConversationEngine:
 
     async def turn(self, conversation: Conversation, text: str) -> AsyncIterator[TurnEvent]:
         history = self._store.list_messages(conversation.id)
-        self._store.add_user_message(conversation.id, text)
         prompt = self._prompt(conversation, history, text)
 
         parser = ReplyParser()
@@ -39,7 +43,9 @@ class ConversationEngine:
         for delta in parser.finish():
             yield delta
 
-        reply = self._store.add_character_message(conversation.id, parser.segments)
+        if not parser.segments:
+            raise EmptyReply("对话模型没有返回任何内容")
+        reply = self._store.add_turn(conversation.id, text, parser.segments)
         yield TurnDone(reply)
 
     def _prompt(
@@ -51,7 +57,6 @@ class ConversationEngine:
             if message.role == "user":
                 prompt.append(ChatMessage("user", message.text or ""))
             else:
-                reply = "".join(f"<ja>{s.ja}</ja><zh>{s.zh}</zh>" for s in message.segments)
-                prompt.append(ChatMessage("assistant", reply))
+                prompt.append(ChatMessage("assistant", format_reply(message.segments)))
         prompt.append(ChatMessage("user", text))
         return prompt

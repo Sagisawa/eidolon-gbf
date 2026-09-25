@@ -60,8 +60,11 @@ class ReplyParser:
     def finish(self) -> list[SegmentDelta]:
         """Flush what is left. A reply that ignored the format becomes one Japanese segment."""
         deltas: list[SegmentDelta] = []
-        if self._inside is not None and self._buffer:
-            deltas.append(self._append(self._inside, self._buffer))
+        if self._inside is not None:
+            keep = _partial_suffix(self._buffer, (f"</{self._inside}>",))
+            text = self._buffer[: len(self._buffer) - keep]
+            if text:
+                deltas.append(self._append(self._inside, text))
         elif not self.segments and (self._stray + self._buffer).strip():
             deltas.append(self._append("ja", (self._stray + self._buffer).strip()))
         self._buffer = ""
@@ -100,6 +103,11 @@ class ReplyParser:
         segment = self.segments[-1]
         setattr(segment, lang, getattr(segment, lang) + text)
         return SegmentDelta(len(self.segments) - 1, lang, text)
+
+
+def format_reply(segments: list[Segment]) -> str:
+    """Write segments back in the reply format, e.g. for earlier replies in the prompt."""
+    return "".join(f"<ja>{s.ja}</ja><zh>{s.zh}</zh>" for s in segments)
 
 
 def _partial_suffix(text: str, tags: tuple[str, ...]) -> int:

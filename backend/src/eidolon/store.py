@@ -13,6 +13,8 @@ from eidolon.reply_format import Segment
 
 DEFAULT_USER_ID = "default"
 
+Role = Literal["user", "character"]
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -55,7 +57,7 @@ class Message:
     """
 
     id: int
-    role: Literal["user", "character"]
+    role: Role
     text: str | None
     ja: str | None
     zh: str | None
@@ -104,11 +106,11 @@ class Store:
             ).fetchall()
         return [Conversation(**row) for row in rows]
 
-    def add_user_message(self, conversation_id: str, text: str) -> Message:
-        return self._add_message(conversation_id, "user", text=text)
-
-    def add_character_message(self, conversation_id: str, segments: list[Segment]) -> Message:
-        return self._add_message(conversation_id, "character", segments=segments)
+    def add_turn(self, conversation_id: str, text: str, reply: list[Segment]) -> Message:
+        """Record the user's input and the character's reply together; returns the reply."""
+        with self._lock, self._db:
+            self._insert_message(conversation_id, "user", text=text)
+            return self._insert_message(conversation_id, "character", segments=reply)
 
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._lock:
@@ -128,10 +130,10 @@ class Store:
     def close(self) -> None:
         self._db.close()
 
-    def _add_message(
+    def _insert_message(
         self,
         conversation_id: str,
-        role: Literal["user", "character"],
+        role: Role,
         text: str | None = None,
         segments: list[Segment] | None = None,
     ) -> Message:
@@ -141,12 +143,11 @@ class Store:
             ja = "".join(s.ja for s in segments)
             zh = "".join(s.zh for s in segments)
             stored_segments = json.dumps([asdict(s) for s in segments], ensure_ascii=False)
-        with self._lock, self._db:
-            cursor = self._db.execute(
-                "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (conversation_id, role, text, ja, zh, stored_segments, created_at),
-            )
+        cursor = self._db.execute(
+            "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (conversation_id, role, text, ja, zh, stored_segments, created_at),
+        )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
 
