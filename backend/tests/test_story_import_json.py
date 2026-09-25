@@ -69,7 +69,8 @@ async def test_each_script_becomes_an_episode_keyed_by_its_path(
     assert park.lines[-1].speaker is None and park.lines[-1].ja == "（夕日が公園を照らしている）"
     card = importer.corpus.get("produce_events/201100501")
     assert card is not None
-    assert (card.category, card.cast) == ("P卡剧情", {"kogane"})
+    # A joint line casts both; Kogane's mother is not Kogane.
+    assert (card.category, card.cast) == ("P卡剧情", {"kogane", "mano"})
 
 
 async def test_every_reaction_is_kept_but_not_which_option_the_producer_picked(
@@ -161,7 +162,7 @@ async def test_the_translated_csv_is_kept_over_the_json_of_the_same_script(
     assert won is not None
     assert won.title == "決勝後コミュ"
     assert won.lines[0].zh == "……优，优胜了呢"
-    assert report.kept_csv == 2  # Mano's first episode and her W.I.N.G. win
+    assert report.csv_versions_kept == 2  # Mano's first episode and her W.I.N.G. win
     ids = [e.id for e in importer.corpus.list_episodes()]
     assert len(ids) == len(set(ids)) == 5
 
@@ -176,7 +177,8 @@ async def test_importing_the_csv_after_the_json_replaces_it(
     won = importer.corpus.get("produce_events/600100106")
     assert won is not None
     assert (won.title, won.lines[0].zh) == ("決勝後コミュ", "……优，优胜了呢")
-    assert len(importer.corpus.list_episodes("mano")) == 3
+    # Her two CSV episodes, and Kogane's card only the JSON has.
+    assert len(importer.corpus.list_episodes("mano")) == 4
     # And importing the JSON again leaves the CSV version alone.
     await importer.json(scripts)
     won = importer.corpus.get("produce_events/600100106")
@@ -225,15 +227,14 @@ async def test_unreadable_or_unrecognised_files_are_skipped_with_a_warning(
     write_script(root, "produce_events/100100101.json", PARK_SCRIPT)
     (root / "produce_events/100100102.json").write_text("{not json", encoding="utf-8")
     write_script(root, "produce_events/100100103.json", {"frames": PARK_SCRIPT})
+    # Neither names the script it is, so neither could be matched with a CSV of it.
     write_script(root, "櫻木真乃/公園の歌声.json", PARK_SCRIPT)
+    write_script(root, "櫻木真乃/event_2.json", PARK_SCRIPT)
 
     report = await importer.json(root)
 
-    # A script whose path does not name it is still imported, keyed by its path.
-    assert [e.id for e in importer.corpus.list_episodes()] == [
-        "json/櫻木真乃/公園の歌声",
-        "produce_events/100100101",
-    ]
+    assert [e.id for e in importer.corpus.list_episodes()] == ["produce_events/100100101"]
+    assert any("event_2" in w and "来源标识" in w for w in report.warnings)
     assert any("100100102" in w for w in report.warnings)
     assert any("100100103" in w for w in report.warnings)
     assert any("公園の歌声" in w and "来源标识" in w for w in report.warnings)

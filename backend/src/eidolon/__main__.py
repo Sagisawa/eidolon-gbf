@@ -81,10 +81,10 @@ async def _import_story(args: argparse.Namespace) -> int:
     try:
         corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
         try:
-            import_directory = (
+            import_stories = (
                 import_json_directory if args.action == "import-json" else import_csv_directory
             )
-            report = await import_directory(args.directory, corpus, characters.values())
+            report = await import_stories(args.directory, corpus, characters.values())
             catalogs = {c.name: corpus.catalog(c.id) for c in characters.values()}
         finally:
             corpus.close()
@@ -99,8 +99,8 @@ async def _import_story(args: argparse.Namespace) -> int:
         f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
         f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 段文本"
     )
-    if report.kept_csv:
-        print(f"另有 {report.kept_csv} 段剧情已从 CSV 导入（带中文翻译），保留 CSV 版本")
+    if report.csv_versions_kept:
+        print(f"另有 {report.csv_versions_kept} 段剧情已从 CSV 导入（带中文翻译），保留 CSV 版本")
     for name, catalog in catalogs.items():
         episodes = sum(len(source.episodes) for source in catalog)
         print(f"剧情目录 {name}：{len(catalog)} 张卡或活动，{episodes} 段剧情")

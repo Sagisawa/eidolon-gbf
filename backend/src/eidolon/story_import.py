@@ -11,8 +11,9 @@ the game's own layout (`produce_events/100100101.json`) or the translation plugi
 name for a download (`produce_events_100100101.json`). The source and title come from
 the directory and file name when the file is filed like SCTranslationData; a file kept
 in the game's layout has neither, so its card or event is its script number without
-the episode (`produce_events/2011005`) and its title the plugin's name. Scripts carry
-no translation. A script SCTranslationData has translated is kept from the CSV: the
+the episode (`produce_events/2011005`) and its title the plugin's name. A file whose
+path names no script is skipped: it could not be matched with a CSV of the same
+script. Scripts carry no translation. A script SCTranslationData has translated is kept from the CSV: the
 JSON import leaves a CSV version alone, and a CSV import replaces a JSON one.
 
 Both follow the same rules. Only canon is kept: failure endings are recognised by
@@ -31,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eidolon.characters import Character
-from eidolon.corpus import Episode, Line, StoryCorpus
+from eidolon.corpus import Episode, ImportFormat, Line, StoryCorpus
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ _JOINT_SPEAKERS = re.compile(r"[＆&]")
 
 # `produce_events/100100101` as the game lays scripts out, or `produce_events_100100101`
 # as the translation plugin names a download.
-_SCRIPT_PATH = re.compile(r"(?:^|/)(?P<type>[a-z]+(?:_[a-z]+)*)[/_](?P<number>\d+)$")
+_SCRIPT_PATH = re.compile(r"(?:^|/)(?P<type>[a-z]+(?:_[a-z]+)*)[/_](?P<number>\d{8,})$")
 
 # Script identifiers look like `produce_events/TIIISSSEE`: type T, idol III, scenario
 # SSS (001 W.I.N.G., 002 fan appreciation, 003 G.R.A.D., 004 Landing Point, 005
@@ -89,8 +90,8 @@ class ImportReport:
     removed: int = 0
     """Episodes an earlier import had that are now recognised as failure endings."""
     embedded_passages: int = 0
-    kept_csv: int = 0
-    """Scripts in a JSON import already in the corpus from a CSV, which was kept."""
+    csv_versions_kept: int = 0
+    """Scripts in a JSON import that were left alone because a CSV of them is in the corpus."""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -98,7 +99,7 @@ class ImportReport:
 class _Script:
     """One story file as read, before the import rules are applied."""
 
-    relative: Path
+    relative_path: Path
     source_id: str
     source: str
     title: str
@@ -152,11 +153,8 @@ def _json_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
         except (ValueError, UnicodeDecodeError) as e:  # JSONDecodeError is a ValueError
             report.warnings.append(f"{relative}：无法读取（{e}），已跳过")
             continue
-        name = relative.with_suffix("").as_posix()
-        if (match := _SCRIPT_PATH.search(name)) is None:
-            report.warnings.append(f"{relative}：路径里没有剧本编号，以文件路径作为来源标识")
-            source_id = f"json/{name}"
-            yield _Script(relative, source_id, relative.parent.name or relative.stem, relative.stem, lines)
+        if (match := _SCRIPT_PATH.search(relative.with_suffix("").as_posix())) is None:
+            report.warnings.append(f"{relative}：路径里没有剧本编号（来源标识），已跳过")
             continue
         kind, number = match["type"], match["number"]
         source_id = f"{kind}/{number}"
@@ -169,7 +167,7 @@ def _json_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
 
 async def _import(
     scripts: Iterable[_Script],
-    imported_from: str,
+    imported_from: ImportFormat,
     corpus: StoryCorpus,
     characters: Iterable[Character],
     report: ImportReport,
@@ -178,7 +176,7 @@ async def _import(
     episodes: dict[str, Episode] = {}
     seen: dict[str, tuple[Path, int]] = {}
     for script in scripts:
-        relative, source_id, lines = script.relative, script.source_id, script.lines
+        relative, source_id, lines = script.relative_path, script.source_id, script.lines
         if source_id in seen:
             kept, kept_lines = seen[source_id]
             if len(lines) <= kept_lines:
@@ -199,7 +197,7 @@ async def _import(
                 report.removed += 1
             continue
         if imported_from != "csv" and corpus.imported_from(source_id) == "csv":
-            report.kept_csv += 1
+            report.csv_versions_kept += 1
             continue
         episodes[source_id] = Episode(
             id=source_id,
@@ -251,7 +249,7 @@ def _read_json(path: Path) -> list[Line]:
         if not isinstance(text, str) or not text.strip():
             continue
         speaker = speaker.strip() if isinstance(speaker, str) else ""
-        lines.append(Line(speaker or None, _unescape(text.strip())))
+        lines.append(Line(speaker or None, text.strip()))
     return lines
 
 

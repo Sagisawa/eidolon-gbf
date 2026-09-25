@@ -2,9 +2,9 @@
 
 Each episode is keyed by its source identifier (the game script it came from), so
 saving the same episode again replaces it. Each episode also records the format it was
-imported from, so an import can leave alone a better version from another. Episodes are split into passages of
-consecutive lines; each passage is embedded and searched by cosine similarity,
-only among the episodes the asking character is in the cast of. Passages whose
+imported from, so an import can leave alone a better version from another. Episodes
+are split into passages of consecutive lines; each passage is embedded and searched
+by cosine similarity, only among the episodes the asking character is in the cast of. Passages whose
 text has not changed keep their vectors, so re-importing costs no embedding calls.
 An episode with no cast is kept but not embedded: no character could recall it.
 
@@ -20,7 +20,9 @@ import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import typing
 from pathlib import Path
+from typing import Literal
 
 from eidolon.embedding import Embedder, nearest, to_blob
 
@@ -61,6 +63,10 @@ _PASSAGE_CHARS = 1200
 """Roughly how much text goes into one passage before a new one starts."""
 
 
+ImportFormat = Literal["csv", "json"]
+"""`csv` for SCTranslationData, `json` for the game's own scripts."""
+
+
 @dataclass(frozen=True)
 class Line:
     """One line of dialogue; `speaker` is None for narration."""
@@ -81,9 +87,7 @@ class Episode:
     cast: frozenset[str]
     """Identifiers of the configured characters who appear in it."""
     lines: tuple[Line, ...]
-    imported_from: str = "csv"
-    """The format the episode was imported from: `csv` (SCTranslationData) or `json`
-    (the game's own script)."""
+    imported_from: ImportFormat = "csv"
 
 
 @dataclass(frozen=True)
@@ -180,13 +184,13 @@ class StoryCorpus:
             row = self._db.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,)).fetchone()
             return self._episode(row) if row else None
 
-    def imported_from(self, episode_id: str) -> str | None:
+    def imported_from(self, episode_id: str) -> ImportFormat | None:
         """The format an episode was imported from, or None if it is not in the corpus."""
         with self._lock:
             row = self._db.execute(
                 "SELECT imported_from FROM episodes WHERE id = ?", (episode_id,)
             ).fetchone()
-            return row["imported_from"] if row else None
+            return typing.cast(ImportFormat, row["imported_from"]) if row else None
 
     def list_episodes(self, character_id: str | None = None) -> list[Episode]:
         """All episodes, or those `character_id` appears in, ordered by source identifier."""
@@ -287,7 +291,7 @@ class StoryCorpus:
             title=row["title"],
             cast=frozenset(r["character_id"] for r in cast),
             lines=tuple(Line(r["speaker"], r["ja"], r["zh"]) for r in lines),
-            imported_from=row["imported_from"],
+            imported_from=typing.cast(ImportFormat, row["imported_from"]),
         )
 
 
