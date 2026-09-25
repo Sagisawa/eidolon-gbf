@@ -1,0 +1,153 @@
+"""Text conversation turns, driven through the backend's external API."""
+
+import json
+
+import httpx
+
+from tests.conftest import ClientFactory
+from tests.fakes import FakeLLM
+
+
+async def start_conversation(client: httpx.AsyncClient, character: str = "mano") -> str:
+    res = await client.post("/api/conversations", json={"character_id": character})
+    assert res.status_code == 201
+    return res.json()["id"]
+
+
+async def send_turn(client: httpx.AsyncClient, conversation_id: str, text: str) -> list[dict]:
+    """Send a text turn and collect the server-sent events it streams back."""
+    events: list[dict] = []
+    async with client.stream(
+        "POST", f"/api/conversations/{conversation_id}/turns", json={"text": text}
+    ) as res:
+        assert res.status_code == 200
+        assert res.headers["content-type"].startswith("text/event-stream")
+        async for line in res.aiter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line.removeprefix("data: ")))
+    return events
+
+
+async def test_reply_streams_japanese_and_chinese_subtitle(make_client: ClientFactory):
+    llm = FakeLLM(["<ja>こんにちは、プロデューサーさん！</ja><zh>你好，制作人！</zh>"])
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "你好呀")
+
+    done = events[-1]
+    assert done["type"] == "done"
+    assert done["message"]["ja"] == "こんにちは、プロデューサーさん！"
+    assert done["message"]["zh"] == "你好，制作人！"
+
+
+def deltas(events: list[dict], lang: str) -> list[tuple[int, str]]:
+    return [(e["segment"], e["text"]) for e in events if e["type"] == "delta" and e["lang"] == lang]
+
+
+async def test_reply_is_streamed_segment_by_segment_even_when_tags_are_split(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<j", "a>ほわっ、", "プロデューサーさん", "！</", "ja><zh>哇，制作人！", "</zh>\n",
+         "<ja>今日は</ja><", "zh>今天</zh>"]
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "こんにちは")
+
+    assert deltas(events, "ja") == [(0, "ほわっ、"), (0, "プロデューサーさん"), (0, "！"), (1, "今日は")]
+    assert deltas(events, "zh") == [(0, "哇，制作人！"), (1, "今天")]
+    assert events[-1]["message"]["ja"] == "ほわっ、プロデューサーさん！今日は"
+    assert events[-1]["message"]["zh"] == "哇，制作人！今天"
+
+
+async def test_reply_that_ignores_the_format_is_kept_as_japanese(make_client: ClientFactory):
+    client = make_client(FakeLLM(["えっと、", "ありがとうございますっ"]))
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "谢谢")
+
+    assert events[-1]["message"]["ja"] == "えっと、ありがとうございますっ"
+    assert events[-1]["message"]["zh"] == ""
+
+
+async def test_both_sides_of_a_turn_are_kept_in_the_conversation_record(
+    make_client: ClientFactory,
+):
+    client = make_client(
+        FakeLLM(["<ja>おはようございます！</ja><zh>早上好！</zh><ja>ほわっ</ja><zh>哇</zh>"])
+    )
+    conversation_id = await start_conversation(client)
+    await send_turn(client, conversation_id, "早上好")
+
+    reopened = make_client(FakeLLM())
+    listed = (await reopened.get("/api/conversations", params={"character_id": "mano"})).json()
+    messages = (await reopened.get(f"/api/conversations/{conversation_id}/messages")).json()
+
+    assert [c["id"] for c in listed] == [conversation_id]
+    assert [(m["role"], m["text"], m["ja"], m["zh"]) for m in messages] == [
+        ("user", "早上好", None, None),
+        ("character", None, "おはようございます！ほわっ", "早上好！哇"),
+    ]
+    assert messages[1]["segments"] == [
+        {"ja": "おはようございます！", "zh": "早上好！"},
+        {"ja": "ほわっ", "zh": "哇"},
+    ]
+
+
+async def test_prompt_carries_the_character_sheet_and_the_conversation_so_far(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(
+        ["<ja>ピーちゃんです！</ja><zh>是小皮！</zh>"],
+        ["<ja>はいっ</ja><zh>嗯！</zh>"],
+    )
+    client = make_client(llm)
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, "这只鸽子叫什么？")
+    await send_turn(client, conversation_id, "好可爱")
+
+    system, *turns = llm.prompts[1]
+    assert system.role == "system"
+    assert "櫻木真乃" in system.content
+    assert "<ja>" in system.content and "<zh>" in system.content
+    assert [(m.role, m.content) for m in turns] == [
+        ("user", "这只鸽子叫什么？"),
+        ("assistant", "<ja>ピーちゃんです！</ja><zh>是小皮！</zh>"),
+        ("user", "好可爱"),
+    ]
+
+
+async def test_conversations_are_kept_apart(make_client: ClientFactory):
+    llm = FakeLLM(["<ja>一</ja><zh>一</zh>"], ["<ja>二</ja><zh>二</zh>"])
+    client = make_client(llm)
+    first = await start_conversation(client)
+    second = await start_conversation(client)
+
+    await send_turn(client, first, "第一次")
+    await send_turn(client, second, "第二次")
+
+    assert [(m.role, m.content) for m in llm.prompts[1][1:]] == [("user", "第二次")]
+    listed = (await client.get("/api/conversations", params={"character_id": "mano"})).json()
+    assert [c["id"] for c in listed] == [second, first]
+
+
+async def test_unknown_character_or_conversation_is_rejected(make_client: ClientFactory):
+    client = make_client(FakeLLM())
+
+    res = await client.post("/api/conversations", json={"character_id": "nobody"})
+    assert res.status_code == 404
+    res = await client.post("/api/conversations/missing/turns", json={"text": "hi"})
+    assert res.status_code == 404
+
+
+async def test_model_failure_is_reported_in_the_stream(make_client: ClientFactory):
+    client = make_client(FakeLLM())  # no scripted reply: the model call fails
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "在吗")
+
+    assert events[-1]["type"] == "error"
