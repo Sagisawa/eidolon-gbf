@@ -1,3 +1,5 @@
+import { loadAccessKey } from "@/lib/accessKey";
+
 export type Conversation = {
   id: string;
   character_id: string;
@@ -21,21 +23,43 @@ export type TurnEvent =
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+
+  /** The access key is missing, invalid or revoked. */
+  get unauthorized(): boolean {
+    return this.status === 401;
+  }
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.detail ?? `请求失败（${res.status}）`);
+    throw new ApiError(body?.detail ?? `请求失败（${res.status}）`, res.status);
   }
   return res.json();
 }
 
+/** fetch() for the backend API, carrying the access key saved on the settings page. */
+function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const key = loadAccessKey();
+  if (key) headers.set("authorization", `Bearer ${key}`);
+  return fetch(path, { ...init, headers });
+}
+
 export async function listConversations(characterId: string): Promise<Conversation[]> {
-  return json(await fetch(`/api/conversations?character_id=${encodeURIComponent(characterId)}`));
+  return json(await api(`/api/conversations?character_id=${encodeURIComponent(characterId)}`));
 }
 
 export async function createConversation(characterId: string): Promise<Conversation> {
   return json(
-    await fetch("/api/conversations", {
+    await api("/api/conversations", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ character_id: characterId }),
@@ -44,12 +68,12 @@ export async function createConversation(characterId: string): Promise<Conversat
 }
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  return json(await fetch(`/api/conversations/${conversationId}/messages`));
+  return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 
 /** Sends one text turn and yields the reply's server-sent events as they arrive. */
 export async function* sendTurn(conversationId: string, text: string): AsyncGenerator<TurnEvent> {
-  const res = await fetch(`/api/conversations/${conversationId}/turns`, {
+  const res = await api(`/api/conversations/${conversationId}/turns`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ text }),

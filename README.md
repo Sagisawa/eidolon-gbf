@@ -9,7 +9,20 @@ cp .env.example .env   # 填写对话模型的地址、密钥和模型名
 docker compose up --build
 ```
 
-打开 http://localhost:3000 。
+打开 http://localhost:3000 ，在设置页填入访问密钥后即可对话。
+
+## 用户与访问密钥
+
+管理员用命令行管理用户和访问密钥。一位用户可以持有多把密钥，对话记录属于用户本身；吊销一把密钥不影响用户的数据。
+
+```sh
+docker compose exec backend eidolon user create alice    # 创建用户
+docker compose exec backend eidolon key issue alice      # 签发密钥（只显示这一次）
+docker compose exec backend eidolon key list alice       # 查看密钥编号和状态
+docker compose exec backend eidolon key revoke <密钥编号>  # 吊销
+```
+
+本地开发时用 `uv run eidolon --db data/eidolon.db ...`。01 阶段遗留的默认用户名为 `default`，为它签发密钥即可继续访问原有对话。
 
 ## 开发
 

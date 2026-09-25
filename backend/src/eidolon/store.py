@@ -1,6 +1,8 @@
-"""Relational storage (SQLite) for users, conversations and their messages."""
+"""Relational storage (SQLite) for users, access keys, conversations and their messages."""
 
+import hashlib
 import json
+import secrets
 import sqlite3
 import threading
 import uuid
@@ -11,14 +13,20 @@ from typing import Literal
 
 from eidolon.reply_format import Segment
 
-DEFAULT_USER_ID = "default"
-
 Role = Literal["user", "character"]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS access_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    secret_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT
 );
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
@@ -38,6 +46,35 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
 """
+
+
+@dataclass(frozen=True)
+class User:
+    id: str
+    name: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class AccessKey:
+    """A key as the admin sees it: its id and state, never the secret itself."""
+
+    id: str
+    user_id: str
+    created_at: str
+    revoked_at: str | None
+
+
+class KeyRevoked(Exception):
+    pass
+
+
+class NotFound(LookupError):
+    pass
+
+
+class DuplicateName(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -74,10 +111,89 @@ class Store:
         with self._lock, self._db:
             self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(users)")}
+        if "name" not in columns:
+            # Before access keys, users had no name; the one default user keeps its id as name.
+            self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
+            self._db.execute("UPDATE users SET name = id")
+        self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_by_name ON users(name)")
+
+    def create_user(self, name: str) -> User:
+        user = User(uuid.uuid4().hex, name, _now())
+        try:
+            with self._lock, self._db:
+                self._db.execute(
+                    "INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)",
+                    (user.id, user.name, user.created_at),
+                )
+        except sqlite3.IntegrityError:
+            raise DuplicateName(f"用户 {name} 已存在") from None
+        return user
+
+    def list_users(self) -> list[User]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, name, created_at FROM users ORDER BY created_at, rowid"
+            ).fetchall()
+        return [User(**row) for row in rows]
+
+    def get_user_by_name(self, name: str) -> User:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT id, name, created_at FROM users WHERE name = ?", (name,)
+            ).fetchone()
+        if row is None:
+            raise NotFound(f"用户 {name} 不存在")
+        return User(**row)
+
+    def issue_key(self, user_id: str) -> tuple[AccessKey, str]:
+        """Issue a new key for the user; returns it with its secret, which is not stored."""
+        key = AccessKey(secrets.token_hex(4), user_id, _now(), None)
+        secret = f"esc_{secrets.token_urlsafe(24)}"
+        with self._lock, self._db:
             self._db.execute(
-                "INSERT OR IGNORE INTO users (id, created_at) VALUES (?, ?)",
-                (DEFAULT_USER_ID, _now()),
+                "INSERT INTO access_keys (id, user_id, secret_hash, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (key.id, user_id, _hash(secret), key.created_at),
             )
+        return key, secret
+
+    def revoke_key(self, key_id: str) -> None:
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "UPDATE access_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
+                (_now(), key_id),
+            )
+        if cursor.rowcount == 0:
+            raise NotFound(f"访问密钥 {key_id} 不存在")
+
+    def list_keys(self, user_id: str) -> list[AccessKey]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, user_id, created_at, revoked_at FROM access_keys"
+                " WHERE user_id = ? ORDER BY created_at, rowid",
+                (user_id,),
+            ).fetchall()
+        return [AccessKey(**row) for row in rows]
+
+    def user_for_key(self, secret: str) -> str | None:
+        """The id of the user holding this key; None for an unknown key.
+
+        Raises KeyRevoked for a key that has been revoked.
+        """
+        with self._lock:
+            row = self._db.execute(
+                "SELECT user_id, revoked_at FROM access_keys WHERE secret_hash = ?",
+                (_hash(secret),),
+            ).fetchone()
+        if row is None:
+            return None
+        if row["revoked_at"] is not None:
+            raise KeyRevoked
+        return row["user_id"]
 
     def create_conversation(self, user_id: str, character_id: str) -> Conversation:
         conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
@@ -150,6 +266,10 @@ class Store:
         )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
+
+
+def _hash(secret: str) -> str:
+    return hashlib.sha256(secret.encode()).hexdigest()
 
 
 def _now() -> str:

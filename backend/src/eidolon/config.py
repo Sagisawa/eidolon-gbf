@@ -15,11 +15,15 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
-            database_path=Path(os.environ.get("EIDOLON_DATABASE_PATH", "data/eidolon.db")),
+            database_path=database_path_from_env(),
             chat_llm_base_url=_required("CHAT_LLM_BASE_URL"),
             chat_llm_api_key=_required("CHAT_LLM_API_KEY"),
             chat_llm_model=_required("CHAT_LLM_MODEL"),
         )
+
+
+def database_path_from_env() -> Path:
+    return Path(os.environ.get("EIDOLON_DATABASE_PATH", "data/eidolon.db"))
 
 
 def _required(name: str) -> str:

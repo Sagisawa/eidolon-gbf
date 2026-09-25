@@ -157,3 +157,55 @@ button.ghost {
   background: var(--surface);
   color: var(--text);
 }
+
+.ghost-link {
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.error a {
+  color: inherit;
+}
+
+.settings {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.field {
+  padding: 16px 0;
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.hint {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.field-row {
+  display: flex;
+  gap: 8px;
+}
+
+.field-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}

@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   createConversation,
   listConversations,
   listMessages,
@@ -12,6 +14,15 @@ import {
 } from "@/lib/api";
 
 const CHARACTER_NAMES: Record<string, string> = { mano: "櫻木真乃" };
+
+type Failure = { message: string; needsKey: boolean };
+
+function toFailure(e: unknown): Failure {
+  return {
+    message: (e as Error).message,
+    needsKey: e instanceof ApiError && e.unauthorized,
+  };
+}
 
 type Entry =
   | { kind: "user"; key: string; text: string }
@@ -35,7 +46,7 @@ export default function ConversationPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Failure | null>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,7 +60,7 @@ export default function ConversationPage() {
         setConversationId(conversation.id);
         setEntries(messages.map(toEntry));
       } catch (e) {
-        if (!cancelled) setError((e as Error).message);
+        if (!cancelled) setError(toFailure(e));
       }
     })();
     return () => {
@@ -68,7 +79,7 @@ export default function ConversationPage() {
       setConversationId(conversation.id);
       setEntries([]);
     } catch (e) {
-      setError((e as Error).message);
+      setError(toFailure(e));
     }
   }
 
@@ -93,7 +104,7 @@ export default function ConversationPage() {
         ),
       );
 
-    let failure: string | null = null;
+    let failure: Failure | null = null;
     try {
       for await (const event of sendTurn(conversationId, text)) {
         if (event.type === "delta") {
@@ -104,11 +115,11 @@ export default function ConversationPage() {
             return { ...entry, segments };
           });
         } else if (event.type === "error") {
-          failure = event.message;
+          failure = { message: event.message, needsKey: false };
         }
       }
     } catch (e) {
-      failure = (e as Error).message;
+      failure = toFailure(e);
     }
     if (failure) {
       // A failed turn is not recorded: take it back off the log and return the text to the input.
@@ -125,9 +136,19 @@ export default function ConversationPage() {
     <main className="conversation">
       <header className="conversation-header">
         <h1>{name}</h1>
-        <button type="button" className="ghost" onClick={startNewConversation} disabled={busy}>
-          新对话
-        </button>
+        <div className="header-actions">
+          <button
+            type="button"
+            className="ghost"
+            onClick={startNewConversation}
+            disabled={busy || error?.needsKey}
+          >
+            新对话
+          </button>
+          <Link href="/settings" className="ghost-link">
+            设置
+          </Link>
+        </div>
       </header>
 
       <section className="log" aria-live="polite">
@@ -154,7 +175,17 @@ export default function ConversationPage() {
         <div ref={logEnd} />
       </section>
 
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error.message}
+          {error.needsKey && (
+            <>
+              {" "}
+              <Link href="/settings">前往设置</Link>
+            </>
+          )}
+        </p>
+      )}
 
       <form className="composer" onSubmit={submit}>
         <input
