@@ -50,8 +50,12 @@ export type Memory = {
   created_at: string;
 };
 
-/** During a call the backend also announces each utterance it takes up, spoken or typed. */
-export type CallEvent = TurnEvent | { type: "user"; text: string };
+/** During a call the backend also announces each utterance it takes up, spoken or typed,
+ * and, when the call reaches its time or turn limit, why it is about to hang up. */
+export type CallEvent =
+  | TurnEvent
+  | { type: "user"; text: string }
+  | { type: "ended"; message: string };
 
 export class ApiError extends Error {
   constructor(

@@ -72,6 +72,7 @@ export default function ConversationPage() {
   const [hearing, setHearing] = useState("");
   const call = useRef<Call | null>(null);
   const callTurn = useRef<PendingTurn | null>(null);
+  const callEnding = useRef<string | null>(null); // why the backend is hanging up
   const characterAudio = useRef<HTMLAudioElement>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
@@ -118,6 +119,10 @@ export default function ConversationPage() {
   }
 
   function onCallEvent(event: CallEvent) {
+    if (event.type === "ended") {
+      callEnding.current = event.message;
+      return;
+    }
     if (event.type === "user") {
       const { turn, entries: added } = pendingTurn(event.text);
       callTurn.current = turn;
@@ -150,6 +155,7 @@ export default function ConversationPage() {
     }
     if (!conversationId) return;
     setError(null);
+    callEnding.current = null;
     setCallState("connecting");
     try {
       call.current = await startCall(conversationId, loadCallPreferences(), {
@@ -162,7 +168,7 @@ export default function ConversationPage() {
           call.current = null;
           setCallState("idle");
           setHearing("");
-          setError({ message: "通话已断开", needsKey: false });
+          setError({ message: callEnding.current ?? "通话已断开", needsKey: false });
         },
       });
       setCallState("active");

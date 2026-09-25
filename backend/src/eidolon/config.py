@@ -29,6 +29,9 @@ DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"
 DEFAULT_TURNS_PER_HOUR = 60
 DEFAULT_CALLS_PER_HOUR = 5
 """The reference project's limit on voice connections."""
+DEFAULT_CALL_MINUTES = 10
+DEFAULT_TURNS_PER_CALL = 40
+"""About what ten minutes of talking takes; a cap on typing turns in quickly during a call."""
 
 
 LLMProtocol = Literal["chat-completions", "responses", "anthropic"]
@@ -172,16 +175,21 @@ class JevSettings:
 @dataclass(frozen=True)
 class UsageLimits:
     """How many text turns and voice calls each user may start in any hour, counted
-    across all their access keys; None is no limit."""
+    across all their access keys, and how long and how many turns one call may last;
+    None is no limit."""
 
     turns_per_hour: int | None = DEFAULT_TURNS_PER_HOUR
     calls_per_hour: int | None = DEFAULT_CALLS_PER_HOUR
+    call_minutes: int | None = DEFAULT_CALL_MINUTES
+    turns_per_call: int | None = DEFAULT_TURNS_PER_CALL
 
     @classmethod
     def from_env(cls) -> "UsageLimits":
         return cls(
             turns_per_hour=_limit("EIDOLON_TURNS_PER_HOUR", DEFAULT_TURNS_PER_HOUR),
             calls_per_hour=_limit("EIDOLON_CALLS_PER_HOUR", DEFAULT_CALLS_PER_HOUR),
+            call_minutes=_limit("EIDOLON_CALL_MINUTES", DEFAULT_CALL_MINUTES),
+            turns_per_call=_limit("EIDOLON_TURNS_PER_CALL", DEFAULT_TURNS_PER_CALL),
         )
 
 

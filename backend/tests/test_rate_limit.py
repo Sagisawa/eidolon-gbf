@@ -141,13 +141,19 @@ async def test_a_limit_of_none_lets_everything_through(
 
 
 def test_limits_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("EIDOLON_TURNS_PER_HOUR", raising=False)
-    monkeypatch.delenv("EIDOLON_CALLS_PER_HOUR", raising=False)
-    assert UsageLimits.from_env() == UsageLimits(turns_per_hour=60, calls_per_hour=5)
+    for name in ["TURNS_PER_HOUR", "CALLS_PER_HOUR", "CALL_MINUTES", "TURNS_PER_CALL"]:
+        monkeypatch.delenv(f"EIDOLON_{name}", raising=False)
+    assert UsageLimits.from_env() == UsageLimits(
+        turns_per_hour=60, calls_per_hour=5, call_minutes=10, turns_per_call=40
+    )
 
     monkeypatch.setenv("EIDOLON_TURNS_PER_HOUR", "30")
     monkeypatch.setenv("EIDOLON_CALLS_PER_HOUR", "0")
-    assert UsageLimits.from_env() == UsageLimits(turns_per_hour=30, calls_per_hour=None)
+    monkeypatch.setenv("EIDOLON_CALL_MINUTES", "15")
+    monkeypatch.setenv("EIDOLON_TURNS_PER_CALL", "0")
+    assert UsageLimits.from_env() == UsageLimits(
+        turns_per_hour=30, calls_per_hour=None, call_minutes=15, turns_per_call=None
+    )
 
     monkeypatch.setenv("EIDOLON_CALLS_PER_HOUR", "-1")
     with pytest.raises(RuntimeError, match="EIDOLON_CALLS_PER_HOUR"):

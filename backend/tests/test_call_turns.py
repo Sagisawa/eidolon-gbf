@@ -6,7 +6,7 @@ Fish Audio (text frames) and the browser (server messages) would receive it.
 """
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -24,7 +24,7 @@ from pipecat.processors.frameworks.rtvi.frames import (
 )
 from pipecat.tests.utils import SleepFrame, run_test
 
-from eidolon.call import Call, CallTurns
+from eidolon.call import Call, CallLimits, CallTurns
 from eidolon.characters import load_characters
 from eidolon.config import Settings
 from eidolon.engine import ConversationEngine
@@ -49,10 +49,15 @@ class CallUnderTest:
         self.conversation = conversation
 
     async def run(
-        self, llm: FakeLLM, frames: Sequence[Frame], *, muted: bool = False
+        self,
+        llm: FakeLLM,
+        frames: Sequence[Frame],
+        *,
+        muted: bool = False,
+        limits: CallLimits = CallLimits(),
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
-        down = await self.run_frames(llm, frames, muted=muted)
+        down = await self.run_frames(llm, frames, muted=muted, limits=limits)
         spoken = [f.text for f in down if type(f) is TextFrame]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
         return spoken, messages
@@ -64,11 +69,12 @@ class CallUnderTest:
         *,
         muted: bool = False,
         device_timezone: str | None = None,
+        limits: CallLimits = CallLimits(),
     ) -> Sequence[Frame]:
         characters = load_characters(self._settings.characters_path)
         engine = ConversationEngine(self._store, llm, characters, clock=lambda: NOW)
         call = Call(self.conversation, characters["mano"], muted, "standard", device_timezone)
-        down, _ = await run_test(CallTurns(engine, call), frames_to_send=frames)
+        down, _ = await run_test(CallTurns(engine, call, limits), frames_to_send=frames)
         return down
 
     async def record(self) -> list[tuple]:
@@ -213,3 +219,39 @@ async def test_call_turns_tell_the_time_in_the_devices_timezone(mano_call: CallU
 
     system = llm.prompts[0][0].content
     assert "21:30" in system and "Asia/Tokyo" in system
+
+
+def kinds(messages: list[dict]) -> list[str]:
+    return [m["type"] for m in messages if m["type"] != "delta"]
+
+
+async def test_call_hangs_up_after_its_last_allowed_turn(mano_call: CallUnderTest):
+    llm = FakeLLM(MANO_REPLY, MANO_REPLY)
+
+    spoken_text, messages = await mano_call.run(
+        llm,
+        one_by_one(spoken("早上好"), typed("在吗"), spoken("还在吗")),
+        limits=CallLimits(turns=2),
+    )
+
+    assert kinds(messages) == ["user", "done", "user", "done", "ended"]
+    assert "2 轮" in messages[-1]["message"]
+    assert "".join(spoken_text).count("ほわっ") == 2  # the last reply is still voiced
+    assert len(await mano_call.record()) == 4
+
+
+async def test_call_hangs_up_when_time_is_up_once_the_reply_in_progress_is_done(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(MANO_REPLY, delay=0.2)
+
+    _, messages = await mano_call.run(
+        llm,
+        [spoken("早上好"), SleepFrame(0.6), spoken("还在吗")],
+        limits=CallLimits(duration=timedelta(seconds=0.1)),
+    )
+
+    assert kinds(messages) == ["user", "done", "ended"]
+    assert "分钟" in messages[-1]["message"]
+    assert len(await mano_call.record()) == 2
+

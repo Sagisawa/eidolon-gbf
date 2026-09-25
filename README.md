@@ -104,7 +104,7 @@ docker compose exec backend eidolon key list alice       # 查看密钥编号和
 docker compose exec backend eidolon key revoke <密钥编号>  # 吊销
 ```
 
-为了不让某位用户耗光大家共用的 API 额度，每位用户在任意一小时内最多发起 60 次文字对话回合和 5 次语音通话（同一位用户的多把密钥合并计算；通话中说的话和打的字不另外计数，回复失败的回合和没能接通的通话不计入），可以用 `.env` 里的 `EIDOLON_TURNS_PER_HOUR`、`EIDOLON_CALLS_PER_HOUR` 调整，填 0 表示不限制。超过限额的请求返回 429，带上可以恢复使用的时间，前端据此提示「几点之后可以再用」。
+为了不让某位用户耗光大家共用的 API 额度，每位用户在任意一小时内最多发起 60 次文字对话回合和 5 次语音通话（同一位用户的多把密钥合并计算；通话中说的话和打的字不另外计数，回复失败的回合和没能接通的通话不计入），可以用 `.env` 里的 `EIDOLON_TURNS_PER_HOUR`、`EIDOLON_CALLS_PER_HOUR` 调整，填 0 表示不限制。超过限额的请求返回 429，带上可以恢复使用的时间，前端据此提示「几点之后可以再用」。单次语音通话最长 10 分钟、最多 40 轮（`EIDOLON_CALL_MINUTES`、`EIDOLON_TURNS_PER_CALL`，填 0 表示不限制）；到了上限，角色把正在说的话说完后挂断，前端说明原因。
 
 本地开发时用 `uv run eidolon --db data/eidolon.db ...`。01 阶段遗留的默认用户名为 `default`，为它签发密钥即可继续访问原有对话。
 
