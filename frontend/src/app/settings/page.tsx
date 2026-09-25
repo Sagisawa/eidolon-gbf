@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { loadAccessKey, saveAccessKey } from "@/lib/accessKey";
+import { CallSettings } from "@/components/CallSettings";
 
 export default function SettingsPage() {
   const [key, setKey] = useState("");
@@ -62,6 +63,8 @@ export default function SettingsPage() {
                 : "还没有填入访问密钥"}
         </p>
       </form>
+
+      <CallSettings />
     </main>
   );
 }

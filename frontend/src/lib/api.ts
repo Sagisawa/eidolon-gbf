@@ -30,6 +30,9 @@ export type TurnEvent =
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
 
+/** During a call the backend also announces each utterance it takes up, spoken or typed. */
+export type CallEvent = TurnEvent | { type: "user"; text: string };
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -44,7 +47,7 @@ export class ApiError extends Error {
   }
 }
 
-async function json<T>(res: Response): Promise<T> {
+export async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(body?.detail ?? `请求失败（${res.status}）`, res.status);
@@ -80,6 +83,12 @@ export async function createConversation(characterId: string): Promise<Conversat
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
+}
+
+/** The STUN/TURN servers for a call; fails with the reason when calls are unavailable. */
+export async function getIceServers(): Promise<RTCIceServer[]> {
+  const body = await json<{ iceServers: RTCIceServer[] }>(await api("/api/ice-servers"));
+  return body.iceServers;
 }
 
 /** Sends one text turn and yields the reply's server-sent events as they arrive. */

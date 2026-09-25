@@ -9,8 +9,16 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from aiortc import RTCIceServer
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.transports.smallwebrtc.request_handler import (
+    SmallWebRTCPatchRequest,
+    SmallWebRTCRequest,
+    SmallWebRTCRequestHandler,
+)
+from pydantic import BaseModel, ConfigDict, Field
 
+from eidolon.call import Call, CallStarter, Quality, voice_calls
 from eidolon.characters import load_characters
 from eidolon.config import Settings
 from eidolon.engine import ConversationEngine, TurnDone
@@ -29,6 +37,24 @@ class NewConversation(BaseModel):
 
 class TurnInput(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
+
+
+class CallRequest(BaseModel):
+    conversation_id: str
+    muted: bool = False
+    quality: Quality = "standard"
+
+
+class Offer(BaseModel):
+    """A WebRTC offer as the Pipecat client sends it; `requestData` carries our CallRequest."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    sdp: str
+    type: str
+    pc_id: str | None = None
+    restart_pc: bool | None = None
+    call: CallRequest | None = Field(None, alias="requestData")
 
 
 def current_user(
@@ -53,17 +79,27 @@ def current_user(
 UserId = Annotated[str, Depends(current_user)]
 
 
-def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
+def create_app(
+    settings: Settings,
+    chat_llm: ChatLLM | None = None,
+    call_starter: CallStarter | None = None,
+) -> FastAPI:
     characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
     llm = chat_llm or OpenAICompatLLM(
         settings.chat_llm_base_url, settings.chat_llm_api_key, settings.chat_llm_model
     )
     engine = ConversationEngine(store, llm, characters)
+    call_starter = call_starter or voice_calls(settings, engine)
+    webrtc = SmallWebRTCRequestHandler(
+        ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
+    )
+    call_owners: dict[str, str] = {}  # peer connection id → user id
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
+        await webrtc.close()
         await llm.aclose()
         store.close()
 
@@ -80,6 +116,59 @@ def create_app(settings: Settings, chat_llm: ChatLLM | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict:
+        return {"ok": True}
+
+    def require_voice() -> CallStarter:
+        if call_starter is None:
+            raise HTTPException(503, "语音通话尚未配置，请联系管理员")
+        return call_starter
+
+    @app.get("/api/ice-servers")
+    def ice_servers(_: UserId) -> dict:
+        """What the browser needs before calling; also tells it when calls are unavailable."""
+        require_voice()
+        return {"iceServers": settings.ice_servers}
+
+    @app.post("/api/offer")
+    async def offer(body: Offer, user_id: UserId) -> dict:
+        """WebRTC signalling: a new call into one of the user's conversations, or a renegotiation."""
+        starter = require_voice()
+        call: Call | None = None
+        if body.pc_id is not None:
+            if call_owners.get(body.pc_id) != user_id:
+                raise HTTPException(404, "通话不存在")
+        elif body.call is None:
+            raise HTTPException(422, "缺少要通话的对话")
+        else:
+            conversation = conversation_or_404(body.call.conversation_id, user_id)
+            call = Call(
+                conversation,
+                characters[conversation.character_id],
+                body.call.muted,
+                body.call.quality,
+            )
+
+        async def start(connection: SmallWebRTCConnection) -> None:
+            assert call is not None
+
+            @connection.event_handler("closed")
+            async def forget(connection: SmallWebRTCConnection) -> None:
+                call_owners.pop(connection.pc_id, None)
+
+            await starter(connection, call)
+
+        request = SmallWebRTCRequest(body.sdp, body.type, body.pc_id, body.restart_pc)
+        answer = await webrtc.handle_web_request(request, start)
+        if answer is None:
+            raise HTTPException(500, "无法建立通话")
+        call_owners[answer["pc_id"]] = user_id
+        return answer
+
+    @app.patch("/api/offer")
+    async def ice_candidates(body: SmallWebRTCPatchRequest, user_id: UserId) -> dict:
+        if call_owners.get(body.pc_id) != user_id:
+            raise HTTPException(404, "通话不存在")
+        await webrtc.handle_patch_request(body)
         return {"ok": True}
 
     @app.get("/api/characters")

@@ -272,3 +272,52 @@ button.ghost {
   color: var(--muted);
   font-size: 0.875rem;
 }
+
+.call-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.call-bar button.hang-up {
+  background: var(--error);
+}
+
+.mute-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.call-status {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.bubble.hearing {
+  opacity: 0.6;
+}
+
+.call-bar + audio + .composer {
+  border-top: 0;
+}
+
+.field select {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.field + .field {
+  border-top: 1px solid var(--border);
+}

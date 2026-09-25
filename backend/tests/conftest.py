@@ -9,7 +9,7 @@ import pytest
 from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.config import Settings
-from tests.fakes import FakeLLM
+from tests.fakes import FakeCalls, FakeLLM
 
 
 @dataclass(frozen=True)
@@ -118,6 +118,7 @@ def settings(tmp_path: Path, characters: CharacterConfig) -> Settings:
         chat_llm_base_url="http://llm.invalid/v1",
         chat_llm_api_key="test-key",
         chat_llm_model="test-model",
+        ice_servers=[],  # tests run offline: gather host candidates only
     )
 
 
@@ -133,14 +134,27 @@ def producer_key(admin: Admin) -> IssuedKey:
 
 
 @pytest.fixture
+async def calls() -> AsyncIterator[FakeCalls]:
+    fake = FakeCalls()
+    yield fake
+    await fake.hang_up_all()
+
+
+@pytest.fixture
 async def make_client(
-    settings: Settings, producer_key: IssuedKey
+    settings: Settings, producer_key: IssuedKey, calls: FakeCalls
 ) -> AsyncIterator[ClientFactory]:
     """Makes API clients; each carries the given access key, by default the producer's."""
     clients: list[httpx.AsyncClient] = []
 
-    def factory(llm: FakeLLM, key: str | None = producer_key.secret) -> httpx.AsyncClient:
-        app = create_app(settings, chat_llm=llm)
+    def factory(
+        llm: FakeLLM,
+        key: str | None = producer_key.secret,
+        *,
+        settings: Settings = settings,
+        voice: bool = True,
+    ) -> httpx.AsyncClient:
+        app = create_app(settings, chat_llm=llm, call_starter=calls if voice else None)
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
