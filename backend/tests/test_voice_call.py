@@ -76,6 +76,20 @@ async def test_call_is_answered_and_joins_the_conversation(
     assert started.muted is True
 
 
+async def test_call_carries_the_devices_timezone(
+    make_client: ClientFactory, calls: FakeCalls, browser: RTCPeerConnection
+):
+    client = make_client(FakeLLM())
+    client.headers["X-Timezone"] = "Asia/Tokyo"
+    conversation_id = await start_conversation(client)
+
+    res = await call(client, browser, conversation_id=conversation_id)
+
+    assert res.status_code == 200
+    [started] = calls.started
+    assert started.device_timezone == "Asia/Tokyo"
+
+
 async def test_call_needs_an_access_key(
     make_client: ClientFactory, calls: FakeCalls, browser: RTCPeerConnection
 ):

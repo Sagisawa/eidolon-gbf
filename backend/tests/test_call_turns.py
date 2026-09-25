@@ -6,6 +6,7 @@ Fish Audio (text frames) and the browser (server messages) would receive it.
 """
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -32,6 +33,7 @@ from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
 from tests.test_text_turn import start_conversation
 
+NOW = datetime(2026, 9, 25, 12, 30, tzinfo=UTC)
 MANO_REPLY = ["<ja>ほわっ、", "おはようございます！</ja><zh>哇，早上好！</zh><ja>今日も</ja><zh>今天也</zh>"]
 
 
@@ -56,11 +58,16 @@ class CallUnderTest:
         return spoken, messages
 
     async def run_frames(
-        self, llm: FakeLLM, frames: Sequence[Frame], *, muted: bool = False
+        self,
+        llm: FakeLLM,
+        frames: Sequence[Frame],
+        *,
+        muted: bool = False,
+        device_timezone: str | None = None,
     ) -> Sequence[Frame]:
         characters = load_characters(self._settings.characters_path)
-        engine = ConversationEngine(self._store, llm, characters)
-        call = Call(self.conversation, characters["mano"], muted, "standard")
+        engine = ConversationEngine(self._store, llm, characters, clock=lambda: NOW)
+        call = Call(self.conversation, characters["mano"], muted, "standard", device_timezone)
         down, _ = await run_test(CallTurns(engine, call), frames_to_send=frames)
         return down
 
@@ -197,3 +204,12 @@ async def test_interrupted_reply_stops_being_voiced_but_is_still_recorded(
 
     assert spoken_text == ["ほわっ"]
     assert messages[-1]["message"]["ja"] == "ほわっ今日も"
+
+
+async def test_call_turns_tell_the_time_in_the_devices_timezone(mano_call: CallUnderTest):
+    llm = FakeLLM(MANO_REPLY)
+
+    await mano_call.run_frames(llm, [spoken("早上好")], device_timezone="Asia/Tokyo")
+
+    system = llm.prompts[0][0].content
+    assert "21:30" in system and "Asia/Tokyo" in system

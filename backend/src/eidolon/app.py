@@ -16,14 +16,15 @@ from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCRequest,
     SmallWebRTCRequestHandler,
 )
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from eidolon.call import Call, CallStarter, Quality, serve_calls
 from eidolon.characters import load_characters
 from eidolon.config import Settings
-from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine, TurnDone
+from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
+from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.store import Conversation, KeyRevoked, Store
 
 log = logging.getLogger(__name__)
@@ -43,6 +44,30 @@ class CallRequest(BaseModel):
     conversation_id: str
     muted: bool = False
     quality: Quality = "standard"
+
+
+class ProfileInput(BaseModel):
+    """The whole producer profile; a field left out or empty returns to its default."""
+
+    form_of_address: str | None = None
+    gender: Gender | None = None
+    timezone: str | None = None
+
+    @field_validator("form_of_address")
+    @classmethod
+    def _address(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if len(value) > MAX_FORM_OF_ADDRESS_LENGTH:
+            raise ValueError(f"称呼最多 {MAX_FORM_OF_ADDRESS_LENGTH} 个字")
+        return value or None
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if value and not is_timezone(value):
+            raise ValueError(f"不认识的时区 {value}")
+        return value or None
 
 
 class Offer(BaseModel):
@@ -78,18 +103,22 @@ def current_user(
 
 UserId = Annotated[str, Depends(current_user)]
 
+DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
+"""The time zone the browser detected; the producer profile's own time zone overrides it."""
+
 
 def create_app(
     settings: Settings,
     chat_llm: ChatLLM | None = None,
     call_starter: CallStarter | None = None,
+    clock: Clock | None = None,
 ) -> FastAPI:
     characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
     llm = chat_llm or OpenAICompatLLM(
         settings.chat_llm_base_url, settings.chat_llm_api_key, settings.chat_llm_model
     )
-    engine = ConversationEngine(store, llm, characters)
+    engine = ConversationEngine(store, llm, characters, clock)
     call_starter = call_starter or serve_calls(settings, engine)
     webrtc = SmallWebRTCRequestHandler(
         ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
@@ -130,7 +159,9 @@ def create_app(
         return {"iceServers": settings.ice_servers}
 
     @app.post("/api/offer")
-    async def offer(body: Offer, user_id: UserId) -> dict:
+    async def offer(
+        body: Offer, user_id: UserId, device_timezone: DeviceTimezone = None
+    ) -> dict:
         """WebRTC signalling: a new call into one of the user's conversations, or a renegotiation."""
         starter = require_voice()
         if body.pc_id is not None:  # renegotiating, possibly on a fresh peer connection
@@ -146,6 +177,7 @@ def create_app(
                 characters[conversation.character_id],
                 body.call.muted,
                 body.call.quality,
+                device_timezone,
             )
 
         async def start(connection: SmallWebRTCConnection) -> None:
@@ -168,6 +200,16 @@ def create_app(
             raise HTTPException(404, "通话不存在")
         await webrtc.handle_patch_request(body)
         return {"ok": True}
+
+    @app.get("/api/profile")
+    def get_profile(user_id: UserId) -> dict:
+        return asdict(store.get_profile(user_id))
+
+    @app.put("/api/profile")
+    def update_profile(body: ProfileInput, user_id: UserId) -> dict:
+        profile = ProducerProfile(body.form_of_address, body.gender, body.timezone)
+        store.save_profile(user_id, profile)
+        return asdict(profile)
 
     @app.get("/api/characters")
     def list_characters(_: UserId) -> list[dict]:
@@ -204,12 +246,17 @@ def create_app(
         return [asdict(m) for m in store.list_messages(conversation.id)]
 
     @app.post("/api/conversations/{conversation_id}/turns")
-    def text_turn(conversation_id: str, body: TurnInput, user_id: UserId) -> StreamingResponse:
+    def text_turn(
+        conversation_id: str,
+        body: TurnInput,
+        user_id: UserId,
+        device_timezone: DeviceTimezone = None,
+    ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
 
         async def events() -> AsyncIterator[str]:
             try:
-                async for event in engine.turn(conversation, body.text):
+                async for event in engine.turn(conversation, body.text, device_timezone):
                     if isinstance(event, TurnDone):
                         payload = {"type": "done", "message": asdict(event.message)}
                     else:

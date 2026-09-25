@@ -59,12 +59,14 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 
 @dataclass(frozen=True)
 class Call:
-    """A call the browser asked for: which conversation, and how it wants the audio."""
+    """A call the browser asked for: which conversation, how it wants the audio, and the
+    time zone its device reports."""
 
     conversation: Conversation
     character: Character
     muted: bool
     quality: Quality
+    device_timezone: str | None = None
 
 
 CallStarter = Callable[[SmallWebRTCConnection, Call], Awaitable[None]]
@@ -211,7 +213,9 @@ class CallTurns(FrameProcessor):
         self._voicing = voiced
         await self.push_frame(LLMFullResponseStartFrame())
         try:
-            async for event in self._engine.turn(self._call.conversation, text):
+            async for event in self._engine.turn(
+                self._call.conversation, text, self._call.device_timezone
+            ):
                 if isinstance(event, TurnDone):
                     await self._send({"type": "done", "message": asdict(event.message)})
                     continue

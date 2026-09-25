@@ -1,4 +1,5 @@
-"""Relational storage (SQLite) for users, access keys, conversations and their messages."""
+"""Relational storage (SQLite) for users, access keys, producer profiles, conversations
+and their messages."""
 
 import hashlib
 import json
@@ -11,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from eidolon.producer import ProducerProfile
 from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
@@ -27,6 +29,13 @@ CREATE TABLE IF NOT EXISTS access_keys (
     secret_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
     revoked_at TEXT
+);
+CREATE TABLE IF NOT EXISTS producer_profiles (
+    user_id TEXT PRIMARY KEY REFERENCES users(id),
+    form_of_address TEXT,
+    gender TEXT,
+    timezone TEXT,
+    updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
@@ -194,6 +203,28 @@ class Store:
         if row["revoked_at"] is not None:
             raise KeyRevoked
         return row["user_id"]
+
+    def get_profile(self, user_id: str) -> ProducerProfile:
+        """The user's producer profile; all defaults until they save one."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT form_of_address, gender, timezone FROM producer_profiles"
+                " WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        return ProducerProfile(**row) if row else ProducerProfile()
+
+    def save_profile(self, user_id: str, profile: ProducerProfile) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO producer_profiles"
+                " (user_id, form_of_address, gender, timezone, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT (user_id) DO UPDATE SET form_of_address = excluded.form_of_address,"
+                " gender = excluded.gender, timezone = excluded.timezone,"
+                " updated_at = excluded.updated_at",
+                (user_id, profile.form_of_address, profile.gender, profile.timezone, _now()),
+            )
 
     def create_conversation(self, user_id: str, character_id: str) -> Conversation:
         conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())

@@ -6,11 +6,13 @@ deltas, and records both sides of the turn once the reply is complete. A turn
 that fails part-way leaves no record.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from eidolon.characters import Character
 from eidolon.llm import ChatLLM, ChatMessage
+from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.store import Conversation, Message, Store
 
@@ -25,6 +27,13 @@ class TurnDone:
 
 TurnEvent = SegmentDelta | TurnDone
 
+Clock = Callable[[], datetime]
+"""The current time, timezone-aware."""
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
 
 class EmptyReply(RuntimeError):
     pass
@@ -32,15 +41,24 @@ class EmptyReply(RuntimeError):
 
 class ConversationEngine:
     def __init__(
-        self, store: Store, chat_llm: ChatLLM, characters: dict[str, Character]
+        self,
+        store: Store,
+        chat_llm: ChatLLM,
+        characters: dict[str, Character],
+        clock: Clock | None = None,
     ) -> None:
         self._store = store
         self._characters = characters
         self._llm = chat_llm
+        self._clock = clock or _utc_now
 
-    async def turn(self, conversation: Conversation, text: str) -> AsyncIterator[TurnEvent]:
+    async def turn(
+        self, conversation: Conversation, text: str, device_timezone: str | None = None
+    ) -> AsyncIterator[TurnEvent]:
+        """Take one turn. `device_timezone` is the time zone the user's device reports,
+        used unless the producer profile sets one."""
         history = self._store.list_messages(conversation.id)
-        prompt = self._prompt(conversation, history, text)
+        prompt = self._prompt(conversation, history, text, device_timezone)
 
         parser = ReplyParser()
         async for chunk in self._llm.stream(prompt):
@@ -55,10 +73,19 @@ class ConversationEngine:
         yield TurnDone(reply)
 
     def _prompt(
-        self, conversation: Conversation, history: list[Message], text: str
+        self,
+        conversation: Conversation,
+        history: list[Message],
+        text: str,
+        device_timezone: str | None,
     ) -> list[ChatMessage]:
         character = self._characters[conversation.character_id]
-        prompt = [ChatMessage("system", f"{character.sheet}\n\n{FORMAT_INSTRUCTIONS}")]
+        profile = self._store.get_profile(conversation.user_id)
+        producer = producer_prompt(
+            profile, self._clock(), effective_timezone(profile, device_timezone)
+        )
+        system = f"{character.sheet}\n\n{producer}\n\n{FORMAT_INSTRUCTIONS}"
+        prompt = [ChatMessage("system", system)]
         for message in history:
             if message.role == "user":
                 prompt.append(ChatMessage("user", message.text or ""))

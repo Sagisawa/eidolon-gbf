@@ -6,8 +6,7 @@
 
 import { PipecatClient, TransportStartError } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
-import { loadAccessKey } from "@/lib/accessKey";
-import { ApiError, getIceServers, json, type CallEvent } from "@/lib/api";
+import { ApiError, apiHeaders, getIceServers, json, type CallEvent } from "@/lib/api";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { Microphone } from "@/lib/microphone";
 
@@ -56,7 +55,7 @@ export async function startCall(
     await client.connect({
       webrtcRequestParams: {
         endpoint: "/api/offer",
-        headers: new Headers({ authorization: `Bearer ${loadAccessKey()}` }),
+        headers: apiHeaders(),
         requestData: {
           conversation_id: conversationId,
           muted: preferences.muted,

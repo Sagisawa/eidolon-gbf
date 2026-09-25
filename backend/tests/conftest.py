@@ -9,6 +9,7 @@ import pytest
 from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.config import Settings
+from eidolon.engine import Clock
 from tests.fakes import FakeCalls, FakeLLM
 
 
@@ -153,8 +154,14 @@ async def make_client(
         *,
         settings: Settings = settings,
         calls_configured: bool = True,
+        clock: Clock | None = None,
     ) -> httpx.AsyncClient:
-        app = create_app(settings, chat_llm=llm, call_starter=calls if calls_configured else None)
+        app = create_app(
+            settings,
+            chat_llm=llm,
+            call_starter=calls if calls_configured else None,
+            clock=clock,
+        )
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers

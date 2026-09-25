@@ -1,4 +1,5 @@
 import { loadAccessKey } from "@/lib/accessKey";
+import { detectTimezone } from "@/lib/timezone";
 
 export type Character = {
   id: string;
@@ -30,6 +31,15 @@ export type TurnEvent =
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
 
+export type Gender = "male" | "female";
+
+/** How the characters treat the user; a field left null keeps its default. */
+export type ProducerProfile = {
+  form_of_address: string | null;
+  gender: Gender | null;
+  timezone: string | null;
+};
+
 /** During a call the backend also announces each utterance it takes up, spoken or typed. */
 export type CallEvent = TurnEvent | { type: "user"; text: string };
 
@@ -50,17 +60,40 @@ export class ApiError extends Error {
 export async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(body?.detail ?? `请求失败（${res.status}）`, res.status);
+    // A validation failure's detail is a list of problems, not a sentence to show.
+    const detail = typeof body?.detail === "string" ? body.detail : `请求失败（${res.status}）`;
+    throw new ApiError(detail, res.status);
   }
   return res.json();
 }
 
-/** fetch() for the backend API, carrying the access key saved on the settings page. */
-function api(path: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
+/** The headers every backend request carries: the access key saved on the settings
+ * page, and the time zone this browser reports. */
+export function apiHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
   const key = loadAccessKey();
   if (key) headers.set("authorization", `Bearer ${key}`);
-  return fetch(path, { ...init, headers });
+  headers.set("x-timezone", detectTimezone());
+  return headers;
+}
+
+/** fetch() for the backend API. */
+function api(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(path, { ...init, headers: apiHeaders(init.headers) });
+}
+
+export async function getProfile(): Promise<ProducerProfile> {
+  return json(await api("/api/profile"));
+}
+
+export async function saveProfile(profile: ProducerProfile): Promise<ProducerProfile> {
+  return json(
+    await api("/api/profile", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(profile),
+    }),
+  );
 }
 
 export async function listCharacters(): Promise<Character[]> {
