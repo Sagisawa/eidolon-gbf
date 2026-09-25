@@ -1,5 +1,5 @@
-"""Cut point B: importing SCTranslationData story CSVs into the story corpus, checked
-by querying the corpus afterwards."""
+"""Importing SCTranslationData story CSVs into the story corpus (the spec's cut point
+B), checked by querying the corpus afterwards."""
 
 from pathlib import Path
 
@@ -7,7 +7,7 @@ import pytest
 
 from eidolon.characters import load_characters
 from eidolon.corpus import Episode, Line, StoryCorpus
-from eidolon.story_import import ImportReport, import_csv_directory
+from eidolon.story_import import ImportReport, import_csv_directory, is_failure_ending
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import FakeEmbedder
 
@@ -279,3 +279,41 @@ async def test_files_translated_from_the_same_script_import_once(
     assert report.embedded_passages == 0
     assert len(importer.embedder.documents) == embedded_first
     assert any("produce_events/100100101" in w for w in report.warnings)
+    # The partial copy sorts first, but the complete one is kept.
+    park = importer.corpus.get("produce_events/100100101")
+    assert park is not None and park.title == "公園の歌声"
+    assert park.lines[-1].ja == "ほわっ……はい、どっちも好きです"
+
+
+async def test_a_file_named_like_a_failure_ending_that_no_rule_catches_is_flagged(
+    importer: Importer, tmp_path: Path
+):
+    root = tmp_path / "story"
+    write_story(root, "櫻木真乃/W.I.N.G.編/新しい敗北.csv", KNOCKED_OUT, "produce_events/600100199")
+
+    report = await importer.run(root)
+
+    assert importer.corpus.get("produce_events/600100199") is not None
+    assert any("新しい敗北" in w and "失败结局" in w for w in report.warnings)
+
+
+@pytest.mark.parametrize(
+    ("source_id", "failure"),
+    [
+        ("produce_events/600100106", False),  # W.I.N.G. won the final
+        ("produce_events/600100107", True),  # W.I.N.G. lost the final
+        ("produce_events/700100107", False),  # W.I.N.G. season 4 cleared
+        ("produce_events/700100108", True),  # W.I.N.G. season 4 not cleared
+        ("produce_events/600100302", False),  # G.R.A.D. won the preliminary
+        ("produce_events/600100305", True),  # G.R.A.D. repechage, after losing it
+        ("produce_events/1012003071", True),  # G.R.A.D. elimination route
+        ("produce_events/101200309", False),  # G.R.A.D. true end
+        ("produce_events/600100414", False),  # Landing Point: a plain success
+        ("produce_communication_auditions/500100100021", False),
+        ("produce_communication_auditions/500100100022", True),
+        ("produce_communication_promise_results/201200100131", False),
+        ("produce_communication_promise_results/201200100112", True),
+    ],
+)
+def test_failure_endings_are_recognised_by_their_script(source_id: str, failure: bool):
+    assert is_failure_ending(source_id) is failure

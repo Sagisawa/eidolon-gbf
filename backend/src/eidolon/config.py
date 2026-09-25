@@ -6,9 +6,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Required, TypedDict
 
-from eidolon.embedding import DEFAULT_BASE_URL as DEFAULT_SILICONFLOW_BASE_URL
-from eidolon.embedding import DEFAULT_MODEL as DEFAULT_EMBEDDING_MODEL
-
 
 class IceServer(TypedDict, total=False):
     """One entry of WebRTC's `iceServers`; TURN servers also need a username and credential."""
@@ -20,6 +17,9 @@ class IceServer(TypedDict, total=False):
 
 DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
 """Fish Audio's free-tier model: it draws on no API credit, unlike the paid ones."""
+
+DEFAULT_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
+DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 

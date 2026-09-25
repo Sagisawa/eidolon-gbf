@@ -5,11 +5,9 @@ from typing import Protocol
 
 import httpx
 
-DEFAULT_BASE_URL = "https://api.siliconflow.cn/v1"
-DEFAULT_MODEL = "Qwen/Qwen3-Embedding-0.6B"
-
-_BATCH_SIZE = 16
-_QUERY_INSTRUCTION = "Instruct: 根据问题，检索相关的剧情片段\nQuery: "
+_REQUEST_BATCH = 16
+"""Texts sent in one request."""
+_QUERY_INSTRUCTION = "Instruct: 根据问题，检索相关的剧情台词\nQuery: "
 
 
 class Embedder(Protocol):
@@ -30,11 +28,7 @@ class SiliconFlowEmbedder:
     front of queries and none in front of documents."""
 
     def __init__(
-        self,
-        api_key: str,
-        model: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_BASE_URL,
-        client: httpx.AsyncClient | None = None,
+        self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
     ) -> None:
         self.model = model
         self._url = base_url.rstrip("/") + "/embeddings"
@@ -43,8 +37,8 @@ class SiliconFlowEmbedder:
 
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         vectors: list[list[float]] = []
-        for start in range(0, len(texts), _BATCH_SIZE):
-            vectors.extend(await self._embed(texts[start : start + _BATCH_SIZE]))
+        for start in range(0, len(texts), _REQUEST_BATCH):
+            vectors.extend(await self._embed(texts[start : start + _REQUEST_BATCH]))
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:
@@ -54,14 +48,20 @@ class SiliconFlowEmbedder:
         await self._client.aclose()
 
     async def _embed(self, texts: Sequence[str]) -> list[list[float]]:
-        res = await self._client.post(
-            self._url,
-            json={"model": self.model, "input": list(texts), "encoding_format": "float"},
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
+        try:
+            res = await self._client.post(
+                self._url,
+                json={"model": self.model, "input": list(texts), "encoding_format": "float"},
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+        except httpx.HTTPError as e:
+            raise EmbeddingError(f"无法连接向量化服务：{e!r}") from e
         if res.status_code >= 400:
             raise EmbeddingError(f"向量化服务返回 {res.status_code}: {res.text[:500]}")
-        data = sorted(res.json()["data"], key=lambda d: d["index"])
+        try:
+            data = sorted(res.json()["data"], key=lambda d: d["index"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise EmbeddingError(f"向量化服务的返回无法解析：{res.text[:500]}") from e
         if len(data) != len(texts):
             raise EmbeddingError(f"向量化服务返回了 {len(data)} 个向量，应为 {len(texts)} 个")
         return [d["embedding"] for d in data]

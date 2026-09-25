@@ -33,7 +33,7 @@ git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/S
 docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
 ```
 
-- 每个 CSV 导入为一段剧情，以文件末尾 `info` 行指向的原始剧本为主键，重复导入会覆盖更新；没有变化的片段不会重新向量化，所以原作更新后随时可以重新导入。
+- 每个 CSV 导入为一段剧情，以文件末尾 `info` 行指向的原始剧本为主键，重复导入会覆盖更新；内容没有变化的剧情不会重新向量化，所以原作更新后随时可以重新导入。
 - 失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按原始剧本编号识别并排除；制作人的选项不收录。
 - 出场角色按台词的说话人识别：`characters.toml` 里每位角色的 `speakers` 列出她在剧本里的名字（如 `真乃`）。修改 `speakers` 或新增角色后需要重新导入。
 - 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。

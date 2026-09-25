@@ -75,7 +75,7 @@ class Episode:
     """The card or event the episode belongs to."""
     title: str
     cast: frozenset[str]
-    """Canonical identifiers of the characters who appear in it."""
+    """Identifiers of the configured characters who appear in it."""
     lines: tuple[Line, ...]
 
 
@@ -202,8 +202,7 @@ class StoryCorpus:
             return known
 
     def _delete(self, episode_id: str) -> bool:
-        for table in ("episode_passages", "episode_lines", "episode_cast"):
-            self._db.execute(f"DELETE FROM {table} WHERE episode_id = ?", (episode_id,))
+        """Its cast, lines and passages go with it (ON DELETE CASCADE)."""
         return self._db.execute("DELETE FROM episodes WHERE id = ?", (episode_id,)).rowcount > 0
 
     def _episode(self, row: sqlite3.Row) -> Episode:

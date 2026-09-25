@@ -44,3 +44,14 @@ async def test_queries_carry_an_instruction_documents_do_not():
 async def test_a_service_error_is_reported():
     with pytest.raises(EmbeddingError, match="401"):
         await embedder([], status=401).embed_documents(["doc"])
+
+
+async def test_an_unreachable_service_is_reported():
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(refuse))
+    embedder = SiliconFlowEmbedder("sk-test", "m", "http://sf.test/v1", client)
+
+    with pytest.raises(EmbeddingError, match="无法连接"):
+        await embedder.embed_query("在吗")

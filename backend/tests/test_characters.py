@@ -163,6 +163,17 @@ def test_speakers_must_be_a_list_of_names(tmp_path: Path):
         load_characters(config.path)
 
 
+def test_two_characters_cannot_share_a_speaker_name(tmp_path: Path):
+    config = (
+        CharacterConfig(tmp_path)
+        .add("mano", "櫻木真乃", "a", speakers=["真乃"])
+        .add("mano2", "真乃", "b", speakers=["真乃"])
+    )
+
+    with pytest.raises(CharacterConfigError, match="真乃"):
+        load_characters(config.path)
+
+
 def test_missing_configuration_file_is_reported(tmp_path: Path):
     with pytest.raises(CharacterConfigError, match="characters.toml"):
         load_characters(tmp_path / "characters.toml")

@@ -22,20 +22,24 @@ from eidolon.corpus import Episode, Line, StoryCorpus
 
 log = logging.getLogger(__name__)
 
-_BATCH = 32
+_SAVE_BATCH = 32
 """Episodes saved (and embedded) together."""
+
+_LOOKS_LIKE_FAILURE = re.compile(r"敗|失敗|失败|败")
+_NOT_FAILURE_WORDS = re.compile(r"成敗")  # punishing the villain, in period-drama events
 
 _JOINT_SPEAKERS = re.compile(r"[＆&]")
 
 # Script identifiers look like `produce_events/TIIISSSEE`: type T, idol III, scenario
 # SSS (001 W.I.N.G., 002 fan appreciation, 003 G.R.A.D., 004 Landing Point, 005
-# S.T.E.P.), episode EE. These are the scripts only reached by losing.
+# S.T.E.P.), episode EE. These are the scripts only reached by losing, including
+# G.R.A.D.'s repechage, which follows a lost preliminary.
 _FAILURE_ENDINGS = [
     re.compile(p)
     for p in (
         r"produce_events/7\d{3}001(02|04|06|08)",  # W.I.N.G. season not cleared
         r"produce_events/6\d{3}001(02|07)",  # W.I.N.G. knocked out, lost the final
-        r"produce_events/6\d{3}003(03|06|09|10)",  # G.R.A.D. lost a round
+        r"produce_events/6\d{3}003(03|04|05|06|09|10)",  # G.R.A.D. lost a round, repechage
         r"produce_events/1\d{3}003(071|072|08)",  # G.R.A.D. elimination route
         r"produce_communication_auditions/\d+2",  # lost an audition
         r"produce_communication_promise_results/\d+2",  # broke a promise
@@ -76,12 +80,13 @@ async def import_csv_directory(
 ) -> ImportReport:
     """Import every `*.csv` under `directory` as an episode.
 
-    Of several files translated from the same script, the first in path order wins.
+    Of several files translated from the same script, the one with the most lines wins
+    (stray partial copies exist), then the first in path order.
     """
     speakers = _speaker_index(characters)
     report = ImportReport()
     episodes: dict[str, Episode] = {}
-    seen: dict[str, Path] = {}
+    seen: dict[str, tuple[Path, int]] = {}
     for path in sorted(directory.rglob("*.csv")):
         relative = path.relative_to(directory)
         try:
@@ -93,12 +98,19 @@ async def import_csv_directory(
             source_id = f"csv/{relative.with_suffix('').as_posix()}"
             report.warnings.append(f"{relative}：没有 info 行，以文件路径作为来源标识")
         if source_id in seen:
-            report.warnings.append(
-                f"{relative}：与 {seen[source_id]} 来源相同（{source_id}），以前者为准"
-            )
-            continue
-        seen[source_id] = relative
+            kept, kept_lines = seen[source_id]
+            if len(lines) <= kept_lines:
+                report.warnings.append(f"{relative}：与 {kept} 来源相同（{source_id}），以后者为准")
+                continue
+            report.warnings.append(f"{kept}：与 {relative} 来源相同（{source_id}），以后者为准")
+        seen[source_id] = (relative, len(lines))
 
+        if not is_failure_ending(source_id) and _LOOKS_LIKE_FAILURE.search(
+            _NOT_FAILURE_WORDS.sub("", relative.stem)
+        ):
+            report.warnings.append(
+                f"{relative}：文件名像失败结局，但来源 {source_id} 不在失败结局的规则里，已照常导入"
+            )
         if is_failure_ending(source_id):
             report.skipped_failures += 1
             if corpus.remove(source_id):
@@ -113,11 +125,12 @@ async def import_csv_directory(
             lines=tuple(lines),
         )
 
-    batch = list(episodes.values())
-    for start in range(0, len(batch), _BATCH):
-        report.embedded_passages += await corpus.save(batch[start : start + _BATCH])
-        report.imported += len(batch[start : start + _BATCH])
-        log.info("imported %d of %d episodes", report.imported, len(batch))
+    pending = list(episodes.values())
+    for start in range(0, len(pending), _SAVE_BATCH):
+        batch = pending[start : start + _SAVE_BATCH]
+        report.embedded_passages += await corpus.save(batch)
+        report.imported += len(batch)
+        log.info("imported %d of %d episodes", report.imported, len(pending))
     return report
 
 

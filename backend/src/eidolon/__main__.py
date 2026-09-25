@@ -75,20 +75,22 @@ async def _import_story_csv(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 1
     embedder = SiliconFlowEmbedder(settings.api_key, settings.model, settings.base_url)
-    corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
     try:
-        report = await import_csv_directory(args.directory, corpus, characters.values())
+        corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
+        try:
+            report = await import_csv_directory(args.directory, corpus, characters.values())
+        finally:
+            corpus.close()
     except EmbeddingError as e:
         print(f"导入中断（已导入的剧情会保留，重新运行即可继续）：{e}", file=sys.stderr)
         return 1
     finally:
-        corpus.close()
         await embedder.aclose()
     for warning in report.warnings:
         print(f"注意：{warning}", file=sys.stderr)
     print(
         f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
-        f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 个片段"
+        f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 段文本"
     )
     return 0
 

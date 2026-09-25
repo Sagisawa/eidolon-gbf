@@ -51,6 +51,11 @@ def load_characters(path: Path) -> dict[str, Character]:
         character = _parse_character(entry, path.parent)
         if character.id in characters:
             raise CharacterConfigError(f"角色标识 {character.id} 重复")
+        for other in characters.values():
+            if shared := set(character.speakers) & set(other.speakers):
+                raise CharacterConfigError(
+                    f"角色 {other.id} 和 {character.id} 的 speakers 都有 {'、'.join(sorted(shared))}"
+                )
         characters[character.id] = character
     if not characters:
         raise CharacterConfigError(f"角色配置文件 {path} 里没有任何角色")
