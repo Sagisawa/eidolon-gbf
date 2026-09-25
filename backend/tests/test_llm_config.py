@@ -1,0 +1,246 @@
+"""Choosing each model slot's protocol, and the server refusing to start with a chat model
+that cannot stream or call tools."""
+
+import json
+import threading
+from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import httpx
+import pytest
+
+from eidolon.__main__ import main
+from eidolon.config import LLMProtocol, LLMSettings, Settings
+from eidolon.llm import LLMError
+from eidolon.llm.anthropic import AnthropicLLM
+from eidolon.llm.openai_compat import OpenAICompatLLM
+from eidolon.llm.providers import check_chat_llm, open_llm
+from eidolon.llm.responses import ResponsesLLM
+from tests.conftest import CharacterConfig
+
+SLOTS = ("CHAT", "BACKGROUND")
+NAMES = ("BASE_URL", "API_KEY", "MODEL", "PROTOCOL", "MAX_TOKENS")
+
+
+@pytest.fixture(autouse=True)
+def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for slot in SLOTS:
+        for name in NAMES:
+            monkeypatch.delenv(f"{slot}_LLM_{name}", raising=False)
+    for name in ("SILICONFLOW_API_KEY", "AI_GATEWAY_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def set_chat_model(monkeypatch: pytest.MonkeyPatch, base_url: str, **extra: str) -> None:
+    monkeypatch.setenv("CHAT_LLM_BASE_URL", base_url)
+    monkeypatch.setenv("CHAT_LLM_API_KEY", "chat-key")
+    monkeypatch.setenv("CHAT_LLM_MODEL", "chat-model")
+    for name, value in extra.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_each_model_slot_chooses_its_own_protocol(monkeypatch: pytest.MonkeyPatch):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_PROTOCOL="anthropic",
+        BACKGROUND_LLM_PROTOCOL="responses",
+        BACKGROUND_LLM_BASE_URL="https://background.example/v1",
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.chat_llm == LLMSettings(
+        "https://chat.example/v1", "chat-key", "chat-model", protocol="anthropic"
+    )
+    background = settings.background_llm
+    assert background is not None
+    assert background == LLMSettings(
+        "https://background.example/v1", "chat-key", "chat-model", protocol="responses"
+    )
+    assert isinstance(open_llm(settings.chat_llm), AnthropicLLM)
+    assert isinstance(open_llm(background), ResponsesLLM)
+
+
+def test_the_protocol_defaults_to_chat_completions_and_the_background_follows_the_chat(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    set_chat_model(monkeypatch, "https://chat.example/v1")
+
+    settings = Settings.from_env()
+    assert isinstance(open_llm(settings.chat_llm), OpenAICompatLLM)
+
+    monkeypatch.setenv("CHAT_LLM_PROTOCOL", "responses")
+    monkeypatch.setenv("CHAT_LLM_MAX_TOKENS", "2048")
+    settings = Settings.from_env()
+    assert settings.background_llm == LLMSettings(
+        "https://chat.example/v1", "chat-key", "chat-model", "responses", 2048
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("CHAT_LLM_PROTOCOL", "openai", "CHAT_LLM_PROTOCOL.*chat-completions"),
+        ("BACKGROUND_LLM_PROTOCOL", "claude", "BACKGROUND_LLM_PROTOCOL.*anthropic"),
+        ("CHAT_LLM_MAX_TOKENS", "lots", "CHAT_LLM_MAX_TOKENS.*正整数"),
+    ],
+)
+def test_a_misconfigured_model_is_reported(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str, message: str
+):
+    set_chat_model(monkeypatch, "https://chat.example/v1", **{name: value})
+
+    with pytest.raises(RuntimeError, match=message):
+        Settings.from_env()
+
+
+# A stand-in model service on a local port, for the server's own startup to talk to.
+
+Handler = Callable[[dict], tuple[int, str, str]]
+"""Given the request body, the status, content type and body of the reply."""
+
+
+@pytest.fixture
+def model_service() -> Iterator[Callable[[Handler], str]]:
+    servers: list[ThreadingHTTPServer] = []
+
+    def start(handle: Handler) -> str:
+        class Serve(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                status, content_type, reply = handle(body)
+                data = reply.encode()
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Serve)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        servers.append(server)
+        return f"http://127.0.0.1:{server.server_address[1]}/v1"
+
+    yield start
+    for server in servers:
+        server.shutdown()
+
+
+STREAMED = "data: " + json.dumps({"choices": [{"delta": {"content": "<ja>はい</ja>"}}]}) + "\n\n"
+NOT_STREAMED = json.dumps({"choices": [{"message": {"content": "<ja>はい</ja>"}}]})
+
+
+def serve(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    characters: CharacterConfig,
+    base_url: str,
+) -> tuple[int, str]:
+    set_chat_model(monkeypatch, base_url)
+    monkeypatch.setenv("EIDOLON_DATABASE_PATH", str(tmp_path / "eidolon.db"))
+    monkeypatch.setenv("EIDOLON_CHARACTERS_PATH", str(characters.path))
+    code = main(["serve"])
+    return code, capsys.readouterr().err
+
+
+def test_the_server_does_not_start_with_a_chat_model_that_does_not_stream(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    characters: CharacterConfig,
+    model_service: Callable[[Handler], str],
+):
+    url = model_service(lambda _: (200, "application/json", NOT_STREAMED))
+
+    code, err = serve(monkeypatch, capsys, tmp_path, characters, url)
+
+    assert code == 1
+    assert "流式输出" in err
+
+
+def test_the_server_does_not_start_with_a_chat_model_that_cannot_call_tools(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    characters: CharacterConfig,
+    model_service: Callable[[Handler], str],
+):
+    def handle(body: dict) -> tuple[int, str, str]:
+        if "tools" in body:
+            error = {"error": {"message": "this model does not support tools"}}
+            return 400, "application/json", json.dumps(error)
+        return 200, "text/event-stream", STREAMED
+
+    url = model_service(handle)
+
+    code, err = serve(monkeypatch, capsys, tmp_path, characters, url)
+
+    assert code == 1
+    assert "不支持工具调用" in err
+    assert "does not support tools" in err
+
+
+def test_the_server_does_not_start_when_the_chat_model_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    characters: CharacterConfig,
+    model_service: Callable[[Handler], str],
+):
+    url = model_service(lambda _: (401, "application/json", '{"error":"invalid api key"}'))
+
+    code, err = serve(monkeypatch, capsys, tmp_path, characters, url)
+
+    assert code == 1
+    assert "invalid api key" in err
+
+
+# The check passes for a model that streams and accepts tools, whether or not it calls one.
+
+PASSING: dict[LLMProtocol, str] = {
+    "chat-completions": STREAMED,
+    "responses": 'data: {"type":"response.output_text.delta","delta":"はい"}\n\n',
+    "anthropic": (
+        'data: {"type":"content_block_start","index":0,"content_block":'
+        '{"type":"tool_use","id":"t1","name":"ping","input":{}}}\n\n'
+        'data: {"type":"message_stop"}\n\n'
+    ),
+}
+
+
+@pytest.mark.parametrize("protocol", PASSING)
+async def test_a_model_that_streams_and_takes_tools_passes_the_check(protocol: LLMProtocol):
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, text=PASSING[protocol])
+
+    llm = open_llm(
+        LLMSettings("https://llm.example/v1", "k", "m", protocol),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    await check_chat_llm(llm)
+
+    (body,) = bodies
+    assert body["stream"] is True
+    assert body["tools"]
+
+
+async def test_the_check_reports_what_failed_when_both_requests_fail():
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m",
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"ok": True}))
+        ),
+    )
+
+    with pytest.raises(LLMError, match="流式输出和工具调用"):
+        await check_chat_llm(llm)

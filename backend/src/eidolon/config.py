@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Required, TypedDict
+from typing import Literal, Required, TypedDict, get_args
 
 
 class IceServer(TypedDict, total=False):
@@ -27,16 +27,68 @@ DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 
+LLMProtocol = Literal["chat-completions", "responses", "anthropic"]
+"""OpenAI-compatible Chat Completions, OpenAI Responses, or Anthropic Messages."""
+
+LLM_PROTOCOLS: tuple[LLMProtocol, ...] = get_args(LLMProtocol)
+
+
+@dataclass(frozen=True)
+class LLMSettings:
+    """One model slot: the protocol its service speaks, where it is, and which model."""
+
+    base_url: str
+    api_key: str
+    model: str
+    protocol: LLMProtocol = "chat-completions"
+    max_tokens: int | None = None
+    """A cap on each reply's length; the Anthropic protocol needs one and has a default."""
+
+    @classmethod
+    def chat_from_env(cls) -> "LLMSettings":
+        return cls._from_env("CHAT")
+
+    @classmethod
+    def background_from_env(cls) -> "LLMSettings":
+        """The background model; each setting left unset is the chat model's."""
+        return cls._from_env("BACKGROUND", fallback="CHAT")
+
+    @classmethod
+    def _from_env(cls, slot: str, fallback: str | None = None) -> "LLMSettings":
+        def value(name: str) -> str | None:
+            names = [f"{slot}_LLM_{name}"] + ([f"{fallback}_LLM_{name}"] if fallback else [])
+            return next((v for n in names if (v := os.environ.get(n))), None)
+
+        def required(name: str) -> str:
+            if found := value(name):
+                return found
+            alternative = f"（或 {fallback}_LLM_{name}）" if fallback else ""
+            raise RuntimeError(f"环境变量 {slot}_LLM_{name}{alternative}未设置")
+
+        protocol = value("PROTOCOL") or "chat-completions"
+        if protocol not in LLM_PROTOCOLS:
+            raise RuntimeError(
+                f"环境变量 {slot}_LLM_PROTOCOL 只能是 {'、'.join(LLM_PROTOCOLS)}，而不是 {protocol}"
+            )
+        max_tokens = value("MAX_TOKENS")
+        if max_tokens is not None and not (max_tokens.isdigit() and int(max_tokens) > 0):
+            raise RuntimeError(f"环境变量 {slot}_LLM_MAX_TOKENS 需要是正整数，而不是 {max_tokens}")
+        return cls(
+            base_url=required("BASE_URL"),
+            api_key=required("API_KEY"),
+            model=required("MODEL"),
+            protocol=protocol,  # pyright: ignore[reportArgumentType]  # checked above
+            max_tokens=int(max_tokens) if max_tokens else None,
+        )
+
+
 @dataclass(frozen=True)
 class Settings:
     database_path: Path
     characters_path: Path
-    chat_llm_base_url: str
-    chat_llm_api_key: str
-    chat_llm_model: str
-    background_llm_base_url: str | None = None
-    background_llm_api_key: str | None = None
-    background_llm_model: str | None = None
+    chat_llm: LLMSettings
+    background_llm: LLMSettings | None = None
+    """None: the background model is the chat model."""
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
     soniox_api_key: str | None = None
     fish_audio_api_key: str | None = None
@@ -50,12 +102,8 @@ class Settings:
         return cls(
             database_path=database_path_from_env(),
             characters_path=characters_path_from_env(),
-            chat_llm_base_url=_required("CHAT_LLM_BASE_URL"),
-            chat_llm_api_key=_required("CHAT_LLM_API_KEY"),
-            chat_llm_model=_required("CHAT_LLM_MODEL"),
-            background_llm_base_url=os.environ.get("BACKGROUND_LLM_BASE_URL") or None,
-            background_llm_api_key=os.environ.get("BACKGROUND_LLM_API_KEY") or None,
-            background_llm_model=os.environ.get("BACKGROUND_LLM_MODEL") or None,
+            chat_llm=LLMSettings.chat_from_env(),
+            background_llm=LLMSettings.background_from_env(),
             ice_servers=_ice_servers(os.environ.get("EIDOLON_ICE_SERVERS")),
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
@@ -65,28 +113,6 @@ class Settings:
             ),
             jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
         )
-
-
-    def background_llm(self) -> tuple[str, str, str]:
-        """The background model's base URL, API key and model name. It writes memories down;
-        each setting left unset is the chat model's."""
-        return (
-            self.background_llm_base_url or self.chat_llm_base_url,
-            self.background_llm_api_key or self.chat_llm_api_key,
-            self.background_llm_model or self.chat_llm_model,
-        )
-
-
-def background_llm_from_env() -> tuple[str, str, str]:
-    """The background model's base URL, API key and model name, for commands that need
-    only it; each falls back to the chat model's, as in `Settings.background_llm`."""
-    values = []
-    for name in ("BASE_URL", "API_KEY", "MODEL"):
-        value = os.environ.get(f"BACKGROUND_LLM_{name}") or os.environ.get(f"CHAT_LLM_{name}")
-        if not value:
-            raise RuntimeError(f"环境变量 BACKGROUND_LLM_{name}（或 CHAT_LLM_{name}）未设置")
-        values.append(value)
-    return values[0], values[1], values[2]
 
 
 def database_path_from_env() -> Path:

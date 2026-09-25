@@ -27,7 +27,7 @@ from eidolon.embedding import Embedder, SiliconFlowEmbedder
 from eidolon.facts import FactIndex
 from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
-from eidolon.llm.openai_compat import OpenAICompatLLM
+from eidolon.llm.providers import open_llm
 from eidolon.memory import MemoryIndex, MemoryWriter
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.rerank import Reranker, SiliconFlowReranker
@@ -129,9 +129,7 @@ def create_app(
     can find memories again."""
     characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
-    llm = chat_llm or OpenAICompatLLM(
-        settings.chat_llm_base_url, settings.chat_llm_api_key, settings.chat_llm_model
-    )
+    llm = chat_llm or open_llm(settings.chat_llm)
     clients: list[JevJudge | SiliconFlowEmbedder | SiliconFlowReranker] = []
     if (sf := settings.siliconflow) is not None:
         if embedder is None:
@@ -154,7 +152,7 @@ def create_app(
             memory_index,
             reranker,
         )
-        background_llm = background_llm or OpenAICompatLLM(*settings.background_llm())
+        background_llm = background_llm or open_llm(settings.background_llm or settings.chat_llm)
         memory = MemoryWriter(store, background_llm, memory_index)
     else:
         log.info(

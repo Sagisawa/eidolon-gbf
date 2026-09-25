@@ -212,3 +212,17 @@ async def test_parallel_calls_are_kept_apart_and_calls_without_an_id_get_one():
         ToolCall("call_0", "recall_story", {"query": "写真集"}),
         ToolCall("call_b", "recall_story", {"query": "決勝"}),
     ]
+
+
+async def test_a_reply_that_is_not_streamed_is_an_error():
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "sk-test", "some-model",
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, json={"choices": [{"message": {"content": "hi"}}]})
+            )
+        ),
+    )
+
+    with pytest.raises(LLMError, match="流式"):
+        [c async for c in llm.stream([ChatMessage("user", "你好")])]

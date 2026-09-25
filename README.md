@@ -12,6 +12,14 @@ docker compose up --build
 
 打开 http://localhost:3000 ，在设置页填入访问密钥后即可在角色选择页挑一位角色对话。
 
+## 模型
+
+「对话模型」负责和用户对话，「后台模型」负责抽取记忆、生成人设初稿。两者在 `.env` 里分别配置，各自可以选三种接口之一（`CHAT_LLM_PROTOCOL`、`BACKGROUND_LLM_PROTOCOL`）：OpenAI 兼容的 Chat Completions（`chat-completions`，默认）、OpenAI Responses（`responses`）、Anthropic Messages（`anthropic`）。地址、密钥、模型名都自己填，所以也可以接各种兼容这些接口的第三方服务。
+
+- 对话模型必须支持流式输出和工具调用。后端启动时先发一次很小的检查请求（带一个工具、要求流式返回）：模型不以流式返回、不接受工具、或者地址密钥有误时，后端拒绝启动，并说明是哪一项不满足、服务返回了什么。
+- 模型在回复前输出的思考内容（reasoning / thinking）会被忽略，不会进入回复。
+- Anthropic 接口要求给出每次回复的长度上限，默认 16384 token，可以用 `CHAT_LLM_MAX_TOKENS`、`BACKGROUND_LLM_MAX_TOKENS` 调整（另两种接口不填就不限制）。
+
 ## 角色
 
 角色由 `characters/characters.toml` 配置：标识、显示名、简介、Fish Audio 音色 ID、人设文件和头像的位置。新增角色或替换音色 ID 只需要改这个文件，然后重启后端。
@@ -80,7 +88,7 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL`）。
 
 - 每个回合结束后，「后台模型」读这一轮对话，把用户透露的、值得长期记住的事写成中文记忆（如「制作人养了一只叫小白的猫」），记下所属用户和来源角色；「下周六」这样的相对时间会按用户的时区换算成日期。已经记住的事不会重复记。这一步在后台进行，不耽误回复；用户的下一句话会先等它完成（最多 5 秒）。
-- 后台模型在 `.env` 里用 `BACKGROUND_LLM_BASE_URL`、`BACKGROUND_LLM_API_KEY`、`BACKGROUND_LLM_MODEL` 单独配置，不填的项沿用对话模型的设置。
+- 后台模型在 `.env` 里用 `BACKGROUND_LLM_PROTOCOL`、`BACKGROUND_LLM_BASE_URL`、`BACKGROUND_LLM_API_KEY`、`BACKGROUND_LLM_MODEL` 单独配置，不填的项沿用对话模型的设置（见上方「模型」）。
 - 之后的对话中，Jev 判断用户在说自己的事（近况、计划、家人宠物等）时，只检索记忆；需要检索剧情和角色资料时，也会一起检索记忆。和话题相关的最多 3 条记忆放进提示词，每条注明来源角色和日期。
 - 新开的对话只靠检索到的记忆接上以前聊过的事，不带上次对话的内容。
 - 用户在「设置 → 管理记忆」页查看角色们记下的全部记忆，每条注明是对哪位角色说的；可以逐条删除，也可以二次确认后一键清空，但不能手动新增或修改。删除的记忆不会再进入任何提示词；清空时还在后台抽取的记忆会被丢弃，不会在清空后冒出来。

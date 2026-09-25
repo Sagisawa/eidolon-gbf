@@ -23,7 +23,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from eidolon.config import characters_path_from_env, database_path_from_env
+from eidolon.config import Settings, characters_path_from_env, database_path_from_env
 from eidolon.store import DuplicateName, NotFound, Store
 
 
@@ -52,10 +52,11 @@ def _serve() -> int:
     import uvicorn
 
     from eidolon.app import create_app
-    from eidolon.config import Settings
 
-    try:  # missing settings and a broken character configuration both land here
-        app = create_app(Settings.from_env())
+    try:  # missing settings, an unfit chat model and a broken character configuration
+        settings = Settings.from_env()
+        asyncio.run(_check_chat_llm(settings))
+        app = create_app(settings)
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
@@ -65,6 +66,16 @@ def _serve() -> int:
         port=int(os.environ.get("PORT", "8000")),
     )
     return 0
+
+
+async def _check_chat_llm(settings: Settings) -> None:
+    from eidolon.llm.providers import check_chat_llm, open_llm
+
+    llm = open_llm(settings.chat_llm)
+    try:
+        await check_chat_llm(llm)
+    finally:
+        await llm.aclose()
 
 
 async def _import_story(args: argparse.Namespace) -> int:
@@ -115,10 +126,11 @@ async def _import_story(args: argparse.Namespace) -> int:
 
 async def _draft_sheet(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
-    from eidolon.config import background_llm_from_env
+    from eidolon.config import LLMSettings
     from eidolon.corpus import StoryCorpus
     from eidolon.embedding import NoEmbedder
-    from eidolon.llm.openai_compat import LLMError, OpenAICompatLLM
+    from eidolon.llm import LLMError
+    from eidolon.llm.providers import open_llm
     from eidolon.sheet_draft import (
         DEFAULT_BUDGET,
         CannotWrite,
@@ -154,7 +166,7 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 1
     try:
-        base_url, api_key, model = background_llm_from_env()
+        llm_settings = LLMSettings.background_from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
@@ -163,7 +175,7 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
     progress.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
     logging.getLogger("eidolon.sheet_draft").addHandler(progress)
     logging.getLogger("eidolon.sheet_draft").setLevel(logging.INFO)
-    llm = OpenAICompatLLM(base_url, api_key, model)
+    llm = open_llm(llm_settings)
     corpus = StoryCorpus(args.db or database_path_from_env(), NoEmbedder())
     try:
         report = await draft_sheet(

@@ -6,7 +6,10 @@ from typing import Any
 
 import httpx
 
-from eidolon.llm import ChatMessage, Tool, ToolCall
+from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm.sse import parse_arguments, stream_events
+
+__all__ = ["LLMError", "OpenAICompatLLM"]
 
 
 class OpenAICompatLLM:
@@ -16,10 +19,12 @@ class OpenAICompatLLM:
         api_key: str,
         model: str,
         client: httpx.AsyncClient | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._api_key = api_key
         self._model = model
+        self._max_tokens = max_tokens
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
@@ -30,6 +35,8 @@ class OpenAICompatLLM:
             "stream": True,
             "messages": [_message(m) for m in messages],
         }
+        if self._max_tokens is not None:
+            body["max_tokens"] = self._max_tokens
         if tools:
             body["tools"] = [
                 {
@@ -44,45 +51,31 @@ class OpenAICompatLLM:
             ]
         calls: dict[int, dict[str, str]] = {}  # index → id, name and arguments so far
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        async with self._client.stream("POST", self._url, json=body, headers=headers) as res:
-            if res.status_code >= 400:
-                await res.aread()
-                raise LLMError(f"对话模型返回 {res.status_code}: {res.text[:500]}")
-            async for line in res.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                data = line.removeprefix("data:").strip()
-                if data == "[DONE]":
-                    break
-                event = json.loads(data)
-                if event.get("error"):
-                    raise LLMError(f"对话模型在流式输出中报错: {event['error']}")
-                for choice in event.get("choices") or []:
-                    delta = choice.get("delta") or {}
-                    if content := delta.get("content"):
-                        yield content
-                    for fragment in delta.get("tool_calls") or []:
-                        call = calls.setdefault(
-                            fragment.get("index", 0), {"id": "", "name": "", "arguments": ""}
-                        )
-                        call["id"] = fragment.get("id") or call["id"]
-                        function = fragment.get("function") or {}
-                        call["name"] = function.get("name") or call["name"]
-                        arguments = function.get("arguments") or ""
-                        # A few providers send the arguments as an object rather than JSON text.
-                        if not isinstance(arguments, str):
-                            arguments = json.dumps(arguments, ensure_ascii=False)
-                        call["arguments"] += arguments
+        async for event in stream_events(self._client, self._url, body, headers):
+            if event.get("error"):
+                raise LLMError(f"模型在流式输出中报错: {event['error']}")
+            for choice in event.get("choices") or []:
+                delta = choice.get("delta") or {}
+                if content := delta.get("content"):
+                    yield content
+                for fragment in delta.get("tool_calls") or []:
+                    call = calls.setdefault(
+                        fragment.get("index", 0), {"id": "", "name": "", "arguments": ""}
+                    )
+                    call["id"] = fragment.get("id") or call["id"]
+                    function = fragment.get("function") or {}
+                    call["name"] = function.get("name") or call["name"]
+                    arguments = function.get("arguments") or ""
+                    # A few providers send the arguments as an object rather than JSON text.
+                    if not isinstance(arguments, str):
+                        arguments = json.dumps(arguments, ensure_ascii=False)
+                    call["arguments"] += arguments
         for index, call in sorted(calls.items()):
             call_id = call["id"] or f"call_{index}"  # the tool result must name its call
-            yield ToolCall(call_id, call["name"], _arguments(call["arguments"]))
+            yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))
 
     async def aclose(self) -> None:
         await self._client.aclose()
-
-
-class LLMError(RuntimeError):
-    pass
 
 
 def _message(message: ChatMessage) -> dict[str, Any]:
@@ -105,11 +98,3 @@ def _message(message: ChatMessage) -> dict[str, Any]:
             ],
         }
     return {"role": message.role, "content": message.content}
-
-
-def _arguments(text: str) -> dict[str, Any] | None:
-    try:
-        arguments = json.loads(text or "{}")
-    except json.JSONDecodeError:
-        return None
-    return arguments if isinstance(arguments, dict) else None

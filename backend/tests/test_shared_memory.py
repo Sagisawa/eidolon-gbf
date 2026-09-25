@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from eidolon.config import Settings
+from eidolon.config import LLMSettings, Settings
 from tests.conftest import Admin, ClientFactory, IssuedKey
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 from tests.test_text_turn import send_turn, start_conversation
@@ -209,19 +209,24 @@ async def test_memory_needs_retrieval(make_client: ClientFactory):
 def test_the_background_model_is_configured_apart_from_the_chat_model(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    for name in ("BASE_URL", "API_KEY", "MODEL", "PROTOCOL", "MAX_TOKENS"):
+        monkeypatch.delenv(f"CHAT_LLM_{name}", raising=False)
+        monkeypatch.delenv(f"BACKGROUND_LLM_{name}", raising=False)
     monkeypatch.setenv("CHAT_LLM_BASE_URL", "https://chat.example/v1")
     monkeypatch.setenv("CHAT_LLM_API_KEY", "chat-key")
     monkeypatch.setenv("CHAT_LLM_MODEL", "chat-model")
-    for name in ("BASE_URL", "API_KEY", "MODEL"):
-        monkeypatch.delenv(f"BACKGROUND_LLM_{name}", raising=False)
 
     # Left unset, it is the chat model...
     settings = Settings.from_env()
-    assert settings.background_llm() == ("https://chat.example/v1", "chat-key", "chat-model")
+    assert settings.background_llm == LLMSettings(
+        "https://chat.example/v1", "chat-key", "chat-model"
+    )
 
     # ...and each setting can be changed on its own, say a cheaper model on the same service.
     monkeypatch.setenv("BACKGROUND_LLM_MODEL", "cheap-model")
     settings = Settings.from_env()
-    assert settings.background_llm() == ("https://chat.example/v1", "chat-key", "cheap-model")
-    assert settings.chat_llm_model == "chat-model"
+    assert settings.background_llm == LLMSettings(
+        "https://chat.example/v1", "chat-key", "cheap-model"
+    )
+    assert settings.chat_llm.model == "chat-model"
 

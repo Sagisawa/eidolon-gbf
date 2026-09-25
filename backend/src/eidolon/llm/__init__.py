@@ -42,3 +42,8 @@ class ChatLLM(Protocol):
         ...
 
     async def aclose(self) -> None: ...
+
+
+class LLMError(RuntimeError):
+    """The model's service failed, refused the request, or replied in a way the adapter
+    cannot read."""

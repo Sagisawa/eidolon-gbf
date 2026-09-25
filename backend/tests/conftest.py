@@ -9,7 +9,7 @@ import pytest
 
 from eidolon.__main__ import main
 from eidolon.app import create_app
-from eidolon.config import Settings
+from eidolon.config import LLMSettings, Settings
 from eidolon.engine import Clock
 from tests.fakes import (
     FakeBackgroundLLM,
@@ -143,9 +143,7 @@ def settings(tmp_path: Path, characters: CharacterConfig) -> Settings:
     return Settings(
         database_path=tmp_path / "eidolon.db",
         characters_path=characters.path,
-        chat_llm_base_url="http://llm.invalid/v1",
-        chat_llm_api_key="test-key",
-        chat_llm_model="test-model",
+        chat_llm=LLMSettings("http://llm.invalid/v1", "test-key", "test-model"),
         ice_servers=[],  # tests run offline: gather host candidates only
     )
 
