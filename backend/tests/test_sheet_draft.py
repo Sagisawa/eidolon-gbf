@@ -163,12 +163,13 @@ async def test_too_many_episodes_are_sampled_evenly(
 
     report = await draft_sheet(drafting(characters)["mano"], corpus, llm, budget=budget)
 
-    assert report.episodes == 203
-    assert report.episodes_read < report.episodes
+    assert report.episodes_cast == 203
+    assert report.episodes_read < report.episodes_cast
     read = {int(n) for p in llm.prompts for n in re.findall(r"エピソード(\d{4})", p[1].content)}
     # Spread over the whole range, not just its start.
     assert len(read) < 200 and min(read) < 10 and max(read) > 190
-    assert report.requests <= MAX_BATCHES + 10
+    notes_on_episodes = [p for p in llm.prompts if "一部分剧情" in p[0].content]
+    assert 1 < len(notes_on_episodes) <= MAX_BATCHES
 
 
 async def test_a_character_in_no_episode_has_nothing_to_draft_from(
@@ -221,3 +222,43 @@ async def test_the_draft_can_go_elsewhere_leaving_the_sheet_alone(
 
     assert output.read_text(encoding="utf-8").startswith(DRAFT_MARKER)
     assert (characters.directory / "sheets/kogane.md").read_text(encoding="utf-8") == KOGANE_SHEET
+
+
+async def test_a_long_episode_is_split_rather_than_cut_short(
+    corpus: StoryCorpus, characters: CharacterConfig
+):
+    lines = tuple(Line("真乃", f"第{i:03d}句のセリフです。") for i in range(100))
+    await corpus.save([Episode("produce_events/300100101", "S卡剧情", "长卡", "第1話",
+                               frozenset({"mano"}), lines)])
+    llm = FakeLLM(*[["- 要点"]] * 30, [SHEET])
+
+    await draft_sheet(drafting(characters)["mano"], corpus, llm, budget=300)
+
+    read = "".join(p[1].content for p in llm.prompts)
+    assert "第000句" in read and "第099句" in read
+    assert all(len(p[1].content) <= 300 for p in llm.prompts)
+
+
+async def test_sections_the_model_titled_a_little_differently_are_not_repeated(
+    corpus: StoryCorpus, characters: CharacterConfig
+):
+    llm = FakeLLM([SHEET.replace("## 身份", "## 身份：").replace("## 口癖", "### 口癖")])
+
+    await draft_sheet(drafting(characters)["mano"], corpus, llm)
+
+    written = (characters.directory / "sheets/mano.md").read_text(encoding="utf-8")
+    assert "（待补充）" not in written
+
+
+def test_the_command_will_not_spend_anything_on_a_draft_it_cannot_write(
+    admin: Admin, characters: CharacterConfig, tmp_path: Path
+):
+    blocked = tmp_path / "a-file"
+    blocked.write_text("")
+
+    err = admin.fails(
+        "character", "draft-sheet", "mano", "--characters", str(characters.path),
+        "--output", str(blocked / "mano.md"),
+    )
+
+    assert "无法写入" in err

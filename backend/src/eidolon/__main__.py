@@ -17,13 +17,13 @@
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 
 from eidolon.config import characters_path_from_env, database_path_from_env
-from eidolon.sheet_draft import DEFAULT_BUDGET
 from eidolon.store import DuplicateName, NotFound, Store
 
 
@@ -119,7 +119,14 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
     from eidolon.corpus import StoryCorpus
     from eidolon.embedding import NoEmbedder
     from eidolon.llm.openai_compat import LLMError, OpenAICompatLLM
-    from eidolon.sheet_draft import NoEpisodes, SheetReviewed, check_replaceable, draft_sheet
+    from eidolon.sheet_draft import (
+        DEFAULT_BUDGET,
+        CannotWrite,
+        NoEpisodes,
+        SheetReviewed,
+        check_output,
+        draft_sheet,
+    )
 
     try:
         characters = load_characters(
@@ -134,10 +141,17 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
         return 1
     target = args.output or character.sheet_path
     assert target is not None, "characters come from a configuration file"
+    budget = args.budget or DEFAULT_BUDGET
+    if budget < 1000:
+        print("--budget 至少为 1000", file=sys.stderr)
+        return 1
     try:  # before anything is spent on it
-        path = check_replaceable(target, args.force)
+        path = check_output(target, args.force)
     except SheetReviewed as e:
         print(f"{e}，不会覆盖；确实要重新生成请加 --force", file=sys.stderr)
+        return 1
+    except CannotWrite as e:
+        print(e, file=sys.stderr)
         return 1
     try:
         base_url, api_key, model = background_llm_from_env()
@@ -145,11 +159,15 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
         print(e, file=sys.stderr)
         return 1
 
+    progress = logging.StreamHandler()  # drafting takes minutes; say how far it has got
+    progress.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+    logging.getLogger("eidolon.sheet_draft").addHandler(progress)
+    logging.getLogger("eidolon.sheet_draft").setLevel(logging.INFO)
     llm = OpenAICompatLLM(base_url, api_key, model)
     corpus = StoryCorpus(args.db or database_path_from_env(), NoEmbedder())
     try:
         report = await draft_sheet(
-            character, corpus, llm, output=path, overwrite=args.force, budget=args.budget
+            character, corpus, llm, output=path, overwrite=args.force, budget=budget
         )
     except (NoEpisodes, LLMError) as e:
         print(e, file=sys.stderr)
@@ -159,11 +177,11 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
         await llm.aclose()
     sampled = (
         f"（素材太多，均匀抽取了其中 {report.episodes_read} 段）"
-        if report.episodes_read < report.episodes
+        if report.episodes_read < report.episodes_cast
         else ""
     )
     print(
-        f"已根据 {character.name} 出场的 {report.episodes} 段剧情{sampled}生成人设初稿，"
+        f"已根据 {character.name} 出场的 {report.episodes_cast} 段剧情{sampled}生成人设初稿，"
         f"共请求后台模型 {report.requests} 次：{path}"
     )
     print("请人工校对，校对完成后删除文件第一行的草稿标记。")
@@ -273,9 +291,7 @@ def _parser() -> argparse.ArgumentParser:
     draft.add_argument(
         "--budget",
         type=int,
-        default=DEFAULT_BUDGET,
-        help=f"每次请求后台模型最多带多少字的剧情素材（默认 {DEFAULT_BUDGET}），"
-        "超出时分批总结",
+        help="每次请求后台模型最多带多少字的剧情素材（默认 40000，至少 1000），超出时分批总结",
     )
     return parser
 

@@ -12,6 +12,7 @@ that has no marker has been reviewed, and is only replaced when asked to.
 """
 
 import logging
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -28,13 +29,19 @@ SECTIONS = ("身份", "自称", "对他人的称呼", "口癖", "组合成员", 
 
 DEFAULT_BUDGET = 40_000
 """How much material, in characters, goes into one request to the background model."""
+MIN_BUDGET = 100
+"""Below this, not even one line of an episode fits."""
 MAX_BATCHES = 20
 """The most batches of episodes the background model takes notes on for one draft."""
-_MISSING = "（待补充：剧情素材中没有找到，请人工填写）"
+_MISSING = "（待补充）"
 
 
 class SheetReviewed(RuntimeError):
     """The file exists and is a reviewed sheet; replacing it needs `overwrite`."""
+
+
+class CannotWrite(RuntimeError):
+    """The draft's file cannot be written, e.g. on a read-only mount."""
 
 
 class NoEpisodes(RuntimeError):
@@ -43,7 +50,7 @@ class NoEpisodes(RuntimeError):
 
 @dataclass(frozen=True)
 class DraftReport:
-    episodes: int
+    episodes_cast: int
     """How many episodes the character is cast in."""
     episodes_read: int
     """How many of them the background model read; fewer when they had to be sampled."""
@@ -61,30 +68,37 @@ async def draft_sheet(
     budget: int = DEFAULT_BUDGET,
 ) -> DraftReport:
     """Draft `character`'s sheet and write it to her sheet file, or to `output`."""
-    path = check_replaceable(output or _sheet_path(character), overwrite)
+    if budget < MIN_BUDGET:
+        raise ValueError(f"budget must be at least {MIN_BUDGET}")
+    path = check_output(output or _sheet_path(character), overwrite)
     episodes = corpus.list_episodes(character.id)
     if not episodes:
         raise NoEpisodes(f"剧情库里没有 {character.name} 出场的剧情，请先导入剧情并检查 speakers")
 
-    texts = [_episode_text(e)[:budget] for e in episodes]
-    if sum(map(len, texts)) > budget * MAX_BATCHES:
-        texts = _sample(texts, budget * MAX_BATCHES)
+    read = _within_batch_limit([_episode_parts(e, budget) for e in episodes], budget)
+    log.info("drafting %s from %d of the %d episodes she is cast in",
+             character.name, len(read), len(episodes))
     drafter = _Drafter(character, background_llm, budget)
-    material, kind = texts, "剧情"
-    while sum(map(len, material)) > budget:
+    material, kind = [part for parts in read for part in parts], "剧情"
+    while len(_joined(material)) > budget:
         material, kind = await drafter.take_notes(material, kind), "笔记"
-    answer = await drafter.ask(_draft_instructions(character, kind), "\n\n".join(material))
+    log.info("writing the draft from %d characters of %s", len(_joined(material)), kind)
+    answer = await drafter.ask(_draft_instructions(character, kind), _joined(material))
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(_draft(character, answer), encoding="utf-8")
-    return DraftReport(len(episodes), len(texts), drafter.requests)
+    return DraftReport(len(episodes), len(read), drafter.requests)
 
 
-def check_replaceable(path: Path, overwrite: bool = False) -> Path:
-    """`path`, if a draft may be written to it: it does not exist, is itself an unreviewed
-    draft, or `overwrite` is set. Raises `SheetReviewed` if not."""
+def check_output(path: Path, overwrite: bool = False) -> Path:
+    """`path`, if a draft may be written to it: it can be written, and it does not exist,
+    is itself an unreviewed draft, or `overwrite` is set. Raises `SheetReviewed` or
+    `CannotWrite` if not, before anything is spent on the draft."""
     if path.exists() and not overwrite and not is_draft(path.read_text(encoding="utf-8")):
         raise SheetReviewed(f"{path} 已存在且是校对过的人设")
+    existing = next(p for p in (path, *path.parents) if p.exists())
+    if not os.access(existing, os.W_OK) or (existing != path and not existing.is_dir()):
+        raise CannotWrite(f"无法写入 {path}（{existing} 不可写，可以用 --output 写到别处）")
     return path
 
 
@@ -117,22 +131,35 @@ class _Drafter:
         return "".join([c async for c in self._llm.stream(prompt) if isinstance(c, str)])
 
 
-def _episode_text(episode: Episode) -> str:
-    lines = [f"## {episode.category}｜{episode.source}「{episode.title}」"]
+def _episode_parts(episode: Episode, budget: int) -> list[str]:
+    """The episode as material: one text, or several each within `budget` if it is long."""
+    header = f"## {episode.category}｜{episode.source}「{episode.title}」"
+    parts: list[list[str]] = [[header]]
+    size = len(header)
     for line in episode.lines:
         text = f"{line.speaker}：{line.ja}" if line.speaker else line.ja
-        lines.append(f"{text}（{line.zh}）" if line.zh else text)
-    return "\n".join(lines)
+        text = (f"{text}（{line.zh}）" if line.zh else text)[: budget - len(header) - 10]
+        if size + len(text) + 1 > budget:
+            parts.append([f"{header}（续）"])
+            size = len(parts[-1][0])
+        parts[-1].append(text)
+        size += len(text) + 1
+    return ["\n".join(part) for part in parts]
 
 
-def _sample(texts: list[str], size: int) -> list[str]:
-    """Episodes spread evenly over `texts`, in order, adding up to about `size` characters."""
-    step = sum(map(len, texts)) / size
-    sampled, position = [], 0.0
-    while round(position) < len(texts):
-        sampled.append(texts[round(position)])
-        position += step
-    return sampled
+def _within_batch_limit(episodes: list[list[str]], budget: int) -> list[list[str]]:
+    """The episodes, or as many as fit in `MAX_BATCHES` batches, spread evenly over them."""
+    while len(episodes) > 1:
+        batches = len(_batches([p for parts in episodes for p in parts], budget))
+        if batches <= MAX_BATCHES:
+            break
+        keep = max(1, len(episodes) * MAX_BATCHES // batches)
+        episodes = [episodes[i * len(episodes) // keep] for i in range(keep)]
+    return episodes
+
+
+def _joined(material: Sequence[str]) -> str:
+    return "\n\n".join(material)
 
 
 def _batches(texts: Sequence[str], budget: int) -> list[str]:
@@ -168,17 +195,19 @@ def _draft_instructions(character: Character, kind: str) -> str:
 - 自称、对他人的称呼、口癖：照原文写出日语，对制作人和其他主要人物分别写。
 - 组合成员：所属组合和其他成员，以及她和各成员的关系。
 - 硬性规则：扮演她时必须遵守、绝不能违反的事，包括始终以她的身份说话、不提到自己是 AI。
-只写素材里看得到的内容，没有依据的小节写「（待补充）」。只输出这些小节，不要其他文字。"""
+只写素材里看得到的内容，没有依据的小节写「{_MISSING}」。只输出这些小节，不要其他文字。"""
 
 
-_SECTION = re.compile(r"^##\s*(.+?)\s*$", re.MULTILINE)
+_HEADING = re.compile(r"^#{2,3}\s*(.+?)\s*$", re.MULTILINE)
 
 
 def _draft(character: Character, answer: str) -> str:
     """The sheet file: the marker, a title, and every section, filling in any the model
     left out."""
     body = re.sub(r"^```\w*\n|\n```\s*$", "", answer.strip()).strip()
-    present = {m.group(1) for m in _SECTION.finditer(body)}
-    missing = [f"## {s}\n{_MISSING}" for s in SECTIONS if s not in present]
+    headings = [m.group(1) for m in _HEADING.finditer(body)]
+    missing = [
+        f"## {s}\n{_MISSING}" for s in SECTIONS if not any(h.startswith(s) for h in headings)
+    ]
     parts = [DRAFT_MARKER, f"# 人设：{character.name}", body, *missing]
     return "\n\n".join(p for p in parts if p) + "\n"
