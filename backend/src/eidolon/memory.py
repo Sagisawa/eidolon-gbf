@@ -80,6 +80,18 @@ class MemoryIndex:
         best = nearest([vectors[m.id] for m in memories], query_vector, limit)
         return [memories[i] for i, _ in best]
 
+    def forget(self, user_id: str, memory_ids: Sequence[int] | None = None) -> None:
+        """Drop the vectors of memories that are gone; of all the user's, if `memory_ids`
+        is None."""
+        with self._lock, self._db:
+            if memory_ids is None:
+                self._db.execute("DELETE FROM memory_vectors WHERE user_id = ?", (user_id,))
+            else:
+                self._db.executemany(
+                    "DELETE FROM memory_vectors WHERE user_id = ? AND memory_id = ?",
+                    [(user_id, memory_id) for memory_id in memory_ids],
+                )
+
     async def add(self, user_id: str, memories: Sequence[Memory]) -> None:
         """Embed memories just written down, so searching does not have to."""
         if memories:

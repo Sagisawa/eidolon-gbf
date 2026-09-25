@@ -67,6 +67,14 @@ export default function SettingsPage() {
 
       <ProducerProfileSettings accessKey={saved} />
 
+      <div className="field">
+        <label>记忆</label>
+        <p className="hint">查看角色们记下的关于你的事，可以逐条删除或全部清空。</p>
+        <Link href="/memories" className="ghost-link">
+          管理记忆
+        </Link>
+      </div>
+
       <CallSettings />
     </main>
   );

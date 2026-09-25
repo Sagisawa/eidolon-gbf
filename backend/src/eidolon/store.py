@@ -328,6 +328,19 @@ class Store:
             ).fetchall()
         return [Memory(**row) for row in rows]
 
+    def delete_memory(self, user_id: str, memory_id: int) -> bool:
+        """Forget one of the user's memories; False if they have no such memory."""
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "DELETE FROM memories WHERE id = ? AND user_id = ?", (memory_id, user_id)
+            )
+        return cursor.rowcount > 0
+
+    def clear_memories(self, user_id: str) -> None:
+        """Forget all of the user's memories."""
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
+
     def close(self) -> None:
         self._db.close()
 

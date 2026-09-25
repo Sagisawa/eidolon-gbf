@@ -40,6 +40,16 @@ export type ProducerProfile = {
   timezone: string | null;
 };
 
+/** Something a character remembers about the user, with the character it was told to;
+ * the name is null for a character no longer configured. */
+export type Memory = {
+  id: number;
+  text: string;
+  source_character_id: string;
+  source_character_name: string | null;
+  created_at: string;
+};
+
 /** During a call the backend also announces each utterance it takes up, spoken or typed. */
 export type CallEvent = TurnEvent | { type: "user"; text: string };
 
@@ -100,6 +110,24 @@ export async function saveProfile(profile: ProducerProfile): Promise<ProducerPro
       body: JSON.stringify(profile),
     }),
   );
+}
+
+/** Newest first. */
+export async function listMemories(): Promise<Memory[]> {
+  return json(await api("/api/memories"));
+}
+
+export async function deleteMemory(id: number): Promise<void> {
+  await nothing(await api(`/api/memories/${id}`, { method: "DELETE" }));
+}
+
+export async function clearMemories(): Promise<void> {
+  await nothing(await api("/api/memories", { method: "DELETE" }));
+}
+
+/** Checks a response that carries no body. */
+async function nothing(res: Response): Promise<void> {
+  if (!res.ok) await json(res);
 }
 
 export async function listCharacters(): Promise<Character[]> {
