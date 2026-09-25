@@ -1,5 +1,7 @@
-"""Sample SCTranslationData story CSVs, written the way the upstream repository lays them out."""
+"""Sample story files: SCTranslationData CSVs written the way the upstream repository lays
+them out, and the game's own script JSON."""
 
+import json
 from pathlib import Path
 
 PRODUCER = "0000000000000"
@@ -61,3 +63,42 @@ def write_sample_stories(root: Path) -> Path:
     write_story(root, "月岡恋鐘/【ばりうまかブルース】月岡恋鐘/長崎の味.csv", KOGANE_CARD, "produce_events/201100401")
     write_story(root, "283活动剧情/Light up the illumination/第1話.csv", HIORI_EVENT, "game_event_communications/400100401")
     return root
+
+
+# The game's own scripts: an array of frames, as served under `assets/json/<script>.json`.
+# Mano's first W.I.N.G. episode with a choice: each option jumps to its own reaction, and
+# both reactions rejoin the story afterwards. Frames without text are stage directions.
+PARK_SCRIPT = [
+    {"bg": "park_day", "bgm": "bgm_0001"},
+    {"id": "0000000000000", "speaker": "プロデューサー", "text": "（いよいよ俺が、アイドルを\nプロデュースする時が来た）"},
+    {"id": "1001001010110", "speaker": "真乃", "text": "公園で鳩と一緒に歌っていました", "voice": "produce_events/1001001010110"},
+    {"select": "歌が好きなのか？", "nextLabel": "song"},
+    {"select": "鳩が好きなのか？", "nextLabel": "dove"},
+    {"label": "song", "id": "1001001010120", "speaker": "真乃", "text": "はい、歌うのが大好きです", "nextLabel": "join"},
+    {"label": "dove", "id": "1001001010130", "speaker": "真乃", "text": "ほわっ……鳩さん、かわいいですよね", "nextLabel": "join"},
+    {"label": "join", "id": "1001001010140", "speaker": "真乃", "text": "また、公園に来てくれますか？"},
+    {"text": "", "speaker": "真乃"},
+    {"text": "（夕日が公園を照らしている）"},
+]
+# The same script SCTranslationData already has, translated (see `WON`).
+WON_SCRIPT = [
+    {"id": "6001001060050", "speaker": "真乃", "text": "……ゆ、優勝、したんですねっ"},
+    {"id": "0000000000000", "speaker": "プロデューサー", "text": "……ああ、夢なんかじゃないぞ"},
+]
+KNOCKED_OUT_SCRIPT = [
+    {"id": "6001001020010", "speaker": "真乃", "text": "私……負けちゃいました……"},
+]
+# A card of Kogane's that SCTranslationData has not translated.
+KOGANE_SCRIPT = [
+    {"id": "2011005010010", "speaker": "恋鐘", "text": "ちゃんぽんば作ったけん、食べてみて！"},
+    {"select": "いただきます", "nextLabel": "a"},
+    {"select": "あとでもらうよ", "nextLabel": "b"},
+    {"label": "a", "id": "2011005010020", "speaker": "恋鐘", "text": "どげん？ばりうまかやろ？"},
+    {"label": "b", "id": "2011005010030", "speaker": "恋鐘", "text": "えー、冷めてしまうばい"},
+]
+
+
+def write_script(root: Path, relative: str, frames: object) -> None:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(frames, ensure_ascii=False), encoding="utf-8")

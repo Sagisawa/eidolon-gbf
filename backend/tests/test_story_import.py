@@ -236,18 +236,24 @@ async def test_a_file_without_an_info_row_is_keyed_by_its_path(importer: Importe
     assert any("info" in w for w in report.warnings)
 
 
-def test_import_command_needs_the_siliconflow_key(
-    admin: Admin, story: Path, characters: CharacterConfig, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("command", ["import-csv", "import-json"])
+def test_import_commands_need_the_siliconflow_key(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
 ):
     monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
 
-    err = admin.fails("story", "import-csv", str(story), "--characters", str(characters.path))
+    err = admin.fails("story", command, str(story), "--characters", str(characters.path))
 
     assert "SILICONFLOW_API_KEY" in err
 
 
-def test_import_command_reports_a_missing_directory(admin: Admin, tmp_path: Path):
-    err = admin.fails("story", "import-csv", str(tmp_path / "nowhere"))
+@pytest.mark.parametrize("command", ["import-csv", "import-json"])
+def test_import_commands_report_a_missing_directory(admin: Admin, tmp_path: Path, command: str):
+    err = admin.fails("story", command, str(tmp_path / "nowhere"))
 
     assert "nowhere" in err
 

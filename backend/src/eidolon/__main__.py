@@ -8,6 +8,8 @@
     eidolon key revoke <key-id>
     eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
                                      and report each character's story catalog
+    eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
+                                     SCTranslationData lacks
 """
 
 import argparse
@@ -27,7 +29,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in (None, "serve"):
         return _serve()
     if args.command == "story":
-        return asyncio.run(_import_story_csv(args))
+        return asyncio.run(_import_story(args))
 
     store = Store(args.db or database_path_from_env())
     try:
@@ -59,12 +61,12 @@ def _serve() -> int:
     return 0
 
 
-async def _import_story_csv(args: argparse.Namespace) -> int:
+async def _import_story(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
     from eidolon.config import SiliconFlowSettings
     from eidolon.corpus import StoryCorpus
     from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
-    from eidolon.story_import import import_csv_directory
+    from eidolon.story_import import import_csv_directory, import_json_directory
 
     if not args.directory.is_dir():
         print(f"找不到剧情目录 {args.directory}", file=sys.stderr)
@@ -79,7 +81,10 @@ async def _import_story_csv(args: argparse.Namespace) -> int:
     try:
         corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
         try:
-            report = await import_csv_directory(args.directory, corpus, characters.values())
+            import_directory = (
+                import_json_directory if args.action == "import-json" else import_csv_directory
+            )
+            report = await import_directory(args.directory, corpus, characters.values())
             catalogs = {c.name: corpus.catalog(c.id) for c in characters.values()}
         finally:
             corpus.close()
@@ -94,6 +99,8 @@ async def _import_story_csv(args: argparse.Namespace) -> int:
         f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
         f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 段文本"
     )
+    if report.kept_csv:
+        print(f"另有 {report.kept_csv} 段剧情已从 CSV 导入（带中文翻译），保留 CSV 版本")
     for name, catalog in catalogs.items():
         episodes = sum(len(source.episodes) for source in catalog)
         print(f"剧情目录 {name}：{len(catalog)} 张卡或活动，{episodes} 段剧情")
@@ -166,11 +173,21 @@ def _parser() -> argparse.ArgumentParser:
         "import-csv", help="导入 SCTranslationData 格式的剧情 CSV 目录（可重复执行）"
     )
     import_csv.add_argument("directory", type=Path, help="剧情 CSV 所在目录，例如 data/story")
-    import_csv.add_argument(
-        "--characters",
-        type=Path,
-        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    import_json = story.add_parser(
+        "import-json",
+        help="导入游戏原始剧本 JSON 目录，补全 SCTranslationData 缺少的剧情（可重复执行）",
     )
+    import_json.add_argument(
+        "directory",
+        type=Path,
+        help="剧本 JSON 所在目录；文件路径需含剧本编号，如 produce_events/100100101.json",
+    )
+    for command in (import_csv, import_json):
+        command.add_argument(
+            "--characters",
+            type=Path,
+            help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+        )
     return parser
 
 

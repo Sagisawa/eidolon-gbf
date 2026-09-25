@@ -1,19 +1,32 @@
-"""Importing the story corpus from SCTranslationData CSV files.
+"""Importing the story corpus from SCTranslationData CSV files and the game's own scripts.
 
 Each CSV (`id,name,text,trans`, ending in an `info` row naming the game script it
 was translated from) becomes one episode keyed by that script. The source
 (card or event) is the file's directory and the title its file name, as
-SCTranslationData lays them out. Only canon is kept: failure endings are
-recognised by their script and left out (and removed, if an earlier import had
-them), and the producer's choices (`select` rows) are dropped so the corpus never
-says which one was picked. The cast is every configured character whose speaker
-name appears; the producer and other people are not cast.
+SCTranslationData lays them out.
+
+Each JSON file is one game script as the game serves it: an array of frames with
+`speaker`, `text`, `select` and more. It is keyed by the script its path names, either
+the game's own layout (`produce_events/100100101.json`) or the translation plugin's
+name for a download (`produce_events_100100101.json`). The source and title come from
+the directory and file name when the file is filed like SCTranslationData; a file kept
+in the game's layout has neither, so its card or event is its script number without
+the episode (`produce_events/2011005`) and its title the plugin's name. Scripts carry
+no translation. A script SCTranslationData has translated is kept from the CSV: the
+JSON import leaves a CSV version alone, and a CSV import replaces a JSON one.
+
+Both follow the same rules. Only canon is kept: failure endings are recognised by
+their script and left out (and removed, if an earlier import had them), and the
+producer's choices (`select`) are dropped while every reaction to them is kept, so
+the corpus never says which one was picked. The cast is every configured character
+whose speaker name appears; the producer and other people are not cast.
 """
 
 import csv
+import json
 import logging
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,6 +42,10 @@ _LOOKS_LIKE_FAILURE = re.compile(r"敗|失敗|失败|败")
 _NOT_FAILURE_WORDS = re.compile(r"成敗")  # punishing the villain, in period-drama events
 
 _JOINT_SPEAKERS = re.compile(r"[＆&]")
+
+# `produce_events/100100101` as the game lays scripts out, or `produce_events_100100101`
+# as the translation plugin names a download.
+_SCRIPT_PATH = re.compile(r"(?:^|/)(?P<type>[a-z]+(?:_[a-z]+)*)[/_](?P<number>\d+)$")
 
 # Script identifiers look like `produce_events/TIIISSSEE`: type T, idol III, scenario
 # SSS (001 W.I.N.G., 002 fan appreciation, 003 G.R.A.D., 004 Landing Point, 005
@@ -72,7 +89,20 @@ class ImportReport:
     removed: int = 0
     """Episodes an earlier import had that are now recognised as failure endings."""
     embedded_passages: int = 0
+    kept_csv: int = 0
+    """Scripts in a JSON import already in the corpus from a CSV, which was kept."""
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _Script:
+    """One story file as read, before the import rules are applied."""
+
+    relative: Path
+    source_id: str
+    source: str
+    title: str
+    lines: list[Line]
 
 
 async def import_csv_directory(
@@ -83,10 +113,24 @@ async def import_csv_directory(
     Of several files translated from the same script, the one with the most lines wins
     (stray partial copies exist), then the first in path order.
     """
-    speakers = _speaker_index(characters)
     report = ImportReport()
-    episodes: dict[str, Episode] = {}
-    seen: dict[str, tuple[Path, int]] = {}
+    return await _import(_csv_scripts(directory, report), "csv", corpus, characters, report)
+
+
+async def import_json_directory(
+    directory: Path, corpus: StoryCorpus, characters: Iterable[Character]
+) -> ImportReport:
+    """Import every `*.json` under `directory` as an episode, unless a CSV of the same
+    script is already in the corpus.
+
+    Of several files of the same script, the one with the most lines wins, then the
+    first in path order.
+    """
+    report = ImportReport()
+    return await _import(_json_scripts(directory, report), "json", corpus, characters, report)
+
+
+def _csv_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
     for path in sorted(directory.rglob("*.csv")):
         relative = path.relative_to(directory)
         try:
@@ -97,6 +141,44 @@ async def import_csv_directory(
         if source_id is None:
             source_id = f"csv/{relative.with_suffix('').as_posix()}"
             report.warnings.append(f"{relative}：没有 info 行，以文件路径作为来源标识")
+        yield _Script(relative, source_id, relative.parent.name or relative.stem, relative.stem, lines)
+
+
+def _json_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
+    for path in sorted(directory.rglob("*.json")):
+        relative = path.relative_to(directory)
+        try:
+            lines = _read_json(path)
+        except (ValueError, UnicodeDecodeError) as e:  # JSONDecodeError is a ValueError
+            report.warnings.append(f"{relative}：无法读取（{e}），已跳过")
+            continue
+        name = relative.with_suffix("").as_posix()
+        if (match := _SCRIPT_PATH.search(name)) is None:
+            report.warnings.append(f"{relative}：路径里没有剧本编号，以文件路径作为来源标识")
+            source_id = f"json/{name}"
+            yield _Script(relative, source_id, relative.parent.name or relative.stem, relative.stem, lines)
+            continue
+        kind, number = match["type"], match["number"]
+        source_id = f"{kind}/{number}"
+        if relative.parent.name == kind or not relative.parent.name:  # the game's layout
+            source, title = f"{kind}/{number[:-2]}", f"{kind}_{number}"
+        else:
+            source, title = relative.parent.name, relative.stem
+        yield _Script(relative, source_id, source, title, lines)
+
+
+async def _import(
+    scripts: Iterable[_Script],
+    imported_from: str,
+    corpus: StoryCorpus,
+    characters: Iterable[Character],
+    report: ImportReport,
+) -> ImportReport:
+    speakers = _speaker_index(characters)
+    episodes: dict[str, Episode] = {}
+    seen: dict[str, tuple[Path, int]] = {}
+    for script in scripts:
+        relative, source_id, lines = script.relative, script.source_id, script.lines
         if source_id in seen:
             kept, kept_lines = seen[source_id]
             if len(lines) <= kept_lines:
@@ -116,13 +198,17 @@ async def import_csv_directory(
             if corpus.remove(source_id):
                 report.removed += 1
             continue
+        if imported_from != "csv" and corpus.imported_from(source_id) == "csv":
+            report.kept_csv += 1
+            continue
         episodes[source_id] = Episode(
             id=source_id,
             category=category_of(source_id),
-            source=relative.parent.name or relative.stem,
-            title=relative.stem,
+            source=script.source,
+            title=script.title,
             cast=_cast(lines, speakers),
             lines=tuple(lines),
+            imported_from=imported_from,
         )
 
     pending = list(episodes.values())
@@ -149,6 +235,24 @@ def _read_csv(path: Path) -> tuple[str | None, list[Line]]:
             else:
                 lines.append(Line(name or None, _unescape(text), _unescape(trans) or None))
     return source_id, lines
+
+
+def _read_json(path: Path) -> list[Line]:
+    """The lines of a game script. A frame's text is its line (a choice is kept only in
+    `select`); frames without text are stage directions."""
+    frames = json.loads(path.read_text(encoding="utf-8-sig"))
+    if not isinstance(frames, list):
+        raise ValueError("不是剧本的帧数组")
+    lines = []
+    for frame in frames:
+        if not isinstance(frame, dict):
+            continue
+        text, speaker = frame.get("text"), frame.get("speaker")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        speaker = speaker.strip() if isinstance(speaker, str) else ""
+        lines.append(Line(speaker or None, _unescape(text.strip())))
+    return lines
 
 
 def _unescape(text: str) -> str:

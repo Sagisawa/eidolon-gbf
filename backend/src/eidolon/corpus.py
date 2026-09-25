@@ -1,7 +1,8 @@
 """The story corpus: episodes the characters can recall, and their vector index.
 
 Each episode is keyed by its source identifier (the game script it came from), so
-saving the same episode again replaces it. Episodes are split into passages of
+saving the same episode again replaces it. Each episode also records the format it was
+imported from, so an import can leave alone a better version from another. Episodes are split into passages of
 consecutive lines; each passage is embedded and searched by cosine similarity,
 only among the episodes the asking character is in the cast of. Passages whose
 text has not changed keep their vectors, so re-importing costs no embedding calls.
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     category TEXT NOT NULL,
     source TEXT NOT NULL,
     title TEXT NOT NULL,
+    imported_from TEXT NOT NULL DEFAULT 'csv',
     imported_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS episode_cast (
@@ -79,6 +81,9 @@ class Episode:
     cast: frozenset[str]
     """Identifiers of the configured characters who appear in it."""
     lines: tuple[Line, ...]
+    imported_from: str = "csv"
+    """The format the episode was imported from: `csv` (SCTranslationData) or `json`
+    (the game's own script)."""
 
 
 @dataclass(frozen=True)
@@ -115,6 +120,11 @@ class StoryCorpus:
         with self._lock, self._db:
             self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
+            columns = {r["name"] for r in self._db.execute("PRAGMA table_info(episodes)")}
+            if "imported_from" not in columns:  # corpora from before JSON import were all CSV
+                self._db.execute(
+                    "ALTER TABLE episodes ADD COLUMN imported_from TEXT NOT NULL DEFAULT 'csv'"
+                )
 
     async def save(self, episodes: list[Episode]) -> int:
         """Insert or replace these episodes; returns how many passages had to be embedded."""
@@ -130,9 +140,16 @@ class StoryCorpus:
             for episode in episodes:
                 self._delete(episode.id)
                 self._db.execute(
-                    "INSERT INTO episodes (id, category, source, title, imported_at)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (episode.id, episode.category, episode.source, episode.title, now),
+                    "INSERT INTO episodes (id, category, source, title, imported_from, imported_at)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        episode.id,
+                        episode.category,
+                        episode.source,
+                        episode.title,
+                        episode.imported_from,
+                        now,
+                    ),
                 )
                 self._db.executemany(
                     "INSERT INTO episode_cast (episode_id, character_id) VALUES (?, ?)",
@@ -162,6 +179,14 @@ class StoryCorpus:
         with self._lock:
             row = self._db.execute("SELECT * FROM episodes WHERE id = ?", (episode_id,)).fetchone()
             return self._episode(row) if row else None
+
+    def imported_from(self, episode_id: str) -> str | None:
+        """The format an episode was imported from, or None if it is not in the corpus."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT imported_from FROM episodes WHERE id = ?", (episode_id,)
+            ).fetchone()
+            return row["imported_from"] if row else None
 
     def list_episodes(self, character_id: str | None = None) -> list[Episode]:
         """All episodes, or those `character_id` appears in, ordered by source identifier."""
@@ -262,6 +287,7 @@ class StoryCorpus:
             title=row["title"],
             cast=frozenset(r["character_id"] for r in cast),
             lines=tuple(Line(r["speaker"], r["ja"], r["zh"]) for r in lines),
+            imported_from=row["imported_from"],
         )
 
 
