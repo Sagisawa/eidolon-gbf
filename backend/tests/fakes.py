@@ -2,6 +2,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator, Sequence
+from datetime import UTC, datetime, timedelta
 
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 
@@ -11,6 +12,21 @@ from eidolon.embedding import EmbeddingError
 from eidolon.llm import ChatMessage, Tool, ToolCall
 from eidolon.retrieval import JudgeError, Need
 from eidolon.store import Message
+
+START = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
+
+
+class FakeClock:
+    """A clock the tests move forward themselves."""
+
+    def __init__(self, now: datetime = START) -> None:
+        self.now = now
+
+    def __call__(self) -> datetime:
+        return self.now
+
+    def advance(self, **delta: float) -> None:
+        self.now += timedelta(**delta)
 
 
 class FakeLLM:

@@ -1,12 +1,15 @@
 """The backend's HTTP API."""
 
 import asyncio
+import base64
+import hmac
 import json
 import logging
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -22,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from eidolon.call import Call, CallStarter, Quality, serve_calls
 from eidolon.characters import load_characters
-from eidolon.config import Settings
+from eidolon.config import TURN_CREDENTIAL_LIFETIME, IceServer, Settings, TurnSettings
 from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder, SiliconFlowEmbedder
 from eidolon.facts import FactIndex
@@ -114,6 +117,19 @@ UserId = Annotated[str, Depends(current_user)]
 
 DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
 """The time zone the browser detected; the producer profile's own time zone overrides it."""
+
+
+def turn_credentials(turn: TurnSettings, user_id: str, now: datetime) -> IceServer:
+    """Credentials under the TURN server's shared-secret scheme: the username carries when
+    they expire, and the password is the username signed with the secret."""
+    expires = int((now + TURN_CREDENTIAL_LIFETIME).timestamp())
+    username = f"{expires}:{user_id}"
+    signature = hmac.new(turn.secret.encode(), username.encode(), "sha1").digest()
+    return {
+        "urls": list(turn.urls),
+        "username": username,
+        "credential": base64.b64encode(signature).decode(),
+    }
 
 
 def create_app(
@@ -217,10 +233,13 @@ def create_app(
         return call_starter
 
     @app.get("/api/ice-servers")
-    def ice_servers(_: UserId) -> dict:
+    def ice_servers(user_id: UserId) -> dict:
         """What the browser needs before calling; also tells it when calls are unavailable."""
         require_voice()
-        return {"iceServers": settings.ice_servers}
+        servers = list(settings.ice_servers)
+        if settings.turn is not None:
+            servers.append(turn_credentials(settings.turn, user_id, clock()))
+        return {"iceServers": servers}
 
     @app.post("/api/offer")
     async def offer(

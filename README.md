@@ -12,6 +12,8 @@ docker compose up --build
 
 打开 http://localhost:3000 ，在设置页填入访问密钥后即可在角色选择页挑一位角色对话。
 
+部署到 VPS（HTTPS、TURN、给朋友用）另有一份生产配置 `docker-compose.prod.yml`，步骤见 `docs/deploy.md`。
+
 ## 模型
 
 「对话模型」负责和用户对话，「后台模型」负责抽取记忆、生成人设初稿。两者在 `.env` 里分别配置，各自可以选三种接口之一（`CHAT_LLM_PROTOCOL`、`BACKGROUND_LLM_PROTOCOL`）：OpenAI 兼容的 Chat Completions（`chat-completions`，默认）、OpenAI Responses（`responses`）、Anthropic Messages（`anthropic`）。地址、密钥、模型名都自己填，所以也可以接各种兼容这些接口的第三方服务。
@@ -44,7 +46,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 在 `.env` 里填好 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 后，对话页的「语音通话」按钮就能用了：说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。通话中打字输入的内容和说的话进入同一条对话，角色同样用语音回复。「静音」开关打开后只显示文字、不合成语音。麦克风和通话音质在设置页选择。
 
-浏览器和后端之间直接走 WebRTC（UDP）。本机用 docker compose 启动时，Linux 上的浏览器可以直接连到容器；其他情况（macOS 的 Docker Desktop、手机访问、公网部署）需要浏览器能连通后端，通常要配置 TURN 服务器，见 `.env.example` 里的 `EIDOLON_ICE_SERVERS`。
+浏览器和后端之间直接走 WebRTC（UDP）。本机用 docker compose 启动时，Linux 上的浏览器可以直接连到容器；其他情况（macOS 的 Docker Desktop、手机访问）需要浏览器能连通后端，通常要配置 TURN 服务器，见 `.env.example` 里的 `EIDOLON_ICE_SERVERS` 和 `EIDOLON_TURN_URLS`。公网部署的生产配置自带 coturn，见 `docs/deploy.md`。
 
 ## 剧情库
 

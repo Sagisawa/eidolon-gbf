@@ -3,6 +3,7 @@
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import Literal, Required, TypedDict, get_args
 
@@ -25,6 +26,10 @@ DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
 DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
+
+TURN_CREDENTIAL_LIFETIME = timedelta(hours=24)
+"""How long minted TURN credentials last. The TURN server checks them again each time a
+call refreshes its relay, so they must outlast the longest call; calls can be unlimited."""
 
 DEFAULT_TURNS_PER_HOUR = 60
 DEFAULT_CALLS_PER_HOUR = 5
@@ -100,6 +105,8 @@ class Settings:
     background_llm: LLMSettings | None = None
     """None: the background model is the chat model."""
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
+    turn: "TurnSettings | None" = None
+    """A TURN server the browser gets short-lived credentials for, besides `ice_servers`."""
     soniox_api_key: str | None = None
     fish_audio_api_key: str | None = None
     fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
@@ -116,6 +123,7 @@ class Settings:
             chat_llm=LLMSettings.chat_from_env(),
             background_llm=LLMSettings.background_from_env(),
             ice_servers=_ice_servers(os.environ.get("EIDOLON_ICE_SERVERS")),
+            turn=TurnSettings.from_env(),
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
@@ -170,6 +178,22 @@ class JevSettings:
             model=_required("JEV_MODEL"),
             base_url=os.environ.get("AI_GATEWAY_BASE_URL") or DEFAULT_AI_GATEWAY_BASE_URL,
         )
+
+
+@dataclass(frozen=True)
+class TurnSettings:
+    """A TURN server that shares a secret with the backend (coturn's `use-auth-secret`): the
+    backend mints each browser credentials that expire, so the secret never leaves it."""
+
+    urls: list[str]
+    secret: str
+
+    @classmethod
+    def from_env(cls) -> "TurnSettings | None":
+        urls = [u.strip() for u in os.environ.get("EIDOLON_TURN_URLS", "").split(",") if u.strip()]
+        if not urls:
+            return None
+        return cls(urls, _required("EIDOLON_TURN_SECRET"))
 
 
 @dataclass(frozen=True)

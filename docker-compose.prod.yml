@@ -1,0 +1,78 @@
+# 生产环境（VPS）：docker compose -f docker-compose.prod.yml up -d --build
+# 部署步骤见 docs/deploy.md。所有密钥都来自仓库根目录的 .env，不写进这个文件。
+#
+# 四个服务都用 host 网络：语音通话走 WebRTC（UDP），后端需要把本机的公网地址作为候选地址告诉浏览器，
+# coturn 也需要直接收发 UDP。前端和后端只监听 127.0.0.1，公网上只开放 Caddy（80、443）和 coturn（3478 与中继端口）。
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    network_mode: host
+    environment:
+      EIDOLON_DOMAIN: ${EIDOLON_DOMAIN:?请在 .env 里填写 EIDOLON_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # 证书
+      - caddy-config:/config
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    network_mode: host
+    environment:
+      HOSTNAME: 127.0.0.1
+      PORT: 3000
+      BACKEND_URL: http://127.0.0.1:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    network_mode: host
+    env_file: .env
+    environment:
+      HOST: 127.0.0.1
+      PORT: 8000
+      # 浏览器和后端都用本机的 coturn 做 STUN；浏览器另外拿到 TURN 的临时凭据
+      EIDOLON_ICE_SERVERS: ${EIDOLON_ICE_SERVERS:-stun:${EIDOLON_DOMAIN}:3478}
+      EIDOLON_TURN_URLS: turn:${EIDOLON_DOMAIN}:3478?transport=udp,turn:${EIDOLON_DOMAIN}:3478?transport=tcp
+      EIDOLON_TURN_SECRET: ${EIDOLON_TURN_SECRET:?请在 .env 里填写 EIDOLON_TURN_SECRET}
+    volumes:
+      - eidolon-data:/data # 数据库：用户、对话、记忆、剧情库
+      - ./characters:/characters:ro # 人设、角色资料、头像
+      - ./corpus:/corpus:ro # 剧情库的原始数据，导入时读取
+    restart: unless-stopped
+
+  coturn:
+    image: coturn/coturn:4.7
+    network_mode: host
+    # 直接运行 turnserver：镜像自带的入口脚本会对每个参数做一次 shell 求值
+    entrypoint: ["turnserver"]
+    command:
+      - --listening-port=3478
+      - --realm=${EIDOLON_DOMAIN}
+      - --fingerprint
+      # 和后端共用密钥：后端给每位用户签发会过期的凭据，密钥本身不出服务器
+      - --use-auth-secret
+      - --static-auth-secret=${EIDOLON_TURN_SECRET}
+      - --min-port=${EIDOLON_TURN_MIN_PORT:-49160}
+      - --max-port=${EIDOLON_TURN_MAX_PORT:-49259}
+      # 只中继到本机（后端）：拒绝所有其他地址，免得被人拿来当开放的中继
+      - --no-tcp-relay
+      - --denied-peer-ip=0.0.0.0-255.255.255.255
+      - --denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+      - --allowed-peer-ip=${EIDOLON_PUBLIC_IP:?请在 .env 里填写 EIDOLON_PUBLIC_IP}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --log-file=stdout
+      - --simple-log
+    restart: unless-stopped
+
+volumes:
+  eidolon-data:
+  caddy-data:
+  caddy-config:

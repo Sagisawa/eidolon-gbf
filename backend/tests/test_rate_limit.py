@@ -5,7 +5,7 @@ with a clock the tests control."""
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import httpx
 import pytest
@@ -13,23 +13,11 @@ from aiortc import RTCConfiguration, RTCPeerConnection
 
 from eidolon.config import Settings, UsageLimits
 from tests.conftest import Admin, ClientFactory
-from tests.fakes import FakeCalls, FakeLLM
+from tests.fakes import START, FakeCalls, FakeClock, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 from tests.test_voice_call import call, offer_body
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
-START = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
-
-
-class FakeClock:
-    def __init__(self, now: datetime = START) -> None:
-        self.now = now
-
-    def __call__(self) -> datetime:
-        return self.now
-
-    def advance(self, **delta: float) -> None:
-        self.now += timedelta(**delta)
 
 
 def limited(settings: Settings, *, turns: int | None = 60, calls: int | None = 5) -> Settings:
