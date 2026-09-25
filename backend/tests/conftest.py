@@ -11,7 +11,14 @@ from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.config import Settings
 from eidolon.engine import Clock
-from tests.fakes import FakeCalls, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import (
+    FakeBackgroundLLM,
+    FakeCalls,
+    FakeEmbedder,
+    FakeJudge,
+    FakeLLM,
+    FakeReranker,
+)
 from tests.stories import write_sample_stories
 
 
@@ -177,6 +184,7 @@ async def make_client(
         jev: FakeJudge | None = None,
         embedder: FakeEmbedder | None = None,
         reranker: FakeReranker | None = None,
+        background_llm: FakeBackgroundLLM | None = None,
     ) -> httpx.AsyncClient:
         app = create_app(
             settings,
@@ -186,6 +194,7 @@ async def make_client(
             jev=jev,
             embedder=embedder,
             reranker=reranker,
+            background_llm=background_llm or FakeBackgroundLLM(),
         )
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(

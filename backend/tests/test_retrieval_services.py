@@ -73,12 +73,15 @@ def message(role: str, text: str) -> Message:
     return Message(2, "character", None, text, "", "2026-09-25T00:00:00+00:00")
 
 
-def judge_answering(requests: list[dict], retrieve: float, recall: float = 0.01) -> JevJudge:
+def judge_answering(
+    requests: list[dict], retrieve: float, recall: float = 0.01, about_producer: float = 0.02
+) -> JevJudge:
     body = {
         "model": "jev",
         "answers": {
             "needs_retrieval": {"type": "boolean", "probability": retrieve},
             "recall": {"type": "boolean", "probability": recall},
+            "about_producer": {"type": "boolean", "probability": about_producer},
         },
         "usage": {"inputTokens": 500, "outputTokens": 0},
     }
@@ -89,26 +92,31 @@ def judge_answering(requests: list[dict], retrieve: float, recall: float = 0.01)
 
 
 @pytest.mark.parametrize(
-    "retrieve, recall, expected",
+    "retrieve, recall, about_producer, expected",
     [
-        (0.89, 0.03, "references"),
-        (0.5, 0.2, "references"),
-        (0.21, 0.01, "nothing"),
-        (0.91, 0.96, "recall"),
-        (0.4, 0.5, "recall"),
+        (0.89, 0.03, 0.1, "references"),
+        (0.5, 0.2, 0.1, "references"),
+        (0.89, 0.03, 0.95, "references"),  # which carries memories too
+        (0.21, 0.01, 0.1, "nothing"),
+        (0.21, 0.01, 0.95, "memories"),
+        (0.91, 0.96, 0.95, "recall"),
+        (0.4, 0.5, 0.1, "recall"),
     ],
 )
-async def test_jev_answers_what_the_turn_needs(retrieve: float, recall: float, expected: str):
+async def test_jev_answers_what_the_turn_needs(
+    retrieve: float, recall: float, about_producer: float, expected: str
+):
     requests: list[dict] = []
 
-    judge = judge_answering(requests, retrieve, recall)
+    judge = judge_answering(requests, retrieve, recall, about_producer)
     assert await judge.judge(MANO, [], "那次比赛") == expected
-    [request] = requests  # both questions in one call
+    [request] = requests  # all questions in one call
     assert request["url"] == "http://gateway.test/v1/evaluate"
     assert request["auth"] == "Bearer gw-key"
     assert request["model"] == "jev"
     assert request["questions"]["needs_retrieval"]["type"] == "boolean"
     assert request["questions"]["recall"]["type"] == "boolean"
+    assert request["questions"]["about_producer"]["type"] == "boolean"
 
 
 async def test_jev_sees_the_latest_messages_and_what_was_just_said():

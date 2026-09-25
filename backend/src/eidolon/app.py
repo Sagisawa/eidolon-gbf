@@ -27,6 +27,7 @@ from eidolon.facts import FactIndex
 from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone
 from eidolon.llm import ChatLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
+from eidolon.memory import MemoryIndex, MemoryWriter
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.rerank import Reranker, SiliconFlowReranker
 from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
@@ -120,9 +121,11 @@ def create_app(
     jev: RetrievalJudge | None = None,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
+    background_llm: ChatLLM | None = None,
 ) -> FastAPI:
     """Services left out are built from `settings`; retrieval is on only when Jev, the
-    embedder and the reranker are all available."""
+    embedder and the reranker are all available, and so is memory, since only retrieval
+    can find memories again."""
     characters = load_characters(settings.characters_path)
     store = Store(settings.database_path)
     llm = chat_llm or OpenAICompatLLM(
@@ -139,18 +142,29 @@ def create_app(
     if jev is None and settings.jev is not None:
         jev = JevJudge(settings.jev.api_key, settings.jev.model, settings.jev.base_url)
         clients.append(jev)
-    retrieval = None
+    retrieval = memory = None
     if jev is not None and embedder is not None and reranker is not None:
         retrieval = Retrieval(
             jev,
             embedder,
             StoryCorpus(settings.database_path, embedder),
             FactIndex(settings.database_path, embedder),
+            MemoryIndex(settings.database_path, store, embedder),
             reranker,
         )
+        background_llm = background_llm or OpenAICompatLLM(
+            settings.background_llm_base_url or settings.chat_llm_base_url,
+            settings.background_llm_api_key or settings.chat_llm_api_key,
+            settings.background_llm_model or settings.chat_llm_model,
+        )
+        memory = MemoryWriter(store, background_llm)
     else:
-        log.info("retrieval is off: it needs SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY, JEV_MODEL")
-    engine = ConversationEngine(store, llm, characters, clock, retrieval)
+        log.info(
+            "retrieval and memory are off: they need SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY,"
+            " JEV_MODEL"
+        )
+        background_llm = None
+    engine = ConversationEngine(store, llm, characters, clock, retrieval, memory)
     call_starter = call_starter or serve_calls(settings, engine)
     webrtc = SmallWebRTCRequestHandler(
         ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
@@ -161,7 +175,11 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await webrtc.close()
+        if memory is not None:
+            await memory.aclose()
         await llm.aclose()
+        if background_llm is not None:
+            await background_llm.aclose()
         for client in clients:
             await client.aclose()
         if retrieval is not None:

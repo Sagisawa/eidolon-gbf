@@ -9,14 +9,19 @@ When retrieval is available the chat model is offered the recall-story tool, unl
 the turn already recalled an episode. Its calls are answered and the model asked
 again, once at most since every round costs the model's time to first token; whatever
 it says along the way is part of the reply, and only the reply is recorded.
+
+With memory, the user's memories that retrieval finds go into the prompt, and once a
+turn is recorded the background model writes down what the user revealed in it.
 """
 
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
+from eidolon.memory import MemoryWriter, memories_prompt
 from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
@@ -55,13 +60,17 @@ class ConversationEngine:
         characters: dict[str, Character],
         clock: Clock | None = None,
         retrieval: Retrieval | None = None,
+        memory: MemoryWriter | None = None,
     ) -> None:
-        """Without `retrieval`, turns carry no story or character facts."""
+        """Without `retrieval`, turns carry no story, character facts or memories; without
+        `memory`, nothing is written down."""
         self._store = store
         self._characters = characters
         self._llm = chat_llm
         self._clock = clock or _utc_now
         self._retrieval = retrieval
+        self._memory = memory
+        self._names = {c.id: c.name for c in characters.values()}
 
     async def turn(
         self, conversation: Conversation, text: str, device_timezone: str | None = None
@@ -70,12 +79,17 @@ class ConversationEngine:
         used unless the producer profile sets one."""
         character = self._characters[conversation.character_id]
         history = self._store.list_messages(conversation.id)
+        profile = self._store.get_profile(conversation.user_id)
+        timezone = effective_timezone(profile, device_timezone)
+        if self._memory:
+            await self._memory.settle(conversation.user_id)
         retrieved = (
-            await self._retrieval.retrieve(character, history, text)
+            await self._retrieval.retrieve(character, conversation.user_id, history, text)
             if self._retrieval
             else Retrieved(None)
         )
-        prompt = self._prompt(conversation, character, history, retrieved, text, device_timezone)
+        about_producer = producer_prompt(profile, self._clock(), timezone)
+        prompt = self._prompt(character, about_producer, history, retrieved, text, timezone)
 
         tools: list[Tool] = (
             [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
@@ -104,6 +118,9 @@ class ConversationEngine:
         if not parser.segments:
             raise EmptyReply("对话模型没有返回任何内容")
         reply = self._store.add_turn(conversation.id, text, parser.segments)
+        if self._memory:
+            now = self._clock().astimezone(ZoneInfo(timezone))
+            self._memory.remember(conversation, character, history, text, reply, now)
         yield TurnDone(reply)
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:
@@ -117,18 +134,16 @@ class ConversationEngine:
 
     def _prompt(
         self,
-        conversation: Conversation,
         character: Character,
+        about_producer: str,
         history: list[Message],
         retrieved: Retrieved,
         text: str,
-        device_timezone: str | None,
+        timezone: str,
     ) -> list[ChatMessage]:
-        profile = self._store.get_profile(conversation.user_id)
-        about_producer = producer_prompt(
-            profile, self._clock(), effective_timezone(profile, device_timezone)
-        )
         sections = [character.sheet, about_producer]
+        if retrieved.memories:
+            sections.append(memories_prompt(retrieved.memories, character, self._names, timezone))
         if retrieved.prompt:
             sections.append(retrieved.prompt)
         system = "\n\n".join([*sections, FORMAT_INSTRUCTIONS])

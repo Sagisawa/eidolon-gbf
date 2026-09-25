@@ -45,6 +45,31 @@ class FakeLLM:
         pass
 
 
+class FakeBackgroundLLM:
+    """Stands in for the background model: answers each request with the next scripted
+    reply, and with no memories once the script runs out; a reply that is an exception
+    is raised instead. Records every prompt it receives."""
+
+    NOTHING = '{"memories": []}'
+
+    def __init__(self, *replies: str | Exception) -> None:
+        self._replies = list(replies)
+        self.prompts: list[list[ChatMessage]] = []
+
+    async def stream(
+        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
+        self.prompts.append(list(messages))
+        reply = self._replies.pop(0) if self._replies else self.NOTHING
+        if isinstance(reply, Exception):
+            raise reply
+        for i in range(0, len(reply), 7):  # in chunks, as a streaming model would
+            yield reply[i : i + 7]
+
+    async def aclose(self) -> None:
+        pass
+
+
 class FakeCalls:
     """Stands in for the voice pipeline: records each call the backend starts."""
 
@@ -66,7 +91,7 @@ class FakeEmbedder:
     sharing the query's keywords. Records every text and query it embeds; set `down` to
     have it fail as an unreachable service would."""
 
-    KEYWORDS = ("鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け")
+    KEYWORDS = ("鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け", "猫", "北海道")
 
     def __init__(self, model: str = "fake-embedding") -> None:
         self.model = model
