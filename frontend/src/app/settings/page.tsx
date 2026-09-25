@@ -23,6 +23,8 @@ export default function SettingsPage() {
   }
 
   const dirty = saved !== null && key.trim() !== saved;
+  // Keys are plain ASCII; anything else could not be sent in a request header.
+  const malformed = /[^\x21-\x7e]/.test(key.trim());
 
   return (
     <main className="settings">
@@ -46,12 +48,18 @@ export default function SettingsPage() {
             autoComplete="off"
             spellCheck={false}
           />
-          <button type="submit" disabled={!dirty}>
+          <button type="submit" disabled={!dirty || malformed}>
             保存
           </button>
         </div>
         <p className="hint" role="status">
-          {dirty ? "尚未保存" : saved ? "已保存" : "还没有填入访问密钥"}
+          {malformed
+            ? "访问密钥只包含英文字母、数字和符号，请检查是否粘贴完整"
+            : dirty
+              ? "尚未保存"
+              : saved
+                ? "已保存"
+                : "还没有填入访问密钥"}
         </p>
       </form>
     </main>

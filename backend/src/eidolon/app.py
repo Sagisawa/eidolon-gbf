@@ -20,6 +20,8 @@ from eidolon.store import Conversation, KeyRevoked, Store
 
 log = logging.getLogger(__name__)
 
+_INVALID_KEY = "访问密钥无效，请在设置页检查"
+
 
 class NewConversation(BaseModel):
     character_id: str
@@ -37,14 +39,14 @@ def current_user(
         raise _unauthorized("请先在设置页填入访问密钥")
     scheme, _, secret = authorization.partition(" ")
     if scheme.lower() != "bearer" or not secret.strip():
-        raise _unauthorized("访问密钥无效，请在设置页检查")
+        raise _unauthorized(_INVALID_KEY)
     store: Store = request.app.state.store
     try:
         user_id = store.user_for_key(secret.strip())
     except KeyRevoked:
         raise _unauthorized("这把访问密钥已被吊销，请向管理员索取新的密钥") from None
     if user_id is None:
-        raise _unauthorized("访问密钥无效，请在设置页检查")
+        raise _unauthorized(_INVALID_KEY)
     return user_id
 
 

@@ -1,9 +1,12 @@
 """Users and access keys: issued and revoked from the admin command line, checked on
 every API request, and resolved to the user who owns the conversation record."""
 
+import sqlite3
+
 import httpx
 import pytest
 
+from eidolon.config import Settings
 from tests.conftest import Admin, ClientFactory, IssuedKey
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -110,3 +113,25 @@ def test_admin_commands_refuse_unknown_users_keys_and_duplicate_names(
     assert "producer" in admin.fails("user", "create", "producer")
     assert "nobody" in admin.fails("key", "issue", "nobody")
     assert "nothing" in admin.fails("key", "revoke", "nothing")
+
+
+async def test_conversations_from_before_access_keys_stay_with_the_default_user(
+    make_client: ClientFactory, admin: Admin, settings: Settings
+):
+    # A database as ticket 01 left it: one nameless default user owning a conversation.
+    settings.database_path.unlink()
+    db = sqlite3.connect(settings.database_path)
+    db.executescript(
+        """
+        CREATE TABLE users (id TEXT PRIMARY KEY, created_at TEXT NOT NULL);
+        CREATE TABLE conversations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+            character_id TEXT NOT NULL, created_at TEXT NOT NULL);
+        INSERT INTO users VALUES ('default', '2026-01-01T00:00:00+00:00');
+        INSERT INTO conversations VALUES ('old', 'default', 'mano', '2026-01-01T00:00:00+00:00');
+        """
+    )
+    db.close()
+
+    client = make_client(FakeLLM(), key=admin.issue_key("default").secret)
+
+    assert await mano_conversations(client) == ["old"]

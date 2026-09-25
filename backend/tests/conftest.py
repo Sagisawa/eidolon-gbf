@@ -26,17 +26,20 @@ class Admin:
         self._capsys = capsys
 
     def run(self, *args: str) -> str:
-        self._capsys.readouterr()
-        code = main(["--db", str(self._database_path), *args])
-        out = self._capsys.readouterr()
-        assert code == 0, out.err
-        return out.out
+        code, out, err = self._invoke(args)
+        assert code == 0, err
+        return out
 
     def fails(self, *args: str) -> str:
+        code, _, err = self._invoke(args)
+        assert code != 0
+        return err
+
+    def _invoke(self, args: tuple[str, ...]) -> tuple[int, str, str]:
         self._capsys.readouterr()
         code = main(["--db", str(self._database_path), *args])
-        assert code != 0
-        return self._capsys.readouterr().err
+        captured = self._capsys.readouterr()
+        return code, captured.out, captured.err
 
     def create_user(self, name: str) -> None:
         self.run("user", "create", name)
