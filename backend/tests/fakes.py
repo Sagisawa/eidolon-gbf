@@ -48,12 +48,14 @@ class FakeLLM:
 class FakeBackgroundLLM:
     """Stands in for the background model: answers each request with the next scripted
     reply, and with no memories once the script runs out; a reply that is an exception
-    is raised instead. Records every prompt it receives."""
+    is raised instead. Records every prompt it receives. With a `gate`, it answers only
+    once the gate is open, like a slow model."""
 
     NOTHING = '{"memories": []}'
 
-    def __init__(self, *replies: str | Exception) -> None:
+    def __init__(self, *replies: str | Exception, gate: asyncio.Event | None = None) -> None:
         self._replies = list(replies)
+        self._gate = gate
         self.prompts: list[list[ChatMessage]] = []
 
     async def stream(
@@ -61,6 +63,8 @@ class FakeBackgroundLLM:
     ) -> AsyncIterator[str | ToolCall]:
         self.prompts.append(list(messages))
         reply = self._replies.pop(0) if self._replies else self.NOTHING
+        if self._gate is not None:
+            await self._gate.wait()
         if isinstance(reply, Exception):
             raise reply
         for i in range(0, len(reply), 7):  # in chunks, as a streaming model would

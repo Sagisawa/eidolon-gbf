@@ -3,8 +3,12 @@ characters keep about them, labelled with the character it was told to, and can 
 one or all of them; a deleted memory reaches no prompt again. Nobody sees or touches
 another user's memories."""
 
-import httpx
+import asyncio
 
+import httpx
+import pytest
+
+from eidolon import memory
 from tests.conftest import ClientFactory, IssuedKey
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 from tests.test_shared_memory import (
@@ -110,6 +114,26 @@ async def test_clearing_waits_for_what_is_still_being_written_down(
     await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
 
     assert (await client.delete("/api/memories")).status_code == 204
+
+    assert await memories(client) == []
+
+
+async def test_what_is_written_down_too_slowly_to_wait_for_is_still_forgotten(
+    make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch
+):
+    """Clearing waits for what is being written down only a while; whatever the turns
+    before the clearing write down after that is dropped rather than turning up again."""
+    gate = asyncio.Event()
+    client = make_client(
+        FakeLLM(REPLY), jev=FakeJudge(), embedder=FakeEmbedder(),
+        reranker=FakeReranker("制作人"), background_llm=FakeBackgroundLLM(memorized(CAT), gate=gate),
+    )
+    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
+    monkeypatch.setattr(memory, "SETTLE_TIMEOUT", 0.01)
+
+    assert (await client.delete("/api/memories")).status_code == 204
+    gate.set()  # the background model answers at last
+    monkeypatch.setattr(memory, "SETTLE_TIMEOUT", 5.0)
 
     assert await memories(client) == []
 

@@ -143,7 +143,7 @@ def create_app(
     if jev is None and settings.jev is not None:
         jev = JevJudge(settings.jev.api_key, settings.jev.model, settings.jev.base_url)
         clients.append(jev)
-    retrieval = memory = memory_index = None
+    retrieval = memory = None
     if jev is not None and embedder is not None and reranker is not None:
         memory_index = MemoryIndex(settings.database_path, store, embedder)
         retrieval = Retrieval(
@@ -282,16 +282,11 @@ def create_app(
             raise HTTPException(404, "没有这位角色的头像")
         return FileResponse(character.avatar)
 
-    async def settle_memories(user_id: str) -> None:
-        """Let what the user's latest turns are writing down land before memories are shown
-        or deleted, so it neither goes missing from the list nor outlives a deletion."""
-        if memory is not None:
-            await memory.settle(user_id)
-
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
         """Newest first, each with the name of the character it was told to."""
-        await settle_memories(user_id)
+        if memory is not None:
+            await memory.settle(user_id)  # so what was just said is on the list
         memories = await asyncio.to_thread(store.list_memories, user_id)
         return [
             {
@@ -310,18 +305,20 @@ def create_app(
 
     @app.delete("/api/memories/{memory_id}", status_code=204)
     async def delete_memory(memory_id: int, user_id: UserId) -> None:
-        await settle_memories(user_id)
-        if not await asyncio.to_thread(store.delete_memory, user_id, memory_id):
+        deleted = (
+            await memory.delete(user_id, memory_id)
+            if memory is not None
+            else await asyncio.to_thread(store.delete_memory, user_id, memory_id)
+        )
+        if not deleted:
             raise HTTPException(404, "记忆不存在")
-        if memory_index is not None:
-            await asyncio.to_thread(memory_index.forget, user_id, [memory_id])
 
     @app.delete("/api/memories", status_code=204)
     async def clear_memories(user_id: UserId) -> None:
-        await settle_memories(user_id)
-        await asyncio.to_thread(store.clear_memories, user_id)
-        if memory_index is not None:
-            await asyncio.to_thread(memory_index.forget, user_id)
+        if memory is not None:
+            await memory.clear(user_id)
+        else:
+            await asyncio.to_thread(store.clear_memories, user_id)
 
     @app.post("/api/conversations", status_code=201)
     def create_conversation(body: NewConversation, user_id: UserId) -> dict:

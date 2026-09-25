@@ -81,6 +81,7 @@ class ConversationEngine:
         history = self._store.list_messages(conversation.id)
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
+        mark = self._memory.mark(conversation.user_id) if self._memory else 0
         if self._memory:
             await self._memory.settle(conversation.user_id)
         retrieved = (
@@ -120,7 +121,7 @@ class ConversationEngine:
         reply = self._store.add_turn(conversation.id, text, parser.segments)
         if self._memory:
             now = self._clock().astimezone(ZoneInfo(timezone))
-            self._memory.remember(conversation, character, history, text, reply, now)
+            self._memory.remember(conversation, character, history, text, reply, now, mark)
         yield TurnDone(reply)
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:

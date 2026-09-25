@@ -11,6 +11,10 @@ waits briefly for it, so what they just said is remembered by the time they go o
 new conversation picks up where earlier ones left off only through the memories it
 retrieves.
 
+Users can delete their memories one by one or all at once, never add or edit them.
+Deleting waits briefly for what is being written down too; whatever turns begun before
+a clearing write down after it is dropped, so a cleared memory never turns up again.
+
 Each memory is embedded as it is written down, and the vector kept until the memory is
 gone; a memory whose embedding failed is embedded the next time its user's memories are
 searched.
@@ -155,6 +159,11 @@ class MemoryWriter:
         self._llm = background_llm
         self._index = index
         self._pending: dict[str, set[asyncio.Task[None]]] = {}  # user id → writing
+        self._clearings: dict[str, int] = {}  # user id → how many times cleared
+
+    def mark(self, user_id: str) -> int:
+        """Where the user's memories stand as a turn begins, to pass on to `remember`."""
+        return self._clearings.get(user_id, 0)
 
     def remember(
         self,
@@ -164,11 +173,12 @@ class MemoryWriter:
         text: str,
         reply: Message,
         now: datetime,
+        mark: int,
     ) -> None:
         """Start writing down what the user revealed in this turn; `now` is the current time
-        where the user is."""
+        where the user is, `mark` what `mark` said as the turn began."""
         task = asyncio.create_task(
-            self._write(conversation, character, history, text, reply, now)
+            self._write(conversation, character, history, text, reply, now, mark)
         )
         pending = self._pending.setdefault(conversation.user_id, set())
         pending.add(task)
@@ -184,6 +194,22 @@ class MemoryWriter:
         """Wait, a while at most, for what the user's earlier turns are writing down."""
         if pending := self._pending.get(user_id):
             await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
+
+    async def delete(self, user_id: str, memory_id: int) -> bool:
+        """Forget one of the user's memories; False if they have no such memory."""
+        await self.settle(user_id)
+        if not await asyncio.to_thread(self._store.delete_memory, user_id, memory_id):
+            return False
+        await asyncio.to_thread(self._index.forget, user_id, [memory_id])
+        return True
+
+    async def clear(self, user_id: str) -> None:
+        """Forget all of the user's memories, including those their turns so far are still
+        writing down."""
+        self._clearings[user_id] = self.mark(user_id) + 1
+        await self.settle(user_id)
+        await asyncio.to_thread(self._store.clear_memories, user_id)
+        await asyncio.to_thread(self._index.forget, user_id)
 
     async def aclose(self) -> None:
         """Let whatever is being written down finish, a while at most, then give up on it."""
@@ -202,6 +228,7 @@ class MemoryWriter:
         text: str,
         reply: Message,
         now: datetime,
+        mark: int,
     ) -> None:
         try:
             known = await asyncio.to_thread(self._store.list_memories, conversation.user_id)
@@ -213,6 +240,8 @@ class MemoryWriter:
             if texts is None:
                 log.warning("background model wrote no memories JSON: %.500s", answer)
                 return
+            if self.mark(conversation.user_id) != mark:
+                return  # cleared since the turn began
             added = await asyncio.to_thread(self._store.add_memories, conversation, texts, now)
         except Exception:
             log.warning("writing memories failed in conversation %s", conversation.id,

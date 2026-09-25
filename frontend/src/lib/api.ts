@@ -118,15 +118,15 @@ export async function listMemories(): Promise<Memory[]> {
 }
 
 export async function deleteMemory(id: number): Promise<void> {
-  await nothing(await api(`/api/memories/${id}`, { method: "DELETE" }));
+  await expectNoContent(await api(`/api/memories/${id}`, { method: "DELETE" }));
 }
 
 export async function clearMemories(): Promise<void> {
-  await nothing(await api("/api/memories", { method: "DELETE" }));
+  await expectNoContent(await api("/api/memories", { method: "DELETE" }));
 }
 
 /** Checks a response that carries no body. */
-async function nothing(res: Response): Promise<void> {
+async function expectNoContent(res: Response): Promise<void> {
   if (!res.ok) await json(res);
 }
 
