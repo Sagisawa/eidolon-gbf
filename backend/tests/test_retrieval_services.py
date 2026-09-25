@@ -40,7 +40,7 @@ async def test_reranker_returns_the_best_documents_first():
 
     best = await reranker.rerank("鳩の話", ["a", "b", "c"], top_n=2)
 
-    assert best == [2, 1]
+    assert best == [(2, 0.9), (1, 0.5)]
     [request] = requests
     assert request["url"] == "http://sf.test/v1/rerank"
     assert request["auth"] == "Bearer sk-test"

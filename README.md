@@ -45,7 +45,7 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 在 `.env` 里填好 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
 
 - 每一句话先交给 Jev（通过 Vercel AI Gateway 调用）判断要不要检索；寒暄闲聊不检索，不增加延迟。Jev 出错时照常检索。
-- 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（`RERANK_MODEL` 可换）重排，最多 5 条放进提示词。检索或重排出错时，本回合不带检索结果照常回复。
+- 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。检索或重排出错时，本回合不带检索结果照常回复。
 - 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
 
 ## 用户与访问密钥

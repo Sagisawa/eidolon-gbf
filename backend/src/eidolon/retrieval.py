@@ -4,7 +4,7 @@ Jev (through Vercel AI Gateway) first judges whether what the user just said cal
 for looking anything up, so small talk costs no retrieval latency. When it does,
 the story corpus (only episodes the character is cast in) and the character's facts
 are searched with the same query vector, the candidates are reranked together, and
-the best few go into the prompt.
+the best few that are relevant enough go into the prompt.
 
 Retrieval never fails a turn: if Jev cannot answer, the turn retrieves anyway; if
 embedding or reranking fails, the turn goes on without references.
@@ -29,6 +29,10 @@ log = logging.getLogger(__name__)
 
 MAX_REFERENCES = 5
 """The most references one turn's prompt carries, after reranking."""
+MIN_RELEVANCE = 0.3
+"""The reranker's score below which a candidate is left out of the prompt. Qwen3-Reranker
+scores relevant passages around 0.9 and unrelated ones below 0.1, so a question about
+something the character never lived through brings back nothing rather than filler."""
 CANDIDATES_PER_SOURCE = 12
 """How many candidates each source (story corpus, character facts) offers the reranker."""
 JUDGE_HISTORY = 4
@@ -99,7 +103,7 @@ class Retrieval:
         except (EmbeddingError, RerankError):
             log.warning("retrieval failed; replying without references", exc_info=True)
             return []
-        return [candidates[i] for i in best[:MAX_REFERENCES]]
+        return [candidates[i] for i, score in best[:MAX_REFERENCES] if score >= MIN_RELEVANCE]
 
     def close(self) -> None:
         self._corpus.close()

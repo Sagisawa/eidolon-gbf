@@ -155,6 +155,25 @@ async def test_references_are_reranked_then_capped(
     assert references.index("ピーちゃん") < references.index("## 剧情")
 
 
+async def test_irrelevant_references_are_left_out(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm, reranker = FakeLLM(REPLY, REPLY), FakeReranker(PARK_LINE, others=0.01)
+    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+
+    system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
+
+    # Only the park episode is relevant enough; the other candidates are not filler.
+    assert reference_count(system) == 1
+    assert PARK_LINE in system
+
+    # With nothing relevant, the prompt carries no references section at all.
+    reranker.prefer = "（どこにもない）"
+    system = await system_prompt(client, llm, "長崎のちゃんぽん、好き？")
+
+    assert "# 回忆与资料" not in system
+
+
 async def test_edited_facts_take_effect_on_restart(
     make_client: ClientFactory, embedder: FakeEmbedder, characters: CharacterConfig
 ):

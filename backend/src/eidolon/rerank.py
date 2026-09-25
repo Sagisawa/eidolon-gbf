@@ -7,8 +7,11 @@ import httpx
 
 
 class Reranker(Protocol):
-    async def rerank(self, query: str, documents: Sequence[str], top_n: int) -> list[int]:
-        """Indexes into `documents` of the (at most) `top_n` most relevant, best first."""
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        """Indexes into `documents` of the (at most) `top_n` most relevant, best first, with
+        their relevance scores (0 to 1)."""
         ...
 
 
@@ -27,7 +30,9 @@ class SiliconFlowReranker:
         self._api_key = api_key
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10))
 
-    async def rerank(self, query: str, documents: Sequence[str], top_n: int) -> list[int]:
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
         try:
             res = await self._client.post(
                 self._url,
@@ -46,12 +51,12 @@ class SiliconFlowReranker:
             raise RerankError(f"重排服务返回 {res.status_code}: {res.text[:500]}")
         try:
             results = sorted(res.json()["results"], key=lambda r: -r["relevance_score"])
-            indexes = [int(r["index"]) for r in results]
+            ranked = [(int(r["index"]), float(r["relevance_score"])) for r in results]
         except (ValueError, KeyError, TypeError) as e:
             raise RerankError(f"重排服务的返回无法解析：{res.text[:500]}") from e
-        if any(not 0 <= i < len(documents) for i in indexes):
-            raise RerankError(f"重排服务返回了不存在的文档编号：{indexes}")
-        return indexes[:top_n]
+        if any(not 0 <= i < len(documents) for i, _ in ranked):
+            raise RerankError(f"重排服务返回了不存在的文档编号：{[i for i, _ in ranked]}")
+        return ranked[:top_n]
 
     async def aclose(self) -> None:
         await self._client.aclose()

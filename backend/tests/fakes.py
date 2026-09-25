@@ -102,14 +102,17 @@ class FakeJudge:
 
 
 class FakeReranker:
-    """Ranks documents containing `prefer` first, otherwise keeping the order it was given.
-    Records every call."""
+    """Ranks documents containing `prefer` first (scoring them 0.9), otherwise keeping the
+    order it was given (scoring the rest `others`). Records every call."""
 
-    def __init__(self, prefer: str = "") -> None:
+    def __init__(self, prefer: str = "", others: float = 0.5) -> None:
         self.prefer = prefer
+        self.others = others
         self.calls: list[tuple[str, list[str]]] = []
 
-    async def rerank(self, query: str, documents: Sequence[str], top_n: int) -> list[int]:
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
         self.calls.append((query, list(documents)))
         order = sorted(range(len(documents)), key=lambda i: self.prefer not in documents[i])
-        return order[:top_n]
+        return [(i, 0.9 if self.prefer in documents[i] else self.others) for i in order[:top_n]]
