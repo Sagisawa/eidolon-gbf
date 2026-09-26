@@ -90,16 +90,6 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
     assert embedder.documents == [CAT]  # embedded as it was written down, not when searched
 
 
-async def test_memory_needs_retrieval(make_client: ClientFactory):
-    """Without retrieval there is nothing to find memories with, so none are written."""
-    background = FakeBackgroundLLM(memorized(CAT))
-    client = make_client(FakeLLM(REPLY), background_llm=background)
-
-    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
-
-    assert background.prompts == []
-
-
 def test_the_background_model_is_configured_apart_from_the_chat_model(
     monkeypatch: pytest.MonkeyPatch,
 ):

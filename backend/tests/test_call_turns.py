@@ -25,9 +25,9 @@ from pipecat.processors.frameworks.rtvi.frames import (
 from pipecat.tests.utils import SleepFrame, run_test
 
 from eidolon.call import Call, CallLimits, CallTurns
-from eidolon.characters import load_characters
+from eidolon.assembly import build
 from eidolon.config import Settings
-from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine
+from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
@@ -71,10 +71,13 @@ class CallUnderTest:
         device_timezone: str | None = None,
         limits: CallLimits = CallLimits(),
     ) -> Sequence[Frame]:
-        characters = load_characters(self._settings.characters_path)
-        engine = ConversationEngine(self._store, llm, characters, clock=lambda: NOW)
-        call = Call(self.conversation, characters["mano"], muted, "standard", device_timezone)
-        down, _ = await run_test(CallTurns(engine, call, limits), frames_to_send=frames)
+        backend = build(self._settings, chat_llm=llm, clock=lambda: NOW)
+        try:
+            mano = backend.characters["mano"]
+            call = Call(self.conversation, mano, muted, "standard", device_timezone)
+            down, _ = await run_test(CallTurns(backend.engine, call, limits), frames_to_send=frames)
+        finally:
+            await backend.aclose()
         return down
 
     async def record(self) -> list[tuple]:

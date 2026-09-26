@@ -3,22 +3,16 @@ import re
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 
 from eidolon.__main__ import main
 from eidolon.app import create_app
+from eidolon.assembly import Backend, build
 from eidolon.config import LLMSettings, Settings
-from eidolon.engine import Clock
-from tests.fakes import (
-    FakeBackgroundLLM,
-    FakeCalls,
-    FakeEmbedder,
-    FakeJudge,
-    FakeLLM,
-    FakeReranker,
-)
+from tests.fakes import FakeBackgroundLLM, FakeCalls, FakeLLM
 from tests.stories import write_sample_stories
 
 
@@ -170,7 +164,10 @@ async def calls() -> AsyncIterator[FakeCalls]:
 async def make_client(
     settings: Settings, producer_key: IssuedKey, calls: FakeCalls
 ) -> AsyncIterator[ClientFactory]:
-    """Makes API clients; each carries the given access key, by default the producer's."""
+    """Makes API clients; each carries the given access key, by default the producer's.
+    Any other keyword is an outside service to use instead of the one the settings
+    describe (see `assembly.build`); the background model is a fake one by default."""
+    backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
     def factory(
@@ -179,25 +176,18 @@ async def make_client(
         *,
         settings: Settings = settings,
         calls_configured: bool = True,
-        clock: Clock | None = None,
-        jev: FakeJudge | None = None,
-        embedder: FakeEmbedder | None = None,
-        reranker: FakeReranker | None = None,
-        background_llm: FakeBackgroundLLM | None = None,
+        **services: Any,
     ) -> httpx.AsyncClient:
-        app = create_app(
-            settings,
-            chat_llm=llm,
-            call_starter=calls if calls_configured else None,
-            clock=clock,
-            jev=jev,
-            embedder=embedder,
-            reranker=reranker,
-            background_llm=background_llm or FakeBackgroundLLM(),
+        services.setdefault("background_llm", FakeBackgroundLLM())
+        backend = build(
+            settings, chat_llm=llm, call_starter=calls if calls_configured else None, **services
         )
+        backends.append(backend)
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
+            transport=httpx.ASGITransport(app=create_app(backend)),
+            base_url="http://test",
+            headers=headers,
         )
         clients.append(client)
         return client
@@ -205,3 +195,5 @@ async def make_client(
     yield factory
     for client in clients:
         await client.aclose()
+    for backend in backends:  # the test transport runs no lifespan to close it
+        await backend.aclose()
