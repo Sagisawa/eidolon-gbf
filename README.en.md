@@ -333,7 +333,7 @@ The production config [`docker-compose.prod.yml`](docker-compose.prod.yml) runs 
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, corpus import, upgrades, backups and troubleshooting.
+See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, weekly corpus sync, upgrades, backups and troubleshooting.
 
 ## 💻 Development
 

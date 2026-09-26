@@ -333,7 +333,7 @@ docker compose exec backend eidolon key revoke <キー番号>   # 失効
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-ドメイン、ファイアウォールのポート、シナリオの取り込み、アップグレード、バックアップ、トラブルシューティングの詳しい手順は [`docs/deploy.md`](docs/deploy.md)（中国語）を参照してください。
+ドメイン、ファイアウォールのポート、シナリオの週次自動同期、アップグレード、バックアップ、トラブルシューティングの詳しい手順は [`docs/deploy.md`](docs/deploy.md)（中国語）を参照してください。
 
 ## 💻 開発
 

@@ -28,3 +28,5 @@ characters/avatars/
 /corpus/
 # 活动名对照表属于部署配置，只保留示例
 deploy/event-names.toml
+# 每周同步剧情库的日志（deploy/story-sync.sh）
+/logs/

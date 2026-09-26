@@ -330,7 +330,7 @@ docker compose exec backend eidolon key revoke <密钥编号>   # 吊销
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-域名、防火墙端口、导入剧情库、升级、备份和排障的完整步骤见 [`docs/deploy.md`](docs/deploy.md)。
+域名、防火墙端口、剧情库的每周自动同步、升级、备份和排障的完整步骤见 [`docs/deploy.md`](docs/deploy.md)。
 
 ## 💻 开发
 
