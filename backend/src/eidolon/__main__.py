@@ -101,9 +101,9 @@ async def _check_chat_llm(settings: Settings) -> None:
 
 async def _import_story(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
-    from eidolon.config import SiliconFlowSettings
+    from eidolon.config import EmbeddingSettings
     from eidolon.corpus import StoryCorpus
-    from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
+    from eidolon.embedding import EmbeddingError, open_embedder
     from eidolon.story_import import import_csv_directory, import_json_directory
 
     if not args.directory.is_dir():
@@ -111,11 +111,11 @@ async def _import_story(args: argparse.Namespace) -> int:
         return 1
     try:
         characters = load_characters(args.characters or characters_path_from_env())
-        settings = SiliconFlowSettings.from_env()
+        settings = EmbeddingSettings.required_from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
-    embedder = SiliconFlowEmbedder(settings.api_key, settings.embedding_model, settings.base_url)
+    embedder = open_embedder(settings)
     try:
         corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
         try:
@@ -152,9 +152,9 @@ async def _import_story(args: argparse.Namespace) -> int:
 
 async def _sync_story(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
-    from eidolon.config import SiliconFlowSettings
+    from eidolon.config import EmbeddingSettings
     from eidolon.corpus import StoryCorpus
-    from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
+    from eidolon.embedding import EmbeddingError, open_embedder
     from eidolon.mirror import Mirror
     from eidolon.story_sync import load_event_names, sync_stories
 
@@ -167,7 +167,7 @@ async def _sync_story(args: argparse.Namespace) -> int:
         event_names = load_event_names(
             args.events or event_names_path_from_env(), required=args.events is not None
         )
-        settings = SiliconFlowSettings.from_env()
+        settings = EmbeddingSettings.required_from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
@@ -177,7 +177,7 @@ async def _sync_story(args: argparse.Namespace) -> int:
     for name in ("eidolon.story_sync", "eidolon.story_import"):
         logging.getLogger(name).addHandler(progress)
         logging.getLogger(name).setLevel(logging.INFO)
-    embedder = SiliconFlowEmbedder(settings.api_key, settings.embedding_model, settings.base_url)
+    embedder = open_embedder(settings)
     mirror = Mirror()
     try:
         corpus = StoryCorpus(args.db or database_path_from_env(), embedder)

@@ -37,9 +37,9 @@ from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.embedding import Embedder, EmbeddingError, nearest, to_blob
+from eidolon.embedding import Document, Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
-from eidolon.rerank import Reranker, RerankError
+from eidolon.rerank import DEFAULT_THRESHOLDS, Reranker, RerankError
 from eidolon.store import Conversation, Message
 
 log = logging.getLogger(__name__)
@@ -60,11 +60,6 @@ CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
 MAX_FOUND = 3
 """The most memories one turn's prompt carries, after reranking."""
-MIN_RELEVANCE = 0.01
-"""The reranker's score below which a memory is left out. Qwen3-Reranker scores a short
-memory low against a loosely related remark (「我最近要出远门」 against a business trip to
-Hokkaido scores 0.03) but unrelated ones lower still (at most 0.005), so memories get a
-threshold well below that of story and character facts."""
 ANOTHER_IDOL = "事务所的另一位偶像"
 """Who a memory was told to, when that character has been removed from the configuration."""
 
@@ -113,6 +108,7 @@ class _Services:
     background_llm: ChatLLM
     embedder: Embedder
     reranker: Reranker
+    min_relevance: float
 
 
 class Memories:
@@ -127,10 +123,12 @@ class Memories:
         background_llm: ChatLLM | None = None,
         embedder: Embedder | None = None,
         reranker: Reranker | None = None,
+        min_relevance: float = DEFAULT_THRESHOLDS.memories,
     ) -> None:
         """Memories kept in the database at `path`, next to the users and conversations
         they belong to; off unless `background_llm`, `embedder` and `reranker` are all
-        given."""
+        given. A memory the reranker scores below `min_relevance` is not found (see
+        `rerank.KNOWN_THRESHOLDS`)."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self._lock = threading.Lock()
@@ -140,7 +138,7 @@ class Memories:
         self._characters = characters
         self._clock = clock
         self._services = (
-            _Services(background_llm, embedder, reranker)
+            _Services(background_llm, embedder, reranker, min_relevance)
             if background_llm is not None and embedder is not None and reranker is not None
             else None
         )
@@ -211,7 +209,7 @@ class Memories:
         except (EmbeddingError, RerankError):
             log.warning("finding memories failed; replying without them", exc_info=True)
             return None
-        found = [nearest_memories[i] for i, score in best if score >= MIN_RELEVANCE]
+        found = [nearest_memories[i] for i, score in best if score >= services.min_relevance]
         character = self._characters[conversation.character_id]
         return _memories_prompt(found[:MAX_FOUND], character, timezone) if found else None
 
@@ -351,7 +349,7 @@ class Memories:
         missing = [m for m in memories if m.id not in stored]
         stale = stored.keys() - {m.id for m in memories} if forget else set()
         if missing:
-            embedded = await embedder.embed_documents([m.text for m in missing])
+            embedded = await embedder.embed_documents([Document(m.text) for m in missing])
             stored.update(zip((m.id for m in missing), map(to_blob, embedded), strict=True))
         if missing or stale:
             with self._lock, self._db:

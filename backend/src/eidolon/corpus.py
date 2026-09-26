@@ -24,7 +24,7 @@ import typing
 from pathlib import Path
 from typing import Literal
 
-from eidolon.embedding import Embedder, nearest, to_blob
+from eidolon.embedding import Document, Embedder, nearest, to_blob
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS episodes (
@@ -133,10 +133,13 @@ class StoryCorpus:
     async def save(self, episodes: list[Episode]) -> int:
         """Insert or replace these episodes; returns how many passages had to be embedded."""
         passages = {e.id: _passages(e) if e.cast else [] for e in episodes}
+        titles = {t: passage_title(e.source, e.title) for e in episodes for t in passages[e.id]}
         known = self._known_vectors(list(passages))
-        missing = sorted({t for texts in passages.values() for t in texts} - known.keys())
+        missing = sorted(titles.keys() - known.keys())
         if missing:
-            vectors = await self._embedder.embed_documents(missing)
+            vectors = await self._embedder.embed_documents(
+                [Document(t, titles[t]) for t in missing]
+            )
             known.update(zip(missing, (to_blob(v) for v in vectors), strict=True))
 
         now = datetime.now(UTC).isoformat()
@@ -309,9 +312,14 @@ class StoryCorpus:
         )
 
 
+def passage_title(source: str, title: str) -> str:
+    """Where a passage comes from: its episode's card or event, and the episode's title."""
+    return f"{source}「{title}」"
+
+
 def _passages(episode: Episode) -> list[str]:
     """Consecutive lines grouped into passages, each headed by where it comes from."""
-    header = f"{episode.source}「{episode.title}」\n"
+    header = passage_title(episode.source, episode.title) + "\n"
     passages: list[str] = []
     current: list[str] = []
     size = 0

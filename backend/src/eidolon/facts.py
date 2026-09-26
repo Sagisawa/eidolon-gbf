@@ -11,8 +11,8 @@ import threading
 from collections.abc import Sequence
 from pathlib import Path
 
-from eidolon.characters import Character
-from eidolon.embedding import Embedder, nearest, to_blob
+from eidolon.characters import Character, Fact
+from eidolon.embedding import Document, Embedder, nearest, to_blob
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS character_facts (
@@ -36,19 +36,33 @@ class FactIndex:
 
     async def search_by_vector(
         self, query_vector: Sequence[float], character: Character, limit: int = 5
-    ) -> list[str]:
+    ) -> list[Fact]:
         """The character's facts most similar to a query embedded with this index's embedder."""
-        vectors = await self._vectors(character)
-        facts = list(vectors)
-        best = nearest([vectors[f] for f in facts], query_vector, limit)
-        return [facts[i] for i, _ in best]
+        vectors, _ = await self._vectors(character)
+        facts = {f.text: f for f in character.facts}
+        texts = list(vectors)
+        best = nearest([vectors[t] for t in texts], query_vector, limit)
+        return [facts[texts[i]] for i, _ in best]
+
+    async def embed_missing(self, character: Character) -> int:
+        """Embed those of the character's facts that have no vector from this index's
+        embedder yet; returns how many that was."""
+        _, embedded = await self._vectors(character)
+        return embedded
+
+    def forget_other_models(self) -> int:
+        """Drop every vector not from this index's embedder; returns how many there were."""
+        with self._lock, self._db:
+            return self._db.execute(
+                "DELETE FROM character_facts WHERE model != ?", (self._embedder.model,)
+            ).rowcount
 
     def close(self) -> None:
         self._db.close()
 
-    async def _vectors(self, character: Character) -> dict[str, bytes]:
-        """The vector of each of the character's facts, embedding those not yet stored and
-        forgetting those no longer configured."""
+    async def _vectors(self, character: Character) -> tuple[dict[str, bytes], int]:
+        """The vector of each of the character's facts, by text, embedding those not yet
+        stored and forgetting those no longer configured; and how many it embedded."""
         model = self._embedder.model
         with self._lock:
             stored = dict(
@@ -58,20 +72,23 @@ class FactIndex:
                     (character.id, model),
                 ).fetchall()
             )
-        missing = [f for f in dict.fromkeys(character.facts) if f not in stored]
-        stale = stored.keys() - set(character.facts)
+        texts = [f.text for f in character.facts]
+        missing = [f for f in dict.fromkeys(character.facts) if f.text not in stored]
+        stale = stored.keys() - set(texts)
         if missing:
-            embedded = await self._embedder.embed_documents(missing)
-            stored.update(zip(missing, (to_blob(v) for v in embedded), strict=True))
+            embedded = await self._embedder.embed_documents(
+                [Document(f.text, f.title) for f in missing]
+            )
+            stored.update(zip((f.text for f in missing), map(to_blob, embedded), strict=True))
         if missing or stale:
             with self._lock, self._db:
                 self._db.executemany(
                     "INSERT OR REPLACE INTO character_facts (character_id, text, model, embedding)"
                     " VALUES (?, ?, ?, ?)",
-                    [(character.id, f, model, stored[f]) for f in missing],
+                    [(character.id, f.text, model, stored[f.text]) for f in missing],
                 )
                 self._db.executemany(
                     "DELETE FROM character_facts WHERE character_id = ? AND model = ? AND text = ?",
                     [(character.id, model, f) for f in stale],
                 )
-        return {f: stored[f] for f in character.facts}
+        return {t: stored[t] for t in texts}, len(missing)

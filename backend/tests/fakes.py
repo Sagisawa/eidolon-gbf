@@ -20,7 +20,7 @@ from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
 from eidolon.characters import Character
-from eidolon.embedding import EmbeddingError
+from eidolon.embedding import Document, EmbeddingError
 from eidolon.llm import ChatMessage, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.retrieval import JudgeError, Need
@@ -163,22 +163,25 @@ class FakeSpeech:
 
 class FakeEmbedder:
     """Embeds text as counts of a few keywords, so the nearest passages are the ones
-    sharing the query's keywords. Records every text and query it embeds; set `down` to
-    have it fail as an unreachable service would."""
+    sharing the query's keywords. Records every document (its text, and its title in
+    `titles`) and query it embeds; set `down` to have it fail as an unreachable service
+    would."""
 
     KEYWORDS = ("鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け", "猫", "北海道")
 
     def __init__(self, model: str = "fake-embedding") -> None:
         self.model = model
         self.documents: list[str] = []
+        self.titles: list[str | None] = []
         self.queries: list[str] = []
         self.down = False
 
-    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+    async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
         if self.down:
             raise EmbeddingError("fake embedding service is down")
-        self.documents.extend(texts)
-        return [self._vector(t) for t in texts]
+        self.documents.extend(d.text for d in documents)
+        self.titles.extend(d.title for d in documents)
+        return [self._vector(d.text) for d in documents]
 
     async def embed_query(self, text: str) -> list[float]:
         if self.down:

@@ -355,7 +355,7 @@ def test_the_sync_command_reports_what_it_did(
 ):
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
     monkeypatch.setattr("eidolon.mirror.Mirror", lambda: mirror_site.mirror())
-    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: _ClosableEmbedder())
     args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
 
     code, out, err = admin.invoke(*args, "--characters", str(characters.path))
@@ -379,7 +379,7 @@ def test_the_sync_command_exits_2_when_the_mirror_is_unreachable(
     mirror_site.down = True
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
     monkeypatch.setattr("eidolon.mirror.Mirror", lambda: mirror_site.mirror())
-    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: _ClosableEmbedder())
     args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
 
     code, out, err = admin.invoke(*args, "--characters", str(characters.path))
@@ -581,7 +581,7 @@ def test_the_sync_command_names_events_from_the_table(
     names.write_text('[events]\n002 = "はじめてのイベント"\n4 = "Light up the illumination"\n', encoding="utf-8")
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
     monkeypatch.setattr("eidolon.mirror.Mirror", lambda: events.mirror())
-    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: _ClosableEmbedder())
     args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
 
     code, out, err = admin.invoke(*args, "--characters", str(characters.path), "--events", str(names))
@@ -884,7 +884,7 @@ def test_the_sync_command_lists_produce_episodes_titled_like_a_failure(
 ):
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
     monkeypatch.setattr("eidolon.mirror.Mirror", lambda: albums.mirror())
-    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: _ClosableEmbedder())
     args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
 
     code, out, err = admin.invoke(*args, "--characters", str(characters.path))

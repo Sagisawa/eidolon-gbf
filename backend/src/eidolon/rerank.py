@@ -1,9 +1,51 @@
-"""Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow."""
+"""Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow.
+
+What counts as relevant enough depends on the model, so each model the project has
+calibrated (`eidolon eval rerank`) has thresholds of its own."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 import httpx
+
+from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
+
+
+@dataclass(frozen=True)
+class RerankThresholds:
+    """The reranker's scores below which a candidate is left out of the prompt."""
+
+    references: float
+    """For story passages and character facts, reranked together."""
+    memories: float
+    """For the user's memories."""
+
+
+KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
+    # Relevant passages score around 0.9 and unrelated ones below 0.1, so a question about
+    # something the character never lived through brings back nothing rather than filler.
+    # A short memory scores low against a loosely related remark (「我最近要出远门」 against
+    # a business trip to Hokkaido scores 0.03) but unrelated ones lower still (at most
+    # 0.005), so memories get a threshold well below that of story and character facts.
+    "Qwen/Qwen3-Reranker-0.6B": RerankThresholds(references=0.3, memories=0.01),
+    # Provisionally 0.6B's, until the calibration set has been run with both models
+    # (.scratch/embedding-provider/issues/03).
+    "Qwen/Qwen3-Reranker-4B": RerankThresholds(references=0.3, memories=0.01),
+}
+FALLBACK_MODEL = "Qwen/Qwen3-Reranker-4B"
+"""Whose thresholds a model not calibrated gets."""
+DEFAULT_THRESHOLDS = KNOWN_THRESHOLDS[DEFAULT_RERANK_MODEL]
+
+
+def thresholds_for(settings: RerankSettings) -> RerankThresholds:
+    """The thresholds of the reranker `settings` describe, as overridden there."""
+    thresholds = KNOWN_THRESHOLDS.get(settings.model, KNOWN_THRESHOLDS[FALLBACK_MODEL])
+    if settings.min_relevance is not None:
+        thresholds = replace(thresholds, references=settings.min_relevance)
+    if settings.memory_min_relevance is not None:
+        thresholds = replace(thresholds, memories=settings.memory_min_relevance)
+    return thresholds
 
 
 class Reranker(Protocol):

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.characters import CharacterConfigError, load_characters
+from eidolon.characters import CharacterConfigError, Fact, load_characters, parse_facts
 from tests.conftest import AVATAR, KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -124,9 +124,16 @@ def test_character_facts_are_split_by_heading(characters: CharacterConfig):
     )
 
     assert load_characters(characters.path)["hiori"].facts == (
-        "档案\n生日是2月27日。",
-        "人物关系 / 櫻木真乃\n同组合的伙伴。",
-        "人物关系 / 櫻木真乃 / 趣事\n一起去看鸟。",
+        Fact("档案", "档案\n生日是2月27日。"),
+        Fact("人物关系 / 櫻木真乃", "人物关系 / 櫻木真乃\n同组合的伙伴。"),
+        Fact("人物关系 / 櫻木真乃 / 趣事", "人物关系 / 櫻木真乃 / 趣事\n一起去看鸟。"),
+    )
+
+
+def test_text_before_any_heading_is_an_untitled_fact():
+    assert parse_facts("生日是2月27日。\n\n# 档案\n身高155cm。") == (
+        Fact(None, "生日是2月27日。"),
+        Fact("档案", "档案\n身高155cm。"),
     )
 
 

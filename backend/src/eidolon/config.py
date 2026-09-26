@@ -23,7 +23,13 @@ DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
 
 DEFAULT_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
-DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
+DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-4B"
+"""Still served on SiliconFlow's mainland site, though marked deprecated on the international one."""
+
+DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2"
+DEFAULT_EMBEDDING_DIMENSIONS = 1536
+EMBEDDING_DIMENSIONS_RANGE = (128, 3072)
 
 DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
 
@@ -110,9 +116,11 @@ class Settings:
     soniox_api_key: str | None = None
     fish_audio_api_key: str | None = None
     fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
-    siliconflow: "SiliconFlowSettings | None" = None
+    embedding: "EmbeddingSettings | None" = None
+    rerank: "RerankSettings | None" = None
     jev: "JevSettings | None" = None
-    """Retrieval needs both SiliconFlow and Jev; without either, turns go unretrieved."""
+    """Retrieval needs the embedding service, the reranker and Jev; without any of them,
+    turns go unretrieved."""
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
@@ -133,9 +141,8 @@ class Settings:
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
-            siliconflow=(
-                SiliconFlowSettings.from_env() if os.environ.get("SILICONFLOW_API_KEY") else None
-            ),
+            embedding=EmbeddingSettings.from_env(),
+            rerank=RerankSettings.from_env(),
             jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
@@ -169,24 +176,115 @@ def history_turns_from_env() -> int | None:
     return _limit("EIDOLON_HISTORY_TURNS", DEFAULT_HISTORY_TURNS)
 
 
-@dataclass(frozen=True)
-class SiliconFlowSettings:
-    """SiliconFlow's Qwen3-Embedding, which builds and searches the vector index, and
-    Qwen3-Reranker, which reranks what the search finds."""
+EmbeddingProvider = Literal["siliconflow", "gemini"]
+EMBEDDING_PROVIDERS: tuple[EmbeddingProvider, ...] = get_args(EmbeddingProvider)
 
+
+@dataclass(frozen=True)
+class EmbeddingSettings:
+    """The service that builds and searches the vector index, chosen at deploy time
+    (ADR-0005): SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding."""
+
+    provider: EmbeddingProvider
     api_key: str
-    embedding_model: str = DEFAULT_EMBEDDING_MODEL
-    rerank_model: str = DEFAULT_RERANK_MODEL
-    base_url: str = DEFAULT_SILICONFLOW_BASE_URL
+    model: str
+    base_url: str
+    dimensions: int | None = None
+    """How long Gemini's vectors are; SiliconFlow's are as long as the model makes them."""
 
     @classmethod
-    def from_env(cls) -> "SiliconFlowSettings":
+    def from_env(cls) -> "EmbeddingSettings | None":
+        """None if the chosen service's key is not set; a bad choice raises all the same."""
+        provider = _embedding_provider()
+        if not os.environ.get(_EMBEDDING_KEYS[provider]):
+            return None
+        return cls.required_from_env()
+
+    @classmethod
+    def required_from_env(cls) -> "EmbeddingSettings":
+        """For the commands that cannot do without embedding: a missing key raises."""
+        provider = _embedding_provider()
+        api_key = _required(_EMBEDDING_KEYS[provider])
+        model = os.environ.get("EMBEDDING_MODEL") or None
+        if provider == "siliconflow":
+            return cls(
+                provider,
+                api_key,
+                model or DEFAULT_EMBEDDING_MODEL,
+                os.environ.get("SILICONFLOW_BASE_URL") or DEFAULT_SILICONFLOW_BASE_URL,
+            )
+        return cls(
+            provider,
+            api_key,
+            model or DEFAULT_GEMINI_EMBEDDING_MODEL,
+            os.environ.get("GEMINI_BASE_URL") or DEFAULT_GEMINI_BASE_URL,
+            _embedding_dimensions(),
+        )
+
+
+_EMBEDDING_KEYS: dict[EmbeddingProvider, str] = {
+    "siliconflow": "SILICONFLOW_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+
+
+def _embedding_provider() -> EmbeddingProvider:
+    provider = os.environ.get("EMBEDDING_PROVIDER") or "siliconflow"
+    if provider not in EMBEDDING_PROVIDERS:
+        raise RuntimeError(
+            f"环境变量 EMBEDDING_PROVIDER 只能是 {'、'.join(EMBEDDING_PROVIDERS)}，而不是 {provider}"
+        )
+    return provider  # pyright: ignore[reportReturnType]  # checked above
+
+
+def _embedding_dimensions() -> int:
+    value = (os.environ.get("EMBEDDING_DIMENSIONS") or "").strip()
+    if not value:
+        return DEFAULT_EMBEDDING_DIMENSIONS
+    low, high = EMBEDDING_DIMENSIONS_RANGE
+    if not (value.isascii() and value.isdigit() and low <= int(value) <= high):
+        raise RuntimeError(f"环境变量 EMBEDDING_DIMENSIONS 需要是 {low}–{high} 之间的整数，而不是 {value}")
+    return int(value)
+
+
+@dataclass(frozen=True)
+class RerankSettings:
+    """SiliconFlow's Qwen3-Reranker, which reranks what the vector search finds, whichever
+    service embeds. The thresholds, unless set here, are the model's (see `rerank`)."""
+
+    api_key: str
+    model: str = DEFAULT_RERANK_MODEL
+    base_url: str = DEFAULT_SILICONFLOW_BASE_URL
+    min_relevance: float | None = None
+    """Overrides the model's threshold for story passages and character facts."""
+    memory_min_relevance: float | None = None
+    """Overrides the model's threshold for memories."""
+
+    @classmethod
+    def from_env(cls) -> "RerankSettings | None":
+        """None if SiliconFlow's key is not set."""
+        if not os.environ.get("SILICONFLOW_API_KEY"):
+            return None
         return cls(
             api_key=_required("SILICONFLOW_API_KEY"),
-            embedding_model=os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL,
-            rerank_model=os.environ.get("RERANK_MODEL") or DEFAULT_RERANK_MODEL,
+            model=os.environ.get("RERANK_MODEL") or DEFAULT_RERANK_MODEL,
             base_url=os.environ.get("SILICONFLOW_BASE_URL") or DEFAULT_SILICONFLOW_BASE_URL,
+            min_relevance=_relevance("RERANK_MIN_RELEVANCE"),
+            memory_min_relevance=_relevance("RERANK_MEMORY_MIN_RELEVANCE"),
         )
+
+
+def _relevance(name: str) -> float | None:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        return None
+    try:
+        relevance = float(value)
+    except ValueError:
+        relevance = -1.0
+    if not 0 <= relevance <= 1:
+        raise RuntimeError(f"环境变量 {name} 需要是 0 到 1 之间的数，而不是 {value}")
+    return relevance
 
 
 @dataclass(frozen=True)

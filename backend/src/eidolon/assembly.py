@@ -21,13 +21,20 @@ from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import Settings
 from eidolon.corpus import StoryCorpus
-from eidolon.embedding import Embedder, SiliconFlowEmbedder
+from eidolon.embedding import Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.facts import FactIndex
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
-from eidolon.rerank import Reranker, SiliconFlowReranker
+from eidolon.rerank import (
+    DEFAULT_THRESHOLDS,
+    FALLBACK_MODEL,
+    KNOWN_THRESHOLDS,
+    Reranker,
+    SiliconFlowReranker,
+    thresholds_for,
+)
 from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
@@ -82,12 +89,22 @@ def build(
     if chat_llm is None:
         chat_llm = open_llm(settings.chat_llm)
         closers.append(chat_llm.aclose)
-    if (sf := settings.siliconflow) is not None:
-        if embedder is None:
-            embedder = SiliconFlowEmbedder(sf.api_key, sf.embedding_model, sf.base_url)
-            closers.append(embedder.aclose)
+    if embedder is None and settings.embedding is not None:
+        opened = open_embedder(settings.embedding)
+        closers.append(opened.aclose)
+        embedder = opened
+    thresholds = DEFAULT_THRESHOLDS
+    if (r := settings.rerank) is not None:
+        thresholds = thresholds_for(r)
+        if r.model not in KNOWN_THRESHOLDS:
+            log.warning(
+                "rerank model %s has not been calibrated; using the thresholds of %s"
+                " (references %s, memories %s) unless RERANK_MIN_RELEVANCE and"
+                " RERANK_MEMORY_MIN_RELEVANCE set them",
+                r.model, FALLBACK_MODEL, thresholds.references, thresholds.memories,
+            )
         if reranker is None:
-            reranker = SiliconFlowReranker(sf.api_key, sf.rerank_model, sf.base_url)
+            reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
             closers.append(reranker.aclose)
     if jev is None and (j := settings.jev) is not None:
         judge = JevJudge(j.api_key, j.model, j.base_url)
@@ -102,6 +119,7 @@ def build(
             StoryCorpus(settings.database_path, embedder),
             FactIndex(settings.database_path, embedder),
             reranker,
+            thresholds.references,
         )
         closers.append(retrieval.close)
         if background_llm is None:
@@ -110,11 +128,13 @@ def build(
         memories = Memories(
             settings.database_path, characters, clock,
             background_llm=background_llm, embedder=embedder, reranker=reranker,
+            min_relevance=thresholds.memories,
         )
     else:
         log.info(
-            "retrieval and memory are off: they need SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY,"
-            " JEV_MODEL"
+            "retrieval and memory are off: they need the embedding service's key"
+            " (SILICONFLOW_API_KEY, or GEMINI_API_KEY with EMBEDDING_PROVIDER=gemini),"
+            " SILICONFLOW_API_KEY for reranking, AI_GATEWAY_API_KEY and JEV_MODEL"
         )
         memories = Memories(settings.database_path, characters, clock)
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
