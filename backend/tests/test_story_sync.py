@@ -602,3 +602,238 @@ def test_the_sync_command_reports_a_missing_story_directory(admin: Admin, tmp_pa
 class _ClosableEmbedder(FakeEmbedder):
     async def aclose(self) -> None:
         pass
+
+
+# Albums. Mano's lists a W.I.N.G. episode SCTranslationData has translated and one it
+# lacks, failure endings (one titled like it, one only the rules know), an episode titled
+# like a failure that the rules do not know, one the mirror does not have, a Morning
+# SCTranslationData files under a name of its own, a TV appearance, a birthday episode,
+# a unit episode and a joke, which is no script of its own. Hiori's lists the same unit
+# episode.
+MANO_ALBUM = [
+    ("character_event", "100100101", "公園の歌声", "wing"),
+    ("character_event", "100100102", "自信のありか", "wing"),
+    ("character_event", "100100103", "ありのままで", "wing"),
+    ("concert_event", "600100107", "未来へ羽ばたく", "wing"),
+    ("concert_event", "600100108", "負けても、敗れても", "wing"),
+    ("season_event", "700100102", "シーズン1（失敗）", "wing"),
+    ("communication_audition", "500100100012", "オーディション後 敗北①", "wing"),
+    ("communication_television", "600100100011", "TV出演後コミュ①", "wing"),
+    ("communication_morning", "100100100011", "Morning①", "common"),
+    ("communication_morning", "100100100021", "Morning②", "common"),
+    ("unit_event", "500100201", "始まり、もう一度", "fan_meeting"),
+    ("birthday_event", "490200101", "【櫻木 真乃】 誕生日ミニコミュ①", "birthday_event"),
+    ("seasonal_present_event", "10001", "トリック・オア・トリート！", "joke"),
+]
+ALBUM_SECTIONS = {
+    "wing": "W.I.N.G.編",
+    "fan_meeting": "283プロダクション ファン感謝祭編",
+    "common": "共通",
+    "birthday_event": "誕生日",
+    "joke": "2019アイドルからのイタズラ【目隠し】",
+}
+ALBUM_SCRIPTS = {
+    "produce_events/100100101": "公園の歌声",
+    "produce_events/100100102": "自信のありか",
+    "produce_events/600100107": "未来へ羽ばたく",
+    "produce_events/600100108": "負けても、敗れても",
+    "produce_events/700100102": "シーズン1（失敗）",
+    "produce_communication_auditions/500100100012": "オーディション後 敗北①",
+    "produce_communication_televisions/600100100011": "TV出演後コミュ①",
+    "produce_communications/100100100011": "Morning①",
+    "produce_communications/100100100021": "Morning②",
+    "produce_events/500100201": "始まり、もう一度",
+    "special_communications/490200101": "誕生日ミニコミュ①",
+}
+MORNING_TRANSLATED = [("1001001000110010", "真乃", "Morning①です\\nほわっ", "早上好①\\n呼哇")]
+
+
+def album_frames(title: str) -> list[dict]:
+    return [
+        {"id": 1001001010010, "speaker": "真乃", "text": f"{title}です\r\nほわっ"},
+        {"textFrame": "002", "speaker": "プロデューサー", "text": "がんばろうな"},
+    ]
+
+
+@pytest.fixture
+def albums(mirror_site: FakeShinyColorsDB, story: Path) -> FakeShinyColorsDB:
+    mirror_site.add_album(1, ALBUM_SECTIONS, MANO_ALBUM)
+    mirror_site.add_album(2, {"fan_meeting": "283プロダクション ファン感謝祭編"}, [MANO_ALBUM[10]])
+    for script, title in ALBUM_SCRIPTS.items():
+        mirror_site.add_script(script, album_frames(title))
+    write_story(story, "櫻木真乃/Morning/morning①.csv", MORNING_TRANSLATED, "produce_communications/100100100011")
+    return mirror_site
+
+
+def album_requests(site: FakeShinyColorsDB) -> list[str]:
+    return [str(r.url) for r in site.requests if "/albums/" in str(r.url)]
+
+
+async def test_produce_episodes_the_translations_lack_come_in_from_the_albums(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    report = await syncer.run()
+
+    def where(script: str) -> tuple[str, str, str] | None:
+        episode = syncer.corpus.get(script)
+        return (episode.category, episode.source, episode.title) if episode else None
+
+    assert where("produce_events/100100102") == ("培育剧情", "W.I.N.G.編", "自信のありか")
+    assert where("produce_communication_televisions/600100100011") == ("培育剧情", "W.I.N.G.編", "TV出演後コミュ①")
+    assert where("produce_events/500100201") == (
+        "培育剧情", "283プロダクション ファン感謝祭編", "始まり、もう一度"
+    )
+    assert where("special_communications/490200101") == (
+        "特别剧情", "誕生日", "【櫻木 真乃】 誕生日ミニコミュ①"
+    )
+    episode = syncer.corpus.get("produce_events/100100102")
+    assert episode is not None and episode.imported_from == "json" and episode.cast == {"mano"}
+    assert episode.lines[0] == Line("真乃", "自信のありかです\nほわっ")
+    # What SCTranslationData has translated is neither downloaded nor replaced.
+    assert syncer.corpus.imported_from("produce_events/100100101") == "csv"
+    assert "produce_events/100100101" not in albums.sent
+    assert report.mirror_error is None
+
+
+async def test_an_album_episode_is_filed_where_the_translations_file_that_part_of_the_album(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    await syncer.run()
+
+    episode = syncer.corpus.get("produce_communications/100100100021")
+    assert episode is not None and (episode.source, episode.title) == ("Morning", "Morning②")
+    # And a translation that arrives later replaces it in the same place.
+    write_story(syncer.story, "櫻木真乃/Morning/Morning②.csv", MORNING_TRANSLATED, "produce_communications/100100100021")
+
+    await syncer.run()
+
+    assert syncer.corpus.imported_from("produce_communications/100100100021") == "csv"
+    catalog = {source.source: source for source in syncer.corpus.catalog("mano")}
+    assert [entry.episode_id for entry in catalog["Morning"].episodes] == [
+        "produce_communications/100100100011",
+        "produce_communications/100100100021",
+    ]
+
+
+async def test_failure_endings_in_the_albums_are_neither_downloaded_nor_imported(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    await syncer.run()
+
+    for script in (
+        "produce_events/600100107",  # the rules know it, the title does not say
+        "produce_events/700100102",
+        "produce_communication_auditions/500100100012",
+    ):
+        assert syncer.corpus.get(script) is None
+        assert script not in albums.sent
+
+
+async def test_produce_episodes_titled_like_a_failure_the_rules_do_not_know_are_listed(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    report = await syncer.run()
+
+    assert report.looks_like_failures == [CatalogEntry("produce_events/600100108", "負けても、敗れても")]
+    assert syncer.corpus.get("produce_events/600100108") is not None  # imported all the same
+
+    report = await syncer.run()
+
+    assert report.looks_like_failures == []  # listed once, when imported
+
+
+async def test_an_unchanged_album_is_asked_for_conditionally_and_nothing_is_downloaded_again(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    first = await syncer.run()
+    albums.sent.clear()
+    albums.requests.clear()
+    syncer.embedder.documents.clear()
+
+    report = await syncer.run()
+
+    assert first.album_missing == 1  # ありのままで
+    assert albums.sent == []
+    assert syncer.embedder.documents == []
+    assert (report.downloaded, report.album_missing, report.untranslated.imported) == (0, 0, 0)
+    assert all(
+        r.headers.get("If-None-Match") for r in albums.requests if r.url.path.endswith(("/01.json", "/02.json"))
+    )
+    # The script the mirror did not have is not asked for again while the album is unchanged.
+    assert not any("100100103" in str(r.url) for r in albums.requests)
+
+
+async def test_a_changed_album_has_its_new_episodes_fetched(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    await syncer.run()
+    albums.add_album(1, ALBUM_SECTIONS, [*MANO_ALBUM, ("character_event", "100100104", "頑張りすぎ", "wing")])
+    albums.add_script("produce_events/100100104", album_frames("頑張りすぎ"))
+    albums.add_script("produce_events/100100103", album_frames("ありのままで"))
+    albums.sent.clear()
+
+    await syncer.run()
+
+    assert sorted(albums.sent) == ["album/01", "produce_events/100100103", "produce_events/100100104"]
+    episode = syncer.corpus.get("produce_events/100100104")
+    assert episode is not None and (episode.source, episode.title) == ("W.I.N.G.編", "頑張りすぎ")
+
+
+async def test_a_unit_episode_in_several_albums_is_downloaded_once(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    await syncer.run()
+
+    assert albums.sent.count("produce_events/500100201") == 1
+    assert not any("/10001.json" in str(r.url) for r in albums.requests)  # the joke
+
+
+async def test_a_sync_the_mirror_broke_off_in_an_album_picks_up_where_it_stopped(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    albums.idols.clear()  # no cards, to count requests by
+    albums.down_after = 3  # Mano's cards, her album and its first script
+
+    report = await syncer.run(idols=[1])
+
+    assert report.mirror_error is not None
+    assert syncer.corpus.get("produce_events/100100102") is not None  # downloaded, so imported
+    albums.down_after = None
+    albums.sent.clear()
+
+    report = await syncer.run(idols=[1])
+
+    assert report.mirror_error is None
+    assert "produce_events/100100102" not in albums.sent
+    assert syncer.corpus.get("special_communications/490200101") is not None
+
+
+async def test_only_the_albums_of_the_idols_asked_for_are_synced(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    await syncer.run(idols=[2])
+
+    assert [url.rsplit("/", 1)[1] for url in album_requests(albums)] == ["02.json"]
+    assert syncer.corpus.get("produce_events/500100201") is not None
+    assert syncer.corpus.get("produce_events/100100102") is None
+
+
+def test_the_sync_command_lists_produce_episodes_titled_like_a_failure(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    albums: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    monkeypatch.setattr("eidolon.mirror.Mirror", lambda: albums.mirror())
+    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
+
+    code, out, err = admin.invoke(*args, "--characters", str(characters.path))
+
+    assert code == 0, err
+    assert "以下 1 段培育剧情标题像失败结局" in out
+    assert "produce_events/600100108「負けても、敗れても」" in out
+    assert "相册列出的剧本中有 1 个镜像上没有" in out

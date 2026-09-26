@@ -244,17 +244,18 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 <br>
 
-`eidolon story sync` 先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 的解码镜像（ADR-0004）把剧情库里还缺的 P 卡、S 卡剧情和活动剧情作为原文剧情导入：
+`eidolon story sync` 先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 的解码镜像（ADR-0004）把剧情库里还缺的 P 卡、S 卡剧情、培育剧情和活动剧情作为原文剧情导入：
 
 ```sh
 docker compose exec backend eidolon story sync
 ```
 
 - 原文剧情的出处是卡名（如 `【ほわっとスマイル】櫻木真乃`，和 SCTranslationData 的目录名一致），标题是游戏里的剧情标题；汉化版到位后按同一剧本编号取代它，仍在同一张卡下。已有汉化版的剧情不会被下载，也不会被覆盖。
+- 培育剧情（W.I.N.G.、感谢祭、G.R.A.D.、Landing Point、S.T.E.P. 及早间、应援、试镜、电视出演等交流）和生日、节日等特别剧情来自各偶像的游戏内相册（2024 年 3 月之后不再更新）。出处沿用 SCTranslationData 对相册同一部分的目录名（如 `W.I.N.G.編`、`Morning`），这一部分一段都没有翻译时用相册的名称；标题是相册里的标题。失败结局照常不导入，也不下载；同步结束时会列出本次导入的培育剧情中标题带「敗」「失敗」、却没有被失败结局规则排除的剧情，请人工核对。相册没有变化时只发一次条件请求；相册里列出、镜像上没有的剧本要等相册变化后才再试。
 - 活动剧情没有目录，按剧本编号（`4001` + 三位活动编号 + 两位话数）推算：补齐剧情库已知范围内缺的活动和话数，再从最新的活动往后试探几个编号，所以没有新活动时只多几次 404 请求。活动名来自 `deploy/event-names.toml`（参照 `deploy/event-names.example.toml` 编写，每出一个新活动加一行，名字和 SCTranslationData 里这个活动的目录名一致；不进仓库），改完后下一次同步就更新剧情目录；没填的活动沿用 SCTranslationData 里已翻译的几话的目录名，一话都没有翻译时显示为「活动剧情 NNN」「第N話」，同步结束时会列出这些活动编号。也可以用 `--events` 指定对照表。
-- 下载的剧本缓存在 `EIDOLON_MIRROR_CACHE_PATH`（容器里是数据卷中的 `/data/mirror`，本地默认 `corpus/mirror`），不进仓库。没有变化的卡不再请求，变化了的卡用 ETag 做条件请求；请求逐个发出，间隔约一秒，所以首次全量补齐要一到两个小时，之后每次只要几分钟。
+- 下载的剧本缓存在 `EIDOLON_MIRROR_CACHE_PATH`（容器里是数据卷中的 `/data/mirror`，本地默认 `corpus/mirror`），不进仓库。没有变化的卡不再请求，变化了的卡和相册用 ETag 做条件请求；请求逐个发出，间隔约一秒，所以首次全量补齐要一到两个小时，之后每次只要几分钟。
 - 镜像连不上时汉化版照常导入，命令以退出码 2 结束；中途中断后重新运行会接着做，已下载的剧本不会重新下载。
-- `--idol 1` 只同步某位偶像的卡、不同步活动剧情（镜像 API 的偶像编号，可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
+- `--idol 1` 只同步某位偶像的卡和相册、不同步活动剧情（镜像 API 的偶像编号，可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
 
 </details>
 

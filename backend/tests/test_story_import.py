@@ -283,11 +283,16 @@ async def test_a_file_named_like_a_failure_ending_that_no_rule_catches_is_flagge
 ):
     root = tmp_path / "story"
     write_story(root, "櫻木真乃/W.I.N.G.編/新しい敗北.csv", KNOCKED_OUT, "produce_events/600100199")
+    write_story(root, "櫻木真乃/W.I.N.G.編/悪党成敗.csv", WON, "produce_events/600100198")
 
     report = await importer.run(root)
 
     assert importer.corpus.get("produce_events/600100199") is not None
-    assert any("新しい敗北" in w and "失败结局" in w for w in report.warnings)
+    assert report.looks_like_failures == [CatalogEntry("produce_events/600100199", "新しい敗北")]
+
+    report = await importer.run(root)
+
+    assert report.looks_like_failures == []  # listed when imported, not every time after
 
 
 @pytest.mark.parametrize(

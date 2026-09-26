@@ -21,7 +21,10 @@ leaves a CSV version alone, and a CSV import replaces a JSON one.
 Both follow the same rules. Only canon is kept: failure endings are recognised by
 their script and left out (and removed, if an earlier import had them), and the
 producer's choices (`select`) are dropped while every reaction to them is kept, so
-the corpus never says which one was picked. The cast is every configured character
+the corpus never says which one was picked. An episode imported with a title that
+reads like a failure (敗, 失敗) although its script is not a failure ending is reported,
+so that the rules can be checked against it: SCTranslationData titles an episode by
+its file name, the mirror's sync by the game's title. The cast is every configured character
 whose speaker name appears; the producer and other people are not cast. An episode
 the corpus already has exactly as imported is left alone.
 """
@@ -35,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eidolon.characters import Character
-from eidolon.corpus import Episode, ImportFormat, Line, StoryCorpus
+from eidolon.corpus import CatalogEntry, Episode, ImportFormat, Line, StoryCorpus
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +85,13 @@ def is_failure_ending(source_id: str) -> bool:
     return any(p.fullmatch(source_id) for p in _FAILURE_ENDINGS)
 
 
+def looks_like_failure(title: str) -> bool:
+    """Whether a title reads like a failure ending. Only the script tells for sure
+    (`is_failure_ending`); an episode titled like one that it does not recognise is
+    imported, and listed for the admin to check the rules against."""
+    return _LOOKS_LIKE_FAILURE.search(_NOT_FAILURE_WORDS.sub("", title)) is not None
+
+
 def category_of(source_id: str) -> str:
     return next((name for p, name in _CATEGORIES if p.match(source_id)), "其他剧情")
 
@@ -101,6 +111,9 @@ class ImportReport:
     """Of those imported, the episodes the corpus did not have before."""
     untranslated_replaced: int = 0
     """Of those imported, the untranslated episodes (from JSON) a CSV translation replaced."""
+    looks_like_failures: list[CatalogEntry] = field(default_factory=list)
+    """Of those imported, the episodes titled like a failure ending that are not one
+    by their script, to be checked by hand."""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -225,12 +238,6 @@ async def _import(
             report.warnings.append(f"{kept}：与 {relative} 来源相同（{source_id}），以后者为准")
         seen[source_id] = (relative, len(lines))
 
-        if not is_failure_ending(source_id) and _LOOKS_LIKE_FAILURE.search(
-            _NOT_FAILURE_WORDS.sub("", relative.stem)
-        ):
-            report.warnings.append(
-                f"{relative}：文件名像失败结局，但来源 {source_id} 不在失败结局的规则里，已照常导入"
-            )
         if is_failure_ending(source_id):
             report.skipped_failures += 1
             if corpus.remove(source_id):
@@ -257,6 +264,9 @@ async def _import(
         previously[source_id] = existing.imported_from if existing is not None else None
 
     pending = list(episodes.values())
+    report.looks_like_failures = [
+        CatalogEntry(episode.id, episode.title) for episode in pending if looks_like_failure(episode.title)
+    ]
     for start in range(0, len(pending), _SAVE_BATCH):
         batch = pending[start : start + _SAVE_BATCH]
         report.embedded_passages += await corpus.save(batch)

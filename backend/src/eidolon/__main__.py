@@ -10,9 +10,9 @@
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
                                      SCTranslationData lacks
-    eidolon story sync               import SCTranslationData, then the card and event episodes
-                                     it lacks from the ShinyColorsDB mirror; exits 2 if the
-                                     mirror failed
+    eidolon story sync               import SCTranslationData, then the card, produce and event
+                                     episodes it lacks from the ShinyColorsDB mirror; exits 2
+                                     if the mirror failed
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
@@ -133,6 +133,11 @@ async def _import_story(args: argparse.Namespace) -> int:
         await embedder.aclose()
     for warning in report.warnings:
         print(f"注意：{warning}", file=sys.stderr)
+    for entry in report.looks_like_failures:
+        print(
+            f"注意：{entry.episode_id}「{entry.title}」标题像失败结局，但不在失败结局的规则里，已照常导入",
+            file=sys.stderr,
+        )
     print(
         f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
         f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 段文本"
@@ -205,13 +210,19 @@ async def _sync_story(args: argparse.Namespace) -> int:
     print(
         f"原文剧情：下载 {report.downloaded} 个剧本，新增 {untranslated.added} 段，"
         f"更新 {untranslated.imported - untranslated.added} 段；"
-        f"本次检查的卡牌中有 {report.translations_kept} 段已有汉化版，保留汉化版"
+        f"本次检查的卡牌和相册中有 {report.translations_kept} 段已有汉化版，保留汉化版"
     )
     if report.missing:
         print(f"卡牌列出的剧本中有 {report.missing} 个镜像上还没有，下次同步再试")
+    if report.album_missing:
+        print(f"相册列出的剧本中有 {report.album_missing} 个镜像上没有，相册有变化时再试")
     if report.unnamed_events:
         events = "、".join(f"{event:03d}" for event in report.unnamed_events)
         print(f"活动名对照表里还没有这些活动，暂用「活动剧情 NNN」：{events}")
+    if suspects := report.looks_like_failures:
+        print(f"以下 {len(suspects)} 段培育剧情标题像失败结局，但不在失败结局的规则里，已照常导入，请人工核对：")
+        for entry in suspects:
+            print(f"  {entry.episode_id}「{entry.title}」")
     print(
         f"共跳过 {report.skipped_failures} 段失败结局，新向量化 {report.embedded_passages} 段文本"
     )
@@ -377,7 +388,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     sync = story.add_parser(
         "sync",
-        help="导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情和活动剧情"
+        help="导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情、培育剧情和活动剧情"
         "（可重复执行；镜像连不上时退出码为 2）",
     )
     sync.add_argument(
@@ -394,7 +405,7 @@ def _parser() -> argparse.ArgumentParser:
         "--idol",
         type=int,
         action="append",
-        help="只从镜像同步这位偶像的卡牌，不同步活动剧情（镜像 API 的偶像编号，例如 1 是櫻木真乃），可重复",
+        help="只从镜像同步这位偶像的卡牌和相册，不同步活动剧情（镜像 API 的偶像编号，例如 1 是櫻木真乃），可重复",
     )
     sync.add_argument(
         "--events",

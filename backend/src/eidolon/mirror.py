@@ -5,11 +5,13 @@ episodes with the game script they are in and their title; the viewer
 (`viewer.shinycolors.moe`) serves the scripts themselves, as the game does. Neither
 publishes terms or a rate limit and both are run by volunteers, so requests go out
 one at a time, about a second apart, and a script already downloaded is only asked
-for again conditionally, on its ETag.
+for again conditionally, on its ETag, as is an album.
 """
 
 import asyncio
+import logging
 import os
+import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,8 +21,13 @@ from typing import Any, Literal
 
 import httpx
 
+log = logging.getLogger(__name__)
+
 API_URL = "https://api.shinycolors.moe"
 VIEWER_URL = "https://viewer.shinycolors.moe/json"
+ALBUM_URL = "https://cf-static.shinycolors.moe/albums/album"
+ALBUM_IDOLS = range(1, 29)
+"""The idols with an album: 28 of them, as of its last update."""
 DEFAULT_INTERVAL = 1.0
 """Seconds between requests."""
 _USER_AGENT = "eidolon-sc story sync (weekly, one request a second)"
@@ -47,6 +54,34 @@ class CardEpisode:
     script: str
     """The game script, e.g. `produce_events/200100401`."""
     title: str
+
+
+@dataclass(frozen=True)
+class AlbumEpisode:
+    script: str
+    """The game script, e.g. `produce_events/100100101`."""
+    title: str
+    section: str
+    """The part of the album it is in, e.g. `W.I.N.G.編`, `2019Xmas スペシャルコミュ`."""
+
+
+# The script types the album's categories are in, as the mirror's viewer files them.
+_ALBUM_SCRIPT_TYPES = {
+    "character_event": "produce_events",
+    "season_event": "produce_events",
+    "unit_event": "produce_events",
+    "concert_event": "produce_events",
+    "communication_morning": "produce_communications",
+    "communication_cheer": "produce_communication_cheers",
+    "communication_audition": "produce_communication_auditions",
+    "communication_television": "produce_communication_televisions",
+    "birthday_event": "special_communications",
+    "present_event": "special_communications",
+    "seasonal_event": "special_communications",
+    "seasonal_present_event": "special_communications",
+    "special_communication": "special_communications",
+}
+_SCRIPT_NUMBER = re.compile(r"\d{8,}")
 
 
 Fetched = Literal["downloaded", "unchanged", "missing"]
@@ -102,6 +137,37 @@ class Mirror:
                 key=lambda episode: episode.script,
             )
 
+    async def album(self, idol_id: int, etag: str | None) -> tuple[list[AlbumEpisode] | None, str | None]:
+        """The episodes in the idol's album, unless the mirror says the copy matching
+        `etag` is still current (then None); returns them with the album's ETag. An idol
+        without an album has no episodes. Entries that are not a script of their own (the
+        jokes idols play, played from other scripts) are left out."""
+        headers = {"If-None-Match": etag} if etag else {}
+        response = await self._get(f"{ALBUM_URL}/{idol_id:02d}.json", headers=headers)
+        if response.status_code == 304:
+            return None, etag
+        if response.status_code == 404:
+            return [], None
+        _check(response)
+        path = f"/albums/album/{idol_id:02d}.json"
+        try:
+            album = response.json()
+        except ValueError as e:
+            raise MirrorError(f"{path}：相册不是 JSON（{e}）") from e
+        with _unexpected(path):
+            sections = {s["albumType"]: s["title"] for s in album.get("albumCommunicationTitles") or []}
+            episodes = []
+            for entry in album["communications"]:
+                number, category = str(entry["communicationId"]), entry["communicationCategory"]
+                if (kind := _ALBUM_SCRIPT_TYPES.get(category)) is None:
+                    log.info("相册 %02d：不认识的分类 %s（%s），已跳过", idol_id, category, number)
+                    continue
+                if not _SCRIPT_NUMBER.fullmatch(number):
+                    continue
+                section = sections.get(entry.get("albumType")) or entry.get("albumType") or ""
+                episodes.append(AlbumEpisode(f"{kind}/{number}", entry.get("title") or "", section))
+        return episodes, response.headers.get("ETag")
+
     async def download(self, script: str, target: Path, etag: str | None) -> tuple[Fetched, str | None]:
         """Save the script to `target` unless the mirror says the copy matching `etag` is
         still current; returns what happened and the ETag of the copy now at `target`.
@@ -151,11 +217,11 @@ class Mirror:
 
 @contextmanager
 def _unexpected(path: str) -> Iterator[None]:
-    """An API answer shaped unlike what it used to be is the mirror's error, too."""
+    """An answer shaped unlike what it used to be is the mirror's error, too."""
     try:
         yield
     except (KeyError, TypeError, ValueError, AttributeError) as e:
-        raise MirrorError(f"{path}：API 返回的数据结构和预期不同（{e!r}）") from e
+        raise MirrorError(f"{path}：返回的数据结构和预期不同（{e!r}）") from e
 
 
 def _check(response: httpx.Response) -> None:

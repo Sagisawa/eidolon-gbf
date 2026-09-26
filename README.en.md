@@ -247,17 +247,18 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 <br>
 
-`eidolon story sync` imports SCTranslationData's translations, then imports the P-card, S-card and event episodes the corpus still lacks from ShinyColorsDB's decoded mirror (ADR-0004) as untranslated episodes:
+`eidolon story sync` imports SCTranslationData's translations, then imports the P-card, S-card, produce and event episodes the corpus still lacks from ShinyColorsDB's decoded mirror (ADR-0004) as untranslated episodes:
 
 ```sh
 docker compose exec backend eidolon story sync
 ```
 
 - An untranslated episode's source is the card name (e.g. `【ほわっとスマイル】櫻木真乃`, matching SCTranslationData's directory names) and its title the in-game episode title; once a translation arrives it replaces the episode by script ID, under the same card. Episodes that already have a translation are never downloaded or overwritten.
+- Produce episodes (W.I.N.G., the fan appreciation festival, G.R.A.D., Landing Point, S.T.E.P., and the morning, cheer, audition and TV communications along the way) and special episodes such as birthdays and holidays come from each idol's in-game album (not updated since March 2024). They are filed under the directory name SCTranslationData uses for the same part of the album (e.g. `W.I.N.G.編`, `Morning`), or the album's own name for that part if none of it is translated, and titled as the album titles them. Failure endings are neither downloaded nor imported; at the end the sync lists the produce episodes it imported whose title contains 「敗」 or 「失敗」 but which the failure-ending rules did not exclude, for you to check by hand. An unchanged album costs one conditional request; scripts an album lists that the mirror lacks are retried only once the album changes.
 - Event episodes have no listing, so they are found by script number (`4001` + a three-digit event number + a two-digit episode): the sync fills in the events and episodes missing within the known range, then tries a few numbers after the latest event, so a sync with no new event costs only a few 404s. Event names come from `deploy/event-names.toml` (write it from `deploy/event-names.example.toml`, one line per new event, using the same name as the event's directory in SCTranslationData; it stays out of the repo); edits reach the catalog at the next sync. Events not in the table take the directory name of their episodes SCTranslationData has translated, or else show as 「活动剧情 NNN」 and 「第N話」; the sync lists those numbers at the end. `--events` points at another table.
-- Downloaded scripts are cached in `EIDOLON_MIRROR_CACHE_PATH` (`/data/mirror` in the data volume in the container, `corpus/mirror` locally by default), outside the repo. Unchanged cards are not requested again and changed cards use ETag conditional requests. Requests go out one at a time, about a second apart, so the first full sync takes an hour or two; later ones take minutes.
+- Downloaded scripts are cached in `EIDOLON_MIRROR_CACHE_PATH` (`/data/mirror` in the data volume in the container, `corpus/mirror` locally by default), outside the repo. Unchanged cards are not requested again; changed cards and albums use ETag conditional requests. Requests go out one at a time, about a second apart, so the first full sync takes an hour or two; later ones take minutes.
 - If the mirror is unreachable the translations are still imported and the command exits with code 2; rerunning after an interruption picks up where it stopped without downloading scripts again.
-- `--idol 1` limits the sync to one idol's cards and skips events (the mirror API's idol ID, repeatable); the translations directory defaults to `EIDOLON_STORY_PATH`, or pass `--story`.
+- `--idol 1` limits the sync to one idol's cards and album and skips events (the mirror API's idol ID, repeatable); the translations directory defaults to `EIDOLON_STORY_PATH`, or pass `--story`.
 
 </details>
 
