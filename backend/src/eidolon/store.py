@@ -1,5 +1,5 @@
 """Relational storage (SQLite) for users, access keys, producer profiles, conversations
-and their messages, memories, and each user's recent usage."""
+and their messages, and each user's recent usage; memories are kept by `memory`."""
 
 import hashlib
 import json
@@ -56,15 +56,6 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
-CREATE TABLE IF NOT EXISTS memories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    source_character_id TEXT NOT NULL,
-    conversation_id TEXT REFERENCES conversations(id),
-    text TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE (user_id, text)
-);
 -- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -136,18 +127,6 @@ class Message:
     zh: str | None
     created_at: str
     segments: list[Segment] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class Memory:
-    """Something about a user worth keeping across conversations, written in Chinese,
-    with the character it was told to."""
-
-    id: int
-    user_id: str
-    source_character_id: str
-    text: str
-    created_at: str
 
 
 class Store:
@@ -312,52 +291,6 @@ class Store:
             )
             for row in rows
         ]
-
-    def add_memories(
-        self, conversation: Conversation, texts: list[str], now: datetime
-    ) -> list[Memory]:
-        """Remember what the user told the conversation's character just `now`; returns the
-        memories that are new, leaving out any the user already has."""
-        added = []
-        created_at = now.astimezone(UTC).isoformat()
-        with self._lock, self._db:
-            for text in texts:
-                cursor = self._db.execute(
-                    "INSERT OR IGNORE INTO memories"
-                    " (user_id, source_character_id, conversation_id, text, created_at)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (conversation.user_id, conversation.character_id, conversation.id, text,
-                     created_at),
-                )
-                if cursor.rowcount and cursor.lastrowid is not None:
-                    added.append(Memory(
-                        cursor.lastrowid, conversation.user_id, conversation.character_id, text,
-                        created_at,
-                    ))
-        return added
-
-    def list_memories(self, user_id: str) -> list[Memory]:
-        """Oldest first."""
-        with self._lock:
-            rows = self._db.execute(
-                "SELECT id, user_id, source_character_id, text, created_at FROM memories"
-                " WHERE user_id = ? ORDER BY id",
-                (user_id,),
-            ).fetchall()
-        return [Memory(**row) for row in rows]
-
-    def delete_memory(self, user_id: str, memory_id: int) -> bool:
-        """Forget one of the user's memories; False if they have no such memory."""
-        with self._lock, self._db:
-            cursor = self._db.execute(
-                "DELETE FROM memories WHERE id = ? AND user_id = ?", (memory_id, user_id)
-            )
-        return cursor.rowcount > 0
-
-    def clear_memories(self, user_id: str) -> None:
-        """Forget all of the user's memories."""
-        with self._lock, self._db:
-            self._db.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
 
     def take_usage(
         self, user_id: str, kind: UsageKind, now: datetime, window: timedelta, limit: int

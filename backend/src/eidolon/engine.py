@@ -23,11 +23,10 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal
-from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
-from eidolon.memory import MemoryWriter, memories_prompt
+from eidolon.memory import Memories
 from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
@@ -113,7 +112,7 @@ class ConversationEngine:
         characters: dict[str, Character],
         clock: Clock | None = None,
         retrieval: Retrieval | None = None,
-        memory: MemoryWriter | None = None,
+        memory: Memories | None = None,
         history_turns: int | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story, character facts or memories; without
@@ -125,7 +124,6 @@ class ConversationEngine:
         self._clock = clock or utc_now
         self._retrieval = retrieval
         self._memory = memory
-        self._names = {c.id: c.name for c in characters.values()}
         self._history_turns = history_turns
 
     async def turn(
@@ -152,16 +150,14 @@ class ConversationEngine:
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
-        mark = self._memory.mark(conversation.user_id) if self._memory else 0
-        if self._memory:
-            await self._memory.settle(conversation.user_id)
+        memory = await self._memory.begin(conversation, timezone) if self._memory else None
         retrieved = (
-            await self._retrieval.retrieve(character, conversation.user_id, history, text)
+            await self._retrieval.retrieve(character, history, text, memory)
             if self._retrieval
             else Retrieved(None)
         )
         about_producer = producer_prompt(profile, self._clock(), timezone)
-        prompt = self._prompt(character, about_producer, history, retrieved, text, timezone)
+        prompt = self._prompt(character, about_producer, history, retrieved, text)
 
         tools: list[Tool] = (
             [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
@@ -192,10 +188,9 @@ class ConversationEngine:
 
         if not parser.segments:
             raise EmptyReply("对话模型没有返回任何内容")
-        now = self._clock().astimezone(ZoneInfo(timezone))
         reply = self._store.add_turn(conversation.id, text, parser.segments)
-        if self._memory:
-            self._memory.remember(conversation, character, history, text, reply, now, mark)
+        if memory:
+            memory.write_down(history, text, reply)
         yield TurnDone(reply)
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:
@@ -214,11 +209,10 @@ class ConversationEngine:
         history: list[Message],
         retrieved: Retrieved,
         text: str,
-        timezone: str,
     ) -> list[ChatMessage]:
         sections = [character.sheet, about_producer]
         if retrieved.memories:
-            sections.append(memories_prompt(retrieved.memories, character, self._names, timezone))
+            sections.append(retrieved.memories)
         if retrieved.prompt:
             sections.append(retrieved.prompt)
         system = "\n\n".join([*sections, FORMAT_INSTRUCTIONS])

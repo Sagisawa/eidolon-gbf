@@ -1,6 +1,5 @@
 """The backend's HTTP API."""
 
-import asyncio
 import json
 import logging
 import math
@@ -29,7 +28,7 @@ from eidolon.facts import FactIndex
 from eidolon.engine import Clock, ConversationEngine, TurnFailed, utc_now
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
-from eidolon.memory import MemoryIndex, MemoryWriter
+from eidolon.memory import Memories
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.rerank import Reranker, SiliconFlowReranker
 from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
@@ -145,25 +144,27 @@ def create_app(
     if jev is None and settings.jev is not None:
         jev = JevJudge(settings.jev.api_key, settings.jev.model, settings.jev.base_url)
         clients.append(jev)
-    retrieval = memory = None
+    retrieval = None
     if jev is not None and embedder is not None and reranker is not None:
-        memory_index = MemoryIndex(settings.database_path, store, embedder)
         retrieval = Retrieval(
             jev,
             embedder,
             StoryCorpus(settings.database_path, embedder),
             FactIndex(settings.database_path, embedder),
-            memory_index,
             reranker,
         )
         background_llm = background_llm or open_llm(settings.background_llm or settings.chat_llm)
-        memory = MemoryWriter(store, background_llm, memory_index)
+        memory = Memories(
+            settings.database_path, characters, clock,
+            background_llm=background_llm, embedder=embedder, reranker=reranker,
+        )
     else:
         log.info(
             "retrieval and memory are off: they need SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY,"
             " JEV_MODEL"
         )
         background_llm = None
+        memory = Memories(settings.database_path, characters, clock)
     engine = ConversationEngine(
         store, llm, characters, clock, retrieval, memory, settings.history_turns
     )
@@ -177,8 +178,7 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await webrtc.close()
-        if memory is not None:
-            await memory.aclose()
+        await memory.aclose()
         await llm.aclose()
         if background_llm is not None:
             await background_llm.aclose()
@@ -309,40 +309,25 @@ def create_app(
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
         """Newest first, each with the name of the character it was told to."""
-        if memory is not None:
-            await memory.settle(user_id)  # so what was just said is on the list
-        memories = await asyncio.to_thread(store.list_memories, user_id)
         return [
             {
                 "id": m.id,
                 "text": m.text,
                 "source_character_id": m.source_character_id,
-                "source_character_name": (
-                    characters[m.source_character_id].name
-                    if m.source_character_id in characters
-                    else None  # removed from the configuration
-                ),
+                "source_character_name": m.source_character_name,
                 "created_at": m.created_at,
             }
-            for m in reversed(memories)
+            for m in await memory.entries(user_id)
         ]
 
     @app.delete("/api/memories/{memory_id}", status_code=204)
     async def delete_memory(memory_id: int, user_id: UserId) -> None:
-        deleted = (
-            await memory.delete(user_id, memory_id)
-            if memory is not None
-            else await asyncio.to_thread(store.delete_memory, user_id, memory_id)
-        )
-        if not deleted:
+        if not await memory.delete(user_id, memory_id):
             raise HTTPException(404, "记忆不存在")
 
     @app.delete("/api/memories", status_code=204)
     async def clear_memories(user_id: UserId) -> None:
-        if memory is not None:
-            await memory.clear(user_id)
-        else:
-            await asyncio.to_thread(store.clear_memories, user_id)
+        await memory.clear(user_id)
 
     @app.post("/api/conversations", status_code=201)
     def create_conversation(body: NewConversation, user_id: UserId) -> dict:

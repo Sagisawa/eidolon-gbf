@@ -3,21 +3,25 @@
 After each turn the background model reads the exchange and writes down, in Chinese,
 whatever the user revealed about themselves that is worth keeping. Each memory belongs
 to the user and names the character it was told to, its source character. All of a
-user's characters share their memories, and a character recalling one told to someone
+user's characters share their memories, and a character finding one told to someone
 else is asked to pass it on as hearsay (ADR-0002); users never share theirs.
 
-Writing runs in the background so it never holds up the reply. The user's next turn
-waits briefly for it, so what they just said is remembered by the time they go on; a
-new conversation picks up where earlier ones left off only through the memories it
-retrieves.
+A turn goes `begin` → `find` → `write_down`. Writing runs in the background so it never
+holds up the reply; the user's next turn begins by waiting briefly for it, so what they
+just said is remembered by the time they go on. A new conversation picks up where
+earlier ones left off only through the memories it finds.
 
-Users can delete their memories one by one or all at once, never add or edit them.
-Deleting waits briefly for what is being written down too; whatever turns begun before
-a clearing write down after it is dropped, so a cleared memory never turns up again.
+Users can list their memories and delete them one by one or all at once, never add or
+edit them. Listing and deleting wait briefly for what is being written down too;
+whatever turns begun before a clearing write down after it is dropped, so a cleared
+memory never turns up again.
 
 Each memory is embedded as it is written down, and the vector kept until the memory is
 gone; a memory whose embedding failed is embedded the next time its user's memories are
 searched.
+
+Without a background model, embedder and reranker, memory is off: turns find and write
+down nothing, but users can still list and delete the memories already kept.
 """
 
 import asyncio
@@ -25,15 +29,17 @@ import json
 import logging
 import sqlite3
 import threading
-from collections.abc import Mapping, Sequence
-from datetime import datetime
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
 from eidolon.embedding import Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
-from eidolon.store import Conversation, Memory, Message, Store
+from eidolon.rerank import Reranker, RerankError
+from eidolon.store import Conversation, Message
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +55,33 @@ MAX_NEW_MEMORIES = 5
 """The most memories one turn writes down."""
 MAX_MEMORY_LENGTH = 200
 """How much of a memory, in characters, is kept; longer ones are cut short."""
+CANDIDATES = 12
+"""How many of the user's memories nearest the turn the reranker is offered."""
+MAX_FOUND = 3
+"""The most memories one turn's prompt carries, after reranking."""
+MIN_RELEVANCE = 0.01
+"""The reranker's score below which a memory is left out. Qwen3-Reranker scores a short
+memory low against a loosely related remark (「我最近要出远门」 against a business trip to
+Hokkaido scores 0.03) but unrelated ones lower still (at most 0.005), so memories get a
+threshold well below that of story and character facts."""
+ANOTHER_IDOL = "事务所的另一位偶像"
+"""Who a memory was told to, when that character has been removed from the configuration."""
 
+Clock = Callable[[], datetime]
+"""The current time, timezone-aware."""
 
+# `memories` predates this module and keeps the columns and constraints it had in the
+# store; `memory_vectors` holds each memory's embedding, per embedding model.
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    source_character_id TEXT NOT NULL,
+    conversation_id TEXT REFERENCES conversations(id),
+    text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (user_id, text)
+);
 CREATE TABLE IF NOT EXISTS memory_vectors (
     memory_id INTEGER NOT NULL,
     user_id TEXT NOT NULL,
@@ -63,53 +93,251 @@ CREATE INDEX IF NOT EXISTS memory_vectors_by_user ON memory_vectors(user_id, mod
 """
 
 
-class MemoryIndex:
-    """The vector index of each user's memories."""
+@dataclass(frozen=True)
+class Memory:
+    """Something about a user worth keeping across conversations, written in Chinese,
+    with the character it was told to (its source character)."""
 
-    def __init__(self, path: Path, store: Store, embedder: Embedder) -> None:
+    id: int
+    user_id: str
+    source_character_id: str
+    source_character_name: str | None
+    """None if that character has been removed from the configuration."""
+    text: str
+    created_at: str
+    """When it was told, as an ISO timestamp in UTC."""
+
+
+@dataclass(frozen=True)
+class _Services:
+    background_llm: ChatLLM
+    embedder: Embedder
+    reranker: Reranker
+
+
+class Memories:
+    """Every user's memories."""
+
+    def __init__(
+        self,
+        path: Path,
+        characters: Mapping[str, Character],
+        clock: Clock,
+        *,
+        background_llm: ChatLLM | None = None,
+        embedder: Embedder | None = None,
+        reranker: Reranker | None = None,
+    ) -> None:
+        """Memories kept in the database at `path`, next to the users and conversations
+        they belong to; off unless `background_llm`, `embedder` and `reranker` are all
+        given."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self._lock = threading.Lock()
-        self._store = store
-        self._embedder = embedder
         with self._lock, self._db:
+            self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
+        self._characters = characters
+        self._clock = clock
+        self._services = (
+            _Services(background_llm, embedder, reranker)
+            if background_llm is not None and embedder is not None and reranker is not None
+            else None
+        )
+        self._pending: dict[str, set[asyncio.Task[None]]] = {}  # user id → writing
+        self._clearings: dict[str, int] = {}  # user id → how many times cleared
 
-    async def search_by_vector(
-        self, query_vector: Sequence[float], user_id: str, limit: int
-    ) -> list[Memory]:
-        """The user's memories most similar to a query embedded with this index's embedder."""
-        memories = await asyncio.to_thread(self._store.list_memories, user_id)
-        vectors = await self._vectors(user_id, memories)
-        best = nearest([vectors[m.id] for m in memories], query_vector, limit)
-        return [memories[i] for i, _ in best]
+    async def begin(self, conversation: Conversation, timezone: str) -> "MemoryTurn":
+        """Begin a turn of `conversation`, whose user is in `timezone`, once what their
+        earlier turns are writing down is written (a while at most)."""
+        clearings = self._clearings.get(conversation.user_id, 0)
+        await self._settle(conversation.user_id)
+        return MemoryTurn(self, conversation, timezone, clearings)
 
-    def forget(self, user_id: str, memory_ids: Sequence[int] | None = None) -> None:
-        """Drop the vectors of memories that are gone; of all the user's, if `memory_ids`
-        is None."""
-        with self._lock, self._db:
-            if memory_ids is None:
-                self._db.execute("DELETE FROM memory_vectors WHERE user_id = ?", (user_id,))
-            else:
-                self._db.executemany(
-                    "DELETE FROM memory_vectors WHERE user_id = ? AND memory_id = ?",
-                    [(user_id, memory_id) for memory_id in memory_ids],
-                )
+    async def entries(self, user_id: str) -> list[Memory]:
+        """All of the user's memories, newest first, including what their turns so far
+        are writing down (unless that takes too long)."""
+        await self._settle(user_id)
+        return list(reversed(await asyncio.to_thread(self._all, user_id)))
 
-    async def add(self, user_id: str, memories: Sequence[Memory]) -> None:
-        """Embed memories just written down, so searching does not have to."""
-        if memories:
-            await self._vectors(user_id, list(memories), forget=False)
+    async def delete(self, user_id: str, memory_id: int) -> bool:
+        """Forget one of the user's memories; False if they have no such memory."""
+        await self._settle(user_id)
+        return await asyncio.to_thread(self._delete, user_id, memory_id)
 
-    def close(self) -> None:
+    async def clear(self, user_id: str) -> None:
+        """Forget all of the user's memories, including those their turns so far are still
+        writing down."""
+        self._clearings[user_id] = self._clearings.get(user_id, 0) + 1
+        await self._settle(user_id)
+        await asyncio.to_thread(self._clear, user_id)
+
+    async def aclose(self) -> None:
+        """Let whatever is being written down finish, a while at most, then give up on it."""
+        tasks = {t for pending in self._pending.values() for t in pending}
+        if tasks:
+            _, unfinished = await asyncio.wait(tasks, timeout=SETTLE_TIMEOUT)
+            for task in unfinished:
+                task.cancel()
+            await asyncio.gather(*unfinished, return_exceptions=True)
         self._db.close()
 
+    async def _settle(self, user_id: str) -> None:
+        if pending := self._pending.get(user_id):
+            await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
+
+    async def _find(
+        self, conversation: Conversation, timezone: str, text: str
+    ) -> str | None:
+        if (services := self._services) is None:
+            return None
+        user_id = conversation.user_id
+        try:
+            query = await services.embedder.embed_query(text)
+            memories = await asyncio.to_thread(self._all, user_id)
+            vectors = await self._vectors(services.embedder, user_id, memories)
+            nearest_memories = [
+                memories[i]
+                for i, _ in nearest([vectors[m.id] for m in memories], query, CANDIDATES)
+            ]
+            best = (
+                await services.reranker.rerank(
+                    text, [m.text for m in nearest_memories], len(nearest_memories)
+                )
+                if nearest_memories
+                else []
+            )
+        except (EmbeddingError, RerankError):
+            log.warning("finding memories failed; replying without them", exc_info=True)
+            return None
+        found = [nearest_memories[i] for i, score in best if score >= MIN_RELEVANCE]
+        character = self._characters[conversation.character_id]
+        return _memories_prompt(found[:MAX_FOUND], character, timezone) if found else None
+
+    def _write_down(
+        self,
+        conversation: Conversation,
+        timezone: str,
+        clearings: int,
+        history: Sequence[Message],
+        text: str,
+        reply: Message,
+    ) -> None:
+        if (services := self._services) is None:
+            return
+        now = self._clock().astimezone(ZoneInfo(timezone))
+        task = asyncio.create_task(
+            self._write(services, conversation, clearings, history, text, reply, now)
+        )
+        pending = self._pending.setdefault(conversation.user_id, set())
+        pending.add(task)
+
+        def done(task: asyncio.Task[None]) -> None:
+            pending.discard(task)
+            if not pending and self._pending.get(conversation.user_id) is pending:
+                del self._pending[conversation.user_id]
+
+        task.add_done_callback(done)
+
+    async def _write(
+        self,
+        services: _Services,
+        conversation: Conversation,
+        clearings: int,
+        history: Sequence[Message],
+        text: str,
+        reply: Message,
+        now: datetime,
+    ) -> None:
+        user_id = conversation.user_id
+        character = self._characters[conversation.character_id]
+        try:
+            known = await asyncio.to_thread(self._all, user_id)
+            prompt = _extraction_prompt(character, history, text, reply, known, now)
+            answer = "".join([
+                chunk async for chunk in services.background_llm.stream(prompt)
+                if isinstance(chunk, str)
+            ])
+            texts = parse_memories(answer)
+            if texts is None:
+                log.warning("background model wrote no memories JSON: %.500s", answer)
+                return
+            if self._clearings.get(user_id, 0) != clearings:
+                return  # cleared since the turn began
+            added = await asyncio.to_thread(self._add, conversation, texts, now)
+        except Exception:
+            log.warning("writing memories failed in conversation %s", conversation.id,
+                        exc_info=True)
+            return
+        try:
+            if added:
+                await self._vectors(services.embedder, user_id, added, forget=False)
+        except EmbeddingError:
+            log.warning("embedding new memories failed; they are embedded when searched",
+                        exc_info=True)
+
+    def _all(self, user_id: str) -> list[Memory]:
+        """Oldest first."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, user_id, source_character_id, text, created_at FROM memories"
+                " WHERE user_id = ? ORDER BY id",
+                (user_id,),
+            ).fetchall()
+        return [self._memory(*row) for row in rows]
+
+    def _memory(
+        self, id: int, user_id: str, source_character_id: str, text: str, created_at: str
+    ) -> Memory:
+        source = self._characters.get(source_character_id)
+        return Memory(
+            id, user_id, source_character_id, source.name if source else None, text,
+            created_at,
+        )
+
+    def _add(self, conversation: Conversation, texts: list[str], now: datetime) -> list[Memory]:
+        """Remember what the user told the conversation's character just `now`; returns the
+        memories that are new, leaving out any the user already has."""
+        added = []
+        created_at = now.astimezone(UTC).isoformat()
+        with self._lock, self._db:
+            for text in texts:
+                cursor = self._db.execute(
+                    "INSERT OR IGNORE INTO memories"
+                    " (user_id, source_character_id, conversation_id, text, created_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (conversation.user_id, conversation.character_id, conversation.id, text,
+                     created_at),
+                )
+                if cursor.rowcount and cursor.lastrowid is not None:
+                    added.append(self._memory(
+                        cursor.lastrowid, conversation.user_id, conversation.character_id,
+                        text, created_at,
+                    ))
+        return added
+
+    def _delete(self, user_id: str, memory_id: int) -> bool:
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "DELETE FROM memories WHERE id = ? AND user_id = ?", (memory_id, user_id)
+            )
+            self._db.execute(
+                "DELETE FROM memory_vectors WHERE user_id = ? AND memory_id = ?",
+                (user_id, memory_id),
+            )
+        return cursor.rowcount > 0
+
+    def _clear(self, user_id: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
+            self._db.execute("DELETE FROM memory_vectors WHERE user_id = ?", (user_id,))
+
     async def _vectors(
-        self, user_id: str, memories: list[Memory], forget: bool = True
+        self, embedder: Embedder, user_id: str, memories: list[Memory], forget: bool = True
     ) -> dict[int, bytes]:
         """The vector of each memory, embedding those not yet stored and, if `memories` are
         all the user's, forgetting those of memories that are gone."""
-        model = self._embedder.model
+        model = embedder.model
         with self._lock:
             stored: dict[int, bytes] = dict(
                 self._db.execute(
@@ -121,7 +349,7 @@ class MemoryIndex:
         missing = [m for m in memories if m.id not in stored]
         stale = stored.keys() - {m.id for m in memories} if forget else set()
         if missing:
-            embedded = await self._embedder.embed_documents([m.text for m in missing])
+            embedded = await embedder.embed_documents([m.text for m in missing])
             stored.update(zip((m.id for m in missing), map(to_blob, embedded), strict=True))
         if missing or stale:
             with self._lock, self._db:
@@ -137,6 +365,32 @@ class MemoryIndex:
         return stored
 
 
+class MemoryTurn:
+    """One turn's use of the user's memories; see `Memories.begin`."""
+
+    def __init__(
+        self, memories: Memories, conversation: Conversation, timezone: str, clearings: int
+    ) -> None:
+        self._memories = memories
+        self._conversation = conversation
+        self._timezone = timezone
+        self._clearings = clearings
+
+    async def find(self, text: str) -> str | None:
+        """The prompt section carrying the user's memories relevant to `text`, most
+        relevant first, each labelled with who it was told to and to be passed on as
+        hearsay when that was someone else; None if none are relevant, memory is off or
+        finding them failed."""
+        return await self._memories._find(self._conversation, self._timezone, text)
+
+    def write_down(self, history: Sequence[Message], text: str, reply: Message) -> None:
+        """Start writing down what the user revealed in this turn: `text`, said after
+        `history` and answered with `reply`."""
+        self._memories._write_down(
+            self._conversation, self._timezone, self._clearings, history, text, reply
+        )
+
+
 _INSTRUCTIONS = """\
 你负责替《偶像大师 闪耀色彩》283 事务所的偶像们记住关于制作人的事。制作人就是正在和偶像对话的用户。
 读下面的对话，从制作人最新的一句话里找出值得长期记住的、关于制作人本人的信息。
@@ -150,108 +404,6 @@ _INSTRUCTIONS = """\
 
 只输出 JSON，格式为 {"memories": ["……"]}；没有值得记住的就输出 {"memories": []}。"""
 
-
-class MemoryWriter:
-    """Has the background model write down what the user reveals in each turn."""
-
-    def __init__(self, store: Store, background_llm: ChatLLM, index: MemoryIndex) -> None:
-        self._store = store
-        self._llm = background_llm
-        self._index = index
-        self._pending: dict[str, set[asyncio.Task[None]]] = {}  # user id → writing
-        self._clearings: dict[str, int] = {}  # user id → how many times cleared
-
-    def mark(self, user_id: str) -> int:
-        """Where the user's memories stand as a turn begins, to pass on to `remember`."""
-        return self._clearings.get(user_id, 0)
-
-    def remember(
-        self,
-        conversation: Conversation,
-        character: Character,
-        history: Sequence[Message],
-        text: str,
-        reply: Message,
-        now: datetime,
-        mark: int,
-    ) -> None:
-        """Start writing down what the user revealed in this turn; `now` is the current time
-        where the user is, `mark` what `mark` said as the turn began."""
-        task = asyncio.create_task(
-            self._write(conversation, character, history, text, reply, now, mark)
-        )
-        pending = self._pending.setdefault(conversation.user_id, set())
-        pending.add(task)
-
-        def done(task: asyncio.Task[None]) -> None:
-            pending.discard(task)
-            if not pending and self._pending.get(conversation.user_id) is pending:
-                del self._pending[conversation.user_id]
-
-        task.add_done_callback(done)
-
-    async def settle(self, user_id: str) -> None:
-        """Wait, a while at most, for what the user's earlier turns are writing down."""
-        if pending := self._pending.get(user_id):
-            await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
-
-    async def delete(self, user_id: str, memory_id: int) -> bool:
-        """Forget one of the user's memories; False if they have no such memory."""
-        await self.settle(user_id)
-        if not await asyncio.to_thread(self._store.delete_memory, user_id, memory_id):
-            return False
-        await asyncio.to_thread(self._index.forget, user_id, [memory_id])
-        return True
-
-    async def clear(self, user_id: str) -> None:
-        """Forget all of the user's memories, including those their turns so far are still
-        writing down."""
-        self._clearings[user_id] = self.mark(user_id) + 1
-        await self.settle(user_id)
-        await asyncio.to_thread(self._store.clear_memories, user_id)
-        await asyncio.to_thread(self._index.forget, user_id)
-
-    async def aclose(self) -> None:
-        """Let whatever is being written down finish, a while at most, then give up on it."""
-        tasks = {t for pending in self._pending.values() for t in pending}
-        if tasks:
-            _, unfinished = await asyncio.wait(tasks, timeout=SETTLE_TIMEOUT)
-            for task in unfinished:
-                task.cancel()
-            await asyncio.gather(*unfinished, return_exceptions=True)
-
-    async def _write(
-        self,
-        conversation: Conversation,
-        character: Character,
-        history: Sequence[Message],
-        text: str,
-        reply: Message,
-        now: datetime,
-        mark: int,
-    ) -> None:
-        try:
-            known = await asyncio.to_thread(self._store.list_memories, conversation.user_id)
-            prompt = _extraction_prompt(character, history, text, reply, known, now)
-            answer = "".join(
-                [chunk async for chunk in self._llm.stream(prompt) if isinstance(chunk, str)]
-            )
-            texts = parse_memories(answer)
-            if texts is None:
-                log.warning("background model wrote no memories JSON: %.500s", answer)
-                return
-            if self.mark(conversation.user_id) != mark:
-                return  # cleared since the turn began
-            added = await asyncio.to_thread(self._store.add_memories, conversation, texts, now)
-        except Exception:
-            log.warning("writing memories failed in conversation %s", conversation.id,
-                        exc_info=True)
-            return
-        try:
-            await self._index.add(conversation.user_id, added)
-        except EmbeddingError:
-            log.warning("embedding new memories failed; they are embedded when searched",
-                        exc_info=True)
 
 
 def _extraction_prompt(
@@ -287,11 +439,7 @@ def parse_memories(answer: str) -> list[str] | None:
     return [t[:MAX_MEMORY_LENGTH] for t in dict.fromkeys(texts)][:MAX_NEW_MEMORIES]
 
 
-def memories_prompt(
-    memories: Sequence[Memory], character: Character, names: Mapping[str, str], timezone: str
-) -> str:
-    """The prompt section carrying a turn's memories, each labelled with who it was told
-    to, and to be passed on as hearsay when that was someone else."""
+def _memories_prompt(memories: Sequence[Memory], character: Character, timezone: str) -> str:
     lines = [
         "# 关于制作人的记忆",
         "下面是制作人以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
@@ -302,7 +450,7 @@ def memories_prompt(
         if memory.source_character_id == character.id:
             lines.append(f"- {memory.text}（{when}，制作人对你说的）")
         else:
-            name = names.get(memory.source_character_id, "事务所的另一位偶像")
+            name = memory.source_character_name or ANOTHER_IDOL
             lines.append(
                 f"- {memory.text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
                 f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
