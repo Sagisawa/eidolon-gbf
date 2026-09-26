@@ -136,9 +136,11 @@ MANO_SUPPORT_SCRIPT = [
     {"id": 3001004010020, "speaker": "めぐる", "text": "公園がいいな！"},
     {"id": 3001004010030, "speaker": "真乃", "text": "ほわっ、楽しみです"},
 ]
+
+
 # Event episodes on the mirror (`game_event_communications/4001EEEHH`, event EEE, episode HH),
 # which Mano speaks in so she is cast.
-def event_script(event: int, episode: int) -> list[dict]:
+def event_frames(event: int, episode: int) -> list[dict]:
     return [
         {"id": 4001000000000 + event * 100000 + episode * 1000 + 10, "speaker": "真乃",
          "text": f"イベント{event}の第{episode}話です\r\nほわっ"},

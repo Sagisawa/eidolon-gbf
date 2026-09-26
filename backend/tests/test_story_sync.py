@@ -22,7 +22,7 @@ from tests.stories import (
     MANO_CARD_SECOND_SCRIPT,
     MANO_CARD_TRANSLATED,
     MANO_SUPPORT_SCRIPT,
-    event_script,
+    event_frames,
     write_story,
 )
 
@@ -393,7 +393,7 @@ def event_requests(site: FakeShinyColorsDB) -> list[str]:
 def events(mirror_site: FakeShinyColorsDB) -> FakeShinyColorsDB:
     for number, episodes in EVENTS_ON_THE_MIRROR.items():
         for episode in range(1, episodes + 1):
-            mirror_site.add_script(event(number, episode), event_script(number, episode))
+            mirror_site.add_script(event(number, episode), event_frames(number, episode))
     return mirror_site
 
 
@@ -447,7 +447,7 @@ async def test_a_new_event_on_the_mirror_comes_in_at_the_next_sync(
     syncer: Syncer, events: FakeShinyColorsDB
 ):
     await syncer.run()
-    events.add_script(event(8, 1), event_script(8, 1))
+    events.add_script(event(8, 1), event_frames(8, 1))
 
     await syncer.run()
 
@@ -468,6 +468,16 @@ async def test_events_are_named_from_the_table_or_left_unnamed(
     translated, second = syncer.corpus.get(event(4, 1)), syncer.corpus.get(event(4, 2))
     assert translated is not None and second is not None
     assert second.source == translated.source == LIGHT_UP
+
+
+async def test_an_event_the_table_lacks_takes_the_name_its_translated_episodes_have(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    report = await syncer.run()
+
+    second = syncer.corpus.get(event(4, 2))
+    assert second is not None and second.source == LIGHT_UP
+    assert 4 not in report.unnamed_events
 
 
 async def test_the_catalog_shows_events_by_name_with_episodes_in_order(
@@ -497,7 +507,7 @@ async def test_a_name_filled_in_later_renames_the_event_at_the_next_sync(
     assert "活动剧情 005" not in catalog
     assert [e.episode_id for e in catalog["新しいイベント"].episodes] == [event(5, 1), event(5, 2)]
     assert syncer.corpus.episode_ids("game_event_communications/4001005") == [event(5, 1), event(5, 2)]
-    assert report.unnamed_events == [2, 4, 7]
+    assert report.unnamed_events == [2, 7]
 
 
 async def test_a_translation_that_arrives_later_replaces_the_untranslated_event_episode(
@@ -557,6 +567,7 @@ def test_the_sync_command_names_events_from_the_table(
         (None, "找不到活动名对照表"),
         ('[events]\n097 = "a"\nabc = "b"\n', "abc"),
         ('[events]\n097 = ""\n', "097"),
+        ('[events]\n000 = "a"\n', "000"),
         ("[events\n", "格式有误"),
     ],
 )
