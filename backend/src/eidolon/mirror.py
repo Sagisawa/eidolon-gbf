@@ -4,19 +4,18 @@ The API (`api.shinycolors.moe`) lists every idol and her cards, and each card's
 episodes with the game script they are in and their title; the viewer
 (`viewer.shinycolors.moe`) serves the scripts themselves, as the game does. Neither
 publishes terms or a rate limit and both are run by volunteers, so requests go out
-one at a time, about a second apart, and a script already downloaded is only asked
-for again conditionally, on its ETag, as is an album.
+one at a time, about a second apart, and a script already downloaded can be asked
+for conditionally, on its ETag, as can an album. Keeping the scripts is not the
+mirror's business: that is `script_cache`.
 """
 
 import asyncio
 import logging
-import os
 import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
 
 import httpx
@@ -84,7 +83,12 @@ _ALBUM_SCRIPT_TYPES = {
 _SCRIPT_NUMBER = re.compile(r"\d{8,}")
 
 
-Fetched = Literal["downloaded", "unchanged", "missing"]
+@dataclass(frozen=True)
+class Script:
+    """A game script as the viewer sent it: its frames, as JSON."""
+
+    content: bytes
+    etag: str | None
 
 
 class Mirror:
@@ -168,16 +172,15 @@ class Mirror:
                 episodes.append(AlbumEpisode(f"{kind}/{number}", entry.get("title") or "", section))
         return episodes, response.headers.get("ETag")
 
-    async def download(self, script: str, target: Path, etag: str | None) -> tuple[Fetched, str | None]:
-        """Save the script to `target` unless the mirror says the copy matching `etag` is
-        still current; returns what happened and the ETag of the copy now at `target`.
-        A script the mirror does not have is `missing`, not an error."""
+    async def script(self, script: str, etag: str | None) -> Script | Literal["unchanged", "missing"]:
+        """The script, unless the mirror says the copy matching `etag` is still current
+        (`unchanged`). A script the mirror does not have is `missing`, not an error."""
         headers = {"If-None-Match": etag} if etag else {}
         response = await self._get(f"{VIEWER_URL}/{script}.json", headers=headers)
         if response.status_code == 304:
-            return "unchanged", etag
+            return "unchanged"
         if response.status_code == 404:
-            return "missing", None
+            return "missing"
         _check(response)
         try:
             frames = response.json()
@@ -185,11 +188,7 @@ class Mirror:
             raise MirrorError(f"{script}：镜像返回的不是 JSON（{e}）") from e
         if not isinstance(frames, list):
             raise MirrorError(f"{script}：镜像返回的不是剧本的帧数组")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        partial = target.with_name(target.name + ".part")
-        partial.write_bytes(response.content)
-        os.replace(partial, target)  # never a half-written script, even if interrupted
-        return "downloaded", response.headers.get("ETag")
+        return Script(response.content, response.headers.get("ETag"))
 
     async def aclose(self) -> None:
         await self._client.aclose()

@@ -192,6 +192,11 @@ class StoryCorpus:
             ).fetchone()
             return typing.cast(ImportFormat, row["imported_from"]) if row else None
 
+    def is_translated(self, episode_id: str) -> bool:
+        """Whether the corpus has the episode's translation (from SCTranslationData), not
+        just its untranslated script."""
+        return self.imported_from(episode_id) == "csv"
+
     def episode_ids(self, prefix: str = "") -> list[str]:
         """The identifiers of the episodes whose identifier starts with `prefix`, in order."""
         with self._lock:

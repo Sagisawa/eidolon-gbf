@@ -103,6 +103,8 @@ grep '结束：' logs/story-sync.log | tail
 docker compose -f docker-compose.prod.yml exec backend rm /data/mirror/scripts/produce_events/200100401.json
 ```
 
+镜像上没有的剧本，缓存里会在它的位置留一个 `.missing` 标记。卡牌和活动的每次同步都会再问，相册里的只在相册有变化时才再问。想让同步马上再问一次相册里的某个剧本，删掉它的标记即可，例如 `rm /data/mirror/scripts/produce_events/100100103.missing`。
+
 也可以不用同步，手动导入（例如只想导入汉化版，或者有自己导出的游戏剧本 JSON）：
 
 ```sh

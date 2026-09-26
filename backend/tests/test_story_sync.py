@@ -225,6 +225,21 @@ async def test_a_changed_card_is_checked_but_only_changed_scripts_are_downloaded
     assert (report.untranslated.imported, report.untranslated.added) == (1, 0)
 
 
+async def test_a_script_deleted_from_the_cache_is_downloaded_again(
+    syncer: Syncer, mirror_site: FakeShinyColorsDB
+):
+    await syncer.run()
+    (syncer.cache / "scripts/produce_events/300100401.json").unlink()  # a card done and unchanged
+    mirror_site.sent.clear()
+
+    report = await syncer.run()
+
+    assert mirror_site.sent == ["produce_events/300100401"]
+    assert report.downloaded == 1
+    assert (syncer.cache / "scripts/produce_events/300100401.json").exists()
+    assert syncer.corpus.get("produce_events/300100401") is not None
+
+
 async def test_a_script_the_mirror_lacks_is_no_error_and_comes_in_once_it_is_there(
     syncer: Syncer, mirror_site: FakeShinyColorsDB
 ):
@@ -441,6 +456,19 @@ async def test_syncing_again_costs_only_a_few_404s_for_events(
     # The latest event's next episode, and the numbers after it.
     assert len(event_requests(events)) == PROBE_AHEAD + 1
     assert report.untranslated.imported == 0
+
+
+async def test_an_event_script_deleted_from_the_cache_is_downloaded_again(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    await syncer.run()
+    (syncer.cache / f"scripts/{event(2, 1)}.json").unlink()  # not the latest event
+    events.sent.clear()
+
+    await syncer.run()
+
+    assert events.sent == [event(2, 1)]
+    assert syncer.corpus.get(event(2, 1)) is not None
 
 
 async def test_a_new_event_on_the_mirror_comes_in_at_the_next_sync(
@@ -769,6 +797,22 @@ async def test_an_unchanged_album_is_asked_for_conditionally_and_nothing_is_down
         r.headers.get("If-None-Match") for r in albums.requests if r.url.path.endswith(("/01.json", "/02.json"))
     )
     # The script the mirror did not have is not asked for again while the album is unchanged.
+    assert not any("100100103" in str(r.url) for r in albums.requests)
+
+
+async def test_an_album_script_deleted_from_the_cache_is_downloaded_again(
+    syncer: Syncer, albums: FakeShinyColorsDB
+):
+    await syncer.run()
+    (syncer.cache / "scripts/produce_events/100100102.json").unlink()
+    albums.sent.clear()
+    albums.requests.clear()
+
+    report = await syncer.run()
+
+    assert albums.sent == ["produce_events/100100102"]  # the album itself is unchanged
+    assert (report.downloaded, report.album_missing) == (1, 0)
+    # The script the mirror did not have is still not asked for.
     assert not any("100100103" in str(r.url) for r in albums.requests)
 
 
