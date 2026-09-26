@@ -56,8 +56,8 @@ import logging
 import os
 import re
 import tomllib
-from collections.abc import Iterable, Mapping, Sequence
 from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -142,6 +142,8 @@ class SyncReport:
     """Scripts a card lists that the mirror does not have."""
     album_missing: int = 0
     """Scripts an album asked about this sync lists that the mirror does not have."""
+    album_failures: int = 0
+    """Failure endings in the albums asked about this sync, which are not downloaded."""
     unnamed_events: list[int] = field(default_factory=list)
     """Events with untranslated episodes that neither the table of event names nor
     SCTranslationData names."""
@@ -154,7 +156,9 @@ class SyncReport:
 
     @property
     def skipped_failures(self) -> int:
-        return self.translated.skipped_failures + self.untranslated.skipped_failures
+        return (
+            self.translated.skipped_failures + self.untranslated.skipped_failures + self.album_failures
+        )
 
     @property
     def looks_like_failures(self) -> list[CatalogEntry]:
@@ -370,7 +374,8 @@ async def _fetch_albums(
                 continue
             seen.add(episode.script)
             if is_failure_ending(episode.script):
-                continue  # never imported
+                report.album_failures += 1  # never imported, so not downloaded
+                continue
             if corpus.imported_from(episode.script) == "csv":
                 report.translations_kept += 1
                 continue

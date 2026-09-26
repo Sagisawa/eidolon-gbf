@@ -718,8 +718,10 @@ async def test_an_album_episode_is_filed_where_the_translations_file_that_part_o
 async def test_failure_endings_in_the_albums_are_neither_downloaded_nor_imported(
     syncer: Syncer, albums: FakeShinyColorsDB
 ):
-    await syncer.run()
+    report = await syncer.run()
 
+    # Counted with the translations' three (see `write_sample_stories`).
+    assert (report.album_failures, report.skipped_failures) == (3, 6)
     for script in (
         "produce_events/600100107",  # the rules know it, the title does not say
         "produce_events/700100102",
@@ -740,6 +742,13 @@ async def test_produce_episodes_titled_like_a_failure_the_rules_do_not_know_are_
     report = await syncer.run()
 
     assert report.looks_like_failures == []  # listed once, when imported
+    # Nor again when a translation replaces it.
+    write_story(syncer.story, "櫻木真乃/W.I.N.G.編/負けても、敗れても.csv", MORNING_TRANSLATED, "produce_events/600100108")
+
+    report = await syncer.run()
+
+    assert syncer.corpus.imported_from("produce_events/600100108") == "csv"
+    assert report.looks_like_failures == []
 
 
 async def test_an_unchanged_album_is_asked_for_conditionally_and_nothing_is_downloaded_again(

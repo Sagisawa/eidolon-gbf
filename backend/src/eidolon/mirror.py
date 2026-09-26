@@ -143,18 +143,18 @@ class Mirror:
         without an album has no episodes. Entries that are not a script of their own (the
         jokes idols play, played from other scripts) are left out."""
         headers = {"If-None-Match": etag} if etag else {}
-        response = await self._get(f"{ALBUM_URL}/{idol_id:02d}.json", headers=headers)
+        url = f"{ALBUM_URL}/{idol_id:02d}.json"
+        response = await self._get(url, headers=headers)
         if response.status_code == 304:
             return None, etag
         if response.status_code == 404:
             return [], None
         _check(response)
-        path = f"/albums/album/{idol_id:02d}.json"
         try:
             album = response.json()
         except ValueError as e:
-            raise MirrorError(f"{path}：相册不是 JSON（{e}）") from e
-        with _unexpected(path):
+            raise MirrorError(f"{url}：相册不是 JSON（{e}）") from e
+        with _unexpected(url):
             sections = {s["albumType"]: s["title"] for s in album.get("albumCommunicationTitles") or []}
             episodes = []
             for entry in album["communications"]:

@@ -1,6 +1,6 @@
 # 原文剧情从 ShinyColorsDB 镜像拉取，不自己解包游戏资源
 
-SCTranslationData 靠译者逐段手动导出再翻译，新剧情要等几周到几个月、甚至永远不收录，而我们希望角色在一周内就能回忆起新剧情。所以另从粉丝站 ShinyColorsDB 的解码镜像（`viewer.shinycolors.moe`，剧情 ID 和卡名、标题来自 `api.shinycolors.moe`）拉取日语原文，作为原文剧情导入；SCTranslationData 的汉化版到位后按同一剧本 ID 取代它。同步每周定时跑一次，并支持「没变就不下载」，把对镜像的请求压到最少。
+SCTranslationData 靠译者逐段手动导出再翻译，新剧情要等几周到几个月、甚至永远不收录，而我们希望角色在一周内就能回忆起新剧情。所以另从粉丝站 ShinyColorsDB 的解码镜像（`viewer.shinycolors.moe`，剧情 ID 和卡名、标题来自 `api.shinycolors.moe`，培育剧情和特别剧情的 ID 和标题来自同站 `cf-static.shinycolors.moe` 上各偶像的游戏内相册）拉取日语原文，作为原文剧情导入；SCTranslationData 的汉化版到位后按同一剧本 ID 取代它。同步每周定时跑一次，并支持「没变就不下载」，把对镜像的请求压到最少。
 
 ## Considered Options
 
@@ -11,5 +11,5 @@ SCTranslationData 靠译者逐段手动导出再翻译，新剧情要等几周�
 ## Consequences
 
 - 依赖一个志愿者团队，镜像没有公开的使用条款或限流说明；它失效时原文剧情停止更新，但已导入的剧情和汉化版的同步不受影响。
-- 镜像 API 不提供活动剧情和 2024 年 3 月之后的培育剧情的 ID 目录，这两类的覆盖另行处理。
+- 镜像 API 不提供活动剧情和培育剧情的 ID 目录：活动剧情按编号规律推算，培育剧情取自相册，而相册 2024 年 3 月之后不再更新，之后新增的培育模式不在覆盖范围内。
 - 从镜像拿到的剧情同样没有许可证，沿用 ADR 0003：只在私有部署中使用，不提交、不公开。

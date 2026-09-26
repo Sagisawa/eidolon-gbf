@@ -112,8 +112,9 @@ class ImportReport:
     untranslated_replaced: int = 0
     """Of those imported, the untranslated episodes (from JSON) a CSV translation replaced."""
     looks_like_failures: list[CatalogEntry] = field(default_factory=list)
-    """Of those imported, the episodes titled like a failure ending that are not one
-    by their script, to be checked by hand."""
+    """Of those added, the episodes titled like a failure ending that are not one by
+    their script, to be checked by hand. An episode is listed when it first comes in,
+    not again when it is updated (renamed, or replaced by a translation)."""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -265,7 +266,9 @@ async def _import(
 
     pending = list(episodes.values())
     report.looks_like_failures = [
-        CatalogEntry(episode.id, episode.title) for episode in pending if looks_like_failure(episode.title)
+        CatalogEntry(episode.id, episode.title)
+        for episode in pending
+        if previously[episode.id] is None and looks_like_failure(episode.title)
     ]
     for start in range(0, len(pending), _SAVE_BATCH):
         batch = pending[start : start + _SAVE_BATCH]
