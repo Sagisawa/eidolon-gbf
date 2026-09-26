@@ -62,6 +62,12 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-csv 
 docker compose -f docker-compose.prod.yml exec backend eidolon story import-json /corpus/scripts
 ```
 
+也可以用一条命令同步：先导入汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情（首次约一到两小时，镜像连不上时退出码为 2，说明见 README 的「剧情库」）：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend eidolon story sync
+```
+
 需要 `.env` 里填好 `SILICONFLOW_API_KEY`。导入的结果存在数据库里，之后可以删掉 `corpus/` 节省空间，原作更新时再重新下载导入。
 
 ## 签发访问密钥

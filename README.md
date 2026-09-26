@@ -239,6 +239,24 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 </details>
 
+<details>
+<summary><b>一条命令同步：汉化版 + 镜像上的原文剧情</b></summary>
+
+<br>
+
+`eidolon story sync` 先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 的解码镜像（ADR-0004）把剧情库里还缺的 P 卡、S 卡剧情作为原文剧情导入：
+
+```sh
+docker compose exec backend eidolon story sync
+```
+
+- 原文剧情的出处是卡名（如 `【ほわっとスマイル】櫻木真乃`，和 SCTranslationData 的目录名一致），标题是游戏里的剧情标题；汉化版到位后按同一剧本编号取代它，仍在同一张卡下。已有汉化版的剧情不会被下载，也不会被覆盖。
+- 下载的剧本缓存在 `EIDOLON_MIRROR_CACHE_PATH`（容器里是数据卷中的 `/data/mirror`，本地默认 `corpus/mirror`），不进仓库。没有变化的卡不再请求，变化了的卡用 ETag 做条件请求；请求逐个发出，间隔约一秒，所以首次全量补齐要一到两个小时，之后每次只要几分钟。
+- 镜像连不上时汉化版照常导入，命令以退出码 2 结束；中途中断后重新运行会接着做，已下载的剧本不会重新下载。
+- `--idol 1` 只同步某位偶像的卡（镜像 API 的偶像编号，可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
+
+</details>
+
 本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`（`import-json` 同理）。
 
 ### 对话中的检索

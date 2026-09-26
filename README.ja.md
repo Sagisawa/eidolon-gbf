@@ -242,6 +242,24 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 </details>
 
+<details>
+<summary><b>コマンド 1 つで同期：翻訳版＋ミラーの原文コミュ</b></summary>
+
+<br>
+
+`eidolon story sync` は SCTranslationData の翻訳版を取り込んだあと、ShinyColorsDB のデコード済みミラー（ADR-0004）から、シナリオライブラリにまだない P カード・S カードのコミュを原文コミュとして取り込みます：
+
+```sh
+docker compose exec backend eidolon story sync
+```
+
+- 原文コミュの出典はカード名（例：`【ほわっとスマイル】櫻木真乃`。SCTranslationData のディレクトリ名と同じ形式）、タイトルはゲーム内のコミュタイトルです。翻訳版が揃うと同じスクリプト番号で置き換わり、同じカードの下に残ります。翻訳版があるコミュはダウンロードも上書きもしません。
+- ダウンロードしたスクリプトは `EIDOLON_MIRROR_CACHE_PATH`（コンテナではデータボリューム内の `/data/mirror`、ローカルのデフォルトは `corpus/mirror`）にキャッシュされ、リポジトリには入りません。変化のないカードは再リクエストせず、変化したカードは ETag による条件付きリクエストを使います。リクエストは 1 件ずつ約 1 秒間隔なので、初回の全量同期は 1〜2 時間かかり、以降は数分で終わります。
+- ミラーに接続できない場合も翻訳版は通常どおり取り込まれ、コマンドは終了コード 2 で終わります。中断後に再実行すると続きから再開し、ダウンロード済みのスクリプトは再ダウンロードしません。
+- `--idol 1` で特定のアイドルのカードだけを同期できます（ミラー API のアイドル番号、複数指定可）。翻訳版のディレクトリはデフォルトで `EIDOLON_STORY_PATH`、`--story` でも指定できます。
+
+</details>
+
 ローカル開発では `uv run eidolon --db data/eidolon.db story import-csv <ディレクトリ>` を使います（`import-json` も同様）。
 
 ### 会話中の検索

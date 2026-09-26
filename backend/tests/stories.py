@@ -104,3 +104,35 @@ def write_script(root: Path, relative: str, frames: object) -> None:
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(frames, ensure_ascii=False), encoding="utf-8")
+
+
+# The ShinyColorsDB mirror (see `FakeShinyColorsDB`): cards as its API lists them, and
+# scripts as its viewer serves them, which is how the game does, with CRLF line breaks
+# and numeric line ids.
+MANO_CARD = "【ほわっとスマイル】櫻木真乃"
+MANO_CARD_SCRIPT = [
+    {"textFrame": "002", "speaker": "プロデューサー", "text": "真乃、ここにいたのか\r\n探したぞ", "bgm": "002"},
+    {"textFrame": "off"},
+    {"movie": "1040010010"},
+    {"id": 2001004010010, "speaker": "真乃", "text": "ほわ……\r\n鳩さんたちと公園で遊んでいました", "charLabel": "mano"},
+    {"select": "鳩が好きなんだな", "nextLabel": "a"},
+    {"select": "レッスンの時間だぞ", "nextLabel": "b"},
+    {"label": "a", "id": 2001004010020, "speaker": "真乃", "text": "はいっ、鳩さんは友達です", "nextLabel": "c"},
+    {"label": "b", "id": 2001004010030, "speaker": "真乃", "text": "あっ！　すみません……", "nextLabel": "c"},
+    {"label": "c", "id": 2001004010040, "speaker": "真乃", "text": "むんっ、がんばります！"},
+]
+# The same episode as SCTranslationData would file it, once translated.
+MANO_CARD_TRANSLATED = [
+    ("2001004010010", "真乃", "ほわ……\\n鳩さんたちと公園で遊んでいました", "呼哇……\\n我在公园和鸽子们玩"),
+    ("2001004010040", "真乃", "むんっ、がんばります！", "嗯！我会加油的！"),
+]
+MANO_CARD_SECOND_SCRIPT = [
+    {"id": 2001004020010, "speaker": "真乃", "text": "ステージ、こわいです……"},
+    {"textFrame": "002", "speaker": "プロデューサー", "text": "真乃ならできる"},
+]
+# A support card of Mano's that Hiori and Meguru speak in too.
+MANO_SUPPORT_SCRIPT = [
+    {"id": 3001004010010, "speaker": "灯織", "text": "３人で写真を撮りましょう"},
+    {"id": 3001004010020, "speaker": "めぐる", "text": "公園がいいな！"},
+    {"id": 3001004010030, "speaker": "真乃", "text": "ほわっ、楽しみです"},
+]

@@ -13,14 +13,17 @@ the directory and file name when the file is filed like SCTranslationData; a fil
 in the game's layout has neither, so its card or event is its script number without
 the episode (`produce_events/2011005`) and its title the plugin's name. A file whose
 path names no script is skipped: it could not be matched with a CSV of the same
-script. Scripts carry no translation. A script SCTranslationData has translated is kept from the CSV: the
-JSON import leaves a CSV version alone, and a CSV import replaces a JSON one.
+script. A caller that knows the card or event and the title (the story sync, from
+the mirror's API) passes them with each file instead. Scripts carry no translation.
+A script SCTranslationData has translated is kept from the CSV: the JSON import
+leaves a CSV version alone, and a CSV import replaces a JSON one.
 
 Both follow the same rules. Only canon is kept: failure endings are recognised by
 their script and left out (and removed, if an earlier import had them), and the
 producer's choices (`select`) are dropped while every reaction to them is kept, so
 the corpus never says which one was picked. The cast is every configured character
-whose speaker name appears; the producer and other people are not cast.
+whose speaker name appears; the producer and other people are not cast. An episode
+the corpus already has exactly as imported is left alone.
 """
 
 import csv
@@ -92,7 +95,20 @@ class ImportReport:
     embedded_passages: int = 0
     csv_versions_kept: int = 0
     """Scripts in a JSON import that were left alone because a CSV of them is in the corpus."""
+    unchanged: int = 0
+    """Episodes the corpus already had exactly as imported, so were not saved again."""
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ScriptFile:
+    """A game script JSON whose card or event and title the caller knows."""
+
+    path: Path
+    source_id: str
+    """The script, e.g. `produce_events/200100401`."""
+    source: str
+    title: str
 
 
 @dataclass(frozen=True)
@@ -131,6 +147,15 @@ async def import_json_directory(
     return await _import(_json_scripts(directory, report), "json", corpus, characters, report)
 
 
+async def import_script_files(
+    files: Iterable[ScriptFile], corpus: StoryCorpus, characters: Iterable[Character]
+) -> ImportReport:
+    """Import these script JSON files like `import_json_directory` does, under the card
+    or event and title given with each."""
+    report = ImportReport()
+    return await _import(_script_files(files, report), "json", corpus, characters, report)
+
+
 def _csv_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
     for path in sorted(directory.rglob("*.csv")):
         relative = path.relative_to(directory)
@@ -163,6 +188,16 @@ def _json_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
         else:
             source, title = relative.parent.name, relative.stem
         yield _Script(relative, source_id, source, title, lines)
+
+
+def _script_files(files: Iterable[ScriptFile], report: ImportReport) -> Iterator[_Script]:
+    for file in files:
+        try:
+            lines = _read_json(file.path)
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            report.warnings.append(f"{file.source_id}：无法读取（{e}），已跳过")
+            continue
+        yield _Script(Path(file.source_id), file.source_id, file.source, file.title, lines)
 
 
 async def _import(
@@ -199,7 +234,7 @@ async def _import(
         if imported_from != "csv" and corpus.imported_from(source_id) == "csv":
             report.csv_versions_kept += 1
             continue
-        episodes[source_id] = Episode(
+        episode = Episode(
             id=source_id,
             category=category_of(source_id),
             source=script.source,
@@ -208,6 +243,11 @@ async def _import(
             lines=tuple(lines),
             imported_from=imported_from,
         )
+        if corpus.get(source_id) == episode:
+            episodes.pop(source_id, None)  # a shorter copy seen earlier is not wanted either
+            report.unchanged += 1
+            continue
+        episodes[source_id] = episode
 
     pending = list(episodes.values())
     for start in range(0, len(pending), _SAVE_BATCH):
@@ -249,7 +289,8 @@ def _read_json(path: Path) -> list[Line]:
         if not isinstance(text, str) or not text.strip():
             continue
         speaker = speaker.strip() if isinstance(speaker, str) else ""
-        lines.append(Line(speaker or None, text.strip()))
+        # The game breaks lines with CRLF; SCTranslationData, and so the corpus, with LF.
+        lines.append(Line(speaker or None, text.strip().replace("\r\n", "\n")))
     return lines
 
 
