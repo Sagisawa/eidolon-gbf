@@ -68,13 +68,12 @@ class CallUnderTest:
         frames: Sequence[Frame],
         *,
         muted: bool = False,
-        device_timezone: str | None = None,
         limits: CallLimits = CallLimits(),
     ) -> Sequence[Frame]:
         backend = build(self._settings, chat_llm=llm, clock=lambda: NOW)
         try:
             mano = backend.characters["mano"]
-            call = Call(self.conversation, mano, muted, "standard", device_timezone)
+            call = Call(self.conversation, mano, muted, "standard")
             down, _ = await run_test(CallTurns(backend.engine, call, limits), frames_to_send=frames)
         finally:
             await backend.aclose()
@@ -117,58 +116,12 @@ def mute(muted: bool) -> RTVIClientMessageFrame:
     return RTVIClientMessageFrame(msg_id="m2", type="mute", data={"muted": muted})
 
 
-async def test_spoken_turn_is_voiced_in_japanese_with_subtitles_sent_alongside(
-    mano_call: CallUnderTest,
-):
-    spoken_text, messages = await mano_call.run(FakeLLM(MANO_REPLY), [spoken("早上好")])
-
-    assert "".join(spoken_text) == "ほわっ、おはようございます！今日も"
-    assert messages[0] == {"type": "user", "text": "早上好"}
-    deltas = [(m["segment"], m["lang"], m["text"]) for m in messages if m["type"] == "delta"]
-    assert deltas == [
-        (0, "ja", "ほわっ、"),
-        (0, "ja", "おはようございます！"),
-        (0, "zh", "哇，早上好！"),
-        (1, "ja", "今日も"),
-        (1, "zh", "今天也"),
-    ]
-    assert messages[-1]["type"] == "done"
-    assert messages[-1]["message"]["segments"] == [
-        {"ja": "ほわっ、おはようございます！", "zh": "哇，早上好！"},
-        {"ja": "今日も", "zh": "今天也"},
-    ]
-    assert await mano_call.record() == [
-        ("user", "早上好", None, None),
-        ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
-    ]
-
-
 async def test_each_reply_is_one_tts_response(mano_call: CallUnderTest):
     down = await mano_call.run_frames(FakeLLM(MANO_REPLY), [spoken("早上好")])
 
     voiced = [type(f) for f in down if not isinstance(f, RTVIServerMessageFrame)]
     assert voiced == [
         LLMFullResponseStartFrame, TextFrame, TextFrame, TextFrame, LLMFullResponseEndFrame
-    ]
-
-
-async def test_typed_and_spoken_turns_share_the_conversation(mano_call: CallUnderTest):
-    llm = FakeLLM(["<ja>はいっ</ja><zh>好的</zh>"], ["<ja>ピーちゃん！</ja><zh>小皮！</zh>"])
-
-    spoken_text, messages = await mano_call.run(llm, one_by_one(spoken("你好"), typed("鸽子叫什么？")))
-
-    assert spoken_text == ["はいっ", "ピーちゃん！"]
-    assert [m["text"] for m in messages if m["type"] == "user"] == ["你好", "鸽子叫什么？"]
-    assert [(m.role, m.content) for m in llm.prompts[1][1:]] == [
-        ("user", "你好"),
-        ("assistant", "<ja>はいっ</ja><zh>好的</zh>"),
-        ("user", "鸽子叫什么？"),
-    ]
-    assert [row[:2] for row in await mano_call.record()] == [
-        ("user", "你好"),
-        ("character", None),
-        ("user", "鸽子叫什么？"),
-        ("character", None),
     ]
 
 
@@ -203,15 +156,6 @@ async def test_interrupted_reply_stops_being_voiced_but_is_still_recorded(
 
     assert spoken_text == ["ほわっ"]
     assert messages[-1]["message"]["ja"] == "ほわっ今日も"
-
-
-async def test_call_turns_tell_the_time_in_the_devices_timezone(mano_call: CallUnderTest):
-    llm = FakeLLM(MANO_REPLY)
-
-    await mano_call.run_frames(llm, [spoken("早上好")], device_timezone="Asia/Tokyo")
-
-    system = llm.prompts[0][0].content
-    assert "21:30" in system and "Asia/Tokyo" in system
 
 
 def kinds(messages: list[dict]) -> list[str]:

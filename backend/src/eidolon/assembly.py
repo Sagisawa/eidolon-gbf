@@ -16,7 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from eidolon.call import CallStarter, serve_calls
+from eidolon.call import Calls, SonioxFishSpeech, Speech
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import Settings
@@ -48,8 +48,7 @@ class Backend:
     engine: ConversationEngine
     usage: UsageLimiter
     clock: Clock
-    call_starter: CallStarter | None
-    """None when voice calls are not configured."""
+    calls: Calls
     _closers: list[Closer] = field(default_factory=list, repr=False)
 
     async def aclose(self) -> None:
@@ -69,7 +68,7 @@ def build(
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
     clock: Clock | None = None,
-    call_starter: CallStarter | None = None,
+    speech: Speech | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -118,20 +117,22 @@ def build(
             " JEV_MODEL"
         )
         memories = Memories(settings.database_path, characters, clock)
-    closers.append(memories.aclose)  # closed first, so what it is writing down can finish
+    closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
     engine = ConversationEngine(
         store, chat_llm, characters, memories, clock, retrieval, settings.history_turns
     )
-    call_starter = call_starter or serve_calls(settings, engine)
+    usage = UsageLimiter(store, settings.usage_limits, clock)
+    calls = Calls(settings, engine, usage, speech or SonioxFishSpeech.from_settings(settings), clock)
+    closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,
         store=store,
         characters=characters,
         memories=memories,
         engine=engine,
-        usage=UsageLimiter(store, settings.usage_limits, clock),
+        usage=usage,
         clock=clock,
-        call_starter=call_starter,
+        calls=calls,
         _closers=closers,
     )

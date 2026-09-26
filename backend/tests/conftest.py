@@ -6,13 +6,15 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pipecat.utils.string
 import pytest
 
 from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.assembly import Backend, build
 from eidolon.config import LLMSettings, Settings
-from tests.fakes import FakeBackgroundLLM, FakeCalls, FakeLLM
+from tests.browser import Browser, open_browser
+from tests.fakes import FakeBackgroundLLM, FakeLLM, FakeSpeech
 from tests.stories import write_sample_stories
 
 
@@ -119,9 +121,12 @@ def characters(tmp_path: Path) -> CharacterConfig:
         CharacterConfig(tmp_path / "characters")
         .add(
             "mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR,
-            speakers=["真乃"],
+            speakers=["真乃"], voice_id="mano-voice",
         )
-        .add("kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", speakers=["恋鐘"])
+        .add(
+            "kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", speakers=["恋鐘"],
+            voice_id="kogane-voice",
+        )
     )
 
 
@@ -154,19 +159,29 @@ def producer_key(admin: Admin) -> IssuedKey:
 
 
 @pytest.fixture
-async def calls() -> AsyncIterator[FakeCalls]:
-    fake = FakeCalls()
-    yield fake
-    await fake.hang_up_all()
+def speech(monkeypatch: pytest.MonkeyPatch) -> FakeSpeech:
+    """Soniox and Fish Audio, faked. Tests run offline, without the NLTK data Pipecat splits
+    replies into sentences with; a splitter that never splits sends Pipecat to its own
+    split at 。！？, which is what NLTK does with Japanese anyway."""
+    monkeypatch.setattr(pipecat.utils.string, "_sent_tokenizer", lambda: lambda text: [text])
+    return FakeSpeech()
+
+
+@pytest.fixture
+async def browser() -> AsyncIterator[Browser]:
+    """The browser placing a call in the test."""
+    async with open_browser() as browser:
+        yield browser
 
 
 @pytest.fixture
 async def make_client(
-    settings: Settings, producer_key: IssuedKey, calls: FakeCalls
+    settings: Settings, producer_key: IssuedKey, speech: FakeSpeech
 ) -> AsyncIterator[ClientFactory]:
     """Makes API clients; each carries the given access key, by default the producer's.
     Any other keyword is an outside service to use instead of the one the settings
-    describe (see `assembly.build`); the background model is a fake one by default."""
+    describe (see `assembly.build`); the background model and speech are fakes by default,
+    and `voice_configured=False` leaves calls unconfigured."""
     backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
@@ -175,13 +190,13 @@ async def make_client(
         key: str | None = producer_key.secret,
         *,
         settings: Settings = settings,
-        calls_configured: bool = True,
+        voice_configured: bool = True,
         **services: Any,
     ) -> httpx.AsyncClient:
         services.setdefault("background_llm", FakeBackgroundLLM())
-        backend = build(
-            settings, chat_llm=llm, call_starter=calls if calls_configured else None, **services
-        )
+        if voice_configured:
+            services.setdefault("speech", speech)
+        backend = build(settings, chat_llm=llm, **services)
         backends.append(backend)
         headers = {"Authorization": f"Bearer {key}"} if key is not None else {}
         client = httpx.AsyncClient(

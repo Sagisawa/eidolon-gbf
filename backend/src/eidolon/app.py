@@ -1,7 +1,6 @@
 """The backend's HTTP API."""
 
 import json
-import logging
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -10,23 +9,22 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from aiortc import RTCIceServer
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.transports.smallwebrtc.request_handler import (
-    SmallWebRTCPatchRequest,
-    SmallWebRTCRequest,
-    SmallWebRTCRequestHandler,
-)
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from eidolon.assembly import Backend
-from eidolon.call import Call, CallStarter, Quality
+from eidolon.call import (
+    CallFailed,
+    CallNotFound,
+    CallOptions,
+    CallsUnavailable,
+    IceCandidate,
+    Quality,
+    SessionDescription,
+)
 from eidolon.engine import TurnFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.store import Conversation, KeyRevoked, Store
 from eidolon.usage import OverLimit, Use
-
-log = logging.getLogger(__name__)
 
 _INVALID_KEY = "访问密钥无效，请在设置页检查"
 
@@ -81,6 +79,19 @@ class Offer(BaseModel):
     call: CallRequest | None = Field(None, alias="requestData")
 
 
+class IceCandidateInput(BaseModel):
+    candidate: str
+    sdp_mid: str
+    sdp_mline_index: int
+
+
+class IceCandidates(BaseModel):
+    """ICE candidates the browser trickles in for one of its calls."""
+
+    pc_id: str
+    candidates: list[IceCandidateInput]
+
+
 def current_user(
     request: Request, authorization: Annotated[str | None, Header()] = None
 ) -> str:
@@ -108,18 +119,12 @@ DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
 
 def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
-    settings, store, characters = backend.settings, backend.store, backend.characters
-    engine, memory, usage, clock = backend.engine, backend.memories, backend.usage, backend.clock
-    call_starter = backend.call_starter
-    webrtc = SmallWebRTCRequestHandler(
-        ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
-    )
-    calls: dict[str, tuple[str, Call]] = {}  # peer connection id → its user and call
+    store, characters, engine = backend.store, backend.characters, backend.engine
+    memory, usage, calls = backend.memories, backend.usage, backend.calls
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
-        await webrtc.close()
         await backend.aclose()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
@@ -135,6 +140,18 @@ def create_app(backend: Backend) -> FastAPI:
             headers={"Retry-After": str(wait)},
         )
 
+    @app.exception_handler(CallsUnavailable)
+    async def calls_unavailable(_: Request, e: CallsUnavailable) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=503)
+
+    @app.exception_handler(CallNotFound)
+    async def call_not_found(_: Request, e: CallNotFound) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=404)
+
+    @app.exception_handler(CallFailed)
+    async def call_failed(_: Request, e: CallFailed) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=500)
+
     def conversation_or_404(conversation_id: str, user_id: str) -> Conversation:
         conversation = store.get_conversation(conversation_id)
         if conversation is None or conversation.user_id != user_id:
@@ -147,68 +164,38 @@ def create_app(backend: Backend) -> FastAPI:
     def health() -> dict:
         return {"ok": True}
 
-    def require_voice() -> CallStarter:
-        if call_starter is None:
-            raise HTTPException(503, "语音通话尚未配置，请联系管理员")
-        return call_starter
-
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
         """What the browser needs before calling; also tells it when calls are unavailable."""
-        require_voice()
-        servers = list(settings.ice_servers)
-        if settings.turn is not None:
-            servers.append(settings.turn.credentials(user_id, clock()))
-        return {"iceServers": servers}
+        return {"iceServers": calls.ice_servers(user_id)}
 
     @app.post("/api/offer")
     async def offer(
         body: Offer, user_id: UserId, device_timezone: DeviceTimezone = None
     ) -> dict:
         """WebRTC signalling: a new call into one of the user's conversations, or a renegotiation."""
-        starter = require_voice()
-        use = Use()  # renegotiating is free
+        description = SessionDescription(body.sdp, body.type)
         if body.pc_id is not None:  # renegotiating, possibly on a fresh peer connection
-            owner, call = calls.get(body.pc_id, (None, None))
-            if owner != user_id or call is None:
-                raise HTTPException(404, "通话不存在")
-        elif body.call is None:
-            raise HTTPException(422, "缺少要通话的对话")
-        else:
-            conversation = conversation_or_404(body.call.conversation_id, user_id)
-            use = usage.take(user_id, "call")
-            call = Call(
-                conversation,
-                characters[conversation.character_id],
-                body.call.muted,
-                body.call.quality,
-                device_timezone,
+            return await calls.renegotiate(
+                user_id, body.pc_id, description, bool(body.restart_pc)
             )
-
-        async def start(connection: SmallWebRTCConnection) -> None:
-            @connection.event_handler("closed")
-            async def forget(connection: SmallWebRTCConnection) -> None:
-                calls.pop(connection.pc_id, None)
-
-            await starter(connection, call)
-
-        request = SmallWebRTCRequest(body.sdp, body.type, body.pc_id, body.restart_pc)
-        try:
-            answer = await webrtc.handle_web_request(request, start)
-        except Exception:
-            log.exception("could not set up a call")
-            answer = None
-        if answer is None:
-            use.give_back()
-            raise HTTPException(500, "无法建立通话")
-        calls[answer["pc_id"]] = (user_id, call)
-        return answer
+        if body.call is None:
+            raise HTTPException(422, "缺少要通话的对话")
+        conversation = conversation_or_404(body.call.conversation_id, user_id)
+        return await calls.start(
+            user_id,
+            conversation,
+            characters[conversation.character_id],
+            CallOptions(body.call.muted, body.call.quality, device_timezone),
+            description,
+        )
 
     @app.patch("/api/offer")
-    async def ice_candidates(body: SmallWebRTCPatchRequest, user_id: UserId) -> dict:
-        if calls.get(body.pc_id, (None,))[0] != user_id:
-            raise HTTPException(404, "通话不存在")
-        await webrtc.handle_patch_request(body)
+    async def ice_candidates(body: IceCandidates, user_id: UserId) -> dict:
+        candidates = [
+            IceCandidate(c.candidate, c.sdp_mid, c.sdp_mline_index) for c in body.candidates
+        ]
+        await calls.add_candidates(user_id, body.pc_id, candidates)
         return {"ok": True}
 
     @app.get("/api/profile")

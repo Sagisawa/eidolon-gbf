@@ -1,12 +1,21 @@
 """Test doubles for external services."""
 
 import asyncio
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
 
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.frames.frames import (
+    Frame,
+    ProposedUserStartedSpeakingFrame,
+    ProposedUserStoppedSpeakingFrame,
+    TranscriptionFrame,
+    TTSAudioRawFrame,
+)
+from pipecat.services.settings import STTSettings, TTSSettings
+from pipecat.services.stt_service import STTService
+from pipecat.services.tts_service import TTSService
+from pipecat.utils.time import time_now_iso8601
 
-from eidolon.call import Call
 from eidolon.characters import Character
 from eidolon.embedding import EmbeddingError
 from eidolon.llm import ChatMessage, Tool, ToolCall
@@ -90,20 +99,62 @@ class FakeBackgroundLLM:
         pass
 
 
-class FakeCalls:
-    """Stands in for the voice pipeline: records each call the backend starts."""
+class FakeSTT(STTService):
+    """Stands in for Soniox in one call: ignores the microphone and hears what the test
+    says the user said, the way Soniox reports an utterance."""
 
     def __init__(self) -> None:
-        self.started: list[Call] = []
-        self._connections: list[SmallWebRTCConnection] = []
+        super().__init__(ttfs_p99_latency=0.1, settings=STTSettings(model=None, language=None))
 
-    async def __call__(self, connection: SmallWebRTCConnection, call: Call) -> None:
-        self._connections.append(connection)
-        self.started.append(call)
+    async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
+        yield None
 
-    async def hang_up_all(self) -> None:
-        for connection in self._connections:
-            await connection.disconnect()
+    async def hear(self, text: str) -> None:
+        """The user said `text`: an utterance starts, is transcribed, and ends."""
+        await self.broadcast_frame(ProposedUserStartedSpeakingFrame)
+        await self.push_frame(TranscriptionFrame(text, "user", time_now_iso8601(), finalized=True))
+        await self.broadcast_frame(ProposedUserStoppedSpeakingFrame)
+
+    async def break_down(self) -> None:
+        """Fail as a rejected API key would: for good."""
+        await self.push_error("fake speech recognition is down", force_treat_as_permanent=True)
+
+
+class FakeTTS(TTSService):
+    """Stands in for Fish Audio in one call: records what it is asked to voice, and in which
+    voice, and says a moment of silence for each."""
+
+    def __init__(self, voice_id: str, sample_rate: int) -> None:
+        super().__init__(
+            sample_rate=sample_rate, settings=TTSSettings(model=None, voice=None, language=None)
+        )
+        self.voice_id = voice_id
+        self.voiced: list[str] = []
+
+    async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
+        self.voiced.append(text)
+        samples = self.sample_rate // 10
+        yield TTSAudioRawFrame(b"\0\0" * samples, self.sample_rate, 1, context_id=context_id)
+
+
+class FakeSpeech:
+    """Stands in for Soniox and Fish Audio: the speech services of each call started, in
+    order. Set `down` to have the services fail to be made at all."""
+
+    def __init__(self) -> None:
+        self.stts: list[FakeSTT] = []
+        self.ttss: list[FakeTTS] = []
+        self.down = False
+
+    def stt(self) -> FakeSTT:
+        if self.down:
+            raise RuntimeError("fake speech services are down")
+        self.stts.append(FakeSTT())
+        return self.stts[-1]
+
+    def tts(self, voice_id: str, sample_rate: int) -> FakeTTS:
+        self.ttss.append(FakeTTS(voice_id, sample_rate))
+        return self.ttss[-1]
 
 
 class FakeEmbedder:
