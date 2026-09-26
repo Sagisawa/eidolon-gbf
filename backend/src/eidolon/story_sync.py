@@ -16,6 +16,17 @@ scripts; a card that has changed has its scripts asked for conditionally. Script
 SCTranslationData has translated are never downloaded. A script the mirror does not
 have is not an error; its card is asked about again next time.
 
+Event episodes have no listing: their scripts are numbered `4001` + the event's three
+digits + the episode's two (`game_event_communications/400109701`), so they are found
+by trying numbers. The events known are those the corpus or the cache has; each one
+up to the latest is walked once, episode by episode until the mirror has no more,
+which fills in the events and episodes SCTranslationData lacks. The latest event is
+walked again every sync, in case the mirror has more of it, and a few numbers after
+it are tried for new events, so a sync with nothing new costs a handful of 404s. An
+event's name comes from the admin's table of event names (`load_event_names`), read
+at every import so that a name filled in later reaches the catalog; an event not in
+the table is 「活动剧情 NNN」, never a made-up name, and its episodes are 「第N話」.
+
 The mirror being unreachable only costs this sync its untranslated episodes: what was
 downloaded before it failed is still imported, and the next sync picks up from there.
 """
@@ -23,7 +34,9 @@ downloaded before it failed is still imported, and the next sync picks up from t
 import json
 import logging
 import os
-from collections.abc import Iterable, Sequence
+import re
+import tomllib
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -35,7 +48,46 @@ from eidolon.story_import import ImportReport, ScriptFile, import_csv_directory,
 log = logging.getLogger(__name__)
 
 _CARDS_FILE = "cards.json"
+_EVENTS_FILE = "events.json"
 _SCRIPTS_DIR = "scripts"
+
+_EVENT_SCRIPTS = "game_event_communications"
+_EVENT_SCRIPT = re.compile(r"game_event_communications/4001(?P<event>\d{3})(?P<episode>\d{2})")
+PROBE_AHEAD = 3
+"""How many event numbers after the latest known are tried, in case some are skipped."""
+
+
+class EventNamesError(RuntimeError):
+    """The table of event names could not be read."""
+
+
+def load_event_names(path: Path, *, required: bool = False) -> dict[int, str]:
+    """The admin's table of event names: `[events]` with one `NNN = "name"` per event.
+
+    A table that does not exist is empty, unless it is `required`."""
+    try:
+        config = tomllib.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if required:
+            raise EventNamesError(f"找不到活动名对照表 {path}") from None
+        return {}
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        raise EventNamesError(f"活动名对照表 {path} 格式有误：{e}") from None
+    events = config.get("events", {})
+    if not isinstance(events, dict):
+        raise EventNamesError(f"活动名对照表 {path} 里的 events 需要是一张表")
+    names: dict[int, str] = {}
+    for key, name in events.items():
+        if not (key.isascii() and key.isdigit() and 1 <= len(key) <= 3):
+            raise EventNamesError(f"活动名对照表 {path}：{key} 不是三位以内的活动编号")
+        if not isinstance(name, str) or not name.strip():
+            raise EventNamesError(f"活动名对照表 {path}：活动 {key} 的名称需要是非空字符串")
+        names[int(key)] = name.strip()
+    return names
+
+
+def event_script(event: int, episode: int) -> str:
+    return f"{_EVENT_SCRIPTS}/4001{event:03d}{episode:02d}"
 
 
 @dataclass
@@ -50,6 +102,8 @@ class SyncReport:
     downloaded: int = 0
     missing: int = 0
     """Scripts a card lists that the mirror does not have."""
+    unnamed_events: list[int] = field(default_factory=list)
+    """Events with untranslated episodes that the table of event names lacks."""
     mirror_error: str | None = None
     """Why the mirror could not be synced from, if it could not."""
 
@@ -86,6 +140,14 @@ class _Cache:
                     [CardEpisode(**episode) for episode in card["episodes"]],
                     card["complete"],
                 )
+        self.events: dict[int, int] = {}
+        """Each event walked to its end, and how many episodes it has."""
+        path = directory / _EVENTS_FILE
+        if path.exists():
+            self.events = {
+                int(event): episodes
+                for event, episodes in json.loads(path.read_text(encoding="utf-8")).items()
+            }
 
     def script_path(self, script: str) -> Path:
         return self._directory / _SCRIPTS_DIR / f"{script}.json"
@@ -101,12 +163,20 @@ class _Cache:
         else:
             path.unlink(missing_ok=True)
 
+    def event_scripts(self) -> list[Path]:
+        return sorted((self._directory / _SCRIPTS_DIR / _EVENT_SCRIPTS).glob("*.json"))
+
     def save(self) -> None:
-        cards = {uuid: asdict(card) for uuid, card in self.cards.items()}
+        self._write(_CARDS_FILE, {uuid: asdict(card) for uuid, card in self.cards.items()})
+
+    def save_events(self) -> None:
+        self._write(_EVENTS_FILE, {f"{event:03d}": n for event, n in sorted(self.events.items())})
+
+    def _write(self, name: str, data: object) -> None:
         self._directory.mkdir(parents=True, exist_ok=True)
-        path = self._directory / _CARDS_FILE
+        path = self._directory / name
         partial = path.with_name(path.name + ".part")
-        partial.write_text(json.dumps(cards, ensure_ascii=False, indent=1), encoding="utf-8")
+        partial.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(partial, path)
 
     def _etag_path(self, script: str) -> Path:
@@ -120,20 +190,29 @@ async def sync_stories(
     characters: Iterable[Character],
     mirror: Mirror,
     *,
+    event_names: Mapping[int, str] | None = None,
     idols: Sequence[int] | None = None,
 ) -> SyncReport:
     """Import SCTranslationData's CSVs from `story_directory`, then the mirror's card
-    episodes the corpus lacks. `idols` limits the mirror to those idols' cards."""
+    and event episodes the corpus lacks, events named from `event_names`. `idols`
+    limits the mirror to those idols' cards, and leaves events out."""
     characters = list(characters)
     report = SyncReport(await import_csv_directory(story_directory, corpus, characters))
     cache = _Cache(cache_directory)
+    errors = []
     try:
         await _fetch_cards(mirror, cache, corpus, report, idols)
     except MirrorError as e:
-        report.mirror_error = str(e)
-    report.untranslated = await import_script_files(
-        _untranslated_scripts(cache, corpus), corpus, characters
-    )
+        errors.append(str(e))
+    if idols is None:
+        try:  # the viewer may well be up when the API is not
+            await _fetch_events(mirror, cache, corpus, report)
+        except MirrorError as e:
+            errors.append(str(e))
+    report.mirror_error = "；".join(errors) or None
+    files = _untranslated_scripts(cache, corpus)
+    files += _untranslated_event_scripts(cache, corpus, event_names or {}, report)
+    report.untranslated = await import_script_files(files, corpus, characters)
     return report
 
 
@@ -185,6 +264,76 @@ async def _fetch_cards(
             if episodes:
                 log.info("%s：%d 段剧情", card.name, len(episodes))
             cache.save()  # so an interrupted sync picks up after the last card done
+
+
+async def _fetch_events(mirror: Mirror, cache: _Cache, corpus: StoryCorpus, report: SyncReport) -> None:
+    known = {
+        int(match["event"])
+        for episode_id in corpus.episode_ids(f"{_EVENT_SCRIPTS}/")
+        if (match := _EVENT_SCRIPT.fullmatch(episode_id))
+    }
+    known.update(event for event, episodes in cache.events.items() if episodes)
+    latest = max(known, default=0)
+    for event in range(1, latest + 1):
+        if event in cache.events and event < latest:
+            continue
+        cache.events[event] = await _walk_event(mirror, cache, corpus, report, event)
+        cache.save_events()
+    # Events after the latest: numbers are sometimes skipped, so a few are tried.
+    tried: list[int] = []
+    event = latest + 1
+    while len(tried) < PROBE_AHEAD:
+        episodes = await _walk_event(mirror, cache, corpus, report, event)
+        if episodes:
+            log.info("镜像上有新活动 %03d：%d 话", event, episodes)
+            cache.events.update({skipped: 0 for skipped in tried})
+            cache.events[event] = episodes
+            cache.save_events()
+            tried = []
+        else:
+            tried.append(event)
+        event += 1
+
+
+async def _walk_event(
+    mirror: Mirror, cache: _Cache, corpus: StoryCorpus, report: SyncReport, event: int
+) -> int:
+    """Fetch the event's episodes from the first until the mirror has no more; returns
+    how many it has. Episodes translated or already downloaded are not asked for."""
+    episode = 1
+    while episode < 100:
+        script = event_script(event, episode)
+        path = cache.script_path(script)
+        if corpus.imported_from(script) != "csv" and not path.exists():
+            fetched, etag = await mirror.download(script, path, None)
+            if fetched == "missing":
+                break
+            cache.set_etag(script, etag)
+            report.downloaded += 1
+        episode += 1
+    return episode - 1
+
+
+def _untranslated_event_scripts(
+    cache: _Cache, corpus: StoryCorpus, names: Mapping[int, str], report: SyncReport
+) -> list[ScriptFile]:
+    """Every event script downloaded so far that SCTranslationData has not translated,
+    under the event's name from the table as it is now."""
+    files = []
+    unnamed: set[int] = set()
+    for path in cache.event_scripts():
+        script = f"{_EVENT_SCRIPTS}/{path.stem}"
+        if (match := _EVENT_SCRIPT.fullmatch(script)) is None:
+            continue
+        if corpus.imported_from(script) == "csv":
+            continue
+        event, episode = int(match["event"]), int(match["episode"])
+        if event not in names:
+            unnamed.add(event)
+        source = names.get(event) or f"活动剧情 {event:03d}"
+        files.append(ScriptFile(path, script, source, f"第{episode}話"))
+    report.unnamed_events = sorted(unnamed)
+    return files
 
 
 def _untranslated_scripts(cache: _Cache, corpus: StoryCorpus) -> list[ScriptFile]:

@@ -1,6 +1,6 @@
 """Syncing the story corpus with the game (`eidolon story sync`): SCTranslationData's
-translations, then the card episodes they lack from the ShinyColorsDB mirror (the
-spec's cut point B), checked by querying the corpus afterwards."""
+translations, then the card and event episodes they lack from the ShinyColorsDB mirror
+(the spec's cut point B), checked by querying the corpus afterwards."""
 
 import time
 from pathlib import Path
@@ -11,16 +11,18 @@ import pytest
 from eidolon.characters import load_characters
 from eidolon.corpus import CatalogEntry, Line, StoryCorpus
 from eidolon.mirror import Mirror
-from eidolon.story_sync import SyncReport, sync_stories
+from eidolon.story_sync import PROBE_AHEAD, SyncReport, sync_stories
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import FakeEmbedder, FakeShinyColorsDB
 from tests.stories import (
+    EVENT_TRANSLATED,
     KOGANE_SCRIPT,
     MANO_CARD,
     MANO_CARD_SCRIPT,
     MANO_CARD_SECOND_SCRIPT,
     MANO_CARD_TRANSLATED,
     MANO_SUPPORT_SCRIPT,
+    event_script,
     write_story,
 )
 
@@ -64,12 +66,15 @@ class Syncer:
         self._characters = characters
         self._site = site
 
-    async def run(self, idols: list[int] | None = None) -> SyncReport:
+    async def run(
+        self, idols: list[int] | None = None, event_names: dict[int, str] | None = None
+    ) -> SyncReport:
         characters = load_characters(self._characters.path)
         mirror = self._site.mirror()
         try:
             return await sync_stories(
-                self.story, self.cache, self.corpus, characters.values(), mirror, idols=idols
+                self.story, self.cache, self.corpus, characters.values(), mirror,
+                event_names=event_names, idols=idols,
             )
         finally:
             await mirror.aclose()
@@ -305,6 +310,7 @@ async def test_only_the_idols_asked_for_are_synced(syncer: Syncer, mirror_site: 
     assert syncer.corpus.get("produce_events/200100401") is not None
     assert syncer.corpus.get("produce_events/201100402") is None
     assert not any("idolList" in str(r.url) for r in mirror_site.requests)
+    assert not any("game_event_communications" in str(r.url) for r in mirror_site.requests)
 
 
 async def test_requests_go_out_one_at_a_time_with_a_pause_between(mirror_site: FakeShinyColorsDB):
@@ -366,6 +372,214 @@ def test_the_sync_command_exits_2_when_the_mirror_is_unreachable(
     assert code == 2
     assert "镜像" in err
     assert "汉化版：新增 4 段" in out
+
+
+# Events. SCTranslationData has the first episode of event 004 (see `write_sample_stories`),
+# so events up to 004 are known; the mirror has events 002 (which SCTranslationData lacks)
+# and 004, and after it 005 and 007, 006 having been skipped.
+EVENTS_ON_THE_MIRROR = {2: 2, 4: 2, 5: 2, 7: 1}
+LIGHT_UP = "Light up the illumination"  # event 004's directory in SCTranslationData
+
+
+def event(number: int, episode: int) -> str:
+    return f"game_event_communications/4001{number:03d}{episode:02d}"
+
+
+def event_requests(site: FakeShinyColorsDB) -> list[str]:
+    return [str(r.url) for r in site.requests if "game_event_communications" in str(r.url)]
+
+
+@pytest.fixture
+def events(mirror_site: FakeShinyColorsDB) -> FakeShinyColorsDB:
+    for number, episodes in EVENTS_ON_THE_MIRROR.items():
+        for episode in range(1, episodes + 1):
+            mirror_site.add_script(event(number, episode), event_script(number, episode))
+    return mirror_site
+
+
+async def test_events_the_translations_lack_are_filled_in(syncer: Syncer, events: FakeShinyColorsDB):
+    await syncer.run()
+
+    gap = [syncer.corpus.get(event(2, episode)) for episode in (1, 2)]
+    assert all(e is not None and e.category == "活动剧情" and e.imported_from == "json" for e in gap)
+    assert [e.lines[0].ja for e in gap if e is not None] == [
+        "イベント2の第1話です\nほわっ", "イベント2の第2話です\nほわっ"
+    ]
+    # The episode SCTranslationData lacks of an event it has.
+    second = syncer.corpus.get(event(4, 2))
+    assert second is not None and second.imported_from == "json"
+    translated = syncer.corpus.get(event(4, 1))
+    assert translated is not None and translated.imported_from == "csv"
+    assert event(4, 1) not in events.sent
+    # Numbers the mirror has nothing under are no error.
+    assert syncer.corpus.get(event(1, 1)) is None and syncer.corpus.get(event(3, 1)) is None
+
+
+async def test_events_after_the_latest_are_found_even_past_a_skipped_number(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    report = await syncer.run()
+
+    for number, episodes in ((5, 2), (7, 1)):
+        found = [syncer.corpus.get(event(number, e)) for e in range(1, episodes + 1)]
+        assert all(e is not None for e in found)
+        assert syncer.corpus.get(event(number, episodes + 1)) is None
+    assert report.mirror_error is None
+
+
+async def test_syncing_again_costs_only_a_few_404s_for_events(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    await syncer.run()
+    events.requests.clear()
+    events.sent.clear()
+    syncer.embedder.documents.clear()
+
+    report = await syncer.run()
+
+    assert events.sent == [] and syncer.embedder.documents == []
+    # The latest event's next episode, and the numbers after it.
+    assert len(event_requests(events)) == PROBE_AHEAD + 1
+    assert report.untranslated.imported == 0
+
+
+async def test_a_new_event_on_the_mirror_comes_in_at_the_next_sync(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    await syncer.run()
+    events.add_script(event(8, 1), event_script(8, 1))
+
+    await syncer.run()
+
+    assert syncer.corpus.get(event(8, 1)) is not None
+
+
+async def test_events_are_named_from_the_table_or_left_unnamed(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    report = await syncer.run(event_names={2: "はじめてのイベント", 4: LIGHT_UP})
+
+    named = syncer.corpus.get(event(2, 2))
+    assert named is not None and (named.source, named.title) == ("はじめてのイベント", "第2話")
+    unnamed = syncer.corpus.get(event(5, 1))
+    assert unnamed is not None and (unnamed.source, unnamed.title) == ("活动剧情 005", "第1話")
+    assert report.unnamed_events == [5, 7]
+    # Grouped with the episode SCTranslationData has, which is filed under the same name.
+    translated, second = syncer.corpus.get(event(4, 1)), syncer.corpus.get(event(4, 2))
+    assert translated is not None and second is not None
+    assert second.source == translated.source == LIGHT_UP
+
+
+async def test_the_catalog_shows_events_by_name_with_episodes_in_order(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    await syncer.run(event_names={2: "はじめてのイベント"})
+
+    catalog = {source.source: source for source in syncer.corpus.catalog("mano")}
+    assert catalog["はじめてのイベント"].category == "活动剧情"
+    assert catalog["はじめてのイベント"].episodes == (
+        CatalogEntry(event(2, 1), "第1話"),
+        CatalogEntry(event(2, 2), "第2話"),
+    )
+    assert [e.title for e in catalog["活动剧情 005"].episodes] == ["第1話", "第2話"]
+
+
+async def test_a_name_filled_in_later_renames_the_event_at_the_next_sync(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    await syncer.run()
+    events.sent.clear()
+
+    report = await syncer.run(event_names={5: "新しいイベント"})
+
+    assert events.sent == []
+    catalog = {source.source: source for source in syncer.corpus.catalog("mano")}
+    assert "活动剧情 005" not in catalog
+    assert [e.episode_id for e in catalog["新しいイベント"].episodes] == [event(5, 1), event(5, 2)]
+    assert syncer.corpus.episode_ids("game_event_communications/4001005") == [event(5, 1), event(5, 2)]
+    assert report.unnamed_events == [2, 4, 7]
+
+
+async def test_a_translation_that_arrives_later_replaces_the_untranslated_event_episode(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    names = {2: "はじめてのイベント"}
+    await syncer.run(event_names=names)
+    write_story(
+        syncer.story, "283活动剧情/はじめてのイベント/第1話.csv", EVENT_TRANSLATED, event(2, 1)
+    )
+
+    report = await syncer.run(event_names=names)
+
+    episode = syncer.corpus.get(event(2, 1))
+    assert episode is not None and episode.imported_from == "csv"
+    assert episode.lines[0].zh == "这是活动2的第1话\n呼哇"
+    catalog = {source.source: source for source in syncer.corpus.catalog("mano")}
+    assert [e.episode_id for e in catalog["はじめてのイベント"].episodes] == [event(2, 1), event(2, 2)]
+    assert report.translated.untranslated_replaced == 1
+
+
+async def test_when_the_api_is_down_events_still_come_from_the_viewer(
+    syncer: Syncer, events: FakeShinyColorsDB
+):
+    del events.idols[1][0]["cardUuid"]
+
+    report = await syncer.run()
+
+    assert report.mirror_error is not None
+    assert syncer.corpus.get(event(2, 1)) is not None
+
+
+def test_the_sync_command_names_events_from_the_table(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    events: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    names = tmp_path / "event-names.toml"
+    names.write_text('[events]\n002 = "はじめてのイベント"\n4 = "Light up the illumination"\n', encoding="utf-8")
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    monkeypatch.setattr("eidolon.mirror.Mirror", lambda: events.mirror())
+    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
+
+    code, out, err = admin.invoke(*args, "--characters", str(characters.path), "--events", str(names))
+
+    assert code == 0, err
+    assert "活动名对照表里还没有这些活动，暂用「活动剧情 NNN」：005、007" in out
+
+
+@pytest.mark.parametrize(
+    ("content", "complaint"),
+    [
+        (None, "找不到活动名对照表"),
+        ('[events]\n097 = "a"\nabc = "b"\n', "abc"),
+        ('[events]\n097 = ""\n', "097"),
+        ("[events\n", "格式有误"),
+    ],
+)
+def test_the_sync_command_rejects_a_broken_table_of_event_names(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    content: str | None,
+    complaint: str,
+):
+    names = tmp_path / "event-names.toml"
+    if content is not None:
+        names.write_text(content, encoding="utf-8")
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+
+    err = admin.fails(
+        "story", "sync", "--story", str(story), "--characters", str(characters.path),
+        "--events", str(names),
+    )
+
+    assert complaint in err
 
 
 def test_the_sync_command_reports_a_missing_story_directory(admin: Admin, tmp_path: Path):

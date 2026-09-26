@@ -10,8 +10,9 @@
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
                                      SCTranslationData lacks
-    eidolon story sync               import SCTranslationData, then the card episodes it lacks
-                                     from the ShinyColorsDB mirror; exits 2 if the mirror failed
+    eidolon story sync               import SCTranslationData, then the card and event episodes
+                                     it lacks from the ShinyColorsDB mirror; exits 2 if the
+                                     mirror failed
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
@@ -29,6 +30,7 @@ from eidolon.config import (
     Settings,
     characters_path_from_env,
     database_path_from_env,
+    event_names_path_from_env,
     mirror_cache_path_from_env,
     story_path_from_env,
 )
@@ -149,7 +151,7 @@ async def _sync_story(args: argparse.Namespace) -> int:
     from eidolon.corpus import StoryCorpus
     from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
     from eidolon.mirror import Mirror
-    from eidolon.story_sync import sync_stories
+    from eidolon.story_sync import load_event_names, sync_stories
 
     story = args.story or story_path_from_env()
     if not story.is_dir():
@@ -157,6 +159,9 @@ async def _sync_story(args: argparse.Namespace) -> int:
         return 1
     try:
         characters = load_characters(args.characters or characters_path_from_env())
+        event_names = load_event_names(
+            args.events or event_names_path_from_env(), required=args.events is not None
+        )
         settings = SiliconFlowSettings.from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
@@ -178,6 +183,7 @@ async def _sync_story(args: argparse.Namespace) -> int:
                 corpus,
                 characters.values(),
                 mirror,
+                event_names=event_names,
                 idols=args.idol,
             )
         finally:
@@ -203,6 +209,9 @@ async def _sync_story(args: argparse.Namespace) -> int:
     )
     if report.missing:
         print(f"卡牌列出的剧本中有 {report.missing} 个镜像上还没有，下次同步再试")
+    if report.unnamed_events:
+        events = "、".join(f"{event:03d}" for event in report.unnamed_events)
+        print(f"活动名对照表里还没有这些活动，暂用「活动剧情 NNN」：{events}")
     print(
         f"共跳过 {report.skipped_failures} 段失败结局，新向量化 {report.embedded_passages} 段文本"
     )
@@ -368,7 +377,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     sync = story.add_parser(
         "sync",
-        help="导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情"
+        help="导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情和活动剧情"
         "（可重复执行；镜像连不上时退出码为 2）",
     )
     sync.add_argument(
@@ -385,7 +394,12 @@ def _parser() -> argparse.ArgumentParser:
         "--idol",
         type=int,
         action="append",
-        help="只从镜像同步这位偶像的卡牌（镜像 API 的偶像编号，例如 1 是櫻木真乃），可重复",
+        help="只从镜像同步这位偶像的卡牌，不同步活动剧情（镜像 API 的偶像编号，例如 1 是櫻木真乃），可重复",
+    )
+    sync.add_argument(
+        "--events",
+        type=Path,
+        help="活动名对照表（默认取环境变量 EIDOLON_EVENT_NAMES_PATH；默认的文件不存在时活动用占位名）",
     )
     for command in (import_csv, import_json, sync):
         command.add_argument(

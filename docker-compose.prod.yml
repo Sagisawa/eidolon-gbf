@@ -44,6 +44,7 @@ services:
       - eidolon-data:/data # 数据库：用户、对话、记忆、剧情库
       - ./characters:/characters:ro # 人设、角色资料、头像
       - ./corpus:/corpus:ro # 剧情库的原始数据，导入时读取
+      - ./deploy:/deploy:ro # 活动名对照表 event-names.toml（同步时读取）
     restart: unless-stopped
 
   coturn:

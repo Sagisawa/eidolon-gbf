@@ -62,7 +62,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-csv 
 docker compose -f docker-compose.prod.yml exec backend eidolon story import-json /corpus/scripts
 ```
 
-也可以用一条命令同步：先导入汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情（首次约一到两小时，镜像连不上时退出码为 2，说明见 README 的「剧情库」）：
+也可以用一条命令同步：先导入汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情和活动剧情（首次约一到两小时，镜像连不上时退出码为 2，说明见 README 的「剧情库」）。活动名写在 `deploy/event-names.toml`（参照 `deploy/event-names.example.toml`，`deploy/` 以只读方式挂载到后端的 `/deploy`），没填的活动先用占位名：
 
 ```sh
 docker compose -f docker-compose.prod.yml exec backend eidolon story sync
