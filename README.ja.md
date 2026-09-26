@@ -372,6 +372,7 @@ eidolon-sc/
 
 ## 🙏 謝辞
 
+- [LAPLACE Eidolon](https://laplace.live/eidolon) —— VTuber・明前奶绿のリアルタイム音声 AI 分身。本プロジェクトはそのアーキテクチャを参考にしています（コードは流用していません）
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) —— シナリオテキストと中国語訳
 - [Pipecat](https://github.com/pipecat-ai/pipecat) —— リアルタイム音声パイプラインと WebRTC 通信
 - [Soniox](https://soniox.com/) —— 音声認識

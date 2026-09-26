@@ -372,6 +372,7 @@ The license covers only the code and documentation in this repository. Story dat
 
 ## 🙏 Acknowledgements
 
+- [LAPLACE Eidolon](https://laplace.live/eidolon) — the real-time voice AI companion of VTuber Mingqian Nailü (明前奶绿); this project borrows its architecture (none of its code)
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) — story text and Chinese translations
 - [Pipecat](https://github.com/pipecat-ai/pipecat) — real-time voice pipeline and WebRTC transport
 - [Soniox](https://soniox.com/) — speech recognition
