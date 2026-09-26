@@ -18,7 +18,7 @@ memory never turns up again.
 
 Each memory is embedded as it is written down, and the vector kept until the memory is
 gone; a memory whose embedding failed is embedded the next time its user's memories are
-searched.
+searched. After the embedding model changes, `eidolon reembed` embeds them all again.
 
 Without a background model, embedder and reranker, memory is off: turns find and write
 down nothing, but users can still list and delete the memories already kept.
@@ -29,7 +29,7 @@ import json
 import logging
 import sqlite3
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +37,7 @@ from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
 from eidolon.clock import Clock
+from eidolon.corpus import REEMBED_BATCH
 from eidolon.embedding import Document, Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.rerank import DEFAULT_THRESHOLDS, Reranker, RerankError
@@ -170,6 +171,51 @@ class Memories:
         self._clearings[user_id] = self._clearings.get(user_id, 0) + 1
         await self._settle(user_id)
         await asyncio.to_thread(self._clear, user_id)
+
+    async def embed_missing(
+        self,
+        embedder: Embedder,
+        batch: int = REEMBED_BATCH,
+        progress: Callable[[int], None] | None = None,
+    ) -> int:
+        """Embed every user's memories that have no vector from `embedder`, `batch` at a
+        time; returns how many it embedded, telling `progress` the count so far after each
+        batch. Interrupted, what it finished is kept; a memory deleted meanwhile gets no
+        vector."""
+        model = embedder.model
+        done = 0
+        after = 0
+        while True:
+            with self._lock:
+                rows = self._db.execute(
+                    "SELECT id, user_id, text FROM memories m WHERE id > ? AND NOT EXISTS"
+                    " (SELECT 1 FROM memory_vectors v WHERE v.memory_id = m.id AND v.model = ?)"
+                    " ORDER BY id LIMIT ?",
+                    (after, model, batch),
+                ).fetchall()
+            if not rows:
+                return done
+            vectors = await embedder.embed_documents([Document(text) for _, _, text in rows])
+            with self._lock, self._db:
+                self._db.executemany(
+                    "INSERT OR REPLACE INTO memory_vectors (memory_id, user_id, model, embedding)"
+                    " SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM memories WHERE id = ?)",
+                    [
+                        (id, user_id, model, to_blob(v), id)
+                        for (id, user_id, _), v in zip(rows, vectors, strict=True)
+                    ],
+                )
+            done += len(rows)
+            after = rows[-1][0]
+            if progress is not None:
+                progress(done)
+
+    def forget_other_models(self, model: str) -> int:
+        """Drop every memory's vector not from `model`; returns how many there were."""
+        with self._lock, self._db:
+            return self._db.execute(
+                "DELETE FROM memory_vectors WHERE model != ?", (model,)
+            ).rowcount
 
     async def aclose(self) -> None:
         """Let whatever is being written down finish, a while at most, then give up on it."""

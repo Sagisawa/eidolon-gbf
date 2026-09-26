@@ -8,6 +8,10 @@ by cosine similarity, only among the episodes the asking character is in the cas
 text has not changed keep their vectors, so re-importing costs no embedding calls.
 An episode with no cast is kept but not embedded: no character could recall it.
 
+Each passage keeps one vector, from the embedding model it was last embedded with;
+only passages embedded with the current model are searched. After the model changes,
+`embed_missing` re-embeds the rest from their stored text (`eidolon reembed`).
+
 The story catalog is read from the same tables: each character's episodes, grouped
 by the card or event they belong to, so it is always in step with the last import.
 
@@ -17,7 +21,7 @@ stays out of the repository (ADR-0003).
 
 import sqlite3
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import typing
@@ -61,6 +65,8 @@ CREATE TABLE IF NOT EXISTS episode_passages (
 
 _PASSAGE_CHARS = 1200
 """Roughly how much text goes into one passage before a new one starts."""
+REEMBED_BATCH = 200
+"""How many passages (or memories) `eidolon reembed` embeds before committing them."""
 
 
 ImportFormat = Literal["csv", "json"]
@@ -271,6 +277,53 @@ class StoryCorpus:
                 episodes[episode_id] = episode
             passages.append(Passage(episodes[episode_id], rows[i]["text"], score))
         return passages
+
+    def count_missing_vectors(self) -> int:
+        """How many passages have no vector from this corpus's embedder, and so cannot be
+        found: those embedded before the embedding service, model or dimensions changed."""
+        with self._lock:
+            return self._db.execute(
+                "SELECT count(*) FROM episode_passages WHERE model != ?", (self._embedder.model,)
+            ).fetchone()[0]
+
+    async def embed_missing(
+        self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None
+    ) -> int:
+        """Re-embed, from their stored text, the passages that have no vector from this
+        corpus's embedder, replacing their old vectors (a passage keeps only one), `batch`
+        at a time; returns how many it embedded, telling `progress` the count so far after
+        each batch. Interrupted, what it finished is kept. A passage an import rewrites
+        meanwhile is left to the import."""
+        model = self._embedder.model
+        done = 0
+        after = ("", -1)
+        while True:
+            with self._lock:
+                rows = self._db.execute(
+                    "SELECT p.episode_id, p.seq, p.text, e.source, e.title"
+                    " FROM episode_passages p JOIN episodes e ON e.id = p.episode_id"
+                    " WHERE p.model != ? AND (p.episode_id, p.seq) > (?, ?)"
+                    " ORDER BY p.episode_id, p.seq LIMIT ?",
+                    (model, *after, batch),
+                ).fetchall()
+            if not rows:
+                return done
+            vectors = await self._embedder.embed_documents(
+                [Document(r["text"], passage_title(r["source"], r["title"])) for r in rows]
+            )
+            with self._lock, self._db:
+                self._db.executemany(
+                    "UPDATE episode_passages SET model = ?, embedding = ?"
+                    " WHERE episode_id = ? AND seq = ? AND text = ?",
+                    [
+                        (model, to_blob(v), r["episode_id"], r["seq"], r["text"])
+                        for r, v in zip(rows, vectors, strict=True)
+                    ],
+                )
+            done += len(rows)
+            after = (rows[-1]["episode_id"], rows[-1]["seq"])
+            if progress is not None:
+                progress(done)
 
     def close(self) -> None:
         self._db.close()

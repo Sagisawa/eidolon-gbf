@@ -16,6 +16,9 @@
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
+    eidolon reembed                  after changing the embedding service, model or
+                                     dimensions, embed the story corpus, character facts
+                                     and memories again from the text in the database
 """
 
 import argparse
@@ -48,6 +51,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_import_story(args))
     if args.command == "character":
         return asyncio.run(_draft_sheet(args))
+    if args.command == "reembed":
+        return asyncio.run(_reembed(args))
 
     store = Store(args.db or database_path_from_env())
     try:
@@ -311,6 +316,44 @@ async def _draft_sheet(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _reembed(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import EmbeddingSettings
+    from eidolon.embedding import EmbeddingError, open_embedder
+    from eidolon.reembed import reembed
+
+    try:
+        characters = load_characters(args.characters or characters_path_from_env())
+        settings = EmbeddingSettings.required_from_env()
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    progress = logging.StreamHandler()  # a whole corpus takes a while
+    progress.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+    logging.getLogger("eidolon.reembed").addHandler(progress)
+    logging.getLogger("eidolon.reembed").setLevel(logging.INFO)
+    embedder = open_embedder(settings)
+    try:
+        report = await reembed(
+            args.db or database_path_from_env(), characters.values(), embedder
+        )
+    except EmbeddingError as e:
+        print(
+            f"重新向量化中断（已完成的部分会保留，旧向量没有删除，重新运行即可继续）：{e}",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        await embedder.aclose()
+    print(f"向量化模型：{embedder.model}")
+    print(f"剧情库：新向量化 {report.passages} 段")
+    print(f"角色资料：新向量化 {report.facts} 条")
+    print(f"记忆：新向量化 {report.memories} 条")
+    print(f"删除了其他模型的 {report.forgotten} 个向量")
+    return 0
+
+
 def _create_user(store: Store, args: argparse.Namespace) -> None:
     store.create_user(args.name)
     print(f"已创建用户 {args.name}")
@@ -441,6 +484,17 @@ def _parser() -> argparse.ArgumentParser:
         "--budget",
         type=int,
         help="每次请求后台模型最多带多少字的剧情素材（默认 40000，至少 1000），超出时分批总结",
+    )
+
+    reembed = commands.add_parser(
+        "reembed",
+        help="换了向量化服务、模型或维度后，用库里的原文重新向量化剧情库、角色资料和记忆"
+        "（可中断、可重复执行；服务不必停止）",
+    )
+    reembed.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
     )
     return parser
 

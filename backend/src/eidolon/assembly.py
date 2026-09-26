@@ -113,10 +113,18 @@ def build(
 
     retrieval = None
     if jev is not None and embedder is not None and reranker is not None:
+        corpus = StoryCorpus(settings.database_path, embedder)
+        if missing := corpus.count_missing_vectors():
+            log.warning(
+                "%d story passages have no vectors from the embedding model %s and cannot be"
+                " found: run `eidolon reembed` after changing the embedding service, model"
+                " or dimensions",
+                missing, embedder.model,
+            )
         retrieval = Retrieval(
             jev,
             embedder,
-            StoryCorpus(settings.database_path, embedder),
+            corpus,
             FactIndex(settings.database_path, embedder),
             reranker,
             thresholds.references,
