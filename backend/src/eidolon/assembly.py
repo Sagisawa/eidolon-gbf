@@ -98,9 +98,9 @@ def build(
         thresholds = thresholds_for(r)
         if r.model not in KNOWN_THRESHOLDS:
             log.warning(
-                "rerank model %s has not been calibrated; using the thresholds of %s"
-                " (references %s, memories %s) unless RERANK_MIN_RELEVANCE and"
-                " RERANK_MEMORY_MIN_RELEVANCE set them",
+                "rerank model %s has not been calibrated; its thresholds default to those of"
+                " %s (set RERANK_MIN_RELEVANCE and RERANK_MEMORY_MIN_RELEVANCE to choose):"
+                " using references %s, memories %s",
                 r.model, FALLBACK_MODEL, thresholds.references, thresholds.memories,
             )
         if reranker is None:

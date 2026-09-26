@@ -293,7 +293,7 @@ class StoryCorpus:
         corpus's embedder, replacing their old vectors (a passage keeps only one), `batch`
         at a time; returns how many it embedded, telling `progress` the count so far after
         each batch. Interrupted, what it finished is kept. A passage an import rewrites
-        meanwhile is left to the import."""
+        meanwhile is left to the import, and not counted."""
         model = self._embedder.model
         done = 0
         after = ("", -1)
@@ -312,7 +312,7 @@ class StoryCorpus:
                 [Document(r["text"], passage_title(r["source"], r["title"])) for r in rows]
             )
             with self._lock, self._db:
-                self._db.executemany(
+                updated = self._db.executemany(
                     "UPDATE episode_passages SET model = ?, embedding = ?"
                     " WHERE episode_id = ? AND seq = ? AND text = ?",
                     [
@@ -320,7 +320,7 @@ class StoryCorpus:
                         for r, v in zip(rows, vectors, strict=True)
                     ],
                 )
-            done += len(rows)
+            done += updated.rowcount
             after = (rows[-1]["episode_id"], rows[-1]["seq"])
             if progress is not None:
                 progress(done)

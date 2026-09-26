@@ -130,7 +130,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
 
 库里只保留当前模型的向量，换了之后要用库里的原文重新向量化一遍（不需要重新下载或导入剧情）：
 
-1. 改 `.env` 里的 `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL` 或 `EMBEDDING_DIMENSIONS`（换到 Gemini 时别忘了 `GEMINI_API_KEY`）。
+1. 改 `.env` 里的 `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL` 或 `EMBEDDING_DIMENSIONS`（换到 Gemini 时别忘了 `GEMINI_API_KEY`；换服务时把 `EMBEDDING_MODEL` 清空或改成新服务的模型，否则旧服务的模型名会原样发给新服务）。
 2. 重启后端：`docker compose -f docker-compose.prod.yml up -d`。启动日志里会提示剧情库有多少段缺当前模型的向量。
 3. 重新向量化：
 
@@ -138,13 +138,13 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
    docker compose -f docker-compose.prod.yml exec backend eidolon reembed
    ```
 
-   依次处理剧情库、角色资料和全部用户的记忆，打印进度和各处新向量化的条数；全部成功后删除旧模型的向量。整个剧情库要花一段时间（和首次同步的向量化差不多），期间服务照常可用，只是检索暂时只查得到已完成的部分，还没处理的记忆也暂时想不起来。中途中断或向量化出错时，已完成的部分会保留、旧向量不会删除，重新运行即可接着做。
+   依次处理剧情库、角色资料和全部用户的记忆，打印进度和各处新向量化的条数；全部成功后删除旧模型的向量。整个剧情库要花一段时间（和首次同步的向量化差不多），期间服务照常可用，只是剧情检索暂时只查得到已完成的部分（角色资料和记忆在被检索到时就会按新模型补上向量）。中途中断或向量化出错时，已完成的部分会保留、旧向量不会删除，重新运行即可接着做。
 
 模型的存储标识带上了维度（如 `gemini-embedding-2@1536`），所以只改维度也要走一遍这个流程。换回原来的模型同样要再跑一次。
 
 ## 校准重排阈值
 
-重排默认用硅基流动的 `Qwen/Qwen3-Reranker-4B`（国内站 `api.siliconflow.cn` 提供；国际站已标为 Deprecated）。重排分数低于阈值的剧情、角色资料或记忆不会放进提示词，阈值按模型分组：已校准的模型用各自的值，其他模型用 4B 的值并在启动日志里提示。也可以在 `.env` 里用 `RERANK_MIN_RELEVANCE`（剧情与角色资料）和 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）手动指定。
+重排默认用硅基流动的 `Qwen/Qwen3-Reranker-4B`（国内站 `api.siliconflow.cn` 提供；国际站已标为 Deprecated）。重排分数低于阈值的剧情、角色资料或记忆不会放进提示词，阈值按模型分组：0.6B 是校准过的 `0.3` / `0.01`；4B 在用下面的命令校准之前暂时沿用 0.6B 的值；其他模型用 4B 的值并在启动日志里提示。也可以在 `.env` 里用 `RERANK_MIN_RELEVANCE`（剧情与角色资料）和 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）手动指定。
 
 `eidolon eval rerank` 用仓库里的校准数据集（`backend/eval/rerank-calibration.toml`：一些有代表性的问题，以及哪些剧情、资料、记忆和它们相关；只有编号和标题，不含剧情原文）对着本地的剧情库跑一遍检索和重排，打印「相关」与「不相关」候选的分数分布、当前阈值下的命中与误放数量，以及没进入向量检索结果的相关候选（那是召回问题，调阈值解决不了）：
 
