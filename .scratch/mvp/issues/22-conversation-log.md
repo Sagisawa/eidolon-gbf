@@ -4,7 +4,7 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 背景（2026-09-26，架构体检候选 6）
 
@@ -36,6 +36,25 @@
 - **`done.message`**：回复条目整条换成 `toEntry(done.message)`（key 变为 `m<id>`，段落用落库版本）；用户那条保留临时 key，刷新后自然变成 `m<id>`。不为此改后端协议。
 - **测试**：vitest，只测 module，不测 React 组件；`npm test` 脚本；`vitest.config.ts` 把 `@/` 映射到 `src`。
 - 不改 `CONTEXT.md`（对话记录是界面状态；「对话」「回合」已够用），不写 ADR（都容易撤回）。
+
+### 实现（2026-09-26）
+
+- 新增 `frontend/src/lib/conversationLog.ts`：`conversationLog(state, action)`、`emptyLog`、`Entry`、`Turn`、`LogAction`；`withDelta`、`toEntry` 随之移入。进行中的回合总是最后两条条目，所以新条目用插入位置做临时 key（`new-<位置>`），reducer 保持纯函数（不用 `Date.now()` / `Math.random()`）。`submitted` 与未确认回合之外的 `user` 都先撤掉进行中的回合，保证最多一个。
+- 对话页改用 `useReducer`：文字路径把 SSE 事件原样喂入，流结束时既没有 `done` 也没有 `error` 就提示「回复中断了，请再试一次」；出错、抛错、中断都发 `interrupted` 并回填文字。通话路径把 `ended` 之外的事件喂入；用户挂断和 `onDropped` 都发 `interrupted`。删去 `pendingTurn`、`updateEntry`、`dropTurn`、`callTurn`。
+- `api.ts`：`TurnEvent` 补上 `user`，`CallEvent = TurnEvent | ended`。
+- vitest 5：`npm test`（`vitest run`），配置文件是 `vitest.config.mts` 而不是 `.ts`——`package.json` 没有 `"type": "module"`，`.ts` 会让 Vite 警告按 CommonJS 加载 ESM；`.mts` 与 Next 的 vitest 指南一致。16 个测试覆盖全部验收条目。
+- `npm run typecheck`、`npm run build`、`npm test` 通过。
+
+### 真实服务验证（2026-09-26）
+
+真实对话模型、Soniox、Fish Audio（`s2.1-pro-free`，真乃的音色）、SiliconFlow，`eidolon serve` 与 `next dev` 本机运行；浏览器是 Playwright 驱动的**真实 Chromium**，直接经 WebRTC 接通，没有用 aiortc 脚本。「麦克风」用 `--use-file-for-fake-audio-capture` 播放 SiliconFlow CosyVoice2 合成的中文问句。
+
+- 文字发送：用户条目与 pending 回复 48ms 内出现，流式填入，约 5.6 秒后回复换成落库版本（key 变为 `m<id>`），始终只有一组条目；刷新后一致。
+- 通话中说话：`user` 到达时开启回合，回复完成后 key 变为 `m<id>`。通话中打字：提交后不乐观显示，约 100ms 后随 `user` 事件出现并回复。两个回合都落库，刷新后一致。
+- 回复到一半挂断：回复条目显示「えっと…「忘」时点「挂断」，半截回复和它的用户条目立即消失，没有错误提示；刷新后也没有，库里没有这一回合。
+- 文字流没有 `done` 或 `error` 就结束：用 Playwright 拦截 `/turns`，只返回 `user` 和一个 `delta` 就关闭；回合被撤掉，文字回填，显示「回复中断了，请再试一次」。
+- 后端日志没有 ERROR；前端只有一个 `/favicon.ico` 404。开发模式下 StrictMode 让首次进入对话页的 effect 跑两遍、新建两个对话（页面用后一个），与本次改动无关。
+- 本机准备：NLTK `punkt_tab` 需从 nltk_data 的 GitHub raw zip 手动解压到 `~/nltk_data/tokenizers/`；SiliconFlow TTS 不接受 48000Hz 采样率，按 44.1k 合成后重采样到 48k。
 
 ## Agent Brief
 
@@ -69,18 +88,18 @@
 - `package.json`：`test` 脚本与 vitest 开发依赖；`vitest.config.ts`。
 
 **Acceptance criteria:**
-- [ ] 载入历史消息后，条目与消息一一对应，key 为 `m<id>`。
-- [ ] 提交后收到 `user`：只有一组用户条目 + 回复条目，没有重复。
-- [ ] 没有提交时收到 `user`（通话）：开启一个新回合。
-- [ ] `delta` 按段落与语言合并，两种语言交替到达时各自累加。
-- [ ] `done` 后回复条目换成落库版本（key `m<id>`、非 pending），进行中的回合清空。
-- [ ] `error` 与 `interrupted` 撤掉进行中回合的两个条目，其余条目不变。
-- [ ] 没有进行中的回合时，`delta`、`done`、`error`、`interrupted` 不改变状态。
-- [ ] 连续两个回合各自完成，互不干扰。
-- [ ] 通话中角色回复到一半时挂断或断线，半截回复从页面消失。
-- [ ] 文字事件流没有 `done` 或 `error` 就结束时，回合被撤掉、文字回填、显示「回复中断了，请再试一次」。
-- [ ] `npm run typecheck`、`npm run build`、`npm test` 通过。
-- [ ] 手动冒烟：文字发送；通话中说话与打字；回复到一半时挂断。通话若无法在环境里用真实浏览器进行，改用 ticket 20 的 aiortc 浏览器脚本，并在实现记录里写明用了哪种方式。
+- [x] 载入历史消息后，条目与消息一一对应，key 为 `m<id>`。
+- [x] 提交后收到 `user`：只有一组用户条目 + 回复条目，没有重复。
+- [x] 没有提交时收到 `user`（通话）：开启一个新回合。
+- [x] `delta` 按段落与语言合并，两种语言交替到达时各自累加。
+- [x] `done` 后回复条目换成落库版本（key `m<id>`、非 pending），进行中的回合清空。
+- [x] `error` 与 `interrupted` 撤掉进行中回合的两个条目，其余条目不变。
+- [x] 没有进行中的回合时，`delta`、`done`、`error`、`interrupted` 不改变状态。
+- [x] 连续两个回合各自完成，互不干扰。
+- [x] 通话中角色回复到一半时挂断或断线，半截回复从页面消失。
+- [x] 文字事件流没有 `done` 或 `error` 就结束时，回合被撤掉、文字回填、显示「回复中断了，请再试一次」。
+- [x] `npm run typecheck`、`npm run build`、`npm test` 通过。
+- [x] 手动冒烟：文字发送；通话中说话与打字；回复到一半时挂断。通话若无法在环境里用真实浏览器进行，改用 ticket 20 的 aiortc 浏览器脚本，并在实现记录里写明用了哪种方式。
 
 **Out of scope:**
 - wire 事件的运行时校验与 OpenAPI 类型生成。
