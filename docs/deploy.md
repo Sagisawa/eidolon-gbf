@@ -74,7 +74,7 @@ tail -f logs/story-sync.log   # 另开一个终端看进度
 17 4 * * 1 /home/you/eidolon-sc/deploy/story-sync.sh
 ```
 
-运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），并且对仓库目录有写权限（要写 `corpus/` 和 `logs/`）。脚本自己把输出写进日志，cron 不会发邮件。
+运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），并且对仓库目录有写权限（要写 `corpus/` 和 `logs/`）。主机上要有 `git` 和 `flock`（util-linux，一般发行版都自带）。脚本自己把输出写进日志，cron 不会发邮件。
 
 日志在 `logs/story-sync.log`（可用环境变量 `EIDOLON_SYNC_LOG` 改到别处），每次同步以「开始同步剧情库」开头、以「结束：退出码 N（含义）」结尾，中间是 git 的输出和同步报告：汉化版新增、更新了多少段（其中多少段取代了原文剧情），原文剧情下载、新增了多少，跳过了多少失败结局，新向量化了多少段，还有需要人工核对的失败嫌疑剧情和没有活动名的活动。看最近几次的结果：
 
@@ -85,15 +85,15 @@ grep '结束：' logs/story-sync.log | tail
 | 退出码 | 含义 | 要做什么 |
 |---|---|---|
 | 0 | 完全成功 | 不用管 |
-| 1 | 同步命令出错：配置错误（对照表格式不对、缺少 `SILICONFLOW_API_KEY` 等）或向量化中断 | 看日志里的错误；向量化中断时重新运行即可继续 |
+| 1 | 同步命令出错：配置错误（对照表格式不对、缺少 `SILICONFLOW_API_KEY` 等），或向量化中断 | 看日志里的错误；向量化中断时重新运行即可继续 |
 | 2 | 镜像或 API 出错，这次没拉到（全部）原文剧情；汉化版已照常导入 | 通常不用管，下次同步会接着拉取；连续几周都是 2 时看日志里的错误 |
-| 3 | git 没能更新 SCTranslationData（网络问题，或本地改动导致不能快进）；有已下载的数据时照常用它同步 | 看日志里 git 的输出，必要时删掉 `corpus/SCTranslationData` 让脚本重新克隆 |
-| 4 | 后端容器没有运行，或无法运行同步命令 | `docker compose -f docker-compose.prod.yml up -d` |
+| 3 | git 没能更新 SCTranslationData（网络问题、本地改动导致不能快进、`corpus/SCTranslationData` 不是 git 仓库）；有已下载的数据时照常用它同步 | 看日志里 git 的输出，必要时删掉 `corpus/SCTranslationData` 让脚本重新克隆。用 root 的 cron 运行、仓库却属于别的用户时，git 会报 `dubious ownership`，按提示执行 `git config --global --add safe.directory …`，或者改用仓库所属用户的 crontab |
+| 4 | 后端容器没有运行，或无法运行同步命令（没有 docker 的权限、找不到 flock 等，原因在日志里） | 容器没有运行时 `docker compose -f docker-compose.prod.yml up -d` |
 | 5 | 上一次同步还没结束（例如首次全量补齐还在跑），这次没有运行 | 不用管 |
 
 同步出错时退出码以 1、2 为准（git 同时出错会写在日志里）。日志每周只增加几十行，不用轮转；太大时直接删掉即可。
 
-额外的参数会传给 `eidolon story sync`，例如 `deploy/story-sync.sh --idol 1` 只同步櫻木真乃的卡和相册，用来试一试。脚本默认用 `docker-compose.prod.yml`，设置了 `COMPOSE_FILE` 时用它指定的配置。
+脚本默认用 `docker-compose.prod.yml`，设置了 `COMPOSE_FILE` 时用它指定的配置。想先小规模试一试，可以直接在容器里运行同步，例如只同步櫻木真乃的卡和相册：`docker compose -f docker-compose.prod.yml exec backend eidolon story sync --idol 1`。
 
 ### 缓存与手动导入
 
