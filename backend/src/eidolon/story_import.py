@@ -244,7 +244,7 @@ async def _import(
             if corpus.remove(source_id):
                 report.removed += 1
             continue
-        if imported_from != "csv" and corpus.imported_from(source_id) == "csv":
+        if imported_from != "csv" and corpus.is_translated(source_id):
             report.csv_versions_kept += 1
             continue
         episode = Episode(

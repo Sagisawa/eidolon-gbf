@@ -37,6 +37,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 | 🎙️ **实时语音通话** | 基于 WebRTC 的全双工通话；中文、日语都能说，角色用 Fish Audio 音色读日语原文，字幕同步显示 |
 | 🇯🇵 **日语原声 + 中文字幕** | 角色始终用日语回答，保留语气词和口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)） |
 | 📖 **回忆原作剧情** | 导入原作剧情库后，角色只回忆**自己出场过**的成功路线剧情，可以回答「那次……是怎么回事」 |
+| 🔄 **与原作同步** | 一条命令同步粉丝汉化和镜像上的日语原文，新卡、新活动一周内就能回忆；服务器上每周自动运行（[ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
 | 🧠 **跨角色共享记忆** | 对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)） |
 | ⚡ **按需检索** | 先由轻量模型判断这句话要不要查资料，寒暄闲聊零额外延迟 |
 | 🔌 **模型可自由替换** | 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种接口，也可接任意兼容的第三方服务 |
@@ -124,7 +125,7 @@ docker compose exec backend eidolon key issue alice   # 密钥只显示这一次
 > |---|---|
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
-> | 导入剧情库 | `SILICONFLOW_API_KEY` |
+> | 剧情库（同步或导入） | `SILICONFLOW_API_KEY` |
 > | 检索与记忆 | `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
 >
 > 所有配置项的说明见 [`.env.example`](.env.example)。
@@ -201,20 +202,48 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### 剧情库
 
-角色能回忆的原作剧情来自 [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) 的剧情 CSV，缺少的部分可以用游戏原始剧本 JSON 补全。剧情数据不进仓库（ADR-0003）：把它克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好 `SILICONFLOW_API_KEY`，然后导入：
+角色能回忆的原作剧情有两个来源，由一条同步命令一起维护：
+
+| | 汉化版 | 原文剧情 |
+|---|---|---|
+| 来源 | [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) 的剧情 CSV | ShinyColorsDB 的解码镜像（[ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
+| 内容 | 日语原文 + 粉丝中文翻译 | 只有日语原文 |
+| 时效 | 等粉丝翻译，几周到几个月 | 游戏更新后一周内 |
+
+两者是同一段剧情的两个状态：汉化版到位后按同一剧本编号取代原文剧情，仍在剧情目录的同一张卡或同一个活动下；角色回忆时两者没有区别。
+
+剧情数据不进仓库（ADR-0003）：把 SCTranslationData 克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好 `SILICONFLOW_API_KEY`，然后同步：
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
-docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+docker compose exec backend eidolon story sync
 ```
 
+首次同步要把镜像上缺的剧情全部补齐，大约一到两个小时，可以随时中断、重新运行接着做；之后每次只要几分钟。部署到服务器后由 cron 每周自动同步，见 [`docs/deploy.md`](docs/deploy.md)。
+
 <details>
-<summary><b>CSV 导入规则</b></summary>
+<summary><b>同步做了什么</b></summary>
 
 <br>
 
-- 每个 CSV 导入为一段剧情，以文件末尾 `info` 行指向的原始剧本为主键，重复导入会覆盖更新；内容没有变化的剧情不会重新向量化，所以原作更新后随时可以重新导入。
-- 失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按原始剧本编号识别并排除；制作人的选项不收录。
+`eidolon story sync` 先导入 SCTranslationData 的汉化版，再从镜像把剧情库里还缺的剧情作为原文剧情导入。已有汉化版的剧情不会被下载，也不会被覆盖。
+
+- **P 卡、S 卡剧情**：出处是卡名（如 `【ほわっとスマイル】櫻木真乃`，和 SCTranslationData 的目录名一致），标题是游戏里的剧情标题。
+- **培育剧情与特别剧情**：培育剧情（W.I.N.G.、感谢祭、G.R.A.D.、Landing Point、S.T.E.P. 及早间、应援、试镜、电视出演等交流）和生日、节日等特别剧情来自各偶像的游戏内相册（2024 年 3 月之后不再更新）。出处沿用 SCTranslationData 对相册同一部分的目录名（如 `W.I.N.G.編`、`Morning`），这一部分一段都没有翻译时用相册的名称；标题是相册里的标题。同步结束时会列出本次导入的培育剧情中标题带「敗」「失敗」、却没有被失败结局规则排除的剧情，请人工核对。
+- **活动剧情**：没有目录，按剧本编号（`4001` + 三位活动编号 + 两位话数）推算：补齐已知范围内缺的活动和话数，再从最新的活动往后试探几个编号，所以没有新活动时只多几次 404 请求。活动名来自 `deploy/event-names.toml`（参照 [`deploy/event-names.example.toml`](deploy/event-names.example.toml) 编写，每出一个新活动加一行，名字和 SCTranslationData 里这个活动的目录名一致；不进仓库），改完后下一次同步就更新剧情目录。没填的活动沿用 SCTranslationData 里已翻译的几话的目录名，一话都没有翻译时显示为「活动剧情 NNN」「第N話」，同步结束时会列出这些活动编号。也可以用 `--events` 指定对照表。
+- **缓存**：下载的剧本缓存在 `EIDOLON_MIRROR_CACHE_PATH`（容器里是数据卷中的 `/data/mirror`，本地默认 `corpus/mirror`），不进仓库。没有变化的卡和相册不再请求，只在本地核对剧本文件；变化了的用 ETag 做条件请求。删掉缓存里的某个剧本，下次同步会重新下载。镜像上没有的剧本会留下一个 `.missing` 标记：卡牌和活动每次同步都再试，相册里的要等相册变化后才再试，删掉标记可以让它马上再试。
+- **礼貌与容错**：请求逐个发出，间隔约一秒。镜像连不上时汉化版照常导入，命令以退出码 2 结束；中途中断后重新运行会接着做，已下载的剧本不会重新下载。
+- **参数**：`--idol 1` 只同步某位偶像的卡和相册、不同步活动剧情（镜像 API 的偶像编号，可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
+
+</details>
+
+<details>
+<summary><b>导入规则（汉化版与原文剧情通用）</b></summary>
+
+<br>
+
+- 每段剧情以原始剧本编号为主键（CSV 取文件末尾 `info` 行指向的剧本），重复导入会覆盖更新；内容没有变化的剧情不会重新向量化，所以随时可以重新导入或同步。
+- 只收录正式经历：失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按原始剧本编号识别并排除；制作人的选项不收录，角色对每个选项的反应都保留。
 - 出场角色按台词的说话人识别：`characters.toml` 里每位角色的 `speakers` 列出她在剧本里的名字（如 `真乃`）。修改 `speakers` 或新增角色后需要重新导入。
 - 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。
 - 剧情目录按「角色 → 卡或活动 → 话」分层，直接由剧情库生成，所以总是和最近一次导入一致；导入结束时会列出每位角色的目录规模。
@@ -222,11 +251,17 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 </details>
 
 <details>
-<summary><b>用游戏原始剧本 JSON 补全</b></summary>
+<summary><b>手动导入 CSV 或游戏原始剧本 JSON</b></summary>
 
 <br>
 
-SCTranslationData 里没有的剧情，可以用游戏原始剧本 JSON 补全（每个文件是游戏里一段剧本的帧数组，字段有 `speaker`、`text`、`select` 等）：
+不想从镜像拉取时，可以只导入 SCTranslationData 的汉化版：
+
+```sh
+docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+```
+
+手头有游戏原始剧本 JSON 时（每个文件是游戏里一段剧本的帧数组，字段有 `speaker`、`text`、`select` 等），也可以用它补全：
 
 ```sh
 docker compose exec backend eidolon story import-json /corpus/scripts
@@ -234,32 +269,11 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 - 剧本编号取自文件路径，可以按游戏里的路径存放（`produce_events/100100101.json`），也可以用汉化插件的命名（`produce_events_100100101.json`）。路径里没有剧本编号的文件会被跳过并给出警告（无法和同一段剧本的 CSV 去重）。
 - 像 SCTranslationData 那样放在「出处/」目录下时，出处取目录名、标题取文件名；按游戏路径存放时，出处是去掉最后两位话数的剧本编号（如 `produce_events/2011005`），标题是 `produce_events_201100501` 这样的名字。
-- 规则和 CSV 相同：排除失败结局，制作人的选项不收录，角色对每个选项的反应都保留。
-- 同一段剧本已经从 CSV 导入过时，保留带中文翻译的 CSV 版本，JSON 不会覆盖它；反过来，之后导入的 CSV 会替换 JSON 版本。只从 JSON 导入的剧情没有中文翻译，但检索和剧情目录照常可用。
+- 同一段剧本已经从 CSV 导入过时，保留带中文翻译的 CSV 版本，JSON 不会覆盖它；反过来，之后导入的 CSV 会替换 JSON 版本。
 
 </details>
 
-<details>
-<summary><b>一条命令同步：汉化版 + 镜像上的原文剧情</b></summary>
-
-<br>
-
-`eidolon story sync` 先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 的解码镜像（ADR-0004）把剧情库里还缺的 P 卡、S 卡剧情、培育剧情和活动剧情作为原文剧情导入：
-
-```sh
-docker compose exec backend eidolon story sync
-```
-
-- 原文剧情的出处是卡名（如 `【ほわっとスマイル】櫻木真乃`，和 SCTranslationData 的目录名一致），标题是游戏里的剧情标题；汉化版到位后按同一剧本编号取代它，仍在同一张卡下。已有汉化版的剧情不会被下载，也不会被覆盖。
-- 培育剧情（W.I.N.G.、感谢祭、G.R.A.D.、Landing Point、S.T.E.P. 及早间、应援、试镜、电视出演等交流）和生日、节日等特别剧情来自各偶像的游戏内相册（2024 年 3 月之后不再更新）。出处沿用 SCTranslationData 对相册同一部分的目录名（如 `W.I.N.G.編`、`Morning`），这一部分一段都没有翻译时用相册的名称；标题是相册里的标题。失败结局照常不导入，也不下载；同步结束时会列出本次导入的培育剧情中标题带「敗」「失敗」、却没有被失败结局规则排除的剧情，请人工核对。相册没有变化时只发一次条件请求；相册里列出、镜像上没有的剧本要等相册变化后才再试。
-- 活动剧情没有目录，按剧本编号（`4001` + 三位活动编号 + 两位话数）推算：补齐剧情库已知范围内缺的活动和话数，再从最新的活动往后试探几个编号，所以没有新活动时只多几次 404 请求。活动名来自 `deploy/event-names.toml`（参照 `deploy/event-names.example.toml` 编写，每出一个新活动加一行，名字和 SCTranslationData 里这个活动的目录名一致；不进仓库），改完后下一次同步就更新剧情目录；没填的活动沿用 SCTranslationData 里已翻译的几话的目录名，一话都没有翻译时显示为「活动剧情 NNN」「第N話」，同步结束时会列出这些活动编号。也可以用 `--events` 指定对照表。
-- 下载的剧本缓存在 `EIDOLON_MIRROR_CACHE_PATH`（容器里是数据卷中的 `/data/mirror`，本地默认 `corpus/mirror`），不进仓库。没有变化的卡不再请求，变化了的卡和相册用 ETag 做条件请求；请求逐个发出，间隔约一秒，所以首次全量补齐要一到两个小时，之后每次只要几分钟。
-- 镜像连不上时汉化版照常导入，命令以退出码 2 结束；中途中断后重新运行会接着做，已下载的剧本不会重新下载。
-- `--idol 1` 只同步某位偶像的卡和相册、不同步活动剧情（镜像 API 的偶像编号，可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
-
-</details>
-
-本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`（`import-json` 同理）。
+本地开发时在 `backend/` 下用 `uv run eidolon --db data/eidolon.db story sync`（`import-csv`、`import-json` 同理）。
 
 ### 对话中的检索
 
@@ -365,13 +379,18 @@ eidolon-sc/
 │   │   ├── call.py           #   语音通话：信令与 Pipecat 管线
 │   │   ├── retrieval.py      #   检索判断、剧情/资料检索与重排
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
-│   │   ├── story_import.py   #   剧情库导入（CSV / JSON）
+│   │   ├── corpus.py         #   剧情库：存储、向量检索与剧情目录
+│   │   ├── story_import.py   #   剧情库导入（CSV / JSON）与正式经历规则
+│   │   ├── story_sync.py     #   与原作同步（eidolon story sync）
+│   │   ├── mirror.py         #   ShinyColorsDB 镜像与 API 的客户端
+│   │   ├── script_cache.py   #   同步下载的原始剧本缓存
 │   │   ├── sheet_draft.py    #   人设初稿生成
 │   │   └── llm/              #   三种模型接口的适配
 │   └── tests/
 ├── frontend/                 # Next.js 前端
 ├── characters/               # 角色配置、人设、资料、头像（后三者不进仓库）
-├── deploy/                   # Caddyfile
+├── corpus/                   # 剧情数据与镜像缓存（不进仓库）
+├── deploy/                   # Caddyfile、每周同步脚本、活动名对照表示例
 ├── docs/
 │   ├── adr/                  # 架构决策记录
 │   └── deploy.md             # VPS 部署指南

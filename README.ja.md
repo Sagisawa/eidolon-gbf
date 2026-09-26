@@ -40,6 +40,7 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 | 🎙️ **リアルタイム音声通話** | WebRTC による全二重通話。中国語でも日本語でも話せて、アイドルは Fish Audio の音声で日本語の返事を読み上げ、字幕も同時に表示 |
 | 🇯🇵 **日本語の声 + 中国語字幕** | アイドルは常に日本語で答え、語尾や口癖をそのまま残しつつ、一文ごとに中国語字幕を付与（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)） |
 | 📖 **コミュの記憶** | シナリオを取り込むと、アイドルは**自分が登場した**正規ルートのコミュだけを思い出し、「あのときって……」という質問に答えられる |
+| 🔄 **原作との同期** | ファン翻訳とミラー上の日本語原文をコマンド 1 つで同期し、新しいカードやイベントも 1 週間以内に思い出せる。サーバーでは毎週自動実行（[ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
 | 🧠 **キャラクター間で共有されるメモリー** | 真乃に話したことは恋鐘も知っている——ただし「真乃から聞いたんやけど……」という口ぶりで（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)） |
 | ⚡ **必要なときだけ検索** | 軽量モデルがまず検索の要否を判断するので、雑談では余計な遅延ゼロ |
 | 🔌 **モデルは自由に差し替え可能** | OpenAI Chat Completions・OpenAI Responses・Anthropic Messages の 3 方式に対応し、互換のサードパーティサービスも利用可能 |
@@ -127,7 +128,7 @@ docker compose exec backend eidolon key issue alice   # キーは一度だけ表
 > |---|---|
 > | テキストチャット | `CHAT_LLM_*` |
 > | 音声通話 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
-> | シナリオの取り込み | `SILICONFLOW_API_KEY` |
+> | シナリオ（同期または取り込み） | `SILICONFLOW_API_KEY` |
 > | 検索とメモリー | `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
 >
 > 全設定項目の説明は [`.env.example`](.env.example) にあります（コメントは中国語）。
@@ -204,20 +205,48 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### シナリオライブラリ
 
-アイドルが思い出せる原作のコミュは [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) のシナリオ CSV から取り込み、足りない分はゲームの生スクリプト JSON で補えます。シナリオデータはリポジトリに含めません（ADR-0003）。リポジトリ直下の `corpus/` に clone し（git 管理外で、docker compose がバックエンドコンテナの `/corpus` に読み取り専用でマウント）、`.env` に `SILICONFLOW_API_KEY` を設定してから取り込みます：
+アイドルが思い出せる原作のコミュには 2 つの出どころがあり、同期コマンド 1 つでまとめて最新に保ちます：
+
+| | 翻訳版 | 原文コミュ |
+|---|---|---|
+| 出どころ | [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) のシナリオ CSV | ShinyColorsDB のデコード済みミラー（[ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
+| 内容 | 日本語原文 + ファンによる中国語訳 | 日本語原文のみ |
+| 鮮度 | 有志の翻訳待ち：数週間〜数か月 | ゲーム更新から 1 週間以内 |
+
+どちらも同じコミュの 2 つの状態です。翻訳版が揃うと同じスクリプト番号で原文コミュを置き換え、コミュ目録では同じカードやイベントの下に残ります。アイドルが思い出すときに両者の区別はありません。
+
+シナリオデータはリポジトリに含めません（ADR-0003）。SCTranslationData をリポジトリ直下の `corpus/` に clone し（git 管理外で、docker compose がバックエンドコンテナの `/corpus` に読み取り専用でマウント）、`.env` に `SILICONFLOW_API_KEY` を設定してから同期します：
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
-docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+docker compose exec backend eidolon story sync
 ```
 
+初回の同期ではミラーにある不足分をすべて補うため 1〜2 時間かかりますが、いつ中断しても再実行すれば続きから再開します。以降は数分で終わります。サーバーでは cron が毎週自動で同期します（[`docs/deploy.md`](docs/deploy.md) 参照）。
+
 <details>
-<summary><b>CSV 取り込みのルール</b></summary>
+<summary><b>同期でやること</b></summary>
 
 <br>
 
-- CSV 1 つが 1 コミュになり、ファイル末尾の `info` 行が指す元スクリプトを主キーとします。再取り込みすると上書き更新され、内容が変わっていないコミュは再ベクトル化されないので、原作の更新後はいつでも取り込み直せます。
-- 失敗エンド（W.I.N.G. 敗退、シーズン目標未達成、G.R.A.D. 敗退、オーディション落選、約束を守れなかった場合）はスクリプト番号で識別して除外します。プロデューサーの選択肢は記録しません。
+`eidolon story sync` は SCTranslationData の翻訳版を取り込んだあと、シナリオライブラリにまだないコミュをミラーから原文コミュとして取り込みます。翻訳版があるコミュはダウンロードも上書きもしません。
+
+- **P カード・S カードのコミュ**：出典はカード名（例：`【ほわっとスマイル】櫻木真乃`。SCTranslationData のディレクトリ名と同じ形式）、タイトルはゲーム内のコミュタイトルです。
+- **プロデュースコミュとスペシャルコミュ**：プロデュースコミュ（W.I.N.G.・感謝祭・G.R.A.D.・Landing Point・S.T.E.P.、およびモーニング・応援・オーディション・TV 出演などのコミュ）と、誕生日やシーズンなどのスペシャルコミュは、各アイドルのゲーム内アルバム（2024 年 3 月以降は更新なし）から取ります。出典は SCTranslationData がアルバムの同じ部分に使っているディレクトリ名（例：`W.I.N.G.編`、`Morning`）、その部分に翻訳が 1 つもなければアルバムの名前で、タイトルはアルバムのタイトルです。同期の最後に、今回取り込んだプロデュースコミュのうちタイトルに「敗」「失敗」を含むのに敗北エンドのルールで除外されなかったものを一覧表示するので、手で確認してください。
+- **イベントコミュ**：一覧がないため、スクリプト番号（`4001` + 3 桁のイベント番号 + 2 桁の話数）から推測します。既知の範囲で欠けているイベントと話を補い、最新のイベントの後ろをいくつか試すので、新しいイベントがなければ 404 のリクエストが数件増えるだけです。イベント名は `deploy/event-names.toml` から取ります（[`deploy/event-names.example.toml`](deploy/event-names.example.toml) を参考に作成し、新しいイベントごとに 1 行追加。名前は SCTranslationData のそのイベントのディレクトリ名と同じにします。リポジトリには入りません）。編集すると次回の同期でコミュ目録に反映されます。表にないイベントは SCTranslationData で翻訳済みの話のディレクトリ名を使い、1 話も翻訳がなければ「活动剧情 NNN」「第N話」と表示され、同期の最後にその番号が一覧表示されます。`--events` で別の表を指定できます。
+- **キャッシュ**：ダウンロードしたスクリプトは `EIDOLON_MIRROR_CACHE_PATH`（コンテナではデータボリューム内の `/data/mirror`、ローカルのデフォルトは `corpus/mirror`）にキャッシュされ、リポジトリには入りません。変化のないカードとアルバムは再リクエストせず、ディスク上のファイルだけを確認します。変化したものは ETag による条件付きリクエストを使います。キャッシュからスクリプトを削除すると、次回の同期で再ダウンロードされます。ミラーにないスクリプトには `.missing` マークが残ります。カードとイベントは毎回の同期で再試行し、アルバムのものはアルバムが変わるまで再試行しません。マークを削除すればすぐに再試行します。
+- **礼儀と障害時の動作**：リクエストは 1 件ずつ約 1 秒間隔で送ります。ミラーに接続できない場合も翻訳版は通常どおり取り込まれ、コマンドは終了コード 2 で終わります。中断後に再実行すると続きから再開し、ダウンロード済みのスクリプトは再ダウンロードしません。
+- **オプション**：`--idol 1` で特定のアイドルのカードとアルバムだけを同期できます（イベントは同期しません。ミラー API のアイドル番号、複数指定可）。翻訳版のディレクトリはデフォルトで `EIDOLON_STORY_PATH`、`--story` でも指定できます。
+
+</details>
+
+<details>
+<summary><b>取り込みのルール（翻訳版・原文コミュ共通）</b></summary>
+
+<br>
+
+- 各コミュは元スクリプトの番号を主キーとします（CSV ではファイル末尾の `info` 行が指すスクリプト）。再取り込みすると上書き更新され、内容が変わっていないコミュは再ベクトル化されないので、いつでも取り込み直しや同期ができます。
+- 正規ルートのみを収録します：失敗エンド（W.I.N.G. 敗退、シーズン目標未達成、G.R.A.D. 敗退、オーディション落選、約束を守れなかった場合）はスクリプト番号で識別して除外し、プロデューサーの選択肢は記録せず、各選択肢に対するアイドルの反応はすべて残します。
 - 登場キャラクターはセリフの話者で識別します。`characters.toml` の各キャラクターの `speakers` に、スクリプト上での名前（例：`真乃`）を列挙します。`speakers` の変更やキャラクター追加のあとは再取り込みが必要です。
 - ベクトル化のデフォルトは SiliconFlow の `Qwen/Qwen3-Embedding-0.6B` で、`EMBEDDING_MODEL` で変更できます。モデルを変えたら再取り込みしてください。登場キャラクターが空でないコミュだけがベクトル化されます。
 - コミュ目録は「キャラクター → カードまたはイベント → 話」の階層で、シナリオライブラリから直接生成されるため、常に最新の取り込み結果と一致します。取り込みの最後に各キャラクターの目録規模が表示されます。
@@ -225,11 +254,17 @@ docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/d
 </details>
 
 <details>
-<summary><b>ゲームの生スクリプト JSON で補完する</b></summary>
+<summary><b>CSV やゲームの生スクリプト JSON を手動で取り込む</b></summary>
 
 <br>
 
-SCTranslationData にないコミュは、ゲームの生スクリプト JSON で補えます（各ファイルは 1 スクリプト分のフレーム配列で、`speaker`・`text`・`select` などのフィールドを持ちます）：
+ミラーを使わない場合は、SCTranslationData の翻訳版だけを取り込めます：
+
+```sh
+docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+```
+
+ゲームの生スクリプト JSON が手元にあれば（各ファイルは 1 スクリプト分のフレーム配列で、`speaker`・`text`・`select` などのフィールドを持ちます）、それで補うこともできます：
 
 ```sh
 docker compose exec backend eidolon story import-json /corpus/scripts
@@ -237,32 +272,11 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 - スクリプト番号はファイルパスから取得します。ゲーム内のパス（`produce_events/100100101.json`）でも、翻訳プラグインの命名（`produce_events_100100101.json`）でも構いません。パスにスクリプト番号がないファイルは警告を出してスキップします（同じスクリプトの CSV と重複排除できないため）。
 - SCTranslationData のように「出典/」ディレクトリ以下に置いた場合は、出典がディレクトリ名、タイトルがファイル名になります。ゲーム内のパスで置いた場合は、出典は末尾 2 桁（話数）を除いたスクリプト番号（例：`produce_events/2011005`）、タイトルは `produce_events_201100501` のような名前になります。
-- ルールは CSV と同じです：失敗エンドは除外、プロデューサーの選択肢は記録せず、各選択肢に対するアイドルの反応はすべて残します。
-- 同じスクリプトがすでに CSV から取り込まれている場合は中国語訳付きの CSV 版を優先し、JSON では上書きしません。逆に、あとから取り込んだ CSV は JSON 版を置き換えます。JSON のみから取り込んだコミュには中国語訳がありませんが、検索とコミュ目録は通常どおり使えます。
+- 同じスクリプトがすでに CSV から取り込まれている場合は中国語訳付きの CSV 版を優先し、JSON では上書きしません。逆に、あとから取り込んだ CSV は JSON 版を置き換えます。
 
 </details>
 
-<details>
-<summary><b>コマンド 1 つで同期：翻訳版＋ミラーの原文コミュ</b></summary>
-
-<br>
-
-`eidolon story sync` は SCTranslationData の翻訳版を取り込んだあと、ShinyColorsDB のデコード済みミラー（ADR-0004）から、シナリオライブラリにまだない P カード・S カード・プロデュース・イベントのコミュを原文コミュとして取り込みます：
-
-```sh
-docker compose exec backend eidolon story sync
-```
-
-- 原文コミュの出典はカード名（例：`【ほわっとスマイル】櫻木真乃`。SCTranslationData のディレクトリ名と同じ形式）、タイトルはゲーム内のコミュタイトルです。翻訳版が揃うと同じスクリプト番号で置き換わり、同じカードの下に残ります。翻訳版があるコミュはダウンロードも上書きもしません。
-- プロデュースコミュ（W.I.N.G.・感謝祭・G.R.A.D.・Landing Point・S.T.E.P.、およびモーニング・応援・オーディション・TV 出演などのコミュ）と、誕生日やシーズンなどのスペシャルコミュは、各アイドルのゲーム内アルバム（2024 年 3 月以降は更新なし）から取ります。出典は SCTranslationData がアルバムの同じ部分に使っているディレクトリ名（例：`W.I.N.G.編`、`Morning`）、その部分に翻訳が 1 つもなければアルバムの名前で、タイトルはアルバムのタイトルです。敗北エンドはダウンロードも取り込みもしません。同期の最後に、今回取り込んだプロデュースコミュのうちタイトルに「敗」「失敗」を含むのに敗北エンドのルールで除外されなかったものを一覧表示するので、手で確認してください。アルバムに変化がなければ条件付きリクエスト 1 件だけで、アルバムにあってミラーにないスクリプトはアルバムが変わるまで再試行しません。
-- イベントコミュには一覧がないため、スクリプト番号（`4001` + 3 桁のイベント番号 + 2 桁の話数）から推測します。既知の範囲で欠けているイベントと話を補い、最新のイベントの後ろをいくつか試すので、新しいイベントがなければ 404 のリクエストが数件増えるだけです。イベント名は `deploy/event-names.toml` から取ります（`deploy/event-names.example.toml` を参考に作成し、新しいイベントごとに 1 行追加。名前は SCTranslationData のそのイベントのディレクトリ名と同じにします。リポジトリには入りません）。編集すると次回の同期でシナリオ目録に反映されます。表にないイベントは SCTranslationData で翻訳済みの話のディレクトリ名を使い、1 話も翻訳がなければ「活动剧情 NNN」「第N話」と表示され、同期の最後にその番号が一覧表示されます。`--events` で別の表を指定できます。
-- ダウンロードしたスクリプトは `EIDOLON_MIRROR_CACHE_PATH`（コンテナではデータボリューム内の `/data/mirror`、ローカルのデフォルトは `corpus/mirror`）にキャッシュされ、リポジトリには入りません。変化のないカードは再リクエストせず、変化したカードとアルバムは ETag による条件付きリクエストを使います。リクエストは 1 件ずつ約 1 秒間隔なので、初回の全量同期は 1〜2 時間かかり、以降は数分で終わります。
-- ミラーに接続できない場合も翻訳版は通常どおり取り込まれ、コマンドは終了コード 2 で終わります。中断後に再実行すると続きから再開し、ダウンロード済みのスクリプトは再ダウンロードしません。
-- `--idol 1` で特定のアイドルのカードとアルバムだけを同期できます（イベントは同期しません。ミラー API のアイドル番号、複数指定可）。翻訳版のディレクトリはデフォルトで `EIDOLON_STORY_PATH`、`--story` でも指定できます。
-
-</details>
-
-ローカル開発では `uv run eidolon --db data/eidolon.db story import-csv <ディレクトリ>` を使います（`import-json` も同様）。
+ローカル開発では `backend/` で `uv run eidolon --db data/eidolon.db story sync` を使います（`import-csv`・`import-json` も同様）。
 
 ### 会話中の検索
 
@@ -368,13 +382,18 @@ eidolon-sc/
 │   │   ├── call.py           #   音声通話：シグナリングと Pipecat パイプライン
 │   │   ├── retrieval.py      #   検索判断、コミュ／資料の検索と並べ替え
 │   │   ├── memory.py         #   会話・キャラクターをまたいで共有されるメモリー
-│   │   ├── story_import.py   #   シナリオの取り込み（CSV / JSON）
+│   │   ├── corpus.py         #   シナリオライブラリ：保存、ベクトル検索、コミュ目録
+│   │   ├── story_import.py   #   シナリオの取り込み（CSV / JSON）と正規ルートのルール
+│   │   ├── story_sync.py     #   原作との同期（eidolon story sync）
+│   │   ├── mirror.py         #   ShinyColorsDB のミラーと API のクライアント
+│   │   ├── script_cache.py   #   同期でダウンロードした生スクリプトのキャッシュ
 │   │   ├── sheet_draft.py    #   キャラクターシートの下書き生成
 │   │   └── llm/              #   3 種類のモデル方式のアダプター
 │   └── tests/
 ├── frontend/                 # Next.js フロントエンド
 ├── characters/               # キャラクター設定・シート・資料・アイコン（後ろ 3 つはリポジトリ外）
-├── deploy/                   # Caddyfile
+├── corpus/                   # シナリオデータとミラーのキャッシュ（リポジトリ外）
+├── deploy/                   # Caddyfile、毎週の同期スクリプト、イベント名対応表のサンプル
 ├── docs/
 │   ├── adr/                  # アーキテクチャ決定記録
 │   └── deploy.md             # VPS デプロイガイド

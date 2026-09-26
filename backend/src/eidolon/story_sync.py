@@ -8,13 +8,13 @@ episode is never replaced by an untranslated one, and a translation that arrives
 later replaces the untranslated episode under the same card, since SCTranslationData
 names a card's directory the way the game names the card.
 
-Scripts are downloaded into a cache directory that stays out of the repository
-(ADR-0003), laid out as the game does (`produce_events/200100401.json`), each with its
-ETag beside it. What the API said about each card is kept there too, so a card whose
-data has not changed since the last sync is not asked about again, nor are its
-scripts; a card that has changed has its scripts asked for conditionally. Scripts
-SCTranslationData has translated are never downloaded. A script the mirror does not
-have is not an error; its card is asked about again next time.
+Scripts are kept in a cache directory that stays out of the repository (ADR-0003),
+by `script_cache`: SCTranslationData's translations and failure endings are never
+downloaded, and a script whose file is gone is downloaded again. What the API said
+about each card is kept there too, so a card whose data has not changed since the
+last sync is not asked about again, only its scripts checked for on disk; a card that
+has changed has its scripts asked for conditionally. A script the mirror does not
+have is not an error; it is asked for again next time.
 
 Event episodes have no listing: their scripts are numbered `4001` + the event's three
 digits + the episode's two (`game_event_communications/400109701`), so they are found
@@ -25,21 +25,22 @@ walked again every sync, in case the mirror has more of it, and a few numbers af
 it are tried for new events, so a sync with nothing new costs a handful of 404s. A
 number the mirror had nothing under while a later event existed is taken as skipped
 for good, and an event no longer the latest is not asked about again: the game
-releases an event's episodes together. Episodes already downloaded are not asked
-for again, since events carry no version to tell they changed.
+releases an event's episodes together; its episodes are only checked for on disk.
+Episodes already downloaded are not asked for again, since events carry no version to
+tell they changed.
 
 Produce episodes (W.I.N.G. and the other produce modes, and the communications
 along the way) and special ones come from each idol's album in the game, which
 lists them with their script, title and the part of the album they are in. The
 albums have not changed since 2024-03, so each is asked for conditionally, on its
-ETag, and only one that has changed has its scripts looked at again; a script it
-lists that the mirror does not have is not asked for again until then. An episode
-is filed under the name SCTranslationData files the translated episodes of the same
-part of her album under (`W.I.N.G.編`, `Morning`), if any, or else under the album's
-name for that part, so a translation that arrives later replaces it in the same
-place; its title is the album's. Produce episodes imported with a title that reads
-like a failure ending, although the rules do not recognise their script as one, are
-listed for the admin to check.
+ETag, and only one that has changed has its scripts asked about again (they are
+checked for on disk every sync); a script it lists that the mirror does not have is
+not asked for again until then. An episode is filed under the name SCTranslationData
+files the translated episodes of the same part of her album under (`W.I.N.G.編`,
+`Morning`), if any, or else under the album's name for that part, so a translation
+that arrives later replaces it in the same place; its title is the album's. Produce
+episodes imported with a title that reads like a failure ending, although the rules
+do not recognise their script as one, are listed for the admin to check.
 
 An event's name comes from the admin's table of event names (`load_event_names`),
 read at every import so that a name filled in later reaches the catalog; an event
@@ -64,13 +65,13 @@ from pathlib import Path
 from eidolon.characters import Character
 from eidolon.corpus import CatalogEntry, StoryCorpus
 from eidolon.mirror import ALBUM_IDOLS, AlbumEpisode, CardEpisode, Mirror, MirrorError
+from eidolon.script_cache import Fetched, ScriptCache
 from eidolon.story_import import (
     ImportReport,
     ScriptFile,
     category_of,
     import_csv_directory,
     import_script_files,
-    is_failure_ending,
 )
 
 log = logging.getLogger(__name__)
@@ -139,7 +140,7 @@ class SyncReport:
     SCTranslationData has translated, so were not downloaded."""
     downloaded: int = 0
     missing: int = 0
-    """Scripts a card lists that the mirror does not have."""
+    """Scripts a card lists that the mirror does not have, asked for this sync."""
     album_missing: int = 0
     """Scripts an album asked about this sync lists that the mirror does not have."""
     album_failures: int = 0
@@ -175,9 +176,9 @@ class SyncReport:
 class _CardState:
     name: str
     version: str
+    """The card's version when it was last asked about, or an earlier one (or "") if
+    the sync stopped before its scripts were all asked for."""
     episodes: list[CardEpisode]
-    complete: bool
-    """Every script it lists was either downloaded or already translated."""
 
 
 @dataclass
@@ -188,8 +189,8 @@ class _AlbumState:
 
 
 class _Cache:
-    """The cache directory: scripts, their ETags, what the API said about each card,
-    the events walked and the albums read."""
+    """What the mirror said about each card, the events walked and the albums read,
+    kept in the cache directory beside the scripts."""
 
     def __init__(self, directory: Path) -> None:
         self._directory = directory
@@ -201,7 +202,6 @@ class _Cache:
                     card["name"],
                     card["version"],
                     [CardEpisode(**episode) for episode in card["episodes"]],
-                    card["complete"],
                 )
         self.events: dict[int, int] = {}
         """Each event walked to its end, and how many episodes it has."""
@@ -221,23 +221,6 @@ class _Cache:
                 for idol, album in json.loads(path.read_text(encoding="utf-8")).items()
             }
 
-    def script_path(self, script: str) -> Path:
-        return self._directory / _SCRIPTS_DIR / f"{script}.json"
-
-    def etag(self, script: str) -> str | None:
-        path = self._etag_path(script)
-        return path.read_text(encoding="utf-8") if path.exists() else None
-
-    def set_etag(self, script: str, etag: str | None) -> None:
-        path = self._etag_path(script)
-        if etag:
-            path.write_text(etag, encoding="utf-8")
-        else:
-            path.unlink(missing_ok=True)
-
-    def event_scripts(self) -> list[Path]:
-        return sorted((self._directory / _SCRIPTS_DIR / _EVENT_SCRIPTS).glob("*.json"))
-
     def save(self) -> None:
         self._write(_CARDS_FILE, {uuid: asdict(card) for uuid, card in self.cards.items()})
 
@@ -256,9 +239,6 @@ class _Cache:
         partial.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
         os.replace(partial, path)
 
-    def _etag_path(self, script: str) -> Path:
-        return self.script_path(script).with_suffix(".etag")
-
 
 async def sync_stories(
     story_directory: Path,
@@ -276,26 +256,31 @@ async def sync_stories(
     characters = list(characters)
     report = SyncReport(await import_csv_directory(story_directory, corpus, characters))
     cache = _Cache(cache_directory)
+    scripts = ScriptCache(cache_directory / _SCRIPTS_DIR, mirror, corpus)
     errors = []
     try:
-        await _fetch_cards(mirror, cache, corpus, report, idols)
+        await _fetch_cards(mirror, scripts, cache, report, idols)
     except MirrorError as e:
         errors.append(str(e))
     try:  # the albums are elsewhere
-        await _fetch_albums(mirror, cache, corpus, report, idols)
+        await _fetch_albums(mirror, scripts, cache, report, idols)
     except MirrorError as e:
         errors.append(str(e))
     if idols is None:
         try:  # the viewer may well be up when the API is not
-            await _fetch_events(mirror, cache, corpus, report)
+            await _fetch_events(scripts, cache, corpus, report)
         except MirrorError as e:
             errors.append(str(e))
     report.mirror_error = "；".join(errors) or None
     names = event_names or {}
-    event_files, report.unnamed_events = _untranslated_event_scripts(cache, corpus, names)
+    event_files, report.unnamed_events = _untranslated_event_scripts(scripts, corpus, names)
     files = {
         file.source_id: file
-        for file in [*event_files, *_untranslated_album_scripts(cache, corpus), *_untranslated_scripts(cache, corpus)]
+        for file in [
+            *event_files,
+            *_untranslated_album_scripts(scripts, cache, corpus),
+            *_untranslated_scripts(scripts, cache, corpus),
+        ]
     }  # a script both a card and an album list is the card's
     report.untranslated = await import_script_files(
         sorted(files.values(), key=lambda file: file.source_id), corpus, characters
@@ -305,8 +290,8 @@ async def sync_stories(
 
 async def _fetch_cards(
     mirror: Mirror,
+    scripts: ScriptCache,
     cache: _Cache,
-    corpus: StoryCorpus,
     report: SyncReport,
     idols: Sequence[int] | None,
 ) -> None:
@@ -318,45 +303,39 @@ async def _fetch_cards(
             seen.add(card.uuid)
             known = cache.cards.get(card.uuid)
             changed = known is None or known.version != card.version
-            if known is None or changed:
-                episodes = await mirror.episodes(card)
-            elif known.complete:
+            if known is not None and not changed:
+                # Only a script deleted from the cache, or not yet on the mirror, is asked for.
+                for episode in known.episodes:
+                    _count_card_script(await scripts.fetch(episode.script), episode, report)
                 continue
-            else:
-                episodes = known.episodes
+            episodes = await mirror.episodes(card)
             # Its episodes are known now, so that what is downloaded is imported even if the
             # mirror fails before the card is done; until it is, it still counts as changed.
             unfinished = known.version if known is not None else ""
-            cache.cards[card.uuid] = _CardState(card.name, unfinished, episodes, False)
-            complete = True
+            cache.cards[card.uuid] = _CardState(card.name, unfinished, episodes)
             for episode in episodes:
-                if corpus.imported_from(episode.script) == "csv":
+                fetched = await scripts.fetch(episode.script, recheck=True)
+                if fetched == "translated":
                     report.translations_kept += 1
-                    continue
-                path = cache.script_path(episode.script)
-                if path.exists() and not changed:
-                    continue  # downloaded by a sync that stopped before this card was done
-                fetched, etag = await mirror.download(
-                    episode.script, path, cache.etag(episode.script) if path.exists() else None
-                )
-                if fetched == "missing":
-                    complete = False
-                    report.missing += 1
-                    log.info("镜像上还没有 %s", episode.script)
-                    continue
-                cache.set_etag(episode.script, etag)
-                if fetched == "downloaded":
-                    report.downloaded += 1
-            cache.cards[card.uuid] = _CardState(card.name, card.version, episodes, complete)
+                _count_card_script(fetched, episode, report)
+            cache.cards[card.uuid] = _CardState(card.name, card.version, episodes)
             if episodes:
                 log.info("%s：%d 段剧情", card.name, len(episodes))
             cache.save()  # so an interrupted sync picks up after the last card done
 
 
+def _count_card_script(fetched: Fetched, episode: CardEpisode, report: SyncReport) -> None:
+    if fetched == "downloaded":
+        report.downloaded += 1
+    elif fetched == "missing":
+        report.missing += 1
+        log.info("镜像上还没有 %s", episode.script)
+
+
 async def _fetch_albums(
     mirror: Mirror,
+    scripts: ScriptCache,
     cache: _Cache,
-    corpus: StoryCorpus,
     report: SyncReport,
     idols: Sequence[int] | None,
 ) -> None:
@@ -364,39 +343,39 @@ async def _fetch_albums(
     for idol in ALBUM_IDOLS if idols is None else [idol for idol in idols if idol in ALBUM_IDOLS]:
         known = cache.albums.get(idol)
         episodes, etag = await mirror.album(idol, known.etag if known is not None else None)
-        if episodes is None:
-            continue  # not changed since every script it lists was asked for
-        # Its episodes are known now, so that what is downloaded is imported even if the
-        # mirror fails before the album is done; until it is, it has no ETag.
-        cache.albums[idol] = _AlbumState(None, episodes)
+        changed = episodes is not None
+        if episodes is None:  # not changed since every script it lists was asked for
+            assert known is not None  # asked for on its ETag, so known
+            episodes = known.episodes
+        else:
+            # Its episodes are known now, so that what is downloaded is imported even if the
+            # mirror fails before the album is done; until it is, it has no ETag.
+            cache.albums[idol] = _AlbumState(None, episodes)
         for episode in episodes:
             if episode.script in seen:
                 continue
             seen.add(episode.script)
-            if is_failure_ending(episode.script):
-                report.album_failures += 1  # never imported, so not downloaded
-                continue
-            if corpus.imported_from(episode.script) == "csv":
-                report.translations_kept += 1
-                continue
-            path = cache.script_path(episode.script)
-            if path.exists():
-                continue
-            fetched, script_etag = await mirror.download(episode.script, path, None)
-            if fetched == "missing":
+            # Of an unchanged album, only a script deleted from the cache (or its mark that
+            # the mirror does not have it) is asked for.
+            fetched = await scripts.fetch(episode.script, retry_missing=changed)
+            if fetched == "downloaded":
+                report.downloaded += 1
+            elif fetched == "missing":
                 report.album_missing += 1
                 log.info("镜像上没有 %s", episode.script)
-                continue
-            cache.set_etag(episode.script, script_etag)
-            report.downloaded += 1
-        cache.albums[idol] = _AlbumState(etag, episodes)
-        if episodes:
-            log.info("相册 %02d：%d 段剧情", idol, len(episodes))
-        cache.save_albums()  # so an interrupted sync picks up after the last album done
+            elif changed and fetched == "failure":
+                report.album_failures += 1  # never imported, so not downloaded
+            elif changed and fetched == "translated":
+                report.translations_kept += 1
+        if changed:
+            cache.albums[idol] = _AlbumState(etag, episodes)
+            if episodes:
+                log.info("相册 %02d：%d 段剧情", idol, len(episodes))
+            cache.save_albums()  # so an interrupted sync picks up after the last album done
 
 
 async def _fetch_events(
-    mirror: Mirror,
+    scripts: ScriptCache,
     cache: _Cache,
     corpus: StoryCorpus,
     report: SyncReport,
@@ -410,14 +389,17 @@ async def _fetch_events(
     latest = max(known, default=0)
     for event in range(1, latest + 1):
         if event in cache.events and event < latest:
+            for episode in range(1, cache.events[event] + 1):  # only a script deleted is asked for
+                if await scripts.fetch(event_script(event, episode)) == "downloaded":
+                    report.downloaded += 1
             continue
-        cache.events[event] = await _walk_event(mirror, cache, corpus, report, event)
+        cache.events[event] = await _walk_event(scripts, report, event)
         cache.save_events()
     # Events after the latest: numbers are sometimes skipped, so a few are tried.
     tried: list[int] = []
     event = latest + 1
     while len(tried) < PROBE_AHEAD:
-        episodes = await _walk_event(mirror, cache, corpus, report, event)
+        episodes = await _walk_event(scripts, report, event)
         if episodes:
             log.info("镜像上有新活动 %03d：%d 话", event, episodes)
             cache.events.update({skipped: 0 for skipped in tried})
@@ -429,39 +411,33 @@ async def _fetch_events(
         event += 1
 
 
-async def _walk_event(
-    mirror: Mirror, cache: _Cache, corpus: StoryCorpus, report: SyncReport, event: int
-) -> int:
+async def _walk_event(scripts: ScriptCache, report: SyncReport, event: int) -> int:
     """Fetch the event's episodes from the first until the mirror has no more; returns
-    how many it has. Episodes translated or already downloaded are not asked for."""
+    how many it has."""
     episode = 1
     while episode <= _EPISODES_AT_MOST:
-        script = event_script(event, episode)
-        path = cache.script_path(script)
-        if corpus.imported_from(script) != "csv" and not path.exists():
-            fetched, etag = await mirror.download(script, path, None)
-            if fetched == "missing":
-                break
-            cache.set_etag(script, etag)
+        fetched = await scripts.fetch(event_script(event, episode))
+        if fetched == "missing":
+            break
+        if fetched == "downloaded":
             report.downloaded += 1
         episode += 1
     return episode - 1
 
 
 def _untranslated_event_scripts(
-    cache: _Cache, corpus: StoryCorpus, names: Mapping[int, str]
+    scripts: ScriptCache, corpus: StoryCorpus, names: Mapping[int, str]
 ) -> tuple[list[ScriptFile], list[int]]:
-    """Every event script downloaded so far that SCTranslationData has not translated,
-    and the events of those that go unnamed.
+    """Every event script kept so far that SCTranslationData has not translated, and the
+    events of those that go unnamed.
 
     An event is named from the table as it is now; one the table lacks takes the name
     SCTranslationData files its translated episodes under, if it has any, so that the
     event stays together in the catalog."""
     files = []
     unnamed: set[int] = set()
-    for path in cache.event_scripts():
-        script = f"{_EVENT_SCRIPTS}/{path.stem}"
-        if (found := _event_of(script)) is None or corpus.imported_from(script) == "csv":
+    for script, path in scripts.kept(_EVENT_SCRIPTS).items():
+        if (found := _event_of(script)) is None or corpus.is_translated(script):
             continue
         event, episode = found
         name = names.get(event) or _translated_event_name(corpus, event)
@@ -474,23 +450,22 @@ def _untranslated_event_scripts(
 
 def _translated_event_name(corpus: StoryCorpus, event: int) -> str | None:
     for episode_id in corpus.episode_ids(f"{_EVENT_SCRIPTS}/4001{event:03d}"):
-        if corpus.imported_from(episode_id) == "csv" and (episode := corpus.get(episode_id)):
+        if corpus.is_translated(episode_id) and (episode := corpus.get(episode_id)):
             return episode.source
     return None
 
 
-def _untranslated_album_scripts(cache: _Cache, corpus: StoryCorpus) -> list[ScriptFile]:
-    """Every album script downloaded so far that SCTranslationData has not translated,
-    filed under the name SCTranslationData files that part of the album under, if it
-    has translated any of it, or else the album's."""
+def _untranslated_album_scripts(scripts: ScriptCache, cache: _Cache, corpus: StoryCorpus) -> list[ScriptFile]:
+    """Every album script kept so far that SCTranslationData has not translated, filed
+    under the name SCTranslationData files that part of the album under, if it has
+    translated any of it, or else the album's."""
     files: dict[str, ScriptFile] = {}
     for _, album in sorted(cache.albums.items()):
         names: dict[str, str] = {}
         for episode in album.episodes:
-            if episode.script in files or corpus.imported_from(episode.script) == "csv":
+            if episode.script in files or corpus.is_translated(episode.script):
                 continue
-            path = cache.script_path(episode.script)
-            if not path.exists():
+            if (path := scripts.path(episode.script)) is None:
                 continue
             if episode.section not in names:
                 names[episode.section] = (
@@ -509,20 +484,19 @@ def _translated_section_name(corpus: StoryCorpus, album: _AlbumState, section: s
         translated.source
         for episode in album.episodes
         if episode.section == section
-        and corpus.imported_from(episode.script) == "csv"
+        and corpus.is_translated(episode.script)
         and (translated := corpus.get(episode.script)) is not None
     )
     return names.most_common(1)[0][0] if names else None
 
 
-def _untranslated_scripts(cache: _Cache, corpus: StoryCorpus) -> list[ScriptFile]:
-    """Every card script downloaded so far that SCTranslationData has not translated."""
+def _untranslated_scripts(scripts: ScriptCache, cache: _Cache, corpus: StoryCorpus) -> list[ScriptFile]:
+    """Every card script kept so far that SCTranslationData has not translated."""
     files: dict[str, ScriptFile] = {}
     for card in cache.cards.values():
         for episode in card.episodes:
-            if episode.script in files or corpus.imported_from(episode.script) == "csv":
+            if episode.script in files or corpus.is_translated(episode.script):
                 continue
-            path = cache.script_path(episode.script)
-            if path.exists():
+            if (path := scripts.path(episode.script)) is not None:
                 files[episode.script] = ScriptFile(path, episode.script, card.name, episode.title)
     return sorted(files.values(), key=lambda file: file.source_id)
