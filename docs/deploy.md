@@ -49,6 +49,7 @@ cp .env.example .env
 - `siliconflow`（默认）：硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，只需要 `SILICONFLOW_API_KEY`。
 - `gemini`：Google 的 `gemini-embedding-2`，填 `GEMINI_API_KEY`（在 [Google AI Studio](https://aistudio.google.com/apikey) 申请），向量维度用 `EMBEDDING_DIMENSIONS` 指定（默认 1536）。重排仍然在硅基流动，`SILICONFLOW_API_KEY` 照样要填。
   - 服务器必须在 Gemini API 开放的地区（不含中国大陆、香港、澳门），否则向量化会报错并提示地区不支持。
+  - 免费层每分钟最多向量化 100 条文本（一次批量请求里的每条文本都各算一次请求）。同步、导入和 `eidolon reembed` 碰到限流会按 Google 给的时间自动等待再继续，所以能跑完，只是整个剧情库要花上几十分钟以上；免费层可能还有每天的上限（在 AI Studio 的 Rate Limit 页面查看），碰到时命令会报错退出，第二天重新运行即可接着做。对话中的查询不等待：限流时这一回合不带检索结果照常回复。
   - 可以用免费层，但**免费层的内容会被 Google 用于改进产品**，送去向量化的包括剧情库（没有许可证的剧情文本，ADR-0003）和用户的记忆。介意的话在 AI Studio 开通计费，付费层的内容不用于训练（文本约 $0.20 / 百万 token，全量剧情库重新向量化一次只要几美元）。
 
 然后准备人设文件（见 README 的「角色」：`characters/sheets/` 下每位角色一份，角色资料和头像可选），启动：

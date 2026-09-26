@@ -109,3 +109,68 @@ async def test_an_unreachable_service_is_reported():
 
     with pytest.raises(EmbeddingError, match="无法连接"):
         await gemini.embed_query("在吗")
+
+
+def quota_exceeded(retry_delay: str | None = "36s") -> httpx.Response:
+    """Google's answer once a minute's quota is used up; every text in a batch counts."""
+    details = [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry_delay}]
+    return httpx.Response(429, json={"error": {
+        "code": 429, "status": "RESOURCE_EXHAUSTED",
+        "message": "You exceeded your current quota. Quota exceeded for metric:"
+                   " generativelanguage.googleapis.com/embed_content_free_tier_requests, limit: 100",
+        "details": details if retry_delay else [],
+    }})
+
+
+def rate_limited(answers: list[httpx.Response], waits: list[float]) -> GeminiEmbedder:
+    """An embedder whose service answers with `answers` in turn, then with vectors; records
+    how long it waits instead of waiting."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if answers:
+            return answers.pop(0)
+        count = len(json.loads(request.content)["requests"])
+        return httpx.Response(200, json={"embeddings": [{"values": [1.0, 0.0]}] * count})
+
+    async def sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    return GeminiEmbedder(
+        "k", "gemini-embedding-2", 1536, "http://gemini.test/v1beta", client, sleep=sleep
+    )
+
+
+async def test_documents_wait_out_the_rate_limit_as_google_asks():
+    waits: list[float] = []
+    gemini = rate_limited([quota_exceeded("36s"), quota_exceeded("12.5s")], waits)
+
+    vectors = await gemini.embed_documents([Document("doc")])
+
+    assert vectors == [[1.0, 0.0]]
+    assert waits == [37.0, 13.5]  # a second to spare
+
+
+async def test_a_query_does_not_wait_out_the_rate_limit():
+    waits: list[float] = []
+    gemini = rate_limited([quota_exceeded()], waits)
+
+    with pytest.raises(EmbeddingError, match="429"):
+        await gemini.embed_query("在吗")
+
+    assert waits == []
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        [quota_exceeded(None)],  # no delay to wait out, as with a daily quota
+        [quota_exceeded("7200s")],  # too long to wait
+        [quota_exceeded("36s") for _ in range(10)],  # never lets up
+    ],
+)
+async def test_a_rate_limit_that_waiting_does_not_lift_is_reported(answers: list[httpx.Response]):
+    gemini = rate_limited(answers, [])
+
+    with pytest.raises(EmbeddingError, match="免费层"):
+        await gemini.embed_documents([Document("doc")])
