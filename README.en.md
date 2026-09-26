@@ -16,6 +16,7 @@ Voice · Text · Story recall · Memory shared across characters
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](frontend/tsconfig.json)
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](backend/src/eidolon/store.py)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
 [![Private use](https://img.shields.io/badge/use-private_·_small_circle-FF69B4?style=flat-square)](docs/adr/0003-corpus-and-voices-stay-private.md)
 
 </div>
@@ -61,6 +62,7 @@ It is built for the author and a small circle of friends, not as a public servic
 - [Deploying to a VPS](#-deploying-to-a-vps)
 - [Development](#-development)
 - [Project layout](#-project-layout)
+- [License](#-license)
 - [Acknowledgements](#-acknowledgements)
 
 ## 🧩 Architecture
@@ -361,6 +363,12 @@ eidolon-sc/
 ├── .env.example              # every configuration option, documented
 └── CONTEXT.md                # domain glossary
 ```
+
+## 📄 License
+
+The code in this project is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). If you modify it and let others use it over a network, you must make your modified source code available to those users.
+
+The license covers only the code and documentation in this repository. Story data, character voices, character sheets, character facts and avatars are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003).
 
 ## 🙏 Acknowledgements
 

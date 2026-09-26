@@ -16,6 +16,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](frontend/tsconfig.json)
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](backend/src/eidolon/store.py)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
 [![Private use](https://img.shields.io/badge/用途-私的利用のみ-FF69B4?style=flat-square)](docs/adr/0003-corpus-and-voices-stay-private.md)
 
 </div>
@@ -61,6 +62,7 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 - [VPS へのデプロイ](#-vps-へのデプロイ)
 - [開発](#-開発)
 - [ディレクトリ構成](#-ディレクトリ構成)
+- [ライセンス](#-ライセンス)
 - [謝辞](#-謝辞)
 
 ## 🧩 アーキテクチャ
@@ -361,6 +363,12 @@ eidolon-sc/
 ├── .env.example              # 全設定項目とその説明
 └── CONTEXT.md                # ドメイン用語集
 ```
+
+## 📄 ライセンス
+
+本プロジェクトのコードは [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）の下で公開されています。改変したものをネットワーク経由で他者に提供する場合は、その利用者に改変後のソースコードを公開する必要があります。
+
+ライセンスの対象はリポジトリ内のコードとドキュメントのみです。シナリオデータ、キャラクター音声、キャラクターシート、キャラクター資料、アイコンはリポジトリに含まれず、ライセンスの対象外です。それぞれの提供元の条件に従ってください（ADR-0003）。
 
 ## 🙏 謝辞
 
