@@ -29,13 +29,14 @@ import json
 import logging
 import sqlite3
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
+from eidolon.clock import Clock
 from eidolon.embedding import Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.rerank import Reranker, RerankError
@@ -66,9 +67,6 @@ Hokkaido scores 0.03) but unrelated ones lower still (at most 0.005), so memorie
 threshold well below that of story and character facts."""
 ANOTHER_IDOL = "事务所的另一位偶像"
 """Who a memory was told to, when that character has been removed from the configuration."""
-
-Clock = Callable[[], datetime]
-"""The current time, timezone-aware."""
 
 # `memories` predates this module and keeps the columns and constraints it had in the
 # store; `memory_vectors` holds each memory's embedding, per embedding model.

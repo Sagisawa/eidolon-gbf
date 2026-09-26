@@ -14,17 +14,17 @@ the turn already recalled an episode. Its calls are answered and the model asked
 again, once at most since every round costs the model's time to first token; whatever
 it says along the way is part of the reply, and only the reply is recorded.
 
-With memory, the user's memories that retrieval finds go into the prompt, and once a
-turn is recorded the background model writes down what the user revealed in it.
+The user's memories that retrieval finds go into the prompt, and once a turn is
+recorded memory writes down what the user revealed in it, when memory is on.
 """
 
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from typing import Literal
 
 from eidolon.characters import Character
+from eidolon.clock import Clock
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.memory import Memories
 from eidolon.producer import effective_timezone, producer_prompt
@@ -84,14 +84,6 @@ BLANK = "没有收到要说的话。"
 
 log = logging.getLogger(__name__)
 
-Clock = Callable[[], datetime]
-"""The current time, timezone-aware."""
-
-
-def utc_now() -> datetime:
-    return datetime.now(UTC)
-
-
 class EmptyReply(RuntimeError):
     pass
 
@@ -110,18 +102,18 @@ class ConversationEngine:
         store: Store,
         chat_llm: ChatLLM,
         characters: dict[str, Character],
-        clock: Clock | None = None,
+        memory: Memories,
+        clock: Clock,
         retrieval: Retrieval | None = None,
-        memory: Memories | None = None,
         history_turns: int | None = None,
     ) -> None:
-        """Without `retrieval`, turns carry no story, character facts or memories; without
-        `memory`, nothing is found or written down. Each turn reads only the conversation's latest
-        `history_turns` turns, or all of them if None."""
+        """Without `retrieval`, turns carry no story or character facts and find no
+        memories. Each turn reads only the conversation's latest `history_turns` turns, or
+        all of them if None."""
         self._store = store
         self._characters = characters
         self._llm = chat_llm
-        self._clock = clock or utc_now
+        self._clock = clock
         self._retrieval = retrieval
         self._memory = memory
         self._history_turns = history_turns
@@ -150,7 +142,7 @@ class ConversationEngine:
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
-        memory = await self._memory.begin(conversation, timezone) if self._memory else None
+        memory = await self._memory.begin(conversation, timezone)
         retrieved = (
             await self._retrieval.retrieve(character, history, text, memory)
             if self._retrieval
@@ -189,8 +181,7 @@ class ConversationEngine:
         if not parser.segments:
             raise EmptyReply("对话模型没有返回任何内容")
         reply = self._store.add_turn(conversation.id, text, parser.segments)
-        if memory:
-            memory.write_down(history, text, reply)
+        memory.write_down(history, text, reply)
         yield TurnDone(reply)
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:

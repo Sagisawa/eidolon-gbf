@@ -19,21 +19,12 @@ from pipecat.transports.smallwebrtc.request_handler import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from eidolon.call import Call, CallStarter, Quality, serve_calls
-from eidolon.characters import load_characters
-from eidolon.config import Settings
-from eidolon.corpus import StoryCorpus
-from eidolon.embedding import Embedder, SiliconFlowEmbedder
-from eidolon.facts import FactIndex
-from eidolon.engine import Clock, ConversationEngine, TurnFailed, utc_now
-from eidolon.llm import ChatLLM
-from eidolon.llm.providers import open_llm
-from eidolon.memory import Memories
+from eidolon.assembly import Backend
+from eidolon.call import Call, CallStarter, Quality
+from eidolon.engine import TurnFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.rerank import Reranker, SiliconFlowReranker
-from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Conversation, KeyRevoked, Store
-from eidolon.usage import OverLimit, Use, UsageLimiter
+from eidolon.usage import OverLimit, Use
 
 log = logging.getLogger(__name__)
 
@@ -115,60 +106,11 @@ DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
 """The time zone the browser detected; the producer profile's own time zone overrides it."""
 
 
-def create_app(
-    settings: Settings,
-    chat_llm: ChatLLM | None = None,
-    call_starter: CallStarter | None = None,
-    clock: Clock | None = None,
-    jev: RetrievalJudge | None = None,
-    embedder: Embedder | None = None,
-    reranker: Reranker | None = None,
-    background_llm: ChatLLM | None = None,
-) -> FastAPI:
-    """Services left out are built from `settings`; retrieval is on only when Jev, the
-    embedder and the reranker are all available, and so is memory, since only retrieval
-    can find memories again."""
-    characters = load_characters(settings.characters_path)
-    store = Store(settings.database_path)
-    clock = clock or utc_now
-    usage = UsageLimiter(store, settings.usage_limits, clock)
-    llm = chat_llm or open_llm(settings.chat_llm)
-    clients: list[JevJudge | SiliconFlowEmbedder | SiliconFlowReranker] = []
-    if (sf := settings.siliconflow) is not None:
-        if embedder is None:
-            embedder = SiliconFlowEmbedder(sf.api_key, sf.embedding_model, sf.base_url)
-            clients.append(embedder)
-        if reranker is None:
-            reranker = SiliconFlowReranker(sf.api_key, sf.rerank_model, sf.base_url)
-            clients.append(reranker)
-    if jev is None and settings.jev is not None:
-        jev = JevJudge(settings.jev.api_key, settings.jev.model, settings.jev.base_url)
-        clients.append(jev)
-    retrieval = None
-    if jev is not None and embedder is not None and reranker is not None:
-        retrieval = Retrieval(
-            jev,
-            embedder,
-            StoryCorpus(settings.database_path, embedder),
-            FactIndex(settings.database_path, embedder),
-            reranker,
-        )
-        background_llm = background_llm or open_llm(settings.background_llm or settings.chat_llm)
-        memory = Memories(
-            settings.database_path, characters, clock,
-            background_llm=background_llm, embedder=embedder, reranker=reranker,
-        )
-    else:
-        log.info(
-            "retrieval and memory are off: they need SILICONFLOW_API_KEY, AI_GATEWAY_API_KEY,"
-            " JEV_MODEL"
-        )
-        background_llm = None
-        memory = Memories(settings.database_path, characters, clock)
-    engine = ConversationEngine(
-        store, llm, characters, clock, retrieval, memory, settings.history_turns
-    )
-    call_starter = call_starter or serve_calls(settings, engine)
+def create_app(backend: Backend) -> FastAPI:
+    """The API over `backend`, which the app closes when it shuts down."""
+    settings, store, characters = backend.settings, backend.store, backend.characters
+    engine, memory, usage, clock = backend.engine, backend.memories, backend.usage, backend.clock
+    call_starter = backend.call_starter
     webrtc = SmallWebRTCRequestHandler(
         ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
     )
@@ -178,15 +120,7 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
         await webrtc.close()
-        await memory.aclose()
-        await llm.aclose()
-        if background_llm is not None:
-            await background_llm.aclose()
-        for client in clients:
-            await client.aclose()
-        if retrieval is not None:
-            retrieval.close()
-        store.close()
+        await backend.aclose()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
     app.state.store = store

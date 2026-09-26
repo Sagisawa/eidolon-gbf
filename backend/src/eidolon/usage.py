@@ -2,8 +2,8 @@
 
 from datetime import datetime, timedelta
 
+from eidolon.clock import Clock
 from eidolon.config import UsageLimits
-from eidolon.engine import Clock
 from eidolon.store import LimitReached, Store, UsageKind
 
 WINDOW = timedelta(hours=1)

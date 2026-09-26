@@ -52,14 +52,21 @@ def _serve() -> int:
     import uvicorn
 
     from eidolon.app import create_app
+    from eidolon.assembly import build
 
-    try:  # missing settings, an unfit chat model and a broken character configuration
+    try:  # missing settings and a broken character configuration
         settings = Settings.from_env()
-        app = create_app(settings)
-        asyncio.run(_check_chat_llm(settings))
+        backend = build(settings)
     except RuntimeError as e:
         print(e, file=sys.stderr)
         return 1
+    try:  # an unfit chat model
+        asyncio.run(_check_chat_llm(settings))
+    except RuntimeError as e:
+        asyncio.run(backend.aclose())
+        print(e, file=sys.stderr)
+        return 1
+    app = create_app(backend)
     uvicorn.run(
         app,
         host=os.environ.get("HOST", "0.0.0.0"),
@@ -69,6 +76,8 @@ def _serve() -> int:
 
 
 async def _check_chat_llm(settings: Settings) -> None:
+    """Checks the chat model on a client of its own: the server's run in uvicorn's event
+    loop, and an HTTP client cannot move between loops."""
     from eidolon.llm.providers import check_chat_llm, open_llm
 
     llm = open_llm(settings.chat_llm)

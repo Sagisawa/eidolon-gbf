@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from eidolon.characters import load_characters
+from eidolon.assembly import build
 from eidolon.config import Settings
-from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine
+from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Conversation, Store
 from tests.fakes import FakeLLM
 
@@ -23,26 +23,32 @@ REPLY = ["<ja>ほわっ、</ja><zh>哇，</zh>"]
 class Turns:
     """A conversation with Mano and the engine that takes its turns."""
 
-    def __init__(self, store: Store, settings: Settings) -> None:
-        self._store = store
-        self._characters = load_characters(settings.characters_path)
-        user = store.create_user("producer")
-        self.conversation: Conversation = store.create_conversation(user.id, "mano")
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._store = Store(settings.database_path)
+        user = self._store.create_user("producer")
+        self.conversation: Conversation = self._store.create_conversation(user.id, "mano")
 
     async def take(self, llm: FakeLLM, text: str) -> list[dict]:
         """Take one turn; returns its events as they go out on the wire."""
-        engine = ConversationEngine(self._store, llm, self._characters, clock=lambda: NOW)
-        return [asdict(e) async for e in engine.turn(self.conversation, text)]
+        backend = build(self._settings, chat_llm=llm, clock=lambda: NOW)
+        try:
+            return [asdict(e) async for e in backend.engine.turn(self.conversation, text)]
+        finally:
+            await backend.aclose()
 
     def record(self) -> list[tuple]:
         return [(m.role, m.text, m.ja) for m in self._store.list_messages(self.conversation.id)]
 
+    def close(self) -> None:
+        self._store.close()
+
 
 @pytest.fixture
 def turns(settings: Settings) -> Iterator[Turns]:
-    store = Store(settings.database_path)
-    yield Turns(store, settings)
-    store.close()
+    turns = Turns(settings)
+    yield turns
+    turns.close()
 
 
 def types(events: list[dict]) -> list[str]:

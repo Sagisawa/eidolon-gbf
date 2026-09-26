@@ -102,8 +102,8 @@ class Settings:
     database_path: Path
     characters_path: Path
     chat_llm: LLMSettings
-    background_llm: LLMSettings | None = None
-    """None: the background model is the chat model."""
+    background_llm: LLMSettings = None  # pyright: ignore[reportAssignmentType]  # see below
+    """Left out, the background model is the chat model."""
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
     turn: "TurnSettings | None" = None
     """A TURN server the browser gets short-lived credentials for, besides `ice_servers`."""
@@ -116,6 +116,10 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
+
+    def __post_init__(self) -> None:
+        if self.background_llm is None:
+            object.__setattr__(self, "background_llm", self.chat_llm)
 
     @classmethod
     def from_env(cls) -> "Settings":
