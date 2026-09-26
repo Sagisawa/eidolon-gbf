@@ -35,6 +35,7 @@ async def test_reply_streams_japanese_and_chinese_subtitle(make_client: ClientFa
 
     events = await send_turn(client, conversation_id, "你好呀")
 
+    assert events[0] == {"type": "user", "text": "你好呀"}
     done = events[-1]
     assert done["type"] == "done"
     assert done["message"]["ja"] == "こんにちは、プロデューサーさん！"
@@ -142,29 +143,6 @@ async def test_unknown_character_or_conversation_is_rejected(make_client: Client
     assert res.status_code == 404
     res = await client.post("/api/conversations/missing/turns", json={"text": "hi"})
     assert res.status_code == 404
-
-
-async def test_failed_turn_is_reported_and_leaves_no_half_record(make_client: ClientFactory):
-    client = make_client(FakeLLM())  # no scripted reply: the model call fails
-    conversation_id = await start_conversation(client)
-
-    events = await send_turn(client, conversation_id, "在吗")
-
-    assert events[-1]["type"] == "error"
-    assert "FakeLLM" not in events[-1]["message"]  # provider details stay in the server log
-    messages = (await client.get(f"/api/conversations/{conversation_id}/messages")).json()
-    assert messages == []
-
-
-async def test_empty_reply_counts_as_a_failed_turn(make_client: ClientFactory):
-    client = make_client(FakeLLM(["  \n"]))
-    conversation_id = await start_conversation(client)
-
-    events = await send_turn(client, conversation_id, "在吗")
-
-    assert events[-1]["type"] == "error"
-    messages = (await client.get(f"/api/conversations/{conversation_id}/messages")).json()
-    assert messages == []
 
 
 async def test_reply_cut_off_inside_a_closing_tag_keeps_only_the_text(

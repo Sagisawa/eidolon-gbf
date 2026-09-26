@@ -26,7 +26,7 @@ from eidolon.config import Settings
 from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder, SiliconFlowEmbedder
 from eidolon.facts import FactIndex
-from eidolon.engine import MAX_INPUT_LENGTH, Clock, ConversationEngine, TurnDone, utc_now
+from eidolon.engine import Clock, ConversationEngine, TurnFailed, utc_now
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 from eidolon.memory import MemoryIndex, MemoryWriter
@@ -46,7 +46,7 @@ class NewConversation(BaseModel):
 
 
 class TurnInput(BaseModel):
-    text: str = Field(min_length=1, max_length=MAX_INPUT_LENGTH)
+    text: str
 
 
 class CallRequest(BaseModel):
@@ -370,17 +370,10 @@ def create_app(
         use = usage.take(user_id, "turn")
 
         async def events() -> AsyncIterator[str]:
-            try:
-                async for event in engine.turn(conversation, body.text, device_timezone):
-                    if isinstance(event, TurnDone):
-                        payload = {"type": "done", "message": asdict(event.message)}
-                    else:
-                        payload = {"type": "delta", **asdict(event)}
-                    yield _sse(payload)
-            except Exception:  # the stream has started; report instead of dropping it
-                log.exception("text turn failed in conversation %s", conversation.id)
-                use.give_back()
-                yield _sse({"type": "error", "message": "角色暂时无法回复，请稍后再试。"})
+            async for event in engine.turn(conversation, body.text, device_timezone):
+                if isinstance(event, TurnFailed):
+                    use.give_back()
+                yield _sse(asdict(event))
 
         return StreamingResponse(
             events(),

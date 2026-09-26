@@ -27,7 +27,7 @@ from pipecat.tests.utils import SleepFrame, run_test
 from eidolon.call import Call, CallLimits, CallTurns
 from eidolon.characters import load_characters
 from eidolon.config import Settings
-from eidolon.engine import ConversationEngine
+from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
@@ -182,16 +182,6 @@ async def test_muted_call_sends_subtitles_but_nothing_to_voice(mano_call: CallUn
     assert [m["message"]["ja"] for m in messages if m["type"] == "done"] == ["一", "二", "三"]
 
 
-async def test_failed_turn_is_reported_and_the_call_goes_on(mano_call: CallUnderTest):
-    llm = FakeLLM(["  "], ["<ja>はいっ</ja><zh>好的</zh>"])  # the first reply is empty
-
-    spoken_text, messages = await mano_call.run(llm, [spoken("在吗"), spoken("在吗？")])
-
-    assert [m["type"] for m in messages if m["type"] in ("error", "done")] == ["error", "done"]
-    assert spoken_text == ["はいっ"]
-    assert [row[1] for row in await mano_call.record()] == ["在吗？", None]
-
-
 async def test_blank_input_is_ignored(mano_call: CallUnderTest):
     spoken_text, messages = await mano_call.run(FakeLLM(), [spoken("  "), typed("")])
 
@@ -254,4 +244,22 @@ async def test_call_hangs_up_when_time_is_up_once_the_reply_in_progress_is_done(
     assert kinds(messages) == ["user", "done", "ended"]
     assert "分钟" in messages[-1]["message"]
     assert len(await mano_call.record()) == 2
+
+
+async def test_turns_that_fail_or_are_rejected_do_not_count_and_the_call_goes_on(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(["  "], MANO_REPLY)  # the first reply is empty
+    too_long = "啊" * (MAX_INPUT_LENGTH + 1)
+
+    spoken_text, messages = await mano_call.run(
+        llm,
+        one_by_one(spoken(too_long), typed(too_long), spoken("在吗"), spoken("在吗？")),
+        limits=CallLimits(turns=1),
+    )
+
+    assert kinds(messages) == ["user", "error"] * 3 + ["user", "done", "ended"]
+    assert len(llm.prompts) == 2  # what was too long never reached the model
+    assert "".join(spoken_text).count("ほわっ") == 1
+    assert [row[1] for row in await mano_call.record()] == ["在吗？", None]
 

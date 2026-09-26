@@ -2,8 +2,12 @@
 
 It knows nothing about voice. Given a conversation and the user's input text it
 retrieves what the turn calls for, assembles the prompt, streams the chat model's structured reply as per-segment
-deltas, and records both sides of the turn once the reply is complete. A turn
-that fails part-way leaves no record.
+deltas, and records both sides of the turn once the reply is complete.
+
+Every turn, typed or spoken, speaks the same protocol: `user` (the input as taken up),
+then any `delta`s, then `done` or `error`. Input that is blank or too long is rejected
+before the model is asked; a turn that is rejected or fails part-way leaves no record,
+and what went wrong stays in the server log.
 
 When retrieval is available the chat model is offered the recall-story tool, unless
 the turn already recalled an episode. Its calls are answered and the model asked
@@ -14,9 +18,11 @@ With memory, the user's memories that retrieval finds go into the prompt, and on
 turn is recorded the background model writes down what the user revealed in it.
 """
 
+import logging
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from eidolon.characters import Character
@@ -28,7 +34,8 @@ from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import Conversation, Message, Store
 
 MAX_INPUT_LENGTH = 2000
-"""The longest thing a user can say in one turn, typed or spoken, in characters."""
+"""The longest thing a user can say in one turn, typed or spoken, in characters; longer
+input is rejected, not cut short."""
 MAX_TOOL_ROUNDS = 1
 """How many rounds of tool calls the chat model gets in one turn; after that it has to answer."""
 LAST_ROUND_NOTE = (
@@ -42,11 +49,41 @@ that verification again."""
 
 
 @dataclass(frozen=True)
+class UserSaid:
+    """What the user said, as the turn takes it up; every turn opens with it."""
+
+    text: str
+    type: Literal["user"] = field(default="user", init=False)
+
+
+@dataclass(frozen=True)
 class TurnDone:
+    """The recorded reply; the turn succeeded."""
+
     message: Message
+    type: Literal["done"] = field(default="done", init=False)
 
 
-TurnEvent = SegmentDelta | TurnDone
+@dataclass(frozen=True)
+class TurnFailed:
+    """Why the turn was rejected or failed, for the user to read; it left no record."""
+
+    message: str
+    type: Literal["error"] = field(default="error", init=False)
+
+
+TurnEvent = UserSaid | SegmentDelta | TurnDone | TurnFailed
+"""A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
+the event as it goes out to the browser."""
+
+FAILED = "角色暂时无法回复，请稍后再试。"
+"""What the user reads when a turn fails; the details stay in the server log."""
+TOO_LONG = f"这句话太长了，最多 {MAX_INPUT_LENGTH} 字。"
+"""What the user reads when a turn is rejected for input over `MAX_INPUT_LENGTH`."""
+BLANK = "没有收到要说的话。"
+"""What the user reads when a turn is rejected for blank input."""
+
+log = logging.getLogger(__name__)
 
 Clock = Callable[[], datetime]
 """The current time, timezone-aware."""
@@ -96,6 +133,21 @@ class ConversationEngine:
     ) -> AsyncIterator[TurnEvent]:
         """Take one turn. `device_timezone` is the time zone the user's device reports,
         used unless the producer profile sets one."""
+        text = text.strip()
+        yield UserSaid(text)
+        if not text or len(text) > MAX_INPUT_LENGTH:
+            yield TurnFailed(TOO_LONG if text else BLANK)
+            return
+        try:
+            async for event in self._reply(conversation, text, device_timezone):
+                yield event
+        except Exception:  # the turn has started; report instead of dropping it
+            log.exception("turn failed in conversation %s", conversation.id)
+            yield TurnFailed(FAILED)
+
+    async def _reply(
+        self, conversation: Conversation, text: str, device_timezone: str | None
+    ) -> AsyncIterator[TurnEvent]:
         character = self._characters[conversation.character_id]
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
         profile = self._store.get_profile(conversation.user_id)
@@ -140,9 +192,9 @@ class ConversationEngine:
 
         if not parser.segments:
             raise EmptyReply("对话模型没有返回任何内容")
+        now = self._clock().astimezone(ZoneInfo(timezone))
         reply = self._store.add_turn(conversation.id, text, parser.segments)
         if self._memory:
-            now = self._clock().astimezone(ZoneInfo(timezone))
             self._memory.remember(conversation, character, history, text, reply, now, mark)
         yield TurnDone(reply)
 
