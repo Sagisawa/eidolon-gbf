@@ -27,6 +27,7 @@ class SegmentDelta:
     segment: int
     lang: Lang
     text: str
+    type: Literal["delta"] = field(default="delta", init=False)
 
 
 @dataclass

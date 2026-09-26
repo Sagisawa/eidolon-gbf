@@ -47,7 +47,8 @@ from pipecat.workers.runner import WorkerRunner
 
 from eidolon.characters import Character
 from eidolon.config import Settings
-from eidolon.engine import MAX_INPUT_LENGTH, ConversationEngine, TurnDone
+from eidolon.engine import ConversationEngine, TurnDone
+from eidolon.reply_format import SegmentDelta
 from eidolon.store import Conversation
 
 log = logging.getLogger(__name__)
@@ -225,7 +226,7 @@ class CallTurns(FrameProcessor):
     def _handle_client_message(self, frame: RTVIClientMessageFrame) -> None:
         data = frame.data if isinstance(frame.data, dict) else {}
         if frame.type == "user-text" and isinstance(data.get("text"), str):
-            self._take_up(data["text"][:MAX_INPUT_LENGTH])
+            self._take_up(data["text"])
         elif frame.type == "mute" and isinstance(data.get("muted"), bool):
             self._muted = data["muted"]
 
@@ -240,8 +241,8 @@ class CallTurns(FrameProcessor):
                     await self._end(self._time_up)
                     continue
                 assert text is not None
-                await self._turn(text, voiced=not self._muted)
-                turns += 1
+                if await self._turn(text, voiced=not self._muted):
+                    turns += 1
                 if self._limits.turns is not None and turns >= self._limits.turns:
                     await self._end(f"这次通话已经说了 {turns} 轮了")
             finally:
@@ -258,25 +259,22 @@ class CallTurns(FrameProcessor):
         await self._send({"type": "ended", "message": f"{reason}，先挂断啦。想接着聊可以重新拨打。"})
         await self.push_frame(EndWorkerFrame(reason=reason))
 
-    async def _turn(self, text: str, voiced: bool) -> None:
-        await self._send({"type": "user", "text": text})
+    async def _turn(self, text: str, voiced: bool) -> bool:
+        """Take one turn; whether it succeeded."""
         self._voicing = voiced
+        succeeded = False
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
                 self._call.conversation, text, self._call.device_timezone
             ):
-                if isinstance(event, TurnDone):
-                    await self._send({"type": "done", "message": asdict(event.message)})
-                    continue
-                await self._send({"type": "delta", **asdict(event)})
-                if event.lang == "ja" and self._voicing:
+                await self._send(asdict(event))
+                if isinstance(event, SegmentDelta) and event.lang == "ja" and self._voicing:
                     await self.push_frame(TextFrame(event.text))
-        except Exception:
-            log.exception("call turn failed in conversation %s", self._call.conversation.id)
-            await self._send({"type": "error", "message": "角色暂时无法回复，请稍后再试。"})
+                succeeded = isinstance(event, TurnDone)
         finally:
             await self.push_frame(LLMFullResponseEndFrame())
+        return succeeded
 
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))

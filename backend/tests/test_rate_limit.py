@@ -12,6 +12,7 @@ import pytest
 from aiortc import RTCConfiguration, RTCPeerConnection
 
 from eidolon.config import Settings, UsageLimits
+from eidolon.engine import MAX_INPUT_LENGTH
 from tests.conftest import Admin, ClientFactory
 from tests.fakes import START, FakeCalls, FakeClock, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -148,12 +149,19 @@ def test_limits_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
         UsageLimits.from_env()
 
 
-async def test_a_turn_that_fails_gives_its_use_back(make_client: ClientFactory, settings: Settings):
-    llm = FakeLLM()  # no scripted reply: the first turn fails
+@pytest.mark.parametrize(
+    "text",
+    ["在吗", " ", "啊" * (MAX_INPUT_LENGTH + 1)],  # the model fails; blank; too long
+    ids=["failed", "blank", "too long"],
+)
+async def test_a_turn_that_fails_or_is_rejected_gives_its_use_back(
+    make_client: ClientFactory, settings: Settings, text: str
+):
+    llm = FakeLLM()  # no scripted reply: a turn that reaches the model fails
     client = make_client(llm, settings=limited(settings, turns=1), clock=FakeClock())
     conversation_id = await start_conversation(client)
 
-    assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "error"
+    assert (await send_turn(client, conversation_id, text))[-1]["type"] == "error"
 
     llm._replies.append(list(REPLY))
     assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "done"
