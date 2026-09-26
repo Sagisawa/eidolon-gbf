@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useReducer, useRef, useState } from "react";
 import { FailureNotice } from "@/components/FailureNotice";
 import {
   createConversation,
@@ -11,59 +11,19 @@ import {
   listMessages,
   sendTurn,
   type CallEvent,
-  type Message,
-  type Segment,
-  type TurnEvent,
 } from "@/lib/api";
 import { startCall, type Call } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
+import { conversationLog, emptyLog } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
 
-type Entry =
-  | { kind: "user"; key: string; text: string }
-  | { kind: "character"; key: string; segments: Segment[]; pending: boolean };
-
 type CallState = "idle" | "connecting" | "active";
-
-/** One exchange shown in the log before it is recorded: the user's words and the reply. */
-type PendingTurn = { userKey: string; replyKey: string };
-
-function pendingTurn(text: string): { turn: PendingTurn; entries: Entry[] } {
-  const replyKey = `pending-${Date.now()}-${Math.random()}`;
-  const turn = { userKey: `${replyKey}-user`, replyKey };
-  return {
-    turn,
-    entries: [
-      { kind: "user", key: turn.userKey, text },
-      { kind: "character", key: turn.replyKey, segments: [], pending: true },
-    ],
-  };
-}
-
-function withDelta(entry: Entry, event: TurnEvent & { type: "delta" }): Entry {
-  if (entry.kind !== "character") return entry;
-  const segments = [...entry.segments];
-  const current = segments[event.segment] ?? { ja: "", zh: "" };
-  segments[event.segment] = { ...current, [event.lang]: current[event.lang] + event.text };
-  return { ...entry, segments };
-}
-
-function toEntry(message: Message): Entry {
-  return message.role === "user"
-    ? { kind: "user", key: `m${message.id}`, text: message.text ?? "" }
-    : {
-        kind: "character",
-        key: `m${message.id}`,
-        segments: message.segments,
-        pending: false,
-      };
-}
 
 export default function ConversationPage() {
   const { characterId } = useParams<{ characterId: string }>();
   const [name, setName] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [entries, setEntries] = useState<Entry[]>([]);
+  const [{ entries }, dispatch] = useReducer(conversationLog, emptyLog);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Failure | null>(null);
@@ -71,7 +31,6 @@ export default function ConversationPage() {
   const [muted, setMuted] = useState(false);
   const [hearing, setHearing] = useState("");
   const call = useRef<Call | null>(null);
-  const callTurn = useRef<PendingTurn | null>(null);
   const callEnding = useRef<string | null>(null); // why the backend is hanging up
   const characterAudio = useRef<HTMLAudioElement>(null);
   const logEnd = useRef<HTMLDivElement>(null);
@@ -96,7 +55,7 @@ export default function ConversationPage() {
         const messages = await listMessages(conversation.id);
         if (cancelled) return;
         setConversationId(conversation.id);
-        setEntries(messages.map(toEntry));
+        dispatch({ type: "loaded", messages });
       } catch (e) {
         if (!cancelled) setError(toFailure(e));
       }
@@ -110,38 +69,14 @@ export default function ConversationPage() {
     logEnd.current?.scrollIntoView({ block: "end" });
   }, [entries, hearing]);
 
-  function updateEntry(key: string, update: (entry: Entry) => Entry) {
-    setEntries((all) => all.map((entry) => (entry.key === key ? update(entry) : entry)));
-  }
-
-  function dropTurn(turn: PendingTurn) {
-    setEntries((all) => all.filter((e) => e.key !== turn.userKey && e.key !== turn.replyKey));
-  }
-
   function onCallEvent(event: CallEvent) {
     if (event.type === "ended") {
       callEnding.current = event.message;
       return;
     }
-    if (event.type === "user") {
-      const { turn, entries: added } = pendingTurn(event.text);
-      callTurn.current = turn;
-      setHearing("");
-      setEntries((all) => [...all, ...added]);
-      return;
-    }
-    const turn = callTurn.current;
-    if (!turn) return;
-    if (event.type === "delta") {
-      updateEntry(turn.replyKey, (entry) => withDelta(entry, event));
-    } else if (event.type === "done") {
-      updateEntry(turn.replyKey, (entry) => ({ ...entry, pending: false }));
-      callTurn.current = null;
-    } else {
-      dropTurn(turn);
-      callTurn.current = null;
-      setError({ message: event.message, needsKey: false });
-    }
+    dispatch(event);
+    if (event.type === "user") setHearing("");
+    if (event.type === "error") setError({ message: event.message, needsKey: false });
   }
 
   async function toggleCall() {
@@ -150,6 +85,7 @@ export default function ConversationPage() {
       call.current = null;
       setCallState("idle");
       setHearing("");
+      dispatch({ type: "interrupted" }); // a reply cut off by hanging up is not recorded
       await ending.hangUp().catch(() => {});
       return;
     }
@@ -168,6 +104,7 @@ export default function ConversationPage() {
           call.current = null;
           setCallState("idle");
           setHearing("");
+          dispatch({ type: "interrupted" });
           setError({ message: callEnding.current ?? "通话已断开", needsKey: false });
         },
       });
@@ -190,7 +127,7 @@ export default function ConversationPage() {
     try {
       const conversation = await createConversation(characterId);
       setConversationId(conversation.id);
-      setEntries([]);
+      dispatch({ type: "loaded", messages: [] });
     } catch (e) {
       setError(toFailure(e));
     }
@@ -208,28 +145,25 @@ export default function ConversationPage() {
       return;
     }
     setBusy(true);
-    const { turn, entries: added } = pendingTurn(text);
-    setEntries((all) => [...all, ...added]);
+    dispatch({ type: "submitted", text });
 
     let failure: Failure | null = null;
+    let done = false;
     try {
       for await (const event of sendTurn(conversationId, text)) {
-        if (event.type === "delta") {
-          updateEntry(turn.replyKey, (entry) => withDelta(entry, event));
-        } else if (event.type === "error") {
-          failure = { message: event.message, needsKey: false };
-        }
+        dispatch(event);
+        if (event.type === "done") done = true;
+        if (event.type === "error") failure = { message: event.message, needsKey: false };
       }
+      if (!done && !failure) failure = { message: "回复中断了，请再试一次", needsKey: false };
     } catch (e) {
       failure = toFailure(e);
     }
     if (failure) {
       // A failed turn is not recorded: take it back off the log and return the text to the input.
-      dropTurn(turn);
+      dispatch({ type: "interrupted" });
       setInput(text);
       setError(failure);
-    } else {
-      updateEntry(turn.replyKey, (entry) => ({ ...entry, pending: false }));
     }
     setBusy(false);
   }

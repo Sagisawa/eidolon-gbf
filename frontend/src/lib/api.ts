@@ -26,7 +26,9 @@ export type Message = {
   created_at: string;
 };
 
+/** A turn's events: `user`, then any `delta`s, then `done` or `error`. */
 export type TurnEvent =
+  | { type: "user"; text: string }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
@@ -50,12 +52,9 @@ export type Memory = {
   created_at: string;
 };
 
-/** During a call the backend also announces each utterance it takes up, spoken or typed,
- * and, when the call reaches its time or turn limit, why it is about to hang up. */
-export type CallEvent =
-  | TurnEvent
-  | { type: "user"; text: string }
-  | { type: "ended"; message: string };
+/** During a call each utterance, spoken or typed, is a turn; the backend also says, when the
+ * call reaches its time or turn limit, why it is about to hang up. */
+export type CallEvent = TurnEvent | { type: "ended"; message: string };
 
 export class ApiError extends Error {
   constructor(
