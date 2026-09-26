@@ -16,7 +16,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](frontend/tsconfig.json)
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](backend/src/eidolon/store.py)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
-[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
 [![Private use](https://img.shields.io/badge/用途-私用·小圈子-FF69B4?style=flat-square)](docs/adr/0003-corpus-and-voices-stay-private.md)
 
 </div>
@@ -363,7 +363,7 @@ eidolon-sc/
 
 ## 📄 许可证
 
-本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
+本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）或（由你选择）任何更高版本发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
 
 许可证只覆盖仓库里的代码和文档。剧情数据、角色音色、人设、角色资料和头像不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。
 
