@@ -31,3 +31,9 @@
 - 默认模型已经改为 `Qwen/Qwen3-Reranker-4B`。国内站 `api.siliconflow.cn` 仍提供，国际站标为 Deprecated（见 `config.DEFAULT_RERANK_MODEL` 的注释）。
 - 测试 `tests/test_rerank_eval.py` 还核对了数据集里引用的资料标题都在 `characters/facts/*.md` 中，改了资料标题会让它失败。
 
+2026-09-27 剩下的做法（已和用户确定）：
+
+1. 同步剧情库（agent 做，后台跑）：本地还没有数据库。把 SCTranslationData 克隆到仓库根目录的 `corpus/`，在 `backend/` 下运行 `uv run eidolon --db data/eidolon.db story sync`，首次大约一到两个小时，可以中断后重跑。**向量化用硅基流动**（`.env` 里 `EMBEDDING_PROVIDER` 留空，也就是默认的 siliconflow），不用 Gemini。
+2. 校对数据集（用户做，可以用 `/grilling` 逐条过）：`backend/eval/rerank-calibration.toml` 里的标注，改完把 `reviewed` 设为 true。
+3. 同步和校对都完成后，分别跑 `eidolon eval rerank --model Qwen/Qwen3-Reranker-0.6B` 和 `--model Qwen/Qwen3-Reranker-4B`。把分数分布和建议的阈值记在这里，用户确认后改 `rerank.KNOWN_THRESHOLDS`，同时决定默认模型是否保持 4B。
+
