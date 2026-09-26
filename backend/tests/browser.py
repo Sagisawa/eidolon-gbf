@@ -3,6 +3,8 @@ and a data channel speaking RTVI, over a real WebRTC connection to the backend."
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import httpx
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
@@ -13,6 +15,10 @@ TIMEOUT = 10
 
 
 class Browser:
+    """One browser tab placing one call: `call` offers it, `connect` waits until the
+    character is ready, then the user can speak (through the fake speech recognition) or
+    `type`, and read each `turn` as the browser receives it."""
+
     def __init__(self) -> None:
         self.pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))  # host candidates only
         self.pc.addTrack(AudioStreamTrack())
@@ -93,6 +99,16 @@ class Browser:
 
     async def _next(self) -> dict:
         return await asyncio.wait_for(self._inbox.get(), TIMEOUT)
+
+
+@asynccontextmanager
+async def open_browser() -> AsyncIterator[Browser]:
+    """Another browser, closed afterwards."""
+    browser = Browser()
+    try:
+        yield browser
+    finally:
+        await browser.close()
 
 
 async def until_gone(client: httpx.AsyncClient, pc_id: str) -> None:

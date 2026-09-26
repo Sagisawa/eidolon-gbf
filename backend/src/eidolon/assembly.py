@@ -117,7 +117,7 @@ def build(
             " JEV_MODEL"
         )
         memories = Memories(settings.database_path, characters, clock)
-    closers.append(memories.aclose)  # closed first, so what it is writing down can finish
+    closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
     engine = ConversationEngine(
         store, chat_llm, characters, memories, clock, retrieval, settings.history_turns

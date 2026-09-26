@@ -2,8 +2,6 @@
 whichever of their access keys they come with, driven through the backend's external API
 with a clock the tests control."""
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -13,7 +11,7 @@ import pytest
 from eidolon.config import Settings, UsageLimits
 from eidolon.engine import MAX_INPUT_LENGTH
 from tests.conftest import Admin, ClientFactory
-from tests.browser import Browser
+from tests.browser import open_browser
 from tests.fakes import START, FakeClock, FakeLLM, FakeSpeech
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -22,16 +20,6 @@ REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 
 def limited(settings: Settings, *, turns: int | None = 60, calls: int | None = 5) -> Settings:
     return replace(settings, usage_limits=UsageLimits(turns_per_hour=turns, calls_per_hour=calls))
-
-
-@asynccontextmanager
-async def browser() -> AsyncIterator[Browser]:
-    """A browser's side of one call."""
-    browser = Browser()
-    try:
-        yield browser
-    finally:
-        await browser.close()
 
 
 async def post_turn(client: httpx.AsyncClient, conversation_id: str) -> httpx.Response:
@@ -93,16 +81,16 @@ async def test_voice_calls_have_their_own_hourly_limit_and_renegotiating_is_free
     clock = FakeClock()
     client = make_client(FakeLLM(REPLY), settings=limited(settings, calls=2), clock=clock)
     conversation_id = await start_conversation(client)
-    async with browser() as first:
+    async with open_browser() as first:
         pc_id = (await first.call(client, conversation_id=conversation_id)).json()["pc_id"]
         renegotiation = {**await first.offer(conversation_id=conversation_id), "pc_id": pc_id}
         assert (await client.post("/api/offer", json=renegotiation)).status_code == 200
     clock.advance(minutes=5)
-    async with browser() as second:
+    async with open_browser() as second:
         assert (await second.call(client, conversation_id=conversation_id)).status_code == 200
     clock.advance(minutes=5)
 
-    async with browser() as third:
+    async with open_browser() as third:
         refused = await third.call(client, conversation_id=conversation_id)
 
     assert refused.status_code == 429
@@ -170,11 +158,11 @@ async def test_a_call_that_cannot_be_set_up_gives_its_use_back(
 ):
     client = make_client(FakeLLM(), settings=limited(settings, calls=1), clock=FakeClock())
     conversation_id = await start_conversation(client)
-    async with browser() as pc:
+    async with open_browser() as pc:
         broken = {**await pc.offer(conversation_id=conversation_id), "type": "answer"}
         failed = await client.post("/api/offer", json=broken)
     assert failed.status_code == 500
     assert failed.json()["detail"] == "无法建立通话"
 
-    async with browser() as pc:
+    async with open_browser() as pc:
         assert (await pc.call(client, conversation_id=conversation_id)).status_code == 200

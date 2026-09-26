@@ -38,3 +38,11 @@
 - 测试：`tests/browser.py`（aiortc 浏览器：静音麦克风 + RTVI data channel，`call / connect / type / turn / hung_up`，`until_gone` 用 PATCH 变 404 判断后端已放下通话）；`FakeSpeech / FakeSTT / FakeTTS`（`fakes.py`），`speech` fixture 顺带把 NLTK 断句器换掉；conftest 里两个角色有了各自的 `voice_id`。新增 `test_call.py`（9 个：说话 + 打字 + 设备时区 + 只送日语 + 落库；检索与记忆；对话、角色音色、静音按请求；连不上、服务构造失败、服务故障且零回合都退还；有回合后故障、用户挂断都计数；服务停止挂断通话、进行中的回合不留记录）。`test_voice_call` / `test_rate_limit` 改用 `Browser` + `FakeSpeech`；`test_call_turns` 删去挪到端到端的三个。
 - 验证：`pytest` 268 passed，`pyright` 0 errors；通话相关 35 个测试连跑 10 次无失败（每次约 4 秒）。变异检查：去掉「未接通退还」「零回合服务故障退还」、改成「有回合也退还」、不在关闭时挂断通话、不检查服务是否构造成功，各自有一个测试失败（关闭那条原本会挂住，测试加了兜底挂断后改为 10 秒超时失败）。
 - 未做：真实 Soniox / Fish Audio 与浏览器的冒烟（这个环境没有密钥）。前端和 wire 协议没有变化。
+
+### 评审（2026-09-26，code-review）
+
+- 修复：`CallTurns.recorded` 改为收到 `TurnDone` 时就加一（engine 在发出 `TurnDone` 前已落库），关闭「回合已记下、服务随即故障、计数仍被退还」的窄窗口。
+- 新增测试：通话因自身回合上限结束仍计数。
+- 测试辅助收拢：`browser` fixture 移入 conftest，`open_browser()` 取代各处手写的临时浏览器；补上缺失的 docstring；`assembly.py` 记忆关闭顺序的注释更新。
+- 保留不改：服务故障之外的异常（含 `error.fatal` 与我们自己的 bug）在零回合时也退还计数，对用户更友好；`SessionDescription`、`IceCandidate` 的分层与命名；未配置语音时 PATCH 仍是 404（与改动前一致）。
+- `pytest` 270 passed，`pyright` 0 errors。

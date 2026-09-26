@@ -13,6 +13,7 @@ from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.assembly import Backend, build
 from eidolon.config import LLMSettings, Settings
+from tests.browser import Browser, open_browser
 from tests.fakes import FakeBackgroundLLM, FakeLLM, FakeSpeech
 from tests.stories import write_sample_stories
 
@@ -164,6 +165,13 @@ def speech(monkeypatch: pytest.MonkeyPatch) -> FakeSpeech:
     split at 。！？, which is what NLTK does with Japanese anyway."""
     monkeypatch.setattr(pipecat.utils.string, "_sent_tokenizer", lambda: lambda text: [text])
     return FakeSpeech()
+
+
+@pytest.fixture
+async def browser() -> AsyncIterator[Browser]:
+    """The browser placing a call in the test."""
+    async with open_browser() as browser:
+        yield browser
 
 
 @pytest.fixture

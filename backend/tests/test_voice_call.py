@@ -2,7 +2,6 @@
 
 import base64
 import hmac
-from collections.abc import AsyncIterator
 from dataclasses import replace
 
 import pytest
@@ -12,13 +11,6 @@ from tests.browser import Browser
 from tests.conftest import Admin, ClientFactory
 from tests.fakes import FakeClock, FakeLLM, FakeSpeech
 from tests.test_text_turn import start_conversation
-
-
-@pytest.fixture
-async def browser() -> AsyncIterator[Browser]:
-    browser = Browser()
-    yield browser
-    await browser.close()
 
 
 async def test_ice_servers_come_from_configuration(make_client: ClientFactory, settings: Settings):

@@ -64,7 +64,7 @@ from pipecat.workers.runner import WorkerRunner
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
-from eidolon.engine import ConversationEngine, TurnDone, TurnEvent
+from eidolon.engine import ConversationEngine, TurnDone
 from eidolon.reply_format import SegmentDelta
 from eidolon.store import Conversation
 from eidolon.usage import UsageLimiter, Use
@@ -291,6 +291,7 @@ class Calls:
     async def add_candidates(
         self, user_id: str, pc_id: str, candidates: Sequence[IceCandidate]
     ) -> None:
+        """Take ICE candidates the browser trickles in for one of the user's calls."""
         self._require_owner(user_id, pc_id)
         patch = SmallWebRTCPatchRequest(
             pc_id,
@@ -386,10 +387,12 @@ class _LiveCall:
                 self._service_failed = True
 
     def start(self, on_done: Callable[["_LiveCall"], None]) -> None:
+        """Serve the call in the background; `on_done` is told once it has ended."""
         self._task = asyncio.create_task(self._serve())
         self._task.add_done_callback(lambda _: on_done(self))
 
     async def hang_up(self) -> None:
+        """End the call now, dropping any reply in progress, and wait until it has ended."""
         self._hung_up = True
         await self._worker.cancel()
         if self._task is not None:
@@ -506,8 +509,7 @@ class CallTurns(FrameProcessor):
                     await self._end(self._time_up)
                     continue
                 assert text is not None
-                if await self._turn(text, voiced=not self._muted):
-                    self.recorded += 1
+                await self._turn(text, voiced=not self._muted)
                 if self._limits.turns is not None and self.recorded >= self._limits.turns:
                     await self._end(f"这次通话已经说了 {self.recorded} 轮了")
             finally:
@@ -524,23 +526,22 @@ class CallTurns(FrameProcessor):
         await self._send({"type": "ended", "message": f"{reason}，先挂断啦。想接着聊可以重新拨打。"})
         await self.push_frame(EndWorkerFrame(reason=reason))
 
-    async def _turn(self, text: str, voiced: bool) -> bool:
-        """Take one turn; whether it ended with the reply recorded (a rejected or failed
-        turn does not count towards the call's limit)."""
+    async def _turn(self, text: str, voiced: bool) -> None:
+        """Take one turn. Only a turn whose reply is recorded counts as one: a rejected or
+        failed turn does not count towards the call's limit."""
         self._voicing = voiced
-        last: TurnEvent | None = None
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
                 self._call.conversation, text, self._call.device_timezone
             ):
+                if isinstance(event, TurnDone):  # recorded by now, whatever happens next
+                    self.recorded += 1
                 await self._send(asdict(event))
                 if isinstance(event, SegmentDelta) and event.lang == "ja" and self._voicing:
                     await self.push_frame(TextFrame(event.text))
-                last = event
         finally:
             await self.push_frame(LLMFullResponseEndFrame())
-        return isinstance(last, TurnDone)
 
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))

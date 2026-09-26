@@ -5,7 +5,6 @@ Jev, the embedder and the reranker."""
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -17,7 +16,7 @@ from eidolon.app import create_app
 from eidolon.assembly import build
 from eidolon.config import Settings, UsageLimits
 from eidolon.store import Store
-from tests.browser import TIMEOUT, Browser, until_gone
+from tests.browser import TIMEOUT, Browser, open_browser, until_gone
 from tests.conftest import ClientFactory, IssuedKey
 from tests.fakes import (
     FakeBackgroundLLM,
@@ -32,13 +31,6 @@ from tests.test_text_turn import start_conversation
 MANO_REPLY = ["<ja>ほわっ、", "おはようございます！</ja><zh>哇，早上好！</zh><ja>今日も</ja><zh>今天也</zh>"]
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 CAT = "制作人家里养了一只叫小白的猫"
-
-
-@pytest.fixture
-async def browser() -> AsyncIterator[Browser]:
-    browser = Browser()
-    yield browser
-    await browser.close()
 
 
 @pytest.fixture
@@ -137,11 +129,8 @@ async def test_a_call_that_never_connects_does_not_count(
     assert browser.pc_id is not None
     await until_gone(client, browser.pc_id)  # the answer was never taken up
 
-    again = Browser()
-    try:
+    async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 200
-    finally:
-        await again.close()
 
 
 async def test_a_call_whose_voice_services_cannot_be_made_is_refused_and_does_not_count(
@@ -156,11 +145,8 @@ async def test_a_call_whose_voice_services_cannot_be_made_is_refused_and_does_no
     assert res.status_code == 500
     assert res.json()["detail"] == "无法建立通话"
     speech.down = False
-    again = Browser()
-    try:
+    async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 200
-    finally:
-        await again.close()
 
 
 async def test_a_call_whose_voice_service_fails_before_any_turn_does_not_count(
@@ -175,11 +161,8 @@ async def test_a_call_whose_voice_service_fails_before_any_turn_does_not_count(
     await speech.stts[-1].break_down()
     await until_gone(client, browser.pc_id)
 
-    again = Browser()
-    try:
+    async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 200
-    finally:
-        await again.close()
 
 
 async def test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later(
@@ -196,11 +179,27 @@ async def test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later(
     await speech.stts[-1].break_down()
     await until_gone(client, browser.pc_id)
 
-    again = Browser()
-    try:
+    async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 429
-    finally:
-        await again.close()
+
+
+async def test_a_call_that_ends_on_its_own_limits_counts(
+    make_client: ClientFactory, settings: Settings, speech: FakeSpeech, browser: Browser
+):
+    limits = UsageLimits(calls_per_hour=1, turns_per_call=1)
+    client = make_client(FakeLLM(REPLY), settings=replace(settings, usage_limits=limits))
+    conversation_id = await start_conversation(client)
+    await browser.call(client, conversation_id=conversation_id)
+    await browser.connect()
+    assert browser.pc_id is not None
+    await speech.stts[-1].hear("你好")
+    await browser.turn()
+
+    assert "1 轮" in (await browser.next_server_message("ended"))["message"]
+    await until_gone(client, browser.pc_id)
+
+    async with open_browser() as again:
+        assert (await again.call(client, conversation_id=conversation_id)).status_code == 429
 
 
 async def test_a_call_hung_up_by_the_user_counts(
@@ -215,11 +214,8 @@ async def test_a_call_hung_up_by_the_user_counts(
     await browser.close()
     await until_gone(client, browser.pc_id)
 
-    again = Browser()
-    try:
+    async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 429
-    finally:
-        await again.close()
 
 
 async def test_shutting_down_hangs_up_calls_and_drops_the_reply_in_progress(

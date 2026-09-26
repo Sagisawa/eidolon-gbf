@@ -110,6 +110,7 @@ class FakeSTT(STTService):
         yield None
 
     async def hear(self, text: str) -> None:
+        """The user said `text`: an utterance starts, is transcribed, and ends."""
         await self.broadcast_frame(ProposedUserStartedSpeakingFrame)
         await self.push_frame(TranscriptionFrame(text, "user", time_now_iso8601(), finalized=True))
         await self.broadcast_frame(ProposedUserStoppedSpeakingFrame)
