@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    volumes:
+      - eidolon-data:/data
+      - ./characters:/characters:ro
+      - ./corpus:/corpus:ro
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  eidolon-data:

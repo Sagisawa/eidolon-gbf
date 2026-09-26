@@ -1,0 +1,134 @@
+# Eidolon-SC
+
+和《偶像大师 闪耀色彩》的偶像实时对话的 AI 分身系统，供自己和小圈子使用。术语见 `CONTEXT.md`，规划见 `.scratch/mvp/`。
+
+## 启动
+
+```sh
+cp .env.example .env   # 填写对话模型的地址、密钥和模型名
+# 准备人设文件，见下方「角色」
+docker compose up --build
+```
+
+打开 http://localhost:3000 ，在设置页填入访问密钥后即可在角色选择页挑一位角色对话。
+
+部署到 VPS（HTTPS、TURN、给朋友用）另有一份生产配置 `docker-compose.prod.yml`，步骤见 `docs/deploy.md`。
+
+## 模型
+
+「对话模型」负责和用户对话，「后台模型」负责抽取记忆、生成人设初稿。两者在 `.env` 里分别配置，各自可以选三种接口之一（`CHAT_LLM_PROTOCOL`、`BACKGROUND_LLM_PROTOCOL`）：OpenAI 兼容的 Chat Completions（`chat-completions`，默认）、OpenAI Responses（`responses`）、Anthropic Messages（`anthropic`）。地址、密钥、模型名都自己填，所以也可以接各种兼容这些接口的第三方服务。
+
+- 对话模型必须支持流式输出和工具调用。后端启动时先发一次很小的检查请求（带一个工具、要求流式返回）：模型不以流式返回、不接受工具、或者地址密钥有误时，后端拒绝启动，并说明是哪一项不满足、服务返回了什么。
+- 模型在回复前输出的思考内容（reasoning / thinking）会被忽略，不会进入回复。
+- Anthropic 接口要求给出每次回复的长度上限，默认 16384 token，可以用 `CHAT_LLM_MAX_TOKENS`、`BACKGROUND_LLM_MAX_TOKENS` 调整（另两种接口不填就不限制）。这一项两个模型各自设置，后台模型不沿用对话模型的上限，以免把较长的人设初稿截断。
+
+## 角色
+
+角色由 `characters/characters.toml` 配置：标识、显示名、简介、Fish Audio 音色 ID、人设文件和头像的位置。新增角色或替换音色 ID 只需要改这个文件，然后重启后端。
+
+人设文件、角色资料和头像不进仓库（ADR-0003）。启动前参照 `characters/sheets/example.md` 写好 `characters/sheets/mano.md` 和 `characters/sheets/kogane.md`；角色资料（可选）参照 `characters/facts/example.md` 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
+
+人设也可以先让后台模型根据剧情库写一份初稿，再人工校对（需要先导入剧情库，后台模型的配置见下方「记忆」）：
+
+```sh
+uv run eidolon --db data/eidolon.db character draft-sheet mano   # 在 backend/ 下
+# docker compose 下 characters/ 是只读的，先写到数据卷再拷出来：
+docker compose exec backend eidolon character draft-sheet mano --output /data/drafts/mano.md
+docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
+```
+
+- 素材只有这位角色出场过的剧情（正式经历）。初稿依次包含身份、自称、对他人的称呼、口癖、组合成员、硬性规则几节，模型漏掉的小节会留下「（待补充）」；一段剧情超出上限时会拆成几段读，不会截断。
+- 初稿第一行是草稿标记。标记在的时候人设照常可用（标记不会进入提示词），但后端启动时会提醒这份人设还没校对；校对完删掉这一行即可。
+- 已经校对过（没有草稿标记）的人设文件不会被覆盖，确实要重新生成时加 `--force`；还没校对的草稿会直接被新草稿替换。
+- 剧情素材超出一次请求的上限（`--budget`，默认 40000 字）时，先分批让后台模型做笔记，再根据笔记写初稿；素材多到超过 20 批时，先从全部剧情里均匀抽取。真乃约 220 段剧情、33 万字，大约需要请求后台模型十次。
+
+## 语音通话
+
+在 `.env` 里填好 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 后，对话页的「语音通话」按钮就能用了：说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。通话中打字输入的内容和说的话进入同一条对话，角色同样用语音回复。「静音」开关打开后只显示文字、不合成语音。麦克风和通话音质在设置页选择。
+
+浏览器和后端之间直接走 WebRTC（UDP）。本机用 docker compose 启动时，Linux 上的浏览器可以直接连到容器；其他情况（macOS 的 Docker Desktop、手机访问）需要浏览器能连通后端，通常要配置 TURN 服务器，见 `.env.example` 里的 `EIDOLON_ICE_SERVERS` 和 `EIDOLON_TURN_URLS`。公网部署的生产配置自带 coturn，见 `docs/deploy.md`。
+
+## 剧情库
+
+角色能回忆的原作剧情来自 [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) 的剧情 CSV，缺少的部分可以用游戏原始剧本 JSON 补全。剧情数据不进仓库（ADR-0003）：把它克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好 `SILICONFLOW_API_KEY`，然后导入：
+
+```sh
+git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
+docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+```
+
+- 每个 CSV 导入为一段剧情，以文件末尾 `info` 行指向的原始剧本为主键，重复导入会覆盖更新；内容没有变化的剧情不会重新向量化，所以原作更新后随时可以重新导入。
+- 失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按原始剧本编号识别并排除；制作人的选项不收录。
+- 出场角色按台词的说话人识别：`characters.toml` 里每位角色的 `speakers` 列出她在剧本里的名字（如 `真乃`）。修改 `speakers` 或新增角色后需要重新导入。
+- 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。
+- 剧情目录按「角色 → 卡或活动 → 话」分层，直接由剧情库生成，所以总是和最近一次导入一致；导入结束时会列出每位角色的目录规模。
+
+SCTranslationData 里没有的剧情，可以用游戏原始剧本 JSON 补全（每个文件是游戏里一段剧本的帧数组，字段有 `speaker`、`text`、`select` 等）：
+
+```sh
+docker compose exec backend eidolon story import-json /corpus/scripts
+```
+
+- 剧本编号取自文件路径，可以按游戏里的路径存放（`produce_events/100100101.json`），也可以用汉化插件的命名（`produce_events_100100101.json`）。路径里没有剧本编号的文件会被跳过并给出警告（无法和同一段剧本的 CSV 去重）。
+- 像 SCTranslationData 那样放在「出处/」目录下时，出处取目录名、标题取文件名；按游戏路径存放时，出处是去掉最后两位话数的剧本编号（如 `produce_events/2011005`），标题是 `produce_events_201100501` 这样的名字。
+- 规则和 CSV 相同：排除失败结局，制作人的选项不收录，角色对每个选项的反应都保留。
+- 同一段剧本已经从 CSV 导入过时，保留带中文翻译的 CSV 版本，JSON 不会覆盖它；反过来，之后导入的 CSV 会替换 JSON 版本。只从 JSON 导入的剧情没有中文翻译，但检索和剧情目录照常可用。
+
+本地开发时用 `uv run eidolon --db data/eidolon.db story import-csv <目录>`（`import-json` 同理）。
+
+## 对话中的检索
+
+在 `.env` 里填好 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+
+- 每一句话先交给 Jev（通过 Vercel AI Gateway 调用）判断这句话需要什么：寒暄闲聊不检索，不增加延迟；需要资料时做下面的检索；问「那次……是怎么回事」这类过去经历时，直接用这句话「回顾剧情」，把结果放进提示词，省去对话模型自己调用工具的那一轮。Jev 出错时照常检索。
+- 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。检索或重排出错时，本回合不带检索结果照常回复。
+- 对话模型还可以调用「回顾剧情」工具（`recall_story`）：制作人问「那次……是怎么回事」这类问题时，角色用一句概括去查自己出场过的剧情，拿回最相关的最多 2 段剧情的原文（附带它在剧情目录中属于哪张卡或哪个活动、同一处还有哪些剧情），再据此回答。一句话最多调用 1 轮工具；Jev 已经判断为回顾剧情的回合不再提供这个工具。对话模型需要支持工具调用。
+- 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
+
+## 记忆
+
+角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL`）。
+
+- 每个回合结束后，「后台模型」读这一轮对话，把用户透露的、值得长期记住的事写成中文记忆（如「制作人养了一只叫小白的猫」），记下所属用户和来源角色；「下周六」这样的相对时间会按用户的时区换算成日期。已经记住的事不会重复记。这一步在后台进行，不耽误回复；用户的下一句话会先等它完成（最多 5 秒）。
+- 后台模型在 `.env` 里用 `BACKGROUND_LLM_PROTOCOL`、`BACKGROUND_LLM_BASE_URL`、`BACKGROUND_LLM_API_KEY`、`BACKGROUND_LLM_MODEL` 单独配置，不填的项沿用对话模型的设置（见上方「模型」）。
+- 之后的对话中，Jev 判断用户在说自己的事（近况、计划、家人宠物等）时，只检索记忆；需要检索剧情和角色资料时，也会一起检索记忆。和话题相关的最多 3 条记忆放进提示词，每条注明来源角色和日期。
+- 新开的对话只靠检索到的记忆接上以前聊过的事，不带上次对话的内容。
+- 用户在「设置 → 管理记忆」页查看角色们记下的全部记忆，每条注明是对哪位角色说的；可以逐条删除，也可以二次确认后一键清空，但不能手动新增或修改。删除的记忆不会再进入任何提示词；清空时还在后台抽取的记忆会被丢弃，不会在清空后冒出来。
+
+## 用户与访问密钥
+
+管理员用命令行管理用户和访问密钥。一位用户可以持有多把密钥，对话记录属于用户本身；吊销一把密钥不影响用户的数据。
+
+```sh
+docker compose exec backend eidolon user create alice    # 创建用户
+docker compose exec backend eidolon key issue alice      # 签发密钥（只显示这一次）
+docker compose exec backend eidolon key list alice       # 查看密钥编号和状态
+docker compose exec backend eidolon key revoke <密钥编号>  # 吊销
+```
+
+为了不让某位用户耗光大家共用的 API 额度，每位用户在任意一小时内最多发起 60 次文字对话回合和 5 次语音通话（同一位用户的多把密钥合并计算；通话中说的话和打的字不另外计数，回复失败的回合和没能接通的通话不计入），可以用 `.env` 里的 `EIDOLON_TURNS_PER_HOUR`、`EIDOLON_CALLS_PER_HOUR` 调整，填 0 表示不限制。超过限额的请求返回 429，带上可以恢复使用的时间，前端据此提示「几点之后可以再用」。单次语音通话最长 10 分钟、最多 40 轮（`EIDOLON_CALL_MINUTES`、`EIDOLON_TURNS_PER_CALL`，填 0 表示不限制）；到了上限，角色把正在说的话说完后挂断，前端说明原因。
+
+对话模型每个回合只读到本次对话最近 20 个回合（`EIDOLON_HISTORY_TURNS`，填 0 表示整段对话都带上），更早的内容靠记忆和检索接上，这样长对话不会越聊越慢、越贵，也不会超出模型的上下文窗口；对话记录本身完整保留。
+
+本地开发时用 `uv run eidolon --db data/eidolon.db ...`。01 阶段遗留的默认用户名为 `default`，为它签发密钥即可继续访问原有对话。
+
+## 开发
+
+后端（Python，`backend/`）：
+
+```sh
+cd backend
+uv sync
+uv run pytest        # 测试
+uv run pyright       # 类型检查
+CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon   # 启动在 :8000，读取 ../characters/characters.toml（可用 EIDOLON_CHARACTERS_PATH 覆盖）
+```
+
+前端（Next.js，`frontend/`）：
+
+```sh
+cd frontend
+npm install
+BACKEND_URL=http://localhost:8000 npm run dev   # 启动在 :3000，/api/* 转发给后端
+npm run typecheck
+```

@@ -16,3 +16,13 @@ skills-lock.json
 
 # 浏览器调研产物
 .playwright-mcp/
+
+# 人设、角色资料和头像不进仓库（ADR-0003），只保留示例
+characters/sheets/*
+!characters/sheets/example.md
+characters/facts/*
+!characters/facts/example.md
+characters/avatars/
+
+# 剧情库的原始数据和整理后的数据库都不进仓库（ADR-0003）
+/corpus/
