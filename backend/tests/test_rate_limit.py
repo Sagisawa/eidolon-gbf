@@ -9,14 +9,13 @@ from datetime import datetime, timedelta
 
 import httpx
 import pytest
-from aiortc import RTCConfiguration, RTCPeerConnection
 
 from eidolon.config import Settings, UsageLimits
 from eidolon.engine import MAX_INPUT_LENGTH
 from tests.conftest import Admin, ClientFactory
-from tests.fakes import START, FakeCalls, FakeClock, FakeLLM
+from tests.browser import Browser
+from tests.fakes import START, FakeClock, FakeLLM, FakeSpeech
 from tests.test_text_turn import send_turn, start_conversation
-from tests.test_voice_call import call, offer_body
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 
@@ -26,15 +25,13 @@ def limited(settings: Settings, *, turns: int | None = 60, calls: int | None = 5
 
 
 @asynccontextmanager
-async def browser() -> AsyncIterator[RTCPeerConnection]:
+async def browser() -> AsyncIterator[Browser]:
     """A browser's side of one call."""
-    pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
-    pc.addTransceiver("audio", direction="sendrecv")
-    pc.createDataChannel("chat")
+    browser = Browser()
     try:
-        yield pc
+        yield browser
     finally:
-        await pc.close()
+        await browser.close()
 
 
 async def post_turn(client: httpx.AsyncClient, conversation_id: str) -> httpx.Response:
@@ -91,27 +88,27 @@ async def test_all_of_a_users_keys_share_one_limit_and_other_users_have_their_ow
 
 
 async def test_voice_calls_have_their_own_hourly_limit_and_renegotiating_is_free(
-    make_client: ClientFactory, settings: Settings, calls: FakeCalls
+    make_client: ClientFactory, settings: Settings, speech: FakeSpeech
 ):
     clock = FakeClock()
     client = make_client(FakeLLM(REPLY), settings=limited(settings, calls=2), clock=clock)
     conversation_id = await start_conversation(client)
     async with browser() as first:
-        pc_id = (await call(client, first, conversation_id=conversation_id)).json()["pc_id"]
-        renegotiation = {**await offer_body(first, conversation_id=conversation_id), "pc_id": pc_id}
+        pc_id = (await first.call(client, conversation_id=conversation_id)).json()["pc_id"]
+        renegotiation = {**await first.offer(conversation_id=conversation_id), "pc_id": pc_id}
         assert (await client.post("/api/offer", json=renegotiation)).status_code == 200
     clock.advance(minutes=5)
     async with browser() as second:
-        assert (await call(client, second, conversation_id=conversation_id)).status_code == 200
+        assert (await second.call(client, conversation_id=conversation_id)).status_code == 200
     clock.advance(minutes=5)
 
     async with browser() as third:
-        refused = await call(client, third, conversation_id=conversation_id)
+        refused = await third.call(client, conversation_id=conversation_id)
 
     assert refused.status_code == 429
     assert "语音通话" in refused.json()["detail"]
     assert datetime.fromisoformat(refused.json()["retry_at"]) == START + timedelta(hours=1)
-    assert len(calls.started) == 2
+    assert len(speech.stts) == 2
     # Calls and text turns are counted apart.
     events = await send_turn(client, conversation_id, "在吗")
     assert events[-1]["type"] == "done"
@@ -169,15 +166,15 @@ async def test_a_turn_that_fails_or_is_rejected_gives_its_use_back(
 
 
 async def test_a_call_that_cannot_be_set_up_gives_its_use_back(
-    make_client: ClientFactory, settings: Settings, calls: FakeCalls
+    make_client: ClientFactory, settings: Settings, speech: FakeSpeech
 ):
     client = make_client(FakeLLM(), settings=limited(settings, calls=1), clock=FakeClock())
     conversation_id = await start_conversation(client)
     async with browser() as pc:
-        broken = {**await offer_body(pc, conversation_id=conversation_id), "type": "answer"}
+        broken = {**await pc.offer(conversation_id=conversation_id), "type": "answer"}
         failed = await client.post("/api/offer", json=broken)
     assert failed.status_code == 500
     assert failed.json()["detail"] == "无法建立通话"
 
     async with browser() as pc:
-        assert (await call(client, pc, conversation_id=conversation_id)).status_code == 200
+        assert (await pc.call(client, conversation_id=conversation_id)).status_code == 200

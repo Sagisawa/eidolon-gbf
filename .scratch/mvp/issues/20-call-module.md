@@ -4,7 +4,7 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 背景（2026-09-26，架构体检候选 5）
 
@@ -22,10 +22,19 @@
 ### 决定（2026-09-26，grill-with-docs）
 
 - **边界**：`Calls` 拥有注册表、归属、通话限额、`Call` 构造、管线启动、WebRTC handler 生命周期、ICE servers 与 TURN 凭证。`app.py` 不再 import `aiortc` / `pipecat`，只做鉴权、`conversation_or_404`，并把领域异常翻译成状态码。
-- **interface**：`ice_servers(user_id)`、`start(user_id, conversation, character, CallOptions(muted, quality, device_timezone), offer) -> answer`、`renegotiate(user_id, offer) -> answer`、`add_candidates(user_id, patch)`、`aclose()`。异常：`CallsUnavailable` → 503、`CallNotFound`（不存在或不是你的）→ 404、`CallFailed`（信令失败，计数已退还）→ 500、`OverLimit` → 429。`Backend.calls` 始终存在，未配置语音时由它抛 `CallsUnavailable`（与记忆 module 的 null 实现同一思路），`require_voice` 消失。
+- **interface**：`ice_servers(user_id)`、`start(user_id, conversation, character, CallOptions(muted, quality, device_timezone), offer) -> answer`、`renegotiate(user_id, pc_id, offer, restart) -> answer`、`add_candidates(user_id, pc_id, candidates)`、`aclose()`。异常：`CallsUnavailable` → 503、`CallNotFound`（不存在或不是你的）→ 404、`CallFailed`（信令失败，计数已退还）→ 500、`OverLimit` → 429。`Backend.calls` 始终存在，未配置语音时由它抛 `CallsUnavailable`（与记忆 module 的 null 实现同一思路），`require_voice` 消失。
 - **seam**：一个 `Speech` port 成对给出 `stt() -> STTService` 与 `tts(voice_id, sample_rate) -> TTSService`；生产实现 Soniox + Fish Audio 在两个 key 都有时才构造得出来（「两者都配置才能通话」住在这里）。`build(speech=...)` 取代 `build(call_starter=...)`；`CallStarter`、`serve_calls`、`FakeCalls` 删除。`CallLimits` 由 `Calls` 从 Settings 读。
 - **接通与限额**（`CONTEXT.md`「接通」）：offer 时先扣。退还：连接在 connected 之前就 closed / failed；30 秒仍未 connected（主动断开，清掉注册表条目）；因服务不可用结束（`ProcessorUnusablePolicy.CANCEL`）且一个回合都没记下。其余都计数：用户挂断、达到上限、服务停止。
 - **关闭**：`Calls.aclose()` 取消所有通话并等它们结束、再关闭 WebRTC handler，排在记忆关闭之前；进行中的回合按失败处理，不留记录。lifespan 里单独的 `webrtc.close()` 去掉。
 - **测试**：新增端到端（aiortc 浏览器 + 真实 loopback WebRTC + `FakeSpeech` + 带检索和记忆的完整 engine）：说话、打字、`X-Timezone`、检索与记忆、落库；限额的三种退还（连不上、服务故障且零回合、有回合不退）。`test_voice_call` 改用 `FakeSpeech`，用例全保留。`test_call_turns` 只留静音、空白、打断、两种上限、失败回合不计入上限、一个回复一次 TTS 响应；「打字和说话进同一条对话」「设备时区」挪到端到端。测试里把 Pipecat 的 NLTK 断句器换成按「。！？」切分，保持离线（生产镜像已下载 `punkt_tab`）。
 - **范围外**：「每位用户同时只能有一个通话」不做。
 - `CONTEXT.md` 新增「通话」「接通」（已提交）；不写 ADR（都容易撤回）。
+
+### 实现（2026-09-26）
+
+- `eidolon/call.py`：`Calls`（`ice_servers / start / renegotiate / add_candidates / aclose`），异常 `CallsUnavailable / CallNotFound / CallFailed`，值类型 `CallOptions / SessionDescription / IceCandidate`；`Speech` port 与 `SonioxFishSpeech.from_settings`；`_LiveCall` 管一个通话的管线、接通判定（transport 的 `on_client_connected`，`CONNECT_TIMEOUT` 30 秒）、服务故障判定（worker 的 `on_pipeline_error` 里处理器变为不可用）和计数退还。`CallTurns.recorded` 记下本次通话已记录的回合数。`serve_calls`、`CallStarter` 删除。
+- `start` 时语音服务构造失败（Pipecat 只记日志、照样给出 answer）也按 `CallFailed` 处理：断开已协商的连接、退还计数。挂断发生在管线启动之前时直接结束，不再启动管线。
+- `assembly.build(speech=...)`；`Backend.calls` 取代 `call_starter`，`calls.aclose` 最后登记、最先关闭（在记忆之前）。`create_app` 不再 import `aiortc` / `pipecat`，lifespan 只调 `backend.aclose()`；PATCH `/api/offer` 用自己的 pydantic 模型，JSON 形状不变。
+- 测试：`tests/browser.py`（aiortc 浏览器：静音麦克风 + RTVI data channel，`call / connect / type / turn / hung_up`，`until_gone` 用 PATCH 变 404 判断后端已放下通话）；`FakeSpeech / FakeSTT / FakeTTS`（`fakes.py`），`speech` fixture 顺带把 NLTK 断句器换掉；conftest 里两个角色有了各自的 `voice_id`。新增 `test_call.py`（9 个：说话 + 打字 + 设备时区 + 只送日语 + 落库；检索与记忆；对话、角色音色、静音按请求；连不上、服务构造失败、服务故障且零回合都退还；有回合后故障、用户挂断都计数；服务停止挂断通话、进行中的回合不留记录）。`test_voice_call` / `test_rate_limit` 改用 `Browser` + `FakeSpeech`；`test_call_turns` 删去挪到端到端的三个。
+- 验证：`pytest` 268 passed，`pyright` 0 errors；通话相关 35 个测试连跑 10 次无失败（每次约 4 秒）。变异检查：去掉「未接通退还」「零回合服务故障退还」、改成「有回合也退还」、不在关闭时挂断通话、不检查服务是否构造成功，各自有一个测试失败（关闭那条原本会挂住，测试加了兜底挂断后改为 10 秒超时失败）。
+- 未做：真实 Soniox / Fish Audio 与浏览器的冒烟（这个环境没有密钥）。前端和 wire 协议没有变化。

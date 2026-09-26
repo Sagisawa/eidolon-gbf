@@ -1,8 +1,13 @@
-"""Voice calls: a thin Pipecat pipeline around the conversation engine.
+"""Voice calls: signalling, and a thin Pipecat pipeline around the conversation engine.
 
-    browser mic → Soniox (speech to text, zh/ja) → CallTurns → Fish Audio → browser speaker
-                                                      ↓
-                                     subtitles and the transcript, over the data channel
+    browser mic → speech to text (zh/ja) → CallTurns → speech synthesis → browser speaker
+                                               ↓
+                              subtitles and the transcript, over the data channel
+
+`Calls` is all the API sees: it answers the browser's offers, keeps each call to the
+user who placed it, counts calls towards the user's limit, and serves each call until it
+hangs up. Speech recognition and synthesis are the `Speech` port, Soniox and Fish Audio
+in production.
 
 Pipecat's own LLM services and context aggregators are not used: every utterance,
 spoken or typed during the call, goes through the same conversation engine as a
@@ -11,15 +16,18 @@ text turn and lands in the same conversation record.
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
-from typing import Literal
+from typing import Literal, Protocol
+
+from aiortc import RTCIceServer
 
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     EndWorkerFrame,
+    ErrorFrame,
     Frame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -37,19 +45,29 @@ from pipecat.processors.frameworks.rtvi.frames import (
 )
 from pipecat.services.fish.tts import FishAudioTTSService
 from pipecat.services.soniox.stt import SonioxSTTService
+from pipecat.services.stt_service import STTService
+from pipecat.services.tts_service import TTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.transports.smallwebrtc.request_handler import IceCandidate as PipecatIceCandidate
+from pipecat.transports.smallwebrtc.request_handler import (
+    SmallWebRTCPatchRequest,
+    SmallWebRTCRequest,
+    SmallWebRTCRequestHandler,
+)
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.turns.user_turn_processor import UserTurnProcessor
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
 from eidolon.characters import Character
-from eidolon.config import Settings
+from eidolon.clock import Clock
+from eidolon.config import IceServer, Settings
 from eidolon.engine import ConversationEngine, TurnDone, TurnEvent
 from eidolon.reply_format import SegmentDelta
 from eidolon.store import Conversation
+from eidolon.usage import UsageLimiter, Use
 
 log = logging.getLogger(__name__)
 
@@ -81,85 +99,331 @@ class CallLimits:
     turns: int | None = None
 
 
-CallStarter = Callable[[SmallWebRTCConnection, Call], Awaitable[None]]
-"""Starts serving a call on a freshly negotiated connection, without waiting for it to end."""
+CONNECT_TIMEOUT = timedelta(seconds=30)
+"""How long a call may take to connect after it is answered; after that it is given up."""
 
 
-def serve_calls(settings: Settings, engine: ConversationEngine) -> CallStarter | None:
-    """Serves calls with Soniox and Fish Audio; None until both are configured."""
-    soniox_key, fish_key = settings.soniox_api_key, settings.fish_audio_api_key
-    if not soniox_key or not fish_key:
-        return None
-    fish_model = settings.fish_audio_model
-    usage = settings.usage_limits
-    limits = CallLimits(
-        timedelta(minutes=usage.call_minutes) if usage.call_minutes else None,
-        usage.turns_per_call,
-    )
-    running: set[asyncio.Task] = set()
+class CallsUnavailable(Exception):
+    """Voice calls are not configured."""
 
-    async def start(connection: SmallWebRTCConnection, call: Call) -> None:
-        task = asyncio.create_task(
-            _serve(connection, call, engine, limits, soniox_key, fish_key, fish_model)
+    def __init__(self) -> None:
+        super().__init__("语音通话尚未配置，请联系管理员")
+
+
+class CallNotFound(Exception):
+    """No such call, or not the user's."""
+
+    def __init__(self) -> None:
+        super().__init__("通话不存在")
+
+
+class CallFailed(Exception):
+    """The call could not be set up; it did not count towards the user's limit."""
+
+    def __init__(self) -> None:
+        super().__init__("无法建立通话")
+
+
+@dataclass(frozen=True)
+class CallOptions:
+    """How the browser wants a new call: muted or not, at what quality, and the time zone
+    its device reports."""
+
+    muted: bool = False
+    quality: Quality = "standard"
+    device_timezone: str | None = None
+
+
+@dataclass(frozen=True)
+class SessionDescription:
+    """A WebRTC offer from the browser."""
+
+    sdp: str
+    type: str
+
+
+@dataclass(frozen=True)
+class IceCandidate:
+    """One of the browser's ICE candidates; an empty `candidate` marks the end of them."""
+
+    candidate: str
+    sdp_mid: str
+    sdp_mline_index: int
+
+
+class Speech(Protocol):
+    """The outside services a call hears and speaks with."""
+
+    def stt(self) -> STTService:
+        """Speech recognition for one call, in Chinese and Japanese."""
+        ...
+
+    def tts(self, voice_id: str, sample_rate: int) -> TTSService:
+        """Speech synthesis for one call, in the character's voice."""
+        ...
+
+
+@dataclass(frozen=True)
+class SonioxFishSpeech:
+    """Soniox hears the user; Fish Audio speaks as the character."""
+
+    soniox_key: str
+    fish_key: str
+    fish_model: str
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "SonioxFishSpeech | None":
+        """None until both services are configured."""
+        if not settings.soniox_api_key or not settings.fish_audio_api_key:
+            return None
+        return cls(settings.soniox_api_key, settings.fish_audio_api_key, settings.fish_audio_model)
+
+    def stt(self) -> STTService:
+        # Soniox decides where an utterance ends; the turn processor turns its proposals
+        # into interruptions of the character's voice.
+        return SonioxSTTService(
+            api_key=self.soniox_key,
+            vad_force_turn_endpoint=False,
+            settings=SonioxSTTService.Settings(language_hints=[Language.ZH, Language.JA]),
         )
-        running.add(task)  # keep a reference until the call ends
-        task.add_done_callback(running.discard)
 
-    return start
+    def tts(self, voice_id: str, sample_rate: int) -> TTSService:
+        return FishAudioTTSService(
+            api_key=self.fish_key,
+            sample_rate=sample_rate,
+            settings=FishAudioTTSService.Settings(voice=voice_id, model=self.fish_model),
+        )
 
 
-async def _serve(
-    connection: SmallWebRTCConnection,
-    call: Call,
-    engine: ConversationEngine,
-    limits: CallLimits,
-    soniox_key: str,
-    fish_key: str,
-    fish_model: str,
-) -> None:
-    sample_rate = _SAMPLE_RATES[call.quality]
-    transport = SmallWebRTCTransport(
-        connection,
-        TransportParams(
-            audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
-        ),
-    )
-    # Soniox decides where an utterance ends; the turn processor turns its proposals
-    # into interruptions of the character's voice.
-    stt = SonioxSTTService(
-        api_key=soniox_key,
-        vad_force_turn_endpoint=False,
-        settings=SonioxSTTService.Settings(language_hints=[Language.ZH, Language.JA]),
-    )
-    tts = FishAudioTTSService(
-        api_key=fish_key,
-        sample_rate=sample_rate,
-        settings=FishAudioTTSService.Settings(voice=call.character.voice_id, model=fish_model),
-    )
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            stt,
-            UserTurnProcessor(user_turn_strategies=ExternalUserTurnStrategies()),
-            CallTurns(engine, call, limits),
-            tts,
-            transport.output(),
-        ]
-    )
-    # A service that can no longer work (say, a rejected API key) ends the call
-    # instead of leaving the user talking into silence.
-    worker = PipelineWorker(pipeline, processor_unusable_policy=ProcessorUnusablePolicy.CANCEL)
+class Calls:
+    """The user's voice calls, from signalling to hanging up.
 
-    @transport.event_handler("on_client_disconnected")
-    async def hang_up(transport: SmallWebRTCTransport, connection: SmallWebRTCConnection) -> None:
-        await worker.cancel()
+    A new call counts towards the user's limit when it is offered, and is given back
+    unless it connects: a call that closes or times out before connecting, or that ends
+    on a failing voice service before any turn is recorded, was not connected. Only the
+    user who placed a call can renegotiate it or add ICE candidates to it.
+    """
 
-    try:
-        await WorkerRunner(handle_sigint=False).run(worker)
-    except Exception:
-        log.exception("call in conversation %s failed", call.conversation.id)
-    finally:
-        await connection.disconnect()  # lets the browser know the call is over
+    def __init__(
+        self,
+        settings: Settings,
+        engine: ConversationEngine,
+        usage: UsageLimiter,
+        speech: Speech | None,
+        clock: Clock,
+    ) -> None:
+        self._settings = settings
+        self._engine = engine
+        self._usage = usage
+        self._speech = speech
+        self._clock = clock
+        limits = settings.usage_limits
+        self._limits = CallLimits(
+            timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
+            limits.turns_per_call,
+        )
+        self._webrtc = SmallWebRTCRequestHandler(
+            ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
+        )
+        self._owners: dict[str, str] = {}  # peer connection id → the user it belongs to
+        self._live: set[_LiveCall] = set()
+
+    def ice_servers(self, user_id: str) -> list[IceServer]:
+        """What the browser needs before calling, with TURN credentials of its own."""
+        self._require_speech()
+        servers = list(self._settings.ice_servers)
+        if self._settings.turn is not None:
+            servers.append(self._settings.turn.credentials(user_id, self._clock()))
+        return servers
+
+    async def start(
+        self,
+        user_id: str,
+        conversation: Conversation,
+        character: Character,
+        options: CallOptions,
+        offer: SessionDescription,
+    ) -> dict:
+        """Answer a new call into the user's `conversation` with `character`. Raises
+        OverLimit when the user has no calls left this hour."""
+        speech = self._require_speech()
+        use = self._usage.take(user_id, "call")
+        call = Call(conversation, character, options.muted, options.quality, options.device_timezone)
+        connections: list[SmallWebRTCConnection] = []
+        started: list[_LiveCall] = []
+
+        async def serve(connection: SmallWebRTCConnection) -> None:
+            connections.append(connection)
+
+            @connection.event_handler("closed")
+            async def forget(connection: SmallWebRTCConnection) -> None:
+                self._owners.pop(connection.pc_id, None)
+
+            live = _LiveCall(connection, call, self._engine, speech, self._limits, use)
+            self._live.add(live)
+            live.start(on_done=self._live.discard)
+            started.append(live)
+
+        answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
+        if answer is None or not started:
+            if started:
+                await started[0].hang_up()
+            elif connections:  # the pipeline could not be built; Pipecat only logs why
+                await connections[0].disconnect()
+            use.give_back()
+            raise CallFailed()
+        self._owners[answer["pc_id"]] = user_id
+        return answer
+
+    async def renegotiate(
+        self, user_id: str, pc_id: str, offer: SessionDescription, restart: bool = False
+    ) -> dict:
+        """Renegotiate one of the user's calls, possibly on a fresh peer connection; free."""
+        self._require_speech()
+        self._require_owner(user_id, pc_id)
+        request = SmallWebRTCRequest(offer.sdp, offer.type, pc_id, restart)
+        answer = await self._answer(request, _no_new_connection)
+        if answer is None:
+            raise CallFailed()
+        self._owners[answer["pc_id"]] = user_id
+        return answer
+
+    async def add_candidates(
+        self, user_id: str, pc_id: str, candidates: Sequence[IceCandidate]
+    ) -> None:
+        self._require_owner(user_id, pc_id)
+        patch = SmallWebRTCPatchRequest(
+            pc_id,
+            [PipecatIceCandidate(c.candidate, c.sdp_mid, c.sdp_mline_index) for c in candidates],
+        )
+        await self._webrtc.handle_patch_request(patch)
+
+    async def aclose(self) -> None:
+        """Hang up every call and wait for them to end; a reply in progress is dropped."""
+        await asyncio.gather(*(live.hang_up() for live in list(self._live)))
+        await self._webrtc.close()
+
+    async def _answer(
+        self,
+        request: SmallWebRTCRequest,
+        serve: Callable[[SmallWebRTCConnection], Awaitable[None]],
+    ) -> dict | None:
+        try:
+            return await self._webrtc.handle_web_request(request, serve)
+        except Exception:
+            log.exception("could not set up a call")
+            return None
+
+    def _require_speech(self) -> Speech:
+        if self._speech is None:
+            raise CallsUnavailable()
+        return self._speech
+
+    def _require_owner(self, user_id: str, pc_id: str) -> None:
+        if self._owners.get(pc_id) != user_id:
+            raise CallNotFound()
+
+
+async def _no_new_connection(connection: SmallWebRTCConnection) -> None:
+    """A renegotiation reuses the call's connection; the call is already being served."""
+
+
+class _LiveCall:
+    """One call being served on its connection: the pipeline from the browser's microphone
+    through the conversation engine to the character's voice."""
+
+    def __init__(
+        self,
+        connection: SmallWebRTCConnection,
+        call: Call,
+        engine: ConversationEngine,
+        speech: Speech,
+        limits: CallLimits,
+        use: Use,
+    ) -> None:
+        self._connection = connection
+        self._call = call
+        self._use = use
+        sample_rate = _SAMPLE_RATES[call.quality]
+        transport = SmallWebRTCTransport(
+            connection,
+            TransportParams(
+                audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
+            ),
+        )
+        self._turns = CallTurns(engine, call, limits)
+        pipeline = Pipeline(
+            [
+                transport.input(),
+                speech.stt(),
+                UserTurnProcessor(user_turn_strategies=ExternalUserTurnStrategies()),
+                self._turns,
+                speech.tts(call.character.voice_id, sample_rate),
+                transport.output(),
+            ]
+        )
+        # A service that can no longer work (say, a rejected API key) ends the call
+        # instead of leaving the user talking into silence.
+        self._worker = PipelineWorker(
+            pipeline, processor_unusable_policy=ProcessorUnusablePolicy.CANCEL
+        )
+        self._connected = asyncio.Event()
+        self._service_failed = False
+        self._hung_up = False
+        self._task: asyncio.Task | None = None
+
+        @transport.event_handler("on_client_connected")
+        async def connected(transport: SmallWebRTCTransport, _: SmallWebRTCConnection) -> None:
+            self._connected.set()
+
+        @transport.event_handler("on_client_disconnected")
+        async def hang_up(transport: SmallWebRTCTransport, _: SmallWebRTCConnection) -> None:
+            await self._worker.cancel()
+
+        @self._worker.event_handler("on_pipeline_error")
+        async def failed(worker: PipelineWorker, error: ErrorFrame) -> None:
+            if error.fatal or (error.processor is not None and not error.processor.is_usable):
+                self._service_failed = True
+
+    def start(self, on_done: Callable[["_LiveCall"], None]) -> None:
+        self._task = asyncio.create_task(self._serve())
+        self._task.add_done_callback(lambda _: on_done(self))
+
+    async def hang_up(self) -> None:
+        self._hung_up = True
+        await self._worker.cancel()
+        if self._task is not None:
+            await asyncio.wait({self._task})
+
+    async def _serve(self) -> None:
+        try:
+            if not self._hung_up:  # hung up before it even started
+                await self._run()
+        except Exception:
+            log.exception("call in conversation %s failed", self._call.conversation.id)
+            self._service_failed = True
+        finally:
+            if not self._connected.is_set() or (
+                self._service_failed and self._turns.recorded == 0
+            ):
+                self._use.give_back()
+            await self._connection.disconnect()  # lets the browser know the call is over
+
+    async def _run(self) -> None:
+        running = asyncio.create_task(WorkerRunner(handle_sigint=False).run(self._worker))
+        connected = asyncio.create_task(self._connected.wait())
+        try:
+            await asyncio.wait(
+                {running, connected},
+                timeout=CONNECT_TIMEOUT.total_seconds(),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            connected.cancel()
+        if not self._connected.is_set() and not running.done():
+            log.info("call in conversation %s never connected", self._call.conversation.id)
+            await self._worker.cancel()
+        await running
 
 
 class CallTurns(FrameProcessor):
@@ -194,6 +458,8 @@ class CallTurns(FrameProcessor):
         self._voicing = False
         self._time_up: str | None = None  # why the call is over, once time is up
         self._ended = False
+        self.recorded = 0
+        """How many turns the call has recorded so far."""
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -231,7 +497,6 @@ class CallTurns(FrameProcessor):
             self._muted = data["muted"]
 
     async def _take_turns(self) -> None:
-        turns = 0
         while True:
             text = await self._inputs.get()
             try:
@@ -242,9 +507,9 @@ class CallTurns(FrameProcessor):
                     continue
                 assert text is not None
                 if await self._turn(text, voiced=not self._muted):
-                    turns += 1
-                if self._limits.turns is not None and turns >= self._limits.turns:
-                    await self._end(f"这次通话已经说了 {turns} 轮了")
+                    self.recorded += 1
+                if self._limits.turns is not None and self.recorded >= self._limits.turns:
+                    await self._end(f"这次通话已经说了 {self.recorded} 轮了")
             finally:
                 self._inputs.task_done()
 
