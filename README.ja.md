@@ -163,12 +163,12 @@ name = "櫻木真乃"
 intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
-avatar = "avatars/mano.png"
+avatar = "avatars/mano.jpg"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-キャラクターシート・キャラクター資料・アイコンは**リポジトリに含めません**（ADR-0003）。起動前に [`characters/sheets/example.md`](characters/sheets/example.md) を参考に `characters/sheets/mano.md` と `characters/sheets/kogane.md` を書いてください。キャラクター資料（任意）は [`characters/facts/example.md`](characters/facts/example.md) を参考に `characters/facts/` 以下へ、アイコン（任意）は `characters/avatars/` 以下に置きます。シートが欠けているとバックエンドは起動を拒否し、どのファイルが足りないかを示します。docker compose は `characters/` をバックエンドコンテナに読み取り専用でマウントします。
+キャラクターシート・キャラクター資料・アイコンはリポジトリに含めます（ADR-0003）。キャラクターを追加するときは [`characters/sheets/example.md`](characters/sheets/example.md) を参考に `characters/sheets/<キャラクターID>.md` を書いてください。キャラクター資料（任意）は [`characters/facts/example.md`](characters/facts/example.md) を参考に `characters/facts/` 以下へ、アイコン（任意）は `characters/avatars/` 以下に置きます。シートが欠けているとバックエンドは起動を拒否し、どのファイルが足りないかを示します。docker compose は `characters/` をバックエンドコンテナに読み取り専用でマウントします。
 
 <details>
 <summary><b>バックグラウンドモデルでキャラクターシートの下書きを作る</b></summary>
@@ -391,7 +391,7 @@ eidolon-sc/
 │   │   └── llm/              #   3 種類のモデル方式のアダプター
 │   └── tests/
 ├── frontend/                 # Next.js フロントエンド
-├── characters/               # キャラクター設定・シート・資料・アイコン（後ろ 3 つはリポジトリ外）
+├── characters/               # キャラクター設定・シート・資料・アイコン
 ├── corpus/                   # シナリオデータとミラーのキャッシュ（リポジトリ外）
 ├── deploy/                   # Caddyfile、毎週の同期スクリプト、イベント名対応表のサンプル
 ├── docs/
@@ -407,7 +407,7 @@ eidolon-sc/
 
 本プロジェクトのコードは [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）、または（あなたの選択により）それ以降の任意のバージョンの下で公開されています。改変したものをネットワーク経由で他者に提供する場合は、その利用者に改変後のソースコードを公開する必要があります。
 
-ライセンスの対象はリポジトリ内のコードとドキュメントのみです。シナリオデータ、キャラクター音声、キャラクターシート、キャラクター資料、アイコンはリポジトリに含まれず、ライセンスの対象外です。それぞれの提供元の条件に従ってください（ADR-0003）。
+ライセンスの対象はリポジトリ内のコードとドキュメントのみです。シナリオデータとキャラクター音声はリポジトリに含まれず、ライセンスの対象外です。それぞれの提供元の条件に従ってください（ADR-0003）。リポジトリ内のキャラクターシート・キャラクター資料・アイコンもライセンスの対象外で、キャラクターと設定は原作の権利者に帰属します。
 
 ## 🙏 謝辞
 

@@ -163,12 +163,12 @@ name = "櫻木真乃"
 intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
-avatar = "avatars/mano.png"
+avatar = "avatars/mano.jpg"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-Character sheets, character facts and avatars are **not committed** (ADR-0003). Before starting, write `characters/sheets/mano.md` and `characters/sheets/kogane.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file. docker compose mounts `characters/` read-only into the backend container.
+Character sheets, character facts and avatars are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file. docker compose mounts `characters/` read-only into the backend container.
 
 <details>
 <summary><b>Drafting a character sheet with the background model</b></summary>
@@ -391,7 +391,7 @@ eidolon-sc/
 │   │   └── llm/              #   adapters for the three model protocols
 │   └── tests/
 ├── frontend/                 # Next.js frontend
-├── characters/               # character config, sheets, facts, avatars (last three not committed)
+├── characters/               # character config, sheets, facts, avatars
 ├── corpus/                   # story data and the mirror cache (not committed)
 ├── deploy/                   # Caddyfile, weekly sync script, sample event-name table
 ├── docs/
@@ -407,7 +407,7 @@ eidolon-sc/
 
 The code in this project is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), or (at your option) any later version. If you modify it and let others use it over a network, you must make your modified source code available to those users.
 
-The license covers only the code and documentation in this repository. Story data, character voices, character sheets, character facts and avatars are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003).
+The license covers only the code and documentation in this repository. Story data and character voices are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003). The character sheets, facts and avatars in the repository are not covered either: the characters and their settings belong to the rights holders.
 
 ## 🙏 Acknowledgements
 

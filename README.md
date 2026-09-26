@@ -160,12 +160,12 @@ name = "櫻木真乃"
 intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
-avatar = "avatars/mano.png"
+avatar = "avatars/mano.jpg"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-人设文件、角色资料和头像**不进仓库**（ADR-0003）。启动前参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/mano.md` 和 `characters/sheets/kogane.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
+人设文件、角色资料和头像都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
 
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
@@ -388,7 +388,7 @@ eidolon-sc/
 │   │   └── llm/              #   三种模型接口的适配
 │   └── tests/
 ├── frontend/                 # Next.js 前端
-├── characters/               # 角色配置、人设、资料、头像（后三者不进仓库）
+├── characters/               # 角色配置、人设、资料、头像
 ├── corpus/                   # 剧情数据与镜像缓存（不进仓库）
 ├── deploy/                   # Caddyfile、每周同步脚本、活动名对照表示例
 ├── docs/
@@ -404,7 +404,7 @@ eidolon-sc/
 
 本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）或（由你选择）任何更高版本发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
 
-许可证只覆盖仓库里的代码和文档。剧情数据、角色音色、人设、角色资料和头像不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。
+许可证只覆盖仓库里的代码和文档。剧情数据和角色音色不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。仓库里的人设、角色资料和头像同样不在许可证范围内：其中的角色与设定属于原作版权方。
 
 ## 🙏 致谢
 

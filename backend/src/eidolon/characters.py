@@ -4,8 +4,8 @@ The configuration is a TOML file listing each character's identifier, display
 name, introduction, voice and the location of her character sheet (and,
 optionally, her character facts and avatar), relative to the file, plus the
 speaker names her lines carry in the story corpus. Adding a character or
-replacing a voice is a configuration change. The sheets, facts and avatars
-themselves stay out of the repository (ADR-0003).
+replacing a voice is a configuration change. The sheets, facts and avatars are
+committed with the configuration (ADR-0003).
 
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.

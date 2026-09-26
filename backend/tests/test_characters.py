@@ -1,6 +1,5 @@
 """Characters come from configuration: the list, the avatars, and each one's character sheet."""
 
-import shutil
 from pathlib import Path
 
 import pytest
@@ -105,13 +104,8 @@ def test_voice_id_is_read_from_the_configuration(characters: CharacterConfig):
     assert load_characters(characters.path)["hiori"].voice_id == "my-private-voice"
 
 
-def test_repository_configures_mano_and_kogane_with_their_voices(tmp_path: Path):
-    config = tmp_path / "characters"
-    shutil.copytree(REPO_CHARACTERS, config)
-    for id in ("mano", "kogane"):  # the sheets themselves stay out of the repository
-        (config / "sheets" / f"{id}.md").write_text("sheet", encoding="utf-8")
-
-    loaded = load_characters(config / "characters.toml")
+def test_repository_configures_mano_and_kogane_with_their_voices():
+    loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
     assert {id: c.voice_id for id, c in loaded.items()} == {
         "mano": "a1150f3d14ac46fb8ea59c7803cd8357",
@@ -120,7 +114,7 @@ def test_repository_configures_mano_and_kogane_with_their_voices(tmp_path: Path)
     assert loaded["mano"].name == "櫻木真乃"
     assert loaded["kogane"].name == "月岡恋鐘"
     assert {id: c.speakers for id, c in loaded.items()} == {"mano": ("真乃",), "kogane": ("恋鐘",)}
-    assert all(c.facts == () for c in loaded.values())  # facts files are optional
+    assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
 
 
 def test_character_facts_are_split_by_heading(characters: CharacterConfig):
