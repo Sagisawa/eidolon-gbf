@@ -47,7 +47,7 @@ from pipecat.workers.runner import WorkerRunner
 
 from eidolon.characters import Character
 from eidolon.config import Settings
-from eidolon.engine import ConversationEngine, TurnDone
+from eidolon.engine import ConversationEngine, TurnDone, TurnEvent
 from eidolon.reply_format import SegmentDelta
 from eidolon.store import Conversation
 
@@ -260,9 +260,10 @@ class CallTurns(FrameProcessor):
         await self.push_frame(EndWorkerFrame(reason=reason))
 
     async def _turn(self, text: str, voiced: bool) -> bool:
-        """Take one turn; whether it succeeded."""
+        """Take one turn; whether it ended with the reply recorded (a rejected or failed
+        turn does not count towards the call's limit)."""
         self._voicing = voiced
-        succeeded = False
+        last: TurnEvent | None = None
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
@@ -271,10 +272,10 @@ class CallTurns(FrameProcessor):
                 await self._send(asdict(event))
                 if isinstance(event, SegmentDelta) and event.lang == "ja" and self._voicing:
                     await self.push_frame(TextFrame(event.text))
-                succeeded = isinstance(event, TurnDone)
+                last = event
         finally:
             await self.push_frame(LLMFullResponseEndFrame())
-        return succeeded
+        return isinstance(last, TurnDone)
 
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))

@@ -4,7 +4,7 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 背景（2026-09-26，架构体检候选 1）
 
@@ -53,16 +53,25 @@
 - `app.py`：`TurnInput.text` 去掉 `min_length/max_length`。
 
 **Acceptance criteria:**
-- [ ] 一句超过 2000 字的语音转写得到 `user → error`，不留记录，不计入单次通话回合上限。
-- [ ] 文字回合超长或只有空白时得到 `user → error` 的事件流（HTTP 200），限额被退还。
-- [ ] 通话中打的超长文字被拒绝而不是截断。
-- [ ] 成功的文字回合事件流以 `user` 开头、`done` 结尾。
-- [ ] 失败的回合在两条路径上都以 `error` 结束，且不留记录；文字回合退还限额。
-- [ ] 失败的通话回合不计入单次通话回合上限。
-- [ ] 协议行为（顺序、拒绝、失败）在引擎的接口上测试；`test_text_turn`、`test_call_turns` 只保留各自传输层的测试，删掉重复的。
-- [ ] 后端全部测试、lint 和类型检查通过。
+- [x] 一句超过 2000 字的语音转写得到 `user → error`，不留记录，不计入单次通话回合上限。
+- [x] 文字回合超长或只有空白时得到 `user → error` 的事件流（HTTP 200），限额被退还。
+- [x] 通话中打的超长文字被拒绝而不是截断。
+- [x] 成功的文字回合事件流以 `user` 开头、`done` 结尾。
+- [x] 失败的回合在两条路径上都以 `error` 结束，且不留记录；文字回合退还限额。
+- [x] 失败的通话回合不计入单次通话回合上限。
+- [x] 协议行为（顺序、拒绝、失败）在引擎的接口上测试；`test_text_turn`、`test_call_turns` 只保留各自传输层的测试，删掉重复的。
+- [x] 后端全部测试、lint 和类型检查通过。
 
 **Out of scope:**
 - 前端合并两条路径的对话记录处理（架构体检候选 6）。
 - `Call.character` 与引擎各自解析角色（目的不同，不改）。
 - 前端 `maxLength={2000}` 改为引用后端数值。
+
+### 实现（2026-09-26）
+
+- `engine.py`：新增 `UserSaid`、`TurnFailed`，`TurnDone` 和 `SegmentDelta` 都带 `type` 字段，`asdict(event)` 就是发给浏览器的事件。`turn()` 先去掉首尾空白并产出 `user`，空白或超长直接产出 `error`；其余交给 `_reply()`，其中的异常被捕获、记日志后产出 `error`。写入回合记录前先算好当地时间，记录之后不再有会失败的步骤。
+- `app.py`：`text_turn` 只把事件按 SSE 转发，看到 `error` 就退还限额；`TurnInput` 去掉长度校验。
+- `call.py`：`CallTurns._turn` 只转发事件，把 `ja` 的 delta 送 TTS，并返回回合是否以 `done` 结束；只有成功的回合计入单次通话的回合上限。通话中打的字不再截断；空白转写仍在进入引擎前丢掉。
+- 测试：新增 `test_turns.py`，在引擎的接口上测拒绝（超长、空白）、成功回合的事件顺序、失败回合（模型出错、空回复）；`test_call_turns` 用一个测试覆盖「被拒绝和失败的回合不计入上限，通话继续」，替换原来的失败回合测试；`test_text_turn` 删掉两个与引擎测试重复的失败测试，并断言事件流以 `user` 开头；`test_rate_limit` 的退还限额测试扩展到被拒绝的回合。
+- 后端 254 个测试通过，pyright 0 错误；ruff 只有原有的两处报错（`corpus.py` E741、`llm/anthropic.py` F401），与本票无关。
+- 审查中讨论后保留的两点：被拒绝的超长输入在 `user` 事件里原样回显（Q7 的统一形状；浏览器前端本来就拦在 2000 字）；`SegmentDelta` 的 `type` 字段放在 `reply_format.py`（Q11）。

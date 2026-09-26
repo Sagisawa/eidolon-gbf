@@ -77,8 +77,11 @@ TurnEvent = UserSaid | SegmentDelta | TurnDone | TurnFailed
 the event as it goes out to the browser."""
 
 FAILED = "角色暂时无法回复，请稍后再试。"
+"""What the user reads when a turn fails; the details stay in the server log."""
 TOO_LONG = f"这句话太长了，最多 {MAX_INPUT_LENGTH} 字。"
+"""What the user reads when a turn is rejected for input over `MAX_INPUT_LENGTH`."""
 BLANK = "没有收到要说的话。"
+"""What the user reads when a turn is rejected for blank input."""
 
 log = logging.getLogger(__name__)
 
@@ -189,9 +192,9 @@ class ConversationEngine:
 
         if not parser.segments:
             raise EmptyReply("对话模型没有返回任何内容")
+        now = self._clock().astimezone(ZoneInfo(timezone))
         reply = self._store.add_turn(conversation.id, text, parser.segments)
         if self._memory:
-            now = self._clock().astimezone(ZoneInfo(timezone))
             self._memory.remember(conversation, character, history, text, reply, now, mark)
         yield TurnDone(reply)
 

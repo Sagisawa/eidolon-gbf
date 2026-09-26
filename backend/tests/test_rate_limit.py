@@ -161,7 +161,8 @@ async def test_a_turn_that_fails_or_is_rejected_gives_its_use_back(
     client = make_client(llm, settings=limited(settings, turns=1), clock=FakeClock())
     conversation_id = await start_conversation(client)
 
-    assert (await send_turn(client, conversation_id, text))[-1]["type"] == "error"
+    events = await send_turn(client, conversation_id, text)
+    assert (events[0]["type"], events[-1]["type"]) == ("user", "error")
 
     llm._replies.append(list(REPLY))
     assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "done"
