@@ -13,14 +13,20 @@ the directory and file name when the file is filed like SCTranslationData; a fil
 in the game's layout has neither, so its card or event is its script number without
 the episode (`produce_events/2011005`) and its title the plugin's name. A file whose
 path names no script is skipped: it could not be matched with a CSV of the same
-script. Scripts carry no translation. A script SCTranslationData has translated is kept from the CSV: the
-JSON import leaves a CSV version alone, and a CSV import replaces a JSON one.
+script. A caller that knows the card or event and the title (the story sync, from
+the mirror's API) passes them with each file instead. Scripts carry no translation.
+A script SCTranslationData has translated is kept from the CSV: the JSON import
+leaves a CSV version alone, and a CSV import replaces a JSON one.
 
 Both follow the same rules. Only canon is kept: failure endings are recognised by
 their script and left out (and removed, if an earlier import had them), and the
 producer's choices (`select`) are dropped while every reaction to them is kept, so
-the corpus never says which one was picked. The cast is every configured character
-whose speaker name appears; the producer and other people are not cast.
+the corpus never says which one was picked. An episode imported with a title that
+reads like a failure (敗, 失敗) although its script is not a failure ending is reported,
+so that the rules can be checked against it: SCTranslationData titles an episode by
+its file name, the mirror's sync by the game's title. The cast is every configured character
+whose speaker name appears; the producer and other people are not cast. An episode
+the corpus already has exactly as imported is left alone.
 """
 
 import csv
@@ -32,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eidolon.characters import Character
-from eidolon.corpus import Episode, ImportFormat, Line, StoryCorpus
+from eidolon.corpus import CatalogEntry, Episode, ImportFormat, Line, StoryCorpus
 
 log = logging.getLogger(__name__)
 
@@ -79,6 +85,13 @@ def is_failure_ending(source_id: str) -> bool:
     return any(p.fullmatch(source_id) for p in _FAILURE_ENDINGS)
 
 
+def looks_like_failure(title: str) -> bool:
+    """Whether a title reads like a failure ending. Only the script tells for sure
+    (`is_failure_ending`); an episode titled like one that it does not recognise is
+    imported, and listed for the admin to check the rules against."""
+    return _LOOKS_LIKE_FAILURE.search(_NOT_FAILURE_WORDS.sub("", title)) is not None
+
+
 def category_of(source_id: str) -> str:
     return next((name for p, name in _CATEGORIES if p.match(source_id)), "其他剧情")
 
@@ -92,7 +105,28 @@ class ImportReport:
     embedded_passages: int = 0
     csv_versions_kept: int = 0
     """Scripts in a JSON import that were left alone because a CSV of them is in the corpus."""
+    unchanged: int = 0
+    """Episodes the corpus already had exactly as imported, so were not saved again."""
+    added: int = 0
+    """Of those imported, the episodes the corpus did not have before."""
+    untranslated_replaced: int = 0
+    """Of those imported, the untranslated episodes (from JSON) a CSV translation replaced."""
+    looks_like_failures: list[CatalogEntry] = field(default_factory=list)
+    """Of those added, the episodes titled like a failure ending that are not one by
+    their script, to be checked by hand. An episode is listed when it first comes in,
+    not again when it is updated (renamed, or replaced by a translation)."""
     warnings: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class ScriptFile:
+    """A game script JSON whose card or event and title the caller knows."""
+
+    path: Path
+    source_id: str
+    """The script, e.g. `produce_events/200100401`."""
+    source: str
+    title: str
 
 
 @dataclass(frozen=True)
@@ -131,6 +165,15 @@ async def import_json_directory(
     return await _import(_json_scripts(directory, report), "json", corpus, characters, report)
 
 
+async def import_script_files(
+    files: Iterable[ScriptFile], corpus: StoryCorpus, characters: Iterable[Character]
+) -> ImportReport:
+    """Import these script JSON files like `import_json_directory` does, under the card
+    or event and title given with each."""
+    report = ImportReport()
+    return await _import(_script_files(files, report), "json", corpus, characters, report)
+
+
 def _csv_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
     for path in sorted(directory.rglob("*.csv")):
         relative = path.relative_to(directory)
@@ -165,6 +208,16 @@ def _json_scripts(directory: Path, report: ImportReport) -> Iterator[_Script]:
         yield _Script(relative, source_id, source, title, lines)
 
 
+def _script_files(files: Iterable[ScriptFile], report: ImportReport) -> Iterator[_Script]:
+    for file in files:
+        try:
+            lines = _read_json(file.path)
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            report.warnings.append(f"{file.source_id}：无法读取（{e}），已跳过")
+            continue
+        yield _Script(Path(file.source_id), file.source_id, file.source, file.title, lines)
+
+
 async def _import(
     scripts: Iterable[_Script],
     imported_from: ImportFormat,
@@ -174,6 +227,7 @@ async def _import(
 ) -> ImportReport:
     speakers = _speaker_index(characters)
     episodes: dict[str, Episode] = {}
+    previously: dict[str, ImportFormat | None] = {}
     seen: dict[str, tuple[Path, int]] = {}
     for script in scripts:
         relative, source_id, lines = script.relative_path, script.source_id, script.lines
@@ -185,12 +239,6 @@ async def _import(
             report.warnings.append(f"{kept}：与 {relative} 来源相同（{source_id}），以后者为准")
         seen[source_id] = (relative, len(lines))
 
-        if not is_failure_ending(source_id) and _LOOKS_LIKE_FAILURE.search(
-            _NOT_FAILURE_WORDS.sub("", relative.stem)
-        ):
-            report.warnings.append(
-                f"{relative}：文件名像失败结局，但来源 {source_id} 不在失败结局的规则里，已照常导入"
-            )
         if is_failure_ending(source_id):
             report.skipped_failures += 1
             if corpus.remove(source_id):
@@ -199,7 +247,7 @@ async def _import(
         if imported_from != "csv" and corpus.imported_from(source_id) == "csv":
             report.csv_versions_kept += 1
             continue
-        episodes[source_id] = Episode(
+        episode = Episode(
             id=source_id,
             category=category_of(source_id),
             source=script.source,
@@ -208,13 +256,29 @@ async def _import(
             lines=tuple(lines),
             imported_from=imported_from,
         )
+        existing = corpus.get(source_id)
+        if existing == episode:
+            episodes.pop(source_id, None)  # a shorter copy seen earlier is not wanted either
+            report.unchanged += 1
+            continue
+        episodes[source_id] = episode
+        previously[source_id] = existing.imported_from if existing is not None else None
 
     pending = list(episodes.values())
+    report.looks_like_failures = [
+        CatalogEntry(episode.id, episode.title)
+        for episode in pending
+        if previously[episode.id] is None and looks_like_failure(episode.title)
+    ]
     for start in range(0, len(pending), _SAVE_BATCH):
         batch = pending[start : start + _SAVE_BATCH]
         report.embedded_passages += await corpus.save(batch)
         report.imported += len(batch)
-        log.info("imported %d of %d episodes", report.imported, len(pending))
+        before = [previously[episode.id] for episode in batch]
+        report.added += before.count(None)
+        if imported_from == "csv":
+            report.untranslated_replaced += before.count("json")
+        log.info("已保存 %d / %d 段剧情", report.imported, len(pending))
     return report
 
 
@@ -249,7 +313,8 @@ def _read_json(path: Path) -> list[Line]:
         if not isinstance(text, str) or not text.strip():
             continue
         speaker = speaker.strip() if isinstance(speaker, str) else ""
-        lines.append(Line(speaker or None, text.strip()))
+        # The game breaks lines with CRLF; SCTranslationData, and so the corpus, with LF.
+        lines.append(Line(speaker or None, text.strip().replace("\r\n", "\n")))
     return lines
 
 

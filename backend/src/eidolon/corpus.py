@@ -192,6 +192,15 @@ class StoryCorpus:
             ).fetchone()
             return typing.cast(ImportFormat, row["imported_from"]) if row else None
 
+    def episode_ids(self, prefix: str = "") -> list[str]:
+        """The identifiers of the episodes whose identifier starts with `prefix`, in order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id FROM episodes WHERE substr(id, 1, ?) = ? ORDER BY id",
+                (len(prefix), prefix),
+            ).fetchall()
+            return [row["id"] for row in rows]
+
     def list_episodes(self, character_id: str | None = None) -> list[Episode]:
         """All episodes, or those `character_id` appears in, ordered by source identifier."""
         with self._lock:

@@ -1,9 +1,12 @@
 """Test doubles for external services."""
 
 import asyncio
+import hashlib
+import json
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
 
+import httpx
 from pipecat.frames.frames import (
     Frame,
     ProposedUserStartedSpeakingFrame,
@@ -19,6 +22,7 @@ from pipecat.utils.time import time_now_iso8601
 from eidolon.characters import Character
 from eidolon.embedding import EmbeddingError
 from eidolon.llm import ChatMessage, Tool, ToolCall
+from eidolon.mirror import Mirror
 from eidolon.retrieval import JudgeError, Need
 from eidolon.store import Message
 
@@ -216,3 +220,91 @@ class FakeReranker:
         self.calls.append((query, list(documents)))
         order = sorted(range(len(documents)), key=lambda i: self.prefer not in documents[i])
         return [(i, 0.9 if self.prefer in documents[i] else self.others) for i in order[:top_n]]
+
+
+class FakeShinyColorsDB:
+    """Stands in for the ShinyColorsDB API, the viewer that mirrors the game's scripts and
+    the idols' albums, answering as they do: idols and their cards, each card's episodes,
+    albums, and scripts; scripts and albums with an ETag, 304 to a request for a copy that
+    is still current and 404 for one it does not have. Records every request, and which
+    scripts (and albums, as `album/NN`) it sent in full. Set `down`
+    to have it unreachable, or `down_after` to have it go down after that many requests."""
+
+    def __init__(self) -> None:
+        self.idols: dict[int, list[dict]] = {}
+        self.events: dict[str, list[dict]] = {}
+        self.scripts: dict[str, bytes] = {}
+        self.albums: dict[int, dict] = {}
+        self.requests: list[httpx.Request] = []
+        self.sent: list[str] = []
+        self.down = False
+        self.down_after: int | None = None
+
+    def add_card(
+        self, idol: int, uuid: str, name: str, type: str, episodes: Sequence[tuple[int, str]] = ()
+    ) -> None:
+        self.idols.setdefault(idol, []).append(
+            {"cardUuid": uuid, "cardName": name, "cardType": type, "cardHash": "v1", "lastModified": "2026-09-01"}
+        )
+        title = "eventTitle" if type.startswith("P_") else "eventName"
+        self.events[uuid] = [{"eventId": event_id, title: t} for event_id, t in episodes]
+
+    def update_card(self, uuid: str) -> None:
+        """The card's data changes, as when the game revises it."""
+        for card in (c for cards in self.idols.values() for c in cards if c["cardUuid"] == uuid):
+            card["cardHash"] += "+"
+
+    def add_album(
+        self, idol: int, sections: dict[str, str], entries: Sequence[tuple[str, str, str, str]]
+    ) -> None:
+        """The idol's album: its sections (album type → title), and its entries, each
+        `(category, communication id, title, album type)`."""
+        self.albums[idol] = {
+            "id": str(idol),
+            "albumCommunicationTitles": [
+                {"albumType": album_type, "id": str(1000 + n), "title": title}
+                for n, (album_type, title) in enumerate(sections.items(), 1)
+            ],
+            "communications": [
+                {"albumType": album_type, "communicationCategory": category,
+                 "communicationId": number, "title": title, "isReleased": True}
+                for category, number, title, album_type in entries
+            ],
+        }
+
+    def add_script(self, script: str, frames: object) -> None:
+        self.scripts[script] = json.dumps(frames, ensure_ascii=False).encode()
+
+    def mirror(self) -> Mirror:
+        return Mirror(httpx.AsyncClient(transport=httpx.MockTransport(self._handle)), interval=0)
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        if self.down or (self.down_after is not None and len(self.requests) > self.down_after):
+            raise httpx.ConnectError("connection refused")
+        path, params = request.url.path, request.url.params
+        if request.url.host == "api.shinycolors.moe":
+            if path == "/info/idolList":
+                return httpx.Response(200, json=[{"idolId": i} for i in self.idols])
+            if path == "/info/idolInfo":
+                return httpx.Response(200, json={"cardLists": self.idols.get(int(params["idolId"]), [])})
+            if path in ("/info/pCardInfo", "/info/sCardInfo"):
+                key = "cardIdolEvents" if path == "/info/pCardInfo" else "cardSupportEvents"
+                return httpx.Response(200, json={key: self.events[params["cardId"]]})
+            return httpx.Response(404)
+        if request.url.host == "cf-static.shinycolors.moe":
+            idol = int(path.removeprefix("/albums/album/").removesuffix(".json"))
+            album = self.albums.get(idol)
+            body = None if album is None else json.dumps(album, ensure_ascii=False).encode()
+            return self._send(request, f"album/{idol:02d}", body)
+        script = path.removeprefix("/json/").removesuffix(".json")
+        return self._send(request, script, self.scripts.get(script))
+
+    def _send(self, request: httpx.Request, name: str, body: bytes | None) -> httpx.Response:
+        if body is None:
+            return httpx.Response(404, text="<html>Not Found</html>")
+        etag = f'"{hashlib.md5(body).hexdigest()}"'
+        if request.headers.get("If-None-Match") == etag:
+            return httpx.Response(304)
+        self.sent.append(name)
+        return httpx.Response(200, content=body, headers={"ETag": etag})

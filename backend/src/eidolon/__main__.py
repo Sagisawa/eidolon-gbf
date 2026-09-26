@@ -10,6 +10,9 @@
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
                                      SCTranslationData lacks
+    eidolon story sync               import SCTranslationData, then the card, produce and event
+                                     episodes it lacks from the ShinyColorsDB mirror; exits 2
+                                     if the mirror failed
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
@@ -23,7 +26,14 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from eidolon.config import Settings, characters_path_from_env, database_path_from_env
+from eidolon.config import (
+    Settings,
+    characters_path_from_env,
+    database_path_from_env,
+    event_names_path_from_env,
+    mirror_cache_path_from_env,
+    story_path_from_env,
+)
 from eidolon.store import DuplicateName, NotFound, Store
 
 
@@ -32,6 +42,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command in (None, "serve"):
         return _serve()
+    if args.command == "story" and args.action == "sync":
+        return asyncio.run(_sync_story(args))
     if args.command == "story":
         return asyncio.run(_import_story(args))
     if args.command == "character":
@@ -121,6 +133,11 @@ async def _import_story(args: argparse.Namespace) -> int:
         await embedder.aclose()
     for warning in report.warnings:
         print(f"注意：{warning}", file=sys.stderr)
+    for entry in report.looks_like_failures:
+        print(
+            f"注意：{entry.episode_id}「{entry.title}」标题像失败结局，但不在失败结局的规则里，已照常导入",
+            file=sys.stderr,
+        )
     print(
         f"已导入 {report.imported} 段剧情，跳过 {report.skipped_failures} 段失败结局"
         f"（其中 {report.removed} 段从剧情库移除），新向量化 {report.embedded_passages} 段文本"
@@ -130,6 +147,91 @@ async def _import_story(args: argparse.Namespace) -> int:
     for name, catalog in catalogs.items():
         episodes = sum(len(source.episodes) for source in catalog)
         print(f"剧情目录 {name}：{len(catalog)} 张卡或活动，{episodes} 段剧情")
+    return 0
+
+
+async def _sync_story(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import SiliconFlowSettings
+    from eidolon.corpus import StoryCorpus
+    from eidolon.embedding import EmbeddingError, SiliconFlowEmbedder
+    from eidolon.mirror import Mirror
+    from eidolon.story_sync import load_event_names, sync_stories
+
+    story = args.story or story_path_from_env()
+    if not story.is_dir():
+        print(f"找不到 SCTranslationData 的剧情目录 {story}", file=sys.stderr)
+        return 1
+    try:
+        characters = load_characters(args.characters or characters_path_from_env())
+        event_names = load_event_names(
+            args.events or event_names_path_from_env(), required=args.events is not None
+        )
+        settings = SiliconFlowSettings.from_env()
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    progress = logging.StreamHandler()  # the first sync takes an hour or two
+    progress.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+    for name in ("eidolon.story_sync", "eidolon.story_import"):
+        logging.getLogger(name).addHandler(progress)
+        logging.getLogger(name).setLevel(logging.INFO)
+    embedder = SiliconFlowEmbedder(settings.api_key, settings.embedding_model, settings.base_url)
+    mirror = Mirror()
+    try:
+        corpus = StoryCorpus(args.db or database_path_from_env(), embedder)
+        try:
+            report = await sync_stories(
+                story,
+                args.cache or mirror_cache_path_from_env(),
+                corpus,
+                characters.values(),
+                mirror,
+                event_names=event_names,
+                idols=args.idol,
+            )
+        finally:
+            corpus.close()
+    except EmbeddingError as e:
+        print(f"同步中断（已导入的剧情和已下载的剧本会保留，重新运行即可继续）：{e}", file=sys.stderr)
+        return 1
+    finally:
+        await mirror.aclose()
+        await embedder.aclose()
+    for warning in [*report.translated.warnings, *report.untranslated.warnings]:
+        print(f"注意：{warning}", file=sys.stderr)
+    translated, untranslated = report.translated, report.untranslated
+    print(
+        f"汉化版：新增 {translated.added} 段，更新 {translated.imported - translated.added} 段"
+        f"（其中 {translated.untranslated_replaced} 段取代了原文剧情），"
+        f"跳过 {translated.skipped_failures} 段失败结局（其中 {translated.removed} 段从剧情库移除）"
+    )
+    print(
+        f"原文剧情：下载 {report.downloaded} 个剧本，新增 {untranslated.added} 段，"
+        f"更新 {untranslated.imported - untranslated.added} 段；"
+        f"本次检查的卡牌和相册中有 {report.translations_kept} 段已有汉化版，保留汉化版"
+    )
+    if report.missing:
+        print(f"卡牌列出的剧本中有 {report.missing} 个镜像上还没有，下次同步再试")
+    if report.album_missing:
+        print(f"相册列出的剧本中有 {report.album_missing} 个镜像上没有，相册有变化时再试")
+    if report.unnamed_events:
+        events = "、".join(f"{event:03d}" for event in report.unnamed_events)
+        print(f"活动名对照表里还没有这些活动，暂用「活动剧情 NNN」：{events}")
+    if suspects := report.looks_like_failures:
+        print(f"以下 {len(suspects)} 段培育剧情标题像失败结局，但不在失败结局的规则里，已照常导入，请人工核对：")
+        for entry in suspects:
+            print(f"  {entry.episode_id}「{entry.title}」")
+    print(
+        f"共跳过 {report.skipped_failures} 段失败结局，新向量化 {report.embedded_passages} 段文本"
+    )
+    if report.mirror_error is not None:
+        print(
+            f"无法从镜像拉取原文剧情（汉化版已照常导入，下次同步会接着拉取）：{report.mirror_error}",
+            file=sys.stderr,
+        )
+        return 2
     return 0
 
 
@@ -284,7 +386,33 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="剧本 JSON 所在目录；文件路径需含剧本编号，如 produce_events/100100101.json",
     )
-    for command in (import_csv, import_json):
+    sync = story.add_parser(
+        "sync",
+        help="导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐缺少的卡牌剧情、培育剧情和活动剧情"
+        "（可重复执行；镜像连不上时退出码为 2）",
+    )
+    sync.add_argument(
+        "--story",
+        type=Path,
+        help="SCTranslationData 的剧情目录（默认取环境变量 EIDOLON_STORY_PATH）",
+    )
+    sync.add_argument(
+        "--cache",
+        type=Path,
+        help="镜像剧本的本地缓存目录（默认取环境变量 EIDOLON_MIRROR_CACHE_PATH），不要放进仓库",
+    )
+    sync.add_argument(
+        "--idol",
+        type=int,
+        action="append",
+        help="只从镜像同步这位偶像的卡牌和相册，不同步活动剧情（镜像 API 的偶像编号，例如 1 是櫻木真乃），可重复",
+    )
+    sync.add_argument(
+        "--events",
+        type=Path,
+        help="活动名对照表（默认取环境变量 EIDOLON_EVENT_NAMES_PATH；默认的文件不存在时活动用占位名）",
+    )
+    for command in (import_csv, import_json, sync):
         command.add_argument(
             "--characters",
             type=Path,

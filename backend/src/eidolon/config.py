@@ -150,6 +150,21 @@ def characters_path_from_env() -> Path:
     return Path(os.environ.get("EIDOLON_CHARACTERS_PATH", "../characters/characters.toml"))
 
 
+def story_path_from_env() -> Path:
+    """SCTranslationData's story directory, which `eidolon story sync` imports from."""
+    return Path(os.environ.get("EIDOLON_STORY_PATH", "../corpus/SCTranslationData/data/story"))
+
+
+def mirror_cache_path_from_env() -> Path:
+    """Where `eidolon story sync` keeps the scripts it downloads from the mirror."""
+    return Path(os.environ.get("EIDOLON_MIRROR_CACHE_PATH", "../corpus/mirror"))
+
+
+def event_names_path_from_env() -> Path:
+    """The admin's table of event names, which `eidolon story sync` names events from."""
+    return Path(os.environ.get("EIDOLON_EVENT_NAMES_PATH", "../deploy/event-names.toml"))
+
+
 def history_turns_from_env() -> int | None:
     return _limit("EIDOLON_HISTORY_TURNS", DEFAULT_HISTORY_TURNS)
 

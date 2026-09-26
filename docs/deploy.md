@@ -51,18 +51,68 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 下面的命令都要带上 `-f docker-compose.prod.yml`。嫌麻烦的话，在这台服务器上执行一次 `export COMPOSE_FILE=docker-compose.prod.yml`（或者写进 shell 的配置文件），之后 README 里的 `docker compose ...` 命令就能原样使用。
 
-## 导入剧情库
+## 同步剧情库
 
-和本地一样：把剧情数据放在仓库根目录的 `corpus/` 下（它以只读方式挂载到后端的 `/corpus`），然后导入。
+剧情库用一条命令同步：先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐还缺的卡牌剧情、培育剧情和活动剧情（原文剧情，规则见 README 的「剧情库」）。需要 `.env` 里填好 `SILICONFLOW_API_KEY`（向量化用）。
+
+`deploy/story-sync.sh` 把这件事做完整：更新（第一次是克隆）仓库根目录下的 `corpus/SCTranslationData`，再在后端容器里运行 `eidolon story sync`，把输出追加到 `logs/story-sync.log`。先手动运行一次首次全量补齐：
+
+```sh
+deploy/story-sync.sh
+tail -f logs/story-sync.log   # 另开一个终端看进度
+```
+
+首次要下载几千个剧本，镜像要求逐个请求、间隔约一秒，所以大约需要一到两个小时（还要加上向量化的时间）。中途中断（关掉终端、重启服务器、向量化出错）也没关系，重新运行会接着做，已下载的剧本不会重新下载。之后每次只下载新卡、新活动和有变化的卡，通常几分钟就结束。
+
+活动名写在 `deploy/event-names.toml`（参照 `deploy/event-names.example.toml`，每出一个新活动加一行；`deploy/` 以只读方式挂载到后端的 `/deploy`），改完后下一次同步生效，没填的活动先用占位名，同步结束时会列出来。
+
+### 每周自动同步
+
+用主机上的 cron 每周运行一次。`crontab -e`，加一行（路径换成仓库的实际位置；这里是每周一 4:17，时间随意，避开整点即可）：
+
+```cron
+17 4 * * 1 /home/you/eidolon-sc/deploy/story-sync.sh
+```
+
+运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），并且对仓库目录有写权限（要写 `corpus/` 和 `logs/`）。主机上要有 `git` 和 `flock`（util-linux，一般发行版都自带）。脚本自己把输出写进日志，cron 不会发邮件。
+
+日志在 `logs/story-sync.log`（可用环境变量 `EIDOLON_SYNC_LOG` 改到别处），每次同步以「开始同步剧情库」开头、以「结束：退出码 N（含义）」结尾，中间是 git 的输出和同步报告：汉化版新增、更新了多少段（其中多少段取代了原文剧情），原文剧情下载、新增了多少，跳过了多少失败结局，新向量化了多少段，还有需要人工核对的失败嫌疑剧情和没有活动名的活动。看最近几次的结果：
+
+```sh
+grep '结束：' logs/story-sync.log | tail
+```
+
+| 退出码 | 含义 | 要做什么 |
+|---|---|---|
+| 0 | 完全成功 | 不用管 |
+| 1 | 同步命令出错：配置错误（对照表格式不对、缺少 `SILICONFLOW_API_KEY` 等），或向量化中断 | 看日志里的错误；向量化中断时重新运行即可继续 |
+| 2 | 镜像或 API 出错，这次没拉到（全部）原文剧情；汉化版已照常导入 | 通常不用管，下次同步会接着拉取；连续几周都是 2 时看日志里的错误 |
+| 3 | git 没能更新 SCTranslationData（网络问题、本地改动导致不能快进、`corpus/SCTranslationData` 不是 git 仓库）；有已下载的数据时照常用它同步 | 看日志里 git 的输出，必要时删掉 `corpus/SCTranslationData` 让脚本重新克隆。用 root 的 cron 运行、仓库却属于别的用户时，git 会报 `dubious ownership`，按提示执行 `git config --global --add safe.directory …`，或者改用仓库所属用户的 crontab |
+| 4 | 后端容器没有运行，或无法运行同步命令（没有 docker 的权限、找不到 flock 等，原因在日志里） | 容器没有运行时 `docker compose -f docker-compose.prod.yml up -d` |
+| 5 | 上一次同步还没结束（例如首次全量补齐还在跑），这次没有运行 | 不用管 |
+
+同步出错时退出码以 1、2 为准（git 同时出错会写在日志里）。日志每周只增加几十行，不用轮转；太大时直接删掉即可。
+
+脚本默认用 `docker-compose.prod.yml`，设置了 `COMPOSE_FILE` 时用它指定的配置。想先小规模试一试，可以直接在容器里运行同步，例如只同步櫻木真乃的卡和相册：`docker compose -f docker-compose.prod.yml exec backend eidolon story sync --idol 1`。
+
+### 缓存与手动导入
+
+下载的原始剧本缓存在后端数据卷里的 `/data/mirror`（和数据库同在 `eidolon-data` 卷里，升级、重建容器都会保留），不进仓库。镜像修正了某个剧本、想重新下载时，删掉缓存里对应的文件即可，例如：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend rm /data/mirror/scripts/produce_events/200100401.json
+```
+
+也可以不用同步，手动导入（例如只想导入汉化版，或者有自己导出的游戏剧本 JSON）：
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
 docker compose -f docker-compose.prod.yml exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
-# 可选：用游戏原始剧本 JSON 补全
+# 用游戏原始剧本 JSON 补全（放在 corpus/scripts 下）
 docker compose -f docker-compose.prod.yml exec backend eidolon story import-json /corpus/scripts
 ```
 
-需要 `.env` 里填好 `SILICONFLOW_API_KEY`。导入的结果存在数据库里，之后可以删掉 `corpus/` 节省空间，原作更新时再重新下载导入。
+导入的结果存在数据库里。只手动导入时，之后可以删掉 `corpus/` 节省空间；用每周同步时要保留 `corpus/SCTranslationData`，脚本每次只 `git pull` 增量更新。
 
 ## 签发访问密钥
 
@@ -82,9 +132,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 数据都在持久化的位置，升级不会丢失：
 
-- 数据库（用户、访问密钥、对话、记忆、剧情库）在 Docker 卷 `eidolon-data` 里；
+- 数据库（用户、访问密钥、对话、记忆、剧情库）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
 - 证书在 Docker 卷 `caddy-data` 里；
-- 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录（都被 git 忽略，`git pull` 不会动它们）。
+- 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
 
 不要执行 `docker compose down -v`，`-v` 会删掉这些卷。
 
@@ -98,7 +148,7 @@ docker compose -f docker-compose.prod.yml exec backend python -c \
 docker compose -f docker-compose.prod.yml cp backend:/data/backup.db ./eidolon-backup.db
 ```
 
-`characters/` 目录另外自己备份。
+`characters/` 目录和 `deploy/event-names.toml` 另外自己备份。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
 
 ## 排障
 

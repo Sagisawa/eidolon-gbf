@@ -41,6 +41,10 @@ class Admin:
         assert code != 0
         return err
 
+    def invoke(self, *args: str) -> tuple[int, str, str]:
+        """The exit code, standard output and standard error."""
+        return self._invoke(args)
+
     def _invoke(self, args: tuple[str, ...]) -> tuple[int, str, str]:
         self._capsys.readouterr()
         code = main(["--db", str(self._database_path), *args])
