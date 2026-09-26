@@ -128,3 +128,43 @@ Status: ready-for-agent
   - 站点没有公开的使用条款，联系方式是 Twitter 和 Discord。
 - enza 利用规约第 9 条禁止解析数据和用工具获取信息，风险与取舍记录在 ADR-0004。
 - 镜像 API 会记录请求来源，这是保持低频、逐个请求的另一个原因。
+
+### 数据来源速查（2026-09-26 实测，实现时再核对）
+
+**API（`https://api.shinycolors.moe`）**
+
+- 路由定义在 GitHub 的 ShinyColorsDB/ShinyColorsDB-ApiServer 仓库，文件 `src/info/info.controller.ts`。
+- `/info/sitelist2`：纯文本，一次返回全部卡牌 UUID。
+- `/info/sitelist`：XML，同样列出全部卡牌，每张卡带 `lastmod`，可以用来判断哪些卡有变化。
+- `/info/pCardInfo?cardId=<uuid>`：返回 `cardIdolEvents[]`，每项是 `{eventCategory, eventId, eventTitle}`。P_SSR 通常有 4 个アイドルイベント，另加 1 个アフターストーリー。
+- `/info/sCardInfo?cardId=<uuid>`：返回 `cardSupportEvents[]`，每项是 `{eventId, eventName, …}`。
+- 部分卡牌没有剧情，例如最新的一张 S_SSR、PCup 的 S_SR、IdolRoad 的 P_SR。
+- 卡名、卡牌类型（`P_SSR` 等）和发布日期：卡牌详情里有，`/info/idolInfo?idolId=N` 返回的 `cardLists[]` 里也有。
+- `/info/idolList`：全部偶像，编号 1–28、91（はづき）和 801–804（【推しの子】联动）。
+
+**剧本镜像**
+
+- 地址是 `https://viewer.shinycolors.moe/json/<type>/<id>.json`。S 卡剧情（3 开头的编号）也在 `produce_events/` 下。
+- 内容是帧数组，与现有 JSON 导入的格式一致；台词换行是 `\r\n`，选项是 `{"select": …, "nextLabel": …}`。
+- 不存在的编号返回 404（HTML 正文）；目录路径返回 403，所以没有文件列表。
+- 支持 `ETag`、`Last-Modified` 和条件请求（304）。
+
+**相册（培育剧情的编号来源）**
+
+- 地址是 `https://cf-static.shinycolors.moe/albums/album/NN.json`，NN 为 01–28。
+- `communications[]` 每项带 `communicationId`、`communicationCategory` 和 `title`。
+- 最后更新于 2024-03。
+- 分类到剧本类型的对应：
+  - character / season / unit / concert_event → `produce_events`
+  - communication_morning → `produce_communications`
+  - cheer → `produce_communication_cheers`
+  - audition → `produce_communication_auditions`
+  - birthday / present / seasonal / special → `special_communications`
+- 失败结局在相册里多有标注（「シーズンN（失敗）」「敗退コミュ」「…敗北」），但也有例外：`produce_events/600100107`「未来へ羽ばたく」其实是 W.I.N.G. 落败结局。它能被现有规则认出。
+
+**活动剧情**
+
+- 编号是 `4001` + 三位活动编号 + 两位话数，几乎每个活动 8 话。
+- SCTranslationData 里的活动编号范围是 001–086，其中缺 002、003、005、006、008、010、016、024、056、061、062、064、065、066、070、071、072、077。
+- 镜像实测：002、056、077、087–097 都存在，097 有第 08 话、没有第 09 话，098 返回 404。
+- 另有两个特殊编号 490170000 和 490180000，不符合上面的规律。
