@@ -1,14 +1,10 @@
 """Memory management, driven through the memories API: users see every memory the
 characters keep about them, labelled with the character it was told to, and can delete
-one or all of them; a deleted memory reaches no prompt again. Nobody sees or touches
-another user's memories."""
-
-import asyncio
+one or all of them; nobody sees or touches another user's memories. What deleting and
+clearing do to later turns is tested on the memories module (test_memories)."""
 
 import httpx
-import pytest
 
-from eidolon import memory
 from tests.conftest import ClientFactory, IssuedKey
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 from tests.test_shared_memory import (
@@ -16,7 +12,6 @@ from tests.test_shared_memory import (
     REPLY,
     TRIP,
     friend_key,  # noqa: F401 (fixture)
-    memories_section,
     memorized,
     turn,
 )
@@ -58,26 +53,6 @@ async def test_lists_every_memory_with_the_character_it_was_told_to(
                           "created_at"} for m in listed)
 
 
-async def test_a_deleted_memory_reaches_no_prompt(make_client: ClientFactory):
-    llm, background = FakeLLM(REPLY, REPLY, REPLY), FakeBackgroundLLM(memorized(CAT, TRIP))
-    client = make_client(
-        llm, jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
-        background_llm=background,
-    )
-    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白，下周六去北海道")
-    cat = next(m for m in await memories(client) if m["text"] == CAT)
-
-    res = await client.delete(f"/api/memories/{cat['id']}")
-
-    assert res.status_code == 204
-    assert [m["text"] for m in await memories(client)] == [TRIP]
-    await turn(client, await start_conversation(client, "kogane"), "你知道我家的猫吗？")
-    section = memories_section(llm.prompts[-1][0].content)
-    assert TRIP in section and CAT not in section
-    # Nor is the background model told it is still remembered.
-    assert CAT not in "\n".join(m.content for m in background.prompts[-1])
-
-
 async def test_deleting_a_memory_that_is_gone_is_not_found(make_client: ClientFactory):
     client = memory_client(make_client, FakeLLM(REPLY), CAT)
     await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
@@ -88,54 +63,6 @@ async def test_deleting_a_memory_that_is_gone_is_not_found(make_client: ClientFa
 
     assert res.status_code == 404
     assert res.json()["detail"] == "记忆不存在"
-
-
-async def test_clearing_forgets_everything(make_client: ClientFactory):
-    llm = FakeLLM(REPLY, REPLY, REPLY)
-    client = memory_client(make_client, llm, CAT, TRIP)
-    conversation_id = await start_conversation(client, "mano")
-    await turn(client, conversation_id, "我家的猫叫小白哦")
-    await turn(client, conversation_id, "下周六我要去北海道出差")
-
-    res = await client.delete("/api/memories")
-
-    assert res.status_code == 204
-    assert await memories(client) == []
-    await turn(client, await start_conversation(client, "kogane"), "你知道我家的猫吗？")
-    assert memories_section(llm.prompts[-1][0].content) == ""
-
-
-async def test_clearing_waits_for_what_is_still_being_written_down(
-    make_client: ClientFactory,
-):
-    """A turn's memories are written in the background; clearing right after the turn
-    must not let them turn up afterwards."""
-    client = memory_client(make_client, FakeLLM(REPLY), CAT)
-    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
-
-    assert (await client.delete("/api/memories")).status_code == 204
-
-    assert await memories(client) == []
-
-
-async def test_what_is_written_down_too_slowly_to_wait_for_is_still_forgotten(
-    make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch
-):
-    """Clearing waits for what is being written down only a while; whatever the turns
-    before the clearing write down after that is dropped rather than turning up again."""
-    gate = asyncio.Event()
-    client = make_client(
-        FakeLLM(REPLY), jev=FakeJudge(), embedder=FakeEmbedder(),
-        reranker=FakeReranker("制作人"), background_llm=FakeBackgroundLLM(memorized(CAT), gate=gate),
-    )
-    await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
-    monkeypatch.setattr(memory, "SETTLE_TIMEOUT", 0.01)
-
-    assert (await client.delete("/api/memories")).status_code == 204
-    gate.set()  # the background model answers at last
-    monkeypatch.setattr(memory, "SETTLE_TIMEOUT", 5.0)
-
-    assert await memories(client) == []
 
 
 async def test_users_see_and_touch_only_their_own_memories(

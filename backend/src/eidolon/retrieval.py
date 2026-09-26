@@ -2,17 +2,16 @@
 
 Jev (through Vercel AI Gateway) first judges what the user just said needs: nothing,
 so small talk costs no retrieval latency; memories only, when the user talks about their
-own life, for which the memories of what they have told any of the characters are
-searched and reranked; references, for which the story corpus
-(only episodes the character is cast in) and the character's facts are searched with
-the same query vector, along with the memories of what the user has told any of the
-characters, the candidates reranked together, and the best few that are relevant enough
-go into the prompt; or recall, for a question about how some past
+own life, for which the turn finds the memories of what they have told any of the
+characters; references, for which the story corpus (only episodes the character is cast
+in) and the character's facts are searched with the same query vector, the candidates
+reranked together, and the best few that are relevant enough go into the prompt, while
+the turn finds the user's memories alongside; or recall, for a question about how some past
 episode went, for which the recall-story tool is run on what the user said and its
 result goes into the prompt, saving the chat model a round of calling it.
 
 Retrieval never fails a turn: if Jev cannot answer, the turn retrieves anyway; if
-embedding or reranking fails, the turn goes on without references.
+embedding or reranking fails, the turn goes on without references (or memories).
 
 The chat model can also look an episode up itself with the recall-story tool, for
 general questions like "what happened that time with the photo book" that Jev did
@@ -33,9 +32,9 @@ from eidolon.corpus import CatalogSource, Episode, StoryCorpus
 from eidolon.embedding import Embedder, EmbeddingError
 from eidolon.facts import FactIndex
 from eidolon.llm import Tool
-from eidolon.memory import MemoryIndex
+from eidolon.memory import MemoryTurn
 from eidolon.rerank import Reranker, RerankError
-from eidolon.store import Memory, Message
+from eidolon.store import Message
 
 log = logging.getLogger(__name__)
 
@@ -45,17 +44,8 @@ MIN_RELEVANCE = 0.3
 """The reranker's score below which a candidate is left out of the prompt. Qwen3-Reranker
 scores relevant passages around 0.9 and unrelated ones below 0.1, so a question about
 something the character never lived through brings back nothing rather than filler."""
-MAX_MEMORIES = 3
-"""The most memories one turn's prompt carries, after reranking; they do not count
-towards `MAX_REFERENCES`."""
-MIN_MEMORY_RELEVANCE = 0.01
-"""The reranker's score below which a memory is left out. Qwen3-Reranker scores a short
-memory low against a loosely related remark (「我最近要出远门」 against a business trip to
-Hokkaido scores 0.03) but unrelated ones lower still (at most 0.005), so memories get a
-threshold of their own."""
 CANDIDATES_PER_SOURCE = 12
-"""How many candidates each source (story corpus, character facts, memories) offers the
-reranker."""
+"""How many candidates each source (story corpus, character facts) offers the reranker."""
 JUDGE_HISTORY = 4
 """How many of the latest messages Jev sees along with what the user just said."""
 
@@ -116,8 +106,8 @@ class Retrieved:
 
     prompt: str | None
     """The prompt section carrying the references or recalled episodes, if any."""
-    memories: tuple[Memory, ...] = ()
-    """The user's memories relevant to the turn, most relevant first."""
+    memories_prompt: str | None = None
+    """The prompt section carrying the user's memories relevant to the turn, if any."""
     recalled: bool = False
     """Whether the recall-story tool already ran, so the chat model need not call it."""
 
@@ -129,20 +119,22 @@ class Retrieval:
         embedder: Embedder,
         corpus: StoryCorpus,
         facts: FactIndex,
-        memories: MemoryIndex,
         reranker: Reranker,
     ) -> None:
         self._judge = judge
         self._embedder = embedder
         self._corpus = corpus
         self._facts = facts
-        self._memories = memories
         self._reranker = reranker
 
     async def retrieve(
-        self, character: Character, user_id: str, history: Sequence[Message], text: str
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        memory: MemoryTurn | None = None,
     ) -> Retrieved:
-        """Look up what this turn of `user_id`'s needs."""
+        """Look up what this turn needs, finding the user's memories through `memory`."""
         try:
             need = await self._judge.judge(character, history, text)
         except JudgeError:
@@ -150,56 +142,35 @@ class Retrieval:
             need = "references"
         if need == "recall":
             return Retrieved(await self.recall_story(character, text), recalled=True)
-        if need in ("references", "memories"):
-            references, memories = await self._references(
-                character, user_id, text, memories_only=need == "memories"
+        if need == "memories":
+            return Retrieved(None, await _find(memory, text))
+        if need == "references":
+            references, memories = await asyncio.gather(
+                self._references(character, text), _find(memory, text)
             )
-            return Retrieved(
-                references_prompt(references) if references else None, tuple(memories)
-            )
+            return Retrieved(references_prompt(references) if references else None, memories)
         return Retrieved(None)
 
-    async def _references(
-        self, character: Character, user_id: str, text: str, memories_only: bool
-    ) -> tuple[list[Reference], list[Memory]]:
-        """The references (unless `memories_only`) and the user's memories for `text`, each
-        most relevant first."""
+    async def _references(self, character: Character, text: str) -> list[Reference]:
+        """The references for `text`, most relevant first."""
         try:
             query_vector = await self._embedder.embed_query(text)
-            memory_search = self._memories.search_by_vector(
-                query_vector, user_id, CANDIDATES_PER_SOURCE
+            passages, facts = await asyncio.gather(
+                asyncio.to_thread(
+                    self._corpus.search_by_vector, query_vector, character.id,
+                    CANDIDATES_PER_SOURCE,
+                ),
+                self._facts.search_by_vector(query_vector, character, CANDIDATES_PER_SOURCE),
             )
-            if memories_only:
-                memories, passages, facts = await memory_search, [], []
-            else:
-                memories, passages, facts = await asyncio.gather(
-                    memory_search,
-                    asyncio.to_thread(
-                        self._corpus.search_by_vector,
-                        query_vector,
-                        character.id,
-                        CANDIDATES_PER_SOURCE,
-                    ),
-                    self._facts.search_by_vector(query_vector, character, CANDIDATES_PER_SOURCE),
-                )
             candidates = [Reference("episode", p.text) for p in passages]
             candidates += [Reference("fact", f) for f in facts]
-            documents = [c.text for c in candidates] + [m.text for m in memories]
-            if not documents:
-                return [], []
-            best = await self._reranker.rerank(text, documents, len(documents))
+            if not candidates:
+                return []
+            best = await self._reranker.rerank(text, [c.text for c in candidates], len(candidates))
         except (EmbeddingError, RerankError):
             log.warning("retrieval failed; replying without references", exc_info=True)
-            return [], []
-        references = [
-            candidates[i] for i, score in best if i < len(candidates) and score >= MIN_RELEVANCE
-        ]
-        relevant_memories = [
-            memories[i - len(candidates)]
-            for i, score in best
-            if i >= len(candidates) and score >= MIN_MEMORY_RELEVANCE
-        ]
-        return references[:MAX_REFERENCES], relevant_memories[:MAX_MEMORIES]
+            return []
+        return [candidates[i] for i, score in best if score >= MIN_RELEVANCE][:MAX_REFERENCES]
 
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
@@ -232,7 +203,10 @@ class Retrieval:
     def close(self) -> None:
         self._corpus.close()
         self._facts.close()
-        self._memories.close()
+
+
+async def _find(memory: MemoryTurn | None, text: str) -> str | None:
+    return await memory.find(text) if memory else None
 
 
 def references_prompt(references: Sequence[Reference]) -> str:
