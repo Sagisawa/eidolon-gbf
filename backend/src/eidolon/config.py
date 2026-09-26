@@ -35,6 +35,8 @@ DEFAULT_CALLS_PER_HOUR = 5
 DEFAULT_CALL_MINUTES = 10
 DEFAULT_TURNS_PER_CALL = 40
 """About what ten minutes of talking takes; a cap on typing turns in quickly during a call."""
+DEFAULT_HISTORY_TURNS = 20
+"""How many of a conversation's latest turns the chat model reads; memories carry the rest."""
 
 
 LLMProtocol = Literal["chat-completions", "responses", "anthropic"]
@@ -112,6 +114,8 @@ class Settings:
     jev: "JevSettings | None" = None
     """Retrieval needs both SiliconFlow and Jev; without either, turns go unretrieved."""
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
+    history_turns: int | None = DEFAULT_HISTORY_TURNS
+    """How many of the conversation's latest turns each prompt carries; None is all of them."""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -130,6 +134,7 @@ class Settings:
             ),
             jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
             usage_limits=UsageLimits.from_env(),
+            history_turns=history_turns_from_env(),
         )
 
 
@@ -139,6 +144,10 @@ def database_path_from_env() -> Path:
 
 def characters_path_from_env() -> Path:
     return Path(os.environ.get("EIDOLON_CHARACTERS_PATH", "../characters/characters.toml"))
+
+
+def history_turns_from_env() -> int | None:
+    return _limit("EIDOLON_HISTORY_TURNS", DEFAULT_HISTORY_TURNS)
 
 
 @dataclass(frozen=True)

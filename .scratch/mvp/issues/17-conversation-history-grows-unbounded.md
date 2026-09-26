@@ -8,7 +8,7 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 背景（2026-09-25，ticket 14 讨论单次通话回合上限时发现）
 
@@ -52,16 +52,25 @@
 - 截断在引擎读取历史之后、组装提示词之前进行；检索判断和记忆抽取拿到的是截断后的历史（它们本来只看最近 4 条，不受影响）。
 
 **Acceptance criteria:**
-- [ ] 对话已有超过 N 个回合时，下一回合发给对话模型的提示词里只有最近 N 个回合的历史，加上系统提示和本回合的输入。
-- [ ] 截断后的第一条历史消息是制作人的消息。
-- [ ] 回合数不超过 N 时，提示词和现在一样。
-- [ ] 上限设为不限制时，全部历史都在提示词里。
-- [ ] 消息接口仍返回对话的全部消息。
-- [ ] `EIDOLON_HISTORY_TURNS` 的读取：不设为 20，0 为不限制，非法值报错。
-- [ ] README、`.env.example`、`docs/deploy.md`（如列有环境变量）说明新变量。
-- [ ] 后端全部测试、lint 和类型检查通过。
+- [x] 对话已有超过 N 个回合时，下一回合发给对话模型的提示词里只有最近 N 个回合的历史，加上系统提示和本回合的输入。
+- [x] 截断后的第一条历史消息是制作人的消息。
+- [x] 回合数不超过 N 时，提示词和现在一样。
+- [x] 上限设为不限制时，全部历史都在提示词里。
+- [x] 消息接口仍返回对话的全部消息。
+- [x] `EIDOLON_HISTORY_TURNS` 的读取：不设为 20，0 为不限制，非法值报错。
+- [x] README、`.env.example`、`docs/deploy.md`（如列有环境变量）说明新变量。
+- [x] 后端全部测试、lint 和类型检查通过。
 
 **Out of scope:**
 - 按 token 预算截断、同一对话内的摘要。
 - 在数据库查询里限制读取的消息条数（性能优化，现在的数据量不需要）。
 - 修改记忆抽取或检索使用的历史长度。
+
+### 实现（2026-09-26）
+
+- `engine.py` 新增 `latest_turns(messages, turns)`：从倒数第 `turns` 条制作人消息开始保留（`None` 时从第一条制作人消息开始），所以发给模型的历史总以制作人开头；开头如果有没对上制作人消息的角色回复，也会去掉。`ConversationEngine` 新增参数 `history_turns`，读取历史后先截断，再交给检索判断、提示词和记忆抽取。
+- `config.py`：`DEFAULT_HISTORY_TURNS = 20`，`Settings.history_turns`，`history_turns_from_env()` 沿用 `_limit`（不设为 20，0 为不限制，非法值报错）；`create_app` 把它传给引擎。
+- README、`.env.example` 说明了 `EIDOLON_HISTORY_TURNS`；生产和开发的 compose 都用 `env_file: .env`，不需要另外改。`docs/deploy.md` 没有逐个列出限流变量，没有改。
+- 测试 `test_conversation_history.py`（走文字回合接口 + `FakeLLM`）：超过上限只带最近 N 个回合；未超过时和原来一样；不限制时全部带上；默认 20；消息接口仍返回全部消息；`latest_turns` 以制作人开头；环境变量读取。
+- 后端 249 个测试通过，pyright 0 错误；ruff 只有原有的两处报错（`corpus.py` E741、`llm/anthropic.py` F401），与本票无关。
+- 没有做真实服务验证：改动只影响发给模型的消息条数，三个适配器的格式约定不变。

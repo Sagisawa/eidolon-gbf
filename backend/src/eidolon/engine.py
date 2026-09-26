@@ -60,6 +60,14 @@ class EmptyReply(RuntimeError):
     pass
 
 
+def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
+    """The messages from the `turns`th last user message on (from the first if None), so
+    what the chat model reads always opens with the user."""
+    starts = [i for i, m in enumerate(messages) if m.role == "user"]
+    kept = starts if turns is None else starts[-turns:]
+    return messages[kept[0]:] if kept else []
+
+
 class ConversationEngine:
     def __init__(
         self,
@@ -69,9 +77,11 @@ class ConversationEngine:
         clock: Clock | None = None,
         retrieval: Retrieval | None = None,
         memory: MemoryWriter | None = None,
+        history_turns: int | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story, character facts or memories; without
-        `memory`, nothing is written down."""
+        `memory`, nothing is written down. Each turn reads only the conversation's latest
+        `history_turns` turns, or all of them if None."""
         self._store = store
         self._characters = characters
         self._llm = chat_llm
@@ -79,6 +89,7 @@ class ConversationEngine:
         self._retrieval = retrieval
         self._memory = memory
         self._names = {c.id: c.name for c in characters.values()}
+        self._history_turns = history_turns
 
     async def turn(
         self, conversation: Conversation, text: str, device_timezone: str | None = None
@@ -86,7 +97,7 @@ class ConversationEngine:
         """Take one turn. `device_timezone` is the time zone the user's device reports,
         used unless the producer profile sets one."""
         character = self._characters[conversation.character_id]
-        history = self._store.list_messages(conversation.id)
+        history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
         mark = self._memory.mark(conversation.user_id) if self._memory else 0

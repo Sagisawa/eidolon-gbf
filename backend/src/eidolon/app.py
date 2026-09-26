@@ -164,7 +164,9 @@ def create_app(
             " JEV_MODEL"
         )
         background_llm = None
-    engine = ConversationEngine(store, llm, characters, clock, retrieval, memory)
+    engine = ConversationEngine(
+        store, llm, characters, clock, retrieval, memory, settings.history_turns
+    )
     call_starter = call_starter or serve_calls(settings, engine)
     webrtc = SmallWebRTCRequestHandler(
         ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
