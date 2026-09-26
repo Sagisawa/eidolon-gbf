@@ -37,7 +37,7 @@
 - `assembly.build(speech=...)`；`Backend.calls` 取代 `call_starter`，`calls.aclose` 最后登记、最先关闭（在记忆之前）。`create_app` 不再 import `aiortc` / `pipecat`，lifespan 只调 `backend.aclose()`；PATCH `/api/offer` 用自己的 pydantic 模型，JSON 形状不变。
 - 测试：`tests/browser.py`（aiortc 浏览器：静音麦克风 + RTVI data channel，`call / connect / type / turn / hung_up`，`until_gone` 用 PATCH 变 404 判断后端已放下通话）；`FakeSpeech / FakeSTT / FakeTTS`（`fakes.py`），`speech` fixture 顺带把 NLTK 断句器换掉；conftest 里两个角色有了各自的 `voice_id`。新增 `test_call.py`（9 个：说话 + 打字 + 设备时区 + 只送日语 + 落库；检索与记忆；对话、角色音色、静音按请求；连不上、服务构造失败、服务故障且零回合都退还；有回合后故障、用户挂断都计数；服务停止挂断通话、进行中的回合不留记录）。`test_voice_call` / `test_rate_limit` 改用 `Browser` + `FakeSpeech`；`test_call_turns` 删去挪到端到端的三个。
 - 验证：`pytest` 268 passed，`pyright` 0 errors；通话相关 35 个测试连跑 10 次无失败（每次约 4 秒）。变异检查：去掉「未接通退还」「零回合服务故障退还」、改成「有回合也退还」、不在关闭时挂断通话、不检查服务是否构造成功，各自有一个测试失败（关闭那条原本会挂住，测试加了兜底挂断后改为 10 秒超时失败）。
-- 未做：真实 Soniox / Fish Audio 与浏览器的冒烟（这个环境没有密钥）。前端和 wire 协议没有变化。
+- 前端和 wire 协议没有变化。
 
 ### 评审（2026-09-26，code-review）
 
@@ -46,3 +46,14 @@
 - 测试辅助收拢：`browser` fixture 移入 conftest，`open_browser()` 取代各处手写的临时浏览器；补上缺失的 docstring；`assembly.py` 记忆关闭顺序的注释更新。
 - 保留不改：服务故障之外的异常（含 `error.fatal` 与我们自己的 bug）在零回合时也退还计数，对用户更友好；`SessionDescription`、`IceCandidate` 的分层与命名；未配置语音时 PATCH 仍是 404（与改动前一致）。
 - `pytest` 270 passed，`pyright` 0 errors。
+
+### 真实服务验证（2026-09-26）
+
+真实对话模型、Soniox、Fish Audio（`s2.1-pro-free`，真乃的音色）、SiliconFlow 与 Jev，`eidolon serve` 本机运行，`EIDOLON_CALLS_PER_HOUR=1`、`EIDOLON_TURNS_PER_CALL=2`；浏览器是 aiortc 脚本，「麦克风」播放一段用 Fish Audio 合成的中文问句，同时统计收到的角色语音帧。
+
+- 发出 offer 但不接收 answer：计数立即占用（此时再拨返回 429），约 30 秒后退还，下一通电话被接受。
+- 真实通话：接通约 1 秒后 `bot-ready`；说出的话经 Soniox 转写成 `user`，约 18 秒后回复 `done`（日语 + 中文字幕），3 秒内开始收到角色语音；通话中打字经 data channel 接下并回复；第 2 轮后收到「这次通话已经说了 2 轮了，先挂断啦……」，最后一段回复播完才挂断（共收到约 2900 帧有声音频）。两个回合都记入对话。
+- 再拨：429「这一小时的语音通话次数已经用完了（每小时 1 次）」，`usage` 表里只有一次通话。
+- 服务停止正常结束，日志里没有 ERROR。
+- 本地起服务前需要手动把 NLTK 的 `punkt_tab` 下到 `~/nltk_data`（NLTK 自带的下载器拒绝经代理下载；Docker 镜像构建时已下载）。
+- Soniox 把合成语音「你好真乃」听成了「ミホちゃん」：是用日语音色合成中文句子造成的识别偏差，与本次改动无关。这次对话没有产生记忆（没有透露用户自己的信息），检索与记忆在语音回合里的接线由端到端测试覆盖。
