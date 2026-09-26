@@ -33,7 +33,7 @@
 # - 剧情编号来自 SCTranslationData 各 CSV 的 info 行（与 story_import 的来源标识一致）。
 # - 资料标题是 characters/facts/<角色标识>.md 解析出的标题路径（「上级标题 / 本级标题」）；
 #   改了资料文件的标题，这里要跟着改。
-# - 标注是 agent 起草的初稿，每条都要人工校对（reviewed = false）。
+# - 标注由 agent 起草，已逐条人工校对（reviewed = true）；新加的问题先写 reviewed = false。
 
 # ---------------------------------------------------------------------------
 # 示例记忆（memory 类问题用；含几条相似但不同的干扰项，来自两位角色）
@@ -91,7 +91,7 @@ query = "还记得我们第一次见面吗？你在公园里唱歌，身边围�
 relevant = ["produce_events/100100101", "produce_events/100100002"]
 acceptable = ["produce_events/600100109"]
 note = "W.I.N.G. 开场「公園の歌声」：制作人在公园听到歌声、邀请她当偶像；100100002 是同一段相遇的另一份剧本（开头部分重复）。W.I.N.G. 优胜后「これからも飛んでいきたい」在公园里说「仿佛初次见面的时候一样」，可放可不放。易混：【ほわっとスマイル】「ほわほわアイドル」（公园里和鸽子玩到忘了时间，但不是初见）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-early-no-confidence"
@@ -107,7 +107,7 @@ acceptable = [
   "produce_events/200100411",
 ]
 note = "模糊问题。最直接的是 W.I.N.G.「自信のありか」：带着小P散步时说自己没有自信，制作人说她有当偶像的天分。其余几段也谈到「没自信」（初见时拒绝、W.I.N.G. 大舞台前、优胜后回顾、ほわっと TE 里说开始相信自己），放进来不算错。易混：G.R.A.D. 里谈「必须改变懦弱的自己」（100100305/100100309），那是后期，不算刚出道。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-owl-camping"
@@ -117,7 +117,7 @@ query = "你在节目上讲的那个故事，小时候露营迷路，被猫头�
 relevant = ["produce_events/100100403"]
 acceptable = ["produce_events/100100406", "produce_events/100100404"]
 note = "Landing Point「不思議の夜の森」：演播室访谈里讲小时候露营迷路、猫头鹰引路。「降りそそぐ羽のように」结尾说猫头鹰一直守望着她，「暗がりから、つかんで」里饲养员提到园里有猫头鹰，都沾边。易混：同一张花鸟园系列的其他几话（火烈鸟报道、受伤）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-flower-bird-park-arc"
@@ -133,7 +133,7 @@ relevant = [
   "produce_events/100100406",
 ]
 note = "多段都相关：Landing Point 篇六话是一整条花鸟园报道线（接下工作、火烈鸟报道、猫头鹰访谈、受伤、复工、收下玩偶）。用来看同一条线的各段分数是否都过线。易混：其他和鸟有关的剧情（小P、鸽子）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-injury-ja"
@@ -143,7 +143,7 @@ query = "花鳥園のロケでケガしちゃったとき、番組は休みた�
 relevant = ["produce_events/100100404"]
 acceptable = ["produce_events/100100405"]
 note = "日语提问。Landing Point「暗がりから、つかんで」：去雏鸟饲养舍途中受伤，她不想暂停节目拍摄。「鮮やかに茜さす」是伤好复工，放进来也可以。易混：W.I.N.G.「頑張りすぎ」（练习过度、制作人让她休息），同样是「不想休息」，但不是受伤。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-sakura-letters"
@@ -153,7 +153,7 @@ query = "那位一直用樱花信纸给你写信的粉丝，后来还有来信�
 relevant = ["produce_events/100100301", "produce_events/100100305"]
 acceptable = ["produce_events/100100309"]
 note = "G.R.A.D. 篇：「つづく空のはじまり」和「とまる歩みに」都提到用樱花信纸的老粉丝来信（后者信里说她最近在勉强自己）。「空はつづく」是同一条线的收尾。易混：W.I.N.G.「自分を信じて」里从远方赶来的粉丝来信（不是樱花信纸那位）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-hatsumoude"
@@ -163,7 +163,7 @@ query = "过年那次在神社碰到你，你穿着振袖，我们还一起喝�
 relevant = ["produce_events/200100602"]
 acceptable = ["produce_events/200100611", "produce_events/200100601"]
 note = "【しじまに華ひととき】「迎春の巡り逢い」：初次参拜时偶遇，喝甜酒，一起向鸽子拜年。TE「あのときの願い」回忆了这次参拜和甜酒；第一话是年末演出后说「说不定会偶遇」。易混：各年的圣诞、情人节短剧情。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-bench-nap"
@@ -173,7 +173,7 @@ query = "有一次你拍完外景，在公园长椅上坐着坐着就睡着了�
 relevant = ["produce_events/200100404", "produce_events/200100411"]
 acceptable = []
 note = "【ほわっとスマイル】「いつかの気持ち」（选公园的分支：室外摄影后去公园，在长椅上睡着）和 TE「ずっと続く夢の先へ」（在公园醒来，说梦见了大舞台）。易混：同卡「ほわほわアイドル」（公园里和鸽子玩），G.R.A.D.「とまる歩みに」（公园长椅上和鸽子一起、情绪低落）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-story-xmas-bird-bed"
@@ -183,7 +183,7 @@ query = "圣诞节我送给小P的那张床，它睡得还习惯吗？"
 relevant = ["special_communications/490110001"]
 acceptable = ["鸟 / ピーちゃん", "鸟 / 和ピーちゃん的日常"]
 note = "'23 圣诞「鳥用ベッド」：制作人送的软蓬蓬的鸟用床。易混：同年圣诞的另外三段（玻璃笔、暖手宝、雪之结晶），以及其他年份的圣诞剧情。关于小P本身的资料条目放进来也可以。"
-reviewed = false
+reviewed = true
 
 # ---------------------------------------------------------------------------
 # story：月岡恋鐘
@@ -197,7 +197,7 @@ query = "你来283面试那天，说自己是为了当偶像才出生的，我�
 relevant = ["produce_events/100400101", "produce_events/100400002"]
 acceptable = ["produce_events/600400109"]
 note = "W.I.N.G. 开场「長崎生まれの無敵ガール」：面试、之前的试镜全落选、「为了成为偶像才诞生于世」、当场合格；100400002 是同一段面试的另一份剧本。W.I.N.G. 优胜后「うちばい、月岡恋鐘ばい～！」又说了这句话，可放可不放。易混：S.T.E.P. 里来东京前后的试镜经历（100400504/100400505）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-campaign-girl"
@@ -207,7 +207,7 @@ query = "你第一次当宣传小姐，把主任的名字叫反了，还记得�
 relevant = ["produce_events/100400102"]
 acceptable = ["produce_events/100400104"]
 note = "W.I.N.G.「うちならできるたい！」：第一天工作当 campaign girl，把中田主任叫成田中主任。「めげないハート」里她为工作中接连失误而烦恼，沾边。易混：「一歩先へ」（个人演出上唱错词、摔倒）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-name-song"
@@ -222,7 +222,7 @@ acceptable = [
   "produce_events/100400504",
 ]
 note = "S.T.E.P.「そいは、ばりすごかこと」：打工时被问名字，打电话问妈妈，确认名字取自那首歌。同一条线里：发现架子后的海报（100400503）、妈妈哼这首歌（100400502）、离家时想起歌词（100400504）、最后自己改唱歌词（100400506），都相关但不是正题。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-leaving-home"
@@ -232,7 +232,7 @@ query = "你离开佐世保来东京的那天，是什么心情？"
 relevant = ["produce_events/100400504"]
 acceptable = ["produce_events/100400503", "produce_events/100400505"]
 note = "S.T.E.P.「船の着く、船の出る」：和妈妈告别，想起家乡的景色，到了东京的机场。毕业送别（100400503）和来东京半年后（100400505）沾边。易混：「恋の岬に鐘が鳴る」（后来回长崎拍外景）、【ばってん長崎恋岬】（在东京聊长崎）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-father-arc"
@@ -251,7 +251,7 @@ acceptable = [
   "produce_events/200400411",
 ]
 note = "多段都相关：S.T.E.P. 篇一整条线。爸爸拒绝让她去面试（100400501）、父女谈偶像圈（100400502）、爸爸和妈妈谈起她（100400505）、长崎外景后爸爸说「成为超级厉害的偶像了啊」（100400506）。【ばりうまかブルース】TE 里她第一次告诉制作人和爸爸吵架了，可放可不放。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-bento-dropped"
@@ -261,7 +261,7 @@ query = "你特意给我做的便当，结果掉在地上那次，其实味道�
 relevant = ["produce_events/200400402"]
 acceptable = ["produce_events/200400403"]
 note = "【ばりうまかブルース】「残念お弁当（泣）」：便当掉在地上，土豆炖牛肉。下一话「リベンジごはん」开头提到这件事。易混：同卡的饭团（200400401）、夜宵三明治（200400404）、在事务所做的晚饭（200400411），以及【ばってん長崎恋岬】在事务所做饭（200400301）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-sandwich-ja"
@@ -271,7 +271,7 @@ query = "夜遅くに事務所までサンドイッチ持ってきてくれた�
 relevant = ["produce_events/200400404"]
 acceptable = []
 note = "日语提问。【ばりうまかブルース】「し・あ・わ・せ♡サンドイッチ」：深夜在事务所送来夜宵三明治。易混：同卡「おかえり～！」（在事务所做好晚饭等制作人）、【ばってん長崎恋岬】「うちんすごか腕前」（用事务所食材做饭）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-nagasaki-fair"
@@ -281,7 +281,7 @@ query = "上次在商场逛长崎物产展，你帮我挑了一大堆土特产�
 relevant = ["produce_events/200400302"]
 acceptable = []
 note = "【ばってん長崎恋岬】「長崎よかとこ」：在商场的长崎展销会给事务所买土特产，说以后要带制作人回老家。易混：S.T.E.P.「恋の岬に鐘が鳴る」（在长崎拍外景介绍当地美食），同卡「いつか帰る日」（想在长崎办凯旋演出）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-homecoming-live"
@@ -291,7 +291,7 @@ query = "你说过想在长崎办一场凯旋演唱会，现在还这么想吗�
 relevant = ["produce_events/200400311", "produce_events/600400109"]
 acceptable = ["produce_events/200400302"]
 note = "两段都说了想在长崎办凯旋 live：【ばってん長崎恋岬】TE「いつか帰る日」和 W.I.N.G. 优胜「うちばい、月岡恋鐘ばい～！」。同卡「長崎よかとこ」说想带制作人回长崎，沾边。易混：S.T.E.P.「恋の岬に鐘が鳴る」（回长崎拍外景，不是演唱会）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-new-year-message"
@@ -301,7 +301,7 @@ query = "过年那天你给我发了条只有「新年好」三个字的消息�
 relevant = ["produce_events/200400602"]
 acceptable = []
 note = "【月の浜辺で待っとって】「あけおめするけん待っとって～」：写贺年消息时被输入联想误发了出去，然后打电话解释。易混：同卡「おみくじ」（抽神签抽到大吉为止）、「福袋」（买福袋），都是新年话题。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-story-suit-cat-ja"
@@ -311,7 +311,7 @@ query = "スーツ着てるみたいな柄の猫、あれからまた会えた�
 relevant = ["produce_events/200401001", "produce_events/200401011"]
 acceptable = []
 note = "日语提问，两段都相关：【猫道カントリー】「猫のこと」（追着像穿黑西装的猫走小路）和 TE「うちのこと」（又遇到那只猫，道谢）。易混：别的提到猫的剧情；注意示例记忆里制作人养猫（小白）只在 memory 类问题里用，这里不参与。"
-reviewed = false
+reviewed = true
 
 # ---------------------------------------------------------------------------
 # facts：角色资料
@@ -325,7 +325,7 @@ query = "小P今天没跟你一起来吗？它是什么鸟来着？"
 relevant = ["鸟 / ピーちゃん"]
 acceptable = ["produce_events/100100102", "鸟 / 和ピーちゃん的日常"]
 note = "问的是小P本身，资料条目最直接。W.I.N.G.「自信のありか」里第一次介绍小P（在家养的鸟），可放可不放。易混：各段和鸽子有关的剧情、'23 圣诞「鳥用ベッド」。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-facts-hiori"
@@ -335,7 +335,7 @@ query = "你和灯织平时私下关系怎么样？"
 relevant = ["人物关系 / 風野灯織"]
 acceptable = ["组合 / 三人的日常"]
 note = "问的是人物关系。易混：「人物关系 / 八宮めぐる」（同组合的另一位，标题和内容都很像，应判不相关），以及 illumination STARS 三人一起的剧情。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-facts-birthday"
@@ -345,7 +345,7 @@ query = "恋钟，你生日是几月几号来着？"
 relevant = ["档案 / 基本信息"]
 acceptable = []
 note = "档案类问题（生日、星座、身高等在「档案 / 基本信息」里）。易混：各年的生日短剧情、圣诞/情人节剧情（剧情库里有生日迷你剧情时，它们不回答具体日期，应判不相关，人工可酌情改成 acceptable）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-facts-mamimi"
@@ -355,7 +355,7 @@ query = "摩美美是不是又捉弄你了？你们俩到底谁是姐姐啊。"
 relevant = ["人物关系 / 田中摩美々"]
 acceptable = []
 note = "问的是 L'Antica 成员田中摩美々。易混：同组合其他成员的人物关系条目（白瀬咲耶、三峰結華、幽谷霧子），应判不相关。"
-reviewed = false
+reviewed = true
 
 # ---------------------------------------------------------------------------
 # memory：关于制作人的记忆（候选只来自上面的示例记忆）
@@ -369,7 +369,7 @@ query = "小白昨晚又在家里跑酷，吵得我一晚上没睡好。"
 relevant = ["cat"]
 acceptable = []
 note = "直接对应养猫的记忆。易混：parents-dog（也是宠物，但是老家父母的狗）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-memory-cat-cross"
@@ -379,7 +379,7 @@ query = "我家那只猫最近胖了好多，该给它减肥了。"
 relevant = ["cat"]
 acceptable = []
 note = "跨角色：养猫的记忆来源是真乃，恋钟也应该想起（所有角色共享同一份记忆）。易混：parents-dog。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-memory-spring"
@@ -389,7 +389,7 @@ query = "最近一出门就打喷嚏，眼睛也痒得不行。"
 relevant = ["pollen"]
 acceptable = []
 note = "没提「花粉」二字，靠症状对上过敏的记忆。其余记忆都不相关。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-memory-hometown"
@@ -399,7 +399,7 @@ query = "下周放假，我打算回老家一趟。"
 relevant = ["hometown"]
 acceptable = ["parents-dog"]
 note = "老家在札幌最相关；老家父母养的狗可放可不放。易混：nagasaki-trip（去的是长崎而且是出差，恋钟的老家在长崎，容易被拉高分数，应判不相关）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-memory-dinner"
@@ -409,7 +409,7 @@ query = "今晚吃什么你来定吧，我都行。"
 relevant = ["no-coriander", "curry"]
 acceptable = ["nagasaki-trip"]
 note = "决定吃什么时，不吃香菜和最喜欢咖喱都该想起（咖喱的来源是真乃，跨角色）。长崎出差吃了什锦面可放可不放。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-memory-driving-test"
@@ -419,7 +419,7 @@ query = "明天就要路考了，好紧张啊。"
 relevant = ["driving-test"]
 acceptable = []
 note = "对应学车的记忆。其余都不相关。"
-reviewed = false
+reviewed = true
 
 # ---------------------------------------------------------------------------
 # 什么都不该放进提示词（relevant = []）
@@ -432,7 +432,7 @@ kind = "story"
 query = "昨晚那场足球你看了吗？最后那个点球判得也太离谱了。"
 relevant = []
 note = "剧情库里没有足球相关的剧情（在两人的 SCTranslationData 剧情里搜不到「足球 / サッカー」）。可能被误放的：带「比赛、胜负」的剧情，如 W.I.N.G. / G.R.A.D. 的比赛剧情。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-none-rain"
@@ -440,8 +440,9 @@ character = "mano"
 kind = "story"
 query = "今天好像要下雨，你出门记得带伞哦。"
 relevant = []
-note = "天气闲聊，不是在回忆什么。最可能被误放的是【ソラを跳ね】「あめのひ」（produce_events/200101102，制作人淋了阵雨回来）；如果你觉得这种顺带想起算可以，就把它移到 acceptable。"
-reviewed = false
+acceptable = ["produce_events/200101102"]
+note = "天气闲聊，不是在回忆什么。【ソラを跳ね】「あめのひ」（制作人淋了阵雨回来）顺带想起也自然，算可放可不放。"
+reviewed = true
 
 [[cases]]
 id = "mano-none-spreadsheet"
@@ -450,4 +451,4 @@ kind = "facts"
 query = "这周被报表折磨疯了，Excel 的公式怎么都对不上。"
 relevant = []
 note = "工作吐槽，剧情库和资料里都没有 Excel / 报表相关内容。可能被误放的：真乃的档案（学校、兴趣）、W.I.N.G. 里制作人工作繁忙的片段。"
-reviewed = false
+reviewed = true
