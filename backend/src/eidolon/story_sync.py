@@ -45,8 +45,8 @@ class SyncReport:
     untranslated: ImportReport = field(default_factory=ImportReport)
     """The import of the mirror's scripts."""
     translations_kept: int = 0
-    """Episodes on the mirror's cards that SCTranslationData has translated, so were
-    neither downloaded nor imported."""
+    """Episodes on the cards asked about this sync that SCTranslationData has
+    translated, so were not downloaded."""
     downloaded: int = 0
     missing: int = 0
     """Scripts a card lists that the mirror does not have."""
@@ -132,7 +132,7 @@ async def sync_stories(
     except MirrorError as e:
         report.mirror_error = str(e)
     report.untranslated = await import_script_files(
-        _untranslated_scripts(cache, corpus, report), corpus, characters
+        _untranslated_scripts(cache, corpus), corpus, characters
     )
     return report
 
@@ -165,6 +165,7 @@ async def _fetch_cards(
             complete = True
             for episode in episodes:
                 if corpus.imported_from(episode.script) == "csv":
+                    report.translations_kept += 1
                     continue
                 path = cache.script_path(episode.script)
                 if path.exists() and not changed:
@@ -175,7 +176,7 @@ async def _fetch_cards(
                 if fetched == "missing":
                     complete = False
                     report.missing += 1
-                    log.info("%s is not on the mirror", episode.script)
+                    log.info("镜像上还没有 %s", episode.script)
                     continue
                 cache.set_etag(episode.script, etag)
                 if fetched == "downloaded":
@@ -186,15 +187,12 @@ async def _fetch_cards(
             cache.save()  # so an interrupted sync picks up after the last card done
 
 
-def _untranslated_scripts(cache: _Cache, corpus: StoryCorpus, report: SyncReport) -> list[ScriptFile]:
+def _untranslated_scripts(cache: _Cache, corpus: StoryCorpus) -> list[ScriptFile]:
     """Every script downloaded so far that SCTranslationData has not translated."""
     files: dict[str, ScriptFile] = {}
     for card in cache.cards.values():
         for episode in card.episodes:
-            if episode.script in files:
-                continue
-            if corpus.imported_from(episode.script) == "csv":
-                report.translations_kept += 1
+            if episode.script in files or corpus.imported_from(episode.script) == "csv":
                 continue
             path = cache.script_path(episode.script)
             if path.exists():

@@ -97,6 +97,10 @@ class ImportReport:
     """Scripts in a JSON import that were left alone because a CSV of them is in the corpus."""
     unchanged: int = 0
     """Episodes the corpus already had exactly as imported, so were not saved again."""
+    added: int = 0
+    """Of those imported, the episodes the corpus did not have before."""
+    untranslated_replaced: int = 0
+    """Of those imported, the untranslated episodes (from JSON) a CSV translation replaced."""
     warnings: list[str] = field(default_factory=list)
 
 
@@ -209,6 +213,7 @@ async def _import(
 ) -> ImportReport:
     speakers = _speaker_index(characters)
     episodes: dict[str, Episode] = {}
+    previously: dict[str, ImportFormat | None] = {}
     seen: dict[str, tuple[Path, int]] = {}
     for script in scripts:
         relative, source_id, lines = script.relative_path, script.source_id, script.lines
@@ -243,18 +248,24 @@ async def _import(
             lines=tuple(lines),
             imported_from=imported_from,
         )
-        if corpus.get(source_id) == episode:
+        existing = corpus.get(source_id)
+        if existing == episode:
             episodes.pop(source_id, None)  # a shorter copy seen earlier is not wanted either
             report.unchanged += 1
             continue
         episodes[source_id] = episode
+        previously[source_id] = existing.imported_from if existing is not None else None
 
     pending = list(episodes.values())
     for start in range(0, len(pending), _SAVE_BATCH):
         batch = pending[start : start + _SAVE_BATCH]
         report.embedded_passages += await corpus.save(batch)
         report.imported += len(batch)
-        log.info("imported %d of %d episodes", report.imported, len(pending))
+        before = [previously[episode.id] for episode in batch]
+        report.added += before.count(None)
+        if imported_from == "csv":
+            report.untranslated_replaced += before.count("json")
+        log.info("已保存 %d / %d 段剧情", report.imported, len(pending))
     return report
 
 

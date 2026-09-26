@@ -11,6 +11,8 @@ for again conditionally, on its ETag.
 import asyncio
 import os
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -56,57 +58,56 @@ class Mirror:
         client: httpx.AsyncClient | None = None,
         *,
         interval: float = DEFAULT_INTERVAL,
-        api_url: str = API_URL,
-        viewer_url: str = VIEWER_URL,
     ) -> None:
         self._client = client or httpx.AsyncClient(
             timeout=httpx.Timeout(60, connect=10), headers={"User-Agent": _USER_AGENT}
         )
         self._interval = interval
-        self._api_url = api_url.rstrip("/")
-        self._viewer_url = viewer_url.rstrip("/")
         self._last_request: float | None = None
 
     async def idols(self) -> list[int]:
-        return [int(idol["idolId"]) for idol in await self._api("/info/idolList")]
+        idols = await self._api("/info/idolList")
+        with _unexpected("/info/idolList"):
+            return [int(idol["idolId"]) for idol in idols]
 
     async def cards(self, idol_id: int) -> list[Card]:
         info = await self._api("/info/idolInfo", idolId=idol_id)
-        return [
-            Card(
-                uuid=card["cardUuid"],
-                name=card["cardName"],
-                type=card["cardType"],
-                version=f"{card.get('cardHash')}/{card.get('lastModified')}",
-            )
-            for card in info.get("cardLists") or []
-        ]
+        with _unexpected("/info/idolInfo"):
+            return [
+                Card(
+                    uuid=card["cardUuid"],
+                    name=card["cardName"],
+                    type=card["cardType"],
+                    version=f"{card.get('cardHash')}/{card.get('lastModified')}",
+                )
+                for card in info.get("cardLists") or []
+            ]
 
     async def episodes(self, card: Card) -> list[CardEpisode]:
         """The card's episodes, in the order the game numbers them. Some cards have none."""
         if card.type.startswith("P_"):
-            info = await self._api("/info/pCardInfo", cardId=card.uuid)
-            events, title = info.get("cardIdolEvents") or [], "eventTitle"
+            path, events, title = "/info/pCardInfo", "cardIdolEvents", "eventTitle"
         elif card.type.startswith("S_"):
-            info = await self._api("/info/sCardInfo", cardId=card.uuid)
-            events, title = info.get("cardSupportEvents") or [], "eventName"
+            path, events, title = "/info/sCardInfo", "cardSupportEvents", "eventName"
         else:
             return []
-        return sorted(
-            (
-                CardEpisode(f"produce_events/{event['eventId']}", event.get(title) or "")
-                for event in events
-                if event.get("eventId")
-            ),
-            key=lambda episode: episode.script,
-        )
+        info = await self._api(path, cardId=card.uuid)
+        with _unexpected(path):
+            return sorted(
+                (
+                    CardEpisode(f"produce_events/{event['eventId']}", event.get(title) or "")
+                    for event in info.get(events) or []
+                    if event.get("eventId")
+                ),
+                key=lambda episode: episode.script,
+            )
 
     async def download(self, script: str, target: Path, etag: str | None) -> tuple[Fetched, str | None]:
         """Save the script to `target` unless the mirror says the copy matching `etag` is
         still current; returns what happened and the ETag of the copy now at `target`.
         A script the mirror does not have is `missing`, not an error."""
         headers = {"If-None-Match": etag} if etag else {}
-        response = await self._get(f"{self._viewer_url}/{script}.json", headers=headers)
+        response = await self._get(f"{VIEWER_URL}/{script}.json", headers=headers)
         if response.status_code == 304:
             return "unchanged", etag
         if response.status_code == 404:
@@ -128,7 +129,7 @@ class Mirror:
         await self._client.aclose()
 
     async def _api(self, path: str, **params: Any) -> Any:
-        response = await self._get(self._api_url + path, params=params)
+        response = await self._get(API_URL + path, params=params)
         _check(response)
         try:
             return response.json()
@@ -146,6 +147,15 @@ class Mirror:
             raise MirrorError(f"无法连接 {url}：{e!r}") from e
         finally:
             self._last_request = time.monotonic()
+
+
+@contextmanager
+def _unexpected(path: str) -> Iterator[None]:
+    """An API answer shaped unlike what it used to be is the mirror's error, too."""
+    try:
+        yield
+    except (KeyError, TypeError, ValueError, AttributeError) as e:
+        raise MirrorError(f"{path}：API 返回的数据结构和预期不同（{e!r}）") from e
 
 
 def _check(response: httpx.Response) -> None:

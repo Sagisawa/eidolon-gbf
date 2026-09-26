@@ -192,12 +192,14 @@ async def _sync_story(args: argparse.Namespace) -> int:
         print(f"注意：{warning}", file=sys.stderr)
     translated, untranslated = report.translated, report.untranslated
     print(
-        f"汉化版：导入 {translated.imported} 段（{translated.unchanged} 段没有变化），"
+        f"汉化版：新增 {translated.added} 段，更新 {translated.imported - translated.added} 段"
+        f"（其中 {translated.untranslated_replaced} 段取代了原文剧情），"
         f"跳过 {translated.skipped_failures} 段失败结局（其中 {translated.removed} 段从剧情库移除）"
     )
     print(
-        f"原文剧情：下载 {report.downloaded} 个剧本，新增或更新 {untranslated.imported} 段"
-        f"（{untranslated.unchanged} 段没有变化），保留 {report.translations_kept} 段已有的汉化版"
+        f"原文剧情：下载 {report.downloaded} 个剧本，新增 {untranslated.added} 段，"
+        f"更新 {untranslated.imported - untranslated.added} 段；"
+        f"本次检查的卡牌中有 {report.translations_kept} 段已有汉化版，保留汉化版"
     )
     if report.missing:
         print(f"卡牌列出的剧本中有 {report.missing} 个镜像上还没有，下次同步再试")

@@ -102,7 +102,7 @@ async def test_card_episodes_the_translations_lack_come_in_under_the_cards_name_
     assert (support.category, support.source, support.title) == (
         "S卡剧情", "【トリプルイルミネーション】櫻木真乃", "始まりのステップ"
     )
-    assert report.untranslated.imported == 4  # Mano's three, Kogane's second
+    assert report.untranslated.added == 4  # Mano's three, Kogane's second
     assert report.mirror_error is None
 
 
@@ -163,7 +163,7 @@ async def test_a_translation_that_arrives_later_replaces_the_untranslated_episod
         "produce_events/200100401",
         "produce_events/200100402",
     ]
-    assert report.translations_kept == 2
+    assert report.translated.untranslated_replaced == 1
     assert report.untranslated.imported == 0
 
 
@@ -186,6 +186,7 @@ async def test_syncing_again_downloads_and_embeds_nothing(
     assert mirror_site.sent == []
     assert syncer.embedder.documents == []
     assert (report.downloaded, report.embedded_passages, report.untranslated.imported) == (0, 0, 0)
+    assert report.translations_kept == 0  # no card was asked about again
     assert syncer.corpus.get("produce_events/200100401") is not None
 
 
@@ -216,7 +217,7 @@ async def test_a_changed_card_is_checked_but_only_changed_scripts_are_downloaded
     assert mirror_site.sent == ["produce_events/200100402"]
     episode = syncer.corpus.get("produce_events/200100402")
     assert episode is not None and episode.lines[-1].ja == "やってみます"
-    assert report.untranslated.imported == 1
+    assert (report.untranslated.imported, report.untranslated.added) == (1, 0)
 
 
 async def test_a_script_the_mirror_lacks_is_no_error_and_comes_in_once_it_is_there(
@@ -246,6 +247,18 @@ async def test_when_the_mirror_is_unreachable_the_translations_still_come_in(
     park = syncer.corpus.get("produce_events/100100101")
     assert park is not None and park.imported_from == "csv"
     assert syncer.corpus.get("produce_events/200100401") is None
+
+
+async def test_an_api_answer_shaped_unlike_before_is_a_mirror_error(
+    syncer: Syncer, mirror_site: FakeShinyColorsDB
+):
+    del mirror_site.idols[4][0]["cardUuid"]
+
+    report = await syncer.run()
+
+    assert report.mirror_error is not None and "idolInfo" in report.mirror_error
+    # Mano's cards, listed before Kogane's, still come in.
+    assert syncer.corpus.get("produce_events/200100401") is not None
 
 
 async def test_a_sync_the_mirror_broke_off_picks_up_where_it_stopped(
@@ -311,6 +324,29 @@ async def test_requests_go_out_one_at_a_time_with_a_pause_between(mirror_site: F
     assert all(later - earlier >= 0.045 for earlier, later in zip(times, times[1:]))
 
 
+def test_the_sync_command_reports_what_it_did(
+    admin: Admin,
+    story: Path,
+    characters: CharacterConfig,
+    mirror_site: FakeShinyColorsDB,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    monkeypatch.setattr("eidolon.mirror.Mirror", lambda: mirror_site.mirror())
+    monkeypatch.setattr("eidolon.embedding.SiliconFlowEmbedder", lambda *_: _ClosableEmbedder())
+    args = ["story", "sync", "--story", str(story), "--cache", str(tmp_path / "mirror")]
+
+    code, out, err = admin.invoke(*args, "--characters", str(characters.path))
+
+    assert code == 0, err
+    assert "汉化版：新增 4 段" in out
+    assert "原文剧情：下载 4 个剧本，新增 4 段" in out
+    assert "有 1 段已有汉化版" in out
+    assert "镜像上还没有" in out  # Mano's third episode
+    assert "共跳过 3 段失败结局" in out
+
+
 def test_the_sync_command_exits_2_when_the_mirror_is_unreachable(
     admin: Admin,
     story: Path,
@@ -329,7 +365,7 @@ def test_the_sync_command_exits_2_when_the_mirror_is_unreachable(
 
     assert code == 2
     assert "镜像" in err
-    assert "汉化版：导入 4 段" in out
+    assert "汉化版：新增 4 段" in out
 
 
 def test_the_sync_command_reports_a_missing_story_directory(admin: Admin, tmp_path: Path):
