@@ -19,6 +19,8 @@
     eidolon reembed                  after changing the embedding service, model or
                                      dimensions, embed the story corpus, character facts
                                      and memories again from the text in the database
+    eidolon eval rerank [--model M]  score the reranker on the calibration set, to set its
+                                     thresholds
 """
 
 import argparse
@@ -53,6 +55,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_draft_sheet(args))
     if args.command == "reembed":
         return asyncio.run(_reembed(args))
+    if args.command == "eval":
+        return asyncio.run(_eval_rerank(args))
 
     store = Store(args.db or database_path_from_env())
     try:
@@ -354,6 +358,49 @@ async def _reembed(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _eval_rerank(args: argparse.Namespace) -> int:
+    from dataclasses import replace
+
+    from eidolon.characters import load_characters
+    from eidolon.config import EmbeddingSettings, RerankSettings
+    from eidolon.corpus import StoryCorpus
+    from eidolon.embedding import EmbeddingError, open_embedder
+    from eidolon.facts import FactIndex
+    from eidolon.rerank import RerankError, SiliconFlowReranker, thresholds_for
+    from eidolon.rerank_eval import CalibrationError, evaluate, load_calibration, report
+
+    try:
+        characters = load_characters(args.characters or characters_path_from_env())
+        calibration = load_calibration(args.file)
+        embedding = EmbeddingSettings.required_from_env()
+        rerank = RerankSettings.from_env()
+        if rerank is None:
+            raise RuntimeError("环境变量 SILICONFLOW_API_KEY 未设置（重排需要）")
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+    if args.model:
+        rerank = replace(rerank, model=args.model)
+    embedder = open_embedder(embedding)
+    reranker = SiliconFlowReranker(rerank.api_key, rerank.model, rerank.base_url)
+    path = args.db or database_path_from_env()
+    corpus, facts = StoryCorpus(path, embedder), FactIndex(path, embedder)
+    try:
+        if missing := corpus.count_missing_vectors():
+            print(f"注意：剧情库有 {missing} 段没有 {embedder.model} 的向量，先运行 eidolon reembed", file=sys.stderr)
+        results = await evaluate(calibration, characters, embedder, reranker, corpus, facts)
+    except (CalibrationError, EmbeddingError, RerankError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    finally:
+        corpus.close()
+        facts.close()
+        await embedder.aclose()
+        await reranker.aclose()
+    print(report(results, rerank.model, thresholds_for(rerank)))
+    return 0
+
+
 def _create_user(store: Store, args: argparse.Namespace) -> None:
     store.create_user(args.name)
     print(f"已创建用户 {args.name}")
@@ -484,6 +531,28 @@ def _parser() -> argparse.ArgumentParser:
         "--budget",
         type=int,
         help="每次请求后台模型最多带多少字的剧情素材（默认 40000，至少 1000），超出时分批总结",
+    )
+
+    evaluation = commands.add_parser("eval", help="评估检索效果").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    rerank = evaluation.add_parser(
+        "rerank",
+        help="用校准数据集对着本地的剧情库打印重排分数分布，用来定重排阈值",
+    )
+    rerank.add_argument(
+        "--model", help="重排模型（默认取环境变量 RERANK_MODEL），例如 Qwen/Qwen3-Reranker-0.6B"
+    )
+    rerank.add_argument(
+        "--file",
+        type=Path,
+        default=Path("eval/rerank-calibration.toml"),
+        help="校准数据集（默认 eval/rerank-calibration.toml）",
+    )
+    rerank.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
     )
 
     reembed = commands.add_parser(

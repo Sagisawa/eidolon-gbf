@@ -7,12 +7,12 @@
 **Status:** ready-for-human（标注需要人工校对；代码部分 agent 可以先做）
 
 - [ ] 数据集 `backend/eval/rerank-calibration.toml`：二三十条有代表性的问题，每条注明角色、问的是剧情/资料/记忆，以及哪些候选相关、哪些不相关（用剧情编号、资料标题或记忆文本标识）。只含问题、编号、标题和标注，不含剧情原文（ADR-0003）。agent 起草，人工校对
-- [ ] 记忆类问题需要的记忆不来自真实用户：数据集里自带几条示例记忆，命令运行时临时向量化，不写入数据库
-- [ ] 命令 `eidolon eval rerank [--model 模型名]`：按与对话中相同的方式取候选（向量检索 `CANDIDATES_PER_SOURCE` / 记忆 `CANDIDATES`）并重排，按「相关 / 不相关」分组打印分数分布，以及给定阈值下的命中与误放数量；标注里的候选没进入向量检索结果时单独列出（这是召回问题，不是阈值问题）
+- [x] 记忆类问题需要的记忆不来自真实用户：数据集里自带几条示例记忆，命令运行时临时向量化，不写入数据库
+- [x] 命令 `eidolon eval rerank [--model 模型名]`：按与对话中相同的方式取候选（向量检索 `CANDIDATES_PER_SOURCE` / 记忆 `CANDIDATES`）并重排，按「相关 / 不相关」分组打印分数分布，以及给定阈值下的命中与误放数量；标注里的候选没进入向量检索结果时单独列出（这是召回问题，不是阈值问题）
 - [ ] 分别用 0.6B 和 4B 跑一遍，在 Comments 记录分数分布和选定的阈值及理由
-- [ ] 阈值按模型分组：0.6B 保持 `0.3` / `0.01`，4B 用校准出的值；未知模型用 4B 的阈值并在启动时打警告；`RERANK_MIN_RELEVANCE`（检索）与 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）可手动覆盖
-- [ ] `DEFAULT_RERANK_MODEL` 改为 `Qwen/Qwen3-Reranker-4B`（已确认国内站 `api.siliconflow.cn` 仍提供；国际站标为 Deprecated，在 Comments 里注明）
-- [ ] 测试：阈值选择（已知模型、未知模型、环境变量覆盖）；`eval rerank` 用假的 embedder/reranker 跑通并输出预期统计
+- [x] 阈值按模型分组：0.6B 保持 `0.3` / `0.01`，4B 用校准出的值；未知模型用 4B 的阈值并在启动时打警告；`RERANK_MIN_RELEVANCE`（检索）与 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）可手动覆盖
+- [x] `DEFAULT_RERANK_MODEL` 改为 `Qwen/Qwen3-Reranker-4B`（已确认国内站 `api.siliconflow.cn` 仍提供；国际站标为 Deprecated，在 Comments 里注明）
+- [x] 测试：阈值选择（已知模型、未知模型、环境变量覆盖）；`eval rerank` 用假的 embedder/reranker 跑通并输出预期统计
 
 ## Comments
 
@@ -22,3 +22,12 @@
 - 私有剧情库里同步来的原文剧情不在 SCTranslationData 中，若有与问题相关的，会被算作「不相关」，校准跑出来时留意。
 - `produce_events/100100002`、`produce_events/100400002`（与初见、试镜重复的独立剧本）都标成了相关，前提是它们在剧情库里是独立的剧情。
 - 边界标注：下雨那条把【ソラを跳ね】「あめのひ」当作易误放项；恋鐘生日那条资料问题可能带出生日小剧情；「回老家」记忆问题把长崎出差记忆当干扰项。
+
+2026-09-27 代码部分完成，等人工：校对数据集（`reviewed`）、用真实 key 分别跑 0.6B 和 4B。
+
+- 命令：`eidolon eval rerank [--model 模型名] [--file 数据集] [--characters]`，逻辑在 `eidolon/rerank_eval.py`。剧情/资料问题走与对话相同的 `retrieval.rank_references`（这次从 `Retrieval._references` 抽出来的），记忆问题用示例记忆临时向量化后取 `memory.CANDIDATES` 条最近的再重排，不写数据库。输出分「剧情与角色资料」「记忆」两组，每组打印相关/不相关分数的分位数（最低、p10、p25、中位、p75、p90、最高）、当前阈值下的命中与误放数、没进入向量检索结果的相关候选，最后逐条列出每个问题的候选、分数和标注（+ 相关、~ 可放可不放、- 不相关）。
+- 打印的阈值是该模型的分组阈值，环境变量覆盖同样生效；Docker 镜像里带上了 `eval/`，容器里直接 `docker compose exec backend eidolon eval rerank --model …`。
+- 阈值分组在 `rerank.KNOWN_THRESHOLDS`。**4B 暂时沿用 0.6B 的 `0.3` / `0.01`**，校准后改这一处（和上面的注释）即可。未知模型用 4B 的阈值，启动时打警告。
+- 默认模型已经改为 `Qwen/Qwen3-Reranker-4B`。国内站 `api.siliconflow.cn` 仍提供，国际站标为 Deprecated（见 `config.DEFAULT_RERANK_MODEL` 的注释）。
+- 测试 `tests/test_rerank_eval.py` 还核对了数据集里引用的资料标题都在 `characters/facts/*.md` 中，改了资料标题会让它失败。
+
