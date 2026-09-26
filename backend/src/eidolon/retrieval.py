@@ -106,7 +106,7 @@ class Retrieved:
 
     prompt: str | None
     """The prompt section carrying the references or recalled episodes, if any."""
-    memories: str | None = None
+    memories_prompt: str | None = None
     """The prompt section carrying the user's memories relevant to the turn, if any."""
     recalled: bool = False
     """Whether the recall-story tool already ran, so the chat model need not call it."""

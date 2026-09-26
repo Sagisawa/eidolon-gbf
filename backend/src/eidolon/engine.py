@@ -116,7 +116,7 @@ class ConversationEngine:
         history_turns: int | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story, character facts or memories; without
-        `memory`, nothing is written down. Each turn reads only the conversation's latest
+        `memory`, nothing is found or written down. Each turn reads only the conversation's latest
         `history_turns` turns, or all of them if None."""
         self._store = store
         self._characters = characters
@@ -211,8 +211,8 @@ class ConversationEngine:
         text: str,
     ) -> list[ChatMessage]:
         sections = [character.sheet, about_producer]
-        if retrieved.memories:
-            sections.append(retrieved.memories)
+        if retrieved.memories_prompt:
+            sections.append(retrieved.memories_prompt)
         if retrieved.prompt:
             sections.append(retrieved.prompt)
         system = "\n\n".join([*sections, FORMAT_INSTRUCTIONS])

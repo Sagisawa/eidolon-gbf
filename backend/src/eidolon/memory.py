@@ -110,6 +110,8 @@ class Memory:
 
 @dataclass(frozen=True)
 class _Services:
+    """What memory needs to be on."""
+
     background_llm: ChatLLM
     embedder: Embedder
     reranker: Reranker
@@ -156,7 +158,8 @@ class Memories:
 
     async def entries(self, user_id: str) -> list[Memory]:
         """All of the user's memories, newest first, including what their turns so far
-        are writing down (unless that takes too long)."""
+        are writing down (unless that takes too long). Not named `list`, which would
+        shadow the builtin in this class's annotations."""
         await self._settle(user_id)
         return list(reversed(await asyncio.to_thread(self._all, user_id)))
 
@@ -250,8 +253,8 @@ class Memories:
         now: datetime,
     ) -> None:
         user_id = conversation.user_id
-        character = self._characters[conversation.character_id]
         try:
+            character = self._characters[conversation.character_id]
             known = await asyncio.to_thread(self._all, user_id)
             prompt = _extraction_prompt(character, history, text, reply, known, now)
             answer = "".join([
@@ -336,7 +339,8 @@ class Memories:
         self, embedder: Embedder, user_id: str, memories: list[Memory], forget: bool = True
     ) -> dict[int, bytes]:
         """The vector of each memory, embedding those not yet stored and, if `memories` are
-        all the user's, forgetting those of memories that are gone."""
+        all the user's, forgetting those of memories that are gone. A memory deleted while
+        it was being embedded gets no vector."""
         model = embedder.model
         with self._lock:
             stored: dict[int, bytes] = dict(
@@ -355,8 +359,8 @@ class Memories:
             with self._lock, self._db:
                 self._db.executemany(
                     "INSERT OR REPLACE INTO memory_vectors (memory_id, user_id, model, embedding)"
-                    " VALUES (?, ?, ?, ?)",
-                    [(m.id, user_id, model, stored[m.id]) for m in missing],
+                    " SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM memories WHERE id = ?)",
+                    [(m.id, user_id, model, stored[m.id], m.id) for m in missing],
                 )
                 self._db.executemany(
                     "DELETE FROM memory_vectors WHERE memory_id = ? AND model = ?",
@@ -403,7 +407,6 @@ _INSTRUCTIONS = """\
 和已经记住的事有出入时（例如搬了家），把新的情况写成一条新记忆。
 
 只输出 JSON，格式为 {"memories": ["……"]}；没有值得记住的就输出 {"memories": []}。"""
-
 
 
 def _extraction_prompt(
