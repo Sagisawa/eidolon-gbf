@@ -4,16 +4,16 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 回归测试（卡牌、相册、活动各一个）：删掉缓存里的剧本后再同步，镜像被请求、剧本回到盘上
-- [ ] 相册列出而镜像上没有的剧本，相册没变时不再被请求
-- [ ] 新增 `eidolon/script_cache.py`：`ScriptCache`，interface 见下
-- [ ] `Mirror.download` 改为 `Mirror.script(script, etag)`，不再写盘
-- [ ] 剧情库新增 `is_translated(id)`，取代 `story_sync` 里的 `imported_from(x) == "csv"`
-- [ ] 三类进度记录（`cards.json` / `albums.json` / `events.json`）只表示「还需不需要再问镜像」；每次同步在本地核对所有已知剧本
-- [ ] `docs/deploy.md`：保留删缓存重下的说明，补上强制重试「镜像上没有」的剧本
-- [ ] 现有测试不改仍全部通过
+- [x] 回归测试（卡牌、相册、活动各一个）：删掉缓存里的剧本后再同步，镜像被请求、剧本回到盘上
+- [x] 相册列出而镜像上没有的剧本，相册没变时不再被请求
+- [x] 新增 `eidolon/script_cache.py`：`ScriptCache`，interface 见下
+- [x] `Mirror.download` 改为 `Mirror.script(script, etag)`，不再写盘
+- [x] 剧情库新增 `is_translated(id)`，取代 `story_sync` 里的 `imported_from(x) == "csv"`
+- [x] 三类进度记录（`cards.json` / `albums.json` / `events.json`）只表示「还需不需要再问镜像」；每次同步在本地核对所有已知剧本
+- [x] `docs/deploy.md`：保留删缓存重下的说明，补上强制重试「镜像上没有」的剧本
+- [x] 现有测试不改仍全部通过
 
 ## 背景（2026-09-26，架构体检候选 1）
 
@@ -45,3 +45,22 @@ PR #9（剧情同步）合入后的架构体检发现：
 - **文件**：新建 `backend/src/eidolon/script_cache.py`，只被 `story_sync` 使用。
 - **测试**：仍只经 `sync_stories` 测外部行为；现有测试不改，作为重构的安全网（按请求次序计数的测试若因顺序变化失败，再按行为重写）。新增：卡牌、相册、活动各一个「删缓存重下」，相册「镜像上没有」在相册没变时不再请求。
 - 不写 ADR（都容易撤回）。
+
+### 实现（2026-09-26）
+
+- `eidolon/script_cache.py`：`ScriptCache(directory, mirror, corpus)`，`fetch(script, *, recheck=False, retry_missing=True) -> Fetched`、`path(script)`、`kept(kind) -> {剧本: 路径}`。结果比 ticket 多一种、名字有调整：`translated / failure / kept / downloaded / unchanged / missing / known_missing`（「已有」叫 `kept`；`known_missing` 是记着「镜像上没有」、这次没再问；取代 `downloaded(前缀)` 的是 `kept(kind)`，免得和结果 `downloaded` 撞名）。
+- `Mirror.download(script, target, etag)` → `Mirror.script(script, etag) -> Script | "unchanged" | "missing"`，`Script(content, etag)`；帧数组检查留在 `Mirror`，`mirror.py` 不再 import `os`/`Path`。
+- `StoryCorpus.is_translated(id)`；`story_sync` 和 `story_import` 里的 `imported_from(x) == "csv"` 全部换掉。
+- `story_sync`：`_Cache` 只剩三类进度记录，`_CardState.complete` 删除（旧 `cards.json` 里的字段读时忽略）。没变的卡、回 304 的相册、走完的非最新活动都经 `fetch` 在本地核对；卡牌变了时 `recheck=True`，相册只在变了时 `retry_missing=True`。
+- 测试：新增卡牌、相册、活动各一个「删缓存重下」（请求、盘上、剧情库都断言）；「相册没变时不再问镜像上没有的剧本」由现有的 `test_an_unchanged_album_is_asked_for_conditionally_and_nothing_is_downloaded_again` 覆盖。现有测试一行没改。
+- `docs/deploy.md`：补上 `.missing` 标记与强制重试。
+- 验证：`pytest` 318 passed，`pyright` 0 errors；新增三个测试在改动前都失败（镜像一次也没被请求）。变异检查：卡牌变了时不 recheck、相册总是 retry_missing、把 `.etag` 当成「已缓存」、去掉失败结局规则，各自至少一个测试失败。兼容：用改动前的代码同步出一份缓存，再用新代码同步，0 下载。
+
+### 评审（2026-09-26，code-review）
+
+- 修复：`story_import` 里漏掉的一处 `imported_from == "csv"`；没变的相册里，管理员删掉 `.missing` 后镜像仍然没有的剧本，也记入 `album_missing` 并写日志（之前静默）；`kept(kind)` 直接给出路径，去掉回查和 `assert`；`fetch` 里 `.etag`/`.missing` 路径各算一次；相册和活动的回归测试补上「剧本回到盘上」。
+- 已知、接受的差异：
+  - 升级后的第一次同步：旧缓存没有 `.missing`，相册里镜像上没有的剧本会各被问一次（404），之后有了标记就不再问；这一次会记入 `album_missing` 并写日志。
+  - 没变但未完成的卡（旧代码的 `complete=False`）不再每次把已汉化的剧情计入 `translations_kept`：它这次没被问 API，符合该字段「asked about this sync」的定义。
+  - 活动试探留下的 `.missing`（最新活动的下一话、试探过的编号）不会清掉，数量有上限，无害。
+- 保留不改：按 `Fetched` 计数的几处分支（报告的形状归候选 3）；跳过规则在 `ScriptCache` 里（grill 的决定）；`Mirror.script(script, …)` 的参数名沿用全仓库的 `script: str`；`Fetched` 里调用方不区分的 `kept`/`unchanged`/`known_missing` 留着，让结果完整、可读。

@@ -468,6 +468,7 @@ async def test_an_event_script_deleted_from_the_cache_is_downloaded_again(
     await syncer.run()
 
     assert events.sent == [event(2, 1)]
+    assert (syncer.cache / f"scripts/{event(2, 1)}.json").exists()
     assert syncer.corpus.get(event(2, 1)) is not None
 
 
@@ -812,6 +813,8 @@ async def test_an_album_script_deleted_from_the_cache_is_downloaded_again(
 
     assert albums.sent == ["produce_events/100100102"]  # the album itself is unchanged
     assert (report.downloaded, report.album_missing) == (1, 0)
+    assert (syncer.cache / "scripts/produce_events/100100102.json").exists()
+    assert syncer.corpus.get("produce_events/100100102") is not None
     # The script the mirror did not have is still not asked for.
     assert not any("100100103" in str(r.url) for r in albums.requests)
 

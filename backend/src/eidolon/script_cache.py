@@ -50,11 +50,12 @@ class ScriptCache:
         if is_failure_ending(script):
             return "failure"
         path = self._path(script)
+        etag_path, missing_path = path.with_suffix(".etag"), path.with_suffix(".missing")
         if path.exists():
             if not recheck:
                 return "kept"
-            etag = _read(path.with_suffix(".etag"))
-        elif not retry_missing and path.with_suffix(".missing").exists():
+            etag = etag_path.read_text(encoding="utf-8") if etag_path.exists() else None
+        elif not retry_missing and missing_path.exists():
             return "known_missing"
         else:
             etag = None
@@ -63,16 +64,16 @@ class ScriptCache:
             return "unchanged"
         path.parent.mkdir(parents=True, exist_ok=True)
         if answer == "missing":
-            path.with_suffix(".missing").touch()
+            missing_path.touch()
             return "missing"
         partial = path.with_name(path.name + ".part")
         partial.write_bytes(answer.content)
         os.replace(partial, path)  # never a half-written script, even if interrupted
         if answer.etag:
-            path.with_suffix(".etag").write_text(answer.etag, encoding="utf-8")
+            etag_path.write_text(answer.etag, encoding="utf-8")
         else:
-            path.with_suffix(".etag").unlink(missing_ok=True)
-        path.with_suffix(".missing").unlink(missing_ok=True)
+            etag_path.unlink(missing_ok=True)
+        missing_path.unlink(missing_ok=True)
         return "downloaded"
 
     def path(self, script: str) -> Path | None:
@@ -80,13 +81,11 @@ class ScriptCache:
         path = self._path(script)
         return path if path.exists() else None
 
-    def kept(self, kind: str) -> list[str]:
-        """The scripts of that kind (`game_event_communications`) kept here, in order."""
-        return [f"{kind}/{path.stem}" for path in sorted((self._directory / kind).glob("*.json"))]
+    def kept(self, kind: str) -> dict[str, Path]:
+        """The scripts of that kind (`game_event_communications`) kept here, in order,
+        and where."""
+        return {f"{kind}/{path.stem}": path for path in sorted((self._directory / kind).glob("*.json"))}
 
     def _path(self, script: str) -> Path:
         return self._directory / f"{script}.json"
 
-
-def _read(path: Path) -> str | None:
-    return path.read_text(encoding="utf-8") if path.exists() else None

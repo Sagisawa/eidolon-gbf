@@ -355,20 +355,18 @@ async def _fetch_albums(
             if episode.script in seen:
                 continue
             seen.add(episode.script)
-            # An unchanged album was not asked about: only a script deleted from the cache is
-            # asked for, and only that is counted.
+            # Of an unchanged album, only a script deleted from the cache (or its mark that
+            # the mirror does not have it) is asked for.
             fetched = await scripts.fetch(episode.script, retry_missing=changed)
             if fetched == "downloaded":
                 report.downloaded += 1
-            elif not changed:
-                continue
-            elif fetched == "failure":
-                report.album_failures += 1  # never imported, so not downloaded
-            elif fetched == "translated":
-                report.translations_kept += 1
             elif fetched == "missing":
                 report.album_missing += 1
                 log.info("镜像上没有 %s", episode.script)
+            elif changed and fetched == "failure":
+                report.album_failures += 1  # never imported, so not downloaded
+            elif changed and fetched == "translated":
+                report.translations_kept += 1
         if changed:
             cache.albums[idol] = _AlbumState(etag, episodes)
             if episodes:
@@ -438,11 +436,9 @@ def _untranslated_event_scripts(
     event stays together in the catalog."""
     files = []
     unnamed: set[int] = set()
-    for script in scripts.kept(_EVENT_SCRIPTS):
+    for script, path in scripts.kept(_EVENT_SCRIPTS).items():
         if (found := _event_of(script)) is None or corpus.is_translated(script):
             continue
-        path = scripts.path(script)
-        assert path is not None  # just listed
         event, episode = found
         name = names.get(event) or _translated_event_name(corpus, event)
         if name is None:
