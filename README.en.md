@@ -40,6 +40,7 @@ It is built for the author and a small circle of friends, not as a public servic
 | 🎙️ **Real-time voice calls** | Full-duplex calls over WebRTC. Speak Chinese or Japanese; the character reads her Japanese reply in a Fish Audio voice while subtitles appear in sync |
 | 🇯🇵 **Japanese voice + Chinese subtitles** | Characters always answer in Japanese, keeping their sentence-final particles and verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)) |
 | 📖 **Story recall** | Once the story corpus is imported, a character recalls only the canon episodes **she appears in**, and can answer "what happened that time…?" |
+| 🔄 **Kept in step with the game** | One command syncs the fan translations and the Japanese originals on the mirror, so new cards and events can be recalled within a week; it runs weekly on the server ([ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)) |
 | 🧠 **Memory shared across characters** | Tell Mano something and Kogane will know too — but she'll bring it up as "Mano told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)) |
 | ⚡ **On-demand retrieval** | A lightweight model first decides whether a line needs any lookup, so small talk adds no latency |
 | 🔌 **Bring your own model** | Speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so any compatible third-party service works too |
@@ -127,7 +128,7 @@ Open <http://localhost:3000>, enter the access key on the settings page, and pic
 > |---|---|
 > | Text chat | `CHAT_LLM_*` |
 > | Voice calls | `SONIOX_API_KEY`, `FISH_AUDIO_API_KEY` |
-> | Story corpus import | `SILICONFLOW_API_KEY` |
+> | Story corpus (sync or import) | `SILICONFLOW_API_KEY` |
 > | Retrieval and memory | `SILICONFLOW_API_KEY`, `AI_GATEWAY_API_KEY`, `JEV_MODEL` |
 >
 > Every option is documented in [`.env.example`](.env.example) (comments in Chinese).
@@ -204,32 +205,66 @@ With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the **Voice call**
 
 ### Story corpus
 
-The episodes characters can recall come from the story CSVs of [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData), with gaps optionally filled from the game's raw script JSON. Story data is not committed (ADR-0003): clone it into `corpus/` at the repo root (git-ignored, mounted read-only at `/corpus` in the backend container), set `SILICONFLOW_API_KEY` in `.env`, then import:
+The episodes characters can recall come from two sources, kept up to date by one sync command:
+
+| | Translated episodes | Untranslated episodes |
+|---|---|---|
+| Source | Story CSVs from [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) | ShinyColorsDB's decoded mirror ([ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)) |
+| Content | Japanese original + fan Chinese translation | Japanese original only |
+| Freshness | Waits for fan translators: weeks to months | Within a week of a game update |
+
+They are two states of the same episode: once a translation arrives it replaces the untranslated episode by script ID, under the same card or event in the story catalog. Characters recall both the same way.
+
+Story data is not committed (ADR-0003): clone SCTranslationData into `corpus/` at the repo root (git-ignored, mounted read-only at `/corpus` in the backend container), set `SILICONFLOW_API_KEY` in `.env`, then sync:
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
-docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+docker compose exec backend eidolon story sync
 ```
 
+The first sync fills in everything missing from the mirror and takes an hour or two; you can interrupt it at any time and rerun it to pick up where it stopped. Later syncs take minutes. On a server, cron runs the sync weekly; see [`docs/deploy.md`](docs/deploy.md).
+
 <details>
-<summary><b>CSV import rules</b></summary>
+<summary><b>What the sync does</b></summary>
 
 <br>
 
-- Each CSV becomes one episode, keyed by the raw script referenced by the trailing `info` row; re-importing updates it in place. Unchanged episodes are not re-embedded, so you can re-import any time the source updates.
-- Failure endings (W.I.N.G. defeat, missed season goals, G.R.A.D. defeat, failed auditions, broken promises) are identified by script ID and excluded; the producer's choices are not recorded.
-- The cast is identified from each line's speaker: each character's `speakers` in `characters.toml` lists her name as it appears in scripts (e.g. `真乃`). Re-import after changing `speakers` or adding a character.
-- Embeddings default to SiliconFlow's `Qwen/Qwen3-Embedding-0.6B`, configurable via `EMBEDDING_MODEL`; re-import after switching. Only episodes with a non-empty cast are embedded.
-- The story catalog (character → card or event → episode) is generated straight from the corpus, so it always matches the latest import; the import ends by listing each character's catalog size.
+`eidolon story sync` imports SCTranslationData's translations, then imports the episodes the corpus still lacks from the mirror as untranslated episodes. Episodes that already have a translation are never downloaded or overwritten.
+
+- **P-card and S-card episodes**: the source is the card name (e.g. `【ほわっとスマイル】櫻木真乃`, matching SCTranslationData's directory names) and the title the in-game episode title.
+- **Produce and special episodes**: produce episodes (W.I.N.G., the fan appreciation festival, G.R.A.D., Landing Point, S.T.E.P., and the morning, cheer, audition and TV communications along the way) and special episodes such as birthdays and holidays come from each idol's in-game album (not updated since March 2024). They are filed under the directory name SCTranslationData uses for the same part of the album (e.g. `W.I.N.G.編`, `Morning`), or the album's own name for that part if none of it is translated, and titled as the album titles them. At the end the sync lists the produce episodes it imported whose title contains 「敗」 or 「失敗」 but which the failure-ending rules did not exclude, for you to check by hand.
+- **Event episodes**: there is no listing, so they are found by script number (`4001` + a three-digit event number + a two-digit episode): the sync fills in the events and episodes missing within the known range, then tries a few numbers after the latest event, so a sync with no new event costs only a few 404s. Event names come from `deploy/event-names.toml` (write it from [`deploy/event-names.example.toml`](deploy/event-names.example.toml), one line per new event, using the same name as the event's directory in SCTranslationData; it stays out of the repo); edits reach the catalog at the next sync. Events not in the table take the directory name of their episodes SCTranslationData has translated, or else show as 「活动剧情 NNN」 and 「第N話」; the sync lists those numbers at the end. `--events` points at another table.
+- **Cache**: downloaded scripts are cached in `EIDOLON_MIRROR_CACHE_PATH` (`/data/mirror` in the data volume in the container, `corpus/mirror` locally by default), outside the repo. Unchanged cards and albums are not requested again, only checked for on disk; changed ones use ETag conditional requests. Delete a script from the cache and the next sync downloads it again. A script the mirror lacks leaves a `.missing` mark: cards and events retry it every sync, albums only once the album changes; delete the mark to retry it right away.
+- **Politeness and failures**: requests go out one at a time, about a second apart. If the mirror is unreachable the translations are still imported and the command exits with code 2; rerunning after an interruption picks up where it stopped without downloading scripts again.
+- **Options**: `--idol 1` limits the sync to one idol's cards and album and skips events (the mirror API's idol ID, repeatable); the translations directory defaults to `EIDOLON_STORY_PATH`, or pass `--story`.
 
 </details>
 
 <details>
-<summary><b>Filling gaps with raw script JSON</b></summary>
+<summary><b>Import rules (shared by translated and untranslated episodes)</b></summary>
 
 <br>
 
-Episodes missing from SCTranslationData can be filled in from the game's raw script JSON (each file is one script's array of frames, with fields such as `speaker`, `text` and `select`):
+- Each episode is keyed by its raw script ID (for a CSV, the script its trailing `info` row references); re-importing updates it in place. Unchanged episodes are not re-embedded, so you can re-import or sync any time.
+- Only canon is kept: failure endings (W.I.N.G. defeat, missed season goals, G.R.A.D. defeat, failed auditions, broken promises) are identified by script ID and excluded; the producer's choices are not recorded, while the character's reaction to every choice is kept.
+- The cast is identified from each line's speaker: each character's `speakers` in `characters.toml` lists her name as it appears in scripts (e.g. `真乃`). Re-import after changing `speakers` or adding a character.
+- Embeddings default to SiliconFlow's `Qwen/Qwen3-Embedding-0.6B`, configurable via `EMBEDDING_MODEL`; re-import after switching. Only episodes with a non-empty cast are embedded.
+- The story catalog (character → card or event → episode) is generated straight from the corpus, so it always matches the latest import; an import ends by listing each character's catalog size.
+
+</details>
+
+<details>
+<summary><b>Importing CSVs or raw script JSON by hand</b></summary>
+
+<br>
+
+To skip the mirror, import SCTranslationData's translations alone:
+
+```sh
+docker compose exec backend eidolon story import-csv /corpus/SCTranslationData/data/story
+```
+
+If you have the game's raw script JSON (each file is one script's array of frames, with fields such as `speaker`, `text` and `select`), you can fill gaps with it too:
 
 ```sh
 docker compose exec backend eidolon story import-json /corpus/scripts
@@ -237,32 +272,11 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 - The script ID is taken from the file path: either the in-game path (`produce_events/100100101.json`) or the translation plugin's naming (`produce_events_100100101.json`). Files whose path has no script ID are skipped with a warning (they couldn't be de-duplicated against the CSV of the same script).
 - When files sit under a `source/` directory the way SCTranslationData lays them out, the source is the directory name and the title the file name; with in-game paths, the source is the script ID minus its last two (episode) digits (e.g. `produce_events/2011005`) and the title looks like `produce_events_201100501`.
-- The rules match the CSV importer: failure endings excluded, producer choices not recorded, the character's reaction to every choice kept.
-- If the same script was already imported from CSV, the CSV version with its Chinese translation wins and JSON won't overwrite it; conversely, a later CSV import replaces the JSON version. JSON-only episodes have no Chinese translation, but retrieval and the story catalog work as usual.
+- If the same script was already imported from CSV, the CSV version with its Chinese translation wins and JSON won't overwrite it; conversely, a later CSV import replaces the JSON version.
 
 </details>
 
-<details>
-<summary><b>One-command sync: translations plus untranslated episodes from the mirror</b></summary>
-
-<br>
-
-`eidolon story sync` imports SCTranslationData's translations, then imports the P-card, S-card, produce and event episodes the corpus still lacks from ShinyColorsDB's decoded mirror (ADR-0004) as untranslated episodes:
-
-```sh
-docker compose exec backend eidolon story sync
-```
-
-- An untranslated episode's source is the card name (e.g. `【ほわっとスマイル】櫻木真乃`, matching SCTranslationData's directory names) and its title the in-game episode title; once a translation arrives it replaces the episode by script ID, under the same card. Episodes that already have a translation are never downloaded or overwritten.
-- Produce episodes (W.I.N.G., the fan appreciation festival, G.R.A.D., Landing Point, S.T.E.P., and the morning, cheer, audition and TV communications along the way) and special episodes such as birthdays and holidays come from each idol's in-game album (not updated since March 2024). They are filed under the directory name SCTranslationData uses for the same part of the album (e.g. `W.I.N.G.編`, `Morning`), or the album's own name for that part if none of it is translated, and titled as the album titles them. Failure endings are neither downloaded nor imported; at the end the sync lists the produce episodes it imported whose title contains 「敗」 or 「失敗」 but which the failure-ending rules did not exclude, for you to check by hand. An unchanged album costs one conditional request; scripts an album lists that the mirror lacks are retried only once the album changes.
-- Event episodes have no listing, so they are found by script number (`4001` + a three-digit event number + a two-digit episode): the sync fills in the events and episodes missing within the known range, then tries a few numbers after the latest event, so a sync with no new event costs only a few 404s. Event names come from `deploy/event-names.toml` (write it from `deploy/event-names.example.toml`, one line per new event, using the same name as the event's directory in SCTranslationData; it stays out of the repo); edits reach the catalog at the next sync. Events not in the table take the directory name of their episodes SCTranslationData has translated, or else show as 「活动剧情 NNN」 and 「第N話」; the sync lists those numbers at the end. `--events` points at another table.
-- Downloaded scripts are cached in `EIDOLON_MIRROR_CACHE_PATH` (`/data/mirror` in the data volume in the container, `corpus/mirror` locally by default), outside the repo. Unchanged cards are not requested again; changed cards and albums use ETag conditional requests. Requests go out one at a time, about a second apart, so the first full sync takes an hour or two; later ones take minutes.
-- If the mirror is unreachable the translations are still imported and the command exits with code 2; rerunning after an interruption picks up where it stopped without downloading scripts again.
-- `--idol 1` limits the sync to one idol's cards and album and skips events (the mirror API's idol ID, repeatable); the translations directory defaults to `EIDOLON_STORY_PATH`, or pass `--story`.
-
-</details>
-
-For local development, use `uv run eidolon --db data/eidolon.db story import-csv <dir>` (likewise `import-json`).
+For local development, run `uv run eidolon --db data/eidolon.db story sync` in `backend/` (likewise `import-csv` and `import-json`).
 
 ### Retrieval during conversation
 
@@ -368,13 +382,18 @@ eidolon-sc/
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
 │   │   ├── retrieval.py      #   retrieval routing, episode/fact search and reranking
 │   │   ├── memory.py         #   memories shared across conversations and characters
-│   │   ├── story_import.py   #   story corpus import (CSV / JSON)
+│   │   ├── corpus.py         #   story corpus: storage, vector search and the story catalog
+│   │   ├── story_import.py   #   story corpus import (CSV / JSON) and the canon rules
+│   │   ├── story_sync.py     #   keeping the corpus in step with the game (eidolon story sync)
+│   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
+│   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols
 │   └── tests/
 ├── frontend/                 # Next.js frontend
 ├── characters/               # character config, sheets, facts, avatars (last three not committed)
-├── deploy/                   # Caddyfile
+├── corpus/                   # story data and the mirror cache (not committed)
+├── deploy/                   # Caddyfile, weekly sync script, sample event-name table
 ├── docs/
 │   ├── adr/                  # architecture decision records
 │   └── deploy.md             # VPS deployment guide
