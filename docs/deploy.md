@@ -13,6 +13,7 @@
 - 一台 Linux VPS，有公网 IPv4 地址。
 - 装好 Docker 和 Docker Compose 插件（`docker compose version` 能运行）。
 - 一个域名，添加一条 A 记录指向这台 VPS。国内的服务器需要域名已备案，否则 80、443 端口会被拦截。
+- 打算用 Gemini 做向量化时（见下文「选择向量化服务」），VPS 不能在中国大陆、香港、澳门：Gemini API 不对这些地区开放。用硅基流动没有这个限制。
 - 防火墙（包括云厂商控制台里的安全组）放行：
 
   | 端口 | 协议 | 用途 |
@@ -33,13 +34,22 @@ cp .env.example .env
 
 在 `.env` 里填写：
 
-- 模型和各项服务的密钥，和本地开发时一样（见 `.env.example` 里的说明）。至少要有对话模型；语音通话需要 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY`。
+- 模型和各项服务的密钥，和本地开发时一样（见 `.env.example` 里的说明）。至少要有对话模型；语音通话需要 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY`；剧情库、检索和记忆需要向量化服务（见下一节）。
 - `EIDOLON_DOMAIN`：网站的域名，例如 `eidolon.example.com`。
 - `EIDOLON_PUBLIC_IP`：这台服务器的公网 IPv4 地址。coturn 只允许把语音中继到这台服务器（也就是后端），别人拿不到它当开放的中继用。
 - `EIDOLON_PRIVATE_IP`：只有公网地址不在网卡上时才填，填网卡上的内网地址。在服务器上执行 `ip -4 addr`：能看到公网地址就不用填（Vultr、DigitalOcean、搬瓦工等大多如此）；只能看到 `10.`、`172.`、`192.168.` 开头的内网地址时（AWS、阿里云、腾讯云等 1:1 NAT 的云主机），填这个内网地址。这种环境还没有实际验证过，语音连不上时请看「排障」。
 - `EIDOLON_TURN_SECRET`：coturn 和后端共用的密钥，用 `openssl rand -hex 32` 生成。后端给每位用户签发 24 小时后过期的 TURN 凭据，这个密钥本身不会发给浏览器。
 
 `EIDOLON_ICE_SERVERS`、`EIDOLON_TURN_URLS` 不用填：生产配置会自动用本机的 coturn。
+
+### 选择向量化服务
+
+剧情库、角色资料和记忆用同一个向量化服务，在 `.env` 里用 `EMBEDDING_PROVIDER` 二选一（ADR-0005）：
+
+- `siliconflow`（默认）：硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，只需要 `SILICONFLOW_API_KEY`。
+- `gemini`：Google 的 `gemini-embedding-2`，填 `GEMINI_API_KEY`（在 [Google AI Studio](https://aistudio.google.com/apikey) 申请），向量维度用 `EMBEDDING_DIMENSIONS` 指定（默认 1536）。重排仍然在硅基流动，`SILICONFLOW_API_KEY` 照样要填。
+  - 服务器必须在 Gemini API 开放的地区（不含中国大陆、香港、澳门），否则向量化会报错并提示地区不支持。
+  - 可以用免费层，但**免费层的内容会被 Google 用于改进产品**，送去向量化的包括剧情库（没有许可证的剧情文本，ADR-0003）和用户的记忆。介意的话在 AI Studio 开通计费，付费层的内容不用于训练（文本约 $0.20 / 百万 token，全量剧情库重新向量化一次只要几美元）。
 
 然后准备人设文件（见 README 的「角色」：`characters/sheets/` 下每位角色一份，角色资料和头像可选），启动：
 
@@ -53,7 +63,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## 同步剧情库
 
-剧情库用一条命令同步：先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐还缺的卡牌剧情、培育剧情和活动剧情（原文剧情，规则见 README 的「剧情库」）。需要 `.env` 里填好 `SILICONFLOW_API_KEY`（向量化用）。
+剧情库用一条命令同步：先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐还缺的卡牌剧情、培育剧情和活动剧情（原文剧情，规则见 README 的「剧情库」）。需要 `.env` 里填好向量化服务的 key（默认 `SILICONFLOW_API_KEY`，选 Gemini 时是 `GEMINI_API_KEY`）。
 
 `deploy/story-sync.sh` 把这件事做完整：更新（第一次是克隆）仓库根目录下的 `corpus/SCTranslationData`，再在后端容器里运行 `eidolon story sync`，把输出追加到 `logs/story-sync.log`。先手动运行一次首次全量补齐：
 
@@ -85,7 +95,7 @@ grep '结束：' logs/story-sync.log | tail
 | 退出码 | 含义 | 要做什么 |
 |---|---|---|
 | 0 | 完全成功 | 不用管 |
-| 1 | 同步命令出错：配置错误（对照表格式不对、缺少 `SILICONFLOW_API_KEY` 等），或向量化中断 | 看日志里的错误；向量化中断时重新运行即可继续 |
+| 1 | 同步命令出错：配置错误（对照表格式不对、缺少向量化服务的 key 等），或向量化中断 | 看日志里的错误；向量化中断时重新运行即可继续 |
 | 2 | 镜像或 API 出错，这次没拉到（全部）原文剧情；汉化版已照常导入 | 通常不用管，下次同步会接着拉取；连续几周都是 2 时看日志里的错误 |
 | 3 | git 没能更新 SCTranslationData（网络问题、本地改动导致不能快进、`corpus/SCTranslationData` 不是 git 仓库）；有已下载的数据时照常用它同步 | 看日志里 git 的输出，必要时删掉 `corpus/SCTranslationData` 让脚本重新克隆。用 root 的 cron 运行、仓库却属于别的用户时，git 会报 `dubious ownership`，按提示执行 `git config --global --add safe.directory …`，或者改用仓库所属用户的 crontab |
 | 4 | 后端容器没有运行，或无法运行同步命令（没有 docker 的权限、找不到 flock 等，原因在日志里） | 容器没有运行时 `docker compose -f docker-compose.prod.yml up -d` |
@@ -116,6 +126,35 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
 
 导入的结果存在数据库里。只手动导入时，之后可以删掉 `corpus/` 节省空间；用每周同步时要保留 `corpus/SCTranslationData`，脚本每次只 `git pull` 增量更新。
 
+## 更换向量化服务、模型或维度
+
+库里只保留当前模型的向量，换了之后要用库里的原文重新向量化一遍（不需要重新下载或导入剧情）：
+
+1. 改 `.env` 里的 `EMBEDDING_PROVIDER`、`EMBEDDING_MODEL` 或 `EMBEDDING_DIMENSIONS`（换到 Gemini 时别忘了 `GEMINI_API_KEY`）。
+2. 重启后端：`docker compose -f docker-compose.prod.yml up -d`。启动日志里会提示剧情库有多少段缺当前模型的向量。
+3. 重新向量化：
+
+   ```sh
+   docker compose -f docker-compose.prod.yml exec backend eidolon reembed
+   ```
+
+   依次处理剧情库、角色资料和全部用户的记忆，打印进度和各处新向量化的条数；全部成功后删除旧模型的向量。整个剧情库要花一段时间（和首次同步的向量化差不多），期间服务照常可用，只是检索暂时只查得到已完成的部分，还没处理的记忆也暂时想不起来。中途中断或向量化出错时，已完成的部分会保留、旧向量不会删除，重新运行即可接着做。
+
+模型的存储标识带上了维度（如 `gemini-embedding-2@1536`），所以只改维度也要走一遍这个流程。换回原来的模型同样要再跑一次。
+
+## 校准重排阈值
+
+重排默认用硅基流动的 `Qwen/Qwen3-Reranker-4B`（国内站 `api.siliconflow.cn` 提供；国际站已标为 Deprecated）。重排分数低于阈值的剧情、角色资料或记忆不会放进提示词，阈值按模型分组：已校准的模型用各自的值，其他模型用 4B 的值并在启动日志里提示。也可以在 `.env` 里用 `RERANK_MIN_RELEVANCE`（剧情与角色资料）和 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）手动指定。
+
+`eidolon eval rerank` 用仓库里的校准数据集（`backend/eval/rerank-calibration.toml`：一些有代表性的问题，以及哪些剧情、资料、记忆和它们相关；只有编号和标题，不含剧情原文）对着本地的剧情库跑一遍检索和重排，打印「相关」与「不相关」候选的分数分布、当前阈值下的命中与误放数量，以及没进入向量检索结果的相关候选（那是召回问题，调阈值解决不了）：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank
+docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --model Qwen/Qwen3-Reranker-0.6B
+```
+
+换重排模型前用它比较两个模型的分数分布，再决定阈值。需要剧情库已经同步好，并且有当前向量化模型的向量；数据集里的记忆是虚构的示例，运行时临时向量化，不会写进数据库。
+
 ## 签发访问密钥
 
 ```sh
@@ -131,6 +170,8 @@ docker compose -f docker-compose.prod.yml exec backend eidolon key issue alice  
 git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+升级到默认重排模型为 `Qwen/Qwen3-Reranker-4B` 的版本后，重排自动换成 4B，不需要重新向量化；想继续用 0.6B，在 `.env` 里设 `RERANK_MODEL=Qwen/Qwen3-Reranker-0.6B`。
 
 数据都在持久化的位置，升级不会丢失：
 

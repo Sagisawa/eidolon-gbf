@@ -44,6 +44,7 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 | 🧠 **キャラクター間で共有されるメモリー** | 真乃に話したことは恋鐘も知っている——ただし「真乃から聞いたんやけど……」という口ぶりで（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)） |
 | ⚡ **必要なときだけ検索** | 軽量モデルがまず検索の要否を判断するので、雑談では余計な遅延ゼロ |
 | 🔌 **モデルは自由に差し替え可能** | OpenAI Chat Completions・OpenAI Responses・Anthropic Messages の 3 方式に対応し、互換のサードパーティサービスも利用可能 |
+| 🧩 **ベクトル化サービスは 2 択** | デプロイ時に SiliconFlow の Qwen3-Embedding と Google の Gemini Embedding 2 から選択。切り替えたあとはコマンド 1 つで、データベース内の原文から再ベクトル化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **キャラクターシートの下書き生成** | バックグラウンドモデルがアイドルのコミュをすべて読み、キャラクターシートの下書きを作成。あとは人の手で校正 |
 | 👥 **マルチユーザーと利用上限** | CLI でアクセスキーを発行。ユーザーごとの利用上限と完全に分離されたメモリーで、友人との共有も安心 |
 | 🚀 **ワンコマンドでデプロイ** | Caddy（HTTPS 自動化）と coturn（TURN 中継）入りの本番構成を同梱 |
@@ -57,6 +58,7 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
   - [キャラクター](#キャラクター)
   - [音声通話](#音声通話)
   - [シナリオライブラリ](#シナリオライブラリ)
+  - [ベクトル化サービス](#ベクトル化サービス)
   - [会話中の検索](#会話中の検索)
   - [メモリー](#メモリー)
   - [ユーザーとアクセスキー](#ユーザーとアクセスキー)
@@ -94,7 +96,8 @@ flowchart LR
     Memory --> DB
     Engine <--> ChatLLM["会話モデル"]
     Retrieval <--> Jev["Jev · 検索判断"]
-    Retrieval <--> SF["SiliconFlow<br/>Embedding · Reranker"]
+    Retrieval <--> Emb["ベクトル化<br/>Qwen3-Embedding または Gemini"]
+    Retrieval <--> SF["SiliconFlow<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["バックグラウンドモデル"]
 ```
 
@@ -128,8 +131,8 @@ docker compose exec backend eidolon key issue alice   # キーは一度だけ表
 > |---|---|
 > | テキストチャット | `CHAT_LLM_*` |
 > | 音声通話 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
-> | シナリオ（同期または取り込み） | `SILICONFLOW_API_KEY` |
-> | 検索とメモリー | `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
+> | シナリオ（同期または取り込み） | ベクトル化サービスのキー：`SILICONFLOW_API_KEY`（デフォルト）、または `EMBEDDING_PROVIDER=gemini` と `GEMINI_API_KEY` |
+> | 検索とメモリー | ベクトル化サービスのキー、`SILICONFLOW_API_KEY`（並べ替え用）、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
 >
 > 全設定項目の説明は [`.env.example`](.env.example) にあります（コメントは中国語）。
 
@@ -215,7 +218,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 どちらも同じコミュの 2 つの状態です。翻訳版が揃うと同じスクリプト番号で原文コミュを置き換え、コミュ目録では同じカードやイベントの下に残ります。アイドルが思い出すときに両者の区別はありません。
 
-シナリオデータはリポジトリに含めません（ADR-0003）。SCTranslationData をリポジトリ直下の `corpus/` に clone し（git 管理外で、docker compose がバックエンドコンテナの `/corpus` に読み取り専用でマウント）、`.env` に `SILICONFLOW_API_KEY` を設定してから同期します：
+シナリオデータはリポジトリに含めません（ADR-0003）。SCTranslationData をリポジトリ直下の `corpus/` に clone し（git 管理外で、docker compose がバックエンドコンテナの `/corpus` に読み取り専用でマウント）、`.env` にベクトル化サービスのキー（デフォルトは `SILICONFLOW_API_KEY`。[ベクトル化サービス](#ベクトル化サービス)参照）を設定してから同期します：
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
@@ -248,7 +251,7 @@ docker compose exec backend eidolon story sync
 - 各コミュは元スクリプトの番号を主キーとします（CSV ではファイル末尾の `info` 行が指すスクリプト）。再取り込みすると上書き更新され、内容が変わっていないコミュは再ベクトル化されないので、いつでも取り込み直しや同期ができます。
 - 正規ルートのみを収録します：失敗エンド（W.I.N.G. 敗退、シーズン目標未達成、G.R.A.D. 敗退、オーディション落選、約束を守れなかった場合）はスクリプト番号で識別して除外し、プロデューサーの選択肢は記録せず、各選択肢に対するアイドルの反応はすべて残します。
 - 登場キャラクターはセリフの話者で識別します。`characters.toml` の各キャラクターの `speakers` に、スクリプト上での名前（例：`真乃`）を列挙します。`speakers` の変更やキャラクター追加のあとは再取り込みが必要です。
-- ベクトル化のデフォルトは SiliconFlow の `Qwen/Qwen3-Embedding-0.6B` で、`EMBEDDING_MODEL` で変更できます。モデルを変えたら再取り込みしてください。登場キャラクターが空でないコミュだけがベクトル化されます。
+- ベクトル化にはデプロイ時に選んだサービスを使います（[ベクトル化サービス](#ベクトル化サービス)参照）。サービスやモデルを変えたら `eidolon reembed` を実行してください。再取り込みは不要です。登場キャラクターが空でないコミュだけがベクトル化されます。
 - コミュ目録は「キャラクター → カードまたはイベント → 話」の階層で、シナリオライブラリから直接生成されるため、常に最新の取り込み結果と一致します。取り込みの最後に各キャラクターの目録規模が表示されます。
 
 </details>
@@ -278,9 +281,31 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 ローカル開発では `backend/` で `uv run eidolon --db data/eidolon.db story sync` を使います（`import-csv`・`import-json` も同様）。
 
+### ベクトル化サービス
+
+シナリオライブラリ・キャラクター資料・メモリーは同じベクトル化サービスを使い、デプロイ時に `EMBEDDING_PROVIDER` でどちらかを選びます（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)）。並べ替え（Reranker）は切り替わらず、常に SiliconFlow を使います。
+
+| `EMBEDDING_PROVIDER` | サービス | 必要なキー | デフォルトモデル |
+|---|---|---|---|
+| `siliconflow`（デフォルト） | SiliconFlow | `SILICONFLOW_API_KEY` | `Qwen/Qwen3-Embedding-0.6B` |
+| `gemini` | Google Gemini API | `GEMINI_API_KEY`（並べ替えには引き続き `SILICONFLOW_API_KEY` が必要） | `gemini-embedding-2`。次元数は `EMBEDDING_DIMENSIONS` で指定（デフォルト 1536、128〜3072） |
+
+> [!WARNING]
+> Gemini を選ぶ場合：Gemini API は**中国本土・香港・マカオでは利用できない**ため、サーバーはそれ以外の地域に置く必要があります。また、**無料枠で送った内容は Google のサービス改善に利用されます**。ベクトル化に送られる内容にはシナリオライブラリとユーザーのメモリーが含まれるので、気になる場合は課金を有効にしてください（有料枠の内容は学習に使われません）。
+
+- データベースには現在のモデルのベクトルだけを保持します。サービス・モデル（`EMBEDDING_MODEL`）・次元数を変えたら、バックエンドを再起動してから一度だけ実行します：
+
+  ```sh
+  docker compose exec backend eidolon reembed
+  ```
+
+  データベースにある原文から、シナリオライブラリ・キャラクター資料・全ユーザーのメモリーを再ベクトル化します。コミュの再ダウンロードや再取り込みは不要で、すべて完了すると古いモデルのベクトルを削除します。実行中もサービスは通常どおり使えますが、検索できるのは処理済みの部分だけです。いつ中断しても再実行すれば続きから再開し、エラーが起きた場合は古いベクトルは削除されません。
+- バックエンドの起動時に、現在のモデルのベクトルが欠けている段落がシナリオライブラリにあれば、`eidolon reembed` を実行するようログで知らせます。
+- モデルの保存上の識別子には次元数が付く（例：`gemini-embedding-2@1536`）ため、次元数の変更はモデルの変更と同じ扱いになります。SiliconFlow をそのまま使い続ける既存のデプロイでは、何もする必要はありません。
+
 ### 会話中の検索
 
-`.env` に `SILICONFLOW_API_KEY`・`AI_GATEWAY_API_KEY`・`JEV_MODEL` を設定すると、アイドルは会話中にコミュを思い出したり、キャラクター資料を参照したりできます。どれか 1 つでも欠けていれば、キャラクターシートだけで返事をします。
+`.env` にベクトル化サービスのキー・`SILICONFLOW_API_KEY`（並べ替え用）・`AI_GATEWAY_API_KEY`・`JEV_MODEL` を設定すると、アイドルは会話中にコミュを思い出したり、キャラクター資料を参照したりできます。どれか 1 つでも欠けていれば、キャラクターシートだけで返事をします。
 
 ```mermaid
 flowchart LR
@@ -292,13 +317,13 @@ flowchart LR
 ```
 
 - ひとことごとに、まず Jev（Vercel AI Gateway 経由）が何が必要かを判断します。雑談なら検索せず、遅延も増えません。資料が必要なら下記の検索を行います。「あのときって……」のように過去の出来事を尋ねられた場合は、その発言でそのまま「コミュを振り返る」を実行して結果をプロンプトに入れ、会話モデルがツールを呼ぶ 1 往復を省きます。Jev がエラーの場合は通常どおり検索します。
-- 検索時は、現在のアイドルが登場するコミュと彼女のキャラクター資料を同時に検索し、SiliconFlow の Qwen3-Reranker（`RERANK_MODEL` で変更可）で並べ替え、関連度が十分高いものを最大 5 件プロンプトに入れます（話題と無関係なら 1 件も入れません）。検索や並べ替えでエラーが起きた場合、そのターンは検索結果なしで通常どおり返事をします。
+- 検索時は、現在のアイドルが登場するコミュと彼女のキャラクター資料を同時に検索し、SiliconFlow の Qwen3-Reranker（デフォルトは `Qwen/Qwen3-Reranker-4B`、`RERANK_MODEL` で変更可）で並べ替え、関連度が十分高いものを最大 5 件プロンプトに入れます（話題と無関係なら 1 件も入れません）。「十分高い」のしきい値は並べ替えモデルごとに調整済みの値を使い、`RERANK_MIN_RELEVANCE`・`RERANK_MEMORY_MIN_RELEVANCE` で手動設定もできます。`eidolon eval rerank` はリポジトリ内の調整用データセットでスコア分布を表示し、しきい値決めを助けます（[`docs/deploy.md`](docs/deploy.md) 参照）。検索や並べ替えでエラーが起きた場合、そのターンは検索結果なしで通常どおり返事をします。
 - 会話モデルは「コミュを振り返る」ツール（`recall_story`）も呼べます。プロデューサーに過去の出来事を聞かれると、アイドルは要約した一文で自分が登場したコミュを検索し、最も関連する最大 2 コミュの本文（コミュ目録上のカード／イベントと、同じ場所にあるほかのコミュ付き）を受け取って答えます。ツール呼び出しはひとことにつき最大 1 往復で、Jev がすでに「振り返り」と判断したターンではツールを提供しません。
 - キャラクター資料は `characters.toml` の `facts` が指す Markdown ファイルで、見出しごとに 1 項目です。あるアイドルを初めて検索したときにベクトル化され、以降は変更のあった項目だけが再ベクトル化されます。編集後はバックエンドを再起動するだけで反映されます。
 
 ### メモリー
 
-アイドルはユーザーが自分について話したことを覚えていて、同じユーザーのすべてのアイドルがそのメモリーを共有します。真乃に話したことは恋鐘も知っていますが、「真乃から聞いたんやけど……」という口ぶりで持ち出します（ADR-0002）。ユーザー同士のメモリーは完全に分離されています。メモリーは検索と同時に有効になります（`SILICONFLOW_API_KEY`・`AI_GATEWAY_API_KEY`・`JEV_MODEL` が必要）。
+アイドルはユーザーが自分について話したことを覚えていて、同じユーザーのすべてのアイドルがそのメモリーを共有します。真乃に話したことは恋鐘も知っていますが、「真乃から聞いたんやけど……」という口ぶりで持ち出します（ADR-0002）。ユーザー同士のメモリーは完全に分離されています。メモリーは検索と同時に有効になります（ベクトル化サービスのキー・`SILICONFLOW_API_KEY`・`AI_GATEWAY_API_KEY`・`JEV_MODEL` が必要）。
 
 - **書き込み**：各ターンの終了後、バックグラウンドモデルがそのやり取りを読み、ユーザーが明かした長く覚えておく価値のあることを中国語のメモリーとして書き留めます（例：「プロデューサーは小白という名前の猫を飼っている」）。所属ユーザーと話した相手のアイドルも記録し、「来週の土曜日」のような相対的な日時はユーザーのタイムゾーンで日付に換算します。すでに覚えていることは重複して記録しません。この処理はバックグラウンドで行われ返事を遅らせませんが、ユーザーの次の発言はその完了を待ちます（最大 5 秒）。
 - **思い出す**：以降の会話で、Jev がユーザー自身の話（近況、予定、家族やペットなど）だと判断した場合はメモリーだけを検索し、コミュやキャラクター資料を検索するときもメモリーを一緒に検索します。話題に関連するメモリーを最大 3 件プロンプトに入れ、それぞれに話した相手のアイドルと日付を添えます。
@@ -383,12 +408,16 @@ eidolon-sc/
 │   │   ├── retrieval.py      #   検索判断、コミュ／資料の検索と並べ替え
 │   │   ├── memory.py         #   会話・キャラクターをまたいで共有されるメモリー
 │   │   ├── corpus.py         #   シナリオライブラリ：保存、ベクトル検索、コミュ目録
+│   │   ├── embedding.py      #   ベクトル化：SiliconFlow Qwen3-Embedding または Gemini
+│   │   ├── reembed.py        #   ベクトル化モデル変更後の再ベクトル化（eidolon reembed）
+│   │   ├── rerank_eval.py    #   並べ替えしきい値の調整（eidolon eval rerank）
 │   │   ├── story_import.py   #   シナリオの取り込み（CSV / JSON）と正規ルートのルール
 │   │   ├── story_sync.py     #   原作との同期（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB のミラーと API のクライアント
 │   │   ├── script_cache.py   #   同期でダウンロードした生スクリプトのキャッシュ
 │   │   ├── sheet_draft.py    #   キャラクターシートの下書き生成
 │   │   └── llm/              #   3 種類のモデル方式のアダプター
+│   ├── eval/                 #   並べ替えの調整用データセット（質問とラベルのみ、シナリオ本文は含まない）
 │   └── tests/
 ├── frontend/                 # Next.js フロントエンド
 ├── characters/               # キャラクター設定・シート・資料・アイコン
@@ -417,6 +446,7 @@ eidolon-sc/
 - [Soniox](https://soniox.com/) —— 音声認識
 - [Fish Audio](https://fish.audio/) —— 音声合成
 - [SiliconFlow](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
+- [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（選択式のベクトル化サービス）
 - [Vercel AI Gateway](https://vercel.com/ai-gateway) —— 検索判断モデルの呼び出し
 
 <div align="center">
