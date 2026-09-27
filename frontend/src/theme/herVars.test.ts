@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { imageColorScale } from "@/lib/imageColor";
 
-import { herVars, ld } from "./herVars";
+import { herVars, ld, listRow } from "./herVars";
 
 const OFFICIAL = ["#ffbad6", "#f84cad", "#144384", "#ffe012", "#92cfbb"];
 
@@ -56,5 +56,20 @@ describe("herVars", () => {
 
   it("印象色格式不对时报错", () => {
     expect(() => herVars("pink")).toThrow();
+  });
+});
+
+describe("listRow", () => {
+  it.each(OFFICIAL)("%s：行上只带她头像描边的颜色", (color) => {
+    expect(listRow(color, false)).toEqual({ "--her-mark": ld(imageColorScale(color).mark) });
+  });
+
+  it.each(OFFICIAL)("%s：选中行铺她的纸色，次要字换成纸色上校验过的颜色", (color) => {
+    const s = imageColorScale(color);
+    expect(listRow(color, true)).toEqual({
+      "--her-mark": ld(s.mark),
+      background: ld(s.paper),
+      "--color-text-secondary": ld(s.paperMuted),
+    });
   });
 });

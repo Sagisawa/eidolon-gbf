@@ -6,12 +6,24 @@ export type Character = {
   name: string;
   intro: string;
   avatar_url: string | null;
+  /** Her image colour, `#rrggbb`; the interface only uses what `herVars()` derives from it. */
+  color: string;
+  background_url: string | null;
 };
 
 export type Conversation = {
   id: string;
   character_id: string;
   created_at: string;
+};
+
+/** A character's newest conversation with the user and its last message (null while it has
+ * none), for the conversation list. */
+export type LatestConversation = {
+  character_id: string;
+  conversation_id: string;
+  created_at: string;
+  last_message: Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> | null;
 };
 
 export type Segment = { ja: string; zh: string };
@@ -287,6 +299,12 @@ export async function listCharacters(): Promise<Character[]> {
 
 export async function listConversations(characterId: string): Promise<Conversation[]> {
   return json(await api(`/api/conversations?character_id=${encodeURIComponent(characterId)}`));
+}
+
+/** Each character's newest conversation with the user, with its last message; characters
+ * the user has never talked to are left out. */
+export async function listLatestConversations(): Promise<LatestConversation[]> {
+  return json(await api("/api/conversations/latest"));
 }
 
 export async function createConversation(characterId: string): Promise<Conversation> {

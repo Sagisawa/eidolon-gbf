@@ -260,6 +260,28 @@ def create_app(backend: Backend) -> FastAPI:
     def list_conversations(character_id: str, user_id: UserId) -> list[dict]:
         return [asdict(c) for c in store.list_conversations(user_id, character_id)]
 
+    @app.get("/api/conversations/latest")
+    def latest_conversations(user_id: UserId) -> list[dict]:
+        """For the conversation list: each character's newest conversation with the user and
+        its last message (null while it has none), in one request."""
+        return [
+            {
+                "character_id": c.character_id,
+                "conversation_id": c.id,
+                "created_at": c.created_at,
+                "last_message": None
+                if last is None
+                else {
+                    "role": last.role,
+                    "text": last.text,
+                    "ja": last.ja,
+                    "zh": last.zh,
+                    "created_at": last.created_at,
+                },
+            }
+            for c, last in store.latest_conversations(user_id)
+        ]
+
     @app.get("/api/conversations/{conversation_id}/messages")
     def list_messages(conversation_id: str, user_id: UserId) -> list[dict]:
         conversation = conversation_or_404(conversation_id, user_id)

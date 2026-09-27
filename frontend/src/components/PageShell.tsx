@@ -36,7 +36,7 @@ export function PageShell({ header, start, footer, contentWidth, padding, isScro
         padding={padding}
         header={header === undefined ? undefined : <LayoutHeader hasDivider>{header}</LayoutHeader>}
         start={start}
-        content={<LayoutContent role="main" isScrollable={isScrollable}>{children}</LayoutContent>}
+        content={<LayoutContent role="main" padding={padding} isScrollable={isScrollable}>{children}</LayoutContent>}
         footer={footer === undefined ? undefined : <LayoutFooter hasDivider>{footer}</LayoutFooter>}
       />
     </VStack>

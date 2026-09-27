@@ -1,7 +1,7 @@
 // The conversation open on the conversation page: its log, the text turn under way and
 // the call, kept outside React so the page only renders a snapshot and passes on clicks.
 
-import type { CallEvent, Message, TurnEvent } from "@/lib/api";
+import { ApiError, type CallEvent, type Message, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
 import {
@@ -119,11 +119,16 @@ export class LiveConversation {
       for await (const event of this.ports.sendTurn(this.conversationId, text)) {
         this.apply(event);
         if (event.type === "done") done = true;
-        if (event.type === "error") failure = { message: event.message, signedOut: false };
+        // A turn that failed leaves no record and does not count towards the limit.
+        if (event.type === "error")
+          failure = { message: event.message, signedOut: false, countsTowardLimit: false };
       }
+      // Cut off: whether the backend still recorded (and counted) it cannot be told here.
       if (!done && !failure) failure = { message: "回复中断了，请再试一次", signedOut: false };
     } catch (e) {
       failure = toFailure(e);
+      // Refused by the backend (over the limit, own key failed, ...): not counted.
+      if (e instanceof ApiError) failure.countsTowardLimit = false;
     }
     if (failure) {
       // A failed turn is not recorded: take it back off the log and return the text to the input.
