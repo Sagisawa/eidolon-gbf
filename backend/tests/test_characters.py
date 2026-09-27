@@ -1,18 +1,20 @@
-"""Characters come from configuration: the list, the avatars, and each one's character sheet."""
+"""Characters come from configuration: the list, the avatars, the image colours and call
+backgrounds, and each one's character sheet."""
 
+import logging
 from pathlib import Path
 
 import pytest
 
 from eidolon.characters import CharacterConfigError, Fact, load_characters, parse_facts
-from tests.conftest import AVATAR, KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
+from tests.conftest import AVATAR, BACKGROUND, KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 
 REPO_CHARACTERS = Path(__file__).parents[2] / "characters"
 
 
-async def test_character_list_shows_name_intro_and_avatar_but_not_the_sheet(
+async def test_character_list_shows_name_intro_avatar_colour_and_background_but_not_the_sheet(
     make_client: ClientFactory,
 ):
     client = make_client(FakeLLM())
@@ -26,8 +28,17 @@ async def test_character_list_shows_name_intro_and_avatar_but_not_the_sheet(
             "name": "櫻木真乃",
             "intro": "illumination STARS 的中心",
             "avatar_url": "/api/characters/mano/avatar",
+            "color": "#ffbad6",
+            "background_url": "/api/characters/mano/background",
         },
-        {"id": "kogane", "name": "月岡恋鐘", "intro": "L'Antica 的偶像", "avatar_url": None},
+        {
+            "id": "kogane",
+            "name": "月岡恋鐘",
+            "intro": "L'Antica 的偶像",
+            "avatar_url": None,
+            "color": "#f84cad",
+            "background_url": None,
+        },
     ]
     assert "ほわっ" not in res.text
 
@@ -52,6 +63,19 @@ async def test_avatar_is_served_without_a_session_so_img_tags_can_load_it(
     assert res.content == AVATAR
     assert (await client.get("/api/characters/kogane/avatar")).status_code == 404
     assert (await client.get("/api/characters/nobody/avatar")).status_code == 404
+
+
+async def test_call_background_is_served_without_a_session_like_the_avatar(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM(), user=None)
+
+    res = await client.get("/api/characters/mano/background")
+
+    assert res.status_code == 200
+    assert res.content == BACKGROUND
+    assert (await client.get("/api/characters/kogane/background")).status_code == 404
+    assert (await client.get("/api/characters/nobody/background")).status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -118,6 +142,7 @@ def test_repository_configures_mano_and_kogane_with_their_voices():
     assert loaded["kogane"].name == "月岡恋鐘"
     assert {id: c.speakers for id, c in loaded.items()} == {"mano": ("真乃",), "kogane": ("恋鐘",)}
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
+    assert {id: c.color for id, c in loaded.items()} == {"mano": "#ffbad6", "kogane": "#f84cad"}
 
 
 def test_character_facts_are_split_by_heading(characters: CharacterConfig):
@@ -158,14 +183,14 @@ def test_character_missing_a_required_field_is_rejected(tmp_path: Path):
     config = CharacterConfig(tmp_path)
     config.write("characters.toml", '[[characters]]\nid = "mano"\nname = "櫻木真乃"\n')
 
-    with pytest.raises(CharacterConfigError, match="intro、voice_id、sheet"):
+    with pytest.raises(CharacterConfigError, match="intro、voice_id、sheet、color"):
         load_characters(config.path)
 
 
 def test_character_id_must_be_safe_to_put_in_a_url(tmp_path: Path):
     config = CharacterConfig(tmp_path)
     config.write("characters.toml", '[[characters]]\nid = "Mano San"\nname = "a"\n'
-                 'intro = ""\nvoice_id = "v"\nsheet = "s.md"\n')
+                 'intro = ""\nvoice_id = "v"\nsheet = "s.md"\ncolor = "#ffbad6"\n')
 
     with pytest.raises(CharacterConfigError, match="Mano San"):
         load_characters(config.path)
@@ -195,3 +220,49 @@ def test_two_characters_cannot_share_a_speaker_name(tmp_path: Path):
 def test_missing_configuration_file_is_reported(tmp_path: Path):
     with pytest.raises(CharacterConfigError, match="characters.toml"):
         load_characters(tmp_path / "characters.toml")
+
+
+def test_character_without_an_image_colour_is_rejected_by_name(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a", color=None)
+
+    with pytest.raises(CharacterConfigError, match="角色 mano 缺少字段 color"):
+        load_characters(config.path)
+
+
+@pytest.mark.parametrize("color", ["ffbad6", "#fff", "#ffbad", "#ffbad6ff", "#ggbad6", "pink", ""])
+def test_image_colour_must_be_a_hex_rrggbb(tmp_path: Path, color: str):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a", color=color)
+
+    with pytest.raises(CharacterConfigError, match="角色 mano 的 color.*#rrggbb"):
+        load_characters(config.path)
+
+
+def test_image_colour_is_read_in_lower_case(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a", color="#FFBAD6")
+
+    assert load_characters(config.path)["mano"].color == "#ffbad6"
+
+
+def test_call_background_is_found_relative_to_the_configuration(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a", background=BACKGROUND)
+
+    background = load_characters(config.path)["mano"].background
+
+    assert background is not None
+    assert background.read_bytes() == BACKGROUND
+
+
+def test_missing_call_background_is_a_warning_and_treated_as_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    config.path.write_text(
+        config.path.read_text(encoding="utf-8") + 'background = "backgrounds/mano.jpg"\n',
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="eidolon.characters"):
+        mano = load_characters(config.path)["mano"]
+
+    assert mano.background is None
+    assert "backgrounds" in caplog.text and "mano" in caplog.text

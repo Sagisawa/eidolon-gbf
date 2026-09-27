@@ -1,11 +1,11 @@
 """Characters available for conversation, loaded from the character configuration.
 
 The configuration is a TOML file listing each character's identifier, display
-name, introduction, voice and the location of her character sheet (and,
-optionally, her character facts and avatar), relative to the file, plus the
-speaker names her lines carry in the story corpus. Adding a character or
-replacing a voice is a configuration change. The sheets, facts and avatars are
-committed with the configuration (ADR-0003).
+name, introduction, voice, image colour and the location of her character sheet
+(and, optionally, her character facts, avatar and call background), relative to
+the file, plus the speaker names her lines carry in the story corpus. Adding a
+character or replacing a voice is a configuration change. The sheets, facts,
+avatars and backgrounds are committed with the configuration (ADR-0003).
 
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
@@ -23,7 +23,8 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 _VALID_ID = re.compile(r"[a-z][a-z0-9_-]*")
-_REQUIRED = ("id", "name", "intro", "voice_id", "sheet")
+_REQUIRED = ("id", "name", "intro", "voice_id", "sheet", "color")
+_IMAGE_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
 
 DRAFT_MARKER = "<!-- 人设草稿：由后台模型根据剧情生成，尚未校对。校对完成后删除这一行。 -->"
 
@@ -51,6 +52,10 @@ class Character:
     sheet: str
     """Empty when the sheet file does not exist yet (only when loaded without requiring it)."""
     avatar: Path | None
+    color: str
+    """Her image colour, the official one from the original, as lower-case `#rrggbb`."""
+    background: Path | None = None
+    """The picture behind her call screen; None shows a gradient of her image colour."""
     speakers: tuple[str, ...] = ()
     """Names her lines are credited to in story scripts, e.g. 真乃."""
     facts: tuple[Fact, ...] = ()
@@ -94,6 +99,10 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
         raise CharacterConfigError(f"角色 {label} 缺少字段 {'、'.join(missing)}")
     if not _VALID_ID.fullmatch(entry["id"]):
         raise CharacterConfigError(f"角色标识 {label} 只能包含小写字母、数字、- 和 _")
+    if not _IMAGE_COLOR.fullmatch(entry["color"]):
+        raise CharacterConfigError(
+            f"角色 {label} 的 color 应为 #rrggbb 格式的印象色，现在是 {entry['color']!r}"
+        )
 
     sheet_path = base / entry["sheet"]
     try:
@@ -121,10 +130,8 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
     if not isinstance(speakers, list) or not all(isinstance(s, str) and s for s in speakers):
         raise CharacterConfigError(f"角色 {label} 的 speakers 应为说话人名字的列表")
 
-    avatar = base / entry["avatar"] if isinstance(entry.get("avatar"), str) else None
-    if avatar is not None and not avatar.is_file():
-        log.warning("avatar %s of character %s is missing; showing none", avatar, label)
-        avatar = None
+    avatar = _optional_file(entry, "avatar", base, label)
+    background = _optional_file(entry, "background", base, label)
 
     return Character(
         id=entry["id"],
@@ -133,10 +140,24 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
         voice_id=entry["voice_id"],
         sheet=sheet,
         avatar=avatar,
+        color=entry["color"].lower(),
+        background=background,
         speakers=tuple(speakers),
         facts=facts,
         sheet_path=sheet_path,
     )
+
+
+def _optional_file(entry: dict, field: str, base: Path, label: str) -> Path | None:
+    """The file an optional field names, relative to the configuration; None when the
+    field is absent or the file is missing (with a warning, so she shows without it)."""
+    if not isinstance(entry.get(field), str):
+        return None
+    path = base / entry[field]
+    if not path.is_file():
+        log.warning("%s %s of character %s is missing; showing none", field, path, label)
+        return None
+    return path
 
 
 def is_draft(sheet: str) -> bool:
