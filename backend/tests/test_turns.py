@@ -33,7 +33,8 @@ class Turns:
         """Take one turn; returns its events as they go out on the wire."""
         backend = build(self._settings, chat_llm=llm, clock=lambda: NOW)
         try:
-            return [asdict(e) async for e in backend.engine.turn(self.conversation, text)]
+            llms = backend.own_keys.for_turn(self.conversation.user_id).llms
+            return [asdict(e) async for e in backend.engine.turn(self.conversation, text, llms)]
         finally:
             await backend.aclose()
 

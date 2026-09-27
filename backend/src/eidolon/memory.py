@@ -20,8 +20,9 @@ Each memory is embedded as it is written down, and the vector kept until the mem
 gone; a memory whose embedding failed is embedded the next time its user's memories are
 searched. After the embedding model changes, `eidolon reembed` embeds them all again.
 
-Without a background model, embedder and reranker, memory is off: turns find and write
-down nothing, but users can still list and delete the memories already kept.
+Each turn writes down with the model it began with (see `OwnKeys.for_turn`). Without an
+embedder and reranker, memory is off: turns find and write down nothing, but users can
+still list and delete the memories already kept.
 """
 
 import asyncio
@@ -106,7 +107,6 @@ class Memory:
 class _Services:
     """What memory needs to be on."""
 
-    background_llm: ChatLLM
     embedder: Embedder
     reranker: Reranker
     min_relevance: float
@@ -121,15 +121,13 @@ class Memories:
         characters: Mapping[str, Character],
         clock: Clock,
         *,
-        background_llm: ChatLLM | None = None,
         embedder: Embedder | None = None,
         reranker: Reranker | None = None,
         min_relevance: float = DEFAULT_THRESHOLDS.memories,
     ) -> None:
         """Memories kept in the database at `path`, next to the users and conversations
-        they belong to; off unless `background_llm`, `embedder` and `reranker` are all
-        given. A memory the reranker scores below `min_relevance` is not found (see
-        `rerank.KNOWN_THRESHOLDS`)."""
+        they belong to; off unless `embedder` and `reranker` are both given. A memory the
+        reranker scores below `min_relevance` is not found (see `rerank.KNOWN_THRESHOLDS`)."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self._lock = threading.Lock()
@@ -139,8 +137,8 @@ class Memories:
         self._characters = characters
         self._clock = clock
         self._services = (
-            _Services(background_llm, embedder, reranker, min_relevance)
-            if background_llm is not None and embedder is not None and reranker is not None
+            _Services(embedder, reranker, min_relevance)
+            if embedder is not None and reranker is not None
             else None
         )
         self._pending: dict[str, set[asyncio.Task[None]]] = {}  # user id → writing
@@ -150,14 +148,14 @@ class Memories:
         self,
         conversation: Conversation,
         timezone: str,
-        background_llm: ChatLLM | None = None,
+        llm: ChatLLM,
     ) -> "MemoryTurn":
         """Begin a turn of `conversation`, whose user is in `timezone`, once what their
         earlier turns are writing down is written (a while at most). The turn writes down
-        with `background_llm` if given (the user's own), else the deployer's."""
+        with `llm`."""
         clearings = self._clearings.get(conversation.user_id, 0)
         await self._settle(conversation.user_id)
-        return MemoryTurn(self, conversation, timezone, clearings, background_llm)
+        return MemoryTurn(self, conversation, timezone, clearings, llm)
 
     async def entries(self, user_id: str) -> list[Memory]:
         """All of the user's memories, newest first, including what their turns so far
@@ -276,7 +274,7 @@ class Memories:
         conversation: Conversation,
         timezone: str,
         clearings: int,
-        background_llm: ChatLLM | None,
+        llm: ChatLLM,
         history: Sequence[Message],
         text: str,
         reply: Message,
@@ -284,7 +282,6 @@ class Memories:
         if (services := self._services) is None:
             return
         now = self._clock().astimezone(ZoneInfo(timezone))
-        llm = background_llm or services.background_llm
         task = asyncio.create_task(
             self._write(services, llm, conversation, clearings, history, text, reply, now)
         )
@@ -438,13 +435,13 @@ class MemoryTurn:
         conversation: Conversation,
         timezone: str,
         clearings: int,
-        background_llm: ChatLLM | None = None,
+        llm: ChatLLM,
     ) -> None:
         self._memories = memories
         self._conversation = conversation
         self._timezone = timezone
         self._clearings = clearings
-        self._background_llm = background_llm
+        self._llm = llm
 
     async def find(self, text: str) -> str | None:
         """The prompt section carrying the user's memories relevant to `text`, most
@@ -457,7 +454,7 @@ class MemoryTurn:
         """Start writing down what the user revealed in this turn: `text`, said after
         `history` and answered with `reply`."""
         self._memories._write_down(
-            self._conversation, self._timezone, self._clearings, self._background_llm,
+            self._conversation, self._timezone, self._clearings, self._llm,
             history, text, reply,
         )
 

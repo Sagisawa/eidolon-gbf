@@ -28,7 +28,7 @@ from tests.fakes import (
     FakeReranker,
     FakeSpeech,
 )
-from tests.test_memories import NOW, World, tell
+from tests.test_memories import NOW, World, tell, writing_with
 from tests.test_shared_memory import CAT, TRIP, memorized
 
 OLD, NEW = "old-model", "new-model@768"
@@ -77,10 +77,12 @@ class Deployment:
         facts = FactIndex(self.database, embedder)
         await facts.embed_missing(self.mano)
         facts.close()
-        memories = Memories(
-            self.database, self.characters, lambda: NOW,
-            background_llm=FakeBackgroundLLM(memorized(CAT, TRIP)), embedder=embedder,
-            reranker=FakeReranker(),
+        memories = writing_with(
+            Memories(
+                self.database, self.characters, lambda: NOW, embedder=embedder,
+                reranker=FakeReranker(),
+            ),
+            FakeBackgroundLLM(memorized(CAT, TRIP)),
         )
         world = World(self.store, self.characters)
         await tell(memories, world, world.conversation("mano"), "我家的猫叫小白，下个月去北海道")

@@ -30,7 +30,7 @@ from eidolon.identity import IdentityProvider, ProviderName, open_identity_provi
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
-from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
+from eidolon.own_keys import DeployerKeys, LLMService, OwnKeys, ProviderLLMService
 from eidolon.rerank import (
     DEFAULT_THRESHOLDS,
     FALLBACK_MODEL,
@@ -101,6 +101,12 @@ def build(
     if chat_llm is None:
         chat_llm = open_llm(settings.chat_llm)
         closers.append(chat_llm.aclose)
+    if background_llm is None:
+        background_llm = open_llm(settings.background_llm)
+        closers.append(background_llm.aclose)
+    if own_llm_service is None:  # users' own LLMs write down memories too
+        own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
+        closers.append(own_llm_service.aclose)
     if embedder is None and settings.embedding is not None:
         opened = open_embedder(settings.embedding)
         closers.append(opened.aclose)
@@ -154,12 +160,8 @@ def build(
             thresholds.references,
         )
         closers.append(retrieval.close)
-        if background_llm is None:
-            background_llm = open_llm(settings.background_llm)
-            closers.append(background_llm.aclose)
         memories = Memories(
-            settings.database_path, characters, clock,
-            background_llm=background_llm, embedder=embedder, reranker=reranker,
+            settings.database_path, characters, clock, embedder=embedder, reranker=reranker,
             min_relevance=thresholds.memories,
         )
     else:
@@ -172,14 +174,14 @@ def build(
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
     engine = ConversationEngine(
-        store, chat_llm, characters, memories, clock, retrieval, settings.history_turns
+        store, characters, memories, clock, retrieval, settings.history_turns
     )
     usage = UsageLimiter(store, settings.usage_limits, clock)
-    if own_llm_service is None:
-        own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
-        closers.append(own_llm_service.aclose)
     speech = speech or SonioxFishSpeech(settings.fish_audio_model)
-    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, speech)
+    deployer = DeployerKeys(
+        chat_llm, background_llm, settings.soniox_api_key, settings.fish_audio_api_key
+    )
+    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, deployer, speech)
     calls = Calls(settings, engine, usage, speech, clock, own_keys, store)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(

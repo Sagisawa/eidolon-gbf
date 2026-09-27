@@ -7,6 +7,12 @@ their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. K
 kept encrypted with a key derived from `EIDOLON_SECRET_KEY`; without that setting,
 users cannot bring any. Only the last 4 characters of a key are ever shown again.
 
+Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
+`for_call`): the user's own where they brought them, the deployer's otherwise, with
+whether it counts towards the user's limit. A kept key that can no longer be decrypted
+fails it right there, before anything is spent. Nothing downstream tells the user's keys
+from the deployer's.
+
 Before an own LLM is kept, it is tried once, as the deployer's chat model is at startup:
 it must stream and take tools. In a public deployment it must also be on the public
 internet, so no one can point the backend at the machines next to it, and read their
@@ -32,7 +38,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from eidolon.config import LLMProtocol, LLMSettings
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
 from eidolon.llm.providers import check_chat_llm, open_llm
 from eidolon.store import OwnKeyRecord, Store
 
@@ -61,6 +67,14 @@ class OwnKeyFailed(Exception):
 
 class OwnKeyRejected(Exception):
     """Trying the key before keeping it failed; kept nothing."""
+
+
+class CallsUnavailable(Exception):
+    """Voice calls are not configured: there is no key for speech recognition or
+    synthesis, neither the user's own nor the deployer's."""
+
+    def __init__(self) -> None:
+        super().__init__("语音通话尚未配置，请联系管理员")
 
 
 class OwnKeysUnavailable(Exception):
@@ -128,24 +142,76 @@ class KeyCheck(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class DeployerKeys:
+    """What the deployer pays for wherever a user brought nothing of their own; None for
+    a speech service the deployer has no key for."""
+
+    chat_llm: ChatLLM
+    memory_llm: ChatLLM
+    stt: str | None = None
+    tts: str | None = None
+
+
+@dataclass(frozen=True)
+class TurnKeys:
+    """Whose keys a text turn runs on, and whether it counts towards the user's limit."""
+
+    llms: TurnLLMs
+    exempt: bool
+
+
+@dataclass(frozen=True)
+class CallKeys:
+    """Whose keys a call runs on: its turns' models, the keys it hears (`stt`) and speaks
+    (`tts`) with and which of those are the user's own, and whether it counts towards the
+    user's limit."""
+
+    llms: TurnLLMs
+    stt: str
+    tts: str
+    own: frozenset[Service]
+    exempt: bool
+
+
 class OwnKeys:
-    """Every user's own keys."""
+    """Every user's own keys, and whose keys each of their turns and calls runs on."""
 
     def __init__(
         self,
         store: Store,
         secret_key: str | None,
         llm_service: LLMService,
+        deployer: DeployerKeys,
         speech_check: KeyCheck | None = None,
     ) -> None:
         self._store = store
         self._cipher = _cipher(secret_key) if secret_key else None
         self._llm_service = llm_service
+        self._deployer = deployer
         self._speech_check = speech_check
 
     @property
     def available(self) -> bool:
         return self._cipher is not None
+
+    def for_turn(self, user_id: str) -> TurnKeys:
+        """Whose keys the user's next text turn runs on: their own LLM, if they brought
+        one, both plays the character and writes down their memories."""
+        records = self._records(user_id)
+        return TurnKeys(self._llms(records), _exempt(records)["turns"])
+
+    def for_call(self, user_id: str) -> CallKeys:
+        """Whose keys the user's next call runs on: each of speech recognition and
+        synthesis on their own key if they brought one, else the deployer's; raises
+        CallsUnavailable if there is neither for either."""
+        records = self._records(user_id)
+        stt = self._decrypt(records["stt"]) if "stt" in records else self._deployer.stt
+        tts = self._decrypt(records["tts"]) if "tts" in records else self._deployer.tts
+        if not stt or not tts:
+            raise CallsUnavailable()
+        own = frozenset(s for s in ("stt", "tts") if s in records)
+        return CallKeys(self._llms(records), stt, tts, own, _exempt(records)["calls"])  # pyright: ignore[reportArgumentType]
 
     def describe(self, user_id: str) -> dict[Service, dict]:
         """What the user may see of their keys, by service: never more of a key than its
@@ -190,50 +256,38 @@ class OwnKeys:
             user_id, OwnKeyRecord(service, cipher.encrypt(api_key.encode()), api_key[-4:])
         )
 
-    def speech_keys(self, user_id: str) -> dict[Service, str]:
-        """The user's own speech keys ("stt", "tts") they brought, decrypted. Raises
-        OwnKeyFailed for one that can no longer be decrypted."""
-        if self._cipher is None:
-            return {}
-        keys: dict[Service, str] = {}
-        for service, record in self._store.own_keys(user_id).items():
-            if service in ("stt", "tts"):
-                try:
-                    keys[service] = self._decrypt(record)  # pyright: ignore[reportArgumentType]
-                except InvalidToken:
-                    raise OwnKeyFailed(service, "保存的密钥无法解密，请重新填写") from None  # pyright: ignore[reportArgumentType]
-        return keys
-
     def exemptions(self, user_id: str) -> dict[str, bool]:
-        """What of the user's use does not count towards their limits: text turns on
-        their own LLM, calls on their own LLM, speech synthesis and recognition alike."""
-        own = set(self._store.own_keys(user_id)) if self._cipher else set()
-        return {"turns": "llm" in own, "calls": {"llm", "tts", "stt"} <= own}
+        """What of the user's use does not count towards their limits (see `_exempt`)."""
+        return _exempt(self._records(user_id))
 
     def delete(self, user_id: str, service: Service) -> bool:
         """Forget the user's key for `service`; False if they had none."""
         self._require_cipher()
         return self._store.delete_own_key(user_id, service)
 
-    def chat_llm(self, user_id: str) -> ChatLLM | None:
-        """The user's own LLM, for a turn or a call, if they brought one: whatever goes
-        wrong calling it raises OwnKeyFailed."""
-        record = self._store.own_keys(user_id).get("llm") if self._cipher else None
+    def _records(self, user_id: str) -> dict[str, OwnKeyRecord]:
+        """The user's own keys, by service; none without `EIDOLON_SECRET_KEY`, which
+        they could not be decrypted without."""
+        return self._store.own_keys(user_id) if self._cipher else {}
+
+    def _llms(self, records: dict[str, OwnKeyRecord]) -> TurnLLMs:
+        record = records.get("llm")
         if record is None:
-            return None
-        try:
-            api_key = self._decrypt(record)
-        except InvalidToken:
-            return _Broken(OwnKeyFailed("llm", "保存的密钥无法解密，请重新填写"))
+            return TurnLLMs(self._deployer.chat_llm, self._deployer.memory_llm)
         assert record.base_url and record.model
         protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
-        return _OwnLLM(
-            self._llm_service.open(LLMSettings(record.base_url, api_key, record.model, protocol))
-        )
+        settings = LLMSettings(record.base_url, self._decrypt(record), record.model, protocol)
+        own = _OwnLLM(self._llm_service.open(settings))
+        return TurnLLMs(own, own)
 
     def _decrypt(self, record: OwnKeyRecord) -> str:
+        """The key, decrypted; raises OwnKeyFailed if it can no longer be, as after
+        `EIDOLON_SECRET_KEY` has changed."""
         assert self._cipher is not None
-        return self._cipher.decrypt(record.secret).decode()
+        try:
+            return self._cipher.decrypt(record.secret).decode()
+        except InvalidToken:
+            raise OwnKeyFailed(record.service, "保存的密钥无法解密，请重新填写") from None  # pyright: ignore[reportArgumentType]
 
     def _require_cipher(self) -> Fernet:
         if self._cipher is None:
@@ -260,20 +314,12 @@ class _OwnLLM:
         pass  # the service's client is shared; see ProviderLLMService
 
 
-class _Broken:
-    """An own LLM that cannot be called at all."""
-
-    def __init__(self, failure: OwnKeyFailed) -> None:
-        self._failure = failure
-
-    async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        raise self._failure
-        yield ""  # a generator all the same
-
-    async def aclose(self) -> None:
-        pass
+def _exempt(own: Iterable[str]) -> dict[str, bool]:
+    """What of a user's use does not count towards their limits, by the services they
+    brought their own keys for: text turns on their own LLM, calls on their own LLM,
+    speech synthesis and recognition alike."""
+    own = set(own)
+    return {"turns": "llm" in own, "calls": {"llm", "tts", "stt"} <= own}
 
 
 def _cipher(secret_key: str) -> Fernet:

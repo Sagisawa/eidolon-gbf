@@ -47,3 +47,12 @@ class ChatLLM(Protocol):
 class LLMError(RuntimeError):
     """The model's service failed, refused the request, or replied in a way the adapter
     cannot read."""
+
+
+@dataclass(frozen=True)
+class TurnLLMs:
+    """The models one turn runs on: `chat` plays the character, `memory` writes down what
+    the user revealed in it."""
+
+    chat: ChatLLM
+    memory: ChatLLM
