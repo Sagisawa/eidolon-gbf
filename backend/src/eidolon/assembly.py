@@ -170,7 +170,7 @@ def build(
         usage=usage,
         clock=clock,
         calls=calls,
-        accounts=Accounts(store, clock),
+        accounts=Accounts(store, clock, memories, calls),
         identity_providers=identity_providers,
         _closers=closers,
     )

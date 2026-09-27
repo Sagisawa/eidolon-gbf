@@ -149,6 +149,17 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
   await expectNoContent(await api(`/api/account/sign-in-methods/${provider}`, { method: "DELETE" }));
 }
 
+/** Delete the user and all their data for good, signing them out everywhere. */
+export async function deleteAccount(): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    }),
+  );
+}
+
 /** Sign the user out on every device, this one included. */
 export async function logoutEverywhere(): Promise<void> {
   await expectNoContent(await api("/api/account/logout-everywhere", { method: "POST" }));

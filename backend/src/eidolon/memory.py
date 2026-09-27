@@ -172,6 +172,12 @@ class Memories:
         await self._settle(user_id)
         await asyncio.to_thread(self._clear, user_id)
 
+    async def forget(self, user_id: str) -> None:
+        """Drop whatever the user's turns so far are still writing down, before the user
+        is deleted (see `Store.delete_user`, which deletes their memories)."""
+        self._clearings[user_id] = self._clearings.get(user_id, 0) + 1
+        await self._settle(user_id)
+
     async def embed_missing(
         self,
         embedder: Embedder,

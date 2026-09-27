@@ -305,6 +305,17 @@ class Store:
             )
         return True
 
+    def delete_user(self, user_id: str) -> None:
+        """Delete the user and everything of theirs, for good, all at once."""
+        with self._lock, self._db:
+            tables = {
+                row["name"]
+                for row in self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            for table, where in _USER_DATA:
+                if table in tables:  # memory's tables exist once memory has opened them
+                    self._db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
+
     def create_session(self, user_id: str, now: datetime) -> str:
         """Start a session for the user; returns its token, which is not stored."""
         token = secrets.token_urlsafe(32)
@@ -490,6 +501,20 @@ class Store:
 
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at"
+
+_USER_DATA = [
+    ("memory_vectors", "user_id = ?"),
+    ("memories", "user_id = ?"),
+    ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("conversations", "user_id = ?"),
+    ("producer_profiles", "user_id = ?"),
+    ("usage", "user_id = ?"),
+    ("sessions", "user_id = ?"),
+    ("sign_in_methods", "user_id = ?"),
+    ("users", "id = ?"),
+]
+"""Every table holding a user's data, and which rows are theirs, in an order that deletes
+what refers to a row before the row. A table added for users' data must be added here."""
 
 
 def _hash(secret: str) -> str:

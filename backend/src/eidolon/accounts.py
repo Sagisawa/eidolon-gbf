@@ -6,14 +6,19 @@ for one user on their own, not even with the same email address; a signed-in use
 another identity by hand. The only gate is against throwaway accounts: a GitHub account
 must be a year old, and a Google account's email address verified. A banned user's
 identities cannot sign in.
+
+Users can delete themselves, and with them everything of theirs, for good: signing in
+with the same identity afterwards makes a new user.
 """
 
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 
+from eidolon.call import Calls
 from eidolon.clock import Clock
 from eidolon.identity import Identity
+from eidolon.memory import Memories
 from eidolon.store import IdentityTaken, SignInMethod, Store, User
 
 MIN_GITHUB_ACCOUNT_AGE = timedelta(days=365)
@@ -40,6 +45,8 @@ class SignInRefused(Exception):
 class Accounts:
     store: Store
     clock: Clock
+    memories: Memories
+    calls: Calls
 
     def sign_in(self, identity: Identity) -> User:
         """The user this identity signs in as, made the first time. Raises SignInRefused."""
@@ -76,6 +83,14 @@ class Accounts:
             self.store.add_sign_in_method(user_id, self._method(identity))
         except IdentityTaken:
             raise SignInRefused("taken") from None
+
+    async def delete(self, user_id: str) -> None:
+        """Delete the user and all their data (see `Store.delete_user`), signing them out
+        everywhere and hanging up their calls."""
+        await self.calls.hang_up(user_id)
+        await self.memories.forget(user_id)
+        self.store.delete_user(user_id)
+        await self.calls.hang_up(user_id)  # any placed while memory was settling
 
     def _check(self, identity: Identity) -> None:
         if identity.provider == "github" and (

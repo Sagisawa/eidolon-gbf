@@ -47,6 +47,18 @@ class DevLogin(BaseModel):
     name: str = Field(min_length=1, max_length=40)
 
 
+class Deletion(BaseModel):
+    """Deleting the user's data needs saying so, not just a request that might be a slip."""
+
+    confirm: bool
+
+    @model_validator(mode="after")
+    def _confirmed(self) -> "Deletion":
+        if not self.confirm:
+            raise ValueError("需要确认才能删除全部数据")
+        return self
+
+
 class Consent(BaseModel):
     """Agreeing to the privacy policy and terms of use, and saying they are 13 or older."""
 
@@ -190,6 +202,13 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
     def logout_everywhere(user_id: UserId, response: Response) -> None:
         """Sign the user out on every device, this one included."""
         store.end_sessions(user_id)
+        clear_session_cookie(response, settings)
+
+    @app.post("/api/account/delete", status_code=204)
+    async def delete_account(body: Deletion, user: SignedIn, response: Response) -> None:
+        """Delete the user and all their data for good, signing them out everywhere; allowed
+        before they agree to the terms too."""
+        await accounts.delete(user.id)
         clear_session_cookie(response, settings)
 
     @app.post("/api/account/consent", status_code=204)

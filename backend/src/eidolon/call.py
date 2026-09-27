@@ -299,6 +299,12 @@ class Calls:
         )
         await self._webrtc.handle_patch_request(patch)
 
+    async def hang_up(self, user_id: str) -> None:
+        """Hang up the user's calls and wait for them to end; a reply in progress is dropped."""
+        await asyncio.gather(
+            *(live.hang_up() for live in list(self._live) if live.user_id == user_id)
+        )
+
     async def aclose(self) -> None:
         """Hang up every call and wait for them to end; a reply in progress is dropped."""
         await asyncio.gather(*(live.hang_up() for live in list(self._live)))
@@ -385,6 +391,10 @@ class _LiveCall:
         async def failed(worker: PipelineWorker, error: ErrorFrame) -> None:
             if error.fatal or (error.processor is not None and not error.processor.is_usable):
                 self._service_failed = True
+
+    @property
+    def user_id(self) -> str:
+        return self._call.conversation.user_id
 
     def start(self, on_done: Callable[["_LiveCall"], None]) -> None:
         """Serve the call in the background; `on_done` is told once it has ended."""
