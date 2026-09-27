@@ -1,7 +1,8 @@
 import json
 from collections.abc import AsyncIterator, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from typing import Any
 
 import httpx
@@ -12,10 +13,11 @@ from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.assembly import Backend, build
 from eidolon.config import LLMSettings, Settings
+from eidolon.identity import Identity
 from eidolon.sessions import SESSION_COOKIE
 from eidolon.store import Store
 from tests.browser import Browser, open_browser
-from tests.fakes import FakeBackgroundLLM, FakeLLM, FakeSpeech
+from tests.fakes import START, FakeBackgroundLLM, FakeIdentityProvider, FakeLLM, FakeSpeech
 from tests.stories import write_sample_stories
 
 
@@ -139,18 +141,58 @@ def admin(settings: Settings, capsys: pytest.CaptureFixture[str]) -> Admin:
     return Admin(settings.database_path, capsys)
 
 
-def sign_in(store: Store, name: str, now: datetime) -> dict[str, str]:
+COOKIE_DOMAIN = "test.local"
+"""Where the cookies of the tests' clients (at http://test) are kept, as for any host
+without a dot."""
+
+
+def sign_in(store: Store, name: str, now: datetime) -> httpx.Cookies:
     """The cookies of a new session for the first user named `name`, who is made, having
     agreed to the terms, if there is none."""
     user = store.first_user_named(name) or store.create_user(name)
     if user.consented_at is None:
         store.consent(user.id, now)
-    return {SESSION_COOKIE: store.create_session(user.id, now)}
+    cookies = httpx.Cookies()
+    cookies.set(SESSION_COOKIE, store.create_session(user.id, now), domain=COOKIE_DOMAIN)
+    return cookies
+
+
+def github_identity(
+    subject: str = "1001",
+    name: str = "producer",
+    *,
+    email: str | None = "producer@example.com",
+    created_at: datetime = START - timedelta(days=800),
+) -> Identity:
+    return Identity("github", subject, name, email, email is not None, created_at)
+
+
+def google_identity(
+    subject: str = "g-1001",
+    name: str = "Producer",
+    *,
+    email: str = "producer@example.com",
+    verified: bool = True,
+) -> Identity:
+    return Identity("google", subject, name, email, verified, None)
+
+
+async def sign_in_with(
+    client: httpx.AsyncClient, provider: FakeIdentityProvider, identity: Identity
+) -> httpx.Response:
+    """Go through signing in at `provider` as `identity`; the response to the callback."""
+    start = await client.get(f"/api/auth/{provider.name}/start")
+    assert start.status_code == 302, start.text
+    [state] = parse_qs(urlsplit(start.headers["location"]).query)["state"]
+    code = provider.will_identify(identity)
+    return await client.get(
+        f"/api/auth/{provider.name}/callback", params={"code": code, "state": state}
+    )
 
 
 def sign_in_as(client: httpx.AsyncClient, other: httpx.AsyncClient) -> None:
     """Have `client` carry the session `other` carries from now on."""
-    client.cookies.set(SESSION_COOKIE, other.cookies[SESSION_COOKIE])
+    client.cookies.set(SESSION_COOKIE, other.cookies[SESSION_COOKIE], domain=COOKIE_DOMAIN)
 
 
 @pytest.fixture
@@ -163,6 +205,16 @@ def speech(monkeypatch: pytest.MonkeyPatch) -> FakeSpeech:
 
 
 @pytest.fixture
+def github() -> FakeIdentityProvider:
+    return FakeIdentityProvider("github")
+
+
+@pytest.fixture
+def google() -> FakeIdentityProvider:
+    return FakeIdentityProvider("google")
+
+
+@pytest.fixture
 async def browser() -> AsyncIterator[Browser]:
     """The browser placing a call in the test."""
     async with open_browser() as browser:
@@ -171,13 +223,17 @@ async def browser() -> AsyncIterator[Browser]:
 
 @pytest.fixture
 async def make_client(
-    settings: Settings, speech: FakeSpeech
+    settings: Settings,
+    speech: FakeSpeech,
+    github: FakeIdentityProvider,
+    google: FakeIdentityProvider,
 ) -> AsyncIterator[ClientFactory]:
     """Makes API clients; each is signed in as the user with the given name, by default
     the producer, who has agreed to the terms (None for a client not signed in).
     Any other keyword is an outside service to use instead of the one the settings
-    describe (see `assembly.build`); the background model and speech are fakes by default,
-    and `voice_configured=False` leaves calls unconfigured."""
+    describe (see `assembly.build`); the background model, speech and the identity
+    providers (the `github` and `google` fixtures) are fakes by default, and
+    `voice_configured=False` leaves calls unconfigured."""
     backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
@@ -190,6 +246,7 @@ async def make_client(
         **services: Any,
     ) -> httpx.AsyncClient:
         services.setdefault("background_llm", FakeBackgroundLLM())
+        services.setdefault("identity_providers", {"github": github, "google": google})
         if voice_configured:
             services.setdefault("speech", speech)
         backend = build(settings, chat_llm=llm, **services)

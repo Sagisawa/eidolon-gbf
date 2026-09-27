@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -23,13 +23,9 @@ from eidolon.call import (
 )
 from eidolon.engine import TurnFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.sessions import (
-    SESSION_COOKIE,
-    clear_session_cookie,
-    session_middleware,
-    set_session_cookie,
-)
-from eidolon.store import Conversation, User
+from eidolon.account_api import add_account_routes
+from eidolon.sessions import UserId, session_middleware
+from eidolon.store import Conversation
 from eidolon.usage import OverLimit
 
 
@@ -96,33 +92,6 @@ class IceCandidates(BaseModel):
     candidates: list[IceCandidateInput]
 
 
-class DevLogin(BaseModel):
-    name: str = Field(min_length=1, max_length=40)
-
-
-def signed_in_user(request: Request) -> User:
-    """The user whose session the request's cookie carries; renews the session (and,
-    through the session middleware, the cookie) now and then."""
-    backend: Backend = request.app.state.backend
-    token = request.cookies.get(SESSION_COOKIE)
-    session = backend.store.use_session(token, backend.clock()) if token else None
-    if session is None:
-        raise HTTPException(401, "请先登录")
-    if session.renewed:
-        request.state.renewed_session = token
-    return session.user
-
-
-SignedIn = Annotated[User, Depends(signed_in_user)]
-
-
-def current_user(user: SignedIn) -> str:
-    """The signed-in user's id."""
-    return user.id
-
-
-UserId = Annotated[str, Depends(current_user)]
-
 DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
 """The time zone the browser detected; the producer profile's own time zone overrides it."""
 
@@ -131,7 +100,6 @@ def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
     memory, usage, calls = backend.memories, backend.usage, backend.calls
-    settings, clock = backend.settings, backend.clock
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -140,7 +108,7 @@ def create_app(backend: Backend) -> FastAPI:
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
     app.state.backend = backend
-    app.middleware("http")(session_middleware(settings))
+    app.middleware("http")(session_middleware(backend.settings))
 
     @app.exception_handler(OverLimit)
     async def over_limit(_: Request, e: OverLimit) -> JSONResponse:
@@ -176,20 +144,7 @@ def create_app(backend: Backend) -> FastAPI:
     def health() -> dict:
         return {"ok": True}
 
-    @app.post("/api/auth/logout", status_code=204)
-    def logout(request: Request, response: Response) -> None:
-        """Sign this browser out; its session ends even if it has already expired."""
-        if token := request.cookies.get(SESSION_COOKIE):
-            store.end_session(token)
-        clear_session_cookie(response, settings)
-
-    if settings.dev_login:
-
-        @app.post("/api/auth/dev-login", status_code=204)
-        def dev_login(body: DevLogin, response: Response) -> None:
-            """Sign in as the user with this name, made if there is none (development only)."""
-            user = store.first_user_named(body.name) or store.create_user(body.name)
-            set_session_cookie(response, store.create_session(user.id, clock()), settings)
+    add_account_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:

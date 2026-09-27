@@ -36,6 +36,17 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);
+-- A Google or GitHub identity a user signs in with; each belongs to one user only.
+CREATE TABLE IF NOT EXISTS sign_in_methods (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    email TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS sign_in_methods_by_user ON sign_in_methods(user_id);
 CREATE TABLE IF NOT EXISTS producer_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id),
     form_of_address TEXT,
@@ -95,6 +106,26 @@ class Session:
 
     user: User
     renewed: bool
+
+
+@dataclass(frozen=True)
+class SignInMethod:
+    """An identity at a provider (Google or GitHub) that signs a user in; `subject` is the
+    provider's id for it."""
+
+    provider: str
+    subject: str
+    display_name: str
+    email: str | None
+    created_at: str
+
+
+class IdentityTaken(Exception):
+    """The identity already belongs to a user."""
+
+
+class LastSignInMethod(Exception):
+    """Removing it would leave the user no way to sign in."""
 
 
 class LimitReached(Exception):
@@ -201,6 +232,78 @@ class Store:
             self._db.execute(
                 "UPDATE users SET consented_at = ? WHERE id = ?", (now.isoformat(), user_id)
             )
+
+    def user_signing_in_with(self, provider: str, subject: str) -> str | None:
+        """The id of the user this identity belongs to, if any."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT user_id FROM sign_in_methods WHERE provider = ? AND subject = ?",
+                (provider, subject),
+            ).fetchone()
+        return row["user_id"] if row else None
+
+    def create_user_signing_in_with(self, name: str, method: SignInMethod) -> User:
+        """A new user, whose one sign-in method is `method`. Raises IdentityTaken, making
+        no one, if the identity already belongs to someone."""
+        user = User(uuid.uuid4().hex, name, _now())
+        try:
+            with self._lock, self._db:
+                self._db.execute(
+                    "INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)",
+                    (user.id, user.name, user.created_at),
+                )
+                self._insert_sign_in_method(user.id, method)
+        except sqlite3.IntegrityError:
+            raise IdentityTaken from None
+        return user
+
+    def add_sign_in_method(self, user_id: str, method: SignInMethod) -> None:
+        """Raises IdentityTaken if the identity already belongs to someone."""
+        try:
+            with self._lock, self._db:
+                self._insert_sign_in_method(user_id, method)
+        except sqlite3.IntegrityError:
+            raise IdentityTaken from None
+
+    def update_sign_in_method(self, provider: str, subject: str, display_name: str,
+                              email: str | None) -> None:
+        """Keep the name and email the provider now gives for the identity."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE sign_in_methods SET display_name = ?, email = ?"
+                " WHERE provider = ? AND subject = ?",
+                (display_name, email, provider, subject),
+            )
+
+    def sign_in_methods(self, user_id: str) -> list[SignInMethod]:
+        """In the order they were added."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT provider, subject, display_name, email, created_at FROM sign_in_methods"
+                " WHERE user_id = ? ORDER BY created_at, rowid",
+                (user_id,),
+            ).fetchall()
+        return [SignInMethod(**row) for row in rows]
+
+    def remove_sign_in_method(self, user_id: str, provider: str) -> bool:
+        """Remove the user's sign-in method at `provider`; False if they have none there.
+        Raises LastSignInMethod, removing nothing, if it is the only one they have."""
+        with self._lock, self._db:
+            providers = [
+                row["provider"]
+                for row in self._db.execute(
+                    "SELECT provider FROM sign_in_methods WHERE user_id = ?", (user_id,)
+                )
+            ]
+            if provider not in providers:
+                return False
+            if len(providers) == 1:
+                raise LastSignInMethod
+            self._db.execute(
+                "DELETE FROM sign_in_methods WHERE user_id = ? AND provider = ?",
+                (user_id, provider),
+            )
+        return True
 
     def create_session(self, user_id: str, now: datetime) -> str:
         """Start a session for the user; returns its token, which is not stored."""
@@ -354,6 +457,15 @@ class Store:
 
     def close(self) -> None:
         self._db.close()
+
+    def _insert_sign_in_method(self, user_id: str, method: SignInMethod) -> None:
+        self._db.execute(
+            "INSERT INTO sign_in_methods"
+            " (user_id, provider, subject, display_name, email, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, method.provider, method.subject, method.display_name, method.email,
+             method.created_at),
+        )
 
     def _insert_message(
         self,

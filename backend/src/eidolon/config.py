@@ -128,6 +128,10 @@ class Settings:
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
     """Lets anyone sign in as any user by name, for development and tests only."""
+    github: "OAuthSettings | None" = None
+    """Signing in with GitHub; not offered unless configured."""
+    google: "OAuthSettings | None" = None
+    """Signing in with Google; not offered unless configured."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -163,6 +167,8 @@ class Settings:
             history_turns=history_turns_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
+            github=OAuthSettings.from_env("GITHUB"),
+            google=OAuthSettings.from_env("GOOGLE"),
         )
 
 
@@ -191,6 +197,23 @@ def event_names_path_from_env() -> Path:
 
 def history_turns_from_env() -> int | None:
     return _limit("EIDOLON_HISTORY_TURNS", DEFAULT_HISTORY_TURNS)
+
+
+@dataclass(frozen=True)
+class OAuthSettings:
+    """An OAuth app registered with Google or GitHub, which users sign in through."""
+
+    client_id: str
+    client_secret: str
+
+    @classmethod
+    def from_env(cls, provider: str) -> "OAuthSettings | None":
+        """From `{provider}_CLIENT_ID` and `{provider}_CLIENT_SECRET`; None if neither is set."""
+        if not os.environ.get(f"{provider}_CLIENT_ID") and not os.environ.get(
+            f"{provider}_CLIENT_SECRET"
+        ):
+            return None
+        return cls(_required(f"{provider}_CLIENT_ID"), _required(f"{provider}_CLIENT_SECRET"))
 
 
 EmbeddingProvider = Literal["siliconflow", "gemini"]

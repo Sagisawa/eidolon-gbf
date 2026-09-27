@@ -1,8 +1,8 @@
 """The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
-characters, the chat and background models, retrieval, memory, the conversation
-engine, usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
+characters, the identity providers users sign in with, the chat and background models,
+retrieval, memory, the conversation engine, usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
 retrieval finds memories again; the background model is always at hand, being the chat
 model unless configured apart.
@@ -16,6 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from eidolon.accounts import Accounts
 from eidolon.call import Calls, SonioxFishSpeech, Speech
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
@@ -24,6 +25,7 @@ from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.facts import FactIndex
+from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
@@ -56,6 +58,8 @@ class Backend:
     usage: UsageLimiter
     clock: Clock
     calls: Calls
+    accounts: Accounts
+    identity_providers: dict[ProviderName, IdentityProvider]
     _closers: list[Closer] = field(default_factory=list, repr=False)
 
     async def aclose(self) -> None:
@@ -76,6 +80,7 @@ def build(
     reranker: Reranker | None = None,
     clock: Clock | None = None,
     speech: Speech | None = None,
+    identity_providers: dict[ProviderName, IdentityProvider] | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -86,6 +91,9 @@ def build(
 
     store = Store(settings.database_path)
     closers.append(store.close)
+    if identity_providers is None:
+        identity_providers = open_identity_providers(settings.github, settings.google)
+        closers.extend(p.aclose for p in identity_providers.values())
     if chat_llm is None:
         chat_llm = open_llm(settings.chat_llm)
         closers.append(chat_llm.aclose)
@@ -162,5 +170,7 @@ def build(
         usage=usage,
         clock=clock,
         calls=calls,
+        accounts=Accounts(store, clock),
+        identity_providers=identity_providers,
         _closers=closers,
     )

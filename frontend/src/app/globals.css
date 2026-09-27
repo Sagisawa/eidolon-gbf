@@ -372,3 +372,21 @@ button.danger {
 .field.clear-memories {
   border-top: 0;
 }
+
+.sign-in-button {
+  display: block;
+  max-width: 320px;
+  margin-bottom: 8px;
+  padding: 0.625rem 1rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  text-align: center;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.sign-in-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}

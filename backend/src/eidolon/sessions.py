@@ -3,18 +3,22 @@
 The cookie is httpOnly, so no script on the page can read it, and SameSite=Lax, so other
 sites' pages cannot make the browser send it with their forms; over HTTPS in production
 it is Secure as well. On top of that every request that changes something must come
-from the site's own origin (`check_origin`). A session lasts `SESSION_LIFETIME` after it
+from the site's own origin (`origin_allowed`). A session lasts `SESSION_LIFETIME` after it
 was last used; each renewal renews the cookie too.
 """
 
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlsplit
 
-from fastapi import Request, Response
+from fastapi import Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
 from eidolon.config import Settings
-from eidolon.store import SESSION_LIFETIME
+from eidolon.store import SESSION_LIFETIME, User
+
+if TYPE_CHECKING:
+    from eidolon.assembly import Backend
 
 SESSION_COOKIE = "eidolon_session"
 
@@ -72,3 +76,35 @@ def session_middleware(
         return response
 
     return middleware
+
+
+def session_user(request: Request) -> User | None:
+    """The user whose session the request's cookie carries, if any; renews the session
+    (and, through the session middleware, the cookie) now and then."""
+    backend: "Backend" = request.app.state.backend
+    token = request.cookies.get(SESSION_COOKIE)
+    session = backend.store.use_session(token, backend.clock()) if token else None
+    if session is None:
+        return None
+    if session.renewed:
+        request.state.renewed_session = token
+    return session.user
+
+
+def signed_in_user(request: Request) -> User:
+    """The signed-in user; 401 if the browser is not signed in."""
+    user = session_user(request)
+    if user is None:
+        raise HTTPException(401, "请先登录")
+    return user
+
+
+SignedIn = Annotated[User, Depends(signed_in_user)]
+
+
+def current_user(user: SignedIn) -> str:
+    """The signed-in user's id."""
+    return user.id
+
+
+UserId = Annotated[str, Depends(current_user)]

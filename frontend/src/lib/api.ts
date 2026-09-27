@@ -1,3 +1,4 @@
+import type { Provider } from "@/lib/signIn";
 import { detectTimezone } from "@/lib/timezone";
 
 export type Character = {
@@ -119,6 +120,13 @@ async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const to = redirectFor(res.status);
   if (to && window.location.pathname !== to) window.location.assign(to);
   return res;
+}
+
+/** The ways to sign in the backend offers. */
+export type SignInOptions = { providers: Provider[]; dev_login: boolean };
+
+export async function getSignInOptions(): Promise<SignInOptions> {
+  return json(await fetch("/api/auth/providers"));
 }
 
 /** Sign in as the user with this name (development only). */

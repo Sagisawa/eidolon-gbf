@@ -10,7 +10,7 @@ import pytest
 
 from eidolon.config import Settings
 from eidolon.sessions import SESSION_COOKIE
-from tests.conftest import ClientFactory
+from tests.conftest import COOKIE_DOMAIN, ClientFactory
 from tests.fakes import FakeClock, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -31,7 +31,7 @@ async def test_requests_without_a_valid_session_are_refused(
 ):
     client = make_client(FakeLLM(), user=None)
     if cookie is not None:
-        client.cookies.set(SESSION_COOKIE, cookie)
+        client.cookies.set(SESSION_COOKIE, cookie, domain=COOKIE_DOMAIN)
 
     for res in [
         await mano_conversations(client),
@@ -118,7 +118,7 @@ async def test_signing_out_ends_the_session_on_this_device_only(make_client: Cli
 
     assert res.status_code == 204
     assert f'{SESSION_COOKIE}=""' in res.headers["set-cookie"]
-    desktop.cookies.set(SESSION_COOKIE, session)  # a copy of the cookie kept elsewhere
+    desktop.cookies.set(SESSION_COOKIE, session, domain=COOKIE_DOMAIN)  # a copy of the cookie kept elsewhere
     assert (await mano_conversations(desktop)).status_code == 401
     assert (await mano_conversations(phone)).status_code == 200
 

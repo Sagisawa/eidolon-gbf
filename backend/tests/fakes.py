@@ -3,8 +3,10 @@
 import asyncio
 import hashlib
 import json
+import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 
 import httpx
 from pipecat.frames.frames import (
@@ -21,6 +23,7 @@ from pipecat.utils.time import time_now_iso8601
 
 from eidolon.characters import Character
 from eidolon.embedding import Document, EmbeddingError
+from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatMessage, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.retrieval import JudgeError, Need
@@ -159,6 +162,41 @@ class FakeSpeech:
     def tts(self, voice_id: str, sample_rate: int) -> FakeTTS:
         self.ttss.append(FakeTTS(voice_id, sample_rate))
         return self.ttss[-1]
+
+
+class FakeIdentityProvider:
+    """Stands in for Google or GitHub: the test says which identity the next sign-in there
+    is (`will_identify`). Records the callback URL of every sign-in; set `down` to have it
+    fail as an unreachable provider would."""
+
+    AUTHORIZE_URL = "https://provider.invalid/authorize"
+
+    def __init__(self, name: ProviderName) -> None:
+        self.name: ProviderName = name
+        self.callbacks: list[str] = []
+        self.down = False
+        self._identities: dict[str, Identity] = {}
+
+    def will_identify(self, identity: Identity) -> str:
+        """The code the provider will send back for this identity."""
+        code = secrets.token_hex(4)
+        self._identities[code] = identity
+        return code
+
+    def authorize_url(self, state: str, redirect_uri: str) -> str:
+        query = urlencode({"provider": self.name, "state": state, "redirect_uri": redirect_uri})
+        return f"{self.AUTHORIZE_URL}?{query}"
+
+    async def identify(self, code: str, redirect_uri: str) -> Identity:
+        self.callbacks.append(redirect_uri)
+        if self.down:
+            raise IdentityError(f"fake {self.name} is down")
+        if code not in self._identities:
+            raise IdentityError(f"fake {self.name} does not know the code {code}")
+        return self._identities.pop(code)
+
+    async def aclose(self) -> None:
+        pass
 
 
 class FakeEmbedder:
