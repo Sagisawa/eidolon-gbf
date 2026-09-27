@@ -5,8 +5,8 @@
 .claude/settings.local.json
 **/openai-image/config.json
 
-# impeccable 的平台二进制按需下载（启动脚本会自动取对应平台的版本）
-.claude/skills/impeccable/scripts/bin/
+# impeccable 的平台二进制按需下载（启动脚本会自动取对应平台的版本）；.claude/skills/ 下的技能都是指向 .agents/skills/ 的链接
+.agents/skills/impeccable/scripts/bin/
 
 # 其他 agent 工具的本机安装
 .dsh/
