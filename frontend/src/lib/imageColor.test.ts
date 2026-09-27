@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+
+import { CALL_MUTED, contrast, distance, imageColorScale, mix, paperColors } from "./imageColor";
+
+const { body, ink } = paperColors;
+
+/** 界面上每一对「底色 + 上面的字或图标」，以及要达到的对比度。 */
+function pairs(hex: string) {
+  const s = imageColorScale(hex);
+  return [
+    ...(["light", "dark"] as const).flatMap((mode) => [
+      { what: `${mode} 气泡和选中行的正文`, fg: ink[mode], bg: s.paper[mode], min: 4.5 },
+      { what: `${mode} 气泡字幕`, fg: s.paperMuted[mode], bg: s.paper[mode], min: 4.8 },
+      { what: `${mode} 便利贴正文`, fg: ink[mode], bg: s.note[mode], min: 4.5 },
+      { what: `${mode} 便利贴状态下划线`, fg: s.noteRule[mode], bg: s.note[mode], min: 3 },
+      { what: `${mode} 索引签和头像描边`, fg: s.mark[mode], bg: body[mode], min: 3 },
+      { what: `${mode} 按钮图标`, fg: s.button.fg[mode], bg: s.button.bg[mode], min: 4.5 },
+      { what: `${mode} 她颜色的字`, fg: s.accent[mode], bg: body[mode], min: 4.5 },
+      { what: `${mode} 强调色填底上的字`, fg: s.onAccent[mode], bg: s.accent[mode], min: 4.5 },
+    ]),
+    { what: "dark 按钮底色和页面", fg: s.button.bg.dark, bg: body.dark, min: 3 },
+    { what: "通话层上沿白字", fg: "#ffffff", bg: s.call.top, min: 4.5 },
+    { what: "通话层上沿次要字", fg: mix("#ffffff", s.call.top, CALL_MUTED), bg: s.call.top, min: 4.5 },
+    { what: "通话层状态线（上沿）", fg: s.call.rule, bg: s.call.top, min: 3 },
+    { what: "通话层状态线（下部）", fg: s.call.rule, bg: s.call.deep, min: 3 },
+    { what: "通话层下部白字", fg: "#ffffff", bg: s.call.deep, min: 7 },
+  ];
+}
+
+describe("imageColorScale", () => {
+  const officials = { 真乃: "#ffbad6", 恋鐘: "#f84cad", 灯織: "#144384", めぐる: "#ffe012", 咲耶: "#006047" };
+
+  for (const [name, hex] of Object.entries(officials)) {
+    it(`${name} 的每一对颜色在明暗两种模式下都看得清`, () => {
+      for (const p of pairs(hex)) {
+        expect(contrast(p.fg, p.bg), `${p.what} ${p.fg} on ${p.bg}`).toBeGreaterThanOrEqual(p.min);
+      }
+    });
+  }
+
+  it("任意色相、任意深浅的印象色都满足对比度", () => {
+    const failures: string[] = [];
+    for (let r = 0; r < 256; r += 51)
+      for (let g = 0; g < 256; g += 51)
+        for (let b = 0; b < 256; b += 51) {
+          const hex = `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+          for (const p of pairs(hex)) {
+            if (contrast(p.fg, p.bg) < p.min) failures.push(`${hex} ${p.what} ${contrast(p.fg, p.bg).toFixed(2)}`);
+          }
+        }
+    expect(failures).toEqual([]);
+  });
+
+  it("同为粉色的两位角色，通话层底色仍然分得开", () => {
+    const mano = imageColorScale("#ffbad6");
+    const kogane = imageColorScale("#f84cad");
+    expect(distance(mano.call.deep, kogane.call.deep)).toBeGreaterThan(0.03);
+    expect(distance(mano.call.top, kogane.call.top)).toBeGreaterThan(0.03);
+  });
+
+  it("拒绝不是 #rrggbb 的色值", () => {
+    expect(() => imageColorScale("pink")).toThrow();
+  });
+});
