@@ -1,3 +1,5 @@
+/* 旧界面的样式放在最先声明的层里：优先级低于 Astryx 的各层，只在没有 Astryx 的旧页面上起作用。前端重做完成后删除。 */
+@layer legacy {
 :root {
   --bg: #f7f5f2;
   --surface: #ffffff;
@@ -498,4 +500,5 @@ button.danger {
   background: var(--surface);
   color: var(--text);
   font: inherit;
+}
 }

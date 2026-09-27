@@ -10,8 +10,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@astryxdesign/core": "^0.6.3",
     "@pipecat-ai/client-js": "^1.13.1",
     "@pipecat-ai/small-webrtc-transport": "^1.10.8",
+    "@stylexjs/stylex": "0.19.1",
+    "lucide-react": "^1.48.0",
     "next": "^16.3.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
