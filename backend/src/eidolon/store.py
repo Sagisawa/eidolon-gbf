@@ -258,6 +258,41 @@ class Store:
             ).fetchone()
         return User(**row) if row else None
 
+    def set_banned(self, user_id: str, banned_at: datetime | None) -> None:
+        """Ban the user as of `banned_at`, signing them out everywhere; None lifts the ban.
+        Raises NotFound for no such user."""
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "UPDATE users SET banned_at = ? WHERE id = ?",
+                (banned_at.isoformat() if banned_at else None, user_id),
+            )
+            if cursor.rowcount == 0:
+                raise NotFound(f"用户 {user_id} 不存在")
+            if banned_at is not None:
+                self._db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+    def active_users(self, user_ids: set[str]) -> set[str]:
+        """Those of the users who still exist and are not banned."""
+        with self._lock:
+            return {
+                row["id"]
+                for row in self._db.execute(
+                    f"SELECT id FROM users WHERE banned_at IS NULL AND id IN"
+                    f" ({','.join('?' * len(user_ids))})",
+                    list(user_ids),
+                )
+            } if user_ids else set()
+
+    def usage_since(self, user_id: str, since: datetime) -> list[tuple[UsageKind, datetime, bool]]:
+        """The user's uses since `since`, oldest first: what, when, and whether exempt."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT kind, at, exempt FROM usage WHERE user_id = ? AND at >= ? ORDER BY at",
+                (user_id, since.timestamp()),
+            ).fetchall()
+        return [(row["kind"], datetime.fromtimestamp(row["at"], UTC), bool(row["exempt"]))
+                for row in rows]
+
     def consent(self, user_id: str, now: datetime) -> None:
         """Record that the user agreed to the privacy policy and terms of use."""
         with self._lock, self._db:

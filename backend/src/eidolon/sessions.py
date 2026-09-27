@@ -92,10 +92,13 @@ def session_user(request: Request) -> User | None:
 
 
 def signed_in_user(request: Request) -> User:
-    """The signed-in user; 401 if the browser is not signed in."""
+    """The signed-in user; 401 if the browser is not signed in, 403 if the user is banned
+    (banning ends their sessions, so only a request under way when it did gets this)."""
     user = session_user(request)
     if user is None:
         raise HTTPException(401, "请先登录")
+    if user.banned_at is not None:
+        raise HTTPException(403, "这位用户已被封禁")
     return user
 
 

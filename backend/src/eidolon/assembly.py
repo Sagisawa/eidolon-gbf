@@ -168,7 +168,7 @@ def build(
         closers.append(own_llm_service.aclose)
     speech = speech or SonioxFishSpeech(settings.fish_audio_model)
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, speech)
-    calls = Calls(settings, engine, usage, speech, clock, own_keys)
+    calls = Calls(settings, engine, usage, speech, clock, own_keys, store)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,

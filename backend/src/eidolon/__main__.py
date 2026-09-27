@@ -1,8 +1,13 @@
 """The `eidolon` command: runs the server, and lets the admin manage users.
 
     eidolon                          run the server (same as `eidolon serve`)
-    eidolon user create <name>       create a user
-    eidolon user list
+    eidolon user list                every user: id, name, sign-in methods, when made,
+                                     whether banned (users are made by signing in)
+    eidolon user ban <id>            ban a user, signing them out everywhere; the server
+                                     hangs up their calls within seconds
+    eidolon user unban <id>
+    eidolon user usage <id>          the user's text turns and calls in the last 24 hours,
+                                     by hour, and how many were on their own keys
     eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
@@ -25,7 +30,9 @@ import asyncio
 import logging
 import os
 import sys
+from collections import Counter
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from eidolon.config import (
@@ -36,7 +43,8 @@ from eidolon.config import (
     mirror_cache_path_from_env,
     story_path_from_env,
 )
-from eidolon.store import NotFound, Store
+from eidolon.identity import PROVIDER_LABELS
+from eidolon.store import USAGE_KEPT, NotFound, Store
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -398,14 +406,51 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     return 0
 
 
-def _create_user(store: Store, args: argparse.Namespace) -> None:
-    store.create_user(args.name)
-    print(f"已创建用户 {args.name}")
+_PROVIDERS: dict[str, str] = {**PROVIDER_LABELS}
 
 
 def _list_users(store: Store, _: argparse.Namespace) -> None:
     for user in store.list_users():
-        print(f"{user.name}\t创建于 {user.created_at}")
+        methods = "、".join(
+            f"{_PROVIDERS.get(m.provider, m.provider)} {m.display_name}"
+            for m in store.sign_in_methods(user.id)
+        ) or "（没有登录方式）"
+        state = f"已封禁于 {user.banned_at}" if user.banned_at else "正常"
+        print(f"{user.id}\t{user.name}\t{methods}\t创建于 {user.created_at}\t{state}")
+
+
+def _ban_user(store: Store, args: argparse.Namespace) -> None:
+    store.set_banned(args.user_id, datetime.now(UTC))
+    print(f"已封禁用户 {args.user_id}，并让他在所有设备上退出登录；正在进行的通话会在几秒内挂断")
+
+
+def _unban_user(store: Store, args: argparse.Namespace) -> None:
+    store.set_banned(args.user_id, None)
+    print(f"已解封用户 {args.user_id}")
+
+
+def _user_usage(store: Store, args: argparse.Namespace) -> None:
+    store.get_user(args.user_id)  # NotFound for no such user
+    now = datetime.now(UTC)
+    uses = store.usage_since(args.user_id, now - USAGE_KEPT)
+    by_hour: Counter[tuple[datetime, str, bool]] = Counter(
+        (at.replace(minute=0, second=0, microsecond=0), kind, exempt) for kind, at, exempt in uses
+    )
+    hours = sorted({hour for hour, _, _ in by_hour})
+    print(f"用户 {args.user_id} 最近 24 小时的用量（UTC，按小时）：")
+    print("时间\t文字回合\t通话\t其中不计入限额的回合\t其中不计入限额的通话")
+    for hour in hours:
+        turns = by_hour[hour, "turn", False] + by_hour[hour, "turn", True]
+        calls = by_hour[hour, "call", False] + by_hour[hour, "call", True]
+        print(
+            f"{hour:%Y-%m-%d %H:00}\t{turns}\t{calls}"
+            f"\t{by_hour[hour, 'turn', True]}\t{by_hour[hour, 'call', True]}"
+        )
+    turns = sum(1 for kind, _, _ in uses if kind == "turn")
+    calls = sum(1 for kind, _, _ in uses if kind == "call")
+    exempt_turns = sum(1 for kind, _, exempt in uses if kind == "turn" and exempt)
+    exempt_calls = sum(1 for kind, _, exempt in uses if kind == "call" and exempt)
+    print(f"合计\t{turns}\t{calls}\t{exempt_turns}\t{exempt_calls}")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -419,10 +464,18 @@ def _parser() -> argparse.ArgumentParser:
     user = commands.add_parser("user", help="管理用户").add_subparsers(
         dest="action", required=True, metavar="操作"
     )
-    create = user.add_parser("create", help="创建用户")
-    create.add_argument("name")
-    create.set_defaults(run=_create_user)
-    user.add_parser("list", help="列出用户").set_defaults(run=_list_users)
+    user.add_parser(
+        "list", help="列出所有用户：ID、名字、登录方式、创建时间、是否已封禁"
+    ).set_defaults(run=_list_users)
+    ban = user.add_parser("ban", help="封禁用户，并让他在所有设备上退出登录")
+    ban.add_argument("user_id", help="用户 ID（见 user list）")
+    ban.set_defaults(run=_ban_user)
+    unban = user.add_parser("unban", help="解除封禁")
+    unban.add_argument("user_id", help="用户 ID（见 user list）")
+    unban.set_defaults(run=_unban_user)
+    usage = user.add_parser("usage", help="查看用户最近 24 小时按小时统计的用量")
+    usage.add_argument("user_id", help="用户 ID（见 user list）")
+    usage.set_defaults(run=_user_usage)
 
     story = commands.add_parser("story", help="管理剧情库").add_subparsers(
         dest="action", required=True, metavar="操作"

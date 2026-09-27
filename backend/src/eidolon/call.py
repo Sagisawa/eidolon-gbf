@@ -78,7 +78,7 @@ from eidolon.own_keys import (
     Service,
 )
 from eidolon.reply_format import SegmentDelta
-from eidolon.store import Conversation
+from eidolon.store import Conversation, Store
 from eidolon.usage import UsageLimiter, Use
 
 log = logging.getLogger(__name__)
@@ -111,6 +111,10 @@ class CallLimits:
     duration: timedelta | None = None
     turns: int | None = None
 
+
+USER_CHECK_INTERVAL = 5.0
+"""How often, in seconds, calls are checked for users banned or deleted since they called,
+from the admin command line in another process."""
 
 CONNECT_TIMEOUT = timedelta(seconds=30)
 """How long a call may take to connect after it is answered; after that it is given up."""
@@ -244,13 +248,79 @@ class Calls:
         speech: Speech | None,
         clock: Clock,
         own_keys: OwnKeys | None = None,
+        store: Store | None = None,
     ) -> None:
+        """With 
+
+[38;5;69m ██████╗  ████████╗   ██████╗   ██████╗   ███████╗         ██████╗  ██╗       [0m
+[38;5;69m██╗  [0m
+[38;5;69m██╔════╝  ╚══██╔══╝  ██╔═══██╗  ██╔══██╗  ██╔════╝        ██╔════╝  ██║       [0m
+[38;5;69m██║  [0m
+[38;5;189m╚█████╗      ██║     ██║   ██║  ██████╔╝  █████╗          ██║       ██║       [0m
+[38;5;189m██║  [0m
+[38;5;153m ╚═══██╗     ██║     ██║   ██║  ██╔══██╗  ██╔══╝          ██║       ██║       [0m
+[38;5;153m██║  [0m
+[38;5;153m██████╔╝     ██║     ╚██████╔╝  ██║  ██║  ███████╗        ╚██████╗  ███████╗  [0m
+[38;5;153m██║  [0m
+[38;5;75m╚═════╝      ╚═╝      ╚═════╝   ╚═╝  ╚═╝  ╚══════╝         ╚═════╝  ╚══════╝  [0m
+[38;5;75m╚═╝  [0m
+
+[38;5;8mv22608.1401.4.0 - Preview[0m
+
+Usage: [38;5;69mstore[0m [38;5;189m<command>[0m [38;5;8m[options][0m
+       [38;5;69mstore[0m [38;5;51m--help[0m
+
+Use '[38;5;69mstore[0m [38;5;189m<command>[0m [38;5;51m--help[0m' to get detailed help for any command.
+
+[38;5;69mDiscovery Commands:[0m
+[38;5;238m┌──────────────┬──────────────────────────────────────────┐[0m
+[38;5;238m│[0m [38;5;189mcommand[0m      [38;5;238m│[0m [38;5;189mdescription[0m                              [38;5;238m│[0m
+[38;5;238m├──────────────┼──────────────────────────────────────────┤[0m
+[38;5;238m│[0m addons       [38;5;238m│[0m List add-ons for a game                  [38;5;238m│[0m
+[38;5;238m│[0m browse-apps  [38;5;238m│[0m Browse ranked app lists                  [38;5;238m│[0m
+[38;5;238m│[0m browse-games [38;5;238m│[0m Browse ranked game lists                 [38;5;238m│[0m
+[38;5;238m│[0m extension    [38;5;238m│[0m Find apps that open specific file types  [38;5;238m│[0m
+[38;5;238m│[0m protocol     [38;5;238m│[0m Find apps that handle custom URL schemes [38;5;238m│[0m
+[38;5;238m│[0m publisher    [38;5;238m│[0m Find products from a publisher           [38;5;238m│[0m
+[38;5;238m│[0m search       [38;5;238m│[0m Search for apps and games                [38;5;238m│[0m
+[38;5;238m│[0m show         [38;5;238m│[0m Show product details and ratings         [38;5;238m│[0m
+[38;5;238m│[0m similar      [38;5;238m│[0m Find similar products                    [38;5;238m│[0m
+[38;5;238m└──────────────┴──────────────────────────────────────────┘[0m
+
+[38;5;69mOperations Commands:[0m
+[38;5;238m┌───────────┬─────────────────────────────────────────────┐[0m
+[38;5;238m│[0m [38;5;189mcommand[0m   [38;5;238m│[0m [38;5;189mdescription[0m                                 [38;5;238m│[0m
+[38;5;238m├───────────┼─────────────────────────────────────────────┤[0m
+[38;5;238m│[0m install   [38;5;238m│[0m Install an app from the Store               [38;5;238m│[0m
+[38;5;238m│[0m installed [38;5;238m│[0m List all installed apps                     [38;5;238m│[0m
+[38;5;238m│[0m update    [38;5;238m│[0m Check updates for a specific app            [38;5;238m│[0m
+[38;5;238m│[0m updates   [38;5;238m│[0m Check for updates across all installed apps [38;5;238m│[0m
+[38;5;238m└───────────┴─────────────────────────────────────────────┘[0m
+
+[38;5;69mHelper Commands:[0m
+[38;5;238m┌─────────────────┬─────────────────────────────────┐[0m
+[38;5;238m│[0m [38;5;189mcommand[0m         [38;5;238m│[0m [38;5;189mdescription[0m                     [38;5;238m│[0m
+[38;5;238m├─────────────────┼─────────────────────────────────┤[0m
+[38;5;238m│[0m app-categories  [38;5;238m│[0m List app categories             [38;5;238m│[0m
+[38;5;238m│[0m game-categories [38;5;238m│[0m List game categories            [38;5;238m│[0m
+[38;5;238m│[0m muid            [38;5;238m│[0m Get the Store device identifier [38;5;238m│[0m
+[38;5;238m└─────────────────┴─────────────────────────────────┘[0m
+
+[38;5;69mExamples:[0m
+  [38;5;8mstore search "Microsoft Teams"[0m
+  [38;5;8mstore show "Visual Studio Code"[0m
+  [38;5;8mstore browse-apps top-free --category productivity[0m
+  [38;5;8mstore browse-games top-paid --only-game-pass[0m
+  [38;5;8mstore similar firefox[0m
+  [38;5;8mstore updates[0m
+  [38;5;8mstore install whatsapp[0m, calls of users banned or deleted meanwhile are hung up."""
         self._settings = settings
         self._engine = engine
         self._usage = usage
         self._speech = speech
         self._clock = clock
         self._own_keys = own_keys
+        self._store = store
         limits = settings.usage_limits
         self._limits = CallLimits(
             timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
@@ -261,6 +331,7 @@ class Calls:
         )
         self._owners: dict[str, str] = {}  # peer connection id → the user it belongs to
         self._live: set[_LiveCall] = set()
+        self._watch: asyncio.Task | None = None  # hangs up banned and deleted users' calls
 
     def ice_servers(self, user_id: str) -> list[IceServer]:
         """What the browser needs before calling, with TURN credentials of its own."""
@@ -303,6 +374,8 @@ class Calls:
             self._live.add(live)
             live.start(on_done=self._live.discard)
             started.append(live)
+            if self._store is not None and (self._watch is None or self._watch.done()):
+                self._watch = asyncio.create_task(self._hang_up_users_gone())
 
         answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
         if answer is None or not started:
@@ -345,8 +418,20 @@ class Calls:
             *(live.hang_up() for live in list(self._live) if live.user_id == user_id)
         )
 
+    async def _hang_up_users_gone(self) -> None:
+        """While there are calls, hang up those of users banned or deleted meanwhile."""
+        while self._live:
+            await asyncio.sleep(USER_CHECK_INTERVAL)
+            users = {live.user_id for live in self._live}
+            assert self._store is not None
+            for user_id in users - self._store.active_users(users):
+                log.info("hanging up the calls of user %s, banned or deleted", user_id)
+                await self.hang_up(user_id)
+
     async def aclose(self) -> None:
         """Hang up every call and wait for them to end; a reply in progress is dropped."""
+        if self._watch is not None:
+            self._watch.cancel()
         await asyncio.gather(*(live.hang_up() for live in list(self._live)))
         await self._webrtc.close()
 
