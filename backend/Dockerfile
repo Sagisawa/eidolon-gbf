@@ -8,6 +8,8 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --frozen --no-dev
+# The calibration set for `eidolon eval rerank`.
+COPY eval ./eval
 # Pipecat splits the character's replies into sentences for TTS with NLTK's punkt tokenizer.
 ENV NLTK_DATA=/app/nltk_data
 RUN /app/.venv/bin/python -m nltk.downloader -d /app/nltk_data punkt_tab

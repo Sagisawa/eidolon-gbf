@@ -33,17 +33,13 @@ from eidolon.embedding import Embedder, EmbeddingError
 from eidolon.facts import FactIndex
 from eidolon.llm import Tool
 from eidolon.memory import MemoryTurn
-from eidolon.rerank import Reranker, RerankError
+from eidolon.rerank import Reranker, RerankError, RerankThresholds
 from eidolon.store import Message
 
 log = logging.getLogger(__name__)
 
 MAX_REFERENCES = 5
 """The most references one turn's prompt carries, after reranking."""
-MIN_RELEVANCE = 0.3
-"""The reranker's score below which a candidate is left out of the prompt. Qwen3-Reranker
-scores relevant passages around 0.9 and unrelated ones below 0.1, so a question about
-something the character never lived through brings back nothing rather than filler."""
 CANDIDATES_PER_SOURCE = 12
 """How many candidates each source (story corpus, character facts) offers the reranker."""
 JUDGE_HISTORY = 4
@@ -98,6 +94,8 @@ class JudgeError(RuntimeError):
 class Reference:
     kind: Literal["episode", "fact"]
     text: str
+    origin: str
+    """The episode's identifier, or the fact's title (its text, if it has none)."""
 
 
 @dataclass(frozen=True)
@@ -120,12 +118,16 @@ class Retrieval:
         corpus: StoryCorpus,
         facts: FactIndex,
         reranker: Reranker,
+        min_relevance: float,
     ) -> None:
+        """`min_relevance` is the reranker's score below which a reference or recalled
+        episode is left out (see `rerank.KNOWN_THRESHOLDS`)."""
         self._judge = judge
         self._embedder = embedder
         self._corpus = corpus
         self._facts = facts
         self._reranker = reranker
+        self._min_relevance = min_relevance
 
     async def retrieve(
         self,
@@ -154,23 +156,13 @@ class Retrieval:
     async def _references(self, character: Character, text: str) -> list[Reference]:
         """The references for `text`, most relevant first."""
         try:
-            query_vector = await self._embedder.embed_query(text)
-            passages, facts = await asyncio.gather(
-                asyncio.to_thread(
-                    self._corpus.search_by_vector, query_vector, character.id,
-                    CANDIDATES_PER_SOURCE,
-                ),
-                self._facts.search_by_vector(query_vector, character, CANDIDATES_PER_SOURCE),
+            ranked = await rank_references(
+                self._embedder, self._corpus, self._facts, self._reranker, character, text
             )
-            candidates = [Reference("episode", p.text) for p in passages]
-            candidates += [Reference("fact", f) for f in facts]
-            if not candidates:
-                return []
-            best = await self._reranker.rerank(text, [c.text for c in candidates], len(candidates))
         except (EmbeddingError, RerankError):
             log.warning("retrieval failed; replying without references", exc_info=True)
             return []
-        return [candidates[i] for i, score in best if score >= MIN_RELEVANCE][:MAX_REFERENCES]
+        return [r for r, score in ranked if score >= self._min_relevance][:MAX_REFERENCES]
 
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
@@ -190,7 +182,7 @@ class Retrieval:
             return "暂时想不起来，现在查不到剧情。不要编造经过，可以坦率地说记不太清了。"
         episodes: dict[str, Episode] = {}
         for i, score in best:
-            if score >= MIN_RELEVANCE and len(episodes) < RECALL_EPISODES:
+            if score >= self._min_relevance and len(episodes) < RECALL_EPISODES:
                 episodes.setdefault(passages[i].episode.id, passages[i].episode)
         if not episodes:
             return (
@@ -203,6 +195,30 @@ class Retrieval:
     def close(self) -> None:
         self._corpus.close()
         self._facts.close()
+
+
+async def rank_references(
+    embedder: Embedder,
+    corpus: StoryCorpus,
+    facts: FactIndex,
+    reranker: Reranker,
+    character: Character,
+    text: str,
+) -> list[tuple[Reference, float]]:
+    """Every candidate reference for `text`, with the reranker's score, best first: the
+    passages (from episodes `character` is cast in) and her facts nearest the query, as
+    many of each as `CANDIDATES_PER_SOURCE`, reranked together."""
+    query_vector = await embedder.embed_query(text)
+    passages, found = await asyncio.gather(
+        asyncio.to_thread(corpus.search_by_vector, query_vector, character.id, CANDIDATES_PER_SOURCE),
+        facts.search_by_vector(query_vector, character, CANDIDATES_PER_SOURCE),
+    )
+    candidates = [Reference("episode", p.text, p.episode.id) for p in passages]
+    candidates += [Reference("fact", f.text, f.title or f.text) for f in found]
+    if not candidates:
+        return []
+    best = await reranker.rerank(text, [c.text for c in candidates], len(candidates))
+    return [(candidates[i], score) for i, score in best]
 
 
 async def _find(memory: MemoryTurn | None, text: str) -> str | None:

@@ -1,23 +1,53 @@
-"""Text embeddings for the vector index: Qwen3-Embedding on SiliconFlow."""
+"""Text embeddings for the vector index: Qwen3-Embedding on SiliconFlow, or Gemini
+Embedding on Google's own API, whichever the deployment chose (ADR-0005)."""
 
-from collections.abc import Sequence
+import asyncio
+import logging
+import re
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
 import numpy as np
 
+from eidolon.config import EmbeddingSettings
+
 _REQUEST_BATCH = 16
-"""Texts sent in one request."""
+"""Texts sent in one request to SiliconFlow."""
 _QUERY_INSTRUCTION = "Instruct: 根据问题，检索相关的剧情台词\nQuery: "
+
+log = logging.getLogger(__name__)
+
+GEMINI_BATCH = 100
+"""Texts sent in one `batchEmbedContents` request; Google documents no limit. Each text
+counts as one request against the rate limit (the free tier allows 100 a minute)."""
+GEMINI_RETRIES = 5
+"""How many times embedding documents waits out Gemini's rate limit before giving up."""
+GEMINI_LONGEST_WAIT = 120.0
+"""The longest, in seconds, it waits at a time; a longer delay (a daily quota) is an error."""
+
+
+@dataclass(frozen=True)
+class Document:
+    """Text to embed for the index, with where it comes from: an episode's card or event and
+    title for a story passage, a fact's headings for a character fact, None for a memory."""
+
+    text: str
+    title: str | None = None
 
 
 class Embedder(Protocol):
     model: str
     """Vectors from different models are not comparable; the index keeps them apart by this."""
 
-    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
+    async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]: ...
 
     async def embed_query(self, text: str) -> list[float]: ...
+
+
+class ClosableEmbedder(Embedder, Protocol):
+    async def aclose(self) -> None: ...
 
 
 class EmbeddingError(RuntimeError):
@@ -29,7 +59,7 @@ class NoEmbedder:
 
     model = "none"
 
-    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+    async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
         raise EmbeddingError("没有配置向量化服务")
 
     async def embed_query(self, text: str) -> list[float]:
@@ -38,7 +68,7 @@ class NoEmbedder:
 
 class SiliconFlowEmbedder:
     """OpenAI-compatible `/embeddings` endpoint. Qwen3-Embedding wants an instruction in
-    front of queries and none in front of documents."""
+    front of queries and none in front of documents, whose titles it is not given."""
 
     def __init__(
         self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
@@ -48,7 +78,8 @@ class SiliconFlowEmbedder:
         self._api_key = api_key
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
 
-    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+    async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
+        texts = [d.text for d in documents]
         vectors: list[list[float]] = []
         for start in range(0, len(texts), _REQUEST_BATCH):
             vectors.extend(await self._embed(texts[start : start + _REQUEST_BATCH]))
@@ -78,6 +109,118 @@ class SiliconFlowEmbedder:
         if len(data) != len(texts):
             raise EmbeddingError(f"向量化服务返回了 {len(data)} 个向量，应为 {len(texts)} 个")
         return [d["embedding"] for d in data]
+
+
+class GeminiEmbedder:
+    """Google's native `batchEmbedContents`, where each text is a request item of its own
+    (texts sharing one item's `parts` would make one vector). Gemini Embedding 2 takes no
+    task type, so queries and documents are told apart by prefixes. The model it stores
+    vectors under carries the dimensions, so vectors of different lengths never mix.
+
+    Embedding documents (importing, re-embedding, writing down memories) waits out the rate
+    limit for as long as Google asks, a few times at most; a query, which holds up a turn,
+    does not wait."""
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        dimensions: int,
+        base_url: str,
+        client: httpx.AsyncClient | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ) -> None:
+        self.model = f"{model}@{dimensions}"
+        self._name = f"models/{model}"
+        self._dimensions = dimensions
+        self._url = f"{base_url.rstrip('/')}/{self._name}:batchEmbedContents"
+        self._api_key = api_key
+        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+        self._sleep = sleep
+
+    async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
+        texts = [f"title: {d.title or 'none'} | text: {d.text}" for d in documents]
+        vectors: list[list[float]] = []
+        for start in range(0, len(texts), GEMINI_BATCH):
+            batch = texts[start : start + GEMINI_BATCH]
+            for attempt in range(GEMINI_RETRIES + 1):
+                try:
+                    vectors.extend(await self._embed(batch))
+                    break
+                except _RateLimited as e:
+                    if attempt == GEMINI_RETRIES or not 0 < e.delay <= GEMINI_LONGEST_WAIT:
+                        raise EmbeddingError(str(e)) from None
+                    log.info("Gemini rate limit reached; waiting %.0f s", e.delay + 1)
+                    await self._sleep(e.delay + 1)
+        return vectors
+
+    async def embed_query(self, text: str) -> list[float]:
+        try:
+            return (await self._embed([f"task: search result | query: {text}"]))[0]
+        except _RateLimited as e:
+            raise EmbeddingError(str(e)) from None
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    async def _embed(self, texts: Sequence[str]) -> list[list[float]]:
+        requests = [
+            {
+                "model": self._name,
+                "content": {"parts": [{"text": text}]},
+                "output_dimensionality": self._dimensions,
+            }
+            for text in texts
+        ]
+        try:
+            res = await self._client.post(
+                self._url, json={"requests": requests}, headers={"x-goog-api-key": self._api_key}
+            )
+        except httpx.HTTPError as e:
+            raise EmbeddingError(f"无法连接向量化服务：{e!r}") from e
+        if res.status_code == 429:
+            raise _RateLimited(
+                f"向量化服务返回 429（Gemini 限流：免费层每分钟 100 条文本，每条都计一次请求；"
+                f"开通计费可以提高限额）: {res.text[:500]}",
+                _retry_delay(res.text),
+            )
+        if res.status_code >= 400:
+            hint = (
+                "（Gemini API 不对中国大陆、香港、澳门开放，服务器需要在其他地区）"
+                if "location is not supported" in res.text.lower()
+                else ""
+            )
+            raise EmbeddingError(f"向量化服务返回 {res.status_code}{hint}: {res.text[:500]}")
+        try:
+            vectors = [e["values"] for e in res.json()["embeddings"]]
+        except (ValueError, KeyError, TypeError) as e:
+            raise EmbeddingError(f"向量化服务的返回无法解析：{res.text[:500]}") from e
+        if len(vectors) != len(texts):
+            raise EmbeddingError(f"向量化服务返回了 {len(vectors)} 个向量，应为 {len(texts)} 个")
+        return vectors
+
+
+class _RateLimited(EmbeddingError):
+    def __init__(self, message: str, delay: float) -> None:
+        super().__init__(message)
+        self.delay = delay
+        """Seconds Google asks to wait before retrying; 0 if it does not say."""
+
+
+def _retry_delay(body: str) -> float:
+    """The `retryDelay` of the RetryInfo in a Gemini error, e.g. `"36s"`."""
+    found = re.search(r'"retryDelay":\s*"(\d+(?:\.\d+)?)s"', body)
+    return float(found.group(1)) if found else 0.0
+
+
+def open_embedder(settings: EmbeddingSettings) -> ClosableEmbedder:
+    """The embedder of the service the deployment chose."""
+    if settings.provider == "gemini":
+        assert settings.dimensions is not None, "Gemini's settings always carry dimensions"
+        return GeminiEmbedder(
+            settings.api_key, settings.model, settings.dimensions, settings.base_url
+        )
+    return SiliconFlowEmbedder(settings.api_key, settings.model, settings.base_url)
 
 
 def nearest(

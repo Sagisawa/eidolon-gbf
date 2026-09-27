@@ -313,3 +313,13 @@ async def test_with_memory_off_turns_neither_find_nor_write_down_but_users_still
     assert [m.text for m in await memories.entries(world.producer)] == [TRIP]
     await memories.clear(world.producer)
     assert await memories.entries(world.producer) == []
+
+
+async def test_memories_are_embedded_without_a_title(world: World, make_memories: MemoriesFactory):
+    embedder = FakeEmbedder()
+    memories = make_memories(memorized(CAT), embedder=embedder)
+
+    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
+    await memories.entries(world.producer)  # written down
+
+    assert embedder.documents == [CAT] and embedder.titles == [None]

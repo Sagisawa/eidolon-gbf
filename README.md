@@ -41,6 +41,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 | 🧠 **跨角色共享记忆** | 对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)） |
 | ⚡ **按需检索** | 先由轻量模型判断这句话要不要查资料，寒暄闲聊零额外延迟 |
 | 🔌 **模型可自由替换** | 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种接口，也可接任意兼容的第三方服务 |
+| 🧩 **向量化服务二选一** | 部署时在硅基流动 Qwen3-Embedding 与 Google Gemini Embedding 2 之间选择，换了之后一条命令用库里的原文重新向量化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **人设初稿生成** | 由后台模型读完角色的全部剧情，写出人设初稿，再人工校对 |
 | 👥 **多用户与限额** | 命令行签发访问密钥，按用户限流、记忆互相隔离，适合分享给朋友 |
 | 🚀 **一键部署** | 自带 Caddy（自动 HTTPS）+ coturn（TURN 中继）的生产配置 |
@@ -54,6 +55,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
   - [角色](#角色)
   - [语音通话](#语音通话)
   - [剧情库](#剧情库)
+  - [向量化服务](#向量化服务)
   - [对话中的检索](#对话中的检索)
   - [记忆](#记忆)
   - [用户与访问密钥](#用户与访问密钥)
@@ -91,7 +93,8 @@ flowchart LR
     Memory --> DB
     Engine <--> ChatLLM["对话模型"]
     Retrieval <--> Jev["Jev · 检索判断"]
-    Retrieval <--> SF["硅基流动<br/>Embedding · Reranker"]
+    Retrieval <--> Emb["向量化<br/>Qwen3-Embedding 或 Gemini"]
+    Retrieval <--> SF["硅基流动<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["后台模型"]
 ```
 
@@ -125,8 +128,8 @@ docker compose exec backend eidolon key issue alice   # 密钥只显示这一次
 > |---|---|
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
-> | 剧情库（同步或导入） | `SILICONFLOW_API_KEY` |
-> | 检索与记忆 | `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
+> | 剧情库（同步或导入） | 向量化服务的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
+> | 检索与记忆 | 向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
 >
 > 所有配置项的说明见 [`.env.example`](.env.example)。
 
@@ -160,12 +163,12 @@ name = "櫻木真乃"
 intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
-avatar = "avatars/mano.png"
+avatar = "avatars/mano.jpg"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-人设文件、角色资料和头像**不进仓库**（ADR-0003）。启动前参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/mano.md` 和 `characters/sheets/kogane.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
+人设文件、角色资料和头像都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
 
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
@@ -212,7 +215,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 两者是同一段剧情的两个状态：汉化版到位后按同一剧本编号取代原文剧情，仍在剧情目录的同一张卡或同一个活动下；角色回忆时两者没有区别。
 
-剧情数据不进仓库（ADR-0003）：把 SCTranslationData 克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好 `SILICONFLOW_API_KEY`，然后同步：
+剧情数据不进仓库（ADR-0003）：把 SCTranslationData 克隆到仓库根目录的 `corpus/`（已被 git 忽略，docker compose 会把它只读挂载到后端容器的 `/corpus`），在 `.env` 里填好向量化服务的 key（默认 `SILICONFLOW_API_KEY`，见[向量化服务](#向量化服务)），然后同步：
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
@@ -245,7 +248,7 @@ docker compose exec backend eidolon story sync
 - 每段剧情以原始剧本编号为主键（CSV 取文件末尾 `info` 行指向的剧本），重复导入会覆盖更新；内容没有变化的剧情不会重新向量化，所以随时可以重新导入或同步。
 - 只收录正式经历：失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按原始剧本编号识别并排除；制作人的选项不收录，角色对每个选项的反应都保留。
 - 出场角色按台词的说话人识别：`characters.toml` 里每位角色的 `speakers` 列出她在剧本里的名字（如 `真乃`）。修改 `speakers` 或新增角色后需要重新导入。
-- 向量化默认使用硅基流动的 `Qwen/Qwen3-Embedding-0.6B`，可用 `EMBEDDING_MODEL` 更换；换模型后重新导入即可。只有出场角色非空的剧情会被向量化。
+- 向量化使用部署时选定的服务（见[向量化服务](#向量化服务)）；换服务或模型后运行 `eidolon reembed`，不需要重新导入。只有出场角色非空的剧情会被向量化。
 - 剧情目录按「角色 → 卡或活动 → 话」分层，直接由剧情库生成，所以总是和最近一次导入一致；导入结束时会列出每位角色的目录规模。
 
 </details>
@@ -275,9 +278,31 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 本地开发时在 `backend/` 下用 `uv run eidolon --db data/eidolon.db story sync`（`import-csv`、`import-json` 同理）。
 
+### 向量化服务
+
+剧情库、角色资料和记忆用同一个向量化服务，部署时用 `EMBEDDING_PROVIDER` 二选一（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)）；重排不跟着换，始终用硅基流动。
+
+| `EMBEDDING_PROVIDER` | 服务 | 需要的 key | 默认模型 |
+|---|---|---|---|
+| `siliconflow`（默认） | 硅基流动 | `SILICONFLOW_API_KEY` | `Qwen/Qwen3-Embedding-0.6B` |
+| `gemini` | Google Gemini API | `GEMINI_API_KEY`（重排仍需 `SILICONFLOW_API_KEY`） | `gemini-embedding-2`，维度由 `EMBEDDING_DIMENSIONS` 指定（默认 1536，128–3072） |
+
+> [!WARNING]
+> 选 Gemini 时：Gemini API **不对中国大陆、香港、澳门开放**，服务器要在其他地区；**免费层的内容会被 Google 用于改进产品**，送去向量化的包括剧情库和用户的记忆，介意的话开通计费（付费层不用于训练）。
+
+- 库里只保留当前模型的向量。换服务、换模型（`EMBEDDING_MODEL`）或换维度后，重启后端，再运行一次：
+
+  ```sh
+  docker compose exec backend eidolon reembed
+  ```
+
+  它用库里已有的原文重新向量化剧情库、角色资料和全部用户的记忆，不需要重新下载或导入剧情；全部完成后删除旧模型的向量。运行期间服务照常可用，只是检索暂时只查得到已完成的部分。可以随时中断，重新运行会接着做；出错时旧向量不会被删除。
+- 后端启动时如果发现剧情库有段落缺当前模型的向量，会在日志里提示运行 `eidolon reembed`。
+- 模型的存储标识带上维度（如 `gemini-embedding-2@1536`），所以改维度等同于换模型。沿用硅基流动的已有部署不需要做任何事。
+
 ### 对话中的检索
 
-在 `.env` 里填好 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+在 `.env` 里填好向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
 
 ```mermaid
 flowchart LR
@@ -289,13 +314,13 @@ flowchart LR
 ```
 
 - 每一句话先交给 Jev（通过 Vercel AI Gateway 调用）判断这句话需要什么：寒暄闲聊不检索，不增加延迟；需要资料时做下面的检索；问「那次……是怎么回事」这类过去经历时，直接用这句话「回顾剧情」，把结果放进提示词，省去对话模型自己调用工具的那一轮。Jev 出错时照常检索。
-- 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。检索或重排出错时，本回合不带检索结果照常回复。
+- 需要检索时，同时检索剧情库里当前角色出场过的剧情和她的角色资料，用硅基流动的 Qwen3-Reranker（默认 `Qwen/Qwen3-Reranker-0.6B`，`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。「够高」的阈值按重排模型分组（0.6B 和 4B 都校准过），也可以用 `RERANK_MIN_RELEVANCE`、`RERANK_MEMORY_MIN_RELEVANCE` 手动设置；`eidolon eval rerank` 用仓库里的校准数据集打印分数分布，帮助定阈值（见 [`docs/deploy.md`](docs/deploy.md)）。检索或重排出错时，本回合不带检索结果照常回复。
 - 对话模型还可以调用「回顾剧情」工具（`recall_story`）：制作人问「那次……是怎么回事」这类问题时，角色用一句概括去查自己出场过的剧情，拿回最相关的最多 2 段剧情的原文（附带它在剧情目录中属于哪张卡或哪个活动、同一处还有哪些剧情），再据此回答。一句话最多调用 1 轮工具；Jev 已经判断为回顾剧情的回合不再提供这个工具。
 - 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
 
 ### 记忆
 
-角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要 `SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL`）。
+角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要向量化服务的 key、`SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL`）。
 
 - **写入**：每个回合结束后，后台模型读这一轮对话，把用户透露的、值得长期记住的事写成中文记忆（如「制作人养了一只叫小白的猫」），记下所属用户和来源角色；「下周六」这样的相对时间会按用户的时区换算成日期。已经记住的事不会重复记。这一步在后台进行，不耽误回复；用户的下一句话会先等它完成（最多 5 秒）。
 - **想起**：之后的对话中，Jev 判断用户在说自己的事（近况、计划、家人宠物等）时，只检索记忆；需要检索剧情和角色资料时，也会一起检索记忆。和话题相关的最多 3 条记忆放进提示词，每条注明来源角色和日期。
@@ -380,15 +405,19 @@ eidolon-sc/
 │   │   ├── retrieval.py      #   检索判断、剧情/资料检索与重排
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
 │   │   ├── corpus.py         #   剧情库：存储、向量检索与剧情目录
+│   │   ├── embedding.py      #   向量化：硅基流动 Qwen3-Embedding 或 Gemini
+│   │   ├── reembed.py        #   换向量化模型后重新向量化（eidolon reembed）
+│   │   ├── rerank_eval.py    #   重排阈值校准（eidolon eval rerank）
 │   │   ├── story_import.py   #   剧情库导入（CSV / JSON）与正式经历规则
 │   │   ├── story_sync.py     #   与原作同步（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB 镜像与 API 的客户端
 │   │   ├── script_cache.py   #   同步下载的原始剧本缓存
 │   │   ├── sheet_draft.py    #   人设初稿生成
 │   │   └── llm/              #   三种模型接口的适配
+│   ├── eval/                 #   重排校准数据集（只含问题与标注，不含剧情原文）
 │   └── tests/
 ├── frontend/                 # Next.js 前端
-├── characters/               # 角色配置、人设、资料、头像（后三者不进仓库）
+├── characters/               # 角色配置、人设、资料、头像
 ├── corpus/                   # 剧情数据与镜像缓存（不进仓库）
 ├── deploy/                   # Caddyfile、每周同步脚本、活动名对照表示例
 ├── docs/
@@ -404,7 +433,7 @@ eidolon-sc/
 
 本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）或（由你选择）任何更高版本发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
 
-许可证只覆盖仓库里的代码和文档。剧情数据、角色音色、人设、角色资料和头像不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。
+许可证只覆盖仓库里的代码和文档。剧情数据和角色音色不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。仓库里的人设、角色资料和头像同样不在许可证范围内：其中的角色与设定属于原作版权方。
 
 ## 🙏 致谢
 
@@ -414,6 +443,7 @@ eidolon-sc/
 - [Soniox](https://soniox.com/) —— 语音识别
 - [Fish Audio](https://fish.audio/) —— 语音合成
 - [硅基流动](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
+- [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（可选的向量化服务）
 - [Vercel AI Gateway](https://vercel.com/ai-gateway) —— 检索判断模型的调用
 
 <div align="center">

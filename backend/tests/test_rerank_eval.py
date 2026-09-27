@@ -1,0 +1,256 @@
+"""`eidolon eval rerank`: the calibration set's questions are run through the same
+candidates and reranking as a turn, and the scores the reranker gives what is labelled
+relevant and what is not are laid side by side, against the model's thresholds."""
+
+import asyncio
+from collections.abc import Sequence
+from pathlib import Path
+
+import pytest
+
+from eidolon.characters import load_characters
+from eidolon.corpus import Episode, Line, StoryCorpus
+from eidolon.facts import FactIndex
+from eidolon.rerank import RerankThresholds
+from eidolon.rerank_eval import (
+    CalibrationError,
+    evaluate,
+    load_calibration,
+    report,
+)
+from tests.conftest import Admin, CharacterConfig
+from tests.fakes import FakeEmbedder
+
+REPO = Path(__file__).parents[2]
+
+PARK = Episode(
+    "produce_events/100100101", "培育剧情", "W.I.N.G.編", "公園の歌声", frozenset({"mano"}),
+    (Line("真乃", "公園の鳩が好きです"),),
+)
+FINAL = Episode(
+    "produce_events/100100109", "培育剧情", "W.I.N.G.編", "決勝", frozenset({"mano"}),
+    (Line("真乃", "優勝しました"), Line("真乃", "写真も撮りました")),
+)
+FACTS = "# 鸟\n## ピーちゃん\n家里养的鸟，会说话。\n\n# 档案\n生日是4月25日。\n"
+
+CALIBRATION = """
+[[memories]]
+key = "cat"
+source = "mano"
+text = "制作人养了一只叫小白的猫"
+
+[[memories]]
+key = "trip"
+source = "kogane"
+text = "制作人下个月去北海道出差"
+
+[[cases]]
+id = "park"
+character = "mano"
+kind = "story"
+query = "公園の鳩のこと覚えてる？"
+relevant = ["produce_events/100100101", "produce_events/100100999"]
+acceptable = ["鸟 / ピーちゃん"]
+
+[[cases]]
+id = "smalltalk"
+character = "mano"
+kind = "story"
+query = "今天天气真好"
+relevant = []
+
+[[cases]]
+id = "cat"
+character = "kogane"
+kind = "memory"
+query = "我家的猫最近胖了"
+relevant = ["cat"]
+"""
+
+
+class KeywordReranker:
+    """Scores each document by the first of its keywords it contains, others `rest`."""
+
+    model = "fake-reranker"
+
+    def __init__(self, scores: dict[str, float], rest: float = 0.05) -> None:
+        self.scores = scores
+        self.rest = rest
+
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        scored = [
+            (i, next((s for k, s in self.scores.items() if k in d), self.rest))
+            for i, d in enumerate(documents)
+        ]
+        return sorted(scored, key=lambda r: -r[1])[:top_n]
+
+
+@pytest.fixture
+def world(tmp_path: Path):
+    config = CharacterConfig(tmp_path / "characters")
+    config.add("mano", "櫻木真乃", "sheet", speakers=["真乃"], facts=FACTS)
+    config.add("kogane", "月岡恋鐘", "sheet", speakers=["恋鐘"])
+    calibration = tmp_path / "calibration.toml"
+    calibration.write_text(CALIBRATION, encoding="utf-8")
+    embedder = FakeEmbedder()
+    corpus = StoryCorpus(tmp_path / "eidolon.db", embedder)
+    facts = FactIndex(tmp_path / "eidolon.db", embedder)
+    yield load_characters(config.path), calibration, embedder, corpus, facts
+    corpus.close()
+    facts.close()
+
+
+async def test_each_candidate_is_scored_and_labelled(world):
+    characters, calibration, embedder, corpus, facts = world
+    await corpus.save([PARK, FINAL])
+    reranker = KeywordReranker({"鳩": 0.9, "ピーちゃん": 0.4, "猫": 0.02})
+
+    park, smalltalk, cat = await evaluate(
+        load_calibration(calibration), characters, embedder, reranker, corpus, facts
+    )
+
+    assert {(s.label, s.score, s.verdict) for s in park.scored} == {
+        ("produce_events/100100101", 0.9, "relevant"),
+        ("produce_events/100100109", 0.05, "irrelevant"),
+        ("鸟 / ピーちゃん", 0.4, "acceptable"),
+        ("档案", 0.05, "irrelevant"),
+    }
+    # A labelled episode the vector search never offered is a recall problem.
+    assert park.not_retrieved == ["produce_events/100100999"]
+    assert all(s.verdict == "irrelevant" for s in smalltalk.scored)
+    # Memories are shared: Kogane finds the one told to Mano.
+    assert {(s.label, s.verdict) for s in cat.scored} == {
+        ("cat", "relevant"), ("trip", "irrelevant")
+    }
+
+
+async def test_an_episode_scores_as_its_best_passage(world):
+    characters, calibration, embedder, corpus, facts = world
+    long_final = Episode(
+        FINAL.id, FINAL.category, FINAL.source, FINAL.title, FINAL.cast,
+        tuple(Line("真乃", "あ" * 700) for _ in range(3)) + (Line("真乃", "鳩"),),
+    )
+    await corpus.save([long_final])
+    reranker = KeywordReranker({"鳩": 0.7})
+
+    [park, *_] = await evaluate(
+        load_calibration(calibration), characters, embedder, reranker, corpus, facts
+    )
+
+    [final] = [s for s in park.scored if s.label == FINAL.id]
+    assert final.score == 0.7
+
+
+async def test_the_report_sets_relevant_against_irrelevant_at_the_thresholds(world):
+    characters, calibration, embedder, corpus, facts = world
+    await corpus.save([PARK, FINAL])
+    reranker = KeywordReranker({"鳩": 0.9, "ピーちゃん": 0.4, "猫": 0.02})
+    results = await evaluate(
+        load_calibration(calibration), characters, embedder, reranker, corpus, facts
+    )
+
+    text = report(results, "fake-reranker", RerankThresholds(references=0.3, memories=0.01))
+
+    assert "fake-reranker" in text
+    # References: the park (0.9) found; of six irrelevant, the small talk lets in the
+    # park and the bird (this reranker ignores the query).
+    assert "阈值 0.3：相关命中 1/1，不相关误放 2/6" in text
+    # Memories: the cat (0.02) found, the trip (0.05) let in.
+    assert "阈值 0.01：相关命中 1/1，不相关误放 1/1" in text
+    assert "park：produce_events/100100999" in text
+
+
+@pytest.mark.parametrize(
+    "broken, complaint",
+    [
+        ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "chat"\nquery = "q"\nrelevant = []\n',
+         "kind"),
+        ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "memory"\nquery = "q"\n'
+         'relevant = ["dog"]\n', "dog"),
+        ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "story"\nrelevant = []\n', "query"),
+        ("[[cases]\n", "格式有误"),
+    ],
+)
+def test_a_broken_calibration_file_is_reported(tmp_path: Path, broken: str, complaint: str):
+    path = tmp_path / "calibration.toml"
+    path.write_text(broken, encoding="utf-8")
+
+    with pytest.raises(CalibrationError, match=complaint):
+        load_calibration(path)
+
+
+def test_the_committed_calibration_set_names_only_facts_the_characters_have():
+    calibration = load_calibration(REPO / "backend" / "eval" / "rerank-calibration.toml")
+    characters = load_characters(REPO / "characters" / "characters.toml")
+
+    titles = {f.title for c in characters.values() for f in c.facts}
+    named = {
+        label
+        for case in calibration.cases
+        for label in case.relevant + case.acceptable
+        if " / " in label and case.kind != "memory"
+    }
+    assert named <= titles, named - titles
+    assert {case.character for case in calibration.cases} <= characters.keys()
+
+
+class Closing:
+    async def aclose(self) -> None:
+        pass
+
+
+class ClosableEmbedder(FakeEmbedder, Closing):
+    pass
+
+
+class ClosableReranker(KeywordReranker, Closing):
+    pass
+
+
+def test_the_command_needs_the_reranker(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gm-key")
+    monkeypatch.delenv("SILICONFLOW_API_KEY", raising=False)
+    calibration = tmp_path / "calibration.toml"
+    calibration.write_text(CALIBRATION, encoding="utf-8")
+    admin = Admin(tmp_path / "eidolon.db", capsys)
+
+    characters = REPO / "characters" / "characters.toml"
+
+    err = admin.fails("eval", "rerank", "--file", str(calibration), "--characters", str(characters))
+
+    assert "SILICONFLOW_API_KEY" in err
+
+
+def test_the_command_prints_the_report_for_the_model_asked_for(
+    world, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+):
+    characters, calibration, _, corpus, _ = world
+    asyncio.run(corpus.save([PARK, FINAL]))
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    monkeypatch.delenv("RERANK_MIN_RELEVANCE", raising=False)
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: ClosableEmbedder())
+    used: list[str] = []
+
+    def reranker(api_key: str, model: str, base_url: str) -> ClosableReranker:
+        used.append(model)
+        return ClosableReranker({"鳩": 0.9})
+
+    monkeypatch.setattr("eidolon.rerank.SiliconFlowReranker", reranker)
+    admin = Admin(tmp_path / "eidolon.db", capsys)
+    config = tmp_path / "characters" / "characters.toml"
+
+    out = admin.run(
+        "eval", "rerank", "--model", "Qwen/Qwen3-Reranker-0.6B", "--file", str(calibration),
+        "--characters", str(config),
+    )
+
+    assert used == ["Qwen/Qwen3-Reranker-0.6B"]
+    assert "重排模型：Qwen/Qwen3-Reranker-0.6B" in out
+    assert "阈值 0.3：" in out and "阈值 0.01：" in out
+    assert "  + 0.9000 produce_events/100100101" in out

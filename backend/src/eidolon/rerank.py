@@ -1,9 +1,55 @@
-"""Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow."""
+"""Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow.
+
+What counts as relevant enough depends on the model, so each model the project has
+calibrated (`eidolon eval rerank`) has thresholds of its own."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 import httpx
+
+from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
+
+
+@dataclass(frozen=True)
+class RerankThresholds:
+    """The reranker's scores below which a candidate is left out of the prompt."""
+
+    references: float
+    """For story passages and character facts, reranked together."""
+    memories: float
+    """For the user's memories."""
+
+
+KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
+    # On the calibration set (backend/eval/rerank-calibration.toml) relevant passages score
+    # 0.99 at the median and nine in ten unrelated ones below 0.3, so a question about
+    # something the character never lived through brings back nothing rather than filler;
+    # the unrelated ones above it are mostly the same topic but another event, which no
+    # threshold separates. A short memory scores low against a loosely worded remark (a
+    # quarter of the relevant ones below 0.015) but unrelated ones lower still (nine in ten
+    # below 0.0011), so memories get a threshold well below that of story and character facts.
+    "Qwen/Qwen3-Reranker-0.6B": RerankThresholds(references=0.3, memories=0.01),
+    # From the same set. 4B scores near misses (another year's Christmas, another bento)
+    # between 0.4 and 0.7 where 0.6B puts them below 0.3, so it needs a higher bar for the
+    # same precision. Its unrelated memories stay below 0.005 but for one, while it scores
+    # loosely worded remarks a little higher than 0.6B, so its memory threshold is lower.
+    "Qwen/Qwen3-Reranker-4B": RerankThresholds(references=0.7, memories=0.005),
+}
+FALLBACK_MODEL = "Qwen/Qwen3-Reranker-4B"
+"""Whose thresholds a model not calibrated gets."""
+DEFAULT_THRESHOLDS = KNOWN_THRESHOLDS[DEFAULT_RERANK_MODEL]
+
+
+def thresholds_for(settings: RerankSettings) -> RerankThresholds:
+    """The thresholds of the reranker `settings` describe, as overridden there."""
+    thresholds = KNOWN_THRESHOLDS.get(settings.model, KNOWN_THRESHOLDS[FALLBACK_MODEL])
+    if settings.min_relevance is not None:
+        thresholds = replace(thresholds, references=settings.min_relevance)
+    if settings.memory_min_relevance is not None:
+        thresholds = replace(thresholds, memories=settings.memory_min_relevance)
+    return thresholds
 
 
 class Reranker(Protocol):

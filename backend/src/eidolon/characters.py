@@ -4,8 +4,8 @@ The configuration is a TOML file listing each character's identifier, display
 name, introduction, voice and the location of her character sheet (and,
 optionally, her character facts and avatar), relative to the file, plus the
 speaker names her lines carry in the story corpus. Adding a character or
-replacing a voice is a configuration change. The sheets, facts and avatars
-themselves stay out of the repository (ADR-0003).
+replacing a voice is a configuration change. The sheets, facts and avatars are
+committed with the configuration (ADR-0003).
 
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
@@ -33,6 +33,16 @@ class CharacterConfigError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class Fact:
+    """One entry of a character's facts: the section under a heading."""
+
+    title: str | None
+    """The headings above it, e.g. `人物关系 / 風野灯織`; None for text before any heading."""
+    text: str
+    """The entry as it is retrieved, headed by its title."""
+
+
+@dataclass(frozen=True)
 class Character:
     id: str
     name: str
@@ -43,7 +53,7 @@ class Character:
     avatar: Path | None
     speakers: tuple[str, ...] = ()
     """Names her lines are credited to in story scripts, e.g. 真乃."""
-    facts: tuple[str, ...] = ()
+    facts: tuple[Fact, ...] = ()
     """Her character facts, one entry per section of her facts file."""
     sheet_path: Path | None = None
 
@@ -99,7 +109,7 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
         log.warning("sheet %s of character %s is an unreviewed draft", sheet_path, label)
         sheet = sheet.replace(DRAFT_MARKER, "", 1).strip()
 
-    facts: tuple[str, ...] = ()
+    facts: tuple[Fact, ...] = ()
     if isinstance(entry.get("facts"), str):
         facts_path = base / entry["facts"]
         try:
@@ -137,18 +147,19 @@ def is_draft(sheet: str) -> bool:
 _HEADING = re.compile(r"(#{1,6})\s+(.+?)\s*#*\s*")
 
 
-def parse_facts(markdown: str) -> tuple[str, ...]:
+def parse_facts(markdown: str) -> tuple[Fact, ...]:
     """Split a facts file into entries: the text under each heading, titled with the
     headings above it (e.g. `人物关系 / 風野灯織`). Headings with nothing under them
     make no entry."""
-    facts: list[str] = []
+    facts: list[Fact] = []
     titles: list[str] = []
     body: list[str] = []
 
     def flush() -> None:
         text = "\n".join(body).strip()
         if text:
-            facts.append(f"{' / '.join(titles)}\n{text}" if titles else text)
+            title = " / ".join(titles) or None
+            facts.append(Fact(title, f"{title}\n{text}" if title else text))
         body.clear()
 
     for line in markdown.splitlines():

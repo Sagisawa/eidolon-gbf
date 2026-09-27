@@ -44,6 +44,7 @@ It is built for the author and a small circle of friends, not as a public servic
 | 🧠 **Memory shared across characters** | Tell Mano something and Kogane will know too — but she'll bring it up as "Mano told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)) |
 | ⚡ **On-demand retrieval** | A lightweight model first decides whether a line needs any lookup, so small talk adds no latency |
 | 🔌 **Bring your own model** | Speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so any compatible third-party service works too |
+| 🧩 **Pick your embedding service** | Choose SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding 2 at deploy time; after switching, one command re-embeds from the text already in the database ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)) |
 | 📝 **Character sheet drafting** | A background model reads through all of a character's episodes and drafts her character sheet for you to proofread |
 | 👥 **Multi-user with limits** | Issue access keys from the CLI; per-user rate limits and fully isolated memories make it safe to share with friends |
 | 🚀 **One-command deployment** | Production config ships with Caddy (automatic HTTPS) and coturn (TURN relay) |
@@ -57,6 +58,7 @@ It is built for the author and a small circle of friends, not as a public servic
   - [Characters](#characters)
   - [Voice calls](#voice-calls)
   - [Story corpus](#story-corpus)
+  - [Embedding service](#embedding-service)
   - [Retrieval during conversation](#retrieval-during-conversation)
   - [Memory](#memory)
   - [Users and access keys](#users-and-access-keys)
@@ -94,7 +96,8 @@ flowchart LR
     Memory --> DB
     Engine <--> ChatLLM["Chat model"]
     Retrieval <--> Jev["Jev · retrieval router"]
-    Retrieval <--> SF["SiliconFlow<br/>Embedding · Reranker"]
+    Retrieval <--> Emb["Embedding<br/>Qwen3-Embedding or Gemini"]
+    Retrieval <--> SF["SiliconFlow<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["Background model"]
 ```
 
@@ -128,8 +131,8 @@ Open <http://localhost:3000>, enter the access key on the settings page, and pic
 > |---|---|
 > | Text chat | `CHAT_LLM_*` |
 > | Voice calls | `SONIOX_API_KEY`, `FISH_AUDIO_API_KEY` |
-> | Story corpus (sync or import) | `SILICONFLOW_API_KEY` |
-> | Retrieval and memory | `SILICONFLOW_API_KEY`, `AI_GATEWAY_API_KEY`, `JEV_MODEL` |
+> | Story corpus (sync or import) | The embedding service's key: `SILICONFLOW_API_KEY` (default), or `EMBEDDING_PROVIDER=gemini` plus `GEMINI_API_KEY` |
+> | Retrieval and memory | The embedding service's key, `SILICONFLOW_API_KEY` (reranking), `AI_GATEWAY_API_KEY`, `JEV_MODEL` |
 >
 > Every option is documented in [`.env.example`](.env.example) (comments in Chinese).
 
@@ -163,12 +166,12 @@ name = "櫻木真乃"
 intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
-avatar = "avatars/mano.png"
+avatar = "avatars/mano.jpg"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-Character sheets, character facts and avatars are **not committed** (ADR-0003). Before starting, write `characters/sheets/mano.md` and `characters/sheets/kogane.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file. docker compose mounts `characters/` read-only into the backend container.
+Character sheets, character facts and avatars are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file. docker compose mounts `characters/` read-only into the backend container.
 
 <details>
 <summary><b>Drafting a character sheet with the background model</b></summary>
@@ -215,7 +218,7 @@ The episodes characters can recall come from two sources, kept up to date by one
 
 They are two states of the same episode: once a translation arrives it replaces the untranslated episode by script ID, under the same card or event in the story catalog. Characters recall both the same way.
 
-Story data is not committed (ADR-0003): clone SCTranslationData into `corpus/` at the repo root (git-ignored, mounted read-only at `/corpus` in the backend container), set `SILICONFLOW_API_KEY` in `.env`, then sync:
+Story data is not committed (ADR-0003): clone SCTranslationData into `corpus/` at the repo root (git-ignored, mounted read-only at `/corpus` in the backend container), set the embedding service's key in `.env` (`SILICONFLOW_API_KEY` by default; see [Embedding service](#embedding-service)), then sync:
 
 ```sh
 git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
@@ -248,7 +251,7 @@ The first sync fills in everything missing from the mirror and takes an hour or 
 - Each episode is keyed by its raw script ID (for a CSV, the script its trailing `info` row references); re-importing updates it in place. Unchanged episodes are not re-embedded, so you can re-import or sync any time.
 - Only canon is kept: failure endings (W.I.N.G. defeat, missed season goals, G.R.A.D. defeat, failed auditions, broken promises) are identified by script ID and excluded; the producer's choices are not recorded, while the character's reaction to every choice is kept.
 - The cast is identified from each line's speaker: each character's `speakers` in `characters.toml` lists her name as it appears in scripts (e.g. `真乃`). Re-import after changing `speakers` or adding a character.
-- Embeddings default to SiliconFlow's `Qwen/Qwen3-Embedding-0.6B`, configurable via `EMBEDDING_MODEL`; re-import after switching. Only episodes with a non-empty cast are embedded.
+- Embeddings use the service chosen at deploy time (see [Embedding service](#embedding-service)); after switching service or model, run `eidolon reembed` — no re-import needed. Only episodes with a non-empty cast are embedded.
 - The story catalog (character → card or event → episode) is generated straight from the corpus, so it always matches the latest import; an import ends by listing each character's catalog size.
 
 </details>
@@ -278,9 +281,31 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 For local development, run `uv run eidolon --db data/eidolon.db story sync` in `backend/` (likewise `import-csv` and `import-json`).
 
+### Embedding service
+
+The story corpus, character facts and memories all share one embedding service, chosen at deploy time with `EMBEDDING_PROVIDER` ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)). Reranking doesn't follow the switch; it always uses SiliconFlow.
+
+| `EMBEDDING_PROVIDER` | Service | Required key | Default model |
+|---|---|---|---|
+| `siliconflow` (default) | SiliconFlow | `SILICONFLOW_API_KEY` | `Qwen/Qwen3-Embedding-0.6B` |
+| `gemini` | Google Gemini API | `GEMINI_API_KEY` (reranking still needs `SILICONFLOW_API_KEY`) | `gemini-embedding-2`, with dimensions set by `EMBEDDING_DIMENSIONS` (default 1536, 128–3072) |
+
+> [!WARNING]
+> If you choose Gemini: the Gemini API is **not available in mainland China, Hong Kong or Macao**, so the server must be elsewhere; and **content sent on the free tier is used by Google to improve its products** — what gets embedded includes the story corpus and users' memories. If that matters to you, enable billing (the paid tier is not used for training).
+
+- The database keeps vectors for the current model only. After switching service, model (`EMBEDDING_MODEL`) or dimensions, restart the backend, then run once:
+
+  ```sh
+  docker compose exec backend eidolon reembed
+  ```
+
+  It re-embeds the story corpus, character facts and every user's memories from the text already in the database, with no need to download or import episodes again; once everything is done it deletes the old model's vectors. The service stays up meanwhile, though retrieval only finds the parts already done. You can interrupt it any time and rerun it to pick up where it stopped; if it fails, the old vectors are not deleted.
+- If the backend finds on startup that some corpus passages lack vectors for the current model, it logs a reminder to run `eidolon reembed`.
+- A model's stored ID includes its dimensions (e.g. `gemini-embedding-2@1536`), so changing dimensions counts as switching models. Existing deployments that stay on SiliconFlow need to do nothing.
+
 ### Retrieval during conversation
 
-With `SILICONFLOW_API_KEY`, `AI_GATEWAY_API_KEY` and `JEV_MODEL` set, characters can recall episodes and consult their character facts mid-conversation; if any is missing, they answer from their character sheet alone.
+With the embedding service's key, `SILICONFLOW_API_KEY` (reranking), `AI_GATEWAY_API_KEY` and `JEV_MODEL` set, characters can recall episodes and consult their character facts mid-conversation; if any is missing, they answer from their character sheet alone.
 
 ```mermaid
 flowchart LR
@@ -292,13 +317,13 @@ flowchart LR
 ```
 
 - Every line first goes to Jev (via Vercel AI Gateway) to decide what it needs. Small talk: no retrieval, no added latency. Needs references: the search below. A question like "what happened that time…?": the line is used to **recall story** right away and the result goes into the prompt, saving the chat model a tool-call round. If Jev errors, retrieval runs anyway.
-- A search covers the episodes the current character appears in plus her character facts, reranked with SiliconFlow's Qwen3-Reranker (`RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). If search or reranking fails, the turn proceeds without references.
+- A search covers the episodes the current character appears in plus her character facts, reranked with SiliconFlow's Qwen3-Reranker (`Qwen/Qwen3-Reranker-0.6B` by default, `RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). What counts as "sufficiently relevant" is a threshold set per reranker model (both 0.6B's and 4B's are calibrated), which you can also set by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`; `eidolon eval rerank` prints the score distribution on the repo's calibration dataset to help pick one (see [`docs/deploy.md`](docs/deploy.md)). If search or reranking fails, the turn proceeds without references.
 - The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. At most one tool round per line; turns Jev already routed to story recall don't offer the tool.
 - Character facts are the Markdown file referenced by `facts` in `characters.toml`, one entry per heading. They're embedded on a character's first search, and afterwards only changed entries are re-embedded; just restart the backend after editing.
 
 ### Memory
 
-Characters remember what users tell them about themselves, and all of a user's characters share those memories: tell Mano something and Kogane will know, but she'll bring it up as "Mano told me…" (ADR-0002). Different users' memories are fully isolated. Memory turns on together with retrieval (requires `SILICONFLOW_API_KEY`, `AI_GATEWAY_API_KEY` and `JEV_MODEL`).
+Characters remember what users tell them about themselves, and all of a user's characters share those memories: tell Mano something and Kogane will know, but she'll bring it up as "Mano told me…" (ADR-0002). Different users' memories are fully isolated. Memory turns on together with retrieval (requires the embedding service's key, `SILICONFLOW_API_KEY`, `AI_GATEWAY_API_KEY` and `JEV_MODEL`).
 
 - **Writing down**: after each turn, the background model reads the exchange and writes whatever the user revealed that's worth keeping as a memory in Chinese (e.g. "the producer has a cat named Xiaobai"), recording its owner and source character. Relative times like "next Saturday" are converted to dates in the user's time zone. Things already remembered aren't duplicated. This runs in the background without holding up the reply; the user's next line waits for it to finish (at most 5 seconds).
 - **Recalling**: later, when Jev decides the user is talking about their own life (news, plans, family, pets…), only memories are searched; when episodes and facts are searched, memories are searched alongside. Up to 3 relevant memories go into the prompt, each labeled with its source character and date.
@@ -383,15 +408,19 @@ eidolon-sc/
 │   │   ├── retrieval.py      #   retrieval routing, episode/fact search and reranking
 │   │   ├── memory.py         #   memories shared across conversations and characters
 │   │   ├── corpus.py         #   story corpus: storage, vector search and the story catalog
+│   │   ├── embedding.py      #   embeddings: SiliconFlow Qwen3-Embedding or Gemini
+│   │   ├── reembed.py        #   re-embedding after switching embedding models (eidolon reembed)
+│   │   ├── rerank_eval.py    #   reranker threshold calibration (eidolon eval rerank)
 │   │   ├── story_import.py   #   story corpus import (CSV / JSON) and the canon rules
 │   │   ├── story_sync.py     #   keeping the corpus in step with the game (eidolon story sync)
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
 │   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols
+│   ├── eval/                 #   reranker calibration dataset (questions and labels only, no story text)
 │   └── tests/
 ├── frontend/                 # Next.js frontend
-├── characters/               # character config, sheets, facts, avatars (last three not committed)
+├── characters/               # character config, sheets, facts, avatars
 ├── corpus/                   # story data and the mirror cache (not committed)
 ├── deploy/                   # Caddyfile, weekly sync script, sample event-name table
 ├── docs/
@@ -407,7 +436,7 @@ eidolon-sc/
 
 The code in this project is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), or (at your option) any later version. If you modify it and let others use it over a network, you must make your modified source code available to those users.
 
-The license covers only the code and documentation in this repository. Story data, character voices, character sheets, character facts and avatars are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003).
+The license covers only the code and documentation in this repository. Story data and character voices are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003). The character sheets, facts and avatars in the repository are not covered either: the characters and their settings belong to the rights holders.
 
 ## 🙏 Acknowledgements
 
@@ -417,6 +446,7 @@ The license covers only the code and documentation in this repository. Story dat
 - [Soniox](https://soniox.com/) — speech recognition
 - [Fish Audio](https://fish.audio/) — speech synthesis
 - [SiliconFlow](https://siliconflow.cn/) — Qwen3 Embedding / Reranker
+- [Google Gemini API](https://ai.google.dev/) — Gemini Embedding (optional embedding service)
 - [Vercel AI Gateway](https://vercel.com/ai-gateway) — access to the retrieval router model
 
 <div align="center">
