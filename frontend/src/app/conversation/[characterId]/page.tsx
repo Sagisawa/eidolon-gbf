@@ -32,12 +32,15 @@ export default function ConversationPage() {
   const [hearing, setHearing] = useState("");
   const call = useRef<Call | null>(null);
   const callEnding = useRef<string | null>(null); // why the backend is hanging up
+  const disposed = useRef(false); // the page has been left
   const characterAudio = useRef<HTMLAudioElement>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    disposed.current = false;
     setMuted(loadCallPreferences().muted);
     return () => {
+      disposed.current = true;
       call.current?.hangUp().catch(() => {});
     };
   }, []);
@@ -94,7 +97,7 @@ export default function ConversationPage() {
     callEnding.current = null;
     setCallState("connecting");
     try {
-      call.current = await startCall(conversationId, loadCallPreferences(), {
+      const started = await startCall(conversationId, loadCallPreferences(), {
         onEvent: onCallEvent,
         onHearing: setHearing,
         onCharacterAudio: (track) => {
@@ -108,8 +111,15 @@ export default function ConversationPage() {
           setError({ message: callEnding.current ?? "通话已断开", signedOut: false });
         },
       });
+      if (disposed.current) {
+        // Left while connecting: the cleanup found no call to hang up, so hang this one up now.
+        await started.hangUp().catch(() => {});
+        return;
+      }
+      call.current = started;
       setCallState("active");
     } catch (e) {
+      if (disposed.current) return;
       setCallState("idle");
       setError(toFailure(e));
     }
