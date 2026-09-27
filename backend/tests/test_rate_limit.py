@@ -1,5 +1,5 @@
 """Per-user rate limits: text turns and voice calls count against the user's hourly limits,
-whichever of their access keys they come with, driven through the backend's external API
+whichever device they come from, driven through the backend's external API
 with a clock the tests control."""
 
 from dataclasses import replace
@@ -52,19 +52,14 @@ async def test_text_turns_over_the_hourly_limit_are_refused_until_the_oldest_age
     assert events[-1]["type"] == "done"
 
 
-async def test_all_of_a_users_keys_share_one_limit_and_other_users_have_their_own(
-    make_client: ClientFactory, settings: Settings, admin: Admin
+async def test_all_of_a_users_devices_share_one_limit_and_other_users_have_their_own(
+    make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
     settings = limited(settings, turns=2)
     desktop = make_client(FakeLLM(REPLY), settings=settings, clock=clock)
-    phone = make_client(
-        FakeLLM(REPLY), admin.issue_key("producer").secret, settings=settings, clock=clock
-    )
-    admin.create_user("friend")
-    friend = make_client(
-        FakeLLM(REPLY), admin.issue_key("friend").secret, settings=settings, clock=clock
-    )
+    phone = make_client(FakeLLM(REPLY), settings=settings, clock=clock)
+    friend = make_client(FakeLLM(REPLY), "friend", settings=settings, clock=clock)
     conversation_id = await start_conversation(desktop)
     await send_turn(desktop, conversation_id, "在吗")
     await send_turn(phone, conversation_id, "在吗")

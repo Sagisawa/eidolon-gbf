@@ -1,5 +1,5 @@
 // How this device takes calls: microphone, call quality and the mute switch.
-// Kept in this browser's local storage, like the access key.
+// Kept in this browser's local storage.
 
 export type Quality = "low" | "standard" | "high";
 

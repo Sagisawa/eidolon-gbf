@@ -1,4 +1,4 @@
-import { loadAccessKey } from "@/lib/accessKey";
+import type { Provider } from "@/lib/signIn";
 import { detectTimezone } from "@/lib/timezone";
 
 export type Character = {
@@ -64,10 +64,22 @@ export class ApiError extends Error {
     super(message);
   }
 
-  /** The access key is missing, invalid or revoked. */
+  /** The browser is not signed in, or its session has expired. */
   get unauthorized(): boolean {
     return this.status === 401;
   }
+}
+
+/** The status of a request from a user who has not yet agreed to the privacy policy and
+ * terms of use. */
+export const CONSENT_REQUIRED = 428;
+
+/** The page a response sends the browser to before it can go on, if any: signing in
+ * when it is not signed in, agreeing to the terms when the user has not yet. */
+export function redirectFor(status: number): string | null {
+  if (status === 401) return "/login";
+  if (status === CONSENT_REQUIRED) return "/consent";
+  return null;
 }
 
 export async function json<T>(res: Response): Promise<T> {
@@ -99,19 +111,136 @@ function describe(detail: unknown): string | undefined {
   return typeof first === "string" ? first.replace(/^Value error, /, "") : undefined;
 }
 
-/** The headers every backend request carries: the access key saved on the settings
- * page, and the time zone this browser reports. */
+/** The headers every backend request carries besides the session cookie: the time zone
+ * this browser reports. */
 export function apiHeaders(init?: HeadersInit): Headers {
   const headers = new Headers(init);
-  const key = loadAccessKey();
-  if (key) headers.set("authorization", `Bearer ${key}`);
   headers.set("x-timezone", detectTimezone());
   return headers;
 }
 
-/** fetch() for the backend API. */
-function api(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(path, { ...init, headers: apiHeaders(init.headers) });
+/** fetch() for the backend API; sends the browser on when it has to sign in first. */
+async function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
+  const to = redirectFor(res.status);
+  if (to && window.location.pathname !== to) window.location.assign(to);
+  return res;
+}
+
+/** The ways to sign in the backend offers. */
+export type SignInOptions = { providers: Provider[]; dev_login: boolean };
+
+export async function getSignInOptions(): Promise<SignInOptions> {
+  return json(await fetch("/api/auth/providers"));
+}
+
+/** An identity the user signs in with. */
+export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
+
+export type Account = { name: string; sign_in_methods: SignInMethod[] };
+
+/** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
+export async function getAccount(): Promise<Account> {
+  return json(await api("/api/account"));
+}
+
+/** Stop signing in with the identity at `provider`; refused for the last one. */
+export async function unlinkSignInMethod(provider: Provider): Promise<void> {
+  await expectNoContent(await api(`/api/account/sign-in-methods/${provider}`, { method: "DELETE" }));
+}
+
+export type OwnService = "llm" | "tts" | "stt";
+
+export type LLMProtocol = "chat-completions" | "responses" | "anthropic";
+
+/** A key the user brought, as they may see it: only its last 4 characters. */
+export type OwnKey = { last4: string };
+
+export type OwnLLM = OwnKey & { base_url: string; model: string; protocol: LLMProtocol };
+
+export type OwnKeys = {
+  /** Whether the deployment lets users bring their own keys at all. */
+  available: boolean;
+  keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnKey };
+  /** What of the user's use does not count towards the hourly limits. */
+  exempt: { turns: boolean; calls: boolean };
+  protocols: LLMProtocol[];
+};
+
+export async function getOwnKeys(): Promise<OwnKeys> {
+  return json(await api("/api/account/keys"));
+}
+
+/** Try the user's own LLM and keep it; fails with what the service said if the try fails. */
+export async function saveOwnLLM(
+  llm: Omit<OwnLLM, "last4"> & { api_key: string },
+): Promise<OwnLLM> {
+  return json(
+    await api("/api/account/keys/llm", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(llm),
+    }),
+  );
+}
+
+/** Try the user's own key for speech synthesis ("tts") or recognition ("stt") and keep it. */
+export async function saveOwnSpeechKey(service: "tts" | "stt", apiKey: string): Promise<OwnKey> {
+  return json(
+    await api(`/api/account/keys/${service}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  );
+}
+
+/** Forget the user's own key for `service`; the deployer's is used again. */
+export async function deleteOwnKey(service: OwnService): Promise<void> {
+  await expectNoContent(await api(`/api/account/keys/${service}`, { method: "DELETE" }));
+}
+
+/** Delete the user and all their data for good, signing them out everywhere. */
+export async function deleteAccount(): Promise<void> {
+  await expectNoContent(
+    await api("/api/account/delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    }),
+  );
+}
+
+/** Sign the user out on every device, this one included. */
+export async function logoutEverywhere(): Promise<void> {
+  await expectNoContent(await api("/api/account/logout-everywhere", { method: "POST" }));
+}
+
+/** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
+export async function agreeToTerms(): Promise<void> {
+  await expectNoContent(
+    await fetch("/api/account/consent", {
+      method: "POST",
+      headers: apiHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ agree_to_terms: true, at_least_13: true }),
+    }),
+  );
+}
+
+/** Sign in as the user with this name (development only). */
+export async function devLogin(name: string): Promise<void> {
+  await expectNoContent(
+    await fetch("/api/auth/dev-login", {
+      method: "POST",
+      headers: apiHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ name }),
+    }),
+  );
+}
+
+/** Sign this browser out. */
+export async function logout(): Promise<void> {
+  await expectNoContent(await fetch("/api/auth/logout", { method: "POST" }));
 }
 
 export async function getProfile(): Promise<ProducerProfile> {

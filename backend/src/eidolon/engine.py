@@ -16,6 +16,10 @@ it says along the way is part of the reply, and only the reply is recorded.
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
+
+A user who brought their own LLM has it play the character and write down their
+memories; when it fails, the turn fails saying so, rather than falling back to the
+deployer's model. Retrieval is always the deployer's.
 """
 
 import logging
@@ -27,6 +31,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.memory import Memories
+from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import effective_timezone, producer_prompt
 from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
@@ -119,30 +124,43 @@ class ConversationEngine:
         self._history_turns = history_turns
 
     async def turn(
-        self, conversation: Conversation, text: str, device_timezone: str | None = None
+        self,
+        conversation: Conversation,
+        text: str,
+        device_timezone: str | None = None,
+        own_llm: ChatLLM | None = None,
     ) -> AsyncIterator[TurnEvent]:
         """Take one turn. `device_timezone` is the time zone the user's device reports,
-        used unless the producer profile sets one."""
+        used unless the producer profile sets one; `own_llm` is the user's own LLM, if
+        they brought one (see `OwnKeys.chat_llm`)."""
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
             yield TurnFailed(TOO_LONG if text else BLANK)
             return
         try:
-            async for event in self._reply(conversation, text, device_timezone):
+            async for event in self._reply(conversation, text, device_timezone, own_llm):
                 yield event
+        except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
+            log.warning("turn failed on the user's own key in conversation %s: %s",
+                        conversation.id, e.service)
+            yield TurnFailed(e.message)
         except Exception:  # the turn has started; report instead of dropping it
             log.exception("turn failed in conversation %s", conversation.id)
             yield TurnFailed(FAILED)
 
     async def _reply(
-        self, conversation: Conversation, text: str, device_timezone: str | None
+        self,
+        conversation: Conversation,
+        text: str,
+        device_timezone: str | None,
+        own_llm: ChatLLM | None,
     ) -> AsyncIterator[TurnEvent]:
         character = self._characters[conversation.character_id]
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
-        memory = await self._memory.begin(conversation, timezone)
+        memory = await self._memory.begin(conversation, timezone, own_llm)
         retrieved = (
             await self._retrieval.retrieve(character, history, text, memory)
             if self._retrieval
@@ -159,7 +177,7 @@ class ConversationEngine:
             offered = tools if step < MAX_TOOL_ROUNDS else []
             said = ""
             calls: list[ToolCall] = []
-            async for item in self._llm.stream(prompt, offered):
+            async for item in (own_llm or self._llm).stream(prompt, offered):
                 if isinstance(item, ToolCall):
                     calls.append(item)
                     continue

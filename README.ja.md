@@ -17,7 +17,7 @@
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](backend/src/eidolon/store.py)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
-[![Private use](https://img.shields.io/badge/用途-私的利用のみ-FF69B4?style=flat-square)](docs/adr/0003-corpus-and-voices-stay-private.md)
+[![Open to the public](https://img.shields.io/badge/用途-一般公開-FF69B4?style=flat-square)](docs/adr/0006-open-to-the-public-with-oauth.md)
 
 </div>
 
@@ -25,13 +25,13 @@
 
 Eidolon-SC では、**283プロのプロデューサー**として原作のアイドルとチャットしたり、そのまま音声通話したりできます。アイドルは日本語の声で答え、中国語字幕が付きます。自分が原作で経験したコミュを思い出し、あなたが話したことも覚えていて——ほかのアイドルにも「伝わって」いきます。
 
-作者本人と身近な仲間内で使うためのプロジェクトで、一般向けのサービスは提供していません。用語集は [`CONTEXT.md`](CONTEXT.md)、設計判断は [`docs/adr/`](docs/adr/) にあります。
+公開サーバーにデプロイすれば、誰でも Google または GitHub でログインして使えます（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。用語集は [`CONTEXT.md`](CONTEXT.md)、設計判断は [`docs/adr/`](docs/adr/) にあります。
 
 > [!NOTE]
 > UI・字幕・メモリー・ドキュメントの大半は中国語です。ユーザーは中国語でも日本語でも話しかけられます。
 
 > [!IMPORTANT]
-> 本プロジェクトは非公式のファンメイド作品であり、バンダイナムコエンターテインメントおよび『アイドルマスター』シリーズの権利者とは一切関係ありません。シナリオデータとキャラクター音声は**リポジトリに含まれていません**。各自で用意し、私的利用の範囲でのみ使用してください（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。
+> 本プロジェクトは非公式のファンメイド作品であり、バンダイナムコエンターテインメントおよび『アイドルマスター』シリーズの権利者とは一切関係ありません。シナリオデータは**リポジトリに含まれていません**。各自で用意してください（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。アイドルの返事を通じて間接的にログインユーザーへ提供されるリスクについては [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md) を参照してください。
 
 ## ✨ 特長
 
@@ -46,7 +46,8 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 | 🔌 **モデルは自由に差し替え可能** | OpenAI Chat Completions・OpenAI Responses・Anthropic Messages の 3 方式に対応し、互換のサードパーティサービスも利用可能 |
 | 🧩 **ベクトル化サービスは 2 択** | デプロイ時に SiliconFlow の Qwen3-Embedding と Google の Gemini Embedding 2 から選択。切り替えたあとはコマンド 1 つで、データベース内の原文から再ベクトル化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **キャラクターシートの下書き生成** | バックグラウンドモデルがアイドルのコミュをすべて読み、キャラクターシートの下書きを作成。あとは人の手で校正 |
-| 👥 **マルチユーザーと利用上限** | CLI でアクセスキーを発行。ユーザーごとの利用上限と完全に分離されたメモリーで、友人との共有も安心 |
+| 👥 **一般公開** | Google または GitHub でログイン。ユーザーごとの利用上限と完全に分離されたメモリー。2 つのログイン方法の連携や、自分のデータの完全削除も可能 |
+| 🔑 **自前の API キー** | ユーザーは自分の LLM・Fish Audio・Soniox のキーを登録して自分のクレジットで使え、利用上限の対象外になります |
 | 🚀 **ワンコマンドでデプロイ** | Caddy（HTTPS 自動化）と coturn（TURN 中継）入りの本番構成を同梱 |
 
 ## 🧭 目次
@@ -61,7 +62,8 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
   - [ベクトル化サービス](#ベクトル化サービス)
   - [会話中の検索](#会話中の検索)
   - [メモリー](#メモリー)
-  - [ユーザーとアクセスキー](#ユーザーとアクセスキー)
+  - [ログインとユーザー](#ログインとユーザー)
+  - [自前の API キー](#自前の-api-キー)
 - [VPS へのデプロイ](#-vps-へのデプロイ)
 - [開発](#-開発)
 - [ディレクトリ構成](#-ディレクトリ構成)
@@ -110,19 +112,12 @@ flowchart LR
 
 ```sh
 git clone https://github.com/Sallyn0225/eidolon-sc.git && cd eidolon-sc
-cp .env.example .env   # 会話モデルの URL・API キー・モデル名を記入
+cp .env.example .env   # 会話モデルの URL・API キー・モデル名を記入。ローカルで試すなら EIDOLON_DEV_LOGIN=1 も追加
 # キャラクターシートを用意（下記「キャラクター」参照）
 docker compose up --build
 ```
 
-続いてアクセスキーを発行します：
-
-```sh
-docker compose exec backend eidolon user create alice
-docker compose exec backend eidolon key issue alice   # キーは一度だけ表示されます
-```
-
-<http://localhost:3000> を開き、設定画面でアクセスキーを入力すれば、キャラクター選択画面からアイドルを選んで話せます。
+<http://localhost:3000> を開き、ログイン画面の「開発ログイン」で好きな名前を入れてログインし（`EIDOLON_DEV_LOGIN=1` のときだけ表示）、プライバシーポリシーと利用規約に同意すれば、キャラクター選択画面からアイドルを選んで話せます。Google や GitHub でログインするには、先に [`docs/deploy.md`](docs/deploy.md) の「OAuth アプリの設定」に従ってアプリを作成し、コールバック URL を `http://localhost:3000/api/auth/github/callback`（Google も同様）にします。
 
 > [!TIP]
 > 会話モデルだけでもテキストチャットは可能です。ほかのサービスのキーを追加していくことで、音声・コミュの記憶・メモリーが段階的に有効になります：
@@ -330,18 +325,27 @@ flowchart LR
 - **会話をまたいで**：新しい会話では、検索で見つかったメモリーだけを手がかりに以前の話題をつなぎ、前回の会話内容は持ち越しません。
 - **管理**：「設定 → メモリーの管理」画面で、アイドルたちが覚えたすべてのメモリーを、どのアイドルに話したものかと一緒に確認できます。1 件ずつ削除することも、確認のうえ一括消去することもできますが、手動で追加・編集はできません。削除したメモリーは二度とプロンプトに入らず、一括消去の時点でバックグラウンド抽出中だったメモリーも破棄され、消去後に現れることはありません。
 
-### ユーザーとアクセスキー
+### ログインとユーザー
 
-管理者はコマンドラインでユーザーとアクセスキーを管理します。1 人のユーザーが複数のキーを持てて、会話記録はユーザー自身に属するため、キーを 1 本失効させてもユーザーのデータには影響しません。
+招待や審査なしに、誰でも Google または GitHub でログインできます（ADR-0006）。ログイン画面には `.env` で設定した OAuth アプリ（`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`、`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`）のログイン方法だけが表示されます。作成手順は [`docs/deploy.md`](docs/deploy.md) を参照してください。
+
+- ある ID で初めてログインすると新しいユーザーになり、以降同じ ID でログインすれば同じユーザーです。GitHub アカウントは登録から 1 年以上、Google はメールアドレスの確認済みが必要で、満たさない場合は理由を示してログインを拒否します。
+- 初回ログイン後、プライバシーポリシーと利用規約に同意し 13 歳以上であることを申告するまで、ほかの機能は使えません。未ログインの訪問者に見えるのはログイン画面・プライバシーポリシー・利用規約だけです。
+- 設定画面でもう一方のログイン方法を連携すれば、どちらでログインしても同じメモリーが見えます。メールアドレスが同じでも自動では統合されず、他のユーザーの ID は連携できず、最後のログイン方法は解除できません。
+- ログイン状態はバックエンドのセッションに保存され、ブラウザは httpOnly cookie で保持します。最後に使ってから 30 日間有効です。設定画面からこの端末だけ、またはすべての端末からログアウトできます。
+- 設定画面の「データをすべて削除」は、再確認のうえ、そのユーザーのメモリー・会話・プロデューサープロフィール・ログイン方法・自前のキー・セッション・利用記録を完全に削除し、すべての端末でログアウトします。その後同じ ID でログインすると、まったく新しいユーザーになります。
+- ローカル開発とテストでは、`EIDOLON_DEV_LOGIN=1` でログイン画面に名前だけでログインできる「開発ログイン」が加わります。`EIDOLON_DOMAIN` を設定した公開デプロイでは、このスイッチがあると起動を拒否します。
+
+管理者はサーバー上のコマンドラインでユーザーを管理します：
 
 ```sh
-docker compose exec backend eidolon user create alice      # ユーザー作成
-docker compose exec backend eidolon key issue alice        # キー発行（表示は一度きり）
-docker compose exec backend eidolon key list alice         # キー番号と状態の確認
-docker compose exec backend eidolon key revoke <キー番号>   # 失効
+docker compose exec backend eidolon user list                # ID・名前・ログイン方法・作成日時・停止中かどうか
+docker compose exec backend eidolon user ban <ユーザー ID>    # 利用停止：全端末でログアウト、通話は数秒以内に切断、以後ログイン不可
+docker compose exec backend eidolon user unban <ユーザー ID>
+docker compose exec backend eidolon user usage <ユーザー ID>  # 直近 24 時間の 1 時間ごとのテキストターンと通話の回数、うち上限対象外の回数
 ```
 
-特定のユーザーが共有の API クレジットを使い切らないよう、デフォルトで次の上限があります（0 で無制限）：
+特定のユーザーがデプロイした人の API クレジットを使い切らないよう、デフォルトで次の上限があります（0 で無制限）：
 
 | 上限 | デフォルト | 環境変数 |
 |---|---|---|
@@ -351,12 +355,28 @@ docker compose exec backend eidolon key revoke <キー番号>   # 失効
 | 1 回の通話のターン数 | 40 ターン | `EIDOLON_TURNS_PER_CALL` |
 | 1 ターンで送る履歴ターン数 | 20 | `EIDOLON_HISTORY_TURNS` |
 
-- 上限はユーザー単位で、同じユーザーの複数のキーは合算されます。通話中の発言や入力は別途カウントされず、返事に失敗したターンやつながらなかった通話はカウントされません。
+- 上限はユーザー単位で、どのログイン方法・端末から使っても合算されます。通話中の発言や入力は別途カウントされず、返事に失敗したターンやつながらなかった通話はカウントされません。
+- 自前のキーでの利用は対象外です：自前の LLM を使ったテキストターンはカウントされず、通話は LLM・音声合成・音声認識の 3 つすべてが自前のキーのときだけカウントされません。1 回の通話時間とターン数の上限は全員共通です。
 - 上限を超えたリクエストには、利用再開時刻付きで 429 が返り、フロントエンドは「何時以降にまた使えるか」を表示します。
 - 通話が上限に達すると、アイドルは話している途中の言葉を言い終えてから電話を切り、フロントエンドが理由を説明します。
 - 会話モデルは各ターンで会話の直近のターンだけを読み、それ以前の内容はメモリーと検索でつなぎます。これにより長い会話でも遅く・高くならず、コンテキストウィンドウを超えることもありません。会話記録自体はすべて保存されます。
 
-ローカル開発では `uv run eidolon --db data/eidolon.db ...` を使います。フェーズ 01 から残っているデフォルトユーザー名は `default` で、これにキーを発行すれば既存の会話に引き続きアクセスできます。
+ローカル開発では `uv run eidolon --db data/eidolon.db ...` を使います。
+
+### 自前の API キー
+
+費用はデフォルトですべてデプロイした人が負担します。ユーザーは設定画面で自分の API キーを登録して、費用を分担できます：
+
+| サービス | 入力するもの | 用途 |
+|---|---|---|
+| LLM | インターフェースの種類・base_url・キー・モデル名 | アイドルを演じる（テキストと通話）、メモリーの抽出 |
+| 音声合成（Fish Audio） | キー | 通話中のアイドルの声（ボイスはキャラクター設定のまま） |
+| 音声認識（Soniox） | キー | 通話中にユーザーの声を聞き取る |
+
+- 保存前に一度試しに呼び出し、失敗したら保存せず、プロバイダーのエラーを表示します。LLM はストリーミング出力とツール呼び出しに対応している必要があり、公開デプロイでは base_url が HTTPS の公開アドレスでなければなりません。
+- キーは `EIDOLON_SECRET_KEY` から導出した鍵で暗号化して保存し、画面には末尾 4 文字だけを表示します。`EIDOLON_SECRET_KEY` を設定していないと、この機能は使えません。
+- 自前のキーの呼び出しに失敗したとき（残高不足、失効など）、そのターンや通話は失敗し、どのキーに問題があるかを表示します。**デプロイした人のキーに切り替えることはありません**。自前のキーを削除すると、デプロイした人のサービスに戻ります。
+- ベクトル化、リランク、シナリオを思い出すかどうかの判断（Jev）は常にデプロイした人の負担です。
 
 ## 🌐 VPS へのデプロイ
 
@@ -383,7 +403,7 @@ cd backend
 uv sync
 uv run pytest        # テスト
 uv run pyright       # 型チェック
-CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon
+EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon
 # :8000 で起動し、../characters/characters.toml を読み込む（EIDOLON_CHARACTERS_PATH で変更可）
 ```
 
@@ -404,6 +424,10 @@ eidolon-sc/
 ├── backend/                  # Python バックエンド：FastAPI + Pipecat
 │   ├── src/eidolon/
 │   │   ├── engine.py         #   会話エンジン：1 ターンを受け取り、アイドルの返事を返す
+│   │   ├── accounts.py       #   ユーザー、ログイン方法、ユーザーの削除
+│   │   ├── identity.py       #   Google と GitHub でのログイン（OAuth）
+│   │   ├── sessions.py       #   セッション cookie とクロスサイトのチェック
+│   │   ├── own_keys.py       #   ユーザーの自前の API キー
 │   │   ├── call.py           #   音声通話：シグナリングと Pipecat パイプライン
 │   │   ├── retrieval.py      #   検索判断、コミュ／資料の検索と並べ替え
 │   │   ├── memory.py         #   会話・キャラクターをまたいで共有されるメモリー
@@ -453,6 +477,6 @@ eidolon-sc/
 
 ---
 
-<sub>『アイドルマスター シャイニーカラーズ』およびそのキャラクターの著作権は ©Bandai Namco Entertainment Inc. に帰属します。本プロジェクトは非公式のファンメイド作品であり、作者と身近な仲間内での私的利用に限ります。</sub>
+<sub>『アイドルマスター シャイニーカラーズ』およびそのキャラクターの著作権は ©Bandai Namco Entertainment Inc. に帰属します。本プロジェクトは非公式のファンメイド作品であり、権利者とは関係ありません。アイドルは AI が演じています。</sub>
 
 </div>

@@ -35,7 +35,7 @@ async def stream_events(
                 try:
                     event = json.loads(data)
                 except json.JSONDecodeError:
-                    raise LLMError(f"模型的流式输出无法解析: {data[:500]}") from None
+                    raise LLMError(f"模型的流式输出无法解析（{len(data)} 字）") from None
                 yield event
             if not streamed:
                 raise LLMError(

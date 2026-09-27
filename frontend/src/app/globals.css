@@ -372,3 +372,130 @@ button.danger {
 .field.clear-memories {
   border-top: 0;
 }
+
+.sign-in-button {
+  display: block;
+  max-width: 320px;
+  margin-bottom: 8px;
+  padding: 0.625rem 1rem;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  text-align: center;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.sign-in-button:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.landing-header {
+  padding: 48px 0 8px;
+}
+
+.landing-header h1 {
+  margin: 0 0 8px;
+  font-size: 2rem;
+}
+
+.landing-lede {
+  margin: 0;
+  max-width: 36em;
+  color: var(--muted);
+}
+
+.section-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.landing-footer {
+  padding: 24px 0 48px;
+}
+
+.field label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-weight: normal;
+}
+
+.prose {
+  padding-bottom: 48px;
+}
+
+.prose h2 {
+  margin: 24px 0 8px;
+  font-size: 1.125rem;
+}
+
+.prose li + li {
+  margin-top: 6px;
+}
+
+.hint a {
+  color: inherit;
+}
+
+.sign-in-methods {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+}
+
+.sign-in-methods li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.link-button {
+  display: inline-block;
+  margin: 4px 8px 4px 0;
+}
+
+.sign-out-row {
+  margin-top: 16px;
+}
+
+.own-key {
+  margin-top: 12px;
+}
+
+.own-key-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.own-key-current {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.own-key-form {
+  display: grid;
+  gap: 4px;
+  max-width: 480px;
+}
+
+.own-key-form label {
+  margin-top: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.own-key-form input,
+.own-key-form select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}

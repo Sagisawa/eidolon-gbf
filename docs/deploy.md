@@ -39,6 +39,9 @@ cp .env.example .env
 - `EIDOLON_PUBLIC_IP`：这台服务器的公网 IPv4 地址。coturn 只允许把语音中继到这台服务器（也就是后端），别人拿不到它当开放的中继用。
 - `EIDOLON_PRIVATE_IP`：只有公网地址不在网卡上时才填，填网卡上的内网地址。在服务器上执行 `ip -4 addr`：能看到公网地址就不用填（Vultr、DigitalOcean、搬瓦工等大多如此）；只能看到 `10.`、`172.`、`192.168.` 开头的内网地址时（AWS、阿里云、腾讯云等 1:1 NAT 的云主机），填这个内网地址。这种环境还没有实际验证过，语音连不上时请看「排障」。
 - `EIDOLON_TURN_SECRET`：coturn 和后端共用的密钥，用 `openssl rand -hex 32` 生成。后端给每位用户签发 24 小时后过期的 TURN 凭据，这个密钥本身不会发给浏览器。
+- `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`，`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`：用户登录用的 OAuth 应用，至少配一家，见下文「配置 OAuth 应用」。只配了一家时，登录页只显示那一种。
+- `EIDOLON_SECRET_KEY`：加密用户自带 API 密钥用的密钥，用 `openssl rand -hex 32` 生成。不填就不开放自带密钥。填了之后**不要更换**：换了以后已保存的自带密钥都无法解密，用户要重新填写。
+- **不要**填 `EIDOLON_DEV_LOGIN`：它让任何人不经登录就能冒充任何用户，只能在本地开发时打开。配置了 `EIDOLON_DOMAIN` 时后端检测到它会拒绝启动。
 
 `EIDOLON_ICE_SERVERS`、`EIDOLON_TURN_URLS` 不用填：生产配置会自动用本机的 coturn。
 
@@ -50,7 +53,7 @@ cp .env.example .env
 - `gemini`：Google 的 `gemini-embedding-2`，填 `GEMINI_API_KEY`（在 [Google AI Studio](https://aistudio.google.com/apikey) 申请），向量维度用 `EMBEDDING_DIMENSIONS` 指定（默认 1536）。重排仍然在硅基流动，`SILICONFLOW_API_KEY` 照样要填。
   - 服务器必须在 Gemini API 开放的地区（不含中国大陆、香港、澳门），否则向量化会报错并提示地区不支持。
   - 免费层每分钟最多向量化 100 条文本（一次批量请求里的每条文本都各算一次请求）。同步、导入和 `eidolon reembed` 碰到限流会按 Google 给的时间自动等待再继续，所以能跑完，只是整个剧情库要花上几十分钟以上；免费层可能还有每天的上限（在 AI Studio 的 Rate Limit 页面查看），碰到时命令会报错退出，第二天重新运行即可接着做。对话中的查询不等待：限流时这一回合不带检索结果照常回复。
-  - 可以用免费层，但**免费层的内容会被 Google 用于改进产品**，送去向量化的包括剧情库（没有许可证的剧情文本，ADR-0003）和用户的记忆。介意的话在 AI Studio 开通计费，付费层的内容不用于训练（文本约 $0.20 / 百万 token，全量剧情库重新向量化一次只要几美元）。
+  - **公开部署不要用免费层**（ADR-0005 的修订）：免费层的内容会被 Google 用于改进产品，送去向量化的包括剧情库（没有许可证的剧情文本，ADR-0003）和陌生用户的记忆。在 AI Studio 开通计费（付费层的内容不用于训练；文本约 $0.20 / 百万 token，全量剧情库重新向量化一次只要几美元），然后在 `.env` 里填 `GEMINI_BILLING_ENABLED=1` 声明已开计费；没有声明时，公开部署的后端每次启动都会在日志里警告。不想开计费就改用硅基流动。
 
 然后准备人设文件（见 README 的「角色」：`characters/sheets/` 下每位角色一份，角色资料和头像可选），启动：
 
@@ -156,14 +159,35 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 换重排模型前用它比较两个模型的分数分布，再决定阈值。需要剧情库已经同步好，并且有当前向量化模型的向量；数据集里的记忆是虚构的示例，运行时临时向量化，不会写进数据库。
 
-## 签发访问密钥
+## 配置 OAuth 应用
 
-```sh
-docker compose -f docker-compose.prod.yml exec backend eidolon user create alice
-docker compose -f docker-compose.prod.yml exec backend eidolon key issue alice   # 密钥只显示这一次
-```
+任何人都能用 Google 或 GitHub 登录（ADR-0006），登录由后端完成：浏览器跳到 Google 或 GitHub 登录，再回到网站的回调地址。回调地址是：
 
-把网址和密钥发给朋友：用手机或电脑打开网址，在设置页填入访问密钥，就能挑一位角色对话、通话。吊销密钥、限额等见 README 的「用户与访问密钥」。
+| 提供方 | 回调地址 |
+|---|---|
+| GitHub | `https://你的域名/api/auth/github/callback` |
+| Google | `https://你的域名/api/auth/google/callback` |
+
+本地开发时把 `https://你的域名` 换成 `http://localhost:3000`（可以另建一个开发用的应用）。
+
+> [!TIP]
+> 在仓库根目录运行 `scripts/setup-oauth.sh`，它会一步步打开下面要用的页面，告诉你每一栏填什么，把复制回来的值写进 `.env`，顺带生成 `EIDOLON_SECRET_KEY`、设置开发登录和 Gemini 计费的开关，最后重启后端，并列出用真实账号要验证的几件事。下面是同样的步骤，手动配置时照着做。
+
+**GitHub**：在 [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) 点「New OAuth App」，Homepage URL 填 `https://你的域名`，Authorization callback URL 填上表的地址。创建后生成一个 Client secret，把 Client ID 和它分别填进 `.env` 的 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`。登录时只申请读取公开资料和邮箱（`read:user user:email`）；注册不满一年的 GitHub 账号不能登录。
+
+**Google**：在 [Google Cloud Console](https://console.cloud.google.com/) 新建（或选一个）项目：
+
+1. 「Google Auth Platform」（旧称「OAuth 同意屏幕」）里填应用名称和支持邮箱，受众选「外部」，数据访问（作用域）只要 `openid`、`email`、`profile`。测试阶段只有加进测试用户名单的账号能登录，对公众开放前点「发布应用」。
+2. 「客户端」（旧称「凭据」）里创建 OAuth 客户端 ID，类型选「Web 应用」，已获授权的重定向 URI 填上表的地址。
+3. 把客户端 ID 和客户端密钥填进 `.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`。邮箱没有验证的 Google 账号不能登录。
+
+改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址就是登录页：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见 README 的「登录与用户」和「自带密钥」；封禁、查看用量等管理命令也在那里。
+
+> [!NOTE]
+> 对公众开放意味着陌生人的对话和记忆会存在这台服务器上，并交给你配置的第三方服务处理（见网站的隐私政策页）。几点注意：
+> - 日志里不记对话原文和记忆原文；备份文件（见下文「备份」）里有，妥善保管。
+> - 用户可以在设置页删除自己的全部数据，这是物理删除；但已经进入备份的数据要等备份轮换掉。
+> - 公开部署用 Gemini 向量化时要开计费，见上文「选择向量化服务」。
 
 ## 升级
 
@@ -174,7 +198,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 数据都在持久化的位置，升级不会丢失：
 
-- 数据库（用户、访问密钥、对话、记忆、剧情库）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
+- 数据库（用户及其登录方式、会话、对话、记忆、制作人档案、加密后的自带密钥、最近 24 小时的用量、剧情库）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
 - 证书在 Docker 卷 `caddy-data` 里；
 - 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
 

@@ -1,8 +1,9 @@
 """The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
-characters, the chat and background models, retrieval, memory, the conversation
-engine, usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
+characters, the identity providers users sign in with, the chat and background models,
+the services users bring their own keys to, retrieval, memory, the conversation engine,
+usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
 retrieval finds memories again; the background model is always at hand, being the chat
 model unless configured apart.
@@ -16,6 +17,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
+from eidolon.accounts import Accounts
 from eidolon.call import Calls, SonioxFishSpeech, Speech
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
@@ -24,9 +26,11 @@ from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.facts import FactIndex
+from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
+from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
 from eidolon.rerank import (
     DEFAULT_THRESHOLDS,
     FALLBACK_MODEL,
@@ -56,6 +60,9 @@ class Backend:
     usage: UsageLimiter
     clock: Clock
     calls: Calls
+    own_keys: OwnKeys
+    accounts: Accounts
+    identity_providers: dict[ProviderName, IdentityProvider]
     _closers: list[Closer] = field(default_factory=list, repr=False)
 
     async def aclose(self) -> None:
@@ -76,6 +83,8 @@ def build(
     reranker: Reranker | None = None,
     clock: Clock | None = None,
     speech: Speech | None = None,
+    identity_providers: dict[ProviderName, IdentityProvider] | None = None,
+    own_llm_service: LLMService | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -86,6 +95,9 @@ def build(
 
     store = Store(settings.database_path)
     closers.append(store.close)
+    if identity_providers is None:
+        identity_providers = open_identity_providers(settings.github, settings.google)
+        closers.extend(p.aclose for p in identity_providers.values())
     if chat_llm is None:
         chat_llm = open_llm(settings.chat_llm)
         closers.append(chat_llm.aclose)
@@ -93,6 +105,18 @@ def build(
         opened = open_embedder(settings.embedding)
         closers.append(opened.aclose)
         embedder = opened
+    if (
+        settings.domain is not None
+        and settings.embedding is not None
+        and settings.embedding.provider == "gemini"
+        and not settings.gemini_billing_enabled
+    ):
+        log.warning(
+            "a public deployment is embedding with Gemini without GEMINI_BILLING_ENABLED=1:"
+            " on the free tier Google may use what it embeds, users' memories included, to"
+            " improve its products. Turn on billing and set GEMINI_BILLING_ENABLED=1, or"
+            " embed with SiliconFlow (ADR-0005, revised 2026-09-27)"
+        )
     thresholds = DEFAULT_THRESHOLDS
     if (r := settings.rerank) is not None:
         thresholds = thresholds_for(r)
@@ -151,7 +175,12 @@ def build(
         store, chat_llm, characters, memories, clock, retrieval, settings.history_turns
     )
     usage = UsageLimiter(store, settings.usage_limits, clock)
-    calls = Calls(settings, engine, usage, speech or SonioxFishSpeech.from_settings(settings), clock)
+    if own_llm_service is None:
+        own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
+        closers.append(own_llm_service.aclose)
+    speech = speech or SonioxFishSpeech(settings.fish_audio_model)
+    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, speech)
+    calls = Calls(settings, engine, usage, speech, clock, own_keys, store)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,
@@ -162,5 +191,8 @@ def build(
         usage=usage,
         clock=clock,
         calls=calls,
+        own_keys=own_keys,
+        accounts=Accounts(store, clock, memories, calls),
+        identity_providers=identity_providers,
         _closers=closers,
     )

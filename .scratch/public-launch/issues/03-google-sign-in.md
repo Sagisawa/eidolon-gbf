@@ -4,8 +4,8 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 实现 Google 提供方（OpenID Connect，只申请 openid、email、profile 三个权限），读取 `GOOGLE_CLIENT_ID` 和 `GOOGLE_CLIENT_SECRET`；没配置时，不显示也不开放这种登录方式
-- [ ] `email_verified` 不为 true 的拒绝登录
-- [ ] 测试覆盖：首次登录、再次登录、邮箱未验证被拒；和某个 GitHub 身份邮箱相同时，得到的是另一位新用户
+- [x] 实现 Google 提供方（OpenID Connect，只申请 openid、email、profile 三个权限），读取 `GOOGLE_CLIENT_ID` 和 `GOOGLE_CLIENT_SECRET`；没配置时，不显示也不开放这种登录方式
+- [x] `email_verified` 不为 true 的拒绝登录
+- [x] 测试覆盖：首次登录、再次登录、邮箱未验证被拒；和某个 GitHub 身份邮箱相同时，得到的是另一位新用户

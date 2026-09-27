@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from eidolon.config import LLMSettings, Settings
-from tests.conftest import Admin, ClientFactory, IssuedKey
+from tests.conftest import ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -24,12 +24,6 @@ def memorized(*texts: str) -> str:
 
 def memories_section(system: str) -> str:
     return system[system.index("# 关于制作人的记忆") :] if "# 关于制作人的记忆" in system else ""
-
-
-@pytest.fixture
-def friend_key(admin: Admin) -> IssuedKey:
-    admin.create_user("friend")
-    return admin.issue_key("friend")
 
 
 async def turn(client: httpx.AsyncClient, conversation_id: str, text: str) -> None:

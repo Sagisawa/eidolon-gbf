@@ -17,7 +17,7 @@
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](backend/src/eidolon/store.py)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
-[![Private use](https://img.shields.io/badge/用途-私用·小圈子-FF69B4?style=flat-square)](docs/adr/0003-corpus-and-voices-stay-private.md)
+[![Open to the public](https://img.shields.io/badge/用途-对公众开放-FF69B4?style=flat-square)](docs/adr/0006-open-to-the-public-with-oauth.md)
 
 </div>
 
@@ -25,10 +25,10 @@
 
 Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像打字聊天或直接语音通话。角色用日语原声回答并附上中文字幕，能回忆自己在原作中经历过的剧情，还会记住你说过的事——并在其他偶像之间「传开」。
 
-项目供自己和小圈子使用，不对外提供服务。术语表见 [`CONTEXT.md`](CONTEXT.md)，设计决策见 [`docs/adr/`](docs/adr/)。
+部署到公网后，任何人都能用 Google 或 GitHub 登录使用（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。术语表见 [`CONTEXT.md`](CONTEXT.md)，设计决策见 [`docs/adr/`](docs/adr/)。
 
 > [!IMPORTANT]
-> 本项目是非官方的粉丝作品，与万代南梦宫及《偶像大师》系列版权方无关。剧情数据与角色音色**不随仓库分发**，需要自行准备，且仅限私人使用（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。
+> 本项目是非官方的粉丝作品，与万代南梦宫及《偶像大师》系列版权方无关。剧情数据**不随仓库分发**，需要自行准备（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）；角色通过回复间接地把它们提供给登录的用户，这一风险见 [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)。
 
 ## ✨ 特性
 
@@ -43,7 +43,8 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 | 🔌 **模型可自由替换** | 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种接口，也可接任意兼容的第三方服务 |
 | 🧩 **向量化服务二选一** | 部署时在硅基流动 Qwen3-Embedding 与 Google Gemini Embedding 2 之间选择，换了之后一条命令用库里的原文重新向量化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **人设初稿生成** | 由后台模型读完角色的全部剧情，写出人设初稿，再人工校对 |
-| 👥 **多用户与限额** | 命令行签发访问密钥，按用户限流、记忆互相隔离，适合分享给朋友 |
+| 👥 **对公众开放** | 用 Google 或 GitHub 登录，按用户限流、记忆互相隔离；用户可以绑定两种登录方式，也可以彻底删除自己的全部数据 |
+| 🔑 **自带密钥** | 用户可以填自己的 LLM、Fish Audio、Soniox 密钥，用自己的额度，不计入限额 |
 | 🚀 **一键部署** | 自带 Caddy（自动 HTTPS）+ coturn（TURN 中继）的生产配置 |
 
 ## 🧭 目录
@@ -58,7 +59,8 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
   - [向量化服务](#向量化服务)
   - [对话中的检索](#对话中的检索)
   - [记忆](#记忆)
-  - [用户与访问密钥](#用户与访问密钥)
+  - [登录与用户](#登录与用户)
+  - [自带密钥](#自带密钥)
 - [部署到 VPS](#-部署到-vps)
 - [开发](#-开发)
 - [项目结构](#-项目结构)
@@ -107,19 +109,12 @@ flowchart LR
 
 ```sh
 git clone https://github.com/Sallyn0225/eidolon-sc.git && cd eidolon-sc
-cp .env.example .env   # 填写对话模型的地址、密钥和模型名
+cp .env.example .env   # 填写对话模型的地址、密钥和模型名，本地试用再加一行 EIDOLON_DEV_LOGIN=1
 # 准备人设文件，见下方「角色」
 docker compose up --build
 ```
 
-然后签发一把访问密钥：
-
-```sh
-docker compose exec backend eidolon user create alice
-docker compose exec backend eidolon key issue alice   # 密钥只显示这一次
-```
-
-打开 <http://localhost:3000>，在设置页填入访问密钥，就可以在角色选择页挑一位角色对话了。
+打开 <http://localhost:3000>，在登录页用「开发登录」随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后，就可以在角色选择页挑一位角色对话了。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）。
 
 > [!TIP]
 > 只填对话模型时就能文字聊天。按需再补上其他服务的密钥，逐步开启语音、剧情回忆和记忆：
@@ -327,18 +322,27 @@ flowchart LR
 - **跨对话**：新开的对话只靠检索到的记忆接上以前聊过的事，不带上次对话的内容。
 - **管理**：用户在「设置 → 管理记忆」页查看角色们记下的全部记忆，每条注明是对哪位角色说的；可以逐条删除，也可以二次确认后一键清空，但不能手动新增或修改。删除的记忆不会再进入任何提示词；清空时还在后台抽取的记忆会被丢弃，不会在清空后冒出来。
 
-### 用户与访问密钥
+### 登录与用户
 
-管理员用命令行管理用户和访问密钥。一位用户可以持有多把密钥，对话记录属于用户本身；吊销一把密钥不影响用户的数据。
+任何人都可以用 Google 或 GitHub 登录，不需要邀请或审核（ADR-0006）。在 `.env` 里填了哪一家的 OAuth 应用（`GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`，`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`），登录页就显示哪一种登录方式；创建应用的步骤见 [`docs/deploy.md`](docs/deploy.md)。
+
+- 第一次用某个身份登录时，自动成为一位新用户；之后用同一个身份登录就是同一位用户。GitHub 账号要注册满一年、Google 邮箱要已验证，否则登录会被拒绝并说明原因。
+- 第一次登录后要先同意隐私政策和使用条款、声明年满 13 岁，之后才能使用。没登录的访客只能看到登录页、隐私政策和使用条款。
+- 用户可以在设置页绑定另一种登录方式，这样用哪个登录看到的都是同一份记忆；邮箱相同的两个身份不会自动合并，已经属于别人的身份不能再绑定，最后一种登录方式不能解绑。
+- 登录状态保存在后端的会话里，浏览器通过 httpOnly cookie 保持登录，30 天内只要在用就不用重新登录。设置页可以退出当前设备，也可以退出所有设备。
+- 设置页的「删除我的全部数据」会在二次确认后彻底删除这位用户的记忆、对话、制作人档案、登录方式、自带密钥、会话和用量记录，并在所有设备上退出登录；之后用同一个身份登录会是一位全新的用户。
+- 本地开发和测试时，`EIDOLON_DEV_LOGIN=1` 让登录页多出「开发登录」，按名字直接登录。配置了 `EIDOLON_DOMAIN` 的公开部署检测到这个开关会拒绝启动。
+
+管理员在服务器上用命令行管理用户：
 
 ```sh
-docker compose exec backend eidolon user create alice      # 创建用户
-docker compose exec backend eidolon key issue alice        # 签发密钥（只显示这一次）
-docker compose exec backend eidolon key list alice         # 查看密钥编号和状态
-docker compose exec backend eidolon key revoke <密钥编号>   # 吊销
+docker compose exec backend eidolon user list            # ID、名字、登录方式、创建时间、是否已封禁
+docker compose exec backend eidolon user ban <用户 ID>    # 封禁：所有设备退出登录，通话几秒内挂断，之后无法登录
+docker compose exec backend eidolon user unban <用户 ID>
+docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时按小时的文字回合和通话次数，以及其中不计入限额的
 ```
 
-为了不让某位用户耗光大家共用的 API 额度，默认有以下限制（填 0 表示不限制）：
+为了不让某位用户耗光部署者的 API 额度，默认有以下限制（填 0 表示不限制）：
 
 | 限制 | 默认值 | 环境变量 |
 |---|---|---|
@@ -348,12 +352,28 @@ docker compose exec backend eidolon key revoke <密钥编号>   # 吊销
 | 单次通话轮数 | 40 轮 | `EIDOLON_TURNS_PER_CALL` |
 | 每回合带上的历史回合 | 20 个 | `EIDOLON_HISTORY_TURNS` |
 
-- 限额按用户计算，同一位用户的多把密钥合并计算；通话中说的话和打的字不另外计数，回复失败的回合和没能接通的通话不计入。
+- 限额按用户计算，不论用哪种登录方式、在哪台设备上都合并计算；通话中说的话和打的字不另外计数，回复失败的回合和没能接通的通话不计入。
+- 用了自带密钥的不计入：文字回合用的是用户自己的 LLM 就不计入；通话要 LLM、语音合成、语音识别三项都用自己的密钥才不计入。单次通话的时长和轮数上限对所有人都一样。
 - 超过限额的请求返回 429，带上可以恢复使用的时间，前端据此提示「几点之后可以再用」。
 - 通话到了上限，角色把正在说的话说完后挂断，前端说明原因。
 - 对话模型每个回合只读到本次对话最近的若干回合，更早的内容靠记忆和检索接上，这样长对话不会越聊越慢、越贵，也不会超出模型的上下文窗口；对话记录本身完整保留。
 
-本地开发时用 `uv run eidolon --db data/eidolon.db ...`。01 阶段遗留的默认用户名为 `default`，为它签发密钥即可继续访问原有对话。
+本地开发时用 `uv run eidolon --db data/eidolon.db ...`。
+
+### 自带密钥
+
+费用默认全部由部署者承担。用户可以在设置页填自己的 API key，替部署者分担：
+
+| 服务 | 填什么 | 用在哪里 |
+|---|---|---|
+| LLM | 接口类型、base_url、key、模型名 | 扮演角色（文字和通话）、提炼记忆 |
+| 语音合成（Fish Audio） | key | 通话中角色的声音，音色照旧取自角色配置 |
+| 语音识别（Soniox） | key | 通话中听用户说话 |
+
+- 保存前先试调一次，调不通就不保存，并显示服务商返回的错误。LLM 同样要支持流式输出和工具调用；公开部署时 base_url 必须是 HTTPS 的公网地址。
+- 密钥用 `EIDOLON_SECRET_KEY` 派生的密钥加密保存，界面上只显示末 4 位。没配置 `EIDOLON_SECRET_KEY` 时不开放这个功能。
+- 自带密钥调用失败时（余额不足、被吊销等），这一回合或这次通话就失败，并提示是哪一项密钥出了问题，**不会改用部署者的密钥**。删除自带密钥后改回用部署者的服务。
+- 向量化、重排和判断要不要回忆剧情（Jev）始终由部署者承担。
 
 ## 🌐 部署到 VPS
 
@@ -380,7 +400,7 @@ cd backend
 uv sync
 uv run pytest        # 测试
 uv run pyright       # 类型检查
-CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon
+EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon
 # 启动在 :8000，读取 ../characters/characters.toml（可用 EIDOLON_CHARACTERS_PATH 覆盖）
 ```
 
@@ -401,6 +421,10 @@ eidolon-sc/
 ├── backend/                  # Python 后端：FastAPI + Pipecat
 │   ├── src/eidolon/
 │   │   ├── engine.py         #   对话引擎：一个回合进，角色的回复出
+│   │   ├── accounts.py       #   用户、登录方式、删除用户
+│   │   ├── identity.py       #   Google 与 GitHub 登录（OAuth）
+│   │   ├── sessions.py       #   会话 cookie 与跨站请求检查
+│   │   ├── own_keys.py       #   用户的自带密钥
 │   │   ├── call.py           #   语音通话：信令与 Pipecat 管线
 │   │   ├── retrieval.py      #   检索判断、剧情/资料检索与重排
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
@@ -450,6 +474,6 @@ eidolon-sc/
 
 ---
 
-<sub>《偶像大师 闪耀色彩》及其角色的版权归 ©Bandai Namco Entertainment Inc. 所有。本项目为非官方粉丝作品，仅供个人与小圈子私用。</sub>
+<sub>《偶像大师 闪耀色彩》及其角色的版权归 ©Bandai Namco Entertainment Inc. 所有。本项目为非官方粉丝作品，与版权方无关，角色由 AI 扮演。</sub>
 
 </div>

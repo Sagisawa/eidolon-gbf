@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -22,11 +22,12 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.engine import TurnFailed
+from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.store import Conversation, KeyRevoked, Store
-from eidolon.usage import OverLimit, Use
-
-_INVALID_KEY = "访问密钥无效，请在设置页检查"
+from eidolon.account_api import add_account_routes
+from eidolon.sessions import UserId, session_middleware
+from eidolon.store import Conversation
+from eidolon.usage import OverLimit
 
 
 class NewConversation(BaseModel):
@@ -92,27 +93,6 @@ class IceCandidates(BaseModel):
     candidates: list[IceCandidateInput]
 
 
-def current_user(
-    request: Request, authorization: Annotated[str | None, Header()] = None
-) -> str:
-    """Resolve the request's access key (`Authorization: Bearer <key>`) to its user."""
-    if not authorization:
-        raise _unauthorized("请先在设置页填入访问密钥")
-    scheme, _, secret = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not secret.strip():
-        raise _unauthorized(_INVALID_KEY)
-    store: Store = request.app.state.store
-    try:
-        user_id = store.user_for_key(secret.strip())
-    except KeyRevoked:
-        raise _unauthorized("这把访问密钥已被吊销，请向管理员索取新的密钥") from None
-    if user_id is None:
-        raise _unauthorized(_INVALID_KEY)
-    return user_id
-
-
-UserId = Annotated[str, Depends(current_user)]
-
 DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
 """The time zone the browser detected; the producer profile's own time zone overrides it."""
 
@@ -121,6 +101,7 @@ def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
     memory, usage, calls = backend.memories, backend.usage, backend.calls
+    own_keys = backend.own_keys
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -128,7 +109,8 @@ def create_app(backend: Backend) -> FastAPI:
         await backend.aclose()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
-    app.state.store = store
+    app.state.backend = backend
+    app.middleware("http")(session_middleware(backend.settings))
 
     @app.exception_handler(OverLimit)
     async def over_limit(_: Request, e: OverLimit) -> JSONResponse:
@@ -148,6 +130,10 @@ def create_app(backend: Backend) -> FastAPI:
     async def call_not_found(_: Request, e: CallNotFound) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=404)
 
+    @app.exception_handler(OwnKeyFailed)
+    async def own_key_failed(_: Request, e: OwnKeyFailed) -> JSONResponse:
+        return JSONResponse({"detail": e.message}, status_code=409)
+
     @app.exception_handler(CallFailed)
     async def call_failed(_: Request, e: CallFailed) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=500)
@@ -163,6 +149,8 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True}
+
+    add_account_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
@@ -209,7 +197,8 @@ def create_app(backend: Backend) -> FastAPI:
         return asdict(profile)
 
     @app.get("/api/characters")
-    def list_characters(_: UserId) -> list[dict]:
+    def list_characters() -> list[dict]:
+        """Who there is to talk to; shown before signing in too."""
         return [
             {
                 "id": c.id,
@@ -273,10 +262,11 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        use = usage.take(user_id, "turn")
+        own_llm = own_keys.chat_llm(user_id)
+        use = usage.take(user_id, "turn", exempt=own_llm is not None)
 
         async def events() -> AsyncIterator[str]:
-            async for event in engine.turn(conversation, body.text, device_timezone):
+            async for event in engine.turn(conversation, body.text, device_timezone, own_llm):
                 if isinstance(event, TurnFailed):
                     use.give_back()
                 yield _sse(asdict(event))
@@ -288,10 +278,6 @@ def create_app(backend: Backend) -> FastAPI:
         )
 
     return app
-
-
-def _unauthorized(detail: str) -> HTTPException:
-    return HTTPException(401, detail, headers={"WWW-Authenticate": "Bearer"})
 
 
 def _sse(payload: dict) -> str:

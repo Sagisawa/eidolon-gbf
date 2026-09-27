@@ -32,16 +32,19 @@ async def test_character_list_shows_name_intro_and_avatar_but_not_the_sheet(
     assert "ほわっ" not in res.text
 
 
-async def test_character_list_needs_an_access_key(make_client: ClientFactory):
-    client = make_client(FakeLLM(), key=None)
+async def test_character_list_is_shown_before_signing_in(make_client: ClientFactory):
+    client = make_client(FakeLLM(), user=None)
 
-    assert (await client.get("/api/characters")).status_code == 401
+    res = await client.get("/api/characters")
+
+    assert res.status_code == 200
+    assert [c["name"] for c in res.json()] == ["櫻木真乃", "月岡恋鐘"]
 
 
-async def test_avatar_is_served_without_a_key_so_img_tags_can_load_it(
+async def test_avatar_is_served_without_a_session_so_img_tags_can_load_it(
     make_client: ClientFactory,
 ):
-    client = make_client(FakeLLM(), key=None)
+    client = make_client(FakeLLM(), user=None)
 
     res = await client.get("/api/characters/mano/avatar")
 

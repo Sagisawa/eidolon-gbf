@@ -8,7 +8,7 @@ import pytest
 
 from eidolon.config import TURN_CREDENTIAL_LIFETIME, Settings, TurnSettings
 from tests.browser import Browser
-from tests.conftest import Admin, ClientFactory
+from tests.conftest import ClientFactory, sign_in_as
 from tests.fakes import FakeClock, FakeLLM, FakeSpeech
 from tests.test_text_turn import start_conversation
 
@@ -71,8 +71,8 @@ def test_turn_settings_come_from_the_environment(monkeypatch: pytest.MonkeyPatch
         TurnSettings.from_env()
 
 
-async def test_ice_servers_need_an_access_key(make_client: ClientFactory):
-    client = make_client(FakeLLM(), key=None)
+async def test_ice_servers_need_a_session(make_client: ClientFactory):
+    client = make_client(FakeLLM(), user=None)
 
     assert (await client.get("/api/ice-servers")).status_code == 401
 
@@ -92,12 +92,12 @@ async def test_call_is_answered_and_served_in_the_characters_voice(
     assert [tts.voice_id for tts in speech.ttss] == ["kogane-voice"]
 
 
-async def test_call_needs_an_access_key(
+async def test_call_needs_a_session(
     make_client: ClientFactory, speech: FakeSpeech, browser: Browser
 ):
     client = make_client(FakeLLM())
     conversation_id = await start_conversation(client)
-    client.headers.pop("Authorization")
+    client.cookies.clear()
 
     res = await browser.call(client, conversation_id=conversation_id)
 
@@ -106,10 +106,9 @@ async def test_call_needs_an_access_key(
 
 
 async def test_call_into_someone_elses_or_a_missing_conversation_is_refused(
-    make_client: ClientFactory, admin: Admin, speech: FakeSpeech, browser: Browser
+    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
 ):
-    admin.create_user("stranger")
-    theirs = await start_conversation(make_client(FakeLLM(), admin.issue_key("stranger").secret))
+    theirs = await start_conversation(make_client(FakeLLM(), "stranger"))
     client = make_client(FakeLLM())
 
     assert (await browser.call(client, conversation_id=theirs)).status_code == 404
@@ -136,7 +135,7 @@ async def test_call_into_a_character_removed_from_the_configuration_is_refused(
 
 
 async def test_ice_candidates_are_only_accepted_for_your_own_call(
-    make_client: ClientFactory, admin: Admin, browser: Browser
+    make_client: ClientFactory, browser: Browser
 ):
     client = make_client(FakeLLM())
     conversation_id = await start_conversation(client)
@@ -147,8 +146,7 @@ async def test_ice_candidates_are_only_accepted_for_your_own_call(
     }
     assert (await client.patch("/api/offer", json=end_of_candidates)).status_code == 200
 
-    admin.create_user("stranger")
-    client.headers["Authorization"] = f"Bearer {admin.issue_key('stranger').secret}"
+    sign_in_as(client, make_client(FakeLLM(), "stranger"))
 
     assert (await client.patch("/api/offer", json=end_of_candidates)).status_code == 404
 
@@ -168,7 +166,7 @@ async def test_call_is_unavailable_until_voice_services_are_configured(
 
 
 async def test_only_your_own_call_can_be_renegotiated(
-    make_client: ClientFactory, admin: Admin, speech: FakeSpeech, browser: Browser
+    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
 ):
     client = make_client(FakeLLM())
     conversation_id = await start_conversation(client)
@@ -179,8 +177,7 @@ async def test_only_your_own_call_can_be_renegotiated(
 
     assert (await client.post("/api/offer", json=renegotiation)).status_code == 200
 
-    admin.create_user("stranger")
-    client.headers["Authorization"] = f"Bearer {admin.issue_key('stranger').secret}"
+    sign_in_as(client, make_client(FakeLLM(), "stranger"))
 
     assert (await client.post("/api/offer", json=renegotiation)).status_code == 404
     assert len(speech.stts) == 1

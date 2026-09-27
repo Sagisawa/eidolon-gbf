@@ -176,7 +176,9 @@ async def test_an_interrupted_run_keeps_what_it_finished_and_drops_nothing(
 async def test_deleted_memories_are_not_embedded(deployment: Deployment):
     await deployment.embed_everything_with(OLD)
     memories = Memories(deployment.database, deployment.characters, lambda: NOW)
-    [trip, cat] = await memories.entries(deployment.store.get_user_by_name("producer").id)
+    producer = deployment.store.first_user_named("producer")
+    assert producer is not None
+    [trip, cat] = await memories.entries(producer.id)
     await memories.delete(cat.user_id, cat.id)
     await memories.aclose()
     embedder = FakeEmbedder(NEW)

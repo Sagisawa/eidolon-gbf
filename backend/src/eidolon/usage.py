@@ -1,4 +1,7 @@
-"""Per-user rate limits, so one user cannot use up the API credit everyone shares."""
+"""Per-user rate limits, so one user cannot use up the API credit everyone shares.
+
+A turn or call on the user's own keys alone is recorded all the same, for the admin to
+see, but does not count towards the limit."""
 
 from datetime import datetime, timedelta
 
@@ -34,8 +37,8 @@ class Use:
 
 
 class UsageLimiter:
-    """Counts each user's text turns and voice calls over the last hour, whichever of their
-    access keys they come with."""
+    """Counts each user's text turns and voice calls over the last hour, whichever device
+    or sign-in method they come with."""
 
     def __init__(self, store: Store, limits: UsageLimits, clock: Clock) -> None:
         self._store = store
@@ -45,14 +48,14 @@ class UsageLimiter:
         }
         self._clock = clock
 
-    def take(self, user_id: str, kind: UsageKind) -> Use:
-        """Count one `kind` against the user's limit; raises OverLimit, counting nothing,
-        when they have none left this hour."""
+    def take(self, user_id: str, kind: UsageKind, exempt: bool = False) -> Use:
+        """Record one `kind` by the user, counting it against their limit unless it is
+        `exempt`; raises OverLimit, recording nothing, when they have none left this hour."""
         limit = self._limits[kind]
-        if limit is None:
-            return Use()
         now = self._clock()
         try:
-            return Use(self._store, self._store.take_usage(user_id, kind, now, WINDOW, limit))
+            use_id = self._store.take_usage(user_id, kind, now, WINDOW, limit, exempt)
         except LimitReached as e:
+            assert limit is not None
             raise OverLimit(kind, limit, e.retry_at, now) from None
+        return Use(self._store, use_id)

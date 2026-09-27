@@ -1,5 +1,5 @@
-"""The producer profile: edited through the API, owned by the user rather than one access
-key, and carried into every conversation's prompt along with the current date and time
+"""The producer profile: edited through the API, owned by the user rather than one device,
+and carried into every conversation's prompt along with the current date and time
 in the user's time zone."""
 
 import sqlite3
@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from eidolon.config import Settings
-from tests.conftest import Admin, ClientFactory, IssuedKey
+from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -36,12 +36,7 @@ async def test_a_new_user_has_an_empty_profile(make_client: ClientFactory):
     assert res.json() == {"form_of_address": None, "gender": None, "timezone": None}
 
 
-async def test_profile_belongs_to_the_user_not_the_key(
-    make_client: ClientFactory, admin: Admin, producer_key: IssuedKey
-):
-    phone_key = admin.issue_key("producer")
-    admin.create_user("friend")
-    friend_key = admin.issue_key("friend")
+async def test_profile_belongs_to_the_user_not_the_device(make_client: ClientFactory):
     desktop = make_client(FakeLLM())
 
     res = await desktop.put(
@@ -50,9 +45,9 @@ async def test_profile_belongs_to_the_user_not_the_key(
     )
     assert res.status_code == 200
 
-    phone = await make_client(FakeLLM(), key=phone_key.secret).get("/api/profile")
+    phone = await make_client(FakeLLM()).get("/api/profile")
     assert phone.json() == {"form_of_address": "小林", "gender": "female", "timezone": "Asia/Tokyo"}
-    friend = await make_client(FakeLLM(), key=friend_key.secret).get("/api/profile")
+    friend = await make_client(FakeLLM(), "friend").get("/api/profile")
     assert friend.json() == {"form_of_address": None, "gender": None, "timezone": None}
 
 
@@ -99,8 +94,8 @@ async def test_invalid_profile_is_rejected(make_client: ClientFactory, profile: 
     assert (await client.get("/api/profile")).json()["timezone"] is None
 
 
-async def test_profile_needs_an_access_key(make_client: ClientFactory):
-    client = make_client(FakeLLM(), key=None)
+async def test_profile_needs_a_session(make_client: ClientFactory):
+    client = make_client(FakeLLM(), user=None)
 
     assert (await client.get("/api/profile")).status_code == 401
     assert (await client.put("/api/profile", json={})).status_code == 401

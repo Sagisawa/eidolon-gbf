@@ -1,6 +1,6 @@
 # 对公众开放：OAuth 登录、自带密钥与数据删除
 
-Status: ready-for-agent
+Status: done
 
 术语以 `CONTEXT.md` 为准；相关决策见 ADR-0006（对公众开放，用 Google 或 GitHub 登录）、ADR-0003 的 2026-09-27 修订（不再只限小圈子，音色可以公开）、ADR-0005 的 2026-09-27 修订（公开部署不用 Gemini 免费层）。
 

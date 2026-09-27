@@ -76,7 +76,7 @@ export default function ConversationPage() {
     }
     dispatch(event);
     if (event.type === "user") setHearing("");
-    if (event.type === "error") setError({ message: event.message, needsKey: false });
+    if (event.type === "error") setError({ message: event.message, signedOut: false });
   }
 
   async function toggleCall() {
@@ -105,7 +105,7 @@ export default function ConversationPage() {
           setCallState("idle");
           setHearing("");
           dispatch({ type: "interrupted" });
-          setError({ message: callEnding.current ?? "通话已断开", needsKey: false });
+          setError({ message: callEnding.current ?? "通话已断开", signedOut: false });
         },
       });
       setCallState("active");
@@ -153,9 +153,9 @@ export default function ConversationPage() {
       for await (const event of sendTurn(conversationId, text)) {
         dispatch(event);
         if (event.type === "done") done = true;
-        if (event.type === "error") failure = { message: event.message, needsKey: false };
+        if (event.type === "error") failure = { message: event.message, signedOut: false };
       }
-      if (!done && !failure) failure = { message: "回复中断了，请再试一次", needsKey: false };
+      if (!done && !failure) failure = { message: "回复中断了，请再试一次", signedOut: false };
     } catch (e) {
       failure = toFailure(e);
     }
@@ -180,7 +180,7 @@ export default function ConversationPage() {
             type="button"
             className="ghost"
             onClick={startNewConversation}
-            disabled={busy || callState !== "idle" || error?.needsKey}
+            disabled={busy || callState !== "idle" || error?.signedOut}
           >
             新对话
           </button>

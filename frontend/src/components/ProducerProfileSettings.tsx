@@ -27,8 +27,8 @@ function sameDraft(a: Draft, b: Draft): boolean {
   );
 }
 
-/** The producer profile: kept on the backend with the user, so every key and device shares it. */
-export function ProducerProfileSettings({ accessKey }: { accessKey: string | null }) {
+/** The producer profile: kept on the backend with the user, so every device shares it. */
+export function ProducerProfileSettings() {
   const [saved, setSaved] = useState<Draft | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -42,10 +42,6 @@ export function ProducerProfileSettings({ accessKey }: { accessKey: string | nul
   }, []);
 
   useEffect(() => {
-    setSaved(null);
-    setDraft(null);
-    setFailure(null);
-    if (!accessKey) return;
     let current = true;
     getProfile().then(
       (profile) => {
@@ -58,7 +54,7 @@ export function ProducerProfileSettings({ accessKey }: { accessKey: string | nul
     return () => {
       current = false;
     };
-  }, [accessKey]);
+  }, []);
 
   // A time zone saved on another device may be unknown to this browser; keep it choosable.
   const timezoneOptions = useMemo(
@@ -89,14 +85,6 @@ export function ProducerProfileSettings({ accessKey }: { accessKey: string | nul
     }
   }
 
-  if (!accessKey) {
-    return (
-      <div className="field">
-        <label>制作人档案</label>
-        <p className="hint">填入访问密钥后，可以设置角色对你的称呼、你的性别和时区。</p>
-      </div>
-    );
-  }
   if (!draft || !saved) {
     return (
       <div className="field">

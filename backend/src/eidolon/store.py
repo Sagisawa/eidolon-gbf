@@ -1,4 +1,4 @@
-"""Relational storage (SQLite) for users, access keys, producer profiles, conversations
+"""Relational storage (SQLite) for users, their sessions, producer profiles, conversations
 and their messages, and each user's recent usage; memories are kept by `memory`."""
 
 import hashlib
@@ -20,17 +20,44 @@ Role = Literal["user", "character"]
 UsageKind = Literal["turn", "call"]
 
 _SCHEMA = """
+-- `name` only tells users apart on the admin command line; it need not be unique.
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS access_keys (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    secret_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    revoked_at TEXT
+    consented_at TEXT,
+    banned_at TEXT
+);
+-- Only a hash of each session's token is kept; the times are epoch seconds.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    last_active_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);
+-- A Google or GitHub identity a user signs in with; each belongs to one user only.
+CREATE TABLE IF NOT EXISTS sign_in_methods (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    email TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (provider, subject)
+);
+CREATE INDEX IF NOT EXISTS sign_in_methods_by_user ON sign_in_methods(user_id);
+-- A user's own key for a service, encrypted; an LLM also has where it is and which model.
+CREATE TABLE IF NOT EXISTS own_keys (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    service TEXT NOT NULL,
+    secret BLOB NOT NULL,
+    last4 TEXT NOT NULL,
+    base_url TEXT,
+    model TEXT,
+    protocol TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, service)
 );
 CREATE TABLE IF NOT EXISTS producer_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id),
@@ -57,14 +84,26 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
 -- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
+-- A use on the user's own keys alone is `exempt`: recorded, but not limited.
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id),
     kind TEXT NOT NULL,
-    at REAL NOT NULL
+    at REAL NOT NULL,
+    exempt INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
 """
+
+
+USAGE_KEPT = timedelta(hours=24)
+"""How long each use is kept: an hour for the limits, a day for the admin to look over."""
+
+SESSION_LIFETIME = timedelta(days=30)
+"""How long a session lasts after it was last used."""
+SESSION_RENEWAL = timedelta(hours=1)
+"""How long after its last renewal a session in use is renewed again, rather than on
+every request."""
 
 
 @dataclass(frozen=True)
@@ -72,20 +111,50 @@ class User:
     id: str
     name: str
     created_at: str
+    consented_at: str | None = None
+    """When they agreed to the privacy policy and terms of use; None until they do."""
+    banned_at: str | None = None
 
 
 @dataclass(frozen=True)
-class AccessKey:
-    """A key as the admin sees it: its id and state, never the secret itself."""
+class Session:
+    """A signed-in browser's session. `renewed` says this use renewed it, so the browser's
+    cookie should be renewed too."""
 
-    id: str
-    user_id: str
+    user: User
+    renewed: bool
+
+
+@dataclass(frozen=True)
+class SignInMethod:
+    """An identity at a provider (Google or GitHub) that signs a user in; `subject` is the
+    provider's id for it."""
+
+    provider: str
+    subject: str
+    display_name: str
+    email: str | None
     created_at: str
-    revoked_at: str | None
 
 
-class KeyRevoked(Exception):
-    pass
+@dataclass(frozen=True)
+class OwnKeyRecord:
+    """A user's own key for a service as stored: `secret` is the key, encrypted."""
+
+    service: str
+    secret: bytes
+    last4: str
+    base_url: str | None = None
+    model: str | None = None
+    protocol: str | None = None
+
+
+class IdentityTaken(Exception):
+    """The identity already belongs to a user."""
+
+
+class LastSignInMethod(Exception):
+    """Removing it would leave the user no way to sign in."""
 
 
 class LimitReached(Exception):
@@ -97,10 +166,6 @@ class LimitReached(Exception):
 
 
 class NotFound(LookupError):
-    pass
-
-
-class DuplicateName(ValueError):
     pass
 
 
@@ -134,6 +199,11 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
+        # Readers need not wait for a writer: the store, memory and the corpus each have a
+        # connection to this database.
+        self._db.execute("PRAGMA journal_mode = WAL")
+        # What is deleted is overwritten, not just freed: deleting a user is for good.
+        self._db.execute("PRAGMA secure_delete = ON")
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.execute("PRAGMA foreign_keys = ON")
@@ -146,9 +216,104 @@ class Store:
             # Before access keys, users had no name; the one default user keeps its id as name.
             self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
             self._db.execute("UPDATE users SET name = id")
-        self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_by_name ON users(name)")
+        for column in ("consented_at", "banned_at"):
+            if column not in columns:
+                self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+        usage_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(usage)")}
+        if "exempt" not in usage_columns:
+            self._db.execute("ALTER TABLE usage ADD COLUMN exempt INTEGER NOT NULL DEFAULT 0")
+        # Access keys are gone (ADR-0006), and with them unique names.
+        self._db.execute("DROP INDEX IF EXISTS users_by_name")
+        self._db.execute("DROP TABLE IF EXISTS access_keys")
 
     def create_user(self, name: str) -> User:
+        user = User(uuid.uuid4().hex, name, _now())
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)",
+                (user.id, user.name, user.created_at),
+            )
+        return user
+
+    def list_users(self) -> list[User]:
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users ORDER BY created_at, rowid"
+            ).fetchall()
+        return [User(**row) for row in rows]
+
+    def get_user(self, user_id: str) -> User:
+        with self._lock:
+            row = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFound(f"用户 {user_id} 不存在")
+        return User(**row)
+
+    def first_user_named(self, name: str) -> User | None:
+        """The earliest user with this name, if any; names are not unique."""
+        with self._lock:
+            row = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users WHERE name = ? ORDER BY created_at, rowid",
+                (name,),
+            ).fetchone()
+        return User(**row) if row else None
+
+    def set_banned(self, user_id: str, banned_at: datetime | None) -> None:
+        """Ban the user as of `banned_at`, signing them out everywhere; None lifts the ban.
+        Raises NotFound for no such user."""
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "UPDATE users SET banned_at = ? WHERE id = ?",
+                (banned_at.isoformat() if banned_at else None, user_id),
+            )
+            if cursor.rowcount == 0:
+                raise NotFound(f"用户 {user_id} 不存在")
+            if banned_at is not None:
+                self._db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+
+    def active_users(self, user_ids: set[str]) -> set[str]:
+        """Those of the users who still exist and are not banned."""
+        with self._lock:
+            return {
+                row["id"]
+                for row in self._db.execute(
+                    f"SELECT id FROM users WHERE banned_at IS NULL AND id IN"
+                    f" ({','.join('?' * len(user_ids))})",
+                    list(user_ids),
+                )
+            } if user_ids else set()
+
+    def usage_since(self, user_id: str, since: datetime) -> list[tuple[UsageKind, datetime, bool]]:
+        """The user's uses since `since`, oldest first: what, when, and whether exempt."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT kind, at, exempt FROM usage WHERE user_id = ? AND at >= ? ORDER BY at",
+                (user_id, since.timestamp()),
+            ).fetchall()
+        return [(row["kind"], datetime.fromtimestamp(row["at"], UTC), bool(row["exempt"]))
+                for row in rows]
+
+    def consent(self, user_id: str, now: datetime) -> None:
+        """Record that the user agreed to the privacy policy and terms of use."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE users SET consented_at = ? WHERE id = ?", (now.isoformat(), user_id)
+            )
+
+    def user_signing_in_with(self, provider: str, subject: str) -> str | None:
+        """The id of the user this identity belongs to, if any."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT user_id FROM sign_in_methods WHERE provider = ? AND subject = ?",
+                (provider, subject),
+            ).fetchone()
+        return row["user_id"] if row else None
+
+    def create_user_signing_in_with(self, name: str, method: SignInMethod) -> User:
+        """A new user, whose one sign-in method is `method`. Raises IdentityTaken, making
+        no one, if the identity already belongs to someone."""
         user = User(uuid.uuid4().hex, name, _now())
         try:
             with self._lock, self._db:
@@ -156,71 +321,144 @@ class Store:
                     "INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)",
                     (user.id, user.name, user.created_at),
                 )
+                self._insert_sign_in_method(user.id, method)
         except sqlite3.IntegrityError:
-            raise DuplicateName(f"用户 {name} 已存在") from None
+            raise IdentityTaken from None
         return user
 
-    def list_users(self) -> list[User]:
-        with self._lock:
-            rows = self._db.execute(
-                "SELECT id, name, created_at FROM users ORDER BY created_at, rowid"
-            ).fetchall()
-        return [User(**row) for row in rows]
+    def add_sign_in_method(self, user_id: str, method: SignInMethod) -> None:
+        """Raises IdentityTaken if the identity already belongs to someone."""
+        try:
+            with self._lock, self._db:
+                self._insert_sign_in_method(user_id, method)
+        except sqlite3.IntegrityError:
+            raise IdentityTaken from None
 
-    def get_user_by_name(self, name: str) -> User:
-        with self._lock:
-            row = self._db.execute(
-                "SELECT id, name, created_at FROM users WHERE name = ?", (name,)
-            ).fetchone()
-        if row is None:
-            raise NotFound(f"用户 {name} 不存在")
-        return User(**row)
-
-    def issue_key(self, user_id: str) -> tuple[AccessKey, str]:
-        """Issue a new key for the user; returns it with its secret, which is not stored."""
-        key = AccessKey(secrets.token_hex(4), user_id, _now(), None)
-        secret = f"esc_{secrets.token_urlsafe(24)}"
+    def update_sign_in_method(self, provider: str, subject: str, display_name: str,
+                              email: str | None) -> None:
+        """Keep the name and email the provider now gives for the identity."""
         with self._lock, self._db:
             self._db.execute(
-                "INSERT INTO access_keys (id, user_id, secret_hash, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (key.id, user_id, _hash(secret), key.created_at),
+                "UPDATE sign_in_methods SET display_name = ?, email = ?"
+                " WHERE provider = ? AND subject = ?",
+                (display_name, email, provider, subject),
             )
-        return key, secret
 
-    def revoke_key(self, key_id: str) -> None:
-        with self._lock, self._db:
-            cursor = self._db.execute(
-                "UPDATE access_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
-                (_now(), key_id),
-            )
-        if cursor.rowcount == 0:
-            raise NotFound(f"访问密钥 {key_id} 不存在")
-
-    def list_keys(self, user_id: str) -> list[AccessKey]:
+    def sign_in_methods(self, user_id: str) -> list[SignInMethod]:
+        """In the order they were added."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, user_id, created_at, revoked_at FROM access_keys"
+                "SELECT provider, subject, display_name, email, created_at FROM sign_in_methods"
                 " WHERE user_id = ? ORDER BY created_at, rowid",
                 (user_id,),
             ).fetchall()
-        return [AccessKey(**row) for row in rows]
+        return [SignInMethod(**row) for row in rows]
 
-    def user_for_key(self, secret: str) -> str | None:
-        """The id of the user holding this key; None for an unknown key.
+    def remove_sign_in_method(self, user_id: str, provider: str) -> bool:
+        """Remove the user's sign-in method at `provider`; False if they have none there.
+        Raises LastSignInMethod, removing nothing, if it is the only one they have."""
+        with self._lock, self._db:
+            providers = [
+                row["provider"]
+                for row in self._db.execute(
+                    "SELECT provider FROM sign_in_methods WHERE user_id = ?", (user_id,)
+                )
+            ]
+            if provider not in providers:
+                return False
+            if len(providers) == 1:
+                raise LastSignInMethod
+            self._db.execute(
+                "DELETE FROM sign_in_methods WHERE user_id = ? AND provider = ?",
+                (user_id, provider),
+            )
+        return True
 
-        Raises KeyRevoked for a key that has been revoked.
-        """
+    def save_own_key(self, user_id: str, key: OwnKeyRecord) -> None:
+        """Keep the user's key for `key.service`, replacing the one they had."""
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO own_keys"
+                " (user_id, service, secret, last4, base_url, model, protocol, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, key.service, key.secret, key.last4, key.base_url, key.model,
+                 key.protocol, _now()),
+            )
+
+    def own_keys(self, user_id: str) -> dict[str, OwnKeyRecord]:
+        """The user's own keys, by service."""
         with self._lock:
+            rows = self._db.execute(
+                "SELECT service, secret, last4, base_url, model, protocol FROM own_keys"
+                " WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+        return {row["service"]: OwnKeyRecord(**row) for row in rows}
+
+    def delete_own_key(self, user_id: str, service: str) -> bool:
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "DELETE FROM own_keys WHERE user_id = ? AND service = ?", (user_id, service)
+            )
+        return cursor.rowcount > 0
+
+    def delete_user(self, user_id: str) -> None:
+        """Delete the user and everything of theirs, for good, all at once."""
+        with self._lock, self._db:
+            tables = {
+                row["name"]
+                for row in self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            }
+            for table, where in _USER_DATA:
+                if table in tables:  # memory's tables exist once memory has opened them
+                    self._db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
+        with self._lock:  # the write-ahead log still holds the pages as they were
+            self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    def create_session(self, user_id: str, now: datetime) -> str:
+        """Start a session for the user; returns its token, which is not stored."""
+        token = secrets.token_urlsafe(32)
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO sessions (token_hash, user_id, last_active_at, expires_at)"
+                " VALUES (?, ?, ?, ?)",
+                (_hash(token), user_id, now.timestamp(), (now + SESSION_LIFETIME).timestamp()),
+            )
+        return token
+
+    def use_session(self, token: str, now: datetime) -> Session | None:
+        """The session with this token, renewed for another `SESSION_LIFETIME` if it has
+        not been for a while; None if there is none or it has expired."""
+        token_hash = _hash(token)
+        with self._lock, self._db:
             row = self._db.execute(
-                "SELECT user_id, revoked_at FROM access_keys WHERE secret_hash = ?",
-                (_hash(secret),),
+                "SELECT user_id, last_active_at, expires_at FROM sessions WHERE token_hash = ?",
+                (token_hash,),
             ).fetchone()
-        if row is None:
-            return None
-        if row["revoked_at"] is not None:
-            raise KeyRevoked
-        return row["user_id"]
+            if row is None:
+                return None
+            if row["expires_at"] <= now.timestamp():
+                self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+                return None
+            renewed = now.timestamp() - row["last_active_at"] >= SESSION_RENEWAL.total_seconds()
+            if renewed:
+                self._db.execute(
+                    "UPDATE sessions SET last_active_at = ?, expires_at = ? WHERE token_hash = ?",
+                    (now.timestamp(), (now + SESSION_LIFETIME).timestamp(), token_hash),
+                )
+            user = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (row["user_id"],)
+            ).fetchone()
+        return Session(User(**user), renewed)
+
+    def end_session(self, token: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash(token),))
+
+    def end_sessions(self, user_id: str) -> None:
+        """Sign the user out everywhere."""
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
     def get_profile(self, user_id: str) -> ProducerProfile:
         """The user's producer profile; all defaults until they save one."""
@@ -293,31 +531,38 @@ class Store:
         ]
 
     def take_usage(
-        self, user_id: str, kind: UsageKind, now: datetime, window: timedelta, limit: int
+        self,
+        user_id: str,
+        kind: UsageKind,
+        now: datetime,
+        window: timedelta,
+        limit: int | None,
+        exempt: bool = False,
     ) -> int:
-        """Record one use of `kind` by the user at `now` and return its id, unless they
-        already have `limit` uses in the `window` before it: then record nothing and raise
-        LimitReached with when enough of those will have aged out. The user's older uses
-        of `kind` are forgotten."""
-        since = (now - window).timestamp()
+        """Record one use of `kind` by the user at `now` and return its id, unless it
+        counts (is not `exempt`) and they already have `limit` counting uses in the
+        `window` before it: then record nothing and raise LimitReached with when enough
+        of those will have aged out. Uses older than `USAGE_KEPT` are forgotten."""
         with self._lock, self._db:
             self._db.execute(
-                "DELETE FROM usage WHERE user_id = ? AND kind = ? AND at <= ?",
-                (user_id, kind, since),
+                "DELETE FROM usage WHERE user_id = ? AND at <= ?",
+                (user_id, (now - USAGE_KEPT).timestamp()),
             )
-            recent = [
-                row["at"]
-                for row in self._db.execute(
-                    "SELECT at FROM usage WHERE user_id = ? AND kind = ? ORDER BY at",
-                    (user_id, kind),
-                )
-            ]
-            if len(recent) >= limit:
-                blocking = recent[len(recent) - limit]  # this one must age out first
-                raise LimitReached(datetime.fromtimestamp(blocking, UTC) + window)
+            if limit is not None and not exempt:
+                recent = [
+                    row["at"]
+                    for row in self._db.execute(
+                        "SELECT at FROM usage WHERE user_id = ? AND kind = ? AND NOT exempt"
+                        " AND at > ? ORDER BY at",
+                        (user_id, kind, (now - window).timestamp()),
+                    )
+                ]
+                if len(recent) >= limit:
+                    blocking = recent[len(recent) - limit]  # this one must age out first
+                    raise LimitReached(datetime.fromtimestamp(blocking, UTC) + window)
             cursor = self._db.execute(
-                "INSERT INTO usage (user_id, kind, at) VALUES (?, ?, ?)",
-                (user_id, kind, now.timestamp()),
+                "INSERT INTO usage (user_id, kind, at, exempt) VALUES (?, ?, ?, ?)",
+                (user_id, kind, now.timestamp(), int(exempt)),
             )
         assert cursor.lastrowid is not None
         return cursor.lastrowid
@@ -329,6 +574,15 @@ class Store:
 
     def close(self) -> None:
         self._db.close()
+
+    def _insert_sign_in_method(self, user_id: str, method: SignInMethod) -> None:
+        self._db.execute(
+            "INSERT INTO sign_in_methods"
+            " (user_id, provider, subject, display_name, email, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, method.provider, method.subject, method.display_name, method.email,
+             method.created_at),
+        )
 
     def _insert_message(
         self,
@@ -350,6 +604,24 @@ class Store:
         )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
+
+
+_USER_COLUMNS = "id, name, created_at, consented_at, banned_at"
+
+_USER_DATA = [
+    ("memory_vectors", "user_id = ?"),
+    ("memories", "user_id = ?"),
+    ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("conversations", "user_id = ?"),
+    ("producer_profiles", "user_id = ?"),
+    ("usage", "user_id = ?"),
+    ("sessions", "user_id = ?"),
+    ("sign_in_methods", "user_id = ?"),
+    ("own_keys", "user_id = ?"),
+    ("users", "id = ?"),
+]
+"""Every table holding a user's data, and which rows are theirs, in an order that deletes
+what refers to a row before the row. A table added for users' data must be added here."""
 
 
 def _hash(secret: str) -> str:

@@ -1,5 +1,7 @@
 // Forwards /api/* to the backend at runtime, streaming the response body so that
-// server-sent events reach the browser as they arrive.
+// server-sent events reach the browser as they arrive. The browser only ever talks to
+// this origin: the session cookie, the Origin the backend checks, and the redirects of
+// signing in with Google or GitHub all pass through here.
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -8,7 +10,7 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   const { search } = new URL(request.url);
   const url = `${BACKEND_URL}/api/${path.map(encodeURIComponent).join("/")}${search}`;
   const headers = new Headers();
-  for (const name of ["content-type", "authorization", "x-timezone"]) {
+  for (const name of ["content-type", "cookie", "origin", "x-timezone"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -19,13 +21,15 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
     headers,
     body: hasBody ? await request.arrayBuffer() : undefined,
     cache: "no-store",
+    redirect: "manual", // the browser follows the backend's redirects itself
   });
 
   const out = new Headers();
-  for (const name of ["content-type", "cache-control", "www-authenticate"]) {
+  for (const name of ["content-type", "cache-control", "location", "retry-after"]) {
     const value = res.headers.get(name);
     if (value) out.set(name, value);
   }
+  for (const cookie of res.headers.getSetCookie()) out.append("set-cookie", cookie);
   return new Response(res.body, { status: res.status, headers: out });
 }
 
