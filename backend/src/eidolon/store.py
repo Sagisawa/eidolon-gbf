@@ -47,6 +47,18 @@ CREATE TABLE IF NOT EXISTS sign_in_methods (
     UNIQUE (provider, subject)
 );
 CREATE INDEX IF NOT EXISTS sign_in_methods_by_user ON sign_in_methods(user_id);
+-- A user's own key for a service, encrypted; an LLM also has where it is and which model.
+CREATE TABLE IF NOT EXISTS own_keys (
+    user_id TEXT NOT NULL REFERENCES users(id),
+    service TEXT NOT NULL,
+    secret BLOB NOT NULL,
+    last4 TEXT NOT NULL,
+    base_url TEXT,
+    model TEXT,
+    protocol TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, service)
+);
 CREATE TABLE IF NOT EXISTS producer_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id),
     form_of_address TEXT,
@@ -118,6 +130,18 @@ class SignInMethod:
     display_name: str
     email: str | None
     created_at: str
+
+
+@dataclass(frozen=True)
+class OwnKeyRecord:
+    """A user's own key for a service as stored: `secret` is the key, encrypted."""
+
+    service: str
+    secret: bytes
+    last4: str
+    base_url: str | None = None
+    model: str | None = None
+    protocol: str | None = None
 
 
 class IdentityTaken(Exception):
@@ -304,6 +328,34 @@ class Store:
                 (user_id, provider),
             )
         return True
+
+    def save_own_key(self, user_id: str, key: OwnKeyRecord) -> None:
+        """Keep the user's key for `key.service`, replacing the one they had."""
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO own_keys"
+                " (user_id, service, secret, last4, base_url, model, protocol, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, key.service, key.secret, key.last4, key.base_url, key.model,
+                 key.protocol, _now()),
+            )
+
+    def own_keys(self, user_id: str) -> dict[str, OwnKeyRecord]:
+        """The user's own keys, by service."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT service, secret, last4, base_url, model, protocol FROM own_keys"
+                " WHERE user_id = ?",
+                (user_id,),
+            ).fetchall()
+        return {row["service"]: OwnKeyRecord(**row) for row in rows}
+
+    def delete_own_key(self, user_id: str, service: str) -> bool:
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "DELETE FROM own_keys WHERE user_id = ? AND service = ?", (user_id, service)
+            )
+        return cursor.rowcount > 0
 
     def delete_user(self, user_id: str) -> None:
         """Delete the user and everything of theirs, for good, all at once."""
@@ -511,6 +563,7 @@ _USER_DATA = [
     ("usage", "user_id = ?"),
     ("sessions", "user_id = ?"),
     ("sign_in_methods", "user_id = ?"),
+    ("own_keys", "user_id = ?"),
     ("users", "id = ?"),
 ]
 """Every table holding a user's data, and which rows are theirs, in an order that deletes

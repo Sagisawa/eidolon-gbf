@@ -146,12 +146,18 @@ class Memories:
         self._pending: dict[str, set[asyncio.Task[None]]] = {}  # user id → writing
         self._clearings: dict[str, int] = {}  # user id → how many times cleared
 
-    async def begin(self, conversation: Conversation, timezone: str) -> "MemoryTurn":
+    async def begin(
+        self,
+        conversation: Conversation,
+        timezone: str,
+        background_llm: ChatLLM | None = None,
+    ) -> "MemoryTurn":
         """Begin a turn of `conversation`, whose user is in `timezone`, once what their
-        earlier turns are writing down is written (a while at most)."""
+        earlier turns are writing down is written (a while at most). The turn writes down
+        with `background_llm` if given (the user's own), else the deployer's."""
         clearings = self._clearings.get(conversation.user_id, 0)
         await self._settle(conversation.user_id)
-        return MemoryTurn(self, conversation, timezone, clearings)
+        return MemoryTurn(self, conversation, timezone, clearings, background_llm)
 
     async def entries(self, user_id: str) -> list[Memory]:
         """All of the user's memories, newest first, including what their turns so far
@@ -270,6 +276,7 @@ class Memories:
         conversation: Conversation,
         timezone: str,
         clearings: int,
+        background_llm: ChatLLM | None,
         history: Sequence[Message],
         text: str,
         reply: Message,
@@ -277,8 +284,9 @@ class Memories:
         if (services := self._services) is None:
             return
         now = self._clock().astimezone(ZoneInfo(timezone))
+        llm = background_llm or services.background_llm
         task = asyncio.create_task(
-            self._write(services, conversation, clearings, history, text, reply, now)
+            self._write(services, llm, conversation, clearings, history, text, reply, now)
         )
         pending = self._pending.setdefault(conversation.user_id, set())
         pending.add(task)
@@ -293,6 +301,7 @@ class Memories:
     async def _write(
         self,
         services: _Services,
+        llm: ChatLLM,
         conversation: Conversation,
         clearings: int,
         history: Sequence[Message],
@@ -306,7 +315,7 @@ class Memories:
             known = await asyncio.to_thread(self._all, user_id)
             prompt = _extraction_prompt(character, history, text, reply, known, now)
             answer = "".join([
-                chunk async for chunk in services.background_llm.stream(prompt)
+                chunk async for chunk in llm.stream(prompt)
                 if isinstance(chunk, str)
             ])
             texts = parse_memories(answer)
@@ -421,12 +430,18 @@ class MemoryTurn:
     """One turn's use of the user's memories; see `Memories.begin`."""
 
     def __init__(
-        self, memories: Memories, conversation: Conversation, timezone: str, clearings: int
+        self,
+        memories: Memories,
+        conversation: Conversation,
+        timezone: str,
+        clearings: int,
+        background_llm: ChatLLM | None = None,
     ) -> None:
         self._memories = memories
         self._conversation = conversation
         self._timezone = timezone
         self._clearings = clearings
+        self._background_llm = background_llm
 
     async def find(self, text: str) -> str | None:
         """The prompt section carrying the user's memories relevant to `text`, most
@@ -439,7 +454,8 @@ class MemoryTurn:
         """Start writing down what the user revealed in this turn: `text`, said after
         `history` and answered with `reply`."""
         self._memories._write_down(
-            self._conversation, self._timezone, self._clearings, history, text, reply
+            self._conversation, self._timezone, self._clearings, self._background_llm,
+            history, text, reply,
         )
 
 

@@ -17,7 +17,14 @@ from eidolon.identity import Identity
 from eidolon.sessions import SESSION_COOKIE
 from eidolon.store import Store
 from tests.browser import Browser, open_browser
-from tests.fakes import START, FakeBackgroundLLM, FakeIdentityProvider, FakeLLM, FakeSpeech
+from tests.fakes import (
+    START,
+    FakeBackgroundLLM,
+    FakeIdentityProvider,
+    FakeLLM,
+    FakeLLMService,
+    FakeSpeech,
+)
 from tests.stories import write_sample_stories
 
 
@@ -133,6 +140,7 @@ def settings(tmp_path: Path, characters: CharacterConfig) -> Settings:
         chat_llm=LLMSettings("http://llm.invalid/v1", "test-key", "test-model"),
         ice_servers=[],  # tests run offline: gather host candidates only
         dev_login=True,
+        secret_key="test-secret-key",
     )
 
 
@@ -219,6 +227,12 @@ def speech(monkeypatch: pytest.MonkeyPatch) -> FakeSpeech:
 
 
 @pytest.fixture
+def own_llm() -> FakeLLMService:
+    """The LLM services users bring their own keys to, faked."""
+    return FakeLLMService()
+
+
+@pytest.fixture
 def github() -> FakeIdentityProvider:
     return FakeIdentityProvider("github")
 
@@ -241,13 +255,15 @@ async def make_client(
     speech: FakeSpeech,
     github: FakeIdentityProvider,
     google: FakeIdentityProvider,
+    own_llm: FakeLLMService,
 ) -> AsyncIterator[ClientFactory]:
     """Makes API clients; each is signed in as the user with the given name, by default
     the producer, who has agreed to the terms (None for a client not signed in).
     Any other keyword is an outside service to use instead of the one the settings
-    describe (see `assembly.build`); the background model, speech and the identity
-    providers (the `github` and `google` fixtures) are fakes by default, and
-    `voice_configured=False` leaves calls unconfigured."""
+    describe (see `assembly.build`); the background model, speech, the identity providers
+    (the `github` and `google` fixtures) and the LLM services users bring their own keys
+    to (`own_llm`) are fakes by default, and `voice_configured=False` leaves calls
+    unconfigured."""
     backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
@@ -261,6 +277,7 @@ async def make_client(
     ) -> httpx.AsyncClient:
         services.setdefault("background_llm", FakeBackgroundLLM())
         services.setdefault("identity_providers", {"github": github, "google": google})
+        services.setdefault("own_llm_service", own_llm)
         if voice_configured:
             services.setdefault("speech", speech)
         backend = build(settings, chat_llm=llm, **services)

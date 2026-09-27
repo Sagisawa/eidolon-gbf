@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CallSettings } from "@/components/CallSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
+import { OwnKeysSettings } from "@/components/OwnKeysSettings";
 import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
 import { SignInSettings } from "@/components/SignInSettings";
 
@@ -27,6 +28,8 @@ export default function SettingsPage() {
       </div>
 
       <CallSettings />
+
+      <OwnKeysSettings />
 
       <SignInSettings />
 

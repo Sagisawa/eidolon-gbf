@@ -100,6 +100,7 @@ def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
     memory, usage, calls = backend.memories, backend.usage, backend.calls
+    own_keys = backend.own_keys
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -257,9 +258,10 @@ def create_app(backend: Backend) -> FastAPI:
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
         use = usage.take(user_id, "turn")
+        own_llm = own_keys.chat_llm(user_id)
 
         async def events() -> AsyncIterator[str]:
-            async for event in engine.turn(conversation, body.text, device_timezone):
+            async for event in engine.turn(conversation, body.text, device_timezone, own_llm):
                 if isinstance(event, TurnFailed):
                     use.give_back()
                 yield _sse(asdict(event))

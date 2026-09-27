@@ -42,10 +42,12 @@ def memory_client(make_client: ClientFactory, user: str | None = "producer") -> 
 
 
 async def use_everything(client: httpx.AsyncClient) -> None:
-    """Leave data of every kind: a conversation, a memory, a profile and usage."""
+    """Leave data of every kind: a conversation, a memory, a profile, usage and an own key."""
     await client.put("/api/profile", json={"form_of_address": "小林"})
     await send_turn(client, await start_conversation(client), "我家的猫叫小白哦")
     assert len((await client.get("/api/memories")).json()) == 1
+    own = {"base_url": "https://llm.example.com/v1", "api_key": "sk-own-key-5678", "model": "m"}
+    assert (await client.put("/api/account/keys/llm", json=own)).status_code == 200
 
 
 def rows_mentioning(database: Path, value: str) -> dict[str, int]:

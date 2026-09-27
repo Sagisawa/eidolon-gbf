@@ -132,6 +132,8 @@ class Settings:
     """Signing in with GitHub; not offered unless configured."""
     google: "OAuthSettings | None" = None
     """Signing in with Google; not offered unless configured."""
+    secret_key: str | None = None
+    """What users' own API keys are encrypted with; without it, they cannot bring any."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -169,6 +171,7 @@ class Settings:
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),
             google=OAuthSettings.from_env("GOOGLE"),
+            secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
         )
 
 

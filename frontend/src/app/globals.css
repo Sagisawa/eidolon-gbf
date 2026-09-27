@@ -463,3 +463,39 @@ button.danger {
 .sign-out-row {
   margin-top: 16px;
 }
+
+.own-key {
+  margin-top: 12px;
+}
+
+.own-key-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.own-key-current {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.own-key-form {
+  display: grid;
+  gap: 4px;
+  max-width: 480px;
+}
+
+.own-key-form label {
+  margin-top: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.own-key-form input,
+.own-key-form select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}

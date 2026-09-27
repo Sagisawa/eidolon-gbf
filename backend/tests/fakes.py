@@ -22,9 +22,10 @@ from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
 from eidolon.characters import Character
+from eidolon.config import LLMSettings
 from eidolon.embedding import Document, EmbeddingError
 from eidolon.identity import Identity, IdentityError, ProviderName
-from eidolon.llm import ChatMessage, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.retrieval import JudgeError, Need
 from eidolon.store import Message
@@ -45,33 +46,89 @@ class FakeClock:
         self.now += timedelta(**delta)
 
 
+DEPLOYER_KEY = "test-key"
+"""The deployer's chat model key in the tests' settings."""
+
+
 class FakeLLM:
-    """Records every prompt it receives, and the tools offered with it, and replies from a
-    script.
+    """Records every prompt it receives, the tools offered with it and the API key it came
+    with (`keys`), and replies from a script.
 
     Each scripted reply is a list of text chunks and tool calls, streamed in order, so
     tests can split the structured reply at awkward boundaries or have the model call a
-    tool. With a `delay`, it waits that many seconds before each chunk after the first,
-    as a slow model would.
+    tool; a reply that is an LLMError is raised instead, as a failing service would. With
+    a `delay`, it waits that many seconds before each chunk after the first, as a slow
+    model would. Unless reached through a FakeLLMService, it is the deployer's model.
     """
 
-    def __init__(self, *replies: Sequence[str | ToolCall], delay: float = 0) -> None:
-        self._replies = [list(r) for r in replies]
+    def __init__(
+        self, *replies: Sequence[str | ToolCall] | LLMError, delay: float = 0
+    ) -> None:
+        self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay
         self.prompts: list[list[ChatMessage]] = []
         self.tools: list[list[Tool]] = []
+        self.keys: list[str] = []
 
-    async def stream(
+    def stream(
         self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
+        return self.stream_with(DEPLOYER_KEY, messages, tools)
+
+    async def stream_with(
+        self, key: str, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
     ) -> AsyncIterator[str | ToolCall]:
         self.prompts.append(list(messages))
         self.tools.append(list(tools))
+        self.keys.append(key)
         if not self._replies:
             raise AssertionError("FakeLLM ran out of scripted replies")
-        for i, chunk in enumerate(self._replies.pop(0)):
+        reply = self._replies.pop(0)
+        if isinstance(reply, LLMError):
+            raise reply
+        for i, chunk in enumerate(reply):
             if i and self._delay:
                 await asyncio.sleep(self._delay)
             yield chunk
+
+    async def aclose(self) -> None:
+        pass
+
+
+class FakeLLMService:
+    """Stands in for the LLM services users bring their own keys to: every model opened on
+    it replies from `llm`'s script, recording the key it came with there. Records what
+    was tried before saving (`checked`); a key in `rejects` fails the try with that
+    message."""
+
+    def __init__(self, llm: FakeLLM | None = None) -> None:
+        self.llm = llm or FakeLLM()
+        self.checked: list[LLMSettings] = []
+        self.opened: list[LLMSettings] = []
+        self.rejects: dict[str, str] = {}
+
+    def open(self, settings: LLMSettings) -> ChatLLM:
+        self.opened.append(settings)
+        return _KeyedLLM(self.llm, settings.api_key)
+
+    async def check(self, settings: LLMSettings) -> None:
+        self.checked.append(settings)
+        if settings.api_key in self.rejects:
+            raise LLMError(self.rejects[settings.api_key])
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _KeyedLLM:
+    def __init__(self, llm: FakeLLM, key: str) -> None:
+        self._llm = llm
+        self._key = key
+
+    def stream(
+        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
+        return self._llm.stream_with(self._key, messages, tools)
 
     async def aclose(self) -> None:
         pass

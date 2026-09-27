@@ -20,12 +20,20 @@ import logging
 import secrets
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, model_validator
 
 from eidolon.accounts import SignInRefused
 from eidolon.assembly import Backend
+from eidolon.config import LLM_PROTOCOLS, LLMProtocol
 from eidolon.identity import PROVIDER_NAMES, IdentityError
+from eidolon.own_keys import (
+    SERVICES,
+    OwnKeyRejected,
+    OwnKeysUnavailable,
+    OwnLLMSettings,
+    Service,
+)
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -57,6 +65,13 @@ class Deletion(BaseModel):
         if not self.confirm:
             raise ValueError("需要确认才能删除全部数据")
         return self
+
+
+class OwnLLMInput(BaseModel):
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+    model: str = Field(min_length=1, max_length=200)
+    protocol: LLMProtocol = "chat-completions"
 
 
 class Consent(BaseModel):
@@ -210,6 +225,41 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         before they agree to the terms too."""
         await accounts.delete(user.id)
         clear_session_cookie(response, settings)
+
+    own_keys = backend.own_keys
+
+    @app.exception_handler(OwnKeysUnavailable)
+    async def own_keys_unavailable(_: Request, e: OwnKeysUnavailable) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=404)
+
+    @app.get("/api/account/keys")
+    def list_own_keys(user_id: UserId) -> dict:
+        """The keys the user brought, showing only their last 4 characters."""
+        return {
+            "available": own_keys.available,
+            "keys": own_keys.describe(user_id) if own_keys.available else {},
+            "protocols": list(LLM_PROTOCOLS),
+        }
+
+    @app.put("/api/account/keys/llm")
+    async def save_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
+        """Try the user's own LLM, then keep it; 422 with what the service said if the
+        try failed."""
+        try:
+            await own_keys.save_llm(
+                user_id,
+                OwnLLMSettings(body.base_url.strip(), body.api_key, body.model.strip(),
+                               body.protocol),
+            )
+        except OwnKeyRejected as e:
+            raise HTTPException(422, f"试调失败，没有保存：{e}") from None
+        return own_keys.describe(user_id)["llm"]
+
+    @app.delete("/api/account/keys/{service}", status_code=204)
+    def delete_own_key(service: str, user_id: UserId) -> None:
+        """Forget the user's own key for `service`; the deployer's is used again."""
+        if service not in SERVICES or not own_keys.delete(user_id, service):  # pyright: ignore[reportArgumentType]
+            raise HTTPException(404, "没有填过这项密钥")
 
     @app.post("/api/account/consent", status_code=204)
     def consent(body: Consent, user: SignedIn) -> None:

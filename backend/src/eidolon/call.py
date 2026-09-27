@@ -65,6 +65,8 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
 from eidolon.engine import ConversationEngine, TurnDone
+from eidolon.llm import ChatLLM
+from eidolon.own_keys import OwnKeys
 from eidolon.reply_format import SegmentDelta
 from eidolon.store import Conversation
 from eidolon.usage import UsageLimiter, Use
@@ -81,13 +83,14 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 @dataclass(frozen=True)
 class Call:
     """A call the browser asked for: which conversation, how it wants the audio, and the
-    time zone its device reports."""
+    time zone its device reports; and the user's own LLM, if they brought one."""
 
     conversation: Conversation
     character: Character
     muted: bool
     quality: Quality
     device_timezone: str | None = None
+    own_llm: ChatLLM | None = None
 
 
 @dataclass(frozen=True)
@@ -211,12 +214,14 @@ class Calls:
         usage: UsageLimiter,
         speech: Speech | None,
         clock: Clock,
+        own_keys: OwnKeys | None = None,
     ) -> None:
         self._settings = settings
         self._engine = engine
         self._usage = usage
         self._speech = speech
         self._clock = clock
+        self._own_keys = own_keys
         limits = settings.usage_limits
         self._limits = CallLimits(
             timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
@@ -248,7 +253,11 @@ class Calls:
         OverLimit when the user has no calls left this hour."""
         speech = self._require_speech()
         use = self._usage.take(user_id, "call")
-        call = Call(conversation, character, options.muted, options.quality, options.device_timezone)
+        own_llm = self._own_keys.chat_llm(user_id) if self._own_keys else None
+        call = Call(
+            conversation, character, options.muted, options.quality, options.device_timezone,
+            own_llm,
+        )
         connections: list[SmallWebRTCConnection] = []
         started: list[_LiveCall] = []
 
@@ -543,7 +552,7 @@ class CallTurns(FrameProcessor):
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
-                self._call.conversation, text, self._call.device_timezone
+                self._call.conversation, text, self._call.device_timezone, self._call.own_llm
             ):
                 if isinstance(event, TurnDone):  # recorded by now, whatever happens next
                     self.recorded += 1

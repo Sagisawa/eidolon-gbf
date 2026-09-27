@@ -149,6 +149,44 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
   await expectNoContent(await api(`/api/account/sign-in-methods/${provider}`, { method: "DELETE" }));
 }
 
+export type OwnService = "llm" | "tts" | "stt";
+
+export type LLMProtocol = "chat-completions" | "responses" | "anthropic";
+
+/** A key the user brought, as they may see it: only its last 4 characters. */
+export type OwnKey = { last4: string };
+
+export type OwnLLM = OwnKey & { base_url: string; model: string; protocol: LLMProtocol };
+
+export type OwnKeys = {
+  /** Whether the deployment lets users bring their own keys at all. */
+  available: boolean;
+  keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnKey };
+  protocols: LLMProtocol[];
+};
+
+export async function getOwnKeys(): Promise<OwnKeys> {
+  return json(await api("/api/account/keys"));
+}
+
+/** Try the user's own LLM and keep it; fails with what the service said if the try fails. */
+export async function saveOwnLLM(
+  llm: Omit<OwnLLM, "last4"> & { api_key: string },
+): Promise<OwnLLM> {
+  return json(
+    await api("/api/account/keys/llm", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(llm),
+    }),
+  );
+}
+
+/** Forget the user's own key for `service`; the deployer's is used again. */
+export async function deleteOwnKey(service: OwnService): Promise<void> {
+  await expectNoContent(await api(`/api/account/keys/${service}`, { method: "DELETE" }));
+}
+
 /** Delete the user and all their data for good, signing them out everywhere. */
 export async function deleteAccount(): Promise<void> {
   await expectNoContent(
