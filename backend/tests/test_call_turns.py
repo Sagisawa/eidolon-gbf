@@ -66,9 +66,14 @@ class CallUnderTest:
         muted: bool = False,
         limits: CallLimits = CallLimits(),
         memory: FakeBackgroundLLM | None = None,
+        exempt: bool = False,
+        connected: bool = True,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
-        down = await self.run_frames(llm, frames, muted=muted, limits=limits, memory=memory)
+        down = await self.run_frames(
+            llm, frames, muted=muted, limits=limits, memory=memory, exempt=exempt,
+            connected=connected,
+        )
         spoken = [f.text for f in down if type(f) is TextFrame]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
         return spoken, messages
@@ -81,7 +86,10 @@ class CallUnderTest:
         muted: bool = False,
         limits: CallLimits = CallLimits(),
         memory: FakeBackgroundLLM | None = None,
+        exempt: bool = False,
+        connected: bool = True,
     ) -> Sequence[Frame]:
+        """Run the frames through a call that, unless told otherwise, connects as it starts."""
         remembering = {} if memory is None else {
             "background_llm": memory, "jev": FakeJudge(), "embedder": FakeEmbedder(),
             "reranker": FakeReranker(),
@@ -90,8 +98,11 @@ class CallUnderTest:
         try:
             mano = backend.characters["mano"]
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
-            call = Call(self.conversation, mano, llms, muted, "standard")
-            down, _ = await run_test(CallTurns(backend.engine, call, limits), frames_to_send=frames)
+            call = Call(self.conversation, mano, llms, muted, "standard", exempt=exempt)
+            turns = CallTurns(backend.engine, call, limits)
+            if connected:
+                turns.connected()
+            down, _ = await run_test(turns, frames_to_send=frames)
         finally:
             await backend.aclose()
         return down
@@ -463,6 +474,8 @@ async def test_call_hangs_up_after_its_last_allowed_turn(mano_call: CallUnderTes
 
     assert kinds(messages) == ["user", "done", "user", "done", "ended"]
     assert "2 轮" in messages[-1]["message"]
+    assert messages[-1]["reason"] == "turn_limit"
+    assert messages[-1]["counts"] is True
     assert "".join(spoken_text).count("ほわっ") == 2  # the last reply is still voiced
     assert len(await mano_call.record()) == 4
 
@@ -480,7 +493,32 @@ async def test_call_hangs_up_when_time_is_up_once_the_reply_in_progress_is_done(
 
     assert kinds(messages) == ["user", "done", "ended"]
     assert "分钟" in messages[-1]["message"]
+    assert messages[-1]["reason"] == "duration_limit"
+    assert messages[-1]["counts"] is True
     assert len(await mano_call.record()) == 2
+
+
+async def test_a_calls_time_is_counted_from_when_it_connects(mano_call: CallUnderTest):
+    """The call screen counts from 接通 (CONTEXT.md), so the time limit does too."""
+    _, messages = await mano_call.run(
+        FakeLLM(MANO_REPLY),
+        [SleepFrame(0.3), spoken("早上好")],
+        limits=CallLimits(duration=timedelta(seconds=0.1)),
+        connected=False,
+    )
+
+    assert kinds(messages) == ["user", "done"]  # never connected, so time never ran out
+
+
+async def test_a_call_on_the_users_own_keys_alone_says_it_does_not_count_when_it_ends(
+    mano_call: CallUnderTest,
+):
+    _, messages = await mano_call.run(
+        FakeLLM(MANO_REPLY), one_by_one(spoken("早上好")), limits=CallLimits(turns=1), exempt=True
+    )
+
+    assert messages[-1]["type"] == "ended"
+    assert messages[-1]["counts"] is False
 
 
 async def test_turns_that_fail_or_are_rejected_do_not_count_and_the_call_goes_on(

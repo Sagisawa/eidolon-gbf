@@ -12,6 +12,7 @@ import {
 } from "@astryxdesign/core/Chat";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Heading } from "@astryxdesign/core/Heading";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -21,6 +22,7 @@ import { StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { VStack } from "@astryxdesign/core/VStack";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 
 import { FailureNotice, SignInButton } from "@/components/FailureNotice";
@@ -37,12 +39,14 @@ import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
 import type { Entry } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
-import { LiveConversation, NOT_OPEN } from "@/lib/liveConversation";
+import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, CheckIcon, HangUpIcon, PhoneIcon } from "@/theme/icons";
+import { BackIcon, PhoneIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
-import { useDirectory } from "./ConversationDirectory";
+import { CallLayer, type ShownCall } from "./CallLayer";
+import { CallNote } from "./CallNote";
+import { useDirectory, useWide } from "./ConversationDirectory";
 
 const t = copy.conversation;
 
@@ -55,23 +59,25 @@ const noSubscription = () => () => {};
 /**
  * 和一位角色的 IM 对话页（DESIGN.md「Layout」「Chat bubbles」）：实底页首、只在消息区铺横线纸、
  * Astryx 的气泡和输入栏。对话的状态全在 LiveConversation 里，这里只画它的快照、把操作交给它。
- * 整个子树注入她的颜色（herVars）；离开这一页（换角色、回列表）就挂断通话，和原来一样。
+ * 整个子树注入她的颜色（herVars）。
  *
- * 通话层是 ticket 04 的事：这里先保留原来的通话功能——页首的电话键开始 / 挂断，通话中在页首下方
- * 显示状态，「只看文字」在 ⋯ 菜单里。
+ * 页首的电话键打开通话层并开始呼叫（spec「通话层」）；通话层可以收起回到这里，页首下方留一张便利贴，
+ * 电话键变成「回到通话」。离开这一页（换角色、进设置或记忆、回列表）先经列表外壳确认，然后挂断。
  */
 export function ConversationView({ character, onBack }: { character: Character; onBack?: () => void }) {
-  const { refresh, setCall } = useDirectory();
+  const router = useRouter();
+  const { refresh, setCall, leave } = useDirectory();
+  const isFullScreen = !useWide();
+  const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [opened, setOpened] = useState<Opened | null>(null);
   const [live, setLive] = useState<LiveConversation | null>(null);
   const [pageError, setPageError] = useState<Failure | null>(null);
-  const { entries, phase, hearing, busy, draft, muted, failure } = useSyncExternalStore(
-    live?.subscribe ?? noSubscription,
-    live?.snapshot ?? notOpen,
-    notOpen,
-  );
+  const [isCollapsed, setCollapsed] = useState(false);
+  const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
+  const { entries, call, hearing, busy, draft, textOnly, failure } = snapshot;
   const characterAudio = useRef<HTMLAudioElement>(null);
   const times = useEntryTimes(entries, opened?.messages);
+  const shownCall = useShownCall(call);
 
   // 打开她最新的一次对话；从没聊过就开一个新的。
   useEffect(() => {
@@ -109,9 +115,14 @@ export function ConversationView({ character, onBack }: { character: Character; 
 
   // 通话的进展告诉列表那一行。
   useEffect(() => {
-    setCall(phase === "idle" ? null : { characterId: character.id, phase });
-  }, [phase, character.id, setCall]);
+    setCall(isLive(call) ? { characterId: character.id, state: call } : null);
+  }, [call, character.id, setCall]);
   useEffect(() => () => setCall(null), [setCall]);
+
+  // 因故结束时停在结束页：收起着也展开给用户看原因。
+  useEffect(() => {
+    if (call.phase === "ended") setCollapsed(false);
+  }, [call.phase]);
 
   // 一个回合记下之后，列表里的最后一句跟着更新。
   const settled = entries.filter((e) => !(e.kind === "character" && e.pending)).length;
@@ -135,7 +146,14 @@ export function ConversationView({ character, onBack }: { character: Character; 
   }
 
   const error = pageError ?? failure;
-  const inCall = phase !== "idle";
+  const inCall = isLive(call);
+  const back = onBack && (() => leave(onBack));
+
+  function dial() {
+    setPageError(null);
+    setCollapsed(false);
+    void live?.startCall();
+  }
 
   // 列表只在拿到空数组时显示空状态，所以把消息和「正在听」放进同一个数组。
   const rows = entries.map((entry) => (
@@ -165,7 +183,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
         borderBottom: "var(--border-width) solid var(--color-border)",
       }}
     >
-      {onBack && <IconButton label={t.back} icon={<Icon icon={BackIcon} />} variant="ghost" onClick={onBack} />}
+      {back && <IconButton label={t.back} icon={<Icon icon={BackIcon} />} variant="ghost" onClick={back} />}
       <Avatar
         src={character.avatar_url ?? undefined}
         name={character.name}
@@ -178,26 +196,21 @@ export function ConversationView({ character, onBack }: { character: Character; 
           {character.name}
         </Heading>
       </StackItem>
-      {phase === "active" ? (
+      {inCall ? (
         <IconButton
-          label={t.hangUp}
-          tooltip={t.hangUp}
-          icon={<Icon icon={HangUpIcon} />}
-          variant="destructive"
-          onClick={() => void live?.toggleCall()}
-          style={{ borderRadius: "var(--radius-full)" }}
+          label={copy.call.expand}
+          tooltip={copy.call.expand}
+          icon={<Icon icon={PhoneIcon} />}
+          onClick={() => setCollapsed(false)}
+          style={herButton}
         />
       ) : (
         <IconButton
           label={t.call(character.name)}
           tooltip={t.callTooltip}
           icon={<Icon icon={PhoneIcon} />}
-          isLoading={phase === "connecting"}
           isDisabled={!live || busy}
-          onClick={() => {
-            setPageError(null);
-            void live?.toggleCall();
-          }}
+          onClick={dial}
           style={herButton}
         />
       )}
@@ -209,12 +222,6 @@ export function ConversationView({ character, onBack }: { character: Character; 
             label: t.newConversation,
             onClick: () => void startNewConversation(),
             isDisabled: !live || busy || inCall || error?.signedOut,
-          },
-          {
-            label: t.textOnly,
-            endContent: muted ? <Icon icon={CheckIcon} /> : undefined,
-            onClick: () => live?.toggleMute(),
-            isDisabled: !live,
           },
         ]}
       />
@@ -232,7 +239,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
               pageError.signedOut ? (
                 <SignInButton />
               ) : (
-                onBack && <Button label={t.backToList} variant="secondary" onClick={onBack} />
+                back && <Button label={t.backToList} variant="secondary" onClick={back} />
               )
             }
           />
@@ -243,7 +250,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
 
   return (
     <Frame character={character} header={header}>
-      {inCall && <CallStrip phase={phase} />}
+      {isLive(call) && isCollapsed && <CallNote call={call} onExpand={() => setCollapsed(false)} />}
       {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮 */}
       {error?.signedOut && <FailureNotice failure={error} />}
       <StackItem size="fill" style={{ ...ruledPaper, minHeight: 0 }}>
@@ -282,7 +289,27 @@ export function ConversationView({ character, onBack }: { character: Character; 
           </ChatLayout>
         )}
       </StackItem>
-      <audio ref={characterAudio} autoPlay muted={muted} />
+      <audio ref={characterAudio} autoPlay muted={textOnly} />
+      {shownCall && (
+        <CallLayer
+          character={character}
+          call={shownCall}
+          isCollapsed={isCollapsed || call.phase === "idle"}
+          isFullScreen={isFullScreen}
+          isReducedMotion={isReducedMotion}
+          micMuted={snapshot.micMuted}
+          textOnly={textOnly}
+          line={snapshot.line}
+          hearing={hearing}
+          onCollapse={() => setCollapsed(true)}
+          onHangUp={() => void live?.hangUp()}
+          onToggleMic={() => live?.toggleMic()}
+          onToggleTextOnly={() => live?.toggleTextOnly()}
+          onRedial={dial}
+          onDismiss={() => live?.dismissEnd()}
+          onOwnKeys={() => leave(() => router.push("/settings"))}
+        />
+      )}
     </Frame>
   );
 }
@@ -339,38 +366,19 @@ function Bubble({ entry, character, at }: { entry: Entry; character: Character; 
   );
 }
 
-/** 通话中的状态条（ticket 04 的通话层做好前的过渡）。线形表示状态：虚线=正在呼叫，实线=通话中。 */
-function CallStrip({ phase }: { phase: "connecting" | "active" }) {
-  return (
-    <HStack
-      hAlign="center"
-      paddingBlock={2}
-      paddingInline={4}
-      role="status"
-      style={{
-        background: "var(--color-background-body)",
-        borderBottom: "var(--border-width) solid var(--color-border)",
-      }}
-    >
-      <Text
-        weight="medium"
-        style={{
-          textDecorationLine: "underline",
-          textDecorationStyle: phase === "active" ? "solid" : "dashed",
-          textDecorationColor: "var(--her-note-rule)",
-          textDecorationThickness: "var(--spacing-0-5)",
-          textUnderlineOffset: "var(--spacing-1-5)",
-        }}
-      >
-        {phase === "active" ? t.inCall : t.calling}
-      </Text>
-    </HStack>
-  );
-}
-
 /** 失败提示：后端给的原因，知道算不算限额时加一句（CONTEXT.md「限额」）。 */
 function failureText(failure: Failure): string {
   return failure.countsTowardLimit === false ? `${failure.message} ${t.notCounted}` : failure.message;
+}
+
+/**
+ * 通话层上要画的通话：通话中和结束页照实画；挂断回到空闲后，留着最后一刻的样子，收起的动画才有东西可收。
+ * 这一页还没打过电话时为 null，通话层不出现。
+ */
+function useShownCall(call: CallState): ShownCall | null {
+  const [shown, setShown] = useState<ShownCall | null>(null);
+  if (call.phase !== "idle" && call !== shown) setShown(call);
+  return call.phase === "idle" ? shown : call;
 }
 
 /**

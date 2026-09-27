@@ -1,7 +1,10 @@
 "use client";
 
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+
+import { copy } from "@/i18n";
 
 import {
   getAccount,
@@ -11,10 +14,10 @@ import {
   type LatestConversation,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import type { CallPhase } from "@/lib/liveConversation";
+import type { LiveCall } from "@/lib/liveConversation";
 
-/** 正在和谁通话，列表那一行据此显示「正在呼叫…」「通话中」。 */
-export type CallInList = { characterId: string; phase: Exclude<CallPhase, "idle"> } | null;
+/** 正在和谁通话，列表那一行据此显示「正在呼叫…」「通话中 mm:ss」。 */
+export type CallInList = { characterId: string; state: LiveCall } | null;
 
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由双栏外壳载入一次。 */
 export type Directory = {
@@ -29,6 +32,11 @@ export type Directory = {
   call: CallInList;
   /** 对话页把通话的进展告诉列表。 */
   setCall: (call: CallInList) => void;
+  /**
+   * 离开对话页（换一位角色、进设置或记忆、回列表）：通话中先确认会挂断，确认了才 `go`。
+   * 离开后对话页卸下，照常挂断（CONTEXT.md「通话」）。
+   */
+  leave: (go: () => void) => void;
 };
 
 /** 宽屏（≥ 768px）是左右双栏，窄屏是两级页面（DESIGN.md「Layout」）。服务端先按宽屏渲染。 */
@@ -50,6 +58,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [failure, setFailure] = useState<Failure | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [call, setCall] = useState<CallInList>(null);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
 
   const refresh = useCallback(() => {
     listLatestConversations().then(
@@ -82,9 +91,31 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     setAttempt((n) => n + 1);
   }, []);
 
+  const leave = useCallback(
+    (go: () => void) => {
+      if (call) setLeaving(() => go);
+      else go();
+    },
+    [call],
+  );
+
+  const callee = characters?.find((c) => c.id === call?.characterId);
   return (
-    <DirectoryContext.Provider value={{ characters, latest, failure, refresh, reload, call, setCall }}>
+    <DirectoryContext.Provider value={{ characters, latest, failure, refresh, reload, call, setCall, leave }}>
       {children}
+      <AlertDialog
+        isOpen={leaving !== null}
+        onOpenChange={(open) => !open && setLeaving(null)}
+        title={copy.call.leaveTitle(callee?.name ?? "")}
+        description={copy.call.leaveDescription}
+        actionLabel={copy.call.leaveConfirm}
+        cancelLabel={copy.call.stay}
+        onAction={() => {
+          const go = leaving;
+          setLeaving(null);
+          go?.();
+        }}
+      />
     </DirectoryContext.Provider>
   );
 }

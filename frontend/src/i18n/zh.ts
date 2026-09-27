@@ -35,12 +35,8 @@ export const zh = {
     back: "返回对话列表",
     menu: "更多操作",
     newConversation: "新对话",
-    textOnly: "只看文字",
     call: (name: string) => `和${name}通话`,
     callTooltip: "语音通话",
-    hangUp: "挂断",
-    calling: "正在呼叫…",
-    inCall: "通话中 · 直接说话即可",
     placeholder: "用中文或日语说点什么",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
@@ -53,8 +49,70 @@ export const zh = {
     /** 失败时说明这次算不算进限额（CONTEXT.md「限额」「回合」）。 */
     notCounted: "这次没有计入限额。",
   },
+  /** 通话层、收起后的便利贴、列表里的通话状态（spec「通话层」「通话状态」）。 */
   call: {
     leaveTitle: (name: string) => `会挂断和${name}的通话`,
+    leaveDescription: "离开这个对话，正在进行的通话就会挂断。",
+    leaveConfirm: "挂断并离开",
+    stay: "留在这里",
+    layer: (name: string) => `和${name}的通话`,
+    heading: "语音通话",
+    collapse: "收起通话",
+    collapseTooltip: "收起（Esc）",
+    /** 通话中，页首的电话键变成这个。 */
+    expand: "回到通话",
+    textOnly: "只看文字",
+    dialing: "正在呼叫…",
+    remaining: (clock: string) => `还剩 ${clock}`,
+    speakFreely: "直接说话就好",
+    repliesInText: "她会用文字回复",
+    hearing: (text: string) => `你：${text}…`,
+    micMute: "麦克风静音",
+    micUnmute: "取消麦克风静音",
+    hangUp: "挂断",
+    switchMic: "切换麦克风",
+    /** 收起后贴在消息区顶端的便利贴。 */
+    noteDialing: "正在呼叫… · 点击返回",
+    noteConnected: (clock: string) => `通话中 ${clock} · 点击返回`,
+    /** 消息列表里她那一行。 */
+    listConnected: (clock: string) => `通话中 ${clock}`,
+    ended: "通话已结束",
+    /** 是否计入限额（CONTEXT.md「限额」「接通」）。 */
+    counted: "这次通话计入每小时的限额。",
+    notCounted: "这次通话不计入每小时的限额。",
+    backToConversation: "回到对话",
+    redial: "重拨",
+    toOwnKeys: "去设置自带密钥",
+    endings: {
+      not_connected: {
+        title: "没能接通",
+        body: "通话没有连上，可能是网络或语音服务出了问题。可以稍后重拨。",
+      },
+      dropped: {
+        title: "通话中断了",
+        body: "网络或语音服务出了问题，通话在中途断开。已经说完的回合都记在对话里。",
+      },
+      duration_limit: {
+        title: "这次通话到时长上限了",
+        body: "单次通话的时长上限对所有人都一样。想接着聊，可以马上重拨。",
+      },
+      turn_limit: {
+        title: "这次通话说到回合数上限了",
+        body: "单次通话的回合数上限对所有人都一样。想接着聊，可以马上重拨。",
+      },
+      over_limit: {
+        title: "这一小时的通话次数用完了",
+        body: "语音识别、语音合成和 LLM 都用自带密钥的通话不计入限额。",
+      },
+      own_key: {
+        title: "你的自带密钥出错了",
+        body: "自带密钥调用失败时，不会悄悄改用部署者的密钥。检查一下设置页里的密钥再重拨。",
+      },
+      mic_denied: {
+        title: "用不了麦克风",
+        body: "浏览器没有允许本页使用麦克风，或者找不到麦克风。在地址栏旁的权限设置里允许麦克风，然后重拨。",
+      },
+    },
   },
 
   // —— 以下是登录、同意、设置、记忆和静态页（ticket 06）——

@@ -156,7 +156,7 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
         """What the browser needs before calling; also tells it when calls are unavailable."""
-        return {"iceServers": calls.ice_servers(user_id)}
+        return calls.ice_servers(user_id)
 
     @app.post("/api/offer")
     async def offer(

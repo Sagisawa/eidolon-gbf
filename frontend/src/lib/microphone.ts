@@ -6,6 +6,8 @@
 // getUserMedia stream. It only provides what the transport uses: the local audio
 // track and mic on/off.
 
+import { MicUnavailable } from "@/lib/callEnd";
+
 export class Microphone {
   private constructor(private readonly stream: MediaStream) {}
 
@@ -22,8 +24,8 @@ export class Microphone {
         }
       }
       return new Microphone(await navigator.mediaDevices.getUserMedia({ audio: processing }));
-    } catch {
-      throw new Error("无法使用麦克风，请在浏览器中允许访问麦克风后重试");
+    } catch (e) {
+      throw new MicUnavailable((e as Error).message);
     }
   }
 

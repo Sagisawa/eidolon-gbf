@@ -17,10 +17,12 @@ import { useEffect, useState } from "react";
 import { SignInButton } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
+import { showTime } from "@/lib/callTime";
 import { dayOf, previewOf, type Preview } from "@/lib/conversationList";
 import { listRow } from "@/theme/herVars";
 
 import { useDirectory, type CallInList } from "./ConversationDirectory";
+import { useCallTime } from "./useCallTime";
 
 const t = copy.conversationList;
 
@@ -30,7 +32,7 @@ const t = copy.conversationList;
  */
 export function ConversationList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
-  const { characters, latest, failure, reload, call } = useDirectory();
+  const { characters, latest, failure, reload, call, leave } = useDirectory();
   const now = useMinute();
 
   return (
@@ -52,8 +54,8 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
           label={t.menu}
           alignment="end"
           items={[
-            { label: t.memories, onClick: () => router.push("/memories") },
-            { label: t.settings, onClick: () => router.push("/settings") },
+            { label: t.memories, onClick: () => leave(() => router.push("/memories")) },
+            { label: t.settings, onClick: () => leave(() => router.push("/settings")) },
           ]}
         />
       </HStack>
@@ -84,7 +86,10 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                 call={call?.characterId === c.id ? call : null}
                 isSelected={c.id === selectedId}
                 now={now}
-                onSelect={() => router.push(`/conversation/${c.id}`)}
+                onSelect={() => {
+                  if (c.id === selectedId) return;
+                  leave(() => router.push(`/conversation/${c.id}`));
+                }}
               />
             ))}
           </List>
@@ -113,10 +118,11 @@ function Row({
   now: Date;
   onSelect: () => void;
 }) {
+  const time = useCallTime(call?.state);
   const description = call
-    ? call.phase === "connecting"
-      ? copy.conversation.calling
-      : copy.conversation.inCall
+    ? time
+      ? copy.call.listConnected(showTime(time))
+      : copy.call.dialing
     : !preview
       ? t.neverTalked
       : preview.from === "you"

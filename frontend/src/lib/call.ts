@@ -10,7 +10,7 @@ import {
   ApiError,
   apiHeaders,
   followRedirect,
-  getIceServers,
+  getCallSetup,
   json,
   type CallEvent,
 } from "@/lib/api";
@@ -27,19 +27,31 @@ export type CallHandlers = {
   onDropped: () => void;
 };
 
+/** A call that has connected: the character can hear and speak (CONTEXT.md「接通」). */
 export type Call = {
+  /** How long the call may last, in seconds; null for no limit. */
+  maxSeconds: number | null;
+  /** On the user's own keys alone, so it does not count towards the hourly limit. */
+  exempt: boolean;
   /** Say something by typing it; the character answers in the call. */
   sendText: (text: string) => void;
-  setMuted: (muted: boolean) => void;
+  /** Whether the character's replies are voiced (CONTEXT.md「只看文字」). */
+  setTextOnly: (textOnly: boolean) => void;
+  /** Turn the microphone's track on or off in the browser (CONTEXT.md「麦克风静音」). */
+  setMicEnabled: (enabled: boolean) => void;
   hangUp: () => Promise<void>;
 };
 
+/** Connects a call; resolves once it has connected, on the bot's `bot-ready`. That comes
+ * only after the peer connection and its data channel are open, which is when the backend
+ * starts counting the call as connected. Fails with MicUnavailable, an ApiError carrying
+ * the backend's reason, or an Error when it could not connect. */
 export async function startCall(
   conversationId: string,
   preferences: CallPreferences,
   handlers: CallHandlers,
 ): Promise<Call> {
-  const iceServers = await getIceServers();
+  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup();
   const microphone = await Microphone.open(preferences.micId);
   let hungUp = false;
   let client: PipecatClient | null = null;
@@ -79,8 +91,11 @@ export async function startCall(
 
   const connected = client;
   return {
+    maxSeconds: maxCallSeconds,
+    exempt: callExempt,
     sendText: (text) => connected.sendClientMessage("user-text", { text }),
-    setMuted: (muted) => connected.sendClientMessage("mute", { muted }),
+    setTextOnly: (textOnly) => connected.sendClientMessage("mute", { muted: textOnly }),
+    setMicEnabled: (enabled) => microphone.enableMic(enabled),
     hangUp: async () => {
       hungUp = true;
       await connected.disconnect();

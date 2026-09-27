@@ -64,9 +64,15 @@ export type Memory = {
   created_at: string;
 };
 
-/** During a call each utterance, spoken or typed, is a turn; the backend also says, when the
- * call reaches its time or turn limit, why it is about to hang up. */
-export type CallEvent = TurnEvent | { type: "ended"; message: string };
+/** During a call each utterance, spoken or typed, is a turn; the backend also says, when it is
+ * about to hang up (the call reached its time or turn limit, a voice service or an own key
+ * failed), why, and whether the call counted towards the hourly limit. */
+export type CallEvent =
+  | TurnEvent
+  | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+
+/** Why the backend hung up (`EndReason` in `call.py`). */
+export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";
 
 export class ApiError extends Error {
   constructor(
@@ -321,10 +327,13 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 
-/** The STUN/TURN servers for a call; fails with the reason when calls are unavailable. */
-export async function getIceServers(): Promise<RTCIceServer[]> {
-  const body = await json<{ iceServers: RTCIceServer[] }>(await api("/api/ice-servers"));
-  return body.iceServers;
+/** What a call needs before it starts: the STUN/TURN servers, how long it may last in seconds
+ * (null for no limit), and whether it is exempt from the hourly limit (on the user's own keys
+ * alone). Fails with the reason when calls are unavailable. */
+export type CallSetup = { iceServers: RTCIceServer[]; maxCallSeconds: number | null; callExempt: boolean };
+
+export async function getCallSetup(): Promise<CallSetup> {
+  return json(await api("/api/ice-servers"));
 }
 
 /** Sends one text turn and yields the reply's server-sent events as they arrive. */
