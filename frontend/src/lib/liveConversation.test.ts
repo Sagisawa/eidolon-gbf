@@ -255,6 +255,44 @@ describe("LiveConversation", () => {
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
   });
 
+  it.each([
+    [
+      "the backend says it failed",
+      scripted([
+        { type: "user", text: "你好" },
+        { type: "error", message: "你的 LLM 密钥调用失败：401" },
+      ]),
+    ],
+    [
+      "the request is refused",
+      async function* (): AsyncIterable<TurnEvent> {
+        throw new ApiError("本小时的对话次数已用完", 429);
+      },
+    ],
+  ])("says a text turn does not count towards the limit when %s", async (_, turns) => {
+    // CONTEXT.md「限额」「回合」：失败的回合和被拒绝的回合都不计入限额。
+    const { live } = conversation({ messages: history, turns });
+    live.setDraft("你好");
+
+    await live.submit();
+
+    expect(live.snapshot().failure?.countsTowardLimit).toBe(false);
+  });
+
+  it("does not say whether a text turn counts when its reply just stops", async () => {
+    // 连接断了，前端分不清是服务出错还是回复其实已经记下，所以不下结论。
+    const { live } = conversation({
+      messages: history,
+      turns: scripted([{ type: "user", text: "你好" }]),
+    });
+    live.setDraft("你好");
+
+    await live.submit();
+
+    expect(live.snapshot().failure).not.toBeNull();
+    expect(live.snapshot().failure?.countsTowardLimit).toBeUndefined();
+  });
+
   it("hands what the user types in a call to the call instead of starting a text turn", async () => {
     const { live, attempts } = conversation({ messages: history });
     const call = await connected(live, attempts);

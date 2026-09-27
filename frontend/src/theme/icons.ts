@@ -2,6 +2,7 @@
 // Astryx 组件内部用的图标在 astryxIcons.ts 里注册到主题。
 export {
   ArrowRightLeft as MicSwitchIcon,
+  Check as CheckIcon,
   ChevronDown as CollapseIcon,
   ChevronLeft as BackIcon,
   Mic as MicIcon,
