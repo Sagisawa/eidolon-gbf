@@ -1,6 +1,14 @@
 "use client";
 
+import { Button } from "@astryxdesign/core/Button";
+import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState } from "react";
+
+import { SettingsSection } from "@/components/SettingsSection";
+import { copy } from "@/i18n";
 import {
   loadCallPreferences,
   QUALITY_LABELS,
@@ -9,12 +17,17 @@ import {
   type Quality,
 } from "@/lib/callPreferences";
 
+const t = copy.settings.call;
+
+/** Selector 的值不能是空字符串；「系统默认」的麦克风在选择框里用这个值代表，存下来仍是空白。 */
+const SYSTEM_DEFAULT = "system-default";
+
 async function listMics(): Promise<MediaDeviceInfo[]> {
   const devices = await navigator.mediaDevices.enumerateDevices();
   return devices.filter((d) => d.kind === "audioinput" && d.deviceId !== "default");
 }
 
-/** Microphone and call quality, remembered on this device. */
+/** 麦克风和通话音质，记在这台设备上。 */
 export function CallSettings() {
   const [preferences, setPreferences] = useState<CallPreferences | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -26,7 +39,7 @@ export function CallSettings() {
     listMics().then(setMics, () => {});
   }, []);
 
-  // Browsers only name the microphones once the page may use one.
+  // 页面获准使用麦克风之前，浏览器不给出麦克风的名称。
   const unnamed = mics.length > 0 && mics.every((m) => !m.label);
 
   async function allowMicrophone() {
@@ -36,7 +49,7 @@ export function CallSettings() {
       stream.getTracks().forEach((track) => track.stop());
       setMics(await listMics());
     } catch {
-      setMicError("没有获得麦克风权限，请在浏览器设置中允许后重试");
+      setMicError(t.micDenied);
     }
   }
 
@@ -46,43 +59,36 @@ export function CallSettings() {
 
   if (!preferences) return null;
   return (
-    <>
-      <div className="field">
-        <label htmlFor="mic">麦克风</label>
-        <p className="hint">语音通话时使用的麦克风。</p>
-        <select id="mic" value={preferences.micId} onChange={(e) => update({ micId: e.target.value })}>
-          <option value="">系统默认</option>
-          {mics.map((mic, i) => (
-            <option key={mic.deviceId} value={mic.deviceId}>
-              {mic.label || `麦克风 ${i + 1}`}
-            </option>
-          ))}
-        </select>
-        {(unnamed || micError) && (
-          <p className="hint">
-            {micError || "浏览器还没有允许本页使用麦克风，因此看不到名称。"}{" "}
-            <button type="button" className="ghost" onClick={allowMicrophone}>
-              允许使用麦克风
-            </button>
-          </p>
-        )}
-      </div>
-
-      <div className="field">
-        <label htmlFor="quality">通话音质</label>
-        <p className="hint">角色说话声音的合成音质，越高越清晰，不影响流量。下次接通时生效。</p>
-        <select
-          id="quality"
+    <SettingsSection title={t.title}>
+      <FormLayout>
+        <VStack gap={2}>
+          <Selector
+            label={t.mic}
+            description={t.micHint}
+            value={preferences.micId || SYSTEM_DEFAULT}
+            onChange={(value) => update({ micId: value === SYSTEM_DEFAULT ? "" : value })}
+            options={[
+              { value: SYSTEM_DEFAULT, label: t.micDefault },
+              ...mics.map((mic, i) => ({ value: mic.deviceId, label: mic.label || t.micNumbered(i + 1) })),
+            ]}
+          />
+          {(unnamed || micError) && (
+            <VStack gap={2} hAlign="start">
+              <Text type="supporting" as="p" role={micError ? "alert" : undefined}>
+                {micError || t.micUnnamed}
+              </Text>
+              <Button label={t.micAllow} size="sm" onClick={allowMicrophone} />
+            </VStack>
+          )}
+        </VStack>
+        <Selector
+          label={t.quality}
+          description={t.qualityHint}
           value={preferences.quality}
-          onChange={(e) => update({ quality: e.target.value as Quality })}
-        >
-          {Object.entries(QUALITY_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-    </>
+          onChange={(value) => update({ quality: value as Quality })}
+          options={(Object.keys(QUALITY_LABELS) as Quality[]).map((value) => ({ value, label: t.qualities[value] }))}
+        />
+      </FormLayout>
+    </SettingsSection>
   );
 }

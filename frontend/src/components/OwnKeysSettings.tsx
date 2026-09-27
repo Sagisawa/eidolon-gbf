@@ -1,7 +1,20 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { Divider } from "@astryxdesign/core/Divider";
+import { FormLayout } from "@astryxdesign/core/FormLayout";
+import { Heading } from "@astryxdesign/core/Heading";
+import { HStack } from "@astryxdesign/core/HStack";
+import { Selector } from "@astryxdesign/core/Selector";
+import { StackItem } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { VStack } from "@astryxdesign/core/VStack";
+import { FormEvent, useEffect, useState, type ReactNode } from "react";
+
 import { FailureNotice } from "@/components/FailureNotice";
+import { SettingsSection } from "@/components/SettingsSection";
+import { copy } from "@/i18n";
 import {
   deleteOwnKey,
   getOwnKeys,
@@ -12,15 +25,13 @@ import {
   type OwnService,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
+import { limitExemption } from "@/lib/ownKeys";
 
-const PROTOCOL_LABELS: Record<LLMProtocol, string> = {
-  "chat-completions": "OpenAI 兼容（Chat Completions）",
-  responses: "OpenAI Responses",
-  anthropic: "Anthropic Messages",
-};
+const t = copy.settings.ownKeys;
 
-/** The keys the user brings to pay for their own use; hidden unless the deployment
- * allows it. */
+const EXEMPTION_NOTES = { all: t.exemptAll, turns: t.exemptTurns, none: t.exemptNone } as const;
+
+/** 用户自带、自己付费的密钥；部署者没有开放时整节不显示。 */
 export function OwnKeysSettings() {
   const [keys, setKeys] = useState<OwnKeys | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -39,46 +50,111 @@ export function OwnKeysSettings() {
     }
   }
 
-  if (failure && !keys) return <FailureNotice failure={failure} />;
+  if (failure && !keys) {
+    return (
+      <SettingsSection title={t.title}>
+        <FailureNotice failure={failure} />
+      </SettingsSection>
+    );
+  }
   if (!keys?.available) return null;
 
+  const reload = async () => setKeys(await getOwnKeys());
+
   return (
-    <div className="field">
-      <label>自带密钥</label>
-      <p className="hint">
-        填了自己的 API key，这一项服务就改用你的额度，费用由你承担。自带的密钥调用失败时，这一轮会失败并提示是哪一项出了问题，不会改用部署者的密钥。界面上只显示密钥的末
-        4 位。
-      </p>
-      <p className="hint" role="status">
-        {keys.exempt.calls
-          ? "三项都是你自己的密钥：文字对话和语音通话都不计入每小时限额。"
-          : keys.exempt.turns
-            ? "文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要三项都自带才不计入。"
-            : "现在用的是部署者的服务，文字对话和语音通话都计入每小时限额。"}
-        单次通话的时长和轮数上限对所有人都一样。
-      </p>
+    <SettingsSection title={t.title} description={t.hint}>
+      <Text as="p" role="status">
+        {EXEMPTION_NOTES[limitExemption(keys.exempt)]}
+        {t.perCallLimits}
+      </Text>
       {failure && <FailureNotice failure={failure} />}
-      <OwnLLMForm
-        current={keys.keys.llm}
-        protocols={keys.protocols}
-        onSaved={async () => setKeys(await getOwnKeys())}
-        onDelete={() => remove("llm")}
-      />
-      <OwnSpeechKeyForm
-        service="tts"
-        title="语音合成（Fish Audio）"
-        current={keys.keys.tts}
-        onSaved={async () => setKeys(await getOwnKeys())}
-        onDelete={() => remove("tts")}
-      />
-      <OwnSpeechKeyForm
-        service="stt"
-        title="语音识别（Soniox）"
-        current={keys.keys.stt}
-        onSaved={async () => setKeys(await getOwnKeys())}
-        onDelete={() => remove("stt")}
-      />
-    </div>
+      <VStack gap={4}>
+        <OwnLLMForm current={keys.keys.llm} protocols={keys.protocols} onSaved={reload} onDelete={() => remove("llm")} />
+        <Divider />
+        <OwnSpeechKeyForm
+          service="tts"
+          title={t.ttsTitle}
+          current={keys.keys.tts}
+          onSaved={reload}
+          onDelete={() => remove("tts")}
+        />
+        <Divider />
+        <OwnSpeechKeyForm
+          service="stt"
+          title={t.sttTitle}
+          current={keys.keys.stt}
+          onSaved={reload}
+          onDelete={() => remove("stt")}
+        />
+      </VStack>
+    </SettingsSection>
+  );
+}
+
+/**
+ * 一项服务：标题；填过的只显示末 4 位和修改、删除；没填的一行说明加「填写」，点开才是表单，
+ * 页面保持安静（PRODUCT.md「角色在前，系统在后」）。
+ */
+function ServiceKey({
+  title,
+  hint,
+  summary,
+  isSet,
+  editing,
+  onEdit,
+  onDelete,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  /** 一行一句：填过的是末 4 位等，没填的是一句说明。 */
+  summary: string[];
+  isSet: boolean;
+  editing: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <VStack gap={3}>
+      <VStack gap={1}>
+        <Heading level={3} style={{ fontSize: "var(--text-body-size)" }}>
+          {title}
+        </Heading>
+        {hint && <Text color="secondary">{hint}</Text>}
+      </VStack>
+      {!editing && (
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <StackItem size="fill">
+            <VStack gap={0.5}>
+              {summary.map((line) => (
+                <Text key={line} color={isSet ? "primary" : "secondary"} wordBreak="break-word">
+                  {line}
+                </Text>
+              ))}
+            </VStack>
+          </StackItem>
+          <HStack gap={1}>
+            <Button variant="ghost" size="sm" label={isSet ? t.edit : t.fill} onClick={onEdit} />
+            {isSet && (
+              <Button variant="ghost" size="sm" label={t.removeLabel(title)} onClick={onDelete}>
+                {t.remove}
+              </Button>
+            )}
+          </HStack>
+        </HStack>
+      )}
+      {editing && children}
+    </VStack>
+  );
+}
+
+function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: boolean; onCancel: () => void }) {
+  return (
+    <HStack gap={2}>
+      <Button type="submit" label={busy ? t.saving : t.save} isDisabled={!canSubmit} isLoading={busy} />
+      <Button variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
+    </HStack>
   );
 }
 
@@ -117,44 +193,28 @@ function OwnSpeechKeyForm({
   }
 
   return (
-    <div className="own-key">
-      <h3 className="own-key-title">{title}</h3>
-      {current && !editing && (
-        <div className="field-row own-key-current">
-          <span>密钥末 4 位 {current.last4}</span>
-          <button type="button" className="ghost" onClick={() => setEditing(true)}>
-            修改
-          </button>
-          <button type="button" className="ghost" onClick={onDelete}>
-            删除
-          </button>
-        </div>
-      )}
-      {(!current || editing) && (
-        <form onSubmit={submit} className="own-key-form">
-          <label htmlFor={`${service}-key`}>API key</label>
-          <input
-            id={`${service}-key`}
+    <ServiceKey
+      title={title}
+      summary={current ? [t.last4(current.last4)] : [t.notSet]}
+      isSet={!!current}
+      editing={editing}
+      onEdit={() => setEditing(true)}
+      onDelete={onDelete}
+    >
+      <form onSubmit={submit}>
+        <FormLayout>
+          <TextInput
             type="password"
+            label={t.apiKey}
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={setApiKey}
             autoComplete="off"
-            spellCheck={false}
           />
           {failure && <FailureNotice failure={failure} />}
-          <div className="field-row">
-            <button type="submit" disabled={busy || !apiKey.trim()}>
-              {busy ? "正在试调…" : "试调并保存"}
-            </button>
-            {editing && (
-              <button type="button" className="ghost" onClick={() => setEditing(false)}>
-                取消
-              </button>
-            )}
-          </div>
-        </form>
-      )}
-    </div>
+          <FormButtons busy={busy} canSubmit={!!apiKey.trim()} onCancel={() => setEditing(false)} />
+        </FormLayout>
+      </form>
+    </ServiceKey>
   );
 }
 
@@ -194,68 +254,40 @@ function OwnLLMForm({
   }
 
   return (
-    <div className="own-key">
-      <h3 className="own-key-title">LLM（扮演角色、记住你说的事）</h3>
-      <p className="hint">小模型会降低角色扮演和记忆的质量。模型需要支持流式输出和工具调用，保存前会先试调一次。</p>
-      {current && !editing && (
-        <div className="field-row own-key-current">
-          <span>
-            {current.model} · {current.base_url} · 密钥末 4 位 {current.last4}
-          </span>
-          <button type="button" className="ghost" onClick={() => setEditing(true)}>
-            修改
-          </button>
-          <button type="button" className="ghost" onClick={onDelete}>
-            删除
-          </button>
-        </div>
-      )}
-      {(!current || editing) && (
-        <form onSubmit={submit} className="own-key-form">
-          <label htmlFor="llm-protocol">接口类型</label>
-          <select
-            id="llm-protocol"
+    <ServiceKey
+      title={t.llmTitle}
+      hint={t.llmHint}
+      summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(current.last4)] : [t.notSet]}
+      isSet={!!current}
+      editing={editing}
+      onEdit={() => setEditing(true)}
+      onDelete={onDelete}
+    >
+      <form onSubmit={submit}>
+        <FormLayout>
+          <Selector
+            label={t.protocol}
             value={protocol}
-            onChange={(e) => setProtocol(e.target.value as LLMProtocol)}
-          >
-            {protocols.map((p) => (
-              <option key={p} value={p}>
-                {PROTOCOL_LABELS[p]}
-              </option>
-            ))}
-          </select>
-          <label htmlFor="llm-base-url">接口地址（base_url）</label>
-          <input
-            id="llm-base-url"
+            onChange={(value) => setProtocol(value as LLMProtocol)}
+            options={protocols.map((p) => ({ value: p, label: t.protocols[p] }))}
+          />
+          <TextInput
+            label={t.baseUrl}
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={setBaseUrl}
             placeholder="https://api.openai.com/v1"
-            spellCheck={false}
-          />
-          <label htmlFor="llm-model">模型名</label>
-          <input id="llm-model" value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />
-          <label htmlFor="llm-key">API key</label>
-          <input
-            id="llm-key"
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
             autoComplete="off"
-            spellCheck={false}
           />
+          <TextInput label={t.model} value={model} onChange={setModel} autoComplete="off" />
+          <TextInput type="password" label={t.apiKey} value={apiKey} onChange={setApiKey} autoComplete="off" />
           {failure && <FailureNotice failure={failure} />}
-          <div className="field-row">
-            <button type="submit" disabled={busy || !baseUrl.trim() || !model.trim() || !apiKey.trim()}>
-              {busy ? "正在试调…" : "试调并保存"}
-            </button>
-            {editing && (
-              <button type="button" className="ghost" onClick={() => setEditing(false)}>
-                取消
-              </button>
-            )}
-          </div>
-        </form>
-      )}
-    </div>
+          <FormButtons
+            busy={busy}
+            canSubmit={!!baseUrl.trim() && !!model.trim() && !!apiKey.trim()}
+            onCancel={() => setEditing(false)}
+          />
+        </FormLayout>
+      </form>
+    </ServiceKey>
   );
 }

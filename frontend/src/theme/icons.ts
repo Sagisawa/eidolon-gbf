@@ -11,3 +11,6 @@ export {
   PhoneOff as HangUpIcon,
   SendHorizontal as SendIcon,
 } from "lucide-react";
+
+// 记忆页、设置页用的图标（ticket 06）。
+export { Trash2 as TrashIcon } from "lucide-react";
