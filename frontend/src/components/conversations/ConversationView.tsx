@@ -21,9 +21,9 @@ import { StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 
+import { FailureNotice, SignInButton } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import {
   createConversation,
@@ -208,7 +208,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           {
             label: t.newConversation,
             onClick: () => void startNewConversation(),
-            isDisabled: !live || busy || inCall,
+            isDisabled: !live || busy || inCall || error?.signedOut,
           },
           {
             label: t.textOnly,
@@ -228,7 +228,13 @@ export function ConversationView({ character, onBack }: { character: Character; 
           <EmptyState
             title={t.loadFailed}
             description={pageError.message}
-            actions={onBack && <Button label={t.backToList} variant="secondary" onClick={onBack} />}
+            actions={
+              pageError.signedOut ? (
+                <SignInButton />
+              ) : (
+                onBack && <Button label={t.backToList} variant="secondary" onClick={onBack} />
+              )
+            }
           />
         </VStack>
       </Frame>
@@ -238,6 +244,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
   return (
     <Frame character={character} header={header}>
       {inCall && <CallStrip phase={phase} />}
+      {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮 */}
+      {error?.signedOut && <FailureNotice failure={error} />}
       <StackItem size="fill" style={{ ...ruledPaper, minHeight: 0 }}>
         {!opened ? (
           <VStack height="100%" hAlign="center" vAlign="center">
@@ -256,7 +264,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
                 }}
                 placeholder={t.placeholder}
                 isDisabled={!live}
-                status={error ? { type: "error", message: failureText(error) } : undefined}
+                status={error && !error.signedOut ? { type: "error", message: failureText(error) } : undefined}
                 statusPosition="top"
               />
             }

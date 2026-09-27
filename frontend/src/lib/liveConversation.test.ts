@@ -195,6 +195,14 @@ describe("LiveConversation", () => {
     expect(live.snapshot().failure).toEqual({ message: "通话已断开", signedOut: false });
   });
 
+  it("keeps the draft within the 2000 characters the backend accepts", () => {
+    const { live } = conversation();
+
+    live.setDraft("あ".repeat(2005));
+
+    expect(live.snapshot().draft).toBe("あ".repeat(2000));
+  });
+
   it("records a text turn the backend answers", async () => {
     const { live } = conversation({
       messages: history,

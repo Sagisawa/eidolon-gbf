@@ -50,7 +50,6 @@ export const zh = {
     loadFailed: "对话没能打开",
     notFound: "没有这位角色",
     backToList: "回到对话列表",
-    signIn: "去登录",
     /** 失败时说明这次算不算进限额（CONTEXT.md「限额」「回合」）。 */
     notCounted: "这次没有计入限额。",
   },

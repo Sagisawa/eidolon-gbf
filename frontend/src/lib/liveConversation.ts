@@ -13,6 +13,9 @@ import {
 } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
 
+/** The longest message the backend accepts (`MAX_INPUT_LENGTH` in `engine.py`). */
+const MAX_INPUT_LENGTH = 2000;
+
 export type CallPhase = "idle" | "connecting" | "active";
 
 export type Snapshot = {
@@ -97,7 +100,7 @@ export class LiveConversation {
   }
 
   setDraft(draft: string): void {
-    this.update({ draft });
+    this.update({ draft: draft.slice(0, MAX_INPUT_LENGTH) });
   }
 
   /** Send what is in the input box as a text turn. */

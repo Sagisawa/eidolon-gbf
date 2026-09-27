@@ -14,6 +14,7 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { SignInButton } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { dayOf, previewOf, type Preview } from "@/lib/conversationList";
@@ -62,7 +63,13 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
           <EmptyState
             title={t.loadFailed}
             description={failure.message}
-            actions={<Button label={t.retry} variant="secondary" onClick={reload} />}
+            actions={
+              failure.signedOut ? (
+                <SignInButton />
+              ) : (
+                <Button label={t.retry} variant="secondary" onClick={reload} />
+              )
+            }
             isCompact
           />
         ) : characters === null ? (

@@ -14,10 +14,13 @@ export function FailureNotice({ failure }: { failure: Failure }) {
       status="error"
       title={failure.message}
       endContent={
-        failure.signedOut ? (
-          <Button label={copy.failure.signIn} href="/login" as={NextLink} size="sm" />
-        ) : undefined
+        failure.signedOut ? <SignInButton size="sm" /> : undefined
       }
     />
   );
+}
+
+/** 没登录时去登录页的按钮。 */
+export function SignInButton({ size }: { size?: "sm" }) {
+  return <Button label={copy.failure.signIn} href="/login" as={NextLink} size={size} />;
 }
