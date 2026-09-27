@@ -114,7 +114,7 @@ cp .env.example .env   # 填写对话模型的地址、密钥和模型名，本�
 docker compose up --build
 ```
 
-打开 <http://localhost:3000>，在登录页用「开发登录」随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后，就可以在角色选择页挑一位角色对话了。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）。
+打开 <http://localhost:3000>，在登录页用「开发登录」随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后，就可以在角色选择页挑一位角色对话了。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）；也可以运行 `scripts/setup-oauth.sh`，按它的提示一步步配置。
 
 > [!TIP]
 > 只填对话模型时就能文字聊天。按需再补上其他服务的密钥，逐步开启语音、剧情回忆和记忆：
@@ -193,6 +193,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 - 说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。
 - 通话中打字输入的内容和说的话进入同一条对话，角色同样用语音回复。
 - 「静音」开关打开后只显示文字、不合成语音。麦克风和通话音质在设置页选择。
+- 离开对话页就挂断通话，还在接通中时也一样。
 - `FISH_AUDIO_MODEL` 默认为不消耗 API 额度的 `s2.1-pro-free`，有额度时可以换成付费模型。
 
 > [!NOTE]
@@ -324,7 +325,7 @@ flowchart LR
 
 ### 登录与用户
 
-任何人都可以用 Google 或 GitHub 登录，不需要邀请或审核（ADR-0006）。在 `.env` 里填了哪一家的 OAuth 应用（`GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`，`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`），登录页就显示哪一种登录方式；创建应用的步骤见 [`docs/deploy.md`](docs/deploy.md)。
+任何人都可以用 Google 或 GitHub 登录，不需要邀请或审核（ADR-0006）。在 `.env` 里填了哪一家的 OAuth 应用（`GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`，`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`），登录页就显示哪一种登录方式；创建应用的步骤见 [`docs/deploy.md`](docs/deploy.md)，也可以在仓库根目录运行 `scripts/setup-oauth.sh`：它逐步打开要用的页面、说明每一栏填什么，把值写进 `.env`，顺带生成 `EIDOLON_SECRET_KEY`，最后重启后端并列出要用真实账号验证的几件事。
 
 - 第一次用某个身份登录时，自动成为一位新用户；之后用同一个身份登录就是同一位用户。GitHub 账号要注册满一年、Google 邮箱要已验证，否则登录会被拒绝并说明原因。
 - 第一次登录后要先同意隐私政策和使用条款、声明年满 13 岁，之后才能使用。没登录的访客只能看到登录页、隐私政策和使用条款。
@@ -352,7 +353,7 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 | 单次通话轮数 | 40 轮 | `EIDOLON_TURNS_PER_CALL` |
 | 每回合带上的历史回合 | 20 个 | `EIDOLON_HISTORY_TURNS` |
 
-- 限额按用户计算，不论用哪种登录方式、在哪台设备上都合并计算；通话中说的话和打的字不另外计数，回复失败的回合和没能接通的通话不计入。
+- 限额按用户计算，不论用哪种登录方式、在哪台设备上都合并计算；通话中说的话和打的字不另外计数。因服务出错而失败的回合和没能接通的通话不计入；用户在角色说完前离开（例如关掉页面）的回合不留记录，但照常计入，只是切到网站内别的页面时回复照常完成并记下。
 - 用了自带密钥的不计入：文字回合用的是用户自己的 LLM 就不计入；通话要 LLM、语音合成、语音识别三项都用自己的密钥才不计入。单次通话的时长和轮数上限对所有人都一样。
 - 超过限额的请求返回 429，带上可以恢复使用的时间，前端据此提示「几点之后可以再用」。
 - 通话到了上限，角色把正在说的话说完后挂断，前端说明原因。
@@ -370,9 +371,9 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 | 语音合成（Fish Audio） | key | 通话中角色的声音，音色照旧取自角色配置 |
 | 语音识别（Soniox） | key | 通话中听用户说话 |
 
-- 保存前先试调一次，调不通就不保存，并显示服务商返回的错误。LLM 同样要支持流式输出和工具调用；公开部署时 base_url 必须是 HTTPS 的公网地址。
+- 保存前先试调一次，调不通就不保存，并显示服务商返回的错误。LLM 同样要支持流式输出和工具调用；公开部署时 base_url 必须是 HTTPS 的公网地址，不只是保存时，之后每次连接都会重新检查。
 - 密钥用 `EIDOLON_SECRET_KEY` 派生的密钥加密保存，界面上只显示末 4 位。没配置 `EIDOLON_SECRET_KEY` 时不开放这个功能。
-- 自带密钥调用失败时（余额不足、被吊销等），这一回合或这次通话就失败，并提示是哪一项密钥出了问题，**不会改用部署者的密钥**。删除自带密钥后改回用部署者的服务。
+- 自带密钥调用失败时（余额不足、被吊销等），这一回合或这次通话就失败，并提示是哪一项密钥出了问题，**不会改用部署者的密钥**。更换 `EIDOLON_SECRET_KEY` 后，已保存的密钥无法解密，用到它的回合或通话在调用任何服务之前就失败，提示用户重新填写。删除自带密钥后改回用部署者的服务。
 - 向量化、重排和判断要不要回忆剧情（Jev）始终由部署者承担。
 
 ## 🌐 部署到 VPS
@@ -424,7 +425,8 @@ eidolon-sc/
 │   │   ├── accounts.py       #   用户、登录方式、删除用户
 │   │   ├── identity.py       #   Google 与 GitHub 登录（OAuth）
 │   │   ├── sessions.py       #   会话 cookie 与跨站请求检查
-│   │   ├── own_keys.py       #   用户的自带密钥
+│   │   ├── own_keys.py       #   用户的自带密钥，以及每个回合、每次通话用谁的密钥
+│   │   ├── usage.py          #   限额与用量记录
 │   │   ├── call.py           #   语音通话：信令与 Pipecat 管线
 │   │   ├── retrieval.py      #   检索判断、剧情/资料检索与重排
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
@@ -444,6 +446,7 @@ eidolon-sc/
 ├── characters/               # 角色配置、人设、资料、头像
 ├── corpus/                   # 剧情数据与镜像缓存（不进仓库）
 ├── deploy/                   # Caddyfile、每周同步脚本、活动名对照表示例
+├── scripts/                  # 配置 OAuth 应用等的向导（setup-oauth.sh）
 ├── docs/
 │   ├── adr/                  # 架构决策记录
 │   └── deploy.md             # VPS 部署指南

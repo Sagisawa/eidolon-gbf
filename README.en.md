@@ -117,7 +117,7 @@ cp .env.example .env   # fill in the chat model's base URL, API key and model na
 docker compose up --build
 ```
 
-Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and pick a character to talk to. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google).
+Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and pick a character to talk to. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
 
 > [!TIP]
 > A chat model alone is enough for text chat. Add the other services' keys as you go to unlock voice, story recall and memory:
@@ -196,6 +196,7 @@ With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the **Voice call**
 - Speak Chinese or Japanese. The character reads her Japanese reply in the configured Fish Audio voice, and both the Japanese text and the Chinese subtitle appear in the transcript.
 - Anything typed during a call joins the same conversation, and the character answers it by voice too.
 - With **Mute** on, replies are shown as text only, without speech synthesis. Microphone and call audio quality are chosen on the settings page.
+- Leaving the conversation page hangs up the call, even while it is still connecting.
 - `FISH_AUDIO_MODEL` defaults to `s2.1-pro-free`, which consumes no API credits; switch to a paid model if you have credits.
 
 > [!NOTE]
@@ -327,7 +328,7 @@ Characters remember what users tell them about themselves, and all of a user's c
 
 ### Sign-in and users
 
-Anyone can sign in with Google or GitHub, with no invitation or approval (ADR-0006). The sign-in page offers whichever OAuth apps are configured in `.env` (`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`); how to create them is in [`docs/deploy.md`](docs/deploy.md).
+Anyone can sign in with Google or GitHub, with no invitation or approval (ADR-0006). The sign-in page offers whichever OAuth apps are configured in `.env` (`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`); how to create them is in [`docs/deploy.md`](docs/deploy.md). Or run `scripts/setup-oauth.sh` from the repo root: it opens each page you need, says what goes in each field, writes the values into `.env`, generates `EIDOLON_SECRET_KEY`, then restarts the backend and lists what to check with a real account.
 
 - The first sign-in with an identity makes a new user; later sign-ins with it are that user. GitHub accounts must be at least a year old and Google email addresses verified, or sign-in is refused with the reason.
 - After their first sign-in, users agree to the privacy policy and terms of use and confirm they are 13 or older before anything else works. Visitors who are not signed in see only the sign-in page, the privacy policy and the terms.
@@ -355,7 +356,7 @@ So no single user drains the deployer's API credits, the following limits apply 
 | Turns per call | 40 | `EIDOLON_TURNS_PER_CALL` |
 | History turns sent per turn | 20 | `EIDOLON_HISTORY_TURNS` |
 
-- Limits are per user, whichever sign-in method or device they use. Speech and typing during a call don't count separately; failed turns and calls that never connected don't count at all.
+- Limits are per user, whichever sign-in method or device they use. Speech and typing during a call don't count separately. Turns that fail because a service errs and calls that never connected don't count; a turn the user leaves before the character finishes (say, by closing the page) isn't recorded but still counts. Just moving to another page of the site doesn't leave it: the reply finishes and is recorded.
 - Use on the user's own keys is exempt: a text turn on their own LLM doesn't count; a call counts unless its LLM, speech synthesis and speech recognition are all their own. The per-call duration and turn caps are the same for everyone.
 - Requests over the limit get a 429 with the time usage resumes, and the frontend tells the user when they can try again.
 - When a call hits its limit, the character finishes what she's saying and hangs up, and the frontend explains why.
@@ -373,9 +374,9 @@ The deployer pays for everything by default. Users can enter their own API keys 
 | Speech synthesis (Fish Audio) | Key | The character's voice in calls; the voice ID still comes from the character configuration |
 | Speech recognition (Soniox) | Key | Hearing the user in calls |
 
-- Each key is tried once before it is saved; if the try fails, nothing is saved and the provider's error is shown. The LLM must support streaming and tool calls too; in a public deployment its base_url must be HTTPS on the public internet.
+- Each key is tried once before it is saved; if the try fails, nothing is saved and the provider's error is shown. The LLM must support streaming and tool calls too; in a public deployment its base_url must be HTTPS on the public internet, checked again on every connection, not only when saved.
 - Keys are stored encrypted with a key derived from `EIDOLON_SECRET_KEY`, and only their last 4 characters are ever shown. Without `EIDOLON_SECRET_KEY`, the feature is off.
-- When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. Deleting an own key switches back to the deployer's service.
+- When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. After `EIDOLON_SECRET_KEY` changes, saved keys can no longer be decrypted: a turn or call that needs one fails before calling any service and asks the user to enter it again. Deleting an own key switches back to the deployer's service.
 - Embedding, reranking and deciding whether to recall the story (Jev) are always on the deployer.
 
 ## 🌐 Deploying to a VPS
@@ -427,7 +428,8 @@ eidolon-sc/
 │   │   ├── accounts.py       #   users, sign-in methods, deleting users
 │   │   ├── identity.py       #   signing in with Google and GitHub (OAuth)
 │   │   ├── sessions.py       #   session cookies and the cross-site check
-│   │   ├── own_keys.py       #   users' own API keys
+│   │   ├── own_keys.py       #   users' own API keys, and whose keys each turn and call runs on
+│   │   ├── usage.py          #   usage limits and the record of use
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
 │   │   ├── retrieval.py      #   retrieval routing, episode/fact search and reranking
 │   │   ├── memory.py         #   memories shared across conversations and characters
@@ -447,6 +449,7 @@ eidolon-sc/
 ├── characters/               # character config, sheets, facts, avatars
 ├── corpus/                   # story data and the mirror cache (not committed)
 ├── deploy/                   # Caddyfile, weekly sync script, sample event-name table
+├── scripts/                  # wizards, such as setting up the OAuth apps (setup-oauth.sh)
 ├── docs/
 │   ├── adr/                  # architecture decision records
 │   └── deploy.md             # VPS deployment guide
