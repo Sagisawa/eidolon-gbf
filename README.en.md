@@ -195,6 +195,7 @@ With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the **Voice call**
 
 - Speak Chinese or Japanese. The character reads her Japanese reply in the configured Fish Audio voice, and both the Japanese text and the Chinese subtitle appear in the transcript.
 - Anything typed during a call joins the same conversation, and the character answers it by voice too.
+- Whatever you say or type before the character starts speaking, or before her reply has a complete segment (the Japanese and its subtitle both shown), is a follow-on: it joins the current turn, and she drops the reply she had begun and answers the whole thing afresh. Once the reply has a complete segment, speaking up interrupts her: she stops, the reply is recorded with only its complete segments, and what you just said is answered straight away. Typing never interrupts her; it waits until her reply is done.
 - With **Mute** on, replies are shown as text only, without speech synthesis. Microphone and call audio quality are chosen on the settings page.
 - Leaving the conversation page hangs up the call, even while it is still connecting.
 - `FISH_AUDIO_MODEL` defaults to `s2.1-pro-free`, which consumes no API credits; switch to a paid model if you have credits.
