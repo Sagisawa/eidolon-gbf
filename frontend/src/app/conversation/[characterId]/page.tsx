@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { FormEvent, useEffect, useReducer, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { FailureNotice } from "@/components/FailureNotice";
 import {
   createConversation,
@@ -10,40 +10,33 @@ import {
   listConversations,
   listMessages,
   sendTurn,
-  type CallEvent,
+  type Message,
 } from "@/lib/api";
-import { startCall, type Call } from "@/lib/call";
+import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
-import { conversationLog, emptyLog } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
+import { LiveConversation, NOT_OPEN } from "@/lib/liveConversation";
 
-type CallState = "idle" | "connecting" | "active";
+/** The conversation to open, with its recorded messages. */
+type Opened = { id: string; messages: Message[] };
+
+const notOpen = () => NOT_OPEN;
+const noSubscription = () => () => {};
 
 export default function ConversationPage() {
   const { characterId } = useParams<{ characterId: string }>();
   const [name, setName] = useState("");
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [{ entries }, dispatch] = useReducer(conversationLog, emptyLog);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<Failure | null>(null);
-  const [callState, setCallState] = useState<CallState>("idle");
-  const [muted, setMuted] = useState(false);
-  const [hearing, setHearing] = useState("");
-  const call = useRef<Call | null>(null);
-  const callEnding = useRef<string | null>(null); // why the backend is hanging up
-  const disposed = useRef(false); // the page has been left
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const [live, setLive] = useState<LiveConversation | null>(null);
+  const [pageError, setPageError] = useState<Failure | null>(null);
+  const { entries, phase, hearing, busy, draft, muted, failure } = useSyncExternalStore(
+    live?.subscribe ?? noSubscription,
+    live?.snapshot ?? notOpen,
+    notOpen,
+  );
+  const error = pageError ?? failure;
   const characterAudio = useRef<HTMLAudioElement>(null);
   const logEnd = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    disposed.current = false;
-    setMuted(loadCallPreferences().muted);
-    return () => {
-      disposed.current = true;
-      call.current?.hangUp().catch(() => {});
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,10 +50,9 @@ export default function ConversationPage() {
         const conversation = latest ?? (await createConversation(characterId));
         const messages = await listMessages(conversation.id);
         if (cancelled) return;
-        setConversationId(conversation.id);
-        dispatch({ type: "loaded", messages });
+        setOpened({ id: conversation.id, messages });
       } catch (e) {
-        if (!cancelled) setError(toFailure(e));
+        if (!cancelled) setPageError(toFailure(e));
       }
     })();
     return () => {
@@ -68,114 +60,44 @@ export default function ConversationPage() {
     };
   }, [characterId]);
 
+  // Leaving the page, or starting a new conversation, is done with the one open.
+  useEffect(() => {
+    if (!opened) return;
+    const conversation = new LiveConversation(opened.id, opened.messages, {
+      startCall,
+      sendTurn,
+      preferences: { load: loadCallPreferences, save: saveCallPreferences },
+      onCharacterAudio: (track) => {
+        if (characterAudio.current) characterAudio.current.srcObject = new MediaStream([track]);
+      },
+    });
+    setLive(conversation);
+    return () => conversation.dispose();
+  }, [opened]);
+
   useEffect(() => {
     logEnd.current?.scrollIntoView({ block: "end" });
   }, [entries, hearing]);
 
-  function onCallEvent(event: CallEvent) {
-    if (event.type === "ended") {
-      callEnding.current = event.message;
-      return;
-    }
-    dispatch(event);
-    if (event.type === "user") setHearing("");
-    if (event.type === "error") setError({ message: event.message, signedOut: false });
-  }
-
-  async function toggleCall() {
-    if (call.current) {
-      const ending = call.current;
-      call.current = null;
-      setCallState("idle");
-      setHearing("");
-      dispatch({ type: "interrupted" }); // a reply cut off by hanging up is not recorded
-      await ending.hangUp().catch(() => {});
-      return;
-    }
-    if (!conversationId) return;
-    setError(null);
-    callEnding.current = null;
-    setCallState("connecting");
-    try {
-      const started = await startCall(conversationId, loadCallPreferences(), {
-        onEvent: onCallEvent,
-        onHearing: setHearing,
-        onCharacterAudio: (track) => {
-          if (characterAudio.current) characterAudio.current.srcObject = new MediaStream([track]);
-        },
-        onDropped: () => {
-          call.current = null;
-          setCallState("idle");
-          setHearing("");
-          dispatch({ type: "interrupted" });
-          setError({ message: callEnding.current ?? "通话已断开", signedOut: false });
-        },
-      });
-      if (disposed.current) {
-        // Left while connecting: the cleanup found no call to hang up, so hang this one up now.
-        await started.hangUp().catch(() => {});
-        return;
-      }
-      call.current = started;
-      setCallState("active");
-    } catch (e) {
-      if (disposed.current) return;
-      setCallState("idle");
-      setError(toFailure(e));
-    }
-  }
-
-  function toggleMute() {
-    const next = !muted;
-    setMuted(next);
-    saveCallPreferences({ muted: next });
-    call.current?.setMuted(next);
-  }
-
   async function startNewConversation() {
-    setError(null);
+    setPageError(null);
     try {
       const conversation = await createConversation(characterId);
-      setConversationId(conversation.id);
-      dispatch({ type: "loaded", messages: [] });
+      setOpened({ id: conversation.id, messages: [] });
     } catch (e) {
-      setError(toFailure(e));
+      setPageError(toFailure(e));
     }
   }
 
-  async function submit(event: FormEvent) {
+  function submit(event: FormEvent) {
     event.preventDefault();
-    const text = input.trim();
-    if (!text || !conversationId || busy) return;
-    setInput("");
-    setError(null);
-    if (call.current) {
-      // The call takes it up like speech; its reply arrives as call events.
-      call.current.sendText(text);
-      return;
-    }
-    setBusy(true);
-    dispatch({ type: "submitted", text });
+    setPageError(null);
+    void live?.submit();
+  }
 
-    let failure: Failure | null = null;
-    let done = false;
-    try {
-      for await (const event of sendTurn(conversationId, text)) {
-        dispatch(event);
-        if (event.type === "done") done = true;
-        if (event.type === "error") failure = { message: event.message, signedOut: false };
-      }
-      if (!done && !failure) failure = { message: "回复中断了，请再试一次", signedOut: false };
-    } catch (e) {
-      failure = toFailure(e);
-    }
-    if (failure) {
-      // A failed turn is not recorded: take it back off the log and return the text to the input.
-      dispatch({ type: "interrupted" });
-      setInput(text);
-      setError(failure);
-    }
-    setBusy(false);
+  function toggleCall() {
+    setPageError(null);
+    void live?.toggleCall();
   }
 
   return (
@@ -190,7 +112,7 @@ export default function ConversationPage() {
             type="button"
             className="ghost"
             onClick={startNewConversation}
-            disabled={busy || callState !== "idle" || error?.signedOut}
+            disabled={busy || phase !== "idle" || error?.signedOut}
           >
             新对话
           </button>
@@ -234,30 +156,35 @@ export default function ConversationPage() {
       <div className="call-bar">
         <button
           type="button"
-          className={callState === "idle" ? "" : "hang-up"}
+          className={phase === "idle" ? "" : "hang-up"}
           onClick={toggleCall}
-          disabled={!conversationId || busy || callState === "connecting"}
+          disabled={!live || busy || phase === "connecting"}
         >
-          {callState === "idle" ? "语音通话" : callState === "connecting" ? "接通中……" : "挂断"}
+          {phase === "idle" ? "语音通话" : phase === "connecting" ? "接通中……" : "挂断"}
         </button>
         <label className="mute-switch">
-          <input type="checkbox" checked={muted} onChange={toggleMute} />
+          <input
+            type="checkbox"
+            checked={muted}
+            onChange={() => live?.toggleMute()}
+            disabled={!live}
+          />
           静音（只看文字）
         </label>
-        {callState === "active" && <span className="call-status">通话中，直接说话即可</span>}
+        {phase === "active" && <span className="call-status">通话中，直接说话即可</span>}
       </div>
       <audio ref={characterAudio} autoPlay muted={muted} />
 
       <form className="composer" onSubmit={submit}>
         <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+          value={draft}
+          onChange={(e) => live?.setDraft(e.target.value)}
           placeholder="用中文或日语说点什么"
           maxLength={2000}
-          disabled={!conversationId}
+          disabled={!live}
           aria-label="输入消息"
         />
-        <button type="submit" disabled={!conversationId || busy || !input.trim()}>
+        <button type="submit" disabled={!live || busy || phase === "connecting" || !draft.trim()}>
           发送
         </button>
       </form>
