@@ -134,6 +134,9 @@ class Settings:
     """Signing in with Google; not offered unless configured."""
     secret_key: str | None = None
     """What users' own API keys are encrypted with; without it, they cannot bring any."""
+    gemini_billing_enabled: bool = False
+    """The deployer says Gemini's billing is on, so its paid tier, which Google does not
+    train on, embeds users' memories (ADR-0005, revised)."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -172,6 +175,7 @@ class Settings:
             github=OAuthSettings.from_env("GITHUB"),
             google=OAuthSettings.from_env("GOOGLE"),
             secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
+            gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
         )
 
 

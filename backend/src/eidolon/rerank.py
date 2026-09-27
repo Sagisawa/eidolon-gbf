@@ -99,7 +99,7 @@ class SiliconFlowReranker:
             results = sorted(res.json()["results"], key=lambda r: -r["relevance_score"])
             ranked = [(int(r["index"]), float(r["relevance_score"])) for r in results]
         except (ValueError, KeyError, TypeError) as e:
-            raise RerankError(f"重排服务的返回无法解析：{res.text[:500]}") from e
+            raise RerankError(f"重排服务的返回无法解析（{len(res.text)} 字）") from e
         if any(not 0 <= i < len(documents) for i, _ in ranked):
             raise RerankError(f"重排服务返回了不存在的文档编号：{[i for i, _ in ranked]}")
         return ranked[:top_n]

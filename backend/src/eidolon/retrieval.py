@@ -351,7 +351,7 @@ class JevJudge:
             recall = float(answers["recall"]["probability"])
             about_producer = float(answers["about_producer"]["probability"])
         except (ValueError, KeyError, TypeError) as e:
-            raise JudgeError(f"Jev 的返回无法解析：{res.text[:500]}") from e
+            raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
         if recall >= JUDGE_THRESHOLD:
             return "recall"
         if retrieve >= JUDGE_THRESHOLD:

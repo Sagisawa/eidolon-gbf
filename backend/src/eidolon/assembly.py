@@ -105,6 +105,18 @@ def build(
         opened = open_embedder(settings.embedding)
         closers.append(opened.aclose)
         embedder = opened
+    if (
+        settings.domain is not None
+        and settings.embedding is not None
+        and settings.embedding.provider == "gemini"
+        and not settings.gemini_billing_enabled
+    ):
+        log.warning(
+            "a public deployment is embedding with Gemini without GEMINI_BILLING_ENABLED=1:"
+            " on the free tier Google may use what it embeds, users' memories included, to"
+            " improve its products. Turn on billing and set GEMINI_BILLING_ENABLED=1, or"
+            " embed with SiliconFlow (ADR-0005, revised 2026-09-27)"
+        )
     thresholds = DEFAULT_THRESHOLDS
     if (r := settings.rerank) is not None:
         thresholds = thresholds_for(r)

@@ -105,7 +105,7 @@ class SiliconFlowEmbedder:
         try:
             data = sorted(res.json()["data"], key=lambda d: d["index"])
         except (ValueError, KeyError, TypeError) as e:
-            raise EmbeddingError(f"向量化服务的返回无法解析：{res.text[:500]}") from e
+            raise EmbeddingError(f"向量化服务的返回无法解析（{len(res.text)} 字）") from e
         if len(data) != len(texts):
             raise EmbeddingError(f"向量化服务返回了 {len(data)} 个向量，应为 {len(texts)} 个")
         return [d["embedding"] for d in data]
@@ -194,7 +194,7 @@ class GeminiEmbedder:
         try:
             vectors = [e["values"] for e in res.json()["embeddings"]]
         except (ValueError, KeyError, TypeError) as e:
-            raise EmbeddingError(f"向量化服务的返回无法解析：{res.text[:500]}") from e
+            raise EmbeddingError(f"向量化服务的返回无法解析（{len(res.text)} 字）") from e
         if len(vectors) != len(texts):
             raise EmbeddingError(f"向量化服务返回了 {len(vectors)} 个向量，应为 {len(texts)} 个")
         return vectors

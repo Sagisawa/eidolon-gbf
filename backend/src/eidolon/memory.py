@@ -320,7 +320,10 @@ class Memories:
             ])
             texts = parse_memories(answer)
             if texts is None:
-                log.warning("background model wrote no memories JSON: %.500s", answer)
+                log.warning(  # its length only: the answer is about the user
+                    "background model wrote no memories JSON (%d characters) in conversation %s",
+                    len(answer), conversation.id,
+                )
                 return
             if self._clearings.get(user_id, 0) != clearings:
                 return  # cleared since the turn began
