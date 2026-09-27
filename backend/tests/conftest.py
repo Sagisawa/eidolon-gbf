@@ -154,6 +154,9 @@ def admin(settings: Settings, capsys: pytest.CaptureFixture[str]) -> Admin:
     return Admin(settings.database_path, capsys)
 
 
+SITE = {"Origin": "http://localhost:3000"}
+"""What the tests' clients send as browsers do: they are the site's own pages."""
+
 COOKIE_DOMAIN = "test.local"
 """Where the cookies of the tests' clients (at http://test) are kept, as for any host
 without a dot."""
@@ -291,6 +294,7 @@ async def make_client(
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(backend)),
             base_url="http://test",
+            headers=SITE,
             cookies=sign_in(backend.store, user, backend.clock()) if user is not None else None,
         )
         clients.append(client)

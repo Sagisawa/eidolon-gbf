@@ -9,7 +9,10 @@ users cannot bring any. Only the last 4 characters of a key are ever shown again
 
 Before an own LLM is kept, it is tried once, as the deployer's chat model is at startup:
 it must stream and take tools. In a public deployment it must also be on the public
-internet, so no one can point the backend at the machines next to it.
+internet, so no one can point the backend at the machines next to it, and read their
+answers back in the errors they are shown. That is checked on every connection, not only
+when the key is saved: a name that resolved to a public address then can resolve to a
+private one later.
 """
 
 import asyncio
@@ -17,11 +20,12 @@ import base64
 import ipaddress
 import logging
 import socket
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, get_args
 from urllib.parse import urlsplit
 
+import httpcore
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -86,7 +90,15 @@ class ProviderLLMService:
     def __init__(self, *, public_only: bool) -> None:
         """With `public_only`, a service must be on the public internet over HTTPS."""
         self._public_only = public_only
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
+        transport = httpx.AsyncHTTPTransport()
+        if public_only:
+            pool = transport._pool  # httpx takes no network backend of its own
+            assert isinstance(pool, httpcore.AsyncConnectionPool)
+            pool._network_backend = PublicOnlyBackend(pool._network_backend)
+        # Not from the environment: a proxy would connect for us, unchecked.
+        self._client = httpx.AsyncClient(
+            transport=transport, timeout=httpx.Timeout(60, connect=10), trust_env=False
+        )
 
     def open(self, settings: LLMSettings) -> ChatLLM:
         return open_llm(settings, client=self._client)
@@ -278,11 +290,70 @@ async def _check_public(base_url: str) -> None:
     if parts.scheme != "https" or not parts.hostname:
         raise LLMError("接口地址需要以 https:// 开头")
     try:
-        found = await asyncio.get_running_loop().getaddrinfo(
-            parts.hostname, parts.port or 443, type=socket.SOCK_STREAM
-        )
+        await public_address(parts.hostname, parts.port or 443)
+    except NotPublic as e:
+        raise LLMError(str(e)) from None
+
+
+class NotPublic(OSError):
+    """The host is not found, or not only on the public internet."""
+
+
+Resolver = Callable[[str, int], Awaitable[list[str]]]
+
+
+async def resolve(host: str, port: int) -> list[str]:
+    """Every address `host` resolves to."""
+    found = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [str(address[0]).split("%")[0] for *_, address in found]
+
+
+async def public_address(host: str, port: int, resolver: Resolver = resolve) -> str:
+    """The address to connect to `host` at; raises NotPublic unless every address it
+    resolves to is on the public internet."""
+    try:
+        addresses = await resolver(host, port)
     except OSError:
-        raise LLMError(f"找不到 {parts.hostname}") from None
-    for *_, address in found:
-        if not ipaddress.ip_address(str(address[0]).split("%")[0]).is_global:
-            raise LLMError(f"{parts.hostname} 不是公网地址")
+        raise NotPublic(f"找不到 {host}") from None
+    if not addresses or not all(ipaddress.ip_address(a).is_global for a in addresses):
+        raise NotPublic(f"{host} 不是公网地址")
+    return addresses[0]
+
+
+class PublicOnlyBackend(httpcore.AsyncNetworkBackend):
+    """Connects only to hosts on the public internet, at the very address it checked, so
+    the name cannot resolve elsewhere in between. TLS still checks the certificate
+    against the host's name."""
+
+    def __init__(
+        self, inner: httpcore.AsyncNetworkBackend, resolver: Resolver = resolve
+    ) -> None:
+        self._inner = inner
+        self._resolver = resolver
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        try:
+            address = await public_address(host, port, self._resolver)
+        except NotPublic as e:
+            raise httpcore.ConnectError(str(e)) from None
+        return await self._inner.connect_tcp(
+            address, port, timeout, local_address, socket_options
+        )
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Iterable[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        raise httpcore.ConnectError("不能连接本机的套接字")
+
+    async def sleep(self, seconds: float) -> None:
+        await self._inner.sleep(seconds)

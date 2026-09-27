@@ -210,3 +210,24 @@ def test_the_server_refuses_to_start_with_dev_login_in_a_public_deployment(
     assert main(["serve"]) == 1
     assert "EIDOLON_DEV_LOGIN" in capsys.readouterr().err
 
+
+
+async def test_a_signed_in_request_that_does_not_say_where_it_comes_from_is_refused(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM())
+    client.headers.pop("Origin")
+
+    res = await client.post("/api/conversations", json={"character_id": "mano"})
+
+    assert res.status_code == 403
+    assert (await mano_conversations(client)).json() == []
+
+
+async def test_a_request_without_a_session_needs_no_origin(make_client: ClientFactory):
+    client = make_client(FakeLLM(), user=None)
+    client.headers.pop("Origin")
+
+    res = await client.post("/api/conversations", json={"character_id": "mano"})
+
+    assert res.status_code == 401

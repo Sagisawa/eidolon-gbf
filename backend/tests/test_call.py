@@ -17,7 +17,7 @@ from eidolon.assembly import build
 from eidolon.config import Settings, UsageLimits
 from eidolon.store import Store
 from tests.browser import TIMEOUT, Browser, open_browser, until_gone
-from tests.conftest import ClientFactory, sign_in
+from tests.conftest import SITE, ClientFactory, sign_in
 from tests.fakes import (
     FakeBackgroundLLM,
     FakeEmbedder,
@@ -227,6 +227,7 @@ async def test_shutting_down_hangs_up_calls_and_drops_the_reply_in_progress(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(backend)),
             base_url="http://test",
+            headers=SITE,
             cookies=sign_in(backend.store, "producer", backend.clock()),
         ) as client:
             conversation_id = await start_conversation(client)

@@ -5,12 +5,13 @@ the deployer's key, is shown only by its last 4 characters, and is kept encrypte
 import sqlite3
 from dataclasses import replace
 
+import httpcore
 import httpx
 import pytest
 
 from eidolon.config import LLMSettings, Settings, UsageLimits
-from eidolon.llm import LLMError
-from eidolon.own_keys import ProviderLLMService
+from eidolon.llm import ChatMessage, LLMError
+from eidolon.own_keys import ProviderLLMService, PublicOnlyBackend
 from tests.browser import Browser
 from tests.conftest import ClientFactory
 from tests.fakes import (
@@ -218,5 +219,44 @@ async def test_a_public_deployment_tries_only_llms_on_the_public_internet(base_u
     try:
         with pytest.raises(LLMError, match="https|公网地址"):
             await service.check(LLMSettings(base_url, MINE, "m"))
+    finally:
+        await service.aclose()
+
+
+class FakeNetwork(httpcore.AsyncNetworkBackend):
+    """Records where it was asked to connect, and connects nowhere."""
+
+    def __init__(self) -> None:
+        self.connected: list[str] = []
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):  # type: ignore[override]
+        self.connected.append(host)
+        raise httpcore.ConnectError("fake network")
+
+
+async def test_every_connection_to_an_own_llm_goes_to_the_public_address_it_checked():
+    answers = [["93.184.216.34"], ["127.0.0.1"]]  # the name is rebound after the first check
+
+    async def resolver(host: str, port: int) -> list[str]:
+        return answers.pop(0)
+
+    network = FakeNetwork()
+    backend = PublicOnlyBackend(network, resolver)
+
+    with pytest.raises(httpcore.ConnectError, match="fake network"):
+        await backend.connect_tcp("llm.example.com", 443)
+    with pytest.raises(httpcore.ConnectError, match="不是公网地址"):
+        await backend.connect_tcp("llm.example.com", 443)
+
+    assert network.connected == ["93.184.216.34"]  # the checked address, never the name
+
+
+async def test_a_public_deployment_never_reaches_a_private_address_on_a_kept_own_llm():
+    service = ProviderLLMService(public_only=True)
+    llm = service.open(LLMSettings("https://localhost:9/v1", MINE, "m"))  # as if kept earlier
+    try:
+        with pytest.raises(LLMError, match="不是公网地址"):
+            async for _ in llm.stream([ChatMessage("user", "hi")]):
+                pass
     finally:
         await service.aclose()
