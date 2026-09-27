@@ -1,4 +1,5 @@
-// 图标统一用 Lucide（Astryx 文档推荐的图标库之一），不手绘。
+// 界面上的图标统一用 Lucide，以语义别名导出，不手绘 SVG（DESIGN.md「The Library Icon Rule」）。
+// Astryx 组件内部用的图标在 astryxIcons.tsx 里注册到主题。
 export {
   ArrowRightLeft as MicSwitchIcon,
   ChevronDown as CollapseIcon,
@@ -8,5 +9,4 @@ export {
   Phone as PhoneIcon,
   PhoneOff as HangUpIcon,
   SendHorizontal as SendIcon,
-  SlidersHorizontal as SlidersIcon,
 } from "lucide-react";

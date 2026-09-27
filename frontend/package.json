@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "theme:build": "astryx theme build src/theme/notebookTheme.ts -o src/theme/built/notebookTheme.css --icons-specifier ../astryxIcons",
+    "theme:check": "astryx theme build --check src/theme/notebookTheme.ts -o src/theme/built/notebookTheme.css --icons-specifier ../astryxIcons"
   },
   "dependencies": {
     "@astryxdesign/core": "^0.6.3",
@@ -20,6 +22,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.6.3",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -1,0 +1,10 @@
+/*
+ * 全站样式层的先后（后面的优先）。根布局第一个引入这个文件，层的顺序就定在这里：
+ *
+ * - reset：Astryx 的重置和主题的正文默认样式。
+ * - legacy：旧界面的 globals.css。高于 reset，旧页面才不会被重置样式改掉（边框、按钮底色、默认外边距）；
+ *   低于 Astryx 组件和主题，新界面上 Astryx 组件的样式不会被它盖掉。前端重做完成（ticket 06）后删除。
+ * - astryx-base：Astryx 组件样式。
+ * - astryx-theme：主题的组件覆盖。
+ */
+@layer reset, legacy, astryx-base, astryx-theme;

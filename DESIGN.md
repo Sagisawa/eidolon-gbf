@@ -100,7 +100,7 @@ components:
 
 界面是制作人在 283 事务所用的本子。纸是冷白的复印纸，不是奶油纸；消息区铺着天蓝横线和一条更深的装订边距线；制作人的字只用一种墨水，事务所深蓝。属于她的一切（她的气泡、选中行、便利贴、电话键、头像描边、通话层）都用她的印象色，而且只用 `frontend/src/lib/imageColor.ts` 按明暗两种模式推导并校验过对比度的那一套颜色。
 
-系统建立在 Astryx（v0.6）之上：主题 `eidolon-notebook`（`frontend/src/app/prototype/theme.tsx`）钉死纸面、墨水和横线颜色，替换图标为 Lucide，并修补 Astryx 默认值在某一模式下不达标的地方；她的颜色不在主题里，而是由 `herVars()` 注入到单个对话的子树。组件形状沿用 Astryx 默认，只换颜色。纸感克制：没有纹理、没有手绘图标、没有手做的气泡尾巴。
+系统建立在 Astryx（v0.6）之上：主题 `eidolon-notebook`（源文件 `frontend/src/theme/notebookTheme.ts`，经 `npm run theme:build` 预构建到 `frontend/src/theme/built/`）钉死纸面、墨水和横线颜色，替换图标为 Lucide，并修补 Astryx 默认值在某一模式下不达标的地方；她的颜色不在主题里，而是由 `herVars()`（`frontend/src/theme/herVars.ts`）注入到单个对话的子树。组件形状沿用 Astryx 默认，只换颜色。纸感克制：没有纹理、没有手绘图标、没有手做的气泡尾巴。
 
 通话层是本子上展开的一整张她颜色的纸：上沿是能放白字的她的颜色，往下压到深色，头像背后透一点原色。收起后，页首留一张略斜的便利贴。状态靠线形表达，不靠绿条或徽标。
 
@@ -238,7 +238,7 @@ components:
 - 文字带下划线状态：实线 = 通话中（「通话中 mm:ss · 点击返回」），虚线 = 正在呼叫。
 
 ### Icons
-- 全部来自 `lucide-react`。界面图标经 `prototype/icons.tsx` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`SendIcon`）；Astryx 内部图标在主题 `icons` 里换成对应的 Lucide 图标（check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。
+- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`SendIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。
 
 **The Line-State Rule.** 通话状态只用线形表达，线色是她的 rule 色（纸面上 `noteRule`，通话层上 `call.rule`），2px 粗、6px 偏移：实线下划线 = 通话中，虚线下划线 = 正在呼叫，删除线 = 已结束。
 
