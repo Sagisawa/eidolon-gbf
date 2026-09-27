@@ -22,6 +22,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.engine import TurnFailed
+from eidolon.reply_format import SegmentComplete
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
@@ -267,6 +268,8 @@ def create_app(backend: Backend) -> FastAPI:
 
         async def events() -> AsyncIterator[str]:
             async for event in engine.turn(conversation, body.text, keys.llms, device_timezone):
+                if isinstance(event, SegmentComplete):
+                    continue
                 if isinstance(event, TurnFailed):
                     use.give_back()
                 yield _sse(asdict(event))

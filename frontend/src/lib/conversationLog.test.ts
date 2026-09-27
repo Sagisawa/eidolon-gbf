@@ -198,13 +198,42 @@ describe("conversationLog", () => {
     expect(new Set(log.entries.map((e) => e.key)).size).toBe(log.entries.length);
   });
 
-  it("drops an unfinished turn when a new utterance is taken up", () => {
-    const log = play(
-      [{ type: "user", text: "一" }, delta(0, "ja", "い"), { type: "user", text: "二" }],
+  it("replaces the turn in progress, subtitles shown included, when a follow-on joins it", () => {
+    const followedOn = play(
+      [
+        { type: "user", text: "一" },
+        delta(0, "ja", "い"),
+        delta(0, "zh", "（一）"),
+        { type: "user", text: "一\n二" },
+      ],
       history,
     );
-    expect(log.entries).toHaveLength(4);
-    expect(log.entries[2]).toMatchObject({ kind: "user", text: "二" });
-    expect(log.entries[3]).toMatchObject({ segments: [], pending: true });
+    expect(followedOn.entries).toHaveLength(4);
+    expect(followedOn.entries[2]).toMatchObject({ kind: "user", text: "一\n二" });
+    expect(followedOn.entries[3]).toMatchObject({ segments: [], pending: true });
+
+    const log = play(
+      [delta(0, "ja", "に"), { type: "done", message: message(4, "character", "に") }],
+      followedOn,
+    );
+    expect(log.entries.slice(2).map((e) => e.kind)).toEqual(["user", "character"]);
+    expect(log.entries[3]).toMatchObject({ segments: [{ ja: "に", zh: "（に）" }], pending: false });
+  });
+
+  it("shows only what `done` carries of a reply the user interrupted halfway", () => {
+    const log = play(
+      [
+        { type: "user", text: "一" },
+        delta(0, "ja", "いち"),
+        delta(0, "zh", "（いち）"),
+        delta(1, "ja", "に"),
+        { type: "done", message: message(4, "character", "いち") },
+      ],
+      history,
+    );
+    expect(log.entries[3]).toMatchObject({
+      segments: [{ ja: "いち", zh: "（いち）" }],
+      pending: false,
+    });
   });
 });
