@@ -301,13 +301,24 @@ fi
 pause "按回车继续"
 
 # ── 7 ────────────────────────────────────────────────────────────────────
-stage "重启后端"
-say "新的设置要重启后端才生效，将执行：${COMPOSE[*]} up -d"
-if confirm "现在执行吗？"; then
-  "${COMPOSE[@]}" up -d
-  note "看后端日志：${COMPOSE[*]} logs -f backend"
+stage "启动（或重启）后端"
+say "新的设置要重启后端才生效。"
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  say "将执行：${COMPOSE[*]} up -d"
+  if confirm "现在执行吗？"; then
+    "${COMPOSE[@]}" up -d
+    note "看后端日志：${COMPOSE[*]} logs -f backend"
+  else
+    SKIPPED+=("重启后端：${COMPOSE[*]} up -d")
+  fi
+elif [[ -n "$EIDOLON_DOMAIN" ]]; then
+  warn "这台机器上没有可用的 Docker。公开部署要在服务器上运行：${COMPOSE[*]} up -d"
+  SKIPPED+=("在服务器上重启后端：${COMPOSE[*]} up -d")
 else
-  SKIPPED+=("重启后端：${COMPOSE[*]} up -d")
+  say "这台机器上没有可用的 Docker，可以不用它，直接在两个终端里分别启动："
+  step "后端：cd backend && uv sync && uv run --env-file ../.env eidolon"
+  step "前端：cd frontend && npm install && npm run dev"
+  note "后端启动时会先调用一次对话模型做检查，CHAT_LLM_* 要填真实可用的值。"
 fi
 pause "后端起来后按回车"
 
