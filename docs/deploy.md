@@ -145,13 +145,13 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
 
 ## 校准重排阈值
 
-重排默认用硅基流动的 `Qwen/Qwen3-Reranker-4B`（国内站 `api.siliconflow.cn` 提供；国际站已标为 Deprecated）。重排分数低于阈值的剧情、角色资料或记忆不会放进提示词，阈值按模型分组：0.6B 是校准过的 `0.3` / `0.01`；4B 在用下面的命令校准之前暂时沿用 0.6B 的值；其他模型用 4B 的值并在启动日志里提示。也可以在 `.env` 里用 `RERANK_MIN_RELEVANCE`（剧情与角色资料）和 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）手动指定。
+重排默认用硅基流动的 `Qwen/Qwen3-Reranker-0.6B`，也可以用 `RERANK_MODEL` 换成 `Qwen/Qwen3-Reranker-4B`（国内站 `api.siliconflow.cn` 提供；国际站已标为 Deprecated）。在校准数据集上，0.6B 挑剧情和角色资料比 4B 准，4B 挑记忆略好一些。重排分数低于阈值的剧情、角色资料或记忆不会放进提示词，阈值按模型分组，都是用下面的命令校准过的：0.6B 是 `0.3` / `0.01`，4B 是 `0.7` / `0.005`；其他模型用 4B 的值并在启动日志里提示。也可以在 `.env` 里用 `RERANK_MIN_RELEVANCE`（剧情与角色资料）和 `RERANK_MEMORY_MIN_RELEVANCE`（记忆）手动指定。
 
 `eidolon eval rerank` 用仓库里的校准数据集（`backend/eval/rerank-calibration.toml`：一些有代表性的问题，以及哪些剧情、资料、记忆和它们相关；只有编号和标题，不含剧情原文）对着本地的剧情库跑一遍检索和重排，打印「相关」与「不相关」候选的分数分布、当前阈值下的命中与误放数量，以及没进入向量检索结果的相关候选（那是召回问题，调阈值解决不了）：
 
 ```sh
 docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank
-docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --model Qwen/Qwen3-Reranker-0.6B
+docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --model Qwen/Qwen3-Reranker-4B
 ```
 
 换重排模型前用它比较两个模型的分数分布，再决定阈值。需要剧情库已经同步好，并且有当前向量化模型的向量；数据集里的记忆是虚构的示例，运行时临时向量化，不会写进数据库。
@@ -171,8 +171,6 @@ docker compose -f docker-compose.prod.yml exec backend eidolon key issue alice  
 git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
-
-升级到默认重排模型为 `Qwen/Qwen3-Reranker-4B` 的版本后，重排自动换成 4B，不需要重新向量化；想继续用 0.6B，在 `.env` 里设 `RERANK_MODEL=Qwen/Qwen3-Reranker-0.6B`。
 
 数据都在持久化的位置，升级不会丢失：
 

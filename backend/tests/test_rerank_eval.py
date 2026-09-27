@@ -190,7 +190,7 @@ def test_the_committed_calibration_set_names_only_facts_the_characters_have():
         label
         for case in calibration.cases
         for label in case.relevant + case.acceptable
-        if not label.startswith(("produce_", "special_", "game_", "csv/")) and case.kind != "memory"
+        if " / " in label and case.kind != "memory"
     }
     assert named <= titles, named - titles
     assert {case.character for case in calibration.cases} <= characters.keys()

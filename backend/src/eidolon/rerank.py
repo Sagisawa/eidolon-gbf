@@ -23,15 +23,19 @@ class RerankThresholds:
 
 
 KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
-    # Relevant passages score around 0.9 and unrelated ones below 0.1, so a question about
-    # something the character never lived through brings back nothing rather than filler.
-    # A short memory scores low against a loosely related remark (「我最近要出远门」 against
-    # a business trip to Hokkaido scores 0.03) but unrelated ones lower still (at most
-    # 0.005), so memories get a threshold well below that of story and character facts.
+    # On the calibration set (backend/eval/rerank-calibration.toml) relevant passages score
+    # 0.99 at the median and nine in ten unrelated ones below 0.3, so a question about
+    # something the character never lived through brings back nothing rather than filler;
+    # the unrelated ones above it are mostly the same topic but another event, which no
+    # threshold separates. A short memory scores low against a loosely worded remark (a
+    # quarter of the relevant ones below 0.015) but unrelated ones lower still (nine in ten
+    # below 0.0011), so memories get a threshold well below that of story and character facts.
     "Qwen/Qwen3-Reranker-0.6B": RerankThresholds(references=0.3, memories=0.01),
-    # Provisionally 0.6B's, until the calibration set has been run with both models
-    # (.scratch/embedding-provider/issues/03).
-    "Qwen/Qwen3-Reranker-4B": RerankThresholds(references=0.3, memories=0.01),
+    # From the same set. 4B scores near misses (another year's Christmas, another bento)
+    # between 0.4 and 0.7 where 0.6B puts them below 0.3, so it needs a higher bar for the
+    # same precision. Its unrelated memories stay below 0.005 but for one, while it scores
+    # loosely worded remarks a little higher than 0.6B, so its memory threshold is lower.
+    "Qwen/Qwen3-Reranker-4B": RerankThresholds(references=0.7, memories=0.005),
 }
 FALLBACK_MODEL = "Qwen/Qwen3-Reranker-4B"
 """Whose thresholds a model not calibrated gets."""

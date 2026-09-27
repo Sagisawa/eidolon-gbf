@@ -23,8 +23,8 @@ DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
 
 DEFAULT_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
-DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-4B"
-"""Still served on SiliconFlow's mainland site, though marked deprecated on the international one."""
+DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
+"""On the calibration set it ranks story and character facts better than 4B does."""
 
 DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2"

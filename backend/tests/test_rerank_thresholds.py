@@ -17,8 +17,8 @@ def test_each_known_model_has_its_thresholds():
     assert thresholds_for(RerankSettings("k", "Qwen/Qwen3-Reranker-0.6B")) == RerankThresholds(
         0.3, 0.01
     )
-    assert thresholds_for(RerankSettings("k", "Qwen/Qwen3-Reranker-4B")) == (
-        KNOWN_THRESHOLDS["Qwen/Qwen3-Reranker-4B"]
+    assert thresholds_for(RerankSettings("k", "Qwen/Qwen3-Reranker-4B")) == RerankThresholds(
+        0.7, 0.005
     )
 
 

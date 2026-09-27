@@ -14,7 +14,7 @@ Status: ready-for-agent
 
 1. 新增 `EMBEDDING_PROVIDER=siliconflow|gemini`（默认 `siliconflow`），`gemini` 走 Google 原生接口（`GEMINI_API_KEY`），维度由 `EMBEDDING_DIMENSIONS` 指定（默认 1536）。重排仍在硅基流动，所以两种选择下都需要 `SILICONFLOW_API_KEY`。
 2. 库里只保留当前模型的向量。换模型（或换维度）后运行 `eidolon reembed`，用库里已有的原文重新向量化剧情库、角色资料和全部记忆，不需要重新下载或导入；后端启动时发现剧情库缺当前模型的向量就打警告。
-3. 用一份提交进仓库的小校准数据集和 `eidolon eval rerank` 命令，比较 0.6B 与 4B 的分数分布，定出 4B 的阈值；默认重排模型改为 `Qwen/Qwen3-Reranker-4B`，阈值按已知模型分组，可用 `RERANK_MIN_RELEVANCE` 覆盖。
+3. 用一份提交进仓库的小校准数据集和 `eidolon eval rerank` 命令，比较 0.6B 与 4B 的分数分布，定出 4B 的阈值；默认重排模型改为 `Qwen/Qwen3-Reranker-4B`（校准后决定保持 0.6B，见 issues/03 的 Comments），阈值按已知模型分组，可用 `RERANK_MIN_RELEVANCE` 覆盖。
 
 ## Decisions
 

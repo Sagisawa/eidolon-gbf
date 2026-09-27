@@ -36,7 +36,7 @@ def test_siliconflow_is_the_default_and_embeds_and_reranks(monkeypatch: pytest.M
     assert settings.embedding == EmbeddingSettings(
         "siliconflow", "sk-test", "Qwen/Qwen3-Embedding-0.6B", "https://api.siliconflow.cn/v1"
     )
-    assert settings.rerank == RerankSettings("sk-test", "Qwen/Qwen3-Reranker-4B")
+    assert settings.rerank == RerankSettings("sk-test", "Qwen/Qwen3-Reranker-0.6B")
     assert settings.embedding is not None
     embedder = open_embedder(settings.embedding)
     assert isinstance(embedder, SiliconFlowEmbedder)
