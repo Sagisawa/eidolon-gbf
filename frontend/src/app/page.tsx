@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { FailureNotice } from "@/components/FailureNotice";
-import { listCharacters, type Character } from "@/lib/api";
+import { getAccount, listCharacters, type Character } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 
 export default function CharacterSelectionPage() {
@@ -11,7 +11,11 @@ export default function CharacterSelectionPage() {
   const [error, setError] = useState<Failure | null>(null);
 
   useEffect(() => {
-    listCharacters().then(setCharacters, (e) => setError(toFailure(e)));
+    // The character list is public; asking for the account first sends a browser that is
+    // not signed in, or has not agreed to the terms, where it has to go.
+    getAccount()
+      .then(() => listCharacters())
+      .then(setCharacters, (e) => setError(toFailure(e)));
   }, []);
 
   return (

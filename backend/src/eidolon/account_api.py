@@ -1,4 +1,4 @@
-"""The API for signing in and out.
+"""The API for signing in and out, and for the user's account.
 
 Signing in with Google or GitHub goes through the browser:
 
@@ -17,13 +17,15 @@ import secrets
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from eidolon.accounts import SignInRefused
 from eidolon.assembly import Backend
 from eidolon.identity import PROVIDER_NAMES, IdentityError
 from eidolon.sessions import (
     SESSION_COOKIE,
+    SignedIn,
+    UserId,
     clear_session_cookie,
     set_session_cookie,
 )
@@ -37,6 +39,21 @@ STATE_LIFETIME = 600
 
 class DevLogin(BaseModel):
     name: str = Field(min_length=1, max_length=40)
+
+
+class Consent(BaseModel):
+    """Agreeing to the privacy policy and terms of use, and saying they are 13 or older."""
+
+    agree_to_terms: bool
+    at_least_13: bool
+
+    @model_validator(mode="after")
+    def _both(self) -> "Consent":
+        if not self.agree_to_terms:
+            raise ValueError("需要同意隐私政策和使用条款")
+        if not self.at_least_13:
+            raise ValueError("需要年满 13 岁才能使用")
+        return self
 
 
 def add_account_routes(app: FastAPI, backend: Backend) -> None:
@@ -125,6 +142,22 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         if token := request.cookies.get(SESSION_COOKIE):
             store.end_session(token)
         clear_session_cookie(response, settings)
+
+    @app.get("/api/account")
+    def account(user_id: UserId) -> dict:
+        """The signed-in user, and the identities they sign in with."""
+        return {
+            "name": store.get_user(user_id).name,
+            "sign_in_methods": [
+                {"provider": m.provider, "display_name": m.display_name, "email": m.email}
+                for m in store.sign_in_methods(user_id)
+            ],
+        }
+
+    @app.post("/api/account/consent", status_code=204)
+    def consent(body: Consent, user: SignedIn) -> None:
+        """Agree to the privacy policy and terms of use, which the rest of the API waits for."""
+        store.consent(user.id, clock())
 
     if settings.dev_login:
 

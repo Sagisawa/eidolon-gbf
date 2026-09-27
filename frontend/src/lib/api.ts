@@ -70,10 +70,15 @@ export class ApiError extends Error {
   }
 }
 
+/** The status of a request from a user who has not yet agreed to the privacy policy and
+ * terms of use. */
+export const CONSENT_REQUIRED = 428;
+
 /** The page a response sends the browser to before it can go on, if any: signing in
- * when it is not signed in. */
+ * when it is not signed in, agreeing to the terms when the user has not yet. */
 export function redirectFor(status: number): string | null {
   if (status === 401) return "/login";
+  if (status === CONSENT_REQUIRED) return "/consent";
   return null;
 }
 
@@ -127,6 +132,27 @@ export type SignInOptions = { providers: Provider[]; dev_login: boolean };
 
 export async function getSignInOptions(): Promise<SignInOptions> {
   return json(await fetch("/api/auth/providers"));
+}
+
+/** An identity the user signs in with. */
+export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
+
+export type Account = { name: string; sign_in_methods: SignInMethod[] };
+
+/** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
+export async function getAccount(): Promise<Account> {
+  return json(await api("/api/account"));
+}
+
+/** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
+export async function agreeToTerms(): Promise<void> {
+  await expectNoContent(
+    await fetch("/api/account/consent", {
+      method: "POST",
+      headers: apiHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ agree_to_terms: true, at_least_13: true }),
+    }),
+  );
 }
 
 /** Sign in as the user with this name (development only). */

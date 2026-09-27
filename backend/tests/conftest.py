@@ -190,6 +190,13 @@ async def sign_in_with(
     )
 
 
+async def agree_to_terms(client: httpx.AsyncClient) -> None:
+    res = await client.post(
+        "/api/account/consent", json={"agree_to_terms": True, "at_least_13": True}
+    )
+    assert res.status_code == 204, res.text
+
+
 def sign_in_as(client: httpx.AsyncClient, other: httpx.AsyncClient) -> None:
     """Have `client` carry the session `other` carries from now on."""
     client.cookies.set(SESSION_COOKIE, other.cookies[SESSION_COOKIE], domain=COOKIE_DOMAIN)

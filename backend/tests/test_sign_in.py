@@ -12,7 +12,14 @@ import httpx
 
 from eidolon.config import Settings
 from eidolon.sessions import SESSION_COOKIE
-from tests.conftest import COOKIE_DOMAIN, ClientFactory, github_identity, google_identity, sign_in_with
+from tests.conftest import (
+    COOKIE_DOMAIN,
+    ClientFactory,
+    agree_to_terms,
+    github_identity,
+    google_identity,
+    sign_in_with,
+)
 from tests.fakes import START, FakeClock, FakeIdentityProvider, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -20,6 +27,8 @@ REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 
 
 async def conversations(client: httpx.AsyncClient) -> list[str]:
+    """The user's conversations with Mano, once they have agreed to the terms."""
+    await agree_to_terms(client)
     res = await client.get("/api/conversations", params={"character_id": "mano"})
     assert res.status_code == 200, res.text
     return [c["id"] for c in res.json()]
@@ -27,7 +36,7 @@ async def conversations(client: httpx.AsyncClient) -> list[str]:
 
 async def signed_in(client: httpx.AsyncClient) -> bool:
     res = await client.get("/api/conversations", params={"character_id": "mano"})
-    return res.status_code == 200
+    return res.status_code != 401
 
 
 async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
@@ -41,6 +50,13 @@ async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
     assert res.headers["location"] == "/"
     assert SESSION_COOKIE in client.cookies
     assert await conversations(client) == []
+    account = (await client.get("/api/account")).json()
+    assert account == {
+        "name": "producer",
+        "sign_in_methods": [
+            {"provider": "github", "display_name": "producer", "email": "producer@example.com"}
+        ],
+    }
 
 
 async def test_signing_in_again_with_the_same_identity_is_the_same_user(
@@ -48,6 +64,7 @@ async def test_signing_in_again_with_the_same_identity_is_the_same_user(
 ):
     desktop = make_client(FakeLLM(REPLY), user=None)
     await sign_in_with(desktop, github, github_identity())
+    await agree_to_terms(desktop)
     conversation_id = await start_conversation(desktop)
     await send_turn(desktop, conversation_id, "在吗")
     phone = make_client(FakeLLM(), user=None)
@@ -62,6 +79,7 @@ async def test_two_identities_are_two_users(
 ):
     mine = make_client(FakeLLM(), user=None)
     await sign_in_with(mine, github, github_identity("1001"))
+    await agree_to_terms(mine)
     await start_conversation(mine)
     theirs = make_client(FakeLLM(), user=None)
 
@@ -199,6 +217,7 @@ async def test_signing_in_with_google_makes_a_user_then_signs_in_as_them(
 ):
     desktop = make_client(FakeLLM(), user=None)
     first = await sign_in_with(desktop, google, google_identity())
+    await agree_to_terms(desktop)
     conversation_id = await start_conversation(desktop)
     phone = make_client(FakeLLM(), user=None)
 
@@ -224,6 +243,7 @@ async def test_the_same_email_at_google_and_github_is_two_users(
 ):
     at_github = make_client(FakeLLM(), user=None)
     await sign_in_with(at_github, github, github_identity(email="same@example.com"))
+    await agree_to_terms(at_github)
     await start_conversation(at_github)
     at_google = make_client(FakeLLM(), user=None)
 

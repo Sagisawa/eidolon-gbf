@@ -102,8 +102,16 @@ def signed_in_user(request: Request) -> User:
 SignedIn = Annotated[User, Depends(signed_in_user)]
 
 
+CONSENT_REQUIRED = 428
+"""The status of every request, save agreeing, signing out and deleting their data, from
+a user who has not yet agreed to the privacy policy and terms of use."""
+
+
 def current_user(user: SignedIn) -> str:
-    """The signed-in user's id."""
+    """The signed-in user's id, once they have agreed to the privacy policy and terms of
+    use; until then, `CONSENT_REQUIRED`."""
+    if user.consented_at is None:
+        raise HTTPException(CONSENT_REQUIRED, "请先阅读并同意隐私政策和使用条款")
     return user.id
 
 

@@ -191,7 +191,8 @@ def create_app(backend: Backend) -> FastAPI:
         return asdict(profile)
 
     @app.get("/api/characters")
-    def list_characters(_: UserId) -> list[dict]:
+    def list_characters() -> list[dict]:
+        """Who there is to talk to; shown before signing in too."""
         return [
             {
                 "id": c.id,

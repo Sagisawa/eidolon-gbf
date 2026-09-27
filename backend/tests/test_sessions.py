@@ -10,7 +10,7 @@ import pytest
 
 from eidolon.config import Settings
 from eidolon.sessions import SESSION_COOKIE
-from tests.conftest import COOKIE_DOMAIN, ClientFactory
+from tests.conftest import COOKIE_DOMAIN, ClientFactory, agree_to_terms
 from tests.fakes import FakeClock, FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -72,6 +72,7 @@ async def test_dev_login_makes_a_user_the_first_time_a_name_is_used(make_client:
 
     assert (await dev_login(newcomer, "newcomer")).status_code == 204
 
+    await agree_to_terms(newcomer)
     assert (await mano_conversations(newcomer)).json() == []
 
 

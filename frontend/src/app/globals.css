@@ -390,3 +390,52 @@ button.danger {
   outline: 2px solid var(--text);
   outline-offset: 2px;
 }
+
+.landing-header {
+  padding: 48px 0 8px;
+}
+
+.landing-header h1 {
+  margin: 0 0 8px;
+  font-size: 2rem;
+}
+
+.landing-lede {
+  margin: 0;
+  max-width: 36em;
+  color: var(--muted);
+}
+
+.section-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.landing-footer {
+  padding: 24px 0 48px;
+}
+
+.field label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  font-weight: normal;
+}
+
+.prose {
+  padding-bottom: 48px;
+}
+
+.prose h2 {
+  margin: 24px 0 8px;
+  font-size: 1.125rem;
+}
+
+.prose li + li {
+  margin-top: 6px;
+}
+
+.hint a {
+  color: inherit;
+}
