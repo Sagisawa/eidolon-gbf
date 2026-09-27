@@ -590,10 +590,11 @@ class CallTurns(FrameProcessor):
     shown) and it has a complete segment, or once it is recorded. A reply voiced while
     the last one's voice is still playing has started once its first words are sent.
 
-    After that, the user starting to talk interrupts the character: the reply stops
-    being voiced and goes no further, and is recorded with only the segments complete
-    by then, which `done` carries; what the user says is the next turn, taken up at
-    once. What the user types does not interrupt her and waits for the reply to finish.
+    After that, the user starting to talk or sending what they typed interrupts the
+    character: the reply stops being voiced and goes no further, and is recorded with
+    only the segments complete by then, which `done` carries; what the user says or
+    types is the next turn, taken up at once. Typing between replies stops her voice
+    likewise, should the last one still be heard.
     A `mute` client message decides whether replies from then on are voiced at all.
 
     When the call reaches its limits, the browser gets an `ended` message saying why,
@@ -647,9 +648,8 @@ class CallTurns(FrameProcessor):
                 self._following_on = True
                 self._heard.set()
                 await self._drop_reply()
-            else:  # interrupts the reply in progress, if there is one
-                self._voicing = False
-                self._stop.set()
+            else:
+                self._interrupt()
             await self.push_frame(frame, direction)
         elif isinstance(frame, BotStartedSpeakingFrame):
             # The voice of a reply dropped just now may start late, but never after the
@@ -676,8 +676,12 @@ class CallTurns(FrameProcessor):
         if self._ended or not (text or (spoken and self._following_on)):
             return
         if not self._open_to_follow_ons():
-            if text:
-                self._inputs.put_nowait(text)
+            if not text:
+                return
+            if not spoken:  # typed: interrupts her as the user starting to talk would
+                self._interrupt()
+                await self.push_frame(InterruptionFrame())
+            self._inputs.put_nowait(text)
             return
         # A follow-on: what the turn is to be replied to changes before the reply is dropped.
         if text:
@@ -702,6 +706,11 @@ class CallTurns(FrameProcessor):
         if reply is None or reply.done() and not reply.cancelled():
             return False
         return not (self._spoken and self._complete)
+
+    def _interrupt(self) -> None:
+        """Interrupt the reply in progress, if there is one."""
+        self._voicing = False
+        self._stop.set()
 
     async def _drop_reply(self) -> None:
         if self._reply is not None and not self._reply.done():

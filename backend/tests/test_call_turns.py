@@ -168,8 +168,10 @@ async def test_blank_input_is_ignored(mano_call: CallUnderTest):
 
 INTERRUPTED_REPLY = ["<ja>ほわっ</ja><zh>哇</zh>", "<ja>今日", HANG]
 """A reply with one complete segment, then half of the next, then nothing, ever."""
-INTERRUPTING = [SleepFrame(0.1), BotStartedSpeakingFrame(), SleepFrame(0.3), InterruptionFrame()]
-"""The character starts speaking; the user interrupts her once the second segment is started."""
+INTERRUPTIBLE = [SleepFrame(0.1), BotStartedSpeakingFrame(), SleepFrame(0.3)]
+"""The character starts speaking, and goes on until the second segment is started."""
+INTERRUPTING = [*INTERRUPTIBLE, InterruptionFrame()]
+"""The user interrupts her then."""
 
 
 async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_complete_segments(
@@ -213,21 +215,62 @@ async def test_an_interruption_that_comes_to_nothing_takes_no_turn(mano_call: Ca
     assert len(llm.prompts) == 1
 
 
-async def test_what_is_typed_once_the_reply_can_be_interrupted_waits_for_it_to_finish(
+async def test_what_is_typed_once_the_reply_can_be_interrupted_interrupts_the_character(
     mano_call: CallUnderTest,
 ):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+    llm = FakeLLM(INTERRUPTED_REPLY, MANO_REPLY, delay=0.3)
 
-    _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.4), BotStartedSpeakingFrame(), typed("在吗")]
-    )
+    down = await mano_call.run_frames(llm, [spoken("早上好"), *INTERRUPTIBLE, typed("在吗")])
 
+    messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
     assert said(messages) == ["早上好", "在吗"]
+    assert InterruptionFrame in frame_types(down)
     assert await mano_call.record() == [
-        ("user", "早上好", None, None), ("character", None, "ほわっ今日も", "哇今天也"),
+        ("user", "早上好", None, None), ("character", None, "ほわっ", "哇"),
         ("user", "在吗", None, None),
         ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
     ]
+
+
+async def test_what_is_typed_while_a_recorded_reply_is_still_heard_stops_her_voice(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(MANO_REPLY, MANO_REPLY)
+
+    down = await mano_call.run_frames(
+        llm, [spoken("早上好"), SleepFrame(0.1), BotStartedSpeakingFrame(), typed("在吗")]
+    )
+
+    types = frame_types(down)
+    assert InterruptionFrame in types[types.index(LLMFullResponseEndFrame):]
+    assert await mano_call.said() == ["早上好", None, "在吗", None]  # the first reply as it was
+
+
+async def test_what_is_typed_straight_after_interrupting_follows_on_the_new_turn(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(INTERRUPTED_REPLY, SLOW_REPLY, MANO_REPLY, delay=0.3)
+
+    _, messages = await mano_call.run(
+        llm,
+        [spoken("早上好"), *INTERRUPTIBLE, typed("在吗"), SleepFrame(0.1), typed("还在吗")],
+    )
+
+    assert said(messages) == ["早上好", "在吗", "在吗\n还在吗"]
+    assert await mano_call.said() == ["早上好", None, "在吗\n还在吗", None]
+
+
+async def test_what_is_typed_once_the_call_has_ended_leaves_her_last_reply_voiced(
+    mano_call: CallUnderTest,
+):
+    down = await mano_call.run_frames(
+        FakeLLM(MANO_REPLY),
+        [spoken("早上好"), SleepFrame(0.1), BotStartedSpeakingFrame(), typed("在吗")],
+        limits=CallLimits(turns=1),
+    )
+
+    assert InterruptionFrame not in frame_types(down)
+    assert await mano_call.said() == ["早上好", None]
 
 
 SLOW_REPLY = ["<ja>ほわっ", "</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"]
@@ -399,6 +442,10 @@ async def test_a_follow_on_that_comes_to_nothing_has_the_turn_replied_to_again(
 
     assert said(messages) == ["早上好", "早上好"]
     assert await mano_call.said() == ["早上好", None]
+
+
+def frame_types(frames: Sequence[Frame]) -> list[type[Frame]]:
+    return [type(f) for f in frames]
 
 
 def kinds(messages: list[dict]) -> list[str]:
