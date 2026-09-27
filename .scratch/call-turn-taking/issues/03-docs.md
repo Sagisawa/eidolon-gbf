@@ -4,7 +4,7 @@
 
 **Blocked by:** 01、02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 三份 README 的「语音通话」列表各加一条，大意如下：
   - 角色开口前你接着说的话（说或打都算）会并进同一句，角色放下刚才的回复，重新回答；

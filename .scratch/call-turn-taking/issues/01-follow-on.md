@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] `CallTurns`（`backend/src/eidolon/call.py:500-624`）从「队列 + 单工作协程」改为能取消当前回合的结构，并记住当前回合的用户文本（若干句）。
 - [x] 判定当前回合**能否被打断**，需要同时满足下面两条：

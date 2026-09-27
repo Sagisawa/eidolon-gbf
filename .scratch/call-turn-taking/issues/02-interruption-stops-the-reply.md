@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] engine 能让一个进行中的回合**提前收尾**：
   - 停掉 LLM 流（包括工具调用那一轮），只保留完整的段落；
