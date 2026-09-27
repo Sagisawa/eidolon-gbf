@@ -6,7 +6,14 @@
 
 import { PipecatClient, TransportStartError } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
-import { ApiError, apiHeaders, getIceServers, json, type CallEvent } from "@/lib/api";
+import {
+  ApiError,
+  apiHeaders,
+  followRedirect,
+  getIceServers,
+  json,
+  type CallEvent,
+} from "@/lib/api";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { Microphone } from "@/lib/microphone";
 
@@ -81,9 +88,11 @@ export async function startCall(
   };
 }
 
-/** Turn a failed call into an error that says why, in the user's language. */
+/** Turn a failed call into an error that says why, in the user's language; sends the browser
+ * on when it has to sign in, or agree to the terms, first. */
 async function explain(e: unknown): Promise<Error> {
   if (e instanceof TransportStartError && e.cause instanceof Response) {
+    followRedirect(e.cause);
     try {
       await json(e.cause); // throws an ApiError carrying the backend's reason
     } catch (reason) {

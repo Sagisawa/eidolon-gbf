@@ -4,12 +4,12 @@
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `/api/offer` 返回 401 / 428 时跳转，和 `api()` 用同一个 `redirectFor`，已经在目标页时不跳
-- [ ] `overLimit`、`describe` 经 `json()` 测试（构造 `Response`）
-- [ ] `sendTurn` 的 SSE 分帧经 stub 的 `fetch` 测试
-- [ ] 现有测试不改，全部通过；`npm run typecheck` 通过
+- [x] `/api/offer` 返回 401 / 428 时跳转，和 `api()` 用同一个 `redirectFor`，已经在目标页时不跳
+- [x] `overLimit`、`describe` 经 `json()` 测试（构造 `Response`）
+- [x] `sendTurn` 的 SSE 分帧经 stub 的 `fetch` 测试
+- [x] 现有测试不改，全部通过；`npm run typecheck` 通过
 
 ## 背景（2026-09-27，架构体检候选 3「顺手」）
 

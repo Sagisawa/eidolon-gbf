@@ -119,11 +119,17 @@ export function apiHeaders(init?: HeadersInit): Headers {
   return headers;
 }
 
-/** fetch() for the backend API; sends the browser on when it has to sign in first. */
-async function api(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
+/** Sends the browser to the page a response says it must go to first, unless it is there. */
+export function followRedirect(res: Response): void {
   const to = redirectFor(res.status);
   if (to && window.location.pathname !== to) window.location.assign(to);
+}
+
+/** fetch() for the backend API; sends the browser on when it has to sign in, or agree to the
+ * terms, first. */
+async function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
+  followRedirect(res);
   return res;
 }
 
