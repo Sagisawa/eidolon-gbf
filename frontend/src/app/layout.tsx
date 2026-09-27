@@ -3,7 +3,6 @@ import "./layers.css";
 import "@astryxdesign/core/reset.css";
 import "@astryxdesign/core/astryx.css";
 import "@/theme/built/notebookTheme.css";
-import "./globals.css";
 
 import type { Metadata } from "next";
 import { M_PLUS_1p, Noto_Sans_SC } from "next/font/google";

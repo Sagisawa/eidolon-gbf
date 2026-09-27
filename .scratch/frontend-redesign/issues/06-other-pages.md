@@ -11,7 +11,7 @@
 - [x] 自带密钥只显示末 4 位；失败提示遵守「不会改用部署者的 key」的语义
 - [x] 记忆页：每条记忆标注来源角色（可用她的 `mark` 色做小标记），删除和清空保留二次确认
 - [x] 所有文案从 01 建好的文案模块取
-- [ ] 删除 `frontend/src/app/globals.css` 以及里面的 `@layer legacy`，确认没有页面还依赖它
+- [x] 删除 `frontend/src/app/globals.css` 以及里面的 `@layer legacy`，确认没有页面还依赖它
 - [x] 浅色和深色模式、手机和电脑各截图检查
 
 ## Comments
@@ -29,3 +29,5 @@
 - 站内链接用 `components/AppLink.tsx`（Astryx `Link` + `next/link`，客户端组件：服务端页面不能把 `next/link` 当 prop 传给客户端组件）。句中链接默认画下划线，因为强调色和正文是同一种墨水。
 - `globals.css`：删掉了只属于这些页面的规则（`.settings`、`.field*`、`.hint*`、`.error*`、`button.danger`、`.memory*`、`.landing-*`、`.sign-in-*`、`.own-key*`、`.prose*` 等 42 条），`all: revert` 和元素选择器只剩 `main.selection|conversation`。首页和对话页用到的规则都留着，截图确认它们没变。
 - 检查：`npm run typecheck`、`npm test`（12 个文件 107 个测试）、`next build` 都通过。本地起了后端（临时数据库、开发登录）和 `next dev`，在浅色 / 深色、390px / 1280px 下截图看过登录（含登录失败提示）、同意、设置（含 LLM 表单展开、删除确认框）、记忆（含删除确认框，另往临时库里插了三条记忆，其中一条的来源角色已不在）、隐私、条款。没看到的：已绑定登录方式的列表（开发登录的用户没有第三方身份）、已填自带密钥的状态、「已绑定 X」提示。
+
+**2026-09-28 合并 03 之后**：删除了 `frontend/src/app/globals.css`，`layers.css` 去掉了 `legacy` 层。删除前查过全部 `className`，没有页面还在用旧类名；typecheck、`npm test`（131 个）和 `next build` 都通过。
