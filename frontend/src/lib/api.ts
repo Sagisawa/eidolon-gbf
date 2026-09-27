@@ -162,6 +162,8 @@ export type OwnKeys = {
   /** Whether the deployment lets users bring their own keys at all. */
   available: boolean;
   keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnKey };
+  /** What of the user's use does not count towards the hourly limits. */
+  exempt: { turns: boolean; calls: boolean };
   protocols: LLMProtocol[];
 };
 
@@ -178,6 +180,17 @@ export async function saveOwnLLM(
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(llm),
+    }),
+  );
+}
+
+/** Try the user's own key for speech synthesis ("tts") or recognition ("stt") and keep it. */
+export async function saveOwnSpeechKey(service: "tts" | "stt", apiKey: string): Promise<OwnKey> {
+  return json(
+    await api(`/api/account/keys/${service}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
     }),
   );
 }

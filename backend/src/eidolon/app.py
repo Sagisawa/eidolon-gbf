@@ -22,6 +22,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.engine import TurnFailed
+from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
 from eidolon.sessions import UserId, session_middleware
@@ -128,6 +129,10 @@ def create_app(backend: Backend) -> FastAPI:
     @app.exception_handler(CallNotFound)
     async def call_not_found(_: Request, e: CallNotFound) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=404)
+
+    @app.exception_handler(OwnKeyFailed)
+    async def own_key_failed(_: Request, e: OwnKeyFailed) -> JSONResponse:
+        return JSONResponse({"detail": e.message}, status_code=409)
 
     @app.exception_handler(CallFailed)
     async def call_failed(_: Request, e: CallFailed) -> JSONResponse:
@@ -257,8 +262,8 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        use = usage.take(user_id, "turn")
         own_llm = own_keys.chat_llm(user_id)
+        use = usage.take(user_id, "turn", exempt=own_llm is not None)
 
         async def events() -> AsyncIterator[str]:
             async for event in engine.turn(conversation, body.text, device_timezone, own_llm):

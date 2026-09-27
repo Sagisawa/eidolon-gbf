@@ -84,15 +84,20 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
 -- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
+-- A use on the user's own keys alone is `exempt`: recorded, but not limited.
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id),
     kind TEXT NOT NULL,
-    at REAL NOT NULL
+    at REAL NOT NULL,
+    exempt INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
 """
 
+
+USAGE_KEPT = timedelta(hours=24)
+"""How long each use is kept: an hour for the limits, a day for the admin to look over."""
 
 SESSION_LIFETIME = timedelta(days=30)
 """How long a session lasts after it was last used."""
@@ -212,6 +217,9 @@ class Store:
         for column in ("consented_at", "banned_at"):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+        usage_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(usage)")}
+        if "exempt" not in usage_columns:
+            self._db.execute("ALTER TABLE usage ADD COLUMN exempt INTEGER NOT NULL DEFAULT 0")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -484,31 +492,38 @@ class Store:
         ]
 
     def take_usage(
-        self, user_id: str, kind: UsageKind, now: datetime, window: timedelta, limit: int
+        self,
+        user_id: str,
+        kind: UsageKind,
+        now: datetime,
+        window: timedelta,
+        limit: int | None,
+        exempt: bool = False,
     ) -> int:
-        """Record one use of `kind` by the user at `now` and return its id, unless they
-        already have `limit` uses in the `window` before it: then record nothing and raise
-        LimitReached with when enough of those will have aged out. The user's older uses
-        of `kind` are forgotten."""
-        since = (now - window).timestamp()
+        """Record one use of `kind` by the user at `now` and return its id, unless it
+        counts (is not `exempt`) and they already have `limit` counting uses in the
+        `window` before it: then record nothing and raise LimitReached with when enough
+        of those will have aged out. Uses older than `USAGE_KEPT` are forgotten."""
         with self._lock, self._db:
             self._db.execute(
-                "DELETE FROM usage WHERE user_id = ? AND kind = ? AND at <= ?",
-                (user_id, kind, since),
+                "DELETE FROM usage WHERE user_id = ? AND at <= ?",
+                (user_id, (now - USAGE_KEPT).timestamp()),
             )
-            recent = [
-                row["at"]
-                for row in self._db.execute(
-                    "SELECT at FROM usage WHERE user_id = ? AND kind = ? ORDER BY at",
-                    (user_id, kind),
-                )
-            ]
-            if len(recent) >= limit:
-                blocking = recent[len(recent) - limit]  # this one must age out first
-                raise LimitReached(datetime.fromtimestamp(blocking, UTC) + window)
+            if limit is not None and not exempt:
+                recent = [
+                    row["at"]
+                    for row in self._db.execute(
+                        "SELECT at FROM usage WHERE user_id = ? AND kind = ? AND NOT exempt"
+                        " AND at > ? ORDER BY at",
+                        (user_id, kind, (now - window).timestamp()),
+                    )
+                ]
+                if len(recent) >= limit:
+                    blocking = recent[len(recent) - limit]  # this one must age out first
+                    raise LimitReached(datetime.fromtimestamp(blocking, UTC) + window)
             cursor = self._db.execute(
-                "INSERT INTO usage (user_id, kind, at) VALUES (?, ?, ?)",
-                (user_id, kind, now.timestamp()),
+                "INSERT INTO usage (user_id, kind, at, exempt) VALUES (?, ?, ?, ?)",
+                (user_id, kind, now.timestamp(), int(exempt)),
             )
         assert cursor.lastrowid is not None
         return cursor.lastrowid

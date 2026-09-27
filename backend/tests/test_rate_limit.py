@@ -1,5 +1,5 @@
 """Per-user rate limits: text turns and voice calls count against the user's hourly limits,
-whichever of their access keys they come with, driven through the backend's external API
+whichever device they come from, driven through the backend's external API
 with a clock the tests control."""
 
 from dataclasses import replace

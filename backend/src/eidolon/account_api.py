@@ -74,6 +74,10 @@ class OwnLLMInput(BaseModel):
     protocol: LLMProtocol = "chat-completions"
 
 
+class OwnSpeechKeyInput(BaseModel):
+    api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+
+
 class Consent(BaseModel):
     """Agreeing to the privacy policy and terms of use, and saying they are 13 or older."""
 
@@ -238,6 +242,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         return {
             "available": own_keys.available,
             "keys": own_keys.describe(user_id) if own_keys.available else {},
+            "exempt": own_keys.exemptions(user_id),
             "protocols": list(LLM_PROTOCOLS),
         }
 
@@ -254,6 +259,18 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         except OwnKeyRejected as e:
             raise HTTPException(422, f"试调失败，没有保存：{e}") from None
         return own_keys.describe(user_id)["llm"]
+
+    @app.put("/api/account/keys/{service}")
+    async def save_own_speech_key(service: str, body: OwnSpeechKeyInput, user_id: UserId) -> dict:
+        """Try the user's own key for speech synthesis ("tts") or recognition ("stt"),
+        then keep it; 422 with what the service said if the try failed."""
+        if service not in ("tts", "stt"):
+            raise HTTPException(404, "没有这项服务")
+        try:
+            await own_keys.save_speech(user_id, service, body.api_key)  # pyright: ignore[reportArgumentType]
+        except OwnKeyRejected as e:
+            raise HTTPException(422, f"试调失败，没有保存：{e}") from None
+        return own_keys.describe(user_id)[service]  # pyright: ignore[reportArgumentType]
 
     @app.delete("/api/account/keys/{service}", status_code=204)
     def delete_own_key(service: str, user_id: UserId) -> None:

@@ -108,13 +108,28 @@ class OwnLLMSettings:
     protocol: LLMProtocol = "chat-completions"
 
 
+class KeyCheck(Protocol):
+    """Trying a speech service's key before keeping it (see `call.Speech`)."""
+
+    async def check(self, service: Service, api_key: str) -> None:
+        """Raise OwnKeyRejected saying why, unless `api_key` works for `service`."""
+        ...
+
+
 class OwnKeys:
     """Every user's own keys."""
 
-    def __init__(self, store: Store, secret_key: str | None, llm_service: LLMService) -> None:
+    def __init__(
+        self,
+        store: Store,
+        secret_key: str | None,
+        llm_service: LLMService,
+        speech_check: KeyCheck | None = None,
+    ) -> None:
         self._store = store
         self._cipher = _cipher(secret_key) if secret_key else None
         self._llm_service = llm_service
+        self._speech_check = speech_check
 
     @property
     def available(self) -> bool:
@@ -149,6 +164,39 @@ class OwnKeys:
                 own.base_url, own.model, own.protocol,
             ),
         )
+
+    async def save_speech(self, user_id: str, service: Service, api_key: str) -> None:
+        """Try the user's key for speech synthesis ("tts") or recognition ("stt"), and
+        keep it if it works. Raises OwnKeyRejected saying why it did not,
+        OwnKeysUnavailable without `EIDOLON_SECRET_KEY`."""
+        assert service in ("tts", "stt")
+        cipher = self._require_cipher()
+        if self._speech_check is None:
+            raise OwnKeyRejected("这个部署没有语音服务")
+        await self._speech_check.check(service, api_key)
+        self._store.save_own_key(
+            user_id, OwnKeyRecord(service, cipher.encrypt(api_key.encode()), api_key[-4:])
+        )
+
+    def speech_keys(self, user_id: str) -> dict[Service, str]:
+        """The user's own speech keys ("stt", "tts") they brought, decrypted. Raises
+        OwnKeyFailed for one that can no longer be decrypted."""
+        if self._cipher is None:
+            return {}
+        keys: dict[Service, str] = {}
+        for service, record in self._store.own_keys(user_id).items():
+            if service in ("stt", "tts"):
+                try:
+                    keys[service] = self._decrypt(record)  # pyright: ignore[reportArgumentType]
+                except InvalidToken:
+                    raise OwnKeyFailed(service, "保存的密钥无法解密，请重新填写") from None  # pyright: ignore[reportArgumentType]
+        return keys
+
+    def exemptions(self, user_id: str) -> dict[str, bool]:
+        """What of the user's use does not count towards their limits: text turns on
+        their own LLM, calls on their own LLM, speech synthesis and recognition alike."""
+        own = set(self._store.own_keys(user_id)) if self._cipher else set()
+        return {"turns": "llm" in own, "calls": {"llm", "tts", "stt"} <= own}
 
     def delete(self, user_id: str, service: Service) -> bool:
         """Forget the user's key for `service`; False if they had none."""

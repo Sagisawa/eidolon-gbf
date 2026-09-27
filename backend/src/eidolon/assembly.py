@@ -166,11 +166,9 @@ def build(
     if own_llm_service is None:
         own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
         closers.append(own_llm_service.aclose)
-    own_keys = OwnKeys(store, settings.secret_key, own_llm_service)
-    calls = Calls(
-        settings, engine, usage, speech or SonioxFishSpeech.from_settings(settings), clock,
-        own_keys,
-    )
+    speech = speech or SonioxFishSpeech(settings.fish_audio_model)
+    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, speech)
+    calls = Calls(settings, engine, usage, speech, clock, own_keys)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,

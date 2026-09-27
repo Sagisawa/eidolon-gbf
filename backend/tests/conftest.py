@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -18,6 +19,8 @@ from eidolon.sessions import SESSION_COOKIE
 from eidolon.store import Store
 from tests.browser import Browser, open_browser
 from tests.fakes import (
+    DEPLOYER_FISH_KEY,
+    DEPLOYER_SONIOX_KEY,
     START,
     FakeBackgroundLLM,
     FakeIdentityProvider,
@@ -141,6 +144,8 @@ def settings(tmp_path: Path, characters: CharacterConfig) -> Settings:
         ice_servers=[],  # tests run offline: gather host candidates only
         dev_login=True,
         secret_key="test-secret-key",
+        soniox_api_key=DEPLOYER_SONIOX_KEY,
+        fish_audio_api_key=DEPLOYER_FISH_KEY,
     )
 
 
@@ -262,8 +267,8 @@ async def make_client(
     Any other keyword is an outside service to use instead of the one the settings
     describe (see `assembly.build`); the background model, speech, the identity providers
     (the `github` and `google` fixtures) and the LLM services users bring their own keys
-    to (`own_llm`) are fakes by default, and `voice_configured=False` leaves calls
-    unconfigured."""
+    to (`own_llm`) are fakes by default, and `voice_configured=False` leaves the deployer
+    without speech keys."""
     backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
@@ -278,8 +283,9 @@ async def make_client(
         services.setdefault("background_llm", FakeBackgroundLLM())
         services.setdefault("identity_providers", {"github": github, "google": google})
         services.setdefault("own_llm_service", own_llm)
-        if voice_configured:
-            services.setdefault("speech", speech)
+        services.setdefault("speech", speech)
+        if not voice_configured:
+            settings = replace(settings, soniox_api_key=None, fish_audio_api_key=None)
         backend = build(settings, chat_llm=llm, **services)
         backends.append(backend)
         client = httpx.AsyncClient(

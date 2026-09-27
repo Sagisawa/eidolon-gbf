@@ -6,6 +6,7 @@ import {
   deleteOwnKey,
   getOwnKeys,
   saveOwnLLM,
+  saveOwnSpeechKey,
   type LLMProtocol,
   type OwnKeys,
   type OwnService,
@@ -48,6 +49,14 @@ export function OwnKeysSettings() {
         填了自己的 API key，这一项服务就改用你的额度，费用由你承担。自带的密钥调用失败时，这一轮会失败并提示是哪一项出了问题，不会改用部署者的密钥。界面上只显示密钥的末
         4 位。
       </p>
+      <p className="hint" role="status">
+        {keys.exempt.calls
+          ? "三项都是你自己的密钥：文字对话和语音通话都不计入每小时限额。"
+          : keys.exempt.turns
+            ? "文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要三项都自带才不计入。"
+            : "现在用的是部署者的服务，文字对话和语音通话都计入每小时限额。"}
+        单次通话的时长和轮数上限对所有人都一样。
+      </p>
       {failure && <FailureNotice failure={failure} />}
       <OwnLLMForm
         current={keys.keys.llm}
@@ -55,6 +64,96 @@ export function OwnKeysSettings() {
         onSaved={async () => setKeys(await getOwnKeys())}
         onDelete={() => remove("llm")}
       />
+      <OwnSpeechKeyForm
+        service="tts"
+        title="语音合成（Fish Audio）"
+        current={keys.keys.tts}
+        onSaved={async () => setKeys(await getOwnKeys())}
+        onDelete={() => remove("tts")}
+      />
+      <OwnSpeechKeyForm
+        service="stt"
+        title="语音识别（Soniox）"
+        current={keys.keys.stt}
+        onSaved={async () => setKeys(await getOwnKeys())}
+        onDelete={() => remove("stt")}
+      />
+    </div>
+  );
+}
+
+function OwnSpeechKeyForm({
+  service,
+  title,
+  current,
+  onSaved,
+  onDelete,
+}: {
+  service: "tts" | "stt";
+  title: string;
+  current: OwnKeys["keys"]["tts"];
+  onSaved: () => Promise<void>;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failure | null>(null);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setFailure(null);
+    try {
+      await saveOwnSpeechKey(service, apiKey.trim());
+      setApiKey("");
+      setEditing(false);
+      await onSaved();
+    } catch (e) {
+      setFailure(toFailure(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="own-key">
+      <h3 className="own-key-title">{title}</h3>
+      {current && !editing && (
+        <div className="field-row own-key-current">
+          <span>密钥末 4 位 {current.last4}</span>
+          <button type="button" className="ghost" onClick={() => setEditing(true)}>
+            修改
+          </button>
+          <button type="button" className="ghost" onClick={onDelete}>
+            删除
+          </button>
+        </div>
+      )}
+      {(!current || editing) && (
+        <form onSubmit={submit} className="own-key-form">
+          <label htmlFor={`${service}-key`}>API key</label>
+          <input
+            id={`${service}-key`}
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {failure && <FailureNotice failure={failure} />}
+          <div className="field-row">
+            <button type="submit" disabled={busy || !apiKey.trim()}>
+              {busy ? "正在试调…" : "试调并保存"}
+            </button>
+            {editing && (
+              <button type="button" className="ghost" onClick={() => setEditing(false)}>
+                取消
+              </button>
+            )}
+          </div>
+        </form>
+      )}
     </div>
   );
 }

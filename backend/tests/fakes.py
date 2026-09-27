@@ -27,6 +27,7 @@ from eidolon.embedding import Document, EmbeddingError
 from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
+from eidolon.own_keys import OwnKeyRejected
 from eidolon.retrieval import JudgeError, Need
 from eidolon.store import Message
 
@@ -163,12 +164,18 @@ class FakeBackgroundLLM:
         pass
 
 
-class FakeSTT(STTService):
-    """Stands in for Soniox in one call: ignores the microphone and hears what the test
-    says the user said, the way Soniox reports an utterance."""
+DEPLOYER_SONIOX_KEY = "deployer-soniox-key"
+DEPLOYER_FISH_KEY = "deployer-fish-key"
+"""The deployer's speech keys in the tests' settings."""
 
-    def __init__(self) -> None:
+
+class FakeSTT(STTService):
+    """Stands in for Soniox in one call, on `api_key`: ignores the microphone and hears
+    what the test says the user said, the way Soniox reports an utterance."""
+
+    def __init__(self, api_key: str) -> None:
         super().__init__(ttfs_p99_latency=0.1, settings=STTSettings(model=None, language=None))
+        self.api_key = api_key
 
     async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
         yield None
@@ -185,15 +192,20 @@ class FakeSTT(STTService):
 
 
 class FakeTTS(TTSService):
-    """Stands in for Fish Audio in one call: records what it is asked to voice, and in which
-    voice, and says a moment of silence for each."""
+    """Stands in for Fish Audio in one call, on `api_key`: records what it is asked to
+    voice, and in which voice, and says a moment of silence for each."""
 
-    def __init__(self, voice_id: str, sample_rate: int) -> None:
+    def __init__(self, api_key: str, voice_id: str, sample_rate: int) -> None:
         super().__init__(
             sample_rate=sample_rate, settings=TTSSettings(model=None, voice=None, language=None)
         )
+        self.api_key = api_key
         self.voice_id = voice_id
         self.voiced: list[str] = []
+
+    async def break_down(self) -> None:
+        """Fail as a rejected API key would: for good."""
+        await self.push_error("fake speech synthesis is down", force_treat_as_permanent=True)
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
         self.voiced.append(text)
@@ -203,22 +215,31 @@ class FakeTTS(TTSService):
 
 class FakeSpeech:
     """Stands in for Soniox and Fish Audio: the speech services of each call started, in
-    order. Set `down` to have the services fail to be made at all."""
+    order, each with the key it was made with. Set `down` to have the services fail to be
+    made at all. Records the keys tried before saving (`checked`); a key in `rejects`
+    fails its try with that message."""
 
     def __init__(self) -> None:
         self.stts: list[FakeSTT] = []
         self.ttss: list[FakeTTS] = []
         self.down = False
+        self.checked: list[tuple[str, str]] = []
+        self.rejects: dict[str, str] = {}
 
-    def stt(self) -> FakeSTT:
+    def stt(self, api_key: str) -> FakeSTT:
         if self.down:
             raise RuntimeError("fake speech services are down")
-        self.stts.append(FakeSTT())
+        self.stts.append(FakeSTT(api_key))
         return self.stts[-1]
 
-    def tts(self, voice_id: str, sample_rate: int) -> FakeTTS:
-        self.ttss.append(FakeTTS(voice_id, sample_rate))
+    def tts(self, api_key: str, voice_id: str, sample_rate: int) -> FakeTTS:
+        self.ttss.append(FakeTTS(api_key, voice_id, sample_rate))
         return self.ttss[-1]
+
+    async def check(self, service: str, api_key: str) -> None:
+        self.checked.append((service, api_key))
+        if api_key in self.rejects:
+            raise OwnKeyRejected(self.rejects[api_key])
 
 
 class FakeIdentityProvider:
