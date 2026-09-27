@@ -2,6 +2,8 @@
 
 **What to build:** 首页改成微信式消息列表；进入一位角色就是 IM 对话页。电脑上左右双栏（左列表、右对话），手机上两级页面。打字对话的全部现有行为保留（流式回复、日语加字幕、失败时把原文放回输入框、新对话）。规则见 `../spec.md`「信息架构」，视觉见 `DESIGN.md`。
 
+**Prototype:** 原型参见 `prototype/frontend-redesign` 分支的 `frontend/src/app/prototype/`（`git switch prototype/frontend-redesign` 后 `npm run dev` 打开 `/prototype`，右下角「原型控制台」可以跳到任意状态）。 对应文件：`ConversationList.tsx`、`Conversation.tsx`、`page.tsx`。
+
 **Blocked by:** 01, 02
 
 **Status:** ready-for-agent
