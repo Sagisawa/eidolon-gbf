@@ -64,7 +64,7 @@ async def test_reranker_errors_are_reported(response: httpx.Response, error: str
         await reranker.rerank("q", ["a"], top_n=1)
 
 
-MANO = Character("mano", "櫻木真乃", "", "voice", "sheet", None)
+MANO = Character("mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6")
 
 
 def message(role: str, text: str) -> Message:

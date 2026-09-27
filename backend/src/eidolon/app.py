@@ -206,6 +206,8 @@ def create_app(backend: Backend) -> FastAPI:
                 "name": c.name,
                 "intro": c.intro,
                 "avatar_url": f"/api/characters/{c.id}/avatar" if c.avatar else None,
+                "color": c.color,
+                "background_url": f"/api/characters/{c.id}/background" if c.background else None,
             }
             for c in characters.values()
         ]
@@ -216,6 +218,14 @@ def create_app(backend: Backend) -> FastAPI:
         if character is None or character.avatar is None:
             raise HTTPException(404, "没有这位角色的头像")
         return FileResponse(character.avatar)
+
+    @app.get("/api/characters/{character_id}/background")
+    def character_background(character_id: str) -> FileResponse:
+        """The picture behind her call screen, served like her avatar."""
+        character = characters.get(character_id)
+        if character is None or character.background is None:
+            raise HTTPException(404, "没有这位角色的通话背景图")
+        return FileResponse(character.background)
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:

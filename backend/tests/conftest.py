@@ -64,6 +64,7 @@ ClientFactory = Callable[..., httpx.AsyncClient]
 MANO_SHEET = "# 人设\n你是櫻木真乃。口癖是「ほわっ」。"
 KOGANE_SHEET = "# 人设\n你是月岡恋鐘。说长崎方言。"
 AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
+BACKGROUND = b"\xff\xd8\xff fake background"
 
 
 class CharacterConfig:
@@ -83,6 +84,8 @@ class CharacterConfig:
         intro: str = "",
         voice_id: str = "voice",
         avatar: bytes | None = None,
+        color: str | None = "#ffbad6",
+        background: bytes | None = None,
         speakers: list[str] | None = None,
         facts: str | None = None,
     ) -> "CharacterConfig":
@@ -93,6 +96,11 @@ class CharacterConfig:
         if avatar is not None:
             self.write(f"avatars/{id}.png", avatar)
             entry += f'avatar = "avatars/{id}.png"\n'
+        if color is not None:
+            entry += f'color = "{color}"\n'
+        if background is not None:
+            self.write(f"backgrounds/{id}.jpg", background)
+            entry += f'background = "backgrounds/{id}.jpg"\n'
         if facts is not None:
             self.write(f"facts/{id}.md", facts)
             entry += f'facts = "facts/{id}.md"\n'
@@ -114,16 +122,16 @@ class CharacterConfig:
 
 @pytest.fixture
 def characters(tmp_path: Path) -> CharacterConfig:
-    """Mano (with an avatar) and Kogane (without one)."""
+    """Mano (with an avatar and a background) and Kogane (with neither)."""
     return (
         CharacterConfig(tmp_path / "characters")
         .add(
             "mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR,
-            speakers=["真乃"], voice_id="mano-voice",
+            color="#ffbad6", background=BACKGROUND, speakers=["真乃"], voice_id="mano-voice",
         )
         .add(
-            "kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", speakers=["恋鐘"],
-            voice_id="kogane-voice",
+            "kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", color="#f84cad",
+            speakers=["恋鐘"], voice_id="kogane-voice",
         )
     )
 
