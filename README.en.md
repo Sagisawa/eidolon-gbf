@@ -17,7 +17,7 @@ Voice · Text · Story recall · Memory shared across characters
 [![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](backend/src/eidolon/store.py)
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
-[![Private use](https://img.shields.io/badge/use-private_·_small_circle-FF69B4?style=flat-square)](docs/adr/0003-corpus-and-voices-stay-private.md)
+[![Open to the public](https://img.shields.io/badge/use-open_to_the_public-FF69B4?style=flat-square)](docs/adr/0006-open-to-the-public-with-oauth.md)
 
 </div>
 
@@ -25,13 +25,13 @@ Voice · Text · Story recall · Memory shared across characters
 
 Eidolon-SC lets you, as **a producer at 283 Production**, text or voice-call the idols from the game. Characters answer in their own Japanese voice with Chinese subtitles, recall the story episodes they actually lived through, and remember what you tell them — which then gets around among the other idols.
 
-It is built for the author and a small circle of friends, not as a public service. The glossary lives in [`CONTEXT.md`](CONTEXT.md), design decisions in [`docs/adr/`](docs/adr/).
+Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)). The glossary lives in [`CONTEXT.md`](CONTEXT.md), design decisions in [`docs/adr/`](docs/adr/).
 
 > [!NOTE]
 > The product itself is Chinese-first: the UI, subtitles, memories and most docs are in Chinese. Users may speak or type in Chinese or Japanese.
 
 > [!IMPORTANT]
-> This is an unofficial fan project, not affiliated with Bandai Namco or the rights holders of *THE iDOLM@STER* series. Story data and character voices are **not distributed with this repository**; you must provide them yourself, for private use only ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)).
+> This is an unofficial fan project, not affiliated with Bandai Namco or the rights holders of *THE iDOLM@STER* series. Story data is **not distributed with this repository**; you must provide it yourself ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)). The characters pass it on indirectly to signed-in users through their replies; that risk is accepted in [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md).
 
 ## ✨ Features
 
@@ -46,7 +46,8 @@ It is built for the author and a small circle of friends, not as a public servic
 | 🔌 **Bring your own model** | Speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so any compatible third-party service works too |
 | 🧩 **Pick your embedding service** | Choose SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding 2 at deploy time; after switching, one command re-embeds from the text already in the database ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)) |
 | 📝 **Character sheet drafting** | A background model reads through all of a character's episodes and drafts her character sheet for you to proofread |
-| 👥 **Multi-user with limits** | Issue access keys from the CLI; per-user rate limits and fully isolated memories make it safe to share with friends |
+| 👥 **Open to the public** | Sign in with Google or GitHub; per-user rate limits and fully isolated memories; users can link both sign-in methods and delete all their data for good |
+| 🔑 **Bring your own keys** | Users can enter their own LLM, Fish Audio and Soniox keys to use their own credits, exempt from the limits |
 | 🚀 **One-command deployment** | Production config ships with Caddy (automatic HTTPS) and coturn (TURN relay) |
 
 ## 🧭 Contents
@@ -61,7 +62,8 @@ It is built for the author and a small circle of friends, not as a public servic
   - [Embedding service](#embedding-service)
   - [Retrieval during conversation](#retrieval-during-conversation)
   - [Memory](#memory)
-  - [Users and access keys](#users-and-access-keys)
+  - [Sign-in and users](#sign-in-and-users)
+  - [Bring your own keys](#bring-your-own-keys)
 - [Deploying to a VPS](#-deploying-to-a-vps)
 - [Development](#-development)
 - [Project layout](#-project-layout)
@@ -110,19 +112,12 @@ flowchart LR
 
 ```sh
 git clone https://github.com/Sallyn0225/eidolon-sc.git && cd eidolon-sc
-cp .env.example .env   # fill in the chat model's base URL, API key and model name
+cp .env.example .env   # fill in the chat model's base URL, API key and model name; add EIDOLON_DEV_LOGIN=1 to try it locally
 # prepare character sheets, see "Characters" below
 docker compose up --build
 ```
 
-Then issue an access key:
-
-```sh
-docker compose exec backend eidolon user create alice
-docker compose exec backend eidolon key issue alice   # the key is shown only once
-```
-
-Open <http://localhost:3000>, enter the access key on the settings page, and pick a character to talk to.
+Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and pick a character to talk to. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google).
 
 > [!TIP]
 > A chat model alone is enough for text chat. Add the other services' keys as you go to unlock voice, story recall and memory:
@@ -330,18 +325,27 @@ Characters remember what users tell them about themselves, and all of a user's c
 - **Across conversations**: a new conversation picks up earlier topics only through the memories it finds, never by carrying over the previous conversation.
 - **Management**: under **Settings → Manage memories**, users see every memory the characters have kept, each labeled with who it was told to. They can delete memories one at a time or clear them all after confirmation, but can't add or edit them. Deleted memories never reach a prompt again; memories still being extracted when the user clears are discarded and won't reappear afterwards.
 
-### Users and access keys
+### Sign-in and users
 
-Admins manage users and access keys from the command line. A user can hold several keys; conversations belong to the user, so revoking a key doesn't touch their data.
+Anyone can sign in with Google or GitHub, with no invitation or approval (ADR-0006). The sign-in page offers whichever OAuth apps are configured in `.env` (`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`); how to create them is in [`docs/deploy.md`](docs/deploy.md).
+
+- The first sign-in with an identity makes a new user; later sign-ins with it are that user. GitHub accounts must be at least a year old and Google email addresses verified, or sign-in is refused with the reason.
+- After their first sign-in, users agree to the privacy policy and terms of use and confirm they are 13 or older before anything else works. Visitors who are not signed in see only the sign-in page, the privacy policy and the terms.
+- Users can link their other sign-in method on the settings page, so either one shows the same memories. Two identities with the same email are never merged automatically, an identity that belongs to someone else cannot be linked, and the last sign-in method cannot be unlinked.
+- Sessions are kept by the backend and held by the browser in an httpOnly cookie, lasting 30 days from last use. The settings page signs out this device or every device.
+- "Delete all my data" on the settings page, after a second confirmation, deletes the user's memories, conversations, producer profile, sign-in methods, own keys, sessions and usage for good, signing them out everywhere; signing in again with the same identity makes a brand-new user.
+- For local development and tests, `EIDOLON_DEV_LOGIN=1` adds a "dev login" by name to the sign-in page. A public deployment (with `EIDOLON_DOMAIN` set) refuses to start with it.
+
+Admins manage users from the command line on the server:
 
 ```sh
-docker compose exec backend eidolon user create alice      # create a user
-docker compose exec backend eidolon key issue alice        # issue a key (shown only once)
-docker compose exec backend eidolon key list alice         # list key IDs and status
-docker compose exec backend eidolon key revoke <key-id>    # revoke
+docker compose exec backend eidolon user list              # ID, name, sign-in methods, created, banned
+docker compose exec backend eidolon user ban <user-id>     # signed out everywhere, calls hung up within seconds, cannot sign in
+docker compose exec backend eidolon user unban <user-id>
+docker compose exec backend eidolon user usage <user-id>   # text turns and calls per hour over the last 24 hours, and how many were exempt
 ```
 
-So no single user drains everyone's shared API credits, the following limits apply by default (0 means unlimited):
+So no single user drains the deployer's API credits, the following limits apply by default (0 means unlimited):
 
 | Limit | Default | Environment variable |
 |---|---|---|
@@ -351,12 +355,28 @@ So no single user drains everyone's shared API credits, the following limits app
 | Turns per call | 40 | `EIDOLON_TURNS_PER_CALL` |
 | History turns sent per turn | 20 | `EIDOLON_HISTORY_TURNS` |
 
-- Limits are per user, with all of a user's keys counted together. Speech and typing during a call don't count separately; failed turns and calls that never connected don't count at all.
+- Limits are per user, whichever sign-in method or device they use. Speech and typing during a call don't count separately; failed turns and calls that never connected don't count at all.
+- Use on the user's own keys is exempt: a text turn on their own LLM doesn't count; a call counts unless its LLM, speech synthesis and speech recognition are all their own. The per-call duration and turn caps are the same for everyone.
 - Requests over the limit get a 429 with the time usage resumes, and the frontend tells the user when they can try again.
 - When a call hits its limit, the character finishes what she's saying and hangs up, and the frontend explains why.
 - The chat model only sees the most recent turns of the conversation; earlier context comes back through memory and retrieval, so long conversations don't grow slower, pricier, or overflow the context window. The conversation record itself is kept in full.
 
-For local development, use `uv run eidolon --db data/eidolon.db ...`. The default user left over from phase 01 is named `default`; issue it a key to keep accessing its existing conversations.
+For local development, use `uv run eidolon --db data/eidolon.db ...`.
+
+### Bring your own keys
+
+The deployer pays for everything by default. Users can enter their own API keys on the settings page to share the cost:
+
+| Service | What to enter | Used for |
+|---|---|---|
+| LLM | Protocol, base_url, key, model | Playing the character (text and calls), writing down memories |
+| Speech synthesis (Fish Audio) | Key | The character's voice in calls; the voice ID still comes from the character configuration |
+| Speech recognition (Soniox) | Key | Hearing the user in calls |
+
+- Each key is tried once before it is saved; if the try fails, nothing is saved and the provider's error is shown. The LLM must support streaming and tool calls too; in a public deployment its base_url must be HTTPS on the public internet.
+- Keys are stored encrypted with a key derived from `EIDOLON_SECRET_KEY`, and only their last 4 characters are ever shown. Without `EIDOLON_SECRET_KEY`, the feature is off.
+- When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. Deleting an own key switches back to the deployer's service.
+- Embedding, reranking and deciding whether to recall the story (Jev) are always on the deployer.
 
 ## 🌐 Deploying to a VPS
 
@@ -383,7 +403,7 @@ cd backend
 uv sync
 uv run pytest        # tests
 uv run pyright       # type checking
-CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon
+EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=... uv run eidolon
 # serves on :8000 and reads ../characters/characters.toml (override with EIDOLON_CHARACTERS_PATH)
 ```
 
@@ -404,6 +424,10 @@ eidolon-sc/
 ├── backend/                  # Python backend: FastAPI + Pipecat
 │   ├── src/eidolon/
 │   │   ├── engine.py         #   conversation engine: a turn in, the character's reply out
+│   │   ├── accounts.py       #   users, sign-in methods, deleting users
+│   │   ├── identity.py       #   signing in with Google and GitHub (OAuth)
+│   │   ├── sessions.py       #   session cookies and the cross-site check
+│   │   ├── own_keys.py       #   users' own API keys
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
 │   │   ├── retrieval.py      #   retrieval routing, episode/fact search and reranking
 │   │   ├── memory.py         #   memories shared across conversations and characters
@@ -453,6 +477,6 @@ The license covers only the code and documentation in this repository. Story dat
 
 ---
 
-<sub>*THE iDOLM@STER SHINY COLORS* and its characters are ©Bandai Namco Entertainment Inc. This is an unofficial fan project for private use by the author and a small circle only.</sub>
+<sub>*THE iDOLM@STER SHINY COLORS* and its characters are ©Bandai Namco Entertainment Inc. This is an unofficial fan project, not affiliated with the rights holders; the characters are played by AI.</sub>
 
 </div>
