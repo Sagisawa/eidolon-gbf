@@ -6,6 +6,10 @@ export type Character = {
   name: string;
   intro: string;
   avatar_url: string | null;
+  /** 她的印象色（#rrggbb）；界面上只经 herVars() 取用成对的颜色。 */
+  color: string;
+  /** 通话层背景图；没有时为 null。 */
+  background_url: string | null;
 };
 
 export type Conversation = {

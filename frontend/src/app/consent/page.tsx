@@ -1,12 +1,25 @@
 "use client";
 
-import Link from "next/link";
+import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { HStack } from "@astryxdesign/core/HStack";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useState } from "react";
+
+import { AppLink } from "@/components/AppLink";
 import { FailureNotice } from "@/components/FailureNotice";
+import { LegalFooter } from "@/components/LegalFooter";
+import { PageShell } from "@/components/PageShell";
+import { SubpageHeader } from "@/components/SubpageHeader";
+import { copy } from "@/i18n";
+import { interpolate } from "@/i18n/interpolate";
 import { agreeToTerms, logout } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 
-/** Asked once, the first time a user signs in: nothing else works until they agree. */
+const t = copy.consent;
+
+/** 第一次登录时问一次：同意之前，别的都用不了。 */
 export default function ConsentPage() {
   const [terms, setTerms] = useState(false);
   const [age, setAge] = useState(false);
@@ -32,35 +45,44 @@ export default function ConsentPage() {
   }
 
   return (
-    <main className="settings">
-      <header className="page-header">
-        <h1>开始之前</h1>
-      </header>
-
-      <form className="field" onSubmit={submit}>
-        <p>
-          你和角色的对话、角色记下的关于你的事，会保存在这台服务器上，并交给第三方服务处理（语言模型、语音合成与识别等）。
-          详情请看<Link href="/privacy">隐私政策</Link>和<Link href="/terms">使用条款</Link>。
-        </p>
-        <label className="check">
-          <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />
-          我已阅读并同意隐私政策和使用条款
-        </label>
-        <label className="check">
-          <input type="checkbox" checked={age} onChange={(e) => setAge(e.target.checked)} />
-          我已年满 13 岁
-        </label>
-        {failure && <FailureNotice failure={failure} />}
-        <div className="field-row">
-          <button type="submit" disabled={!terms || !age || busy}>
-            同意并开始
-          </button>
-          <button type="button" className="ghost" onClick={signOut}>
-            退出登录
-          </button>
-        </div>
-        <p className="hint">不同意的话，退出登录即可；在你同意之前，不会保存任何对话。</p>
+    <PageShell
+      contentWidth={640}
+      padding={4}
+      header={<SubpageHeader title={t.title} />}
+      footer={<LegalFooter />}
+    >
+      <form onSubmit={submit}>
+        <VStack gap={6} paddingBlock={6}>
+          <Text as="p">
+            {interpolate(t.intro, {
+              privacy: (
+                <AppLink key="privacy" href="/privacy">
+                  {copy.legal.privacy}
+                </AppLink>
+              ),
+              terms: (
+                <AppLink key="terms" href="/terms">
+                  {copy.legal.terms}
+                </AppLink>
+              ),
+            })}
+          </Text>
+          <VStack gap={3}>
+            <CheckboxInput label={t.agreeTerms} value={terms} onChange={setTerms} />
+            <CheckboxInput label={t.agreeAge} value={age} onChange={setAge} />
+          </VStack>
+          {failure && <FailureNotice failure={failure} />}
+          <VStack gap={3}>
+            <HStack gap={2} wrap="wrap">
+              <Button type="submit" variant="primary" label={t.submit} isDisabled={!terms || !age} isLoading={busy} />
+              <Button variant="ghost" label={t.signOut} onClick={signOut} />
+            </HStack>
+            <Text type="supporting" as="p">
+              {t.declineHint}
+            </Text>
+          </VStack>
+        </VStack>
       </form>
-    </main>
+    </PageShell>
   );
 }

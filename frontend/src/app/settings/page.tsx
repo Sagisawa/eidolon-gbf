@@ -1,39 +1,44 @@
 "use client";
 
-import Link from "next/link";
+import { VStack } from "@astryxdesign/core/VStack";
+
+import { AppLink } from "@/components/AppLink";
 import { CallSettings } from "@/components/CallSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
 import { OwnKeysSettings } from "@/components/OwnKeysSettings";
+import { PageShell } from "@/components/PageShell";
 import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
+import { SettingsSection } from "@/components/SettingsSection";
 import { SignInSettings } from "@/components/SignInSettings";
+import { SubpageHeader } from "@/components/SubpageHeader";
+import { copy } from "@/i18n";
 
+const t = copy.settings;
+
+/**
+ * 设置页：一栏，限宽 640（表单和文字不铺满，Astryx「Layout · Shell」），节与节之间用分隔线。
+ * 手机和电脑同一个版式，只是电脑上两侧留白。
+ */
 export default function SettingsPage() {
   return (
-    <main className="settings">
-      <header className="page-header">
-        <h1>设置</h1>
-        <Link href="/" className="ghost-link">
-          返回
-        </Link>
-      </header>
+    <PageShell contentWidth={640} padding={4} header={<SubpageHeader title={t.title} backHref="/" />}>
+      <VStack>
+        <ProducerProfileSettings />
 
-      <ProducerProfileSettings />
+        <SettingsSection title={t.memories.title} description={t.memories.hint}>
+          <AppLink href="/memories" isStandalone hasUnderline>
+            {t.memories.manage}
+          </AppLink>
+        </SettingsSection>
 
-      <div className="field">
-        <label>记忆</label>
-        <p className="hint">查看角色们记下的关于你的事，可以逐条删除或全部清空。</p>
-        <Link href="/memories" className="ghost-link">
-          管理记忆
-        </Link>
-      </div>
+        <CallSettings />
 
-      <CallSettings />
+        <OwnKeysSettings />
 
-      <OwnKeysSettings />
+        <SignInSettings />
 
-      <SignInSettings />
-
-      <DeleteAccount />
-    </main>
+        <DeleteAccount />
+      </VStack>
+    </PageShell>
   );
 }
