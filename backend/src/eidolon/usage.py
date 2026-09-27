@@ -34,8 +34,8 @@ class Use:
 
 
 class UsageLimiter:
-    """Counts each user's text turns and voice calls over the last hour, whichever of their
-    access keys they come with."""
+    """Counts each user's text turns and voice calls over the last hour, whichever device
+    or sign-in method they come with."""
 
     def __init__(self, store: Store, limits: UsageLimits, clock: Clock) -> None:
         self._store = store

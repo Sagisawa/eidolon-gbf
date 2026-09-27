@@ -5,10 +5,10 @@ export function FailureNotice({ failure }: { failure: Failure }) {
   return (
     <p className="error" role="alert">
       {failure.message}
-      {failure.needsKey && (
+      {failure.signedOut && (
         <>
           {" "}
-          <Link href="/settings">前往设置</Link>
+          <Link href="/login">去登录</Link>
         </>
       )}
     </p>

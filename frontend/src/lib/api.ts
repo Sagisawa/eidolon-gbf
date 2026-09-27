@@ -1,4 +1,3 @@
-import { loadAccessKey } from "@/lib/accessKey";
 import { detectTimezone } from "@/lib/timezone";
 
 export type Character = {
@@ -64,10 +63,17 @@ export class ApiError extends Error {
     super(message);
   }
 
-  /** The access key is missing, invalid or revoked. */
+  /** The browser is not signed in, or its session has expired. */
   get unauthorized(): boolean {
     return this.status === 401;
   }
+}
+
+/** The page a response sends the browser to before it can go on, if any: signing in
+ * when it is not signed in. */
+export function redirectFor(status: number): string | null {
+  if (status === 401) return "/login";
+  return null;
 }
 
 export async function json<T>(res: Response): Promise<T> {
@@ -99,19 +105,36 @@ function describe(detail: unknown): string | undefined {
   return typeof first === "string" ? first.replace(/^Value error, /, "") : undefined;
 }
 
-/** The headers every backend request carries: the access key saved on the settings
- * page, and the time zone this browser reports. */
+/** The headers every backend request carries besides the session cookie: the time zone
+ * this browser reports. */
 export function apiHeaders(init?: HeadersInit): Headers {
   const headers = new Headers(init);
-  const key = loadAccessKey();
-  if (key) headers.set("authorization", `Bearer ${key}`);
   headers.set("x-timezone", detectTimezone());
   return headers;
 }
 
-/** fetch() for the backend API. */
-function api(path: string, init: RequestInit = {}): Promise<Response> {
-  return fetch(path, { ...init, headers: apiHeaders(init.headers) });
+/** fetch() for the backend API; sends the browser on when it has to sign in first. */
+async function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
+  const to = redirectFor(res.status);
+  if (to && window.location.pathname !== to) window.location.assign(to);
+  return res;
+}
+
+/** Sign in as the user with this name (development only). */
+export async function devLogin(name: string): Promise<void> {
+  await expectNoContent(
+    await fetch("/api/auth/dev-login", {
+      method: "POST",
+      headers: apiHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ name }),
+    }),
+  );
+}
+
+/** Sign this browser out. */
+export async function logout(): Promise<void> {
+  await expectNoContent(await fetch("/api/auth/logout", { method: "POST" }));
 }
 
 export async function getProfile(): Promise<ProducerProfile> {

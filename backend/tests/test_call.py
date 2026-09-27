@@ -17,7 +17,7 @@ from eidolon.assembly import build
 from eidolon.config import Settings, UsageLimits
 from eidolon.store import Store
 from tests.browser import TIMEOUT, Browser, open_browser, until_gone
-from tests.conftest import ClientFactory, IssuedKey
+from tests.conftest import ClientFactory, sign_in
 from tests.fakes import (
     FakeBackgroundLLM,
     FakeEmbedder,
@@ -219,7 +219,7 @@ async def test_a_call_hung_up_by_the_user_counts(
 
 
 async def test_shutting_down_hangs_up_calls_and_drops_the_reply_in_progress(
-    settings: Settings, producer_key: IssuedKey, speech: FakeSpeech, browser: Browser
+    settings: Settings, speech: FakeSpeech, browser: Browser
 ):
     slow = FakeLLM(["<ja>ほわっ</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"], delay=60)
     backend = build(settings, chat_llm=slow, background_llm=FakeBackgroundLLM(), speech=speech)
@@ -227,7 +227,7 @@ async def test_shutting_down_hangs_up_calls_and_drops_the_reply_in_progress(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(backend)),
             base_url="http://test",
-            headers={"Authorization": f"Bearer {producer_key.secret}"},
+            cookies=sign_in(backend.store, "producer", backend.clock()),
         ) as client:
             conversation_id = await start_conversation(client)
             await browser.call(client, conversation_id=conversation_id)

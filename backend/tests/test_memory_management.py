@@ -5,13 +5,12 @@ clearing do to later turns is tested on the memories module (test_memories)."""
 
 import httpx
 
-from tests.conftest import ClientFactory, IssuedKey
+from tests.conftest import ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 from tests.test_shared_memory import (
     CAT,
     REPLY,
     TRIP,
-    friend_key,  # noqa: F401 (fixture)
     memorized,
     turn,
 )
@@ -66,10 +65,10 @@ async def test_deleting_a_memory_that_is_gone_is_not_found(make_client: ClientFa
 
 
 async def test_users_see_and_touch_only_their_own_memories(
-    make_client: ClientFactory, producer_key: IssuedKey, friend_key: IssuedKey  # noqa: F811
+    make_client: ClientFactory,
 ):
-    producer = memory_client(make_client, FakeLLM(REPLY), CAT, key=producer_key.secret)
-    friend = memory_client(make_client, FakeLLM(REPLY), "制作人喜欢狗", key=friend_key.secret)
+    producer = memory_client(make_client, FakeLLM(REPLY), CAT)
+    friend = memory_client(make_client, FakeLLM(REPLY), "制作人喜欢狗", user="friend")
     await turn(producer, await start_conversation(producer, "mano"), "我家的猫叫小白")
     await turn(friend, await start_conversation(friend, "mano"), "我喜欢狗")
     [cat] = await memories(producer)
@@ -82,8 +81,8 @@ async def test_users_see_and_touch_only_their_own_memories(
     assert [m["text"] for m in await memories(producer)] == [CAT]
 
 
-async def test_the_memories_api_needs_an_access_key(make_client: ClientFactory):
-    client = make_client(FakeLLM(), key=None)
+async def test_the_memories_api_needs_a_session(make_client: ClientFactory):
+    client = make_client(FakeLLM(), user=None)
 
     for method, path in [("GET", "/api/memories"), ("DELETE", "/api/memories"),
                          ("DELETE", "/api/memories/1")]:

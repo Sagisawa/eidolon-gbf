@@ -1,11 +1,8 @@
-"""The `eidolon` command: runs the server, and lets the admin manage users and access keys.
+"""The `eidolon` command: runs the server, and lets the admin manage users.
 
     eidolon                          run the server (same as `eidolon serve`)
     eidolon user create <name>       create a user
     eidolon user list
-    eidolon key issue <user>         issue an access key; the key is shown only once
-    eidolon key list <user>
-    eidolon key revoke <key-id>
     eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
@@ -39,7 +36,7 @@ from eidolon.config import (
     mirror_cache_path_from_env,
     story_path_from_env,
 )
-from eidolon.store import DuplicateName, NotFound, Store
+from eidolon.store import NotFound, Store
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -61,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = Store(args.db or database_path_from_env())
     try:
         args.run(store, args)
-    except (NotFound, DuplicateName) as e:
+    except NotFound as e:
         print(e, file=sys.stderr)
         return 1
     finally:
@@ -411,26 +408,6 @@ def _list_users(store: Store, _: argparse.Namespace) -> None:
         print(f"{user.name}\t创建于 {user.created_at}")
 
 
-def _issue_key(store: Store, args: argparse.Namespace) -> None:
-    user = store.get_user_by_name(args.user)
-    key, secret = store.issue_key(user.id)
-    print(f"已为用户 {user.name} 签发访问密钥 {key.id}：")
-    print(secret)
-    print("密钥只显示这一次，请直接交给用户保存。")
-
-
-def _list_keys(store: Store, args: argparse.Namespace) -> None:
-    user = store.get_user_by_name(args.user)
-    for key in store.list_keys(user.id):
-        state = f"已吊销于 {key.revoked_at}" if key.revoked_at else "有效"
-        print(f"{key.id}\t签发于 {key.created_at}\t{state}")
-
-
-def _revoke_key(store: Store, args: argparse.Namespace) -> None:
-    store.revoke_key(args.key_id)
-    print(f"已吊销访问密钥 {args.key_id}")
-
-
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="eidolon", description="Eidolon-SC 后端")
     parser.add_argument(
@@ -446,19 +423,6 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("name")
     create.set_defaults(run=_create_user)
     user.add_parser("list", help="列出用户").set_defaults(run=_list_users)
-
-    key = commands.add_parser("key", help="管理访问密钥").add_subparsers(
-        dest="action", required=True, metavar="操作"
-    )
-    issue = key.add_parser("issue", help="为用户签发访问密钥")
-    issue.add_argument("user")
-    issue.set_defaults(run=_issue_key)
-    listing = key.add_parser("list", help="列出用户的访问密钥")
-    listing.add_argument("user")
-    listing.set_defaults(run=_list_keys)
-    revoke = key.add_parser("revoke", help="吊销访问密钥")
-    revoke.add_argument("key_id")
-    revoke.set_defaults(run=_revoke_key)
 
     story = commands.add_parser("story", help="管理剧情库").add_subparsers(
         dest="action", required=True, metavar="操作"

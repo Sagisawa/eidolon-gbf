@@ -124,10 +124,25 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
+    domain: str | None = None
+    """The public deployment's domain (behind Caddy); None in development."""
+    dev_login: bool = False
+    """Lets anyone sign in as any user by name, for development and tests only."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
             object.__setattr__(self, "background_llm", self.chat_llm)
+        if self.dev_login and self.domain:
+            raise RuntimeError(
+                "EIDOLON_DEV_LOGIN=1 让任何人都能不经登录冒充任何用户，只能在开发环境打开；"
+                "配置了 EIDOLON_DOMAIN 的公开部署不会启动，请去掉 EIDOLON_DEV_LOGIN"
+            )
+
+    @property
+    def public_origin(self) -> str:
+        """Where browsers reach the site: the domain over HTTPS, or the frontend's
+        development server."""
+        return f"https://{self.domain}" if self.domain else "http://localhost:3000"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -146,6 +161,8 @@ class Settings:
             jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
+            domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
+            dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
         )
 
 
@@ -341,8 +358,8 @@ time limit (`EIDOLON_CALL_MINUTES=0`)."""
 @dataclass(frozen=True)
 class UsageLimits:
     """How many text turns and voice calls each user may start in any hour, counted
-    across all their access keys, and how long and how many turns one call may last;
-    None is no limit."""
+    across all their devices and sign-in methods, and how long and how many turns one
+    call may last; None is no limit."""
 
     turns_per_hour: int | None = DEFAULT_TURNS_PER_HOUR
     calls_per_hour: int | None = DEFAULT_CALLS_PER_HOUR

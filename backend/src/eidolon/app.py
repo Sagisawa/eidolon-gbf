@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -23,10 +23,14 @@ from eidolon.call import (
 )
 from eidolon.engine import TurnFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.store import Conversation, KeyRevoked, Store
-from eidolon.usage import OverLimit, Use
-
-_INVALID_KEY = "访问密钥无效，请在设置页检查"
+from eidolon.sessions import (
+    SESSION_COOKIE,
+    clear_session_cookie,
+    session_middleware,
+    set_session_cookie,
+)
+from eidolon.store import Conversation, User
+from eidolon.usage import OverLimit
 
 
 class NewConversation(BaseModel):
@@ -92,23 +96,29 @@ class IceCandidates(BaseModel):
     candidates: list[IceCandidateInput]
 
 
-def current_user(
-    request: Request, authorization: Annotated[str | None, Header()] = None
-) -> str:
-    """Resolve the request's access key (`Authorization: Bearer <key>`) to its user."""
-    if not authorization:
-        raise _unauthorized("请先在设置页填入访问密钥")
-    scheme, _, secret = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not secret.strip():
-        raise _unauthorized(_INVALID_KEY)
-    store: Store = request.app.state.store
-    try:
-        user_id = store.user_for_key(secret.strip())
-    except KeyRevoked:
-        raise _unauthorized("这把访问密钥已被吊销，请向管理员索取新的密钥") from None
-    if user_id is None:
-        raise _unauthorized(_INVALID_KEY)
-    return user_id
+class DevLogin(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+def signed_in_user(request: Request) -> User:
+    """The user whose session the request's cookie carries; renews the session (and,
+    through the session middleware, the cookie) now and then."""
+    backend: Backend = request.app.state.backend
+    token = request.cookies.get(SESSION_COOKIE)
+    session = backend.store.use_session(token, backend.clock()) if token else None
+    if session is None:
+        raise HTTPException(401, "请先登录")
+    if session.renewed:
+        request.state.renewed_session = token
+    return session.user
+
+
+SignedIn = Annotated[User, Depends(signed_in_user)]
+
+
+def current_user(user: SignedIn) -> str:
+    """The signed-in user's id."""
+    return user.id
 
 
 UserId = Annotated[str, Depends(current_user)]
@@ -121,6 +131,7 @@ def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
     memory, usage, calls = backend.memories, backend.usage, backend.calls
+    settings, clock = backend.settings, backend.clock
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -128,7 +139,8 @@ def create_app(backend: Backend) -> FastAPI:
         await backend.aclose()
 
     app = FastAPI(title="Eidolon-SC", lifespan=lifespan)
-    app.state.store = store
+    app.state.backend = backend
+    app.middleware("http")(session_middleware(settings))
 
     @app.exception_handler(OverLimit)
     async def over_limit(_: Request, e: OverLimit) -> JSONResponse:
@@ -163,6 +175,21 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True}
+
+    @app.post("/api/auth/logout", status_code=204)
+    def logout(request: Request, response: Response) -> None:
+        """Sign this browser out; its session ends even if it has already expired."""
+        if token := request.cookies.get(SESSION_COOKIE):
+            store.end_session(token)
+        clear_session_cookie(response, settings)
+
+    if settings.dev_login:
+
+        @app.post("/api/auth/dev-login", status_code=204)
+        def dev_login(body: DevLogin, response: Response) -> None:
+            """Sign in as the user with this name, made if there is none (development only)."""
+            user = store.first_user_named(body.name) or store.create_user(body.name)
+            set_session_cookie(response, store.create_session(user.id, clock()), settings)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
@@ -288,10 +315,6 @@ def create_app(backend: Backend) -> FastAPI:
         )
 
     return app
-
-
-def _unauthorized(detail: str) -> HTTPException:
-    return HTTPException(401, detail, headers={"WWW-Authenticate": "Bearer"})
 
 
 def _sse(payload: dict) -> str:

@@ -1,4 +1,4 @@
-"""Relational storage (SQLite) for users, access keys, producer profiles, conversations
+"""Relational storage (SQLite) for users, their sessions, producer profiles, conversations
 and their messages, and each user's recent usage; memories are kept by `memory`."""
 
 import hashlib
@@ -20,18 +20,22 @@ Role = Literal["user", "character"]
 UsageKind = Literal["turn", "call"]
 
 _SCHEMA = """
+-- `name` only tells users apart on the admin command line; it need not be unique.
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS access_keys (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    secret_hash TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    revoked_at TEXT
+    consented_at TEXT,
+    banned_at TEXT
 );
+-- Only a hash of each session's token is kept; the times are epoch seconds.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    last_active_at REAL NOT NULL,
+    expires_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);
 CREATE TABLE IF NOT EXISTS producer_profiles (
     user_id TEXT PRIMARY KEY REFERENCES users(id),
     form_of_address TEXT,
@@ -67,25 +71,30 @@ CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
 """
 
 
+SESSION_LIFETIME = timedelta(days=30)
+"""How long a session lasts after it was last used."""
+SESSION_RENEWAL = timedelta(hours=1)
+"""How long after its last renewal a session in use is renewed again, rather than on
+every request."""
+
+
 @dataclass(frozen=True)
 class User:
     id: str
     name: str
     created_at: str
+    consented_at: str | None = None
+    """When they agreed to the privacy policy and terms of use; None until they do."""
+    banned_at: str | None = None
 
 
 @dataclass(frozen=True)
-class AccessKey:
-    """A key as the admin sees it: its id and state, never the secret itself."""
+class Session:
+    """A signed-in browser's session. `renewed` says this use renewed it, so the browser's
+    cookie should be renewed too."""
 
-    id: str
-    user_id: str
-    created_at: str
-    revoked_at: str | None
-
-
-class KeyRevoked(Exception):
-    pass
+    user: User
+    renewed: bool
 
 
 class LimitReached(Exception):
@@ -97,10 +106,6 @@ class LimitReached(Exception):
 
 
 class NotFound(LookupError):
-    pass
-
-
-class DuplicateName(ValueError):
     pass
 
 
@@ -134,6 +139,9 @@ class Store:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
+        # Readers need not wait for a writer: the store, memory and the corpus each have a
+        # connection to this database.
+        self._db.execute("PRAGMA journal_mode = WAL")
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.execute("PRAGMA foreign_keys = ON")
@@ -146,81 +154,98 @@ class Store:
             # Before access keys, users had no name; the one default user keeps its id as name.
             self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
             self._db.execute("UPDATE users SET name = id")
-        self._db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_by_name ON users(name)")
+        for column in ("consented_at", "banned_at"):
+            if column not in columns:
+                self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+        # Access keys are gone (ADR-0006), and with them unique names.
+        self._db.execute("DROP INDEX IF EXISTS users_by_name")
+        self._db.execute("DROP TABLE IF EXISTS access_keys")
 
     def create_user(self, name: str) -> User:
         user = User(uuid.uuid4().hex, name, _now())
-        try:
-            with self._lock, self._db:
-                self._db.execute(
-                    "INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)",
-                    (user.id, user.name, user.created_at),
-                )
-        except sqlite3.IntegrityError:
-            raise DuplicateName(f"用户 {name} 已存在") from None
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO users (id, name, created_at) VALUES (?, ?, ?)",
+                (user.id, user.name, user.created_at),
+            )
         return user
 
     def list_users(self) -> list[User]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, name, created_at FROM users ORDER BY created_at, rowid"
+                f"SELECT {_USER_COLUMNS} FROM users ORDER BY created_at, rowid"
             ).fetchall()
         return [User(**row) for row in rows]
 
-    def get_user_by_name(self, name: str) -> User:
+    def get_user(self, user_id: str) -> User:
         with self._lock:
             row = self._db.execute(
-                "SELECT id, name, created_at FROM users WHERE name = ?", (name,)
+                f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (user_id,)
             ).fetchone()
         if row is None:
-            raise NotFound(f"用户 {name} 不存在")
+            raise NotFound(f"用户 {user_id} 不存在")
         return User(**row)
 
-    def issue_key(self, user_id: str) -> tuple[AccessKey, str]:
-        """Issue a new key for the user; returns it with its secret, which is not stored."""
-        key = AccessKey(secrets.token_hex(4), user_id, _now(), None)
-        secret = f"esc_{secrets.token_urlsafe(24)}"
-        with self._lock, self._db:
-            self._db.execute(
-                "INSERT INTO access_keys (id, user_id, secret_hash, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (key.id, user_id, _hash(secret), key.created_at),
-            )
-        return key, secret
-
-    def revoke_key(self, key_id: str) -> None:
-        with self._lock, self._db:
-            cursor = self._db.execute(
-                "UPDATE access_keys SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?",
-                (_now(), key_id),
-            )
-        if cursor.rowcount == 0:
-            raise NotFound(f"访问密钥 {key_id} 不存在")
-
-    def list_keys(self, user_id: str) -> list[AccessKey]:
-        with self._lock:
-            rows = self._db.execute(
-                "SELECT id, user_id, created_at, revoked_at FROM access_keys"
-                " WHERE user_id = ? ORDER BY created_at, rowid",
-                (user_id,),
-            ).fetchall()
-        return [AccessKey(**row) for row in rows]
-
-    def user_for_key(self, secret: str) -> str | None:
-        """The id of the user holding this key; None for an unknown key.
-
-        Raises KeyRevoked for a key that has been revoked.
-        """
+    def first_user_named(self, name: str) -> User | None:
+        """The earliest user with this name, if any; names are not unique."""
         with self._lock:
             row = self._db.execute(
-                "SELECT user_id, revoked_at FROM access_keys WHERE secret_hash = ?",
-                (_hash(secret),),
+                f"SELECT {_USER_COLUMNS} FROM users WHERE name = ? ORDER BY created_at, rowid",
+                (name,),
             ).fetchone()
-        if row is None:
-            return None
-        if row["revoked_at"] is not None:
-            raise KeyRevoked
-        return row["user_id"]
+        return User(**row) if row else None
+
+    def consent(self, user_id: str, now: datetime) -> None:
+        """Record that the user agreed to the privacy policy and terms of use."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE users SET consented_at = ? WHERE id = ?", (now.isoformat(), user_id)
+            )
+
+    def create_session(self, user_id: str, now: datetime) -> str:
+        """Start a session for the user; returns its token, which is not stored."""
+        token = secrets.token_urlsafe(32)
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO sessions (token_hash, user_id, last_active_at, expires_at)"
+                " VALUES (?, ?, ?, ?)",
+                (_hash(token), user_id, now.timestamp(), (now + SESSION_LIFETIME).timestamp()),
+            )
+        return token
+
+    def use_session(self, token: str, now: datetime) -> Session | None:
+        """The session with this token, renewed for another `SESSION_LIFETIME` if it has
+        not been for a while; None if there is none or it has expired."""
+        token_hash = _hash(token)
+        with self._lock, self._db:
+            row = self._db.execute(
+                "SELECT user_id, last_active_at, expires_at FROM sessions WHERE token_hash = ?",
+                (token_hash,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["expires_at"] <= now.timestamp():
+                self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+                return None
+            renewed = now.timestamp() - row["last_active_at"] >= SESSION_RENEWAL.total_seconds()
+            if renewed:
+                self._db.execute(
+                    "UPDATE sessions SET last_active_at = ?, expires_at = ? WHERE token_hash = ?",
+                    (now.timestamp(), (now + SESSION_LIFETIME).timestamp(), token_hash),
+                )
+            user = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users WHERE id = ?", (row["user_id"],)
+            ).fetchone()
+        return Session(User(**user), renewed)
+
+    def end_session(self, token: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (_hash(token),))
+
+    def end_sessions(self, user_id: str) -> None:
+        """Sign the user out everywhere."""
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
 
     def get_profile(self, user_id: str) -> ProducerProfile:
         """The user's producer profile; all defaults until they save one."""
@@ -350,6 +375,9 @@ class Store:
         )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
+
+
+_USER_COLUMNS = "id, name, created_at, consented_at, banned_at"
 
 
 def _hash(secret: str) -> str:
