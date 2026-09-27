@@ -1,5 +1,5 @@
 """Relational storage (SQLite) for users, their sessions, producer profiles, conversations
-and their messages, and each user's recent usage; memories are kept by `memory`."""
+and their messages; memories are kept by `memory`, recent usage by `usage`."""
 
 import hashlib
 import json
@@ -16,8 +16,6 @@ from eidolon.producer import ProducerProfile
 from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
-
-UsageKind = Literal["turn", "call"]
 
 _SCHEMA = """
 -- `name` only tells users apart on the admin command line; it need not be unique.
@@ -83,21 +81,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
--- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
--- A use on the user's own keys alone is `exempt`: recorded, but not limited.
-CREATE TABLE IF NOT EXISTS usage (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL REFERENCES users(id),
-    kind TEXT NOT NULL,
-    at REAL NOT NULL,
-    exempt INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
 """
-
-
-USAGE_KEPT = timedelta(hours=24)
-"""How long each use is kept: an hour for the limits, a day for the admin to look over."""
 
 SESSION_LIFETIME = timedelta(days=30)
 """How long a session lasts after it was last used."""
@@ -157,14 +141,6 @@ class LastSignInMethod(Exception):
     """Removing it would leave the user no way to sign in."""
 
 
-class LimitReached(Exception):
-    """The user has no uses left in the window; the next is allowed at `retry_at`."""
-
-    def __init__(self, retry_at: datetime) -> None:
-        super().__init__(f"limit reached until {retry_at.isoformat()}")
-        self.retry_at = retry_at
-
-
 class NotFound(LookupError):
     pass
 
@@ -219,9 +195,6 @@ class Store:
         for column in ("consented_at", "banned_at"):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
-        usage_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(usage)")}
-        if "exempt" not in usage_columns:
-            self._db.execute("ALTER TABLE usage ADD COLUMN exempt INTEGER NOT NULL DEFAULT 0")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -284,16 +257,6 @@ class Store:
                     list(user_ids),
                 )
             } if user_ids else set()
-
-    def usage_since(self, user_id: str, since: datetime) -> list[tuple[UsageKind, datetime, bool]]:
-        """The user's uses since `since`, oldest first: what, when, and whether exempt."""
-        with self._lock:
-            rows = self._db.execute(
-                "SELECT kind, at, exempt FROM usage WHERE user_id = ? AND at >= ? ORDER BY at",
-                (user_id, since.timestamp()),
-            ).fetchall()
-        return [(row["kind"], datetime.fromtimestamp(row["at"], UTC), bool(row["exempt"]))
-                for row in rows]
 
     def consent(self, user_id: str, now: datetime) -> None:
         """Record that the user agreed to the privacy policy and terms of use."""
@@ -410,7 +373,7 @@ class Store:
                 for row in self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
             }
             for table, where in _USER_DATA:
-                if table in tables:  # memory's tables exist once memory has opened them
+                if table in tables:  # memory's and usage's exist once they have opened them
                     self._db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
         with self._lock:  # the write-ahead log still holds the pages as they were
             self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -529,48 +492,6 @@ class Store:
             )
             for row in rows
         ]
-
-    def take_usage(
-        self,
-        user_id: str,
-        kind: UsageKind,
-        now: datetime,
-        window: timedelta,
-        limit: int | None,
-        exempt: bool = False,
-    ) -> int:
-        """Record one use of `kind` by the user at `now` and return its id, unless it
-        counts (is not `exempt`) and they already have `limit` counting uses in the
-        `window` before it: then record nothing and raise LimitReached with when enough
-        of those will have aged out. Uses older than `USAGE_KEPT` are forgotten."""
-        with self._lock, self._db:
-            self._db.execute(
-                "DELETE FROM usage WHERE user_id = ? AND at <= ?",
-                (user_id, (now - USAGE_KEPT).timestamp()),
-            )
-            if limit is not None and not exempt:
-                recent = [
-                    row["at"]
-                    for row in self._db.execute(
-                        "SELECT at FROM usage WHERE user_id = ? AND kind = ? AND NOT exempt"
-                        " AND at > ? ORDER BY at",
-                        (user_id, kind, (now - window).timestamp()),
-                    )
-                ]
-                if len(recent) >= limit:
-                    blocking = recent[len(recent) - limit]  # this one must age out first
-                    raise LimitReached(datetime.fromtimestamp(blocking, UTC) + window)
-            cursor = self._db.execute(
-                "INSERT INTO usage (user_id, kind, at, exempt) VALUES (?, ?, ?, ?)",
-                (user_id, kind, now.timestamp(), int(exempt)),
-            )
-        assert cursor.lastrowid is not None
-        return cursor.lastrowid
-
-    def give_back_usage(self, use_id: int) -> None:
-        """Forget a use, as if it had never been taken."""
-        with self._lock, self._db:
-            self._db.execute("DELETE FROM usage WHERE id = ?", (use_id,))
 
     def close(self) -> None:
         self._db.close()

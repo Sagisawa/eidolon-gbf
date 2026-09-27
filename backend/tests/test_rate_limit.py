@@ -13,7 +13,7 @@ from eidolon.engine import MAX_INPUT_LENGTH
 from tests.conftest import Admin, ClientFactory
 from tests.browser import open_browser
 from tests.fakes import START, FakeClock, FakeLLM, FakeSpeech
-from tests.test_text_turn import send_turn, start_conversation
+from tests.test_text_turn import leave_turn, send_turn, start_conversation
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 
@@ -146,6 +146,21 @@ async def test_a_turn_that_fails_or_is_rejected_gives_its_use_back(
 
     llm._replies.append(list(REPLY))
     assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "done"
+
+
+async def test_a_turn_left_before_the_reply_is_done_leaves_no_record_but_counts(
+    make_client: ClientFactory, settings: Settings
+):
+    llm = FakeLLM(["<ja>はい", "っ</ja>", "<zh>好", "的</zh>"], delay=0.2)
+    client = make_client(llm, settings=limited(settings, turns=1), clock=FakeClock())
+    conversation_id = await start_conversation(client)
+
+    events = await leave_turn(client, conversation_id, "在吗", after="user")
+
+    assert {"done", "error"}.isdisjoint(e["type"] for e in events)  # left mid-reply
+    messages = await client.get(f"/api/conversations/{conversation_id}/messages")
+    assert messages.json() == []
+    assert (await post_turn(client, conversation_id)).status_code == 429
 
 
 async def test_a_call_that_cannot_be_set_up_gives_its_use_back(

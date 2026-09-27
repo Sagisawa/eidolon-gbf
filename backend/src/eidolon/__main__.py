@@ -30,13 +30,14 @@ import asyncio
 import logging
 import os
 import sys
-from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+from eidolon.clock import utc_now
 from eidolon.config import (
     Settings,
+    UsageLimits,
     characters_path_from_env,
     database_path_from_env,
     event_names_path_from_env,
@@ -44,7 +45,8 @@ from eidolon.config import (
     story_path_from_env,
 )
 from eidolon.identity import PROVIDER_LABELS
-from eidolon.store import USAGE_KEPT, NotFound, Store
+from eidolon.store import NotFound, Store
+from eidolon.usage import Tally, UsageLimiter
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -428,26 +430,21 @@ def _unban_user(store: Store, args: argparse.Namespace) -> None:
 
 def _user_usage(store: Store, args: argparse.Namespace) -> None:
     store.get_user(args.user_id)  # NotFound for no such user
-    now = datetime.now(UTC)
-    uses = store.usage_since(args.user_id, now - USAGE_KEPT)
-    by_hour: Counter[tuple[datetime, str, bool]] = Counter(
-        (at.replace(minute=0, second=0, microsecond=0), kind, exempt) for kind, at, exempt in uses
-    )
-    hours = sorted({hour for hour, _, _ in by_hour})
+    # The limits play no part in looking over what was used.
+    usage = UsageLimiter(args.db or database_path_from_env(), UsageLimits(), utc_now)
+    try:
+        day = usage.last_day(args.user_id)
+    finally:
+        usage.close()
     print(f"用户 {args.user_id} 最近 24 小时的用量（UTC，按小时）：")
     print("时间\t文字回合\t通话\t其中不计入限额的回合\t其中不计入限额的通话")
-    for hour in hours:
-        turns = by_hour[hour, "turn", False] + by_hour[hour, "turn", True]
-        calls = by_hour[hour, "call", False] + by_hour[hour, "call", True]
-        print(
-            f"{hour:%Y-%m-%d %H:00}\t{turns}\t{calls}"
-            f"\t{by_hour[hour, 'turn', True]}\t{by_hour[hour, 'call', True]}"
-        )
-    turns = sum(1 for kind, _, _ in uses if kind == "turn")
-    calls = sum(1 for kind, _, _ in uses if kind == "call")
-    exempt_turns = sum(1 for kind, _, exempt in uses if kind == "turn" and exempt)
-    exempt_calls = sum(1 for kind, _, exempt in uses if kind == "call" and exempt)
-    print(f"合计\t{turns}\t{calls}\t{exempt_turns}\t{exempt_calls}")
+    for hour, tally in day.hours.items():
+        print(f"{hour:%Y-%m-%d %H:00}\t{_tally_columns(tally)}")
+    print(f"合计\t{_tally_columns(day.total)}")
+
+
+def _tally_columns(tally: Tally) -> str:
+    return f"{tally.turns}\t{tally.calls}\t{tally.exempt_turns}\t{tally.exempt_calls}"
 
 
 def _parser() -> argparse.ArgumentParser:
