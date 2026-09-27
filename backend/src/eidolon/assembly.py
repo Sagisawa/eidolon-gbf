@@ -176,7 +176,8 @@ def build(
     engine = ConversationEngine(
         store, characters, memories, clock, retrieval, settings.history_turns
     )
-    usage = UsageLimiter(store, settings.usage_limits, clock)
+    usage = UsageLimiter(settings.database_path, settings.usage_limits, clock)
+    closers.append(usage.close)
     speech = speech or SonioxFishSpeech(settings.fish_audio_model)
     deployer = DeployerKeys(
         chat_llm, background_llm, settings.soniox_api_key, settings.fish_audio_api_key

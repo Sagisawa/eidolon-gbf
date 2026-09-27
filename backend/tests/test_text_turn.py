@@ -1,5 +1,6 @@
 """Text conversation turns, driven through the backend's external API."""
 
+import asyncio
 import json
 
 import httpx
@@ -25,6 +26,58 @@ async def send_turn(client: httpx.AsyncClient, conversation_id: str, text: str) 
         async for line in res.aiter_lines():
             if line.startswith("data: "):
                 events.append(json.loads(line.removeprefix("data: ")))
+    return events
+
+
+async def leave_turn(
+    client: httpx.AsyncClient, conversation_id: str, text: str, *, after: str
+) -> list[dict]:
+    """Send a text turn and leave, closing the page, as soon as an event of type `after`
+    arrives; the events that came by then.
+
+    Closing `client.stream(...)` early never reaches the app: httpx's ASGITransport runs
+    the app to the end first. So this drives the app as uvicorn does, on ASGI spec 2.3,
+    where the streaming response listens for `http.disconnect` and cancels the stream."""
+    request = client.build_request(
+        "POST", f"/api/conversations/{conversation_id}/turns", json={"text": text}
+    )
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": request.method,
+        "scheme": "http",
+        "path": request.url.path,
+        "raw_path": request.url.raw_path,
+        "query_string": b"",
+        "headers": [(name.lower(), value) for name, value in request.headers.raw],
+        "server": ("test", 80),
+        "client": ("127.0.0.1", 50000),
+        "root_path": "",
+    }
+    events: list[dict] = []
+    left = asyncio.Event()
+    sent = False
+
+    async def receive() -> dict:
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": request.content, "more_body": False}
+        await left.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict) -> None:
+        if message["type"] == "http.response.start":
+            assert message["status"] == 200
+        for line in message.get("body", b"").decode().splitlines():
+            if line.startswith("data: "):
+                events.append(json.loads(line.removeprefix("data: ")))
+                if events[-1]["type"] == after:
+                    left.set()
+
+    app = client._transport.app  # pyright: ignore[reportAttributeAccessIssue]
+    await asyncio.wait_for(app(scope, receive, send), timeout=5)
     return events
 
 
