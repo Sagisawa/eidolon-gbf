@@ -17,7 +17,7 @@ text turn and lands in the same conversation record.
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from typing import Literal, Protocol
@@ -52,7 +52,7 @@ from pipecat.processors.frameworks.rtvi.models import ServerMessage
 from pipecat.services.fish.tts import FishAudioTTSService
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.stt_service import STTService
-from pipecat.services.tts_service import TTSService
+from pipecat.services.tts_service import InterruptibleTTSService, TTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
@@ -182,6 +182,70 @@ class Speech(Protocol):
         ...
 
 
+class InterruptsFirst(InterruptibleTTSService):
+    """A websocket TTS whose voice stops as soon as it is interrupted.
+
+    Interrupted while the character speaks, the service reconnects, dropping what it has
+    yet to send of the old reply. Pipecat reconnects before passing the interruption on,
+    which held up the speaker's stop, and the server messages behind it, for the second
+    or so Fish Audio takes; here the interruption is passed on at once and the
+    reconnection goes on behind it, with the next reply waiting for it. Mixed in ahead
+    of the service: `class FishTTS(InterruptsFirst, FishAudioTTSService)`."""
+
+    _reconnecting: asyncio.Task | None = None
+
+    async def _handle_interruption(self, frame: InterruptionFrame, direction: FrameDirection):
+        reconnect = self._bot_speaking or self._tts_started
+        self._tts_started = False
+        # What InterruptibleTTSService does but for reconnecting, which follows.
+        await super(InterruptibleTTSService, self)._handle_interruption(frame, direction)
+        if reconnect:
+            self._reconnecting = self.create_task(self._reconnect(self._reconnecting))
+
+    async def _reconnect(self, previous: asyncio.Task | None) -> None:
+        if previous is not None:
+            await asyncio.wait([previous])  # however it ended
+        await self._disconnect()
+        await self._connect()
+
+    async def _reconnected(self) -> None:
+        """Wait until any reconnection is over. Waiting is cut short by the next
+        interruption, which must not cut the reconnection short with it; a reconnection
+        that failed leaves the service disconnected, to connect when it next speaks."""
+        reconnecting = self._reconnecting
+        if reconnecting is not None:
+            await asyncio.wait([reconnecting])
+            if self._reconnecting is reconnecting:  # not reconnecting again since
+                self._reconnecting = None
+
+    async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
+        await self._reconnected()
+        # Mixed in ahead of the service, which implements it.
+        async for frame in super().run_tts(text, context_id):  # pyright: ignore[reportAbstractUsage]
+            yield frame
+
+    async def flush_audio(self, context_id: str | None = None) -> None:
+        await self._reconnected()
+        await super().flush_audio(context_id)
+
+    async def stop(self, frame: EndFrame) -> None:
+        await self._stop_reconnecting()
+        await super().stop(frame)
+
+    async def cancel(self, frame: CancelFrame) -> None:
+        await self._stop_reconnecting()
+        await super().cancel(frame)
+
+    async def _stop_reconnecting(self) -> None:
+        if self._reconnecting is not None:
+            await self.cancel_task(self._reconnecting)
+            self._reconnecting = None
+
+
+class FishTTS(InterruptsFirst, FishAudioTTSService):
+    """Fish Audio, speaking as the character."""
+
+
 @dataclass(frozen=True)
 class SonioxFishSpeech:
     """Soniox hears the user; Fish Audio speaks as the character."""
@@ -201,7 +265,7 @@ class SonioxFishSpeech:
         )
 
     def tts(self, api_key: str, voice_id: str, sample_rate: int) -> TTSService:
-        return FishAudioTTSService(
+        return FishTTS(
             api_key=api_key,
             sample_rate=sample_rate,
             settings=FishAudioTTSService.Settings(voice=voice_id, model=self.fish_model),
