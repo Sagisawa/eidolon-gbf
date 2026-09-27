@@ -219,4 +219,21 @@ describe("conversationLog", () => {
     expect(log.entries.slice(2).map((e) => e.kind)).toEqual(["user", "character"]);
     expect(log.entries[3]).toMatchObject({ segments: [{ ja: "に", zh: "（に）" }], pending: false });
   });
+
+  it("shows only what `done` carries of a reply the user interrupted halfway", () => {
+    const log = play(
+      [
+        { type: "user", text: "一" },
+        delta(0, "ja", "いち"),
+        delta(0, "zh", "（いち）"),
+        delta(1, "ja", "に"),
+        { type: "done", message: message(4, "character", "いち") },
+      ],
+      history,
+    );
+    expect(log.entries[3]).toMatchObject({
+      segments: [{ ja: "いち", zh: "（いち）" }],
+      pending: false,
+    });
+  });
 });

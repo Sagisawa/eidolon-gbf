@@ -66,3 +66,4 @@ Status: ready-for-agent
 - `issues/01-follow-on.md`
 - `issues/02-interruption-stops-the-reply.md`（Blocked by 01）
 - `issues/03-docs.md`（Blocked by 01、02）
+- `issues/04-voice-stops-at-once.md`（Blocked by 02；02 的真实通话验证中发现）

@@ -18,15 +18,20 @@ it says along the way is part of the reply, and only the reply is recorded.
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
 
+A turn can be told to stop part-way (a call's user interrupting the character): the
+model and any tool it is waiting on are abandoned at once, and the turn is recorded as
+ever, with only the segments complete by then.
+
 Each turn runs on the models it is given (see `OwnKeys.for_turn`): one plays the
 character, the other writes down memories. When the user's own fails, the turn fails
 saying so. Retrieval is always the deployer's.
 """
 
+import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, ParamSpec, TypeVar
 
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -100,6 +105,37 @@ class EmptyReply(RuntimeError):
     pass
 
 
+class _Stopped(Exception):
+    """The turn was told to stop."""
+
+
+P = ParamSpec("P")
+T = TypeVar("T")
+
+
+async def _unless_stopped(
+    stop: asyncio.Event | None, work: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
+) -> T:
+    """What `work` comes to, unless `stop` is set first: then it is abandoned and this
+    raises _Stopped."""
+    if stop is None:
+        return await work(*args, **kwargs)
+    if stop.is_set():
+        raise _Stopped
+    working = asyncio.ensure_future(work(*args, **kwargs))
+    stopped = asyncio.ensure_future(stop.wait())
+    try:
+        await asyncio.wait({working, stopped}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stopped.cancel()
+        if not working.done():
+            working.cancel()
+            await asyncio.wait({working})
+    if working.cancelled():
+        raise _Stopped
+    return working.result()
+
+
 def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     """The messages from the `turns`th last user message on (from the first if None), so
     what the chat model reads always opens with the user."""
@@ -134,16 +170,18 @@ class ConversationEngine:
         text: str,
         llms: TurnLLMs,
         device_timezone: str | None = None,
+        stop: asyncio.Event | None = None,
     ) -> AsyncIterator[TurnEvent]:
         """Take one turn on `llms`. `device_timezone` is the time zone the user's device
-        reports, used unless the producer profile sets one."""
+        reports, used unless the producer profile sets one. Once `stop` is set, the turn
+        goes no further and is recorded with the segments complete by then."""
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
             yield TurnFailed(TOO_LONG if text else BLANK)
             return
         try:
-            async for event in self._reply(conversation, text, llms, device_timezone):
+            async for event in self._reply(conversation, text, llms, device_timezone, stop):
                 yield event
         except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
             log.warning("turn failed on the user's own key in conversation %s: %s",
@@ -159,6 +197,7 @@ class ConversationEngine:
         text: str,
         llms: TurnLLMs,
         device_timezone: str | None,
+        stop: asyncio.Event | None,
     ) -> AsyncIterator[TurnEvent]:
         character = self._characters[conversation.character_id]
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
@@ -177,32 +216,40 @@ class ConversationEngine:
             [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
         )
         parser = ReplyParser()
-        for step in range(MAX_TOOL_ROUNDS + 1):
-            offered = tools if step < MAX_TOOL_ROUNDS else []
-            said = ""
-            calls: list[ToolCall] = []
-            async for item in llms.chat.stream(prompt, offered):
-                if isinstance(item, ToolCall):
-                    calls.append(item)
-                    continue
-                said += item
-                for event in parser.feed(item):
+        try:
+            for step in range(MAX_TOOL_ROUNDS + 1):
+                offered = tools if step < MAX_TOOL_ROUNDS else []
+                said = ""
+                calls: list[ToolCall] = []
+                stream = llms.chat.stream(prompt, offered)
+                try:
+                    while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
+                        if isinstance(item, ToolCall):
+                            calls.append(item)
+                            continue
+                        said += item
+                        for event in parser.feed(item):
+                            yield event
+                finally:
+                    if (close := getattr(stream, "aclose", None)) is not None:
+                        await close()  # a stream left part-way lets go of its connection
+                for event in parser.finish():
                     yield event
-            for event in parser.finish():
-                yield event
-            if not calls or not offered:  # a call to a tool not offered goes unanswered
-                break
-            prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]
-            last_round = step + 1 == MAX_TOOL_ROUNDS
-            for call in calls:
-                result = await self._call_tool(character, call)
-                if last_round:
-                    result = f"{result}\n\n{LAST_ROUND_NOTE}"
-                prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
+                if not calls or not offered:  # a call to a tool not offered goes unanswered
+                    break
+                prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]
+                last_round = step + 1 == MAX_TOOL_ROUNDS
+                for call in calls:
+                    result = await _unless_stopped(stop, self._call_tool, character, call)
+                    if last_round:
+                        result = f"{result}\n\n{LAST_ROUND_NOTE}"
+                    prompt.append(ChatMessage("tool", result, tool_call_id=call.id))
+        except _Stopped:
+            pass
 
-        if not parser.segments:
+        if not parser.complete:
             raise EmptyReply("对话模型没有返回任何内容")
-        reply = self._store.add_turn(conversation.id, text, parser.segments)
+        reply = self._store.add_turn(conversation.id, text, parser.complete)
         memory.write_down(history, text, reply)
         yield TurnDone(reply)
 

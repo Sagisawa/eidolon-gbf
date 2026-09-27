@@ -526,10 +526,11 @@ class CallTurns(FrameProcessor):
     shown) and it has a complete segment, or once it is recorded. A reply voiced while
     the last one's voice is still playing has started once its first words are sent.
 
-    After that, the user starting to talk (an interruption) stops voicing the reply in
-    progress; for now the reply still completes and is recorded, as the browser shows
-    it in full, and what the user says or types is the next turn. A `mute` client
-    message decides whether replies from then on are voiced at all.
+    After that, the user starting to talk interrupts the character: the reply stops
+    being voiced and goes no further, and is recorded with only the segments complete
+    by then, which `done` carries; what the user says is the next turn, taken up at
+    once. What the user types does not interrupt her and waits for the reply to finish.
+    A `mute` client message decides whether replies from then on are voiced at all.
 
     When the call reaches its limits, the browser gets an `ended` message saying why,
     and the call ends once the last reply has been voiced; what is said after that is
@@ -556,6 +557,7 @@ class CallTurns(FrameProcessor):
         # The turn in progress:
         self._said: list[str] = []  # what the user said in it, follow-ons included
         self._reply: asyncio.Task | None = None  # the reply being given to it
+        self._stop = asyncio.Event()  # set when the user interrupts the reply
         self._spoken = False  # the character has started speaking the reply
         self._sent_to_tts = False  # some of the reply is on its way to TTS
         self._complete = False  # the reply has a complete segment
@@ -581,8 +583,9 @@ class CallTurns(FrameProcessor):
                 self._following_on = True
                 self._heard.set()
                 await self._drop_reply()
-            else:
+            else:  # interrupts the reply in progress, if there is one
                 self._voicing = False
+                self._stop.set()
             await self.push_frame(frame, direction)
         elif isinstance(frame, BotStartedSpeakingFrame):
             # The voice of a reply dropped just now may start late, but never after the
@@ -673,8 +676,9 @@ class CallTurns(FrameProcessor):
         try:
             while True:
                 self._spoken = self._sent_to_tts = self._complete = False
+                self._stop = asyncio.Event()
                 self._reply = self.create_task(
-                    self._reply_to("\n".join(self._said), voiced=not self._muted)
+                    self._reply_to("\n".join(self._said), not self._muted, self._stop)
                 )
                 await asyncio.wait({self._reply})
                 if not self._reply.cancelled():
@@ -693,14 +697,16 @@ class CallTurns(FrameProcessor):
             except TimeoutError:
                 self._following_on = False
 
-    async def _reply_to(self, text: str, voiced: bool) -> None:
-        """Reply to what the user said. Only a reply that is recorded counts as a turn: a
-        rejected, failed or dropped one does not count towards the call's limit."""
+    async def _reply_to(self, text: str, voiced: bool, stop: asyncio.Event) -> None:
+        """Reply to what the user said, going no further once `stop` is set. Only a reply
+        that is recorded counts as a turn: a rejected, failed or dropped one does not
+        count towards the call's limit, an interrupted one does."""
         self._voicing = voiced
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
-                self._call.conversation, text, self._call.llms, self._call.device_timezone
+                self._call.conversation, text, self._call.llms, self._call.device_timezone,
+                stop,
             ):
                 if isinstance(event, SegmentComplete):
                     self._complete = True

@@ -34,6 +34,7 @@ from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import (
+    HANG,
     FakeBackgroundLLM,
     FakeEmbedder,
     FakeJudge,
@@ -165,17 +166,68 @@ async def test_blank_input_is_ignored(mano_call: CallUnderTest):
     assert await mano_call.record() == []
 
 
-async def test_interrupted_reply_stops_being_voiced_but_is_still_recorded(
+INTERRUPTED_REPLY = ["<ja>ほわっ</ja><zh>哇</zh>", "<ja>今日", HANG]
+"""A reply with one complete segment, then half of the next, then nothing, ever."""
+INTERRUPTING = [SleepFrame(0.1), BotStartedSpeakingFrame(), SleepFrame(0.3), InterruptionFrame()]
+"""The character starts speaking; the user interrupts her once the second segment is started."""
+
+
+async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_complete_segments(
     mano_call: CallUnderTest,
 ):
-    llm = FakeLLM(["<ja>ほわっ</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"], delay=0.3)
+    memory = FakeBackgroundLLM()
 
     spoken_text, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), BotStartedSpeakingFrame(), InterruptionFrame()]
+        FakeLLM(INTERRUPTED_REPLY, delay=0.3), [spoken("早上好"), *INTERRUPTING],
+        memory=memory, limits=CallLimits(turns=1),
     )
 
-    assert spoken_text == ["ほわっ"]
-    assert messages[-1]["message"]["ja"] == "ほわっ今日も"
+    assert spoken_text == ["ほわっ", "今日"]
+    assert kinds(messages) == ["user", "done", "ended"]  # it counts as a turn
+    assert (messages[-2]["message"]["ja"], messages[-2]["message"]["zh"]) == ("ほわっ", "哇")
+    assert await mano_call.record() == [
+        ("user", "早上好", None, None), ("character", None, "ほわっ", "哇"),
+    ]
+    assert len(memory.prompts) == 1
+
+
+async def test_what_interrupts_the_character_is_taken_up_at_once(mano_call: CallUnderTest):
+    llm = FakeLLM(INTERRUPTED_REPLY, MANO_REPLY, delay=0.3)
+
+    _, messages = await mano_call.run(
+        llm, [spoken("早上好"), *INTERRUPTING, SleepFrame(0.1), spoken("在吗")]
+    )
+
+    assert said(messages) == ["早上好", "在吗"]
+    assert await mano_call.said() == ["早上好", None, "在吗", None]
+
+
+async def test_an_interruption_that_comes_to_nothing_takes_no_turn(mano_call: CallUnderTest):
+    llm = FakeLLM(INTERRUPTED_REPLY, delay=0.3)
+
+    _, messages = await mano_call.run(
+        llm, [spoken("早上好"), *INTERRUPTING, SleepFrame(0.1), spoken("  ")]
+    )
+
+    assert kinds(messages) == ["user", "done"]
+    assert len(llm.prompts) == 1
+
+
+async def test_what_is_typed_once_the_reply_can_be_interrupted_waits_for_it_to_finish(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+
+    _, messages = await mano_call.run(
+        llm, [spoken("早上好"), SleepFrame(0.4), BotStartedSpeakingFrame(), typed("在吗")]
+    )
+
+    assert said(messages) == ["早上好", "在吗"]
+    assert await mano_call.record() == [
+        ("user", "早上好", None, None), ("character", None, "ほわっ今日も", "哇今天也"),
+        ("user", "在吗", None, None),
+        ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
+    ]
 
 
 SLOW_REPLY = ["<ja>ほわっ", "</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"]

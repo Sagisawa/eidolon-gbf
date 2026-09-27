@@ -51,6 +51,10 @@ DEPLOYER_KEY = "test-key"
 """The deployer's chat model key in the tests' settings."""
 
 
+HANG = object()
+"""A chunk in a FakeLLM reply where the model stops sending but never finishes."""
+
+
 class FakeLLM:
     """Records every prompt it receives, the tools offered with it and the API key it came
     with (`keys`), and replies from a script.
@@ -59,11 +63,12 @@ class FakeLLM:
     tests can split the structured reply at awkward boundaries or have the model call a
     tool; a reply that is an LLMError is raised instead, as a failing service would. With
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
-    model would. Unless reached through a FakeLLMService, it is the deployer's model.
+    model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
+    is the deployer's model.
     """
 
     def __init__(
-        self, *replies: Sequence[str | ToolCall] | LLMError, delay: float = 0
+        self, *replies: Sequence[str | ToolCall | object] | LLMError, delay: float = 0
     ) -> None:
         self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay
@@ -90,6 +95,9 @@ class FakeLLM:
         for i, chunk in enumerate(reply):
             if i and self._delay:
                 await asyncio.sleep(self._delay)
+            if chunk is HANG:
+                await asyncio.Event().wait()
+            assert isinstance(chunk, str | ToolCall)
             yield chunk
 
     async def aclose(self) -> None:

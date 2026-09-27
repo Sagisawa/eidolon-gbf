@@ -59,6 +59,11 @@ class ReplyParser:
     _said_complete: int = 0  # how many segments are known to be complete
     _events: list[ParserEvent] = field(default_factory=list)
 
+    @property
+    def complete(self) -> list[Segment]:
+        """The segments said to be complete so far, leaving out any half-written one."""
+        return self.segments[: self._said_complete]
+
     def feed(self, chunk: str) -> list[ParserEvent]:
         self._buffer += chunk
         while True:
