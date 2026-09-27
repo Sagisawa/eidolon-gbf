@@ -170,6 +170,9 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 本地开发时把 `https://你的域名` 换成 `http://localhost:3000`（可以另建一个开发用的应用）。
 
+> [!TIP]
+> 在仓库根目录运行 `scripts/setup-oauth.sh`，它会一步步打开下面要用的页面，告诉你每一栏填什么，把复制回来的值写进 `.env`，顺带生成 `EIDOLON_SECRET_KEY`、设置开发登录和 Gemini 计费的开关，最后重启后端，并列出用真实账号要验证的几件事。下面是同样的步骤，手动配置时照着做。
+
 **GitHub**：在 [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) 点「New OAuth App」，Homepage URL 填 `https://你的域名`，Authorization callback URL 填上表的地址。创建后生成一个 Client secret，把 Client ID 和它分别填进 `.env` 的 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`。登录时只申请读取公开资料和邮箱（`read:user user:email`）；注册不满一年的 GitHub 账号不能登录。
 
 **Google**：在 [Google Cloud Console](https://console.cloud.google.com/) 新建（或选一个）项目：
