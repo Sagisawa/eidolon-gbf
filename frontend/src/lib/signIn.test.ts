@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signInFailure, signInUrl } from "@/lib/signIn";
+import { linkUrl, signInFailure, signInUrl } from "@/lib/signIn";
 
 describe("signInFailure", () => {
   it("says nothing when signing in did not fail", () => {
@@ -11,6 +11,7 @@ describe("signInFailure", () => {
     expect(signInFailure("too_new")).toContain("一年");
     expect(signInFailure("email_unverified")).toContain("验证");
     expect(signInFailure("banned")).toContain("封禁");
+    expect(signInFailure("taken")).toContain("另一位用户");
   });
 
   it("still says signing in failed for a reason it does not know", () => {
@@ -21,5 +22,6 @@ describe("signInFailure", () => {
 describe("signInUrl", () => {
   it("starts at the backend, which sends the browser on to the provider", () => {
     expect(signInUrl("github")).toBe("/api/auth/github/start");
+    expect(linkUrl("google")).toBe("/api/auth/google/start?link=1");
   });
 });

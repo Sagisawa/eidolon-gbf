@@ -178,10 +178,17 @@ def google_identity(
 
 
 async def sign_in_with(
-    client: httpx.AsyncClient, provider: FakeIdentityProvider, identity: Identity
+    client: httpx.AsyncClient,
+    provider: FakeIdentityProvider,
+    identity: Identity,
+    *,
+    link: bool = False,
 ) -> httpx.Response:
-    """Go through signing in at `provider` as `identity`; the response to the callback."""
-    start = await client.get(f"/api/auth/{provider.name}/start")
+    """Go through signing in at `provider` as `identity`, or with `link`, linking it to the
+    signed-in user; the response to the callback."""
+    start = await client.get(
+        f"/api/auth/{provider.name}/start", params={"link": "1"} if link else None
+    )
     assert start.status_code == 302, start.text
     [state] = parse_qs(urlsplit(start.headers["location"]).query)["state"]
     code = provider.will_identify(identity)

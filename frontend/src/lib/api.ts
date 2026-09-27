@@ -144,6 +144,16 @@ export async function getAccount(): Promise<Account> {
   return json(await api("/api/account"));
 }
 
+/** Stop signing in with the identity at `provider`; refused for the last one. */
+export async function unlinkSignInMethod(provider: Provider): Promise<void> {
+  await expectNoContent(await api(`/api/account/sign-in-methods/${provider}`, { method: "DELETE" }));
+}
+
+/** Sign the user out on every device, this one included. */
+export async function logoutEverywhere(): Promise<void> {
+  await expectNoContent(await api("/api/account/logout-everywhere", { method: "POST" }));
+}
+
 /** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
 export async function agreeToTerms(): Promise<void> {
   await expectNoContent(

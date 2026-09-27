@@ -10,6 +10,10 @@ sign-in this browser started. The callback sends the browser on: home when signe
 the sign-in page with `?error=<reason>` when not (see `accounts.Refusal`, plus `state`
 for a callback this browser did not start or that expired, `cancelled` when the user
 turned the provider down, and `provider` when the provider could not be reached).
+
+A signed-in user links another identity the same way, starting with `?link=1`; the
+callback then sends the browser back to the settings page, with `?linked=<provider>` or
+`?error=<reason>`.
 """
 
 import logging
@@ -22,11 +26,13 @@ from pydantic import BaseModel, Field, model_validator
 from eidolon.accounts import SignInRefused
 from eidolon.assembly import Backend
 from eidolon.identity import PROVIDER_NAMES, IdentityError
+from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
     SignedIn,
     UserId,
     clear_session_cookie,
+    session_user,
     set_session_cookie,
 )
 
@@ -78,17 +84,23 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         }
 
     @app.get("/api/auth/{provider}/start")
-    def start_sign_in(provider: str) -> RedirectResponse:
+    def start_sign_in(provider: str, request: Request, link: bool = False) -> RedirectResponse:
+        """Off to the provider to sign in, or with `link`, to link another identity to the
+        signed-in user."""
         identity_provider = providers.get(provider)  # pyright: ignore[reportArgumentType]
         if identity_provider is None:
             raise HTTPException(404, "没有这种登录方式")
+        if link:
+            user = session_user(request)
+            if user is None or user.consented_at is None:
+                return RedirectResponse("/login", status_code=302)
         state = secrets.token_urlsafe(24)
         response = RedirectResponse(
             identity_provider.authorize_url(state, callback_url(provider)), status_code=302
         )
         response.set_cookie(
             STATE_COOKIE,
-            f"{provider}:{state}",
+            f"{'link' if link else 'login'}:{provider}:{state}",
             max_age=STATE_LIFETIME,
             path="/api/auth",
             httponly=True,
@@ -105,7 +117,11 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         state: str | None = None,
         error: str | None = None,
     ) -> RedirectResponse:
-        expected_provider, _, expected_state = request.cookies.get(STATE_COOKIE, "").partition(":")
+        purpose, expected_provider, expected_state = (
+            request.cookies.get(STATE_COOKIE, "").split(":", 2) + ["", ""]
+        )[:3]
+        linking = purpose == "link"
+        back = "/settings" if linking else "/login"
 
         def go(to: str) -> RedirectResponse:
             response = RedirectResponse(to, status_code=302)
@@ -120,18 +136,24 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             or expected_provider != provider
             or not secrets.compare_digest(state, expected_state)
         ):
-            return go("/login?error=state")
+            return go(f"{back}?error=state")
         if error or not code:
-            return go("/login?error=cancelled")
+            return go(f"{back}?error=cancelled")
         try:
             identity = await identity_provider.identify(code, callback_url(provider))
         except IdentityError:
             log.warning("signing in with %s failed", provider, exc_info=True)
-            return go("/login?error=provider")
+            return go(f"{back}?error=provider")
         try:
+            if linking:
+                user = session_user(request)
+                if user is None or user.consented_at is None:
+                    return go("/login?error=state")
+                accounts.link(user.id, identity)
+                return go(f"/settings?linked={provider}")
             user = accounts.sign_in(identity)
         except SignInRefused as e:
-            return go(f"/login?error={e.reason}")
+            return go(f"{back}?error={e.reason}")
         response = go("/")
         signed_in(user.id, response, request)
         return response
@@ -153,6 +175,22 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
                 for m in store.sign_in_methods(user_id)
             ],
         }
+
+    @app.delete("/api/account/sign-in-methods/{provider}", status_code=204)
+    def unlink(provider: str, user_id: UserId) -> None:
+        """Stop signing in with the identity at `provider`; never the last one."""
+        try:
+            found = store.remove_sign_in_method(user_id, provider)
+        except LastSignInMethod:
+            raise HTTPException(409, "这是你唯一的登录方式，解绑后就无法再登录了") from None
+        if not found:
+            raise HTTPException(404, "没有绑定这种登录方式")
+
+    @app.post("/api/account/logout-everywhere", status_code=204)
+    def logout_everywhere(user_id: UserId, response: Response) -> None:
+        """Sign the user out on every device, this one included."""
+        store.end_sessions(user_id)
+        clear_session_cookie(response, settings)
 
     @app.post("/api/account/consent", status_code=204)
     def consent(body: Consent, user: SignedIn) -> None:

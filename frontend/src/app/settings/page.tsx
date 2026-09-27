@@ -1,26 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { CallSettings } from "@/components/CallSettings";
-import { FailureNotice } from "@/components/FailureNotice";
 import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
-import { logout } from "@/lib/api";
-import { toFailure, type Failure } from "@/lib/failure";
+import { SignInSettings } from "@/components/SignInSettings";
 
 export default function SettingsPage() {
-  const [failure, setFailure] = useState<Failure | null>(null);
-
-  async function signOut() {
-    setFailure(null);
-    try {
-      await logout();
-      window.location.assign("/login");
-    } catch (e) {
-      setFailure(toFailure(e));
-    }
-  }
-
   return (
     <main className="settings">
       <header className="page-header">
@@ -42,15 +27,7 @@ export default function SettingsPage() {
 
       <CallSettings />
 
-      <div className="field">
-        <label>登录</label>
-        {failure && <FailureNotice failure={failure} />}
-        <div className="field-row">
-          <button type="button" className="ghost" onClick={signOut}>
-            退出登录
-          </button>
-        </div>
-      </div>
+      <SignInSettings />
     </main>
   );
 }
