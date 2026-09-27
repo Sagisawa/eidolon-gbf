@@ -26,11 +26,14 @@ import httpx
 from aiortc import RTCIceServer
 
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
     EndWorkerFrame,
     ErrorFrame,
     Frame,
+    InterimTranscriptionFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
@@ -78,7 +81,7 @@ from eidolon.own_keys import (
     OwnKeys,
     Service,
 )
-from eidolon.reply_format import SegmentDelta
+from eidolon.reply_format import SegmentComplete, SegmentDelta
 from eidolon.store import Conversation, Store
 from eidolon.usage import UsageLimiter, Use
 
@@ -498,18 +501,35 @@ class _LiveCall:
         await running
 
 
+FOLLOW_ON_TIMEOUT = 4.0
+"""How long, in seconds since the user was last heard, a follow-on may take to be
+transcribed; after that it came to nothing (a cough, say) and the turn is replied to
+again as it was. Soniox finalizes what it heard at most 3 s (its longest endpoint delay)
+after the last word, and sends no transcription at all when it heard no words."""
+
+
 class CallTurns(FrameProcessor):
-    """Takes turns in the conversation for the call, one utterance at a time.
+    """Takes turns in the conversation for the call, one at a time.
 
-    Utterances come from speech recognition (a final transcription) or from text
-    typed during the call (a `user-text` client message). Each goes through the
-    conversation engine; the reply's Japanese is sent on as text for TTS, and the
-    browser gets the same events as a text turn (`user`, `delta`, `done` or
-    `error`) as server messages, which carry the subtitles.
+    What the user says comes from speech recognition (a final transcription) or from
+    text typed during the call (a `user-text` client message). Each turn goes through
+    the conversation engine; the reply's Japanese is sent on as text for TTS, and the
+    browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
+    server messages, which carry the subtitles.
 
-    A `mute` client message decides whether replies from then on are voiced at all. An
-    interruption (the user starts talking) stops voicing the reply in progress;
-    the reply still completes and is recorded, as the browser shows it in full.
+    Until the reply can be interrupted, what the user says or types is a follow-on: the
+    reply is dropped without a trace, what was voiced of it is cut off, and the turn is
+    replied to afresh with the follow-on joined on a new line, opening again with
+    `user`. The user starting to talk is enough to drop the reply; should what they said
+    come to nothing, the turn is replied to again as it was. A reply can be interrupted
+    once the character has started speaking it (when not voiced, once its first line is
+    shown) and it has a complete segment, or once it is recorded. A reply voiced while
+    the last one's voice is still playing has started once its first words are sent.
+
+    After that, the user starting to talk (an interruption) stops voicing the reply in
+    progress; for now the reply still completes and is recorded, as the browser shows
+    it in full, and what the user says or types is the next turn. A `mute` client
+    message decides whether replies from then on are voiced at all.
 
     When the call reaches its limits, the browser gets an `ended` message saying why,
     and the call ends once the last reply has been voiced; what is said after that is
@@ -528,10 +548,19 @@ class CallTurns(FrameProcessor):
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
         self._voicing = False
+        self._bot_speaking = False  # the character's voice is playing
         self._time_up: str | None = None  # why the call is over, once time is up
         self._ended = False
         self.recorded = 0
         """How many turns the call has recorded so far."""
+        # The turn in progress:
+        self._said: list[str] = []  # what the user said in it, follow-ons included
+        self._reply: asyncio.Task | None = None  # the reply being given to it
+        self._spoken = False  # the character has started speaking the reply
+        self._sent_to_tts = False  # some of the reply is on its way to TTS
+        self._complete = False  # the reply has a complete segment
+        self._following_on = False  # a follow-on the user started is not yet transcribed
+        self._heard = asyncio.Event()  # the user was heard, while following on
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -541,11 +570,29 @@ class CallTurns(FrameProcessor):
             if self._limits.duration is not None:
                 self._timer = self.create_task(self._time(self._limits.duration))
         elif isinstance(frame, TranscriptionFrame):
-            self._take_up(frame.text)
+            await self._take_up(frame.text, spoken=True)
+        elif isinstance(frame, InterimTranscriptionFrame):
+            self._heard.set()
+            await self.push_frame(frame, direction)
         elif isinstance(frame, RTVIClientMessageFrame):
-            self._handle_client_message(frame)
+            await self._handle_client_message(frame)
         elif isinstance(frame, InterruptionFrame):
-            self._voicing = False
+            if self._open_to_follow_ons():
+                self._following_on = True
+                self._heard.set()
+                await self._drop_reply()
+            else:
+                self._voicing = False
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            # The voice of a reply dropped just now may start late, but never after the
+            # next reply's first words are sent: those take the chat model a while.
+            self._bot_speaking = True
+            if self._voicing and self._sent_to_tts:
+                self._spoken = True
+            await self.push_frame(frame, direction)
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._bot_speaking = False
             await self.push_frame(frame, direction)
         elif isinstance(frame, EndFrame):
             await self._inputs.join()  # a graceful end lets queued turns finish
@@ -557,16 +604,41 @@ class CallTurns(FrameProcessor):
         else:
             await self.push_frame(frame, direction)
 
-    def _take_up(self, text: str) -> None:
-        if text.strip() and not self._ended:
-            self._inputs.put_nowait(text.strip())
+    async def _take_up(self, text: str, spoken: bool) -> None:
+        text = text.strip()
+        if self._ended or not (text or (spoken and self._following_on)):
+            return
+        if not self._open_to_follow_ons():
+            if text:
+                self._inputs.put_nowait(text)
+            return
+        # A follow-on: what the turn is to be replied to changes before the reply is dropped.
+        if text:
+            self._said.append(text)
+        dropped = self._following_on  # when the user was heard starting to talk
+        self._following_on = False
+        self._heard.set()
+        if not dropped:  # typed: nothing has cut off what TTS still holds either
+            await self._drop_reply()
+            await self.push_frame(InterruptionFrame())
 
-    def _handle_client_message(self, frame: RTVIClientMessageFrame) -> None:
+    async def _handle_client_message(self, frame: RTVIClientMessageFrame) -> None:
         data = frame.data if isinstance(frame.data, dict) else {}
         if frame.type == "user-text" and isinstance(data.get("text"), str):
-            self._take_up(data["text"])
+            await self._take_up(data["text"], spoken=False)
         elif frame.type == "mute" and isinstance(data.get("muted"), bool):
             self._muted = data["muted"]
+
+    def _open_to_follow_ons(self) -> bool:
+        """Whether there is a turn in progress whose reply cannot be interrupted yet."""
+        reply = self._reply
+        if reply is None or reply.done() and not reply.cancelled():
+            return False
+        return not (self._spoken and self._complete)
+
+    async def _drop_reply(self) -> None:
+        if self._reply is not None and not self._reply.done():
+            await self.cancel_task(self._reply)
 
     async def _take_turns(self) -> None:
         while True:
@@ -578,7 +650,7 @@ class CallTurns(FrameProcessor):
                     await self._end(self._time_up)
                     continue
                 assert text is not None
-                await self._turn(text, voiced=not self._muted)
+                await self._turn(text)
                 if self._limits.turns is not None and self.recorded >= self._limits.turns:
                     await self._end(f"这次通话已经说了 {self.recorded} 轮了")
             finally:
@@ -595,22 +667,63 @@ class CallTurns(FrameProcessor):
         await self._send({"type": "ended", "message": f"{reason}，先挂断啦。想接着聊可以重新拨打。"})
         await self.push_frame(EndWorkerFrame(reason=reason))
 
-    async def _turn(self, text: str, voiced: bool) -> None:
-        """Take one turn. Only a turn whose reply is recorded counts as one: a rejected or
-        failed turn does not count towards the call's limit."""
+    async def _turn(self, text: str) -> None:
+        """Take one turn, replying afresh after each follow-on."""
+        self._said = [text]
+        try:
+            while True:
+                self._spoken = self._sent_to_tts = self._complete = False
+                self._reply = self.create_task(
+                    self._reply_to("\n".join(self._said), voiced=not self._muted)
+                )
+                await asyncio.wait({self._reply})
+                if not self._reply.cancelled():
+                    return
+                await self._follow_on_heard()
+        finally:
+            await self._drop_reply()  # the call is hanging up
+            self._reply = None
+
+    async def _follow_on_heard(self) -> None:
+        """Wait until the follow-on the user started is transcribed or comes to nothing."""
+        while self._following_on:
+            self._heard.clear()
+            try:
+                await asyncio.wait_for(self._heard.wait(), FOLLOW_ON_TIMEOUT)
+            except TimeoutError:
+                self._following_on = False
+
+    async def _reply_to(self, text: str, voiced: bool) -> None:
+        """Reply to what the user said. Only a reply that is recorded counts as a turn: a
+        rejected, failed or dropped one does not count towards the call's limit."""
         self._voicing = voiced
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
                 self._call.conversation, text, self._call.llms, self._call.device_timezone
             ):
-                if isinstance(event, TurnDone):  # recorded by now, whatever happens next
+                if isinstance(event, SegmentComplete):
+                    self._complete = True
+                    continue
+                if isinstance(event, TurnDone):  # recorded by now, so no longer to be dropped
+                    self._spoken = True
                     self.recorded += 1
                 await self._send(asdict(event))
-                if isinstance(event, SegmentDelta) and event.lang == "ja" and self._voicing:
-                    await self.push_frame(TextFrame(event.text))
+                if isinstance(event, SegmentDelta):
+                    if not self._voicing:
+                        self._spoken = True  # its first line is shown
+                    elif event.lang == "ja":
+                        self._on_its_way_to_tts()
+                        await self.push_frame(TextFrame(event.text))
         finally:
             await self.push_frame(LLMFullResponseEndFrame())
+
+    def _on_its_way_to_tts(self) -> None:
+        """The reply's first words are sent to TTS: should the voice of the last reply
+        still be playing, this one's follows on without starting again."""
+        if not self._sent_to_tts:
+            self._sent_to_tts = True
+            self._spoken = self._bot_speaking
 
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))

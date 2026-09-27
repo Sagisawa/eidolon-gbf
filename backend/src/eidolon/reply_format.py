@@ -6,7 +6,9 @@ subtitle:
     <ja>こんにちは、プロデューサーさん！</ja><zh>你好，制作人！</zh>
 
 The parser turns a stream of arbitrary text chunks into per-segment deltas as soon
-as they arrive, so Japanese text can reach TTS before the reply is finished.
+as they arrive, so Japanese text can reach TTS before the reply is finished. It also
+says when each segment is complete: once its subtitle closes, the next segment opens
+(the model skipped the subtitle), or the stream ends.
 """
 
 from dataclasses import dataclass, field
@@ -30,6 +32,18 @@ class SegmentDelta:
     type: Literal["delta"] = field(default="delta", init=False)
 
 
+@dataclass(frozen=True)
+class SegmentComplete:
+    """Segment `segment` has all it will get. Stays on the server: a call needs to know
+    when a reply has a complete segment, the browser does not."""
+
+    segment: int
+    type: Literal["segment-complete"] = field(default="segment-complete", init=False)
+
+
+ParserEvent = SegmentDelta | SegmentComplete
+
+
 @dataclass
 class Segment:
     ja: str = ""
@@ -42,36 +56,37 @@ class ReplyParser:
     _buffer: str = ""
     _inside: Lang | None = None
     _stray: str = ""
+    _said_complete: int = 0  # how many segments are known to be complete
+    _events: list[ParserEvent] = field(default_factory=list)
 
-    def feed(self, chunk: str) -> list[SegmentDelta]:
+    def feed(self, chunk: str) -> list[ParserEvent]:
         self._buffer += chunk
-        deltas: list[SegmentDelta] = []
         while True:
             if self._inside is None:
                 if not self._open_next_tag():
-                    return deltas
+                    return self._hand_over()
             else:
-                delta, closed = self._take_content(self._inside)
-                if delta is not None:
-                    deltas.append(delta)
+                closed = self._take_content(self._inside)
                 if not closed:
-                    return deltas
+                    return self._hand_over()
+                if self._inside == "zh":
+                    self._complete_up_to(len(self.segments))
                 self._inside = None
 
-    def finish(self) -> list[SegmentDelta]:
+    def finish(self) -> list[ParserEvent]:
         """Flush what is left at the end of a stream; the parser can then go on with the
         next stream of the same reply. A reply that ignored the format becomes one
         Japanese segment."""
-        deltas: list[SegmentDelta] = []
         if self._inside is not None:
             keep = _partial_suffix(self._buffer, (f"</{self._inside}>",))
             text = self._buffer[: len(self._buffer) - keep]
             if text:
-                deltas.append(self._append(self._inside, text))
+                self._append(self._inside, text)
         elif not self.segments and (self._stray + self._buffer).strip():
-            deltas.append(self._append("ja", (self._stray + self._buffer).strip()))
+            self._append("ja", (self._stray + self._buffer).strip())
         self._buffer, self._inside, self._stray = "", None, ""
-        return deltas
+        self._complete_up_to(len(self.segments))
+        return self._hand_over()
 
     def _open_next_tag(self) -> bool:
         langs: tuple[Lang, ...] = ("ja", "zh")
@@ -85,27 +100,40 @@ class ReplyParser:
         self._stray += self._buffer[:start]
         self._buffer = self._buffer[start + len(f"<{lang}>") :]
         if lang == "ja" or not self.segments or self.segments[-1].zh:
+            self._complete_up_to(len(self.segments))
             self.segments.append(Segment())
         self._inside = lang
         return True
 
-    def _take_content(self, lang: Lang) -> tuple[SegmentDelta | None, bool]:
+    def _take_content(self, lang: Lang) -> bool:
+        """Take what there is of the open tag's content; True if the tag closed."""
         close = f"</{lang}>"
         end = self._buffer.find(close)
-        if end >= 0:
-            text, self._buffer = self._buffer[:end], self._buffer[end + len(close) :]
-            return (self._append(lang, text) if text else None), True
-        keep = _partial_suffix(self._buffer, (close,))
-        text = self._buffer[: len(self._buffer) - keep]
-        self._buffer = self._buffer[len(self._buffer) - keep :]
-        return (self._append(lang, text) if text else None), False
+        closed = end >= 0
+        if not closed:
+            end = len(self._buffer) - _partial_suffix(self._buffer, (close,))
+        text = self._buffer[:end]
+        self._buffer = self._buffer[end + len(close) :] if closed else self._buffer[end:]
+        if text:
+            self._append(lang, text)
+        return closed
 
-    def _append(self, lang: Lang, text: str) -> SegmentDelta:
+    def _append(self, lang: Lang, text: str) -> None:
         if not self.segments:
             self.segments.append(Segment())
         segment = self.segments[-1]
         setattr(segment, lang, getattr(segment, lang) + text)
-        return SegmentDelta(len(self.segments) - 1, lang, text)
+        self._events.append(SegmentDelta(len(self.segments) - 1, lang, text))
+
+    def _complete_up_to(self, segments: int) -> None:
+        """Say the first `segments` segments are complete, those not said to be already."""
+        self._events += [SegmentComplete(i) for i in range(self._said_complete, segments)]
+        self._said_complete = max(self._said_complete, segments)
+
+    def _hand_over(self) -> list[ParserEvent]:
+        """The events since the last were handed over."""
+        events, self._events = self._events, []
+        return events
 
 
 def format_reply(segments: list[Segment]) -> str:

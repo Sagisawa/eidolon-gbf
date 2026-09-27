@@ -5,7 +5,8 @@ retrieves what the turn calls for, assembles the prompt, streams the chat model'
 deltas, and records both sides of the turn once the reply is complete.
 
 Every turn, typed or spoken, speaks the same protocol: `user` (the input as taken up),
-then any `delta`s, then `done` or `error`. Input that is blank or too long is rejected
+then any `delta`s, then `done` or `error`. Among the deltas, `SegmentComplete` says
+when a segment is complete; it stays on the server. Input that is blank or too long is rejected
 before the model is asked; a turn that is rejected or fails part-way leaves no record,
 and what went wrong stays in the server log.
 
@@ -33,7 +34,13 @@ from eidolon.llm import ChatMessage, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import effective_timezone, producer_prompt
-from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, format_reply
+from eidolon.reply_format import (
+    FORMAT_INSTRUCTIONS,
+    ReplyParser,
+    SegmentComplete,
+    SegmentDelta,
+    format_reply,
+)
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import Conversation, Message, Store
 
@@ -76,9 +83,9 @@ class TurnFailed:
     type: Literal["error"] = field(default="error", init=False)
 
 
-TurnEvent = UserSaid | SegmentDelta | TurnDone | TurnFailed
+TurnEvent = UserSaid | SegmentDelta | SegmentComplete | TurnDone | TurnFailed
 """A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
-the event as it goes out to the browser."""
+the event as it goes out to the browser, except `SegmentComplete`, which does not."""
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""
@@ -179,10 +186,10 @@ class ConversationEngine:
                     calls.append(item)
                     continue
                 said += item
-                for delta in parser.feed(item):
-                    yield delta
-            for delta in parser.finish():
-                yield delta
+                for event in parser.feed(item):
+                    yield event
+            for event in parser.finish():
+                yield event
             if not calls or not offered:  # a call to a tool not offered goes unanswered
                 break
             prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]

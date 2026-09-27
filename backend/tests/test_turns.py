@@ -13,6 +13,7 @@ import pytest
 from eidolon.assembly import build
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
+from eidolon.reply_format import SegmentComplete
 from eidolon.store import Conversation, Store
 from tests.fakes import FakeLLM
 
@@ -29,14 +30,16 @@ class Turns:
         user = self._store.create_user("producer")
         self.conversation: Conversation = self._store.create_conversation(user.id, "mano")
 
-    async def take(self, llm: FakeLLM, text: str) -> list[dict]:
-        """Take one turn; returns its events as they go out on the wire."""
+    async def take(self, llm: FakeLLM, text: str, *, in_house: bool = False) -> list[dict]:
+        """Take one turn; returns its events as they go out on the wire, and with
+        `in_house` also those that stay on the server."""
         backend = build(self._settings, chat_llm=llm, clock=lambda: NOW)
         try:
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
-            return [asdict(e) async for e in backend.engine.turn(self.conversation, text, llms)]
+            events = [e async for e in backend.engine.turn(self.conversation, text, llms)]
         finally:
             await backend.aclose()
+        return [asdict(e) for e in events if in_house or not isinstance(e, SegmentComplete)]
 
     def record(self) -> list[tuple]:
         return [(m.role, m.text, m.ja) for m in self._store.list_messages(self.conversation.id)]
@@ -86,6 +89,21 @@ async def test_a_turn_opens_with_what_the_user_said_and_closes_with_the_recorded
     assert events[0]["text"] == "早上好"
     assert events[-1]["message"]["ja"] == "ほわっ、"
     assert turns.record() == [("user", "早上好", None), ("character", None, "ほわっ、")]
+
+
+async def test_a_segment_is_complete_once_its_subtitle_closes_the_next_opens_or_the_model_stops(
+    turns: Turns,
+):
+    llm = FakeLLM(["<ja>一</ja>", "<zh>一</zh>", "<ja>二</ja>", "<ja>三</ja><zh>三"])
+
+    events = await turns.take(llm, "早上好", in_house=True)
+
+    assert [(e["type"], e.get("segment")) for e in events[1:]] == [
+        ("delta", 0), ("delta", 0), ("segment-complete", 0),
+        ("delta", 1), ("segment-complete", 1),
+        ("delta", 2), ("delta", 2), ("segment-complete", 2),
+        ("done", None),
+    ]
 
 
 @pytest.mark.parametrize(
