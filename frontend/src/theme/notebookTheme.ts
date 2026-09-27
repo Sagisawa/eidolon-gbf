@@ -13,7 +13,7 @@ const overlayEdge = "#5a7194";
  * 制作人的手帐（DESIGN.md）：冷白复印纸、天蓝横线、事务所深蓝墨水，明暗两套。
  * 角色的颜色不在这里，由 herVars() 按对话局部注入。
  *
- * 这是主题的源文件。改了它（或 astryxIcons.tsx、imageColor.ts 的 paperColors）之后运行
+ * 这是主题的源文件。改了它（或 astryxIcons.ts、imageColor.ts 的 paperColors）之后运行
  * `npm run theme:build` 重新生成 built/ 里的预构建主题；`npm test` 会检查预构建是否过期。
  */
 export const notebookTheme = defineTheme({

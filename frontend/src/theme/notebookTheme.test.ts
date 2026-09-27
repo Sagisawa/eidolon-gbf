@@ -7,6 +7,9 @@ describe("预构建的主题", () => {
   it("和源文件一致（不一致就运行 npm run theme:build）", () => {
     expect(eidolonNotebookTheme.name).toBe(notebookTheme.name);
     expect(eidolonNotebookTheme.tokens).toEqual(notebookTheme.tokens);
+    expect(eidolonNotebookTheme.components).toEqual(notebookTheme.components);
+    type WithAxes = { __axes?: unknown };
+    expect((eidolonNotebookTheme as WithAxes).__axes).toEqual((notebookTheme as WithAxes).__axes);
   });
 
   it("带着 Lucide 图标表", () => {

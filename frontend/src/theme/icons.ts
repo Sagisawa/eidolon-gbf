@@ -1,5 +1,5 @@
 // 界面上的图标统一用 Lucide，以语义别名导出，不手绘 SVG（DESIGN.md「The Library Icon Rule」）。
-// Astryx 组件内部用的图标在 astryxIcons.tsx 里注册到主题。
+// Astryx 组件内部用的图标在 astryxIcons.ts 里注册到主题。
 export {
   ArrowRightLeft as MicSwitchIcon,
   ChevronDown as CollapseIcon,
