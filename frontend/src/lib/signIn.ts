@@ -25,7 +25,7 @@ const REASONS: Record<string, string> = {
   cancelled: "已取消登录。",
   provider: "暂时无法向登录服务确认你的身份，请稍后再试。",
   taken: "这个身份已经属于另一位用户。请先用这个身份登录，删除那位用户的全部数据，再回来绑定。",
-  already_linked: "你已经绑定了这种登录方式的另一个账号，请先解绑它。",
+  already_linked: "你已经绑定了这种登录方式的另一个身份，请先解绑它。",
 };
 
 /** What to tell the user about the reason the backend gave for not signing them in. */

@@ -62,7 +62,7 @@ export function SignInSettings() {
     <div className="field">
       <label>登录方式</label>
       <p className="hint">
-        绑定另一种登录方式后，用哪一种登录都是你，看到的是同一份记忆。邮箱相同的账号不会自动合并。
+        绑定另一种登录方式后，用哪一种登录都是你，看到的是同一份记忆。邮箱相同的两个身份也不会自动合并。
       </p>
       {notice && (
         <p className="hint" role="status">

@@ -44,7 +44,7 @@ export default function LoginPage() {
       <header className="landing-header">
         <h1>Eidolon-SC</h1>
         <p className="landing-lede">
-          和《偶像大师 闪耀色彩》283 事务所的偶像们打电话、聊天。她们会用自己的声音回答你，
+          和《偶像大师 闪耀色彩》283 事务所的偶像们打电话、说话。她们会用自己的声音回答你，
           记得原作里和制作人一起走过的事，也会记住你告诉她们的事。
         </p>
       </header>

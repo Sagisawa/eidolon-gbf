@@ -250,70 +250,7 @@ class Calls:
         own_keys: OwnKeys | None = None,
         store: Store | None = None,
     ) -> None:
-        """With 
-
-[38;5;69m ██████╗  ████████╗   ██████╗   ██████╗   ███████╗         ██████╗  ██╗       [0m
-[38;5;69m██╗  [0m
-[38;5;69m██╔════╝  ╚══██╔══╝  ██╔═══██╗  ██╔══██╗  ██╔════╝        ██╔════╝  ██║       [0m
-[38;5;69m██║  [0m
-[38;5;189m╚█████╗      ██║     ██║   ██║  ██████╔╝  █████╗          ██║       ██║       [0m
-[38;5;189m██║  [0m
-[38;5;153m ╚═══██╗     ██║     ██║   ██║  ██╔══██╗  ██╔══╝          ██║       ██║       [0m
-[38;5;153m██║  [0m
-[38;5;153m██████╔╝     ██║     ╚██████╔╝  ██║  ██║  ███████╗        ╚██████╗  ███████╗  [0m
-[38;5;153m██║  [0m
-[38;5;75m╚═════╝      ╚═╝      ╚═════╝   ╚═╝  ╚═╝  ╚══════╝         ╚═════╝  ╚══════╝  [0m
-[38;5;75m╚═╝  [0m
-
-[38;5;8mv22608.1401.4.0 - Preview[0m
-
-Usage: [38;5;69mstore[0m [38;5;189m<command>[0m [38;5;8m[options][0m
-       [38;5;69mstore[0m [38;5;51m--help[0m
-
-Use '[38;5;69mstore[0m [38;5;189m<command>[0m [38;5;51m--help[0m' to get detailed help for any command.
-
-[38;5;69mDiscovery Commands:[0m
-[38;5;238m┌──────────────┬──────────────────────────────────────────┐[0m
-[38;5;238m│[0m [38;5;189mcommand[0m      [38;5;238m│[0m [38;5;189mdescription[0m                              [38;5;238m│[0m
-[38;5;238m├──────────────┼──────────────────────────────────────────┤[0m
-[38;5;238m│[0m addons       [38;5;238m│[0m List add-ons for a game                  [38;5;238m│[0m
-[38;5;238m│[0m browse-apps  [38;5;238m│[0m Browse ranked app lists                  [38;5;238m│[0m
-[38;5;238m│[0m browse-games [38;5;238m│[0m Browse ranked game lists                 [38;5;238m│[0m
-[38;5;238m│[0m extension    [38;5;238m│[0m Find apps that open specific file types  [38;5;238m│[0m
-[38;5;238m│[0m protocol     [38;5;238m│[0m Find apps that handle custom URL schemes [38;5;238m│[0m
-[38;5;238m│[0m publisher    [38;5;238m│[0m Find products from a publisher           [38;5;238m│[0m
-[38;5;238m│[0m search       [38;5;238m│[0m Search for apps and games                [38;5;238m│[0m
-[38;5;238m│[0m show         [38;5;238m│[0m Show product details and ratings         [38;5;238m│[0m
-[38;5;238m│[0m similar      [38;5;238m│[0m Find similar products                    [38;5;238m│[0m
-[38;5;238m└──────────────┴──────────────────────────────────────────┘[0m
-
-[38;5;69mOperations Commands:[0m
-[38;5;238m┌───────────┬─────────────────────────────────────────────┐[0m
-[38;5;238m│[0m [38;5;189mcommand[0m   [38;5;238m│[0m [38;5;189mdescription[0m                                 [38;5;238m│[0m
-[38;5;238m├───────────┼─────────────────────────────────────────────┤[0m
-[38;5;238m│[0m install   [38;5;238m│[0m Install an app from the Store               [38;5;238m│[0m
-[38;5;238m│[0m installed [38;5;238m│[0m List all installed apps                     [38;5;238m│[0m
-[38;5;238m│[0m update    [38;5;238m│[0m Check updates for a specific app            [38;5;238m│[0m
-[38;5;238m│[0m updates   [38;5;238m│[0m Check for updates across all installed apps [38;5;238m│[0m
-[38;5;238m└───────────┴─────────────────────────────────────────────┘[0m
-
-[38;5;69mHelper Commands:[0m
-[38;5;238m┌─────────────────┬─────────────────────────────────┐[0m
-[38;5;238m│[0m [38;5;189mcommand[0m         [38;5;238m│[0m [38;5;189mdescription[0m                     [38;5;238m│[0m
-[38;5;238m├─────────────────┼─────────────────────────────────┤[0m
-[38;5;238m│[0m app-categories  [38;5;238m│[0m List app categories             [38;5;238m│[0m
-[38;5;238m│[0m game-categories [38;5;238m│[0m List game categories            [38;5;238m│[0m
-[38;5;238m│[0m muid            [38;5;238m│[0m Get the Store device identifier [38;5;238m│[0m
-[38;5;238m└─────────────────┴─────────────────────────────────┘[0m
-
-[38;5;69mExamples:[0m
-  [38;5;8mstore search "Microsoft Teams"[0m
-  [38;5;8mstore show "Visual Studio Code"[0m
-  [38;5;8mstore browse-apps top-free --category productivity[0m
-  [38;5;8mstore browse-games top-paid --only-game-pass[0m
-  [38;5;8mstore similar firefox[0m
-  [38;5;8mstore updates[0m
-  [38;5;8mstore install whatsapp[0m, calls of users banned or deleted meanwhile are hung up."""
+        """With `store`, calls of users banned or deleted meanwhile are hung up."""
         self._settings = settings
         self._engine = engine
         self._usage = usage
@@ -354,7 +291,7 @@ Use '[38;5;69mstore[0m [38;5;189m<command>[0m [38;5;51m--help[0m' to get d
         own keys alone."""
         speech, keys = self._speech_for(user_id)
         own_llm = self._own_keys.chat_llm(user_id) if self._own_keys else None
-        exempt = own_llm is not None and keys.own == {"stt", "tts"}
+        exempt = self._own_keys is not None and self._own_keys.exemptions(user_id)["calls"]
         use = self._usage.take(user_id, "call", exempt=exempt)
         call = Call(
             conversation, character, options.muted, options.quality, options.device_timezone,

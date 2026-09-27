@@ -406,13 +406,10 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     return 0
 
 
-_PROVIDERS: dict[str, str] = {**PROVIDER_LABELS}
-
-
 def _list_users(store: Store, _: argparse.Namespace) -> None:
     for user in store.list_users():
         methods = "、".join(
-            f"{_PROVIDERS.get(m.provider, m.provider)} {m.display_name}"
+            f"{PROVIDER_LABELS.get(m.provider, m.provider)} {m.display_name}"  # pyright: ignore[reportCallIssue, reportArgumentType]
             for m in store.sign_in_methods(user.id)
         ) or "（没有登录方式）"
         state = f"已封禁于 {user.banned_at}" if user.banned_at else "正常"

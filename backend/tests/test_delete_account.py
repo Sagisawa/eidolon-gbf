@@ -172,3 +172,17 @@ async def test_deleting_hangs_up_the_users_call(
     await client.post("/api/account/delete", json=DELETE)
 
     await browser.hung_up()
+
+
+async def test_deleted_data_is_gone_from_the_database_files_too(
+    make_client: ClientFactory, settings: Settings
+):
+    client = memory_client(make_client)
+    await use_everything(client)
+
+    await client.post("/api/account/delete", json=DELETE)
+
+    database = settings.database_path
+    for path in (database, database.with_name(database.name + "-wal")):
+        if path.exists():
+            assert CAT.encode() not in path.read_bytes(), path

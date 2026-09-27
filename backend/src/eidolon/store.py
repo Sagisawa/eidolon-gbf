@@ -202,6 +202,8 @@ class Store:
         # Readers need not wait for a writer: the store, memory and the corpus each have a
         # connection to this database.
         self._db.execute("PRAGMA journal_mode = WAL")
+        # What is deleted is overwritten, not just freed: deleting a user is for good.
+        self._db.execute("PRAGMA secure_delete = ON")
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.execute("PRAGMA foreign_keys = ON")
@@ -410,6 +412,8 @@ class Store:
             for table, where in _USER_DATA:
                 if table in tables:  # memory's tables exist once memory has opened them
                     self._db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
+        with self._lock:  # the write-ahead log still holds the pages as they were
+            self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def create_session(self, user_id: str, now: datetime) -> str:
         """Start a session for the user; returns its token, which is not stored."""
