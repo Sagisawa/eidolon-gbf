@@ -1,5 +1,15 @@
-/* 旧界面的样式放在最先声明的层里：优先级低于 Astryx 的各层，只在没有 Astryx 的旧页面上起作用。前端重做完成后删除。 */
+/*
+ * 旧界面的样式，放在 legacy 层里（层的先后见 layers.css：高于 reset，低于 Astryx 组件和主题）。
+ * 只管旧页面：它们的根都是 <main class="settings|selection|conversation">，元素选择器都限定在这些根下面，
+ * 不会漏到用 Astryx 写的新页面上。前端重做完成（ticket 06）后整个删除。
+ */
 @layer legacy {
+/* 旧页面里退回到浏览器默认样式，抵消 Astryx 的重置和主题的正文样式，旧页面才和引入 Astryx 之前一样。
+   :where() 不增加优先级，下面每一条旧规则都照样生效。 */
+:where(main.settings, main.selection, main.conversation, main.settings *, main.selection *, main.conversation *) {
+  all: revert;
+}
+
 :root {
   --bg: #f7f5f2;
   --surface: #ffffff;
@@ -33,17 +43,21 @@
 body {
   margin: 0;
   background: var(--bg);
+}
+
+/* 以前写在 body 上、由旧页面继承的字色和字体。现在 body 下面先是 Astryx 主题，
+   主题会换掉继承下来的字色和字体，所以直接写在旧页面的根上。 */
+main:is(.settings, .selection, .conversation) {
   color: var(--text);
   font-family: system-ui, -apple-system, "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif;
   line-height: 1.6;
 }
 
-button,
-input {
+:where(main.settings, main.selection, main.conversation) :is(button, input) {
   font: inherit;
 }
 
-button {
+:where(main.settings, main.selection, main.conversation) button {
   border: 0;
   border-radius: 8px;
   padding: 0.5rem 1rem;
@@ -52,12 +66,12 @@ button {
   cursor: pointer;
 }
 
-button:disabled {
+:where(main.settings, main.selection, main.conversation) button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-button.ghost {
+:where(main.settings, main.selection, main.conversation) button.ghost {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--border);
