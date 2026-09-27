@@ -7,12 +7,14 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from weakref import WeakKeyDictionary
 
 import pytest
 
 from eidolon.characters import Character, load_characters
 from eidolon import memory
-from eidolon.memory import Memories
+from eidolon.llm import ChatLLM
+from eidolon.memory import Memories, MemoryTurn
 from eidolon.store import Conversation, Message, Segment, Store
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeReranker
@@ -46,6 +48,20 @@ async def world(tmp_path: Path, characters: CharacterConfig) -> AsyncIterator[Wo
 
 MemoriesFactory = Callable[..., Memories]
 
+_writers: WeakKeyDictionary[Memories, ChatLLM] = WeakKeyDictionary()
+"""The background model each test's memories write down with, as a turn's models say."""
+
+
+def writing_with(memories: Memories, llm: ChatLLM) -> Memories:
+    """`memories`, whose turns write down with `llm`."""
+    _writers[memories] = llm
+    return memories
+
+
+async def begin(memories: Memories, conversation: Conversation) -> MemoryTurn:
+    """Begin a turn of `conversation`, writing down with the model `memories` were made with."""
+    return await memories.begin(conversation, TZ, _writers.get(memories) or FakeBackgroundLLM())
+
 
 @pytest.fixture
 async def make_memories(tmp_path: Path, world: World) -> AsyncIterator[MemoriesFactory]:
@@ -63,11 +79,13 @@ async def make_memories(tmp_path: Path, world: World) -> AsyncIterator[MemoriesF
         memories = (
             Memories(tmp_path / "eidolon.db", world.characters, lambda: NOW)
             if off
-            else Memories(
-                tmp_path / "eidolon.db", world.characters, lambda: NOW,
-                background_llm=background_llm or FakeBackgroundLLM(*replies),
-                embedder=embedder or FakeEmbedder(),
-                reranker=reranker or FakeReranker("制作人"),
+            else writing_with(
+                Memories(
+                    tmp_path / "eidolon.db", world.characters, lambda: NOW,
+                    embedder=embedder or FakeEmbedder(),
+                    reranker=reranker or FakeReranker("制作人"),
+                ),
+                background_llm or FakeBackgroundLLM(*replies),
             )
         )
         made.append(memories)
@@ -80,13 +98,13 @@ async def make_memories(tmp_path: Path, world: World) -> AsyncIterator[MemoriesF
 
 async def tell(memories: Memories, world: World, conversation: Conversation, text: str) -> None:
     """Take a turn in which the user says `text`, and write down what it reveals."""
-    turn = await memories.begin(conversation, TZ)
+    turn = await begin(memories, conversation)
     history = world.store.list_messages(conversation.id)
     turn.write_down(history, text, world.reply(conversation, text))
 
 
 async def find(memories: Memories, conversation: Conversation, text: str) -> str:
-    turn = await memories.begin(conversation, TZ)
+    turn = await begin(memories, conversation)
     return await turn.find(text) or ""
 
 
@@ -128,7 +146,7 @@ async def test_a_memory_told_to_a_character_since_removed_is_hearsay_from_anothe
     await earlier.entries(world.producer)  # written down
     without_mano = {"kogane": world.characters["kogane"]}
     memories = Memories(
-        tmp_path / "eidolon.db", without_mano, lambda: NOW, background_llm=FakeBackgroundLLM(),
+        tmp_path / "eidolon.db", without_mano, lambda: NOW,
         embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
     )
 

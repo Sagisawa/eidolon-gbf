@@ -262,11 +262,11 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        own_llm = own_keys.chat_llm(user_id)
-        use = usage.take(user_id, "turn", exempt=own_llm is not None)
+        keys = own_keys.for_turn(user_id)
+        use = usage.take(user_id, "turn", exempt=keys.exempt)
 
         async def events() -> AsyncIterator[str]:
-            async for event in engine.turn(conversation, body.text, device_timezone, own_llm):
+            async for event in engine.turn(conversation, body.text, keys.llms, device_timezone):
                 if isinstance(event, TurnFailed):
                     use.give_back()
                 yield _sse(asdict(event))

@@ -45,7 +45,8 @@ async def tell_mano(backend: Backend, text: str) -> tuple[str, list[dict]]:
     """Take one turn in a new conversation with Mano; returns its user and events."""
     user = backend.store.create_user("producer")
     conversation = backend.store.create_conversation(user.id, "mano")
-    return user.id, [asdict(e) async for e in backend.engine.turn(conversation, text)]
+    llms = backend.own_keys.for_turn(user.id).llms
+    return user.id, [asdict(e) async for e in backend.engine.turn(conversation, text, llms)]
 
 
 async def test_with_every_service_turns_retrieve_and_remember(

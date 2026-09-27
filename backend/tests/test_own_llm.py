@@ -129,6 +129,31 @@ async def test_a_failing_own_llm_fails_the_turn_without_the_deployers_key_or_cou
     assert len(messages.json()) == 2
 
 
+async def test_a_turn_on_an_own_llm_that_can_no_longer_be_decrypted_is_refused_uncounted(
+    make_client: ClientFactory, own_llm: FakeLLMService, settings: Settings
+):
+    await bring_llm(make_client(FakeLLM()))
+    deployers = FakeLLM(REPLY)
+    changed = replace(  # EIDOLON_SECRET_KEY changed since the key was kept
+        settings, secret_key="another-secret-key", usage_limits=UsageLimits(turns_per_hour=1)
+    )
+    client = make_client(deployers, settings=changed)
+    conversation_id = await start_conversation(client)
+
+    refused = await client.post(
+        f"/api/conversations/{conversation_id}/turns", json={"text": "在吗"}
+    )
+    await client.delete("/api/account/keys/llm")
+    again = await send_turn(client, conversation_id, "在吗")
+
+    assert refused.status_code == 409
+    assert "你的LLM密钥调用失败" in refused.json()["detail"]
+    assert "保存的密钥无法解密" in refused.json()["detail"]
+    assert again[-1]["type"] == "done"  # the refused turn did not count
+    assert deployers.keys == [DEPLOYER_KEY]
+    assert own_llm.llm.keys == []
+
+
 async def test_deleting_the_own_llm_goes_back_to_the_deployers(
     make_client: ClientFactory, own_llm: FakeLLMService
 ):

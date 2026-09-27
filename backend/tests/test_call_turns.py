@@ -73,7 +73,8 @@ class CallUnderTest:
         backend = build(self._settings, chat_llm=llm, clock=lambda: NOW)
         try:
             mano = backend.characters["mano"]
-            call = Call(self.conversation, mano, muted, "standard")
+            llms = backend.own_keys.for_turn(self.conversation.user_id).llms
+            call = Call(self.conversation, mano, llms, muted, "standard")
             down, _ = await run_test(CallTurns(backend.engine, call, limits), frames_to_send=frames)
         finally:
             await backend.aclose()

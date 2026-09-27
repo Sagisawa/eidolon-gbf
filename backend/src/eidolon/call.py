@@ -7,9 +7,8 @@
 `Calls` is all the API sees: it answers the browser's offers, keeps each call to the
 user who placed it, counts calls towards the user's limit, and serves each call until it
 hangs up. Speech recognition and synthesis are the `Speech` port, Soniox and Fish Audio
-in production, on the user's own keys where they brought them and the deployer's
-otherwise. A call on the user's own LLM, speech synthesis and speech recognition keys
-alike does not count towards their limit; a failing own key ends the call saying which.
+in production, on whoever's keys `OwnKeys.for_call` says; a failing own key ends the
+call saying which.
 
 Pipecat's own LLM services and context aggregators are not used: every utterance,
 spoken or typed during the call, goes through the same conversation engine as a
@@ -69,9 +68,11 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
 from eidolon.engine import ConversationEngine, TurnDone
-from eidolon.llm import ChatLLM
+from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
     SERVICE_LABELS,
+    CallKeys,
+    CallsUnavailable,
     OwnKeyFailed,
     OwnKeyRejected,
     OwnKeys,
@@ -92,15 +93,15 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 
 @dataclass(frozen=True)
 class Call:
-    """A call the browser asked for: which conversation, how it wants the audio, and the
-    time zone its device reports; and the user's own LLM, if they brought one."""
+    """A call the browser asked for: which conversation, the models its turns run on, how
+    it wants the audio, and the time zone its device reports."""
 
     conversation: Conversation
     character: Character
+    llms: TurnLLMs
     muted: bool
     quality: Quality
     device_timezone: str | None = None
-    own_llm: ChatLLM | None = None
 
 
 @dataclass(frozen=True)
@@ -118,13 +119,6 @@ from the admin command line in another process."""
 
 CONNECT_TIMEOUT = timedelta(seconds=30)
 """How long a call may take to connect after it is answered; after that it is given up."""
-
-
-class CallsUnavailable(Exception):
-    """Voice calls are not configured."""
-
-    def __init__(self) -> None:
-        super().__init__("语音通话尚未配置，请联系管理员")
 
 
 class CallNotFound(Exception):
@@ -222,15 +216,6 @@ class SonioxFishSpeech:
             raise OwnKeyRejected(f"{res.status_code} {res.text[:200]}")
 
 
-@dataclass(frozen=True)
-class SpeechKeys:
-    """Whose keys a call hears and speaks with, and which of them are the user's own."""
-
-    stt: str
-    tts: str
-    own: frozenset[Service]
-
-
 class Calls:
     """The user's voice calls, from signalling to hanging up.
 
@@ -245,9 +230,9 @@ class Calls:
         settings: Settings,
         engine: ConversationEngine,
         usage: UsageLimiter,
-        speech: Speech | None,
+        speech: Speech,
         clock: Clock,
-        own_keys: OwnKeys | None = None,
+        own_keys: OwnKeys,
         store: Store | None = None,
     ) -> None:
         """With `store`, calls of users banned or deleted meanwhile are hung up."""
@@ -271,8 +256,10 @@ class Calls:
         self._watch: asyncio.Task | None = None  # hangs up banned and deleted users' calls
 
     def ice_servers(self, user_id: str) -> list[IceServer]:
-        """What the browser needs before calling, with TURN credentials of its own."""
-        self._speech_for(user_id)
+        """What the browser needs before calling, with TURN credentials of its own. Raises
+        CallsUnavailable or OwnKeyFailed, as `OwnKeys.for_call` does, before anything is
+        spent on a call that could not start."""
+        self._own_keys.for_call(user_id)
         servers = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
@@ -286,16 +273,14 @@ class Calls:
         options: CallOptions,
         offer: SessionDescription,
     ) -> dict:
-        """Answer a new call into the user's `conversation` with `character`. Raises
-        OverLimit when the user has no calls left this hour, unless the call is on their
-        own keys alone."""
-        speech, keys = self._speech_for(user_id)
-        own_llm = self._own_keys.chat_llm(user_id) if self._own_keys else None
-        exempt = self._own_keys is not None and self._own_keys.exemptions(user_id)["calls"]
-        use = self._usage.take(user_id, "call", exempt=exempt)
+        """Answer a new call into the user's `conversation` with `character`, on the keys
+        `OwnKeys.for_call` says. Raises OverLimit when the user has no calls left this
+        hour, unless the call is exempt."""
+        keys = self._own_keys.for_call(user_id)
+        use = self._usage.take(user_id, "call", exempt=keys.exempt)
         call = Call(
-            conversation, character, options.muted, options.quality, options.device_timezone,
-            own_llm,
+            conversation, character, keys.llms, options.muted, options.quality,
+            options.device_timezone,
         )
         connections: list[SmallWebRTCConnection] = []
         started: list[_LiveCall] = []
@@ -307,7 +292,9 @@ class Calls:
             async def forget(connection: SmallWebRTCConnection) -> None:
                 self._owners.pop(connection.pc_id, None)
 
-            live = _LiveCall(connection, call, self._engine, speech, keys, self._limits, use)
+            live = _LiveCall(
+                connection, call, self._engine, self._speech, keys, self._limits, use
+            )
             self._live.add(live)
             live.start(on_done=self._live.discard)
             started.append(live)
@@ -329,7 +316,6 @@ class Calls:
         self, user_id: str, pc_id: str, offer: SessionDescription, restart: bool = False
     ) -> dict:
         """Renegotiate one of the user's calls, possibly on a fresh peer connection; free."""
-        self._speech_for(user_id)
         self._require_owner(user_id, pc_id)
         request = SmallWebRTCRequest(offer.sdp, offer.type, pc_id, restart)
         answer = await self._answer(request, _no_new_connection)
@@ -383,16 +369,6 @@ class Calls:
             log.exception("could not set up a call")
             return None
 
-    def _speech_for(self, user_id: str) -> tuple[Speech, SpeechKeys]:
-        """The speech services for the user's calls, and whose keys; raises
-        CallsUnavailable unless there is a key for each, theirs or the deployer's."""
-        own = self._own_keys.speech_keys(user_id) if self._own_keys else {}
-        stt = own.get("stt") or self._settings.soniox_api_key
-        tts = own.get("tts") or self._settings.fish_audio_api_key
-        if self._speech is None or not stt or not tts:
-            raise CallsUnavailable()
-        return self._speech, SpeechKeys(stt, tts, frozenset(own))
-
     def _require_owner(self, user_id: str, pc_id: str) -> None:
         if self._owners.get(pc_id) != user_id:
             raise CallNotFound()
@@ -412,7 +388,7 @@ class _LiveCall:
         call: Call,
         engine: ConversationEngine,
         speech: Speech,
-        keys: SpeechKeys,
+        keys: CallKeys,
         limits: CallLimits,
         use: Use,
     ) -> None:
@@ -626,7 +602,7 @@ class CallTurns(FrameProcessor):
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
-                self._call.conversation, text, self._call.device_timezone, self._call.own_llm
+                self._call.conversation, text, self._call.llms, self._call.device_timezone
             ):
                 if isinstance(event, TurnDone):  # recorded by now, whatever happens next
                     self.recorded += 1
