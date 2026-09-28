@@ -8,7 +8,7 @@ user now; the stories she recalls stay as they happened.
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from functools import cache
 from typing import Literal
 from zoneinfo import ZoneInfo, available_timezones
@@ -50,6 +50,11 @@ def effective_timezone(profile: ProducerProfile, device_timezone: str | None) ->
         if timezone and is_timezone(timezone):
             return timezone
     return DEFAULT_TIMEZONE
+
+
+def local_date(now: datetime, timezone: str) -> date:
+    """The day it is at `now` where the producer is: the day `producer_prompt` tells."""
+    return now.astimezone(ZoneInfo(timezone)).date()
 
 
 def producer_prompt(profile: ProducerProfile, now: datetime, timezone: str) -> str:

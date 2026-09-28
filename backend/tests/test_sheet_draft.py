@@ -22,8 +22,8 @@ SHEET = """\
 プロデューサーさん
 ## 口癖
 ほわっ
-## 组合成员
-illumination STARS
+## 与组合伙伴的关系
+灯織ちゃん、めぐるちゃん，一起发光的好朋友。
 ## 硬性规则
 始终以真乃的身份说话。
 """
@@ -99,7 +99,28 @@ async def test_the_draft_has_every_part_of_a_sheet_and_is_marked_as_a_draft(
     # The sheet works as is; the marker stays out of the prompt.
     mano = load_characters(characters.path)["mano"]
     assert DRAFT_MARKER not in mano.sheet and "你是櫻木真乃。" in mano.sheet
-    assert "## 组合成员" in mano.sheet
+    assert "## 与组合伙伴的关系" in mano.sheet
+
+
+async def test_the_draft_asks_for_her_relations_with_her_partners_not_a_member_list(
+    corpus: StoryCorpus, characters: CharacterConfig
+):
+    # Who is in which unit comes from the world setting; a sheet listing them again
+    # could disagree with it.
+    # Taking notes first, so both kinds of instructions are seen.
+    llm = FakeLLM(["- 自称わたし"], ["- 口癖ほわっ"], ["- 喜欢鸽子"], [SHEET])
+
+    await draft_sheet(drafting(characters)["mano"], corpus, llm, budget=180)
+
+    instructions = [prompt[0].content for prompt in llm.prompts]
+    draft = instructions[-1]
+    assert "## 与组合伙伴的关系" in draft
+    assert "组合成员" not in draft
+    assert "不要列成员名单" in draft
+    assert not any("所属组合和" in i or "其他成员" in i for i in instructions)
+    assert all("组合伙伴" in i for i in instructions)
+    written = (characters.directory / "sheets/mano.md").read_text(encoding="utf-8")
+    assert "## 组合成员" not in written and "（待补充）" not in written
 
 
 async def test_a_reviewed_sheet_is_not_overwritten_unless_asked(

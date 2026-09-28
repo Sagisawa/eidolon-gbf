@@ -1,10 +1,11 @@
 """Embedding everything again after the embedding service, model or dimensions change
-(ADR-0005), from the text already in the database: the story corpus, the character facts
-and every user's memories. Nothing is downloaded or imported again.
+(ADR-0005), from the text already in the database and the character configuration: the
+story corpus, the character facts, the shared index of songs, releases and live days, and
+every user's memories. Nothing is downloaded or imported again.
 
 Only what has no vector from the current model is embedded, in batches that are each
 committed, so an interrupted run loses nothing and a rerun picks up where it stopped.
-Only once all three are done are the other models' vectors dropped; a failure drops
+Only once all four are done are the other models' vectors dropped; a failure drops
 nothing. The server can keep running meanwhile: its searches find only what is done.
 """
 
@@ -19,6 +20,8 @@ from eidolon.corpus import REEMBED_BATCH, StoryCorpus
 from eidolon.embedding import Embedder
 from eidolon.facts import FactIndex
 from eidolon.memory import Memories
+from eidolon.world import World
+from eidolon.world_index import WorldIndex
 
 log = logging.getLogger(__name__)
 
@@ -29,11 +32,13 @@ class ReembedReport:
     """Story passages embedded."""
     facts: int
     """Character facts embedded."""
+    world: int
+    """Entries of the shared index of songs, releases and live days embedded."""
     memories: int
     """Memories embedded."""
     forgotten: int
-    """Vectors of other models dropped (character facts' and memories'; each story passage
-    keeps only one vector, which re-embedding replaces)."""
+    """Vectors of other models dropped (character facts', the shared index's and memories';
+    each story passage keeps only one vector, which re-embedding replaces)."""
 
 
 async def reembed(
@@ -41,13 +46,16 @@ async def reembed(
     characters: Iterable[Character],
     embedder: Embedder,
     batch: int = REEMBED_BATCH,
+    world: World | None = None,
 ) -> ReembedReport:
     """Embed with `embedder` whatever in the database at `path` has no vector from it yet,
-    then drop the other models' vectors. Raises EmbeddingError, having dropped nothing
-    but kept what it finished, if the embedding service fails."""
+    the entries of `world` included, then drop the other models' vectors. Raises
+    EmbeddingError, having dropped nothing but kept what it finished, if the embedding
+    service fails."""
     by_id = {c.id: c for c in characters}
     corpus = StoryCorpus(path, embedder)
     facts = FactIndex(path, embedder)
+    world_index = WorldIndex(path, embedder, world)
     memories = Memories(path, by_id, utc_now)
     try:
         missing = corpus.count_missing_vectors()
@@ -59,12 +67,19 @@ async def reembed(
         for character in by_id.values():
             embedded_facts += await facts.embed_missing(character)
         log.info("角色资料：新向量化 %d 条", embedded_facts)
+        embedded_world = await world_index.embed_missing()
+        log.info("歌曲、唱片和演出：新向量化 %d 条", embedded_world)
         embedded_memories = await memories.embed_missing(
             embedder, batch, lambda done: log.info("记忆：%d 条", done)
         )
-        forgotten = facts.forget_other_models() + memories.forget_other_models(embedder.model)
+        forgotten = (
+            facts.forget_other_models()
+            + world_index.forget_other_models()
+            + memories.forget_other_models(embedder.model)
+        )
     finally:
         corpus.close()
         facts.close()
+        world_index.close()
         await memories.aclose()
-    return ReembedReport(passages, embedded_facts, embedded_memories, forgotten)
+    return ReembedReport(passages, embedded_facts, embedded_world, embedded_memories, forgotten)

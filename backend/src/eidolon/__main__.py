@@ -15,12 +15,21 @@
     eidolon story sync               import SCTranslationData, then the card, produce and event
                                      episodes it lacks from the ShinyColorsDB mirror; exits 2
                                      if the mirror failed
+    eidolon world sync               import the idols, units, president and clerk from
+                                     im@sparql and the official unit pages, and the releases
+                                     and songs from Lantis (singers it leaves out from
+                                     ふじわらはじめ), and the lives from the official
+                                     sites with each day's performers from wikiwiki,
+                                     into the world setting beside the
+                                     character configuration, and report what changed; the
+                                     old file stays if a source failed
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
     eidolon reembed                  after changing the embedding service, model or
-                                     dimensions, embed the story corpus, character facts
-                                     and memories again from the text in the database
+                                     dimensions, embed the story corpus, character facts,
+                                     songs, releases and lives, and memories again from
+                                     the text in the database and the world setting
     eidolon eval rerank [--model M]  score the reranker on the calibration set, to set its
                                      thresholds
 """
@@ -58,6 +67,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_sync_story(args))
     if args.command == "story":
         return asyncio.run(_import_story(args))
+    if args.command == "world":
+        return asyncio.run(_sync_world(args))
     if args.command == "character":
         return asyncio.run(_draft_sheet(args))
     if args.command == "reembed":
@@ -251,6 +262,26 @@ async def _sync_story(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _sync_world(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from eidolon import world_sync
+    from eidolon.world import world_path
+
+    path = world_path(args.characters or characters_path_from_env())
+    client = world_sync.open_client()
+    try:
+        report = await world_sync.sync_world(path, client, date.today())
+    except world_sync.WorldSyncError as e:
+        print(f"导入失败，资料文件没有改动：{e}", file=sys.stderr)
+        return 1
+    finally:
+        await client.aclose()
+    for line in report.lines():
+        print(line)
+    return 0
+
+
 async def _draft_sheet(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
     from eidolon.config import LLMSettings
@@ -332,9 +363,12 @@ async def _reembed(args: argparse.Namespace) -> int:
     from eidolon.config import EmbeddingSettings
     from eidolon.embedding import EmbeddingError, open_embedder
     from eidolon.reembed import reembed
+    from eidolon.world import load_world, world_path
 
     try:
-        characters = load_characters(args.characters or characters_path_from_env())
+        characters_path = args.characters or characters_path_from_env()
+        characters = load_characters(characters_path)
+        world = load_world(world_path(characters_path))
         settings = EmbeddingSettings.required_from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
@@ -347,7 +381,7 @@ async def _reembed(args: argparse.Namespace) -> int:
     embedder = open_embedder(settings)
     try:
         report = await reembed(
-            args.db or database_path_from_env(), characters.values(), embedder
+            args.db or database_path_from_env(), characters.values(), embedder, world=world
         )
     except EmbeddingError as e:
         print(
@@ -360,6 +394,7 @@ async def _reembed(args: argparse.Namespace) -> int:
     print(f"向量化模型：{embedder.model}")
     print(f"剧情库：新向量化 {report.passages} 段")
     print(f"角色资料：新向量化 {report.facts} 条")
+    print(f"歌曲、唱片和演出：新向量化 {report.world} 条")
     print(f"记忆：新向量化 {report.memories} 条")
     print(f"删除了其他模型的 {report.forgotten} 个向量")
     return 0
@@ -375,9 +410,13 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     from eidolon.facts import FactIndex
     from eidolon.rerank import RerankError, SiliconFlowReranker, thresholds_for
     from eidolon.rerank_eval import CalibrationError, evaluate, load_calibration, report
+    from eidolon.world import load_world, world_path
+    from eidolon.world_index import WorldIndex
 
     try:
-        characters = load_characters(args.characters or characters_path_from_env())
+        characters_path = args.characters or characters_path_from_env()
+        characters = load_characters(characters_path)
+        world = load_world(world_path(characters_path))
         calibration = load_calibration(args.file)
         embedding = EmbeddingSettings.required_from_env()
         rerank = RerankSettings.from_env()
@@ -392,16 +431,21 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     reranker = SiliconFlowReranker(rerank.api_key, rerank.model, rerank.base_url)
     path = args.db or database_path_from_env()
     corpus, facts = StoryCorpus(path, embedder), FactIndex(path, embedder)
+    world_index = WorldIndex(path, embedder, world) if world is not None else None
     try:
         if missing := corpus.count_missing_vectors():
             print(f"注意：剧情库有 {missing} 段没有 {embedder.model} 的向量，先运行 eidolon reembed", file=sys.stderr)
-        results = await evaluate(calibration, characters, embedder, reranker, corpus, facts)
+        results = await evaluate(
+            calibration, characters, embedder, reranker, corpus, facts, world_index
+        )
     except (CalibrationError, EmbeddingError, RerankError) as e:
         print(e, file=sys.stderr)
         return 1
     finally:
         corpus.close()
         facts.close()
+        if world_index is not None:
+            world_index.close()
         await embedder.aclose()
         await reranker.aclose()
     print(report(results, rerank.model, thresholds_for(rerank)))
@@ -520,6 +564,22 @@ def _parser() -> argparse.ArgumentParser:
             help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
         )
 
+    world = commands.add_parser("world", help="管理世界设定").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    world_sync = world.add_parser(
+        "sync",
+        help="从 im@sparql 和官方组合页导入偶像、组合、社长和事务员，从 Lantis（和 ふじわらはじめ）导入唱片和歌曲，"
+        "从偶像大师官方门户和旧官方站导入演出、从 wikiwiki 导入逐日出演者，"
+        "写入角色配置旁边的 world.json，"
+        "并打印导入报告（任何来源失败时不改动旧文件）",
+    )
+    world_sync.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件，资料写在它旁边（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
+
     character = commands.add_parser("character", help="管理角色").add_subparsers(
         dest="action", required=True, metavar="操作"
     )
@@ -568,7 +628,7 @@ def _parser() -> argparse.ArgumentParser:
 
     reembed = commands.add_parser(
         "reembed",
-        help="换了向量化服务、模型或维度后，用库里的原文重新向量化剧情库、角色资料和记忆"
+        help="换了向量化服务、模型或维度后，用库里的原文重新向量化剧情库、角色资料、歌曲唱片和演出、记忆"
         "（可中断、可重复执行；服务不必停止）",
     )
     reembed.add_argument(

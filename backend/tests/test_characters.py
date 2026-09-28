@@ -168,7 +168,7 @@ def test_text_before_any_heading_is_an_untitled_fact():
 def test_missing_character_sheet_is_reported_with_its_path(tmp_path: Path):
     config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", sheet=None)
 
-    with pytest.raises(CharacterConfigError, match=r"sheets/mano\.md"):
+    with pytest.raises(CharacterConfigError, match=r"sheets[/\\]mano\.md"):
         load_characters(config.path)
 
 

@@ -24,8 +24,10 @@ from eidolon.llm import ChatLLM, ChatMessage
 
 log = logging.getLogger(__name__)
 
-SECTIONS = ("身份", "自称", "对他人的称呼", "口癖", "组合成员", "硬性规则")
-"""The parts of a character sheet, each a `##` section of the draft."""
+SECTIONS = ("身份", "自称", "对他人的称呼", "口癖", "与组合伙伴的关系", "硬性规则")
+"""The parts of a character sheet, each a `##` section of the draft. Who is in which unit
+is the world setting's to say, so a sheet has her relations with her partners, not a list
+of members."""
 
 DEFAULT_BUDGET = 40_000
 """How much material, in characters, goes into one request to the background model."""
@@ -178,7 +180,7 @@ def _notes_instructions(character: Character, kind: str) -> str:
     return f"""\
 你在为《偶像大师 闪耀色彩》的偶像{character.name}整理人设素材。下面是她出场的一部分{kind}。
 用中文记下能看出她是什么样的人的要点：身份和经历、自称、对制作人和其他人物的称呼、口癖和说话方式、\
-所属组合和成员、性格和价值观、她绝不会做或说的事。
+她和组合伙伴之间的称呼和相处方式、性格和价值观、她绝不会做或说的事。
 称呼、自称和口癖要照原文写出日语，并尽量注明出自哪段剧情。只写素材里看得到的内容，不要推测。
 只输出要点列表。"""
 
@@ -193,7 +195,7 @@ def _draft_instructions(character: Character, kind: str) -> str:
 
 - 身份：她是谁、所属事务所、正在和制作人说话。
 - 自称、对他人的称呼、口癖：照原文写出日语，对制作人和其他主要人物分别写。
-- 组合成员：所属组合和其他成员，以及她和各成员的关系。
+- 与组合伙伴的关系：她和每位组合伙伴之间的称呼和相处方式；组合有哪些成员另有资料，不要列成员名单。
 - 硬性规则：扮演她时必须遵守、绝不能违反的事，包括始终以她的身份说话、不提到自己是 AI。
 只写素材里看得到的内容，没有依据的小节写「{_MISSING}」。只输出这些小节，不要其他文字。"""
 

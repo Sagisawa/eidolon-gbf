@@ -185,7 +185,7 @@ docker compose exec backend eidolon character draft-sheet mano --output /data/dr
 docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 ```
 
-- Source material is only the canon episodes the character appears in. The draft has sections for identity, self-reference, how she addresses others, verbal tics, unit members and hard rules; sections the model misses are left as “（待补充）” (to be filled in). An episode longer than the limit is read in parts, never truncated.
+- Source material is only the canon episodes the character appears in. The draft has sections for identity, self-reference, how she addresses others, verbal tics, relationships with unit partners and hard rules; sections the model misses are left as “（待补充）” (to be filled in). An episode longer than the limit is read in parts, never truncated.
 - The first line of a draft is a draft marker. The sheet works normally while it's there (the marker never enters the prompt), but the backend warns at startup that the sheet hasn't been proofread; delete the line once you're done.
 - A proofread sheet (no marker) is never overwritten — pass `--force` to regenerate anyway. An unproofread draft is simply replaced.
 - When the material exceeds one request's budget (`--budget`, 40,000 characters by default), the background model first takes notes batch by batch, then drafts from the notes; beyond 20 batches, episodes are sampled evenly from the whole corpus. Mano has about 220 episodes (≈330k characters), which takes roughly ten background-model requests.
@@ -291,6 +291,10 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 For local development, run `uv run eidolon --db data/eidolon.db story sync` in `backend/` (likewise `import-csv` and `import-json`).
 
+### World setting
+
+The office's president and clerk, the eight units and their idols, the character's own songs (those she sings alone and those her whole unit sings, each with the releases it is on and their dates), and the lives she stood on or is to stand on (each day's date and venue, the days her CV was absent left out) go into every turn after the character sheet ([ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)). The data is `characters/world.json`, beside the character configuration and committed to the repository. To update it, run `uv run eidolon world sync` in `backend/`: it imports the idols and units from im@sparql and the official unit pages, and the releases, their tracks and singers from Lantis's Shiny Colors site (with ふじわらはじめ's API filling in singers Lantis leaves out), and the lives from the idolmaster portal (the old official site before September 2020) with each day's performers and absences from wikiwiki, and each day's setlist from imas-db (who sang each song, backing dancers not counted; covers of other brands' songs at joint lives are recorded as such, marked with their brand, but are no songs of hers), and prints how many of each there are, what changed since the old file, where the sources disagree (including days imas-db and the lives disagree on, such as a day of two shows, which get no setlist) and which singers and performers match none of the idols; read the `git diff` before committing. Corrections checked by hand (who sings a track or that it is no song, who actually stood on a day, which performers are no idols) go in `characters/world-corrections.json` beside it, each with its source and a note, and every import applies them. If any source fails, the old file is left as it was. Every character's display name must match one of the idols or the backend will not start; without the file, it runs without the world setting.
+
 ### Embedding service
 
 The story corpus, character facts and memories all share one embedding service, chosen at deploy time with `EMBEDDING_PROVIDER` ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)). Reranking doesn't follow the switch; it always uses SiliconFlow.
@@ -309,7 +313,7 @@ The story corpus, character facts and memories all share one embedding service, 
   docker compose exec backend eidolon reembed
   ```
 
-  It re-embeds the story corpus, character facts and every user's memories from the text already in the database, with no need to download or import episodes again; once everything is done it deletes the old model's vectors. The service stays up meanwhile, though retrieval only finds the parts already done. You can interrupt it any time and rerun it to pick up where it stopped; if it fails, the old vectors are not deleted.
+  It re-embeds the story corpus, character facts, the shared index of songs, releases and lives (built from the world setting's data file) and every user's memories from the text already in the database, with no need to download or import episodes again; once everything is done it deletes the old model's vectors. The service stays up meanwhile, though retrieval only finds the parts already done. You can interrupt it any time and rerun it to pick up where it stopped; if it fails, the old vectors are not deleted.
 - If the backend finds on startup that some corpus passages lack vectors for the current model, it logs a reminder to run `eidolon reembed`.
 - A model's stored ID includes its dimensions (e.g. `gemini-embedding-2@1536`), so changing dimensions counts as switching models. Existing deployments that stay on SiliconFlow need to do nothing.
 
@@ -322,14 +326,16 @@ flowchart LR
     Q["User's line"] --> Jev{"Jev decides"}
     Jev -- small talk --> None["No retrieval"]
     Jev -- about the user's life --> Mem["Memories only"]
-    Jev -- needs references --> Ref["Episodes + facts + memories<br/>→ reranker"]
-    Jev -- asks about the past --> Recall["Recall story directly"]
+    Jev -- needs references --> Ref["Episodes + facts + songs/releases/lives + memories<br/>→ reranker"]
+    Jev -- asks about the past --> Recall["Recall story directly<br/>+ look up lives and releases"]
 ```
 
 - Every line first goes to Jev (via Vercel AI Gateway) to decide what it needs. Small talk: no retrieval, no added latency. Needs references: the search below. A question like "what happened that time…?": the line is used to **recall story** right away and the result goes into the prompt, saving the chat model a tool-call round. If Jev errors, retrieval runs anyway.
-- A search covers the episodes the current character appears in plus her character facts, reranked with SiliconFlow's Qwen3-Reranker (`Qwen/Qwen3-Reranker-0.6B` by default, `RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). What counts as "sufficiently relevant" is a threshold set per reranker model (both 0.6B's and 4B's are calibrated), which you can also set by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`; `eidolon eval rerank` prints the score distribution on the repo's calibration dataset to help pick one (see [`docs/deploy.md`](docs/deploy.md)). If search or reranking fails, the turn proceeds without references.
-- The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. At most one tool round per line; turns Jev already routed to story recall don't offer the tool.
+- A search covers the episodes the current character appears in, her character facts, and the index all characters share (one entry per song, release and live day), reranked with SiliconFlow's Qwen3-Reranker (`Qwen/Qwen3-Reranker-0.6B` by default, `RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). What counts as "sufficiently relevant" is a threshold set per reranker model (both 0.6B's and 4B's are calibrated), which you can also set by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`; `eidolon eval rerank` prints the score distribution on the repo's calibration dataset to help pick one (see [`docs/deploy.md`](docs/deploy.md)). If search or reranking fails, the turn proceeds without references.
+- The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. The tool searches only the story. At most one tool round per line; turns Jev already routed to story recall don't offer the tool.
 - Character facts are the Markdown file referenced by `facts` in `characters.toml`, one entry per heading. They're embedded on a character's first search, and afterwards only changed entries are re-embedded; just restart the backend after editing.
+- The shared index's entries are built from the world setting's data file `characters/world.json`: each song with its singers and releases, each release with its date and tracks, each live day with its date, venue, performing idols and setlist — never a CV's name. Setlists only come up when retrieved; they are not in every turn. Like character facts they're embedded on the first search (about 1,400 entries with the current data, so the first one is slower; run `eidolon reembed` beforehand to have them ready), and afterwards only changed entries are re-embedded; restart the backend after re-importing. Without the data file this index isn't searched.
+- When Jev routes a turn to story recall, lives and releases from the shared index are looked up and reranked along with the episodes; if the story has no record of how something went, the character is told that doesn't mean it never happened, so she neither makes it up nor denies it.
 
 ### Memory
 
@@ -458,6 +464,12 @@ eidolon-sc/
 │   │   ├── story_import.py   #   story corpus import (CSV / JSON) and the canon rules
 │   │   ├── story_sync.py     #   keeping the corpus in step with the game (eidolon story sync)
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
+│   │   ├── world.py          #   world setting: the data file and the section every turn carries
+│   │   ├── world_sync.py     #   importing the world setting (eidolon world sync)
+│   │   ├── world_index.py    #   the shared index of songs, releases and lives
+│   │   ├── release_sync.py   #   importing releases and songs (Lantis; singers it leaves out from ふじわらはじめ)
+│   │   ├── live_sync.py      #   importing lives and who stood on each day (the portal, the old site; performers from wikiwiki)
+│   │   ├── setlist_sync.py   #   importing each live day's setlist (imas-db)
 │   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols

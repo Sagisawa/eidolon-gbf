@@ -15,6 +15,10 @@ the turn already recalled an episode. Its calls are answered and the model asked
 again, once at most since every round costs the model's time to first token; whatever
 it says along the way is part of the reply, and only the reply is recorded.
 
+Every turn carries the world setting, when there is one, after the character sheet: the
+office and its units, and the character's own songs and lives, each release and live
+told as past or still to come by the day it is where the user is, the day the prompt about the producer tells.
+
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
 
@@ -38,7 +42,7 @@ from eidolon.clock import Clock
 from eidolon.llm import ChatMessage, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.producer import effective_timezone, producer_prompt
+from eidolon.producer import effective_timezone, local_date, producer_prompt
 from eidolon.reply_format import (
     FORMAT_INSTRUCTIONS,
     ReplyParser,
@@ -49,6 +53,7 @@ from eidolon.reply_format import (
 )
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import Conversation, Message, Store
+from eidolon.world import World
 
 MAX_INPUT_LENGTH = 2000
 """The longest thing a user can say in one turn, typed or spoken, in characters; longer
@@ -155,16 +160,18 @@ class ConversationEngine:
         clock: Clock,
         retrieval: Retrieval | None = None,
         history_turns: int | None = None,
+        world: World | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest `history_turns` turns, or
-        all of them if None."""
+        all of them if None. Without `world`, turns carry no world setting."""
         self._store = store
         self._characters = characters
         self._clock = clock
         self._retrieval = retrieval
         self._memory = memory
         self._history_turns = history_turns
+        self._world = world
 
     async def turn(
         self,
@@ -211,8 +218,12 @@ class ConversationEngine:
             if self._retrieval
             else Retrieved(None)
         )
-        about_producer = producer_prompt(profile, self._clock(), timezone)
-        prompt = self._prompt(character, about_producer, history, retrieved, text)
+        now = self._clock()
+        about_producer = producer_prompt(profile, now, timezone)
+        world_prompt = (
+            self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
+        )
+        prompt = self._prompt(character, world_prompt, about_producer, history, retrieved, text)
 
         tools: list[Tool] = (
             [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
@@ -267,12 +278,16 @@ class ConversationEngine:
     def _prompt(
         self,
         character: Character,
+        world_prompt: str | None,
         about_producer: str,
         history: list[Message],
         retrieved: Retrieved,
         text: str,
     ) -> list[ChatMessage]:
-        sections = [character.sheet, about_producer]
+        sections = [character.sheet]
+        if world_prompt:
+            sections.append(world_prompt)
+        sections.append(about_producer)
         if retrieved.memories_prompt:
             sections.append(retrieved.memories_prompt)
         if retrieved.prompt:
