@@ -84,7 +84,7 @@ from eidolon.own_keys import (
     OwnKeys,
     Service,
 )
-from eidolon.reply_format import SegmentComplete, SegmentDelta
+from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.store import Conversation, Store
 from eidolon.turn_taking import (
     ClearVoice,
@@ -597,8 +597,8 @@ class CallTurns(FrameProcessor):
 
     What the user says comes from speech recognition (a final transcription) or from
     text typed during the call (a `user-text` client message). Each turn goes through
-    the conversation engine; the reply's Japanese is sent on as text for TTS, and the
-    browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
+    the conversation engine; the reply's Japanese is sent on as text for TTS, delivery
+    cues and all, and the browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
     server messages, which carry the subtitles. A turn replied to afresh after a
     follow-on opens again with `user`; an interrupted one's `done` carries only the
     segments complete by then.
@@ -828,13 +828,16 @@ class CallTurns(FrameProcessor):
                 if isinstance(event, SegmentComplete):
                     await self._carry_out(self._turns.segment_complete())
                     continue
+                if isinstance(event, SpeechDelta):  # the Japanese just shown, cues and all
+                    await self._carry_out(self._turns.reply_delta("ja", event.text))
+                    continue
                 if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
                     await self._carry_out(self._turns.reply_recorded())
                     self._recorded += 1
                     self._outcome.turn_recorded()
                 await self._send(asdict(event))
-                if isinstance(event, SegmentDelta):
-                    await self._carry_out(self._turns.reply_delta(event.lang, event.text))
+                if isinstance(event, SegmentDelta) and event.lang == "zh":
+                    await self._carry_out(self._turns.reply_delta("zh", event.text))
         except Exception:  # the turn is over all the same, rather than the call stuck in it
             log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:

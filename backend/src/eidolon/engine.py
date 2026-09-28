@@ -44,6 +44,7 @@ from eidolon.reply_format import (
     ReplyParser,
     SegmentComplete,
     SegmentDelta,
+    SpeechDelta,
     format_reply,
 )
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
@@ -88,9 +89,10 @@ class TurnFailed:
     type: Literal["error"] = field(default="error", init=False)
 
 
-TurnEvent = UserSaid | SegmentDelta | SegmentComplete | TurnDone | TurnFailed
+TurnEvent = UserSaid | SegmentDelta | SpeechDelta | SegmentComplete | TurnDone | TurnFailed
 """A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
-the event as it goes out to the browser, except `SegmentComplete`, which does not."""
+the event as it goes out to the browser, except `SpeechDelta` and `SegmentComplete`, which
+do not."""
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""
@@ -251,7 +253,7 @@ class ConversationEngine:
             raise EmptyReply("对话模型没有返回任何内容")
         reply = self._store.add_turn(conversation.id, text, parser.complete)
         memory.write_down(history, text, reply)
-        yield TurnDone(reply)
+        yield TurnDone(reply.without_cues())
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:
         """The tool's result, or what went wrong, for the model to read."""

@@ -8,11 +8,15 @@ subtitle:
 The parser turns a stream of arbitrary text chunks into per-segment deltas as soon
 as they arrive, so Japanese text can reach TTS before the reply is finished. It also
 says when each segment is complete: once its subtitle closes, the next segment opens
-(the model skipped the subtitle), or the stream ends.
+(the model skipped the subtitle), or the stream ends. The segments keep what the model
+wrote; the deltas show it without delivery cues, and the Japanese is voiced with them
+(see `delivery_cues`).
 """
 
 from dataclasses import dataclass, field
 from typing import Literal
+
+from eidolon.delivery_cues import CueFilter
 
 Lang = Literal["ja", "zh"]
 
@@ -41,7 +45,17 @@ class SegmentComplete:
     type: Literal["segment-complete"] = field(default="segment-complete", init=False)
 
 
-ParserEvent = SegmentDelta | SegmentComplete
+@dataclass(frozen=True)
+class SpeechDelta:
+    """More of segment `segment`'s Japanese to voice, sent along with the `SegmentDelta`
+    that shows it: the same words, but with their delivery cues. Stays on the server."""
+
+    segment: int
+    text: str
+    type: Literal["speech-delta"] = field(default="speech-delta", init=False)
+
+
+ParserEvent = SegmentDelta | SpeechDelta | SegmentComplete
 
 
 @dataclass
@@ -57,6 +71,7 @@ class ReplyParser:
     _inside: Lang | None = None
     _stray: str = ""
     _said_complete: int = 0  # how many segments are known to be complete
+    _line: CueFilter = field(default_factory=CueFilter)  # the open tag's content
     _events: list[ParserEvent] = field(default_factory=list)
 
     @property
@@ -74,6 +89,7 @@ class ReplyParser:
                 closed = self._take_content(self._inside)
                 if not closed:
                     return self._hand_over()
+                self._end_line(self._inside)
                 if self._inside == "zh":
                     self._complete_up_to(len(self.segments))
                 self._inside = None
@@ -87,8 +103,10 @@ class ReplyParser:
             text = self._buffer[: len(self._buffer) - keep]
             if text:
                 self._append(self._inside, text)
+            self._end_line(self._inside)
         elif not self.segments and (self._stray + self._buffer).strip():
             self._append("ja", (self._stray + self._buffer).strip())
+            self._end_line("ja")
         self._buffer, self._inside, self._stray = "", None, ""
         self._complete_up_to(len(self.segments))
         return self._hand_over()
@@ -108,6 +126,7 @@ class ReplyParser:
             self._complete_up_to(len(self.segments))
             self.segments.append(Segment())
         self._inside = lang
+        self._line = CueFilter()
         return True
 
     def _take_content(self, lang: Lang) -> bool:
@@ -128,7 +147,18 @@ class ReplyParser:
             self.segments.append(Segment())
         segment = self.segments[-1]
         setattr(segment, lang, getattr(segment, lang) + text)
-        self._events.append(SegmentDelta(len(self.segments) - 1, lang, text))
+        self._show(lang, *self._line.feed(text))
+
+    def _end_line(self, lang: Lang) -> None:
+        self._show(lang, *self._line.finish())
+        self._line = CueFilter()
+
+    def _show(self, lang: Lang, shown: str, voiced: str) -> None:
+        """Show what the reply's text has come to, and voice its Japanese."""
+        if shown:
+            self._events.append(SegmentDelta(len(self.segments) - 1, lang, shown))
+        if lang == "ja" and voiced:
+            self._events.append(SpeechDelta(len(self.segments) - 1, voiced))
 
     def _complete_up_to(self, segments: int) -> None:
         """Say the first `segments` segments are complete, those not said to be already."""

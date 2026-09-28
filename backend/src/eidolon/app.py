@@ -22,7 +22,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.engine import TurnFailed
-from eidolon.reply_format import SegmentComplete
+from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
@@ -274,8 +274,8 @@ def create_app(backend: Backend) -> FastAPI:
                 else {
                     "role": last.role,
                     "text": last.text,
-                    "ja": last.ja,
-                    "zh": last.zh,
+                    "ja": last.without_cues().ja,
+                    "zh": last.without_cues().zh,
                     "created_at": last.created_at,
                 },
             }
@@ -285,7 +285,7 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/conversations/{conversation_id}/messages")
     def list_messages(conversation_id: str, user_id: UserId) -> list[dict]:
         conversation = conversation_or_404(conversation_id, user_id)
-        return [asdict(m) for m in store.list_messages(conversation.id)]
+        return [asdict(m.without_cues()) for m in store.list_messages(conversation.id)]
 
     @app.post("/api/conversations/{conversation_id}/turns")
     def text_turn(
@@ -300,7 +300,7 @@ def create_app(backend: Backend) -> FastAPI:
 
         async def events() -> AsyncIterator[str]:
             async for event in engine.turn(conversation, body.text, keys.llms, device_timezone):
-                if isinstance(event, SegmentComplete):
+                if isinstance(event, SegmentComplete | SpeechDelta):
                     continue
                 if isinstance(event, TurnFailed):
                     use.give_back()
