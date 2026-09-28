@@ -23,7 +23,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 
 import { FailureNotice, SignInButton } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
@@ -41,6 +41,7 @@ import { CallLayer, type ShownCall } from "./CallLayer";
 import { CallNote } from "./CallNote";
 import { MicSheet } from "./MicSheet";
 import { useDirectory, useWide } from "./ConversationDirectory";
+import { useCharacterVoice } from "./useCharacterVoice";
 
 const t = copy.conversation;
 
@@ -63,7 +64,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const [live, setLive] = useState<LiveConversation | null>(null);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
   const { conversation, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
-  const characterAudio = useRef<HTMLAudioElement>(null);
+  const voice = useCharacterVoice(textOnly);
   const shownCall = useShownCall(call);
 
   // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话）。
@@ -76,13 +77,11 @@ export function ConversationView({ character, onBack }: { character: Character; 
       startCall,
       sendTurn,
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
-      onCharacterAudio: (track) => {
-        if (characterAudio.current) characterAudio.current.srcObject = new MediaStream([track]);
-      },
+      onCharacterAudio: (track) => voice.play(track),
     });
     setLive(conversation);
     return () => conversation.dispose();
-  }, [character.id, refresh]);
+  }, [character.id, refresh, voice]);
 
   // 通话的进展告诉列表那一行。
   useEffect(() => {
@@ -93,7 +92,11 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const isOpen = conversation.status === "open";
   const inCall = isLive(call);
   const back = onBack && (() => leave(onBack));
-  const dial = () => void live?.startCall();
+  // 电话质感在拨号这一下定下来（下次接通时生效），也趁这次点击唤醒 AudioContext。
+  const dial = () => {
+    voice.dial(loadCallPreferences().phoneTexture);
+    void live?.startCall();
+  };
 
   // 列表只在拿到空数组时显示空状态，所以把消息和「正在听」放进同一个数组。
   const rows = entries.map((entry) => <Bubble key={entry.key} entry={entry} character={character} />);
@@ -239,7 +242,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
           </ChatLayout>
         )}
       </StackItem>
-      <audio ref={characterAudio} autoPlay muted={textOnly} />
+      {/* 静音由 voice 管：只看文字，或者她的声音改走电话质感时，这里只是持有音轨 */}
+      <audio ref={voice.attach} autoPlay />
       {shownCall && (
         <CallLayer
           character={character}

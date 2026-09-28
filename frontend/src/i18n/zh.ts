@@ -204,6 +204,8 @@ export const zh = {
       quality: "通话音质",
       qualityHint: "角色说话声音的合成音质，越高越清晰，不影响流量。下次接通时生效。",
       qualities: { low: "普通", standard: "清晰", high: "高保真" },
+      phoneTexture: "电话质感",
+      phoneTextureHint: "让角色的声音像隔着电话听筒。下次接通时生效；开启后，不同通话音质之间的差别会变小。",
     },
     ownKeys: {
       title: "自带密钥",

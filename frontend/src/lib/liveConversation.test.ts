@@ -63,7 +63,7 @@ function opening(options: Options = {}) {
   /** Which conversation each call and text turn went to. */
   const sentTo: string[] = [];
   let listChanged = 0;
-  let stored: CallPreferences = { micId: "", quality: "standard", muted: false };
+  let stored: CallPreferences = { micId: "", quality: "standard", muted: false, phoneTexture: false };
   const ports: Ports = {
     listConversations: async () => options.conversations ?? [record("c1")],
     createConversation: async () => {
