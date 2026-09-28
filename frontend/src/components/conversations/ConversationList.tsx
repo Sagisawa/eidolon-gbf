@@ -157,12 +157,12 @@ function Row({
   );
 }
 
-/** 列表里的时间：今天写时刻，昨天写「昨天」，今年写月日，更早写年月日。 */
+/** 列表里的时间：今天写时刻（和气泡下的时间一样写成 8:49），昨天写「昨天」，今年写月日，更早写年月日。 */
 function listTime(at: Date, now: Date): string {
   const two = (n: number) => String(n).padStart(2, "0");
   switch (dayOf(at, now)) {
     case "today":
-      return `${two(at.getHours())}:${two(at.getMinutes())}`;
+      return `${at.getHours()}:${two(at.getMinutes())}`;
     case "yesterday":
       return t.yesterday;
     case "thisYear":

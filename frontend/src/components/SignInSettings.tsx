@@ -100,10 +100,15 @@ export function SignInSettings() {
           ))}
         </List>
       )}
+      {linkable.length > 0 && (
+        <HStack gap={2} wrap="wrap">
+          {linkable.map((provider) => (
+            <Button key={provider} label={t.link(PROVIDER_LABELS[provider])} href={linkUrl(provider)} />
+          ))}
+        </HStack>
+      )}
+      {/* 退出登录和绑定是两件事，分开一行，窄屏换行时不会搅在一起 */}
       <HStack gap={2} wrap="wrap">
-        {linkable.map((provider) => (
-          <Button key={provider} label={t.link(PROVIDER_LABELS[provider])} href={linkUrl(provider)} />
-        ))}
         <Button variant="ghost" label={t.signOut} onClick={() => signOut(false)} />
         <Button variant="ghost" label={t.signOutEverywhere} onClick={() => signOut(true)} />
       </HStack>
