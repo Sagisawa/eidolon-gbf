@@ -28,7 +28,8 @@ of, or one ふじわらはじめ names too. Anyone else Lantis names who is none
 stays so, whatever ふじわらはじめ says. On each disc it was asked about, where it
 disagrees with Lantis, Lantis is kept and the report lists it. A track whose singers are
 still unknown, or which names anyone who is none of the idols, gets no song, and the
-report lists it for the deployer to look into.
+report lists it for the deployer to look into. What the deployer then finds out by hand
+(`TrackCorrections`) goes over whatever the sources say.
 
 The whole cast is no special unit, however it is written (シャイニーカラーズ(28人)), nor
 is a special unit kept for a song ふじわらはじめ tells is sung by one idol or by exactly
@@ -88,7 +89,57 @@ class ReleaseImport:
     """Tracks naming a singer who is none of the idols: no song written."""
     unknown: list[str] = field(default_factory=list)
     """Tracks whose singers no source says: no song written."""
+    corrected: list[str] = field(default_factory=list)
+    """Tracks the corrections set."""
+    unused_corrections: list[str] = field(default_factory=list)
+    """Corrections no track matched."""
     notes: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class TrackCorrection:
+    title: str
+    """The track's title as Lantis gives it: a correction for a track that is no longer
+    that one (the release renumbered) is not applied."""
+    singers: tuple[str, ...] | None
+    """None for a track that is no song."""
+    special_unit: str | None
+    sources: tuple[str, ...]
+    note: str
+
+
+@dataclass
+class TrackCorrections:
+    """Who sings the tracks no source says, or says wrong, as the deployer has found out
+    by hand (`world-corrections.json` beside the data file), applied on every import
+    over whatever Lantis and ふじわらはじめ say: the idols, and the special unit if one
+    sang it, or that it is no song (an instrumental, a remix)."""
+
+    tracks: dict[tuple[str, int], TrackCorrection] = field(default_factory=dict)
+    """By catalog number and track number, from 1."""
+
+    @classmethod
+    def from_json(cls, data: dict, idols: Iterable[Idol], where: str) -> "TrackCorrections":
+        """Raises WorldSyncError, naming `where`, if it is malformed or names someone
+        who is none of the idols."""
+        names = {idol.name for idol in idols}
+        corrections = cls()
+        try:
+            for track in data.get("tracks", []):
+                singers = None if track.get("no_song") else tuple(track["singers"])
+                strangers = [name for name in singers or () if name not in names]
+                if strangers:
+                    raise WorldSyncError(
+                        f"{where} 里 {track['catalog']} 第 {track['track']} 首的演唱者不在偶像名单里："
+                        + "、".join(strangers)
+                    )
+                corrections.tracks[(track["catalog"], int(track["track"]))] = TrackCorrection(
+                    track["title"], singers, track.get("special_unit"), tuple(track["sources"]),
+                    track.get("note", ""),
+                )
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise WorldSyncError(f"{where} 缺少或写错了字段：{e!r}") from None
+        return corrections
 
 
 @dataclass
@@ -131,10 +182,12 @@ class _Release:
 
 
 async def import_releases(
-    fetch: Fetch, idols: Sequence[Idol], units: Sequence[Unit]
+    fetch: Fetch, idols: Sequence[Idol], units: Sequence[Unit],
+    corrections: TrackCorrections | None = None,
 ) -> ReleaseImport:
     """The releases and songs as Lantis and ふじわらはじめ have them now, the singers
-    matched to `idols` and `units`. Raises WorldSyncError if either cannot be read."""
+    matched to `idols` and `units`, `corrections` applied. Raises WorldSyncError if
+    either cannot be read."""
     fan_songs = await _fuji_songs(fetch)
     discography = await fetch(LANTIS_URL)
     urls = _cd_links(discography)
@@ -153,6 +206,7 @@ async def import_releases(
     for release in releases:
         if any(_open(track) for track in release.tracks):
             await fuji.fill(release, result)
+    _correct(releases, corrections or TrackCorrections(), result)
     for release in releases:
         for number, track in enumerate(release.tracks, 1):
             where = f"{release.catalog}《{release.title}》第 {number} 首「{track.title}」"
@@ -164,6 +218,26 @@ async def import_releases(
                 result.unknown.append(where)
     result.releases, result.songs = _assemble(releases)
     return result
+
+
+def _correct(releases: Iterable[_Release], corrections: TrackCorrections, result: ReleaseImport) -> None:
+    unused = dict(corrections.tracks)
+    for release in releases:
+        for number, track in enumerate(release.tracks, 1):
+            correction = unused.get((release.catalog, number))
+            if correction is None or correction.title != track.title:
+                continue
+            del unused[(release.catalog, number)]
+            track.no_song = correction.singers is None
+            track.singers = list(correction.singers) if correction.singers is not None else None
+            track.special = correction.special_unit
+            track.sources = list(correction.sources)
+            result.corrected.append(
+                f"{release.catalog} 第 {number} 首「{track.title}」：{correction.note or '、'.join(correction.sources)}"
+            )
+    result.unused_corrections = [
+        f"{catalog} 第 {number} 首「{correction.title}」" for (catalog, number), correction in unused.items()
+    ]
 
 
 def _open(track: _Track) -> bool:

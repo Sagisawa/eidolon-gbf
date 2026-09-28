@@ -1152,3 +1152,92 @@ def test_a_postponed_live_s_first_dates_on_the_wiki_are_no_conflict(
     _, out, _ = world_sync()
 
     assert "2026-02-06" not in out
+
+
+def five_stars_release() -> LantisRelease:
+    return LantisRelease(
+        "lacm-24027", "THE IDOLM@STER シリーズ15周年記念曲「なんどでも笑おう」【シャイニーカラーズ盤】",
+        "2020/9/30", "LACM-24027", "THE IDOLM@STER FIVE STARS!!!!!",
+        [
+            "1．なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!",
+            "2．なんどでも笑おう シャイニーカラーズVer.",
+            "3．BGM「朝」",
+        ],
+    )
+
+
+def write_track_corrections(characters: CharacterConfig, tracks: list[dict]) -> None:
+    characters.write("world-corrections.json", json.dumps({"tracks": tracks}, ensure_ascii=False))
+
+
+NEWS_SONG = "https://idolmaster-official.jp/news/01_2000"
+
+
+def test_a_track_correction_sets_its_singers_and_special_unit(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases.append(five_stars_release())
+    write_track_corrections(characters, [
+        {"catalog": "LACM-24027", "track": 1, "title": "なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!",
+         "singers": ["櫻木真乃"], "special_unit": "THE IDOLM@STER FIVE STARS!!!!!",
+         "sources": [NEWS_SONG], "note": "闪耀色彩这边只有真乃"},
+        {"catalog": "LACM-24027", "track": 2, "title": "なんどでも笑おう シャイニーカラーズVer.",
+         "singers": ["櫻木真乃", "月岡恋鐘"], "sources": [NEWS_SONG], "note": "当时的全体"},
+    ])
+
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    songs = songs_by_title(characters)
+    five = songs["なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!"]
+    assert (five["singers"], five["special_unit"], five["sources"]) == (
+        ["櫻木真乃"], "THE IDOLM@STER FIVE STARS!!!!!", [NEWS_SONG],
+    )
+    assert songs["なんどでも笑おう シャイニーカラーズVer."]["special_unit"] is None
+    assert "人工更正" in out and "LACM-24027" in out.split("人工更正")[1]
+    assert "第 1 首「なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!」\n" not in out.split("人工更正")[0]
+
+
+def test_a_track_corrected_as_no_song_is_not_reported_as_unknown(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases.append(five_stars_release())
+    write_track_corrections(characters, [
+        {"catalog": "LACM-24027", "track": 3, "title": "BGM「朝」", "no_song": True,
+         "sources": [NEWS_SONG], "note": "器乐"},
+    ])
+
+    _, out, _ = world_sync()
+
+    assert release(characters, "LACM-24027")["tracks"][2]["song"] is None
+    assert "BGM「朝」" not in out.split("人工更正")[0]
+
+
+def test_a_track_correction_whose_title_no_longer_matches_is_not_applied_and_reported(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases.append(five_stars_release())
+    write_track_corrections(characters, [
+        {"catalog": "LACM-24027", "track": 3, "title": "なんどでも笑おう", "no_song": True,
+         "sources": [NEWS_SONG], "note": ""},
+    ])
+
+    code, out, _ = world_sync()
+
+    assert code == 0
+    assert "没有套用" in out and "LACM-24027 第 3 首" in out
+
+
+def test_a_track_correction_naming_someone_who_is_none_of_the_idols_fails_the_import(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases.append(five_stars_release())
+    write_track_corrections(characters, [
+        {"catalog": "LACM-24027", "track": 1, "title": "なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!",
+         "singers": ["天海春香"], "sources": [NEWS_SONG], "note": ""},
+    ])
+
+    code, _, err = world_sync()
+
+    assert code != 0
+    assert "world-corrections.json" in err and "天海春香" in err

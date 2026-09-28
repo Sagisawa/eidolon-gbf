@@ -18,3 +18,12 @@
 **Note (2026-09-28, code review 后):** 用 ふじわらはじめ 代替 imas-db 已记进 ADR-0008 的修订。修掉的问题：全体名义（`シャイニーカラーズ(28人)`、`(25人・新)` 等）不再记成特别组合；演唱者正好是一个常设组合全员的（WING COLLECTION 里 L'Antica 的三首 2023 Ver.）不再从唱片的アーティスト回退出特别组合名；Lantis 写了、对不上偶像名单的演唱者不再被 ふじわらはじめ 覆盖（只有全体、Lantis 别处列过成员的特别组合、或 ふじわらはじめ 写着同名组合的，才由它补成员）；没有名称的 ふじわらはじめ 唱片不再匹配任何唱片；补齐和冲突比对统一按「-5 colors-」「2023 Ver.」的原曲名匹配；借用别张唱片同名曲的演唱者时，记下真正写了演唱者的那张唱片页；「你的歌」的已发售/将发售按每个回合当天的日期判断。重新导入：仍是 168 张唱片、1152 首歌，补齐 90 首、冲突 0、对应不上 1 首（LACM-24643「アイ NEED YOU（FOR WONDERFUL STORY）」：THE IDOLM@STER BRILLIANT STARS）、没写演唱者 35 首，这些仍留待人工处理。
 
 **留待人工处理：** Lantis 的新闻（2026-09-10）已经公布「THE IDOLM@STER SHINY COLORS Song for Prism ニューアルバム」（LACA-25318，2026-12-23 发售），但发售列表里还没有这张、也没有唱片页，所以这次导入没有收录。等 Lantis 上了唱片页再重新导入。
+
+**Note (2026-09-28, 人工处理):** 留待人工处理的曲目查证后写进 `characters/world-corrections.json` 的 `tracks`（world sync 每次导入都套用，见 ADR-0008 的修订），查证笔记见 `../research/song-singers.md`。35 首已更正：
+- 15 周年、20 周年纪念曲和 VOY@GER：FIVE STARS!!!!! / BRILLIANT STARS 版只记闪耀色彩的 3 位并记特别组合名，シャイニーカラーズVer. 由同样 3 位演唱（日本コロムビア、偶像大师官方门户的新闻）。「アイ NEED YOU」对不上偶像的那首也由此解决。
+- WING COLLECTION -B side-：-25 colors- 版记当时的全员 25 位（官方只给版本名，成员按当时的全员推定）；2023 Ver. 是 L'Antica 5 位的重录。
+- 感謝のコントレイル：全员 28 位。Song for Prism 三张单曲：∑ Desire、ザ・ふたりトラベラー、No 1 feel alone（官方门户新闻）。
+- 騎士団のヴェール 的 9 首剧伴和 S/N-GUL4R1TY 的 Non-Stop Remix：不算歌曲。
+- 还剩 1 首：LACM-34828 第 3 首「VOY@GER (… S/N-GUL4R1TY Ver.)」没有任何来源写明演唱者（只能从唱片的アーティスト推断是 Straylight），不猜，留在报告里。
+- LACA-25318：2026-09-28 再查，Lantis 发售列表仍没有、唱片页 404，等上线后重新导入。
+

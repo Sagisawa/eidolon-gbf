@@ -40,14 +40,15 @@ from pathlib import Path
 import httpx
 
 from eidolon.live_sync import LiveCorrections, LiveImport, import_lives
-from eidolon.release_sync import FUJI_NAME, ReleaseImport, import_releases
+from eidolon.release_sync import FUJI_NAME, ReleaseImport, TrackCorrections, import_releases
 from eidolon.world import Idol, Staff, Unit, World, WorldError, WorldSyncError, load_world
 
 SPARQL_URL = "https://sparql.crssnky.xyz/spql/imas/query"
 OFFICIAL_URL = "https://shinycolors.idolmaster-official.jp/idol/"
 _USER_AGENT = "eidolon-sc world sync (run by hand)"
 CORRECTIONS_FILE = "world-corrections.json"
-"""The deployer's corrections, beside the data file (`live_sync.LiveCorrections`)."""
+"""The deployer's corrections, beside the data file (`release_sync.TrackCorrections`,
+`live_sync.LiveCorrections`)."""
 
 _PREFIXES = """PREFIX schema: <http://schema.org/>
 PREFIX imas: <https://sparql.crssnky.xyz/imasrdf/URIs/imas-schema.ttl#>
@@ -169,6 +170,8 @@ class WorldSyncReport:
             (found.conflicts, f"Lantis 和{FUJI_NAME}冲突的地方（已按 Lantis 写入，请人工核对）："),
             (found.unmatched, "演唱者对应不到偶像名单的曲目（没有写入歌曲，请人工处理）："),
             (found.unknown, "哪个来源都没写演唱者的曲目（没有写入歌曲，请人工处理）："),
+            (found.corrected, f"按 {CORRECTIONS_FILE} 人工更正的曲目："),
+            (found.unused_corrections, f"{CORRECTIONS_FILE} 里对不上任何曲目的更正（没有套用，请检查品番、序号和曲名）："),
         ]
         for items, heading in sections:
             if items:
@@ -250,8 +253,9 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
     async def fetch(url: str) -> str:
         return (await _get(client, url)).text
 
-    found = await import_releases(fetch, idols, units)
-    lives = await import_lives(fetch, idols, staff, _corrections(path.parent / CORRECTIONS_FILE, idols))
+    track_corrections, live_corrections = _corrections(path.parent / CORRECTIONS_FILE, idols)
+    found = await import_releases(fetch, idols, units, track_corrections)
+    lives = await import_lives(fetch, idols, staff, live_corrections)
     world = World(
         today, office, staff, tuple(units), idols, found.releases, found.songs, lives.lives
     )
@@ -260,15 +264,18 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
     return report
 
 
-def _corrections(path: Path, idols: Sequence[Idol]) -> LiveCorrections:
+def _corrections(path: Path, idols: Sequence[Idol]) -> tuple[TrackCorrections, LiveCorrections]:
     """The deployer's corrections beside the data file; none if there is no file."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return LiveCorrections()
+        return TrackCorrections(), LiveCorrections()
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         raise WorldSyncError(f"人工更正文件 {path} 格式有误：{e}") from None
-    return LiveCorrections.from_json(data, idols, str(path))
+    return (
+        TrackCorrections.from_json(data, idols, str(path)),
+        LiveCorrections.from_json(data, idols, str(path)),
+    )
 
 
 async def _get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
