@@ -3,6 +3,9 @@
 Speech recognition, TTS and the transport are left out: the stage is fed what Soniox
 and the browser's data channel would deliver, and what it sends on is inspected where
 Fish Audio (text frames) and the browser (server messages) would receive it.
+
+What is a follow-on and what interrupts the character is `TurnTaking`'s, tested in
+`test_turn_taking.py`; here are the frames and the engine it is wired to.
 """
 
 from collections.abc import Sequence
@@ -12,7 +15,6 @@ import httpx
 import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
     Frame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -217,17 +219,6 @@ async def test_what_interrupts_the_character_is_taken_up_at_once(mano_call: Call
     assert await mano_call.said() == ["早上好", None, "在吗", None]
 
 
-async def test_an_interruption_that_comes_to_nothing_takes_no_turn(mano_call: CallUnderTest):
-    llm = FakeLLM(INTERRUPTED_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm, [spoken("早上好"), *INTERRUPTING, SleepFrame(0.1), spoken("  ")]
-    )
-
-    assert kinds(messages) == ["user", "done"]
-    assert len(llm.prompts) == 1
-
-
 async def test_what_is_typed_once_the_reply_can_be_interrupted_interrupts_the_character(
     mano_call: CallUnderTest,
 ):
@@ -243,47 +234,6 @@ async def test_what_is_typed_once_the_reply_can_be_interrupted_interrupts_the_ch
         ("user", "在吗", None, None),
         ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
     ]
-
-
-async def test_what_is_typed_while_a_recorded_reply_is_still_heard_stops_her_voice(
-    mano_call: CallUnderTest,
-):
-    llm = FakeLLM(MANO_REPLY, MANO_REPLY)
-
-    down = await mano_call.run_frames(
-        llm, [spoken("早上好"), SleepFrame(0.1), BotStartedSpeakingFrame(), typed("在吗")]
-    )
-
-    types = frame_types(down)
-    assert InterruptionFrame in types[types.index(LLMFullResponseEndFrame):]
-    assert await mano_call.said() == ["早上好", None, "在吗", None]  # the first reply as it was
-
-
-async def test_what_is_typed_straight_after_interrupting_follows_on_the_new_turn(
-    mano_call: CallUnderTest,
-):
-    llm = FakeLLM(INTERRUPTED_REPLY, SLOW_REPLY, MANO_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm,
-        [spoken("早上好"), *INTERRUPTIBLE, typed("在吗"), SleepFrame(0.1), typed("还在吗")],
-    )
-
-    assert said(messages) == ["早上好", "在吗", "在吗\n还在吗"]
-    assert await mano_call.said() == ["早上好", None, "在吗\n还在吗", None]
-
-
-async def test_what_is_typed_once_the_call_has_ended_leaves_her_last_reply_voiced(
-    mano_call: CallUnderTest,
-):
-    down = await mano_call.run_frames(
-        FakeLLM(MANO_REPLY),
-        [spoken("早上好"), SleepFrame(0.1), BotStartedSpeakingFrame(), typed("在吗")],
-        limits=CallLimits(turns=1),
-    )
-
-    assert InterruptionFrame not in frame_types(down)
-    assert await mano_call.said() == ["早上好", None]
 
 
 SLOW_REPLY = ["<ja>ほわっ", "</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"]
@@ -330,127 +280,14 @@ async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stop
     ]
 
 
-async def test_any_number_of_follow_ons_join_the_turn(mano_call: CallUnderTest):
-    llm = FakeLLM(SLOW_REPLY, SLOW_REPLY, SLOW_REPLY, MANO_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm,
-        [
-            spoken("一"), SleepFrame(0.1), InterruptionFrame(), spoken("二"),
-            SleepFrame(0.1), typed("三"),
-            SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("四"),
-        ],
-        limits=CallLimits(turns=1),
-    )
-
-    assert said(messages) == ["一", "一\n二", "一\n二\n三", "一\n二\n三\n四"]
-    assert kinds(messages)[-2:] == ["done", "ended"]  # only the one turn counted
-    assert await mano_call.said() == ["一\n二\n三\n四", None]
-
-
-@pytest.mark.parametrize(
-    "muted, before",
-    [
-        (False, [SleepFrame(0.1), BotStartedSpeakingFrame()]),  # heard, nothing complete yet
-        (True, [SleepFrame(0.1)]),  # muted: the first line is shown, nothing complete yet
-        (False, [SleepFrame(0.4)]),  # a complete segment is shown but not heard yet
-    ],
-    ids=["speaking", "muted", "not heard yet"],
-)
-async def test_until_the_character_has_spoken_a_complete_segment_the_user_follows_on(
-    mano_call: CallUnderTest, muted: bool, before: list[Frame]
-):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm, [spoken("早上好"), *before, InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
-        muted=muted,
-    )
-
-    assert said(messages) == ["早上好", "早上好\n在吗"]
-    assert await mano_call.said() == ["早上好\n在吗", None]
-
-
-@pytest.mark.parametrize(
-    "muted, before",
-    [
-        (False, [SleepFrame(0.4), BotStartedSpeakingFrame()]),
-        (True, [SleepFrame(0.4)]),
-    ],
-    ids=["speaking", "muted"],
-)
-async def test_once_the_character_has_spoken_a_complete_segment_what_is_said_is_a_new_turn(
-    mano_call: CallUnderTest, muted: bool, before: list[Frame]
-):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm, [spoken("早上好"), *before, InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
-        muted=muted,
-    )
-
-    assert said(messages) == ["早上好", "在吗"]
-    assert await mano_call.said() == ["早上好", None, "在吗", None]
-
-
-async def test_once_the_reply_is_recorded_what_is_said_is_a_new_turn(mano_call: CallUnderTest):
-    llm = FakeLLM(MANO_REPLY, MANO_REPLY)
-
-    _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")]
-    )
-
-    assert said(messages) == ["早上好", "在吗"]
-
-
-async def test_a_reply_voiced_straight_after_the_last_one_has_been_spoken_once_it_is_on_its_way(
-    mano_call: CallUnderTest,
-):
-    """The character's voice runs on from one reply into the next without starting again."""
-    llm = FakeLLM(MANO_REPLY, SLOW_REPLY, MANO_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm,
-        [
-            spoken("早上好"), SleepFrame(0.1), BotStartedSpeakingFrame(),
-            SleepFrame(0.4), spoken("在吗"), SleepFrame(0.4),
-            InterruptionFrame(), SleepFrame(0.1), spoken("还在吗"),
-        ],
-    )
-
-    assert said(messages) == ["早上好", "在吗", "还在吗"]
-
-
-async def test_the_voice_of_a_dropped_reply_starting_late_does_not_count_for_the_next(
-    mano_call: CallUnderTest,
-):
-    llm = FakeLLM(SLOW_REPLY, ["", *SLOW_REPLY], MANO_REPLY, delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm,
-        [
-            spoken("早上好"), SleepFrame(0.1),
-            typed("在吗"), BotStartedSpeakingFrame(), BotStoppedSpeakingFrame(),
-            SleepFrame(0.8), InterruptionFrame(), SleepFrame(0.1), spoken("还在吗"),
-        ],
-    )
-
-    assert said(messages) == ["早上好", "早上好\n在吗", "早上好\n在吗\n还在吗"]
-
-
-@pytest.mark.parametrize(
-    "after",
-    [[spoken("  ")], []],
-    ids=["blank transcription", "nothing at all"],
-)
-async def test_a_follow_on_that_comes_to_nothing_has_the_turn_replied_to_again(
-    mano_call: CallUnderTest, monkeypatch: pytest.MonkeyPatch, after: list[Frame]
+async def test_a_follow_on_never_transcribed_has_the_turn_replied_to_again_in_time(
+    mano_call: CallUnderTest, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setattr(call_module, "FOLLOW_ON_TIMEOUT", 0.3)
     llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
 
     _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), *after]
+        llm, [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1)]
     )
 
     assert said(messages) == ["早上好", "早上好"]
