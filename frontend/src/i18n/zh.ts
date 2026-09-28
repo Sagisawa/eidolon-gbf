@@ -71,6 +71,19 @@ export const zh = {
     micUnmute: "取消麦克风静音",
     hangUp: "挂断",
     switchMic: "切换麦克风",
+    micSheet: {
+      title: "切换麦克风",
+      systemDefault: "系统默认",
+      numbered: (n: number) => `麦克风 ${n}`,
+      hint: "选中的麦克风当场换上，也会成为以后通话的默认麦克风。",
+      inUse: "正在使用",
+    },
+    /** 麦克风出了状况：选定的不在，或者刚选的打不开。 */
+    micNotices: {
+      fell_back: "没有找到选定的麦克风，已改用系统默认",
+      unavailable: "没能打开这个麦克风，仍在用原来的",
+      lost: "麦克风断开了，也没有别的麦克风可用",
+    },
     /** 收起后贴在消息区顶端的便利贴。 */
     noteDialing: "正在呼叫… · 点击返回",
     noteConnected: (clock: string) => `通话中 ${clock} · 点击返回`,
@@ -180,8 +193,9 @@ export const zh = {
     },
     call: {
       title: "通话",
-      mic: "麦克风",
-      micHint: "语音通话时使用的麦克风。",
+      mic: "默认麦克风",
+      micHint: "语音通话默认使用的麦克风。通话中可以在通话层上切换，切换后的会成为新的默认。",
+      micMissing: "已选的麦克风（现在没有连接）",
       micDefault: "系统默认",
       micNumbered: (n: number) => `麦克风 ${n}`,
       micUnnamed: "浏览器还没有允许本页使用麦克风，因此看不到名称。",

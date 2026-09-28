@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, type Message, type TurnEvent } from "@/lib/api";
-import type { Call, CallHandlers } from "@/lib/call";
+import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { MicUnavailable } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
@@ -9,15 +9,24 @@ import { LiveConversation, type Ports } from "@/lib/liveConversation";
 class FakeCall implements Call {
   sent: string[] = [];
   textOnly: boolean[] = [];
-  mic: boolean[] = [];
+  micEnabled: boolean[] = [];
   hangUps = 0;
+  /** What each switch asked for; the next one resolves with `switchTo`, or fails if it is null. */
+  switches: string[] = [];
+  switchTo: MicInUse | null = { id: "", fellBack: false };
   constructor(
     readonly maxSeconds: number | null = 1800,
     readonly exempt = false,
+    readonly mic: MicInUse = { id: "", fellBack: false },
   ) {}
+  switchMic = async (micId: string) => {
+    this.switches.push(micId);
+    if (!this.switchTo) throw new Error("could not open it");
+    return this.switchTo;
+  };
   sendText = (text: string) => void this.sent.push(text);
   setTextOnly = (textOnly: boolean) => void this.textOnly.push(textOnly);
-  setMicEnabled = (enabled: boolean) => void this.mic.push(enabled);
+  setMicEnabled = (enabled: boolean) => void this.micEnabled.push(enabled);
   hangUp = async () => void this.hangUps++;
 }
 
@@ -358,7 +367,7 @@ describe("LiveConversation: mic mute", () => {
     live.toggleMic();
 
     expect(live.snapshot().micMuted).toBe(false);
-    expect(call.mic).toEqual([false, true]);
+    expect(call.micEnabled).toEqual([false, true]);
     expect(call.textOnly).toEqual([]);
   });
 
@@ -392,6 +401,122 @@ describe("LiveConversation: mic mute", () => {
     live.toggleMic();
 
     expect(live.snapshot().micMuted).toBe(false);
+  });
+});
+
+describe("LiveConversation: switching the microphone", () => {
+  it("switches the call to the chosen microphone, which becomes the default for later calls", async () => {
+    const { live, attempts, preferences } = conversation();
+    const call = await connected(live, attempts);
+    call.switchTo = { id: "usb", fellBack: false };
+
+    await live.switchMic("usb");
+
+    expect(call.switches).toEqual(["usb"]);
+    expect(call.hangUps).toBe(0);
+    expect(live.snapshot().micId).toBe("usb");
+    expect(preferences().micId).toBe("usb");
+  });
+
+  it("keeps the microphone muted across a switch", async () => {
+    const { live, attempts } = conversation();
+    await connected(live, attempts);
+    live.toggleMic();
+
+    await live.switchMic("usb");
+
+    expect(live.snapshot().micMuted).toBe(true);
+  });
+
+  it("starts a call on the default microphone, saying which one is in use", async () => {
+    const { live, attempts } = conversation();
+    const calling = live.startCall();
+    attempts[0].connect(new FakeCall(1800, false, { id: "usb", fellBack: false }));
+    await calling;
+
+    expect(attempts[0].preferences.micId).toBe("");
+    expect(live.snapshot().micId).toBe("usb");
+    expect(live.snapshot().micNotice).toBeNull();
+  });
+
+  it("says so when the default microphone is gone and the system default is used", async () => {
+    const { live, attempts, preferences } = conversation();
+    await connected(live, attempts, new FakeCall(1800, false, { id: "", fellBack: true }));
+
+    expect(live.snapshot().micId).toBe("");
+    expect(live.snapshot().micNotice).toBe("fell_back");
+    // Kept: plugged back in, it is used again.
+    expect(preferences().micId).toBe("");
+  });
+
+  it("says so when the microphone in use is unplugged during the call", async () => {
+    const { live, attempts } = conversation();
+    const call = new FakeCall(1800, false, { id: "usb", fellBack: false });
+    await connected(live, attempts, call);
+
+    attempts[0].handlers.onMicLost({ id: "", fellBack: true });
+
+    expect(live.snapshot().micId).toBe("");
+    expect(live.snapshot().micNotice).toBe("fell_back");
+    expect(call.hangUps).toBe(0);
+  });
+
+  it("says so when the microphone is unplugged and no other one opens, keeping the call", async () => {
+    const { live, attempts } = conversation();
+    const call = await connected(live, attempts, new FakeCall(1800, false, { id: "usb", fellBack: false }));
+
+    attempts[0].handlers.onMicLost(null);
+
+    expect(live.snapshot().micNotice).toBe("lost");
+    expect(live.snapshot().call.phase).toBe("connected");
+    expect(call.hangUps).toBe(0);
+  });
+
+  it("keeps the microphone in use when the chosen one cannot be opened", async () => {
+    const { live, attempts, preferences } = conversation();
+    const call = await connected(live, attempts, new FakeCall(1800, false, { id: "usb", fellBack: false }));
+    call.switchTo = null;
+
+    await live.switchMic("broken");
+
+    expect(live.snapshot().micId).toBe("usb");
+    expect(live.snapshot().micNotice).toBe("unavailable");
+    expect(preferences().micId).toBe("");
+  });
+
+  it("clears the notice after a switch that works, and when the call is over", async () => {
+    const { live, attempts } = conversation();
+    const call = await connected(live, attempts, new FakeCall(1800, false, { id: "", fellBack: true }));
+    call.switchTo = { id: "usb", fellBack: false };
+
+    await live.switchMic("usb");
+    expect(live.snapshot().micNotice).toBeNull();
+
+    attempts[0].handlers.onMicLost({ id: "", fellBack: true });
+    await live.hangUp();
+    expect(live.snapshot().micNotice).toBeNull();
+  });
+
+  it("does nothing until the call has connected", async () => {
+    const { live, preferences } = conversation();
+    void live.startCall();
+
+    await live.switchMic("usb");
+
+    expect(preferences().micId).toBe("");
+  });
+
+  it("does not show a switch that finishes after the call is over", async () => {
+    const { live, attempts } = conversation();
+    const call = await connected(live, attempts);
+    call.switchTo = { id: "usb", fellBack: false };
+
+    const switching = live.switchMic("usb");
+    await live.hangUp();
+    await switching;
+
+    expect(live.snapshot().call.phase).toBe("idle");
+    expect(live.snapshot().micId).toBe("");
   });
 });
 

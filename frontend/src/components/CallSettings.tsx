@@ -16,18 +16,14 @@ import {
   type CallPreferences,
   type Quality,
 } from "@/lib/callPreferences";
+import { listMicrophones } from "@/lib/microphone";
 
 const t = copy.settings.call;
 
 /** Selector 的值不能是空字符串；「系统默认」的麦克风在选择框里用这个值代表，存下来仍是空白。 */
 const SYSTEM_DEFAULT = "system-default";
 
-async function listMics(): Promise<MediaDeviceInfo[]> {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices.filter((d) => d.kind === "audioinput" && d.deviceId !== "default");
-}
-
-/** 麦克风和通话音质，记在这台设备上。 */
+/** 默认麦克风和通话音质，记在这台设备上。通话中切换麦克风也会改掉这里的默认。 */
 export function CallSettings() {
   const [preferences, setPreferences] = useState<CallPreferences | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -36,18 +32,21 @@ export function CallSettings() {
   useEffect(() => {
     setPreferences(loadCallPreferences());
     if (!navigator.mediaDevices?.enumerateDevices) return;
-    listMics().then(setMics, () => {});
+    listMicrophones().then(setMics, () => {});
   }, []);
 
   // 页面获准使用麦克风之前，浏览器不给出麦克风的名称。
   const unnamed = mics.length > 0 && mics.every((m) => !m.label);
+  // 默认麦克风现在没有连接：仍然留着它，插回去下次通话就用它；这之前通话用系统默认。
+  const missing =
+    !!preferences?.micId && mics.length > 0 && !unnamed && !mics.some((m) => m.deviceId === preferences.micId);
 
   async function allowMicrophone() {
     setMicError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       stream.getTracks().forEach((track) => track.stop());
-      setMics(await listMics());
+      setMics(await listMicrophones());
     } catch {
       setMicError(t.micDenied);
     }
@@ -70,6 +69,7 @@ export function CallSettings() {
             options={[
               { value: SYSTEM_DEFAULT, label: t.micDefault },
               ...mics.map((mic, i) => ({ value: mic.deviceId, label: mic.label || t.micNumbered(i + 1) })),
+              ...(missing ? [{ value: preferences.micId, label: t.micMissing }] : []),
             ]}
           />
           {(unnamed || micError) && (

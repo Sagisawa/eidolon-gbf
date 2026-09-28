@@ -33,7 +33,7 @@ export function herVars(color: string): CSSProperties {
 }
 
 /**
- * 消息列表里她那一行：列表不在她的子树里，所以每行只带上自己要用的颜色。
+ * 消息列表里她那一行（通话中的麦克风列表也用它）：这些行不在她的子树里，所以每行只带上自己要用的颜色。
  * 头像描边取 `--her-mark`；选中行铺她的 paper，行里的次要字换成 paperMuted（DESIGN.md「Conversation list」）。
  */
 export function listRow(color: string, selected: boolean): CSSProperties {

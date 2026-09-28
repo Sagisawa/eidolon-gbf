@@ -18,7 +18,7 @@ import type { Character, Segment } from "@/lib/api";
 import type { CallEnd } from "@/lib/callEnd";
 import { showTime } from "@/lib/callTime";
 import { CALL_MUTED } from "@/lib/imageColor";
-import type { CallState, LiveCall } from "@/lib/liveConversation";
+import type { CallState, LiveCall, MicNotice } from "@/lib/liveConversation";
 import { CollapseIcon, HangUpIcon, MicIcon, MicOffIcon, MicSwitchIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 import { lineState } from "@/theme/lineState";
@@ -39,6 +39,8 @@ type Props = {
   isFullScreen: boolean;
   isReducedMotion: boolean;
   micMuted: boolean;
+  /** 麦克风出了状况时要说的话。 */
+  micNotice: MicNotice | null;
   textOnly: boolean;
   /** 她当前这句；还没开口时为 null。 */
   line: Segment | null;
@@ -47,6 +49,8 @@ type Props = {
   onCollapse: () => void;
   onHangUp: () => void;
   onToggleMic: () => void;
+  /** 打开麦克风列表。 */
+  onSwitchMic: () => void;
   onToggleTextOnly: () => void;
   onRedial: () => void;
   onDismiss: () => void;
@@ -162,12 +166,17 @@ export function CallLayer(props: Props) {
 }
 
 /** 拨打中、通话中：状态和计时，她当前这句的日语和字幕，用户正在说的话。 */
-function Live({ call, line, hearing, textOnly }: Props & { call: LiveCall }) {
+function Live({ call, line, hearing, textOnly, micNotice }: Props & { call: LiveCall }) {
   const time = useCallTime(call);
   if (!time) return <Status line="dashed">{t.dialing}</Status>;
   return (
     <VStack hAlign="center" gap={6} width="100%" maxWidth="34em">
-      <Status line="solid">{showTime(time)}</Status>
+      <VStack hAlign="center" gap={2}>
+        <Status line="solid">{showTime(time)}</Status>
+        <Text type="supporting" color="secondary" justify="center" role="status">
+          {micNotice && t.micNotices[micNotice]}
+        </Text>
+      </VStack>
       <VStack hAlign="center" gap={2} aria-live="polite" style={{ minHeight: "calc(var(--spacing-12) * 2.5)" }}>
         {line ? (
           <>
@@ -239,7 +248,7 @@ function Status({ line, children }: { line: "dashed" | "solid" | "struck"; child
 }
 
 /** 底部三枚圆形键：麦克风静音 · 挂断 · 切换麦克风。拨打中只能挂断。 */
-function Controls({ isConnected, micMuted, onToggleMic, onHangUp }: Props & { isConnected: boolean }) {
+function Controls({ isConnected, micMuted, onToggleMic, onHangUp, onSwitchMic }: Props & { isConnected: boolean }) {
   return (
     <HStack hAlign="center" gap={8} paddingBlock={6}>
       <RoundControl
@@ -250,8 +259,7 @@ function Controls({ isConnected, micMuted, onToggleMic, onHangUp }: Props & { is
         onClick={onToggleMic}
       />
       <RoundControl label={t.hangUp} icon={HangUpIcon} tone="danger" onClick={onHangUp} />
-      {/* 热切换麦克风是 ticket 05 的事，这里先把位置留好。 */}
-      <RoundControl label={t.switchMic} icon={MicSwitchIcon} isDisabled onClick={() => {}} />
+      <RoundControl label={t.switchMic} icon={MicSwitchIcon} isDisabled={!isConnected} onClick={onSwitchMic} />
     </HStack>
   );
 }

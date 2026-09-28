@@ -2,7 +2,7 @@
 // the call, kept outside React so the page only renders a snapshot and passes on clicks.
 
 import { ApiError, type CallEvent, type Message, type Segment, type TurnEvent } from "@/lib/api";
-import type { Call, CallHandlers } from "@/lib/call";
+import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import {
@@ -38,6 +38,8 @@ export function isLive(call: CallState): call is LiveCall {
   return call.phase === "dialing" || call.phase === "connected";
 }
 
+export type MicNotice = "fell_back" | "unavailable" | "lost";
+
 export type Snapshot = {
   entries: Entry[];
   call: CallState;
@@ -47,6 +49,12 @@ export type Snapshot = {
   line: Segment | null;
   /** The microphone is off in the browser (CONTEXT.md「麦克风静音」). */
   micMuted: boolean;
+  /** The microphone the call is using; empty for the system default. */
+  micId: string;
+  /** Something to say about the microphone: the chosen one is not there and the system
+   * default is used instead, the one just chosen could not be opened, or it was unplugged
+   * and no other one opens. */
+  micNotice: MicNotice | null;
   /** A text turn is under way. */
   busy: boolean;
   /** What is in the input box. */
@@ -66,6 +74,8 @@ const IDLE: Omit<Snapshot, "entries" | "line"> = {
   call: { phase: "idle" },
   hearing: "",
   micMuted: false,
+  micId: "",
+  micNotice: null,
   busy: false,
   draft: "",
   textOnly: false,
@@ -193,6 +203,10 @@ export class LiveConversation {
           if (this.call !== started) return;
           this.ended(this.endedBy ?? droppedEnd(started.exempt));
         },
+        onMicLost: (now) => {
+          if (this.call !== started) return;
+          this.update(now ? micInUse(now) : { micId: "", micNotice: "lost" });
+        },
       });
     } catch (e) {
       if (this.attempt === attempt) this.ended(startFailedEnd(e));
@@ -207,6 +221,7 @@ export class LiveConversation {
     this.update({
       call: { phase: "connected", since: this.now(), maxSeconds: started.maxSeconds },
       callFrom: this.state.log.entries.length,
+      ...micInUse(started.mic),
     });
   }
 
@@ -230,6 +245,22 @@ export class LiveConversation {
     const micMuted = !this.state.micMuted;
     this.call.setMicEnabled(!micMuted);
     this.update({ micMuted });
+  }
+
+  /** Switch the call to another microphone; it becomes the default for later calls too.
+   * If it cannot be opened, the call keeps the one in use and the default is not changed. */
+  async switchMic(micId: string): Promise<void> {
+    const call = this.call;
+    if (!call) return;
+    let mic: MicInUse;
+    try {
+      mic = await call.switchMic(micId);
+    } catch {
+      if (this.call === call) this.update({ micNotice: "unavailable" });
+      return;
+    }
+    this.ports.preferences.save({ micId });
+    if (this.call === call) this.update(micInUse(mic));
   }
 
   /** Text only: kept in the preferences, and told to the call under way. */
@@ -256,7 +287,13 @@ export class LiveConversation {
     this.call = null;
     this.apply(
       { type: "interrupted" },
-      { call: end ? { phase: "ended", end } : { phase: "idle" }, hearing: "", micMuted: false },
+      {
+        call: end ? { phase: "ended", end } : { phase: "idle" },
+        hearing: "",
+        micMuted: false,
+        micId: "",
+        micNotice: null,
+      },
     );
   }
 
@@ -275,6 +312,10 @@ export class LiveConversation {
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
   }
+}
+
+function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
+  return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
 
 function toSnapshot({ log, callFrom, ...rest }: State): Snapshot {

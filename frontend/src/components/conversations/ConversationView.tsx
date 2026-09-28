@@ -46,6 +46,7 @@ import { Ja } from "@/theme/Ja";
 
 import { CallLayer, type ShownCall } from "./CallLayer";
 import { CallNote } from "./CallNote";
+import { MicSheet } from "./MicSheet";
 import { useDirectory, useWide } from "./ConversationDirectory";
 
 const t = copy.conversation;
@@ -73,6 +74,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const [live, setLive] = useState<LiveConversation | null>(null);
   const [pageError, setPageError] = useState<Failure | null>(null);
   const [isCollapsed, setCollapsed] = useState(false);
+  const [isPickingMic, setPickingMic] = useState(false);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
   const { entries, call, hearing, busy, draft, textOnly, failure } = snapshot;
   const characterAudio = useRef<HTMLAudioElement>(null);
@@ -122,6 +124,10 @@ export function ConversationView({ character, onBack }: { character: Character; 
   // 因故结束时停在结束页：收起着也展开给用户看原因。
   useEffect(() => {
     if (call.phase === "ended") setCollapsed(false);
+  }, [call.phase]);
+  // 麦克风只在通话中能切换；通话一结束，列表跟着关上。
+  useEffect(() => {
+    if (call.phase !== "connected") setPickingMic(false);
   }, [call.phase]);
 
   // 一个回合记下之后，列表里的最后一句跟着更新。
@@ -298,18 +304,27 @@ export function ConversationView({ character, onBack }: { character: Character; 
           isFullScreen={isFullScreen}
           isReducedMotion={isReducedMotion}
           micMuted={snapshot.micMuted}
+          micNotice={snapshot.micNotice}
           textOnly={textOnly}
           line={snapshot.line}
           hearing={hearing}
           onCollapse={() => setCollapsed(true)}
           onHangUp={() => void live?.hangUp()}
           onToggleMic={() => live?.toggleMic()}
+          onSwitchMic={() => setPickingMic(true)}
           onToggleTextOnly={() => live?.toggleTextOnly()}
           onRedial={dial}
           onDismiss={() => live?.dismissEnd()}
           onOwnKeys={() => leave(() => router.push("/settings"))}
         />
       )}
+      <MicSheet
+        isOpen={isPickingMic}
+        onOpenChange={setPickingMic}
+        color={character.color}
+        micId={snapshot.micId}
+        onSelect={(micId) => void live?.switchMic(micId)}
+      />
     </Frame>
   );
 }

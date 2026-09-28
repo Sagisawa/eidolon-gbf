@@ -15,7 +15,9 @@ import {
   type CallEvent,
 } from "@/lib/api";
 import type { CallPreferences } from "@/lib/callPreferences";
-import { Microphone } from "@/lib/microphone";
+import { Microphone, type MicInUse } from "@/lib/microphone";
+
+export type { MicInUse };
 
 export type CallHandlers = {
   onEvent: (event: CallEvent) => void;
@@ -25,6 +27,9 @@ export type CallHandlers = {
   onCharacterAudio: (track: MediaStreamTrack) => void;
   /** The call ended without the user hanging up. */
   onDropped: () => void;
+  /** The microphone in use was unplugged; the call goes on with the system default in its
+   * place, or with no microphone (null) if none could be opened. */
+  onMicLost: (now: MicInUse | null) => void;
 };
 
 /** A call that has connected: the character can hear and speak (CONTEXT.md「接通」). */
@@ -39,6 +44,11 @@ export type Call = {
   setTextOnly: (textOnly: boolean) => void;
   /** Turn the microphone's track on or off in the browser (CONTEXT.md「麦克风静音」). */
   setMicEnabled: (enabled: boolean) => void;
+  /** The microphone the call connected with. */
+  mic: MicInUse;
+  /** Send from another microphone without interrupting the call, muted if it was.
+   * Fails with MicUnavailable, keeping the one in use, if it cannot be opened. */
+  switchMic: (micId: string) => Promise<MicInUse>;
   hangUp: () => Promise<void>;
 };
 
@@ -56,8 +66,11 @@ export async function startCall(
   let hungUp = false;
   let client: PipecatClient | null = null;
   try {
+    const transport = new SmallWebRTCTransport({ iceServers, mediaManager: microphone });
+    microphone.onTrackChange = (track) => audioSender(transport).replaceTrack(track);
+    microphone.onLost = handlers.onMicLost;
     client = new PipecatClient({
-      transport: new SmallWebRTCTransport({ iceServers, mediaManager: microphone }),
+      transport,
       enableMic: true,
       enableCam: false,
       callbacks: {
@@ -96,11 +109,22 @@ export async function startCall(
     sendText: (text) => connected.sendClientMessage("user-text", { text }),
     setTextOnly: (textOnly) => connected.sendClientMessage("mute", { muted: textOnly }),
     setMicEnabled: (enabled) => microphone.enableMic(enabled),
+    mic: microphone.inUse,
+    switchMic: (micId) => microphone.updateMic(micId),
     hangUp: async () => {
       hungUp = true;
       await connected.disconnect();
     },
   };
+}
+
+/** Where the transport sends the microphone from. It exposes no way to swap its track (its
+ * own media managers are built in and use this same method), so it is reached from here;
+ * replacing a sender's track needs no renegotiation. */
+function audioSender(transport: SmallWebRTCTransport): RTCRtpSender {
+  const withTransceivers = transport as unknown as { getAudioTransceiver?: () => RTCRtpTransceiver };
+  if (!withTransceivers.getAudioTransceiver) throw new Error("the transport cannot switch microphones");
+  return withTransceivers.getAudioTransceiver().sender;
 }
 
 /** Turn a failed call into an error that says why, in the user's language; sends the browser
