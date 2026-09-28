@@ -1,4 +1,4 @@
-// How this device takes calls: microphone, call quality and the mute switch.
+// How this device takes calls: microphone, call quality, the mute switch and phone texture.
 // Kept in this browser's local storage.
 
 export type Quality = "low" | "standard" | "high";
@@ -15,10 +15,12 @@ export type CallPreferences = {
   quality: Quality;
   /** Show the character's replies as text only, without playing her voice. */
   muted: boolean;
+  /** Make the character's voice sound as if over a phone line (CONTEXT.md「电话质感」). */
+  phoneTexture: boolean;
 };
 
 const STORAGE_KEY = "eidolon.callPreferences";
-const DEFAULTS: CallPreferences = { micId: "", quality: "standard", muted: false };
+const DEFAULTS: CallPreferences = { micId: "", quality: "standard", muted: false, phoneTexture: false };
 
 export function loadCallPreferences(): CallPreferences {
   try {
@@ -27,6 +29,7 @@ export function loadCallPreferences(): CallPreferences {
       micId: typeof stored.micId === "string" ? stored.micId : DEFAULTS.micId,
       quality: stored.quality in QUALITY_LABELS ? stored.quality : DEFAULTS.quality,
       muted: typeof stored.muted === "boolean" ? stored.muted : DEFAULTS.muted,
+      phoneTexture: typeof stored.phoneTexture === "boolean" ? stored.phoneTexture : DEFAULTS.phoneTexture,
     };
   } catch {
     return { ...DEFAULTS };

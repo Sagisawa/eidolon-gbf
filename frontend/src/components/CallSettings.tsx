@@ -3,6 +3,7 @@
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Selector } from "@astryxdesign/core/Selector";
+import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState } from "react";
@@ -23,7 +24,7 @@ const t = copy.settings.call;
 /** Selector 的值不能是空字符串；「系统默认」的麦克风在选择框里用这个值代表，存下来仍是空白。 */
 const SYSTEM_DEFAULT = "system-default";
 
-/** 默认麦克风和通话音质，记在这台设备上。通话中切换麦克风也会改掉这里的默认。 */
+/** 默认麦克风、通话音质和电话质感，记在这台设备上。通话中切换麦克风也会改掉这里的默认。 */
 export function CallSettings() {
   const [preferences, setPreferences] = useState<CallPreferences | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -87,6 +88,12 @@ export function CallSettings() {
           value={preferences.quality}
           onChange={(value) => update({ quality: value as Quality })}
           options={(Object.keys(QUALITY_LABELS) as Quality[]).map((value) => ({ value, label: t.qualities[value] }))}
+        />
+        <Switch
+          label={t.phoneTexture}
+          description={t.phoneTextureHint}
+          value={preferences.phoneTexture}
+          onChange={(phoneTexture) => update({ phoneTexture })}
         />
       </FormLayout>
     </SettingsSection>

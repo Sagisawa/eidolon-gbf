@@ -16,10 +16,10 @@ function storage(initial: Record<string, string> = {}) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("call preferences", () => {
-  it("start on the system default microphone, standard quality, voice on", () => {
+  it("start on the system default microphone, standard quality, voice on, phone texture off", () => {
     storage();
 
-    expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: false });
+    expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: false, phoneTexture: false });
   });
 
   it("remember the microphone chosen, keeping the rest", () => {
@@ -28,19 +28,34 @@ describe("call preferences", () => {
 
     saveCallPreferences({ micId: "usb" });
 
-    expect(loadCallPreferences()).toEqual({ micId: "usb", quality: "high", muted: false });
+    expect(loadCallPreferences()).toEqual({ micId: "usb", quality: "high", muted: false, phoneTexture: false });
   });
 
   it("fall back to the defaults for what is stored wrongly, keeping what is right", () => {
-    storage({ [KEY]: JSON.stringify({ micId: 3, quality: "ultra", muted: true }) });
+    storage({ [KEY]: JSON.stringify({ micId: 3, quality: "ultra", muted: true, phoneTexture: "yes" }) });
 
-    expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: true });
+    expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: true, phoneTexture: false });
   });
 
   it("fall back to the defaults when what is stored cannot be read", () => {
     storage({ [KEY]: "{not json" });
 
-    expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: false });
+    expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: false, phoneTexture: false });
+  });
+
+  it("take phone texture as off when stored before it existed", () => {
+    storage({ [KEY]: JSON.stringify({ micId: "usb", quality: "high", muted: true }) });
+
+    expect(loadCallPreferences()).toEqual({ micId: "usb", quality: "high", muted: true, phoneTexture: false });
+  });
+
+  it("remember phone texture turned on, keeping the rest", () => {
+    storage();
+    saveCallPreferences({ quality: "low" });
+
+    saveCallPreferences({ phoneTexture: true });
+
+    expect(loadCallPreferences()).toEqual({ micId: "", quality: "low", muted: false, phoneTexture: true });
   });
 
   it("go on without being remembered when storage is unavailable", () => {
