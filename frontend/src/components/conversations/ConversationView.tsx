@@ -41,6 +41,7 @@ import { CallLayer, type ShownCall } from "./CallLayer";
 import { CallNote } from "./CallNote";
 import { MicSheet } from "./MicSheet";
 import { useDirectory, useWide } from "./ConversationDirectory";
+import { useCallTones } from "./useCallTones";
 
 const t = copy.conversation;
 
@@ -65,6 +66,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const { conversation, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
   const characterAudio = useRef<HTMLAudioElement>(null);
   const shownCall = useShownCall(call);
+  useCallTones(call.phase);
 
   // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话）。
   useEffect(() => {
