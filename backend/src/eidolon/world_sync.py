@@ -5,7 +5,8 @@ im@sparql's SPARQL endpoint, asked for the brand `"ShinyColors"@en`. Which units
 are, and who is in each, the official site's unit pages decide (ADR-0008): im@sparql
 also lists special units put together for a release or a project (Team.Stella and the
 like), which are not units, so they are left out and only named in the report. A unit
-takes its reading from the im@sparql unit of the same name.
+takes its reading from the im@sparql unit of the same name, or failing that of the same
+members.
 
 Where the two sources disagree (a member on one side only, a unit im@sparql lacks, an
 idol in none of the units) the official pages win, and the report lists it for the
@@ -105,7 +106,7 @@ class WorldSyncReport:
         world, previous = self.world, self.previous
         lines = [f"资料截止日：{world.as_of.isoformat()}"]
         lines.append(
-            f"社長和事務員：{len(world.staff)} 位"
+            f"社长和事务员：{len(world.staff)} 位"
             + _changes(previous and _diff([s.name for s in previous.staff], [s.name for s in world.staff]))
         )
         lines.append(
@@ -265,9 +266,16 @@ def _units(
             {"uri": row["unit"], "name": row["name"], "kana": row.get("kana"), "members": []},
         )
         unit["members"].append(row["member"])
+    if not sparql:
+        raise WorldSyncError(f"{SPARQL_URL} 没有返回任何组合")
     units = []
     for unit in official:
         match = sparql.pop(_key(unit.name), None)
+        if match is None:  # named differently there: the same members make it the same unit
+            same = [k for k, u in sparql.items() if set(u["members"]) == set(unit.members)]
+            if same:
+                match = sparql.pop(same[0])
+                disagreements.append(f"{unit.name}：im@sparql 里叫 {match['name']}，按成员对上了")
         if match is None:
             disagreements.append(f"{unit.name}：im@sparql 里没有这个组合，读音空缺")
             units.append(Unit(unit.name, None, unit.members, (unit.url,)))

@@ -85,7 +85,8 @@ class World:
             "",
         ]
         for staff in self.staff:
-            lines.append(f"{staff.position}：{staff.name}（{staff.reading}）")
+            reading = f"（{staff.reading}）" if staff.reading else ""
+            lines.append(f"{staff.position}：{staff.name}{reading}")
         lines += ["", "事务所的组合和成员（每位偶像只属于一个组合）："]
         for unit in self.units:
             reading = f"（{unit.reading}）" if unit.reading else ""

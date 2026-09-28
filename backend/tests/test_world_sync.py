@@ -133,10 +133,10 @@ def test_the_report_counts_each_kind_and_what_changed_since_the_last_import(
     assert code == 0, err
     assert "偶像：6 位" in first
     assert "组合：3 个" in first
-    assert "社長和事務員：2 位" in first
+    assert "社长和事务员：2 位" in first
     assert "偶像：6 位（新增 鈴木羽那；移除 田中摩美々）" in second
     assert "组合：4 个（新增 CoMETIK；成员有变化 L'Antica）" in second
-    assert "社長和事務員：2 位（没有变化）" in second
+    assert "社长和事务员：2 位（没有变化）" in second
 
 
 def test_where_im_sparql_and_the_official_unit_pages_disagree_is_reported(
@@ -186,3 +186,16 @@ def test_a_unit_page_missing_from_the_official_site_fails_the_import(
     assert code != 0
     assert "idol/gone" in err
     assert not world_file(characters).exists()
+
+
+def test_a_unit_im_sparql_names_differently_is_matched_by_its_members(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.sparql_units["ホウカゴ"] = sites.sparql_units.pop("放課後クライマックスガールズ")
+
+    code, out, _ = world_sync()
+
+    assert code == 0
+    assert read_world(characters)["units"][2]["reading"] == "ほうかごくらいまっくすがーるず"
+    assert "im@sparql 里叫 ホウカゴ" in out
+    assert "没有收录：Team.Stella\n" in out  # not taken for a special unit
