@@ -15,6 +15,10 @@
     eidolon story sync               import SCTranslationData, then the card, produce and event
                                      episodes it lacks from the ShinyColorsDB mirror; exits 2
                                      if the mirror failed
+    eidolon world sync               import the idols, units, president and clerk from
+                                     im@sparql and the official unit pages into the world
+                                     setting beside the character configuration, and report
+                                     what changed; the old file stays if a source failed
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
@@ -58,6 +62,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_sync_story(args))
     if args.command == "story":
         return asyncio.run(_import_story(args))
+    if args.command == "world":
+        return asyncio.run(_sync_world(args))
     if args.command == "character":
         return asyncio.run(_draft_sheet(args))
     if args.command == "reembed":
@@ -248,6 +254,26 @@ async def _sync_story(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    return 0
+
+
+async def _sync_world(args: argparse.Namespace) -> int:
+    from datetime import date
+
+    from eidolon import world_sync
+    from eidolon.world import world_path
+
+    path = world_path(args.characters or characters_path_from_env())
+    client = world_sync.open_client()
+    try:
+        report = await world_sync.sync_world(path, client, date.today())
+    except world_sync.WorldSyncError as e:
+        print(f"导入失败，资料文件没有改动：{e}", file=sys.stderr)
+        return 1
+    finally:
+        await client.aclose()
+    for line in report.lines():
+        print(line)
     return 0
 
 
@@ -519,6 +545,20 @@ def _parser() -> argparse.ArgumentParser:
             type=Path,
             help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
         )
+
+    world = commands.add_parser("world", help="管理世界设定").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    world_sync = world.add_parser(
+        "sync",
+        help="从 im@sparql 和官方组合页导入偶像、组合、社长和事务员，写入角色配置旁边的 world.json，"
+        "并打印导入报告（任何来源失败时不改动旧文件）",
+    )
+    world_sync.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件，资料写在它旁边（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
 
     character = commands.add_parser("character", help="管理角色").add_subparsers(
         dest="action", required=True, metavar="操作"

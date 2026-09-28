@@ -1,0 +1,416 @@
+{
+  "as_of": "2026-09-28",
+  "office": {
+    "name": "283プロダクション",
+    "staff": [
+      {
+        "name": "天井努",
+        "reading": "あまいつとむ",
+        "position": "社長",
+        "sources": [
+          "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Amai_Tsutomu"
+        ]
+      },
+      {
+        "name": "七草はづき",
+        "reading": "ななくさはづき",
+        "position": "事務員",
+        "sources": [
+          "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Nanakusa_Hazuki"
+        ]
+      }
+    ]
+  },
+  "units": [
+    {
+      "name": "illumination STARS",
+      "reading": "いるみねーしょんすたーず",
+      "members": [
+        "櫻木真乃",
+        "風野灯織",
+        "八宮めぐる"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/illuminationstars/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/illuminationSTARS"
+      ]
+    },
+    {
+      "name": "L'Antica",
+      "reading": "あんてぃーか",
+      "members": [
+        "月岡恋鐘",
+        "幽谷霧子",
+        "三峰結華",
+        "田中摩美々",
+        "白瀬咲耶"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/lantica/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/L%27Antica"
+      ]
+    },
+    {
+      "name": "放課後クライマックスガールズ",
+      "reading": "ほうかごくらいまっくすがーるず",
+      "members": [
+        "小宮果穂",
+        "園田智代子",
+        "西城樹里",
+        "杜野凛世",
+        "有栖川夏葉"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/hokagoclimaxgirls/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/%E6%94%BE%E8%AA%B2%E5%BE%8C%E3%82%AF%E3%83%A9%E3%82%A4%E3%83%9E%E3%83%83%E3%82%AF%E3%82%B9%E3%82%AC%E3%83%BC%E3%83%AB%E3%82%BA"
+      ]
+    },
+    {
+      "name": "ALSTROEMERIA",
+      "reading": "あるすとろめりあ",
+      "members": [
+        "桑山千雪",
+        "大崎甘奈",
+        "大崎甜花"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/alstroemeria/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/ALSTROEMERIA"
+      ]
+    },
+    {
+      "name": "Straylight",
+      "reading": "すとれいらいと",
+      "members": [
+        "芹沢あさひ",
+        "黛冬優子",
+        "和泉愛依"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/straylight/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Straylight"
+      ]
+    },
+    {
+      "name": "noctchill",
+      "reading": "のくちる",
+      "members": [
+        "浅倉透",
+        "樋口円香",
+        "福丸小糸",
+        "市川雛菜"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/noctchill/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/noctchill"
+      ]
+    },
+    {
+      "name": "SHHis",
+      "reading": "しーず",
+      "members": [
+        "七草にちか",
+        "緋田美琴"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/shhis/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/SHHis"
+      ]
+    },
+    {
+      "name": "CoMETIK",
+      "reading": "こめてぃっく",
+      "members": [
+        "斑鳩ルカ",
+        "鈴木羽那",
+        "郁田はるき"
+      ],
+      "sources": [
+        "https://shinycolors.idolmaster-official.jp/idol/cometik/",
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/CoMETIK"
+      ]
+    }
+  ],
+  "idols": [
+    {
+      "name": "櫻木真乃",
+      "reading": "さくらぎまの",
+      "unit": "illumination STARS",
+      "cv": "関根瞳",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Sakuragi_Mano",
+        "https://shinycolors.idolmaster-official.jp/idol/illuminationstars/"
+      ]
+    },
+    {
+      "name": "風野灯織",
+      "reading": "かざのひおり",
+      "unit": "illumination STARS",
+      "cv": "近藤玲奈",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Kazano_Hiori",
+        "https://shinycolors.idolmaster-official.jp/idol/illuminationstars/"
+      ]
+    },
+    {
+      "name": "八宮めぐる",
+      "reading": "はちみやめぐる",
+      "unit": "illumination STARS",
+      "cv": "峯田茉優",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Hachimiya_Meguru",
+        "https://shinycolors.idolmaster-official.jp/idol/illuminationstars/"
+      ]
+    },
+    {
+      "name": "月岡恋鐘",
+      "reading": "つきおかこがね",
+      "unit": "L'Antica",
+      "cv": "礒部花凜",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Tsukioka_Kogane",
+        "https://shinycolors.idolmaster-official.jp/idol/lantica/"
+      ]
+    },
+    {
+      "name": "幽谷霧子",
+      "reading": "ゆうこくきりこ",
+      "unit": "L'Antica",
+      "cv": "結名美月",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Yukoku_Kiriko",
+        "https://shinycolors.idolmaster-official.jp/idol/lantica/"
+      ]
+    },
+    {
+      "name": "三峰結華",
+      "reading": "みつみねゆいか",
+      "unit": "L'Antica",
+      "cv": "希水しお",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Mitsumine_Yuika",
+        "https://shinycolors.idolmaster-official.jp/idol/lantica/"
+      ]
+    },
+    {
+      "name": "田中摩美々",
+      "reading": "たなかまみみ",
+      "unit": "L'Antica",
+      "cv": "菅沼千紗",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Tanaka_Mamimi",
+        "https://shinycolors.idolmaster-official.jp/idol/lantica/"
+      ]
+    },
+    {
+      "name": "白瀬咲耶",
+      "reading": "しらせさくや",
+      "unit": "L'Antica",
+      "cv": "八巻アンナ",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Shirase_Sakuya",
+        "https://shinycolors.idolmaster-official.jp/idol/lantica/"
+      ]
+    },
+    {
+      "name": "小宮果穂",
+      "reading": "こみやかほ",
+      "unit": "放課後クライマックスガールズ",
+      "cv": "河野ひより",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Komiya_Kaho",
+        "https://shinycolors.idolmaster-official.jp/idol/hokagoclimaxgirls/"
+      ]
+    },
+    {
+      "name": "園田智代子",
+      "reading": "そのだちよこ",
+      "unit": "放課後クライマックスガールズ",
+      "cv": "白石晴香",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Sonoda_Chiyoko",
+        "https://shinycolors.idolmaster-official.jp/idol/hokagoclimaxgirls/"
+      ]
+    },
+    {
+      "name": "西城樹里",
+      "reading": "さいじょうじゅり",
+      "unit": "放課後クライマックスガールズ",
+      "cv": "永井真里子",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Saijo_Juri",
+        "https://shinycolors.idolmaster-official.jp/idol/hokagoclimaxgirls/"
+      ]
+    },
+    {
+      "name": "杜野凛世",
+      "reading": "もりのりんぜ",
+      "unit": "放課後クライマックスガールズ",
+      "cv": "丸岡和佳奈",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Morino_Rinze",
+        "https://shinycolors.idolmaster-official.jp/idol/hokagoclimaxgirls/"
+      ]
+    },
+    {
+      "name": "有栖川夏葉",
+      "reading": "ありすがわなつは",
+      "unit": "放課後クライマックスガールズ",
+      "cv": "涼本あきほ",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Arisugawa_Natsuha",
+        "https://shinycolors.idolmaster-official.jp/idol/hokagoclimaxgirls/"
+      ]
+    },
+    {
+      "name": "桑山千雪",
+      "reading": "くわやまちゆき",
+      "unit": "ALSTROEMERIA",
+      "cv": "芝崎典子",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Kuwayama_Chiyuki",
+        "https://shinycolors.idolmaster-official.jp/idol/alstroemeria/"
+      ]
+    },
+    {
+      "name": "大崎甘奈",
+      "reading": "おおさきあまな",
+      "unit": "ALSTROEMERIA",
+      "cv": "黒木ほの香",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Osaki_Amana",
+        "https://shinycolors.idolmaster-official.jp/idol/alstroemeria/"
+      ]
+    },
+    {
+      "name": "大崎甜花",
+      "reading": "おおさきてんか",
+      "unit": "ALSTROEMERIA",
+      "cv": "前川涼子",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Osaki_Tenka",
+        "https://shinycolors.idolmaster-official.jp/idol/alstroemeria/"
+      ]
+    },
+    {
+      "name": "芹沢あさひ",
+      "reading": "せりざわあさひ",
+      "unit": "Straylight",
+      "cv": "田中有紀",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Serizawa_Asahi",
+        "https://shinycolors.idolmaster-official.jp/idol/straylight/"
+      ]
+    },
+    {
+      "name": "黛冬優子",
+      "reading": "まゆずみふゆこ",
+      "unit": "Straylight",
+      "cv": "幸村恵理",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Mayuzumi_Fuyuko",
+        "https://shinycolors.idolmaster-official.jp/idol/straylight/"
+      ]
+    },
+    {
+      "name": "和泉愛依",
+      "reading": "いずみめい",
+      "unit": "Straylight",
+      "cv": "北原沙弥香",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Izumi_Mei",
+        "https://shinycolors.idolmaster-official.jp/idol/straylight/"
+      ]
+    },
+    {
+      "name": "浅倉透",
+      "reading": "あさくらとおる",
+      "unit": "noctchill",
+      "cv": "和久井優",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Asakura_Toru",
+        "https://shinycolors.idolmaster-official.jp/idol/noctchill/"
+      ]
+    },
+    {
+      "name": "樋口円香",
+      "reading": "ひぐちまどか",
+      "unit": "noctchill",
+      "cv": "土屋李央",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Higuchi_Madoka",
+        "https://shinycolors.idolmaster-official.jp/idol/noctchill/"
+      ]
+    },
+    {
+      "name": "福丸小糸",
+      "reading": "ふくまるこいと",
+      "unit": "noctchill",
+      "cv": "田嶌紗蘭",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Fukumaru_Koito",
+        "https://shinycolors.idolmaster-official.jp/idol/noctchill/"
+      ]
+    },
+    {
+      "name": "市川雛菜",
+      "reading": "いちかわひなな",
+      "unit": "noctchill",
+      "cv": "岡咲美保",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Ichikawa_Hinana",
+        "https://shinycolors.idolmaster-official.jp/idol/noctchill/"
+      ]
+    },
+    {
+      "name": "七草にちか",
+      "reading": "ななくさにちか",
+      "unit": "SHHis",
+      "cv": "紫月杏朱彩",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Nanakusa_Nichika",
+        "https://shinycolors.idolmaster-official.jp/idol/shhis/"
+      ]
+    },
+    {
+      "name": "緋田美琴",
+      "reading": "あけたみこと",
+      "unit": "SHHis",
+      "cv": "山根綺",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Aketa_Mikoto",
+        "https://shinycolors.idolmaster-official.jp/idol/shhis/"
+      ]
+    },
+    {
+      "name": "斑鳩ルカ",
+      "reading": "いかるがるか",
+      "unit": "CoMETIK",
+      "cv": "川口莉奈",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Ikaruga_Luca",
+        "https://shinycolors.idolmaster-official.jp/idol/cometik/"
+      ]
+    },
+    {
+      "name": "鈴木羽那",
+      "reading": "すずきはな",
+      "unit": "CoMETIK",
+      "cv": "三川華月",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Suzuki_Hana",
+        "https://shinycolors.idolmaster-official.jp/idol/cometik/"
+      ]
+    },
+    {
+      "name": "郁田はるき",
+      "reading": "いくたはるき",
+      "unit": "CoMETIK",
+      "cv": "小澤麗那",
+      "sources": [
+        "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/Ikuta_Haruki",
+        "https://shinycolors.idolmaster-official.jp/idol/cometik/"
+      ]
+    }
+  ]
+}

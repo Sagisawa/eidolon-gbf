@@ -435,3 +435,108 @@ class FakeShinyColorsDB:
             return httpx.Response(304)
         self.sent.append(name)
         return httpx.Response(200, content=body, headers={"ETag": etag})
+
+
+class FakeWorldSites:
+    """Stands in for the sites `eidolon world sync` imports from, answering as they do:
+    im@sparql's SPARQL endpoint (told apart by what each query asks for) and the official
+    site's idol index and unit pages. Records every request. Add a host's name to `down`
+    to have it unreachable, or a page's path to `missing` to have it answer 404."""
+
+    SPARQL = "sparql.crssnky.xyz"
+    OFFICIAL = "shinycolors.idolmaster-official.jp"
+
+    def __init__(self) -> None:
+        self.idols: list[dict[str, str]] = []
+        """im@sparql's idols: `id` (the resource's last path segment), `name`, `kana`, `cv`."""
+        self.staff: list[dict[str, str]] = []
+        """im@sparql's staff: `id`, `name`, `kana`, `position`."""
+        self.sparql_units: dict[str, tuple[str | None, list[str]]] = {}
+        """im@sparql's units, by name: reading and members."""
+        self.official_units: list[tuple[str, str, str, list[str]]] = []
+        """The official site's units, in order: slug, logo text (empty for none), the
+        name under the logo, members as the site writes them (family name, space, given)."""
+        self.requests: list[httpx.Request] = []
+        self.down: set[str] = set()
+        self.missing: set[str] = set()
+
+    def client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(transport=httpx.MockTransport(self._handle))
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        host = request.url.host
+        if host in self.down:
+            raise httpx.ConnectError("connection refused")
+        if host == self.SPARQL and request.url.path == "/spql/imas/query":
+            return httpx.Response(200, json=self._query(request.url.params["query"]))
+        if host == self.OFFICIAL and request.url.path.strip("/") not in self.missing:
+            path = request.url.path.strip("/")
+            if path == "idol":
+                return httpx.Response(200, text=self._index())
+            for slug, logo, name, members in self.official_units:
+                if path == f"idol/{slug}":
+                    return httpx.Response(200, text=self._unit_page(slug, logo, name, members))
+        return httpx.Response(404, text="<html>Not Found</html>")
+
+    def _query(self, query: str) -> dict:
+        detail = "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/"
+
+        def uri(value: str) -> dict:
+            return {"type": "uri", "value": value}
+
+        def ja(value: str) -> dict:
+            return {"type": "literal", "xml:lang": "ja", "value": value}
+
+        rows: list[dict] = []
+        if "imas:Unit" in query:
+            for name, (kana, members) in self.sparql_units.items():
+                for member in members:
+                    row = {"unit": uri(detail + name.replace(" ", "")), "name": ja(name), "member": ja(member)}
+                    if kana is not None:
+                        row["kana"] = ja(kana)
+                    rows.append(row)
+        elif "imas:Staff" in query:
+            for staff in self.staff:
+                rows.append({
+                    "staff": uri(detail + staff["id"]), "name": ja(staff["name"]),
+                    "kana": ja(staff["kana"]), "position": ja(staff["position"]),
+                    "officeName": ja("283プロダクション"),
+                })
+        elif "imas:Idol" in query:
+            for idol in self.idols:
+                rows.append({
+                    "idol": uri(detail + idol["id"]), "name": ja(idol["name"]),
+                    "kana": ja(idol["kana"]), "cv": ja(idol["cv"]),
+                })
+        return {"head": {"vars": []}, "results": {"bindings": rows}}
+
+    def _index(self) -> str:
+        items = "".join(
+            f'<li class="idol-item js--scroll__trigger">\n'
+            f'  <a href="./{slug}" id="{slug}" class="idol-link">\n'
+            f'    <div class="idol-logo unit{n}"><img loading="lazy" src="x.png" alt="{slug}"></div>\n'
+            f"  </a>\n</li>\n"
+            for n, (slug, *_) in enumerate(self.official_units, 1)
+        )
+        return f'<html><body><main class="idol-unit"><ul class="idol-list">\n{items}</ul></main></body></html>'
+
+    def _unit_page(self, slug: str, logo: str, name: str, members: list[str]) -> str:
+        names = "".join(
+            f'<li class="idol-group__name" data-id="{n}">\n'
+            f'<a href="../../idol/{slug}/m{n}/" class="idol-group__name--text">{member}</a>\n</li>\n'
+            for n, member in enumerate(members, 1)
+        )
+        nav = "".join(
+            f'<li class="idol-nav__unit--btn"><a href="../../idol/{other}" class="idol-nav__unit--item">'
+            f'<img loading="lazy" src="logo_{other}.png" alt="{other_logo}"></a></li>\n'
+            for other, other_logo, *_ in self.official_units
+        )
+        return (
+            f'<html><body><main class="idol common-main" data-id="{slug}">\n'
+            f'<ul class="idol-group__list">\n{names}</ul>\n'
+            f'<div class="idol-group__logo">\n<picture>\n'
+            f'<img loading="lazy" src="../../assets/img/idol/{slug}/logo.png" alt="{logo}">\n'
+            f'</picture>\n<p class="idol-group__logo--name">{name}</p>\n</div>\n'
+            f'<ul class="idol-nav__unit">\n{nav}</ul>\n</main></body></html>'
+        )

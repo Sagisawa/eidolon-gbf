@@ -15,6 +15,8 @@ the turn already recalled an episode. Its calls are answered and the model asked
 again, once at most since every round costs the model's time to first token; whatever
 it says along the way is part of the reply, and only the reply is recorded.
 
+Every turn carries the world setting, when there is one, after the character sheet.
+
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
 
@@ -49,6 +51,7 @@ from eidolon.reply_format import (
 )
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import Conversation, Message, Store
+from eidolon.world import World
 
 MAX_INPUT_LENGTH = 2000
 """The longest thing a user can say in one turn, typed or spoken, in characters; longer
@@ -155,16 +158,18 @@ class ConversationEngine:
         clock: Clock,
         retrieval: Retrieval | None = None,
         history_turns: int | None = None,
+        world: World | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest `history_turns` turns, or
-        all of them if None."""
+        all of them if None. Without `world`, turns carry no world setting."""
         self._store = store
         self._characters = characters
         self._clock = clock
         self._retrieval = retrieval
         self._memory = memory
         self._history_turns = history_turns
+        self._world_prompt = world.prompt() if world is not None else None
 
     async def turn(
         self,
@@ -272,7 +277,10 @@ class ConversationEngine:
         retrieved: Retrieved,
         text: str,
     ) -> list[ChatMessage]:
-        sections = [character.sheet, about_producer]
+        sections = [character.sheet]
+        if self._world_prompt:
+            sections.append(self._world_prompt)
+        sections.append(about_producer)
         if retrieved.memories_prompt:
             sections.append(retrieved.memories_prompt)
         if retrieved.prompt:

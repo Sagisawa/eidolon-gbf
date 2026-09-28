@@ -291,6 +291,10 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 For local development, run `uv run eidolon --db data/eidolon.db story sync` in `backend/` (likewise `import-csv` and `import-json`).
 
+### World setting
+
+The office's president and clerk, the eight units and their idols go into every turn after the character sheet ([ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)). The data is `characters/world.json`, beside the character configuration and committed to the repository. To update it, run `uv run eidolon world sync` in `backend/`: it imports from im@sparql and the official unit pages and prints how many of each there are, what changed since the old file and where the two sources disagree; read the `git diff` before committing. If any source fails, the old file is left as it was. Every character's display name must match one of the idols or the backend will not start; without the file, it runs without the world setting.
+
 ### Embedding service
 
 The story corpus, character facts and memories all share one embedding service, chosen at deploy time with `EMBEDDING_PROVIDER` ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)). Reranking doesn't follow the switch; it always uses SiliconFlow.
@@ -458,6 +462,8 @@ eidolon-sc/
 │   │   ├── story_import.py   #   story corpus import (CSV / JSON) and the canon rules
 │   │   ├── story_sync.py     #   keeping the corpus in step with the game (eidolon story sync)
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
+│   │   ├── world.py          #   world setting: the data file and the section every turn carries
+│   │   ├── world_sync.py     #   importing the world setting (eidolon world sync)
 │   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols

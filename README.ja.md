@@ -291,6 +291,10 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 ローカル開発では `backend/` で `uv run eidolon --db data/eidolon.db story sync` を使います（`import-csv`・`import-json` も同様）。
 
+### 世界設定
+
+事務所の社長と事務員、8 つのユニットと所属アイドルは、毎ターン人設の後ろに付けて渡します（[ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)）。データはキャラクター設定の隣にある `characters/world.json` で、リポジトリにコミット済みです。更新するときは `backend/` で `uv run eidolon world sync` を実行します。im@sparql と公式のユニットページから取り込み、各項目の件数、旧ファイルからの増減、2 つのソースで食い違う箇所を表示するので、`git diff` を確認してからコミットしてください。どれか 1 つでもソースの取得に失敗すると、旧ファイルはそのまま残ります。キャラクター設定の表示名がデータのアイドルと一致しないキャラクターがいるとバックエンドは起動しません。ファイルがない場合は世界設定なしで動きます。
+
 ### ベクトル化サービス
 
 シナリオライブラリ・キャラクター資料・メモリーは同じベクトル化サービスを使い、デプロイ時に `EMBEDDING_PROVIDER` でどちらかを選びます（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)）。並べ替え（Reranker）は切り替わらず、常に SiliconFlow を使います。
@@ -458,6 +462,8 @@ eidolon-sc/
 │   │   ├── story_import.py   #   シナリオの取り込み（CSV / JSON）と正規ルートのルール
 │   │   ├── story_sync.py     #   原作との同期（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB のミラーと API のクライアント
+│   │   ├── world.py          #   世界設定：データファイルと毎ターン渡す節
+│   │   ├── world_sync.py     #   世界設定の取り込み（eidolon world sync）
 │   │   ├── script_cache.py   #   同期でダウンロードした生スクリプトのキャッシュ
 │   │   ├── sheet_draft.py    #   キャラクターシートの下書き生成
 │   │   └── llm/              #   3 種類のモデル方式のアダプター

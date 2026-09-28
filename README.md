@@ -288,6 +288,10 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 本地开发时在 `backend/` 下用 `uv run eidolon --db data/eidolon.db story sync`（`import-csv`、`import-json` 同理）。
 
+### 世界设定
+
+事务所的社长和事务员、八个组合和各自的偶像，每个回合都跟在人设后面带上（[ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)）。资料是角色配置旁边的 `characters/world.json`，已提交进仓库；要更新时在 `backend/` 下运行 `uv run eidolon world sync`，它从 im@sparql 和官方组合页导入，打印各类条目的数量、相对旧文件的增减和两个来源对不上的地方，看过 `git diff` 再提交。任何一个来源失败时旧文件不会改动。角色配置里每位角色的显示名都要和资料里的偶像对得上，否则后端不会启动；没有这个文件时照常运行，只是不带世界设定。
+
 ### 向量化服务
 
 剧情库、角色资料和记忆用同一个向量化服务，部署时用 `EMBEDDING_PROVIDER` 二选一（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)）；重排不跟着换，始终用硅基流动。
@@ -455,6 +459,8 @@ eidolon-sc/
 │   │   ├── story_import.py   #   剧情库导入（CSV / JSON）与正式经历规则
 │   │   ├── story_sync.py     #   与原作同步（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB 镜像与 API 的客户端
+│   │   ├── world.py          #   世界设定：资料文件与每个回合带上的那一节
+│   │   ├── world_sync.py     #   世界设定的导入（eidolon world sync）
 │   │   ├── script_cache.py   #   同步下载的原始剧本缓存
 │   │   ├── sheet_draft.py    #   人设初稿生成
 │   │   └── llm/              #   三种模型接口的适配

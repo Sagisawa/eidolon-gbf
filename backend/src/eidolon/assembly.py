@@ -1,7 +1,7 @@
 """The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
-characters, the identity providers users sign in with, the chat and background models,
+characters and the world setting beside them, the identity providers users sign in with, the chat and background models,
 the services users bring their own keys to, retrieval, memory, the conversation engine,
 usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
@@ -42,6 +42,7 @@ from eidolon.rerank import (
 from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
+from eidolon.world import load_world, world_path
 
 log = logging.getLogger(__name__)
 
@@ -88,8 +89,17 @@ def build(
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
-    configuration is broken."""
+    configuration or the world setting is broken, or a character is none of its idols."""
     characters = load_characters(settings.characters_path)
+    world = load_world(path := world_path(settings.characters_path))
+    if world is None:
+        log.info(
+            "there is no world setting at %s: characters go without it (run `eidolon world"
+            " sync` and commit the file it writes)",
+            path,
+        )
+    else:
+        world.check_characters(characters, path)
     clock = clock or utc_now
     closers: list[Closer] = []
 
@@ -174,7 +184,7 @@ def build(
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
     engine = ConversationEngine(
-        store, characters, memories, clock, retrieval, settings.history_turns
+        store, characters, memories, clock, retrieval, settings.history_turns, world
     )
     usage = UsageLimiter(settings.database_path, settings.usage_limits, clock)
     closers.append(usage.close)
