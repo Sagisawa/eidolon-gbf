@@ -466,6 +466,8 @@ eidolon-sc/
 │   │   ├── release_sync.py   #   唱片和歌曲的导入（Lantis，ふじわらはじめ补齐演唱者）
 │   │   ├── live_sync.py      #   演出和逐日出演者的导入（官方门户、旧官方站，wikiwiki 的出演者）
 │   │   ├── setlist_sync.py   #   逐日曲目单的导入（imas-db）
+│   │   ├── roster.py         #   名单：导入时把来源里的人名、声优名、组合名对应到偶像和组合
+│   │   ├── sync_tools.py     #   各导入共用的小工具
 │   │   ├── script_cache.py   #   同步下载的原始剧本缓存
 │   │   ├── sheet_draft.py    #   人设初稿生成
 │   │   └── llm/              #   三种模型接口的适配

@@ -470,6 +470,8 @@ eidolon-sc/
 │   │   ├── release_sync.py   #   importing releases and songs (Lantis; singers it leaves out from ふじわらはじめ)
 │   │   ├── live_sync.py      #   importing lives and who stood on each day (the portal, the old site; performers from wikiwiki)
 │   │   ├── setlist_sync.py   #   importing each live day's setlist (imas-db)
+│   │   ├── roster.py         #   the roster: matching the names the sources give to the idols and units
+│   │   ├── sync_tools.py     #   small helpers the imports share
 │   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols

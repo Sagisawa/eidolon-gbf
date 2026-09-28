@@ -45,7 +45,9 @@ import httpx
 
 from eidolon.live_sync import LiveCorrections, LiveImport, import_lives
 from eidolon.release_sync import FUJI_NAME, ReleaseImport, TrackCorrections, import_releases
+from eidolon.roster import Roster, unit_key
 from eidolon.setlist_sync import SetlistImport, import_setlists
+from eidolon.sync_tools import without_spaces
 from eidolon.world import Idol, Staff, Unit, World, WorldError, WorldSyncError, load_world
 
 SPARQL_URL = "https://sparql.crssnky.xyz/spql/imas/query"
@@ -293,9 +295,10 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
         return (await _get(client, url)).text
 
     track_corrections, live_corrections = _corrections(path.parent / CORRECTIONS_FILE, idols)
-    found = await import_releases(fetch, idols, units, track_corrections)
-    lives = await import_lives(fetch, idols, staff, live_corrections)
-    setlists = await import_setlists(fetch, lives.lives, idols, units, today)
+    roster = Roster(idols, units, staff)
+    found = await import_releases(fetch, roster, track_corrections)
+    lives = await import_lives(fetch, roster, live_corrections)
+    setlists = await import_setlists(fetch, lives.lives, roster, today)
     world = World(
         today, office, staff, tuple(units), idols, found.releases, found.songs, setlists.lives
     )
@@ -375,12 +378,7 @@ def _text(raw: str) -> str:
 
 def _person(raw: str) -> str:
     """A name as the data file keeps it, without the space between family and given name."""
-    return re.sub(r"\s", "", html.unescape(raw))
-
-
-def _key(name: str) -> str:
-    """A unit's name for matching across sources: `illumination STARS` is `illuminationSTARS`."""
-    return re.sub(r"[\W_]", "", name.replace("’", "'")).casefold()
+    return without_spaces(html.unescape(raw))
 
 
 def _staff(rows: list[dict[str, str]]) -> tuple[str, tuple[Staff, ...]]:
@@ -403,7 +401,7 @@ def _units(
     sparql: dict[str, dict] = {}
     for row in rows:
         unit = sparql.setdefault(
-            _key(row["name"]),
+            unit_key(row["name"]),
             {"uri": row["unit"], "name": row["name"], "kana": row.get("kana"), "members": []},
         )
         unit["members"].append(row["member"])
@@ -411,7 +409,7 @@ def _units(
         raise WorldSyncError(f"{SPARQL_URL} 没有返回任何组合")
     units = []
     for unit in official:
-        match = sparql.pop(_key(unit.name), None)
+        match = sparql.pop(unit_key(unit.name), None)
         if match is None:  # named differently there: the same members make it the same unit
             same = [k for k, u in sparql.items() if set(u["members"]) == set(unit.members)]
             if same:
