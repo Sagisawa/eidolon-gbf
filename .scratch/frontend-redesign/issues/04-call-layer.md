@@ -2,7 +2,7 @@
 
 **What to build:** 点通话按钮后，全屏的通话层从页首展开（手机上占满全屏，电脑上只盖右栏），显示她、通话状态、计时，以及她当前这句的日语和字幕、用户正在说的话。可以收起回到 IM（通话照常继续，页首留一张「通话中 · 点击返回」便利贴），也可以按 Esc 收起。底部三个按钮：麦克风静音、挂断、切换麦克风（切换的实现在 05）；右上角「只看文字」开关。因故结束时停在结束页，写明原因和是否计入限额。规则见 `../spec.md`「通话层」「通话状态」，术语见 `CONTEXT.md`。
 
-**Prototype:** 原型参见 `prototype/frontend-redesign` 分支的 `frontend/src/app/prototype/`（`git switch prototype/frontend-redesign` 后 `npm run dev` 打开 `/prototype`，右下角「原型控制台」可以跳到任意状态）。 对应文件：`CallLayer.tsx`、`call.ts`（结束原因和文案）、`Conversation.tsx` 里的 `CallNote`。
+**Prototype:** 原型参见提交 `8551cde`（原 `prototype/frontend-redesign` 分支，合并后已删除）里的 `frontend/src/app/prototype/`（`git switch --detach 8551cde` 后 `npm run dev` 打开 `/prototype`，右下角「原型控制台」可以跳到任意状态）。 对应文件：`CallLayer.tsx`、`call.ts`（结束原因和文案）、`Conversation.tsx` 里的 `CallNote`。
 
 **Blocked by:** 03
 
