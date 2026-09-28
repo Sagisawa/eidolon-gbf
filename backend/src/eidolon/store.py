@@ -472,6 +472,28 @@ class Store:
             ).fetchall()
         return [Conversation(**row) for row in rows]
 
+    def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Message | None]]:
+        """Each character's newest conversation with the user, and its last message (None
+        while it has none); for the conversation list."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM conversations WHERE user_id = ?"
+                " ORDER BY created_at DESC, rowid DESC",
+                (user_id,),
+            ).fetchall()
+            newest: dict[str, Conversation] = {}
+            for row in rows:
+                newest.setdefault(row["character_id"], Conversation(**row))
+            last = {
+                c.id: self._db.execute(
+                    "SELECT id, role, text, ja, zh, segments, created_at FROM messages"
+                    " WHERE conversation_id = ? ORDER BY id DESC LIMIT 1",
+                    (c.id,),
+                ).fetchone()
+                for c in newest.values()
+            }
+        return [(c, _message(last[c.id]) if last[c.id] else None) for c in newest.values()]
+
     def add_turn(self, conversation_id: str, text: str, reply: list[Segment]) -> Message:
         """Record the user's input and the character's reply together; returns the reply."""
         with self._lock, self._db:
@@ -485,13 +507,7 @@ class Store:
                 " WHERE conversation_id = ? ORDER BY id",
                 (conversation_id,),
             ).fetchall()
-        return [
-            Message(
-                row["id"], row["role"], row["text"], row["ja"], row["zh"], row["created_at"],
-                [Segment(**s) for s in json.loads(row["segments"] or "[]")],
-            )
-            for row in rows
-        ]
+        return [_message(row) for row in rows]
 
     def close(self) -> None:
         self._db.close()
@@ -543,6 +559,13 @@ _USER_DATA = [
 ]
 """Every table holding a user's data, and which rows are theirs, in an order that deletes
 what refers to a row before the row. A table added for users' data must be added here."""
+
+
+def _message(row: sqlite3.Row) -> Message:
+    return Message(
+        row["id"], row["role"], row["text"], row["ja"], row["zh"], row["created_at"],
+        [Segment(**s) for s in json.loads(row["segments"] or "[]")],
+    )
 
 
 def _hash(secret: str) -> str:

@@ -7,16 +7,22 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "theme:build": "astryx theme build src/theme/notebookTheme.ts -o src/theme/built/notebookTheme.css --icons-specifier ../astryxIcons",
+    "theme:check": "astryx theme build --check src/theme/notebookTheme.ts -o src/theme/built/notebookTheme.css --icons-specifier ../astryxIcons"
   },
   "dependencies": {
+    "@astryxdesign/core": "^0.6.3",
     "@pipecat-ai/client-js": "^1.13.1",
     "@pipecat-ai/small-webrtc-transport": "^1.10.8",
+    "@stylexjs/stylex": "0.19.1",
+    "lucide-react": "^1.48.0",
     "next": "^16.3.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.6.3",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",

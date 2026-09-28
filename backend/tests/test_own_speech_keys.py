@@ -121,6 +121,7 @@ async def test_a_failing_own_speech_key_ends_the_call_saying_which(
 
     ended = await browser.next_server_message("ended")
     assert "你的语音识别（Soniox）密钥调用失败" in ended["message"]
+    assert (ended["reason"], ended["counts"]) == ("own_key", False)  # before any turn
     await browser.hung_up()
     assert [stt.api_key for stt in speech.stts] == [MY_SONIOX]  # no second try on the deployer's
 
@@ -157,6 +158,7 @@ async def test_calls_count_unless_all_three_services_are_the_users_own(
     assert (await client.get("/api/account/keys")).json()["exempt"] == {
         "turns": True, "calls": True,
     }
+    assert (await client.get("/api/ice-servers")).json()["callExempt"] is True
     async with open_browser() as third:
         assert (await third.call(client, conversation_id=conversation_id)).status_code == 200
 

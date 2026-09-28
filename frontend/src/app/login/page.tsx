@@ -1,8 +1,24 @@
 "use client";
 
-import Link from "next/link";
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { Heading } from "@astryxdesign/core/Heading";
+import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { StackItem } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useState } from "react";
+
+import { AppLink } from "@/components/AppLink";
 import { FailureNotice } from "@/components/FailureNotice";
+import { LegalFooter } from "@/components/LegalFooter";
+import { MarkedAvatar } from "@/components/MarkedAvatar";
+import { PageShell } from "@/components/PageShell";
+import { SectionHeading } from "@/components/SubpageHeader";
+import { copy } from "@/i18n";
+import { interpolate } from "@/i18n/interpolate";
 import {
   devLogin,
   getSignInOptions,
@@ -13,8 +29,9 @@ import {
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS, signInFailure, signInUrl } from "@/lib/signIn";
 
-/** What visitors who are not signed in see: what this is, who there is to talk to, and
- * the ways to sign in. */
+const t = copy.login;
+
+/** 没登录的访客看到的页面：这是什么、有哪些偶像可以说话、怎样登录。 */
 export default function LoginPage() {
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -25,7 +42,8 @@ export default function LoginPage() {
   useEffect(() => {
     setRefusal(signInFailure(new URLSearchParams(window.location.search).get("error")));
     getSignInOptions().then(setOptions, (e) => setFailure(toFailure(e)));
-    listCharacters().then(setCharacters, () => {}); // the showcase is only a nicety
+    // 角色名单随 characters.toml 变化，从后端取；取不到只是少了展示，不算失败。
+    listCharacters().then(setCharacters, () => {});
   }, []);
 
   async function submit(event: FormEvent) {
@@ -40,82 +58,82 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="settings landing">
-      <header className="landing-header">
-        <h1>Eidolon-SC</h1>
-        <p className="landing-lede">
-          和《偶像大师 闪耀色彩》283 事务所的偶像们打电话、说话。她们会用自己的声音回答你，
-          记得原作里和制作人一起走过的事，也会记住你告诉她们的事。
-        </p>
-      </header>
+    <PageShell contentWidth={640} padding={4} footer={<LegalFooter />}>
+      <VStack gap={8} paddingBlock={8}>
+        <VStack gap={3}>
+          <Heading level={1}>{copy.app.name}</Heading>
+          <Text as="p">{t.lede}</Text>
+        </VStack>
 
-      {refusal && (
-        <p className="error" role="alert">
-          {refusal}
-        </p>
-      )}
+        {refusal && <Banner status="error" title={t.refusedTitle} description={refusal} />}
 
-      <section className="field" aria-label="登录">
-        {options?.providers.map((provider) => (
-          <a key={provider} href={signInUrl(provider)} className="sign-in-button">
-            用 {PROVIDER_LABELS[provider]} 登录
-          </a>
-        ))}
-        {options && options.providers.length === 0 && !options.dev_login && (
-          <p className="hint">部署者还没有配置登录方式。</p>
+        <VStack as="section" aria-label={t.signInRegion} gap={3} maxWidth={360}>
+          {options?.providers.map((provider, i) => (
+            <Button
+              key={provider}
+              label={t.signInWith(PROVIDER_LABELS[provider])}
+              href={signInUrl(provider)}
+              variant={i === 0 ? "primary" : "secondary"}
+              size="lg"
+              width="100%"
+            />
+          ))}
+          {options && options.providers.length === 0 && !options.dev_login && (
+            <Text color="secondary">{t.noProviders}</Text>
+          )}
+          <Text type="supporting" as="p">
+            {interpolate(t.agreement, {
+              privacy: (
+                <AppLink key="privacy" href="/privacy">
+                  {copy.legal.privacy}
+                </AppLink>
+              ),
+              terms: (
+                <AppLink key="terms" href="/terms">
+                  {copy.legal.terms}
+                </AppLink>
+              ),
+            })}
+          </Text>
+        </VStack>
+
+        {options?.dev_login && (
+          <form onSubmit={submit}>
+            <VStack gap={3} maxWidth={360}>
+              <VStack gap={1}>
+                <SectionHeading>{t.devTitle}</SectionHeading>
+                <Text color="secondary">{t.devHint}</Text>
+              </VStack>
+              <HStack gap={2} vAlign="end">
+                <StackItem size="fill">
+                  <TextInput label={t.devName} isLabelHidden value={name} onChange={setName} />
+                </StackItem>
+                <Button type="submit" label={t.devSubmit} isDisabled={!name.trim()} />
+              </HStack>
+            </VStack>
+          </form>
         )}
-        <p className="hint">
-          登录即表示你已阅读<Link href="/privacy">隐私政策</Link>和
-          <Link href="/terms">使用条款</Link>。第一次登录时会请你确认一次。
-        </p>
-      </section>
 
-      {options?.dev_login && (
-        <form className="field" onSubmit={submit}>
-          <label htmlFor="dev-name">开发登录</label>
-          <p className="hint">后端打开了 EIDOLON_DEV_LOGIN，可以直接以这个名字的用户登录。</p>
-          <div className="field-row">
-            <input id="dev-name" value={name} onChange={(e) => setName(e.target.value)} />
-            <button type="submit" disabled={!name.trim()}>
-              登录
-            </button>
-          </div>
-        </form>
-      )}
+        {failure && <FailureNotice failure={failure} />}
 
-      {failure && <FailureNotice failure={failure} />}
-
-      {characters.length > 0 && (
-        <section className="field" aria-labelledby="cast">
-          <h2 id="cast" className="section-title">
-            可以说话的偶像
-          </h2>
-          <ul className="character-list">
+        {characters.length > 0 && (
+          <List
+            header={<SectionHeading>{t.castTitle}</SectionHeading>}
+            density="spacious"
+          >
             {characters.map((character) => (
-              <li key={character.id} className="character-card">
-                {character.avatar_url ? (
-                  <img src={character.avatar_url} alt="" className="avatar" />
-                ) : (
-                  <span className="avatar placeholder" aria-hidden>
-                    {character.name[0]}
-                  </span>
-                )}
-                <span className="character-text">
-                  <span className="character-name">{character.name}</span>
-                  <span className="character-intro">{character.intro}</span>
-                </span>
-              </li>
+              <ListItem
+                key={character.id}
+                label={character.name}
+                description={<Text color="secondary">{character.intro}</Text>}
+                startContent={
+                  <MarkedAvatar name={character.name} src={character.avatar_url} color={character.color} />
+                }
+              />
             ))}
-          </ul>
-        </section>
-      )}
-
-      <footer className="landing-footer">
-        <p className="hint">
-          非官方的粉丝作品，与版权方无关。角色由 AI 扮演。 <Link href="/privacy">隐私政策</Link> ·{" "}
-          <Link href="/terms">使用条款</Link>
-        </p>
-      </footer>
-    </main>
+          </List>
+        )}
+      </VStack>
+    </PageShell>
   );
 }

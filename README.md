@@ -25,7 +25,7 @@
 
 Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像打字聊天或直接语音通话。角色用日语原声回答并附上中文字幕，能回忆自己在原作中经历过的剧情，还会记住你说过的事——并在其他偶像之间「传开」。
 
-部署到公网后，任何人都能用 Google 或 GitHub 登录使用（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。术语表见 [`CONTEXT.md`](CONTEXT.md)，设计决策见 [`docs/adr/`](docs/adr/)。
+部署到公网后，任何人都能用 Google 或 GitHub 登录使用（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。术语表见 [`CONTEXT.md`](CONTEXT.md)，设计决策见 [`docs/adr/`](docs/adr/)，界面的视觉规范见 [`DESIGN.md`](DESIGN.md)。
 
 > [!IMPORTANT]
 > 本项目是非官方的粉丝作品，与万代南梦宫及《偶像大师》系列版权方无关。剧情数据**不随仓库分发**，需要自行准备（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）；角色通过回复间接地把它们提供给登录的用户，这一风险见 [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)。
@@ -34,7 +34,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 
 | | |
 |---|---|
-| 🎙️ **实时语音通话** | 基于 WebRTC 的全双工通话；中文、日语都能说，角色用 Fish Audio 音色读日语原文，字幕同步显示 |
+| 🎙️ **实时语音通话** | 基于 WebRTC 的全双工通话；中文、日语都能说，角色用 Fish Audio 音色读日语原文，字幕同步显示；全屏的通话层可以随时收起，回到文字记录 |
 | 🇯🇵 **日语原声 + 中文字幕** | 角色始终用日语回答，保留语气词和口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)） |
 | 📖 **回忆原作剧情** | 导入原作剧情库后，角色只回忆**自己出场过**的成功路线剧情，可以回答「那次……是怎么回事」 |
 | 🔄 **与原作同步** | 一条命令同步粉丝汉化和镜像上的日语原文，新卡、新活动一周内就能回忆；服务器上每周自动运行（[ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
@@ -72,7 +72,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 ```mermaid
 flowchart LR
     subgraph Browser["浏览器 · Next.js"]
-        UI["对话页 / 设置页"]
+        UI["对话列表 · 对话 · 通话层"]
     end
 
     subgraph Backend["后端 · FastAPI + Pipecat"]
@@ -114,7 +114,7 @@ cp .env.example .env   # 填写对话模型的地址、密钥和模型名，本�
 docker compose up --build
 ```
 
-打开 <http://localhost:3000>，在登录页用「开发登录」随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后，就可以在角色选择页挑一位角色对话了。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）；也可以运行 `scripts/setup-oauth.sh`，按它的提示一步步配置。
+打开 <http://localhost:3000>，在登录页用「开发登录」随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后，首页是对话列表，点一位角色就能开始对话。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）；也可以运行 `scripts/setup-oauth.sh`，按它的提示一步步配置。
 
 > [!TIP]
 > 只填对话模型时就能文字聊天。按需再补上其他服务的密钥，逐步开启语音、剧情回忆和记忆：
@@ -149,7 +149,7 @@ docker compose up --build
 
 ### 角色
 
-角色由 [`characters/characters.toml`](characters/characters.toml) 配置：标识、显示名、简介、Fish Audio 音色 ID、人设文件和头像的位置。新增角色或替换音色 ID 只需要改这个文件，然后重启后端。
+角色由 [`characters/characters.toml`](characters/characters.toml) 配置：标识、显示名、简介、Fish Audio 音色 ID、印象色，以及人设文件、头像和通话层背景图的位置。新增角色或替换音色 ID 只需要改这个文件，然后重启后端。
 
 ```toml
 [[characters]]
@@ -159,11 +159,14 @@ intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
 avatar = "avatars/mano.jpg"
+color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-人设文件、角色资料和头像都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。docker compose 会把 `characters/` 只读挂载进后端容器。
+人设文件、角色资料、头像和通话层背景图都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。
+
+`color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。
 
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
@@ -188,13 +191,21 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### 语音通话
 
-在 `.env` 里填好 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 后，对话页的「语音通话」按钮就能用了：
+在 `.env` 里填好 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 后，对话页页首的电话键就能用了。点一下就打开通话层并开始呼叫：手机上占满全屏，电脑上盖住右边的对话栏。
+
+- 通话层显示她的头像、通话状态和计时，当前这句的日语原文和字幕，以及你正在说的话；完整的记录在对话里看。计时从接通算起，离单次通话的时长上限不到一分钟时改为显示剩余时间。
+- 左上角的收起键或 Esc 收起通话层，回到文字记录，通话照常继续；页首留一张「通话中 mm:ss · 点击返回」的便利贴，点一下重新展开。通话层上不能打字，想打字就收起，在对话里打。
 
 - 说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。
 - 通话中打字输入的内容和说的话进入同一条对话，角色同样用语音回复。
 - 角色还没开口、或者开口了但回复还没有完整的一段（日语连同字幕都已出现）时，你接着说的话或打的字会作为补充并入当前回合，角色放下刚才的回复，针对整段话重新回答；回复已经有完整的一段后你再开口，就会打断她：她停下来，这条回复只记下已经完整的几段，你新说的话马上得到回应。你发出打好的字也一样会打断她。
-- 「静音」开关打开后只显示文字、不合成语音。麦克风和通话音质在设置页选择。
-- 离开对话页就挂断通话，还在接通中时也一样。
+- 底部三个圆形按钮：
+  - **麦克风静音**：只在浏览器里关掉麦克风，角色听不到你说话；打字不受影响。
+  - **挂断**：通话结束，通话层随之消失，不留结束页。
+  - **切换麦克风**：列出可用的麦克风，选中后当场换过去，通话不断，麦克风静音照旧；选中的麦克风成为以后通话的默认麦克风。正在用的麦克风被拔掉时换成系统默认，并在通话层上提示；没有别的麦克风可用时，通话照常继续，提示麦克风断开了。
+- 右上角的「只看文字」开关打开后，角色不出声，回复只显示日语原文和字幕，其余规则不变。默认麦克风和通话音质在设置页选择。
+- 通话因故结束（没能接通、中途断开、到了时长或轮数上限、限额用完、自带密钥出错、麦克风被拒）时，通话层停在结束页，写明原因和这次算不算进限额，可以重拨或回到对话；限额用完和自带密钥出错这两种，主操作换成「去设置自带密钥」。
+- 离开对话就挂断通话，还在接通中时也一样。在页面里离开（在列表里点另一位角色、进入设置或记忆、手机上的返回键）之前会先确认。
 - `FISH_AUDIO_MODEL` 默认为不消耗 API 额度的 `s2.1-pro-free`，有额度时可以换成付费模型。
 
 > [!NOTE]
@@ -406,7 +417,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 # 启动在 :8000，读取 ../characters/characters.toml（可用 EIDOLON_CHARACTERS_PATH 覆盖）
 ```
 
-**前端**（Next.js，`frontend/`）：
+**前端**（Next.js + [Astryx](https://www.npmjs.com/package/@astryxdesign/core)，`frontend/`）：
 
 ```sh
 cd frontend
@@ -415,6 +426,8 @@ BACKEND_URL=http://localhost:8000 npm run dev   # 启动在 :3000，/api/* 转�
 npm run typecheck
 npm test
 ```
+
+界面用 Astryx 组件库加一套自定义的「手帐」主题（视觉规范见 [`DESIGN.md`](DESIGN.md)）。主题源文件是 `src/theme/notebookTheme.ts`，改过之后运行 `npm run theme:build` 重新生成 `src/theme/built/` 下预构建的 CSS（`npm run theme:check` 检查两者是否一致）。界面文案集中在 `src/i18n/`，目前只有简体中文。
 
 ## 📁 项目结构
 
@@ -443,8 +456,8 @@ eidolon-sc/
 │   │   └── llm/              #   三种模型接口的适配
 │   ├── eval/                 #   重排校准数据集（只含问题与标注，不含剧情原文）
 │   └── tests/
-├── frontend/                 # Next.js 前端
-├── characters/               # 角色配置、人设、资料、头像
+├── frontend/                 # Next.js + Astryx 前端
+├── characters/               # 角色配置、人设、资料、头像、通话层背景图
 ├── corpus/                   # 剧情数据与镜像缓存（不进仓库）
 ├── deploy/                   # Caddyfile、每周同步脚本、活动名对照表示例
 ├── scripts/                  # 配置 OAuth 应用等的向导（setup-oauth.sh）

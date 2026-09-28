@@ -159,8 +159,11 @@ async def test_a_call_whose_voice_service_fails_before_any_turn_does_not_count(
     assert browser.pc_id is not None
 
     await speech.stts[-1].break_down()
+    ended = await browser.next_server_message("ended")
     await until_gone(client, browser.pc_id)
 
+    # CONTEXT.md「接通」: ending on a failing voice service before any turn is not connecting.
+    assert (ended["reason"], ended["counts"]) == ("not_connected", False)
     async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 200
 
@@ -177,8 +180,10 @@ async def test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later(
     await browser.turn()
 
     await speech.stts[-1].break_down()
+    ended = await browser.next_server_message("ended")
     await until_gone(client, browser.pc_id)
 
+    assert (ended["reason"], ended["counts"]) == ("dropped", True)
     async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 429
 

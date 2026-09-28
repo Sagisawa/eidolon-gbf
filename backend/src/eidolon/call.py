@@ -97,7 +97,8 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 @dataclass(frozen=True)
 class Call:
     """A call the browser asked for: which conversation, the models its turns run on, how
-    it wants the audio, and the time zone its device reports."""
+    it wants the audio, and the time zone its device reports. An `exempt` call, on the
+    user's own keys alone, does not count towards their limit."""
 
     conversation: Conversation
     character: Character
@@ -105,6 +106,19 @@ class Call:
     muted: bool
     quality: Quality
     device_timezone: str | None = None
+    exempt: bool = False
+
+
+EndReason = Literal["not_connected", "dropped", "duration_limit", "turn_limit", "own_key"]
+"""Why the backend ended a call, as the `ended` message tells the browser: it never really
+connected (a voice service failed before any turn), a voice service failed later, the call
+reached its time or its turn limit, or one of the user's own keys failed."""
+
+
+def ended(reason: EndReason, message: str, counts: bool) -> dict:
+    """The `ended` message: why the call is over, and whether it counted towards the
+    user's limit (CONTEXT.md「限额」「接通」)."""
+    return {"type": "ended", "reason": reason, "message": message, "counts": counts}
 
 
 @dataclass(frozen=True)
@@ -322,15 +336,22 @@ class Calls:
         self._live: set[_LiveCall] = set()
         self._watch: asyncio.Task | None = None  # hangs up banned and deleted users' calls
 
-    def ice_servers(self, user_id: str) -> list[IceServer]:
-        """What the browser needs before calling, with TURN credentials of its own. Raises
-        CallsUnavailable or OwnKeyFailed, as `OwnKeys.for_call` does, before anything is
-        spent on a call that could not start."""
-        self._own_keys.for_call(user_id)
-        servers = list(self._settings.ice_servers)
+    def ice_servers(self, user_id: str) -> dict:
+        """What the browser needs before calling: ICE servers, with TURN credentials of its
+        own; how long a call may last, in seconds (None for no limit); and whether calls on
+        the keys the user has now are exempt from the limit. Raises CallsUnavailable or
+        OwnKeyFailed, as `OwnKeys.for_call` does, before anything is spent on a call that
+        could not start."""
+        keys = self._own_keys.for_call(user_id)
+        servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
-        return servers
+        duration = self._limits.duration
+        return {
+            "iceServers": servers,
+            "maxCallSeconds": None if duration is None else int(duration.total_seconds()),
+            "callExempt": keys.exempt,
+        }
 
     async def start(
         self,
@@ -347,7 +368,7 @@ class Calls:
         use = self._usage.take(user_id, "call", exempt=keys.exempt)
         call = Call(
             conversation, character, keys.llms, options.muted, options.quality,
-            options.device_timezone,
+            options.device_timezone, keys.exempt,
         )
         connections: list[SmallWebRTCConnection] = []
         started: list[_LiveCall] = []
@@ -477,7 +498,7 @@ class _LiveCall:
             for processor, service in ((stt, "stt"), (tts, "tts"))
             if service in keys.own
         }
-        self._told_own_failure = False
+        self._told_why = False  # the browser was told why a failing service ended the call
         pipeline = Pipeline(
             [
                 transport.input(),
@@ -501,6 +522,7 @@ class _LiveCall:
         @transport.event_handler("on_client_connected")
         async def connected(transport: SmallWebRTCTransport, _: SmallWebRTCConnection) -> None:
             self._connected.set()
+            self._turns.connected()
 
         @transport.event_handler("on_client_disconnected")
         async def hang_up(transport: SmallWebRTCTransport, _: SmallWebRTCConnection) -> None:
@@ -510,17 +532,29 @@ class _LiveCall:
         async def failed(worker: PipelineWorker, error: ErrorFrame) -> None:
             if error.fatal or (error.processor is not None and not error.processor.is_usable):
                 self._service_failed = True
-                if error.processor in own_services and not self._told_own_failure:
-                    # Theirs to fix, so they are told, while the call can still say so.
-                    self._told_own_failure = True
-                    failure = OwnKeyFailed(own_services[error.processor], "通话已结束")
-                    connection.send_app_message(
-                        ServerMessage(data={"type": "ended", "message": failure.message}).model_dump()
-                    )
+                processor = error.processor
+                self._tell_why_failed(own_services.get(processor) if processor else None)
 
     @property
     def user_id(self) -> str:
         return self._call.conversation.user_id
+
+    def _tell_why_failed(self, own_service: Service | None = None) -> None:
+        """Tell the browser, while the call can still say so, that a failure ends it. Unless
+        a turn was recorded, _serve gives the call back: it never really connected
+        (CONTEXT.md「接通」). A failing own key is theirs to fix, so they are told which."""
+        if self._told_why:
+            return
+        self._told_why = True
+        recorded = self._turns.recorded
+        counts = recorded > 0 and not self._call.exempt
+        if own_service is not None:
+            why = ended("own_key", OwnKeyFailed(own_service, "通话已结束").message, counts)
+        elif recorded == 0:
+            why = ended("not_connected", "语音服务出了故障，通话没能接通", counts)
+        else:
+            why = ended("dropped", "语音服务出了故障，通话中断了", counts)
+        self._connection.send_app_message(ServerMessage(data=why).model_dump())
 
     def start(self, on_done: Callable[["_LiveCall"], None]) -> None:
         """Serve the call in the background; `on_done` is told once it has ended."""
@@ -541,6 +575,8 @@ class _LiveCall:
         except Exception:
             log.exception("call in conversation %s failed", self._call.conversation.id)
             self._service_failed = True
+            if self._connected.is_set():
+                self._tell_why_failed()
         finally:
             if not self._connected.is_set() or (
                 self._service_failed and self._turns.recorded == 0
@@ -597,8 +633,9 @@ class CallTurns(FrameProcessor):
     likewise, should the last one still be heard.
     A `mute` client message decides whether replies from then on are voiced at all.
 
-    When the call reaches its limits, the browser gets an `ended` message saying why,
-    and the call ends once the last reply has been voiced; what is said after that is
+    Its time limit runs from when the call connects (`connected`), as the call screen's
+    clock does. When the call reaches its limits, the browser gets an `ended` message saying
+    why and whether the call counted, and the call ends once the last reply has been voiced; what is said after that is
     not taken up.
     """
 
@@ -613,9 +650,11 @@ class CallTurns(FrameProcessor):
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: time is up
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
+        self._started = False  # the pipeline has started, so tasks can be created
+        self._connected = False  # the browser has connected: the time limit runs
         self._voicing = False
         self._bot_speaking = False  # the character's voice is playing
-        self._time_up: str | None = None  # why the call is over, once time is up
+        self._time_up: str | None = None  # says the call is over, once time is up
         self._ended = False
         self.recorded = 0
         """How many turns the call has recorded so far."""
@@ -634,8 +673,8 @@ class CallTurns(FrameProcessor):
         if isinstance(frame, StartFrame):
             await self.push_frame(frame, direction)
             self._worker = self.create_task(self._take_turns())
-            if self._limits.duration is not None:
-                self._timer = self.create_task(self._time(self._limits.duration))
+            self._started = True
+            self._start_timer()
         elif isinstance(frame, TranscriptionFrame):
             await self._take_up(frame.text, spoken=True)
         elif isinstance(frame, InterimTranscriptionFrame):
@@ -670,6 +709,17 @@ class CallTurns(FrameProcessor):
             await self.push_frame(frame, direction)
         else:
             await self.push_frame(frame, direction)
+
+    def connected(self) -> None:
+        """The browser has connected (CONTEXT.md「接通」): the call's time starts running."""
+        self._connected = True
+        self._start_timer()
+
+    def _start_timer(self) -> None:
+        duration = self._limits.duration
+        if duration is None or not (self._started and self._connected) or self._timer is not None:
+            return
+        self._timer = self.create_task(self._time(duration))
 
     async def _take_up(self, text: str, spoken: bool) -> None:
         text = text.strip()
@@ -723,12 +773,12 @@ class CallTurns(FrameProcessor):
                 if self._ended:
                     continue
                 if self._time_up is not None:
-                    await self._end(self._time_up)
+                    await self._end("duration_limit", self._time_up)
                     continue
                 assert text is not None
                 await self._turn(text)
                 if self._limits.turns is not None and self.recorded >= self._limits.turns:
-                    await self._end(f"这次通话已经说了 {self.recorded} 轮了")
+                    await self._end("turn_limit", f"这次通话已经说了 {self.recorded} 轮了")
             finally:
                 self._inputs.task_done()
 
@@ -737,11 +787,13 @@ class CallTurns(FrameProcessor):
         self._time_up = f"这次通话已经满 {duration / timedelta(minutes=1):g} 分钟了"
         self._inputs.put_nowait(None)  # wakes the worker, after the turn in progress
 
-    async def _end(self, reason: str) -> None:
-        """Hang up, once what is already on its way to TTS has been voiced."""
+    async def _end(self, reason: EndReason, why: str) -> None:
+        """Hang up, once what is already on its way to TTS has been voiced. A call that
+        reaches its limits was connected, so it counts unless it is exempt."""
         self._ended = True
-        await self._send({"type": "ended", "message": f"{reason}，先挂断啦。想接着聊可以重新拨打。"})
-        await self.push_frame(EndWorkerFrame(reason=reason))
+        message = f"{why}，先挂断啦。想接着聊可以重新拨打。"
+        await self._send(ended(reason, message, not self._call.exempt))
+        await self.push_frame(EndWorkerFrame(reason=why))
 
     async def _turn(self, text: str) -> None:
         """Take one turn, replying afresh after each follow-on."""

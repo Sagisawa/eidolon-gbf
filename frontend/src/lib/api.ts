@@ -6,12 +6,24 @@ export type Character = {
   name: string;
   intro: string;
   avatar_url: string | null;
+  /** Her image colour, `#rrggbb`; the interface only uses what `herVars()` derives from it. */
+  color: string;
+  background_url: string | null;
 };
 
 export type Conversation = {
   id: string;
   character_id: string;
   created_at: string;
+};
+
+/** A character's newest conversation with the user and its last message (null while it has
+ * none), for the conversation list. */
+export type LatestConversation = {
+  character_id: string;
+  conversation_id: string;
+  created_at: string;
+  last_message: Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> | null;
 };
 
 export type Segment = { ja: string; zh: string };
@@ -52,9 +64,15 @@ export type Memory = {
   created_at: string;
 };
 
-/** During a call each utterance, spoken or typed, is a turn; the backend also says, when the
- * call reaches its time or turn limit, why it is about to hang up. */
-export type CallEvent = TurnEvent | { type: "ended"; message: string };
+/** During a call each utterance, spoken or typed, is a turn; the backend also says, when it is
+ * about to hang up (the call reached its time or turn limit, a voice service or an own key
+ * failed), why, and whether the call counted towards the hourly limit. */
+export type CallEvent =
+  | TurnEvent
+  | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+
+/** Why the backend hung up (`EndReason` in `call.py`). */
+export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";
 
 export class ApiError extends Error {
   constructor(
@@ -289,6 +307,12 @@ export async function listConversations(characterId: string): Promise<Conversati
   return json(await api(`/api/conversations?character_id=${encodeURIComponent(characterId)}`));
 }
 
+/** Each character's newest conversation with the user, with its last message; characters
+ * the user has never talked to are left out. */
+export async function listLatestConversations(): Promise<LatestConversation[]> {
+  return json(await api("/api/conversations/latest"));
+}
+
 export async function createConversation(characterId: string): Promise<Conversation> {
   return json(
     await api("/api/conversations", {
@@ -303,10 +327,13 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 
-/** The STUN/TURN servers for a call; fails with the reason when calls are unavailable. */
-export async function getIceServers(): Promise<RTCIceServer[]> {
-  const body = await json<{ iceServers: RTCIceServer[] }>(await api("/api/ice-servers"));
-  return body.iceServers;
+/** What a call needs before it starts: the STUN/TURN servers, how long it may last in seconds
+ * (null for no limit), and whether it is exempt from the hourly limit (on the user's own keys
+ * alone). Fails with the reason when calls are unavailable. */
+export type CallSetup = { iceServers: RTCIceServer[]; maxCallSeconds: number | null; callExempt: boolean };
+
+export async function getCallSetup(): Promise<CallSetup> {
+  return json(await api("/api/ice-servers"));
 }
 
 /** Sends one text turn and yields the reply's server-sent events as they arrive. */

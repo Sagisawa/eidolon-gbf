@@ -1,7 +1,15 @@
 "use client";
 
+import { Banner } from "@astryxdesign/core/Banner";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useState } from "react";
+
 import { FailureNotice } from "@/components/FailureNotice";
+import { SettingsSection } from "@/components/SettingsSection";
+import { copy } from "@/i18n";
 import {
   getAccount,
   getSignInOptions,
@@ -14,7 +22,9 @@ import {
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS, linkUrl, signInFailure, type Provider } from "@/lib/signIn";
 
-/** The identities the user signs in with, linking and unlinking them, and signing out. */
+const t = copy.settings.signIn;
+
+/** 用户登录用的身份：绑定、解绑，以及退出登录。 */
 export function SignInSettings() {
   const [account, setAccount] = useState<Account | null>(null);
   const [options, setOptions] = useState<SignInOptions | null>(null);
@@ -22,10 +32,10 @@ export function SignInSettings() {
   const [failure, setFailure] = useState<Failure | null>(null);
 
   useEffect(() => {
-    // Coming back from linking an identity: say how it went.
+    // 绑定完一个身份回到这里：说一声结果。
     const params = new URLSearchParams(window.location.search);
     const linked = params.get("linked") as Provider | null;
-    if (linked && linked in PROVIDER_LABELS) setNotice(`已绑定 ${PROVIDER_LABELS[linked]}。`);
+    if (linked && linked in PROVIDER_LABELS) setNotice(t.linked(PROVIDER_LABELS[linked]));
     const refusal = signInFailure(params.get("error"));
     if (refusal) setFailure({ message: refusal, signedOut: false });
     getAccount().then(setAccount, (e) => setFailure(toFailure(e)));
@@ -57,51 +67,51 @@ export function SignInSettings() {
   const linkable = (options?.providers ?? []).filter(
     (provider) => !methods.some((m) => m.provider === provider),
   );
+  const onlyOne = methods.length <= 1;
 
   return (
-    <div className="field">
-      <label>登录方式</label>
-      <p className="hint">
-        绑定另一种登录方式后，用哪一种登录都是你，看到的是同一份记忆。邮箱相同的两个身份也不会自动合并。
-      </p>
-      {notice && (
-        <p className="hint" role="status">
-          {notice}
-        </p>
-      )}
+    <SettingsSection title={t.title} description={t.hint}>
+      {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
       {failure && <FailureNotice failure={failure} />}
-      <ul className="sign-in-methods">
-        {methods.map((method) => (
-          <li key={method.provider}>
-            <span>
-              <strong>{PROVIDER_LABELS[method.provider]}</strong> {method.display_name}
-              {method.email && <span className="hint"> {method.email}</span>}
-            </span>
-            <button
-              type="button"
-              className="ghost"
-              disabled={methods.length <= 1}
-              title={methods.length <= 1 ? "这是你唯一的登录方式，不能解绑" : undefined}
-              onClick={() => unlink(method.provider)}
-            >
-              解绑
-            </button>
-          </li>
-        ))}
-      </ul>
-      {linkable.map((provider) => (
-        <a key={provider} href={linkUrl(provider)} className="ghost-link link-button">
-          绑定 {PROVIDER_LABELS[provider]}
-        </a>
-      ))}
-      <div className="field-row sign-out-row">
-        <button type="button" className="ghost" onClick={() => signOut(false)}>
-          退出登录
-        </button>
-        <button type="button" className="ghost" onClick={() => signOut(true)}>
-          退出所有设备
-        </button>
-      </div>
-    </div>
+      {methods.length > 0 && (
+        <List hasDividers>
+          {methods.map((method) => (
+            <ListItem
+              key={method.provider}
+              label={PROVIDER_LABELS[method.provider]}
+              description={
+                <Text color="secondary" wordBreak="break-word">
+                  {method.email ? `${method.display_name} · ${method.email}` : method.display_name}
+                </Text>
+              }
+              endContent={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  label={t.unlinkLabel(PROVIDER_LABELS[method.provider])}
+                  isDisabled={onlyOne}
+                  tooltip={onlyOne ? t.onlyMethod : undefined}
+                  onClick={() => unlink(method.provider)}
+                >
+                  {t.unlink}
+                </Button>
+              }
+            />
+          ))}
+        </List>
+      )}
+      {linkable.length > 0 && (
+        <HStack gap={2} wrap="wrap">
+          {linkable.map((provider) => (
+            <Button key={provider} label={t.link(PROVIDER_LABELS[provider])} href={linkUrl(provider)} />
+          ))}
+        </HStack>
+      )}
+      {/* 退出登录和绑定是两件事，分开一行，窄屏换行时不会搅在一起 */}
+      <HStack gap={2} wrap="wrap">
+        <Button variant="ghost" label={t.signOut} onClick={() => signOut(false)} />
+        <Button variant="ghost" label={t.signOutEverywhere} onClick={() => signOut(true)} />
+      </HStack>
+    </SettingsSection>
   );
 }

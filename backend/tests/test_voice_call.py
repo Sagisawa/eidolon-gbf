@@ -21,7 +21,27 @@ async def test_ice_servers_come_from_configuration(make_client: ClientFactory, s
     res = await client.get("/api/ice-servers")
 
     assert res.status_code == 200
-    assert res.json() == {"iceServers": [{"urls": ["stun:stun.example.com"]}, turn]}
+    assert res.json()["iceServers"] == [{"urls": ["stun:stun.example.com"]}, turn]
+
+
+async def test_the_browser_learns_how_long_a_call_may_last_and_whether_it_counts(
+    make_client: ClientFactory, settings: Settings
+):
+    """The call screen counts down the last minute, and says whether a dropped call counted."""
+    limits = replace(settings.usage_limits, call_minutes=30)
+    client = make_client(FakeLLM(), settings=replace(settings, usage_limits=limits))
+
+    body = (await client.get("/api/ice-servers")).json()
+
+    assert body["maxCallSeconds"] == 1800
+    assert body["callExempt"] is False
+
+
+async def test_a_call_without_a_time_limit_says_so(make_client: ClientFactory, settings: Settings):
+    limits = replace(settings.usage_limits, call_minutes=None)
+    client = make_client(FakeLLM(), settings=replace(settings, usage_limits=limits))
+
+    assert (await client.get("/api/ice-servers")).json()["maxCallSeconds"] is None
 
 
 def turn_password(secret: str, username: str) -> str:

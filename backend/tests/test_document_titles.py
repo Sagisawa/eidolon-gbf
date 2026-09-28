@@ -28,7 +28,7 @@ async def test_a_fact_is_titled_with_its_headings(tmp_path: Path):
     embedder = FakeEmbedder()
     facts = FactIndex(tmp_path / "eidolon.db", embedder)
     mano = Character(
-        "mano", "櫻木真乃", "", "voice", "sheet", None,
+        "mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6",
         facts=parse_facts("喜欢鸟。\n# 人物关系\n## 風野灯織\n同组合的伙伴。"),
     )
 

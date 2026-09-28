@@ -25,7 +25,7 @@ Voice · Text · Story recall · Memory shared across characters
 
 Eidolon-SC lets you, as **a producer at 283 Production**, text or voice-call the idols from the game. Characters answer in their own Japanese voice with Chinese subtitles, recall the story episodes they actually lived through, and remember what you tell them — which then gets around among the other idols.
 
-Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)). The glossary lives in [`CONTEXT.md`](CONTEXT.md), design decisions in [`docs/adr/`](docs/adr/).
+Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)). The glossary lives in [`CONTEXT.md`](CONTEXT.md), design decisions in [`docs/adr/`](docs/adr/), and the visual design system in [`DESIGN.md`](DESIGN.md).
 
 > [!NOTE]
 > The product itself is Chinese-first: the UI, subtitles, memories and most docs are in Chinese. Users may speak or type in Chinese or Japanese.
@@ -37,7 +37,7 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
 
 | | |
 |---|---|
-| 🎙️ **Real-time voice calls** | Full-duplex calls over WebRTC. Speak Chinese or Japanese; the character reads her Japanese reply in a Fish Audio voice while subtitles appear in sync |
+| 🎙️ **Real-time voice calls** | Full-duplex calls over WebRTC. Speak Chinese or Japanese; the character reads her Japanese reply in a Fish Audio voice while subtitles appear in sync. The full-screen call screen can be collapsed at any time, back to the transcript |
 | 🇯🇵 **Japanese voice + Chinese subtitles** | Characters always answer in Japanese, keeping their sentence-final particles and verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)) |
 | 📖 **Story recall** | Once the story corpus is imported, a character recalls only the canon episodes **she appears in**, and can answer "what happened that time…?" |
 | 🔄 **Kept in step with the game** | One command syncs the fan translations and the Japanese originals on the mirror, so new cards and events can be recalled within a week; it runs weekly on the server ([ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)) |
@@ -75,7 +75,7 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
 ```mermaid
 flowchart LR
     subgraph Browser["Browser · Next.js"]
-        UI["Conversation / Settings"]
+        UI["Conversation list · Conversation · Call screen"]
     end
 
     subgraph Backend["Backend · FastAPI + Pipecat"]
@@ -117,7 +117,7 @@ cp .env.example .env   # fill in the chat model's base URL, API key and model na
 docker compose up --build
 ```
 
-Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and pick a character to talk to. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
+Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and the home page lists the characters: pick one to start a conversation. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
 
 > [!TIP]
 > A chat model alone is enough for text chat. Add the other services' keys as you go to unlock voice, story recall and memory:
@@ -152,7 +152,7 @@ You supply the base URL, key and model name, so any third-party service compatib
 
 ### Characters
 
-Characters are configured in [`characters/characters.toml`](characters/characters.toml): ID, display name, intro, Fish Audio voice ID, and the paths of the character sheet and avatar. Adding a character or swapping a voice ID only takes an edit to this file and a backend restart.
+Characters are configured in [`characters/characters.toml`](characters/characters.toml): ID, display name, intro, Fish Audio voice ID, image colour, and the paths of the character sheet, avatar and call-screen background. Adding a character or swapping a voice ID only takes an edit to this file and a backend restart.
 
 ```toml
 [[characters]]
@@ -162,11 +162,14 @@ intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
 voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"
 sheet = "sheets/mano.md"
 avatar = "avatars/mano.jpg"
+color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
 ```
 
-Character sheets, character facts and avatars are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file. docker compose mounts `characters/` read-only into the backend container.
+Character sheets, character facts, avatars and call-screen backgrounds are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file.
+
+`color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (her bubbles, the call button, the sticky note, the call screen) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container.
 
 <details>
 <summary><b>Drafting a character sheet with the background model</b></summary>
@@ -191,13 +194,21 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### Voice calls
 
-With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the **Voice call** button on the conversation page comes alive:
+With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the call button in the conversation header comes alive. Pressing it opens the call screen and starts calling: full screen on a phone, covering the conversation column on a computer.
+
+- The call screen shows her avatar, the call status and timer, her current line in Japanese with its subtitle, and what you are saying; the full transcript stays in the conversation. The timer starts when the call is connected, and switches to the time left when less than a minute of the per-call limit remains.
+- The collapse button at the top left, or Esc, collapses the call screen back to the transcript while the call carries on; a sticky note reading “通话中 mm:ss · 点击返回” (in call · tap to return) stays at the top, and pressing it brings the call screen back. You cannot type on the call screen: collapse it and type in the conversation.
 
 - Speak Chinese or Japanese. The character reads her Japanese reply in the configured Fish Audio voice, and both the Japanese text and the Chinese subtitle appear in the transcript.
 - Anything typed during a call joins the same conversation, and the character answers it by voice too.
 - Whatever you say or type before the character starts speaking, or before her reply has a complete segment (the Japanese and its subtitle both shown), is a follow-on: it joins the current turn, and she drops the reply she had begun and answers the whole thing afresh. Once the reply has a complete segment, speaking up interrupts her: she stops, the reply is recorded with only its complete segments, and what you just said is answered straight away. Sending typed text interrupts her just the same.
-- With **Mute** on, replies are shown as text only, without speech synthesis. Microphone and call audio quality are chosen on the settings page.
-- Leaving the conversation page hangs up the call, even while it is still connecting.
+- Three round buttons along the bottom:
+  - **Mic mute** (麦克风静音) turns off your microphone in the browser only, so she cannot hear you; typing is unaffected.
+  - **Hang up** (挂断) ends the call and the call screen goes away, with no ending page.
+  - **Switch microphone** (切换麦克风) lists the available microphones and switches to the one you pick on the spot, without dropping the call and keeping mic mute as it was; that microphone becomes the default for later calls. If the microphone in use is unplugged, the call switches to the system default and says so on the call screen; if no other microphone is available, the call carries on and the call screen says the microphone was disconnected.
+- With the **Text only** (只看文字) switch at the top right on, she stays silent and her replies appear only as Japanese text with subtitles; every other rule stays the same. The default microphone and call audio quality are chosen on the settings page.
+- When a call ends for a reason (it could not connect, dropped midway, hit the per-call time or turn limit, ran out of quota, an own key failed, or the microphone was refused), the call screen stays on an ending page that gives the reason and whether the call counted towards the quota, with a button to call again or go back to the conversation; when the quota ran out or an own key failed, the main button leads to setting up your own keys instead (去设置自带密钥).
+- Leaving the conversation hangs up the call, even while it is still connecting. Leaving from within the page (picking another character in the list, opening settings or memories, the back button on a phone) asks for confirmation first.
 - `FISH_AUDIO_MODEL` defaults to `s2.1-pro-free`, which consumes no API credits; switch to a paid model if you have credits.
 
 > [!NOTE]
@@ -409,7 +420,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 # serves on :8000 and reads ../characters/characters.toml (override with EIDOLON_CHARACTERS_PATH)
 ```
 
-**Frontend** (Next.js, `frontend/`):
+**Frontend** (Next.js + [Astryx](https://www.npmjs.com/package/@astryxdesign/core), `frontend/`):
 
 ```sh
 cd frontend
@@ -418,6 +429,8 @@ BACKEND_URL=http://localhost:8000 npm run dev   # serves on :3000, proxies /api/
 npm run typecheck
 npm test
 ```
+
+The interface is built on the Astryx component library with a custom “notebook” theme (visual design system in [`DESIGN.md`](DESIGN.md)). The theme source is `src/theme/notebookTheme.ts`; after changing it, run `npm run theme:build` to regenerate the prebuilt CSS under `src/theme/built/` (`npm run theme:check` checks the two match). Interface copy lives in `src/i18n/`; only Simplified Chinese exists so far.
 
 ## 📁 Project layout
 
@@ -446,8 +459,8 @@ eidolon-sc/
 │   │   └── llm/              #   adapters for the three model protocols
 │   ├── eval/                 #   reranker calibration dataset (questions and labels only, no story text)
 │   └── tests/
-├── frontend/                 # Next.js frontend
-├── characters/               # character config, sheets, facts, avatars
+├── frontend/                 # Next.js + Astryx frontend
+├── characters/               # character config, sheets, facts, avatars, call-screen backgrounds
 ├── corpus/                   # story data and the mirror cache (not committed)
 ├── deploy/                   # Caddyfile, weekly sync script, sample event-name table
 ├── scripts/                  # wizards, such as setting up the OAuth apps (setup-oauth.sh)

@@ -30,14 +30,15 @@ web
 ## Operating Context
 
 - 访客打开网址，先看到登录页：页面说明这是什么、有哪些角色可以对话。用户用 Google 或 GitHub 登录，第一次登录要同意隐私政策和使用条款，并声明年满 13 岁。
-- 登录后的流程：选择角色 → 进入对话页（打字，或发起通话）→ 在设置页管理制作人档案、登录方式、自带密钥、通话设置和删除数据 → 在记忆页查看和删除记忆。
-- 通话基于 WebRTC，离开对话页就会挂断。用户可以开「静音」只看文字。麦克风和通话音质在设置页选择。
+- 登录后的流程：在对话列表里点一位角色 → 进入对话（打字，或发起通话）→ 在设置页管理制作人档案、登录方式、自带密钥、通话设置和删除数据 → 在记忆页查看和删除记忆。
+- 通话基于 WebRTC，离开对话页就会挂断。通话以全屏的通话层呈现，可以收起回到文字记录；通话中可以「麦克风静音」、切换麦克风，也可以开「只看文字」让角色不出声。默认麦克风和通话音质在设置页选择。
 - 每小时有限额；用自带密钥的回合和通话可以不计入限额。
 
 ## Capabilities and Constraints
 
-- 前端：Next.js 16（App Router）+ React 19 + TypeScript，样式在 `frontend/src/app/globals.css` 里，没有 UI 组件库。后端：FastAPI + Pipecat，数据库用 SQLite。
-- 现有页面：`/login`（落地页兼登录页）、`/consent`、`/`（选择角色）、`/conversation/[characterId]`、`/settings`、`/memories`、`/privacy`、`/terms`。
+- 前端：Next.js 16（App Router）+ React 19 + TypeScript，组件库用 Astryx（`@astryxdesign/core`），配一套自定义的「手帐」主题（`frontend/src/theme/`，视觉规范见 `DESIGN.md`）；不写裸 `<div>` 布局，取值都用 token。图标用 Lucide。界面文案集中在 `frontend/src/i18n/`，目前只有简体中文。后端：FastAPI + Pipecat，数据库用 SQLite。
+- 现有页面：`/login`（落地页兼登录页）、`/consent`、`/`（对话列表）、`/conversation/[characterId]`（对话，通话层也在这里）、`/settings`、`/memories`、`/privacy`、`/terms`。对话列表和对话共用一个布局：电脑上左右双栏，手机上两级页面。
+- 每位角色的界面以她的印象色为基调（`characters.toml` 的 `color`），颜色由 `frontend/src/lib/imageColor.ts` 按浅色、深色模式成对推出并经过对比度测试；通话层用她的背景图（`background`，可选，没有时用印象色渐变）。其余界面是中性主题，浅色和深色跟随系统。
 - 回合与通话的状态语义（成功、失败、被拒绝、用户离开、没能接通，以及是否计入限额）定义在 `CONTEXT.md` 里。界面上的提示必须与这些语义一致。
 - 自带密钥调用失败时，这个回合就算失败，不会改用部署者的 key。界面上只显示密钥的末 4 位。
 - 角色数量由 `characters/characters.toml` 配置，目前有櫻木真乃和月岡恋鐘两位，以后会增加。界面要能容纳数量不定的角色。
@@ -53,7 +54,8 @@ web
 
 ## Evidence on Hand
 
-- 角色头像：`characters/avatars/mano.jpg`、`characters/avatars/kogane.jpg`（可能是官方立绘，只能在私有仓库和本站内使用，见 ADR-0003 修订）。
+- 角色头像：`characters/avatars/mano.jpg`、`characters/avatars/kogane.jpg`（可能是官方立绘，只能在私有仓库和本站内使用，见 ADR-0003 修订）。通话层背景图放在 `characters/backgrounds/`，目前还没有。
+- 印象色：櫻木真乃 `#ffbad6`、月岡恋鐘 `#f84cad`，出处是アイマスDB「アイドルのイメージカラー」（数据来自官方网站）。
 - 角色简介写在 `characters/characters.toml` 里。
 - 没有用户评价、使用数据或媒体报道，今后的设计不得编造。
 
@@ -67,6 +69,6 @@ web
 
 ## Accessibility & Inclusion
 
-- 通话必须有文字替代：字幕和对话记录同时显示，「静音」模式可以只看文字。
+- 通话必须有文字替代：字幕和对话记录同时显示，「只看文字」模式下角色不出声。
 - 界面要同时适配手机的触控操作（包括通话中）和电脑的键盘操作。
 - 没有规定具体要达到的无障碍标准。

@@ -4,31 +4,117 @@
 // its call bundle from Daily's CDN and reports errors to Sentry; neither is needed
 // (or reliably reachable) for a direct WebRTC call, so this one simply wraps a
 // getUserMedia stream. It only provides what the transport uses: the local audio
-// track and mic on/off.
+// track and mic on/off; and, for the call, switching to another microphone.
+
+import { MicUnavailable } from "@/lib/callEnd";
+
+/** The microphone a call is using. */
+export type MicInUse = {
+  /** The device asked for and opened; empty for the system default. */
+  id: string;
+  /** The device asked for is not there, so the system default is used instead. */
+  fellBack: boolean;
+};
+
+const PROCESSING = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
 export class Microphone {
-  private constructor(private readonly stream: MediaStream) {}
+  /** Sends a new track in place of the one the call is sending; set by the call. */
+  onTrackChange: ((track: MediaStreamTrack) => Promise<void>) | null = null;
+  /** The microphone in use was unplugged: the call now uses the system default in its place
+   * (`fellBack` if a chosen one was lost), or no microphone at all (null) if none opens.
+   * Not called when the system default is lost and another one simply takes over. */
+  onLost: ((now: MicInUse | null) => void) | null = null;
+  private disconnected = false;
+  /** Switches run one after another, so the last one asked for is the one in use. */
+  private switching: Promise<unknown> = Promise.resolve();
+
+  private constructor(
+    private stream: MediaStream,
+    private used: MicInUse,
+  ) {
+    this.watch();
+  }
 
   /** Opens the chosen microphone, falling back to the default one if it is gone. */
   static async open(micId: string): Promise<Microphone> {
-    const processing = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const { stream, inUse } = await openStream(micId);
+    return new Microphone(stream, inUse);
+  }
+
+  /** The microphone in use. */
+  get inUse(): MicInUse {
+    return this.used;
+  }
+
+  /** Switches to another microphone without renegotiating: the call sends the new track in
+   * place of the old one, muted if the old one is. Fails with MicUnavailable, keeping the
+   * microphone in use, if the new one cannot be opened or sent, or the call is over. */
+  updateMic(micId: string): Promise<MicInUse> {
+    const switched = this.switching.then(() => this.switchTo(micId));
+    this.switching = switched.catch(() => {});
+    return switched;
+  }
+
+  private async switchTo(micId: string): Promise<MicInUse> {
+    if (this.disconnected) throw new MicUnavailable("the call is over");
+    const { stream, inUse } = await openStream(micId);
+    const track = stream.getAudioTracks()[0];
+    const drop = (reason: string) => {
+      stream.getTracks().forEach((t) => t.stop());
+      return new MicUnavailable(reason);
+    };
+    if (this.disconnected) throw drop("the call is over");
+    // Muted from the start, if the old one is, so nothing goes out that should not.
+    if (track) track.enabled = this.isMicEnabled;
     try {
-      if (micId) {
-        try {
-          const audio = { ...processing, deviceId: { exact: micId } };
-          return new Microphone(await navigator.mediaDevices.getUserMedia({ audio }));
-        } catch (e) {
-          if ((e as DOMException).name !== "OverconstrainedError") throw e;
-        }
-      }
-      return new Microphone(await navigator.mediaDevices.getUserMedia({ audio: processing }));
-    } catch {
-      throw new Error("无法使用麦克风，请在浏览器中允许访问麦克风后重试");
+      if (track) await this.onTrackChange?.(track);
+    } catch (e) {
+      throw drop((e as Error).message);
     }
+    if (this.disconnected) throw drop("the call is over");
+    // Mute may have been pressed while the track was being swapped: it went to the old one.
+    if (track) track.enabled = this.isMicEnabled;
+    const old = this.stream;
+    this.unwatch();
+    this.stream = stream;
+    this.used = inUse;
+    this.watch();
+    old.getTracks().forEach((t) => t.stop());
+    return inUse;
   }
 
   private get track(): MediaStreamTrack | undefined {
     return this.stream.getAudioTracks()[0];
+  }
+
+  /** A track ends by itself when its device is unplugged (one stopped here does not fire
+   * `ended`): go over to the system default, after any switch already asked for. */
+  private readonly onEnded = () => {
+    const lost = this.track;
+    const chosen = this.used.id !== "";
+    const fallback = this.switching.then(async () => {
+      // A switch asked for before this went through: the lost track is no longer in use.
+      if (this.disconnected || this.track !== lost) return;
+      try {
+        await this.switchTo("");
+      } catch {
+        if (!this.disconnected) this.onLost?.(null);
+        return;
+      }
+      if (!chosen) return;
+      this.used = { id: "", fellBack: true };
+      this.onLost?.(this.used);
+    });
+    this.switching = fallback;
+  };
+
+  private watch(): void {
+    this.track?.addEventListener("ended", this.onEnded);
+  }
+
+  private unwatch(): void {
+    this.track?.removeEventListener("ended", this.onEnded);
   }
 
   // --- what the transport calls ---
@@ -40,6 +126,8 @@ export class Microphone {
   async initialize(): Promise<void> {}
   async connect(): Promise<void> {}
   async disconnect(): Promise<void> {
+    this.disconnected = true;
+    this.unwatch();
     this.stream.getTracks().forEach((track) => track.stop());
   }
   tracks() {
@@ -69,7 +157,6 @@ export class Microphone {
   async getAllSpeakers(): Promise<MediaDeviceInfo[]> {
     return [];
   }
-  async updateMic(): Promise<void> {}
   updateCam(): void {}
   updateSpeaker(): void {}
   get selectedMic(): Record<string, never> {
@@ -81,4 +168,29 @@ export class Microphone {
   get selectedSpeaker(): Record<string, never> {
     return {};
   }
+}
+
+/** Opens `micId`, or the system default if it is empty or gone. */
+async function openStream(micId: string): Promise<{ stream: MediaStream; inUse: MicInUse }> {
+  try {
+    if (micId) {
+      try {
+        const audio = { ...PROCESSING, deviceId: { exact: micId } };
+        const stream = await navigator.mediaDevices.getUserMedia({ audio });
+        return { stream, inUse: { id: micId, fellBack: false } };
+      } catch (e) {
+        if ((e as DOMException).name !== "OverconstrainedError") throw e;
+      }
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: PROCESSING });
+    return { stream, inUse: { id: "", fellBack: micId !== "" } };
+  } catch (e) {
+    throw new MicUnavailable((e as Error).message);
+  }
+}
+
+/** The microphones this browser has, without Chrome's「default」entry that repeats one of them. */
+export async function listMicrophones(): Promise<MediaDeviceInfo[]> {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter((d) => d.kind === "audioinput" && d.deviceId !== "default");
 }

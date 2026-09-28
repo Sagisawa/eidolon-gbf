@@ -1,0 +1,8 @@
+/*
+ * 全站样式层的先后（后面的优先）。根布局第一个引入这个文件，层的顺序就定在这里：
+ *
+ * - reset：Astryx 的重置和主题的正文默认样式。
+ * - astryx-base：Astryx 组件样式。
+ * - astryx-theme：主题的组件覆盖。
+ */
+@layer reset, astryx-base, astryx-theme;
