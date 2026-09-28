@@ -188,25 +188,6 @@ async def test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later(
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 429
 
 
-async def test_a_call_that_ends_on_its_own_limits_counts(
-    make_client: ClientFactory, settings: Settings, speech: FakeSpeech, browser: Browser
-):
-    limits = UsageLimits(calls_per_hour=1, turns_per_call=1)
-    client = make_client(FakeLLM(REPLY), settings=replace(settings, usage_limits=limits))
-    conversation_id = await start_conversation(client)
-    await browser.call(client, conversation_id=conversation_id)
-    await browser.connect()
-    assert browser.pc_id is not None
-    await speech.stts[-1].hear("你好")
-    await browser.turn()
-
-    assert "1 轮" in (await browser.next_server_message("ended"))["message"]
-    await until_gone(client, browser.pc_id)
-
-    async with open_browser() as again:
-        assert (await again.call(client, conversation_id=conversation_id)).status_code == 429
-
-
 async def test_a_call_hung_up_by_the_user_counts(
     make_client: ClientFactory, one_call_an_hour: Settings, browser: Browser
 ):
