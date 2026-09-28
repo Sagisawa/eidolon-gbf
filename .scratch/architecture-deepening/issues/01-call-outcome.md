@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-09-28 grilling）
 
@@ -42,7 +42,7 @@
 
 ## 验收
 
-- [ ] 新建 `backend/tests/test_call_outcome.py`，用真实的 `UsageLimiter`（SQLite，沿用 conftest 里现有的做法）或最小的 fake，覆盖整张结果矩阵：
+- [x] 新建 `backend/tests/test_call_outcome.py`，用真实的 `UsageLimiter`（SQLite，沿用 conftest 里现有的做法）或最小的 fake，覆盖整张结果矩阵：
   - 超限时构造就抛出 `OverLimit`；免限额（exempt）时照常创建；
   - 建立失败：还回去，不返回消息；
   - 没接通就收尾：还回去；
@@ -54,17 +54,33 @@
   - 接通后用户挂断：计入；
   - 连续两次需要发消息的事件：第二次返回 `None`；
   - 收尾调用两次：只还一次。
-- [ ] `backend/tests/test_call.py` 按"替换而不是叠加"处理：
+- [x] `backend/tests/test_call.py` 按"替换而不是叠加"处理：
   - 保留能证明事件来源接对了的端到端测试：
     - `test_a_call_that_never_connects_does_not_count`；
     - `test_a_call_whose_voice_services_cannot_be_made_is_refused_and_does_not_count`；
     - `test_a_call_whose_voice_service_fails_before_any_turn_does_not_count`；
     - `test_a_call_hung_up_by_the_user_counts`。
   - 删掉 `test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later` 和 `test_a_call_that_ends_on_its_own_limits_counts`，它们改由单元测试覆盖。如果删掉后某条接线（比如"记下回合"这个事件是否真的报出去了）没有任何测试覆盖，就保留对应的测试，并在 Comments 里说明原因。
-- [ ] `backend/tests/test_call_turns.py` 保留 `test_a_call_on_the_users_own_keys_alone_says_it_does_not_count_when_it_ends`，并且照常通过。如果 `CallUnderTest` 需要给 `CallTurns` 注入 `CallOutcome`，就在 fixture 里接好。
-- [ ] `call.py` 里不再出现 `_told_why`、`_service_failed`，也不再有公开的 `recorded`；`give_back` 只出现在 `call_outcome.py` 里。
-- [ ] `Calls` 类的 docstring 和 `_tell_why_failed` 相关的注释，改为指向 `CallOutcome`。
-- [ ] 在 `backend/` 下运行 `uv run pytest` 和 `uv run pyright`，全部通过。
-- [ ] 按 TDD 做：先写 `test_call_outcome.py` 并让它失败，再实现。
+- [x] `backend/tests/test_call_turns.py` 保留 `test_a_call_on_the_users_own_keys_alone_says_it_does_not_count_when_it_ends`，并且照常通过。如果 `CallUnderTest` 需要给 `CallTurns` 注入 `CallOutcome`，就在 fixture 里接好。
+- [x] `call.py` 里不再出现 `_told_why`、`_service_failed`，也不再有公开的 `recorded`；`give_back` 只出现在 `call_outcome.py` 里。
+- [x] `Calls` 类的 docstring 和 `_tell_why_failed` 相关的注释，改为指向 `CallOutcome`。
+- [x] 在 `backend/` 下运行 `uv run pytest` 和 `uv run pyright`，全部通过。
+- [x] 按 TDD 做：先写 `test_call_outcome.py` 并让它失败，再实现。
 
 ## Comments
+
+### 2026-09-28 实现记录
+
+**做了什么**：新建 `backend/src/eidolon/call_outcome.py`，里面是 `CallOutcome`，`EndReason` 和 `ended()` 也搬了过来（消息格式和取值不变）。它只导入 `own_keys` 和 `usage`，不加载 Pipecat 和 aiortc。`Calls.start` 用 `CallOutcome(usage, user_id, keys.exempt)` 代替原来的 `take`。`_LiveCall` 和 `CallTurns` 都拿到同一个 outcome，只负责报事件，再把返回的消息发出去。
+
+**事件方法名**：`set_up_failed()`（建立失败）、`connected()`（接通）、`turn_recorded()`（记下一个回合）、`service_failed(own_service)`（服务出错）、`limit_reached(reason, why)`（到上限）、`settle()`（收尾）。按已定的设计，六个方法都返回 `dict | None`；只有 `service_failed` 和 `limit_reached` 可能返回消息。
+
+**实现上的取舍**：
+- 算不算限额，在第一次告诉浏览器 `ended` 时就定下来，`settle()` 照这个结果还或不还。所以"浏览器被告知的 counts"和"实际是否计入"始终一致。这和原来的行为在一个边角情况上不同：接通后、记下任何回合前先到了时长上限（已告诉浏览器 counts=true），随后 `_serve` 又抛出异常。原来会还回去，现在不还，和告诉浏览器的一致。
+- `Call` 的 `exempt` 字段删掉了。唯一用到它的是 `CallTurns._end`，现在改由 `CallOutcome` 持有。
+- `_LiveCall` 里原来的 `_tell_why_failed` 改名为 `_report_failure`。它只把事件报给 outcome，拿到消息就发出去。验收要求 `call.py` 里不能出现 `_service_failed` 这个名字，所以没有用它。
+- 测试文件不导入 `tests.fakes`，因为它会加载 Pipecat，时钟就直接写成一个 lambda。不过 `tests/conftest.py` 本身导入了 Pipecat，在 pytest 下这一点避免不了。
+
+**测试**：`test_call_outcome.py` 共 21 条，覆盖整张结果矩阵。先写测试，运行时因模块不存在而失败，然后才实现。`test_call.py` 删掉了 `test_a_call_that_ends_on_its_own_limits_counts`，保留了 `test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later`。保留的原因：临时把 `CallTurns` 里对 `turn_recorded()` 的调用去掉后，全部通话测试中只有这一条失败；删了它，"记下回合"这个事件有没有真的报出去，就没有任何测试能发现。`test_call_turns.py` 的 `CallUnderTest` 改为在 fixture 里创建 `CallOutcome`，connected 时同时调用 `outcome.connected()`；`test_a_call_on_the_users_own_keys_alone_says_it_does_not_count_when_it_ends` 照常通过。
+
+**结果**：`uv run pyright` 0 errors。`uv run pytest` 结果是 563 passed、1 failed。失败的是 `test_characters.py::test_missing_character_sheet_is_reported_with_its_path`，改动前在 main 上同样失败：它断言路径里是 `sheets/mano.md`，Windows 上是反斜杠，和本 ticket 无关。另外，改动前的基线跑了一次，`test_voice_interruption.py::test_interrupting_her_while_she_speaks_is_passed_on_before_reconnecting` 失败过一次；之后单独连跑 5 次都通过，改动后的两次全量运行也都通过，应该是计时上偶发的问题，和本改动无关。

@@ -28,6 +28,7 @@ from pipecat.tests.utils import SleepFrame, run_test
 
 from eidolon import call as call_module
 from eidolon.call import Call, CallLimits, CallTurns
+from eidolon.call_outcome import CallOutcome
 from eidolon.assembly import build
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
@@ -98,9 +99,11 @@ class CallUnderTest:
         try:
             mano = backend.characters["mano"]
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
-            call = Call(self.conversation, mano, llms, muted, "standard", exempt=exempt)
-            turns = CallTurns(backend.engine, call, limits)
+            call = Call(self.conversation, mano, llms, muted, "standard")
+            outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt)
+            turns = CallTurns(backend.engine, call, outcome, limits)
             if connected:
+                outcome.connected()
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)
         finally:
