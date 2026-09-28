@@ -19,9 +19,40 @@ from tests.test_turns import REPLY, Turns, turns  # noqa: F401  (the fixture)
 CVS = ["関根瞳", "礒部花凜", "近藤玲奈", "津田健次郎"]
 
 
+RELEASES = [
+    ("LACM-14782", "THE IDOLM@STER SHINY COLORS BRILLI@NT WING 02 ヒカリのdestination", "2018-07-04",
+     ["ヒカリのdestination", "Spread the Wings!!（イルミネーションスターズ Ver.）", None]),
+    ("LACA-15861", "THE IDOLM@STER SHINY COLORS COLORFUL FE@THERS -Stella-", "2021-01-20",
+     ["プラニスフィア ～planisphere～", "ありったけの輝きで", "アポイント・シグナル"]),
+    ("LACA-9946～7", "THE IDOLM@STER SHINY COLORS WING COLLECTION -A side-", "2023-01-18",
+     ["ヒカリのdestination", "スローモーション"]),
+    ("LACA-35264～5", "283 Production MUSICAL Performance 騎士団のヴェール Music Collection【初回限定盤】",
+     "2026-03-11", ["愚者の独白"]),
+    ("LACA-25301", "THE IDOLM@STER SHINY COLORS HOPEFUL FE@THERS -Stella-", "2026-10-21",
+     ["MAGICAL FOREST"]),
+    ("LACM-14861", "THE IDOLM@STER SHINY COLORS FR@GMENT WING 01", "2019-04-10", ["Ambitious Eve"]),
+]
+"""Releases for `write_world`: catalog number, title, release date, and the songs on it
+(None for a track that is no song, like a drama)."""
+
+SONGS = [
+    ("ヒカリのdestination", ["櫻木真乃", "風野灯織"], None),
+    ("Spread the Wings!!（イルミネーションスターズ Ver.）", ["櫻木真乃", "風野灯織"], None),
+    ("プラニスフィア ～planisphere～", ["櫻木真乃", "月岡恋鐘"], "Team.Stella"),
+    ("ありったけの輝きで", ["櫻木真乃"], None),
+    ("アポイント・シグナル", ["月岡恋鐘"], None),
+    ("スローモーション", ["風野灯織"], None),
+    ("愚者の独白", ["櫻木真乃", "風野灯織", "月岡恋鐘"], None),
+    ("MAGICAL FOREST", ["櫻木真乃"], None),
+    ("Ambitious Eve", ["櫻木真乃", "風野灯織", "月岡恋鐘"], None),
+]
+"""Songs for `write_world`: title, singers and the special unit that sang it, if one did.
+Mano's are her own two solos, her unit's two songs and nothing else."""
+
+
 def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] | None = None) -> None:
-    """A data file as `eidolon world sync` writes it: Mano's and Kogane's units, and
-    the office's president and clerk."""
+    """A data file as `eidolon world sync` writes it: Mano's and Kogane's units, the
+    office's president and clerk, and the songs and releases above."""
     idols = idols or [
         ("櫻木真乃", "illumination STARS", "関根瞳"),
         ("風野灯織", "illumination STARS", "近藤玲奈"),
@@ -42,6 +73,18 @@ def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] |
         "idols": [
             {"name": name, "reading": "", "unit": unit, "cv": cv, "sources": source}
             for name, unit, cv in idols
+        ],
+        "releases": [
+            {"catalog": catalog, "title": title, "date": day,
+             "tracks": [{"title": song or "スペシャルオーディオドラマ", "song": song} for song in songs],
+             "sources": source}
+            for catalog, title, day, songs in RELEASES
+        ],
+        "songs": [
+            {"id": title, "title": title, "singers": singers, "special_unit": special,
+             "releases": [catalog for catalog, _, _, songs in RELEASES if title in songs],
+             "sources": source}
+            for title, singers, special in SONGS
         ],
     }, ensure_ascii=False))
 
@@ -83,6 +126,59 @@ async def test_the_world_setting_carries_the_rules_for_facts_of_the_original(
     assert "不谈论声优" in system
     assert "不谈论具体的周边商品" in system
     assert "2026年9月28日以后的事" in system and "一概不知道" in system
+
+
+def her_songs(system: str) -> str:
+    """The part of the system prompt that lists her songs."""
+    start = system.index("# 你的歌")
+    end = system.find("\n# ", start + 1)
+    return system[start:] if end == -1 else system[start:end]
+
+
+async def test_every_turn_carries_her_songs_with_their_releases(
+    turns: Turns, characters: CharacterConfig
+):
+    write_world(characters)
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "真乃のソロ曲って何があったっけ")
+
+    system = system_prompt(llm)
+    assert system.index("# 世界设定") < system.index("# 你的歌") < system.index("# 制作人")
+    songs = her_songs(system)
+    assert "- ありったけの輝きで：" in songs  # sung by her alone
+    assert "- ヒカリのdestination：" in songs  # sung by her whole unit
+    assert "- Spread the Wings!!（イルミネーションスターズ Ver.）：" in songs
+    line = next(line for line in songs.splitlines() if line.startswith("- ヒカリのdestination："))
+    assert "《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 02 ヒカリのdestination》（2018年7月4日发售）" in line
+    assert "《THE IDOLM@STER SHINY COLORS WING COLLECTION -A side-》（2023年1月18日发售）" in line
+
+
+async def test_her_songs_leave_out_anyone_elses(turns: Turns, characters: CharacterConfig):
+    write_world(characters)
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "どんな歌を歌ってきたの？")
+
+    songs = her_songs(system_prompt(llm))
+    assert "アポイント・シグナル" not in songs  # another idol's solo
+    assert "スローモーション" not in songs  # her unit mate's solo
+    assert "プラニスフィア" not in songs  # a special unit's, with her in it
+    assert "愚者の独白" not in songs  # her unit with someone from outside it
+    assert "Ambitious Eve" not in songs  # everyone's
+
+
+async def test_a_release_still_to_come_is_told_as_one(turns: Turns, characters: CharacterConfig):
+    write_world(characters)  # the data runs to 2026-09-28; the release is on 2026-10-21
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "新しいCD、いつ出るんだっけ")
+
+    line = next(
+        line for line in her_songs(system_prompt(llm)).splitlines()
+        if line.startswith("- MAGICAL FOREST：")
+    )
+    assert "（2026年10月21日发售，还没有发售）" in line
 
 
 async def test_no_cv_is_named_in_any_prompt(turns: Turns, characters: CharacterConfig):

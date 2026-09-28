@@ -1,10 +1,12 @@
 """Test doubles for external services."""
 
 import asyncio
+import html
 import hashlib
 import json
 import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
@@ -437,14 +439,49 @@ class FakeShinyColorsDB:
         return httpx.Response(200, content=body, headers={"ETag": etag})
 
 
+@dataclass
+class LantisRelease:
+    """A release on Lantis's Shiny Colors site, as its page shows it."""
+
+    slug: str
+    """The page's path segment, e.g. laca-25301."""
+    title: str
+    date: str
+    """The 発売日 line as the page writes it: 2026/9/16."""
+    catalog: str
+    artist: str
+    """The アーティスト line."""
+    index: list[str]
+    """The track list, a paragraph each, its lines as the page writes them, e.g.
+    ["1．ヒカリのdestination\n歌：イルミネーションスターズ\n作詞：…"]."""
+    artist_members: str | None = None
+    """The line of idols under the アーティスト line, if the page has one."""
+    banner_date: str | None = None
+    """The date over the title (2026.09.16); by default the 発売日's."""
+
+
+@dataclass
+class FujiDisc:
+    """A disc in ふじわらはじめ's database: its name, and its tracks, each a name, its
+    units (name and members), its idols and its flags (orig, gamever, offvocal)."""
+
+    tax_id: int
+    name: str
+    tracks: list[tuple[str, list[tuple[str, list[str]]], list[str], list[str]]]
+
+
 class FakeWorldSites:
     """Stands in for the sites `eidolon world sync` imports from, answering as they do:
-    im@sparql's SPARQL endpoint (told apart by what each query asks for) and the official
-    site's idol index and unit pages. Records every request. Add a host's name to `down`
-    to have it unreachable, or a page's path to `missing` to have it answer 404."""
+    im@sparql's SPARQL endpoint (told apart by what each query asks for), the official
+    site's idol index and unit pages, Lantis's Shiny Colors site (the discography and the
+    releases' pages) and ふじわらはじめ's API (its song list, songs and discs). Records
+    every request. Add a host's name to `down` to have it unreachable, or a page's path
+    to `missing` to have it answer 404."""
 
     SPARQL = "sparql.crssnky.xyz"
     OFFICIAL = "shinycolors.idolmaster-official.jp"
+    LANTIS = "shinycolors.lantis.jp"
+    FUJI = "api.fujiwarahaji.me"
 
     def __init__(self) -> None:
         self.idols: list[dict[str, str]] = []
@@ -456,9 +493,19 @@ class FakeWorldSites:
         self.official_units: list[tuple[str, str, str, list[str]]] = []
         """The official site's units, in order: slug, logo text (empty for none), the
         name under the logo, members as the site writes them (family name, space, given)."""
+        self.releases: list[LantisRelease] = []
+        """Lantis's CDs, in the discography's order."""
+        self.blu_rays: list[tuple[str, str]] = []
+        """Lantis's Blu-rays: slug and title. The discography lists them apart from the CDs."""
+        self.fuji_songs: dict[int, tuple[str, list[int]]] = {}
+        """ふじわらはじめ's Shiny Colors songs by id: name and the discs it is on."""
+        self.fuji_discs: dict[int, FujiDisc] = {}
         self.requests: list[httpx.Request] = []
         self.down: set[str] = set()
         self.missing: set[str] = set()
+        self.empty: set[str] = set()
+        """ふじわらはじめ's API calls (path and query: v4/tax?id=4654) that answer with
+        an empty body, as it does for some discs."""
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self._handle))
@@ -477,7 +524,110 @@ class FakeWorldSites:
             for slug, logo, name, members in self.official_units:
                 if path == f"idol/{slug}":
                     return httpx.Response(200, text=self._unit_page(slug, logo, name, members))
+        path = request.url.path.strip("/")
+        if host == self.LANTIS and path not in self.missing:
+            if path == "discography":
+                return httpx.Response(200, text=self._discography())
+            for release in self.releases:
+                if path == f"releaseinfo/{release.slug}":
+                    return httpx.Response(200, text=self._release_page(release))
+        if host == self.FUJI and f"{path}?{request.url.query.decode()}" in self.empty:
+            return httpx.Response(200, content=b"", headers={"Content-Type": "application/json"})
+        if host == self.FUJI and path not in self.missing:
+            params = request.url.params
+            if path == "v4/list" and params.get("type") == "music" and params.get("music_type") == "sc":
+                return httpx.Response(200, json=[
+                    {"name": name, "type": "music", "music_type": "sc", "song_id": id,
+                     "link": f"https://fujiwarahaji.me/music/sc/{id}",
+                     "api": f"https://{self.FUJI}/v4/music?id={id}"}
+                    for id, (name, _) in self.fuji_songs.items()
+                ])
+            if path == "v4/music" and int(params["id"]) in self.fuji_songs:
+                return httpx.Response(200, json=self._fuji_song(int(params["id"])))
+            if path == "v4/tax" and int(params["id"]) in self.fuji_discs:
+                return httpx.Response(200, json=self._fuji_disc(self.fuji_discs[int(params["id"])]))
         return httpx.Response(404, text="<html>Not Found</html>")
+
+    def _discography(self) -> str:
+        def links(items: list[tuple[str, str]]) -> str:
+            return "".join(
+                f'<a href="https://{self.LANTIS}/releaseinfo/{slug}/" title="{html.escape(title)}">'
+                f'<img src="x.jpg" class="hv"></a>\n'
+                for slug, title in items
+            )
+
+        return (
+            '<section id="discographys" class="mb96">\n'
+            '<div class="CD_area"><div class="cat_cd">'
+            '<h3><img src="/images/common/dsc_tit_cd.png" alt="CD" height="19"></h3></div>\n'
+            '<div class="list"><div class="dsc_box mb0"><h4><span>■CD</span></h4>\n'
+            f"{links([(r.slug, r.title) for r in self.releases])}</div></div>\n</div>\n"
+            '<div class="BD_area"><div class="cat_cd">'
+            '<h3><img src="/images/common/dsc_tit_bd.png" alt="CD" height="19"></h3></div>\n'
+            f'<div class="list"><div class="dsc_box mb0">\n{links(self.blu_rays)}</div></div>\n</div>\n'
+            "</section>"
+        )
+
+    def _release_page(self, release: LantisRelease) -> str:
+        def paragraph(text: str) -> str:
+            return "<p>" + "<br />\n".join(html.escape(line) for line in text.split("\n")) + "</p>"
+
+        year, month, day = release.date.split("/")
+        banner = release.banner_date or f"{year}.{int(month):02}.{int(day):02}"
+        artist = f"アーティスト：{release.artist}"
+        if release.artist_members:
+            artist += f"\n{release.artist_members}"
+        facts = f"発売日：{release.date}\n品番：{release.catalog}\n価格：1,980円（10%税込）"
+        index = "\n".join(paragraph(p) for p in release.index)
+        return (
+            '<html><body><section id="release"><div class="release_box cd">\n'
+            f'<div class="titles">\n<div class="date">{banner} RELEASE</div>\n'
+            f"<h2>{html.escape(release.title)}</h2>\n</div>\n"
+            f'<div class="release_contents">\n{paragraph(artist)}\n{paragraph(facts)}\n'
+            '<h3><img src="/images/common/release_index.png" alt="インデックス"></h3>\n'
+            f"{index}\n"
+            '<h3><img src="/images/common/release_information.png" alt="インフォメーション"></h3>\n'
+            "<p>描き下ろしイラストジャケット</p>\n"
+            "</div><!--release_contents-->\n</div></section>\n"
+            f"{self._discography()}</body></html>"
+        )
+
+    def _fuji_disc_ref(self, disc: FujiDisc) -> dict:
+        return {
+            "name": disc.name, "type": "disc", "tax_id": disc.tax_id,
+            "link": f"https://fujiwarahaji.me/disc/{disc.tax_id}",
+            "api": f"https://{self.FUJI}/v4/tax?id={disc.tax_id}",
+        }
+
+    @staticmethod
+    def _fuji_idol(name: str) -> dict:
+        return {"name": name, "type": "idol", "production": "sc", "cv": "某声優"}
+
+    def _fuji_song(self, id: int) -> dict:
+        name, discs = self.fuji_songs[id]
+        return {
+            "name": name, "type": "music", "song_id": id,
+            "link": f"https://fujiwarahaji.me/music/sc/{id}",
+            "api": f"https://{self.FUJI}/v4/music?id={id}",
+            "member": [], "disc": [self._fuji_disc_ref(self.fuji_discs[d]) for d in discs],
+        }
+
+    def _fuji_disc(self, disc: FujiDisc) -> dict:
+        return {
+            **self._fuji_disc_ref(disc), "cat": "", "flag": "", "setlist": True,
+            "song": [
+                {
+                    "name": name, "type": "music", "music_type": "sc", "song_text": "",
+                    "unit": [
+                        {"name": unit, "type": "unit", "member": [self._fuji_idol(m) for m in members]}
+                        for unit, members in units
+                    ],
+                    "member": [self._fuji_idol(m) for m in idols] or None,
+                    "member_text": "", "flag": flags,
+                }
+                for name, units, idols, flags in disc.tracks
+            ],
+        }
 
     def _query(self, query: str) -> dict:
         detail = "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/"

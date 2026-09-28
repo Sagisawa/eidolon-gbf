@@ -15,7 +15,8 @@ the turn already recalled an episode. Its calls are answered and the model asked
 again, once at most since every round costs the model's time to first token; whatever
 it says along the way is part of the reply, and only the reply is recorded.
 
-Every turn carries the world setting, when there is one, after the character sheet.
+Every turn carries the world setting, when there is one, after the character sheet: the
+office and its units, and the character's own songs.
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
@@ -169,7 +170,10 @@ class ConversationEngine:
         self._retrieval = retrieval
         self._memory = memory
         self._history_turns = history_turns
-        self._world_prompt = world.prompt() if world is not None else None
+        self._world_prompts = (
+            {c.id: world.prompt(c.name) for c in characters.values()} if world is not None else {}
+        )
+        """Each character's world setting, by id."""
 
     async def turn(
         self,
@@ -278,8 +282,8 @@ class ConversationEngine:
         text: str,
     ) -> list[ChatMessage]:
         sections = [character.sheet]
-        if self._world_prompt:
-            sections.append(self._world_prompt)
+        if world_prompt := self._world_prompts.get(character.id):
+            sections.append(world_prompt)
         sections.append(about_producer)
         if retrieved.memories_prompt:
             sections.append(retrieved.memories_prompt)

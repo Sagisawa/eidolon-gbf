@@ -293,7 +293,7 @@ For local development, run `uv run eidolon --db data/eidolon.db story sync` in `
 
 ### World setting
 
-The office's president and clerk, the eight units and their idols go into every turn after the character sheet ([ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)). The data is `characters/world.json`, beside the character configuration and committed to the repository. To update it, run `uv run eidolon world sync` in `backend/`: it imports from im@sparql and the official unit pages and prints how many of each there are, what changed since the old file and where the two sources disagree; read the `git diff` before committing. If any source fails, the old file is left as it was. Every character's display name must match one of the idols or the backend will not start; without the file, it runs without the world setting.
+The office's president and clerk, the eight units and their idols, and the character's own songs (those she sings alone and those her whole unit sings, each with the releases it is on and their dates) go into every turn after the character sheet ([ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)). The data is `characters/world.json`, beside the character configuration and committed to the repository. To update it, run `uv run eidolon world sync` in `backend/`: it imports the idols and units from im@sparql and the official unit pages, and the releases, their tracks and singers from Lantis's Shiny Colors site (with ふじわらはじめ's API filling in singers Lantis leaves out), and prints how many of each there are, what changed since the old file, where the sources disagree and which singers match none of the idols; read the `git diff` before committing. If any source fails, the old file is left as it was. Every character's display name must match one of the idols or the backend will not start; without the file, it runs without the world setting.
 
 ### Embedding service
 
@@ -464,6 +464,7 @@ eidolon-sc/
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
 │   │   ├── world.py          #   world setting: the data file and the section every turn carries
 │   │   ├── world_sync.py     #   importing the world setting (eidolon world sync)
+│   │   ├── release_sync.py   #   importing releases and songs (Lantis; singers it leaves out from ふじわらはじめ)
 │   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols

@@ -16,9 +16,11 @@
                                      episodes it lacks from the ShinyColorsDB mirror; exits 2
                                      if the mirror failed
     eidolon world sync               import the idols, units, president and clerk from
-                                     im@sparql and the official unit pages into the world
-                                     setting beside the character configuration, and report
-                                     what changed; the old file stays if a source failed
+                                     im@sparql and the official unit pages, and the releases
+                                     and songs from Lantis (singers it leaves out from
+                                     ふじわらはじめ), into the world setting beside the
+                                     character configuration, and report what changed; the
+                                     old file stays if a source failed
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
@@ -551,7 +553,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     world_sync = world.add_parser(
         "sync",
-        help="从 im@sparql 和官方组合页导入偶像、组合、社长和事务员，写入角色配置旁边的 world.json，"
+        help="从 im@sparql 和官方组合页导入偶像、组合、社长和事务员，从 Lantis（和 ふじわらはじめ）导入唱片和歌曲，"
+        "写入角色配置旁边的 world.json，"
         "并打印导入报告（任何来源失败时不改动旧文件）",
     )
     world_sync.add_argument(

@@ -3,12 +3,15 @@ data file `eidolon world sync` writes (`world_sync`) beside the character config
 
 The file holds the date the data runs to, the office's president and clerk, the idols
 (with their CV, which is only for telling which lives an idol stood on and for people
-checking the data: it never reaches a prompt, ADR-0008) and the eight units, each entry
-with the URLs it came from. Every character is one of its idols, matched by display
-name; without the file, characters go without the world setting.
+checking the data: it never reaches a prompt, ADR-0008), the eight units, and the
+releases and their songs, each entry with the URLs it came from. Every character is one
+of its idols, matched by display name; without the file, characters go without the
+world setting.
 
 Every turn carries the world setting in full, after the character sheet
-(`World.prompt`), with the rules for facts of the original that the data does not have.
+(`World.prompt`), with the rules for facts of the original that the data does not have,
+and then her songs: those she sings alone and those her whole unit sings, no one else
+joining in, each with the releases it is on and when they came or come out.
 """
 
 import json
@@ -24,6 +27,11 @@ WORLD_FILE = "world.json"
 
 class WorldError(RuntimeError):
     """The data file cannot be read, or a character is not one of its idols."""
+
+
+class WorldSyncError(RuntimeError):
+    """A source `eidolon world sync` imports from could not be reached, or answered with
+    something unexpected."""
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,38 @@ class Unit:
 
 
 @dataclass(frozen=True)
+class Track:
+    title: str
+    """As the release lists it."""
+    song: str | None
+    """The id of the song it is; None for a track that is no song (an off-vocal
+    version, a drama) or whose singers could not be told."""
+
+
+@dataclass(frozen=True)
+class Release:
+    catalog: str
+    """The catalog number, as the label writes it (LACA-9946～7): the release's id."""
+    title: str
+    date: date
+    tracks: tuple[Track, ...]
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Song:
+    id: str
+    title: str
+    singers: tuple[str, ...]
+    """The idols who sing it, by name; a special unit's song is split into its idols."""
+    special_unit: str | None
+    """The special unit that sang it (Team.Stella and the like), which is no unit."""
+    releases: tuple[str, ...]
+    """The catalog numbers of the releases it is on, earliest first."""
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class World:
     as_of: date
     """The day the data was imported: the characters know nothing after it."""
@@ -63,9 +103,19 @@ class World:
     staff: tuple[Staff, ...]
     units: tuple[Unit, ...]
     idols: tuple[Idol, ...]
+    releases: tuple[Release, ...] = ()
+    songs: tuple[Song, ...] = ()
 
     def idol(self, name: str) -> Idol | None:
         return next((idol for idol in self.idols if idol.name == name), None)
+
+    def songs_of(self, name: str) -> list[Song]:
+        """Her songs: those she sings alone and those her whole unit sings, no one else
+        joining in."""
+        idol = self.idol(name)
+        unit = next((u for u in self.units if idol and u.name == idol.unit), None)
+        hers = [{name}] + ([set(unit.members)] if unit else [])
+        return [song for song in self.songs if set(song.singers) in hers]
 
     def check_characters(self, characters: dict[str, Character], path: Path) -> None:
         """Raises WorldError naming the first character who is none of the idols."""
@@ -76,9 +126,36 @@ class World:
                     "（显示名要和资料里的日文全名一致，例如「櫻木真乃」）"
                 )
 
-    def prompt(self) -> str:
-        """The world setting as every turn carries it. No CV is in it."""
-        as_of = f"{self.as_of.year}年{self.as_of.month}月{self.as_of.day}日"
+    def prompt(self, name: str) -> str:
+        """The world setting as every turn with the idol called `name` carries it, her
+        songs included. No CV is in it."""
+        return f"{self._setting_prompt()}\n\n{self._songs_prompt(name)}"
+
+    def _songs_prompt(self, name: str) -> str:
+        songs = self.songs_of(name)
+        lines = ["# 你的歌"]
+        if not songs:
+            lines.append("资料里还没有你唱的歌。")
+            return "\n".join(lines)
+        lines.append(
+            "下面是你一个人唱的歌，和你所在的组合全员一起唱的歌，以及收录它们的唱片。"
+            "别的偶像的歌、特别组合或者全体一起唱的歌不在这里。"
+        )
+        releases = {release.catalog: release for release in self.releases}
+        for song in songs:
+            on = []
+            for catalog in song.releases:
+                if (release := releases.get(catalog)) is None:
+                    continue
+                day = f"{_day(release.date)}发售"
+                if release.date > self.as_of:
+                    day += "，还没有发售"
+                on.append(f"《{release.title}》（{day}）")
+            lines.append(f"- {song.title}：{'、'.join(on)}")
+        return "\n".join(lines)
+
+    def _setting_prompt(self) -> str:
+        as_of = _day(self.as_of)
         lines = [
             "# 世界设定",
             f"以下是你所在的{self.office}的基本情况，资料截止到 {as_of}。",
@@ -110,6 +187,14 @@ class World:
             "office": {"name": self.office, "staff": [asdict(s) for s in self.staff]},
             "units": [asdict(u) for u in self.units],
             "idols": [asdict(i) for i in self.idols],
+            "releases": [
+                {
+                    "catalog": r.catalog, "title": r.title, "date": r.date.isoformat(),
+                    "tracks": [asdict(t) for t in r.tracks], "sources": list(r.sources),
+                }
+                for r in self.releases
+            ],
+            "songs": [asdict(s) for s in self.songs],
         }
 
     @classmethod
@@ -129,7 +214,25 @@ class World:
                 Idol(i["name"], i["reading"], i["unit"], i["cv"], tuple(i["sources"]))
                 for i in data["idols"]
             ),
+            releases=tuple(
+                Release(
+                    r["catalog"], r["title"], date.fromisoformat(r["date"]),
+                    tuple(Track(t["title"], t["song"]) for t in r["tracks"]), tuple(r["sources"]),
+                )
+                for r in data.get("releases", [])
+            ),
+            songs=tuple(
+                Song(
+                    s["id"], s["title"], tuple(s["singers"]), s["special_unit"],
+                    tuple(s["releases"]), tuple(s["sources"]),
+                )
+                for s in data.get("songs", [])
+            ),
         )
+
+
+def _day(day: date) -> str:
+    return f"{day.year}年{day.month}月{day.day}日"
 
 
 def world_path(characters_path: Path) -> Path:

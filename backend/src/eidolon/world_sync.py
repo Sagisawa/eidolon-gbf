@@ -10,9 +10,14 @@ members.
 
 Where the two sources disagree (a member on one side only, a unit im@sparql lacks, an
 idol in none of the units) the official pages win, and the report lists it for the
-deployer to look into. The report also counts each kind of entry and what was added or
-removed since the last import, so that the deployer can read it beside the git diff
-before committing the file.
+deployer to look into.
+
+The releases and their songs come from Lantis, with ふじわらはじめ filling in the
+singers Lantis leaves out (`release_sync`); the report lists what it filled in, where
+it disagrees with Lantis, and the tracks whose singers are none of the idols or unknown.
+
+The report also counts each kind of entry and what was added or removed since the last
+import, so that the deployer can read it beside the git diff before committing the file.
 
 Every source has to answer: if any fails, the import fails and the old file stays as
 it was. The file is replaced whole, once everything is in.
@@ -29,7 +34,8 @@ from pathlib import Path
 
 import httpx
 
-from eidolon.world import Idol, Staff, Unit, World, WorldError, load_world
+from eidolon.release_sync import FUJI_NAME, ReleaseImport, import_releases
+from eidolon.world import Idol, Staff, Unit, World, WorldError, WorldSyncError, load_world
 
 SPARQL_URL = "https://sparql.crssnky.xyz/spql/imas/query"
 OFFICIAL_URL = "https://shinycolors.idolmaster-official.jp/idol/"
@@ -67,10 +73,6 @@ _LOGO = re.compile(r'class="idol-group__logo">\s*<picture>\s*<img[^>]*alt="([^"]
 _LOGO_NAME = re.compile(r'class="idol-group__logo--name">([^<]*)<')
 
 
-class WorldSyncError(RuntimeError):
-    """A source could not be reached, or answered with something unexpected."""
-
-
 def open_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=httpx.Timeout(60, connect=10),
@@ -101,6 +103,8 @@ class WorldSyncReport:
     """Where im@sparql and the official unit pages disagree."""
     notes: list[str] = field(default_factory=list)
     """Anything else the deployer should know about."""
+    releases: ReleaseImport | None = None
+    """What importing the releases and songs turned up."""
 
     def lines(self) -> list[str]:
         world, previous = self.world, self.previous
@@ -128,8 +132,38 @@ class WorldSyncReport:
             lines.append("im@sparql 和官方组合页没有对不上的地方")
         if self.special_units:
             lines.append(f"im@sparql 里的特别组合，不算组合，没有收录：{'、'.join(self.special_units)}")
+        lines += self._release_lines()
         lines += [f"注意：{note}" for note in self.notes]
         lines.append(f"已写入 {self.path}，请看过 git diff 再提交")
+        return lines
+
+
+    def _release_lines(self) -> list[str]:
+        world, previous, found = self.world, self.previous, self.releases
+        had = previous is not None and bool(previous.releases or previous.songs)
+        lines = [
+            f"唱片：{len(world.releases)} 张" + _changes(
+                _diff([r.catalog for r in previous.releases], [r.catalog for r in world.releases])
+                if previous and had else None, first=previous is None
+            ),
+            f"歌曲：{len(world.songs)} 首" + _changes(
+                _diff([s.id for s in previous.songs], [s.id for s in world.songs])
+                if previous and had else None, first=previous is None
+            ),
+        ]
+        if found is None:
+            return lines
+        sections = [
+            (found.filled, f"Lantis 没写演唱者、由{FUJI_NAME}补齐的曲目（请人工核对）："),
+            (found.conflicts, f"Lantis 和{FUJI_NAME}冲突的地方（已按 Lantis 写入，请人工核对）："),
+            (found.unmatched, "演唱者对应不到偶像名单的曲目（没有写入歌曲，请人工处理）："),
+            (found.unknown, "哪个来源都没写演唱者的曲目（没有写入歌曲，请人工处理）："),
+        ]
+        for items, heading in sections:
+            if items:
+                lines.append(f"{heading}{len(items)} 首")
+                lines += [f"  {item}" for item in items]
+        lines += [f"注意：{note}" for note in found.notes]
         return lines
 
 
@@ -140,9 +174,9 @@ def _diff(before: Sequence[str], after: Sequence[str]) -> Changes:
     )
 
 
-def _changes(changes: Changes | None) -> str:
+def _changes(changes: Changes | None, first: bool = True) -> str:
     if changes is None:
-        return "（第一次导入）"
+        return "（第一次导入）" if first else "（旧资料文件里没有这一项）"
     parts = []
     if changes.added:
         parts.append(f"新增 {'、'.join(changes.added)}")
@@ -172,9 +206,13 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
     office, staff = _staff(staff_rows)
     units, special = _units(official, unit_rows, disagreements)
     idols = _idols(idol_rows, units, disagreements, notes)
-    report = WorldSyncReport(
-        World(today, office, staff, tuple(units), idols), path, previous, special, disagreements, notes
-    )
+
+    async def fetch(url: str) -> str:
+        return (await _get(client, url)).text
+
+    found = await import_releases(fetch, idols, units)
+    world = World(today, office, staff, tuple(units), idols, found.releases, found.songs)
+    report = WorldSyncReport(world, path, previous, special, disagreements, notes, found)
     _write(path, report.world)
     return report
 
