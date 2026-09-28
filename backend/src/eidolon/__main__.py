@@ -417,7 +417,7 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
         characters_path = args.characters or characters_path_from_env()
         characters = load_characters(characters_path)
         world = load_world(world_path(characters_path))
-        calibration = load_calibration(args.file)
+        calibration = load_calibration(args.file, world)
         embedding = EmbeddingSettings.required_from_env()
         rerank = RerankSettings.from_env()
         if rerank is None:
