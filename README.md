@@ -124,7 +124,7 @@ docker compose up --build
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
 > | 剧情库（同步或导入） | 向量化服务的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
-> | 检索与记忆 | 向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`AI_GATEWAY_API_KEY`、`JEV_MODEL` |
+> | 检索与记忆 | 向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`JEV_API_KEY` |
 >
 > 所有配置项的说明见 [`.env.example`](.env.example)。
 
@@ -316,7 +316,9 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 ### 对话中的检索
 
-在 `.env` 里填好向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+在 `.env` 里填好向量化服务的 key、`SILICONFLOW_API_KEY`（重排）和 `JEV_API_KEY` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+
+Jev 默认经由 [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 调用，`JEV_API_KEY` 填 OpenRouter 的 key，模型默认锁定 `typesafe/jev-1.13`（`JEV_MODEL` 可改）。Jev 用的是 TypeSafe 的 System One 接口，Vercel AI Gateway 和 TypeSafe 自己也提供同样的接口：改用 Vercel 时设 `JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe/v1`（Vercel 免费额度不能调用 Jev，需要先购买额度），直连 TypeSafe 时设 `JEV_BASE_URL=https://api.typesafe.ai/v1`，两种情况都要把 `JEV_API_KEY` 和 `JEV_MODEL` 换成那一家的（模型名的写法各家不同，TypeSafe 直连是 `jev-1.13.0`）。旧的 `AI_GATEWAY_API_KEY` 已改名为 `JEV_API_KEY`，只配了旧变量时后端不会启动。
 
 ```mermaid
 flowchart LR
@@ -327,7 +329,7 @@ flowchart LR
     Jev -- 问过去的经历 --> Recall["直接回顾剧情<br/>+ 查演出和唱片"]
 ```
 
-- 每一句话先交给 Jev（通过 Vercel AI Gateway 调用）判断这句话需要什么：寒暄闲聊不检索，不增加延迟；需要资料时做下面的检索；问「那次……是怎么回事」这类过去经历时，直接用这句话「回顾剧情」，同时在作品资料里查相关的演出和唱片，一起放进提示词，省去对话模型自己调用工具的那一轮；剧情库里没有这段经过时，提示角色这不等于没发生过，不编造也不否认。Jev 出错时照常检索。
+- 每一句话先交给 Jev（默认通过 OpenRouter 调用）判断这句话需要什么：寒暄闲聊不检索，不增加延迟；需要资料时做下面的检索；问「那次……是怎么回事」这类过去经历时，直接用这句话「回顾剧情」，同时在作品资料里查相关的演出和唱片，一起放进提示词，省去对话模型自己调用工具的那一轮；剧情库里没有这段经过时，提示角色这不等于没发生过，不编造也不否认。Jev 出错时照常检索。
 - 需要检索时，同时检索剧情库里当前角色出场过的剧情、她的角色资料和所有角色共享的作品资料（每首歌曲、每张唱片、每个演出日一条），用硅基流动的 Qwen3-Reranker（默认 `Qwen/Qwen3-Reranker-0.6B`，`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。「够高」的阈值按重排模型分组（0.6B 和 4B 都校准过），也可以用 `RERANK_MIN_RELEVANCE`、`RERANK_MEMORY_MIN_RELEVANCE` 手动设置；`eidolon eval rerank` 用仓库里的校准数据集打印分数分布，帮助定阈值（见 [`docs/deploy.md`](docs/deploy.md)）。检索或重排出错时，本回合不带检索结果照常回复。
 - 对话模型还可以调用「回顾剧情」工具（`recall_story`）：制作人问「那次……是怎么回事」这类问题时，角色用一句概括去查自己出场过的剧情，拿回最相关的最多 2 段剧情的原文（附带它在剧情目录中属于哪张卡或哪个活动、同一处还有哪些剧情），再据此回答。这个工具只查剧情。一句话最多调用 1 轮工具；Jev 已经判断为回顾剧情的回合不再提供这个工具。
 - 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
@@ -335,7 +337,7 @@ flowchart LR
 
 ### 记忆
 
-角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要向量化服务的 key、`SILICONFLOW_API_KEY`、`AI_GATEWAY_API_KEY` 和 `JEV_MODEL`）。
+角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要向量化服务的 key、`SILICONFLOW_API_KEY` 和 `JEV_API_KEY`）。
 
 - **写入**：每个回合结束后，后台模型读这一轮对话，把用户透露的、值得长期记住的事写成中文记忆（如「制作人养了一只叫小白的猫」），记下所属用户和来源角色；「下周六」这样的相对时间会按用户的时区换算成日期。已经记住的事不会重复记。这一步在后台进行，不耽误回复；用户的下一句话会先等它完成（最多 5 秒）。
 - **想起**：之后的对话中，Jev 判断用户在说自己的事（近况、计划、家人宠物等）时，只检索记忆；需要检索剧情和角色资料时，也会一起检索记忆。和话题相关的最多 3 条记忆放进提示词，每条注明来源角色和日期。
@@ -503,7 +505,7 @@ eidolon-sc/
 - [Fish Audio](https://fish.audio/) —— 语音合成
 - [硅基流动](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（可选的向量化服务）
-- [Vercel AI Gateway](https://vercel.com/ai-gateway) —— 检索判断模型的调用
+- [TypeSafe Jev](https://docs.typesafe.ai/) 与 [OpenRouter](https://openrouter.ai/) —— 检索判断模型及其调用
 
 <div align="center">
 

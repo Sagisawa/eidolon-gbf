@@ -127,7 +127,7 @@ Open <http://localhost:3000>, sign in with "dev login" under any name (offered o
 > | Text chat | `CHAT_LLM_*` |
 > | Voice calls | `SONIOX_API_KEY`, `FISH_AUDIO_API_KEY` |
 > | Story corpus (sync or import) | The embedding service's key: `SILICONFLOW_API_KEY` (default), or `EMBEDDING_PROVIDER=gemini` plus `GEMINI_API_KEY` |
-> | Retrieval and memory | The embedding service's key, `SILICONFLOW_API_KEY` (reranking), `AI_GATEWAY_API_KEY`, `JEV_MODEL` |
+> | Retrieval and memory | The embedding service's key, `SILICONFLOW_API_KEY` (reranking), `JEV_API_KEY` |
 >
 > Every option is documented in [`.env.example`](.env.example) (comments in Chinese).
 
@@ -319,7 +319,9 @@ The story corpus, character facts and memories all share one embedding service, 
 
 ### Retrieval during conversation
 
-With the embedding service's key, `SILICONFLOW_API_KEY` (reranking), `AI_GATEWAY_API_KEY` and `JEV_MODEL` set, characters can recall episodes and consult their character facts mid-conversation; if any is missing, they answer from their character sheet alone.
+With the embedding service's key, `SILICONFLOW_API_KEY` (reranking) and `JEV_API_KEY` set, characters can recall episodes and consult their character facts mid-conversation; if any is missing, they answer from their character sheet alone.
+
+Jev is reached through [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) by default: `JEV_API_KEY` is an OpenRouter key, and the model is pinned to `typesafe/jev-1.13` (change it with `JEV_MODEL`). Jev speaks TypeSafe's System One API, which Vercel AI Gateway and TypeSafe itself serve too: for Vercel set `JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe/v1` (Vercel's free tier can't call Jev; buy credits first), for TypeSafe directly `JEV_BASE_URL=https://api.typesafe.ai/v1`, and in either case use that provider's key and model name in `JEV_API_KEY` and `JEV_MODEL` (each writes the model differently: TypeSafe's own is `jev-1.13.0`). The old `AI_GATEWAY_API_KEY` is now `JEV_API_KEY`; with only the old one set, the backend won't start.
 
 ```mermaid
 flowchart LR
@@ -330,7 +332,7 @@ flowchart LR
     Jev -- asks about the past --> Recall["Recall story directly<br/>+ look up lives and releases"]
 ```
 
-- Every line first goes to Jev (via Vercel AI Gateway) to decide what it needs. Small talk: no retrieval, no added latency. Needs references: the search below. A question like "what happened that time…?": the line is used to **recall story** right away and the result goes into the prompt, saving the chat model a tool-call round. If Jev errors, retrieval runs anyway.
+- Every line first goes to Jev (via OpenRouter by default) to decide what it needs. Small talk: no retrieval, no added latency. Needs references: the search below. A question like "what happened that time…?": the line is used to **recall story** right away and the result goes into the prompt, saving the chat model a tool-call round. If Jev errors, retrieval runs anyway.
 - A search covers the episodes the current character appears in, her character facts, and the index all characters share (one entry per song, release and live day), reranked with SiliconFlow's Qwen3-Reranker (`Qwen/Qwen3-Reranker-0.6B` by default, `RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). What counts as "sufficiently relevant" is a threshold set per reranker model (both 0.6B's and 4B's are calibrated), which you can also set by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`; `eidolon eval rerank` prints the score distribution on the repo's calibration dataset to help pick one (see [`docs/deploy.md`](docs/deploy.md)). If search or reranking fails, the turn proceeds without references.
 - The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. The tool searches only the story. At most one tool round per line; turns Jev already routed to story recall don't offer the tool.
 - Character facts are the Markdown file referenced by `facts` in `characters.toml`, one entry per heading. They're embedded on a character's first search, and afterwards only changed entries are re-embedded; just restart the backend after editing.
@@ -339,7 +341,7 @@ flowchart LR
 
 ### Memory
 
-Characters remember what users tell them about themselves, and all of a user's characters share those memories: tell Mano something and Kogane will know, but she'll bring it up as "Mano told me…" (ADR-0002). Different users' memories are fully isolated. Memory turns on together with retrieval (requires the embedding service's key, `SILICONFLOW_API_KEY`, `AI_GATEWAY_API_KEY` and `JEV_MODEL`).
+Characters remember what users tell them about themselves, and all of a user's characters share those memories: tell Mano something and Kogane will know, but she'll bring it up as "Mano told me…" (ADR-0002). Different users' memories are fully isolated. Memory turns on together with retrieval (requires the embedding service's key, `SILICONFLOW_API_KEY` and `JEV_API_KEY`).
 
 - **Writing down**: after each turn, the background model reads the exchange and writes whatever the user revealed that's worth keeping as a memory in Chinese (e.g. "the producer has a cat named Xiaobai"), recording its owner and source character. Relative times like "next Saturday" are converted to dates in the user's time zone. Things already remembered aren't duplicated. This runs in the background without holding up the reply; the user's next line waits for it to finish (at most 5 seconds).
 - **Recalling**: later, when Jev decides the user is talking about their own life (news, plans, family, pets…), only memories are searched; when episodes and facts are searched, memories are searched alongside. Up to 3 relevant memories go into the prompt, each labeled with its source character and date.
@@ -507,7 +509,7 @@ The license covers only the code and documentation in this repository. Story dat
 - [Fish Audio](https://fish.audio/) — speech synthesis
 - [SiliconFlow](https://siliconflow.cn/) — Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) — Gemini Embedding (optional embedding service)
-- [Vercel AI Gateway](https://vercel.com/ai-gateway) — access to the retrieval router model
+- [TypeSafe Jev](https://docs.typesafe.ai/) and [OpenRouter](https://openrouter.ai/) — the retrieval router model and access to it
 
 <div align="center">
 

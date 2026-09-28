@@ -1,6 +1,6 @@
 """Retrieval for a conversation turn: whether to look anything up, and what to bring back.
 
-Jev (through Vercel AI Gateway) first judges what the user just said needs: nothing,
+Jev (through OpenRouter, by default) first judges what the user just said needs: nothing,
 so small talk costs no retrieval latency; memories only, when the user talks about their
 own life, for which the turn finds the memories of what they have told any of the
 characters; references, for which the reference sources (the story corpus, only episodes
@@ -364,7 +364,7 @@ def _transcript(episode: Episode) -> str:
 
 
 _JUDGE_QUESTION = {
-    "type": "boolean",
+    "type": "noul",
     "instructions": "角色扮演对话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人对话。"
     "可检索的内容有三类：剧情，即她亲身经历过的原作剧情；角色资料，即关于她自己和身边人物的设定"
     "（档案、人物关系等）；作品资料，即作品里的歌曲、唱片和演出（演唱者、发售日、曲目、"
@@ -376,7 +376,7 @@ _JUDGE_QUESTION = {
     },
 }
 _RECALL_QUESTION = {
-    "type": "boolean",
+    "type": "noul",
     "instructions": "制作人最新的一句话，是不是在问角色过去某一次具体经历的来龙去脉"
     "（例如「那次……是怎么回事」「还记得……那次吗」），需要回想那段经历的完整经过才能回答？",
     "criteria": {
@@ -385,7 +385,7 @@ _RECALL_QUESTION = {
     },
 }
 _ABOUT_PRODUCER_QUESTION = {
-    "type": "boolean",
+    "type": "noul",
     "instructions": "角色扮演对话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人对话。"
     "制作人最新的一句话，是否说起或问起制作人自己的事（生活、近况、工作安排、计划、家人、宠物、喜好、"
     "身体状况等），而制作人以前对偶像们说过的相关的事可能有助于回应？",
@@ -399,14 +399,15 @@ JUDGE_THRESHOLD = 0.5
 
 
 class JevJudge:
-    """Jev through Vercel AI Gateway's evaluation endpoint (`/v1/evaluate`): Jev is an
-    evaluation model, answering typed questions about a state with probabilities, and is
+    """Jev through TypeSafe's System One endpoint (`/systemone`, which OpenRouter, Vercel AI
+    Gateway and TypeSafe itself all serve alike): Jev is an evaluation model, answering
+    typed questions about a state (here yes-or-no ones, `noul`) with probabilities, and is
     not served by the Chat Completions endpoint."""
 
     def __init__(
         self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
     ) -> None:
-        self._url = base_url.rstrip("/") + "/evaluate"
+        self._url = base_url.rstrip("/") + "/systemone"
         self._api_key = api_key
         self._model = model
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
@@ -441,9 +442,9 @@ class JevJudge:
             raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
         try:
             answers = res.json()["answers"]
-            retrieve = float(answers["needs_retrieval"]["probability"])
-            recall = float(answers["recall"]["probability"])
-            about_producer = float(answers["about_producer"]["probability"])
+            retrieve = float(answers["needs_retrieval"]["noul"])
+            recall = float(answers["recall"]["noul"])
+            about_producer = float(answers["about_producer"]["noul"])
         except (ValueError, KeyError, TypeError) as e:
             raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
         if recall >= JUDGE_THRESHOLD:

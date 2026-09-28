@@ -168,7 +168,7 @@ def build(
         log.info(
             "retrieval and memory are off: they need the embedding service's key"
             " (SILICONFLOW_API_KEY, or GEMINI_API_KEY with EMBEDDING_PROVIDER=gemini),"
-            " SILICONFLOW_API_KEY for reranking, AI_GATEWAY_API_KEY and JEV_MODEL"
+            " SILICONFLOW_API_KEY for reranking, and JEV_API_KEY"
         )
         memories = Memories(settings.database_path, characters, clock)
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
