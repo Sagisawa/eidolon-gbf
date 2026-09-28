@@ -6,7 +6,7 @@ import hashlib
 import json
 import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, unquote, urlencode
@@ -532,13 +532,93 @@ def struck(performer: str, note: str, news: str | None = None) -> str:
     )
 
 
+@dataclass
+class ImasDbShow:
+    """One show's setlist on an imas-db live page."""
+
+    heading: str
+    """Its heading: 「セットリスト」, 「DAY1 セットリスト」, 「昼公演」, 「公演内容(全公演共通)」."""
+    rows: list[tuple[str, str, str]]
+    """Each row's number (empty for an MC), its title cell and its performers cell, as HTML
+    (`imas_idol`, `imas_unit`, … and plain text like 「全員」)."""
+    date: str | None = None
+    """A date line in the show's own section, as M@STER EXPO's page has, if any."""
+
+
+@dataclass
+class ImasDbPage:
+    """A page of imas-db's live records (`song/event/<file>`)."""
+
+    file: str
+    title: str
+    date: str | None
+    """The line under the tabs: 「2022/04/23(土) 幕張メッセ, 開場15:00/開演17:00」; None
+    for a page without one."""
+    shows: list[ImasDbShow]
+    cast: str = ""
+    """The 出演 list, as HTML: a performer followed by 「<small class="notes">※</small>」
+    stood only on the songs that name her."""
+    schedule: list[tuple[str, str]] = field(default_factory=list)
+    """The 公演概要 table, if the page has one: each show's label and date line."""
+
+
+@dataclass
+class ImasDbLive:
+    """A live on imas-db's index of live records."""
+
+    name: str
+    brands: str
+    """Its brand ids, as the index writes them: 「8」 for Shiny Colors', 「1,4,5,6,8,9」 for a
+    joint live."""
+    pages: list[tuple[str, ImasDbPage, str]]
+    """Its pages: the link's text, the page, and the date the index writes by it
+    (「2022/04/23(土)」)."""
+
+
+def imas_idol(name: str, cv: str, brand: str = "8", old: bool = False) -> str:
+    """An idol in imas-db's markup: named by her CV on older pages, by herself on newer."""
+    if old:
+        return f'<span class="idol_sc_x" title="{name}(CV:{cv})">{cv}</span>'
+    return (
+        f'<span class="idol-name" data-brand-id="{brand}" data-character-id="1" '
+        f'data-person-id="1" data-group-id="101" title="{name}(CV:{cv})">{name}</span>'
+    )
+
+
+def imas_unit(name: str, brand: str = "8", old: bool = False) -> str:
+    if old:
+        return f'<span class="idol_sc_unit01">{name}</span>'
+    return f'<span class="idol-name" data-brand-id="{brand}" data-group-id="101">{name}</span>'
+
+
+def imas_brand(name: str, brand: str) -> str:
+    """A whole brand as one performer: シャイニーカラーズ is brand 8."""
+    return f'<span class="idol-name" data-brand-id="{brand}">{name}</span>'
+
+
+def imas_note(text: str) -> str:
+    return f'<small class="notes">{text}</small>'
+
+
+DANCE_ONLY = '<span class="notes" title="ダンスパフォーマンスのみ">(※)</span>'
+
+
+def imas_badge(label: str, brand: str, slug: str) -> str:
+    """The brand of the song, after its title at a joint live."""
+    return (
+        f'<span class="visually-hidden">(</span><small class="badge small bg-imas-brand-{slug}" '
+        f'title="{brand}">{label}</small><span class="visually-hidden">)</span>'
+    )
+
+
 class FakeWorldSites:
     """Stands in for the sites `eidolon world sync` imports from, answering as they do:
     im@sparql's SPARQL endpoint (told apart by what each query asks for), the official
     site's idol index and unit pages, Lantis's Shiny Colors site (the discography and the
     releases' pages), ふじわらはじめ's API (its song list, songs and discs), the
     idolmaster portal's CMS API (its token and the LIVE-EVENT category), the old official
-    site's event pages a year each, and wikiwiki's live pages. Records every request. Add a host's name to `down` to have it unreachable, or a page's path
+    site's event pages a year each, wikiwiki's live pages, and imas-db's index of live
+    records and their pages. Records every request. Add a host's name to `down` to have it unreachable, or a page's path
     to `missing` to have it answer 404."""
 
     SPARQL = "sparql.crssnky.xyz"
@@ -548,6 +628,7 @@ class FakeWorldSites:
     CMS = "cmsapi-frontend.idolmaster-official.jp"
     OLD = "idolmaster.jp"
     WIKI = "wikiwiki.jp"
+    IMASDB = "imas-db.jp"
     TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     def __init__(self) -> None:
@@ -573,6 +654,8 @@ class FakeWorldSites:
         """The old official site's events by year, beside one of another brand's that
         every year's page has."""
         self.wiki_lives: list[WikiLive] = []
+        self.imasdb_lives: list[ImasDbLive] = []
+        """imas-db's lives, besides another brand's that its index always lists."""
         self.cms_token_refused = False
         """Whether the CMS refuses the token, as it does, in the body of an HTTP 200."""
         self.cms_page_most: int | None = None
@@ -637,7 +720,90 @@ class FakeWorldSites:
             page = unquote(path).removeprefix("shinycolors/")
             if page == "ライブイベント情報" or any(live.page == page for live in self.wiki_lives):
                 return httpx.Response(200, text=self._wiki_page(page))
+        if host == self.IMASDB and path not in self.missing:
+            if path == "song/event":
+                return httpx.Response(200, text=self._imasdb_index())
+            pages = {page.file: page for live in self.imasdb_lives for _, page, _ in live.pages}
+            if (page := pages.get(path.removeprefix("song/event/"))) is not None:
+                return httpx.Response(200, text=self._imasdb_page(page))
         return httpx.Response(404, text="<html>Not Found</html>")
+
+    def _imasdb_index(self) -> str:
+        other = ImasDbLive("THE IDOLM@STER MILLION LIVE! 9thLIVE", "5", [
+            ("DAY1", ImasDbPage("million_9th_day1.html", "9th", "2023/01/14(土)", []), "2023/01/14(土)"),
+        ])
+        badge = (
+            '<span class="visually-hidden">(</span><span title="シャイニーカラーズ" '
+            'class="badge small bg-imas-brand-shinycolors">シャニ</span>'
+            '<span class="visually-hidden">)</span>'
+        )
+        items = []
+        for live in [other, *self.imasdb_lives]:
+            if len(live.pages) == 1 and live.pages[0][0] == live.name:
+                _, page, day = live.pages[0]
+                items.append(
+                    f'<li data-brand-ids="{live.brands}" class="mb-3"><a href="./{page.file}">'
+                    f'{html.escape(live.name)}</a> <small class="date">- {day}</small>\n {badge}</li>'
+                )
+                continue
+            links = "".join(
+                f'\t<li><a href="./{page.file}" title="{html.escape(live.name)} {label}">{label}</a>'
+                f' <small class="date">- {day}</small></li>\n'
+                for label, page, day in live.pages
+            )
+            items.append(
+                f'<li data-brand-ids="{live.brands}">{html.escape(live.name)} {badge}\n\t<ul>\n'
+                f'{links}\t</ul>\n</li>'
+            )
+        listed = "\n".join(items)
+        return (
+            '<html><body><header id="maruamyu-header"><h1 id="page_title">ライブイベント</h1></header>'
+            '<main class="container-fluid"><p>アイマスライブイベントの記録です。</p>'
+            f'<div class="section"><h2>年</h2>\n<ul>\n{listed}\n</ul></div>'
+            '</main><footer id="maruamyu-footer"></footer></body></html>'
+        )
+
+    def _imasdb_page(self, page: ImasDbPage) -> str:
+        parts = [
+            f'<html><body><header><h1 id="page_title">{html.escape(page.title)}</h1></header><hr>',
+            '<ul class="nav nav-tabs"><li class="nav-item"><a class="nav-link" href="./other.html">'
+            'DAY2</a></li></ul>',
+        ]
+        if page.date:
+            parts.append(f'<p>{page.date} <a href="https://idolmaster-official.jp/">詳細</a></p>')
+        if page.schedule:
+            rows = "".join(
+                f"<tr> <td>{label}</td> <td>{day}</td> <td>ゲスト: なし</td> </tr>\n"
+                for label, day in page.schedule
+            )
+            parts.append(
+                '<div class="section" data-brand-id="8">\n<h2>公演概要</h2>\n'
+                f'<div class="mx-3 my-2">{page.schedule[0][1][:10]} どこかのホール</div>\n'
+                f'<table class="table table-sm"><tbody>\n{rows}</tbody></table>\n</div>'
+            )
+        if page.cast:
+            parts.append(
+                f'<div class="section" data-brand-id="8">\n<h2>出演</h2>\n<ul><li>{page.cast}</li></ul>\n</div>'
+            )
+        for show in page.shows:
+            rows = "".join(
+                f"<tr> <td>{number}</td> <td>{title}</td> <td>{who}</td> </tr>\n"
+                for number, title, who in show.rows
+            )
+            date = f"<div>{show.date} 開場12:40/開演13:20</div>\n" if show.date else ""
+            parts.append(
+                '<div class="section" data-brand-id="8">\n'
+                '<div class="section_header_notes" aria-hidden="true">[by imas-db.jp]</div>\n'
+                f'<h2 class="trim-margin">{show.heading}</h2>\n{date}'
+                '<table class="tracklist">\n'
+                '<thead> <tr> <th>No.</th> <th>楽曲</th> <th>演者</th> </tr> </thead>\n'
+                f'<tbody>\n<tr class="part-header"> <th colspan="3">【メドレー】</th> </tr>\n{rows}'
+                '</tbody>\n</table>\n<div class="mx-3 my-2 notes">※ アンコール</div>\n</div>'
+            )
+        parts.append(
+            '<hr><footer id="maruamyu-footer"><p>&copy;2007-2024 maruamyu.net</p></footer></body></html>'
+        )
+        return "\n".join(parts)
 
     def _cms_list(self, params) -> dict:
         if self.cms_token_refused or params.get("token") != self.TOKEN:

@@ -11,12 +11,21 @@ import pytest
 
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import (
+    DANCE_ONLY,
     CmsLive,
     FakeWorldSites,
     FujiDisc,
+    ImasDbLive,
+    ImasDbPage,
+    ImasDbShow,
     LantisRelease,
     OldSiteEvent,
     WikiLive,
+    imas_badge,
+    imas_brand,
+    imas_idol,
+    imas_note,
+    imas_unit,
     struck,
 )
 
@@ -202,6 +211,91 @@ def old_events() -> dict[int, list[OldSiteEvent]]:
     }
 
 
+IMASDB = "https://imas-db.jp/song/event/"
+SHANI = imas_badge("シャニ", "シャイニーカラーズ", "shinycolors")
+
+
+def imasdb_lives() -> list[ImasDbLive]:
+    """imas-db's setlists: 4thLIVE a page a day, the second with a performer who stood
+    only on the songs naming her; MOIW, a joint live with covers, its first day only;
+    1stLIVE, one setlist for every show; the tour's first two days on one page and a day
+    the lives do not have; and Uka, with two shows on its one day."""
+    illumination = imas_unit("イルミネーションスターズ", old=True)
+    fourth_day1 = ImasDbPage(
+        "shinycolors_4th_day1.html", f"{FOURTH} [DAY1]",
+        "2022/04/23(土) 幕張メッセ国際展示場1~3ホール, 開場15:00/開演17:00",
+        [ImasDbShow("セットリスト", [
+            ("1", "Dye the sky.", "全員"),
+            ("2", "ヒカリのdestination", illumination),
+            ("", "(MC)", illumination),
+            ("3", "革命進化論", imas_unit("アンティーカ", old=True)),
+            ("4", "アポイント・シグナル", imas_idol("月岡恋鐘", "礒部花凜", old=True)
+             + " " + imas_note("(バックダンス: " + imas_idol("田中摩美々", "菅沼千紗", old=True) + ")")),
+            ("5", '乱舞る <small class="notes d-inline-block">(short ver.)</small>',
+             imas_unit("イルミネーションスターズ") + " " + DANCE_ONLY),
+        ])],
+    )
+    fourth_day2 = ImasDbPage(
+        "shinycolors_4th_day2.html", f"{FOURTH} [DAY2]",
+        "2022/04/24(日) 幕張メッセ国際展示場1~3ホール, 開場15:00/開演17:00",
+        [ImasDbShow("セットリスト", [
+            ("1", "Multicolored Sky", "全員"),
+            ("2", "Daybreak Age", "全員 " + imas_note("(※" + imas_idol("八宮めぐる", "峯田茉優") + "を含む)")),
+            ("3", "虹になれ", imas_unit("イルミネーションスターズ")),
+            ("4", "ありったけの輝きで", imas_idol("櫻木真乃", "関根瞳")),
+            ("5", "SOLAR WAY", "Team.Sol"),
+            ("6", "こいぬのうた", imas_idol("西城樹里", "永井真里子")),
+            ("7", "リフレクトサイン", imas_unit("Team.Luna") + ", " + imas_idol("風野灯織", "近藤玲奈")),
+        ])],
+        cast=imas_unit("イルミネーションスターズ") + " (" + imas_idol("風野灯織", "近藤玲奈") + ", "
+        + imas_idol("八宮めぐる", "峯田茉優") + imas_note("※") + ")",
+    )
+    others = imas_unit("U149 第3芸能課", brand="4") + " (" + imas_idol("佐々木千枝", "今井麻夏", brand="4") + ")"
+    moiw_day1 = ImasDbPage(
+        "idolmaster_idolworld2023_day1.html", f"{MOIW} [DAY1]", "2023/02/11(土) 東京ドーム, 開場15:00/開演17:00",
+        [ImasDbShow("セットリスト", [
+            ("1", "THE IDOLM@STER " + imas_badge("765AS", "765PRO ALLSTARS", "765as"),
+             imas_unit("765PRO ALLSTARS", brand="1")),
+            ("2", "ドレミファクトリー！ " + imas_badge("シンデレラ", "シンデレラガールズ", "cinderella"),
+             others + "\n+ " + imas_idol("小宮果穂", "河野ひより")),
+            ("3", "Resonance⁺ " + SHANI, imas_brand("シャイニーカラーズ", "8")),
+            ("4", "ビーチブレイバー " + SHANI, imas_unit("放課後クライマックスガールズ")),
+            ("5", "アイ MUST GO! " + imas_badge("IM@S", "THE IDOLM@STERシリーズ", "idolmaster"),
+             "全員 " + imas_note("(※" + imas_idol("小宮果穂", "河野ひより") + "を除く)")),
+        ])],
+    )
+    first = ImasDbPage(
+        "shinycolors1st0309.html", FIRST, "2019/03/09(土)・10(日) 舞浜アンフィシアター, 1日目: 開場17:00/開演18:00",
+        [ImasDbShow("公演内容(全公演共通)", [("1", "Spread the Wings!!", "全員"), ("", "(MC)", "全員")])],
+    )
+    nagoya = ImasDbPage(
+        "shinycolors3rd_nagoya.html", f"{TOUR} / NAGOYA", "2021/04/03(土)・04(日) 日本ガイシホール",
+        [
+            ImasDbShow("DAY1 セットリスト", [("1", "PRISISM", illumination)]),
+            ImasDbShow("DAY2 セットリスト", [("1", "スマイルシンフォニア", "全員")]),
+        ],
+    )
+    tokyo = ImasDbPage(
+        "shinycolors3rd0425.html", f"{TOUR} / TOKYO [DAY2]", "2021/04/25(日) 東京ガーデンシアター",
+        [ImasDbShow("セットリスト", [("1", "Mr.Sunshine", "全員")])],
+    )
+    uka = ImasDbPage(
+        "shinycolors_283_uka.html", UKA, None,
+        [
+            ImasDbShow("Larva,1 セットリスト", [("1", "Uka", "全員")]),
+            ImasDbShow("Pupa,2 セットリスト", [("1", "Uka", "全員")]),
+        ],
+        schedule=[("Larva,1", "2025/05/10(土) 開場12:30/開演13:30"), ("Pupa,2", "2025/05/10(土) 開場16:30/開演17:30")],
+    )
+    return [
+        ImasDbLive(UKA, "8", [(UKA, uka, "2025/05/10(土)")]),
+        ImasDbLive(MOIW, "1,4,5,6,8,9", [("DAY1", moiw_day1, "2023/02/11(土)")]),
+        ImasDbLive(FOURTH, "8", [("DAY1", fourth_day1, "2022/04/23(土)"), ("DAY2", fourth_day2, "2022/04/24(日)")]),
+        ImasDbLive(TOUR, "8", [("名古屋公演", nagoya, "2021/04/03(土)・04(日)"), ("東京公演DAY2", tokyo, "2021/04/25(日)")]),
+        ImasDbLive(FIRST, "8", [(FIRST, first, "2019/03/09(土)・10(日)")]),
+    ]
+
+
 IDOLS = [
     ("Sakuragi_Mano", "櫻木真乃", "さくらぎまの", "関根瞳"),
     ("Kazano_Hiori", "風野灯織", "かざのひおり", "近藤玲奈"),
@@ -240,6 +334,7 @@ def sites() -> FakeWorldSites:
     sites.cms_lives = cms_lives()
     sites.wiki_lives = wiki_lives()
     sites.old_events = old_events()
+    sites.imasdb_lives = imasdb_lives()
     sites.fuji_songs = {
         1491: ("ヒカリのdestination", []),
         3000: ("プラニスフィア ～planisphere～", [5000]),
@@ -364,7 +459,7 @@ def test_where_im_sparql_and_the_official_unit_pages_disagree_is_reported(
 @pytest.mark.parametrize(
     "host", [
         FakeWorldSites.SPARQL, FakeWorldSites.OFFICIAL, FakeWorldSites.LANTIS, FakeWorldSites.FUJI,
-        FakeWorldSites.CMS, FakeWorldSites.OLD, FakeWorldSites.WIKI,
+        FakeWorldSites.CMS, FakeWorldSites.OLD, FakeWorldSites.WIKI, FakeWorldSites.IMASDB,
     ]
 )
 def test_when_a_source_fails_the_import_fails_and_the_old_file_is_kept(
@@ -826,11 +921,11 @@ def test_lives_come_from_the_cms_with_each_day_s_performers_from_the_wiki(
     assert code == 0, err
     fourth = lives_by_name(characters)[FOURTH]
     assert fourth["sources"] == [PORTAL + "live_event/shinycolors_4th/", WIKI_LOG01]
-    first_day = fourth["days"][0]
+    first_day = {k: v for k, v in fourth["days"][0].items() if k != "setlist"}
     assert first_day == {
         "date": "2022-04-23", "venue": "幕張メッセ国際展示場1~3ホール",
         "performers": ["櫻木真乃", "風野灯織", "八宮めぐる", "月岡恋鐘", "田中摩美々"],
-        "absent": [], "sources": [WIKI_LOG01],
+        "absent": [], "sources": [WIKI_LOG01, IMASDB + "shinycolors_4th_day1.html"],
     }
     world = read_world(characters)
     assert [live["days"][0]["date"] for live in world["lives"]] == sorted(
@@ -1083,7 +1178,7 @@ def test_a_correction_sets_a_day_s_performers_whatever_the_wiki_says(
     assert code == 0, err
     day = lives_by_name(characters)[MOIW]["days"][0]
     assert day["performers"] == ["八宮めぐる"]
-    assert day["sources"] == [FUNFARE]
+    assert day["sources"][0] == FUNFARE
     assert "中村 繪里子" not in out  # the wiki's list for the day is not read at all
     assert "人工更正" in out and f"{MOIW} 2023-02-11" in out
 
@@ -1241,3 +1336,153 @@ def test_a_track_correction_naming_someone_who_is_none_of_the_idols_fails_the_im
 
     assert code != 0
     assert "world-corrections.json" in err and "天海春香" in err
+
+
+def setlist(characters: CharacterConfig, live: str, day: int) -> list[dict]:
+    return lives_by_name(characters)[live]["days"][day]["setlist"]
+
+
+def sung(characters: CharacterConfig, live: str, day: int) -> list[tuple[str, list[str]]]:
+    return [(item["title"], item["singers"]) for item in setlist(characters, live, day)]
+
+
+ILLUMINATION_STARS = ["櫻木真乃", "風野灯織", "八宮めぐる"]
+
+
+def test_each_day_s_setlist_comes_from_imas_db_with_who_sang_each_song(
+    world_sync, characters: CharacterConfig
+):
+    code, _, err = world_sync()
+
+    assert code == 0, err
+    day = lives_by_name(characters)[FOURTH]["days"][0]
+    assert sung(characters, FOURTH, 0)[:3] == [
+        ("Dye the sky.", ["櫻木真乃", "風野灯織", "八宮めぐる", "月岡恋鐘", "田中摩美々"]),  # 全員
+        ("ヒカリのdestination", ILLUMINATION_STARS),  # the unit, as it stood that day
+        ("革命進化論", ["月岡恋鐘", "田中摩美々"]),  # no MC between
+    ]
+    assert day["setlist"][0] == {
+        "title": "Dye the sky.", "singers": day["performers"], "dancers": [], "brand": None,
+    }
+    assert IMASDB + "shinycolors_4th_day1.html" in day["sources"]
+
+
+def test_backing_dancers_and_a_medley_only_danced_to_are_not_singing(
+    world_sync, characters: CharacterConfig
+):
+    world_sync()
+
+    backed, danced = setlist(characters, FOURTH, 0)[3:5]
+    assert (backed["title"], backed["singers"], backed["dancers"]) == (
+        "アポイント・シグナル", ["月岡恋鐘"], ["田中摩美々"],
+    )
+    assert (danced["title"], danced["singers"], danced["dancers"]) == (
+        "乱舞る (short ver.)", [], ILLUMINATION_STARS,
+    )
+
+
+def test_everyone_leaves_out_a_performer_who_stood_only_on_the_songs_naming_her(
+    world_sync, characters: CharacterConfig
+):
+    world_sync()
+
+    # Mano's CV was absent that day, and Meguru's stood only on the songs naming her.
+    assert sung(characters, FOURTH, 1)[:3] == [
+        ("Multicolored Sky", ["風野灯織", "月岡恋鐘", "田中摩美々"]),
+        ("Daybreak Age", ["風野灯織", "八宮めぐる", "月岡恋鐘", "田中摩美々"]),
+        ("虹になれ", ["風野灯織"]),
+    ]
+
+
+def test_singers_who_are_none_of_the_idols_or_did_not_stand_that_day_are_reported_not_written(
+    world_sync, characters: CharacterConfig
+):
+    _, out, _ = world_sync()
+
+    assert sung(characters, FOURTH, 1)[3:] == [
+        ("ありったけの輝きで", []), ("SOLAR WAY", []), ("こいぬのうた", []),
+        ("リフレクトサイン", ["風野灯織"]),
+    ]
+    unmatched = section(out, "曲目单里对应不到偶像名单的演唱者")
+    assert f"{FOURTH} 2022-04-24 第 5 首「SOLAR WAY」：Team.Sol" in unmatched
+    assert "「こいぬのうた」：西城樹里" in unmatched
+    assert "「リフレクトサイン」：Team.Luna" in unmatched  # reported though another singer was told
+    assert "「ありったけの輝きで」：櫻木真乃" in section(out, "曲目单里写着、但那天不在出演偶像里的演唱者")
+    assert "永井真里子" not in world_file(characters).read_text(encoding="utf-8")
+
+
+def test_a_joint_live_s_setlist_keeps_the_songs_shiny_colors_sang_and_marks_covers(
+    world_sync, characters: CharacterConfig
+):
+    world_sync()
+
+    items = setlist(characters, MOIW, 0)
+    assert [(i["title"], i["singers"], i["brand"]) for i in items] == [
+        ("ドレミファクトリー！", ["小宮果穂"], "シンデレラガールズ"),
+        ("Resonance⁺", ["櫻木真乃", "小宮果穂"], None),
+        ("ビーチブレイバー", ["小宮果穂"], None),
+        ("アイ MUST GO!", ["櫻木真乃"], "THE IDOLM@STERシリーズ"),
+    ]
+    text = world_file(characters).read_text(encoding="utf-8")
+    assert "佐々木千枝" not in text and "今井麻夏" not in text
+    assert "ドレミファクトリー！" not in songs_by_title(characters)  # a cover is none of the songs
+
+
+def test_a_setlist_common_to_every_show_is_each_day_s(world_sync, characters: CharacterConfig):
+    world_sync()
+
+    first = "THE IDOLM@STER SHINY COLORS 1stLIVE"
+    assert sung(characters, first, 0) == [("Spread the Wings!!", ILLUMINATION_STARS)]
+    assert sung(characters, first, 1) == [("Spread the Wings!!", ILLUMINATION_STARS)]
+
+
+def test_a_page_of_two_days_gives_each_day_its_own_show(world_sync, characters: CharacterConfig):
+    world_sync()
+
+    assert sung(characters, TOUR, 0) == [("PRISISM", ILLUMINATION_STARS)]
+    assert sung(characters, TOUR, 1) == [("スマイルシンフォニア", ["櫻木真乃"])]
+
+
+def test_days_imas_db_and_the_lives_disagree_on_are_reported_not_guessed(
+    world_sync, characters: CharacterConfig
+):
+    _, out, _ = world_sync()
+
+    assert setlist(characters, UKA, 0) == []  # two shows on its one day
+    assert setlist(characters, TOUR, 2) == []
+    mismatched = section(out, "imas-db 和演出资料对不上的演出日")
+    assert f"{UKA} 2025-05-10" in mismatched and "2 场公演" in mismatched
+    assert "2021-04-25" in mismatched and IMASDB + "shinycolors3rd0425.html" in mismatched
+    missing = section(out, "imas-db 上没有曲目单的演出日")
+    assert f"{MOIW} 2023-02-12" in missing and f"{TOUR} 2021-04-24" in missing
+    assert SHOWDOWN not in missing  # still to come
+
+
+def test_the_report_counts_the_days_with_setlists_and_what_changed(
+    world_sync, sites: FakeWorldSites
+):
+    _, first, _ = world_sync()
+    sites.imasdb_lives = [live for live in sites.imasdb_lives if live.name != FIRST]
+
+    code, second, err = world_sync()
+
+    assert code == 0, err
+    assert "有曲目单的演出日：7 个（第一次导入）" in first
+    assert (
+        "有曲目单的演出日：5 个（移除 THE IDOLM@STER SHINY COLORS 1stLIVE 2019-03-09、"
+        "THE IDOLM@STER SHINY COLORS 1stLIVE 2019-03-10）"
+    ) in second
+
+
+def test_an_imas_db_index_without_any_live_fails_the_import(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    world_sync()
+    before = world_file(characters).read_text(encoding="utf-8")
+    sites.imasdb_lives = []
+
+    code, _, err = world_sync()
+
+    assert code != 0
+    assert "imas-db.jp" in err
+    assert world_file(characters).read_text(encoding="utf-8") == before

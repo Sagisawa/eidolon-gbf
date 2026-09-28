@@ -114,6 +114,44 @@ async def test_a_live_day_is_retrieved_with_its_performers_and_no_cv(
     assert not any(cv in system for cv in CVS)
 
 
+async def test_a_live_day_is_retrieved_with_what_was_performed_on_it(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM(REPLY)
+    client = make_client(
+        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("2024年3月2日")
+    )
+
+    system = await system_prompt(client, llm, "ドームの6thライブのDay1でどんな曲を歌った？")
+
+    day = entries(system)[0]
+    assert day.startswith("演出「THE IDOLM@STER SHINY COLORS 6thLIVE」")
+    assert "日期：2024年3月2日" in day
+    setlist = day.split("曲目单")[1]
+    assert "1. Ambitious Eve：全体出演偶像演唱\n" in setlist
+    assert "2. Spread the Wings!!（イルミネーションスターズ Ver.）：illumination STARS演唱\n" in setlist
+    assert "3. アポイント・シグナル：月岡恋鐘演唱；櫻木真乃伴舞，没有演唱\n" in setlist
+    assert "4. 乱舞る (short ver.)：風野灯織伴舞，没有演唱\n" in setlist
+    assert "5. Resonance⁺：除櫻木真乃以外的全体出演偶像演唱" in setlist
+    assert not any(cv in system for cv in CVS)
+
+
+async def test_a_cover_at_a_joint_live_is_retrieved_as_another_brand_s_song(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM(REPLY)
+    client = make_client(
+        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("2023年2月11日")
+    )
+
+    system = await system_prompt(client, llm, "東京ドームのMOIWで何歌ったっけ？")
+
+    day = entries(system)[0]
+    assert "标着别的品牌的是翻唱，不是闪耀色彩的歌" in day
+    assert "1. ドレミファクトリー！（シンデレラガールズ的歌）：櫻木真乃演唱" in day
+    assert "ドレミファクトリー！" not in section(system, "# 你的歌")
+
+
 async def test_the_index_is_shared_by_every_character(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):

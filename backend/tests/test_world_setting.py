@@ -68,6 +68,21 @@ LIVES = [
 whose CV was absent that day (so not among the performers). Mano stood on 6thLIVE's
 first day only, on MOIW, and is to stand on both days of 8thLIVE, still to come."""
 
+SETLISTS = {
+    ("THE IDOLM@STER SHINY COLORS 6thLIVE", "2024-03-02"): [
+        ("Ambitious Eve", ["櫻木真乃", "風野灯織", "月岡恋鐘"], [], None),
+        ("Spread the Wings!!（イルミネーションスターズ Ver.）", ["櫻木真乃", "風野灯織"], [], None),
+        ("アポイント・シグナル", ["月岡恋鐘"], ["櫻木真乃"], None),
+        ("乱舞る (short ver.)", [], ["風野灯織"], None),
+        ("Resonance⁺", ["風野灯織", "月岡恋鐘"], [], None),
+    ],
+    ("THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023", "2023-02-11"): [
+        ("ドレミファクトリー！", ["櫻木真乃"], [], "シンデレラガールズ"),
+    ],
+}
+"""What was performed on some of the days of `LIVES`: title, singers, dancers and the
+other brand whose song it is, if it is one."""
+
 
 def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] | None = None) -> None:
     """A data file as `eidolon world sync` writes it: Mano's and Kogane's units, the
@@ -108,7 +123,10 @@ def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] |
         "lives": [
             {"name": name, "days": [
                 {"date": day, "venue": venue, "performers": performers, "absent": absent,
-                 "sources": source}
+                 "sources": source, "setlist": [
+                     {"title": title, "singers": singers, "dancers": dancers, "brand": brand}
+                     for title, singers, dancers, brand in SETLISTS.get((name, day), [])
+                 ]}
                 for day, venue, performers, absent in days
             ], "sources": source}
             for name, days in LIVES
@@ -308,6 +326,20 @@ async def test_her_lives_leave_out_the_days_she_was_absent_and_the_lives_she_was
     lives = section(system_prompt(llm), "# 你上过的演出")
     assert "2024年3月3日" not in lives  # her CV was absent that day
     assert "L'Antica 単独公演" not in lives  # only another unit stood on it
+
+
+async def test_setlists_are_left_to_retrieval_and_covers_are_not_her_songs(
+    turns: Turns, characters: CharacterConfig
+):
+    write_world(characters)
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "6thライブのDay1でどんな曲を歌った？")
+
+    system = system_prompt(llm)
+    assert "曲目单" not in system
+    assert "乱舞る" not in system and "アポイント・シグナル" not in section(system, "# 你上过的演出")
+    assert "ドレミファクトリー！" not in system  # a cover she sang is none of her songs
 
 
 async def test_whether_a_live_is_still_to_come_goes_by_the_day_of_each_turn(

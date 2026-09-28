@@ -4,8 +4,9 @@ data file `eidolon world sync` writes (`world_sync`) beside the character config
 The file holds the date the data runs to, the office's president and clerk, the idols
 (with their CV, which is only for telling which lives an idol stood on and for people
 checking the data: it never reaches a prompt, ADR-0008), the eight units, the
-releases and their songs, and the lives with who stood on each day, each entry with the
-URLs it came from. Every character is one
+releases and their songs, and the lives with who stood on each day and what was performed
+on it (its setlist, covers of other brands' songs included, which are none of the
+songs), each entry with the URLs it came from. Every character is one
 of its idols, matched by display name; without the file, characters go without the
 world setting.
 
@@ -18,10 +19,12 @@ live she stood on or is to stand on, those her CV was absent from left out.
 
 Every song, release and live day is also an entry of the index all characters share
 (`World.entries`, `world_index`), which retrieval searches along with the story and the
-character's facts.
+character's facts. The setlists are only there: every turn carrying them would be far
+too long.
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
@@ -104,6 +107,22 @@ class Song:
 
 
 @dataclass(frozen=True)
+class SetlistItem:
+    title: str
+    """As the setlist writes it, a version note included: 乱舞る (short ver.)."""
+    singers: tuple[str, ...]
+    """The idols who sang it, by name, among the day's performers: no one from another
+    brand, no one who only danced."""
+    dancers: tuple[str, ...] = ()
+    """The idols who only danced to it (backing dancers, or a medley danced without
+    singing)."""
+    brand: str | None = None
+    """The brand whose song it is, if the setlist marks it as another's (a cover at a
+    joint live: シンデレラガールズ, THE IDOLM@STERシリーズ). Covering it does not make it
+    one of her songs."""
+
+
+@dataclass(frozen=True)
 class LiveDay:
     date: date
     venue: str
@@ -114,6 +133,9 @@ class LiveDay:
     """The idols announced for it whose CV was absent, as an official news item says:
     not among the performers."""
     sources: tuple[str, ...]
+    setlist: tuple[SetlistItem, ...] = ()
+    """What was performed that day with any of Shiny Colors' idols in it, in order;
+    empty if it is not known (a day still to come, or one of two shows)."""
 
 
 @dataclass(frozen=True)
@@ -175,7 +197,7 @@ class World:
     def entries(self) -> list[WorldEntry]:
         """The entries of the shared index retrieval searches: each song with who sings it
         and the releases it is on, each release with its date and tracks, and each live day
-        with its venue and performers. No CV is in them, and they do not change with the
+        with its venue, performers and setlist. No CV is in them, and they do not change with the
         day: a date after the turn's is told by the prompt of the day, not the entry."""
         releases = {release.catalog: release for release in self.releases}
         found = []
@@ -204,6 +226,12 @@ class World:
                     f"会场：{day.venue}",
                     f"出演偶像：{performers}",
                 ]
+                if day.setlist:
+                    lines.append("曲目单（标着别的品牌的是翻唱，不是闪耀色彩的歌）：")
+                    lines += [
+                        f"{i}. {self._setlist_line(item, day)}"
+                        for i, item in enumerate(day.setlist, 1)
+                    ]
                 title = f"{lines[0]}{_day(day.date)}"  # one entry for each of its days
                 found.append(WorldEntry("live", title, "\n".join(lines)))
         return found
@@ -216,6 +244,34 @@ class World:
             return f"{song.special_unit}（{idols}）"
         unit = next((u for u in self.units if set(u.members) == set(song.singers)), None)
         return f"{unit.name}（{idols}）" if unit else idols
+
+    def _setlist_line(self, item: SetlistItem, day: LiveDay) -> str:
+        line = item.title + (f"（{item.brand}的歌）" if item.brand else "")
+        who = []
+        if item.singers:
+            who.append(f"{self._who(item.singers, day)}演唱")
+        if item.dancers:
+            who.append(f"{self._who(item.dancers, day)}伴舞，没有演唱")
+        return f"{line}：{'；'.join(who)}" if who else f"{line}：资料里没能确定是谁演唱"
+
+    def _who(self, idols: Sequence[str], day: LiveDay) -> str:
+        """`idols` as briefly as they can be named: everyone on the day, one or two whole
+        units, everyone but one or two, or the whole units among them and then the rest."""
+        rest = list(idols)
+        names = []
+        for unit in self.units:
+            if len(unit.members) > 1 and set(unit.members) <= set(rest):
+                names.append(unit.name)
+                rest = [idol for idol in rest if idol not in unit.members]
+        left_out = [idol for idol in day.performers if idol not in idols]
+        several_on_stage = len(idols) > 1 and set(idols) <= set(day.performers)
+        if several_on_stage and not left_out:
+            return "全体出演偶像"
+        if not rest and len(names) <= 2:
+            return "、".join(names)
+        if several_on_stage and len(left_out) < min(3, len(idols)):
+            return f"除{'、'.join(left_out)}以外的全体出演偶像"
+        return "、".join(names + rest)
 
     def check_characters(self, characters: dict[str, Character], path: Path) -> None:
         """Raises WorldError naming the first character who is none of the idols."""
@@ -368,6 +424,12 @@ class World:
                         LiveDay(
                             date.fromisoformat(d["date"]), d["venue"], tuple(d["performers"]),
                             tuple(d["absent"]), tuple(d["sources"]),
+                            tuple(
+                                SetlistItem(
+                                    i["title"], tuple(i["singers"]), tuple(i["dancers"]), i["brand"]
+                                )
+                                for i in d.get("setlist", [])
+                            ),
                         )
                         for d in live["days"]
                     ),

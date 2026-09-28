@@ -21,6 +21,10 @@ official site, with who stood on each day from the fan wiki (`live_sync`); the r
 lists what it could not tell: absences the wiki gives no official news for, performers
 who are none of the idols, entries one side has and the other does not.
 
+What was performed on each live day comes from imas-db's live records (`setlist_sync`);
+the report lists the performers it could not match and the days imas-db and the lives
+disagree on, which are left without a setlist rather than guessed.
+
 The report also counts each kind of entry and what was added or removed since the last
 import, so that the deployer can read it beside the git diff before committing the file.
 
@@ -41,6 +45,7 @@ import httpx
 
 from eidolon.live_sync import LiveCorrections, LiveImport, import_lives
 from eidolon.release_sync import FUJI_NAME, ReleaseImport, TrackCorrections, import_releases
+from eidolon.setlist_sync import SetlistImport, import_setlists
 from eidolon.world import Idol, Staff, Unit, World, WorldError, WorldSyncError, load_world
 
 SPARQL_URL = "https://sparql.crssnky.xyz/spql/imas/query"
@@ -116,6 +121,8 @@ class WorldSyncReport:
     """What importing the releases and songs turned up."""
     lives: LiveImport | None = None
     """What importing the lives turned up."""
+    setlists: SetlistImport | None = None
+    """What importing the setlists turned up."""
 
     def lines(self) -> list[str]:
         world, previous = self.world, self.previous
@@ -145,6 +152,7 @@ class WorldSyncReport:
             lines.append(f"im@sparql 里的特别组合，不算组合，没有收录：{'、'.join(self.special_units)}")
         lines += self._release_lines()
         lines += self._live_lines()
+        lines += self._setlist_lines()
         lines += [f"注意：{note}" for note in self.notes]
         lines.append(f"已写入 {self.path}，请看过 git diff 再提交")
         return lines
@@ -210,6 +218,37 @@ class WorldSyncReport:
         return lines
 
 
+    def _setlist_lines(self) -> list[str]:
+        found = self.setlists
+        had = self.previous if self.previous and self.previous.lives else None
+        lines = [
+            f"有曲目单的演出日：{len(_setlist_days(self.world))} 个" + _changes(
+                _diff(_setlist_days(had), _setlist_days(self.world)) if had else None,
+                first=self.previous is None,
+            ),
+        ]
+        if found is None:
+            return lines
+        sections = [
+            (found.unmatched, "曲目单里对应不到偶像名单的演唱者（没有写入，请人工核对）："),
+            (found.not_on_stage, "曲目单里写着、但那天不在出演偶像里的演唱者（没有写入，请人工核对）："),
+            (found.unknown_notes, "曲目单里看不懂的注记（没有采用，请人工核对）："),
+            (found.mismatched, "imas-db 和演出资料对不上的演出日（没有写入曲目单，请人工核对）："),
+            (found.missing, "imas-db 上没有曲目单的演出日（已经举办过的）："),
+        ]
+        for items, heading in sections:
+            if items:
+                lines.append(f"{heading}{len(items)} 项")
+                lines += [f"  {item}" for item in items]
+        return lines
+
+
+def _setlist_days(world: World) -> list[str]:
+    return [
+        f"{live.name} {day.date.isoformat()}" for live in world.lives for day in live.days if day.setlist
+    ]
+
+
 def _diff(before: Sequence[str], after: Sequence[str]) -> Changes:
     return Changes(
         added=[name for name in after if name not in before],
@@ -256,10 +295,13 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
     track_corrections, live_corrections = _corrections(path.parent / CORRECTIONS_FILE, idols)
     found = await import_releases(fetch, idols, units, track_corrections)
     lives = await import_lives(fetch, idols, staff, live_corrections)
+    setlists = await import_setlists(fetch, lives.lives, idols, units, today)
     world = World(
-        today, office, staff, tuple(units), idols, found.releases, found.songs, lives.lives
+        today, office, staff, tuple(units), idols, found.releases, found.songs, setlists.lives
     )
-    report = WorldSyncReport(world, path, previous, special, disagreements, notes, found, lives)
+    report = WorldSyncReport(
+        world, path, previous, special, disagreements, notes, found, lives, setlists
+    )
     _write(path, report.world)
     return report
 
