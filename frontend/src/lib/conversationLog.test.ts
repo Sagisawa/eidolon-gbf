@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Message, TurnEvent } from "@/lib/api";
+import type { Message } from "@/lib/api";
 import {
   conversationLog,
   emptyLog,
@@ -21,7 +21,10 @@ function message(id: number, role: Message["role"], text: string): Message {
       };
 }
 
-function delta(segment: number, lang: "ja" | "zh", text: string): TurnEvent {
+/** When the user's words were sent or heard, as LiveConversation stamps them. */
+const NOW = "2026-09-28T08:49:00.000Z";
+
+function delta(segment: number, lang: "ja" | "zh", text: string): LogAction {
   return { type: "delta", segment, lang, text };
 }
 
@@ -34,15 +37,16 @@ const history = play([
 ]);
 
 describe("conversationLog", () => {
-  it("shows the recorded messages it is loaded with, one entry each", () => {
+  it("shows the recorded messages it is loaded with, one entry each, dated when recorded", () => {
     expect(history.turn).toBeNull();
     expect(history.entries).toEqual([
-      { kind: "user", key: "m1", text: "早上好" },
+      { kind: "user", key: "m1", text: "早上好", at: "2026-09-26T00:00:00Z" },
       {
         kind: "character",
         key: "m2",
         segments: [{ ja: "おはよう", zh: "（おはよう）" }],
         pending: false,
+        at: "2026-09-26T00:00:00Z",
       },
     ]);
   });
@@ -50,7 +54,7 @@ describe("conversationLog", () => {
   it("replaces everything, including a turn in progress, when loaded again", () => {
     const log = play(
       [
-        { type: "submitted", text: "你好" },
+        { type: "submitted", text: "你好", at: NOW },
         { type: "loaded", messages: [] },
       ],
       history,
@@ -59,29 +63,30 @@ describe("conversationLog", () => {
   });
 
   it("shows a typed turn at once and confirms it on `user` without a second copy", () => {
-    const submitted = play([{ type: "submitted", text: "你好" }], history);
+    const submitted = play([{ type: "submitted", text: "你好", at: NOW }], history);
     expect(submitted.turn?.confirmed).toBe(false);
 
-    const log = conversationLog(submitted, { type: "user", text: "你好" });
+    const log = conversationLog(submitted, { type: "user", text: "你好", at: "2026-09-28T08:49:05.000Z" });
     expect(log.turn?.confirmed).toBe(true);
+    // Dated when it was typed; the backend taking it up does not change that.
     expect(log.entries.slice(2)).toEqual([
-      { kind: "user", key: log.turn?.userKey, text: "你好" },
-      { kind: "character", key: log.turn?.replyKey, segments: [], pending: true },
+      { kind: "user", key: log.turn?.userKey, text: "你好", at: NOW },
+      { kind: "character", key: log.turn?.replyKey, segments: [], pending: true, at: NOW },
     ]);
   });
 
   it("opens a turn on `user` when nothing was typed, as in a call", () => {
-    const log = play([{ type: "user", text: "在吗" }], history);
+    const log = play([{ type: "user", text: "在吗", at: NOW }], history);
     expect(log.turn?.confirmed).toBe(true);
     expect(log.entries).toHaveLength(4);
-    expect(log.entries[2]).toMatchObject({ kind: "user", text: "在吗" });
+    expect(log.entries[2]).toMatchObject({ kind: "user", text: "在吗", at: NOW });
     expect(log.entries[3]).toMatchObject({ kind: "character", segments: [], pending: true });
   });
 
   it("merges deltas by segment and language, each language adding up on its own", () => {
     const log = play(
       [
-        { type: "user", text: "在吗" },
+        { type: "user", text: "在吗", at: NOW },
         delta(0, "ja", "いる"),
         delta(0, "zh", "在"),
         delta(0, "ja", "よ"),
@@ -100,12 +105,12 @@ describe("conversationLog", () => {
     });
   });
 
-  it("swaps the reply for the recorded one on `done` and ends the turn", () => {
-    const recorded = message(4, "character", "いるよ");
+  it("swaps the reply for the recorded one, dated when recorded, on `done` and ends the turn", () => {
+    const recorded = { ...message(4, "character", "いるよ"), created_at: "2026-09-28T08:49:30Z" };
     const log = play(
       [
-        { type: "submitted", text: "在吗" },
-        { type: "user", text: "在吗" },
+        { type: "submitted", text: "在吗", at: NOW },
+        { type: "user", text: "在吗", at: NOW },
         delta(0, "ja", "いる"),
         { type: "done", message: recorded },
       ],
@@ -113,12 +118,13 @@ describe("conversationLog", () => {
     );
     expect(log.turn).toBeNull();
     expect(log.entries).toHaveLength(4);
-    expect(log.entries[2]).toMatchObject({ kind: "user", text: "在吗" });
+    expect(log.entries[2]).toMatchObject({ kind: "user", text: "在吗", at: NOW });
     expect(log.entries[3]).toEqual({
       kind: "character",
       key: "m4",
       segments: recorded.segments,
       pending: false,
+      at: "2026-09-28T08:49:30Z",
     });
   });
 
@@ -127,9 +133,9 @@ describe("conversationLog", () => {
     { type: "interrupted" },
   ])("takes the turn in progress back off the log on `$type`", (end) => {
     for (const opening of [
-      [{ type: "submitted", text: "你好" }],
-      [{ type: "submitted", text: "你好" }, { type: "user", text: "你好" }, delta(0, "ja", "こん")],
-      [{ type: "user", text: "你好" }, delta(0, "ja", "こん")],
+      [{ type: "submitted", text: "你好", at: NOW }],
+      [{ type: "submitted", text: "你好", at: NOW }, { type: "user", text: "你好", at: NOW }, delta(0, "ja", "こん")],
+      [{ type: "user", text: "你好", at: NOW }, delta(0, "ja", "こん")],
     ] as LogAction[][]) {
       expect(play([...opening, end], history)).toEqual(history);
     }
@@ -147,10 +153,10 @@ describe("conversationLog", () => {
   it("keeps two turns in a row apart", () => {
     const log = play(
       [
-        { type: "user", text: "一" },
+        { type: "user", text: "一", at: NOW },
         delta(0, "ja", "いち"),
         { type: "done", message: message(4, "character", "いち") },
-        { type: "user", text: "二" },
+        { type: "user", text: "二", at: NOW },
         delta(0, "ja", "に"),
         { type: "done", message: message(6, "character", "に") },
       ],
@@ -171,9 +177,9 @@ describe("conversationLog", () => {
   it("drops a reply cut off halfway when the call is hung up or drops", () => {
     const log = play(
       [
-        { type: "user", text: "一" },
+        { type: "user", text: "一", at: NOW },
         { type: "done", message: message(4, "character", "いち") },
-        { type: "user", text: "二" },
+        { type: "user", text: "二", at: NOW },
         delta(0, "ja", "に"),
         { type: "interrupted" },
       ],
@@ -187,11 +193,11 @@ describe("conversationLog", () => {
   it("gives a new turn keys no entry shown with it has, after an earlier turn was dropped", () => {
     const log = play(
       [
-        { type: "user", text: "一" },
+        { type: "user", text: "一", at: NOW },
         { type: "done", message: message(4, "character", "いち") },
-        { type: "user", text: "二" },
+        { type: "user", text: "二", at: NOW },
         { type: "interrupted" },
-        { type: "user", text: "三" },
+        { type: "user", text: "三", at: NOW },
       ],
       history,
     );
@@ -201,10 +207,10 @@ describe("conversationLog", () => {
   it("replaces the turn in progress, subtitles shown included, when a follow-on joins it", () => {
     const followedOn = play(
       [
-        { type: "user", text: "一" },
+        { type: "user", text: "一", at: NOW },
         delta(0, "ja", "い"),
         delta(0, "zh", "（一）"),
-        { type: "user", text: "一\n二" },
+        { type: "user", text: "一\n二", at: NOW },
       ],
       history,
     );
@@ -223,7 +229,7 @@ describe("conversationLog", () => {
   it("shows only what `done` carries of a reply the user interrupted halfway", () => {
     const log = play(
       [
-        { type: "user", text: "一" },
+        { type: "user", text: "一", at: NOW },
         delta(0, "ja", "いち"),
         delta(0, "zh", "（いち）"),
         delta(1, "ja", "に"),
