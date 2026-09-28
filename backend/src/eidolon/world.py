@@ -3,8 +3,9 @@ data file `eidolon world sync` writes (`world_sync`) beside the character config
 
 The file holds the date the data runs to, the office's president and clerk, the idols
 (with their CV, which is only for telling which lives an idol stood on and for people
-checking the data: it never reaches a prompt, ADR-0008), the eight units, and the
-releases and their songs, each entry with the URLs it came from. Every character is one
+checking the data: it never reaches a prompt, ADR-0008), the eight units, the
+releases and their songs, and the lives with who stood on each day, each entry with the
+URLs it came from. Every character is one
 of its idols, matched by display name; without the file, characters go without the
 world setting.
 
@@ -12,7 +13,8 @@ Every turn carries the world setting in full, after the character sheet
 (`World.prompt`), with the rules for facts of the original that the data does not have,
 and then her songs: those she sings alone and those her whole unit sings, no one else
 joining in, each with the releases it is on and when they came or come out, which goes
-by the day of the turn, not by the day the data runs to.
+by the day of the turn, not by the day the data runs to; and her lives: the days of each
+live she stood on or is to stand on, those her CV was absent from left out.
 """
 
 import json
@@ -97,6 +99,27 @@ class Song:
 
 
 @dataclass(frozen=True)
+class LiveDay:
+    date: date
+    venue: str
+    performers: tuple[str, ...]
+    """The idols who stood on it, by name: those whose CV performed that day, no one
+    from another brand."""
+    absent: tuple[str, ...]
+    """The idols announced for it whose CV was absent, as an official news item says:
+    not among the performers."""
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Live:
+    name: str
+    days: tuple[LiveDay, ...]
+    """In order; a day at two venues (a live's two halves) is two days."""
+    sources: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class World:
     as_of: date
     """The day the data was imported: the characters know nothing after it."""
@@ -106,6 +129,7 @@ class World:
     idols: tuple[Idol, ...]
     releases: tuple[Release, ...] = ()
     songs: tuple[Song, ...] = ()
+    lives: tuple[Live, ...] = ()
 
     def idol(self, name: str) -> Idol | None:
         return next((idol for idol in self.idols if idol.name == name), None)
@@ -120,6 +144,16 @@ class World:
             song for song in self.songs if song.special_unit is None and set(song.singers) in hers
         ]
 
+    def lives_of(self, name: str) -> list[tuple[Live, list[LiveDay]]]:
+        """The lives she stood on or is to stand on, each with the days she is among the
+        performers of."""
+        found = []
+        for live in self.lives:
+            days = [day for day in live.days if name in day.performers]
+            if days:
+                found.append((live, days))
+        return found
+
     def check_characters(self, characters: dict[str, Character], path: Path) -> None:
         """Raises WorldError naming the first character who is none of the idols."""
         for character in characters.values():
@@ -131,9 +165,33 @@ class World:
 
     def prompt(self, name: str, today: date) -> str:
         """The world setting as a turn on `today` with the idol called `name` carries it,
-        her songs included, those on releases after `today` told as still to come. No CV
-        is in it."""
-        return f"{self._setting_prompt()}\n\n{self._songs_prompt(name, today)}"
+        her songs and her lives included, those on releases and days after `today` told
+        as still to come. No CV is in it."""
+        return "\n\n".join(
+            [self._setting_prompt(), self._songs_prompt(name, today), self._lives_prompt(name, today)]
+        )
+
+    def _lives_prompt(self, name: str, today: date) -> str:
+        lives = self.lives_of(name)
+        lines = ["# 你上过的演出"]
+        if not lives:
+            lines.append("资料里还没有你站上过的舞台。")
+            return "\n".join(lines)
+        lines.append(
+            "下面是你站上过的舞台，和已经定下、你将要站上的舞台，按演出日列出日期和会场。"
+            "你没有上台的演出和日子不在这里：那些演出你可能知道，但你没有站上去。"
+        )
+        for live, days in lives:
+            runs: list[tuple[str, list[str]]] = []  # days in a row at one venue share it
+            for day in days:
+                when = f"{'将于' if day.date > today else ''}{_day(day.date)}"
+                if runs and runs[-1][0] == day.venue:
+                    runs[-1][1].append(when)
+                else:
+                    runs.append((day.venue, [when]))
+            on = [f"{'、'.join(whens)}（{venue}）" for venue, whens in runs]
+            lines.append(f"- {live.name}：{'、'.join(on)}")
+        return "\n".join(lines)
 
     def _songs_prompt(self, name: str, today: date) -> str:
         songs = self.songs_of(name)
@@ -197,6 +255,16 @@ class World:
                 for r in self.releases
             ],
             "songs": [asdict(s) for s in self.songs],
+            "lives": [
+                {
+                    "name": live.name,
+                    "days": [
+                        {**asdict(day), "date": day.date.isoformat()} for day in live.days
+                    ],
+                    "sources": list(live.sources),
+                }
+                for live in self.lives
+            ],
         }
 
     @classmethod
@@ -229,6 +297,20 @@ class World:
                     tuple(s["releases"]), tuple(s["sources"]),
                 )
                 for s in data.get("songs", [])
+            ),
+            lives=tuple(
+                Live(
+                    live["name"],
+                    tuple(
+                        LiveDay(
+                            date.fromisoformat(d["date"]), d["venue"], tuple(d["performers"]),
+                            tuple(d["absent"]), tuple(d["sources"]),
+                        )
+                        for d in live["days"]
+                    ),
+                    tuple(live["sources"]),
+                )
+                for live in data.get("lives", [])
             ),
         )
 

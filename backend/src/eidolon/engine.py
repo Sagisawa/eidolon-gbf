@@ -16,8 +16,8 @@ again, once at most since every round costs the model's time to first token; wha
 it says along the way is part of the reply, and only the reply is recorded.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
-office and its units, and the character's own songs, each release told as out or still
-to come by the day it is where the user is, the day the prompt about the producer tells.
+office and its units, and the character's own songs and lives, each release and live
+told as past or still to come by the day it is where the user is, the day the prompt about the producer tells.
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.

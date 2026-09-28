@@ -50,6 +50,24 @@ SONGS = [
 """Songs for `write_world`: title, singers and the special unit that sang it, if one did.
 Mano's are her own two solos, her unit's two songs and nothing else."""
 
+LIVES = [
+    ("THE IDOLM@STER SHINY COLORS 6thLIVE", [
+        ("2024-03-02", "ベルーナドーム", ["櫻木真乃", "風野灯織", "月岡恋鐘"], []),
+        ("2024-03-03", "ベルーナドーム", ["風野灯織", "月岡恋鐘"], ["櫻木真乃"]),
+    ]),
+    ("L'Antica 単独公演", [("2025-05-10", "Zepp Haneda", ["月岡恋鐘"], [])]),
+    ("THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023", [
+        ("2023-02-11", "東京ドーム", ["櫻木真乃", "月岡恋鐘"], []),
+    ]),
+    ("THE IDOLM@STER SHINY COLORS 8thLIVE", [
+        ("2026-11-07", "Kアリーナ横浜", ["櫻木真乃"], []),
+        ("2026-11-08", "Kアリーナ横浜", ["櫻木真乃", "風野灯織"], []),
+    ]),
+]
+"""Lives for `write_world`: name, and each day's date, venue, performers and the idols
+whose CV was absent that day (so not among the performers). Mano stood on 6thLIVE's
+first day only, on MOIW, and is to stand on both days of 8thLIVE, still to come."""
+
 
 def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] | None = None) -> None:
     """A data file as `eidolon world sync` writes it: Mano's and Kogane's units, the
@@ -87,7 +105,22 @@ def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] |
              "sources": source}
             for title, singers, special in SONGS
         ],
+        "lives": [
+            {"name": name, "days": [
+                {"date": day, "venue": venue, "performers": performers, "absent": absent,
+                 "sources": source}
+                for day, venue, performers, absent in days
+            ], "sources": source}
+            for name, days in LIVES
+        ],
     }, ensure_ascii=False))
+
+
+def section(system: str, heading: str) -> str:
+    """The part of the system prompt under `heading`."""
+    start = system.index(heading)
+    end = system.find("\n# ", start + 1)
+    return system[start:] if end == -1 else system[start:end]
 
 
 def system_prompt(llm: FakeLLM) -> str:
@@ -131,9 +164,7 @@ async def test_the_world_setting_carries_the_rules_for_facts_of_the_original(
 
 def her_songs(system: str) -> str:
     """The part of the system prompt that lists her songs."""
-    start = system.index("# 你的歌")
-    end = system.find("\n# ", start + 1)
-    return system[start:] if end == -1 else system[start:end]
+    return section(system, "# 你的歌")
 
 
 async def test_every_turn_carries_her_songs_with_their_releases(
@@ -245,6 +276,56 @@ async def test_a_song_whose_releases_are_all_missing_is_listed_by_its_title_alon
     await turns.take(llm, "どんな歌を歌ってきたの？")
 
     assert song_line(system_prompt(llm), "まぼろしの歌") == "- まぼろしの歌"
+
+
+async def test_every_turn_carries_the_lives_she_stood_on_and_is_to_stand_on(
+    turns: Turns, characters: CharacterConfig
+):
+    write_world(characters)  # the turn is on 2026-09-26
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "今までどんなステージに立ってきたっけ")
+
+    system = system_prompt(llm)
+    assert system.index("# 你的歌") < system.index("# 你上过的演出") < system.index("# 制作人")
+    lives = section(system, "# 你上过的演出")
+    assert "- THE IDOLM@STER SHINY COLORS 6thLIVE：2024年3月2日（ベルーナドーム）" in lives
+    assert "- THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023：2023年2月11日（東京ドーム）" in lives
+    assert (
+        "- THE IDOLM@STER SHINY COLORS 8thLIVE："
+        "将于2026年11月7日、将于2026年11月8日（Kアリーナ横浜）"
+    ) in lives
+
+
+async def test_her_lives_leave_out_the_days_she_was_absent_and_the_lives_she_was_not_on(
+    turns: Turns, characters: CharacterConfig
+):
+    write_world(characters)
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "6thライブの二日目、どうだった？")
+
+    lives = section(system_prompt(llm), "# 你上过的演出")
+    assert "2024年3月3日" not in lives  # her CV was absent that day
+    assert "L'Antica 単独公演" not in lives  # only another unit stood on it
+
+
+async def test_whether_a_live_is_still_to_come_goes_by_the_day_of_each_turn(
+    turns: Turns, settings: Settings, characters: CharacterConfig
+):
+    write_world(characters)
+    now = [datetime(2026, 11, 7, 12, 0, tzinfo=UTC)]
+    llm = FakeLLM(REPLY)
+    backend = build(settings, chat_llm=llm, clock=lambda: now[0])
+    try:
+        llms = backend.own_keys.for_turn(turns.conversation.user_id).llms
+        async for _ in backend.engine.turn(turns.conversation, "今日のライブ、楽しみ！", llms):
+            pass
+    finally:
+        await backend.aclose()
+
+    lives = section(system_prompt(llm), "# 你上过的演出")
+    assert "2026年11月7日、将于2026年11月8日（Kアリーナ横浜）" in lives
 
 
 async def test_no_cv_is_named_in_any_prompt(turns: Turns, characters: CharacterConfig):

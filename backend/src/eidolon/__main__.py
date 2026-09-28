@@ -18,7 +18,9 @@
     eidolon world sync               import the idols, units, president and clerk from
                                      im@sparql and the official unit pages, and the releases
                                      and songs from Lantis (singers it leaves out from
-                                     ふじわらはじめ), into the world setting beside the
+                                     ふじわらはじめ), and the lives from the official
+                                     sites with each day's performers from wikiwiki,
+                                     into the world setting beside the
                                      character configuration, and report what changed; the
                                      old file stays if a source failed
     eidolon character draft-sheet <id>
@@ -554,6 +556,7 @@ def _parser() -> argparse.ArgumentParser:
     world_sync = world.add_parser(
         "sync",
         help="从 im@sparql 和官方组合页导入偶像、组合、社长和事务员，从 Lantis（和 ふじわらはじめ）导入唱片和歌曲，"
+        "从偶像大师官方门户和旧官方站导入演出、从 wikiwiki 导入逐日出演者，"
         "写入角色配置旁边的 world.json，"
         "并打印导入报告（任何来源失败时不改动旧文件）",
     )

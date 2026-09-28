@@ -7,8 +7,9 @@ import json
 import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass
+import re
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlencode
+from urllib.parse import quote, unquote, urlencode
 
 import httpx
 from pipecat.frames.frames import (
@@ -470,18 +471,81 @@ class FujiDisc:
     tracks: list[tuple[str, list[tuple[str, list[str]]], list[str], list[str]]]
 
 
+@dataclass
+class CmsLive:
+    """An article in the idolmaster portal CMS's LIVE-EVENT category, with the fields
+    the import reads, as the API writes them."""
+
+    id: str
+    title: str
+    brands: list[str]
+    """Brand codes: SHINYCOLORS, SIDEM, …; a joint live has several."""
+    dspdate: str
+    """The display text of its days: 「2027年6月5日(土)、6日(日)」, a line each."""
+    place: str
+    """Its venue, or a tour's, a line each headed by the city: 「名古屋：日本ガイシホール」."""
+    url: str | None = None
+    """Its page, `event_url`; None for a `detail_page` article, which has `url_name`."""
+    url_name: str | None = None
+    article_type: str = "url_link"
+
+
+@dataclass
+class OldSiteEvent:
+    """An event on the old official site's page of its year."""
+
+    name: str
+    dates: str
+    """The 日時 cell's text, e.g. 「2019年3月9日(土) 開場17:00」."""
+    place: str
+    link: str | None = None
+
+
+@dataclass
+class WikiLive:
+    """A live on wikiwiki's live pages, rendered as the wiki renders it."""
+
+    title: str
+    """The heading, with a prefix like 「(開催中止) 」 if the wiki gives one."""
+    dates: list[str]
+    """The 開催日時 lines: 「2027年6月5日(土) 16:00開場」."""
+    performers: list[tuple[str | None, list[str]]]
+    """Its performers: each day's heading (「2027年6月5日(土)」, or None for a list
+    without days) and its lines as HTML: 「関根 瞳（櫻木 真乃役）/ …」, a unit's name,
+    a struck performer made by `struck`."""
+    page: str = "ライブイベント情報"
+    """The page it is on: the main one, or a yearly log 「ライブイベント情報/開催情報log01」."""
+    name: str | None = None
+    """Its full name (公演名), if not the heading's."""
+
+
+def struck(performer: str, note: str, news: str | None = None) -> str:
+    """A performer the wiki strikes out, with a footnote: `note` and a link to `news`."""
+    link = f' <a class="ext" href="{news}" rel="nofollow">{news}</a>' if news else ""
+    tooltip = html.escape(f"<p>{note}{link}</p>", quote=True)
+    return (
+        f"<del>{performer}</del> "
+        f'<a id="notetext_1"  class="note_super tooltip" data-tooltip-content="{tooltip}">*1</a>'
+    )
+
+
 class FakeWorldSites:
     """Stands in for the sites `eidolon world sync` imports from, answering as they do:
     im@sparql's SPARQL endpoint (told apart by what each query asks for), the official
     site's idol index and unit pages, Lantis's Shiny Colors site (the discography and the
-    releases' pages) and ふじわらはじめ's API (its song list, songs and discs). Records
-    every request. Add a host's name to `down` to have it unreachable, or a page's path
+    releases' pages), ふじわらはじめ's API (its song list, songs and discs), the
+    idolmaster portal's CMS API (its token and the LIVE-EVENT category), the old official
+    site's event pages a year each, and wikiwiki's live pages. Records every request. Add a host's name to `down` to have it unreachable, or a page's path
     to `missing` to have it answer 404."""
 
     SPARQL = "sparql.crssnky.xyz"
     OFFICIAL = "shinycolors.idolmaster-official.jp"
     LANTIS = "shinycolors.lantis.jp"
     FUJI = "api.fujiwarahaji.me"
+    CMS = "cmsapi-frontend.idolmaster-official.jp"
+    OLD = "idolmaster.jp"
+    WIKI = "wikiwiki.jp"
+    TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
     def __init__(self) -> None:
         self.idols: list[dict[str, str]] = []
@@ -500,6 +564,16 @@ class FakeWorldSites:
         self.fuji_songs: dict[int, tuple[str, list[int]]] = {}
         """ふじわらはじめ's Shiny Colors songs by id: name and the discs it is on."""
         self.fuji_discs: dict[int, FujiDisc] = {}
+        self.cms_lives: list[CmsLive] = []
+        """The CMS's LIVE-EVENT articles, every brand's, in the order it lists them."""
+        self.old_events: dict[int, list[OldSiteEvent]] = {}
+        """The old official site's events by year, beside one of another brand's that
+        every year's page has."""
+        self.wiki_lives: list[WikiLive] = []
+        self.cms_token_refused = False
+        """Whether the CMS refuses the token, as it does, in the body of an HTTP 200."""
+        self.cms_page_most: int | None = None
+        """The most articles the CMS answers with at once, whatever it is asked for."""
         self.requests: list[httpx.Request] = []
         self.down: set[str] = set()
         self.missing: set[str] = set()
@@ -546,7 +620,104 @@ class FakeWorldSites:
                 return httpx.Response(200, json=self._fuji_song(int(params["id"])))
             if path == "v4/tax" and int(params["id"]) in self.fuji_discs:
                 return httpx.Response(200, json=self._fuji_disc(self.fuji_discs[int(params["id"])]))
+        if host == self.CMS and path not in self.missing:
+            if path == "sitern/api/cmsbase/Token/get":
+                return httpx.Response(200, json={
+                    "statusCode": 200, "data": {"token": self.TOKEN, "limit": 1790579592, "time": 0},
+                })
+            if path == "sitern/api/idolmaster/Article/list":
+                return httpx.Response(200, json=self._cms_list(request.url.params))
+        if host == self.OLD and path not in self.missing:
+            if match := re.fullmatch(r"event/(\d{4})\.php", path):
+                return httpx.Response(200, text=self._old_page(int(match.group(1))))
+        if host == self.WIKI and unquote(path) not in self.missing:
+            page = unquote(path).removeprefix("shinycolors/")
+            if page == "ライブイベント情報" or any(live.page == page for live in self.wiki_lives):
+                return httpx.Response(200, text=self._wiki_page(page))
         return httpx.Response(404, text="<html>Not Found</html>")
+
+    def _cms_list(self, params) -> dict:
+        if self.cms_token_refused or params.get("token") != self.TOKEN:
+            return {"statusCode": 404, "data": False}
+        wanted = json.loads(params["data"])
+        assert wanted.get("category") == ["LIVE-EVENT"]
+        start, limit = int(params.get("start", 0)), int(params.get("limit", 100))
+        limit = min(limit, self.cms_page_most or limit)
+        articles = [
+            {
+                "_id": live.id, "article_type": live.article_type, "title": live.title,
+                "brand": [{"name": code.title(), "code": code} for code in live.brands],
+                "event_place": live.place, "event_dspdate": live.dspdate,
+                "event_url": live.url, "url_name": live.url_name,
+                "url": f"https://idolmaster-official.jp/live-event/01_{live.id}.html",
+            }
+            for live in self.cms_lives
+        ]
+        page = articles[start:start + limit]
+        return {"statusCode": 200, "data": {
+            "apiStatus": True, "total_count": len(articles), "start": start, "limit": limit,
+            "count": len(page), "time": 0, "article_list": page,
+        }}
+
+    def _old_page(self, year: int) -> str:
+        events = [
+            OldSiteEvent("THE IDOLM@STER SideM 某公演", f"{year}年1月5日(土)", "某ホール"),
+            *self.old_events.get(year, []),
+        ]
+        blocks = "".join(
+            '<div class="eventCont">\n<ul><li class="title">{name}</li></ul>\n'
+            '<table border="0" cellpadding="0" cellspacing="0">\n'
+            "<tr><th>公演名</th><td>{name}</td></tr>\n"
+            "<tr><th>日時</th><td>{dates}</td></tr>\n"
+            "<tr><th>場所</th><td>{place}</td></tr>\n"
+            "<tr><th>出演者</th><td>［イルミネーションスターズ］<br>関根 瞳（櫻木真乃役）</td></tr>\n"
+            "<tr><th>リンク</th><td>{link}</td></tr>\n</table>\n</div>\n".format(
+                name=html.escape(event.name), dates=html.escape(event.dates),
+                place=html.escape(event.place),
+                link=f'公式サイト：<a href="{event.link}" target="_blank">{event.link}</a><br>'
+                if event.link else "",
+            )
+            for event in events
+        )
+        return f'<html><body><div id="m1" class="detailCol">{blocks}</div></body></html>'
+
+    def _wiki_page(self, page: str) -> str:
+        logs = sorted({live.page for live in self.wiki_lives if live.page != "ライブイベント情報"})
+        links = "".join(
+            f'<li><a href="/shinycolors/{quote(log)}" title="{log}" class="rel-wiki-page">{log}</a></li>'
+            for log in logs
+        )
+        blocks = []
+        for live in self.wiki_lives:
+            if live.page != page:
+                continue
+            dates = "".join(f"<li>{d}</li>" for d in live.dates)
+            performers = []
+            for day, lines in live.performers:
+                body = "<br />\n".join(lines)
+                performers.append(f"<li>{day}<br />\n{body}</li>" if day else body)
+            listed = (
+                '<ul class="list2">' + "\n".join(performers) + "</ul>"
+                if any(day for day, _ in live.performers) else "<br />\n" + "\n".join(performers)
+            )
+            blocks.append(
+                '<div class="accordion-container ">\n    <h3 class="accordion-header">'
+                '<i class="fa-solid fa-plus-square hidden-on-open"></i>\n'
+                f"        {html.escape(live.title)}\n    </h3>\n"
+                '    <div class="accordion-content"><ul class="list1"><li>公演名<br />\n'
+                f'{html.escape(live.name or live.title)}</li></ul>\n'
+                f'<ul class="list1"><li>開催日時\n<ul class="list2">{dates}</ul></li></ul>\n'
+                '<ul class="list1"><li>会場<br />\nどこかのホール</li></ul>\n'
+                f'<ul class="list1"><li>出演者\n{listed}</li></ul>\n'
+                "<p>詳細は、公式サイトへ</p>\n</div>\n</div>\n"
+            )
+        past = f'<h2 id="h2_content_1_9">公演終了(過去の公演情報)</h2>\n<ul class="list1">{links}</ul>'
+        return (
+            '<html><body><div id="body"><h2 id="h2_content_1_0">開催予定</h2>\n'
+            f'{"".join(blocks)}<hr class="full_hr" />\n{past if page == "ライブイベント情報" else ""}'
+            '</div><div id="main-contents-bottom"><a href="/shinycolors/櫻木真乃">櫻木 真乃 / 風野 灯織</a>'
+            "</div></body></html>"
+        )
 
     def _discography(self) -> str:
         def links(items: list[tuple[str, str]]) -> str:

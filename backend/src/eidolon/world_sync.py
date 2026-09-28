@@ -16,6 +16,11 @@ The releases and their songs come from Lantis, with ふじわらはじめ fillin
 singers Lantis leaves out (`release_sync`); the report lists what it filled in, where
 it disagrees with Lantis, and the tracks whose singers are none of the idols or unknown.
 
+The lives come from the idolmaster portal's CMS API and, before it began, the old
+official site, with who stood on each day from the fan wiki (`live_sync`); the report
+lists what it could not tell: absences the wiki gives no official news for, performers
+who are none of the idols, entries one side has and the other does not.
+
 The report also counts each kind of entry and what was added or removed since the last
 import, so that the deployer can read it beside the git diff before committing the file.
 
@@ -34,6 +39,7 @@ from pathlib import Path
 
 import httpx
 
+from eidolon.live_sync import LiveImport, import_lives
 from eidolon.release_sync import FUJI_NAME, ReleaseImport, import_releases
 from eidolon.world import Idol, Staff, Unit, World, WorldError, WorldSyncError, load_world
 
@@ -105,6 +111,8 @@ class WorldSyncReport:
     """Anything else the deployer should know about."""
     releases: ReleaseImport | None = None
     """What importing the releases and songs turned up."""
+    lives: LiveImport | None = None
+    """What importing the lives turned up."""
 
     def lines(self) -> list[str]:
         world, previous = self.world, self.previous
@@ -133,6 +141,7 @@ class WorldSyncReport:
         if self.special_units:
             lines.append(f"im@sparql 里的特别组合，不算组合，没有收录：{'、'.join(self.special_units)}")
         lines += self._release_lines()
+        lines += self._live_lines()
         lines += [f"注意：{note}" for note in self.notes]
         lines.append(f"已写入 {self.path}，请看过 git diff 再提交")
         return lines
@@ -164,6 +173,33 @@ class WorldSyncReport:
                 lines.append(f"{heading}{len(items)} 首")
                 lines += [f"  {item}" for item in items]
         lines += [f"注意：{note}" for note in found.notes]
+        return lines
+
+
+    def _live_lines(self) -> list[str]:
+        world, found = self.world, self.lives
+        had = self.previous if self.previous and self.previous.lives else None
+        lines = [
+            f"演出：{len(world.lives)} 场" + _changes(
+                _diff([live.name for live in had.lives], [live.name for live in world.lives])
+                if had else None, first=self.previous is None,
+            ),
+        ]
+        if found is None:
+            return lines
+        sections = [
+            (found.unlinked_absences, "wiki 上划掉了、但没写明缺席或没附官方新闻链接的出演者（没有采用，仍算出演，请人工核对）："),
+            (found.conflicts, "wiki 和官方列表对不上的演出日（请人工核对）："),
+            (found.unmatched, "对应不到偶像名单的出演者（没有写入，请人工核对）："),
+            (found.no_performers, "wiki 上没有写出演者的演出日（这一天没有出演偶像，请人工核对）："),
+            (found.official_only, "官方列表里有、wiki 上那几天没有演出的条目（多半不是演出，没有收录，请人工核对）："),
+            (found.wiki_only, "wiki 上有、官方列表里没有的演出（嘉宾出演或官方还没收录，没有收录，请人工核对）："),
+            (found.called_off, "wiki 上写着中止或没有出演的演出（没有收录）："),
+        ]
+        for items, heading in sections:
+            if items:
+                lines.append(f"{heading}{len(items)} 项")
+                lines += [f"  {item}" for item in items]
         return lines
 
 
@@ -211,8 +247,11 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
         return (await _get(client, url)).text
 
     found = await import_releases(fetch, idols, units)
-    world = World(today, office, staff, tuple(units), idols, found.releases, found.songs)
-    report = WorldSyncReport(world, path, previous, special, disagreements, notes, found)
+    lives = await import_lives(fetch, idols, staff)
+    world = World(
+        today, office, staff, tuple(units), idols, found.releases, found.songs, lives.lives
+    )
+    report = WorldSyncReport(world, path, previous, special, disagreements, notes, found, lives)
     _write(path, report.world)
     return report
 

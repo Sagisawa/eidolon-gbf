@@ -10,11 +10,23 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import Admin, CharacterConfig
-from tests.fakes import FakeWorldSites, FujiDisc, LantisRelease
+from tests.fakes import (
+    CmsLive,
+    FakeWorldSites,
+    FujiDisc,
+    LantisRelease,
+    OldSiteEvent,
+    WikiLive,
+    struck,
+)
 
 SPARQL_DETAIL = "https://sparql.crssnky.xyz/imasrdf/RDFs/detail/"
 OFFICIAL = "https://shinycolors.idolmaster-official.jp/idol/"
 LANTIS = "https://shinycolors.lantis.jp/releaseinfo/"
+PORTAL = "https://idolmaster-official.jp/"
+WIKI = "https://wikiwiki.jp/shinycolors/%E3%83%A9%E3%82%A4%E3%83%96%E3%82%A4%E3%83%99%E3%83%B3%E3%83%88%E6%83%85%E5%A0%B1"
+WIKI_LOG01 = WIKI + "/%E9%96%8B%E5%82%AC%E6%83%85%E5%A0%B1log01"
+NEWS = "https://idolmaster-official.jp/news/01_3863"
 
 ILLUMINATION = "櫻木真乃（CV.関根 瞳）、風野灯織（CV.近藤玲奈）、八宮めぐる（CV.峯田茉優）"
 SOP = "THE IDOLM@STER SHINY COLORS Song for Prism Shower of light / 快盗Vを見逃すな"
@@ -85,6 +97,111 @@ def fuji_discs() -> list[FujiDisc]:
         ]),
     ]
 
+FOURTH = "THE IDOLM@STER SHINY COLORS 4thLIVE 空は澄み、今を越えて。"
+MOIW = "THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023"
+SHOWDOWN = "THE IDOLM@STER SideM × SHINY COLORS SPARKLE SHOWDOWN"
+TOUR = "THE IDOLM@STER SHINY COLORS 3rd LIVE TOUR PIECE ON PLANET"
+UKA = "283 Production LIVE Performance Uka,"
+FIRST = "THE IDOLM@STER SHINY COLORS 1stLIVE FLY TO THE SHINY SKY"
+
+ILLUMINATION_ON_STAGE = "関根 瞳（櫻木 真乃役）/近藤 玲奈（風野 灯織役）/峯田 茉優（八宮 めぐる役）"
+
+
+def cms_lives() -> list[CmsLive]:
+    """The CMS's LIVE-EVENT articles: Shiny Colors' own lives (one a tour of two cities,
+    one an xR live, a detail page), a joint live, one still to come, another brand's
+    live, and something of Shiny Colors' that is no live."""
+    return [
+        CmsLive("23494", SHOWDOWN, ["SIDEM", "SHINYCOLORS"], "2027年6月5日(土)、6日(日)", "横浜アリーナ",
+                "https://idolmaster-official.jp/live_event/sidem_shinycolors_ss/"),
+        CmsLive("3444", FOURTH + " ", ["SHINYCOLORS"],
+                "2022年4月23日(土)\n2022年4月24日(日)", "幕張メッセ国際展示場1~3ホール",
+                "https://idolmaster-official.jp/live_event/shinycolors_4th/"),
+        CmsLive("9001", "THE IDOLM@STER SideM 8thLIVE", ["SIDEM"],
+                "2022年4月23日(土)", "どこかのアリーナ", "https://idolmaster-official.jp/live_event/sidem_8th/"),
+        CmsLive("8056", MOIW, ["IDOLMASTER", "CINDERELLAGIRLS", "MILLIONLIVE", "SIDEM", "SHINYCOLORS"],
+                "2023年 2月11日（土）15:00開場／17:00開演\n2023年 2月12日（日）15:00開場／17:00開演",
+                "東京ドーム", "https://idolmaster-official.jp//live_event/idolworld2023/"),
+        CmsLive("1882", TOUR, ["SHINYCOLORS"],
+                "名古屋：2021年4月3日(土)、4日(日)\n東京　：2021年4月24日(土)",
+                "名古屋：日本ガイシホール\n東京　：東京ガーデンシアター",
+                "https://idolmaster-official.jp/live_event/shinycolors_3rd/"),
+        CmsLive("17848", UKA, ["SHINYCOLORS"], "2025年5月10日(土)", "オリックス劇場",
+                url_name="283_Uka", article_type="detail_page"),
+        CmsLive("16491", "283PRODUCTION COSTUME G@LLERY", ["SHINYCOLORS"],
+                "2025年3月22日(土) ～ 3月31日(月)", "ルクア 9F",
+                "https://idolmaster-official.jp/live_event/283_costumegallery/"),
+        CmsLive("99", "283PRODUCTION LP", ["SHINYCOLORS"], "", "", article_type="lp_detail"),
+    ]
+
+
+def wiki_lives() -> list[WikiLive]:
+    """The wiki's lives, Shiny Colors' performers only, as it writes them: by day, or
+    for every day alike on an old page; struck out with a footnote when absent; the
+    idols alone for an xR live."""
+    log = "ライブイベント情報/開催情報log01"
+    return [
+        WikiLive(SHOWDOWN, ["2027年6月5日(土) 16:00開場", "2027年6月6日(日) 16:00開場"], [
+            ("2027年6月5日(土)", ["放課後クライマックスガールズ", "河野 ひより（小宮 果穂役）"]),
+            ("2027年6月6日(日)", ["イルミネーションスターズ", ILLUMINATION_ON_STAGE]),
+        ]),
+        WikiLive("Animelo Summer Live 2026 -Messenger-", ["2026年7月11日(土)"], [
+            ("2026年7月11日(土)", ["礒部 花凜（月岡 恋鐘役）"]),
+        ]),
+        WikiLive("283 Production LIVE Performance Uka", ["2025年5月10日(土)"], [
+            ("2025年5月10日(土)", ["櫻木 真乃 / 風野 灯織"]),
+        ]),
+        WikiLive("4thLIVE 空は澄み、今を越えて。", ["2022年4月23日(土)", "2022年4月24日(日)"], [
+            ("2022年4月23日(土)", [
+                "イルミネーションスターズ", ILLUMINATION_ON_STAGE,
+                "アンティーカ", "礒部 花凜（月岡 恋鐘役）/菅沼 千紗（田中 摩美々役）",
+                "進行MC", "山村 響（七草 はづき役） / 田口 尚平",
+            ]),
+            ("2022年4月24日(日)", [
+                "2022/04/20 出演者変更",
+                "イルミネーションスターズ",
+                struck("関根 瞳（櫻木 真乃役）", "2022/04/20出演見合わせ", NEWS)
+                + "/近藤 玲奈（風野 灯織役）/峯田 茉優（八宮 めぐる役）",
+                "アンティーカ",
+                struck("礒部 花凜（月岡 恋鐘役）", "2022/04/21出演見合わせ") + "/菅沼 千紗（田中 摩美々役）",
+            ]),
+        ], page=log),
+        WikiLive("M@STERS OF IDOL WORLD!!!!! 2023", ["2023年2月11日(土)", "2023年2月12日(日)"], [
+            ("2023年2月11日(土)", [
+                "関根 瞳（櫻木 真乃役）/河野 ひより（小宮 果穂役）/中村 繪里子（天海 春香役）",
+            ]),
+            ("2023年2月12日(日)", ["礒部 花凜（月岡 恋鐘役）"]),
+        ], page=log),
+        WikiLive("3rdLIVE TOUR PIECE ON PLANET", ["2021年4月3日(土)", "2021年4月4日(日)", "2021年4月24日(土)"], [
+            ("2021年4月3日(土)", [ILLUMINATION_ON_STAGE]),
+            ("2021年4月4日(日)", ["関根 瞳（櫻木 真乃役）"]),
+            ("2021年4月24日(土)", ["礒部 花凜（月岡 恋鐘役）"]),
+        ], page=log),
+        WikiLive("(開催中止) SPRING PARTY 2020", ["2020年3月14日(土)"], [
+            (None, [ILLUMINATION_ON_STAGE]),
+        ], page=log),
+        WikiLive("1stLIVE FLY TO THE SHINY SKY", ["2019年3月9日（土）", "2019年3月10日（日）"], [
+            (None, ["イルミネーションスターズ", ILLUMINATION_ON_STAGE]),
+        ], page=log, name=FIRST),
+    ]
+
+
+def old_events() -> dict[int, list[OldSiteEvent]]:
+    """The old official site's events before the CMS began: Shiny Colors' first live,
+    one called off, and another brand's on the day of the first live."""
+    return {
+        2019: [
+            OldSiteEvent("THE IDOLM@STER SHINY COLORS 1stLIVE", "2019年3月9日(土) 開場17:00<br>"
+                         "<table><tr><td>2019年3月10日(日)</td><td>昼公演</td></tr></table>",
+                         "舞浜アンフィシアター", "https://idolmaster.jp/event/shinycolors_1st.php"),
+            OldSiteEvent("THE IDOLM@STER CINDERELLA GIRLS 某公演", "2019年3月9日(土)", "メットライフドーム"),
+        ],
+        2020: [
+            OldSiteEvent("THE IDOLM@STER SHINY COLORS SPRING PARTY 2020", "2020年3月14日(土)", "どこか"),
+        ],
+    }
+
+
 IDOLS = [
     ("Sakuragi_Mano", "櫻木真乃", "さくらぎまの", "関根瞳"),
     ("Kazano_Hiori", "風野灯織", "かざのひおり", "近藤玲奈"),
@@ -120,6 +237,9 @@ def sites() -> FakeWorldSites:
     sites.releases = lantis_releases()
     sites.blu_rays = [("labx-8376_7", "「THE IDOLM@STER SHINY COLORS 1stLIVE FLY TO THE SHINY SKY」Blu-ray")]
     sites.fuji_discs = {disc.tax_id: disc for disc in fuji_discs()}
+    sites.cms_lives = cms_lives()
+    sites.wiki_lives = wiki_lives()
+    sites.old_events = old_events()
     sites.fuji_songs = {
         1491: ("ヒカリのdestination", []),
         3000: ("プラニスフィア ～planisphere～", [5000]),
@@ -242,7 +362,10 @@ def test_where_im_sparql_and_the_official_unit_pages_disagree_is_reported(
 
 
 @pytest.mark.parametrize(
-    "host", [FakeWorldSites.SPARQL, FakeWorldSites.OFFICIAL, FakeWorldSites.LANTIS, FakeWorldSites.FUJI]
+    "host", [
+        FakeWorldSites.SPARQL, FakeWorldSites.OFFICIAL, FakeWorldSites.LANTIS, FakeWorldSites.FUJI,
+        FakeWorldSites.CMS, FakeWorldSites.OLD, FakeWorldSites.WIKI,
+    ]
 )
 def test_when_a_source_fails_the_import_fails_and_the_old_file_is_kept(
     world_sync, sites: FakeWorldSites, characters: CharacterConfig, host: str
@@ -689,3 +812,250 @@ def test_singers_told_by_another_release_s_track_keep_that_release_as_a_source(
     assert song["singers"] == ["櫻木真乃", "月岡恋鐘"]
     assert song["releases"] == ["LACM-24100", "LACM-24200"]
     assert set(song["sources"]) == {LANTIS + "lacm-24100/", LANTIS + "lacm-24200/"}
+
+
+def lives_by_name(characters: CharacterConfig) -> dict[str, dict]:
+    return {live["name"]: live for live in read_world(characters)["lives"]}
+
+
+def test_lives_come_from_the_cms_with_each_day_s_performers_from_the_wiki(
+    world_sync, characters: CharacterConfig
+):
+    code, _, err = world_sync()
+
+    assert code == 0, err
+    fourth = lives_by_name(characters)[FOURTH]
+    assert fourth["sources"] == [PORTAL + "live_event/shinycolors_4th/", WIKI_LOG01]
+    first_day = fourth["days"][0]
+    assert first_day == {
+        "date": "2022-04-23", "venue": "幕張メッセ国際展示場1~3ホール",
+        "performers": ["櫻木真乃", "風野灯織", "八宮めぐる", "月岡恋鐘", "田中摩美々"],
+        "absent": [], "sources": [WIKI_LOG01],
+    }
+    world = read_world(characters)
+    assert [live["days"][0]["date"] for live in world["lives"]] == sorted(
+        live["days"][0]["date"] for live in world["lives"]
+    )
+    assert all(live["sources"] and all(day["sources"] for day in live["days"]) for live in world["lives"])
+
+
+def test_only_shiny_colors_articles_are_lives_and_its_other_articles_are_reported(
+    world_sync, characters: CharacterConfig
+):
+    code, out, _ = world_sync()
+
+    assert code == 0
+    lives = lives_by_name(characters)
+    assert "THE IDOLM@STER SideM 8thLIVE" not in lives
+    assert "SideM 8thLIVE" not in out  # another brand's: not even worth reporting
+    assert "283PRODUCTION COSTUME G@LLERY" not in lives  # no live: the wiki has none that day
+    assert "283PRODUCTION COSTUME G@LLERY" in out
+    assert "283PRODUCTION LP" not in out
+
+
+def test_a_joint_live_keeps_only_shiny_colors_performers_and_reports_the_others(
+    world_sync, characters: CharacterConfig
+):
+    code, out, _ = world_sync()
+
+    assert code == 0
+    moiw = lives_by_name(characters)[MOIW]
+    assert moiw["sources"][0] == PORTAL + "live_event/idolworld2023/"
+    assert [(d["date"], d["venue"], d["performers"]) for d in moiw["days"]] == [
+        ("2023-02-11", "東京ドーム", ["櫻木真乃", "小宮果穂"]),
+        ("2023-02-12", "東京ドーム", ["月岡恋鐘"]),
+    ]
+    assert "中村 繪里子（天海 春香役）" in out
+    assert "天海" not in world_file(characters).read_text(encoding="utf-8")
+
+
+def test_an_absence_with_official_news_takes_her_off_that_day(
+    world_sync, characters: CharacterConfig
+):
+    world_sync()
+
+    second_day = lives_by_name(characters)[FOURTH]["days"][1]
+    assert "櫻木真乃" not in second_day["performers"]
+    assert second_day["absent"] == ["櫻木真乃"]
+    assert NEWS in second_day["sources"]
+
+
+def test_an_absence_without_official_news_is_not_taken_and_is_reported(
+    world_sync, characters: CharacterConfig
+):
+    _, out, _ = world_sync()
+
+    second_day = lives_by_name(characters)[FOURTH]["days"][1]
+    assert "月岡恋鐘" in second_day["performers"]
+    assert "月岡恋鐘" not in second_day["absent"]
+    assert "没附官方新闻链接" in out and "礒部 花凜（月岡 恋鐘役）" in out
+
+
+def test_performers_who_are_none_of_the_idols_are_reported_but_not_the_clerk_hosting(
+    world_sync, characters: CharacterConfig
+):
+    _, out, _ = world_sync()
+
+    assert "田口 尚平" in out
+    assert "山村 響" not in out
+    assert "七草はづき" not in lives_by_name(characters)[FOURTH]["days"][0]["performers"]
+
+
+def test_a_live_still_to_come_is_imported_all_the_same(world_sync, characters: CharacterConfig):
+    world_sync()
+
+    showdown = lives_by_name(characters)[SHOWDOWN]
+    assert [(d["date"], d["performers"]) for d in showdown["days"]] == [
+        ("2027-06-05", ["小宮果穂"]),
+        ("2027-06-06", ["櫻木真乃", "風野灯織", "八宮めぐる"]),
+    ]
+
+
+def test_a_tour_s_days_are_at_the_venue_of_their_city(world_sync, characters: CharacterConfig):
+    world_sync()
+
+    tour = lives_by_name(characters)[TOUR]
+    assert [(d["date"], d["venue"], d["performers"]) for d in tour["days"]] == [
+        ("2021-04-03", "日本ガイシホール", ["櫻木真乃", "風野灯織", "八宮めぐる"]),
+        ("2021-04-04", "日本ガイシホール", ["櫻木真乃"]),
+        ("2021-04-24", "東京ガーデンシアター", ["月岡恋鐘"]),
+    ]
+
+
+def test_an_xr_live_s_performers_are_its_idols_and_a_detail_page_is_its_source(
+    world_sync, characters: CharacterConfig
+):
+    world_sync()
+
+    uka = lives_by_name(characters)[UKA]
+    assert uka["days"][0]["performers"] == ["櫻木真乃", "風野灯織"]
+    assert uka["sources"][0] == PORTAL + "live_events/283_Uka"
+
+
+def test_lives_before_the_cms_come_from_the_old_official_site(
+    world_sync, characters: CharacterConfig
+):
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    lives = lives_by_name(characters)
+    first = lives["THE IDOLM@STER SHINY COLORS 1stLIVE"]
+    assert first["sources"] == ["https://idolmaster.jp/event/shinycolors_1st.php", WIKI_LOG01]
+    assert [(d["date"], d["venue"], d["performers"]) for d in first["days"]] == [
+        ("2019-03-09", "舞浜アンフィシアター", ["櫻木真乃", "風野灯織", "八宮めぐる"]),
+        ("2019-03-10", "舞浜アンフィシアター", ["櫻木真乃", "風野灯織", "八宮めぐる"]),
+    ]
+    assert not [name for name in lives if "CINDERELLA" in name or "SideM 某公演" in name]
+    assert "CINDERELLA" not in out
+
+
+def test_a_live_the_wiki_says_was_called_off_is_reported_not_written(
+    world_sync, characters: CharacterConfig
+):
+    _, out, _ = world_sync()
+
+    assert not [name for name in lives_by_name(characters) if "SPRING PARTY" in name]
+    assert "SPRING PARTY 2020" in out
+
+
+def test_lives_only_the_wiki_has_are_reported_not_written(world_sync, characters: CharacterConfig):
+    _, out, _ = world_sync()
+
+    assert not [name for name in lives_by_name(characters) if "Animelo" in name]
+    assert "Animelo Summer Live 2026 -Messenger-" in out
+
+
+def test_the_cms_is_read_page_by_page(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.cms_page_most = 2
+
+    code, _, err = world_sync()
+
+    assert code == 0, err
+    assert {FOURTH, MOIW, SHOWDOWN, TOUR, UKA} <= set(lives_by_name(characters))
+
+
+def test_a_refused_cms_token_fails_the_import_and_keeps_the_old_file(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    world_sync()
+    before = world_file(characters).read_text(encoding="utf-8")
+    sites.cms_token_refused = True
+
+    code, _, err = world_sync()
+
+    assert code != 0
+    assert "cmsapi-frontend.idolmaster-official.jp" in err
+    assert world_file(characters).read_text(encoding="utf-8") == before
+
+
+def test_the_report_counts_lives_and_what_changed(world_sync, sites: FakeWorldSites):
+    _, first, _ = world_sync()
+    sites.cms_lives = [live for live in sites.cms_lives if live.title != UKA]
+
+    code, second, err = world_sync()
+
+    assert code == 0, err
+    assert "演出：6 场（第一次导入）" in first
+    assert f"演出：5 场（移除 {UKA}）" in second
+
+
+def test_days_the_wiki_has_performers_on_but_the_official_list_does_not_are_reported(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.wiki_lives[0].performers.append(("2027年6月7日(月)", ["礒部 花凜（月岡 恋鐘役）"]))
+
+    code, out, _ = world_sync()
+
+    assert code == 0
+    assert [d["date"] for d in lives_by_name(characters)[SHOWDOWN]["days"]] == ["2027-06-05", "2027-06-06"]
+    assert "2027-06-07" in out and "官方没有这一天" in out
+
+
+def test_a_day_whose_listed_performers_are_none_of_the_idols_is_reported(
+    world_sync, sites: FakeWorldSites
+):
+    sites.wiki_lives[2].performers = [("2025年5月10日(土)", ["大崎甘奈 (アイドルマスター シャイニーカラーズ/CV.黒木ほの香)"])]
+
+    _, out, _ = world_sync()
+
+    assert f"{UKA} 2025-05-10" in out
+
+
+def test_a_performer_struck_out_without_saying_she_was_absent_still_stood_and_is_reported(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.wiki_lives[0].performers[0] = (
+        "2027年6月5日(土)", [struck("河野 ひより（小宮 果穂役）", "2027/04/01追加")],
+    )
+
+    _, out, _ = world_sync()
+
+    assert lives_by_name(characters)[SHOWDOWN]["days"][0]["performers"] == ["小宮果穂"]
+    assert "河野 ひより（小宮 果穂役）（2027/04/01追加）" in out
+
+
+def test_other_dates_in_a_wiki_live_do_not_make_an_official_article_a_live(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.wiki_lives[0].performers.insert(0, (None, ["チケット一般販売：2025年3月22日(土)"]))
+
+    world_sync()
+
+    assert "283PRODUCTION COSTUME G@LLERY" not in lives_by_name(characters)
+
+
+def test_a_date_that_does_not_exist_fails_the_import_and_keeps_the_old_file(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    world_sync()
+    before = world_file(characters).read_text(encoding="utf-8")
+    sites.cms_lives[1].dspdate = "2022年2月30日(土)"
+
+    code, _, err = world_sync()
+
+    assert code != 0
+    assert "2022年2月30日" in err
+    assert "Traceback" not in err
+    assert world_file(characters).read_text(encoding="utf-8") == before
