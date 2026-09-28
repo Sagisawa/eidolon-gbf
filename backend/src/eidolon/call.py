@@ -8,7 +8,10 @@
 user who placed it, counts calls towards the user's limit, and serves each call until it
 hangs up. Speech recognition and synthesis are the `Speech` port, Soniox and Fish Audio
 in production, on whoever's keys `OwnKeys.for_call` says; a failing own key ends the
-call saying which.
+call saying which. Whether a call counts towards the user's limit, and what the browser is
+told when the backend ends it, is `CallOutcome`'s to decide; the call only reports to it.
+Whose turn it is during the call, what is a follow-on and what interrupts the character, is
+likewise `TurnTaking`'s.
 
 Pipecat's own LLM services and context aggregators are not used: every utterance,
 spoken or typed during the call, goes through the same conversation engine as a
@@ -67,6 +70,7 @@ from pipecat.turns.user_turn_processor import UserTurnProcessor
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
+from eidolon.call_outcome import CallOutcome, EndReason
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
@@ -76,14 +80,24 @@ from eidolon.own_keys import (
     SERVICE_LABELS,
     CallKeys,
     CallsUnavailable,
-    OwnKeyFailed,
     OwnKeyRejected,
     OwnKeys,
     Service,
 )
 from eidolon.reply_format import SegmentComplete, SegmentDelta
 from eidolon.store import Conversation, Store
-from eidolon.usage import UsageLimiter, Use
+from eidolon.turn_taking import (
+    ClearVoice,
+    Command,
+    DropReply,
+    QueueTurn,
+    Reply,
+    StopReply,
+    TurnTaking,
+    Voice,
+    WaitForFollowOn,
+)
+from eidolon.usage import UsageLimiter
 
 log = logging.getLogger(__name__)
 
@@ -97,8 +111,7 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 @dataclass(frozen=True)
 class Call:
     """A call the browser asked for: which conversation, the models its turns run on, how
-    it wants the audio, and the time zone its device reports. An `exempt` call, on the
-    user's own keys alone, does not count towards their limit."""
+    it wants the audio, and the time zone its device reports."""
 
     conversation: Conversation
     character: Character
@@ -106,19 +119,6 @@ class Call:
     muted: bool
     quality: Quality
     device_timezone: str | None = None
-    exempt: bool = False
-
-
-EndReason = Literal["not_connected", "dropped", "duration_limit", "turn_limit", "own_key"]
-"""Why the backend ended a call, as the `ended` message tells the browser: it never really
-connected (a voice service failed before any turn), a voice service failed later, the call
-reached its time or its turn limit, or one of the user's own keys failed."""
-
-
-def ended(reason: EndReason, message: str, counts: bool) -> dict:
-    """The `ended` message: why the call is over, and whether it counted towards the
-    user's limit (CONTEXT.md「限额」「接通」)."""
-    return {"type": "ended", "reason": reason, "message": message, "counts": counts}
 
 
 @dataclass(frozen=True)
@@ -300,10 +300,10 @@ class SonioxFishSpeech:
 class Calls:
     """The user's voice calls, from signalling to hanging up.
 
-    A new call counts towards the user's limit when it is offered, and is given back
-    unless it connects: a call that closes or times out before connecting, or that ends
-    on a failing voice service before any turn is recorded, was not connected. Only the
-    user who placed a call can renegotiate it or add ICE candidates to it.
+    Each new call has a `CallOutcome`, which takes it from the user's limit when it is
+    offered and, told what happens to the call, decides whether it is given back and what
+    the browser is told when the backend ends it. Only the user who placed a call can
+    renegotiate it or add ICE candidates to it.
     """
 
     def __init__(
@@ -365,10 +365,10 @@ class Calls:
         `OwnKeys.for_call` says. Raises OverLimit when the user has no calls left this
         hour, unless the call is exempt."""
         keys = self._own_keys.for_call(user_id)
-        use = self._usage.take(user_id, "call", exempt=keys.exempt)
+        outcome = CallOutcome(self._usage, user_id, keys.exempt)
         call = Call(
             conversation, character, keys.llms, options.muted, options.quality,
-            options.device_timezone, keys.exempt,
+            options.device_timezone,
         )
         connections: list[SmallWebRTCConnection] = []
         started: list[_LiveCall] = []
@@ -381,7 +381,7 @@ class Calls:
                 self._owners.pop(connection.pc_id, None)
 
             live = _LiveCall(
-                connection, call, self._engine, self._speech, keys, self._limits, use
+                connection, call, self._engine, self._speech, keys, self._limits, outcome
             )
             self._live.add(live)
             live.start(on_done=self._live.discard)
@@ -395,7 +395,7 @@ class Calls:
                 await started[0].hang_up()
             elif connections:  # the pipeline could not be built; Pipecat only logs why
                 await connections[0].disconnect()
-            use.give_back()
+            outcome.set_up_failed()
             raise CallFailed()
         self._owners[answer["pc_id"]] = user_id
         return answer
@@ -468,7 +468,8 @@ async def _no_new_connection(connection: SmallWebRTCConnection) -> None:
 
 class _LiveCall:
     """One call being served on its connection: the pipeline from the browser's microphone
-    through the conversation engine to the character's voice."""
+    through the conversation engine to the character's voice. What happens to the call is
+    reported to its `CallOutcome`, and any `ended` message that hands back is sent on."""
 
     def __init__(
         self,
@@ -478,11 +479,11 @@ class _LiveCall:
         speech: Speech,
         keys: CallKeys,
         limits: CallLimits,
-        use: Use,
+        outcome: CallOutcome,
     ) -> None:
         self._connection = connection
         self._call = call
-        self._use = use
+        self._outcome = outcome
         sample_rate = _SAMPLE_RATES[call.quality]
         transport = SmallWebRTCTransport(
             connection,
@@ -490,7 +491,7 @@ class _LiveCall:
                 audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
             ),
         )
-        self._turns = CallTurns(engine, call, limits)
+        self._turns = CallTurns(engine, call, outcome, limits)
         stt = speech.stt(keys.stt)
         tts = speech.tts(keys.tts, call.character.voice_id, sample_rate)
         own_services: dict[FrameProcessor, Service] = {
@@ -498,7 +499,6 @@ class _LiveCall:
             for processor, service in ((stt, "stt"), (tts, "tts"))
             if service in keys.own
         }
-        self._told_why = False  # the browser was told why a failing service ended the call
         pipeline = Pipeline(
             [
                 transport.input(),
@@ -515,7 +515,6 @@ class _LiveCall:
             pipeline, processor_unusable_policy=ProcessorUnusablePolicy.CANCEL
         )
         self._connected = asyncio.Event()
-        self._service_failed = False
         self._hung_up = False
         self._task: asyncio.Task | None = None
 
@@ -531,30 +530,19 @@ class _LiveCall:
         @self._worker.event_handler("on_pipeline_error")
         async def failed(worker: PipelineWorker, error: ErrorFrame) -> None:
             if error.fatal or (error.processor is not None and not error.processor.is_usable):
-                self._service_failed = True
                 processor = error.processor
-                self._tell_why_failed(own_services.get(processor) if processor else None)
+                self._report_failure(own_services.get(processor) if processor else None)
 
     @property
     def user_id(self) -> str:
         return self._call.conversation.user_id
 
-    def _tell_why_failed(self, own_service: Service | None = None) -> None:
-        """Tell the browser, while the call can still say so, that a failure ends it. Unless
-        a turn was recorded, _serve gives the call back: it never really connected
-        (CONTEXT.md「接通」). A failing own key is theirs to fix, so they are told which."""
-        if self._told_why:
-            return
-        self._told_why = True
-        recorded = self._turns.recorded
-        counts = recorded > 0 and not self._call.exempt
-        if own_service is not None:
-            why = ended("own_key", OwnKeyFailed(own_service, "通话已结束").message, counts)
-        elif recorded == 0:
-            why = ended("not_connected", "语音服务出了故障，通话没能接通", counts)
-        else:
-            why = ended("dropped", "语音服务出了故障，通话中断了", counts)
-        self._connection.send_app_message(ServerMessage(data=why).model_dump())
+    def _report_failure(self, own_service: Service | None = None) -> None:
+        """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
+        about it is told now, while the call can still say so."""
+        message = self._outcome.service_failed(own_service)
+        if message is not None:
+            self._connection.send_app_message(ServerMessage(data=message).model_dump())
 
     def start(self, on_done: Callable[["_LiveCall"], None]) -> None:
         """Serve the call in the background; `on_done` is told once it has ended."""
@@ -574,14 +562,9 @@ class _LiveCall:
                 await self._run()
         except Exception:
             log.exception("call in conversation %s failed", self._call.conversation.id)
-            self._service_failed = True
-            if self._connected.is_set():
-                self._tell_why_failed()
+            self._report_failure()
         finally:
-            if not self._connected.is_set() or (
-                self._service_failed and self._turns.recorded == 0
-            ):
-                self._use.give_back()
+            self._outcome.settle()
             await self._connection.disconnect()  # lets the browser know the call is over
 
     async def _run(self) -> None:
@@ -609,64 +592,56 @@ after the last word, and sends no transcription at all when it heard no words.""
 
 
 class CallTurns(FrameProcessor):
-    """Takes turns in the conversation for the call, one at a time.
+    """Takes turns in the conversation for the call, one at a time, as its `TurnTaking`
+    has them.
 
     What the user says comes from speech recognition (a final transcription) or from
     text typed during the call (a `user-text` client message). Each turn goes through
     the conversation engine; the reply's Japanese is sent on as text for TTS, and the
     browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
-    server messages, which carry the subtitles.
+    server messages, which carry the subtitles. A turn replied to afresh after a
+    follow-on opens again with `user`; an interrupted one's `done` carries only the
+    segments complete by then.
 
-    Until the reply can be interrupted, what the user says or types is a follow-on: the
-    reply is dropped without a trace, what was voiced of it is cut off, and the turn is
-    replied to afresh with the follow-on joined on a new line, opening again with
-    `user`. The user starting to talk is enough to drop the reply; should what they said
-    come to nothing, the turn is replied to again as it was. A reply can be interrupted
-    once the character has started speaking it (when not voiced, once its first line is
-    shown) and it has a complete segment, or once it is recorded. A reply voiced while
-    the last one's voice is still playing has started once its first words are sent.
-
-    After that, the user starting to talk or sending what they typed interrupts the
-    character: the reply stops being voiced and goes no further, and is recorded with
-    only the segments complete by then, which `done` carries; what the user says or
-    types is the next turn, taken up at once. Typing between replies stops her voice
-    likewise, should the last one still be heard.
-    A `mute` client message decides whether replies from then on are voiced at all.
+    Which of what the user says or types is a follow-on and which interrupts the
+    character, when a reply is dropped, stopped or replied to afresh, and what of it is
+    voiced, is `TurnTaking`'s to decide: the frames coming through, `mute` client
+    messages and how each reply is getting on are reported to it as they happen, and what
+    it says to do is done straight away. How long a follow-on may take to be transcribed
+    (`FOLLOW_ON_TIMEOUT`) is timed here.
 
     Its time limit runs from when the call connects (`connected`), as the call screen's
-    clock does. When the call reaches its limits, the browser gets an `ended` message saying
-    why and whether the call counted, and the call ends once the last reply has been voiced; what is said after that is
-    not taken up.
+    clock does. Each recorded turn is reported to the call's `CallOutcome`. When the call
+    reaches its limits, the browser gets the `ended` message the outcome hands back, saying
+    why and whether the call counted, and the call ends once the last reply has been voiced;
+    what is said after that is not taken up.
     """
 
     def __init__(
-        self, engine: ConversationEngine, call: Call, limits: CallLimits = CallLimits()
+        self,
+        engine: ConversationEngine,
+        call: Call,
+        outcome: CallOutcome,
+        limits: CallLimits = CallLimits(),
     ) -> None:
         super().__init__()
         self._engine = engine
         self._call = call
+        self._outcome = outcome
         self._limits = limits
-        self._muted = call.muted
+        self._turns = TurnTaking(text_only=call.muted)
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: time is up
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
         self._started = False  # the pipeline has started, so tasks can be created
         self._connected = False  # the browser has connected: the time limit runs
-        self._voicing = False
-        self._bot_speaking = False  # the character's voice is playing
         self._time_up: str | None = None  # says the call is over, once time is up
-        self._ended = False
-        self.recorded = 0
-        """How many turns the call has recorded so far."""
+        self._recorded = 0  # turns the call has recorded so far, for its turn limit
         # The turn in progress:
-        self._said: list[str] = []  # what the user said in it, follow-ons included
+        self._turn_over = asyncio.Event()  # set once its reply is over
         self._reply: asyncio.Task | None = None  # the reply being given to it
-        self._stop = asyncio.Event()  # set when the user interrupts the reply
-        self._spoken = False  # the character has started speaking the reply
-        self._sent_to_tts = False  # some of the reply is on its way to TTS
-        self._complete = False  # the reply has a complete segment
-        self._following_on = False  # a follow-on the user started is not yet transcribed
-        self._heard = asyncio.Event()  # the user was heard, while following on
+        self._stop = asyncio.Event()  # set to have the reply go no further
+        self._waiting: asyncio.Task | None = None  # times the follow-on waited for
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -676,29 +651,19 @@ class CallTurns(FrameProcessor):
             self._started = True
             self._start_timer()
         elif isinstance(frame, TranscriptionFrame):
-            await self._take_up(frame.text, spoken=True)
+            await self._carry_out(self._turns.user_said(frame.text))
         elif isinstance(frame, InterimTranscriptionFrame):
-            self._heard.set()
+            await self._carry_out(self._turns.user_heard())
             await self.push_frame(frame, direction)
         elif isinstance(frame, RTVIClientMessageFrame):
             await self._handle_client_message(frame)
         elif isinstance(frame, InterruptionFrame):
-            if self._open_to_follow_ons():
-                self._following_on = True
-                self._heard.set()
-                await self._drop_reply()
-            else:
-                self._interrupt()
-            await self.push_frame(frame, direction)
+            await self._carry_out(self._turns.user_started_talking(), (frame, direction))
         elif isinstance(frame, BotStartedSpeakingFrame):
-            # The voice of a reply dropped just now may start late, but never after the
-            # next reply's first words are sent: those take the chat model a while.
-            self._bot_speaking = True
-            if self._voicing and self._sent_to_tts:
-                self._spoken = True
+            await self._carry_out(self._turns.voice_started())
             await self.push_frame(frame, direction)
         elif isinstance(frame, BotStoppedSpeakingFrame):
-            self._bot_speaking = False
+            await self._carry_out(self._turns.voice_stopped())
             await self.push_frame(frame, direction)
         elif isinstance(frame, EndFrame):
             await self._inputs.join()  # a graceful end lets queued turns finish
@@ -711,7 +676,9 @@ class CallTurns(FrameProcessor):
             await self.push_frame(frame, direction)
 
     def connected(self) -> None:
-        """The browser has connected (CONTEXT.md「接通」): the call's time starts running."""
+        """The browser has connected (CONTEXT.md「接通」): the call's time starts running,
+        and the call's `CallOutcome` is told."""
+        self._outcome.connected()
         self._connected = True
         self._start_timer()
 
@@ -721,64 +688,63 @@ class CallTurns(FrameProcessor):
             return
         self._timer = self.create_task(self._time(duration))
 
-    async def _take_up(self, text: str, spoken: bool) -> None:
-        text = text.strip()
-        if self._ended or not (text or (spoken and self._following_on)):
-            return
-        if not self._open_to_follow_ons():
-            if not text:
-                return
-            if not spoken:  # typed: interrupts her as the user starting to talk would
-                self._interrupt()
-                await self.push_frame(InterruptionFrame())
-            self._inputs.put_nowait(text)
-            return
-        # A follow-on: what the turn is to be replied to changes before the reply is dropped.
-        if text:
-            self._said.append(text)
-        dropped = self._following_on  # when the user was heard starting to talk
-        self._following_on = False
-        self._heard.set()
-        if not dropped:  # typed: nothing has cut off what TTS still holds either
-            await self._drop_reply()
-            await self.push_frame(InterruptionFrame())
-
     async def _handle_client_message(self, frame: RTVIClientMessageFrame) -> None:
         data = frame.data if isinstance(frame.data, dict) else {}
         if frame.type == "user-text" and isinstance(data.get("text"), str):
-            await self._take_up(data["text"], spoken=False)
+            await self._carry_out(self._turns.user_typed(data["text"]))
         elif frame.type == "mute" and isinstance(data.get("muted"), bool):
-            self._muted = data["muted"]
+            await self._carry_out(self._turns.text_only_switched(data["muted"]))
 
-    def _open_to_follow_ons(self) -> bool:
-        """Whether there is a turn in progress whose reply cannot be interrupted yet."""
-        reply = self._reply
-        if reply is None or reply.done() and not reply.cancelled():
-            return False
-        return not (self._spoken and self._complete)
-
-    def _interrupt(self) -> None:
-        """Interrupt the reply in progress, if there is one."""
-        self._voicing = False
-        self._stop.set()
-
-    async def _drop_reply(self) -> None:
-        if self._reply is not None and not self._reply.done():
-            await self.cancel_task(self._reply)
+    async def _carry_out(
+        self,
+        commands: Sequence[Command],
+        passing_on: tuple[Frame, FrameDirection] | None = None,
+        after: asyncio.Event | None = None,
+    ) -> None:
+        """Do what `TurnTaking` says to, in order, then pass on the frame `passing_on`, if
+        any; a reply started here holds back until `after` is set, if given. `TurnTaking`
+        has moved on by now, so what is reported to it while this waits finds it as it now
+        is. A turn replied to afresh once the reply dropped here is gone holds back until
+        all that is done: nothing of the new reply goes out before what cuts off the old
+        one."""
+        cut_off: asyncio.Event | None = None  # set once all that is done
+        try:
+            for command in commands:
+                match command:
+                    case DropReply():
+                        cut_off = cut_off or asyncio.Event()
+                        await self._carry_out(await self._drop_reply(), after=cut_off)
+                    case StopReply():
+                        self._stop.set()
+                    case ClearVoice():
+                        await self.push_frame(InterruptionFrame())
+                    case Reply(text=text):
+                        self._start_reply(text, after)
+                    case Voice(text=text):
+                        await self.push_frame(TextFrame(text))
+                    case WaitForFollowOn():
+                        self._wait_for_follow_on()
+                    case QueueTurn(text=text):
+                        self._inputs.put_nowait(text)
+            if passing_on is not None:
+                await self.push_frame(*passing_on)
+        finally:
+            if cut_off is not None:
+                cut_off.set()
 
     async def _take_turns(self) -> None:
         while True:
             text = await self._inputs.get()
             try:
-                if self._ended:
+                if self._turns.ending:
                     continue
                 if self._time_up is not None:
                     await self._end("duration_limit", self._time_up)
                     continue
                 assert text is not None
                 await self._turn(text)
-                if self._limits.turns is not None and self.recorded >= self._limits.turns:
-                    await self._end("turn_limit", f"这次通话已经说了 {self.recorded} 轮了")
+                if self._limits.turns is not None and self._recorded >= self._limits.turns:
+                    await self._end("turn_limit", f"这次通话已经说了 {self._recorded} 轮了")
             finally:
                 self._inputs.task_done()
 
@@ -788,45 +754,71 @@ class CallTurns(FrameProcessor):
         self._inputs.put_nowait(None)  # wakes the worker, after the turn in progress
 
     async def _end(self, reason: EndReason, why: str) -> None:
-        """Hang up, once what is already on its way to TTS has been voiced. A call that
-        reaches its limits was connected, so it counts unless it is exempt."""
-        self._ended = True
-        message = f"{why}，先挂断啦。想接着聊可以重新拨打。"
-        await self._send(ended(reason, message, not self._call.exempt))
+        """Hang up, once what is already on its way to TTS has been voiced, telling the
+        browser why as `CallOutcome` says, unless it has been told already."""
+        await self._carry_out(self._turns.call_ending())
+        message = self._outcome.limit_reached(reason, why)
+        if message is not None:
+            await self._send(message)
         await self.push_frame(EndWorkerFrame(reason=why))
 
     async def _turn(self, text: str) -> None:
-        """Take one turn, replying afresh after each follow-on."""
-        self._said = [text]
+        """Take one turn, replied to afresh after each follow-on, until its reply is over."""
+        self._turn_over = asyncio.Event()
         try:
-            while True:
-                self._spoken = self._sent_to_tts = self._complete = False
-                self._stop = asyncio.Event()
-                self._reply = self.create_task(
-                    self._reply_to("\n".join(self._said), not self._muted, self._stop)
-                )
-                await asyncio.wait({self._reply})
-                if not self._reply.cancelled():
-                    return
-                await self._follow_on_heard()
-        finally:
-            await self._drop_reply()  # the call is hanging up
-            self._reply = None
+            await self._carry_out(self._turns.turn_started(text))
+            await self._turn_over.wait()
+        finally:  # the call may be hanging up
+            self._stop_waiting()
+            reply, self._reply = self._reply, None
+            if reply is not None and not reply.done():
+                await self.cancel_task(reply)
 
-    async def _follow_on_heard(self) -> None:
-        """Wait until the follow-on the user started is transcribed or comes to nothing."""
-        while self._following_on:
-            self._heard.clear()
-            try:
-                await asyncio.wait_for(self._heard.wait(), FOLLOW_ON_TIMEOUT)
-            except TimeoutError:
-                self._following_on = False
+    def _start_reply(self, text: str, after: asyncio.Event | None = None) -> None:
+        """Reply to `text`, once `after` is set, if given."""
+        self._stop_waiting()
+        self._stop = asyncio.Event()
+        self._reply = self.create_task(self._reply_to(text, self._stop, after))
 
-    async def _reply_to(self, text: str, voiced: bool, stop: asyncio.Event) -> None:
-        """Reply to what the user said, going no further once `stop` is set. Only a reply
-        that is recorded counts as a turn: a rejected, failed or dropped one does not
-        count towards the call's limit, an interrupted one does."""
-        self._voicing = voiced
+    async def _drop_reply(self) -> list[Reply | WaitForFollowOn]:
+        """Drop the reply in progress and, once it is gone, tell `TurnTaking` so, handing
+        back what it says to do then, to be done straight away. Whoever gets here first
+        tells it: the reply dropped is gone for the others, who have nothing to do."""
+        reply = self._reply
+        if reply is None:
+            return []
+        if not reply.done():
+            await self.cancel_task(reply)
+        if reply is not self._reply:  # replied to afresh already, or hung up
+            return []
+        return self._turns.reply_dropped()
+
+    def _wait_for_follow_on(self) -> None:
+        """Wait, afresh, for the follow-on the user started to be transcribed."""
+        self._stop_waiting()
+        self._waiting = self.create_task(self._follow_on_timeout())
+
+    async def _follow_on_timeout(self) -> None:
+        """Tell `TurnTaking` the follow-on came to nothing, once `FOLLOW_ON_TIMEOUT` has
+        passed without it."""
+        await asyncio.sleep(FOLLOW_ON_TIMEOUT)
+        self._waiting = None
+        await self._carry_out(self._turns.follow_on_missed())
+
+    def _stop_waiting(self) -> None:
+        """Stop waiting for a follow-on, if waiting: it is no longer awaited."""
+        if self._waiting is not None:
+            self._waiting.cancel()
+            self._waiting = None
+
+    async def _reply_to(self, text: str, stop: asyncio.Event, after: asyncio.Event | None) -> None:
+        """Reply to what the user said, once `after` is set, if given, going no further
+        once `stop` is set. Only a reply that is recorded counts as a turn: a rejected,
+        failed or dropped one does not count towards the call's limit, an interrupted one
+        does. Once it is over, recorded or not, so is the turn; a dropped one is not over,
+        but gone, which whoever dropped it reports."""
+        if after is not None:
+            await after.wait()
         await self.push_frame(LLMFullResponseStartFrame())
         try:
             async for event in self._engine.turn(
@@ -834,27 +826,21 @@ class CallTurns(FrameProcessor):
                 stop,
             ):
                 if isinstance(event, SegmentComplete):
-                    self._complete = True
+                    await self._carry_out(self._turns.segment_complete())
                     continue
-                if isinstance(event, TurnDone):  # recorded by now, so no longer to be dropped
-                    self._spoken = True
-                    self.recorded += 1
+                if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
+                    await self._carry_out(self._turns.reply_recorded())
+                    self._recorded += 1
+                    self._outcome.turn_recorded()
                 await self._send(asdict(event))
                 if isinstance(event, SegmentDelta):
-                    if not self._voicing:
-                        self._spoken = True  # its first line is shown
-                    elif event.lang == "ja":
-                        self._on_its_way_to_tts()
-                        await self.push_frame(TextFrame(event.text))
+                    await self._carry_out(self._turns.reply_delta(event.lang, event.text))
+        except Exception:  # the turn is over all the same, rather than the call stuck in it
+            log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:
             await self.push_frame(LLMFullResponseEndFrame())
-
-    def _on_its_way_to_tts(self) -> None:
-        """The reply's first words are sent to TTS: should the voice of the last reply
-        still be playing, this one's follows on without starting again."""
-        if not self._sent_to_tts:
-            self._sent_to_tts = True
-            self._spoken = self._bot_speaking
+        await self._carry_out(self._turns.reply_ended())
+        self._turn_over.set()
 
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))
