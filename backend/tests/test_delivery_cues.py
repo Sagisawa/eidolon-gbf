@@ -1,7 +1,9 @@
 """Delivery cues (ADR-0007): only speech synthesis hears them, and only well-formed ones;
 the record keeps them as the model wrote them; nobody sees them."""
 
-from eidolon.reply_format import ReplyParser, SegmentDelta, SpeechDelta
+import re
+
+from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, SpeechDelta
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeLLM
@@ -150,3 +152,13 @@ async def test_jev_reads_earlier_replies_without_cues():
     await judge_answering(requests, 0.1).judge(MANO, [message("character", "[shyly] ほわっ")], "嗯")
 
     assert requests[0]["state"]["上文"] == ["櫻木真乃：ほわっ"]
+
+
+def test_every_cue_the_format_instructions_show_the_model_is_voiced_and_not_shown():
+    cues = re.findall(r"\[[^\]]*\]", FORMAT_INSTRUCTIONS)  # well-formed or not
+
+    assert len(cues) >= 15  # the recommended ones at least
+    for cue in cues:
+        shown, voiced, _ = parse(f"<ja>{cue}えへへ</ja><zh>嘿嘿</zh>")
+        assert joined(shown) == "えへへ"
+        assert "".join(text for _, text in voiced) == f"{cue}えへへ"
