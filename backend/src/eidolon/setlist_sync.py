@@ -34,20 +34,19 @@ releases alone). On a page of Shiny Colors' own, a song whose performers cannot 
 
 import html
 import re
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from html.parser import HTMLParser
 from typing import Literal
 
-from eidolon.world import Idol, Live, LiveDay, SetlistItem, Unit, WorldSyncError
+from eidolon.roster import Roster
+from eidolon.sync_tools import Fetch, without_spaces
+from eidolon.world import Live, LiveDay, SetlistItem, WorldSyncError
 
 IMASDB = "https://imas-db.jp/song/event/"
 BRAND_ID = "8"
 _SHINY_COLORS = "シャイニーカラーズ"
-
-Fetch = Callable[[str], Awaitable[str]]
-"""Gets a page's text, or raises WorldSyncError."""
 
 _DATES = re.compile(
     r"(\d{4})/(\d{1,2})/(\d{1,2})(?:\s*\([^)]*\))?"
@@ -76,10 +75,10 @@ class SetlistImport:
 
 
 async def import_setlists(
-    fetch: Fetch, lives: Sequence[Live], idols: Sequence[Idol], units: Sequence[Unit], today: date,
+    fetch: Fetch, lives: Sequence[Live], roster: Roster, today: date,
 ) -> SetlistImport:
-    """`lives` with each day's setlist as imas-db has it now. Raises WorldSyncError if any
-    of its pages cannot be read."""
+    """`lives` with each day's setlist as imas-db has it now, the performers matched to the
+    idols and units on `roster`. Raises WorldSyncError if any of its pages cannot be read."""
     entries = _index(await fetch(IMASDB))
     shows: list[_Show] = []
     read: set[str] = set()
@@ -90,7 +89,7 @@ async def import_setlists(
             read.add(file)
             url = IMASDB + file
             shows += _page_shows(url, await fetch(url), dates, joint)
-    return _assign(lives, shows, _Idols(idols, units), today)
+    return _assign(lives, shows, roster, today)
 
 
 # The index
@@ -169,7 +168,8 @@ class _Show:
     common: bool
     """Whether it is every show's (全公演共通), giving way to a show of the day's own."""
     partial: set[str]
-    """The names (as the page writes them) of performers who stood only on the songs naming them."""
+    """The title attributes (「櫻木真乃(CV:関根瞳)」) of performers who stood only on the songs
+    naming them."""
     joint: bool
 
 
@@ -186,7 +186,7 @@ def _page_shows(url: str, page: str, index_dates: list[date], joint: bool) -> li
     first = _DATES.search(body[:tables[0].start()] if tables else body)
     page_dates = _dates(first.group(0)) if first else index_dates
     partial = {
-        _name(title) for title in re.findall(
+        html.unescape(title) for title in re.findall(
             r'<span [^>]*title="([^"]*)"[^>]*>[^<]*</span>\s*<small class="notes">\s*※\s*</small>', outside
         )
     }
@@ -311,40 +311,28 @@ class _Cell(HTMLParser):
             self.tokens.append(_Token("text", data))
 
 
-class _Idols:
-    """Tells which idol or unit imas-db names."""
-
-    def __init__(self, idols: Iterable[Idol], units: Iterable[Unit]) -> None:
-        self.order = {idol.name: n for n, idol in enumerate(idols)}
-        self.by_cv = {_bare(idol.cv): idol.name for idol in idols if idol.cv}
-        self.units: dict[str, Unit] = {}
-        for unit in units:
-            for key in (unit.name, unit.reading or ""):
-                if key:
-                    self.units[_key(_hiragana(key))] = unit
-
-    def idol(self, token: _Token) -> str | None:
-        name = _name(token.title) if token.title else _bare(token.text)
-        if name in self.order:
-            return name
-        cv = re.search(r"CV[:：]\s*([^)）]+)", token.title)
-        return self.by_cv.get(_bare(cv.group(1) if cv else token.text))
-
-    def unit(self, token: _Token) -> Unit | None:
-        return self.units.get(_key(_hiragana(token.text)))
-
-    def sort(self, names: Iterable[str]) -> tuple[str, ...]:
-        return tuple(sorted(set(names), key=lambda name: self.order.get(name, len(self.order))))
+def _idol(roster: Roster, title: str, text: str = "") -> str | None:
+    """The idol imas-db means: the name in the title attribute 「櫻木真乃(CV:関根瞳)」, else
+    its voice actor; without a title, the text shown, a name or a voice actor's name."""
+    cv = re.search(r"CV[:：]\s*([^)）]+)", title)
+    return roster.idol(_name(title) if title else text, cv.group(1) if cv else text)
 
 
-def _resolve(song: str, row: _Row, show: _Show, day: LiveDay, idols: _Idols, report: SetlistImport) -> SetlistItem | None:
+def _sort(roster: Roster, names: Iterable[str]) -> tuple[str, ...]:
+    """In the roster's order of the idols."""
+    order = {name: n for n, name in enumerate(roster.idols)}
+    return tuple(sorted(set(names), key=lambda name: order.get(name, len(order))))
+
+
+def _resolve(song: str, row: _Row, show: _Show, day: LiveDay, roster: Roster, report: SetlistImport) -> SetlistItem | None:
     """The song as it was performed on `day`, those in its performers cell who cannot be
     written going to `report` under `song`; None for a song at a joint live that none of
     Shiny Colors' idols took part in."""
     cell = _Cell()
     cell.feed(row.cell)
     cell.close()
-    stood = [name for name in day.performers if name not in show.partial]
+    partial = {_idol(roster, title) for title in show.partial}
+    stood = [name for name in day.performers if name not in partial]
     unmatched: list[str] = []
     not_on_stage: list[str] = []
 
@@ -361,11 +349,11 @@ def _resolve(song: str, row: _Row, show: _Show, day: LiveDay, idols: _Idols, rep
             elif token.kind == "brand":
                 found.update(stood)
             elif token.kind == "unit":
-                if (unit := idols.unit(token)) is not None:
+                if (unit := roster.unit(token.text)) is not None:
                     found.update(name for name in unit.members if name in stood)
                 else:
                     unmatched.append(text)  # a special unit, its members not named
-            elif (idol := idols.idol(token)) is None:
+            elif (idol := _idol(roster, token.title, token.text)) is None:
                 unmatched.append(_name(token.title) if token.title else text)
             elif idol not in day.performers:
                 not_on_stage.append(idol)
@@ -401,13 +389,13 @@ def _resolve(song: str, row: _Row, show: _Show, day: LiveDay, idols: _Idols, rep
     report.not_on_stage += [f"{song}：{name}" for name in not_on_stage]
     if not singers and not dancers and show.joint:
         return None  # another brand's song, or one none of hers took part in
-    return SetlistItem(row.title, idols.sort(singers), idols.sort(dancers - singers), row.brand)
+    return SetlistItem(row.title, _sort(roster, singers), _sort(roster, dancers - singers), row.brand)
 
 
 # Days
 
 
-def _assign(lives: Sequence[Live], shows: list[_Show], idols: _Idols, today: date) -> SetlistImport:
+def _assign(lives: Sequence[Live], shows: list[_Show], roster: Roster, today: date) -> SetlistImport:
     result = SetlistImport(())
     by_day: dict[date, list[_Show]] = {}
     for show in shows:
@@ -437,17 +425,17 @@ def _assign(lives: Sequence[Live], shows: list[_Show], idols: _Idols, today: dat
                 if day.date <= today:
                     result.missing.append(where)
             else:
-                day = _with_setlist(where, day, on[0], idols, result)
+                day = _with_setlist(where, day, on[0], roster, result)
             days.append(day)
         written.append(replace(live, days=tuple(days)))
     result.lives = tuple(written)
     return result
 
 
-def _with_setlist(where: str, day: LiveDay, show: _Show, idols: _Idols, result: SetlistImport) -> LiveDay:
+def _with_setlist(where: str, day: LiveDay, show: _Show, roster: Roster, result: SetlistImport) -> LiveDay:
     items = []
     for row in show.rows:
-        item = _resolve(f"{where} 第 {row.number} 首「{row.title}」", row, show, day, idols, result)
+        item = _resolve(f"{where} 第 {row.number} 首「{row.title}」", row, show, day, roster, result)
         if item is not None:
             items.append(item)
     if not items:
@@ -464,17 +452,4 @@ def _text(fragment: str) -> str:
 
 def _name(title: str) -> str:
     """The idol's name out of imas-db's 「櫻木真乃(CV:関根瞳)」, without spaces."""
-    return _bare(re.split(r"[(（]", html.unescape(title), maxsplit=1)[0])
-
-
-def _bare(name: str) -> str:
-    return re.sub(r"\s", "", name)
-
-
-def _key(name: str) -> str:
-    return re.sub(r"[\W_]", "", name.replace("’", "'")).casefold()
-
-
-def _hiragana(text: str) -> str:
-    """Katakana as hiragana, so that イルミネーションスターズ is the reading いるみねーしょんすたーず."""
-    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text)
+    return without_spaces(re.split(r"[(（]", html.unescape(title), maxsplit=1)[0])

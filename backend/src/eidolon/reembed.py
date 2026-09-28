@@ -1,7 +1,9 @@
 """Embedding everything again after the embedding service, model or dimensions change
 (ADR-0005), from the text already in the database and the character configuration: the
-story corpus, the character facts, the shared index of songs, releases and live days, and
-every user's memories. Nothing is downloaded or imported again.
+story corpus, the character facts, the work facts (songs, releases and live days, given
+a world setting; without one, their vectors are forgotten), and every user's memories. Nothing is downloaded or imported again. The
+first three are the reference sources, opened as the server opens them
+(`retrieval.open_reference_sources`); each of the four is `Reembeddable`.
 
 Only what has no vector from the current model is embedded, in batches that are each
 committed, so an interrupted run loses nothing and a rerun picks up where it stopped.
@@ -10,35 +12,43 @@ nothing. The server can keep running meanwhile: its searches find only what is d
 """
 
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 from eidolon.characters import Character
 from eidolon.clock import utc_now
-from eidolon.corpus import REEMBED_BATCH, StoryCorpus
-from eidolon.embedding import Embedder
-from eidolon.facts import FactIndex
+from eidolon.corpus import REEMBED_BATCH
+from eidolon.embedding import Embedder, Reembeddable
 from eidolon.memory import Memories
+from eidolon.retrieval import open_reference_sources
 from eidolon.world import World
-from eidolon.world_index import WorldIndex
 
 log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
+class EmbeddedCount:
+    label: str
+    """What was embedded: the story corpus, the character facts, the work facts or the
+    memories (see `Reembeddable.label`)."""
+    unit: str
+    """What `count` is counted in."""
+    count: int
+    """How many were embedded."""
+
+
+@dataclass(frozen=True)
 class ReembedReport:
-    passages: int
-    """Story passages embedded."""
-    facts: int
-    """Character facts embedded."""
-    world: int
-    """Entries of the shared index of songs, releases and live days embedded."""
-    memories: int
-    """Memories embedded."""
+    embedded: tuple[EmbeddedCount, ...]
+    """How much of each was embedded, in the order they were."""
     forgotten: int
-    """Vectors of other models dropped (character facts', the shared index's and memories';
+    """Vectors of other models dropped (character facts', the work facts' and memories';
     each story passage keeps only one vector, which re-embedding replaces)."""
+
+    def counts(self) -> dict[str, int]:
+        """How many of each were embedded, by label."""
+        return {e.label: e.count for e in self.embedded}
 
 
 async def reembed(
@@ -53,33 +63,25 @@ async def reembed(
     EmbeddingError, having dropped nothing but kept what it finished, if the embedding
     service fails."""
     by_id = {c.id: c for c in characters}
-    corpus = StoryCorpus(path, embedder)
-    facts = FactIndex(path, embedder)
-    world_index = WorldIndex(path, embedder, world)
-    memories = Memories(path, by_id, utc_now)
+    # Passages missing vectors are what this is for; no need to warn of them.
+    sources = open_reference_sources(path, embedder, by_id.values(), world, warn=False)
+    memories = Memories(path, by_id, utc_now, embedder=embedder)
+    everything: list[Reembeddable] = [*sources.embedded(), memories]
     try:
-        missing = corpus.count_missing_vectors()
-        log.info("剧情库：%d 段需要重新向量化", missing)
-        passages = await corpus.embed_missing(
-            batch, lambda done: log.info("剧情库：%d/%d 段", done, missing)
-        )
-        embedded_facts = 0
-        for character in by_id.values():
-            embedded_facts += await facts.embed_missing(character)
-        log.info("角色资料：新向量化 %d 条", embedded_facts)
-        embedded_world = await world_index.embed_missing()
-        log.info("歌曲、唱片和演出：新向量化 %d 条", embedded_world)
-        embedded_memories = await memories.embed_missing(
-            embedder, batch, lambda done: log.info("记忆：%d 条", done)
-        )
-        forgotten = (
-            facts.forget_other_models()
-            + world_index.forget_other_models()
-            + memories.forget_other_models(embedder.model)
-        )
+        embedded = []
+        for each in everything:
+            count = await each.embed_missing(batch, _progress(each))
+            log.info("%s：新向量化 %d %s", each.label, count, each.unit)
+            embedded.append(EmbeddedCount(each.label, each.unit, count))
+        forgotten = sum(each.forget_other_models() for each in everything)
     finally:
-        corpus.close()
-        facts.close()
-        world_index.close()
+        sources.close()
         await memories.aclose()
-    return ReembedReport(passages, embedded_facts, embedded_world, embedded_memories, forgotten)
+    return ReembedReport(tuple(embedded), forgotten)
+
+
+def _progress(each: Reembeddable) -> Callable[[int], None]:
+    def progress(done: int) -> None:
+        log.info("%s：%d %s", each.label, done, each.unit)
+
+    return progress

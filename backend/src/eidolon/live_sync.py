@@ -35,13 +35,15 @@ import html
 import json
 import re
 import unicodedata
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from difflib import SequenceMatcher
 from urllib.parse import quote, unquote, urlencode
 
-from eidolon.world import Idol, Live, LiveDay, Staff, WorldSyncError
+from eidolon.roster import Roster, person_key
+from eidolon.sync_tools import Fetch, without_spaces
+from eidolon.world import Idol, Live, LiveDay, WorldSyncError
 
 CMS_API = "https://cmsapi-frontend.idolmaster-official.jp/sitern/api/"
 CMS_TOKEN_URL = CMS_API + "cmsbase/Token/get"
@@ -54,9 +56,6 @@ WIKI = "https://wikiwiki.jp/shinycolors/"
 WIKI_PAGE = "ライブイベント情報"
 BRAND = "SHINYCOLORS"
 _PAGE_SIZE = 100
-
-Fetch = Callable[[str], Awaitable[str]]
-"""Gets a page's text, or raises WorldSyncError."""
 
 _DATE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 _MORE_DAYS = re.compile(r"^\s*(?:\([^)]*\)|（[^）]*）)?\s*[、・,]\s*(\d{1,2})\s*日")
@@ -111,7 +110,7 @@ class LiveCorrections:
     days: dict[tuple[str, date], DayCorrection] = field(default_factory=dict)
     """By the live's official name and the day."""
     not_idols: set[str] = field(default_factory=set)
-    """Names without their spaces."""
+    """Names as the roster compares them (`person_key`)."""
 
     @classmethod
     def from_json(cls, data: dict, idols: Iterable[Idol], where: str) -> "LiveCorrections":
@@ -129,18 +128,18 @@ class LiveCorrections:
                 corrections.days[(day["live"], date.fromisoformat(day["date"]))] = DayCorrection(
                     tuple(day["performers"]), tuple(day["sources"]), day.get("note", ""),
                 )
-            corrections.not_idols = {_person(entry["name"]) for entry in data.get("not_idols", [])}
+            corrections.not_idols = {person_key(entry["name"]) for entry in data.get("not_idols", [])}
         except (KeyError, TypeError, ValueError, AttributeError) as e:
             raise WorldSyncError(f"{where} 缺少或写错了字段：{e!r}") from None
         return corrections
 
 
 async def import_lives(
-    fetch: Fetch, idols: Sequence[Idol], staff: Sequence[Staff],
-    corrections: LiveCorrections | None = None,
+    fetch: Fetch, roster: Roster, corrections: LiveCorrections | None = None,
 ) -> LiveImport:
     """The lives as the official sites and the wiki have them now, the performers matched
-    to `idols`, `corrections` applied. Raises WorldSyncError if any of them cannot be read."""
+    to the idols on `roster`, `corrections` applied. Raises WorldSyncError if any of them
+    cannot be read."""
     official = await _cms_lives(fetch)
     if not any(entry.days for entry in official):
         raise WorldSyncError(f"{CMS_LIST_URL} 的演出一个演出日也读不出来，日期的写法可能变了")
@@ -152,7 +151,7 @@ async def import_lives(
             if max(day.date for day in entry.days) < first
         ]
     wiki = await _wiki_lives(fetch)
-    return _merge(official, wiki, _Performers(idols, staff), corrections or LiveCorrections())
+    return _merge(official, wiki, roster, corrections or LiveCorrections())
 
 
 # The official lists
@@ -229,12 +228,12 @@ def _cms_days(dspdate: str, place: str) -> list[_Day]:
     venues: dict[str, str] = {}
     for line in places:
         if match := re.match(r"^(.+?)\s*[：:]\s*(.+)$", line):
-            venues[_person(match.group(1))] = match.group(2).strip()
+            venues[without_spaces(match.group(1))] = match.group(2).strip()
     days = []
     for line in dspdate.splitlines():
         venue = places[0] if places else ""
-        if (match := re.match(r"^(.+?)\s*[：:]", line)) and _person(match.group(1)) in venues:
-            venue = venues[_person(match.group(1))]
+        if (match := re.match(r"^(.+?)\s*[：:]", line)) and without_spaces(match.group(1)) in venues:
+            venue = venues[without_spaces(match.group(1))]
         days += [_Day(day, venue) for day in _dates(line)]
     return days
 
@@ -408,31 +407,24 @@ def _performers(line: str, notes: list[str]) -> list[_Performer]:
 # Merging
 
 
-class _Performers:
-    """Tells which idol a performer is, by the role or the CV."""
+def _idol(roster: Roster, performer: _Performer) -> str | None:
+    """The idol a performer is: by the role if one is written (else by the voice actor),
+    otherwise by the one name written."""
+    if performer.role is not None:
+        return roster.idol(performer.role, performer.cv)
+    return roster.idol(performer.name)
 
-    def __init__(self, idols: Iterable[Idol], staff: Iterable[Staff]) -> None:
-        self.by_name = {_person(idol.name): idol.name for idol in idols}
-        self.by_cv = {_person(idol.cv): idol.name for idol in idols if idol.cv}
-        self.staff = {_person(s.name) for s in staff}
 
-    def idol(self, performer: _Performer) -> str | None:
-        if performer.role is not None:
-            return self.by_name.get(_person(performer.role)) or (
-                self.by_cv.get(_person(performer.cv)) if performer.cv else None
-            )
-        return self.by_name.get(_person(performer.name))
-
-    def is_someone(self, performer: _Performer) -> bool:
-        """Whether an unmatched performer is worth reporting: not the clerk hosting, and
-        not a heading (a unit's name, 昼公演) among the performers."""
-        if performer.role is not None:
-            return _person(performer.role) not in self.staff
-        return performer.among_roles and _person(performer.name) not in self.staff
+def _is_someone(roster: Roster, performer: _Performer) -> bool:
+    """Whether an unmatched performer is worth reporting: not the clerk hosting, and
+    not a heading (a unit's name, 昼公演) among the performers."""
+    if performer.role is not None:
+        return not roster.is_staff(performer.role)
+    return performer.among_roles and not roster.is_staff(performer.name)
 
 
 def _merge(
-    official: list[_Official], wiki: list[_WikiLive], performers: _Performers,
+    official: list[_Official], wiki: list[_WikiLive], roster: Roster,
     corrections: LiveCorrections,
 ) -> LiveImport:
     result = LiveImport(())
@@ -463,7 +455,7 @@ def _merge(
             result.called_off.append(f"{entry.name}（wiki 上是「{live.title}」）")
             continue
         official_days.setdefault(n, set()).update(dates)
-        lives.append(_live(entry, live, performers, corrections, result))
+        lives.append(_live(entry, live, roster, corrections, result))
     for n, days in official_days.items():
         for extra in sorted(set(wiki[n].days) - days):
             if _POSTPONED.match(wiki[n].title) and extra < min(days):
@@ -485,7 +477,7 @@ def _merge(
 
 
 def _live(
-    entry: _Official, wiki: _WikiLive, performers: _Performers, corrections: LiveCorrections,
+    entry: _Official, wiki: _WikiLive, roster: Roster, corrections: LiveCorrections,
     result: LiveImport,
 ) -> Live:
     days = []
@@ -502,9 +494,9 @@ def _live(
         absent: list[str] = []
         sources = [wiki.url]
         for performer in on:
-            idol = performers.idol(performer)
+            idol = _idol(roster, performer)
             if idol is None:
-                if performers.is_someone(performer) and _person(performer.name) not in corrections.not_idols:
+                if _is_someone(roster, performer) and person_key(performer.name) not in corrections.not_idols:
                     result.unmatched.append(f"{where}：{performer.name}")
                 continue
             if performer.struck:
@@ -560,8 +552,3 @@ def _lines(fragment: str) -> list[str]:
 
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", html.unescape(text).replace("　", " ")).strip()
-
-
-def _person(name: str) -> str:
-    """A name, or a city heading a line, without its spaces: 関根 瞳 is 関根瞳."""
-    return re.sub(r"\s", "", name)

@@ -1,5 +1,5 @@
 """The retrieval services' own protocols: SiliconFlow's rerank endpoint, and Jev through
-Vercel AI Gateway's evaluation endpoint."""
+TypeSafe's System One endpoint (OpenRouter's by default), and how Jev is configured."""
 
 import json
 from collections.abc import Callable
@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from eidolon.characters import Character
+from eidolon.config import JevSettings, Settings
 from eidolon.rerank import RerankError, SiliconFlowReranker
 from eidolon.retrieval import JevJudge, JudgeError
 from eidolon.store import Message
@@ -77,16 +78,18 @@ def judge_answering(
     requests: list[dict], retrieve: float, recall: float = 0.01, about_producer: float = 0.02
 ) -> JevJudge:
     body = {
-        "model": "jev",
+        "id": "gen-dec-1",
+        "model": "typesafe/jev-1.13-20260917",
+        "provider": "TypeSafe",
         "answers": {
-            "needs_retrieval": {"type": "boolean", "probability": retrieve},
-            "recall": {"type": "boolean", "probability": recall},
-            "about_producer": {"type": "boolean", "probability": about_producer},
+            "needs_retrieval": {"type": "noul", "noul": retrieve},
+            "recall": {"type": "noul", "noul": recall},
+            "about_producer": {"type": "noul", "noul": about_producer},
         },
-        "usage": {"inputTokens": 500, "outputTokens": 0},
+        "usage": {"input_tokens": 500, "output_tokens": 0, "cost": 0.00002},
     }
     return JevJudge(
-        "gw-key", "jev", "http://gateway.test/v1",
+        "jev-key", "typesafe/jev-1.13", "http://jev.test/api/v1",
         client(recording(requests, httpx.Response(200, json=body))),
     )
 
@@ -111,12 +114,12 @@ async def test_jev_answers_what_the_turn_needs(
     judge = judge_answering(requests, retrieve, recall, about_producer)
     assert await judge.judge(MANO, [], "那次比赛") == expected
     [request] = requests  # all questions in one call
-    assert request["url"] == "http://gateway.test/v1/evaluate"
-    assert request["auth"] == "Bearer gw-key"
-    assert request["model"] == "jev"
-    assert request["questions"]["needs_retrieval"]["type"] == "boolean"
-    assert request["questions"]["recall"]["type"] == "boolean"
-    assert request["questions"]["about_producer"]["type"] == "boolean"
+    assert request["url"] == "http://jev.test/api/v1/systemone"
+    assert request["auth"] == "Bearer jev-key"
+    assert request["model"] == "typesafe/jev-1.13"
+    for question in request["questions"].values():
+        assert question["type"] == "noul"
+        assert question["criteria"].keys() == {"true", "false"}  # System One wants both
 
 
 async def test_jev_sees_the_latest_messages_and_what_was_just_said():
@@ -133,7 +136,7 @@ async def test_jev_sees_the_latest_messages_and_what_was_just_said():
 
 
 async def test_jev_errors_are_reported():
-    judge = JevJudge("k", "jev", "http://gateway.test/v1",
+    judge = JevJudge("k", "typesafe/jev-1.13", "http://jev.test/api/v1",
                      client(lambda _: httpx.Response(503, text="busy")))
 
     with pytest.raises(JudgeError, match="503"):
@@ -141,8 +144,39 @@ async def test_jev_errors_are_reported():
 
 
 async def test_unparsable_jev_answers_are_reported():
-    judge = JevJudge("k", "jev", "http://gateway.test/v1",
+    judge = JevJudge("k", "typesafe/jev-1.13", "http://jev.test/api/v1",
                      client(lambda _: httpx.Response(200, json={"answers": {}})))
 
     with pytest.raises(JudgeError, match="无法解析"):
         await judge.judge(MANO, [], "在吗")
+
+
+def test_jev_goes_through_openrouter_by_default(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("JEV_MODEL", raising=False)
+    monkeypatch.delenv("JEV_BASE_URL", raising=False)
+    monkeypatch.setenv("JEV_API_KEY", "or-key")
+
+    assert JevSettings.from_env() == JevSettings(
+        "or-key", "typesafe/jev-1.13", "https://openrouter.ai/api/v1"
+    )
+
+
+def test_jev_can_be_reached_elsewhere(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("JEV_API_KEY", "ts-key")
+    monkeypatch.setenv("JEV_MODEL", "jev-1.13.0")
+    monkeypatch.setenv("JEV_BASE_URL", "https://api.typesafe.ai/v1")
+
+    assert JevSettings.from_env() == JevSettings(
+        "ts-key", "jev-1.13.0", "https://api.typesafe.ai/v1"
+    )
+
+
+def test_the_old_gateway_key_alone_stops_the_start(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("JEV_API_KEY", raising=False)
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "gw-key")
+    monkeypatch.setenv("CHAT_LLM_BASE_URL", "http://llm.invalid/v1")
+    monkeypatch.setenv("CHAT_LLM_API_KEY", "chat-key")
+    monkeypatch.setenv("CHAT_LLM_MODEL", "chat-model")
+
+    with pytest.raises(RuntimeError, match="AI_GATEWAY_API_KEY.*JEV_API_KEY"):
+        Settings.from_env()

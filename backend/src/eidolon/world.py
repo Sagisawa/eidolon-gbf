@@ -17,8 +17,8 @@ joining in, each with the releases it is on and when they came or come out, whic
 by the day of the turn, not by the day the data runs to; and her lives: the days of each
 live she stood on or is to stand on, those her CV was absent from left out.
 
-Every song, release and live day is also an entry of the index all characters share
-(`World.entries`, `world_index`), which retrieval searches along with the story and the
+Every song, release and live day is also one of the work facts all characters share
+(`World.entries`, `work_facts`), which retrieval searches along with the story and the
 character's facts. The setlists are only there: every turn carrying them would be far
 too long.
 """
@@ -151,7 +151,7 @@ EntryKind = Literal["song", "release", "live"]
 
 @dataclass(frozen=True)
 class WorldEntry:
-    """An entry of the shared index of songs, releases and live days (`World.entries`)."""
+    """One of the work facts: a song, a release or a live day (`World.entries`)."""
 
     kind: EntryKind
     title: str
@@ -195,10 +195,10 @@ class World:
         return found
 
     def entries(self) -> list[WorldEntry]:
-        """The entries of the shared index retrieval searches: each song with who sings it
-        and the releases it is on, each release with its date and tracks, and each live day
-        with its venue, performers and setlist. No CV is in them, and they do not change with the
-        day: a date after the turn's is told by the prompt of the day, not the entry."""
+        """The work facts retrieval searches: each song with who sings it and the releases
+        it is on, each release with its date and tracks, and each live day with its venue,
+        performers and setlist. No CV is in them, and they do not change with the day: a
+        date after the turn's is told by the prompt of the day, not the entry."""
         releases = {release.catalog: release for release in self.releases}
         found = []
         for song in self.songs:

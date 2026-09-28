@@ -31,7 +31,10 @@ DEFAULT_GEMINI_EMBEDDING_MODEL = "gemini-embedding-2"
 DEFAULT_EMBEDDING_DIMENSIONS = 1536
 EMBEDDING_DIMENSIONS_RANGE = (128, 3072)
 
-DEFAULT_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1"
+DEFAULT_JEV_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_JEV_MODEL = "typesafe/jev-1.13"
+"""Pinned: a new Jev changes which turns retrieve, so moving to one is a choice, checked
+in a real conversation."""
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
@@ -167,7 +170,7 @@ class Settings:
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
-            jev=JevSettings.from_env() if os.environ.get("AI_GATEWAY_API_KEY") else None,
+            jev=_jev_from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
@@ -336,19 +339,36 @@ def _relevance(name: str) -> float | None:
 
 @dataclass(frozen=True)
 class JevSettings:
-    """Jev, reached through Vercel AI Gateway, decides whether a turn needs retrieval."""
+    """Jev decides whether a turn needs retrieval, through TypeSafe's System One endpoint:
+    OpenRouter's by default, or Vercel AI Gateway's (`https://ai-gateway.vercel.sh/typesafe/v1`)
+    or TypeSafe's own (`https://api.typesafe.ai/v1`), which take the same requests."""
 
     api_key: str
-    model: str
-    base_url: str = DEFAULT_AI_GATEWAY_BASE_URL
+    model: str = DEFAULT_JEV_MODEL
+    base_url: str = DEFAULT_JEV_BASE_URL
 
     @classmethod
     def from_env(cls) -> "JevSettings":
         return cls(
-            api_key=_required("AI_GATEWAY_API_KEY"),
-            model=_required("JEV_MODEL"),
-            base_url=os.environ.get("AI_GATEWAY_BASE_URL") or DEFAULT_AI_GATEWAY_BASE_URL,
+            api_key=_required("JEV_API_KEY"),
+            model=os.environ.get("JEV_MODEL") or DEFAULT_JEV_MODEL,
+            base_url=os.environ.get("JEV_BASE_URL") or DEFAULT_JEV_BASE_URL,
         )
+
+
+def _jev_from_env() -> JevSettings | None:
+    """Jev, given its key; without it there is no retrieval, but a key still set under its
+    old name stops the start rather than turn retrieval and memory off without a word."""
+    if os.environ.get("JEV_API_KEY"):
+        return JevSettings.from_env()
+    if os.environ.get("AI_GATEWAY_API_KEY"):
+        raise RuntimeError(
+            "环境变量 AI_GATEWAY_API_KEY 已改名为 JEV_API_KEY（Jev 默认经由 OpenRouter 调用，"
+            "填 OpenRouter 的 key；仍用 Vercel AI Gateway 的话，另设"
+            " JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe/v1，并把 JEV_MODEL 设成 Vercel 的模型名），"
+            "AI_GATEWAY_BASE_URL 也改名为 JEV_BASE_URL"
+        )
+    return None
 
 
 @dataclass(frozen=True)

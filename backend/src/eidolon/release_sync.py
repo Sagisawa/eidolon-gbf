@@ -45,11 +45,13 @@ import html
 import json
 import re
 import unicodedata
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-from eidolon.world import Idol, Release, Song, Track, Unit, WorldSyncError
+from eidolon.roster import Roster, unit_key
+from eidolon.sync_tools import Fetch, without_spaces
+from eidolon.world import Idol, Release, Song, Track, WorldSyncError
 
 LANTIS_URL = "https://shinycolors.lantis.jp/discography/"
 FUJI_API = "https://api.fujiwarahaji.me/v4/"
@@ -58,9 +60,6 @@ FUJI_NAME = "ふじわらはじめ"
 ALL_IDOLS = "シャイニーカラーズ"
 """How the sources name the whole cast, with or without a head count after it: not a
 special unit."""
-
-Fetch = Callable[[str], Awaitable[str]]
-"""Gets a page's text, or raises WorldSyncError."""
 
 _RELEASE_LINK = re.compile(r'href="(https://shinycolors\.lantis\.jp/releaseinfo/[\w-]+/)"')
 _TRACK = re.compile(r"^M?\d+\s*[.．]\s*(.+)$")
@@ -174,19 +173,18 @@ class _Release:
         """The groups whose idols the page lists, by name."""
         groups = {}
         if self.artist_members:
-            groups[_plain(self.artist)] = self.artist_members
+            groups[without_spaces(self.artist)] = self.artist_members
         for track in self.tracks:
             if track.singers_text and track.group_members:
-                groups[_plain(track.singers_text)] = track.group_members
+                groups[without_spaces(track.singers_text)] = track.group_members
         return groups
 
 
 async def import_releases(
-    fetch: Fetch, idols: Sequence[Idol], units: Sequence[Unit],
-    corrections: TrackCorrections | None = None,
+    fetch: Fetch, roster: Roster, corrections: TrackCorrections | None = None,
 ) -> ReleaseImport:
     """The releases and songs as Lantis and ふじわらはじめ have them now, the singers
-    matched to `idols` and `units`, `corrections` applied. Raises WorldSyncError if
+    matched to the idols and units on `roster`, `corrections` applied. Raises WorldSyncError if
     either cannot be read."""
     fan_songs = await _fuji_songs(fetch)
     discography = await fetch(LANTIS_URL)
@@ -200,7 +198,7 @@ async def import_releases(
 
     releases = sorted(await asyncio.gather(*map(page, urls)), key=lambda r: (r.date, r.catalog))
     result = ReleaseImport((), (), notes=notes)
-    singers = _Singers(idols, units)
+    singers = _Singers(roster)
     _resolve_from_lantis(releases, singers)
     fuji = _Fuji(fetch, fan_songs, singers, _listed_groups(releases, singers), notes)
     for release in releases:
@@ -350,23 +348,15 @@ def _text(raw: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", "", raw)).strip()
 
 
-def _plain(name: str) -> str:
-    return re.sub(r"\s", "", name)
-
-
 def _key(text: str) -> str:
-    """A title or name for matching: `（2023 Ver.）` is `(2023Ver.)`, case aside."""
+    """A title for matching: `（2023 Ver.）` is `(2023Ver.)`, case aside."""
     return re.sub(r"[\W_]", "", unicodedata.normalize("NFKC", text)).casefold()
 
 
 def _whole_cast(name: str) -> bool:
     """Whether `name` is the whole cast rather than a special unit: シャイニーカラーズ, with
     or without a head count after it (シャイニーカラーズ(28人), (25人・新))."""
-    return re.sub(r"[（(][^（()）]*[)）]$", "", _plain(name)) == ALL_IDOLS
-
-
-def _hiragana(text: str) -> str:
-    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text)
+    return re.sub(r"[（(][^（()）]*[)）]$", "", without_spaces(name)) == ALL_IDOLS
 
 
 def _split(text: str, separators: str = "、/／×,，") -> list[str]:
@@ -386,32 +376,22 @@ def _split(text: str, separators: str = "、/／×,，") -> list[str]:
 class _Singers:
     """Tells which idols a singer the sources name stands for."""
 
-    def __init__(self, idols: Sequence[Idol], units: Sequence[Unit]) -> None:
-        self._idols = {idol.name for idol in idols}
-        self._by_cv = {_plain(idol.cv): idol.name for idol in idols if idol.cv}
-        self._units: dict[str, tuple[str, ...]] = {}
-        for unit in units:
-            self._units[_key(unit.name)] = unit.members
-            if unit.reading:
-                self._units[_key(unit.reading)] = unit.members
+    def __init__(self, roster: Roster) -> None:
+        self._roster = roster
 
     def idol(self, name: str) -> str | None:
         """The idol a person named so is: by her name, or by her CV's in brackets."""
         match = re.match(r"^(.*?)\s*[（(]\s*CV\s*[.．:：]?\s*(.*?)\s*[)）]$", name)
         person, cv = (match.group(1), match.group(2)) if match else (name, None)
-        person = re.sub(r"[（(][^（()）]*[)）]$", "", _plain(person))  # 三峰結華（初代）
-        if person in self._idols:
-            return person
-        return self._by_cv.get(_plain(cv)) if cv else None
+        return self._roster.idol(person, cv)
 
     def one(self, name: str, groups: dict[str, str]) -> tuple[list[str], str | None] | None:
         """The idols `name` stands for, and the special unit it is, if it is one."""
         if idol := self.idol(name):
             return [idol], None
-        members = self._units.get(_key(_hiragana(name))) or self._units.get(_key(name))
-        if members:
-            return list(members), None
-        if (listed := groups.get(_plain(name))) is not None:
+        if unit := self._roster.unit(name):
+            return list(unit.members), None
+        if (listed := groups.get(without_spaces(name))) is not None:
             resolved = self.several(listed, {})
             if resolved and not resolved[2]:
                 return resolved[0], None if _whole_cast(name) else name.strip()
@@ -419,7 +399,7 @@ class _Singers:
 
     def is_unit_or_idol(self, names: Sequence[str]) -> bool:
         """Whether `names` are one idol, or exactly the members of one of the units."""
-        return len(names) == 1 or any(set(names) == set(m) for m in self._units.values())
+        return len(names) == 1 or any(set(names) == set(u.members) for u in self._roster.units)
 
     def several(self, text: str, groups: dict[str, str]) -> tuple[list[str], str | None, list[str]]:
         """The idols everyone `text` names stands for, the special unit among them, and
@@ -509,9 +489,9 @@ def _resolve_from_lantis(releases: list[_Release], singers: _Singers) -> None:
 
 def _listed_groups(releases: Iterable[_Release], singers: _Singers) -> set[str]:
     """The groups some release's page lists the idols of (Team.Stella under an アーティスト
-    line), as `_key`s: Lantis's word that they are groups of idols."""
+    line), as `unit_key`s: Lantis's word that they are groups of idols."""
     return {
-        _key(name) for release in releases for name, listed in release.groups.items()
+        unit_key(name) for release in releases for name, listed in release.groups.items()
         if not singers.several(listed, {})[2]
     }
 
@@ -567,7 +547,7 @@ class _Fuji:
         self._songs = songs
         self._singers = singers
         self._groups = groups
-        """The groups Lantis lists the idols of somewhere, as `_key`s."""
+        """The groups Lantis lists the idols of somewhere, as `unit_key`s."""
         self._notes = notes
         self._json: dict[str, dict] = {}
 
@@ -678,9 +658,9 @@ class _Fuji:
         group, whose idols ふじわらはじめ may then tell: the whole cast, one Lantis lists
         the idols of on some page, or one ふじわらはじめ names too. And whether every idol
         Lantis does name is among ふじわらはじめ's singers."""
-        groups = self._groups | {_key(unit) for unit in fan.units}
+        groups = self._groups | {unit_key(unit) for unit in fan.units}
         return (
-            all(_whole_cast(b) or _key(b) in groups for b in track.bad)
+            all(_whole_cast(b) or unit_key(b) in groups for b in track.bad)
             and set(track.named) <= set(fan.singers)
         )
 

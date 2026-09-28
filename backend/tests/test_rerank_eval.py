@@ -1,6 +1,7 @@
 """`eidolon eval rerank`: the calibration set's questions are run through the same
-candidates and reranking as a turn, and the scores the reranker gives what is labelled
-relevant and what is not are laid side by side, against the model's thresholds."""
+reference sources, candidates and reranking as a turn (the story, the character's facts
+and the work facts together), and the scores the reranker gives what is labelled relevant
+and what is not are laid side by side, against the model's thresholds."""
 
 import asyncio
 from collections.abc import Sequence
@@ -9,8 +10,7 @@ from pathlib import Path
 import pytest
 
 from eidolon.characters import load_characters
-from eidolon.corpus import Episode, Line, StoryCorpus
-from eidolon.facts import FactIndex
+from eidolon.corpus import Episode, Line
 from eidolon.rerank import RerankThresholds
 from eidolon.rerank_eval import (
     CalibrationError,
@@ -18,8 +18,11 @@ from eidolon.rerank_eval import (
     load_calibration,
     report,
 )
+from eidolon.retrieval import open_reference_sources
+from eidolon.world import World, load_world, world_path
 from tests.conftest import Admin, CharacterConfig
-from tests.fakes import FakeEmbedder
+from tests.fakes import FakeEmbedder, KeywordReranker
+from tests.test_world_setting import write_world
 
 REPO = Path(__file__).parents[2]
 
@@ -68,23 +71,19 @@ relevant = ["cat"]
 """
 
 
-class KeywordReranker:
-    """Scores each document by the first of its keywords it contains, others `rest`."""
+HIKARI = "歌曲「ヒカリのdestination」"
+WING_02 = "唱片《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 02 ヒカリのdestination》（LACM-14782）"
+WING_A = "唱片《THE IDOLM@STER SHINY COLORS WING COLLECTION -A side-》（LACA-9946～7）"
 
-    model = "fake-reranker"
-
-    def __init__(self, scores: dict[str, float], rest: float = 0.05) -> None:
-        self.scores = scores
-        self.rest = rest
-
-    async def rerank(
-        self, query: str, documents: Sequence[str], top_n: int
-    ) -> list[tuple[int, float]]:
-        scored = [
-            (i, next((s for k, s in self.scores.items() if k in d), self.rest))
-            for i, d in enumerate(documents)
-        ]
-        return sorted(scored, key=lambda r: -r[1])[:top_n]
+WORK_CASE = f"""
+[[cases]]
+id = "hikari"
+character = "mano"
+kind = "work"
+query = "ヒカリのdestinationって誰が歌ってる？"
+relevant = ["{HIKARI}"]
+acceptable = ["{WING_02}"]
+"""
 
 
 @pytest.fixture
@@ -94,21 +93,21 @@ def world(tmp_path: Path):
     config.add("kogane", "月岡恋鐘", "sheet", speakers=["恋鐘"])
     calibration = tmp_path / "calibration.toml"
     calibration.write_text(CALIBRATION, encoding="utf-8")
-    embedder = FakeEmbedder()
-    corpus = StoryCorpus(tmp_path / "eidolon.db", embedder)
-    facts = FactIndex(tmp_path / "eidolon.db", embedder)
-    yield load_characters(config.path), calibration, embedder, corpus, facts
-    corpus.close()
-    facts.close()
+    characters = load_characters(config.path)
+    sources = open_reference_sources(
+        tmp_path / "eidolon.db", FakeEmbedder(), characters.values(), None
+    )
+    yield characters, calibration, sources
+    sources.close()
 
 
 async def test_each_candidate_is_scored_and_labelled(world):
-    characters, calibration, embedder, corpus, facts = world
-    await corpus.save([PARK, FINAL])
+    characters, calibration, sources = world
+    await sources.corpus.save([PARK, FINAL])
     reranker = KeywordReranker({"鳩": 0.9, "ピーちゃん": 0.4, "猫": 0.02})
 
     park, smalltalk, cat = await evaluate(
-        load_calibration(calibration), characters, embedder, reranker, corpus, facts
+        load_calibration(calibration), characters, reranker, sources
     )
 
     assert {(s.label, s.score, s.verdict) for s in park.scored} == {
@@ -126,17 +125,54 @@ async def test_each_candidate_is_scored_and_labelled(world):
     }
 
 
+@pytest.fixture
+def work(world, tmp_path: Path):
+    """`write_world`'s data file, and the reference sources with its work facts."""
+    characters, _, sources = world
+    config = CharacterConfig(tmp_path / "characters")
+    write_world(config)
+    data = load_world(world_path(config.path))
+    assert data is not None
+    with_work = open_reference_sources(
+        tmp_path / "eidolon.db", sources.embedder, characters.values(), data
+    )
+    yield data, with_work
+    with_work.close()
+
+
+def with_work_case(calibration: Path, data: World):
+    calibration.write_text(CALIBRATION + WORK_CASE, encoding="utf-8")
+    return load_calibration(calibration, data)
+
+
+async def test_work_facts_are_labelled_by_their_titles(world, work):
+    characters, calibration, sources = world
+    data, sources = work
+    await sources.corpus.save([PARK, FINAL])
+    reranker = KeywordReranker({HIKARI: 0.8, "唱片《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 02": 0.5})
+
+    *_, hikari = await evaluate(
+        with_work_case(calibration, data), characters, reranker, sources
+    )
+
+    verdicts = {s.label: (s.score, s.verdict) for s in hikari.scored}
+    assert verdicts[HIKARI] == (0.8, "relevant")
+    assert verdicts[WING_02] == (0.5, "acceptable")
+    assert verdicts[WING_A] == (0.05, "irrelevant")
+    assert hikari.not_retrieved == []
+
+
 async def test_an_episode_scores_as_its_best_passage(world):
-    characters, calibration, embedder, corpus, facts = world
+    characters, calibration, sources = world
     long_final = Episode(
         FINAL.id, FINAL.category, FINAL.source, FINAL.title, FINAL.cast,
         tuple(Line("真乃", "あ" * 700) for _ in range(3)) + (Line("真乃", "鳩"),),
     )
-    await corpus.save([long_final])
+    await sources.corpus.save([long_final])
     reranker = KeywordReranker({"鳩": 0.7})
 
     [park, *_] = await evaluate(
-        load_calibration(calibration), characters, embedder, reranker, corpus, facts
+        load_calibration(calibration), characters, reranker, sources
     )
 
     [final] = [s for s in park.scored if s.label == FINAL.id]
@@ -144,11 +180,11 @@ async def test_an_episode_scores_as_its_best_passage(world):
 
 
 async def test_the_report_sets_relevant_against_irrelevant_at_the_thresholds(world):
-    characters, calibration, embedder, corpus, facts = world
-    await corpus.save([PARK, FINAL])
+    characters, calibration, sources = world
+    await sources.corpus.save([PARK, FINAL])
     reranker = KeywordReranker({"鳩": 0.9, "ピーちゃん": 0.4, "猫": 0.02})
     results = await evaluate(
-        load_calibration(calibration), characters, embedder, reranker, corpus, facts
+        load_calibration(calibration), characters, reranker, sources
     )
 
     text = report(results, "fake-reranker", RerankThresholds(references=0.3, memories=0.01))
@@ -162,11 +198,31 @@ async def test_the_report_sets_relevant_against_irrelevant_at_the_thresholds(wor
     assert "park：produce_events/100100999" in text
 
 
+async def test_the_report_puts_work_facts_among_the_references(world, work):
+    characters, calibration, sources = world
+    data, sources = work
+    await sources.corpus.save([PARK, FINAL])
+    reranker = KeywordReranker({"鳩": 0.9, HIKARI: 0.8, "猫": 0.02})
+    results = await evaluate(
+        with_work_case(calibration, data), characters, reranker, sources
+    )
+
+    text = report(results, "fake-reranker", RerankThresholds(references=0.3, memories=0.01))
+
+    # The story, the character's facts and the work facts share the references' threshold.
+    assert "## 参考资料（3 条问题）" in text
+    assert "阈值 0.3：相关命中 2/2，" in text
+    assert "## 记忆（1 条问题）" in text
+    assert "剧情与角色资料" not in text
+    assert "hikari（work）ヒカリのdestinationって誰が歌ってる？" in text
+    assert f"  + 0.8000 {HIKARI}" in text
+
+
 @pytest.mark.parametrize(
     "broken, complaint",
     [
         ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "chat"\nquery = "q"\nrelevant = []\n',
-         "kind"),
+         "kind 只能是 story、facts、work、memory，而不是 chat"),
         ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "memory"\nquery = "q"\n'
          'relevant = ["dog"]\n', "dog"),
         ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "story"\nrelevant = []\n', "query"),
@@ -181,16 +237,58 @@ def test_a_broken_calibration_file_is_reported(tmp_path: Path, broken: str, comp
         load_calibration(path)
 
 
+def test_a_work_fact_question_names_only_work_facts_in_the_data_file(
+    tmp_path: Path, work
+):
+    data, _ = work
+    path = tmp_path / "calibration.toml"
+    path.write_text(
+        WORK_CASE.replace("acceptable = [", 'acceptable = ["歌曲「ヒカリのdestinatoin」", '),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CalibrationError, match="hikari.*歌曲「ヒカリのdestinatoin」"):
+        load_calibration(path, data)
+    # Without a data file there are no work facts to name.
+    with pytest.raises(CalibrationError, match="hikari.*world.json"):
+        load_calibration(path)
+
+
+def test_any_question_names_only_work_facts_in_the_data_file(tmp_path: Path, work):
+    data, _ = work
+    path = tmp_path / "calibration.toml"
+    # The work facts are reranked with the story, so a story question may name them too.
+    path.write_text(
+        CALIBRATION.replace('acceptable = ["鸟 / ピーちゃん"]',
+                            'acceptable = ["鸟 / ピーちゃん", "歌曲「ヒカリのdestinatoin」"]'),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CalibrationError, match="park.*歌曲「ヒカリのdestinatoin」"):
+        load_calibration(path, data)
+    with pytest.raises(CalibrationError, match="park.*world.json"):
+        load_calibration(path)
+    path.write_text(
+        CALIBRATION.replace('acceptable = ["鸟 / ピーちゃん"]', f'acceptable = ["{HIKARI}"]'),
+        encoding="utf-8",
+    )
+    assert load_calibration(path, data).cases[0].acceptable == (HIKARI,)
+
+
 def test_the_committed_calibration_set_names_only_facts_the_characters_have():
-    calibration = load_calibration(REPO / "backend" / "eval" / "rerank-calibration.toml")
-    characters = load_characters(REPO / "characters" / "characters.toml")
+    config = REPO / "characters" / "characters.toml"
+    # Its work-fact questions are checked against the committed data file as it loads.
+    calibration = load_calibration(
+        REPO / "backend" / "eval" / "rerank-calibration.toml", load_world(world_path(config))
+    )
+    characters = load_characters(config)
 
     titles = {f.title for c in characters.values() for f in c.facts}
     named = {
         label
         for case in calibration.cases
         for label in case.relevant + case.acceptable
-        if " / " in label and case.kind != "memory"
+        if " / " in label and case.kind in ("story", "facts")
     }
     assert named <= titles, named - titles
     assert {case.character for case in calibration.cases} <= characters.keys()
@@ -226,11 +324,26 @@ def test_the_command_needs_the_reranker(
     assert "SILICONFLOW_API_KEY" in err
 
 
+def test_the_command_checks_work_fact_questions_against_the_data_file(
+    world, work, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    _, calibration, _ = world
+    calibration.write_text(WORK_CASE.replace(HIKARI, "歌曲「ヒカリのdestinatoin」"), encoding="utf-8")
+    admin = Admin(tmp_path / "eidolon.db", capsys)
+
+    err = admin.fails(
+        "eval", "rerank", "--file", str(calibration),
+        "--characters", str(tmp_path / "characters" / "characters.toml"),
+    )
+
+    assert "问题 hikari 引用了 world.json 里没有的作品资料 歌曲「ヒカリのdestinatoin」" in err
+
+
 def test_the_command_prints_the_report_for_the_model_asked_for(
     world, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ):
-    characters, calibration, _, corpus, _ = world
-    asyncio.run(corpus.save([PARK, FINAL]))
+    _, calibration, sources = world
+    asyncio.run(sources.corpus.save([PARK, FINAL]))
     monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
     monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
     monkeypatch.delenv("RERANK_MIN_RELEVANCE", raising=False)

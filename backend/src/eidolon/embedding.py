@@ -46,6 +46,32 @@ class Embedder(Protocol):
     async def embed_query(self, text: str) -> list[float]: ...
 
 
+class Reembeddable(Protocol):
+    """What `eidolon reembed` embeds again after the embedding service, model or dimensions
+    change (ADR-0005): the story corpus, the character facts, the work facts and the
+    memories, each embedding with the embedder it was opened with."""
+
+    @property
+    def label(self) -> str:
+        """What it is called in `eidolon reembed`'s log and report."""
+        ...
+
+    @property
+    def unit(self) -> str:
+        """What its count is counted in."""
+        ...
+
+    async def embed_missing(self, batch: int, progress: Callable[[int], None]) -> int:
+        """Embed whatever has no vector from its embedder yet, `batch` at a time, each
+        committed, telling `progress` the count so far as it goes; returns how many it
+        embedded."""
+        ...
+
+    def forget_other_models(self) -> int:
+        """Drop the vectors not from its embedder; returns how many there were."""
+        ...
+
+
 class ClosableEmbedder(Embedder, Protocol):
     async def aclose(self) -> None: ...
 

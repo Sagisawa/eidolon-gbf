@@ -1,17 +1,19 @@
 """Calibrating the reranker's thresholds (`eidolon eval rerank`) against a small labelled
 set of questions committed with the code (`eval/rerank-calibration.toml`).
 
-Each question is run as a turn would: story and character-fact questions through the
-same candidates and reranking as retrieval (`rank_references`), memory questions through
-the nearest of the set's sample memories, which are embedded for the run and never
-stored. Each candidate the reranker scores is labelled relevant, acceptable (either way
-is fine, so left out of the counts) or irrelevant; an episode scores as its best passage.
-The report sets the scores of the relevant against those of the irrelevant, and counts
-what a threshold would let in. A relevant candidate the vector search never offered is
-listed apart: that is a recall problem no threshold fixes.
+Each question is run as a turn would: story, character-fact and work-fact questions
+through the same reference sources, candidates and reranking as retrieval
+(`ReferenceSources.rank`: the story, the character's facts and the work facts reranked
+together), memory questions through the nearest of the set's sample memories, which are
+embedded for the run and never stored. Each candidate the reranker scores is labelled
+relevant, acceptable (either way is fine, so left out of the counts) or irrelevant; an
+episode scores as its best passage. The report sets the scores of the relevant against
+those of the irrelevant, for the references (under their threshold) and the memories
+(under theirs), and counts what a threshold would let in. A relevant candidate the vector search never offered is listed
+apart: that is a recall problem no threshold fixes.
 
-The set holds questions, episode identifiers, fact titles and labels, never story text,
-so it can be committed (ADR-0003).
+The set holds questions, episode identifiers, fact and work-fact titles and labels, never
+story text, so it can be committed (ADR-0003).
 """
 
 import tomllib
@@ -23,15 +25,13 @@ from typing import Literal, get_args
 import numpy as np
 
 from eidolon.characters import Character
-from eidolon.corpus import StoryCorpus
-from eidolon.embedding import Document, Embedder, nearest, to_blob
-from eidolon.facts import FactIndex
+from eidolon.embedding import Document, nearest, to_blob
 from eidolon.memory import CANDIDATES
 from eidolon.rerank import Reranker, RerankThresholds
-from eidolon.retrieval import rank_references
-from eidolon.world_index import WorldIndex
+from eidolon.retrieval import ReferenceSources
+from eidolon.world import World
 
-CaseKind = Literal["story", "facts", "memory"]
+CaseKind = Literal["story", "facts", "work", "memory"]
 Verdict = Literal["relevant", "acceptable", "irrelevant"]
 
 
@@ -57,7 +57,8 @@ class Case:
     kind: CaseKind
     query: str
     relevant: tuple[str, ...]
-    """Episode identifiers and fact titles, or for a memory question, memory keys."""
+    """Episode identifiers and fact titles, for a work-fact question the titles of the
+    work facts, or for a memory question, memory keys."""
     acceptable: tuple[str, ...] = ()
 
 
@@ -70,7 +71,7 @@ class Calibration:
 @dataclass(frozen=True)
 class Scored:
     label: str
-    """The episode's identifier, the fact's title, or the memory's key."""
+    """The episode's identifier, the fact's or work fact's title, or the memory's key."""
     score: float
     verdict: Verdict
 
@@ -84,7 +85,9 @@ class CaseResult:
     """What is labelled relevant but was never a candidate."""
 
 
-def load_calibration(path: Path) -> Calibration:
+def load_calibration(path: Path, world: World | None = None) -> Calibration:
+    """The set at `path`. The work facts any question names must be among `world`'s
+    entries (the work facts), so the set is checked against the data file it is run with."""
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -97,12 +100,15 @@ def load_calibration(path: Path) -> Calibration:
         for m in data.get("memories", [])
     )
     keys = {m.key for m in memories}
+    titles = {e.title for e in world.entries()} if world else set()
     cases: list[Case] = []
     for entry in data.get("cases", []):
         case_id = _text(entry, "id", "cases")
         kind = entry.get("kind")
         if kind not in get_args(CaseKind):
-            raise CalibrationError(f"问题 {case_id} 的 kind 只能是 story、facts、memory，而不是 {kind}")
+            raise CalibrationError(
+                f"问题 {case_id} 的 kind 只能是 story、facts、work、memory，而不是 {kind}"
+            )
         case = Case(
             case_id,
             _text(entry, "character", case_id),
@@ -113,10 +119,30 @@ def load_calibration(path: Path) -> Calibration:
         )
         if kind == "memory" and (unknown := set(case.relevant + case.acceptable) - keys):
             raise CalibrationError(f"问题 {case_id} 引用了不存在的示例记忆 {'、'.join(sorted(unknown))}")
+        # The work facts are reranked with the story and the character facts, so any
+        # reference question may name them; a work-fact question names nothing else.
+        named = {
+            label
+            for label in case.relevant + case.acceptable
+            if kind == "work" or (kind != "memory" and label.startswith(_WORK_TITLES))
+        }
+        if named:
+            if world is None:
+                raise CalibrationError(
+                    f"问题 {case_id} 引用了作品资料，但没有作品资料（world.json）"
+                )
+            if unknown := named - titles:
+                raise CalibrationError(
+                    f"问题 {case_id} 引用了 world.json 里没有的作品资料 {'、'.join(sorted(unknown))}"
+                )
         if any(c.id == case_id for c in cases):
             raise CalibrationError(f"问题 {case_id} 重复")
         cases.append(case)
     return Calibration(memories, tuple(cases))
+
+
+_WORK_TITLES = ("歌曲「", "唱片《", "演出「")
+"""How the work facts' titles begin (`World.entries`): a song, a release, a live day."""
 
 
 def _text(entry: dict, field: str, where: str) -> str:
@@ -136,14 +162,12 @@ def _labels(entry: dict, field: str, case_id: str, required: bool = False) -> tu
 async def evaluate(
     calibration: Calibration,
     characters: Mapping[str, Character],
-    embedder: Embedder,
     reranker: Reranker,
-    corpus: StoryCorpus,
-    facts: FactIndex,
-    world: WorldIndex | None = None,
+    sources: ReferenceSources,
 ) -> list[CaseResult]:
-    """Score each question's candidates, as a turn would find and rerank them (the shared
-    index of songs, releases and live days among them, given `world`)."""
+    """Score each question's candidates, as a turn would find them in `sources` and
+    rerank them; the memory questions' embedded with the sources' embedder."""
+    embedder = sources.embedder
     if unknown := {c.character for c in calibration.cases} - characters.keys():
         raise CalibrationError(f"角色配置里没有 {'、'.join(sorted(unknown))}")
     memory_vectors = (
@@ -170,10 +194,7 @@ async def evaluate(
             )
             scores = {near[i].key: score for i, score in best}
         else:
-            ranked = await rank_references(
-                embedder, corpus, facts, reranker, characters[case.character], case.query,
-                world,
-            )
+            ranked = await sources.rank(reranker, characters[case.character], case.query)
             scores: dict[str, float] = {}
             for reference, score in ranked:  # an episode scores as its best passage
                 scores[reference.origin] = max(score, scores.get(reference.origin, 0.0))
@@ -193,11 +214,12 @@ def _verdict(case: Case, label: str) -> Verdict:
 
 
 def report(results: Sequence[CaseResult], model: str, thresholds: RerankThresholds) -> str:
-    """The scores of relevant and irrelevant candidates, for references and for memories,
-    what each threshold lets in, and each question's candidates."""
+    """The scores of relevant and irrelevant candidates, for references (the story, the
+    character facts and the work facts, reranked together as a turn does) and for
+    memories, what each threshold lets in, and each question's candidates."""
     lines = [f"重排模型：{model}"]
     groups = [
-        ("剧情与角色资料", [r for r in results if r.case.kind != "memory"], thresholds.references),
+        ("参考资料", [r for r in results if r.case.kind != "memory"], thresholds.references),
         ("记忆", [r for r in results if r.case.kind == "memory"], thresholds.memories),
     ]
     for title, group, threshold in groups:

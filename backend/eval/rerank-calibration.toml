@@ -1,8 +1,9 @@
 # 重排校准数据集（issues/03：比较 Qwen3-Reranker-0.6B 与 4B，定出检索阈值和记忆阈值）
 #
 # 用法：`eidolon eval rerank [--model 模型名]` 读这份文件，对每条问题按对话中相同的方式取候选
-# （剧情库 + 角色资料各取 CANDIDATES_PER_SOURCE 条；记忆取 CANDIDATES 条）并重排，
-# 按「相关 / 不相关」分组打印分数分布。
+# （剧情库、角色资料、作品资料各取 CANDIDATES_PER_SOURCE 条；记忆取 CANDIDATES 条）
+# 并重排，分「参考资料」（剧情、角色资料、作品资料，用 references 阈值）和「记忆」（用 memories
+# 阈值）两组，按「相关 / 不相关」打印分数分布。
 #
 # 格式：
 #
@@ -15,9 +16,9 @@
 #   [[cases]]
 #   id = "mano-story-birds"          # 唯一，kebab-case
 #   character = "mano"
-#   kind = "story"                    # story | facts | memory
+#   kind = "story"                    # story | facts | work | memory
 #   query = "……"                      # 制作人说的原话，口语
-#   relevant = ["produce_events/…"]   # story: 剧情编号；facts: 资料标题路径；memory: 记忆 key
+#   relevant = ["produce_events/…"]   # story: 剧情编号；facts: 资料标题路径；work: 作品资料标题；memory: 记忆 key
 #   acceptable = []                   # 放进提示词也可以、不放也可以的，不计入统计（可省略）
 #   note = "为什么这些相关；容易混淆的是哪几段"
 #   reviewed = false                  # 人工校对过改成 true
@@ -26,10 +27,14 @@
 # - 进入候选、但既不在 relevant 也不在 acceptable 里的，一律算「不相关」。
 # - 剧情按「段」（剧情编号）判断相关与否：一段剧情的分数取它得分最高的那个段落的重排分数。
 # - relevant = [] 表示这句话什么都不该放进提示词（闲聊、剧情库里没有的话题）。
-# - story 类问题的候选里也会混有角色资料（对话中两者一起重排），反之亦然；
-#   relevant / acceptable 可以同时写剧情编号和资料标题路径。
+# - story 类问题的候选里也会混有角色资料和作品资料（对话中三者一起重排），反之亦然；
+#   story、facts 类问题的 relevant / acceptable 可以同时写剧情编号、资料标题路径和作品资料标题。
+# - work 类问题的 relevant / acceptable 只能写作品资料标题：characters/world.json 生成的条目标题，
+#   即 歌曲「曲名」、唱片《唱片名》（编号）、演出「演出名」和日期（如 演出「…」2024年3月2日）。
+#   不论哪类问题，写的作品资料标题在 world.json 里找不到时 eval rerank 都报错；重新 world sync
+#   改了标题，这里要跟着改。
 # - 角色只能回忆自己出场过的剧情，这里用到的剧情都确认她是出场角色。只取成功路线（正式经历）。
-# - 本文件只含问题、剧情编号、资料标题和标注，不含剧情原文（ADR-0003），可以提交。
+# - 本文件只含问题、剧情编号、资料标题、作品资料标题和标注，不含剧情原文（ADR-0003），可以提交。
 # - 剧情编号来自 SCTranslationData 各 CSV 的 info 行（与 story_import 的来源标识一致）。
 # - 资料标题是 characters/facts/<角色标识>.md 解析出的标题路径（「上级标题 / 本级标题」）；
 #   改了资料文件的标题，这里要跟着改。
@@ -572,4 +577,78 @@ kind = "facts"
 query = "这周被报表折磨疯了，Excel 的公式怎么都对不上。"
 relevant = []
 note = "工作吐槽，剧情库和资料里都没有 Excel / 报表相关内容。可能被误放的：真乃的档案（学校、兴趣）、W.I.N.G. 里制作人工作繁忙的片段。"
+reviewed = true
+
+# ---------------------------------------------------------------------------
+# 作品资料（work：歌曲、唱片、演出日各 2 条；标签是 characters/world.json 生成的条目标题）
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "mano-work-song-arittake"
+character = "mano"
+kind = "work"
+query = "「ありったけの輝きで」是你一个人唱的歌吧？收在哪张 CD 里来着？"
+relevant = ["歌曲「ありったけの輝きで」"]
+acceptable = ["唱片《THE IDOLM@STER SHINY COLORS COLORFUL FE@THERS -Stella-》（LACA-15861）"]
+note = "歌曲条目写了演唱（櫻木真乃）和收录唱片，两问都能答。-Stella- 的唱片条目只列曲目、不写谁唱，算可放可不放。容易混淆的：同一张唱片里的其他歌、-Luna- / -Sol-、HOPEFUL FE@THERS -Stella-。"
+reviewed = true
+
+[[cases]]
+id = "kogane-work-song-genwaku"
+character = "kogane"
+kind = "work"
+query = "「幻惑SILHOUETTE」是我们 L'Antica 五个人一起唱的歌对吧？"
+relevant = ["歌曲「幻惑SILHOUETTE」"]
+acceptable = [
+  "歌曲「幻惑SILHOUETTE（月岡恋鐘Ver.）」",
+  "歌曲「幻惑SILHOUETTE（2023 Ver.）」",
+  "唱片《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 03 バベルシティ・グレイス》（LACM-14783）",
+]
+note = "原版的歌曲条目写着 L'Antica 五人演唱。恋鐘的个人版、2023 Ver.（也是五人）和首发唱片顺带提起也自然，算可放可不放。其他成员的个人版（摩美々、咲耶、結華、霧子 Ver.）不回答这个问题，算不相关。"
+reviewed = true
+
+[[cases]]
+id = "kogane-work-release-wing03"
+character = "kogane"
+kind = "work"
+query = "L'Antica 的第一张 CD 是什么时候发售的？"
+relevant = ["唱片《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 03 バベルシティ・グレイス》（LACM-14783）"]
+acceptable = [
+  "歌曲「バベルシティ・グレイス」",
+  "歌曲「幻惑SILHOUETTE」",
+  "歌曲「Spread the Wings!!（アンティーカ Ver.）」",
+]
+note = "BRILLI@NT WING 03（2018年8月1日）是 L'Antica 的第一张。收在里面的三首歌，歌曲条目都写着「收录于 BRILLI@NT WING 03（2018年8月1日发售）」，也能答，算可放可不放。容易混淆的：FR@GMENT WING 03、GR@DATE WING 03 等后来的 WING 03，BRILLI@NT WING 01 / 02。"
+reviewed = true
+
+[[cases]]
+id = "mano-work-release-stella"
+character = "mano"
+kind = "work"
+query = "COLORFUL FE@THERS -Stella- 那张专辑里都收了哪些歌？"
+relevant = ["唱片《THE IDOLM@STER SHINY COLORS COLORFUL FE@THERS -Stella-》（LACA-15861）"]
+acceptable = ["歌曲「ありったけの輝きで」", "歌曲「プラニスフィア ～planisphere～」"]
+note = "唱片条目列了全部 8 首曲目。收在里面的单曲条目只各回答一首，算可放可不放（只列了真乃唱的那首和开头那首）。容易混淆的：-Luna- / -Sol-、HOPEFUL FE@THERS -Stella-（2026 年的同名系列）。"
+reviewed = true
+
+[[cases]]
+id = "mano-work-live-1st"
+character = "mano"
+kind = "work"
+query = "第一次 1stLIVE 是在哪个会场办的来着？"
+relevant = [
+  "演出「THE IDOLM@STER SHINY COLORS 1stLIVE」2019年3月9日",
+  "演出「THE IDOLM@STER SHINY COLORS 1stLIVE」2019年3月10日",
+]
+note = "1stLIVE 两天都在舞浜アンフィシアター，两个演出日的条目都能答。容易混淆的：2ndLIVE、3rd LIVE TOUR 各站、4th 以后的演出。"
+reviewed = true
+
+[[cases]]
+id = "kogane-work-live-wagamama"
+character = "kogane"
+kind = "work"
+query = "「我儘なまま」第二天，恋鐘都唱了哪些歌？"
+relevant = ["演出「283PRODUCTION SOLO PERFORMANCE LIVE「我儘なまま」」2023年7月23日"]
+acceptable = ["演出「283PRODUCTION SOLO PERFORMANCE LIVE「我儘なまま」」2023年7月22日"]
+note = "第二天（2023年7月23日）的曲目单里恋鐘唱了「アポイント・シグナル」和「Killer×Mission」。第一天的曲目单不同，但问的是同一场演出，算可放可不放。容易混淆的：5thLIVE、6thLIVE 等其他恋鐘出演的演出日。"
 reviewed = true
