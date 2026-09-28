@@ -27,9 +27,9 @@ from pipecat.processors.frameworks.rtvi.frames import (
 from pipecat.tests.utils import SleepFrame, run_test
 
 from eidolon import call as call_module
+from eidolon.assembly import build
 from eidolon.call import Call, CallLimits, CallTurns
 from eidolon.call_outcome import CallOutcome
-from eidolon.assembly import build
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Store
@@ -103,7 +103,6 @@ class CallUnderTest:
             outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt)
             turns = CallTurns(backend.engine, call, outcome, limits)
             if connected:
-                outcome.connected()
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)
         finally:

@@ -44,7 +44,8 @@ class CallOutcome:
         self._exempt = exempt
         self._connected = False
         self._recorded = 0
-        self._kept: bool | None = None  # decided when the browser is told why the call ended
+        self._told = False  # the browser has been told why the call ended
+        self._failed_to_connect = False  # a service failed before any turn (「接通」)
         self._settled = False
 
     def set_up_failed(self) -> dict | None:
@@ -69,36 +70,38 @@ class CallOutcome:
         really connected and is given back. A failing own key is theirs to fix, so they are
         told which. Before the call connects there is no one to tell: the browser learns
         the call is over as its connection closes."""
-        if not self._connected:
+        if not self._connected or self._told:
             return None
-        kept = self._recorded > 0
+        self._failed_to_connect = self._recorded == 0
         if own_service is not None:
             message = OwnKeyFailed(own_service, "通话已结束").message
-            return self._end("own_key", message, kept)
-        if not kept:
-            return self._end("not_connected", "语音服务出了故障，通话没能接通", kept)
-        return self._end("dropped", "语音服务出了故障，通话中断了", kept)
+            return self._tell("own_key", message)
+        if self._failed_to_connect:
+            return self._tell("not_connected", "语音服务出了故障，通话没能接通")
+        return self._tell("dropped", "语音服务出了故障，通话中断了")
 
     def limit_reached(self, reason: EndReason, why: str) -> dict | None:
         """The call reached its time or its turn limit (`reason`), as `why` says; it was
         connected, so it is kept."""
-        return self._end(reason, f"{why}，先挂断啦。想接着聊可以重新拨打。", True)
+        if self._told:
+            return None
+        return self._tell(reason, f"{why}，先挂断啦。想接着聊可以重新拨打。")
 
     def settle(self) -> dict | None:
         """The call is over, however it ended: keep it or give it back, once."""
         self._settle()
         return None
 
-    def _end(self, reason: EndReason, message: str, kept: bool) -> dict | None:
-        """The `ended` message, unless the browser was already told why the call ended."""
-        if self._kept is not None:
-            return None
-        self._kept = kept
-        return ended(reason, message, kept and not self._exempt)
+    def _tell(self, reason: EndReason, message: str) -> dict:
+        """The `ended` message telling the browser why the call ended and, from what has
+        happened to it so far, whether it counts; nothing after this changes that."""
+        self._told = True
+        counts = not (self._failed_to_connect or self._exempt)
+        return ended(reason, message, counts)
 
     def _settle(self) -> None:
         if self._settled:
             return
         self._settled = True
-        if not self._connected or self._kept is False:
+        if not self._connected or self._failed_to_connect:  # never connected, then
             self._use.give_back()

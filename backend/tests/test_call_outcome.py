@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.call_outcome import CallOutcome
+from eidolon.call_outcome import CallOutcome, EndReason
 from eidolon.config import UsageLimits
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.store import Store
-from eidolon.usage import OverLimit, UsageLimiter
+from eidolon.usage import OverLimit, UsageKind, UsageLimiter, Use
 
 NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
 
@@ -97,7 +97,9 @@ def test_a_service_failing_before_the_call_connects_says_nothing_and_it_is_given
     assert not limiter.counted()
 
 
-def test_the_deployers_service_failing_before_any_turn_is_not_connecting(limiter: Limiter):
+def test_the_deployers_service_failing_before_any_turn_is_given_back_as_not_connected(
+    limiter: Limiter,
+):
     outcome = limiter.call()
     outcome.connected()
 
@@ -171,7 +173,9 @@ def test_an_own_key_failing_after_a_turn_ends_a_call_that_was_connected(
 
 @pytest.mark.parametrize("reason", ["duration_limit", "turn_limit"])
 @pytest.mark.parametrize("exempt", [False, True])
-def test_a_call_that_reaches_its_limits_is_kept(limiter: Limiter, reason, exempt: bool):
+def test_a_call_that_reaches_its_limits_is_kept(
+    limiter: Limiter, reason: EndReason, exempt: bool
+):
     outcome = limiter.call(exempt)
     outcome.connected()
     outcome.turn_recorded()
@@ -238,13 +242,30 @@ def test_what_the_browser_was_told_is_how_the_call_is_settled(limiter: Limiter):
     assert not limiter.counted()
 
 
-def test_settling_twice_gives_back_once(limiter: Limiter):
+def test_a_call_is_given_back_at_most_once(
+    limiter: Limiter, monkeypatch: pytest.MonkeyPatch
+):
+    """`Use.give_back` would shrug off a second call itself; the outcome never makes one."""
+    given_back: list[Use] = []
+    take = limiter.usage.take
+
+    def take_counting(user_id: str, kind: UsageKind, exempt: bool = False) -> Use:
+        use = take(user_id, kind, exempt)
+        give_back = use.give_back
+
+        def counted() -> None:
+            given_back.append(use)
+            give_back()
+
+        monkeypatch.setattr(use, "give_back", counted)
+        return use
+
+    monkeypatch.setattr(limiter.usage, "take", take_counting)
     outcome = limiter.call()
-    outcome.settle()
-    other = limiter.call()  # the call given back is taken again
 
+    outcome.set_up_failed()  # after hanging up the call, as `Calls.start` does
+    outcome.settle()
     outcome.settle()
 
-    assert limiter.counted()
-    other.settle()  # never connected: given back
+    assert len(given_back) == 1
     assert not limiter.counted()

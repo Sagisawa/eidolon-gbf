@@ -68,12 +68,12 @@ from pipecat.turns.user_turn_processor import UserTurnProcessor
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
+from eidolon.call_outcome import CallOutcome, EndReason
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
 from eidolon.engine import ConversationEngine, TurnDone
 from eidolon.llm import TurnLLMs
-from eidolon.call_outcome import CallOutcome, EndReason
 from eidolon.own_keys import (
     SERVICE_LABELS,
     CallKeys,
@@ -508,7 +508,6 @@ class _LiveCall:
         @transport.event_handler("on_client_connected")
         async def connected(transport: SmallWebRTCTransport, _: SmallWebRTCConnection) -> None:
             self._connected.set()
-            self._outcome.connected()
             self._turns.connected()
 
         @transport.event_handler("on_client_disconnected")
@@ -528,9 +527,9 @@ class _LiveCall:
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
         about it is told now, while the call can still say so."""
-        why = self._outcome.service_failed(own_service)
-        if why is not None:
-            self._connection.send_app_message(ServerMessage(data=why).model_dump())
+        message = self._outcome.service_failed(own_service)
+        if message is not None:
+            self._connection.send_app_message(ServerMessage(data=message).model_dump())
 
     def start(self, on_done: Callable[["_LiveCall"], None]) -> None:
         """Serve the call in the background; `on_done` is told once it has ended."""
@@ -687,7 +686,9 @@ class CallTurns(FrameProcessor):
             await self.push_frame(frame, direction)
 
     def connected(self) -> None:
-        """The browser has connected (CONTEXT.md「接通」): the call's time starts running."""
+        """The browser has connected (CONTEXT.md「接通」): the call's time starts running,
+        and the call's `CallOutcome` is told."""
+        self._outcome.connected()
         self._connected = True
         self._start_timer()
 

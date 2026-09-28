@@ -84,3 +84,14 @@
 **测试**：`test_call_outcome.py` 共 21 条，覆盖整张结果矩阵。先写测试，运行时因模块不存在而失败，然后才实现。`test_call.py` 删掉了 `test_a_call_that_ends_on_its_own_limits_counts`，保留了 `test_a_call_that_took_a_turn_counts_even_if_a_service_fails_later`。保留的原因：临时把 `CallTurns` 里对 `turn_recorded()` 的调用去掉后，全部通话测试中只有这一条失败；删了它，"记下回合"这个事件有没有真的报出去，就没有任何测试能发现。`test_call_turns.py` 的 `CallUnderTest` 改为在 fixture 里创建 `CallOutcome`，connected 时同时调用 `outcome.connected()`；`test_a_call_on_the_users_own_keys_alone_says_it_does_not_count_when_it_ends` 照常通过。
 
 **结果**：`uv run pyright` 0 errors。`uv run pytest` 结果是 563 passed、1 failed。失败的是 `test_characters.py::test_missing_character_sheet_is_reported_with_its_path`，改动前在 main 上同样失败：它断言路径里是 `sheets/mano.md`，Windows 上是反斜杠，和本 ticket 无关。另外，改动前的基线跑了一次，`test_voice_interruption.py::test_interrupting_her_while_she_speaks_is_passed_on_before_reconnecting` 失败过一次；之后单独连跑 5 次都通过，改动后的两次全量运行也都通过，应该是计时上偶发的问题，和本改动无关。
+
+### 2026-09-28 审查后的修改
+
+- **防重测试**：`test_settling_twice_gives_back_once` 改为 `test_a_call_is_given_back_at_most_once`。它包住 `take` 返回的 `Use`，数 `give_back` 被调用了几次，依次调用 `set_up_failed()`、`settle()`、`settle()` 后断言只有 1 次。原来的测试靠 `Use.give_back` 自身的幂等，数不出来。临时去掉 `CallOutcome` 的 `_settled` 保护后，21 条里只有这一条失败。
+- **拆开 `_kept: bool | None`**：改为 `_told`（浏览器是否已被告知为什么结束）和 `_failed_to_connect`（记下任何回合前服务出错，按「接通」算没接通）两个字段。`_end` 改名为 `_tell`，`counts = not (_failed_to_connect or exempt)`。收尾时，没接通或 `_failed_to_connect` 就还回去。
+- **接通只有一个入口**：`_LiveCall` 只调 `CallTurns.connected()`，由它转告 `CallOutcome.connected()`。回合本来就只由 `CallTurns` 报。`CallUnderTest` 的 fixture 相应去掉了 `outcome.connected()`。"已接通"仍然有三处记着，但用途各不相同：`_LiveCall` 的 `asyncio.Event` 用于连接超时，`CallTurns._connected` 决定时长上限的计时从何时开始（它要和 StartFrame 两者都到了才启动计时），`CallOutcome._connected` 用于结算。
+- **命名和排序**：`_report_failure` 里的变量 `why` 改名为 `message`；`call.py` 和 `test_call_turns.py` 的 import 按字母序排好；测试名改成 `test_the_deployers_service_failing_before_any_turn_is_given_back_as_not_connected`；`reason` 参数补上 `EndReason` 类型标注。
+- **用户确认接受的两处行为变化**（都来自"算不算在第一次告诉浏览器时就定下"）：
+  1. 记下 0 个回合时到了时长上限，已告诉浏览器 counts=true，之后 pipeline 又报致命错误：不再补发消息，也不还回去。
+  2. 服务先出错，已告诉浏览器 `not_connected`，之后进行中的回合又记下：按已告诉的结果还回去。
+- **结果**：`uv run pyright` 0 errors；`uv run pytest` 563 passed、1 failed，失败的是既有的 Windows 路径那条。
