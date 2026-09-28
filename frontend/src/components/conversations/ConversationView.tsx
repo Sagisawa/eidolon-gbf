@@ -177,9 +177,15 @@ export function ConversationView({ character, onBack }: { character: Character; 
     );
   }
 
+  // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。
+  const isLayerCollapsed = isCollapsed || call.phase === "idle";
+  const isCovered = shownCall !== null && !isLayerCollapsed;
+  const phoneKey = isFullScreen ? { ...herButton, ...touchTarget } : herButton;
+
   const header = (
     <HStack
       as="header"
+      inert={isCovered}
       gap={3}
       vAlign="center"
       paddingInline={4}
@@ -189,7 +195,15 @@ export function ConversationView({ character, onBack }: { character: Character; 
         borderBottom: "var(--border-width) solid var(--color-border)",
       }}
     >
-      {back && <IconButton label={t.back} icon={<Icon icon={BackIcon} />} variant="ghost" onClick={back} />}
+      {back && (
+        <IconButton
+          label={t.back}
+          icon={<Icon icon={BackIcon} />}
+          variant="ghost"
+          onClick={back}
+          style={isFullScreen ? touchTarget : undefined}
+        />
+      )}
       <Avatar
         src={character.avatar_url ?? undefined}
         name={character.name}
@@ -208,7 +222,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           tooltip={copy.call.expand}
           icon={<Icon icon={PhoneIcon} />}
           onClick={() => setCollapsed(false)}
-          style={herButton}
+          style={phoneKey}
         />
       ) : (
         <IconButton
@@ -217,7 +231,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           icon={<Icon icon={PhoneIcon} />}
           isDisabled={!live || busy}
           onClick={dial}
-          style={herButton}
+          style={phoneKey}
         />
       )}
       <MoreMenu
@@ -257,9 +271,9 @@ export function ConversationView({ character, onBack }: { character: Character; 
   return (
     <Frame character={character} header={header}>
       {isLive(call) && isCollapsed && <CallNote call={call} onExpand={() => setCollapsed(false)} />}
-      {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮 */}
-      {error?.signedOut && <FailureNotice failure={error} />}
-      <StackItem size="fill" style={{ ...ruledPaper, minHeight: 0 }}>
+      {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
+      {error?.signedOut && !isCovered && <FailureNotice failure={error} />}
+      <StackItem size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
         {!opened ? (
           <VStack height="100%" hAlign="center" vAlign="center">
             <Spinner size="lg" aria-label={t.loading} />
@@ -300,7 +314,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
         <CallLayer
           character={character}
           call={shownCall}
-          isCollapsed={isCollapsed || call.phase === "idle"}
+          isCollapsed={isLayerCollapsed}
           isFullScreen={isFullScreen}
           isReducedMotion={isReducedMotion}
           micMuted={snapshot.micMuted}
@@ -422,6 +436,9 @@ const herButton: CSSProperties = {
   color: "var(--her-button-fg)",
   border: 0,
 };
+
+/** 手机上页首的按钮不小于 44px，和通话层一致；页首本来就有 48px 的头像，高度不变。 */
+const touchTarget: CSSProperties = { minWidth: "var(--spacing-11)", minHeight: "var(--spacing-11)" };
 
 /** 制作人的气泡：事务所深蓝墨水底、纸色字（深色模式下自动换成夜间墨水和夜间纸色）。 */
 const producerBubble: CSSProperties = {

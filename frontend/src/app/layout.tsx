@@ -12,7 +12,7 @@ import { AppTheme } from "@/theme/AppTheme";
 
 // 中文正文用 Noto Sans SC，她的日语原文用 M PLUS 1p（经 <Ja> 取用）。
 // 两者都是很大的 CJK 字体，Google Fonts 按 unicode-range 切片按需下载；不预载，避免首屏拉整套字。
-const zh = Noto_Sans_SC({ weight: ["400", "500", "700"], subsets: ["latin"], variable: "--font-zh", preload: false });
+const zh = Noto_Sans_SC({ weight: ["400", "500", "600", "700"], subsets: ["latin"], variable: "--font-zh", preload: false });
 const ja = M_PLUS_1p({ weight: ["400", "500", "700"], subsets: ["latin"], variable: "--font-ja", preload: false });
 
 export const metadata: Metadata = {

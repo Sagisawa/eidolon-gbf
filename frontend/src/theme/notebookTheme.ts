@@ -6,8 +6,8 @@ import { notebookIcons } from "./astryxIcons";
 
 const { body, ink } = paperColors;
 
-/** 深色弹层的边线：与弹层底色 #1f232c 对比度 ≥ 3。 */
-const overlayEdge = "#5a7194";
+/** 深色弹层的边线：与底部面板 #1f232c、菜单 #262b36 的底色对比度都 ≥ 3。 */
+export const overlayEdge = "#61799c";
 
 /**
  * 制作人的手帐（DESIGN.md）：冷白复印纸、天蓝横线、事务所深蓝墨水，明暗两套。

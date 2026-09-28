@@ -2,14 +2,12 @@
 // Astryx 组件内部用的图标在 astryxIcons.ts 里注册到主题。
 export {
   ArrowRightLeft as MicSwitchIcon,
-  Check as CheckIcon,
   ChevronDown as CollapseIcon,
   ChevronLeft as BackIcon,
   Mic as MicIcon,
   MicOff as MicOffIcon,
   Phone as PhoneIcon,
   PhoneOff as HangUpIcon,
-  SendHorizontal as SendIcon,
 } from "lucide-react";
 
 // 记忆页、设置页用的图标（ticket 06）。

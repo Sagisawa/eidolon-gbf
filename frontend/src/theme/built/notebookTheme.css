@@ -190,15 +190,15 @@
   }
 
   .astryx-dialog {
-    border: var(--border-width) solid light-dark(transparent, #5a7194);
+    border: var(--border-width) solid light-dark(transparent, #61799c);
   }
 
   .astryx-bottom-sheet {
-    border-color: light-dark(transparent, #5a7194);
+    border-color: light-dark(transparent, #61799c);
   }
 
   .astryx-popover {
-    border: var(--border-width) solid light-dark(transparent, #5a7194);
+    border: var(--border-width) solid light-dark(transparent, #61799c);
   }
 }
 }

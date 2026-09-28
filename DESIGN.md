@@ -17,7 +17,7 @@ colors:
   pencil-grey: "#5d6b85"
   night-pencil-grey: "#9aa6bd"
   hang-up-red: "#c8283c"
-  night-overlay-edge: "#5a7194"
+  night-overlay-edge: "#61799c"
 typography:
   title:
     fontFamily: "Noto Sans SC, PingFang SC, Microsoft YaHei, system-ui, sans-serif"
@@ -102,7 +102,7 @@ components:
 
 系统建立在 Astryx（v0.6）之上：主题 `eidolon-notebook`（源文件 `frontend/src/theme/notebookTheme.ts`，经 `npm run theme:build` 预构建到 `frontend/src/theme/built/`）钉死纸面、墨水和横线颜色，替换图标为 Lucide，并修补 Astryx 默认值在某一模式下不达标的地方；她的颜色不在主题里，而是由 `herVars()`（`frontend/src/theme/herVars.ts`）注入到单个对话的子树。组件形状沿用 Astryx 默认，只换颜色。纸感克制：没有纹理、没有手绘图标、没有手做的气泡尾巴。
 
-通话层是本子上展开的一整张她颜色的纸：上沿是能放白字的她的颜色，往下压到深色，头像背后透一点原色。收起后，页首留一张略斜的便利贴。状态靠线形表达，不靠绿条或徽标。
+通话层是本子上展开的一整张她颜色的纸：她的背景图全幅铺开，上面压一层从她的颜色到深色的纱，白字才读得清；没有背景图时就是一整张渐变，头像背后透一点原色。收起后，页首留一张略斜的便利贴。状态靠线形表达，不靠绿条或徽标。
 
 **Key Characteristics:**
 - 冷白复印纸 + 天蓝横线（32px 行距）+ 装订边距线，只铺在消息区。
@@ -122,7 +122,7 @@ components:
 - **Night Ink（夜间正文）**（`night-ink`）：深色模式的 `--color-text-primary`。
 
 ### Secondary: 她的印象色（per character, derived）
-不是固定色值，而是 `imageColorScale(官方色)` 从 `characters.toml` 的印象色推出的一组 light/dark 成对颜色（保持色相，按 OKLCH 调明度与彩度，逐对校验 WCAG 对比度）。经 `herVars()` 以 `light-dark()` 注入：
+不是固定色值，而是 `imageColorScale(官方色)` 从 `characters.toml` 的印象色推出的一组 light/dark 成对颜色（保持色相，按 OKLCH 调明度与彩度，逐对校验 WCAG 对比度）。经 `herVars()` 以 `light-dark()` 注入（`--her-call-*` 除外：通话层永远是深色，只注入一份）：
 
 - **paper**（`--her-paper`，同时覆盖 `--color-accent-muted`）：她的气泡、对话列表选中行、麦克风选择中的选中行。浅 L 0.955 / 深 L 0.30。上面的正文用墨水色（≥ 4.5）。
 - **paperMuted**（`--her-paper-muted`）：paper 上的次要字（中文字幕、选中行描述），≥ 4.8，给细笔画留余量。
@@ -142,14 +142,14 @@ components:
 - **Sky Rule（天蓝横线）**（`sky-rule` / `night-rule`）：`--color-border-blue`，消息区横线，也是列表栏与对话栏之间的分隔线。
 - **Margin Line（装订边距线）**（`margin-line` / `night-margin-line`）：`--color-border-emphasized`，比横线深一档的竖线。
 - **Pencil Grey（铅笔灰）**（`pencil-grey` / `night-pencil-grey`）：`--color-text-secondary`，时间戳、列表描述、免责声明。
-- **Night Overlay Edge**（`night-overlay-edge`）：只在深色模式出现的弹层边线（对话框、底部面板、浮层），与 `night-surface` ≥ 3:1。
+- **Night Overlay Edge**（`night-overlay-edge`）：只在深色模式出现的弹层边线（对话框、底部面板、浮层），与 `night-surface`、`night-popover` 都 ≥ 3:1（`notebookTheme.test.ts` 校验）。
 
 ### Named Rules
 **The Paired Colour Rule.** 任何她颜色的底色或前景都只能取自 `imageColorScale()` 的成对值（经 `herVars()` / `ld()`），绝不直接把官方原色写成字色或底色。新增一种用法，就在 `imageColor.ts` 加一对颜色，并在 `imageColor.test.ts` 的 `pairs()` 里加上它的对比度要求；契约覆盖 5 位官方色和 216 色网格。
 
 **The One Ink Rule.** 全站只有一种墨水。正文、标题和制作人的气泡用同一个事务所深蓝；她的颜色只属于她的东西，不用来写制作人的字或系统界面。
 
-**The Scoped Colour Rule.** 她的颜色只注入到这段对话的子树（`herVars(character.color)`），从不写进主题或 `:root`。需要在子树里仍用制作人墨水时，读 `--office-ink`（在主题根上从 `--color-accent` 取下）。
+**The Scoped Colour Rule.** 她的颜色只注入到这段对话的子树（`herVars(character.color)`），从不写进主题或 `:root`。需要在子树里仍用制作人墨水时，读 `--office-ink`（`PageShell` 在页面根上从 `--color-accent` 取下，对话子树覆盖 accent 之前）。
 
 **The Theme Patches Defaults Rule.** Astryx 默认值在某一模式下不达标时，在主题里修：`tokens` 覆盖颜色，`components` 按稳定类名 `.astryx-<key>` 的键（`dialog`、`bottom-sheet`、`popover`）加样式。不在调用处逐个打补丁。
 
@@ -174,11 +174,11 @@ components:
 
 - **宽屏（≥ 768px）**：两栏。左侧对话列表固定 320px，与右栏之间一条 1px `sky-rule` 竖线；右侧对话栏填满。通话层绝对定位盖住对话栏，列表仍可见。没选角色时右栏居中一句次要色标题。
 - **窄屏（< 768px）**：一次一栏，列表或对话；页首有返回键。通话层固定定位铺满整屏。
-- **页首**：实底纸色，`12px 16px` 内边距，元素间距 12px；头像、名字（填满）、她颜色的电话键、更多菜单；下边一条 1px 分隔线。
+- **页首**：实底纸色，`12px 16px` 内边距，元素间距 12px；头像、名字（填满）、她颜色的电话键、更多菜单；下边一条 1px `--color-border` 分隔线（列表栏页首同样）。窄屏上返回键和电话键不小于 44px。
 - **消息区**：唯一铺横线纸的区域。横线间距 32px（`--spacing-8`），1px `sky-rule`；边距线在距起始边 16px 处，1px `margin-line`。消息间距 16px，从顶部开始排。
 - **输入栏**：Astryx 自带的 `ChatComposer`，放在 `ChatLayout` 的 composer 槽里，实底，不透出横线。
 - **通话层**：内边距 20px / 16px；上排收起键、居中「语音通话」、「只看文字」开关；中部垂直居中头像、名字、状态、台词（间距 16–24px）；底部三枚圆形控制键，间距 32px，上下各 24px。
-- 间距全部取 Astryx 的 `--spacing-*` 令牌（2、4、6、8、12、16、20、24、32、48px）。
+- 间距全部取 Astryx 的 `--spacing-*` 令牌（2、4、6、8、12、16、20、24、32、40、44、48px；44px 即 `--spacing-11`，是手机上的触控下限）。更大的尺寸由令牌相乘得到，例如圆形控制键 `calc(var(--spacing-8) * 2)`。
 
 **The Paper-Only-Where-She-Writes Rule.** 横线纸只是消息区的地面。页首、输入栏、列表栏、弹层都是实底，不铺横线。
 
@@ -206,6 +206,7 @@ components:
 - **Shape:** Astryx 默认（`--radius-element`，12px）；电话键和通话控制键为正圆。
 - **Primary:** Astryx `Button variant="primary"`，在对话子树里填她的 accent，字用 onAccent。
 - **Secondary / Ghost:** 返回、收起、更多菜单用 ghost；「回到对话」用 secondary。
+- **在通话层上:** `MediaTheme mode="dark"` 把 accent 换成白色，所以结束页的主操作（「重拨」「去设置自带密钥」）是白底；secondary 的底（`--color-neutral`）换成和圆形键一样的 16% 白，否则系统是浅色时会取到浅色模式的值，几乎看不见。
 - **Her call button（电话键）:** `IconButton` 正圆，底 `--her-button`，图标 `--her-button-fg`，无边框。通话中同一个键变成「回到通话」。
 - **Destructive:** 挂断与「挂断并离开」用 `hang-up-red`，白字。
 
@@ -216,7 +217,7 @@ components:
 
 ### Conversation list
 - Astryx `List` / `ListItem` 行，不用卡片包。每行：带她 mark 描边的头像、名字、最后一句（她的中文字幕，或「你：…」）、时间。
-- **Selected:** 行底铺她的 `paper`，次要字换成 `paperMuted`（`selectedRow()`）。通话中该行描述换成「通话中 mm:ss」/「正在呼叫…」。
+- **Selected:** 行底铺她的 `paper`，次要字换成 `paperMuted`（`listRow(color, selected)`，同时给每行注入她的 `mark`）。通话中该行描述换成「通话中 mm:ss」/「正在呼叫…」。
 - 底部固定一行免责声明，Label 字号。
 
 ### Inputs / Fields
@@ -224,21 +225,22 @@ components:
 - **Switch:** 「只看文字」用 Astryx `Switch size="sm"`；在通话层里把 `--color-background-surface` 换成白色，圆钮才和她的颜色拉得开。
 
 ### Overlays
-- **AlertDialog**（离开对话前确认挂断）、**BottomSheet**（切换麦克风，高度随内容）、**MoreMenu / Popover**：Astryx 默认，遵守 The Night Edge Rule。麦克风选择的当前项同样铺她的 paper。
+- **AlertDialog**（离开对话前确认挂断）、**BottomSheet**（切换麦克风，高度随内容）、**MoreMenu / Popover**：Astryx 默认，遵守 The Night Edge Rule。麦克风选择的当前项同样铺她的 paper（`listRow()`），写「正在使用」。
 
 ### Call layer（通话层，signature）
-- 强制深色（`color-scheme: dark` + `MediaTheme mode="dark"`）。背景：`linear-gradient(180deg, call.top 0%, call.deep 62%)`，叠一个中心在 50% 38% 的径向光晕（call.glow 30%）。次要字是 74% 白，与 `CALL_MUTED` 一致。
-- **Placeholder:** 这层渐变是占位，维护者为每位角色提供背景图（`characters.toml` 的 `background`）后由图片替代；替换时台词与控制键的对比度仍须满足同样的要求。
-- **Motion:** 像折纸一样整张从页首拉下：`clip-path: inset(0 0 100% 0)` ↔ `inset(0)`，`--duration-medium`（410ms）+ `--ease-standard`（`cubic-bezier(0.24, 1, 0.4, 1)`）；收起是同一动作反过来，Esc 也能收起；`prefers-reduced-motion` 时无过渡。
-- **Round controls:** 64px 正圆，底为 16% 白、无边框、白色图标，按下（麦克风静音）时变成实白底 + call.deep 图标；挂断在中间，用 destructive 红。每枚下方一行 Label。
+- 强制深色（`color-scheme: dark` + `MediaTheme mode="dark"`）。次要字是 74% 白，与 `CALL_MUTED` 一致。
+- **有背景图时**（`characters.toml` 的 `background`，经 `/api/characters/{id}/background`）：图片 `cover` 居中铺满，上面压一层纱 `linear-gradient(180deg, call.top 82% 0%, call.deep 94% 62%, call.deep 100%)`，没有光晕。对比度契约只覆盖纯色的 call.top / call.deep；纱留出的 6–18% 透出图片，所以换上新图后要在通话层上目测台词和计时是否仍清楚。
+- **没有背景图时**：`linear-gradient(180deg, call.top 0%, call.deep 62%)`，叠一个中心在 50% 38% 的径向光晕（call.glow 30%）。
+- **Motion:** 像折纸一样整张从页首拉下：`clip-path: inset(0 0 100% 0)` ↔ `inset(0)`，`--duration-medium`（410ms）+ `--ease-standard`（`cubic-bezier(0.24, 1, 0.4, 1)`）；收起是同一动作反过来，Esc 也能收起；`prefers-reduced-motion` 时无过渡。收起时 `visibility` 在动画结束后才切到 hidden，收起的通话层 `inert` 并 `aria-hidden`；展开时焦点移进通话层，底下的页首和对话 `inert`。结束页上 Esc 是回到对话。
+- **Round controls:** 拨打中只有挂断可用，麦克风静音和切换麦克风置灰。64px 正圆，底为 16% 白、无边框、白色图标，按下（麦克风静音）时变成实白底 + call.deep 图标；挂断在中间，用 destructive 红。每枚下方一行 Label。
 - **Ended:** 删除线状态「通话已结束」、原因标题、说明、是否计入限额，以及「回到对话」+ 主操作两个按钮。
 
 ### Call note（通话便利贴，signature）
-- 通话层收起时贴在消息区顶端、居中：底 `--her-note`，墨水色 Status 字，`8px 20px` 内边距，-1.2° 倾斜，一条半透明胶带，Sticky note lift 阴影。点击展开通话层。
+- 通话层收起时贴在页首和消息区之间的一条实底纸色窄带上、居中：底 `--her-note`，墨水色 Status 字，`8px 20px` 内边距，-1.2° 倾斜，一条半透明胶带（55% 纸色，外圈 60% 的 `--color-border-blue`，上移 8px），Sticky note lift 阴影。点击展开通话层。
 - 文字带下划线状态：实线 = 通话中（「通话中 mm:ss · 点击返回」），虚线 = 正在呼叫。
 
 ### Icons
-- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`SendIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。
+- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`TrashIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（arrowUp 和 stop 即输入栏的发送键和停止键，以及 check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。Astryx 用到而没有注册的图标名会回退到它自带的图标，用上新的 Astryx 组件时要检查它调用了哪些图标名。
 
 **The Line-State Rule.** 通话状态只用线形表达，线色是她的 rule 色（纸面上 `noteRule`，通话层上 `call.rule`），2px 粗、6px 偏移：实线下划线 = 通话中，虚线下划线 = 正在呼叫，删除线 = 已结束。
 
@@ -261,4 +263,4 @@ components:
 - **Don't** 用中性灰底 + 绿色通话条的聊天软件默认样式，也不要用奶油纸或重纹理做纸感。
 - **Don't** 在横线纸以外的区域（页首、输入栏、弹层）铺横线。
 - **Don't** 给纸面上的卡片、气泡、行加阴影；阴影只属于便利贴和通话层头像。
-- **Don't** 把通话层的占位渐变当成最终设计；角色背景图到位后由图片取代。
+- **Don't** 在通话层有背景图时去掉那层纱，或把纱调得更透；白字的可读性全靠它。

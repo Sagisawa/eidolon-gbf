@@ -13,7 +13,7 @@ function pairs(hex: string) {
       { what: `${mode} 气泡字幕`, fg: s.paperMuted[mode], bg: s.paper[mode], min: 4.8 },
       { what: `${mode} 便利贴正文`, fg: ink[mode], bg: s.note[mode], min: 4.5 },
       { what: `${mode} 便利贴状态下划线`, fg: s.noteRule[mode], bg: s.note[mode], min: 3 },
-      { what: `${mode} 索引签和头像描边`, fg: s.mark[mode], bg: body[mode], min: 3 },
+      { what: `${mode} 头像描边`, fg: s.mark[mode], bg: body[mode], min: 3 },
       { what: `${mode} 按钮图标`, fg: s.button.fg[mode], bg: s.button.bg[mode], min: 4.5 },
       { what: `${mode} 她颜色的字`, fg: s.accent[mode], bg: body[mode], min: 4.5 },
       { what: `${mode} 强调色填底上的字`, fg: s.onAccent[mode], bg: s.accent[mode], min: 4.5 },

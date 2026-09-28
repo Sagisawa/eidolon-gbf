@@ -60,17 +60,17 @@ export const eidolonNotebookTheme = {
   components: {
     "dialog": {
       "base": {
-        "border": "var(--border-width) solid light-dark(transparent, #5a7194)"
+        "border": "var(--border-width) solid light-dark(transparent, #61799c)"
       }
     },
     "bottom-sheet": {
       "base": {
-        "borderColor": "light-dark(transparent, #5a7194)"
+        "borderColor": "light-dark(transparent, #61799c)"
       }
     },
     "popover": {
       "base": {
-        "border": "var(--border-width) solid light-dark(transparent, #5a7194)"
+        "border": "var(--border-width) solid light-dark(transparent, #61799c)"
       }
     }
   },
