@@ -101,7 +101,7 @@
 
 **做成的样子**
 
-- `backend/src/eidolon/turn_taking.py`：`TurnTaking(text_only)`，纯同步，只导入 `dataclasses` 和 `typing`。原来 `CallTurns` docstring 里的规则叙述搬到了它的 docstring。
+- `backend/src/eidolon/turn_taking.py`：`TurnTaking(text_only)`，纯同步，只导入 `dataclasses`、`typing`，以及 `reply_format` 的 `Lang`（review 后加的）。原来 `CallTurns` docstring 里的规则叙述搬到了它的 docstring。
 - **事件**（方法，全部返回指令列表）：
   - 用户：`user_started_talking()`（`InterruptionFrame`）、`user_heard()`（`InterimTranscriptionFrame`）、`user_said(text)`（转写定稿，可以为空）、`user_typed(text)`、`text_only_switched(on)`（`mute` 消息）。
   - 回复：`turn_started(text)`、`reply_delta(lang, text)`、`segment_complete()`、`reply_recorded()`（`TurnDone`）、`reply_ended()`（记下、失败或被拒）、`reply_dropped()`（取消完成）、`follow_on_missed()`。
@@ -123,6 +123,11 @@
 
 - **多了一个指令 `Voice(text)`**：`reply_delta` 在这段日语要送 TTS 时返回它。「打断之后这条回复不再出声」这条规则在 `TurnTaking` 里，adapter 自己不知道当前回复还出不出声，所以每段 delta 送不送 TTS 都由它决定。`Reply.voiced` 仍然记下回复开始时的决定。
 - 工单列的「回复送出第一批日语给 TTS」和「回复的第一句显示（不出声时）」合成了一个事件 `reply_delta(lang, text)`。要不要送 TTS 本来就是 `TurnTaking` 的决定，分成两个事件的话，adapter 得先知道答案。
+- **行为变化（用户已确认接受，视为顺带修掉的旧 bug）**：
+  - 场景：回复已经送了 TTS、有完整的一段，但声音还没播。这时用户开口，回复被放下；被放下那条回复的 `BotStartedSpeakingFrame` 迟到，然后转写定稿。
+  - 旧代码：`_voicing and _sent_to_tts` 仍然成立，`_spoken` 被置真，这句就被排成下一个回合。4 秒后按原文重新回复，然后再单独回复这句。
+  - 新代码：放下期间的回复一律可以接受补充，所以马上合并后重新回复。这符合 spec「被放下的回复的声音迟到开始，不算下一条回复开口」。
+  - 锁定测试：`test_when_the_character_starts_speaking[the voice of a reply being dropped starting late does not make it spoken]`。
 - `StopReply` 只在有回复进行中时发出。旧代码没有回复时也会 set 一个已经没人看的 stop，并清掉 `_voicing`，这两件事都没有可观察的效果。
 - 挂断以后用户开口：`TurnTaking` 不返回任何指令，但 adapter 仍然把这个 `InterruptionFrame` 往下传，和原来一样。这是 Pipecat 自己的帧，不是 `ClearVoice`。「不打断最后那段声音」和原来一样，指的是打字不再推 `ClearVoice`。
 
@@ -187,3 +192,18 @@
 - `uv run pyright`：0 错误。
 - 拆分前那次全量测试里，`test_voice_interruption.py::test_interrupting_her_while_she_speaks_is_passed_on_before_reconnecting` 失败过一次。这条测试不经过 `CallTurns`，单独重跑 5 次都通过，拆分后的全量也通过，所以按已知的时序偶发失败处理。
 - `ruff` 在 `call.py` 里报了两个没用到的 import（`SERVICE_LABELS`、`CallsUnavailable`）。改动之前就有，这次没动。
+
+### 审查后的修改（2026-09-28）
+
+- 「放下期间迟到的声音不算开口」的行为变化，用户已确认接受。补了一条表格测试来锁定它（TALKS → VOICE_STARTS → DROPPED → says → 合并后重新回复），并写进上面「和工单字面不同的地方」。
+- `reply_delta` 的 `lang` 参数改用 `reply_format.Lang`，不再手写 `Literal`。
+- `TurnTaking` 里回复进度的类型和字段改名为 `_ReplyState` / `_reply_state`，免得和指令 `Reply`、`CallTurns._reply` 同名。
+- 执行指令只剩 `_carry_out` 一处：
+  - `_drop_reply` 不再自己 `match`，改为返回 `reply_dropped()` 给出的指令；
+  - `_carry_out` 新增参数 `after`，由它递归执行这些指令，新回复要等放下它的那一方做完（`cut_off`）才开始；
+  - 时序保证和之前一样。`test_call_turns.py` 连跑 3 次，14 个都通过。
+- 补了几处 docstring：`user_heard` 注明对应 `InterimTranscriptionFrame`；`_follow_on_timeout`、`_stop_waiting` 和测试里的 `text_only()` 各补了一句。
+- 不处理：打字补充放下期间，又来一条前面没有 `InterruptionFrame` 的转写，这个竞态只是理论上可能。旧代码同样存在。
+- 结果：
+  - `uv run pytest`：576 通过，1 个失败，是已知的 Windows 路径那条；表格测试 27 条；
+  - `uv run pyright`：0 错误。

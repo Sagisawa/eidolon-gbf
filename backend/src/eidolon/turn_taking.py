@@ -11,6 +11,8 @@ event reported while the commands are being carried out finds them where they we
 from dataclasses import dataclass
 from typing import Literal
 
+from eidolon.reply_format import Lang
+
 
 @dataclass(frozen=True)
 class DropReply:
@@ -62,7 +64,7 @@ class QueueTurn:
 
 Command = DropReply | StopReply | ClearVoice | Reply | Voice | WaitForFollowOn | QueueTurn
 
-_Reply = Literal["replying", "dropping", "dropped"]
+_ReplyState = Literal["replying", "dropping", "dropped"]
 """How the reply to the turn in progress is getting on: being given, being dropped for a
 follow-on, or dropped and waiting for the follow-on to be transcribed."""
 
@@ -100,7 +102,7 @@ class TurnTaking:
         self._voice_playing = False  # the character's voice is playing, whichever reply's
         # The turn in progress:
         self._said: list[str] = []  # what the user said in it, follow-ons included
-        self._reply: _Reply | None = None  # None: there is no turn in progress
+        self._reply_state: _ReplyState | None = None  # None: there is no turn in progress
         self._following_on = False  # a follow-on the user started is not yet transcribed
         # Its reply:
         self._voicing = False
@@ -122,14 +124,15 @@ class TurnTaking:
         if not self._open_to_follow_ons():
             return self._interrupt()
         self._following_on = True
-        if self._reply == "dropped":  # heard again while waiting for the follow-on
+        if self._reply_state == "dropped":  # heard again while waiting for the follow-on
             return [WaitForFollowOn()]
-        self._reply = "dropping"
+        self._reply_state = "dropping"
         return [DropReply()]
 
     def user_heard(self) -> list[Command]:
-        """Some of what the user is saying has been heard, not yet transcribed in full."""
-        if self._following_on and self._reply == "dropped":
+        """Some of what the user is saying has been heard, not yet transcribed in full
+        (Pipecat's `InterimTranscriptionFrame`)."""
+        if self._following_on and self._reply_state == "dropped":
             return [WaitForFollowOn()]
         return []
 
@@ -165,7 +168,7 @@ class TurnTaking:
         self._said = [text]
         return [self._reply_afresh()]
 
-    def reply_delta(self, lang: Literal["ja", "zh"], text: str) -> list[Command]:
+    def reply_delta(self, lang: Lang, text: str) -> list[Command]:
         """Some of the reply, in `lang`, has been shown."""
         if not self._voicing:
             self._spoken = True  # its first line is shown
@@ -189,22 +192,22 @@ class TurnTaking:
 
     def reply_ended(self) -> list[Command]:
         """The reply is over, recorded or not (it failed, or was rejected): so is the turn."""
-        if self._reply == "replying":
-            self._reply = None
+        if self._reply_state == "replying":
+            self._reply_state = None
         return []
 
     def reply_dropped(self) -> list[Reply | WaitForFollowOn]:
         """The reply `DropReply` was about is gone."""
-        if self._reply != "dropping":
+        if self._reply_state != "dropping":
             return []
         if self._following_on:
-            self._reply = "dropped"
+            self._reply_state = "dropped"
             return [WaitForFollowOn()]
         return [self._reply_afresh()]
 
     def follow_on_missed(self) -> list[Reply]:
         """What `WaitForFollowOn` waited for took too long: it came to nothing."""
-        if not (self._following_on and self._reply == "dropped"):
+        if not (self._following_on and self._reply_state == "dropped"):
             return []
         self._following_on = False
         return [self._reply_afresh()]
@@ -232,9 +235,9 @@ class TurnTaking:
 
     def _open_to_follow_ons(self) -> bool:
         """Whether there is a turn in progress whose reply cannot be interrupted yet."""
-        if self._reply is None:
+        if self._reply_state is None:
             return False
-        return self._reply != "replying" or not (self._spoken and self._complete)
+        return self._reply_state != "replying" or not (self._spoken and self._complete)
 
     def _follow_on(self, text: str) -> list[Command]:
         """Join `text`, if any, onto the turn in progress, which is to be replied to afresh."""
@@ -242,20 +245,20 @@ class TurnTaking:
             self._said.append(text)
         if self._following_on:  # the reply is dropped already, and what TTS held cut off
             self._following_on = False
-            return [self._reply_afresh()] if self._reply == "dropped" else []
-        self._reply = "dropping"
+            return [self._reply_afresh()] if self._reply_state == "dropped" else []
+        self._reply_state = "dropping"
         return [DropReply(), ClearVoice()]
 
     def _interrupt(self) -> list[Command]:
         """Interrupt the reply in progress, if there is one."""
-        if self._reply is None:
+        if self._reply_state is None:
             return []
         self._voicing = False
         return [StopReply()]
 
     def _reply_afresh(self) -> Reply:
         """Reply to the turn in progress as it now is, voiced unless text only."""
-        self._reply = "replying"
+        self._reply_state = "replying"
         self._voicing = not self._text_only
         self._sent_to_tts = self._spoken = self._complete = False
         return Reply("\n".join(self._said), self._voicing)

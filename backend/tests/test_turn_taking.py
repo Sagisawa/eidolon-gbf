@@ -53,6 +53,7 @@ def zh(text: str) -> Event:
 
 
 def text_only(on: bool) -> Event:
+    """The user switches text only (「只看文字」) on or off."""
     return lambda taking: taking.text_only_switched(on)
 
 
@@ -291,6 +292,16 @@ def test_interruptions(steps: list[Step]):
                 (TALKS, [DropReply()]),
             ],
             id="the voice of a dropped reply starting late does not count for the next",
+        ),
+        pytest.param(
+            [
+                *REPLYING, (ja("ほわっ"), [Voice("ほわっ")]), (zh("哇"), []), (COMPLETE, []),
+                (TALKS, [DropReply()]),
+                (VOICE_STARTS, []),
+                (DROPPED, [WaitForFollowOn()]),
+                (says("在吗"), [Reply("早上好\n在吗", voiced=True)]),
+            ],
+            id="the voice of a reply being dropped starting late does not make it spoken",
         ),
         pytest.param(
             [

@@ -696,26 +696,30 @@ class CallTurns(FrameProcessor):
             await self._carry_out(self._turns.text_only_switched(data["muted"]))
 
     async def _carry_out(
-        self, commands: Sequence[Command], passing_on: tuple[Frame, FrameDirection] | None = None
+        self,
+        commands: Sequence[Command],
+        passing_on: tuple[Frame, FrameDirection] | None = None,
+        after: asyncio.Event | None = None,
     ) -> None:
         """Do what `TurnTaking` says to, in order, then pass on the frame `passing_on`, if
-        any. It has moved on by now, so what is reported to it while this waits finds it as
-        it now is. A turn replied to afresh once the reply dropped here is gone holds back
-        until all that is done: nothing of the new reply goes out before what cuts off the
-        old one."""
+        any; a reply started here holds back until `after` is set, if given. `TurnTaking`
+        has moved on by now, so what is reported to it while this waits finds it as it now
+        is. A turn replied to afresh once the reply dropped here is gone holds back until
+        all that is done: nothing of the new reply goes out before what cuts off the old
+        one."""
         cut_off: asyncio.Event | None = None  # set once all that is done
         try:
             for command in commands:
                 match command:
                     case DropReply():
                         cut_off = cut_off or asyncio.Event()
-                        await self._drop_reply(cut_off)
+                        await self._carry_out(await self._drop_reply(), after=cut_off)
                     case StopReply():
                         self._stop.set()
                     case ClearVoice():
                         await self.push_frame(InterruptionFrame())
                     case Reply(text=text):
-                        self._start_reply(text)
+                        self._start_reply(text, after)
                     case Voice(text=text):
                         await self.push_frame(TextFrame(text))
                     case WaitForFollowOn():
@@ -776,23 +780,18 @@ class CallTurns(FrameProcessor):
         self._stop = asyncio.Event()
         self._reply = self.create_task(self._reply_to(text, self._stop, after))
 
-    async def _drop_reply(self, cut_off: asyncio.Event) -> None:
-        """Drop the reply in progress and, once it is gone, tell `TurnTaking` so straight
-        away; a turn replied to afresh then waits for `cut_off`. Whoever gets here first
-        tells it: the reply dropped is gone for the others."""
+    async def _drop_reply(self) -> list[Reply | WaitForFollowOn]:
+        """Drop the reply in progress and, once it is gone, tell `TurnTaking` so, handing
+        back what it says to do then, to be done straight away. Whoever gets here first
+        tells it: the reply dropped is gone for the others, who have nothing to do."""
         reply = self._reply
         if reply is None:
-            return
+            return []
         if not reply.done():
             await self.cancel_task(reply)
         if reply is not self._reply:  # replied to afresh already, or hung up
-            return
-        for command in self._turns.reply_dropped():
-            match command:
-                case Reply(text=text):
-                    self._start_reply(text, after=cut_off)
-                case WaitForFollowOn():
-                    self._wait_for_follow_on()
+            return []
+        return self._turns.reply_dropped()
 
     def _wait_for_follow_on(self) -> None:
         """Wait, afresh, for the follow-on the user started to be transcribed."""
@@ -800,11 +799,14 @@ class CallTurns(FrameProcessor):
         self._waiting = self.create_task(self._follow_on_timeout())
 
     async def _follow_on_timeout(self) -> None:
+        """Tell `TurnTaking` the follow-on came to nothing, once `FOLLOW_ON_TIMEOUT` has
+        passed without it."""
         await asyncio.sleep(FOLLOW_ON_TIMEOUT)
         self._waiting = None
         await self._carry_out(self._turns.follow_on_missed())
 
     def _stop_waiting(self) -> None:
+        """Stop waiting for a follow-on, if waiting: it is no longer awaited."""
         if self._waiting is not None:
             self._waiting.cancel()
             self._waiting = None
