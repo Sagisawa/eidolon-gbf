@@ -206,7 +206,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
       {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
       {failure?.signedOut && !isCovered && <FailureNotice failure={failure} />}
       <StackItem size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
-        {!isOpen ? (
+        {/* 开新对话的过程中也是 opening：旧对话留在原处，只是发送键和电话键禁用 */}
+        {!isOpen && entries.length === 0 ? (
           <VStack height="100%" hAlign="center" vAlign="center">
             <Spinner size="lg" aria-label={t.loading} />
           </VStack>

@@ -911,6 +911,41 @@ describe("LiveConversation: a new conversation", () => {
     expect(sentTo).toEqual(["new1"]);
   });
 
+  it("clears the input box for the new conversation", async () => {
+    const { live } = await conversation({ messages: history });
+    live.setDraft("还没发出去的话");
+
+    await live.startNewConversation();
+
+    expect(live.snapshot().draft).toBe("");
+  });
+
+  it("is opening again while the new conversation is started, sending and dialing nothing", async () => {
+    const { gate: made, open: make } = gate();
+    const { live, attempts, sentTo } = await conversation({
+      messages: history,
+      turns: scripted([]),
+      ports: {
+        createConversation: async () => {
+          await made;
+          return record("new1");
+        },
+      },
+    });
+
+    const starting = live.startNewConversation();
+    expect(live.snapshot().status).toBe("opening");
+    live.setDraft("你好");
+    await live.submit();
+    await live.startCall();
+    expect(sentTo).toEqual([]);
+    expect(attempts).toEqual([]);
+
+    make();
+    await starting;
+    expect(live.snapshot().status).toBe("open");
+  });
+
   it("counts her lines in a call from the start of the new conversation", async () => {
     const { live, attempts } = await conversation({ messages: history });
     await live.startNewConversation();
@@ -932,10 +967,12 @@ describe("LiveConversation: a new conversation", () => {
       },
     });
 
+    live.setDraft("你好");
     await live.startNewConversation();
 
     expect(live.snapshot()).toMatchObject({
       status: "open",
+      draft: "你好",
       failure: { message: "Failed to fetch", signedOut: false },
     });
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);

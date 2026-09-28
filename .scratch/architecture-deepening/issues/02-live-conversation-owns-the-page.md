@@ -82,3 +82,12 @@
 - `npm test`：17 个文件、217 个测试全部通过，其中 `liveConversation.test.ts` 和 `conversationLog.test.ts` 共 92 个。新测试先写，跑出 79 个失败后才开始实现。
 - `npm run typecheck` 通过。`package.json` 里没有 lint 脚本。
 - 手动验证：在本地起后端（:8010）和前端（:3010），用 playwright-core 驱动 Chromium，使用假麦克风。新用户进入櫻木真乃的页面，会自动新建对话。发一句话，提交后 1 秒内 `GET /api/conversations/latest` 的次数不变，回复流结束时正好多一次。气泡下显示 9:35，和后端记下的 `created_at`（01:35 UTC）一致。电话能接通；收起后出现便利贴和「回到通话」，点它会展开；挂断后变回电话键，再拨号时通话层直接展开。"收起时因故结束会自动展开"和"麦克风列表自动关上"这两条没有手动验证，由单元测试覆盖。
+
+### 2026-09-28 review 后的决定
+
+用户看过实现记录后决定：
+1. **开新对话时清空草稿**，和改动前一致。上一条记录里"草稿保留"的差异已经取消，并补了测试。
+2. **对话没打开时，发送键和电话键都禁用**。开新对话的过程中，`status` 回到 `opening`（去掉了内部的 `starting` 标记），成功后变回 `open`；失败时也变回 `open`，原对话保留，原因写进 `failure`。页面上发送键跟着 `ChatComposer` 的 `isDisabled` 禁用，电话键用 `IconButton` 的 `isDisabled`，两者的条件都是 `status !== "open"`。`LiveConversation` 里 `submit` 和 `startCall` 的忽略保护保留。开新对话时旧对话的消息留在原处，不换成加载圈；只有首次打开、还没有任何消息时才显示加载圈。补了测试：开新对话的过程中快照是 `opening`，发送和拨号都不会发出。
+3. **StrictMode 下建出两个对话不处理。**
+
+`npm test`：17 个文件、219 个测试全部通过。`npm run typecheck` 通过。

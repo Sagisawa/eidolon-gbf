@@ -50,7 +50,8 @@ export type MicNotice = "fell_back" | "unavailable" | "lost";
 
 /**
  * Whether her conversation is open: `opening` while it is looked up (or started) and its
- * messages loaded; `failed` when that did not work, with the reason in `failure`.
+ * messages loaded, and again while a new conversation is started; `failed` when opening
+ * did not work, with the reason in `failure`. Nothing is sent or dialed unless `open`.
  */
 export type OpenStatus = "opening" | "open" | "failed";
 
@@ -146,8 +147,6 @@ export class LiveConversation {
   private disposed = false;
   /** The conversation open; null until it is. */
   private conversationId: string | null = null;
-  /** A new conversation is being started: nothing is sent or dialed until it is. */
-  private starting = false;
 
   /** Opens her newest conversation, or starts one if she has none. */
   constructor(
@@ -177,18 +176,17 @@ export class LiveConversation {
     this.call = null;
   }
 
-  /** Leave this conversation for a new, empty one. Not over a text turn or a call. */
+  /** Leave this conversation for a new, empty one, with an empty input box. Not over a
+   * text turn or a call. It is opening until the new one is started; if that fails, this
+   * one stays open. */
   async startNewConversation(): Promise<void> {
     if (!this.ready() || this.state.busy || isLive(this.state.call)) return;
-    this.starting = true;
-    this.update({ failure: null });
+    this.update({ status: "opening", failure: null });
     try {
       const conversation = await this.started();
-      this.opened(conversation.id, [], { call: { phase: "idle" } });
+      this.opened(conversation.id, [], { status: "open", call: { phase: "idle" }, draft: "" });
     } catch (e) {
-      this.update({ failure: toFailure(e) });
-    } finally {
-      this.starting = false;
+      this.update({ status: "open", failure: toFailure(e) });
     }
   }
 
@@ -386,9 +384,9 @@ export class LiveConversation {
     this.apply({ type: "loaded", messages }, { ...change, callFrom: messages.length });
   }
 
-  /** A conversation is open and not being left for a new one. */
+  /** A conversation is open, and not being left for a new one (that is `opening`). */
   private ready(): boolean {
-    return this.state.status === "open" && !this.starting;
+    return this.state.status === "open";
   }
 
   /** The time now, as the log dates entries. */
