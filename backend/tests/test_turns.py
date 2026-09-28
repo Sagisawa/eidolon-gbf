@@ -16,7 +16,7 @@ from eidolon.assembly import build
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.llm import ToolCall
-from eidolon.reply_format import SegmentComplete
+from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.store import Conversation, Store
 from tests.fakes import HANG, FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
 
@@ -58,7 +58,9 @@ class Turns:
                     asyncio.get_running_loop().call_later(0.05, stop.set)
         finally:
             await backend.aclose()
-        return [asdict(e) for e in events if in_house or not isinstance(e, SegmentComplete)]
+        return [
+            asdict(e) for e in events if in_house or not isinstance(e, SegmentComplete | SpeechDelta)
+        ]
 
     def record(self) -> list[tuple]:
         return [(m.role, m.text, m.ja) for m in self._store.list_messages(self.conversation.id)]
@@ -118,9 +120,9 @@ async def test_a_segment_is_complete_once_its_subtitle_closes_the_next_opens_or_
     events = await turns.take(llm, "早上好", in_house=True)
 
     assert [(e["type"], e.get("segment")) for e in events[1:]] == [
-        ("delta", 0), ("delta", 0), ("segment-complete", 0),
-        ("delta", 1), ("segment-complete", 1),
-        ("delta", 2), ("delta", 2), ("segment-complete", 2),
+        ("delta", 0), ("speech-delta", 0), ("delta", 0), ("segment-complete", 0),
+        ("delta", 1), ("speech-delta", 1), ("segment-complete", 1),
+        ("delta", 2), ("speech-delta", 2), ("delta", 2), ("segment-complete", 2),
         ("done", None),
     ]
 

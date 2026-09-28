@@ -488,9 +488,14 @@ def _extraction_prompt(
         if message.role == "user":
             lines.append(f"制作人：{message.text}")
         else:
-            lines.append(f"{character.name}：{message.zh or message.ja}")
-    lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{reply.zh or reply.ja}"]
+            lines.append(f"{character.name}：{_said(message)}")
+    lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
     return [ChatMessage("system", _INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
+
+
+def _said(reply: Message) -> str:
+    reply = reply.without_cues()
+    return reply.zh or reply.ja or ""
 
 
 def parse_memories(answer: str) -> list[str] | None:

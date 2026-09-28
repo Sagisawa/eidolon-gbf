@@ -8,11 +8,15 @@ subtitle:
 The parser turns a stream of arbitrary text chunks into per-segment deltas as soon
 as they arrive, so Japanese text can reach TTS before the reply is finished. It also
 says when each segment is complete: once its subtitle closes, the next segment opens
-(the model skipped the subtitle), or the stream ends.
+(the model skipped the subtitle), or the stream ends. The segments keep what the model
+wrote; the deltas show it without delivery cues, and the Japanese is voiced with them
+(see `delivery_cues`).
 """
 
 from dataclasses import dataclass, field
 from typing import Literal
+
+from eidolon.delivery_cues import CueFilter
 
 Lang = Literal["ja", "zh"]
 
@@ -21,7 +25,17 @@ FORMAT_INSTRUCTIONS = """\
 无论用户用中文还是日语说话，你都只用日语回答，并给每句日语附上中文字幕。
 把回复分成一到几个短段，每段先写日语原文，紧接着写这段的中文字幕，格式如下：
 <ja>日语原文</ja><zh>中文字幕</zh>
-除了这些标签和标签里的内容，不要输出任何其他文字。"""
+除了这些标签和标签里的内容，不要输出任何其他文字。
+
+# 情绪与语气提示
+让情绪自然地流露在日语的措辞里：感叹词、语气词、停顿、口语化的说法。但口吻和口癖始终以人设为准，不要为了显得有情绪而夸张。
+通话时日语原文会被念出来。情绪明显的段，可以在日语原文里加上语气提示，告诉配音这里该怎么念：用方括号括起简短的英文描述，放在段首管整段，放在句中管它后面的部分。平常说话、交代事情的段不加，一次回复里通常只有一两段需要。例如：
+<ja>[shyly] え、えっと……ありがとう。</ja><zh>那、那个……谢谢。</zh><ja>明日は十時に集合だよね。</ja><zh>明天是十点集合对吧。</zh>
+<ja>そっか……[disappointed] 行けないんだ。</ja><zh>这样啊……去不了了啊。</zh>
+常用的有 [happily] [excitedly] [shyly] [embarrassed] [sadly] [disappointed] [sulking] [angrily] [worried] [surprised] [gently] [teasing] [whispering] [laughing] [sleepy]，也可以自由描述，例如 [laughing nervously]，但不要超过四个英文单词。
+- 每段最多两个语气提示；拿不准要不要加时就不加。
+- 语气提示只写在 <ja> 里；<zh> 只翻译台词，不带语气提示。
+- 只用方括号加英文，不要用圆括号、方头括号或其他括号，也不要用日语或中文写提示。"""
 
 
 @dataclass(frozen=True)
@@ -41,7 +55,17 @@ class SegmentComplete:
     type: Literal["segment-complete"] = field(default="segment-complete", init=False)
 
 
-ParserEvent = SegmentDelta | SegmentComplete
+@dataclass(frozen=True)
+class SpeechDelta:
+    """More of segment `segment`'s Japanese to voice, sent along with the `SegmentDelta`
+    that shows it: the same words, but with their delivery cues. Stays on the server."""
+
+    segment: int
+    text: str
+    type: Literal["speech-delta"] = field(default="speech-delta", init=False)
+
+
+ParserEvent = SegmentDelta | SpeechDelta | SegmentComplete
 
 
 @dataclass
@@ -57,6 +81,7 @@ class ReplyParser:
     _inside: Lang | None = None
     _stray: str = ""
     _said_complete: int = 0  # how many segments are known to be complete
+    _line: CueFilter = field(default_factory=CueFilter)  # the open tag's content
     _events: list[ParserEvent] = field(default_factory=list)
 
     @property
@@ -74,6 +99,7 @@ class ReplyParser:
                 closed = self._take_content(self._inside)
                 if not closed:
                     return self._hand_over()
+                self._end_line(self._inside)
                 if self._inside == "zh":
                     self._complete_up_to(len(self.segments))
                 self._inside = None
@@ -87,8 +113,10 @@ class ReplyParser:
             text = self._buffer[: len(self._buffer) - keep]
             if text:
                 self._append(self._inside, text)
+            self._end_line(self._inside)
         elif not self.segments and (self._stray + self._buffer).strip():
             self._append("ja", (self._stray + self._buffer).strip())
+            self._end_line("ja")
         self._buffer, self._inside, self._stray = "", None, ""
         self._complete_up_to(len(self.segments))
         return self._hand_over()
@@ -108,6 +136,7 @@ class ReplyParser:
             self._complete_up_to(len(self.segments))
             self.segments.append(Segment())
         self._inside = lang
+        self._line = CueFilter()
         return True
 
     def _take_content(self, lang: Lang) -> bool:
@@ -128,7 +157,18 @@ class ReplyParser:
             self.segments.append(Segment())
         segment = self.segments[-1]
         setattr(segment, lang, getattr(segment, lang) + text)
-        self._events.append(SegmentDelta(len(self.segments) - 1, lang, text))
+        self._show(lang, *self._line.feed(text))
+
+    def _end_line(self, lang: Lang) -> None:
+        self._show(lang, *self._line.finish())
+        self._line = CueFilter()
+
+    def _show(self, lang: Lang, shown: str, voiced: str) -> None:
+        """Show what the reply's text has come to, and voice its Japanese."""
+        if shown:
+            self._events.append(SegmentDelta(len(self.segments) - 1, lang, shown))
+        if lang == "ja" and voiced:
+            self._events.append(SpeechDelta(len(self.segments) - 1, voiced))
 
     def _complete_up_to(self, segments: int) -> None:
         """Say the first `segments` segments are complete, those not said to be already."""

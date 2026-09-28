@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+from eidolon.delivery_cues import without_cues
 from eidolon.producer import ProducerProfile
 from eidolon.reply_format import Segment
 
@@ -168,6 +169,19 @@ class Message:
     zh: str | None
     created_at: str
     segments: list[Segment] = field(default_factory=list)
+
+    def without_cues(self) -> "Message":
+        """The message as people see it: a reply is kept as the model wrote it, delivery
+        cues and all (ADR-0007)."""
+        if self.role != "character":
+            return self
+        return Message(
+            self.id, self.role, self.text,
+            None if self.ja is None else without_cues(self.ja),
+            None if self.zh is None else without_cues(self.zh),
+            self.created_at,
+            [Segment(without_cues(s.ja), without_cues(s.zh)) for s in self.segments],
+        )
 
 
 class Store:

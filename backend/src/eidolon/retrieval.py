@@ -323,7 +323,7 @@ class JevJudge:
             if message.role == "user":
                 recent.append(f"制作人：{message.text}")
             else:
-                recent.append(f"{character.name}：{message.ja}")
+                recent.append(f"{character.name}：{message.without_cues().ja}")
         body = {
             "model": self._model,
             "state": {
