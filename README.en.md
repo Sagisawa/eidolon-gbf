@@ -207,6 +207,8 @@ With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the call button in
   - **Hang up** (挂断) ends the call and the call screen goes away, with no ending page.
   - **Switch microphone** (切换麦克风) lists the available microphones and switches to the one you pick on the spot, without dropping the call and keeping mic mute as it was; that microphone becomes the default for later calls. If the microphone in use is unplugged, the call switches to the system default and says so on the call screen; if no other microphone is available, the call carries on and the call screen says the microphone was disconnected.
 - With the **Text only** (只看文字) switch at the top right on, she stays silent and her replies appear only as Japanese text with subtitles; every other rule stays the same. The default microphone and call audio quality are chosen on the settings page.
+- Just like a phone call: a ringback tone loops from the moment you press the call button until the call connects, a short tone plays when it connects, and a “beep beep beep” hang-up tone plays when the call ends, whoever hung up and for whatever reason. These are the phone's own sounds, so Text only and collapsing the call screen don't affect them.
+- With the **Phone texture** (电话质感) switch on the settings page turned on (it is off by default), her voice sounds as if heard through a handset: only the telephone band is kept, with light compression, instead of studio-clean audio. It takes effect from the next call and is independent of call audio quality.
 - When a call ends for a reason (it could not connect, dropped midway, hit the per-call time or turn limit, ran out of quota, an own key failed, or the microphone was refused), the call screen stays on an ending page that gives the reason and whether the call counted towards the quota, with a button to call again or go back to the conversation; when the quota ran out or an own key failed, the main button leads to setting up your own keys instead (去设置自带密钥).
 - Leaving the conversation hangs up the call, even while it is still connecting. Leaving from within the page (picking another character in the list, opening settings or memories, the back button on a phone) asks for confirmation first.
 - `FISH_AUDIO_MODEL` defaults to `s2.1-pro-free`, which consumes no API credits; switch to a paid model if you have credits.
@@ -479,7 +481,7 @@ eidolon-sc/
 
 The code in this project is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), or (at your option) any later version. If you modify it and let others use it over a network, you must make your modified source code available to those users.
 
-The license covers only the code and documentation in this repository. Story data and character voices are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003). The character sheets, facts and avatars in the repository are not covered either: the characters and their settings belong to the rights holders.
+The license covers only the code and documentation in this repository. Story data and character voices are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003). The character sheets, facts and avatars in the repository are not covered either: the characters and their settings belong to the rights holders. For the sources and licences of the call sounds, see [`frontend/public/sounds/CREDITS.md`](frontend/public/sounds/CREDITS.md); the connect and hang-up tones are CC0.
 
 ## 🙏 Acknowledgements
 
