@@ -5,8 +5,11 @@ import type { CallState } from "@/lib/liveConversation";
 
 type Phase = CallState["phase"];
 
+/** A short tone played once: the connect tone, or the hang-up tone. */
+export type Tone = "connect" | "hang-up";
+
 /** The ringback starts looping or stops; a short tone is played once. */
-export type CallTones = { ring: "start" | "stop" | null; once: "connect" | "hang-up" | null };
+export type CallTones = { ring: "start" | "stop" | null; once: Tone | null };
 
 export function callTones(from: Phase, to: Phase): CallTones {
   if (to === "dialing" && from !== "dialing") return { ring: "start", once: null };

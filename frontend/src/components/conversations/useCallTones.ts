@@ -2,10 +2,10 @@
 
 import { useEffect, useRef } from "react";
 
-import { callTones } from "@/lib/callTones";
+import { callTones, type Tone } from "@/lib/callTones";
 import type { CallState } from "@/lib/liveConversation";
 
-type Sounds = { ring: HTMLAudioElement; connect: HTMLAudioElement; hangUp: HTMLAudioElement };
+type Sounds = { ring: HTMLAudioElement; tones: Record<Tone, HTMLAudioElement> };
 
 /**
  * 电话本身的声音（CONTEXT.md「铃声」「接通音」「挂断音」）：跟着通话状态的切换响铃、停铃、播一次提示音，
@@ -19,7 +19,8 @@ export function useCallTones(phase: CallState["phase"]): void {
   useEffect(() => {
     const ring = new Audio("/sounds/ringback.mp3");
     ring.loop = true;
-    const loaded = { ring, connect: new Audio("/sounds/connect.ogg"), hangUp: new Audio("/sounds/hang-up.mp3") };
+    const tones = { connect: new Audio("/sounds/connect.ogg"), "hang-up": new Audio("/sounds/hang-up.mp3") };
+    const loaded = { ring, tones };
     sounds.current = loaded;
     return () => {
       stop(loaded.ring);
@@ -35,8 +36,7 @@ export function useCallTones(phase: CallState["phase"]): void {
     const { ring, once } = callTones(from, phase);
     if (ring === "start") play(loaded.ring);
     if (ring === "stop") stop(loaded.ring);
-    if (once === "connect") play(loaded.connect);
-    if (once === "hang-up") play(loaded.hangUp);
+    if (once) play(loaded.tones[once]);
   }, [phase]);
 }
 

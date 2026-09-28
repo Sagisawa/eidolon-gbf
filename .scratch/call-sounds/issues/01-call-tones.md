@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 素材（都提交进仓库，放在 `frontend/public/sounds/`，这个目录现在还不存在）
 
@@ -34,7 +34,15 @@
 
 ## 验收
 
-- [ ] 三个音效文件和 `CREDITS.md` 已提交，根目录的 `打电话铃声.mp3` 已删除。
-- [ ] 单测覆盖以下切换：idle→dialing 开始响铃；dialing→connected 停止铃声并播放接通音；dialing→ended、connected→ended 停止铃声并播放挂断音；ended→idle 以及同一状态重复渲染时什么都不做；重新拨打会再次响铃。
+- [x] 三个音效文件和 `CREDITS.md` 已提交，根目录的 `打电话铃声.mp3` 已删除（删除由 coordinator 在合并后完成）。
+- [x] 单测覆盖以下切换：idle→dialing 开始响铃；dialing→connected 停止铃声并播放接通音；dialing→ended、connected→ended 停止铃声并播放挂断音；ended→idle 以及同一状态重复渲染时什么都不做；重新拨打会再次响铃。
 - [ ] 在真实应用里走一遍：拨号时听到铃声，接通后听到接通音，挂断后听到挂断音；开着「只看文字」时音效照常播放。
-- [ ] `npm test`、`npm run lint`、类型检查通过。
+- [x] `npm test`、`npm run lint`、类型检查通过（frontend 没有 `lint` 脚本，这一项以 `npm run build` 代替）。
+
+## Comments
+
+- 切换规则在 `frontend/src/lib/callTones.ts`（单测 `callTones.test.ts`），播放在 `components/conversations/useCallTones.ts`，`ConversationView.tsx` 只加了一行 `useCallTones(call.phase)`。用户自己挂断时状态直接回到 `idle`、不经过 `ended`，所以规则是「从 dialing/connected 变成任何非通话中的状态」就停铃并播挂断音。
+- `frontend/Dockerfile` 补了 `COPY --from=build /app/public ./public`：standalone 输出不带 `public/`，不补的话线上音效会 404。
+- `ringback.mp3` 由根目录原文件转成单声道 64kbps（约 290KB）；`hang-up.mp3` 确认是 1.6 秒、三声约 425Hz 的 Felfa 预览版；三个文件的平均响度在 -10 到 -14 dB 之间，差不多。
+- 验证：`npm test` 227 个全过，typecheck、`npm run build` 通过。用 Playwright 对生产构建（mock 掉 API）检查了播放调用：拨号即 `play` 铃声（loop），接通前失败时停铃并播挂断音，结束画面停留时不重播，重拨再次响铃，拨号中用户挂断会停铃并播挂断音，收起通话层不影响铃声，离开页面时铃声停止、不播挂断音。
+- **还需要人耳确认**：真实接通后的接通音（没有后端，接通状态没法走到）；开着「只看文字」时三种音效照常能听到；音量和听感是否合适，铃声循环接缝是否自然。另外 iOS Safari 可能拒绝不在点击当下发起的播放（接通音和挂断音风险更大，被拒时静默），而且 Safari 17 以前不支持 Ogg，`connect.ogg` 在老版本上会没声，需要用手机试一下，不行就把接通音转成 mp3。
