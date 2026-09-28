@@ -3,9 +3,11 @@
 
 import type { Message, Segment, TurnEvent } from "@/lib/api";
 
+/** One message shown. `at` (ISO) is when it was recorded; for the turn under way, when the
+ * user sent or said the words, which the reply shares until it is recorded. */
 export type Entry =
-  | { kind: "user"; key: string; text: string }
-  | { kind: "character"; key: string; segments: Segment[]; pending: boolean };
+  | { kind: "user"; key: string; text: string; at: string }
+  | { kind: "character"; key: string; segments: Segment[]; pending: boolean; at: string };
 
 /** The exchange under way: the user's words and the reply, both the last entries shown.
  * A turn the user typed is unconfirmed until the backend's `user` event takes it up. */
@@ -16,9 +18,11 @@ export type ConversationLog = { entries: Entry[]; turn: Turn | null };
 export type LogAction =
   /** The conversation was opened or started: show its recorded messages. */
   | { type: "loaded"; messages: Message[] }
-  /** The user typed something outside a call; show it before the backend takes it up. */
-  | { type: "submitted"; text: string }
-  | TurnEvent
+  /** The user typed something outside a call, at `at`; show it before the backend takes it up. */
+  | { type: "submitted"; text: string; at: string }
+  /** The backend took up the user's words, heard at `at`; words typed keep the time they were sent. */
+  | (Extract<TurnEvent, { type: "user" }> & { at: string })
+  | Exclude<TurnEvent, { type: "user" }>
   /** The turn ended without `done` or `error`: the user hung up, the call dropped, or
    * the text turn's event stream closed early. */
   | { type: "interrupted" };
@@ -30,12 +34,12 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
     case "loaded":
       return { entries: action.messages.map(toEntry), turn: null };
     case "submitted":
-      return opened(withoutTurn(log), action.text, false);
+      return opened(withoutTurn(log), action.text, action.at, false);
     case "user":
       if (log.turn && !log.turn.confirmed) {
         return { ...log, turn: { ...log.turn, confirmed: true } };
       }
-      return opened(withoutTurn(log), action.text, true);
+      return opened(withoutTurn(log), action.text, action.at, true);
     case "delta": {
       const turn = log.turn;
       if (!turn) return log;
@@ -56,14 +60,14 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
 /** Opens a turn with the user's words and an empty reply to fill. The turn in progress is
  * always the last two entries, so an entry's position is never shared by two entries
  * shown together and serves as its key until the entry is replaced by the recorded one. */
-function opened(log: ConversationLog, text: string, confirmed: boolean): ConversationLog {
-  const at = log.entries.length;
-  const turn = { confirmed, userKey: `new-${at}`, replyKey: `new-${at + 1}` };
+function opened(log: ConversationLog, text: string, at: string, confirmed: boolean): ConversationLog {
+  const position = log.entries.length;
+  const turn = { confirmed, userKey: `new-${position}`, replyKey: `new-${position + 1}` };
   return {
     entries: [
       ...log.entries,
-      { kind: "user", key: turn.userKey, text },
-      { kind: "character", key: turn.replyKey, segments: [], pending: true },
+      { kind: "user", key: turn.userKey, text, at },
+      { kind: "character", key: turn.replyKey, segments: [], pending: true, at },
     ],
     turn,
   };
@@ -91,11 +95,12 @@ function withDelta(entry: Entry, event: TurnEvent & { type: "delta" }): Entry {
 
 function toEntry(message: Message): Entry {
   return message.role === "user"
-    ? { kind: "user", key: `m${message.id}`, text: message.text ?? "" }
+    ? { kind: "user", key: `m${message.id}`, text: message.text ?? "", at: message.created_at }
     : {
         kind: "character",
         key: `m${message.id}`,
         segments: message.segments,
         pending: false,
+        at: message.created_at,
       };
 }

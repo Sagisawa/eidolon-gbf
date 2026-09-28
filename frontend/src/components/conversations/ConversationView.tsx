@@ -27,18 +27,11 @@ import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, 
 
 import { FailureNotice, SignInButton } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
-import {
-  createConversation,
-  listConversations,
-  listMessages,
-  sendTurn,
-  type Character,
-  type Message,
-} from "@/lib/api";
+import { createConversation, listConversations, listMessages, sendTurn, type Character } from "@/lib/api";
 import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
 import type { Entry } from "@/lib/conversationLog";
-import { toFailure, type Failure } from "@/lib/failure";
+import type { Failure } from "@/lib/failure";
 import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
 import { herVars } from "@/theme/herVars";
 import { BackIcon, PhoneIcon } from "@/theme/icons";
@@ -50,9 +43,6 @@ import { MicSheet } from "./MicSheet";
 import { useDirectory, useWide } from "./ConversationDirectory";
 
 const t = copy.conversation;
-
-/** 要打开的对话和它已经记下的消息。 */
-type Opened = { id: string; messages: Message[] };
 
 const notOpen = () => NOT_OPEN;
 const noSubscription = () => () => {};
@@ -70,40 +60,19 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const { refresh, setCall, leave } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
-  const [opened, setOpened] = useState<Opened | null>(null);
   const [live, setLive] = useState<LiveConversation | null>(null);
-  const [pageError, setPageError] = useState<Failure | null>(null);
-  const [isCollapsed, setCollapsed] = useState(false);
-  const [isPickingMic, setPickingMic] = useState(false);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
-  const { entries, call, hearing, busy, draft, textOnly, failure } = snapshot;
+  const { conversation, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
   const characterAudio = useRef<HTMLAudioElement>(null);
-  const times = useEntryTimes(entries, opened?.messages);
   const shownCall = useShownCall(call);
 
-  // 打开她最新的一次对话；从没聊过就开一个新的。
+  // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话）。
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [latest] = await listConversations(character.id);
-        const conversation = latest ?? (await createConversation(character.id));
-        if (!latest) refresh(); // 列表里她那一行从「还没有对话」变成新对话
-        const messages = await listMessages(conversation.id);
-        if (!cancelled) setOpened({ id: conversation.id, messages });
-      } catch (e) {
-        if (!cancelled) setPageError(toFailure(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [character.id, refresh]);
-
-  // 离开这一页、或者开了新对话，就和打开着的这一个告别（挂断通话）。
-  useEffect(() => {
-    if (!opened) return;
-    const conversation = new LiveConversation(opened.id, opened.messages, {
+    const conversation = new LiveConversation(character.id, {
+      listConversations,
+      createConversation,
+      listMessages,
+      onListChanged: refresh,
       startCall,
       sendTurn,
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
@@ -113,7 +82,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
     });
     setLive(conversation);
     return () => conversation.dispose();
-  }, [opened]);
+  }, [character.id, refresh]);
 
   // 通话的进展告诉列表那一行。
   useEffect(() => {
@@ -121,50 +90,13 @@ export function ConversationView({ character, onBack }: { character: Character; 
   }, [call, character.id, setCall]);
   useEffect(() => () => setCall(null), [setCall]);
 
-  // 因故结束时停在结束页：收起着也展开给用户看原因。
-  useEffect(() => {
-    if (call.phase === "ended") setCollapsed(false);
-  }, [call.phase]);
-  // 麦克风只在通话中能切换；通话一结束，列表跟着关上。
-  useEffect(() => {
-    if (call.phase !== "connected") setPickingMic(false);
-  }, [call.phase]);
-
-  // 一个回合记下之后，列表里的最后一句跟着更新。
-  const settled = entries.filter((e) => !(e.kind === "character" && e.pending)).length;
-  const seen = useRef<number | null>(null);
-  useEffect(() => {
-    if (!live) return;
-    if (seen.current !== null && seen.current !== settled) refresh();
-    seen.current = settled;
-  }, [live, settled, refresh]);
-
-  async function startNewConversation() {
-    setPageError(null);
-    try {
-      const conversation = await createConversation(character.id);
-      seen.current = null;
-      setOpened({ id: conversation.id, messages: [] });
-      refresh();
-    } catch (e) {
-      setPageError(toFailure(e));
-    }
-  }
-
-  const error = pageError ?? failure;
+  const isOpen = conversation.status === "open";
   const inCall = isLive(call);
   const back = onBack && (() => leave(onBack));
-
-  function dial() {
-    setPageError(null);
-    setCollapsed(false);
-    void live?.startCall();
-  }
+  const dial = () => void live?.startCall();
 
   // 列表只在拿到空数组时显示空状态，所以把消息和「正在听」放进同一个数组。
-  const rows = entries.map((entry) => (
-    <Bubble key={entry.key} entry={entry} character={character} at={times.get(entry.key)} />
-  ));
+  const rows = entries.map((entry) => <Bubble key={entry.key} entry={entry} character={character} />);
   if (hearing) {
     rows.push(
       <ChatMessage key="hearing" sender="user">
@@ -178,7 +110,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
   }
 
   // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。
-  const isLayerCollapsed = isCollapsed || call.phase === "idle";
+  const isLayerCollapsed = collapsed || call.phase === "idle";
   const isCovered = shownCall !== null && !isLayerCollapsed;
   const phoneKey = isFullScreen ? { ...herButton, ...touchTarget } : herButton;
 
@@ -221,7 +153,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           label={copy.call.expand}
           tooltip={copy.call.expand}
           icon={<Icon icon={PhoneIcon} />}
-          onClick={() => setCollapsed(false)}
+          onClick={() => live?.expand()}
           style={phoneKey}
         />
       ) : (
@@ -229,7 +161,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           label={t.call(character.name)}
           tooltip={t.callTooltip}
           icon={<Icon icon={PhoneIcon} />}
-          isDisabled={!live || busy}
+          isDisabled={!isOpen || busy}
           onClick={dial}
           style={phoneKey}
         />
@@ -240,23 +172,23 @@ export function ConversationView({ character, onBack }: { character: Character; 
         items={[
           {
             label: t.newConversation,
-            onClick: () => void startNewConversation(),
-            isDisabled: !live || busy || inCall || error?.signedOut,
+            onClick: () => void live?.startNewConversation(),
+            isDisabled: !isOpen || busy || inCall || failure?.signedOut,
           },
         ]}
       />
     </HStack>
   );
 
-  if (pageError && !opened) {
+  if (conversation.status === "failed") {
     return (
       <Frame character={character} header={header}>
         <VStack height="100%" hAlign="center" vAlign="center" padding={6}>
           <EmptyState
             title={t.loadFailed}
-            description={pageError.message}
+            description={conversation.failure.message}
             actions={
-              pageError.signedOut ? (
+              conversation.failure.signedOut ? (
                 <SignInButton />
               ) : (
                 back && <Button label={t.backToList} variant="secondary" onClick={back} />
@@ -270,11 +202,12 @@ export function ConversationView({ character, onBack }: { character: Character; 
 
   return (
     <Frame character={character} header={header}>
-      {isLive(call) && isCollapsed && <CallNote call={call} onExpand={() => setCollapsed(false)} />}
+      {isLive(call) && collapsed && <CallNote call={call} onExpand={() => live?.expand()} />}
       {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
-      {error?.signedOut && !isCovered && <FailureNotice failure={error} />}
+      {failure?.signedOut && !isCovered && <FailureNotice failure={failure} />}
       <StackItem size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
-        {!opened ? (
+        {/* 开新对话的过程中也是 opening：旧对话留在原处，只是发送键和电话键禁用 */}
+        {!isOpen && entries.length === 0 ? (
           <VStack height="100%" hAlign="center" vAlign="center">
             <Spinner size="lg" aria-label={t.loading} />
           </VStack>
@@ -285,13 +218,10 @@ export function ConversationView({ character, onBack }: { character: Character; 
               <ChatComposer
                 value={draft}
                 onChange={(value) => live?.setDraft(value)}
-                onSubmit={() => {
-                  setPageError(null);
-                  void live?.submit();
-                }}
+                onSubmit={() => void live?.submit()}
                 placeholder={t.placeholder}
-                isDisabled={!live}
-                status={error && !error.signedOut ? { type: "error", message: failureText(error) } : undefined}
+                isDisabled={!isOpen}
+                status={failure && !failure.signedOut ? { type: "error", message: failureText(failure) } : undefined}
                 statusPosition="top"
               />
             }
@@ -322,10 +252,10 @@ export function ConversationView({ character, onBack }: { character: Character; 
           textOnly={textOnly}
           line={snapshot.line}
           hearing={hearing}
-          onCollapse={() => setCollapsed(true)}
+          onCollapse={() => live?.collapse()}
           onHangUp={() => void live?.hangUp()}
           onToggleMic={() => live?.toggleMic()}
-          onSwitchMic={() => setPickingMic(true)}
+          onSwitchMic={() => live?.openMicPicker()}
           onToggleTextOnly={() => live?.toggleTextOnly()}
           onRedial={dial}
           onDismiss={() => live?.dismissEnd()}
@@ -333,8 +263,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
         />
       )}
       <MicSheet
-        isOpen={isPickingMic}
-        onOpenChange={setPickingMic}
+        isOpen={snapshot.pickingMic}
+        onOpenChange={(open) => (open ? live?.openMicPicker() : live?.closeMicPicker())}
         color={character.color}
         micId={snapshot.micId}
         onSelect={(micId) => void live?.switchMic(micId)}
@@ -353,8 +283,10 @@ function Frame({ character, header, children }: { character: Character; header: 
   );
 }
 
-function Bubble({ entry, character, at }: { entry: Entry; character: Character; at: string | undefined }) {
-  const metadata = at ? <ChatMessageMetadata timestamp={<Timestamp value={at} format="time" hasTooltip={false} />} /> : undefined;
+function Bubble({ entry, character }: { entry: Entry; character: Character }) {
+  const metadata = (
+    <ChatMessageMetadata timestamp={<Timestamp value={entry.at} format="time" hasTooltip={false} />} />
+  );
   if (entry.kind === "user") {
     return (
       <ChatMessage sender="user">
@@ -408,25 +340,6 @@ function useShownCall(call: CallState): ShownCall | null {
   const [shown, setShown] = useState<ShownCall | null>(null);
   if (call.phase !== "idle" && call !== shown) setShown(call);
   return call.phase === "idle" ? shown : call;
-}
-
-/**
- * 每条消息的时间：记下的消息用它记下的时间；这次新出现的（刚发出的、刚收到的）用它出现的时间。
- * conversationLog 的条目不带时间，所以在这里对着 key 记一份。
- */
-function useEntryTimes(entries: Entry[], messages: Message[] | undefined): Map<string, string> {
-  const times = useRef(new Map<string, string>());
-  const loaded = useRef<Message[] | undefined>(undefined);
-  if (messages !== loaded.current) {
-    loaded.current = messages;
-    times.current = new Map((messages ?? []).map((m) => [`m${m.id}`, m.created_at]));
-  }
-  const now = new Date().toISOString();
-  for (const entry of entries) {
-    const pending = entry.kind === "character" && entry.pending;
-    if (!pending && !times.current.has(entry.key)) times.current.set(entry.key, now);
-  }
-  return times.current;
 }
 
 /** 她颜色的圆形电话键（DESIGN.md「Her call button」）。 */

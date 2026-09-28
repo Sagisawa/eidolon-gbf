@@ -1,7 +1,15 @@
-// The conversation open on the conversation page: its log, the text turn under way and
-// the call, kept outside React so the page only renders a snapshot and passes on clicks.
+// The conversation page for one character: opening her conversation (or starting a new
+// one), its log, the text turn under way, the call and how the call layer is shown, kept
+// outside React so the page only renders a snapshot and passes on clicks.
 
-import { ApiError, type CallEvent, type Message, type Segment, type TurnEvent } from "@/lib/api";
+import {
+  ApiError,
+  type CallEvent,
+  type Conversation,
+  type Message,
+  type Segment,
+  type TurnEvent,
+} from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
@@ -40,9 +48,22 @@ export function isLive(call: CallState): call is LiveCall {
 
 export type MicNotice = "fell_back" | "unavailable" | "lost";
 
+/**
+ * Whether her conversation is open: `opening` while it is looked up (or started) and its
+ * messages loaded, and again while a new conversation is started; `failed` when it could
+ * not be opened, saying why. Nothing is sent or dialed unless it is `open`.
+ */
+export type OpenState = { status: "opening" } | { status: "open" } | { status: "failed"; failure: Failure };
+
 export type Snapshot = {
+  conversation: OpenState;
   entries: Entry[];
   call: CallState;
+  /** The call layer is collapsed onto the conversation. It opens up again when dialing and
+   * when the call ends for a reason, so the user sees why. */
+  collapsed: boolean;
+  /** The list of microphones is open; only while the call is connected. */
+  pickingMic: boolean;
   /** What the user is saying in the call so far. */
   hearing: string;
   /** The character's latest line in this call, for the call screen; null until she has one. */
@@ -61,6 +82,8 @@ export type Snapshot = {
   draft: string;
   /** Show the character's replies as text only (CONTEXT.md「只看文字」). */
   textOnly: boolean;
+  /** What went wrong in the conversation open: a turn failed, a new conversation could not
+   * be started. Why it could not be opened at all is in `conversation`. */
   failure: Failure | null;
 };
 
@@ -71,7 +94,10 @@ type State = Omit<Snapshot, "entries" | "line"> & {
 };
 
 const IDLE: Omit<Snapshot, "entries" | "line"> = {
+  conversation: { status: "opening" },
   call: { phase: "idle" },
+  collapsed: false,
+  pickingMic: false,
   hearing: "",
   micMuted: false,
   micId: "",
@@ -85,8 +111,16 @@ const IDLE: Omit<Snapshot, "entries" | "line"> = {
 /** What the page shows before a conversation is open. */
 export const NOT_OPEN: Snapshot = { ...IDLE, entries: [], line: null };
 
-/** What the conversation needs from outside: the backend, and this device's preferences. */
+/** What the conversation needs from outside: the backend, this device's preferences, and
+ * the conversation list beside the page. */
 export type Ports = {
+  /** Her conversations, newest first. */
+  listConversations: (characterId: string) => Promise<Conversation[]>;
+  createConversation: (characterId: string) => Promise<Conversation>;
+  listMessages: (conversationId: string) => Promise<Message[]>;
+  /** The conversation list's line for her has changed: a turn was recorded, or a
+   * conversation was started. Told even after the page is left. */
+  onListChanged: () => void;
   startCall: (
     conversationId: string,
     preferences: CallPreferences,
@@ -112,19 +146,17 @@ export class LiveConversation {
   private attempt: object | null = null;
   private endedBy: CallEnd | null = null; // why the backend is hanging up
   private disposed = false;
+  /** The conversation open; null until it is. */
+  private conversationId: string | null = null;
 
+  /** Opens her newest conversation, or starts one if she has none. */
   constructor(
-    private readonly conversationId: string,
-    messages: Message[],
+    private readonly characterId: string,
     private readonly ports: Ports,
   ) {
-    this.state = {
-      ...IDLE,
-      log: conversationLog(emptyLog, { type: "loaded", messages }),
-      callFrom: messages.length,
-      textOnly: ports.preferences.load().muted,
-    };
+    this.state = { ...IDLE, log: emptyLog, callFrom: 0, textOnly: ports.preferences.load().muted };
     this.published = toSnapshot(this.state);
+    void this.open();
   }
 
   /** A new object only after an update, as `useSyncExternalStore` needs. */
@@ -136,12 +168,27 @@ export class LiveConversation {
   };
 
   /** The page is left: hang up the call, even one still dialing. A text turn under way
-   * is not stopped; its reply is still recorded, just no longer shown. */
+   * is not stopped; its reply is still recorded, just no longer shown. A conversation
+   * still opening is not shown either. */
   dispose(): void {
     this.disposed = true;
     this.attempt = null;
     this.call?.hangUp().catch(() => {});
     this.call = null;
+  }
+
+  /** Leave this conversation for a new, empty one, with an empty input box. Not over a
+   * text turn or a call. It is opening until the new one is started; if that fails, this
+   * one stays open. */
+  async startNewConversation(): Promise<void> {
+    if (!this.openConversationId() || this.state.busy || isLive(this.state.call)) return;
+    this.update({ conversation: { status: "opening" }, failure: null });
+    try {
+      const conversation = await this.createConversation();
+      this.showConversation(conversation.id, [], { call: { phase: "idle" }, draft: "" });
+    } catch (e) {
+      this.update({ conversation: { status: "open" }, failure: toFailure(e) });
+    }
   }
 
   setDraft(draft: string): void {
@@ -151,21 +198,22 @@ export class LiveConversation {
   /** Send what is in the input box as a text turn. */
   async submit(): Promise<void> {
     const text = this.state.draft.trim();
+    const conversationId = this.openConversationId();
     // One exchange at a time: not over a text turn, nor into a call still dialing.
-    if (!text || this.state.busy || this.state.call.phase === "dialing") return;
+    if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events.
       this.call.sendText(text);
       return;
     }
-    this.apply({ type: "submitted", text }, { busy: true });
+    this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
 
     let failure: Failure | null = null;
     let done = false;
     try {
-      for await (const event of this.ports.sendTurn(this.conversationId, text)) {
-        this.apply(event);
+      for await (const event of this.ports.sendTurn(conversationId, text)) {
+        this.applyTurnEvent(event);
         if (event.type === "done") done = true;
         // A turn that failed leaves no record and does not count towards the limit.
         if (event.type === "error")
@@ -187,14 +235,15 @@ export class LiveConversation {
 
   /** Call the character, from idle or from the end of the last call. Not over a text turn. */
   async startCall(): Promise<void> {
-    if (this.state.busy || isLive(this.state.call)) return;
+    const conversationId = this.openConversationId();
+    if (!conversationId || this.state.busy || isLive(this.state.call)) return;
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
     this.update({ call: { phase: "dialing" }, micMuted: false, failure: null });
     let started: Call;
     try {
-      started = await this.ports.startCall(this.conversationId, this.ports.preferences.load(), {
+      started = await this.ports.startCall(conversationId, this.ports.preferences.load(), {
         onEvent: (event) => this.onCallEvent(event),
         onHearing: (hearing) => this.update({ hearing }),
         onCharacterAudio: this.ports.onCharacterAudio,
@@ -239,6 +288,24 @@ export class LiveConversation {
     if (this.state.call.phase === "ended") this.update({ call: { phase: "idle" } });
   }
 
+  /** Collapse the call layer onto the conversation, while the call is under way. */
+  collapse(): void {
+    if (isLive(this.state.call) && !this.state.collapsed) this.update({ collapsed: true });
+  }
+
+  expand(): void {
+    if (this.state.collapsed) this.update({ collapsed: false });
+  }
+
+  /** Open the list of microphones to switch to; only while the call is connected. */
+  openMicPicker(): void {
+    if (this.state.call.phase === "connected" && !this.state.pickingMic) this.update({ pickingMic: true });
+  }
+
+  closeMicPicker(): void {
+    if (this.state.pickingMic) this.update({ pickingMic: false });
+  }
+
   /** Mic mute: the microphone's track only, in the browser; typing still goes to the call. */
   toggleMic(): void {
     if (!this.call) return;
@@ -276,10 +343,62 @@ export class LiveConversation {
       this.endedBy = backendEnd(event);
       return;
     }
-    if (event.type === "user") this.apply(event, { hearing: "" });
+    if (event.type === "user") this.applyTurnEvent(event, { hearing: "" });
     else if (event.type === "error")
-      this.apply(event, { failure: { message: event.message, signedOut: false } });
-    else this.apply(event);
+      this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false } });
+    else this.applyTurnEvent(event);
+  }
+
+  /** Moves the log on by an event of a turn, typed or spoken in a call. */
+  private applyTurnEvent(event: TurnEvent, change: Partial<State> = {}): void {
+    this.apply(event.type === "user" ? { ...event, at: this.isoNow() } : event, change);
+    // Recorded: the list's line for her now ends with it, even if the page has been left.
+    if (event.type === "done") this.ports.onListChanged();
+  }
+
+  /** Opens her newest conversation, or starts one if she has none. */
+  private async open(): Promise<void> {
+    let conversation: Conversation;
+    let messages: Message[];
+    try {
+      const [newest] = await this.ports.listConversations(this.characterId);
+      // The page left: no conversation is started for it.
+      if (!newest && this.disposed) return;
+      conversation = newest ?? (await this.createConversation());
+      messages = await this.ports.listMessages(conversation.id);
+    } catch (e) {
+      this.update({ conversation: { status: "failed", failure: toFailure(e) } });
+      return;
+    }
+    if (!this.disposed) this.showConversation(conversation.id, messages);
+  }
+
+  /** Starts a conversation with her. The list shows it at once, even if the page has been
+   * left meanwhile: it is there in the backend all the same. */
+  private async createConversation(): Promise<Conversation> {
+    const conversation = await this.ports.createConversation(this.characterId);
+    this.ports.onListChanged();
+    return conversation;
+  }
+
+  /** Shows this conversation and its messages from now on: it is open. */
+  private showConversation(conversationId: string, messages: Message[], change: Partial<State> = {}): void {
+    this.conversationId = conversationId;
+    this.apply(
+      { type: "loaded", messages },
+      { ...change, conversation: { status: "open" }, callFrom: messages.length },
+    );
+  }
+
+  /** The conversation to send to and call in, or null if none is open: still opening,
+   * being left for a new one, or failed to open. */
+  private openConversationId(): string | null {
+    return this.state.conversation.status === "open" ? this.conversationId : null;
+  }
+
+  /** The time now, as the log dates entries. */
+  private isoNow(): string {
+    return new Date(this.now()).toISOString();
   }
 
   /** The call is over, hung up (no `end`) or not; a reply it cut off is not recorded. */
@@ -308,10 +427,23 @@ export class LiveConversation {
 
   private update(change: Partial<State>): void {
     if (this.disposed) return;
-    this.state = { ...this.state, ...change };
+    this.state = withCallScreenRules(this.state, { ...this.state, ...change });
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
   }
+}
+
+/**
+ * How the call screen follows the call, from one state to the next: dialing, and a call
+ * ending for a reason, open the call layer up again, so the user sees the call or why it
+ * ended; the microphone list is only for a connected call.
+ */
+function withCallScreenRules(before: State, next: State): State {
+  const reopens = next.call !== before.call && (next.call.phase === "dialing" || next.call.phase === "ended");
+  const collapsed = next.collapsed && !reopens;
+  const pickingMic = next.pickingMic && next.call.phase === "connected";
+  if (collapsed === next.collapsed && pickingMic === next.pickingMic) return next;
+  return { ...next, collapsed, pickingMic };
 }
 
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
