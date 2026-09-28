@@ -1,5 +1,5 @@
 """`eidolon reembed`: after the embedding service, model or dimensions change, the story
-corpus, character facts, the shared index of songs, releases and lives and every user's
+corpus, character facts, the work facts (songs, releases and lives) and every user's
 memories are embedded again from the text already in the database (and the data file), and
 only then are the old model's vectors dropped."""
 
@@ -15,12 +15,12 @@ from eidolon.assembly import build
 from eidolon.characters import Character, load_characters
 from eidolon.corpus import Episode, Line, StoryCorpus
 from eidolon.embedding import Document, EmbeddingError
-from eidolon.facts import FactIndex
+from eidolon.facts import CharacterFacts
 from eidolon.memory import Memories
 from eidolon.reembed import reembed
 from eidolon.store import Store
+from eidolon.work_facts import WorkFacts
 from eidolon.world import load_world, world_path
-from eidolon.world_index import WorldIndex
 from eidolon.config import LLMSettings, Settings
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import (
@@ -33,7 +33,7 @@ from tests.fakes import (
 )
 from tests.test_memories import NOW, World, tell, writing_with
 from tests.test_shared_memory import CAT, TRIP, memorized
-from tests.test_world_retrieval import ENTRIES as WORLD_ENTRIES
+from tests.test_world_retrieval import ENTRIES as WORK_FACTS
 from tests.test_world_setting import write_world
 
 OLD, NEW = "old-model", "new-model@768"
@@ -79,8 +79,8 @@ class Deployment:
         corpus = StoryCorpus(self.database, embedder)
         await corpus.save(EPISODES)
         corpus.close()
-        facts = FactIndex(self.database, embedder)
-        await facts.embed_missing(self.mano)
+        facts = CharacterFacts(self.database, embedder, [self.mano])
+        await facts.embed_missing()
         facts.close()
         memories = writing_with(
             Memories(
@@ -305,27 +305,27 @@ async def test_an_import_meanwhile_is_not_overwritten(deployment: Deployment):
     assert deployment.vectors("episode_passages") == {NEW: 5}
 
 
-async def test_the_shared_index_of_songs_releases_and_lives_is_embedded_again(
+async def test_the_work_facts_are_embedded_again(
     deployment: Deployment, tmp_path: Path
 ):
     write_world(CharacterConfig(tmp_path / "characters"))
     world = load_world(world_path(deployment.characters_path))
     assert world is not None
     await deployment.embed_everything_with(OLD)
-    index = WorldIndex(deployment.database, FakeEmbedder(OLD), world)
-    await index.embed_missing()
-    index.close()
+    work = WorkFacts(deployment.database, FakeEmbedder(OLD), world)
+    await work.embed_missing()
+    work.close()
 
     report = await reembed(
         deployment.database, deployment.characters.values(), FakeEmbedder(NEW), world=world
     )
 
-    assert report.world == WORLD_ENTRIES
-    assert report.forgotten == 4 + WORLD_ENTRIES
-    assert deployment.vectors("embedded_texts", "work") == {NEW: WORLD_ENTRIES}
+    assert report.work == WORK_FACTS
+    assert report.forgotten == 4 + WORK_FACTS
+    assert deployment.vectors("embedded_texts", "work") == {NEW: WORK_FACTS}
 
 
-def test_the_command_reembeds_the_shared_index_beside_the_characters(
+def test_the_command_reembeds_the_work_facts_beside_the_characters(
     deployment: Deployment,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -339,4 +339,4 @@ def test_the_command_reembeds_the_shared_index_beside_the_characters(
 
     out = admin.run("reembed", "--characters", str(deployment.characters_path))
 
-    assert f"歌曲、唱片和演出：新向量化 {WORLD_ENTRIES} 条" in out
+    assert f"作品资料：新向量化 {WORK_FACTS} 条" in out

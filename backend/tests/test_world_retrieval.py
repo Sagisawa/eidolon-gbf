@@ -1,7 +1,8 @@
-"""The shared index of songs, releases and live days, driven through the text turn API:
-retrieving references finds its entries along with the story and the character's facts,
+"""The work facts (songs, releases and live days), driven through the text turn API:
+retrieving references finds them along with the story and the character's facts,
 reranked together, under a heading of their own; recalling how something went looks in
-it too, for the lives and releases; the recall-story tool does not. No CV is in any of it."""
+them too, for the lives and releases; the recall-story tool does not. No CV is in any of
+it."""
 
 import json
 import sqlite3
@@ -14,7 +15,7 @@ from eidolon.config import Settings
 from eidolon.corpus import StoryCorpus
 from eidolon.story_import import import_csv_directory
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
-from tests.fakes import FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, KeywordReranker
 from tests.test_recall_story import ANSWER, recall, tool_results
 from tests.test_retrieval import MANO_FACTS, PARK_LINE, REPLY, system_prompt
 from tests.test_text_turn import send_turn, start_conversation
@@ -52,8 +53,15 @@ async def embedder(settings: Settings, story: Path) -> FakeEmbedder:
 
 
 def entries(system: str) -> list[str]:
-    """The entries of the index under the 资料 headings of the prompt."""
-    return [part.split("\n\n")[0] for part in system.split("\n## 资料\n")[1:]]
+    """The work facts under the 作品资料 headings of the prompt."""
+    return under(system, "作品资料")
+
+
+def under(system: str, heading: str) -> list[str]:
+    """What the prompt carries under each of its `heading` headings."""
+    return [
+        part.split("\n\n")[0].rstrip("\n") for part in system.split(f"\n## {heading}\n")[1:]
+    ]
 
 
 async def test_a_song_is_retrieved_with_its_singers_and_releases(
@@ -65,18 +73,32 @@ async def test_a_song_is_retrieved_with_its_singers_and_releases(
     system = await system_prompt(client, llm, "ヒカリのdestinationって誰が歌ってるんだっけ")
 
     references = section(system, "# 回忆与资料")
-    assert "「资料」是关于歌曲、唱片和演出的事实" in references
+    assert "「作品资料」是关于歌曲、唱片和演出的事实" in references
     song = entries(system)[0]
     assert song.startswith(HIKARI)
     assert "演唱：illumination STARS（櫻木真乃、風野灯織）" in song
     assert f"《{WING_02}》（2018年7月4日发售）" in song
     assert f"《{WING_A}》（2023年1月18日发售）" in song
     assert not any(cv in system for cv in CVS)
-    # One rerank for the story, her facts and the index together.
+    # One rerank for the story, her facts and the work facts together.
     [(_, candidates)] = reranker.calls
     assert any(c.startswith(HIKARI) for c in candidates)
     assert any("W.I.N.G.編" in c for c in candidates)
     assert any("風野灯織\nillumination STARS 的伙伴" in c for c in candidates)
+
+
+async def test_work_facts_and_character_facts_go_under_their_own_headings(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm = FakeLLM(REPLY)
+    reranker = KeywordReranker({HIKARI: 0.9, "人物关系 / 風野灯織": 0.8}, rest=0.0)
+    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+
+    system = await system_prompt(client, llm, "ヒカリのdestinationと灯織ちゃんのこと")
+
+    assert under(system, "角色资料") == ["人物关系 / 風野灯織\nillumination STARS 的伙伴，性格认真。"]
+    [song] = under(system, "作品资料")
+    assert song.startswith(HIKARI)
 
 
 async def test_a_release_is_retrieved_with_its_date_and_tracks(
@@ -152,7 +174,7 @@ async def test_a_cover_at_a_joint_live_is_retrieved_as_another_brand_s_song(
     assert "ドレミファクトリー！" not in section(system, "# 你的歌")
 
 
-async def test_the_index_is_shared_by_every_character(
+async def test_the_work_facts_are_shared_by_every_character(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY)
@@ -163,7 +185,7 @@ async def test_the_index_is_shared_by_every_character(
     assert entries(system)[0].startswith(HIKARI)
 
 
-async def test_without_a_data_file_references_go_on_without_the_index(
+async def test_without_a_data_file_references_go_on_without_work_facts(
     make_client: ClientFactory, embedder: FakeEmbedder, characters: CharacterConfig
 ):
     (characters.directory / "world.json").unlink()
@@ -173,7 +195,7 @@ async def test_without_a_data_file_references_go_on_without_the_index(
     system = await system_prompt(client, llm, "公園の鳩とヒカリのdestination")
 
     assert PARK_LINE in system
-    assert "\n## 资料\n" not in system
+    assert "\n## 作品资料\n" not in system
     assert not any(HIKARI in c for _, docs in reranker.calls for c in docs)
 
 
@@ -190,7 +212,7 @@ async def test_recalling_a_live_brings_its_days_even_when_no_episode_tells_it(
     assert [d.split("\n")[1] for d in days] == ["日期：2024年3月2日", "日期：2024年3月3日"]
     assert "没有经历过" not in system
     assert not any(cv in system for cv in CVS)
-    # The episodes and the index are reranked together, once.
+    # The episodes and the work facts are reranked together, once.
     assert len(reranker.calls) == 1
 
 
@@ -222,7 +244,7 @@ async def test_recalling_an_episode_still_brings_the_episode(
 
     assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in system
     assert f"真乃：{PARK_LINE}" in system
-    assert "\n## 资料\n" not in system
+    assert "\n## 作品资料\n" not in system
 
 
 async def test_recalling_nothing_does_not_say_she_never_went_through_it(
@@ -250,7 +272,7 @@ async def test_the_recall_story_tool_only_looks_in_the_story(
     await send_turn(client, conversation_id, "ドームのライブのこと、話して")
 
     [result] = tool_results(llm.prompts[-1])
-    assert "ベルーナドーム" not in result and "\n## 资料\n" not in result
+    assert "ベルーナドーム" not in result and "\n## 作品资料\n" not in result
     assert not any("ドーム" in c for _, docs in reranker.calls for c in docs)
 
 
@@ -292,7 +314,7 @@ async def test_an_edited_data_file_takes_effect_on_restart_embedding_only_what_c
     assert stored_entries(settings) == {"fake-embedding": ENTRIES}  # the old one is gone
 
 
-async def test_turns_without_references_embed_nothing_of_the_index(
+async def test_turns_without_references_embed_no_work_facts(
     make_client: ClientFactory, embedder: FakeEmbedder, settings: Settings
 ):
     llm = FakeLLM(REPLY)
@@ -303,7 +325,7 @@ async def test_turns_without_references_embed_nothing_of_the_index(
     assert stored_entries(settings) == {}
 
 
-async def test_the_index_is_embedded_once_however_many_turns_search_it(
+async def test_the_work_facts_are_embedded_once_however_many_turns_search_them(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY, REPLY)

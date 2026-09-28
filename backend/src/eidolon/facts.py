@@ -1,4 +1,4 @@
-"""The vector index of character facts.
+"""The character facts, as a reference source.
 
 Facts come from the character configuration, not an import: each character's facts are a
 scope of the embedded text set, embedded the first time they are searched and kept until
@@ -6,37 +6,45 @@ a fact is edited or removed, so an edit to a facts file takes effect after a res
 without any command and costs only the changed entries.
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from eidolon.characters import Character, Fact
 from eidolon.embedded_texts import CHARACTER_SCOPES, EmbeddedTexts, character_scope
 from eidolon.embedding import Document, Embedder
+from eidolon.references import Reference, ReferenceKind
 
 
-class FactIndex:
-    def __init__(self, path: Path, embedder: Embedder) -> None:
+class CharacterFacts:
+    kind: ReferenceKind = "fact"
+    heading = "角色资料"
+    guide = "「角色资料」是关于你自己和身边人物的设定。"
+
+    def __init__(self, path: Path, embedder: Embedder, characters: Iterable[Character]) -> None:
         self._texts = EmbeddedTexts(path, embedder)
+        self._characters = list(characters)
 
-    async def search_by_vector(
-        self, query_vector: Sequence[float], character: Character, limit: int = 5
-    ) -> list[Fact]:
-        """The character's facts most similar to a query embedded with this index's embedder."""
+    async def search(
+        self, query_vector: Sequence[float], character: Character, limit: int
+    ) -> list[Reference]:
         facts = _facts(character)
         best = await self._texts.search(
             character_scope(character.id), _documents(facts), query_vector, limit
         )
-        return [facts[i] for i in best]
+        return [Reference(self.kind, facts[i].text, facts[i].title or facts[i].text) for i in best]
 
-    async def embed_missing(self, character: Character) -> int:
-        """Embed those of the character's facts that have no vector from this index's
+    async def embed_missing(self) -> int:
+        """Embed those of the characters' facts that have no vector from this source's
         embedder yet; returns how many that was."""
-        return await self._texts.embed_missing(
-            character_scope(character.id), _documents(_facts(character))
-        )
+        embedded = 0
+        for character in self._characters:
+            embedded += await self._texts.embed_missing(
+                character_scope(character.id), _documents(_facts(character))
+            )
+        return embedded
 
     def forget_other_models(self) -> int:
-        """Drop every character's vectors not from this index's embedder; returns how many
+        """Drop every character's vectors not from this source's embedder; returns how many
         there were."""
         return self._texts.forget_other_models(CHARACTER_SCOPES)
 

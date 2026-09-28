@@ -5,7 +5,7 @@ from pathlib import Path
 
 from eidolon.characters import Character, parse_facts
 from eidolon.corpus import Episode, Line, StoryCorpus
-from eidolon.facts import FactIndex
+from eidolon.facts import CharacterFacts
 from tests.fakes import FakeEmbedder
 
 PARK = Episode(
@@ -26,13 +26,13 @@ async def test_a_passage_is_titled_with_its_card_or_event_and_episode(tmp_path: 
 
 async def test_a_fact_is_titled_with_its_headings(tmp_path: Path):
     embedder = FakeEmbedder()
-    facts = FactIndex(tmp_path / "eidolon.db", embedder)
     mano = Character(
         "mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6",
         facts=parse_facts("喜欢鸟。\n# 人物关系\n## 風野灯織\n同组合的伙伴。"),
     )
+    facts = CharacterFacts(tmp_path / "eidolon.db", embedder, [mano])
 
-    assert await facts.embed_missing(mano) == 2
+    assert await facts.embed_missing() == 2
     facts.close()
 
     assert embedder.titles == [None, "人物关系 / 風野灯織"]

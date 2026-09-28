@@ -355,6 +355,25 @@ class FakeReranker:
         return [(i, 0.9 if self.prefer in documents[i] else self.others) for i in order[:top_n]]
 
 
+class KeywordReranker:
+    """Scores each document by the first of its keywords it contains, others `rest`."""
+
+    model = "fake-reranker"
+
+    def __init__(self, scores: dict[str, float], rest: float = 0.05) -> None:
+        self.scores = scores
+        self.rest = rest
+
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        scored = [
+            (i, next((s for k, s in self.scores.items() if k in d), self.rest))
+            for i, d in enumerate(documents)
+        ]
+        return sorted(scored, key=lambda r: -r[1])[:top_n]
+
+
 class FakeShinyColorsDB:
     """Stands in for the ShinyColorsDB API, the viewer that mirrors the game's scripts and
     the idols' albums, answering as they do: idols and their cards, each card's episodes,

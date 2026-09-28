@@ -313,7 +313,7 @@ The story corpus, character facts and memories all share one embedding service, 
   docker compose exec backend eidolon reembed
   ```
 
-  It re-embeds the story corpus, character facts, the shared index of songs, releases and lives (built from the world setting's data file) and every user's memories from the text already in the database, with no need to download or import episodes again; once everything is done it deletes the old model's vectors. The service stays up meanwhile, though retrieval only finds the parts already done. You can interrupt it any time and rerun it to pick up where it stopped; if it fails, the old vectors are not deleted.
+  It re-embeds the story corpus, character facts, the work facts (songs, releases and lives, built from the world setting's data file) and every user's memories from the text already in the database, with no need to download or import episodes again; once everything is done it deletes the old model's vectors. The service stays up meanwhile, though retrieval only finds the parts already done. You can interrupt it any time and rerun it to pick up where it stopped; if it fails, the old vectors are not deleted.
 - If the backend finds on startup that some corpus passages lack vectors for the current model, it logs a reminder to run `eidolon reembed`.
 - A model's stored ID includes its dimensions (e.g. `gemini-embedding-2@1536`), so changing dimensions counts as switching models. Existing deployments that stay on SiliconFlow need to do nothing.
 
@@ -334,8 +334,8 @@ flowchart LR
 - A search covers the episodes the current character appears in, her character facts, and the index all characters share (one entry per song, release and live day), reranked with SiliconFlow's Qwen3-Reranker (`Qwen/Qwen3-Reranker-0.6B` by default, `RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). What counts as "sufficiently relevant" is a threshold set per reranker model (both 0.6B's and 4B's are calibrated), which you can also set by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`; `eidolon eval rerank` prints the score distribution on the repo's calibration dataset to help pick one (see [`docs/deploy.md`](docs/deploy.md)). If search or reranking fails, the turn proceeds without references.
 - The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. The tool searches only the story. At most one tool round per line; turns Jev already routed to story recall don't offer the tool.
 - Character facts are the Markdown file referenced by `facts` in `characters.toml`, one entry per heading. They're embedded on a character's first search, and afterwards only changed entries are re-embedded; just restart the backend after editing.
-- The shared index's entries are built from the world setting's data file `characters/world.json`: each song with its singers and releases, each release with its date and tracks, each live day with its date, venue, performing idols and setlist — never a CV's name. Setlists only come up when retrieved; they are not in every turn. Like character facts they're embedded on the first search (about 1,400 entries with the current data, so the first one is slower; run `eidolon reembed` beforehand to have them ready), and afterwards only changed entries are re-embedded; restart the backend after re-importing. Without the data file this index isn't searched.
-- When Jev routes a turn to story recall, lives and releases from the shared index are looked up and reranked along with the episodes; if the story has no record of how something went, the character is told that doesn't mean it never happened, so she neither makes it up nor denies it.
+- The work facts are built from the world setting's data file `characters/world.json`: each song with its singers and releases, each release with its date and tracks, each live day with its date, venue, performing idols and setlist — never a CV's name. Setlists only come up when retrieved; they are not in every turn. Like character facts they're embedded on the first search (about 1,400 entries with the current data, so the first one is slower; run `eidolon reembed` beforehand to have them ready), and afterwards only changed entries are re-embedded; restart the backend after re-importing. Without the data file work facts aren't searched. In the prompt, work facts and character facts go under headings of their own (「作品资料」 and 「角色资料」).
+- When Jev routes a turn to story recall, lives and releases from the work facts are looked up and reranked along with the episodes; if the story has no record of how something went, the character is told that doesn't mean it never happened, so she neither makes it up nor denies it.
 
 ### Memory
 
@@ -455,7 +455,7 @@ eidolon-sc/
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
 │   │   ├── turn_taking.py    #   follow-on and interruption rules during a call
 │   │   ├── call_outcome.py   #   whether a call counts towards the limit, and why it ended
-│   │   ├── retrieval.py      #   retrieval routing, episode/fact search and reranking
+│   │   ├── retrieval.py      #   retrieval routing, reference sources (story, character facts, work facts), reranking, recall
 │   │   ├── memory.py         #   memories shared across conversations and characters
 │   │   ├── corpus.py         #   story corpus: storage, vector search and the story catalog
 │   │   ├── embedding.py      #   embeddings: SiliconFlow Qwen3-Embedding or Gemini
@@ -466,7 +466,8 @@ eidolon-sc/
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
 │   │   ├── world.py          #   world setting: the data file and the section every turn carries
 │   │   ├── world_sync.py     #   importing the world setting (eidolon world sync)
-│   │   ├── world_index.py    #   the shared index of songs, releases and lives
+│   │   ├── work_facts.py     #   the work facts: songs, releases and lives, shared by all characters
+│   │   ├── references.py     #   the reference source interface (story, character facts, work facts)
 │   │   ├── release_sync.py   #   importing releases and songs (Lantis; singers it leaves out from ふじわらはじめ)
 │   │   ├── live_sync.py      #   importing lives and who stood on each day (the portal, the old site; performers from wikiwiki)
 │   │   ├── setlist_sync.py   #   importing each live day's setlist (imas-db)

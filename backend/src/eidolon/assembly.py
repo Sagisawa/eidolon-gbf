@@ -22,10 +22,8 @@ from eidolon.call import Calls, SonioxFishSpeech, Speech
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import Settings
-from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder, open_embedder
 from eidolon.engine import ConversationEngine
-from eidolon.facts import FactIndex
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
@@ -39,11 +37,10 @@ from eidolon.rerank import (
     SiliconFlowReranker,
     thresholds_for,
 )
-from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
+from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge, open_reference_sources
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
 from eidolon.world import load_world, world_path
-from eidolon.world_index import WorldIndex
 
 log = logging.getLogger(__name__)
 
@@ -154,22 +151,13 @@ def build(
 
     retrieval = None
     if jev is not None and embedder is not None and reranker is not None:
-        corpus = StoryCorpus(settings.database_path, embedder)
-        if missing := corpus.count_missing_vectors():
-            log.warning(
-                "%d story passages have no vectors from the embedding model %s and cannot be"
-                " found: run `eidolon reembed` after changing the embedding service, model"
-                " or dimensions",
-                missing, embedder.model,
-            )
         retrieval = Retrieval(
             jev,
-            embedder,
-            corpus,
-            FactIndex(settings.database_path, embedder),
+            open_reference_sources(
+                settings.database_path, embedder, characters.values(), world
+            ),
             reranker,
             thresholds.references,
-            WorldIndex(settings.database_path, embedder, world) if world is not None else None,
         )
         closers.append(retrieval.close)
         memories = Memories(
