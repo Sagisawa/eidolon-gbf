@@ -1,0 +1,51 @@
+{
+  "live_days": [
+    {
+      "live": "バンダイナムコエンターテインメントフェスティバル",
+      "date": "2019-10-19",
+      "performers": [],
+      "sources": ["https://imas-db.jp/song/event/bnfes20191019.html"],
+      "note": "闪耀色彩只出演了 DAY2（10 月 20 日），DAY1 的出演者里没有闪耀色彩"
+    },
+    {
+      "live": "バンダイナムコエンターテインメントフェスティバル 2nd",
+      "date": "2022-05-14",
+      "performers": ["大崎甘奈", "大崎甜花"],
+      "sources": ["https://funfare.bandainamcoent.co.jp/11455/"],
+      "note": "wiki 只有延期前的旧名单。DAY1 闪耀色彩没有单独出场，大崎甘奈和大崎甜花的声优以スターリットシーズン的プロジェクトルミナス出演（官方媒体ファンファーレ的 DAY1 报道）"
+    },
+    {
+      "live": "バンダイナムコエンターテインメントフェスティバル 2nd",
+      "date": "2022-05-15",
+      "performers": [
+        "櫻木真乃", "風野灯織", "八宮めぐる",
+        "月岡恋鐘", "田中摩美々", "白瀬咲耶", "三峰結華", "幽谷霧子",
+        "小宮果穂", "園田智代子", "杜野凛世", "有栖川夏葉",
+        "大崎甘奈", "大崎甜花", "桑山千雪",
+        "芹沢あさひ", "黛冬優子", "和泉愛依",
+        "浅倉透", "樋口円香", "福丸小糸", "市川雛菜",
+        "七草にちか", "緋田美琴"
+      ],
+      "sources": ["https://funfare.bandainamcoent.co.jp/11511/", "https://idolmaster-official.jp/news/01_4007"],
+      "note": "wiki 只有延期前的旧名单。DAY2 闪耀色彩 24 位（官方媒体ファンファーレ的 DAY2 报道；西城樹里 没有出演）"
+    },
+    {
+      "live": "THE IDOLM@STER ORCHESTRA CONCERT ～SYMPHONY OF FIVE STARS!!!!!～",
+      "date": "2022-11-12",
+      "performers": ["大崎甘奈"],
+      "sources": ["https://www.famitsu.com/news/202211/12282619.html"],
+      "note": "大崎甘奈以角色名义出演：屏幕上的她配着录好的歌声唱「Sweet Memories」，声优当天不登台。按 2026-09-28 部署者的决定算她上过（ADR-0008 的修订）"
+    },
+    {
+      "live": "THE IDOLM@STER ORCHESTRA CONCERT ～SYMPHONY OF FIVE STARS!!!!!～",
+      "date": "2022-11-13",
+      "performers": [],
+      "sources": ["https://imas-db.jp/song/event/idolmaster_orchestra_concert_2022_day2.html"],
+      "note": "DAY2 只由管弦乐团演奏了闪耀色彩的曲子，没有闪耀色彩的出演者"
+    }
+  ],
+  "not_idols": [
+    {"name": "田口 尚平", "note": "シャニマス大感謝祭！的进行主持人"},
+    {"name": "高山 祐介(アイドルマスター シャイニーカラーズ 制作プロデューサー)", "note": "MUSIC DAWN 登台的制作人"}
+  ]
+}

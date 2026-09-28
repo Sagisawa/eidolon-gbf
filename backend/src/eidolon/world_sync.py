@@ -39,13 +39,15 @@ from pathlib import Path
 
 import httpx
 
-from eidolon.live_sync import LiveImport, import_lives
+from eidolon.live_sync import LiveCorrections, LiveImport, import_lives
 from eidolon.release_sync import FUJI_NAME, ReleaseImport, import_releases
 from eidolon.world import Idol, Staff, Unit, World, WorldError, WorldSyncError, load_world
 
 SPARQL_URL = "https://sparql.crssnky.xyz/spql/imas/query"
 OFFICIAL_URL = "https://shinycolors.idolmaster-official.jp/idol/"
 _USER_AGENT = "eidolon-sc world sync (run by hand)"
+CORRECTIONS_FILE = "world-corrections.json"
+"""The deployer's corrections, beside the data file (`live_sync.LiveCorrections`)."""
 
 _PREFIXES = """PREFIX schema: <http://schema.org/>
 PREFIX imas: <https://sparql.crssnky.xyz/imasrdf/URIs/imas-schema.ttl#>
@@ -195,6 +197,8 @@ class WorldSyncReport:
             (found.official_only, "官方列表里有、wiki 上那几天没有演出的条目（多半不是演出，没有收录，请人工核对）："),
             (found.wiki_only, "wiki 上有、官方列表里没有的演出（嘉宾出演或官方还没收录，没有收录，请人工核对）："),
             (found.called_off, "wiki 上写着中止或没有出演的演出（没有收录）："),
+            (found.corrected, f"按 {CORRECTIONS_FILE} 人工更正的演出日："),
+            (found.unused_corrections, f"{CORRECTIONS_FILE} 里对不上任何演出日的更正（没有套用，请检查演出名和日期）："),
         ]
         for items, heading in sections:
             if items:
@@ -247,13 +251,24 @@ async def sync_world(path: Path, client: httpx.AsyncClient, today: date) -> Worl
         return (await _get(client, url)).text
 
     found = await import_releases(fetch, idols, units)
-    lives = await import_lives(fetch, idols, staff)
+    lives = await import_lives(fetch, idols, staff, _corrections(path.parent / CORRECTIONS_FILE, idols))
     world = World(
         today, office, staff, tuple(units), idols, found.releases, found.songs, lives.lives
     )
     report = WorldSyncReport(world, path, previous, special, disagreements, notes, found, lives)
     _write(path, report.world)
     return report
+
+
+def _corrections(path: Path, idols: Sequence[Idol]) -> LiveCorrections:
+    """The deployer's corrections beside the data file; none if there is no file."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return LiveCorrections()
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise WorldSyncError(f"人工更正文件 {path} 格式有误：{e}") from None
+    return LiveCorrections.from_json(data, idols, str(path))
 
 
 async def _get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:

@@ -26,6 +26,9 @@ that day, if the footnote links to the official news: she is left out of the day
 performers and kept among its absent. Without such a link the absence is not taken, and
 the report lists it. Performers who are none of the idols (another brand's, a host) are
 not written; the report lists them, save the office's clerk, who sometimes hosts.
+
+What the deployer has checked by hand (`LiveCorrections`) goes over all of it: who stood
+on a day the wiki has wrong or not at all, and which of its performers are no idols.
 """
 
 import html
@@ -58,6 +61,7 @@ Fetch = Callable[[str], Awaitable[str]]
 _DATE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 _MORE_DAYS = re.compile(r"^\s*(?:\([^)]*\)|（[^）]*）)?\s*[、・,]\s*(\d{1,2})\s*日")
 """A further day in the same month after a date: 「2027年6月5日(土)、6日(日)」."""
+_POSTPONED = re.compile(r"^[(（]延期公演[)）]")
 _CALLED_OFF = re.compile(r"^[(（][^)）]*(?:中止|見送り)[^)）]*[)）]")
 _ROLE = re.compile(r"^(.*?)\s*[（(]\s*(.+?)\s*役\s*[）)]$")
 _OFFICIAL_NEWS = re.compile(r"https?://(?:idolmaster-official\.jp/news/|idolmaster\.jp/blog/)[^\s\"'<>]+")
@@ -83,11 +87,60 @@ class LiveImport:
     """Lives the wiki says were called off, or Shiny Colors pulled out of: not written."""
     no_performers: list[str] = field(default_factory=list)
     """Days of a live the wiki lists no performers for."""
+    corrected: list[str] = field(default_factory=list)
+    """Days whose performers the corrections set."""
+    unused_corrections: list[str] = field(default_factory=list)
+    """Corrections no day of any live matched."""
 
 
-async def import_lives(fetch: Fetch, idols: Sequence[Idol], staff: Sequence[Staff]) -> LiveImport:
+@dataclass(frozen=True)
+class DayCorrection:
+    performers: tuple[str, ...]
+    sources: tuple[str, ...]
+    note: str
+
+
+@dataclass
+class LiveCorrections:
+    """What the deployer has found out by hand, kept beside the data file
+    (`world-corrections.json`) and applied on every import: who stood on a day, whatever
+    the wiki says (a day it has the wrong list for, or none: an empty list says nobody
+    did), and names among the wiki's performers who are no idols (hosts), not to be
+    reported again."""
+
+    days: dict[tuple[str, date], DayCorrection] = field(default_factory=dict)
+    """By the live's official name and the day."""
+    not_idols: set[str] = field(default_factory=set)
+    """Names without their spaces."""
+
+    @classmethod
+    def from_json(cls, data: dict, idols: Iterable[Idol], where: str) -> "LiveCorrections":
+        """Raises WorldSyncError, naming `where`, if it is malformed or names someone
+        who is none of the idols."""
+        names = {idol.name for idol in idols}
+        corrections = cls()
+        try:
+            for day in data.get("live_days", []):
+                strangers = [name for name in day["performers"] if name not in names]
+                if strangers:
+                    raise WorldSyncError(
+                        f"{where} 里 {day['live']} {day['date']} 的出演者不在偶像名单里：{'、'.join(strangers)}"
+                    )
+                corrections.days[(day["live"], date.fromisoformat(day["date"]))] = DayCorrection(
+                    tuple(day["performers"]), tuple(day["sources"]), day.get("note", ""),
+                )
+            corrections.not_idols = {_person(entry["name"]) for entry in data.get("not_idols", [])}
+        except (KeyError, TypeError, ValueError, AttributeError) as e:
+            raise WorldSyncError(f"{where} 缺少或写错了字段：{e!r}") from None
+        return corrections
+
+
+async def import_lives(
+    fetch: Fetch, idols: Sequence[Idol], staff: Sequence[Staff],
+    corrections: LiveCorrections | None = None,
+) -> LiveImport:
     """The lives as the official sites and the wiki have them now, the performers matched
-    to `idols`. Raises WorldSyncError if any of them cannot be read."""
+    to `idols`, `corrections` applied. Raises WorldSyncError if any of them cannot be read."""
     official = await _cms_lives(fetch)
     if not any(entry.days for entry in official):
         raise WorldSyncError(f"{CMS_LIST_URL} 的演出一个演出日也读不出来，日期的写法可能变了")
@@ -99,7 +152,7 @@ async def import_lives(fetch: Fetch, idols: Sequence[Idol], staff: Sequence[Staf
             if max(day.date for day in entry.days) < first
         ]
     wiki = await _wiki_lives(fetch)
-    return _merge(official, wiki, _Performers(idols, staff))
+    return _merge(official, wiki, _Performers(idols, staff), corrections or LiveCorrections())
 
 
 # The official lists
@@ -378,7 +431,10 @@ class _Performers:
         return performer.among_roles and _person(performer.name) not in self.staff
 
 
-def _merge(official: list[_Official], wiki: list[_WikiLive], performers: _Performers) -> LiveImport:
+def _merge(
+    official: list[_Official], wiki: list[_WikiLive], performers: _Performers,
+    corrections: LiveCorrections,
+) -> LiveImport:
     result = LiveImport(())
     matched: set[int] = set()
     official_days: dict[int, set[date]] = {}
@@ -407,9 +463,11 @@ def _merge(official: list[_Official], wiki: list[_WikiLive], performers: _Perfor
             result.called_off.append(f"{entry.name}（wiki 上是「{live.title}」）")
             continue
         official_days.setdefault(n, set()).update(dates)
-        lives.append(_live(entry, live, performers, result))
+        lives.append(_live(entry, live, performers, corrections, result))
     for n, days in official_days.items():
         for extra in sorted(set(wiki[n].days) - days):
+            if _POSTPONED.match(wiki[n].title) and extra < min(days):
+                continue  # the days it was first to be on
             result.conflicts.append(
                 f"{wiki[n].title}：wiki 上 {extra.isoformat()} 有出演者，官方没有这一天（按官方写入）：{wiki[n].url}"
             )
@@ -419,13 +477,24 @@ def _merge(official: list[_Official], wiki: list[_WikiLive], performers: _Perfor
                 f"{live.title}（{'、'.join(d.isoformat() for d in sorted(live.dates)) or '没有写日期'}）：{live.url}"
             )
     result.lives = tuple(sorted(lives, key=lambda live: (live.days[0].date, live.name)))
+    written = {(live.name, day.date) for live in result.lives for day in live.days}
+    result.unused_corrections = [
+        f"{name} {day.isoformat()}" for name, day in corrections.days if (name, day) not in written
+    ]
     return result
 
 
-def _live(entry: _Official, wiki: _WikiLive, performers: _Performers, result: LiveImport) -> Live:
+def _live(
+    entry: _Official, wiki: _WikiLive, performers: _Performers, corrections: LiveCorrections,
+    result: LiveImport,
+) -> Live:
     days = []
     for day in sorted(entry.days, key=lambda day: day.date):
         where = f"{entry.name} {day.date.isoformat()}"
+        if (corrected := corrections.days.get((entry.name, day.date))) is not None:
+            result.corrected.append(f"{where}：{corrected.note or '、'.join(corrected.sources)}")
+            days.append(LiveDay(day.date, day.venue, corrected.performers, (), corrected.sources))
+            continue
         on = wiki.days.get(day.date, [])
         if not on:
             result.no_performers.append(f"{where}：{wiki.url}")
@@ -435,7 +504,7 @@ def _live(entry: _Official, wiki: _WikiLive, performers: _Performers, result: Li
         for performer in on:
             idol = performers.idol(performer)
             if idol is None:
-                if performers.is_someone(performer):
+                if performers.is_someone(performer) and _person(performer.name) not in corrections.not_idols:
                     result.unmatched.append(f"{where}：{performer.name}")
                 continue
             if performer.struck:

@@ -1059,3 +1059,96 @@ def test_a_date_that_does_not_exist_fails_the_import_and_keeps_the_old_file(
     assert "2022年2月30日" in err
     assert "Traceback" not in err
     assert world_file(characters).read_text(encoding="utf-8") == before
+
+
+def write_corrections(characters: CharacterConfig, days: list[dict], not_idols: list[dict] | None = None) -> None:
+    characters.write("world-corrections.json", json.dumps(
+        {"live_days": days, "not_idols": not_idols or []}, ensure_ascii=False,
+    ))
+
+
+FUNFARE = "https://funfare.bandainamcoent.co.jp/11511/"
+
+
+def test_a_correction_sets_a_day_s_performers_whatever_the_wiki_says(
+    world_sync, characters: CharacterConfig
+):
+    write_corrections(characters, [{
+        "live": MOIW, "date": "2023-02-11", "performers": ["八宮めぐる"],
+        "sources": [FUNFARE], "note": "wiki 的名单是旧的",
+    }])
+
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    day = lives_by_name(characters)[MOIW]["days"][0]
+    assert day["performers"] == ["八宮めぐる"]
+    assert day["sources"] == [FUNFARE]
+    assert "中村 繪里子" not in out  # the wiki's list for the day is not read at all
+    assert "人工更正" in out and f"{MOIW} 2023-02-11" in out
+
+
+def test_a_correction_with_no_performers_says_nobody_stood_that_day_and_quiets_the_report(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.wiki_lives[2].performers = []
+    _, before, _ = world_sync()
+    write_corrections(characters, [{
+        "live": UKA, "date": "2025-05-10", "performers": [], "sources": [FUNFARE],
+        "note": "闪耀色彩只出演了另一天",
+    }])
+
+    _, after, _ = world_sync()
+
+    assert f"{UKA} 2025-05-10：" in before
+    assert f"{UKA} 2025-05-10：" not in after.split("人工更正")[0]
+    assert lives_by_name(characters)[UKA]["days"][0]["performers"] == []
+
+
+def test_performers_confirmed_to_be_no_idols_are_not_reported(
+    world_sync, characters: CharacterConfig
+):
+    write_corrections(characters, [], not_idols=[{"name": "田口 尚平", "note": "主持人"}])
+
+    _, out, _ = world_sync()
+
+    assert "田口 尚平" not in out
+
+
+def test_a_correction_that_matches_no_day_is_reported(world_sync, characters: CharacterConfig):
+    write_corrections(characters, [{
+        "live": MOIW, "date": "2023-02-13", "performers": [], "sources": [FUNFARE], "note": "",
+    }])
+
+    code, out, _ = world_sync()
+
+    assert code == 0
+    assert "没有套用" in out and "2023-02-13" in out
+
+
+def test_a_correction_naming_someone_who_is_none_of_the_idols_fails_the_import(
+    world_sync, characters: CharacterConfig
+):
+    world_sync()
+    before = world_file(characters).read_text(encoding="utf-8")
+    write_corrections(characters, [{
+        "live": MOIW, "date": "2023-02-11", "performers": ["天海春香"], "sources": [FUNFARE], "note": "",
+    }])
+
+    code, _, err = world_sync()
+
+    assert code != 0
+    assert "world-corrections.json" in err and "天海春香" in err
+    assert world_file(characters).read_text(encoding="utf-8") == before
+
+
+def test_a_postponed_live_s_first_dates_on_the_wiki_are_no_conflict(
+    world_sync, sites: FakeWorldSites
+):
+    live = sites.wiki_lives[0]
+    live.title = "(延期公演) " + live.title
+    live.performers.insert(0, ("2026年2月6日(土)", ["礒部 花凜（月岡 恋鐘役）"]))
+
+    _, out, _ = world_sync()
+
+    assert "2026-02-06" not in out

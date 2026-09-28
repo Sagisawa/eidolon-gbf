@@ -28106,7 +28106,7 @@
           "performers": [],
           "absent": [],
           "sources": [
-            "https://wikiwiki.jp/shinycolors/%E3%83%A9%E3%82%A4%E3%83%96%E3%82%A4%E3%83%99%E3%83%B3%E3%83%88%E6%83%85%E5%A0%B1/%E9%96%8B%E5%82%AC%E6%83%85%E5%A0%B1log01"
+            "https://imas-db.jp/song/event/bnfes20191019.html"
           ]
         },
         {
@@ -28677,19 +28677,48 @@
         {
           "date": "2022-05-14",
           "venue": "ZOZOマリンスタジアム",
-          "performers": [],
+          "performers": [
+            "大崎甘奈",
+            "大崎甜花"
+          ],
           "absent": [],
           "sources": [
-            "https://wikiwiki.jp/shinycolors/%E3%83%A9%E3%82%A4%E3%83%96%E3%82%A4%E3%83%99%E3%83%B3%E3%83%88%E6%83%85%E5%A0%B1/%E9%96%8B%E5%82%AC%E6%83%85%E5%A0%B1log01"
+            "https://funfare.bandainamcoent.co.jp/11455/"
           ]
         },
         {
           "date": "2022-05-15",
           "venue": "ZOZOマリンスタジアム",
-          "performers": [],
+          "performers": [
+            "櫻木真乃",
+            "風野灯織",
+            "八宮めぐる",
+            "月岡恋鐘",
+            "田中摩美々",
+            "白瀬咲耶",
+            "三峰結華",
+            "幽谷霧子",
+            "小宮果穂",
+            "園田智代子",
+            "杜野凛世",
+            "有栖川夏葉",
+            "大崎甘奈",
+            "大崎甜花",
+            "桑山千雪",
+            "芹沢あさひ",
+            "黛冬優子",
+            "和泉愛依",
+            "浅倉透",
+            "樋口円香",
+            "福丸小糸",
+            "市川雛菜",
+            "七草にちか",
+            "緋田美琴"
+          ],
           "absent": [],
           "sources": [
-            "https://wikiwiki.jp/shinycolors/%E3%83%A9%E3%82%A4%E3%83%96%E3%82%A4%E3%83%99%E3%83%B3%E3%83%88%E6%83%85%E5%A0%B1/%E9%96%8B%E5%82%AC%E6%83%85%E5%A0%B1log01"
+            "https://funfare.bandainamcoent.co.jp/11511/",
+            "https://idolmaster-official.jp/news/01_4007"
           ]
         }
       ],
@@ -28809,10 +28838,12 @@
         {
           "date": "2022-11-12",
           "venue": "幕張イベントホール",
-          "performers": [],
+          "performers": [
+            "大崎甘奈"
+          ],
           "absent": [],
           "sources": [
-            "https://wikiwiki.jp/shinycolors/%E3%83%A9%E3%82%A4%E3%83%96%E3%82%A4%E3%83%99%E3%83%B3%E3%83%88%E6%83%85%E5%A0%B1/%E9%96%8B%E5%82%AC%E6%83%85%E5%A0%B1log01"
+            "https://www.famitsu.com/news/202211/12282619.html"
           ]
         },
         {
@@ -28821,7 +28852,7 @@
           "performers": [],
           "absent": [],
           "sources": [
-            "https://wikiwiki.jp/shinycolors/%E3%83%A9%E3%82%A4%E3%83%96%E3%82%A4%E3%83%99%E3%83%B3%E3%83%88%E6%83%85%E5%A0%B1/%E9%96%8B%E5%82%AC%E6%83%85%E5%A0%B1log01"
+            "https://imas-db.jp/song/event/idolmaster_orchestra_concert_2022_day2.html"
           ]
         }
       ],
