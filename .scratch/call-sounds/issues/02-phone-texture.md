@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 规则
 
@@ -32,3 +32,10 @@
 - [ ] 设置页可以切换，刷新页面后仍然保留。
 - [ ] 在真实应用里对比开关两种状态：打开后声音明显变"窄"、像打电话；关闭时和现在完全一样；开着电话质感时，「只看文字」仍然能静音；铃声等音效不受影响。
 - [ ] `npm test`、`npm run lint`、类型检查通过。
+
+## Comments
+
+- 实现：`CallPreferences.phoneTexture`（默认关闭，旧数据按关闭）；设置页「通话音质」下方加了 Astryx `Switch`；她的声音的播放放进 `frontend/src/lib/characterVoice.ts`（`CharacterVoice`：关闭时 `<audio>` 直接播放，和原来一样；开启时 `<audio>` 静音、只持有 stream 以规避 Chrome 的问题，音轨走 高通 300Hz ×2 → 低通 3400Hz ×2 → 压缩（threshold -24dB、ratio 3）→ GainNode → destination，「只看文字」把 GainNode 调到 0）。`ConversationView.tsx` 只改了几行：通过 `useCharacterVoice` 拿到它，拨号的点击里按当前设置 `voice.dial(...)` 并唤醒 AudioContext。
+- 电话质感在拨号时从偏好里读，没有经过 `LiveConversation` 的 preferences port：AudioContext 必须在用户点击里创建，放在视图里最直接，也避免和 ticket 01 同时改 `liveConversation.ts`。
+- 已验证：`characterVoice`、`callPreferences` 的单测；`npm test`（230 通过）、`npm run typecheck`、`npm run build`；用 Playwright 确认设置页的开关能切换、刷新后保留，并且在 Chromium 里真实搭出同样的滤波链没有报错。仓库里没有 `npm run lint` 脚本。
+- **还需要人耳确认**（agent 听不到声音）：在 Chrome 里真实通话，对比开关两种状态：开启后声音是否明显变"窄"、像打电话，压缩是否"轻微"；关闭时是否和以前完全一样；开启时「只看文字」是否静音；和 ticket 01 合并后，铃声、接通音、挂断音不受影响。
