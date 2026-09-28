@@ -491,6 +491,19 @@ def test_a_unit_page_missing_from_the_official_site_fails_the_import(
     assert not world_file(characters).exists()
 
 
+def test_members_written_with_a_space_on_im_sparql_are_no_disagreement(
+    world_sync, sites: FakeWorldSites
+):
+    sites.sparql_units["illuminationSTARS"] = (
+        "いるみねーしょんすたーず", ["櫻木 真乃", "風野　灯織", "八宮めぐる"],
+    )
+
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    assert "im@sparql 和官方组合页没有对不上的地方" in out
+
+
 def test_a_unit_im_sparql_names_differently_is_matched_by_its_members(
     world_sync, sites: FakeWorldSites, characters: CharacterConfig
 ):

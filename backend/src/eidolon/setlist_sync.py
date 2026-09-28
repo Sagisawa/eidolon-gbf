@@ -312,14 +312,14 @@ class _Cell(HTMLParser):
 
 
 def _idol(roster: Roster, title: str, text: str = "") -> str | None:
-    """imas-db 写的是哪位偶像：title 属性「櫻木真乃(CV:関根瞳)」里的名字，对不上再按声优；
-    没有 title 就按显示的文字，它可能是名字，也可能是声优名。"""
+    """The idol imas-db means: the name in the title attribute 「櫻木真乃(CV:関根瞳)」, else
+    its voice actor; without a title, the text shown, a name or a voice actor's name."""
     cv = re.search(r"CV[:：]\s*([^)）]+)", title)
     return roster.idol(_name(title) if title else text, cv.group(1) if cv else text)
 
 
 def _sort(roster: Roster, names: Iterable[str]) -> tuple[str, ...]:
-    """按名单里偶像的顺序排。"""
+    """In the roster's order of the idols."""
     order = {name: n for n, name in enumerate(roster.idols)}
     return tuple(sorted(set(names), key=lambda name: order.get(name, len(order))))
 

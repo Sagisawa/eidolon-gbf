@@ -89,7 +89,7 @@ class CaseResult:
 
 
 def load_calibration(path: Path, world: World | None = None) -> Calibration:
-    """The set at `path`. A work-fact question may name only the titles of `world`'s
+    """The set at `path`. The work facts any question names must be among `world`'s
     entries (the work facts), so the set is checked against the data file it is run with."""
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -122,10 +122,19 @@ def load_calibration(path: Path, world: World | None = None) -> Calibration:
         )
         if kind == "memory" and (unknown := set(case.relevant + case.acceptable) - keys):
             raise CalibrationError(f"问题 {case_id} 引用了不存在的示例记忆 {'、'.join(sorted(unknown))}")
-        if kind == "work":
+        # The work facts are reranked with the story and the character facts, so any
+        # reference question may name them; a work-fact question names nothing else.
+        named = {
+            label
+            for label in case.relevant + case.acceptable
+            if kind == "work" or (kind != "memory" and label.startswith(_WORK_TITLES))
+        }
+        if named:
             if world is None:
-                raise CalibrationError(f"问题 {case_id} 是作品资料的问题，但没有作品资料（world.json）")
-            if unknown := set(case.relevant + case.acceptable) - titles:
+                raise CalibrationError(
+                    f"问题 {case_id} 引用了作品资料，但没有作品资料（world.json）"
+                )
+            if unknown := named - titles:
                 raise CalibrationError(
                     f"问题 {case_id} 引用了 world.json 里没有的作品资料 {'、'.join(sorted(unknown))}"
                 )
@@ -133,6 +142,10 @@ def load_calibration(path: Path, world: World | None = None) -> Calibration:
             raise CalibrationError(f"问题 {case_id} 重复")
         cases.append(case)
     return Calibration(memories, tuple(cases))
+
+
+_WORK_TITLES = ("歌曲「", "唱片《", "演出「")
+"""How the work facts' titles begin (`World.entries`): a song, a release, a live day."""
 
 
 def _text(entry: dict, field: str, where: str) -> str:

@@ -41,7 +41,7 @@ from datetime import date
 from difflib import SequenceMatcher
 from urllib.parse import quote, unquote, urlencode
 
-from eidolon.roster import Roster
+from eidolon.roster import Roster, person_key
 from eidolon.sync_tools import Fetch, without_spaces
 from eidolon.world import Idol, Live, LiveDay, WorldSyncError
 
@@ -110,7 +110,7 @@ class LiveCorrections:
     days: dict[tuple[str, date], DayCorrection] = field(default_factory=dict)
     """By the live's official name and the day."""
     not_idols: set[str] = field(default_factory=set)
-    """Names without their spaces."""
+    """Names as the roster compares them (`person_key`)."""
 
     @classmethod
     def from_json(cls, data: dict, idols: Iterable[Idol], where: str) -> "LiveCorrections":
@@ -128,7 +128,7 @@ class LiveCorrections:
                 corrections.days[(day["live"], date.fromisoformat(day["date"]))] = DayCorrection(
                     tuple(day["performers"]), tuple(day["sources"]), day.get("note", ""),
                 )
-            corrections.not_idols = {without_spaces(entry["name"]) for entry in data.get("not_idols", [])}
+            corrections.not_idols = {person_key(entry["name"]) for entry in data.get("not_idols", [])}
         except (KeyError, TypeError, ValueError, AttributeError) as e:
             raise WorldSyncError(f"{where} 缺少或写错了字段：{e!r}") from None
         return corrections
@@ -408,7 +408,8 @@ def _performers(line: str, notes: list[str]) -> list[_Performer]:
 
 
 def _idol(roster: Roster, performer: _Performer) -> str | None:
-    """演出者是哪位偶像：写了角色就按角色（对不上再按声优），只写了一个名字就按那个名字。"""
+    """The idol a performer is: by the role if one is written (else by the voice actor),
+    otherwise by the one name written."""
     if performer.role is not None:
         return roster.idol(performer.role, performer.cv)
     return roster.idol(performer.name)
@@ -495,7 +496,7 @@ def _live(
         for performer in on:
             idol = _idol(roster, performer)
             if idol is None:
-                if _is_someone(roster, performer) and without_spaces(performer.name) not in corrections.not_idols:
+                if _is_someone(roster, performer) and person_key(performer.name) not in corrections.not_idols:
                     result.unmatched.append(f"{where}：{performer.name}")
                 continue
             if performer.struck:

@@ -272,6 +272,27 @@ def test_a_work_fact_question_names_only_work_facts_in_the_data_file(
         load_calibration(path)
 
 
+def test_any_question_names_only_work_facts_in_the_data_file(tmp_path: Path, work):
+    data, _ = work
+    path = tmp_path / "calibration.toml"
+    # The work facts are reranked with the story, so a story question may name them too.
+    path.write_text(
+        CALIBRATION.replace('acceptable = ["鸟 / ピーちゃん"]',
+                            'acceptable = ["鸟 / ピーちゃん", "歌曲「ヒカリのdestinatoin」"]'),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CalibrationError, match="park.*歌曲「ヒカリのdestinatoin」"):
+        load_calibration(path, data)
+    with pytest.raises(CalibrationError, match="park.*world.json"):
+        load_calibration(path)
+    path.write_text(
+        CALIBRATION.replace('acceptable = ["鸟 / ピーちゃん"]', f'acceptable = ["{HIKARI}"]'),
+        encoding="utf-8",
+    )
+    assert load_calibration(path, data).cases[0].acceptable == (HIKARI,)
+
+
 def test_the_committed_calibration_set_names_only_facts_the_characters_have():
     config = REPO / "characters" / "characters.toml"
     # Its work-fact questions are checked against the committed data file as it loads.

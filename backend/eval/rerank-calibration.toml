@@ -31,7 +31,8 @@
 #   story、facts 类问题的 relevant / acceptable 可以同时写剧情编号、资料标题路径和作品资料标题。
 # - work 类问题的 relevant / acceptable 只能写作品资料标题：characters/world.json 生成的条目标题，
 #   即 歌曲「曲名」、唱片《唱片名》（编号）、演出「演出名」和日期（如 演出「…」2024年3月2日）。
-#   标题在 world.json 里找不到时 eval rerank 报错；重新 world sync 改了标题，这里要跟着改。
+#   不论哪类问题，写的作品资料标题在 world.json 里找不到时 eval rerank 都报错；重新 world sync
+#   改了标题，这里要跟着改。
 # - 角色只能回忆自己出场过的剧情，这里用到的剧情都确认她是出场角色。只取成功路线（正式经历）。
 # - 本文件只含问题、剧情编号、资料标题、作品资料标题和标注，不含剧情原文（ADR-0003），可以提交。
 # - 剧情编号来自 SCTranslationData 各 CSV 的 info 行（与 story_import 的来源标识一致）。

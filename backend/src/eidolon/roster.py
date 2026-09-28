@@ -1,11 +1,14 @@
-"""名单：world sync 的导入把来源里写的名字对应到世界设定里的谁。
+"""The roster: who in the world setting a name in world sync's sources stands for.
 
-由世界设定里的偶像、组合、社长和事务员构造，回答三件事：一个人名（可以附带声优名）
-是哪位偶像，一个名字或读音是哪个组合，一个人是不是社长或事务员。从各自的来源里把
-人名、声优名抽出来，由各导入自己做；怎么比，只在这里定一次：
+Built from the world setting's idols, units, president and clerk, it answers three
+things: which idol a name (with a voice actor's name, maybe) is, which unit a name or
+reading is, and whether someone is the president or the clerk. Each import picks the
+names and voice actors' names out of its own source; how they are compared is settled
+here only:
 
-- 人名和声优名：NFKC，去掉空白，去掉末尾「（初代）」这类尾注；
-- 组合的名字和读音：NFKC，`’` 换成 `'`，片假名换成平假名，去掉非文字字符，casefold。
+- names and voice actors' names: NFKC, no whitespace, no trailing note like 「（初代）」;
+- units' names and readings: NFKC, `’` as `'`, katakana as hiragana, nothing but word
+  characters, casefolded.
 """
 
 import re
@@ -16,17 +19,18 @@ from eidolon.sync_tools import hiragana, without_spaces
 from eidolon.world import Idol, Staff, Unit
 
 _NOTE = re.compile(r"\([^()]*\)$")
-"""NFKC 之后名字末尾的尾注：三峰結華（初代）。"""
+"""A note at the end of a name, once NFKC-normalized: 三峰結華（初代）."""
 
 
 def person_key(name: str) -> str:
-    """比对用的人名或声优名：`三峰 結華（初代）` 就是 `三峰結華`。"""
+    """A name or voice actor's name for comparing: `三峰 結華（初代）` is `三峰結華`."""
     return _NOTE.sub("", without_spaces(unicodedata.normalize("NFKC", name)))
 
 
 def unit_key(name: str) -> str:
-    """比对用的组合名或读音：`L’Antica` 是 `l'antica`，`illumination STARS` 是
-    `illuminationstars`，`イルミネーションスターズ` 是 `いるみねーしょんすたーず`。"""
+    """A unit's name or reading for comparing: `L’Antica` is `l'antica`,
+    `illumination STARS` is `illuminationstars`, `イルミネーションスターズ` is
+    `いるみねーしょんすたーず`."""
     text = hiragana(unicodedata.normalize("NFKC", name).replace("’", "'"))
     return re.sub(r"[\W_]", "", text).casefold()
 
@@ -37,7 +41,7 @@ class Roster:
     ) -> None:
         idols, units = list(idols), tuple(units)
         self.idols = tuple(idol.name for idol in idols)
-        """偶像的名字，按世界设定里的顺序。"""
+        """The idols' names, in the world setting's order."""
         self.units = units
         self._by_name = {person_key(idol.name): idol.name for idol in idols}
         self._by_cv = {person_key(idol.cv): idol.name for idol in idols if idol.cv}
@@ -49,15 +53,15 @@ class Roster:
         self._staff = {person_key(s.name) for s in staff}
 
     def idol(self, name: str | None, cv: str | None = None) -> str | None:
-        """叫 `name` 的偶像；名字对不上时，是声优叫 `cv` 的那位；都对不上就是 None。"""
+        """The idol called `name`, or failing that the one voiced by `cv`; None if neither is anyone."""
         if name and (idol := self._by_name.get(person_key(name))):
             return idol
         return self._by_cv.get(person_key(cv)) if cv else None
 
     def unit(self, name: str) -> Unit | None:
-        """名字或读音是 `name` 的组合；特别组合不是组合。"""
+        """The unit named or read `name`; a special unit is none."""
         return self._units.get(key) if (key := unit_key(name)) else None
 
     def is_staff(self, name: str) -> bool:
-        """`name` 是不是社长或事务员。"""
+        """Whether `name` is the president or the clerk."""
         return person_key(name) in self._staff
