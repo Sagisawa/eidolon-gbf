@@ -4,11 +4,15 @@ Jev (through Vercel AI Gateway) first judges what the user just said needs: noth
 so small talk costs no retrieval latency; memories only, when the user talks about their
 own life, for which the turn finds the memories of what they have told any of the
 characters; references, for which the story corpus (only episodes the character is cast
-in) and the character's facts are searched with the same query vector, the candidates
-reranked together, and the best few that are relevant enough go into the prompt, while
-the turn finds the user's memories alongside; or recall, for a question about how some past
-episode went, for which the recall-story tool is run on what the user said and its
-result goes into the prompt, saving the chat model a round of calling it.
+in), the character's facts and the index of songs, releases and live days all characters
+share (when there is a world setting) are searched with the same query vector, the
+candidates reranked together, and the best few that are relevant enough go into the
+prompt, while the turn finds the user's memories alongside; or recall, for a question
+about how some past episode went, for which the episodes are recalled as the recall-story
+tool would, the lives and releases of the shared index reranked along with them, and the
+result goes into the prompt, saving the chat model a round of calling it. The story not
+telling how something went does not mean she never went through it: she may have stood
+on that stage all the same.
 
 Retrieval never fails a turn: if Jev cannot answer, the turn retrieves anyway; if
 embedding or reranking fails, the turn goes on without references (or memories).
@@ -17,6 +21,7 @@ The chat model can also look an episode up itself with the recall-story tool, fo
 general questions like "what happened that time with the photo book" that Jev did
 not catch: the best matching episodes she is cast in come back with where they sit in
 her story catalog (card or event, and its other episodes) and what happened in them.
+The tool looks only in the story.
 """
 
 import asyncio
@@ -35,19 +40,27 @@ from eidolon.llm import Tool
 from eidolon.memory import MemoryTurn
 from eidolon.rerank import Reranker, RerankError, RerankThresholds
 from eidolon.store import Message
+from eidolon.world import EntryKind, WorldEntry
+from eidolon.world_index import WorldIndex
 
 log = logging.getLogger(__name__)
 
 MAX_REFERENCES = 5
 """The most references one turn's prompt carries, after reranking."""
 CANDIDATES_PER_SOURCE = 12
-"""How many candidates each source (story corpus, character facts) offers the reranker."""
+"""How many candidates each source (story corpus, character facts, the shared index of
+songs, releases and live days) offers the reranker."""
 JUDGE_HISTORY = 4
 """How many of the latest messages Jev sees along with what the user just said."""
 
 
 RECALL_EPISODES = 2
 """The most episodes one call of the recall-story tool brings back."""
+RECALL_ENTRIES = 3
+"""The most lives and releases of the shared index recalling brings back along with the
+episodes."""
+RECALL_KINDS: tuple[EntryKind, ...] = ("live", "release")
+"""What of the shared index recalling looks in: how a live or a release went, not a song."""
 RECALL_EPISODE_CHARS = 3000
 """How much of an episode's dialogue the recall-story tool brings back before cutting it short."""
 
@@ -72,12 +85,19 @@ RECALL_STORY_TOOL = Tool(
 _CANON_RULE = (
     "剧情里没有记录制作人当时选了哪个选项，不要断言制作人当时说了什么或选了什么。"
 )
+_WORLD_RULE = (
+    "资料里只有名称、日期、会场、出演者这类事实，没有台上或当时具体发生了什么，不要编造。"
+)
+_NOT_IN_STORY = (
+    "剧情库里没有记录这段经过，但这不等于这件事没有发生过。"
+    "不要编造经过，也不要说没有这回事；可以坦率地说细节记不太清了"
+)
 
 
 Need = Literal["nothing", "memories", "references", "recall"]
 """What a turn needs looked up: nothing, the user's memories only, references from the
-story corpus and character facts along with the user's memories, or the recall of a past
-episode."""
+story corpus, character facts and the shared index along with the user's memories, or the
+recall of a past episode."""
 
 
 class RetrievalJudge(Protocol):
@@ -92,10 +112,11 @@ class JudgeError(RuntimeError):
 
 @dataclass(frozen=True)
 class Reference:
-    kind: Literal["episode", "fact"]
+    kind: Literal["episode", "fact", "world"]
     text: str
     origin: str
-    """The episode's identifier, or the fact's title (its text, if it has none)."""
+    """The episode's identifier, the fact's title (its text, if it has none), or the
+    shared index entry's title."""
 
 
 @dataclass(frozen=True)
@@ -119,15 +140,18 @@ class Retrieval:
         facts: FactIndex,
         reranker: Reranker,
         min_relevance: float,
+        world: WorldIndex | None = None,
     ) -> None:
         """`min_relevance` is the reranker's score below which a reference or recalled
-        episode is left out (see `rerank.KNOWN_THRESHOLDS`)."""
+        episode is left out (see `rerank.KNOWN_THRESHOLDS`). Without `world`, the shared
+        index of songs, releases and live days is not searched."""
         self._judge = judge
         self._embedder = embedder
         self._corpus = corpus
         self._facts = facts
         self._reranker = reranker
         self._min_relevance = min_relevance
+        self._world = world
 
     async def retrieve(
         self,
@@ -143,7 +167,7 @@ class Retrieval:
             log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
             need = "references"
         if need == "recall":
-            return Retrieved(await self.recall_story(character, text), recalled=True)
+            return Retrieved(await self._recall(character, text, self._world), recalled=True)
         if need == "memories":
             return Retrieved(None, await _find(memory, text))
         if need == "references":
@@ -157,7 +181,8 @@ class Retrieval:
         """The references for `text`, most relevant first."""
         try:
             ranked = await rank_references(
-                self._embedder, self._corpus, self._facts, self._reranker, character, text
+                self._embedder, self._corpus, self._facts, self._reranker, character, text,
+                self._world,
             )
         except (EmbeddingError, RerankError):
             log.warning("retrieval failed; replying without references", exc_info=True)
@@ -167,34 +192,46 @@ class Retrieval:
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
         `query`, for the chat model to answer from."""
+        return await self._recall(character, query, None)
+
+    async def _recall(self, character: Character, query: str, world: WorldIndex | None) -> str:
+        """The episodes `character` is cast in that best match `query`, and the lives and
+        releases of `world` (if given), reranked together."""
         try:
             query_vector = await self._embedder.embed_query(query)
-            passages = await asyncio.to_thread(
-                self._corpus.search_by_vector, query_vector, character.id, CANDIDATES_PER_SOURCE
+            passages, entries = await asyncio.gather(
+                asyncio.to_thread(
+                    self._corpus.search_by_vector, query_vector, character.id, CANDIDATES_PER_SOURCE
+                ),
+                _search_world(world, query_vector, RECALL_KINDS),
             )
+            documents = [p.text for p in passages] + [e.text for e in entries]
             best = (
-                await self._reranker.rerank(query, [p.text for p in passages], len(passages))
-                if passages
-                else []
+                await self._reranker.rerank(query, documents, len(documents)) if documents else []
             )
         except (EmbeddingError, RerankError):
-            log.warning("recall_story failed", exc_info=True)
+            log.warning("recall failed", exc_info=True)
             return "暂时想不起来，现在查不到剧情。不要编造经过，可以坦率地说记不太清了。"
         episodes: dict[str, Episode] = {}
+        found: list[WorldEntry] = []
         for i, score in best:
-            if score >= self._min_relevance and len(episodes) < RECALL_EPISODES:
-                episodes.setdefault(passages[i].episode.id, passages[i].episode)
-        if not episodes:
-            return (
-                f"没有想起和「{query}」有关的剧情：你没有经历过这件事，或者剧情库里没有记录。"
-                "不要编造经过，可以坦率地说不记得了，或者问问制作人。"
-            )
-        catalog = await asyncio.to_thread(self._corpus.catalog, character.id)
-        return recall_prompt(query, list(episodes.values()), catalog)
+            if score < self._min_relevance:
+                continue
+            if i < len(passages):
+                if len(episodes) < RECALL_EPISODES:
+                    episodes.setdefault(passages[i].episode.id, passages[i].episode)
+            elif len(found) < RECALL_ENTRIES:
+                found.append(entries[i - len(passages)])
+        if not episodes and not found:
+            return f"没有想起和「{query}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
+        catalog = await asyncio.to_thread(self._corpus.catalog, character.id) if episodes else []
+        return recall_prompt(query, list(episodes.values()), catalog, found)
 
     def close(self) -> None:
         self._corpus.close()
         self._facts.close()
+        if self._world is not None:
+            self._world.close()
 
 
 async def rank_references(
@@ -204,17 +241,20 @@ async def rank_references(
     reranker: Reranker,
     character: Character,
     text: str,
+    world: WorldIndex | None = None,
 ) -> list[tuple[Reference, float]]:
     """Every candidate reference for `text`, with the reranker's score, best first: the
-    passages (from episodes `character` is cast in) and her facts nearest the query, as
-    many of each as `CANDIDATES_PER_SOURCE`, reranked together."""
+    passages (from episodes `character` is cast in), her facts and the entries of `world`
+    nearest the query, as many of each as `CANDIDATES_PER_SOURCE`, reranked together."""
     query_vector = await embedder.embed_query(text)
-    passages, found = await asyncio.gather(
+    passages, found, entries = await asyncio.gather(
         asyncio.to_thread(corpus.search_by_vector, query_vector, character.id, CANDIDATES_PER_SOURCE),
         facts.search_by_vector(query_vector, character, CANDIDATES_PER_SOURCE),
+        _search_world(world, query_vector),
     )
     candidates = [Reference("episode", p.text, p.episode.id) for p in passages]
     candidates += [Reference("fact", f.text, f.title or f.text) for f in found]
+    candidates += [Reference("world", e.text, e.title) for e in entries]
     if not candidates:
         return []
     best = await reranker.rerank(text, [c.text for c in candidates], len(candidates))
@@ -225,6 +265,19 @@ async def _find(memory: MemoryTurn | None, text: str) -> str | None:
     return await memory.find(text) if memory else None
 
 
+async def _search_world(
+    world: WorldIndex | None,
+    query_vector: Sequence[float],
+    kinds: Sequence[EntryKind] | None = None,
+) -> list[WorldEntry]:
+    if world is None:
+        return []
+    return await world.search_by_vector(query_vector, CANDIDATES_PER_SOURCE, kinds)
+
+
+_HEADINGS = {"episode": "剧情", "fact": "角色资料", "world": "资料"}
+
+
 def references_prompt(references: Sequence[Reference]) -> str:
     """The prompt section carrying a turn's references."""
     lines = [
@@ -233,20 +286,32 @@ def references_prompt(references: Sequence[Reference]) -> str:
         "- 「剧情」是你亲身经历过的原作剧情，可以像回忆往事一样自然地提起，不要照搬台词。"
         + _CANON_RULE,
         "- 「角色资料」是关于你自己和身边人物的设定。",
+        "- 「资料」是关于歌曲、唱片和演出的事实，可以照着回答；日期在今天之后的，是还没发售或还没举办的。"
+        + _WORLD_RULE,
     ]
     for reference in references:
-        heading = "剧情" if reference.kind == "episode" else "角色资料"
-        lines += ["", f"## {heading}", reference.text]
+        lines += ["", f"## {_HEADINGS[reference.kind]}", reference.text]
     return "\n".join(lines)
 
 
-def recall_prompt(query: str, episodes: Sequence[Episode], catalog: Sequence[CatalogSource]) -> str:
-    """The recall-story tool's result: each episode under its place in the story catalog."""
-    lines = [
-        f"# 回顾剧情：{query}",
-        "下面是你经历过的剧情中和这件事最相关的，按相关程度排列。用自己的话回忆经过，不要照搬台词。"
-        + _CANON_RULE,
-    ]
+def recall_prompt(
+    query: str,
+    episodes: Sequence[Episode],
+    catalog: Sequence[CatalogSource],
+    entries: Sequence[WorldEntry] = (),
+) -> str:
+    """What recalling brings back: each episode under its place in the story catalog, then
+    the lives and releases of the shared index."""
+    lines = [f"# 回顾剧情：{query}"]
+    if episodes:
+        lines.append(
+            "下面是你经历过的剧情中和这件事最相关的，按相关程度排列。用自己的话回忆经过，不要照搬台词。"
+            + _CANON_RULE
+        )
+    else:
+        lines.append(f"{_NOT_IN_STORY}。")
+    if entries:
+        lines.append("「资料」是和这件事有关的演出或唱片的事实。" + _WORLD_RULE)
     for episode in episodes:
         source = next(
             (s for s in catalog if any(e.episode_id == episode.id for e in s.episodes)), None
@@ -256,6 +321,8 @@ def recall_prompt(query: str, episodes: Sequence[Episode], catalog: Sequence[Cat
             titles = "".join(f"「{e.title}」" for e in source.episodes)
             lines.append(f"（{episode.source}中你出场的剧情依次是：{titles}）")
         lines.append(_transcript(episode))
+    for entry in entries:
+        lines += ["", "## 资料", entry.text]
     return "\n".join(lines)
 
 
@@ -274,10 +341,12 @@ def _transcript(episode: Episode) -> str:
 _JUDGE_QUESTION = {
     "type": "boolean",
     "instructions": "角色扮演对话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人对话。"
-    "可检索的资料有两类：她亲身经历过的原作剧情，以及关于她自己和身边人物的设定（档案、人物关系等）。"
+    "可检索的资料有三类：她亲身经历过的原作剧情，关于她自己和身边人物的设定（档案、人物关系等），"
+    "以及作品里的歌曲、唱片和演出（演唱者、发售日、曲目、演出的日期、会场和出演者）。"
     "回答制作人最新的一句话，是否需要检索这些资料？",
     "criteria": {
-        "true": "需要回忆过去的具体经历、提到具体的人物或事件、或需要确认角色设定细节",
+        "true": "需要回忆过去的具体经历、提到具体的人物或事件、需要确认角色设定细节，"
+        "或问到具体的歌曲、唱片、演出",
         "false": "只是寒暄、闲聊、情绪回应，或只凭上文就能回答",
     },
 }

@@ -43,6 +43,7 @@ from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
 from eidolon.world import load_world, world_path
+from eidolon.world_index import WorldIndex
 
 log = logging.getLogger(__name__)
 
@@ -168,6 +169,7 @@ def build(
             FactIndex(settings.database_path, embedder),
             reranker,
             thresholds.references,
+            WorldIndex(settings.database_path, embedder, world) if world is not None else None,
         )
         closers.append(retrieval.close)
         memories = Memories(

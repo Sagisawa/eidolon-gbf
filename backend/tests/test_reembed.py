@@ -1,6 +1,7 @@
 """`eidolon reembed`: after the embedding service, model or dimensions change, the story
-corpus, character facts and every user's memories are embedded again from the text
-already in the database, and only then are the old model's vectors dropped."""
+corpus, character facts, the shared index of songs, releases and lives and every user's
+memories are embedded again from the text already in the database (and the data file), and
+only then are the old model's vectors dropped."""
 
 import asyncio
 import logging
@@ -18,6 +19,8 @@ from eidolon.facts import FactIndex
 from eidolon.memory import Memories
 from eidolon.reembed import reembed
 from eidolon.store import Store
+from eidolon.world import load_world, world_path
+from eidolon.world_index import WorldIndex
 from eidolon.config import LLMSettings, Settings
 from tests.conftest import Admin, CharacterConfig
 from tests.fakes import (
@@ -30,6 +33,8 @@ from tests.fakes import (
 )
 from tests.test_memories import NOW, World, tell, writing_with
 from tests.test_shared_memory import CAT, TRIP, memorized
+from tests.test_world_retrieval import ENTRIES as WORLD_ENTRIES
+from tests.test_world_setting import write_world
 
 OLD, NEW = "old-model", "new-model@768"
 FACTS = "# 档案\n喜欢鸟。\n\n# 人物关系\n## 風野灯織\n同组合的伙伴。\n"
@@ -294,3 +299,40 @@ async def test_an_import_meanwhile_is_not_overwritten(deployment: Deployment):
     corpus.close()
     assert found.episode.id == EPISODES[0].id and "優勝しました" in found.text
     assert deployment.vectors("episode_passages") == {NEW: 5}
+
+
+async def test_the_shared_index_of_songs_releases_and_lives_is_embedded_again(
+    deployment: Deployment, tmp_path: Path
+):
+    write_world(CharacterConfig(tmp_path / "characters"))
+    world = load_world(world_path(deployment.characters_path))
+    assert world is not None
+    await deployment.embed_everything_with(OLD)
+    index = WorldIndex(deployment.database, FakeEmbedder(OLD), world)
+    await index.embed_missing()
+    index.close()
+
+    report = await reembed(
+        deployment.database, deployment.characters.values(), FakeEmbedder(NEW), world=world
+    )
+
+    assert report.world == WORLD_ENTRIES
+    assert report.forgotten == 4 + WORLD_ENTRIES
+    assert deployment.vectors("world_entries") == {NEW: WORLD_ENTRIES}
+
+
+def test_the_command_reembeds_the_shared_index_beside_the_characters(
+    deployment: Deployment,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+):
+    write_world(CharacterConfig(tmp_path / "characters"))
+    monkeypatch.delenv("EMBEDDING_PROVIDER", raising=False)
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    monkeypatch.setattr("eidolon.embedding.open_embedder", lambda *_: ClosableEmbedder(NEW))
+    admin = Admin(deployment.database, capsys)
+
+    out = admin.run("reembed", "--characters", str(deployment.characters_path))
+
+    assert f"歌曲、唱片和演出：新向量化 {WORLD_ENTRIES} 条" in out

@@ -29,6 +29,7 @@ from eidolon.facts import FactIndex
 from eidolon.memory import CANDIDATES
 from eidolon.rerank import Reranker, RerankThresholds
 from eidolon.retrieval import rank_references
+from eidolon.world_index import WorldIndex
 
 CaseKind = Literal["story", "facts", "memory"]
 Verdict = Literal["relevant", "acceptable", "irrelevant"]
@@ -139,8 +140,10 @@ async def evaluate(
     reranker: Reranker,
     corpus: StoryCorpus,
     facts: FactIndex,
+    world: WorldIndex | None = None,
 ) -> list[CaseResult]:
-    """Score each question's candidates, as a turn would find and rerank them."""
+    """Score each question's candidates, as a turn would find and rerank them (the shared
+    index of songs, releases and live days among them, given `world`)."""
     if unknown := {c.character for c in calibration.cases} - characters.keys():
         raise CalibrationError(f"角色配置里没有 {'、'.join(sorted(unknown))}")
     memory_vectors = (
@@ -168,7 +171,8 @@ async def evaluate(
             scores = {near[i].key: score for i, score in best}
         else:
             ranked = await rank_references(
-                embedder, corpus, facts, reranker, characters[case.character], case.query
+                embedder, corpus, facts, reranker, characters[case.character], case.query,
+                world,
             )
             scores: dict[str, float] = {}
             for reference, score in ranked:  # an episode scores as its best passage

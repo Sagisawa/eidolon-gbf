@@ -27,8 +27,9 @@
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
     eidolon reembed                  after changing the embedding service, model or
-                                     dimensions, embed the story corpus, character facts
-                                     and memories again from the text in the database
+                                     dimensions, embed the story corpus, character facts,
+                                     songs, releases and lives, and memories again from
+                                     the text in the database and the world setting
     eidolon eval rerank [--model M]  score the reranker on the calibration set, to set its
                                      thresholds
 """
@@ -362,9 +363,12 @@ async def _reembed(args: argparse.Namespace) -> int:
     from eidolon.config import EmbeddingSettings
     from eidolon.embedding import EmbeddingError, open_embedder
     from eidolon.reembed import reembed
+    from eidolon.world import load_world, world_path
 
     try:
-        characters = load_characters(args.characters or characters_path_from_env())
+        characters_path = args.characters or characters_path_from_env()
+        characters = load_characters(characters_path)
+        world = load_world(world_path(characters_path))
         settings = EmbeddingSettings.required_from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
@@ -377,7 +381,7 @@ async def _reembed(args: argparse.Namespace) -> int:
     embedder = open_embedder(settings)
     try:
         report = await reembed(
-            args.db or database_path_from_env(), characters.values(), embedder
+            args.db or database_path_from_env(), characters.values(), embedder, world=world
         )
     except EmbeddingError as e:
         print(
@@ -390,6 +394,7 @@ async def _reembed(args: argparse.Namespace) -> int:
     print(f"向量化模型：{embedder.model}")
     print(f"剧情库：新向量化 {report.passages} 段")
     print(f"角色资料：新向量化 {report.facts} 条")
+    print(f"歌曲、唱片和演出：新向量化 {report.world} 条")
     print(f"记忆：新向量化 {report.memories} 条")
     print(f"删除了其他模型的 {report.forgotten} 个向量")
     return 0
@@ -405,9 +410,13 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     from eidolon.facts import FactIndex
     from eidolon.rerank import RerankError, SiliconFlowReranker, thresholds_for
     from eidolon.rerank_eval import CalibrationError, evaluate, load_calibration, report
+    from eidolon.world import load_world, world_path
+    from eidolon.world_index import WorldIndex
 
     try:
-        characters = load_characters(args.characters or characters_path_from_env())
+        characters_path = args.characters or characters_path_from_env()
+        characters = load_characters(characters_path)
+        world = load_world(world_path(characters_path))
         calibration = load_calibration(args.file)
         embedding = EmbeddingSettings.required_from_env()
         rerank = RerankSettings.from_env()
@@ -422,16 +431,21 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     reranker = SiliconFlowReranker(rerank.api_key, rerank.model, rerank.base_url)
     path = args.db or database_path_from_env()
     corpus, facts = StoryCorpus(path, embedder), FactIndex(path, embedder)
+    world_index = WorldIndex(path, embedder, world) if world is not None else None
     try:
         if missing := corpus.count_missing_vectors():
             print(f"注意：剧情库有 {missing} 段没有 {embedder.model} 的向量，先运行 eidolon reembed", file=sys.stderr)
-        results = await evaluate(calibration, characters, embedder, reranker, corpus, facts)
+        results = await evaluate(
+            calibration, characters, embedder, reranker, corpus, facts, world_index
+        )
     except (CalibrationError, EmbeddingError, RerankError) as e:
         print(e, file=sys.stderr)
         return 1
     finally:
         corpus.close()
         facts.close()
+        if world_index is not None:
+            world_index.close()
         await embedder.aclose()
         await reranker.aclose()
     print(report(results, rerank.model, thresholds_for(rerank)))
@@ -614,7 +628,7 @@ def _parser() -> argparse.ArgumentParser:
 
     reembed = commands.add_parser(
         "reembed",
-        help="换了向量化服务、模型或维度后，用库里的原文重新向量化剧情库、角色资料和记忆"
+        help="换了向量化服务、模型或维度后，用库里的原文重新向量化剧情库、角色资料、歌曲唱片和演出、记忆"
         "（可中断、可重复执行；服务不必停止）",
     )
     reembed.add_argument(

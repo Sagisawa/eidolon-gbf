@@ -294,7 +294,10 @@ class FakeEmbedder:
     `titles`) and query it embeds; set `down` to have it fail as an unreachable service
     would."""
 
-    KEYWORDS = ("鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け", "猫", "北海道")
+    KEYWORDS = (
+        "鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け", "猫", "北海道",
+        "destination", "ドーム", "WING",
+    )
 
     def __init__(self, model: str = "fake-embedding") -> None:
         self.model = model

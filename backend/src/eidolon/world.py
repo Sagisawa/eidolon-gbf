@@ -15,12 +15,17 @@ and then her songs: those she sings alone and those her whole unit sings, no one
 joining in, each with the releases it is on and when they came or come out, which goes
 by the day of the turn, not by the day the data runs to; and her lives: the days of each
 live she stood on or is to stand on, those her CV was absent from left out.
+
+Every song, release and live day is also an entry of the index all characters share
+(`World.entries`, `world_index`), which retrieval searches along with the story and the
+character's facts.
 """
 
 import json
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
 from eidolon.characters import Character
 
@@ -119,6 +124,19 @@ class Live:
     sources: tuple[str, ...]
 
 
+EntryKind = Literal["song", "release", "live"]
+
+
+@dataclass(frozen=True)
+class WorldEntry:
+    """An entry of the shared index of songs, releases and live days (`World.entries`)."""
+
+    kind: EntryKind
+    title: str
+    """What it is about: 歌曲「…」, 唱片《…》, or 演出「…」 and the day."""
+    text: str
+
+
 @dataclass(frozen=True)
 class World:
     as_of: date
@@ -153,6 +171,51 @@ class World:
             if days:
                 found.append((live, days))
         return found
+
+    def entries(self) -> list[WorldEntry]:
+        """The entries of the shared index retrieval searches: each song with who sings it
+        and the releases it is on, each release with its date and tracks, and each live day
+        with its venue and performers. No CV is in them, and they do not change with the
+        day: a date after the turn's is told by the prompt of the day, not the entry."""
+        releases = {release.catalog: release for release in self.releases}
+        found = []
+        for song in self.songs:
+            lines = [f"歌曲「{song.title}」", f"演唱：{self._singers(song)}"]
+            on = [
+                f"《{r.title}》（{_day(r.date)}发售）"
+                for catalog in song.releases
+                if (r := releases.get(catalog)) is not None
+            ]
+            if on:
+                lines.append(f"收录于：{'、'.join(on)}")
+            found.append(WorldEntry("song", lines[0], "\n".join(lines)))
+        for release in self.releases:
+            lines = [f"唱片《{release.title}》（{release.catalog}）", f"发售日：{_day(release.date)}"]
+            if release.tracks:
+                lines.append("曲目：")
+                lines += [f"{i}. {track.title}" for i, track in enumerate(release.tracks, 1)]
+            found.append(WorldEntry("release", lines[0], "\n".join(lines)))
+        for live in self.lives:
+            for day in live.days:
+                performers = "、".join(day.performers) or "（资料里没有记录）"
+                lines = [
+                    f"演出「{live.name}」",
+                    f"日期：{_day(day.date)}",
+                    f"会场：{day.venue}",
+                    f"出演偶像：{performers}",
+                ]
+                title = f"{lines[0]}{_day(day.date)}"  # one entry for each of its days
+                found.append(WorldEntry("live", title, "\n".join(lines)))
+        return found
+
+    def _singers(self, song: Song) -> str:
+        """Who sings `song`: the special unit or the whole unit it is, if it is one, then
+        its idols."""
+        idols = "、".join(song.singers)
+        if song.special_unit:
+            return f"{song.special_unit}（{idols}）"
+        unit = next((u for u in self.units if set(u.members) == set(song.singers)), None)
+        return f"{unit.name}（{idols}）" if unit else idols
 
     def check_characters(self, characters: dict[str, Character], path: Path) -> None:
         """Raises WorldError naming the first character who is none of the idols."""
