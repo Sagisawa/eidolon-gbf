@@ -785,11 +785,11 @@ describe("LiveConversation: opening", () => {
       messages: history,
       turns: scripted([]),
     });
-    expect(live.snapshot().status).toBe("opening");
+    expect(live.snapshot().conversation).toEqual({ status: "opening" });
 
     await settled();
 
-    expect(live.snapshot()).toMatchObject({ status: "open", failure: null });
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, failure: null });
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
     expect(listChanged()).toBe(0);
     live.setDraft("你好");
@@ -805,7 +805,7 @@ describe("LiveConversation: opening", () => {
 
     expect(created).toEqual(["new1"]);
     expect(listChanged()).toBe(1);
-    expect(live.snapshot()).toMatchObject({ status: "open", entries: [] });
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, entries: [] });
     live.setDraft("你好");
     await live.submit();
     expect(sentTo).toEqual(["new1"]);
@@ -824,8 +824,9 @@ describe("LiveConversation: opening", () => {
     });
 
     expect(live.snapshot()).toMatchObject({
-      status: "failed",
-      failure: { message: error.message, signedOut },
+      conversation: { status: "failed", failure: { message: error.message, signedOut } },
+      // Not an error of the conversation open: that one has none.
+      failure: null,
     });
   });
 
@@ -868,21 +869,25 @@ describe("LiveConversation: opening", () => {
     await settled();
 
     expect(published()).toBe(before);
-    expect(live.snapshot().status).toBe("opening");
+    expect(live.snapshot().conversation).toEqual({ status: "opening" });
   });
 
   it("still tells the list about a conversation it started when the page is left meanwhile", async () => {
     // 对话已经在后端建好了，列表里她那一行应该跟着变；页面上不再有任何更新。
     const { gate: made, open: make } = gate();
+    let creating = 0;
     const { live, published, listChanged } = opening({
       conversations: [],
       ports: {
         createConversation: async () => {
+          creating++;
           await made;
           return record("new1");
         },
       },
     });
+    await settled();
+    expect(creating).toBe(1);
 
     live.dispose();
     const before = published();
@@ -891,6 +896,25 @@ describe("LiveConversation: opening", () => {
 
     expect(listChanged()).toBe(1);
     expect(published()).toBe(before);
+  });
+
+  it("starts no conversation once the page is left before her conversations are listed", async () => {
+    const { gate: listed, open: list } = gate();
+    const { live, created, listChanged } = opening({
+      ports: {
+        listConversations: async () => {
+          await listed;
+          return [];
+        },
+      },
+    });
+
+    live.dispose();
+    list();
+    await settled();
+
+    expect(created).toEqual([]);
+    expect(listChanged()).toBe(0);
   });
 });
 
@@ -904,7 +928,7 @@ describe("LiveConversation: a new conversation", () => {
     await live.startNewConversation();
 
     expect(created).toEqual(["new1"]);
-    expect(live.snapshot()).toMatchObject({ status: "open", entries: [], failure: null });
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, entries: [], failure: null });
     expect(listChanged()).toBe(1);
     live.setDraft("你好");
     await live.submit();
@@ -934,7 +958,7 @@ describe("LiveConversation: a new conversation", () => {
     });
 
     const starting = live.startNewConversation();
-    expect(live.snapshot().status).toBe("opening");
+    expect(live.snapshot().conversation).toEqual({ status: "opening" });
     live.setDraft("你好");
     await live.submit();
     await live.startCall();
@@ -943,7 +967,7 @@ describe("LiveConversation: a new conversation", () => {
 
     make();
     await starting;
-    expect(live.snapshot().status).toBe("open");
+    expect(live.snapshot().conversation).toEqual({ status: "open" });
   });
 
   it("counts her lines in a call from the start of the new conversation", async () => {
@@ -971,7 +995,7 @@ describe("LiveConversation: a new conversation", () => {
     await live.startNewConversation();
 
     expect(live.snapshot()).toMatchObject({
-      status: "open",
+      conversation: { status: "open" },
       draft: "你好",
       failure: { message: "Failed to fetch", signedOut: false },
     });

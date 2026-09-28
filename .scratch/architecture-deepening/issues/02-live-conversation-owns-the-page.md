@@ -91,3 +91,14 @@
 3. **StrictMode 下建出两个对话不处理。**
 
 `npm test`：17 个文件、219 个测试全部通过。`npm run typecheck` 通过。
+
+### 2026-09-28 代码审查后的修改
+
+1. **离开页面后不再新建对话**：打开过程中，如果 `listConversations` 返回时页面已经 dispose，而她又没有对话，就不再调用 `createConversation`，也不会调用 `onListChanged`。如果 dispose 发生在新建的途中，维持原来的决定：对话已经在后端建好，仍然调用 `onListChanged`。两种情况各有一条测试，其中后一条改为先等 `createConversation` 开始后再 dispose。
+2. **通话层规则抽成纯函数**：新建 `withCallScreenRules(before, next)`，拨号或因故结束时展开，不在 `connected` 时关掉麦克风列表。`update()` 只调用它。
+3. **打开状态改成带标签的联合类型**：快照的 `status` 改为 `conversation: OpenState`，其中 `OpenState = { status: "opening" } | { status: "open" } | { status: "failed"; failure }`。"打不开"的原因只挂在 `failed` 上。打开以后的错误（回合失败、开新对话失败、通话中的回合出错）仍然走快照的 `failure`：它们发生时对话仍是 `open`，要和对话并存显示；如果并进联合类型，`open` 也得带一个可选的 failure，打开后的错误通道会变得别扭。所以打开失败时，快照的 `failure` 是 null。组件里的 `status === "failed" && failure` 改为 `conversation.status === "failed"`，直接取 `conversation.failure`。
+4. `submit` 和 `startCall` 里重复的检查合成了 `openConversationId()`：对话打开时返回它的 id，否则返回 null。
+5. `ConversationView.tsx` 里 `onOpenChange` 的参数改名为 `open`，不再遮蔽外层的 `isOpen`。
+6. 私有方法改名：`opened()` 改为 `showConversation()`，`started()` 改为 `createConversation()`，`turnEvent()` 改为 `applyTurnEvent()`，`stamp()` 改为 `isoNow()`，`ready()` 并进了 `openConversationId()`。这样也不再和 `conversationLog.ts` 里的 `opened()` 重名。
+
+以下几点按审查意见维持不变：Ports 不合并，构造时就开始打开，「电话键」的叫法不改。`npm test`：17 个文件、220 个测试全部通过。`npm run typecheck` 通过。

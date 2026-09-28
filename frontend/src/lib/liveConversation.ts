@@ -50,13 +50,13 @@ export type MicNotice = "fell_back" | "unavailable" | "lost";
 
 /**
  * Whether her conversation is open: `opening` while it is looked up (or started) and its
- * messages loaded, and again while a new conversation is started; `failed` when opening
- * did not work, with the reason in `failure`. Nothing is sent or dialed unless `open`.
+ * messages loaded, and again while a new conversation is started; `failed` when it could
+ * not be opened, saying why. Nothing is sent or dialed unless it is `open`.
  */
-export type OpenStatus = "opening" | "open" | "failed";
+export type OpenState = { status: "opening" } | { status: "open" } | { status: "failed"; failure: Failure };
 
 export type Snapshot = {
-  status: OpenStatus;
+  conversation: OpenState;
   entries: Entry[];
   call: CallState;
   /** The call layer is collapsed onto the conversation. It opens up again when dialing and
@@ -82,7 +82,8 @@ export type Snapshot = {
   draft: string;
   /** Show the character's replies as text only (CONTEXT.md「只看文字」). */
   textOnly: boolean;
-  /** The page's one error: the conversation could not be opened or started, a turn failed. */
+  /** What went wrong in the conversation open: a turn failed, a new conversation could not
+   * be started. Why it could not be opened at all is in `conversation`. */
   failure: Failure | null;
 };
 
@@ -93,7 +94,7 @@ type State = Omit<Snapshot, "entries" | "line"> & {
 };
 
 const IDLE: Omit<Snapshot, "entries" | "line"> = {
-  status: "opening",
+  conversation: { status: "opening" },
   call: { phase: "idle" },
   collapsed: false,
   pickingMic: false,
@@ -180,13 +181,13 @@ export class LiveConversation {
    * text turn or a call. It is opening until the new one is started; if that fails, this
    * one stays open. */
   async startNewConversation(): Promise<void> {
-    if (!this.ready() || this.state.busy || isLive(this.state.call)) return;
-    this.update({ status: "opening", failure: null });
+    if (!this.openConversationId() || this.state.busy || isLive(this.state.call)) return;
+    this.update({ conversation: { status: "opening" }, failure: null });
     try {
-      const conversation = await this.started();
-      this.opened(conversation.id, [], { status: "open", call: { phase: "idle" }, draft: "" });
+      const conversation = await this.createConversation();
+      this.showConversation(conversation.id, [], { call: { phase: "idle" }, draft: "" });
     } catch (e) {
-      this.update({ status: "open", failure: toFailure(e) });
+      this.update({ conversation: { status: "open" }, failure: toFailure(e) });
     }
   }
 
@@ -197,23 +198,22 @@ export class LiveConversation {
   /** Send what is in the input box as a text turn. */
   async submit(): Promise<void> {
     const text = this.state.draft.trim();
-    const conversationId = this.conversationId;
+    const conversationId = this.openConversationId();
     // One exchange at a time: not over a text turn, nor into a call still dialing.
-    if (!text || !this.ready() || !conversationId || this.state.busy || this.state.call.phase === "dialing")
-      return;
+    if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events.
       this.call.sendText(text);
       return;
     }
-    this.apply({ type: "submitted", text, at: this.stamp() }, { busy: true });
+    this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
 
     let failure: Failure | null = null;
     let done = false;
     try {
       for await (const event of this.ports.sendTurn(conversationId, text)) {
-        this.turnEvent(event);
+        this.applyTurnEvent(event);
         if (event.type === "done") done = true;
         // A turn that failed leaves no record and does not count towards the limit.
         if (event.type === "error")
@@ -235,8 +235,8 @@ export class LiveConversation {
 
   /** Call the character, from idle or from the end of the last call. Not over a text turn. */
   async startCall(): Promise<void> {
-    const conversationId = this.conversationId;
-    if (!this.ready() || !conversationId || this.state.busy || isLive(this.state.call)) return;
+    const conversationId = this.openConversationId();
+    if (!conversationId || this.state.busy || isLive(this.state.call)) return;
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
@@ -343,54 +343,61 @@ export class LiveConversation {
       this.endedBy = backendEnd(event);
       return;
     }
-    if (event.type === "user") this.turnEvent(event, { hearing: "" });
+    if (event.type === "user") this.applyTurnEvent(event, { hearing: "" });
     else if (event.type === "error")
-      this.turnEvent(event, { failure: { message: event.message, signedOut: false } });
-    else this.turnEvent(event);
+      this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false } });
+    else this.applyTurnEvent(event);
   }
 
   /** Moves the log on by an event of a turn, typed or spoken in a call. */
-  private turnEvent(event: TurnEvent, change: Partial<State> = {}): void {
-    this.apply(event.type === "user" ? { ...event, at: this.stamp() } : event, change);
+  private applyTurnEvent(event: TurnEvent, change: Partial<State> = {}): void {
+    this.apply(event.type === "user" ? { ...event, at: this.isoNow() } : event, change);
     // Recorded: the list's line for her now ends with it, even if the page has been left.
     if (event.type === "done") this.ports.onListChanged();
   }
 
+  /** Opens her newest conversation, or starts one if she has none. */
   private async open(): Promise<void> {
     let conversation: Conversation;
     let messages: Message[];
     try {
       const [newest] = await this.ports.listConversations(this.characterId);
-      conversation = newest ?? (await this.started());
+      // The page left: no conversation is started for it.
+      if (!newest && this.disposed) return;
+      conversation = newest ?? (await this.createConversation());
       messages = await this.ports.listMessages(conversation.id);
     } catch (e) {
-      this.update({ status: "failed", failure: toFailure(e) });
+      this.update({ conversation: { status: "failed", failure: toFailure(e) } });
       return;
     }
-    if (!this.disposed) this.opened(conversation.id, messages, { status: "open" });
+    if (!this.disposed) this.showConversation(conversation.id, messages);
   }
 
   /** Starts a conversation with her. The list shows it at once, even if the page has been
    * left meanwhile: it is there in the backend all the same. */
-  private async started(): Promise<Conversation> {
+  private async createConversation(): Promise<Conversation> {
     const conversation = await this.ports.createConversation(this.characterId);
     this.ports.onListChanged();
     return conversation;
   }
 
-  /** Shows this conversation and its messages from now on. */
-  private opened(conversationId: string, messages: Message[], change: Partial<State>): void {
+  /** Shows this conversation and its messages from now on: it is open. */
+  private showConversation(conversationId: string, messages: Message[], change: Partial<State> = {}): void {
     this.conversationId = conversationId;
-    this.apply({ type: "loaded", messages }, { ...change, callFrom: messages.length });
+    this.apply(
+      { type: "loaded", messages },
+      { ...change, conversation: { status: "open" }, callFrom: messages.length },
+    );
   }
 
-  /** A conversation is open, and not being left for a new one (that is `opening`). */
-  private ready(): boolean {
-    return this.state.status === "open";
+  /** The conversation to send to and call in, or null if none is open: still opening,
+   * being left for a new one, or failed to open. */
+  private openConversationId(): string | null {
+    return this.state.conversation.status === "open" ? this.conversationId : null;
   }
 
   /** The time now, as the log dates entries. */
-  private stamp(): string {
+  private isoNow(): string {
     return new Date(this.now()).toISOString();
   }
 
@@ -420,16 +427,23 @@ export class LiveConversation {
 
   private update(change: Partial<State>): void {
     if (this.disposed) return;
-    const next = { ...this.state, ...change };
-    // Dialing, and a call ending for a reason, open the call layer up again: the user sees
-    // the call, or why it ended. The microphone list is only for a connected call.
-    if (next.call !== this.state.call && (next.call.phase === "dialing" || next.call.phase === "ended"))
-      next.collapsed = false;
-    if (next.call.phase !== "connected") next.pickingMic = false;
-    this.state = next;
+    this.state = withCallScreenRules(this.state, { ...this.state, ...change });
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
   }
+}
+
+/**
+ * How the call screen follows the call, from one state to the next: dialing, and a call
+ * ending for a reason, open the call layer up again, so the user sees the call or why it
+ * ended; the microphone list is only for a connected call.
+ */
+function withCallScreenRules(before: State, next: State): State {
+  const reopens = next.call !== before.call && (next.call.phase === "dialing" || next.call.phase === "ended");
+  const collapsed = next.collapsed && !reopens;
+  const pickingMic = next.pickingMic && next.call.phase === "connected";
+  if (collapsed === next.collapsed && pickingMic === next.pickingMic) return next;
+  return { ...next, collapsed, pickingMic };
 }
 
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {

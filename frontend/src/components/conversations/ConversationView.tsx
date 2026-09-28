@@ -62,7 +62,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
-  const { status, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
+  const { conversation, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
   const characterAudio = useRef<HTMLAudioElement>(null);
   const shownCall = useShownCall(call);
 
@@ -90,7 +90,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
   }, [call, character.id, setCall]);
   useEffect(() => () => setCall(null), [setCall]);
 
-  const isOpen = status === "open";
+  const isOpen = conversation.status === "open";
   const inCall = isLive(call);
   const back = onBack && (() => leave(onBack));
   const dial = () => void live?.startCall();
@@ -180,15 +180,15 @@ export function ConversationView({ character, onBack }: { character: Character; 
     </HStack>
   );
 
-  if (status === "failed" && failure) {
+  if (conversation.status === "failed") {
     return (
       <Frame character={character} header={header}>
         <VStack height="100%" hAlign="center" vAlign="center" padding={6}>
           <EmptyState
             title={t.loadFailed}
-            description={failure.message}
+            description={conversation.failure.message}
             actions={
-              failure.signedOut ? (
+              conversation.failure.signedOut ? (
                 <SignInButton />
               ) : (
                 back && <Button label={t.backToList} variant="secondary" onClick={back} />
@@ -264,7 +264,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
       )}
       <MicSheet
         isOpen={snapshot.pickingMic}
-        onOpenChange={(isOpen) => (isOpen ? live?.openMicPicker() : live?.closeMicPicker())}
+        onOpenChange={(open) => (open ? live?.openMicPicker() : live?.closeMicPicker())}
         color={character.color}
         micId={snapshot.micId}
         onSelect={(micId) => void live?.switchMic(micId)}
