@@ -26,7 +26,7 @@ The tool looks only in the story.
 
 import asyncio
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
@@ -35,7 +35,7 @@ import httpx
 
 from eidolon.characters import Character
 from eidolon.corpus import CatalogSource, Episode, StoryCorpus
-from eidolon.embedding import Embedder, EmbeddingError
+from eidolon.embedding import Embedder, EmbeddingError, Reembeddable
 from eidolon.facts import CharacterFacts
 from eidolon.llm import Tool
 from eidolon.memory import MemoryTurn
@@ -114,6 +114,8 @@ class StoryReferences:
     kind: ReferenceKind = "episode"
     heading = "剧情"
     guide = "「剧情」是你亲身经历过的原作剧情，可以像回忆往事一样自然地提起，不要照搬台词。" + _CANON_RULE
+    label = "剧情库"
+    unit = "段"
 
     def __init__(self, corpus: StoryCorpus) -> None:
         self.corpus = corpus
@@ -125,6 +127,13 @@ class StoryReferences:
             self.corpus.search_by_vector, query_vector, character.id, limit
         )
         return [Reference(self.kind, p.text, p.episode.id) for p in passages]
+
+    async def embed_missing(self, batch: int, progress: Callable[[int], None]) -> int:
+        return await self.corpus.embed_missing(batch, progress)
+
+    def forget_other_models(self) -> int:
+        """Nothing: each passage keeps only one vector, which embedding it again replaces."""
+        return 0
 
     def close(self) -> None:
         self.corpus.close()
@@ -141,12 +150,15 @@ class ReferenceSources:
         sources: Sequence[ReferenceSource],
         corpus: StoryCorpus,
         work: WorkFacts | None,
+        unsearched: Sequence[ReferenceSource] = (),
     ) -> None:
-        """`sources` are closed with the whole, `corpus` and `work` among them."""
+        """`sources` are closed with the whole, `corpus` and `work` among them; so are
+        `unsearched`, sources with nothing to search, kept only to be embedded again."""
         self.embedder = embedder
         self.corpus = corpus
         self.work = work
         self._sources = list(sources)
+        self._unsearched = list(unsearched)
 
     async def rank(
         self, reranker: Reranker, character: Character, text: str
@@ -164,6 +176,10 @@ class ReferenceSources:
         best = await reranker.rerank(text, [c.text for c in candidates], len(candidates))
         return [(candidates[i], score) for i, score in best]
 
+    def embedded(self) -> list[Reembeddable]:
+        """Every source, for `eidolon reembed`, the unsearched among them."""
+        return [*self._sources, *self._unsearched]
+
     def prompt(self, references: Sequence[Reference]) -> str:
         """The prompt section carrying a turn's references, each under its source's heading."""
         headings = {s.kind: s.heading for s in self._sources}
@@ -177,18 +193,25 @@ class ReferenceSources:
         return "\n".join(lines)
 
     def close(self) -> None:
-        for source in self._sources:
+        for source in [*self._sources, *self._unsearched]:
             source.close()
 
 
 def open_reference_sources(
-    path: Path, embedder: Embedder, characters: Iterable[Character], world: World | None
+    path: Path,
+    embedder: Embedder,
+    characters: Iterable[Character],
+    world: World | None,
+    *,
+    warn: bool = True,
 ) -> ReferenceSources:
     """The reference sources in the database at `path`: the story, the characters' facts
-    and, given a world setting, the work facts. Warns if story passages have no vector from
-    `embedder`'s model, as they cannot be found."""
+    and, given a world setting, the work facts; without one, the work facts are there only
+    to be embedded again, which forgets whatever vectors they had. Warns (unless not to
+    `warn`) if story passages have no vector from `embedder`'s model, as they cannot be
+    found."""
     corpus = StoryCorpus(path, embedder)
-    if missing := corpus.count_missing_vectors():
+    if warn and (missing := corpus.count_missing_vectors()):
         log.warning(
             "%d story passages have no vectors from the embedding model %s and cannot be"
             " found: run `eidolon reembed` after changing the embedding service, model"
@@ -198,9 +221,10 @@ def open_reference_sources(
     sources: list[ReferenceSource] = [
         StoryReferences(corpus), CharacterFacts(path, embedder, characters)
     ]
-    work = WorkFacts(path, embedder, world) if world is not None else None
-    if work is not None:
-        sources.append(work)
+    work = WorkFacts(path, embedder, world)
+    if world is None:
+        return ReferenceSources(embedder, sources, corpus, None, [work])
+    sources.append(work)
     return ReferenceSources(embedder, sources, corpus, work)
 
 

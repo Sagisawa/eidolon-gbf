@@ -105,10 +105,12 @@ class EmbeddedTexts:
         best = nearest([vectors[i] for i in positions], query_vector, limit)
         return [positions[i] for i, _ in best]
 
-    async def embed_missing(self, scope: str, documents: Sequence[Document]) -> int:
-        """Embed those of `documents` that have no vector from this set's embedder yet;
-        returns how many that was."""
-        _, embedded = await self._vectors(scope, documents)
+    async def embed_missing(
+        self, scope: str, documents: Sequence[Document], batch: int = REEMBED_BATCH
+    ) -> int:
+        """Embed those of `documents` that have no vector from this set's embedder yet,
+        `batch` at a time; returns how many that was."""
+        _, embedded = await self._vectors(scope, documents, batch)
         return embedded
 
     def forget_other_models(self, scopes: str) -> int:
@@ -130,7 +132,7 @@ class EmbeddedTexts:
         return [vectors[d.text] for d in documents]
 
     async def _vectors(
-        self, scope: str, documents: Sequence[Document]
+        self, scope: str, documents: Sequence[Document], batch: int = REEMBED_BATCH
     ) -> tuple[dict[str, bytes], int]:
         """The vectors of the scope's texts, by text, embedding those not yet stored (in
         batches, each committed); and how many it embedded. Loaded once per scope, then
@@ -144,11 +146,11 @@ class EmbeddedTexts:
             if stale := stored.keys() - {d.text for d in documents}:
                 await asyncio.to_thread(self._forget, scope, model, stale)
                 stored = {t: v for t, v in stored.items() if t not in stale}
-            for start in range(0, len(missing), REEMBED_BATCH):
-                batch = missing[start : start + REEMBED_BATCH]
-                embedded = await self._embedder.embed_documents(batch)
+            for start in range(0, len(missing), batch):
+                texts = missing[start : start + batch]
+                embedded = await self._embedder.embed_documents(texts)
                 rows = [
-                    (scope, d.text, model, to_blob(v)) for d, v in zip(batch, embedded, strict=True)
+                    (scope, d.text, model, to_blob(v)) for d, v in zip(texts, embedded, strict=True)
                 ]
                 await asyncio.to_thread(self._save, rows)
                 stored.update((text, blob) for _, text, _, blob in rows)

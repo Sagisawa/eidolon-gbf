@@ -115,6 +115,9 @@ class _Services:
 class Memories:
     """Every user's memories."""
 
+    label = "记忆"
+    unit = "条"
+
     def __init__(
         self,
         path: Path,
@@ -126,8 +129,9 @@ class Memories:
         min_relevance: float = DEFAULT_THRESHOLDS.memories,
     ) -> None:
         """Memories kept in the database at `path`, next to the users and conversations
-        they belong to; off unless `embedder` and `reranker` are both given. A memory the
-        reranker scores below `min_relevance` is not found (see `rerank.KNOWN_THRESHOLDS`)."""
+        they belong to; off unless `embedder` and `reranker` are both given, though
+        `embedder` alone is enough to embed them again. A memory the reranker scores below
+        `min_relevance` is not found (see `rerank.KNOWN_THRESHOLDS`)."""
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
         self._lock = threading.Lock()
@@ -136,6 +140,7 @@ class Memories:
             self._db.executescript(_SCHEMA)
         self._characters = characters
         self._clock = clock
+        self._embedder = embedder
         self._services = (
             _Services(embedder, reranker, min_relevance)
             if embedder is not None and reranker is not None
@@ -183,15 +188,13 @@ class Memories:
         await self._settle(user_id)
 
     async def embed_missing(
-        self,
-        embedder: Embedder,
-        batch: int = REEMBED_BATCH,
-        progress: Callable[[int], None] | None = None,
+        self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None
     ) -> int:
-        """Embed every user's memories that have no vector from `embedder`, `batch` at a
-        time; returns how many it embedded, telling `progress` the count so far after each
-        batch. Interrupted, what it finished is kept; a memory deleted meanwhile gets no
-        vector."""
+        """Embed every user's memories that have no vector from the embedder given, `batch`
+        at a time; returns how many it embedded, telling `progress` the count so far after
+        each batch. Interrupted, what it finished is kept; a memory deleted meanwhile gets
+        no vector."""
+        embedder = self._reembedder()
         model = embedder.model
         done = 0
         after = 0
@@ -220,12 +223,20 @@ class Memories:
             if progress is not None:
                 progress(done)
 
-    def forget_other_models(self, model: str) -> int:
-        """Drop every memory's vector not from `model`; returns how many there were."""
+    def forget_other_models(self) -> int:
+        """Drop every memory's vector not from the embedder given; returns how many there
+        were."""
+        model = self._reembedder().model
         with self._lock, self._db:
             return self._db.execute(
                 "DELETE FROM memory_vectors WHERE model != ?", (model,)
             ).rowcount
+
+    def _reembedder(self) -> Embedder:
+        """The embedder given, which embedding the memories again needs."""
+        if self._embedder is None:
+            raise RuntimeError("embedding memories again needs the embedder they were opened with")
+        return self._embedder
 
     async def aclose(self) -> None:
         """Let whatever is being written down finish, a while at most, then give up on it."""

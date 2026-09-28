@@ -392,10 +392,8 @@ async def _reembed(args: argparse.Namespace) -> int:
     finally:
         await embedder.aclose()
     print(f"向量化模型：{embedder.model}")
-    print(f"剧情库：新向量化 {report.passages} 段")
-    print(f"角色资料：新向量化 {report.facts} 条")
-    print(f"作品资料：新向量化 {report.work} 条")
-    print(f"记忆：新向量化 {report.memories} 条")
+    for each in report.embedded:
+        print(f"{each.label}：新向量化 {each.count} {each.unit}")
     print(f"删除了其他模型的 {report.forgotten} 个向量")
     return 0
 

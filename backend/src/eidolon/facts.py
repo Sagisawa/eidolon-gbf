@@ -6,10 +6,11 @@ a fact is edited or removed, so an edit to a facts file takes effect after a res
 without any command and costs only the changed entries.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from eidolon.characters import Character, Fact
+from eidolon.corpus import REEMBED_BATCH
 from eidolon.embedded_texts import CHARACTER_SCOPES, EmbeddedTexts, character_scope
 from eidolon.embedding import Document, Embedder
 from eidolon.references import Reference, ReferenceKind
@@ -19,6 +20,8 @@ class CharacterFacts:
     kind: ReferenceKind = "fact"
     heading = "角色资料"
     guide = "「角色资料」是关于你自己和身边人物的设定。"
+    label = "角色资料"
+    unit = "条"
 
     def __init__(self, path: Path, embedder: Embedder, characters: Iterable[Character]) -> None:
         self._texts = EmbeddedTexts(path, embedder)
@@ -33,14 +36,19 @@ class CharacterFacts:
         )
         return [Reference(self.kind, facts[i].text, facts[i].title or facts[i].text) for i in best]
 
-    async def embed_missing(self) -> int:
+    async def embed_missing(
+        self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None
+    ) -> int:
         """Embed those of the characters' facts that have no vector from this source's
-        embedder yet; returns how many that was."""
+        embedder yet, `batch` at a time; returns how many that was, telling `progress` the
+        count so far after each character."""
         embedded = 0
         for character in self._characters:
             embedded += await self._texts.embed_missing(
-                character_scope(character.id), _documents(_facts(character))
+                character_scope(character.id), _documents(_facts(character)), batch
             )
+            if progress is not None:
+                progress(embedded)
         return embedded
 
     def forget_other_models(self) -> int:

@@ -10,10 +10,11 @@ As a reference source they are searched whatever they are about; recalling how s
 went searches them itself (`search_entries`), for the lives and releases only.
 """
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 
 from eidolon.characters import Character
+from eidolon.corpus import REEMBED_BATCH
 from eidolon.embedded_texts import WORK_SCOPE, EmbeddedTexts
 from eidolon.embedding import Document, Embedder
 from eidolon.references import Reference, ReferenceKind
@@ -30,6 +31,8 @@ class WorkFacts:
         "「作品资料」是关于歌曲、唱片和演出的事实，可以照着回答；"
         "日期在今天之后的，是还没发售或还没举办的。" + WORK_RULE
     )
+    label = "作品资料"
+    unit = "条"
 
     def __init__(self, path: Path, embedder: Embedder, world: World | None) -> None:
         """Without `world` (no data file), there are no work facts: any vectors stored
@@ -58,10 +61,15 @@ class WorkFacts:
         best = await self._texts.search(WORK_SCOPE, self._documents, query_vector, limit, among)
         return [self._entries[i] for i in best]
 
-    async def embed_missing(self) -> int:
-        """Embed the entries that have no vector from this source's embedder yet; returns
-        how many that was."""
-        return await self._texts.embed_missing(WORK_SCOPE, self._documents)
+    async def embed_missing(
+        self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None
+    ) -> int:
+        """Embed the entries that have no vector from this source's embedder yet, `batch`
+        at a time; returns how many that was, telling `progress` once done."""
+        embedded = await self._texts.embed_missing(WORK_SCOPE, self._documents, batch)
+        if progress is not None:
+            progress(embedded)
+        return embedded
 
     def forget_other_models(self) -> int:
         """Drop every vector not from this source's embedder; returns how many there were."""

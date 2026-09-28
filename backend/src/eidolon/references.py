@@ -3,8 +3,9 @@ story, the character facts, the work facts), searched with the same query vector
 reranked together.
 
 Each source carries its kind, the heading its references go under in the prompt, the
-line telling the character how to use them, and its search; so adding one is writing it
-and registering it where the sources are opened (`retrieval.open_reference_sources`).
+line telling the character how to use them, and its search; and, being embedded, it can
+be embedded again (`embedding.Reembeddable`). So adding one is writing it and registering
+it where the sources are opened (`retrieval.open_reference_sources`).
 """
 
 from collections.abc import Sequence
@@ -12,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from eidolon.characters import Character
+from eidolon.embedding import Reembeddable
 
 ReferenceKind = Literal["episode", "fact", "work"]
 
@@ -25,7 +27,7 @@ class Reference:
     fact's title."""
 
 
-class ReferenceSource(Protocol):
+class ReferenceSource(Reembeddable, Protocol):
     @property
     def kind(self) -> ReferenceKind: ...
 
