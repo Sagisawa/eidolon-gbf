@@ -1,6 +1,6 @@
 # 架构加深（第二轮）：作品资料和角色资料的向量化、参考资料来源列表、名单
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准；本轮新增了词条「作品资料 (Work Facts)」。设计词汇（module、interface、seam、adapter、depth、locality）取自 `codebase-design` skill。2026-09-28 的架构审查找出 7 个候选，经 grilling 决定做其中两个：向量化文本集和参考资料来源列表（审查里的候选 1），以及名单（候选 2）。候选 3（回合放行）读代码后放弃，理由见同目录的 `grilling-notes.md`。
 
