@@ -4,6 +4,7 @@ start when a character is none of its idols."""
 
 import json
 import logging
+from datetime import UTC, datetime
 
 import pytest
 
@@ -168,17 +169,82 @@ async def test_her_songs_leave_out_anyone_elses(turns: Turns, characters: Charac
     assert "Ambitious Eve" not in songs  # everyone's
 
 
+def song_line(system: str, title: str) -> str:
+    return next(line for line in her_songs(system).splitlines() if line.startswith(f"- {title}"))
+
+
 async def test_a_release_still_to_come_is_told_as_one(turns: Turns, characters: CharacterConfig):
-    write_world(characters)  # the data runs to 2026-09-28; the release is on 2026-10-21
+    write_world(characters)  # the turn is on 2026-09-26; the release is on 2026-10-21
     llm = FakeLLM(REPLY)
 
     await turns.take(llm, "新しいCD、いつ出るんだっけ")
 
-    line = next(
-        line for line in her_songs(system_prompt(llm)).splitlines()
-        if line.startswith("- MAGICAL FOREST：")
-    )
-    assert "（2026年10月21日发售，还没有发售）" in line
+    line = song_line(system_prompt(llm), "MAGICAL FOREST")
+    assert "（将于2026年10月21日发售）" in line
+    assert "还没有发售" not in line
+    past = song_line(system_prompt(llm), "ヒカリのdestination")
+    assert "（2018年7月4日发售）" in past and "将于" not in past
+
+
+async def test_whether_a_release_is_out_goes_by_the_day_of_each_turn(
+    turns: Turns, settings: Settings, characters: CharacterConfig
+):
+    write_world(characters)  # the data runs to 2026-09-28; the release is on 2026-10-21
+    now = [datetime(2026, 10, 20, 12, 0, tzinfo=UTC)]
+    llm = FakeLLM(REPLY, REPLY)
+    backend = build(settings, chat_llm=llm, clock=lambda: now[0])
+    try:
+        llms = backend.own_keys.for_turn(turns.conversation.user_id).llms
+        async for _ in backend.engine.turn(turns.conversation, "新しいCD、いつ出るんだっけ", llms):
+            pass
+        now[0] = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)  # the same backend, two days on
+        async for _ in backend.engine.turn(turns.conversation, "新しいCD、もう出た？", llms):
+            pass
+    finally:
+        await backend.aclose()
+
+    before, after = (prompt[0].content for prompt in llm.prompts)
+    assert "（将于2026年10月21日发售）" in song_line(before, "MAGICAL FOREST")
+    assert "（2026年10月21日发售）" in song_line(after, "MAGICAL FOREST")
+
+
+async def test_a_special_unit_s_song_is_not_hers_even_if_its_idols_are_her_unit(
+    turns: Turns, characters: CharacterConfig
+):
+    write_world(characters)
+    path = characters.directory / "world.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["songs"].append({
+        "id": "とくべつな歌", "title": "とくべつな歌", "singers": ["櫻木真乃", "風野灯織"],
+        "special_unit": "Team.Hikari", "releases": ["LACM-14782"],
+        "sources": ["https://example.invalid/source"],
+    })
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "どんな歌を歌ってきたの？")
+
+    songs = her_songs(system_prompt(llm))
+    assert "特别组合或者全体一起唱的歌不在这里" in songs
+    assert "とくべつな歌" not in songs
+
+
+async def test_a_song_whose_releases_are_all_missing_is_listed_by_its_title_alone(
+    turns: Turns, characters: CharacterConfig
+):
+    write_world(characters)
+    path = characters.directory / "world.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["songs"].append({
+        "id": "まぼろしの歌", "title": "まぼろしの歌", "singers": ["櫻木真乃"], "special_unit": None,
+        "releases": ["NONE-0000"], "sources": ["https://example.invalid/source"],
+    })
+    path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    llm = FakeLLM(REPLY)
+
+    await turns.take(llm, "どんな歌を歌ってきたの？")
+
+    assert song_line(system_prompt(llm), "まぼろしの歌") == "- まぼろしの歌"
 
 
 async def test_no_cv_is_named_in_any_prompt(turns: Turns, characters: CharacterConfig):

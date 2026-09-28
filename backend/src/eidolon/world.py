@@ -11,7 +11,8 @@ world setting.
 Every turn carries the world setting in full, after the character sheet
 (`World.prompt`), with the rules for facts of the original that the data does not have,
 and then her songs: those she sings alone and those her whole unit sings, no one else
-joining in, each with the releases it is on and when they came or come out.
+joining in, each with the releases it is on and when they came or come out, which goes
+by the day of the turn, not by the day the data runs to.
 """
 
 import json
@@ -111,11 +112,13 @@ class World:
 
     def songs_of(self, name: str) -> list[Song]:
         """Her songs: those she sings alone and those her whole unit sings, no one else
-        joining in."""
+        joining in. A special unit's song is none of them, whoever is in it."""
         idol = self.idol(name)
         unit = next((u for u in self.units if idol and u.name == idol.unit), None)
         hers = [{name}] + ([set(unit.members)] if unit else [])
-        return [song for song in self.songs if set(song.singers) in hers]
+        return [
+            song for song in self.songs if song.special_unit is None and set(song.singers) in hers
+        ]
 
     def check_characters(self, characters: dict[str, Character], path: Path) -> None:
         """Raises WorldError naming the first character who is none of the idols."""
@@ -126,12 +129,13 @@ class World:
                     "（显示名要和资料里的日文全名一致，例如「櫻木真乃」）"
                 )
 
-    def prompt(self, name: str) -> str:
-        """The world setting as every turn with the idol called `name` carries it, her
-        songs included. No CV is in it."""
-        return f"{self._setting_prompt()}\n\n{self._songs_prompt(name)}"
+    def prompt(self, name: str, today: date) -> str:
+        """The world setting as a turn on `today` with the idol called `name` carries it,
+        her songs included, those on releases after `today` told as still to come. No CV
+        is in it."""
+        return f"{self._setting_prompt()}\n\n{self._songs_prompt(name, today)}"
 
-    def _songs_prompt(self, name: str) -> str:
+    def _songs_prompt(self, name: str, today: date) -> str:
         songs = self.songs_of(name)
         lines = ["# 你的歌"]
         if not songs:
@@ -147,11 +151,9 @@ class World:
             for catalog in song.releases:
                 if (release := releases.get(catalog)) is None:
                     continue
-                day = f"{_day(release.date)}发售"
-                if release.date > self.as_of:
-                    day += "，还没有发售"
-                on.append(f"《{release.title}》（{day}）")
-            lines.append(f"- {song.title}：{'、'.join(on)}")
+                coming = "将于" if release.date > today else ""
+                on.append(f"《{release.title}》（{coming}{_day(release.date)}发售）")
+            lines.append(f"- {song.title}：{'、'.join(on)}" if on else f"- {song.title}")
         return "\n".join(lines)
 
     def _setting_prompt(self) -> str:

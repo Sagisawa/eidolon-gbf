@@ -16,7 +16,8 @@ again, once at most since every round costs the model's time to first token; wha
 it says along the way is part of the reply, and only the reply is recorded.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
-office and its units, and the character's own songs.
+office and its units, and the character's own songs, each release told as out or still
+to come by the day it is where the user is, the day the prompt about the producer tells.
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
@@ -41,7 +42,7 @@ from eidolon.clock import Clock
 from eidolon.llm import ChatMessage, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.producer import effective_timezone, producer_prompt
+from eidolon.producer import effective_timezone, local_date, producer_prompt
 from eidolon.reply_format import (
     FORMAT_INSTRUCTIONS,
     ReplyParser,
@@ -170,10 +171,7 @@ class ConversationEngine:
         self._retrieval = retrieval
         self._memory = memory
         self._history_turns = history_turns
-        self._world_prompts = (
-            {c.id: world.prompt(c.name) for c in characters.values()} if world is not None else {}
-        )
-        """Each character's world setting, by id."""
+        self._world = world
 
     async def turn(
         self,
@@ -220,8 +218,12 @@ class ConversationEngine:
             if self._retrieval
             else Retrieved(None)
         )
-        about_producer = producer_prompt(profile, self._clock(), timezone)
-        prompt = self._prompt(character, about_producer, history, retrieved, text)
+        now = self._clock()
+        about_producer = producer_prompt(profile, now, timezone)
+        world_prompt = (
+            self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
+        )
+        prompt = self._prompt(character, world_prompt, about_producer, history, retrieved, text)
 
         tools: list[Tool] = (
             [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
@@ -276,13 +278,14 @@ class ConversationEngine:
     def _prompt(
         self,
         character: Character,
+        world_prompt: str | None,
         about_producer: str,
         history: list[Message],
         retrieved: Retrieved,
         text: str,
     ) -> list[ChatMessage]:
         sections = [character.sheet]
-        if world_prompt := self._world_prompts.get(character.id):
+        if world_prompt:
             sections.append(world_prompt)
         sections.append(about_producer)
         if retrieved.memories_prompt:

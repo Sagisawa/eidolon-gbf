@@ -537,10 +537,10 @@ class FakeWorldSites:
             params = request.url.params
             if path == "v4/list" and params.get("type") == "music" and params.get("music_type") == "sc":
                 return httpx.Response(200, json=[
-                    {"name": name, "type": "music", "music_type": "sc", "song_id": id,
-                     "link": f"https://fujiwarahaji.me/music/sc/{id}",
-                     "api": f"https://{self.FUJI}/v4/music?id={id}"}
-                    for id, (name, _) in self.fuji_songs.items()
+                    {"name": name, "type": "music", "music_type": "sc", "song_id": song_id,
+                     "link": f"https://fujiwarahaji.me/music/sc/{song_id}",
+                     "api": f"https://{self.FUJI}/v4/music?id={song_id}"}
+                    for song_id, (name, _) in self.fuji_songs.items()
                 ])
             if path == "v4/music" and int(params["id"]) in self.fuji_songs:
                 return httpx.Response(200, json=self._fuji_song(int(params["id"])))
@@ -603,12 +603,12 @@ class FakeWorldSites:
     def _fuji_idol(name: str) -> dict:
         return {"name": name, "type": "idol", "production": "sc", "cv": "某声優"}
 
-    def _fuji_song(self, id: int) -> dict:
-        name, discs = self.fuji_songs[id]
+    def _fuji_song(self, song_id: int) -> dict:
+        name, discs = self.fuji_songs[song_id]
         return {
-            "name": name, "type": "music", "song_id": id,
-            "link": f"https://fujiwarahaji.me/music/sc/{id}",
-            "api": f"https://{self.FUJI}/v4/music?id={id}",
+            "name": name, "type": "music", "song_id": song_id,
+            "link": f"https://fujiwarahaji.me/music/sc/{song_id}",
+            "api": f"https://{self.FUJI}/v4/music?id={song_id}",
             "member": [], "disc": [self._fuji_disc_ref(self.fuji_discs[d]) for d in discs],
         }
 

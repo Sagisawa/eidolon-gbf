@@ -20,11 +20,19 @@ and dramas are tracks but no songs.
 
 Where Lantis leaves a track's singers out, or names a special unit without saying who
 is in it, ふじわらはじめ (a fan-run song database with an API) fills them in from the
-same disc's track list there. The spec had imas-db do this, but imas-db has no Shiny
-Colors CDs, only setlists (checked 2026-09-28). On each disc it was asked about, where it
+same disc's track list there, matching a later version (-5 colors-, 2023 Ver.) to the
+song as first released. The spec had imas-db do this, but imas-db has no Shiny Colors
+CDs, only setlists (checked 2026-09-28; ADR-0008). A name Lantis gives without its idols
+is only filled in if it is a group: the whole cast, one some Lantis page lists the idols
+of, or one ふじわらはじめ names too. Anyone else Lantis names who is none of the idols
+stays so, whatever ふじわらはじめ says. On each disc it was asked about, where it
 disagrees with Lantis, Lantis is kept and the report lists it. A track whose singers are
 still unknown, or which names anyone who is none of the idols, gets no song, and the
 report lists it for the deployer to look into.
+
+The whole cast is no special unit, however it is written (シャイニーカラーズ(28人)), nor
+is a special unit kept for a song ふじわらはじめ tells is sung by one idol or by exactly
+one unit, unless Lantis names it.
 
 A song is a title (the first way a release spells it) and its singers: the same title
 sung by others is another song. Neither lyrics nor credits are kept. Every release and
@@ -47,7 +55,8 @@ FUJI_API = "https://api.fujiwarahaji.me/v4/"
 FUJI_SONGS_URL = FUJI_API + "list?type=music&music_type=sc&limit=1000"
 FUJI_NAME = "ふじわらはじめ"
 ALL_IDOLS = "シャイニーカラーズ"
-"""How Lantis names the whole cast: not a special unit."""
+"""How the sources name the whole cast, with or without a head count after it: not a
+special unit."""
 
 Fetch = Callable[[str], Awaitable[str]]
 """Gets a page's text, or raises WorldSyncError."""
@@ -94,6 +103,8 @@ class _Track:
     no_song: bool = False
     bad: list[str] = field(default_factory=list)
     """Singers the page names who are none of the idols."""
+    named: list[str] = field(default_factory=list)
+    """The idols the page's other names for its singers stand for, beside the bad ones."""
     sources: list[str] = field(default_factory=list)
 
 
@@ -138,7 +149,7 @@ async def import_releases(
     result = ReleaseImport((), (), notes=notes)
     singers = _Singers(idols, units)
     _resolve_from_lantis(releases, singers)
-    fuji = _Fuji(fetch, fan_songs, singers, notes)
+    fuji = _Fuji(fetch, fan_songs, singers, _listed_groups(releases, singers), notes)
     for release in releases:
         if any(_open(track) for track in release.tracks):
             await fuji.fill(release, result)
@@ -274,6 +285,12 @@ def _key(text: str) -> str:
     return re.sub(r"[\W_]", "", unicodedata.normalize("NFKC", text)).casefold()
 
 
+def _whole_cast(name: str) -> bool:
+    """Whether `name` is the whole cast rather than a special unit: シャイニーカラーズ, with
+    or without a head count after it (シャイニーカラーズ(28人), (25人・新))."""
+    return re.sub(r"[（(][^（()）]*[)）]$", "", _plain(name)) == ALL_IDOLS
+
+
 def _hiragana(text: str) -> str:
     return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text)
 
@@ -321,12 +338,16 @@ class _Singers:
         if members:
             return list(members), None
         if (listed := groups.get(_plain(name))) is not None:
-            resolved = self.all(listed, {})
+            resolved = self.several(listed, {})
             if resolved and not resolved[2]:
-                return resolved[0], None if _plain(name) == ALL_IDOLS else name.strip()
+                return resolved[0], None if _whole_cast(name) else name.strip()
         return None
 
-    def all(self, text: str, groups: dict[str, str]) -> tuple[list[str], str | None, list[str]]:
+    def is_unit_or_idol(self, names: Sequence[str]) -> bool:
+        """Whether `names` are one idol, or exactly the members of one of the units."""
+        return len(names) == 1 or any(set(names) == set(m) for m in self._units.values())
+
+    def several(self, text: str, groups: dict[str, str]) -> tuple[list[str], str | None, list[str]]:
         """The idols everyone `text` names stands for, the special unit among them, and
         those who stand for none."""
         names: list[str] = []
@@ -356,14 +377,19 @@ def _version_singer(title: str, singers: _Singers) -> list[str] | None:
 
 def _resolve_from_lantis(releases: list[_Release], singers: _Singers) -> None:
     """Tells each track's singers as far as Lantis's pages do."""
-    said: dict[str, set[tuple[str, ...]]] = {}  # title → singers, where a track says
+    # title → singers → the page of the first release whose track says so
+    said: dict[str, dict[tuple[str, ...], str]] = {}
 
-    def same_title(track: _Track, told: dict[str, set[tuple[str, ...]]]) -> bool:
-        found = told.get(_key(track.title), set())
+    def same_title(
+        release: _Release, track: _Track, told: dict[str, dict[tuple[str, ...], str]]
+    ) -> None:
+        """Takes the singers other tracks of the same title have, if they all agree,
+        keeping the page of the one that says so as the source that tells them."""
+        found = told.get(_key(track.title), {})
         if len(found) == 1:
-            track.singers = list(next(iter(found)))
-            return True
-        return False
+            [(names, teller)] = found.items()
+            track.singers = list(names)
+            track.sources += [release.url, teller]
 
     for release in releases:
         groups = release.groups
@@ -371,21 +397,21 @@ def _resolve_from_lantis(releases: list[_Release], singers: _Singers) -> None:
             if track.no_song:
                 continue
             if track.singers_text:
-                names, special, bad = singers.all(track.singers_text, groups)
+                names, special, bad = singers.several(track.singers_text, groups)
                 if bad:
-                    track.bad = bad
+                    track.bad, track.named = bad, names
                 else:
                     track.singers, track.special = names, special
             elif (version := _version_singer(track.title, singers)) is not None:
                 track.singers = version
             if track.singers is not None:
                 track.sources.append(release.url)
-                said.setdefault(_key(track.title), set()).add(tuple(track.singers))
+                said.setdefault(_key(track.title), {}).setdefault(tuple(track.singers), release.url)
     for release in releases:
         for track in release.tracks:
-            if _open(track) and not track.bad and same_title(track, said):
-                track.sources.append(release.url)
-    told = {key: set(value) for key, value in said.items()}
+            if _open(track) and not track.bad:
+                same_title(release, track, said)
+    told = {key: dict(value) for key, value in said.items()}
     for release in releases:
         artists = _split(release.artist, "、/／")
         open_tracks = [t for t in release.tracks if _open(t) and not t.bad]
@@ -394,17 +420,26 @@ def _resolve_from_lantis(releases: list[_Release], singers: _Singers) -> None:
         # but one whose other tracks are each one's version has a single song they share.
         if not open_tracks or not by_page or not (len(artists) == 1 or len(open_tracks) == 1):
             continue
-        names, special, bad = singers.all(release.artist, release.groups)
+        names, special, bad = singers.several(release.artist, release.groups)
         if bad:
             continue
         for track in open_tracks:
             track.singers, track.special = names, special
             track.sources.append(release.url)
-            told.setdefault(_key(track.title), set()).add(tuple(names))
+            told.setdefault(_key(track.title), {}).setdefault(tuple(names), release.url)
     for release in releases:
         for track in release.tracks:
-            if _open(track) and not track.bad and same_title(track, told):
-                track.sources.append(release.url)
+            if _open(track) and not track.bad:
+                same_title(release, track, told)
+
+
+def _listed_groups(releases: Iterable[_Release], singers: _Singers) -> set[str]:
+    """The groups some release's page lists the idols of (Team.Stella under an アーティスト
+    line), as `_key`s: Lantis's word that they are groups of idols."""
+    return {
+        _key(name) for release in releases for name, listed in release.groups.items()
+        if not singers.several(listed, {})[2]
+    }
 
 
 # ふじわらはじめ
@@ -444,15 +479,21 @@ class _FanTrack:
     singers: list[str]
     unmatched: list[str]
     special: str | None
+    """The special units ふじわらはじめ names, the whole cast and the units aside."""
+    units: list[str]
+    """Every group ふじわらはじめ names as singing it, as it spells them."""
 
 
 class _Fuji:
     def __init__(
-        self, fetch: Fetch, songs: dict[str, list[str]], singers: _Singers, notes: list[str]
+        self, fetch: Fetch, songs: dict[str, list[str]], singers: _Singers, groups: set[str],
+        notes: list[str],
     ) -> None:
         self._fetch = fetch
         self._songs = songs
         self._singers = singers
+        self._groups = groups
+        """The groups Lantis lists the idols of somewhere, as `_key`s."""
         self._notes = notes
         self._json: dict[str, dict] = {}
 
@@ -486,7 +527,9 @@ class _Fuji:
                     for disc in song.get("disc") or []:
                         name, url = disc.get("name", ""), disc.get("api")
                         mine, theirs = _edition(release.title), _edition(name)
-                        if url and (mine == theirs or mine.startswith(theirs) or theirs.startswith(mine)):
+                        if not (url and mine and theirs):  # a disc without a name is no release
+                            continue
+                        if mine == theirs or mine.startswith(theirs) or theirs.startswith(mine):
                             found[url] = await self._get(url)
         return list(found.values())
 
@@ -496,10 +539,12 @@ class _Fuji:
         for song in disc.get("song") or []:
             if {"offvocal", "gamever"} & set(song.get("flag") or []):
                 continue
-            names, unmatched, specials = [], [], []
+            names, unmatched, specials, units = [], [], [], []
             for unit in song.get("unit") or []:
-                if not self._singers.one(unit.get("name", ""), {}) and unit.get("name"):
-                    specials.append(unit["name"])
+                if name := unit.get("name"):
+                    units.append(name)
+                    if not _whole_cast(name) and not self._singers.one(name, {}):
+                        specials.append(name)
                 for member in unit.get("member") or []:
                     names.append(member.get("name", ""))
             names += [member.get("name", "") for member in song.get("member") or []]
@@ -512,7 +557,9 @@ class _Fuji:
                     idols.append(idol)
             if idols or unmatched:
                 special = "、".join(specials) or None
-                tracks.setdefault(_key(song.get("name", "")), []).append(_FanTrack(idols, unmatched, special))
+                tracks.setdefault(_key(song.get("name", "")), []).append(
+                    _FanTrack(idols, unmatched, special, units)
+                )
         return tracks
 
     async def fill(self, release: _Release, result: ReleaseImport) -> None:
@@ -522,10 +569,10 @@ class _Fuji:
             for track in release.tracks:
                 if track.no_song:
                     continue
+                candidates = _same_song(tracks, track.title)
                 if track.singers is not None:
-                    self._compare(release, track, tracks.get(_key(track.title), []), result)
+                    self._compare(release, track, candidates, result)
                     continue
-                candidates = next((tracks[k] for k in _bases(track.title) if k in tracks), [])
                 distinct = {tuple(c.singers): c for c in candidates}
                 if len(distinct) != 1:
                     continue
@@ -533,15 +580,35 @@ class _Fuji:
                 if fan.unmatched:
                     track.bad = track.bad or fan.unmatched
                     continue
-                special = fan.special or next(
-                    (b for b in track.bad if "CV" not in b), None
-                ) or (release.artist if _single_group(release, self._singers) else None)
+                if track.bad:
+                    # Lantis's word goes: ふじわらはじめ only tells who is in a group Lantis
+                    # names without its idols, never who someone else Lantis names is.
+                    if not self._tells_group(track, fan):
+                        continue
+                    special = "、".join(b for b in track.bad if not _whole_cast(b)) or None
+                else:
+                    special = fan.special or (
+                        release.artist if _single_group(release, self._singers) else None
+                    )
+                    if special and self._singers.is_unit_or_idol(fan.singers):
+                        special = None
                 track.singers, track.special = fan.singers, special
                 track.bad = []
                 track.sources += [release.url, link]
                 result.filled.append(
                     f"{release.catalog}「{track.title}」：{'、'.join(fan.singers)}（{link}）"
                 )
+
+    def _tells_group(self, track: _Track, fan: _FanTrack) -> bool:
+        """Whether every singer Lantis names on the track but not among the idols is a
+        group, whose idols ふじわらはじめ may then tell: the whole cast, one Lantis lists
+        the idols of on some page, or one ふじわらはじめ names too. And whether every idol
+        Lantis does name is among ふじわらはじめ's singers."""
+        groups = self._groups | {_key(unit) for unit in fan.units}
+        return (
+            all(_whole_cast(b) or _key(b) in groups for b in track.bad)
+            and set(track.named) <= set(fan.singers)
+        )
 
     @staticmethod
     def _compare(release: _Release, track: _Track, fan: list[_FanTrack], result: ReleaseImport) -> None:
@@ -553,10 +620,20 @@ class _Fuji:
             )
 
 
+def _same_song(tracks: dict[str, list[_FanTrack]], title: str) -> list[_FanTrack]:
+    """ふじわらはじめ's tracks on a disc that are the song Lantis titles so, under that
+    title or, for a later version (-5 colors-, 2023 Ver.), under its first one."""
+    return next((tracks[key] for key in _bases(title) if key in tracks), [])
+
+
 def _single_group(release: _Release, singers: _Singers) -> bool:
-    """Whether the release is by one group Lantis does not say the idols of."""
+    """Whether the release is by one group Lantis does not say the idols of, other than
+    the whole cast."""
     artists = _split(release.artist, "、/／")
-    return len(artists) == 1 and "CV" not in artists[0] and singers.one(artists[0], release.groups) is None
+    return (
+        len(artists) == 1 and "CV" not in artists[0] and not _whole_cast(artists[0])
+        and singers.one(artists[0], release.groups) is None
+    )
 
 
 # Songs
@@ -575,13 +652,13 @@ def _assemble(releases: Iterable[_Release]) -> tuple[tuple[Release, ...], tuple[
             key = (_key(track.title), frozenset(track.singers))
             song = songs.get(key)
             if song is None:
-                id, n = track.title, 1
-                while id in ids:
+                song_id, n = track.title, 1
+                while song_id in ids:
                     n += 1
-                    id = f"{track.title} #{n}"
-                ids.add(id)
+                    song_id = f"{track.title} #{n}"
+                ids.add(song_id)
                 song = songs[key] = {
-                    "id": id, "title": track.title, "singers": tuple(track.singers),
+                    "id": song_id, "title": track.title, "singers": tuple(track.singers),
                     "special_unit": track.special, "releases": [], "sources": [],
                 }
             song["special_unit"] = song["special_unit"] or track.special

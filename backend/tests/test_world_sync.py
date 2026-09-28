@@ -70,8 +70,8 @@ def lantis_releases() -> list[LantisRelease]:
 
 def fuji_discs() -> list[FujiDisc]:
     """ふじわらはじめ's discs, as it keeps them: it names each song as it was first
-    released, whatever version a disc has."""
-    stella = ("Team.Stella", ["櫻木真乃", "月岡恋鐘", "小宮果穂", "八宮めぐる"])
+    released, whatever version a disc has, and a special unit's song sometimes by its
+    idols alone, without the special unit's name."""
     return [
         FujiDisc(4654, SOP, [
             ("Shower of light", [("イルミネーションスターズ", ["櫻木真乃", "風野灯織", "八宮めぐる"])], [], ["orig"]),
@@ -81,7 +81,7 @@ def fuji_discs() -> list[FujiDisc]:
         ]),
         FujiDisc(5000, HOPEFUL, [
             ("MAGICAL FOREST", [], ["櫻木真乃"], ["orig"]),
-            ("プラニスフィア ～planisphere～", [stella], [], []),
+            ("プラニスフィア ～planisphere～", [], ["櫻木真乃", "月岡恋鐘", "小宮果穂", "八宮めぐる"], []),
         ]),
     ]
 
@@ -539,3 +539,153 @@ def test_two_dates_on_one_lantis_page_are_reported_and_the_release_date_line_kep
     assert code == 0, err
     assert release(characters, "LACM-14782")["date"] == "2018-07-04"
     assert "LACM-14782" in out and "2018.07.14" in out
+
+
+SIX = "、".join([
+    "櫻木真乃（CV.関根 瞳）", "風野灯織（CV.近藤玲奈）", "八宮めぐる（CV.峯田茉優）",
+    "月岡恋鐘（CV.礒部花凜）", "田中摩美々（CV.菅沼千紗）", "小宮果穂（CV.河野ひより）",
+])
+EVERYONE = ["櫻木真乃", "風野灯織", "八宮めぐる", "月岡恋鐘", "田中摩美々", "小宮果穂"]
+L_ANTICA = ["月岡恋鐘", "田中摩美々"]
+
+
+def section(out: str, heading: str) -> str:
+    """The lines of the report's section that opens with `heading`."""
+    lines = out.splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith(heading))
+    end = next((i for i in range(start + 1, len(lines)) if not lines[i].startswith("  ")), len(lines))
+    return "\n".join(lines[start:end])
+
+
+def test_the_whole_cast_lantis_names_with_a_head_count_is_no_special_unit(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases.append(LantisRelease(
+        "laca-25133", "THE IDOLM@STER SHINY COLORS みんなのCD", "2024/5/1", "LACA-25133", "シャイニーカラーズ",
+        [f"1．みんなの歌\n歌：シャイニーカラーズ(6人)\n{SIX}"],
+    ))
+
+    code, _, err = world_sync()
+
+    assert code == 0, err
+    song = songs_by_title(characters)["みんなの歌"]
+    assert song["singers"] == EVERYONE
+    assert song["special_unit"] is None
+
+
+def test_the_whole_cast_or_one_unit_fujiwarahaji_fills_in_is_no_special_unit(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    title = "THE IDOLM@STER SHINY COLORS WING COLLECTION -A side-"
+    sites.releases.append(LantisRelease(
+        "laca-9946_7", title, "2023/1/18", "LACA-9946～7", "シャイニーカラーズ",
+        [
+            "1．Spread the Wings!! -6 colors-", "2．NEO THEORY FANTASY（2023 Ver.）",
+            "3．みんなの歌 / シャイニーカラーズ",
+        ],
+    ))
+    sites.fuji_discs[6000] = FujiDisc(6000, title, [
+        ("Spread the Wings!!", [("シャイニーカラーズ(6人・新)", EVERYONE)], [], ["orig"]),
+        ("NEO THEORY FANTASY", [("アンティーカ", L_ANTICA)], [], []),
+        ("みんなの歌", [("シャイニーカラーズ(6人)", EVERYONE)], [], []),
+    ])
+    sites.fuji_songs[6001] = ("Spread the Wings!!", [6000])
+    sites.fuji_songs[6002] = ("NEO THEORY FANTASY", [6000])
+    sites.fuji_songs[6003] = ("みんなの歌", [6000])
+
+    code, _, err = world_sync()
+
+    assert code == 0, err
+    songs = songs_by_title(characters)
+    assert songs["Spread the Wings!! -6 colors-"]["singers"] == EVERYONE
+    assert songs["Spread the Wings!! -6 colors-"]["special_unit"] is None
+    assert songs["NEO THEORY FANTASY（2023 Ver.）"]["singers"] == L_ANTICA
+    assert songs["NEO THEORY FANTASY（2023 Ver.）"]["special_unit"] is None
+    assert songs["みんなの歌"]["singers"] == EVERYONE  # Lantis names the whole cast alone
+    assert songs["みんなの歌"]["special_unit"] is None
+
+
+def test_singers_lantis_names_who_are_none_of_the_idols_are_not_filled_in_by_fujiwarahaji(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    title = "THE IDOLM@STER SHINY COLORS ないしょのCD"
+    sites.releases.append(LantisRelease(
+        "lacm-24999", title, "2024/6/1", "LACM-24999", "THE IDOLM@STER FIVE STARS!!!!!",
+        [
+            "1．はづきさんの歌 / 七草はづき (CV.誰か)",
+            "2．なんどでも笑おう\n歌：THE IDOLM@STER FIVE STARS!!!!!",
+        ],
+    ))
+    sites.fuji_discs[6100] = FujiDisc(6100, title, [
+        ("はづきさんの歌", [], ["櫻木真乃"], ["orig"]),
+        ("なんどでも笑おう", [("シャイニーカラーズ", ["櫻木真乃", "月岡恋鐘"])], [], ["orig"]),
+    ])
+    sites.fuji_songs[6101] = ("はづきさんの歌", [6100])
+    sites.fuji_songs[6102] = ("なんどでも笑おう", [6100])
+
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    assert not {"はづきさんの歌", "なんどでも笑おう"} & set(songs_by_title(characters))
+    unmatched = section(out, "演唱者对应不到偶像名单的曲目")
+    assert "はづきさんの歌" in unmatched and "七草はづき" in unmatched
+    assert "なんどでも笑おう" in unmatched and "THE IDOLM@STER FIVE STARS!!!!!" in unmatched
+    filled = section(out, "Lantis 没写演唱者")
+    assert "はづきさんの歌" not in filled and "なんどでも笑おう" not in filled
+
+
+def test_a_fujiwarahaji_disc_without_a_name_is_no_release_of_lantis_s(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases.append(LantisRelease(
+        "lacm-24998", "THE IDOLM@STER SHINY COLORS ふしぎなCD", "2024/7/1", "LACM-24998",
+        "櫻木真乃（CV.関根 瞳）、月岡恋鐘（CV.礒部花凜）",
+        ["1．ふしぎな歌", "2．ほかの歌"],
+    ))
+    sites.fuji_discs[6200] = FujiDisc(6200, "", [("ふしぎな歌", [], ["小宮果穂"], ["orig"])])
+    sites.fuji_songs[6201] = ("ふしぎな歌", [6200])
+
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    assert "ふしぎな歌" not in songs_by_title(characters)
+    assert "ふしぎな歌" in section(out, "哪个来源都没写演唱者的曲目")
+
+
+def test_a_later_version_where_lantis_and_fujiwarahaji_disagree_is_reported(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases[2].index.append("4. ヒカリのdestination -5 colors- / 櫻木真乃 (CV.関根 瞳)")
+    sites.fuji_discs[5000].tracks.append(("ヒカリのdestination", [], ["小宮果穂"], []))
+
+    code, out, err = world_sync()
+
+    assert code == 0, err
+    assert songs_by_title(characters)["ヒカリのdestination -5 colors-"]["singers"] == ["櫻木真乃"]
+    conflicts = section(out, "Lantis 和ふじわらはじめ冲突的地方")
+    assert "ヒカリのdestination -5 colors-" in conflicts and "小宮果穂" in conflicts
+
+
+def test_singers_told_by_another_release_s_track_keep_that_release_as_a_source(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+):
+    sites.releases += [
+        LantisRelease(
+            "lacm-24100", "THE IDOLM@STER SHINY COLORS ふたりのCD", "2019/1/1", "LACM-24100",
+            "櫻木真乃（CV.関根 瞳）、月岡恋鐘（CV.礒部花凜）",
+            ["1．ふたりの約束", "2．べつの歌 / 月岡恋鐘 (CV.礒部花凜)"],
+        ),
+        LantisRelease(
+            "lacm-24200", "THE IDOLM@STER SHINY COLORS ふたりのCD 2", "2020/1/1", "LACM-24200",
+            "櫻木真乃（CV.関根 瞳）、月岡恋鐘（CV.礒部花凜）",
+            ["1．ふたりの約束 / 櫻木真乃 (CV.関根 瞳)、月岡恋鐘 (CV.礒部花凜)"],
+        ),
+    ]
+
+    code, _, err = world_sync()
+
+    assert code == 0, err
+    song = songs_by_title(characters)["ふたりの約束"]
+    assert song["singers"] == ["櫻木真乃", "月岡恋鐘"]
+    assert song["releases"] == ["LACM-24100", "LACM-24200"]
+    assert set(song["sources"]) == {LANTIS + "lacm-24100/", LANTIS + "lacm-24200/"}

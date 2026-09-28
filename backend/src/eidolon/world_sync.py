@@ -137,18 +137,18 @@ class WorldSyncReport:
         lines.append(f"已写入 {self.path}，请看过 git diff 再提交")
         return lines
 
-
     def _release_lines(self) -> list[str]:
-        world, previous, found = self.world, self.previous, self.releases
-        had = previous is not None and bool(previous.releases or previous.songs)
+        world, found = self.world, self.releases
+        first = self.previous is None
+        had = self.previous if self.previous and (self.previous.releases or self.previous.songs) else None
         lines = [
             f"唱片：{len(world.releases)} 张" + _changes(
-                _diff([r.catalog for r in previous.releases], [r.catalog for r in world.releases])
-                if previous and had else None, first=previous is None
+                _diff([r.catalog for r in had.releases], [r.catalog for r in world.releases])
+                if had else None, first=first
             ),
             f"歌曲：{len(world.songs)} 首" + _changes(
-                _diff([s.id for s in previous.songs], [s.id for s in world.songs])
-                if previous and had else None, first=previous is None
+                _diff([s.id for s in had.songs], [s.id for s in world.songs]) if had else None,
+                first=first,
             ),
         ]
         if found is None:
