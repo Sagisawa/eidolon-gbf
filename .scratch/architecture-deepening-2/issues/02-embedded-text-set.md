@@ -12,17 +12,17 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 一张表，列为 scope、text、model、embedding，主键 (scope, model, text)；scope 取 `character:<角色 id>` 或 `work`。
-- [ ] 建表时，如果旧的角色资料表或作品资料表还在，把它们的行一次性复制进新表再删掉旧表；迁移后第一次检索不调用 embedder。
-- [ ] 角色资料的检索不再每个回合读 SQLite，也不在事件循环上阻塞。
-- [ ] 契约测试写在向量化文本集的 interface 上，用临时 SQLite 和 `FakeEmbedder`，对两个 scope 各跑一遍：
+- [x] 一张表，列为 scope、text、model、embedding，主键 (scope, model, text)；scope 取 `character:<角色 id>` 或 `work`。
+- [x] 建表时，如果旧的角色资料表或作品资料表还在，把它们的行一次性复制进新表再删掉旧表；迁移后第一次检索不调用 embedder。
+- [x] 角色资料的检索不再每个回合读 SQLite，也不在事件循环上阻塞。
+- [x] 契约测试写在向量化文本集的 interface 上，用临时 SQLite 和 `FakeEmbedder`，对两个 scope 各跑一遍：
   - 第一次检索时向量化；
   - 再检索不再调用 embedder；
   - 改了一条，重启后只重算那一条；
   - 删掉的条目被遗忘；
   - `forget_other_models` 只留下当前模型的向量；
   - 迁移不重算。
-- [ ] 现有经由回合和 CLI 的测试（`test_world_retrieval`、`test_retrieval`、`test_reembed`、`test_document_titles` 等）不改断言，全部通过。
-- [ ] 全部测试通过，pyright 无新错误。
+- [x] 现有经由回合和 CLI 的测试（`test_world_retrieval`、`test_retrieval`、`test_reembed`、`test_document_titles` 等）不改断言，全部通过。
+- [x] 全部测试通过，pyright 无新错误。

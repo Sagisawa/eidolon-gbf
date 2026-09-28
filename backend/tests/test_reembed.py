@@ -105,10 +105,14 @@ class Deployment:
     def mano(self) -> Character:
         return self.characters["mano"]
 
-    def vectors(self, table: str) -> dict[str, int]:
-        """How many vectors `table` holds from each model."""
+    def vectors(self, table: str, scope: str | None = None) -> dict[str, int]:
+        """How many vectors `table` holds from each model (of the scopes matching `scope`,
+        a LIKE pattern, if given)."""
+        where, params = ("WHERE scope LIKE ?", (scope,)) if scope is not None else ("", ())
         with sqlite3.connect(self.database) as db:
-            rows = db.execute(f"SELECT model, count(*) FROM {table} GROUP BY model").fetchall()
+            rows = db.execute(
+                f"SELECT model, count(*) FROM {table} {where} GROUP BY model", params
+            ).fetchall()
         db.close()
         return dict(rows)
 
@@ -136,7 +140,7 @@ async def test_everything_is_embedded_again_and_then_the_old_vectors_dropped(
     assert (report.passages, report.facts, report.memories) == (5, 2, 2)
     assert report.forgotten == 4  # 2 facts and 2 memories; each passage kept only one
     assert deployment.vectors("episode_passages") == {NEW: 5}
-    assert deployment.vectors("character_facts") == {NEW: 2}
+    assert deployment.vectors("embedded_texts", "character:%") == {NEW: 2}
     assert deployment.vectors("memory_vectors") == {NEW: 2}
     # Each passage is re-embedded from its text, under its title.
     assert "W.I.N.G.編「第1話」" in embedder.titles
@@ -167,7 +171,7 @@ async def test_an_interrupted_run_keeps_what_it_finished_and_drops_nothing(
         await reembed(deployment.database, deployment.characters.values(), failing, batch=2)
 
     assert deployment.vectors("episode_passages") == {NEW: 4, OLD: 1}
-    assert deployment.vectors("character_facts") == {OLD: 2}  # not reached, nothing dropped
+    assert deployment.vectors("embedded_texts", "character:%") == {OLD: 2}  # not reached, nothing dropped
     assert deployment.vectors("memory_vectors") == {OLD: 2}
 
     embedder = FakeEmbedder(NEW)
@@ -176,7 +180,7 @@ async def test_an_interrupted_run_keeps_what_it_finished_and_drops_nothing(
     assert report.passages == 1  # only what the first run did not finish
     assert len([t for t in embedder.titles if t is not None and "「" in t]) == 1
     assert deployment.vectors("episode_passages") == {NEW: 5}
-    assert deployment.vectors("character_facts") == {NEW: 2}
+    assert deployment.vectors("embedded_texts", "character:%") == {NEW: 2}
     assert deployment.vectors("memory_vectors") == {NEW: 2}
 
 
@@ -271,7 +275,7 @@ def test_the_command_fails_without_dropping_anything(
     err = admin.fails("reembed", "--characters", str(deployment.characters_path))
 
     assert "重新运行即可继续" in err
-    assert deployment.vectors("character_facts") == {OLD: 2}
+    assert deployment.vectors("embedded_texts", "character:%") == {OLD: 2}
 
 
 async def test_an_import_meanwhile_is_not_overwritten(deployment: Deployment):
@@ -318,7 +322,7 @@ async def test_the_shared_index_of_songs_releases_and_lives_is_embedded_again(
 
     assert report.world == WORLD_ENTRIES
     assert report.forgotten == 4 + WORLD_ENTRIES
-    assert deployment.vectors("world_entries") == {NEW: WORLD_ENTRIES}
+    assert deployment.vectors("embedded_texts", "work") == {NEW: WORLD_ENTRIES}
 
 
 def test_the_command_reembeds_the_shared_index_beside_the_characters(

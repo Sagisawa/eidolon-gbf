@@ -256,7 +256,9 @@ async def test_the_recall_story_tool_only_looks_in_the_story(
 
 def stored_entries(settings: Settings) -> dict[str, int]:
     with sqlite3.connect(settings.database_path) as db:
-        rows = db.execute("SELECT model, count(*) FROM world_entries GROUP BY model").fetchall()
+        rows = db.execute(
+            "SELECT model, count(*) FROM embedded_texts WHERE scope = 'work' GROUP BY model"
+        ).fetchall()
     db.close()
     return dict(rows)
 
