@@ -7,10 +7,10 @@
 // Only her voice goes this way; the call tones play on their own.
 
 /** The phone band: roughly what a phone line carries, in Hz. */
-export const PHONE_BAND = { low: 300, high: 3400 } as const;
+const PHONE_BAND = { low: 300, high: 3400 } as const;
 
 /** Builds the phone line after `input`: band limited, lightly compressed. Returns the last node. */
-export function phoneLine(context: BaseAudioContext, input: AudioNode): AudioNode {
+function phoneLine(context: BaseAudioContext, input: AudioNode): AudioNode {
   // Two filters at each edge (24 dB per octave), so the band sounds narrow and not merely dulled.
   const edges: [BiquadFilterType, number][] = [
     ["highpass", PHONE_BAND.low],
@@ -49,53 +49,53 @@ export class CharacterVoice {
   /** The page's <audio> element (null once it is gone); usable as its ref. */
   readonly attach = (element: HTMLAudioElement | null) => {
     this.element = element;
-    this.applyTextOnly();
+    this.applyMuting();
   };
 
   /** Called while the user dials, inside their click: the audio context may only start from a
    * user gesture, else autoplay rules keep it suspended. */
   dial(phoneTexture: boolean) {
     this.textured = phoneTexture;
-    this.hangUpLine();
+    this.disconnectLine();
     if (phoneTexture) {
       this.context ??= this.createContext();
       if (this.context.state === "suspended") void this.context.resume().catch(() => {});
     }
-    this.applyTextOnly();
+    this.applyMuting();
   }
 
   /** Her voice has arrived for this call. */
   play(track: MediaStreamTrack) {
     const stream = new MediaStream([track]);
     if (this.element) this.element.srcObject = stream;
-    this.hangUpLine();
+    this.disconnectLine();
     if (this.textured && this.context) {
       const source = this.context.createMediaStreamSource(stream);
       const volume = this.context.createGain();
       phoneLine(this.context, source).connect(volume).connect(this.context.destination);
       this.line = { source, volume };
     }
-    this.applyTextOnly();
+    this.applyMuting();
   }
 
   /** CONTEXT.md「只看文字」: her voice is silent, over the phone line or not. */
   setTextOnly(textOnly: boolean) {
     this.textOnly = textOnly;
-    this.applyTextOnly();
+    this.applyMuting();
   }
 
   dispose() {
-    this.hangUpLine();
+    this.disconnectLine();
     void this.context?.close().catch(() => {});
     this.context = null;
   }
 
-  private applyTextOnly() {
+  private applyMuting() {
     if (this.element) this.element.muted = this.textured || this.textOnly;
     if (this.line) this.line.volume.gain.value = this.textOnly ? 0 : 1;
   }
 
-  private hangUpLine() {
+  private disconnectLine() {
     this.line?.source.disconnect();
     this.line = null;
   }

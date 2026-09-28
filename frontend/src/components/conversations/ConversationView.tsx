@@ -93,9 +93,11 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const inCall = isLive(call);
   const back = onBack && (() => leave(onBack));
   // 电话质感在拨号这一下定下来（下次接通时生效），也趁这次点击唤醒 AudioContext。
+  // 通话中或正忙时 startCall 本来就不理会，这里也不去动正在用的声音。
   const dial = () => {
+    if (!live || busy || inCall) return;
     voice.dial(loadCallPreferences().phoneTexture);
-    void live?.startCall();
+    void live.startCall();
   };
 
   // 列表只在拿到空数组时显示空状态，所以把消息和「正在听」放进同一个数组。

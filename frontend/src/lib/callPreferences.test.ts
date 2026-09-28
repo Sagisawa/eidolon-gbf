@@ -32,7 +32,7 @@ describe("call preferences", () => {
   });
 
   it("fall back to the defaults for what is stored wrongly, keeping what is right", () => {
-    storage({ [KEY]: JSON.stringify({ micId: 3, quality: "ultra", muted: true, phoneTexture: false }) });
+    storage({ [KEY]: JSON.stringify({ micId: 3, quality: "ultra", muted: true, phoneTexture: "yes" }) });
 
     expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: true, phoneTexture: false });
   });

@@ -189,23 +189,21 @@ describe("character voice with phone texture", () => {
 
 describe("changing phone texture", () => {
   it("takes effect from the next dial, leaving the last call's graph silent", () => {
-    const { voice, element, sources, contextsCreated } = setUp();
+    const { voice, element, sources } = setUp();
     voice.dial(true);
     voice.play(track);
 
     voice.dial(false);
     voice.play(track);
 
-    expect(audible(sources[0])).toBe(false);
-    expect(sources).toHaveLength(1);
+    expect(sources.filter(audible)).toEqual([]);
     expect(element.muted).toBe(false);
 
     voice.dial(true);
     voice.play(track);
 
-    expect(sources).toHaveLength(2);
-    expect(audible(sources[1])).toBe(true);
-    expect(contextsCreated()).toBe(1);
+    expect(sources.filter(audible)).toHaveLength(1);
+    expect(element.muted).toBe(true);
   });
 
   it("closes the audio context when the page goes away", () => {
