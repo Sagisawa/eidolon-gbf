@@ -442,6 +442,8 @@ eidolon-sc/
 │   │   ├── own_keys.py       #   用户的自带密钥，以及每个回合、每次通话用谁的密钥
 │   │   ├── usage.py          #   限额与用量记录
 │   │   ├── call.py           #   语音通话：信令与 Pipecat 管线
+│   │   ├── turn_taking.py    #   通话中的补充与打断规则
+│   │   ├── call_outcome.py   #   通话算不算限额、结束时告诉浏览器什么
 │   │   ├── retrieval.py      #   检索判断、剧情/资料检索与重排
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
 │   │   ├── corpus.py         #   剧情库：存储、向量检索与剧情目录

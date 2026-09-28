@@ -445,6 +445,8 @@ eidolon-sc/
 │   │   ├── own_keys.py       #   users' own API keys, and whose keys each turn and call runs on
 │   │   ├── usage.py          #   usage limits and the record of use
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
+│   │   ├── turn_taking.py    #   follow-on and interruption rules during a call
+│   │   ├── call_outcome.py   #   whether a call counts towards the limit, and why it ended
 │   │   ├── retrieval.py      #   retrieval routing, episode/fact search and reranking
 │   │   ├── memory.py         #   memories shared across conversations and characters
 │   │   ├── corpus.py         #   story corpus: storage, vector search and the story catalog
