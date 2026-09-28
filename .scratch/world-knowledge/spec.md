@@ -1,6 +1,6 @@
 # 世界设定、歌曲、唱片与演出：让角色知道作品世界的基本事实，而不是靠模型的记忆编
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准：「世界设定」「组合」「歌曲」「唱片」「演出」「声优」几个词条在 2026-09-28 的 grilling 中定下。为什么现实中的唱片和演出算作角色自己的经历、声优却只作系统内部数据，以及资料为什么以官方为准、导入后人工审核，见 `docs/adr/0008-real-world-releases-and-lives-are-in-character.md`。拆成六张 ticket（`issues/`）：01 没有前置；02、03、04 依赖 01；05 依赖 03 和 04；06 依赖 05。
 
