@@ -102,7 +102,7 @@ components:
 
 系统建立在 Astryx（v0.6）之上：主题 `eidolon-notebook`（源文件 `frontend/src/theme/notebookTheme.ts`，经 `npm run theme:build` 预构建到 `frontend/src/theme/built/`）钉死纸面、墨水和横线颜色，替换图标为 Lucide，并修补 Astryx 默认值在某一模式下不达标的地方；她的颜色不在主题里，而是由 `herVars()`（`frontend/src/theme/herVars.ts`）注入到单个对话的子树。组件形状沿用 Astryx 默认，只换颜色。纸感克制：没有纹理、没有手绘图标、没有手做的气泡尾巴。
 
-通话层是本子上展开的一整张她颜色的纸：她的背景图全幅铺开，上面压一层从她的颜色到深色的纱，白字才读得清；没有背景图时就是一整张渐变，头像背后透一点原色。收起后，页首留一张略斜的便利贴。状态靠线形表达，不靠绿条或徽标。
+通话层是本子上展开的一整张她颜色的纸：她的背景图全幅铺开，上面压一层从她的颜色到深色的纱，白字才读得清；没有背景图时就是一整张渐变，头像背后透一点原色。配了立绘的角色，她本人站在这张纸上：手机上从底部升起，电脑上铺满整层、字幕放进底部的对话框，像原作剧情那样。收起后，页首留一张略斜的便利贴。状态靠线形表达，不靠绿条或徽标。
 
 **Key Characteristics:**
 - 冷白复印纸 + 天蓝横线（32px 行距）+ 装订边距线，只铺在消息区。
@@ -177,7 +177,7 @@ components:
 - **页首**：实底纸色，`12px 16px` 内边距，元素间距 12px；头像、名字（填满）、她颜色的电话键、更多菜单；下边一条 1px `--color-border` 分隔线（列表栏页首同样）。窄屏上返回键和电话键不小于 44px。
 - **消息区**：唯一铺横线纸的区域。横线间距 32px（`--spacing-8`），1px `sky-rule`；边距线在距起始边 16px 处，1px `margin-line`。消息间距 16px，从顶部开始排。
 - **输入栏**：Astryx 自带的 `ChatComposer`，放在 `ChatLayout` 的 composer 槽里，实底，不透出横线。
-- **通话层**：内边距 20px / 16px；上排收起键、居中「语音通话」、「只看文字」开关；中部垂直居中头像、名字、状态、台词（间距 16–24px）；底部三枚圆形控制键，间距 32px，上下各 24px。
+- **通话层**：内边距 20px / 16px；上排收起键、居中「语音通话」、「只看文字」开关；中部垂直居中头像、名字、状态、台词（间距 16–24px）；底部三枚圆形控制键，间距 32px，上下各 24px。有立绘时中部换成立绘版布局（见「Call layer」）。
 - 间距全部取 Astryx 的 `--spacing-*` 令牌（2、4、6、8、12、16、20、24、32、40、44、48px；44px 即 `--spacing-11`，是手机上的触控下限）。更大的尺寸由令牌相乘得到，例如圆形控制键 `calc(var(--spacing-8) * 2)`。
 
 **The Paper-Only-Where-She-Writes Rule.** 横线纸只是消息区的地面。页首、输入栏、列表栏、弹层都是实底，不铺横线。
@@ -231,6 +231,13 @@ components:
 - 强制深色（`color-scheme: dark` + `MediaTheme mode="dark"`）。次要字是 74% 白，与 `CALL_MUTED` 一致。
 - **有背景图时**（`characters.toml` 的 `background`，经 `/api/characters/{id}/background`）：图片 `cover` 居中铺满，上面压一层纱 `linear-gradient(180deg, call.top 82% 0%, call.deep 94% 62%, call.deep 100%)`，没有光晕。对比度契约只覆盖纯色的 call.top / call.deep；纱留出的 6–18% 透出图片，所以换上新图后要在通话层上目测台词和计时是否仍清楚。
 - **没有背景图时**：`linear-gradient(180deg, call.top 0%, call.deep 62%)`，叠一个中心在 50% 38% 的径向光晕（call.glow 30%）。
+- **有立绘时**（`/api/characters` 的 `stand` 不为 null）：一打电话就用立绘版布局，立绘晚到或加载失败都不切回头像版，字幕位置在通话中途不跳。立绘是一块透明底的 WebGL 画布，叠在背景图和纱之上、文字和按钮之下，不接收点击；不再显示大头像。
+  - **手机「大立绘」**（占满整屏时）：立绘占通话层下方 78% 的高度，贴着头顶、到膝；名字（Heading）、状态和计时、字幕都在上方居中。
+  - **电脑「半身 ADV」**：立绘铺满整层，贴着头顶、到腰，取景宽度不窄于身体的约 70%；名字、状态和计时、字幕放进底部的**对话框**：`--radius-container` 圆角，底为 72% 的 call.deep，一圈 `--border-width` 的 call.rule 细线，内边距 `--spacing-4`，左上角是 call.rule 色、medium 字重的名字。结束页也在对话框里。
+  - **底部渐变**：两种布局都在底部 45% 的高度上压一层 `linear-gradient(180deg, transparent 0%, call.deep 88% 55%, call.deep 100%)`，圆形键和对话框落在衣服上也看得清。
+  - **出现**：加载中只露出背景图和纱，不放转圈，也不放占位剪影；到了用 0.3 秒（`--duration-medium-min`）淡入。手机上同时从下方 12% 处升起（`--duration-medium` + `--ease-standard`）；`prefers-reduced-motion` 时只原地淡入。
+  - **对比度**：对话框和手机上方的字落在半透明的底和立绘上，`imageColor.test.ts` 的契约管不到；换角色、换默认衣装后要在两种宽度下目测名字、计时和字幕是否仍清楚。
+  - **失败**：runtime 或素材加载不到、浏览器不支持 WebGL 时去掉画布，保持立绘版布局，只显示背景图和纱，不提示用户；下一通电话再试。
 - **Motion:** 像折纸一样整张从页首拉下：`clip-path: inset(0 0 100% 0)` ↔ `inset(0)`，`--duration-medium`（410ms）+ `--ease-standard`（`cubic-bezier(0.24, 1, 0.4, 1)`）；收起是同一动作反过来，Esc 也能收起；`prefers-reduced-motion` 时无过渡。收起时 `visibility` 在动画结束后才切到 hidden，收起的通话层 `inert` 并 `aria-hidden`；展开时焦点移进通话层，底下的页首和对话 `inert`。结束页上 Esc 是回到对话。
 - **Round controls:** 拨打中只有挂断可用，麦克风静音和切换麦克风置灰。64px 正圆，底为 16% 白、无边框、白色图标，按下（麦克风静音）时变成实白底 + call.deep 图标；挂断在中间，用 destructive 红。每枚下方一行 Label。
 - **Ended:** 删除线状态「通话已结束」、原因标题、说明、是否计入限额，以及「回到对话」+ 主操作两个按钮。

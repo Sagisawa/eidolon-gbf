@@ -168,6 +168,8 @@ speakers = ["真乃"]
 
 `color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。
 
+通话层还可以叠一层原作的 Spine 立绘（可选）：给角色配上原作的偶像编号 `idol_id` 和默认衣装 `default_outfit`（例如 `stand/1030010010`），并在 `.env` 里填立绘素材的地址 `EIDOLON_STAND_ASSETS_URL`。立绘素材不进仓库，放在 S3 兼容的对象存储里，配置方法见 [`docs/deploy.md`](docs/deploy.md) 的「立绘素材」；三项缺一项时通话层只显示背景图。
+
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
 
@@ -495,6 +497,8 @@ eidolon-sc/
 本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）或（由你选择）任何更高版本发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
 
 许可证只覆盖仓库里的代码和文档。剧情数据和角色音色不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。仓库里的人设、角色资料和头像同样不在许可证范围内：其中的角色与设定属于原作版权方。通话音效的来源和许可见 [`frontend/public/sounds/CREDITS.md`](frontend/public/sounds/CREDITS.md)，其中接通音和挂断音为 CC0。
+
+通话层立绘用的 Spine runtime（[`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md)）是 Esoteric Software 的 Spine Runtimes，原样收录，**不受 AGPL 约束**，适用它自己的 Spine Runtimes 许可证（ADR-0009）。项目许可证开头有一条 AGPL 第 7 节的附加许可，允许本项目和 Spine Runtimes 组合在一起、一起分发。立绘素材本身不在仓库里，也不在许可证范围内（ADR-0003 的修订）。
 
 ## 🙏 致谢
 
