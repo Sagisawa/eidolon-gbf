@@ -77,12 +77,19 @@ export type Memory = {
   created_at: string;
 };
 
-/** During a call each utterance, spoken or typed, is a turn; the backend also says, when it is
- * about to hang up (the call reached its time or turn limit, a voice service or an own key
- * failed), why, and whether the call counted towards the hourly limit. */
+/** During a call each utterance, spoken or typed, is a turn; the backend also says when each
+ * segment of her voice starts playing, and, when it is about to hang up (the call reached its
+ * time or turn limit, a voice service or an own key failed), why, and whether the call counted
+ * towards the hourly limit. */
 export type CallEvent =
   | TurnEvent
+  | SegmentPlaying
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+
+/** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
+ * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little
+ * before it is heard; a segment cut off before it is voiced gets none. */
+export type SegmentPlaying = { type: "segment-playing"; reply: number; segment: number };
 
 /** Why the backend hung up (`EndReason` in `call.py`). */
 export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";

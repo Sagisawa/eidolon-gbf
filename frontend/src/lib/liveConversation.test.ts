@@ -377,6 +377,37 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().line).toEqual({ ja: "元気？", zh: "" });
   });
 
+  it("knows which segment of which reply her voice is playing, until the call is over", async () => {
+    const { live, attempts } = await conversation({ messages: history });
+    await connected(live, attempts);
+    expect(live.snapshot().playing).toBeNull();
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+
+    handlers.onEvent({ type: "segment-playing", reply: 1, segment: 0 });
+    expect(live.snapshot().playing).toEqual({ reply: 1, segment: 0 });
+    handlers.onEvent({ type: "segment-playing", reply: 1, segment: 1 });
+    expect(live.snapshot().playing).toEqual({ reply: 1, segment: 1 });
+    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "" });
+
+    await live.hangUp();
+    expect(live.snapshot().playing).toBeNull();
+  });
+
+  it("starts the next call with nothing playing, even if the last one dropped", async () => {
+    const { live, attempts } = await conversation();
+    const call = await connected(live, attempts);
+    attempts[0].handlers.onEvent({ type: "segment-playing", reply: 2, segment: 0 });
+
+    attempts[0].handlers.onDropped();
+    expect(live.snapshot().playing).toBeNull();
+    await connected(live, attempts);
+
+    expect(call.hangUps).toBe(0);
+    expect(live.snapshot().playing).toBeNull();
+  });
+
   it("shows a turn failing in a call while the call goes on", async () => {
     const { live, attempts } = await conversation({ messages: history });
     await connected(live, attempts);
