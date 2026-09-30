@@ -308,7 +308,8 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
     """Fish Audio, speaking as the character a segment at a time.
 
     Fish Audio's audio does not say where one segment ends and the next begins, so each
-    segment is voiced in a session of its own. Once the segment has all its Japanese, what
+    segment is voiced in a Fish Audio session of its own (a session of its websocket
+    protocol, not the call). Once the segment has all its Japanese, what
     is held of it is sent and the session told to stop; it finishes once Fish Audio has sent
     the last of its audio, and only then does the next segment start, so that ahead of its
     first audio can go its `segment-playing` message (`SegmentTextFrame` says which segment
@@ -327,9 +328,11 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._segment: tuple[int, int] | None = None  # the segment whose Japanese comes in
-        self._voicing: tuple[int, int] | None = None  # the segment being voiced
-        # Its session, and what receives the session's audio until it has finished:
+        self._arriving: tuple[int, int] | None = None  # (reply, segment) of the Japanese coming in
+        self._voiced: tuple[int, int] | None = None  # (reply, segment) being voiced
+        self._announced = False  # its `segment-playing` message is queued
+        # The Fish Audio session voicing it, and what receives the session's audio until it
+        # has finished:
         self._session: ClientConnection | None = None
         self._receiving: asyncio.Task | None = None
         self._finished = asyncio.Event()
@@ -338,12 +341,13 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         if isinstance(frame, SegmentTextFrame):
-            self._segment = (frame.reply, frame.segment)
+            self._arriving = (frame.reply, frame.segment)
         elif isinstance(frame, LLMFullResponseStartFrame):
-            self._keep_spare()
+            if self._reconnecting is None or self._reconnecting.done():
+                self._keep_spare()  # a reconnection under way opens one of its own
         await super().process_frame(frame, direction)
         if isinstance(frame, SegmentCompleteFrame):
-            if self._segment == (frame.reply, frame.segment):
+            if self._arriving == (frame.reply, frame.segment):
                 await self._send_held_text()
                 await self._end_segment()
         elif isinstance(frame, LLMFullResponseEndFrame):
@@ -351,30 +355,32 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
 
     async def _handle_interruption(self, frame: InterruptionFrame, direction: FrameDirection):
         await super()._handle_interruption(frame, direction)
-        self._segment = self._voicing = None
+        self._arriving = self._voiced = None
 
     def _holds_speech(self) -> bool:
         return super()._holds_speech() or self._session is not None
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
         await self._reconnected()
-        if self._voicing != self._segment:  # the first of the next segment's Japanese
+        if self._voiced != self._arriving:  # the first of the next segment's Japanese
             await self._end_segment()
-            self._voicing = self._segment
-            if self._segment is not None:
-                await self.append_to_audio_context(context_id, segment_playing(*self._segment))
+            self._voiced = self._arriving
+            self._announced = self._arriving is None  # Japanese under no segment: nothing to say
         if self._session is None or self._finished.is_set():  # or it ended early
             await self._start_session(context_id)
         if self._session is None:  # it could not be opened, and the error is reported
             yield None
             return
+        if not self._announced and self._voiced is not None:  # ahead of its first audio
+            await self.append_to_audio_context(context_id, segment_playing(*self._voiced))
+            self._announced = True
         try:
             await self._session.send(ormsgpack.packb({"event": "text", "text": text}))
             await self.start_tts_usage_metrics(text)
             await self._session.send(ormsgpack.packb({"event": "flush"}))
         except Exception as e:
             yield ErrorFrame(error=f"Unknown error occurred: {e}")
-            await self._close_session()  # the segment goes on in another
+            await self._close_session()  # this sentence is lost; the next opens another
         yield None
 
     async def flush_audio(self, context_id: str | None = None) -> None:
@@ -403,7 +409,7 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
                 self._session = self._receiving = None
             else:
                 await self._close_session()
-        self._voicing = None
+        self._voiced = None
 
     async def _start_session(self, context_id: str) -> None:
         """Voice the segment in a new session, on the spare connection, whose audio goes to
@@ -522,7 +528,7 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
     async def _disconnect(self) -> None:
         """Drop the connections: the segment being voiced, and the next one's."""
         await self.stop_all_metrics()
-        self._voicing = None
+        self._voiced = None
         spare, self._spare = self._spare, None
         await self._close_session()
         if spare is None:
@@ -1093,9 +1099,8 @@ class CallTurns(FrameProcessor):
     ) -> None:
         """Reply to what the user said, as reply `number` of the call, once `after` is set,
         if given, going no further once `stop` is set. Only a reply that is recorded counts
-        as a turn: a rejected,
-        failed or dropped one does not count towards the call's limit, an interrupted one
-        does. Once it is over, recorded or not, so is the turn; a dropped one is not over,
+        as a turn: a rejected, failed or dropped one does not count towards the call's
+        limit, an interrupted one does. Once it is over, recorded or not, so is the turn; a dropped one is not over,
         but gone, which whoever dropped it reports."""
         if after is not None:
             await after.wait()

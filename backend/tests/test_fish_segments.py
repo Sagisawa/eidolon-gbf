@@ -41,14 +41,22 @@ class FakeFish:
     becomes of it, as "<connection> <what>", connections numbered from 1. With
     `idle_timeout`, it closes a connection sent no text that long after its start."""
 
-    def __init__(self, idle_timeout: float | None = None) -> None:
+    def __init__(self, idle_timeout: float | None = None, refused: tuple[int, ...] = ()) -> None:
+        """The attempts to connect numbered (from 1) in `refused` fail; the connections
+        made are numbered on their own."""
         self.idle_timeout = idle_timeout
+        self.refused = refused
+        self.attempts = 0
         self.log: list[str] = []
         self.at: dict[str, float] = {}  # when each entry was first logged
         self.sockets: list[FakeFishSocket] = []
 
     async def connect(self) -> "FakeFishSocket":
         await asyncio.sleep(CONNECTION)
+        self.attempts += 1
+        if self.attempts in self.refused:
+            self.note("refused")
+            raise OSError("connection refused")
         socket = FakeFishSocket(self, len(self.sockets) + 1)
         self.sockets.append(socket)
         self.note(f"{socket.number} connected")
@@ -275,6 +283,26 @@ async def test_a_connection_closed_while_left_open_is_replaced_as_the_next_reply
     assert fish.of(2) == ["connected", "start", "closed"]  # by Fish Audio, left idle
     assert "text うん。" in fish.of(3)
     assert heard(fish)[-2:] == ["playing 2/0", "audio うん。"]
+
+
+async def test_a_segment_no_connection_voices_is_not_announced():
+    fish = await run(
+        *reply(1, ["ほわっ。"], ["今日も。", "ね。"]),
+        fish=FakeFish(refused=(2, 3, 4)),  # every connection the second segment tries
+    )
+
+    assert fish.log.count("refused") == 3
+    assert heard(fish) == ["playing 1/0", "audio ほわっ。"]
+
+
+async def test_a_segment_is_announced_once_a_connection_voices_it():
+    fish = await run(
+        *reply(1, ["ほわっ。"], ["今日も。", "ね。"]),
+        fish=FakeFish(refused=(2, 3)),  # the second segment's connection, tried again
+    )
+
+    assert fish.log.count("refused") == 2  # 今日も is lost
+    assert heard(fish) == ["playing 1/0", "audio ほわっ。", "playing 1/1", "audio ね。"]
 
 
 async def test_an_interruption_stops_her_at_once_and_drops_the_spare_connection_too():
