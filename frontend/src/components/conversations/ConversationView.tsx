@@ -43,6 +43,7 @@ import { MicSheet } from "./MicSheet";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useCallTones } from "./useCallTones";
+import { useFocusBack } from "./useFocusBack";
 import { useCharacterVoice } from "./useCharacterVoice";
 import { useStandOutfits } from "./useStandOutfits";
 
@@ -124,6 +125,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
   // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。
   const isLayerCollapsed = collapsed || call.phase === "idle";
   const isCovered = shownCall !== null && !isLayerCollapsed;
+  const noteShown = isLive(call) && collapsed;
+  const focus = useFocusBack({ layerOpen: isCovered, noteShown });
   const phoneKey = isFullScreen ? { ...herButton, ...touchTarget } : herButton;
 
   const header = (
@@ -175,6 +178,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           label={copy.call.expand}
           tooltip={copy.call.expand}
           icon={<Icon icon={PhoneIcon} />}
+          ref={focus.phoneKey}
           onClick={() => live?.expand()}
           style={phoneKey}
         />
@@ -184,6 +188,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           tooltip={t.callTooltip}
           icon={<Icon icon={PhoneIcon} />}
           isDisabled={!isOpen || busy}
+          ref={focus.phoneKey}
           onClick={dial}
           style={phoneKey}
         />
@@ -224,7 +229,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
 
   return (
     <Frame character={character} header={header}>
-      {isLive(call) && collapsed && <CallNote call={call} onExpand={() => live?.expand()} />}
+      {noteShown && <CallNote ref={focus.note} call={call} onExpand={() => live?.expand()} />}
       {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
       {failure?.signedOut && !isCovered && <FailureNotice failure={failure} />}
       <StackItem size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
@@ -268,6 +273,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           character={character}
           call={shownCall}
           isCollapsed={isLayerCollapsed}
+          layerRef={focus.layer}
           isFullScreen={isFullScreen}
           isReducedMotion={isReducedMotion}
           micMuted={snapshot.micMuted}

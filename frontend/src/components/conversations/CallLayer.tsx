@@ -11,7 +11,16 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { MediaTheme } from "@astryxdesign/core/theme";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  type SVGProps,
+} from "react";
 
 import { copy } from "@/i18n";
 import type { Character, Outfit, Segment } from "@/lib/api";
@@ -35,8 +44,10 @@ export type ShownCall = LiveCall | Extract<CallState, { phase: "ended" }>;
 type Props = {
   character: Character;
   call: ShownCall;
-  /** 收起：回到 IM，通话照常继续。收起时整层 inert。 */
+  /** 收起：回到 IM，通话照常继续。收起时整层 inert，焦点由对话页送回页上。 */
   isCollapsed: boolean;
+  /** 通话层这一整层；对话页用它看焦点在不在层里。 */
+  layerRef: RefObject<HTMLElement | null>;
   /** 手机上占满整屏；电脑上只盖右边的对话栏。 */
   isFullScreen: boolean;
   isReducedMotion: boolean;
@@ -70,8 +81,7 @@ type Props = {
  * 她有立绘时（`character.stand`）用立绘版的布局：手机「大立绘」、电脑「半身 ADV」。
  */
 export function CallLayer(props: Props) {
-  const { character, call, isCollapsed, isFullScreen, isReducedMotion } = props;
-  const layer = useRef<HTMLElement>(null);
+  const { character, call, isCollapsed, isFullScreen, isReducedMotion, layerRef } = props;
   const ended = call.phase === "ended";
 
   // Esc 收起（结束页上是回到对话）；按键时取最新的回调。
@@ -82,18 +92,18 @@ export function CallLayer(props: Props) {
   // 展开时把焦点移进来，屏幕阅读器从这里读起。
   useEffect(() => {
     if (isCollapsed) return;
-    layer.current?.focus();
+    layerRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.defaultPrevented) onEscape.current();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isCollapsed]);
+  }, [isCollapsed, layerRef]);
 
   return (
     <VStack
       as="section"
-      ref={layer}
+      ref={layerRef}
       tabIndex={-1}
       aria-label={t.layer(character.name)}
       aria-hidden={isCollapsed}

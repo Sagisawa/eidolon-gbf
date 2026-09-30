@@ -239,7 +239,7 @@ components:
   - **出现**：加载中只露出背景图和纱，不放转圈，也不放占位剪影；到了用 0.3 秒（`--duration-medium-min`）淡入。手机上同时从下方 12% 处升起（`--duration-medium` + `--ease-standard`）；`prefers-reduced-motion` 时只原地淡入。
   - **对比度**：对话框和手机上方的字落在半透明的底和立绘上，`imageColor.test.ts` 的契约管不到；换角色、换默认衣装后要在两种宽度下目测名字、计时和字幕是否仍清楚。
   - **失败**：runtime 或素材加载不到、浏览器不支持 WebGL 时去掉画布，保持立绘版布局，只显示背景图和纱，不提示用户；下一通电话再试。
-- **Motion:** 像折纸一样整张从页首拉下：`clip-path: inset(0 0 100% 0)` ↔ `inset(0)`，`--duration-medium`（410ms）+ `--ease-standard`（`cubic-bezier(0.24, 1, 0.4, 1)`）；收起是同一动作反过来，Esc 也能收起；`prefers-reduced-motion` 时无过渡。收起时 `visibility` 在动画结束后才切到 hidden，收起的通话层 `inert` 并 `aria-hidden`；展开时焦点移进通话层，底下的页首和对话 `inert`。结束页上 Esc 是回到对话。
+- **Motion:** 像折纸一样整张从页首拉下：`clip-path: inset(0 0 100% 0)` ↔ `inset(0)`，`--duration-medium`（410ms）+ `--ease-standard`（`cubic-bezier(0.24, 1, 0.4, 1)`）；收起是同一动作反过来，Esc 也能收起；`prefers-reduced-motion` 时无过渡。收起时 `visibility` 在动画结束后才切到 hidden，收起的通话层 `inert` 并 `aria-hidden`；展开时焦点移进通话层，底下的页首和对话 `inert`。结束页上 Esc 是回到对话。收起时焦点在通话层里的话，先送回页上再藏起通话层：通话还在进行（⌄ 或 Esc 收起）落在通话便利贴上，回车或空格就能再展开；通话结束了（挂断，或结束页上「回到对话」/Esc）落在页首的电话键上；焦点在便利贴上时通话结束、便利贴消失，也退回电话键。焦点已经在通话层外面时不动。
 - **Round controls:** 拨打中只有挂断可用，麦克风静音和切换麦克风置灰。64px 正圆，底为 16% 白、无边框、白色图标，按下（麦克风静音）时变成实白底 + call.deep 图标；挂断在中间，用 destructive 红。每枚下方一行 Label。
 - **Ended:** 删除线状态「通话已结束」、原因标题、说明、是否计入限额，以及「回到对话」+ 主操作两个按钮。
 

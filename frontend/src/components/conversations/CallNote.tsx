@@ -4,7 +4,7 @@ import { ClickableCard } from "@astryxdesign/core/ClickableCard";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
-import type { CSSProperties } from "react";
+import type { CSSProperties, Ref } from "react";
 
 import { copy } from "@/i18n";
 import { showTime } from "@/lib/callTime";
@@ -17,12 +17,12 @@ import { useCallTime } from "./useCallTime";
  * 通话层收起后贴在消息区顶端的便利贴（DESIGN.md「Call note」）：她的 note 底、一条半透明胶带、略斜、
  * 柔和投影；字带 noteRule 的下划线，实线=通话中，虚线=拨打中。点一下展开通话层。
  */
-export function CallNote({ call, onExpand }: { call: LiveCall; onExpand: () => void }) {
+export function CallNote({ call, onExpand, ref }: { call: LiveCall; onExpand: () => void; ref?: Ref<HTMLDivElement> }) {
   const time = useCallTime(call);
   const text = time ? copy.call.noteConnected(showTime(time)) : copy.call.noteDialing;
   return (
     <HStack hAlign="center" paddingBlock={3} style={{ background: "var(--color-background-body)" }}>
-      <ClickableCard label={text} onClick={onExpand} padding={0} style={note}>
+      <ClickableCard ref={ref} label={text} onClick={onExpand} padding={0} style={note}>
         <VStack paddingBlock={2} paddingInline={5}>
           <VStack as="span" aria-hidden style={tape} />
           <Text weight="medium" hasTabularNumbers style={lineState(time ? "solid" : "dashed", "var(--her-note-rule)")}>

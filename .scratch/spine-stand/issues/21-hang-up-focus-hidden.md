@@ -12,7 +12,7 @@
 
 焦点在「挂断」按钮上，祖先是通话层的 `<section>`（`frontend/src/components/conversations/CallLayer.tsx` 里 `aria-hidden={isCollapsed}`、`inert={isCollapsed}`）。和立绘无关，挂断时一直都这样。
 
-- [ ] 挂断、收起通话层时，焦点回到对话页上合适的位置（例如打电话键），控制台不再报这条警告。
+- [x] 挂断、收起通话层时，焦点回到对话页上合适的位置（例如打电话键），控制台不再报这条警告。
 
 ## Comments
 
@@ -42,15 +42,30 @@
 - DESIGN.md「Call layer」一节的 Motion 那条现在只写了「展开时焦点移进通话层」，补上收起时焦点去哪。
 
 **Acceptance criteria:**
-- [ ] 通话中点「挂断」：控制台没有 aria-hidden 的警告，`document.activeElement` 是页首的打电话键。
-- [ ] 通话中点 ⌄ 或按 Esc 收起：没有警告，焦点在通话便利贴上；接着按回车，通话层重新展开，焦点移进通话层。
-- [ ] 通话因故结束、结束页上点「回到对话」或按 Esc：没有警告，焦点在打电话键上。
-- [ ] 焦点已经在通话层外面时收起，焦点不被移动。
-- [ ] 电脑（≥ 768px）和手机（< 768px）两种布局都满足以上几条（Playwright 验证，记在 Comments）。
-- [ ] DESIGN.md 写明收起时焦点的去向。
-- [ ] `npm test`、`npm run typecheck` 通过。
+- [x] 通话中点「挂断」：控制台没有 aria-hidden 的警告，`document.activeElement` 是页首的打电话键。
+- [x] 通话中点 ⌄ 或按 Esc 收起：没有警告，焦点在通话便利贴上；接着按回车，通话层重新展开，焦点移进通话层。
+- [x] 通话因故结束、结束页上点「回到对话」或按 Esc：没有警告，焦点在打电话键上。
+- [x] 焦点已经在通话层外面时收起，焦点不被移动。
+- [x] 电脑（≥ 768px）和手机（< 768px）两种布局都满足以上几条（Playwright 验证，记在 Comments）。
+- [x] DESIGN.md 写明收起时焦点的去向。
+- [x] `npm test`、`npm run typecheck` 通过。
 
 **Out of scope:**
 - 通话层展开时的焦点管理（已经有了），以及展开时的焦点陷阱（Tab 不出通话层）。
 - 换衣装面板、麦克风列表等弹窗/底部面板的焦点（由 Astryx 组件自己管）。
 - 通话层的收起动画、`visibility` 切换的时机。
+
+### 2026-10-01 实现与验证（agent，Playwright）
+
+**实现**：「收起后焦点去哪」写成纯函数 `frontend/src/lib/callFocus.ts` 的 `focusBack`（有单元测试）。对话页的 `useFocusBack`（`frontend/src/components/conversations/useFocusBack.ts`）在通话层收起、或者便利贴消失的那次提交之后，在 layout effect 里把焦点送走。这时通话层已经 `aria-hidden`/`inert`，但浏览器还没把焦点清掉，所以警告不会出现。通话层的 ref 改由对话页持有（`CallLayer` 的 `layerRef`），便利贴收 `ref`。页首电话键带 tooltip，禁用时 Astryx 用的是 `aria-disabled`，挂断时就算文字回复还在路上，焦点也送得过去。DESIGN.md「Call layer」的 Motion 一条补上了收起时焦点的去向。
+
+**验证**：本机开发模式，Playwright 的 Chromium，宽屏 1440×900、窄屏 390×844，另在窄屏开「减少动态效果」各跑一遍。每一轮都监听控制台，**一条 aria-hidden 警告都没有**。
+
+- 通话中（已接通）点「挂断」：焦点在页首「和櫻木真乃通话」键上。
+- 点 ⌄ 收起：焦点在便利贴「正在呼叫… · 点击返回」上，按回车展开，焦点移进通话层；按 Esc 收起，也落在便利贴上，按空格展开。已接通时 Esc 收起落在「通话中 00:10 · 点击返回」上。
+- 结束页（把 `/api/ice-servers` 拦成 500，造出呼叫失败）：点「回到对话」、按 Esc，焦点都在打电话键上。
+- 拨号时收起，呼叫随后失败：通话层重新展开，焦点从便利贴移进通话层；接着点「回到对话」，焦点回到打电话键。
+- 宽屏上焦点在左栏另一位角色上时按 Esc 收起：焦点不动。窄屏的通话层占满整屏，没有这种情况。
+
+**顺带发现（没改）**：用鼠标点 ⌄ 收起后，鼠标还停在原处，这时按回车重新展开，「收起通话」的 tooltip 会弹出来，第一下 Esc 先关掉 tooltip，第二下才收起。这是 Astryx tooltip 的标准行为，鼠标移开就只要按一下。
+
