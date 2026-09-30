@@ -50,3 +50,11 @@
 - 本机没有 flock，用一个空的 shim 代替跑的脚本；真正的加锁要在 Linux 上看。
 
 **留给人工验证**：在真实的存储桶（或本地的 S3 兼容存储）上跑一次 `deploy/stand-sync.sh`，把 `EIDOLON_STAND_ASSETS_URL` 指向存储桶的公开地址，确认 14 的立绘照常出现（这一步验证真实环境下的 CORS 和 WebGL 贴图加载）；在 Linux 服务器上确认 `npx playwright install --with-deps chromium` 后缩略图能渲染、flock 加锁正常；在这里补上真实存储桶的耗时和上传量。
+
+**2026-10-01 真实存储桶（腾讯云 COS + CDN，agent 在用户登录的浏览器里操作控制台）**
+
+- 存储桶 `eidolon-stand-1316812496`（上海，私有读写，单 AZ）；子用户 `eidolon-stand-sync` 只能编程访问，自定义策略只允许 `PutObject`、`GetBucket`、`HeadObject` 这个桶，密钥写进本机 `.env`。
+- 同步（Windows 的 Git Bash，没有 flock，不加锁）：首次上传 **658 个文件、248.2 MB，用时 46 秒**；再跑一次 0 上传、658 个跳过，用时 1 秒。COS 不认 `list-type=2`，只按 `marker` 翻页，列表已改成两种都认（`860a8be`）。
+- CDN `stand.hmhnk.top`（Cloudflare 上 CNAME 到 `stand.hmhnk.top.cdn.dnsv1.com`，灰云）：COS 源、私有存储桶回源授权、HTTPS 回源；节点缓存和浏览器缓存都「遵循源站」；响应头 `Access-Control-Allow-Origin: *`；免费 DV 证书（2026-12-30 到期，要续期）；HTTPS 服务已开启（按请求计费）；用量封顶每天 20GB，超出关闭 24 小时，80% 告警。
+- 验证：经 CDN 的 HTTPS 请求，衣装清单 `no-cache`、立绘文件 `immutable`、缩略图一天，`data.json` 被 gzip，全部带跨域头；直接访问存储桶 403。
+- 本机 `.env` 的 `EIDOLON_STAND_ASSETS_URL` 已改成 `https://stand.hmhnk.top`。**还差**：用户重启后端打一次电话，确认 14 的立绘从 CDN 照常出现。

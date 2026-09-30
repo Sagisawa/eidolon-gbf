@@ -179,6 +179,8 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 - **CORS**：允许网站的域名（`https://你的域名`）用 `GET` 访问。立绘用 WebGL 绘制，贴图跨域时没有 CORS 就加载不了，通话层会退回背景图。本地开发时再加上 `http://localhost:3000`。
 - **缓存**：同步脚本上传时给每个文件设好了 `Cache-Control`，存储桶这边不用另外设置，只要别用规则覆盖掉：衣装的文件内容不会变，是 `public, max-age=31536000, immutable`；缩略图可能重画，是一天；衣装清单随新卡变化，是 `no-cache`（每次都向存储桶确认）。前面有 CDN 时，让它沿用源站的 `Cache-Control`。
 
+**前面有 CDN 时**（推荐，尤其是国内）：存储桶可以保持私有，只让 CDN 回源。以腾讯云为例：CDN 添加加速域名（例如 `stand.你的域名`），源站类型选 COS 源、选中这个存储桶，打开「私有存储桶访问」并按提示给 CDN 授权；缓存配置里节点缓存和浏览器缓存都选「遵循源站」（不然衣装清单会被缓存几十天，新卡迟迟不出现）；「高级配置 → HTTP 响应头」加一条 `Access-Control-Allow-Origin: *`（存储桶私有时 CORS 由 CDN 统一加）；申请证书、开启 HTTPS 服务（网站是 HTTPS，浏览器不许加载 HTTP 的立绘）；建议再设一条用量封顶，防止被刷流量。`EIDOLON_STAND_ASSETS_URL` 填 CDN 的地址，例如 `https://stand.你的域名`。这样直接访问存储桶会被拒绝，公开的只有 CDN。
+
 **存储桶里的结构**：
 
 | 位置 | 内容 |
