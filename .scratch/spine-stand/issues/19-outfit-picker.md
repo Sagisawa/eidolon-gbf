@@ -6,7 +6,7 @@
 
 **Blocked by:** 14, 18
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] **入口**：对话页页首、打电话键旁边加一个「换衣装」图标按钮（Lucide `Shirt`），只在角色有 `stand` 时显示。宽屏（≥ 768px，和对话页用同一个断点）打开弹窗，窄屏打开底部面板。通话层里没有这个入口。
 - [x] **列表**：读取衣装清单，按卡片排列，顺序照清单。
@@ -25,7 +25,7 @@
 - [x] **测试**：
   - 本机保存（照通话偏好设置的测试）：按角色分开存；坏数据时用默认衣装；清单里没有这套时用默认衣装。
   - 退回顺序和预取的判断逻辑，如果写成了纯函数，也要测。
-- [ ] **人工验证**：宽屏弹窗和窄屏底部面板都走一遍：换一套、打电话、确认她穿着新衣装；刷新后还记得；把选中的那套从存储桶删掉后，退回默认衣装。在 Comments 里附截图。
+- [x] **人工验证**：宽屏弹窗和窄屏底部面板都走一遍：换一套、打电话、确认她穿着新衣装；刷新后还记得；把选中的那套从存储桶删掉后，退回默认衣装。在 Comments 里附截图。
 - [x] `npm test`、`npm run typecheck` 全部通过。
 
 ## Comments
@@ -54,3 +54,13 @@
 - 验证途中 `stand.hmhnk.top` 连不上了：先是几张缩略图 `ERR_CONNECTION_CLOSED`，之后衣装清单也连不上；本机 curl 经代理时 TLS 握手失败，原因没查（代理或 CDN 那边），与这次改动无关。
 
 **留给人工验证**：照上面的清单在真实 CDN 上宽屏、窄屏各走一遍（换一套、打电话、刷新后还记得、把选中的那套从存储桶删掉后退回默认衣装），附截图；顺便确认 CDN 为什么连不上。
+
+### 2026-10-01 人工验收
+
+本机开发模式启动后端和前端，`EIDOLON_STAND_ASSETS_URL=https://stand.hmhnk.top`，素材全部走真实 CDN。CDN 这次能连上（衣装清单、立绘文件都是 200），上次连不上没有再出现。
+
+- **把选中的那套从存储桶删掉后退回默认衣装**：用户自己验过，没有问题（没截图）。
+- 其余几步由 agent 用 Playwright 走了一遍并截图（`../screenshots/`），都没有问题：
+  - 宽屏（1440×900）弹窗：打开时停在上次穿的「ぐうぜんBOOKS」演出服（[19-wide-dialog-open.png](../screenshots/19-wide-dialog-open.png)）；切到「しじまに華ひととき」演出服，预览跟着换（[19-wide-dialog-preview.png](../screenshots/19-wide-dialog-preview.png)）；穿上后打电话，通话层上她穿着这套（[19-wide-call.png](../screenshots/19-wide-call.png)）；刷新后再打开，停在这套上，写着「正在穿」（[19-wide-after-reload.png](../screenshots/19-wide-after-reload.png)）。
+  - 窄屏（390×844）底部面板：预览在上（[19-narrow-sheet-open.png](../screenshots/19-narrow-sheet-open.png)），滚动时预览随列表滚走（[19-narrow-sheet-scrolled.png](../screenshots/19-narrow-sheet-scrolled.png)）；换成「ほわっとスマイル」演出服（[19-narrow-sheet-preview.png](../screenshots/19-narrow-sheet-preview.png)）、穿上后打电话，她穿着这套（[19-narrow-call.png](../screenshots/19-narrow-call.png)）；刷新后还记得（[19-narrow-after-reload.png](../screenshots/19-narrow-after-reload.png)）。
+- 控制台只有 `favicon.ico` 的 404，与这次改动无关。
