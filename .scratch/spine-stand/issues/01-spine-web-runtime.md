@@ -14,11 +14,11 @@ Blocked by: none
 
 ## Research
 
-调研在分支 `research/spine-web-runtime` 上进行，结论写在该分支的 `.scratch/spine-stand/research/spine-web-runtime.md`。
+调研在分支 `research/spine-web-runtime` 上进行，结论写在 [`research/spine-web-runtime.md`](../research/spine-web-runtime.md)（2026-10-01 从该分支挪进 main，分支已删除）。
 
 ## Answer
 
-详细结论见分支 `research/spine-web-runtime`（`cddbfa1`）上的 `.scratch/spine-stand/research/spine-web-runtime.md`，下面是摘要：
+详细结论见 [`research/spine-web-runtime.md`](../research/spine-web-runtime.md)，下面是摘要：
 
 - **推荐的 runtime**：官方 spine-ts 3.6 分支的 `spine-webgl.js`（压缩后约 176KB，gzip 后约 46KB）。它不依赖 React，只在客户端用 `<script>` 加载、通过 `window.spine` 调用，文件原样使用、不做修改。3.6 分支从 2019 年起就不再更新，也没有 npm 包，只能把文件拷进仓库；粉丝项目 ShinyColorsPet 用的就是同一个文件（校验和一致）。React 组件卸载时必须清理干净动画循环、贴图和 WebGL context，因为开发模式下 effect 会执行两次。
 - **排除的方案**：canvas 后端画不了 mesh，而所有 stand 都用到了 mesh；官方 4.x 包读不了 3.6 的数据；`v8-spine37` 是个人维护的移植，风险太大。备选是 PixiJS v7 加 `pixi-spine@4`，但它对 3.7 以下的版本只是「有限支持」，体积大 4–5 倍，PixiJS v7 本身也已经是旧版本线。

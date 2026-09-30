@@ -10,11 +10,11 @@ Blocked by: none
 
 ## Research
 
-调研在分支 `research/segment-playback-timing` 上进行，结论写在该分支的 `.scratch/spine-stand/research/segment-playback-timing.md`。
+调研在分支 `research/segment-playback-timing` 上进行，结论写在 [`research/segment-playback-timing.md`](../research/segment-playback-timing.md)（2026-10-01 从该分支挪进 main，分支已删除）。
 
 ## Answer
 
-详细结论见分支 `research/segment-playback-timing`（`c7b4ce1`）上的 `.scratch/spine-stand/research/segment-playback-timing.md`。依据 pipecat-ai 1.11.0（`uv.lock`）、client-js 1.13.1、small-webrtc-transport 1.10.8 的源码；没有跑真实通话，毫秒级的数字是从代码推算的。
+详细结论见 [`research/segment-playback-timing.md`](../research/segment-playback-timing.md)。依据 pipecat-ai 1.11.0（`uv.lock`）、client-js 1.13.1、small-webrtc-transport 1.10.8 的源码；没有跑真实通话，毫秒级的数字是从代码推算的。
 
 - **现有事件都不能标出「第 N 段开始播放」**：`bot-tts-started` 每条回复只发一次（开始合成时）；`bot-started-speaking` 通常每条回复也只发一次（静音 3 秒才重置）；`bot-tts-text` 逐句发，但一段的第一句通常早到 1–4 秒；前端自己数只能认出第 0 段。
 - **推荐的机制**：TTS 服务在第 N 段第一块音频之前，往音频队列里插一个 `OutputTransportMessageFrame`，内容是 RTVI server-message，例如 `{type: "segment-playing", reply, segment}`。输出传输层把它和音频放在同一个队列里，等它前面那块音频发出去才发送，所以时机跟着真实播放走。后端最多早 40ms 发出；到浏览器大约比听到声音早 50–150ms（蓝牙耳机更多），0.3 秒的动画过渡可以盖住。

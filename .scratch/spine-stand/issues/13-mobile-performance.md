@@ -12,7 +12,7 @@ Blocked by: none
 
 ## Answer
 
-2026-09-30 用户在自己的手机上实测后定下。测试页是原型加了真机模式（`/prototype/stand?real=1&variant=C&idol=1`，顶部浮一块测量面板，每 5 秒把数字发回开发机），在 worktree `.claude/worktrees/proto-perf`（分支 `prototype/spine-stand-perf`，一次性代码）。
+2026-09-30 用户在自己的手机上实测后定下。测试页是原型加了真机模式（`/prototype/stand?real=1&variant=C&idol=1`，顶部浮一块测量面板，每 5 秒把数字发回开发机），在 worktree `.claude/worktrees/proto-perf`（分支 `prototype/spine-stand-perf`，一次性代码；2026-10-01 分支和 worktree 已删除）。
 
 **实测**（Redmi Note 12 Turbo，骁龙 7+ Gen 2，2023 年；Chrome 153；屏幕 393×873，像素比 2.75；手机「大立绘」构图；真乃 `1030010010`）：
 

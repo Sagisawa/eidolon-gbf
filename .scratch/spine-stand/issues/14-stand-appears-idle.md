@@ -2,7 +2,7 @@
 
 **What to build:** 部署者给角色配好偶像编号、默认衣装和素材地址后，用户打电话时，通话层的背景图上就叠了一层穿默认衣装的立绘，只做待机的呼吸和眨眼。手机上是「大立绘」，电脑上是「半身 ADV」。素材加载不到、浏览器不支持 WebGL 时，退回现在的背景图，通话不受影响。规则和定义见 `../spec.md`（「渲染」「通话层」「配置与 API」「许可证与文档」几节）。
 
-参考：原型在分支 `prototype/spine-stand`（立绘引擎、`CallLayer` 的 `stand` 插槽、`/prototype/stand` 页面），真机测量版在 `prototype/spine-stand-perf`。原型是一次性代码，要按 spec 重写，不要直接合并。
+参考：原型在分支 `prototype/spine-stand`（立绘引擎、`CallLayer` 的 `stand` 插槽、`/prototype/stand` 页面），真机测量版在 `prototype/spine-stand-perf`（两个分支都已于 2026-10-01 删除）。原型是一次性代码，要按 spec 重写，不要直接合并。
 
 **Blocked by:** None (can start immediately)
 

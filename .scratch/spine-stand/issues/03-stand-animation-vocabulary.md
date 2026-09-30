@@ -10,11 +10,11 @@ Blocked by: none
 
 ## Research
 
-调研在分支 `research/stand-animation-vocabulary` 上进行，结论写在该分支的 `.scratch/spine-stand/research/stand-animation-vocabulary.md`。
+调研在分支 `research/stand-animation-vocabulary` 上进行，结论写在 [`research/stand-animation-vocabulary.md`](../research/stand-animation-vocabulary.md)（2026-10-01 从该分支挪进 main，分支已删除）。
 
 ## Answer
 
-详细结论和可复现的脚本见分支 `research/stand-animation-vocabulary`（`3345079`）上的 `.scratch/spine-stand/research/stand-animation-vocabulary.md`，下面是摘要：
+详细结论和可复现的脚本见 [`research/stand-animation-vocabulary.md`](../research/stand-animation-vocabulary.md)，下面是摘要：
 
 - **分类**：2215 套衣装里一共有 317 个不同的动画名：身体 71、表情 65、口型 69、手臂 40（只用作放下手臂的过渡）、视线 8、点头摇头 4、脸红和眼泪叠加 3、道具出现和消失 33、skill 7、`blank`，另有 16 个调试残留。每套衣装都有的只有 11 个。
 - **候选情绪**（百分比依次是全部衣装 / 真乃 / 恋钟的覆盖率）：

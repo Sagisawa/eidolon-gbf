@@ -10,11 +10,11 @@ Jev（`typesafe/jev-1.13`，经 OpenRouter System One，见 `.scratch/jev-provid
 
 ## Research
 
-调研在分支 `research/jev-emotion` 上进行，结论写在该分支的 `.scratch/spine-stand/research/jev-emotion.md`。
+调研在分支 `research/jev-emotion` 上进行，结论写在 [`research/jev-emotion.md`](../research/jev-emotion.md)（2026-10-01 从该分支挪进 main，分支已删除）。
 
 ## Answer
 
-可以。详细结论见分支 `research/jev-emotion`（`cdb69ea`）上的 `.scratch/spine-stand/research/jev-emotion.md`，下面是摘要：
+可以。详细结论见 [`research/jev-emotion.md`](../research/jev-emotion.md)，下面是摘要：
 
 - **题型**：Jev 有 Choice 题型，从最多 255 个选项里选一个，中文选项名原样返回。返回 `choice`、每个选项的 `probabilities`（加起来为 1，键的顺序不固定，要按名字读）和 `confidence`。没有多选题型。
 - **一次请求带多题**：可以，各题独立作答。一次请求判断一条回复的全部 4 段，也不变慢。

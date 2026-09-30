@@ -10,7 +10,7 @@ Blocked by: 01, 03
 
 ## Answer
 
-2026-09-30 用户在浏览器里亲自操作原型后定下。原型提交在分支 `prototype/spine-stand`（`ed867bb`，一次性代码，不合并）：用开发环境打开 `/prototype/stand`，`?variant=A|B|C&device=phone|desktop&idol=1|4`。
+2026-09-30 用户在浏览器里亲自操作原型后定下。原型提交在分支 `prototype/spine-stand`（`ed867bb`，一次性代码，不合并；2026-10-01 分支已删除）：用开发环境打开 `/prototype/stand`，`?variant=A|B|C&device=phone|desktop&idol=1|4`。
 
 **构图**：
 - **手机用 C「大立绘」**：立绘从底部升起，镜头到膝，名字、计时和字幕在上方，底部压一层她的深色渐变，让按钮看得清。
