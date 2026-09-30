@@ -325,3 +325,15 @@ const LIP = { 平静: "wait", 开心: "smile", 害羞: "shy", 惊讶: "surp", �
 - **调研和原型**：详细调研在各 `research/*` 分支上，原型在 `prototype/spine-stand`，真机测量页在 `prototype/spine-stand-perf`。这些都是一次性代码，不合并。原型里的引擎、剪裁绕法和换衣装面板可以参考，但要按这份 spec 重写。
 - **可以调的数值**：Jev 的置信度阈值（0.5）和超时（1.5 秒）、情绪过渡（0.3 秒）、口型混合（0.1 秒），实现时按实际效果调整。
 - 素材镜像在部署机上的位置，由同步脚本的环境变量指定。
+
+## Issues
+
+`issues/01`–`13` 是 wayfinder 阶段的决策 ticket（都已定下），实现 ticket 从 14 开始：
+
+- [14：她出现在通话层上（待机）](issues/14-stand-appears-idle.md)：无阻塞
+- [15：她跟着通话动起来（口型、看向、点头）](issues/15-stand-follows-the-call.md)：被 14 挡住
+- [16：每段声音开始播放时，前端会收到标记](issues/16-segment-playing-signal.md)：无阻塞
+- [17：她每段话都有情绪](issues/17-emotion-per-segment.md)：被 15、16 挡住
+- [18：立绘素材同步到对象存储](issues/18-stand-asset-sync.md)：被 14 挡住
+- [19：用户在对话页换衣装](issues/19-outfit-picker.md)：被 14、18 挡住
+- [20：人工验收](issues/20-acceptance.md)：被 14–19 挡住，ready-for-human
