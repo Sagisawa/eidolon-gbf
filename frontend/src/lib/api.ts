@@ -81,9 +81,9 @@ export type Memory = {
 };
 
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each
- * segment of her voice starts playing, how she feels in each, who starts and stops speaking, and, when it is about to
- * hang up (the call reached its time or turn limit, a voice service or an own key failed), why,
- * and whether the call counted towards the hourly limit. */
+ * segment of her voice starts playing, her emotion in each, who starts and stops speaking,
+ * and, when it is about to hang up (the call reached its time or turn limit, a voice service
+ * or an own key failed), why, and whether the call counted towards the hourly limit. */
 export type CallEvent =
   | TurnEvent
   | SegmentPlaying

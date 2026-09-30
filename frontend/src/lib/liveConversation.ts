@@ -187,7 +187,9 @@ export class LiveConversation {
   /** How many nods she has given, to tell each one from the last. */
   private nods = 0;
   /** Emotions judged for segments she has yet to say in this call, by `reply:segment`. */
-  private feelings = new Map<string, SegmentEmotion>();
+  private judged = new Map<string, SegmentEmotion>();
+  /** The last segment whose emotion she has shown in this call; null until one. */
+  private shown: SegmentEmotion | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. */
   constructor(
@@ -435,24 +437,33 @@ export class LiveConversation {
   private startSaying(reply: number, segment: number): void {
     const { saying } = this.state;
     if (saying && !follows({ reply, segment }, saying)) return;
-    const feeling = this.feelings.get(`${reply}:${segment}`);
-    for (const [key, earlier] of this.feelings) if (!follows(earlier, { reply, segment })) this.feelings.delete(key);
+    const emotion = this.judged.get(key(reply, segment));
+    for (const [k, earlier] of this.judged) if (!follows(earlier, { reply, segment })) this.judged.delete(k);
     this.update({ saying: { reply, segment, over: false } });
-    if (feeling) this.feel(feeling);
+    if (emotion) this.showEmotion(emotion);
   }
 
   /** A segment's emotion is judged: kept until she says it, taken up at once while she is
-   * saying it, and dropped once she has said it. */
-  private onEmotion(feeling: SegmentEmotion): void {
-    const { saying } = this.state;
-    if (!saying || follows(feeling, saying)) this.feelings.set(`${feeling.reply}:${feeling.segment}`, feeling);
-    else if (feeling.reply === saying.reply && feeling.segment === saying.segment && !saying.over) this.feel(feeling);
+   * saying it, and dropped once she has said it. In text only a segment is judged once it is
+   * complete, by when the next one often shows: there it is taken up still, until the reply
+   * is over, unless a later segment's emotion shows already. */
+  private onEmotion(emotion: SegmentEmotion): void {
+    const { saying, textOnly } = this.state;
+    if (!saying || follows(emotion, saying)) {
+      this.judged.set(key(emotion.reply, emotion.segment), emotion);
+      return;
+    }
+    if (saying.over || emotion.reply !== saying.reply) return;
+    const current = emotion.segment === saying.segment;
+    if (current || (textOnly && (!this.shown || follows(emotion, this.shown)))) this.showEmotion(emotion);
   }
 
   /** Her mood follows the segment she is saying, but through a calm one it stays as it was,
    * unless the segment opens her reply; a nod or shake of the head goes with it. */
-  private feel({ emotion, segment, nod }: SegmentEmotion): void {
+  private showEmotion(judged: SegmentEmotion): void {
+    const { emotion, segment, nod } = judged;
     const { stand } = this.state;
+    this.shown = judged;
     this.update({
       stand: {
         ...stand,
@@ -517,7 +528,8 @@ export class LiveConversation {
   /** The call is over, hung up (no `end`) or not; a reply it cut off is not recorded. */
   private ended(end: CallEnd | null): void {
     this.call = null;
-    this.feelings.clear();
+    this.judged.clear();
+    this.shown = null;
     this.apply(
       { type: "interrupted" },
       {
@@ -570,6 +582,10 @@ function withStandRules(next: State): State {
   const looking = next.userSpeaking || (next.interruptedByTyping && !next.voicing);
   if (speaking === next.stand.speaking && looking === next.stand.looking) return next;
   return { ...next, stand: { ...next.stand, speaking, looking } };
+}
+
+function key(reply: number, segment: number): string {
+  return `${reply}:${segment}`;
 }
 
 /** Whether segment `a` comes after segment `b` in the call. */

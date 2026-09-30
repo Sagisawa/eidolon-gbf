@@ -67,10 +67,10 @@ class EmotionJudging:
     """Judging each segment's emotion during calls, with the deployer's `judge`."""
 
     judge: EmotionJudge
-    min_probability: float = 0.5
+    min_probability: float
     """The likeliest emotion's probability below which the answer is calm, and the
     likeliest nod's below which there is none."""
-    timeout: float = 1.5
+    timeout: float
     """How long, in seconds, the judge may take before the segment goes unjudged."""
 
     async def message(self, reply: int, segment: int, said: SegmentToJudge) -> dict | None:

@@ -4,7 +4,7 @@ import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { MicUnavailable } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
-import { CALM } from "@/lib/standAnimations";
+import { CALM, type Emotion } from "@/lib/standAnimations";
 
 /** A call that has connected: records what the conversation asks of it. */
 class FakeCall implements Call {
@@ -1372,8 +1372,6 @@ describe("LiveConversation: the stand", () => {
 });
 
 describe("LiveConversation: her emotions", () => {
-  type Emotion = Extract<CallEvent, { type: "emotion" }>["emotion"];
-
   /** The judged emotion of segment `segment` of reply `reply`, with a nod if given. */
   function emotion(reply: number, segment: number, feeling: Emotion, nod: "yes" | "no" | null = null): CallEvent {
     return { type: "emotion", reply, segment, emotion: feeling, nod };
@@ -1477,6 +1475,16 @@ describe("LiveConversation: her emotions", () => {
 
     emit(reply(2), emotion(1, 1, "angry")); // the last reply's, once the next is under way
     expect(mood()).toBe("thinking");
+  });
+
+  it("takes up each segment's emotion in text only though the next segment shows before it is judged", async () => {
+    const { emit, mood } = await voiced({ textOnly: true });
+    emit(reply(1), subtitle(0), subtitle(1));
+
+    emit(emotion(1, 0, "happy"));
+    expect(mood()).toBe("happy");
+    emit(subtitle(2), emotion(1, 2, "sad"), emotion(1, 1, "angry")); // the later one came first
+    expect(mood()).toBe("sad");
   });
 
   it("keeps an emotion only for the reply it was judged in", async () => {
