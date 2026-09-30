@@ -275,7 +275,7 @@ def test_missing_call_background_is_a_warning_and_treated_as_none(
 STAND_ASSETS = "https://stand.example/eidolon"
 
 
-async def test_character_with_an_idol_and_a_default_outfit_has_a_stand_once_assets_are_served(
+async def test_character_with_an_idol_and_a_default_outfit_has_a_stand_and_her_outfit_list_once_assets_are_served(
     make_client: ClientFactory, settings: Settings
 ):
     client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS), user=None)
@@ -286,7 +286,8 @@ async def test_character_with_an_idol_and_a_default_outfit_has_a_stand_once_asse
         "default_outfit": {
             "id": "stand/1030010010",
             "url": f"{STAND_ASSETS}/spine/idols/stand/1030010010/",
-        }
+        },
+        "outfits_url": f"{STAND_ASSETS}/outfits/1.json",
     }
     assert listed["kogane"]["stand"] is None  # no idol, no default outfit
 

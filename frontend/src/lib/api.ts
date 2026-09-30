@@ -19,6 +19,10 @@ export type Character = {
 export type Stand = {
   /** The outfit she wears unless the user picks another. */
   default_outfit: Outfit;
+  /** Her outfit list: `{idol_id, cards}`, each card with its `everyday` clothes and `stage`
+   * costume (either may be null), whose `url` and `thumbnail` are relative to the list
+   * (docs/deploy.md「立绘素材」). */
+  outfits_url: string;
 };
 
 /** One outfit of her stand: `id` is `stand/<enzaId>` or `stand_costume/<enzaId>`, and `url` the
