@@ -77,6 +77,9 @@ class FakeBucket:
         self.objects: dict[str, tuple[bytes, dict[str, str]]] = {}
         self.puts: list[str] = []
         self.down = False
+        self.lists_by_marker = False
+        """List as the original List Objects does (Tencent COS): pages by `marker`,
+        whatever `list-type` asks for."""
 
     def bucket(self, **settings) -> Bucket:
         return Bucket(
@@ -101,7 +104,11 @@ class FakeBucket:
         query = parse_qs(urlsplit(str(request.url)).query)
         assert request.method == "GET" and query["list-type"] == ["2"]
         keys = sorted(self.objects)
-        start = int(query.get("continuation-token", ["0"])[0])
+        if self.lists_by_marker:
+            marker = query.get("marker", [""])[0]
+            start = sum(1 for key in keys if key <= marker) if marker else 0
+        else:
+            start = int(query.get("continuation-token", ["0"])[0])
         page = keys[start : start + 2]
         more = start + 2 < len(keys)
         contents = "".join(
@@ -110,6 +117,8 @@ class FakeBucket:
             for key in page
         )
         token = f"<NextContinuationToken>{start + 2}</NextContinuationToken>" if more else ""
+        if self.lists_by_marker:
+            token = f"<NextMarker>{escape(page[-1])}</NextMarker>" if more else ""
         return httpx.Response(
             200,
             text='<?xml version="1.0" encoding="UTF-8"?>'
@@ -222,6 +231,17 @@ async def test_what_the_bucket_has_as_it_is_is_not_uploaded_again(stands: Stands
     assert sorted(storage.puts) == ["thumbnails/stand/1030010010.png", "thumbnails/stand/3000010030.png"]
     assert report.unchanged == 11
     assert report.missing_thumbnails == []
+
+
+async def test_a_bucket_listed_by_marker_is_listed_whole(stands: Stands, storage: FakeBucket):
+    await stands.upload(storage)
+    storage.puts.clear()
+    storage.lists_by_marker = True
+
+    report = await stands.upload(storage)
+
+    assert storage.puts == []
+    assert report.unchanged == 12
 
 
 async def test_a_bucket_that_fails_is_an_error(stands: Stands, storage: FakeBucket):

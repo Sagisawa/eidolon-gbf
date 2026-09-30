@@ -222,7 +222,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 脚本不经过 docker，在放着立绘镜像的机器上直接运行，服务器或自己的电脑都行（后端只需要知道 `EIDOLON_STAND_ASSETS_URL`）。这台机器上要有：
 
 - 立绘镜像：包含 `spine_manifest.json` 和 `assets/spine/idols/` 的目录。
-- [uv](https://docs.astral.sh/uv/)（运行 `eidolon` 命令）、Node.js 22.18 以上（渲染缩略图），以及 `flock`（util-linux，Linux 一般都自带）。
+- [uv](https://docs.astral.sh/uv/)（运行 `eidolon` 命令）和 Node.js 22.18 以上（渲染缩略图）。有 `flock`（util-linux，Linux 一般都自带）时脚本会加锁，防止两次同步重叠；没有时（例如 Windows 的 Git Bash）不加锁照常同步。在 Windows 上用 Git Bash 运行 `sh deploy/stand-sync.sh`。
 - Playwright 的 Chromium：在 `frontend/` 里 `npm ci`，再 `npx playwright install --with-deps chromium`（`--with-deps` 会用 apt 装上它要的系统库，需要 root；装过一次即可）。没有显卡也能渲染。
 
 在仓库根目录的 `.env` 里填好下面这些（脚本从这里读，环境变量里已有的优先；变量的说明见 `.env.example`）：
@@ -254,7 +254,7 @@ tail -f logs/stand-sync.log   # 另开一个终端看进度
 | 1 | 配置出错：找不到立绘镜像、缺存储桶的设置、角色配置有误等，没有上传 | 看日志里的错误 |
 | 2 | 存储桶出错（连不上、密钥不对、没有写权限），这次没传完 | 看日志里存储桶返回的错误（`SignatureDoesNotMatch` 多半是密钥或 `EIDOLON_STAND_S3_REGION` 不对）；已上传的不会重复上传，改好后重新运行即可继续 |
 | 3 | 有衣装的缩略图没渲染出来，其余已照常上传 | 看日志里哪几套失败；下次同步会再渲染 |
-| 4 | 缺少运行环境：uv、Node.js、flock、frontend 的依赖或 Playwright 的 Chromium | 按日志里的提示装上 |
+| 4 | 缺少运行环境：uv、Node.js、frontend 的依赖或 Playwright 的 Chromium | 按日志里的提示装上 |
 | 5 | 上一次同步还没结束，这次没有运行 | 不用管 |
 
 素材只在新增角色、镜像更新（出了新卡）时才需要同步，不用放进 cron；想定期同步，照「每周自动同步」加一行 cron 即可。

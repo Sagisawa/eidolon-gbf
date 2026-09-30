@@ -78,20 +78,30 @@ class Bucket:
 
     async def etags(self) -> dict[str, str]:
         """Every object in the bucket, and its ETag without the quotes: the MD5 of an
-        object put in one piece, as `put` puts them."""
+        object put in one piece, as `put` puts them.
+
+        Asked for with List Objects V2, paged by continuation token; a provider that only
+        has the original List Objects (Tencent COS) ignores `list-type` and pages by
+        `marker`, which is then sent along with the next page's request."""
         etags: dict[str, str] = {}
-        token: str | None = None
+        params = {"list-type": "2"}
         while True:
-            params = {"list-type": "2"} | ({"continuation-token": token} if token else {})
             response = await self._send("GET", self._url("", params))
             root = ElementTree.fromstring(response.content)
+            last = None
             for contents in _children(root, "Contents"):
                 key, etag = _text(contents, "Key"), _text(contents, "ETag")
                 if key is not None:
                     etags[key] = (etag or "").strip('"').lower()
-            token = _text(root, "NextContinuationToken")
-            if _text(root, "IsTruncated") != "true" or not token:
+                    last = key
+            if _text(root, "IsTruncated") != "true":
                 return etags
+            if token := _text(root, "NextContinuationToken"):
+                params = {"list-type": "2", "continuation-token": token}
+            elif marker := _text(root, "NextMarker") or last:
+                params = {"list-type": "2", "marker": marker}
+            else:
+                raise S3Error("存储桶说对象没有列完，却没有给出下一页从哪里开始")
 
     async def put(self, key: str, body: bytes, content_type: str, cache_control: str) -> None:
         await self._send(

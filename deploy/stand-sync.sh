@@ -2,7 +2,8 @@
 # 同步立绘素材：从立绘镜像为配了 idol_id 的角色整理衣装清单（eidolon stand outfits）、渲染缩略图
 # （frontend 的 npm run stand:thumbnails），再上传到 S3 兼容的存储桶（eidolon stand upload）。
 # 在放着立绘镜像的机器上运行（服务器或自己的电脑都行），不经过 docker；步骤和要装的东西见
-# docs/deploy.md 的「立绘素材」。需要 uv、Node.js（22.18 以上）、Playwright 的 Chromium 和 flock（util-linux）。
+# docs/deploy.md 的「立绘素材」。需要 uv、Node.js（22.18 以上）和 Playwright 的 Chromium；有 flock（util-linux）时
+# 加锁，防止两次同步重叠，没有时（例如 Windows 的 Git Bash）不加锁照常同步。
 #
 # 设置从仓库根目录的 .env 读（环境变量里已有的优先）：EIDOLON_STAND_MIRROR_PATH、EIDOLON_STAND_S3_* 等。
 # 输出追加到仓库根目录的 logs/stand-sync.log（可用 EIDOLON_STAND_SYNC_LOG 改到别处）。
@@ -12,7 +13,7 @@
 #   1  配置出错：找不到立绘镜像、缺存储桶的设置、角色配置有误等，没有上传
 #   2  存储桶出错，这次没传完；已上传的不会重复上传，重新运行即可继续
 #   3  有衣装的缩略图没渲染出来：其余照常上传，下次同步再渲染
-#   4  缺少运行环境：uv、Node.js、flock、frontend 的依赖或 Playwright 的 Chromium
+#   4  缺少运行环境：uv、Node.js、frontend 的依赖或 Playwright 的 Chromium
 #   5  上一次同步还没结束，这次没有运行
 
 set -u
@@ -45,16 +46,20 @@ finish() {
 
 say "==== 开始同步立绘素材（$root）"
 
-for tool in flock uv node npm; do
+for tool in uv node npm; do
   if ! command -v "$tool" >/dev/null; then
     say "找不到 $tool（docs/deploy.md「立绘素材」列出了要装的东西）"
     finish 4
   fi
 done
 # 首次上传几百 MB，手动运行时可能和 cron 撞上
-exec 9>"$root/logs/stand-sync.lock"
-if ! flock -n 9; then
-  finish 5
+if command -v flock >/dev/null; then
+  exec 9>"$root/logs/stand-sync.lock"
+  if ! flock -n 9; then
+    finish 5
+  fi
+else
+  say "找不到 flock（util-linux），不加锁：别同时运行两次"
 fi
 
 if [ ! -d frontend/node_modules/playwright ]; then
