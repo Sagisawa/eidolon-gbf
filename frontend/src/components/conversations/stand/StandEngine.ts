@@ -81,12 +81,21 @@ export class StandEngine {
     // 要注册在创建 ManagedWebGLRenderingContext 之前：恢复时浏览器按注册顺序调用监听，
     // 先重新开启「上传时预乘 alpha」，runtime 自己的监听再重新上传贴图，否则恢复后会出白边。
     // 恢复不了时画布一直是空的，通话层上就只剩背景图和纱，这次通话不再重试。
-    canvas.addEventListener("webglcontextlost", () => (this.lost = true), { signal });
+    // runtime 自己的监听销毁时摘不掉，但它管的贴图和着色器在销毁时都已移出恢复清单，留着也不会再上传什么。
+    canvas.addEventListener(
+      "webglcontextlost",
+      () => {
+        this.lost = true;
+        this.stop();
+      },
+      { signal },
+    );
     canvas.addEventListener(
       "webglcontextrestored",
       () => {
         this.gl.pixelStorei(UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
         this.lost = false;
+        this.start();
       },
       { signal },
     );
@@ -120,6 +129,7 @@ export class StandEngine {
       ),
     ]);
     if (this.disposed) {
+      // 销毁之后才到的素材也要释放（再调一次 dispose 只会处理这些新到的）。
       this.assets.dispose();
       return;
     }
@@ -181,7 +191,7 @@ export class StandEngine {
   }
 
   private start(): void {
-    if (this.raf || !this.pose || this.paused || this.disposed) return;
+    if (this.raf || !this.pose || this.paused || this.lost || this.disposed) return;
     this.last = 0;
     this.raf = requestAnimationFrame(this.frame);
   }
@@ -196,7 +206,7 @@ export class StandEngine {
     if (!this.gate.shouldDraw(now)) return;
     const step = this.last ? Math.min((now - this.last) / 1000, MAX_STEP_SECONDS) : 0;
     this.last = now;
-    if (this.pose && !this.lost) this.draw(this.pose, step);
+    if (this.pose) this.draw(this.pose, step);
   };
 
   private draw(pose: Pose, step: number): void {

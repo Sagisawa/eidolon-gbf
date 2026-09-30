@@ -22,6 +22,8 @@ type Props = {
  * 浏览器不支持 WebGL 时整块去掉，同样只剩背景图，不提示用户；换一通电话（重新挂载）再试。
  */
 export function Stand({ outfit, framing, isPaused, entrance }: Props) {
+  // 按衣装的值而不是对象来载入：角色列表重新拉取时，同一套衣装不会让立绘重新载入。
+  const { id, url } = outfit;
   const canvas = useRef<HTMLCanvasElement>(null);
   const engine = useRef<StandEngine | null>(null);
   const [phase, setPhase] = useState<"loading" | "shown" | "failed">("loading");
@@ -50,7 +52,7 @@ export function Stand({ outfit, framing, isPaused, entrance }: Props) {
         created = new StandEngine(target, spine, current.current.framing);
         created.setPaused(current.current.isPaused);
         engine.current = created;
-        return created.load(outfit).then(() => {
+        return created.load({ id, url }).then(() => {
           if (!cancelled) setPhase("shown");
         });
       })
@@ -65,7 +67,7 @@ export function Stand({ outfit, framing, isPaused, entrance }: Props) {
       created?.dispose();
       engine.current = null;
     };
-  }, [outfit]);
+  }, [id, url]);
 
   if (phase === "failed") return null;
   const shown = phase === "shown";
