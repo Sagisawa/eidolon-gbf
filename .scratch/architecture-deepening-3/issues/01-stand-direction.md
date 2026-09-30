@@ -35,8 +35,8 @@
 
 ## 验收
 
-- [ ] **先证明行为不变**：在动测试之前，`liveConversation.test.ts` 的「the stand」「her emotions」两组（L1243–1523）在新实现上一行不改，全部通过。在 Comments 里记下结果。
-- [ ] **按 TDD**：先写 `frontend/src/lib/standDirection.test.ts` 并看到它失败，再实现。测试的形式是「一串事件 → 导出的立绘指令」，不用假 Ports、不用拨号、不用 `FakeCall`。spine-stand spec「立绘指令」一节的每条规则至少对应一个测试。下面这些原测试都要在新文件里有对应：
+- [x] **先证明行为不变**：在动测试之前，`liveConversation.test.ts` 的「the stand」「her emotions」两组（L1243–1523）在新实现上一行不改，全部通过。在 Comments 里记下结果。
+- [x] **按 TDD**：先写 `frontend/src/lib/standDirection.test.ts` 并看到它失败，再实现。测试的形式是「一串事件 → 导出的立绘指令」，不用假 Ports、不用拨号、不用 `FakeCall`。spine-stand spec「立绘指令」一节的每条规则至少对应一个测试。下面这些原测试都要在新文件里有对应：
   - 每通电话从平静开始、看着前方、嘴闭着；
   - 声音开始播放时开嘴，停下时闭嘴；
   - 只看文字时嘴一直闭着，出声时切过去也立刻闭上；
@@ -58,7 +58,7 @@
   - 挂断后忘掉上一通的情绪；
   - 立绘指令没有变化时仍是同一个对象（新增）；
   - 回到初始时保留只看文字、点头 id 继续往上数（新增）。
-- [ ] **按「替换而不是叠加」收拾 `liveConversation.test.ts`**：「the stand」和「her emotions」两组里断言**规则**的测试，搬到新文件后删掉。只留下证明**接线**的集成测试：
+- [x] **按「替换而不是叠加」收拾 `liveConversation.test.ts`**：「the stand」和「her emotions」两组里断言**规则**的测试，搬到新文件后删掉。只留下证明**接线**的集成测试：
   - `keeps following the call while the call layer is collapsed`；
   - `is cleared when the call %s, the next call starting calm`（挂断和掉线两种；也证明了过期事件被挡住）；
   - `looks at the user who interrupts by typing once her voice stops, until she speaks again`（证明 `submit` 报了「打了字」）；
@@ -66,10 +66,74 @@
   - 新增一条：偏好里已经是只看文字时，打开页面后第一通电话里她出声，嘴也不动（证明初始状态带上了偏好）。
 
   在 Comments 里列一张表，写明每条原有测试是「留下」还是「移到哪条新测试」。拿不准的就留下。
-- [ ] 删掉 L381–409 断言 `playing` 的两条测试：`knows which segment of which reply her voice is playing, until the call is over` 和 `starts the next call with nothing playing, even if the last one dropped`。第二条里「掉线后下一通重新开始」的部分，已经由 `is cleared when the call drops` 覆盖。
-- [ ] `LiveConversation` 里不再有 `nods`、`judged`、`shown` 字段，也不再有 `onSpeaking`、`startSaying`、`onEmotion`、`showEmotion`、`withStandRules`、`follows`、`key`。`ended()` 不再手动清立绘的状态。`State` 里和立绘有关的只剩一个字段。
-- [ ] 规则的叙述从 `LiveConversation` 的注释搬到 `standDirection.ts` 的注释里；`LiveConversation` 的注释改为指向它。
-- [ ] `frontend/` 下 `npm test` 和 `npm run typecheck` 都通过。
+- [x] 删掉 L381–409 断言 `playing` 的两条测试：`knows which segment of which reply her voice is playing, until the call is over` 和 `starts the next call with nothing playing, even if the last one dropped`。第二条里「掉线后下一通重新开始」的部分，已经由 `is cleared when the call drops` 覆盖。
+- [x] `LiveConversation` 里不再有 `nods`、`judged`、`shown` 字段，也不再有 `onSpeaking`、`startSaying`、`onEmotion`、`showEmotion`、`withStandRules`、`follows`、`key`。`ended()` 不再手动清立绘的状态。`State` 里和立绘有关的只剩一个字段。
+- [x] 规则的叙述从 `LiveConversation` 的注释搬到 `standDirection.ts` 的注释里；`LiveConversation` 的注释改为指向它。
+- [x] `frontend/` 下 `npm test` 和 `npm run typecheck` 都通过。
 - [ ] **人工验收（留给用户）**：打一通真实电话，看情绪、点头、打断时看向用户、只看文字的切换和以前一样。用户验过之后再标 `resolved`。
 
 ## Comments
+
+### 2026-10-01 实现记录
+
+**行为不变的证明**：接好 `standDirection.ts`、删掉快照的 `playing` 和它的两条测试之后，「the stand」「her emotions」两组（原 L1243–1523，共 21 条，含 `it.each` 展开）一行未改，`liveConversation.test.ts` 全部 99 条通过。之后才动这两组。
+
+**TDD**：`standDirection.test.ts` 先写好，在 `standDirection.ts` 还不存在时跑过一次，整个文件因为导入失败而红（0 条测试跑起来）；写好 reducer 后 26 条全绿，然后才接进 `LiveConversation`。
+
+**新测试的咬合**：
+- 对 `standDirection.ts` 做了 10 个手工变异，全部被 `standDirection.test.ts` 抓到：
+  - 挂断后点头 id 归零；
+  - 挂断丢掉只看文字；
+  - 不记 `shown`；
+  - 每次都换新的指令对象；
+  - 回到已说过的段；
+  - 没出声时打字也算打断；
+  - `user` 不结束当前段；
+  - 平静的段总是回到平静；
+  - 情绪带的点头不给；
+  - 有声时按字幕开始说。
+- 对 `LiveConversation` 的接线做了 5 个变异，全部被留下的集成测试抓到：
+  - 初始状态不带偏好；
+  - `delta` 不交给 reducer；
+  - `user` 不交给 reducer；
+  - 打字不上报；
+  - 不按 `current` 挡过期事件。
+- 另有 1 个变异存活，它是等价变异：不是当前通话时也 `update({ stand })`。这时 `stand` 就是原来的状态，只是多发一次快照。
+
+**和旧行为的差别，比 ticket 写的多一处（code review 指出）**：旧代码里，过期的 `user` 除了改 `shownReply`，还会把 `saying` 标成说完。
+- 如果挂断后马上重拨，旧通话的 `user` 在新通话已经开始说一段时才到，这段晚到的情绪就会被丢掉。
+- 现在统一挡住了，这是改进，不是回归。
+- 新增的集成测试 `is not moved on by the last call's events once the next one is under way` 专门证明这件事，同时补上了 `user`、`emotion`、`segment-playing` 三种过期事件被挡住的覆盖。原来 `is cleared when the call %s` 只推过期的 `bot-started-speaking`。
+
+**原测试的去向**（`liveConversation.test.ts` → `standDirection.test.ts`）：
+
+| 原测试 | 去向 |
+| --- | --- |
+| starts each call calm, looking ahead with her mouth shut | 移到 `starts each call calm, looking ahead with her mouth shut` |
+| opens her mouth while her voice plays and shuts it when it stops | 移到同名测试 |
+| keeps her mouth shut in text only, even when switched on while she speaks | **留下**（接线：切换报给 reducer）；规则另有同名新测试 |
+| looks at the user while they speak, then nods once when they stop | 移到同名测试 |
+| shuts her mouth as soon as her voice stops when the user cuts in, looking at them | 移到同名测试 |
+| looks at the user who interrupts by typing once her voice stops, until she speaks again | **留下**（接线：`submit` 报了「打了字」）；规则另有同名新测试 |
+| changes nothing for what is typed before she starts speaking | 移到同名测试 |
+| keeps following the call while the call layer is collapsed | **留下** |
+| is cleared when the call is hung up / drops, the next call starting calm | **留下**；规则移到 `is cleared when the call is over` |
+| changes as her voice starts playing the segment, not before | **留下**（拿不准：只有它证明 `segment-playing` 和 `emotion` 交给了 reducer）；规则另有同名新测试 |
+| changes on a late emotion while the segment is still playing | 移到同名测试 |
+| drops an emotion that comes once the segment has been said | 移到同名测试 |
+| keeps an emotion for a segment whose voice starts right after the last one stopped | 移到同名测试 |
+| keeps her mood through calm segments, until a reply starts calm | 移到同名测试 |
+| nods or shakes her head along with the emotion, once each | 移到同名测试 |
+| changes as each segment's first subtitle shows in text only | **留下**（拿不准：只有它证明 `user` 和 `delta` 交给了 reducer）；规则另有同名新测试 |
+| takes up each segment's emotion in text only though the next segment shows before it is judged | 移到同名测试 |
+| keeps an emotion only for the reply it was judged in | 移到同名测试 |
+| leaves her mood alone when she is interrupted | 移到同名测试 |
+| starts the next call calm, forgetting the last call's emotions | 移到 `forgets the last call's emotions when it is over`；过期事件被挡住由 `is cleared when the call %s` 和新增的 `is not moved on by the last call's events once the next one is under way` 证明 |
+
+新增：`LiveConversation` 里 `keeps her mouth shut from the first call when text only was on already`、`is not moved on by the last call's events once the next one is under way`；`standDirection.test.ts` 里 `gives the same direction while nothing about it changes`、`keeps text only when the call is over, and nods on with new ids`，以及补足规则的 `drops an emotion that comes once the next turn was taken up`、`gives a nod along with an emotion an id past the user's nods`、`does not take a segment up as said on its subtitle unless it is text only`、`does not go back to a segment she is past`、`forgets in text only which segment's emotion she showed last call`。
+
+删掉：`knows which segment of which reply her voice is playing, until the call is over`、`starts the next call with nothing playing, even if the last one dropped`。
+
+**顺带**：本机 `frontend/node_modules` 装得不完整（没有 `.bin`、缺 `@jridgewell/sourcemap-codec` 等），`npm test` 起不来，按 lockfile 跑了一次 `npm install` 补齐，`package-lock.json` 没有变化。
+
+实现中没有发现不合理的规则，没有另开 ticket。等人工验收。
