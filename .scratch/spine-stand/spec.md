@@ -131,6 +131,7 @@ Status: ready-for-agent
 
 - **`segment-playing {reply, segment}`**：第 N 段的声音开始播放。由 TTS 在第 N 段第一块音频之前，往音频队列里插一条 `OutputTransportMessageFrame` 发出。输出传输层按播放节奏发送，所以到达浏览器时大约比听到声音早 50–150ms，0.3 秒的过渡可以盖住。
 - **`emotion {reply, segment, emotion, nod}`**：这一段的情绪判断结果。`emotion` 是七种情绪之一；`nod` 是 `yes`、`no` 或 `null`。
+- **`user` 带上 `reply`**（ticket 17 实现时补充）：通话里的 `user` 消息多一个字段 `reply`，说明它开启的是哪一条回复。「只看文字」时没有 `segment-playing`，前端靠它把字幕和 `emotion` 对上同一条回复。
 
 另外，前端要开始监听 pipecat 已经在发、但前端还没用上的标准 RTVI 事件：`bot-started-speaking` / `bot-stopped-speaking`（开嘴、闭嘴），以及 `user-started-speaking` / `user-stopped-speaking`（看向用户、点头）。
 
@@ -140,7 +141,7 @@ Status: ready-for-agent
 - **时机**：通话中每一段完整了（`SegmentComplete`），就单独起一个任务调用 Jev，和这段的语音合成同时进行，不阻塞回复。
 - **给 Jev 的内容**：角色、用户这句话、这条回复前面几段、这一段的日语（带语气提示）和中文字幕。
 - **兜底**：
-  - 概率最高的一项低于阈值（初定 0.5）时，发出的情绪按「平静」处理。
+  - 概率最高的一项低于阈值（初定 0.5）时，发出的情绪按「平静」处理。点头那一题同样：概率最高的一项低于阈值时 `nod` 为 `null`（ticket 17 实现时补充）。
   - 超时（初定 1.5 秒，不用检索那边的 5 秒）或失败时不重试，**不发** `emotion` 消息，前端沿用当前心情。
   - 阈值和超时做成可调的设置，实现时再调。
 - **范围**：只在通话中判断，「只看文字」时照常判断；文字对话页不调用。没有配置 `JEV_API_KEY` 时不判断。费用始终由部署者承担，不走自带密钥。情绪不写进对话记录。

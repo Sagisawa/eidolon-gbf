@@ -6,22 +6,57 @@
 
 **Status:** ready-for-agent
 
-- [ ] **判断协议**：新增一个情绪判断的协议，和检索用的判断并列。生产实现基于现有的 Jev 客户端，加上 Choice 题型：一次请求问两题，一题是七种情绪选一种，一题是「同意 / 否定 / 都不是」。按选项名读 `probabilities`，因为它的键顺序不固定。
-- [ ] **时机**：通话中每一段完整时（`SegmentComplete`），单独起一个任务调用 Jev，不阻塞回复和合成。回复被取消（补充）或打断时，不再为还没完整的段调用；已经发出的请求结果照常发送，前端会丢掉过时的。
-- [ ] **给 Jev 的内容**：角色、用户这句话、这条回复前面几段、这一段的日语（带语气提示）和中文字幕。
-- [ ] **消息**：发 RTVI server message `{type: "emotion", reply, segment, emotion, nod}`。`emotion` 是七种之一；`nod` 是 `yes`、`no` 或 `null`。
-- [ ] **兜底**：
+- [x] **判断协议**：新增一个情绪判断的协议，和检索用的判断并列。生产实现基于现有的 Jev 客户端，加上 Choice 题型：一次请求问两题，一题是七种情绪选一种，一题是「同意 / 否定 / 都不是」。按选项名读 `probabilities`，因为它的键顺序不固定。
+- [x] **时机**：通话中每一段完整时（`SegmentComplete`），单独起一个任务调用 Jev，不阻塞回复和合成。回复被取消（补充）或打断时，不再为还没完整的段调用；已经发出的请求结果照常发送，前端会丢掉过时的。
+- [x] **给 Jev 的内容**：角色、用户这句话、这条回复前面几段、这一段的日语（带语气提示）和中文字幕。
+- [x] **消息**：发 RTVI server message `{type: "emotion", reply, segment, emotion, nod}`。`emotion` 是七种之一；`nod` 是 `yes`、`no` 或 `null`。
+- [x] **兜底**：
   - 概率最高的一项低于阈值（初定 0.5）时，`emotion` 发「平静」。
   - 超时（初定 1.5 秒）或失败时不重试，也不发消息。
   - 阈值和超时做成可调的设置。
-- [ ] **范围**：只在通话中判断，「只看文字」时照常判断；文字对话页不调用。没有配置 `JEV_API_KEY` 时不判断。始终用部署者的 key，不走自带密钥。情绪不写进对话记录。
-- [ ] **前端切换**：
+- [x] **范围**：只在通话中判断，「只看文字」时照常判断；文字对话页不调用。没有配置 `JEV_API_KEY` 时不判断。始终用部署者的 key，不走自带密钥。情绪不写进对话记录。
+- [x] **前端切换**：
   - 有声音时，在这段的 `segment-playing` 到达时切换；「只看文字」时，在这段第一句字幕出现时切换。
   - `emotion` 比切换时机早到的，先存着；晚到的，这段还在说就照样换过去，已经说完就丢掉。
   - 判断结果是「平静」的段，沿用当前心情；但一条回复的第一段是「平静」时，回到平静。
   - `nod` 为 `yes` 或 `no` 时，和情绪同时播一次。
-- [ ] **测试**：
+- [x] **测试**：
   - 后端帧级测试（`CallUnderTest` + `FakeJudge`）：多段回复每段各发一条 `emotion`，回复编号和段号正确；置信度低时发「平静」；超时、失败、没配 key 时不发；「只看文字」时照常判断；给 Jev 的内容包括前面几段和语气提示。
   - 前端（`LiveConversation`）：按 `segment-playing` 切换；`emotion` 早到、晚到、这段已说完时丢掉；平静沿用当前心情；回复第一段是平静时回到平静；「只看文字」按字幕切换；点头和摇头；挂断后下次从平静开始。
 - [ ] **真实通话验证**：用真实的 Jev 打一通电话，确认表情和动作随台词变化、在这段声音开始时切换；在 Comments 里记下几段台词和判断结果，以及 Jev 在服务器上的延迟。
-- [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+- [x] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+### 2026-10-01 实现记录（agent）
+
+**后端**
+
+- **模块**：新增 `backend/src/eidolon/emotion.py`。`EmotionJudge` 协议（`judge_emotion(SegmentToJudge) -> EmotionAnswer`，和 `RetrievalJudge` 并列）返回七种情绪和「点头 / 摇头 / 都不是」各自的概率；生产实现 `JevEmotionJudge` 复用 `JevJudge` 的连接（`JevJudge` 抽出通用的 `ask(state, questions)`），一次请求两道 Choice 题，按选项名（中文）读 `probabilities` 再映射成英文取值（`calm`、`happy`、`shy`、`surprised`、`sad`、`angry`、`thinking`，和前端一致）。`EmotionJudging` 负责阈值和超时：概率最高的情绪低于阈值发 `calm`；点头也按同一阈值，低于时 `nod` 为 `null`（spec 没写，我补的，已记进 spec）；超时（`asyncio.wait_for`）或 `JudgeError` 时不发、不重试。
+- **时机**：`CallTurns._reply_to` 边收边记每段的日语（`SpeechDelta`，带语气提示）和中文字幕，`SegmentComplete` 时用 `create_task` 单独起一个判断任务，不阻塞回复和合成。回复已被打断（`stop` 已置位）时不再判断；补充时回复任务被取消，后面的段自然不会判断。已经发出的判断不随回复取消，只在挂断时取消。给 Jev 的 state：角色、制作人这句话（补充后是合并的文字）、这条回复前面几段（「日语（中文）」）、这一段台词（带语气提示）、这一段的中文字幕。注意：解析器会吃掉语气提示后面的空格，所以 Jev 看到的是 `[shyly]ほわっ` 这样的写法。
+- **协议补充**：通话里的 `user` 消息加上 `reply`（回复编号），前端在「只看文字」时靠它把字幕和 `emotion` 对上。没有让前端数 `user` 消息，因为补充时回复编号可能已经用掉、`user` 却没发出。已记进 spec「通话里的新消息」。
+- **配置**：`JEV_EMOTION_MIN_PROBABILITY`（默认 0.5）、`JEV_EMOTION_TIMEOUT`（默认 1.5 秒），写进 `.env.example`；填错时拒绝启动。`build` 在配了 `JEV_API_KEY` 时建一个 `JevJudge` 同时给检索和情绪用；情绪判断只需要 Jev，和检索开没开无关。始终是部署者的 key。README 补了一句说明，并在「始终由部署者承担」里加上情绪判断。
+- **测试**：`tests/test_call_emotions.py`（`CallUnderTest` + `FakeJudge`，`FakeJudge` 新增 `judge_emotion`）覆盖多段多条回复的编号、置信度低时平静、失败和超时不发且不重试、没配 Jev 不判断、「只看文字」照常判断、给 Jev 的内容（前面几段、语气提示）、打断后未完整的段不判断、补充后被丢掉的回复不再判断、`user` 带回复编号。`tests/test_emotion_judge.py` 用 `httpx.MockTransport` 覆盖请求的形状、按选项名读概率（键顺序打乱）、读不出和出错时报错、环境变量。
+
+**前端**
+
+- `api.ts` 新增 `SegmentEmotion` 并加进 `CallEvent`；`TurnEvent` 的 `user` 多一个可选的 `reply`。
+- `LiveConversation` 记下她「正在说的那段」（`saying`：回复号、段号、是否已说完）。有声时 `segment-playing` 开始一段；「只看文字」时，这条回复（`user.reply`）里某段的第一个字幕 `delta` 开始一段（只往后走，不回头）。
+- **已说完**：有声时 `bot-stopped-speaking` 算说完，`bot-started-speaking` 撤销，因为段间停顿时「停止」可能落在下一段的 `segment-playing` 之后；两种模式下，新的 `user` 都算说完。
+- **早到和晚到**：早到的 `emotion` 存起来，这段开始时取出，并清掉更早段的；晚到的，这段还在说就换上，否则丢掉。
+- **只看文字的晚到**（code review 发现并修掉）：这一段要完整了才开始判断，下一段的字幕往往先出来，按上面的规则几乎只有最后一段能生效。现在「只看文字」时，同一条回复里的晚到结果只要比已经生效的那段更靠后，就照样换上；下一条回复开始后才作废。所以「只看文字」时，表情实际上在这段判断完成时切换，大约晚于这段字幕几百毫秒。
+- 平静的段沿用当前心情，回复的第一段是平静时回到平静；`nod` 为 `yes` 或 `no` 时，给一个新编号的点头，和情绪同时生效。挂断和断线时清空，旧通话晚到的 `emotion` 不理会。
+- 测试在 `liveConversation.test.ts` 的「her emotions」一组。
+
+**检查**：`uv run pytest` 821 passed，`uv run pyright` 0 errors，`npm test` 303 passed，`npm run typecheck` 通过。
+
+**code review 其他意见，没有改**：`(reply, segment)` 成对传递，可以做成一个类型；`JevJudge` 现在同时服务检索和情绪，可以挪到单独的 `jev.py`；`_relevance` 这个名字被借来解析概率。都是判断题，改动面大于收益，先不动。
+
+**留给人工验证**（需要真实的 Jev 和通话）：
+
+- 配好 `JEV_API_KEY` 打一通电话，确认表情和动作随台词变化，而且是在这段声音开始时切换，不是字幕一出来就切换。
+- 让她说几句明显同意或否定的话，看是否点头或摇头。
+- 在浏览器开发者工具里看 `emotion` 消息，在这里记下几段台词和判断结果。后端日志没有打出 Jev 的耗时，服务器上的延迟需要另外测，例如用 `emotion` 消息和 `segment-playing` 的到达时间差来估计。
+- 「只看文字」下看表情是否随每段变化，可以接受晚于字幕几百毫秒。
+- 挂断再打，从平静开始。
+
