@@ -1,5 +1,6 @@
 import type { Provider } from "@/lib/signIn";
 import { detectTimezone } from "@/lib/timezone";
+import type { Emotion, Nod } from "@/lib/standAnimations";
 
 export type Character = {
   id: string;
@@ -9,7 +10,24 @@ export type Character = {
   /** Her image colour, `#rrggbb`; the interface only uses what `herVars()` derives from it. */
   color: string;
   background_url: string | null;
+  /** Her Spine stand on the call layer; null (her call background alone) unless the deployment
+   * configures her idol, her default outfit and where the stands are served from. */
+  stand: Stand | null;
 };
+
+/** Where a character's stand comes from. */
+export type Stand = {
+  /** The outfit she wears unless the user picks another. */
+  default_outfit: Outfit;
+  /** Her outfit list: `{idol_id, cards}`, each card with its `everyday` clothes and `stage`
+   * costume (either may be null), whose `url` and `thumbnail` are relative to the list
+   * (docs/deploy.md「立绘素材」). */
+  outfits_url: string;
+};
+
+/** One outfit of her stand: `id` is `stand/<enzaId>` or `stand_costume/<enzaId>`, and `url` the
+ * directory (ending in `/`) holding its `data.json`, `data.atlas` and `data.png`. */
+export type Outfit = { id: string; url: string };
 
 export type Conversation = {
   id: string;
@@ -38,9 +56,11 @@ export type Message = {
   created_at: string;
 };
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. */
+/** A turn's events: `user`, then any `delta`s, then `done` or `error`. In a call, `user` says
+ * which of her replies in the call it opens, numbered from 1 (a turn replied to afresh opens
+ * again, with the next number). */
 export type TurnEvent =
-  | { type: "user"; text: string }
+  | { type: "user"; text: string; reply?: number }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
@@ -64,12 +84,44 @@ export type Memory = {
   created_at: string;
 };
 
-/** During a call each utterance, spoken or typed, is a turn; the backend also says, when it is
- * about to hang up (the call reached its time or turn limit, a voice service or an own key
- * failed), why, and whether the call counted towards the hourly limit. */
+/** During a call each utterance, spoken or typed, is a turn; the backend also says when each
+ * segment of her voice starts playing, her emotion in each, who starts and stops speaking,
+ * and, when it is about to hang up (the call reached its time or turn limit, a voice service
+ * or an own key failed), why, and whether the call counted towards the hourly limit. */
 export type CallEvent =
   | TurnEvent
+  | SegmentPlaying
+  | SegmentEmotion
+  | Speaking
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+
+/** Pipecat's standard RTVI events, not server messages: her voice starts or stops playing
+ * (stopping at once when she is interrupted), the user starts or stops speaking. */
+export type Speaking = { type: (typeof SPEAKING)[number] };
+
+export const SPEAKING = [
+  "bot-started-speaking",
+  "bot-stopped-speaking",
+  "user-started-speaking",
+  "user-stopped-speaking",
+] as const;
+
+/** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
+ * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little
+ * before it is heard; a segment cut off before it is voiced gets none. */
+export type SegmentPlaying = { type: "segment-playing"; reply: number; segment: number };
+
+/** How she feels in segment `segment` of reply `reply`, and whether she nods (`yes`) or shakes
+ * her head (`no`) at it; `calm` when it could not be told for sure. Sent once the segment is
+ * complete and judged, which may be before or after it starts playing; a segment that could
+ * not be judged in time gets none. */
+export type SegmentEmotion = {
+  type: "emotion";
+  reply: number;
+  segment: number;
+  emotion: Emotion;
+  nod: Nod["kind"] | null;
+};
 
 /** Why the backend hung up (`EndReason` in `call.py`). */
 export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";

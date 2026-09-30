@@ -123,7 +123,8 @@ class Settings:
     rerank: "RerankSettings | None" = None
     jev: "JevSettings | None" = None
     """Retrieval needs the embedding service, the reranker and Jev; without any of them,
-    turns go unretrieved."""
+    turns go unretrieved. Without Jev, neither is any emotion judged during calls."""
+    emotion: "EmotionSettings" = field(default_factory=lambda: EmotionSettings())
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
@@ -140,6 +141,10 @@ class Settings:
     gemini_billing_enabled: bool = False
     """The deployer says Gemini's billing is on, so its paid tier, which Google does not
     train on, embeds users' memories (ADR-0005, revised)."""
+    stand_assets_url: str | None = None
+    """Where browsers download the stands from, without a trailing slash: the public URL
+    of the object storage they are synced to (ADR-0003, revised 2026-09-30). None shows
+    every character's call background without her stand."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -171,6 +176,7 @@ class Settings:
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
             jev=_jev_from_env(),
+            emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
@@ -179,6 +185,7 @@ class Settings:
             google=OAuthSettings.from_env("GOOGLE"),
             secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
+            stand_assets_url=stand_assets_url_from_env(),
         )
 
 
@@ -203,6 +210,34 @@ def mirror_cache_path_from_env() -> Path:
 def event_names_path_from_env() -> Path:
     """The admin's table of event names, which `eidolon story sync` names events from."""
     return Path(os.environ.get("EIDOLON_EVENT_NAMES_PATH", "../deploy/event-names.toml"))
+
+
+def stand_assets_url_from_env() -> str | None:
+    """`EIDOLON_STAND_ASSETS_URL`, the stands' public address, without a trailing slash."""
+    value = (os.environ.get("EIDOLON_STAND_ASSETS_URL") or "").strip().rstrip("/")
+    if not value:
+        return None
+    if not value.startswith(("https://", "http://")):
+        raise RuntimeError(
+            f"环境变量 EIDOLON_STAND_ASSETS_URL 应为立绘素材的公开访问地址（http:// 或 https:// 开头），"
+            f"而不是 {value}"
+        )
+    return value
+
+
+def stand_mirror_path_from_env() -> Path:
+    """`EIDOLON_STAND_MIRROR_PATH`, the Spine mirror the stands are synced from: the
+    directory with `spine_manifest.json` and `assets/`."""
+    value = os.environ.get("EIDOLON_STAND_MIRROR_PATH")
+    if not value:
+        raise RuntimeError("环境变量 EIDOLON_STAND_MIRROR_PATH 未设置（立绘镜像的位置，spine_manifest.json 所在的目录）")
+    return Path(value)
+
+
+def stand_build_path_from_env() -> Path:
+    """Where `eidolon stand outfits` writes the outfit lists and the thumbnails are
+    rendered, laid out as the bucket is, before they are uploaded."""
+    return Path(os.environ.get("EIDOLON_STAND_BUILD_PATH", "../corpus/stand"))
 
 
 def history_turns_from_env() -> int | None:
@@ -354,6 +389,36 @@ class JevSettings:
             model=os.environ.get("JEV_MODEL") or DEFAULT_JEV_MODEL,
             base_url=os.environ.get("JEV_BASE_URL") or DEFAULT_JEV_BASE_URL,
         )
+
+
+@dataclass(frozen=True)
+class EmotionSettings:
+    """How Jev's judging of each segment's emotion during calls is taken (see `emotion`):
+    the likeliest answer's probability below which she is calm and does not nod, and how
+    long, in seconds, a segment may take to be judged before it goes without."""
+
+    min_probability: float = 0.5
+    timeout: float = 1.5
+
+    @classmethod
+    def from_env(cls) -> "EmotionSettings":
+        min_probability = _relevance("JEV_EMOTION_MIN_PROBABILITY")
+        timeout = (os.environ.get("JEV_EMOTION_TIMEOUT") or "").strip()
+        defaults = cls()
+        return cls(
+            min_probability=defaults.min_probability if min_probability is None else min_probability,
+            timeout=_seconds("JEV_EMOTION_TIMEOUT", timeout) if timeout else defaults.timeout,
+        )
+
+
+def _seconds(name: str, value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = 0.0
+    if not seconds > 0:
+        raise RuntimeError(f"环境变量 {name} 需要是大于 0 的秒数，而不是 {value}")
+    return seconds
 
 
 def _jev_from_env() -> JevSettings | None:

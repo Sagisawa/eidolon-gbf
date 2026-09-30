@@ -2,7 +2,8 @@
 //
 // The character's voice arrives as an audio track; everything else (what the
 // backend heard, the reply's Japanese and its subtitles) arrives as the same
-// events as a text turn, over the data channel.
+// events as a text turn, over the data channel, along with who starts and stops
+// speaking.
 
 import { PipecatClient, TransportStartError } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
@@ -75,6 +76,10 @@ export async function startCall(
       enableCam: false,
       callbacks: {
         onServerMessage: (data) => handlers.onEvent(data as CallEvent),
+        onBotStartedSpeaking: () => handlers.onEvent({ type: "bot-started-speaking" }),
+        onBotStoppedSpeaking: () => handlers.onEvent({ type: "bot-stopped-speaking" }),
+        onUserStartedSpeaking: () => handlers.onEvent({ type: "user-started-speaking" }),
+        onUserStoppedSpeaking: () => handlers.onEvent({ type: "user-stopped-speaking" }),
         onUserTranscript: (data) => handlers.onHearing(data.final ? "" : data.text),
         onTrackStarted: (track, participant) => {
           if (!participant?.local && track.kind === "audio") handlers.onCharacterAudio(track);

@@ -7,6 +7,11 @@ the file, plus the speaker names her lines carry in the story corpus. Adding a
 character or replacing a voice is a configuration change. The sheets, facts,
 avatars and backgrounds are committed with the configuration (ADR-0003).
 
+Optionally, she also names her idol in the original (`idol_id`, as in the Spine
+mirror's `spine_manifest.json`) and the outfit her stand wears unless the user picks
+another (`default_outfit`, e.g. `stand/1030010010`). The stands themselves are not
+committed: they are served from object storage (ADR-0003, revised 2026-09-30).
+
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
 
@@ -25,6 +30,9 @@ log = logging.getLogger(__name__)
 _VALID_ID = re.compile(r"[a-z][a-z0-9_-]*")
 _REQUIRED = ("id", "name", "intro", "voice_id", "sheet", "color")
 _IMAGE_COLOR = re.compile(r"#[0-9a-fA-F]{6}")
+_OUTFIT = re.compile(r"(stand|stand_costume)/[0-9]{10}")
+"""An outfit: her everyday clothes on a card (`stand`) or its stage costume
+(`stand_costume`), and the card's ten-digit enzaId."""
 
 DRAFT_MARKER = "<!-- 人设草稿：由后台模型根据剧情生成，尚未校对。校对完成后删除这一行。 -->"
 
@@ -61,6 +69,12 @@ class Character:
     facts: tuple[Fact, ...] = ()
     """Her character facts, one entry per section of her facts file."""
     sheet_path: Path | None = None
+    idol_id: int | None = None
+    """Who she is in the original's Spine mirror (`idolId` in `spine_manifest.json`)."""
+    default_outfit: str | None = None
+    """The outfit her stand wears unless the user picks another, as `<category>/<enzaId>`:
+    `stand/1030010010` is her everyday clothes on that card, `stand_costume/...` its stage
+    costume. Its files are at `spine/idols/<category>/<enzaId>/` under the stand assets."""
 
 
 def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Character]:
@@ -133,6 +147,22 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
     avatar = _optional_file(entry, "avatar", base, label)
     background = _optional_file(entry, "background", base, label)
 
+    idol_id = entry.get("idol_id")
+    # bool is an int in Python, but `idol_id = true` is a mistake all the same.
+    if idol_id is not None and (type(idol_id) is not int or idol_id <= 0):
+        raise CharacterConfigError(
+            f"角色 {label} 的 idol_id 应为原作的偶像编号（spine_manifest.json 的 idolId，正整数），"
+            f"现在是 {idol_id!r}"
+        )
+    default_outfit = entry.get("default_outfit")
+    if default_outfit is not None and not (
+        isinstance(default_outfit, str) and _OUTFIT.fullmatch(default_outfit)
+    ):
+        raise CharacterConfigError(
+            f"角色 {label} 的 default_outfit 应写成 stand/<enzaId> 或 stand_costume/<enzaId>"
+            f"（enzaId 是十位数字），现在是 {default_outfit!r}"
+        )
+
     return Character(
         id=entry["id"],
         name=entry["name"],
@@ -145,6 +175,8 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
         speakers=tuple(speakers),
         facts=facts,
         sheet_path=sheet_path,
+        idol_id=idol_id,
+        default_outfit=default_outfit,
     )
 
 

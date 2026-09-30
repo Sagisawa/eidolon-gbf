@@ -34,17 +34,31 @@ class ClearVoice:
 @dataclass(frozen=True)
 class Reply:
     """Reply to the turn in progress, the user having said `text`, afresh if it was
-    replied to already; `voiced` says whether the reply is to be voiced at all."""
+    replied to already; `voiced` says whether the reply is to be voiced at all. Replies
+    are numbered from 1 within the call, one after another, a reply given afresh getting
+    a number of its own: `number` is this one's."""
 
     text: str
     voiced: bool
+    number: int
 
 
 @dataclass(frozen=True)
 class Voice:
-    """Send `text`, some of the reply's Japanese, to TTS."""
+    """Send `text`, some of the Japanese of segment `segment` of reply `reply`, to TTS."""
 
     text: str
+    reply: int
+    segment: int
+
+
+@dataclass(frozen=True)
+class FlushVoice:
+    """Have TTS voice now all it has of segment `segment` of reply `reply`: the segment
+    has all its Japanese."""
+
+    reply: int
+    segment: int
 
 
 @dataclass(frozen=True)
@@ -62,7 +76,9 @@ class QueueTurn:
     text: str
 
 
-Command = DropReply | StopReply | ClearVoice | Reply | Voice | WaitForFollowOn | QueueTurn
+Command = (
+    DropReply | StopReply | ClearVoice | Reply | Voice | FlushVoice | WaitForFollowOn | QueueTurn
+)
 
 _ReplyState = Literal["replying", "dropping", "dropped"]
 """How the reply to the turn in progress is getting on: being given, being dropped for a
@@ -91,7 +107,9 @@ class TurnTaking:
     and what the user says or types is the next turn. Typing between replies stops her
     voice likewise, should the last one still be heard.
 
-    Whether replies are voiced (「只看文字」) is decided as each one starts. Once the
+    Whether replies are voiced (「只看文字」) is decided as each one starts. A voiced
+    reply's Japanese goes to TTS segment by segment, each voiced in full as soon as it is
+    complete, rather than held back for the next one's words. Once the
     call is ending, nothing the user says or types is taken up, and her last reply is
     left to be voiced.
     """
@@ -100,6 +118,7 @@ class TurnTaking:
         self._text_only = text_only
         self._ending = False
         self._voice_playing = False  # the character's voice is playing, whichever reply's
+        self._replies = 0  # replies given so far, the one in progress included
         # The turn in progress:
         self._said: list[str] = []  # what the user said in it, follow-ons included
         self._reply_state: _ReplyState | None = None  # None: there is no turn in progress
@@ -107,6 +126,7 @@ class TurnTaking:
         # Its reply:
         self._voicing = False
         self._sent_to_tts = False  # some of it is on its way to TTS
+        self._voiced_segment: int | None = None  # the last segment of it sent to TTS
         self._spoken = False  # the character has started speaking it
         self._complete = False  # it has a complete segment
 
@@ -168,8 +188,8 @@ class TurnTaking:
         self._said = [text]
         return [self._reply_afresh()]
 
-    def reply_delta(self, lang: Lang, text: str) -> list[Command]:
-        """Some of the reply, in `lang`, has been shown."""
+    def reply_delta(self, lang: Lang, text: str, segment: int) -> list[Command]:
+        """Some of segment `segment` of the reply, in `lang`, has been shown."""
         if not self._voicing:
             self._spoken = True  # its first line is shown
             return []
@@ -178,11 +198,14 @@ class TurnTaking:
         if not self._sent_to_tts:  # its first words: is the last reply's voice still playing?
             self._sent_to_tts = True
             self._spoken = self._voice_playing
-        return [Voice(text)]
+        self._voiced_segment = segment
+        return [Voice(text, self._replies, segment)]
 
-    def segment_complete(self) -> list[Command]:
-        """A segment of the reply is complete."""
+    def segment_complete(self, segment: int) -> list[Command]:
+        """Segment `segment` of the reply is complete."""
         self._complete = True
+        if self._voicing and self._voiced_segment == segment:
+            return [FlushVoice(self._replies, segment)]
         return []
 
     def reply_recorded(self) -> list[Command]:
@@ -259,6 +282,8 @@ class TurnTaking:
     def _reply_afresh(self) -> Reply:
         """Reply to the turn in progress as it now is, voiced unless text only."""
         self._reply_state = "replying"
+        self._replies += 1
         self._voicing = not self._text_only
         self._sent_to_tts = self._spoken = self._complete = False
-        return Reply("\n".join(self._said), self._voicing)
+        self._voiced_segment = None
+        return Reply("\n".join(self._said), self._voicing, self._replies)

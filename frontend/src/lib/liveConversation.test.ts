@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { ApiError, type Conversation, type Message, type TurnEvent } from "@/lib/api";
+import { ApiError, type CallEvent, type Conversation, type Message, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { MicUnavailable } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
+import { CALM, type Emotion } from "@/lib/standAnimations";
 
 /** A call that has connected: records what the conversation asks of it. */
 class FakeCall implements Call {
@@ -375,6 +376,37 @@ describe("LiveConversation: a call", () => {
     handlers.onEvent({ type: "delta", segment: 1, lang: "ja", text: "元気？" });
 
     expect(live.snapshot().line).toEqual({ ja: "元気？", zh: "" });
+  });
+
+  it("knows which segment of which reply her voice is playing, until the call is over", async () => {
+    const { live, attempts } = await conversation({ messages: history });
+    await connected(live, attempts);
+    expect(live.snapshot().playing).toBeNull();
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+
+    handlers.onEvent({ type: "segment-playing", reply: 1, segment: 0 });
+    expect(live.snapshot().playing).toEqual({ reply: 1, segment: 0 });
+    handlers.onEvent({ type: "segment-playing", reply: 1, segment: 1 });
+    expect(live.snapshot().playing).toEqual({ reply: 1, segment: 1 });
+    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "" });
+
+    await live.hangUp();
+    expect(live.snapshot().playing).toBeNull();
+  });
+
+  it("starts the next call with nothing playing, even if the last one dropped", async () => {
+    const { live, attempts } = await conversation();
+    const call = await connected(live, attempts);
+    attempts[0].handlers.onEvent({ type: "segment-playing", reply: 2, segment: 0 });
+
+    attempts[0].handlers.onDropped();
+    expect(live.snapshot().playing).toBeNull();
+    await connected(live, attempts);
+
+    expect(call.hangUps).toBe(0);
+    expect(live.snapshot().playing).toBeNull();
   });
 
   it("shows a turn failing in a call while the call goes on", async () => {
@@ -1205,5 +1237,287 @@ describe("LiveConversation: the microphone list", () => {
     await end(live, attempts);
 
     expect(live.snapshot().pickingMic).toBe(false);
+  });
+});
+
+describe("LiveConversation: the stand", () => {
+  it("starts each call calm, looking ahead with her mouth shut", async () => {
+    const { live, attempts } = await conversation();
+    expect(live.snapshot().stand).toEqual(CALM);
+
+    await connected(live, attempts);
+
+    expect(live.snapshot().stand).toEqual(CALM);
+  });
+
+  it("opens her mouth while her voice plays and shuts it when it stops", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(true);
+    handlers.onEvent({ type: "bot-stopped-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(false);
+  });
+
+  it("keeps her mouth shut in text only, even when switched on while she speaks", async () => {
+    const { live, attempts } = await conversation();
+    live.toggleTextOnly();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(false);
+
+    live.toggleTextOnly();
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(true);
+    live.toggleTextOnly();
+    expect(live.snapshot().stand.speaking).toBe(false);
+  });
+
+  it("looks at the user while they speak, then nods once when they stop", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+
+    handlers.onEvent({ type: "user-started-speaking" });
+    expect(live.snapshot().stand).toMatchObject({ looking: true, nod: null });
+    handlers.onEvent({ type: "user-stopped-speaking" });
+    const first = live.snapshot().stand.nod;
+    expect(live.snapshot().stand.looking).toBe(false);
+    expect(first).toMatchObject({ kind: "yes" });
+
+    handlers.onEvent({ type: "user-started-speaking" });
+    handlers.onEvent({ type: "user-stopped-speaking" });
+    const second = live.snapshot().stand.nod;
+    expect(second).toMatchObject({ kind: "yes" });
+    expect(second?.id).not.toBe(first?.id);
+  });
+
+  it("shuts her mouth as soon as her voice stops when the user cuts in, looking at them", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+    handlers.onEvent({ type: "bot-started-speaking" });
+    const mood = live.snapshot().stand.mood;
+
+    handlers.onEvent({ type: "user-started-speaking" });
+    handlers.onEvent({ type: "bot-stopped-speaking" });
+
+    expect(live.snapshot().stand).toMatchObject({ mood, speaking: false, looking: true });
+  });
+
+  it("looks at the user who interrupts by typing once her voice stops, until she speaks again", async () => {
+    const { live, attempts } = await conversation();
+    const call = await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "bot-started-speaking" });
+
+    live.setDraft("等一下");
+    await live.submit();
+    expect(call.sent).toEqual(["等一下"]);
+    expect(live.snapshot().stand).toMatchObject({ speaking: true, looking: false });
+    handlers.onEvent({ type: "bot-stopped-speaking" });
+
+    expect(live.snapshot().stand).toMatchObject({ mood: "calm", speaking: false, looking: true });
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand).toMatchObject({ speaking: true, looking: false });
+  });
+
+  it("changes nothing for what is typed before she starts speaking", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    attempts[0].handlers.onEvent({ type: "user", text: "你好" });
+
+    live.setDraft("还有");
+    await live.submit();
+
+    expect(live.snapshot().stand).toEqual(CALM);
+  });
+
+  it("keeps following the call while the call layer is collapsed", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    live.collapse();
+
+    attempts[0].handlers.onEvent({ type: "bot-started-speaking" });
+
+    expect(live.snapshot().stand.speaking).toBe(true);
+  });
+
+  it.each([
+    ["is hung up", (live: LiveConversation) => live.hangUp()],
+    ["drops", (_live: LiveConversation, attempts: Attempt[]) => attempts[0].handlers.onDropped()],
+  ])("is cleared when the call %s, the next call starting calm", async (_, end) => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "bot-started-speaking" });
+    handlers.onEvent({ type: "user-started-speaking" });
+    handlers.onEvent({ type: "user-stopped-speaking" });
+    handlers.onEvent({ type: "user-started-speaking" });
+
+    await end(live, attempts);
+    expect(live.snapshot().stand).toEqual(CALM);
+    handlers.onEvent({ type: "bot-started-speaking" }); // the old call's, too late
+    expect(live.snapshot().stand).toEqual(CALM);
+
+    await connected(live, attempts);
+    expect(live.snapshot().stand).toEqual(CALM);
+  });
+});
+
+describe("LiveConversation: her emotions", () => {
+  /** The judged emotion of segment `segment` of reply `reply`, with a nod if given. */
+  function emotion(reply: number, segment: number, feeling: Emotion, nod: "yes" | "no" | null = null): CallEvent {
+    return { type: "emotion", reply, segment, emotion: feeling, nod };
+  }
+
+  function playing(reply: number, segment: number): CallEvent {
+    return { type: "segment-playing", reply, segment };
+  }
+
+  /** A call under way with her voice, as reply `reply` starts; `emit` sends it events. */
+  async function voiced(options: { textOnly?: boolean } = {}) {
+    const opened = await conversation();
+    if (options.textOnly) opened.live.toggleTextOnly();
+    await connected(opened.live, opened.attempts);
+    const emit = (...events: CallEvent[]) => events.forEach((event) => opened.attempts[0].handlers.onEvent(event));
+    const mood = () => opened.live.snapshot().stand.mood;
+    return { ...opened, emit, mood };
+  }
+
+  function reply(number: number): CallEvent {
+    return { type: "user", text: "你好", reply: number };
+  }
+
+  function subtitle(segment: number, text = "こんにちは"): CallEvent {
+    return { type: "delta", segment, lang: "ja", text };
+  }
+
+  it("changes as her voice starts playing the segment, not before", async () => {
+    const { emit, mood } = await voiced();
+    emit(reply(1), subtitle(0), emotion(1, 0, "happy"));
+    expect(mood()).toBe("calm");
+
+    emit(playing(1, 0));
+
+    expect(mood()).toBe("happy");
+  });
+
+  it("changes on a late emotion while the segment is still playing", async () => {
+    const { emit, mood } = await voiced();
+    emit(reply(1), subtitle(0), playing(1, 0), { type: "bot-started-speaking" });
+
+    emit(emotion(1, 0, "sad"));
+
+    expect(mood()).toBe("sad");
+  });
+
+  it("drops an emotion that comes once the segment has been said", async () => {
+    const { emit, mood } = await voiced();
+    emit(reply(1), playing(1, 0), { type: "bot-started-speaking" }, playing(1, 1));
+
+    emit(emotion(1, 0, "sad"));
+    expect(mood()).toBe("calm");
+
+    emit({ type: "bot-stopped-speaking" }, emotion(1, 1, "angry"));
+    expect(mood()).toBe("calm");
+  });
+
+  it("keeps an emotion for a segment whose voice starts right after the last one stopped", async () => {
+    const { emit, mood } = await voiced();
+    emit(reply(1), playing(1, 0), { type: "bot-started-speaking" }, playing(1, 1));
+
+    // Her voice stops just after the next segment's message, and starts again.
+    emit({ type: "bot-stopped-speaking" }, { type: "bot-started-speaking" }, emotion(1, 1, "shy"));
+
+    expect(mood()).toBe("shy");
+  });
+
+  it("keeps her mood through calm segments, until a reply starts calm", async () => {
+    const { emit, mood } = await voiced();
+    emit(reply(1), emotion(1, 0, "happy"), emotion(1, 1, "calm"), playing(1, 0), playing(1, 1));
+    expect(mood()).toBe("happy");
+
+    emit(reply(2), emotion(2, 0, "calm"), playing(2, 0));
+
+    expect(mood()).toBe("calm");
+  });
+
+  it("nods or shakes her head along with the emotion, once each", async () => {
+    const { live, emit } = await voiced();
+    emit(reply(1), emotion(1, 0, "happy", "yes"), emotion(1, 1, "calm", "no"));
+    expect(live.snapshot().stand.nod).toBeNull();
+
+    emit(playing(1, 0));
+    const nod = live.snapshot().stand.nod;
+    expect(nod).toMatchObject({ kind: "yes" });
+    emit(playing(1, 1));
+    expect(live.snapshot().stand.nod).toMatchObject({ kind: "no" });
+    expect(live.snapshot().stand.nod?.id).not.toBe(nod?.id);
+  });
+
+  it("changes as each segment's first subtitle shows in text only", async () => {
+    const { emit, mood } = await voiced({ textOnly: true });
+    emit(reply(1), emotion(1, 0, "surprised"));
+    expect(mood()).toBe("calm");
+
+    emit(subtitle(0));
+    expect(mood()).toBe("surprised");
+    emit(subtitle(0, "！"), { type: "delta", segment: 0, lang: "zh", text: "你好" }, subtitle(1));
+    emit(emotion(1, 1, "thinking")); // judged once the segment is complete: after it shows
+    expect(mood()).toBe("thinking");
+
+    emit(reply(2), emotion(1, 1, "angry")); // the last reply's, once the next is under way
+    expect(mood()).toBe("thinking");
+  });
+
+  it("takes up each segment's emotion in text only though the next segment shows before it is judged", async () => {
+    const { emit, mood } = await voiced({ textOnly: true });
+    emit(reply(1), subtitle(0), subtitle(1));
+
+    emit(emotion(1, 0, "happy"));
+    expect(mood()).toBe("happy");
+    emit(subtitle(2), emotion(1, 2, "sad"), emotion(1, 1, "angry")); // the later one came first
+    expect(mood()).toBe("sad");
+  });
+
+  it("keeps an emotion only for the reply it was judged in", async () => {
+    const { emit, mood } = await voiced();
+    emit(reply(1), emotion(1, 1, "sad"));
+    // The reply was dropped for a follow-on before that segment played.
+    emit(reply(2), playing(2, 0), playing(2, 1));
+
+    expect(mood()).toBe("calm");
+  });
+
+  it("leaves her mood alone when she is interrupted", async () => {
+    const { emit, mood, live } = await voiced();
+    emit(reply(1), emotion(1, 0, "happy"), playing(1, 0), { type: "bot-started-speaking" });
+
+    emit({ type: "user-started-speaking" }, { type: "bot-stopped-speaking" }, emotion(1, 1, "sad"));
+
+    expect(mood()).toBe("happy");
+    expect(live.snapshot().stand).toMatchObject({ speaking: false, looking: true });
+  });
+
+  it("starts the next call calm, forgetting the last call's emotions", async () => {
+    const { live, attempts, emit, mood } = await voiced();
+    emit(reply(1), emotion(1, 0, "happy"), playing(1, 0), emotion(1, 1, "sad"));
+    expect(mood()).toBe("happy");
+
+    await live.hangUp();
+    expect(live.snapshot().stand).toEqual(CALM);
+    emit(emotion(1, 0, "angry")); // the old call's, too late
+    await connected(live, attempts);
+    attempts[1].handlers.onEvent(reply(1));
+    attempts[1].handlers.onEvent(playing(1, 1));
+
+    expect(mood()).toBe("calm");
   });
 });

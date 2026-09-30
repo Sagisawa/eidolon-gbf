@@ -34,15 +34,18 @@ import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, PhoneIcon } from "@/theme/icons";
+import { BackIcon, OutfitIcon, PhoneIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { CallLayer, type ShownCall } from "./CallLayer";
 import { CallNote } from "./CallNote";
 import { MicSheet } from "./MicSheet";
+import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useCallTones } from "./useCallTones";
+import { useFocusBack } from "./useFocusBack";
 import { useCharacterVoice } from "./useCharacterVoice";
+import { useStandOutfits } from "./useStandOutfits";
 
 const t = copy.conversation;
 
@@ -56,6 +59,7 @@ const noSubscription = () => () => {};
  *
  * 页首的电话键打开通话层并开始呼叫（spec「通话层」）；通话层可以收起回到这里，页首下方留一张便利贴，
  * 电话键变成「回到通话」。离开这一页（换角色、进设置或记忆、回列表）先经列表外壳确认，然后挂断。
+ * 她有立绘时，电话键旁边是「换衣装」（spec「衣装与换衣装」）。
  */
 export function ConversationView({ character, onBack }: { character: Character; onBack?: () => void }) {
   const router = useRouter();
@@ -67,6 +71,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const { conversation, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
   const voice = useCharacterVoice(textOnly);
   const shownCall = useShownCall(call);
+  const outfits = useStandOutfits(character);
+  const [pickingOutfit, setPickingOutfit] = useState(false);
   useCallTones(call.phase);
 
   // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话）。
@@ -119,6 +125,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
   // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。
   const isLayerCollapsed = collapsed || call.phase === "idle";
   const isCovered = shownCall !== null && !isLayerCollapsed;
+  const noteShown = isLive(call) && collapsed;
+  const focus = useFocusBack({ layerOpen: isCovered, noteShown });
   const phoneKey = isFullScreen ? { ...herButton, ...touchTarget } : herButton;
 
   const header = (
@@ -155,11 +163,22 @@ export function ConversationView({ character, onBack }: { character: Character; 
           {character.name}
         </Heading>
       </StackItem>
+      {outfits && (
+        <IconButton
+          label={t.outfits.open}
+          tooltip={t.outfits.open}
+          icon={<Icon icon={OutfitIcon} />}
+          variant="ghost"
+          onClick={() => setPickingOutfit(true)}
+          style={isFullScreen ? touchTarget : undefined}
+        />
+      )}
       {inCall ? (
         <IconButton
           label={copy.call.expand}
           tooltip={copy.call.expand}
           icon={<Icon icon={PhoneIcon} />}
+          ref={focus.phoneKey}
           onClick={() => live?.expand()}
           style={phoneKey}
         />
@@ -169,6 +188,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           tooltip={t.callTooltip}
           icon={<Icon icon={PhoneIcon} />}
           isDisabled={!isOpen || busy}
+          ref={focus.phoneKey}
           onClick={dial}
           style={phoneKey}
         />
@@ -209,7 +229,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
 
   return (
     <Frame character={character} header={header}>
-      {isLive(call) && collapsed && <CallNote call={call} onExpand={() => live?.expand()} />}
+      {noteShown && <CallNote ref={focus.note} call={call} onExpand={() => live?.expand()} />}
       {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
       {failure?.signedOut && !isCovered && <FailureNotice failure={failure} />}
       <StackItem size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
@@ -253,6 +273,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           character={character}
           call={shownCall}
           isCollapsed={isLayerCollapsed}
+          layerRef={focus.layer}
           isFullScreen={isFullScreen}
           isReducedMotion={isReducedMotion}
           micMuted={snapshot.micMuted}
@@ -260,6 +281,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
           textOnly={textOnly}
           line={snapshot.line}
           hearing={hearing}
+          standDirection={snapshot.stand}
+          standOutfits={outfits?.toTry ?? []}
           onCollapse={() => live?.collapse()}
           onHangUp={() => void live?.hangUp()}
           onToggleMic={() => live?.toggleMic()}
@@ -277,6 +300,16 @@ export function ConversationView({ character, onBack }: { character: Character; 
         micId={snapshot.micId}
         onSelect={(micId) => void live?.switchMic(micId)}
       />
+      {outfits && (
+        <OutfitPicker
+          isOpen={pickingOutfit}
+          onOpenChange={setPickingOutfit}
+          isWide={!isFullScreen}
+          isReducedMotion={isReducedMotion}
+          color={character.color}
+          outfits={outfits}
+        />
+      )}
     </Frame>
   );
 }

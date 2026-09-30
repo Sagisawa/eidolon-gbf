@@ -1,12 +1,14 @@
-"""Characters come from configuration: the list, the avatars, the image colours and call
-backgrounds, and each one's character sheet."""
+"""Characters come from configuration: the list, the avatars, the image colours, call
+backgrounds and stands, and each one's character sheet."""
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from eidolon.characters import CharacterConfigError, Fact, load_characters, parse_facts
+from eidolon.config import Settings, stand_assets_url_from_env
 from tests.conftest import AVATAR, BACKGROUND, KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
@@ -30,6 +32,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "avatar_url": "/api/characters/mano/avatar",
             "color": "#ffbad6",
             "background_url": "/api/characters/mano/background",
+            "stand": None,  # no stand assets URL is configured
         },
         {
             "id": "kogane",
@@ -38,6 +41,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "avatar_url": None,
             "color": "#f84cad",
             "background_url": None,
+            "stand": None,
         },
     ]
     assert "ほわっ" not in res.text
@@ -266,3 +270,117 @@ def test_missing_call_background_is_a_warning_and_treated_as_none(
 
     assert mano.background is None
     assert "backgrounds" in caplog.text and "mano" in caplog.text
+
+
+STAND_ASSETS = "https://stand.example/eidolon"
+
+
+async def test_character_with_an_idol_and_a_default_outfit_has_a_stand_and_her_outfit_list_once_assets_are_served(
+    make_client: ClientFactory, settings: Settings
+):
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS), user=None)
+
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+
+    assert listed["mano"]["stand"] == {
+        "default_outfit": {
+            "id": "stand/1030010010",
+            "url": f"{STAND_ASSETS}/spine/idols/stand/1030010010/",
+        },
+        "outfits_url": f"{STAND_ASSETS}/outfits/1.json",
+    }
+    assert listed["kogane"]["stand"] is None  # no idol, no default outfit
+
+
+@pytest.mark.parametrize(
+    ("idol_id", "default_outfit"), [(1, None), (None, "stand_costume/1030010010")]
+)
+async def test_character_missing_her_idol_or_her_default_outfit_has_no_stand(
+    make_client: ClientFactory,
+    settings: Settings,
+    characters: CharacterConfig,
+    idol_id: int | None,
+    default_outfit: str | None,
+):
+    characters.add("hiori", "風野灯織", "sheet", idol_id=idol_id, default_outfit=default_outfit)
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS))
+
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+
+    assert listed["hiori"]["stand"] is None
+
+
+def test_idol_and_default_outfit_are_read_from_the_configuration(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add(
+        "mano", "櫻木真乃", "a", idol_id=1, default_outfit="stand_costume/1040010060"
+    )
+
+    mano = load_characters(config.path)["mano"]
+
+    assert (mano.idol_id, mano.default_outfit) == (1, "stand_costume/1040010060")
+
+
+def test_idol_and_default_outfit_are_optional(tmp_path: Path):
+    mano = load_characters(CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a").path)["mano"]
+
+    assert (mano.idol_id, mano.default_outfit) == (None, None)
+
+
+def add_raw(config: CharacterConfig, line: str) -> None:
+    config.path.write_text(config.path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("value", ['"1"', "0", "-4", "1.5", "true"])
+def test_idol_id_must_be_a_positive_whole_number(tmp_path: Path, value: str):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    add_raw(config, f"idol_id = {value}")
+
+    with pytest.raises(CharacterConfigError, match="角色 mano 的 idol_id"):
+        load_characters(config.path)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        '"1030010010"',
+        '"cb/1030010010"',
+        '"stand/103001001"',
+        '"stand/1030010010/"',
+        '"spine/idols/stand/1030010010"',
+        "1030010010",
+    ],
+)
+def test_default_outfit_must_name_a_stand_outfit(tmp_path: Path, value: str):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    add_raw(config, f"default_outfit = {value}")
+
+    with pytest.raises(CharacterConfigError, match="角色 mano 的 default_outfit.*stand/<enzaId>"):
+        load_characters(config.path)
+
+
+def test_repository_gives_mano_and_kogane_their_idols_and_default_outfits():
+    loaded = load_characters(REPO_CHARACTERS / "characters.toml")
+
+    assert {id: (c.idol_id, c.default_outfit) for id, c in loaded.items()} == {
+        "mano": (1, "stand/1030010010"),
+        "kogane": (4, "stand/1030040010"),
+    }
+
+
+def test_stand_assets_url_is_read_without_its_trailing_slash(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("EIDOLON_STAND_ASSETS_URL", raising=False)
+    assert stand_assets_url_from_env() is None
+
+    monkeypatch.setenv("EIDOLON_STAND_ASSETS_URL", " https://stand.example/eidolon/ ")
+    assert stand_assets_url_from_env() == "https://stand.example/eidolon"
+
+    monkeypatch.setenv("EIDOLON_STAND_ASSETS_URL", "http://localhost:8765")
+    assert stand_assets_url_from_env() == "http://localhost:8765"
+
+
+@pytest.mark.parametrize("value", ["stand.example/eidolon", "/stand", "ftp://stand.example"])
+def test_stand_assets_url_must_be_a_web_address(monkeypatch: pytest.MonkeyPatch, value: str):
+    monkeypatch.setenv("EIDOLON_STAND_ASSETS_URL", value)
+
+    with pytest.raises(RuntimeError, match="EIDOLON_STAND_ASSETS_URL"):
+        stand_assets_url_from_env()

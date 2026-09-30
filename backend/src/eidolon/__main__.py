@@ -26,6 +26,11 @@
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
+    eidolon stand outfits            list the outfits of each character with an idol from
+                                     the Spine mirror, into the build directory
+    eidolon stand upload             upload the outfits the lists name, their thumbnails and
+                                     the lists to the S3-compatible bucket, skipping what it
+                                     has as it is; exits 2 if the bucket failed
     eidolon reembed                  after changing the embedding service, model or
                                      dimensions, embed the story corpus, character facts,
                                      work facts, and memories again from
@@ -71,6 +76,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_sync_world(args))
     if args.command == "character":
         return asyncio.run(_draft_sheet(args))
+    if args.command == "stand" and args.action == "outfits":
+        return _stand_outfits(args)
+    if args.command == "stand":
+        return asyncio.run(_stand_upload(args))
     if args.command == "reembed":
         return asyncio.run(_reembed(args))
     if args.command == "eval":
@@ -279,6 +288,70 @@ async def _sync_world(args: argparse.Namespace) -> int:
         await client.aclose()
     for line in report.lines():
         print(line)
+    return 0
+
+
+def _stand_outfits(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import stand_build_path_from_env, stand_mirror_path_from_env
+    from eidolon.stand_outfits import list_path, make_outfit_lists
+
+    try:
+        characters = load_characters(
+            args.characters or characters_path_from_env(), require_sheets=False
+        )
+        mirror = args.mirror or stand_mirror_path_from_env()
+        build = args.build or stand_build_path_from_env()
+        report = make_outfit_lists(mirror, build, characters.values())
+    except (RuntimeError, OSError) as e:  # MirrorLayoutError, a broken character configuration
+        print(e, file=sys.stderr)
+        return 1
+    for warning in report.warnings:
+        print(f"注意：{warning}", file=sys.stderr)
+    if not report.lists:
+        print("角色配置里没有配 idol_id 的角色，没有生成衣装清单")
+    for outfits in report.lists:
+        print(
+            f"{outfits.character}：{len(outfits.cards)} 张卡，{len(outfits.outfits)} 套衣装"
+            f"（{build / list_path(outfits.idol_id)}）"
+        )
+    return 0
+
+
+async def _stand_upload(args: argparse.Namespace) -> int:
+    import time
+
+    from eidolon.config import stand_build_path_from_env, stand_mirror_path_from_env
+    from eidolon.s3 import Bucket, S3Error, S3Settings
+    from eidolon.stand_upload import upload_stands
+
+    try:
+        mirror = args.mirror or stand_mirror_path_from_env()
+        settings = S3Settings.from_env()
+    except RuntimeError as e:
+        print(e, file=sys.stderr)
+        return 1
+    started = time.monotonic()
+    bucket = Bucket(settings)
+    try:
+        report = await upload_stands(mirror, args.build or stand_build_path_from_env(), bucket)
+    except S3Error as e:
+        print(f"上传中断（已上传的不会重复上传，重新运行即可继续）：{e}", file=sys.stderr)
+        return 2
+    except (RuntimeError, OSError) as e:  # no outfit lists, or the mirror lacks a file they name
+        print(e, file=sys.stderr)
+        return 1
+    finally:
+        await bucket.aclose()
+    if report.missing_thumbnails:
+        print(
+            f"注意：{len(report.missing_thumbnails)} 套衣装还没有缩略图，没有上传：{'、'.join(report.missing_thumbnails)}",
+            file=sys.stderr,
+        )
+    print(
+        f"上传 {report.uploaded} 个文件（{report.uploaded_bytes / 1_000_000:.1f} MB），"
+        f"{report.unchanged} 个存储桶里已有、内容没变，没有上传；用时 {time.monotonic() - started:.0f} 秒"
+    )
     return 0
 
 
@@ -595,6 +668,35 @@ def _parser() -> argparse.ArgumentParser:
         type=int,
         help="每次请求后台模型最多带多少字的剧情素材（默认 40000，至少 1000），超出时分批总结",
     )
+
+    stand = commands.add_parser("stand", help="同步立绘素材").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    outfits = stand.add_parser(
+        "outfits",
+        help="从立绘镜像为配了 idol_id 的角色生成衣装清单，写进整理目录的 outfits/<idol_id>.json（可重复执行）",
+    )
+    outfits.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
+    upload = stand.add_parser(
+        "upload",
+        help="把衣装清单列出的立绘文件、缩略图和衣装清单上传到 S3 兼容的存储桶，内容没变的不重复上传"
+        "（存储桶的地址和密钥取环境变量 EIDOLON_STAND_S3_*）",
+    )
+    for command in (outfits, upload):
+        command.add_argument(
+            "--mirror",
+            type=Path,
+            help="立绘镜像，spine_manifest.json 所在的目录（默认取环境变量 EIDOLON_STAND_MIRROR_PATH）",
+        )
+        command.add_argument(
+            "--build",
+            type=Path,
+            help="衣装清单和缩略图的整理目录（默认取环境变量 EIDOLON_STAND_BUILD_PATH，没有时是 ../corpus/stand），不要放进仓库",
+        )
 
     evaluation = commands.add_parser("eval", help="评估检索效果").add_subparsers(
         dest="action", required=True, metavar="操作"

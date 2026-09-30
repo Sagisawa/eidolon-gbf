@@ -9,6 +9,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
 import re
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 from urllib.parse import quote, unquote, urlencode
 
 import httpx
@@ -27,6 +28,7 @@ from pipecat.utils.time import time_now_iso8601
 from eidolon.characters import Character
 from eidolon.config import LLMSettings
 from eidolon.embedding import Document, EmbeddingError
+from eidolon.emotion import Emotion, EmotionAnswer, Nod, SegmentToJudge
 from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
@@ -325,17 +327,53 @@ class FakeEmbedder:
 
 class FakeJudge:
     """Stands in for Jev: answers every turn the same way, or fails if `answer` is None.
-    Records what it was asked."""
+    Records what it was asked.
 
-    def __init__(self, answer: Need | None = "references") -> None:
+    Asked about segments' emotions, it answers each in turn from `emotions`: an answer,
+    None to fail, or `HANG` never to answer; calm and neither nodding nor not once they
+    run out. Records the segments it was asked about (`segments`)."""
+
+    def __init__(
+        self,
+        answer: Need | None = "references",
+        emotions: Sequence[EmotionAnswer | object | None] = (),
+    ) -> None:
         self.answer: Need | None = answer
         self.asked: list[tuple[str, str]] = []  # (character id, text)
+        self.emotions = list(emotions)
+        self.segments: list[SegmentToJudge] = []
 
     async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
         self.asked.append((character.id, text))
         if self.answer is None:
             raise JudgeError("fake Jev is down")
         return self.answer
+
+    async def judge_emotion(self, segment: SegmentToJudge) -> EmotionAnswer:
+        self.segments.append(segment)
+        answer = self.emotions.pop(0) if self.emotions else feeling("calm")
+        if answer is None:
+            raise JudgeError("fake Jev is down")
+        if answer is HANG:
+            await asyncio.Event().wait()
+        assert isinstance(answer, EmotionAnswer)
+        return answer
+
+
+def feeling(
+    emotion: Emotion,
+    probability: float = 0.9,
+    nod: Nod | None = None,
+    nod_probability: float = 0.9,
+) -> EmotionAnswer:
+    """An answer about a segment's emotion: `emotion` with `probability`, and `nod` with
+    `nod_probability`, the rest shared out among the other options."""
+    others = [e for e in get_args(Emotion) if e != emotion]
+    emotions = {emotion: probability, **{e: (1 - probability) / len(others) for e in others}}
+    no_nod = (1 - nod_probability) / 2
+    nods: dict[Nod | None, float] = {"yes": no_nod, "no": no_nod, None: no_nod}
+    nods[nod] = nod_probability
+    return EmotionAnswer(emotions, nods)
 
 
 class FakeReranker:

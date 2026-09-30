@@ -53,7 +53,7 @@ async def test_a_call_is_heard_and_voiced_and_lands_in_the_conversation(
     browser.type("鸽子叫什么？")
     typed = await browser.turn()
 
-    assert spoken[0] == {"type": "user", "text": "早上好"}
+    assert spoken[0] == {"type": "user", "text": "早上好", "reply": 1}
     assert [(m["segment"], m["lang"], m["text"]) for m in spoken if m["type"] == "delta"] == [
         (0, "ja", "ほわっ、"),
         (0, "ja", "おはようございます！"),

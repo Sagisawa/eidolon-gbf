@@ -21,12 +21,14 @@ from eidolon.call import (
     Quality,
     SessionDescription,
 )
+from eidolon.characters import Character
 from eidolon.engine import TurnFailed
 from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
 from eidolon.sessions import UserId, session_middleware
+from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
 from eidolon.usage import OverLimit
 
@@ -96,6 +98,19 @@ class IceCandidates(BaseModel):
 
 DeviceTimezone = Annotated[str | None, Header(alias="X-Timezone")]
 """The time zone the browser detected; the producer profile's own time zone overrides it."""
+
+
+def _stand(character: Character, assets_url: str | None) -> dict | None:
+    """Her stand on the call screen: where her default outfit's files are, and her outfit
+    list (`stand_outfits`). None, and her call background alone, unless her idol, her
+    default outfit and the stand assets are all configured."""
+    if character.idol_id is None or character.default_outfit is None or assets_url is None:
+        return None
+    outfit = character.default_outfit
+    return {
+        "default_outfit": {"id": outfit, "url": f"{assets_url}/{outfit_path(outfit)}"},
+        "outfits_url": f"{assets_url}/{list_path(character.idol_id)}",
+    }
 
 
 def create_app(backend: Backend) -> FastAPI:
@@ -208,6 +223,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "avatar_url": f"/api/characters/{c.id}/avatar" if c.avatar else None,
                 "color": c.color,
                 "background_url": f"/api/characters/{c.id}/background" if c.background else None,
+                "stand": _stand(c, backend.settings.stand_assets_url),
             }
             for c in characters.values()
         ]

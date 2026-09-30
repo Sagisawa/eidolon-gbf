@@ -159,6 +159,127 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 换重排模型前用它比较两个模型的分数分布，再决定阈值。需要剧情库已经同步好，并且有当前向量化模型的向量；数据集里的记忆是虚构的示例，运行时临时向量化，不会写进数据库。
 
+## 立绘素材
+
+通话层上可以叠一层原作的 Spine 立绘（CONTEXT.md「立绘」）。素材不进仓库（ADR-0003 的 2026-09-30 修订），放在你选的 S3 兼容对象存储里，浏览器直接从存储桶下载。三项都配好了，这位角色的通话层才显示立绘；少一项就和原来一样，只显示背景图：
+
+- `characters/characters.toml` 里这位角色的 `idol_id`：原作的偶像编号，即镜像 `spine_manifest.json` 里的 `idolId`（真乃是 1，恋钟是 4）。
+- 同一段里的 `default_outfit`：用户没选过衣装时她穿的那一套，写成 `stand/<enzaId>`（这张卡的私服）或 `stand_costume/<enzaId>`（演出服），`enzaId` 是 `spine_manifest.json` 里的十位编号，例如 `stand/1030010010`。
+- `.env` 的 `EIDOLON_STAND_ASSETS_URL`：存储桶的公开访问地址，例如 `https://stand.example.com`。
+
+改完重启后端。`idol_id` 或 `default_outfit` 格式不对时后端拒绝启动，并说明是哪位角色的哪一项。
+
+### 选择对象存储
+
+任何 S3 兼容的对象存储都行：Cloudflare R2（不收流量费）、腾讯云 COS、阿里云 OSS、AWS S3，或者自己搭的 MinIO、SeaweedFS。同步脚本只用 S3 接口，不依赖哪一家。每位角色约 120MB（真乃 84 套、恋钟 80 套衣装，加上缩略图），浏览器打电话时下载一套，平均约 1.3MB（之后走缓存）。服务器在国内时，选国内的存储、配上已备案的域名，手机上的加载会快很多。
+
+建一个存储桶，再建一对只能写这个存储桶的访问密钥（R2 叫「API 令牌」，选 Object Read & Write），然后配置：
+
+- **公开可读**：不签名、不要求登录（R2 在存储桶设置里连接自定义域名或打开 `r2.dev` 地址；COS、OSS 把存储桶设成「公有读私有写」）。这个公开地址就是 `EIDOLON_STAND_ASSETS_URL`。
+- **CORS**：允许网站的域名（`https://你的域名`）用 `GET` 访问。立绘用 WebGL 绘制，贴图跨域时没有 CORS 就加载不了，通话层会退回背景图。本地开发时再加上 `http://localhost:3000`。
+- **缓存**：同步脚本上传时给每个文件设好了 `Cache-Control`，存储桶这边不用另外设置，只要别用规则覆盖掉：衣装的文件内容不会变，是 `public, max-age=31536000, immutable`；缩略图可能重画，是一天；衣装清单随新卡变化，是 `no-cache`（每次都向存储桶确认）。前面有 CDN 时，让它沿用源站的 `Cache-Control`。
+
+**前面有 CDN 时**（推荐，尤其是国内）：存储桶可以保持私有，只让 CDN 回源。以腾讯云为例：CDN 添加加速域名（例如 `stand.你的域名`），源站类型选 COS 源、选中这个存储桶，打开「私有存储桶访问」并按提示给 CDN 授权；缓存配置里节点缓存和浏览器缓存都选「遵循源站」（不然衣装清单会被缓存几十天，新卡迟迟不出现）；「高级配置 → HTTP 响应头」加一条 `Access-Control-Allow-Origin: *`（存储桶私有时 CORS 由 CDN 统一加）；申请证书、开启 HTTPS 服务（网站是 HTTPS，浏览器不许加载 HTTP 的立绘）；建议再设一条用量封顶，防止被刷流量。`EIDOLON_STAND_ASSETS_URL` 填 CDN 的地址，例如 `https://stand.你的域名`。这样直接访问存储桶会被拒绝，公开的只有 CDN。
+
+**存储桶里的结构**：
+
+| 位置 | 内容 |
+|---|---|
+| `spine/idols/<stand 或 stand_costume>/<enzaId>/` | 一套衣装的 `data.json`、`data.atlas`、`data.png`，和镜像的 `assets` 目录一样。PNG 原样上传，不转 WebP |
+| `thumbnails/<stand 或 stand_costume>/<enzaId>.png` | 这套衣装的缩略图：电脑「半身 ADV」的取景，400×500，透明背景 |
+| `outfits/<idol_id>.json` | 这位角色的衣装清单，换衣装面板按它列出衣装 |
+
+后端通过 `/api/characters` 把默认衣装的地址和衣装清单的地址（`stand.outfits_url`）告诉浏览器。
+
+**衣装清单**的格式：
+
+```json
+{
+  "idol_id": 1,
+  "cards": [
+    {
+      "id": "1030010010",
+      "name": "ナチュラルモード",
+      "type": "P_SR",
+      "everyday": {"id": "stand/1030010010", "url": "../spine/idols/stand/1030010010/", "thumbnail": "../thumbnails/stand/1030010010.png"},
+      "stage": {"id": "stand_costume/1030010010", "url": "../spine/idols/stand_costume/1030010010/", "thumbnail": "../thumbnails/stand_costume/1030010010.png"}
+    }
+  ]
+}
+```
+
+- 每张卡一项，按 `id`（enzaId）排序，也就是原作的发布顺序。只收 stand 和 stand_costume，不收 Q 版小人（cb）。
+- `name` 是卡名，原文去掉【】和角色名（`【ナチュラルモード】櫻木真乃` 是 `ナチュラルモード`）；原作里没有卡名的（`【】櫻木真乃`）用角色名。`type` 是 `spine_manifest.json` 的 `dressType`：P_SR、P_SSR、Special、Mizugi 等。
+- `everyday` 是这张卡的私服（`stand`），`stage` 是演出服（`stand_costume`），没有的为 `null`。两套贴图逐字节相同时（多数 Special 卡）只算一套，记在 `everyday`。`default_outfit` 要写清单里有的那套：写成被去重的演出服时它不会上传，同步时会提示。
+- `url` 和 `thumbnail` 是相对于衣装清单本身的地址（浏览器里用 `new URL(url, outfits_url)` 解析）。
+
+### 同步素材
+
+`deploy/stand-sync.sh` 把立绘上传到存储桶，分三步：
+
+1. `eidolon stand outfits`：从立绘镜像为 `characters.toml` 里配了 `idol_id` 的每位角色整理衣装清单，写进整理目录。镜像里列了却没有文件的衣装跳过并提示；`default_outfit` 不在清单里时也会提示。
+2. `npm run stand:thumbnails`（在 `frontend/` 里）：用和通话层同一套播放代码，在无界面的 Chromium 里给每套衣装渲染一张缩略图，渲染前先让动画走约 1 秒，避开待机表情开头的眨眼。已经有缩略图的不再渲染，想全部重画时删掉整理目录里的 `thumbnails/`（或者直接运行 `npm run stand:thumbnails -- --force`）。
+3. `eidolon stand upload`：上传衣装清单列出的每套衣装的文件、缩略图，最后上传衣装清单。缩略图渲染失败的衣装照常上传、照常列在清单里，换衣装面板上暂时没有它的缩略图，下次同步补上。存储桶里已经有、内容相同的（按 ETag 比较 MD5）不重复上传，所以再次同步时只多列一次存储桶。
+
+脚本不经过 docker，在放着立绘镜像的机器上直接运行，服务器或自己的电脑都行（后端只需要知道 `EIDOLON_STAND_ASSETS_URL`）。这台机器上要有：
+
+- 立绘镜像：包含 `spine_manifest.json` 和 `assets/spine/idols/` 的目录。
+- [uv](https://docs.astral.sh/uv/)（运行 `eidolon` 命令）和 Node.js 22.18 以上（渲染缩略图）。有 `flock`（util-linux，Linux 一般都自带）时脚本会加锁，防止两次同步重叠；没有时（例如 Windows 的 Git Bash）不加锁照常同步。在 Windows 上用 Git Bash 运行 `sh deploy/stand-sync.sh`。
+- Playwright 的 Chromium：在 `frontend/` 里 `npm ci`，再 `npx playwright install --with-deps chromium`（`--with-deps` 会用 apt 装上它要的系统库，需要 root；装过一次即可）。没有显卡也能渲染。
+
+在仓库根目录的 `.env` 里填好下面这些（脚本从这里读，环境变量里已有的优先；变量的说明见 `.env.example`）：
+
+```sh
+EIDOLON_STAND_MIRROR_PATH=/srv/shinycolors-spine   # 立绘镜像
+EIDOLON_STAND_S3_ENDPOINT=https://<账户 ID>.r2.cloudflarestorage.com
+EIDOLON_STAND_S3_BUCKET=eidolon-stand
+EIDOLON_STAND_S3_ACCESS_KEY_ID=...
+EIDOLON_STAND_S3_SECRET_ACCESS_KEY=...
+# EIDOLON_STAND_S3_REGION=ap-shanghai              # 腾讯云 COS、阿里云 OSS、AWS 要填存储桶所在的地域；R2、MinIO 不用填
+# EIDOLON_STAND_S3_ADDRESSING=virtual              # 阿里云 OSS、腾讯云 COS 要填 virtual
+```
+
+然后运行：
+
+```sh
+deploy/stand-sync.sh
+tail -f logs/stand-sync.log   # 另开一个终端看进度
+```
+
+整理目录默认是仓库根目录下的 `corpus/stand`（可用 `EIDOLON_STAND_BUILD_PATH` 改到别处，写绝对路径），不进仓库。首次同步要渲染约 160 张缩略图、上传约 250MB，本机实测渲染 1 分钟左右，上传的时间取决于上行带宽。
+
+日志在 `logs/stand-sync.log`（可用环境变量 `EIDOLON_STAND_SYNC_LOG` 改到别处），每次同步以「开始同步立绘素材」开头、以「结束：退出码 N（含义）」结尾，中间是每位角色的卡数和衣装数、渲染了多少张缩略图、上传了多少文件和多少 MB：
+
+| 退出码 | 含义 | 要做什么 |
+|---|---|---|
+| 0 | 完全成功 | 不用管 |
+| 1 | 配置出错：找不到立绘镜像、缺存储桶的设置、角色配置有误等，没有上传 | 看日志里的错误 |
+| 2 | 存储桶出错（连不上、密钥不对、没有写权限），这次没传完 | 看日志里存储桶返回的错误（`SignatureDoesNotMatch` 多半是密钥或 `EIDOLON_STAND_S3_REGION` 不对）；已上传的不会重复上传，改好后重新运行即可继续 |
+| 3 | 有衣装的缩略图没渲染出来，其余已照常上传 | 看日志里哪几套失败；下次同步会再渲染 |
+| 4 | 缺少运行环境：uv、Node.js、frontend 的依赖或 Playwright 的 Chromium | 按日志里的提示装上 |
+| 5 | 上一次同步还没结束，这次没有运行 | 不用管 |
+
+素材只在新增角色、镜像更新（出了新卡）时才需要同步，不用放进 cron；想定期同步，照「每周自动同步」加一行 cron 即可。
+
+**新增角色**：在 `characters.toml` 里给她配上 `idol_id` 和 `default_outfit`，重新运行 `deploy/stand-sync.sh`（已上传的衣装不会重复上传），再重启后端。
+
+**下架**：收到权利方的要求时，清空存储桶即可。前端加载不到素材，通话层自动退回背景图，不需要改代码或重新部署。之后别再运行同步脚本，也可以把 `EIDOLON_STAND_ASSETS_URL` 清空、重启后端，连换衣装的入口一起去掉。
+
+### 本地开发时怎么看效果
+
+只看通话层的立绘时，不用存储桶：用一个开了 CORS 的本地静态服务器直接提供镜像的 `assets` 目录，再把地址指过去：
+
+```sh
+npx http-server <镜像目录>/assets -p 8765 --cors
+```
+
+```sh
+# .env
+EIDOLON_STAND_ASSETS_URL=http://localhost:8765
+```
+
+然后重启后端，打开对话页打电话。换一套衣装看效果时，改 `characters.toml` 的 `default_outfit` 再重启后端。这样没有衣装清单和缩略图；要连换衣装一起看，就在本机跑一个 S3 兼容的存储（例如 SeaweedFS：`weed server -s3 -s3.allowedOrigins='*'`，配一个可写的密钥和匿名只读），照上面同步一次，再把 `EIDOLON_STAND_ASSETS_URL` 指向存储桶的地址（例如 `http://localhost:8333/<存储桶>`）。
+
 ## 配置 OAuth 应用
 
 任何人都能用 Google 或 GitHub 登录（ADR-0006），登录由后端完成：浏览器跳到 Google 或 GitHub 登录，再回到网站的回调地址。回调地址是：

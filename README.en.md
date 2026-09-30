@@ -171,6 +171,8 @@ Character sheets, character facts, avatars and call-screen backgrounds are commi
 
 `color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (her bubbles, the call button, the sticky note, the call screen) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container.
 
+The call screen can also show her Spine stand from the original game (optional): give the character her idol number `idol_id` and a default outfit `default_outfit` (e.g. `stand/1030010010`), and set `EIDOLON_STAND_ASSETS_URL` in `.env` to where the stands are served from. The stands are not committed; they live in S3-compatible object storage, uploaded from the Spine mirror by `deploy/stand-sync.sh` (which also lists each character's outfits and renders their thumbnails) and set up as described under “立绘素材” in [`docs/deploy.md`](docs/deploy.md). Without all three, the call screen shows her background only.
+
 <details>
 <summary><b>Drafting a character sheet with the background model</b></summary>
 
@@ -499,6 +501,8 @@ eidolon-sc/
 The code in this project is released under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), or (at your option) any later version. If you modify it and let others use it over a network, you must make your modified source code available to those users.
 
 The license covers only the code and documentation in this repository. Story data and character voices are not in the repository and are not covered; follow the terms of their respective sources (ADR-0003). The character sheets, facts and avatars in the repository are not covered either: the characters and their settings belong to the rights holders. For the sources and licences of the call sounds, see [`frontend/public/sounds/CREDITS.md`](frontend/public/sounds/CREDITS.md); the connect and hang-up tones are CC0.
+
+The Spine runtime the call layer's stand is drawn with ([`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md)) is Esoteric Software's Spine Runtimes, included unmodified; it is **not covered by the AGPL** but by its own Spine Runtimes license (ADR-0009). The project's license opens with an additional permission under section 7 of the AGPL that allows combining this project with the Spine Runtimes and conveying them together. The stands themselves are not in the repository and not covered by the license (ADR-0003, revised).
 
 ## 🙏 Acknowledgements
 

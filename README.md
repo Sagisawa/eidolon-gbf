@@ -168,6 +168,8 @@ speakers = ["真乃"]
 
 `color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。
 
+通话层还可以叠一层原作的 Spine 立绘（可选）：给角色配上原作的偶像编号 `idol_id` 和默认衣装 `default_outfit`（例如 `stand/1030010010`），并在 `.env` 里填立绘素材的地址 `EIDOLON_STAND_ASSETS_URL`。立绘素材不进仓库，放在 S3 兼容的对象存储里，由 `deploy/stand-sync.sh` 从立绘镜像整理衣装清单、渲染缩略图后上传，配置方法见 [`docs/deploy.md`](docs/deploy.md) 的「立绘素材」；三项缺一项时通话层只显示背景图。配置了 `JEV_API_KEY` 时，通话中她每说一段话都会由 Jev 判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作；情绪只影响立绘，不记进对话记录。
+
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
 
@@ -395,7 +397,7 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 - 保存前先试调一次，调不通就不保存，并显示服务商返回的错误。LLM 同样要支持流式输出和工具调用；公开部署时 base_url 必须是 HTTPS 的公网地址，不只是保存时，之后每次连接都会重新检查。
 - 密钥用 `EIDOLON_SECRET_KEY` 派生的密钥加密保存，界面上只显示末 4 位。没配置 `EIDOLON_SECRET_KEY` 时不开放这个功能。
 - 自带密钥调用失败时（余额不足、被吊销等），这一回合或这次通话就失败，并提示是哪一项密钥出了问题，**不会改用部署者的密钥**。更换 `EIDOLON_SECRET_KEY` 后，已保存的密钥无法解密，用到它的回合或通话在调用任何服务之前就失败，提示用户重新填写。删除自带密钥后改回用部署者的服务。
-- 向量化、重排和判断要不要回忆剧情（Jev）始终由部署者承担。
+- 向量化、重排、判断要不要回忆剧情和通话中判断立绘情绪（Jev）始终由部署者承担。
 
 ## 🌐 部署到 VPS
 
@@ -495,6 +497,8 @@ eidolon-sc/
 本项目的代码以 [GNU Affero General Public License v3.0](LICENSE)（AGPL-3.0）或（由你选择）任何更高版本发布。如果你修改了本项目并通过网络向他人提供服务，需要向这些用户公开修改后的源代码。
 
 许可证只覆盖仓库里的代码和文档。剧情数据和角色音色不在仓库中，也不在许可证范围内，使用时须遵守各自来源的条款（ADR-0003）。仓库里的人设、角色资料和头像同样不在许可证范围内：其中的角色与设定属于原作版权方。通话音效的来源和许可见 [`frontend/public/sounds/CREDITS.md`](frontend/public/sounds/CREDITS.md)，其中接通音和挂断音为 CC0。
+
+通话层立绘用的 Spine runtime（[`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md)）是 Esoteric Software 的 Spine Runtimes，原样收录，**不受 AGPL 约束**，适用它自己的 Spine Runtimes 许可证（ADR-0009）。项目许可证开头有一条 AGPL 第 7 节的附加许可，允许本项目和 Spine Runtimes 组合在一起、一起分发。立绘素材本身不在仓库里，也不在许可证范围内（ADR-0003 的修订）。
 
 ## 🙏 致谢
 
