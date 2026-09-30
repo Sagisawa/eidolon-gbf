@@ -1,6 +1,6 @@
 # 回复长度：角色像真人一样一次只说一两句
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准：「回合」词条里关于回复长度的一段在 2026-09-30 的 grilling 中定下。一张 ticket。
 
