@@ -4,7 +4,7 @@
 
 **Blocked by:** 14
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] **衣装清单**（Python，做成 `eidolon` 的一个命令）：从镜像的 `spine_manifest.json` 和立绘文件，为 `characters.toml` 里配了偶像编号的每位角色生成一份清单：
   - 每张卡一项：编号、卡名（原文，去掉【】和角色名）、稀有度或类型，以及私服（`stand`）和演出服（`stand_costume`）各自对应哪套衣装。
@@ -23,7 +23,7 @@
   - 如何下架：清空存储桶后，前端自动退回背景图。
   - `.env.example` 补上所有新增的环境变量。
 - [x] **测试**：衣装清单的生成，照剧情库同步的测试做法，用一份小的假镜像数据：私服和演出服的配对、贴图相同时去重、按编号排序、卡名处理、没配偶像编号的角色跳过。
-- [ ] **人工验证**：对一个真实的 S3 兼容存储（或者本地的 MinIO）跑一次，确认真乃和恋钟的清单数量合理（去重后真乃约 84 套、恋钟约 78 套），缩略图没有眨眼；把素材地址指向存储桶后，14 的立绘照常出现。在 Comments 里记下耗时和上传量。
+- [x] **人工验证**：对一个真实的 S3 兼容存储（或者本地的 MinIO）跑一次，确认真乃和恋钟的清单数量合理（去重后真乃约 84 套、恋钟约 78 套），缩略图没有眨眼；把素材地址指向存储桶后，14 的立绘照常出现。在 Comments 里记下耗时和上传量。
 - [x] `uv run pytest`、`uv run pyright` 全部通过。
 
 ## Comments
@@ -57,4 +57,8 @@
 - 同步（Windows 的 Git Bash，没有 flock，不加锁）：首次上传 **658 个文件、248.2 MB，用时 46 秒**；再跑一次 0 上传、658 个跳过，用时 1 秒。COS 不认 `list-type=2`，只按 `marker` 翻页，列表已改成两种都认（`860a8be`）。
 - CDN `stand.hmhnk.top`（Cloudflare 上 CNAME 到 `stand.hmhnk.top.cdn.dnsv1.com`，灰云）：COS 源、私有存储桶回源授权、HTTPS 回源；节点缓存和浏览器缓存都「遵循源站」；响应头 `Access-Control-Allow-Origin: *`；免费 DV 证书（2026-12-30 到期，要续期）；HTTPS 服务已开启（按请求计费）；用量封顶每天 20GB，超出关闭 24 小时，80% 告警。
 - 验证：经 CDN 的 HTTPS 请求，衣装清单 `no-cache`、立绘文件 `immutable`、缩略图一天，`data.json` 被 gzip，全部带跨域头；直接访问存储桶 403。
-- 本机 `.env` 的 `EIDOLON_STAND_ASSETS_URL` 已改成 `https://stand.hmhnk.top`。**还差**：用户重启后端打一次电话，确认 14 的立绘从 CDN 照常出现。
+- 本机 `.env` 的 `EIDOLON_STAND_ASSETS_URL` 已改成 `https://stand.hmhnk.top`。
+
+### 2026-10-01 人工验收（用户）
+
+后端和前端在本机开发模式下启动，`EIDOLON_STAND_ASSETS_URL=https://stand.hmhnk.top`，`/api/characters` 下发 CDN 上的默认衣装和衣装清单地址。用户打电话确认立绘从 CDN 照常出现，没有问题。缩略图此前已逐张看过，没有眨眼。
