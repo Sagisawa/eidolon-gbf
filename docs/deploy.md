@@ -159,6 +159,39 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 换重排模型前用它比较两个模型的分数分布，再决定阈值。需要剧情库已经同步好，并且有当前向量化模型的向量；数据集里的记忆是虚构的示例，运行时临时向量化，不会写进数据库。
 
+## 立绘素材
+
+通话层上可以叠一层原作的 Spine 立绘（CONTEXT.md「立绘」）。素材不进仓库（ADR-0003 的 2026-09-30 修订），放在你选的 S3 兼容对象存储里（Cloudflare R2、腾讯云 COS、MinIO 等都行），浏览器直接从存储桶下载。三项都配好了，这位角色的通话层才显示立绘；少一项就和原来一样，只显示背景图：
+
+- `characters/characters.toml` 里这位角色的 `idol_id`：原作的偶像编号，即镜像 `spine_manifest.json` 里的 `idolId`（真乃是 1，恋钟是 4）。
+- 同一段里的 `default_outfit`：用户没选过衣装时她穿的那一套，写成 `stand/<enzaId>`（这张卡的私服）或 `stand_costume/<enzaId>`（演出服），`enzaId` 是 `spine_manifest.json` 里的十位编号，例如 `stand/1030010010`。
+- `.env` 的 `EIDOLON_STAND_ASSETS_URL`：存储桶的公开访问地址，例如 `https://stand.example.com`。
+
+改完重启后端。`idol_id` 或 `default_outfit` 格式不对时后端拒绝启动，并说明是哪位角色的哪一项。
+
+**存储桶里的结构**和镜像的 `assets` 目录一样：一套衣装的三个文件放在 `<EIDOLON_STAND_ASSETS_URL>/spine/idols/<stand 或 stand_costume>/<enzaId>/` 下，即 `data.json`、`data.atlas`、`data.png`。PNG 原样上传，不转 WebP。
+
+**存储桶的设置**：
+
+- 公开可读，不签名、不要求登录。
+- 配 CORS，允许网站的域名（`https://你的域名`）用 `GET` 访问。立绘用 WebGL 绘制，贴图跨域时没有 CORS 就加载不了，通话层会退回背景图。
+- 缓存设成长期、不可变（例如 `Cache-Control: public, max-age=31536000, immutable`）：素材按衣装编号存放，内容不会变。
+
+**下架**：收到权利方的要求时，清空存储桶即可。前端加载不到素材，通话层自动退回背景图，不需要改代码或重新部署。
+
+**本地开发时怎么看效果**：不用存储桶，用一个开了 CORS 的本地静态服务器直接提供镜像的 `assets` 目录，再把地址指过去：
+
+```sh
+npx http-server <镜像目录>/assets -p 8765 --cors
+```
+
+```sh
+# .env
+EIDOLON_STAND_ASSETS_URL=http://localhost:8765
+```
+
+然后重启后端，打开对话页打电话。换一套衣装看效果时，改 `characters.toml` 的 `default_outfit` 再重启后端。
+
 ## 配置 OAuth 应用
 
 任何人都能用 Google 或 GitHub 登录（ADR-0006），登录由后端完成：浏览器跳到 Google 或 GitHub 登录，再回到网站的回调地址。回调地址是：
