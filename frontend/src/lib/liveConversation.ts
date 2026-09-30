@@ -8,6 +8,7 @@ import {
   type Conversation,
   type Message,
   type Segment,
+  type SegmentPlaying,
   type TurnEvent,
 } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
@@ -68,6 +69,9 @@ export type Snapshot = {
   hearing: string;
   /** The character's latest line in this call, for the call screen; null until she has one. */
   line: Segment | null;
+  /** Which segment of which of her replies in this call her voice last started playing; null
+   * until it has started. */
+  playing: Omit<SegmentPlaying, "type"> | null;
   /** The microphone is off in the browser (CONTEXT.md「麦克风静音」). */
   micMuted: boolean;
   /** The microphone the call is using; empty for the system default. */
@@ -99,6 +103,7 @@ const IDLE: Omit<Snapshot, "entries" | "line"> = {
   collapsed: false,
   pickingMic: false,
   hearing: "",
+  playing: null,
   micMuted: false,
   micId: "",
   micNotice: null,
@@ -240,7 +245,7 @@ export class LiveConversation {
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
-    this.update({ call: { phase: "dialing" }, micMuted: false, failure: null });
+    this.update({ call: { phase: "dialing" }, playing: null, micMuted: false, failure: null });
     let started: Call;
     try {
       started = await this.ports.startCall(conversationId, this.ports.preferences.load(), {
@@ -343,6 +348,10 @@ export class LiveConversation {
       this.endedBy = backendEnd(event);
       return;
     }
+    if (event.type === "segment-playing") {
+      this.update({ playing: { reply: event.reply, segment: event.segment } });
+      return;
+    }
     if (event.type === "user") this.applyTurnEvent(event, { hearing: "" });
     else if (event.type === "error")
       this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false } });
@@ -409,6 +418,7 @@ export class LiveConversation {
       {
         call: end ? { phase: "ended", end } : { phase: "idle" },
         hearing: "",
+        playing: null,
         micMuted: false,
         micId: "",
         micNotice: null,

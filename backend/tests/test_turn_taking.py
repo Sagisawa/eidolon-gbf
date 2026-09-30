@@ -14,6 +14,7 @@ from eidolon.turn_taking import (
     ClearVoice,
     Command,
     DropReply,
+    FlushVoice,
     QueueTurn,
     Reply,
     StopReply,
@@ -42,14 +43,19 @@ def types(text: str) -> Event:
     return lambda taking: taking.user_typed(text)
 
 
-def ja(text: str) -> Event:
-    """Some of the reply's Japanese is shown."""
-    return lambda taking: taking.reply_delta("ja", text)
+def ja(text: str, segment: int = 0) -> Event:
+    """Some of the Japanese of the reply's segment `segment` is shown."""
+    return lambda taking: taking.reply_delta("ja", text, segment)
 
 
-def zh(text: str) -> Event:
-    """Some of the reply's subtitle is shown."""
-    return lambda taking: taking.reply_delta("zh", text)
+def zh(text: str, segment: int = 0) -> Event:
+    """Some of the subtitle of the reply's segment `segment` is shown."""
+    return lambda taking: taking.reply_delta("zh", text, segment)
+
+
+def complete(segment: int) -> Event:
+    """The reply's segment `segment` is complete."""
+    return lambda taking: taking.segment_complete(segment)
 
 
 def text_only(on: bool) -> Event:
@@ -59,7 +65,7 @@ def text_only(on: bool) -> Event:
 
 TALKS: Event = TurnTaking.user_started_talking
 HEARD: Event = TurnTaking.user_heard
-COMPLETE: Event = TurnTaking.segment_complete
+COMPLETE: Event = complete(0)
 RECORDED: Event = TurnTaking.reply_recorded
 ENDED: Event = TurnTaking.reply_ended
 DROPPED: Event = TurnTaking.reply_dropped
@@ -68,15 +74,15 @@ VOICE_STARTS: Event = TurnTaking.voice_started
 VOICE_STOPS: Event = TurnTaking.voice_stopped
 CALL_ENDING: Event = TurnTaking.call_ending
 
-REPLYING: list[Step] = [(turn("早上好"), [Reply("早上好", voiced=True)])]
+REPLYING: list[Step] = [(turn("早上好"), [Reply("早上好", voiced=True, number=1)])]
 """A turn is being replied to, voiced; nothing of the reply is out yet."""
-SPEAKING: list[Step] = [*REPLYING, (ja("ほわっ"), [Voice("ほわっ")]), (VOICE_STARTS, [])]
+SPEAKING: list[Step] = [*REPLYING, (ja("ほわっ"), [Voice("ほわっ", 1, 0)]), (VOICE_STARTS, [])]
 """The character has started speaking the reply; no segment of it is complete yet."""
-INTERRUPTIBLE: list[Step] = [*SPEAKING, (zh("哇"), []), (COMPLETE, [])]
+INTERRUPTIBLE: list[Step] = [*SPEAKING, (zh("哇"), []), (COMPLETE, [FlushVoice(1, 0)])]
 """The character has started speaking the reply, and it has a complete segment."""
 RECORDED_AND_HEARD: list[Step] = [
-    *REPLYING, (ja("ほわっ"), [Voice("ほわっ")]), (zh("哇"), []), (COMPLETE, []),
-    (RECORDED, []), (ENDED, []), (VOICE_STARTS, []),
+    *REPLYING, (ja("ほわっ"), [Voice("ほわっ", 1, 0)]), (zh("哇"), []),
+    (COMPLETE, [FlushVoice(1, 0)]), (RECORDED, []), (ENDED, []), (VOICE_STARTS, []),
 ]
 """The reply is recorded and over, and its voice is still playing."""
 
@@ -94,7 +100,7 @@ FOLLOW_ONS = [
             *REPLYING,
             (TALKS, [DropReply()]),
             (DROPPED, [WaitForFollowOn()]),
-            (says("在吗"), [Reply("早上好\n在吗", voiced=True)]),
+            (says("在吗"), [Reply("早上好\n在吗", voiced=True, number=2)]),
         ],
         id="what is said before she speaks drops the reply and joins the turn on a new line",
     ),
@@ -103,30 +109,30 @@ FOLLOW_ONS = [
             *REPLYING,
             (TALKS, [DropReply()]),
             (says("在吗"), []),
-            (DROPPED, [Reply("早上好\n在吗", voiced=True)]),
+            (DROPPED, [Reply("早上好\n在吗", voiced=True, number=2)]),
         ],
         id="a follow-on transcribed before the reply is gone is replied to once it is",
     ),
     pytest.param(
         [
             *REPLYING,
-            (ja("ほわっ"), [Voice("ほわっ")]),
+            (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
             (types("在吗"), [DropReply(), ClearVoice()]),
-            (DROPPED, [Reply("早上好\n在吗", voiced=True)]),
+            (DROPPED, [Reply("早上好\n在吗", voiced=True, number=2)]),
         ],
         id="what is typed before she speaks joins the turn and clears what TTS holds",
     ),
     pytest.param(
         [
-            (turn("一"), [Reply("一", voiced=True)]),
+            (turn("一"), [Reply("一", voiced=True, number=1)]),
             (TALKS, [DropReply()]),
             (says("二"), []),
-            (DROPPED, [Reply("一\n二", voiced=True)]),
+            (DROPPED, [Reply("一\n二", voiced=True, number=2)]),
             (types("三"), [DropReply(), ClearVoice()]),
-            (DROPPED, [Reply("一\n二\n三", voiced=True)]),
+            (DROPPED, [Reply("一\n二\n三", voiced=True, number=3)]),
             (TALKS, [DropReply()]),
             (DROPPED, [WaitForFollowOn()]),
-            (says("四"), [Reply("一\n二\n三\n四", voiced=True)]),
+            (says("四"), [Reply("一\n二\n三\n四", voiced=True, number=4)]),
         ],
         id="any number of follow-ons join the turn",
     ),
@@ -136,7 +142,7 @@ FOLLOW_ONS = [
     ),
     pytest.param(
         [
-            *REPLYING, (ja("ほわっ"), [Voice("ほわっ")]), (zh("哇"), []), (COMPLETE, []),
+            *REPLYING, (ja("ほわっ"), [Voice("ほわっ", 1, 0)]), (zh("哇"), []), (COMPLETE, [FlushVoice(1, 0)]),
             (TALKS, [DropReply()]),
         ],
         id="with a complete segment shown but not heard yet she is followed on",
@@ -146,7 +152,7 @@ FOLLOW_ONS = [
             *REPLYING,
             (TALKS, [DropReply()]),
             (DROPPED, [WaitForFollowOn()]),
-            (MISSED, [Reply("早上好", voiced=True)]),
+            (MISSED, [Reply("早上好", voiced=True, number=2)]),
         ],
         id="a follow-on that comes to nothing has the turn replied to again as it was",
     ),
@@ -155,7 +161,7 @@ FOLLOW_ONS = [
             *REPLYING,
             (TALKS, [DropReply()]),
             (DROPPED, [WaitForFollowOn()]),
-            (says("  "), [Reply("早上好", voiced=True)]),
+            (says("  "), [Reply("早上好", voiced=True, number=2)]),
         ],
         id="a follow-on transcribed blank has the turn replied to again as it was",
     ),
@@ -167,7 +173,7 @@ FOLLOW_ONS = [
             (DROPPED, [WaitForFollowOn()]),
             (HEARD, [WaitForFollowOn()]),
             (TALKS, [WaitForFollowOn()]),
-            (says("在吗"), [Reply("早上好\n在吗", voiced=True)]),
+            (says("在吗"), [Reply("早上好\n在吗", voiced=True, number=2)]),
             (MISSED, []),
             (HEARD, []),
         ],
@@ -178,7 +184,7 @@ FOLLOW_ONS = [
             *REPLYING,
             (TALKS, [DropReply()]),
             (DROPPED, [WaitForFollowOn()]),
-            (types("在吗"), [Reply("早上好\n在吗", voiced=True)]),
+            (types("在吗"), [Reply("早上好\n在吗", voiced=True, number=2)]),
         ],
         id="what is typed while waiting for a follow-on is the follow-on",
     ),
@@ -203,12 +209,12 @@ def test_follow_ons(steps: list[Step]):
     "steps",
     [
         pytest.param(
-            [(turn("早上好"), [Reply("早上好", voiced=False)]), (ja("ほわっ"), []), (TALKS, [DropReply()])],
+            [(turn("早上好"), [Reply("早上好", voiced=False, number=1)]), (ja("ほわっ"), []), (TALKS, [DropReply()])],
             id="its first line shown but nothing complete yet",
         ),
         pytest.param(
             [
-                (turn("早上好"), [Reply("早上好", voiced=False)]), (ja("ほわっ"), []), (zh("哇"), []),
+                (turn("早上好"), [Reply("早上好", voiced=False, number=1)]), (ja("ほわっ"), []), (zh("哇"), []),
                 (COMPLETE, []), (TALKS, [StopReply()]), (says("在吗"), [QueueTurn("在吗")]),
             ],
             id="its first line shown and a segment complete",
@@ -239,7 +245,7 @@ INTERRUPTIONS = [
     ),
     pytest.param(
         [
-            *REPLYING, (ja("ほわっ"), [Voice("ほわっ")]), (zh("哇"), []), (COMPLETE, []),
+            *REPLYING, (ja("ほわっ"), [Voice("ほわっ", 1, 0)]), (zh("哇"), []), (COMPLETE, [FlushVoice(1, 0)]),
             (RECORDED, []),
             (TALKS, [StopReply()]),
             (ENDED, []),
@@ -261,9 +267,9 @@ INTERRUPTIONS = [
             (types("在吗"), [StopReply(), ClearVoice(), QueueTurn("在吗")]),
             (RECORDED, []),
             (ENDED, []),
-            (turn("在吗"), [Reply("在吗", voiced=True)]),
+            (turn("在吗"), [Reply("在吗", voiced=True, number=2)]),
             (types("还在吗"), [DropReply(), ClearVoice()]),
-            (DROPPED, [Reply("在吗\n还在吗", voiced=True)]),
+            (DROPPED, [Reply("在吗\n还在吗", voiced=True, number=3)]),
         ],
         id="of two sent straight after each other the first interrupts, the second follows on",
     ),
@@ -281,35 +287,35 @@ def test_interruptions(steps: list[Step]):
         pytest.param(
             [
                 *REPLYING,
-                (ja("ほわっ"), [Voice("ほわっ")]),
+                (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
                 (types("在吗"), [DropReply(), ClearVoice()]),
-                (DROPPED, [Reply("早上好\n在吗", voiced=True)]),
+                (DROPPED, [Reply("早上好\n在吗", voiced=True, number=2)]),
                 (VOICE_STARTS, []),
                 (VOICE_STOPS, []),
-                (ja("ほわっ"), [Voice("ほわっ")]),
+                (ja("ほわっ"), [Voice("ほわっ", 2, 0)]),
                 (zh("哇"), []),
-                (COMPLETE, []),
+                (COMPLETE, [FlushVoice(2, 0)]),
                 (TALKS, [DropReply()]),
             ],
             id="the voice of a dropped reply starting late does not count for the next",
         ),
         pytest.param(
             [
-                *REPLYING, (ja("ほわっ"), [Voice("ほわっ")]), (zh("哇"), []), (COMPLETE, []),
+                *REPLYING, (ja("ほわっ"), [Voice("ほわっ", 1, 0)]), (zh("哇"), []), (COMPLETE, [FlushVoice(1, 0)]),
                 (TALKS, [DropReply()]),
                 (VOICE_STARTS, []),
                 (DROPPED, [WaitForFollowOn()]),
-                (says("在吗"), [Reply("早上好\n在吗", voiced=True)]),
+                (says("在吗"), [Reply("早上好\n在吗", voiced=True, number=2)]),
             ],
             id="the voice of a reply being dropped starting late does not make it spoken",
         ),
         pytest.param(
             [
                 *RECORDED_AND_HEARD,
-                (turn("在吗"), [Reply("在吗", voiced=True)]),
-                (ja("今日も"), [Voice("今日も")]),
+                (turn("在吗"), [Reply("在吗", voiced=True, number=2)]),
+                (ja("今日も"), [Voice("今日も", 2, 0)]),
                 (zh("今天也"), []),
-                (COMPLETE, []),
+                (COMPLETE, [FlushVoice(2, 0)]),
                 (TALKS, [StopReply()]),
             ],
             id="a reply voiced while the last one is still heard is spoken once it is on its way",
@@ -318,10 +324,10 @@ def test_interruptions(steps: list[Step]):
             [
                 *RECORDED_AND_HEARD,
                 (VOICE_STOPS, []),
-                (turn("在吗"), [Reply("在吗", voiced=True)]),
-                (ja("今日も"), [Voice("今日も")]),
+                (turn("在吗"), [Reply("在吗", voiced=True, number=2)]),
+                (ja("今日も"), [Voice("今日も", 2, 0)]),
                 (zh("今天也"), []),
-                (COMPLETE, []),
+                (COMPLETE, [FlushVoice(2, 0)]),
                 (TALKS, [DropReply()]),
             ],
             id="a reply voiced once the last one has been heard waits for her voice to start",
@@ -336,16 +342,60 @@ def test_switching_to_text_only_leaves_the_reply_in_progress_voiced():
     run([
         *REPLYING,
         (text_only(True), []),
-        (ja("ほわっ"), [Voice("ほわっ")]),
+        (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
         (RECORDED, []),
         (ENDED, []),
-        (turn("在吗"), [Reply("在吗", voiced=False)]),
+        (turn("在吗"), [Reply("在吗", voiced=False, number=2)]),
         (ja("今日も"), []),
         (text_only(False), []),
         (ja("今日も"), []),
         (RECORDED, []),
         (ENDED, []),
-        (turn("还在吗"), [Reply("还在吗", voiced=True)]),
+        (turn("还在吗"), [Reply("还在吗", voiced=True, number=3)]),
+    ])
+
+
+def test_each_segment_goes_to_tts_under_its_reply_and_is_voiced_in_full_once_complete():
+    run([
+        *REPLYING,
+        (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
+        (ja("、おはよう"), [Voice("、おはよう", 1, 0)]),
+        (zh("哇，早上好"), []),
+        (complete(0), [FlushVoice(1, 0)]),
+        (ja("今日も", 1), [Voice("今日も", 1, 1)]),
+        (zh("今天也", 1), []),
+        (complete(1), [FlushVoice(1, 1)]),
+        (RECORDED, []),
+        (ENDED, []),
+        (turn("在吗"), [Reply("在吗", voiced=True, number=2)]),
+        (ja("うん"), [Voice("うん", 2, 0)]),
+    ])
+
+
+def test_replies_are_numbered_whether_voiced_or_not_and_nothing_unvoiced_is_flushed():
+    run([
+        *REPLYING,
+        (TALKS, [DropReply()]),
+        (DROPPED, [WaitForFollowOn()]),
+        (text_only(True), []),
+        (MISSED, [Reply("早上好", voiced=False, number=2)]),
+        (ja("ほわっ"), []),
+        (complete(0), []),
+        (RECORDED, []),
+        (ENDED, []),
+        (text_only(False), []),
+        (turn("在吗"), [Reply("在吗", voiced=True, number=3)]),
+        (zh("嗯"), []),
+        (complete(0), []),  # a segment with no Japanese has nothing to voice
+    ])
+
+
+def test_what_is_left_of_an_interrupted_reply_is_not_voiced():
+    run([
+        *INTERRUPTIBLE,
+        (ja("今日", 1), [Voice("今日", 1, 1)]),
+        (TALKS, [StopReply()]),
+        (complete(1), []),
     ])
 
 

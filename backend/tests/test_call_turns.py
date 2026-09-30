@@ -30,7 +30,13 @@ from pipecat.tests.utils import SleepFrame, run_test
 
 from eidolon import call as call_module
 from eidolon.assembly import build
-from eidolon.call import Call, CallLimits, CallTurns
+from eidolon.call import (
+    Call,
+    CallLimits,
+    CallTurns,
+    SegmentCompleteFrame,
+    SegmentTextFrame,
+)
 from eidolon.call_outcome import CallOutcome
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
@@ -77,7 +83,7 @@ class CallUnderTest:
             llm, frames, muted=muted, limits=limits, memory=memory, exempt=exempt,
             connected=connected,
         )
-        spoken = [f.text for f in down if type(f) is TextFrame]
+        spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
         return spoken, messages
 
@@ -156,8 +162,51 @@ async def test_each_reply_is_one_tts_response(mano_call: CallUnderTest):
     down = await mano_call.run_frames(FakeLLM(MANO_REPLY), [spoken("早上好")])
 
     voiced = [type(f) for f in down if not isinstance(f, RTVIServerMessageFrame)]
-    assert voiced == [
-        LLMFullResponseStartFrame, TextFrame, TextFrame, TextFrame, LLMFullResponseEndFrame
+    assert voiced[0] is LLMFullResponseStartFrame and voiced[-1] is LLMFullResponseEndFrame
+    assert LLMFullResponseStartFrame not in voiced[1:-1]
+
+
+def to_tts(down: Sequence[Frame]) -> list[tuple]:
+    """What went to TTS: the replies, and each segment's Japanese under its reply and
+    segment, till it was complete."""
+    sent: list[tuple] = []
+    for frame in down:
+        if isinstance(frame, SegmentTextFrame):
+            sent.append((frame.text, frame.reply, frame.segment))
+        elif isinstance(frame, SegmentCompleteFrame):
+            sent.append(("complete", frame.reply, frame.segment))
+        elif isinstance(frame, LLMFullResponseStartFrame):
+            sent.append(("reply",))
+        elif isinstance(frame, TextFrame) and not isinstance(frame, TranscriptionFrame):
+            sent.append((frame.text,))  # Japanese sent under no segment
+    return sent
+
+
+async def test_each_segment_of_each_reply_goes_to_tts_under_its_numbers(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(MANO_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"])
+
+    down = await mano_call.run_frames(llm, [spoken("早上好"), SleepFrame(0.5), spoken("在吗")])
+
+    assert to_tts(down) == [
+        ("reply",),
+        ("ほわっ、", 1, 0), ("おはようございます！", 1, 0), ("complete", 1, 0),
+        ("今日も", 1, 1), ("complete", 1, 1),
+        ("reply",),
+        ("うん。", 2, 0), ("complete", 2, 0),
+    ]
+
+
+async def test_a_reply_given_afresh_goes_to_tts_under_a_number_of_its_own(
+    mano_call: CallUnderTest,
+):
+    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], delay=0.3)
+
+    down = await mano_call.run_frames(llm, [spoken("早上好"), SleepFrame(0.1), typed("在吗")])
+
+    assert to_tts(down) == [
+        ("reply",), ("ほわっ", 1, 0), ("reply",), ("うん。", 2, 0), ("complete", 2, 0)
     ]
 
 
@@ -276,7 +325,7 @@ async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stop
     assert await mano_call.said() == ["早上好\n在吗", None]
     voiced = [type(f) for f in down if not isinstance(f, RTVIServerMessageFrame)]
     assert voiced[:4] == [
-        LLMFullResponseStartFrame, TextFrame, LLMFullResponseEndFrame, InterruptionFrame
+        LLMFullResponseStartFrame, SegmentTextFrame, LLMFullResponseEndFrame, InterruptionFrame
     ]
 
 

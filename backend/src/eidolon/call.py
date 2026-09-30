@@ -23,15 +23,21 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import timedelta
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
+import ormsgpack
 from aiortc import RTCIceServer
+from websockets.asyncio.client import ClientConnection
+from websockets.exceptions import ConnectionClosed
+from websockets.protocol import State
 
 from pipecat.frames.frames import (
+    AggregatedTextFrame,
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
     CancelFrame,
+    ControlFrame,
     EndFrame,
     EndWorkerFrame,
     ErrorFrame,
@@ -40,9 +46,11 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    OutputTransportMessageFrame,
     StartFrame,
     TextFrame,
     TranscriptionFrame,
+    TTSAudioRawFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineWorker, ProcessorUnusablePolicy
@@ -68,6 +76,7 @@ from pipecat.transports.smallwebrtc.request_handler import (
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.turns.user_turn_processor import UserTurnProcessor
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
+from pipecat.utils.types import assert_given
 from pipecat.workers.runner import WorkerRunner
 
 from eidolon.call_outcome import CallOutcome, EndReason
@@ -90,6 +99,7 @@ from eidolon.turn_taking import (
     ClearVoice,
     Command,
     DropReply,
+    FlushVoice,
     QueueTurn,
     Reply,
     StopReply,
@@ -196,6 +206,33 @@ class Speech(Protocol):
         ...
 
 
+@dataclass
+class SegmentTextFrame(TextFrame):
+    """Some of the Japanese of segment `segment` of reply `reply`, delivery cues and all,
+    for TTS to voice. Replies are numbered from 1 within the call, segments from 0 within
+    the reply."""
+
+    reply: int
+    segment: int
+
+
+@dataclass
+class SegmentCompleteFrame(ControlFrame):
+    """Segment `segment` of reply `reply` has all its Japanese: TTS is to voice all it
+    holds of it now, rather than wait for more."""
+
+    reply: int
+    segment: int
+
+
+def segment_playing(reply: int, segment: int) -> OutputTransportMessageFrame:
+    """The `segment-playing` server message, telling the browser her voice has started
+    playing segment `segment` of reply `reply`. Queued with the audio, just ahead of the
+    segment's first, the transport sends it as that audio starts playing."""
+    message = {"type": "segment-playing", "reply": reply, "segment": segment}
+    return OutputTransportMessageFrame(message=ServerMessage(data=message).model_dump())
+
+
 class InterruptsFirst(InterruptibleTTSService):
     """A websocket TTS whose voice stops as soon as it is interrupted.
 
@@ -209,12 +246,17 @@ class InterruptsFirst(InterruptibleTTSService):
     _reconnecting: asyncio.Task | None = None
 
     async def _handle_interruption(self, frame: InterruptionFrame, direction: FrameDirection):
-        reconnect = self._bot_speaking or self._tts_started
+        reconnect = self._holds_speech()
         self._tts_started = False
         # What InterruptibleTTSService does but for reconnecting, which follows.
         await super(InterruptibleTTSService, self)._handle_interruption(frame, direction)
         if reconnect:
             self._reconnecting = self.create_task(self._reconnect(self._reconnecting))
+
+    def _holds_speech(self) -> bool:
+        """Whether the connection may still hold speech of what is interrupted: the
+        character is speaking, or has been given something to say."""
+        return self._bot_speaking or self._tts_started
 
     async def _reconnect(self, previous: asyncio.Task | None) -> None:
         if previous is not None:
@@ -256,8 +298,239 @@ class InterruptsFirst(InterruptibleTTSService):
             self._reconnecting = None
 
 
+FINISH_TIMEOUT = 10.0
+"""How long, in seconds, Fish Audio may take to finish a segment once told it has all its
+Japanese: to send the rest of its audio, some seconds of it at most. A session that takes
+longer is given up, and the rest of the segment with it."""
+
+
 class FishTTS(InterruptsFirst, FishAudioTTSService):
-    """Fish Audio, speaking as the character."""
+    """Fish Audio, speaking as the character a segment at a time.
+
+    Fish Audio's audio does not say where one segment ends and the next begins, so each
+    segment is voiced in a session of its own. Once the segment has all its Japanese, what
+    is held of it is sent and the session told to stop; it finishes once Fish Audio has sent
+    the last of its audio, and only then does the next segment start, so that ahead of its
+    first audio can go its `segment-playing` message (`SegmentTextFrame` says which segment
+    the Japanese is of). Starting a session takes a connection a second or more to open, so
+    the connection for the next segment is opened while the current one is voiced, and the
+    next segment starts on it at once: no pause is heard between them.
+
+    After a reply's last segment, that connection is left open for the next reply: Fish
+    Audio keeps an idle one open, and so did the single connection a call had before. It
+    is not closed for being idle; the websocket's keepalive pings find it if it drops, and a
+    connection found closed as a reply starts is replaced then.
+
+    Interrupted, the service drops its connections, the spare one too, and opens another
+    (`InterruptsFirst`); `segment-playing` messages still queued go with the audio they
+    were queued with."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._segment: tuple[int, int] | None = None  # the segment whose Japanese comes in
+        self._voicing: tuple[int, int] | None = None  # the segment being voiced
+        # Its session, and what receives the session's audio until it has finished:
+        self._session: ClientConnection | None = None
+        self._receiving: asyncio.Task | None = None
+        self._finished = asyncio.Event()
+        # The connection the next segment is to start on, open or opening:
+        self._spare: asyncio.Task[ClientConnection | None] | None = None
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        if isinstance(frame, SegmentTextFrame):
+            self._segment = (frame.reply, frame.segment)
+        elif isinstance(frame, LLMFullResponseStartFrame):
+            self._keep_spare()
+        await super().process_frame(frame, direction)
+        if isinstance(frame, SegmentCompleteFrame):
+            if self._segment == (frame.reply, frame.segment):
+                await self._send_held_text()
+                await self._end_segment()
+        elif isinstance(frame, LLMFullResponseEndFrame):
+            await self._end_segment()  # should its last segment never have completed
+
+    async def _handle_interruption(self, frame: InterruptionFrame, direction: FrameDirection):
+        await super()._handle_interruption(frame, direction)
+        self._segment = self._voicing = None
+
+    def _holds_speech(self) -> bool:
+        return super()._holds_speech() or self._session is not None
+
+    async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
+        await self._reconnected()
+        if self._voicing != self._segment:  # the first of the next segment's Japanese
+            await self._end_segment()
+            self._voicing = self._segment
+            if self._segment is not None:
+                await self.append_to_audio_context(context_id, segment_playing(*self._segment))
+        if self._session is None or self._finished.is_set():  # or it ended early
+            await self._start_session(context_id)
+        if self._session is None:  # it could not be opened, and the error is reported
+            yield None
+            return
+        try:
+            await self._session.send(ormsgpack.packb({"event": "text", "text": text}))
+            await self.start_tts_usage_metrics(text)
+            await self._session.send(ormsgpack.packb({"event": "flush"}))
+        except Exception as e:
+            yield ErrorFrame(error=f"Unknown error occurred: {e}")
+            await self._close_session()  # the segment goes on in another
+        yield None
+
+    async def flush_audio(self, context_id: str | None = None) -> None:
+        """Nothing to do: each sentence is flushed as it is sent, and each segment's
+        session told to stop once it has all its Japanese."""
+
+    async def _send_held_text(self) -> None:
+        """Send what the sentence aggregator holds back, waiting for what follows."""
+        held = await self._text_aggregator.flush()
+        if held:
+            await self._push_tts_frames(AggregatedTextFrame(held.text, held.type, raw_text=held.text))
+
+    async def _end_segment(self) -> None:
+        """Have the segment being voiced finish, once all its audio is in; if it takes
+        too long, give up the rest."""
+        await self._reconnected()
+        if self._session is not None:
+            try:
+                await self._session.send(ormsgpack.packb({"event": "stop"}))
+                await asyncio.wait_for(self._finished.wait(), FINISH_TIMEOUT)
+            except ConnectionClosed:
+                pass  # it is over already
+            except TimeoutError:
+                log.warning("Fish Audio did not finish a segment in time; the rest is dropped")
+            if self._finished.is_set():  # what received its audio closes it
+                self._session = self._receiving = None
+            else:
+                await self._close_session()
+        self._voicing = None
+
+    async def _start_session(self, context_id: str) -> None:
+        """Voice the segment in a new session, on the spare connection, whose audio goes to
+        the audio context `context_id`; and open the next spare one meanwhile."""
+        await self._close_session()
+        self._keep_spare()
+        spare = self._spare
+        assert spare is not None
+        await asyncio.wait([spare])
+        if self._spare is not spare or spare.cancelled():  # dropped meanwhile
+            return
+        self._spare = None
+        self._keep_spare()
+        session = spare.result()
+        if session is None:
+            return
+        self._session = session
+        self._finished = asyncio.Event()
+        self._receiving = self.create_task(self._receive(session, context_id, self._finished))
+
+    async def _receive(
+        self, session: ClientConnection, context_id: str, finished: asyncio.Event
+    ) -> None:
+        """Take the session's audio into the audio context `context_id` until the session
+        finishes, then set `finished` and close it."""
+        try:
+            async for message in session:
+                if not isinstance(message, bytes):
+                    continue
+                event = ormsgpack.unpackb(message)
+                if not isinstance(event, dict):
+                    continue
+                if event.get("event") == "audio":
+                    audio = event.get("audio")
+                    if audio and len(audio) > 1024:  # as Pipecat's own receiver has it
+                        frame = TTSAudioRawFrame(audio, self.sample_rate, 1, context_id=context_id)
+                        await self.append_to_audio_context(context_id, frame)
+                        await self.stop_ttfb_metrics()
+                elif event.get("event") == "finish":
+                    if event.get("reason") == "error":
+                        await self.push_error(error_msg="Fish Audio server error during synthesis")
+                    break
+        except ConnectionClosed as e:
+            log.warning("Fish Audio closed a session before it finished: %s", e)
+        except Exception as e:
+            await self.push_error(error_msg=f"Unknown error occurred: {e}", exception=e)
+        finally:
+            finished.set()
+        await session.close()
+
+    async def _close_session(self) -> None:
+        """Close the session, if any, at once, dropping what it has yet to send."""
+        receiving, self._receiving = self._receiving, None
+        session, self._session = self._session, None
+        if receiving is not None:
+            await self.cancel_task(receiving)
+        if session is not None:
+            await session.close()
+
+    def _keep_spare(self) -> None:
+        """Have a connection open, or opening, for the next segment to start on, in place
+        of one that could not be opened or has closed since."""
+        spare = self._spare
+        if spare is not None and not spare.done():
+            return
+        if spare is not None and not spare.cancelled():
+            websocket = spare.result()
+            if websocket is not None and websocket.state is State.OPEN:
+                return
+        self._spare = self.create_task(self._open())
+
+    async def _open(self) -> ClientConnection | None:
+        """A new connection to Fish Audio, its session started, ready for the text to
+        voice; None if it could not be opened, the error having been reported."""
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        model = assert_given(self._settings.model)
+        if model is not None:
+            headers["model"] = model
+        request: dict[str, Any] = {
+            "text": "",
+            "sample_rate": self._fish_sample_rate,
+            "latency": self._settings.latency,
+            "format": self._output_format,
+            "normalize": self._settings.normalize,
+            "prosody": {
+                "speed": self._settings.prosody_speed,
+                "volume": self._settings.prosody_volume,
+            },
+            "reference_id": self._settings.voice,
+        }
+        if self._settings.temperature is not None:
+            request["temperature"] = self._settings.temperature
+        if self._settings.top_p is not None:
+            request["top_p"] = self._settings.top_p
+        websocket: ClientConnection | None = None
+        try:
+            websocket = await self._websocket_connect(self._base_url, additional_headers=headers)
+            await websocket.send(ormsgpack.packb({"event": "start", "request": request}))
+        except asyncio.CancelledError:
+            if websocket is not None:
+                websocket.transport.abort()
+            raise
+        except Exception as e:
+            await self.push_error(error_msg=f"Unknown error occurred: {e}", exception=e)
+            if websocket is not None:
+                websocket.transport.abort()
+            return None
+        return websocket
+
+    async def _connect(self) -> None:
+        """Open the connection the next segment is to start on."""
+        self._keep_spare()
+        assert self._spare is not None
+        await asyncio.wait([self._spare])
+
+    async def _disconnect(self) -> None:
+        """Drop the connections: the segment being voiced, and the next one's."""
+        await self.stop_all_metrics()
+        self._voicing = None
+        spare, self._spare = self._spare, None
+        await self._close_session()
+        if spare is None:
+            return
+        if not spare.done():
+            await self.cancel_task(spare)
+        elif not spare.cancelled() and (websocket := spare.result()) is not None:
+            await websocket.close()
 
 
 @dataclass(frozen=True)
@@ -598,7 +871,9 @@ class CallTurns(FrameProcessor):
     What the user says comes from speech recognition (a final transcription) or from
     text typed during the call (a `user-text` client message). Each turn goes through
     the conversation engine; the reply's Japanese is sent on as text for TTS, delivery
-    cues and all, and the browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
+    cues and all, segment by segment under the reply's number in the call
+    (`SegmentTextFrame`, then `SegmentCompleteFrame` once the segment has all of it), and
+    the browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
     server messages, which carry the subtitles. A turn replied to afresh after a
     follow-on opens again with `user`; an interrupted one's `done` carries only the
     segments complete by then.
@@ -718,10 +993,12 @@ class CallTurns(FrameProcessor):
                         self._stop.set()
                     case ClearVoice():
                         await self.push_frame(InterruptionFrame())
-                    case Reply(text=text):
-                        self._start_reply(text, after)
-                    case Voice(text=text):
-                        await self.push_frame(TextFrame(text))
+                    case Reply(text=text, number=number):
+                        self._start_reply(text, number, after)
+                    case Voice(text=text, reply=reply, segment=segment):
+                        await self.push_frame(SegmentTextFrame(text, reply, segment))
+                    case FlushVoice(reply=reply, segment=segment):
+                        await self.push_frame(SegmentCompleteFrame(reply, segment))
                     case WaitForFollowOn():
                         self._wait_for_follow_on()
                     case QueueTurn(text=text):
@@ -774,11 +1051,11 @@ class CallTurns(FrameProcessor):
             if reply is not None and not reply.done():
                 await self.cancel_task(reply)
 
-    def _start_reply(self, text: str, after: asyncio.Event | None = None) -> None:
-        """Reply to `text`, once `after` is set, if given."""
+    def _start_reply(self, text: str, number: int, after: asyncio.Event | None = None) -> None:
+        """Reply to `text`, as reply `number`, once `after` is set, if given."""
         self._stop_waiting()
         self._stop = asyncio.Event()
-        self._reply = self.create_task(self._reply_to(text, self._stop, after))
+        self._reply = self.create_task(self._reply_to(text, number, self._stop, after))
 
     async def _drop_reply(self) -> list[Reply | WaitForFollowOn]:
         """Drop the reply in progress and, once it is gone, tell `TurnTaking` so, handing
@@ -811,9 +1088,12 @@ class CallTurns(FrameProcessor):
             self._waiting.cancel()
             self._waiting = None
 
-    async def _reply_to(self, text: str, stop: asyncio.Event, after: asyncio.Event | None) -> None:
-        """Reply to what the user said, once `after` is set, if given, going no further
-        once `stop` is set. Only a reply that is recorded counts as a turn: a rejected,
+    async def _reply_to(
+        self, text: str, number: int, stop: asyncio.Event, after: asyncio.Event | None
+    ) -> None:
+        """Reply to what the user said, as reply `number` of the call, once `after` is set,
+        if given, going no further once `stop` is set. Only a reply that is recorded counts
+        as a turn: a rejected,
         failed or dropped one does not count towards the call's limit, an interrupted one
         does. Once it is over, recorded or not, so is the turn; a dropped one is not over,
         but gone, which whoever dropped it reports."""
@@ -826,10 +1106,12 @@ class CallTurns(FrameProcessor):
                 stop,
             ):
                 if isinstance(event, SegmentComplete):
-                    await self._carry_out(self._turns.segment_complete())
+                    await self._carry_out(self._turns.segment_complete(event.segment))
                     continue
                 if isinstance(event, SpeechDelta):  # the Japanese just shown, cues and all
-                    await self._carry_out(self._turns.reply_delta("ja", event.text))
+                    await self._carry_out(
+                        self._turns.reply_delta("ja", event.text, event.segment)
+                    )
                     continue
                 if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
                     await self._carry_out(self._turns.reply_recorded())
@@ -837,7 +1119,9 @@ class CallTurns(FrameProcessor):
                     self._outcome.turn_recorded()
                 await self._send(asdict(event))
                 if isinstance(event, SegmentDelta) and event.lang == "zh":
-                    await self._carry_out(self._turns.reply_delta("zh", event.text))
+                    await self._carry_out(
+                        self._turns.reply_delta("zh", event.text, event.segment)
+                    )
         except Exception:  # the turn is over all the same, rather than the call stuck in it
             log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:
