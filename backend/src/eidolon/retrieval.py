@@ -29,7 +29,7 @@ import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import httpx
 
@@ -443,19 +443,34 @@ class JevJudge:
                 recent.append(f"制作人：{message.text}")
             else:
                 recent.append(f"{character.name}：{message.without_cues().ja}")
-        body = {
-            "model": self._model,
-            "state": {
+        answers = await self.ask(
+            {
                 "角色": character.name,
                 "上文": recent or "（对话刚开始）",
                 "制作人最新的一句话": text,
             },
-            "questions": {
+            {
                 "needs_retrieval": _JUDGE_QUESTION,
                 "recall": _RECALL_QUESTION,
                 "about_producer": _ABOUT_PRODUCER_QUESTION,
             },
-        }
+        )
+        try:
+            retrieve = float(answers["needs_retrieval"]["noul"])
+            recall = float(answers["recall"]["noul"])
+            about_producer = float(answers["about_producer"]["noul"])
+        except (ValueError, KeyError, TypeError) as e:
+            raise JudgeError("Jev 的返回无法解析（缺少回答）") from e
+        if recall >= JUDGE_THRESHOLD:
+            return "recall"
+        if retrieve >= JUDGE_THRESHOLD:
+            return "references"
+        return "memories" if about_producer >= JUDGE_THRESHOLD else "nothing"
+
+    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        """Jev's answer to each of `questions` about `state`, by the question's key, all
+        in one request. Raises JudgeError if Jev cannot be reached or its answer read."""
+        body = {"model": self._model, "state": state, "questions": questions}
         try:
             res = await self._client.post(
                 self._url, json=body, headers={"Authorization": f"Bearer {self._api_key}"}
@@ -466,16 +481,11 @@ class JevJudge:
             raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
         try:
             answers = res.json()["answers"]
-            retrieve = float(answers["needs_retrieval"]["noul"])
-            recall = float(answers["recall"]["noul"])
-            about_producer = float(answers["about_producer"]["noul"])
         except (ValueError, KeyError, TypeError) as e:
             raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
-        if recall >= JUDGE_THRESHOLD:
-            return "recall"
-        if retrieve >= JUDGE_THRESHOLD:
-            return "references"
-        return "memories" if about_producer >= JUDGE_THRESHOLD else "nothing"
+        if not isinstance(answers, dict) or not all(isinstance(a, dict) for a in answers.values()):
+            raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）")
+        return answers
 
     async def aclose(self) -> None:
         await self._client.aclose()

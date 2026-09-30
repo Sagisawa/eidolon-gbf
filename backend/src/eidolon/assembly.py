@@ -5,8 +5,8 @@ characters and the world setting beside them, the identity providers users sign 
 the services users bring their own keys to, retrieval, memory, the conversation engine,
 usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
-retrieval finds memories again; the background model is always at hand, being the chat
-model unless configured apart.
+retrieval finds memories again; judging her emotion during calls needs only Jev; the
+background model is always at hand, being the chat model unless configured apart.
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes. Whoever passes one in closes it; `Backend.aclose` closes only what `build`
@@ -23,6 +23,7 @@ from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import Settings
 from eidolon.embedding import Embedder, open_embedder
+from eidolon.emotion import EmotionJudge, EmotionJudging, JevEmotionJudge
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
@@ -59,6 +60,8 @@ class Backend:
     usage: UsageLimiter
     clock: Clock
     calls: Calls
+    emotions: EmotionJudging | None
+    """Judging her emotion in each segment during calls; None without Jev."""
     own_keys: OwnKeys
     accounts: Accounts
     identity_providers: dict[ProviderName, IdentityProvider]
@@ -78,6 +81,7 @@ def build(
     chat_llm: ChatLLM | None = None,
     background_llm: ChatLLM | None = None,
     jev: RetrievalJudge | None = None,
+    emotion_judge: EmotionJudge | None = None,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
     clock: Clock | None = None,
@@ -144,10 +148,16 @@ def build(
         if reranker is None:
             reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
             closers.append(reranker.aclose)
-    if jev is None and (j := settings.jev) is not None:
+    if (jev is None or emotion_judge is None) and (j := settings.jev) is not None:
         judge = JevJudge(j.api_key, j.model, j.base_url)
         closers.append(judge.aclose)
-        jev = judge
+        jev = jev or judge
+        emotion_judge = emotion_judge or JevEmotionJudge(judge)
+    emotions = None
+    if emotion_judge is not None:
+        emotions = EmotionJudging(
+            emotion_judge, settings.emotion.min_probability, settings.emotion.timeout
+        )
 
     retrieval = None
     if jev is not None and embedder is not None and reranker is not None:
@@ -183,7 +193,7 @@ def build(
         chat_llm, background_llm, settings.soniox_api_key, settings.fish_audio_api_key
     )
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, deployer, speech)
-    calls = Calls(settings, engine, usage, speech, clock, own_keys, store)
+    calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,
@@ -194,6 +204,7 @@ def build(
         usage=usage,
         clock=clock,
         calls=calls,
+        emotions=emotions,
         own_keys=own_keys,
         accounts=Accounts(store, clock, memories, calls),
         identity_providers=identity_providers,

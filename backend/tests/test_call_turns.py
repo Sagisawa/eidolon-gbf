@@ -9,6 +9,7 @@ What is a follow-on and what interrupts the character is `TurnTaking`'s, tested 
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -38,7 +39,7 @@ from eidolon.call import (
     SegmentTextFrame,
 )
 from eidolon.call_outcome import CallOutcome
-from eidolon.config import Settings
+from eidolon.config import EmotionSettings, Settings
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Store
 from tests.conftest import ClientFactory
@@ -77,11 +78,13 @@ class CallUnderTest:
         memory: FakeBackgroundLLM | None = None,
         exempt: bool = False,
         connected: bool = True,
+        judge: FakeJudge | None = None,
+        emotion: EmotionSettings | None = None,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
             llm, frames, muted=muted, limits=limits, memory=memory, exempt=exempt,
-            connected=connected,
+            connected=connected, judge=judge, emotion=emotion,
         )
         spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
@@ -97,19 +100,26 @@ class CallUnderTest:
         memory: FakeBackgroundLLM | None = None,
         exempt: bool = False,
         connected: bool = True,
+        judge: FakeJudge | None = None,
+        emotion: EmotionSettings | None = None,
     ) -> Sequence[Frame]:
-        """Run the frames through a call that, unless told otherwise, connects as it starts."""
+        """Run the frames through a call that, unless told otherwise, connects as it starts,
+        with `judge` as the deployer's Jev judging each segment's emotion, if given, as
+        `emotion` says."""
         remembering = {} if memory is None else {
             "background_llm": memory, "jev": FakeJudge(), "embedder": FakeEmbedder(),
             "reranker": FakeReranker(),
         }
-        backend = build(self._settings, chat_llm=llm, clock=lambda: NOW, **remembering)
+        settings = self._settings if emotion is None else replace(self._settings, emotion=emotion)
+        backend = build(
+            settings, chat_llm=llm, clock=lambda: NOW, emotion_judge=judge, **remembering
+        )
         try:
             mano = backend.characters["mano"]
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
             call = Call(self.conversation, mano, llms, muted, "standard")
             outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt)
-            turns = CallTurns(backend.engine, call, outcome, limits)
+            turns = CallTurns(backend.engine, call, outcome, limits, backend.emotions)
             if connected:
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)

@@ -83,7 +83,8 @@ from eidolon.call_outcome import CallOutcome, EndReason
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
-from eidolon.engine import ConversationEngine, TurnDone
+from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
+from eidolon.engine import ConversationEngine, TurnDone, UserSaid
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
     SERVICE_LABELS,
@@ -594,9 +595,13 @@ class Calls:
         clock: Clock,
         own_keys: OwnKeys,
         store: Store | None = None,
+        emotions: EmotionJudging | None = None,
     ) -> None:
-        """With `store`, calls of users banned or deleted meanwhile are hung up."""
+        """With `store`, calls of users banned or deleted meanwhile are hung up; with
+        `emotions`, her emotion in each segment is judged, on the deployer's Jev whoever's
+        keys the call is on."""
         self._settings = settings
+        self._emotions = emotions
         self._engine = engine
         self._usage = usage
         self._speech = speech
@@ -660,7 +665,8 @@ class Calls:
                 self._owners.pop(connection.pc_id, None)
 
             live = _LiveCall(
-                connection, call, self._engine, self._speech, keys, self._limits, outcome
+                connection, call, self._engine, self._speech, keys, self._limits, outcome,
+                self._emotions,
             )
             self._live.add(live)
             live.start(on_done=self._live.discard)
@@ -759,6 +765,7 @@ class _LiveCall:
         keys: CallKeys,
         limits: CallLimits,
         outcome: CallOutcome,
+        emotions: EmotionJudging | None,
     ) -> None:
         self._connection = connection
         self._call = call
@@ -770,7 +777,7 @@ class _LiveCall:
                 audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
             ),
         )
-        self._turns = CallTurns(engine, call, outcome, limits)
+        self._turns = CallTurns(engine, call, outcome, limits, emotions)
         stt = speech.stt(keys.stt)
         tts = speech.tts(keys.tts, call.character.voice_id, sample_rate)
         own_services: dict[FrameProcessor, Service] = {
@@ -880,9 +887,14 @@ class CallTurns(FrameProcessor):
     cues and all, segment by segment under the reply's number in the call
     (`SegmentTextFrame`, then `SegmentCompleteFrame` once the segment has all of it), and
     the browser gets the same events as a text turn (`user`, `delta`, `done` or `error`) as
-    server messages, which carry the subtitles. A turn replied to afresh after a
-    follow-on opens again with `user`; an interrupted one's `done` carries only the
-    segments complete by then.
+    server messages, which carry the subtitles, `user` saying the number of the reply it
+    opens. A turn replied to afresh after a follow-on opens again with `user`; an
+    interrupted one's `done` carries only the segments complete by then.
+
+    Given `emotions`, each segment of a reply is judged once it is complete, while it is
+    voiced, and the browser gets an `emotion` message for it, for her stand; judging goes
+    on apart from the reply, which neither waits for it nor, dropped or interrupted, takes
+    what is being judged with it. What is left incomplete is not judged.
 
     Which of what the user says or types is a follow-on and which interrupts the
     character, when a reply is dropped, stopped or replied to afresh, and what of it is
@@ -904,12 +916,15 @@ class CallTurns(FrameProcessor):
         call: Call,
         outcome: CallOutcome,
         limits: CallLimits = CallLimits(),
+        emotions: EmotionJudging | None = None,
     ) -> None:
         super().__init__()
         self._engine = engine
         self._call = call
         self._outcome = outcome
         self._limits = limits
+        self._emotions = emotions
+        self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._turns = TurnTaking(text_only=call.muted)
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: time is up
         self._worker: asyncio.Task | None = None
@@ -1105,6 +1120,8 @@ class CallTurns(FrameProcessor):
         if after is not None:
             await after.wait()
         await self.push_frame(LLMFullResponseStartFrame())
+        ja: dict[int, str] = {}  # each segment's Japanese so far, cues and all
+        zh: dict[int, str] = {}  # and its subtitle
         try:
             async for event in self._engine.turn(
                 self._call.conversation, text, self._call.llms, self._call.device_timezone,
@@ -1112,8 +1129,11 @@ class CallTurns(FrameProcessor):
             ):
                 if isinstance(event, SegmentComplete):
                     await self._carry_out(self._turns.segment_complete(event.segment))
+                    if not stop.is_set():
+                        self._judge_emotion(text, number, event.segment, ja, zh)
                     continue
                 if isinstance(event, SpeechDelta):  # the Japanese just shown, cues and all
+                    ja[event.segment] = ja.get(event.segment, "") + event.text
                     await self._carry_out(
                         self._turns.reply_delta("ja", event.text, event.segment)
                     )
@@ -1122,8 +1142,12 @@ class CallTurns(FrameProcessor):
                     await self._carry_out(self._turns.reply_recorded())
                     self._recorded += 1
                     self._outcome.turn_recorded()
-                await self._send(asdict(event))
+                message = asdict(event)
+                if isinstance(event, UserSaid):
+                    message["reply"] = number
+                await self._send(message)
                 if isinstance(event, SegmentDelta) and event.lang == "zh":
+                    zh[event.segment] = zh.get(event.segment, "") + event.text
                     await self._carry_out(
                         self._turns.reply_delta("zh", event.text, event.segment)
                     )
@@ -1134,10 +1158,36 @@ class CallTurns(FrameProcessor):
         await self._carry_out(self._turns.reply_ended())
         self._turn_over.set()
 
+    def _judge_emotion(
+        self, said: str, reply: int, segment: int, ja: dict[int, str], zh: dict[int, str]
+    ) -> None:
+        """Have the emotion of segment `segment` of reply `reply` judged, the user having
+        said `said`, and sent once it is, from what the reply's segments are (`ja`, `zh`)."""
+        if self._emotions is None:
+            return
+        question = SegmentToJudge(
+            self._call.character,
+            said,
+            [SaidSegment(ja.get(s, ""), zh.get(s, "")) for s in range(segment)],
+            SaidSegment(ja.get(segment, ""), zh.get(segment, "")),
+        )
+        judging = self.create_task(self._send_emotion(self._emotions, reply, segment, question))
+        self._judging.add(judging)
+        judging.add_done_callback(self._judging.discard)
+
+    async def _send_emotion(
+        self, emotions: EmotionJudging, reply: int, segment: int, question: SegmentToJudge
+    ) -> None:
+        message = await emotions.message(reply, segment, question)
+        if message is not None:
+            await self._send(message)
+
     async def _send(self, message: dict) -> None:
         await self.push_frame(RTVIServerMessageFrame(data=message))
 
     async def _stop_worker(self) -> None:
+        for judging in list(self._judging):
+            await self.cancel_task(judging)
         if self._timer is not None:
             await self.cancel_task(self._timer)
             self._timer = None

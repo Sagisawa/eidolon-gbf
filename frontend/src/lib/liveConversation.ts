@@ -9,6 +9,7 @@ import {
   type Message,
   SPEAKING,
   type Segment,
+  type SegmentEmotion,
   type SegmentPlaying,
   type Speaking,
   type TurnEvent,
@@ -108,6 +109,12 @@ type State = Omit<Snapshot, "entries" | "line"> & {
   /** The user interrupted her by typing while she spoke: once her voice stops she looks at
    * them, until she speaks again. */
   interruptedByTyping: boolean;
+  /** Which of her replies in the call the subtitles are of; null until one has started. */
+  shownReply: number | null;
+  /** The segment she is saying, which her mood follows: the one her voice last started
+   * playing, or in text only the one last shown. `over` once it has been said: her voice
+   * stopped (until it starts again), or the next turn was taken up. Null until one starts. */
+  saying: { reply: number; segment: number; over: boolean } | null;
 };
 
 const IDLE: Omit<Snapshot, "entries" | "line"> = {
@@ -128,10 +135,12 @@ const IDLE: Omit<Snapshot, "entries" | "line"> = {
 };
 
 /** No one speaking in the call: the stand is as a call starts. */
-const QUIET: Pick<State, "voicing" | "userSpeaking" | "interruptedByTyping" | "stand"> = {
+const QUIET: Pick<State, "voicing" | "userSpeaking" | "interruptedByTyping" | "shownReply" | "saying" | "stand"> = {
   voicing: false,
   userSpeaking: false,
   interruptedByTyping: false,
+  shownReply: null,
+  saying: null,
   stand: CALM,
 };
 
@@ -177,6 +186,8 @@ export class LiveConversation {
   private conversationId: string | null = null;
   /** How many nods she has given, to tell each one from the last. */
   private nods = 0;
+  /** Emotions judged for segments she has yet to say in this call, by `reply:segment`. */
+  private feelings = new Map<string, SegmentEmotion>();
 
   /** Opens her newest conversation, or starts one if she has none. */
   constructor(
@@ -370,21 +381,34 @@ export class LiveConversation {
   }
 
   private onCallEvent(event: CallEvent, attempt: object): void {
+    // Not from a call hung up or dropped, the stand having been cleared with it.
+    const current = this.attempt === attempt && isLive(this.state.call);
     if (isSpeaking(event)) {
-      // Not from a call hung up or dropped, the stand having been cleared with it.
-      if (this.attempt === attempt && isLive(this.state.call)) this.onSpeaking(event);
+      if (current) this.onSpeaking(event);
       return;
     }
     if (event.type === "ended") {
       this.endedBy = backendEnd(event);
       return;
     }
-    if (event.type === "segment-playing") {
-      this.update({ playing: { reply: event.reply, segment: event.segment } });
+    if (event.type === "emotion") {
+      if (current) this.onEmotion(event);
       return;
     }
-    if (event.type === "user") this.applyTurnEvent(event, { hearing: "" });
-    else if (event.type === "error")
+    if (event.type === "segment-playing") {
+      this.update({ playing: { reply: event.reply, segment: event.segment } });
+      if (current) this.startSaying(event.reply, event.segment);
+      return;
+    }
+    if (event.type === "user") {
+      const saying = this.state.saying && { ...this.state.saying, over: true };
+      this.applyTurnEvent(event, { hearing: "", shownReply: event.reply ?? null, saying });
+    } else if (event.type === "delta") {
+      this.applyTurnEvent(event);
+      // In text only, a segment is said as its first line shows.
+      const { shownReply, textOnly } = this.state;
+      if (current && textOnly && shownReply !== null) this.startSaying(shownReply, event.segment);
+    } else if (event.type === "error")
       this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false } });
     else this.applyTurnEvent(event);
   }
@@ -393,16 +417,49 @@ export class LiveConversation {
    * while they speak and nods when they stop. Her voice stops at once when she is
    * interrupted, and the user who interrupted is speaking or has typed. */
   private onSpeaking({ type }: Speaking): void {
+    const saying = this.state.saying;
     switch (type) {
       case "bot-started-speaking":
-        return this.update({ voicing: true, interruptedByTyping: false });
+        return this.update({ voicing: true, interruptedByTyping: false, saying: saying && { ...saying, over: false } });
       case "bot-stopped-speaking":
-        return this.update({ voicing: false });
+        return this.update({ voicing: false, saying: saying && { ...saying, over: true } });
       case "user-started-speaking":
         return this.update({ userSpeaking: true });
       case "user-stopped-speaking":
         return this.update({ userSpeaking: false, stand: { ...this.state.stand, nod: { kind: "yes", id: ++this.nods } } });
     }
+  }
+
+  /** She starts saying segment `segment` of reply `reply`, unless she is past it already:
+   * her mood follows it if it has been judged. */
+  private startSaying(reply: number, segment: number): void {
+    const { saying } = this.state;
+    if (saying && !follows({ reply, segment }, saying)) return;
+    const feeling = this.feelings.get(`${reply}:${segment}`);
+    for (const [key, earlier] of this.feelings) if (!follows(earlier, { reply, segment })) this.feelings.delete(key);
+    this.update({ saying: { reply, segment, over: false } });
+    if (feeling) this.feel(feeling);
+  }
+
+  /** A segment's emotion is judged: kept until she says it, taken up at once while she is
+   * saying it, and dropped once she has said it. */
+  private onEmotion(feeling: SegmentEmotion): void {
+    const { saying } = this.state;
+    if (!saying || follows(feeling, saying)) this.feelings.set(`${feeling.reply}:${feeling.segment}`, feeling);
+    else if (feeling.reply === saying.reply && feeling.segment === saying.segment && !saying.over) this.feel(feeling);
+  }
+
+  /** Her mood follows the segment she is saying, but through a calm one it stays as it was,
+   * unless the segment opens her reply; a nod or shake of the head goes with it. */
+  private feel({ emotion, segment, nod }: SegmentEmotion): void {
+    const { stand } = this.state;
+    this.update({
+      stand: {
+        ...stand,
+        mood: emotion === "calm" && segment > 0 ? stand.mood : emotion,
+        nod: nod ? { kind: nod, id: ++this.nods } : stand.nod,
+      },
+    });
   }
 
   /** Moves the log on by an event of a turn, typed or spoken in a call. */
@@ -460,6 +517,7 @@ export class LiveConversation {
   /** The call is over, hung up (no `end`) or not; a reply it cut off is not recorded. */
   private ended(end: CallEnd | null): void {
     this.call = null;
+    this.feelings.clear();
     this.apply(
       { type: "interrupted" },
       {
@@ -514,6 +572,11 @@ function withStandRules(next: State): State {
   return { ...next, stand: { ...next.stand, speaking, looking } };
 }
 
+/** Whether segment `a` comes after segment `b` in the call. */
+function follows(a: Pick<SegmentPlaying, "reply" | "segment">, b: Pick<SegmentPlaying, "reply" | "segment">): boolean {
+  return a.reply > b.reply || (a.reply === b.reply && a.segment > b.segment);
+}
+
 function isSpeaking(event: CallEvent): event is Speaking {
   return (SPEAKING as readonly string[]).includes(event.type);
 }
@@ -522,7 +585,16 @@ function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
 
-function toSnapshot({ log, callFrom, voicing, userSpeaking, interruptedByTyping, ...rest }: State): Snapshot {
+function toSnapshot({
+  log,
+  callFrom,
+  voicing,
+  userSpeaking,
+  interruptedByTyping,
+  shownReply,
+  saying,
+  ...rest
+}: State): Snapshot {
   return { ...rest, entries: log.entries, line: latestLine(log.entries.slice(callFrom)) };
 }
 

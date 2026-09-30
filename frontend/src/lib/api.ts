@@ -1,5 +1,6 @@
 import type { Provider } from "@/lib/signIn";
 import { detectTimezone } from "@/lib/timezone";
+import type { Emotion, Nod } from "@/lib/standAnimations";
 
 export type Character = {
   id: string;
@@ -51,9 +52,11 @@ export type Message = {
   created_at: string;
 };
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. */
+/** A turn's events: `user`, then any `delta`s, then `done` or `error`. In a call, `user` says
+ * which of her replies in the call it opens, numbered from 1 (a turn replied to afresh opens
+ * again, with the next number). */
 export type TurnEvent =
-  | { type: "user"; text: string }
+  | { type: "user"; text: string; reply?: number }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
@@ -78,12 +81,13 @@ export type Memory = {
 };
 
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each
- * segment of her voice starts playing, who starts and stops speaking, and, when it is about to
+ * segment of her voice starts playing, how she feels in each, who starts and stops speaking, and, when it is about to
  * hang up (the call reached its time or turn limit, a voice service or an own key failed), why,
  * and whether the call counted towards the hourly limit. */
 export type CallEvent =
   | TurnEvent
   | SegmentPlaying
+  | SegmentEmotion
   | Speaking
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
 
@@ -102,6 +106,18 @@ export const SPEAKING = [
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little
  * before it is heard; a segment cut off before it is voiced gets none. */
 export type SegmentPlaying = { type: "segment-playing"; reply: number; segment: number };
+
+/** How she feels in segment `segment` of reply `reply`, and whether she nods (`yes`) or shakes
+ * her head (`no`) at it; `calm` when it could not be told for sure. Sent once the segment is
+ * complete and judged, which may be before or after it starts playing; a segment that could
+ * not be judged in time gets none. */
+export type SegmentEmotion = {
+  type: "emotion";
+  reply: number;
+  segment: number;
+  emotion: Emotion;
+  nod: Nod["kind"] | null;
+};
 
 /** Why the backend hung up (`EndReason` in `call.py`). */
 export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";

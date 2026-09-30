@@ -123,7 +123,8 @@ class Settings:
     rerank: "RerankSettings | None" = None
     jev: "JevSettings | None" = None
     """Retrieval needs the embedding service, the reranker and Jev; without any of them,
-    turns go unretrieved."""
+    turns go unretrieved. Without Jev, neither is any emotion judged during calls."""
+    emotion: "EmotionSettings" = field(default_factory=lambda: EmotionSettings())
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
@@ -175,6 +176,7 @@ class Settings:
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
             jev=_jev_from_env(),
+            emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
@@ -372,6 +374,36 @@ class JevSettings:
             model=os.environ.get("JEV_MODEL") or DEFAULT_JEV_MODEL,
             base_url=os.environ.get("JEV_BASE_URL") or DEFAULT_JEV_BASE_URL,
         )
+
+
+@dataclass(frozen=True)
+class EmotionSettings:
+    """How Jev's judging of each segment's emotion during calls is taken (see `emotion`):
+    the likeliest answer's probability below which she is calm and does not nod, and how
+    long, in seconds, a segment may take to be judged before it goes without."""
+
+    min_probability: float = 0.5
+    timeout: float = 1.5
+
+    @classmethod
+    def from_env(cls) -> "EmotionSettings":
+        min_probability = _relevance("JEV_EMOTION_MIN_PROBABILITY")
+        timeout = (os.environ.get("JEV_EMOTION_TIMEOUT") or "").strip()
+        defaults = cls()
+        return cls(
+            min_probability=defaults.min_probability if min_probability is None else min_probability,
+            timeout=_seconds("JEV_EMOTION_TIMEOUT", timeout) if timeout else defaults.timeout,
+        )
+
+
+def _seconds(name: str, value: str) -> float:
+    try:
+        seconds = float(value)
+    except ValueError:
+        seconds = 0.0
+    if not seconds > 0:
+        raise RuntimeError(f"环境变量 {name} 需要是大于 0 的秒数，而不是 {value}")
+    return seconds
 
 
 def _jev_from_env() -> JevSettings | None:
