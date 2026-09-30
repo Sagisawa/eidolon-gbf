@@ -9,7 +9,20 @@ export type Character = {
   /** Her image colour, `#rrggbb`; the interface only uses what `herVars()` derives from it. */
   color: string;
   background_url: string | null;
+  /** Her Spine stand on the call layer; null (her call background alone) unless the deployment
+   * configures her idol, her default outfit and where the stands are served from. */
+  stand: Stand | null;
 };
+
+/** Where a character's stand comes from. */
+export type Stand = {
+  /** The outfit she wears unless the user picks another. */
+  default_outfit: Outfit;
+};
+
+/** One outfit of her stand: `id` is `stand/<enzaId>` or `stand_costume/<enzaId>`, and `url` the
+ * directory (ending in `/`) holding its `data.json`, `data.atlas` and `data.png`. */
+export type Outfit = { id: string; url: string };
 
 export type Conversation = {
   id: string;

@@ -9,6 +9,7 @@ const mano: Character = {
   avatar_url: "/api/characters/mano/avatar",
   color: "#ffbad6",
   background_url: null,
+  stand: null,
 };
 
 const memory = (source: string): Memory => ({

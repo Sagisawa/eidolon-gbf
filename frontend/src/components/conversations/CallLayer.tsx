@@ -11,10 +11,10 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { MediaTheme } from "@astryxdesign/core/theme";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useEffect, useRef, type ComponentType, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { useEffect, useRef, useState, type ComponentType, type CSSProperties, type ReactNode, type SVGProps } from "react";
 
 import { copy } from "@/i18n";
-import type { Character, Segment } from "@/lib/api";
+import type { Character, Outfit, Segment } from "@/lib/api";
 import type { CallEnd } from "@/lib/callEnd";
 import { showTime } from "@/lib/callTime";
 import { CALL_MUTED } from "@/lib/imageColor";
@@ -23,6 +23,7 @@ import { CollapseIcon, HangUpIcon, MicIcon, MicOffIcon, MicSwitchIcon } from "@/
 import { Ja } from "@/theme/Ja";
 import { lineState } from "@/theme/lineState";
 
+import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
 
 const t = copy.call;
@@ -61,6 +62,7 @@ type Props = {
 /**
  * 通话层（DESIGN.md「Call layer」）：像一张折好的纸，从页首整张拉下来；收起是同一个动作反过来。
  * 强制深色；她的背景图全幅，上面叠她 call.top 到 call.deep 的渐变，没有背景图时只用渐变。
+ * 她有立绘时（`character.stand`）用立绘版的布局：手机「大立绘」、电脑「半身 ADV」。
  */
 export function CallLayer(props: Props) {
   const { character, call, isCollapsed, isFullScreen, isReducedMotion } = props;
@@ -142,27 +144,106 @@ export function CallLayer(props: Props) {
             </StackItem>
           </HStack>
 
-          <StackItem size="fill" isScrollable>
-            <VStack minHeight="100%" hAlign="center" vAlign="center" gap={4} paddingBlock={4}>
-              <Avatar
-                src={character.avatar_url ?? undefined}
-                name={character.name}
-                size="xl"
-                tooltip={false}
-                style={portrait}
-              />
-              <Heading level={2} style={{ fontSize: "var(--text-large-size)" }}>
-                {character.name}
-              </Heading>
-              {call.phase === "ended" ? <Ended end={call.end} {...props} /> : <Live {...props} call={call} />}
-            </VStack>
-          </StackItem>
+          {character.stand ? (
+            <StandBody {...props} outfit={character.stand.default_outfit} />
+          ) : (
+            <StackItem size="fill" isScrollable>
+              <VStack minHeight="100%" hAlign="center" vAlign="center" gap={4} paddingBlock={4}>
+                <Avatar
+                  src={character.avatar_url ?? undefined}
+                  name={character.name}
+                  size="xl"
+                  tooltip={false}
+                  style={portrait}
+                />
+                <Name character={character} />
+                <Words {...props} />
+              </VStack>
+            </StackItem>
+          )}
 
           {!ended && <Controls {...props} isConnected={call.phase === "connected"} />}
         </VStack>
       </MediaTheme>
     </VStack>
   );
+}
+
+/**
+ * 立绘版的布局（spec「通话层」）。只要她有立绘，一打电话就用它，立绘晚到或者加载失败都不切回去，
+ * 字幕的位置在通话中途不会跳。立绘叠在背景图和纱上面，在文字和按钮下面；底部压一层她颜色的深色渐变，
+ * 按钮和对话框落在衣服上也看得清。
+ * - 手机「大立绘」：立绘从底部升起，贴着头顶、到膝；名字、计时和字幕在上方。
+ * - 电脑「半身 ADV」：立绘铺满整层，贴着头顶、到腰；名字、计时和字幕在底部半透明的对话框里。
+ */
+function StandBody(props: Props & { outfit: Outfit }) {
+  const { character, call, isCollapsed, isFullScreen, isReducedMotion, outfit } = props;
+  const dial = useDialCount(call.phase);
+  const stand = (
+    <Stand
+      // 每拨一次重新载入：上一通失败了，这一通再试一次。
+      key={dial}
+      outfit={outfit}
+      framing={isFullScreen ? "knees" : "waist"}
+      isPaused={isCollapsed}
+      entrance={isFullScreen && !isReducedMotion ? "rise" : "fade"}
+    />
+  );
+
+  if (isFullScreen) {
+    return (
+      <>
+        <VStack style={{ ...behind, insetInline: 0, bottom: 0, height: "78%" }}>{stand}</VStack>
+        <VStack style={bottomShade} />
+        <StackItem size="fill" isScrollable>
+          <VStack hAlign="center" gap={3} paddingBlock={2}>
+            <Name character={character} />
+            <Words {...props} />
+          </VStack>
+        </StackItem>
+      </>
+    );
+  }
+  return (
+    <>
+      <VStack style={{ ...behind, inset: 0 }}>{stand}</VStack>
+      <VStack style={bottomShade} />
+      <StackItem size="fill" />
+      <VStack hAlign="center" gap={2} padding={4} style={dialogBox}>
+        <HStack width="100%">
+          <Text weight="medium" style={{ color: "var(--her-call-rule)" }}>
+            {character.name}
+          </Text>
+        </HStack>
+        <Words {...props} />
+      </VStack>
+    </>
+  );
+}
+
+/** 第几通电话：拨号时加一。 */
+function useDialCount(phase: ShownCall["phase"]): number {
+  const [seen, setSeen] = useState({ phase, count: 0 });
+  if (phase !== seen.phase) {
+    const count = seen.count + (phase === "dialing" ? 1 : 0);
+    setSeen({ phase, count });
+    return count;
+  }
+  return seen.count;
+}
+
+function Name({ character }: { character: Character }) {
+  return (
+    <Heading level={2} style={{ fontSize: "var(--text-large-size)" }}>
+      {character.name}
+    </Heading>
+  );
+}
+
+/** 名字下面的内容：通话中是状态和字幕，结束后是结束页。 */
+function Words(props: Props) {
+  const { call } = props;
+  return call.phase === "ended" ? <Ended {...props} end={call.end} /> : <Live {...props} call={call} />;
 }
 
 /** 拨打中、通话中：状态和计时，她当前这句的日语和字幕，用户正在说的话。 */
@@ -342,6 +423,29 @@ const onCall = {
   "--color-background-surface": "var(--color-text-primary)",
   "--color-neutral": translucentWhite,
 } as CSSProperties;
+
+/**
+ * 铺在通话层底下的立绘：在背景图和纱之上，在文字和按钮之下（整层 zIndex 1 自成层叠上下文），
+ * 不接收点击。
+ */
+const behind: CSSProperties = { position: "absolute", zIndex: -1, pointerEvents: "none" };
+
+/** 底部压的一层她颜色的深色渐变，挂断、静音这些按钮落在衣服上也看得清（DESIGN.md「Call layer」）。 */
+const bottomShade: CSSProperties = {
+  ...behind,
+  insetInline: 0,
+  bottom: 0,
+  height: "45%",
+  background:
+    "linear-gradient(180deg, transparent 0%, color-mix(in oklab, var(--her-call-deep) 88%, transparent) 55%, var(--her-call-deep) 100%)",
+};
+
+/** 电脑「半身 ADV」的对话框：72% 的 call.deep，一圈 call.rule 细线（DESIGN.md「Call layer」）。 */
+const dialogBox: CSSProperties = {
+  borderRadius: "var(--radius-container)",
+  background: "color-mix(in oklab, var(--her-call-deep) 72%, transparent)",
+  boxShadow: "0 0 0 var(--border-width) var(--her-call-rule)",
+};
 
 /** 大头像：她的 call.rule 描边加柔和投影（DESIGN.md「Call portrait」）。 */
 const portrait: CSSProperties = {

@@ -12,6 +12,11 @@
 #   facts     角色资料（可选），路径相对于本文件；Markdown，每个标题下的内容是一条，对话中按需检索；
 #             文件不存在时不检索角色资料。修改后重启后端即可，不需要重新导入
 #   speakers  剧情台词里她的说话人名字，用来识别剧情的出场角色；修改后需要重新导入剧情库
+#   idol_id   原作的偶像编号（可选），即立绘镜像 spine_manifest.json 里的 idolId，正整数
+#   default_outfit 立绘的默认衣装（可选），写成 stand/<enzaId>（这张卡的私服）或 stand_costume/<enzaId>
+#             （这张卡的演出服），enzaId 是 spine_manifest.json 里的十位编号。用户没选过衣装时她穿这一套。
+#             idol_id、default_outfit 和后端的 EIDOLON_STAND_ASSETS_URL 都配好了，通话层才显示立绘，
+#             否则只显示背景图（docs/deploy.md「立绘素材」）
 #
 # 人设文件和角色资料是自己写的，提交进仓库：参照 sheets/example.md 编写 sheets/<角色标识>.md
 # （也可以先用 eidolon character draft-sheet 生成初稿再校对），参照 facts/example.md 编写 facts/<角色标识>.md。
@@ -27,6 +32,8 @@ avatar = "avatars/mano.jpg"
 color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
+idol_id = 1
+default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 
 [[characters]]
 id = "kogane"
@@ -38,3 +45,5 @@ avatar = "avatars/kogane.jpg"
 color = "#f84cad"
 facts = "facts/kogane.md"
 speakers = ["恋鐘"]
+idol_id = 4
+default_outfit = "stand/1030040010"  # 【ばってん長崎恋岬】

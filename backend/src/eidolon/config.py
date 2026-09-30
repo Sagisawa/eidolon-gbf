@@ -140,6 +140,10 @@ class Settings:
     gemini_billing_enabled: bool = False
     """The deployer says Gemini's billing is on, so its paid tier, which Google does not
     train on, embeds users' memories (ADR-0005, revised)."""
+    stand_assets_url: str | None = None
+    """Where browsers download the stands from, without a trailing slash: the public URL
+    of the object storage they are synced to (ADR-0003, revised 2026-09-30). None shows
+    every character's call background without her stand."""
 
     def __post_init__(self) -> None:
         if self.background_llm is None:
@@ -179,6 +183,7 @@ class Settings:
             google=OAuthSettings.from_env("GOOGLE"),
             secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
+            stand_assets_url=stand_assets_url_from_env(),
         )
 
 
@@ -203,6 +208,19 @@ def mirror_cache_path_from_env() -> Path:
 def event_names_path_from_env() -> Path:
     """The admin's table of event names, which `eidolon story sync` names events from."""
     return Path(os.environ.get("EIDOLON_EVENT_NAMES_PATH", "../deploy/event-names.toml"))
+
+
+def stand_assets_url_from_env() -> str | None:
+    """`EIDOLON_STAND_ASSETS_URL`, the stands' public address, without a trailing slash."""
+    value = (os.environ.get("EIDOLON_STAND_ASSETS_URL") or "").strip().rstrip("/")
+    if not value:
+        return None
+    if not value.startswith(("https://", "http://")):
+        raise RuntimeError(
+            f"环境变量 EIDOLON_STAND_ASSETS_URL 应为立绘素材的公开访问地址（http:// 或 https:// 开头），"
+            f"而不是 {value}"
+        )
+    return value
 
 
 def history_turns_from_env() -> int | None:

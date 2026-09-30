@@ -88,6 +88,8 @@ class CharacterConfig:
         background: bytes | None = None,
         speakers: list[str] | None = None,
         facts: str | None = None,
+        idol_id: int | None = None,
+        default_outfit: str | None = None,
     ) -> "CharacterConfig":
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
@@ -106,6 +108,10 @@ class CharacterConfig:
             entry += f'facts = "facts/{id}.md"\n'
         if speakers is not None:
             entry += f"speakers = {json.dumps(speakers, ensure_ascii=False)}\n"
+        if idol_id is not None:
+            entry += f"idol_id = {idol_id}\n"
+        if default_outfit is not None:
+            entry += f'default_outfit = "{default_outfit}"\n'
         self._entries.append(entry)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")
@@ -122,12 +128,13 @@ class CharacterConfig:
 
 @pytest.fixture
 def characters(tmp_path: Path) -> CharacterConfig:
-    """Mano (with an avatar and a background) and Kogane (with neither)."""
+    """Mano (with an avatar, a background and a stand) and Kogane (with none of them)."""
     return (
         CharacterConfig(tmp_path / "characters")
         .add(
             "mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR,
             color="#ffbad6", background=BACKGROUND, speakers=["真乃"], voice_id="mano-voice",
+            idol_id=1, default_outfit="stand/1030010010",
         )
         .add(
             "kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", color="#f84cad",

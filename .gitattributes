@@ -1,1 +1,3 @@
 *.sh text eol=lf
+# Spine runtime 原样保存（ADR-0009），换行符转换会改变校验和
+frontend/public/vendor/spine-3.6/** -text
