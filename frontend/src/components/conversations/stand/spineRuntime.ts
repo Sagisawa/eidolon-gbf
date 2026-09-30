@@ -73,6 +73,8 @@ export type SceneRenderer = {
 };
 
 export type AssetManager = {
+  /** 载入的素材，按地址：文字是字符串，图集和贴图可以 dispose。 */
+  assets: Record<string, string | { dispose?: () => void } | null>;
   loadText(path: string, success: () => void, error: (path: string, message: string) => void): void;
   loadTextureAtlas(path: string, success: () => void, error: (path: string, message: string) => void): void;
   get(path: string): unknown;

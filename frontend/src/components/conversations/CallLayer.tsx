@@ -50,6 +50,8 @@ type Props = {
   hearing: string;
   /** 她的立绘该是什么样子；她没有立绘时用不上。 */
   standDirection: StandDirection;
+  /** 立绘依次试的衣装：选中的那套，再是默认衣装；她没有立绘时用不上。 */
+  standOutfits: readonly Outfit[];
   onCollapse: () => void;
   onHangUp: () => void;
   onToggleMic: () => void;
@@ -148,7 +150,7 @@ export function CallLayer(props: Props) {
           </HStack>
 
           {character.stand ? (
-            <StandBody {...props} outfit={character.stand.default_outfit} />
+            <StandBody {...props} />
           ) : (
             <StackItem size="fill" isScrollable>
               <VStack minHeight="100%" hAlign="center" vAlign="center" gap={4} paddingBlock={4}>
@@ -179,14 +181,14 @@ export function CallLayer(props: Props) {
  * - 手机「大立绘」：立绘从底部升起，贴着头顶、到膝；名字、计时和字幕在上方。
  * - 电脑「半身 ADV」：立绘铺满整层，贴着头顶、到腰；名字、计时和字幕在底部半透明的对话框里。
  */
-function StandBody(props: Props & { outfit: Outfit }) {
-  const { character, call, isCollapsed, isFullScreen, isReducedMotion, outfit, standDirection } = props;
+function StandBody(props: Props) {
+  const { character, call, isCollapsed, isFullScreen, isReducedMotion, standOutfits, standDirection } = props;
   const dial = useDialCount(call.phase);
   const stand = (
     <Stand
       // 每拨一次重新载入：上一通失败了，这一通再试一次。
       key={dial}
-      outfit={outfit}
+      outfits={standOutfits}
       framing={isFullScreen ? "knees" : "waist"}
       isPaused={isCollapsed}
       entrance={isFullScreen && !isReducedMotion ? "rise" : "fade"}

@@ -226,6 +226,7 @@ components:
 
 ### Overlays
 - **AlertDialog**（离开对话前确认挂断）、**BottomSheet**（切换麦克风，高度随内容）、**MoreMenu / Popover**：Astryx 默认，遵守 The Night Edge Rule。麦克风选择的当前项同样铺她的 paper（`listRow()`），写「正在使用」。
+- **换衣装**（对话页页首 `OutfitIcon`，她有立绘时才有）：宽屏 **Dialog**（左边全身大预览、右边卡片 `Grid`），窄屏 **BottomSheet**（高度 tall，大预览在上面、随列表一起滚动）。每张卡是一个 `Card`：缩略图、卡名（固定两行）、铺满卡宽的「私服 / 演出」`SegmentedControl`，只有一套的是灰掉的「只有一套」，所有卡一样高。正在预览的卡同样铺她的 paper（`listRow()`），不另加描边；大预览的底是她的 paper。卡片是缩略图画廊，不是数据行，所以不用 `List`。
 
 ### Call layer（通话层，signature）
 - 强制深色（`color-scheme: dark` + `MediaTheme mode="dark"`）。次要字是 74% 白，与 `CALL_MUTED` 一致。
@@ -247,7 +248,7 @@ components:
 - 文字带下划线状态：实线 = 通话中（「通话中 mm:ss · 点击返回」），虚线 = 正在呼叫。
 
 ### Icons
-- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`TrashIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（arrowUp 和 stop 即输入栏的发送键和停止键，以及 check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。Astryx 用到而没有注册的图标名会回退到它自带的图标，用上新的 Astryx 组件时要检查它调用了哪些图标名。
+- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`TrashIcon`、`OutfitIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（arrowUp 和 stop 即输入栏的发送键和停止键，以及 check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。Astryx 用到而没有注册的图标名会回退到它自带的图标，用上新的 Astryx 组件时要检查它调用了哪些图标名。
 
 **The Line-State Rule.** 通话状态只用线形表达，线色是她的 rule 色（纸面上 `noteRule`，通话层上 `call.rule`），2px 粗、6px 偏移：实线下划线 = 通话中，虚线下划线 = 正在呼叫，删除线 = 已结束。
 

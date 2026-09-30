@@ -16,14 +16,17 @@ import type {
   TrackEntry,
 } from "./spineRuntime";
 
-/** 取景（spec「渲染」）：手机「大立绘」贴着头顶、到膝；电脑「半身 ADV」贴着头顶、到腰。 */
-export type Framing = "knees" | "waist";
+/**
+ * 取景（spec「渲染」）：手机「大立绘」贴着头顶、到膝；电脑「半身 ADV」贴着头顶、到腰；
+ * 换衣装的大预览是全身。
+ */
+export type Framing = "knees" | "waist" | "full";
 
-/** 取景的高度，占身体的比例。 */
-const FRAMING_HEIGHT: Record<Framing, number> = { knees: 0.85, waist: 0.66 };
+/** 取景的高度，占身体的比例（全身另算，见 `aim`）。 */
+const FRAMING_HEIGHT: Record<Exclude<Framing, "full">, number> = { knees: 0.85, waist: 0.66 };
 /** 取景的宽度不窄于身体的这个比例，免得竖屏上只剩一张脸。 */
 const MIN_WIDTH = 0.7;
-/** 头顶上方留的空，占身体高度的比例。 */
+/** 头顶上方留的空（全身时四周留的空），占身体高度的比例。 */
 const HEADROOM = 0.03;
 
 /** 轨道照原作 ADV：0 身体、1 表情、2 点头、3 视线、5 口型（4 脸红暂不使用）。 */
@@ -42,6 +45,8 @@ export class StandUnavailable extends Error {}
 
 /** 载入好的一套衣装：骨架、它的动画状态和这套衣装有哪些动画。 */
 type Pose = {
+  /** 这套衣装的素材目录，释放素材时按它找。 */
+  url: string;
   skeleton: Skeleton;
   data: SkeletonData;
   state: AnimationState;
@@ -89,6 +94,12 @@ export class StandEngine {
   private disposed = false;
   private direction: StandDirection = CALM;
   private reducedMotion = false;
+  /** 第几次要求载入衣装：只有最后一次要的那套会换上。 */
+  private loads = 0;
+  /** 最后一次要的那套衣装的素材目录。 */
+  private wanted: string | null = null;
+  /** 正在下载的衣装，按素材目录。 */
+  private readonly fetching = new Map<string, Promise<void>>();
 
   /**
    * 在 `canvas` 上准备好绘制；浏览器不支持 WebGL 时抛出 `StandUnavailable`。
@@ -145,28 +156,51 @@ export class StandEngine {
   }
 
   /**
-   * 载入一套衣装，按当前的立绘指令摆好姿势后开始绘制。素材加载不到、数据读不了时 reject。
-   * 现在一个引擎只载入一套；换衣装（ticket 19）时要在这里释放上一套的素材。
+   * 载入一套衣装，按当前的立绘指令摆好姿势后开始绘制；已经穿着另一套时，换上这一套并释放上一套的素材。
+   * 素材加载不到、数据读不了时 reject，身上那套照旧。接连换了几套时只换上最后要的那一套，
+   * 前面几套到了也不换，素材直接释放。
    */
   async load(outfit: Outfit): Promise<void> {
-    const json = `${outfit.url}data.json`;
-    const atlas = `${outfit.url}data.atlas`;
-    // 等两份都有了结果再往下走：先失败的那份不能让另一份在引擎销毁之后才把贴图传上去。
-    const results = await Promise.allSettled([
-      new Promise<void>((resolve, reject) =>
-        this.assets.loadText(json, () => resolve(), (_, message) => reject(new Error(message))),
-      ),
-      new Promise<void>((resolve, reject) =>
-        this.assets.loadTextureAtlas(atlas, () => resolve(), (_, message) => reject(new Error(message))),
-      ),
-    ]);
+    const { url } = outfit;
+    const ticket = ++this.loads;
+    this.wanted = url;
+    if (this.pose?.url === url) return;
+    try {
+      await this.fetchOutfit(url);
+    } catch (error) {
+      // 同一套的每次载入共用一次下载，一起失败，素材释放一次就够。销毁之后才失败的，把陆续到的也释放掉。
+      if (this.disposed) this.assets.dispose();
+      else this.release(url);
+      throw error;
+    }
     if (this.disposed) {
       // 销毁之后才到的素材也要释放（再调一次 dispose 只会处理这些新到的）。
       this.assets.dispose();
       return;
     }
-    for (const result of results) if (result.status === "rejected") throw result.reason;
+    if (ticket !== this.loads) {
+      // 又要了别的衣装。要的还是这一套时，后来的那次载入会用上这些素材。
+      if (this.wanted !== url) this.release(url);
+      return;
+    }
+    let pose: Pose;
+    try {
+      pose = this.read(url);
+    } catch (error) {
+      this.release(url);
+      throw error;
+    }
+    const previous = this.pose;
+    this.pose = pose;
+    if (previous) this.release(previous.url);
+    this.follow(this.pose);
+    this.start();
+  }
 
+  /** 读出已经下载好的一套衣装：骨架摆成初始姿势，量出整个人的范围。数据读不了时抛出。 */
+  private read(url: string): Pose {
+    const json = `${url}data.json`;
+    const atlas = `${url}data.atlas`;
     const spine = this.spine;
     const loader = new spine.AtlasAttachmentLoader(this.assets.get(atlas) as TextureAtlas);
     const data = new spine.SkeletonJson(loader).readSkeletonData(this.assets.get(json) as string);
@@ -179,8 +213,8 @@ export class StandEngine {
     skeleton.getBounds(offset, size, []);
     const stateData = new spine.AnimationStateData(data);
     stateData.defaultMix = MIX_SECONDS;
-
-    this.pose = {
+    return {
+      url,
       skeleton,
       data,
       state: new spine.AnimationState(stateData),
@@ -190,8 +224,46 @@ export class StandEngine {
       // 立绘到之前的点头已经过去了，不补。
       shown: { mood: null, face: null, mouth: null, eye: null, nod: this.direction.nod?.id ?? null },
     };
-    this.follow(this.pose);
-    this.start();
+  }
+
+  /**
+   * 下载一套衣装的 `data.json` 和 `data.atlas`（连同图集里的贴图）。同一套正在下载时共用这一次。
+   * 等两份都有了结果再往下走：先失败的那份不能让另一份在引擎销毁之后才把贴图传上去。
+   */
+  private fetchOutfit(url: string): Promise<void> {
+    let fetching = this.fetching.get(url);
+    if (!fetching) {
+      fetching = Promise.allSettled([
+        new Promise<void>((resolve, reject) =>
+          this.assets.loadText(`${url}data.json`, () => resolve(), (_, message) => reject(new Error(message))),
+        ),
+        new Promise<void>((resolve, reject) =>
+          this.assets.loadTextureAtlas(`${url}data.atlas`, () => resolve(), (_, message) => reject(new Error(message))),
+        ),
+      ])
+        .then((results) => {
+          for (const result of results) if (result.status === "rejected") throw result.reason;
+        })
+        .finally(() => this.fetching.delete(url));
+      this.fetching.set(url, fetching);
+    }
+    return fetching;
+  }
+
+  /**
+   * 释放一套衣装的素材（按素材目录找到的文字、图集和贴图）。3.6 的 `AssetManager.remove` 只把条目设成 null，
+   * 之后销毁时 `removeAll` 会对 null 调 dispose 报错，所以这里自己 dispose，再连条目一起删掉。
+   * 贴图 dispose 时会把自己移出 `ManagedWebGLRenderingContext.restorables`，上下文恢复时不会把旧衣装再传一遍；
+   * 图集 dispose 时已经释放过它的贴图，贴图再 dispose 一次只是重复删除，WebGL 会忽略。
+   */
+  private release(url: string): void {
+    const assets = this.assets.assets;
+    for (const path of Object.keys(assets)) {
+      if (!path.startsWith(url)) continue;
+      const asset = assets[path];
+      if (typeof asset === "object" && asset) asset.dispose?.();
+      delete assets[path];
+    }
   }
 
   /** 暂停（通话层收起时）不画，也不推进动画；恢复后从当前姿势接着画。 */
@@ -340,11 +412,19 @@ export class StandEngine {
     renderer.end();
   }
 
-  /** 按取景对准镜头：贴着头顶，高度是身体的一段，宽度不窄于身体的约 70%，左右居中。 */
+  /** 按取景对准镜头：贴着头顶，高度是身体的一段，宽度不窄于身体的约 70%，左右居中；全身时整个人居中。 */
   private aim({ bounds }: Pose, aspect: number): void {
+    const camera = this.renderer.camera;
+    if (this.framing === "full") {
+      // 全身：整个人放进画面，四周留一点空，上下左右居中。
+      const viewHeight = Math.max(bounds.height, bounds.width / aspect) * (1 + 2 * HEADROOM);
+      camera.position.x = bounds.x + bounds.width / 2;
+      camera.position.y = bounds.y + bounds.height / 2;
+      camera.setViewport(viewHeight * aspect, viewHeight);
+      return;
+    }
     const viewHeight = Math.max(bounds.height * FRAMING_HEIGHT[this.framing], (bounds.width * MIN_WIDTH) / aspect);
     const top = bounds.y + bounds.height * (1 + HEADROOM);
-    const camera = this.renderer.camera;
     camera.position.x = bounds.x + bounds.width / 2;
     camera.position.y = top - viewHeight / 2;
     camera.setViewport(viewHeight * aspect, viewHeight);

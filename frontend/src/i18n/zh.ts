@@ -48,6 +48,27 @@ export const zh = {
     backToList: "回到对话列表",
     /** 失败时说明这次算不算进限额（CONTEXT.md「限额」「回合」）。 */
     notCounted: "这次没有计入限额。",
+    /** 页首的「换衣装」和它打开的面板（spec「衣装与换衣装」）。 */
+    outfits: {
+      open: "换衣装",
+      title: "换衣装",
+      hint: "打电话时她会穿这一套；只存在这台设备上。",
+      loading: "正在读取衣装",
+      loadFailed: "衣装没能读取",
+      retry: "再试一次",
+      /** 卡片下面的切换：私服 / 演出。 */
+      lookLabel: (card: string) => `${card}的私服或演出服`,
+      looks: { everyday: "私服", stage: "演出" },
+      only: "只有一套",
+      /** 大预览下面：卡名，「私服/演出服 · 稀有度 · 正在穿」。 */
+      cardName: (card: string) => `【${card}】`,
+      lookNames: { everyday: "私服", stage: "演出服" },
+      wearing: "正在穿",
+      separator: " · ",
+      notLoaded: "这套没能载入",
+      wear: "穿这套",
+      preview: (card: string) => `预览${card}`,
+    },
   },
   /** 通话层、收起后的便利贴、列表里的通话状态（spec「通话层」「通话状态」）。 */
   call: {

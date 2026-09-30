@@ -8,6 +8,7 @@ export {
   MicOff as MicOffIcon,
   Phone as PhoneIcon,
   PhoneOff as HangUpIcon,
+  Shirt as OutfitIcon,
 } from "lucide-react";
 
 // 记忆页、设置页用的图标（ticket 06）。
