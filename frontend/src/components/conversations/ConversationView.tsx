@@ -260,6 +260,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           textOnly={textOnly}
           line={snapshot.line}
           hearing={hearing}
+          standDirection={snapshot.stand}
           onCollapse={() => live?.collapse()}
           onHangUp={() => void live?.hangUp()}
           onToggleMic={() => live?.toggleMic()}

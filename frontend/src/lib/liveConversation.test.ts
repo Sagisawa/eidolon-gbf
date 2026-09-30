@@ -4,6 +4,7 @@ import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { MicUnavailable } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
+import { CALM } from "@/lib/standAnimations";
 
 /** A call that has connected: records what the conversation asks of it. */
 class FakeCall implements Call {
@@ -1236,5 +1237,136 @@ describe("LiveConversation: the microphone list", () => {
     await end(live, attempts);
 
     expect(live.snapshot().pickingMic).toBe(false);
+  });
+});
+
+describe("LiveConversation: the stand", () => {
+  it("starts each call calm, looking ahead with her mouth shut", async () => {
+    const { live, attempts } = await conversation();
+    expect(live.snapshot().stand).toEqual(CALM);
+
+    await connected(live, attempts);
+
+    expect(live.snapshot().stand).toEqual(CALM);
+  });
+
+  it("opens her mouth while her voice plays and shuts it when it stops", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(true);
+    handlers.onEvent({ type: "bot-stopped-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(false);
+  });
+
+  it("keeps her mouth shut in text only, even when switched on while she speaks", async () => {
+    const { live, attempts } = await conversation();
+    live.toggleTextOnly();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(false);
+
+    live.toggleTextOnly();
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand.speaking).toBe(true);
+    live.toggleTextOnly();
+    expect(live.snapshot().stand.speaking).toBe(false);
+  });
+
+  it("looks at the user while they speak, then nods once when they stop", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+
+    handlers.onEvent({ type: "user-started-speaking" });
+    expect(live.snapshot().stand).toMatchObject({ looking: true, nod: null });
+    handlers.onEvent({ type: "user-stopped-speaking" });
+    const first = live.snapshot().stand.nod;
+    expect(live.snapshot().stand.looking).toBe(false);
+    expect(first).toMatchObject({ kind: "yes" });
+
+    handlers.onEvent({ type: "user-started-speaking" });
+    handlers.onEvent({ type: "user-stopped-speaking" });
+    const second = live.snapshot().stand.nod;
+    expect(second).toMatchObject({ kind: "yes" });
+    expect(second?.id).not.toBe(first?.id);
+  });
+
+  it("shuts her mouth as soon as her voice stops when the user cuts in, looking at them", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+    handlers.onEvent({ type: "bot-started-speaking" });
+    const mood = live.snapshot().stand.mood;
+
+    handlers.onEvent({ type: "user-started-speaking" });
+    handlers.onEvent({ type: "bot-stopped-speaking" });
+
+    expect(live.snapshot().stand).toMatchObject({ mood, speaking: false, looking: true });
+  });
+
+  it("looks at the user who interrupts by typing once her voice stops, until she speaks again", async () => {
+    const { live, attempts } = await conversation();
+    const call = await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "bot-started-speaking" });
+
+    live.setDraft("等一下");
+    await live.submit();
+    expect(call.sent).toEqual(["等一下"]);
+    expect(live.snapshot().stand).toMatchObject({ speaking: true, looking: false });
+    handlers.onEvent({ type: "bot-stopped-speaking" });
+
+    expect(live.snapshot().stand).toMatchObject({ mood: "calm", speaking: false, looking: true });
+    handlers.onEvent({ type: "bot-started-speaking" });
+    expect(live.snapshot().stand).toMatchObject({ speaking: true, looking: false });
+  });
+
+  it("changes nothing for what is typed before she starts speaking", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    attempts[0].handlers.onEvent({ type: "user", text: "你好" });
+
+    live.setDraft("还有");
+    await live.submit();
+
+    expect(live.snapshot().stand).toEqual(CALM);
+  });
+
+  it("keeps following the call while the call layer is collapsed", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    live.collapse();
+
+    attempts[0].handlers.onEvent({ type: "bot-started-speaking" });
+
+    expect(live.snapshot().stand.speaking).toBe(true);
+  });
+
+  it.each([
+    ["is hung up", (live: LiveConversation) => live.hangUp()],
+    ["drops", (_live: LiveConversation, attempts: Attempt[]) => attempts[0].handlers.onDropped()],
+  ])("is cleared when the call %s, the next call starting calm", async (_, end) => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "bot-started-speaking" });
+    handlers.onEvent({ type: "user-started-speaking" });
+    handlers.onEvent({ type: "user-stopped-speaking" });
+    handlers.onEvent({ type: "user-started-speaking" });
+
+    await end(live, attempts);
+    expect(live.snapshot().stand).toEqual(CALM);
+    handlers.onEvent({ type: "bot-started-speaking" }); // the old call's, too late
+    expect(live.snapshot().stand).toEqual(CALM);
+
+    await connected(live, attempts);
+    expect(live.snapshot().stand).toEqual(CALM);
   });
 });

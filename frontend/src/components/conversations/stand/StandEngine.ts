@@ -1,4 +1,5 @@
 import type { Outfit } from "@/lib/api";
+import { CALM, pickAnimations, type Emotion, type StandDirection } from "@/lib/standAnimations";
 import { FrameGate, pixelRatio } from "@/lib/standFrames";
 
 import type {
@@ -7,10 +8,12 @@ import type {
   ClippingAttachment,
   SceneRenderer,
   Skeleton,
+  SkeletonData,
   SlotData,
   Slot,
   SpineRuntime,
   TextureAtlas,
+  TrackEntry,
 } from "./spineRuntime";
 
 /** 取景（spec「渲染」）：手机「大立绘」贴着头顶、到膝；电脑「半身 ADV」贴着头顶、到腰。 */
@@ -23,10 +26,12 @@ const MIN_WIDTH = 0.7;
 /** 头顶上方留的空，占身体高度的比例。 */
 const HEADROOM = 0.03;
 
-/** 轨道照原作 ADV：0 身体、1 表情；2 点头、3 视线、5 口型由「选动画」接上（ticket 15）。 */
-const TRACK = { body: 0, face: 1 } as const;
+/** 轨道照原作 ADV：0 身体、1 表情、2 点头、3 视线、5 口型（4 脸红暂不使用）。 */
+const TRACK = { body: 0, face: 1, nod: 2, eye: 3, mouth: 5 } as const;
 /** 同一条轨道上换动画时的混合时间（秒）。 */
 const MIX_SECONDS = 0.3;
+/** 开嘴、闭嘴的混合时间（秒）。 */
+const MOUTH_MIX_SECONDS = 0.1;
 /** 一帧最多推进这么久（秒）：卡了一下或者刚恢复时，动作不会一下子跳过去。 */
 const MAX_STEP_SECONDS = 0.1;
 
@@ -38,12 +43,27 @@ export class StandUnavailable extends Error {}
 /** 载入好的一套衣装：骨架、它的动画状态和这套衣装有哪些动画。 */
 type Pose = {
   skeleton: Skeleton;
+  data: SkeletonData;
   state: AnimationState;
-  animations: ReadonlySet<string>;
+  /** 这套衣装的动画，名字 → 时长（秒）。 */
+  animations: ReadonlyMap<string, number>;
   /** 初始姿势下整个人的范围，取景据此计算。 */
   bounds: { x: number; y: number; width: number; height: number };
   /** 见过的剪裁，按剪裁附件记下它原本的结束插槽（见 `keepClipsEnding`）。 */
   clips: Map<ClippingAttachment, Clip>;
+  /** 各条轨道现在放的是什么，只在要放的变了时才重设。 */
+  shown: Shown;
+};
+
+type Shown = {
+  /** 身体动作按哪种心情选的：心情变了才换身体动作。 */
+  mood: Emotion | null;
+  face: string | null;
+  /** 口型的名字和开合，例如 `lip_smile open`。 */
+  mouth: string | null;
+  eye: string | null;
+  /** 最近一次点头的编号。 */
+  nod: number | null;
 };
 
 type Clip = { slot: Slot; end: SlotData; detached: boolean };
@@ -51,9 +71,9 @@ type Clip = { slot: Slot; end: SlotData; detached: boolean };
 /**
  * 通话层上的立绘（spec「渲染」）：在一块画布上载入一套衣装，每帧推进动画并绘制。不依赖 React。
  *
- * 现在只播待机（身体 `wait`、表情 `face_wait`）。runtime 的几个已知问题都在这里处理：剪裁不结束、
- * 预乘 alpha、上下文丢失后恢复、React 开发模式下同一块画布上重建引擎。像素比不超过 2、最多 60 帧，
- * 暂停时（通话层收起）不画。
+ * 各条轨道按立绘指令放「选动画」（`pickAnimations`）给出的动画。runtime 的几个已知问题都在这里处理：
+ * 剪裁不结束、预乘 alpha、上下文丢失后恢复、React 开发模式下同一块画布上重建引擎。像素比不超过 2、
+ * 最多 60 帧，暂停时（通话层收起）不画。
  */
 export class StandEngine {
   private readonly gl: WebGLRenderingContext;
@@ -67,6 +87,8 @@ export class StandEngine {
   private paused = false;
   private lost = false;
   private disposed = false;
+  private direction: StandDirection = CALM;
+  private reducedMotion = false;
 
   /**
    * 在 `canvas` 上准备好绘制；浏览器不支持 WebGL 时抛出 `StandUnavailable`。
@@ -113,7 +135,17 @@ export class StandEngine {
   }
 
   /**
-   * 载入一套衣装，摆好待机姿势后开始绘制。素材加载不到、数据读不了时 reject。
+   * 按立绘指令摆姿势（spec「选动画」）。立绘还没到时先记下，到了直接按最新的指令开始画。
+   * 减少动态效果从下一个身体动作（心情变了时）开始生效，不打断正在放的。
+   */
+  direct(direction: StandDirection, reducedMotion: boolean): void {
+    this.direction = direction;
+    this.reducedMotion = reducedMotion;
+    if (this.pose) this.follow(this.pose);
+  }
+
+  /**
+   * 载入一套衣装，按当前的立绘指令摆好姿势后开始绘制。素材加载不到、数据读不了时 reject。
    * 现在一个引擎只载入一套；换衣装（ticket 19）时要在这里释放上一套的素材。
    */
   async load(outfit: Outfit): Promise<void> {
@@ -150,12 +182,15 @@ export class StandEngine {
 
     this.pose = {
       skeleton,
+      data,
       state: new spine.AnimationState(stateData),
-      animations: new Set(data.animations.map((a) => a.name)),
+      animations: new Map(data.animations.map((a) => [a.name, a.duration])),
       bounds: { x: offset.x, y: offset.y, width: size.x, height: size.y },
       clips: new Map(),
+      // 立绘到之前的点头已经过去了，不补。
+      shown: { mood: null, face: null, mouth: null, eye: null, nod: this.direction.nod?.id ?? null },
     };
-    this.idle();
+    this.follow(this.pose);
     this.start();
   }
 
@@ -180,14 +215,87 @@ export class StandEngine {
     this.renderer.dispose();
   }
 
-  /** 待机：身体 `wait`、表情 `face_wait`，都循环。缺了哪个就不放，交给另一条轨道和初始姿势。 */
-  private idle(): void {
-    this.play(TRACK.body, "wait", true);
-    this.play(TRACK.face, "face_wait", true);
+  /**
+   * 让各条轨道放选出来的动画，只动要放的变了的轨道。衣装缺了选出来的动画（例如 `wait`、`blank`）时，
+   * 这条轨道保持原样。
+   */
+  private follow(pose: Pose): void {
+    const { state, shown } = pose;
+    const want = pickAnimations(this.direction, pose.animations, this.reducedMotion);
+    if (shown.mood !== this.direction.mood) {
+      shown.mood = this.direction.mood;
+      this.playBody(pose, want.body);
+    }
+    if (shown.face !== want.face) {
+      shown.face = want.face;
+      // 衣装连 `blank` 都没有时清空这条轨道，同样把脸交还给身体动作。
+      if (pose.animations.has(want.face)) state.setAnimation(TRACK.face, want.face, true);
+      else state.setEmptyAnimation(TRACK.face, MIX_SECONDS);
+    }
+    const mouth = want.mouth && `${want.mouth.name} ${want.mouth.open ? "open" : "shut"}`;
+    if (want.mouth && shown.mouth !== mouth) {
+      shown.mouth = mouth;
+      // 闭嘴照原作：把同一个说话口型冻结在第 0 帧。不用 `lip_*_s`：它不管嘴部网格的变形，
+      // 身体动作里的嘴部变形会透出来，停了嘴还在微微动。冻结用 `animationEnd = 0` 而不是
+      // `timeScale = 0`：3.6 的混合进度按 timeScale 走，为 0 时混合永远走不完，上一段说话口型会一直在底下播。
+      const entry = state.setAnimation(TRACK.mouth, want.mouth.name, want.mouth.open);
+      entry.mixDuration = MOUTH_MIX_SECONDS;
+      if (!want.mouth.open) entry.animationEnd = 0;
+    }
+    if (shown.eye !== want.eye) {
+      shown.eye = want.eye;
+      if (want.eye) state.setAnimation(TRACK.eye, want.eye, true);
+      else state.setEmptyAnimation(TRACK.eye, MIX_SECONDS);
+    }
+    if (want.nod && shown.nod !== want.nod.id) {
+      shown.nod = want.nod.id;
+      // 播一次就清空这条轨道：`yes` 播完时不在中立姿势。播完才开始清空：3.6 的 addEmptyAnimation
+      // 在 delay 为 0 时会把混合时间扣两次，点头的最后 0.6 秒就没了。
+      const nod = state.setAnimation(TRACK.nod, want.nod.name, false);
+      state.addEmptyAnimation(TRACK.nod, MIX_SECONDS, nod.animation.duration);
+    }
   }
 
-  private play(track: number, name: string, loop: boolean): void {
-    if (this.pose?.animations.has(name)) this.pose.state.setAnimation(track, name, loop);
+  /**
+   * 换身体动作。带 `loop_start` 事件的，开头播一次，之后从 `loop_start` 起循环尾段；没有的整段循环。
+   * 离开带 `relay` 事件的动作时，先播它指定的 `arm_down*` 把抬起的手放下，再接下一个动作。
+   */
+  private playBody({ state, data, animations }: Pose, name: string): void {
+    if (!animations.has(name)) return;
+    const current = state.getCurrent(TRACK.body);
+    if (current?.animation.name === name) return;
+    const relay = current && this.event(data, current.animation.name, "relay");
+    let entry: TrackEntry;
+    if (relay && animations.has(relay.value)) {
+      state.setAnimation(TRACK.body, relay.value, false);
+      entry = state.addAnimation(TRACK.body, name, false, 0);
+    } else {
+      entry = state.setAnimation(TRACK.body, name, false);
+    }
+    const loopStart = this.event(data, name, "loop_start");
+    if (!loopStart) {
+      entry.loop = true;
+      return;
+    }
+    entry.listener = {
+      complete: (played) => {
+        if (played.loop) return;
+        played.loop = true;
+        played.animationStart = loopStart.time;
+        played.trackTime = 0;
+      },
+    };
+  }
+
+  /** 动画 `name` 里第一个叫 `eventName` 的事件：它的时间和字符串参数。 */
+  private event(data: SkeletonData, name: string, eventName: string): { time: number; value: string } | null {
+    for (const timeline of data.findAnimation(name)?.timelines ?? []) {
+      if (!(timeline instanceof this.spine.EventTimeline)) continue;
+      for (const event of timeline.events)
+        if (event.data.name === eventName)
+          return { time: event.time, value: event.stringValue || event.data.stringValue || "" };
+    }
+    return null;
   }
 
   private start(): void {

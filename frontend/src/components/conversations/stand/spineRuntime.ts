@@ -56,6 +56,7 @@ export type SpineRuntime = {
   ClippingAttachment: Class<ClippingAttachment>;
   RegionAttachment: Class<Attachment>;
   MeshAttachment: Class<Attachment>;
+  EventTimeline: Class<EventTimeline>;
 };
 
 export type ManagedWebGLRenderingContext = {
@@ -84,9 +85,17 @@ type AttachmentLoader = { readonly __brand: "AttachmentLoader" };
 export type SkeletonJson = { readSkeletonData(json: string): SkeletonData };
 
 export type SkeletonData = {
-  animations: { name: string }[];
+  animations: Animation[];
   findSkin(name: string): object | null;
+  findAnimation(name: string): Animation | null;
 };
+
+export type Animation = { name: string; duration: number; timelines: object[] };
+
+/** 动画里的事件，例如身体动作的 `loop_start`、`relay`。 */
+export type EventTimeline = { events: SpineEvent[] };
+
+export type SpineEvent = { time: number; stringValue: string | null; data: { name: string; stringValue: string | null } };
 
 export type Attachment = { name: string };
 
@@ -117,7 +126,22 @@ export type Vector2 = { x: number; y: number };
 export type AnimationStateData = { defaultMix: number };
 
 export type AnimationState = {
-  setAnimation(track: number, name: string, loop: boolean): object;
+  setAnimation(track: number, name: string, loop: boolean): TrackEntry;
+  addAnimation(track: number, name: string, loop: boolean, delay: number): TrackEntry;
+  setEmptyAnimation(track: number, mixDuration: number): TrackEntry;
+  addEmptyAnimation(track: number, mixDuration: number, delay: number): TrackEntry;
+  getCurrent(track: number): TrackEntry | null;
   update(delta: number): void;
   apply(skeleton: Skeleton): boolean;
+};
+
+/** 一条轨道上正在播或排着的动画。条目会被 runtime 回收再用，不要长期持有。 */
+export type TrackEntry = {
+  animation: Animation;
+  loop: boolean;
+  trackTime: number;
+  animationStart: number;
+  animationEnd: number;
+  mixDuration: number;
+  listener: { complete?: (entry: TrackEntry) => void } | null;
 };

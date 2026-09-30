@@ -78,13 +78,25 @@ export type Memory = {
 };
 
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each
- * segment of her voice starts playing, and, when it is about to hang up (the call reached its
- * time or turn limit, a voice service or an own key failed), why, and whether the call counted
- * towards the hourly limit. */
+ * segment of her voice starts playing, who starts and stops speaking, and, when it is about to
+ * hang up (the call reached its time or turn limit, a voice service or an own key failed), why,
+ * and whether the call counted towards the hourly limit. */
 export type CallEvent =
   | TurnEvent
   | SegmentPlaying
+  | Speaking
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+
+/** Pipecat's standard RTVI events, not server messages: her voice starts or stops playing
+ * (stopping at once when she is interrupted), the user starts or stops speaking. */
+export type Speaking = { type: (typeof SPEAKING)[number] };
+
+export const SPEAKING = [
+  "bot-started-speaking",
+  "bot-stopped-speaking",
+  "user-started-speaking",
+  "user-stopped-speaking",
+] as const;
 
 /** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little

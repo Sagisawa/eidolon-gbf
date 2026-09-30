@@ -7,8 +7,10 @@ import {
   type CallEvent,
   type Conversation,
   type Message,
+  SPEAKING,
   type Segment,
   type SegmentPlaying,
+  type Speaking,
   type TurnEvent,
 } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
@@ -22,6 +24,7 @@ import {
   type LogAction,
 } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
+import { CALM, type StandDirection } from "@/lib/standAnimations";
 
 /** The longest message the backend accepts (`MAX_INPUT_LENGTH` in `engine.py`). */
 const MAX_INPUT_LENGTH = 2000;
@@ -89,12 +92,22 @@ export type Snapshot = {
   /** What went wrong in the conversation open: a turn failed, a new conversation could not
    * be started. Why it could not be opened at all is in `conversation`. */
   failure: Failure | null;
+  /** How her stand should look (spec「立绘指令」); calm outside a call. It follows the call
+   * while the call layer is collapsed too. */
+  stand: StandDirection;
 };
 
 type State = Omit<Snapshot, "entries" | "line"> & {
   log: ConversationLog;
   /** How many entries there were when the call connected: her lines from there on are its. */
   callFrom: number;
+  /** Her voice is playing in the call. Her mouth moves with it, unless it is text only. */
+  voicing: boolean;
+  /** The user is speaking in the call; she looks at them. */
+  userSpeaking: boolean;
+  /** The user interrupted her by typing while she spoke: once her voice stops she looks at
+   * them, until she speaks again. */
+  interruptedByTyping: boolean;
 };
 
 const IDLE: Omit<Snapshot, "entries" | "line"> = {
@@ -111,6 +124,15 @@ const IDLE: Omit<Snapshot, "entries" | "line"> = {
   draft: "",
   textOnly: false,
   failure: null,
+  stand: CALM,
+};
+
+/** No one speaking in the call: the stand is as a call starts. */
+const QUIET: Pick<State, "voicing" | "userSpeaking" | "interruptedByTyping" | "stand"> = {
+  voicing: false,
+  userSpeaking: false,
+  interruptedByTyping: false,
+  stand: CALM,
 };
 
 /** What the page shows before a conversation is open. */
@@ -153,13 +175,15 @@ export class LiveConversation {
   private disposed = false;
   /** The conversation open; null until it is. */
   private conversationId: string | null = null;
+  /** How many nods she has given, to tell each one from the last. */
+  private nods = 0;
 
   /** Opens her newest conversation, or starts one if she has none. */
   constructor(
     private readonly characterId: string,
     private readonly ports: Ports,
   ) {
-    this.state = { ...IDLE, log: emptyLog, callFrom: 0, textOnly: ports.preferences.load().muted };
+    this.state = { ...IDLE, ...QUIET, log: emptyLog, callFrom: 0, textOnly: ports.preferences.load().muted };
     this.published = toSnapshot(this.state);
     void this.open();
   }
@@ -208,8 +232,10 @@ export class LiveConversation {
     if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
     this.update({ draft: "", failure: null });
     if (this.call) {
-      // The call takes it up like speech; its reply arrives as call events.
+      // The call takes it up like speech; its reply arrives as call events. Typed while she
+      // speaks, it interrupts her, and she looks at the user as her voice stops.
       this.call.sendText(text);
+      if (this.state.voicing) this.update({ interruptedByTyping: true });
       return;
     }
     this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
@@ -249,7 +275,7 @@ export class LiveConversation {
     let started: Call;
     try {
       started = await this.ports.startCall(conversationId, this.ports.preferences.load(), {
-        onEvent: (event) => this.onCallEvent(event),
+        onEvent: (event) => this.onCallEvent(event, attempt),
         onHearing: (hearing) => this.update({ hearing }),
         onCharacterAudio: this.ports.onCharacterAudio,
         onDropped: () => {
@@ -343,7 +369,12 @@ export class LiveConversation {
     this.update({ textOnly });
   }
 
-  private onCallEvent(event: CallEvent): void {
+  private onCallEvent(event: CallEvent, attempt: object): void {
+    if (isSpeaking(event)) {
+      // Not from a call hung up or dropped, the stand having been cleared with it.
+      if (this.attempt === attempt && isLive(this.state.call)) this.onSpeaking(event);
+      return;
+    }
     if (event.type === "ended") {
       this.endedBy = backendEnd(event);
       return;
@@ -356,6 +387,22 @@ export class LiveConversation {
     else if (event.type === "error")
       this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false } });
     else this.applyTurnEvent(event);
+  }
+
+  /** Who is speaking, for her stand: her mouth moves with her voice; she looks at the user
+   * while they speak and nods when they stop. Her voice stops at once when she is
+   * interrupted, and the user who interrupted is speaking or has typed. */
+  private onSpeaking({ type }: Speaking): void {
+    switch (type) {
+      case "bot-started-speaking":
+        return this.update({ voicing: true, interruptedByTyping: false });
+      case "bot-stopped-speaking":
+        return this.update({ voicing: false });
+      case "user-started-speaking":
+        return this.update({ userSpeaking: true });
+      case "user-stopped-speaking":
+        return this.update({ userSpeaking: false, stand: { ...this.state.stand, nod: { kind: "yes", id: ++this.nods } } });
+    }
   }
 
   /** Moves the log on by an event of a turn, typed or spoken in a call. */
@@ -422,6 +469,7 @@ export class LiveConversation {
         micMuted: false,
         micId: "",
         micNotice: null,
+        ...QUIET,
       },
     );
   }
@@ -437,7 +485,7 @@ export class LiveConversation {
 
   private update(change: Partial<State>): void {
     if (this.disposed) return;
-    this.state = withCallScreenRules(this.state, { ...this.state, ...change });
+    this.state = withStandRules(withCallScreenRules(this.state, { ...this.state, ...change }));
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
   }
@@ -456,11 +504,25 @@ function withCallScreenRules(before: State, next: State): State {
   return { ...next, collapsed, pickingMic };
 }
 
+/** Her mouth moves while her voice plays, but not in text only; she looks at the user while
+ * they speak, and once her voice stops after they interrupted her by typing. The direction
+ * stays the same object while nothing about it changes. */
+function withStandRules(next: State): State {
+  const speaking = next.voicing && !next.textOnly;
+  const looking = next.userSpeaking || (next.interruptedByTyping && !next.voicing);
+  if (speaking === next.stand.speaking && looking === next.stand.looking) return next;
+  return { ...next, stand: { ...next.stand, speaking, looking } };
+}
+
+function isSpeaking(event: CallEvent): event is Speaking {
+  return (SPEAKING as readonly string[]).includes(event.type);
+}
+
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
 
-function toSnapshot({ log, callFrom, ...rest }: State): Snapshot {
+function toSnapshot({ log, callFrom, voicing, userSpeaking, interruptedByTyping, ...rest }: State): Snapshot {
   return { ...rest, entries: log.entries, line: latestLine(log.entries.slice(callFrom)) };
 }
 

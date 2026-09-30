@@ -19,6 +19,7 @@ import type { CallEnd } from "@/lib/callEnd";
 import { showTime } from "@/lib/callTime";
 import { CALL_MUTED } from "@/lib/imageColor";
 import type { CallState, LiveCall, MicNotice } from "@/lib/liveConversation";
+import type { StandDirection } from "@/lib/standAnimations";
 import { CollapseIcon, HangUpIcon, MicIcon, MicOffIcon, MicSwitchIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 import { lineState } from "@/theme/lineState";
@@ -47,6 +48,8 @@ type Props = {
   line: Segment | null;
   /** 用户正在说、还没定稿的话。 */
   hearing: string;
+  /** 她的立绘该是什么样子；她没有立绘时用不上。 */
+  standDirection: StandDirection;
   onCollapse: () => void;
   onHangUp: () => void;
   onToggleMic: () => void;
@@ -177,7 +180,7 @@ export function CallLayer(props: Props) {
  * - 电脑「半身 ADV」：立绘铺满整层，贴着头顶、到腰；名字、计时和字幕在底部半透明的对话框里。
  */
 function StandBody(props: Props & { outfit: Outfit }) {
-  const { character, call, isCollapsed, isFullScreen, isReducedMotion, outfit } = props;
+  const { character, call, isCollapsed, isFullScreen, isReducedMotion, outfit, standDirection } = props;
   const dial = useDialCount(call.phase);
   const stand = (
     <Stand
@@ -187,6 +190,8 @@ function StandBody(props: Props & { outfit: Outfit }) {
       framing={isFullScreen ? "knees" : "waist"}
       isPaused={isCollapsed}
       entrance={isFullScreen && !isReducedMotion ? "rise" : "fade"}
+      direction={standDirection}
+      isReducedMotion={isReducedMotion}
     />
   );
 
