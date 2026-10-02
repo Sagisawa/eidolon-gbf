@@ -25,6 +25,8 @@ Voice · Text · Story recall · Memory shared across characters
 
 Eidolon-SC lets you, as **a producer at 283 Production**, text or voice-call the idols from the game. Characters answer in their own Japanese voice with Chinese subtitles, recall the story episodes they actually lived through, and remember what you tell them — which then gets around among the other idols.
 
+The idols you can talk to today are **Sakuragi Mano**, **Kazano Hiori** and **Hachimiya Meguru** of illumination STARS, and **Tsukioka Kogane** of L'Antica; characters are configured in [`characters/characters.toml`](characters/characters.toml), and more can be added.
+
 Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)). The glossary lives in [`CONTEXT.md`](CONTEXT.md), design decisions in [`docs/adr/`](docs/adr/), and the visual design system in [`DESIGN.md`](DESIGN.md).
 
 > [!NOTE]
@@ -38,7 +40,8 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
 | | |
 |---|---|
 | 🎙️ **Real-time voice calls** | Full-duplex calls over WebRTC. Speak Chinese or Japanese; the character reads her Japanese reply in a Fish Audio voice while subtitles appear in sync. The full-screen call screen can be collapsed at any time, back to the transcript |
-| 🇯🇵 **Japanese voice + Chinese subtitles** | Characters always answer in Japanese, keeping their sentence-final particles and verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)) |
+| 🎭 **A living stand** | The call screen shows her Spine stand from the game: breathing and blinking while idle, lips moving as she speaks, changing expression and nodding or shaking her head with the emotion of each line. Change her outfit from the conversation page any time; new cards from the game become wearable after the weekly sync ([ADR-0011](docs/adr/0011-stand-assets-fetched-from-shinycolorsdb.md)) |
+| 🇯🇵 **Japanese voice + Chinese subtitles** | Characters always answer in Japanese, keeping their sentence-final particles and verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)); delivery cues go to speech synthesis with the lines, so they are read with feeling ([ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)) |
 | 📖 **Story recall** | Once the story corpus is imported, a character recalls only the canon episodes **she appears in**, and can answer "what happened that time…?" |
 | 🔄 **Kept in step with the game** | One command syncs the fan translations and the Japanese originals on the mirror, so new cards and events can be recalled within a week; it runs weekly on the server ([ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)) |
 | 🧠 **Memory shared across characters** | Tell Mano something and Kogane will know too — but she'll bring it up as "Mano told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)) |
@@ -58,7 +61,9 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
   - [Models](#models)
   - [Characters](#characters)
   - [Voice calls](#voice-calls)
+  - [Stand](#stand)
   - [Story corpus](#story-corpus)
+  - [World setting](#world-setting)
   - [Embedding service](#embedding-service)
   - [Retrieval during conversation](#retrieval-during-conversation)
   - [Memory](#memory)
@@ -165,13 +170,13 @@ avatar = "avatars/mano.jpg"
 color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
+idol_id = 1                          # these two are optional, for the call-screen stand
+default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 ```
 
 Character sheets, character facts, avatars and call-screen backgrounds are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file.
 
-`color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (her bubbles, the call button, the sticky note, the call screen) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container.
-
-The call screen can also show her Spine stand from the original game (optional): give the character her idol number `idol_id` and a default outfit `default_outfit` (e.g. `stand/1030010010`), and set `EIDOLON_STAND_ASSETS_URL` in `.env` to where the stands are served from. The stands are not committed; they live in S3-compatible object storage, uploaded by `deploy/stand-sync.sh`, which fetches new cards from ShinyColorsDB, lists each character's outfits and renders their thumbnails (best run weekly from cron) and set up as described under “立绘素材” in [`docs/deploy.md`](docs/deploy.md). Without all three, the call screen shows her background only.
+`color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (her bubbles, the call button, the sticky note, the call screen) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container. `idol_id` and `default_outfit` are for the call-screen stand; see [Stand](#stand) below.
 
 <details>
 <summary><b>Drafting a character sheet with the background model</b></summary>
@@ -212,6 +217,7 @@ Speech recognition is chosen at deploy time with `STT_PROVIDER`, and the whole d
 - The collapse button at the top left, or Esc, collapses the call screen back to the transcript while the call carries on; a sticky note reading “通话中 mm:ss · 点击返回” (in call · tap to return) stays at the top, and pressing it brings the call screen back. You cannot type on the call screen: collapse it and type in the conversation.
 
 - Speak Chinese or Japanese. The character reads her Japanese reply in the configured Fish Audio voice, and both the Japanese text and the Chinese subtitle appear in the transcript.
+- Where a segment carries clear emotion, the character puts a delivery cue for Fish Audio before the Japanese (e.g. `[shyly] えへへ`), and the synthesis reads it with that feeling; malformed cues are dropped, never read out. Cues are not shown in the interface or sent for memory extraction, but stay in the conversation record as written, so the model keeps seeing that it marked them and doesn't drift into marking fewer and fewer ([ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)).
 - Anything typed during a call joins the same conversation, and the character answers it by voice too.
 - Whatever you say or type before the character starts speaking, or before her reply has a complete segment (the Japanese and its subtitle both shown), is a follow-on: it joins the current turn, and she drops the reply she had begun and answers the whole thing afresh. Once the reply has a complete segment, speaking up interrupts her: she stops, the reply is recorded with only its complete segments, and what you just said is answered straight away. Sending typed text interrupts her just the same.
 - Three round buttons along the bottom:
@@ -227,6 +233,24 @@ Speech recognition is chosen at deploy time with `STT_PROVIDER`, and the whole d
 
 > [!NOTE]
 > Audio flows directly between the browser and the backend over WebRTC (UDP). With local docker compose, a browser on Linux can reach the container directly. Elsewhere (Docker Desktop on macOS, phones), the browser must be able to reach the backend, which usually means configuring a TURN server — see `EIDOLON_ICE_SERVERS` and `EIDOLON_TURN_URLS` in `.env.example`. The public production config ships with coturn; see [`docs/deploy.md`](docs/deploy.md).
+
+### Stand
+
+The call screen can show her Spine stand from the original game (optional). It appears only when all three of these are set; otherwise the call screen shows her background only:
+
+| Setting | Where | What it is |
+|---|---|---|
+| `idol_id` | `characters.toml` | Her idol number in the game (ShinyColorsDB's idolId), e.g. `1` for Mano |
+| `default_outfit` | `characters.toml` | What she wears until the user picks something: `stand/<enzaId>` (that card's everyday clothes) or `stand_costume/<enzaId>` (its stage costume) |
+| `EIDOLON_STAND_ASSETS_URL` | `.env` | The public URL of the S3-compatible bucket holding the stands |
+
+- **Alive**: she breathes and blinks while idle, moves her lips while her voice plays, looks at you when you start speaking and nods when you finish; when you interrupt her, her mouth closes the moment her voice stops. The stand keeps following the call while the call screen is collapsed.
+- **Emotion**: with `JEV_API_KEY` set, Jev judges the emotion of each segment she speaks (calm, happy, shy, surprised, sad, angry, thinking) and whether she nods or shakes her head, and the stand takes on that expression and motion as the segment's audio starts. Emotion only affects the stand and is never stored in the conversation record; tune the judgement's threshold and timeout with `JEV_EMOTION_MIN_PROBABILITY` and `JEV_EMOTION_TIMEOUT`.
+- **Outfits**: when she has a stand, the conversation header gains an outfit button (换衣装; a dialog on wide screens, a bottom sheet on narrow ones). Each card is one entry, switchable between everyday clothes and stage costume, and the selected one is previewed full-body and animated; “穿这套” (wear this) remembers it for her on this device, and she wears it in calls.
+- **Asset sync**: the stands are neither committed nor covered by the license; they live in object storage. `deploy/stand-sync.sh` fetches new cards from ShinyColorsDB for every character with an `idol_id`, lists her outfits, renders their thumbnails and uploads them to the bucket ([ADR-0011](docs/adr/0011-stand-assets-fetched-from-shinycolorsdb.md)). Run it weekly from cron and new cards from the game show up in the outfit picker; with no new cards it takes almost no time.
+
+> [!NOTE]
+> `stand-sync.sh` runs outside docker, on the server or your own computer, and needs uv, Node.js (22.18 or later) and Playwright's Chromium. Choosing a bucket (R2, Tencent COS, Aliyun OSS, MinIO…), CORS, exit codes and previewing locally are covered under “立绘素材” in [`docs/deploy.md`](docs/deploy.md).
 
 ### Story corpus
 
@@ -305,7 +329,34 @@ For local development, run `uv run eidolon --db data/eidolon.db story sync` in `
 
 ### World setting
 
-The office's president and clerk, the eight units and their idols, the character's own songs (those she sings alone and those her whole unit sings, each with the releases it is on and their dates), and the lives she stood on or is to stand on (each day's date and venue, the days her CV was absent left out) go into every turn after the character sheet ([ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)). The data is `characters/world.json`, beside the character configuration and committed to the repository. To update it, run `uv run eidolon world sync` in `backend/`: it imports the idols and units from im@sparql and the official unit pages, and the releases, their tracks and singers from Lantis's Shiny Colors site (with ふじわらはじめ's API filling in singers Lantis leaves out), and the lives from the idolmaster portal (the old official site before September 2020) with each day's performers and absences from wikiwiki, and each day's setlist from imas-db (who sang each song, backing dancers not counted; covers of other brands' songs at joint lives are recorded as such, marked with their brand, but are no songs of hers), and prints how many of each there are, what changed since the old file, where the sources disagree (including days imas-db and the lives disagree on, such as a day of two shows, which get no setlist) and which singers and performers match none of the idols; read the `git diff` before committing. Corrections checked by hand (who sings a track or that it is no song, who actually stood on a day, which performers are no idols) go in `characters/world-corrections.json` beside it, each with its source and a note, and every import applies them. If any source fails, the old file is left as it was. Every character's display name must match one of the idols or the backend will not start; without the file, it runs without the world setting.
+Every turn carries a section on the world after the character sheet ([ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)):
+
+- the office's president and clerk, the eight units and their idols;
+- the character's own songs: those she sings alone and those her whole unit sings, each with the releases it is on and their dates;
+- the lives she stood on or is to stand on: each day's date and venue, the days her CV was absent left out.
+
+The data is `characters/world.json`, beside the character configuration and committed to the repository. Every character's display name must match one of the idols or the backend will not start; without the file, it runs without the world setting.
+
+<details>
+<summary><b>Updating the world setting (eidolon world sync)</b></summary>
+
+<br>
+
+Run `uv run eidolon world sync` in `backend/`. It imports from these sources:
+
+| What | Source |
+|---|---|
+| Idols and units | im@sparql, the official unit pages |
+| Releases, tracks and singers | Lantis's Shiny Colors site; ふじわらはじめ's API fills in singers Lantis leaves out |
+| Lives | The idolmaster portal (the old official site before September 2020) |
+| Each day's performers and absences | wikiwiki |
+| Each day's setlist | imas-db: who sang each song, backing dancers not counted; covers of other brands' songs at joint lives are recorded as such, marked with their brand, but are no songs of hers |
+
+- At the end it prints how many of each there are, what changed since the old file, where the sources disagree (including days imas-db and the lives disagree on, such as a day of two shows, which get no setlist) and which singers and performers match none of the idols. Read the `git diff` before committing.
+- Corrections checked by hand (who sings a track or that it is no song, who actually stood on a day, which performers are no idols) go in `characters/world-corrections.json` beside it, each with its source and a note, and every import applies them.
+- If any source fails, the old file is left as it was.
+
+</details>
 
 ### Embedding service
 
@@ -412,7 +463,7 @@ The deployer pays for everything by default. Users can enter their own API keys 
 - For Alibaba Cloud Model Studio speech recognition, users enter only the key: the region is detected when the key is tried, and the model follows the deployer's `BAILIAN_STT_MODEL` (the default model when the deployment uses Soniox). If the model isn't activated, users are told to activate it in the Model Studio console.
 - Keys are stored encrypted with a key derived from `EIDOLON_SECRET_KEY`, and only their last 4 characters are ever shown. Without `EIDOLON_SECRET_KEY`, the feature is off.
 - When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. After `EIDOLON_SECRET_KEY` changes, saved keys can no longer be decrypted: a turn or call that needs one fails before calling any service and asks the user to enter it again. Deleting an own key switches back to the deployer's service.
-- Embedding, reranking and deciding whether to recall the story (Jev) are always on the deployer.
+- Embedding, reranking, deciding whether to recall the story and judging the stand's emotion in calls (Jev) are always on the deployer.
 
 ## 🌐 Deploying to a VPS
 
@@ -428,7 +479,7 @@ The production config [`docker-compose.prod.yml`](docker-compose.prod.yml) runs 
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, weekly corpus sync, upgrades, backups and troubleshooting.
+See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, weekly corpus sync, stand assets, upgrades, backups and troubleshooting.
 
 ## 💻 Development
 
@@ -467,10 +518,13 @@ eidolon-sc/
 │   │   ├── sessions.py       #   session cookies and the cross-site check
 │   │   ├── own_keys.py       #   users' own API keys, and whose keys each turn and call runs on
 │   │   ├── usage.py          #   usage limits and the record of use
+│   │   ├── database.py       #   how every database connection is set up; deleting a user's data by its list
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
 │   │   ├── bailian.py        #   Alibaba Cloud Model Studio real-time speech recognition
 │   │   ├── turn_taking.py    #   follow-on and interruption rules during a call
 │   │   ├── call_outcome.py   #   whether a call counts towards the limit, and why it ended
+│   │   ├── emotion.py        #   the emotion of each segment in a call (Jev), for the stand
+│   │   ├── delivery_cues.py  #   delivery cues: which go to synthesis, which are dropped
 │   │   ├── retrieval.py      #   retrieval routing, reference sources (story, character facts, work facts), reranking, recall
 │   │   ├── memory.py         #   memories shared across conversations and characters
 │   │   ├── corpus.py         #   story corpus: storage, vector search and the story catalog
@@ -490,14 +544,17 @@ eidolon-sc/
 │   │   ├── roster.py         #   the roster: matching the names the sources give to the idols and units
 │   │   ├── sync_tools.py     #   small helpers the imports share
 │   │   ├── script_cache.py   #   cache of the raw scripts the sync downloads
+│   │   ├── stand_fetch.py    #   fetching the stands from ShinyColorsDB (eidolon stand fetch)
+│   │   ├── stand_outfits.py  #   each character's outfit list (eidolon stand outfits)
+│   │   ├── stand_upload.py   #   uploading the stands to object storage (eidolon stand upload)
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols
 │   ├── eval/                 #   reranker calibration dataset (questions and labels only, no story text)
 │   └── tests/
 ├── frontend/                 # Next.js + Astryx frontend
 ├── characters/               # character config, sheets, facts, avatars, call-screen backgrounds
-├── corpus/                   # story data and the mirror cache (not committed)
-├── deploy/                   # Caddyfile, weekly sync script, sample event-name table
+├── corpus/                   # story data, the mirror cache and the stand build directory (not committed)
+├── deploy/                   # Caddyfile, story and stand sync scripts, sample event-name table
 ├── scripts/                  # wizards, such as setting up the OAuth apps (setup-oauth.sh)
 ├── docs/
 │   ├── adr/                  # architecture decision records
@@ -520,6 +577,7 @@ The Spine runtime the call layer's stand is drawn with ([`frontend/public/vendor
 
 - [LAPLACE Eidolon](https://laplace.live/eidolon) — the real-time voice AI companion of VTuber Mingqian Nailü (明前奶绿); this project borrows its architecture (none of its code)
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) — story text and Chinese translations
+- [ShinyColorsDB](https://github.com/ShinyColorsDB) — the mirror of the original scripts, and the stands
 - [Pipecat](https://github.com/pipecat-ai/pipecat) — real-time voice pipeline and WebRTC transport
 - [Soniox](https://soniox.com/) — speech recognition
 - [Alibaba Cloud Model Studio](https://www.alibabacloud.com/product/modelstudio) — real-time speech recognition (an alternative to Soniox)
@@ -527,6 +585,8 @@ The Spine runtime the call layer's stand is drawn with ([`frontend/public/vendor
 - [SiliconFlow](https://siliconflow.cn/) — Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) — Gemini Embedding (optional embedding service)
 - [TypeSafe Jev](https://docs.typesafe.ai/) and [OpenRouter](https://openrouter.ai/) — the retrieval router model and access to it
+- [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes) — playing the call-screen stand (spine-ts 3.6)
+- [im@sparql](https://sparql.crssnky.xyz/imas/), Lantis, ふじわらはじめ, imas-db and wikiwiki — the idols, releases and lives in the world setting
 
 <div align="center">
 

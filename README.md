@@ -25,6 +25,8 @@
 
 Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像打字聊天或直接语音通话。角色用日语原声回答并附上中文字幕，能回忆自己在原作中经历过的剧情，还会记住你说过的事——并在其他偶像之间「传开」。
 
+目前可以对话的是 illumination STARS 的**櫻木真乃**、**風野灯織**、**八宮めぐる**，以及 L'Antica 的**月岡恋鐘**；角色由 [`characters/characters.toml`](characters/characters.toml) 配置，可以继续添加。
+
 部署到公网后，任何人都能用 Google 或 GitHub 登录使用（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。术语表见 [`CONTEXT.md`](CONTEXT.md)，设计决策见 [`docs/adr/`](docs/adr/)，界面的视觉规范见 [`DESIGN.md`](DESIGN.md)。
 
 > [!IMPORTANT]
@@ -35,7 +37,8 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 | | |
 |---|---|
 | 🎙️ **实时语音通话** | 基于 WebRTC 的全双工通话；中文、日语都能说，角色用 Fish Audio 音色读日语原文，字幕同步显示；全屏的通话层可以随时收起，回到文字记录 |
-| 🇯🇵 **日语原声 + 中文字幕** | 角色始终用日语回答，保留语气词和口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)） |
+| 🎭 **会动的立绘** | 通话层叠上原作的 Spine 立绘：待机时呼吸眨眼，说话时动嘴，每段话按情绪换表情、点头或摇头；在对话页随时换衣装，原作出了新卡，每周同步一次就能穿上（[ADR-0011](docs/adr/0011-stand-assets-fetched-from-shinycolorsdb.md)） |
+| 🇯🇵 **日语原声 + 中文字幕** | 角色始终用日语回答，保留语气词和口癖，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）；台词带着语气提示去合成，念出来有起伏（[ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)） |
 | 📖 **回忆原作剧情** | 导入原作剧情库后，角色只回忆**自己出场过**的成功路线剧情，可以回答「那次……是怎么回事」 |
 | 🔄 **与原作同步** | 一条命令同步粉丝汉化和镜像上的日语原文，新卡、新活动一周内就能回忆；服务器上每周自动运行（[ADR-0004](docs/adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
 | 🧠 **跨角色共享记忆** | 对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)） |
@@ -55,7 +58,9 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
   - [模型](#模型)
   - [角色](#角色)
   - [语音通话](#语音通话)
+  - [立绘](#立绘)
   - [剧情库](#剧情库)
+  - [世界设定](#世界设定)
   - [向量化服务](#向量化服务)
   - [对话中的检索](#对话中的检索)
   - [记忆](#记忆)
@@ -162,13 +167,13 @@ avatar = "avatars/mano.jpg"
 color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
+idol_id = 1                          # 以下两项可选，用于通话层立绘
+default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 ```
 
 人设文件、角色资料、头像和通话层背景图都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。
 
-`color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。
-
-通话层还可以叠一层原作的 Spine 立绘（可选）：给角色配上原作的偶像编号 `idol_id` 和默认衣装 `default_outfit`（例如 `stand/1030010010`），并在 `.env` 里填立绘素材的地址 `EIDOLON_STAND_ASSETS_URL`。立绘素材不进仓库，放在 S3 兼容的对象存储里，由 `deploy/stand-sync.sh` 从 ShinyColorsDB 拉取新卡、整理衣装清单、渲染缩略图后上传（建议每周用 cron 跑一次），配置方法见 [`docs/deploy.md`](docs/deploy.md) 的「立绘素材」；三项缺一项时通话层只显示背景图。配置了 `JEV_API_KEY` 时，通话中她每说一段话都会由 Jev 判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作；情绪只影响立绘，不记进对话记录。
+`color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。`idol_id` 和 `default_outfit` 用于通话层的立绘，见下方[立绘](#立绘)。
 
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
@@ -209,6 +214,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 - 左上角的收起键或 Esc 收起通话层，回到文字记录，通话照常继续；页首留一张「通话中 mm:ss · 点击返回」的便利贴，点一下重新展开。通话层上不能打字，想打字就收起，在对话里打。
 
 - 说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。
+- 情绪明显的段落，角色会在日语前写上给 Fish Audio 看的语气提示（如 `[shyly] えへへ`），合成时照着念出起伏；写法不规范的提示一律删掉，不会被念出来。语气提示不显示在界面上、也不送去提炼记忆，但在对话记录里原样保留，免得模型看不到自己标过、越标越少（[ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)）。
 - 通话中打字输入的内容和说的话进入同一条对话，角色同样用语音回复。
 - 角色还没开口、或者开口了但回复还没有完整的一段（日语连同字幕都已出现）时，你接着说的话或打的字会作为补充并入当前回合，角色放下刚才的回复，针对整段话重新回答；回复已经有完整的一段后你再开口，就会打断她：她停下来，这条回复只记下已经完整的几段，你新说的话马上得到回应。你发出打好的字也一样会打断她。
 - 底部三个圆形按钮：
@@ -224,6 +230,24 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 > [!NOTE]
 > 浏览器和后端之间直接走 WebRTC（UDP）。本机用 docker compose 启动时，Linux 上的浏览器可以直接连到容器；其他情况（macOS 的 Docker Desktop、手机访问）需要浏览器能连通后端，通常要配置 TURN 服务器，见 `.env.example` 里的 `EIDOLON_ICE_SERVERS` 和 `EIDOLON_TURN_URLS`。公网部署的生产配置自带 coturn，见 [`docs/deploy.md`](docs/deploy.md)。
+
+### 立绘
+
+通话层可以叠上原作的 Spine 立绘（可选）。下面三项都配好才显示，缺一项时通话层只显示背景图：
+
+| 配置 | 写在哪里 | 说明 |
+|---|---|---|
+| `idol_id` | `characters.toml` | 原作的偶像编号（ShinyColorsDB 的 idolId），如真乃是 `1` |
+| `default_outfit` | `characters.toml` | 用户没选过衣装时穿的那套：`stand/<enzaId>`（这张卡的私服）或 `stand_costume/<enzaId>`（演出服） |
+| `EIDOLON_STAND_ASSETS_URL` | `.env` | 存放立绘素材的 S3 兼容存储桶的公开地址 |
+
+- **动起来**：待机时呼吸眨眼，她的声音播放时动嘴，你开口时看向你、说完点头；打断她时声音一停就闭上嘴。通话层收起时立绘照常跟着通话变化。
+- **情绪**：配置了 `JEV_API_KEY` 时，她每说一段话都会由 Jev 判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作。情绪只影响立绘，不记进对话记录；判断的阈值和超时可以用 `JEV_EMOTION_MIN_PROBABILITY`、`JEV_EMOTION_TIMEOUT` 调整。
+- **换衣装**：她有立绘时，对话页页首多一个「换衣装」（宽屏是弹窗，窄屏是底部面板）。每张卡一项，可以在私服和演出服之间切换，选中的那套有会动的全身预览；点「穿这套」后按角色记在这台设备上，通话时就穿这一套。
+- **素材同步**：立绘素材不进仓库，也不在许可证范围内，放在对象存储里。`deploy/stand-sync.sh` 从 ShinyColorsDB 拉取配了 `idol_id` 的角色的新卡、整理衣装清单、渲染缩略图，再上传到存储桶（[ADR-0011](docs/adr/0011-stand-assets-fetched-from-shinycolorsdb.md)）。建议每周用 cron 跑一次，原作出了新卡就会出现在换衣装面板上；没有新卡时几乎不花时间。
+
+> [!NOTE]
+> `stand-sync.sh` 不经过 docker，在服务器或自己的电脑上运行都行，需要 uv、Node.js（22.18 以上）和 Playwright 的 Chromium。存储桶的选择（R2、腾讯云 COS、阿里云 OSS、MinIO 等）、CORS、退出码和本地预览的方法见 [`docs/deploy.md`](docs/deploy.md) 的「立绘素材」。
 
 ### 剧情库
 
@@ -302,7 +326,34 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 ### 世界设定
 
-事务所的社长和事务员、八个组合和各自的偶像，这位角色自己的歌（她一个人唱的、她所在组合全员唱的，附收录的唱片和发售日），以及她上过和将要站上的演出（每个演出日的日期和会场，声优缺席的日子不算），每个回合都跟在人设后面带上（[ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)）。资料是角色配置旁边的 `characters/world.json`，已提交进仓库；要更新时在 `backend/` 下运行 `uv run eidolon world sync`，它从 im@sparql 和官方组合页导入偶像和组合，从 Lantis 的闪耀色彩站点导入唱片、曲目和演唱者（Lantis 没写的演唱者由 ふじわらはじめ 的 API 补齐），从偶像大师官方门户（2020 年 9 月以前是旧官方站）导入演出、从 wikiwiki 导入每个演出日的出演者和缺席，从 imas-db 导入每个演出日的曲目单（每首谁演唱，伴舞不算；合办演出上翻唱的其他品牌的歌照实记下，标明是哪个品牌的歌，但不算歌曲），打印各类条目的数量、相对旧文件的增减、来源之间对不上的地方（包括 imas-db 和演出资料对不上的演出日，比如一天有昼夜两场，这些日子不写曲目单）和没能对应到偶像的演唱者、出演者，看过 `git diff` 再提交。人工查证过的更正（某首歌是谁唱的或者不算歌曲、某个演出日实际是谁出演、哪些出演者不是偶像）写在旁边的 `characters/world-corrections.json` 里，每次导入都会套用，每一条附出处和说明。任何一个来源失败时旧文件不会改动。角色配置里每位角色的显示名都要和资料里的偶像对得上，否则后端不会启动；没有这个文件时照常运行，只是不带世界设定。
+每个回合都在人设后面带上一节世界设定（[ADR-0008](docs/adr/0008-real-world-releases-and-lives-are-in-character.md)）：
+
+- 事务所的社长和事务员、八个组合和各自的偶像；
+- 这位角色自己的歌：她一个人唱的、她所在组合全员唱的，附收录的唱片和发售日；
+- 她上过和将要站上的演出：每个演出日的日期和会场，声优缺席的日子不算。
+
+资料是角色配置旁边的 `characters/world.json`，已提交进仓库。角色配置里每位角色的显示名都要和资料里的偶像对得上，否则后端不会启动；没有这个文件时照常运行，只是不带世界设定。
+
+<details>
+<summary><b>更新世界设定（eidolon world sync）</b></summary>
+
+<br>
+
+在 `backend/` 下运行 `uv run eidolon world sync`，它从以下来源导入：
+
+| 内容 | 来源 |
+|---|---|
+| 偶像和组合 | im@sparql、官方组合页 |
+| 唱片、曲目和演唱者 | Lantis 的闪耀色彩站点；Lantis 没写的演唱者由 ふじわらはじめ 的 API 补齐 |
+| 演出 | 偶像大师官方门户（2020 年 9 月以前是旧官方站） |
+| 每个演出日的出演者和缺席 | wikiwiki |
+| 每个演出日的曲目单 | imas-db：每首谁演唱，伴舞不算；合办演出上翻唱的其他品牌的歌照实记下、标明品牌，但不算歌曲 |
+
+- 导入结束时打印各类条目的数量、相对旧文件的增减、来源之间对不上的地方（包括 imas-db 和演出资料对不上的演出日，比如一天有昼夜两场，这些日子不写曲目单），以及没能对应到偶像的演唱者、出演者。看过 `git diff` 再提交。
+- 人工查证过的更正（某首歌是谁唱的或者不算歌曲、某个演出日实际是谁出演、哪些出演者不是偶像）写在旁边的 `characters/world-corrections.json` 里，每一条附出处和说明，每次导入都会套用。
+- 任何一个来源失败时，旧文件不会改动。
+
+</details>
 
 ### 向量化服务
 
@@ -424,7 +475,7 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-域名、防火墙端口、剧情库的每周自动同步、升级、备份和排障的完整步骤见 [`docs/deploy.md`](docs/deploy.md)。
+域名、防火墙端口、剧情库的每周自动同步、立绘素材、升级、备份和排障的完整步骤见 [`docs/deploy.md`](docs/deploy.md)。
 
 ## 💻 开发
 
@@ -463,10 +514,13 @@ eidolon-sc/
 │   │   ├── sessions.py       #   会话 cookie 与跨站请求检查
 │   │   ├── own_keys.py       #   用户的自带密钥，以及每个回合、每次通话用谁的密钥
 │   │   ├── usage.py          #   限额与用量记录
+│   │   ├── database.py       #   数据库连接的统一设置，删号时按清单删除用户数据
 │   │   ├── call.py           #   语音通话：信令与 Pipecat 管线
 │   │   ├── bailian.py        #   阿里云百炼的实时语音识别
 │   │   ├── turn_taking.py    #   通话中的补充与打断规则
 │   │   ├── call_outcome.py   #   通话算不算限额、结束时告诉浏览器什么
+│   │   ├── emotion.py        #   通话中每段话的情绪判断（Jev），驱动立绘
+│   │   ├── delivery_cues.py  #   语气提示：哪些送去合成、哪些删掉
 │   │   ├── retrieval.py      #   检索判断、参考资料来源（剧情、角色资料、作品资料）的检索与重排、回顾剧情
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
 │   │   ├── corpus.py         #   剧情库：存储、向量检索与剧情目录
@@ -486,14 +540,17 @@ eidolon-sc/
 │   │   ├── roster.py         #   名单：导入时把来源里的人名、声优名、组合名对应到偶像和组合
 │   │   ├── sync_tools.py     #   各导入共用的小工具
 │   │   ├── script_cache.py   #   同步下载的原始剧本缓存
+│   │   ├── stand_fetch.py    #   从 ShinyColorsDB 拉取立绘（eidolon stand fetch）
+│   │   ├── stand_outfits.py  #   每位角色的衣装清单（eidolon stand outfits）
+│   │   ├── stand_upload.py   #   把立绘素材上传到对象存储（eidolon stand upload）
 │   │   ├── sheet_draft.py    #   人设初稿生成
 │   │   └── llm/              #   三种模型接口的适配
 │   ├── eval/                 #   重排校准数据集（只含问题与标注，不含剧情原文）
 │   └── tests/
 ├── frontend/                 # Next.js + Astryx 前端
 ├── characters/               # 角色配置、人设、资料、头像、通话层背景图
-├── corpus/                   # 剧情数据与镜像缓存（不进仓库）
-├── deploy/                   # Caddyfile、每周同步脚本、活动名对照表示例
+├── corpus/                   # 剧情数据、镜像缓存、立绘整理目录（不进仓库）
+├── deploy/                   # Caddyfile、剧情库与立绘的同步脚本、活动名对照表示例
 ├── scripts/                  # 配置 OAuth 应用等的向导（setup-oauth.sh）
 ├── docs/
 │   ├── adr/                  # 架构决策记录
@@ -516,6 +573,7 @@ eidolon-sc/
 
 - [LAPLACE Eidolon](https://laplace.live/eidolon) —— 为虚拟主播明前奶绿打造的实时语音 AI 分身，本项目的架构参考（未复用其代码）
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) —— 剧情文本与中文翻译
+- [ShinyColorsDB](https://github.com/ShinyColorsDB) —— 原文剧情的镜像与立绘素材
 - [Pipecat](https://github.com/pipecat-ai/pipecat) —— 实时语音管线与 WebRTC 传输
 - [Soniox](https://soniox.com/) —— 语音识别
 - [阿里云百炼](https://www.aliyun.com/product/bailian) —— 实时语音识别（可代替 Soniox）
@@ -523,6 +581,8 @@ eidolon-sc/
 - [硅基流动](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（可选的向量化服务）
 - [TypeSafe Jev](https://docs.typesafe.ai/) 与 [OpenRouter](https://openrouter.ai/) —— 检索判断模型及其调用
+- [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes) —— 通话层立绘的播放（spine-ts 3.6）
+- [im@sparql](https://sparql.crssnky.xyz/imas/)、Lantis、ふじわらはじめ、imas-db、wikiwiki —— 世界设定里的偶像、唱片和演出资料
 
 <div align="center">
 
