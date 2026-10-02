@@ -4,7 +4,7 @@
 
 **Blocked by:** 02。改 `backend/` 和 `frontend/`。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 要做的
 
@@ -27,7 +27,7 @@
 - [x] 用户的百炼 key 在通话中失败，提示里是「阿里云百炼」；Soniox 的是「Soniox」。
 - [x] 三项都自带（`stt` 为百炼）时通话不计入限额。
 - [x] `backend/` 下 `pytest` 全部通过，`pyright` 0 errors；`frontend/` 下测试和类型检查通过。
-- [ ] **人工验收（留给用户）**：本地起后端和构建版前端：
+- [x] **人工验收（留给用户）**：本地起后端和构建版前端：
   - 设置页选阿里云百炼、填你的 key，保存成功；显示服务商和末 4 位；
   - 用这个 key 打一通电话，识别正常；
   - 填一个错的 key，保存失败并说明原因；
@@ -94,3 +94,7 @@
 - 服务商名在后端 `STT_PROVIDER_NAMES` 和前端 `zh.ts` 各有一份。前端只显示后端给的文字，设置页的选项名由前端自己定，所以分开放。
 
 隐私说明里写死的「Soniox」（`zh.ts`「语音服务」那条）留给 ticket 04。
+
+### 2026-10-02：人工验收
+
+用户起本地后端（`STT_PROVIDER=bailian`）和构建版前端，按上面四项验收通过：选阿里云百炼填 key 保存成功并显示服务商和末 4 位，用这个 key 通话识别正常，错的 key 保存失败并说明原因，删掉 key 后通话回到部署者的服务。本地数据库启动时自动补上了 `own_keys` 的 `provider`、`region` 两列。ticket 标为 resolved。
