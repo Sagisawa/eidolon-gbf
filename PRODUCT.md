@@ -41,7 +41,7 @@ web
 - 每位角色的界面以她的印象色为基调（`characters.toml` 的 `color`），颜色由 `frontend/src/lib/imageColor.ts` 按浅色、深色模式成对推出并经过对比度测试；通话层用她的背景图（`background`，可选，没有时用印象色渐变）。其余界面是中性主题，浅色和深色跟随系统。
 - 回合与通话的状态语义（成功、失败、被拒绝、用户离开、没能接通，以及是否计入限额）定义在 `CONTEXT.md` 里。界面上的提示必须与这些语义一致。
 - 自带密钥调用失败时，这个回合就算失败，不会改用部署者的 key。界面上只显示密钥的末 4 位。
-- 角色数量由 `characters/characters.toml` 配置，目前有櫻木真乃和月岡恋鐘两位，以后会增加。界面要能容纳数量不定的角色。
+- 角色数量由 `characters/characters.toml` 配置，目前有櫻木真乃、風野灯織、八宮めぐる和月岡恋鐘四位，以后会增加。界面要能容纳数量不定的角色。
 - 仓库保持私有；剧情库和音色数据不进仓库（ADR-0003）。
 - 尚未决定：日语界面的范围和实现方式；是否需要英语界面。
 
@@ -54,8 +54,8 @@ web
 
 ## Evidence on Hand
 
-- 角色头像：`characters/avatars/mano.jpg`、`characters/avatars/kogane.jpg`（可能是官方立绘，只能在私有仓库和本站内使用，见 ADR-0003 修订）。通话层背景图放在 `characters/backgrounds/`，目前还没有。
-- 印象色：櫻木真乃 `#ffbad6`、月岡恋鐘 `#f84cad`，出处是アイマスDB「アイドルのイメージカラー」（数据来自官方网站）。
+- 角色头像：`characters/avatars/` 下每位角色一张（`mano.jpg`、`hiori.jpg`、`meguru.jpg`、`kogane.jpg`）（可能是官方立绘，只能在私有仓库和本站内使用，见 ADR-0003 修订）。通话层背景图放在 `characters/backgrounds/`，目前还没有。
+- 印象色：櫻木真乃 `#ffbad6`、風野灯織 `#144384`、八宮めぐる `#ffe012`、月岡恋鐘 `#f84cad`，出处是アイマスDB「アイドルのイメージカラー」（数据来自官方网站）。
 - 角色简介写在 `characters/characters.toml` 里。
 - 没有用户评价、使用数据或媒体报道，今后的设计不得编造。
 

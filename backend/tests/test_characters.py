@@ -135,18 +135,34 @@ def test_voice_id_is_read_from_the_configuration(characters: CharacterConfig):
     assert load_characters(characters.path)["hiori"].voice_id == "my-private-voice"
 
 
-def test_repository_configures_mano_and_kogane_with_their_voices():
+def test_repository_configures_its_idols_with_their_voices():
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
     assert {id: c.voice_id for id, c in loaded.items()} == {
         "mano": "a1150f3d14ac46fb8ea59c7803cd8357",
+        "hiori": "df43849d16ae48fe87f5670b6a2b81b3",
+        "meguru": "17ce7b6d4ccb43a2bedac1fdb4a219cb",
         "kogane": "a11bfd046e924099a84f989fb4049e95",
     }
-    assert loaded["mano"].name == "櫻木真乃"
-    assert loaded["kogane"].name == "月岡恋鐘"
-    assert {id: c.speakers for id, c in loaded.items()} == {"mano": ("真乃",), "kogane": ("恋鐘",)}
+    assert {id: c.name for id, c in loaded.items()} == {
+        "mano": "櫻木真乃",
+        "hiori": "風野灯織",
+        "meguru": "八宮めぐる",
+        "kogane": "月岡恋鐘",
+    }
+    assert {id: c.speakers for id, c in loaded.items()} == {
+        "mano": ("真乃",),
+        "hiori": ("灯織",),
+        "meguru": ("めぐる",),
+        "kogane": ("恋鐘",),
+    }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
-    assert {id: c.color for id, c in loaded.items()} == {"mano": "#ffbad6", "kogane": "#f84cad"}
+    assert {id: c.color for id, c in loaded.items()} == {
+        "mano": "#ffbad6",
+        "hiori": "#144384",
+        "meguru": "#ffe012",
+        "kogane": "#f84cad",
+    }
 
 
 def test_character_facts_are_split_by_heading(characters: CharacterConfig):
@@ -358,11 +374,13 @@ def test_default_outfit_must_name_a_stand_outfit(tmp_path: Path, value: str):
         load_characters(config.path)
 
 
-def test_repository_gives_mano_and_kogane_their_idols_and_default_outfits():
+def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
     assert {id: (c.idol_id, c.default_outfit) for id, c in loaded.items()} == {
         "mano": (1, "stand/1030010010"),
+        "hiori": (2, "stand/1030020010"),
+        "meguru": (3, "stand/1030030010"),
         "kogane": (4, "stand/1030040010"),
     }
 

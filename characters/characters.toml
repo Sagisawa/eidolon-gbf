@@ -36,6 +36,32 @@ idol_id = 1
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 
 [[characters]]
+id = "hiori"
+name = "風野灯織"
+intro = "illumination STARS 的成员。认真、对自己要求严格，嘴上不太会表达，其实很温柔，在一点点学着坦率。"
+voice_id = "df43849d16ae48fe87f5670b6a2b81b3"
+sheet = "sheets/hiori.md"
+avatar = "avatars/hiori.jpg"
+color = "#144384"
+facts = "facts/hiori.md"
+speakers = ["灯織"]
+idol_id = 2
+default_outfit = "stand/1030020010"  # 【手作りの心遣い】
+
+[[characters]]
+id = "meguru"
+name = "八宮めぐる"
+intro = "illumination STARS 的成员。开朗热情、跟谁都能马上交上朋友，是大家的开心果，最喜欢和伙伴们在一起。"
+voice_id = "17ce7b6d4ccb43a2bedac1fdb4a219cb"
+sheet = "sheets/meguru.md"
+avatar = "avatars/meguru.jpg"
+color = "#ffe012"
+facts = "facts/meguru.md"
+speakers = ["めぐる"]
+idol_id = 3
+default_outfit = "stand/1030030010"  # 【キネマ・リリックで夢見て】
+
+[[characters]]
 id = "kogane"
 name = "月岡恋鐘"
 intro = "L'Antica 的中心。来自长崎，开朗自信、说话带方言，梦想成为顶级偶像。"
