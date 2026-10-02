@@ -292,6 +292,18 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "dropped" } });
   });
 
+  it("does not give a new call's drop the reason the last call sends too late", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    await live.hangUp();
+    await connected(live, attempts);
+
+    attempts[0].handlers.onEvent({ type: "ended", reason: "turn_limit", message: "说了 20 轮了", counts: true });
+    attempts[1].handlers.onDropped();
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "dropped" } });
+  });
+
   it("leaves a call that drops while dialing to fail to connect", async () => {
     const { live, attempts } = await conversation();
     const calling = live.startCall();
@@ -407,6 +419,70 @@ describe("LiveConversation: a call", () => {
 
     expect(live.snapshot().failure).toBeNull();
   });
+});
+
+describe("LiveConversation: a call that is over", () => {
+  /** How the first call ends, its turn under way; after that its messages come too late. */
+  const endings: [string, (live: LiveConversation, attempts: Attempt[]) => Promise<void>][] = [
+    ["the user hangs up", (live) => live.hangUp()],
+    ["it drops", async (_live, attempts) => attempts[0].handlers.onDropped()],
+    [
+      "the backend says why, then it drops",
+      async (_live, attempts) => {
+        attempts[0].handlers.onEvent({ type: "ended", reason: "turn_limit", message: "说了 20 轮了", counts: true });
+        attempts[0].handlers.onDropped();
+      },
+    ],
+    [
+      "the next call has connected",
+      async (live, attempts) => {
+        await live.hangUp();
+        await connected(live, attempts);
+        const next = attempts[1].handlers;
+        next.onEvent({ type: "user", text: "再说一次" });
+        next.onEvent({ type: "delta", segment: 0, lang: "ja", text: "もう" });
+        next.onEvent({ type: "bot-started-speaking" });
+        next.onHearing("还有");
+        // 下一通进行中的回合：迟到的消息不能撤掉它。
+        expect(live.snapshot().entries.at(-1)).toMatchObject({ kind: "character", pending: true });
+      },
+    ],
+  ];
+
+  /** What comes too late from the first call. */
+  const late: [string, (handlers: CallHandlers) => void][] = [
+    ["what the user said", (h) => h.onEvent({ type: "user", text: "迟到的话" })],
+    ["a delta of the reply", (h) => h.onEvent({ type: "delta", segment: 0, lang: "ja", text: "おそい" })],
+    ["the reply recorded", (h) => h.onEvent({ type: "done", message: message(9, "character", "おそい") })],
+    ["an error", (h) => h.onEvent({ type: "error", message: "角色暂时无法回复" })],
+    [
+      "the backend saying why it hangs up",
+      (h) => h.onEvent({ type: "ended", reason: "duration_limit", message: "满 30 分钟了", counts: true }),
+    ],
+    ["what the user is saying so far", (h) => h.onHearing("迟到的转写")],
+    ["the microphone lost", (h) => h.onMicLost(null)],
+    ["the call dropping", (h) => h.onDropped()],
+    ["an event only her stand follows", (h) => h.onEvent({ type: "bot-started-speaking" })],
+  ];
+
+  it.each(endings.flatMap(([ending, end]) => late.map(([what, send]) => [ending, what, end, send] as const)))(
+    "once %s, changes nothing by %s",
+    async (_ending, _what, end, send) => {
+      const { live, attempts, listChanged } = await conversation({ messages: history });
+      await connected(live, attempts);
+      const { handlers } = attempts[0];
+      handlers.onEvent({ type: "user", text: "你好" });
+      handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
+      await end(live, attempts);
+      const before = live.snapshot();
+      const told = listChanged();
+
+      send(handlers);
+
+      expect(live.snapshot()).toEqual(before);
+      expect(listChanged()).toBe(told);
+    },
+  );
 });
 
 describe("LiveConversation: mic mute", () => {
@@ -1280,8 +1356,6 @@ describe("LiveConversation: the stand", () => {
 
     await end(live, attempts);
     expect(live.snapshot().stand).toEqual(CALM);
-    handlers.onEvent({ type: "bot-started-speaking" }); // the old call's, too late
-    expect(live.snapshot().stand).toEqual(CALM);
 
     await connected(live, attempts);
     expect(live.snapshot().stand).toEqual(CALM);
@@ -1339,19 +1413,5 @@ describe("LiveConversation: her emotions", () => {
 
     emit(reply(2), emotion(1, 1, "angry")); // the last reply's, once the next is under way
     expect(mood()).toBe("thinking");
-  });
-
-  it("is not moved on by the last call's events once the next one is under way", async () => {
-    const { live, attempts, emit, mood } = await voiced();
-    await live.hangUp();
-    await connected(live, attempts);
-    const next = (...events: CallEvent[]) => events.forEach((event) => attempts[1].handlers.onEvent(event));
-    next(reply(1), playing(1, 0));
-
-    emit(reply(2), emotion(1, 0, "angry"), playing(1, 1)); // the old call's, too late
-    expect(mood()).toBe("calm");
-    next(emotion(1, 0, "happy"));
-
-    expect(mood()).toBe("happy");
   });
 });

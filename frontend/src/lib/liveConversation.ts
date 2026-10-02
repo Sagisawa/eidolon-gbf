@@ -143,7 +143,8 @@ export class LiveConversation {
   private published: Snapshot;
   private listeners = new Set<() => void>();
   private call: Call | null = null;
-  /** The call being dialed or under way; a call hung up while dialing is no longer it. */
+  /** The dialing of the call under way; null once that call is over, however it ended, or
+   * the page is left (see `startCall`). */
   private attempt: object | null = null;
   private endedBy: CallEnd | null = null; // why the backend is hanging up
   private disposed = false;
@@ -238,7 +239,16 @@ export class LiveConversation {
     this.update({ busy: false });
   }
 
-  /** Call the character, from idle or from the end of the last call. Not over a text turn. */
+  /**
+   * Call the character, from idle or from the end of the last call. Not over a text turn.
+   *
+   * This dialing is the call under way until it ends, however it ends: hung up, dropped
+   * (with or without the backend saying why), failed to connect, or the page left. Once it
+   * is not, the call's messages are too late and change nothing: not the log, the failure,
+   * why the call ended, what is being heard, the microphone, her stand, or the list. That
+   * rule is kept here alone, in the gate every handler given to the call goes through (her
+   * voice aside, for now); the handlers behind it do not ask again.
+   */
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
     if (!conversationId || this.state.busy || isLive(this.state.call)) return;
@@ -246,27 +256,32 @@ export class LiveConversation {
     this.attempt = attempt;
     this.endedBy = null;
     this.update({ call: { phase: "dialing" }, micMuted: false, failure: null });
+    const current = () => this.attempt === attempt;
+    // The gate: what the call sends once it is over changes nothing.
+    const gated =
+      <A extends unknown[]>(handler: (...args: A) => void) =>
+      (...args: A): void => {
+        if (current()) handler(...args);
+      };
     let started: Call;
     try {
       started = await this.ports.startCall(conversationId, this.ports.preferences.load(), {
-        onEvent: (event) => this.onCallEvent(event, attempt),
-        onHearing: (hearing) => this.update({ hearing }),
+        onEvent: gated((event) => this.onCallEvent(event)),
+        onHearing: gated((hearing) => this.update({ hearing })),
+        // Not gated yet: her voice goes straight to be played.
         onCharacterAudio: this.ports.onCharacterAudio,
-        onDropped: () => {
+        onDropped: gated(() => {
           // Dropped while dialing: startCall fails, and that says why.
-          if (this.call !== started) return;
+          if (this.state.call.phase === "dialing") return;
           this.ended(this.endedBy ?? droppedEnd(started.exempt));
-        },
-        onMicLost: (now) => {
-          if (this.call !== started) return;
-          this.update(now ? micInUse(now) : { micId: "", micNotice: "lost" });
-        },
+        }),
+        onMicLost: gated((now) => this.update(now ? micInUse(now) : { micId: "", micNotice: "lost" })),
       });
     } catch (e) {
-      if (this.attempt === attempt) this.ended(startFailedEnd(e));
+      if (current()) this.ended(startFailedEnd(e));
       return;
     }
-    if (this.attempt !== attempt) {
+    if (!current()) {
       // Hung up, or the page left, while dialing: nothing else will hang this one up.
       await started.hangUp().catch(() => {});
       return;
@@ -283,7 +298,6 @@ export class LiveConversation {
   async hangUp(): Promise<void> {
     if (!isLive(this.state.call)) return;
     const ending = this.call;
-    this.attempt = null;
     this.ended(null);
     await ending?.hangUp().catch(() => {});
   }
@@ -343,11 +357,9 @@ export class LiveConversation {
     this.update({ textOnly, stand: this.directed({ type: "text-only", textOnly }) });
   }
 
-  private onCallEvent(event: CallEvent, attempt: object): void {
-    // Her stand moves on only by the call under way, not by one hung up or dropped: it was
-    // cleared of that one.
-    const current = this.attempt === attempt && isLive(this.state.call);
-    const stand = current ? this.directed(event) : this.state.stand;
+  /** An event of the call under way: one that is over never gets here (see `startCall`). */
+  private onCallEvent(event: CallEvent): void {
+    const stand = this.directed(event);
     switch (event.type) {
       case "ended":
         this.endedBy = backendEnd(event);
@@ -360,7 +372,7 @@ export class LiveConversation {
       case "done":
         return this.applyTurnEvent(event, { stand });
       default:
-        if (current) this.update({ stand });
+        this.update({ stand });
     }
   }
 
@@ -421,8 +433,11 @@ export class LiveConversation {
     return new Date(this.now()).toISOString();
   }
 
-  /** The call is over, hung up (no `end`) or not; a reply it cut off is not recorded. */
+  /** The call is over, hung up (no `end`) or not; a reply it cut off is not recorded. It is
+   * no longer the call under way, so whatever it sends from now on is too late (see
+   * `startCall`). */
   private ended(end: CallEnd | null): void {
+    this.attempt = null;
     this.call = null;
     this.apply(
       { type: "interrupted" },
