@@ -4,7 +4,7 @@
 
 **Blocked by:** 01。只改 `backend/`。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 要做的
 
@@ -29,7 +29,7 @@
 - [x] 配置测试：默认 `soniox`；`bailian` 时用 `DASHSCOPE_API_KEY`；非法的 `STT_PROVIDER`、`BAILIAN_STT_MODEL` 启动报错。
 - [x] `CallTurns` 按通话所用服务的 `FOLLOW_ON_TIMEOUT` 等待补充，现有的补充和打断测试全部照常通过。
 - [x] `backend/` 下 `pytest` 全部通过，`pyright` 0 errors。
-- [ ] **人工验收（留给用户）**：`STT_PROVIDER=bailian` 起本地后端和前端，打一通电话：
+- [x] **人工验收（留给用户）**：`STT_PROVIDER=bailian` 起本地后端和前端，打一通电话：
   - 中文、日语都能识别，字幕和回复正常；
   - 角色说话时开口能打断，角色没开口前补一句能并入；
   - 咳嗽一声不会打断、不会多出空回合；
@@ -101,3 +101,7 @@
   - 去掉只给测试用的 `urls` 参数，统一靠 monkeypatch `REGION_URLS`；
   - 消息拼装函数改名为 `_finish_task_message`，抽出 `_failure`；
   - `push_error` 的文案统一用英文（只进日志，用户看到的是 `CallOutcome` 的固定文案）。
+
+### 2026-10-02：人工验收
+
+用户用 `STT_PROVIDER=bailian` 起本地后端和构建版前端，打电话验收通过。启动时用用户的 DashScope key 试调百炼也通过了。ticket 标为 resolved。
