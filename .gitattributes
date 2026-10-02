@@ -1,3 +1,5 @@
 *.sh text eol=lf
 # Spine runtime 原样保存（ADR-0009），换行符转换会改变校验和
 frontend/public/vendor/spine-3.6/** -text
+# Astryx 生成的主题（npm run theme:build）：生成器写 LF，Windows 上检出成 CRLF 会让 theme:check 误报过期
+frontend/src/theme/built/** text eol=lf
