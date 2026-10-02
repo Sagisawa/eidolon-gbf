@@ -4,7 +4,6 @@ A turn or call on the user's own keys alone is recorded all the same, for the ad
 see, but does not count towards the limit. Each use is kept in the database, next to the
 user it belongs to, for a day."""
 
-import sqlite3
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -13,6 +12,7 @@ from typing import Literal
 
 from eidolon.clock import Clock
 from eidolon.config import UsageLimits
+from eidolon.database import connect
 
 UsageKind = Literal["turn", "call"]
 
@@ -83,13 +83,10 @@ class UsageLimiter:
 
     def __init__(self, path: Path, limits: UsageLimits, clock: Clock) -> None:
         """Uses kept in the database at `path`, next to the users they belong to."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
-        # What is given back or forgotten is overwritten, as the store does, not just freed.
-        self._db.execute("PRAGMA secure_delete = ON")
+        # What is given back or forgotten is overwritten, not just freed (see `database`).
+        self._db = connect(path)
         self._lock = threading.Lock()
         with self._lock, self._db:
-            self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
             columns = {name for _, name, *_ in self._db.execute("PRAGMA table_info(usage)")}
             if "exempt" not in columns:

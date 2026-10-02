@@ -85,7 +85,7 @@ class Accounts:
             raise SignInRefused("taken") from None
 
     async def delete(self, user_id: str) -> None:
-        """Delete the user and all their data (see `Store.delete_user`), signing them out
+        """Delete the user and all their data (see `database.delete_user_data`), signing them out
         everywhere and hanging up their calls."""
         await self.calls.hang_up(user_id)
         await self.memories.forget(user_id)

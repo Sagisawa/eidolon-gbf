@@ -28,6 +28,7 @@ import typing
 from pathlib import Path
 from typing import Literal
 
+from eidolon.database import connect
 from eidolon.embedding import Document, Embedder, nearest, to_blob
 
 _SCHEMA = """
@@ -122,13 +123,11 @@ class Passage:
 
 class StoryCorpus:
     def __init__(self, path: Path, embedder: Embedder) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
+        self._db = connect(path)
         self._db.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         self._embedder = embedder
         with self._lock, self._db:
-            self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
             columns = {r["name"] for r in self._db.execute("PRAGMA table_info(episodes)")}
             if "imported_from" not in columns:  # corpora from before JSON import were all CSV

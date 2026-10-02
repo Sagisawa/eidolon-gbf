@@ -1,0 +1,66 @@
+"""The database: one SQLite file holding the users and their conversations, memories and
+usage, next to the story corpus and the embedded text set.
+
+Every connection to it is opened by `connect`, the same way. Each module that keeps
+tables in it opens its own connection and creates its own tables; which tables hold a
+user's data, and which rows of them are the user's, is listed here (`USER_DATA`), and so
+is every other table (`NOT_USER_DATA`), so a table cannot be added without being one or
+the other.
+
+Deleting a user (`delete_user_data`) is for good (ADR-0006): what is deleted is
+overwritten, not just freed, and the write-ahead log is truncated, so none of it is left
+in the files. Deleting a memory, or clearing them all, overwrites it in the database too,
+but earlier frames of the write-ahead log may still hold it until a later checkpoint or
+the user is deleted."""
+
+import sqlite3
+from pathlib import Path
+
+USER_DATA = [
+    ("memory_vectors", "user_id = ?"),
+    ("memories", "user_id = ?"),
+    ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("conversations", "user_id = ?"),
+    ("producer_profiles", "user_id = ?"),
+    ("usage", "user_id = ?"),
+    ("sessions", "user_id = ?"),
+    ("sign_in_methods", "user_id = ?"),
+    ("own_keys", "user_id = ?"),
+    ("users", "id = ?"),
+]
+"""Every table holding a user's data, and which rows are theirs, in an order that deletes
+what refers to a row before the row."""
+
+NOT_USER_DATA = frozenset(
+    {"episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts"}
+)
+"""Every other table: the story corpus and the embedded text set."""
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    """A connection to the database at `path`, making the directory it is in if need be,
+    usable from any thread and waiting up to 30 seconds for another writer."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, check_same_thread=False, timeout=30)
+    # Readers need not wait for a writer: several modules, and the command line in another
+    # process, each have a connection to this database.
+    db.execute("PRAGMA journal_mode = WAL")
+    # What is deleted is overwritten, not just freed: deleting a user is for good.
+    db.execute("PRAGMA secure_delete = ON")
+    db.execute("PRAGMA foreign_keys = ON")
+    return db
+
+
+def delete_user_data(db: sqlite3.Connection, user_id: str) -> None:
+    """Delete the user and everything of theirs, for good, all at once, through `db`, which
+    the caller keeps anyone else from using meanwhile. A table not created yet (by a module
+    this process has not opened) is passed over."""
+    with db:
+        tables = {
+            name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        for table, where in USER_DATA:
+            if table in tables:
+                db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
+    # The write-ahead log still holds the pages as they were.
+    db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
