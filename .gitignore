@@ -24,3 +24,6 @@ skills-lock.json
 deploy/event-names.toml
 # 每周同步剧情库的日志（deploy/story-sync.sh）
 /logs/
+
+# 百炼语音识别测量用的录音（.scratch/bailian-stt ticket 01），不进仓库
+/.scratch/bailian-stt/prototype/audio/
