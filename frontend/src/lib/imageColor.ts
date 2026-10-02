@@ -44,8 +44,17 @@ const SMALL_TEXT = 4.8;
 /** 通话层次要字的白色不透明度，与 CallLayer 里的 color-mix 一致。 */
 export const CALL_MUTED = 0.74;
 
+/** 按规整后的原色记下推算结果：界面每次渲染都要取她的颜色，逐级搜索明度太慢，通话中会卡住立绘。 */
+const scales = new Map<string, ImageColorScale>();
+
 export function imageColorScale(hex: string): ImageColorScale {
   const raw = normalizeHex(hex);
+  let scale = scales.get(raw);
+  if (!scale) scales.set(raw, (scale = deriveScale(raw)));
+  return scale;
+}
+
+function deriveScale(raw: string): ImageColorScale {
   const base = toOklch(raw);
   const at = (l: number, c: number) => fromOklch({ l, c: Math.min(c, base.c), h: base.h });
   const { body } = paperColors;

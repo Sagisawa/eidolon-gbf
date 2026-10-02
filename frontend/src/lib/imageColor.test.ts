@@ -61,4 +61,8 @@ describe("imageColorScale", () => {
   it("拒绝不是 #rrggbb 的色值", () => {
     expect(() => imageColorScale("pink")).toThrow();
   });
+
+  it("同一个印象色只推算一次：每次渲染都会调用它，逐级搜索颜色太慢", () => {
+    expect(imageColorScale("#ffbad6")).toBe(imageColorScale("#FFBAD6"));
+  });
 });
