@@ -1,6 +1,6 @@
 # 语音识别可选阿里云百炼
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准；相关决策见 ADR-0010（语音识别服务在部署时二选一，自带密钥的用户自己选）。设计在 2026-10-02 的 grilling 中定下。
 

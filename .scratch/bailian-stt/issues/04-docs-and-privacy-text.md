@@ -4,7 +4,7 @@
 
 **Blocked by:** 03。只改文档和 `frontend/src/i18n/zh.ts` 的文案。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 要做的
 
@@ -18,7 +18,7 @@
 
 - [x] 仓库里除了历史 `.scratch` 和 ADR 以外，不再有「只能用 Soniox」的说法（grep `Soniox` 逐条看过）。
 - [x] `frontend/` 下测试和类型检查通过（`callEnd.test.ts` 里的 Soniox 用例是后端给的文字，可以保留）。
-- [ ] **人工验收（留给用户）**：落地页的隐私说明读起来清楚。
+- [x] **人工验收（留给用户）**：落地页的隐私说明读起来清楚。
 
 ## Comments
 
@@ -50,3 +50,7 @@
 - 隐私说明「阿里云百炼不会用你的声音训练模型」没加「按量付费」的限定：ticket 和 spec 给的文案就是这样。免费额度下的数据是否同样不训练没有查证，如果要精确，可以再改；
 - 语音识别的选择放在「语音通话」一节里，没像向量化服务那样单独成节；
 - `.env.example`、`setup-oauth.sh` 里「用户自带 API 密钥」的旧说法（CONTEXT.md 建议避免「API 密钥」）不是这次引入的，没动。
+
+### 2026-10-02：人工验收
+
+用户看过落地页的隐私说明和三份 README 的改动，验收通过。ticket 标为 resolved。
