@@ -472,7 +472,8 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 | **coturn** | STUN/TURN，让 NAT 后面的手机也能语音通话 |
 
 ```sh
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 数据库由 `deploy/db-backup.sh` 每天备份一次：压缩、用 age 公钥加密后上传到一个私有的 S3 兼容存储桶（推荐 Cloudflare R2，不要和公开的立绘桶共用），保留 30 天；私钥由你离线保存。
@@ -503,6 +504,8 @@ npm test
 ```
 
 界面用 Astryx 组件库加一套自定义的「手帐」主题（视觉规范见 [`DESIGN.md`](DESIGN.md)）。主题源文件是 `src/theme/notebookTheme.ts`，改过之后运行 `npm run theme:build` 重新生成 `src/theme/built/` 下预构建的 CSS（`npm run theme:check` 检查两者是否一致）。界面文案集中在 `src/i18n/`，目前只有简体中文。
+
+每个 PR 和 main 上的推送由 GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）跑上面这些检查、`theme:check` 和 shell 脚本的 shellcheck，再构建两个镜像；推送到 main 时，检查全部通过才把镜像发布到 GHCR。Dependabot 每周一提依赖更新的 PR。
 
 ## 📁 项目结构
 
@@ -555,6 +558,7 @@ eidolon-sc/
 ├── corpus/                   # 剧情数据、镜像缓存、立绘整理目录（不进仓库）
 ├── deploy/                   # Caddyfile、剧情库与立绘的同步脚本、数据库备份脚本、活动名对照表示例
 ├── scripts/                  # 配置 OAuth 应用等的向导（setup-oauth.sh）
+├── .github/                  # CI（检查、发布镜像到 GHCR）与 Dependabot
 ├── docs/
 │   ├── adr/                  # 架构决策记录
 │   └── deploy.md             # VPS 部署指南

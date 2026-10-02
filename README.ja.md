@@ -476,7 +476,8 @@ docker compose exec backend eidolon user usage <ユーザー ID>  # 直近 24 �
 | **coturn** | STUN/TURN。NAT 配下のスマートフォンからも音声通話できるように |
 
 ```sh
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 データベースは `deploy/db-backup.sh` が毎日 1 回バックアップします。圧縮し、age の公開鍵で暗号化して、非公開の S3 互換バケット（Cloudflare R2 推奨。公開の立ち絵用バケットとは共用しない）にアップロードし、30 日間保存します。秘密鍵はオフラインで保管してください。
@@ -507,6 +508,8 @@ npm test
 ```
 
 画面は Astryx コンポーネントライブラリに独自の「手帳」テーマを組み合わせて作っています（ビジュアル仕様は [`DESIGN.md`](DESIGN.md)）。テーマのソースは `src/theme/notebookTheme.ts` で、変更したら `npm run theme:build` で `src/theme/built/` 以下のビルド済み CSS を作り直します（`npm run theme:check` で両者が一致しているか確認できます）。画面の文言は `src/i18n/` にまとめてあり、いまのところ簡体字中国語だけです。
+
+PR と main へのプッシュごとに、GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）が上記のチェック、`theme:check`、シェルスクリプトの shellcheck を実行し、2 つのイメージをビルドします。main では、すべてのチェックが通ったときだけイメージを GHCR に公開します。Dependabot が毎週月曜に依存関係の更新 PR を作ります。
 
 ## 📁 ディレクトリ構成
 
@@ -559,6 +562,7 @@ eidolon-sc/
 ├── corpus/                   # シナリオデータ、ミラーのキャッシュ、立ち絵の作業ディレクトリ（リポジトリ外）
 ├── deploy/                   # Caddyfile、シナリオと立ち絵の同期スクリプト、データベースのバックアップスクリプト、イベント名対応表のサンプル
 ├── scripts/                  # OAuth アプリ設定などのウィザード（setup-oauth.sh）
+├── .github/                  # CI（チェック、GHCR へのイメージ公開）と Dependabot
 ├── docs/
 │   ├── adr/                  # アーキテクチャ決定記録
 │   └── deploy.md             # VPS デプロイガイド

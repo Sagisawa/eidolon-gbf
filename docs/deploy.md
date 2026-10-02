@@ -58,8 +58,11 @@ cp .env.example .env
 然后准备人设文件（见 README 的「角色」：`characters/sheets/` 下每位角色一份，角色资料和头像可选），启动：
 
 ```sh
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
+
+前端和后端用 CI 发布到 GHCR 的镜像（`ghcr.io/sallyn0225/eidolon-sc-frontend`、`-backend`），服务器上不用构建。镜像只有 linux/amd64 一种。arm64 的服务器，或者想用自己改过的代码时，改用 `up -d --build` 在服务器上构建。
 
 第一次启动时 Caddy 会申请证书，稍等片刻后用浏览器打开 `https://你的域名`。后端启动失败时（缺少人设文件、对话模型检查不通过等），用 `docker compose -f docker-compose.prod.yml logs backend` 查看原因。
 
@@ -318,10 +321,23 @@ EIDOLON_STAND_ASSETS_URL=http://localhost:8765
 
 ## 升级
 
+等 main 上这次提交的 CI 跑完（GitHub 的 Actions 页面显示通过；镜像只在检查全部通过后才发布），然后：
+
 ```sh
 git pull
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
+
+`git pull` 不能省：人设、`deploy/` 下的脚本和 compose 配置本身都来自仓库，不在镜像里。
+
+CI 在 main 上的每次推送都发布 `:main`（默认用的就是它）和 `:sha-<7 位提交哈希>`，推送 `v1.2.3` 这样的标签时另外发布 `:1.2.3` 和 `:latest`。升级后出了问题，在 `.env` 里把 `EIDOLON_IMAGE_TAG` 设为上一版的 `sha-…`（在仓库的 Packages 页面或 `git log --oneline` 里找），再 `up -d` 即可回滚；之后删掉这一行，回到跟随 main。只回滚镜像不回滚数据库：新版本改过数据库结构时，旧版本不一定能用，回滚前看一眼这次升级的提交说明。
+
+### 镜像的可见性
+
+CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，服务器拉不下来。到 GitHub 个人主页的 Packages，分别打开 `eidolon-sc-backend` 和 `eidolon-sc-frontend`，在 Package settings 的 Danger Zone 里改成 Public。公开的包不占账号的存储和流量额度，服务器不用登录就能拉取。改成公开后不能再改回私有。注意后端镜像里有 `backend/src` 的全部源代码，前端镜像里有构建后的前端代码：包公开就等于这部分代码公开了，即使仓库还是私有的。
+
+不想公开时，包保持私有，在服务器上用一个只有 `read:packages` 权限的 GitHub 令牌（classic personal access token）登录一次：`echo <令牌> | docker login ghcr.io -u <GitHub 用户名> --password-stdin`。
 
 数据都在持久化的位置，升级不会丢失：
 

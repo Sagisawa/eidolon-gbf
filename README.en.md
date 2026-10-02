@@ -476,7 +476,8 @@ The production config [`docker-compose.prod.yml`](docker-compose.prod.yml) runs 
 | **coturn** | STUN/TURN, so phones behind NAT can make voice calls |
 
 ```sh
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 `deploy/db-backup.sh` backs the database up once a day: compressed, encrypted to an age public key, and uploaded to a private S3-compatible bucket (Cloudflare R2 recommended; never the public stand bucket), kept 30 days. You keep the private key offline.
@@ -507,6 +508,8 @@ npm test
 ```
 
 The interface is built on the Astryx component library with a custom “notebook” theme (visual design system in [`DESIGN.md`](DESIGN.md)). The theme source is `src/theme/notebookTheme.ts`; after changing it, run `npm run theme:build` to regenerate the prebuilt CSS under `src/theme/built/` (`npm run theme:check` checks the two match). Interface copy lives in `src/i18n/`; only Simplified Chinese exists so far.
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the checks above, `theme:check` and shellcheck on the shell scripts for every PR and every push to main, then builds both images; on main, the images are published to GHCR only once every check passes. Dependabot opens dependency-update PRs every Monday.
 
 ## 📁 Project layout
 
@@ -559,6 +562,7 @@ eidolon-sc/
 ├── corpus/                   # story data, the mirror cache and the stand build directory (not committed)
 ├── deploy/                   # Caddyfile, story and stand sync scripts, database backup script, sample event-name table
 ├── scripts/                  # wizards, such as setting up the OAuth apps (setup-oauth.sh)
+├── .github/                  # CI (checks, publishing images to GHCR) and Dependabot
 ├── docs/
 │   ├── adr/                  # architecture decision records
 │   └── deploy.md             # VPS deployment guide
