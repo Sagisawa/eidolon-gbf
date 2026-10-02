@@ -1,7 +1,8 @@
 """The deployment's choice of speech recognition (ADR-0010): Soniox or Alibaba Cloud Model
 Studio (阿里云百炼), chosen by `STT_PROVIDER`; the deployer's DashScope key tried as the
-server starts, which refuses to start on a key that cannot be used; and each call heard by
-whichever service its key is for, waiting for follow-ons as long as that service needs."""
+server starts, which refuses to start on a key that cannot be used; each call heard by
+whichever service its key is for, waiting for follow-ons as long as that service needs; and
+a user's own key tried on the service they chose before it is kept."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -18,6 +19,7 @@ from eidolon.assembly import Backend
 from eidolon.bailian import BailianSTTService
 from eidolon.call import SpeechServices
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings, SttKey
+from eidolon.own_keys import OwnKeyRejected
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeDashScope
 
@@ -194,3 +196,41 @@ def test_a_call_on_a_dashscope_key_is_heard_by_alibaba_cloud_model_studio():
 
     assert isinstance(hearing.stt, BailianSTTService)
     assert hearing.follow_on_timeout == 3.0
+
+
+# A user's own key is tried, before it is kept, on the service they chose.
+
+
+async def test_a_users_dashscope_key_is_tried_with_the_deployers_model_and_found_its_region(
+    dashscope: FakeDashScope,
+):
+    dashscope.keys["my-dashscope-key"] = "singapore"
+    speech = SpeechServices("s2.1-pro-free", DEFAULT_BAILIAN_STT_MODEL)
+
+    key = await speech.check_stt("bailian", "my-dashscope-key")
+
+    assert key == SttKey("bailian", "my-dashscope-key", "singapore")
+    [task] = dashscope.tasks
+    assert task.run_task["payload"]["model"] == DEFAULT_BAILIAN_STT_MODEL
+    assert task.finished and task.audio == []
+
+
+async def test_a_users_dashscope_key_refused_in_both_regions_is_said_to_be_invalid(
+    dashscope: FakeDashScope,
+):
+    with pytest.raises(OwnKeyRejected, match="key 无效") as caught:
+        await SpeechServices("s2.1-pro-free").check_stt("bailian", "not-a-dashscope-key")
+
+    assert "北京、新加坡" in str(caught.value)
+
+
+async def test_a_users_dashscope_key_without_the_model_enabled_says_where_to_enable_it(
+    dashscope: FakeDashScope,
+):
+    dashscope.keys["my-dashscope-key"] = "beijing"
+    dashscope.not_enabled.add(DEFAULT_BAILIAN_STT_MODEL)
+
+    with pytest.raises(OwnKeyRejected) as caught:
+        await SpeechServices("s2.1-pro-free").check_stt("bailian", "my-dashscope-key")
+
+    assert f"去阿里云百炼控制台开通 {DEFAULT_BAILIAN_STT_MODEL}" in str(caught.value)

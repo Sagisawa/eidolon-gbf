@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS sign_in_methods (
     UNIQUE (provider, subject)
 );
 CREATE INDEX IF NOT EXISTS sign_in_methods_by_user ON sign_in_methods(user_id);
--- A user's own key for a service, encrypted; an LLM also has where it is and which model.
+-- A user's own key for a service, encrypted; an LLM also has where it is and which model,
+-- speech recognition which service it is for (none before there was a choice: Soniox)
+-- and, for Alibaba Cloud Model Studio, the region it works in.
 CREATE TABLE IF NOT EXISTS own_keys (
     user_id TEXT NOT NULL REFERENCES users(id),
     service TEXT NOT NULL,
@@ -56,6 +58,8 @@ CREATE TABLE IF NOT EXISTS own_keys (
     base_url TEXT,
     model TEXT,
     protocol TEXT,
+    provider TEXT,
+    region TEXT,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (user_id, service)
 );
@@ -133,6 +137,8 @@ class OwnKeyRecord:
     base_url: str | None = None
     model: str | None = None
     protocol: str | None = None
+    provider: str | None = None
+    region: str | None = None
 
 
 class IdentityTaken(Exception):
@@ -203,6 +209,10 @@ class Store:
         for column in ("consented_at", "banned_at"):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+        own_key_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(own_keys)")}
+        for column in ("provider", "region"):  # before speech recognition could be chosen
+            if column not in own_key_columns:
+                self._db.execute(f"ALTER TABLE own_keys ADD COLUMN {column} TEXT")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -350,18 +360,18 @@ class Store:
         with self._lock, self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO own_keys"
-                " (user_id, service, secret, last4, base_url, model, protocol, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " (user_id, service, secret, last4, base_url, model, protocol, provider,"
+                " region, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (user_id, key.service, key.secret, key.last4, key.base_url, key.model,
-                 key.protocol, _now()),
+                 key.protocol, key.provider, key.region, _now()),
             )
 
     def own_keys(self, user_id: str) -> dict[str, OwnKeyRecord]:
         """The user's own keys, by service."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT service, secret, last4, base_url, model, protocol FROM own_keys"
-                " WHERE user_id = ?",
+                "SELECT service, secret, last4, base_url, model, protocol, provider, region"
+                " FROM own_keys WHERE user_id = ?",
                 (user_id,),
             ).fetchall()
         return {row["service"]: OwnKeyRecord(**row) for row in rows}

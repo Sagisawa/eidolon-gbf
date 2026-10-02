@@ -2,17 +2,19 @@
 user's own where they brought them, the deployer's otherwise, never falling back from a
 key of theirs that no longer works; and whether it counts towards the user's limit."""
 
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from eidolon.config import SttKey
+from eidolon.config import SttKey, SttProvider
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.own_keys import (
     CallsUnavailable,
     DeployerKeys,
     OwnKeyFailed,
+    OwnKeyRejected,
     OwnKeys,
     OwnLLMSettings,
 )
@@ -54,16 +56,20 @@ class Deployment:
 MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
 MY_FISH = "fish-my-own-key-aaaa"
 MY_SONIOX = "soniox-my-own-key-bbbb"
+MY_DASHSCOPE = "sk-my-own-dashscope-dddd"
 
 
-async def bring(own_keys: OwnKeys, user_id: str, *services: str) -> None:
+async def bring(
+    own_keys: OwnKeys, user_id: str, *services: str, stt: SttProvider = "soniox"
+) -> None:
     for service in services:
         if service == "llm":
             await own_keys.save_llm(user_id, MY_LLM)
+        elif service == "tts":
+            await own_keys.save_speech(user_id, "tts", MY_FISH)
         else:
-            await own_keys.save_speech(
-                user_id, service, MY_FISH if service == "tts" else MY_SONIOX  # pyright: ignore[reportArgumentType]
-            )
+            api_key = MY_SONIOX if stt == "soniox" else MY_DASHSCOPE
+            await own_keys.save_speech(user_id, "stt", api_key, stt_provider=stt)
 
 
 async def ask(llm: ChatLLM) -> None:
@@ -153,16 +159,93 @@ async def test_turns_on_an_own_llm_and_calls_on_all_three_own_keys_do_not_count(
     assert own_keys.exemptions(deployment.user) == {"turns": turns, "calls": calls}
 
 
-async def test_a_users_own_speech_recognition_key_is_soniox_whichever_the_deployer_chose(
+@pytest.mark.parametrize(
+    ("deployers", "mine"),
+    [
+        (SttKey("bailian", "deployer-dashscope-key", "beijing"), SttKey("soniox", MY_SONIOX)),
+        (SttKey("soniox", DEPLOYER_SONIOX_KEY), SttKey("bailian", MY_DASHSCOPE, "singapore")),
+    ],
+)
+async def test_a_users_own_speech_recognition_is_the_service_they_chose_whichever_the_deployer_did(
+    deployment: Deployment, deployers: SttKey, mine: SttKey
+):
+    deployment.speech.regions[MY_DASHSCOPE] = "singapore"
+    own_keys = deployment.own_keys(stt=deployers)
+    other = deployment.store.create_user("other").id
+    await bring(own_keys, deployment.user, "stt", stt=mine.provider)
+
+    assert own_keys.for_call(deployment.user).stt == mine
+    assert own_keys.for_call(other).stt == deployers
+    assert own_keys.describe(deployment.user)["stt"] == {
+        "last4": mine.api_key[-4:], "provider": mine.provider,
+    }
+
+
+async def test_a_dashscope_key_is_tried_and_kept_with_the_region_it_works_in(
     deployment: Deployment,
 ):
-    dashscope = SttKey("bailian", "deployer-dashscope-key", "beijing")
-    own_keys = deployment.own_keys(stt=dashscope)
-    other = deployment.store.create_user("other").id
-    await bring(own_keys, deployment.user, "stt")
+    deployment.speech.regions[MY_DASHSCOPE] = "singapore"
+    own_keys = deployment.own_keys()
+
+    await bring(own_keys, deployment.user, "stt", stt="bailian")
+
+    assert deployment.speech.checked == [("bailian", MY_DASHSCOPE)]
+    assert own_keys.for_call(deployment.user).stt.region == "singapore"
+
+
+async def test_a_dashscope_key_that_fails_its_try_is_not_kept(deployment: Deployment):
+    deployment.speech.rejects[MY_DASHSCOPE] = "这个 key 无效"
+    own_keys = deployment.own_keys()
+
+    with pytest.raises(OwnKeyRejected, match="这个 key 无效"):
+        await bring(own_keys, deployment.user, "stt", stt="bailian")
+
+    assert own_keys.describe(deployment.user) == {}
+
+
+async def test_a_speech_recognition_key_kept_before_there_was_a_choice_is_sonioxs(
+    deployment: Deployment, tmp_path: Path
+):
+    await bring(deployment.own_keys(), deployment.user, "stt")
+    deployment.store.close()
+    with sqlite3.connect(tmp_path / "eidolon.db") as db:  # as kept before: no provider, no region
+        db.executescript("""
+            CREATE TABLE before AS SELECT user_id, service, secret, last4, base_url, model,
+                protocol, updated_at FROM own_keys;
+            DROP TABLE own_keys;
+            ALTER TABLE before RENAME TO own_keys;
+        """)
+    db.close()
+    deployment.store = Store(tmp_path / "eidolon.db")
+
+    own_keys = deployment.own_keys(stt=SttKey("bailian", "deployer-dashscope-key", "beijing"))
 
     assert own_keys.for_call(deployment.user).stt == SttKey("soniox", MY_SONIOX)
-    assert own_keys.for_call(other).stt == dashscope
+    assert own_keys.describe(deployment.user)["stt"] == {"last4": "bbbb", "provider": "soniox"}
+
+
+@pytest.mark.parametrize(
+    ("provider", "label"), [("soniox", "语音识别（Soniox）"), ("bailian", "语音识别（阿里云百炼）")]
+)
+async def test_an_own_speech_recognition_key_failing_says_whose_service_it_is_for(
+    deployment: Deployment, provider: SttProvider, label: str
+):
+    await bring(deployment.own_keys(), deployment.user, "stt", stt=provider)
+    changed = deployment.own_keys(secret_key="another-secret-key")
+
+    with pytest.raises(OwnKeyFailed) as failed:
+        changed.for_call(deployment.user)
+
+    assert failed.value.message.startswith(f"你的{label}密钥调用失败")
+
+
+async def test_calls_on_all_three_own_keys_do_not_count_whichever_service_hears_them(
+    deployment: Deployment,
+):
+    own_keys = deployment.own_keys()
+    await bring(own_keys, deployment.user, "llm", "tts", "stt", stt="bailian")
+
+    assert own_keys.for_call(deployment.user).exempt is True
 
 
 async def test_a_user_can_call_on_their_own_key_for_what_the_deployer_has_none_for(

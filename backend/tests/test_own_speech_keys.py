@@ -1,17 +1,17 @@
 """Bringing your own speech keys, and what bringing your own keys exempts from the limits.
 
-Fish Audio (speech synthesis) and Soniox (speech recognition) keys are tried before they
-are kept, then used for the user's calls; one that fails ends the call saying which,
-without falling back to the deployer's. Text turns on the user's own LLM do not count
-towards the hourly limit; calls count unless the LLM, synthesis and recognition are all
-the user's own. How long a call may last and how many turns it may take is the same for
-everyone."""
+Fish Audio (speech synthesis) and Soniox or Alibaba Cloud Model Studio (speech recognition,
+whichever the user chose) keys are tried before they are kept, then used for the user's
+calls; one that fails ends the call saying which, without falling back to the deployer's.
+Text turns on the user's own LLM do not count towards the hourly limit; calls count unless
+the LLM, synthesis and recognition are all the user's own. How long a call may last and
+how many turns it may take is the same for everyone."""
 
 from dataclasses import replace
 
 import httpx
 
-from eidolon.config import Settings, UsageLimits
+from eidolon.config import Settings, SttKey, UsageLimits
 from tests.browser import Browser, open_browser
 from tests.conftest import ClientFactory
 from tests.fakes import (
@@ -27,6 +27,7 @@ from tests.test_text_turn import send_turn, start_conversation
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 MY_FISH = "fish-my-own-key-aaaa"
 MY_SONIOX = "soniox-my-own-key-bbbb"
+MY_DASHSCOPE = "sk-my-own-dashscope-dddd"
 MY_LLM = {"base_url": "https://llm.example.com/v1", "api_key": "sk-my-own-llm-cccc", "model": "m"}
 
 
@@ -52,8 +53,10 @@ async def test_speech_keys_are_tried_then_kept_showing_only_their_last_4_charact
     await bring(client, "tts", "stt")
     listed = (await client.get("/api/account/keys")).json()
 
-    assert speech.checked == [("tts", MY_FISH), ("stt", MY_SONIOX)]
-    assert listed["keys"] == {"tts": {"last4": "aaaa"}, "stt": {"last4": "bbbb"}}
+    assert speech.checked == [("tts", MY_FISH), ("soniox", MY_SONIOX)]
+    assert listed["keys"] == {
+        "tts": {"last4": "aaaa"}, "stt": {"last4": "bbbb", "provider": "soniox"},
+    }
     assert MY_FISH not in str(listed) and MY_SONIOX not in str(listed)
 
 
@@ -68,6 +71,54 @@ async def test_a_speech_key_that_fails_its_try_is_not_kept(
     assert res.status_code == 422
     assert "Incorrect API key" in res.json()["detail"]
     assert (await client.get("/api/account/keys")).json()["keys"] == {}
+
+
+async def test_a_speech_recognition_key_is_for_the_service_the_user_chose(
+    make_client: ClientFactory, speech: FakeSpeech
+):
+    client = make_client(FakeLLM())
+
+    res = await client.put(
+        "/api/account/keys/stt", json={"api_key": MY_DASHSCOPE, "provider": "bailian"}
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.json() == {"last4": "dddd", "provider": "bailian"}
+    assert speech.checked == [("bailian", MY_DASHSCOPE)]
+
+
+async def test_there_is_no_speech_recognition_but_soniox_and_alibaba_cloud_model_studio(
+    make_client: ClientFactory, speech: FakeSpeech
+):
+    client = make_client(FakeLLM())
+
+    res = await client.put(
+        "/api/account/keys/stt", json={"api_key": MY_DASHSCOPE, "provider": "azure"}
+    )
+
+    assert res.status_code == 422
+    assert speech.checked == []
+
+
+async def test_a_call_is_heard_on_the_users_own_dashscope_key(
+    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
+):
+    speech.regions[MY_DASHSCOPE] = "singapore"
+    client = make_client(FakeLLM())
+    res = await client.put(
+        "/api/account/keys/stt", json={"api_key": MY_DASHSCOPE, "provider": "bailian"}
+    )
+    assert res.status_code == 200, res.text
+
+    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.connect()
+
+    assert [stt.key for stt in speech.stts] == [SttKey("bailian", MY_DASHSCOPE, "singapore")]
+
+    await speech.stts[-1].break_down()
+
+    ended = await browser.next_server_message("ended")
+    assert "你的语音识别（阿里云百炼）密钥调用失败" in ended["message"]
 
 
 async def test_a_call_hears_and_speaks_on_the_users_own_keys(

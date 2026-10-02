@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 
+from eidolon.config import SttProvider
 from eidolon.own_keys import OwnKeyFailed, Service
 from eidolon.usage import UsageLimiter
 
@@ -107,17 +108,20 @@ class CallOutcome:
         """How long the call may last once it has connected; None is no limit."""
         return self._limits.duration
 
-    def service_failed(self, own_service: Service | None) -> dict | None:
+    def service_failed(
+        self, own_service: Service | None, stt_provider: SttProvider | None = None
+    ) -> dict | None:
         """A voice service failed, ending the call; `own_service` is the one failing on
-        the user's own key, if it is theirs. Before any turn is recorded the call never
-        really connected and is given back. A failing own key is theirs to fix, so they are
-        told which. Before the call connects there is no one to tell: the browser learns
-        the call is over as its connection closes."""
+        the user's own key, if it is theirs, and `stt_provider` the speech recognition the
+        call is heard by. Before any turn is recorded the call never really connected and
+        is given back. A failing own key is theirs to fix, so they are told which. Before
+        the call connects there is no one to tell: the browser learns the call is over as
+        its connection closes."""
         if not self._connected or self._told:
             return None
         self._failed_to_connect = self._recorded == 0
         if own_service is not None:
-            message = OwnKeyFailed(own_service, "通话已结束").message
+            message = OwnKeyFailed(own_service, "通话已结束", stt_provider).message
             return self._tell("own_key", message)
         if self._failed_to_connect:
             return self._tell("not_connected", "语音服务出了故障，通话没能接通")

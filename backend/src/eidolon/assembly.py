@@ -21,7 +21,7 @@ from eidolon.accounts import Accounts
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
-from eidolon.config import Settings
+from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
 from eidolon.emotion import EmotionJudge, EmotionJudging, JevEmotionJudge
 from eidolon.engine import ConversationEngine
@@ -188,7 +188,13 @@ def build(
     )
     usage = UsageLimiter(settings.database_path, settings.usage_limits, clock)
     closers.append(usage.close)
-    speech = speech or SpeechServices(settings.fish_audio_model, settings.bailian_stt_model)
+    # Users' own DashScope keys hear with the deployer's model, or the default one where the
+    # deployer chose Soniox.
+    bailian_model = (
+        settings.bailian_stt_model if settings.stt_provider == "bailian"
+        else DEFAULT_BAILIAN_STT_MODEL
+    )
+    speech = speech or SpeechServices(settings.fish_audio_model, bailian_model)
     deployer = DeployerKeys(chat_llm, background_llm, settings.stt_key, settings.fish_audio_api_key)
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, deployer, speech)
     calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)

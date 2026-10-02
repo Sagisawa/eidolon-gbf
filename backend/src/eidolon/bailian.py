@@ -346,7 +346,7 @@ async def _start_task(
         return websocket, task_id, region
     names = "、".join(REGION_NAMES[region] for region, _ in refused)
     statuses = "、".join(sorted({str(status) for _, status in refused}))
-    raise _Refused(f"{names}地域都不接受这个 key（HTTP {statuses}）")
+    raise _Refused(f"key 无效，{names}地域都不接受（HTTP {statuses}）")
 
 
 async def _run_task(websocket: ClientConnection, model: str) -> str:

@@ -82,16 +82,15 @@ from pipecat.utils.types import assert_given
 from pipecat.workers.runner import WorkerRunner
 
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
-from eidolon.bailian import BailianSTTService
+from eidolon.bailian import BailianCheckFailed, BailianSTTService, find_region
 from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, IceServer, Settings, SttKey
+from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, IceServer, Settings, SttKey, SttProvider
 from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import ConversationEngine, TurnDone, UserSaid
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
-    SERVICE_LABELS,
     CallKeys,
     CallsUnavailable,
     OwnKeyRejected,
@@ -207,9 +206,13 @@ class Speech(Protocol):
         """Speech synthesis for one call, in the character's voice."""
         ...
 
-    async def check(self, service: Service, api_key: str) -> None:
-        """Raise OwnKeyRejected saying why, unless `api_key` works for `service`
-        ("stt" or "tts")."""
+    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+        """The key as calls are to use it, with the region a DashScope key works in. Raises
+        OwnKeyRejected saying why, unless `api_key` works for `provider`."""
+        ...
+
+    async def check_tts(self, api_key: str) -> None:
+        """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio."""
         ...
 
 
@@ -555,8 +558,7 @@ sends no transcription at all when it heard no words."""
 @dataclass(frozen=True)
 class SpeechServices:
     """Soniox or Alibaba Cloud Model Studio, whichever the key is for, hears the user, the
-    latter with `bailian_model`; Fish Audio speaks as the character. A user's own key for
-    speech recognition is tried as Soniox's."""
+    latter with `bailian_model`, users' own keys too; Fish Audio speaks as the character."""
 
     fish_model: str
     bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
@@ -586,9 +588,26 @@ class SpeechServices:
             settings=FishAudioTTSService.Settings(voice=voice_id, model=self.fish_model),
         )
 
-    async def check(self, service: Service, api_key: str) -> None:
-        """Asks for something that costs nothing: Soniox's models, Fish Audio's balance."""
-        url = self.SONIOX_MODELS_URL if service == "stt" else self.FISH_CREDIT_URL
+    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+        """Asks Soniox for something that costs nothing, its models; starts a task on
+        DashScope and finishes it at once, sending no audio, in the region the key works
+        in (see `bailian.find_region`)."""
+        if provider == "bailian":
+            try:
+                region = await find_region(api_key, self.bailian_model)
+            except BailianCheckFailed as e:
+                raise OwnKeyRejected(str(e)) from None
+            return SttKey("bailian", api_key, region)
+        await self._get(self.SONIOX_MODELS_URL, api_key)
+        return SttKey("soniox", api_key)
+
+    async def check_tts(self, api_key: str) -> None:
+        """Asks for something that costs nothing: Fish Audio's balance."""
+        await self._get(self.FISH_CREDIT_URL, api_key)
+
+    @staticmethod
+    async def _get(url: str, api_key: str) -> None:
+        """Raise OwnKeyRejected saying why, unless `url` answers on `api_key`."""
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=10)) as client:
                 res = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
@@ -799,6 +818,7 @@ class _LiveCall:
         )
         hearing = speech.stt(keys.stt)
         stt = hearing.stt
+        self._stt_provider: SttProvider = keys.stt.provider
         self._turns = CallTurns(engine, call, outcome, hearing.follow_on_timeout, emotions)
         tts = speech.tts(keys.tts, call.character.voice_id, sample_rate)
         own_services: dict[FrameProcessor, Service] = {
@@ -847,7 +867,7 @@ class _LiveCall:
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
         about it is told now, while the call can still say so."""
-        message = self._outcome.service_failed(own_service)
+        message = self._outcome.service_failed(own_service, self._stt_provider)
         if message is not None:
             self._connection.send_app_message(ServerMessage(data=message).model_dump())
 

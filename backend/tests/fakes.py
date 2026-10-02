@@ -31,7 +31,7 @@ from pipecat.utils.time import time_now_iso8601
 
 from eidolon.characters import Character
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
-from eidolon.config import BailianRegion, LLMSettings, SttKey
+from eidolon.config import BailianRegion, LLMSettings, SttKey, SttProvider
 from eidolon.embedding import Document, EmbeddingError
 from eidolon.emotion import Emotion, EmotionAnswer, Nod, SegmentToJudge
 from eidolon.identity import Identity, IdentityError, ProviderName
@@ -240,8 +240,10 @@ class FakeSpeech:
     """Stands in for speech recognition and Fish Audio: the speech services of each call
     started, in order, each with the key it was made with, recognition waiting
     `follow_on_timeout` for follow-ons (Soniox's, unless set). Set `down` to have the
-    services fail to be made at all. Records the keys tried before saving (`checked`); a
-    key in `rejects` fails its try with that message."""
+    services fail to be made at all. Records the keys tried before saving, by the service
+    they are for (`checked`: "tts", "soniox" or "bailian"); a key in `rejects` fails its
+    try with that message. A DashScope key works in its region in `regions`, Beijing if
+    not there."""
 
     def __init__(self) -> None:
         self.follow_on_timeout = SONIOX_FOLLOW_ON_TIMEOUT
@@ -250,6 +252,7 @@ class FakeSpeech:
         self.down = False
         self.checked: list[tuple[str, str]] = []
         self.rejects: dict[str, str] = {}
+        self.regions: dict[str, BailianRegion] = {}
 
     def stt(self, key: SttKey) -> Hearing:
         if self.down:
@@ -261,7 +264,16 @@ class FakeSpeech:
         self.ttss.append(FakeTTS(api_key, voice_id, sample_rate))
         return self.ttss[-1]
 
-    async def check(self, service: str, api_key: str) -> None:
+    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+        self._try(provider, api_key)
+        if provider == "bailian":
+            return SttKey(provider, api_key, self.regions.get(api_key, "beijing"))
+        return SttKey(provider, api_key)
+
+    async def check_tts(self, api_key: str) -> None:
+        self._try("tts", api_key)
+
+    def _try(self, service: str, api_key: str) -> None:
         self.checked.append((service, api_key))
         if api_key in self.rejects:
             raise OwnKeyRejected(self.rejects[api_key])

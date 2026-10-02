@@ -5,6 +5,7 @@ import { Divider } from "@astryxdesign/core/Divider";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Selector } from "@astryxdesign/core/Selector";
 import { StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -23,6 +24,7 @@ import {
   type LLMProtocol,
   type OwnKeys,
   type OwnService,
+  type SttProvider,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { limitExemption } from "@/lib/ownKeys";
@@ -83,6 +85,7 @@ export function OwnKeysSettings() {
           service="stt"
           title={t.sttTitle}
           current={keys.keys.stt}
+          provider={keys.keys.stt?.provider ?? "soniox"}
           onSaved={reload}
           onDelete={() => remove("stt")}
         />
@@ -158,20 +161,30 @@ function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: 
   );
 }
 
+const STT_PROVIDERS: SttProvider[] = ["soniox", "bailian"];
+
+/**
+ * 语音合成或语音识别的 key。语音识别先选服务商再填 key；改服务商就是换一个 key，
+ * 同样要填 key、试调。
+ */
 function OwnSpeechKeyForm({
   service,
   title,
   current,
+  provider: currentProvider,
   onSaved,
   onDelete,
 }: {
   service: "tts" | "stt";
   title: string;
   current: OwnKeys["keys"]["tts"];
+  /** 语音识别：已填的 key 所属的服务商，没填时是默认选中的那家。 */
+  provider?: SttProvider;
   onSaved: () => Promise<void>;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [provider, setProvider] = useState(currentProvider);
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -181,7 +194,7 @@ function OwnSpeechKeyForm({
     setBusy(true);
     setFailure(null);
     try {
-      await saveOwnSpeechKey(service, apiKey.trim());
+      await saveOwnSpeechKey(service, apiKey.trim(), provider);
       setApiKey("");
       setEditing(false);
       await onSaved();
@@ -192,17 +205,35 @@ function OwnSpeechKeyForm({
     }
   }
 
+  function edit() {
+    setProvider(currentProvider);
+    setEditing(true);
+  }
+
+  const summary = current ? [t.last4(current.last4)] : [t.notSet];
   return (
     <ServiceKey
       title={title}
-      summary={current ? [t.last4(current.last4)] : [t.notSet]}
+      summary={current && currentProvider ? [t.sttProviders[currentProvider], ...summary] : summary}
       isSet={!!current}
       editing={editing}
-      onEdit={() => setEditing(true)}
+      onEdit={edit}
       onDelete={onDelete}
     >
       <form onSubmit={submit}>
         <FormLayout>
+          {provider && (
+            <RadioList
+              label={t.sttProvider}
+              value={provider}
+              onChange={(value) => setProvider(value as SttProvider)}
+              orientation="horizontal"
+            >
+              {STT_PROVIDERS.map((p) => (
+                <RadioListItem key={p} value={p} label={t.sttProviders[p]} />
+              ))}
+            </RadioList>
+          )}
           <TextInput
             type="password"
             label={t.apiKey}
