@@ -1,6 +1,6 @@
 # 架构加深（第四轮）：过期通话的事件一律挡住
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准，本轮不改词表。设计词汇（module、interface、seam、adapter、depth、locality）取自 `codebase-design` skill。2026-10-02 的架构审查列出了 12 个候选，经 grilling 决定这一轮只做候选 2「一通电话一道闸」。
 

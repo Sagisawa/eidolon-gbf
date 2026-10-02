@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)。只改 `backend/`，可以和 01 并行，各开一个 worktree。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-02 grilling）
 
@@ -35,7 +35,7 @@
   - 保留 `test_call_hangs_up_after_its_last_allowed_turn`、`test_call_hangs_up_when_time_is_up_once_the_reply_in_progress_is_done`、`test_a_calls_time_is_counted_from_when_it_connects`、`test_turns_that_fail_or_are_rejected_do_not_count_and_the_call_goes_on`，只断言 `reason` 和消息顺序，去掉「2 轮」「分钟」这类文案断言。
 - [x] `CallTurns` 里不再有回合计数、上限的比较和任何 `ended` 文案；`CallOutcome` 是唯一数回合的地方。
 - [x] `backend/` 下 `pytest` 全部通过。
-- [ ] **人工验收（留给用户）**：把时长上限和每通回合数临时调小，打真实电话；用户验过之后再标 `resolved`。
+- [x] **人工验收（留给用户）**：把时长上限和每通回合数临时调小，打真实电话；用户验过之后再标 `resolved`。
   - 说满回合数：最后那句念完才挂断，结束页文案和以前逐字一样，限额照常计数；
   - 到了时长：正在说的回复说完才挂断，结束页文案和以前逐字一样；
   - 只用自带密钥时，结束页说明这一通不算限额。
@@ -50,3 +50,7 @@
 - 旧的三条改走新 interface：「到上限算一次」拆成按回合（合并「回合到上限才返回」）和按时间（合并「回合之前时间就到」，并验证 `:g` 的分钟写法 10 和 1.5）两条；「只告知一次」合并「已告知过 `ended` 为 None、`why` 照给」。`test_call_turns.py` 删掉自带密钥那条后，`CallUnderTest` 的 `exempt` 参数没人用了，一并删掉；失败回合那条补上 `reason` 断言。
 - 一个时序上的细微差别：以前回合循环在取出每个排队的回合之前先看时间到没到；现在只在回合结束后和被叫醒时问。两种写法只在「计时任务醒来」和「回合循环刚被一个新回合唤醒、还没开始跑」落在同一轮事件循环时才不同：以前那个回合被跳过，现在会先说完再挂断。
 - `backend/` 下 `uv run pytest`：853 passed；`uv run pyright`：0 errors。第一次跑完整 pytest 时 `test_fish_segments.py::test_each_segment_is_voiced_in_a_session_of_its_own_announced_as_it_plays` 失败一次，单独跑 5 次都通过、再跑完整套件也通过，它不经过本次改动的代码，看作负载下的时序抖动。
+
+### 2026-10-02 人工验收
+
+用户在本地把单通时长临时设成 2 分钟、回合数设成 3 轮，打了真实电话，验收清单里的各项都没有问题。标为 resolved。

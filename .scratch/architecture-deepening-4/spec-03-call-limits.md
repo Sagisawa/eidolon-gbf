@@ -1,6 +1,6 @@
 # 架构加深（第四轮）：通话的上限与收尾归 CallOutcome
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准，本轮不改词表。设计词汇（module、interface、seam、adapter、depth、locality）取自 `codebase-design` skill。这是 2026-10-02 架构审查里的候选 1，经 grilling 定下设计。只改 `backend/`，和 ticket 01、02 不碰同一个文件，可以和 01 并行。
 
