@@ -24,7 +24,7 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: astral-sh/setup-uv@v10.2.0 # 这个 action 不发布 v10 这样的大版本标签
         with:
           working-directory: backend
           enable-cache: true
@@ -48,8 +48,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      # 改了 src/theme/notebookTheme.ts 却没重新运行 npm run theme:build 时失败
-      - run: npm run theme:check
+      # 改了 src/theme/notebookTheme.ts 却没重新运行 npm run theme:build 时失败。
+      # 生成文件头部的 Source: 行用的是生成时所在系统的路径分隔符，--check 又不忽略它：
+      # 在 Windows 上生成的写着 src\theme\…，先换成 / 再比较
+      - run: |
+          sed -i '/^ \* Source: /s#[\]#/#g' src/theme/built/*
+          npm run theme:check
       # next build 由下面的镜像构建跑
 
   shellcheck:
