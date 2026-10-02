@@ -1,8 +1,9 @@
 """Uploading the stands to the bucket browsers download them from: `eidolon stand upload`.
 
 What goes up is what the outfit lists in the build directory name (`stand_outfits`):
-each outfit's `data.json`, `data.atlas` and `data.png`, as they are in the mirror (no
-WebP), under `spine/idols/<category>/<enzaId>/`; its thumbnail under
+each outfit's `data.json`, `data.atlas` and `data.png`, as they were fetched (a
+texture in WebP under its `.png` name goes up as WebP), under
+`spine/idols/<category>/<enzaId>/`; its thumbnail under
 `thumbnails/<category>/<enzaId>.png`, if it has been rendered; and the lists under
 `outfits/<idol_id>.json`. The lists go up last, so that a browser never reads one that
 names an outfit the bucket does not have yet. A thumbnail that failed to render is not
@@ -22,7 +23,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eidolon.s3 import Bucket
-from eidolon.stand_outfits import LISTS_DIR, OUTFIT_FILES, outfit_directory, outfit_path, thumbnail_path
+from eidolon.stand_outfits import (
+    LISTS_DIR,
+    OUTFIT_FILES,
+    is_webp,
+    outfit_directory,
+    outfit_path,
+    source_directory,
+    thumbnail_path,
+)
 
 OUTFIT_CACHE = "public, max-age=31536000, immutable"
 THUMBNAIL_CACHE = "public, max-age=86400"
@@ -41,9 +50,11 @@ class _Upload:
     path: Path
     cache_control: str
 
-    @property
-    def content_type(self) -> str:
-        return _CONTENT_TYPES[self.path.suffix]
+
+def _content_type(path: Path, body: bytes) -> str:
+    if is_webp(body):
+        return "image/webp"
+    return _CONTENT_TYPES[path.suffix]
 
 
 @dataclass
@@ -55,19 +66,20 @@ class UploadReport:
     """Outfits whose thumbnails have not been rendered, so were not uploaded."""
 
 
-async def upload_stands(mirror: Path, build: Path, bucket: Bucket) -> UploadReport:
-    """Upload what the outfit lists in `build` name, from the mirror at `mirror` and from
-    `build`, to `bucket`. Raises S3Error if the bucket fails, having uploaded what it could
-    before; running it again picks up from there."""
+async def upload_stands(build: Path, bucket: Bucket) -> UploadReport:
+    """Upload what the outfit lists in `build` name, from `build`, to `bucket`. Raises
+    S3Error if the bucket fails, having uploaded what it could before; running it again
+    picks up from there."""
     lists = sorted((build / LISTS_DIR).glob("*.json"))
     if not lists:
         raise RuntimeError(f"整理目录 {build / LISTS_DIR} 里没有衣装清单，先运行 eidolon stand outfits")
     report = UploadReport()
+    source = source_directory(build)
     outfits = sorted({outfit for path in lists for outfit in _outfits_listed(path)})
     files = []
     for outfit in outfits:
         files += [
-            _Upload(f"{outfit_path(outfit)}{name}", outfit_directory(mirror, outfit) / name, OUTFIT_CACHE)
+            _Upload(f"{outfit_path(outfit)}{name}", outfit_directory(source, outfit) / name, OUTFIT_CACHE)
             for name in OUTFIT_FILES
         ]
         thumbnail = build / thumbnail_path(outfit)
@@ -101,7 +113,7 @@ async def _upload_all(bucket: Bucket, files: list[_Upload], etags: dict[str, str
             if etags.get(file.key) == hashlib.md5(body).hexdigest():
                 report.unchanged += 1
                 return
-            await bucket.put(file.key, body, file.content_type, file.cache_control)
+            await bucket.put(file.key, body, _content_type(file.path, body), file.cache_control)
         report.uploaded += 1
         report.uploaded_bytes += len(body)
 

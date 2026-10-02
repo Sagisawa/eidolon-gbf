@@ -6,9 +6,10 @@
  * vendor 目录里的 spine runtime，按电脑「半身 ADV」的取景画平静的待机，让动画先走约 1 秒，避开待机表情开头的眨眼，
  * 再把画布截成透明背景的 PNG。已经有缩略图的衣装不再渲染（加 `--force` 全部重画），所以再次同步时缩略图不变，也不会重新上传。
  *
- *   node scripts/stand-thumbnails.mts [--mirror <立绘镜像>] [--build <整理目录>] [--force]
+ *   node scripts/stand-thumbnails.mts [--build <整理目录>] [--force]
  *
- * 立绘镜像默认取环境变量 EIDOLON_STAND_MIRROR_PATH，整理目录默认取 EIDOLON_STAND_BUILD_PATH（没有时是 ../corpus/stand）。
+ * 整理目录默认取环境变量 EIDOLON_STAND_BUILD_PATH（没有时是 ../corpus/stand），衣装的文件从它的 `source/` 读
+ * （`eidolon stand fetch` 拉取到那里）。
  * 需要 Playwright 的 Chromium（`npx playwright install --with-deps chromium`）。退出码：0 成功；1 缺设置或没有衣装清单；
  * 2 有衣装渲染失败，其余照常写出；3 打不开 Chromium，或者渲染用的页面出错，一张都没渲染。
  */
@@ -34,7 +35,6 @@ const frontend = path.resolve(import.meta.dirname, "..");
 
 const { values: args } = parseArgs({
   options: {
-    mirror: { type: "string" },
     build: { type: "string" },
     force: { type: "boolean", default: false },
   },
@@ -42,11 +42,6 @@ const { values: args } = parseArgs({
 const build = path.resolve(args.build ?? process.env.EIDOLON_STAND_BUILD_PATH ?? "../corpus/stand");
 
 async function main(): Promise<number> {
-  const mirror = args.mirror ?? process.env.EIDOLON_STAND_MIRROR_PATH;
-  if (!mirror) {
-    console.error("环境变量 EIDOLON_STAND_MIRROR_PATH 未设置（立绘镜像的位置，spine_manifest.json 所在的目录），也没有 --mirror");
-    return 1;
-  }
   const outfits = await listedOutfits(build);
   if (outfits === null) {
     console.error(`整理目录 ${path.join(build, "outfits")} 里没有衣装清单，先运行 eidolon stand outfits`);
@@ -67,7 +62,7 @@ async function main(): Promise<number> {
     console.error(`打不开 Playwright 的 Chromium（先运行 npx playwright install --with-deps chromium）：${messageOf(error)}`);
     return 3;
   }
-  const server = await serve(path.resolve(mirror));
+  const server = await serve(path.join(build, "source"));
   const failed: string[] = [];
   const started = Date.now();
   try {
@@ -138,13 +133,13 @@ async function exists(file: string): Promise<boolean> {
 
 /**
  * 只给这台机器上的浏览器用的服务器：`/` 是渲染用的页面，`/src/...` 是现场转成 JavaScript 的前端源码，
- * `/vendor/...` 是 spine runtime，`/assets/...` 是立绘镜像。
+ * `/vendor/...` 是 spine runtime，`/assets/...` 是拉取到的衣装文件。
  */
-async function serve(mirrorRoot: string): Promise<Server> {
+async function serve(sourceRoot: string): Promise<Server> {
   const roots: Record<string, string> = {
     "/src/": path.join(frontend, "src"),
     "/vendor/": path.join(frontend, "public", "vendor"),
-    "/assets/": path.join(mirrorRoot, "assets"),
+    "/assets/": path.join(sourceRoot, "assets"),
   };
   const server = createServer(async (request, response) => {
     const url = decodeURIComponent(new URL(request.url ?? "/", "http://localhost").pathname);

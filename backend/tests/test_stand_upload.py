@@ -16,7 +16,8 @@ import pytest
 from eidolon.s3 import Bucket, S3Error, S3Settings, sign
 from eidolon.stand_upload import upload_stands
 from tests.conftest import Admin, CharacterConfig
-from tests.test_stand_outfits import MANO, FakeSpineMirror
+from tests.test_stand_fetch import WEBP
+from tests.test_stand_outfits import MANO, FakeSource
 
 EXAMPLE_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
 EXAMPLE_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
@@ -133,18 +134,18 @@ def storage() -> FakeBucket:
 
 
 class Stands:
-    """The mirror, and the build directory as `eidolon stand outfits` and the thumbnails
-    leave it."""
+    """The build directory as `eidolon stand fetch`, `eidolon stand outfits` and the
+    thumbnails leave it."""
 
-    def __init__(self, admin: Admin, characters: CharacterConfig, mirror: FakeSpineMirror, build: Path) -> None:
-        self.mirror = mirror
+    def __init__(self, admin: Admin, characters: CharacterConfig, build: Path) -> None:
+        self.source = FakeSource(build / "source")
         self.build = build
         self._admin = admin
         self._characters = characters
 
     def list_outfits(self) -> None:
         self._admin.run(
-            "stand", "outfits", "--mirror", str(self.mirror.directory), "--build", str(self.build),
+            "stand", "outfits", "--build", str(self.build),
             "--characters", str(self._characters.path),
         )
 
@@ -156,7 +157,7 @@ class Stands:
     async def upload(self, storage: FakeBucket):
         bucket = storage.bucket()
         try:
-            return await upload_stands(self.mirror.directory, self.build, bucket)
+            return await upload_stands(self.build, bucket)
         finally:
             await bucket.aclose()
 
@@ -165,10 +166,9 @@ class Stands:
 def stands(admin: Admin, characters: CharacterConfig, tmp_path: Path) -> Stands:
     """Mano's two cards: one with both outfits, thumbnails rendered; one with her
     everyday clothes alone, its thumbnail not rendered."""
-    mirror = FakeSpineMirror(tmp_path / "spine")
-    mirror.card(1, "1030010010", f"【ナチュラルモード】{MANO}", "P_SR")
-    mirror.add("stand", 1, "3000010030", f"【ジャージ】{MANO}", "Special")
-    stands = Stands(admin, characters, mirror, tmp_path / "build")
+    stands = Stands(admin, characters, tmp_path / "build")
+    stands.source.card(1, "1030010010", f"【ナチュラルモード】{MANO}", "P_SR")
+    stands.source.add("stand", 1, "3000010030", f"【ジャージ】{MANO}", "Special")
     stands.list_outfits()
     stands.render_thumbnail("stand/1030010010")
     stands.render_thumbnail("stand_costume/1030010010")
@@ -220,6 +220,18 @@ async def test_outfits_are_cached_for_good_but_the_list_is_checked_every_time(st
     assert headers("outfits/1.json") == ("application/json", "no-cache")
 
 
+async def test_a_texture_in_webp_under_its_png_name_goes_up_as_webp(
+    admin: Admin, characters: CharacterConfig, tmp_path: Path, storage: FakeBucket
+):
+    stands = Stands(admin, characters, tmp_path / "build")
+    stands.source.add("stand", 1, "1030010010", f"【ナチュラルモード】{MANO}", texture=WEBP)
+    stands.list_outfits()
+
+    await stands.upload(storage)
+
+    assert storage.objects["spine/idols/stand/1030010010/data.png"][1]["content-type"] == "image/webp"
+
+
 async def test_what_the_bucket_has_as_it_is_is_not_uploaded_again(stands: Stands, storage: FakeBucket):
     await stands.upload(storage)
     storage.puts.clear()
@@ -255,7 +267,7 @@ async def test_uploading_without_outfit_lists_is_an_error(tmp_path: Path, storag
     bucket = storage.bucket()
     try:
         with pytest.raises(RuntimeError, match="eidolon stand outfits"):
-            await upload_stands(tmp_path / "spine", tmp_path / "build", bucket)
+            await upload_stands(tmp_path / "build", bucket)
     finally:
         await bucket.aclose()
 

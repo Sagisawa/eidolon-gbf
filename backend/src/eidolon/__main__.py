@@ -26,8 +26,11 @@
     eidolon character draft-sheet <id>
                                      have the background model draft a character's sheet
                                      from the episodes she is cast in, for review
+    eidolon stand fetch              fetch the stands of each character with an idol that
+                                     the build directory lacks from ShinyColorsDB; exits 2
+                                     if it could not be reached, keeping what was fetched
     eidolon stand outfits            list the outfits of each character with an idol from
-                                     the Spine mirror, into the build directory
+                                     the stands fetched, into the build directory
     eidolon stand upload             upload the outfits the lists name, their thumbnails and
                                      the lists to the S3-compatible bucket, skipping what it
                                      has as it is; exits 2 if the bucket failed
@@ -77,6 +80,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_sync_world(args))
     if args.command == "character":
         return asyncio.run(_draft_sheet(args))
+    if args.command == "stand" and args.action == "fetch":
+        return asyncio.run(_stand_fetch(args))
     if args.command == "stand" and args.action == "outfits":
         return _stand_outfits(args)
     if args.command == "stand":
@@ -309,19 +314,51 @@ async def _sync_world(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _stand_fetch(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.config import stand_build_path_from_env
+    from eidolon.mirror import Mirror
+    from eidolon.stand_fetch import fetch_stands
+
+    progress = logging.StreamHandler()  # the first fetch takes a quarter of an hour or so
+    progress.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+    logging.getLogger("eidolon.stand_fetch").addHandler(progress)
+    logging.getLogger("eidolon.stand_fetch").setLevel(logging.INFO)
+    mirror = Mirror()
+    try:
+        characters = load_characters(
+            args.characters or characters_path_from_env(), require_sheets=False
+        )
+        report = await fetch_stands(args.build or stand_build_path_from_env(), characters.values(), mirror)
+    except (RuntimeError, OSError) as e:  # SourceLayoutError, a broken character configuration
+        print(e, file=sys.stderr)
+        return 1
+    finally:
+        await mirror.aclose()
+    for skipped in report.skipped:
+        print(f"注意：{skipped}", file=sys.stderr)
+    print(f"拉取了 {len(report.fetched)} 套新衣装（{report.fetched_bytes / 1_000_000:.1f} MB）")
+    if report.error:
+        print(
+            f"没能从 ShinyColorsDB 拉取完新卡（已拉取的都保留，下次同步再拉剩下的）：{report.error}",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
 def _stand_outfits(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
-    from eidolon.config import stand_build_path_from_env, stand_mirror_path_from_env
+    from eidolon.config import stand_build_path_from_env
     from eidolon.stand_outfits import list_path, make_outfit_lists
 
     try:
         characters = load_characters(
             args.characters or characters_path_from_env(), require_sheets=False
         )
-        mirror = args.mirror or stand_mirror_path_from_env()
         build = args.build or stand_build_path_from_env()
-        report = make_outfit_lists(mirror, build, characters.values())
-    except (RuntimeError, OSError) as e:  # MirrorLayoutError, a broken character configuration
+        report = make_outfit_lists(build, characters.values())
+    except (RuntimeError, OSError) as e:  # SourceLayoutError, a broken character configuration
         print(e, file=sys.stderr)
         return 1
     for warning in report.warnings:
@@ -339,12 +376,11 @@ def _stand_outfits(args: argparse.Namespace) -> int:
 async def _stand_upload(args: argparse.Namespace) -> int:
     import time
 
-    from eidolon.config import stand_build_path_from_env, stand_mirror_path_from_env
+    from eidolon.config import stand_build_path_from_env
     from eidolon.s3 import Bucket, S3Error, S3Settings
     from eidolon.stand_upload import upload_stands
 
     try:
-        mirror = args.mirror or stand_mirror_path_from_env()
         settings = S3Settings.from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
@@ -352,11 +388,11 @@ async def _stand_upload(args: argparse.Namespace) -> int:
     started = time.monotonic()
     bucket = Bucket(settings)
     try:
-        report = await upload_stands(mirror, args.build or stand_build_path_from_env(), bucket)
+        report = await upload_stands(args.build or stand_build_path_from_env(), bucket)
     except S3Error as e:
         print(f"上传中断（已上传的不会重复上传，重新运行即可继续）：{e}", file=sys.stderr)
         return 2
-    except (RuntimeError, OSError) as e:  # no outfit lists, or the mirror lacks a file they name
+    except (RuntimeError, OSError) as e:  # no outfit lists, or the source lacks a file they name
         print(e, file=sys.stderr)
         return 1
     finally:
@@ -690,30 +726,31 @@ def _parser() -> argparse.ArgumentParser:
     stand = commands.add_parser("stand", help="同步立绘素材").add_subparsers(
         dest="action", required=True, metavar="操作"
     )
+    fetch = stand.add_parser(
+        "fetch",
+        help="从 ShinyColorsDB 为配了 idol_id 的角色拉取还没有的私服和演出服，存进整理目录的 source/（可重复执行）",
+    )
     outfits = stand.add_parser(
         "outfits",
-        help="从立绘镜像为配了 idol_id 的角色生成衣装清单，写进整理目录的 outfits/<idol_id>.json（可重复执行）",
+        help="从拉取到的立绘为配了 idol_id 的角色生成衣装清单，写进整理目录的 outfits/<idol_id>.json（可重复执行）",
     )
-    outfits.add_argument(
-        "--characters",
-        type=Path,
-        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
-    )
+    for command in (fetch, outfits):
+        command.add_argument(
+            "--characters",
+            type=Path,
+            help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+        )
     upload = stand.add_parser(
         "upload",
         help="把衣装清单列出的立绘文件、缩略图和衣装清单上传到 S3 兼容的存储桶，内容没变的不重复上传"
         "（存储桶的地址和密钥取环境变量 EIDOLON_STAND_S3_*）",
     )
-    for command in (outfits, upload):
-        command.add_argument(
-            "--mirror",
-            type=Path,
-            help="立绘镜像，spine_manifest.json 所在的目录（默认取环境变量 EIDOLON_STAND_MIRROR_PATH）",
-        )
+    for command in (fetch, outfits, upload):
         command.add_argument(
             "--build",
             type=Path,
-            help="衣装清单和缩略图的整理目录（默认取环境变量 EIDOLON_STAND_BUILD_PATH，没有时是 ../corpus/stand），不要放进仓库",
+            help="拉取的立绘、衣装清单和缩略图的整理目录（默认取环境变量 EIDOLON_STAND_BUILD_PATH，没有时是 ../corpus/stand），"
+            "不要放进仓库",
         )
 
     evaluation = commands.add_parser("eval", help="评估检索效果").add_subparsers(

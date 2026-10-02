@@ -12,9 +12,9 @@
 #   facts     角色资料（可选），路径相对于本文件；Markdown，每个标题下的内容是一条，对话中按需检索；
 #             文件不存在时不检索角色资料。修改后重启后端即可，不需要重新导入
 #   speakers  剧情台词里她的说话人名字，用来识别剧情的出场角色；修改后需要重新导入剧情库
-#   idol_id   原作的偶像编号（可选），即立绘镜像 spine_manifest.json 里的 idolId，正整数
+#   idol_id   原作的偶像编号（可选），即 ShinyColorsDB 的 idolId（整理目录 source/spine_manifest.json 里也有），正整数
 #   default_outfit 立绘的默认衣装（可选），写成 stand/<enzaId>（这张卡的私服）或 stand_costume/<enzaId>
-#             （这张卡的演出服），enzaId 是 spine_manifest.json 里的十位编号。用户没选过衣装时她穿这一套。
+#             （这张卡的演出服），enzaId 是卡的十位编号（source/spine_manifest.json 里的 enzaId）。用户没选过衣装时她穿这一套。
 #             idol_id、default_outfit 和后端的 EIDOLON_STAND_ASSETS_URL 都配好了，通话层才显示立绘，
 #             否则只显示背景图（docs/deploy.md「立绘素材」）
 #

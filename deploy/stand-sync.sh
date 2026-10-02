@@ -1,20 +1,22 @@
 #!/bin/sh
-# 同步立绘素材：从立绘镜像为配了 idol_id 的角色整理衣装清单（eidolon stand outfits）、渲染缩略图
-# （frontend 的 npm run stand:thumbnails），再上传到 S3 兼容的存储桶（eidolon stand upload）。
-# 在放着立绘镜像的机器上运行（服务器或自己的电脑都行），不经过 docker；步骤和要装的东西见
+# 同步立绘素材：从 ShinyColorsDB 为配了 idol_id 的角色拉取新卡（eidolon stand fetch，ADR-0011）、整理衣装清单
+# （eidolon stand outfits）、渲染缩略图（frontend 的 npm run stand:thumbnails），再上传到 S3 兼容的存储桶
+# （eidolon stand upload）。适合每周用 cron 跑一次，没有新卡时几乎不花时间。
+# 在服务器或自己的电脑上运行都行，不经过 docker；步骤和要装的东西见
 # docs/deploy.md 的「立绘素材」。需要 uv、Node.js（22.18 以上）和 Playwright 的 Chromium；有 flock（util-linux）时
 # 加锁，防止两次同步重叠，没有时（例如 Windows 的 Git Bash）不加锁照常同步。
 #
-# 设置从仓库根目录的 .env 读（环境变量里已有的优先）：EIDOLON_STAND_MIRROR_PATH、EIDOLON_STAND_S3_* 等。
+# 设置从仓库根目录的 .env 读（环境变量里已有的优先）：EIDOLON_STAND_S3_*、EIDOLON_STAND_BUILD_PATH 等。
 # 输出追加到仓库根目录的 logs/stand-sync.log（可用 EIDOLON_STAND_SYNC_LOG 改到别处）。
 #
 # 退出码（含义也写在每次同步的最后一行日志里）：
 #   0  完全成功
-#   1  配置出错：找不到立绘镜像、缺存储桶的设置、角色配置有误等，没有上传
+#   1  配置出错：缺存储桶的设置、角色配置有误等，没有上传
 #   2  存储桶出错，这次没传完；已上传的不会重复上传，重新运行即可继续
 #   3  有衣装的缩略图没渲染出来：其余照常上传，下次同步再渲染
 #   4  缺少运行环境：uv、Node.js、frontend 的依赖或 Playwright 的 Chromium
 #   5  上一次同步还没结束，这次没有运行
+#   6  没能从 ShinyColorsDB 拉取完新卡：已拉取的和以前的照常上传，下次同步再拉剩下的
 
 set -u
 
@@ -37,6 +39,7 @@ finish() {
     3) meaning="有衣装的缩略图没渲染出来，其余已上传；下次同步再渲染" ;;
     4) meaning="缺少运行环境，见上方的说明" ;;
     5) meaning="上一次同步还没结束，这次没有运行" ;;
+    6) meaning="没能从 ShinyColorsDB 拉取完新卡，其余照常同步；下次同步再拉" ;;
     *) meaning="未知" ;;
   esac
   say "==== 结束：退出码 $1（$meaning）"
@@ -75,6 +78,20 @@ if [ -f .env ]; then
   env_file="--env-file=../.env"
 fi
 
+say "eidolon stand fetch"
+# shellcheck disable=SC2086 # 没有 .env 时 $env_file 为空，不传这个参数
+(cd backend && PYTHONUNBUFFERED=1 uv run --quiet $env_file eidolon stand fetch)
+fetch_code=$?
+case $fetch_code in
+  0) fetch_failed=0 ;;
+  1) finish 1 ;;
+  2) fetch_failed=1 ;; # ShinyColorsDB 连不上或接口变了：用已有的素材照常同步
+  *)
+    say "eidolon stand fetch 以 $fetch_code 结束"
+    finish 1
+    ;;
+esac
+
 say "eidolon stand outfits"
 # shellcheck disable=SC2086 # 没有 .env 时 $env_file 为空，不传这个参数
 if ! (cd backend && PYTHONUNBUFFERED=1 uv run --quiet $env_file eidolon stand outfits); then
@@ -110,5 +127,8 @@ case $upload_code in
 esac
 if [ "$thumbnails_failed" = 1 ]; then
   finish 3
+fi
+if [ "$fetch_failed" = 1 ]; then
+  finish 6
 fi
 finish 0

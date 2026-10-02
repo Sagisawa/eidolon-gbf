@@ -168,7 +168,7 @@ speakers = ["真乃"]
 
 `color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。
 
-通话层还可以叠一层原作的 Spine 立绘（可选）：给角色配上原作的偶像编号 `idol_id` 和默认衣装 `default_outfit`（例如 `stand/1030010010`），并在 `.env` 里填立绘素材的地址 `EIDOLON_STAND_ASSETS_URL`。立绘素材不进仓库，放在 S3 兼容的对象存储里，由 `deploy/stand-sync.sh` 从立绘镜像整理衣装清单、渲染缩略图后上传，配置方法见 [`docs/deploy.md`](docs/deploy.md) 的「立绘素材」；三项缺一项时通话层只显示背景图。配置了 `JEV_API_KEY` 时，通话中她每说一段话都会由 Jev 判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作；情绪只影响立绘，不记进对话记录。
+通话层还可以叠一层原作的 Spine 立绘（可选）：给角色配上原作的偶像编号 `idol_id` 和默认衣装 `default_outfit`（例如 `stand/1030010010`），并在 `.env` 里填立绘素材的地址 `EIDOLON_STAND_ASSETS_URL`。立绘素材不进仓库，放在 S3 兼容的对象存储里，由 `deploy/stand-sync.sh` 从 ShinyColorsDB 拉取新卡、整理衣装清单、渲染缩略图后上传（建议每周用 cron 跑一次），配置方法见 [`docs/deploy.md`](docs/deploy.md) 的「立绘素材」；三项缺一项时通话层只显示背景图。配置了 `JEV_API_KEY` 时，通话中她每说一段话都会由 Jev 判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作；情绪只影响立绘，不记进对话记录。
 
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>

@@ -1,8 +1,10 @@
-"""The ShinyColorsDB mirror of the game's decoded scripts, and its API (ADR-0004).
+"""The ShinyColorsDB mirror of the game's decoded scripts and Spine stands, and its API
+(ADR-0004, ADR-0011).
 
 The API (`api.shinycolors.moe`) lists every idol and her cards, and each card's
-episodes with the game script they are in and their title; the viewer
-(`viewer.shinycolors.moe`) serves the scripts themselves, as the game does. Neither
+episodes with the game script they are in and their title, and the stands each of her
+dresses has; the viewer (`viewer.shinycolors.moe`) serves the scripts themselves, as
+the game does, and the CDN (`cf-static.shinycolors.moe`) the stands' files. Neither
 publishes terms or a rate limit and both are run by volunteers, so requests go out
 one at a time, about a second apart, and a script already downloaded can be asked
 for conditionally, on its ETag, as can an album. Keeping the scripts is not the
@@ -24,12 +26,13 @@ log = logging.getLogger(__name__)
 
 API_URL = "https://api.shinycolors.moe"
 VIEWER_URL = "https://viewer.shinycolors.moe/json"
-ALBUM_URL = "https://cf-static.shinycolors.moe/albums/album"
+STATIC_URL = "https://cf-static.shinycolors.moe"
+ALBUM_URL = f"{STATIC_URL}/albums/album"
 ALBUM_IDOLS = range(1, 29)
 """The idols with an album: 28 of them, as of its last update."""
 DEFAULT_INTERVAL = 1.0
 """Seconds between requests."""
-_USER_AGENT = "eidolon-sc story sync (weekly, one request a second)"
+_USER_AGENT = "eidolon-sc story and stand sync (weekly, one request a second)"
 
 
 class MirrorError(RuntimeError):
@@ -81,6 +84,21 @@ _ALBUM_SCRIPT_TYPES = {
     "special_communication": "special_communications",
 }
 _SCRIPT_NUMBER = re.compile(r"\d{8,}")
+
+
+@dataclass(frozen=True)
+class Dress:
+    """One of an idol's dresses: a card's, or a costume of its own."""
+
+    enza_id: str
+    name: str
+    """As the game names it, 【card name】idol name."""
+    type: str
+    """`P_SSR`, `Special`, `Mizugi` and so on."""
+    stands: dict[str, str | None]
+    """Where on the CDN each of its stands is, by kind (`stand`, `stand_costume`, `cb`,
+    `cb_costume`), e.g. `spine/idols/stand/1030010010/`; None for one the API lists
+    without a place, which the CDN does not have."""
 
 
 @dataclass(frozen=True)
@@ -190,6 +208,32 @@ class Mirror:
             raise MirrorError(f"{script}：镜像返回的不是剧本的帧数组")
         return Script(response.content, response.headers.get("ETag"))
 
+    async def dresses(self, idol_id: int) -> list[Dress]:
+        dresses = await self._api("/spine/dresslist", idolId=idol_id)
+        with _unexpected("/spine/dresslist"):
+            return [
+                Dress(
+                    enza_id=str(dress["enzaId"]),
+                    name=dress.get("dressName") or "",
+                    type=dress.get("dressType") or "",
+                    stands={
+                        asset["type"]: _with_slash(asset.get("path"))
+                        for asset in (dress.get("assets") or {}).get("idols") or []
+                    },
+                )
+                for dress in dresses
+                if dress.get("enzaId")
+            ]
+
+    async def stand_file(self, path: str) -> bytes | None:
+        """A stand's file on the CDN, e.g. `spine/idols/stand/1030010010/data.png`; None
+        if the CDN does not have it."""
+        response = await self._get(f"{STATIC_URL}/{path}")
+        if response.status_code == 404:
+            return None
+        _check(response)
+        return response.content
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
@@ -212,6 +256,12 @@ class Mirror:
             raise MirrorError(f"无法连接 {url}：{e!r}") from e
         finally:
             self._last_request = time.monotonic()
+
+
+def _with_slash(path: str | None) -> str | None:
+    if not path:
+        return None
+    return path if path.endswith("/") else f"{path}/"
 
 
 @contextmanager

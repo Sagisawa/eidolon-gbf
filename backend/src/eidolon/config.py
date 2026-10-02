@@ -289,18 +289,10 @@ def stand_assets_url_from_env() -> str | None:
     return value
 
 
-def stand_mirror_path_from_env() -> Path:
-    """`EIDOLON_STAND_MIRROR_PATH`, the Spine mirror the stands are synced from: the
-    directory with `spine_manifest.json` and `assets/`."""
-    value = os.environ.get("EIDOLON_STAND_MIRROR_PATH")
-    if not value:
-        raise RuntimeError("环境变量 EIDOLON_STAND_MIRROR_PATH 未设置（立绘镜像的位置，spine_manifest.json 所在的目录）")
-    return Path(value)
-
-
 def stand_build_path_from_env() -> Path:
-    """Where `eidolon stand outfits` writes the outfit lists and the thumbnails are
-    rendered, laid out as the bucket is, before they are uploaded."""
+    """Where `eidolon stand fetch` keeps the stands it fetched (`source/`), `eidolon stand
+    outfits` writes the outfit lists and the thumbnails are rendered, laid out as the
+    bucket is, before they are uploaded."""
     return Path(os.environ.get("EIDOLON_STAND_BUILD_PATH", "../corpus/stand"))
 
 

@@ -1,13 +1,13 @@
 """Each configured character's outfit list (CONTEXT.md「衣装」): `eidolon stand outfits`.
 
-The Spine mirror's `spine_manifest.json` lists every stand of every idol; a character
+The source's `spine_manifest.json` (`stand_fetch`) lists the stands fetched; a character
 with an `idol_id` gets a list of her cards, in the order of their enzaIds, which is the
 order the game released them. A card has her everyday clothes on it (`stand`) and its
 stage costume (`stand_costume`), each of which it may lack; when the two textures are
 the same byte for byte (most Special cards) they are one outfit, listed as her everyday
 clothes (whatever her default outfit is, so that the list does not change with it; a
 default outfit left out this way is reported). The chibi stands (`cb`,
-`cb_costume`) are left out, and so is an outfit the mirror lists without its files.
+`cb_costume`) are left out, and so is an outfit the manifest lists without its files.
 
 A card is named as in the game without the 【】 or her name: 【ほわっとスマイル】櫻木真乃
 is ほわっとスマイル. The game left a few cards unnamed (【】櫻木真乃); those go by hers.
@@ -36,24 +36,32 @@ CATEGORIES = ("stand", "stand_costume")
 """Her everyday clothes on a card, and its stage costume."""
 OUTFIT_FILES = ("data.json", "data.atlas", "data.png")
 MANIFEST = "spine_manifest.json"
+SOURCE_DIR = "source"
 LISTS_DIR = "outfits"
 THUMBNAILS_DIR = "thumbnails"
 
 _BRACKETED = re.compile(r"【(?P<name>[^】]*)】")
 
 
-class MirrorLayoutError(RuntimeError):
-    """The mirror is not where it was said to be, or not as the manifest lays it out."""
+class SourceLayoutError(RuntimeError):
+    """The source has not been fetched, or is not as the manifest lays it out."""
+
+
+def source_directory(build: Path) -> Path:
+    """Where `eidolon stand fetch` keeps the stands it fetched in the build directory:
+    `spine_manifest.json`, and the outfits' files under `assets/`, laid out as on
+    ShinyColorsDB's CDN (and as the old Spine mirror was, so that it can seed it)."""
+    return build / SOURCE_DIR
 
 
 def outfit_path(outfit_id: str) -> str:
-    """Where an outfit's files are in the mirror's `assets` and in the bucket."""
+    """Where an outfit's files are in the source's `assets`, on the CDN and in the bucket."""
     return f"spine/idols/{outfit_id}/"
 
 
-def outfit_directory(mirror: Path, outfit_id: str) -> Path:
-    """Where an outfit's files are in the mirror."""
-    return mirror / "assets" / outfit_path(outfit_id)
+def outfit_directory(source: Path, outfit_id: str) -> Path:
+    """Where an outfit's files are in the source."""
+    return source / "assets" / outfit_path(outfit_id)
 
 
 def thumbnail_path(outfit_id: str) -> str:
@@ -126,55 +134,56 @@ class OutfitsReport:
     warnings: list[str] = field(default_factory=list)
 
 
-def make_outfit_lists(mirror: Path, build: Path, characters: Iterable[Character]) -> OutfitsReport:
-    """Write the outfit list of every character with an idol to `build`, from the mirror
-    at `mirror` (the directory with `spine_manifest.json` and `assets/`)."""
-    entries = _read_manifest(mirror)
+def make_outfit_lists(build: Path, characters: Iterable[Character]) -> OutfitsReport:
+    """Write the outfit list of every character with an idol to `build`, from its source."""
+    source = source_directory(build)
+    entries = read_manifest(source)
+    if entries is None:
+        raise SourceLayoutError(f"找不到 {source / MANIFEST}，先运行 eidolon stand fetch")
     report = OutfitsReport()
     for character in characters:
         if character.idol_id is None:
             continue
-        outfits = _list_outfits(mirror, entries, character, report.warnings)
+        outfits = _list_outfits(source, entries, character, report.warnings)
         if character.default_outfit is not None and character.default_outfit not in outfits.outfits:
             report.warnings.append(
                 f"{character.name} 的 default_outfit {character.default_outfit} 不在她的衣装清单里"
-                "（镜像里没有这套，或者它和同一张卡的私服贴图相同、只记了私服），不会上传，"
+                "（还没有拉取到这套，或者它和同一张卡的私服贴图相同、只记了私服），不会上传，"
                 "通话层会退回背景图；改成清单里有的一套"
             )
-        _write_json(build / list_path(character.idol_id), outfits.to_json())
+        write_json(build / list_path(character.idol_id), outfits.to_json())
         report.lists.append(outfits)
     return report
 
 
-def _read_manifest(mirror: Path) -> list[dict]:
-    path = mirror / MANIFEST
+def read_manifest(source: Path) -> list[dict] | None:
+    """The source's manifest; None if nothing has been fetched yet."""
+    path = source / MANIFEST
     try:
         entries = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        raise MirrorLayoutError(f"找不到立绘镜像的 {path}") from None
+        return None
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
-        raise MirrorLayoutError(f"立绘镜像的 {path} 格式有误：{e}") from None
-    if not isinstance(entries, list):
-        raise MirrorLayoutError(f"立绘镜像的 {path} 应是一个列表")
+        raise SourceLayoutError(f"{path} 格式有误：{e}") from None
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        raise SourceLayoutError(f"{path} 应是一个由对象组成的列表")
     return entries
 
 
 def _list_outfits(
-    mirror: Path, entries: list[dict], character: Character, warnings: list[str]
+    source: Path, entries: list[dict], character: Character, warnings: list[str]
 ) -> OutfitList:
     assert character.idol_id is not None
     cards: dict[str, dict] = {}
     for entry in entries:
-        if not isinstance(entry, dict):
-            raise MirrorLayoutError(f"立绘镜像的 {MANIFEST} 里有一项不是对象：{entry!r}")
         if entry.get("idolId") != character.idol_id or entry.get("category") not in CATEGORIES:
             continue
         if not entry.get("enzaId"):
-            raise MirrorLayoutError(f"立绘镜像的 {MANIFEST} 里有一项没有 enzaId：{entry!r}")
+            raise SourceLayoutError(f"{MANIFEST} 里有一项没有 enzaId：{entry!r}")
         enza_id = str(entry["enzaId"])
         outfit_id = f"{entry['category']}/{enza_id}"
-        if not all((outfit_directory(mirror, outfit_id) / name).is_file() for name in OUTFIT_FILES):
-            warnings.append(f"镜像里没有 {outfit_id}（{entry.get('dressName', '')}）的文件，没有列进衣装清单")
+        if not all((outfit_directory(source, outfit_id) / name).is_file() for name in OUTFIT_FILES):
+            warnings.append(f"没有 {outfit_id}（{entry.get('dressName', '')}）的文件，没有列进衣装清单")
             continue
         card = cards.setdefault(enza_id, {"entry": entry, "outfits": {}})
         card["outfits"][entry["category"]] = outfit_id
@@ -183,7 +192,7 @@ def _list_outfits(
     for enza_id, card in sorted(cards.items()):
         everyday = card["outfits"].get("stand")
         stage = card["outfits"].get("stand_costume")
-        if everyday and stage and _same_texture(mirror, everyday, stage):
+        if everyday and stage and _same_texture(source, everyday, stage):
             stage = None
         entry = card["entry"]
         listed.append(
@@ -198,8 +207,8 @@ def _list_outfits(
     return OutfitList(character.idol_id, character.name, listed)
 
 
-def _same_texture(mirror: Path, first: str, second: str) -> bool:
-    first_png, second_png = (outfit_directory(mirror, o) / "data.png" for o in (first, second))
+def _same_texture(source: Path, first: str, second: str) -> bool:
+    first_png, second_png = (outfit_directory(source, o) / "data.png" for o in (first, second))
     return first_png.read_bytes() == second_png.read_bytes()
 
 
@@ -210,8 +219,19 @@ def card_name(dress_name: str, character_name: str) -> str:
     return name or character_name
 
 
-def _write_json(path: Path, data: object) -> None:
+def is_webp(content: bytes) -> bool:
+    """Whether a file is WebP, as about half the textures on ShinyColorsDB's CDN are
+    under their `.png` names."""
+    return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
+
+
+def write_json(path: Path, data: object) -> None:
+    write_atomically(path, (json.dumps(data, ensure_ascii=False, indent=1) + "\n").encode())
+
+
+def write_atomically(path: Path, content: bytes) -> None:
+    """Write the file so that it is never found half written."""
     path.parent.mkdir(parents=True, exist_ok=True)
     partial = path.with_name(path.name + ".part")
-    partial.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    partial.write_bytes(content)
     os.replace(partial, path)
