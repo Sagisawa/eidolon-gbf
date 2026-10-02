@@ -78,7 +78,9 @@ Status: ready-for-agent
 
 - 通话 adapter 自己在挂断后停止回调；通话协议、消息校验、`muted` 改名为 `textOnly`（候选 6）。
 - 挂断那一刻后端已经记下、但被挡住的回合，在对话页上补回来，或者通话结束时统一刷新一次列表。
-- 审查里的其他候选（1、3–12），见 2026-10-02 的审查报告。候选 3（角色的声音交给 `LiveConversation`）也落在同一个文件上，等这一轮做完再拷问。
+- 审查里的其他候选（1、3–12），见 2026-10-02 的审查报告。其中两个也已定下设计，各有自己的 spec：
+  - 候选 3「角色的声音交给 `LiveConversation`」：`spec-02-character-voice.md`、ticket 02。它落在同一个文件上，并会让播放角色声音的 handler 也过这道闸、给本轮的表驱动测试加一行，所以被 ticket 01 挡住。
+  - 候选 1「通话的上限与收尾」：`spec-03-call-limits.md`、ticket 03。只改后端，可以和 ticket 01 并行。
 - 不改 `CONTEXT.md`，不写 ADR：「过期的拨号」是实现概念，按 `CONTEXT.md`，通话有结束点，结束之后发生的事本来就不属于这一通。
 
 ## Further Notes
