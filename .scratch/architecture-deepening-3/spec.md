@@ -1,6 +1,6 @@
 # 架构加深（第三轮）：立绘指令
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准，本轮新增了「立绘指令」。设计词汇（module、interface、seam、adapter、depth）取自 `codebase-design` skill。2026-10-01 的架构审查列出了 12 个候选，经 grilling 决定这一轮只做其中的候选 1。
 

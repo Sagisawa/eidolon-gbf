@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-01 grilling）
 
@@ -70,7 +70,7 @@
 - [x] `LiveConversation` 里不再有 `nods`、`judged`、`shown` 字段，也不再有 `onSpeaking`、`startSaying`、`onEmotion`、`showEmotion`、`withStandRules`、`follows`、`key`。`ended()` 不再手动清立绘的状态。`State` 里和立绘有关的只剩一个字段。
 - [x] 规则的叙述从 `LiveConversation` 的注释搬到 `standDirection.ts` 的注释里；`LiveConversation` 的注释改为指向它。
 - [x] `frontend/` 下 `npm test` 和 `npm run typecheck` 都通过。
-- [ ] **人工验收（留给用户）**：打一通真实电话，看情绪、点头、打断时看向用户、只看文字的切换和以前一样。用户验过之后再标 `resolved`。
+- [x] **人工验收（留给用户）**：打一通真实电话，看情绪、点头、打断时看向用户、只看文字的切换和以前一样。用户验过之后再标 `resolved`。
 
 ## Comments
 
@@ -137,3 +137,13 @@
 **顺带**：本机 `frontend/node_modules` 装得不完整（没有 `.bin`、缺 `@jridgewell/sourcemap-codec` 等），`npm test` 起不来，按 lockfile 跑了一次 `npm install` 补齐，`package-lock.json` 没有变化。
 
 实现中没有发现不合理的规则，没有另开 ticket。等人工验收。
+
+### 2026-10-02 人工验收
+
+用户在本机打了真实电话：情绪、点头、被打断时看向用户、只看文字的切换都和以前一样，验收通过，标为 resolved。
+
+验收中用户还发现立绘卡顿、开嘴慢，声音偶尔漏字。查下来都与本 ticket 无关：
+- 用诊断脚本对照过，换回重构前的 `liveConversation.ts`，dev 模式下照样卡，主线程长任务都在 8～9 秒 / 40 秒。
+- 卡顿主要来自 dev 模式：开发版 React 的额外检查，加上每个字幕增量都让整棵组件树重渲染。同样的代码用生产构建跑，没有长任务。
+- `imageColorScale` 每次渲染都重算，已另行提交缓存。
+- 漏字在对话模型换成 DeepSeek 官方接入点后没再出现，原因未确定。后端在每段 TTS 开始时事件循环会堵约 100ms，浏览器因此丢掉不到 0.1 秒的声音，量级不足以解释「漏一小句」。
