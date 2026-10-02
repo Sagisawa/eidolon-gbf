@@ -34,7 +34,7 @@ cp .env.example .env
 
 在 `.env` 里填写：
 
-- 模型和各项服务的密钥，和本地开发时一样（见 `.env.example` 里的说明）。至少要有对话模型；语音通话需要 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY`；剧情库、检索和记忆需要向量化服务（见下一节）。
+- 模型和各项服务的密钥，和本地开发时一样（见 `.env.example` 里的说明）。至少要有对话模型；语音通话需要 Fish Audio（`FISH_AUDIO_API_KEY`），加 Soniox 或阿里云百炼之一做语音识别（`SONIOX_API_KEY`，或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY`）；剧情库、检索和记忆需要向量化服务（见下一节）。
 - `EIDOLON_DOMAIN`：网站的域名，例如 `eidolon.example.com`。
 - `EIDOLON_PUBLIC_IP`：这台服务器的公网 IPv4 地址。coturn 只允许把语音中继到这台服务器（也就是后端），别人拿不到它当开放的中继用。
 - `EIDOLON_PRIVATE_IP`：只有公网地址不在网卡上时才填，填网卡上的内网地址。在服务器上执行 `ip -4 addr`：能看到公网地址就不用填（Vultr、DigitalOcean、搬瓦工等大多如此）；只能看到 `10.`、`172.`、`192.168.` 开头的内网地址时（AWS、阿里云、腾讯云等 1:1 NAT 的云主机），填这个内网地址。这种环境还没有实际验证过，语音连不上时请看「排障」。

@@ -44,7 +44,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 | 🧩 **向量化服务二选一** | 部署时在硅基流动 Qwen3-Embedding 与 Google Gemini Embedding 2 之间选择，换了之后一条命令用库里的原文重新向量化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **人设初稿生成** | 由后台模型读完角色的全部剧情，写出人设初稿，再人工校对 |
 | 👥 **对公众开放** | 用 Google 或 GitHub 登录，按用户限流、记忆互相隔离；用户可以绑定两种登录方式，也可以彻底删除自己的全部数据 |
-| 🔑 **自带密钥** | 用户可以填自己的 LLM、Fish Audio、Soniox 密钥，用自己的额度，不计入限额 |
+| 🔑 **自带密钥** | 用户可以填自己的 LLM、Fish Audio、语音识别（Soniox 或阿里云百炼）密钥，用自己的额度，不计入限额 |
 | 🚀 **一键部署** | 自带 Caddy（自动 HTTPS）+ coturn（TURN 中继）的生产配置 |
 
 ## 🧭 目录
@@ -87,7 +87,7 @@ flowchart LR
     UI -- "文字回合 /api/*" --> API
     UI <-- "WebRTC 语音 + 字幕" --> Call
     API --> Engine
-    Call -- "Soniox 语音识别" --> Engine
+    Call -- "语音识别<br/>Soniox 或阿里云百炼" --> Engine
     Engine -- "Fish Audio 语音合成" --> Call
     Engine --> Retrieval
     Engine --> Memory
@@ -122,7 +122,7 @@ docker compose up --build
 > | 功能 | 需要的配置 |
 > |---|---|
 > | 文字对话 | `CHAT_LLM_*` |
-> | 语音通话 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
+> | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别服务的 key：`SONIOX_API_KEY`（默认），或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY` |
 > | 剧情库（同步或导入） | 向量化服务的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
 > | 检索与记忆 | 向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`JEV_API_KEY` |
 >
@@ -193,7 +193,17 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### 语音通话
 
-在 `.env` 里填好 `SONIOX_API_KEY` 和 `FISH_AUDIO_API_KEY` 后，对话页页首的电话键就能用了。点一下就打开通话层并开始呼叫：手机上占满全屏，电脑上盖住右边的对话栏。
+在 `.env` 里填好 `FISH_AUDIO_API_KEY` 和语音识别服务的 key（见下表）后，对话页页首的电话键就能用了。点一下就打开通话层并开始呼叫：手机上占满全屏，电脑上盖住右边的对话栏。
+
+语音识别部署时用 `STT_PROVIDER` 二选一，整个部署只用这一家（[ADR-0010](docs/adr/0010-speech-recognition-provider-chosen-at-deploy-and-per-own-key.md)）；自带语音识别密钥的用户自己选用哪家，与这里无关。
+
+| `STT_PROVIDER` | 服务 | 需要的 key | 模型 |
+|---|---|---|---|
+| `soniox`（默认） | Soniox | `SONIOX_API_KEY` | Pipecat 默认的 Soniox 实时模型 |
+| `bailian` | 阿里云百炼 | `DASHSCOPE_API_KEY`，北京、新加坡地域都可以，自动判断 | `qwen-audio-3.1-asr-flash-streaming`（`BAILIAN_STT_MODEL`，目前只能是它），要先在阿里云百炼控制台开通 |
+
+> [!WARNING]
+> 选阿里云百炼时：后端启动时试调一次 key，两个地域都拒绝、模型没开通或连不上，就拒绝启动并说明原因。公开部署用北京地域的 key 时，**陌生用户的声音会送到中国内地处理，按中国法律保存**（期限不公开）；按量付费调用的数据阿里云承诺不用于训练。隐私说明里两家都列出，写明了这一点（ADR-0010）。
 
 - 通话层显示她的头像、通话状态和计时，当前这句的日语原文和字幕，以及你正在说的话；完整的记录在对话里看。计时从接通算起，离单次通话的时长上限不到一分钟时改为显示剩余时间。
 - 左上角的收起键或 Esc 收起通话层，回到文字记录，通话照常继续；页首留一张「通话中 mm:ss · 点击返回」的便利贴，点一下重新展开。通话层上不能打字，想打字就收起，在对话里打。
@@ -392,9 +402,10 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 |---|---|---|
 | LLM | 接口类型、base_url、key、模型名 | 扮演角色（文字和通话）、提炼记忆 |
 | 语音合成（Fish Audio） | key | 通话中角色的声音，音色照旧取自角色配置 |
-| 语音识别（Soniox） | key | 通话中听用户说话 |
+| 语音识别（Soniox 或阿里云百炼） | 服务商和 key | 通话中听用户说话；与部署者选哪家无关 |
 
 - 保存前先试调一次，调不通就不保存，并显示服务商返回的错误。LLM 同样要支持流式输出和工具调用；公开部署时 base_url 必须是 HTTPS 的公网地址，不只是保存时，之后每次连接都会重新检查。
+- 语音识别选阿里云百炼时只填 key：地域在试调时自动判断，模型跟部署者的 `BAILIAN_STT_MODEL` 走（部署选 Soniox 时用默认模型）；模型没开通时提示去阿里云百炼控制台开通。
 - 密钥用 `EIDOLON_SECRET_KEY` 派生的密钥加密保存，界面上只显示末 4 位。没配置 `EIDOLON_SECRET_KEY` 时不开放这个功能。
 - 自带密钥调用失败时（余额不足、被吊销等），这一回合或这次通话就失败，并提示是哪一项密钥出了问题，**不会改用部署者的密钥**。更换 `EIDOLON_SECRET_KEY` 后，已保存的密钥无法解密，用到它的回合或通话在调用任何服务之前就失败，提示用户重新填写。删除自带密钥后改回用部署者的服务。
 - 向量化、重排、判断要不要回忆剧情和通话中判断立绘情绪（Jev）始终由部署者承担。
@@ -453,6 +464,7 @@ eidolon-sc/
 │   │   ├── own_keys.py       #   用户的自带密钥，以及每个回合、每次通话用谁的密钥
 │   │   ├── usage.py          #   限额与用量记录
 │   │   ├── call.py           #   语音通话：信令与 Pipecat 管线
+│   │   ├── bailian.py        #   阿里云百炼的实时语音识别
 │   │   ├── turn_taking.py    #   通话中的补充与打断规则
 │   │   ├── call_outcome.py   #   通话算不算限额、结束时告诉浏览器什么
 │   │   ├── retrieval.py      #   检索判断、参考资料来源（剧情、角色资料、作品资料）的检索与重排、回顾剧情
@@ -506,6 +518,7 @@ eidolon-sc/
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) —— 剧情文本与中文翻译
 - [Pipecat](https://github.com/pipecat-ai/pipecat) —— 实时语音管线与 WebRTC 传输
 - [Soniox](https://soniox.com/) —— 语音识别
+- [阿里云百炼](https://www.aliyun.com/product/bailian) —— 实时语音识别（可代替 Soniox）
 - [Fish Audio](https://fish.audio/) —— 语音合成
 - [硅基流动](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（可选的向量化服务）

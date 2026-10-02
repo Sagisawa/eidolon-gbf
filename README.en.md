@@ -47,7 +47,7 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
 | 🧩 **Pick your embedding service** | Choose SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding 2 at deploy time; after switching, one command re-embeds from the text already in the database ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)) |
 | 📝 **Character sheet drafting** | A background model reads through all of a character's episodes and drafts her character sheet for you to proofread |
 | 👥 **Open to the public** | Sign in with Google or GitHub; per-user rate limits and fully isolated memories; users can link both sign-in methods and delete all their data for good |
-| 🔑 **Bring your own keys** | Users can enter their own LLM, Fish Audio and Soniox keys to use their own credits, exempt from the limits |
+| 🔑 **Bring your own keys** | Users can enter their own LLM, Fish Audio and speech recognition (Soniox or Alibaba Cloud Model Studio) keys to use their own credits, exempt from the limits |
 | 🚀 **One-command deployment** | Production config ships with Caddy (automatic HTTPS) and coturn (TURN relay) |
 
 ## 🧭 Contents
@@ -90,7 +90,7 @@ flowchart LR
     UI -- "text turns /api/*" --> API
     UI <-- "WebRTC audio + subtitles" --> Call
     API --> Engine
-    Call -- "Soniox speech-to-text" --> Engine
+    Call -- "Speech-to-text<br/>Soniox or Alibaba Cloud Model Studio" --> Engine
     Engine -- "Fish Audio text-to-speech" --> Call
     Engine --> Retrieval
     Engine --> Memory
@@ -125,7 +125,7 @@ Open <http://localhost:3000>, sign in with "dev login" under any name (offered o
 > | Feature | Required configuration |
 > |---|---|
 > | Text chat | `CHAT_LLM_*` |
-> | Voice calls | `SONIOX_API_KEY`, `FISH_AUDIO_API_KEY` |
+> | Voice calls | `FISH_AUDIO_API_KEY`, plus the speech recognition service's key: `SONIOX_API_KEY` (default), or `STT_PROVIDER=bailian` plus `DASHSCOPE_API_KEY` |
 > | Story corpus (sync or import) | The embedding service's key: `SILICONFLOW_API_KEY` (default), or `EMBEDDING_PROVIDER=gemini` plus `GEMINI_API_KEY` |
 > | Retrieval and memory | The embedding service's key, `SILICONFLOW_API_KEY` (reranking), `JEV_API_KEY` |
 >
@@ -196,7 +196,17 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### Voice calls
 
-With `SONIOX_API_KEY` and `FISH_AUDIO_API_KEY` set in `.env`, the call button in the conversation header comes alive. Pressing it opens the call screen and starts calling: full screen on a phone, covering the conversation column on a computer.
+With `FISH_AUDIO_API_KEY` and the speech recognition service's key (see the table below) set in `.env`, the call button in the conversation header comes alive. Pressing it opens the call screen and starts calling: full screen on a phone, covering the conversation column on a computer.
+
+Speech recognition is chosen at deploy time with `STT_PROVIDER`, and the whole deployment uses that one service ([ADR-0010](docs/adr/0010-speech-recognition-provider-chosen-at-deploy-and-per-own-key.md)); users who bring their own speech recognition key pick their own service, whatever is chosen here.
+
+| `STT_PROVIDER` | Service | Required key | Model |
+|---|---|---|---|
+| `soniox` (default) | Soniox | `SONIOX_API_KEY` | Pipecat's default Soniox real-time model |
+| `bailian` | Alibaba Cloud Model Studio | `DASHSCOPE_API_KEY`; Beijing and Singapore region keys both work, the region is detected automatically | `qwen-audio-3.1-asr-flash-streaming` (`BAILIAN_STT_MODEL`, currently the only option), which must first be activated in the Model Studio console |
+
+> [!WARNING]
+> If you choose Alibaba Cloud Model Studio: the backend tries the key once on startup, and refuses to start, saying why, if both regions reject it, the model isn't activated, or the service can't be reached. In a public deployment with a Beijing region key, **strangers' voices are processed in mainland China and kept under Chinese law** (for an undisclosed period); Alibaba Cloud commits to not training on data from pay-as-you-go calls. The privacy notice lists both services and says as much (ADR-0010).
 
 - The call screen shows her avatar, the call status and timer, her current line in Japanese with its subtitle, and what you are saying; the full transcript stays in the conversation. The timer starts when the call is connected, and switches to the time left when less than a minute of the per-call limit remains.
 - The collapse button at the top left, or Esc, collapses the call screen back to the transcript while the call carries on; a sticky note reading “通话中 mm:ss · 点击返回” (in call · tap to return) stays at the top, and pressing it brings the call screen back. You cannot type on the call screen: collapse it and type in the conversation.
@@ -396,9 +406,10 @@ The deployer pays for everything by default. Users can enter their own API keys 
 |---|---|---|
 | LLM | Protocol, base_url, key, model | Playing the character (text and calls), writing down memories |
 | Speech synthesis (Fish Audio) | Key | The character's voice in calls; the voice ID still comes from the character configuration |
-| Speech recognition (Soniox) | Key | Hearing the user in calls |
+| Speech recognition (Soniox or Alibaba Cloud Model Studio) | Service and key | Hearing the user in calls; independent of the deployer's choice |
 
 - Each key is tried once before it is saved; if the try fails, nothing is saved and the provider's error is shown. The LLM must support streaming and tool calls too; in a public deployment its base_url must be HTTPS on the public internet, checked again on every connection, not only when saved.
+- For Alibaba Cloud Model Studio speech recognition, users enter only the key: the region is detected when the key is tried, and the model follows the deployer's `BAILIAN_STT_MODEL` (the default model when the deployment uses Soniox). If the model isn't activated, users are told to activate it in the Model Studio console.
 - Keys are stored encrypted with a key derived from `EIDOLON_SECRET_KEY`, and only their last 4 characters are ever shown. Without `EIDOLON_SECRET_KEY`, the feature is off.
 - When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. After `EIDOLON_SECRET_KEY` changes, saved keys can no longer be decrypted: a turn or call that needs one fails before calling any service and asks the user to enter it again. Deleting an own key switches back to the deployer's service.
 - Embedding, reranking and deciding whether to recall the story (Jev) are always on the deployer.
@@ -457,6 +468,7 @@ eidolon-sc/
 │   │   ├── own_keys.py       #   users' own API keys, and whose keys each turn and call runs on
 │   │   ├── usage.py          #   usage limits and the record of use
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
+│   │   ├── bailian.py        #   Alibaba Cloud Model Studio real-time speech recognition
 │   │   ├── turn_taking.py    #   follow-on and interruption rules during a call
 │   │   ├── call_outcome.py   #   whether a call counts towards the limit, and why it ended
 │   │   ├── retrieval.py      #   retrieval routing, reference sources (story, character facts, work facts), reranking, recall
@@ -510,6 +522,7 @@ The Spine runtime the call layer's stand is drawn with ([`frontend/public/vendor
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) — story text and Chinese translations
 - [Pipecat](https://github.com/pipecat-ai/pipecat) — real-time voice pipeline and WebRTC transport
 - [Soniox](https://soniox.com/) — speech recognition
+- [Alibaba Cloud Model Studio](https://www.alibabacloud.com/product/modelstudio) — real-time speech recognition (an alternative to Soniox)
 - [Fish Audio](https://fish.audio/) — speech synthesis
 - [SiliconFlow](https://siliconflow.cn/) — Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) — Gemini Embedding (optional embedding service)
