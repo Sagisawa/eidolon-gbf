@@ -419,13 +419,13 @@ async def _stand_upload(args: argparse.Namespace) -> int:
 async def _backup(args: argparse.Namespace) -> int:
     import time
 
-    from eidolon.backup import BackupSettings, back_up
+    from eidolon.backup import MISCONFIGURED, BackupSettings, back_up
 
     try:
         settings = BackupSettings.from_env()
     except RuntimeError as e:
         print(e, file=sys.stderr)
-        return 1
+        return MISCONFIGURED
     started = time.monotonic()
     report = await back_up(args.db or database_path_from_env(), settings, now=utc_now())
     if report.export_error is not None:

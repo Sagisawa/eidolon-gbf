@@ -35,6 +35,7 @@ class Deployment:
         self.storage = FakeBucket("backups")
         self.refuses_puts = False
         self.refuses_deletes = False
+        self.lists_html = False
         self.pings: list[str] = []
         self.ping_down = False
 
@@ -72,6 +73,8 @@ class Deployment:
             return httpx.Response(503 if self.ping_down else 200)
         if request.method == "PUT" and self.refuses_puts:
             return httpx.Response(507, text="<Error><Code>InsufficientStorage</Code></Error>")
+        if request.method == "GET" and self.lists_html:
+            return httpx.Response(200, text="<!doctype html><p>Welcome to nginx!")
         if request.method == "DELETE" and self.refuses_deletes:
             return httpx.Response(403, text="<Error><Code>AccessDenied</Code></Error>")
         return self.storage.handle(request)
@@ -127,7 +130,9 @@ async def test_when_the_upload_fails_old_backups_are_still_deleted_save_the_newe
     assert deployment.pings == []
 
 
-async def test_a_database_that_cannot_be_copied_whole_is_not_uploaded(deployment: Deployment):
+async def test_a_database_that_cannot_be_copied_whole_is_not_uploaded(
+    deployment: Deployment, tmp_path: Path
+):
     store = Store(deployment.database)
     for n in range(500):
         store.create_user(f"user {n:03d} " + "x" * 200)
@@ -144,6 +149,7 @@ async def test_a_database_that_cannot_be_copied_whole_is_not_uploaded(deployment
     assert report.exit_code == 2
     assert report.export_error is not None
     assert deployment.storage.puts == []
+    assert list((tmp_path / "tmp").iterdir()) == []
     assert report.deleted == [old]
     assert deployment.pings == []
 
@@ -175,6 +181,17 @@ async def test_a_ping_that_fails_is_only_a_warning(deployment: Deployment):
 
     assert report.exit_code == 0
     assert report.ping_error is not None and "503" in report.ping_error
+
+
+async def test_a_bucket_that_answers_with_something_else_fails_without_crashing(
+    deployment: Deployment,
+):
+    deployment.lists_html = True
+
+    report = await deployment.back_up()
+
+    assert report.exit_code == 4
+    assert report.prune_error is not None and "不是 XML" in report.prune_error
 
 
 async def test_without_a_ping_url_there_is_no_ping(deployment: Deployment):
@@ -230,6 +247,13 @@ def test_a_recipient_that_is_not_an_age_public_key_is_an_error(backup_env: pytes
     backup_env.setenv("EIDOLON_BACKUP_AGE_RECIPIENT", str(IDENTITY))  # the private key
 
     with pytest.raises(RuntimeError, match="age1"):
+        BackupSettings.from_env()
+
+
+def test_a_ping_url_that_is_not_a_web_address_is_an_error(backup_env: pytest.MonkeyPatch):
+    backup_env.setenv("EIDOLON_BACKUP_PING_URL", "hc-ping.com/abc")
+
+    with pytest.raises(RuntimeError, match="EIDOLON_BACKUP_PING_URL"):
         BackupSettings.from_env()
 
 

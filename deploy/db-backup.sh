@@ -22,7 +22,6 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 5
 PATH=/usr/local/bin:/usr/bin:/bin:$PATH # cron 的 PATH 很短
 export COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
-export PYTHONIOENCODING=utf-8
 log=${EIDOLON_BACKUP_LOG:-$root/logs/db-backup.log}
 mkdir -p "$root/logs" "$(dirname "$log")"
 exec >>"$log" 2>&1
@@ -66,7 +65,7 @@ if [ -z "$(docker compose ps --status running --quiet backend)" ]; then
 fi
 
 say "docker compose exec backend eidolon backup"
-# -T：cron 里没有终端；PYTHONUNBUFFERED：输出按实际顺序写进日志
+# -T：cron 里没有终端；PYTHONUNBUFFERED：输出按实际顺序写进日志；PYTHONIOENCODING：日志里的中文一律是 UTF-8
 docker compose exec -T -e PYTHONUNBUFFERED=1 -e PYTHONIOENCODING=utf-8 backend eidolon backup
 code=$?
 case $code in

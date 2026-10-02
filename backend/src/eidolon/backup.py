@@ -68,7 +68,10 @@ class BackupSettings:
                 "环境变量 EIDOLON_BACKUP_AGE_RECIPIENT 应为 age1 开头的 age 公钥"
                 "（age-keygen 输出的 public key，不是 AGE-SECRET-KEY 开头的私钥）"
             ) from None
-        return cls(bucket, parsed, (os.environ.get("EIDOLON_BACKUP_PING_URL") or "").strip() or None)
+        ping_url = (os.environ.get("EIDOLON_BACKUP_PING_URL") or "").strip() or None
+        if ping_url is not None and not ping_url.startswith(("https://", "http://")):
+            raise RuntimeError(f"环境变量 EIDOLON_BACKUP_PING_URL 应为 http:// 或 https:// 开头的地址，而不是 {ping_url}")
+        return cls(bucket, parsed, ping_url)
 
 
 @dataclass
@@ -177,7 +180,8 @@ def _export(database: Path, work: Path, recipient: pyrage.x25519.Recipient) -> P
 
 async def _prune(bucket: Bucket, now: datetime, deleted: list[str]) -> int:
     """Delete the backups made over `KEPT` before `now`, save the newest, adding each to
-    `deleted` once it is; how many are left. Anything else in the bucket is left alone."""
+    `deleted` once it is, so that those deleted before a failure are still reported; how
+    many are left. Anything else in the bucket is left alone."""
     made: dict[str, datetime] = {}
     for key in await bucket.keys():
         if match := _NAME.fullmatch(key):
@@ -195,7 +199,7 @@ async def _ping(url: str, transport: httpx.AsyncBaseTransport | None) -> str | N
     async with httpx.AsyncClient(transport=transport, timeout=_PING_TIMEOUT) as client:
         try:
             response = await client.get(url)
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, httpx.InvalidURL) as e:
             return f"访问心跳地址失败：{e!r}"
     if not response.is_success:
         return f"心跳地址返回了 {response.status_code}"

@@ -95,7 +95,10 @@ class Bucket:
         params = {"list-type": "2"}
         while True:
             response = await self._send("GET", self._url("", params))
-            root = ElementTree.fromstring(response.content)
+            try:
+                root = ElementTree.fromstring(response.content)
+            except ElementTree.ParseError:  # e.g. an endpoint that is not an S3 API at all
+                raise S3Error(f"存储桶列出的对象不是 XML：{_error_of(response)}") from None
             last = None
             for contents in _children(root, "Contents"):
                 key, etag = _text(contents, "Key"), _text(contents, "ETag")
