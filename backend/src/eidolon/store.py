@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS sessions_by_expiry ON sessions(expires_at);
 -- A Google or GitHub identity a user signs in with; each belongs to one user only.
 CREATE TABLE IF NOT EXISTS sign_in_methods (
     user_id TEXT NOT NULL REFERENCES users(id),
@@ -390,9 +391,12 @@ class Store:
             delete_user_data(self._db, user_id)
 
     def create_session(self, user_id: str, now: datetime) -> str:
-        """Start a session for the user; returns its token, which is not stored."""
+        """Start a session for the user; returns its token, which is not stored. Every
+        session that has expired, whoever's it is, is deleted meanwhile, so that a user who
+        does not come back leaves none behind."""
         token = secrets.token_urlsafe(32)
         with self._lock, self._db:
+            self._db.execute("DELETE FROM sessions WHERE expires_at <= ?", (now.timestamp(),))
             self._db.execute(
                 "INSERT INTO sessions (token_hash, user_id, last_active_at, expires_at)"
                 " VALUES (?, ?, ?, ?)",

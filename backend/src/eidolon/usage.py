@@ -2,7 +2,8 @@
 
 A turn or call on the user's own keys alone is recorded all the same, for the admin to
 see, but does not count towards the limit. Each use is kept in the database, next to the
-user it belongs to, for a day."""
+user it belongs to, for a day; whoever's they are, uses older than that are deleted
+whenever anyone takes one."""
 
 import threading
 from dataclasses import dataclass
@@ -34,6 +35,8 @@ CREATE TABLE IF NOT EXISTS usage (
     exempt INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
+-- For forgetting everyone's uses once they are older than `KEPT`.
+CREATE INDEX IF NOT EXISTS usage_by_time ON usage(at);
 """
 
 
@@ -104,10 +107,8 @@ class UsageLimiter:
         limit = self._limits[kind]
         now = self._clock()
         with self._lock, self._db:
-            self._db.execute(
-                "DELETE FROM usage WHERE user_id = ? AND at <= ?",
-                (user_id, (now - KEPT).timestamp()),
-            )
+            # Everyone's, so that a user who does not come back leaves none behind.
+            self._db.execute("DELETE FROM usage WHERE at <= ?", ((now - KEPT).timestamp(),))
             if limit is not None and not exempt:
                 recent = [
                     at
