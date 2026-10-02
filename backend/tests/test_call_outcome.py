@@ -7,12 +7,12 @@ nor aiortc is needed for any of it.
 """
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
-from eidolon.call_outcome import CallOutcome, EndReason
+from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.config import UsageLimits
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.store import Store
@@ -29,8 +29,8 @@ class Limiter:
         self.user = self._store.create_user("producer").id
         self.usage = UsageLimiter(path, UsageLimits(calls_per_hour=1), lambda: NOW)
 
-    def call(self, exempt: bool = False) -> CallOutcome:
-        return CallOutcome(self.usage, self.user, exempt)
+    def call(self, exempt: bool = False, limits: CallLimits = CallLimits()) -> CallOutcome:
+        return CallOutcome(self.usage, self.user, exempt, limits)
 
     def counted(self) -> bool:
         """Whether this hour's call is used up, that is, the last one was not given back."""
@@ -171,37 +171,85 @@ def test_an_own_key_failing_after_a_turn_ends_a_call_that_was_connected(
     assert limiter.calls_recorded() == 1
 
 
-@pytest.mark.parametrize("reason", ["duration_limit", "turn_limit"])
 @pytest.mark.parametrize("exempt", [False, True])
-def test_a_call_that_reaches_its_limits_is_kept(
-    limiter: Limiter, reason: EndReason, exempt: bool
+def test_a_call_reaches_its_turn_limit_with_its_last_allowed_turn_and_is_kept(
+    limiter: Limiter, exempt: bool
 ):
-    outcome = limiter.call(exempt)
+    outcome = limiter.call(exempt, CallLimits(turns=2))
     outcome.connected()
     outcome.turn_recorded()
+    assert outcome.limit_reached() is None
+    outcome.turn_recorded()
 
-    message = outcome.limit_reached(reason, "这次通话已经说了 1 轮了")
+    reached = outcome.limit_reached()
     outcome.settle()
 
-    assert message == {
-        "type": "ended",
-        "reason": reason,
-        "message": "这次通话已经说了 1 轮了，先挂断啦。想接着聊可以重新拨打。",
-        "counts": not exempt,
-    }
+    assert reached == LimitReached(
+        "这次通话已经说了 2 轮了",
+        {
+            "type": "ended",
+            "reason": "turn_limit",
+            "message": "这次通话已经说了 2 轮了，先挂断啦。想接着聊可以重新拨打。",
+            "counts": not exempt,
+        },
+    )
     assert limiter.counted() is not exempt
     assert limiter.calls_recorded() == 1
 
 
-def test_a_call_that_reaches_its_time_before_any_turn_is_kept(limiter: Limiter):
-    outcome = limiter.call()
+@pytest.mark.parametrize(
+    ("time_limit", "minutes"), [(timedelta(minutes=10), "10"), (timedelta(seconds=90), "1.5")]
+)
+@pytest.mark.parametrize("exempt", [False, True])
+def test_a_call_whose_time_is_up_is_kept_even_before_any_turn(
+    limiter: Limiter, exempt: bool, time_limit: timedelta, minutes: str
+):
+    outcome = limiter.call(exempt, CallLimits(duration=time_limit))
     outcome.connected()
+    assert outcome.time_limit == time_limit
+    assert outcome.limit_reached() is None
 
-    message = outcome.limit_reached("duration_limit", "这次通话已经满 10 分钟了")
+    outcome.time_up()
+    reached = outcome.limit_reached()
     outcome.settle()
 
-    assert message is not None and message["counts"] is True
-    assert limiter.counted()
+    assert reached == LimitReached(
+        f"这次通话已经满 {minutes} 分钟了",
+        {
+            "type": "ended",
+            "reason": "duration_limit",
+            "message": f"这次通话已经满 {minutes} 分钟了，先挂断啦。想接着聊可以重新拨打。",
+            "counts": not exempt,
+        },
+    )
+    assert limiter.counted() is not exempt
+    assert limiter.calls_recorded() == 1
+
+
+def test_a_call_whose_time_is_up_as_its_turns_run_out_is_told_its_time_is_up(
+    limiter: Limiter,
+):
+    outcome = limiter.call(limits=CallLimits(duration=timedelta(minutes=10), turns=1))
+    outcome.connected()
+    outcome.turn_recorded()
+    outcome.time_up()
+
+    reached = outcome.limit_reached()
+
+    assert reached is not None and reached.ended is not None
+    assert reached.why == "这次通话已经满 10 分钟了"
+    assert reached.ended["reason"] == "duration_limit"
+
+
+def test_a_call_without_limits_never_reaches_them(limiter: Limiter):
+    outcome = limiter.call()
+    outcome.connected()
+    for _ in range(100):
+        outcome.turn_recorded()
+    outcome.time_up()
+
+    assert outcome.time_limit is None
+    assert outcome.limit_reached() is None
 
 
 @pytest.mark.parametrize("turns", [0, 1])
@@ -217,16 +265,18 @@ def test_a_call_hung_up_once_connected_counts(limiter: Limiter, turns: int):
 
 
 def test_the_browser_is_told_why_only_once(limiter: Limiter):
-    outcome = limiter.call()
+    """Told once, the call still hangs up at its limits, saying why, but tells nothing more."""
+    outcome = limiter.call(limits=CallLimits(duration=timedelta(minutes=10), turns=1))
     outcome.connected()
     outcome.turn_recorded()
 
-    first = outcome.limit_reached("turn_limit", "这次通话已经说了 1 轮了")
+    first = outcome.limit_reached()
 
-    assert first is not None
+    assert first is not None and first.ended is not None
     assert outcome.service_failed(None) is None
     assert outcome.service_failed("stt") is None
-    assert outcome.limit_reached("duration_limit", "这次通话已经满 10 分钟了") is None
+    outcome.time_up()
+    assert outcome.limit_reached() == LimitReached("这次通话已经满 10 分钟了", None)
 
 
 def test_what_the_browser_was_told_is_how_the_call_is_settled(limiter: Limiter):
