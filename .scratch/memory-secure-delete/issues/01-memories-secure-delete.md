@@ -42,3 +42,11 @@
 - 「SQLite 编译时的默认值」不再需要核实：显式打开以后，默认值是多少都不影响结果。
 
 04 resolved 时，这张一起标 resolved。
+
+### 2026-10-02 由 architecture-deepening-4 ticket 04 修掉
+
+见 `.scratch/architecture-deepening-4/issues/04-database.md`。现在所有连接都由 `database.connect` 打开，统一开 `secure_delete`。`Memories` 的连接也在其中。
+
+- 上面「建议的复现」写成了 `test_delete_account.py` 里的两条测试：先清空记忆再删号、先删一条记忆再删号，各一条。
+- 这两条在改实现前都是红的，记忆原文留在 db 文件里，疑点坐实；改完后转绿。
+- 按 triage 的约定，等 04 的人工验收通过、04 标 resolved 时，这张一起标 resolved。
