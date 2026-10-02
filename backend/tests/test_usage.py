@@ -157,3 +157,29 @@ def test_uses_kept_before_own_keys_existed_still_count(deployment: Deployment):
         assert usage.last_day(deployment.user).total == Tally(calls=2, exempt_calls=1)
     finally:
         usage.close()
+
+
+def test_any_user_checking_their_usage_forgets_everyones_uses_over_a_day_old(
+    deployment: Deployment, usage: UsageLimiter
+):
+    usage.take(deployment.friend, "turn")  # and the friend never comes back
+    deployment.clock.advance(hours=12)
+    usage.take(deployment.friend, "call")
+    deployment.clock.advance(hours=12, minutes=1)
+
+    usage.take(deployment.user, "turn")
+
+    with sqlite3.connect(deployment.path) as db:
+        kept = db.execute("SELECT user_id, kind FROM usage ORDER BY at").fetchall()
+    db.close()
+    assert kept == [(deployment.friend, "call"), (deployment.user, "turn")]
+
+
+def test_forgetting_old_uses_needs_no_scan_of_the_whole_table(
+    deployment: Deployment, usage: UsageLimiter
+):
+    with sqlite3.connect(deployment.path) as db:
+        plan = db.execute("EXPLAIN QUERY PLAN DELETE FROM usage WHERE at <= 0").fetchall()
+    db.close()
+
+    assert "SEARCH" in " ".join(detail for *_, detail in plan)

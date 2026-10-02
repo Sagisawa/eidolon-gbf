@@ -312,8 +312,8 @@ EIDOLON_STAND_ASSETS_URL=http://localhost:8765
 
 > [!NOTE]
 > 对公众开放意味着陌生人的对话和记忆会存在这台服务器上，并交给你配置的第三方服务处理（见网站的隐私政策页）。几点注意：
-> - 日志里不记对话原文和记忆原文；备份文件（见下文「备份」）里有，妥善保管。
-> - 用户可以在设置页删除自己的全部数据，这是物理删除；但已经进入备份的数据要等备份轮换掉。
+> - 日志里不记对话原文和记忆原文；备份（见下文「备份」）里有，所以备份是加密的，私钥由你离线保存。
+> - 用户可以在设置页删除自己的全部数据，线上立刻彻底删除；已经进入备份的副本最多 30 天后随备份过期清除。
 > - 公开部署用 Gemini 向量化时要开计费，见上文「选择向量化服务」。
 
 ## 升级
@@ -327,21 +327,112 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 - 数据库（用户及其登录方式、会话、对话、记忆、制作人档案、加密后的自带密钥、最近 24 小时的用量、剧情库）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
 - 证书在 Docker 卷 `caddy-data` 里；
-- 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
+- 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步和备份的日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
 
 不要执行 `docker compose down -v`，`-v` 会删掉这些卷。
 
 ## 备份
 
-数据库是 SQLite，用它自带的在线备份，不用停服务：
+数据库（用户、对话、记忆、剧情库，全部在一个 SQLite 文件里）由 `deploy/db-backup.sh` 每天备份一次（ADR-0012）：它在后端容器里运行 `eidolon backup`，不用停服务，把整个数据库导出成一个一致的副本、检查完整性、压缩，用 age 公钥加密后上传到一个私有的 S3 兼容存储桶，再删掉 30 天前的备份。最新的一份总是保留，哪怕已经超过 30 天，存储桶不会被删空；当天上传失败时过期的备份也照删。
+
+`characters/` 目录、`deploy/event-names.toml` 和 `.env` 不在备份里，另外自己保存。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
+
+### 第一次配置
+
+1. **建一个私有的存储桶**。推荐 Cloudflare R2（存储费低，下载不收流量费），其他 S3 兼容存储也行，见「选择对象存储」。这个存储桶**不要开公开访问**（R2 不连自定义域名、不开 `r2.dev`），也**不要和立绘共用**：立绘桶是公开可读的，配错一次就会把数据库泄露出去。
+2. **建一个只能读写这个存储桶的密钥**。R2：「管理 R2 API 令牌 → 创建 API 令牌」，权限选「对象读和写」，「指定存储桶」只选备份桶。不要复用立绘的令牌。
+3. **生成 age 密钥对**，在**你自己的电脑上**，不在服务器上（[age](https://github.com/FiloSottile/age) 或 [rage](https://github.com/str4d/rage) 都行，`apt install age`、`brew install age`、`winget install FiloSottile.age`）：
+
+   ```sh
+   age-keygen -o eidolon-backup.key
+   # Public key: age1...
+   ```
+
+   `age1` 开头的公钥填进服务器的 `.env`；`eidolon-backup.key` 是私钥，**只离线保存**（密码管理器、加密的 U 盘），不要放到服务器上：服务器被攻破，攻击者也解不开历史备份。**私钥丢了，所有备份就都解不开了。**
+4. **另外保存 `EIDOLON_SECRET_KEY`**（和私钥放在一起）：用户的自带密钥是用它加密的，恢复后没有它就解不开。
+5. **填 `.env`**，然后 `docker compose -f docker-compose.prod.yml up -d` 让后端读到：
+
+   ```sh
+   EIDOLON_BACKUP_S3_ENDPOINT=https://<账户 ID>.r2.cloudflarestorage.com
+   EIDOLON_BACKUP_S3_BUCKET=eidolon-backups
+   EIDOLON_BACKUP_S3_ACCESS_KEY_ID=...
+   EIDOLON_BACKUP_S3_SECRET_ACCESS_KEY=...
+   EIDOLON_BACKUP_AGE_RECIPIENT=age1...
+   EIDOLON_BACKUP_PING_URL=https://hc-ping.com/...   # 可选，见下文「心跳」
+   ```
+
+6. **手动备份一次**，确认存储桶里出现了 `eidolon-<UTC 时间>.db.gz.age`：
+
+   ```sh
+   deploy/db-backup.sh
+   tail logs/db-backup.log
+   ```
+
+7. **装 cron**，每天一次。`crontab -e`，加一行（路径换成仓库的实际位置；时间随意，避开整点和剧情同步即可）：
+
+   ```cron
+   43 3 * * * /home/you/eidolon-sc/deploy/db-backup.sh
+   ```
+
+   运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），对 `logs/` 有写权限；主机上要有 `flock`（util-linux）。
+8. **演练一次恢复**（见下文「从备份恢复」），确认私钥能用、步骤走得通。
+
+手动备份也是运行 `deploy/db-backup.sh`。
+
+### 日志和退出码
+
+日志在 `logs/db-backup.log`（可用环境变量 `EIDOLON_BACKUP_LOG` 改到别处），每次备份以「开始备份数据库」开头、以「结束：退出码 N（含义）」结尾，中间是备份的名字和大小、删掉了哪些过期备份、存储桶里还有几份。看最近几次的结果：
 
 ```sh
-docker compose -f docker-compose.prod.yml exec backend python -c \
-  "import sqlite3; sqlite3.connect('/data/eidolon.db').backup(sqlite3.connect('/data/backup.db'))"
-docker compose -f docker-compose.prod.yml cp backend:/data/backup.db ./eidolon-backup.db
+grep '结束：' logs/db-backup.log | tail
 ```
 
-`characters/` 目录和 `deploy/event-names.toml` 另外自己备份。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
+| 退出码 | 含义 | 要做什么 |
+|---|---|---|
+| 0 | 完全成功 | 不用管 |
+| 1 | 配置不全：缺存储桶的设置或 age 公钥，或公钥格式不对；没有备份 | 照上面补全 `.env`，`docker compose -f docker-compose.prod.yml up -d` |
+| 2 | 导出数据库或完整性检查失败（数据库损坏、磁盘满了），没有上传；过期备份照常删除 | 看日志里的错误。数据库损坏时**不要**等它自己好，尽快从最新的备份恢复 |
+| 3 | 上传失败（网络、密钥、存储桶），这次没有备份；过期备份照常删除，最新的一份保留 | 看日志里存储桶返回的错误；网络问题通常下次就好 |
+| 4 | 备份已上传，但没能删掉 30 天前的备份 | 通常是令牌没有删除权限，改成「对象读和写」；下次备份会接着删 |
+| 5 | 后端容器没有运行，或无法运行备份命令（没有 docker 的权限、找不到 flock 等，原因在日志里） | 容器没有运行时 `docker compose -f docker-compose.prod.yml up -d` |
+| 6 | 上一次备份还没结束，这次没有运行 | 不用管 |
+
+日志每天只增加几行，不用轮转。
+
+### 心跳
+
+备份停了（cron 没跑、服务器整台没了）脚本自己没法告诉你。配上 `EIDOLON_BACKUP_PING_URL` 后，每次备份**完全成功**（退出码 0）就访问一次这个地址；在 [healthchecks.io](https://healthchecks.io/) 之类的服务建一个每天一次、宽限几小时的检查，地址填进去，超时没收到就会发邮件提醒你。访问失败只在日志里记一条「注意」，不影响退出码。
+
+### 30 天和删除用户
+
+用户删除自己的数据时，线上数据库里立刻彻底删除；已经做好的备份里的副本，要等这些备份过期才消失，最多 30 天（隐私政策和删除确认里写明了这一点）。这个期限靠每天的备份来执行：cron 停了，或者服务器整台没了，过期的备份就不会再被删，要你自己去存储桶里删掉 30 天前的。
+
+## 从备份恢复
+
+默认用**最新的一份**。回滚到更早的备份，会让这段时间里删除了数据的用户重新出现（他们的对话和记忆会回来），尽量不要这样做；不得已时，恢复后在用户反馈里留意。
+
+1. **下载**：在存储桶里（R2 在网页上就能下载）找到最新的 `eidolon-<UTC 时间>.db.gz.age`，下载到**你自己的电脑上**。
+2. **解密、解压**（私钥只在你的电脑上用）：
+
+   ```sh
+   age -d -i eidolon-backup.key eidolon-20261003T034300Z.db.gz.age | gunzip > eidolon.db
+   sqlite3 eidolon.db 'PRAGMA integrity_check; SELECT count(*) FROM users;'   # 应输出 ok 和用户数
+   ```
+
+3. **传到服务器**，例如 `scp eidolon.db 服务器:/tmp/eidolon.db`。
+4. **停后端，替换卷里的数据库**，删掉旧的 `-wal`、`-shm`（不删的话，旧的日志会被当成新数据库的一部分）：
+
+   ```sh
+   docker compose -f docker-compose.prod.yml stop backend
+   docker compose -f docker-compose.prod.yml run --rm --no-deps -v /tmp/eidolon.db:/restore.db:ro      --entrypoint sh backend -c 'rm -f /data/eidolon.db-wal /data/eidolon.db-shm && cp /restore.db /data/eidolon.db'
+   docker compose -f docker-compose.prod.yml start backend
+   rm /tmp/eidolon.db
+   ```
+
+   换了一台新服务器时，先照「部署」把 `.env`（包括原来的 `EIDOLON_SECRET_KEY`）、`characters/` 准备好，`up -d` 一次让卷建出来，再做这一步。
+5. **确认**：登录网站，看对话和记忆都在；`docker compose -f docker-compose.prod.yml exec backend eidolon user list` 能列出用户。
+
+建议第一次配好备份后就在本地的 compose（`docker-compose.yml`）上演练一次：步骤一样，只是把 `-f docker-compose.prod.yml` 去掉。
 
 ## 排障
 

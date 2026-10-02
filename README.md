@@ -46,7 +46,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 | 🔌 **模型可自由替换** | 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 三种接口，也可接任意兼容的第三方服务 |
 | 🧩 **向量化服务二选一** | 部署时在硅基流动 Qwen3-Embedding 与 Google Gemini Embedding 2 之间选择，换了之后一条命令用库里的原文重新向量化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **人设初稿生成** | 由后台模型读完角色的全部剧情，写出人设初稿，再人工校对 |
-| 👥 **对公众开放** | 用 Google 或 GitHub 登录，按用户限流、记忆互相隔离；用户可以绑定两种登录方式，也可以彻底删除自己的全部数据 |
+| 👥 **对公众开放** | 用 Google 或 GitHub 登录，按用户限流、记忆互相隔离；用户可以绑定两种登录方式，也可以彻底删除自己的全部数据；数据库每天加密备份到私有存储桶，保留 30 天（[ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)） |
 | 🔑 **自带密钥** | 用户可以填自己的 LLM、Fish Audio、语音识别（Soniox 或阿里云百炼）密钥，用自己的额度，不计入限额 |
 | 🚀 **一键部署** | 自带 Caddy（自动 HTTPS）+ coturn（TURN 中继）的生产配置 |
 
@@ -415,7 +415,7 @@ flowchart LR
 - 第一次登录后要先同意隐私政策和使用条款、声明年满 13 岁，之后才能使用。没登录的访客只能看到登录页、隐私政策和使用条款。
 - 用户可以在设置页绑定另一种登录方式，这样用哪个登录看到的都是同一份记忆；邮箱相同的两个身份不会自动合并，已经属于别人的身份不能再绑定，最后一种登录方式不能解绑。
 - 登录状态保存在后端的会话里，浏览器通过 httpOnly cookie 保持登录，30 天内只要在用就不用重新登录。设置页可以退出当前设备，也可以退出所有设备。
-- 设置页的「删除我的全部数据」会在二次确认后彻底删除这位用户的记忆、对话、制作人档案、登录方式、自带密钥、会话和用量记录，并在所有设备上退出登录；之后用同一个身份登录会是一位全新的用户。
+- 设置页的「删除我的全部数据」会在二次确认后彻底删除这位用户的记忆、对话、制作人档案、登录方式、自带密钥、会话和用量记录，并在所有设备上退出登录；之后用同一个身份登录会是一位全新的用户。每天的加密备份里的副本要等备份过期才清除，最多 30 天（[ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)）。
 - 本地开发和测试时，`EIDOLON_DEV_LOGIN=1` 让登录页多出「开发登录」，按名字直接登录。配置了 `EIDOLON_DOMAIN` 的公开部署检测到这个开关会拒绝启动。
 
 管理员在服务器上用命令行管理用户：
@@ -475,7 +475,9 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-域名、防火墙端口、剧情库的每周自动同步、立绘素材、升级、备份和排障的完整步骤见 [`docs/deploy.md`](docs/deploy.md)。
+数据库由 `deploy/db-backup.sh` 每天备份一次：压缩、用 age 公钥加密后上传到一个私有的 S3 兼容存储桶（推荐 Cloudflare R2，不要和公开的立绘桶共用），保留 30 天；私钥由你离线保存。
+
+域名、防火墙端口、剧情库的每周自动同步、立绘素材、升级、备份与恢复和排障的完整步骤见 [`docs/deploy.md`](docs/deploy.md)。
 
 ## 💻 开发
 
@@ -543,6 +545,7 @@ eidolon-sc/
 │   │   ├── stand_fetch.py    #   从 ShinyColorsDB 拉取立绘（eidolon stand fetch）
 │   │   ├── stand_outfits.py  #   每位角色的衣装清单（eidolon stand outfits）
 │   │   ├── stand_upload.py   #   把立绘素材上传到对象存储（eidolon stand upload）
+│   │   ├── backup.py         #   数据库每天加密备份到私有存储桶（eidolon backup）
 │   │   ├── sheet_draft.py    #   人设初稿生成
 │   │   └── llm/              #   三种模型接口的适配
 │   ├── eval/                 #   重排校准数据集（只含问题与标注，不含剧情原文）
@@ -550,7 +553,7 @@ eidolon-sc/
 ├── frontend/                 # Next.js + Astryx 前端
 ├── characters/               # 角色配置、人设、资料、头像、通话层背景图
 ├── corpus/                   # 剧情数据、镜像缓存、立绘整理目录（不进仓库）
-├── deploy/                   # Caddyfile、剧情库与立绘的同步脚本、活动名对照表示例
+├── deploy/                   # Caddyfile、剧情库与立绘的同步脚本、数据库备份脚本、活动名对照表示例
 ├── scripts/                  # 配置 OAuth 应用等的向导（setup-oauth.sh）
 ├── docs/
 │   ├── adr/                  # 架构决策记录
