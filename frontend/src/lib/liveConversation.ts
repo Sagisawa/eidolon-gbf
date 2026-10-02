@@ -78,6 +78,10 @@ export type Snapshot = {
   draft: string;
   /** Show the character's replies as text only (CONTEXT.md「只看文字」). */
   textOnly: boolean;
+  /** A call can be dialed now: `startCall` would. */
+  canDial: boolean;
+  /** A new conversation can be started now: `startNewConversation` would. */
+  canStartNew: boolean;
   /** What went wrong in the conversation open: a turn failed, a new conversation could not
    * be started. Why it could not be opened at all is in `conversation`. */
   failure: Failure | null;
@@ -86,7 +90,7 @@ export type Snapshot = {
   stand: StandDirection;
 };
 
-type State = Omit<Snapshot, "entries" | "line" | "stand"> & {
+type State = Omit<Snapshot, "entries" | "line" | "stand" | "canDial" | "canStartNew"> & {
   log: ConversationLog;
   /** How many entries there were when the call connected: her lines from there on are its. */
   callFrom: number;
@@ -110,10 +114,28 @@ const IDLE: Omit<State, "log" | "callFrom" | "stand"> = {
 };
 
 /** What the page shows before a conversation is open. */
-export const NOT_OPEN: Snapshot = { ...IDLE, entries: [], line: null, stand: CALM };
+export const NOT_OPEN: Snapshot = {
+  ...IDLE,
+  entries: [],
+  line: null,
+  stand: CALM,
+  canDial: false,
+  canStartNew: false,
+};
 
-/** What the conversation needs from outside: the backend, this device's preferences, and
- * the conversation list beside the page. */
+/** Her voice in a call (`CharacterVoice`): plain or over a phone line, silent in text only. */
+export type Voice = {
+  /** A call is being dialed, inside the user's click: over the phone line or not. */
+  dial: (phoneTexture: boolean) => void;
+  /** Her voice has arrived in the call under way. */
+  play: (track: MediaStreamTrack) => void;
+  setTextOnly: (textOnly: boolean) => void;
+  /** The page is left. */
+  dispose: () => void;
+};
+
+/** What the conversation needs from outside: the backend, this device's preferences, her
+ * voice, and the conversation list beside the page. */
 export type Ports = {
   /** Her conversations, newest first. */
   listConversations: (characterId: string) => Promise<Conversation[]>;
@@ -132,8 +154,7 @@ export type Ports = {
     load: () => CallPreferences;
     save: (change: Partial<CallPreferences>) => CallPreferences;
   };
-  /** The character's speech in a call, to play. */
-  onCharacterAudio: (track: MediaStreamTrack) => void;
+  voice: Voice;
   /** The time now, in milliseconds; `Date.now` unless a test stops the clock. */
   now?: () => number;
 };
@@ -157,6 +178,7 @@ export class LiveConversation {
     private readonly ports: Ports,
   ) {
     const textOnly = ports.preferences.load().muted;
+    ports.voice.setTextOnly(textOnly);
     this.state = { ...IDLE, log: emptyLog, callFrom: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
@@ -170,21 +192,22 @@ export class LiveConversation {
     return () => this.listeners.delete(listener);
   };
 
-  /** The page is left: hang up the call, even one still dialing. A text turn under way
-   * is not stopped; its reply is still recorded, just no longer shown. A conversation
-   * still opening is not shown either. */
+  /** The page is left: hang up the call, even one still dialing, and stop her voice. A
+   * text turn under way is not stopped; its reply is still recorded, just no longer shown.
+   * A conversation still opening is not shown either. */
   dispose(): void {
     this.disposed = true;
     this.attempt = null;
     this.call?.hangUp().catch(() => {});
     this.call = null;
+    this.ports.voice.dispose();
   }
 
   /** Leave this conversation for a new, empty one, with an empty input box. Not over a
    * text turn or a call. It is opening until the new one is started; if that fails, this
    * one stays open. */
   async startNewConversation(): Promise<void> {
-    if (!this.openConversationId() || this.state.busy || isLive(this.state.call)) return;
+    if (!isFree(this.state)) return;
     this.update({ conversation: { status: "opening" }, failure: null });
     try {
       const conversation = await this.createConversation();
@@ -241,17 +264,23 @@ export class LiveConversation {
 
   /**
    * Call the character, from idle or from the end of the last call. Not over a text turn.
+   * Call it inside the user's click, before anything is awaited: her voice is told here,
+   * and only then may it start its audio context (browsers keep one started outside a
+   * user gesture suspended).
    *
    * This dialing is the call under way until it ends, however it ends: hung up, dropped
    * (with or without the backend saying why), failed to connect, or the page left. Once it
    * is not, the call's messages are too late and change nothing: not the log, the failure,
-   * why the call ended, what is being heard, the microphone, her stand, or the list. That
-   * rule is kept here alone, in the gate every handler given to the call goes through (her
-   * voice aside, for now); the handlers behind it do not ask again.
+   * why the call ended, what is being heard, the microphone, her stand, her voice, or the
+   * list. That rule is kept here alone, in the gate every handler given to the call goes
+   * through; the handlers behind it do not ask again.
    */
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
-    if (!conversationId || this.state.busy || isLive(this.state.call)) return;
+    if (!conversationId || !isFree(this.state)) return;
+    // Read once: the phone texture her voice is told is the one the call is given.
+    const preferences = this.ports.preferences.load();
+    this.ports.voice.dial(preferences.phoneTexture);
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
@@ -265,11 +294,10 @@ export class LiveConversation {
       };
     let started: Call;
     try {
-      started = await this.ports.startCall(conversationId, this.ports.preferences.load(), {
+      started = await this.ports.startCall(conversationId, preferences, {
         onEvent: gated((event) => this.onCallEvent(event)),
         onHearing: gated((hearing) => this.update({ hearing })),
-        // Not gated yet: her voice goes straight to be played.
-        onCharacterAudio: this.ports.onCharacterAudio,
+        onCharacterAudio: gated((track) => this.ports.voice.play(track)),
         onDropped: gated(() => {
           // Dropped while dialing: startCall fails, and that says why.
           if (this.state.call.phase === "dialing") return;
@@ -353,10 +381,11 @@ export class LiveConversation {
     if (this.call === call) this.update(micInUse(mic));
   }
 
-  /** Text only: kept in the preferences, and told to the call under way. */
+  /** Text only: kept in the preferences, and told to her voice and the call under way. */
   toggleTextOnly(): void {
     const textOnly = !this.state.textOnly;
     this.ports.preferences.save({ muted: textOnly });
+    this.ports.voice.setTextOnly(textOnly);
     this.call?.setTextOnly(textOnly);
     this.update({ textOnly, stand: this.directed({ type: "text-only", textOnly }) });
   }
@@ -486,12 +515,27 @@ function withCallScreenRules(before: State, next: State): State {
   return { ...next, collapsed, pickingMic };
 }
 
+/** Her conversation is open with nothing under way in it, no text turn and no call: a
+ * call can be dialed, or a new conversation started (`canDial`, `canStartNew`). */
+function isFree(state: State): boolean {
+  return state.conversation.status === "open" && !state.busy && !isLive(state.call);
+}
+
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
 
-function toSnapshot({ log, callFrom, stand, ...rest }: State): Snapshot {
-  return { ...rest, entries: log.entries, line: latestLine(log.entries.slice(callFrom)), stand: directionOf(stand) };
+function toSnapshot(state: State): Snapshot {
+  const { log, callFrom, stand, ...rest } = state;
+  const free = isFree(state);
+  return {
+    ...rest,
+    entries: log.entries,
+    line: latestLine(log.entries.slice(callFrom)),
+    stand: directionOf(stand),
+    canDial: free,
+    canStartNew: free,
+  };
 }
 
 /** The last line she has begun to say among these entries. */

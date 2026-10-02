@@ -31,6 +31,22 @@ class FakeCall implements Call {
   hangUp = async () => void this.hangUps++;
 }
 
+/** Her voice: records what the conversation tells it. */
+class FakeVoice {
+  /** The phone texture each dialing asked for. */
+  dials: boolean[] = [];
+  played: MediaStreamTrack[] = [];
+  textOnly: boolean[] = [];
+  disposed = 0;
+  dial = (phoneTexture: boolean) => void this.dials.push(phoneTexture);
+  play = (track: MediaStreamTrack) => void this.played.push(track);
+  setTextOnly = (textOnly: boolean) => void this.textOnly.push(textOnly);
+  dispose = () => void this.disposed++;
+}
+
+/** Her voice as a call hands it over. */
+const herTrack = { kind: "audio" } as MediaStreamTrack;
+
 /** One `startCall`: it stays dialing until the test says how it ends. */
 type Attempt = {
   preferences: CallPreferences;
@@ -51,6 +67,8 @@ type Options = {
   /** The messages recorded in "c1". */
   messages?: Message[];
   turns?: (text: string) => AsyncIterable<TurnEvent>;
+  /** The preferences kept on this device, where they are not the defaults. */
+  preferences?: Partial<CallPreferences>;
   /** Ports a test replaces, to make opening fail or wait. */
   ports?: Partial<Ports>;
 };
@@ -64,7 +82,16 @@ function opening(options: Options = {}) {
   /** Which conversation each call and text turn went to. */
   const sentTo: string[] = [];
   let listChanged = 0;
-  let stored: CallPreferences = { micId: "", quality: "standard", muted: false, phoneTexture: false };
+  /** What each reading of the preferences gave. */
+  const loaded: CallPreferences[] = [];
+  let stored: CallPreferences = {
+    micId: "",
+    quality: "standard",
+    muted: false,
+    phoneTexture: false,
+    ...options.preferences,
+  };
+  const voice = new FakeVoice();
   const ports: Ports = {
     listConversations: async () => options.conversations ?? [record("c1")],
     createConversation: async () => {
@@ -83,10 +110,14 @@ function opening(options: Options = {}) {
       return (options.turns ?? noTurns)(text);
     },
     preferences: {
-      load: () => ({ ...stored }),
+      load: () => {
+        const preferences = { ...stored };
+        loaded.push(preferences);
+        return preferences;
+      },
       save: (change) => (stored = { ...stored, ...change }),
     },
-    onCharacterAudio: () => {},
+    voice,
     now: () => NOW,
     ...options.ports,
   };
@@ -98,6 +129,8 @@ function opening(options: Options = {}) {
     attempts,
     created,
     sentTo,
+    voice,
+    loaded,
     preferences: () => stored,
     published: () => published,
     listChanged: () => listChanged,
@@ -463,12 +496,13 @@ describe("LiveConversation: a call that is over", () => {
     ["the microphone lost", (h) => h.onMicLost(null)],
     ["the call dropping", (h) => h.onDropped()],
     ["an event only her stand follows", (h) => h.onEvent({ type: "bot-started-speaking" })],
+    ["her voice", (h) => h.onCharacterAudio(herTrack)],
   ];
 
   it.each(endings.flatMap(([ending, end]) => late.map(([what, send]) => [ending, what, end, send] as const)))(
     "once %s, changes nothing by %s",
     async (_ending, _what, end, send) => {
-      const { live, attempts, listChanged } = await conversation({ messages: history });
+      const { live, attempts, listChanged, voice } = await conversation({ messages: history });
       await connected(live, attempts);
       const { handlers } = attempts[0];
       handlers.onEvent({ type: "user", text: "你好" });
@@ -476,11 +510,13 @@ describe("LiveConversation: a call that is over", () => {
       await end(live, attempts);
       const before = live.snapshot();
       const told = listChanged();
+      const played = voice.played.length;
 
       send(handlers);
 
       expect(live.snapshot()).toEqual(before);
       expect(listChanged()).toBe(told);
+      expect(voice.played).toHaveLength(played);
     },
   );
 });
@@ -677,6 +713,145 @@ describe("LiveConversation: text only", () => {
     void live.startCall();
 
     expect(attempts[0].preferences.muted).toBe(true);
+  });
+});
+
+/** A promise that never settles: what the test leaves waiting. */
+function never<T>(): Promise<T> {
+  return new Promise(() => {});
+}
+
+/** Where the conversation can be, and whether a call can be dialed and a new conversation
+ * started there (`canDial`, `canStartNew`). */
+const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
+  ["her conversation is opening", async () => opening({ ports: { listConversations: never } }), false],
+  ["it is open", () => conversation(), true],
+  [
+    "a text turn is under way",
+    async () => {
+      const opened = await conversation({
+        turns: async function* () {
+          yield { type: "user", text: "你好" };
+          await never();
+        },
+      });
+      opened.live.setDraft("你好");
+      void opened.live.submit();
+      await settled();
+      return opened;
+    },
+    false,
+  ],
+  [
+    "a new conversation is being started",
+    async () => {
+      const opened = await conversation({ ports: { createConversation: never } });
+      void opened.live.startNewConversation();
+      return opened;
+    },
+    false,
+  ],
+  [
+    "a call is dialing",
+    async () => {
+      const opened = await conversation();
+      void opened.live.startCall();
+      return opened;
+    },
+    false,
+  ],
+  [
+    "a call is connected",
+    async () => {
+      const opened = await conversation();
+      await connected(opened.live, opened.attempts);
+      return opened;
+    },
+    false,
+  ],
+  [
+    "the last call has ended",
+    async () => {
+      const opened = await conversation();
+      await failing(opened.live, opened.attempts, new Error("无法接通，请稍后再试"));
+      return opened;
+    },
+    true,
+  ],
+  [
+    "it could not be opened",
+    () =>
+      conversation({
+        ports: {
+          listConversations: async () => {
+            throw new Error("Failed to fetch");
+          },
+        },
+      }),
+    false,
+  ],
+];
+
+describe("LiveConversation: what can be done", () => {
+  it.each(states)("when %s, says whether a call can be dialed and a new conversation started", async (_, at, can) => {
+    const { live } = await at();
+
+    expect(live.snapshot()).toMatchObject({ canDial: can, canStartNew: can });
+  });
+});
+
+describe("LiveConversation: her voice", () => {
+  it("is told the phone texture as the call is dialed, still inside the user's click", async () => {
+    const { live, attempts, voice, loaded } = await conversation({ preferences: { phoneTexture: true } });
+    const read = loaded.length;
+
+    void live.startCall();
+
+    // Nothing awaited yet: the audio context may still be resumed.
+    expect(voice.dials).toEqual([true]);
+    expect(loaded).toHaveLength(read + 1);
+    expect(attempts[0].preferences).toBe(loaded.at(-1));
+  });
+
+  it.each(states.filter(([, , can]) => !can))("is left alone when %s and the user dials", async (_, at) => {
+    const { live, voice } = await at();
+    const dials = voice.dials.length;
+
+    await live.startCall();
+
+    expect(voice.dials).toHaveLength(dials);
+  });
+
+  it("plays her voice in the call under way", async () => {
+    const { live, attempts, voice } = await conversation();
+    await connected(live, attempts);
+
+    attempts[0].handlers.onCharacterAudio(herTrack);
+
+    expect(voice.played).toEqual([herTrack]);
+  });
+
+  it("is silent from the start when text only was on already", () => {
+    const { voice } = opening({ preferences: { muted: true } });
+
+    expect(voice.textOnly).toEqual([true]);
+  });
+
+  it("is told at once when text only is switched", () => {
+    const { live, voice } = opening();
+
+    live.toggleTextOnly();
+    expect(voice.textOnly).toEqual([false, true]);
+    live.toggleTextOnly();
+    expect(voice.textOnly).toEqual([false, true, false]);
+  });
+
+  it("stops when the page is left", async () => {
+    const { live, voice } = await conversation();
+
+    live.dispose();
+
+    expect(voice.disposed).toBe(1);
   });
 });
 
