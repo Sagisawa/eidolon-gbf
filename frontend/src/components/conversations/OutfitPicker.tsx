@@ -231,7 +231,10 @@ const stage: CSSProperties = { borderRadius: "var(--radius-container)", backgrou
 const previewHeightWide = "calc(var(--spacing-12) * 8)";
 const previewHeightNarrow = "calc(var(--spacing-12) * 4.5)";
 
-/** 缩略图是一个按钮，去掉按钮自带的样式，透出卡片的底。 */
+/**
+ * 缩略图是一个按钮，去掉按钮自带的样式，透出卡片的底。按钮 4:5，铺满卡片宽度，还没下载到时也占着同样的位置，
+ * 大小不看里面的图（`contain: strict`）。
+ */
 const thumbnailButton: CSSProperties = {
   border: 0,
   padding: 0,
@@ -239,10 +242,17 @@ const thumbnailButton: CSSProperties = {
   overflow: "hidden",
   borderRadius: "var(--radius-inner)",
   background: "transparent",
+  aspectRatio: "4 / 5",
+  position: "relative",
+  contain: "strict",
 };
 
-/** 缩略图 4:5，铺满卡片宽度；还没下载到时也占着同样的位置。 */
-const thumbnail: CSSProperties = { display: "block", width: "100%", aspectRatio: "4 / 5", objectFit: "cover" };
+/**
+ * 缩略图绝对定位铺满按钮。宽度是百分比的图载入时，浏览器会把它往上的每一层都标成要重排，
+ * 留在弹性布局里就是一路重排到整个面板（60 多张卡，一次约 5ms），滚动中缩略图陆续载入，高刷新率的屏幕上就掉帧；
+ * 脱离弹性布局之后只重排按钮里面。
+ */
+const thumbnail: CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" };
 
 /** 卡名固定占两行高，所有卡片一样高。 */
 const twoLines: CSSProperties = { height: "calc(var(--text-supporting-size) * var(--text-supporting-leading) * 2)" };
