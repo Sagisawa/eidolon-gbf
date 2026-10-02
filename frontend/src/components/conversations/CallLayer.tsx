@@ -152,7 +152,8 @@ export function CallLayer(props: Props) {
                     value={props.textOnly}
                     onChange={props.onToggleTextOnly}
                     size="sm"
-                    style={isFullScreen ? { ...touchTarget, justifyContent: "center" } : undefined}
+                    // Switch 的外层是块元素，撑到 44px 高后要自己变成 flex，开关才落在中间，和收起键、标题对齐
+                    style={isFullScreen ? { ...touchTarget, display: "flex", alignItems: "center" } : undefined}
                   />
                 </HStack>
               )}
