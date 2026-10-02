@@ -1,6 +1,6 @@
 # 架构加深（第四轮）：数据库 module，一种连接、一处真删
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准，本轮不改词表。设计词汇（module、interface、seam、adapter、depth、locality）取自 `codebase-design` skill。这是 2026-10-02 架构审查里的候选 4，经 grilling 定下设计。只改 `backend/`。它把 `.scratch/memory-secure-delete/issues/01-memories-secure-delete.md` 一并做掉。
 

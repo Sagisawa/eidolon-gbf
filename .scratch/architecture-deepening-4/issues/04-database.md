@@ -10,7 +10,7 @@
 
 **Blocked by:** None (can start immediately)。只改 `backend/`。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-02 grilling）
 
@@ -51,7 +51,7 @@
 - [x] `Store` 里不再有 `_USER_DATA`、`memories`、`memory_vectors`、`usage` 这些表名；五个 module 里不再自己设 pragma、不再自己 `mkdir`。
 - [x] `backend/` 下 `pytest` 全部通过，`pyright` 0 errors。
 - [x] 完成后 memory-secure-delete ticket 01 追加 Comment 指向这张，标为 resolved。
-- [ ] **人工验收（留给用户）**：本地起后端和构建版前端，各项照常；用户验过之后再标 `resolved`。
+- [x] **人工验收（留给用户）**：本地起后端和构建版前端，各项照常；用户验过之后再标 `resolved`。
   - 删一条记忆、清空记忆：记忆页照常更新；
   - 删号：退出登录，用同一身份再登录是一个新用户，记忆、对话、用量都没有了；
   - 通话、文字回合、剧情检索照常（各连接的 pragma 变了，timeout 也变了）。
@@ -78,4 +78,4 @@
   - review 提到 `wal_checkpoint(TRUNCATE)` 的返回值没有检查，有读者时它可能返回 busy 而不抛异常。这和以前的行为一样，spec 也没有要求，所以没改；
   - `USER_DATA` 仍是 `(表名, where)` 元组，原样搬过来的。
 - `backend/` 下 `pytest` 859 条全部通过，`pyright` 0 errors。全量跑了三次：第一次超过 10 分钟还没结束，被我停掉了，输出被管道里的 grep 吞掉，看不出停在哪一条；后两次都在 2 分 30 秒左右跑完，最慢的是 `test_fish_segments`（约 6.7 秒），和数据库无关。
-- 状态留在 ready-for-agent，等用户人工验收后再标 resolved。
+- 用户人工验收通过（2026-10-02），标为 resolved。
