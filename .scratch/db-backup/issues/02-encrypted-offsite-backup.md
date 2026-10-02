@@ -4,7 +4,7 @@
 
 **Blocked by:** 无
 
-**Status:** ready-for-human
+**Status:** done
 
 ### `eidolon backup`
 
@@ -28,8 +28,16 @@
 
 ### 人工验收
 
-- [ ] 用真实的 R2 存储桶跑一次 `deploy/db-backup.sh`，桶里出现备份；在本机用私钥解密、解压，用 `sqlite3` 打开能看到用户和剧情；照 deploy.md 恢复到本地的 compose 一次
+- [x] 用真实的 R2 存储桶跑一次 `deploy/db-backup.sh`，桶里出现备份；在本机用私钥解密、解压，用 `sqlite3` 打开能看到用户和剧情；照 deploy.md 恢复到本地的 compose 一次
 
 ## Comments
 
 **2026-10-03 实现完成**（人工验收一项留给部署者）：加密用 pyrage（rage 的 Python 绑定）：有 linux amd64/arm64 和 Windows 的 abi3 wheel，镜像里不用另装东西，能一块一块地加密文件，产物用 `age` 或 `rage` 都能解密；不手写 age 格式。过期判断按对象名里的 UTC 时间戳（`eidolon-YYYYMMDDTHHMMSSZ.db.gz.age`），名字不符的对象不动。导出失败时过期备份也照删；心跳只在退出码 0 时访问。脚本的退出码：0–4 同 `eidolon backup`，5 后端没在运行，6 上一次还没结束。
+
+**2026-10-03 人工验收**（部署者配合，Claude 操作）：
+- 用 wrangler 建了私有的 R2 存储桶 `eidolon-backups`（r2.dev 关闭、没有自定义域名）；令牌在网页上建，只给这一个桶「对象读和写」。age 密钥对用 pyrage 生成，格式和 age-keygen 一样，私钥只在部署者电脑上。
+- 本机对真实的 R2：备份上传成功（35.1 MB）；用 wrangler 另行下载、私钥解密、解压后完整性检查 ok，15 张表的行数和原库一致；放进一份 2026-08-01 的假旧备份，下一次备份把它删了，新的保留。
+- 服务器（切到 feat/db-backup，重建前后端）：`deploy/db-backup.sh` 以 0 结束（35.4 MB，86 秒），日志格式正确；下载解密后和线上实时数据一致（16 位用户、67 段对话、700 条消息、45 条记忆、7967 段剧情）。crontab 装了每天 3:43（CST），另加一条临时任务确认 cron 环境下也以 0 结束，随后删掉。
+- 恢复演练：本机没有 Docker，改在服务器上做。照 deploy.md 第 4 步的命令（删 `-wal`/`-shm`、拷入），恢复进一个临时数据卷，`eidolon user list` 列出 16 位用户，之后删掉临时卷；线上的数据卷没有动。
+- 服务器的 `.env` 用了 `COMPOSE_FILE=docker-compose.prod.yml:docker-compose.server.yml`，crontab 里同样写上；脚本只操作 backend，即使只用默认的 prod.yml 也能运行。
+
