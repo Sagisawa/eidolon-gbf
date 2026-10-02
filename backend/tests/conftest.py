@@ -10,6 +10,7 @@ import httpx
 import pipecat.utils.string
 import pytest
 
+import eidolon.bailian
 from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.assembly import Backend, build
@@ -23,6 +24,7 @@ from tests.fakes import (
     DEPLOYER_SONIOX_KEY,
     START,
     FakeBackgroundLLM,
+    FakeDashScope,
     FakeIdentityProvider,
     FakeLLM,
     FakeLLMService,
@@ -238,6 +240,17 @@ async def agree_to_terms(client: httpx.AsyncClient) -> None:
 def sign_in_as(client: httpx.AsyncClient, other: httpx.AsyncClient) -> None:
     """Have `client` carry the session `other` carries from now on."""
     client.cookies.set(SESSION_COOKIE, other.cookies[SESSION_COOKIE], domain=COOKIE_DOMAIN)
+
+
+@pytest.fixture
+async def dashscope(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeDashScope]:
+    """Alibaba Cloud Model Studio's speech recognition, faked on localhost in both regions,
+    where the backend connects to by default."""
+    fake = FakeDashScope()
+    await fake.start()
+    monkeypatch.setattr(eidolon.bailian, "REGION_URLS", fake.urls)
+    yield fake
+    await fake.aclose()
 
 
 @pytest.fixture

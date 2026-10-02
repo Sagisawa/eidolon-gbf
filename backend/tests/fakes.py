@@ -9,10 +9,14 @@ from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
 import re
 from datetime import UTC, datetime, timedelta
-from typing import get_args
+from typing import cast, get_args
+from http import HTTPStatus
 from urllib.parse import quote, unquote, urlencode
 
 import httpx
+from websockets.asyncio.server import Server, ServerConnection, serve
+from websockets.exceptions import ConnectionClosed
+from websockets.http11 import Request, Response
 from pipecat.frames.frames import (
     Frame,
     ProposedUserStartedSpeakingFrame,
@@ -26,7 +30,8 @@ from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
 from eidolon.characters import Character
-from eidolon.config import LLMSettings
+from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
+from eidolon.config import BailianRegion, LLMSettings, SttKey
 from eidolon.embedding import Document, EmbeddingError
 from eidolon.emotion import Emotion, EmotionAnswer, Nod, SegmentToJudge
 from eidolon.identity import Identity, IdentityError, ProviderName
@@ -183,12 +188,13 @@ DEPLOYER_FISH_KEY = "deployer-fish-key"
 
 
 class FakeSTT(STTService):
-    """Stands in for Soniox in one call, on `api_key`: ignores the microphone and hears
-    what the test says the user said, the way Soniox reports an utterance."""
+    """Stands in for speech recognition in one call, on `key`: ignores the microphone and
+    hears what the test says the user said, the way Soniox reports an utterance."""
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, key: SttKey) -> None:
         super().__init__(ttfs_p99_latency=0.1, settings=STTSettings(model=None, language=None))
-        self.api_key = api_key
+        self.key = key
+        self.api_key = key.api_key
 
     async def run_stt(self, audio: bytes) -> AsyncGenerator[Frame | None, None]:
         yield None
@@ -198,6 +204,10 @@ class FakeSTT(STTService):
         await self.broadcast_frame(ProposedUserStartedSpeakingFrame)
         await self.push_frame(TranscriptionFrame(text, "user", time_now_iso8601(), finalized=True))
         await self.broadcast_frame(ProposedUserStoppedSpeakingFrame)
+
+    async def start_talking(self) -> None:
+        """The user starts saying something, which never comes to any words."""
+        await self.broadcast_frame(ProposedUserStartedSpeakingFrame)
 
     async def break_down(self) -> None:
         """Fail as a rejected API key would: for good."""
@@ -227,23 +237,25 @@ class FakeTTS(TTSService):
 
 
 class FakeSpeech:
-    """Stands in for Soniox and Fish Audio: the speech services of each call started, in
-    order, each with the key it was made with. Set `down` to have the services fail to be
-    made at all. Records the keys tried before saving (`checked`); a key in `rejects`
-    fails its try with that message."""
+    """Stands in for speech recognition and Fish Audio: the speech services of each call
+    started, in order, each with the key it was made with, recognition waiting
+    `follow_on_timeout` for follow-ons (Soniox's, unless set). Set `down` to have the
+    services fail to be made at all. Records the keys tried before saving (`checked`); a
+    key in `rejects` fails its try with that message."""
 
     def __init__(self) -> None:
+        self.follow_on_timeout = SONIOX_FOLLOW_ON_TIMEOUT
         self.stts: list[FakeSTT] = []
         self.ttss: list[FakeTTS] = []
         self.down = False
         self.checked: list[tuple[str, str]] = []
         self.rejects: dict[str, str] = {}
 
-    def stt(self, api_key: str) -> FakeSTT:
+    def stt(self, key: SttKey) -> Hearing:
         if self.down:
             raise RuntimeError("fake speech services are down")
-        self.stts.append(FakeSTT(api_key))
-        return self.stts[-1]
+        self.stts.append(FakeSTT(key))
+        return Hearing(self.stts[-1], self.follow_on_timeout)
 
     def tts(self, api_key: str, voice_id: str, sample_rate: int) -> FakeTTS:
         self.ttss.append(FakeTTS(api_key, voice_id, sample_rate))
@@ -253,6 +265,117 @@ class FakeSpeech:
         self.checked.append((service, api_key))
         if api_key in self.rejects:
             raise OwnKeyRejected(self.rejects[api_key])
+
+
+@dataclass
+class DashScopeTask:
+    """A recognition task DashScope ran: in which region, the `run-task` that started it,
+    each packet of audio it was sent, and whether it was told to finish."""
+
+    region: BailianRegion
+    run_task: dict
+    audio: list[bytes] = field(default_factory=list)
+    finished: bool = False
+
+
+class FakeDashScope:
+    """Stands in for DashScope's realtime speech recognition (阿里云百炼) in both its
+    regions, over a real WebSocket on localhost: a key in `keys` works only in its region,
+    and is refused anywhere else at the handshake (HTTP 401), as DashScope does. A task
+    with a model in `not_enabled` fails before it starts. Once a task starts it is sent the
+    `sentences` given, each as a `result-generated`, and then fails with `failure`
+    (`error_code`, `error_message`), if set; told to finish, it finishes. Set `down` to
+    have every handshake fail (HTTP 503). Records every handshake's region (`handshakes`)
+    and every task started (`tasks`)."""
+
+    def __init__(self) -> None:
+        self.keys: dict[str, BailianRegion] = {}
+        self.not_enabled: set[str] = set()
+        self.sentences: list[dict] = []
+        self.failure: tuple[str, str] | None = None
+        self.down = False
+        self.handshakes: list[BailianRegion] = []
+        self.tasks: list[DashScopeTask] = []
+        self.urls: dict[BailianRegion, str] = {}
+        self._server: Server | None = None
+
+    async def start(self) -> None:
+        self._server = await serve(
+            self._serve, "127.0.0.1", 0, process_request=self._handshake
+        )
+        port = self._server.sockets[0].getsockname()[1]
+        self.urls = {r: f"ws://127.0.0.1:{port}/{r}" for r in get_args(BailianRegion)}
+
+    async def aclose(self) -> None:
+        if self._server is not None:
+            self._server.close()
+            await self._server.wait_closed()
+
+    def _handshake(self, connection: ServerConnection, request: Request) -> Response | None:
+        region = _region(request.path)
+        self.handshakes.append(region)
+        if self.down:
+            return connection.respond(HTTPStatus.SERVICE_UNAVAILABLE, "Service Unavailable\n")
+        key = (request.headers.get("Authorization") or "").removeprefix("bearer ")
+        if self.keys.get(key) != region:
+            return connection.respond(HTTPStatus.UNAUTHORIZED, "Unauthorized\n")
+        return None
+
+    async def _serve(self, connection: ServerConnection) -> None:
+        assert connection.request is not None
+        region = _region(connection.request.path)
+        task: DashScopeTask | None = None
+
+        async def send(event: str, payload: dict | None = None, **header: str) -> None:
+            assert task is not None
+            task_id = task.run_task["header"]["task_id"]
+            message = {
+                "header": {"task_id": task_id, "event": event, "attributes": {}, **header},
+                "payload": payload or {},
+            }
+            await connection.send(json.dumps(message, ensure_ascii=False))
+
+        try:
+            async for message in connection:
+                if isinstance(message, bytes):
+                    assert task is not None
+                    task.audio.append(message)
+                    continue
+                request = json.loads(message)
+                action = request["header"]["action"]
+                if action == "run-task":
+                    task = DashScopeTask(region, request)
+                    if request["payload"]["model"] in self.not_enabled:
+                        await send(
+                            "task-failed", error_code="ModelNotFound",
+                            error_message="Model not found (or not enabled)",
+                        )
+                        return
+                    self.tasks.append(task)
+                    await send("task-started")
+                    for sentence in self.sentences:
+                        await send("result-generated", {"output": {"sentence": sentence}})
+                    if self.failure is not None:
+                        code, why = self.failure
+                        await send("task-failed", error_code=code, error_message=why)
+                        return
+                elif action == "finish-task":
+                    assert task is not None
+                    task.finished = True
+                    await send("task-finished", {"output": {}})
+                    return
+        except ConnectionClosed:
+            pass
+
+
+def _region(path: str) -> BailianRegion:
+    """The region a fake DashScope URL is of."""
+    return cast(BailianRegion, path.strip("/"))
+
+
+def sentence(text: str, end: bool = False, **fields: object) -> dict:
+    """A sentence of DashScope's `result-generated`, as far as the recognition has heard it."""
+    return {"sentence_id": 1, "text": text, "sentence_end": end, "words": []} | fields
 
 
 class FakeIdentityProvider:

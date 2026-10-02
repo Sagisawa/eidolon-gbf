@@ -21,6 +21,31 @@ class IceServer(TypedDict, total=False):
 DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
 """Fish Audio's free-tier model: it draws on no API credit, unlike the paid ones."""
 
+SttProvider = Literal["soniox", "bailian"]
+"""The speech recognition services: Soniox, or Alibaba Cloud Model Studio (阿里云百炼)."""
+
+STT_PROVIDERS: tuple[SttProvider, ...] = get_args(SttProvider)
+
+BailianRegion = Literal["beijing", "singapore"]
+"""Where a DashScope key works: each region's keys are refused in the other."""
+
+DEFAULT_BAILIAN_STT_MODEL = "qwen-audio-3.1-asr-flash-streaming"
+BAILIAN_STT_MODELS = (DEFAULT_BAILIAN_STT_MODEL,)
+"""The models Alibaba Cloud Model Studio may recognize speech with: those that take turns
+as the call needs (ticket bailian-stt 01). The 3.0 model and fun-asr-realtime speak the
+same protocol, but without `vad_model` a cough comes out as an empty sentence, or as 「咳咳。」."""
+
+
+@dataclass(frozen=True)
+class SttKey:
+    """A key for speech recognition, and the service it is for; a DashScope key's region,
+    if known (else it is found on each call, Beijing first)."""
+
+    provider: SttProvider
+    api_key: str
+    region: BailianRegion | None = None
+
+
 DEFAULT_SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 DEFAULT_EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-0.6B"
@@ -116,7 +141,15 @@ class Settings:
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
     turn: "TurnSettings | None" = None
     """A TURN server the browser gets short-lived credentials for, besides `ice_servers`."""
+    stt_provider: SttProvider = "soniox"
+    """Which service hears users who brought no key of their own for it (ADR-0010)."""
     soniox_api_key: str | None = None
+    dashscope_api_key: str | None = None
+    """Alibaba Cloud Model Studio's (阿里云百炼), for speech recognition."""
+    dashscope_region: BailianRegion | None = None
+    """Where `dashscope_api_key` works: found by trying it as the server starts."""
+    bailian_stt_model: str = DEFAULT_BAILIAN_STT_MODEL
+    """What Alibaba Cloud Model Studio recognizes speech with, whoever's key it is on."""
     fish_audio_api_key: str | None = None
     fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
     embedding: "EmbeddingSettings | None" = None
@@ -156,6 +189,15 @@ class Settings:
             )
 
     @property
+    def stt_key(self) -> SttKey | None:
+        """The deployer's key for the speech recognition chosen; None without one."""
+        if self.stt_provider == "bailian":
+            if self.dashscope_api_key is None:
+                return None
+            return SttKey("bailian", self.dashscope_api_key, self.dashscope_region)
+        return None if self.soniox_api_key is None else SttKey("soniox", self.soniox_api_key)
+
+    @property
     def public_origin(self) -> str:
         """Where browsers reach the site: the domain over HTTPS, or the frontend's
         development server."""
@@ -170,7 +212,10 @@ class Settings:
             background_llm=LLMSettings.background_from_env(),
             ice_servers=_ice_servers(os.environ.get("EIDOLON_ICE_SERVERS")),
             turn=TurnSettings.from_env(),
+            stt_provider=_stt_provider(),
             soniox_api_key=os.environ.get("SONIOX_API_KEY") or None,
+            dashscope_api_key=os.environ.get("DASHSCOPE_API_KEY") or None,
+            bailian_stt_model=_bailian_stt_model(),
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
             embedding=EmbeddingSettings.from_env(),
@@ -187,6 +232,25 @@ class Settings:
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
             stand_assets_url=stand_assets_url_from_env(),
         )
+
+
+def _stt_provider() -> SttProvider:
+    provider = os.environ.get("STT_PROVIDER") or "soniox"
+    if provider not in STT_PROVIDERS:
+        raise RuntimeError(
+            f"环境变量 STT_PROVIDER 只能是 {'、'.join(STT_PROVIDERS)}，而不是 {provider}"
+        )
+    return provider  # pyright: ignore[reportReturnType]  # checked above
+
+
+def _bailian_stt_model() -> str:
+    model = os.environ.get("BAILIAN_STT_MODEL") or DEFAULT_BAILIAN_STT_MODEL
+    if model not in BAILIAN_STT_MODELS:
+        raise RuntimeError(
+            f"环境变量 BAILIAN_STT_MODEL 目前只能是 {'、'.join(BAILIAN_STT_MODELS)}，而不是 {model}"
+            "（其他模型听到咳嗽会出空稿，接不住补充和打断）"
+        )
+    return model
 
 
 def database_path_from_env() -> Path:

@@ -18,7 +18,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from eidolon.accounts import Accounts
-from eidolon.call import Calls, SonioxFishSpeech, Speech
+from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import Settings
@@ -188,10 +188,8 @@ def build(
     )
     usage = UsageLimiter(settings.database_path, settings.usage_limits, clock)
     closers.append(usage.close)
-    speech = speech or SonioxFishSpeech(settings.fish_audio_model)
-    deployer = DeployerKeys(
-        chat_llm, background_llm, settings.soniox_api_key, settings.fish_audio_api_key
-    )
+    speech = speech or SpeechServices(settings.fish_audio_model, settings.bailian_stt_model)
+    deployer = DeployerKeys(chat_llm, background_llm, settings.stt_key, settings.fish_audio_api_key)
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, deployer, speech)
     calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns

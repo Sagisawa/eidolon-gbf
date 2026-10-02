@@ -37,7 +37,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from eidolon.config import LLMProtocol, LLMSettings
+from eidolon.config import LLMProtocol, LLMSettings, SttKey
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
 from eidolon.llm.providers import check_chat_llm, open_llm
 from eidolon.store import OwnKeyRecord, Store
@@ -149,7 +149,8 @@ class DeployerKeys:
 
     chat_llm: ChatLLM
     memory_llm: ChatLLM
-    stt: str | None = None
+    stt: SttKey | None = None
+    """For whichever speech recognition the deployer chose (`STT_PROVIDER`)."""
     tts: str | None = None
 
 
@@ -168,7 +169,7 @@ class CallKeys:
     user's limit."""
 
     llms: TurnLLMs
-    stt: str
+    stt: SttKey
     tts: str
     own: frozenset[Service]
     exempt: bool
@@ -204,9 +205,13 @@ class OwnKeys:
     def for_call(self, user_id: str) -> CallKeys:
         """Whose keys the user's next call runs on: each of speech recognition and
         synthesis on their own key if they brought one, else the deployer's; raises
-        CallsUnavailable if there is neither for either."""
+        CallsUnavailable if there is neither for either. A user's own key for speech
+        recognition is Soniox's, whichever the deployer chose."""
         records = self._records(user_id)
-        stt = self._decrypt(records["stt"]) if "stt" in records else self._deployer.stt
+        stt = (
+            SttKey("soniox", self._decrypt(records["stt"])) if "stt" in records
+            else self._deployer.stt
+        )
         tts = self._decrypt(records["tts"]) if "tts" in records else self._deployer.tts
         if not stt or not tts:
             raise CallsUnavailable()

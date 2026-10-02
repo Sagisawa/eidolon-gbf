@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from eidolon.config import SttKey
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.own_keys import (
     CallsUnavailable,
@@ -41,7 +42,7 @@ class Deployment:
         self,
         secret_key: str | None = "test-secret-key",
         *,
-        stt: str | None = DEPLOYER_SONIOX_KEY,
+        stt: SttKey | None = SttKey("soniox", DEPLOYER_SONIOX_KEY),
         tts: str | None = DEPLOYER_FISH_KEY,
     ) -> OwnKeys:
         return OwnKeys(
@@ -125,7 +126,7 @@ async def test_a_call_hears_and_speaks_on_the_users_own_speech_keys_and_the_depl
 
     keys = own_keys.for_call(deployment.user)
 
-    assert (keys.stt, keys.tts) == (DEPLOYER_SONIOX_KEY, MY_FISH)
+    assert (keys.stt, keys.tts) == (SttKey("soniox", DEPLOYER_SONIOX_KEY), MY_FISH)
     assert keys.own == {"tts"}
     assert keys.llms.chat is deployment.chat
     assert keys.llms.memory is deployment.memory
@@ -152,6 +153,18 @@ async def test_turns_on_an_own_llm_and_calls_on_all_three_own_keys_do_not_count(
     assert own_keys.exemptions(deployment.user) == {"turns": turns, "calls": calls}
 
 
+async def test_a_users_own_speech_recognition_key_is_soniox_whichever_the_deployer_chose(
+    deployment: Deployment,
+):
+    dashscope = SttKey("bailian", "deployer-dashscope-key", "beijing")
+    own_keys = deployment.own_keys(stt=dashscope)
+    other = deployment.store.create_user("other").id
+    await bring(own_keys, deployment.user, "stt")
+
+    assert own_keys.for_call(deployment.user).stt == SttKey("soniox", MY_SONIOX)
+    assert own_keys.for_call(other).stt == dashscope
+
+
 async def test_a_user_can_call_on_their_own_key_for_what_the_deployer_has_none_for(
     deployment: Deployment,
 ):
@@ -159,7 +172,7 @@ async def test_a_user_can_call_on_their_own_key_for_what_the_deployer_has_none_f
     without_stt = deployment.own_keys(stt=None)
     without_tts = deployment.own_keys(tts=None)
 
-    assert without_stt.for_call(deployment.user).stt == MY_SONIOX
+    assert without_stt.for_call(deployment.user).stt == SttKey("soniox", MY_SONIOX)
     with pytest.raises(CallsUnavailable):
         without_tts.for_call(deployment.user)
 
@@ -187,5 +200,5 @@ async def test_without_a_secret_key_the_keys_users_brought_are_left_unused_and_a
 
     assert turn.llms.chat is deployment.chat and not turn.exempt
     assert (call.stt, call.tts, call.own, call.exempt) == (
-        DEPLOYER_SONIOX_KEY, DEPLOYER_FISH_KEY, frozenset(), False
+        SttKey("soniox", DEPLOYER_SONIOX_KEY), DEPLOYER_FISH_KEY, frozenset(), False
     )
