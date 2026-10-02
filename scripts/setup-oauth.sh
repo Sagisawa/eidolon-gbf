@@ -266,7 +266,7 @@ if [[ -n "$(_existing EIDOLON_SECRET_KEY || true)" ]]; then
   warn "不要更换它：换了以后，用户已保存的自带密钥都无法解密，要重新填写。"
 elif command -v openssl >/dev/null 2>&1; then
   write_env EIDOLON_SECRET_KEY "$(openssl rand -hex 32)"
-  say "已生成。用户自带的 LLM、Fish Audio、Soniox 密钥用它加密保存。"
+  say "已生成。用户自带的 LLM、语音合成、语音识别密钥用它加密保存。"
   warn "请把 .env 备份好；这个值丢了或换了，已保存的自带密钥都无法解密。"
 else
   warn "找不到 openssl，没有生成。可以在别处运行 openssl rand -hex 32，把结果粘贴进来："

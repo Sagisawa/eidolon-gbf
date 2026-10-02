@@ -28,7 +28,7 @@ from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import InterruptibleTTSService
 from pipecat.tests.utils import SleepFrame, run_test
 
-from eidolon.call import FishTTS, InterruptsFirst, SonioxFishSpeech
+from eidolon.call import FishTTS, InterruptsFirst, SpeechServices
 
 CONNECTION = 0.3
 """How long, in seconds, the fake service takes to connect, and to disconnect."""
@@ -157,6 +157,6 @@ async def test_hanging_up_while_reconnecting_leaves_the_service_disconnected():
 
 
 def test_the_character_speaks_through_fish_audio_stopping_at_once():
-    tts = SonioxFishSpeech("s2.1-pro-free").tts("fish-key", "mano-voice", 16000)
+    tts = SpeechServices("s2.1-pro-free").tts("fish-key", "mano-voice", 16000)
 
     assert isinstance(tts, FishTTS)

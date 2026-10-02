@@ -234,10 +234,15 @@ export type OwnKey = { last4: string };
 
 export type OwnLLM = OwnKey & { base_url: string; model: string; protocol: LLMProtocol };
 
+/** The speech recognition services a user may bring a key for. */
+export type SttProvider = "soniox" | "bailian";
+
+export type OwnSttKey = OwnKey & { provider: SttProvider };
+
 export type OwnKeys = {
   /** Whether the deployment lets users bring their own keys at all. */
   available: boolean;
-  keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnKey };
+  keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnSttKey };
   /** What of the user's use does not count towards the hourly limits. */
   exempt: { turns: boolean; calls: boolean };
   protocols: LLMProtocol[];
@@ -260,13 +265,20 @@ export async function saveOwnLLM(
   );
 }
 
-/** Try the user's own key for speech synthesis ("tts") or recognition ("stt") and keep it. */
-export async function saveOwnSpeechKey(service: "tts" | "stt", apiKey: string): Promise<OwnKey> {
+/**
+ * Try the user's own key for speech synthesis ("tts") or recognition ("stt", by the service
+ * `provider` names) and keep it.
+ */
+export async function saveOwnSpeechKey(
+  service: "tts" | "stt",
+  apiKey: string,
+  provider?: SttProvider,
+): Promise<OwnKey> {
   return json(
     await api(`/api/account/keys/${service}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey }),
+      body: JSON.stringify({ api_key: apiKey, provider }),
     }),
   );
 }

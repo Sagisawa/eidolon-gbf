@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from eidolon.accounts import SignInRefused
 from eidolon.assembly import Backend
-from eidolon.config import LLM_PROTOCOLS, LLMProtocol
+from eidolon.config import LLM_PROTOCOLS, LLMProtocol, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
 from eidolon.own_keys import (
     SERVICES,
@@ -76,6 +76,8 @@ class OwnLLMInput(BaseModel):
 
 class OwnSpeechKeyInput(BaseModel):
     api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+    provider: SttProvider = "soniox"
+    """For speech recognition, the service the key is for."""
 
 
 class Consent(BaseModel):
@@ -262,12 +264,13 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.put("/api/account/keys/{service}")
     async def save_own_speech_key(service: str, body: OwnSpeechKeyInput, user_id: UserId) -> dict:
-        """Try the user's own key for speech synthesis ("tts") or recognition ("stt"),
-        then keep it; 422 with what the service said if the try failed."""
+        """Try the user's own key for speech synthesis ("tts") or recognition ("stt", by
+        the service it is for), then keep it; 422 with what the service said if the try
+        failed."""
         if service not in ("tts", "stt"):
             raise HTTPException(404, "没有这项服务")
         try:
-            await own_keys.save_speech(user_id, service, body.api_key)  # pyright: ignore[reportArgumentType]
+            await own_keys.save_speech(user_id, service, body.api_key, body.provider)  # pyright: ignore[reportArgumentType]
         except OwnKeyRejected as e:
             raise HTTPException(422, f"试调失败，没有保存：{e}") from None
         return own_keys.describe(user_id)[service]  # pyright: ignore[reportArgumentType]

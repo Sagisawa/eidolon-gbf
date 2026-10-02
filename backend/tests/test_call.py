@@ -117,6 +117,23 @@ async def test_a_call_joins_the_conversation_asked_for_muted_as_asked(
     assert [m["text"] for m in res.json()] == ["你好", None]
 
 
+async def test_a_call_waits_for_a_follow_on_as_long_as_its_speech_recognition_needs(
+    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
+):
+    speech.follow_on_timeout = 0.3
+    client = make_client(FakeLLM(["<ja>ほわっ", "</ja><zh>哇</zh>"], REPLY, delay=0.5))
+    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.connect()
+
+    await speech.stts[-1].hear("早上好")
+    await browser.next_server_message("user")
+    await speech.stts[-1].start_talking()  # and never says anything
+
+    async with asyncio.timeout(2):  # well within Soniox's 4 s
+        again = await browser.next_server_message("user")
+    assert again["text"] == "早上好"
+
+
 async def test_a_call_that_never_connects_does_not_count(
     make_client: ClientFactory, one_call_an_hour: Settings, browser: Browser,
     monkeypatch: pytest.MonkeyPatch,

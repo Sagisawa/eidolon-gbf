@@ -6,10 +6,12 @@
 
 `Calls` is all the API sees: it answers the browser's offers, keeps each call to the
 user who placed it, counts calls towards the user's limit, and serves each call until it
-hangs up. Speech recognition and synthesis are the `Speech` port, Soniox and Fish Audio
-in production, on whoever's keys `OwnKeys.for_call` says; a failing own key ends the
-call saying which. Whether a call counts towards the user's limit, and what the browser is
-told when the backend ends it, is `CallOutcome`'s to decide; the call only reports to it.
+hangs up. Speech recognition and synthesis are the `Speech` port, on whoever's keys
+`OwnKeys.for_call` says; a failing own key ends the call saying which. Speech recognition
+is whichever service the key is for, Soniox or Alibaba Cloud Model Studio (阿里云百炼),
+and how long a follow-on may take to be transcribed is that service's. Whether a call
+counts towards the user's limit, and what the browser is told when the backend ends it,
+is `CallOutcome`'s to decide; the call only reports to it.
 Whose turn it is during the call, what is a follow-on and what interrupts the character, is
 likewise `TurnTaking`'s.
 
@@ -79,15 +81,16 @@ from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.utils.types import assert_given
 from pipecat.workers.runner import WorkerRunner
 
+from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
+from eidolon.bailian import BailianCheckFailed, BailianSTTService, find_region
 from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import IceServer, Settings
+from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, IceServer, Settings, SttKey, SttProvider
 from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import ConversationEngine, TurnDone, UserSaid
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
-    SERVICE_LABELS,
     CallKeys,
     CallsUnavailable,
     OwnKeyRejected,
@@ -181,20 +184,35 @@ class IceCandidate:
     sdp_mline_index: int
 
 
+@dataclass(frozen=True)
+class Hearing:
+    """Speech recognition for one call, and how long, in seconds since the user was last
+    heard, a follow-on may take to be transcribed by it; after that it came to nothing (a
+    cough, say) and the turn is replied to again as it was."""
+
+    stt: STTService
+    follow_on_timeout: float
+
+
 class Speech(Protocol):
     """The outside services a call hears and speaks with, on whoever's key is given."""
 
-    def stt(self, api_key: str) -> STTService:
-        """Speech recognition for one call, in Chinese and Japanese."""
+    def stt(self, key: SttKey) -> Hearing:
+        """Speech recognition for one call, in Chinese and Japanese, by the service `key`
+        is for."""
         ...
 
     def tts(self, api_key: str, voice_id: str, sample_rate: int) -> TTSService:
         """Speech synthesis for one call, in the character's voice."""
         ...
 
-    async def check(self, service: Service, api_key: str) -> None:
-        """Raise OwnKeyRejected saying why, unless `api_key` works for `service`
-        ("stt" or "tts")."""
+    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+        """The key as calls are to use it, with the region a DashScope key works in. Raises
+        OwnKeyRejected saying why, unless `api_key` works for `provider`."""
+        ...
+
+    async def check_tts(self, api_key: str) -> None:
+        """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio."""
         ...
 
 
@@ -531,23 +549,37 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
             await websocket.close()
 
 
+SONIOX_FOLLOW_ON_TIMEOUT = 4.0
+"""How long, in seconds, a follow-on may take Soniox to transcribe (see `Hearing`): it
+finalizes what it heard at most 3 s (its longest endpoint delay) after the last word, and
+sends no transcription at all when it heard no words."""
+
+
 @dataclass(frozen=True)
-class SonioxFishSpeech:
-    """Soniox hears the user; Fish Audio speaks as the character."""
+class SpeechServices:
+    """Soniox or Alibaba Cloud Model Studio, whichever the key is for, hears the user, the
+    latter with `bailian_model`, users' own keys too; Fish Audio speaks as the character."""
 
     fish_model: str
+    bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
 
-    def stt(self, api_key: str) -> STTService:
-        # Soniox decides where an utterance ends; the turn processor turns its proposals
-        # into interruptions of the character's voice.
-        return SonioxSTTService(
-            api_key=api_key,
+    def stt(self, key: SttKey) -> Hearing:
+        # Either decides where an utterance starts and ends; the turn processor turns its
+        # proposals into interruptions of the character's voice.
+        if key.provider == "bailian":
+            bailian = BailianSTTService(
+                api_key=key.api_key, model=self.bailian_model, region=key.region
+            )
+            return Hearing(bailian, BAILIAN_FOLLOW_ON_TIMEOUT)
+        soniox = SonioxSTTService(
+            api_key=key.api_key,
             vad_force_turn_endpoint=False,
             settings=SonioxSTTService.Settings(language_hints=[Language.ZH, Language.JA]),
         )
+        return Hearing(soniox, SONIOX_FOLLOW_ON_TIMEOUT)
 
     def tts(self, api_key: str, voice_id: str, sample_rate: int) -> TTSService:
         return FishTTS(
@@ -556,9 +588,26 @@ class SonioxFishSpeech:
             settings=FishAudioTTSService.Settings(voice=voice_id, model=self.fish_model),
         )
 
-    async def check(self, service: Service, api_key: str) -> None:
-        """Asks for something that costs nothing: Soniox's models, Fish Audio's balance."""
-        url = self.SONIOX_MODELS_URL if service == "stt" else self.FISH_CREDIT_URL
+    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+        """Asks Soniox for something that costs nothing, its models; starts a task on
+        DashScope and finishes it at once, sending no audio, in the region the key works
+        in (see `bailian.find_region`)."""
+        if provider == "bailian":
+            try:
+                region = await find_region(api_key, self.bailian_model)
+            except BailianCheckFailed as e:
+                raise OwnKeyRejected(str(e)) from None
+            return SttKey("bailian", api_key, region)
+        await self._get(self.SONIOX_MODELS_URL, api_key)
+        return SttKey("soniox", api_key)
+
+    async def check_tts(self, api_key: str) -> None:
+        """Asks for something that costs nothing: Fish Audio's balance."""
+        await self._get(self.FISH_CREDIT_URL, api_key)
+
+    @staticmethod
+    async def _get(url: str, api_key: str) -> None:
+        """Raise OwnKeyRejected saying why, unless `url` answers on `api_key`."""
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=10)) as client:
                 res = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
@@ -767,8 +816,10 @@ class _LiveCall:
                 audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
             ),
         )
-        self._turns = CallTurns(engine, call, outcome, emotions)
-        stt = speech.stt(keys.stt)
+        hearing = speech.stt(keys.stt)
+        stt = hearing.stt
+        self._stt_provider: SttProvider = keys.stt.provider
+        self._turns = CallTurns(engine, call, outcome, hearing.follow_on_timeout, emotions)
         tts = speech.tts(keys.tts, call.character.voice_id, sample_rate)
         own_services: dict[FrameProcessor, Service] = {
             processor: service
@@ -816,7 +867,7 @@ class _LiveCall:
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
         about it is told now, while the call can still say so."""
-        message = self._outcome.service_failed(own_service)
+        message = self._outcome.service_failed(own_service, self._stt_provider)
         if message is not None:
             self._connection.send_app_message(ServerMessage(data=message).model_dump())
 
@@ -860,13 +911,6 @@ class _LiveCall:
         await running
 
 
-FOLLOW_ON_TIMEOUT = 4.0
-"""How long, in seconds since the user was last heard, a follow-on may take to be
-transcribed; after that it came to nothing (a cough, say) and the turn is replied to
-again as it was. Soniox finalizes what it heard at most 3 s (its longest endpoint delay)
-after the last word, and sends no transcription at all when it heard no words."""
-
-
 class CallTurns(FrameProcessor):
     """Takes turns in the conversation for the call, one at a time, as its `TurnTaking`
     has them.
@@ -890,8 +934,9 @@ class CallTurns(FrameProcessor):
     character, when a reply is dropped, stopped or replied to afresh, and what of it is
     voiced, is `TurnTaking`'s to decide: the frames coming through, `mute` client
     messages and how each reply is getting on are reported to it as they happen, and what
-    it says to do is done straight away. How long a follow-on may take to be transcribed
-    (`FOLLOW_ON_TIMEOUT`) is timed here.
+    it says to do is done straight away. How long a follow-on may take to be transcribed,
+    `follow_on_timeout` seconds since the user was last heard, as long as the call's speech
+    recognition needs (`Hearing`), is timed here.
 
     The call's limits, and what the browser is told when it reaches them, are its
     `CallOutcome`'s; here they are only reported and asked about. Its time limit
@@ -908,12 +953,14 @@ class CallTurns(FrameProcessor):
         engine: ConversationEngine,
         call: Call,
         outcome: CallOutcome,
+        follow_on_timeout: float,
         emotions: EmotionJudging | None = None,
     ) -> None:
         super().__init__()
         self._engine = engine
         self._call = call
         self._outcome = outcome
+        self._follow_on_timeout = follow_on_timeout
         self._emotions = emotions
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._turns = TurnTaking(text_only=call.muted)
@@ -1080,12 +1127,12 @@ class CallTurns(FrameProcessor):
     def _wait_for_follow_on(self) -> None:
         """Wait, afresh, for the follow-on the user started to be transcribed."""
         self._stop_waiting()
-        self._waiting = self.create_task(self._follow_on_timeout())
+        self._waiting = self.create_task(self._time_follow_on())
 
-    async def _follow_on_timeout(self) -> None:
-        """Tell `TurnTaking` the follow-on came to nothing, once `FOLLOW_ON_TIMEOUT` has
+    async def _time_follow_on(self) -> None:
+        """Tell `TurnTaking` the follow-on came to nothing, once `follow_on_timeout` has
         passed without it."""
-        await asyncio.sleep(FOLLOW_ON_TIMEOUT)
+        await asyncio.sleep(self._follow_on_timeout)
         self._waiting = None
         await self._carry_out(self._turns.follow_on_missed())
 

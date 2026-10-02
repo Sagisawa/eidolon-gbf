@@ -47,7 +47,7 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 | 🧩 **ベクトル化サービスは 2 択** | デプロイ時に SiliconFlow の Qwen3-Embedding と Google の Gemini Embedding 2 から選択。切り替えたあとはコマンド 1 つで、データベース内の原文から再ベクトル化（[ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)） |
 | 📝 **キャラクターシートの下書き生成** | バックグラウンドモデルがアイドルのコミュをすべて読み、キャラクターシートの下書きを作成。あとは人の手で校正 |
 | 👥 **一般公開** | Google または GitHub でログイン。ユーザーごとの利用上限と完全に分離されたメモリー。2 つのログイン方法の連携や、自分のデータの完全削除も可能 |
-| 🔑 **自前の API キー** | ユーザーは自分の LLM・Fish Audio・Soniox のキーを登録して自分のクレジットで使え、利用上限の対象外になります |
+| 🔑 **自前の API キー** | ユーザーは自分の LLM・Fish Audio・音声認識（Soniox または Alibaba Cloud Model Studio）のキーを登録して自分のクレジットで使え、利用上限の対象外になります |
 | 🚀 **ワンコマンドでデプロイ** | Caddy（HTTPS 自動化）と coturn（TURN 中継）入りの本番構成を同梱 |
 
 ## 🧭 目次
@@ -90,7 +90,7 @@ flowchart LR
     UI -- "テキストのターン /api/*" --> API
     UI <-- "WebRTC 音声 + 字幕" --> Call
     API --> Engine
-    Call -- "Soniox 音声認識" --> Engine
+    Call -- "音声認識<br/>Soniox または Alibaba Cloud Model Studio" --> Engine
     Engine -- "Fish Audio 音声合成" --> Call
     Engine --> Retrieval
     Engine --> Memory
@@ -125,7 +125,7 @@ docker compose up --build
 > | 機能 | 必要な設定 |
 > |---|---|
 > | テキストチャット | `CHAT_LLM_*` |
-> | 音声通話 | `SONIOX_API_KEY`、`FISH_AUDIO_API_KEY` |
+> | 音声通話 | `FISH_AUDIO_API_KEY` と音声認識サービスのキー：`SONIOX_API_KEY`（デフォルト）、または `STT_PROVIDER=bailian` と `DASHSCOPE_API_KEY` |
 > | シナリオ（同期または取り込み） | ベクトル化サービスのキー：`SILICONFLOW_API_KEY`（デフォルト）、または `EMBEDDING_PROVIDER=gemini` と `GEMINI_API_KEY` |
 > | 検索とメモリー | ベクトル化サービスのキー、`SILICONFLOW_API_KEY`（並べ替え用）、`JEV_API_KEY` |
 >
@@ -196,7 +196,17 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 ### 音声通話
 
-`.env` に `SONIOX_API_KEY` と `FISH_AUDIO_API_KEY` を設定すると、会話画面のヘッダーにある通話ボタンが使えるようになります。押すと通話画面が開いて発信が始まります。スマートフォンでは全画面、パソコンでは右側の会話欄を覆います。
+`.env` に `FISH_AUDIO_API_KEY` と音声認識サービスのキー（下の表を参照）を設定すると、会話画面のヘッダーにある通話ボタンが使えるようになります。押すと通話画面が開いて発信が始まります。スマートフォンでは全画面、パソコンでは右側の会話欄を覆います。
+
+音声認識はデプロイ時に `STT_PROVIDER` でどちらかを選び、デプロイ全体でその一つだけを使います（[ADR-0010](docs/adr/0010-speech-recognition-provider-chosen-at-deploy-and-per-own-key.md)）。自前の音声認識キーを登録したユーザーは、ここでの選択と関係なく自分でサービスを選びます。
+
+| `STT_PROVIDER` | サービス | 必要なキー | モデル |
+|---|---|---|---|
+| `soniox`（デフォルト） | Soniox | `SONIOX_API_KEY` | Pipecat デフォルトの Soniox リアルタイムモデル |
+| `bailian` | Alibaba Cloud Model Studio | `DASHSCOPE_API_KEY`。北京・シンガポールどちらのリージョンのキーでもよく、自動で判別します | `qwen-audio-3.1-asr-flash-streaming`（`BAILIAN_STT_MODEL`、現在はこれのみ）。先に Model Studio のコンソールで有効にしておく必要があります |
+
+> [!WARNING]
+> Alibaba Cloud Model Studio を選ぶ場合：バックエンドは起動時にキーを一度試し、両方のリージョンで拒否された、モデルが有効になっていない、または接続できない場合は、理由を示して起動を拒否します。公開デプロイで北京リージョンのキーを使うと、**見知らぬユーザーの声が中国本土で処理され、中国の法律のもとで保存されます**（保存期間は非公開）。従量課金の呼び出しのデータは学習に使わないと Alibaba Cloud は約束しています。プライバシーポリシーには両方のサービスを挙げ、この点を明記しています（ADR-0010）。
 
 - 通話画面には彼女のアイコン、通話の状態とタイマー、いま話している一文の日本語原文と字幕、そしてあなたが話している内容が表示されます。すべての記録は会話のほうで見られます。タイマーはつながった時点から数え、1 回の通話時間の上限まで 1 分を切ると残り時間の表示に変わります。
 - 左上の閉じるボタンか Esc で通話画面を閉じると、通話は続いたまま会話記録に戻り、上部に「通话中 mm:ss · 点击返回」（通話中 · タップで戻る）の付箋が残ります。付箋を押すと通話画面が再び開きます。通話画面では文字を入力できないので、入力したいときは閉じて会話のほうで入力します。
@@ -396,9 +406,10 @@ docker compose exec backend eidolon user usage <ユーザー ID>  # 直近 24 �
 |---|---|---|
 | LLM | インターフェースの種類・base_url・キー・モデル名 | アイドルを演じる（テキストと通話）、メモリーの抽出 |
 | 音声合成（Fish Audio） | キー | 通話中のアイドルの声（ボイスはキャラクター設定のまま） |
-| 音声認識（Soniox） | キー | 通話中にユーザーの声を聞き取る |
+| 音声認識（Soniox または Alibaba Cloud Model Studio） | サービスとキー | 通話中にユーザーの声を聞き取る。デプロイした人の選択とは関係ありません |
 
 - 保存前に一度試しに呼び出し、失敗したら保存せず、プロバイダーのエラーを表示します。LLM はストリーミング出力とツール呼び出しに対応している必要があり、公開デプロイでは base_url が HTTPS の公開アドレスでなければなりません。保存時だけでなく、接続のたびに確認します。
+- 音声認識に Alibaba Cloud Model Studio を選ぶ場合、入力するのはキーだけです。リージョンは試しに呼び出すときに自動で判別し、モデルはデプロイした人の `BAILIAN_STT_MODEL` に従います（デプロイが Soniox の場合はデフォルトのモデル）。モデルが有効になっていなければ、Model Studio のコンソールで有効にするよう案内します。
 - キーは `EIDOLON_SECRET_KEY` から導出した鍵で暗号化して保存し、画面には末尾 4 文字だけを表示します。`EIDOLON_SECRET_KEY` を設定していないと、この機能は使えません。
 - 自前のキーの呼び出しに失敗したとき（残高不足、失効など）、そのターンや通話は失敗し、どのキーに問題があるかを表示します。**デプロイした人のキーに切り替えることはありません**。`EIDOLON_SECRET_KEY` を変えると保存済みのキーは復号できなくなり、それを使うターンや通話はどのサービスも呼び出す前に失敗し、ユーザーに再入力を求めます。自前のキーを削除すると、デプロイした人のサービスに戻ります。
 - ベクトル化、リランク、シナリオを思い出すかどうかの判断（Jev）は常にデプロイした人の負担です。
@@ -457,6 +468,7 @@ eidolon-sc/
 │   │   ├── own_keys.py       #   ユーザーの自前の API キーと、各ターン・各通話が誰のキーを使うか
 │   │   ├── usage.py          #   利用上限と利用記録
 │   │   ├── call.py           #   音声通話：シグナリングと Pipecat パイプライン
+│   │   ├── bailian.py        #   Alibaba Cloud Model Studio のリアルタイム音声認識
 │   │   ├── turn_taking.py    #   通話中の補足と割り込みのルール
 │   │   ├── call_outcome.py   #   通話が上限に数えられるか、終了時にブラウザへ伝える内容
 │   │   ├── retrieval.py      #   検索判断、参考資料ソース（コミュ・キャラクター資料・作品資料）の検索と並べ替え、振り返り
@@ -510,6 +522,7 @@ eidolon-sc/
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) —— シナリオテキストと中国語訳
 - [Pipecat](https://github.com/pipecat-ai/pipecat) —— リアルタイム音声パイプラインと WebRTC 通信
 - [Soniox](https://soniox.com/) —— 音声認識
+- [Alibaba Cloud Model Studio](https://www.alibabacloud.com/product/modelstudio) —— リアルタイム音声認識（Soniox の代わりに選べます）
 - [Fish Audio](https://fish.audio/) —— 音声合成
 - [SiliconFlow](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（選択式のベクトル化サービス）

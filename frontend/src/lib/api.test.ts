@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, CONSENT_REQUIRED, json, redirectFor, sendTurn, type TurnEvent } from "@/lib/api";
+import { ApiError, CONSENT_REQUIRED, json, redirectFor, saveOwnSpeechKey, sendTurn, type TurnEvent } from "@/lib/api";
 
 describe("redirectFor", () => {
   it("sends a browser that is not signed in to sign in", () => {
@@ -168,5 +168,26 @@ describe("sendTurn", () => {
       vi.fn(async () => Response.json({ detail: "本小时的对话次数已用完" }, { status: 429 })),
     );
     await expect(events("c1", "hi")).rejects.toThrow("本小时的对话次数已用完，请稍后再试。");
+  });
+});
+
+describe("saveOwnSpeechKey", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the speech recognition service the key is for", async () => {
+    const fetch = vi.fn(async (_path: string, _init: RequestInit) =>
+      Response.json({ last4: "dddd", provider: "bailian" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await saveOwnSpeechKey("stt", "sk-my-dashscope-dddd", "bailian")).toEqual({
+      last4: "dddd",
+      provider: "bailian",
+    });
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe("/api/account/keys/stt");
+    expect(JSON.parse(init.body as string)).toEqual({ api_key: "sk-my-dashscope-dddd", provider: "bailian" });
   });
 });

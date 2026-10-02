@@ -45,6 +45,7 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -102,8 +103,9 @@ def _serve() -> int:
     from eidolon.app import create_app
     from eidolon.assembly import build
 
-    try:  # missing settings and a broken character configuration
+    try:  # missing settings, an unusable DashScope key, a broken character configuration
         settings = Settings.from_env()
+        settings = asyncio.run(_find_dashscope_region(settings))
         backend = build(settings)
     except RuntimeError as e:
         print(e, file=sys.stderr)
@@ -121,6 +123,22 @@ def _serve() -> int:
         port=int(os.environ.get("PORT", "8000")),
     )
     return 0
+
+
+async def _find_dashscope_region(settings: Settings) -> Settings:
+    """The settings with the region the deployer's DashScope key works in, found by trying
+    it, if Alibaba Cloud Model Studio is to hear calls on it; raises RuntimeError saying
+    why, if it cannot."""
+    from eidolon.bailian import BailianCheckFailed, find_region
+
+    key = settings.stt_key
+    if key is None or key.provider != "bailian":
+        return settings
+    try:
+        region = await find_region(key.api_key, settings.bailian_stt_model)
+    except BailianCheckFailed as e:
+        raise RuntimeError(f"阿里云百炼的 DASHSCOPE_API_KEY 用不了：{e}") from None
+    return replace(settings, dashscope_region=region)
 
 
 async def _check_chat_llm(settings: Settings) -> None:

@@ -29,9 +29,9 @@ from pipecat.processors.frameworks.rtvi.frames import (
 )
 from pipecat.tests.utils import SleepFrame, run_test
 
-from eidolon import call as call_module
 from eidolon.assembly import build
 from eidolon.call import (
+    SONIOX_FOLLOW_ON_TIMEOUT,
     Call,
     CallTurns,
     SegmentCompleteFrame,
@@ -78,11 +78,12 @@ class CallUnderTest:
         connected: bool = True,
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
+        follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
             llm, frames, muted=muted, limits=limits, memory=memory, connected=connected,
-            judge=judge, emotion=emotion,
+            judge=judge, emotion=emotion, follow_on_timeout=follow_on_timeout,
         )
         spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
@@ -99,10 +100,12 @@ class CallUnderTest:
         connected: bool = True,
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
+        follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
     ) -> Sequence[Frame]:
         """Run the frames through a call that, unless told otherwise, connects as it starts,
         with `judge` as the deployer's Jev judging each segment's emotion, if given, as
-        `emotion` says."""
+        `emotion` says, and its speech recognition taking `follow_on_timeout` at most to
+        transcribe a follow-on."""
         remembering = {} if memory is None else {
             "background_llm": memory, "jev": FakeJudge(), "embedder": FakeEmbedder(),
             "reranker": FakeReranker(),
@@ -116,7 +119,7 @@ class CallUnderTest:
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
             call = Call(self.conversation, mano, llms, muted, "standard")
             outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt=False, limits=limits)
-            turns = CallTurns(backend.engine, call, outcome, backend.emotions)
+            turns = CallTurns(backend.engine, call, outcome, follow_on_timeout, backend.emotions)
             if connected:
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)
@@ -337,13 +340,13 @@ async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stop
 
 
 async def test_a_follow_on_never_transcribed_has_the_turn_replied_to_again_in_time(
-    mano_call: CallUnderTest, monkeypatch: pytest.MonkeyPatch
+    mano_call: CallUnderTest,
 ):
-    monkeypatch.setattr(call_module, "FOLLOW_ON_TIMEOUT", 0.3)
     llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
 
     _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1)]
+        llm, [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1)],
+        follow_on_timeout=0.3,
     )
 
     assert said(messages) == ["早上好", "早上好"]
