@@ -600,6 +600,16 @@ describe("LiveConversation: switching the microphone", () => {
     expect(call.hangUps).toBe(0);
   });
 
+  it("leaves a microphone lost while dialing to the call it connects with", async () => {
+    const { live, attempts } = await conversation();
+    void live.startCall();
+    const dialing = live.snapshot();
+
+    attempts[0].handlers.onMicLost(null);
+
+    expect(live.snapshot()).toEqual(dialing);
+  });
+
   it("keeps the microphone in use when the chosen one cannot be opened", async () => {
     const { live, attempts, preferences } = await conversation();
     const call = await connected(live, attempts, new FakeCall(1800, false, { id: "usb", fellBack: false }));

@@ -91,3 +91,8 @@
 - 删掉拨号中途掉线的例外。
 
 **没动的**：`switchMic` 里的 `this.call === call`。它判断的是用户切换麦克风的过程中通话结束了没有，不是交给通话的 handler，不在本 ticket 的闸里。
+
+### 2026-10-02 code review 之后
+
+- **拨号中途丢麦克风**：spec 写着麦克风的行为不变。原来的 `this.call !== started` 在拨号中途成立，会挡住麦克风丢失；删掉它以后，拨号中途丢麦克风会先显示「lost」，接通时又被盖掉。现在麦克风丢失 handler 也像掉线一样，闸之后多一条「还在拨号就不做事」，判断的是「接通了没有」，不是「是不是当前这一通」。先写了 `leaves a microphone lost while dialing to the call it connects with`，看到它红（`micNotice` 成了 `"lost"`），再改实现。
+- **验收「只剩闸那一处」的两个例外**：拨号中途掉线和拨号中途丢麦克风，判断的都是「接通了没有」。`switchMic` 里的 `this.call === call` 判断的是用户自己切换麦克风的 `await` 回来时通话还在不在，不是交给通话的 handler，所以留在闸外。

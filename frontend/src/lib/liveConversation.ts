@@ -275,7 +275,11 @@ export class LiveConversation {
           if (this.state.call.phase === "dialing") return;
           this.ended(this.endedBy ?? droppedEnd(started.exempt));
         }),
-        onMicLost: gated((now) => this.update(now ? micInUse(now) : { micId: "", micNotice: "lost" })),
+        onMicLost: gated((now) => {
+          // Lost while dialing: the call says which microphone it has once it connects.
+          if (this.state.call.phase === "dialing") return;
+          this.update(now ? micInUse(now) : { micId: "", micNotice: "lost" });
+        }),
       });
     } catch (e) {
       if (current()) this.ended(startFailedEnd(e));

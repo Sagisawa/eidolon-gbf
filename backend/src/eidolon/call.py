@@ -571,10 +571,10 @@ class SonioxFishSpeech:
 class Calls:
     """The user's voice calls, from signalling to hanging up.
 
-    Each new call has a `CallOutcome`, given the call's limits, which takes it from the
-    user's limit when it is offered and, told what happens to the call, decides when it has
-    reached its limits, whether it is given back and what the browser is told when the
-    backend ends it. Only the user who placed a call can
+    Each new call has a `CallOutcome`, given the call's own limits on its time and turns,
+    which takes it from the user's limit when it is offered and, told what happens to the
+    call, decides when it has reached its own limits, whether it is given back and what the
+    browser is told when the backend ends it. Only the user who placed a call can
     renegotiate it or add ICE candidates to it.
     """
 
@@ -917,7 +917,7 @@ class CallTurns(FrameProcessor):
         self._emotions = emotions
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._turns = TurnTaking(text_only=call.muted)
-        self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: time is up
+        self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: wakes it, once time is up
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
         self._started = False  # the pipeline has started, so tasks can be created
