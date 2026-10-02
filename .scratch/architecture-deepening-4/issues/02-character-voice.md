@@ -4,7 +4,7 @@
 
 **Blocked by:** 01（`01-stale-call-events.md`）：音轨要过 01 设的闸，01 的表驱动测试要加一行。
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-02 grilling）
 
@@ -21,19 +21,19 @@
 
 ## 验收
 
-- [ ] **按 TDD**：先在 `liveConversation.test.ts` 写下面的测试，看到它们失败，再改实现。
-- [ ] 假 Ports 里加 `FakeVoice`，记下每一次调用，替换 `onCharacterAudio: () => {}`。
-- [ ] **拨号**：`live.startCall()` 一返回（还没 await），`voice.dial` 已经收到偏好里的电话质感；`ports.startCall` 收到的偏好是同一次读出来的。
-- [ ] **守卫没通过时不碰声音**（表驱动）：通话中、文字回合进行中、对话还没打开，`startCall()` 都不调 `voice.dial`。
-- [ ] **只看文字**：偏好里已是只看文字时，构造后 `setTextOnly(true)` 已调；`toggleTextOnly()` 当场同步调 `setTextOnly`。
-- [ ] **音轨**：当前这一通的音轨交给 `voice.play`。
-- [ ] **离开这一页**：`dispose()` 调 `voice.dispose()`。
-- [ ] **能不能做**（表驱动）：`canDial`、`canStartNew` 在打开中、已打开、文字回合进行中、拨号中、通话中、结束页、打开失败时的取值。
-- [ ] **扩展 01 的表驱动测试**：「迟到的是什么」加一行「她的音轨」，断言 `FakeVoice` 没收到 `play`。不另写测试。
-- [ ] `characterVoice.test.ts` 原样通过；现有测试一律原样通过。
-- [ ] `useCharacterVoice.ts` 已删除；`ConversationView.tsx` 里不再出现 `loadCallPreferences`、拷贝的拨号守卫和 `failure?.signedOut` 的菜单条件。
-- [ ] `frontend/` 下 `npm test` 和 `npm run typecheck` 都通过。
-- [ ] **人工验收（留给用户）**：打几通真实电话，用户验过之后再标 `resolved`。
+- [x] **按 TDD**：先在 `liveConversation.test.ts` 写下面的测试，看到它们失败，再改实现。
+- [x] 假 Ports 里加 `FakeVoice`，记下每一次调用，替换 `onCharacterAudio: () => {}`。
+- [x] **拨号**：`live.startCall()` 一返回（还没 await），`voice.dial` 已经收到偏好里的电话质感；`ports.startCall` 收到的偏好是同一次读出来的。
+- [x] **守卫没通过时不碰声音**（表驱动）：通话中、文字回合进行中、对话还没打开，`startCall()` 都不调 `voice.dial`。
+- [x] **只看文字**：偏好里已是只看文字时，构造后 `setTextOnly(true)` 已调；`toggleTextOnly()` 当场同步调 `setTextOnly`。
+- [x] **音轨**：当前这一通的音轨交给 `voice.play`。
+- [x] **离开这一页**：`dispose()` 调 `voice.dispose()`。
+- [x] **能不能做**（表驱动）：`canDial`、`canStartNew` 在打开中、已打开、文字回合进行中、拨号中、通话中、结束页、打开失败时的取值。
+- [x] **扩展 01 的表驱动测试**：「迟到的是什么」加一行「她的音轨」，断言 `FakeVoice` 没收到 `play`。不另写测试。
+- [x] `characterVoice.test.ts` 原样通过；现有测试一律原样通过。
+- [x] `useCharacterVoice.ts` 已删除；`ConversationView.tsx` 里不再出现 `loadCallPreferences`、拷贝的拨号守卫和 `failure?.signedOut` 的菜单条件。（例外：组装 Ports 时的 `preferences.load` 还是 `loadCallPreferences`，见实现说明）
+- [x] `frontend/` 下 `npm test` 和 `npm run typecheck` 都通过。
+- [x] **人工验收（留给用户）**：打几通真实电话，用户验过之后再标 `resolved`。
   - 打开电话质感后拨号，听到的是电话里的声音；关掉之后，下一通恢复干净的声音；
   - 通话中切换只看文字，她的声音当场停下或恢复，开不开电话质感都试一次；
   - 偏好里已是只看文字时，打开对话页拨号，一开始就没有她的声音；
@@ -41,3 +41,13 @@
   - 收起通话层再展开，声音不受影响。
 
 ## Comments
+
+### 实现说明（2026-10-02）
+
+- **TDD**：先写测试，新测试 17 条红（01 表里新加的 4 行「她的音轨」、`canDial`/`canStartNew` 表 8 行、声音组 5 条）。守卫没通过时不碰声音那张表（取「能不能做」表里不能拨号的 6 种状态：打开中、文字回合进行中、开新对话中、拨号中、通话中、打开失败）在改实现前就是绿的：那时 `voice.dial` 还在页面里，`LiveConversation` 根本不调它；它防的是以后把 `dial` 挪到守卫前面。
+- **9 个手工变异全部被抓到**：`dial` 挪到守卫之前、音轨不过闸、`toggleTextOnly` 不告诉声音、构造时不告诉声音、`dispose` 不停声音、拨号时读两次偏好、判断漏掉「没有文字回合」、漏掉「对话已打开」、`canStartNew` 自己另拼条件。
+- **一处判断**：`isFree(state)`（对话已打开、没有文字回合、不在通话中）同时用于 `startCall`、`startNewConversation` 的守卫和快照的 `canDial`、`canStartNew`。`startCall` 仍用 `openConversationId()` 拿对话 id。
+- **假 Ports**：`opening()` 多了 `preferences` 选项（只写和默认不同的偏好）、返回 `voice`（`FakeVoice`）和 `loaded`（每次读偏好得到的对象，用来断言拨号只读一次、交给通话的是同一个对象）。
+- **和验收字面不一致的一处**：`ConversationView.tsx` 里还有一个 `loadCallPreferences`，是组装 Ports 时的 `preferences: { load: loadCallPreferences, save: saveCallPreferences }`。这正是「电话质感走 `Ports.preferences`」的那条路，删掉它就得另造一个导出，只为了让 grep 不出现这个名字，所以没删。页面自己读偏好的地方（原来的 `dial`）已经没有了。
+- `npm test`（24 个文件、403 条）和 `npm run typecheck` 通过；`characterVoice.test.ts` 没动。
+- 用户人工验收通过（2026-10-02，本地构建版前端，真实通话各项没有问题），标为 resolved。

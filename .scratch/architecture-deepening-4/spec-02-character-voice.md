@@ -1,6 +1,6 @@
 # 架构加深（第四轮）：角色的声音交给 LiveConversation
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `CONTEXT.md` 为准，本轮不改词表。设计词汇（module、interface、seam、adapter、depth、locality）取自 `codebase-design` skill。这是 2026-10-02 架构审查里的候选 3，经 grilling 定下设计。它和候选 2（`spec.md`、ticket 01）改同一个文件，并且要扩展 01 的表驱动测试，所以排在 01 之后。
 
