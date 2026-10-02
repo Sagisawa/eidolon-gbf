@@ -1,19 +1,9 @@
 // The conversation page for one character: opening her conversation (or starting a new
-// one), its log, the text turn under way, the call and how the call layer is shown, kept
-// outside React so the page only renders a snapshot and passes on clicks.
+// one), its log, the text turn under way, the call and how the call layer is shown, and her
+// stand as the call moves it on (by the rules in `standDirection.ts`), kept outside React so
+// the page only renders a snapshot and passes on clicks.
 
-import {
-  ApiError,
-  type CallEvent,
-  type Conversation,
-  type Message,
-  SPEAKING,
-  type Segment,
-  type SegmentEmotion,
-  type SegmentPlaying,
-  type Speaking,
-  type TurnEvent,
-} from "@/lib/api";
+import { ApiError, type CallEvent, type Conversation, type Message, type Segment, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
@@ -26,6 +16,7 @@ import {
 } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
 import { CALM, type StandDirection } from "@/lib/standAnimations";
+import { directionOf, directStand, startingStand, type StandEvent, type StandState } from "@/lib/standDirection";
 
 /** The longest message the backend accepts (`MAX_INPUT_LENGTH` in `engine.py`). */
 const MAX_INPUT_LENGTH = 2000;
@@ -73,9 +64,6 @@ export type Snapshot = {
   hearing: string;
   /** The character's latest line in this call, for the call screen; null until she has one. */
   line: Segment | null;
-  /** Which segment of which of her replies in this call her voice last started playing; null
-   * until it has started. */
-  playing: Omit<SegmentPlaying, "type"> | null;
   /** The microphone is off in the browser (CONTEXT.md「麦克风静音」). */
   micMuted: boolean;
   /** The microphone the call is using; empty for the system default. */
@@ -93,37 +81,25 @@ export type Snapshot = {
   /** What went wrong in the conversation open: a turn failed, a new conversation could not
    * be started. Why it could not be opened at all is in `conversation`. */
   failure: Failure | null;
-  /** How her stand should look (spec「立绘指令」); calm outside a call. It follows the call
-   * while the call layer is collapsed too. */
+  /** How her stand should look (spec「立绘指令」), by the rules in `standDirection.ts`; calm
+   * outside a call. It follows the call while the call layer is collapsed too. */
   stand: StandDirection;
 };
 
-type State = Omit<Snapshot, "entries" | "line"> & {
+type State = Omit<Snapshot, "entries" | "line" | "stand"> & {
   log: ConversationLog;
   /** How many entries there were when the call connected: her lines from there on are its. */
   callFrom: number;
-  /** Her voice is playing in the call. Her mouth moves with it, unless it is text only. */
-  voicing: boolean;
-  /** The user is speaking in the call; she looks at them. */
-  userSpeaking: boolean;
-  /** The user interrupted her by typing while she spoke: once her voice stops she looks at
-   * them, until she speaks again. */
-  interruptedByTyping: boolean;
-  /** Which of her replies in the call the subtitles are of; null until one has started. */
-  shownReply: number | null;
-  /** The segment she is saying, which her mood follows: the one her voice last started
-   * playing, or in text only the one last shown. `over` once it has been said: her voice
-   * stopped (until it starts again), or the next turn was taken up. Null until one starts. */
-  saying: { reply: number; segment: number; over: boolean } | null;
+  /** Her stand direction, moved on by the call under way. */
+  stand: StandState;
 };
 
-const IDLE: Omit<Snapshot, "entries" | "line"> = {
+const IDLE: Omit<State, "log" | "callFrom" | "stand"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
   collapsed: false,
   pickingMic: false,
   hearing: "",
-  playing: null,
   micMuted: false,
   micId: "",
   micNotice: null,
@@ -131,21 +107,10 @@ const IDLE: Omit<Snapshot, "entries" | "line"> = {
   draft: "",
   textOnly: false,
   failure: null,
-  stand: CALM,
-};
-
-/** No one speaking in the call: the stand is as a call starts. */
-const QUIET: Pick<State, "voicing" | "userSpeaking" | "interruptedByTyping" | "shownReply" | "saying" | "stand"> = {
-  voicing: false,
-  userSpeaking: false,
-  interruptedByTyping: false,
-  shownReply: null,
-  saying: null,
-  stand: CALM,
 };
 
 /** What the page shows before a conversation is open. */
-export const NOT_OPEN: Snapshot = { ...IDLE, entries: [], line: null };
+export const NOT_OPEN: Snapshot = { ...IDLE, entries: [], line: null, stand: CALM };
 
 /** What the conversation needs from outside: the backend, this device's preferences, and
  * the conversation list beside the page. */
@@ -184,19 +149,14 @@ export class LiveConversation {
   private disposed = false;
   /** The conversation open; null until it is. */
   private conversationId: string | null = null;
-  /** How many nods she has given, to tell each one from the last. */
-  private nods = 0;
-  /** Emotions judged for segments she has yet to say in this call, by `reply:segment`. */
-  private judged = new Map<string, SegmentEmotion>();
-  /** The last segment whose emotion she has shown in this call; null until one. */
-  private shown: SegmentEmotion | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. */
   constructor(
     private readonly characterId: string,
     private readonly ports: Ports,
   ) {
-    this.state = { ...IDLE, ...QUIET, log: emptyLog, callFrom: 0, textOnly: ports.preferences.load().muted };
+    const textOnly = ports.preferences.load().muted;
+    this.state = { ...IDLE, log: emptyLog, callFrom: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
   }
@@ -246,9 +206,10 @@ export class LiveConversation {
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
-      // speaks, it interrupts her, and she looks at the user as her voice stops.
+      // speaks, it interrupts her.
       this.call.sendText(text);
-      if (this.state.voicing) this.update({ interruptedByTyping: true });
+      const stand = this.directed({ type: "typed" });
+      if (stand !== this.state.stand) this.update({ stand });
       return;
     }
     this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
@@ -284,7 +245,7 @@ export class LiveConversation {
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
-    this.update({ call: { phase: "dialing" }, playing: null, micMuted: false, failure: null });
+    this.update({ call: { phase: "dialing" }, micMuted: false, failure: null });
     let started: Call;
     try {
       started = await this.ports.startCall(conversationId, this.ports.preferences.load(), {
@@ -379,98 +340,33 @@ export class LiveConversation {
     const textOnly = !this.state.textOnly;
     this.ports.preferences.save({ muted: textOnly });
     this.call?.setTextOnly(textOnly);
-    this.update({ textOnly });
+    this.update({ textOnly, stand: this.directed({ type: "text-only", textOnly }) });
   }
 
   private onCallEvent(event: CallEvent, attempt: object): void {
-    // Not from a call hung up or dropped, the stand having been cleared with it.
+    // Her stand moves on only by the call under way, not by one hung up or dropped: it was
+    // cleared of that one.
     const current = this.attempt === attempt && isLive(this.state.call);
-    if (isSpeaking(event)) {
-      if (current) this.onSpeaking(event);
-      return;
-    }
-    if (event.type === "ended") {
-      this.endedBy = backendEnd(event);
-      return;
-    }
-    if (event.type === "emotion") {
-      if (current) this.onEmotion(event);
-      return;
-    }
-    if (event.type === "segment-playing") {
-      this.update({ playing: { reply: event.reply, segment: event.segment } });
-      if (current) this.startSaying(event.reply, event.segment);
-      return;
-    }
-    if (event.type === "user") {
-      const saying = this.state.saying && { ...this.state.saying, over: true };
-      this.applyTurnEvent(event, { hearing: "", shownReply: event.reply ?? null, saying });
-    } else if (event.type === "delta") {
-      this.applyTurnEvent(event);
-      // In text only, a segment is said as its first line shows.
-      const { shownReply, textOnly } = this.state;
-      if (current && textOnly && shownReply !== null) this.startSaying(shownReply, event.segment);
-    } else if (event.type === "error")
-      this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false } });
-    else this.applyTurnEvent(event);
-  }
-
-  /** Who is speaking, for her stand: her mouth moves with her voice; she looks at the user
-   * while they speak and nods when they stop. Her voice stops at once when she is
-   * interrupted, and the user who interrupted is speaking or has typed. */
-  private onSpeaking({ type }: Speaking): void {
-    const saying = this.state.saying;
-    switch (type) {
-      case "bot-started-speaking":
-        return this.update({ voicing: true, interruptedByTyping: false, saying: saying && { ...saying, over: false } });
-      case "bot-stopped-speaking":
-        return this.update({ voicing: false, saying: saying && { ...saying, over: true } });
-      case "user-started-speaking":
-        return this.update({ userSpeaking: true });
-      case "user-stopped-speaking":
-        return this.update({ userSpeaking: false, stand: { ...this.state.stand, nod: { kind: "yes", id: ++this.nods } } });
+    const stand = current ? this.directed(event) : this.state.stand;
+    switch (event.type) {
+      case "ended":
+        this.endedBy = backendEnd(event);
+        return;
+      case "user":
+        return this.applyTurnEvent(event, { hearing: "", stand });
+      case "error":
+        return this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false }, stand });
+      case "delta":
+      case "done":
+        return this.applyTurnEvent(event, { stand });
+      default:
+        if (current) this.update({ stand });
     }
   }
 
-  /** She starts saying segment `segment` of reply `reply`, unless she is past it already:
-   * her mood follows it if it has been judged. */
-  private startSaying(reply: number, segment: number): void {
-    const { saying } = this.state;
-    if (saying && !follows({ reply, segment }, saying)) return;
-    const emotion = this.judged.get(key(reply, segment));
-    for (const [k, earlier] of this.judged) if (!follows(earlier, { reply, segment })) this.judged.delete(k);
-    this.update({ saying: { reply, segment, over: false } });
-    if (emotion) this.showEmotion(emotion);
-  }
-
-  /** A segment's emotion is judged: kept until she says it, taken up at once while she is
-   * saying it, and dropped once she has said it. In text only a segment is judged once it is
-   * complete, by when the next one often shows: there it is taken up still, until the reply
-   * is over, unless a later segment's emotion shows already. */
-  private onEmotion(emotion: SegmentEmotion): void {
-    const { saying, textOnly } = this.state;
-    if (!saying || follows(emotion, saying)) {
-      this.judged.set(key(emotion.reply, emotion.segment), emotion);
-      return;
-    }
-    if (saying.over || emotion.reply !== saying.reply) return;
-    const current = emotion.segment === saying.segment;
-    if (current || (textOnly && (!this.shown || follows(emotion, this.shown)))) this.showEmotion(emotion);
-  }
-
-  /** Her mood follows the segment she is saying, but through a calm one it stays as it was,
-   * unless the segment opens her reply; a nod or shake of the head goes with it. */
-  private showEmotion(judged: SegmentEmotion): void {
-    const { emotion, segment, nod } = judged;
-    const { stand } = this.state;
-    this.shown = judged;
-    this.update({
-      stand: {
-        ...stand,
-        mood: emotion === "calm" && segment > 0 ? stand.mood : emotion,
-        nod: nod ? { kind: nod, id: ++this.nods } : stand.nod,
-      },
-    });
+  /** Her stand, moved on by this event (see `standDirection.ts` for how she looks). */
+  private directed(event: StandEvent): StandState {
+    return directStand(this.state.stand, event);
   }
 
   /** Moves the log on by an event of a turn, typed or spoken in a call. */
@@ -528,18 +424,15 @@ export class LiveConversation {
   /** The call is over, hung up (no `end`) or not; a reply it cut off is not recorded. */
   private ended(end: CallEnd | null): void {
     this.call = null;
-    this.judged.clear();
-    this.shown = null;
     this.apply(
       { type: "interrupted" },
       {
         call: end ? { phase: "ended", end } : { phase: "idle" },
         hearing: "",
-        playing: null,
         micMuted: false,
         micId: "",
         micNotice: null,
-        ...QUIET,
+        stand: this.directed({ type: "call-over" }),
       },
     );
   }
@@ -555,7 +448,7 @@ export class LiveConversation {
 
   private update(change: Partial<State>): void {
     if (this.disposed) return;
-    this.state = withStandRules(withCallScreenRules(this.state, { ...this.state, ...change }));
+    this.state = withCallScreenRules(this.state, { ...this.state, ...change });
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
   }
@@ -574,44 +467,12 @@ function withCallScreenRules(before: State, next: State): State {
   return { ...next, collapsed, pickingMic };
 }
 
-/** Her mouth moves while her voice plays, but not in text only; she looks at the user while
- * they speak, and once her voice stops after they interrupted her by typing. The direction
- * stays the same object while nothing about it changes. */
-function withStandRules(next: State): State {
-  const speaking = next.voicing && !next.textOnly;
-  const looking = next.userSpeaking || (next.interruptedByTyping && !next.voicing);
-  if (speaking === next.stand.speaking && looking === next.stand.looking) return next;
-  return { ...next, stand: { ...next.stand, speaking, looking } };
-}
-
-function key(reply: number, segment: number): string {
-  return `${reply}:${segment}`;
-}
-
-/** Whether segment `a` comes after segment `b` in the call. */
-function follows(a: Pick<SegmentPlaying, "reply" | "segment">, b: Pick<SegmentPlaying, "reply" | "segment">): boolean {
-  return a.reply > b.reply || (a.reply === b.reply && a.segment > b.segment);
-}
-
-function isSpeaking(event: CallEvent): event is Speaking {
-  return (SPEAKING as readonly string[]).includes(event.type);
-}
-
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
 
-function toSnapshot({
-  log,
-  callFrom,
-  voicing,
-  userSpeaking,
-  interruptedByTyping,
-  shownReply,
-  saying,
-  ...rest
-}: State): Snapshot {
-  return { ...rest, entries: log.entries, line: latestLine(log.entries.slice(callFrom)) };
+function toSnapshot({ log, callFrom, stand, ...rest }: State): Snapshot {
+  return { ...rest, entries: log.entries, line: latestLine(log.entries.slice(callFrom)), stand: directionOf(stand) };
 }
 
 /** The last line she has begun to say among these entries. */
