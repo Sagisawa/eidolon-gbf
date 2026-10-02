@@ -4,6 +4,7 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import { Button } from "@astryxdesign/core/Button";
 import {
   ChatComposer,
+  ChatComposerInput,
   ChatLayout,
   ChatMessage,
   ChatMessageBubble,
@@ -17,13 +18,14 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { MoreMenu } from "@astryxdesign/core/MoreMenu";
+import { ResizeHandle } from "@astryxdesign/core/Resizable";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { StackItem } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 
 import { FailureNotice, SignInButton } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
@@ -43,6 +45,7 @@ import { CallNote } from "./CallNote";
 import { MicSheet } from "./MicSheet";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
+import { useSavedSize } from "./useSavedSize";
 import { useCallTones } from "./useCallTones";
 import { useFocusBack } from "./useFocusBack";
 import { useStandOutfits } from "./useStandOutfits";
@@ -75,6 +78,15 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   useCallTones(call.phase);
+  // 宽屏上拖动输入框上沿调它平时的高度（记在这台设备上）；默认一行，最高到消息区的一半。
+  const messageArea = useRef<HTMLElement>(null);
+  const inputHeight = useSavedSize("composer", {
+    direction: "vertical",
+    containerRef: messageArea,
+    defaultSize: INPUT_LINE,
+    minSize: INPUT_LINE,
+    maxSize: "50%",
+  });
 
   // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话，停下她的声音）。
   useEffect(() => {
@@ -223,12 +235,33 @@ export function ConversationView({ character, onBack }: { character: Character; 
     );
   }
 
+  const composer = (
+    <ChatComposer
+      value={draft}
+      onChange={(value) => live?.setDraft(value)}
+      onSubmit={() => void live?.submit()}
+      placeholder={t.placeholder}
+      isDisabled={!isOpen}
+      status={failure && !failure.signedOut ? { type: "error", message: failureText(failure) } : undefined}
+      statusPosition="top"
+      input={
+        // 拖到的高度是输入框空着时的高度；字多了照旧往上长，至少能长到 8 行，再多就在框里滚动。
+        isFullScreen ? undefined : (
+          <ChatComposerInput
+            maxRows={Math.max(8, Math.floor(inputHeight.size / INPUT_LINE))}
+            style={{ minHeight: inputHeight.size }}
+          />
+        )
+      }
+    />
+  );
+
   return (
     <Frame character={character} header={header}>
       {noteShown && <CallNote ref={focus.note} call={call} onExpand={() => live?.expand()} />}
       {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
       {failure?.signedOut && !isCovered && <FailureNotice failure={failure} />}
-      <StackItem size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
+      <StackItem ref={messageArea} size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
         {/* 开新对话的过程中也是 opening：旧对话留在原处，只是发送键和电话键禁用 */}
         {!isOpen && entries.length === 0 ? (
           <VStack height="100%" hAlign="center" vAlign="center">
@@ -238,15 +271,21 @@ export function ConversationView({ character, onBack }: { character: Character; 
           <ChatLayout
             style={{ height: "100%" }}
             composer={
-              <ChatComposer
-                value={draft}
-                onChange={(value) => live?.setDraft(value)}
-                onSubmit={() => void live?.submit()}
-                placeholder={t.placeholder}
-                isDisabled={!isOpen}
-                status={failure && !failure.signedOut ? { type: "error", message: failureText(failure) } : undefined}
-                statusPosition="top"
-              />
+              isFullScreen ? (
+                composer
+              ) : (
+                <VStack>
+                  <ResizeHandle
+                    direction="vertical"
+                    isReversed
+                    pillPlacement="start"
+                    isAlwaysVisible={false}
+                    resizable={inputHeight.props}
+                    label={t.resizeComposer}
+                  />
+                  {composer}
+                </VStack>
+              )
             }
           >
             <ChatMessageList
@@ -378,6 +417,9 @@ function useShownCall(call: CallState): ShownCall | null {
   if (call.phase !== "idle" && call !== shown) setShown(call);
   return call.phase === "idle" ? shown : call;
 }
+
+/** 输入框一行的高度：ChatComposerInput 的固定行高，可调的高度以它为下限、按它折算成行数。 */
+const INPUT_LINE = 22;
 
 /** 她颜色的圆形电话键（DESIGN.md「Her call button」）。 */
 const herButton: CSSProperties = {

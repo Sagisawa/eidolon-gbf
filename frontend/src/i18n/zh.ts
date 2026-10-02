@@ -16,6 +16,7 @@ export const zh = {
   conversationList: {
     title: "对话",
     noneSelected: "选一位偶像开始对话",
+    resize: "调整对话列表宽度",
     menu: "更多操作",
     memories: "记忆",
     settings: "设置",
@@ -38,6 +39,7 @@ export const zh = {
     call: (name: string) => `和${name}通话`,
     callTooltip: "语音通话",
     placeholder: "用中文或日语说点什么",
+    resizeComposer: "调整输入框高度",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
     replying: (name: string) => `${name}正在回复`,
