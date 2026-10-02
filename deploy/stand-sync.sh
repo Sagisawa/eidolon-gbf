@@ -23,6 +23,7 @@ set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 4
 PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH # cron 的 PATH 很短；uv 默认装在 ~/.local/bin
+export PYTHONIOENCODING=utf-8 # 输出重定向到日志时，Windows 上的 Python 默认用 GBK，和脚本自己写的 UTF-8 混在一起成了乱码
 log=${EIDOLON_STAND_SYNC_LOG:-$root/logs/stand-sync.log}
 mkdir -p "$root/logs" "$(dirname "$log")"
 exec >>"$log" 2>&1
