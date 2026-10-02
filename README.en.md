@@ -49,7 +49,7 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
 | 🔌 **Bring your own model** | Speaks OpenAI Chat Completions, OpenAI Responses and Anthropic Messages, so any compatible third-party service works too |
 | 🧩 **Pick your embedding service** | Choose SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding 2 at deploy time; after switching, one command re-embeds from the text already in the database ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)) |
 | 📝 **Character sheet drafting** | A background model reads through all of a character's episodes and drafts her character sheet for you to proofread |
-| 👥 **Open to the public** | Sign in with Google or GitHub; per-user rate limits and fully isolated memories; users can link both sign-in methods and delete all their data for good |
+| 👥 **Open to the public** | Sign in with Google or GitHub; per-user rate limits and fully isolated memories; users can link both sign-in methods and delete all their data for good; the database is backed up daily, encrypted, to a private bucket and kept 30 days ([ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)) |
 | 🔑 **Bring your own keys** | Users can enter their own LLM, Fish Audio and speech recognition (Soniox or Alibaba Cloud Model Studio) keys to use their own credits, exempt from the limits |
 | 🚀 **One-command deployment** | Production config ships with Caddy (automatic HTTPS) and coturn (TURN relay) |
 
@@ -419,7 +419,7 @@ Anyone can sign in with Google or GitHub, with no invitation or approval (ADR-00
 - After their first sign-in, users agree to the privacy policy and terms of use and confirm they are 13 or older before anything else works. Visitors who are not signed in see only the sign-in page, the privacy policy and the terms.
 - Users can link their other sign-in method on the settings page, so either one shows the same memories. Two identities with the same email are never merged automatically, an identity that belongs to someone else cannot be linked, and the last sign-in method cannot be unlinked.
 - Sessions are kept by the backend and held by the browser in an httpOnly cookie, lasting 30 days from last use. The settings page signs out this device or every device.
-- "Delete all my data" on the settings page, after a second confirmation, deletes the user's memories, conversations, producer profile, sign-in methods, own keys, sessions and usage for good, signing them out everywhere; signing in again with the same identity makes a brand-new user.
+- "Delete all my data" on the settings page, after a second confirmation, deletes the user's memories, conversations, producer profile, sign-in methods, own keys, sessions and usage for good, signing them out everywhere; signing in again with the same identity makes a brand-new user. Copies in the daily encrypted backups go when those backups expire, within 30 days ([ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)).
 - For local development and tests, `EIDOLON_DEV_LOGIN=1` adds a "dev login" by name to the sign-in page. A public deployment (with `EIDOLON_DOMAIN` set) refuses to start with it.
 
 Admins manage users from the command line on the server:
@@ -479,7 +479,9 @@ The production config [`docker-compose.prod.yml`](docker-compose.prod.yml) runs 
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, weekly corpus sync, stand assets, upgrades, backups and troubleshooting.
+`deploy/db-backup.sh` backs the database up once a day: compressed, encrypted to an age public key, and uploaded to a private S3-compatible bucket (Cloudflare R2 recommended; never the public stand bucket), kept 30 days. You keep the private key offline.
+
+See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, weekly corpus sync, stand assets, upgrades, backups and restoring, and troubleshooting.
 
 ## 💻 Development
 
@@ -547,6 +549,7 @@ eidolon-sc/
 │   │   ├── stand_fetch.py    #   fetching the stands from ShinyColorsDB (eidolon stand fetch)
 │   │   ├── stand_outfits.py  #   each character's outfit list (eidolon stand outfits)
 │   │   ├── stand_upload.py   #   uploading the stands to object storage (eidolon stand upload)
+│   │   ├── backup.py         #   daily encrypted database backups to a private bucket (eidolon backup)
 │   │   ├── sheet_draft.py    #   character sheet drafting
 │   │   └── llm/              #   adapters for the three model protocols
 │   ├── eval/                 #   reranker calibration dataset (questions and labels only, no story text)
@@ -554,7 +557,7 @@ eidolon-sc/
 ├── frontend/                 # Next.js + Astryx frontend
 ├── characters/               # character config, sheets, facts, avatars, call-screen backgrounds
 ├── corpus/                   # story data, the mirror cache and the stand build directory (not committed)
-├── deploy/                   # Caddyfile, story and stand sync scripts, sample event-name table
+├── deploy/                   # Caddyfile, story and stand sync scripts, database backup script, sample event-name table
 ├── scripts/                  # wizards, such as setting up the OAuth apps (setup-oauth.sh)
 ├── docs/
 │   ├── adr/                  # architecture decision records

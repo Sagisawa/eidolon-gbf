@@ -71,12 +71,14 @@ def test_signing_matches_amazons_example_of_listing_a_bucket():
 
 
 class FakeBucket:
-    """An S3-compatible bucket at http://storage.test/stands (path-style) that keeps what
+    """An S3-compatible bucket at http://storage.test/<name> (path-style) that keeps what
     it is sent, lists two keys a page, and refuses unsigned requests."""
 
-    def __init__(self) -> None:
+    def __init__(self, name: str = "stands") -> None:
+        self.name = name
         self.objects: dict[str, tuple[bytes, dict[str, str]]] = {}
         self.puts: list[str] = []
+        self.deletes: list[str] = []
         self.down = False
         self.lists_by_marker = False
         """List as the original List Objects does (Tencent COS): pages by `marker`,
@@ -84,24 +86,30 @@ class FakeBucket:
 
     def bucket(self, **settings) -> Bucket:
         return Bucket(
-            S3Settings("http://storage.test", "stands", "key-id", "secret", **settings),
-            transport=httpx.MockTransport(self._handle),
+            S3Settings("http://storage.test", self.name, "key-id", "secret", **settings),
+            transport=httpx.MockTransport(self.handle),
         )
 
-    def _handle(self, request: httpx.Request) -> httpx.Response:
+    def handle(self, request: httpx.Request) -> httpx.Response:
         if self.down:
             return httpx.Response(503, text="<Error><Code>SlowDown</Code></Error>")
         if not request.headers.get("Authorization", "").startswith("AWS4-HMAC-SHA256 Credential=key-id/"):
             return httpx.Response(403, text="<Error><Code>AccessDenied</Code></Error>")
         path = urlsplit(str(request.url)).path
-        assert path == "/stands" or path.startswith("/stands/"), path
-        key = unquote(path.removeprefix("/stands").removeprefix("/"))
+        assert path == f"/{self.name}" or path.startswith(f"/{self.name}/"), path
+        key = unquote(path.removeprefix(f"/{self.name}").removeprefix("/"))
         if request.method == "PUT":
             body = request.read()
             assert request.headers["x-amz-content-sha256"] == hashlib.sha256(body).hexdigest()
+            assert request.headers["Content-Length"] == str(len(body))
+            assert "Transfer-Encoding" not in request.headers
             self.objects[key] = (body, dict(request.headers))
             self.puts.append(key)
             return httpx.Response(200, headers={"ETag": f'"{hashlib.md5(body).hexdigest()}"'})
+        if request.method == "DELETE":
+            self.objects.pop(key, None)
+            self.deletes.append(key)
+            return httpx.Response(204)
         query = parse_qs(urlsplit(str(request.url)).query)
         assert request.method == "GET" and query["list-type"] == ["2"]
         keys = sorted(self.objects)
