@@ -21,7 +21,9 @@ Status: ready-for-agent
 
 - 一个部署只用一家，不做故障时换另一家。`STT_PROVIDER` 不填为 `soniox`，现有部署不用改配置。
 - 选 `bailian` 时需要 `DASHSCOPE_API_KEY`；没填则和现在没填 `SONIOX_API_KEY` 一样，照常启动、不开放通话。
-- `BAILIAN_STT_MODEL` 允许 `qwen-audio-3.1-asr-flash-streaming`（默认）、`qwen-audio-3.0-asr-flash-streaming`、`fun-asr-realtime`，三者是同一套 DashScope WebSocket 协议。不支持 `qwen3-asr-flash-realtime`（另一套 OpenAI Realtime 风格的协议）。
+- `BAILIAN_STT_MODEL` 暂时只允许 `qwen-audio-3.1-asr-flash-streaming`（默认），其他值启动报错。保留这个配置，是为了以后有新模型时好加。
+  - `qwen-audio-3.0-asr-flash-streaming` 和 `fun-asr-realtime` 协议相同，但不认 `vad_model`：咳嗽会出空稿，或直接识别成「咳咳。」，达不到下面「轮流说话」的规格（ticket 01 实测，2026-10-02 定）。
+  - 不支持 `qwen3-asr-flash-realtime`（另一套 OpenAI Realtime 风格的协议）。
 - **地域自动判断**：先试北京，被拒（401/403）再试新加坡。用不带 WorkspaceId 的老域名：
   - 北京 `wss://dashscope.aliyuncs.com/api-ws/v1/inference`
   - 新加坡 `wss://dashscope-intl.aliyuncs.com/api-ws/v1/inference`
@@ -38,12 +40,12 @@ Status: ready-for-agent
 ### 轮流说话
 
 - 补充和打断依赖 Soniox 的三条规格：第一个词出来就算开口（`ProposedUserStartedSpeakingFrame`）、说完后最多约 3 秒出终稿、没听到词时不出稿。百炼的服务要给出同样的信号：
-  - 第一条中间结果（`result-generated`，`sentence_end=false`）出来时算开口，并发 `InterimTranscriptionFrame`；
+  - 第一条**有字**的中间结果（`result-generated`，`sentence_end=false`，`text` 非空）出来时算开口，并发 `InterimTranscriptionFrame`。每句开头那条 `sentence_begin=true` 的空结果只是 VAD 听到声音，不算；`heartbeat=true` 的心跳也跳过；
   - `sentence_end=true` 时发 `ProposedUserStoppedSpeakingFrame` 和 `TranscriptionFrame`；
-  - 没识别出文字的句子不出稿（是否会出现、怎么出现由 ticket 01 测出）。
+  - 没识别出文字的句子不出稿：终稿去掉标点和空白后为空，就不发 `TranscriptionFrame`。near 模式下实测没出过空稿，这是兜底。
 - `FOLLOW_ON_TIMEOUT` 改为由各家服务自己给出，按通话实际用的服务取值（同一部署里不同用户可能不同）。
-- 起步参数：16 kHz、16 bit、单声道 PCM，每 100 ms 一包；`language_hints: ["zh","ja"]`；`vad_model: "near_meeting_16k"`；不开语义断句。最终值以 ticket 01 的测量为准。
-- 23 秒不发数据会被服务端断开；通话中麦克风静音时也要持续发静音（或开 `heartbeat`），以 ticket 01 的测量为准。
+- 参数（ticket 01 实测定下）：16 kHz、16 bit、单声道 PCM，每 100 ms 一包；`language_hints: ["zh","ja"]`；`vad_model: "near_meeting_16k"`；`heartbeat: true`；`max_sentence_silence` 用默认（实测说完约 1.0–1.2 s 出终稿）；不开语义断句。百炼的 `FOLLOW_ON_TIMEOUT` 为 3.0。
+- 23 秒不发数据会被服务端断开（`task-failed`，`CLIENT_ERROR`）；一直发静音则不断开。服务自己保证不断流：上游一段时间没有音频帧时补发静音。
 - 用原始 WebSocket（项目已有 `websockets`）写，继承 pipecat 的 `WebsocketSTTService`，不引入 `dashscope` SDK（它是线程加回调的写法）。
 
 ### 文案
