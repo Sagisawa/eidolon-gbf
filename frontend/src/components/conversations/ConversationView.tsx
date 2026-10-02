@@ -30,6 +30,7 @@ import { copy } from "@/i18n";
 import { createConversation, listConversations, listMessages, sendTurn, type Character } from "@/lib/api";
 import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
+import { CharacterVoice } from "@/lib/characterVoice";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
@@ -44,7 +45,6 @@ import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useCallTones } from "./useCallTones";
 import { useFocusBack } from "./useFocusBack";
-import { useCharacterVoice } from "./useCharacterVoice";
 import { useStandOutfits } from "./useStandOutfits";
 
 const t = copy.conversation;
@@ -68,14 +68,15 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
-  const { conversation, entries, call, hearing, busy, draft, textOnly, failure, collapsed } = snapshot;
-  const voice = useCharacterVoice(textOnly);
+  const { conversation, entries, call, hearing, draft, textOnly, failure, collapsed } = snapshot;
+  // 她的声音：<audio> 交给它，什么时候拨号、播放、静音由 LiveConversation 告诉它。
+  const [voice] = useState(() => new CharacterVoice());
   const shownCall = useShownCall(call);
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   useCallTones(call.phase);
 
-  // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话）。
+  // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话，停下她的声音）。
   useEffect(() => {
     const conversation = new LiveConversation(character.id, {
       listConversations,
@@ -85,7 +86,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
       startCall,
       sendTurn,
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
-      onCharacterAudio: (track) => voice.play(track),
+      voice,
     });
     setLive(conversation);
     return () => conversation.dispose();
@@ -100,13 +101,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const isOpen = conversation.status === "open";
   const inCall = isLive(call);
   const back = onBack && (() => leave(onBack));
-  // 电话质感在拨号这一下定下来（下次接通时生效），也趁这次点击唤醒 AudioContext。
-  // 通话中或正忙时 startCall 本来就不理会，这里也不去动正在用的声音。
-  const dial = () => {
-    if (!live || busy || inCall) return;
-    voice.dial(loadCallPreferences().phoneTexture);
-    void live.startCall();
-  };
+  // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
+  const dial = () => void live?.startCall();
 
   // 列表只在拿到空数组时显示空状态，所以把消息和「正在听」放进同一个数组。
   const rows = entries.map((entry) => <Bubble key={entry.key} entry={entry} character={character} />);
@@ -187,7 +183,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           label={t.call(character.name)}
           tooltip={t.callTooltip}
           icon={<Icon icon={PhoneIcon} />}
-          isDisabled={!isOpen || busy}
+          isDisabled={!snapshot.canDial}
           ref={focus.phoneKey}
           onClick={dial}
           style={phoneKey}
@@ -200,7 +196,7 @@ export function ConversationView({ character, onBack }: { character: Character; 
           {
             label: t.newConversation,
             onClick: () => void live?.startNewConversation(),
-            isDisabled: !isOpen || busy || inCall || failure?.signedOut,
+            isDisabled: !snapshot.canStartNew,
           },
         ]}
       />

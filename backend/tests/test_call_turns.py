@@ -33,12 +33,11 @@ from eidolon import call as call_module
 from eidolon.assembly import build
 from eidolon.call import (
     Call,
-    CallLimits,
     CallTurns,
     SegmentCompleteFrame,
     SegmentTextFrame,
 )
-from eidolon.call_outcome import CallOutcome
+from eidolon.call_outcome import CallLimits, CallOutcome
 from eidolon.config import EmotionSettings, Settings
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Store
@@ -76,15 +75,14 @@ class CallUnderTest:
         muted: bool = False,
         limits: CallLimits = CallLimits(),
         memory: FakeBackgroundLLM | None = None,
-        exempt: bool = False,
         connected: bool = True,
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
-            llm, frames, muted=muted, limits=limits, memory=memory, exempt=exempt,
-            connected=connected, judge=judge, emotion=emotion,
+            llm, frames, muted=muted, limits=limits, memory=memory, connected=connected,
+            judge=judge, emotion=emotion,
         )
         spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
@@ -98,7 +96,6 @@ class CallUnderTest:
         muted: bool = False,
         limits: CallLimits = CallLimits(),
         memory: FakeBackgroundLLM | None = None,
-        exempt: bool = False,
         connected: bool = True,
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
@@ -118,8 +115,8 @@ class CallUnderTest:
             mano = backend.characters["mano"]
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
             call = Call(self.conversation, mano, llms, muted, "standard")
-            outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt)
-            turns = CallTurns(backend.engine, call, outcome, limits, backend.emotions)
+            outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt=False, limits=limits)
+            turns = CallTurns(backend.engine, call, outcome, backend.emotions)
             if connected:
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)
@@ -371,9 +368,7 @@ async def test_call_hangs_up_after_its_last_allowed_turn(mano_call: CallUnderTes
     )
 
     assert kinds(messages) == ["user", "done", "user", "done", "ended"]
-    assert "2 轮" in messages[-1]["message"]
     assert messages[-1]["reason"] == "turn_limit"
-    assert messages[-1]["counts"] is True
     assert "".join(spoken_text).count("ほわっ") == 2  # the last reply is still voiced
     assert len(await mano_call.record()) == 4
 
@@ -390,9 +385,7 @@ async def test_call_hangs_up_when_time_is_up_once_the_reply_in_progress_is_done(
     )
 
     assert kinds(messages) == ["user", "done", "ended"]
-    assert "分钟" in messages[-1]["message"]
     assert messages[-1]["reason"] == "duration_limit"
-    assert messages[-1]["counts"] is True
     assert len(await mano_call.record()) == 2
 
 
@@ -408,17 +401,6 @@ async def test_a_calls_time_is_counted_from_when_it_connects(mano_call: CallUnde
     assert kinds(messages) == ["user", "done"]  # never connected, so time never ran out
 
 
-async def test_a_call_on_the_users_own_keys_alone_says_it_does_not_count_when_it_ends(
-    mano_call: CallUnderTest,
-):
-    _, messages = await mano_call.run(
-        FakeLLM(MANO_REPLY), one_by_one(spoken("早上好")), limits=CallLimits(turns=1), exempt=True
-    )
-
-    assert messages[-1]["type"] == "ended"
-    assert messages[-1]["counts"] is False
-
-
 async def test_turns_that_fail_or_are_rejected_do_not_count_and_the_call_goes_on(
     mano_call: CallUnderTest,
 ):
@@ -432,6 +414,7 @@ async def test_turns_that_fail_or_are_rejected_do_not_count_and_the_call_goes_on
     )
 
     assert kinds(messages) == ["user", "error"] * 3 + ["user", "done", "ended"]
+    assert messages[-1]["reason"] == "turn_limit"
     assert len(llm.prompts) == 2  # what was too long never reached the model
     assert "".join(spoken_text).count("ほわっ") == 1
     assert await mano_call.said() == ["在吗？", None]

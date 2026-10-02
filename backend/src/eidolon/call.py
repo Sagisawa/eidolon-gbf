@@ -79,7 +79,7 @@ from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 from pipecat.utils.types import assert_given
 from pipecat.workers.runner import WorkerRunner
 
-from eidolon.call_outcome import CallOutcome, EndReason
+from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import IceServer, Settings
@@ -130,15 +130,6 @@ class Call:
     muted: bool
     quality: Quality
     device_timezone: str | None = None
-
-
-@dataclass(frozen=True)
-class CallLimits:
-    """How long one call may last and how many turns it may take; None is no limit. Once
-    either is reached, the reply in progress is finished and the call hangs up."""
-
-    duration: timedelta | None = None
-    turns: int | None = None
 
 
 USER_CHECK_INTERVAL = 5.0
@@ -580,9 +571,10 @@ class SonioxFishSpeech:
 class Calls:
     """The user's voice calls, from signalling to hanging up.
 
-    Each new call has a `CallOutcome`, which takes it from the user's limit when it is
-    offered and, told what happens to the call, decides whether it is given back and what
-    the browser is told when the backend ends it. Only the user who placed a call can
+    Each new call has a `CallOutcome`, given the call's own limits on its time and turns,
+    which takes it from the user's limit when it is offered and, told what happens to the
+    call, decides when it has reached its own limits, whether it is given back and what the
+    browser is told when the backend ends it. Only the user who placed a call can
     renegotiate it or add ICE candidates to it.
     """
 
@@ -649,7 +641,7 @@ class Calls:
         `OwnKeys.for_call` says. Raises OverLimit when the user has no calls left this
         hour, unless the call is exempt."""
         keys = self._own_keys.for_call(user_id)
-        outcome = CallOutcome(self._usage, user_id, keys.exempt)
+        outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits)
         call = Call(
             conversation, character, keys.llms, options.muted, options.quality,
             options.device_timezone,
@@ -665,8 +657,7 @@ class Calls:
                 self._owners.pop(connection.pc_id, None)
 
             live = _LiveCall(
-                connection, call, self._engine, self._speech, keys, self._limits, outcome,
-                self._emotions,
+                connection, call, self._engine, self._speech, keys, outcome, self._emotions
             )
             self._live.add(live)
             live.start(on_done=self._live.discard)
@@ -763,7 +754,6 @@ class _LiveCall:
         engine: ConversationEngine,
         speech: Speech,
         keys: CallKeys,
-        limits: CallLimits,
         outcome: CallOutcome,
         emotions: EmotionJudging | None,
     ) -> None:
@@ -777,7 +767,7 @@ class _LiveCall:
                 audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
             ),
         )
-        self._turns = CallTurns(engine, call, outcome, limits, emotions)
+        self._turns = CallTurns(engine, call, outcome, emotions)
         stt = speech.stt(keys.stt)
         tts = speech.tts(keys.tts, call.character.voice_id, sample_rate)
         own_services: dict[FrameProcessor, Service] = {
@@ -903,11 +893,14 @@ class CallTurns(FrameProcessor):
     it says to do is done straight away. How long a follow-on may take to be transcribed
     (`FOLLOW_ON_TIMEOUT`) is timed here.
 
-    Its time limit runs from when the call connects (`connected`), as the call screen's
-    clock does. Each recorded turn is reported to the call's `CallOutcome`. When the call
-    reaches its limits, the browser gets the `ended` message the outcome hands back, saying
-    why and whether the call counted, and the call ends once the last reply has been voiced;
-    what is said after that is not taken up.
+    The call's limits, and what the browser is told when it reaches them, are its
+    `CallOutcome`'s; here they are only reported and asked about. Its time limit
+    (`CallOutcome.time_limit`) is timed from when the call connects (`connected`), as the
+    call screen's clock does, and reported once it is up; each recorded turn is reported
+    too. Once a turn is over, and when its time is up, the outcome is asked whether the call
+    has reached its limits; if it has, the browser gets the `ended` message it hands back,
+    if any, and the call ends once the last reply has been voiced; what is said after that
+    is not taken up.
     """
 
     def __init__(
@@ -915,24 +908,20 @@ class CallTurns(FrameProcessor):
         engine: ConversationEngine,
         call: Call,
         outcome: CallOutcome,
-        limits: CallLimits = CallLimits(),
         emotions: EmotionJudging | None = None,
     ) -> None:
         super().__init__()
         self._engine = engine
         self._call = call
         self._outcome = outcome
-        self._limits = limits
         self._emotions = emotions
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._turns = TurnTaking(text_only=call.muted)
-        self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: time is up
+        self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: wakes it, once time is up
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
         self._started = False  # the pipeline has started, so tasks can be created
         self._connected = False  # the browser has connected: the time limit runs
-        self._time_up: str | None = None  # says the call is over, once time is up
-        self._recorded = 0  # turns the call has recorded so far, for its turn limit
         # The turn in progress:
         self._turn_over = asyncio.Event()  # set once its reply is over
         self._reply: asyncio.Task | None = None  # the reply being given to it
@@ -979,7 +968,7 @@ class CallTurns(FrameProcessor):
         self._start_timer()
 
     def _start_timer(self) -> None:
-        duration = self._limits.duration
+        duration = self._outcome.time_limit
         if duration is None or not (self._started and self._connected) or self._timer is not None:
             return
         self._timer = self.create_task(self._time(duration))
@@ -1036,29 +1025,26 @@ class CallTurns(FrameProcessor):
             try:
                 if self._turns.ending:
                     continue
-                if self._time_up is not None:
-                    await self._end("duration_limit", self._time_up)
-                    continue
-                assert text is not None
-                await self._turn(text)
-                if self._limits.turns is not None and self._recorded >= self._limits.turns:
-                    await self._end("turn_limit", f"这次通话已经说了 {self._recorded} 轮了")
+                if text is not None:
+                    await self._turn(text)
+                limit = self._outcome.limit_reached()
+                if limit is not None:
+                    await self._end(limit)
             finally:
                 self._inputs.task_done()
 
     async def _time(self, duration: timedelta) -> None:
         await asyncio.sleep(duration.total_seconds())
-        self._time_up = f"这次通话已经满 {duration / timedelta(minutes=1):g} 分钟了"
+        self._outcome.time_up()
         self._inputs.put_nowait(None)  # wakes the worker, after the turn in progress
 
-    async def _end(self, reason: EndReason, why: str) -> None:
+    async def _end(self, limit: LimitReached) -> None:
         """Hang up, once what is already on its way to TTS has been voiced, telling the
         browser why as `CallOutcome` says, unless it has been told already."""
         await self._carry_out(self._turns.call_ending())
-        message = self._outcome.limit_reached(reason, why)
-        if message is not None:
-            await self._send(message)
-        await self.push_frame(EndWorkerFrame(reason=why))
+        if limit.ended is not None:
+            await self._send(limit.ended)
+        await self.push_frame(EndWorkerFrame(reason=limit.why))
 
     async def _turn(self, text: str) -> None:
         """Take one turn, replied to afresh after each follow-on, until its reply is over."""
@@ -1140,7 +1126,6 @@ class CallTurns(FrameProcessor):
                     continue
                 if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
                     await self._carry_out(self._turns.reply_recorded())
-                    self._recorded += 1
                     self._outcome.turn_recorded()
                 message = asdict(event)
                 if isinstance(event, UserSaid):

@@ -15,12 +15,12 @@ facts; opening the set moves their rows over and drops them, embedding nothing a
 """
 
 import asyncio
-import sqlite3
 import threading
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from eidolon.corpus import REEMBED_BATCH
+from eidolon.database import connect
 from eidolon.embedding import Document, Embedder, nearest, to_blob
 
 WORK_SCOPE = "work"
@@ -46,8 +46,7 @@ def character_scope(character_id: str) -> str:
 
 class EmbeddedTexts:
     def __init__(self, path: Path, embedder: Embedder) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
+        self._db = connect(path)
         self._lock = threading.Lock()
         self._embedder = embedder
         self._loaded: dict[str, dict[str, bytes]] = {}

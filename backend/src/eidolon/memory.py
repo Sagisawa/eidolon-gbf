@@ -28,7 +28,6 @@ still list and delete the memories already kept.
 import asyncio
 import json
 import logging
-import sqlite3
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -39,6 +38,7 @@ from zoneinfo import ZoneInfo
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.corpus import REEMBED_BATCH
+from eidolon.database import connect
 from eidolon.embedding import Document, Embedder, EmbeddingError, nearest, to_blob
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.rerank import DEFAULT_THRESHOLDS, Reranker, RerankError
@@ -132,11 +132,9 @@ class Memories:
         they belong to; off unless `embedder` and `reranker` are both given, though
         `embedder` alone is enough to embed them again. A memory the reranker scores below
         `min_relevance` is not found (see `rerank.KNOWN_THRESHOLDS`)."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False, timeout=30)
+        self._db = connect(path)
         self._lock = threading.Lock()
         with self._lock, self._db:
-            self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
         self._characters = characters
         self._clock = clock
@@ -183,7 +181,7 @@ class Memories:
 
     async def forget(self, user_id: str) -> None:
         """Drop whatever the user's turns so far are still writing down, before the user
-        is deleted (see `Store.delete_user`, which deletes their memories)."""
+        is deleted (see `database.delete_user_data`, which deletes their memories)."""
         self._clearings[user_id] = self._clearings.get(user_id, 0) + 1
         await self._settle(user_id)
 

@@ -72,6 +72,15 @@ def user_id(database: Path, name: str) -> str:
     return found
 
 
+def files_holding(database: Path, text: str) -> list[Path]:
+    """Which of the database file and its write-ahead log hold `text`."""
+    return [
+        path
+        for path in (database, database.with_name(database.name + "-wal"))
+        if path.exists() and text.encode() in path.read_bytes()
+    ]
+
+
 async def test_deleting_leaves_nothing_of_the_user_in_any_table(
     make_client: ClientFactory, settings: Settings
 ):
@@ -186,3 +195,28 @@ async def test_deleted_data_is_gone_from_the_database_files_too(
     for path in (database, database.with_name(database.name + "-wal")):
         if path.exists():
             assert CAT.encode() not in path.read_bytes(), path
+
+
+async def test_memories_cleared_before_deleting_are_gone_from_the_database_files_too(
+    make_client: ClientFactory, settings: Settings
+):
+    client = memory_client(make_client)
+    await use_everything(client)
+    assert (await client.delete("/api/memories")).status_code == 204
+
+    await client.post("/api/account/delete", json=DELETE)
+
+    assert files_holding(settings.database_path, CAT) == []
+
+
+async def test_a_memory_deleted_before_deleting_is_gone_from_the_database_files_too(
+    make_client: ClientFactory, settings: Settings
+):
+    client = memory_client(make_client)
+    await use_everything(client)
+    [cat] = (await client.get("/api/memories")).json()
+    assert (await client.delete(f"/api/memories/{cat['id']}")).status_code == 204
+
+    await client.post("/api/account/delete", json=DELETE)
+
+    assert files_holding(settings.database_path, CAT) == []

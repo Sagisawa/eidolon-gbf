@@ -1,6 +1,6 @@
 # 01: 删一条记忆、清空记忆时，删掉的内容可能还留在数据库文件里
 
-**Status:** needs-triage
+**Status:** resolved
 
 **Type:** bug（疑似，按代码推断，还没有复现）
 
@@ -31,3 +31,23 @@
 3. 读数据库文件和 `-wal` 文件的字节，看那个字符串还在不在。
 
 ## Comments
+
+### 2026-10-02 triage（grilling）
+
+并进 `.scratch/architecture-deepening-4/issues/04-database.md`（数据库 module）：所有连接改由 `database.connect` 打开，统一开 `secure_delete`，这张单独不修。
+
+- 上面「建议的复现」写进 04 的验收测试：先清空记忆再删号、先删一条记忆再删号，查 db 和 `-wal` 的字节。
+- 单独删一条记忆、清空记忆**不承诺**立即从 WAL 里清掉：页会被覆写，但更早的 WAL 帧可能还留着原文，要等之后的 checkpoint 或删号时才清掉。ADR-0006 的「真删」指删号。
+- 线上数据库里早先被释放、没被覆写的页不处理（不 `VACUUM`）。
+- 「SQLite 编译时的默认值」不再需要核实：显式打开以后，默认值是多少都不影响结果。
+
+04 resolved 时，这张一起标 resolved。
+
+### 2026-10-02 由 architecture-deepening-4 ticket 04 修掉
+
+见 `.scratch/architecture-deepening-4/issues/04-database.md`。现在所有连接都由 `database.connect` 打开，统一开 `secure_delete`。`Memories` 的连接也在其中。
+
+- 上面「建议的复现」写成了 `test_delete_account.py` 里的两条测试：先清空记忆再删号、先删一条记忆再删号，各一条。
+- 这两条在改实现前都是红的，记忆原文留在 db 文件里，疑点坐实；改完后转绿。
+- 按 triage 的约定，等 04 的人工验收通过、04 标 resolved 时，这张一起标 resolved。
+- 04 的人工验收通过（2026-10-02），04 标为 resolved，这张一起标 resolved。

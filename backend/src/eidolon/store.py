@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
+from eidolon.database import connect, delete_user_data
 from eidolon.delivery_cues import without_cues
 from eidolon.producer import ProducerProfile
 from eidolon.reply_format import Segment
@@ -186,17 +187,10 @@ class Message:
 
 class Store:
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = sqlite3.connect(path, check_same_thread=False)
+        self._db = connect(path)
         self._db.row_factory = sqlite3.Row
-        # Readers need not wait for a writer: the store, memory and the corpus each have a
-        # connection to this database.
-        self._db.execute("PRAGMA journal_mode = WAL")
-        # What is deleted is overwritten, not just freed: deleting a user is for good.
-        self._db.execute("PRAGMA secure_delete = ON")
         self._lock = threading.Lock()
         with self._lock, self._db:
-            self._db.execute("PRAGMA foreign_keys = ON")
             self._db.executescript(_SCHEMA)
             self._migrate()
 
@@ -380,17 +374,10 @@ class Store:
         return cursor.rowcount > 0
 
     def delete_user(self, user_id: str) -> None:
-        """Delete the user and everything of theirs, for good, all at once."""
-        with self._lock, self._db:
-            tables = {
-                row["name"]
-                for row in self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-            }
-            for table, where in _USER_DATA:
-                if table in tables:  # memory's and usage's exist once they have opened them
-                    self._db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
-        with self._lock:  # the write-ahead log still holds the pages as they were
-            self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        """Delete the user and everything of theirs, for good, all at once (see
+        `database.delete_user_data`)."""
+        with self._lock:
+            delete_user_data(self._db, user_id)
 
     def create_session(self, user_id: str, now: datetime) -> str:
         """Start a session for the user; returns its token, which is not stored."""
@@ -558,22 +545,6 @@ class Store:
 
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at"
-
-_USER_DATA = [
-    ("memory_vectors", "user_id = ?"),
-    ("memories", "user_id = ?"),
-    ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
-    ("conversations", "user_id = ?"),
-    ("producer_profiles", "user_id = ?"),
-    ("usage", "user_id = ?"),
-    ("sessions", "user_id = ?"),
-    ("sign_in_methods", "user_id = ?"),
-    ("own_keys", "user_id = ?"),
-    ("users", "id = ?"),
-]
-"""Every table holding a user's data, and which rows are theirs, in an order that deletes
-what refers to a row before the row. A table added for users' data must be added here."""
-
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(
