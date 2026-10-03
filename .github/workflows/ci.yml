@@ -19,6 +19,8 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # 平时 2 分钟左右；测试挂住时不等到 GitHub 默认的 6 小时
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -31,7 +33,8 @@ jobs:
       # --locked：uv.lock 和 pyproject.toml 对不上时失败
       - run: uv sync --locked
       - run: uv run pyright
-      - run: uv run pytest
+      # 单个测试 2 分钟还没结束时打印所有线程的栈，挂住时能看出卡在哪里
+      - run: uv run pytest -o faulthandler_timeout=120
 
   frontend:
     runs-on: ubuntu-latest
