@@ -1,4 +1,4 @@
-"""Each configured character's outfit list (CONTEXT.md「衣装」): `eidolon stand outfits`.
+"""Each configured character's outfit list (GLOSSARY.md「衣装」): `eidolon stand outfits`.
 
 The source's `spine_manifest.json` (`stand_fetch`) lists the stands fetched; a character
 with an `idol_id` gets a list of her cards, in the order of their enzaIds, which is the

@@ -33,7 +33,7 @@ export type CallHandlers = {
   onMicLost: (now: MicInUse | null) => void;
 };
 
-/** A call that has connected: the character can hear and speak (CONTEXT.md「接通」). */
+/** A call that has connected: the character can hear and speak (GLOSSARY.md「接通」). */
 export type Call = {
   /** How long the call may last, in seconds; null for no limit. */
   maxSeconds: number | null;
@@ -41,9 +41,9 @@ export type Call = {
   exempt: boolean;
   /** Say something by typing it; the character answers in the call. */
   sendText: (text: string) => void;
-  /** Whether the character's replies are voiced (CONTEXT.md「只看文字」). */
+  /** Whether the character's replies are voiced (GLOSSARY.md「只看文字」). */
   setTextOnly: (textOnly: boolean) => void;
-  /** Turn the microphone's track on or off in the browser (CONTEXT.md「麦克风静音」). */
+  /** Turn the microphone's track on or off in the browser (GLOSSARY.md「麦克风静音」). */
   setMicEnabled: (enabled: boolean) => void;
   /** The microphone the call connected with. */
   mic: MicInUse;

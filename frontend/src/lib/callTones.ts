@@ -1,4 +1,4 @@
-// The phone's own sounds around a call (CONTEXT.md「铃声」「接通音」「挂断音」): what to start,
+// The phone's own sounds around a call (GLOSSARY.md「铃声」「接通音」「挂断音」): what to start,
 // stop or play once as the call moves from one phase to the next. Playing them is the page's.
 
 import type { CallState } from "@/lib/liveConversation";

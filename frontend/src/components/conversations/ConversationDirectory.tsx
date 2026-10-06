@@ -34,7 +34,7 @@ export type Directory = {
   setCall: (call: CallInList) => void;
   /**
    * 离开对话页（换一位角色、进设置或记忆、回列表）：通话中先确认会挂断，确认了才 `go`。
-   * 离开后对话页卸下，照常挂断（CONTEXT.md「通话」）。
+   * 离开后对话页卸下，照常挂断（GLOSSARY.md「通话」）。
    */
   leave: (go: () => void) => void;
 };

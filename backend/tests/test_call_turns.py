@@ -393,7 +393,7 @@ async def test_call_hangs_up_when_time_is_up_once_the_reply_in_progress_is_done(
 
 
 async def test_a_calls_time_is_counted_from_when_it_connects(mano_call: CallUnderTest):
-    """The call screen counts from 接通 (CONTEXT.md), so the time limit does too."""
+    """The call screen counts from 接通 (GLOSSARY.md), so the time limit does too."""
     _, messages = await mano_call.run(
         FakeLLM(MANO_REPLY),
         [SleepFrame(0.3), spoken("早上好")],

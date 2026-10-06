@@ -1,4 +1,4 @@
-// 记忆页：每条记忆都标注来源角色（CONTEXT.md「来源角色」）。
+// 记忆页：每条记忆都标注来源角色（GLOSSARY.md「来源角色」）。
 
 import type { Character, Memory } from "@/lib/api";
 

@@ -1,6 +1,6 @@
 // 简体中文界面文案。新界面上的每一句话都从这里取（经 `@/i18n` 的 copy），不在组件里写死。
 // 按界面分组；带参数的句子写成函数，参数的位置由各语言自己决定。
-// 术语以 CONTEXT.md 为准（对话、通话、通话层、麦克风静音、只看文字、印象色……）。
+// 术语以 GLOSSARY.md 为准（对话、通话、通话层、麦克风静音、只看文字、印象色……）。
 
 export const zh = {
   app: {
@@ -48,7 +48,7 @@ export const zh = {
     loadFailed: "对话没能打开",
     notFound: "没有这位角色",
     backToList: "回到对话列表",
-    /** 失败时说明这次算不算进限额（CONTEXT.md「限额」「回合」）。 */
+    /** 失败时说明这次算不算进限额（GLOSSARY.md「限额」「回合」）。 */
     notCounted: "这次没有计入限额。",
     /** 页首的「换衣装」和它打开的面板（spec「衣装与换衣装」）。 */
     outfits: {
@@ -113,7 +113,7 @@ export const zh = {
     /** 消息列表里她那一行。 */
     listConnected: (clock: string) => `通话中 ${clock}`,
     ended: "通话已结束",
-    /** 是否计入限额（CONTEXT.md「限额」「接通」）。 */
+    /** 是否计入限额（GLOSSARY.md「限额」「接通」）。 */
     counted: "这次通话计入每小时的限额。",
     notCounted: "这次通话不计入每小时的限额。",
     backToConversation: "回到对话",

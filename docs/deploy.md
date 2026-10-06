@@ -164,7 +164,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 ## 立绘素材
 
-通话层上可以叠一层原作的 Spine 立绘（CONTEXT.md「立绘」）。素材不进仓库（ADR-0003 的 2026-09-30 修订），放在你选的 S3 兼容对象存储里，浏览器直接从存储桶下载。三项都配好了，这位角色的通话层才显示立绘；少一项就和原来一样，只显示背景图：
+通话层上可以叠一层原作的 Spine 立绘（GLOSSARY.md「立绘」）。素材不进仓库（ADR-0003 的 2026-09-30 修订），放在你选的 S3 兼容对象存储里，浏览器直接从存储桶下载。三项都配好了，这位角色的通话层才显示立绘；少一项就和原来一样，只显示背景图：
 
 - `characters/characters.toml` 里这位角色的 `idol_id`：原作的偶像编号，即 ShinyColorsDB 的 `idolId`（同步后整理目录 `source/spine_manifest.json` 里也有）（真乃是 1，灯织是 2，めぐる是 3，恋钟是 4）。
 - 同一段里的 `default_outfit`：用户没选过衣装时她穿的那一套，写成 `stand/<enzaId>`（这张卡的私服）或 `stand_costume/<enzaId>`（演出服），`enzaId` 是卡的十位编号（`source/spine_manifest.json` 里的 `enzaId`），例如 `stand/1030010010`。

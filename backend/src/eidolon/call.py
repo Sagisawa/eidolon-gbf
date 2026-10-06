@@ -1008,7 +1008,7 @@ class CallTurns(FrameProcessor):
             await self.push_frame(frame, direction)
 
     def connected(self) -> None:
-        """The browser has connected (CONTEXT.md「接通」): the call's time starts running,
+        """The browser has connected (GLOSSARY.md「接通」): the call's time starts running,
         and the call's `CallOutcome` is told."""
         self._outcome.connected()
         self._connected = True

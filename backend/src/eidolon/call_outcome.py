@@ -1,5 +1,5 @@
 """How a call turns out: whether it counts towards the user's limit, when it has reached
-its limits, and what the browser is told when the backend ends it (CONTEXT.md「限额」
+its limits, and what the browser is told when the backend ends it (GLOSSARY.md「限额」
 「接通」).
 
 `CallOutcome` is all the rule is: the call takes a use of the user's limit when it is
@@ -45,7 +45,7 @@ class LimitReached:
 
 def ended(reason: EndReason, message: str, counts: bool) -> dict:
     """The `ended` message: why the call is over, and whether it counted towards the
-    user's limit (CONTEXT.md「限额」「接通」)."""
+    user's limit (GLOSSARY.md「限额」「接通」)."""
     return {"type": "ended", "reason": reason, "message": message, "counts": counts}
 
 
@@ -89,7 +89,7 @@ class CallOutcome:
         return None
 
     def connected(self) -> dict | None:
-        """The call has connected (CONTEXT.md「接通」)."""
+        """The call has connected (GLOSSARY.md「接通」)."""
         self._connected = True
         return None
 

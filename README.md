@@ -27,7 +27,7 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 
 目前可以对话的是 illumination STARS 的**櫻木真乃**、**風野灯織**、**八宮めぐる**，以及 L'Antica 的**月岡恋鐘**；角色由 [`characters/characters.toml`](characters/characters.toml) 配置，可以继续添加。
 
-部署到公网后，任何人都能用 Google 或 GitHub 登录使用（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。术语表见 [`CONTEXT.md`](CONTEXT.md)，设计决策见 [`docs/adr/`](docs/adr/)，界面的视觉规范见 [`DESIGN.md`](DESIGN.md)。
+部署到公网后，任何人都能用 Google 或 GitHub 登录使用（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。术语表见 [`GLOSSARY.md`](GLOSSARY.md)，设计决策见 [`docs/adr/`](docs/adr/)，界面的视觉规范见 [`DESIGN.md`](DESIGN.md)。
 
 > [!IMPORTANT]
 > 本项目是非官方的粉丝作品，与万代南梦宫及《偶像大师》系列版权方无关。剧情数据**不随仓库分发**，需要自行准备（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）；角色通过回复间接地把它们提供给登录的用户，这一风险见 [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)。
@@ -565,7 +565,7 @@ eidolon-sc/
 ├── docker-compose.yml        # 本地开发
 ├── docker-compose.prod.yml   # 生产部署
 ├── .env.example              # 全部配置项及说明
-└── CONTEXT.md                # 领域术语表
+└── GLOSSARY.md               # 领域术语表
 ```
 
 ## 📄 许可证

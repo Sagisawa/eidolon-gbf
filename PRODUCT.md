@@ -2,7 +2,7 @@
 
 <!-- impeccable:product-schema 1 -->
 
-术语以 [`CONTEXT.md`](CONTEXT.md) 为准；设计决策见 [`docs/adr/`](docs/adr/)。
+术语以 [`GLOSSARY.md`](GLOSSARY.md) 为准；设计决策见 [`docs/adr/`](docs/adr/)。
 
 ## Platform
 
@@ -39,7 +39,7 @@ web
 - 前端：Next.js 16（App Router）+ React 19 + TypeScript，组件库用 Astryx（`@astryxdesign/core`），配一套自定义的「手帐」主题（`frontend/src/theme/`，视觉规范见 `DESIGN.md`）；不写裸 `<div>` 布局，取值都用 token。图标用 Lucide。界面文案集中在 `frontend/src/i18n/`，目前只有简体中文。后端：FastAPI + Pipecat，数据库用 SQLite。
 - 现有页面：`/login`（落地页兼登录页）、`/consent`、`/`（对话列表）、`/conversation/[characterId]`（对话，通话层也在这里）、`/settings`、`/memories`、`/privacy`、`/terms`。对话列表和对话共用一个布局：电脑上左右双栏，手机上两级页面。
 - 每位角色的界面以她的印象色为基调（`characters.toml` 的 `color`），颜色由 `frontend/src/lib/imageColor.ts` 按浅色、深色模式成对推出并经过对比度测试；通话层用她的背景图（`background`，可选，没有时用印象色渐变）。其余界面是中性主题，浅色和深色跟随系统。
-- 回合与通话的状态语义（成功、失败、被拒绝、用户离开、没能接通，以及是否计入限额）定义在 `CONTEXT.md` 里。界面上的提示必须与这些语义一致。
+- 回合与通话的状态语义（成功、失败、被拒绝、用户离开、没能接通，以及是否计入限额）定义在 `GLOSSARY.md` 里。界面上的提示必须与这些语义一致。
 - 自带密钥调用失败时，这个回合就算失败，不会改用部署者的 key。界面上只显示密钥的末 4 位。
 - 角色数量由 `characters/characters.toml` 配置，目前有櫻木真乃、風野灯織、八宮めぐる和月岡恋鐘四位，以后会增加。界面要能容纳数量不定的角色。
 - 仓库保持私有；剧情库和音色数据不进仓库（ADR-0003）。
@@ -49,7 +49,7 @@ web
 
 - 名称：Eidolon-SC。站点描述：「和 283 事务所的偶像说说话」。
 - 必须明确声明这是非官方的粉丝作品，与版权方无关，角色由 AI 扮演。
-- 用户的称呼是「制作人」；术语遵守 `CONTEXT.md`（例如用「对话」而不是「聊天」，用「记忆」而不是「历史」）。
+- 用户的称呼是「制作人」；术语遵守 `GLOSSARY.md`（例如用「对话」而不是「聊天」，用「记忆」而不是「历史」）。
 - 角色是主角，界面退后：对话页要让人觉得是在和她本人说话，系统、设置、密钥这类界面尽量安静。
 
 ## Evidence on Hand

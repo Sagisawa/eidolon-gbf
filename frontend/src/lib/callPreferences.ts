@@ -15,7 +15,7 @@ export type CallPreferences = {
   quality: Quality;
   /** Show the character's replies as text only, without playing her voice. */
   muted: boolean;
-  /** Make the character's voice sound as if over a phone line (CONTEXT.md「电话质感」). */
+  /** Make the character's voice sound as if over a phone line (GLOSSARY.md「电话质感」). */
   phoneTexture: boolean;
 };
 

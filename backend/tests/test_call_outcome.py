@@ -1,5 +1,5 @@
 """How a call turns out: whether it counts towards the user's limit, whether it is given
-back, and the one `ended` message the browser is told why with (CONTEXT.md「限额」「接通」).
+back, and the one `ended` message the browser is told why with (GLOSSARY.md「限额」「接通」).
 
 The call is only its events here, reported as `_LiveCall` and `CallTurns` would; the
 limiter is the real one, on a fresh database, allowing one call an hour. Neither Pipecat

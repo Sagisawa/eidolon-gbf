@@ -24,7 +24,7 @@ const MAX_INPUT_LENGTH = 2000;
 /**
  * Where the call is (spec「通话状态」):
  * - `dialing`: opening the microphone and connecting; it can only be hung up;
- * - `connected`: the character can hear and speak (CONTEXT.md「接通」), since `since`; it
+ * - `connected`: the character can hear and speak (GLOSSARY.md「接通」), since `since`; it
  *   may last `maxSeconds` (null for no limit);
  * - `ended`: over for a reason other than the user hanging up, shown until dismissed;
  *   a call the user hangs up goes straight back to `idle`.
@@ -64,7 +64,7 @@ export type Snapshot = {
   hearing: string;
   /** The character's latest line in this call, for the call screen; null until she has one. */
   line: Segment | null;
-  /** The microphone is off in the browser (CONTEXT.md「麦克风静音」). */
+  /** The microphone is off in the browser (GLOSSARY.md「麦克风静音」). */
   micMuted: boolean;
   /** The microphone the call is using; empty for the system default. */
   micId: string;
@@ -76,7 +76,7 @@ export type Snapshot = {
   busy: boolean;
   /** What is in the input box. */
   draft: string;
-  /** Show the character's replies as text only (CONTEXT.md「只看文字」). */
+  /** Show the character's replies as text only (GLOSSARY.md「只看文字」). */
   textOnly: boolean;
   /** A call can be dialed now: `startCall` would. */
   canDial: boolean;

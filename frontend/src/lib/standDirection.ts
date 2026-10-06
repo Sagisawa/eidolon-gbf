@@ -1,4 +1,4 @@
-// Her stand direction in a call (spec「立绘指令」, CONTEXT.md「立绘指令」): how she should look,
+// Her stand direction in a call (spec「立绘指令」, GLOSSARY.md「立绘指令」): how she should look,
 // kept up to date from the call's events, from what the user types and from text only.
 //
 // - Her mouth moves while her voice plays, but not in text only.
@@ -20,7 +20,7 @@ import { CALM, type Nod, type StandDirection } from "@/lib/standAnimations";
 type SegmentAt = Pick<SegmentPlaying, "reply" | "segment">;
 
 export type StandState = {
-  /** Show her replies as text only (CONTEXT.md「只看文字」); a preference, not the call's. */
+  /** Show her replies as text only (GLOSSARY.md「只看文字」); a preference, not the call's. */
   textOnly: boolean;
   /** Her voice is playing in the call. */
   voicing: boolean;

@@ -536,7 +536,7 @@ describe("LiveConversation: mic mute", () => {
   });
 
   it("still sends what is typed while the microphone is muted", async () => {
-    // CONTEXT.md「麦克风静音」：打字不受影响。
+    // GLOSSARY.md「麦克风静音」：打字不受影响。
     const { live, attempts } = await conversation();
     const call = await connected(live, attempts);
     live.toggleMic();
@@ -940,7 +940,7 @@ describe("LiveConversation: typing", () => {
       },
     ],
   ])("says a text turn does not count towards the limit when %s", async (_, turns) => {
-    // CONTEXT.md「限额」「回合」：失败的回合和被拒绝的回合都不计入限额。
+    // GLOSSARY.md「限额」「回合」：失败的回合和被拒绝的回合都不计入限额。
     const { live } = await conversation({ messages: history, turns });
     live.setDraft("你好");
 

@@ -27,7 +27,7 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 
 いま話せるのは illumination STARS の**櫻木真乃**・**風野灯織**・**八宮めぐる**と、L'Antica の**月岡恋鐘**です。キャラクターは [`characters/characters.toml`](characters/characters.toml) で設定し、追加していけます。
 
-公開サーバーにデプロイすれば、誰でも Google または GitHub でログインして使えます（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。用語集は [`CONTEXT.md`](CONTEXT.md)、設計判断は [`docs/adr/`](docs/adr/)、画面のビジュアル仕様は [`DESIGN.md`](DESIGN.md) にあります。
+公開サーバーにデプロイすれば、誰でも Google または GitHub でログインして使えます（[ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)）。用語集は [`GLOSSARY.md`](GLOSSARY.md)、設計判断は [`docs/adr/`](docs/adr/)、画面のビジュアル仕様は [`DESIGN.md`](DESIGN.md) にあります。
 
 > [!NOTE]
 > UI・字幕・メモリー・ドキュメントの大半は中国語です。ユーザーは中国語でも日本語でも話しかけられます。
@@ -569,7 +569,7 @@ eidolon-sc/
 ├── docker-compose.yml        # ローカル開発用
 ├── docker-compose.prod.yml   # 本番デプロイ用
 ├── .env.example              # 全設定項目とその説明
-└── CONTEXT.md                # ドメイン用語集
+└── GLOSSARY.md               # ドメイン用語集
 ```
 
 ## 📄 ライセンス

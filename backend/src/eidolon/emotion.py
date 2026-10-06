@@ -1,4 +1,4 @@
-"""Her emotion in each segment of a reply during a call (CONTEXT.md「情绪」), for her stand.
+"""Her emotion in each segment of a reply during a call (GLOSSARY.md「情绪」), for her stand.
 
 Each segment is judged once it is complete, in a request of its own, while it is being
 voiced: which of seven emotions she shows saying it, and whether she agrees or disagrees,

@@ -27,7 +27,7 @@ Eidolon-SC lets you, as **a producer at 283 Production**, text or voice-call the
 
 The idols you can talk to today are **Sakuragi Mano**, **Kazano Hiori** and **Hachimiya Meguru** of illumination STARS, and **Tsukioka Kogane** of L'Antica; characters are configured in [`characters/characters.toml`](characters/characters.toml), and more can be added.
 
-Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)). The glossary lives in [`CONTEXT.md`](CONTEXT.md), design decisions in [`docs/adr/`](docs/adr/), and the visual design system in [`DESIGN.md`](DESIGN.md).
+Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)). The glossary lives in [`GLOSSARY.md`](GLOSSARY.md), design decisions in [`docs/adr/`](docs/adr/), and the visual design system in [`DESIGN.md`](DESIGN.md).
 
 > [!NOTE]
 > The product itself is Chinese-first: the UI, subtitles, memories and most docs are in Chinese. Users may speak or type in Chinese or Japanese.
@@ -569,7 +569,7 @@ eidolon-sc/
 ├── docker-compose.yml        # local development
 ├── docker-compose.prod.yml   # production deployment
 ├── .env.example              # every configuration option, documented
-└── CONTEXT.md                # domain glossary
+└── GLOSSARY.md               # domain glossary
 ```
 
 ## 📄 License

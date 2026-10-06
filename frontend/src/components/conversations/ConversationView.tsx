@@ -403,7 +403,7 @@ function Bubble({ entry, character }: { entry: Entry; character: Character }) {
   );
 }
 
-/** 失败提示：后端给的原因，知道算不算限额时加一句（CONTEXT.md「限额」）。 */
+/** 失败提示：后端给的原因，知道算不算限额时加一句（GLOSSARY.md「限额」）。 */
 function failureText(failure: Failure): string {
   return failure.countsTowardLimit === false ? `${failure.message} ${t.notCounted}` : failure.message;
 }

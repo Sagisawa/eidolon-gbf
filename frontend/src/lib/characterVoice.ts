@@ -1,4 +1,4 @@
-// Playing the character's voice in a call, plain or over a phone line (CONTEXT.md「电话质感」).
+// Playing the character's voice in a call, plain or over a phone line (GLOSSARY.md「电话质感」).
 //
 // Plain, the page's <audio> element plays her track straight, as it always has. With phone
 // texture on, her track goes through Web Audio instead: the phone band, a light compressor,
@@ -78,7 +78,7 @@ export class CharacterVoice {
     this.applyMuting();
   }
 
-  /** CONTEXT.md「只看文字」: her voice is silent, over the phone line or not. */
+  /** GLOSSARY.md「只看文字」: her voice is silent, over the phone line or not. */
   setTextOnly(textOnly: boolean) {
     this.textOnly = textOnly;
     this.applyMuting();

@@ -1,4 +1,4 @@
-"""The rules for taking turns during a call (CONTEXT.md「回合」「补充」「打断」「只看文字」),
+"""The rules for taking turns during a call (GLOSSARY.md「回合」「补充」「打断」「只看文字」),
 as `TurnTaking` has them: what `CallTurns` should do next, event by event.
 
 Each case is a call's events, reported as `CallTurns` would, each with what it is told

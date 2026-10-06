@@ -2,7 +2,7 @@
 // outfit's animations show it on each track (spec「选动画」). Every fallback lives here, in one
 // pure function; the engine only plays what it is given.
 
-/** Her emotion (CONTEXT.md「情绪」): 平静、开心、害羞、惊讶、难过、生气、思考. */
+/** Her emotion (GLOSSARY.md「情绪」): 平静、开心、害羞、惊讶、难过、生气、思考. */
 export type Emotion = "calm" | "happy" | "shy" | "surprised" | "sad" | "angry" | "thinking";
 
 /** A nod (`yes`) or a shake of the head (`no`); each gets a new id, so it is played once. */

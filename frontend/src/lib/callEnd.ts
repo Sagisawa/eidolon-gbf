@@ -1,5 +1,5 @@
 // Why a call ended other than by the user hanging up, and whether it counted towards the
-// hourly limit (CONTEXT.md「限额」「接通」). The backend names its reasons in the `ended`
+// hourly limit (GLOSSARY.md「限额」「接通」). The backend names its reasons in the `ended`
 // message; the rest are told apart here.
 
 import { ApiError, type BackendEndReason, type CallEvent } from "@/lib/api";

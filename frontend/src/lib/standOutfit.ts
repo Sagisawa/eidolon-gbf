@@ -1,4 +1,4 @@
-// Her outfits (CONTEXT.md「衣装」, spec「衣装与换衣装」): the outfit list the deployment
+// Her outfits (GLOSSARY.md「衣装」, spec「衣装与换衣装」): the outfit list the deployment
 // publishes for her, the outfit chosen for her on this device, and which outfit a call puts
 // her in. The choice is kept in this browser's local storage, one outfit per character.
 

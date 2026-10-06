@@ -1,4 +1,4 @@
-// 设置页里编辑制作人档案用的草稿：空白表示这一项沿用默认（CONTEXT.md「制作人档案」），
+// 设置页里编辑制作人档案用的草稿：空白表示这一项沿用默认（GLOSSARY.md「制作人档案」），
 // 保存时存成 null 交回后端。
 
 import type { Gender, ProducerProfile } from "@/lib/api";

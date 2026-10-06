@@ -10,7 +10,7 @@ describe("startFailedEnd", () => {
     ["calls are unavailable", new ApiError("通话暂时不可用", 503), "not_connected", "通话暂时不可用"],
     ["the connection cannot be made", new Error("无法接通，请稍后再试"), "not_connected", null],
   ])("says why when %s, and that it did not count", (_, error, reason, detail) => {
-    // CONTEXT.md「限额」：被拒绝的、没能接通的通话都不计入。
+    // GLOSSARY.md「限额」：被拒绝的、没能接通的通话都不计入。
     expect(startFailedEnd(error)).toEqual({ reason, detail, counts: false });
   });
 });
