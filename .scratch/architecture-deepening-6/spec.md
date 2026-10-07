@@ -1,6 +1,6 @@
 # 架构加深（第六轮）：部署者的服务只经租约拿到，租约带着「这是哪个模型」和计量
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `GLOSSARY.md` 为准，本轮不改词表。设计词汇（module、interface、seam、adapter、depth、leverage、locality）取自 `codebase-design` skill。这是 2026-10-07 架构审查里的候选 2，经 grilling 定下设计。只改 `backend/` 和 `docs/deploy.md`。
 
