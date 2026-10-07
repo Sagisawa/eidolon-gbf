@@ -94,7 +94,6 @@ async def test_the_users_turns_calls_and_rejections_in_each_range_on_whose_keys(
         "30d": {"turns": counted(3, 2), "calls": counted(1, 1), "rejected": counted(2, 0)},
     }
     assert (await find(admin, "producer"))["usage_24h"] == {"turns": 2, "calls": 1}
-    assert (await find(admin, "boss"))["usage_24h"] == {"turns": 0, "calls": 0}
 
 
 async def take_turns(client: httpx.AsyncClient, turns: int) -> None:

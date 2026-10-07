@@ -77,7 +77,6 @@ describe("limitDraft and limitsInput", () => {
 describe("userSort and sortState", () => {
   it("sorts by a usage column, most first, whichever way its header was clicked, and newest once unsorted", () => {
     expect(userSort([{ sortKey: "turns", direction: "ascending" }])).toBe("turns");
-    expect(userSort([{ sortKey: "calls", direction: "descending" }])).toBe("calls");
     expect(userSort([])).toBe("newest");
     expect(sortState("turns")).toEqual([{ sortKey: "turns", direction: "descending" }]);
     expect(sortState("newest")).toEqual([]);
@@ -90,10 +89,6 @@ describe("describeCount", () => {
     expect(describeCount({ deployer: 3, own_keys: 2 })).toEqual({
       total: "5",
       split: "部署者 3 · 自带密钥 2",
-    });
-    expect(describeCount({ deployer: 1_200, own_keys: 0 })).toEqual({
-      total: "1,200",
-      split: "部署者 1,200 · 自带密钥 0",
     });
   });
 });

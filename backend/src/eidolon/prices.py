@@ -93,9 +93,9 @@ PRESETS: dict[PriceKey, Price] = {
     ("stt-rt.soniox.com", "stt-rt-v5", "seconds"): Price(0.12, None, "USD", GATHERED),
     # The judge model, per million input tokens; output is free.
     **_tokens("openrouter.ai", {
-        "typesafe/jev-1.13": (0.042, None),
-        "cloudflare/clef": (0.24, None),
-        "cloudflare/clef-flash": (0.09, None),
+        "typesafe/jev-1.13": (0.042, 0),
+        "cloudflare/clef": (0.24, 0),
+        "cloudflare/clef-flash": (0.09, 0),
     }, "USD"),
     **_tokens("api.cloudflare.com", {"clef": (0.24, None), "clef-flash": (0.09, None)}, "USD"),
     # Embedding and reranking, per million input tokens.

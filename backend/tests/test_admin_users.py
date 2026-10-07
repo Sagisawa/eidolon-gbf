@@ -5,6 +5,7 @@ admin console never shows what anyone said, what was remembered of them or their
 producer profile."""
 
 from dataclasses import replace
+from unittest.mock import ANY
 
 import httpx
 import pytest
@@ -103,7 +104,8 @@ async def test_admins_see_each_users_sign_in_methods_activity_ban_and_own_keys(
         "limits": None,  # test_user_limits.py sets them
         "usage_24h": {"turns": 0, "calls": 0},  # test_user_recent_usage.py takes some
     }
-    assert found == listed | {"banned_at": None, "ban_note": None, "usage": found["usage"]}
+    # test_user_recent_usage.py takes the usage over 24 hours, 7 and 30 days.
+    assert found == listed | {"banned_at": None, "ban_note": None, "usage": ANY}
     assert (await find(admin, "boss"))["is_admin"] is True
     # Not to anyone else, nor about someone who is not there.
     assert (await octo.get("/api/admin/users")).status_code == 404

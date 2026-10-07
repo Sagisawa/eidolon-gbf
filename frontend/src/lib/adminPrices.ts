@@ -132,10 +132,10 @@ export function trendCurrencies(trend: Cost["trend"]): string[] {
   return [...new Set(trend.flatMap((point) => Object.keys(point.amounts)))].sort();
 }
 
-/** 金额轴的刻度：从 0 起，间隔是 10 的幂的 1、2、5 倍，最多 `count` 段，可以是小数。 */
-export function amountTicks(max: number, count = 4): number[] {
+/** 金额轴的刻度：从 0 起，间隔是 10 的幂的 1、2、5 倍，最多 4 段，可以是小数。 */
+export function amountTicks(max: number): number[] {
   if (max <= 0) return [0, 1];
-  const rough = max / count;
+  const rough = max / 4;
   const power = 10 ** Math.floor(Math.log10(rough));
   const step = [1, 2, 5, 10].map((m) => m * power).find((s) => s >= rough) ?? 10 * power;
   const ticks: number[] = [];
