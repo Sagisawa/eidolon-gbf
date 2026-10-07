@@ -5,8 +5,8 @@ import httpx
 import pytest
 
 from eidolon.config import EmotionSettings
-from eidolon.emotion import JevEmotionJudge, SaidSegment, SegmentToJudge
-from eidolon.retrieval import JevJudge, JudgeError
+from eidolon.emotion import ModelEmotionJudge, SaidSegment, SegmentToJudge
+from eidolon.judge import JevJudge, JudgeError
 from tests.test_retrieval_services import MANO, client, recording
 
 SEGMENT = SegmentToJudge(
@@ -16,9 +16,9 @@ SEGMENT = SegmentToJudge(
 )
 
 
-def answered(requests: list[dict], answers: dict) -> JevEmotionJudge:
+def answered(requests: list[dict], answers: dict) -> ModelEmotionJudge:
     body = {"model": "typesafe/jev-1.13-20260917", "answers": answers}
-    return JevEmotionJudge(JevJudge(
+    return ModelEmotionJudge(JevJudge(
         "jev-key", "typesafe/jev-1.13", "http://jev.test/api/v1",
         client(recording(requests, httpx.Response(200, json=body))),
     ))
@@ -88,7 +88,7 @@ async def test_answers_that_cannot_be_read_are_reported(answers: dict):
 
 
 async def test_jev_errors_are_reported():
-    judge = JevEmotionJudge(JevJudge(
+    judge = ModelEmotionJudge(JevJudge(
         "k", "typesafe/jev-1.13", "http://jev.test/api/v1",
         client(lambda _: httpx.Response(429, text="slow down")),
     ))

@@ -61,6 +61,17 @@ DEFAULT_JEV_MODEL = "typesafe/jev-1.13"
 """Pinned: a new Jev changes which turns retrieve, so moving to one is a choice, checked
 in a real conversation."""
 
+JudgeProvider = Literal["jev", "cloudflare"]
+"""The services the judge model may be: Jev through a System One endpoint, or Cloudflare's
+Clef on Workers AI."""
+
+JUDGE_PROVIDERS: tuple[JudgeProvider, ...] = get_args(JudgeProvider)
+
+CloudflareJudgeModel = Literal["clef", "clef-flash"]
+CLOUDFLARE_JUDGE_MODELS: tuple[CloudflareJudgeModel, ...] = get_args(CloudflareJudgeModel)
+DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
+"""For now: the judge eval (ticket cloudflare-judge 03) decides."""
+
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 DEFAULT_TURNS_PER_HOUR = 60
@@ -154,9 +165,10 @@ class Settings:
     fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
     embedding: "EmbeddingSettings | None" = None
     rerank: "RerankSettings | None" = None
-    jev: "JevSettings | None" = None
-    """Retrieval needs the embedding service, the reranker and Jev; without any of them,
-    turns go unretrieved. Without Jev, neither is any emotion judged during calls."""
+    judge: "JudgeSettings | None" = None
+    """The judge model (`JUDGE_PROVIDER`). Retrieval needs the embedding service, the
+    reranker and the judge model; without any of them, turns go unretrieved. Without the
+    judge model, neither is any emotion judged during calls."""
     emotion: "EmotionSettings" = field(default_factory=lambda: EmotionSettings())
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
@@ -220,7 +232,7 @@ class Settings:
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
-            jev=_jev_from_env(),
+            judge=_judge_from_env(),
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
@@ -475,6 +487,47 @@ def _seconds(name: str, value: str) -> float:
     if not seconds > 0:
         raise RuntimeError(f"环境变量 {name} 需要是大于 0 的秒数，而不是 {value}")
     return seconds
+
+
+@dataclass(frozen=True)
+class CloudflareJudgeSettings:
+    """Cloudflare's Clef or Clef-flash on Workers AI, called directly with an API token
+    that may use Workers AI on the account."""
+
+    api_token: str
+    account_id: str
+    model: CloudflareJudgeModel = DEFAULT_CLOUDFLARE_JUDGE_MODEL
+
+    @classmethod
+    def from_env(cls) -> "CloudflareJudgeSettings":
+        model = os.environ.get("CLOUDFLARE_JUDGE_MODEL") or DEFAULT_CLOUDFLARE_JUDGE_MODEL
+        if model not in CLOUDFLARE_JUDGE_MODELS:
+            raise RuntimeError(
+                f"环境变量 CLOUDFLARE_JUDGE_MODEL 只能是 {'、'.join(CLOUDFLARE_JUDGE_MODELS)}，"
+                f"而不是 {model}"
+            )
+        return cls(
+            api_token=_required("CLOUDFLARE_API_TOKEN"),
+            account_id=_required("CLOUDFLARE_ACCOUNT_ID"),
+            model=model,  # pyright: ignore[reportArgumentType]  # checked above
+        )
+
+
+JudgeSettings = JevSettings | CloudflareJudgeSettings
+"""The judge model chosen, and how to reach it."""
+
+
+def _judge_from_env() -> JudgeSettings | None:
+    """The judge model `JUDGE_PROVIDER` chooses: Cloudflare's needs both its settings, and
+    the `JEV_*` ones are then ignored; Jev, the default, is off without its key."""
+    provider = os.environ.get("JUDGE_PROVIDER") or "jev"
+    if provider not in JUDGE_PROVIDERS:
+        raise RuntimeError(
+            f"环境变量 JUDGE_PROVIDER 只能是 {'、'.join(JUDGE_PROVIDERS)}，而不是 {provider}"
+        )
+    if provider == "cloudflare":
+        return CloudflareJudgeSettings.from_env()
+    return _jev_from_env()
 
 
 def _jev_from_env() -> JevSettings | None:

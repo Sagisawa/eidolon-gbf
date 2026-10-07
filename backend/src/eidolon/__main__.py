@@ -115,9 +115,13 @@ def _serve() -> int:
     from eidolon.app import create_app
     from eidolon.assembly import build
 
-    try:  # missing settings, an unusable DashScope key, a broken character configuration
+    from eidolon.judge import check_judge
+
+    try:  # missing settings, an unusable DashScope key or Cloudflare token, a broken
+        # character configuration
         settings = Settings.from_env()
         settings = asyncio.run(_find_dashscope_region(settings))
+        asyncio.run(check_judge(settings.judge))
         backend = build(settings)
     except RuntimeError as e:
         print(e, file=sys.stderr)

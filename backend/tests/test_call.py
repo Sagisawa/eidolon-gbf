@@ -83,7 +83,7 @@ async def test_call_turns_look_things_up_and_remember(
 ):
     llm, jev = FakeLLM(REPLY, REPLY), FakeJudge()
     client = make_client(
-        llm, jev=jev, embedder=FakeEmbedder(), reranker=FakeReranker("猫"),
+        llm, retrieval_judge=jev, embedder=FakeEmbedder(), reranker=FakeReranker("猫"),
         background_llm=FakeBackgroundLLM(json.dumps({"memories": [CAT]}, ensure_ascii=False)),
     )
     assert (await browser.call(client, conversation_id=await start_conversation(client))).status_code == 200

@@ -26,7 +26,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for slot in SLOTS:
         for name in NAMES:
             monkeypatch.delenv(f"{slot}_LLM_{name}", raising=False)
-    for name in ("SILICONFLOW_API_KEY", "AI_GATEWAY_API_KEY", "JEV_API_KEY"):
+    for name in ("SILICONFLOW_API_KEY", "AI_GATEWAY_API_KEY", "JEV_API_KEY", "JUDGE_PROVIDER"):
         monkeypatch.delenv(name, raising=False)
 
 

@@ -38,7 +38,8 @@ from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
-from eidolon.retrieval import JudgeError, Need
+from eidolon.judge import JudgeError
+from eidolon.retrieval import Need
 from eidolon.store import Message
 
 START = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
@@ -461,7 +462,7 @@ class FakeEmbedder:
 
 
 class FakeJudge:
-    """Stands in for Jev: answers every turn the same way, or fails if `answer` is None.
+    """Stands in for the judge model: answers every turn the same way, or fails if `answer` is None.
     Records what it was asked.
 
     Asked about segments' emotions, it answers each in turn from `emotions`: an answer,
@@ -481,14 +482,14 @@ class FakeJudge:
     async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
         self.asked.append((character.id, text))
         if self.answer is None:
-            raise JudgeError("fake Jev is down")
+            raise JudgeError("fake judge model is down")
         return self.answer
 
     async def judge_emotion(self, segment: SegmentToJudge) -> EmotionAnswer:
         self.segments.append(segment)
         answer = self.emotions.pop(0) if self.emotions else feeling("calm")
         if answer is None:
-            raise JudgeError("fake Jev is down")
+            raise JudgeError("fake judge model is down")
         if answer is HANG:
             await asyncio.Event().wait()
         assert isinstance(answer, EmotionAnswer)

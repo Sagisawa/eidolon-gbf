@@ -68,7 +68,7 @@ async def test_a_song_is_retrieved_with_its_singers_and_releases(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM(REPLY), FakeReranker(HIKARI)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "ヒカリのdestinationって誰が歌ってるんだっけ")
 
@@ -92,7 +92,7 @@ async def test_work_facts_and_character_facts_go_under_their_own_headings(
 ):
     llm = FakeLLM(REPLY)
     reranker = KeywordReranker({HIKARI: 0.9, "人物关系 / 風野灯織": 0.8}, rest=0.0)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "ヒカリのdestinationと灯織ちゃんのこと")
 
@@ -106,7 +106,7 @@ async def test_a_release_is_retrieved_with_its_date_and_tracks(
 ):
     llm = FakeLLM(REPLY)
     client = make_client(
-        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker(f"唱片《{WING_A}》")
+        llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker(f"唱片《{WING_A}》")
     )
 
     system = await system_prompt(client, llm, "WING COLLECTION -A side-の曲目は？")
@@ -123,7 +123,7 @@ async def test_a_live_day_is_retrieved_with_its_performers_and_no_cv(
 ):
     llm = FakeLLM(REPLY)
     client = make_client(
-        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("2024年3月3日")
+        llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker("2024年3月3日")
     )
 
     system = await system_prompt(client, llm, "ドームのライブの二日目って誰が出てた？")
@@ -141,7 +141,7 @@ async def test_a_live_day_is_retrieved_with_what_was_performed_on_it(
 ):
     llm = FakeLLM(REPLY)
     client = make_client(
-        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("2024年3月2日")
+        llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker("2024年3月2日")
     )
 
     system = await system_prompt(client, llm, "ドームの6thライブのDay1でどんな曲を歌った？")
@@ -163,7 +163,7 @@ async def test_a_cover_at_a_joint_live_is_retrieved_as_another_brand_s_song(
 ):
     llm = FakeLLM(REPLY)
     client = make_client(
-        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("2023年2月11日")
+        llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker("2023年2月11日")
     )
 
     system = await system_prompt(client, llm, "東京ドームのMOIWで何歌ったっけ？")
@@ -178,7 +178,7 @@ async def test_the_work_facts_are_shared_by_every_character(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker(HIKARI))
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker(HIKARI))
 
     system = await system_prompt(client, llm, "ヒカリのdestinationって誰の曲？", "kogane")
 
@@ -190,7 +190,7 @@ async def test_without_a_data_file_references_go_on_without_work_facts(
 ):
     (characters.directory / "world.json").unlink()
     llm, reranker = FakeLLM(REPLY), FakeReranker(PARK_LINE)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "公園の鳩とヒカリのdestination")
 
@@ -203,7 +203,7 @@ async def test_recalling_a_live_brings_its_days_even_when_no_episode_tells_it(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM(ANSWER), FakeReranker("ベルーナドーム", others=0.01)
-    client = make_client(llm, jev=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "ドームでのライブ、どうだった？")
 
@@ -220,7 +220,7 @@ async def test_recalling_brings_lives_and_releases_but_not_songs(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM(ANSWER), FakeReranker("ヒカリのdestination", others=0.01)
-    client = make_client(llm, jev=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "ヒカリのdestinationのCDを出した時のこと、覚えてる？")
 
@@ -236,7 +236,7 @@ async def test_recalling_an_episode_still_brings_the_episode(
 ):
     llm = FakeLLM(ANSWER)
     client = make_client(
-        llm, jev=FakeJudge(answer="recall"), embedder=embedder,
+        llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder,
         reranker=FakeReranker(PARK_LINE, others=0.01),
     )
 
@@ -252,7 +252,7 @@ async def test_recalling_nothing_does_not_say_she_never_went_through_it(
 ):
     llm = FakeLLM(ANSWER)
     client = make_client(
-        llm, jev=FakeJudge(answer="recall"), embedder=embedder,
+        llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder,
         reranker=FakeReranker("（どこにもない）", others=0.01),
     )
 
@@ -266,7 +266,7 @@ async def test_the_recall_story_tool_only_looks_in_the_story(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM([recall("ドームのライブ")], ANSWER), FakeReranker("ドーム")
-    client = make_client(llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=reranker)
     conversation_id = await start_conversation(client)
 
     await send_turn(client, conversation_id, "ドームのライブのこと、話して")
@@ -292,7 +292,7 @@ async def test_an_edited_data_file_takes_effect_on_restart_embedding_only_what_c
     settings: Settings,
 ):
     llm = FakeLLM(REPLY, REPLY)
-    first = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker())
+    first = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker())
     await system_prompt(first, llm, "新しい曲の話をしよう")
     assert stored_entries(settings) == {"fake-embedding": ENTRIES}
 
@@ -304,7 +304,7 @@ async def test_an_edited_data_file_takes_effect_on_restart_embedding_only_what_c
     before = len(embedder.documents)
 
     restarted = make_client(
-        llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("MAGICAL FOREST!!")
+        llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker("MAGICAL FOREST!!")
     )
     system = await system_prompt(restarted, llm, "MAGICAL FOREST!!って誰の曲？")
 
@@ -318,7 +318,7 @@ async def test_turns_without_references_embed_no_work_facts(
     make_client: ClientFactory, embedder: FakeEmbedder, settings: Settings
 ):
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker())
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker())
 
     await system_prompt(client, llm, "おはよう")
 
@@ -329,7 +329,7 @@ async def test_the_work_facts_are_embedded_once_however_many_turns_search_them(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY, REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker())
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker())
     before = len(embedder.documents)
 
     await system_prompt(client, llm, "ヒカリのdestination")

@@ -208,7 +208,7 @@ async def test_the_server_warns_of_passages_the_current_model_cannot_find(
     with caplog.at_level(logging.WARNING, logger="eidolon.assembly"):
         backend = build(
             deployment.settings(), chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
-            jev=FakeJudge(), embedder=FakeEmbedder(NEW), reranker=FakeReranker(),
+            retrieval_judge=FakeJudge(), embedder=FakeEmbedder(NEW), reranker=FakeReranker(),
             speech=FakeSpeech(),
         )
     await backend.aclose()
@@ -224,7 +224,7 @@ async def test_the_server_does_not_warn_when_every_passage_is_found(
     with caplog.at_level(logging.WARNING, logger="eidolon.assembly"):
         backend = build(
             deployment.settings(), chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
-            jev=FakeJudge(), embedder=FakeEmbedder(OLD), reranker=FakeReranker(),
+            retrieval_judge=FakeJudge(), embedder=FakeEmbedder(OLD), reranker=FakeReranker(),
             speech=FakeSpeech(),
         )
     await backend.aclose()

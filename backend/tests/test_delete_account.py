@@ -36,7 +36,7 @@ DELETE = {"confirm": True}
 def memory_client(make_client: ClientFactory, user: str | None = "producer") -> httpx.AsyncClient:
     """A client whose turns write down that the user has a cat."""
     return make_client(
-        FakeLLM(REPLY, REPLY), user, jev=FakeJudge(), embedder=FakeEmbedder(),
+        FakeLLM(REPLY, REPLY), user, retrieval_judge=FakeJudge(), embedder=FakeEmbedder(),
         reranker=FakeReranker("制作人"), background_llm=FakeBackgroundLLM(memorized(CAT)),
     )
 

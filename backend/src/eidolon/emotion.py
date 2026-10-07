@@ -2,14 +2,15 @@
 
 Each segment is judged once it is complete, in a request of its own, while it is being
 voiced: which of seven emotions she shows saying it, and whether she agrees or disagrees,
-so that she nods or shakes her head. Jev answers both as Choice questions, with each
-option's probability. Only the stand shows the answer: it never reaches the conversation
-record, and the delivery cues, which only change her voice, stay as they are.
+so that she nods or shakes her head. The judge model (`judge`) answers both as Choice
+questions, with each option's probability. Only the stand shows the answer: it never
+reaches the conversation record, and the delivery cues, which only change her voice, stay
+as they are.
 
-The judge is always the deployer's Jev; without its key no segment is judged. An answer
-Jev is unsure of, its likeliest option below `min_probability`, says she is calm, which
-the browser takes as keeping her mood; one that takes longer than `timeout`, or fails,
-says nothing at all, and is not asked again.
+The judge is always the deployer's judge model; without one no segment is judged. An
+answer it is unsure of, its likeliest option below `min_probability`, says she is calm,
+which the browser takes as keeping her mood; one that takes longer than `timeout`, or
+fails, says nothing at all, and is not asked again.
 """
 
 import asyncio
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, TypeVar
 
 from eidolon.characters import Character
-from eidolon.retrieval import JevJudge, JudgeError
+from eidolon.judge import JudgeError, JudgeModel
 
 log = logging.getLogger(__name__)
 
@@ -127,17 +128,17 @@ _NOD_QUESTION = {
 }
 
 
-class JevEmotionJudge:
-    """Jev, asked about each segment in one request of two Choice questions: her emotion,
-    and whether she agrees or disagrees. Answers are read by option name, the order of
-    Jev's probabilities being any."""
+class ModelEmotionJudge:
+    """The judge model, asked about each segment in one request of two Choice questions:
+    her emotion, and whether she agrees or disagrees. Answers are read by option name, the
+    order of the model's probabilities being any."""
 
-    def __init__(self, jev: JevJudge) -> None:
-        self._jev = jev
+    def __init__(self, judge_model: JudgeModel) -> None:
+        self._judge_model = judge_model
 
     async def judge_emotion(self, segment: SegmentToJudge) -> EmotionAnswer:
         before = [f"{s.ja}（{s.zh}）" for s in segment.before]
-        answers = await self._jev.ask(
+        answers = await self._judge_model.ask(
             {
                 "角色": segment.character.name,
                 "制作人这句话": segment.user_said,
@@ -153,12 +154,12 @@ class JevEmotionJudge:
 
 
 def _read(answers: dict, question: str, options: dict[str, tuple[T, str]]) -> dict[T, float]:
-    """The probability of each of `options` Jev gave in answer to `question`."""
+    """The probability of each of `options` the judge model gave in answer to `question`."""
     try:
         probabilities = answers[question]["probabilities"]
         read = {options[name][0]: float(p) for name, p in probabilities.items() if name in options}
     except (KeyError, TypeError, ValueError, AttributeError) as e:
-        raise JudgeError(f"Jev 对 {question} 的回答无法解析") from e
+        raise JudgeError(f"判断模型对 {question} 的回答无法解析") from e
     if not read:
-        raise JudgeError(f"Jev 对 {question} 的回答里没有任何选项")
+        raise JudgeError(f"判断模型对 {question} 的回答里没有任何选项")
     return read
