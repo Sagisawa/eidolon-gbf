@@ -8,7 +8,10 @@ What is a follow-on and what interrupts the character is `TurnTaking`'s, tested 
 `test_turn_taking.py`; here are the frames and the engine it is wired to.
 """
 
+import asyncio
+import sqlite3
 from collections.abc import Sequence
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +19,7 @@ import httpx
 import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
+    CancelFrame,
     Frame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -23,11 +27,15 @@ from pipecat.frames.frames import (
     TextFrame,
     TranscriptionFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineWorker
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.frames import (
     RTVIClientMessageFrame,
     RTVIServerMessageFrame,
 )
 from pipecat.tests.utils import SleepFrame, run_test
+from pipecat.workers.runner import WorkerRunner
 
 from eidolon.call import (
     SONIOX_FOLLOW_ON_TIMEOUT,
@@ -130,6 +138,53 @@ class CallUnderTest:
             await backend.aclose()
         return down
 
+    async def fail_while_cancelling_is_held_up(
+        self, llm: FakeLLM, said: str, cancel_timeout: float
+    ) -> None:
+        """Take a turn, the user having said `said`, then have a voice service fail and
+        the call end, as `_LiveCall` ends it, while its reply is in progress; something
+        upstream of `CallTurns` holds the cancelling up past `cancel_timeout` seconds, so
+        the call is settled before the turn is over."""
+        backend = build_faked(self._settings, llm, clock=lambda: NOW)
+        try:
+            mano = backend.characters["mano"]
+            admission = backend.admissions.call(self.conversation.user_id, "mano")
+            call = Call(self.conversation, mano, admission.llms, False, "standard")
+            outcome = CallOutcome(admission, CallLimits())
+            turns = CallTurns(backend.engine, call, outcome, SONIOX_FOLLOW_ON_TIMEOUT)
+            worker = PipelineWorker(
+                Pipeline([HoldsUpCancelling(), turns]),
+                cancel_timeout_secs=cancel_timeout,
+                cancel_on_idle_timeout=False,
+            )
+            started = asyncio.Event()
+
+            @worker.event_handler("on_pipeline_started")
+            async def on_started(worker: PipelineWorker, frame: Frame) -> None:
+                started.set()
+
+            running = asyncio.create_task(WorkerRunner(handle_sigint=False).run(worker))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            turns.connected()
+            await worker.queue_frame(spoken(said))
+            await asyncio.sleep(0.3)  # the reply is in progress
+
+            assert outcome.service_failed(None) is not None
+            await worker.cancel()
+            await running
+            outcome.settle()
+        finally:
+            await backend.aclose()
+
+    def turn_records(self) -> list[tuple[str, float | None]]:
+        """Each turn's activity record: how it turned out, and how long the character
+        took to start speaking, in milliseconds (「到开口」)."""
+        with closing(sqlite3.connect(self._settings.database_path)) as db:
+            return db.execute(
+                "SELECT result, time_to_speak_ms FROM activity_records WHERE kind = 'turn'"
+                " ORDER BY id"
+            ).fetchall()
+
     async def record(self) -> list[tuple]:
         res = await self._client.get(f"/api/conversations/{self.conversation.id}/messages")
         return [(m["role"], m["text"], m["ja"], m["zh"]) for m in res.json()]
@@ -140,6 +195,16 @@ class CallUnderTest:
 
     def close(self) -> None:
         self._store.close()
+
+
+class HoldsUpCancelling(FrameProcessor):
+    """Never passes on a `CancelFrame`, as a processor stuck cancelling would not."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if isinstance(frame, CancelFrame):
+            await asyncio.Event().wait()
+        await self.push_frame(frame, direction)
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ The call is only its events here, reported as `_LiveCall` and `CallTurns` would,
 aiortc is needed for any of it.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import timedelta
 from pathlib import Path
 
@@ -19,6 +19,7 @@ from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.usage import UsageKind, Use
 from tests.test_admission import Deployment
+from tests.test_turn_outcome import DONE
 
 
 class Limiter(Deployment):
@@ -36,6 +37,11 @@ class Limiter(Deployment):
             for r in records
             if r.kind == "call"
         ]
+
+    def turn_records(self) -> list[Result]:
+        """How each turn of the calls turned out, as its record says."""
+        records, _ = self.activity.since(self.clock() - timedelta(hours=1))
+        return [r.result for r in records if r.kind == "turn"]
 
 
 @pytest.fixture
@@ -292,3 +298,48 @@ def test_a_call_that_could_not_be_set_up_is_given_back_at_most_once_saying_nothi
     assert len(given_back) == 1
     assert not limiter.counted("call")
     assert limiter.call_records() == [("not_connected", "failed", False)]
+
+
+Ending = Callable[[CallOutcome], object]
+
+
+def hung_up(outcome: CallOutcome) -> None:
+    outcome.ended_by("hung_up")
+
+
+def pipeline_failed(outcome: CallOutcome) -> None:
+    outcome.ended_by("failed")
+
+
+def left(outcome: CallOutcome) -> None:
+    """Nothing ended it: the user left the conversation page."""
+
+
+@pytest.mark.parametrize(
+    ("ending", "result"),
+    [
+        pytest.param(lambda o: o.service_failed(None), "failed", id="a service failing"),
+        pytest.param(pipeline_failed, "failed", id="the call's pipeline failing"),
+        pytest.param(hung_up, "left", id="hung up"),
+        pytest.param(left, "left", id="left"),
+    ],
+)
+def test_a_turn_still_open_as_the_call_is_settled_is_settled_by_how_the_call_ended(
+    limiter: Limiter, ending: Ending, result: Result
+):
+    """A failure that ends the call cuts the turn short (GLOSSARY.md「回合」); else the user
+    left it. A turn settled already is not changed, and the open one settling later, once
+    the call has been, changes nothing either."""
+    outcome = limiter.call()
+    outcome.connected()
+    done = outcome.turn_begun(own_llm=False)
+    done.see(DONE)
+    done.over(cut_short_by_failure=False)
+    outcome.turn_recorded()
+    open_turn = outcome.turn_begun(own_llm=False)
+
+    ending(outcome)
+    outcome.settle()
+    open_turn.over(cut_short_by_failure=result != "failed")
+
+    assert limiter.turn_records() == ["success", result]

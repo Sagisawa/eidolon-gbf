@@ -8,7 +8,8 @@ recorded, its time up, a service failing, who or what ended it, over). Each even
 back the `ended` message to send the browser, if it is the one that ends the call; between
 turns the pipeline asks whether the call has reached its limits, and is handed back why it
 hangs up and that message. Once the call is over it is settled as that message said: the
-admission keeps the use or gives it back, and writes the record, by how it turned out.
+admission keeps the use or gives it back, and writes the record, by how it turned out;
+any turn still open is settled first, as cut short by how the call ended.
 """
 
 from dataclasses import dataclass
@@ -81,7 +82,9 @@ class CallOutcome:
 
     It is settled with how it turned out, how long it lasted once connected, and why it
     ended: whatever ended it first, as the browser was told or as reported (`ended_by`),
-    the user having left the page if nothing else did.
+    the user having left the page if nothing else did. Its turns are kept until each is
+    settled: one still open as the call is settled is settled then, cut short by a failure
+    if one ended the call (`ended_by_failure`), as it would be once over.
     """
 
     def __init__(self, admission: Admission[CallKeys], limits: CallLimits) -> None:
@@ -97,6 +100,7 @@ class CallOutcome:
         self._failed_to_connect = False  # a service failed before any turn (「接通」)
         self._failed = False  # a service, or an own key, ended it once connected
         self._ended_by: CallEndReason | None = None
+        self._open_turns: list[TurnOutcome] = []  # begun, not yet settled
 
     @property
     def _connected(self) -> bool:
@@ -123,14 +127,22 @@ class CallOutcome:
 
     def turn_begun(self, own_llm: bool) -> TurnOutcome:
         """A turn taken in the call, on the user's own LLM or not, settled into its
-        activity record, which goes under the call's."""
+        activity record, which goes under the call's; kept until it is settled."""
         recording = self.recording.turn(own_llm)
-        return TurnOutcome(recording, recording.finish)
 
-    def turn_cut_short(self) -> Result:
-        """How a turn the call ended before it was over turned out: failed if a service,
-        or an own key, ended the call (GLOSSARY.md「回合」); else the user left it."""
-        return "failed" if self._ended_by == "failed" else "left"
+        def settle(result: Result) -> None:
+            self._open_turns.remove(turn)
+            recording.finish(result)
+
+        turn = TurnOutcome(recording, settle)
+        self._open_turns.append(turn)
+        return turn
+
+    @property
+    def ended_by_failure(self) -> bool:
+        """Whether a failure ended the call, a service's or an own key's: a turn it cut
+        short failed (GLOSSARY.md「回合」), rather than being left by the user."""
+        return self._ended_by == "failed"
 
     def turn_recorded(self) -> dict | None:
         """A turn of the call was recorded."""
@@ -183,7 +195,9 @@ class CallOutcome:
         return LimitReached(why, self._tell(reason, f"{why}，先挂断啦。想接着聊可以重新拨打。"))
 
     def settle(self) -> dict | None:
-        """The call is over, however it ended: settle it, once."""
+        """The call is over, however it ended: settle it, once, any turn still open first."""
+        for turn in list(self._open_turns):
+            turn.over(cut_short_by_failure=self.ended_by_failure)
         self._settle()
         return None
 

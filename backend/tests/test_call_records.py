@@ -13,12 +13,15 @@ from dataclasses import replace
 
 import httpx
 import pytest
-from pipecat.frames.frames import InterruptionFrame
+from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    InterruptionFrame,
+)
 from pipecat.tests.utils import SleepFrame
 
 import eidolon.call
 from eidolon.config import Settings
-from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.store import Store
 from tests.browser import TIMEOUT, Browser, open_browser
 from tests.conftest import ClientFactory
@@ -319,8 +322,8 @@ async def test_the_turns_of_a_call_are_recorded_under_it_as_they_turned_out(
     mano_call: CallUnderTest, make_client: ClientFactory, github: FakeIdentityProvider
 ):
     """A follow-on joins the turn, whose dropped reply is not a turn of its own; an
-    interrupted reply is a turn done; a turn whose input is too long is rejected. Each
-    segment's emotion is judged for the call."""
+    interrupted reply is a turn done. Each segment's emotion is judged for the call. How
+    each turn's result is decided is `TurnOutcome`'s (`test_turn_outcome`)."""
     llm = FakeLLM(SLOW_REPLY, INTERRUPTED_REPLY, MANO_REPLY, delay=0.3)
 
     _, messages = await mano_call.run(
@@ -328,7 +331,6 @@ async def test_the_turns_of_a_call_are_recorded_under_it_as_they_turned_out(
         [
             spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1),
             spoken("在吗"), *INTERRUPTING, SleepFrame(0.1), spoken("还在吗"),
-            SleepFrame(1.0), spoken("啊" * (MAX_INPUT_LENGTH + 1)),
         ],
         judge=FakeJudge(),
     )
@@ -336,11 +338,60 @@ async def test_the_turns_of_a_call_are_recorded_under_it_as_they_turned_out(
     board = await call_recorded(admin)
 
     assert [k for k in kinds(messages) if k != "emotion"] == [
-        "user", "user", "done", "user", "done", "user", "error"
+        "user", "user", "done", "user", "done"
     ]
     turns = board["turns"]
-    assert (turns["total"], turns["in_calls"]) == (3, 3)
-    assert turns["by_result"] == {"success": 2, "failed": 0, "rejected": 1, "left": 0}
+    assert (turns["total"], turns["in_calls"]) == (2, 2)
+    assert turns["by_result"] == {"success": 2, "failed": 0, "rejected": 0, "left": 0}
     assert board["calls"]["total"] == 1
     judge = health(board, "judge")
     assert judge is not None and judge["calls"] >= 1
+
+
+async def test_a_turn_a_failure_cuts_short_fails_even_once_the_call_was_settled_before_it(
+    mano_call: CallUnderTest,
+):
+    """Should cancelling the call be held up longer than the pipeline waits for it, the
+    call is settled while the turn is still in progress (GLOSSARY.md「回合」)."""
+    await mano_call.fail_while_cancelling_is_held_up(
+        FakeLLM(["<ja>今日", HANG]), "早上好", cancel_timeout=0.2
+    )
+
+    assert [result for result, _ in mano_call.turn_records()] == ["failed"]
+
+
+async def test_a_turns_time_to_speak_is_not_the_last_replys_voice_starting_late(
+    mano_call: CallUnderTest,
+):
+    """Her voice starting before any of the reply has gone to TTS is the last reply's
+    (GLOSSARY.md「开口」): the turn's time to speak is when its own voice starts."""
+    llm = FakeLLM(["<ja>はいっ</ja><zh>好的</zh>"], ["<ja>", "うん。</ja><zh>嗯。</zh>"], delay=0.5)
+
+    await mano_call.run(
+        llm,
+        [
+            spoken("早上好"), SleepFrame(0.3),
+            spoken("在吗"), SleepFrame(0.1),
+            BotStartedSpeakingFrame(), SleepFrame(0.1), BotStoppedSpeakingFrame(),  # late
+            SleepFrame(0.6), BotStartedSpeakingFrame(), SleepFrame(0.1),
+        ],
+    )
+
+    [(first, _), (second, time_to_speak)] = mano_call.turn_records()
+    assert (first, second) == ("success", "success")
+    assert time_to_speak is not None and time_to_speak >= 500  # its Japanese went to TTS
+
+
+async def test_a_turn_replied_to_while_the_last_replys_voice_is_still_playing_speaks(
+    mano_call: CallUnderTest,
+):
+    """Her voice does not start again for the next reply (GLOSSARY.md「开口」)."""
+    llm = FakeLLM(["<ja>はいっ</ja><zh>好的</zh>"], ["<ja>うん。</ja><zh>嗯。</zh>"])
+
+    await mano_call.run(
+        llm,
+        [spoken("早上好"), SleepFrame(0.2), BotStartedSpeakingFrame(), SleepFrame(0.1),
+         spoken("在吗"), SleepFrame(0.3)],
+    )
+
+    assert [time is not None for _, time in mano_call.turn_records()] == [True, True]

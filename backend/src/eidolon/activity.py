@@ -423,16 +423,13 @@ class ActivityLog:
         self._db.close()
 
     def _write(self, recording: Recording) -> None:
-        """Write a finished record with its service calls and, for a call, its turns, any
-        still open as left (GLOSSARY.md「回合」)."""
+        """Write a finished record with its service calls and, for a call, its turns."""
         # Should the user have been deleted meanwhile, the records are theirs anonymously
         # (`database.ANONYMIZED_USER_DATA`), as one more deleted user.
         anonymous = secrets.token_hex(16)
         with self._lock, self._db:
             self._insert(recording, anonymous)
             for turn in recording.turns:
-                if not turn.finished:
-                    turn.finished, turn.result = True, "left"
                 self._insert(turn, anonymous)
 
     def _insert(self, recording: Recording, anonymous: str) -> None:
