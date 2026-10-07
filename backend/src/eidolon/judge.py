@@ -234,12 +234,30 @@ class CloudflareJudge:
                     raise RuntimeError(
                         f"CLOUDFLARE_ACCOUNT_ID 不对，Cloudflare 找不到这个账号：{e}"
                     ) from None
+                if e.status in (401, 403) and await self._token_active():
+                    raise RuntimeError(
+                        "CLOUDFLARE_ACCOUNT_ID 不对，或者 CLOUDFLARE_API_TOKEN 没有这个账号的 Workers AI"
+                        f" 权限（token 本身有效）：{e}"
+                    ) from None
                 if e.status in (401, 403):
                     raise RuntimeError(
                         "CLOUDFLARE_API_TOKEN 无效或缺少 Workers AI 权限（需要 Workers AI 的 Read 和"
                         f" Edit），或者它不属于 CLOUDFLARE_ACCOUNT_ID 这个账号：{e}"
                     ) from None
             log.warning("could not check the Cloudflare judge model; starting anyway: %s", e)
+
+    async def _token_active(self) -> bool:
+        """Whether Cloudflare says the token itself is good: Workers AI refuses a wrong
+        account id just as it does a wrong token ("Authentication error"). False if it
+        cannot be told, as for a token the account rather than a user owns."""
+        try:
+            res = await self._client.get(
+                f"{CLOUDFLARE_API_URL}/user/tokens/verify",
+                headers={"Authorization": f"Bearer {self._api_token}"},
+            )
+            return res.json()["result"]["status"] == "active"
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return False
 
     async def aclose(self) -> None:
         await self._client.aclose()

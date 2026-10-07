@@ -2,6 +2,7 @@
 how its envelope is read, how it is chosen and configured, and how its credentials are
 tried as the server starts."""
 
+import json
 import logging
 
 import httpx
@@ -115,25 +116,46 @@ def test_a_judge_misconfigured_stops_the_start(
         Settings.from_env()
 
 
+VERIFY_URL = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+ACTIVE = httpx.Response(200, json={
+    "result": {"id": "t", "status": "active"}, "success": True, "errors": [],
+    "messages": [{"code": 10000, "message": "This API Token is valid and active"}],
+})
+INVALID = refused(401, 1000, "Invalid API Token")
+
+
 @pytest.mark.parametrize(
-    "response, refusal",
+    "response, verified, refusal",
     [
-        (refused(403, 10000, "Authentication error"), "CLOUDFLARE_API_TOKEN 无效"),
-        (httpx.Response(404, text="Not Found"), "CLOUDFLARE_ACCOUNT_ID 不对"),
-        (refused(400, 7003, "perhaps your object identifier is invalid?"),
+        # Workers AI says only "Authentication error" for a wrong token and a wrong account
+        # id alike; whether the token itself is good tells them apart.
+        (refused(401, 10000, "Authentication error"), INVALID, "CLOUDFLARE_API_TOKEN 无效"),
+        (refused(401, 10000, "Authentication error"), ACTIVE, "CLOUDFLARE_ACCOUNT_ID 不对"),
+        (refused(403, 10000, "Authentication error"), None, "CLOUDFLARE_API_TOKEN 无效.*或者"),
+        (httpx.Response(404, text="Not Found"), None, "CLOUDFLARE_ACCOUNT_ID 不对"),
+        (refused(400, 7003, "perhaps your object identifier is invalid?"), None,
          "CLOUDFLARE_ACCOUNT_ID 不对"),
     ],
+    ids=["bad token", "bad account id", "token not verifiable", "404", "7003"],
 )
 async def test_credentials_cloudflare_refuses_stop_the_start(
-    response: httpx.Response, refusal: str
+    response: httpx.Response, verified: httpx.Response | None, refusal: str
 ):
-    requests: list[dict] = []
+    asked: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        if str(request.url) == VERIFY_URL:
+            assert request.headers["Authorization"] == "Bearer cf-token"
+            if verified is None:
+                raise httpx.ConnectError("unreachable", request=request)
+            return verified
+        return response
 
     with pytest.raises(RuntimeError, match=refusal):
-        await check_judge(SETTINGS, client(recording(requests, response)))
+        await check_judge(SETTINGS, client(handle))
 
-    [request] = requests
-    assert request["url"] == URL and len(request["questions"]) == 1
+    assert str(asked[0].url) == URL and len(json.loads(asked[0].content)["questions"]) == 1
 
 
 async def test_cloudflare_out_of_reach_only_warns_as_the_server_starts(
