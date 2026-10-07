@@ -29,6 +29,7 @@ from pipecat.services.stt_service import STTService
 from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
+from eidolon.billing import bill
 from eidolon.characters import Character
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
 from eidolon.config import (
@@ -85,14 +86,19 @@ class FakeLLM:
     tool; a reply that is an LLMError is raised instead, as a failing service would. With
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
     model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
-    is the deployer's model.
+    is the deployer's model. With `tokens`, each reply it finishes says it was billed that
+    many input and output tokens, as a real service does; without, it says nothing.
     """
 
     def __init__(
-        self, *replies: Sequence[str | ToolCall | object] | LLMError, delay: float = 0
+        self,
+        *replies: Sequence[str | ToolCall | object] | LLMError,
+        delay: float = 0,
+        tokens: tuple[int, int] | None = None,
     ) -> None:
         self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay
+        self._tokens = tokens
         self.prompts: list[list[ChatMessage]] = []
         self.tools: list[list[Tool]] = []
         self.keys: list[str] = []
@@ -120,6 +126,8 @@ class FakeLLM:
                 await asyncio.Event().wait()
             assert isinstance(chunk, str | ToolCall)
             yield chunk
+        if self._tokens is not None:
+            bill("tokens", *self._tokens)
 
     async def aclose(self) -> None:
         pass

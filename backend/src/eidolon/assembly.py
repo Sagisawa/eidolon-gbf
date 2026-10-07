@@ -38,6 +38,7 @@ from eidolon.llm import ChatLLM
 from eidolon.live_config import LiveConfig
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
+from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
 from eidolon.rerank import (
     FALLBACK_MODEL,
@@ -84,6 +85,8 @@ class Backend:
     activity: ActivityLog
     """Every turn's activity record, and every service call's, for the dashboard."""
     config: LiveConfig
+    prices: Prices
+    """The prices the dashboard estimates the deployer's costs at."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
 
     async def start(self) -> None:
@@ -147,6 +150,8 @@ def build(
     speech = speech or SpeechServices(bailian_model)
     activity = ActivityLog(settings.database_path, clock)
     closers.append(activity.close)
+    prices = Prices(settings.database_path, clock)
+    closers.append(prices.close)
     config = LiveConfig(
         settings, clients or ProviderClients(), clock,
         background_llm=background_llm, chat_llm=chat_llm, speech=speech, activity=activity,
@@ -251,5 +256,6 @@ def build(
         identity_providers=identity_providers,
         activity=activity,
         config=config,
+        prices=prices,
         _closers=closers,
     )

@@ -28,6 +28,7 @@ from fastapi import FastAPI, Header, Query
 from eidolon.activity import CALL_END_REASONS, RESULTS, SERVICES, CallRow, RecordRow
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
+from eidolon.prices import cost
 
 Range = Literal["24h", "7d", "30d", "90d"]
 
@@ -62,6 +63,7 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
         now = backend.clock()
         records, service_calls = backend.activity.since(now - span.length)
         names = {id: c.name for id, c in backend.characters.items()}
+        starts = stretches(now, span, _zone(timezone))
         return {
             "range": range,
             "from": (now - span.length).isoformat(),
@@ -71,8 +73,9 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
             "active_users": len({r.who for r in records if r.who is not None}),
             "turns": turns([r for r in records if r.kind == "turn"]),
             "calls": calls([r for r in records if r.kind == "call"]),
-            "trend": trend(records, stretches(now, span, _zone(timezone))),
+            "trend": trend(records, starts),
             "characters": characters(records, names),
+            "cost": cost(service_calls, backend.prices.effective(), starts),
         }
 
     @app.get("/api/admin/calls/live")

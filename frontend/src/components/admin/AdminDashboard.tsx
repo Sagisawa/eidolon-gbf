@@ -1,7 +1,6 @@
 "use client";
 
 import { Banner } from "@astryxdesign/core/Banner";
-import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
@@ -11,13 +10,16 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 
+import { CostSection } from "@/components/admin/CostSection";
+import { Numeric, Section, StatTile } from "@/components/admin/DashboardParts";
 import { TrendChart } from "@/components/admin/TrendChart";
 import { copy } from "@/i18n";
 import {
   CALL_END_REASONS,
   CALL_RESULTS,
+  countTicks,
   DASHBOARD_RANGES,
   type Dashboard,
   type DashboardRange,
@@ -150,11 +152,11 @@ function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: nu
       </Grid>
 
       <Section title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
-        <TrendChart points={board.trend} bucket={board.bucket} series="turns" />
+        <CountTrend board={board} series="turns" />
       </Section>
 
       <Section title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
-        <TrendChart points={board.trend} bucket={board.bucket} series="calls" />
+        <CountTrend board={board} series="calls" />
       </Section>
 
       <Section title={t.results.title} hint={t.results.hint}>
@@ -201,35 +203,27 @@ function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: nu
       <Section title={t.characters.title}>
         <CharactersTable board={board} />
       </Section>
+
+      <CostSection board={board} />
     </VStack>
   );
 }
 
-function StatTile({ label, value, note }: { label: string; value: string; note?: string }) {
+/** The turns, or the calls, in each stretch, with the users active in it. */
+function CountTrend({ board, series }: { board: Dashboard; series: "turns" | "calls" }) {
+  const words = t.trend[series];
   return (
-    <Card>
-      <VStack gap={1}>
-        <Text type="supporting">{label}</Text>
-        <Text type="display-3" weight="semibold">
-          {value}
-        </Text>
-        {note && <Text type="supporting">{note}</Text>}
-      </VStack>
-    </Card>
-  );
-}
-
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  return (
-    <VStack gap={3}>
-      <VStack gap={1}>
-        <Heading level={2} style={{ fontSize: "var(--text-body-size)" }}>
-          {title}
-        </Heading>
-        {hint && <Text type="supporting">{hint}</Text>}
-      </VStack>
-      {children}
-    </VStack>
+    <TrendChart
+      points={board.trend.map((p) => ({ start: p.start, value: p[series] }))}
+      bucket={board.bucket}
+      title={words.title}
+      describe={(span, i) =>
+        words.tooltip(span, formatCount(board.trend[i][series]), formatCount(board.trend[i].active_users))
+      }
+      empty={words.empty}
+      ticks={countTicks}
+      format={formatCount}
+    />
   );
 }
 
@@ -368,8 +362,4 @@ function ShareBar({ part, whole }: { part: number; whole: number }) {
       <rect x={0} y={2} width={`${width}%`} height={8} rx={4} fill="var(--color-data-categorical-blue)" />
     </svg>
   );
-}
-
-function Numeric({ children }: { children: string }) {
-  return <Text hasTabularNumbers>{children}</Text>;
 }
