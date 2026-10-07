@@ -47,6 +47,7 @@ async def test_streams_content_deltas_and_sends_a_chat_completions_request():
     assert json.loads(request.content) == {
         "model": "some-model",
         "stream": True,
+        "stream_options": {"include_usage": True},
         "messages": [{"role": "user", "content": "你好"}],
     }
 

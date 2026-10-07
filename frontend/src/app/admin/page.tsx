@@ -1,6 +1,5 @@
-import { AdminPlaceholder } from "@/components/AdminPlaceholder";
-import { copy } from "@/i18n";
+import { AdminDashboard } from "@/components/admin/AdminDashboard";
 
 export default function AdminDashboardPage() {
-  return <AdminPlaceholder title={copy.admin.pages.dashboard} />;
+  return <AdminDashboard />;
 }

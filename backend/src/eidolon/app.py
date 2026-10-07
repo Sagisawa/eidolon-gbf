@@ -21,15 +21,16 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character
-from eidolon.engine import TurnFailed
 from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
 from eidolon.admin_api import add_admin_routes
+from eidolon.dashboard import add_dashboard_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
+from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 
 
@@ -168,6 +169,7 @@ def create_app(backend: Backend) -> FastAPI:
 
     add_account_routes(app, backend)
     add_admin_routes(app, backend)
+    add_dashboard_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
@@ -312,16 +314,19 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        keys = own_keys.for_turn(user_id)
-        use = usage.take(user_id, "turn", exempt=keys.exempt)
+        outcome = TurnOutcome(
+            usage, backend.activity, own_keys, user_id, conversation.character_id,
+            (backend.settings.chat_llm, backend.settings.background_llm),
+        )
 
         async def events() -> AsyncIterator[str]:
-            async for event in engine.turn(conversation, body.text, keys.llms, device_timezone):
-                if isinstance(event, SegmentComplete | SpeechDelta):
-                    continue
-                if isinstance(event, TurnFailed):
-                    use.give_back()
-                yield _sse(asdict(event))
+            with outcome.running():
+                turn = engine.turn(conversation, body.text, outcome.llms, device_timezone)
+                async for event in turn:
+                    outcome.see(event)
+                    if isinstance(event, SegmentComplete | SpeechDelta):
+                        continue
+                    yield _sse(asdict(event))
 
         return StreamingResponse(
             events(),

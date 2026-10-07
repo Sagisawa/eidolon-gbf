@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from eidolon.billing import bill
 from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -31,6 +32,8 @@ class OpenAICompatLLM:
         body: dict[str, Any] = {
             "model": self._model,
             "stream": True,
+            # The tokens it is billed for come in a last chunk, sent only when asked for.
+            "stream_options": {"include_usage": True},
             "messages": [_message(m) for m in messages],
         }
         if self._max_tokens is not None:
@@ -48,10 +51,13 @@ class OpenAICompatLLM:
                 for t in tools
             ]
         calls: dict[int, dict[str, str]] = {}  # index → id, name and arguments so far
+        usage: dict[str, Any] | None = None
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async for event in stream_events(self._client, self._url, body, headers):
             if event.get("error"):
                 raise LLMError(f"模型在流式输出中报错: {event['error']}")
+            if isinstance(event.get("usage"), dict):  # some services send it as it grows
+                usage = event["usage"]
             for choice in event.get("choices") or []:
                 delta = choice.get("delta") or {}
                 if content := delta.get("content"):
@@ -68,6 +74,8 @@ class OpenAICompatLLM:
                     if not isinstance(arguments, str):
                         arguments = json.dumps(arguments, ensure_ascii=False)
                     call["arguments"] += arguments
+        if usage is not None:
+            bill("tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"))
         for index, call in sorted(calls.items()):
             call_id = call["id"] or f"call_{index}"  # the tool result must name its call
             yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))

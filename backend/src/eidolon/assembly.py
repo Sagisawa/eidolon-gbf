@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from eidolon.accounts import Accounts
+from eidolon.activity import ActivityLog, metered_retrieval
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
@@ -72,6 +73,8 @@ class Backend:
     own_keys: OwnKeys
     accounts: Accounts
     identity_providers: dict[ProviderName, IdentityProvider]
+    activity: ActivityLog
+    """Every turn's activity record, and every service call's, for the dashboard."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
 
     async def aclose(self) -> None:
@@ -161,6 +164,11 @@ def build(
         closers.append(judge_model.aclose)
         retrieval_judge = retrieval_judge or ModelRetrievalJudge(judge_model, thresholds_of_judge)
         emotion_judge = emotion_judge or ModelEmotionJudge(judge_model)
+    activity = ActivityLog(settings.database_path, clock)
+    closers.append(activity.close)
+    retrieval_judge, embedder, reranker = metered_retrieval(
+        activity, settings, retrieval_judge, embedder, reranker
+    )
     emotions = None
     if emotion_judge is not None:
         emotions = EmotionJudging(
@@ -221,5 +229,6 @@ def build(
         own_keys=own_keys,
         accounts=Accounts(store, clock, memories, calls),
         identity_providers=identity_providers,
+        activity=activity,
         _closers=closers,
     )
