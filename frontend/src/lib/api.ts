@@ -162,8 +162,10 @@ export async function json<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-/** The user has used up this hour's turns or calls: say when they can go on, in local time. */
+/** The user has used up this hour's turns or calls: say when they can go on, in local time.
+ * A user an admin set to their own keys only has no time to wait for (`retry_at` null). */
 function overLimit(reason: string, retryAt: unknown): string {
+  if (retryAt === null) return `${reason}。`;
   const exact = typeof retryAt === "string" ? Date.parse(retryAt) : NaN;
   if (isNaN(exact)) return `${reason}，请稍后再试。`;
   const at = new Date(Math.ceil(exact / 60_000) * 60_000); // shown to the minute, never early
@@ -361,7 +363,7 @@ export async function clearMemories(): Promise<void> {
 }
 
 /** Checks a response that carries no body. */
-async function expectNoContent(res: Response): Promise<void> {
+export async function expectNoContent(res: Response): Promise<void> {
   if (!res.ok) await json(res);
 }
 

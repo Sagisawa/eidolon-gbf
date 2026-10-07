@@ -242,7 +242,7 @@ def build(
         calls=calls,
         emotions=emotions,
         own_keys=own_keys,
-        accounts=Accounts(store, clock, memories, calls),
+        accounts=Accounts(store, clock, memories, calls, settings.secret_key),
         identity_providers=identity_providers,
         activity=activity,
         config=config,

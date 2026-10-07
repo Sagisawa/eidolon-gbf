@@ -135,7 +135,10 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.exception_handler(OverLimit)
     async def over_limit(_: Request, e: OverLimit) -> JSONResponse:
-        """Refused for now, with when the user can go on (also as `Retry-After`)."""
+        """Refused for now, with when the user can go on (also as `Retry-After`); or, set
+        to their own keys only, with no time to wait for."""
+        if e.retry_at is None:
+            return JSONResponse({"detail": str(e), "retry_at": None}, status_code=429)
         wait = max(1, math.ceil((e.retry_at - e.now).total_seconds()))
         return JSONResponse(
             {"detail": str(e), "retry_at": e.retry_at.isoformat()},

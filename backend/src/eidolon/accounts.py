@@ -7,13 +7,21 @@ another identity by hand. The only gate is against throwaway accounts: a GitHub 
 must be a year old, and a Google account's email address verified. A banned user's
 identities cannot sign in.
 
-Users can delete themselves, and with them everything of theirs, for good: signing in
-with the same identity afterwards makes a new user.
+Users can delete themselves, and admins can delete them, and with them everything of
+theirs, for good: signing in with the same identity afterwards makes a new user. Unless
+they were banned: deleting is not unbanning, so the identities a banned user signed in
+with are kept on a ban list, only as keyed hashes (`identity_hash`), and can neither sign
+in nor be linked again.
 """
 
-from dataclasses import dataclass
+import hashlib
+import hmac
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from eidolon.call import Calls
 from eidolon.clock import Clock
@@ -29,7 +37,7 @@ Refusal = Literal["too_new", "email_unverified", "banned", "taken", "already_lin
 
 - `too_new`: a GitHub account less than a year old
 - `email_unverified`: a Google account whose email address is not verified
-- `banned`: it belongs to a banned user
+- `banned`: it belongs to a banned user, or did to one since deleted
 - `taken`: (linking) it belongs to another user
 - `already_linked`: (linking) the user already signs in with another identity there
 """
@@ -47,6 +55,12 @@ class Accounts:
     clock: Clock
     memories: Memories
     calls: Calls
+    secret_key: str | None = None
+    """The deployment's, from which the key the ban list is hashed with is derived."""
+    _ban_key: bytes | None = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._ban_key = _ban_list_key(self.secret_key) if self.secret_key else None
 
     def sign_in(self, identity: Identity) -> User:
         """The user this identity signs in as, made the first time. Raises SignInRefused."""
@@ -86,13 +100,22 @@ class Accounts:
 
     async def delete(self, user_id: str) -> None:
         """Delete the user and all their data (see `database.delete_user_data`), signing them out
-        everywhere and hanging up their calls."""
+        everywhere and hanging up their calls. A banned user's identities go on the ban
+        list."""
         await self.calls.hang_up(user_id)
         await self.memories.forget(user_id)
-        self.store.delete_user(user_id)
+        banned = self.store.get_user(user_id).banned_at is not None
+        self.store.delete_user(user_id, [
+            identity_hash(self._ban_key, m.provider, m.subject)
+            for m in self.store.sign_in_methods(user_id)
+        ] if banned else None)
         await self.calls.hang_up(user_id)  # any placed while memory was settling
 
     def _check(self, identity: Identity) -> None:
+        if self.store.is_banned_identity(
+            identity_hash(self._ban_key, identity.provider, identity.subject)
+        ):
+            raise SignInRefused("banned")
         if identity.provider == "github" and (
             identity.created_at is None
             or self.clock() - identity.created_at < MIN_GITHUB_ACCOUNT_AGE
@@ -109,3 +132,20 @@ class Accounts:
             identity.email,
             self.clock().isoformat(),
         )
+
+
+def identity_hash(key: bytes | None, provider: str, subject: str) -> str:
+    """What the ban list keeps of an identity: an HMAC with `key`, derived from the
+    deployment's secret key, or, without one, a plain SHA-256."""
+    identity = f"{provider}:{subject}".encode()
+    if key is None:
+        return hashlib.sha256(identity).hexdigest()
+    return hmac.new(key, identity, hashlib.sha256).hexdigest()
+
+
+def _ban_list_key(secret_key: str) -> bytes:
+    """The key the ban list is hashed with, derived from the deployment's secret key apart
+    from those for users' own keys and the configuration's overrides."""
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=None, info=b"eidolon ban list"
+    ).derive(secret_key.encode())

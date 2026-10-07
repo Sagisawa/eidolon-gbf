@@ -21,6 +21,7 @@ import {
   USERS_PAGE_SIZE,
   banAction,
   broughtKeys,
+  describeLimit,
   listAdminUsers,
   unbanUser,
   type AdminUser,
@@ -129,6 +130,12 @@ export function AdminUserList() {
       header: t.columns.ownKeys,
       width: proportional(1),
       renderCell: (user) => <OwnKeys user={user} />,
+    },
+    {
+      key: "limits",
+      header: t.columns.limits,
+      width: proportional(2),
+      renderCell: (user) => <UserLimits user={user} />,
     },
     {
       key: "id",
@@ -247,6 +254,16 @@ export function SignInMethods({ user }: { user: AdminUser }) {
 
 export function BanStatus({ banned }: { banned: boolean }) {
   return banned ? <Token label={t.banned} size="sm" color="red" /> : <Text color="secondary">{t.active}</Text>;
+}
+
+/** 单独限额：没有时「跟随全站」，有时列出回合和通话各自的数字（没设的一项跟随全站）。 */
+export function UserLimits({ user }: { user: AdminUser }) {
+  if (!user.limits) return <Text color="secondary">{t.limits.default}</Text>;
+  return (
+    <Text>
+      {t.limits.summary(describeLimit(user.limits.turns_per_hour), describeLimit(user.limits.calls_per_hour))}
+    </Text>
+  );
 }
 
 /** 自带了哪几项服务的密钥（只说有没有）。 */
