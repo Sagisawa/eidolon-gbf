@@ -5,7 +5,8 @@ deployer's keys it holds, all in one place.
 `Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), opens the
 activity record, prepares the models, each request recorded as a service call, and only
 then takes a use of the limit, so that nothing failing before it is counted. Whatever
-fails on the way is recorded so, and what was taken let go, before it is raised.
+fails on the way is recorded so (`_FAILED`), and what was taken let go, before it is
+raised. Before a call is placed, it is only asked whether the call would count.
 
 The `Admission` it hands out settles it, once: given back unless its result counts
 (`_COUNTED`), the record written, the deployer's keys let go.
@@ -27,6 +28,9 @@ _COUNTED: dict[UsageKind, frozenset[Result]] = {
 """The results that count towards the user's limit, by kind; any other is given back. A
 turn counts once it was taken, done or left; a call once it connected."""
 
+_FAILED: dict[UsageKind, Result] = {"turn": "failed", "call": "not_connected"}
+"""How a turn or call is recorded that failed before it began: a call never connected."""
+
 K = TypeVar("K", TurnKeys, CallKeys)
 
 
@@ -39,6 +43,7 @@ class Admission(Generic[K]):
         keys: K,
         recording: Recording,
         llms: TurnLLMs,
+        own_llm: bool,
         use: Use,
     ) -> None:
         self._counted = _COUNTED[kind]
@@ -48,6 +53,8 @@ class Admission(Generic[K]):
         """Its activity record, which the service calls made in it are recorded under."""
         self.llms = llms
         """The models it runs on, each request recorded as a service call."""
+        self.own_llm = own_llm
+        """Whether those are the user's own LLM."""
         self._use = use
         self._settled = False
 
@@ -106,24 +113,53 @@ class Admissions:
         they have no turns left this hour, OwnKeyFailed when their own key can no longer
         be decrypted; either way, and whatever else fails before it begins, it is
         recorded and takes no use of the limit."""
+        return self._admit("turn", user_id, character_id, self._own_keys.for_turn)
+
+    def call(self, user_id: str, character_id: str) -> Admission[CallKeys]:
+        """Let the user's next call with `character_id` begin. Raises OverLimit when they
+        have no calls left this hour, OwnKeyFailed when their own key can no longer be
+        decrypted; either way, and whatever else fails before it begins, it is recorded
+        and takes no use of the limit. Raises CallsUnavailable, recording nothing, when
+        the deployment has no keys for calls and neither has the user."""
+        return self._admit("call", user_id, character_id, self._own_keys.for_call)
+
+    def call_setup(self, user_id: str) -> bool:
+        """Whether the user's next call would be on their own keys alone, and so count
+        towards nothing; only asked, taking and recording nothing. Raises CallsUnavailable
+        as `call` does, and OwnKeyFailed, recording a call that never connected, as the
+        call would have been (with no character yet)."""
+        keys = self._keys("call", user_id, "", self._own_keys.for_call)
+        keys.release()
+        return keys.exempt
+
+    def _keys(
+        self, kind: UsageKind, user_id: str, character_id: str, keys_for: Callable[[str], K]
+    ) -> K:
         try:
-            keys = self._own_keys.for_turn(user_id)
+            return keys_for(user_id)
         except OwnKeyFailed:
-            self._activity.begin("turn", user_id, character_id, own_keys=True).finish("failed")
+            self._activity.begin(kind, user_id, character_id, own_keys=True).finish(
+                _FAILED[kind]
+            )
             raise
+
+    def _admit(
+        self, kind: UsageKind, user_id: str, character_id: str, keys_for: Callable[[str], K]
+    ) -> Admission[K]:
+        keys = self._keys(kind, user_id, character_id, keys_for)
         try:
-            recording = self._activity.begin("turn", user_id, character_id, keys.exempt)
+            recording = self._activity.begin(kind, user_id, character_id, keys.exempt)
             try:
-                own = self._own_keys.describe(user_id).get("llm") if keys.exempt else None
+                own = self._own_keys.describe(user_id).get("llm")
                 llms = turn_llms(self._activity, keys.llms, own, *self._deployer_llms())
-                use = self._usage.take(user_id, "turn", exempt=keys.exempt)
+                use = self._usage.take(user_id, kind, exempt=keys.exempt)
             except OverLimit:
                 recording.finish("rejected")
                 raise
             except BaseException:
-                recording.finish("failed")
+                recording.finish(_FAILED[kind])
                 raise
         except BaseException:
             keys.release()
             raise
-        return Admission("turn", keys, recording, llms, use)
+        return Admission(kind, keys, recording, llms, own is not None, use)

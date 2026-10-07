@@ -1,9 +1,11 @@
-"""Letting a turn begin and settling it once it is over, through `Admissions` alone:
-whose keys it runs on, its activity record, its use of the limit and the deployer's
-lease, each of them looked at as the admin and the limiter see them.
+"""Letting a turn or call begin and settling it once it is over, and asking before a
+call is placed, through `Admissions` alone: whose keys it runs on, its activity record,
+its use of the limit and the deployer's lease, each of them looked at as the admin and the
+limiter see them.
 
-All of it is real, on a fresh database, but the deployer, which counts its leases; the
-user is allowed one turn an hour.
+All of it is real, on a fresh database, but the deployer, which counts its leases, and the
+speech services the user's own keys are tried on; the user is allowed one turn and one
+call an hour.
 """
 
 from collections.abc import Iterator
@@ -14,11 +16,18 @@ import pytest
 
 from eidolon.activity import ActivityLog, Result
 from eidolon.admission import Admissions
-from eidolon.config import LLMSettings, UsageLimits
-from eidolon.own_keys import DeployerKeys, DeployerLease, OwnKeyFailed, OwnKeys, OwnLLMSettings
+from eidolon.config import LLMSettings, SttKey, UsageLimits
+from eidolon.own_keys import (
+    CallsUnavailable,
+    DeployerKeys,
+    DeployerLease,
+    OwnKeyFailed,
+    OwnKeys,
+    OwnLLMSettings,
+)
 from eidolon.store import Store
-from eidolon.usage import OverLimit, UsageLimiter
-from tests.fakes import FakeBackgroundLLM, FakeClock, FakeLLM, FakeLLMService
+from eidolon.usage import OverLimit, UsageKind, UsageLimiter
+from tests.fakes import FakeBackgroundLLM, FakeClock, FakeLLM, FakeLLMService, FakeSpeech
 
 SECRET = "test-secret-key"
 MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
@@ -30,7 +39,9 @@ class CountingDeployer:
     """The deployer's keys, counting how many times they were leased and let go."""
 
     def __init__(self) -> None:
-        self.keys = DeployerKeys(FakeLLM(), FakeBackgroundLLM())
+        self.keys = DeployerKeys(
+            FakeLLM(), FakeBackgroundLLM(), SttKey("soniox", "deployer-soniox"), "deployer-fish"
+        )
         self.leased = 0
         self.released = 0
 
@@ -43,16 +54,19 @@ class CountingDeployer:
 
 
 class Deployment:
-    """A user allowed one turn an hour, and everything letting their turns begin."""
+    """A user allowed one turn and one call an hour, and everything letting them begin."""
 
     def __init__(self, path: Path) -> None:
         self.clock = FakeClock()
         self.store = Store(path)
         self.user = self.store.create_user("producer").id
-        self.usage = UsageLimiter(path, UsageLimits(turns_per_hour=1), self.clock)
+        self.usage = UsageLimiter(
+            path, UsageLimits(turns_per_hour=1, calls_per_hour=1), self.clock
+        )
         self.activity = ActivityLog(path, self.clock)
         self.deployer = CountingDeployer()
         self.llm_service = FakeLLMService()
+        self.speech = FakeSpeech()
         self.deployer_models_broken = False
         self.secret = SECRET
 
@@ -60,7 +74,7 @@ class Deployment:
         return Admissions(self.usage, self.activity, self.own_keys(), self._deployer_models)
 
     def own_keys(self) -> OwnKeys:
-        return OwnKeys(self.store, self.secret, self.llm_service, self.deployer)
+        return OwnKeys(self.store, self.secret, self.llm_service, self.deployer, self.speech)
 
     def _deployer_models(self) -> tuple[LLMSettings, LLMSettings]:
         if self.deployer_models_broken:
@@ -70,10 +84,16 @@ class Deployment:
     async def bring_llm(self) -> None:
         await self.own_keys().save_llm(self.user, MY_LLM)
 
-    def counted(self) -> bool:
-        """Whether this hour's turn is used up, that is, the last one counted."""
+    async def bring_all(self) -> None:
+        """The user's own LLM and speech keys, which their calls are exempt on."""
+        await self.bring_llm()
+        await self.own_keys().save_speech(self.user, "stt", "my-own-soniox")
+        await self.own_keys().save_speech(self.user, "tts", "my-own-fish")
+
+    def counted(self, kind: UsageKind = "turn") -> bool:
+        """Whether this hour's turn, or call, is used up, that is, the last one counted."""
         try:
-            self.usage.take(self.user, "turn").give_back()
+            self.usage.take(self.user, kind).give_back()
         except OverLimit:
             return True
         return False
@@ -81,6 +101,9 @@ class Deployment:
     def turns_taken(self) -> int:
         """Uses of the limit kept for the admin, counting or not."""
         return self.usage.last_day(self.user).total.turns
+
+    def calls_taken(self) -> int:
+        return self.usage.last_day(self.user).total.calls
 
     def records(self) -> list[tuple[Result, bool]]:
         """Each of the user's records: how it turned out, and whether on their own keys."""
@@ -185,3 +208,126 @@ def test_a_turn_failing_as_it_is_prepared_is_recorded_failed_takes_no_use_and_le
     assert deployment.turns_taken() == 0
     assert deployment.records() == [("failed", False)]
     assert deployment.deployer.released == 1
+
+
+@pytest.mark.parametrize(
+    ("result", "counted"), [("not_connected", False), ("success", True), ("failed", True)]
+)
+def test_a_call_counts_once_it_connected_and_is_given_back_otherwise(
+    deployment: Deployment, result: Result, counted: bool
+):
+    admission = deployment.admissions().call(deployment.user, "mano")
+
+    admission.settle(result, None if result == "not_connected" else 12.5, "hung_up")
+
+    assert deployment.counted("call") is counted
+    assert admission.counts(result) is counted
+    assert deployment.records() == [(result, False)]
+    assert deployment.deployer.released == 1
+
+
+def test_a_call_over_the_limit_is_refused_recorded_rejected_and_lets_go_of_its_lease(
+    deployment: Deployment,
+):
+    admissions = deployment.admissions()
+    admissions.call(deployment.user, "mano").settle("success", 3.0, "hung_up")
+
+    with pytest.raises(OverLimit):
+        admissions.call(deployment.user, "mano")
+
+    assert deployment.calls_taken() == 1
+    assert deployment.records() == [("success", False), ("rejected", False)]
+    assert deployment.deployer.released == 2
+
+
+async def test_a_call_on_an_own_key_that_no_longer_decrypts_is_recorded_not_connected(
+    deployment: Deployment,
+):
+    await deployment.bring_llm()
+    deployment.secret = "a-changed-secret-key"
+
+    with pytest.raises(OwnKeyFailed):
+        deployment.admissions().call(deployment.user, "mano")
+
+    assert deployment.calls_taken() == 0
+    assert deployment.records() == [("not_connected", True)]
+    assert deployment.deployer.leased == deployment.deployer.released
+
+
+def test_a_call_without_keys_for_speech_is_unavailable_and_not_recorded(
+    deployment: Deployment,
+):
+    deployment.deployer.keys = DeployerKeys(FakeLLM(), FakeBackgroundLLM())
+
+    with pytest.raises(CallsUnavailable):
+        deployment.admissions().call(deployment.user, "mano")
+
+    assert deployment.calls_taken() == 0
+    assert deployment.records() == []
+    assert deployment.deployer.leased == deployment.deployer.released
+
+
+def test_a_call_failing_as_it_is_prepared_is_recorded_not_connected_and_takes_no_use(
+    deployment: Deployment,
+):
+    deployment.deployer_models_broken = True
+
+    with pytest.raises(RuntimeError):
+        deployment.admissions().call(deployment.user, "mano")
+
+    assert deployment.calls_taken() == 0
+    assert deployment.records() == [("not_connected", False)]
+    assert deployment.deployer.released == 1
+
+
+async def test_a_call_on_the_users_own_keys_alone_does_not_count(deployment: Deployment):
+    await deployment.bring_all()
+    admissions = deployment.admissions()
+
+    for _ in range(2):  # over the limit, were they counted
+        admission = admissions.call(deployment.user, "mano")
+        assert admission.exempt
+        assert not any(admission.counts(r) for r in ("success", "failed", "not_connected"))
+        admission.settle("success", 3.0, "hung_up")
+
+    assert not deployment.counted("call")
+    assert deployment.calls_taken() == 2  # kept for the admin all the same
+    assert deployment.records() == [("success", True), ("success", True)]
+
+
+@pytest.mark.parametrize("own", [False, True])
+async def test_asking_before_a_call_says_whether_it_is_exempt_and_takes_and_records_nothing(
+    deployment: Deployment, own: bool
+):
+    if own:
+        await deployment.bring_all()
+
+    assert deployment.admissions().call_setup(deployment.user) is own
+
+    assert deployment.calls_taken() == 0
+    assert deployment.records() == []
+    assert deployment.deployer.leased == deployment.deployer.released == 1
+
+
+async def test_asking_before_a_call_on_an_own_key_that_no_longer_decrypts_is_recorded(
+    deployment: Deployment,
+):
+    await deployment.bring_llm()
+    deployment.secret = "a-changed-secret-key"
+
+    with pytest.raises(OwnKeyFailed):
+        deployment.admissions().call_setup(deployment.user)
+
+    assert deployment.calls_taken() == 0
+    assert deployment.records() == [("not_connected", True)]
+    assert deployment.deployer.leased == deployment.deployer.released
+
+
+def test_asking_before_a_call_without_keys_for_speech_is_not_recorded(deployment: Deployment):
+    deployment.deployer.keys = DeployerKeys(FakeLLM(), FakeBackgroundLLM())
+
+    with pytest.raises(CallsUnavailable):
+        deployment.admissions().call_setup(deployment.user)
+
+    assert deployment.records() == []
+    assert deployment.deployer.leased == deployment.deployer.released == 1

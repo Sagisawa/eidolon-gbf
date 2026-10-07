@@ -5,8 +5,8 @@
                               subtitles and the transcript, over the data channel
 
 `Calls` is all the API sees: it answers the browser's offers, keeps each call to the
-user who placed it, counts calls towards the user's limit, and serves each call until it
-hangs up. Speech recognition and synthesis are the `Speech` port, on whoever's keys
+user who placed it, lets each call through `Admissions` and serves it until it hangs up.
+Speech recognition and synthesis are the `Speech` port, on whoever's keys
 `OwnKeys.for_call` says; a failing own key ends the call saying which. Speech recognition
 is whichever service the key is for, Soniox or Alibaba Cloud Model Studio (阿里云百炼),
 and how long a follow-on may take to be transcribed is that service's. Whether a call
@@ -90,7 +90,6 @@ from pipecat.utils.types import assert_given
 from pipecat.workers.runner import WorkerRunner
 
 from eidolon.activity import (
-    ActivityLog,
     CallEndReason,
     ErrorKind,
     Origin,
@@ -98,8 +97,8 @@ from eidolon.activity import (
     Result,
     error_kind,
     host,
-    turn_llms,
 )
+from eidolon.admission import Admission, Admissions
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
 from eidolon.bailian import REGION_URLS, BailianCheckFailed, BailianSTTService, find_region
 from eidolon.billing import Billing
@@ -109,10 +108,10 @@ from eidolon.clock import Clock
 from eidolon.config import (
     DEFAULT_BAILIAN_STT_MODEL,
     IceServer,
-    LLMSettings,
     Settings,
     SttKey,
     SttProvider,
+    UsageLimits,
 )
 from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import ConversationEngine, TurnDone, UserSaid
@@ -120,7 +119,6 @@ from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
     CallKeys,
     OwnKeyRejected,
-    OwnKeys,
     Service,
 )
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
@@ -138,7 +136,6 @@ from eidolon.turn_taking import (
     Voice,
     WaitForFollowOn,
 )
-from eidolon.usage import UsageLimiter
 
 log = logging.getLogger(__name__)
 
@@ -775,39 +772,35 @@ class CallMeter(BaseObserver):
 class Calls:
     """The user's voice calls, from signalling to hanging up.
 
-    Each new call has a `CallOutcome`, given the call's own limits on its time and turns,
-    which takes it from the user's limit when it is offered and, told what happens to the
-    call, decides when it has reached its own limits, whether it is given back and what the
-    browser is told when the backend ends it, and what its activity record says. Only the
-    user who placed a call can renegotiate it or add ICE candidates to it.
+    Each new call is let through by `admissions`, and has a `CallOutcome`, given the
+    call's own limits on its time and turns, which, told what happens to the call, decides
+    when it has reached its own limits, what the browser is told when the backend ends it,
+    and how it turned out, settling the call once it is over. Only the user who placed a
+    call can renegotiate it or add ICE candidates to it.
     """
 
     def __init__(
         self,
         settings: Settings,
         engine: ConversationEngine,
-        usage: UsageLimiter,
+        admissions: Admissions,
+        limits: Callable[[], UsageLimits],
         speech: Speech,
         clock: Clock,
-        own_keys: OwnKeys,
-        activity: ActivityLog,
-        deployer_llms: Callable[[], tuple[LLMSettings, LLMSettings]],
         store: Store | None = None,
         emotions: EmotionJudging | None = None,
     ) -> None:
-        """Calls' turns run on the deployer's chat and memory models `deployer_llms` says
-        at the time, unless on the user's own. With `store`, calls of users banned or
-        deleted meanwhile are hung up; with `emotions`, her emotion in each segment is
-        judged, on the deployer's judge model whoever's keys the call is on."""
+        """Calls last as long, and take as many turns, as `limits` says as each starts.
+        With `store`, calls of users banned or deleted meanwhile are hung up; with
+        `emotions`, her emotion in each segment is judged, on the deployer's judge model
+        whoever's keys the call is on."""
         self._settings = settings
         self._emotions = emotions
         self._engine = engine
-        self._usage = usage
+        self._admissions = admissions
+        self._usage_limits = limits
         self._speech = speech
         self._clock = clock
-        self._own_keys = own_keys
-        self._activity = activity
-        self._deployer_llms = deployer_llms
         self._store = store
         self._webrtc = SmallWebRTCRequestHandler(
             ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
@@ -818,7 +811,7 @@ class Calls:
 
     def _limits(self) -> CallLimits:
         """A call's own limits, as it connects now: those in effect then hold to its end."""
-        limits = self._usage.limits
+        limits = self._usage_limits()
         return CallLimits(
             timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
             limits.turns_per_call,
@@ -828,10 +821,9 @@ class Calls:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
         own; how long a call may last, in seconds (None for no limit); and whether calls on
         the keys the user has now are exempt from the limit. Raises CallsUnavailable or
-        OwnKeyFailed, as `OwnKeys.for_call` does, before anything is spent on a call that
-        could not start."""
-        keys = self._own_keys.for_call(user_id)
-        keys.release()  # only asked, for whether the call would be exempt
+        OwnKeyFailed, as `Admissions.call_setup` does, before anything is spent on a call
+        that could not start."""
+        exempt = self._admissions.call_setup(user_id)
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
@@ -839,7 +831,7 @@ class Calls:
         return {
             "iceServers": servers,
             "maxCallSeconds": None if duration is None else int(duration.total_seconds()),
-            "callExempt": keys.exempt,
+            "callExempt": exempt,
         }
 
     async def start(
@@ -850,16 +842,14 @@ class Calls:
         options: CallOptions,
         offer: SessionDescription,
     ) -> dict:
-        """Answer a new call into the user's `conversation` with `character`, on the keys
-        `OwnKeys.for_call` says. Raises OverLimit when the user has no calls left this
-        hour, unless the call is exempt. The call holds on to the deployer's keys it
-        started with until it ends."""
-        keys = self._own_keys.for_call(user_id)
-        try:
-            return await self._start(user_id, conversation, character, options, offer, keys)
-        except BaseException:
-            keys.release()
-            raise
+        """Answer a new call into the user's `conversation` with `character`, let through
+        by `Admissions.call`, whose exceptions it raises. Whatever fails before the call is
+        served, it never connected; once it is served, it is settled as it ends."""
+        admission = self._admissions.call(user_id, character.id)
+        outcome = CallOutcome(admission, self._limits())
+        return await self._start(
+            user_id, conversation, character, options, offer, admission, outcome
+        )
 
     async def _start(
         self,
@@ -868,17 +858,10 @@ class Calls:
         character: Character,
         options: CallOptions,
         offer: SessionDescription,
-        keys: CallKeys,
+        admission: Admission[CallKeys],
+        outcome: CallOutcome,
     ) -> dict:
-        outcome = CallOutcome(
-            self._usage, self._activity, user_id, character.id, keys.exempt, self._limits()
-        )
-        own_llm = self._own_keys.describe(user_id).get("llm")
-        llms = turn_llms(self._activity, keys.llms, own_llm, *self._deployer_llms())
-        call = Call(
-            conversation, character, llms, options.muted, options.quality,
-            options.device_timezone, own_llm is not None,
-        )
+        keys = admission.keys
         connections: list[SmallWebRTCConnection] = []
         started: list[_LiveCall] = []
 
@@ -894,16 +877,21 @@ class Calls:
                 keys.emotions or self._emotions,
             )
             self._live.add(live)
-            def done(live: _LiveCall) -> None:
-                self._live.discard(live)
-                keys.release()
-
-            live.start(on_done=done)
+            live.start(on_done=self._live.discard)
             started.append(live)
             if self._store is not None and (self._watch is None or self._watch.done()):
                 self._watch = asyncio.create_task(self._hang_up_users_gone())
 
-        answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
+        try:
+            call = Call(
+                conversation, character, admission.llms, options.muted, options.quality,
+                options.device_timezone, admission.own_llm,
+            )
+            answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
+        except BaseException:
+            if not started:  # once served, the call is settled as it ends
+                outcome.set_up_failed()
+            raise
         if answer is None or not started:
             if started:
                 await started[0].hang_up("failed")
