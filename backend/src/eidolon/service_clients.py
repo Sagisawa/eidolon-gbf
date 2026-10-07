@@ -15,16 +15,27 @@ import threading
 from collections.abc import Awaitable, Callable
 from typing import Generic, Protocol, TypeVar
 
-from eidolon.config import LLMSettings
+from eidolon.config import JudgeSettings, LLMSettings
+from eidolon.judge import JudgeModel, open_judge
 from eidolon.llm import ChatLLM
 from eidolon.llm.providers import open_llm
 
 
 class ServiceClients(Protocol):
-    """Makes the deployer's clients for the services, each from its settings."""
+    """Makes the deployer's clients for the services, each from its settings; each is
+    closed by whoever made it through this. Speech synthesis and recognition have none:
+    each call makes its own from the keys (see `call.Speech`)."""
 
     def chat_llm(self, settings: LLMSettings) -> ChatLLM:
-        """The model `settings` describe, closed by whoever made it through this."""
+        """The model `settings` describe, to play the characters."""
+        ...
+
+    def memory_llm(self, settings: LLMSettings) -> ChatLLM:
+        """The model `settings` describe, to write down memories."""
+        ...
+
+    def judge_model(self, settings: JudgeSettings) -> JudgeModel:
+        """The judge model `settings` choose."""
         ...
 
 
@@ -33,6 +44,12 @@ class ProviderClients:
 
     def chat_llm(self, settings: LLMSettings) -> ChatLLM:
         return open_llm(settings)
+
+    def memory_llm(self, settings: LLMSettings) -> ChatLLM:
+        return open_llm(settings)
+
+    def judge_model(self, settings: JudgeSettings) -> JudgeModel:
+        return open_judge(settings)
 
 
 class Closable(Protocol):
@@ -45,9 +62,17 @@ C = TypeVar("C", bound=Closable)
 class Lease(Generic[C]):
     """A turn's or a call's hold on the client it runs on; released once, when it ends."""
 
-    def __init__(self, client: C, release: Callable[[], None]) -> None:
+    def __init__(
+        self, client: C, release: Callable[[], None], again: "Callable[[], Lease[C]]"
+    ) -> None:
         self.client = client
         self._release: Callable[[], None] | None = release
+        self._again = again
+
+    def again(self) -> "Lease[C]":
+        """Another hold on the same client, released on its own: for what goes on with
+        it after the turn, as writing down memories does."""
+        return self._again()
 
     def release(self) -> None:
         """Let go of the client; again does nothing."""
@@ -84,9 +109,17 @@ class Swappable(Generic[C]):
 
     def lease(self) -> Lease[C]:
         with self._lock:
-            held = self._current
-            held.leases += 1
-        return Lease(held.client, lambda: self._release(held))
+            return self._lease(self._current)
+
+    def _lease(self, held: _Held[C]) -> Lease[C]:
+        """A hold on `held`, under the lock."""
+        held.leases += 1
+
+        def again() -> Lease[C]:
+            with self._lock:
+                return self._lease(held)
+
+        return Lease(held.client, lambda: self._release(held), again)
 
     async def replace(self, client: C) -> None:
         """Run whatever starts from now on on `client`; the client it replaces is closed

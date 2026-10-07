@@ -294,6 +294,19 @@ def open_judge(
     return JevJudge(settings.api_key, settings.model, settings.base_url, client)
 
 
+async def try_judge_model(model: JudgeModel) -> None:
+    """Try the judge model before the admin console keeps it: Cloudflare's credentials as
+    the server starts tries them (`CloudflareJudge.check`), any other by asking it the
+    least of questions. Raises JudgeError saying why it does not work."""
+    if isinstance(model, CloudflareJudge):
+        try:
+            await model.check()
+        except RuntimeError as e:
+            raise JudgeError(str(e)) from None
+        return
+    await model.ask({"测试": "保存前试调"}, {"check": _CHECK_QUESTION})
+
+
 async def check_judge(
     settings: JudgeSettings | None, client: httpx.AsyncClient | None = None
 ) -> None:

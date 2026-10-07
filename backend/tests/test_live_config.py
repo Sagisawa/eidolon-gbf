@@ -90,12 +90,10 @@ async def test_a_saved_chat_model_plays_the_next_turn_until_restored(
 
     unchanged = {"status": "env", "env": ENV_SHOWN, "effective": ENV_SHOWN, "override": None,
                  "failure": None}
-    assert before == {"keys_editable": True, "chat_llm": unchanged}
-    assert shown == saved.json() == {
-        "keys_editable": True,
-        "chat_llm": {"status": "overridden", "env": ENV_SHOWN, "effective": NEW_SHOWN,
-                     "override": NEW_SHOWN, "failure": None},
-    }
+    assert before["keys_editable"] is True and before["chat_llm"] == unchanged
+    assert shown == saved.json()
+    assert shown["chat_llm"] == {"status": "overridden", "env": ENV_SHOWN, "effective": NEW_SHOWN,
+                                 "override": NEW_SHOWN, "failure": None}
     assert NEW_KEY not in saved.text and DEPLOYER_KEY not in saved.text
     assert restored.json() == before
     assert clients.llm.keys == [DEPLOYER_KEY, NEW_KEY, DEPLOYER_KEY]

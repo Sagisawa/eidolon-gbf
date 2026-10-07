@@ -8,8 +8,8 @@ from dataclasses import replace
 import httpx
 import pytest
 
-import eidolon.assembly
 import eidolon.judge
+import eidolon.live_config
 from eidolon.assembly import Backend, build
 from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JevSettings, Settings
 from eidolon.judge import JUDGE_THRESHOLDS, JudgeThresholds, judge_family, judge_thresholds_for
@@ -96,6 +96,14 @@ async def built(settings: Settings, monkeypatch: pytest.MonkeyPatch):
         await backend.aclose()
 
 
+def emotion_threshold(backend: Backend) -> float:
+    """What the next call judges her emotions by."""
+    lease = backend.config.lease()
+    lease.release()
+    assert lease.keys.emotions is not None
+    return lease.keys.emotions.min_probability
+
+
 async def test_emotions_are_judged_by_the_models_threshold(
     settings: Settings, built, monkeypatch: pytest.MonkeyPatch
 ):
@@ -103,7 +111,7 @@ async def test_emotions_are_judged_by_the_models_threshold(
 
     backend = built(replace(settings, judge=CloudflareJudgeSettings("t", "a", "clef")))
 
-    assert backend.emotions is not None and backend.emotions.min_probability == 0.8
+    assert emotion_threshold(backend) == 0.8
 
 
 async def test_retrieval_is_judged_by_the_models_thresholds(
@@ -111,18 +119,25 @@ async def test_retrieval_is_judged_by_the_models_thresholds(
 ):
     monkeypatch.setitem(JUDGE_THRESHOLDS, "clef-flash", ODD)
     judges: list[ModelRetrievalJudge] = []
-    real = eidolon.assembly.ModelRetrievalJudge
+    real = eidolon.live_config.ModelRetrievalJudge
 
     def recording(judge_model, thresholds):
         judges.append(real(judge_model, thresholds))
         return judges[-1]
 
-    monkeypatch.setattr(eidolon.assembly, "ModelRetrievalJudge", recording)
+    monkeypatch.setattr(eidolon.live_config, "ModelRetrievalJudge", recording)
+    monkeypatch.setattr(eidolon.judge.CloudflareJudge, "ask", answering_nothing)
 
-    built(replace(settings, judge=CloudflareJudgeSettings("t", "a", "clef-flash")))
+    backend = built(replace(settings, judge=CloudflareJudgeSettings("t", "a", "clef-flash")))
+    assert backend.engine._retrieval is not None
+    await backend.engine._retrieval._judge.judge(MANO, [], "那次比赛")
 
     [judge] = judges
     assert judge.thresholds == ODD
+
+
+async def answering_nothing(self, state: dict, questions: dict) -> dict:
+    return {name: {"noul": 0.0} for name in questions}
 
 
 async def test_the_emotion_setting_overrides_every_models_threshold(settings: Settings, built):
@@ -130,7 +145,7 @@ async def test_the_emotion_setting_overrides_every_models_threshold(settings: Se
         settings, judge=JevSettings("k"), emotion=EmotionSettings(min_probability=0.35)
     ))
 
-    assert backend.emotions is not None and backend.emotions.min_probability == 0.35
+    assert emotion_threshold(backend) == 0.35
 
 
 def test_judging_is_tuned_from_the_environment(monkeypatch: pytest.MonkeyPatch):

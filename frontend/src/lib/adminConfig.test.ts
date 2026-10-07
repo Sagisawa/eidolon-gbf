@@ -1,24 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  llmChange,
-  llmForm,
-  llmRows,
+  changeOf,
+  formOf,
+  ITEM_SPECS,
+  readOnlyValue,
+  rows,
   statusDisplay,
   type ConfigItem,
-  type LLMShown,
+  type Shown,
 } from "@/lib/adminConfig";
 
-const ENV: LLMShown = {
+const ENV: Shown = {
   protocol: "chat-completions",
   base_url: "https://env.example/v1",
   model: "env-model",
   max_tokens: null,
   api_key_last4: "aaaa",
 };
-const OVERRIDE: Partial<LLMShown> = { model: "new-model", api_key_last4: "bbbb" };
+const OVERRIDE: Shown = { model: "new-model", api_key_last4: "bbbb" };
 
-function item(status: ConfigItem<LLMShown>["status"]): ConfigItem<LLMShown> {
+function item(status: ConfigItem["status"]): ConfigItem {
   return {
     status,
     env: ENV,
@@ -29,7 +31,7 @@ function item(status: ConfigItem<LLMShown>["status"]): ConfigItem<LLMShown> {
 }
 
 describe("statusDisplay", () => {
-  it("shows each of the three states, restorable once overridden, with why it failed", () => {
+  it("shows each of the three states, restorable once overridden, with why it is not in effect", () => {
     expect(statusDisplay(item("env"))).toEqual({ variant: "neutral", canRestore: false, failure: null });
     expect(statusDisplay(item("overridden"))).toEqual({ variant: "accent", canRestore: true, failure: null });
     expect(statusDisplay(item("failed"))).toEqual({
@@ -40,12 +42,12 @@ describe("statusDisplay", () => {
   });
 });
 
-describe("llmRows", () => {
-  it("marks the overridden fields, in effect only while the override has not failed", () => {
+describe("rows", () => {
+  it("marks the overridden fields, in effect only while the override is, a key by its last 4", () => {
     for (const status of ["overridden", "failed"] as const) {
-      const rows = Object.fromEntries(llmRows(item(status)).map((row) => [row.field, row]));
+      const byField = Object.fromEntries(rows(item(status), ITEM_SPECS.chat_llm).map((row) => [row.field, row]));
       const inEffect = status === "overridden";
-      expect(rows.model, status).toEqual({
+      expect(byField.model, status).toEqual({
         field: "model",
         env: "env-model",
         effective: inEffect ? "new-model" : "env-model",
@@ -53,7 +55,7 @@ describe("llmRows", () => {
         override: "new-model",
         inEffect,
       });
-      expect(rows.api_key, status).toEqual({
+      expect(byField.api_key, status).toEqual({
         field: "api_key",
         env: "aaaa",
         effective: inEffect ? "bbbb" : "aaaa",
@@ -61,7 +63,7 @@ describe("llmRows", () => {
         override: "bbbb",
         inEffect,
       });
-      expect(rows.max_tokens, status).toEqual({
+      expect(byField.max_tokens, status).toEqual({
         field: "max_tokens",
         env: null,
         effective: null,
@@ -71,13 +73,29 @@ describe("llmRows", () => {
       });
     }
   });
+
+  it("shows each key of speech recognition by the service it is for", () => {
+    const stt: ConfigItem = {
+      status: "overridden",
+      env: { provider: "soniox", soniox_api_key_last4: "1111", dashscope_api_key_last4: null, region: null },
+      effective: { provider: "bailian", soniox_api_key_last4: "1111", dashscope_api_key_last4: "2222", region: "beijing" },
+      override: { provider: "bailian", dashscope_api_key_last4: "2222", region: "beijing" },
+      failure: null,
+    };
+
+    const byField = Object.fromEntries(rows(stt, ITEM_SPECS.stt).map((row) => [row.field, row]));
+
+    expect(byField.soniox_api_key).toMatchObject({ effective: "1111", overridden: false });
+    expect(byField.dashscope_api_key).toMatchObject({ env: null, effective: "2222", overridden: true });
+  });
 });
 
-describe("llmChange", () => {
-  const form = { ...llmForm({ ...ENV, max_tokens: 1024 }), api_key: " sk-new " };
+describe("formOf and changeOf", () => {
+  const llm = ITEM_SPECS.chat_llm;
+  const form = { ...formOf(llm, { ...ENV, max_tokens: 1024 }), api_key: " sk-new " };
 
   it("starts from the values in effect, the key left empty", () => {
-    expect(llmForm({ ...ENV, max_tokens: 1024 })).toEqual({
+    expect(formOf(llm, { ...ENV, max_tokens: 1024 })).toEqual({
       protocol: "chat-completions",
       base_url: "https://env.example/v1",
       model: "env-model",
@@ -87,22 +105,58 @@ describe("llmChange", () => {
   });
 
   it("sends the key only when it can be changed and was typed", () => {
-    expect(llmChange(form, true)).toEqual({
-      protocol: "chat-completions",
-      base_url: "https://env.example/v1",
-      model: "env-model",
-      max_tokens: 1024,
-      api_key: "sk-new",
+    expect(changeOf(llm, form, true)).toEqual({
+      change: {
+        protocol: "chat-completions",
+        base_url: "https://env.example/v1",
+        model: "env-model",
+        max_tokens: 1024,
+        api_key: "sk-new",
+      },
     });
-    expect(llmChange(form, false)).not.toHaveProperty("api_key");
-    expect(llmChange({ ...form, api_key: "  " }, true)).not.toHaveProperty("api_key");
+    expect(changeOf(llm, form, false)).toEqual({ change: expect.not.objectContaining({ api_key: expect.anything() }) });
+    expect(changeOf(llm, { ...form, api_key: "  " }, true)).toEqual({
+      change: expect.not.objectContaining({ api_key: expect.anything() }),
+    });
   });
 
-  it("takes an empty max_tokens as the default and refuses one that is not a positive whole number", () => {
-    expect(llmChange({ ...form, max_tokens: "" }, true)?.max_tokens).toBeNull();
+  it("takes an empty max_tokens as the default and names what keeps the form from being saved", () => {
+    expect(changeOf(llm, { ...form, max_tokens: "" }, true)).toMatchObject({ change: { max_tokens: null } });
     for (const bad of ["0", "-1", "1.5", "abc"]) {
-      expect(llmChange({ ...form, max_tokens: bad }, true), bad).toBeNull();
+      expect(changeOf(llm, { ...form, max_tokens: bad }, true), bad).toEqual({
+        problem: { field: "max_tokens", reason: "maxTokens" },
+      });
     }
-    expect(llmChange({ ...form, model: " " }, true)).toBeNull();
+    expect(changeOf(llm, { ...form, model: " " }, true)).toEqual({ problem: { field: "model", reason: "required" } });
+  });
+
+  it("takes thresholds from 0 to 1 and seconds above 0", () => {
+    const thresholds = ITEM_SPECS.judge_thresholds;
+    expect(changeOf(thresholds, { recall: "0.7", emotion: "0" }, true)).toEqual({ change: { recall: 0.7, emotion: 0 } });
+    for (const bad of ["1.1", "-0.1", "", "high"]) {
+      expect(changeOf(thresholds, { recall: bad, emotion: "0.5" }, true), bad).toEqual({
+        problem: { field: "recall", reason: "probability" },
+      });
+    }
+    const judge = { provider: "jev", model: "typesafe/jev-1.13", account_id: "", api_key: "" };
+    expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "0" }, true)).toEqual({
+      problem: { field: "emotion_timeout", reason: "seconds" },
+    });
+    expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "1.5" }, true)).toEqual({
+      change: { provider: "jev", model: "typesafe/jev-1.13", emotion_timeout: 1.5 },
+    });
+  });
+});
+
+describe("readOnlyValue", () => {
+  const words = { set: "已设置", unset: "未设置", none: "—" };
+
+  it("says a setting is set, never what it is, and lists the parts of the others", () => {
+    expect(readOnlyValue(true, words)).toBe("已设置");
+    expect(readOnlyValue(false, words)).toBe("未设置");
+    expect(readOnlyValue(["github:1001", "google:g-1"], words)).toBe("github:1001、google:g-1");
+    expect(readOnlyValue([], words)).toBe("—");
+    expect(readOnlyValue(null, words)).toBe("—");
+    expect(readOnlyValue({ ice_servers: ["stun:a"], turn: [] }, words)).toBe("ice_servers：stun:a；turn：—");
   });
 });

@@ -212,7 +212,7 @@ class ConversationEngine:
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
-        memory = await self._memory.begin(conversation, timezone, llms.memory)
+        memory = await self._memory.begin(conversation, timezone, llms.memory, llms.hold_memory)
         retrieved = (
             await self._retrieval.retrieve(character, history, text, memory)
             if self._retrieval
