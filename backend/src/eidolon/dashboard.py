@@ -3,11 +3,16 @@ summed up for the admin, under `/api/admin/dashboard`.
 
 Everything is summed up here; the browser only shows it. For each service, on the
 deployer's keys and on users' own apart: how many calls, how many failed and how, how
-long they took, and what they were billed for. For text turns: how many, by how they
-turned out, how many on users' own keys, how many users, how soon the character began to
-speak, how many with each character, and how many in each stretch of the range (`trend`),
-in stretches beginning where the admin's clock (`X-Timezone`) has a round hour or day.
-Nothing anyone said is in it, nor whose any of it was.
+long they took, and what they were billed for. For turns (typed or in calls): how many,
+by how they turned out, how many on users' own keys, how soon the character began to
+speak. For calls: how many, by how they turned out, how many on users' own keys, how long
+they lasted and why they ended. How many users took any turn or call; how many turns and
+calls with each character, and in each stretch of the range (`trend`), in stretches
+beginning where the admin's clock (`X-Timezone`) has a round hour or day. Nothing anyone
+said is in it, nor whose any of it was.
+
+How many calls are in progress now is not in the records but the calls themselves:
+`/api/admin/calls/live`, which the page asks every minute.
 """
 
 import math
@@ -20,7 +25,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Header, Query
 
-from eidolon.activity import RESULTS, SERVICES, CallRow, RecordRow
+from eidolon.activity import CALL_END_REASONS, RESULTS, SERVICES, CallRow, RecordRow
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 
@@ -55,20 +60,25 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
         """The activity of the last `range`, summed up."""
         span = SPANS[range]
         now = backend.clock()
-        records, calls = backend.activity.since(now - span.length)
+        records, service_calls = backend.activity.since(now - span.length)
         names = {id: c.name for id, c in backend.characters.items()}
         return {
             "range": range,
             "from": (now - span.length).isoformat(),
             "to": now.isoformat(),
             "bucket": span.bucket,
-            "health": health(calls),
+            "health": health(service_calls),
+            "active_users": len({r.who for r in records if r.who is not None}),
             "turns": turns([r for r in records if r.kind == "turn"]),
-            "trend": trend(
-                [r for r in records if r.kind == "turn"], stretches(now, span, _zone(timezone))
-            ),
-            "characters": characters([r for r in records if r.kind == "turn"], names),
+            "calls": calls([r for r in records if r.kind == "call"]),
+            "trend": trend(records, stretches(now, span, _zone(timezone))),
+            "characters": characters(records, names),
         }
+
+    @app.get("/api/admin/calls/live")
+    def live_calls(_: Admin) -> dict:
+        """How many calls there are right now, connected or still connecting."""
+        return {"in_progress": backend.calls.in_progress}
 
 
 def _zone(name: str | None) -> ZoneInfo:
@@ -97,7 +107,7 @@ def health(calls: Iterable[CallRow]) -> list[dict]:
         groups.items(), key=lambda g: (_order(g[0][0]), g[0][1])
     ):
         failed = [c for c in group if c.error is not None]
-        latencies = [c.latency_ms for c in group]
+        latencies = [c.latency_ms for c in group if c.latency_ms is not None]
         rows.append({
             "service": service,
             "own_key": own_key,
@@ -143,8 +153,40 @@ def turns(records: Sequence[RecordRow]) -> dict:
         "total": len(records),
         "by_result": {result: by_result[result] for result in RESULTS if result != "not_connected"},
         "own_keys": sum(r.own_keys for r in records),
-        "active_users": len({r.who for r in records if r.who is not None}),
+        "in_calls": sum(r.in_call for r in records),
         "time_to_speak_ms": _speaking(records),
+    }
+
+
+CALL_RESULTS = ("success", "failed", "rejected", "not_connected")
+"""How a call can turn out: a user leaving a call is hanging it up, not a result."""
+
+DURATIONS: tuple[tuple[int, int | None], ...] = (
+    (0, 60), (60, 180), (180, 600), (600, 1800), (1800, None)
+)
+"""The stretches, in seconds, calls' durations are counted in."""
+
+
+def calls(records: Sequence[RecordRow]) -> dict:
+    """The calls: how they turned out, on whose keys, how long those that connected
+    lasted, and why each ended (a call refused over the limit never began, so did not)."""
+    by_result = Counter(r.result for r in records)
+    lasted = [r.duration_s for r in records if r.duration_s is not None]
+    reasons = Counter(r.end_reason for r in records if r.end_reason is not None)
+    return {
+        "total": len(records),
+        "by_result": {result: by_result[result] for result in CALL_RESULTS},
+        "own_keys": sum(r.own_keys for r in records),
+        "duration_s": {"p50": percentile(lasted, 50), "p90": percentile(lasted, 90)},
+        "durations": [
+            {
+                "from_s": low,
+                "to_s": high,
+                "calls": sum(low <= d and (high is None or d < high) for d in lasted),
+            }
+            for low, high in DURATIONS
+        ],
+        "end_reasons": {reason: reasons[reason] for reason in CALL_END_REASONS},
     }
 
 
@@ -171,27 +213,34 @@ def stretches(now: datetime, span: Span, zone: ZoneInfo) -> list[datetime]:
 
 
 def trend(records: Sequence[RecordRow], starts: Sequence[datetime]) -> list[dict]:
-    """How many turns, and by how many users, in each stretch beginning at `starts`; the
-    first takes in whatever of the range comes before it."""
+    """How many turns and calls, and by how many users, in each stretch beginning at
+    `starts`; the first takes in whatever of the range comes before it."""
     stretch = starts[1] - starts[0] if len(starts) > 1 else timedelta(days=1)
-    counts = [0] * len(starts)
+    counts: list[Counter[str]] = [Counter() for _ in starts]
     users: list[set[str]] = [set() for _ in starts]
     for record in records:
         i = max(0, min(len(starts) - 1, int((record.started_at - starts[0]) / stretch)))
-        counts[i] += 1
+        counts[i][record.kind] += 1
         if record.who is not None:
             users[i].add(record.who)
     return [
-        {"start": start.isoformat(), "turns": n, "active_users": len(who)}
+        {
+            "start": start.isoformat(),
+            "turns": n["turn"],
+            "calls": n["call"],
+            "active_users": len(who),
+        }
         for start, n, who in zip(starts, counts, users, strict=True)
     ]
 
 
 def characters(records: Sequence[RecordRow], names: dict[str, str]) -> list[dict]:
-    """How many turns with each character, most first; a character since removed from the
-    configuration has no name."""
-    counted = Counter(r.character_id for r in records)
+    """How many turns and calls with each character, most turns first; a character since
+    removed from the configuration has no name."""
+    counted: dict[str, Counter[str]] = defaultdict(Counter)
+    for record in records:
+        counted[record.character_id][record.kind] += 1
     return [
-        {"character_id": id, "name": names.get(id), "turns": n}
-        for id, n in sorted(counted.items(), key=lambda c: (-c[1], c[0]))
+        {"character_id": id, "name": names.get(id), "turns": n["turn"], "calls": n["call"]}
+        for id, n in sorted(counted.items(), key=lambda c: (-c[1]["turn"], -c[1]["call"], c[0]))
     ]

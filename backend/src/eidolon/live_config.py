@@ -38,7 +38,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from eidolon.activity import ActivityLog, MeteredJudge, judge_origin
+from eidolon.activity import ActivityLog, MeteredEmotionJudge, MeteredJudge, judge_origin
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
@@ -53,7 +53,7 @@ from eidolon.config import (
     UsageLimits,
 )
 from eidolon.database import connect
-from eidolon.emotion import EmotionJudging, ModelEmotionJudge
+from eidolon.emotion import EmotionJudge, EmotionJudging, ModelEmotionJudge
 from eidolon.judge import JudgeError, JudgeModel, JudgeThresholds, judge_thresholds, try_judge_model
 from eidolon.llm import ChatLLM, LLMError
 from eidolon.llm.providers import check_chat_llm
@@ -464,17 +464,20 @@ class LiveConfig:
         speech: KeyCheck | None = None,
         live_judge: bool = False,
         live_emotions: bool = False,
+        activity: ActivityLog | None = None,
     ) -> None:
         """With `chat_llm`, the chat model `.env` describes is that one, not made here
         nor closed; the memory model `.env` describes is `background_llm`, nor closed.
         `speech` tries the keys for speech synthesis and recognition. With `live_judge`,
         the judge model is made here from the configuration, and judges each call's
-        emotions too if `live_emotions` (else a judge model passed in does)."""
+        emotions too if `live_emotions` (else a judge model passed in does), each question
+        recorded in `activity`."""
         self.settings = settings
         self._clients = clients
         self._clock = clock
         self._speech = speech
         self._live_emotions = live_emotions
+        self._activity = activity
         self._cipher = _cipher(settings.secret_key) if settings.secret_key else None
         self._db = connect(settings.database_path)
         self._db_lock = threading.Lock()
@@ -595,8 +598,13 @@ class LiveConfig:
         if self._judge is not None and self._live_emotions:
             judge = self._judge.lease()
             held.append(judge)
+            emotion_judge: EmotionJudge = ModelEmotionJudge(judge.client)
+            if self._activity is not None:
+                emotion_judge = MeteredEmotionJudge(
+                    emotion_judge, self._activity, judge_origin(self.judge_settings)
+                )
             emotions = EmotionJudging(
-                ModelEmotionJudge(judge.client),
+                emotion_judge,
                 self.judge_thresholds.emotion,
                 self.effective(JUDGE)["emotion_timeout"],
             )

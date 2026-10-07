@@ -16,8 +16,6 @@ import {
   type TrendPoint,
 } from "@/lib/dashboard";
 
-const t = copy.admin.dashboard.trend;
-
 const HEIGHT = 180;
 const AXIS = { left: 40, bottom: 24, top: 8, right: 24 }; // room for the latest label
 const MAX_BAR = 24;
@@ -32,11 +30,21 @@ function column(x: number, width: number, top: number, base: number): string {
 }
 
 /**
- * The turns in each stretch of the range, one series, as columns (dataviz: a single series
- * needs no legend; the heading names it). Hovering a column reads out its stretch, its
- * turns and its users above the chart; the same numbers are in a table for screen readers.
+ * The turns, or the calls, in each stretch of the range, one series, as columns (dataviz:
+ * a single series needs no legend; the heading names it). Hovering a column reads out its
+ * stretch, its count and the users active in it above the chart; the same numbers are in a
+ * table for screen readers.
  */
-export function TurnTrendChart({ points, bucket }: { points: TrendPoint[]; bucket: Bucket }) {
+export function TrendChart({
+  points,
+  bucket,
+  series,
+}: {
+  points: TrendPoint[];
+  bucket: Bucket;
+  series: "turns" | "calls";
+}) {
+  const t = copy.admin.dashboard.trend[series];
   const ref = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(640);
   const [hovered, setHovered] = useState<number | null>(null);
@@ -49,7 +57,7 @@ export function TurnTrendChart({ points, bucket }: { points: TrendPoint[]; bucke
     return () => observer.disconnect();
   }, []);
 
-  const ticks = countTicks(Math.max(0, ...points.map((p) => p.turns)));
+  const ticks = countTicks(Math.max(0, ...points.map((p) => p[series])));
   const top = ticks[ticks.length - 1];
   const plotWidth = Math.max(1, width - AXIS.left - AXIS.right);
   const base = HEIGHT - AXIS.bottom;
@@ -64,7 +72,7 @@ export function TurnTrendChart({ points, bucket }: { points: TrendPoint[]; bucke
     <VStack gap={2}>
       <Text type="supporting">
         {readout
-          ? t.tooltip(stretchSpan(readout.start, bucket), formatCount(readout.turns), formatCount(readout.active_users))
+          ? t.tooltip(stretchSpan(readout.start, bucket), formatCount(readout[series]), formatCount(readout.active_users))
           : t.empty}
       </Text>
       <svg
@@ -114,8 +122,8 @@ export function TurnTrendChart({ points, bucket }: { points: TrendPoint[]; bucke
                   fill="var(--color-overlay-hover)"
                 />
               )}
-              {point.turns > 0 && (
-                <path d={column(x, bar, y(point.turns), base)} fill="var(--color-data-categorical-blue)" />
+              {point[series] > 0 && (
+                <path d={column(x, bar, y(point[series]), base)} fill="var(--color-data-categorical-blue)" />
               )}
               {labelled.has(i) && (
                 <text
@@ -138,7 +146,7 @@ export function TurnTrendChart({ points, bucket }: { points: TrendPoint[]; bucke
             {points.map((point) => (
               <tr key={point.start}>
                 <th scope="row">{stretchSpan(point.start, bucket)}</th>
-                <td>{point.turns}</td>
+                <td>{point[series]}</td>
                 <td>{point.active_users}</td>
               </tr>
             ))}

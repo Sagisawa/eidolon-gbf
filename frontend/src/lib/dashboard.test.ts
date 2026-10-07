@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   countTicks,
+  durationRange,
   formatCount,
+  formatDuration,
   formatMs,
   formatShare,
   formatUsage,
@@ -92,5 +94,28 @@ describe("countTicks", () => {
       [1200, [0, 500, 1000, 1500]],
     ];
     for (const [max, ticks] of cases) expect(countTicks(max), String(max)).toEqual(ticks);
+  });
+});
+
+describe("call durations", () => {
+  it("a duration is in seconds under a minute, then minutes, then hours", () => {
+    const cases: [number | null, string][] = [
+      [null, "—"],
+      [0.4, "0 秒"],
+      [45, "45 秒"],
+      [125, "2 分 5 秒"],
+      [600, "10 分"],
+      [3725, "1 小时 2 分"],
+    ];
+    for (const [seconds, shown] of cases) expect(formatDuration(seconds), String(seconds)).toBe(shown);
+  });
+
+  it("each stretch of the distribution is named by its bounds", () => {
+    const cases: [number, number | null, string][] = [
+      [0, 60, "1 分钟以内"],
+      [60, 180, "1–3 分钟"],
+      [1800, null, "30 分钟以上"],
+    ];
+    for (const [from, to, shown] of cases) expect(durationRange(from, to), `${from}-${to}`).toBe(shown);
   });
 });

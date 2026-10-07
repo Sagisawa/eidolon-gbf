@@ -37,6 +37,7 @@ from tests.fakes import (
     FakeServiceClients,
     FakeSpeech,
 )
+from tests.test_activity_records import dashboard, health
 from tests.test_live_config import CONFIG, NEW, NEW_SHOWN, REPLY, admin_client, start
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -332,6 +333,8 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     ]
     assert closed_during_call == []
     assert clients.judges_closed == [JevSettings(JEV_KEY)]  # once the call was over
+    judge = health(await dashboard(client), "judge")
+    assert judge is not None and judge["calls"] == 3  # each turn's question, and the emotion
     shown = saved.json()["judge"]
     assert shown["status"] == "overridden"
     assert shown["effective"] == {k: v for k, v in CLOUDFLARE.items() if k != "api_key"} | {

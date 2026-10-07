@@ -50,8 +50,16 @@ export type Call = {
   /** Send from another microphone without interrupting the call, muted if it was.
    * Fails with MicUnavailable, keeping the one in use, if it cannot be opened. */
   switchMic: (micId: string) => Promise<MicInUse>;
+  /** The user hangs up: the backend is told so, for the call's activity record (GLOSSARY
+   * 「运行记录」), just before the connection closes. */
   hangUp: () => Promise<void>;
+  /** The page is left: the connection just closes. */
+  leave: () => Promise<void>;
 };
+
+/** How long a hang-up message is given to go out before the connection closing would drop
+ * it; the call screen has closed already. */
+const HANG_UP_GRACE_MS = 150;
 
 /** Connects a call; resolves once it has connected, on the bot's `bot-ready`. That comes
  * only after the peer connection and its data channel are open, which is when the backend
@@ -117,6 +125,16 @@ export async function startCall(
     mic: microphone.inUse,
     switchMic: (micId) => microphone.updateMic(micId),
     hangUp: async () => {
+      hungUp = true;
+      try {
+        connected.sendClientMessage("hang-up", {});
+        await new Promise((resolve) => setTimeout(resolve, HANG_UP_GRACE_MS));
+      } catch {
+        // The connection is gone already: there is no one left to tell.
+      }
+      await connected.disconnect();
+    },
+    leave: async () => {
       hungUp = true;
       await connected.disconnect();
     },

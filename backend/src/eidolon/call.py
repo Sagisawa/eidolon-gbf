@@ -11,7 +11,10 @@ hangs up. Speech recognition and synthesis are the `Speech` port, on whoever's k
 is whichever service the key is for, Soniox or Alibaba Cloud Model Studio (阿里云百炼),
 and how long a follow-on may take to be transcribed is that service's. Whether a call
 counts towards the user's limit, and what the browser is told when the backend ends it,
-is `CallOutcome`'s to decide; the call only reports to it.
+is `CallOutcome`'s to decide; the call only reports to it. So is the call's activity
+record: each turn of the call has one under it, and its speech recognition and synthesis
+are recorded under it by `CallMeter`, which also lays each error in the pipeline at the
+door of the service it came from.
 Whose turn it is during the call, what is a follow-on and what interrupts the character, is
 likewise `TurnTaking`'s.
 
@@ -23,6 +26,7 @@ text turn and lands in the same conversation record.
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from typing import Any, Literal, Protocol
@@ -44,6 +48,7 @@ from pipecat.frames.frames import (
     EndWorkerFrame,
     ErrorFrame,
     Frame,
+    InputAudioRawFrame,
     InterimTranscriptionFrame,
     InterruptionFrame,
     LLMFullResponseEndFrame,
@@ -54,6 +59,7 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSAudioRawFrame,
 )
+from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -62,6 +68,7 @@ from pipecat.processors.frameworks.rtvi.frames import (
     RTVIServerMessageFrame,
 )
 from pipecat.processors.frameworks.rtvi.models import ServerMessage
+from pipecat.services.ai_service import AIService
 from pipecat.services.fish.tts import FishAudioTTSService
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.stt_service import STTService
@@ -78,15 +85,35 @@ from pipecat.transports.smallwebrtc.request_handler import (
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.turns.user_turn_processor import UserTurnProcessor
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
+from pipecat.utils.errors import ErrorCategory
 from pipecat.utils.types import assert_given
 from pipecat.workers.runner import WorkerRunner
 
+from eidolon.activity import (
+    ActivityLog,
+    CallEndReason,
+    ErrorKind,
+    Origin,
+    Recording,
+    Result,
+    error_kind,
+    host,
+    turn_llms,
+)
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
-from eidolon.bailian import BailianCheckFailed, BailianSTTService, find_region
+from eidolon.bailian import REGION_URLS, BailianCheckFailed, BailianSTTService, find_region
+from eidolon.billing import Billing
 from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, IceServer, Settings, SttKey, SttProvider
+from eidolon.config import (
+    DEFAULT_BAILIAN_STT_MODEL,
+    IceServer,
+    LLMSettings,
+    Settings,
+    SttKey,
+    SttProvider,
+)
 from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import ConversationEngine, TurnDone, UserSaid
 from eidolon.llm import TurnLLMs
@@ -98,6 +125,7 @@ from eidolon.own_keys import (
 )
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.store import Conversation, Store
+from eidolon.turn_outcome import turn_result
 from eidolon.turn_taking import (
     ClearVoice,
     Command,
@@ -123,8 +151,9 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 
 @dataclass(frozen=True)
 class Call:
-    """A call the browser asked for: which conversation, the models its turns run on, how
-    it wants the audio, and the time zone its device reports."""
+    """A call the browser asked for: which conversation, the models its turns run on (the
+    user's own, if `own_llm`), how it wants the audio, and the time zone its device
+    reports."""
 
     conversation: Conversation
     character: Character
@@ -132,6 +161,7 @@ class Call:
     muted: bool
     quality: Quality
     device_timezone: str | None = None
+    own_llm: bool = False
 
 
 USER_CHECK_INTERVAL = 5.0
@@ -616,14 +646,140 @@ class SpeechServices:
             raise OwnKeyRejected(f"{res.status_code} {res.text[:200]}")
 
 
+SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
+FISH_TTS_URL = "wss://api.fish.audio/v1/tts/live"
+"""Where Soniox hears and Fish Audio speaks, as Pipecat connects to them."""
+
+
+def _stt_host(key: SttKey) -> str:
+    """The provider the call's speech recognition is, as its service calls are recorded."""
+    if key.provider == "bailian":
+        return host(REGION_URLS[key.region or "beijing"])
+    return host(SONIOX_URL)
+
+
+def _model(service: AIService) -> str:
+    model = service._settings.model
+    return model if isinstance(model, str) and model else "unknown"
+
+
+_CATEGORY_KINDS: dict[ErrorCategory, ErrorKind] = {
+    ErrorCategory.AUTHENTICATION: "unauthorized",
+    ErrorCategory.AUTHORIZATION: "unauthorized",
+    ErrorCategory.QUOTA: "unauthorized",
+    ErrorCategory.RATE_LIMIT: "rate_limited",
+    ErrorCategory.INVALID_REQUEST: "refused",
+    ErrorCategory.CONNECTIVITY: "connection",
+    ErrorCategory.SERVER: "server_error",
+}
+
+
+def frame_error_kind(frame: ErrorFrame) -> ErrorKind:
+    """What kind of failure an error in the pipeline is: from its exception, or failing
+    that, from the category the service gave it, or what it says."""
+    if frame.exception is not None and (kind := error_kind(frame.exception)) != "other":
+        return kind
+    if frame.category in _CATEGORY_KINDS:
+        return _CATEGORY_KINDS[frame.category]
+    return error_kind(Exception(frame.error))
+
+
+@dataclass
+class _Voicing:
+    """Speech synthesis of one reply: since when it was given the reply's first words
+    (pipeline clock, ns), how many bytes of them, when its first audio came, and whether
+    it failed."""
+
+    started_ns: int
+    bytes: int = 0
+    first_audio_ns: int | None = None
+    error: ErrorKind | None = None
+
+
+class CallMeter(BaseObserver):
+    """A call's speech recognition and synthesis, recorded as service calls under the
+    call's activity record, and each error in the pipeline laid on the service it came
+    from.
+
+    Speech recognition is a stream as long as the call: one service call, billed for the
+    seconds of audio sent to it, with no latency, failed if any of its errors came. Speech
+    synthesis is a service call for each reply voiced, from its first words to the next
+    reply or interruption: billed for the UTF-8 bytes of Japanese (cues and all) it was
+    given, as Fish Audio charges, timed to its first audio, failed if any of its errors
+    came meanwhile; one of its errors between replies is a failed service call of its own."""
+
+    def __init__(
+        self,
+        recording: Recording,
+        stt: FrameProcessor,
+        stt_origin: Origin,
+        tts: FrameProcessor,
+        tts_origin: Origin,
+    ) -> None:
+        super().__init__()
+        self._recording = recording
+        self._stt, self._stt_origin = stt, stt_origin
+        self._tts, self._tts_origin = tts, tts_origin
+        self._heard_s = 0.0
+        self._stt_error: ErrorKind | None = None
+        self._voicing: _Voicing | None = None
+        self._closed = False
+
+    async def on_push_frame(self, data: FramePushed) -> None:
+        frame = data.frame
+        if data.destination is self._stt and isinstance(frame, InputAudioRawFrame):
+            self._heard_s += len(frame.audio) / (frame.sample_rate * frame.num_channels * 2)
+        elif data.destination is self._tts:
+            if isinstance(frame, SegmentTextFrame) and frame.text:
+                if self._voicing is None:
+                    self._voicing = _Voicing(data.timestamp)
+                self._voicing.bytes += len(frame.text.encode())
+            elif isinstance(frame, LLMFullResponseStartFrame | InterruptionFrame):
+                self._voiced()
+        elif data.source is self._tts and isinstance(frame, TTSAudioRawFrame):
+            if self._voicing is not None and self._voicing.first_audio_ns is None:
+                self._voicing.first_audio_ns = data.timestamp
+
+    def failed(self, error: ErrorFrame) -> None:
+        """An error came up the pipeline."""
+        kind = frame_error_kind(error)
+        if error.processor is self._stt:
+            self._stt_error = self._stt_error or kind
+        elif error.processor is self._tts:
+            if self._voicing is None:
+                self._recording.add(self._tts_origin, kind, None, Billing())
+            else:
+                self._voicing.error = self._voicing.error or kind
+                self._voiced()
+
+    def close(self) -> None:
+        """The call is over: record what is still being metered."""
+        if self._closed:
+            return
+        self._closed = True
+        self._voiced()
+        heard = Billing("seconds", round(self._heard_s, 3))
+        self._recording.add(self._stt_origin, self._stt_error, None, heard)
+
+    def _voiced(self) -> None:
+        voicing, self._voicing = self._voicing, None
+        if voicing is None:
+            return
+        latency = None
+        if voicing.first_audio_ns is not None:
+            latency = (voicing.first_audio_ns - voicing.started_ns) / 1e6
+        billed = Billing("bytes", voicing.bytes)
+        self._recording.add(self._tts_origin, voicing.error, latency, billed)
+
+
 class Calls:
     """The user's voice calls, from signalling to hanging up.
 
     Each new call has a `CallOutcome`, given the call's own limits on its time and turns,
     which takes it from the user's limit when it is offered and, told what happens to the
     call, decides when it has reached its own limits, whether it is given back and what the
-    browser is told when the backend ends it. Only the user who placed a call can
-    renegotiate it or add ICE candidates to it.
+    browser is told when the backend ends it, and what its activity record says. Only the
+    user who placed a call can renegotiate it or add ICE candidates to it.
     """
 
     def __init__(
@@ -634,12 +790,15 @@ class Calls:
         speech: Speech,
         clock: Clock,
         own_keys: OwnKeys,
+        activity: ActivityLog,
+        deployer_llms: Callable[[], tuple[LLMSettings, LLMSettings]],
         store: Store | None = None,
         emotions: EmotionJudging | None = None,
     ) -> None:
-        """With `store`, calls of users banned or deleted meanwhile are hung up; with
-        `emotions`, her emotion in each segment is judged, on the deployer's judge model
-        whoever's keys the call is on."""
+        """Calls' turns run on the deployer's chat and memory models `deployer_llms` says
+        at the time, unless on the user's own. With `store`, calls of users banned or
+        deleted meanwhile are hung up; with `emotions`, her emotion in each segment is
+        judged, on the deployer's judge model whoever's keys the call is on."""
         self._settings = settings
         self._emotions = emotions
         self._engine = engine
@@ -647,6 +806,8 @@ class Calls:
         self._speech = speech
         self._clock = clock
         self._own_keys = own_keys
+        self._activity = activity
+        self._deployer_llms = deployer_llms
         self._store = store
         self._webrtc = SmallWebRTCRequestHandler(
             ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
@@ -709,10 +870,14 @@ class Calls:
         offer: SessionDescription,
         keys: CallKeys,
     ) -> dict:
-        outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits())
+        outcome = CallOutcome(
+            self._usage, self._activity, user_id, character.id, keys.exempt, self._limits()
+        )
+        own_llm = self._own_keys.describe(user_id).get("llm")
+        llms = turn_llms(self._activity, keys.llms, own_llm, *self._deployer_llms())
         call = Call(
-            conversation, character, keys.llms, options.muted, options.quality,
-            options.device_timezone,
+            conversation, character, llms, options.muted, options.quality,
+            options.device_timezone, own_llm is not None,
         )
         connections: list[SmallWebRTCConnection] = []
         started: list[_LiveCall] = []
@@ -741,7 +906,7 @@ class Calls:
         answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
         if answer is None or not started:
             if started:
-                await started[0].hang_up()
+                await started[0].hang_up("failed")
             elif connections:  # the pipeline could not be built; Pipecat only logs why
                 await connections[0].disconnect()
             outcome.set_up_failed()
@@ -772,27 +937,34 @@ class Calls:
         )
         await self._webrtc.handle_patch_request(patch)
 
-    async def hang_up(self, user_id: str) -> None:
-        """Hang up the user's calls and wait for them to end; a reply in progress is dropped."""
+    @property
+    def in_progress(self) -> int:
+        """How many calls there are now, connected or still connecting."""
+        return len(self._live)
+
+    async def hang_up(self, user_id: str, reason: CallEndReason = "deleted") -> None:
+        """Hang up the user's calls, for `reason`, and wait for them to end; a reply in
+        progress is dropped. Unless banned, a user's calls are hung up as they are deleted."""
         await asyncio.gather(
-            *(live.hang_up() for live in list(self._live) if live.user_id == user_id)
+            *(live.hang_up(reason) for live in list(self._live) if live.user_id == user_id)
         )
 
     async def _hang_up_users_gone(self) -> None:
-        """While there are calls, hang up those of users banned or deleted meanwhile."""
+        """While there are calls, hang up those of users banned or deleted meanwhile (by
+        then, their calls were hung up as they were deleted, unless on the command line)."""
         while self._live:
             await asyncio.sleep(USER_CHECK_INTERVAL)
             users = {live.user_id for live in self._live}
             assert self._store is not None
             for user_id in users - self._store.active_users(users):
                 log.info("hanging up the calls of user %s, banned or deleted", user_id)
-                await self.hang_up(user_id)
+                await self.hang_up(user_id, "banned")
 
     async def aclose(self) -> None:
         """Hang up every call and wait for them to end; a reply in progress is dropped."""
         if self._watch is not None:
             self._watch.cancel()
-        await asyncio.gather(*(live.hang_up() for live in list(self._live)))
+        await asyncio.gather(*(live.hang_up("shutdown") for live in list(self._live)))
         await self._webrtc.close()
 
     async def _answer(
@@ -850,6 +1022,11 @@ class _LiveCall:
             for processor, service in ((stt, "stt"), (tts, "tts"))
             if service in keys.own
         }
+        self._meter = CallMeter(
+            outcome.recording,
+            stt, Origin("stt", _stt_host(keys.stt), _model(stt), "stt" in keys.own),
+            tts, Origin("tts", host(FISH_TTS_URL), _model(tts), "tts" in keys.own),
+        )
         pipeline = Pipeline(
             [
                 transport.input(),
@@ -863,7 +1040,9 @@ class _LiveCall:
         # A service that can no longer work (say, a rejected API key) ends the call
         # instead of leaving the user talking into silence.
         self._worker = PipelineWorker(
-            pipeline, processor_unusable_policy=ProcessorUnusablePolicy.CANCEL
+            pipeline,
+            processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
+            observers=[self._meter],
         )
         self._connected = asyncio.Event()
         self._hung_up = False
@@ -880,6 +1059,7 @@ class _LiveCall:
 
         @self._worker.event_handler("on_pipeline_error")
         async def failed(worker: PipelineWorker, error: ErrorFrame) -> None:
+            self._meter.failed(error)
             if error.fatal or (error.processor is not None and not error.processor.is_usable):
                 processor = error.processor
                 self._report_failure(own_services.get(processor) if processor else None)
@@ -900,9 +1080,11 @@ class _LiveCall:
         self._task = asyncio.create_task(self._serve())
         self._task.add_done_callback(lambda _: on_done(self))
 
-    async def hang_up(self) -> None:
-        """End the call now, dropping any reply in progress, and wait until it has ended."""
+    async def hang_up(self, reason: CallEndReason) -> None:
+        """End the call now, for `reason`, dropping any reply in progress, and wait until
+        it has ended."""
         self._hung_up = True
+        self._outcome.ended_by(reason)
         await self._worker.cancel()
         if self._task is not None:
             await asyncio.wait({self._task})
@@ -913,8 +1095,10 @@ class _LiveCall:
                 await self._run()
         except Exception:
             log.exception("call in conversation %s failed", self._call.conversation.id)
+            self._outcome.ended_by("failed")
             self._report_failure()
         finally:
+            self._meter.close()
             self._outcome.settle()
             await self._connection.disconnect()  # lets the browser know the call is over
 
@@ -931,6 +1115,7 @@ class _LiveCall:
             connected.cancel()
         if not self._connected.is_set() and not running.done():
             log.info("call in conversation %s never connected", self._call.conversation.id)
+            self._outcome.ended_by("failed")
             await self._worker.cancel()
         await running
 
@@ -998,6 +1183,8 @@ class CallTurns(FrameProcessor):
         self._reply: asyncio.Task | None = None  # the reply being given to it
         self._stop = asyncio.Event()  # set to have the reply go no further
         self._waiting: asyncio.Task | None = None  # times the follow-on waited for
+        self._recording: Recording | None = None  # its activity record
+        self._result: Result | None = None  # how it turned out, once it has
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -1016,6 +1203,8 @@ class CallTurns(FrameProcessor):
         elif isinstance(frame, InterruptionFrame):
             await self._carry_out(self._turns.user_started_talking(), (frame, direction))
         elif isinstance(frame, BotStartedSpeakingFrame):
+            if self._recording is not None:
+                self._recording.spoke()  # her voice began to play
             await self._carry_out(self._turns.voice_started())
             await self.push_frame(frame, direction)
         elif isinstance(frame, BotStoppedSpeakingFrame):
@@ -1050,6 +1239,8 @@ class CallTurns(FrameProcessor):
             await self._carry_out(self._turns.user_typed(data["text"]))
         elif frame.type == "mute" and isinstance(data.get("muted"), bool):
             await self._carry_out(self._turns.text_only_switched(data["muted"]))
+        elif frame.type == "hang-up":  # the browser closes the connection next
+            self._outcome.ended_by("hung_up")
 
     async def _carry_out(
         self,
@@ -1118,8 +1309,12 @@ class CallTurns(FrameProcessor):
         await self.push_frame(EndWorkerFrame(reason=limit.why))
 
     async def _turn(self, text: str) -> None:
-        """Take one turn, replied to afresh after each follow-on, until its reply is over."""
+        """Take one turn, replied to afresh after each follow-on, until its reply is over;
+        its activity record says how the last reply to it turned out (one dropped for a
+        follow-on is not recorded apart), or that the call ended before it was over."""
         self._turn_over = asyncio.Event()
+        recording = self._recording = self._outcome.turn_begun(self._call.own_llm)
+        self._result = None
         try:
             await self._carry_out(self._turns.turn_started(text))
             await self._turn_over.wait()
@@ -1128,12 +1323,16 @@ class CallTurns(FrameProcessor):
             reply, self._reply = self._reply, None
             if reply is not None and not reply.done():
                 await self.cancel_task(reply)
+            recording.finish(self._result or "left")
+            self._recording = None
 
     def _start_reply(self, text: str, number: int, after: asyncio.Event | None = None) -> None:
         """Reply to `text`, as reply `number`, once `after` is set, if given."""
         self._stop_waiting()
         self._stop = asyncio.Event()
-        self._reply = self.create_task(self._reply_to(text, number, self._stop, after))
+        self._reply = self.create_task(
+            self._reply_to(text, number, self._stop, after, self._recording)
+        )
 
     async def _drop_reply(self) -> list[Reply | WaitForFollowOn]:
         """Drop the reply in progress and, once it is gone, tell `TurnTaking` so, handing
@@ -1167,52 +1366,75 @@ class CallTurns(FrameProcessor):
             self._waiting = None
 
     async def _reply_to(
-        self, text: str, number: int, stop: asyncio.Event, after: asyncio.Event | None
+        self,
+        text: str,
+        number: int,
+        stop: asyncio.Event,
+        after: asyncio.Event | None,
+        recording: Recording | None,
     ) -> None:
         """Reply to what the user said, as reply `number` of the call, once `after` is set,
         if given, going no further once `stop` is set. Only a reply that is recorded counts
         as a turn: a rejected, failed or dropped one does not count towards the call's
         limit, an interrupted one does. Once it is over, recorded or not, so is the turn; a dropped one is not over,
-        but gone, which whoever dropped it reports."""
+        but gone, which whoever dropped it reports. Its service calls are recorded under
+        the turn's `recording`, which is told how it turned out."""
         if after is not None:
             await after.wait()
         await self.push_frame(LLMFullResponseStartFrame())
         ja: dict[int, str] = {}  # each segment's Japanese so far, cues and all
         zh: dict[int, str] = {}  # and its subtitle
         try:
-            async for event in self._engine.turn(
-                self._call.conversation, text, self._call.llms, self._call.device_timezone,
-                stop,
-            ):
-                if isinstance(event, SegmentComplete):
-                    await self._carry_out(self._turns.segment_complete(event.segment))
-                    if not stop.is_set():
-                        self._judge_emotion(text, number, event.segment, ja, zh)
-                    continue
-                if isinstance(event, SpeechDelta):  # the Japanese just shown, cues and all
-                    ja[event.segment] = ja.get(event.segment, "") + event.text
-                    await self._carry_out(
-                        self._turns.reply_delta("ja", event.text, event.segment)
-                    )
-                    continue
-                if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
-                    await self._carry_out(self._turns.reply_recorded())
-                    self._outcome.turn_recorded()
-                message = asdict(event)
-                if isinstance(event, UserSaid):
-                    message["reply"] = number
-                await self._send(message)
-                if isinstance(event, SegmentDelta) and event.lang == "zh":
-                    zh[event.segment] = zh.get(event.segment, "") + event.text
-                    await self._carry_out(
-                        self._turns.reply_delta("zh", event.text, event.segment)
-                    )
+            with recording.current() if recording is not None else nullcontext():
+                await self._reply_events(text, number, stop, ja, zh, recording)
         except Exception:  # the turn is over all the same, rather than the call stuck in it
             log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:
             await self.push_frame(LLMFullResponseEndFrame())
         await self._carry_out(self._turns.reply_ended())
         self._turn_over.set()
+
+    async def _reply_events(
+        self,
+        text: str,
+        number: int,
+        stop: asyncio.Event,
+        ja: dict[int, str],
+        zh: dict[int, str],
+        recording: Recording | None,
+    ) -> None:
+        """Carry out each event of the reply, as `_reply_to` says. The turn is told how it
+        turned out as a text turn is, and, when the reply is only shown, that the
+        character began to speak as its first words appear (「开口」)."""
+        async for event in self._engine.turn(
+            self._call.conversation, text, self._call.llms, self._call.device_timezone, stop
+        ):
+            if isinstance(event, SegmentComplete):
+                await self._carry_out(self._turns.segment_complete(event.segment))
+                if not stop.is_set():
+                    self._judge_emotion(text, number, event.segment, ja, zh)
+                continue
+            if isinstance(event, SpeechDelta):  # the Japanese just shown, cues and all
+                ja[event.segment] = ja.get(event.segment, "") + event.text
+                await self._carry_out(self._turns.reply_delta("ja", event.text, event.segment))
+                continue
+            if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
+                await self._carry_out(self._turns.reply_recorded())
+                self._outcome.turn_recorded()
+            if (result := turn_result(event)) is not None:
+                self._result = result
+            message = asdict(event)
+            if isinstance(event, UserSaid):
+                message["reply"] = number
+            await self._send(message)
+            if isinstance(event, SegmentDelta):
+                if recording is not None and not self._turns.voicing:
+                    recording.spoke()
+                if event.lang == "zh":
+                    zh[event.segment] = zh.get(event.segment, "") + event.text
+                    await self._carry_out(
+                        self._turns.reply_delta("zh", event.text, event.segment)
+                    )
 
     def _judge_emotion(
         self, said: str, reply: int, segment: int, ja: dict[int, str], zh: dict[int, str]
@@ -1227,7 +1449,10 @@ class CallTurns(FrameProcessor):
             [SaidSegment(ja.get(s, ""), zh.get(s, "")) for s in range(segment)],
             SaidSegment(ja.get(segment, ""), zh.get(segment, "")),
         )
-        judging = self.create_task(self._send_emotion(self._emotions, reply, segment, question))
+        with self._outcome.recording.current():  # judged for the call, not the turn
+            judging = self.create_task(
+                self._send_emotion(self._emotions, reply, segment, question)
+            )
         self._judging.add(judging)
         judging.add_done_callback(self._judging.discard)
 

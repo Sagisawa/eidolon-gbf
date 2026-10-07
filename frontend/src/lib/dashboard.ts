@@ -52,7 +52,35 @@ export type TurnResult = "success" | "failed" | "rejected" | "left";
 
 export const TURN_RESULTS: TurnResult[] = ["success", "failed", "rejected", "left"];
 
-export type TrendPoint = { start: string; turns: number; active_users: number };
+/** How a call turned out (GLOSSARY「接通」): a user hanging up or leaving is why it ended,
+ * not how it turned out. */
+export type CallResult = "success" | "failed" | "rejected" | "not_connected";
+
+export const CALL_RESULTS: CallResult[] = ["success", "failed", "rejected", "not_connected"];
+
+export type CallEndReason =
+  | "hung_up"
+  | "left"
+  | "duration_limit"
+  | "turn_limit"
+  | "banned"
+  | "deleted"
+  | "failed"
+  | "shutdown";
+
+export const CALL_END_REASONS: CallEndReason[] = [
+  "hung_up",
+  "left",
+  "duration_limit",
+  "turn_limit",
+  "banned",
+  "deleted",
+  "failed",
+  "shutdown",
+];
+
+/** Turns and calls in one stretch of the range, and how many users took any. */
+export type TrendPoint = { start: string; turns: number; calls: number; active_users: number };
 
 export type Bucket = "hour" | "6h" | "day";
 
@@ -63,20 +91,44 @@ export type Dashboard = {
   /** How long each stretch of `trend` is. */
   bucket: Bucket;
   health: ServiceHealth[];
+  /** Users who took any turn or call. */
+  active_users: number;
   turns: {
     total: number;
     by_result: Record<TurnResult, number>;
     own_keys: number;
-    active_users: number;
+    /** Turns taken in calls, out of `total`. */
+    in_calls: number;
     time_to_speak_ms: { count: number; p50: number | null; p90: number | null };
+  };
+  calls: {
+    total: number;
+    by_result: Record<CallResult, number>;
+    own_keys: number;
+    /** How long the calls that connected lasted. */
+    duration_s: { p50: number | null; p90: number | null };
+    /** How many calls lasted from `from_s` up to `to_s` (null: no end). */
+    durations: { from_s: number; to_s: number | null; calls: number }[];
+    end_reasons: Record<CallEndReason, number>;
   };
   trend: TrendPoint[];
   /** `name` is null for a character since removed from the configuration. */
-  characters: { character_id: string; name: string | null; turns: number }[];
+  characters: { character_id: string; name: string | null; turns: number; calls: number }[];
 };
 
 export async function getDashboard(range: DashboardRange): Promise<Dashboard> {
   return json(await fetch(`/api/admin/dashboard?range=${range}`, { headers: apiHeaders() }));
+}
+
+/** How often the page asks how many calls are in progress. */
+export const LIVE_CALLS_REFRESH_MS = 60_000;
+
+/** How many calls are in progress now, connected or still connecting. */
+export async function getCallsInProgress(): Promise<number> {
+  const live: { in_progress: number } = await json(
+    await fetch("/api/admin/calls/live", { headers: apiHeaders() }),
+  );
+  return live.in_progress;
 }
 
 const NONE = "—";
@@ -104,6 +156,24 @@ export function formatMs(ms: number | null): string {
   if (ms === null) return NONE;
   if (ms < 1000) return `${Math.round(ms)} ms`;
   return `${trim(ms / 1000)} s`;
+}
+
+/** How long a call lasted: "45 秒", "2 分 5 秒", "1 小时 2 分". */
+export function formatDuration(seconds: number | null): string {
+  if (seconds === null) return NONE;
+  const whole = Math.floor(seconds);
+  const [hours, minutes, secs] = [Math.floor(whole / 3600), Math.floor((whole % 3600) / 60), whole % 60];
+  if (hours > 0) return minutes > 0 ? `${hours} 小时 ${minutes} 分` : `${hours} 小时`;
+  if (minutes > 0) return secs > 0 ? `${minutes} 分 ${secs} 秒` : `${minutes} 分`;
+  return `${secs} 秒`;
+}
+
+/** A stretch of the call duration distribution, from `from` up to `to` seconds (null: no
+ * end), in whole minutes. */
+export function durationRange(from: number, to: number | null): string {
+  if (to === null) return `${from / 60} 分钟以上`;
+  if (from === 0) return `${to / 60} 分钟以内`;
+  return `${from / 60}–${to / 60} 分钟`;
 }
 
 function trim(value: number): string {

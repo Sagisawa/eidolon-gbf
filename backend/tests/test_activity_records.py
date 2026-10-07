@@ -53,9 +53,13 @@ def settings(settings: Settings) -> Settings:
 
 
 async def admin_client(
-    make_client: ClientFactory, github: FakeIdentityProvider, clock: FakeClock
+    make_client: ClientFactory,
+    github: FakeIdentityProvider,
+    clock: FakeClock,
+    llm: FakeLLM | None = None,
 ) -> httpx.AsyncClient:
-    client = make_client(FakeLLM(), user=None, clock=clock)
+    """An admin, signed in on a backend of their own, whose turns run on `llm`."""
+    client = make_client(llm or FakeLLM(), user=None, clock=clock)
     await sign_in_with(client, github, github_identity("1001", name="octo"))
     await agree_to_terms(client)
     return client
@@ -105,7 +109,7 @@ async def test_the_dashboard_counts_turns_by_how_they_turned_out_and_says_nothin
     assert turns["total"] == 5
     assert turns["by_result"] == {"success": 2, "failed": 1, "rejected": 1, "left": 1}
     assert turns["own_keys"] == 0
-    assert turns["active_users"] == 2
+    assert board["active_users"] == 2
     assert turns["time_to_speak_ms"]["p50"] is not None
     assert [(c["character_id"], c["name"], c["turns"]) for c in board["characters"]] == [
         ("mano", "櫻木真乃", 4), ("kogane", "月岡恋鐘", 1)
@@ -238,7 +242,7 @@ async def test_deleting_a_user_keeps_the_numbers_but_not_who_it_was(
 
     after = await dashboard(admin)
     assert after == before
-    assert after["turns"]["active_users"] == 2
+    assert after["active_users"] == 2
     assert rows_mentioning(settings.database_path, producer) == {}
 
 
