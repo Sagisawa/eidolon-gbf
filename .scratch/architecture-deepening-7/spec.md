@@ -1,6 +1,6 @@
 # 架构加深（第七轮）：回合的结果和「开口」在一处判定，文字回合和通话回合共用
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `GLOSSARY.md` 为准；本轮收窄了「开口」的定义（见下）。设计词汇（module、interface、seam、adapter、depth、leverage、locality）取自 `codebase-design` skill。这是 2026-10-07 架构审查里的候选 3，经 grilling 定下设计。只改 `backend/`，`GLOSSARY.md` 已在 grilling 时改好。
 
