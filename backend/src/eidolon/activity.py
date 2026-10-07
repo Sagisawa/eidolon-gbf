@@ -1,7 +1,8 @@
 """Activity records (GLOSSARY.md「运行记录」): one for each turn and each call, saying how
 it turned out, and one for each call to an outside service, saying which service, whose
 key, whether it failed and how, how long it took and what it was billed for. They hold
-nothing anyone said. Only the admin's dashboard reads them (`dashboard`).
+nothing anyone said. Only the admin console reads them: its dashboard (`dashboard`), and
+its users page, for each user's recent usage (`admin_users_api`).
 
 A turn's record is open while the turn runs (`ActivityLog.begin`, then `current`), and the
 service calls made meanwhile, in the turn's context, are recorded under it; its outcome
@@ -80,6 +81,11 @@ ErrorKind = Literal[
 ]
 """What kind of failure a service call was, never what the service said: that may quote
 what it was sent."""
+
+TAKEN = "result != 'rejected'"
+"""Which records, in SQL over `activity_records`, are of a turn or call the user took: all
+but those rejected, which were refused rather than taken. The admin's users page counts
+these, and sorts the users by them (`Store.find_users`)."""
 
 KEPT = timedelta(days=90)
 """How long activity records are kept."""
@@ -367,6 +373,50 @@ class ActivityLog:
                 for service, provider, model, own, at, error, latency, unit, used_in, used_out
                 in calls
             ],
+        )
+
+    def of_user(self, user_id: str, moment: datetime) -> list[RecordRow]:
+        """The user's records of turns and calls after `moment`, oldest first; only how
+        each turned out and on whose keys are of use to the admin's users page."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT kind, character_id, started_at, result, own_keys,"
+                " call_id IS NOT NULL FROM activity_records"
+                " WHERE user_id = ? AND started_at > ? ORDER BY started_at",
+                (user_id, moment.timestamp()),
+            ).fetchall()
+        return [
+            RecordRow(kind, user_id, character, _time(started), result, bool(own), None,
+                      in_call=bool(in_call))
+            for kind, character, started, result, own, in_call in rows
+        ]
+
+    def taken_since(self, user_ids: Sequence[str], moment: datetime) -> dict[str, dict[str, int]]:
+        """How many turns and calls (by `RecordKind`) each of the users took after
+        `moment`, not counting those rejected (`TAKEN`); a user who took none is not in
+        it."""
+        if not user_ids:
+            return {}
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT user_id, kind, COUNT(*) FROM activity_records"
+                f" WHERE user_id IN ({','.join('?' * len(user_ids))}) AND started_at > ?"
+                f" AND {TAKEN} GROUP BY user_id, kind",
+                [*user_ids, moment.timestamp()],
+            ).fetchall()
+        taken: dict[str, dict[str, int]] = {}
+        for user_id, kind, count in rows:
+            taken.setdefault(user_id, {})[kind] = count
+        return taken
+
+    @staticmethod
+    def ranking(kind: RecordKind, moment: datetime) -> tuple[str, list[Any]]:
+        """How many turns, or calls, a user took after `moment`, as an SQL expression over
+        a row of `users` with its parameters, for `Store.find_users` to sort by."""
+        return (
+            "(SELECT COUNT(*) FROM activity_records a WHERE a.user_id = users.id"
+            f" AND a.kind = ? AND a.started_at > ? AND a.{TAKEN})",
+            [kind, moment.timestamp()],
         )
 
     def close(self) -> None:

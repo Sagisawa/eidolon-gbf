@@ -9,7 +9,8 @@
                                      seconds (the same as banning in the admin console)
     eidolon user unban <id>
     eidolon user usage <id>          the user's text turns and calls in the last 24 hours,
-                                     by hour, and how many were on their own keys
+                                     by hour, and how many were on their own keys; the last
+                                     7 and 30 days are in the admin console's user details
     eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
@@ -739,7 +740,10 @@ def _parser() -> argparse.ArgumentParser:
     unban = user.add_parser("unban", help="解除封禁")
     unban.add_argument("user_id", help="用户 ID（见 user list）")
     unban.set_defaults(run=_unban_user)
-    usage = user.add_parser("usage", help="查看用户最近 24 小时按小时统计的用量")
+    usage = user.add_parser(
+        "usage",
+        help="查看用户最近 24 小时按小时统计的用量（最近 7 天、30 天的用量在后台的用户详情里看）",
+    )
     usage.add_argument("user_id", help="用户 ID（见 user list）")
     usage.set_defaults(run=_user_usage)
 

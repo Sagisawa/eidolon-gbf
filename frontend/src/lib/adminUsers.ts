@@ -3,8 +3,11 @@
 // what was remembered of them or their producer profile, only who they are and how they
 // use it.
 
+import type { TableSortState } from "@astryxdesign/core/Table";
+
 import { copy } from "@/i18n";
 import { apiHeaders, expectNoContent, followRedirect, json, type OwnService } from "@/lib/api";
+import { formatCount } from "@/lib/dashboard";
 import type { Provider } from "@/lib/signIn";
 
 /** An identity a user signs in with; `subject` is what `EIDOLON_ADMINS` names it by. */
@@ -27,7 +30,25 @@ export type AdminUser = {
   is_admin: boolean;
   own_keys: Record<OwnService, boolean>;
   limits: AdminUserLimits | null;
+  /** The turns and calls taken in the last 24 hours, rejected ones not counted. */
+  usage_24h: { turns: number; calls: number };
 };
+
+/** How many, on the deployer's keys and on the user's own. */
+export type KeyedCount = { deployer: number; own_keys: number };
+
+/** What a user did in one range: the turns (those in calls too) and calls they took, and
+ * the turns and calls rejected, which are counted only as rejected. */
+export type RangeUsage = { turns: KeyedCount; calls: KeyedCount; rejected: KeyedCount };
+
+export const USAGE_RANGES = ["24h", "7d", "30d"] as const;
+export type UsageRange = (typeof USAGE_RANGES)[number];
+
+/** A user's recent usage, from the activity records, for each range. */
+export type AdminUserUsage = Record<UsageRange, RangeUsage>;
+
+/** How the list is sorted: newest first, or by the last 24 hours' turns or calls, most first. */
+export type UserSort = "newest" | "turns" | "calls";
 
 /** A user's own limit an hour: a number (0: on their own keys only), unlimited, or null,
  * the deployment's. */
@@ -44,8 +65,13 @@ export type AdminUserLimits = {
 /** One limit as the editor holds it: which kind, and the number typed for "number". */
 export type LimitDraft = { choice: "default" | "number" | "unlimited"; count: number | null };
 
-/** A user's own page adds when they were banned and the note only admins see. */
-export type AdminUserDetails = AdminUser & { banned_at: string | null; ban_note: string | null };
+/** A user's own page adds when they were banned, the note only admins see, and their
+ * recent usage. */
+export type AdminUserDetails = AdminUser & {
+  banned_at: string | null;
+  ban_note: string | null;
+  usage: AdminUserUsage;
+};
 
 export type AdminUserPage = { users: AdminUser[]; total: number };
 
@@ -94,6 +120,44 @@ export function limitsInput(
   return { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour };
 }
 
+/** The list's sort from the table's: a usage column's header sorts by it, most first,
+ * whichever way the header was clicked (the backend sorts only that way); none, newest. */
+export function userSort(state: TableSortState): UserSort {
+  const key = state[0]?.sortKey;
+  return key === "turns" || key === "calls" ? key : "newest";
+}
+
+/** The table's sort state showing the list's sort, so that clicking a sorted column's
+ * header again takes the sort off. */
+export function sortState(sort: UserSort): TableSortState {
+  return sort === "newest" ? [] : [{ sortKey: sort, direction: "descending" }];
+}
+
+/** A count as the usage section shows it: the total, and below it on whose keys, for
+ * any at all. */
+export function describeCount(count: KeyedCount): { total: string; split: string | null } {
+  const total = count.deployer + count.own_keys;
+  return {
+    total: formatCount(total),
+    split:
+      total === 0 ? null : copy.admin.users.usage.split(formatCount(count.deployer), formatCount(count.own_keys)),
+  };
+}
+
+export type UsageRow = { what: keyof RangeUsage; label: string } & Record<UsageRange, KeyedCount>;
+
+/** The usage section's rows: turns, calls and rejections, each across the ranges. */
+export function usageRows(usage: AdminUserUsage): UsageRow[] {
+  const labels = copy.admin.users.usage.rows;
+  return (["turns", "calls", "rejected"] as const).map((what) => ({
+    what,
+    label: labels[what],
+    "24h": usage["24h"][what],
+    "7d": usage["7d"][what],
+    "30d": usage["30d"][what],
+  }));
+}
+
 /** How many users the pages before `page` (counted from 1) hold. */
 export function pageOffset(page: number): number {
   return (page - 1) * USERS_PAGE_SIZE;
@@ -105,12 +169,14 @@ async function admin(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-/** A page of the users, newest first, or of those `query` finds by name, email or user id. */
-export async function listAdminUsers(query: string, page: number): Promise<AdminUserPage> {
+/** A page of the users, or of those `query` finds by name, email or user id, sorted by
+ * `sort` before they are cut into pages. */
+export async function listAdminUsers(query: string, page: number, sort: UserSort): Promise<AdminUserPage> {
   const params = new URLSearchParams({
     q: query,
     offset: String(pageOffset(page)),
     limit: String(USERS_PAGE_SIZE),
+    sort,
   });
   return json(await admin(`/api/admin/users?${params}`));
 }

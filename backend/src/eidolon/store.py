@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from eidolon.database import connect, delete_user_data
 from eidolon.delivery_cues import without_cues
@@ -261,10 +261,18 @@ class Store:
             ).fetchone()
         return User(**row) if row else None
 
-    def find_users(self, query: str, offset: int, limit: int) -> tuple[list[User], int]:
+    def find_users(
+        self,
+        query: str,
+        offset: int,
+        limit: int,
+        ranking: tuple[str, list[Any]] | None = None,
+    ) -> tuple[list[User], int]:
         """A page of the users whose id starts with `query`, or whose name, or the name or
         email of an identity they sign in with, has it in it, in any case; all users for
-        an empty query. Newest first; with how many there are in all."""
+        an empty query. Newest first, or highest first by `ranking`, an SQL expression
+        over a row of `users` with its parameters (as `ActivityLog.ranking`), then newest;
+        with how many there are in all."""
         where, params = "", []
         if query := query.strip():
             # Taken as it is: `%` and `_` are not wildcards here.
@@ -279,8 +287,9 @@ class Store:
         with self._lock:
             rows = self._db.execute(
                 f"SELECT {_USER_COLUMNS} FROM users {where}"
-                " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
-                [*params, limit, offset],
+                f" ORDER BY {f'{ranking[0]} DESC, ' if ranking else ''}"
+                "created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                [*params, *(ranking[1] if ranking else []), limit, offset],
             ).fetchall()
             [(total,)] = self._db.execute(f"SELECT COUNT(*) FROM users {where}", params)
         return [User(**row) for row in rows], total

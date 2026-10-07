@@ -5,7 +5,7 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Pagination } from "@astryxdesign/core/Pagination";
-import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
+import { Table, pixel, proportional, useTableSortable, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
@@ -23,10 +23,14 @@ import {
   broughtKeys,
   describeLimit,
   listAdminUsers,
+  sortState,
   unbanUser,
+  userSort,
   type AdminUser,
   type AdminUserPage,
+  type UserSort,
 } from "@/lib/adminUsers";
+import { formatCount } from "@/lib/dashboard";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS } from "@/lib/signIn";
 
@@ -38,10 +42,12 @@ const SEARCH_DELAY = 300;
 /**
  * 后台的「用户」页：搜索框、一行一位用户的表格和分页。点名字进入这位用户的详情；
  * 管理者那一行没有封禁按钮。窄屏下表格横向滚动。
+ * 点「24 小时回合」「24 小时通话」的表头按它从多到少排（后端排好再分页），再点一次恢复按注册时间。
  */
 export function AdminUserList() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<UserSort>("newest");
   const [result, setResult] = useState<AdminUserPage | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [banning, setBanning] = useState<AdminUser | null>(null);
@@ -49,12 +55,20 @@ export function AdminUserList() {
 
   const load = useCallback(async () => {
     try {
-      setResult(await listAdminUsers(query, page));
+      setResult(await listAdminUsers(query, page, sort));
       setFailure(null);
     } catch (e) {
       setFailure(toFailure(e));
     }
-  }, [query, page]);
+  }, [query, page, sort]);
+
+  const sortPlugin = useTableSortable<AdminUser>({
+    sort: sortState(sort),
+    onSortChange: (state) => {
+      setSort(userSort(state));
+      setPage(1);
+    },
+  });
 
   useEffect(() => {
     const timer = setTimeout(load, SEARCH_DELAY);
@@ -138,6 +152,22 @@ export function AdminUserList() {
       renderCell: (user) => <UserLimits user={user} />,
     },
     {
+      key: "turns",
+      header: t.columns.turns24h,
+      width: pixel(120),
+      align: "end",
+      sortable: true,
+      renderCell: (user) => <Text>{formatCount(user.usage_24h.turns)}</Text>,
+    },
+    {
+      key: "calls",
+      header: t.columns.calls24h,
+      width: pixel(120),
+      align: "end",
+      sortable: true,
+      renderCell: (user) => <Text>{formatCount(user.usage_24h.calls)}</Text>,
+    },
+    {
       key: "id",
       header: t.columns.actions,
       width: pixel(120),
@@ -204,6 +234,7 @@ export function AdminUserList() {
             verticalAlign="top"
             rowIndexStart={(page - 1) * USERS_PAGE_SIZE + 1}
             rowCount={result.total}
+            plugins={{ sort: sortPlugin }}
           />
           {result.total > USERS_PAGE_SIZE && (
             <Pagination
