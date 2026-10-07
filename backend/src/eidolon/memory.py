@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from eidolon.activity import detached
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.corpus import REEMBED_BATCH
@@ -292,7 +293,8 @@ class Memories:
             return
         now = self._clock().astimezone(ZoneInfo(timezone))
         task = asyncio.create_task(
-            self._write(services, llm, conversation, clearings, history, text, reply, now)
+            self._write(services, llm, conversation, clearings, history, text, reply, now),
+            context=detached(),  # after the turn, not part of it (see `activity`)
         )
         pending = self._pending.setdefault(conversation.user_id, set())
         pending.add(task)

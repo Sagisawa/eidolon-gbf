@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from eidolon.billing import bill
 from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -80,6 +81,10 @@ class ResponsesLLM:
             elif kind == "response.incomplete":
                 details = (event.get("response") or {}).get("incomplete_details")
                 log.warning("the model's reply is incomplete: %s", details)
+            if kind in ("response.completed", "response.incomplete"):
+                usage = (event.get("response") or {}).get("usage")
+                if isinstance(usage, dict):
+                    bill("tokens", usage.get("input_tokens"), usage.get("output_tokens"))
         for index, call in sorted(calls.items()):
             call_id = call["id"] or f"call_{index}"  # the tool result must name its call
             yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))

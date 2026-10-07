@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol
 
 import httpx
 
+from eidolon.billing import bill
 from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JudgeSettings
 
 log = logging.getLogger(__name__)
@@ -147,7 +148,9 @@ class JevJudge:
         self._client = client or _client()
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
-        return (await self.reply(state, questions)).answers
+        reply = await self.reply(state, questions)
+        bill("tokens", reply.input_tokens)
+        return reply.answers
 
     async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
         """As `ask`, with the input tokens Jev read."""
@@ -194,7 +197,9 @@ class CloudflareJudge:
         self._client = client or _client()
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
-        return (await self.reply(state, questions)).answers
+        reply = await self.reply(state, questions)
+        bill("tokens", reply.input_tokens)
+        return reply.answers
 
     async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
         """As `ask`, with the input tokens Workers AI counted (after any truncating)."""

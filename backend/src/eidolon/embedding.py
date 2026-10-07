@@ -11,6 +11,7 @@ from typing import Protocol
 import httpx
 import numpy as np
 
+from eidolon.billing import bill
 from eidolon.config import EmbeddingSettings
 
 _REQUEST_BATCH = 16
@@ -129,11 +130,15 @@ class SiliconFlowEmbedder:
         if res.status_code >= 400:
             raise EmbeddingError(f"向量化服务返回 {res.status_code}: {res.text[:500]}")
         try:
-            data = sorted(res.json()["data"], key=lambda d: d["index"])
+            body = res.json()
+            data = sorted(body["data"], key=lambda d: d["index"])
         except (ValueError, KeyError, TypeError) as e:
             raise EmbeddingError(f"向量化服务的返回无法解析（{len(res.text)} 字）") from e
         if len(data) != len(texts):
             raise EmbeddingError(f"向量化服务返回了 {len(data)} 个向量，应为 {len(texts)} 个")
+        usage = body.get("usage")
+        if isinstance(usage, dict) and isinstance(tokens := usage.get("total_tokens"), int):
+            bill("tokens", tokens)
         return [d["embedding"] for d in data]
 
 
