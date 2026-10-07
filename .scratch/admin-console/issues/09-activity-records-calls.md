@@ -4,7 +4,7 @@
 
 **Blocked by:** 08
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 通话的结果与 GLOSSARY「接通」和限额的计入、退还使用同一个判断（`CallOutcome`），不另写一套。
 - [x] 记下时长和结束原因（用户挂断、离开对话页、撞上时长或回合上限、被封禁、故障）。

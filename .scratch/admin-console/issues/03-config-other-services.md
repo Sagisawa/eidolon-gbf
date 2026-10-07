@@ -4,7 +4,7 @@
 
 **Blocked by:** 02
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 提炼记忆的 LLM：协议、base_url、key、模型、max_tokens 可改；没有覆盖时仍沿用「不填就跟随扮演角色的 LLM」的规则，界面上说明当前值从哪里来。保存前用与扮演角色相同的探测。
 - [x] 语音合成：key 和模型可改，保存前做零成本检查（复用自带密钥的检查）。新配置只影响之后接通的通话。
