@@ -50,6 +50,7 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
 | 🧩 **Pick your embedding service** | Choose SiliconFlow's Qwen3-Embedding or Google's Gemini Embedding 2 at deploy time; after switching, one command re-embeds from the text already in the database ([ADR-0005](docs/adr/0005-embedding-provider-chosen-at-deploy.md)) |
 | 📝 **Character sheet drafting** | A background model reads through all of a character's episodes and drafts her character sheet for you to proofread |
 | 👥 **Open to the public** | Sign in with Google or GitHub; per-user rate limits and fully isolated memories; users can link both sign-in methods and delete all their data for good; the database is backed up daily, encrypted, to a private bucket and kept 30 days ([ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)) |
+| 🛠️ **Admin console** | Admins the deployer names get `/admin` on the site: a dashboard (service health, usage, estimated cost), live changes to models and limits (no restart; calls in progress are unaffected), and banning or deleting users — never anyone's conversations or memories ([ADR-0013](docs/adr/0013-admin-console-overrides-env.md)) |
 | 🔑 **Bring your own keys** | Users can enter their own LLM, Fish Audio and speech recognition (Soniox or Alibaba Cloud Model Studio) keys to use their own credits, exempt from the limits |
 | 🚀 **One-command deployment** | Production config ships with Caddy (automatic HTTPS) and coturn (TURN relay) |
 
@@ -69,6 +70,7 @@ Deployed publicly, anyone can sign in with Google or GitHub and use it ([ADR-000
   - [Memory](#memory)
   - [Sign-in and users](#sign-in-and-users)
   - [Bring your own keys](#bring-your-own-keys)
+  - [Admin console](#admin-console)
 - [Deploying to a VPS](#-deploying-to-a-vps)
 - [Development](#-development)
 - [Project layout](#-project-layout)
@@ -433,19 +435,19 @@ Anyone can sign in with Google or GitHub, with no invitation or approval (ADR-00
 - After their first sign-in, users agree to the privacy policy and terms of use and confirm they are 13 or older before anything else works. Visitors who are not signed in see only the sign-in page, the privacy policy and the terms.
 - Users can link their other sign-in method on the settings page, so either one shows the same memories. Two identities with the same email are never merged automatically, an identity that belongs to someone else cannot be linked, and the last sign-in method cannot be unlinked.
 - Sessions are kept by the backend and held by the browser in an httpOnly cookie, lasting 30 days from last use. The settings page signs out this device or every device.
-- "Delete all my data" on the settings page, after a second confirmation, deletes the user's memories, conversations, producer profile, sign-in methods, own keys, sessions and usage for good, signing them out everywhere; signing in again with the same identity makes a brand-new user. Copies in the daily encrypted backups go when those backups expire, within 30 days ([ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)).
+- "Delete all my data" on the settings page, after a second confirmation, deletes the user's memories, conversations, producer profile, sign-in methods, own keys, sessions and limit counts for good, signing them out everywhere, and their activity records no longer say whose they were; signing in again with the same identity makes a brand-new user. Copies in the daily encrypted backups go when those backups expire, within 30 days ([ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)).
 - For local development and tests, `EIDOLON_DEV_LOGIN=1` adds a "dev login" by name to the sign-in page. A public deployment (with `EIDOLON_DOMAIN` set) refuses to start with it.
 
-Admins manage users from the command line on the server:
+Admins manage users in the admin console (see "Admin console" below), or from the command line on the server, with exactly the same effect:
 
 ```sh
-docker compose exec backend eidolon user list              # ID, name, sign-in methods, created, banned
-docker compose exec backend eidolon user ban <user-id>     # signed out everywhere, calls hung up within seconds, cannot sign in
+docker compose exec backend eidolon user list              # ID, name, sign-in methods (in brackets: the id for EIDOLON_ADMINS), created, banned and the note
+docker compose exec backend eidolon user ban <user-id> [--note text]  # signed out everywhere, calls hung up within seconds, cannot sign in; only admins see the note
 docker compose exec backend eidolon user unban <user-id>
-docker compose exec backend eidolon user usage <user-id>   # text turns and calls per hour over the last 24 hours, and how many were exempt
+docker compose exec backend eidolon user usage <user-id>   # text turns and calls per hour over the last 24 hours, and how many were exempt (7 and 30 days: in the admin console)
 ```
 
-So no single user drains the deployer's API credits, the following limits apply by default (0 means unlimited):
+So no single user drains the deployer's API credits, the following limits apply by default (0 means unlimited). They can also be changed in the admin console, which takes precedence over `.env`; turns and calls per hour can also be set for a single user:
 
 | Limit | Default | Environment variable |
 |---|---|---|
@@ -479,6 +481,25 @@ The deployer pays for everything by default. Users can enter their own API keys 
 - When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. After `EIDOLON_SECRET_KEY` changes, saved keys can no longer be decrypted: a turn or call that needs one fails before calling any service and asks the user to enter it again. Deleting an own key switches back to the deployer's service.
 - Embedding, reranking, deciding whether to recall the story and judging the stand's emotion in calls (the judge model) are always on the deployer.
 
+### Admin console
+
+List the admins' sign-in identities in `.env` as `EIDOLON_ADMINS` (like `github:12345`; `eidolon user list` shows them) and recreate the backend: those users then find the way into the admin console on their settings page (ADR-0013). Without it there is no admin console and nothing changes; anyone else gets a 404 at `/admin`. The list can only be changed in `.env`.
+
+| Page | What it does |
+|---|---|
+| Dashboard (`/admin`) | Calls, error rate and latency per service (own keys counted apart); active users, turns and calls and their trend, usage per character, calls in progress; the deployer's cost estimated from unit prices. Over the last 24 hours, 7, 30 or 90 days |
+| Config (`/admin/config`) | Change the LLMs for playing the character and writing down memories, speech synthesis, speech recognition, the judge model, rerank thresholds, limits, per-call caps, history turns, and the unit prices for the cost estimate |
+| Users (`/admin/users`) | Search by name, email or user ID; see sign-in methods and recent usage; ban (with a note only admins see), unban, set a user's own limits, delete |
+
+- **What the admin console changes takes precedence over `.env`.** It is kept in the database and needs no restart: new turns and calls use it at once, calls in progress finish on the config they connected with. Each change is tried first and not saved if the try fails. Every item shows `.env`'s value and the one in effect, and can be restored to `.env`'s; keys show only their last 4 characters, and without `EIDOLON_SECRET_KEY` they are read-only.
+- The startup log lists the items the admin console overrides. If an override fails its try at startup, the server starts anyway on `.env`'s value for that item, and the admin console marks the override as failed.
+- The admin list, `EIDOLON_SECRET_KEY`, OAuth, the domain, WebRTC/TURN, backups, paths and embedding can only be changed in `.env`.
+- The dashboard's numbers come from activity records (the outcome, usage and timing of each turn, call and service call within them, with nothing anyone said), kept 90 days and no longer tied to a user once they are deleted. Cost is an estimate from unit prices: the admin's own, else the online catalogs (models.dev, OpenRouter), else the presets in the code.
+- Admins cannot be banned or deleted from the admin console. A banned user who is deleted stays on a ban list as hashes of their sign-in identities, and cannot sign in again.
+- With `EIDOLON_CONTACT` set, banned users are shown it when they try to sign in, and the privacy policy shows it at the end.
+
+How to turn it on, how overrides relate to `.env`, and what to do when the admin console is out of reach: 「后台」 in [`docs/deploy.md`](docs/deploy.md) (Chinese).
+
 ## 🌐 Deploying to a VPS
 
 The production config [`docker-compose.prod.yml`](docker-compose.prod.yml) runs four services:
@@ -496,7 +517,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 `deploy/db-backup.sh` backs the database up once a day: compressed, encrypted to an age public key, and uploaded to a private S3-compatible bucket (Cloudflare R2 recommended; never the public stand bucket), kept 30 days. You keep the private key offline.
 
-See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, weekly corpus sync, stand assets, upgrades, backups and restoring, and troubleshooting.
+See [`docs/deploy.md`](docs/deploy.md) (Chinese) for the full walkthrough: domain, firewall ports, the admin console, weekly corpus sync, stand assets, upgrades, backups and restoring, and troubleshooting.
 
 ## 💻 Development
 
@@ -536,7 +557,14 @@ eidolon-sc/
 │   │   ├── identity.py       #   signing in with Google and GitHub (OAuth)
 │   │   ├── sessions.py       #   session cookies and the cross-site check
 │   │   ├── own_keys.py       #   users' own API keys, and whose keys each turn and call runs on
-│   │   ├── usage.py          #   usage limits and the record of use
+│   │   ├── usage.py          #   usage limits: each user's turns and calls over the last 24 hours
+│   │   ├── live_config.py    #   the config in effect: .env plus the admin console's overrides, tried before saving, restorable to .env
+│   │   ├── service_clients.py #  service clients made from the config in effect, swapped while running
+│   │   ├── activity.py       #   activity records: each turn, call and service call within them
+│   │   ├── dashboard.py      #   the dashboard: activity records summed up, cost estimated from unit prices
+│   │   ├── prices.py         #   unit prices: the admin's, else the online catalogs', else the presets
+│   │   ├── price_catalog.py  #   the price catalogs fetched from models.dev and OpenRouter
+│   │   ├── admin_*.py        #   the admin console's API (dashboard, config, prices, users)
 │   │   ├── database.py       #   how every database connection is set up; deleting a user's data by its list
 │   │   ├── call.py           #   voice calls: signalling and the Pipecat pipeline
 │   │   ├── bailian.py        #   Alibaba Cloud Model Studio real-time speech recognition
