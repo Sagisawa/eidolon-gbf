@@ -2,6 +2,7 @@
 // activity records, and how the page words and lays out its numbers. Nothing is summed up
 // here; the backend does all of that.
 
+import type { Cost } from "@/lib/adminPrices";
 import { apiHeaders, json } from "@/lib/api";
 
 export const DASHBOARD_RANGES = ["24h", "7d", "30d", "90d"] as const;
@@ -114,6 +115,8 @@ export type Dashboard = {
   trend: TrendPoint[];
   /** `name` is null for a character since removed from the configuration. */
   characters: { character_id: string; name: string | null; turns: number; calls: number }[];
+  /** What the deployer's keys cost, estimated at the prices (`lib/adminPrices`). */
+  cost: Cost;
 };
 
 export async function getDashboard(range: DashboardRange): Promise<Dashboard> {

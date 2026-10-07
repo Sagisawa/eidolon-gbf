@@ -30,6 +30,7 @@ from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
 from eidolon.admin_config_api import add_admin_config_routes
+from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
@@ -179,6 +180,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_dashboard_routes(app, backend)
     add_admin_user_routes(app, backend)
     add_admin_config_routes(app, backend)
+    add_admin_price_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:

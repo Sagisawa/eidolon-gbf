@@ -5,19 +5,10 @@ import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useRef, useState } from "react";
 
-import { copy } from "@/i18n";
-import {
-  type Bucket,
-  countTicks,
-  formatCount,
-  labelledStretches,
-  stretchLabel,
-  stretchSpan,
-  type TrendPoint,
-} from "@/lib/dashboard";
+import { type Bucket, labelledStretches, stretchLabel, stretchSpan } from "@/lib/dashboard";
 
 const HEIGHT = 180;
-const AXIS = { left: 40, bottom: 24, top: 8, right: 24 }; // room for the latest label
+const AXIS = { left: 56, bottom: 24, top: 8, right: 24 }; // room for the latest label
 const MAX_BAR = 24;
 const GAP = 2; // the surface gap between touching columns
 const RADIUS = 4; // the rounded data end; the baseline end stays square
@@ -29,22 +20,34 @@ function column(x: number, width: number, top: number, base: number): string {
     + ` Q${x + width},${top} ${x + width},${top + r} V${base} Z`;
 }
 
+/** One stretch of the range and its value. */
+export type TrendValue = { start: string; value: number };
+
 /**
- * The turns, or the calls, in each stretch of the range, one series, as columns (dataviz:
- * a single series needs no legend; the heading names it). Hovering a column reads out its
- * stretch, its count and the users active in it above the chart; the same numbers are in a
- * table for screen readers.
+ * One series over the stretches of the range (the turns, the calls, or what was spent in
+ * one currency), as columns (dataviz: a single series needs no legend; the heading names
+ * it). Hovering a column reads out its stretch and value above the chart (`describe`, given
+ * the stretch's index); the same words are in a table for screen readers.
  */
 export function TrendChart({
   points,
   bucket,
-  series,
+  title,
+  describe,
+  empty,
+  ticks: ticksFor,
+  format,
 }: {
-  points: TrendPoint[];
+  points: TrendValue[];
   bucket: Bucket;
-  series: "turns" | "calls";
+  /** What the chart shows, for screen readers. */
+  title: string;
+  describe: (span: string, index: number) => string;
+  empty: string;
+  /** The value axis's ticks, from 0 to at least the largest value. */
+  ticks: (max: number) => number[];
+  format: (value: number) => string;
 }) {
-  const t = copy.admin.dashboard.trend[series];
   const ref = useRef<SVGSVGElement>(null);
   const [width, setWidth] = useState(640);
   const [hovered, setHovered] = useState<number | null>(null);
@@ -57,7 +60,7 @@ export function TrendChart({
     return () => observer.disconnect();
   }, []);
 
-  const ticks = countTicks(Math.max(0, ...points.map((p) => p[series])));
+  const ticks = ticksFor(Math.max(0, ...points.map((p) => p.value)));
   const top = ticks[ticks.length - 1];
   const plotWidth = Math.max(1, width - AXIS.left - AXIS.right);
   const base = HEIGHT - AXIS.bottom;
@@ -70,17 +73,13 @@ export function TrendChart({
 
   return (
     <VStack gap={2}>
-      <Text type="supporting">
-        {readout
-          ? t.tooltip(stretchSpan(readout.start, bucket), formatCount(readout[series]), formatCount(readout.active_users))
-          : t.empty}
-      </Text>
+      <Text type="supporting">{readout ? describe(stretchSpan(readout.start, bucket), shown) : empty}</Text>
       <svg
         ref={ref}
         width="100%"
         height={HEIGHT}
         role="img"
-        aria-label={t.title}
+        aria-label={title}
         onMouseLeave={() => setHovered(null)}
         style={{ display: "block", overflow: "visible" }}
       >
@@ -102,7 +101,7 @@ export function TrendChart({
               fill="var(--color-text-secondary)"
               style={{ fontSize: "var(--text-supporting-size)", fontVariantNumeric: "tabular-nums" }}
             >
-              {formatCount(tick)}
+              {format(tick)}
             </text>
           </g>
         ))}
@@ -122,8 +121,8 @@ export function TrendChart({
                   fill="var(--color-overlay-hover)"
                 />
               )}
-              {point[series] > 0 && (
-                <path d={column(x, bar, y(point[series]), base)} fill="var(--color-data-categorical-blue)" />
+              {point.value > 0 && (
+                <path d={column(x, bar, y(point.value), base)} fill="var(--color-data-categorical-blue)" />
               )}
               {labelled.has(i) && (
                 <text
@@ -143,11 +142,9 @@ export function TrendChart({
       <VisuallyHidden>
         <table>
           <tbody>
-            {points.map((point) => (
+            {points.map((point, i) => (
               <tr key={point.start}>
-                <th scope="row">{stretchSpan(point.start, bucket)}</th>
-                <td>{point[series]}</td>
-                <td>{point.active_users}</td>
+                <td>{describe(stretchSpan(point.start, bucket), i)}</td>
               </tr>
             ))}
           </tbody>

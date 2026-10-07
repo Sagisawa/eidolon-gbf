@@ -14,6 +14,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useState } from "react";
 
+import { AdminPrices } from "@/components/AdminPrices";
 import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -42,7 +43,7 @@ import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.admin.config;
 
-/** 后台的「配置」页：每一项列出 .env 的值、当前生效的值和状态，可以修改、恢复；最后是只能查看的项。 */
+/** 后台的「配置」页：每一项列出 .env 的值、当前生效的值和状态，可以修改、恢复；然后是各模型的单价；最后是只能查看的项。 */
 export function AdminConfig() {
   const [config, setConfig] = useState<Config | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -67,6 +68,7 @@ export function AdminConfig() {
       )}
       {config &&
         ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
+      {config && <AdminPrices />}
       {config && <ReadOnlySection items={config.read_only} />}
     </VStack>
   );
