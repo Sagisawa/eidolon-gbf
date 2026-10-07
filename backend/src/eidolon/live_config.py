@@ -641,7 +641,8 @@ class LiveConfig:
             except ConfigRejected as e:
                 self._failures[item.name] = str(e)
                 await item.apply(self.effective(item.name))
-                self._judge_changed(values, self.effective(item.name), clear=False)
+                if item.name == JUDGE:
+                    self._judge_changed(values, self.effective(item.name), clear=False)
                 log.warning(
                     "the admin console's override of %s failed, so .env's is used until an"
                     " admin fixes or restores it: %s",

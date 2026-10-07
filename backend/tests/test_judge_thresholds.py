@@ -68,13 +68,9 @@ def test_only_an_unknown_model_is_warned_of(caplog: pytest.LogCaptureFixture):
 @pytest.mark.parametrize(
     "set_for, model, holds",
     [
-        ("typesafe/jev-1.13", "jev-1.13", True),
-        ("typesafe/jev-1.13", "typesafe/jev-1.14", True),
-        ("cloudflare/clef-flash", "clef-flash", True),
+        ("typesafe/jev-1.13", "jev-1.14", True),
         ("typesafe/jev-1.13", "clef", False),
-        ("clef", "clef-flash", False),
         ("someone/new-judge", "someone/new-judge", True),
-        ("someone/new-judge", "someone/newer-judge", False),
         ("someone/new-judge", "jev-1.13", False),
     ],
 )

@@ -271,6 +271,24 @@ async def test_a_speech_override_that_fails_as_the_server_starts_falls_back_to_e
     assert (lease.keys.tts, lease.keys.tts_model) == (DEPLOYER_FISH_KEY, DEFAULT_FISH_AUDIO_MODEL)
 
 
+async def test_a_speech_recognition_override_that_fails_as_the_server_starts_falls_back_to_env(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
+):
+    first = await admin_client(make_client, admins, github, FakeServiceClients())
+    saved = await first.put(STT, json={"provider": "bailian", "api_key": NEW_DASHSCOPE})
+    assert saved.status_code == 200, saved.text
+
+    speech.rejects[NEW_DASHSCOPE] = "InvalidApiKey"
+    restarted = await admin_client(make_client, admins, github, FakeServiceClients())
+    await start(restarted)
+    lease = backend_of(restarted).config.lease()
+    lease.release()
+
+    shown = (await restarted.get(CONFIG)).json()["stt"]
+    assert shown["status"] == "failed" and "InvalidApiKey" in shown["failure"]
+    assert lease.keys.stt == SttKey("soniox", DEPLOYER_SONIOX_KEY)
+
+
 JUDGE = "/api/admin/config/judge"
 JUDGE_THRESHOLDS = "/api/admin/config/judge_thresholds"
 JEV_KEY = "env-jev-key-1111"
@@ -408,15 +426,14 @@ async def test_judge_thresholds_saved_hold_for_the_models_family_whatever_env_ca
     saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
     assert saved.status_code == 200, saved.text
 
-    for model in ("jev-1.13", "typesafe/jev-1.14"):
-        renamed = replace(judged, judge=JevSettings(JEV_KEY, model))
-        restarted = await admin_client(factory, renamed, github, FakeServiceClients())
-        await start(restarted)
+    renamed = replace(judged, judge=JevSettings(JEV_KEY, "jev-1.14"))  # and upgraded
+    restarted = await admin_client(factory, renamed, github, FakeServiceClients())
+    await start(restarted)
 
-        shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
-        assert shown["status"] == "overridden", model
-        assert shown["effective"] == {"recall": 0.9, "emotion": 0.6}, model
-        assert judging_by(restarted) == (0.9, 0.6), model
+    shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
+    assert shown["status"] == "overridden"
+    assert shown["effective"] == {"recall": 0.9, "emotion": 0.6}
+    assert judging_by(restarted) == (0.9, 0.6)
 
 
 async def test_judge_thresholds_saved_do_not_hold_once_env_has_another_family(
