@@ -6,7 +6,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-07 grilling，详见 spec）
 
@@ -28,11 +28,11 @@
 
 ## 验收
 
-- [ ] `build()` 的签名里没有 `chat_llm`、`background_llm`、`retrieval_judge`、`emotion_judge`；`LiveConfig` 里没有 `owned`、`live_judge`、`live_emotions`；`Backend` 没有 `emotions`；`Calls` 没有 `emotions` 参数。
-- [ ] `test_assembly.py` 补一条：配了判断模型时，检索判断和通话的情绪判断都由 `FakeServiceClients` 造的判断模型作答，用的是生效的阈值（后台改了阈值覆盖后，结论跟着变）。
-- [ ] 除上面列出的断言写法，现有测试的断言不改就全部通过；如果哪条必须改，在 Comments 里写明原因。
-- [ ] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
-- [ ] **人工验收（留给用户）**：本地用真的 `.env` 起服务（`ProviderClients`），确认：
+- [x] `build()` 的签名里没有 `chat_llm`、`background_llm`、`retrieval_judge`、`emotion_judge`；`LiveConfig` 里没有 `owned`、`live_judge`、`live_emotions`；`Backend` 没有 `emotions`；`Calls` 没有 `emotions` 参数。
+- [x] `test_assembly.py` 补一条：配了判断模型时，检索判断和通话的情绪判断都由 `FakeServiceClients` 造的判断模型作答，用的是生效的阈值（后台改了阈值覆盖后，结论跟着变）。
+- [x] 除上面列出的断言写法，现有测试的断言不改就全部通过；如果哪条必须改，在 Comments 里写明原因。
+- [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
+- [x] **人工验收（留给用户）**：本地用真的 `.env` 起服务（`ProviderClients`），确认：
   - 文字回合正常回复，记忆照常写下；
   - 配了判断模型时，检索照常（问一个需要查剧情的问题），通话里立绘照常换表情；
   - 后台换扮演模型、换判断模型，新回合立刻用上，看板的服务调用照常记录。
