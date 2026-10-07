@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 08
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 调研：查官方价格页，整理目前支持的每个模型的单价、计费单位和币种，至少覆盖：扮演角色和提炼记忆的 LLM（`.env.example` 和 README 里推荐的那些）、Fish Audio 各模型、Soniox、阿里云百炼的语音识别、Jev（经 OpenRouter）、Cloudflare Clef / Clef-flash、硅基流动和 Gemini 的向量化、硅基流动的重排。每一项记下出处链接和整理日期，写进 `../research.md`。
 - [x] 预设单价以「提供方 + 模型 + 计费单位」为键写在代码里，每项有单价、币种和整理日期。
