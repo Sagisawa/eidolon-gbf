@@ -13,15 +13,17 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { BanStatus, OwnKeys } from "@/components/AdminUserList";
+import { BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
 import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { FailureNotice } from "@/components/FailureNotice";
+import { UserLimitsDialog } from "@/components/UserLimitsDialog";
 import { copy } from "@/i18n";
 import {
   banAction,
   deleteUser,
   getAdminUser,
+  takeOffUserLimits,
   unbanUser,
   type AdminUserDetails as Details,
 } from "@/lib/adminUsers";
@@ -32,7 +34,8 @@ const t = copy.admin.users;
 
 /**
  * 一位用户的详情：登录方式（含邮箱和填进管理者名单用的标识）、注册和最后活跃的时间、
- * 自带密钥的有无、封禁的时间和备注，以及封禁 / 解除封禁和删除（二次确认，删完回到列表）。
+ * 自带密钥的有无、单独限额（设定、修改、取消）、封禁的时间和备注，以及封禁 / 解除封禁和删除
+ * （二次确认，删完回到列表）。
  * 不含任何对话、记忆和制作人档案。
  */
 export function AdminUserDetails({ id }: { id: string }) {
@@ -42,6 +45,8 @@ export function AdminUserDetails({ id }: { id: string }) {
   const [unbanning, setUnbanning] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [editingLimits, setEditingLimits] = useState(false);
+  const [takingOffLimits, setTakingOffLimits] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -57,6 +62,18 @@ export function AdminUserDetails({ id }: { id: string }) {
       setFailure(toFailure(e));
     } finally {
       setUnbanning(false);
+    }
+  }
+
+  async function takeOffLimits() {
+    setTakingOffLimits(true);
+    setFailure(null);
+    try {
+      setUser(await takeOffUserLimits(id));
+    } catch (e) {
+      setFailure(toFailure(e));
+    } finally {
+      setTakingOffLimits(false);
     }
   }
 
@@ -137,6 +154,41 @@ export function AdminUserDetails({ id }: { id: string }) {
             <MetadataListItem label={t.details.ownKeys}>
               <OwnKeys user={user} />
             </MetadataListItem>
+            <MetadataListItem label={t.limits.title}>
+              <VStack gap={2}>
+                <UserLimits user={user} />
+                {user.limits?.note && (
+                  <Text type="supporting" color="secondary">
+                    {user.limits.note}
+                  </Text>
+                )}
+                {user.limits && (
+                  <HStack gap={1} vAlign="center">
+                    <Text type="supporting" color="secondary">
+                      {t.limits.updatedAt}
+                    </Text>
+                    <Timestamp value={user.limits.updated_at} format="date_time" type="supporting" />
+                  </HStack>
+                )}
+                <HStack gap={2} wrap="wrap">
+                  <Button
+                    label={user.limits ? t.limits.edit : t.limits.set}
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setEditingLimits(true)}
+                  />
+                  {user.limits && (
+                    <Button
+                      label={t.limits.takeOff}
+                      variant="secondary"
+                      size="sm"
+                      onClick={takeOffLimits}
+                      isLoading={takingOffLimits}
+                    />
+                  )}
+                </HStack>
+              </VStack>
+            </MetadataListItem>
             {user.banned_at && (
               <MetadataListItem label={t.details.bannedAt}>
                 <Timestamp value={user.banned_at} format="date_time" type="body" />
@@ -181,6 +233,15 @@ export function AdminUserDetails({ id }: { id: string }) {
           width={480}
         />
       )}
+
+      <UserLimitsDialog
+        user={editingLimits && user ? user : null}
+        onClose={() => setEditingLimits(false)}
+        onSaved={(saved) => {
+          setEditingLimits(false);
+          setUser(saved);
+        }}
+      />
 
       <BanUserDialog
         user={banning && user ? user : null}

@@ -98,6 +98,11 @@ describe("json: over the hourly limit", () => {
     const error = await failure(429, { detail: "本小时的对话次数已用完" });
     expect(error.message).toBe("本小时的对话次数已用完，请稍后再试。");
   });
+
+  it("says no more when there is no time to wait for: a user on their own keys only", async () => {
+    const error = await failure(429, { detail: "你的文字对话只能用自带密钥，可以在设置里填写", retry_at: null });
+    expect(error.message).toBe("你的文字对话只能用自带密钥，可以在设置里填写。");
+  });
 });
 
 describe("sendTurn", () => {

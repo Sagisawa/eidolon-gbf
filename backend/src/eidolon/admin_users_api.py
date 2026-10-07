@@ -12,18 +12,23 @@ user is signed out everywhere, their calls are hung up within seconds by the cal
 polling (`call.USER_CHECK_INTERVAL`), and they cannot sign in until unbanned. No admin
 can be banned here, oneself included, so that no admin locks the others, or themselves,
 out; the deployer can still on the command line.
+
+An admin may also set a user's own limits on turns and calls an hour, each apart, or take
+them off; the length of a call is the same for everyone.
 """
 
+from dataclasses import asdict
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from eidolon.admin_api import Admin, is_admin
 from eidolon.assembly import Backend
 from eidolon.own_keys import SERVICES
 from eidolon.store import NotFound, User
+from eidolon.usage import UserLimits
 
 PAGE_SIZE = 50
 """How many users a page of the list has unless asked for another number."""
@@ -34,8 +39,27 @@ class BanInput(BaseModel):
     """Why, for the admins only; the banned user never sees it."""
 
 
+Limit = Annotated[int, Field(ge=0, le=100_000)] | Literal["unlimited"] | None
+
+
+class LimitsInput(BaseModel):
+    """A user's own limits an hour: a number (0: on their own keys only), "unlimited", or
+    None, the deployment's; at least one of the two set."""
+
+    turns_per_hour: Limit = None
+    calls_per_hour: Limit = None
+    note: str | None = Field(None, max_length=500)
+    """Why, for the admins only."""
+
+    @model_validator(mode="after")
+    def _any(self) -> "LimitsInput":
+        if self.turns_per_hour is None and self.calls_per_hour is None:
+            raise ValueError("至少要单独设定回合数或通话次数中的一项")
+        return self
+
+
 def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
-    store, settings, clock = backend.store, backend.settings, backend.clock
+    store, settings, clock, usage = backend.store, backend.settings, backend.clock, backend.usage
 
     def described(users: list[User]) -> list[dict]:
         """What the list shows of each user."""
@@ -57,7 +81,14 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
             "banned": user.banned_at is not None,
             "is_admin": is_admin(store, settings, user.id),
             "own_keys": {service: service in own_keys for service in SERVICES},
+            "limits": limits(user.id),
         }
+
+    def limits(user_id: str) -> dict | None:
+        """The user's own limits, if an admin set any; a limit not set (None) follows the
+        deployment's."""
+        own = usage.user_limits(user_id)
+        return asdict(own) if own else None
 
     def details(user_id: str) -> dict:
         """What a user's own page shows of them; 404 for no such user."""
@@ -106,4 +137,21 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         """Lift the user's ban, and its note; they may sign in again."""
         details(user_id)
         store.set_banned(user_id, None)
+        return details(user_id)
+
+    @app.put("/api/admin/users/{user_id}/limits")
+    def set_limits(user_id: str, body: LimitsInput, _: Admin) -> dict:
+        """Set the user's own limits, replacing those they had; from their next turn or
+        call on."""
+        details(user_id)
+        usage.set_user_limits(user_id, UserLimits(
+            body.turns_per_hour, body.calls_per_hour, (body.note or "").strip() or None,
+        ))
+        return details(user_id)
+
+    @app.delete("/api/admin/users/{user_id}/limits")
+    def take_off_limits(user_id: str, _: Admin) -> dict:
+        """Take off the user's own limits; the deployment's hold for them again."""
+        details(user_id)
+        usage.set_user_limits(user_id, None)
         return details(user_id)

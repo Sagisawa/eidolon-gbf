@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { banAction, broughtKeys, pageOffset, type AdminUser } from "@/lib/adminUsers";
+import {
+  banAction,
+  broughtKeys,
+  describeLimit,
+  limitDraft,
+  limitsInput,
+  pageOffset,
+  type AdminUser,
+} from "@/lib/adminUsers";
 
 const USER: AdminUser = {
   id: "u1",
@@ -11,6 +19,7 @@ const USER: AdminUser = {
   banned: false,
   is_admin: false,
   own_keys: { llm: false, tts: false, stt: false },
+  limits: null,
 };
 
 describe("banAction", () => {
@@ -32,5 +41,30 @@ describe("pageOffset", () => {
   it("skips the users of the pages before", () => {
     expect(pageOffset(1)).toBe(0);
     expect(pageOffset(3)).toBe(100);
+  });
+});
+
+describe("describeLimit", () => {
+  it("says what a user's own limit is: the deployment's, unlimited, own keys only, or a number", () => {
+    expect(describeLimit(null)).toBe("跟随全站");
+    expect(describeLimit("unlimited")).toBe("不限");
+    expect(describeLimit(0)).toBe("只能用自带密钥");
+    expect(describeLimit(3)).toBe("每小时 3 次");
+  });
+});
+
+describe("limitDraft and limitsInput", () => {
+  it("round-trips each kind of limit through the editor", () => {
+    for (const limit of [null, "unlimited", 0, 5] as const) {
+      expect(limitsInput(limitDraft(limit), limitDraft(5)), String(limit)).toEqual({
+        turns_per_hour: limit,
+        calls_per_hour: 5,
+      });
+    }
+  });
+
+  it("has nothing to save when both follow the deployment or a number is chosen but not given", () => {
+    expect(limitsInput(limitDraft(null), limitDraft(null))).toBeNull();
+    expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toBeNull();
   });
 });

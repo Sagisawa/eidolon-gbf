@@ -26,6 +26,7 @@ USER_DATA = [
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("usage", "user_id = ?"),
+    ("user_limits", "user_id = ?"),
     ("sessions", "user_id = ?"),
     ("sign_in_methods", "user_id = ?"),
     ("own_keys", "user_id = ?"),

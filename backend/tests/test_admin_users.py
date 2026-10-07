@@ -100,6 +100,7 @@ async def test_admins_see_each_users_sign_in_methods_activity_ban_and_own_keys(
         "banned": False,
         "is_admin": False,
         "own_keys": {"llm": True, "tts": False, "stt": False},
+        "limits": None,  # test_user_limits.py sets them
     }
     assert found == listed | {"banned_at": None, "ban_note": None}
     assert (await find(admin, "boss"))["is_admin"] is True
