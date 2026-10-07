@@ -11,7 +11,7 @@
 
 **Blocked by:** 01（`Admissions` 接上文字回合）
 
-**Status:** ready-for-human
+**Status:** resolved
 
 ## 已定的设计（2026-10-07 grilling，详见 spec）
 
@@ -52,7 +52,7 @@
 - [x] **新增一个 `Calls` 的接线测试**：占了次数之后、交给 pipeline 之前抛异常时，次数退回，留一条 `not_connected`，租约放开。优先用现有的假件触发；只有做不到时才替换应答 offer 那一步，并在 Comments 里说明原因。
 - [x] `CallOutcome` 不再调用 `give_back`，也不再持有 exempt；`Calls` 不再持有限额、运行记录、自带密钥和 `deployer_llms`；全代码里只有 `Admission` 会放开部署者的租约（`OwnKeys` 内部为自己出错时做的收回除外）。
 - [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。经 HTTP 的测试（`test_rate_limit.py`、`test_call_records.py` 等）如果只是因为本轮有意改变的行为而要改断言（例如预检失败现在会留记录），就按新行为改，并在 Comments 里写明；其余失败都是回归。
-- [ ] **人工验收（留给用户）**：本地起服务，打真实电话，在后台看板确认：
+- [x] **人工验收（留给用户）**：本地起服务，打真实电话，在后台看板确认：
   - 正常拨号、接通、挂断：计入限额，一条 `success`；
   - 铃声响时就挂断（没接通）：不计入，记为 `not_connected`；
   - 只用自带密钥的通话：结束页照常说明这一通不算；
