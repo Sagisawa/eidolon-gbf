@@ -194,6 +194,7 @@ class Catalog:
         self._fetching = threading.Lock()
         self._background: threading.Thread | None = None
         self._starting = threading.Lock()
+        self._closed = False
         self._http = httpx.Client(
             transport=transport, timeout=60, headers={"User-Agent": "eidolon-sc"},
             follow_redirects=True,
@@ -243,7 +244,7 @@ class Catalog:
             or (missing and now - tried >= MISSING_AFTER)
         )
         with self._starting:
-            if not due or self._busy():
+            if not due or self._closed or self._busy():
                 return
             self._background = threading.Thread(
                 target=self.refresh, name="price-catalog", daemon=True
@@ -265,7 +266,9 @@ class Catalog:
         if providers:
             found = self._match(providers, model)
             return (found, False) if found else None
-        found = self._match(MAKERS, model)
+        # its maker first, where its name says (`deepseek/deepseek-v4-pro`)
+        named = model.lower().split("/", 1)[0] if "/" in model else None
+        found = self._match(sorted(MAKERS, key=lambda m: m != named), model)
         return (found, True) if found else None
 
     def _match(self, providers: list[str], model: str) -> Listed | None:
@@ -278,8 +281,8 @@ class Catalog:
             if (found := self._models.get(provider, {}).get(model)) is not None:
                 return found
         bare = _bare(model)
-        loosened = [(_bare, bare), (_bare, _cut(bare, ":")), (_bare, _cut(bare, "(")),
-                    (_dashed, _dashed(bare))]
+        untagged = _cut(_cut(bare, ":"), "(")
+        loosened = [(_bare, bare), (_bare, untagged), (_dashed, untagged.replace(".", "-"))]
         for loosen, want in loosened:
             for provider in providers:
                 listed = self._models.get(provider, {})
@@ -344,6 +347,8 @@ class Catalog:
             )
 
     def close(self) -> None:
+        with self._starting:
+            self._closed = True
         if self._background is not None:  # let a fetch under way finish
             self._background.join()
         with self._fetching:

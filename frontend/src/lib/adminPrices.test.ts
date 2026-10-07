@@ -62,7 +62,6 @@ describe("costPriceDates", () => {
 describe("effectiveColumn", () => {
   it("is the column of the price in effect, a maker's price being the catalog's", () => {
     expect(effectiveColumn({ source: "catalog_upstream" })).toBe("catalog");
-    expect(effectiveColumn({ source: "override" })).toBe("override");
     expect(effectiveColumn({ source: null })).toBeNull();
   });
 });

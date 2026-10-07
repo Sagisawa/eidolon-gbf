@@ -5,7 +5,6 @@ import html
 import hashlib
 import json
 import secrets
-import threading
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
 import re
@@ -1360,7 +1359,7 @@ class FakeWorldSites:
 class FakeCatalog:
     """The price catalogs online, models.dev's and OpenRouter's, as `price_catalog` fetches
     them over HTTP (`transport`): what the test sets, empty by default, or failing. Counts
-    the times both were fetched (`fetches`) and sets `fetched` on each."""
+    the times both were fetched (`fetches`)."""
 
     def __init__(
         self, models_dev: dict | None = None, openrouter: list[dict] | None = None
@@ -1369,7 +1368,6 @@ class FakeCatalog:
         self.openrouter = openrouter or []
         self.failing = False
         self.fetches = 0
-        self.fetched = threading.Event()
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self._handle)
@@ -1381,5 +1379,4 @@ class FakeCatalog:
             return httpx.Response(200, json=self.models_dev)
         assert request.url.host == "openrouter.ai", request.url
         self.fetches += 1
-        self.fetched.set()
         return httpx.Response(200, json={"data": self.openrouter})

@@ -710,7 +710,6 @@ export const zh = {
         failedAt: "失败于",
         refresh: "立即从目录刷新",
         refreshed: "已从目录刷新。",
-        refreshFailed: "拉取目录失败，原因见上方。",
       },
       edit: "修改",
       restoreTo: { catalog: "恢复成目录价格", preset: "恢复成预设" },

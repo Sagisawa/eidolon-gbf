@@ -138,6 +138,7 @@ async def test_a_model_is_found_by_its_name_as_it_is_then_looser_and_looser(
         "m-tagged:free",  # without a tag
         "m-variant (thinking)",  # without a variant
         "claude-opus-4.6",  # with a dot taken for a dash
+        "Claude-Opus-4.6:thinking",  # all of these at once
         "m-embed@1536",  # without its dimensions
         "m-unknown",
     ]
@@ -158,6 +159,7 @@ async def test_a_model_is_found_by_its_name_as_it_is_then_looser_and_looser(
         "m-tagged:free": (4, "m-tagged"),
         "m-variant (thinking)": (5, "m-variant"),
         "claude-opus-4.6": (6, "claude-opus-4-6"),
+        "Claude-Opus-4.6:thinking": (6, "claude-opus-4-6"),
         "m-embed@1536": (7, "m-embed"),
         "m-unknown": None,
     }
@@ -168,11 +170,15 @@ async def test_a_model_at_a_host_no_catalog_knows_is_priced_as_its_maker_prices_
 ):
     clock = FakeClock()
     catalog = FakeCatalog({
+        **models_dev("openai", None, {"shared": (1, 1)}),
         **models_dev("anthropic", None, {"claude-x-5": (4, 20)}),
+        **models_dev("deepseek", "https://api.deepseek.com", {"shared": (2, 2)}),
         **models_dev("some-host", "https://api.some-host.example/v1", {"other": (1, 1)}),
     })
-    # A relay; and a host the catalog knows, which does not list the model.
+    # A relay, by the model's name alone or with its maker's before it; and a host the
+    # catalog knows, which does not list the model.
     await turn_on(make_client, settings, clock, "https://relay.example/v1", "anthropic/claude-x-5")
+    await turn_on(make_client, settings, clock, "https://relay.example/v1", "deepseek/shared")
     await turn_on(make_client, settings, clock, "https://api.some-host.example/v1", "claude-x-5")
     admin = await admin_on(make_client, github, clock, catalog)
 
@@ -184,6 +190,9 @@ async def test_a_model_at_a_host_no_catalog_knows_is_priced_as_its_maker_prices_
     assert (relayed["input"], relayed["output"], relayed["source"], relayed["match"]) == (
         4, 20, "catalog_upstream", {"provider": "anthropic", "model": "claude-x-5"}
     )
+    assert row(board, "relay.example", "deepseek/shared")["price"]["match"] == {
+        "provider": "deepseek", "model": "shared"
+    }
     assert row(board, "api.some-host.example", "claude-x-5")["price"] is None
     assert prices["unpriced"] == [{
         "service": "chat_llm", "provider": "api.some-host.example", "model": "claude-x-5",
@@ -336,3 +345,22 @@ async def test_only_admins_have_the_catalogs_fetched(make_client: ClientFactory)
 
     assert (await client.post(REFRESH)).status_code == 404
     assert catalog.fetches == 0
+
+
+async def test_catalogs_never_fetched_leave_the_presets_in_effect(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    catalog = FakeCatalog(models_dev("example", "https://llm.example/v1", {"m-usd": (3, 12)}))
+    catalog.failing = True
+    await turn_on(make_client, settings, clock, "https://llm.example/v1", "m-usd")
+    admin = await admin_on(make_client, github, clock, catalog)
+
+    failed = (await admin.post(REFRESH)).json()
+    board = await dashboard(admin)
+
+    assert (failed["catalog"]["fetched_at"], failed["catalog"]["failed_at"]) == (
+        None, clock().isoformat()
+    )
+    assert row(board, "llm.example", "m-usd")["price"]["source"] == "preset"
+    assert board["cost"]["catalog_as_of"] is None

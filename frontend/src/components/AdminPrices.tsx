@@ -73,7 +73,7 @@ export function AdminPrices() {
   const fetching = prices?.catalog.fetching ?? false;
   useEffect(() => {
     if (!fetching) return;
-    const timer = setTimeout(() => getPrices().then(setPrices, () => {}), POLL_MS);
+    const timer = setTimeout(() => getPrices().then(setPrices, (e) => setFailure(toFailure(e))), POLL_MS);
     return () => clearTimeout(timer);
   }, [fetching, prices]);
 
