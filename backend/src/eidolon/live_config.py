@@ -39,7 +39,14 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from eidolon.activity import ActivityLog, MeteredEmotionJudge, MeteredJudge, judge_origin
+from eidolon.activity import (
+    ActivityLog,
+    MeteredEmotionJudge,
+    MeteredJudge,
+    judge_origin,
+    llm_origin,
+    metered_llm,
+)
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
@@ -209,7 +216,7 @@ class _LLMItem(_Item):
     fields = LLM_FIELDS
     secrets = frozenset({"api_key"})
 
-    def swappable(self) -> Swappable[ChatLLM]:
+    def swappable(self) -> Swappable[ChatLLM, LLMSettings]:
         raise NotImplementedError
 
     def make(self, settings: LLMSettings) -> ChatLLM:
@@ -225,7 +232,8 @@ class _LLMItem(_Item):
         return values, client
 
     async def apply(self, values: Values, prepared: Any = None) -> None:
-        await self.swappable().replace(prepared or self.make(_llm(values)))
+        settings = _llm(values)
+        await self.swappable().replace(prepared or self.make(settings), settings)
 
     async def retry(self, values: Values) -> Values:
         try:
@@ -241,7 +249,7 @@ class _ChatLLM(_LLMItem):
     def env(self) -> Values:
         return _llm_values(self.c.settings.chat_llm)
 
-    def swappable(self) -> Swappable[ChatLLM]:
+    def swappable(self) -> Swappable[ChatLLM, LLMSettings]:
         return self.c._chat
 
     def make(self, settings: LLMSettings) -> ChatLLM:
@@ -254,7 +262,7 @@ class _MemoryLLM(_LLMItem):
     def env(self) -> Values:
         return _llm_values(self.c.settings.background_llm)
 
-    def swappable(self) -> Swappable[ChatLLM]:
+    def swappable(self) -> Swappable[ChatLLM, LLMSettings]:
         return self.c._memory
 
     def make(self, settings: LLMSettings) -> ChatLLM:
@@ -372,8 +380,9 @@ class _Judge(_Item):
 
     async def apply(self, values: Values, prepared: Any = None) -> None:
         if self.c._judge is not None:
+            settings = self.c._judge_settings(values)
             await self.c._judge.replace(
-                prepared or self.c._clients.judge_model(self.c._judge_settings(values))
+                prepared or self.c._clients.judge_model(settings), settings
             )
         elif prepared is not None:
             await prepared.aclose()
@@ -509,12 +518,13 @@ class LiveConfig:
                 except _Unreadable as e:
                     self._failures[item.name] = str(e)
 
-        self._chat = Swappable(clients.chat_llm(self.chat_llm))
+        chat = self.chat_llm
+        self._chat = Swappable(clients.chat_llm(chat), chat)
         memory = settings.background_llm if self._memory_on_chat() else self.memory_llm
-        self._memory = Swappable(clients.memory_llm(memory))
-        self._judge: Swappable[JudgeModel] | None = None
+        self._memory = Swappable(clients.memory_llm(memory), memory)
+        self._judge: Swappable[JudgeModel, JudgeSettings] | None = None
         if (judge := self.judge_settings) is not None:
-            self._judge = Swappable(clients.judge_model(judge))
+            self._judge = Swappable(clients.judge_model(judge), judge)
             warn_if_uncalibrated(judge.model)
 
     @property
@@ -541,11 +551,17 @@ class LiveConfig:
     @property
     def judge_thresholds(self) -> JudgeThresholds:
         """What the judge model in effect now judges by."""
-        thresholds = judge_thresholds(self.judge_settings, self.settings.emotion)
-        if self.settings.judge is None:
+        return self.judge_thresholds_of(self.judge_settings)
+
+    def judge_thresholds_of(self, judge: JudgeSettings | None) -> JudgeThresholds:
+        """What the judge model `judge` judges by: its own thresholds, overridden by
+        those set in the admin console if they hold for it."""
+        thresholds = judge_thresholds(judge, self.settings.emotion)
+        item = self._items[JUDGE_THRESHOLDS]
+        if judge is None or not self._in_effect(item, judge.model):
             return thresholds
-        values = self.effective(JUDGE_THRESHOLDS)
-        return replace(thresholds, recall=values["recall"], emotion=values["emotion"])
+        override = self._overrides[JUDGE_THRESHOLDS]
+        return replace(thresholds, **{k: v for k, v in override.items() if k in item.fields})
 
     @property
     def rerank_thresholds(self) -> RerankThresholds:
@@ -584,9 +600,10 @@ class LiveConfig:
 
     def lease(self) -> DeployerLease:
         """The deployer's keys for a turn or call starting now, held until it releases
-        them."""
+        them. Each model's requests are recorded as service calls to the model it is, and
+        the judge model judges by its own thresholds, whatever replaces it meanwhile."""
         chat = self._chat.lease()
-        held: list[Lease[Any]] = [chat]
+        held: list[Lease[Any, Any]] = [chat]
         memory = chat.again() if self._memory_on_chat() else self._memory.lease()
         held.append(memory)
         emotions = None
@@ -595,15 +612,18 @@ class LiveConfig:
             held.append(judge)
             emotions = EmotionJudging(
                 MeteredEmotionJudge(
-                    ModelEmotionJudge(judge.client), self._activity,
-                    judge_origin(self.judge_settings),
+                    ModelEmotionJudge(judge.client), self._activity, judge_origin(judge.settings)
                 ),
-                self.judge_thresholds.emotion,
+                self.judge_thresholds_of(judge.settings).emotion,
                 self.effective(JUDGE)["emotion_timeout"],
             )
         tts = self.effective(TTS)
         keys = DeployerKeys(
-            chat.client, memory.client, self._stt_key(), tts["api_key"], tts["model"],
+            metered_llm(chat.client, self._activity, llm_origin("chat_llm", chat.settings)),
+            metered_llm(
+                memory.client, self._activity, llm_origin("memory_llm", memory.settings)
+            ),
+            self._stt_key(), tts["api_key"], tts["model"],
             emotions, hold_memory=lambda: memory.again().release,
         )
         return DeployerLease(keys, lambda: _release(held))
@@ -793,17 +813,17 @@ class LiveConfig:
         except OwnKeyRejected as e:
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
 
-    def _in_effect(self, item: _Item) -> bool:
+    def _in_effect(self, item: _Item, model: str | None = None) -> bool:
         return (
             item.name in self._overrides
             and item.name not in self._failures
-            and self._bound_holds(item)
+            and self._bound_holds(item, model)
         )
 
-    def _bound_holds(self, item: _Item) -> bool:
-        """Whether the item's overrides were set for the model in effect, if they go
-        with one."""
-        bound = item.bound_model()
+    def _bound_holds(self, item: _Item, model: str | None = None) -> bool:
+        """Whether the item's overrides were set for `model`, by default the model in
+        effect, if they go with one."""
+        bound = item.bound_model() if model is None else model
         if bound is None:
             return True
         set_for = self._overrides.get(item.name, {}).get(FOR_MODEL)
@@ -912,10 +932,13 @@ class LiveConfig:
 
 class LiveRetrievalJudge:
     """The judge model as retrieval asks it: at each question, the one in effect then,
-    held while it answers, with the thresholds in effect then."""
+    held while it answers, by its own thresholds, recorded as the model it is."""
 
     def __init__(
-        self, config: LiveConfig, judge: Swappable[JudgeModel], activity: ActivityLog
+        self,
+        config: LiveConfig,
+        judge: Swappable[JudgeModel, JudgeSettings],
+        activity: ActivityLog,
     ) -> None:
         self._config = config
         self._judge = judge
@@ -925,9 +948,9 @@ class LiveRetrievalJudge:
         lease = self._judge.lease()
         try:
             judge = MeteredJudge(
-                ModelRetrievalJudge(lease.client, self._config.judge_thresholds),
+                ModelRetrievalJudge(lease.client, self._config.judge_thresholds_of(lease.settings)),
                 self._activity,
-                judge_origin(self._config.judge_settings),
+                judge_origin(lease.settings),
             )
             return await judge.judge(character, history, text)
         finally:
@@ -942,7 +965,7 @@ def _check_ranges(item: _Item, values: Values) -> None:
                 raise ConfigInvalid("阈值需要在 0 到 1 之间")
 
 
-def _release(held: list[Lease[Any]]) -> None:
+def _release(held: list[Lease[Any, Any]]) -> None:
     for lease in held:
         lease.release()
 

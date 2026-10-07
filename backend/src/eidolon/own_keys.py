@@ -40,6 +40,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from eidolon.activity import ActivityLog, llm_origin, metered_llm
 from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
     BailianRegion,
@@ -218,6 +219,8 @@ class TurnKeys:
     exempt: bool
     release: Callable[[], None] = field(default=_nothing, compare=False)
     """Called once the turn has ended, to let go of the deployer's keys it ran on."""
+    own_llm: bool = False
+    """Whether `llms` are the user's own LLM."""
 
 
 @dataclass(frozen=True)
@@ -236,6 +239,8 @@ class CallKeys:
     tts_model: str = DEFAULT_FISH_AUDIO_MODEL
     emotions: EmotionJudging | None = None
     """The deployer's, as the call connected (see `DeployerKeys.emotions`)."""
+    own_llm: bool = False
+    """Whether `llms` are the user's own LLM."""
 
 
 class OwnKeys:
@@ -247,12 +252,16 @@ class OwnKeys:
         secret_key: str | None,
         llm_service: LLMService,
         deployer: Deployer,
+        activity: ActivityLog,
         speech_check: KeyCheck | None = None,
     ) -> None:
+        """Each request to a user's own LLM is recorded in `activity` as a service call
+        on their own key; the deployer's models are recorded as `deployer` leases them."""
         self._store = store
         self._cipher = _cipher(secret_key) if secret_key else None
         self._llm_service = llm_service
         self._deployer = deployer
+        self._activity = activity
         self._speech_check = speech_check
 
     @property
@@ -265,7 +274,7 @@ class OwnKeys:
         records = self._records(user_id)
         exempt = _exempt(records)["turns"]
         if "llm" in records:
-            return TurnKeys(self._llms(records, None), exempt)
+            return TurnKeys(self._llms(records, None), exempt, own_llm=True)
         lease = self._deployer.lease()
         return TurnKeys(self._llms(records, lease.keys), exempt, lease.release)
 
@@ -289,7 +298,7 @@ class OwnKeys:
             raise
         return CallKeys(
             llms, stt, tts, own, _exempt(records)["calls"], lease.release,  # pyright: ignore[reportArgumentType]
-            deployer.tts_model, deployer.emotions,
+            deployer.tts_model, deployer.emotions, own_llm="llm" in records,
         )
 
     def describe(self, user_id: str) -> dict[Service, dict]:
@@ -377,7 +386,10 @@ class OwnKeys:
         protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
         settings = LLMSettings(record.base_url, self._decrypt(record), record.model, protocol)
         own = _OwnLLM(self._llm_service.open(settings))
-        return TurnLLMs(own, own)
+        return TurnLLMs(
+            metered_llm(own, self._activity, llm_origin("chat_llm", settings, own_key=True)),
+            metered_llm(own, self._activity, llm_origin("memory_llm", settings, own_key=True)),
+        )
 
     def _stt_key(self, record: OwnKeyRecord) -> SttKey:
         region: BailianRegion | None = record.region  # pyright: ignore[reportAssignmentType]

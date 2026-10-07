@@ -6,9 +6,11 @@ startup by `assembly.build`, and whenever the live configuration changes (see
 `live_config`). Tests pass in a fake, every deployer's client then made by it all the
 same.
 
-`Swappable` holds the client a service runs on now. Each turn and each call takes a
-`Lease` on it as it starts and runs on that client to the end, whatever replaces it
-meanwhile; a client replaced is closed once the last lease on it is released.
+`Swappable` holds the client a service runs on now, together with the settings it was
+made from: what it is, as its calls are recorded and its answers judged. Each turn and
+each call takes a `Lease` on the two as it starts and runs on that client to the end,
+whatever replaces it meanwhile; a client replaced is closed once the last lease on it is
+released.
 """
 
 import asyncio
@@ -58,19 +60,26 @@ class Closable(Protocol):
 
 
 C = TypeVar("C", bound=Closable)
+S = TypeVar("S")
 
 
-class Lease(Generic[C]):
-    """A turn's or a call's hold on the client it runs on; released once, when it ends."""
+class Lease(Generic[C, S]):
+    """A turn's or a call's hold on the client it runs on, and the settings it was made
+    from; released once, when it ends."""
 
     def __init__(
-        self, client: C, release: Callable[[], None], again: "Callable[[], Lease[C]]"
+        self,
+        client: C,
+        settings: S,
+        release: Callable[[], None],
+        again: "Callable[[], Lease[C, S]]",
     ) -> None:
         self.client = client
+        self.settings = settings
         self._release: Callable[[], None] | None = release
         self._again = again
 
-    def again(self) -> "Lease[C]":
+    def again(self) -> "Lease[C, S]":
         """Another hold on the same client, released on its own: for what goes on with
         it after the turn, as writing down memories does."""
         return self._again()
@@ -82,50 +91,54 @@ class Lease(Generic[C]):
             release()
 
 
-class _Held(Generic[C]):
-    def __init__(self, client: C) -> None:
+class _Held(Generic[C, S]):
+    def __init__(self, client: C, settings: S) -> None:
         self.client = client
+        self.settings = settings
         self.leases = 0
 
 
-class Swappable(Generic[C]):
-    """The client a service runs on now, replaced as its configuration changes.
+class Swappable(Generic[C, S]):
+    """The client a service runs on now and the settings it was made from, replaced
+    together as its configuration changes.
 
     Leases are taken from any thread (the API's synchronous routes run in a pool), so
     the counts are kept under a lock; a client retired by its last lease is closed on the
     event loop it was replaced on."""
 
-    def __init__(self, client: C) -> None:
+    def __init__(self, client: C, settings: S) -> None:
         self._lock = threading.Lock()
-        self._current = _Held(client)
-        self._retired: set[_Held[C]] = set()
+        self._current = _Held(client, settings)
+        self._retired: set[_Held[C, S]] = set()
         self._closing: set[asyncio.Task[None]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
     @property
     def current(self) -> C:
+        """The client in effect now, to try it: what is asked of it is not recorded."""
         return self._current.client
 
-    def lease(self) -> Lease[C]:
+    def lease(self) -> Lease[C, S]:
         with self._lock:
             return self._lease(self._current)
 
-    def _lease(self, held: _Held[C]) -> Lease[C]:
+    def _lease(self, held: _Held[C, S]) -> Lease[C, S]:
         """A hold on `held`, under the lock."""
         held.leases += 1
 
-        def again() -> Lease[C]:
+        def again() -> Lease[C, S]:
             with self._lock:
                 return self._lease(held)
 
-        return Lease(held.client, lambda: self._release(held), again)
+        return Lease(held.client, held.settings, lambda: self._release(held), again)
 
-    async def replace(self, client: C) -> None:
-        """Run whatever starts from now on on `client`; the client it replaces is closed
-        now if nothing is on it, else once the last turn or call on it has ended."""
+    async def replace(self, client: C, settings: S) -> None:
+        """Run whatever starts from now on on `client`, made from `settings`; the client
+        it replaces is closed now if nothing is on it, else once the last turn or call on
+        it has ended."""
         self._loop = asyncio.get_running_loop()
         with self._lock:
-            old, self._current = self._current, _Held(client)
+            old, self._current = self._current, _Held(client, settings)
             idle = old.leases == 0
             if not idle:
                 self._retired.add(old)
@@ -141,7 +154,7 @@ class Swappable(Generic[C]):
             await h.client.aclose()
         await asyncio.gather(*self._closing, return_exceptions=True)
 
-    def _release(self, held: _Held[C]) -> None:
+    def _release(self, held: _Held[C, S]) -> None:
         with self._lock:
             held.leases -= 1
             done = held in self._retired and held.leases == 0

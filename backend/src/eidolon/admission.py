@@ -2,9 +2,9 @@
 「运行记录」): whose keys it runs on, its activity record, its use of the limit and the
 deployer's keys it holds, all in one place.
 
-`Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), opens the
-activity record, prepares the models, each request recorded as a service call, and only
-then takes a use of the limit, so that nothing failing before it is counted. Whatever
+`Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), whose models
+record each request as a service call to the model they are, opens the activity record,
+and only then takes a use of the limit, so that nothing failing before it is counted. Whatever
 fails on the way is recorded so (`_FAILED`), and what was taken let go, before it is
 raised. Before a call is placed, it is only asked whether the call would count.
 
@@ -15,8 +15,7 @@ The `Admission` it hands out settles it, once: given back unless its result coun
 from collections.abc import Callable
 from typing import Generic, TypeVar
 
-from eidolon.activity import ActivityLog, CallEndReason, Recording, Result, turn_llms
-from eidolon.config import LLMSettings
+from eidolon.activity import ActivityLog, CallEndReason, Recording, Result
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import CallKeys, OwnKeyFailed, OwnKeys, TurnKeys
 from eidolon.usage import OverLimit, UsageKind, UsageLimiter, Use
@@ -37,26 +36,24 @@ K = TypeVar("K", TurnKeys, CallKeys)
 class Admission(Generic[K]):
     """One turn or call let begin, held until it is settled."""
 
-    def __init__(
-        self,
-        kind: UsageKind,
-        keys: K,
-        recording: Recording,
-        llms: TurnLLMs,
-        own_llm: bool,
-        use: Use,
-    ) -> None:
+    def __init__(self, kind: UsageKind, keys: K, recording: Recording, use: Use) -> None:
         self._counted = _COUNTED[kind]
         self.keys = keys
         """Whose keys it runs on."""
         self.recording = recording
         """Its activity record, which the service calls made in it are recorded under."""
-        self.llms = llms
-        """The models it runs on, each request recorded as a service call."""
-        self.own_llm = own_llm
-        """Whether those are the user's own LLM."""
         self._use = use
         self._settled = False
+
+    @property
+    def llms(self) -> TurnLLMs:
+        """The models it runs on, each request recorded as a service call."""
+        return self.keys.llms
+
+    @property
+    def own_llm(self) -> bool:
+        """Whether those are the user's own LLM."""
+        return self.keys.own_llm
 
     @property
     def exempt(self) -> bool:
@@ -90,23 +87,12 @@ class Admission(Generic[K]):
 
 
 class Admissions:
-    """Lets the users' turns and calls begin, on the limits, keys and deployer's models
-    of the moment."""
+    """Lets the users' turns and calls begin, on the limits and keys of the moment."""
 
-    def __init__(
-        self,
-        usage: UsageLimiter,
-        activity: ActivityLog,
-        own_keys: OwnKeys,
-        deployer_llms: Callable[[], tuple[LLMSettings, LLMSettings]],
-    ) -> None:
-        """Turns and calls on the deployer's keys run on the chat and memory models
-        `deployer_llms` says, as each begins (their service calls are recorded as
-        such)."""
+    def __init__(self, usage: UsageLimiter, activity: ActivityLog, own_keys: OwnKeys) -> None:
         self._usage = usage
         self._activity = activity
         self._own_keys = own_keys
-        self._deployer_llms = deployer_llms
 
     def turn(self, user_id: str, character_id: str) -> Admission[TurnKeys]:
         """Let the user's next text turn with `character_id` begin. Raises OverLimit when
@@ -150,8 +136,6 @@ class Admissions:
         try:
             recording = self._activity.begin(kind, user_id, character_id, keys.exempt)
             try:
-                own = self._own_keys.describe(user_id).get("llm")
-                llms = turn_llms(self._activity, keys.llms, own, *self._deployer_llms())
                 use = self._usage.take(user_id, kind, exempt=keys.exempt)
             except OverLimit:
                 recording.finish("rejected")
@@ -162,4 +146,4 @@ class Admissions:
         except BaseException:
             keys.release()
             raise
-        return Admission(kind, keys, recording, llms, own is not None, use)
+        return Admission(kind, keys, recording, use)

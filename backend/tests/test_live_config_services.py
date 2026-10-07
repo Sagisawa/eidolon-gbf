@@ -7,7 +7,6 @@ are made by a fake `ServiceClients`, the speech services' keys tried on `FakeSpe
 
 import asyncio
 import logging
-from collections.abc import Callable
 from dataclasses import replace
 
 import httpx
@@ -38,8 +37,16 @@ from tests.fakes import (
     FakeServiceClients,
     FakeSpeech,
 )
-from tests.test_activity_records import dashboard, health
-from tests.test_live_config import CONFIG, NEW, NEW_SHOWN, REPLY, admin_client, start
+from tests.test_live_config import (
+    CONFIG,
+    NEW,
+    NEW_SHOWN,
+    REPLY,
+    admin_client,
+    recorded,
+    start,
+    until,
+)
 from tests.test_text_turn import send_turn, start_conversation
 
 MEMORY_LLM = "/api/admin/config/memory_llm"
@@ -173,14 +180,6 @@ async def test_a_memory_model_replaced_while_writing_down_is_closed_once_written
     assert NEW_MEMORY_SETTINGS not in closed_while_writing
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
     assert clients.closed == [ENV_SETTINGS, NEW_MEMORY_SETTINGS]
-
-
-async def until(done: Callable[[], object]) -> None:
-    """Wait, a while at most, for `done` to come true, as what a call let go of closes."""
-    for _ in range(100):
-        if done():
-            return
-        await asyncio.sleep(0.02)
 
 
 def backend_of(client: httpx.AsyncClient) -> Backend:
@@ -322,6 +321,9 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     browser: Browser,
 ):
     clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
+    # Recalled by Jev's 0.5, not by Clef-flash's 0.7; happy by Clef-flash's 0.4, not Jev's.
+    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.6, "about_producer": 0.1}
+    clients.judge.emotion = {"开心": 0.45, "平静": 0.3}
     client = await admin_client(with_retrieval(make_client), judged, github, clients)
     conversation_id = await start_conversation(client)
     await browser.call(client, conversation_id=conversation_id)
@@ -332,7 +334,7 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     assert saved.status_code == 200, saved.text
     await speech.stts[-1].hear("早上好")
     await browser.turn()
-    await browser.next_server_message("emotion")
+    emotion = await browser.next_server_message("emotion")
     await send_turn(client, conversation_id, "你好")
     asked = list(clients.judge.asked)
     closed_during_call = list(clients.judges_closed)
@@ -348,8 +350,18 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     ]
     assert closed_during_call == []
     assert clients.judges_closed == [JevSettings(JEV_KEY)]  # once the call was over
-    judge = health(await dashboard(client), "judge")
-    assert judge is not None and judge["calls"] == 3  # each turn's question, and the emotion
+    # The call judges her emotion on the model it connected with, by its threshold; each
+    # turn's question goes to the model in effect, by its own, recorded as the one it is.
+    assert emotion["emotion"] == "calm"
+    assert [[t.name for t in tools] for tools in clients.llm.tools] == [
+        ["recall_story"], ["recall_story"]
+    ]
+    await until(lambda: len(recorded(client, "judge")) == 3)  # as the call is written
+    assert recorded(client, "judge") == [
+        ("api.cloudflare.com", "clef-flash", False),
+        ("api.cloudflare.com", "clef-flash", False),
+        ("openrouter.ai", "typesafe/jev-1.13", False),
+    ]
     shown = saved.json()["judge"]
     assert shown["status"] == "overridden"
     assert shown["effective"] == {k: v for k, v in CLOUDFLARE.items() if k != "api_key"} | {

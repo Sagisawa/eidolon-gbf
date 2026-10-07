@@ -34,7 +34,7 @@ from eidolon.admission import Admissions
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
-from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, LLMSettings, Settings
+from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
@@ -219,12 +219,8 @@ def build(
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
-    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, speech)
-
-    def deployer_llms() -> tuple[LLMSettings, LLMSettings]:
-        return config.chat_llm, config.memory_llm
-
-    admissions = Admissions(usage, activity, own_keys, deployer_llms)
+    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, activity, speech)
+    admissions = Admissions(usage, activity, own_keys)
     calls = Calls(settings, engine, admissions, lambda: config.usage_limits, speech, clock, store)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(

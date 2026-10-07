@@ -50,7 +50,7 @@ from eidolon.config import CloudflareJudgeSettings, JudgeSettings, LLMSettings, 
 from eidolon.database import connect
 from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
-from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall, TurnLLMs
+from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.rerank import Reranker
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
     from eidolon.emotion import EmotionAnswer, EmotionJudge, SegmentToJudge
@@ -591,30 +591,6 @@ class _MeteredLLM:
 
 def metered_llm(llm: ChatLLM, log: ActivityLog, origin: Origin) -> ChatLLM:
     return _MeteredLLM(llm, log, origin)
-
-
-def turn_llms(
-    log: ActivityLog,
-    llms: TurnLLMs,
-    own: dict[str, Any] | None,
-    chat: LLMSettings,
-    memory: LLMSettings,
-) -> TurnLLMs:
-    """A turn's models, each request recorded as a service call: the user's `own` LLM (as
-    `OwnKeys.describe` shows it) both, if they brought one; else the deployer's `chat` and
-    `memory` models."""
-    if own is not None:
-        origin = Origin("chat_llm", host(own.get("base_url")), own.get("model") or "", True)
-        return TurnLLMs(
-            metered_llm(llms.chat, log, origin),
-            metered_llm(llms.memory, log, Origin("memory_llm", origin.provider, origin.model, True)),
-            llms.hold_memory,
-        )
-    return TurnLLMs(
-        metered_llm(llms.chat, log, llm_origin("chat_llm", chat)),
-        metered_llm(llms.memory, log, llm_origin("memory_llm", memory)),
-        llms.hold_memory,
-    )
 
 
 def metered_retrieval(
