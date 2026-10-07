@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from eidolon.config import Settings, UsageLimits
+from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.llm import ChatLLM, LLMError
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
@@ -303,3 +304,18 @@ async def test_the_tokens_each_protocol_bills_are_recorded(
         assert b'"stream_options":{"include_usage":true}' in requests[0].content.replace(
             b" ", b""
         )
+
+
+async def test_a_turn_rejected_for_its_input_is_recorded_rejected(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    client = make_client(FakeLLM(REPLY), clock=clock)
+    admin = await admin_client(make_client, github, clock)
+    conversation_id = await start_conversation(client)
+
+    rejected = await send_turn(client, conversation_id, "啊" * (MAX_INPUT_LENGTH + 1))
+    board = await dashboard(admin)
+
+    assert rejected[-1] == {"type": "error", "message": f"这句话太长了，最多 {MAX_INPUT_LENGTH} 字。"}
+    assert board["turns"]["by_result"] == {"success": 0, "failed": 0, "rejected": 1, "left": 0}

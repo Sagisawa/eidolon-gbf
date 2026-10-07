@@ -22,7 +22,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character
-from eidolon.reply_format import SegmentComplete, SpeechDelta
+from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
@@ -325,18 +325,20 @@ def create_app(backend: Backend) -> FastAPI:
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
         admission = admissions.turn(user_id, conversation.character_id)
-        outcome = TurnOutcome(admission)
+        outcome = TurnOutcome(admission.recording, admission.settle)
 
         async def events() -> AsyncIterator[str]:
             with outcome.running():
                 turn = engine.turn(conversation, body.text, admission.llms, device_timezone)
                 async for event in turn:
                     outcome.see(event)
+                    if isinstance(event, SegmentDelta):
+                        outcome.began_speaking()  # the reply's first words have appeared
                     if isinstance(event, SegmentComplete | SpeechDelta):
                         continue
                     yield _sse(asdict(event))
 
-        return _TurnResponse(events(), outcome.end)
+        return _TurnResponse(events(), lambda: outcome.over(cut_short_by_failure=False))
 
     return app
 

@@ -20,6 +20,7 @@ from eidolon.activity import CallEndReason, Recording, Result
 from eidolon.admission import Admission
 from eidolon.config import SttProvider
 from eidolon.own_keys import CallKeys, OwnKeyFailed, Service
+from eidolon.turn_outcome import TurnOutcome
 
 EndReason = Literal["not_connected", "dropped", "duration_limit", "turn_limit", "own_key"]
 """Why the backend ended a call, as the `ended` message tells the browser: it never really
@@ -120,9 +121,11 @@ class CallOutcome:
         if self._ended_by is None:
             self._ended_by = reason
 
-    def turn_begun(self, own_llm: bool) -> Recording:
-        """The activity record of a turn taken in the call, on the user's own LLM or not."""
-        return self.recording.turn(own_llm)
+    def turn_begun(self, own_llm: bool) -> TurnOutcome:
+        """A turn taken in the call, on the user's own LLM or not, settled into its
+        activity record, which goes under the call's."""
+        recording = self.recording.turn(own_llm)
+        return TurnOutcome(recording, recording.finish)
 
     def turn_cut_short(self) -> Result:
         """How a turn the call ended before it was over turned out: failed if a service,

@@ -1,58 +1,65 @@
-"""How a text turn turns out (GLOSSARY.md「回合」), from the events it is told: whether it
-counts towards the user's limit, and what its activity record says, are its `Admission`'s
-to settle once it is over (`admission`).
+"""How one turn turns out (GLOSSARY.md「回合」「开口」), a text turn or a turn of a call
+alike: its result, the one it is settled with, and when the character began to speak.
 
-`TurnOutcome` is told each event of the turn as the browser is: the character beginning
-to speak, the turn done (success), or failed (failed, or rejected for its input). A turn
-that is over without either was left by the user.
+`TurnOutcome` is told each event of the turn as the browser is: the turn done (success),
+rejected for its input, or failed; when the turn is replied to afresh, the last reply's
+result is the turn's. It is told when the character began to speak, by whoever knows
+(`began_speaking`), and once the turn is over, whether a failure cut it short: a turn
+over without a result failed if so, and was left by the user otherwise. It is settled
+as it turned out once, by `settle`: a text turn's `Admission`, which keeps the use or
+gives it back and writes its record, or the record of a turn in a call.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from eidolon.activity import Result
-from eidolon.admission import Admission
-from eidolon.engine import BLANK, TOO_LONG, TurnDone, TurnEvent, TurnFailed
-from eidolon.own_keys import TurnKeys
-from eidolon.reply_format import SegmentDelta
+from eidolon.activity import Recording, Result
+from eidolon.engine import TurnDone, TurnEvent, TurnFailed, TurnRejected
 
 
 class TurnOutcome:
-    """One text turn let begin by `admission`, until it is over."""
+    """One turn, recorded in `recording`, until it is over and settled by `settle`."""
 
-    def __init__(self, admission: Admission[TurnKeys]) -> None:
-        self._admission = admission
+    def __init__(self, recording: Recording, settle: Callable[[Result], None]) -> None:
+        self._recording = recording
+        self._settle = settle
         self._result: Result | None = None
+        self._over = False
 
     @contextmanager
     def running(self) -> Iterator[None]:
-        """While the turn runs: its service calls are recorded under it, and once it is
-        over, however it ended, it is settled."""
+        """While a text turn runs: its service calls are recorded under it, and once it
+        is over, however it ended, so is the turn."""
         try:
-            with self._admission.recording.current():
+            with self.current():
                 yield
         finally:
-            self.end()
+            self.over(cut_short_by_failure=False)
 
-    def end(self) -> None:
-        """Settle the turn as it turned out, once. Also for a turn the user left before
-        its response began, which never ran."""
-        self._admission.settle(self._result or "left")
+    @contextmanager
+    def current(self) -> Iterator[None]:
+        """Record the service calls made meanwhile, in this context, under the turn."""
+        with self._recording.current():
+            yield
 
     def see(self, event: TurnEvent) -> None:
         """An event of the turn, as the browser is told it."""
-        if isinstance(event, SegmentDelta):
-            self._admission.recording.spoke()  # the reply's first words have appeared
-        elif (result := turn_result(event)) is not None:
-            self._result = result
+        if isinstance(event, TurnDone):
+            self._result = "success"
+        elif isinstance(event, TurnRejected):
+            self._result = "rejected"
+        elif isinstance(event, TurnFailed):
+            self._result = "failed"
 
+    def began_speaking(self) -> None:
+        """The character began to speak (only the first time counts)."""
+        self._recording.spoke()
 
-def turn_result(event: TurnEvent) -> Result | None:
-    """How a turn turned out, if `event` ends it: done, or failed, which is rejected when
-    for its input (GLOSSARY.md「回合」). A turn over without either was left. Text turns
-    and the turns of calls alike."""
-    if isinstance(event, TurnDone):
-        return "success"
-    if isinstance(event, TurnFailed):
-        return "rejected" if event.message in (BLANK, TOO_LONG) else "failed"
-    return None
+    def over(self, cut_short_by_failure: bool) -> None:
+        """The turn is over: settled as it turned out, once. One over without a result
+        failed if a failure cut it short, and was left by the user otherwise, as is one
+        the user left before it began, which never ran."""
+        if self._over:
+            return
+        self._over = True
+        self._settle(self._result or ("failed" if cut_short_by_failure else "left"))
