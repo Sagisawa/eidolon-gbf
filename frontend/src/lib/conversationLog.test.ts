@@ -128,26 +128,31 @@ describe("conversationLog", () => {
     });
   });
 
-  it.each<LogAction>([
-    { type: "error", message: "角色暂时无法回复，请稍后再试。" },
-    { type: "interrupted" },
-  ])("takes the turn in progress back off the log on `$type`", (end) => {
-    for (const opening of [
-      [{ type: "submitted", text: "你好", at: NOW }],
-      [{ type: "submitted", text: "你好", at: NOW }, { type: "user", text: "你好", at: NOW }, delta(0, "ja", "こん")],
-      [{ type: "user", text: "你好", at: NOW }, delta(0, "ja", "こん")],
-    ] as LogAction[][]) {
-      expect(play([...opening, end], history)).toEqual(history);
+  it("takes the turn in progress back off the log on `error` and `interrupted`", () => {
+    for (const end of [
+      { type: "error", message: "角色暂时无法回复，请稍后再试。" },
+      { type: "interrupted" },
+    ] as LogAction[]) {
+      for (const opening of [
+        [{ type: "submitted", text: "你好", at: NOW }],
+        [{ type: "submitted", text: "你好", at: NOW }, { type: "user", text: "你好", at: NOW }, delta(0, "ja", "こん")],
+        [{ type: "user", text: "你好", at: NOW }, delta(0, "ja", "こん")],
+      ] as LogAction[][]) {
+        const what = `${opening.map((a) => a.type).join(", ")}, then ${end.type}`;
+        expect(play([...opening, end], history), what).toEqual(history);
+      }
     }
   });
 
-  it.each<LogAction>([
-    delta(0, "ja", "いる"),
-    { type: "done", message: message(9, "character", "いるよ") },
-    { type: "error", message: "角色暂时无法回复，请稍后再试。" },
-    { type: "interrupted" },
-  ])("leaves the log alone on `$type` with no turn in progress", (action) => {
-    expect(conversationLog(history, action)).toBe(history);
+  it("leaves the log alone on `delta`, `done`, `error` and `interrupted` with no turn in progress", () => {
+    for (const action of [
+      delta(0, "ja", "いる"),
+      { type: "done", message: message(9, "character", "いるよ") },
+      { type: "error", message: "角色暂时无法回复，请稍后再试。" },
+      { type: "interrupted" },
+    ] as LogAction[]) {
+      expect(conversationLog(history, action), action.type).toBe(history);
+    }
   });
 
   it("keeps two turns in a row apart", () => {

@@ -143,23 +143,7 @@ async def test_what_she_says_before_calling_the_tool_is_part_of_the_reply(
     ]
 
 
-async def test_tool_calls_stop_after_a_few_rounds(
-    make_client: ClientFactory, embedder: FakeEmbedder
-):
-    llm = FakeLLM(*[[recall("公園", f"call_{i}")] for i in range(MAX_TOOL_ROUNDS)], ANSWER)
-    client = make_client(
-        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
-    )
-    conversation_id = await start_conversation(client)
-
-    events = await send_turn(client, conversation_id, "公园那次呢？")
-
-    # The last round offers no tools, so the model has to answer.
-    assert [len(tools) for tools in llm.tools] == [1] * MAX_TOOL_ROUNDS + [0]
-    assert events[-1]["type"] == "done"
-
-
-async def test_a_call_made_when_no_tool_was_offered_goes_unanswered(
+async def test_tool_calls_stop_after_a_few_rounds_and_a_call_made_then_goes_unanswered(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     rounds = [[recall("公園", f"call_{i}")] for i in range(MAX_TOOL_ROUNDS)]
@@ -171,7 +155,11 @@ async def test_a_call_made_when_no_tool_was_offered_goes_unanswered(
 
     events = await send_turn(client, conversation_id, "公园那次呢？")
 
+    # The last round offers no tools, so the model has to answer; a call it makes all the
+    # same goes unanswered.
+    assert [len(tools) for tools in llm.tools] == [1] * MAX_TOOL_ROUNDS + [0]
     assert len(llm.prompts) == MAX_TOOL_ROUNDS + 1
+    assert events[-1]["type"] == "done"
     assert events[-1]["message"]["ja"] == "公園でピーちゃんたちと歌ってたんです"
 
 
@@ -203,21 +191,6 @@ async def test_a_failed_or_malformed_call_is_answered_and_the_turn_goes_on(
     assert all(r.endswith(LAST_ROUND_NOTE) for r in (malformed, unknown, failed))
 
 
-async def test_a_turn_without_tool_calls_asks_the_model_once_with_no_note(
-    make_client: ClientFactory, embedder: FakeEmbedder
-):
-    llm = FakeLLM(ANSWER)
-    client = make_client(
-        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
-    )
-    conversation_id = await start_conversation(client)
-
-    await send_turn(client, conversation_id, "公园那次呢？")
-
-    [prompt] = llm.prompts
-    assert not any(LAST_ROUND_NOTE in m.content for m in prompt)
-
-
 async def test_the_note_is_never_recorded_or_seen_again_in_later_turns(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
@@ -233,6 +206,8 @@ async def test_the_note_is_never_recorded_or_seen_again_in_later_turns(
     assert events[-1]["message"]["segments"] == [
         {"ja": "公園でピーちゃんたちと歌ってたんです", "zh": "我在公园和小皮它们唱歌"}
     ]
+    # The later turn, without tool calls, asks the model once, with no note.
+    assert len(llm.prompts) == 3
     assert not any(LAST_ROUND_NOTE in m.content for m in llm.prompts[-1])
     messages = (await client.get(f"/api/conversations/{conversation_id}/messages")).text
     assert "不能再调用任何工具" not in messages

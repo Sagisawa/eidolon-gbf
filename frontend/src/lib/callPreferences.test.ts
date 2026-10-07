@@ -22,13 +22,15 @@ describe("call preferences", () => {
     expect(loadCallPreferences()).toEqual({ micId: "", quality: "standard", muted: false, phoneTexture: false });
   });
 
-  it("remember the microphone chosen, keeping the rest", () => {
+  it("remember the microphone chosen and phone texture turned on, keeping the rest", () => {
     storage();
     saveCallPreferences({ quality: "high" });
 
     saveCallPreferences({ micId: "usb" });
-
     expect(loadCallPreferences()).toEqual({ micId: "usb", quality: "high", muted: false, phoneTexture: false });
+
+    saveCallPreferences({ phoneTexture: true });
+    expect(loadCallPreferences()).toEqual({ micId: "usb", quality: "high", muted: false, phoneTexture: true });
   });
 
   it("fall back to the defaults for what is stored wrongly, keeping what is right", () => {
@@ -47,15 +49,6 @@ describe("call preferences", () => {
     storage({ [KEY]: JSON.stringify({ micId: "usb", quality: "high", muted: true }) });
 
     expect(loadCallPreferences()).toEqual({ micId: "usb", quality: "high", muted: true, phoneTexture: false });
-  });
-
-  it("remember phone texture turned on, keeping the rest", () => {
-    storage();
-    saveCallPreferences({ quality: "low" });
-
-    saveCallPreferences({ phoneTexture: true });
-
-    expect(loadCallPreferences()).toEqual({ micId: "", quality: "low", muted: false, phoneTexture: true });
   });
 
   it("go on without being remembered when storage is unavailable", () => {

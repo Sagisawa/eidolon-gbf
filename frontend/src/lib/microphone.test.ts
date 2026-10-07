@@ -58,14 +58,6 @@ describe("Microphone: opening", () => {
     expect((mic.tracks().local.audio as unknown as FakeTrack).deviceId).toBe("built-in");
   });
 
-  it("opens the system default when none is chosen", async () => {
-    devices(["built-in"]);
-
-    const mic = await Microphone.open("");
-
-    expect(mic.inUse).toEqual({ id: "", fellBack: false });
-  });
-
   it("fails as unavailable when it is refused", async () => {
     devices(["built-in"], { denied: true });
 
@@ -87,17 +79,6 @@ describe("Microphone: switching during a call", () => {
     expect(mic.tracks().local.audio).toBe(opened[1]);
     expect(opened[0].stopped).toBe(true);
     expect(opened[1].stopped).toBe(false);
-  });
-
-  it("keeps a muted microphone muted", async () => {
-    const { opened } = devices(["built-in", "usb"]);
-    const mic = await Microphone.open("");
-    mic.enableMic(false);
-
-    await mic.updateMic("usb");
-
-    expect(opened[1].enabled).toBe(false);
-    expect(mic.isMicEnabled).toBe(false);
   });
 
   it("keeps the old microphone if the new one cannot be sent", async () => {

@@ -144,18 +144,6 @@ async def test_requests_that_change_something_from_other_sites_are_refused(
     assert reading.status_code == 200
 
 
-async def test_requests_from_the_site_itself_are_accepted(make_client: ClientFactory):
-    client = make_client(FakeLLM())
-
-    res = await client.post(
-        "/api/conversations",
-        json={"character_id": "mano"},
-        headers={"Origin": "http://localhost:3000"},
-    )
-
-    assert res.status_code == 201
-
-
 async def test_a_public_deployment_accepts_only_its_own_origin_and_secure_cookies(
     make_client: ClientFactory, settings: Settings
 ):

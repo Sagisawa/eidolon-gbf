@@ -88,7 +88,7 @@ def deployment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Deployment:
     return Deployment(tmp_path)
 
 
-async def test_the_backup_is_the_database_encrypted_to_the_deployers_key(
+async def test_the_backup_is_the_database_encrypted_to_the_deployers_key_and_pings_once(
     deployment: Deployment, tmp_path: Path
 ):
     report = await deployment.back_up()
@@ -98,6 +98,7 @@ async def test_the_backup_is_the_database_encrypted_to_the_deployers_key(
     assert list(deployment.storage.objects) == [report.key]
     assert deployment.restore(report.key, tmp_path / "restored.db") == ["producer"]
     assert list((tmp_path / "tmp").iterdir()) == []  # the temporary files are gone
+    assert deployment.pings == [PING]
 
 
 async def test_backups_over_30_days_old_are_deleted_and_nothing_else(deployment: Deployment):
@@ -166,12 +167,6 @@ async def test_old_backups_that_cannot_be_deleted_fail_the_backup_without_a_ping
     assert report.key is not None and report.key in deployment.storage.objects
     assert report.prune_error is not None and "AccessDenied" in report.prune_error
     assert deployment.pings == []
-
-
-async def test_a_backup_that_went_well_pings_once(deployment: Deployment):
-    await deployment.back_up()
-
-    assert deployment.pings == [PING]
 
 
 async def test_a_ping_that_fails_is_only_a_warning(deployment: Deployment):

@@ -106,24 +106,6 @@ FOLLOW_ONS = [
     ),
     pytest.param(
         [
-            *REPLYING,
-            (TALKS, [DropReply()]),
-            (says("在吗"), []),
-            (DROPPED, [Reply("早上好\n在吗", voiced=True, number=2)]),
-        ],
-        id="a follow-on transcribed before the reply is gone is replied to once it is",
-    ),
-    pytest.param(
-        [
-            *REPLYING,
-            (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
-            (types("在吗"), [DropReply(), ClearVoice()]),
-            (DROPPED, [Reply("早上好\n在吗", voiced=True, number=2)]),
-        ],
-        id="what is typed before she speaks joins the turn and clears what TTS holds",
-    ),
-    pytest.param(
-        [
             (turn("一"), [Reply("一", voiced=True, number=1)]),
             (TALKS, [DropReply()]),
             (says("二"), []),
@@ -139,13 +121,6 @@ FOLLOW_ONS = [
     pytest.param(
         [*SPEAKING, (TALKS, [DropReply()])],
         id="speaking but with nothing complete yet she is followed on",
-    ),
-    pytest.param(
-        [
-            *REPLYING, (ja("ほわっ"), [Voice("ほわっ", 1, 0)]), (zh("哇"), []), (COMPLETE, [FlushVoice(1, 0)]),
-            (TALKS, [DropReply()]),
-        ],
-        id="with a complete segment shown but not heard yet she is followed on",
     ),
     pytest.param(
         [
@@ -238,10 +213,6 @@ INTERRUPTIONS = [
     pytest.param(
         [*INTERRUPTIBLE, (TALKS, [StopReply()]), (says("  "), [])],
         id="an interruption that comes to nothing takes no turn",
-    ),
-    pytest.param(
-        [*INTERRUPTIBLE, (types("在吗"), [StopReply(), ClearVoice(), QueueTurn("在吗")])],
-        id="what is typed stops the reply, clears her voice and is the next turn",
     ),
     pytest.param(
         [

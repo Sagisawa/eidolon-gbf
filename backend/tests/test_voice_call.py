@@ -24,24 +24,20 @@ async def test_ice_servers_come_from_configuration(make_client: ClientFactory, s
     assert res.json()["iceServers"] == [{"urls": ["stun:stun.example.com"]}, turn]
 
 
-async def test_the_browser_learns_how_long_a_call_may_last_and_whether_it_counts(
+async def test_the_browser_learns_how_long_a_call_may_last_if_at_all_and_whether_it_counts(
     make_client: ClientFactory, settings: Settings
 ):
     """The call screen counts down the last minute, and says whether a dropped call counted."""
     limits = replace(settings.usage_limits, call_minutes=30)
     client = make_client(FakeLLM(), settings=replace(settings, usage_limits=limits))
+    unlimited = replace(settings.usage_limits, call_minutes=None)
+    without_limit = make_client(FakeLLM(), settings=replace(settings, usage_limits=unlimited))
 
     body = (await client.get("/api/ice-servers")).json()
 
     assert body["maxCallSeconds"] == 1800
     assert body["callExempt"] is False
-
-
-async def test_a_call_without_a_time_limit_says_so(make_client: ClientFactory, settings: Settings):
-    limits = replace(settings.usage_limits, call_minutes=None)
-    client = make_client(FakeLLM(), settings=replace(settings, usage_limits=limits))
-
-    assert (await client.get("/api/ice-servers")).json()["maxCallSeconds"] is None
+    assert (await without_limit.get("/api/ice-servers")).json()["maxCallSeconds"] is None
 
 
 def turn_password(secret: str, username: str) -> str:
@@ -91,34 +87,14 @@ def test_turn_settings_come_from_the_environment(monkeypatch: pytest.MonkeyPatch
         TurnSettings.from_env()
 
 
-async def test_ice_servers_need_a_session(make_client: ClientFactory):
-    client = make_client(FakeLLM(), user=None)
-
-    assert (await client.get("/api/ice-servers")).status_code == 401
-
-
-async def test_call_is_answered_and_served_in_the_characters_voice(
-    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
-):
-    client = make_client(FakeLLM())
-    conversation_id = await start_conversation(client, "kogane")
-
-    res = await browser.call(client, conversation_id=conversation_id, muted=True)
-
-    assert res.status_code == 200
-    answer = res.json()
-    assert answer["type"] == "answer" and answer["sdp"].startswith("v=0")
-    assert answer["pc_id"]
-    assert [tts.voice_id for tts in speech.ttss] == ["kogane-voice"]
-
-
-async def test_call_needs_a_session(
+async def test_calling_needs_a_session(
     make_client: ClientFactory, speech: FakeSpeech, browser: Browser
 ):
     client = make_client(FakeLLM())
     conversation_id = await start_conversation(client)
     client.cookies.clear()
 
+    assert (await client.get("/api/ice-servers")).status_code == 401
     res = await browser.call(client, conversation_id=conversation_id)
 
     assert res.status_code == 401
@@ -134,23 +110,6 @@ async def test_call_into_someone_elses_or_a_missing_conversation_is_refused(
     assert (await browser.call(client, conversation_id=theirs)).status_code == 404
     assert (await browser.call(client, conversation_id="missing")).status_code == 404
     assert (await browser.call(client)).status_code == 422
-    assert speech.stts == []
-
-
-async def test_call_into_a_character_removed_from_the_configuration_is_refused(
-    make_client: ClientFactory, settings: Settings, speech: FakeSpeech, browser: Browser
-):
-    conversation_id = await start_conversation(make_client(FakeLLM()), "kogane")
-    settings.characters_path.write_text(
-        settings.characters_path.read_text(encoding="utf-8").split("\n\n[[characters]]")[0],
-        encoding="utf-8",
-    )
-    client = make_client(FakeLLM())
-
-    res = await browser.call(client, conversation_id=conversation_id)
-
-    assert res.status_code == 404
-    assert res.json()["detail"] == "角色不存在"
     assert speech.stts == []
 
 

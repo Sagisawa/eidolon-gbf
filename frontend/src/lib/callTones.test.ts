@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { callTones } from "@/lib/callTones";
 
 describe("callTones", () => {
-  it("rings from the moment the user dials", () => {
+  it("rings from the moment the user dials, and again when the user calls back after a call ended", () => {
     expect(callTones("idle", "dialing")).toEqual({ ring: "start", once: null });
+    expect(callTones("ended", "dialing")).toEqual({ ring: "start", once: null });
   });
 
   it("stops ringing and plays the connect tone once the call connects", () => {
@@ -24,17 +25,11 @@ describe("callTones", () => {
     expect(callTones("connected", "idle")).toEqual({ ring: "stop", once: "hang-up" });
   });
 
-  it("does nothing when the end of a call is dismissed", () => {
+  it("does nothing when the end of a call is dismissed, nor while the phase stays the same", () => {
     expect(callTones("ended", "idle")).toEqual({ ring: null, once: null });
-  });
-
-  it("does nothing while the phase stays the same, so an ended call is not heard hanging up twice", () => {
+    // So an ended call is not heard hanging up twice.
     for (const phase of ["idle", "dialing", "connected", "ended"] as const) {
-      expect(callTones(phase, phase)).toEqual({ ring: null, once: null });
+      expect(callTones(phase, phase), phase).toEqual({ ring: null, once: null });
     }
-  });
-
-  it("rings again when the user calls back after a call ended", () => {
-    expect(callTones("ended", "dialing")).toEqual({ ring: "start", once: null });
   });
 });

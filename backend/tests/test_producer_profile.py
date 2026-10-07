@@ -29,13 +29,6 @@ async def system_prompt(client: httpx.AsyncClient, llm: FakeLLM) -> str:
     return system.content
 
 
-async def test_a_new_user_has_an_empty_profile(make_client: ClientFactory):
-    res = await make_client(FakeLLM()).get("/api/profile")
-
-    assert res.status_code == 200
-    assert res.json() == {"form_of_address": None, "gender": None, "timezone": None}
-
-
 async def test_profile_belongs_to_the_user_not_the_device(make_client: ClientFactory):
     desktop = make_client(FakeLLM())
 

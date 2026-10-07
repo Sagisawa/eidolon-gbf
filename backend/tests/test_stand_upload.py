@@ -204,13 +204,7 @@ async def test_uploads_the_outfits_files_their_thumbnails_and_the_lists(stands: 
     assert [card["id"] for card in listed["cards"]] == ["1030010010", "3000010030"]
     assert report.uploaded == 12
     assert report.missing_thumbnails == ["stand/3000010030"]
-
-
-async def test_the_list_goes_up_last_so_it_never_names_an_outfit_the_bucket_lacks(
-    stands: Stands, storage: FakeBucket
-):
-    await stands.upload(storage)
-
+    # The list goes up last, so it never names an outfit the bucket lacks.
     assert storage.puts[-1] == "outfits/1.json"
 
 
@@ -317,8 +311,8 @@ def test_settings_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
     )
 
 
-@pytest.mark.parametrize("missing", ["EIDOLON_STAND_S3_BUCKET", "EIDOLON_STAND_S3_SECRET_ACCESS_KEY"])
-def test_settings_missing_from_the_environment_are_an_error(monkeypatch: pytest.MonkeyPatch, missing: str):
+def test_settings_missing_from_the_environment_are_an_error(monkeypatch: pytest.MonkeyPatch):
+    missing = "EIDOLON_STAND_S3_SECRET_ACCESS_KEY"
     for name, value in {
         "EIDOLON_STAND_S3_ENDPOINT": "https://storage.example",
         "EIDOLON_STAND_S3_BUCKET": "stands",

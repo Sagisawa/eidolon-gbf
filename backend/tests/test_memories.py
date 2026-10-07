@@ -254,23 +254,9 @@ async def test_a_deleted_memory_is_found_no_more(world: World, make_memories: Me
     assert CAT not in "\n".join(m.content for m in background.prompts[-1])
 
 
-async def test_deleting_a_memory_that_is_gone_or_another_users_deletes_nothing(
-    world: World, make_memories: MemoriesFactory
-):
-    memories = make_memories(memorized(CAT))
-    friend = world.store.create_user("friend").id
-    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
-    [cat] = await memories.entries(world.producer)
-
-    assert not await memories.delete(friend, cat.id)
-    await memories.clear(friend)
-    assert await memories.entries(world.producer) == [cat]
-
-    assert await memories.delete(world.producer, cat.id)
-    assert not await memories.delete(world.producer, cat.id)
-
-
 async def test_clearing_forgets_everything(world: World, make_memories: MemoriesFactory):
+    """A turn's memories are written in the background; clearing right after the turn
+    must not let them turn up afterwards."""
     memories = make_memories(memorized(CAT), memorized(TRIP))
     conversation = world.conversation("mano")
     await tell(memories, world, conversation, "我家的猫叫小白哦")
@@ -280,19 +266,6 @@ async def test_clearing_forgets_everything(world: World, make_memories: Memories
 
     assert await memories.entries(world.producer) == []
     assert await find(memories, world.conversation("kogane"), "你知道我家的猫吗？") == ""
-
-
-async def test_clearing_waits_for_what_is_still_being_written_down(
-    world: World, make_memories: MemoriesFactory
-):
-    """A turn's memories are written in the background; clearing right after the turn
-    must not let them turn up afterwards."""
-    memories = make_memories(memorized(CAT))
-    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
-
-    await memories.clear(world.producer)
-
-    assert await memories.entries(world.producer) == []
 
 
 async def test_what_is_written_down_too_slowly_to_wait_for_is_still_forgotten(

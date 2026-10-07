@@ -208,18 +208,6 @@ async def test_each_segment_of_each_reply_goes_to_tts_under_its_numbers(
     ]
 
 
-async def test_a_reply_given_afresh_goes_to_tts_under_a_number_of_its_own(
-    mano_call: CallUnderTest,
-):
-    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], delay=0.3)
-
-    down = await mano_call.run_frames(llm, [spoken("早上好"), SleepFrame(0.1), typed("在吗")])
-
-    assert to_tts(down) == [
-        ("reply",), ("ほわっ", 1, 0), ("reply",), ("うん。", 2, 0), ("complete", 2, 0)
-    ]
-
-
 async def test_muted_call_sends_subtitles_but_nothing_to_voice(mano_call: CallUnderTest):
     llm = FakeLLM(["<ja>一</ja><zh>一</zh>"], ["<ja>二</ja><zh>二</zh>"], ["<ja>三</ja><zh>三</zh>"])
 
@@ -326,7 +314,8 @@ async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call
 async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stops_its_voice(
     mano_call: CallUnderTest,
 ):
-    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+    """The turn is replied to afresh, going to TTS under a number of its own."""
+    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], delay=0.3)
 
     down = await mano_call.run_frames(llm, [spoken("早上好"), SleepFrame(0.1), typed("在吗")])
 
@@ -336,6 +325,9 @@ async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stop
     voiced = [type(f) for f in down if not isinstance(f, RTVIServerMessageFrame)]
     assert voiced[:4] == [
         LLMFullResponseStartFrame, SegmentTextFrame, LLMFullResponseEndFrame, InterruptionFrame
+    ]
+    assert to_tts(down) == [
+        ("reply",), ("ほわっ", 1, 0), ("reply",), ("うん。", 2, 0), ("complete", 2, 0)
     ]
 
 

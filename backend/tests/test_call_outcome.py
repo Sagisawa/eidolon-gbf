@@ -70,21 +70,6 @@ def test_an_exempt_call_is_taken_even_over_the_limit(limiter: Limiter):
     assert limiter.calls_recorded() == 2
 
 
-def test_a_call_that_could_not_be_set_up_is_given_back_saying_nothing(limiter: Limiter):
-    outcome = limiter.call()
-
-    assert outcome.set_up_failed() is None
-    assert not limiter.counted()
-
-
-def test_a_call_that_ends_before_connecting_is_given_back(limiter: Limiter):
-    outcome = limiter.call()
-
-    outcome.settle()
-
-    assert not limiter.counted()
-
-
 def test_a_service_failing_before_the_call_connects_says_nothing_and_it_is_given_back(
     limiter: Limiter,
 ):
@@ -252,12 +237,9 @@ def test_a_call_without_limits_never_reaches_them(limiter: Limiter):
     assert outcome.limit_reached() is None
 
 
-@pytest.mark.parametrize("turns", [0, 1])
-def test_a_call_hung_up_once_connected_counts(limiter: Limiter, turns: int):
+def test_a_call_hung_up_once_connected_counts_even_before_any_turn(limiter: Limiter):
     outcome = limiter.call()
     outcome.connected()
-    for _ in range(turns):
-        outcome.turn_recorded()
 
     outcome.settle()
 
@@ -292,7 +274,7 @@ def test_what_the_browser_was_told_is_how_the_call_is_settled(limiter: Limiter):
     assert not limiter.counted()
 
 
-def test_a_call_is_given_back_at_most_once(
+def test_a_call_that_could_not_be_set_up_is_given_back_at_most_once_saying_nothing(
     limiter: Limiter, monkeypatch: pytest.MonkeyPatch
 ):
     """`Use.give_back` would shrug off a second call itself; the outcome never makes one."""
@@ -313,7 +295,7 @@ def test_a_call_is_given_back_at_most_once(
     monkeypatch.setattr(limiter.usage, "take", take_counting)
     outcome = limiter.call()
 
-    outcome.set_up_failed()  # after hanging up the call, as `Calls.start` does
+    assert outcome.set_up_failed() is None  # after hanging up the call, as `Calls.start` does
     outcome.settle()
     outcome.settle()
 

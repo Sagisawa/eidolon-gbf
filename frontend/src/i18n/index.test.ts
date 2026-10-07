@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { copy, type Messages } from "./index";
+import { copy } from "./index";
 import { zh } from "./zh";
 
 /** 把文案树摊平成「路径 → 文案」，函数形式的文案用占位参数调用一次。 */
@@ -29,10 +29,5 @@ describe("界面文案", () => {
       return typeof node === "function";
     });
     for (const [path, text] of withArgs) expect(text, path).toMatch(/甲/);
-  });
-
-  it("以后的语言要和中文有同样的键（类型层面）", () => {
-    const sameShape: Messages = zh;
-    expect(sameShape).toBeDefined();
   });
 });

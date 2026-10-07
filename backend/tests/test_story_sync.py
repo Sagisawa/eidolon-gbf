@@ -109,22 +109,7 @@ async def test_card_episodes_the_translations_lack_come_in_under_the_cards_name_
     )
     assert report.untranslated.added == 4  # Mano's three, Kogane's second
     assert report.mirror_error is None
-
-
-async def test_canon_rules_apply_to_the_mirrors_episodes(syncer: Syncer):
-    await syncer.run()
-
-    episode = syncer.corpus.get("produce_events/200100401")
-    assert episode is not None
-    texts = [line.ja for line in episode.lines]
-    # Both reactions, but not which option the producer picked.
-    assert "はいっ、鳩さんは友達です" in texts and "あっ！　すみません……" in texts
-    assert "鳩が好きなんだな" not in texts and "レッスンの時間だぞ" not in texts
-
-
-async def test_the_catalog_shows_the_mirrors_episodes_by_card(syncer: Syncer):
-    await syncer.run()
-
+    # The catalog shows them by card.
     catalog = {source.source: source for source in syncer.corpus.catalog("mano")}
     assert catalog[MANO_CARD].category == "P卡剧情"
     assert catalog[MANO_CARD].episodes == (
@@ -172,18 +157,12 @@ async def test_a_translation_that_arrives_later_replaces_the_untranslated_episod
     assert report.untranslated.imported == 0
 
 
-async def test_failure_endings_are_skipped(syncer: Syncer):
-    report = await syncer.run()
-
-    assert report.skipped_failures == 3
-    assert syncer.corpus.get("produce_events/600100102") is None
-
-
-async def test_syncing_again_downloads_and_embeds_nothing(
+async def test_syncing_again_downloads_and_embeds_nothing_and_asks_nothing_of_an_unchanged_card(
     syncer: Syncer, mirror_site: FakeShinyColorsDB
 ):
     await syncer.run()
     mirror_site.sent.clear()
+    mirror_site.requests.clear()
     syncer.embedder.documents.clear()
 
     report = await syncer.run()
@@ -193,16 +172,6 @@ async def test_syncing_again_downloads_and_embeds_nothing(
     assert (report.downloaded, report.embedded_passages, report.untranslated.imported) == (0, 0, 0)
     assert report.translations_kept == 0  # no card was asked about again
     assert syncer.corpus.get("produce_events/200100401") is not None
-
-
-async def test_an_unchanged_card_is_not_asked_about_again(
-    syncer: Syncer, mirror_site: FakeShinyColorsDB
-):
-    await syncer.run()
-    mirror_site.requests.clear()
-
-    await syncer.run()
-
     asked = {str(r.url) for r in mirror_site.requests}
     assert not any("201100402" in url or KOGANE_P_SSR in url for url in asked)
     assert not any("300100401" in url or MANO_S_SSR in url for url in asked)

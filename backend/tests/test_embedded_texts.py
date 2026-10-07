@@ -1,6 +1,7 @@
 """The contract of the embedded text set, which keeps the vectors of the character facts
-and of the work facts: run once for a character's scope and once for the work's, as both
-indexes use it the same way."""
+and of the work facts. A scope is only a name to it but in forgetting other models'
+vectors and moving the old tables' over, which are run once for a character's scope and
+once for the work's; the rest is run for a character's."""
 
 import asyncio
 import sqlite3
@@ -17,7 +18,8 @@ WING = Document("WING で優勝した。", "WING")
 DOME = Document("ドームのステージに立った。", "ドーム")
 DOCUMENTS = [PARK, WING, DOME]
 
-SCOPES = [character_scope("mano"), WORK_SCOPE]
+SCOPE = character_scope("mano")
+SCOPES = [SCOPE, WORK_SCOPE]
 FAMILIES = {character_scope("mano"): CHARACTER_SCOPES, WORK_SCOPE: WORK_SCOPE}
 """What each scope's index forgets other models' vectors of."""
 
@@ -48,13 +50,13 @@ async def nearest_text(
 
 
 async def test_the_texts_are_embedded_the_first_time_they_are_searched(
-    database: Path, scope: str
+    database: Path
 ):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
     assert embedder.documents == []
 
-    found = await nearest_text(texts, embedder, scope, DOCUMENTS, "鳩")
+    found = await nearest_text(texts, embedder, SCOPE, DOCUMENTS, "鳩")
     texts.close()
 
     assert found == PARK.text
@@ -62,100 +64,100 @@ async def test_the_texts_are_embedded_the_first_time_they_are_searched(
     assert embedder.titles == [d.title for d in DOCUMENTS]
 
 
-async def test_searching_again_embeds_nothing_even_after_a_restart(database: Path, scope: str):
+async def test_searching_again_embeds_nothing_even_after_a_restart(database: Path):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
-    await nearest_text(texts, embedder, scope, DOCUMENTS, "鳩")
+    await nearest_text(texts, embedder, SCOPE, DOCUMENTS, "鳩")
     embedded = len(embedder.documents)
 
-    again = await nearest_text(texts, embedder, scope, DOCUMENTS, "優勝")
+    again = await nearest_text(texts, embedder, SCOPE, DOCUMENTS, "優勝")
     texts.close()
     restarted = EmbeddedTexts(database, embedder)
-    after_restart = await nearest_text(restarted, embedder, scope, DOCUMENTS, "ドーム")
+    after_restart = await nearest_text(restarted, embedder, SCOPE, DOCUMENTS, "ドーム")
     restarted.close()
 
     assert (again, after_restart) == (WING.text, DOME.text)
     assert len(embedder.documents) == embedded
 
 
-async def test_searches_at_the_same_time_embed_each_text_once(database: Path, scope: str):
+async def test_searches_at_the_same_time_embed_each_text_once(database: Path):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
     query = await embedder.embed_query("鳩")
 
-    results = await asyncio.gather(*(texts.search(scope, DOCUMENTS, query, 1) for _ in range(3)))
+    results = await asyncio.gather(*(texts.search(SCOPE, DOCUMENTS, query, 1) for _ in range(3)))
     texts.close()
 
     assert results == [[0]] * 3
     assert embedder.documents == [d.text for d in DOCUMENTS]
 
 
-async def test_a_search_can_look_among_only_some_of_the_texts(database: Path, scope: str):
+async def test_a_search_can_look_among_only_some_of_the_texts(database: Path):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
     query = await embedder.embed_query("鳩")
 
-    best = await texts.search(scope, DOCUMENTS, query, 2, among=[1, 2])
+    best = await texts.search(SCOPE, DOCUMENTS, query, 2, among=[1, 2])
     texts.close()
 
     assert sorted(best) == [1, 2]
-    assert stored(database) == {(scope, embedder.model, d.text) for d in DOCUMENTS}
+    assert stored(database) == {(SCOPE, embedder.model, d.text) for d in DOCUMENTS}
 
 
-async def test_after_an_edit_a_restart_embeds_only_the_edited_text(database: Path, scope: str):
+async def test_after_an_edit_a_restart_embeds_only_the_edited_text(database: Path):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
-    await nearest_text(texts, embedder, scope, DOCUMENTS, "鳩")
+    await nearest_text(texts, embedder, SCOPE, DOCUMENTS, "鳩")
     texts.close()
     edited = Document("北海道のドームのステージに立った。", "ドーム")
     before = len(embedder.documents)
 
     restarted = EmbeddedTexts(database, embedder)
-    found = await nearest_text(restarted, embedder, scope, [PARK, WING, edited], "北海道")
+    found = await nearest_text(restarted, embedder, SCOPE, [PARK, WING, edited], "北海道")
     restarted.close()
 
     assert found == edited.text
     assert embedder.documents[before:] == [edited.text]
 
 
-async def test_a_removed_text_is_forgotten(database: Path, scope: str):
+async def test_a_removed_text_is_forgotten(database: Path):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
-    await nearest_text(texts, embedder, scope, DOCUMENTS, "鳩")
+    await nearest_text(texts, embedder, SCOPE, DOCUMENTS, "鳩")
     texts.close()
 
     restarted = EmbeddedTexts(database, embedder)
-    found = await nearest_text(restarted, embedder, scope, [PARK, DOME], "優勝")
+    found = await nearest_text(restarted, embedder, SCOPE, [PARK, DOME], "優勝")
     restarted.close()
 
     assert found != WING.text
-    assert stored(database) == {(scope, embedder.model, d.text) for d in [PARK, DOME]}
+    assert stored(database) == {(SCOPE, embedder.model, d.text) for d in [PARK, DOME]}
 
 
-async def test_other_scopes_are_left_alone(database: Path, scope: str):
-    other = next(s for s in [*SCOPES, character_scope("kogane")] if s != scope)
+async def test_other_scopes_are_left_alone(database: Path):
+    other = next(s for s in [*SCOPES, character_scope("kogane")] if s != SCOPE)
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
     await nearest_text(texts, embedder, other, [WING], "優勝")
     before = len(embedder.documents)
 
-    found = await nearest_text(texts, embedder, scope, [PARK, DOME], "優勝")
+    found = await nearest_text(texts, embedder, SCOPE, [PARK, DOME], "優勝")
     texts.close()
 
     assert found != WING.text
     assert embedder.documents[before:] == [PARK.text, DOME.text]
     assert stored(database) == {
         (other, embedder.model, WING.text),
-        *((scope, embedder.model, d.text) for d in [PARK, DOME]),
+        *((SCOPE, embedder.model, d.text) for d in [PARK, DOME]),
     }
 
 
-async def test_embedding_what_is_missing_reports_how_many_it_embedded(database: Path, scope: str):
+async def test_embedding_what_is_missing_reports_how_many_it_embedded(database: Path):
     embedder = FakeEmbedder()
     texts = EmbeddedTexts(database, embedder)
 
-    first = await texts.embed_missing(scope, DOCUMENTS)
-    second = await texts.embed_missing(scope, DOCUMENTS)
+    first = await texts.embed_missing(SCOPE, DOCUMENTS)
+    second = await texts.embed_missing(SCOPE, DOCUMENTS)
     texts.close()
 
     assert (first, second) == (3, 0)

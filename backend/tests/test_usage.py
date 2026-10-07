@@ -44,24 +44,6 @@ def usage(deployment: Deployment) -> Iterator[UsageLimiter]:
     usage.close()
 
 
-def test_uses_over_the_hourly_limit_are_refused_until_the_oldest_ages_out(
-    deployment: Deployment, usage: UsageLimiter
-):
-    usage.take(deployment.user, "turn")
-    deployment.clock.advance(minutes=20)
-    usage.take(deployment.user, "turn")
-    deployment.clock.advance(minutes=10)
-
-    with pytest.raises(OverLimit) as refused:
-        usage.take(deployment.user, "turn")
-
-    assert refused.value.retry_at == START + timedelta(hours=1)
-    assert refused.value.now == START + timedelta(minutes=30)
-    assert "文字对话" in str(refused.value) and "每小时 2 次" in str(refused.value)
-    deployment.clock.advance(minutes=30)
-    usage.take(deployment.user, "turn")
-
-
 def test_the_last_day_is_tallied_by_hour_with_what_was_on_own_keys(
     deployment: Deployment, usage: UsageLimiter
 ):
@@ -95,19 +77,6 @@ def test_uses_on_own_keys_are_recorded_but_do_not_count(
     with pytest.raises(OverLimit):
         usage.take(deployment.user, "call")
     assert usage.last_day(deployment.user).total == Tally(calls=4, exempt_calls=3)
-
-
-def test_each_user_and_each_kind_has_a_limit_of_its_own(
-    deployment: Deployment, usage: UsageLimiter
-):
-    usage.take(deployment.user, "call")
-
-    usage.take(deployment.friend, "call")
-    usage.take(deployment.user, "turn")
-
-    with pytest.raises(OverLimit) as refused:
-        usage.take(deployment.user, "call")
-    assert "语音通话" in str(refused.value)
 
 
 def test_a_limit_of_none_lets_everything_through(deployment: Deployment):

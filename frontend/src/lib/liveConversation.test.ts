@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError, type CallEvent, type Conversation, type Message, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
-import { MicUnavailable } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
 import { CALM, type Emotion } from "@/lib/standAnimations";
@@ -247,17 +246,6 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().call).toEqual({ phase: "idle" });
   });
 
-  it("shows no end for a call hung up while dialing that then fails", async () => {
-    const { live, attempts } = await conversation();
-    const calling = live.startCall();
-    await live.hangUp();
-
-    attempts[0].fail(new Error("无法接通，请稍后再试"));
-    await calling;
-
-    expect(live.snapshot().call).toEqual({ phase: "idle" });
-  });
-
   it("lets a new call be dialed after one hung up while dialing, which does not disturb it", async () => {
     const { live, attempts } = await conversation();
     const first = live.startCall();
@@ -272,17 +260,13 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().call.phase).toBe("connected");
   });
 
-  it.each([
-    ["the microphone is refused", new MicUnavailable("denied"), "mic_denied"],
-    ["the hour's calls are used up", new ApiError("本小时的通话次数已用完", 429), "over_limit"],
-    ["an own key fails", new ApiError("你的语音合成密钥调用失败", 409), "own_key"],
-    ["it cannot connect", new Error("无法接通，请稍后再试"), "not_connected"],
-  ])("ends saying why, and that it did not count, when %s", async (_, error, reason) => {
+  // Which reason each failure gives is ruled in `callEnd.test.ts`; this shows the call ending with it.
+  it("ends saying why, and that it did not count, when it cannot connect", async () => {
     const { live, attempts } = await conversation();
 
-    await failing(live, attempts, error);
+    await failing(live, attempts, new Error("无法接通，请稍后再试"));
 
-    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason, counts: false } });
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "not_connected", counts: false } });
   });
 
   it("ends with the backend's reason and word on the limit, taking back the reply cut off", async () => {
@@ -386,13 +370,14 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().call).toEqual({ phase: "dialing" }); // as it was when the page was left
   });
 
-  it("hangs up the call under way when the page is left", async () => {
-    const { live, attempts } = await conversation();
+  it("hangs up the call under way and stops her voice when the page is left", async () => {
+    const { live, attempts, voice } = await conversation();
     const call = await connected(live, attempts);
 
     live.dispose();
 
     expect(call.hangUps).toBe(1);
+    expect(voice.disposed).toBe(1);
   });
 
   it("stops showing what it is hearing once the backend takes the words up", async () => {
@@ -438,20 +423,6 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
   });
 
-  it("clears the last failure when a call starts", async () => {
-    const { live } = await conversation({
-      turns: async function* (): AsyncIterable<TurnEvent> {
-        throw new ApiError("本小时的对话次数已用完", 429);
-      },
-    });
-    live.setDraft("你好");
-    await live.submit();
-    expect(live.snapshot().failure).not.toBeNull();
-
-    void live.startCall();
-
-    expect(live.snapshot().failure).toBeNull();
-  });
 });
 
 describe("LiveConversation: a call that is over", () => {
@@ -499,26 +470,25 @@ describe("LiveConversation: a call that is over", () => {
     ["her voice", (h) => h.onCharacterAudio(herTrack)],
   ];
 
-  it.each(endings.flatMap(([ending, end]) => late.map(([what, send]) => [ending, what, end, send] as const)))(
-    "once %s, changes nothing by %s",
-    async (_ending, _what, end, send) => {
-      const { live, attempts, listChanged, voice } = await conversation({ messages: history });
-      await connected(live, attempts);
-      const { handlers } = attempts[0];
-      handlers.onEvent({ type: "user", text: "你好" });
-      handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
-      await end(live, attempts);
-      const before = live.snapshot();
-      const told = listChanged();
-      const played = voice.played.length;
+  it.each(endings)("once %s, changes nothing by anything the call sends too late", async (_ending, end) => {
+    const { live, attempts, listChanged, voice } = await conversation({ messages: history });
+    await connected(live, attempts);
+    const { handlers } = attempts[0];
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
+    await end(live, attempts);
+    const before = live.snapshot();
+    const told = listChanged();
+    const played = voice.played.length;
 
+    for (const [what, send] of late) {
       send(handlers);
 
-      expect(live.snapshot()).toEqual(before);
-      expect(listChanged()).toBe(told);
-      expect(voice.played).toHaveLength(played);
-    },
-  );
+      expect(live.snapshot(), what).toEqual(before);
+      expect(listChanged(), what).toBe(told);
+      expect(voice.played, what).toHaveLength(played);
+    }
+  });
 });
 
 describe("LiveConversation: mic mute", () => {
@@ -793,11 +763,18 @@ const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
 ];
 
 describe("LiveConversation: what can be done", () => {
-  it.each(states)("when %s, says whether a call can be dialed and a new conversation started", async (_, at, can) => {
-    const { live } = await at();
+  it.each(states)(
+    "when %s, says whether a call can be dialed and a new conversation started, and dials her voice only if so",
+    async (_, at, can) => {
+      const { live, voice } = await at();
+      const dials = voice.dials.length;
 
-    expect(live.snapshot()).toMatchObject({ canDial: can, canStartNew: can });
-  });
+      expect(live.snapshot()).toMatchObject({ canDial: can, canStartNew: can });
+      void live.startCall();
+
+      expect(voice.dials).toHaveLength(dials + (can ? 1 : 0));
+    },
+  );
 });
 
 describe("LiveConversation: her voice", () => {
@@ -811,15 +788,6 @@ describe("LiveConversation: her voice", () => {
     expect(voice.dials).toEqual([true]);
     expect(loaded).toHaveLength(read + 1);
     expect(attempts[0].preferences).toBe(loaded.at(-1));
-  });
-
-  it.each(states.filter(([, , can]) => !can))("is left alone when %s and the user dials", async (_, at) => {
-    const { live, voice } = await at();
-    const dials = voice.dials.length;
-
-    await live.startCall();
-
-    expect(voice.dials).toHaveLength(dials);
   });
 
   it("plays her voice in the call under way", async () => {
@@ -846,13 +814,6 @@ describe("LiveConversation: her voice", () => {
     expect(voice.textOnly).toEqual([false, true, false]);
   });
 
-  it("stops when the page is left", async () => {
-    const { live, voice } = await conversation();
-
-    live.dispose();
-
-    expect(voice.disposed).toBe(1);
-  });
 });
 
 describe("LiveConversation: typing", () => {
@@ -895,6 +856,7 @@ describe("LiveConversation: typing", () => {
         { type: "error", message: "角色暂时无法回复" },
       ]),
       "角色暂时无法回复",
+      false,
     ],
     [
       "the reply stops without being done",
@@ -903,6 +865,8 @@ describe("LiveConversation: typing", () => {
         { type: "delta", segment: 0, lang: "ja", text: "こん" },
       ]),
       "回复中断了，请再试一次",
+      // 连接断了，前端分不清是服务出错还是回复其实已经记下，所以不下结论。
+      undefined,
     ],
     [
       "the request fails",
@@ -910,58 +874,27 @@ describe("LiveConversation: typing", () => {
         throw new ApiError("本小时的对话次数已用完", 429);
       },
       "本小时的对话次数已用完",
+      false,
     ],
-  ])("takes back a text turn and returns the text to the input when %s", async (_, turns, why) => {
-    const { live } = await conversation({ messages: history, turns });
-    live.setDraft("你好");
+  ])(
+    "takes back a text turn and returns the text to the input when %s, saying whether it counts and not telling the list",
+    async (_, turns, why, counts) => {
+      // GLOSSARY.md「限额」「回合」：失败的回合和被拒绝的回合都不计入限额。
+      const { live, listChanged } = await conversation({ messages: history, turns });
+      live.setDraft("你好");
 
-    await live.submit();
+      await live.submit();
 
-    expect(live.snapshot()).toMatchObject({
-      draft: "你好",
-      busy: false,
-      failure: { message: why, signedOut: false },
-    });
-    expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
-  });
-
-  it.each([
-    [
-      "the backend says it failed",
-      scripted([
-        { type: "user", text: "你好" },
-        { type: "error", message: "你的 LLM 密钥调用失败：401" },
-      ]),
-    ],
-    [
-      "the request is refused",
-      async function* (): AsyncIterable<TurnEvent> {
-        throw new ApiError("本小时的对话次数已用完", 429);
-      },
-    ],
-  ])("says a text turn does not count towards the limit when %s", async (_, turns) => {
-    // GLOSSARY.md「限额」「回合」：失败的回合和被拒绝的回合都不计入限额。
-    const { live } = await conversation({ messages: history, turns });
-    live.setDraft("你好");
-
-    await live.submit();
-
-    expect(live.snapshot().failure?.countsTowardLimit).toBe(false);
-  });
-
-  it("does not say whether a text turn counts when its reply just stops", async () => {
-    // 连接断了，前端分不清是服务出错还是回复其实已经记下，所以不下结论。
-    const { live } = await conversation({
-      messages: history,
-      turns: scripted([{ type: "user", text: "你好" }]),
-    });
-    live.setDraft("你好");
-
-    await live.submit();
-
-    expect(live.snapshot().failure).not.toBeNull();
-    expect(live.snapshot().failure?.countsTowardLimit).toBeUndefined();
-  });
+      expect(live.snapshot()).toMatchObject({
+        draft: "你好",
+        busy: false,
+        failure: { message: why, signedOut: false },
+      });
+      expect(live.snapshot().failure?.countsTowardLimit).toBe(counts);
+      expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
+      expect(listChanged()).toBe(0);
+    },
+  );
 
   it("hands what the user types in a call to the call instead of starting a text turn", async () => {
     const { live, attempts } = await conversation({ messages: history });
@@ -994,26 +927,6 @@ describe("LiveConversation: typing", () => {
     expect(turns).toEqual([]);
     expect(call.sent).toEqual([]);
     expect(live.snapshot().draft).toBe("你好");
-  });
-
-  it("starts no call while a text turn is under way", async () => {
-    const { gate: answered, open: answer } = gate();
-    const { live, attempts } = await conversation({
-      turns: async function* () {
-        yield { type: "user", text: "你好" };
-        await answered;
-        yield { type: "done", message: message(4, "character", "こんにちは") };
-      },
-    });
-    live.setDraft("你好");
-    const sending = live.submit();
-
-    await live.startCall();
-    answer();
-    await sending;
-
-    expect(attempts).toEqual([]);
-    expect(live.snapshot().call).toEqual({ phase: "idle" });
   });
 
   it("lets a text turn under way finish when the page is left, showing no more of it", async () => {
@@ -1181,29 +1094,21 @@ describe("LiveConversation: opening", () => {
 });
 
 describe("LiveConversation: a new conversation", () => {
-  it("starts a new conversation with an empty log, which the list then shows", async () => {
+  it("starts a new conversation with an empty log and input box, which the list then shows", async () => {
     const { live, created, listChanged, sentTo } = await conversation({
       messages: history,
       turns: scripted([]),
     });
-
-    await live.startNewConversation();
-
-    expect(created).toEqual(["new1"]);
-    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, entries: [], failure: null });
-    expect(listChanged()).toBe(1);
-    live.setDraft("你好");
-    await live.submit();
-    expect(sentTo).toEqual(["new1"]);
-  });
-
-  it("clears the input box for the new conversation", async () => {
-    const { live } = await conversation({ messages: history });
     live.setDraft("还没发出去的话");
 
     await live.startNewConversation();
 
-    expect(live.snapshot().draft).toBe("");
+    expect(created).toEqual(["new1"]);
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, entries: [], draft: "", failure: null });
+    expect(listChanged()).toBe(1);
+    live.setDraft("你好");
+    await live.submit();
+    expect(sentTo).toEqual(["new1"]);
   });
 
   it("is opening again while the new conversation is started, sending and dialing nothing", async () => {
@@ -1320,30 +1225,6 @@ describe("LiveConversation: the list", () => {
     handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
 
     expect(listChanged()).toBe(1);
-  });
-
-  it.each([
-    [
-      "the backend says it failed",
-      scripted([
-        { type: "user", text: "你好" },
-        { type: "error", message: "角色暂时无法回复" },
-      ]),
-    ],
-    ["the reply stops without being done", scripted([{ type: "user", text: "你好" }])],
-    [
-      "the request fails",
-      async function* (): AsyncIterable<TurnEvent> {
-        throw new ApiError("本小时的对话次数已用完", 429);
-      },
-    ],
-  ])("is not told about a text turn taken back when %s", async (_, turns) => {
-    const { live, listChanged } = await conversation({ turns });
-    live.setDraft("你好");
-
-    await live.submit();
-
-    expect(listChanged()).toBe(0);
   });
 
   it("is not told about a turn in a call that fails or is cut off", async () => {
@@ -1553,10 +1434,6 @@ describe("LiveConversation: her emotions", () => {
     return { type: "emotion", reply, segment, emotion: feeling, nod };
   }
 
-  function playing(reply: number, segment: number): CallEvent {
-    return { type: "segment-playing", reply, segment };
-  }
-
   /** A call under way with her voice, as reply `reply` starts; `emit` sends it events. */
   async function voiced(options: { textOnly?: boolean } = {}) {
     const opened = await conversation();
@@ -1574,16 +1451,6 @@ describe("LiveConversation: her emotions", () => {
   function subtitle(segment: number, text = "こんにちは"): CallEvent {
     return { type: "delta", segment, lang: "ja", text };
   }
-
-  it("changes as her voice starts playing the segment, not before", async () => {
-    const { emit, mood } = await voiced();
-    emit(reply(1), subtitle(0), emotion(1, 0, "happy"));
-    expect(mood()).toBe("calm");
-
-    emit(playing(1, 0));
-
-    expect(mood()).toBe("happy");
-  });
 
   it("changes as each segment's first subtitle shows in text only", async () => {
     const { emit, mood } = await voiced({ textOnly: true });

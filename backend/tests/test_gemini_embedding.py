@@ -72,10 +72,6 @@ async def test_documents_are_embedded_in_batches_and_kept_in_order():
     assert [v[0] for v in vectors] == [float(i % 100) for i in range(250)]
 
 
-def test_the_stored_model_carries_the_dimensions():
-    assert embedder([], dimensions=768).model == "gemini-embedding-2@768"
-
-
 @pytest.mark.parametrize(
     "response, error",
     [

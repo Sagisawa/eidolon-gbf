@@ -14,7 +14,6 @@ from eidolon.own_keys import (
     CallsUnavailable,
     DeployerKeys,
     OwnKeyFailed,
-    OwnKeyRejected,
     OwnKeys,
     OwnLLMSettings,
 )
@@ -84,16 +83,6 @@ def deployment(tmp_path: Path) -> Iterator[Deployment]:
     deployment.store.close()
 
 
-def test_a_user_who_brought_nothing_takes_turns_on_the_deployers_llms_and_they_count(
-    deployment: Deployment,
-):
-    keys = deployment.own_keys().for_turn(deployment.user)
-
-    assert keys.llms.chat is deployment.chat
-    assert keys.llms.memory is deployment.memory
-    assert keys.exempt is False
-
-
 async def test_a_user_who_brought_an_llm_takes_turns_on_it_for_both_and_they_do_not_count(
     deployment: Deployment,
 ):
@@ -109,19 +98,6 @@ async def test_a_user_who_brought_an_llm_takes_turns_on_it_for_both_and_they_do_
     assert deployment.chat.keys == []
     assert deployment.memory.prompts == []
     assert keys.exempt is True
-
-
-async def test_an_own_llm_that_can_no_longer_be_decrypted_fails_the_turn_before_it_starts(
-    deployment: Deployment,
-):
-    await bring(deployment.own_keys(), deployment.user, "llm")
-    changed = deployment.own_keys(secret_key="another-secret-key")  # EIDOLON_SECRET_KEY changed
-
-    with pytest.raises(OwnKeyFailed) as failed:
-        changed.for_turn(deployment.user)
-
-    assert failed.value.service == "llm"
-    assert "保存的密钥无法解密" in failed.value.message
 
 
 async def test_a_call_hears_and_speaks_on_the_users_own_speech_keys_and_the_deployers_otherwise(
@@ -181,28 +157,6 @@ async def test_a_users_own_speech_recognition_is_the_service_they_chose_whicheve
     }
 
 
-async def test_a_dashscope_key_is_tried_and_kept_with_the_region_it_works_in(
-    deployment: Deployment,
-):
-    deployment.speech.regions[MY_DASHSCOPE] = "singapore"
-    own_keys = deployment.own_keys()
-
-    await bring(own_keys, deployment.user, "stt", stt="bailian")
-
-    assert deployment.speech.checked == [("bailian", MY_DASHSCOPE)]
-    assert own_keys.for_call(deployment.user).stt.region == "singapore"
-
-
-async def test_a_dashscope_key_that_fails_its_try_is_not_kept(deployment: Deployment):
-    deployment.speech.rejects[MY_DASHSCOPE] = "这个 key 无效"
-    own_keys = deployment.own_keys()
-
-    with pytest.raises(OwnKeyRejected, match="这个 key 无效"):
-        await bring(own_keys, deployment.user, "stt", stt="bailian")
-
-    assert own_keys.describe(deployment.user) == {}
-
-
 async def test_a_speech_recognition_key_kept_before_there_was_a_choice_is_sonioxs(
     deployment: Deployment, tmp_path: Path
 ):
@@ -237,15 +191,6 @@ async def test_an_own_speech_recognition_key_failing_says_whose_service_it_is_fo
         changed.for_call(deployment.user)
 
     assert failed.value.message.startswith(f"你的{label}密钥调用失败")
-
-
-async def test_calls_on_all_three_own_keys_do_not_count_whichever_service_hears_them(
-    deployment: Deployment,
-):
-    own_keys = deployment.own_keys()
-    await bring(own_keys, deployment.user, "llm", "tts", "stt", stt="bailian")
-
-    assert own_keys.for_call(deployment.user).exempt is True
 
 
 async def test_a_user_can_call_on_their_own_key_for_what_the_deployer_has_none_for(

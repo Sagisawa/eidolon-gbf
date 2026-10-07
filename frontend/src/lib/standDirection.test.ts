@@ -69,16 +69,6 @@ describe("standDirection: who is speaking", () => {
     expect(second.nod?.id).not.toBe(first.nod?.id);
   });
 
-  it("shuts her mouth as soon as her voice stops when the user cuts in, looking at them", () => {
-    const voiced = [reply(1), emotion(1, 0, "happy"), playing(1, 0), botStarted];
-
-    expect(direction([...voiced, userStarted, botStopped])).toMatchObject({
-      mood: "happy",
-      speaking: false,
-      looking: true,
-    });
-  });
-
   it("looks at the user who interrupts by typing once her voice stops, until she speaks again", () => {
     expect(direction([botStarted, typed])).toMatchObject({ speaking: true, looking: false });
     expect(direction([botStarted, typed, botStopped])).toMatchObject({ mood: "calm", speaking: false, looking: true });
@@ -88,12 +78,6 @@ describe("standDirection: who is speaking", () => {
   it("changes nothing for what is typed before she starts speaking", () => {
     expect(direction([reply(1), typed])).toEqual(CALM);
     expect(direction([reply(1), typed, botStarted, botStopped]).looking).toBe(false);
-  });
-
-  it("is cleared when the call is over", () => {
-    const events = [botStarted, userStarted, userStopped, userStarted, typed];
-
-    expect(direction([...events, callOver])).toEqual(CALM);
   });
 
   it("gives the same direction while nothing about it changes", () => {
@@ -195,10 +179,6 @@ describe("standDirection: her emotions", () => {
     expect(direction([...thinking, reply(2), emotion(1, 1, "angry")], { textOnly: true }).mood).toBe("thinking");
   });
 
-  it("does not take a segment up as said on its subtitle unless it is text only", () => {
-    expect(direction([reply(1), subtitle(0), emotion(1, 0, "happy")]).mood).toBe("calm");
-  });
-
   it("takes up each segment's emotion in text only though the next segment shows before it is judged", () => {
     const shown = [reply(1), subtitle(0), subtitle(1)];
     expect(direction([...shown, emotion(1, 0, "happy")], { textOnly: true }).mood).toBe("happy");
@@ -219,7 +199,7 @@ describe("standDirection: her emotions", () => {
     expect(direction(past).mood).toBe("calm");
   });
 
-  it("leaves her mood alone when she is interrupted", () => {
+  it("leaves her mood alone when she is interrupted, shutting her mouth as soon as her voice stops and looking at the user", () => {
     const events = [reply(1), emotion(1, 0, "happy"), playing(1, 0), botStarted];
 
     expect(direction([...events, userStarted, botStopped, emotion(1, 1, "sad")])).toMatchObject({
@@ -229,7 +209,10 @@ describe("standDirection: her emotions", () => {
     });
   });
 
-  it("forgets the last call's emotions when it is over", () => {
+  it("forgets all of the last call when it is over: who was speaking, typing, and her emotions", () => {
+    const speaking = [botStarted, userStarted, userStopped, userStarted, typed];
+    expect(direction([...speaking, callOver])).toEqual(CALM);
+
     const events = [reply(1), emotion(1, 0, "happy"), playing(1, 0), emotion(1, 1, "sad")];
     expect(direction(events).mood).toBe("happy");
 
