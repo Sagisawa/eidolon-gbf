@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from eidolon.config import Settings, UsageLimits
-from tests.conftest import Admin, ClientFactory
+from tests.conftest import ClientFactory
 from tests.browser import open_browser
 from tests.fakes import START, FakeClock, FakeLLM, FakeSpeech
 from tests.test_text_turn import leave_turn, send_turn, start_conversation

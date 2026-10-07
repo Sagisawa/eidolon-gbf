@@ -27,11 +27,21 @@ dev = [
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "ruff>=0.16.10",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# 只开 pyflakes 和 pycodestyle 的错误类规则，固定写出来，升级 ruff 时默认规则变了也不会突然多出一批
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试从别的测试文件导入 fixture（`mano_call,  # noqa: F401  # the fixture`），
+# 再在测试参数里用同名参数接住，pyflakes 会把每个参数都报成重定义
+"tests/**" = ["F811"]
 
 [tool.pyright]
 include = ["src", "tests"]

@@ -16,7 +16,6 @@ from eidolon.call import (
     CallFailed,
     CallNotFound,
     CallOptions,
-    CallsUnavailable,
     IceCandidate,
     Quality,
     SessionDescription,
@@ -24,7 +23,7 @@ from eidolon.call import (
 from eidolon.characters import Character
 from eidolon.engine import TurnFailed
 from eidolon.reply_format import SegmentComplete, SpeechDelta
-from eidolon.own_keys import OwnKeyFailed
+from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
 from eidolon.sessions import UserId, session_middleware

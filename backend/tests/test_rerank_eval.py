@@ -4,7 +4,6 @@ and the work facts together), and the scores the reranker gives what is labelled
 and what is not are laid side by side, against the model's thresholds."""
 
 import asyncio
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest

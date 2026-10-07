@@ -170,7 +170,7 @@ class StoryCorpus:
                 self._db.executemany(
                     "INSERT INTO episode_lines (episode_id, seq, speaker, ja, zh)"
                     " VALUES (?, ?, ?, ?, ?)",
-                    [(episode.id, i, l.speaker, l.ja, l.zh) for i, l in enumerate(episode.lines)],
+                    [(episode.id, i, line.speaker, line.ja, line.zh) for i, line in enumerate(episode.lines)],
                 )
                 self._db.executemany(
                     "INSERT INTO episode_passages (episode_id, seq, text, model, embedding)"

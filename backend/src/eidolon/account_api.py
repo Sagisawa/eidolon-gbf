@@ -32,7 +32,6 @@ from eidolon.own_keys import (
     OwnKeyRejected,
     OwnKeysUnavailable,
     OwnLLMSettings,
-    Service,
 )
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (

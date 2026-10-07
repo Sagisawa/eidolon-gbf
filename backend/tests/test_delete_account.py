@@ -108,7 +108,7 @@ async def test_deleting_signs_the_user_out_everywhere(make_client: ClientFactory
 
     res = await desktop.post("/api/account/delete", json=DELETE)
 
-    assert f'eidolon_session=""' in res.headers["set-cookie"]
+    assert 'eidolon_session=""' in res.headers["set-cookie"]
     for client in (desktop, phone):
         assert (await client.get("/api/account")).status_code == 401
 
