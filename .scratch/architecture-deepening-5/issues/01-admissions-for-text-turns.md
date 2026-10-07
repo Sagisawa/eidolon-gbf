@@ -9,7 +9,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human
+**Status:** resolved
 
 ## 已定的设计（2026-10-07 grilling，详见 spec）
 
@@ -51,7 +51,7 @@
 - [x] 文字回合的接口只经由 `Admissions` 放行，不再自己去读部署者的模型设置。
 - [x] 旧笔记已补上那一行。
 - [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。经 HTTP 的测试（例如 `test_rate_limit.py`）不改断言就能通过；如果哪条必须改，在 Comments 里说明原因。
-- [ ] **人工验收（留给用户）**：本地起服务，发几个文字回合，在后台看板确认：
+- [x] **人工验收（留给用户）**：本地起服务，发几个文字回合，在后台看板确认：
   - 成功的回合计入限额，有一条 `success` 记录；
   - 空白或太长的输入被拒绝，不计入限额，记为 `rejected`；
   - 发出后立刻关掉页面，照常计入，记为 `left`；
