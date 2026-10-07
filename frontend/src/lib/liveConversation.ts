@@ -198,7 +198,7 @@ export class LiveConversation {
   dispose(): void {
     this.disposed = true;
     this.attempt = null;
-    this.call?.hangUp().catch(() => {});
+    this.call?.leave().catch(() => {});
     this.call = null;
     this.ports.voice.dispose();
   }
@@ -315,7 +315,7 @@ export class LiveConversation {
     }
     if (!current()) {
       // Hung up, or the page left, while dialing: nothing else will hang this one up.
-      await started.hangUp().catch(() => {});
+      await (this.disposed ? started.leave() : started.hangUp()).catch(() => {});
       return;
     }
     this.call = started;

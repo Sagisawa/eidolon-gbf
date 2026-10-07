@@ -24,7 +24,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
 from eidolon.accounts import Accounts
-from eidolon.activity import ActivityLog, metered_retrieval
+from eidolon.activity import ActivityLog, MeteredEmotionJudge, judge_origin, metered_retrieval
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
@@ -188,7 +188,9 @@ def build(
     emotions = None
     if emotion_judge is not None:
         emotions = EmotionJudging(
-            emotion_judge, thresholds_of_judge.emotion, settings.emotion.timeout
+            MeteredEmotionJudge(emotion_judge, activity, judge_origin(settings)),
+            thresholds_of_judge.emotion,
+            settings.emotion.timeout,
         )
 
     retrieval = None
@@ -229,7 +231,10 @@ def build(
     )
     speech = speech or SpeechServices(settings.fish_audio_model, bailian_model)
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, speech)
-    calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)
+    calls = Calls(
+        settings, engine, usage, speech, clock, own_keys, activity,
+        lambda: (config.chat_llm, settings.background_llm), store, emotions,
+    )
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,

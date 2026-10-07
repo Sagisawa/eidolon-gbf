@@ -85,8 +85,18 @@ class TurnOutcome:
         """An event of the turn, as the browser is told it."""
         if isinstance(event, SegmentDelta):
             self._recording.spoke()  # the reply's first words have appeared
-        elif isinstance(event, TurnDone):
-            self._result = "success"
-        elif isinstance(event, TurnFailed):
-            self._use.give_back()
-            self._result = "rejected" if event.message in (BLANK, TOO_LONG) else "failed"
+        elif (result := turn_result(event)) is not None:
+            self._result = result
+            if result != "success":
+                self._use.give_back()
+
+
+def turn_result(event: TurnEvent) -> Result | None:
+    """How a turn turned out, if `event` ends it: done, or failed, which is rejected when
+    for its input (GLOSSARY.md「回合」). A turn over without either was left. Text turns
+    and the turns of calls alike."""
+    if isinstance(event, TurnDone):
+        return "success"
+    if isinstance(event, TurnFailed):
+        return "rejected" if event.message in (BLANK, TOO_LONG) else "failed"
+    return None

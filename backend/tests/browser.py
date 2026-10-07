@@ -91,7 +91,17 @@ class Browser:
             if message.get("type") == "signalling" and message["message"]["type"] == "peerLeft":
                 return
 
+    async def hang_up(self) -> None:
+        """Press 挂断: say so, as the call screen does, then close the connection."""
+        self._send("client-message", {"t": "hang-up", "d": {}})
+        async with asyncio.timeout(TIMEOUT):
+            while self._channel.bufferedAmount > 0:
+                await asyncio.sleep(0.01)
+        await asyncio.sleep(0.1)  # for it to arrive ahead of the connection closing
+        await self.close()
+
     async def close(self) -> None:
+        """Close the connection without a word, as leaving the page does."""
         await self.pc.close()
 
     def _send(self, type: str, data: dict) -> None:

@@ -13,24 +13,29 @@ import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { TurnTrendChart } from "@/components/admin/TurnTrendChart";
+import { TrendChart } from "@/components/admin/TrendChart";
 import { copy } from "@/i18n";
 import {
+  CALL_END_REASONS,
+  CALL_RESULTS,
   DASHBOARD_RANGES,
   type Dashboard,
   type DashboardRange,
+  durationRange,
   type ErrorKind,
   formatCount,
+  formatDuration,
   formatMs,
   formatPercent,
   formatShare,
   formatUsage,
+  getCallsInProgress,
   getDashboard,
   type HealthStatus,
   healthStatus,
   isDashboardRange,
+  LIVE_CALLS_REFRESH_MS,
   TURN_RESULTS,
-  type TurnResult,
 } from "@/lib/dashboard";
 
 const t = copy.admin.dashboard;
@@ -43,13 +48,30 @@ const STATUS_DOT: Record<HealthStatus, "success" | "warning" | "error" | "neutra
 };
 
 /**
- * 看板（后台默认页）：时间范围切换；回合的几个数字；回合趋势；回合结果；服务健康（每项服务一行，
- * 部署者和自带密钥分开）；按角色的回合数。数字全由后端汇总，这里只负责排版和格式化。
+ * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数（每分钟刷新）；回合和
+ * 通话的趋势；回合结果；通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；
+ * 按角色的回合数和通话数。数字全由后端汇总，这里只负责排版和格式化。
  */
 export function AdminDashboard() {
   const [range, setRange] = useState<DashboardRange>("24h");
   const [board, setBoard] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [inProgress, setInProgress] = useState<number | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    const refresh = () =>
+      getCallsInProgress().then(
+        (n) => current && setInProgress(n),
+        () => current && setInProgress(null),
+      );
+    void refresh();
+    const timer = setInterval(refresh, LIVE_CALLS_REFRESH_MS);
+    return () => {
+      current = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -88,19 +110,33 @@ export function AdminDashboard() {
       {board === null ? (
         error === null && <Skeleton height={320} />
       ) : (
-        <DashboardBody board={board} />
+        <DashboardBody board={board} inProgress={inProgress} />
       )}
     </VStack>
   );
 }
 
-function DashboardBody({ board }: { board: Dashboard }) {
-  const turns = board.turns;
+function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: number | null }) {
+  const { turns, calls } = board;
   return (
     <VStack gap={8}>
-      <Grid columns={{ minWidth: 160, max: 4 }} gap={3}>
-        <StatTile label={t.tiles.turns} value={formatCount(turns.total)} />
-        <StatTile label={t.tiles.activeUsers} value={formatCount(turns.active_users)} />
+      <Grid columns={{ minWidth: 160, max: 3 }} gap={3}>
+        <StatTile
+          label={t.tiles.turns}
+          value={formatCount(turns.total)}
+          note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
+        />
+        <StatTile
+          label={t.tiles.calls}
+          value={formatCount(calls.total)}
+          note={t.tiles.callsOnOwnKeys(formatCount(calls.own_keys))}
+        />
+        <StatTile
+          label={t.tiles.callsInProgress}
+          value={inProgress === null ? "—" : formatCount(inProgress)}
+          note={t.tiles.callsInProgressNote}
+        />
+        <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} />
         <StatTile
           label={t.tiles.ownKeys}
           value={formatCount(turns.own_keys)}
@@ -113,12 +149,49 @@ function DashboardBody({ board }: { board: Dashboard }) {
         />
       </Grid>
 
-      <Section title={t.trend.title} hint={t.trend.hint[board.bucket]}>
-        <TurnTrendChart points={board.trend} bucket={board.bucket} />
+      <Section title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
+        <TrendChart points={board.trend} bucket={board.bucket} series="turns" />
+      </Section>
+
+      <Section title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
+        <TrendChart points={board.trend} bucket={board.bucket} series="calls" />
       </Section>
 
       <Section title={t.results.title} hint={t.results.hint}>
-        <ResultsTable board={board} />
+        <CountsTable
+          rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
+          total={turns.total}
+          labelHeader={t.results.result}
+          countHeader={t.results.turns}
+          shareHeader={t.results.share}
+        />
+      </Section>
+
+      <Section title={t.callResults.title} hint={t.callResults.hint}>
+        <CountsTable
+          rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
+          total={calls.total}
+          labelHeader={t.callResults.result}
+          countHeader={t.callResults.calls}
+          shareHeader={t.callResults.share}
+        />
+      </Section>
+
+      <Section
+        title={t.durations.title}
+        hint={t.durations.hint(formatDuration(calls.duration_s.p50), formatDuration(calls.duration_s.p90))}
+      >
+        <DurationsTable board={board} />
+      </Section>
+
+      <Section title={t.endReasons.title} hint={t.endReasons.hint}>
+        <CountsTable
+          rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
+          total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
+          labelHeader={t.endReasons.reason}
+          countHeader={t.endReasons.calls}
+          shareHeader={t.endReasons.share}
+        />
       </Section>
 
       <Section title={t.health.title} hint={t.health.hint}>
@@ -160,20 +233,54 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
-interface ResultRow extends Record<string, unknown> {
-  result: TurnResult;
-  turns: number;
+interface CountRow extends Record<string, unknown> {
+  id: string;
+  label: string;
+  count: number;
 }
 
-function ResultsTable({ board }: { board: Dashboard }) {
-  const total = board.turns.total;
-  const rows: ResultRow[] = TURN_RESULTS.map((result) => ({ result, turns: board.turns.by_result[result] }));
-  const columns: TableColumn<ResultRow>[] = [
-    { key: "result", header: t.results.result, width: proportional(2), renderCell: (row) => t.results.names[row.result] },
-    { key: "turns", header: t.results.turns, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatCount(row.turns)}</Numeric> },
-    { key: "share", header: t.results.share, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatShare(row.turns, total)}</Numeric> },
+/** How many of `total` fell under each row's label, and what share of it. */
+function CountsTable({
+  rows,
+  total,
+  labelHeader,
+  countHeader,
+  shareHeader,
+}: {
+  rows: CountRow[];
+  total: number;
+  labelHeader: string;
+  countHeader: string;
+  shareHeader: string;
+}) {
+  const columns: TableColumn<CountRow>[] = [
+    { key: "label", header: labelHeader, width: proportional(2), renderCell: (row) => row.label },
+    { key: "count", header: countHeader, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatCount(row.count)}</Numeric> },
+    { key: "share", header: shareHeader, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatShare(row.count, total)}</Numeric> },
   ];
-  return <Table data={rows} columns={columns} idKey="result" density="compact" />;
+  return <Table data={rows} columns={columns} idKey="id" density="compact" />;
+}
+
+interface DurationRow extends Record<string, unknown> {
+  id: string;
+  label: string;
+  calls: number;
+}
+
+/** How many connected calls lasted how long, a bar against the commonest stretch. */
+function DurationsTable({ board }: { board: Dashboard }) {
+  const rows: DurationRow[] = board.calls.durations.map((d) => ({
+    id: String(d.from_s),
+    label: durationRange(d.from_s, d.to_s),
+    calls: d.calls,
+  }));
+  const most = Math.max(0, ...rows.map((row) => row.calls));
+  const columns: TableColumn<DurationRow>[] = [
+    { key: "label", header: t.durations.range, width: proportional(1), renderCell: (row) => row.label },
+    { key: "bar", header: "", width: proportional(2), renderCell: (row) => <ShareBar part={row.calls} whole={most} /> },
+    { key: "calls", header: t.durations.calls, width: pixel(96), align: "end", renderCell: (row) => <Numeric>{formatCount(row.calls)}</Numeric> },
+  ];
+  return <Table data={rows} columns={columns} idKey="id" density="compact" />;
 }
 
 interface HealthRow extends Record<string, unknown> {
@@ -237,6 +344,7 @@ interface CharacterRow extends Record<string, unknown> {
   character_id: string;
   name: string | null;
   turns: number;
+  calls: number;
 }
 
 function CharactersTable({ board }: { board: Dashboard }) {
@@ -246,6 +354,7 @@ function CharactersTable({ board }: { board: Dashboard }) {
     { key: "name", header: t.characters.character, width: proportional(1), renderCell: (row) => row.name ?? t.characters.removed },
     { key: "bar", header: "", width: proportional(2), renderCell: (row) => <ShareBar part={row.turns} whole={most} /> },
     { key: "turns", header: t.characters.turns, width: pixel(96), align: "end", renderCell: (row) => <Numeric>{formatCount(row.turns)}</Numeric> },
+    { key: "calls", header: t.characters.calls, width: pixel(96), align: "end", renderCell: (row) => <Numeric>{formatCount(row.calls)}</Numeric> },
   ];
   return <Table data={board.characters} columns={columns} idKey="character_id" density="compact" />;
 }

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from eidolon.activity import ActivityLog
 from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
 from eidolon.config import UsageLimits
 from eidolon.own_keys import OwnKeyFailed
@@ -28,9 +29,10 @@ class Limiter:
         self._store = Store(path)
         self.user = self._store.create_user("producer").id
         self.usage = UsageLimiter(path, UsageLimits(calls_per_hour=1), lambda: NOW)
+        self.activity = ActivityLog(path, lambda: NOW)
 
     def call(self, exempt: bool = False, limits: CallLimits = CallLimits()) -> CallOutcome:
-        return CallOutcome(self.usage, self.user, exempt, limits)
+        return CallOutcome(self.usage, self.activity, self.user, "mano", exempt, limits)
 
     def counted(self) -> bool:
         """Whether this hour's call is used up, that is, the last one was not given back."""
@@ -44,6 +46,7 @@ class Limiter:
         return self.usage.last_day(self.user).total.calls
 
     def close(self) -> None:
+        self.activity.close()
         self.usage.close()
         self._store.close()
 

@@ -1,13 +1,18 @@
-"""Activity records (GLOSSARY.md「运行记录」): one for each text turn (and, in time, each
-call), saying how it turned out, and one for each call to an outside service, saying which
-service, whose key, whether it failed and how, how long it took and what it was billed
-for. They hold nothing anyone said. Only the admin's dashboard reads them (`dashboard`).
+"""Activity records (GLOSSARY.md「运行记录」): one for each turn and each call, saying how
+it turned out, and one for each call to an outside service, saying which service, whose
+key, whether it failed and how, how long it took and what it was billed for. They hold
+nothing anyone said. Only the admin's dashboard reads them (`dashboard`).
 
 A turn's record is open while the turn runs (`ActivityLog.begin`, then `current`), and the
 service calls made meanwhile, in the turn's context, are recorded under it; its outcome
 is told it as the turn's use of the limit is (`turn_outcome`), and it is written once it
 has one. A service call made outside any turn, as writing down memories after one is
 (`detached`), is recorded on its own.
+
+A call's record is told its outcome as the call's use of the limit is (`call_outcome`),
+with how long it lasted and why it ended. The turns taken in it each have a record of
+their own under the call's (`Recording.turn`), written with it; its speech recognition,
+synthesis and emotion judging are recorded under the call (`Recording.add`), not a turn.
 
 The services are timed by thin wrappers around their clients (`metered_llm`,
 `MeteredJudge`, `MeteredEmbedder`, `MeteredReranker`), which also open a `Billing` for
@@ -46,6 +51,7 @@ from eidolon.judge import CLOUDFLARE_API_URL
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall, TurnLLMs
 from eidolon.rerank import Reranker
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
+    from eidolon.emotion import EmotionAnswer, EmotionJudge, SegmentToJudge
     from eidolon.retrieval import Need, RetrievalJudge
 from eidolon.store import Message
 
@@ -81,7 +87,7 @@ _SCHEMA = """
 -- Times are epoch seconds, so that a range is a plain range query. A record's user is
 -- NULL once the user is deleted, and `anonymous_id` then tells their records apart from
 -- other users' without saying whose they were. `call_id`, `duration_s` and `end_reason`
--- are for calls and the turns in them.
+-- are for calls: a call's turns name its record in `call_id`, and a call has the other two.
 CREATE TABLE IF NOT EXISTS activity_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -100,7 +106,8 @@ CREATE INDEX IF NOT EXISTS activity_records_by_time ON activity_records(started_
 CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id, started_at);
 -- Each call to an outside service; `record_id` is the turn or call it was made in, NULL
 -- for one made outside any. `error` is NULL when it succeeded; the usage columns are NULL
--- when the service did not say.
+-- when the service did not say; `latency_ms` is NULL for speech recognition, a stream as
+-- long as the call, and for speech synthesis that never answered.
 CREATE TABLE IF NOT EXISTS service_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id INTEGER,
@@ -110,7 +117,7 @@ CREATE TABLE IF NOT EXISTS service_calls (
     model TEXT NOT NULL,
     own_key INTEGER NOT NULL DEFAULT 0,
     error TEXT,
-    latency_ms REAL NOT NULL,
+    latency_ms REAL,
     usage_unit TEXT,
     usage_input REAL,
     usage_output REAL
@@ -145,8 +152,21 @@ class ServiceCall:
     origin: Origin
     at: datetime
     error: ErrorKind | None
-    latency_ms: float
+    latency_ms: float | None
     billed: Billing
+
+
+CallEndReason = Literal[
+    "hung_up", "left", "duration_limit", "turn_limit", "banned", "deleted", "failed",
+    "shutdown",
+]
+"""Why a call ended: the user hung up, or left the conversation page (or lost the
+connection) without hanging up; it reached its time or its turn limit; the user was
+banned, or deleted; a service, or the connection, failed; the server shut down."""
+CALL_END_REASONS: tuple[CallEndReason, ...] = (
+    "hung_up", "left", "duration_limit", "turn_limit", "banned", "deleted", "failed",
+    "shutdown",
+)
 
 
 @dataclass(frozen=True)
@@ -161,6 +181,12 @@ class RecordRow:
     result: Result
     own_keys: bool
     time_to_speak_ms: float | None
+    duration_s: float | None = None
+    """How long a call lasted once connected; None for a turn, or a call never connected."""
+    end_reason: CallEndReason | None = None
+    """Why a call ended; None for a turn, or a call refused."""
+    in_call: bool = False
+    """Whether a turn was taken in a call."""
 
 
 @dataclass(frozen=True)
@@ -173,7 +199,7 @@ class CallRow:
     own_key: bool
     at: datetime
     error: ErrorKind | None
-    latency_ms: float
+    latency_ms: float | None
     usage_unit: str | None
     usage_input: float | None
     usage_output: float | None
@@ -191,8 +217,9 @@ def detached() -> Context:
 
 
 class Recording:
-    """One turn's activity record while the turn runs: the service calls made in it, and
-    when the character began to speak (GLOSSARY.md「开口」). Written once finished."""
+    """One turn's or call's activity record while it runs: the service calls made in it,
+    and, for a turn, when the character began to speak (GLOSSARY.md「开口」); for a call,
+    the turns taken in it. Written once finished; a turn in a call, with the call."""
 
     def __init__(
         self,
@@ -202,6 +229,7 @@ class Recording:
         character_id: str,
         started_at: datetime,
         own_keys: bool,
+        call: "Recording | None" = None,
     ) -> None:
         self._log = log
         self.kind: RecordKind = kind
@@ -212,6 +240,14 @@ class Recording:
         self.time_to_speak_ms: float | None = None
         self.calls: list[ServiceCall] = []
         self.finished = False
+        self.result: Result | None = None
+        self.duration_s: float | None = None
+        self.end_reason: CallEndReason | None = None
+        self.call = call
+        """The call this turn was taken in, if any."""
+        self.turns: list[Recording] = []
+        """For a call, the turns taken in it."""
+        self.row_id: int | None = None  # once written
         self._started = perf_counter()
 
     @contextmanager
@@ -229,12 +265,36 @@ class Recording:
         if self.time_to_speak_ms is None:
             self.time_to_speak_ms = (perf_counter() - self._started) * 1000
 
-    def finish(self, result: Result) -> None:
-        """Write the record, as `result`, with its service calls; only the first time."""
+    def turn(self, own_keys: bool) -> "Recording":
+        """Open the record of a turn taken in this call, on the user's own LLM or not."""
+        turn = Recording(
+            self._log, "turn", self.user_id, self.character_id, self._log.now(), own_keys,
+            call=self,
+        )
+        self.turns.append(turn)
+        return turn
+
+    def add(
+        self, origin: Origin, error: ErrorKind | None, latency_ms: float | None, billed: Billing
+    ) -> None:
+        """A service call made in this call (or turn) has ended, having taken `latency_ms`."""
+        self._log.record(ServiceCall(origin, self._log.now(), error, latency_ms, billed), self)
+
+    def finish(
+        self,
+        result: Result,
+        duration_s: float | None = None,
+        end_reason: CallEndReason | None = None,
+    ) -> None:
+        """Write the record, as `result` (a call's with how long it lasted and why it
+        ended), with its service calls; only the first time. A turn in a call is written
+        with the call, or at once if the call's record has been written already."""
         if self.finished:
             return
         self.finished = True
-        self._log._write(self, result)
+        self.result, self.duration_s, self.end_reason = result, duration_s, end_reason
+        if self.call is None or self.call.finished:
+            self._log._write(self)
 
 
 class ActivityLog:
@@ -245,13 +305,17 @@ class ActivityLog:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            _let_latency_be_unknown(self._db)
         self._clock = clock
+
+    def now(self) -> datetime:
+        return self._clock()
 
     def begin(
         self, kind: RecordKind, user_id: str, character_id: str, own_keys: bool
     ) -> Recording:
-        """Open the record of a turn the user begins with `character_id`, on their own
-        keys alone or not; forgets every record older than `KEPT`."""
+        """Open the record of a turn or call the user begins with `character_id`, on their
+        own keys alone or not; forgets every record older than `KEPT`."""
         now = self._clock()
         self._forget_before(now - KEPT)
         return Recording(self, kind, user_id, character_id, now, own_keys)
@@ -262,9 +326,12 @@ class ActivityLog:
         call = ServiceCall(
             origin, self._clock(), error, (perf_counter() - started) * 1000, billed
         )
-        recording = _current.get()
-        if recording is not None and not recording.finished:
-            recording.calls.append(call)
+        self.record(call, _current.get())
+
+    def record(self, call: ServiceCall, into: Recording | None) -> None:
+        """A service call, recorded under `into` while it is open, or else on its own."""
+        if into is not None and not into.finished:
+            into.calls.append(call)
         else:
             with self._lock, self._db:
                 self._insert_call(call, None)
@@ -275,8 +342,8 @@ class ActivityLog:
         with self._lock:
             records = self._db.execute(
                 "SELECT kind, COALESCE(user_id, anonymous_id), character_id, started_at, result,"
-                " own_keys, time_to_speak_ms FROM activity_records WHERE started_at > ?"
-                " ORDER BY started_at",
+                " own_keys, time_to_speak_ms, duration_s, end_reason, call_id IS NOT NULL"
+                " FROM activity_records WHERE started_at > ? ORDER BY started_at",
                 (at,),
             ).fetchall()
             calls = self._db.execute(
@@ -286,8 +353,12 @@ class ActivityLog:
             ).fetchall()
         return (
             [
-                RecordRow(kind, who, character, _time(started), result, bool(own), speak)
-                for kind, who, character, started, result, own, speak in records
+                RecordRow(
+                    kind, who, character, _time(started), result, bool(own), speak, duration,
+                    reason, bool(in_call),
+                )
+                for kind, who, character, started, result, own, speak, duration, reason, in_call
+                in records
             ],
             [
                 CallRow(service, provider, model, bool(own), _time(at), error, latency,
@@ -300,26 +371,36 @@ class ActivityLog:
     def close(self) -> None:
         self._db.close()
 
-    def _write(self, recording: Recording, result: Result) -> None:
-        row = (
-            recording.kind, recording.character_id, recording.started_at.timestamp(), result,
-            int(recording.own_keys), recording.time_to_speak_ms,
-        )
+    def _write(self, recording: Recording) -> None:
+        """Write a finished record with its service calls and, for a call, its turns, any
+        still open as left (GLOSSARY.md「回合」)."""
         with self._lock, self._db:
-            try:
-                cursor = self._db.execute(
-                    "INSERT INTO activity_records (user_id, kind, character_id, started_at,"
-                    " result, own_keys, time_to_speak_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (recording.user_id, *row),
-                )
-            except sqlite3.IntegrityError:  # the user was deleted meanwhile
-                cursor = self._db.execute(
-                    "INSERT INTO activity_records (user_id, kind, character_id, started_at,"
-                    " result, own_keys, time_to_speak_ms) VALUES (NULL, ?, ?, ?, ?, ?, ?)",
-                    row,
-                )
-            for call in recording.calls:
-                self._insert_call(call, cursor.lastrowid)
+            self._insert(recording)
+            for turn in recording.turns:
+                if not turn.finished:
+                    turn.finished, turn.result = True, "left"
+                self._insert(turn)
+
+    def _insert(self, recording: Recording) -> None:
+        assert recording.result is not None
+        row = (
+            recording.kind, recording.character_id, recording.started_at.timestamp(),
+            recording.result, int(recording.own_keys), recording.time_to_speak_ms,
+            recording.call.row_id if recording.call is not None else None,
+            recording.duration_s, recording.end_reason,
+        )
+        insert = (
+            "INSERT INTO activity_records (user_id, kind, character_id, started_at, result,"
+            " own_keys, time_to_speak_ms, call_id, duration_s, end_reason)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        )
+        try:
+            cursor = self._db.execute(insert, (recording.user_id, *row))
+        except sqlite3.IntegrityError:  # the user was deleted meanwhile
+            cursor = self._db.execute(insert, (None, *row))
+        recording.row_id = cursor.lastrowid
+        for call in recording.calls:
+            self._insert_call(call, recording.row_id)
 
     def _insert_call(self, call: ServiceCall, record_id: int | None) -> None:
         origin, billed = call.origin, call.billed
@@ -343,6 +424,19 @@ class ActivityLog:
 
 def _time(epoch: float) -> datetime:
     return datetime.fromtimestamp(epoch, UTC)
+
+
+def _let_latency_be_unknown(db: sqlite3.Connection) -> None:
+    """Service calls written before calls were recorded always had a latency; a database
+    of theirs is copied into the table as it is now."""
+    columns = db.execute("PRAGMA table_info(service_calls)").fetchall()
+    if not any(name == "latency_ms" and not_null for _, name, _, not_null, *_ in columns):
+        return
+    db.execute("ALTER TABLE service_calls RENAME TO service_calls_before")
+    db.executescript(_SCHEMA)
+    db.execute("INSERT INTO service_calls SELECT * FROM service_calls_before")
+    db.execute("DROP TABLE service_calls_before")
+    db.executescript(_SCHEMA)  # the indexes went with the old table
 
 
 def error_kind(error: BaseException) -> ErrorKind:
@@ -477,11 +571,7 @@ def metered_retrieval(
     """The judge model, the embedder and the reranker turns retrieve with, whichever are
     at hand, each request recorded as a service call to the service `settings` name."""
     if judge is not None:
-        if isinstance(j := settings.judge, CloudflareJudgeSettings):
-            origin = Origin("judge", host(CLOUDFLARE_API_URL), j.model)
-        else:
-            origin = Origin("judge", host(j and j.base_url), j.model if j else "unknown")
-        judge = MeteredJudge(judge, log, origin)
+        judge = MeteredJudge(judge, log, judge_origin(settings))
     if embedder is not None:
         e = settings.embedding
         origin = Origin("embedding", host(e and e.base_url), embedder.model)
@@ -492,6 +582,27 @@ def metered_retrieval(
             reranker, log, Origin("rerank", host(r and r.base_url), r.model if r else "unknown")
         )
     return judge, embedder, reranker
+
+
+def judge_origin(settings: Settings) -> Origin:
+    """The deployer's judge model, as its service calls are recorded."""
+    if isinstance(j := settings.judge, CloudflareJudgeSettings):
+        return Origin("judge", host(CLOUDFLARE_API_URL), j.model)
+    return Origin("judge", host(j and j.base_url), j.model if j else "unknown")
+
+
+class MeteredEmotionJudge:
+    """The judge model as calls ask it each segment's emotion, each question recorded as a
+    service call under the call it is asked in. A question the call stops waiting for is
+    abandoned, not failed."""
+
+    def __init__(self, judge: "EmotionJudge", log: ActivityLog, origin: Origin) -> None:
+        self._judge = judge
+        self._log = log
+        self._origin = origin
+
+    async def judge_emotion(self, segment: "SegmentToJudge") -> "EmotionAnswer":
+        return await timed(self._log, self._origin, self._judge.judge_emotion(segment))
 
 
 class MeteredJudge:

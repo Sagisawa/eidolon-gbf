@@ -1,28 +1,39 @@
 """How a call turns out: whether it counts towards the user's limit, when it has reached
-its limits, and what the browser is told when the backend ends it (GLOSSARY.md「限额」
-「接通」).
+its limits, what the browser is told when the backend ends it, and what its activity
+record says of it (GLOSSARY.md「限额」「接通」「运行记录」).
 
 `CallOutcome` is all the rule is: the call takes a use of the user's limit when it is
-offered, and the call's pipeline reports what happens to it (set up or not, connected, a
-turn recorded, its time up, a service failing, over). Each event hands back the `ended`
-message to send the browser, if it is the one that ends the call; between turns the
-pipeline asks whether the call has reached its limits, and is handed back why it hangs up
-and that message. Once the call is over the use is kept or given back as that message
-said.
+offered, and opens its activity record; the call's pipeline reports what happens to it
+(set up or not, connected, a turn recorded, its time up, a service failing, who or what
+ended it, over). Each event hands back the `ended` message to send the browser, if it is
+the one that ends the call; between turns the pipeline asks whether the call has reached
+its limits, and is handed back why it hangs up and that message. Once the call is over
+the use is kept or given back as that message said, and the record says the same.
 """
 
 from dataclasses import dataclass
 from datetime import timedelta
+from time import perf_counter
 from typing import Literal
 
+from eidolon.activity import ActivityLog, CallEndReason, Recording, Result
 from eidolon.config import SttProvider
 from eidolon.own_keys import OwnKeyFailed, Service
-from eidolon.usage import UsageLimiter
+from eidolon.usage import OverLimit, UsageLimiter
 
 EndReason = Literal["not_connected", "dropped", "duration_limit", "turn_limit", "own_key"]
 """Why the backend ended a call, as the `ended` message tells the browser: it never really
 connected (a voice service failed before any turn), a voice service failed later, the call
 reached its time or its turn limit, or one of the user's own keys failed."""
+
+_ENDED_BY: dict[EndReason, CallEndReason] = {
+    "not_connected": "failed",
+    "dropped": "failed",
+    "own_key": "failed",
+    "duration_limit": "duration_limit",
+    "turn_limit": "turn_limit",
+}
+"""Why the call's activity record says it ended, when the browser was told why."""
 
 
 @dataclass(frozen=True)
@@ -65,33 +76,70 @@ class CallOutcome:
     the call has reached them once its time is up (`time_up`, timed by the pipeline from
     `time_limit`) or it has recorded as many turns as it may take, and what the browser is
     told then, every word of it, is said here too.
+
+    Its activity record (`recording`) says the same once it is settled: refused over the
+    limit; never connected, as it was given back for; failed, when a voice service or an
+    own key ended it once connected; or a success. With it, how long it lasted once
+    connected, and why it ended: whatever ended it first, as the browser was told or as
+    reported (`ended_by`), the user having left the page if nothing else did.
     """
 
     def __init__(
-        self, usage: UsageLimiter, user_id: str, exempt: bool, limits: CallLimits
+        self,
+        usage: UsageLimiter,
+        activity: ActivityLog,
+        user_id: str,
+        character_id: str,
+        exempt: bool,
+        limits: CallLimits,
     ) -> None:
-        """Take the call, which may go on as long as `limits` say. Raises OverLimit when
-        the user has no calls left this hour, unless the call is exempt."""
-        self._use = usage.take(user_id, "call", exempt=exempt)
+        """Take the user's call with `character_id`, which may go on as long as `limits`
+        say. Raises OverLimit when the user has no calls left this hour, unless the call
+        is exempt: it is recorded as refused."""
+        self.recording: Recording = activity.begin("call", user_id, character_id, exempt)
+        """The call's activity record, which its turns and service calls go under."""
+        try:
+            self._use = usage.take(user_id, "call", exempt=exempt)
+        except OverLimit:
+            self.recording.finish("rejected")
+            raise
         self._exempt = exempt
         self._limits = limits
-        self._connected = False
+        self._connected_at: float | None = None  # `perf_counter`, once connected
         self._recorded = 0
         self._time_up = False
         self._told = False  # the browser has been told why the call ended
         self._failed_to_connect = False  # a service failed before any turn (「接通」)
+        self._failed = False  # a service, or an own key, ended it once connected
+        self._ended_by: CallEndReason | None = None
         self._settled = False
+
+    @property
+    def _connected(self) -> bool:
+        return self._connected_at is not None
 
     def set_up_failed(self) -> dict | None:
         """The call could not be set up. It is given back; the browser learns of it from
         the answer to its offer, so there is nothing to tell it here."""
+        self.ended_by("failed")
         self._settle()
         return None
 
     def connected(self) -> dict | None:
         """The call has connected (GLOSSARY.md「接通」)."""
-        self._connected = True
+        if self._connected_at is None:
+            self._connected_at = perf_counter()
         return None
+
+    def ended_by(self, reason: CallEndReason) -> None:
+        """What ended the call, unless something did already: the user hanging up, a ban,
+        the server shutting down, the call failing to connect in time."""
+        if self._ended_by is None:
+            self._ended_by = reason
+
+    def turn_begun(self, own_llm: bool) -> Recording:
+        """The activity record of a turn taken in the call, on the user's own LLM or not."""
+        return self.recording.turn(own_llm)
 
     def turn_recorded(self) -> dict | None:
         """A turn of the call was recorded."""
@@ -152,6 +200,8 @@ class CallOutcome:
         """The `ended` message telling the browser why the call ended and, from what has
         happened to it so far, whether it counts; nothing after this changes that."""
         self._told = True
+        self._failed = reason in ("dropped", "own_key")
+        self.ended_by(_ENDED_BY[reason])
         counts = not (self._failed_to_connect or self._exempt)
         return ended(reason, message, counts)
 
@@ -159,5 +209,13 @@ class CallOutcome:
         if self._settled:
             return
         self._settled = True
+        result: Result
         if not self._connected or self._failed_to_connect:  # never connected, then
             self._use.give_back()
+            result = "not_connected"
+        else:
+            result = "failed" if self._failed else "success"
+        duration = None
+        if self._connected_at is not None:
+            duration = perf_counter() - self._connected_at
+        self.recording.finish(result, duration, self._ended_by or "left")
