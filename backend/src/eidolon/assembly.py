@@ -226,9 +226,9 @@ def build(
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
     engine = ConversationEngine(
-        store, characters, memories, clock, retrieval, settings.history_turns, world
+        store, characters, memories, clock, retrieval, lambda: config.history_turns, world
     )
-    usage = UsageLimiter(settings.database_path, settings.usage_limits, clock)
+    usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, speech)
     calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)

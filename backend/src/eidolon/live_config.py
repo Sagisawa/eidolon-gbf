@@ -4,7 +4,8 @@ read and change the configuration.
 
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
-and the reranker's thresholds. Overrides are kept in the database, one row per field, a
+the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
+carries). Overrides are kept in the database, one row per field, a
 key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
 changed here, only seen). A change to a service is tried before it is kept, as the chat
 model is when the server starts; it then holds for every turn and call that starts after
@@ -49,6 +50,7 @@ from eidolon.config import (
     LLMSettings,
     Settings,
     SttKey,
+    UsageLimits,
 )
 from eidolon.database import connect
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
@@ -74,6 +76,7 @@ STT = "stt"
 JUDGE = "judge"
 JUDGE_THRESHOLDS = "judge_thresholds"
 RERANK = "rerank"
+LIMITS = "limits"
 
 LLM_FIELDS = ("protocol", "base_url", "api_key", "model", "max_tokens")
 
@@ -411,6 +414,42 @@ class _Rerank(_Item):
         return rerank.model if rerank else None
 
 
+LIMIT_LABELS = {
+    "turns_per_hour": "每小时回合数",
+    "calls_per_hour": "每小时通话次数",
+    "call_minutes": "单次通话的时长上限（分钟）",
+    "turns_per_call": "单次通话的回合上限",
+    "history_turns": "带上的历史轮数",
+}
+"""The limits, as the admin console names them; each a whole number, 0 for no limit."""
+
+
+class _Limits(_Item):
+    """The limits per hour, a call's own limits and the turns each prompt carries, as
+    `.env` takes them (0 for none); not tried."""
+
+    name = LIMITS
+    fields = tuple(LIMIT_LABELS)
+
+    def env(self) -> Values:
+        limits = self.c.settings.usage_limits
+        return {
+            "turns_per_hour": limits.turns_per_hour or 0,
+            "calls_per_hour": limits.calls_per_hour or 0,
+            "call_minutes": limits.call_minutes or 0,
+            "turns_per_call": limits.turns_per_call or 0,
+            "history_turns": self.c.settings.history_turns or 0,
+        }
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        for field, value in change.items():
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ConfigInvalid(
+                    f"{LIMIT_LABELS[field]}需要是非负整数（0 表示不限），而不是 {value!r}"
+                )
+        return current | change
+
+
 class LiveConfig:
     """The configuration the backend runs on now, and the deployer's clients made from it."""
 
@@ -452,7 +491,7 @@ class LiveConfig:
             item.name: item
             for item in (
                 _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
-                _Judge(self), _JudgeThresholds(self), _Rerank(self),
+                _Judge(self), _JudgeThresholds(self), _Rerank(self), _Limits(self),
             )
         }
         self._failures: dict[str, str] = {}
@@ -518,6 +557,22 @@ class LiveConfig:
         return RerankThresholds(**{
             k: v for k, v in self.effective(RERANK).items() if k != FOR_MODEL
         })
+
+    @property
+    def usage_limits(self) -> UsageLimits:
+        """The limits per hour and each call's own, in effect now; None for no limit."""
+        values = self.effective(LIMITS)
+        return UsageLimits(
+            values["turns_per_hour"] or None,
+            values["calls_per_hour"] or None,
+            values["call_minutes"] or None,
+            values["turns_per_call"] or None,
+        )
+
+    @property
+    def history_turns(self) -> int | None:
+        """How many of the latest turns each prompt carries now; None for all of them."""
+        return self.effective(LIMITS)["history_turns"] or None
 
     def effective(self, name: str) -> Values:
         """The item's values in effect now: `.env`'s, with its overrides if they are."""

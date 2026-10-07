@@ -148,6 +148,25 @@ describe("formOf and changeOf", () => {
   });
 });
 
+describe("limits", () => {
+  const limits = ITEM_SPECS.limits;
+  const form = { turns_per_hour: "2", calls_per_hour: "0", call_minutes: "10", turns_per_call: "40", history_turns: "20" };
+
+  it("takes whole numbers from 0 up, 0 for no limit", () => {
+    expect(changeOf(limits, form, true)).toEqual({
+      change: { turns_per_hour: 2, calls_per_hour: 0, call_minutes: 10, turns_per_call: 40, history_turns: 20 },
+    });
+  });
+
+  it("refuses one that is negative, not whole or empty", () => {
+    for (const bad of ["-1", "1.5", "", "十"]) {
+      expect(changeOf(limits, { ...form, calls_per_hour: bad }, true), bad).toEqual({
+        problem: { field: "calls_per_hour", reason: "limit" },
+      });
+    }
+  });
+});
+
 describe("readOnlyValue", () => {
   const words = { set: "已设置", unset: "未设置", none: "—" };
 

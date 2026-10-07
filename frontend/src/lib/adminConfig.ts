@@ -6,10 +6,27 @@ import { apiHeaders, json, type LLMProtocol } from "@/lib/api";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
 
-export type ItemName = "chat_llm" | "memory_llm" | "tts" | "stt" | "judge" | "judge_thresholds" | "rerank";
+export type ItemName =
+  | "chat_llm"
+  | "memory_llm"
+  | "tts"
+  | "stt"
+  | "judge"
+  | "judge_thresholds"
+  | "rerank"
+  | "limits";
 
 /** The items, in the order the page shows them. */
-export const ITEMS: ItemName[] = ["chat_llm", "memory_llm", "tts", "stt", "judge", "judge_thresholds", "rerank"];
+export const ITEMS: ItemName[] = [
+  "chat_llm",
+  "memory_llm",
+  "tts",
+  "stt",
+  "judge",
+  "judge_thresholds",
+  "rerank",
+  "limits",
+];
 
 type Value = string | number | boolean | null;
 
@@ -67,8 +84,19 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
 
 /** How a field is typed in: a choice, text, a key (left empty to keep it), max_tokens (a
  * positive whole number, empty for the protocol's default), a probability or score from 0
- * to 1, or a number of seconds. */
-export type FieldKind = "select" | "text" | "optionalText" | "secret" | "maxTokens" | "probability" | "seconds";
+ * to 1, a number of seconds, or a limit (a whole number from 0 up, 0 for none). */
+export type FieldKind =
+  | "select"
+  | "text"
+  | "optionalText"
+  | "secret"
+  | "maxTokens"
+  | "probability"
+  | "seconds"
+  | "limit";
+
+/** The limits, in the order they are shown. */
+export const LIMIT_FIELDS = ["turns_per_hour", "calls_per_hour", "call_minutes", "turns_per_call", "history_turns"];
 
 export type FieldSpec = { name: string; kind: FieldKind; options?: readonly string[] };
 
@@ -131,6 +159,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
   },
   judge_thresholds: THRESHOLD(["recall", "emotion"]),
   rerank: THRESHOLD(["references", "memories"]),
+  limits: { rows: LIMIT_FIELDS, secrets: [], form: LIMIT_FIELDS.map((name) => ({ name, kind: "limit" })) },
 };
 
 /** One field of an item, as the table shows it: `.env`'s, the one in effect, and whether
@@ -175,7 +204,7 @@ export function formOf(spec: ItemSpec, effective: Shown): Form {
   );
 }
 
-export type Problem = { field: string; reason: "required" | "maxTokens" | "probability" | "seconds" };
+export type Problem = { field: string; reason: "required" | "maxTokens" | "probability" | "seconds" | "limit" };
 
 export type Change = Record<string, string | number | null>;
 
@@ -210,6 +239,10 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         change[name] = value;
         break;
       }
+      case "limit":
+        if (!/^\d+$/.test(typed)) return { problem: { field: name, reason: "limit" } };
+        change[name] = Number(typed);
+        break;
       case "seconds": {
         const value = Number(typed);
         if (!typed || !(value > 0 && value <= 30)) return { problem: { field: name, reason: "seconds" } };

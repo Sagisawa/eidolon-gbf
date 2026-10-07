@@ -448,6 +448,10 @@ export const zh = {
           title: "重排的阈值",
           hint: "重排打分低于阈值的剧情、角色资料和记忆不放进提示词。阈值越高带上的越少。",
         },
+        limits: {
+          title: "限额、单次通话上限和历史轮数",
+          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。这几项不需要试调。",
+        },
       },
       status: {
         env: "使用 .env 的值",
@@ -472,6 +476,11 @@ export const zh = {
         emotion: "情绪的最低概率",
         references: "剧情和角色资料的最低相关度",
         memories: "记忆的最低相关度",
+        turns_per_hour: "每小时回合数",
+        calls_per_hour: "每小时通话次数",
+        call_minutes: "单次通话的时长上限（分钟）",
+        turns_per_call: "单次通话的回合上限",
+        history_turns: "带上的历史轮数",
       } as Record<string, string>,
       formHints: {
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
@@ -480,13 +489,16 @@ export const zh = {
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",
+        limit: "非负整数，0 表示不限。",
       } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,
         maxTokens: (field: string) => `${field}需要是正整数，留空用默认值。`,
         probability: (field: string) => `${field}需要是 0 到 1 之间的数。`,
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
+        limit: (field: string) => `${field}需要是非负整数（0 表示不限）。`,
       },
+      unlimited: "不限",
       providers: {
         soniox: "Soniox",
         bailian: "阿里云百炼",

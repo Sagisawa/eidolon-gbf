@@ -648,17 +648,20 @@ class Calls:
         self._clock = clock
         self._own_keys = own_keys
         self._store = store
-        limits = settings.usage_limits
-        self._limits = CallLimits(
-            timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
-            limits.turns_per_call,
-        )
         self._webrtc = SmallWebRTCRequestHandler(
             ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
         )
         self._owners: dict[str, str] = {}  # peer connection id → the user it belongs to
         self._live: set[_LiveCall] = set()
         self._watch: asyncio.Task | None = None  # hangs up banned and deleted users' calls
+
+    def _limits(self) -> CallLimits:
+        """A call's own limits, as it connects now: those in effect then hold to its end."""
+        limits = self._usage.limits
+        return CallLimits(
+            timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
+            limits.turns_per_call,
+        )
 
     def ice_servers(self, user_id: str) -> dict:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
@@ -671,7 +674,7 @@ class Calls:
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
-        duration = self._limits.duration
+        duration = self._limits().duration
         return {
             "iceServers": servers,
             "maxCallSeconds": None if duration is None else int(duration.total_seconds()),
@@ -706,7 +709,7 @@ class Calls:
         offer: SessionDescription,
         keys: CallKeys,
     ) -> dict:
-        outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits)
+        outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits())
         call = Call(
             conversation, character, keys.llms, options.muted, options.quality,
             options.device_timezone,

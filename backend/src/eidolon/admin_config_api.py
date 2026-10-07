@@ -16,6 +16,7 @@ from eidolon.live_config import (
     CHAT_LLM,
     JUDGE,
     JUDGE_THRESHOLDS,
+    LIMITS,
     MEMORY_LLM,
     READ_ONLY,
     RERANK,
@@ -84,6 +85,17 @@ class RerankInput(BaseModel):
     memories: float = Field(ge=0, le=1)
 
 
+class LimitsInput(BaseModel):
+    """Each a whole number from 0 up, 0 for no limit; checked by the live configuration,
+    which says what is wrong in so many words."""
+
+    turns_per_hour: Any
+    calls_per_hour: Any
+    call_minutes: Any
+    turns_per_call: Any
+    history_turns: Any
+
+
 INPUTS: dict[str, type[BaseModel]] = {
     CHAT_LLM: LLMInput,
     MEMORY_LLM: LLMInput,
@@ -92,6 +104,7 @@ INPUTS: dict[str, type[BaseModel]] = {
     JUDGE: JudgeInput,
     JUDGE_THRESHOLDS: JudgeThresholdsInput,
     RERANK: RerankInput,
+    LIMITS: LimitsInput,
 }
 
 

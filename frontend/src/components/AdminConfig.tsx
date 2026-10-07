@@ -72,13 +72,14 @@ export function AdminConfig() {
   );
 }
 
-/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名。 */
+/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名，限额的 0 是不限。 */
 function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
   if (ITEM_SPECS[name].secrets.includes(field)) return t.last4(String(value));
   if (field === "protocol") return t.protocols[value as LLMProtocol] ?? String(value);
   if (field === "provider") return t.providers[String(value)] ?? String(value);
   if (field === "region") return t.regions[String(value)] ?? String(value);
+  if (name === "limits" && value === 0) return t.unlimited;
   return String(value);
 }
 
@@ -121,6 +122,7 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): stri
   }
   if (spec.kind === "maxTokens") return t.maxTokensHint;
   if (spec.kind === "probability") return t.formHints.probability;
+  if (spec.kind === "limit") return t.formHints.limit;
   if (name === "judge" && spec.name === "model") return t.formHints.judge_model;
   return t.formHints[spec.name];
 }

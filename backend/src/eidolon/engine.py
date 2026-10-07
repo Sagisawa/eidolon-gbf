@@ -159,12 +159,13 @@ class ConversationEngine:
         memory: Memories,
         clock: Clock,
         retrieval: Retrieval | None = None,
-        history_turns: int | None = None,
+        history_turns: Callable[[], int | None] = lambda: None,
         world: World | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
-        memories. Each turn reads only the conversation's latest `history_turns` turns, or
-        all of them if None. Without `world`, turns carry no world setting."""
+        memories. Each turn reads only the conversation's latest turns, as many as
+        `history_turns` says as it begins, or all of them if None. Without `world`, turns
+        carry no world setting."""
         self._store = store
         self._characters = characters
         self._clock = clock
@@ -209,7 +210,7 @@ class ConversationEngine:
         stop: asyncio.Event | None,
     ) -> AsyncIterator[TurnEvent]:
         character = self._characters[conversation.character_id]
-        history = latest_turns(self._store.list_messages(conversation.id), self._history_turns)
+        history = latest_turns(self._store.list_messages(conversation.id), self._history_turns())
         profile = self._store.get_profile(conversation.user_id)
         timezone = effective_timezone(profile, device_timezone)
         memory = await self._memory.begin(conversation, timezone, llms.memory, llms.hold_memory)
