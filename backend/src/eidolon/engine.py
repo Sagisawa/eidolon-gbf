@@ -88,13 +88,24 @@ class TurnDone:
 
 @dataclass(frozen=True)
 class TurnFailed:
-    """Why the turn was rejected or failed, for the user to read; it left no record."""
+    """Why the turn failed, for the user to read; it left no record."""
 
     message: str
     type: Literal["error"] = field(default="error", init=False)
 
 
-TurnEvent = UserSaid | SegmentDelta | SpeechDelta | SegmentComplete | TurnDone | TurnFailed
+@dataclass(frozen=True)
+class TurnRejected:
+    """Why the turn was rejected for its input, for the user to read; it left no record.
+    The browser is told it as it is told a failure."""
+
+    message: str
+    type: Literal["error"] = field(default="error", init=False)
+
+
+TurnEvent = (
+    UserSaid | SegmentDelta | SpeechDelta | SegmentComplete | TurnDone | TurnFailed | TurnRejected
+)
 """A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
 the event as it goes out to the browser, except `SpeechDelta` and `SegmentComplete`, which
 do not."""
@@ -188,7 +199,7 @@ class ConversationEngine:
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
-            yield TurnFailed(TOO_LONG if text else BLANK)
+            yield TurnRejected(TOO_LONG if text else BLANK)
             return
         try:
             async for event in self._reply(conversation, text, llms, device_timezone, stop):

@@ -17,6 +17,7 @@ from eidolon.turn_taking import (
     FlushVoice,
     QueueTurn,
     Reply,
+    Spoke,
     StopReply,
     TurnTaking,
     Voice,
@@ -87,10 +88,17 @@ RECORDED_AND_HEARD: list[Step] = [
 """The reply is recorded and over, and its voice is still playing."""
 
 
-def run(steps: list[Step], *, starts_text_only: bool = False) -> TurnTaking:
+def run(
+    steps: list[Step], *, starts_text_only: bool = False, spoke: bool = False
+) -> TurnTaking:
+    """Report each step's event, checking what `CallTurns` is told to do on it; when the
+    character spoke (`Spoke`) is only checked if `spoke` says so."""
     taking = TurnTaking(text_only=starts_text_only)
     for number, (event, commands) in enumerate(steps):
-        assert event(taking) == commands, f"step {number}"
+        told = list(event(taking))
+        if not spoke:
+            told = [command for command in told if command != Spoke()]
+        assert told == commands, f"step {number}"
     return taking
 
 
@@ -385,3 +393,77 @@ def test_once_the_call_is_ending_nothing_is_taken_up_and_her_last_reply_stays_vo
     ])
 
     assert taking.ending
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        pytest.param(
+            [
+                (turn("早上好"), [Reply("早上好", voiced=True, number=1)]),
+                (VOICE_STARTS, []),
+                (VOICE_STOPS, []),
+                (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
+                (VOICE_STARTS, [Spoke()]),
+                (VOICE_STOPS, []),
+                (VOICE_STARTS, []),
+            ],
+            id="once some of the reply has gone to TTS, as her voice starts, only once",
+        ),
+        pytest.param(
+            [
+                (turn("早上好"), [Reply("早上好", voiced=True, number=1)]),
+                (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
+                (VOICE_STARTS, [Spoke()]),
+                (RECORDED, []),
+                (ENDED, []),
+                (turn("在吗"), [Reply("在吗", voiced=True, number=2)]),
+                (ja("今日も"), [Voice("今日も", 2, 0), Spoke()]),
+                (ja("、"), [Voice("、", 2, 0)]),
+            ],
+            id="as its first words go to TTS while the last reply's voice is still playing",
+        ),
+        pytest.param(
+            [
+                (text_only(True), []),
+                (turn("早上好"), [Reply("早上好", voiced=False, number=1)]),
+                (ja("ほわっ"), [Spoke()]),
+                (zh("哇"), []),
+                (VOICE_STARTS, []),
+            ],
+            id="as the first line of a reply only shown appears",
+        ),
+        pytest.param(
+            [
+                (turn("早上好"), [Reply("早上好", voiced=True, number=1)]),
+                (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
+                (zh("哇"), []),
+                (COMPLETE, [FlushVoice(1, 0)]),
+                (RECORDED, []),
+                (ENDED, []),
+                (VOICE_STARTS, [Spoke()]),
+            ],
+            id="not as the reply is recorded, but as its voice starts afterwards",
+        ),
+        pytest.param(
+            [
+                (turn("早上好"), [Reply("早上好", voiced=True, number=1)]),
+                (ja("ほわっ"), [Voice("ほわっ", 1, 0)]),
+                (VOICE_STARTS, [Spoke()]),
+                (TALKS, [DropReply()]),
+                (DROPPED, [WaitForFollowOn()]),
+                (VOICE_STOPS, []),
+                (says("在吗"), [Reply("早上好\n在吗", voiced=True, number=2)]),
+                (VOICE_STARTS, []),  # the dropped reply's, starting late
+                (VOICE_STOPS, []),
+                (ja("ほわっ"), [Voice("ほわっ", 2, 0)]),
+                (VOICE_STARTS, [Spoke()]),
+            ],
+            id="once for each reply, a reply given afresh after a follow-on again",
+        ),
+    ],
+)
+def test_the_character_is_said_to_have_spoken_each_reply_as_she_starts_speaking_it(
+    steps: list[Step],
+):
+    run(steps, spoke=True)

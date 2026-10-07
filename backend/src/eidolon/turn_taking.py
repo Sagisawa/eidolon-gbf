@@ -76,8 +76,15 @@ class QueueTurn:
     text: str
 
 
+@dataclass(frozen=True)
+class Spoke:
+    """The character has just started speaking the reply in progress (GLOSSARY.md「开口」):
+    told once for each reply."""
+
+
 Command = (
     DropReply | StopReply | ClearVoice | Reply | Voice | FlushVoice | WaitForFollowOn | QueueTurn
+    | Spoke
 )
 
 _ReplyState = Literal["replying", "dropping", "dropped"]
@@ -95,12 +102,14 @@ class TurnTaking:
     enough to drop the reply; should what they said come to nothing (transcribed blank,
     or not at all in time), the turn is replied to again as it was.
 
-    A reply can be interrupted once the character has started speaking it and it has a
-    complete segment. She has started speaking once her voice starts playing; when the
-    reply is not voiced, once its first line is shown; and once it is recorded. Her voice
-    starting counts only once some of this reply has gone to TTS, since a dropped reply's
-    voice may start late; and should the last reply's voice still be playing when this
-    one's first words go to TTS, she has started speaking it then, without starting again.
+    A reply can be interrupted once the character has started speaking it, or it is
+    recorded, and it has a complete segment. She has started speaking it (「开口」) once
+    her voice starts playing; when the reply is not voiced, once its first line is shown.
+    Her voice starting counts only once some of this reply has gone to TTS, since a
+    dropped reply's voice may start late; and should the last reply's voice still be
+    playing when this one's first words go to TTS, she has started speaking it then,
+    without starting again. `CallTurns` is told she spoke (`Spoke`) as she starts speaking
+    each reply, a recorded one too, should its voice start only afterwards.
 
     After that, the user starting to talk or sending what they typed interrupts her: the
     reply stops and is voiced no further, to be recorded with only its complete segments,
@@ -127,18 +136,14 @@ class TurnTaking:
         self._voicing = False
         self._sent_to_tts = False  # some of it is on its way to TTS
         self._voiced_segment: int | None = None  # the last segment of it sent to TTS
-        self._spoken = False  # the character has started speaking it
+        self._spoken = False  # the character has started speaking it, or it is recorded
+        self._told_spoken = False  # `CallTurns` has been told she started speaking it
         self._complete = False  # it has a complete segment
 
     @property
     def ending(self) -> bool:
         """Whether the call is ending, so that nothing more is taken up."""
         return self._ending
-
-    @property
-    def voicing(self) -> bool:
-        """Whether the reply in progress is voiced, rather than only shown (「只看文字」)."""
-        return self._voicing
 
     # What the user does.
 
@@ -196,15 +201,16 @@ class TurnTaking:
     def reply_delta(self, lang: Lang, text: str, segment: int) -> list[Command]:
         """Some of segment `segment` of the reply, in `lang`, has been shown."""
         if not self._voicing:
-            self._spoken = True  # its first line is shown
-            return []
+            return self._spoke()  # its first line is shown
         if lang != "ja":
             return []
+        voice: list[Command] = [Voice(text, self._replies, segment)]
+        self._voiced_segment = segment
         if not self._sent_to_tts:  # its first words: is the last reply's voice still playing?
             self._sent_to_tts = True
-            self._spoken = self._voice_playing
-        self._voiced_segment = segment
-        return [Voice(text, self._replies, segment)]
+            if self._voice_playing:
+                return [*voice, *self._spoke()]
+        return voice
 
     def segment_complete(self, segment: int) -> list[Command]:
         """Segment `segment` of the reply is complete."""
@@ -248,7 +254,7 @@ class TurnTaking:
         reply's first words are sent: those take the chat model a while."""
         self._voice_playing = True
         if self._voicing and self._sent_to_tts:
-            self._spoken = True
+            return self._spoke()
         return []
 
     def voice_stopped(self) -> list[Command]:
@@ -260,6 +266,15 @@ class TurnTaking:
         """The call is ending: nothing the user says or types is taken up from now on."""
         self._ending = True
         return []
+
+    def _spoke(self) -> list[Command]:
+        """The character has started speaking the reply in progress: `CallTurns` is told
+        so, unless it has been already."""
+        self._spoken = True
+        if self._told_spoken:
+            return []
+        self._told_spoken = True
+        return [Spoke()]
 
     def _open_to_follow_ons(self) -> bool:
         """Whether there is a turn in progress whose reply cannot be interrupted yet."""
@@ -289,6 +304,6 @@ class TurnTaking:
         self._reply_state = "replying"
         self._replies += 1
         self._voicing = not self._text_only
-        self._sent_to_tts = self._spoken = self._complete = False
+        self._sent_to_tts = self._spoken = self._told_spoken = self._complete = False
         self._voiced_segment = None
         return Reply("\n".join(self._said), self._voicing, self._replies)

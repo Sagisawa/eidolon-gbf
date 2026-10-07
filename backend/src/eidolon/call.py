@@ -94,7 +94,6 @@ from eidolon.activity import (
     ErrorKind,
     Origin,
     Recording,
-    Result,
     error_kind,
     host,
 )
@@ -123,7 +122,7 @@ from eidolon.own_keys import (
 )
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.store import Conversation, NotFound, Store
-from eidolon.turn_outcome import turn_result
+from eidolon.turn_outcome import TurnOutcome
 from eidolon.turn_taking import (
     ClearVoice,
     Command,
@@ -131,6 +130,7 @@ from eidolon.turn_taking import (
     FlushVoice,
     QueueTurn,
     Reply,
+    Spoke,
     StopReply,
     TurnTaking,
     Voice,
@@ -1128,8 +1128,9 @@ class CallTurns(FrameProcessor):
     what is being judged with it. What is left incomplete is not judged.
 
     Which of what the user says or types is a follow-on and which interrupts the
-    character, when a reply is dropped, stopped or replied to afresh, and what of it is
-    voiced, is `TurnTaking`'s to decide: the frames coming through, `mute` client
+    character, when a reply is dropped, stopped or replied to afresh, what of it is voiced,
+    and when she has started speaking it (「开口」, which the turn's `TurnOutcome` is told),
+    is `TurnTaking`'s to decide: the frames coming through, `mute` client
     messages and how each reply is getting on are reported to it as they happen, and what
     it says to do is done straight away. How long a follow-on may take to be transcribed,
     `follow_on_timeout` seconds since the user was last heard, as long as the call's speech
@@ -1171,8 +1172,8 @@ class CallTurns(FrameProcessor):
         self._reply: asyncio.Task | None = None  # the reply being given to it
         self._stop = asyncio.Event()  # set to have the reply go no further
         self._waiting: asyncio.Task | None = None  # times the follow-on waited for
-        self._recording: Recording | None = None  # its activity record
-        self._result: Result | None = None  # how it turned out, once it has
+        self._turn_outcome: TurnOutcome | None = None  # how it turns out, the last one's
+        # till the next is taken up: her voice may start only once a recorded reply is over
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -1191,8 +1192,6 @@ class CallTurns(FrameProcessor):
         elif isinstance(frame, InterruptionFrame):
             await self._carry_out(self._turns.user_started_talking(), (frame, direction))
         elif isinstance(frame, BotStartedSpeakingFrame):
-            if self._recording is not None:
-                self._recording.spoke()  # her voice began to play
             await self._carry_out(self._turns.voice_started())
             await self.push_frame(frame, direction)
         elif isinstance(frame, BotStoppedSpeakingFrame):
@@ -1263,6 +1262,9 @@ class CallTurns(FrameProcessor):
                         self._wait_for_follow_on()
                     case QueueTurn(text=text):
                         self._inputs.put_nowait(text)
+                    case Spoke():
+                        if self._turn_outcome is not None:
+                            self._turn_outcome.began_speaking()
             if passing_on is not None:
                 await self.push_frame(*passing_on)
         finally:
@@ -1301,8 +1303,7 @@ class CallTurns(FrameProcessor):
         its activity record says how the last reply to it turned out (one dropped for a
         follow-on is not recorded apart), or how the call ending before it was over leaves it."""
         self._turn_over = asyncio.Event()
-        recording = self._recording = self._outcome.turn_begun(self._call.own_llm)
-        self._result = None
+        turn = self._turn_outcome = self._outcome.turn_begun(self._call.own_llm)
         try:
             await self._carry_out(self._turns.turn_started(text))
             await self._turn_over.wait()
@@ -1311,15 +1312,14 @@ class CallTurns(FrameProcessor):
             reply, self._reply = self._reply, None
             if reply is not None and not reply.done():
                 await self.cancel_task(reply)
-            recording.finish(self._result or self._outcome.turn_cut_short())
-            self._recording = None
+            turn.over(cut_short_by_failure=self._outcome.ended_by_failure)
 
     def _start_reply(self, text: str, number: int, after: asyncio.Event | None = None) -> None:
         """Reply to `text`, as reply `number`, once `after` is set, if given."""
         self._stop_waiting()
         self._stop = asyncio.Event()
         self._reply = self.create_task(
-            self._reply_to(text, number, self._stop, after, self._recording)
+            self._reply_to(text, number, self._stop, after, self._turn_outcome)
         )
 
     async def _drop_reply(self) -> list[Reply | WaitForFollowOn]:
@@ -1359,22 +1359,22 @@ class CallTurns(FrameProcessor):
         number: int,
         stop: asyncio.Event,
         after: asyncio.Event | None,
-        recording: Recording | None,
+        turn: TurnOutcome | None,
     ) -> None:
         """Reply to what the user said, as reply `number` of the call, once `after` is set,
         if given, going no further once `stop` is set. Only a reply that is recorded counts
         as a turn: a rejected, failed or dropped one does not count towards the call's
         limit, an interrupted one does. Once it is over, recorded or not, so is the turn; a dropped one is not over,
         but gone, which whoever dropped it reports. Its service calls are recorded under
-        the turn's `recording`, which is told how it turned out."""
+        the `turn`, which is told how it turned out."""
         if after is not None:
             await after.wait()
         await self.push_frame(LLMFullResponseStartFrame())
         ja: dict[int, str] = {}  # each segment's Japanese so far, cues and all
         zh: dict[int, str] = {}  # and its subtitle
         try:
-            with recording.current() if recording is not None else nullcontext():
-                await self._reply_events(text, number, stop, ja, zh, recording)
+            with turn.current() if turn is not None else nullcontext():
+                await self._reply_events(text, number, stop, ja, zh, turn)
         except Exception:  # the turn is over all the same, rather than the call stuck in it
             log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:
@@ -1389,11 +1389,10 @@ class CallTurns(FrameProcessor):
         stop: asyncio.Event,
         ja: dict[int, str],
         zh: dict[int, str],
-        recording: Recording | None,
+        turn: TurnOutcome | None,
     ) -> None:
         """Carry out each event of the reply, as `_reply_to` says. The turn is told how it
-        turned out as a text turn is, and, when the reply is only shown, that the
-        character began to speak as its first words appear (「开口」)."""
+        turned out as a text turn is."""
         async for event in self._engine.turn(
             self._call.conversation, text, self._call.llms, self._call.device_timezone, stop
         ):
@@ -1409,15 +1408,13 @@ class CallTurns(FrameProcessor):
             if isinstance(event, TurnDone):  # told before any await: no longer to be dropped
                 await self._carry_out(self._turns.reply_recorded())
                 self._outcome.turn_recorded()
-            if (result := turn_result(event)) is not None:
-                self._result = result
+            if turn is not None:
+                turn.see(event)
             message = asdict(event)
             if isinstance(event, UserSaid):
                 message["reply"] = number
             await self._send(message)
             if isinstance(event, SegmentDelta):
-                if recording is not None and not self._turns.voicing:
-                    recording.spoke()
                 if event.lang == "zh":
                     zh[event.segment] = zh.get(event.segment, "") + event.text
                     await self._carry_out(
