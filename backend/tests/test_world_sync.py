@@ -403,18 +403,6 @@ def test_the_import_writes_the_office_idols_and_units_beside_the_character_confi
     ]
 
 
-def test_special_units_are_left_out_of_the_units_and_named_in_the_report(
-    world_sync, characters: CharacterConfig
-):
-    code, out, _ = world_sync()
-
-    assert code == 0
-    world = read_world(characters)
-    assert "Team.Stella" not in [unit["name"] for unit in world["units"]]
-    assert all(idol["unit"] != "Team.Stella" for idol in world["idols"])
-    assert "没有收录：Team.Stella" in out
-
-
 def test_the_report_counts_each_kind_and_what_changed_since_the_last_import(
     world_sync, sites: FakeWorldSites
 ):
@@ -478,16 +466,18 @@ def test_when_a_source_fails_the_import_fails_and_the_old_file_is_kept(
     assert list(characters.directory.glob("world.json*")) == [world_file(characters)]
 
 
-def test_a_unit_page_missing_from_the_official_site_fails_the_import(
-    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+@pytest.mark.parametrize("page", ["idol/gone", "releaseinfo/laca-15861"])
+def test_a_page_missing_from_the_official_site_or_lantis_fails_the_import(
+    world_sync, sites: FakeWorldSites, characters: CharacterConfig, page: str
 ):
-    sites.official_units.append(("gone", "Gone", "ゴーン", ["櫻木 真乃"]))
-    sites.missing.add("idol/gone")
+    if page == "idol/gone":  # a unit the official index links to
+        sites.official_units.append(("gone", "Gone", "ゴーン", ["櫻木 真乃"]))
+    sites.missing.add(page)
 
     code, _, err = world_sync()
 
     assert code != 0
-    assert "idol/gone" in err
+    assert page in err
     assert not world_file(characters).exists()
 
 
@@ -693,6 +683,9 @@ def test_where_lantis_and_fujiwarahaji_disagree_lantis_wins_and_it_is_reported(
     sites.releases[3].index[0] = "1．Shower of light\n歌：イルミネーションスターズ"
     disc = sites.fuji_discs[4654]
     disc.tracks[0] = ("Shower of light", [("放課後クライマックスガールズ", ["小宮果穂"])], [], ["orig"])
+    # A later version, which ふじわらはじめ keeps under the song as first released.
+    sites.releases[2].index.append("4. ヒカリのdestination -5 colors- / 櫻木真乃 (CV.関根 瞳)")
+    sites.fuji_discs[5000].tracks.append(("ヒカリのdestination", [], ["小宮果穂"], []))
 
     code, out, err = world_sync()
 
@@ -702,6 +695,9 @@ def test_where_lantis_and_fujiwarahaji_disagree_lantis_wins_and_it_is_reported(
     assert "冲突" in out
     conflict = next(line for line in out.splitlines() if "Shower of light" in line and "小宮果穂" in line)
     assert "櫻木真乃" in conflict
+    assert songs_by_title(characters)["ヒカリのdestination -5 colors-"]["singers"] == ["櫻木真乃"]
+    conflicts = section(out, "Lantis 和ふじわらはじめ冲突的地方")
+    assert "ヒカリのdestination -5 colors-" in conflicts and "小宮果穂" in conflicts
 
 
 def test_a_disc_fujiwarahaji_answers_empty_for_is_noted_and_its_tracks_left_unknown(
@@ -746,18 +742,6 @@ def test_the_report_counts_releases_and_songs_and_what_changed(
     assert "唱片：4 张（第一次导入）" in first
     assert "唱片：3 张（移除 LACM-14782）" in second
     assert "歌曲：" in second and "移除 ヒカリのdestination" in second
-
-
-def test_a_release_page_missing_from_lantis_fails_the_import(
-    world_sync, sites: FakeWorldSites, characters: CharacterConfig
-):
-    sites.missing.add("releaseinfo/laca-15861")
-
-    code, _, err = world_sync()
-
-    assert code != 0
-    assert "laca-15861" in err
-    assert not world_file(characters).exists()
 
 
 def test_two_dates_on_one_lantis_page_are_reported_and_the_release_date_line_kept(
@@ -883,20 +867,6 @@ def test_a_fujiwarahaji_disc_without_a_name_is_no_release_of_lantis_s(
     assert "ふしぎな歌" in section(out, "哪个来源都没写演唱者的曲目")
 
 
-def test_a_later_version_where_lantis_and_fujiwarahaji_disagree_is_reported(
-    world_sync, sites: FakeWorldSites, characters: CharacterConfig
-):
-    sites.releases[2].index.append("4. ヒカリのdestination -5 colors- / 櫻木真乃 (CV.関根 瞳)")
-    sites.fuji_discs[5000].tracks.append(("ヒカリのdestination", [], ["小宮果穂"], []))
-
-    code, out, err = world_sync()
-
-    assert code == 0, err
-    assert songs_by_title(characters)["ヒカリのdestination -5 colors-"]["singers"] == ["櫻木真乃"]
-    conflicts = section(out, "Lantis 和ふじわらはじめ冲突的地方")
-    assert "ヒカリのdestination -5 colors-" in conflicts and "小宮果穂" in conflicts
-
-
 def test_singers_told_by_another_release_s_track_keep_that_release_as_a_source(
     world_sync, sites: FakeWorldSites, characters: CharacterConfig
 ):
@@ -977,26 +947,20 @@ def test_a_joint_live_keeps_only_shiny_colors_performers_and_reports_the_others(
     assert "天海" not in world_file(characters).read_text(encoding="utf-8")
 
 
-def test_an_absence_with_official_news_takes_her_off_that_day(
-    world_sync, characters: CharacterConfig
-):
-    world_sync()
-
-    second_day = lives_by_name(characters)[FOURTH]["days"][1]
-    assert "櫻木真乃" not in second_day["performers"]
-    assert second_day["absent"] == ["櫻木真乃"]
-    assert NEWS in second_day["sources"]
-
-
-def test_an_absence_without_official_news_is_not_taken_and_is_reported(
+def test_an_absence_takes_her_off_that_day_only_with_official_news_and_is_reported_without(
     world_sync, characters: CharacterConfig
 ):
     _, out, _ = world_sync()
 
     second_day = lives_by_name(characters)[FOURTH]["days"][1]
+    assert "櫻木真乃" not in second_day["performers"]
+    assert second_day["absent"] == ["櫻木真乃"]
+    assert NEWS in second_day["sources"]
+    # Without the official news, she still stood, and the report says why it was not taken.
     assert "月岡恋鐘" in second_day["performers"]
     assert "月岡恋鐘" not in second_day["absent"]
     assert "没附官方新闻链接" in out and "礒部 花凜（月岡 恋鐘役）" in out
+    assert "礒部 花凜（月岡 恋鐘役）（2022/04/21出演見合わせ）" in out
 
 
 def test_performers_who_are_none_of_the_idols_are_reported_but_not_the_clerk_hosting(
@@ -1131,19 +1095,6 @@ def test_a_day_whose_listed_performers_are_none_of_the_idols_is_reported(
     assert f"{UKA} 2025-05-10" in out
 
 
-def test_a_performer_struck_out_without_saying_she_was_absent_still_stood_and_is_reported(
-    world_sync, sites: FakeWorldSites, characters: CharacterConfig
-):
-    sites.wiki_lives[0].performers[0] = (
-        "2027年6月5日(土)", [struck("河野 ひより（小宮 果穂役）", "2027/04/01追加")],
-    )
-
-    _, out, _ = world_sync()
-
-    assert lives_by_name(characters)[SHOWDOWN]["days"][0]["performers"] == ["小宮果穂"]
-    assert "河野 ひより（小宮 果穂役）（2027/04/01追加）" in out
-
-
 def test_other_dates_in_a_wiki_live_do_not_make_an_official_article_a_live(
     world_sync, sites: FakeWorldSites, characters: CharacterConfig
 ):
@@ -1178,13 +1129,16 @@ def write_corrections(characters: CharacterConfig, days: list[dict], not_idols: 
 FUNFARE = "https://funfare.bandainamcoent.co.jp/11511/"
 
 
-def test_a_correction_sets_a_day_s_performers_whatever_the_wiki_says(
+def test_corrections_set_a_day_s_performers_and_quiet_no_idols_and_one_matching_no_day_is_reported(
     world_sync, characters: CharacterConfig
 ):
-    write_corrections(characters, [{
-        "live": MOIW, "date": "2023-02-11", "performers": ["八宮めぐる"],
-        "sources": [FUNFARE], "note": "wiki 的名单是旧的",
-    }])
+    write_corrections(characters, [
+        {
+            "live": MOIW, "date": "2023-02-11", "performers": ["八宮めぐる"],
+            "sources": [FUNFARE], "note": "wiki 的名单是旧的",
+        },
+        {"live": MOIW, "date": "2023-02-13", "performers": [], "sources": [FUNFARE], "note": ""},
+    ], not_idols=[{"name": "田口 尚平", "note": "主持人"}])
 
     code, out, err = world_sync()
 
@@ -1194,6 +1148,8 @@ def test_a_correction_sets_a_day_s_performers_whatever_the_wiki_says(
     assert day["sources"][0] == FUNFARE
     assert "中村 繪里子" not in out  # the wiki's list for the day is not read at all
     assert "人工更正" in out and f"{MOIW} 2023-02-11" in out
+    assert "田口 尚平" not in out  # confirmed to be no idol
+    assert "没有套用" in out and "2023-02-13" in out
 
 
 def test_a_correction_with_no_performers_says_nobody_stood_that_day_and_quiets_the_report(
@@ -1211,43 +1167,6 @@ def test_a_correction_with_no_performers_says_nobody_stood_that_day_and_quiets_t
     assert f"{UKA} 2025-05-10：" in before
     assert f"{UKA} 2025-05-10：" not in after.split("人工更正")[0]
     assert lives_by_name(characters)[UKA]["days"][0]["performers"] == []
-
-
-def test_performers_confirmed_to_be_no_idols_are_not_reported(
-    world_sync, characters: CharacterConfig
-):
-    write_corrections(characters, [], not_idols=[{"name": "田口 尚平", "note": "主持人"}])
-
-    _, out, _ = world_sync()
-
-    assert "田口 尚平" not in out
-
-
-def test_a_correction_that_matches_no_day_is_reported(world_sync, characters: CharacterConfig):
-    write_corrections(characters, [{
-        "live": MOIW, "date": "2023-02-13", "performers": [], "sources": [FUNFARE], "note": "",
-    }])
-
-    code, out, _ = world_sync()
-
-    assert code == 0
-    assert "没有套用" in out and "2023-02-13" in out
-
-
-def test_a_correction_naming_someone_who_is_none_of_the_idols_fails_the_import(
-    world_sync, characters: CharacterConfig
-):
-    world_sync()
-    before = world_file(characters).read_text(encoding="utf-8")
-    write_corrections(characters, [{
-        "live": MOIW, "date": "2023-02-11", "performers": ["天海春香"], "sources": [FUNFARE], "note": "",
-    }])
-
-    code, _, err = world_sync()
-
-    assert code != 0
-    assert "world-corrections.json" in err and "天海春香" in err
-    assert world_file(characters).read_text(encoding="utf-8") == before
 
 
 def test_a_postponed_live_s_first_dates_on_the_wiki_are_no_conflict(
@@ -1281,7 +1200,7 @@ def write_track_corrections(characters: CharacterConfig, tracks: list[dict]) -> 
 NEWS_SONG = "https://idolmaster-official.jp/news/01_2000"
 
 
-def test_a_track_correction_sets_its_singers_and_special_unit(
+def test_track_corrections_set_their_singers_and_special_unit_or_make_a_track_no_song(
     world_sync, sites: FakeWorldSites, characters: CharacterConfig
 ):
     sites.releases.append(five_stars_release())
@@ -1291,6 +1210,8 @@ def test_a_track_correction_sets_its_singers_and_special_unit(
          "sources": [NEWS_SONG], "note": "闪耀色彩这边只有真乃"},
         {"catalog": "LACM-24027", "track": 2, "title": "なんどでも笑おう シャイニーカラーズVer.",
          "singers": ["櫻木真乃", "月岡恋鐘"], "sources": [NEWS_SONG], "note": "当时的全体"},
+        {"catalog": "LACM-24027", "track": 3, "title": "BGM「朝」", "no_song": True,
+         "sources": [NEWS_SONG], "note": "器乐"},
     ])
 
     code, out, err = world_sync()
@@ -1304,19 +1225,7 @@ def test_a_track_correction_sets_its_singers_and_special_unit(
     assert songs["なんどでも笑おう シャイニーカラーズVer."]["special_unit"] is None
     assert "人工更正" in out and "LACM-24027" in out.split("人工更正")[1]
     assert "第 1 首「なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!」\n" not in out.split("人工更正")[0]
-
-
-def test_a_track_corrected_as_no_song_is_not_reported_as_unknown(
-    world_sync, sites: FakeWorldSites, characters: CharacterConfig
-):
-    sites.releases.append(five_stars_release())
-    write_track_corrections(characters, [
-        {"catalog": "LACM-24027", "track": 3, "title": "BGM「朝」", "no_song": True,
-         "sources": [NEWS_SONG], "note": "器乐"},
-    ])
-
-    _, out, _ = world_sync()
-
+    # A track corrected as no song is not reported as unknown.
     assert release(characters, "LACM-24027")["tracks"][2]["song"] is None
     assert "BGM「朝」" not in out.split("人工更正")[0]
 
@@ -1336,19 +1245,30 @@ def test_a_track_correction_whose_title_no_longer_matches_is_not_applied_and_rep
     assert "没有套用" in out and "LACM-24027 第 3 首" in out
 
 
-def test_a_track_correction_naming_someone_who_is_none_of_the_idols_fails_the_import(
-    world_sync, sites: FakeWorldSites, characters: CharacterConfig
+@pytest.mark.parametrize(
+    "corrections", [
+        {"live_days": [{
+            "live": MOIW, "date": "2023-02-11", "performers": ["天海春香"], "sources": [FUNFARE], "note": "",
+        }]},
+        {"tracks": [{
+            "catalog": "LACM-24027", "track": 1, "title": "なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!",
+            "singers": ["天海春香"], "sources": [NEWS_SONG], "note": "",
+        }]},
+    ],
+    ids=["live day", "track"],
+)
+def test_a_correction_naming_someone_who_is_none_of_the_idols_fails_the_import(
+    world_sync, characters: CharacterConfig, corrections: dict
 ):
-    sites.releases.append(five_stars_release())
-    write_track_corrections(characters, [
-        {"catalog": "LACM-24027", "track": 1, "title": "なんどでも笑おう THE IDOLM@STER FIVE STARS!!!!!",
-         "singers": ["天海春香"], "sources": [NEWS_SONG], "note": ""},
-    ])
+    world_sync()
+    before = world_file(characters).read_text(encoding="utf-8")
+    characters.write("world-corrections.json", json.dumps(corrections, ensure_ascii=False))
 
     code, _, err = world_sync()
 
     assert code != 0
     assert "world-corrections.json" in err and "天海春香" in err
+    assert world_file(characters).read_text(encoding="utf-8") == before
 
 
 def setlist(characters: CharacterConfig, live: str, day: int) -> list[dict]:

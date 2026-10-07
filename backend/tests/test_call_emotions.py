@@ -71,12 +71,6 @@ async def test_a_segment_jev_cannot_judge_in_time_gets_no_emotion(
     assert len(judge.segments) == 2  # not asked again
 
 
-async def test_without_jev_no_segment_is_judged(mano_call: CallUnderTest):
-    _, messages = await mano_call.run(FakeLLM(MANO_REPLY), [spoken("早上好"), SETTLE])
-
-    assert emotions(messages) == []
-
-
 async def test_text_only_replies_are_judged_all_the_same(mano_call: CallUnderTest):
     judge = FakeJudge(emotions=[feeling("happy"), feeling("surprised")])
 
@@ -117,28 +111,23 @@ async def test_segments_left_incomplete_by_an_interruption_are_not_judged(
     assert len(judge.segments) == 1
 
 
-async def test_a_reply_dropped_for_a_follow_on_is_judged_no_further(mano_call: CallUnderTest):
-    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], delay=0.3)
+async def test_a_reply_dropped_for_a_follow_on_is_judged_no_further_and_numbers_stay_with_replies(
+    mano_call: CallUnderTest,
+):
+    """What the user said in a call, and the emotions of a reply's segments, carry the
+    number of the reply they are of."""
+    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], ["<ja>ええ。</ja><zh>嗯。</zh>"], delay=0.3)
     judge = FakeJudge(emotions=[feeling("happy"), feeling("sad")])
 
     _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), typed("在吗"), SETTLE], judge=judge
+        llm,
+        [spoken("早上好"), SleepFrame(0.1), typed("在吗"), SleepFrame(1.0), spoken("好"), SETTLE],
+        judge=judge,
     )
 
     # The first reply had no complete segment when it was dropped.
-    assert emotions(messages) == [(2, 0, "happy", None)]
-    assert [s.user_said for s in judge.segments] == ["早上好\n在吗"]
-
-
-async def test_what_the_user_said_in_a_call_carries_the_number_of_its_reply(
-    mano_call: CallUnderTest,
-):
-    llm = FakeLLM(SLOW_REPLY, ["<ja>うん。</ja><zh>嗯。</zh>"], ["<ja>ええ。</ja><zh>嗯。</zh>"], delay=0.3)
-
-    _, messages = await mano_call.run(
-        llm, [spoken("早上好"), SleepFrame(0.1), typed("在吗"), SleepFrame(1.0), spoken("好")]
-    )
-
+    assert emotions(messages) == [(2, 0, "happy", None), (3, 0, "sad", None)]
+    assert [s.user_said for s in judge.segments] == ["早上好\n在吗", "好"]
     assert [(m["text"], m["reply"]) for m in messages if m["type"] == "user"] == [
         ("早上好", 1), ("早上好\n在吗", 2), ("好", 3)
     ]

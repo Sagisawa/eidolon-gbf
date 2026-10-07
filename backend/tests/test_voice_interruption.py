@@ -116,18 +116,17 @@ def reply(text: str) -> list[Frame]:
     return [LLMFullResponseStartFrame(), TextFrame(text), LLMFullResponseEndFrame()]
 
 
-async def test_interrupting_her_while_she_speaks_is_passed_on_before_reconnecting():
+async def test_interrupting_her_while_she_speaks_is_passed_on_before_reconnecting_and_she_speaks_again_once_reconnected():
     log = await run(
-        BotStartedSpeakingFrame(), InterruptionFrame(), RTVIServerMessageFrame(data={"type": "done"})
+        BotStartedSpeakingFrame(),
+        InterruptionFrame(),
+        RTVIServerMessageFrame(data={"type": "done"}),
+        *reply("次のこと。"),
     )
 
-    assert log == ["interrupted", "done", "disconnected", "connected", "disconnected"]
-
-
-async def test_what_she_says_next_is_voiced_once_reconnected():
-    log = await run(BotStartedSpeakingFrame(), InterruptionFrame(), *reply("次のこと。"))
-
-    assert log == ["interrupted", "disconnected", "connected", "voiced 次のこと。", "disconnected"]
+    assert log == [
+        "interrupted", "done", "disconnected", "connected", "voiced 次のこと。", "disconnected"
+    ]
 
 
 

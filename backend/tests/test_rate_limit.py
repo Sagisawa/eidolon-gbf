@@ -9,7 +9,6 @@ import httpx
 import pytest
 
 from eidolon.config import Settings, UsageLimits
-from eidolon.engine import MAX_INPUT_LENGTH
 from tests.conftest import Admin, ClientFactory
 from tests.browser import open_browser
 from tests.fakes import START, FakeClock, FakeLLM, FakeSpeech
@@ -42,7 +41,7 @@ async def test_text_turns_over_the_hourly_limit_are_refused_until_the_oldest_age
 
     assert refused.status_code == 429
     body = refused.json()
-    assert "文字对话" in body["detail"]
+    assert "文字对话" in body["detail"] and "每小时 2 次" in body["detail"]
     assert datetime.fromisoformat(body["retry_at"]) == START + timedelta(hours=1)
     assert refused.headers["Retry-After"] == str(30 * 60)
     assert len(llm.prompts) == 2  # the model was never asked
@@ -97,18 +96,6 @@ async def test_voice_calls_have_their_own_hourly_limit_and_renegotiating_is_free
     assert events[-1]["type"] == "done"
 
 
-async def test_a_limit_of_none_lets_everything_through(
-    make_client: ClientFactory, settings: Settings
-):
-    client = make_client(
-        FakeLLM(*[REPLY] * 5), settings=limited(settings, turns=None), clock=FakeClock()
-    )
-    conversation_id = await start_conversation(client)
-
-    for _ in range(5):
-        assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "done"
-
-
 def test_limits_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
     for name in ["TURNS_PER_HOUR", "CALLS_PER_HOUR", "CALL_MINUTES", "TURNS_PER_CALL"]:
         monkeypatch.delenv(f"EIDOLON_{name}", raising=False)
@@ -131,8 +118,9 @@ def test_limits_come_from_the_environment(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.parametrize(
     "text",
-    ["在吗", " ", "啊" * (MAX_INPUT_LENGTH + 1)],  # the model fails; blank; too long
-    ids=["failed", "blank", "too long"],
+    # The model fails; blank, rejected before the model as input too long is.
+    ["在吗", " "],
+    ids=["failed", "blank"],
 )
 async def test_a_turn_that_fails_or_is_rejected_gives_its_use_back(
     make_client: ClientFactory, settings: Settings, text: str

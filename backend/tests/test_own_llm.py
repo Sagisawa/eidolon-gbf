@@ -124,7 +124,9 @@ async def test_a_failing_own_llm_fails_the_turn_without_the_deployers_key_or_cou
     assert "你的LLM密钥调用失败" in failed[-1]["message"]
     assert "402 Payment Required" in failed[-1]["message"]
     assert deployers.keys == []
-    assert again[-1]["type"] == "done"  # the failed turn did not count
+    # The next turn goes on. Turns on an own LLM never count, so with the limit of one this
+    # does not show the failed turn was given back (test_rate_limit does).
+    assert again[-1]["type"] == "done"
     messages = await client.get(f"/api/conversations/{conversation_id}/messages")
     assert len(messages.json()) == 2
 

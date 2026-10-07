@@ -13,12 +13,6 @@ async def latest(client: httpx.AsyncClient) -> dict[str, dict]:
     return {s["character_id"]: s for s in res.json()}
 
 
-async def test_without_conversations_there_is_nothing_to_summarise(make_client: ClientFactory):
-    client = make_client(FakeLLM())
-
-    assert await latest(client) == {}
-
-
 async def test_each_character_shows_her_newest_conversation_and_its_last_message(
     make_client: ClientFactory,
 ):

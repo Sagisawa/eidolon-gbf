@@ -104,14 +104,18 @@ async def test_a_call_joins_the_conversation_asked_for_muted_as_asked(
 ):
     client = make_client(FakeLLM(REPLY))
     conversation_id = await start_conversation(client, "kogane")
-    await browser.call(client, conversation_id=conversation_id, muted=True)
+    res = await browser.call(client, conversation_id=conversation_id, muted=True)
+    assert res.status_code == 200
+    answer = res.json()
+    assert answer["type"] == "answer" and answer["sdp"].startswith("v=0")
+    assert answer["pc_id"]
     await browser.connect()
 
     await speech.stts[-1].hear("你好")
     messages = await browser.turn()
 
     assert messages[-1]["type"] == "done"
-    assert speech.ttss[-1].voice_id == "kogane-voice"
+    assert [tts.voice_id for tts in speech.ttss] == ["kogane-voice"]
     assert speech.ttss[-1].voiced == []
     res = await client.get(f"/api/conversations/{conversation_id}/messages")
     assert [m["text"] for m in res.json()] == ["你好", None]

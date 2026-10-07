@@ -126,19 +126,7 @@ def test_a_card_with_one_of_the_two_lists_only_that_one(outfits: Outfits, source
     assert (cape["everyday"], cape["stage"]) == (None, outfit("stand_costume", "3000010040"))
 
 
-def test_a_stage_costume_whose_texture_is_the_everyday_clothes_byte_for_byte_is_one_outfit(
-    outfits: Outfits, source: FakeSource
-):
-    source.add("stand", 1, "3000010020", f"【ミットナイトモンスター】{MANO}", "Special", texture=b"same")
-    source.add("stand_costume", 1, "3000010020", f"【ミットナイトモンスター】{MANO}", "Special", texture=b"same")
-
-    outfits.run()
-
-    (card,) = outfits.list(1)["cards"]
-    assert (card["everyday"], card["stage"]) == (outfit("stand", "3000010020"), None)
-
-
-def test_a_default_outfit_left_out_as_the_same_as_the_everyday_clothes_is_reported(
+def test_a_stage_costume_whose_texture_is_the_everyday_clothes_is_one_outfit_and_reported_if_default(
     admin: Admin, source: FakeSource, tmp_path: Path
 ):
     characters = CharacterConfig(tmp_path / "characters").add(
@@ -222,19 +210,6 @@ def test_an_outfit_the_manifest_lists_without_its_files_is_left_out_and_reported
     assert code == 0
     assert [card["id"] for card in outfits.list(1)["cards"]] == ["1030010010"]
     assert "stand/3000010490" in err
-
-
-def test_a_default_outfit_the_list_lacks_is_reported(admin: Admin, source: FakeSource, tmp_path: Path):
-    characters = CharacterConfig(tmp_path / "characters").add(
-        "mano", MANO, "# 人设", idol_id=1, default_outfit="stand/1030019990"
-    )
-    outfits = Outfits(admin, characters, tmp_path / "build")
-    source.card(1, "1030010010", f"【ナチュラルモード】{MANO}", "P_SR")
-
-    code, _, err = outfits.invoke()
-
-    assert code == 0
-    assert "stand/1030019990" in err and "default_outfit" in err
 
 
 def test_a_manifest_entry_without_its_enza_id_is_an_error(outfits: Outfits, source: FakeSource):

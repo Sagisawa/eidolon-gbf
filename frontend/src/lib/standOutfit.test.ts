@@ -94,29 +94,20 @@ describe("the outfit list", () => {
 });
 
 describe("the outfit chosen on this device", () => {
-  it("is none until one is chosen", () => {
+  it("is none until one is chosen, then kept for each character apart, and replaced when she is given another", () => {
     storage();
-
     expect(loadOutfitChoice("mano")).toBeNull();
-  });
-
-  it("is kept for each character apart", () => {
-    storage();
 
     saveOutfitChoice("mano", "stand_costume/1030010010");
     saveOutfitChoice("kogane", "stand/1040040010");
 
     expect(loadOutfitChoice("mano")).toBe("stand_costume/1030010010");
     expect(loadOutfitChoice("kogane")).toBe("stand/1040040010");
-  });
-
-  it("is replaced when she is given another", () => {
-    storage();
-    saveOutfitChoice("mano", "stand_costume/1030010010");
 
     saveOutfitChoice("mano", "stand/1040010010");
 
     expect(loadOutfitChoice("mano")).toBe("stand/1040010010");
+    expect(loadOutfitChoice("kogane")).toBe("stand/1040040010");
   });
 
   it("is none when what is stored cannot be read, and choosing again mends it", () => {

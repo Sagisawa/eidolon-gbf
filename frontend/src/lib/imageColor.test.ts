@@ -30,24 +30,21 @@ function pairs(hex: string) {
 describe("imageColorScale", () => {
   const officials = { 真乃: "#ffbad6", 恋鐘: "#f84cad", 灯織: "#144384", めぐる: "#ffe012", 咲耶: "#006047" };
 
-  for (const [name, hex] of Object.entries(officials)) {
-    it(`${name} 的每一对颜色在明暗两种模式下都看得清`, () => {
-      for (const p of pairs(hex)) {
-        expect(contrast(p.fg, p.bg), `${p.what} ${p.fg} on ${p.bg}`).toBeGreaterThanOrEqual(p.min);
-      }
-    });
-  }
-
-  it("任意色相、任意深浅的印象色都满足对比度", () => {
-    const failures: string[] = [];
+  it("官方印象色和任意色相、任意深浅的印象色，每一对颜色在明暗两种模式下都看得清", () => {
+    const colors = Object.entries(officials).map(([name, hex]) => ({ name: `${name} ${hex}`, hex }));
     for (let r = 0; r < 256; r += 51)
       for (let g = 0; g < 256; g += 51)
         for (let b = 0; b < 256; b += 51) {
           const hex = `#${[r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
-          for (const p of pairs(hex)) {
-            if (contrast(p.fg, p.bg) < p.min) failures.push(`${hex} ${p.what} ${contrast(p.fg, p.bg).toFixed(2)}`);
-          }
+          colors.push({ name: hex, hex });
         }
+
+    const failures: string[] = [];
+    for (const { name, hex } of colors)
+      for (const p of pairs(hex)) {
+        const ratio = contrast(p.fg, p.bg);
+        if (ratio < p.min) failures.push(`${name} ${p.what} ${p.fg} on ${p.bg} ${ratio.toFixed(2)}`);
+      }
     expect(failures).toEqual([]);
   });
 

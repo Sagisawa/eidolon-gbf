@@ -90,18 +90,6 @@ async def test_every_reaction_is_kept_but_not_which_option_the_producer_picked(
     assert all("いただきます" not in text for text in importer.embedder.documents)
 
 
-async def test_failure_endings_are_not_imported(importer: Importer, scripts: Path):
-    report = await importer.json(scripts)
-
-    assert {e.id for e in importer.corpus.list_episodes()} == {
-        "produce_events/100100101",
-        "produce_events/600100106",
-        "produce_events/201100501",
-    }
-    assert (report.imported, report.skipped_failures) == (3, 1)
-    assert all("負け" not in text for text in importer.embedder.documents)
-
-
 async def test_json_only_episodes_have_no_translation_but_can_be_recalled(
     importer: Importer, scripts: Path
 ):

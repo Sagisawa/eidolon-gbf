@@ -45,21 +45,17 @@ function pick(animations: ReadonlyMap<string, number>, change: Partial<StandDire
   return pickAnimations(direction(change), animations, reducedMotion);
 }
 
-describe("pickAnimations：身体和表情", () => {
-  it.each<[Emotion, string, string]>([
-    ["calm", "wait", "face_wait"],
-    ["happy", "smile1", "face_smile"],
-    ["shy", "shy1", "face_shy"],
-    ["surprised", "surp1", "blank"], // 这套没有 face_surp
-    ["sad", "sad1", "face_sad"],
-    ["angry", "anger1", "face_anger"],
-    ["thinking", "think", "face_serious"],
-  ])("恋钟【ばってん長崎恋岬】%s：身体 %s、表情 %s", (mood, body, face) => {
-    expect(pick(KOGANE, { mood })).toMatchObject({ body, face });
-  });
-
-  it("缺表情时用 blank，把脸交还给身体动作：真乃没有 face_serious", () => {
-    expect(pick(MANO, { mood: "thinking" })).toMatchObject({ body: "think", face: "blank" });
+describe("pickAnimations：身体、表情和口型", () => {
+  it.each<[Emotion, string, string, string]>([
+    ["calm", "wait", "face_wait", "lip_wait"],
+    ["happy", "smile1", "face_smile", "lip_smile"],
+    ["shy", "shy1", "face_shy", "lip_shy"],
+    ["surprised", "surp1", "blank", "lip_surp"], // 这套没有 face_surp
+    ["sad", "sad1", "face_sad", "lip_sad"],
+    ["angry", "anger1", "face_anger", "lip_anger"],
+    ["thinking", "think", "face_serious", "lip_smile"], // 没有 lip_serious
+  ])("恋钟【ばってん長崎恋岬】%s：身体 %s、表情 %s，说话时用 %s", (mood, body, face, name) => {
+    expect(pick(KOGANE, { mood, speaking: true })).toMatchObject({ body, face, mouth: { name, open: true } });
   });
 
   it("害羞缺 shy1、shy2 时用 smile2，缺 face_shy 时用 blank", () => {
@@ -95,25 +91,15 @@ describe("pickAnimations：身体和表情", () => {
     expect(pick(without(KOGANE, "think", "wait4"), { mood: "thinking" }).body).toBe("wait");
   });
 
-  it("减少动态效果时，身体一律用 wait，表情照常", () => {
+  it("减少动态效果时，身体一律用 wait，表情、口型和点头照常", () => {
     expect(pick(KOGANE, { mood: "angry" }, true)).toMatchObject({ body: "wait", face: "face_anger" });
     expect(pick(MANO, { mood: "happy" }, true)).toMatchObject({ body: "wait", face: "face_smile" });
+    expect(pick(KOGANE, { mood: "sad", speaking: true }, true).mouth).toEqual({ name: "lip_sad", open: true });
+    expect(pick(MANO, { nod: { kind: "yes", id: 1 } }, true).nod).toEqual({ name: "yes", id: 1 });
   });
 });
 
 describe("pickAnimations：口型", () => {
-  it.each<[Emotion, string]>([
-    ["calm", "lip_wait"],
-    ["happy", "lip_smile"],
-    ["shy", "lip_shy"],
-    ["surprised", "lip_surp"],
-    ["sad", "lip_sad"],
-    ["angry", "lip_anger"],
-    ["thinking", "lip_smile"], // 没有 lip_serious
-  ])("恋钟 %s 说话时用 %s", (mood, name) => {
-    expect(pick(KOGANE, { mood, speaking: true }).mouth).toEqual({ name, open: true });
-  });
-
   it("找不到这种情绪的口型时退到 lip_smile：真乃没有 lip_wait、lip_shy、lip_surp", () => {
     for (const mood of ["calm", "shy", "surprised"] as const)
       expect(pick(MANO, { mood, speaking: true }).mouth?.name).toBe("lip_smile");
@@ -139,30 +125,19 @@ describe("pickAnimations：口型", () => {
   it("闭嘴时用同一个说话口型，只是不开", () => {
     expect(pick(KOGANE, { mood: "happy", speaking: false }).mouth).toEqual({ name: "lip_smile", open: false });
   });
-
-  it("减少动态效果时口型照常", () => {
-    expect(pick(KOGANE, { mood: "sad", speaking: true }, true).mouth).toEqual({ name: "lip_sad", open: true });
-  });
 });
 
 describe("pickAnimations：点头和视线", () => {
-  it("点头用 yes，摇头用 no，带上这次的编号", () => {
+  it("点头用 yes，摇头用 no，带上这次的编号；没有点头时这条轨道什么都不放", () => {
     expect(pick(MANO, { nod: { kind: "yes", id: 3 } }).nod).toEqual({ name: "yes", id: 3 });
     expect(pick(KOGANE, { nod: { kind: "no", id: 4 } }).nod).toEqual({ name: "no", id: 4 });
+    expect(pick(MANO).nod).toBeNull();
   });
 
   it("没有 yes、no 时用 yes2、no2，都没有就不点", () => {
     expect(pick(without(MANO, "yes", "no"), { nod: { kind: "yes", id: 1 } }).nod).toEqual({ name: "yes2", id: 1 });
     expect(pick(without(MANO, "yes", "no"), { nod: { kind: "no", id: 2 } }).nod).toEqual({ name: "no2", id: 2 });
     expect(pick(without(KOGANE, "no"), { nod: { kind: "no", id: 5 } }).nod).toBeNull();
-  });
-
-  it("没有点头时这条轨道什么都不放", () => {
-    expect(pick(MANO).nod).toBeNull();
-  });
-
-  it("减少动态效果时照样点头", () => {
-    expect(pick(MANO, { nod: { kind: "yes", id: 1 } }, true).nod).toEqual({ name: "yes", id: 1 });
   });
 
   it("看向用户时用 eye_front，不看时清空", () => {

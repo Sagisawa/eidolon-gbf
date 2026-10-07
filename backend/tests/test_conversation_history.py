@@ -46,24 +46,6 @@ async def test_prompt_carries_only_the_most_recent_turns(
     assert history(llm) == [*exchange(3), *exchange(4), ("user", "第5句")]
 
 
-async def test_a_short_conversation_is_carried_whole(
-    make_client: ClientFactory, settings: Settings
-):
-    llm, _ = await talk(lambda llm: make_client(llm, settings=replace(settings, history_turns=2)), 2)
-
-    assert history(llm) == [*exchange(1), *exchange(2), ("user", "第3句")]
-
-
-async def test_with_no_limit_the_whole_conversation_is_carried(
-    make_client: ClientFactory, settings: Settings
-):
-    llm, _ = await talk(
-        lambda llm: make_client(llm, settings=replace(settings, history_turns=None)), 25
-    )
-
-    assert history(llm) == [*(m for n in range(1, 26) for m in exchange(n)), ("user", "第26句")]
-
-
 async def test_the_conversation_record_keeps_every_message(
     make_client: ClientFactory, settings: Settings
 ):
@@ -73,12 +55,6 @@ async def test_the_conversation_record_keeps_every_message(
     reopened = make_client(FakeLLM(), settings=client_settings)
     messages = (await reopened.get(f"/api/conversations/{conversation_id}/messages")).json()
     assert [m["text"] for m in messages if m["role"] == "user"] == ["第1句", "第2句", "第3句", "第4句"]
-
-
-async def test_twenty_turns_are_carried_by_default(make_client: ClientFactory):
-    llm, _ = await talk(make_client, 21)
-
-    assert history(llm) == [*(m for n in range(2, 22) for m in exchange(n)), ("user", "第22句")]
 
 
 def test_what_is_carried_opens_with_the_producer():

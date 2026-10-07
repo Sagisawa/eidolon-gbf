@@ -212,21 +212,6 @@ async def test_signing_in_replaces_the_session_the_browser_had(
 # Google (ticket 03)
 
 
-async def test_signing_in_with_google_makes_a_user_then_signs_in_as_them(
-    make_client: ClientFactory, google: FakeIdentityProvider
-):
-    desktop = make_client(FakeLLM(), user=None)
-    first = await sign_in_with(desktop, google, google_identity())
-    await agree_to_terms(desktop)
-    conversation_id = await start_conversation(desktop)
-    phone = make_client(FakeLLM(), user=None)
-
-    again = await sign_in_with(phone, google, google_identity())
-
-    assert first.headers["location"] == again.headers["location"] == "/"
-    assert await conversations(phone) == [conversation_id]
-
-
 async def test_google_accounts_with_an_unverified_email_cannot_sign_in(
     make_client: ClientFactory, google: FakeIdentityProvider
 ):

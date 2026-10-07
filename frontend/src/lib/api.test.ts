@@ -46,11 +46,9 @@ describe("json: the backend's reason for a failure", () => {
       ],
     });
     expect(error.message).toBe("内容不能为空");
-  });
 
-  it("keeps a problem's message that has no prefix", async () => {
-    const error = await failure(422, { detail: [{ msg: "Field required" }] });
-    expect(error.message).toBe("Field required");
+    // A problem's message that has no prefix is kept as it is.
+    expect((await failure(422, { detail: [{ msg: "Field required" }] })).message).toBe("Field required");
   });
 
   it("falls back to the status when the backend gives no reason", async () => {

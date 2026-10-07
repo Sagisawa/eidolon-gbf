@@ -34,6 +34,10 @@ CONNECTION = 0.2
 """How long, in seconds, the fake Fish Audio takes to accept a connection."""
 SYNTHESIS = 0.3
 """How long, in seconds, it takes to synthesise what it is sent, a sentence at a time."""
+CONTEXT_IDLE = SYNTHESIS * 4
+"""How long, in seconds, a reply's audio may be idle before the service takes it as over,
+longer than any pause in a reply here. Pipecat's 3 s would hold up the end of every call
+by that long for each reply."""
 
 
 class FakeFish:
@@ -159,6 +163,7 @@ class FishUnderTest(FishTTS):
             api_key="fish-key",
             sample_rate=16000,
             settings=FishAudioTTSService.Settings(voice="mano-voice", model="s2.1-pro-free"),
+            stop_frame_timeout_s=CONTEXT_IDLE,
         )
         self._pause_frame_processing = pausing
         self.fish = fish
@@ -224,6 +229,7 @@ def reply(number: int, *segments: list[str]) -> list[Frame]:
 
 
 async def test_each_segment_is_voiced_in_a_session_of_its_own_announced_as_it_plays():
+    """The next segment's connection is open before the last one finishes."""
     fish = await run(*reply(1, ["ほわっ。", "おはよう。"], ["今日も。"]))
 
     assert heard(fish) == [
@@ -236,11 +242,6 @@ async def test_each_segment_is_voiced_in_a_session_of_its_own_announced_as_it_pl
     assert fish.of(2) == [
         "connected", "start", "text 今日も。", "flush", "stop", "finished", "closed"
     ]
-
-
-async def test_the_next_segments_connection_is_open_before_the_last_one_finishes():
-    fish = await run(*reply(1, ["ほわっ。", "おはよう。"], ["今日も。"]))
-
     assert fish.log.index("2 connected") < fish.log.index("1 finished")
     assert fish.at["2 text 今日も。"] - fish.at["1 finished"] < CONNECTION / 2
 
