@@ -14,7 +14,9 @@ import pytest
 import eidolon.call
 from eidolon.app import create_app
 from eidolon.assembly import build
+from eidolon.call import CallOptions, SessionDescription
 from eidolon.config import Settings, UsageLimits
+from eidolon.own_keys import DeployerLease
 from eidolon.store import Store
 from tests.browser import TIMEOUT, Browser, open_browser, until_gone
 from tests.conftest import SITE, ClientFactory, sign_in
@@ -168,6 +170,49 @@ async def test_a_call_whose_voice_services_cannot_be_made_is_refused_and_does_no
     speech.down = False
     async with open_browser() as again:
         assert (await again.call(client, conversation_id=conversation_id)).status_code == 200
+
+
+async def test_a_call_failing_as_it_is_answered_never_connected_and_lets_go_of_its_keys(
+    one_call_an_hour: Settings, speech: FakeSpeech, monkeypatch: pytest.MonkeyPatch
+):
+    """Answering the offer is replaced, raising: whatever fails in Pipecat as it answers is
+    caught there, so no fake can make it raise."""
+    backend = build(
+        one_call_an_hour, chat_llm=FakeLLM(), background_llm=FakeBackgroundLLM(), speech=speech
+    )
+    try:
+        user = backend.store.create_user("producer").id
+        conversation = backend.store.create_conversation(user, "mano")
+        released: list[None] = []
+        lease = backend.config.lease
+
+        def counted_lease() -> DeployerLease:
+            held = lease()
+
+            def release() -> None:
+                released.append(None)
+                held.release()
+
+            return DeployerLease(held.keys, release)
+
+        async def answer(request: object, serve: object) -> dict | None:
+            raise RuntimeError("the offer could not be answered")
+
+        monkeypatch.setattr(backend.config, "lease", counted_lease)
+        monkeypatch.setattr(backend.calls, "_answer", answer)
+
+        with pytest.raises(RuntimeError):
+            await backend.calls.start(
+                user, conversation, backend.characters["mano"], CallOptions(),
+                SessionDescription("v=0", "offer"),
+            )
+
+        records, _ = backend.activity.since(backend.clock() - timedelta(hours=1))
+        assert [(r.kind, r.result) for r in records] == [("call", "not_connected")]
+        assert released == [None]
+        backend.usage.take(user, "call")  # given back: the hour's one call is still there
+    finally:
+        await backend.aclose()
 
 
 async def test_a_call_whose_voice_service_fails_before_any_turn_does_not_count(

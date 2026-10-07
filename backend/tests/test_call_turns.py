@@ -116,12 +116,9 @@ class CallUnderTest:
         )
         try:
             mano = backend.characters["mano"]
-            llms = backend.own_keys.for_turn(self.conversation.user_id).llms
-            call = Call(self.conversation, mano, llms, muted, "standard")
-            outcome = CallOutcome(
-                backend.usage, backend.activity, self.conversation.user_id, "mano",
-                exempt=False, limits=limits,
-            )
+            admission = backend.admissions.call(self.conversation.user_id, "mano")
+            call = Call(self.conversation, mano, admission.llms, muted, "standard")
+            outcome = CallOutcome(admission, limits)
             turns = CallTurns(backend.engine, call, outcome, follow_on_timeout, backend.emotions)
             if connected:
                 turns.connected()

@@ -1,54 +1,41 @@
 """How a call turns out: whether it counts towards the user's limit, whether it is given
-back, and the one `ended` message the browser is told why with (GLOSSARY.md「限额」「接通」).
+back, the one `ended` message the browser is told why with, and what its activity record
+says (GLOSSARY.md「限额」「接通」「运行记录」).
 
-The call is only its events here, reported as `_LiveCall` and `CallTurns` would; the
-limiter is the real one, on a fresh database, allowing one call an hour. Neither Pipecat
-nor aiortc is needed for any of it.
+The call is only its events here, reported as `_LiveCall` and `CallTurns` would, on an
+`Admission` let through as `Calls` does; all of it is real but the deployer (see
+`test_admission`), on a fresh database, allowing one call an hour. Neither Pipecat nor
+aiortc is needed for any of it.
 """
 
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
-from eidolon.activity import ActivityLog
+from eidolon.activity import CallEndReason, Result
 from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
-from eidolon.config import UsageLimits
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.store import Store
-from eidolon.usage import OverLimit, UsageKind, UsageLimiter, Use
-
-NOW = datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
+from eidolon.usage import UsageKind, Use
+from tests.test_admission import Deployment
 
 
-class Limiter:
-    """A user allowed one call an hour, and the limiter counting them."""
+class Limiter(Deployment):
+    """A user allowed one call an hour, the limiter counting them and their records."""
 
-    def __init__(self, path: Path) -> None:
-        self._store = Store(path)
-        self.user = self._store.create_user("producer").id
-        self.usage = UsageLimiter(path, UsageLimits(calls_per_hour=1), lambda: NOW)
-        self.activity = ActivityLog(path, lambda: NOW)
+    def call(self, limits: CallLimits = CallLimits()) -> CallOutcome:
+        return CallOutcome(self.admissions().call(self.user, "mano"), limits)
 
-    def call(self, exempt: bool = False, limits: CallLimits = CallLimits()) -> CallOutcome:
-        return CallOutcome(self.usage, self.activity, self.user, "mano", exempt, limits)
-
-    def counted(self) -> bool:
-        """Whether this hour's call is used up, that is, the last one was not given back."""
-        try:
-            self.usage.take(self.user, "call").give_back()
-        except OverLimit:
-            return True
-        return False
-
-    def calls_recorded(self) -> int:
-        return self.usage.last_day(self.user).total.calls
-
-    def close(self) -> None:
-        self.activity.close()
-        self.usage.close()
-        self._store.close()
+    def call_records(self) -> list[tuple[Result, CallEndReason | None, bool]]:
+        """Each call's record: how it turned out, why it ended, and whether it says how
+        long it lasted, as it does once connected."""
+        records, _ = self.activity.since(self.clock() - timedelta(hours=1))
+        return [
+            (r.result, r.end_reason, r.duration_s is not None)
+            for r in records
+            if r.kind == "call"
+        ]
 
 
 @pytest.fixture
@@ -58,19 +45,21 @@ def limiter(tmp_path: Path) -> Iterator[Limiter]:
     limiter.close()
 
 
-def test_a_call_over_the_limit_is_refused(limiter: Limiter):
-    limiter.call()
+async def test_a_call_on_the_users_own_keys_alone_is_told_it_does_not_count(
+    limiter: Limiter,
+):
+    await limiter.bring_all()
+    outcome = limiter.call()
+    outcome.connected()
+    outcome.turn_recorded()
 
-    with pytest.raises(OverLimit):
-        limiter.call()
+    message = outcome.service_failed(None)
+    outcome.settle()
 
-
-def test_an_exempt_call_is_taken_even_over_the_limit(limiter: Limiter):
-    limiter.call()
-
-    limiter.call(exempt=True)
-
-    assert limiter.calls_recorded() == 2
+    assert message is not None and message["counts"] is False
+    assert not limiter.counted("call")
+    assert limiter.calls_taken() == 1  # kept, for the admin to see
+    assert limiter.call_records() == [("failed", "failed", True)]
 
 
 def test_a_service_failing_before_the_call_connects_says_nothing_and_it_is_given_back(
@@ -82,7 +71,8 @@ def test_a_service_failing_before_the_call_connects_says_nothing_and_it_is_given
     assert outcome.service_failed("tts") is None
     outcome.settle()
 
-    assert not limiter.counted()
+    assert not limiter.counted("call")
+    assert limiter.call_records() == [("not_connected", "left", False)]
 
 
 def test_the_deployers_service_failing_before_any_turn_is_given_back_as_not_connected(
@@ -100,7 +90,8 @@ def test_the_deployers_service_failing_before_any_turn_is_given_back_as_not_conn
         "message": "语音服务出了故障，通话没能接通",
         "counts": False,
     }
-    assert not limiter.counted()
+    assert not limiter.counted("call")
+    assert limiter.call_records() == [("not_connected", "failed", True)]
 
 
 def test_an_own_key_failing_before_any_turn_says_which_and_the_call_is_given_back(
@@ -118,14 +109,12 @@ def test_an_own_key_failing_before_any_turn_says_which_and_the_call_is_given_bac
         "message": OwnKeyFailed("stt", "通话已结束").message,
         "counts": False,
     }
-    assert not limiter.counted()
+    assert not limiter.counted("call")
+    assert limiter.call_records() == [("not_connected", "failed", True)]
 
 
-@pytest.mark.parametrize("exempt", [False, True])
-def test_a_service_failing_after_a_turn_ends_a_call_that_was_connected(
-    limiter: Limiter, exempt: bool
-):
-    outcome = limiter.call(exempt)
+def test_a_service_failing_after_a_turn_ends_a_call_that_was_connected(limiter: Limiter):
+    outcome = limiter.call()
     outcome.connected()
     outcome.turn_recorded()
 
@@ -136,17 +125,14 @@ def test_a_service_failing_after_a_turn_ends_a_call_that_was_connected(
         "type": "ended",
         "reason": "dropped",
         "message": "语音服务出了故障，通话中断了",
-        "counts": not exempt,
+        "counts": True,
     }
-    assert limiter.counted() is not exempt
-    assert limiter.calls_recorded() == 1  # kept, for the admin to see, even when exempt
+    assert limiter.counted("call")
+    assert limiter.call_records() == [("failed", "failed", True)]
 
 
-@pytest.mark.parametrize("exempt", [False, True])
-def test_an_own_key_failing_after_a_turn_ends_a_call_that_was_connected(
-    limiter: Limiter, exempt: bool
-):
-    outcome = limiter.call(exempt)
+def test_an_own_key_failing_after_a_turn_ends_a_call_that_was_connected(limiter: Limiter):
+    outcome = limiter.call()
     outcome.connected()
     outcome.turn_recorded()
 
@@ -154,16 +140,16 @@ def test_an_own_key_failing_after_a_turn_ends_a_call_that_was_connected(
     outcome.settle()
 
     assert message is not None
-    assert (message["reason"], message["counts"]) == ("own_key", not exempt)
+    assert (message["reason"], message["counts"]) == ("own_key", True)
     assert message["message"] == OwnKeyFailed("tts", "通话已结束").message
-    assert limiter.calls_recorded() == 1
+    assert limiter.counted("call")
+    assert limiter.call_records() == [("failed", "failed", True)]
 
 
-@pytest.mark.parametrize("exempt", [False, True])
 def test_a_call_reaches_its_turn_limit_with_its_last_allowed_turn_and_is_kept(
-    limiter: Limiter, exempt: bool
+    limiter: Limiter,
 ):
-    outcome = limiter.call(exempt, CallLimits(turns=2))
+    outcome = limiter.call(CallLimits(turns=2))
     outcome.connected()
     outcome.turn_recorded()
     assert outcome.limit_reached() is None
@@ -178,21 +164,20 @@ def test_a_call_reaches_its_turn_limit_with_its_last_allowed_turn_and_is_kept(
             "type": "ended",
             "reason": "turn_limit",
             "message": "这次通话已经说了 2 轮了，先挂断啦。想接着聊可以重新拨打。",
-            "counts": not exempt,
+            "counts": True,
         },
     )
-    assert limiter.counted() is not exempt
-    assert limiter.calls_recorded() == 1
+    assert limiter.counted("call")
+    assert limiter.call_records() == [("success", "turn_limit", True)]
 
 
 @pytest.mark.parametrize(
     ("time_limit", "minutes"), [(timedelta(minutes=10), "10"), (timedelta(seconds=90), "1.5")]
 )
-@pytest.mark.parametrize("exempt", [False, True])
 def test_a_call_whose_time_is_up_is_kept_even_before_any_turn(
-    limiter: Limiter, exempt: bool, time_limit: timedelta, minutes: str
+    limiter: Limiter, time_limit: timedelta, minutes: str
 ):
-    outcome = limiter.call(exempt, CallLimits(duration=time_limit))
+    outcome = limiter.call(CallLimits(duration=time_limit))
     outcome.connected()
     assert outcome.time_limit == time_limit
     assert outcome.limit_reached() is None
@@ -207,11 +192,11 @@ def test_a_call_whose_time_is_up_is_kept_even_before_any_turn(
             "type": "ended",
             "reason": "duration_limit",
             "message": f"这次通话已经满 {minutes} 分钟了，先挂断啦。想接着聊可以重新拨打。",
-            "counts": not exempt,
+            "counts": True,
         },
     )
-    assert limiter.counted() is not exempt
-    assert limiter.calls_recorded() == 1
+    assert limiter.counted("call")
+    assert limiter.call_records() == [("success", "duration_limit", True)]
 
 
 def test_a_call_whose_time_is_up_as_its_turns_run_out_is_told_its_time_is_up(
@@ -246,7 +231,8 @@ def test_a_call_hung_up_once_connected_counts_even_before_any_turn(limiter: Limi
 
     outcome.settle()
 
-    assert limiter.counted()
+    assert limiter.counted("call")
+    assert limiter.call_records() == [("success", "left", True)]
 
 
 def test_the_browser_is_told_why_only_once(limiter: Limiter):
@@ -274,7 +260,8 @@ def test_what_the_browser_was_told_is_how_the_call_is_settled(limiter: Limiter):
     outcome.settle()
 
     assert told is not None and told["counts"] is False
-    assert not limiter.counted()
+    assert not limiter.counted("call")
+    assert limiter.call_records() == [("not_connected", "failed", True)]
 
 
 def test_a_call_that_could_not_be_set_up_is_given_back_at_most_once_saying_nothing(
@@ -303,4 +290,5 @@ def test_a_call_that_could_not_be_set_up_is_given_back_at_most_once_saying_nothi
     outcome.settle()
 
     assert len(given_back) == 1
-    assert not limiter.counted()
+    assert not limiter.counted("call")
+    assert limiter.call_records() == [("not_connected", "failed", False)]

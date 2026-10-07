@@ -6,7 +6,7 @@ its users page, for each user's recent usage (`admin_users_api`).
 
 A turn's record is open while the turn runs (`ActivityLog.begin`, then `current`), and the
 service calls made meanwhile, in the turn's context, are recorded under it; its outcome
-is told it as the turn's use of the limit is (`turn_outcome`), and it is written once it
+is told it as the turn's use of the limit is (`admission`), and it is written once it
 has one. A service call made outside any turn, as writing down memories after one is
 (`detached`), is recorded on its own.
 

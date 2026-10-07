@@ -41,6 +41,8 @@
 
 审查报告把它列为 Strong，但读代码后不成立：`engine.turn` 已经把所有失败（被拒绝的空白或超长、自带密钥失败、任何异常）都收成 `TurnFailed`，所以文字回合的限额规则在 `app.py` 里只有一行「遇到 `TurnFailed` 就 `give_back()`」；中途离开时生成器被取消，照样计入。`test_rate_limit.py` 已经经由 HTTP 测到这些规则。另做 `TurnOutcome` 或「放行」module 通不过删除测试，是 pass-through。`Calls.ice_servers` 调用 `for_call` 是有意为之（在花钱之前先报出 `CallsUnavailable` / `OwnKeyFailed`），不是泄漏。唯一剩下的只是调用方要转交 `keys.exempt`，一共两处，不值得改。以后的架构审查不要再提这一条。
 
+**2026-10-07 重开**：后台加进运行记录、部署者租约和计量以后，放行与收尾长成了六步，文字回合和通话各写一份，已经不一致（占了次数之后出错不退、自带密钥解不开时两边记录不同、租约在三处放开），上面「只有一行」的前提不再成立。第五轮把它和通话一起收进 `Admissions`，见 `../architecture-deepening-5/spec.md`。
+
 ## 候选 2：名单 module（已确认）
 
 **名单回答的问题**（由世界设定的偶像、组合、社长和事务员构造，纯 in-process）

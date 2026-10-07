@@ -121,8 +121,7 @@ def _stand(character: Character, assets_url: str | None) -> dict | None:
 def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
-    memory, usage, calls = backend.memories, backend.usage, backend.calls
-    own_keys = backend.own_keys
+    memory, calls, admissions = backend.memories, backend.calls, backend.admissions
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -325,14 +324,12 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        outcome = TurnOutcome(
-            usage, backend.activity, own_keys, user_id, conversation.character_id,
-            (backend.config.chat_llm, backend.config.memory_llm),
-        )
+        admission = admissions.turn(user_id, conversation.character_id)
+        outcome = TurnOutcome(admission)
 
         async def events() -> AsyncIterator[str]:
             with outcome.running():
-                turn = engine.turn(conversation, body.text, outcome.llms, device_timezone)
+                turn = engine.turn(conversation, body.text, admission.llms, device_timezone)
                 async for event in turn:
                     outcome.see(event)
                     if isinstance(event, SegmentComplete | SpeechDelta):
