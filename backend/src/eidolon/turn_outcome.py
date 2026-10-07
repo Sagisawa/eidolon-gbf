@@ -36,15 +36,14 @@ class TurnOutcome:
         deployer: tuple[LLMSettings, LLMSettings],
     ) -> None:
         """Take the turn on the user's keys, or the deployer's `deployer` chat and memory
-        models, held until `release`. Raises OverLimit when the user has no turns left this hour, OwnKeyFailed
+        models, held until `end`. Raises OverLimit when the user has no turns left this hour, OwnKeyFailed
         when their own key can no longer be decrypted."""
         try:
             keys = own_keys.for_turn(user_id)
         except OwnKeyFailed:
             activity.begin("turn", user_id, character_id, own_keys=True).finish("failed")
             raise
-        self.release = keys.release
-        """Called once the turn has ended, to let go of the deployer's keys it ran on."""
+        self._release = keys.release
         try:
             self._recording = activity.begin("turn", user_id, character_id, keys.exempt)
             try:
@@ -59,6 +58,7 @@ class TurnOutcome:
             keys.release()
             raise
         self._result: Result | None = None
+        self._ended = False
 
     @contextmanager
     def running(self) -> Iterator[None]:
@@ -68,7 +68,18 @@ class TurnOutcome:
             with self._recording.current():
                 yield
         finally:
+            self.end()
+
+    def end(self) -> None:
+        """Settle the turn, once: its record finished and the deployer's keys let go. Also
+        for a turn the user left before its response began, which never ran."""
+        if self._ended:
+            return
+        self._ended = True
+        try:
             self._recording.finish(self._result or "left")
+        finally:
+            self._release()
 
     def see(self, event: TurnEvent) -> None:
         """An event of the turn, as the browser is told it."""

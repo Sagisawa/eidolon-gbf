@@ -9,9 +9,7 @@ from dataclasses import replace
 import httpx
 import pytest
 
-import eidolon.call
 from eidolon.config import Settings
-from tests.browser import Browser
 from tests.conftest import (
     ClientFactory,
     agree_to_terms,
@@ -22,7 +20,6 @@ from tests.conftest import (
 from tests.fakes import START, FakeClock, FakeIdentityProvider, FakeLLM
 from tests.test_delete_account import memory_client, use_everything
 from tests.test_shared_memory import CAT
-from tests.test_text_turn import start_conversation
 
 ADMIN = ("github", "9001")
 
@@ -140,20 +137,14 @@ async def test_the_list_comes_in_pages_newest_first_and_finds_users_by_name_emai
         assert found["total"] == len(names), query
 
 
-async def test_a_ban_signs_the_user_out_hangs_up_their_call_and_keeps_them_out_until_lifted(
-    make_client: ClientFactory,
-    github: FakeIdentityProvider,
-    browser: Browser,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_a_ban_keeps_the_user_out_with_its_note_until_lifted(
+    make_client: ClientFactory, github: FakeIdentityProvider
 ):
-    monkeypatch.setattr(eidolon.call, "USER_CHECK_INTERVAL", 0.05)
+    """Signing out everywhere and hanging up are `Store.set_banned`'s, which the command
+    line shares; test_admin_commands.py drives them."""
     clock = FakeClock()
     admin = await admin_client(make_client, github, clock=clock)
     octo = await github_user(make_client, github, "1001", "octo", "octo@example.com", clock=clock)
-    phone = make_client(FakeLLM(), user=None)
-    await sign_in_with(phone, github, github_identity("1001", name="octo"))
-    await browser.call(octo, conversation_id=await start_conversation(octo))
-    await browser.connect()
     octo_id = (await find(admin, "octo"))["id"]
 
     res = await admin.post(f"/api/admin/users/{octo_id}/ban", json={"note": "刷量"})
@@ -162,9 +153,7 @@ async def test_a_ban_signs_the_user_out_hangs_up_their_call_and_keeps_them_out_u
     assert res.json()["banned"] is True
     assert res.json()["banned_at"] == START.isoformat()
     assert res.json()["ban_note"] == "刷量"
-    await browser.hung_up()
-    for client in (octo, phone):  # their sessions are gone
-        assert (await client.get("/api/account")).status_code == 401
+    assert (await octo.get("/api/account")).status_code == 401
     refused = await sign_in_with(octo, github, github_identity("1001", name="octo"))
     assert refused.headers["location"] == "/login?error=banned"
 

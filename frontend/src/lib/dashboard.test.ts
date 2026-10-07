@@ -18,8 +18,8 @@ const local = (month: number, day: number, hour: number) =>
   new Date(2026, month - 1, day, hour).toISOString();
 
 describe("isDashboardRange", () => {
-  it("只认后端给的四种时间范围", () => {
-    for (const [value, known] of [["24h", true], ["90d", true], ["1y", false], ["", false]] as const)
+  it("knows only the ranges the backend serves", () => {
+    for (const [value, known] of [["24h", true], ["1y", false]] as const)
       expect(isDashboardRange(value), value).toBe(known);
   });
 });

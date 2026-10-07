@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from eidolon.assembly import Backend
@@ -333,24 +334,28 @@ def create_app(backend: Backend) -> FastAPI:
                         continue
                     yield _sse(asdict(event))
 
-        return StreamingResponse(
-            _releasing(events(), outcome.release),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+        return _TurnResponse(events(), outcome.end)
 
     return app
 
 
-async def _releasing(
-    stream: AsyncIterator[str], release: Callable[[], None]
-) -> AsyncIterator[str]:
-    """`stream`, then `release` once it has ended, however it ended."""
-    try:
-        async for item in stream:
-            yield item
-    finally:
-        release()
+class _TurnResponse(StreamingResponse):
+    """A text turn's events, `end` called once they are sent or the page is gone, even
+    gone before they began, when the stream of them never runs."""
+
+    def __init__(self, events: AsyncIterator[str], end: Callable[[], None]) -> None:
+        super().__init__(
+            events,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+        self._end = end
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._end()
 
 
 def _sse(payload: dict) -> str:
