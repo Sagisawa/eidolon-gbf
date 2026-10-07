@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 新增配置覆盖表：每项一行，记值、末 4 位和更新时间；key 类的值用 `EIDOLON_SECRET_KEY` 经 HKDF 派生的 Fernet 加密（`info` 与自带密钥不同）。登记为「不是用户数据」。
 - [x] 新增「生效配置」模块：启动时的 `Settings` 加上覆盖合成当前生效的配置；是后台读写配置的唯一入口；对每一项报出三种状态之一：使用 `.env` 的值、已被后台覆盖、覆盖已失效并回退到 `.env`。
