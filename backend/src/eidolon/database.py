@@ -32,9 +32,11 @@ USER_DATA = [
 what refers to a row before the row."""
 
 NOT_USER_DATA = frozenset(
-    {"episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts"}
+    {"episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts",
+     "config_overrides"}
 )
-"""Every other table: the story corpus and the embedded text set."""
+"""Every other table: the story corpus, the embedded text set and the configuration the
+admin console overrides."""
 
 
 def connect(path: Path) -> sqlite3.Connection:

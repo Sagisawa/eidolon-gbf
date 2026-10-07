@@ -9,9 +9,14 @@ retrieval finds memories again; judging her emotion during calls needs only the 
 model, the same one; the
 background model is always at hand, being the chat model unless configured apart.
 
+The deployer's chat model is made by `ServiceClients` from the live configuration
+(`live_config`): `.env`'s settings as overridden in the admin console, replaced while the
+backend runs as admins change them. `Backend.start` tries the overrides as the server
+starts.
+
 The outside services can be passed in instead of made from the settings, as tests do
-with fakes. Whoever passes one in closes it; `Backend.aclose` closes only what `build`
-made, in the order that lets what is still running finish.
+with fakes, the `ServiceClients` too. Whoever passes one in closes it; `Backend.aclose`
+closes only what `build` made, in the order that lets what is still running finish.
 """
 
 import logging
@@ -28,9 +33,10 @@ from eidolon.emotion import EmotionJudge, EmotionJudging, ModelEmotionJudge
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
+from eidolon.live_config import LiveConfig
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
-from eidolon.own_keys import DeployerKeys, LLMService, OwnKeys, ProviderLLMService
+from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
 from eidolon.rerank import (
     DEFAULT_THRESHOLDS,
     FALLBACK_MODEL,
@@ -46,6 +52,7 @@ from eidolon.retrieval import (
     RetrievalJudge,
     open_reference_sources,
 )
+from eidolon.service_clients import ProviderClients, ServiceClients
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
 from eidolon.world import load_world, world_path
@@ -72,7 +79,13 @@ class Backend:
     own_keys: OwnKeys
     accounts: Accounts
     identity_providers: dict[ProviderName, IdentityProvider]
+    config: LiveConfig
     _closers: list[Closer] = field(default_factory=list, repr=False)
+
+    async def start(self) -> None:
+        """What is done as the server starts, on its event loop: try the overrides of the
+        configuration, falling back to `.env` where one fails."""
+        await self.config.start()
 
     async def aclose(self) -> None:
         """Close what `build` opened, last opened first."""
@@ -95,6 +108,7 @@ def build(
     speech: Speech | None = None,
     identity_providers: dict[ProviderName, IdentityProvider] | None = None,
     own_llm_service: LLMService | None = None,
+    clients: ServiceClients | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -117,12 +131,14 @@ def build(
     if identity_providers is None:
         identity_providers = open_identity_providers(settings.github, settings.google)
         closers.extend(p.aclose for p in identity_providers.values())
-    if chat_llm is None:
-        chat_llm = open_llm(settings.chat_llm)
-        closers.append(chat_llm.aclose)
     if background_llm is None:
         background_llm = open_llm(settings.background_llm)
         closers.append(background_llm.aclose)
+    config = LiveConfig(
+        settings, clients or ProviderClients(), clock,
+        background_llm=background_llm, chat_llm=chat_llm,
+    )
+    closers.append(config.aclose)
     if own_llm_service is None:  # users' own LLMs write down memories too
         own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
         closers.append(own_llm_service.aclose)
@@ -204,8 +220,7 @@ def build(
         else DEFAULT_BAILIAN_STT_MODEL
     )
     speech = speech or SpeechServices(settings.fish_audio_model, bailian_model)
-    deployer = DeployerKeys(chat_llm, background_llm, settings.stt_key, settings.fish_audio_api_key)
-    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, deployer, speech)
+    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, speech)
     calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
@@ -221,5 +236,6 @@ def build(
         own_keys=own_keys,
         accounts=Accounts(store, clock, memories, calls),
         identity_providers=identity_providers,
+        config=config,
         _closers=closers,
     )

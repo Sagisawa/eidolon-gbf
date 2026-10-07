@@ -10,7 +10,9 @@ users cannot bring any. Only the last 4 characters of a key are ever shown again
 
 Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
 `for_call`): the user's own where they brought them, the deployer's otherwise, with
-whether it counts towards the user's limit. A kept key that can no longer be decrypted
+whether it counts towards the user's limit. The deployer's are those of the live
+configuration as the turn or call starts (see `live_config`), held until it releases them
+as it ends. A kept key that can no longer be decrypted
 fails it right there, before anything is spent. Nothing downstream tells the user's keys
 from the deployer's.
 
@@ -28,7 +30,7 @@ import ipaddress
 import logging
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Protocol, get_args
 from urllib.parse import urlsplit
 
@@ -166,6 +168,28 @@ class DeployerKeys:
     """For whichever speech recognition the deployer chose (`STT_PROVIDER`)."""
     tts: str | None = None
 
+    def lease(self) -> "DeployerLease":
+        """These keys, which never change, for a turn or call."""
+        return DeployerLease(self, _nothing)
+
+
+@dataclass(frozen=True)
+class DeployerLease:
+    """The deployer's keys a turn or call runs on, held until it calls `release`."""
+
+    keys: DeployerKeys
+    release: Callable[[], None]
+
+
+class Deployer(Protocol):
+    """Where the deployer's keys come from as each turn or call starts."""
+
+    def lease(self) -> DeployerLease: ...
+
+
+def _nothing() -> None:
+    pass
+
 
 @dataclass(frozen=True)
 class TurnKeys:
@@ -173,6 +197,8 @@ class TurnKeys:
 
     llms: TurnLLMs
     exempt: bool
+    release: Callable[[], None] = field(default=_nothing, compare=False)
+    """Called once the turn has ended, to let go of the deployer's keys it ran on."""
 
 
 @dataclass(frozen=True)
@@ -186,6 +212,8 @@ class CallKeys:
     tts: str
     own: frozenset[Service]
     exempt: bool
+    release: Callable[[], None] = field(default=_nothing, compare=False)
+    """Called once the call has ended, to let go of the deployer's keys it ran on."""
 
 
 class OwnKeys:
@@ -196,7 +224,7 @@ class OwnKeys:
         store: Store,
         secret_key: str | None,
         llm_service: LLMService,
-        deployer: DeployerKeys,
+        deployer: Deployer,
         speech_check: KeyCheck | None = None,
     ) -> None:
         self._store = store
@@ -213,7 +241,11 @@ class OwnKeys:
         """Whose keys the user's next text turn runs on: their own LLM, if they brought
         one, both plays the character and writes down their memories."""
         records = self._records(user_id)
-        return TurnKeys(self._llms(records), _exempt(records)["turns"])
+        exempt = _exempt(records)["turns"]
+        if "llm" in records:
+            return TurnKeys(self._llms(records, None), exempt)
+        lease = self._deployer.lease()
+        return TurnKeys(self._llms(records, lease.keys), exempt, lease.release)
 
     def for_call(self, user_id: str) -> CallKeys:
         """Whose keys the user's next call runs on: each of speech recognition and
@@ -221,12 +253,19 @@ class OwnKeys:
         CallsUnavailable if there is neither for either. A user's own key for speech
         recognition is for the service they chose, whichever the deployer did."""
         records = self._records(user_id)
-        stt = self._stt_key(records["stt"]) if "stt" in records else self._deployer.stt
-        tts = self._decrypt(records["tts"]) if "tts" in records else self._deployer.tts
-        if not stt or not tts:
-            raise CallsUnavailable()
-        own = frozenset(s for s in ("stt", "tts") if s in records)
-        return CallKeys(self._llms(records), stt, tts, own, _exempt(records)["calls"])  # pyright: ignore[reportArgumentType]
+        lease = self._deployer.lease()
+        try:
+            deployer = lease.keys
+            stt = self._stt_key(records["stt"]) if "stt" in records else deployer.stt
+            tts = self._decrypt(records["tts"]) if "tts" in records else deployer.tts
+            if not stt or not tts:
+                raise CallsUnavailable()
+            own = frozenset(s for s in ("stt", "tts") if s in records)
+            llms = self._llms(records, deployer)
+        except BaseException:
+            lease.release()
+            raise
+        return CallKeys(llms, stt, tts, own, _exempt(records)["calls"], lease.release)  # pyright: ignore[reportArgumentType]
 
     def describe(self, user_id: str) -> dict[Service, dict]:
         """What the user may see of their keys, by service: never more of a key than its
@@ -304,10 +343,11 @@ class OwnKeys:
         they could not be decrypted without."""
         return self._store.own_keys(user_id) if self._cipher else {}
 
-    def _llms(self, records: dict[str, OwnKeyRecord]) -> TurnLLMs:
+    def _llms(self, records: dict[str, OwnKeyRecord], deployer: DeployerKeys | None) -> TurnLLMs:
         record = records.get("llm")
         if record is None:
-            return TurnLLMs(self._deployer.chat_llm, self._deployer.memory_llm)
+            assert deployer is not None
+            return TurnLLMs(deployer.chat_llm, deployer.memory_llm)
         assert record.base_url and record.model
         protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
         settings = LLMSettings(record.base_url, self._decrypt(record), record.model, protocol)

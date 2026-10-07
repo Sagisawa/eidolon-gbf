@@ -154,6 +154,45 @@ class _KeyedLLM:
         pass
 
 
+class FakeServiceClients:
+    """Stands in for making the deployer's service clients from their configuration (see
+    `service_clients.ServiceClients`): records the settings of every chat model it made
+    (`opened`) and closed (`closed`). Every model it makes replies from `llm`'s script,
+    recording the key it came with there, but passes the connectivity check without
+    using up the script; a key in `rejects` fails every request, the check too, with
+    that message."""
+
+    def __init__(self, llm: FakeLLM | None = None) -> None:
+        self.llm = llm or FakeLLM()
+        self.opened: list[LLMSettings] = []
+        self.closed: list[LLMSettings] = []
+        self.rejects: dict[str, str] = {}
+
+    def chat_llm(self, settings: LLMSettings) -> ChatLLM:
+        self.opened.append(settings)
+        return _ConfiguredLLM(self, settings)
+
+
+class _ConfiguredLLM:
+    def __init__(self, clients: FakeServiceClients, settings: LLMSettings) -> None:
+        self._clients = clients
+        self._settings = settings
+
+    async def stream(
+        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
+        key = self._settings.api_key
+        if key in self._clients.rejects:
+            raise LLMError(self._clients.rejects[key])
+        if any(t.name == "ping" for t in tools):  # the connectivity check
+            return
+        async for item in self._clients.llm.stream_with(key, messages, tools):
+            yield item
+
+    async def aclose(self) -> None:
+        self._clients.closed.append(self._settings)
+
+
 class FakeBackgroundLLM:
     """Stands in for the background model: answers each request with the next scripted
     reply, and with no memories once the script runs out; a reply that is an exception
