@@ -29,7 +29,7 @@
 ## Comments
 
 实现说明：
-- 阈值表在 `judge.py`：`JudgeThresholds`（`needs_retrieval`、`recall`、`about_producer`、`emotion`）、`JUDGE_THRESHOLDS`（`jev` / `clef` / `clef-flash` 三组，都是 0.5）、`judge_family` 做模型名归一化（取最后一段 `/` 之后、小写），`judge_thresholds_for` 查表，查不到用 Jev 组并打警告。`build()` 只调一次，所以启动时只警告一次。
+- 阈值表在 `judge.py`：`JudgeThresholds`（`needs_retrieval`、`recall`、`about_producer`、`emotion`）、`JUDGE_THRESHOLDS`（`jev` / `clef` / `clef-flash` 三组，都是 0.5）、`judge_family` 做模型名归一化（取最后一段 `/` 之后、小写；Clef 只认 `clef`、`clef-flash` 两个名字，`clef-2` 之类算未知模型，Jev 认 `jev` 和 `jev-*`），`judge_thresholds_for` 查表，查不到用 Jev 组并打警告。`build()` 只调一次，所以启动时只警告一次。
 - `ModelRetrievalJudge(judge_model, thresholds)`，不传时用 Jev 组。
-- `EmotionSettings.min_probability` 改为 `float | None`，不填为 None，`build()` 里取所选模型的 `emotion` 阈值；填了就覆盖所有模型。
+- `EmotionSettings.min_probability` 改为 `float | None`，不填为 None。`judge.judge_thresholds(judge, emotion)` 给出所选模型的阈值，填了 `JUDGE_EMOTION_MIN_PROBABILITY` 就覆盖其中的情绪阈值；`build()` 和 `eidolon eval judge` 都用它。
 - 旧变量名只在有值时报错：照 `.env.example` 抄过来的空行 `JEV_EMOTION_MIN_PROBABILITY=` 不会挡住启动。

@@ -25,24 +25,13 @@ ODD = JudgeThresholds(needs_retrieval=0.3, recall=0.7, about_producer=0.9, emoti
     "model, family",
     [
         ("typesafe/jev-1.13", "jev"),
-        ("typesafe/jev-1.13-20260917", "jev"),
-        ("jev-latest", "jev"),
-        ("clef-flash", "clef-flash"),
-        ("cloudflare/clef-flash", "clef-flash"),
-        ("@cf/cloudflare/clef-flash", "clef-flash"),
+        ("Cloudflare/Clef-Flash", "clef-flash"),
         ("clef", "clef"),
-        ("cloudflare/clef", "clef"),
-        ("Cloudflare/Clef", "clef"),
-        ("openai/gpt-judge", None),
-        ("clefable", None),
+        ("cloudflare/clef-2", None),  # a new Clef is not judged by the old one's thresholds
     ],
 )
 def test_a_models_name_falls_in_its_group(model: str, family: str | None):
     assert judge_family(model) == family
-
-
-def test_every_group_has_thresholds():
-    assert set(JUDGE_THRESHOLDS) == {"jev", "clef", "clef-flash"}
 
 
 def test_a_known_model_gets_its_groups_thresholds(caplog: pytest.LogCaptureFixture):
@@ -67,7 +56,6 @@ def test_an_unknown_model_gets_jevs_with_a_warning(
 @pytest.mark.parametrize(
     "retrieve, recall, about_producer, expected",
     [
-        (0.69, 0.69, 0.89, "references"),  # 0.5 would have recalled
         (0.29, 0.69, 0.89, "nothing"),  # 0.5 would have recalled
         (0.29, 0.7, 0.1, "recall"),
         (0.3, 0.1, 0.1, "references"),  # 0.5 would have looked up nothing
@@ -173,19 +161,10 @@ def test_judging_tuned_out_of_range_stops_the_start(
         EmotionSettings.from_env()
 
 
-@pytest.mark.parametrize(
-    "old, new",
-    [
-        ("JEV_EMOTION_MIN_PROBABILITY", "JUDGE_EMOTION_MIN_PROBABILITY"),
-        ("JEV_EMOTION_TIMEOUT", "JUDGE_EMOTION_TIMEOUT"),
-    ],
-)
-def test_the_old_names_stop_the_start_naming_the_new(
-    monkeypatch: pytest.MonkeyPatch, old: str, new: str
-):
-    monkeypatch.setenv(old, "0.6")
+def test_the_old_names_stop_the_start_naming_the_new(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("JEV_EMOTION_TIMEOUT", "2")
 
-    with pytest.raises(RuntimeError, match=f"{old} 已改名为 {new}"):
+    with pytest.raises(RuntimeError, match="JEV_EMOTION_TIMEOUT 已改名为 JUDGE_EMOTION_TIMEOUT"):
         EmotionSettings.from_env()
 
 

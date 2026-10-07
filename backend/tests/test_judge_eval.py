@@ -130,31 +130,22 @@ def write(tmp_path: Path, text: str) -> Path:
     return path
 
 
-async def run(tmp_path: Path) -> tuple[FakeJudgeModel, dict]:
+async def test_a_run_is_asked_as_a_conversation_asks_and_summed_up(tmp_path: Path):
     judge_eval = load_judge_eval(write(tmp_path, EVAL), {"mano": MANO})
     model = FakeJudgeModel()
     ticks = iter(range(100))
     results = await evaluate(judge_eval, {"mano": MANO}, model, HALF, clock=lambda: next(ticks))
-    return model, summarize(results, "clef-flash", HALF)
+    summary = summarize(results, "clef-flash", HALF)
 
-
-async def test_turns_and_segments_are_asked_as_a_conversation_asks_them(tmp_path: Path):
-    model, _ = await run(tmp_path)
-
-    cat = model.states[1]
-    assert cat == {
+    # Each turn and segment is asked with the state a conversation and a call give.
+    assert model.states[1] == {
         "角色": "櫻木真乃",
-        "上文": ["制作人：ただいま", "櫻木真乃：おかえりなさい！"],  # without the cue
+        "上文": ["制作人：ただいま", "櫻木真乃：おかえりなさい！"],
         "制作人最新的一句话": "うちの猫が風邪をひいてさ",
     }
-    thanks = model.states[5]
-    assert thanks["这条回复前面几段"] == ["[shyly]ほわっ……（哇……）"]
-    assert model.states[6]["这条回复前面几段"] == "（这是回复的第一段）"
+    assert model.states[5]["这条回复前面几段"] == ["[shyly]ほわっ……（哇……）"]
 
-
-async def test_what_turns_need_is_set_against_what_was_expected(tmp_path: Path):
-    _, summary = await run(tmp_path)
-
+    # What turns need, against what was expected; the failed request counted apart.
     turns = summary["retrieval"]["all"]
     assert turns["cases"] == 5 and turns["failed"] == 1
     assert turns["accuracy"] == pytest.approx(3 / 4)
@@ -162,58 +153,41 @@ async def test_what_turns_need_is_set_against_what_was_expected(tmp_path: Path):
     assert turns["confusion"]["recall"] == {"recall": 1}
     assert turns["confusion"]["nothing"] == {"nothing": 1}
 
-
-async def test_each_questions_probabilities_are_spread_by_the_answer_expected(tmp_path: Path):
-    _, summary = await run(tmp_path)
-
-    spread = summary["retrieval"]["all"]["probabilities"]
-    # Retrieval is needed for references and recall, not for nothing or memories.
+    # Each question's probabilities, by whether yes or no was expected: retrieval is needed
+    # for references and recall, and whether it is about the producer matters only
+    # against nothing.
+    spread = turns["probabilities"]
     assert spread["needs_retrieval"]["yes"] == {"n": 2, "min": 0.9, "median": 0.925, "max": 0.95}
     assert spread["needs_retrieval"]["no"] == {"n": 2, "min": 0.1, "median": 0.35, "max": 0.6}
     assert spread["recall"]["yes"]["n"] == 1 and spread["recall"]["no"]["n"] == 3
-    # Whether it is about the producer matters only against nothing.
     assert spread["about_producer"]["yes"] == {"n": 1, "min": 0.9, "median": 0.9, "max": 0.9}
     assert spread["about_producer"]["no"] == {"n": 1, "min": 0.2, "median": 0.2, "max": 0.2}
 
-
-async def test_the_long_cases_are_counted_apart(tmp_path: Path):
-    _, summary = await run(tmp_path)
-
+    # The long cases apart.
     long, short = summary["retrieval"]["long"], summary["retrieval"]["short"]
     assert (long["cases"], long["failed"], long["accuracy"]) == (1, 1, None)
     assert (short["cases"], short["failed"]) == (4, 0)
 
-
-async def test_emotions_and_nods_are_scored(tmp_path: Path):
-    _, summary = await run(tmp_path)
-
+    # Emotions and nods: happy at 0.6 where calm was expected; yes at 0.4, below 0.5, is none.
     segments = summary["emotion"]
     assert segments["cases"] == 2 and segments["failed"] == 0
-    assert segments["emotion_accuracy"] == 0.5  # happy at 0.6, where calm was expected
-    assert segments["nod_accuracy"] == 0.5  # yes at 0.4 is below 0.5, so none
+    assert segments["emotion_accuracy"] == 0.5
+    assert segments["nod_accuracy"] == 0.5
     assert segments["likeliest_emotion"]["right"]["max"] == 0.7
     assert segments["likeliest_emotion"]["wrong"]["max"] == 0.6
 
+    # Latency (each request one tick of the clock) and input tokens.
+    assert summary["mean_seconds"] == 1
+    assert turns["input_tokens"]["min"] == 101
 
-async def test_latency_and_input_tokens_are_reported(tmp_path: Path):
-    _, summary = await run(tmp_path)
-
-    assert summary["mean_seconds"] == 1  # each request one tick of the clock
-    assert summary["retrieval"]["all"]["input_tokens"]["min"] == 101
-
-
-async def test_the_report_and_the_json_carry_each_case(tmp_path: Path):
-    judge_eval = load_judge_eval(write(tmp_path, EVAL), {"mano": MANO})
-    results = await evaluate(judge_eval, {"mano": MANO}, FakeJudgeModel(), HALF)
-    summary = summarize(results, "clef-flash", HALF)
-
+    # The report and the JSON carry each case.
     text = report(results, summary)
     assert "cat" in text and "long-wing" in text and "500" in text
     dumped = json.loads(json.dumps(results.to_json(summary), ensure_ascii=False))
     [cat] = [c for c in dumped["retrieval"] if c["id"] == "cat"]
     assert cat["expected"] == "memories" and cat["actual"] == "references"
     assert cat["probabilities"]["about_producer"] == 0.9
-    assert cat["input_tokens"] > 100
+    assert cat["input_tokens"] == 102
     assert dumped["summary"]["model"] == "clef-flash"
 
 

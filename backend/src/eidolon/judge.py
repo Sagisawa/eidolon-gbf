@@ -10,12 +10,12 @@ other when it fails.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 import httpx
 
-from eidolon.config import CloudflareJudgeSettings, JudgeSettings
+from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JudgeSettings
 
 log = logging.getLogger(__name__)
 
@@ -66,11 +66,9 @@ def judge_family(model: str) -> JudgeFamily | None:
     """The group of `model`, named as any service names it (`typesafe/jev-1.13`,
     `cloudflare/clef-flash`, `clef`); None for a model of none of them."""
     name = model.rsplit("/", 1)[-1].lower()
-    if name == "clef-flash" or name.startswith("clef-flash-"):
-        return "clef-flash"
-    if name == "clef" or name.startswith("clef-"):
-        return "clef"
-    if name == "jev" or name.startswith("jev-"):
+    if name in ("clef", "clef-flash"):
+        return name  # pyright: ignore[reportReturnType]  # checked above
+    if name == "jev" or name.startswith("jev-"):  # Jev is named by version, or as latest
         return "jev"
     return None
 
@@ -85,6 +83,19 @@ def judge_thresholds_for(model: str) -> JudgeThresholds:
             model, family, JUDGE_THRESHOLDS[family],
         )
     return JUDGE_THRESHOLDS[family]
+
+
+def judge_thresholds(
+    settings: JudgeSettings | None, emotion: EmotionSettings
+) -> JudgeThresholds:
+    """The thresholds the judge model `settings` choose judges by, with the emotion
+    settings' minimum probability, if set, over every model's."""
+    thresholds = JUDGE_THRESHOLDS[FALLBACK_FAMILY]
+    if settings is not None:
+        thresholds = judge_thresholds_for(settings.model)
+    if emotion.min_probability is not None:
+        thresholds = replace(thresholds, emotion=emotion.min_probability)
+    return thresholds
 
 
 class JudgeError(RuntimeError):

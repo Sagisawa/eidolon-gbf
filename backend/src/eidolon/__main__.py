@@ -623,8 +623,13 @@ async def _eval_judge(args: argparse.Namespace) -> int:
     import json
 
     from eidolon.characters import load_characters
-    from eidolon.config import CLOUDFLARE_JUDGE_MODELS, CloudflareJudgeSettings, judge_from_env
-    from eidolon.judge import judge_thresholds_for, open_judge
+    from eidolon.config import (
+        CLOUDFLARE_JUDGE_MODELS,
+        CloudflareJudgeSettings,
+        EmotionSettings,
+        judge_from_env,
+    )
+    from eidolon.judge import judge_thresholds, open_judge
     from eidolon.judge_eval import (
         JudgeEvalError,
         evaluate,
@@ -636,6 +641,7 @@ async def _eval_judge(args: argparse.Namespace) -> int:
     try:
         characters = load_characters(args.characters or characters_path_from_env())
         judge_eval = load_judge_eval(args.file, characters)
+        emotion = EmotionSettings.from_env()
         judge = judge_from_env(args.provider)
         if judge is None:
             raise RuntimeError("环境变量 JEV_API_KEY 未设置（判断模型需要）")
@@ -648,8 +654,10 @@ async def _eval_judge(args: argparse.Namespace) -> int:
     except (RuntimeError, JudgeEvalError) as e:
         print(e, file=sys.stderr)
         return 1
-    logging.basicConfig(level=logging.WARNING, format="注意：%(message)s")
-    thresholds = judge_thresholds_for(judge.model)
+    warnings = logging.StreamHandler()  # a model without thresholds of its own
+    warnings.setFormatter(logging.Formatter("注意：%(message)s"))
+    logging.getLogger("eidolon.judge").addHandler(warnings)
+    thresholds = judge_thresholds(judge, emotion)
     model = open_judge(judge)
     try:
         results = await evaluate(judge_eval, characters, model, thresholds)

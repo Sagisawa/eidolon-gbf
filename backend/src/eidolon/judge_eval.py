@@ -40,7 +40,7 @@ from eidolon.store import Message
 Question = Literal["needs_retrieval", "recall", "about_producer"]
 T = TypeVar("T")
 
-_EXPECTED_YES: dict[Question, tuple[set[Need], set[Need]]] = {
+_EXPECTED_ANSWERS: dict[Question, tuple[set[Need], set[Need]]] = {
     "needs_retrieval": ({"references", "recall"}, {"nothing", "memories"}),
     "recall": ({"recall"}, {"nothing", "memories", "references"}),
     # A turn that looks references up finds memories too, so whether it is about the
@@ -335,7 +335,7 @@ def _retrieval_summary(results: Sequence[RetrievalResult]) -> dict:
         row = confusion[r.case.expected]
         row[str(r.actual)] = row.get(str(r.actual), 0) + 1
     probabilities = {}
-    for question, (yes, no) in _EXPECTED_YES.items():
+    for question, (yes, no) in _EXPECTED_ANSWERS.items():
         def spread(needs: set[Need], question: Question = question) -> dict:
             return _distribution(
                 [getattr(r.answer, question) for r in answered if r.case.expected in needs]

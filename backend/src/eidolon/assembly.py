@@ -39,7 +39,7 @@ from eidolon.rerank import (
     SiliconFlowReranker,
     thresholds_for,
 )
-from eidolon.judge import FALLBACK_FAMILY, JUDGE_THRESHOLDS, judge_thresholds_for, open_judge
+from eidolon.judge import judge_thresholds, open_judge
 from eidolon.retrieval import (
     ModelRetrievalJudge,
     Retrieval,
@@ -155,21 +155,16 @@ def build(
         if reranker is None:
             reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
             closers.append(reranker.aclose)
-    judge_thresholds = JUDGE_THRESHOLDS[FALLBACK_FAMILY]
-    if settings.judge is not None:
-        judge_thresholds = judge_thresholds_for(settings.judge.model)
+    thresholds_of_judge = judge_thresholds(settings.judge, settings.emotion)
     if (retrieval_judge is None or emotion_judge is None) and settings.judge is not None:
         judge_model = open_judge(settings.judge)
         closers.append(judge_model.aclose)
-        retrieval_judge = retrieval_judge or ModelRetrievalJudge(judge_model, judge_thresholds)
+        retrieval_judge = retrieval_judge or ModelRetrievalJudge(judge_model, thresholds_of_judge)
         emotion_judge = emotion_judge or ModelEmotionJudge(judge_model)
     emotions = None
     if emotion_judge is not None:
-        min_probability = settings.emotion.min_probability
         emotions = EmotionJudging(
-            emotion_judge,
-            judge_thresholds.emotion if min_probability is None else min_probability,
-            settings.emotion.timeout,
+            emotion_judge, thresholds_of_judge.emotion, settings.emotion.timeout
         )
 
     retrieval = None
