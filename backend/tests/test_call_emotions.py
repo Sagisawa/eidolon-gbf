@@ -1,13 +1,12 @@
 """Her emotion in each segment of her replies during a call, judged by the deployer's Jev
 (spec「情绪判断」), at the Pipecat stage that wraps the conversation engine: what the
-browser is sent (`emotion` server messages) and what Jev is asked. Jev itself is a
-`FakeJudge`; how the real one is asked is in `test_emotion_judge.py`."""
+browser is sent (`emotion` server messages) and what Jev is asked. Jev answers from a
+`FakeJudge`'s script; how the real one is asked is in `test_emotion_judge.py`."""
 
 import pytest
 from pipecat.tests.utils import SleepFrame
 
 from eidolon.config import EmotionSettings
-from eidolon.emotion import SaidSegment
 from tests.fakes import HANG, FakeJudge, FakeLLM, feeling
 from tests.test_call_turns import (
     INTERRUPTED_REPLY,
@@ -91,10 +90,10 @@ async def test_jev_reads_the_segment_with_its_cues_after_those_before_it(mano_ca
     await mano_call.run(llm, [spoken("你今天很可爱"), SETTLE], judge=judge)
 
     first, second = judge.segments
-    assert (first.character.id, first.user_said) == ("mano", "你今天很可爱")
-    assert (first.before, first.segment) == ([], SaidSegment("[shyly]ほわっ、", "哇，"))
-    assert second.before == [SaidSegment("[shyly]ほわっ、", "哇，")]
-    assert second.segment == SaidSegment("ありがとうございます！", "谢谢！")
+    assert (first.character, first.user_said) == ("櫻木真乃", "你今天很可爱")
+    assert (first.before, first.ja, first.zh) == ("（这是回复的第一段）", "[shyly]ほわっ、", "哇，")
+    assert second.before == ["[shyly]ほわっ、（哇，）"]
+    assert (second.ja, second.zh) == ("ありがとうございます！", "谢谢！")
 
 
 async def test_segments_left_incomplete_by_an_interruption_are_not_judged(

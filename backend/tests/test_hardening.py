@@ -6,7 +6,6 @@ from dataclasses import replace
 
 import pytest
 
-from eidolon.assembly import build
 from eidolon.config import EmbeddingSettings, Settings
 from tests.conftest import ClientFactory
 from tests.fakes import (
@@ -16,6 +15,7 @@ from tests.fakes import (
     FakeLLM,
     FakeLLMService,
     FakeReranker,
+    build_faked,
 )
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -71,8 +71,8 @@ async def test_a_public_deployment_on_geminis_free_tier_is_warned(
     )
 
     with caplog.at_level(logging.WARNING):
-        backend = build(
-            deployment, chat_llm=FakeLLM(), embedder=FakeEmbedder(), identity_providers={},
+        backend = build_faked(
+            deployment, FakeLLM(), embedder=FakeEmbedder(), identity_providers={},
             own_llm_service=FakeLLMService(),
         )
     await backend.aclose()

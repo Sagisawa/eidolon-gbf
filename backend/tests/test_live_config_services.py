@@ -6,7 +6,7 @@ connected with. What cannot be changed in the admin console is only shown. The c
 are made by a fake `ServiceClients`, the speech services' keys tried on `FakeSpeech`."""
 
 import asyncio
-from collections.abc import Callable
+import logging
 from dataclasses import replace
 
 import httpx
@@ -37,8 +37,16 @@ from tests.fakes import (
     FakeServiceClients,
     FakeSpeech,
 )
-from tests.test_activity_records import dashboard, health
-from tests.test_live_config import CONFIG, NEW, NEW_SHOWN, REPLY, admin_client, start
+from tests.test_live_config import (
+    CONFIG,
+    NEW,
+    NEW_SHOWN,
+    REPLY,
+    admin_client,
+    recorded,
+    start,
+    until,
+)
 from tests.test_text_turn import send_turn, start_conversation
 
 MEMORY_LLM = "/api/admin/config/memory_llm"
@@ -57,15 +65,19 @@ def admins(settings: Settings) -> Settings:
 
 
 def with_memory(
-    make_client: ClientFactory, background: FakeBackgroundLLM, judge: FakeJudge | None = None
+    make_client: ClientFactory,
+    background: FakeBackgroundLLM | None = None,
+    judge: FakeJudge | None = None,
 ):
-    """A client factory for backends with memory on, writing down with `background` as
-    `.env` has it; turns need what `judge` says (nothing, by default)."""
+    """A client factory for backends with memory on, every memory model writing down from
+    `background`'s script, if given; turns need what `judge` says (nothing, by default)."""
 
     def factory(*args, **kwargs) -> httpx.AsyncClient:
+        if background is not None:
+            kwargs["background_llm"] = background
         return make_client(
             *args, retrieval_judge=judge or FakeJudge("nothing"), embedder=FakeEmbedder(),
-            reranker=FakeReranker(), background_llm=background, **kwargs,
+            reranker=FakeReranker(), **kwargs,
         )
 
     return factory
@@ -82,9 +94,7 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
-    env_background = FakeBackgroundLLM()
-    factory = with_memory(make_client, env_background)
-    client = await admin_client(factory, admins, github, clients)
+    client = await admin_client(with_memory(make_client), admins, github, clients)
     conversation_id = await start_conversation(client)
     before = (await client.get(CONFIG)).json()["memory_llm"]
     await send_turn(client, conversation_id, "早上好")
@@ -106,19 +116,16 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     assert shown["effective"]["api_key_last4"] == "4321"
     assert MEMORY_KEY not in saved.text
     assert restored.json()["memory_llm"] == before
-    assert len(env_background.prompts) == 1
-    assert clients.memory_keys == [MEMORY_KEY, DEPLOYER_KEY]
+    assert clients.memory_keys == [DEPLOYER_KEY, MEMORY_KEY, DEPLOYER_KEY]
     assert clients.llm.keys == [DEPLOYER_KEY] * 3  # the chat model is untouched
-    assert clients.memory_opened == [NEW_MEMORY_SETTINGS, ENV_SETTINGS]
+    assert clients.memory_opened == [ENV_SETTINGS, NEW_MEMORY_SETTINGS, ENV_SETTINGS]
 
 
 async def test_unless_set_apart_the_memory_model_follows_the_chat_model_saved(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     clients = FakeServiceClients(FakeLLM(REPLY, [CAT]))
-    env_background = FakeBackgroundLLM()
-    factory = with_memory(make_client, env_background)
-    client = await admin_client(factory, admins, github, clients)
+    client = await admin_client(with_memory(make_client), admins, github, clients)
     conversation_id = await start_conversation(client)
 
     saved = await client.put("/api/admin/config/chat_llm", json=NEW)
@@ -130,17 +137,15 @@ async def test_unless_set_apart_the_memory_model_follows_the_chat_model_saved(
     assert memory["effective"] == NEW_SHOWN
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
     assert clients.llm.keys == [NEW["api_key"], NEW["api_key"]]
-    assert env_background.prompts == []
+    assert clients.memory_keys == []
 
 
 async def test_a_memory_model_set_apart_in_env_does_not_follow_the_chat_model(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     clients = FakeServiceClients(FakeLLM(REPLY))
-    env_background = FakeBackgroundLLM()
-    factory = with_memory(make_client, env_background)
     apart = replace(admins, background_llm=replace(ENV_SETTINGS, model="background-model"))
-    client = await admin_client(factory, apart, github, clients)
+    client = await admin_client(with_memory(make_client), apart, github, clients)
     conversation_id = await start_conversation(client)
 
     saved = await client.put("/api/admin/config/chat_llm", json=NEW)
@@ -150,7 +155,8 @@ async def test_a_memory_model_set_apart_in_env_does_not_follow_the_chat_model(
     memory = saved.json()["memory_llm"]
     assert memory["follows_chat"] is False
     assert memory["effective"]["model"] == "background-model"
-    assert len(env_background.prompts) == 1
+    assert clients.memory_keys == [DEPLOYER_KEY]
+    assert clients.memory_opened == [replace(ENV_SETTINGS, model="background-model")]
     assert clients.llm.keys == [NEW["api_key"]]
 
 
@@ -160,9 +166,7 @@ async def test_a_memory_model_replaced_while_writing_down_is_closed_once_written
     clients = FakeServiceClients(FakeLLM(REPLY))
     gate = asyncio.Event()
     clients.background = FakeBackgroundLLM(CAT, gate=gate)
-    client = await admin_client(
-        with_memory(make_client, FakeBackgroundLLM()), admins, github, clients
-    )
+    client = await admin_client(with_memory(make_client), admins, github, clients)
     conversation_id = await start_conversation(client)
     assert (await client.put(MEMORY_LLM, json=NEW_MEMORY)).status_code == 200
     await send_turn(client, conversation_id, "我养了一只猫")  # written down after the turn
@@ -173,17 +177,9 @@ async def test_a_memory_model_replaced_while_writing_down_is_closed_once_written
     gate.set()
     memories = await settle(client)
 
-    assert closed_while_writing == []
+    assert NEW_MEMORY_SETTINGS not in closed_while_writing
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
-    assert clients.closed == [NEW_MEMORY_SETTINGS]
-
-
-async def until(done: Callable[[], object]) -> None:
-    """Wait, a while at most, for `done` to come true, as what a call let go of closes."""
-    for _ in range(100):
-        if done():
-            return
-        await asyncio.sleep(0.02)
+    assert clients.closed == [ENV_SETTINGS, NEW_MEMORY_SETTINGS]
 
 
 def backend_of(client: httpx.AsyncClient) -> Backend:
@@ -274,6 +270,24 @@ async def test_a_speech_override_that_fails_as_the_server_starts_falls_back_to_e
     assert (lease.keys.tts, lease.keys.tts_model) == (DEPLOYER_FISH_KEY, DEFAULT_FISH_AUDIO_MODEL)
 
 
+async def test_a_speech_recognition_override_that_fails_as_the_server_starts_falls_back_to_env(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
+):
+    first = await admin_client(make_client, admins, github, FakeServiceClients())
+    saved = await first.put(STT, json={"provider": "bailian", "api_key": NEW_DASHSCOPE})
+    assert saved.status_code == 200, saved.text
+
+    speech.rejects[NEW_DASHSCOPE] = "InvalidApiKey"
+    restarted = await admin_client(make_client, admins, github, FakeServiceClients())
+    await start(restarted)
+    lease = backend_of(restarted).config.lease()
+    lease.release()
+
+    shown = (await restarted.get(CONFIG)).json()["stt"]
+    assert shown["status"] == "failed" and "InvalidApiKey" in shown["failure"]
+    assert lease.keys.stt == SttKey("soniox", DEPLOYER_SONIOX_KEY)
+
+
 JUDGE = "/api/admin/config/judge"
 JUDGE_THRESHOLDS = "/api/admin/config/judge_thresholds"
 JEV_KEY = "env-jev-key-1111"
@@ -307,6 +321,9 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     browser: Browser,
 ):
     clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
+    # Recalled by Jev's 0.5, not by Clef-flash's 0.7; happy by Clef-flash's 0.4, not Jev's.
+    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.6, "about_producer": 0.1}
+    clients.judge.emotion = {"开心": 0.45, "平静": 0.3}
     client = await admin_client(with_retrieval(make_client), judged, github, clients)
     conversation_id = await start_conversation(client)
     await browser.call(client, conversation_id=conversation_id)
@@ -317,7 +334,7 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     assert saved.status_code == 200, saved.text
     await speech.stts[-1].hear("早上好")
     await browser.turn()
-    await browser.next_server_message("emotion")
+    emotion = await browser.next_server_message("emotion")
     await send_turn(client, conversation_id, "你好")
     asked = list(clients.judge.asked)
     closed_during_call = list(clients.judges_closed)
@@ -333,8 +350,18 @@ async def test_a_saved_judge_model_judges_the_next_turn_while_a_call_keeps_its_o
     ]
     assert closed_during_call == []
     assert clients.judges_closed == [JevSettings(JEV_KEY)]  # once the call was over
-    judge = health(await dashboard(client), "judge")
-    assert judge is not None and judge["calls"] == 3  # each turn's question, and the emotion
+    # The call judges her emotion on the model it connected with, by its threshold; each
+    # turn's question goes to the model in effect, by its own, recorded as the one it is.
+    assert emotion["emotion"] == "calm"
+    assert [[t.name for t in tools] for tools in clients.llm.tools] == [
+        ["recall_story"], ["recall_story"]
+    ]
+    await until(lambda: len(recorded(client, "judge")) == 3)  # as the call is written
+    assert recorded(client, "judge") == [
+        ("api.cloudflare.com", "clef-flash", False),
+        ("api.cloudflare.com", "clef-flash", False),
+        ("openrouter.ai", "typesafe/jev-1.13", False),
+    ]
     shown = saved.json()["judge"]
     assert shown["status"] == "overridden"
     assert shown["effective"] == {k: v for k, v in CLOUDFLARE.items() if k != "api_key"} | {
@@ -358,32 +385,132 @@ async def test_a_judge_model_that_fails_its_try_is_not_saved(
     assert clients.judges_closed == [CloudflareJudgeSettings(CF_TOKEN, "account-1", "clef-flash")]
 
 
-async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_model_changes(
+async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_changes(
     make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
 ):
-    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
-    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.6, "about_producer": 0.1}
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY, REPLY))
+    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.75, "about_producer": 0.1}
     client = await admin_client(with_retrieval(make_client), judged, github, clients)
     conversation_id = await start_conversation(client)
     await send_turn(client, conversation_id, "那次比赛怎么样")  # Jev's 0.5: recalled
 
-    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.7, "emotion": 0.5})
+    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.5})
     assert saved.status_code == 200, saved.text
-    await send_turn(client, conversation_id, "那次比赛怎么样")  # 0.7: not recalled
-    changed = await client.put(JUDGE, json={
+    await send_turn(client, conversation_id, "那次比赛怎么样")  # 0.9: not recalled
+    upgraded = await client.put(JUDGE, json={
         "provider": "jev", "model": "typesafe/jev-1.14", "emotion_timeout": 1.5
     })
+    assert upgraded.status_code == 200, upgraded.text
+    await send_turn(client, conversation_id, "那次比赛怎么样")  # still 0.9
+    changed = await client.put(JUDGE, json=CLOUDFLARE)
     assert changed.status_code == 200, changed.text
-    await send_turn(client, conversation_id, "那次比赛怎么样")  # Jev's 0.5 again
+    await send_turn(client, conversation_id, "那次比赛怎么样")  # Clef-flash's 0.7: recalled
 
     offered = [[t.name for t in tools] for tools in clients.llm.tools]
-    assert offered == [[], ["recall_story"], []]
+    assert offered == [[], ["recall_story"], ["recall_story"], []]
     thresholds = saved.json()["judge_thresholds"]
     assert thresholds["status"] == "overridden"
     assert thresholds["env"] == {"recall": 0.5, "emotion": 0.5}
-    assert thresholds["effective"] == {"recall": 0.7, "emotion": 0.5}
+    assert thresholds["effective"] == {"recall": 0.9, "emotion": 0.5}
+    kept = upgraded.json()["judge_thresholds"]
+    assert kept["status"] == "overridden" and kept["model"] == "typesafe/jev-1.14"
+    assert kept["effective"] == {"recall": 0.9, "emotion": 0.5}
+    cleared = changed.json()["judge_thresholds"]
+    assert cleared["status"] == "env" and cleared["override"] is None
+    assert cleared["effective"] == {"recall": 0.7, "emotion": 0.4}
+    assert cleared["model"] == "clef-flash"
+
+
+def judging_by(client: httpx.AsyncClient) -> tuple[float, float]:
+    """The recall and emotion thresholds the next turn and call judge by."""
+    config = backend_of(client).config
+    lease = config.lease()
+    lease.release()
+    assert lease.keys.emotions is not None
+    return config.judge_thresholds.recall, lease.keys.emotions.min_probability
+
+
+async def test_judge_thresholds_saved_hold_for_the_models_family_whatever_env_calls_it(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    factory = with_retrieval(make_client)
+    first = await admin_client(factory, judged, github, FakeServiceClients())
+    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    assert saved.status_code == 200, saved.text
+
+    renamed = replace(judged, judge=JevSettings(JEV_KEY, "jev-1.14"))  # and upgraded
+    restarted = await admin_client(factory, renamed, github, FakeServiceClients())
+    await start(restarted)
+
+    shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
+    assert shown["status"] == "overridden"
+    assert shown["effective"] == {"recall": 0.9, "emotion": 0.6}
+    assert judging_by(restarted) == (0.9, 0.6)
+
+
+async def test_judge_thresholds_saved_do_not_hold_once_env_has_another_family(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    factory = with_retrieval(make_client)
+    first = await admin_client(factory, judged, github, FakeServiceClients())
+    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    assert saved.status_code == 200, saved.text
+
+    clef = replace(judged, judge=CloudflareJudgeSettings(CF_TOKEN, "account-1", "clef"))
+    restarted = await admin_client(factory, clef, github, FakeServiceClients())
+    await start(restarted)
+
+    shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
+    assert shown["status"] == "failed"
+    assert "typesafe/jev-1.13" in shown["failure"]
+    assert shown["effective"] == {"recall": 0.8, "emotion": 0.4}
+    assert judging_by(restarted) == (0.8, 0.4)
+
+
+async def test_judge_thresholds_saved_for_a_model_of_no_family_go_with_its_name(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    unknown = replace(judged, judge=JevSettings(JEV_KEY, "someone/new-judge"))
+    client = await admin_client(with_retrieval(make_client), unknown, github, FakeServiceClients())
+    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    assert saved.status_code == 200, saved.text
+
+    changed = await client.put(JUDGE, json={
+        "provider": "jev", "model": "someone/newer-judge", "emotion_timeout": 1.5
+    })
+
+    assert changed.status_code == 200, changed.text
     assert changed.json()["judge_thresholds"]["status"] == "env"
-    assert changed.json()["judge_thresholds"]["model"] == "typesafe/jev-1.14"
+    assert judging_by(client) == (0.5, 0.5)
+
+
+async def test_a_judge_model_not_calibrated_is_warned_of_once_as_it_takes_effect(
+    make_client: ClientFactory,
+    judged: Settings,
+    github: FakeIdentityProvider,
+    caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.WARNING)
+    unknown = replace(judged, judge=JevSettings(JEV_KEY, "someone/new-judge"))
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
+    client = await admin_client(with_retrieval(make_client), unknown, github, clients)
+    await start(client)
+    conversation_id = await start_conversation(client)
+    for said in ("早上好", "你好", "再见"):
+        await send_turn(client, conversation_id, said)
+    judging_by(client)
+
+    def warned(model: str) -> int:
+        return sum(model in r.getMessage() for r in caplog.records)
+
+    assert warned("someone/new-judge") == 1
+    changed = await client.put(JUDGE, json={
+        "provider": "jev", "model": "someone/other-judge", "emotion_timeout": 1.5
+    })
+    assert changed.status_code == 200, changed.text
+    judging_by(client)
+    assert warned("someone/other-judge") == 1
+    assert warned("someone/new-judge") == 1
 
 
 RERANK = "/api/admin/config/rerank"

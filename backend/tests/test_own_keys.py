@@ -4,10 +4,12 @@ key of theirs that no longer works; and whether it counts towards the user's lim
 
 import sqlite3
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from eidolon.activity import ActivityLog
 from eidolon.config import SttKey, SttProvider
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.own_keys import (
@@ -22,6 +24,7 @@ from tests.fakes import (
     DEPLOYER_FISH_KEY,
     DEPLOYER_SONIOX_KEY,
     FakeBackgroundLLM,
+    FakeClock,
     FakeLLM,
     FakeLLMService,
     FakeSpeech,
@@ -33,6 +36,7 @@ class Deployment:
 
     def __init__(self, path: Path) -> None:
         self.store = Store(path)
+        self.activity = ActivityLog(path, FakeClock())
         self.user = self.store.create_user("producer").id
         self.chat = FakeLLM()
         self.memory = FakeBackgroundLLM()
@@ -48,7 +52,7 @@ class Deployment:
     ) -> OwnKeys:
         return OwnKeys(
             self.store, secret_key, self.llm_service,
-            DeployerKeys(self.chat, self.memory, stt, tts), self.speech,
+            DeployerKeys(self.chat, self.memory, stt, tts), self.activity, self.speech,
         )
 
 
@@ -80,6 +84,7 @@ async def ask(llm: ChatLLM) -> None:
 def deployment(tmp_path: Path) -> Iterator[Deployment]:
     deployment = Deployment(tmp_path / "eidolon.db")
     yield deployment
+    deployment.activity.close()
     deployment.store.close()
 
 
@@ -97,7 +102,13 @@ async def test_a_user_who_brought_an_llm_takes_turns_on_it_for_both_and_they_do_
     assert deployment.llm_service.llm.keys == [MY_LLM.api_key, MY_LLM.api_key]
     assert deployment.chat.keys == []
     assert deployment.memory.prompts == []
-    assert keys.exempt is True
+    assert keys.exempt is True and keys.own_llm is True
+    # Each request is recorded as a service call to their model, on their own key.
+    _, calls = deployment.activity.since(datetime.min.replace(tzinfo=UTC))
+    assert sorted((c.service, c.provider, c.model, c.own_key) for c in calls) == [
+        ("chat_llm", "llm.example.com", "my-model", True),
+        ("memory_llm", "llm.example.com", "my-model", True),
+    ]
 
 
 async def test_a_call_hears_and_speaks_on_the_users_own_speech_keys_and_the_deployers_otherwise(

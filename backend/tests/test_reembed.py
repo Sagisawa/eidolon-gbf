@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.assembly import build
 from eidolon.characters import Character, load_characters
 from eidolon.corpus import Episode, Line, StoryCorpus
 from eidolon.embedding import Document, EmbeddingError
@@ -28,6 +27,7 @@ from tests.fakes import (
     FakeLLM,
     FakeReranker,
     FakeSpeech,
+    build_faked,
 )
 from tests.test_memories import NOW, World, tell, writing_with
 from tests.test_shared_memory import CAT, TRIP, memorized
@@ -206,8 +206,8 @@ async def test_the_server_warns_of_passages_the_current_model_cannot_find(
     await deployment.embed_everything_with(OLD)
 
     with caplog.at_level(logging.WARNING, logger="eidolon.assembly"):
-        backend = build(
-            deployment.settings(), chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
+        backend = build_faked(
+            deployment.settings(), FakeLLM([]), background_llm=FakeBackgroundLLM(),
             retrieval_judge=FakeJudge(), embedder=FakeEmbedder(NEW), reranker=FakeReranker(),
             speech=FakeSpeech(),
         )
@@ -222,8 +222,8 @@ async def test_the_server_does_not_warn_when_every_passage_is_found(
     await deployment.embed_everything_with(OLD)
 
     with caplog.at_level(logging.WARNING, logger="eidolon.assembly"):
-        backend = build(
-            deployment.settings(), chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
+        backend = build_faked(
+            deployment.settings(), FakeLLM([]), background_llm=FakeBackgroundLLM(),
             retrieval_judge=FakeJudge(), embedder=FakeEmbedder(OLD), reranker=FakeReranker(),
             speech=FakeSpeech(),
         )

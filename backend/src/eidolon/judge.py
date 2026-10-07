@@ -77,15 +77,27 @@ def judge_family(model: str) -> JudgeFamily | None:
 
 
 def judge_thresholds_for(model: str) -> JudgeThresholds:
-    """The thresholds `model` judges by; Jev's, with a warning, for a model not known."""
-    family = judge_family(model)
-    if family is None:
-        family = FALLBACK_FAMILY
+    """The thresholds `model` judges by; Jev's for a model not known (see
+    `warn_if_uncalibrated`)."""
+    return JUDGE_THRESHOLDS[judge_family(model) or FALLBACK_FAMILY]
+
+
+def warn_if_uncalibrated(model: str) -> None:
+    """Warn that `model`, taking effect, has no thresholds of its own, if it has none."""
+    if judge_family(model) is None:
         log.warning(
             "judge model %s has no thresholds of its own; it judges by %s's: %s",
-            model, family, JUDGE_THRESHOLDS[family],
+            model, FALLBACK_FAMILY, JUDGE_THRESHOLDS[FALLBACK_FAMILY],
         )
-    return JUDGE_THRESHOLDS[family]
+
+
+def same_judge_family(set_for: str, model: str) -> bool:
+    """Whether thresholds set for judge model `set_for` hold for `model`: the two are of
+    one family, or, either being of none, are the one model."""
+    families = judge_family(set_for), judge_family(model)
+    if None in families:
+        return set_for == model
+    return families[0] == families[1]
 
 
 def judge_thresholds(

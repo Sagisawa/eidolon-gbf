@@ -16,7 +16,7 @@ import pytest
 
 from eidolon.activity import ActivityLog, Result
 from eidolon.admission import Admissions
-from eidolon.config import LLMSettings, SttKey, UsageLimits
+from eidolon.config import SttKey, UsageLimits
 from eidolon.own_keys import (
     CallsUnavailable,
     DeployerKeys,
@@ -31,8 +31,6 @@ from tests.fakes import FakeBackgroundLLM, FakeClock, FakeLLM, FakeLLMService, F
 
 SECRET = "test-secret-key"
 MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
-CHAT = LLMSettings("https://chat.example.com/v1", "deployer-chat", "chat-model")
-MEMORY = LLMSettings("https://memory.example.com/v1", "deployer-memory", "memory-model")
 
 
 class CountingDeployer:
@@ -67,19 +65,15 @@ class Deployment:
         self.deployer = CountingDeployer()
         self.llm_service = FakeLLMService()
         self.speech = FakeSpeech()
-        self.deployer_models_broken = False
         self.secret = SECRET
 
     def admissions(self) -> Admissions:
-        return Admissions(self.usage, self.activity, self.own_keys(), self._deployer_models)
+        return Admissions(self.usage, self.activity, self.own_keys())
 
     def own_keys(self) -> OwnKeys:
-        return OwnKeys(self.store, self.secret, self.llm_service, self.deployer, self.speech)
-
-    def _deployer_models(self) -> tuple[LLMSettings, LLMSettings]:
-        if self.deployer_models_broken:
-            raise RuntimeError("the live configuration could not be read")
-        return CHAT, MEMORY
+        return OwnKeys(
+            self.store, self.secret, self.llm_service, self.deployer, self.activity, self.speech
+        )
 
     async def bring_llm(self) -> None:
         await self.own_keys().save_llm(self.user, MY_LLM)
@@ -197,19 +191,6 @@ def test_a_turn_settled_twice_is_settled_once(deployment: Deployment):
     assert deployment.deployer.released == 1
 
 
-def test_a_turn_failing_as_it_is_prepared_is_recorded_failed_takes_no_use_and_lets_go(
-    deployment: Deployment,
-):
-    deployment.deployer_models_broken = True
-
-    with pytest.raises(RuntimeError):
-        deployment.admissions().turn(deployment.user, "mano")
-
-    assert deployment.turns_taken() == 0
-    assert deployment.records() == [("failed", False)]
-    assert deployment.deployer.released == 1
-
-
 @pytest.mark.parametrize(
     ("result", "counted"), [("not_connected", False), ("success", True), ("failed", True)]
 )
@@ -265,19 +246,6 @@ def test_a_call_without_keys_for_speech_is_unavailable_and_not_recorded(
     assert deployment.calls_taken() == 0
     assert deployment.records() == []
     assert deployment.deployer.leased == deployment.deployer.released
-
-
-def test_a_call_failing_as_it_is_prepared_is_recorded_not_connected_and_takes_no_use(
-    deployment: Deployment,
-):
-    deployment.deployer_models_broken = True
-
-    with pytest.raises(RuntimeError):
-        deployment.admissions().call(deployment.user, "mano")
-
-    assert deployment.calls_taken() == 0
-    assert deployment.records() == [("not_connected", False)]
-    assert deployment.deployer.released == 1
 
 
 async def test_a_call_on_the_users_own_keys_alone_does_not_count(deployment: Deployment):

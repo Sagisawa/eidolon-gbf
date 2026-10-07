@@ -82,7 +82,7 @@ async def test_small_talk_retrieves_nothing(
 
     system = await system_prompt(client, llm, "早上好")
 
-    assert jev.asked == [("mano", "早上好")]
+    assert jev.asked == [("櫻木真乃", "早上好")]
     assert embedder.queries == []
     assert reranker.calls == []
     assert "# 回忆与资料" not in system

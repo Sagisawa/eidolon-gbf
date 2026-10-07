@@ -29,7 +29,6 @@ from pipecat.processors.frameworks.rtvi.frames import (
 )
 from pipecat.tests.utils import SleepFrame, run_test
 
-from eidolon.assembly import build
 from eidolon.call import (
     SONIOX_FOLLOW_ON_TIMEOUT,
     Call,
@@ -49,6 +48,7 @@ from tests.fakes import (
     FakeJudge,
     FakeLLM,
     FakeReranker,
+    build_faked,
 )
 from tests.test_text_turn import start_conversation
 
@@ -111,15 +111,17 @@ class CallUnderTest:
             "reranker": FakeReranker(),
         }
         settings = self._settings if emotion is None else replace(self._settings, emotion=emotion)
-        backend = build(
-            settings, chat_llm=llm, clock=lambda: NOW, emotion_judge=judge, **remembering
+        backend = build_faked(
+            settings, llm, clock=lambda: NOW, emotion_judge=judge, **remembering
         )
         try:
             mano = backend.characters["mano"]
             admission = backend.admissions.call(self.conversation.user_id, "mano")
             call = Call(self.conversation, mano, admission.llms, muted, "standard")
             outcome = CallOutcome(admission, limits)
-            turns = CallTurns(backend.engine, call, outcome, follow_on_timeout, backend.emotions)
+            turns = CallTurns(
+                backend.engine, call, outcome, follow_on_timeout, admission.keys.emotions
+            )
             if connected:
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)
@@ -246,6 +248,7 @@ async def test_an_interruption_stops_the_reply_which_is_recorded_with_its_comple
         FakeLLM(INTERRUPTED_REPLY, delay=0.3), [spoken("早上好"), *INTERRUPTING],
         memory=memory, limits=CallLimits(turns=1),
     )
+    messages = without_emotions(messages)
 
     assert spoken_text == ["ほわっ", "今日"]
     assert kinds(messages) == ["user", "done", "ended"]  # it counts as a turn
@@ -292,6 +295,12 @@ def said(messages: list[dict]) -> list[str]:
     return [m["text"] for m in messages if m["type"] == "user"]
 
 
+def without_emotions(messages: list[dict]) -> list[dict]:
+    """The messages but her emotions, judged in calls that remember, the judge model
+    retrieval asks being at hand (see `test_call_emotions.py`)."""
+    return [m for m in messages if m["type"] != "emotion"]
+
+
 async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call: CallUnderTest):
     llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
     memory = FakeBackgroundLLM()
@@ -301,6 +310,7 @@ async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call
         [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
         memory=memory,
     )
+    messages = without_emotions(messages)
 
     assert said(messages) == ["早上好", "早上好\n在吗"]
     assert kinds(messages) == ["user", "user", "done"]

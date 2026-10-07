@@ -27,12 +27,17 @@ dev = [
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.16.10",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 最慢的测试约 5 秒。卡住 30 秒先打出所有线程的调用栈，60 秒算超时：Linux 上只让这个测试失败，
+# Windows 没有 SIGALRM，pytest-timeout 打出调用栈后结束整个进程，总之不会一直挂着
+faulthandler_timeout = 30
+timeout = 60
 
 # 只开 pyflakes 和 pycodestyle 的错误类规则，固定写出来，升级 ruff 时默认规则变了也不会突然多出一批
 [tool.ruff.lint]

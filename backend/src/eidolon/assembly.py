@@ -16,7 +16,8 @@ thresholds and the limits are read from it as each turn or call starts. `Backend
 tries the overrides as the server starts.
 
 The outside services can be passed in instead of made from the settings, as tests do
-with fakes, the `ServiceClients` too. Whoever passes one in closes it; `Backend.aclose`
+with fakes; the deployer's chat, memory and judge models only ever by passing in the
+`ServiceClients` that make them. Whoever passes one in closes it; `Backend.aclose`
 closes only what `build` made, in the order that lets what is still running finish.
 """
 
@@ -28,19 +29,16 @@ from dataclasses import dataclass, field
 import httpx
 
 from eidolon.accounts import Accounts
-from eidolon.activity import ActivityLog, MeteredEmotionJudge, judge_origin, metered_retrieval
+from eidolon.activity import ActivityLog, metered_retrieval
 from eidolon.admission import Admissions
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
-from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, LLMSettings, Settings
+from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
-from eidolon.emotion import EmotionJudge, EmotionJudging
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
-from eidolon.llm import ChatLLM
 from eidolon.live_config import LiveConfig
-from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
@@ -52,12 +50,7 @@ from eidolon.rerank import (
     SiliconFlowReranker,
     thresholds_for,
 )
-from eidolon.judge import judge_thresholds
-from eidolon.retrieval import (
-    Retrieval,
-    RetrievalJudge,
-    open_reference_sources,
-)
+from eidolon.retrieval import Retrieval, open_reference_sources
 from eidolon.service_clients import ProviderClients, ServiceClients
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
@@ -80,10 +73,6 @@ class Backend:
     usage: UsageLimiter
     clock: Clock
     calls: Calls
-    emotions: EmotionJudging | None
-    """Judging her emotion in each segment during calls with a judge model passed in;
-    None without one, each call then judging on the live configuration's as it connected
-    (`DeployerKeys.emotions`), if there is one."""
     own_keys: OwnKeys
     admissions: Admissions
     """Lets text turns and calls begin, and settles them."""
@@ -117,10 +106,6 @@ class Backend:
 def build(
     settings: Settings,
     *,
-    chat_llm: ChatLLM | None = None,
-    background_llm: ChatLLM | None = None,
-    retrieval_judge: RetrievalJudge | None = None,
-    emotion_judge: EmotionJudge | None = None,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
     clock: Clock | None = None,
@@ -151,9 +136,6 @@ def build(
     if identity_providers is None:
         identity_providers = open_identity_providers(settings.github, settings.google)
         closers.extend(p.aclose for p in identity_providers.values())
-    if background_llm is None:
-        background_llm = open_llm(settings.background_llm)
-        closers.append(background_llm.aclose)
     # Users' own DashScope keys hear with the deployer's model, or the default one where the
     # deployer chose Soniox.
     bailian_model = (
@@ -168,10 +150,7 @@ def build(
     prices = Prices(settings.database_path, clock, catalog)
     closers.append(prices.close)
     config = LiveConfig(
-        settings, clients or ProviderClients(), clock,
-        background_llm=background_llm, chat_llm=chat_llm, speech=speech, activity=activity,
-        live_judge=retrieval_judge is None or emotion_judge is None,
-        live_emotions=emotion_judge is None,
+        settings, clients or ProviderClients(), clock, activity=activity, speech=speech
     )
     closers.append(config.aclose)
     if own_llm_service is None:  # users' own LLMs write down memories too
@@ -205,20 +184,10 @@ def build(
         if reranker is None:
             reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
             closers.append(reranker.aclose)
-    retrieval_judge, embedder, reranker = metered_retrieval(
-        activity, settings, retrieval_judge, embedder, reranker
-    )
-    # The judge model made here is the live configuration's: retrieval asks the one in
-    # effect at each question, and each call judges her emotions on the one it connected
-    # with. One passed in is used as it is.
-    retrieval_judge = retrieval_judge or config.retrieval_judge(activity)
-    emotions = None
-    if emotion_judge is not None:
-        emotions = EmotionJudging(
-            MeteredEmotionJudge(emotion_judge, activity, judge_origin(settings.judge)),
-            judge_thresholds(settings.judge, settings.emotion).emotion,
-            settings.emotion.timeout,
-        )
+    embedder, reranker = metered_retrieval(activity, settings, embedder, reranker)
+    # The judge model is the live configuration's: retrieval asks the one in effect at
+    # each question, and each call judges her emotions on the one it connected with.
+    retrieval_judge = config.retrieval_judge()
 
     retrieval = None
     if retrieval_judge is not None and embedder is not None and reranker is not None:
@@ -250,16 +219,9 @@ def build(
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
-    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, speech)
-
-    def deployer_llms() -> tuple[LLMSettings, LLMSettings]:
-        return config.chat_llm, config.memory_llm
-
-    admissions = Admissions(usage, activity, own_keys, deployer_llms)
-    calls = Calls(
-        settings, engine, admissions, lambda: config.usage_limits, speech, clock, store,
-        emotions,
-    )
+    own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, activity, speech)
+    admissions = Admissions(usage, activity, own_keys)
+    calls = Calls(settings, engine, admissions, lambda: config.usage_limits, speech, clock, store)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,
@@ -270,7 +232,6 @@ def build(
         usage=usage,
         clock=clock,
         calls=calls,
-        emotions=emotions,
         own_keys=own_keys,
         admissions=admissions,
         accounts=Accounts(store, clock, memories, calls, settings.secret_key),

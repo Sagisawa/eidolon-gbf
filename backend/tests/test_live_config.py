@@ -4,8 +4,11 @@ call, while calls already connected keep the model they connected with; it overr
 `.env` until restored, and one that no longer works when the server starts falls back to
 `.env`, marked as such. The clients are made by a fake `ServiceClients`."""
 
+import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import replace
+from datetime import timedelta
 
 import httpx
 import pytest
@@ -65,6 +68,22 @@ async def admin_client(
     return client
 
 
+def recorded(client: httpx.AsyncClient, service: str) -> list[tuple[str, str, bool]]:
+    """The service calls to `service` recorded so far, by provider, model and whether on
+    the user's own key, sorted."""
+    backend: Backend = client._transport.app.state.backend  # pyright: ignore[reportAttributeAccessIssue]
+    _, calls = backend.activity.since(backend.clock() - timedelta(days=1))
+    return sorted((c.provider, c.model, c.own_key) for c in calls if c.service == service)
+
+
+async def until(done: Callable[[], object]) -> None:
+    """Wait, a while at most, for `done` to come true, as what a call let go of closes."""
+    for _ in range(100):
+        if done():
+            return
+        await asyncio.sleep(0.02)
+
+
 async def start(client: httpx.AsyncClient) -> None:
     """What the server does as it starts, before serving anyone."""
     backend: Backend = client._transport.app.state.backend  # pyright: ignore[reportAttributeAccessIssue]
@@ -97,8 +116,8 @@ async def test_a_saved_chat_model_plays_the_next_turn_until_restored(
     assert NEW_KEY not in saved.text and DEPLOYER_KEY not in saved.text
     assert restored.json() == before
     assert clients.llm.keys == [DEPLOYER_KEY, NEW_KEY, DEPLOYER_KEY]
-    assert clients.opened == [NEW_SETTINGS, ENV_SETTINGS]
-    assert clients.closed == [NEW_SETTINGS]  # once no turn was on it
+    assert clients.opened == [ENV_SETTINGS, NEW_SETTINGS, ENV_SETTINGS]
+    assert clients.closed == [ENV_SETTINGS, NEW_SETTINGS]  # each once no turn was on it
 
 
 async def test_a_chat_model_that_fails_its_try_is_not_saved(
@@ -139,7 +158,7 @@ async def test_a_call_keeps_the_chat_model_it_connected_with(
     await speech.stts[-1].hear("早上好")
     await browser.turn()
     assert clients.llm.keys == [NEW_KEY]
-    assert clients.closed == []  # the call is still on it
+    assert clients.closed == [ENV_SETTINGS]  # the call is still on the new one
 
     await browser.close()
     await until_gone(client, browser.pc_id)
@@ -150,7 +169,12 @@ async def test_a_call_keeps_the_chat_model_it_connected_with(
         await again.turn()
 
     assert clients.llm.keys == [NEW_KEY, "sk-other-key-9999"]
-    assert clients.closed == [NEW_SETTINGS]
+    assert clients.closed == [ENV_SETTINGS, NEW_SETTINGS]
+    # Each call's turn is recorded as the model it connected with.
+    await until(lambda: len(recorded(client, "chat_llm")) == 2)  # as the call is written
+    assert recorded(client, "chat_llm") == [
+        ("llm.example", "new-model", False), ("llm.example", "other-model", False)
+    ]
 
 
 async def test_without_the_secret_key_the_chat_models_key_is_read_only(
@@ -170,7 +194,7 @@ async def test_without_the_secret_key_the_chat_models_key_is_read_only(
     shown = without_key.json()
     assert shown["keys_editable"] is False
     assert shown["chat_llm"]["effective"] == NEW_SHOWN | {"api_key_last4": DEPLOYER_KEY[-4:]}
-    assert clients.opened == [replace(NEW_SETTINGS, api_key=DEPLOYER_KEY)]
+    assert clients.opened == [ENV_SETTINGS, replace(NEW_SETTINGS, api_key=DEPLOYER_KEY)]
     assert clients.llm.keys == [DEPLOYER_KEY]
 
 
