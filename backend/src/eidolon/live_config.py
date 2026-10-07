@@ -419,7 +419,7 @@ LIMIT_LABELS = {
     "calls_per_hour": "每小时通话次数",
     "call_minutes": "单次通话的时长上限（分钟）",
     "turns_per_call": "单次通话的回合上限",
-    "history_turns": "带上的历史轮数",
+    "history_turns": "带上的历史回合数",
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
@@ -709,8 +709,7 @@ class LiveConfig:
             self._write(item, values, keep={f for f in item.secrets if f not in change})
             self._failures.pop(name, None)
             await item.apply(values, prepared)
-            if name == JUDGE and values["model"] != current["model"]:
-                self._delete(JUDGE_THRESHOLDS)  # set for the model before
+            self._changed(name, current, values)
 
     async def restore(self, name: str) -> None:
         """Delete the item's overrides, so that `.env`'s holds from now on."""
@@ -723,8 +722,13 @@ class LiveConfig:
             after = self.effective(name)
             if after != before:
                 await item.apply(after)
-            if name == JUDGE and after["model"] != before["model"]:
-                self._delete(JUDGE_THRESHOLDS)
+            self._changed(name, before, after)
+
+    def _changed(self, name: str, before: dict[str, Any], after: dict[str, Any]) -> None:
+        """Item `name` went from `before` to `after`: thresholds set for a judge model
+        no longer in effect go."""
+        if name == JUDGE and after["model"] != before["model"]:
+            self._delete(JUDGE_THRESHOLDS)
 
     async def aclose(self) -> None:
         await self._chat.aclose()

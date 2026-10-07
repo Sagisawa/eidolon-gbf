@@ -141,6 +141,11 @@ class CallOutcome:
         """The activity record of a turn taken in the call, on the user's own LLM or not."""
         return self.recording.turn(own_llm)
 
+    def turn_cut_short(self) -> Result:
+        """How a turn the call ended before it was over turned out: failed if a service,
+        or an own key, ended the call (GLOSSARY.md「回合」); else the user left it."""
+        return "failed" if self._ended_by == "failed" else "left"
+
     def turn_recorded(self) -> dict | None:
         """A turn of the call was recorded."""
         self._recorded += 1

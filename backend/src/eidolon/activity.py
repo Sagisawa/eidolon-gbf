@@ -27,6 +27,7 @@ no longer say whose they were (`database.ANONYMIZED_USER_DATA`).
 import asyncio
 import logging
 import re
+import secrets
 import sqlite3
 import threading
 from collections.abc import AsyncIterator, Awaitable, Iterator, Sequence
@@ -374,14 +375,17 @@ class ActivityLog:
     def _write(self, recording: Recording) -> None:
         """Write a finished record with its service calls and, for a call, its turns, any
         still open as left (GLOSSARY.md「回合」)."""
+        # Should the user have been deleted meanwhile, the records are theirs anonymously
+        # (`database.ANONYMIZED_USER_DATA`), as one more deleted user.
+        anonymous = secrets.token_hex(16)
         with self._lock, self._db:
-            self._insert(recording)
+            self._insert(recording, anonymous)
             for turn in recording.turns:
                 if not turn.finished:
                     turn.finished, turn.result = True, "left"
-                self._insert(turn)
+                self._insert(turn, anonymous)
 
-    def _insert(self, recording: Recording) -> None:
+    def _insert(self, recording: Recording, anonymous: str) -> None:
         assert recording.result is not None
         row = (
             recording.kind, recording.character_id, recording.started_at.timestamp(),
@@ -390,14 +394,14 @@ class ActivityLog:
             recording.duration_s, recording.end_reason,
         )
         insert = (
-            "INSERT INTO activity_records (user_id, kind, character_id, started_at, result,"
-            " own_keys, time_to_speak_ms, call_id, duration_s, end_reason)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO activity_records (user_id, anonymous_id, kind, character_id,"
+            " started_at, result, own_keys, time_to_speak_ms, call_id, duration_s, end_reason)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         try:
-            cursor = self._db.execute(insert, (recording.user_id, *row))
+            cursor = self._db.execute(insert, (recording.user_id, None, *row))
         except sqlite3.IntegrityError:  # the user was deleted meanwhile
-            cursor = self._db.execute(insert, (None, *row))
+            cursor = self._db.execute(insert, (None, anonymous, *row))
         recording.row_id = cursor.lastrowid
         for call in recording.calls:
             self._insert_call(call, recording.row_id)

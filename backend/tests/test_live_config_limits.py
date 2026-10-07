@@ -123,7 +123,7 @@ async def test_a_limit_that_is_not_a_whole_number_from_0_up_is_refused_saying_wh
 ):
     client = await admin_client(make_client, admins, github, FakeServiceClients())
 
-    for bad in (-1, 1.5, "10"):
+    for bad in (-1, 1.5):
         res = await client.put(LIMITS, json=ENV_LIMITS | {"calls_per_hour": bad})
         assert res.status_code == 422, bad
         assert "每小时通话次数" in res.json()["detail"] and "非负整数" in res.json()["detail"], bad

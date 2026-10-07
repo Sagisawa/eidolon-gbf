@@ -124,7 +124,7 @@ from eidolon.own_keys import (
     Service,
 )
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.store import Conversation, Store
+from eidolon.store import Conversation, NotFound, Store
 from eidolon.turn_outcome import turn_result
 from eidolon.turn_taking import (
     ClearVoice,
@@ -957,8 +957,13 @@ class Calls:
             users = {live.user_id for live in self._live}
             assert self._store is not None
             for user_id in users - self._store.active_users(users):
-                log.info("hanging up the calls of user %s, banned or deleted", user_id)
-                await self.hang_up(user_id, "banned")
+                try:
+                    self._store.get_user(user_id)
+                    reason: CallEndReason = "banned"
+                except NotFound:
+                    reason = "deleted"
+                log.info("hanging up the calls of user %s, %s", user_id, reason)
+                await self.hang_up(user_id, reason)
 
     async def aclose(self) -> None:
         """Hang up every call and wait for them to end; a reply in progress is dropped."""
@@ -1311,7 +1316,7 @@ class CallTurns(FrameProcessor):
     async def _turn(self, text: str) -> None:
         """Take one turn, replied to afresh after each follow-on, until its reply is over;
         its activity record says how the last reply to it turned out (one dropped for a
-        follow-on is not recorded apart), or that the call ended before it was over."""
+        follow-on is not recorded apart), or how the call ending before it was over leaves it."""
         self._turn_over = asyncio.Event()
         recording = self._recording = self._outcome.turn_begun(self._call.own_llm)
         self._result = None
@@ -1323,7 +1328,7 @@ class CallTurns(FrameProcessor):
             reply, self._reply = self._reply, None
             if reply is not None and not reply.done():
                 await self.cancel_task(reply)
-            recording.finish(self._result or "left")
+            recording.finish(self._result or self._outcome.turn_cut_short())
             self._recording = None
 
     def _start_reply(self, text: str, number: int, after: asyncio.Event | None = None) -> None:

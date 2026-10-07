@@ -19,6 +19,7 @@ from pipecat.tests.utils import SleepFrame
 import eidolon.call
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
+from eidolon.store import Store
 from tests.browser import TIMEOUT, Browser, open_browser
 from tests.conftest import ClientFactory
 from tests.fakes import (
@@ -37,6 +38,7 @@ from tests.test_call_turns import (  # noqa: F401
     MANO_REPLY,
     NOW,
     SLOW_REPLY,
+    HANG,
     CallUnderTest,
     kinds,
     mano_call,
@@ -219,18 +221,22 @@ async def test_a_call_that_took_a_turn_and_then_failed_is_a_failure(
     speech: FakeSpeech,
     browser: Browser,
 ):
+    """The turn the failure cuts short failed too, rather than being left."""
     clock = FakeClock()
-    client = make_client(FakeLLM(REPLY), clock=clock)
+    client = make_client(FakeLLM(REPLY, ["<ja>今日", HANG]), clock=clock)
     admin = await admin_client(make_client, github, clock)
     await browser.call(client, conversation_id=await start_conversation(client))
     await browser.connect()
     await speech.stts[-1].hear("你好")
     await browser.turn()
+    await speech.stts[-1].hear("还在吗")
+    await browser.next_server_message("user")
 
     await speech.stts[-1].break_down()
     await browser.next_server_message("ended")
     board = await call_recorded(admin)
 
+    assert board["turns"]["by_result"] == {"success": 1, "failed": 1, "rejected": 0, "left": 0}
     assert board["calls"]["by_result"]["failed"] == 1
     assert board["calls"]["end_reasons"]["failed"] == 1
     stt = health(board, "stt")
@@ -282,6 +288,31 @@ async def test_a_banned_users_call_ends_for_the_ban(
 
     assert board["calls"]["by_result"]["success"] == 1
     assert {r: n for r, n in board["calls"]["end_reasons"].items() if n} == {"banned": 1}
+
+
+async def test_a_call_whose_user_is_deleted_elsewhere_ends_for_the_deletion(
+    make_client: ClientFactory,
+    settings: Settings,
+    github: FakeIdentityProvider,
+    browser: Browser,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Deleted by another process, say, rather than through this server."""
+    monkeypatch.setattr(eidolon.call, "USER_CHECK_INTERVAL", 0.05)
+    clock = FakeClock()
+    client = make_client(FakeLLM(), clock=clock)
+    admin = await admin_client(make_client, github, clock)
+    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.connect()
+
+    store = Store(settings.database_path)
+    store.delete_user(user_id(settings.database_path, "producer"))
+    store.close()
+    await browser.hung_up()
+    board = await call_recorded(admin)
+
+    assert {r: n for r, n in board["calls"]["end_reasons"].items() if n} == {"deleted": 1}
+    assert board["active_users"] == 1  # anonymously, as the deleted are
 
 
 async def test_the_turns_of_a_call_are_recorded_under_it_as_they_turned_out(
