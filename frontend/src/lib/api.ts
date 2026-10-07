@@ -361,7 +361,7 @@ export async function clearMemories(): Promise<void> {
 }
 
 /** Checks a response that carries no body. */
-async function expectNoContent(res: Response): Promise<void> {
+export async function expectNoContent(res: Response): Promise<void> {
   if (!res.ok) await json(res);
 }
 

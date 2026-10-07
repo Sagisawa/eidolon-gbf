@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
@@ -9,6 +10,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { BanStatus, OwnKeys } from "@/components/AdminUserList";
@@ -16,7 +18,13 @@ import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { FailureNotice } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
-import { banAction, getAdminUser, unbanUser, type AdminUserDetails as Details } from "@/lib/adminUsers";
+import {
+  banAction,
+  deleteUser,
+  getAdminUser,
+  unbanUser,
+  type AdminUserDetails as Details,
+} from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS } from "@/lib/signIn";
 
@@ -24,13 +32,17 @@ const t = copy.admin.users;
 
 /**
  * 一位用户的详情：登录方式（含邮箱和填进管理者名单用的标识）、注册和最后活跃的时间、
- * 自带密钥的有无、封禁的时间和备注，以及封禁 / 解除封禁。不含任何对话、记忆和制作人档案。
+ * 自带密钥的有无、封禁的时间和备注，以及封禁 / 解除封禁和删除（二次确认，删完回到列表）。
+ * 不含任何对话、记忆和制作人档案。
  */
 export function AdminUserDetails({ id }: { id: string }) {
   const [user, setUser] = useState<Details | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [banning, setBanning] = useState(false);
   const [unbanning, setUnbanning] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     getAdminUser(id).then(setUser, (e) => setFailure(toFailure(e)));
@@ -45,6 +57,19 @@ export function AdminUserDetails({ id }: { id: string }) {
       setFailure(toFailure(e));
     } finally {
       setUnbanning(false);
+    }
+  }
+
+  async function remove() {
+    setDeleting(true);
+    setFailure(null);
+    try {
+      await deleteUser(id);
+      router.replace("/admin/users");
+    } catch (e) {
+      setFailure(toFailure(e));
+      setConfirmingDelete(false);
+      setDeleting(false);
     }
   }
 
@@ -128,16 +153,33 @@ export function AdminUserDetails({ id }: { id: string }) {
             )}
           </MetadataList>
 
-          <HStack>
+          <HStack gap={2} wrap="wrap">
             {action === "ban" && (
               <Button label={t.ban} variant="destructive" onClick={() => setBanning(true)} />
             )}
             {action === "unban" && (
               <Button label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
             )}
+            {action !== null && (
+              <Button label={t.delete} variant="destructive" onClick={() => setConfirmingDelete(true)} />
+            )}
             {action === null && <Text color="secondary">{t.adminCannotBeBanned}</Text>}
           </HStack>
         </VStack>
+      )}
+
+      {user && (
+        <AlertDialog
+          isOpen={confirmingDelete}
+          onOpenChange={(open) => !deleting && setConfirmingDelete(open)}
+          title={t.deleteDialog.title(user.name)}
+          description={`${t.deleteDialog.hint}${user.banned ? t.deleteDialog.banned : t.deleteDialog.notBanned}`}
+          actionLabel={t.deleteDialog.confirm}
+          cancelLabel={copy.common.cancel}
+          onAction={remove}
+          isActionLoading={deleting}
+          width={480}
+        />
       )}
 
       <BanUserDialog

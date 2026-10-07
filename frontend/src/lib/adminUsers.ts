@@ -1,8 +1,9 @@
 // The admin console's users page (ADR-0013): listing and searching users, a user's details,
-// and banning or unbanning them. The backend never sends what anyone said, what was
-// remembered of them or their producer profile, only who they are and how they use it.
+// banning or unbanning them, and deleting them. The backend never sends what anyone said,
+// what was remembered of them or their producer profile, only who they are and how they
+// use it.
 
-import { apiHeaders, followRedirect, json, type OwnService } from "@/lib/api";
+import { apiHeaders, expectNoContent, followRedirect, json, type OwnService } from "@/lib/api";
 import type { Provider } from "@/lib/signIn";
 
 /** An identity a user signs in with; `subject` is what `EIDOLON_ADMINS` names it by. */
@@ -85,4 +86,10 @@ export async function banUser(id: string, note: string): Promise<AdminUserDetail
 
 export async function unbanUser(id: string): Promise<AdminUserDetails> {
   return json(await admin(`/api/admin/users/${encodeURIComponent(id)}/ban`, { method: "DELETE" }));
+}
+
+/** Delete the user and all their data for good, as they would themselves; a banned user's
+ * identities can never sign in or be linked again. */
+export async function deleteUser(id: string): Promise<void> {
+  await expectNoContent(await admin(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }

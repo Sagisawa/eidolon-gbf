@@ -94,6 +94,13 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         store.set_banned(user_id, clock(), (body.note or "").strip() or None)
         return details(user_id)
 
+    @app.delete("/api/admin/users/{user_id}", status_code=204)
+    async def delete_user(user_id: str, _: Admin) -> None:
+        """Delete the user and all their data, as they would themselves; 409 for an admin."""
+        if details(user_id)["is_admin"]:
+            raise HTTPException(409, "不能在后台删除管理者")
+        await backend.accounts.delete(user_id)
+
     @app.delete("/api/admin/users/{user_id}/ban")
     def unban(user_id: str, _: Admin) -> dict:
         """Lift the user's ban, and its note; they may sign in again."""

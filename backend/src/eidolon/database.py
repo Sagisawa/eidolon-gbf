@@ -44,12 +44,13 @@ for each deleted user, the same for all their rows, so that they still count as 
 NOT_USER_DATA = frozenset(
     {
         "episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts",
-        "service_calls", "config_overrides",
+        "service_calls", "config_overrides", "banned_identities",
     }
 )
 """Every other table: the story corpus, the embedded text set, the calls to outside
-services, which say whose turn they were made in only through its activity record, and
-the configuration the admin console overrides."""
+services, which say whose turn they were made in only through its activity record, the
+configuration the admin console overrides, and the ban list, hashes of the identities
+banned users since deleted signed in with, which say whose they were to no one."""
 
 
 def connect(path: Path) -> sqlite3.Connection:

@@ -89,6 +89,12 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
+-- The identities banned users signed in with, kept when those users were deleted so that
+-- deleting is not unbanning; only a keyed hash of each (`accounts.identity_hash`), no one's.
+CREATE TABLE IF NOT EXISTS banned_identities (
+    identity_hash TEXT PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
 """
 
 SESSION_LIFETIME = timedelta(days=30)
@@ -426,11 +432,26 @@ class Store:
             )
         return cursor.rowcount > 0
 
-    def delete_user(self, user_id: str) -> None:
+    def delete_user(self, user_id: str, banned_identities: list[str] | None = None) -> None:
         """Delete the user and everything of theirs, for good, all at once (see
-        `database.delete_user_data`)."""
+        `database.delete_user_data`), first putting `banned_identities`, hashes of the
+        identities they signed in with, on the ban list if they were banned."""
         with self._lock:
+            if banned_identities:
+                with self._db:
+                    self._db.executemany(
+                        "INSERT OR IGNORE INTO banned_identities (identity_hash, added_at)"
+                        " VALUES (?, ?)",
+                        [(h, _now()) for h in banned_identities],
+                    )
             delete_user_data(self._db, user_id)
+
+    def is_banned_identity(self, identity_hash: str) -> bool:
+        """Whether a banned user since deleted signed in with the identity of this hash."""
+        with self._lock:
+            return self._db.execute(
+                "SELECT 1 FROM banned_identities WHERE identity_hash = ?", (identity_hash,)
+            ).fetchone() is not None
 
     def create_session(self, user_id: str, now: datetime) -> str:
         """Start a session for the user; returns its token, which is not stored. Every

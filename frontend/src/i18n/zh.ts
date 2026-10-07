@@ -389,7 +389,7 @@ export const zh = {
       active: "正常",
       banned: "已封禁",
       admin: "管理者",
-      adminCannotBeBanned: "管理者不能在后台封禁",
+      adminCannotBeBanned: "管理者不能在后台封禁或删除",
       ban: "封禁",
       unban: "解除封禁",
       backToList: "返回用户列表",
@@ -413,6 +413,14 @@ export const zh = {
         note: "备注",
         noteHint: "只有管理者看得到，被封禁的用户看不到。",
         confirm: "确认封禁",
+      },
+      delete: "删除这位用户",
+      deleteDialog: {
+        title: (name: string) => `删除 ${name} 的全部数据？`,
+        hint: "和他自己删除完全一样：彻底删除他的记忆、对话、制作人档案、登录方式、自带密钥、会话和用量记录，无法恢复，进行中的通话随即挂断；每天的加密备份里的副本最多再留 30 天。",
+        banned: "他已被封禁：删除后，他用过的登录方式仍然不能再登录，也不能被绑定，删除不等于解封。",
+        notBanned: "他没有被封禁：之后再用同一种登录方式登录，会是一位全新的用户。",
+        confirm: "确认删除，无法恢复",
       },
     },
     config: {
