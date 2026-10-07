@@ -10,7 +10,8 @@ other when it fails.
 """
 
 import logging
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Any, Literal, Protocol
 
 import httpx
 
@@ -26,6 +27,64 @@ _QUOTA_ERROR_CODES = {4006}
 """Cloudflare's code for the day's free allocation of neurons being used up."""
 
 _CHECK_QUESTION = {"type": "noul", "instructions": "这是一条测试消息吗？"}
+
+
+@dataclass(frozen=True)
+class JudgeThresholds:
+    """The judge model's probabilities at or above which its answer counts as yes. Each
+    model is sure of itself in its own way, so each has thresholds of its own."""
+
+    needs_retrieval: float
+    """Whether the turn needs references looked up."""
+    recall: float
+    """Whether the turn asks how a past episode went."""
+    about_producer: float
+    """Whether the turn is about the user's own life, so their memories are found."""
+    emotion: float
+    """The likeliest emotion's probability below which she is calm, and the likeliest
+    nod's below which there is none (overridden by `JUDGE_EMOTION_MIN_PROBABILITY`)."""
+
+
+JudgeFamily = Literal["jev", "clef", "clef-flash"]
+"""The judge models with thresholds of their own, by whatever name and service they are
+reached: Clef-flash through OpenRouter judges as it does on Workers AI."""
+
+JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
+    # Until the judge eval (backend/eval/judge.toml, ticket cloudflare-judge 05) sets them,
+    # every model has the 0.5 Jev has always had.
+    "jev": JudgeThresholds(needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5),
+    "clef": JudgeThresholds(needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5),
+    "clef-flash": JudgeThresholds(
+        needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5
+    ),
+}
+FALLBACK_FAMILY: JudgeFamily = "jev"
+"""Whose thresholds a model not in `JUDGE_THRESHOLDS` gets."""
+
+
+def judge_family(model: str) -> JudgeFamily | None:
+    """The group of `model`, named as any service names it (`typesafe/jev-1.13`,
+    `cloudflare/clef-flash`, `clef`); None for a model of none of them."""
+    name = model.rsplit("/", 1)[-1].lower()
+    if name == "clef-flash" or name.startswith("clef-flash-"):
+        return "clef-flash"
+    if name == "clef" or name.startswith("clef-"):
+        return "clef"
+    if name == "jev" or name.startswith("jev-"):
+        return "jev"
+    return None
+
+
+def judge_thresholds_for(model: str) -> JudgeThresholds:
+    """The thresholds `model` judges by; Jev's, with a warning, for a model not known."""
+    family = judge_family(model)
+    if family is None:
+        family = FALLBACK_FAMILY
+        log.warning(
+            "judge model %s has no thresholds of its own; it judges by %s's: %s",
+            model, family, JUDGE_THRESHOLDS[family],
+        )
+    return JUDGE_THRESHOLDS[family]
 
 
 class JudgeError(RuntimeError):

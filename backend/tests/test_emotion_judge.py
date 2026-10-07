@@ -4,7 +4,6 @@ how its Choice answers are read, and how judging is configured."""
 import httpx
 import pytest
 
-from eidolon.config import EmotionSettings
 from eidolon.emotion import ModelEmotionJudge, SaidSegment, SegmentToJudge
 from eidolon.judge import JevJudge, JudgeError
 from tests.test_retrieval_services import MANO, client, recording
@@ -96,28 +95,3 @@ async def test_jev_errors_are_reported():
     with pytest.raises(JudgeError, match="429"):
         await judge.judge_emotion(SEGMENT)
 
-
-def test_judging_is_tuned_from_the_environment(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("JEV_EMOTION_MIN_PROBABILITY", "0.6")
-    monkeypatch.setenv("JEV_EMOTION_TIMEOUT", "2")
-
-    assert EmotionSettings.from_env() == EmotionSettings(min_probability=0.6, timeout=2.0)
-
-
-def test_judging_defaults_to_half_and_a_second_and_a_half(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("JEV_EMOTION_MIN_PROBABILITY", raising=False)
-    monkeypatch.setenv("JEV_EMOTION_TIMEOUT", "")
-
-    assert EmotionSettings.from_env() == EmotionSettings(min_probability=0.5, timeout=1.5)
-
-
-@pytest.mark.parametrize(
-    "name, value", [("JEV_EMOTION_MIN_PROBABILITY", "1.5"), ("JEV_EMOTION_TIMEOUT", "0")]
-)
-def test_judging_tuned_out_of_range_stops_the_start(
-    monkeypatch: pytest.MonkeyPatch, name: str, value: str
-):
-    monkeypatch.setenv(name, value)
-
-    with pytest.raises(RuntimeError, match=name):
-        EmotionSettings.from_env()

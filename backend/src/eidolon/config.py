@@ -461,22 +461,32 @@ class JevSettings:
 
 @dataclass(frozen=True)
 class EmotionSettings:
-    """How Jev's judging of each segment's emotion during calls is taken (see `emotion`):
-    the likeliest answer's probability below which she is calm and does not nod, and how
-    long, in seconds, a segment may take to be judged before it goes without."""
+    """How the judge model's judging of each segment's emotion during calls is taken (see
+    `emotion`): the likeliest answer's probability below which she is calm and does not
+    nod, and how long, in seconds, a segment may take to be judged before it goes without."""
 
-    min_probability: float = 0.5
+    min_probability: float | None = None
+    """None is the judge model's own (`judge.JUDGE_THRESHOLDS`); set, it is every model's."""
     timeout: float = 1.5
 
     @classmethod
     def from_env(cls) -> "EmotionSettings":
-        min_probability = _relevance("JEV_EMOTION_MIN_PROBABILITY")
-        timeout = (os.environ.get("JEV_EMOTION_TIMEOUT") or "").strip()
-        defaults = cls()
+        for old, new in _RENAMED_EMOTION_SETTINGS.items():
+            if os.environ.get(old):
+                raise RuntimeError(
+                    f"环境变量 {old} 已改名为 {new}（判断模型不再只有 Jev），请改用新名字"
+                )
+        timeout = (os.environ.get("JUDGE_EMOTION_TIMEOUT") or "").strip()
         return cls(
-            min_probability=defaults.min_probability if min_probability is None else min_probability,
-            timeout=_seconds("JEV_EMOTION_TIMEOUT", timeout) if timeout else defaults.timeout,
+            min_probability=_relevance("JUDGE_EMOTION_MIN_PROBABILITY"),
+            timeout=_seconds("JUDGE_EMOTION_TIMEOUT", timeout) if timeout else cls.timeout,
         )
+
+
+_RENAMED_EMOTION_SETTINGS = {
+    "JEV_EMOTION_MIN_PROBABILITY": "JUDGE_EMOTION_MIN_PROBABILITY",
+    "JEV_EMOTION_TIMEOUT": "JUDGE_EMOTION_TIMEOUT",
+}
 
 
 def _seconds(name: str, value: str) -> float:

@@ -35,7 +35,13 @@ from eidolon.characters import Character
 from eidolon.corpus import CatalogSource, Episode, StoryCorpus
 from eidolon.embedding import Embedder, EmbeddingError, Reembeddable
 from eidolon.facts import CharacterFacts
-from eidolon.judge import JudgeError, JudgeModel
+from eidolon.judge import (
+    FALLBACK_FAMILY,
+    JUDGE_THRESHOLDS,
+    JudgeError,
+    JudgeModel,
+    JudgeThresholds,
+)
 from eidolon.llm import Tool
 from eidolon.memory import MemoryTurn
 from eidolon.references import Reference, ReferenceKind, ReferenceSource
@@ -413,17 +419,19 @@ _ABOUT_PRODUCER_QUESTION = {
         "false": "只是打招呼、说偶像自己的事、问原作剧情或角色设定，与制作人自己的生活无关",
     },
 }
-JUDGE_THRESHOLD = 0.5
-"""The judge model's probability at or above which a turn retrieves, or recalls."""
-
-
 class ModelRetrievalJudge:
     """The judge model, asked three yes-or-no questions (`noul`) about the turn in one
     request: whether it needs looking anything up, whether it asks how a past episode
-    went, and whether it is about the user's own life."""
+    went, and whether it is about the user's own life. Each answer is yes at or above the
+    model's threshold for it."""
 
-    def __init__(self, judge_model: JudgeModel) -> None:
+    def __init__(
+        self,
+        judge_model: JudgeModel,
+        thresholds: JudgeThresholds = JUDGE_THRESHOLDS[FALLBACK_FAMILY],
+    ) -> None:
         self._judge_model = judge_model
+        self.thresholds = thresholds
 
     async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
         recent = []
@@ -450,8 +458,8 @@ class ModelRetrievalJudge:
             about_producer = float(answers["about_producer"]["noul"])
         except (ValueError, KeyError, TypeError) as e:
             raise JudgeError("判断模型的返回无法解析（缺少回答）") from e
-        if recall >= JUDGE_THRESHOLD:
+        if recall >= self.thresholds.recall:
             return "recall"
-        if retrieve >= JUDGE_THRESHOLD:
+        if retrieve >= self.thresholds.needs_retrieval:
             return "references"
-        return "memories" if about_producer >= JUDGE_THRESHOLD else "nothing"
+        return "memories" if about_producer >= self.thresholds.about_producer else "nothing"
