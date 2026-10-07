@@ -211,6 +211,28 @@ async def test_an_override_that_fails_its_try_as_the_server_starts_falls_back_to
     )
 
 
+async def test_a_key_the_changed_secret_key_cannot_decrypt_falls_back_with_a_warning(
+    make_client: ClientFactory,
+    admins: Settings,
+    github: FakeIdentityProvider,
+    caplog: pytest.LogCaptureFixture,
+):
+    first = await admin_client(make_client, admins, github, FakeServiceClients())
+    assert (await first.put(CHAT_LLM, json=NEW)).status_code == 200
+
+    caplog.set_level(logging.INFO)
+    changed = replace(admins, secret_key="another-secret-key-" + "0" * 45)
+    restarted = await admin_client(make_client, changed, github, FakeServiceClients(FakeLLM(REPLY)))
+    await start(restarted)
+
+    assert (await restarted.get(CONFIG)).json()["chat_llm"]["status"] == "failed"
+    assert any(
+        r.levelno == logging.WARNING and "chat_llm" in r.getMessage()
+        and "EIDOLON_SECRET_KEY" in r.getMessage()
+        for r in caplog.records
+    )
+
+
 async def test_no_one_but_admins_finds_the_configuration(
     make_client: ClientFactory, admins: Settings
 ):

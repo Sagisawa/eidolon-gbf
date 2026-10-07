@@ -17,7 +17,7 @@ export function PrivacyContact() {
   useEffect(() => {
     getSignInOptions().then(
       (options) => setContact(options.contact),
-      () => setContact(null),
+      () => {},
     );
   }, []);
 

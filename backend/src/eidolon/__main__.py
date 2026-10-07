@@ -125,6 +125,13 @@ def _serve() -> int:
 
     from eidolon.judge import check_judge
 
+    # Which settings the admin console overrides, for a deployer wondering why `.env`'s
+    # did not take (ADR-0013); nothing configures the root logger to show it.
+    overrides = logging.StreamHandler()
+    overrides.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logging.getLogger("eidolon.live_config").addHandler(overrides)
+    logging.getLogger("eidolon.live_config").setLevel(logging.INFO)
+
     try:  # missing settings, an unusable DashScope key or Cloudflare token, a broken
         # character configuration
         settings = Settings.from_env()

@@ -624,7 +624,14 @@ class LiveConfig:
         """Try every override as the server starts: one that fails falls back to `.env`,
         with a warning. Logs those in effect."""
         for item in self._items.values():
-            if item.name in self._failures or item.name not in self._overrides:
+            if item.name in self._failures:  # a key that can no longer be decrypted
+                log.warning(
+                    "the admin console's override of %s cannot be read, so .env's is used"
+                    " until an admin fixes or restores it: %s",
+                    item.name, self._failures[item.name],
+                )
+                continue
+            if item.name not in self._overrides:
                 continue
             if not self._bound_holds(item):
                 log.warning(
@@ -673,7 +680,7 @@ class LiveConfig:
                     f"这项覆盖是为 {override.get(FOR_MODEL)} 设的，现在用的是"
                     f" {item.bound_model()}，所以没有生效"
                 )
-            status: Status = "env" if override is None else "failed" if failure else "overridden"
+            status: Status = "failed" if failure else "env" if override is None else "overridden"
             entry = {
                 "status": status,
                 "env": item.shown(item.env()),
