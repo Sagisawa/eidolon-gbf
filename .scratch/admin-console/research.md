@@ -234,3 +234,29 @@ DeepSeek 分**高峰和空闲两档价**。原文："Off-peak rates are half of 
 - OpenAI、Anthropic 只放上面表里的当前模型；Anthropic 的 Haiku 4.5 同时放了带日期的 ID 和别名。
 - 判断模型（Jev、Clef）、向量化和重排只有输入价；LLM 有输入、输出两个价；缓存命中价、Batch 价、长上下文价都不算。
 - Gemini 向量化的模型在运行记录里带维度后缀（`gemini-embedding-2@1536`），按不带后缀的模型找单价。不过目前 Gemini 的接口不返回用量，它的调用在看板上都算「用量未知」。
+
+## 11. 在线价格目录（ticket 14 用）
+
+2026-10-07 实测，做法参照 magpie（https://github.com/yetone/magpie 的 `internal/catalog/catalog.go`、`fresh.go`）。
+
+**来源**
+
+- models.dev：`GET https://models.dev/api.json`，226 个提供方。每个模型的 `cost` 是 USD/百万 token（`input`、`output`、`cache_read`、`cache_write`，部分有按上下文长度分档的 `tiers`）。约 200 个提供方带 `api` 字段（服务地址，例如 `https://api.deepseek.com`、`https://api.siliconflow.cn/v1`），`openai`、`anthropic`、`google` 没有。
+- OpenRouter：`GET https://openrouter.ai/api/v1/models?output_modalities=all`。`pricing.prompt` 和 `pricing.completion` 是 USD/token（见第 5 节）。
+
+**现有预设在目录里的覆盖情况**
+
+| 预设 | 目录 |
+|---|---|
+| OpenAI 6 个模型、Anthropic 5 个、Gemini `gemini-embedding-2` | models.dev 有，价格与第 1、7 节一致 |
+| DeepSeek `deepseek-flash`、`deepseek-v4-flash`、`deepseek-v4-pro` | models.dev 有，但为美元：0.15/0.6、0.15/0.6、0.66/1.98。和第 1.3 节的人民币高峰价不同，决定用目录的价格 |
+| `deepseek-v4.1-flash` | models.dev 也没有（只有 `deepseek-v4-flash-vision-exp`） |
+| Jev、Clef、Clef-flash 经 OpenRouter | models.dev 的 `openrouter` 下没有价格；OpenRouter 自己的 API 有（0.042、0.24、0.09，输出 0），与第 5 节一致 |
+| Cloudflare 直连 Clef | models.dev 的 `cloudflare-workers-ai` 里没有，留在预设 |
+| 硅基流动的向量化和重排 | models.dev 的 `siliconflow-cn` 里没有，留在预设 |
+| Fish Audio、Soniox | models.dev 没有这两个提供方，而且只收按 token 计价的模型，留在预设 |
+
+**从 VPS 访问**
+
+- 宿主机直连两个地址都返回 200。models.dev 不压缩时 5.3 MB、用时 30.7 秒；带 `Accept-Encoding: gzip` 时下载 0.44 MB、用时 3.2 秒。OpenRouter 不压缩时 0.98 MB、用时 4.3 秒。
+- 后端镜像（`ghcr.io/sallyn0225/eidolon-sc-backend:main`）起一个临时容器，用 Python `urllib` 带 gzip 访问：models.dev 1.5 秒，OpenRouter 0.5 秒。容器里不需要代理。
