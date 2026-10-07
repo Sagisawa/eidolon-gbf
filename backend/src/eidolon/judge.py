@@ -50,12 +50,14 @@ JudgeFamily = Literal["jev", "clef", "clef-flash"]
 reached: Clef-flash through OpenRouter judges as it does on Workers AI."""
 
 JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
-    # Until the judge eval (backend/eval/judge.toml, ticket cloudflare-judge 05) sets them,
-    # every model has the 0.5 Jev has always had.
+    # Set by the judge eval (backend/eval/judge.toml); how each was chosen from the spread
+    # of probabilities is in .scratch/cloudflare-judge/issues/05-apply-eval-and-docs.md.
     "jev": JudgeThresholds(needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5),
-    "clef": JudgeThresholds(needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5),
+    # Clef and Clef-flash are surer of recall than they should be, less sure of the user's
+    # own life, and less sure of the emotion they hear.
+    "clef": JudgeThresholds(needs_retrieval=0.5, recall=0.8, about_producer=0.1, emotion=0.4),
     "clef-flash": JudgeThresholds(
-        needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5
+        needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4
     ),
 }
 FALLBACK_FAMILY: JudgeFamily = "jev"

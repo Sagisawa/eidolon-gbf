@@ -99,7 +99,7 @@ flowchart LR
     Retrieval --> DB
     Memory --> DB
     Engine <--> ChatLLM["对话模型"]
-    Retrieval <--> Jev["Jev · 检索判断"]
+    Retrieval <--> Jev["判断模型<br/>Jev 或 Clef"]
     Retrieval <--> Emb["向量化<br/>Qwen3-Embedding 或 Gemini"]
     Retrieval <--> SF["硅基流动<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["后台模型"]
@@ -129,7 +129,7 @@ docker compose up --build
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别服务的 key：`SONIOX_API_KEY`（默认），或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY` |
 > | 剧情库（同步或导入） | 向量化服务的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
-> | 检索与记忆 | 向量化服务的 key、`SILICONFLOW_API_KEY`（重排）、`JEV_API_KEY` |
+> | 检索与记忆 | 向量化服务的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` |
 >
 > 所有配置项的说明见 [`.env.example`](.env.example)。
 
@@ -242,7 +242,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 | `EIDOLON_STAND_ASSETS_URL` | `.env` | 存放立绘素材的 S3 兼容存储桶的公开地址 |
 
 - **动起来**：待机时呼吸眨眼，她的声音播放时动嘴，你开口时看向你、说完点头；打断她时声音一停就闭上嘴。通话层收起时立绘照常跟着通话变化。
-- **情绪**：配置了 `JEV_API_KEY` 时，她每说一段话都会由 Jev 判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作。情绪只影响立绘，不记进对话记录；判断的阈值和超时可以用 `JEV_EMOTION_MIN_PROBABILITY`、`JEV_EMOTION_TIMEOUT` 调整。
+- **情绪**：配好了判断模型（Jev 或 Cloudflare 的 Clef，见[对话中的检索](#对话中的检索)）时，她每说一段话都会由判断模型判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘在这段声音开始时换上对应的表情和动作。情绪只影响立绘，不记进对话记录；判断的阈值和超时可以用 `JUDGE_EMOTION_MIN_PROBABILITY`、`JUDGE_EMOTION_TIMEOUT` 调整。这两个变量原来叫 `JEV_EMOTION_MIN_PROBABILITY`、`JEV_EMOTION_TIMEOUT`，还配着旧名字时后端不会启动。
 - **换衣装**：她有立绘时，对话页页首多一个「换衣装」（宽屏是弹窗，窄屏是底部面板）。每张卡一项，可以在私服和演出服之间切换，选中的那套有会动的全身预览；点「穿这套」后按角色记在这台设备上，通话时就穿这一套。
 - **素材同步**：立绘素材不进仓库，也不在许可证范围内，放在对象存储里。`deploy/stand-sync.sh` 从 ShinyColorsDB 拉取配了 `idol_id` 的角色的新卡、整理衣装清单、渲染缩略图，再上传到存储桶（[ADR-0011](docs/adr/0011-stand-assets-fetched-from-shinycolorsdb.md)）。建议每周用 cron 跑一次，原作出了新卡就会出现在换衣装面板上；没有新卡时几乎不花时间。
 
@@ -379,31 +379,45 @@ docker compose exec backend eidolon story import-json /corpus/scripts
 
 ### 对话中的检索
 
-在 `.env` 里填好向量化服务的 key、`SILICONFLOW_API_KEY`（重排）和 `JEV_API_KEY` 后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+在 `.env` 里填好向量化服务的 key、`SILICONFLOW_API_KEY`（重排）并配好判断模型后，角色就能在对话中回忆剧情、查阅角色资料；缺任何一项时只凭人设回复。
+
+判断模型每个回合判断要不要检索、检索什么，通话中还判断每段回复的情绪。用 `JUDGE_PROVIDER` 选一家，检索判断和情绪判断都用它；一家出错时不会换用另一家。
+
+| | Jev（默认） | Clef-flash | Clef |
+|---|---|---|---|
+| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | `JUDGE_PROVIDER=cloudflare`、`CLOUDFLARE_JUDGE_MODEL=clef` |
+| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 |
+| 每天的免费额度 | 无 | 约 2,000 次判断 | 约 750 次判断 |
+
+- **Clef 和 Clef-flash** 是 Cloudflare 的判断模型，直连 Workers AI。Clef-flash 更快、更便宜，是默认值；Clef 的检索判断更准（在仓库的 eval 集上 94% 对 87%，主要是更少漏查资料、更少把查资料误判成回顾剧情），但贵将近 3 倍，也慢一些。
+- **Cloudflare 的凭证**：注册 Cloudflare 账号（免费，不用绑域名），在 Dashboard 的 Workers AI 页面选「Use REST API」，点「Create a Workers AI API Token」创建 token（只显示一次，立刻复制），再在同一页复制 Account ID，分别填进 `CLOUDFLARE_API_TOKEN` 和 `CLOUDFLARE_ACCOUNT_ID`。自己建 token 时勾上账号级的 Workers AI Read 和 Edit。启动时会用这两项试调一次，填错了不启动，并说明是哪一项不对。
+- **免费额度**：Workers AI 每天有 10,000 neurons 的免费额度，按每次判断约 600 个输入 token 算，大约够 Clef-flash 判断 2,000 次、Clef 750 次。文字对话每个回合判断一次；通话中除此之外，每段回复还要判断一次情绪。所以公开部署选 Cloudflare 时应开 Workers Paid（$5/月起，超出部分按用量计费）。额度用完后，当天的判断都按失败处理：照常检索，立绘不换表情，日志里写明是额度用完。
+- **经 OpenRouter 用 Clef**：不注册 Cloudflare 也行。保持 `JUDGE_PROVIDER=jev`，设 `JEV_MODEL=cloudflare/clef-flash`（或 `cloudflare/clef`），花的是 OpenRouter 余额，没有免费额度。
+- 判断的阈值按模型在代码里给定，是用 `eidolon eval judge` 在仓库里的 eval 集上定的（见 [`docs/deploy.md`](docs/deploy.md) 的「校准判断模型阈值」）。
 
 Jev 默认经由 [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 调用，`JEV_API_KEY` 填 OpenRouter 的 key，模型默认锁定 `typesafe/jev-1.13`（`JEV_MODEL` 可改）。Jev 用的是 TypeSafe 的 System One 接口，Vercel AI Gateway 和 TypeSafe 自己也提供同样的接口：改用 Vercel 时设 `JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe/v1`（Vercel 免费额度不能调用 Jev，需要先购买额度），直连 TypeSafe 时设 `JEV_BASE_URL=https://api.typesafe.ai/v1`，两种情况都要把 `JEV_API_KEY` 和 `JEV_MODEL` 换成那一家的（模型名的写法各家不同，TypeSafe 直连是 `jev-1.13.0`）。旧的 `AI_GATEWAY_API_KEY` 已改名为 `JEV_API_KEY`，只配了旧变量时后端不会启动。
 
 ```mermaid
 flowchart LR
-    Q["用户的一句话"] --> Jev{"Jev 判断"}
+    Q["用户的一句话"] --> Jev{"判断模型"}
     Jev -- 寒暄闲聊 --> None["不检索"]
     Jev -- 聊自己的事 --> Mem["只检索记忆"]
     Jev -- 需要资料 --> Ref["剧情 + 角色资料 + 歌曲唱片演出 + 记忆<br/>→ Reranker 重排"]
     Jev -- 问过去的经历 --> Recall["直接回顾剧情<br/>+ 查演出和唱片"]
 ```
 
-- 每一句话先交给 Jev（默认通过 OpenRouter 调用）判断这句话需要什么：寒暄闲聊不检索，不增加延迟；需要资料时做下面的检索；问「那次……是怎么回事」这类过去经历时，直接用这句话「回顾剧情」，同时在作品资料里查相关的演出和唱片，一起放进提示词，省去对话模型自己调用工具的那一轮；剧情库里没有这段经过时，提示角色这不等于没发生过，不编造也不否认。Jev 出错时照常检索。
+- 每一句话先交给判断模型判断这句话需要什么：寒暄闲聊不检索，不增加延迟；需要资料时做下面的检索；问「那次……是怎么回事」这类过去经历时，直接用这句话「回顾剧情」，同时在作品资料里查相关的演出和唱片，一起放进提示词，省去对话模型自己调用工具的那一轮；剧情库里没有这段经过时，提示角色这不等于没发生过，不编造也不否认。判断模型出错时照常检索。
 - 需要检索时，同时检索剧情库里当前角色出场过的剧情、她的角色资料和所有角色共享的作品资料（每首歌曲、每张唱片、每个演出日一条），用硅基流动的 Qwen3-Reranker（默认 `Qwen/Qwen3-Reranker-0.6B`，`RERANK_MODEL` 可换）重排，取相关程度够高的最多 5 条放进提示词（和话题无关时一条都不放）。「够高」的阈值按重排模型分组（0.6B 和 4B 都校准过），也可以用 `RERANK_MIN_RELEVANCE`、`RERANK_MEMORY_MIN_RELEVANCE` 手动设置；`eidolon eval rerank` 用仓库里的校准数据集打印分数分布，帮助定阈值（见 [`docs/deploy.md`](docs/deploy.md)）。检索或重排出错时，本回合不带检索结果照常回复。
-- 对话模型还可以调用「回顾剧情」工具（`recall_story`）：制作人问「那次……是怎么回事」这类问题时，角色用一句概括去查自己出场过的剧情，拿回最相关的最多 2 段剧情的原文（附带它在剧情目录中属于哪张卡或哪个活动、同一处还有哪些剧情），再据此回答。这个工具只查剧情。一句话最多调用 1 轮工具；Jev 已经判断为回顾剧情的回合不再提供这个工具。
+- 对话模型还可以调用「回顾剧情」工具（`recall_story`）：制作人问「那次……是怎么回事」这类问题时，角色用一句概括去查自己出场过的剧情，拿回最相关的最多 2 段剧情的原文（附带它在剧情目录中属于哪张卡或哪个活动、同一处还有哪些剧情），再据此回答。这个工具只查剧情。一句话最多调用 1 轮工具；判断模型已经判断为回顾剧情的回合不再提供这个工具。
 - 角色资料是 `characters.toml` 里 `facts` 指向的 Markdown 文件，每个标题下的内容是一条。第一次检索某位角色时向量化，之后只有改动过的条目会重新向量化；修改后重启后端即可。
 - 作品资料的条目由世界设定资料文件 `characters/world.json` 生成：歌曲写明演唱者和收录唱片，唱片写明发售日和曲目，演出日写明日期、会场、出演偶像和曲目单，不含声优名字；曲目单只在检索时出现，不跟着每个回合。和角色资料一样，第一次检索时向量化（现在的作品资料约 1400 条，第一次会慢一些；也可以先运行 `eidolon reembed` 算好），之后只有改动过的条目会重新向量化；重新导入作品资料后重启后端即可。没有资料文件时不检索这一类。提示词里，作品资料和角色资料分别放在「作品资料」「角色资料」两个标题下。
 
 ### 记忆
 
-角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要向量化服务的 key、`SILICONFLOW_API_KEY` 和 `JEV_API_KEY`）。
+角色会记住用户说过的关于自己的事，而且同一位用户的所有角色共享这份记忆：对真乃说过的事，恋鐘也会知道，但会以「听真乃说……」的口吻提起（ADR-0002）。不同用户之间的记忆完全隔离。记忆和检索一起开启（需要向量化服务的 key、`SILICONFLOW_API_KEY` 和判断模型）。
 
 - **写入**：每个回合结束后，后台模型读这一轮对话，把用户透露的、值得长期记住的事写成中文记忆（如「制作人养了一只叫小白的猫」），记下所属用户和来源角色；「下周六」这样的相对时间会按用户的时区换算成日期。已经记住的事不会重复记。这一步在后台进行，不耽误回复；用户的下一句话会先等它完成（最多 5 秒）。
-- **想起**：之后的对话中，Jev 判断用户在说自己的事（近况、计划、家人宠物等）时，只检索记忆；需要检索剧情和角色资料时，也会一起检索记忆。和话题相关的最多 3 条记忆放进提示词，每条注明来源角色和日期。
+- **想起**：之后的对话中，判断模型认为用户在说自己的事（近况、计划、家人宠物等）时，只检索记忆；需要检索剧情和角色资料时，也会一起检索记忆。和话题相关的最多 3 条记忆放进提示词，每条注明来源角色和日期。
 - **跨对话**：新开的对话只靠检索到的记忆接上以前聊过的事，不带上次对话的内容。
 - **管理**：用户在「设置 → 管理记忆」页查看角色们记下的全部记忆，每条注明是对哪位角色说的；可以逐条删除，也可以二次确认后一键清空，但不能手动新增或修改。删除的记忆不会再进入任何提示词；清空时还在后台抽取的记忆会被丢弃，不会在清空后冒出来。
 
@@ -459,7 +473,7 @@ docker compose exec backend eidolon user usage <用户 ID>  # 最近 24 小时�
 - 语音识别选阿里云百炼时只填 key：地域在试调时自动判断，模型跟部署者的 `BAILIAN_STT_MODEL` 走（部署选 Soniox 时用默认模型）；模型没开通时提示去阿里云百炼控制台开通。
 - 密钥用 `EIDOLON_SECRET_KEY` 派生的密钥加密保存，界面上只显示末 4 位。没配置 `EIDOLON_SECRET_KEY` 时不开放这个功能。
 - 自带密钥调用失败时（余额不足、被吊销等），这一回合或这次通话就失败，并提示是哪一项密钥出了问题，**不会改用部署者的密钥**。更换 `EIDOLON_SECRET_KEY` 后，已保存的密钥无法解密，用到它的回合或通话在调用任何服务之前就失败，提示用户重新填写。删除自带密钥后改回用部署者的服务。
-- 向量化、重排、判断要不要回忆剧情和通话中判断立绘情绪（Jev）始终由部署者承担。
+- 向量化、重排、判断要不要回忆剧情和通话中判断立绘情绪（判断模型）始终由部署者承担。
 
 ## 🌐 部署到 VPS
 
@@ -524,7 +538,8 @@ eidolon-sc/
 │   │   ├── bailian.py        #   阿里云百炼的实时语音识别
 │   │   ├── turn_taking.py    #   通话中的补充与打断规则
 │   │   ├── call_outcome.py   #   通话算不算限额、结束时告诉浏览器什么
-│   │   ├── emotion.py        #   通话中每段话的情绪判断（Jev），驱动立绘
+│   │   ├── emotion.py        #   通话中每段话的情绪判断，驱动立绘
+│   │   ├── judge.py          #   判断模型：Jev 或 Cloudflare 的 Clef，以及各自的阈值
 │   │   ├── delivery_cues.py  #   语气提示：哪些送去合成、哪些删掉
 │   │   ├── retrieval.py      #   检索判断、参考资料来源（剧情、角色资料、作品资料）的检索与重排、回顾剧情
 │   │   ├── memory.py         #   跨对话、跨角色共享的记忆
@@ -532,6 +547,7 @@ eidolon-sc/
 │   │   ├── embedding.py      #   向量化：硅基流动 Qwen3-Embedding 或 Gemini
 │   │   ├── reembed.py        #   换向量化模型后重新向量化（eidolon reembed）
 │   │   ├── rerank_eval.py    #   重排阈值校准（eidolon eval rerank）
+│   │   ├── judge_eval.py     #   判断模型的阈值校准（eidolon eval judge）
 │   │   ├── story_import.py   #   剧情库导入（CSV / JSON）与正式经历规则
 │   │   ├── story_sync.py     #   与原作同步（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB 镜像与 API 的客户端
@@ -587,7 +603,8 @@ eidolon-sc/
 - [Fish Audio](https://fish.audio/) —— 语音合成
 - [硅基流动](https://siliconflow.cn/) —— Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) —— Gemini Embedding（可选的向量化服务）
-- [TypeSafe Jev](https://docs.typesafe.ai/) 与 [OpenRouter](https://openrouter.ai/) —— 检索判断模型及其调用
+- [TypeSafe Jev](https://docs.typesafe.ai/) 与 [OpenRouter](https://openrouter.ai/) —— 判断模型及其调用
+- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) —— Clef 与 Clef-flash 判断模型（可代替 Jev）
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes) —— 通话层立绘的播放（spine-ts 3.6）
 - [im@sparql](https://sparql.crssnky.xyz/imas/)、Lantis、ふじわらはじめ、imas-db、wikiwiki —— 世界设定里的偶像、唱片和演出资料
 

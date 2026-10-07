@@ -162,6 +162,25 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 换重排模型前用它比较两个模型的分数分布，再决定阈值。需要剧情库已经同步好，并且有当前向量化模型的向量；数据集里的记忆是虚构的示例，运行时临时向量化，不会写进数据库。
 
+## 校准判断模型阈值
+
+判断模型（Jev、Clef 或 Clef-flash，见 README 的「对话中的检索」）对每个问题给出概率，达到阈值才算「是」。阈值按模型写在 `backend/src/eidolon/judge.py` 的 `JUDGE_THRESHOLDS` 里，Clef-flash 经 OpenRouter 和直连用同一组；其他模型名用 Jev 的，并在启动日志里提示。情绪的最低概率可以用 `JUDGE_EMOTION_MIN_PROBABILITY` 覆盖，检索的三个阈值不能在 `.env` 里改。
+
+| | 要检索参考资料 | 问过去的经历 | 在说自己的事 | 情绪最低概率 |
+|---|---|---|---|---|
+| Jev | 0.5 | 0.5 | 0.5 | 0.5 |
+| Clef | 0.5 | 0.8 | 0.1 | 0.4 |
+| Clef-flash | 0.5 | 0.7 | 0.3 | 0.4 |
+
+`eidolon eval judge` 用仓库里的 eval 集（`backend/eval/judge.toml`：虚构的对话回合和回复片段，以及期望的判断结果，不含剧情原文）按对话中的方式逐条提问，打印检索判断的混淆矩阵和准确率、每个问题在期望为是和期望为否时的概率分布、情绪和点头的准确率、输入 token 数和平均延迟；`--json` 把汇总写进文件，方便比较：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend eidolon eval judge
+docker compose -f docker-compose.prod.yml exec backend eidolon eval judge --provider cloudflare --model clef --json /tmp/clef.json
+```
+
+不带 `--provider` 时用 `.env` 里配的那一家。定上面这些阈值时（47 条检索、33 条情绪），检索判断的准确率 Jev 和 Clef 都是 94%，Clef-flash 87%；情绪准确率 Jev 100%，Clef 和 Clef-flash 都是 91%。eval 集不大，换模型或改了判断的问题后，先跑一遍看概率分布再改阈值。
+
 ## 立绘素材
 
 通话层上可以叠一层原作的 Spine 立绘（GLOSSARY.md「立绘」）。素材不进仓库（ADR-0003 的 2026-09-30 修订），放在你选的 S3 兼容对象存储里，浏览器直接从存储桶下载。三项都配好了，这位角色的通话层才显示立绘；少一项就和原来一样，只显示背景图：

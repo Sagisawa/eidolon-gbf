@@ -102,7 +102,7 @@ flowchart LR
     Retrieval --> DB
     Memory --> DB
     Engine <--> ChatLLM["Chat model"]
-    Retrieval <--> Jev["Jev · retrieval router"]
+    Retrieval <--> Jev["Judge model<br/>Jev or Clef"]
     Retrieval <--> Emb["Embedding<br/>Qwen3-Embedding or Gemini"]
     Retrieval <--> SF["SiliconFlow<br/>Qwen3-Reranker"]
     Memory <--> BgLLM["Background model"]
@@ -132,7 +132,7 @@ Open <http://localhost:3000>, sign in with "dev login" under any name (offered o
 > | Text chat | `CHAT_LLM_*` |
 > | Voice calls | `FISH_AUDIO_API_KEY`, plus the speech recognition service's key: `SONIOX_API_KEY` (default), or `STT_PROVIDER=bailian` plus `DASHSCOPE_API_KEY` |
 > | Story corpus (sync or import) | The embedding service's key: `SILICONFLOW_API_KEY` (default), or `EMBEDDING_PROVIDER=gemini` plus `GEMINI_API_KEY` |
-> | Retrieval and memory | The embedding service's key, `SILICONFLOW_API_KEY` (reranking), `JEV_API_KEY` |
+> | Retrieval and memory | The embedding service's key, `SILICONFLOW_API_KEY` (reranking), and a judge model: `JEV_API_KEY` (default), or `JUDGE_PROVIDER=cloudflare` with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` |
 >
 > Every option is documented in [`.env.example`](.env.example) (comments in Chinese).
 
@@ -245,7 +245,7 @@ The call screen can show her Spine stand from the original game (optional). It a
 | `EIDOLON_STAND_ASSETS_URL` | `.env` | The public URL of the S3-compatible bucket holding the stands |
 
 - **Alive**: she breathes and blinks while idle, moves her lips while her voice plays, looks at you when you start speaking and nods when you finish; when you interrupt her, her mouth closes the moment her voice stops. The stand keeps following the call while the call screen is collapsed.
-- **Emotion**: with `JEV_API_KEY` set, Jev judges the emotion of each segment she speaks (calm, happy, shy, surprised, sad, angry, thinking) and whether she nods or shakes her head, and the stand takes on that expression and motion as the segment's audio starts. Emotion only affects the stand and is never stored in the conversation record; tune the judgement's threshold and timeout with `JEV_EMOTION_MIN_PROBABILITY` and `JEV_EMOTION_TIMEOUT`.
+- **Emotion**: with a judge model set up (Jev or Cloudflare's Clef; see [Retrieval during conversation](#retrieval-during-conversation)), it judges the emotion of each segment she speaks (calm, happy, shy, surprised, sad, angry, thinking) and whether she nods or shakes her head, and the stand takes on that expression and motion as the segment's audio starts. Emotion only affects the stand and is never stored in the conversation record; tune the judgement's threshold and timeout with `JUDGE_EMOTION_MIN_PROBABILITY` and `JUDGE_EMOTION_TIMEOUT`. These used to be `JEV_EMOTION_MIN_PROBABILITY` and `JEV_EMOTION_TIMEOUT`; with an old name still set, the backend won't start.
 - **Outfits**: when she has a stand, the conversation header gains an outfit button (换衣装; a dialog on wide screens, a bottom sheet on narrow ones). Each card is one entry, switchable between everyday clothes and stage costume, and the selected one is previewed full-body and animated; “穿这套” (wear this) remembers it for her on this device, and she wears it in calls.
 - **Asset sync**: the stands are neither committed nor covered by the license; they live in object storage. `deploy/stand-sync.sh` fetches new cards from ShinyColorsDB for every character with an `idol_id`, lists her outfits, renders their thumbnails and uploads them to the bucket ([ADR-0011](docs/adr/0011-stand-assets-fetched-from-shinycolorsdb.md)). Run it weekly from cron and new cards from the game show up in the outfit picker; with no new cards it takes almost no time.
 
@@ -382,32 +382,46 @@ The story corpus, character facts and memories all share one embedding service, 
 
 ### Retrieval during conversation
 
-With the embedding service's key, `SILICONFLOW_API_KEY` (reranking) and `JEV_API_KEY` set, characters can recall episodes and consult their character facts mid-conversation; if any is missing, they answer from their character sheet alone.
+With the embedding service's key and `SILICONFLOW_API_KEY` (reranking) set and a judge model set up, characters can recall episodes and consult their character facts mid-conversation; if any is missing, they answer from their character sheet alone.
+
+The judge model decides, every turn, whether and what to look up, and in calls judges the emotion of each segment of a reply. Choose one with `JUDGE_PROVIDER`; both retrieval and emotion use it, and if it fails the other is never used in its place.
+
+| | Jev (default) | Clef-flash | Clef |
+|---|---|---|---|
+| Settings | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | `JUDGE_PROVIDER=cloudflare`, `CLOUDFLARE_JUDGE_MODEL=clef` |
+| Price (per million input tokens; output is free) | $0.042 | $0.09 | $0.24 |
+| Free allocation per day | none | about 2,000 judgements | about 750 judgements |
+
+- **Clef and Clef-flash** are Cloudflare's judge models, called directly on Workers AI. Clef-flash is faster and cheaper, and the default; Clef judges retrieval more accurately (94% against 87% on the repo's eval set, mostly by skipping fewer lookups and mistaking fewer of them for story recall), but costs nearly 3× as much and is a little slower.
+- **Cloudflare credentials**: sign up for a Cloudflare account (free, no domain needed), open Workers AI in the dashboard, choose "Use REST API", click "Create a Workers AI API Token" (it is shown only once; copy it right away), and copy the Account ID from the same page into `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`. If you create the token yourself, give it the account-level Workers AI Read and Edit permissions. The backend tries both once at startup and won't start if either is wrong, saying which.
+- **Free allocation**: Workers AI gives 10,000 neurons a day for free; at about 600 input tokens a judgement, that is about 2,000 judgements with Clef-flash, or 750 with Clef. A text turn is judged once; in a call, every segment of a reply is judged for emotion as well. So a public deployment on Cloudflare should be on Workers Paid (from $5/month, with usage beyond the allocation billed). Once the day's allocation is used up, judgements fail for the rest of the day: retrieval runs anyway, the stand keeps its expression, and the log says the allocation ran out.
+- **Clef through OpenRouter**: no Cloudflare account needed. Keep `JUDGE_PROVIDER=jev` and set `JEV_MODEL=cloudflare/clef-flash` (or `cloudflare/clef`); it spends your OpenRouter balance, with no free allocation.
+- The judgement thresholds are set per model in code, from the eval set in the repo, with `eidolon eval judge` (see "校准判断模型阈值" in [`docs/deploy.md`](docs/deploy.md)).
 
 Jev is reached through [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) by default: `JEV_API_KEY` is an OpenRouter key, and the model is pinned to `typesafe/jev-1.13` (change it with `JEV_MODEL`). Jev speaks TypeSafe's System One API, which Vercel AI Gateway and TypeSafe itself serve too: for Vercel set `JEV_BASE_URL=https://ai-gateway.vercel.sh/typesafe/v1` (Vercel's free tier can't call Jev; buy credits first), for TypeSafe directly `JEV_BASE_URL=https://api.typesafe.ai/v1`, and in either case use that provider's key and model name in `JEV_API_KEY` and `JEV_MODEL` (each writes the model differently: TypeSafe's own is `jev-1.13.0`). The old `AI_GATEWAY_API_KEY` is now `JEV_API_KEY`; with only the old one set, the backend won't start.
 
 ```mermaid
 flowchart LR
-    Q["User's line"] --> Jev{"Jev decides"}
+    Q["User's line"] --> Jev{"Judge model"}
     Jev -- small talk --> None["No retrieval"]
     Jev -- about the user's life --> Mem["Memories only"]
     Jev -- needs references --> Ref["Episodes + facts + songs/releases/lives + memories<br/>→ reranker"]
     Jev -- asks about the past --> Recall["Recall story directly<br/>+ look up lives and releases"]
 ```
 
-- Every line first goes to Jev (via OpenRouter by default) to decide what it needs. Small talk: no retrieval, no added latency. Needs references: the search below. A question like "what happened that time…?": the line is used to **recall story** right away and the result goes into the prompt, saving the chat model a tool-call round. If Jev errors, retrieval runs anyway.
+- Every line first goes to the judge model to decide what it needs. Small talk: no retrieval, no added latency. Needs references: the search below. A question like "what happened that time…?": the line is used to **recall story** right away and the result goes into the prompt, saving the chat model a tool-call round. If the judge model errors, retrieval runs anyway.
 - A search covers the episodes the current character appears in, her character facts, and the index all characters share (one entry per song, release and live day), reranked with SiliconFlow's Qwen3-Reranker (`Qwen/Qwen3-Reranker-0.6B` by default, `RERANK_MODEL` to swap); up to 5 sufficiently relevant results go into the prompt (none if nothing is on-topic). What counts as "sufficiently relevant" is a threshold set per reranker model (both 0.6B's and 4B's are calibrated), which you can also set by hand with `RERANK_MIN_RELEVANCE` and `RERANK_MEMORY_MIN_RELEVANCE`; `eidolon eval rerank` prints the score distribution on the repo's calibration dataset to help pick one (see [`docs/deploy.md`](docs/deploy.md)). If search or reranking fails, the turn proceeds without references.
-- The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. The tool searches only the story. At most one tool round per line; turns Jev already routed to story recall don't offer the tool.
+- The chat model can also call the `recall_story` tool: when the producer asks about a past event, the character searches her own episodes with a one-line summary and gets back the full text of up to 2 best-matching episodes (with the card or event each belongs to in the story catalog and its sibling episodes), then answers from them. The tool searches only the story. At most one tool round per line; turns the judge model already routed to story recall don't offer the tool.
 - Character facts are the Markdown file referenced by `facts` in `characters.toml`, one entry per heading. They're embedded on a character's first search, and afterwards only changed entries are re-embedded; just restart the backend after editing.
 - The work facts are built from the world setting's data file `characters/world.json`: each song with its singers and releases, each release with its date and tracks, each live day with its date, venue, performing idols and setlist — never a CV's name. Setlists only come up when retrieved; they are not in every turn. Like character facts they're embedded on the first search (about 1,400 entries with the current data, so the first one is slower; run `eidolon reembed` beforehand to have them ready), and afterwards only changed entries are re-embedded; restart the backend after re-importing. Without the data file work facts aren't searched. In the prompt, work facts and character facts go under headings of their own (「作品资料」 and 「角色资料」).
-- When Jev routes a turn to story recall, lives and releases from the work facts are looked up and reranked along with the episodes; if the story has no record of how something went, the character is told that doesn't mean it never happened, so she neither makes it up nor denies it.
+- When the judge model routes a turn to story recall, lives and releases from the work facts are looked up and reranked along with the episodes; if the story has no record of how something went, the character is told that doesn't mean it never happened, so she neither makes it up nor denies it.
 
 ### Memory
 
-Characters remember what users tell them about themselves, and all of a user's characters share those memories: tell Mano something and Kogane will know, but she'll bring it up as "Mano told me…" (ADR-0002). Different users' memories are fully isolated. Memory turns on together with retrieval (requires the embedding service's key, `SILICONFLOW_API_KEY` and `JEV_API_KEY`).
+Characters remember what users tell them about themselves, and all of a user's characters share those memories: tell Mano something and Kogane will know, but she'll bring it up as "Mano told me…" (ADR-0002). Different users' memories are fully isolated. Memory turns on together with retrieval (requires the embedding service's key, `SILICONFLOW_API_KEY` and a judge model).
 
 - **Writing down**: after each turn, the background model reads the exchange and writes whatever the user revealed that's worth keeping as a memory in Chinese (e.g. "the producer has a cat named Xiaobai"), recording its owner and source character. Relative times like "next Saturday" are converted to dates in the user's time zone. Things already remembered aren't duplicated. This runs in the background without holding up the reply; the user's next line waits for it to finish (at most 5 seconds).
-- **Recalling**: later, when Jev decides the user is talking about their own life (news, plans, family, pets…), only memories are searched; when episodes and facts are searched, memories are searched alongside. Up to 3 relevant memories go into the prompt, each labeled with its source character and date.
+- **Recalling**: later, when the judge model decides the user is talking about their own life (news, plans, family, pets…), only memories are searched; when episodes and facts are searched, memories are searched alongside. Up to 3 relevant memories go into the prompt, each labeled with its source character and date.
 - **Across conversations**: a new conversation picks up earlier topics only through the memories it finds, never by carrying over the previous conversation.
 - **Management**: under **Settings → Manage memories**, users see every memory the characters have kept, each labeled with who it was told to. They can delete memories one at a time or clear them all after confirmation, but can't add or edit them. Deleted memories never reach a prompt again; memories still being extracted when the user clears are discarded and won't reappear afterwards.
 
@@ -463,7 +477,7 @@ The deployer pays for everything by default. Users can enter their own API keys 
 - For Alibaba Cloud Model Studio speech recognition, users enter only the key: the region is detected when the key is tried, and the model follows the deployer's `BAILIAN_STT_MODEL` (the default model when the deployment uses Soniox). If the model isn't activated, users are told to activate it in the Model Studio console.
 - Keys are stored encrypted with a key derived from `EIDOLON_SECRET_KEY`, and only their last 4 characters are ever shown. Without `EIDOLON_SECRET_KEY`, the feature is off.
 - When an own key fails (out of credit, revoked, …), the turn or call fails, saying which key it was — it **never falls back to the deployer's key**. After `EIDOLON_SECRET_KEY` changes, saved keys can no longer be decrypted: a turn or call that needs one fails before calling any service and asks the user to enter it again. Deleting an own key switches back to the deployer's service.
-- Embedding, reranking, deciding whether to recall the story and judging the stand's emotion in calls (Jev) are always on the deployer.
+- Embedding, reranking, deciding whether to recall the story and judging the stand's emotion in calls (the judge model) are always on the deployer.
 
 ## 🌐 Deploying to a VPS
 
@@ -528,7 +542,8 @@ eidolon-sc/
 │   │   ├── bailian.py        #   Alibaba Cloud Model Studio real-time speech recognition
 │   │   ├── turn_taking.py    #   follow-on and interruption rules during a call
 │   │   ├── call_outcome.py   #   whether a call counts towards the limit, and why it ended
-│   │   ├── emotion.py        #   the emotion of each segment in a call (Jev), for the stand
+│   │   ├── emotion.py        #   the emotion of each segment in a call, for the stand
+│   │   ├── judge.py          #   the judge model: Jev or Cloudflare's Clef, and the thresholds of each
 │   │   ├── delivery_cues.py  #   delivery cues: which go to synthesis, which are dropped
 │   │   ├── retrieval.py      #   retrieval routing, reference sources (story, character facts, work facts), reranking, recall
 │   │   ├── memory.py         #   memories shared across conversations and characters
@@ -536,6 +551,7 @@ eidolon-sc/
 │   │   ├── embedding.py      #   embeddings: SiliconFlow Qwen3-Embedding or Gemini
 │   │   ├── reembed.py        #   re-embedding after switching embedding models (eidolon reembed)
 │   │   ├── rerank_eval.py    #   reranker threshold calibration (eidolon eval rerank)
+│   │   ├── judge_eval.py     #   judge model threshold calibration (eidolon eval judge)
 │   │   ├── story_import.py   #   story corpus import (CSV / JSON) and the canon rules
 │   │   ├── story_sync.py     #   keeping the corpus in step with the game (eidolon story sync)
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API
@@ -591,7 +607,8 @@ The Spine runtime the call layer's stand is drawn with ([`frontend/public/vendor
 - [Fish Audio](https://fish.audio/) — speech synthesis
 - [SiliconFlow](https://siliconflow.cn/) — Qwen3 Embedding / Reranker
 - [Google Gemini API](https://ai.google.dev/) — Gemini Embedding (optional embedding service)
-- [TypeSafe Jev](https://docs.typesafe.ai/) and [OpenRouter](https://openrouter.ai/) — the retrieval router model and access to it
+- [TypeSafe Jev](https://docs.typesafe.ai/) and [OpenRouter](https://openrouter.ai/) — the judge model and access to it
+- [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) — the Clef and Clef-flash judge models (an alternative to Jev)
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes) — playing the call-screen stand (spine-ts 3.6)
 - [im@sparql](https://sparql.crssnky.xyz/imas/), Lantis, ふじわらはじめ, imas-db and wikiwiki — the idols, releases and lives in the world setting
 
