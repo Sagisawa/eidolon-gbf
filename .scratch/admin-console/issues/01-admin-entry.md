@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] `.env` 新增管理者名单变量，值是逗号分隔的「提供方:身份标识」（`github:<subject>`、`google:<subject>`）。格式不对时启动报错并指出是哪一项；未知的提供方同样报错。
 - [x] `eidolon user list` 打印出每个登录方式的「提供方:身份标识」，部署者可以直接复制进名单。
@@ -14,3 +14,9 @@
 - [x] 前端 `/admin` 框架：Astryx 的应用外壳加侧边导航（看板、配置、用户），电脑上侧栏、手机上可收起。后台接口返回 404 时渲染 Next 的 404 页面。文案放进 `zh.ts` 新的 `admin` 分区。
 - [x] `.env.example` 写明这个变量、格式，以及如何用 `eidolon user list` 找到自己的标识。
 - [x] 测试（HTTP API）：名单里的 GitHub 和 Google 身份能进；不在名单、未登录、未同意、名单为空时都是 404；同一用户绑定了两种登录方式，只有其中一个在名单里也能进；账户接口的「是不是管理者」正确；配置解析的报错。
+
+## Comments
+
+**实现**（2026-10-07，`71193a4`）：管理者名单是 `EIDOLON_ADMINS`；后台接口的入口是 `GET /api/admin`（返回管理者的名字），认定逻辑在 `backend/src/eidolon/admin_api.py` 的 `admin_user` / `is_admin`。前端 `/admin` 的 layout 在服务器端带着 cookie 问后端，404 时调用 `notFound()`，所以页面本身也是 HTTP 404。
+
+**人工验证**（2026-10-07，本地，构建后的前端）：GitHub 和 Google 登录都能在设置页看到入口并进入后台，三项导航正常，窄屏下侧栏收进抽屉；非管理者看不到入口，打开 `/admin` 是 404。
