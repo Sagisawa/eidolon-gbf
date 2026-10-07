@@ -9,7 +9,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 ## 已定的设计（2026-10-07 grilling，详见 spec）
 
@@ -35,8 +35,8 @@
 
 ## 验收
 
-- [ ] **按 TDD**：先写 `test_admission.py` 里回合和收尾的用例，看到它们失败，再写实现。
-- [ ] **`test_admission.py` 的测试条件**：用临时 SQLite 上真的 `UsageLimiter`、`ActivityLog`、`Store`/`OwnKeys`，以及 `FakeClock`；只有部署者换成一个会数租约次数的假 `Deployer`。每个用例同时断言三件事：限额计数、运行记录、租约放开的次数。覆盖下面这些用例：
+- [x] **按 TDD**：先写 `test_admission.py` 里回合和收尾的用例，看到它们失败，再写实现。
+- [x] **`test_admission.py` 的测试条件**：用临时 SQLite 上真的 `UsageLimiter`、`ActivityLog`、`Store`/`OwnKeys`，以及 `FakeClock`；只有部署者换成一个会数租约次数的假 `Deployer`。每个用例同时断言三件事：限额计数、运行记录、租约放开的次数。覆盖下面这些用例：
   - 回合成功：计入，`success`；
   - 服务失败：退回，`failed`；
   - 被拒绝：退回，`rejected`；
@@ -47,10 +47,10 @@
   - 收尾两次只生效一次；
   - `counts()` 和实际是否计入一致，包括 exempt；
   - 准备阶段出错：记 `failed`、不占次数、租约放开。如果没法通过 interface 触发，在 Comments 里说明原因。
-- [ ] `TurnOutcome` 不再自己调用 `give_back`，也不再直接持有限额、运行记录或自带密钥。
-- [ ] 文字回合的接口只经由 `Admissions` 放行，不再自己去读部署者的模型设置。
-- [ ] 旧笔记已补上那一行。
-- [ ] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。经 HTTP 的测试（例如 `test_rate_limit.py`）不改断言就能通过；如果哪条必须改，在 Comments 里说明原因。
+- [x] `TurnOutcome` 不再自己调用 `give_back`，也不再直接持有限额、运行记录或自带密钥。
+- [x] 文字回合的接口只经由 `Admissions` 放行，不再自己去读部署者的模型设置。
+- [x] 旧笔记已补上那一行。
+- [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。经 HTTP 的测试（例如 `test_rate_limit.py`）不改断言就能通过；如果哪条必须改，在 Comments 里说明原因。
 - [ ] **人工验收（留给用户）**：本地起服务，发几个文字回合，在后台看板确认：
   - 成功的回合计入限额，有一条 `success` 记录；
   - 空白或太长的输入被拒绝，不计入限额，记为 `rejected`；
@@ -58,3 +58,11 @@
   - 超出限额时被拒绝，提示文案和以前一样。
 
 ## Comments
+
+- 2026-10-07（实现）：
+  - 准备阶段出错可以经由 interface 触发：`Admissions` 收的「读取部署者模型」的 callable 抛异常即可（对应生效配置读不出来）。测试用这个办法断言记 `failed`、不占次数、租约放开一次。
+  - 退不退次数只看种类和结果，不看 exempt：exempt 的使用一律不计入限额（`counts()` 为 False），但成功和离开的 exempt 回合照旧留在用量里给后台看，与以前一致。
+  - `Admission` 带一个类型参数（`Admission[TurnKeys]` / `Admission[CallKeys]`），`keys` 交出这次的 key；`call` / `call_setup` 留给 02。
+  - `Calls` 这一张没动，只是和 `Admissions` 共用装配里的同一个「读取部署者模型」函数。
+  - 经 HTTP 的测试一条都没改，全部通过（998 passed）。
+
