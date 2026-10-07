@@ -193,7 +193,10 @@ async def test_an_admins_price_holds_over_the_preset_and_prices_a_model_without_
 
     assert (restored.status_code, removed.status_code) == (200, 200)
     assert listed(removed.json(), "llm.example", "m-usd")["override"] is None  # pyright: ignore[reportOptionalSubscript]
-    assert listed(removed.json(), "llm.invalid", "test-model") is None
+    # Used lately, the model is still listed, now without a price.
+    unset = listed(removed.json(), "llm.invalid", "test-model")
+    assert unset is not None
+    assert (unset["override"], unset["source"]) == (None, None)
     assert cost["totals"] == [{"currency": "USD", "amount": pytest.approx(0.006)}]
 
 

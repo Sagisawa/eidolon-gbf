@@ -64,6 +64,10 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
         records, service_calls = backend.activity.since(now - span.length)
         names = {id: c.name for id, c in backend.characters.items()}
         starts = stretches(now, span, _zone(timezone))
+        spent = cost(service_calls, backend.prices.pricing(), starts)
+        backend.prices.catalog.refresh_soon(
+            missing=any(r["unit"] == "tokens" and r["price"] is None for r in spent["rows"])
+        )
         return {
             "range": range,
             "from": (now - span.length).isoformat(),
@@ -75,7 +79,7 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
             "calls": calls([r for r in records if r.kind == "call"]),
             "trend": trend(records, starts),
             "characters": characters(records, names),
-            "cost": cost(service_calls, backend.prices.effective(), starts),
+            "cost": spent,
         }
 
     @app.get("/api/admin/calls/live")

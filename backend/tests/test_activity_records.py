@@ -241,6 +241,10 @@ async def test_deleting_a_user_keeps_the_numbers_but_not_who_it_was(
     assert (await client.post("/api/account/delete", json={"confirm": True})).status_code == 204
 
     after = await dashboard(admin)
+    # The first look has the price catalogs fetched in the background, so when they were
+    # may change in between.
+    for board in [before, after]:
+        del board["cost"]["catalog_as_of"]
     assert after == before
     assert after["active_users"] == 2
     assert rows_mentioning(settings.database_path, producer) == {}

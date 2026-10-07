@@ -1,8 +1,10 @@
 """The prices the dashboard estimates the deployer's costs at (`prices`), under
-`/api/admin/prices`, for admins only: every preset beside the price an admin set in its
-place, setting a price for any provider, model and unit, and restoring one to its preset.
-The models used lately without a price are listed too, under the names their service
-calls were recorded with, for an admin to price them."""
+`/api/admin/prices`, for admins only: every preset and every model used lately, each
+with the price in effect and where it is from, beside the preset, the catalogs' and the
+price an admin set in its place; setting a price for any provider, model and unit,
+restoring one, and fetching the catalogs again now. The models used lately without a
+price are listed too, under the names their service calls were recorded with, for an
+admin to price them."""
 
 from typing import Annotated, Literal
 
@@ -12,7 +14,8 @@ from pydantic import BaseModel, Field, field_validator
 from eidolon.activity import KEPT
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
-from eidolon.prices import preset_as_of, unpriced
+from eidolon.price_catalog import describe_state
+from eidolon.prices import preset_as_of, unpriced, used
 
 Unit = Literal["tokens", "bytes", "seconds"]
 """The units service calls are billed in (`prices.PER`)."""
@@ -42,10 +45,13 @@ def add_admin_price_routes(app: FastAPI, backend: Backend) -> None:
 
     def described() -> dict:
         calls = backend.activity.since(backend.clock() - KEPT)[1]
+        without = unpriced(calls, prices.pricing())
+        prices.catalog.refresh_soon(missing=any(u["unit"] == "tokens" for u in without))
         return {
             "preset_as_of": (d.isoformat() if (d := preset_as_of()) else None),
-            "prices": prices.describe(),
-            "unpriced": unpriced(calls, prices.effective()),
+            "catalog": describe_state(prices.catalog.state()),
+            "prices": prices.describe(used(calls)),
+            "unpriced": without,
         }
 
     @app.get("/api/admin/prices")
@@ -57,6 +63,12 @@ def add_admin_price_routes(app: FastAPI, backend: Backend) -> None:
         """Price a provider's model so from now on, in place of its preset, if any."""
         prices.save((price.provider, price.model, price.unit), price.input, price.output,
                     price.currency)
+        return described()
+
+    @app.post("/api/admin/prices/refresh")
+    def refresh_catalog(_: Admin) -> dict:
+        """Fetch the price catalogs online again now, or wait for the fetch under way."""
+        prices.catalog.refresh()
         return described()
 
     @app.delete("/api/admin/prices")

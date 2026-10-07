@@ -4,10 +4,12 @@ for the dashboard to estimate what their keys cost.
 A price is for a provider (the host the service is at, as service calls are recorded:
 `activity.host`), a model and the unit it is billed in (`billing.Unit`): an amount for
 each `PER` units of input and, where the service prices output apart (an LLM), of output,
-in a currency. The ones in `PRESETS` were gathered from the providers' price pages on the
-day each says (see `.scratch/admin-console/research.md`); admins change or add to them in
-the admin console, their prices kept in the database (`price_overrides`) and holding over
-the presets'; restoring one deletes it, back to the preset, if any.
+in a currency. Where a price comes from (`Pricing`): the price an admin set in the admin
+console, kept in the database (`price_overrides`), if any; else, for a model billed in
+tokens, the catalogs online (`price_catalog`), fetched each day; else the one in
+`PRESETS`, gathered from the providers' price pages on the day each says (see
+`.scratch/admin-console/research.md`), there for when the catalogs cannot be fetched and
+for what they do not price. Restoring an admin's price deletes it.
 
 The cost (`cost`) is each call's usage on the deployer's keys times its price at the time
 it is asked for, summed by currency, never converted between them, and without any free
@@ -22,10 +24,12 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
 from eidolon.activity import SERVICES, CallRow
 from eidolon.clock import Clock
 from eidolon.database import connect
+from eidolon.price_catalog import Catalog
 
 PER: dict[str, int] = {"tokens": 1_000_000, "bytes": 1_000_000, "seconds": 3600}
 """How many units a price is for: a million tokens, a million bytes (of text spoken, in
@@ -110,13 +114,84 @@ PRESETS: dict[PriceKey, Price] = {
     **_tokens("generativelanguage.googleapis.com", {"gemini-embedding-2": (0.2, None)}, "USD"),
 }
 """The prices of the models supported, as their providers' price pages had them on
-`GATHERED` (`.scratch/admin-console/research.md`). Not here, for want of a price in the
-unit its usage is recorded in: Alibaba Cloud Model Studio's speech recognition, billed by
-tokens, not seconds."""
+`GATHERED` (`.scratch/admin-console/research.md`): what a model is priced at when the
+catalogs online do not price it, or have never been fetched. Not here, for want of a
+price in the unit its usage is recorded in: Alibaba Cloud Model Studio's speech
+recognition, billed by tokens, not seconds."""
 
 
 def per(unit: str) -> int:
     return PER.get(unit, 1)
+
+
+Source = Literal["override", "catalog", "catalog_upstream", "preset"]
+"""Where a price is from: an admin, the catalogs (for a host no catalog knows, the
+model's maker's: `catalog_upstream`), the presets."""
+
+
+@dataclass(frozen=True)
+class Found:
+    """A price in effect, where it is from, and, from a catalog, the provider and model
+    it is listed under there."""
+
+    price: Price
+    source: Source
+    match: tuple[str, str] | None = None
+
+
+def _undimensioned(model: str) -> str:
+    """A model recorded with its dimensions (`gemini-embedding-2@1536`, see `embedding`)
+    as the model it is."""
+    return model.split("@", 1)[0]
+
+
+class Pricing:
+    """Every price in effect at one moment: an admin's, else the catalogs', else the
+    preset's. A model recorded with its dimensions costs as the model does, unless priced
+    apart."""
+
+    def __init__(self, overrides: dict[PriceKey, Price], catalog: Catalog) -> None:
+        self._overrides = overrides
+        self._catalog = catalog
+        self._found: dict[PriceKey, Found | None] = {}
+
+    @property
+    def catalog_as_of(self) -> date | None:
+        """When the catalogs were fetched, if ever."""
+        fetched = self._catalog.state().fetched_at
+        return fetched.date() if fetched else None
+
+    def find(self, provider: str, model: str, unit: str) -> Found | None:
+        key = (provider, model, unit)
+        if key not in self._found:
+            self._found[key] = self._find(provider, model, unit)
+        return self._found[key]
+
+    def _find(self, provider: str, model: str, unit: str) -> Found | None:
+        names = dict.fromkeys([model, _undimensioned(model)])
+        for name in names:
+            if (price := self._overrides.get((provider, name, unit))) is not None:
+                return Found(price, "override")
+        if (listed := self.listed(provider, model, unit)) is not None:
+            return listed
+        for name in names:
+            if (price := PRESETS.get((provider, name, unit))) is not None:
+                return Found(price, "preset")
+        return None
+
+    def listed(self, provider: str, model: str, unit: str) -> Found | None:
+        """The catalogs' price of a model billed in tokens, if they price it."""
+        as_of = self.catalog_as_of
+        if unit != "tokens" or as_of is None:
+            return None
+        found = self._catalog.find(provider, _undimensioned(model))
+        if found is None:
+            return None
+        listed, upstream = found
+        return Found(
+            Price(listed.input, listed.output, "USD", as_of),
+            "catalog_upstream" if upstream else "catalog", (listed.provider, listed.model),
+        )
 
 
 _SCHEMA = """
@@ -136,14 +211,15 @@ CREATE TABLE IF NOT EXISTS price_overrides (
 
 
 class Prices:
-    """The preset prices, as admins have changed and added to them."""
+    """The prices admins set, over the catalogs' and the presets."""
 
-    def __init__(self, path: Path, clock: Clock) -> None:
+    def __init__(self, path: Path, clock: Clock, catalog: Catalog) -> None:
         self._db = connect(path)
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
         self._clock = clock
+        self.catalog = catalog
 
     def overrides(self) -> dict[PriceKey, Price]:
         with self._lock:
@@ -158,27 +234,35 @@ class Prices:
             for provider, model, unit, input, output, currency, updated in rows
         }
 
-    def effective(self) -> dict[PriceKey, tuple[Price, bool]]:
-        """Every price in effect, and whether an admin set it."""
-        return {key: (price, False) for key, price in PRESETS.items()} | {
-            key: (price, True) for key, price in self.overrides().items()
-        }
+    def pricing(self) -> Pricing:
+        """Every price in effect now."""
+        return Pricing(self.overrides(), self.catalog)
 
-    def describe(self) -> list[dict]:
-        """Every preset and every admin's price, a preset beside the price set in its
-        place, by provider, model and unit."""
+    def describe(self, used: Iterable[PriceKey] = ()) -> list[dict]:
+        """Every preset, every admin's price and every model `used`, each with where the
+        price in effect is from, if any, and beside it the preset, the catalogs' and the
+        admin's, by provider, model and unit."""
         overrides = self.overrides()
-        return [
-            {
+        pricing = Pricing(overrides, self.catalog)
+        rows = []
+        for key in sorted(PRESETS.keys() | overrides.keys() | set(used)):
+            provider, model, unit = key
+            found = pricing.find(*key)
+            listed = pricing.listed(*key)
+            rows.append({
                 "provider": provider, "model": model, "unit": unit, "per": per(unit),
-                "preset": describe_price(key, PRESETS[key], False) if key in PRESETS else None,
-                "override": (
-                    describe_price(key, overrides[key], True) if key in overrides else None
+                "source": found.source if found else None,
+                "preset": (
+                    describe_price(key, Found(PRESETS[key], "preset")) if key in PRESETS
+                    else None
                 ),
-            }
-            for key in sorted(PRESETS.keys() | overrides.keys())
-            for provider, model, unit in [key]
-        ]
+                "catalog": describe_price(key, listed) if listed else None,
+                "override": (
+                    describe_price(key, Found(overrides[key], "override"))
+                    if key in overrides else None
+                ),
+            })
+        return rows
 
     def save(self, key: PriceKey, input: float, output: float | None, currency: str) -> None:
         """Price `key` so from now on, in place of its preset, if any."""
@@ -209,32 +293,25 @@ def preset_as_of() -> date | None:
     return min((p.as_of for p in PRESETS.values()), default=None)
 
 
-def describe_price(key: PriceKey, price: Price, overridden: bool) -> dict:
+def describe_price(key: PriceKey, found: Found) -> dict:
+    price = found.price
     return {
         "input": price.input,
         "output": price.output,
         "currency": price.currency,
         "per": per(key[2]),
         "as_of": price.as_of.isoformat(),
-        "source": "override" if overridden else "preset",
+        "source": found.source,
+        **(
+            {"match": {"provider": found.match[0], "model": found.match[1]}}
+            if found.match else {}
+        ),
     }
 
 
 def amount(price: Price, unit: str, input: float | None, output: float | None) -> float:
     output_price = price.input if price.output is None else price.output
     return ((input or 0) * price.input + (output or 0) * output_price) / per(unit)
-
-
-def price_of(
-    prices: dict[PriceKey, tuple[Price, bool]], provider: str, model: str, unit: str
-) -> tuple[Price, bool] | None:
-    """The price of a provider's model in `unit`, and whether an admin set it. A model
-    recorded with its dimensions (`gemini-embedding-2@1536`, see `embedding`) costs as the
-    model does, unless priced apart."""
-    found = prices.get((provider, model, unit))
-    if found is None and "@" in model:
-        found = prices.get((provider, model.split("@", 1)[0], unit))
-    return found
 
 
 def _billed(call: CallRow) -> bool:
@@ -262,7 +339,7 @@ def _totals(amounts: Iterable[tuple[str, float]]) -> list[dict]:
 
 def cost(
     calls: Sequence[CallRow],
-    prices: dict[PriceKey, tuple[Price, bool]],
+    pricing: Pricing,
     starts: Sequence[datetime],
 ) -> dict:
     """What the deployer's `calls` cost at `prices`: in all, by service, by provider, model
@@ -281,13 +358,13 @@ def cost(
     rows: list[dict] = []
     for (service, provider, model, unit), group in known.items():
         input, output = _sum(c.usage_input for c in group), _sum(c.usage_output for c in group)
-        found = price_of(prices, provider, model, unit)
+        found = pricing.find(provider, model, unit)
         rows.append({
             "service": service, "provider": provider, "model": model, "unit": unit,
             "calls": len(group), "usage_unknown": 0, "input": input, "output": output,
-            "price": describe_price((provider, model, unit), *found) if found else None,
-            "currency": found[0].currency if found else None,
-            "amount": amount(found[0], unit, input, output) if found else None,
+            "price": describe_price((provider, model, unit), found) if found else None,
+            "currency": found.price.currency if found else None,
+            "amount": amount(found.price, unit, input, output) if found else None,
         })
     for (service, provider, model), count in unknown.items():
         same = next(
@@ -322,20 +399,28 @@ def cost(
         "services": services,
         "rows": rows,
         "usage_unknown": sum(unknown.values()),
-        "trend": _trend(deployers, prices, starts),
+        "trend": _trend(deployers, pricing, starts),
         "own_keys": _own_keys([c for c in calls if c.own_key]),
         "preset_as_of": (d.isoformat() if (d := preset_as_of()) else None),
+        "catalog_as_of": (d.isoformat() if (d := pricing.catalog_as_of) else None),
     }
 
 
-def unpriced(calls: Iterable[CallRow], prices: dict[PriceKey, tuple[Price, bool]]) -> list[dict]:
+def used(calls: Iterable[CallRow]) -> dict[PriceKey, str]:
+    """What the deployer's `calls` were billed for, by provider, model and unit, and the
+    service each was."""
+    return {
+        (c.provider, c.model, c.usage_unit): c.service
+        for c in calls
+        if not c.own_key and _billed(c) and c.usage_unit is not None
+    }
+
+
+def unpriced(calls: Iterable[CallRow], pricing: Pricing) -> list[dict]:
     """The models the deployer's `calls` used without a price, under the names the calls
     were recorded with, for an admin to price."""
     seen = {
-        (c.service, c.provider, c.model, c.usage_unit)
-        for c in calls
-        if not c.own_key and _billed(c) and c.usage_unit is not None
-        and price_of(prices, c.provider, c.model, c.usage_unit) is None
+        (service, *key) for key, service in used(calls).items() if pricing.find(*key) is None
     }
     return [
         {"service": service, "provider": provider, "model": model, "unit": unit}
@@ -345,7 +430,7 @@ def unpriced(calls: Iterable[CallRow], prices: dict[PriceKey, tuple[Price, bool]
 
 def _trend(
     calls: Sequence[CallRow],
-    prices: dict[PriceKey, tuple[Price, bool]],
+    pricing: Pricing,
     starts: Sequence[datetime],
 ) -> list[dict]:
     """What the calls in each stretch beginning at `starts` cost, by currency; the first
@@ -357,12 +442,12 @@ def _trend(
     for call in calls:
         if not _billed(call) or call.usage_unit is None:
             continue
-        found = price_of(prices, call.provider, call.model, call.usage_unit)
+        found = pricing.find(call.provider, call.model, call.usage_unit)
         if found is None:
             continue
         i = 0 if stretch is None else int((call.at - starts[0]) / stretch)
         i = max(0, min(len(starts) - 1, i))
-        price = found[0]
+        price = found.price
         amounts[i][price.currency] += amount(
             price, call.usage_unit, call.usage_input, call.usage_output
         )

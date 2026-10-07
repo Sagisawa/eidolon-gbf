@@ -9,6 +9,8 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { pixel, proportional, Table, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -16,16 +18,22 @@ import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
 import {
+  catalogStatus,
+  type CatalogState,
   CURRENCIES,
+  effectiveColumn,
   emptyPriceForm,
   formatPrice,
   getPrices,
+  matchText,
+  type Price,
   priceChangeOf,
   priceFormOf,
   type PriceChange,
   type PriceEntry,
   type PriceForm,
   type Prices,
+  refreshCatalog,
   restorePrice,
   savePrice,
   UNITS,
@@ -43,8 +51,12 @@ interface EntryRow extends Record<string, unknown> {
   entry: PriceEntry;
 }
 
+/** 后台拉取目录时，隔多久再读一次单价，看它拉完没有。 */
+const POLL_MS = 2000;
+
 /**
- * 「配置」页的单价一节：列出所有预设和后台设定的单价，可以修改、恢复成预设（没有预设的就删除）、
+ * 「配置」页的单价一节：在线目录的状态和「立即从目录刷新」；预设、后台设定过的和最近用过的模型，
+ * 后台设定、目录、预设三种单价并列、标出生效的那一种，可以修改、恢复（回到目录或预设，都没有的就删除）、
  * 新增；最近用过却没有单价的模型单独列出，点一下就能按运行记录里的名字设单价。
  */
 export function AdminPrices() {
@@ -57,6 +69,29 @@ export function AdminPrices() {
   useEffect(() => {
     getPrices().then(setPrices, (e) => setFailure(toFailure(e)));
   }, []);
+
+  const fetching = prices?.catalog.fetching ?? false;
+  useEffect(() => {
+    if (!fetching) return;
+    const timer = setTimeout(() => getPrices().then(setPrices, () => {}), POLL_MS);
+    return () => clearTimeout(timer);
+  }, [fetching, prices]);
+
+  async function refresh() {
+    setBusy("refresh");
+    setFailure(null);
+    setNotice(null);
+    try {
+      const next = await refreshCatalog();
+      setPrices(next);
+      const status = catalogStatus(next.catalog);
+      if (status === "fresh") setNotice(t.catalog.refreshed);
+    } catch (e) {
+      setFailure(toFailure(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function run(id: string, request: () => Promise<Prices>, done: string) {
     setBusy(id);
@@ -95,32 +130,26 @@ export function AdminPrices() {
     },
     { key: "unit", header: t.columns.unit, width: pixel(72), renderCell: ({ entry }) => unitWord(entry.unit) },
     {
-      key: "preset",
-      header: t.columns.preset,
-      width: proportional(2),
-      renderCell: ({ entry }) =>
-        entry.preset ? (
-          <VStack gap={0.5}>
-            <Text>{formatPrice(entry.preset, entry.unit)}</Text>
-            <Text type="supporting">{t.asOf(entry.preset.as_of)}</Text>
-          </VStack>
-        ) : (
-          t.none
-        ),
-    },
-    {
       key: "override",
       header: t.columns.override,
       width: proportional(2),
-      renderCell: ({ entry }) =>
-        entry.override ? (
-          <VStack gap={0.5}>
-            <Text>{formatPrice(entry.override, entry.unit)}</Text>
-            <Text type="supporting">{t.setOn(entry.override.as_of)}</Text>
-          </VStack>
-        ) : (
-          t.none
-        ),
+      renderCell: ({ entry }) => (
+        <PriceCell entry={entry} column="override" price={entry.override} note={(p) => t.setOn(p.as_of)} />
+      ),
+    },
+    {
+      key: "catalog",
+      header: t.columns.catalog,
+      width: proportional(2),
+      renderCell: ({ entry }) => <PriceCell entry={entry} column="catalog" price={entry.catalog} note={catalogNote(entry)} />,
+    },
+    {
+      key: "preset",
+      header: t.columns.preset,
+      width: proportional(2),
+      renderCell: ({ entry }) => (
+        <PriceCell entry={entry} column="preset" price={entry.preset} note={(p) => t.asOf(p.as_of)} />
+      ),
     },
     {
       key: "actions",
@@ -133,7 +162,7 @@ export function AdminPrices() {
             <Button
               size="sm"
               variant="ghost"
-              label={entry.preset ? t.restore : t.remove}
+              label={entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove}
               isLoading={busy === id}
               isDisabled={busy !== null}
               onClick={() => void run(id, () => restorePrice(entry), t.restored)}
@@ -152,6 +181,19 @@ export function AdminPrices() {
         <Text as="p" color="secondary" role="status">
           {t.loading}
         </Text>
+      )}
+      {prices && (
+        <HStack gap={2} wrap="wrap" vAlign="center">
+          <CatalogLine state={prices.catalog} />
+          <Button
+            size="sm"
+            variant="secondary"
+            label={t.catalog.refresh}
+            isLoading={busy === "refresh"}
+            isDisabled={busy !== null || prices.catalog.fetching}
+            onClick={() => void refresh()}
+          />
+        </HStack>
       )}
       {prices && prices.unpriced.length > 0 && (
         <VStack gap={2}>
@@ -187,7 +229,7 @@ export function AdminPrices() {
                     variant="ghost"
                     label={t.priceIt}
                     isDisabled={busy !== null}
-                    onClick={() => open(priceFormOf({ ...u, preset: null, override: null }))}
+                    onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }))}
                   />
                 ),
               },
@@ -220,6 +262,67 @@ export function AdminPrices() {
         />
       )}
     </SettingsSection>
+  );
+}
+
+/** 目录一列的附注：拉取日期，按原厂价格估算的写明对应哪个模型，目录里名字不同的也写明。 */
+function catalogNote(entry: PriceEntry) {
+  return (price: Price) => {
+    const match = matchText(price);
+    if (match && price.source === "catalog_upstream") return t.upstream(match);
+    if (match && price.match?.model !== entry.model) return `${t.fetchedOn(price.as_of)} · ${t.listedAs(match)}`;
+    return t.fetchedOn(price.as_of);
+  };
+}
+
+/** 一种单价：价格、附注，生效的那一种标上「生效」。 */
+function PriceCell({
+  entry,
+  column,
+  price,
+  note,
+}: {
+  entry: PriceEntry;
+  column: "override" | "catalog" | "preset";
+  price: Price | null;
+  note: (price: Price) => string;
+}) {
+  if (!price) return <Text color="secondary">{t.none}</Text>;
+  return (
+    <VStack gap={0.5}>
+      <HStack gap={1} wrap="wrap" vAlign="center">
+        <Text>{formatPrice(price, entry.unit)}</Text>
+        {effectiveColumn(entry) === column && <Token size="sm" color="green" label={t.inEffect} />}
+      </HStack>
+      <Text type="supporting" wordBreak="break-word">
+        {note(price)}
+      </Text>
+    </VStack>
+  );
+}
+
+/** 在线目录的状态：拉取时间，或者正在拉取、从没拉取成功、最近一次拉取失败的原因。 */
+function CatalogLine({ state }: { state: CatalogState }) {
+  const status = catalogStatus(state);
+  if (status === "fetching" || status === "never") {
+    return (
+      <Text color="secondary" role="status">
+        {status === "fetching" ? t.catalog.fetching : t.catalog.never}
+      </Text>
+    );
+  }
+  if (status === "unreachable") return <Text color="secondary">{t.catalog.unreachable(state.error ?? "")}</Text>;
+  return (
+    <VStack gap={0.5}>
+      <Text color="secondary">
+        {t.catalog.fresh} <Timestamp value={state.fetched_at ?? ""} format="date_time" />
+      </Text>
+      {status === "kept" && (
+        <Text type="supporting" wordBreak="break-word">
+          {t.catalog.kept(state.error ?? "")}（{t.catalog.failedAt} <Timestamp value={state.failed_at ?? ""} format="date_time" />）
+        </Text>
+      )}
+    </VStack>
   );
 }
 

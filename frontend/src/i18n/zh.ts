@@ -413,9 +413,11 @@ export const zh = {
       },
       cost: {
         title: "花费",
-        hint: (asOf: string | null) =>
+        hint: (catalogAsOf: string | null, presetAsOf: string | null) =>
           `部署者的 key 大约花了多少钱：按单价估算，不扣免费额度，不是账单；不同币种分开合计，不做汇率换算。${
-            asOf ? `预设单价整理于 ${asOf}，可能已经过时，可以在「配置」页修改。` : ""
+            catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""
+          }${presetAsOf ? `部分单价是预设，整理于 ${presetAsOf}，可能已经过时。` : ""}${
+            catalogAsOf || presetAsOf ? "可以在「配置」页修改。" : ""
           }`,
         total: "合计（估算）",
         totalNote: (unknown: string) => `另有 ${unknown} 次调用没说用量，没有算进去`,
@@ -440,7 +442,12 @@ export const zh = {
           hint: "用户自带密钥的调用由用户自己付费，这里只列用量，不换算成钱。",
           calls: "调用",
         },
-        sources: { preset: "预设", override: "后台设定" } as Record<string, string>,
+        sources: {
+          preset: "预设",
+          catalog: "目录",
+          catalog_upstream: "按原厂价格估算",
+          override: "后台设定",
+        } as Record<string, string>,
       },
     },
     users: {
@@ -675,16 +682,38 @@ export const zh = {
     prices: {
       title: "单价",
       hint: (asOf: string | null) =>
-        `看板按这些单价估算部署者的花费。以「提供方 + 模型 + 计费单位」为准，提供方是服务地址的主机名。${
-          asOf ? `预设单价整理于 ${asOf}，` : ""
-        }后台设定的单价优先于预设；恢复后回到预设，没有预设的模型就不再有单价。改了单价，之前的花费也按新单价重新估算。`,
+        `看板按这些单价估算部署者的花费。以「提供方 + 模型 + 计费单位」为准，提供方是服务地址的主机名。生效顺序：后台设定 > 在线目录（models.dev 和 OpenRouter，每天更新，只有按 tokens 计费的模型）> 预设${
+          asOf ? `（整理于 ${asOf}）` : ""
+        }。服务地址不在目录里（例如中转）时，按模型名用原厂价格估算。改了单价，之前的花费也按新单价重新估算。这里列出预设、后台设定过的和最近 90 天用过的模型。`,
       loading: "正在读取…",
-      columns: { model: "提供方 / 模型", unit: "单位", preset: "预设", override: "后台设定", actions: "操作" },
+      columns: {
+        model: "提供方 / 模型",
+        unit: "单位",
+        preset: "预设",
+        catalog: "目录",
+        override: "后台设定",
+        actions: "操作",
+      },
       none: "—",
+      inEffect: "生效",
       setOn: (date: string) => `设于 ${date}`,
       asOf: (date: string) => `整理于 ${date}`,
+      fetchedOn: (date: string) => `拉取于 ${date}`,
+      upstream: (match: string) => `按原厂价格估算：${match}`,
+      listedAs: (match: string) => `目录里是 ${match}`,
+      catalog: {
+        fetching: "正在从目录拉取单价…",
+        never: "还没有拉取过目录，暂时按预设估算。",
+        unreachable: (error: string) => `拉取目录失败，暂时按预设估算：${error}`,
+        fresh: "目录更新于",
+        kept: (error: string) => `最近一次拉取失败，继续使用之前拉取的目录：${error}`,
+        failedAt: "失败于",
+        refresh: "立即从目录刷新",
+        refreshed: "已从目录刷新。",
+        refreshFailed: "拉取目录失败，原因见上方。",
+      },
       edit: "修改",
-      restore: "恢复成预设",
+      restoreTo: { catalog: "恢复成目录价格", preset: "恢复成预设" },
       remove: "删除",
       add: "新增单价",
       priceIt: "设单价",
@@ -694,7 +723,7 @@ export const zh = {
       formTitle: "设定单价",
       unpriced: {
         title: "用过但未设单价的模型",
-        hint: "最近 90 天部署者的 key 用过、却没有单价的模型。看板上它们只显示用量和「未设单价」。",
+        hint: "最近 90 天部署者的 key 用过、目录和预设里却都找不到单价的模型。看板上它们只显示用量和「未设单价」。",
       },
       fields: {
         provider: "提供方（主机名）",

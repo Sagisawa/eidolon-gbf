@@ -226,6 +226,8 @@ DeepSeek 分**高峰和空闲两档价**。原文："Off-peak rates are half of 
 
 ## 10. 写进代码的预设（`backend/src/eidolon/prices.py` 的 `PRESETS`）
 
+> ticket 14 之后，预设只是兜底：按 tokens 计费的模型优先用在线目录的价格（第 11 节），只有目录拉取不到、或者目录里没有的模型才用预设。按字节和按秒计费的单价始终用预设。下面关于 DeepSeek 人民币价的取舍只在目录拉取不到时有效；目录里 DeepSeek 是美元价。
+
 按上面的表照抄，整理日期都是 2026-10-07。取舍如下：
 
 - **DeepSeek 取人民币的高峰价**（`deepseek-flash`、旧名 `deepseek-v4-flash` 2 / 8 元，`deepseek-v4-pro` 9 / 27 元每百万 token）：估算宁可偏高；空闲时段是它的一半。用美元结算的部署者在「配置」页改成美元价即可。

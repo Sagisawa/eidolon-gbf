@@ -12,12 +12,14 @@ import { copy } from "@/i18n";
 import {
   amountTicks,
   type Cost,
+  costPriceDates,
   type CostRow,
   costStatus,
   formatMoney,
   formatPrice,
   formatRowUsage,
   formatTotals,
+  matchText,
   trendCurrencies,
 } from "@/lib/adminPrices";
 import { type Dashboard, formatCount, type ServiceName } from "@/lib/dashboard";
@@ -36,10 +38,11 @@ function serviceName(service: ServiceName): string {
  */
 export function CostSection({ board }: { board: Dashboard }) {
   const { cost } = board;
+  const dates = costPriceDates(cost);
   const unknown = cost.usage_unknown > 0 ? t.totalNote(formatCount(cost.usage_unknown)) : undefined;
   return (
     <VStack gap={8}>
-      <Section title={t.title} hint={t.hint(cost.preset_as_of)}>
+      <Section title={t.title} hint={t.hint(dates.catalog, dates.preset)}>
         {cost.totals.length === 0 ? (
           <Text color="secondary">{t.empty}</Text>
         ) : (
@@ -164,7 +167,11 @@ function ModelsTable({ rows }: { rows: CostRow[] }) {
         return (
           <VStack gap={0.5}>
             <Text>{formatPrice(row.price, row.unit)}</Text>
-            <Text type="supporting">{t.sources[row.price.source]}</Text>
+            <Text type="supporting" wordBreak="break-word">
+              {[t.sources[row.price.source], row.price.source === "catalog_upstream" ? matchText(row.price) : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
           </VStack>
         );
       },

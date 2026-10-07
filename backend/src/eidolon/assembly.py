@@ -20,9 +20,12 @@ with fakes, the `ServiceClients` too. Whoever passes one in closes it; `Backend.
 closes only what `build` made, in the order that lets what is still running finish.
 """
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+
+import httpx
 
 from eidolon.accounts import Accounts
 from eidolon.activity import ActivityLog, MeteredEmotionJudge, judge_origin, metered_retrieval
@@ -38,6 +41,7 @@ from eidolon.llm import ChatLLM
 from eidolon.live_config import LiveConfig
 from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
+from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
 from eidolon.rerank import (
@@ -88,14 +92,19 @@ class Backend:
     prices: Prices
     """The prices the dashboard estimates the deployer's costs at."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
+    _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
-        configuration, falling back to `.env` where one fails."""
+        configuration, falling back to `.env` where one fails; keep the price catalogs
+        fresh from now on, fetching them in the background."""
         await self.config.start()
+        self._keeping_fresh = asyncio.create_task(self.prices.catalog.keep_fresh())
 
     async def aclose(self) -> None:
         """Close what `build` opened, last opened first."""
+        if self._keeping_fresh is not None:
+            self._keeping_fresh.cancel()
         for close in reversed(self._closers):
             result = close()
             if result is not None:
@@ -116,6 +125,7 @@ def build(
     identity_providers: dict[ProviderName, IdentityProvider] | None = None,
     own_llm_service: LLMService | None = None,
     clients: ServiceClients | None = None,
+    catalog_transport: httpx.BaseTransport | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -150,7 +160,9 @@ def build(
     speech = speech or SpeechServices(bailian_model)
     activity = ActivityLog(settings.database_path, clock)
     closers.append(activity.close)
-    prices = Prices(settings.database_path, clock)
+    catalog = Catalog(settings.database_path, clock, catalog_transport)
+    closers.append(catalog.close)
+    prices = Prices(settings.database_path, clock, catalog)
     closers.append(prices.close)
     config = LiveConfig(
         settings, clients or ProviderClients(), clock,
