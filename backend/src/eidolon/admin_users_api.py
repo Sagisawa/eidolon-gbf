@@ -15,15 +15,24 @@ out; the deployer can still on the command line.
 
 An admin may also set a user's own limits on turns and calls an hour, each apart, or take
 them off; the length of a call is the same for everyone.
+
+How much a user has used the deployment lately is from the activity records (not the
+`usage` table, the limit's sliding hour): the list shows how many turns and calls each
+took in the last 24 hours, and can be sorted by either before it is cut into pages; a
+user's own page shows, for the last 24 hours, 7 days and 30 days, how many turns and
+calls they took and how many were rejected, on the deployer's keys and on their own
+apart. A turn taken in a call is a turn too; a rejected turn or call counts only as
+rejected.
 """
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
+from eidolon.activity import ActivityLog, RecordRow
 from eidolon.admin_api import Admin, is_admin
 from eidolon.assembly import Backend
 from eidolon.own_keys import SERVICES
@@ -32,6 +41,17 @@ from eidolon.usage import UserLimits
 
 PAGE_SIZE = 50
 """How many users a page of the list has unless asked for another number."""
+
+RECENT = timedelta(hours=24)
+"""How far back the list counts each user's turns and calls."""
+USAGE_RANGES: dict[str, timedelta] = {
+    "24h": RECENT, "7d": timedelta(days=7), "30d": timedelta(days=30),
+}
+"""How far back a user's own page counts their turns, calls and rejections."""
+
+Sort = Literal["newest", "turns", "calls"]
+"""How the list is sorted: newest first, or by the turns or the calls taken in the last
+24 hours, most first (then newest)."""
 
 
 class BanInput(BaseModel):
@@ -58,15 +78,31 @@ class LimitsInput(BaseModel):
         return self
 
 
+def recent_usage(records: list[RecordRow], since: datetime) -> dict:
+    """The turns and calls taken after `since`, and those rejected, each on the deployer's
+    keys and on the user's own apart."""
+    counts = {
+        what: {"deployer": 0, "own_keys": 0} for what in ("turns", "calls", "rejected")
+    }
+    for record in records:
+        if record.started_at > since:
+            what = "rejected" if record.result == "rejected" else f"{record.kind}s"
+            counts[what]["own_keys" if record.own_keys else "deployer"] += 1
+    return counts
+
+
 def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
-    store, settings, clock, usage = backend.store, backend.settings, backend.clock, backend.usage
+    store, settings, clock = backend.store, backend.settings, backend.clock
+    limiter, activity = backend.usage, backend.activity
 
     def described(users: list[User]) -> list[dict]:
         """What the list shows of each user."""
-        active = store.last_active([u.id for u in users]) if users else {}
-        return [summary(user, active.get(user.id)) for user in users]
+        ids = [u.id for u in users]
+        active = store.last_active(ids) if users else {}
+        taken = activity.taken_since(ids, clock() - RECENT)
+        return [summary(user, active.get(user.id), taken.get(user.id, {})) for user in users]
 
-    def summary(user: User, last_active: datetime | None) -> dict:
+    def summary(user: User, last_active: datetime | None, taken: dict[str, int]) -> dict:
         own_keys = store.own_keys(user.id)
         return {
             "id": user.id,
@@ -82,12 +118,13 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
             "is_admin": is_admin(store, settings, user.id),
             "own_keys": {service: service in own_keys for service in SERVICES},
             "limits": limits(user.id),
+            "usage_24h": {"turns": taken.get("turn", 0), "calls": taken.get("call", 0)},
         }
 
     def limits(user_id: str) -> dict | None:
         """The user's own limits, if an admin set any; a limit not set (None) follows the
         deployment's."""
-        own = usage.user_limits(user_id)
+        own = limiter.user_limits(user_id)
         return asdict(own) if own else None
 
     def details(user_id: str) -> dict:
@@ -97,7 +134,15 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         except NotFound:
             raise HTTPException(404, "没有这位用户") from None
         [shown] = described([user])
-        return shown | {"banned_at": user.banned_at, "ban_note": user.ban_note}
+        now = clock()
+        records = activity.of_user(user_id, now - max(USAGE_RANGES.values()))
+        return shown | {
+            "banned_at": user.banned_at,
+            "ban_note": user.ban_note,
+            "usage": {
+                name: recent_usage(records, now - span) for name, span in USAGE_RANGES.items()
+            },
+        }
 
     @app.get("/api/admin/users")
     def list_users(
@@ -105,15 +150,19 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         q: str = "",
         offset: Annotated[int, Query(ge=0)] = 0,
         limit: Annotated[int, Query(ge=1, le=200)] = PAGE_SIZE,
+        sort: Sort = "newest",
     ) -> dict:
-        """A page of the users, newest first, or of those `q` finds by name, email or user
-        id; with how many there are in all."""
-        users, total = store.find_users(q, offset, limit)
+        """A page of the users, or of those `q` finds by name, email or user id, sorted
+        by `sort`; with how many there are in all."""
+        ranking = None if sort == "newest" else ActivityLog.ranking(
+            "turn" if sort == "turns" else "call", clock() - RECENT
+        )
+        users, total = store.find_users(q, offset, limit, ranking)
         return {"users": described(users), "total": total}
 
     @app.get("/api/admin/users/{user_id}")
     def user_details(user_id: str, _: Admin) -> dict:
-        """A user, with when and why they were banned."""
+        """A user, with when and why they were banned, and their recent usage."""
         return details(user_id)
 
     @app.post("/api/admin/users/{user_id}/ban")
@@ -144,7 +193,7 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         """Set the user's own limits, replacing those they had; from their next turn or
         call on."""
         details(user_id)
-        usage.set_user_limits(user_id, UserLimits(
+        limiter.set_user_limits(user_id, UserLimits(
             body.turns_per_hour, body.calls_per_hour, (body.note or "").strip() or None,
         ))
         return details(user_id)
@@ -153,5 +202,5 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
     def take_off_limits(user_id: str, _: Admin) -> dict:
         """Take off the user's own limits; the deployment's hold for them again."""
         details(user_id)
-        usage.set_user_limits(user_id, None)
+        limiter.set_user_limits(user_id, None)
         return details(user_id)

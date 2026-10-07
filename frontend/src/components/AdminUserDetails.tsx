@@ -6,6 +6,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Spinner } from "@astryxdesign/core/Spinner";
+import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
@@ -20,12 +21,18 @@ import { FailureNotice } from "@/components/FailureNotice";
 import { UserLimitsDialog } from "@/components/UserLimitsDialog";
 import { copy } from "@/i18n";
 import {
+  USAGE_RANGES,
   banAction,
+  describeCount,
   deleteUser,
   getAdminUser,
   takeOffUserLimits,
   unbanUser,
+  usageRows,
   type AdminUserDetails as Details,
+  type AdminUserUsage,
+  type KeyedCount,
+  type UsageRow,
 } from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS } from "@/lib/signIn";
@@ -34,8 +41,8 @@ const t = copy.admin.users;
 
 /**
  * 一位用户的详情：登录方式（含邮箱和填进管理者名单用的标识）、注册和最后活跃的时间、
- * 自带密钥的有无、单独限额（设定、修改、取消）、封禁的时间和备注，以及封禁 / 解除封禁和删除
- * （二次确认，删完回到列表）。
+ * 自带密钥的有无、单独限额（设定、修改、取消）、封禁的时间和备注、近期用量，以及封禁 / 解除封禁
+ * 和删除（二次确认，删完回到列表）。
  * 不含任何对话、记忆和制作人档案。
  */
 export function AdminUserDetails({ id }: { id: string }) {
@@ -205,6 +212,8 @@ export function AdminUserDetails({ id }: { id: string }) {
             )}
           </MetadataList>
 
+          <RecentUsage usage={user.usage} />
+
           <HStack gap={2} wrap="wrap">
             {action === "ban" && (
               <Button label={t.ban} variant="destructive" onClick={() => setBanning(true)} />
@@ -251,6 +260,47 @@ export function AdminUserDetails({ id }: { id: string }) {
           setUser(banned);
         }}
       />
+    </VStack>
+  );
+}
+
+/** 近期用量：回合、通话、被拒绝各一行，最近 24 小时、7 天、30 天各一列；每格是总数，下面分出部署者的 key 和自带密钥。 */
+function RecentUsage({ usage }: { usage: AdminUserUsage }) {
+  const u = t.usage;
+  const columns: TableColumn<UsageRow>[] = [
+    { key: "label", header: "", width: pixel(80), renderCell: (row) => <Text weight="semibold">{row.label}</Text> },
+    ...USAGE_RANGES.map(
+      (range): TableColumn<UsageRow> => ({
+        key: range,
+        header: u.ranges[range],
+        width: proportional(1),
+        renderCell: (row) => <Count count={row[range]} />,
+      }),
+    ),
+  ];
+  return (
+    <VStack gap={2}>
+      <Heading level={2} style={{ fontSize: "var(--text-body-size)" }}>
+        {u.title}
+      </Heading>
+      <Text type="supporting" color="secondary">
+        {u.hint}
+      </Text>
+      <Table data={usageRows(usage)} columns={columns} idKey="what" density="compact" verticalAlign="top" />
+    </VStack>
+  );
+}
+
+function Count({ count }: { count: KeyedCount }) {
+  const { total, split } = describeCount(count);
+  return (
+    <VStack gap={0}>
+      <Text>{total}</Text>
+      {split && (
+        <Text type="supporting" color="secondary">
+          {split}
+        </Text>
+      )}
     </VStack>
   );
 }

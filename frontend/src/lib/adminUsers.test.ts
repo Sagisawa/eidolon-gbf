@@ -7,6 +7,10 @@ import {
   limitDraft,
   limitsInput,
   pageOffset,
+  sortState,
+  usageRows,
+  userSort,
+  describeCount,
   type AdminUser,
 } from "@/lib/adminUsers";
 
@@ -20,6 +24,7 @@ const USER: AdminUser = {
   is_admin: false,
   own_keys: { llm: false, tts: false, stt: false },
   limits: null,
+  usage_24h: { turns: 0, calls: 0 },
 };
 
 describe("banAction", () => {
@@ -66,5 +71,45 @@ describe("limitDraft and limitsInput", () => {
   it("has nothing to save when both follow the deployment or a number is chosen but not given", () => {
     expect(limitsInput(limitDraft(null), limitDraft(null))).toBeNull();
     expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toBeNull();
+  });
+});
+
+describe("userSort and sortState", () => {
+  it("sorts by a usage column, most first, whichever way its header was clicked, and newest once unsorted", () => {
+    expect(userSort([{ sortKey: "turns", direction: "ascending" }])).toBe("turns");
+    expect(userSort([{ sortKey: "calls", direction: "descending" }])).toBe("calls");
+    expect(userSort([])).toBe("newest");
+    expect(sortState("turns")).toEqual([{ sortKey: "turns", direction: "descending" }]);
+    expect(sortState("newest")).toEqual([]);
+  });
+});
+
+describe("describeCount", () => {
+  it("gives the total, and on whose keys when there are any", () => {
+    expect(describeCount({ deployer: 0, own_keys: 0 })).toEqual({ total: "0", split: null });
+    expect(describeCount({ deployer: 3, own_keys: 2 })).toEqual({
+      total: "5",
+      split: "部署者 3 · 自带密钥 2",
+    });
+    expect(describeCount({ deployer: 1_200, own_keys: 0 })).toEqual({
+      total: "1,200",
+      split: "部署者 1,200 · 自带密钥 0",
+    });
+  });
+});
+
+describe("usageRows", () => {
+  it("has a row for turns, calls and rejections, each with the three ranges", () => {
+    const counted = (deployer: number, own_keys: number) => ({ deployer, own_keys });
+    const range = (n: number) => ({ turns: counted(n, 0), calls: counted(0, n), rejected: counted(0, 0) });
+    const rows = usageRows({ "24h": range(1), "7d": range(2), "30d": range(3) });
+
+    expect(rows.map((row) => [row.what, row.label])).toEqual([
+      ["turns", "回合"],
+      ["calls", "通话"],
+      ["rejected", "被拒绝"],
+    ]);
+    expect([rows[0]["24h"], rows[0]["7d"], rows[0]["30d"]]).toEqual([counted(1, 0), counted(2, 0), counted(3, 0)]);
+    expect(rows[1]["30d"]).toEqual(counted(0, 3));
   });
 });
