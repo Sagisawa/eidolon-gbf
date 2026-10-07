@@ -213,7 +213,8 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 /** An identity the user signs in with. */
 export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
 
-export type Account = { name: string; sign_in_methods: SignInMethod[] };
+/** `is_admin`: the user may enter the admin console (`/admin`). */
+export type Account = { name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
 export async function getAccount(): Promise<Account> {

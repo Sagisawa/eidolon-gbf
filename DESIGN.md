@@ -248,7 +248,7 @@ components:
 - 文字带下划线状态：实线 = 通话中（「通话中 mm:ss · 点击返回」），虚线 = 正在呼叫。
 
 ### Icons
-- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`TrashIcon`、`OutfitIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（arrowUp 和 stop 即输入栏的发送键和停止键，以及 check、chevron*、close、error、info、microphone、moreHorizontal、success、warning）。Astryx 用到而没有注册的图标名会回退到它自带的图标，用上新的 Astryx 组件时要检查它调用了哪些图标名。
+- 全部来自 `lucide-react`。界面图标经 `frontend/src/theme/icons.ts` 以语义别名导出（`PhoneIcon`、`HangUpIcon`、`MicIcon`、`MicOffIcon`、`MicSwitchIcon`、`CollapseIcon`、`BackIcon`、`TrashIcon`、`OutfitIcon`，后台导航的 `DashboardIcon`、`ConfigIcon`、`UsersIcon`）；Astryx 内部图标在主题 `icons`（`frontend/src/theme/astryxIcons.ts`）里换成对应的 Lucide 图标（arrowUp 和 stop 即输入栏的发送键和停止键，以及 check、chevron*、close、error、info、menu（AppShell 窄屏下的导航按钮）、microphone、moreHorizontal、success、warning）。Astryx 用到而没有注册的图标名会回退到它自带的图标，用上新的 Astryx 组件时要检查它调用了哪些图标名。
 
 **The Line-State Rule.** 通话状态只用线形表达，线色是她的 rule 色（纸面上 `noteRule`，通话层上 `call.rule`），2px 粗、6px 偏移：实线下划线 = 通话中，虚线下划线 = 正在呼叫，删除线 = 已结束。
 

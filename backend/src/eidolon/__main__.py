@@ -1,7 +1,8 @@
 """The `eidolon` command: runs the server, and lets the admin manage users.
 
     eidolon                          run the server (same as `eidolon serve`)
-    eidolon user list                every user: id, name, sign-in methods, when made,
+    eidolon user list                every user: id, name, sign-in methods (each with the
+                                     `provider:subject` EIDOLON_ADMINS lists), when made,
                                      whether banned (users are made by signing in)
     eidolon user ban <id>            ban a user, signing them out everywhere; the server
                                      hangs up their calls within seconds
@@ -678,6 +679,7 @@ def _list_users(store: Store, _: argparse.Namespace) -> None:
     for user in store.list_users():
         methods = "、".join(
             f"{PROVIDER_LABELS.get(m.provider, m.provider)} {m.display_name}"  # pyright: ignore[reportCallIssue, reportArgumentType]
+            f" ({m.provider}:{m.subject})"
             for m in store.sign_in_methods(user.id)
         ) or "（没有登录方式）"
         state = f"已封禁于 {user.banned_at}" if user.banned_at else "正常"
@@ -725,7 +727,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="action", required=True, metavar="操作"
     )
     user.add_parser(
-        "list", help="列出所有用户：ID、名字、登录方式、创建时间、是否已封禁"
+        "list", help="列出所有用户：ID、名字、登录方式（括号里是填进 EIDOLON_ADMINS 的标识）、创建时间、是否已封禁"
     ).set_defaults(run=_list_users)
     ban = user.add_parser("ban", help="封禁用户，并让他在所有设备上退出登录")
     ban.add_argument("user_id", help="用户 ID（见 user list）")

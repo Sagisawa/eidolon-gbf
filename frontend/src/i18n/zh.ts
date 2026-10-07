@@ -273,6 +273,11 @@ export const zh = {
       signOut: "退出登录",
       signOutEverywhere: "退出所有设备",
     },
+    admin: {
+      title: "后台",
+      hint: "你是这套部署的管理者，可以在后台查看看板、修改配置和管理用户。",
+      enter: "进入后台",
+    },
     deleteAccount: {
       title: "删除我的全部数据",
       hint: "彻底删除你的记忆、对话、制作人档案、登录方式、自带密钥、会话和用量记录，无法恢复；每天的加密备份里的副本最多 30 天后清除。所有设备都会退出登录；之后再用同一种登录方式登录，会是一位全新的用户。",
@@ -280,6 +285,18 @@ export const zh = {
       confirmTitle: "删除全部数据？",
       confirm: "确认删除，无法恢复",
     },
+  },
+  admin: {
+    title: "后台",
+    nav: "后台导航",
+    pages: {
+      dashboard: "看板",
+      config: "配置",
+      users: "用户",
+    },
+    signedInAs: (name: string) => `管理者：${name}`,
+    backToSettings: "返回设置",
+    comingSoon: "这一页还在做。",
   },
   memories: {
     title: "记忆",

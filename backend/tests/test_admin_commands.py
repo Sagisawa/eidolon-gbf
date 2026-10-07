@@ -53,7 +53,7 @@ async def test_listing_users_shows_their_sign_in_methods_and_whether_banned(
 
     octo, friend = listing
     assert octo.startswith(user_id(settings, "octo"))
-    assert "GitHub octo、Google Octo G" in octo and "正常" in octo
+    assert "GitHub octo (github:1001)、Google Octo G (google:g-1001)" in octo and "正常" in octo
     assert friend.startswith(user_id(settings, "friend"))
     assert "（没有登录方式）" in friend and "已封禁于" in friend
 
