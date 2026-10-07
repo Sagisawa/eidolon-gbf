@@ -1,15 +1,42 @@
 """The admin console's configuration, under `/api/admin/config`, for admins only: the live
 configuration (`live_config`) as `.env` has it and as it is in effect, changing an item
 and restoring it to `.env`'s (ADR-0013). Of a key, only its last 4 characters are ever
-shown."""
+shown; a key left out of a change stays as it is. What cannot be changed here
+(`live_config.READ_ONLY`) is refused, saying why."""
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from typing import Any
+
+from fastapi import Body, FastAPI, HTTPException
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
-from eidolon.config import LLMProtocol
-from eidolon.live_config import CHAT_LLM, ConfigRejected, KeysReadOnly, LLMChange
+from eidolon.config import JudgeProvider, LLMProtocol, SttProvider
+from eidolon.live_config import (
+    CHAT_LLM,
+    JUDGE,
+    JUDGE_THRESHOLDS,
+    LIMITS,
+    MEMORY_LLM,
+    READ_ONLY,
+    RERANK,
+    STT,
+    STT_KEY_FIELDS,
+    TTS,
+    ConfigInvalid,
+    ConfigRejected,
+    KeysReadOnly,
+    Unavailable,
+)
+
+ApiKey = Field(None, min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+
+
+def _trimmed(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("不能为空")
+    return value
 
 
 class LLMInput(BaseModel):
@@ -19,32 +46,109 @@ class LLMInput(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     model: str = Field(min_length=1, max_length=200)
     max_tokens: int | None = Field(None, gt=0)
-    api_key: str | None = Field(None, min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+    api_key: str | None = ApiKey
 
-    @field_validator("base_url", "model")
-    @classmethod
-    def _trimmed(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("不能为空")
-        return value
+    _trim = field_validator("base_url", "model")(_trimmed)
+
+
+class TTSInput(BaseModel):
+    model: str = Field(min_length=1, max_length=200)
+    api_key: str | None = ApiKey
+
+    _trim = field_validator("model")(_trimmed)
+
+
+class STTInput(BaseModel):
+    """The service chosen, and its key, if it changes."""
+
+    provider: SttProvider
+    api_key: str | None = ApiKey
+
+
+class JudgeInput(BaseModel):
+    provider: JudgeProvider
+    model: str = Field(min_length=1, max_length=200)
+    account_id: str | None = Field(None, min_length=1, max_length=100)
+    emotion_timeout: float = Field(gt=0, le=30)
+    api_key: str | None = ApiKey
+
+    _trim = field_validator("model")(_trimmed)
+
+
+class JudgeThresholdsInput(BaseModel):
+    recall: float = Field(ge=0, le=1)
+    emotion: float = Field(ge=0, le=1)
+
+
+class RerankInput(BaseModel):
+    references: float = Field(ge=0, le=1)
+    memories: float = Field(ge=0, le=1)
+
+
+class LimitsInput(BaseModel):
+    """Each a whole number from 0 up, 0 for no limit; checked by the live configuration,
+    which says what is wrong in so many words."""
+
+    turns_per_hour: Any
+    calls_per_hour: Any
+    call_minutes: Any
+    turns_per_call: Any
+    history_turns: Any
+
+
+INPUTS: dict[str, type[BaseModel]] = {
+    CHAT_LLM: LLMInput,
+    MEMORY_LLM: LLMInput,
+    TTS: TTSInput,
+    STT: STTInput,
+    JUDGE: JudgeInput,
+    JUDGE_THRESHOLDS: JudgeThresholdsInput,
+    RERANK: RerankInput,
+    LIMITS: LimitsInput,
+}
+
+
+def _change(item: str, body: BaseModel) -> dict[str, Any]:
+    """What the input changes of the item: every field given (a model slot's max_tokens
+    may be None, its protocol's default), a key and an account id only if given."""
+    change = body.model_dump()
+    if change.get("account_id", "") is None:
+        del change["account_id"]
+    if key := change.pop("api_key", None):
+        change[STT_KEY_FIELDS[change["provider"]] if item == STT else "api_key"] = key
+    return change
 
 
 def add_admin_config_routes(app: FastAPI, backend: Backend) -> None:
     config = backend.config
 
+    def item_or_error(item: str) -> str:
+        if item in READ_ONLY:
+            raise HTTPException(403, f"这一项只能在服务器上改：{READ_ONLY[item]}")
+        if item not in INPUTS:
+            raise HTTPException(404, "没有这项配置")
+        return item
+
     @app.get("/api/admin/config")
     def get_config(_: Admin) -> dict:
         return config.describe()
 
-    @app.put("/api/admin/config/chat_llm")
-    async def save_chat_llm(body: LLMInput, _: Admin) -> dict:
-        """Try the chat model and, if it works, play every turn and call from now on on it."""
-        change = LLMChange(body.protocol, body.base_url, body.model, body.max_tokens, body.api_key)
+    @app.put("/api/admin/config/{item}")
+    async def save(item: str, _: Admin, body: dict = Body()) -> dict:  # noqa: B008
+        """Try the item and, if it works, run every turn and call from now on on it."""
+        item = item_or_error(item)
         try:
-            await config.save_chat_llm(change)
+            parsed = INPUTS[item].model_validate(body)
+        except ValidationError as e:
+            raise HTTPException(422, e.errors(include_url=False, include_context=False)) from None
+        try:
+            await config.save(item, _change(item, parsed))
         except KeysReadOnly as e:
             raise HTTPException(409, str(e)) from None
+        except Unavailable as e:
+            raise HTTPException(409, str(e)) from None
+        except ConfigInvalid as e:
+            raise HTTPException(422, str(e)) from None
         except ConfigRejected as e:
             raise HTTPException(422, f"试调失败，没有保存：{e}") from None
         return config.describe()
@@ -52,7 +156,10 @@ def add_admin_config_routes(app: FastAPI, backend: Backend) -> None:
     @app.delete("/api/admin/config/{item}")
     async def restore(item: str, _: Admin) -> dict:
         """Back to `.env`'s, from the next turn and call on."""
-        if item != CHAT_LLM:
-            raise HTTPException(404, "没有这项配置")
-        await config.restore(item)
+        item = item_or_error(item)
+        try:
+            await config.restore(item)
+        except Unavailable as e:
+            raise HTTPException(409, str(e)) from None
         return config.describe()
+

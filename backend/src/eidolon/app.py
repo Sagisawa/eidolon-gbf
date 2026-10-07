@@ -325,7 +325,7 @@ def create_app(backend: Backend) -> FastAPI:
         conversation = conversation_or_404(conversation_id, user_id)
         outcome = TurnOutcome(
             usage, backend.activity, own_keys, user_id, conversation.character_id,
-            (backend.config.chat_llm, backend.settings.background_llm),
+            (backend.config.chat_llm, backend.config.memory_llm),
         )
 
         async def events() -> AsyncIterator[str]:

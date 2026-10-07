@@ -8,6 +8,7 @@ user it belongs to, for a day; whoever's they are, uses older than that are dele
 whenever anyone takes one."""
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -118,8 +119,11 @@ class UsageLimiter:
     """Counts each user's text turns and voice calls over the last hour, whichever device
     or sign-in method they come with."""
 
-    def __init__(self, path: Path, limits: UsageLimits, clock: Clock) -> None:
-        """Uses kept in the database at `path`, next to the users they belong to."""
+    def __init__(
+        self, path: Path, limits: UsageLimits | Callable[[], UsageLimits], clock: Clock
+    ) -> None:
+        """Uses kept in the database at `path`, next to the users they belong to, limited
+        by `limits`, or by what it says as each use is taken (the live configuration's)."""
         # What is given back or forgotten is overwritten, not just freed (see `database`).
         self._db = connect(path)
         self._lock = threading.Lock()
@@ -128,23 +132,27 @@ class UsageLimiter:
             columns = {name for _, name, *_ in self._db.execute("PRAGMA table_info(usage)")}
             if "exempt" not in columns:
                 self._db.execute("ALTER TABLE usage ADD COLUMN exempt INTEGER NOT NULL DEFAULT 0")
-        self._limits: dict[UsageKind, int | None] = {
-            "turn": limits.turns_per_hour,
-            "call": limits.calls_per_hour,
-        }
+        self._limits = limits if callable(limits) else lambda: limits
         self._clock = clock
+
+    @property
+    def limits(self) -> UsageLimits:
+        """The limits in effect now."""
+        return self._limits()
 
     def take(self, user_id: str, kind: UsageKind, exempt: bool = False) -> Use:
         """Record one `kind` by the user, counting it against their limit unless it is
         `exempt`; raises OverLimit, recording nothing, when they have none left this hour,
         that is, when the last hour already holds as many counting uses as the limit: the
         user's own, if an admin set one, else the deployment's."""
+        limits = self._limits()
+        deployment = limits.turns_per_hour if kind == "turn" else limits.calls_per_hour
         now = self._clock()
         with self._lock, self._db:
             # Everyone's, so that a user who does not come back leaves none behind.
             self._db.execute("DELETE FROM usage WHERE at <= ?", ((now - KEPT).timestamp(),))
             own = self._own_limit(user_id, kind)
-            limit = self._limits[kind] if own is None else None if own == "unlimited" else own
+            limit = deployment if own is None else None if own == "unlimited" else own
             if limit == 0 and not exempt:
                 raise OverLimit(kind, 0, None, now)
             if limit is not None and not exempt:

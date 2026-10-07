@@ -247,10 +247,11 @@ class Retrieval:
         judge: RetrievalJudge,
         sources: ReferenceSources,
         reranker: Reranker,
-        min_relevance: float,
+        min_relevance: Callable[[], float],
     ) -> None:
-        """`min_relevance` is the reranker's score below which a reference or recalled
-        episode is left out (see `rerank.KNOWN_THRESHOLDS`)."""
+        """`min_relevance` says, whenever asked, the reranker's score below which a
+        reference or recalled episode is left out (see `rerank.KNOWN_THRESHOLDS`); the
+        admin console may change it while the backend runs."""
         self._judge = judge
         self._sources = sources
         self._reranker = reranker
@@ -289,7 +290,8 @@ class Retrieval:
         except (EmbeddingError, RerankError):
             log.warning("retrieval failed; replying without references", exc_info=True)
             return []
-        return [r for r, score in ranked if score >= self._min_relevance][:MAX_REFERENCES]
+        min_relevance = self._min_relevance()
+        return [r for r, score in ranked if score >= min_relevance][:MAX_REFERENCES]
 
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
@@ -317,8 +319,9 @@ class Retrieval:
             return "暂时想不起来，现在查不到剧情。不要编造经过，可以坦率地说记不太清了。"
         episodes: dict[str, Episode] = {}
         found: list[WorldEntry] = []
+        min_relevance = self._min_relevance()
         for i, score in best:
-            if score < self._min_relevance:
+            if score < min_relevance:
                 continue
             if i < len(passages):
                 if len(episodes) < RECALL_EPISODES:

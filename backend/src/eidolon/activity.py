@@ -39,7 +39,7 @@ import httpx
 from eidolon.billing import Billing, billing
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import CloudflareJudgeSettings, LLMSettings, Settings
+from eidolon.config import CloudflareJudgeSettings, JudgeSettings, LLMSettings, Settings
 from eidolon.database import connect
 from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
@@ -460,10 +460,12 @@ def turn_llms(
         return TurnLLMs(
             metered_llm(llms.chat, log, origin),
             metered_llm(llms.memory, log, Origin("memory_llm", origin.provider, origin.model, True)),
+            llms.hold_memory,
         )
     return TurnLLMs(
         metered_llm(llms.chat, log, llm_origin("chat_llm", chat)),
         metered_llm(llms.memory, log, llm_origin("memory_llm", memory)),
+        llms.hold_memory,
     )
 
 
@@ -477,11 +479,7 @@ def metered_retrieval(
     """The judge model, the embedder and the reranker turns retrieve with, whichever are
     at hand, each request recorded as a service call to the service `settings` name."""
     if judge is not None:
-        if isinstance(j := settings.judge, CloudflareJudgeSettings):
-            origin = Origin("judge", host(CLOUDFLARE_API_URL), j.model)
-        else:
-            origin = Origin("judge", host(j and j.base_url), j.model if j else "unknown")
-        judge = MeteredJudge(judge, log, origin)
+        judge = MeteredJudge(judge, log, judge_origin(settings.judge))
     if embedder is not None:
         e = settings.embedding
         origin = Origin("embedding", host(e and e.base_url), embedder.model)
@@ -492,6 +490,15 @@ def metered_retrieval(
             reranker, log, Origin("rerank", host(r and r.base_url), r.model if r else "unknown")
         )
     return judge, embedder, reranker
+
+
+def judge_origin(settings: JudgeSettings | None) -> Origin:
+    """The judge model `settings` choose, as its service calls are recorded."""
+    if isinstance(settings, CloudflareJudgeSettings):
+        return Origin("judge", host(CLOUDFLARE_API_URL), settings.model)
+    return Origin(
+        "judge", host(settings and settings.base_url), settings.model if settings else "unknown"
+    )
 
 
 class MeteredJudge:

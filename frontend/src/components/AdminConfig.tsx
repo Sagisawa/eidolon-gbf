@@ -18,26 +18,31 @@ import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
 import {
+  changeOf,
+  formOf,
   getAdminConfig,
-  llmChange,
-  llmForm,
-  llmRows,
-  restoreChatLLM,
-  saveChatLLM,
+  isAvailable,
+  ITEM_SPECS,
+  ITEMS,
+  readOnlyValue,
+  restoreItem,
+  rows,
+  saveItem,
   statusDisplay,
   type AdminConfig as Config,
+  type ConfigItem,
   type FieldRow,
-  type LLMField,
-  type LLMForm,
+  type FieldSpec,
+  type Form,
+  type ItemName,
+  type ReadOnlyItem,
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.admin.config;
 
-const PROTOCOLS: LLMProtocol[] = ["chat-completions", "responses", "anthropic"];
-
-/** 后台的「配置」页：每一项列出 .env 的值、当前生效的值和状态，可以修改、恢复。 */
+/** 后台的「配置」页：每一项列出 .env 的值、当前生效的值和状态，可以修改、恢复；最后是只能查看的项。 */
 export function AdminConfig() {
   const [config, setConfig] = useState<Config | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -60,64 +65,114 @@ export function AdminConfig() {
           {t.loading}
         </Text>
       )}
-      {config && <ChatLLMConfig config={config} onChange={setConfig} />}
+      {config &&
+        ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
+      {config && <ReadOnlySection items={config.read_only} />}
     </VStack>
   );
 }
 
-/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值。 */
-function shown(field: LLMField, value: FieldRow["env"]): string {
+/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名，限额的 0 是不限。 */
+function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
-  if (field === "api_key") return t.last4(String(value));
+  if (ITEM_SPECS[name].secrets.includes(field)) return t.last4(String(value));
   if (field === "protocol") return t.protocols[value as LLMProtocol] ?? String(value);
+  if (field === "provider") return t.providers[String(value)] ?? String(value);
+  if (field === "region") return t.regions[String(value)] ?? String(value);
+  if (name === "limits" && value === 0) return t.unlimited;
   return String(value);
 }
 
-const COLUMNS: TableColumn<FieldRow>[] = [
-  { key: "field", header: t.columns.field, width: proportional(1), renderCell: (row) => t.fields[row.field] },
-  { key: "env", header: t.columns.env, width: proportional(2), renderCell: (row) => shown(row.field, row.env) },
-  {
-    key: "effective",
-    header: t.columns.effective,
-    width: proportional(2),
-    renderCell: (row) => shown(row.field, row.effective),
-  },
-  {
-    key: "override",
-    header: t.columns.override,
-    width: proportional(2),
-    renderCell: (row) =>
-      row.overridden ? (
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <Text wordBreak="break-word">{shown(row.field, row.override)}</Text>
-          <Token
-            size="sm"
-            color={row.inEffect ? "blue" : "orange"}
-            label={row.inEffect ? t.inEffect : t.notInEffect}
-          />
-        </HStack>
-      ) : (
-        t.none
-      ),
-  },
-];
+function columns(name: ItemName): TableColumn<FieldRow>[] {
+  return [
+    { key: "field", header: t.columns.field, width: proportional(1), renderCell: (row) => t.fields[row.field] ?? row.field },
+    { key: "env", header: t.columns.env, width: proportional(2), renderCell: (row) => shown(name, row.field, row.env) },
+    {
+      key: "effective",
+      header: t.columns.effective,
+      width: proportional(2),
+      renderCell: (row) => shown(name, row.field, row.effective),
+    },
+    {
+      key: "override",
+      header: t.columns.override,
+      width: proportional(2),
+      renderCell: (row) =>
+        row.overridden ? (
+          <HStack gap={2} vAlign="center" wrap="wrap">
+            <Text wordBreak="break-word">{shown(name, row.field, row.override)}</Text>
+            <Token
+              size="sm"
+              color={row.inEffect ? "blue" : "orange"}
+              label={row.inEffect ? t.inEffect : t.notInEffect}
+            />
+          </HStack>
+        ) : (
+          t.none
+        ),
+    },
+  ];
+}
+
+/** 表单里一个字段的说明：key 留空不改，其余按字段给出取值范围。 */
+function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): string | undefined {
+  if (spec.kind === "secret") {
+    if (!keysEditable) return t.keysReadOnly;
+    return name === "stt" ? t.formHints.stt_api_key : name === "judge" ? t.formHints.judge_api_key : t.apiKeyHint;
+  }
+  if (spec.kind === "maxTokens") return t.maxTokensHint;
+  if (spec.kind === "probability") return t.formHints.probability;
+  if (spec.kind === "limit") return t.formHints.limit;
+  if (name === "judge" && spec.name === "model") return t.formHints.judge_model;
+  return t.formHints[spec.name];
+}
+
+function optionLabel(field: string, option: string): string {
+  return field === "protocol" ? (t.protocols[option as LLMProtocol] ?? option) : (t.providers[option] ?? option);
+}
 
 /**
- * 扮演角色的 LLM：状态、三列对照（.env、当前生效、后台覆盖），修改表单和恢复按钮。
- * 保存时后端先试调，试不通照原话显示原因、不保存。
+ * 一项配置：状态、三列对照（.env、当前生效、后台覆盖），修改表单和恢复按钮。
+ * 保存时后端先试调（阈值不用），试不通照原话显示原因、不保存。
  */
-function ChatLLMConfig({ config, onChange }: { config: Config; onChange: (config: Config) => void }) {
-  const item = config.chat_llm;
+function ItemSection({ name, config, onChange }: { name: ItemName; config: Config; onChange: (config: Config) => void }) {
+  const item = config[name];
+  const title = t.items[name].title;
+  if (!isAvailable(item)) {
+    return (
+      <SettingsSection title={title} description={t.items[name].hint}>
+        <Text as="p" color="secondary">
+          {t.unavailable(item.unavailable)}
+        </Text>
+      </SettingsSection>
+    );
+  }
+  return <AvailableItem name={name} item={item} keysEditable={config.keys_editable} onChange={onChange} />;
+}
+
+function AvailableItem({
+  name,
+  item,
+  keysEditable,
+  onChange,
+}: {
+  name: ItemName;
+  item: ConfigItem;
+  keysEditable: boolean;
+  onChange: (config: Config) => void;
+}) {
+  const spec = ITEM_SPECS[name];
   const display = statusDisplay(item);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<LLMForm>(() => llmForm(item.effective));
+  const [form, setForm] = useState<Form>(() => formOf(spec, item.effective));
   const [busy, setBusy] = useState<"save" | "restore" | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const change = llmChange(form, config.keys_editable);
+  const result = changeOf(spec, form, keysEditable);
+  const problem = "problem" in result ? result.problem : null;
 
   function edit() {
-    setForm(llmForm(item.effective));
+    setForm(formOf(spec, item.effective));
     setFailure(null);
     setNotice(null);
     setEditing(true);
@@ -140,21 +195,31 @@ function ChatLLMConfig({ config, onChange }: { config: Config; onChange: (config
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (change) void run("save", () => saveChatLLM(change), t.saved);
+    if ("change" in result) void run("save", () => saveItem(name, result.change), t.saved);
   }
 
-  const set = (field: keyof LLMForm) => (value: string) => setForm((f) => ({ ...f, [field]: value }));
+  const set = (field: string) => (value: string) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <SettingsSection title={t.chatLLM.title} description={t.chatLLM.hint}>
+    <SettingsSection title={t.items[name].title} description={t.items[name].hint}>
       <HStack gap={2} vAlign="center" wrap="wrap">
         <StatusDot variant={display.variant} label={t.status[item.status]} />
         <Text>{t.status[item.status]}</Text>
       </HStack>
+      {item.follows_chat && (
+        <Text as="p" color="secondary">
+          {t.followsChat}
+        </Text>
+      )}
+      {item.model && (
+        <Text as="p" color="secondary">
+          {t.forModel(item.model)}
+        </Text>
+      )}
       {display.failure && <Banner status="warning" title={t.status.failed} description={t.failed(display.failure)} />}
       {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
       {failure && <FailureNotice failure={failure} />}
-      <Table data={llmRows(item)} columns={COLUMNS} idKey="field" density="compact" />
+      <Table data={rows(item, spec)} columns={columns(name)} idKey="field" density="compact" />
       {!editing && (
         <HStack gap={2} wrap="wrap">
           <Button label={t.edit} onClick={edit} isDisabled={busy !== null} />
@@ -164,7 +229,7 @@ function ChatLLMConfig({ config, onChange }: { config: Config; onChange: (config
               label={t.restore}
               isLoading={busy === "restore"}
               isDisabled={busy !== null}
-              onClick={() => void run("restore", restoreChatLLM, t.restored)}
+              onClick={() => void run("restore", () => restoreItem(name), t.restored)}
             />
           )}
         </HStack>
@@ -172,42 +237,76 @@ function ChatLLMConfig({ config, onChange }: { config: Config; onChange: (config
       {editing && (
         <form onSubmit={submit}>
           <FormLayout>
-            <Selector
-              label={t.fields.protocol}
-              value={form.protocol}
-              onChange={(value) => setForm((f) => ({ ...f, protocol: value as LLMProtocol }))}
-              options={PROTOCOLS.map((p) => ({ value: p, label: t.protocols[p] }))}
-            />
-            <TextInput label={t.fields.base_url} value={form.base_url} onChange={set("base_url")} autoComplete="off" />
-            <TextInput label={t.fields.model} value={form.model} onChange={set("model")} autoComplete="off" />
-            <TextInput
-              label={t.fields.max_tokens}
-              description={t.maxTokensHint}
-              value={form.max_tokens}
-              onChange={set("max_tokens")}
-              autoComplete="off"
-            />
-            <TextInput
-              type="password"
-              label={t.fields.api_key}
-              description={config.keys_editable ? t.apiKeyHint : t.keysReadOnly}
-              value={form.api_key}
-              onChange={set("api_key")}
-              isDisabled={!config.keys_editable}
-              autoComplete="off"
-            />
+            {spec.form.map((field) => {
+              const label = t.fields[field.name] ?? field.name;
+              if (field.kind === "select") {
+                return (
+                  <Selector
+                    key={field.name}
+                    label={label}
+                    value={form[field.name]}
+                    onChange={(value) => set(field.name)(String(value))}
+                    options={(field.options ?? []).map((o) => ({ value: o, label: optionLabel(field.name, o) }))}
+                  />
+                );
+              }
+              const secret = field.kind === "secret";
+              return (
+                <TextInput
+                  key={field.name}
+                  type={secret ? "password" : "text"}
+                  label={label}
+                  description={fieldHint(name, field, keysEditable)}
+                  value={form[field.name]}
+                  onChange={set(field.name)}
+                  isDisabled={secret && !keysEditable}
+                  isOptional={field.kind === "optionalText"}
+                  status={
+                    problem?.field === field.name
+                      ? { type: "error", message: t.problems[problem.reason](label) }
+                      : undefined
+                  }
+                  autoComplete="off"
+                />
+              );
+            })}
             <HStack gap={2}>
               <Button
                 type="submit"
                 label={busy === "save" ? t.saving : t.save}
                 isLoading={busy === "save"}
-                isDisabled={!change || busy !== null}
+                isDisabled={problem !== null || busy !== null}
               />
               <Button variant="ghost" label={copy.common.cancel} onClick={() => setEditing(false)} isDisabled={busy !== null} />
             </HStack>
           </FormLayout>
         </form>
       )}
+    </SettingsSection>
+  );
+}
+
+const READ_ONLY_COLUMNS: TableColumn<ReadOnlyItem>[] = [
+  {
+    key: "name",
+    header: t.readOnly.columns.name,
+    width: proportional(1),
+    renderCell: (row) => t.readOnly.names[row.name] ?? row.name,
+  },
+  {
+    key: "value",
+    header: t.readOnly.columns.value,
+    width: proportional(2),
+    renderCell: (row) => <Text wordBreak="break-word">{readOnlyValue(row.value, { ...t.readOnly, none: t.none })}</Text>,
+  },
+  { key: "why", header: t.readOnly.columns.why, width: proportional(3), renderCell: (row) => row.why },
+];
+
+/** 只能查看的项：当前的值（密钥只说设没设）和为什么不能在后台改。 */
+function ReadOnlySection({ items }: { items: ReadOnlyItem[] }) {
+  return (
+    <SettingsSection title={t.readOnly.title} description={t.readOnly.hint}>
+      <Table data={items} columns={READ_ONLY_COLUMNS} idKey="name" density="compact" />
     </SettingsSection>
   );
 }

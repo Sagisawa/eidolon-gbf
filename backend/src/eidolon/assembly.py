@@ -9,10 +9,11 @@ retrieval finds memories again; judging her emotion during calls needs only the 
 model, the same one; the
 background model is always at hand, being the chat model unless configured apart.
 
-The deployer's chat model is made by `ServiceClients` from the live configuration
-(`live_config`): `.env`'s settings as overridden in the admin console, replaced while the
-backend runs as admins change them. `Backend.start` tries the overrides as the server
-starts.
+The deployer's chat and memory models and judge model are made by `ServiceClients` from
+the live configuration (`live_config`): `.env`'s settings as overridden in the admin
+console, replaced while the backend runs as admins change them; the speech keys, the
+thresholds and the limits are read from it as each turn or call starts. `Backend.start`
+tries the overrides as the server starts.
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes, the `ServiceClients` too. Whoever passes one in closes it; `Backend.aclose`
@@ -30,7 +31,7 @@ from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
-from eidolon.emotion import EmotionJudge, EmotionJudging, ModelEmotionJudge
+from eidolon.emotion import EmotionJudge, EmotionJudging
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
@@ -39,16 +40,14 @@ from eidolon.llm.providers import open_llm
 from eidolon.memory import Memories
 from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
 from eidolon.rerank import (
-    DEFAULT_THRESHOLDS,
     FALLBACK_MODEL,
     KNOWN_THRESHOLDS,
     Reranker,
     SiliconFlowReranker,
     thresholds_for,
 )
-from eidolon.judge import judge_thresholds, open_judge
+from eidolon.judge import judge_thresholds
 from eidolon.retrieval import (
-    ModelRetrievalJudge,
     Retrieval,
     RetrievalJudge,
     open_reference_sources,
@@ -76,7 +75,9 @@ class Backend:
     clock: Clock
     calls: Calls
     emotions: EmotionJudging | None
-    """Judging her emotion in each segment during calls; None without the judge model."""
+    """Judging her emotion in each segment during calls with a judge model passed in;
+    None without one, each call then judging on the live configuration's as it connected
+    (`DeployerKeys.emotions`), if there is one."""
     own_keys: OwnKeys
     accounts: Accounts
     identity_providers: dict[ProviderName, IdentityProvider]
@@ -137,9 +138,20 @@ def build(
     if background_llm is None:
         background_llm = open_llm(settings.background_llm)
         closers.append(background_llm.aclose)
+    # Users' own DashScope keys hear with the deployer's model, or the default one where the
+    # deployer chose Soniox.
+    bailian_model = (
+        settings.bailian_stt_model if settings.stt_provider == "bailian"
+        else DEFAULT_BAILIAN_STT_MODEL
+    )
+    speech = speech or SpeechServices(bailian_model)
+    activity = ActivityLog(settings.database_path, clock)
+    closers.append(activity.close)
     config = LiveConfig(
         settings, clients or ProviderClients(), clock,
-        background_llm=background_llm, chat_llm=chat_llm,
+        background_llm=background_llm, chat_llm=chat_llm, speech=speech,
+        live_judge=retrieval_judge is None or emotion_judge is None,
+        live_emotions=emotion_judge is None,
     )
     closers.append(config.aclose)
     if own_llm_service is None:  # users' own LLMs write down memories too
@@ -161,7 +173,6 @@ def build(
             " improve its products. Turn on billing and set GEMINI_BILLING_ENABLED=1, or"
             " embed with SiliconFlow (ADR-0005, revised 2026-09-27)"
         )
-    thresholds = DEFAULT_THRESHOLDS
     if (r := settings.rerank) is not None:
         thresholds = thresholds_for(r)
         if r.model not in KNOWN_THRESHOLDS:
@@ -174,21 +185,19 @@ def build(
         if reranker is None:
             reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
             closers.append(reranker.aclose)
-    thresholds_of_judge = judge_thresholds(settings.judge, settings.emotion)
-    if (retrieval_judge is None or emotion_judge is None) and settings.judge is not None:
-        judge_model = open_judge(settings.judge)
-        closers.append(judge_model.aclose)
-        retrieval_judge = retrieval_judge or ModelRetrievalJudge(judge_model, thresholds_of_judge)
-        emotion_judge = emotion_judge or ModelEmotionJudge(judge_model)
-    activity = ActivityLog(settings.database_path, clock)
-    closers.append(activity.close)
     retrieval_judge, embedder, reranker = metered_retrieval(
         activity, settings, retrieval_judge, embedder, reranker
     )
+    # The judge model made here is the live configuration's: retrieval asks the one in
+    # effect at each question, and each call judges her emotions on the one it connected
+    # with. One passed in is used as it is.
+    retrieval_judge = retrieval_judge or config.retrieval_judge(activity)
     emotions = None
     if emotion_judge is not None:
         emotions = EmotionJudging(
-            emotion_judge, thresholds_of_judge.emotion, settings.emotion.timeout
+            emotion_judge,
+            judge_thresholds(settings.judge, settings.emotion).emotion,
+            settings.emotion.timeout,
         )
 
     retrieval = None
@@ -199,12 +208,12 @@ def build(
                 settings.database_path, embedder, characters.values(), world
             ),
             reranker,
-            thresholds.references,
+            lambda: config.rerank_thresholds.references,
         )
         closers.append(retrieval.close)
         memories = Memories(
             settings.database_path, characters, clock, embedder=embedder, reranker=reranker,
-            min_relevance=thresholds.memories,
+            min_relevance=lambda: config.rerank_thresholds.memories,
         )
     else:
         log.info(
@@ -217,17 +226,10 @@ def build(
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
     engine = ConversationEngine(
-        store, characters, memories, clock, retrieval, settings.history_turns, world
+        store, characters, memories, clock, retrieval, lambda: config.history_turns, world
     )
-    usage = UsageLimiter(settings.database_path, settings.usage_limits, clock)
+    usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
-    # Users' own DashScope keys hear with the deployer's model, or the default one where the
-    # deployer chose Soniox.
-    bailian_model = (
-        settings.bailian_stt_model if settings.stt_provider == "bailian"
-        else DEFAULT_BAILIAN_STT_MODEL
-    )
-    speech = speech or SpeechServices(settings.fish_audio_model, bailian_model)
     own_keys = OwnKeys(store, settings.secret_key, own_llm_service, config, speech)
     calls = Calls(settings, engine, usage, speech, clock, own_keys, store, emotions)
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns

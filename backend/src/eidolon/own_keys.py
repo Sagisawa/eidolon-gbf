@@ -40,7 +40,15 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from eidolon.config import BailianRegion, LLMProtocol, LLMSettings, SttKey, SttProvider
+from eidolon.config import (
+    DEFAULT_FISH_AUDIO_MODEL,
+    BailianRegion,
+    LLMProtocol,
+    LLMSettings,
+    SttKey,
+    SttProvider,
+)
+from eidolon.emotion import EmotionJudging
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
 from eidolon.llm.providers import check_chat_llm, open_llm
 from eidolon.store import OwnKeyRecord, Store
@@ -157,6 +165,10 @@ class KeyCheck(Protocol):
         ...
 
 
+def _no_hold() -> Callable[[], None]:
+    return _nothing
+
+
 @dataclass(frozen=True)
 class DeployerKeys:
     """What the deployer pays for wherever a user brought nothing of their own; None for
@@ -167,6 +179,13 @@ class DeployerKeys:
     stt: SttKey | None = None
     """For whichever speech recognition the deployer chose (`STT_PROVIDER`)."""
     tts: str | None = None
+    tts_model: str = DEFAULT_FISH_AUDIO_MODEL
+    """What Fish Audio speaks with, on whoever's key."""
+    emotions: EmotionJudging | None = None
+    """Judging her emotion during a call, on the deployer's judge model, whoever's keys
+    the call is on; None if it is not judged here (see `call.Calls`)."""
+    hold_memory: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
+    """See `TurnLLMs.hold_memory`."""
 
     def lease(self) -> "DeployerLease":
         """These keys, which never change, for a turn or call."""
@@ -214,6 +233,9 @@ class CallKeys:
     exempt: bool
     release: Callable[[], None] = field(default=_nothing, compare=False)
     """Called once the call has ended, to let go of the deployer's keys it ran on."""
+    tts_model: str = DEFAULT_FISH_AUDIO_MODEL
+    emotions: EmotionJudging | None = None
+    """The deployer's, as the call connected (see `DeployerKeys.emotions`)."""
 
 
 class OwnKeys:
@@ -265,7 +287,10 @@ class OwnKeys:
         except BaseException:
             lease.release()
             raise
-        return CallKeys(llms, stt, tts, own, _exempt(records)["calls"], lease.release)  # pyright: ignore[reportArgumentType]
+        return CallKeys(
+            llms, stt, tts, own, _exempt(records)["calls"], lease.release,  # pyright: ignore[reportArgumentType]
+            deployer.tts_model, deployer.emotions,
+        )
 
     def describe(self, user_id: str) -> dict[Service, dict]:
         """What the user may see of their keys, by service: never more of a key than its
@@ -347,7 +372,7 @@ class OwnKeys:
         record = records.get("llm")
         if record is None:
             assert deployer is not None
-            return TurnLLMs(deployer.chat_llm, deployer.memory_llm)
+            return TurnLLMs(deployer.chat_llm, deployer.memory_llm, deployer.hold_memory)
         assert record.base_url and record.model
         protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
         settings = LLMSettings(record.base_url, self._decrypt(record), record.model, protocol)

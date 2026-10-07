@@ -201,8 +201,8 @@ class Speech(Protocol):
         is for."""
         ...
 
-    def tts(self, api_key: str, voice_id: str, sample_rate: int) -> TTSService:
-        """Speech synthesis for one call, in the character's voice."""
+    def tts(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> TTSService:
+        """Speech synthesis for one call, with `model`, in the character's voice."""
         ...
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
@@ -557,9 +557,9 @@ sends no transcription at all when it heard no words."""
 @dataclass(frozen=True)
 class SpeechServices:
     """Soniox or Alibaba Cloud Model Studio, whichever the key is for, hears the user, the
-    latter with `bailian_model`, users' own keys too; Fish Audio speaks as the character."""
+    latter with `bailian_model`, users' own keys too; Fish Audio speaks as the character,
+    with the model the call is given (the deployer's, as it connected)."""
 
-    fish_model: str
     bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
@@ -580,11 +580,11 @@ class SpeechServices:
         )
         return Hearing(soniox, SONIOX_FOLLOW_ON_TIMEOUT)
 
-    def tts(self, api_key: str, voice_id: str, sample_rate: int) -> TTSService:
+    def tts(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> TTSService:
         return FishTTS(
             api_key=api_key,
             sample_rate=sample_rate,
-            settings=FishAudioTTSService.Settings(voice=voice_id, model=self.fish_model),
+            settings=FishAudioTTSService.Settings(voice=voice_id, model=model),
         )
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
@@ -648,17 +648,20 @@ class Calls:
         self._clock = clock
         self._own_keys = own_keys
         self._store = store
-        limits = settings.usage_limits
-        self._limits = CallLimits(
-            timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
-            limits.turns_per_call,
-        )
         self._webrtc = SmallWebRTCRequestHandler(
             ice_servers=[RTCIceServer(**server) for server in settings.ice_servers]
         )
         self._owners: dict[str, str] = {}  # peer connection id → the user it belongs to
         self._live: set[_LiveCall] = set()
         self._watch: asyncio.Task | None = None  # hangs up banned and deleted users' calls
+
+    def _limits(self) -> CallLimits:
+        """A call's own limits, as it connects now: those in effect then hold to its end."""
+        limits = self._usage.limits
+        return CallLimits(
+            timedelta(minutes=limits.call_minutes) if limits.call_minutes else None,
+            limits.turns_per_call,
+        )
 
     def ice_servers(self, user_id: str) -> dict:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
@@ -671,7 +674,7 @@ class Calls:
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
-        duration = self._limits.duration
+        duration = self._limits().duration
         return {
             "iceServers": servers,
             "maxCallSeconds": None if duration is None else int(duration.total_seconds()),
@@ -706,7 +709,7 @@ class Calls:
         offer: SessionDescription,
         keys: CallKeys,
     ) -> dict:
-        outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits)
+        outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits())
         call = Call(
             conversation, character, keys.llms, options.muted, options.quality,
             options.device_timezone,
@@ -722,7 +725,8 @@ class Calls:
                 self._owners.pop(connection.pc_id, None)
 
             live = _LiveCall(
-                connection, call, self._engine, self._speech, keys, outcome, self._emotions
+                connection, call, self._engine, self._speech, keys, outcome,
+                keys.emotions or self._emotions,
             )
             self._live.add(live)
             def done(live: _LiveCall) -> None:
@@ -840,7 +844,7 @@ class _LiveCall:
         stt = hearing.stt
         self._stt_provider: SttProvider = keys.stt.provider
         self._turns = CallTurns(engine, call, outcome, hearing.follow_on_timeout, emotions)
-        tts = speech.tts(keys.tts, call.character.voice_id, sample_rate)
+        tts = speech.tts(keys.tts, keys.tts_model, call.character.voice_id, sample_rate)
         own_services: dict[FrameProcessor, Service] = {
             processor: service
             for processor, service in ((stt, "stt"), (tts, "tts"))
