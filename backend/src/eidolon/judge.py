@@ -91,6 +91,14 @@ class JudgeError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class JudgeReply:
+    """The judge model's answers, and how many tokens of input it read, if it said."""
+
+    answers: dict[str, Any]
+    input_tokens: int | None
+
+
 class JudgeModel(Protocol):
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
         """The answer to each of `questions` about `state`, by the question's key, all in
@@ -104,10 +112,11 @@ def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
 
 
-def _answers(answers: Any, service: str, res: httpx.Response) -> dict[str, Any]:
+def _reply(answers: Any, usage: Any, service: str, res: httpx.Response) -> JudgeReply:
     if not isinstance(answers, dict) or not all(isinstance(a, dict) for a in answers.values()):
         raise JudgeError(f"{service} 的返回无法解析（{len(res.text)} 字）")
-    return answers
+    tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+    return JudgeReply(answers, tokens if isinstance(tokens, int) else None)
 
 
 class JevJudge:
@@ -125,6 +134,10 @@ class JevJudge:
         self._client = client or _client()
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        return (await self.reply(state, questions)).answers
+
+    async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
+        """As `ask`, with the input tokens Jev read."""
         body = {"model": self._model, "state": state, "questions": questions}
         try:
             res = await self._client.post(
@@ -135,10 +148,11 @@ class JevJudge:
         if res.status_code >= 400:
             raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
         try:
-            answers = res.json()["answers"]
+            body = res.json()
+            answers = body["answers"]
         except (ValueError, KeyError, TypeError) as e:
             raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
-        return _answers(answers, "Jev", res)
+        return _reply(answers, body.get("usage"), "Jev", res)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -167,6 +181,10 @@ class CloudflareJudge:
         self._client = client or _client()
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        return (await self.reply(state, questions)).answers
+
+    async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
+        """As `ask`, with the input tokens Workers AI counted (after any truncating)."""
         body = {"model": self._model, "state": state, "questions": questions}
         try:
             res = await self._client.post(
@@ -188,10 +206,9 @@ class CloudflareJudge:
         if res.status_code >= 400 or envelope.get("success") is False:
             raise _refused(res.status_code, envelope.get("errors"))
         result = envelope.get("result")
-        return _answers(
-            result.get("answers") if isinstance(result, dict) else None,
-            "Cloudflare Workers AI", res,
-        )
+        if not isinstance(result, dict):
+            result = {}
+        return _reply(result.get("answers"), result.get("usage"), "Cloudflare Workers AI", res)
 
     async def check(self) -> None:
         """Tries the token and the account id with the least of requests. Raises

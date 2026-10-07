@@ -85,9 +85,17 @@ class EmotionJudging:
         except JudgeError:
             log.warning("emotion judge failed; the segment goes unjudged", exc_info=True)
             return None
-        emotion: Emotion = _likeliest(answer.emotions, self.min_probability, "calm")
-        nod: Nod | None = _likeliest(answer.nods, self.min_probability, None)
+        emotion, nod = decide(answer, self.min_probability)
         return {"type": "emotion", "reply": reply, "segment": segment, "emotion": emotion, "nod": nod}
+
+
+def decide(answer: EmotionAnswer, min_probability: float) -> tuple[Emotion, Nod | None]:
+    """The emotion and the nod `answer` says, each its likeliest option unless that is
+    below `min_probability`: then she is calm, and neither nods nor shakes her head."""
+    return (
+        _likeliest(answer.emotions, min_probability, "calm"),
+        _likeliest(answer.nods, min_probability, None),
+    )
 
 
 def _likeliest(probabilities: Mapping[T, float], min_probability: float, otherwise: T) -> T:

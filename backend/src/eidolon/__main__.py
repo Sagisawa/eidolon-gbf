@@ -45,6 +45,9 @@
                                      the text in the database and the world setting
     eidolon eval rerank [--model M]  score the reranker on the calibration set, to set its
                                      thresholds
+    eidolon eval judge [--provider P] [--model M] [--json F]
+                                     ask the judge model the judge eval set's turns and
+                                     segments, to set its thresholds and compare models
 """
 
 import argparse
@@ -95,6 +98,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_backup(args))
     if args.command == "reembed":
         return asyncio.run(_reembed(args))
+    if args.command == "eval" and args.action == "judge":
+        return asyncio.run(_eval_judge(args))
     if args.command == "eval":
         return asyncio.run(_eval_rerank(args))
 
@@ -614,6 +619,53 @@ async def _eval_rerank(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _eval_judge(args: argparse.Namespace) -> int:
+    import json
+
+    from eidolon.characters import load_characters
+    from eidolon.config import CLOUDFLARE_JUDGE_MODELS, CloudflareJudgeSettings, judge_from_env
+    from eidolon.judge import judge_thresholds_for, open_judge
+    from eidolon.judge_eval import (
+        JudgeEvalError,
+        evaluate,
+        load_judge_eval,
+        report,
+        summarize,
+    )
+
+    try:
+        characters = load_characters(args.characters or characters_path_from_env())
+        judge_eval = load_judge_eval(args.file, characters)
+        judge = judge_from_env(args.provider)
+        if judge is None:
+            raise RuntimeError("环境变量 JEV_API_KEY 未设置（判断模型需要）")
+        if args.model:
+            if isinstance(judge, CloudflareJudgeSettings) and args.model not in CLOUDFLARE_JUDGE_MODELS:
+                raise RuntimeError(
+                    f"Cloudflare 的判断模型只能是 {'、'.join(CLOUDFLARE_JUDGE_MODELS)}，而不是 {args.model}"
+                )
+            judge = replace(judge, model=args.model)
+    except (RuntimeError, JudgeEvalError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    logging.basicConfig(level=logging.WARNING, format="注意：%(message)s")
+    thresholds = judge_thresholds_for(judge.model)
+    model = open_judge(judge)
+    try:
+        results = await evaluate(judge_eval, characters, model, thresholds)
+    finally:
+        await model.aclose()
+    summary = summarize(results, judge.model, thresholds)
+    print(report(results, summary))
+    if args.json:
+        args.json.write_text(
+            json.dumps(results.to_json(summary), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"\n结果已写入 {args.json}")
+    return 0
+
+
 def _list_users(store: Store, _: argparse.Namespace) -> None:
     for user in store.list_users():
         methods = "、".join(
@@ -796,7 +848,7 @@ def _parser() -> argparse.ArgumentParser:
             "不要放进仓库",
         )
 
-    evaluation = commands.add_parser("eval", help="评估检索效果").add_subparsers(
+    evaluation = commands.add_parser("eval", help="评估检索和判断效果").add_subparsers(
         dest="action", required=True, metavar="操作"
     )
     rerank = evaluation.add_parser(
@@ -817,6 +869,33 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
     )
+
+    judge = evaluation.add_parser(
+        "judge",
+        help="用判断模型的 eval 集逐条问判断模型，打印准确率和概率分布，用来定阈值、比较各家模型",
+    )
+    judge.add_argument(
+        "--provider",
+        choices=["jev", "cloudflare"],
+        help="判断模型的服务商（默认取环境变量 JUDGE_PROVIDER），方便同一份配置轮流跑",
+    )
+    judge.add_argument(
+        "--model",
+        help="判断模型（默认取环境变量 JEV_MODEL 或 CLOUDFLARE_JUDGE_MODEL），"
+        "例如 typesafe/jev-1.13、clef、clef-flash",
+    )
+    judge.add_argument(
+        "--file",
+        type=Path,
+        default=Path("eval/judge.toml"),
+        help="判断模型的 eval 集（默认 eval/judge.toml）",
+    )
+    judge.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
+    judge.add_argument("--json", type=Path, help="把逐条结果和汇总写成 JSON 文件，方便对比")
 
     commands.add_parser(
         "backup",

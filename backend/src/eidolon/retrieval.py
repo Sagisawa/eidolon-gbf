@@ -419,6 +419,15 @@ _ABOUT_PRODUCER_QUESTION = {
         "false": "只是打招呼、说偶像自己的事、问原作剧情或角色设定，与制作人自己的生活无关",
     },
 }
+@dataclass(frozen=True)
+class RetrievalAnswer:
+    """The judge model's probability of yes to each of its three questions."""
+
+    needs_retrieval: float
+    recall: float
+    about_producer: float
+
+
 class ModelRetrievalJudge:
     """The judge model, asked three yes-or-no questions (`noul`) about the turn in one
     request: whether it needs looking anything up, whether it asks how a past episode
@@ -434,6 +443,12 @@ class ModelRetrievalJudge:
         self.thresholds = thresholds
 
     async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
+        return self.decide(await self.ask(character, history, text))
+
+    async def ask(
+        self, character: Character, history: Sequence[Message], text: str
+    ) -> RetrievalAnswer:
+        """How likely the judge model finds yes to each question about `text`."""
         recent = []
         for message in history[-JUDGE_HISTORY:]:
             if message.role == "user":
@@ -453,13 +468,20 @@ class ModelRetrievalJudge:
             },
         )
         try:
-            retrieve = float(answers["needs_retrieval"]["noul"])
-            recall = float(answers["recall"]["noul"])
-            about_producer = float(answers["about_producer"]["noul"])
+            return RetrievalAnswer(
+                float(answers["needs_retrieval"]["noul"]),
+                float(answers["recall"]["noul"]),
+                float(answers["about_producer"]["noul"]),
+            )
         except (ValueError, KeyError, TypeError) as e:
             raise JudgeError("判断模型的返回无法解析（缺少回答）") from e
-        if recall >= self.thresholds.recall:
+
+    def decide(self, answer: RetrievalAnswer) -> Need:
+        """What a turn so answered needs: recall first, then references, then memories."""
+        if answer.recall >= self.thresholds.recall:
             return "recall"
-        if retrieve >= self.thresholds.needs_retrieval:
+        if answer.needs_retrieval >= self.thresholds.needs_retrieval:
             return "references"
-        return "memories" if about_producer >= self.thresholds.about_producer else "nothing"
+        if answer.about_producer >= self.thresholds.about_producer:
+            return "memories"
+        return "nothing"

@@ -232,7 +232,7 @@ class Settings:
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
-            judge=_judge_from_env(),
+            judge=judge_from_env(),
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
@@ -527,10 +527,11 @@ JudgeSettings = JevSettings | CloudflareJudgeSettings
 """The judge model chosen, and how to reach it."""
 
 
-def _judge_from_env() -> JudgeSettings | None:
-    """The judge model `JUDGE_PROVIDER` chooses: Cloudflare's needs both its settings, and
-    the `JEV_*` ones are then ignored; Jev, the default, is off without its key."""
-    provider = os.environ.get("JUDGE_PROVIDER") or "jev"
+def judge_from_env(provider: str | None = None) -> JudgeSettings | None:
+    """The judge model `provider`, or else `JUDGE_PROVIDER`, chooses: Cloudflare's needs
+    both its settings, and the `JEV_*` ones are then ignored; Jev, the default, is off
+    without its key."""
+    provider = provider or os.environ.get("JUDGE_PROVIDER") or "jev"
     if provider not in JUDGE_PROVIDERS:
         raise RuntimeError(
             f"环境变量 JUDGE_PROVIDER 只能是 {'、'.join(JUDGE_PROVIDERS)}，而不是 {provider}"
