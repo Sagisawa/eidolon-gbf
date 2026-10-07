@@ -92,7 +92,6 @@ from eidolon.engine import ConversationEngine, TurnDone, UserSaid
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
     CallKeys,
-    CallsUnavailable,
     OwnKeyRejected,
     OwnKeys,
     Service,
