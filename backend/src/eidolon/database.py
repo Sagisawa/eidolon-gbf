@@ -5,7 +5,9 @@ Every connection to it is opened by `connect`, the same way. Each module that ke
 tables in it opens its own connection and creates its own tables; which tables hold a
 user's data, and which rows of them are the user's, is listed here (`USER_DATA`), and so
 is every other table (`NOT_USER_DATA`), so a table cannot be added without being one or
-the other.
+the other. A table of a user's data may instead be kept when the user is deleted, but no
+longer say whose it is (`ANONYMIZED_USER_DATA`), as activity records are, so that the
+numbers they add up to do not change.
 
 Deleting a user (`delete_user_data`) is for good (ADR-0006): what is deleted is
 overwritten, not just freed, and the write-ahead log is truncated, so none of it is left
@@ -13,6 +15,7 @@ in the files. Deleting a memory, or clearing them all, overwrites it in the data
 but earlier frames of the write-ahead log may still hold it until a later checkpoint or
 the user is deleted."""
 
+import secrets
 import sqlite3
 from pathlib import Path
 
@@ -23,6 +26,7 @@ USER_DATA = [
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("usage", "user_id = ?"),
+    ("user_limits", "user_id = ?"),
     ("sessions", "user_id = ?"),
     ("sign_in_methods", "user_id = ?"),
     ("own_keys", "user_id = ?"),
@@ -31,10 +35,25 @@ USER_DATA = [
 """Every table holding a user's data, and which rows are theirs, in an order that deletes
 what refers to a row before the row."""
 
+ANONYMIZED_USER_DATA = [
+    ("activity_records", "user_id = NULL, anonymous_id = :anonymous", "user_id = :user"),
+]
+"""Every table holding a user's data that is kept when the user is deleted: how its rows
+of theirs are made no one's, and which rows they are. `:anonymous` is an id made up anew
+for each deleted user, the same for all their rows, so that they still count as one."""
+
 NOT_USER_DATA = frozenset(
-    {"episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts"}
+    {
+        "episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts",
+        "service_calls", "config_overrides", "price_overrides", "price_catalog",
+        "price_catalog_hosts", "price_catalog_state", "banned_identities",
+    }
 )
-"""Every other table: the story corpus and the embedded text set."""
+"""Every other table: the story corpus, the embedded text set, the calls to outside
+services, which say whose turn they were made in only through its activity record, the
+configuration and the prices the admin console overrides, the price catalogs fetched
+online, and the ban list, hashes of the identities banned users since deleted signed in
+with, which say whose they were to no one."""
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -53,12 +72,16 @@ def connect(path: Path) -> sqlite3.Connection:
 
 def delete_user_data(db: sqlite3.Connection, user_id: str) -> None:
     """Delete the user and everything of theirs, for good, all at once, through `db`, which
-    the caller keeps anyone else from using meanwhile. A table not created yet (by a module
-    this process has not opened) is passed over."""
+    the caller keeps anyone else from using meanwhile, but what is only made no one's. A
+    table not created yet (by a module this process has not opened) is passed over."""
     with db:
         tables = {
             name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
+        names = {"user": user_id, "anonymous": secrets.token_hex(16)}
+        for table, anonymize, where in ANONYMIZED_USER_DATA:
+            if table in tables:
+                db.execute(f"UPDATE {table} SET {anonymize} WHERE {where}", names)
         for table, where in USER_DATA:
             if table in tables:
                 db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))

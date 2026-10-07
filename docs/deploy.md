@@ -40,7 +40,8 @@ cp .env.example .env
 - `EIDOLON_PRIVATE_IP`：只有公网地址不在网卡上时才填，填网卡上的内网地址。在服务器上执行 `ip -4 addr`：能看到公网地址就不用填（Vultr、DigitalOcean、搬瓦工等大多如此）；只能看到 `10.`、`172.`、`192.168.` 开头的内网地址时（AWS、阿里云、腾讯云等 1:1 NAT 的云主机），填这个内网地址。这种环境还没有实际验证过，语音连不上时请看「排障」。
 - `EIDOLON_TURN_SECRET`：coturn 和后端共用的密钥，用 `openssl rand -hex 32` 生成。后端给每位用户签发 24 小时后过期的 TURN 凭据，这个密钥本身不会发给浏览器。
 - `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`，`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`：用户登录用的 OAuth 应用，至少配一家，见下文「配置 OAuth 应用」。只配了一家时，登录页只显示那一种。
-- `EIDOLON_SECRET_KEY`：加密用户自带 API 密钥用的密钥，用 `openssl rand -hex 32` 生成。不填就不开放自带密钥。填了之后**不要更换**：换了以后已保存的自带密钥都无法解密，用户要重新填写。
+- `EIDOLON_SECRET_KEY`：加密用户自带 API 密钥和后台里保存的 key 用的密钥，用 `openssl rand -hex 32` 生成。不填就不开放自带密钥，后台里的 key 也只能看不能改。填了之后**不要更换**：换了以后已保存的自带密钥都无法解密，用户要重新填写；后台里保存的 key 也解不开，那几项回退到 `.env` 的值（见下文「后台」）；封禁名单是用它派生的密钥做的哈希，也对不上了，被删除的封禁用户能重新注册。
+- `EIDOLON_ADMINS`、`EIDOLON_CONTACT`（可选）：管理者名单和给被封禁的用户看的联系方式，见下文「后台」。不填管理者名单时没有后台，一切照旧用 `.env` 和命令行。
 - **不要**填 `EIDOLON_DEV_LOGIN`：它让任何人不经登录就能冒充任何用户，只能在本地开发时打开。配置了 `EIDOLON_DOMAIN` 时后端检测到它会拒绝启动。
 
 `EIDOLON_ICE_SERVERS`、`EIDOLON_TURN_URLS` 不用填：生产配置会自动用本机的 coturn。
@@ -330,13 +331,87 @@ EIDOLON_STAND_ASSETS_URL=http://localhost:8765
 2. 「客户端」（旧称「凭据」）里创建 OAuth 客户端 ID，类型选「Web 应用」，已获授权的重定向 URI 填上表的地址。
 3. 把客户端 ID 和客户端密钥填进 `.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`。邮箱没有验证的 Google 账号不能登录。
 
-改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址就是登录页：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见 README 的「登录与用户」和「自带密钥」；封禁、查看用量等管理命令也在那里。
+改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址就是登录页：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见 README 的「登录与用户」和「自带密钥」；封禁、查看用量等管理命令也在那里，同样的事也可以在后台里做（见下一节）。
 
 > [!NOTE]
 > 对公众开放意味着陌生人的对话和记忆会存在这台服务器上，并交给你配置的第三方服务处理（见网站的隐私政策页）。几点注意：
 > - 日志里不记对话原文和记忆原文；备份（见下文「备份」）里有，所以备份是加密的，私钥由你离线保存。
 > - 用户可以在设置页删除自己的全部数据，线上立刻彻底删除；已经进入备份的副本最多 30 天后随备份过期清除。
 > - 公开部署用 Gemini 向量化时要开计费，见上文「选择向量化服务」。
+
+## 后台
+
+后台是同一个网站上的 `/admin`，只有管理者能进入（ADR-0013）：看板（各项服务是否正常、用量、估算的花费）、配置（模型、key、限额、单价）和用户（搜索、封禁、单独限额、删除）。管理者在后台里看不到任何用户的对话、记忆和制作人档案。其他人看不到入口，访问 `/admin` 和后台接口都得到 404。
+
+### 开启后台
+
+1. 用你自己的 Google 或 GitHub 身份在网站上登录一次。
+2. 在服务器上列出用户，找到自己。每个登录方式后面括号里的 `github:12345`、`google:109876543210` 就是它的标识：
+
+   ```sh
+   docker compose -f docker-compose.prod.yml exec backend eidolon user list
+   ```
+
+3. 填进 `.env` 的 `EIDOLON_ADMINS`，多个用逗号分隔。按登录方式认定，不按邮箱；一位用户绑定的登录方式里有一个在名单里就算管理者。顺便可以填 `EIDOLON_CONTACT`（例如一个邮箱地址）：被封禁的用户登录时，「已被封禁」后面附上它，隐私政策的末尾也显示它。
+
+   ```sh
+   EIDOLON_ADMINS=github:12345,google:109876543210
+   EIDOLON_CONTACT=admin@example.com
+   ```
+
+4. `docker compose -f docker-compose.prod.yml up -d` 重建后端，让它读到新的 `.env`。
+5. 刷新设置页，「删除我的全部数据」上方多出「后台」一节，点「进入后台」。
+
+管理者名单只能在 `.env` 里改，后台里不能增减。所有管理者的权限都一样。后台不能封禁或删除管理者（包括自己）；命令行可以封禁管理者，被封禁的管理者也进不了后台（命令行没有删除用户的命令）。
+
+### 后台和 `.env` 的关系
+
+规则只有一条：**后台里改过的项优先于 `.env`**。
+
+- 后台里改的配置存进数据库，不用重启：之后的新回合和新通话就用新值。进行中的通话不受影响，语音合成、语音识别、通话中判断情绪的模型和单次通话的上限都按接通时的配置走到挂断；检索用的判断模型、重排阈值和历史回合数按回合取当时的值，通话里的下一个回合就会用上。
+- 保存前会先试调一次（扮演角色和提炼记忆的 LLM 检查流式输出和工具调用，语音合成和语音识别做不花钱的 key 检查，判断模型发一个最小的请求），试不通就不保存，并显示原因。限额这类数字不需要试调。
+- 每一项旁边同时显示 `.env` 的值和当前生效的值；key 只显示末 4 位。每一项都可以「恢复成 .env 的值」。
+- 一项被后台改过之后，你再改 `.env` 里的同一项并重建容器，**不会生效**。启动日志里会列出生效中的覆盖项：
+
+  ```sh
+  docker compose -f docker-compose.prod.yml logs backend | grep "config overrides"
+  ```
+
+  想让 `.env` 的值生效，在后台把这一项恢复成 `.env` 的值。
+- 重启时每一项覆盖都会再试调一次。试不通（例如那个 key 已经在服务商那边吊销了，或者换过 `EIDOLON_SECRET_KEY` 解不开了）时服务照常启动，这一项改用 `.env` 的值，日志里有一行以 `WARNING: the admin console's override of …` 开头、写明原因的警告，后台把它醒目地标为「覆盖已失效」。覆盖本身保留，直到你在后台修好或恢复它。
+- 判断模型的回忆阈值、情绪阈值和重排的阈值是针对设置时选用的模型设的。在后台换判断模型时，两个判断阈值的覆盖随之清掉；在 `.env` 里换了判断模型或重排模型时，覆盖保留但不生效（回到新模型的默认值），后台标为「覆盖已失效」并说明是为哪个模型设的，启动日志也有一行警告。
+- 没有设 `EIDOLON_SECRET_KEY` 时，key 不能加密保存，后台里的各种 key 只能看不能改，其他项照常可以改。
+
+只能在 `.env` 里改、后台里只显示的项：管理者名单、`EIDOLON_SECRET_KEY`、OAuth、域名、WebRTC/TURN、备份、各种路径，以及向量化的服务和模型（换了要运行 `eidolon reembed` 全部重新计算，见上文）。改完照常 `up -d`。
+
+### 后台用不了时
+
+后台和网站是同一个后端，网站能打开、你能登录，后台就能用。万一进不去（例如登录方式出了问题），用户的管理照样可以在服务器上用命令行做，和后台走的是同一段代码：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend eidolon user list                    # 用户、登录方式的标识、是否封禁和备注
+docker compose -f docker-compose.prod.yml exec backend eidolon user ban <用户 ID> --note "刷量"  # 备注只有管理者看得到
+docker compose -f docker-compose.prod.yml exec backend eidolon user unban <用户 ID>
+docker compose -f docker-compose.prod.yml exec backend eidolon user usage <用户 ID>         # 最近 24 小时；7 天、30 天的在后台看
+```
+
+命令行不能改配置。要在进不了后台时撤掉后台的全部配置覆盖、回到 `.env`，删掉数据库里的覆盖再重启后端：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend python -c "import os, sqlite3; db = sqlite3.connect(os.environ['EIDOLON_DATABASE_PATH']); db.execute('DELETE FROM config_overrides'); db.commit()"
+docker compose -f docker-compose.prod.yml restart backend
+```
+
+### 运行记录和封禁名单
+
+- 看板的数字来自运行记录：每个回合、每次通话和其中每一次服务调用各一条，记结果、用了哪家服务和模型、是否自带密钥、用量和延迟，不含任何对话内容。满 90 天自动删除。删除用户后，他的运行记录不再关联到任何人，看板上的历史数字不变。
+- 后台删除用户和用户自己删除完全一样。被封禁的用户被删除前，他每个登录方式的标识会做成哈希存进封禁名单，以后用同一身份登录或绑定都被拒绝；名单不会过期，也没法再对应回人，所以「被封禁后删除」的用户不能解封。哈希的密钥由 `EIDOLON_SECRET_KEY` 派生（没设时用普通的 SHA-256），**更换 `EIDOLON_SECRET_KEY`（包括从没有到有）之后名单里的哈希就对不上了**，这些人能重新注册。
+
+### 花费估算用的单价
+
+后台看板按单价估算部署者的 key 花了多少钱。按 tokens 计费的模型，单价来自两份公开的价格目录：后端启动时，以及之后每过一天，会访问 [models.dev](https://models.dev/api.json) 和 [OpenRouter 的模型列表](https://openrouter.ai/api/v1/models) 各拉取一次。遇到没有单价的模型时，最多每 6 小时补拉一次。这些请求只读取公开数据，不带任何用户数据和密钥。
+
+服务器访问不了这两个地址时，看板改用代码里的预设单价估算，预设整理于 2026-10-07。后台「配置」页的单价一节会显示拉取失败的原因，也可以在那里点「立即从目录刷新」重试。按字节计费的语音合成、按秒计费的语音识别，以及目录里没有的模型，始终按预设估算。后台设定的单价优先于目录和预设。
 
 ## 升级
 
@@ -360,7 +435,7 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
 
 数据都在持久化的位置，升级不会丢失：
 
-- 数据库（用户及其登录方式、会话、对话、记忆、制作人档案、加密后的自带密钥、最近 24 小时的用量、剧情库）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
+- 数据库（用户及其登录方式、会话、对话、记忆、制作人档案、加密后的自带密钥、最近 24 小时的用量、剧情库，以及后台的配置覆盖、单价、单独限额、封禁名单和最近 90 天的运行记录）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
 - 证书在 Docker 卷 `caddy-data` 里；
 - 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步和备份的日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
 
@@ -384,7 +459,7 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
    ```
 
    `age1` 开头的公钥填进服务器的 `.env`；`eidolon-backup.key` 是私钥，**只离线保存**（密码管理器、加密的 U 盘），不要放到服务器上：服务器被攻破，攻击者也解不开历史备份。**私钥丢了，所有备份就都解不开了。**
-4. **另外保存 `EIDOLON_SECRET_KEY`**（和私钥放在一起）：用户的自带密钥是用它加密的，恢复后没有它就解不开。
+4. **另外保存 `EIDOLON_SECRET_KEY`**（和私钥放在一起）：用户的自带密钥和后台里保存的 key 是用它加密的，封禁名单也靠它，恢复后没有它就解不开、对不上。
 5. **填 `.env`**，然后 `docker compose -f docker-compose.prod.yml up -d` 让后端读到：
 
    ```sh
@@ -476,4 +551,6 @@ grep '结束：' logs/db-backup.log | tail
   - 日志里没有任何来自浏览器的请求：3478 端口（TCP 和 UDP）没有放行。
   - 有 `denied` 或 `Forbidden IP`：`EIDOLON_PUBLIC_IP`（或 `EIDOLON_PRIVATE_IP`）和服务器网卡上的地址对不上，见上方「部署」。
   - 有 `check_stun_auth: Cannot find credentials of user`：`.env` 里的 `EIDOLON_TURN_SECRET` 改过但只重启了其中一个服务，执行一次 `docker compose -f docker-compose.prod.yml up -d` 让两边一致。
+- **管理者打开 `/admin` 得到 404，设置页也没有「进入后台」**：`EIDOLON_ADMINS` 里的标识要和 `eidolon user list` 括号里的完全一样（`github:` 或 `google:` 加数字，不是邮箱），改完要 `docker compose -f docker-compose.prod.yml up -d` 重建后端，只 `restart` 读不到新的 `.env`。
+- **改了 `.env` 却没生效**：这一项可能被后台覆盖了，见「后台和 `.env` 的关系」。
 - **只放行 443 端口的网络里语音连不上**：目前的已知限制。TURN 走 443 需要和 Caddy 分用这个端口，还没有做。

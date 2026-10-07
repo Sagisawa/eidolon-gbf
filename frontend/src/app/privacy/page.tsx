@@ -4,6 +4,7 @@ import { VStack } from "@astryxdesign/core/VStack";
 
 import { LegalFooter } from "@/components/LegalFooter";
 import { PageShell } from "@/components/PageShell";
+import { PrivacyContact } from "@/components/PrivacyContact";
 import { SectionHeading, SubpageHeader } from "@/components/SubpageHeader";
 import { copy } from "@/i18n";
 
@@ -37,6 +38,7 @@ export default function PrivacyPage() {
             ))}
           </VStack>
         ))}
+        <PrivacyContact />
       </VStack>
     </PageShell>
   );

@@ -1,8 +1,8 @@
 """LLM providers: a single streaming chat interface with tool calling, one implementation
 per protocol."""
 
-from collections.abc import AsyncIterator, Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Callable, Sequence
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 
@@ -49,6 +49,14 @@ class LLMError(RuntimeError):
     cannot read."""
 
 
+def _no_hold() -> Callable[[], None]:
+    return _let_go
+
+
+def _let_go() -> None:
+    pass
+
+
 @dataclass(frozen=True)
 class TurnLLMs:
     """The models one turn runs on: `chat` plays the character, `memory` writes down what
@@ -56,3 +64,7 @@ class TurnLLMs:
 
     chat: ChatLLM
     memory: ChatLLM
+    hold_memory: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
+    """Holds on to `memory` past the end of the turn, for writing down after it, until
+    the function it returns is called: the deployer's model may be replaced meanwhile
+    (see `service_clients.Swappable`)."""

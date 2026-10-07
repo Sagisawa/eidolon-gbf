@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 import eidolon.assembly
+import eidolon.service_clients
 from eidolon.assembly import Backend, build
 from eidolon.config import CloudflareJudgeSettings, LLMSettings, Settings
 from eidolon.emotion import SaidSegment, SegmentToJudge
@@ -122,7 +123,7 @@ async def test_cloudflare_chosen_judges_both_what_turns_need_and_her_emotions(
 ):
     requests: list[dict] = []
     monkeypatch.setattr(
-        eidolon.assembly, "open_judge",
+        eidolon.service_clients, "open_judge",
         lambda s: open_judge(s, client(answering_every_question(requests))),
     )
     services = Services()
@@ -134,9 +135,11 @@ async def test_cloudflare_chosen_judges_both_what_turns_need_and_her_emotions(
     backends.append(backend)
 
     await tell_mano(backend, "早上好")
-    assert backend.emotions is not None
+    lease = backend.config.lease()  # as a call takes it, connecting
+    assert lease.keys.emotions is not None
     said = SegmentToJudge(backend.characters["mano"], "早上好", [], SaidSegment("おはよう！", "早上好！"))
-    await backend.emotions.message(1, 0, said)
+    await lease.keys.emotions.message(1, 0, said)
+    lease.release()
 
     assert [(r["url"], set(r["questions"])) for r in requests] == [
         (URL, {"needs_retrieval", "recall", "about_producer"}), (URL, {"emotion", "nod"})

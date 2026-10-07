@@ -2,13 +2,14 @@
 
 import json
 import math
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from eidolon.assembly import Backend
@@ -21,14 +22,19 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character
-from eidolon.engine import TurnFailed
 from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
 from eidolon.account_api import add_account_routes
+from eidolon.admin_api import add_admin_routes
+from eidolon.dashboard import add_dashboard_routes
+from eidolon.admin_users_api import add_admin_user_routes
+from eidolon.admin_config_api import add_admin_config_routes
+from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
+from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 
 
@@ -120,6 +126,7 @@ def create_app(backend: Backend) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await backend.start()
         yield
         await backend.aclose()
 
@@ -129,7 +136,10 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.exception_handler(OverLimit)
     async def over_limit(_: Request, e: OverLimit) -> JSONResponse:
-        """Refused for now, with when the user can go on (also as `Retry-After`)."""
+        """Refused for now, with when the user can go on (also as `Retry-After`); or, set
+        to their own keys only, with no time to wait for."""
+        if e.retry_at is None:
+            return JSONResponse({"detail": str(e), "retry_at": None}, status_code=429)
         wait = max(1, math.ceil((e.retry_at - e.now).total_seconds()))
         return JSONResponse(
             {"detail": str(e), "retry_at": e.retry_at.isoformat()},
@@ -166,6 +176,11 @@ def create_app(backend: Backend) -> FastAPI:
         return {"ok": True}
 
     add_account_routes(app, backend)
+    add_admin_routes(app, backend)
+    add_dashboard_routes(app, backend)
+    add_admin_user_routes(app, backend)
+    add_admin_config_routes(app, backend)
+    add_admin_price_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
@@ -310,24 +325,42 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        keys = own_keys.for_turn(user_id)
-        use = usage.take(user_id, "turn", exempt=keys.exempt)
+        outcome = TurnOutcome(
+            usage, backend.activity, own_keys, user_id, conversation.character_id,
+            (backend.config.chat_llm, backend.config.memory_llm),
+        )
 
         async def events() -> AsyncIterator[str]:
-            async for event in engine.turn(conversation, body.text, keys.llms, device_timezone):
-                if isinstance(event, SegmentComplete | SpeechDelta):
-                    continue
-                if isinstance(event, TurnFailed):
-                    use.give_back()
-                yield _sse(asdict(event))
+            with outcome.running():
+                turn = engine.turn(conversation, body.text, outcome.llms, device_timezone)
+                async for event in turn:
+                    outcome.see(event)
+                    if isinstance(event, SegmentComplete | SpeechDelta):
+                        continue
+                    yield _sse(asdict(event))
 
-        return StreamingResponse(
-            events(),
+        return _TurnResponse(events(), outcome.end)
+
+    return app
+
+
+class _TurnResponse(StreamingResponse):
+    """A text turn's events, `end` called once they are sent or the page is gone, even
+    gone before they began, when the stream of them never runs."""
+
+    def __init__(self, events: AsyncIterator[str], end: Callable[[], None]) -> None:
+        super().__init__(
+            events,
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+        self._end = end
 
-    return app
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._end()
 
 
 def _sse(payload: dict) -> str:

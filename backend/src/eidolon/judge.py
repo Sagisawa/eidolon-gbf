@@ -15,6 +15,7 @@ from typing import Any, Literal, Protocol
 
 import httpx
 
+from eidolon.billing import bill
 from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JudgeSettings
 
 log = logging.getLogger(__name__)
@@ -147,7 +148,9 @@ class JevJudge:
         self._client = client or _client()
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
-        return (await self.reply(state, questions)).answers
+        reply = await self.reply(state, questions)
+        bill("tokens", reply.input_tokens)
+        return reply.answers
 
     async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
         """As `ask`, with the input tokens Jev read."""
@@ -194,7 +197,9 @@ class CloudflareJudge:
         self._client = client or _client()
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
-        return (await self.reply(state, questions)).answers
+        reply = await self.reply(state, questions)
+        bill("tokens", reply.input_tokens)
+        return reply.answers
 
     async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
         """As `ask`, with the input tokens Workers AI counted (after any truncating)."""
@@ -287,6 +292,19 @@ def open_judge(
     if isinstance(settings, CloudflareJudgeSettings):
         return CloudflareJudge(settings.api_token, settings.account_id, settings.model, client)
     return JevJudge(settings.api_key, settings.model, settings.base_url, client)
+
+
+async def try_judge_model(model: JudgeModel) -> None:
+    """Try the judge model before the admin console keeps it: Cloudflare's credentials as
+    the server starts tries them (`CloudflareJudge.check`), any other by asking it the
+    least of questions. Raises JudgeError saying why it does not work."""
+    if isinstance(model, CloudflareJudge):
+        try:
+            await model.check()
+        except RuntimeError as e:
+            raise JudgeError(str(e)) from None
+        return
+    await model.ask({"测试": "保存前试调"}, {"check": _CHECK_QUESTION})
 
 
 async def check_judge(

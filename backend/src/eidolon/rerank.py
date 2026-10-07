@@ -9,6 +9,7 @@ from typing import Protocol
 
 import httpx
 
+from eidolon.billing import bill
 from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
 
 
@@ -96,12 +97,16 @@ class SiliconFlowReranker:
         if res.status_code >= 400:
             raise RerankError(f"重排服务返回 {res.status_code}: {res.text[:500]}")
         try:
-            results = sorted(res.json()["results"], key=lambda r: -r["relevance_score"])
+            body = res.json()
+            results = sorted(body["results"], key=lambda r: -r["relevance_score"])
             ranked = [(int(r["index"]), float(r["relevance_score"])) for r in results]
         except (ValueError, KeyError, TypeError) as e:
             raise RerankError(f"重排服务的返回无法解析（{len(res.text)} 字）") from e
         if any(not 0 <= i < len(documents) for i, _ in ranked):
             raise RerankError(f"重排服务返回了不存在的文档编号：{[i for i, _ in ranked]}")
+        tokens = ((body.get("meta") or {}).get("tokens") or {}).get("input_tokens")
+        if isinstance(tokens, int):
+            bill("tokens", tokens)
         return ranked[:top_n]
 
     async def aclose(self) -> None:

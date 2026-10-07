@@ -135,6 +135,11 @@ class TurnTaking:
         """Whether the call is ending, so that nothing more is taken up."""
         return self._ending
 
+    @property
+    def voicing(self) -> bool:
+        """Whether the reply in progress is voiced, rather than only shown (「只看文字」)."""
+        return self._voicing
+
     # What the user does.
 
     def user_started_talking(self) -> list[Command]:

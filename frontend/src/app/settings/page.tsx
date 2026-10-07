@@ -2,6 +2,7 @@
 
 import { VStack } from "@astryxdesign/core/VStack";
 
+import { AdminEntry } from "@/components/AdminEntry";
 import { AppLink } from "@/components/AppLink";
 import { CallSettings } from "@/components/CallSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
@@ -36,6 +37,8 @@ export default function SettingsPage() {
         <OwnKeysSettings />
 
         <SignInSettings />
+
+        <AdminEntry />
 
         <DeleteAccount />
       </VStack>

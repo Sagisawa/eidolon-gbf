@@ -3,7 +3,7 @@
 // this origin: the session cookie, the Origin the backend checks, and the redirects of
 // signing in with Google or GitHub all pass through here.
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/backend";
 
 async function forward(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   const { path } = await params;

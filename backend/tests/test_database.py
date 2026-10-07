@@ -44,6 +44,7 @@ async def test_every_table_is_either_a_users_data_or_not(
             if not name.startswith("sqlite_")
         }
     users = {table for table, _ in database.USER_DATA}
+    users |= {table for table, *_ in database.ANONYMIZED_USER_DATA}
     assert not users & database.NOT_USER_DATA
     assert users | database.NOT_USER_DATA == tables
 

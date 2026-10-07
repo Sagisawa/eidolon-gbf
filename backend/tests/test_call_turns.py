@@ -118,11 +118,15 @@ class CallUnderTest:
             mano = backend.characters["mano"]
             llms = backend.own_keys.for_turn(self.conversation.user_id).llms
             call = Call(self.conversation, mano, llms, muted, "standard")
-            outcome = CallOutcome(backend.usage, self.conversation.user_id, exempt=False, limits=limits)
+            outcome = CallOutcome(
+                backend.usage, backend.activity, self.conversation.user_id, "mano",
+                exempt=False, limits=limits,
+            )
             turns = CallTurns(backend.engine, call, outcome, follow_on_timeout, backend.emotions)
             if connected:
                 turns.connected()
             down, _ = await run_test(turns, frames_to_send=frames)
+            outcome.settle()
         finally:
             await backend.aclose()
         return down

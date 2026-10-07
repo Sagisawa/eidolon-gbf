@@ -28,6 +28,8 @@ class FakeCall implements Call {
   setTextOnly = (textOnly: boolean) => void this.textOnly.push(textOnly);
   setMicEnabled = (enabled: boolean) => void this.micEnabled.push(enabled);
   hangUp = async () => void this.hangUps++;
+  leaves = 0;
+  leave = async () => void this.leaves++;
 }
 
 /** Her voice: records what the conversation tells it. */
@@ -356,7 +358,7 @@ describe("LiveConversation: a call", () => {
     attempts[0].connect(call);
     await calling;
 
-    expect(call.hangUps).toBe(1);
+    expect([call.hangUps, call.leaves]).toEqual([0, 1]); // left, not hung up
     expect(published()).toBe(before);
   });
 
@@ -376,7 +378,7 @@ describe("LiveConversation: a call", () => {
 
     live.dispose();
 
-    expect(call.hangUps).toBe(1);
+    expect([call.hangUps, call.leaves]).toEqual([0, 1]); // left, not hung up
     expect(voice.disposed).toBe(1);
   });
 

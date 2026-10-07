@@ -162,8 +162,10 @@ export async function json<T>(res: Response): Promise<T> {
   return res.json();
 }
 
-/** The user has used up this hour's turns or calls: say when they can go on, in local time. */
+/** The user has used up this hour's turns or calls: say when they can go on, in local time.
+ * A user an admin set to their own keys only has no time to wait for (`retry_at` null). */
 function overLimit(reason: string, retryAt: unknown): string {
+  if (retryAt === null) return `${reason}。`;
   const exact = typeof retryAt === "string" ? Date.parse(retryAt) : NaN;
   if (isNaN(exact)) return `${reason}，请稍后再试。`;
   const at = new Date(Math.ceil(exact / 60_000) * 60_000); // shown to the minute, never early
@@ -203,8 +205,9 @@ async function api(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-/** The ways to sign in the backend offers. */
-export type SignInOptions = { providers: Provider[]; dev_login: boolean };
+/** The ways to sign in the backend offers, and how to reach the deployer (null if the
+ * deployer gave none), which a banned user is told. */
+export type SignInOptions = { providers: Provider[]; dev_login: boolean; contact: string | null };
 
 export async function getSignInOptions(): Promise<SignInOptions> {
   return json(await fetch("/api/auth/providers"));
@@ -213,7 +216,8 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 /** An identity the user signs in with. */
 export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
 
-export type Account = { name: string; sign_in_methods: SignInMethod[] };
+/** `is_admin`: the user may enter the admin console (`/admin`). */
+export type Account = { name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
 export async function getAccount(): Promise<Account> {
@@ -359,7 +363,7 @@ export async function clearMemories(): Promise<void> {
 }
 
 /** Checks a response that carries no body. */
-async function expectNoContent(res: Response): Promise<void> {
+export async function expectNoContent(res: Response): Promise<void> {
   if (!res.ok) await json(res);
 }
 

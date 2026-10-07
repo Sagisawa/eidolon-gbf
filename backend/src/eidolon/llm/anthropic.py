@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from eidolon.billing import bill
 from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -50,10 +51,13 @@ class AnthropicLLM:
                 for t in tools
             ]
         calls: dict[int, dict[str, Any]] = {}  # content block index → the tool_use so far
+        usage: dict[str, Any] = {}  # as the message started, updated as it goes
         headers = {"x-api-key": self._api_key, "anthropic-version": API_VERSION}
         async for event in stream_events(self._client, self._url, body, headers):
             kind = event.get("type")
-            if kind == "content_block_start":
+            if kind == "message_start":
+                usage.update((event.get("message") or {}).get("usage") or {})
+            elif kind == "content_block_start":
                 block = event.get("content_block") or {}
                 if block.get("type") == "tool_use":
                     calls[event.get("index", len(calls))] = {
@@ -71,12 +75,15 @@ class AnthropicLLM:
                     if (call := calls.get(event.get("index", -1))) is not None:
                         call["json"] += delta.get("partial_json") or ""
             elif kind == "message_delta":
+                usage.update(event.get("usage") or {})
                 stop = (event.get("delta") or {}).get("stop_reason")
                 if stop in ("max_tokens", "refusal"):
                     log.warning("the model stopped early: %s", stop)
             elif kind == "error":
                 error = event.get("error") or {}
                 raise LLMError(f"模型在流式输出中报错: {error.get('message') or event}")
+        if usage:
+            bill("tokens", _input_tokens(usage), usage.get("output_tokens"))
         for index, call in sorted(calls.items()):
             call_id = call["id"] or f"call_{index}"  # the tool result must name its call
             # Without any input deltas, the input the block started with is all there is.
@@ -89,6 +96,17 @@ class AnthropicLLM:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _input_tokens(usage: dict[str, Any]) -> int | None:
+    """All the input the message was billed for: the Messages API counts what it read from
+    the prompt cache, and what it wrote to it, apart from the rest."""
+    parts = [
+        usage.get(name)
+        for name in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+    ]
+    counted = [p for p in parts if isinstance(p, int)]
+    return sum(counted) if counted else None
 
 
 def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:

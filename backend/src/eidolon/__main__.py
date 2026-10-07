@@ -1,13 +1,16 @@
 """The `eidolon` command: runs the server, and lets the admin manage users.
 
     eidolon                          run the server (same as `eidolon serve`)
-    eidolon user list                every user: id, name, sign-in methods, when made,
+    eidolon user list                every user: id, name, sign-in methods (each with the
+                                     `provider:subject` EIDOLON_ADMINS lists), when made,
                                      whether banned (users are made by signing in)
-    eidolon user ban <id>            ban a user, signing them out everywhere; the server
-                                     hangs up their calls within seconds
+    eidolon user ban <id> [--note …] ban a user, with a note only admins see, signing them
+                                     out everywhere; the server hangs up their calls within
+                                     seconds (the same as banning in the admin console)
     eidolon user unban <id>
     eidolon user usage <id>          the user's text turns and calls in the last 24 hours,
-                                     by hour, and how many were on their own keys
+                                     by hour, and how many were on their own keys; the last
+                                     7 and 30 days are in the admin console's user details
     eidolon story import-csv <dir>   import SCTranslationData story CSVs into the story corpus
                                      and report each character's story catalog
     eidolon story import-json <dir>  the same for the game's own script JSON, filling in what
@@ -121,6 +124,13 @@ def _serve() -> int:
     from eidolon.assembly import build
 
     from eidolon.judge import check_judge
+
+    # Which settings the admin console overrides, for a deployer wondering why `.env`'s
+    # did not take (ADR-0013); nothing configures the root logger to show it.
+    overrides = logging.StreamHandler()
+    overrides.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    logging.getLogger("eidolon.live_config").addHandler(overrides)
+    logging.getLogger("eidolon.live_config").setLevel(logging.INFO)
 
     try:  # missing settings, an unusable DashScope key or Cloudflare token, a broken
         # character configuration
@@ -678,14 +688,17 @@ def _list_users(store: Store, _: argparse.Namespace) -> None:
     for user in store.list_users():
         methods = "、".join(
             f"{PROVIDER_LABELS.get(m.provider, m.provider)} {m.display_name}"  # pyright: ignore[reportCallIssue, reportArgumentType]
+            f" ({m.provider}:{m.subject})"
             for m in store.sign_in_methods(user.id)
         ) or "（没有登录方式）"
         state = f"已封禁于 {user.banned_at}" if user.banned_at else "正常"
+        if user.ban_note:
+            state += f"（备注：{user.ban_note}）"
         print(f"{user.id}\t{user.name}\t{methods}\t创建于 {user.created_at}\t{state}")
 
 
 def _ban_user(store: Store, args: argparse.Namespace) -> None:
-    store.set_banned(args.user_id, datetime.now(UTC))
+    store.set_banned(args.user_id, datetime.now(UTC), args.note or None)
     print(f"已封禁用户 {args.user_id}，并让他在所有设备上退出登录；正在进行的通话会在几秒内挂断")
 
 
@@ -725,15 +738,19 @@ def _parser() -> argparse.ArgumentParser:
         dest="action", required=True, metavar="操作"
     )
     user.add_parser(
-        "list", help="列出所有用户：ID、名字、登录方式、创建时间、是否已封禁"
+        "list", help="列出所有用户：ID、名字、登录方式（括号里是填进 EIDOLON_ADMINS 的标识）、创建时间、是否已封禁"
     ).set_defaults(run=_list_users)
     ban = user.add_parser("ban", help="封禁用户，并让他在所有设备上退出登录")
     ban.add_argument("user_id", help="用户 ID（见 user list）")
+    ban.add_argument("--note", help="封禁的原因，只有管理者看得到（user list 和后台里显示）")
     ban.set_defaults(run=_ban_user)
     unban = user.add_parser("unban", help="解除封禁")
     unban.add_argument("user_id", help="用户 ID（见 user list）")
     unban.set_defaults(run=_unban_user)
-    usage = user.add_parser("usage", help="查看用户最近 24 小时按小时统计的用量")
+    usage = user.add_parser(
+        "usage",
+        help="查看用户最近 24 小时按小时统计的用量（最近 7 天、30 天的用量在后台的用户详情里看）",
+    )
     usage.add_argument("user_id", help="用户 ID（见 user list）")
     usage.set_defaults(run=_user_usage)
 

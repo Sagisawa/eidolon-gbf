@@ -8,6 +8,7 @@ import {
   CircleCheck,
   Ellipsis,
   Info,
+  Menu,
   Mic,
   Square,
   TriangleAlert,
@@ -28,6 +29,8 @@ export const notebookIcons = {
   close: createElement(X),
   error: createElement(CircleAlert),
   info: createElement(Info),
+  // AppShell 窄屏下打开侧边导航抽屉的按钮（后台）。
+  menu: createElement(Menu),
   microphone: createElement(Mic),
   moreHorizontal: createElement(Ellipsis),
   stop: createElement(Square),

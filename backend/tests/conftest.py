@@ -24,6 +24,7 @@ from tests.fakes import (
     DEPLOYER_SONIOX_KEY,
     START,
     FakeBackgroundLLM,
+    FakeCatalog,
     FakeDashScope,
     FakeIdentityProvider,
     FakeLLM,
@@ -297,9 +298,9 @@ async def make_client(
     the producer, who has agreed to the terms (None for a client not signed in).
     Any other keyword is an outside service to use instead of the one the settings
     describe (see `assembly.build`); the background model, speech, the identity providers
-    (the `github` and `google` fixtures) and the LLM services users bring their own keys
-    to (`own_llm`) are fakes by default, and `voice_configured=False` leaves the deployer
-    without speech keys."""
+    (the `github` and `google` fixtures), the LLM services users bring their own keys
+    to (`own_llm`) and the price catalogs online (an empty `FakeCatalog`) are fakes by
+    default, and `voice_configured=False` leaves the deployer without speech keys."""
     backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
@@ -315,6 +316,7 @@ async def make_client(
         services.setdefault("identity_providers", {"github": github, "google": google})
         services.setdefault("own_llm_service", own_llm)
         services.setdefault("speech", speech)
+        services.setdefault("catalog_transport", FakeCatalog().transport())
         if not voice_configured:
             settings = replace(settings, soniox_api_key=None, fish_audio_api_key=None)
         backend = build(settings, chat_llm=llm, **services)

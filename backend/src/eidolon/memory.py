@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from eidolon.activity import detached
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.corpus import REEMBED_BATCH
@@ -109,7 +110,7 @@ class _Services:
 
     embedder: Embedder
     reranker: Reranker
-    min_relevance: float
+    min_relevance: Callable[[], float]
 
 
 class Memories:
@@ -126,12 +127,12 @@ class Memories:
         *,
         embedder: Embedder | None = None,
         reranker: Reranker | None = None,
-        min_relevance: float = DEFAULT_THRESHOLDS.memories,
+        min_relevance: Callable[[], float] = lambda: DEFAULT_THRESHOLDS.memories,
     ) -> None:
         """Memories kept in the database at `path`, next to the users and conversations
         they belong to; off unless `embedder` and `reranker` are both given, though
         `embedder` alone is enough to embed them again. A memory the reranker scores below
-        `min_relevance` is not found (see `rerank.KNOWN_THRESHOLDS`)."""
+        what `min_relevance` says when it is found is not (see `rerank.KNOWN_THRESHOLDS`)."""
         self._db = connect(path)
         self._lock = threading.Lock()
         with self._lock, self._db:
@@ -152,13 +153,14 @@ class Memories:
         conversation: Conversation,
         timezone: str,
         llm: ChatLLM,
+        hold: Callable[[], Callable[[], None]] | None = None,
     ) -> "MemoryTurn":
         """Begin a turn of `conversation`, whose user is in `timezone`, once what their
         earlier turns are writing down is written (a while at most). The turn writes down
-        with `llm`."""
+        with `llm`, held on to with `hold` (see `TurnLLMs.hold_memory`) until written."""
         clearings = self._clearings.get(conversation.user_id, 0)
         await self._settle(conversation.user_id)
-        return MemoryTurn(self, conversation, timezone, clearings, llm)
+        return MemoryTurn(self, conversation, timezone, clearings, llm, hold)
 
     async def entries(self, user_id: str) -> list[Memory]:
         """All of the user's memories, newest first, including what their turns so far
@@ -274,7 +276,8 @@ class Memories:
         except (EmbeddingError, RerankError):
             log.warning("finding memories failed; replying without them", exc_info=True)
             return None
-        found = [nearest_memories[i] for i, score in best if score >= services.min_relevance]
+        min_relevance = services.min_relevance()
+        found = [nearest_memories[i] for i, score in best if score >= min_relevance]
         character = self._characters[conversation.character_id]
         return _memories_prompt(found[:MAX_FOUND], character, timezone) if found else None
 
@@ -284,6 +287,7 @@ class Memories:
         timezone: str,
         clearings: int,
         llm: ChatLLM,
+        hold: Callable[[], Callable[[], None]] | None,
         history: Sequence[Message],
         text: str,
         reply: Message,
@@ -291,8 +295,10 @@ class Memories:
         if (services := self._services) is None:
             return
         now = self._clock().astimezone(ZoneInfo(timezone))
+        release = hold() if hold is not None else None
         task = asyncio.create_task(
-            self._write(services, llm, conversation, clearings, history, text, reply, now)
+            self._write(services, llm, conversation, clearings, history, text, reply, now),
+            context=detached(),  # after the turn, not part of it (see `activity`)
         )
         pending = self._pending.setdefault(conversation.user_id, set())
         pending.add(task)
@@ -301,6 +307,8 @@ class Memories:
             pending.discard(task)
             if not pending and self._pending.get(conversation.user_id) is pending:
                 del self._pending[conversation.user_id]
+            if release is not None:
+                release()
 
         task.add_done_callback(done)
 
@@ -445,12 +453,14 @@ class MemoryTurn:
         timezone: str,
         clearings: int,
         llm: ChatLLM,
+        hold: Callable[[], Callable[[], None]] | None = None,
     ) -> None:
         self._memories = memories
         self._conversation = conversation
         self._timezone = timezone
         self._clearings = clearings
         self._llm = llm
+        self._hold = hold
 
     async def find(self, text: str) -> str | None:
         """The prompt section carrying the user's memories relevant to `text`, most
@@ -463,7 +473,7 @@ class MemoryTurn:
         """Start writing down what the user revealed in this turn: `text`, said after
         `history` and answered with `reply`."""
         self._memories._write_down(
-            self._conversation, self._timezone, self._clearings, self._llm,
+            self._conversation, self._timezone, self._clearings, self._llm, self._hold,
             history, text, reply,
         )
 

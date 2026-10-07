@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from dataclasses import dataclass, field
 import re
 from datetime import UTC, datetime, timedelta
-from typing import cast, get_args
+from typing import TYPE_CHECKING, Any, cast, get_args
 from http import HTTPStatus
 from urllib.parse import quote, unquote, urlencode
 
@@ -29,9 +29,17 @@ from pipecat.services.stt_service import STTService
 from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
+from eidolon.billing import bill
 from eidolon.characters import Character
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
-from eidolon.config import BailianRegion, LLMSettings, SttKey, SttProvider
+from eidolon.config import (
+    BailianRegion,
+    CloudflareJudgeSettings,
+    JudgeSettings,
+    LLMSettings,
+    SttKey,
+    SttProvider,
+)
 from eidolon.embedding import Document, EmbeddingError
 from eidolon.emotion import Emotion, EmotionAnswer, Nod, SegmentToJudge
 from eidolon.identity import Identity, IdentityError, ProviderName
@@ -39,6 +47,9 @@ from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
 from eidolon.judge import JudgeError
+
+if TYPE_CHECKING:
+    from eidolon.judge import JudgeModel
 from eidolon.retrieval import Need
 from eidolon.store import Message
 
@@ -75,14 +86,19 @@ class FakeLLM:
     tool; a reply that is an LLMError is raised instead, as a failing service would. With
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
     model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
-    is the deployer's model.
+    is the deployer's model. With `tokens`, each reply it finishes says it was billed that
+    many input and output tokens, as a real service does; without, it says nothing.
     """
 
     def __init__(
-        self, *replies: Sequence[str | ToolCall | object] | LLMError, delay: float = 0
+        self,
+        *replies: Sequence[str | ToolCall | object] | LLMError,
+        delay: float = 0,
+        tokens: tuple[int, int] | None = None,
     ) -> None:
         self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay
+        self._tokens = tokens
         self.prompts: list[list[ChatMessage]] = []
         self.tools: list[list[Tool]] = []
         self.keys: list[str] = []
@@ -110,6 +126,8 @@ class FakeLLM:
                 await asyncio.Event().wait()
             assert isinstance(chunk, str | ToolCall)
             yield chunk
+        if self._tokens is not None:
+            bill("tokens", *self._tokens)
 
     async def aclose(self) -> None:
         pass
@@ -152,6 +170,118 @@ class _KeyedLLM:
 
     async def aclose(self) -> None:
         pass
+
+
+class FakeServiceClients:
+    """Stands in for making the deployer's service clients from their configuration (see
+    `service_clients.ServiceClients`): records the settings of every chat model it made
+    (`opened`) and closed (`closed`). Every chat model it makes replies from `llm`'s
+    script, recording the key it came with there, but passes the connectivity check
+    without using up the script; a key in `rejects` fails every request, the check too,
+    with that message.
+
+    Memory models it makes (`memory_opened`) answer from `background`, recording the key
+    each request came with (`memory_keys`). Judge models it makes (`judges_opened`,
+    `judges_closed`) answer every question as `judge` does, recording the key each
+    question came with there."""
+
+    def __init__(self, llm: FakeLLM | None = None) -> None:
+        self.llm = llm or FakeLLM()
+        self.opened: list[LLMSettings] = []
+        self.closed: list[LLMSettings] = []
+        self.rejects: dict[str, str] = {}
+        self.background = FakeBackgroundLLM()
+        self.memory_opened: list[LLMSettings] = []
+        self.memory_keys: list[str] = []
+        self.judge = FakeJudgeModel()
+        self.judges_opened: list[JudgeSettings] = []
+        self.judges_closed: list[JudgeSettings] = []
+
+    def chat_llm(self, settings: LLMSettings) -> ChatLLM:
+        self.opened.append(settings)
+        return _ConfiguredLLM(self, settings, self.closed)
+
+    def memory_llm(self, settings: LLMSettings) -> ChatLLM:
+        self.memory_opened.append(settings)
+        return _ConfiguredLLM(self, settings, self.closed, memory=True)
+
+    def judge_model(self, settings: JudgeSettings) -> "JudgeModel":
+        self.judges_opened.append(settings)
+        return _ConfiguredJudge(self, settings)
+
+
+class _ConfiguredLLM:
+    def __init__(
+        self,
+        clients: FakeServiceClients,
+        settings: LLMSettings,
+        closed: list[LLMSettings],
+        memory: bool = False,
+    ) -> None:
+        self._clients = clients
+        self._settings = settings
+        self._closed = closed
+        self._memory = memory
+
+    async def stream(
+        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
+    ) -> AsyncIterator[str | ToolCall]:
+        key = self._settings.api_key
+        if key in self._clients.rejects:
+            raise LLMError(self._clients.rejects[key])
+        if any(t.name == "ping" for t in tools):  # the connectivity check
+            return
+        if self._memory:
+            self._clients.memory_keys.append(key)
+            async for item in self._clients.background.stream(messages, tools):
+                yield item
+            return
+        async for item in self._clients.llm.stream_with(key, messages, tools):
+            yield item
+
+    async def aclose(self) -> None:
+        self._closed.append(self._settings)
+
+
+class FakeJudgeModel:
+    """Stands in for the judge model's service: answers the retrieval questions with the
+    probabilities in `retrieval`, her emotion with those in `emotion` and the nod with
+    neither. Records the key each request came with and what it asked (`asked`: "turn",
+    "emotion" or "check")."""
+
+    def __init__(self) -> None:
+        self.retrieval = {"needs_retrieval": 0.1, "recall": 0.1, "about_producer": 0.1}
+        self.emotion = {"平静": 1.0}
+        self.asked: list[tuple[str, str]] = []
+
+    def answer(self, key: str, questions: dict[str, dict]) -> dict[str, Any]:
+        kind = "turn" if "recall" in questions else "emotion" if "emotion" in questions else "check"
+        self.asked.append((key, kind))
+        return {
+            name: {"noul": self.retrieval.get(name, 0.5)}
+            if q.get("type") == "noul"
+            else {"probabilities": self.emotion if name == "emotion" else {"都不是": 1.0}}
+            for name, q in questions.items()
+        }
+
+
+class _ConfiguredJudge:
+    def __init__(self, clients: FakeServiceClients, settings: JudgeSettings) -> None:
+        self._clients = clients
+        self._settings = settings
+
+    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        key = judge_key(self._settings)
+        if key in self._clients.rejects:
+            raise JudgeError(self._clients.rejects[key])
+        return self._clients.judge.answer(key, questions)
+
+    async def aclose(self) -> None:
+        self._clients.judges_closed.append(self._settings)
+
+
+def judge_key(settings: JudgeSettings) -> str:
+    return settings.api_token if isinstance(settings, CloudflareJudgeSettings) else settings.api_key
 
 
 class FakeBackgroundLLM:
@@ -216,14 +346,15 @@ class FakeSTT(STTService):
 
 
 class FakeTTS(TTSService):
-    """Stands in for Fish Audio in one call, on `api_key`: records what it is asked to
-    voice, and in which voice, and says a moment of silence for each."""
+    """Stands in for Fish Audio in one call, on `api_key` with `model`: records what it is
+    asked to voice, and in which voice, and says a moment of silence for each."""
 
-    def __init__(self, api_key: str, voice_id: str, sample_rate: int) -> None:
+    def __init__(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> None:
         super().__init__(
             sample_rate=sample_rate, settings=TTSSettings(model=None, voice=None, language=None)
         )
         self.api_key = api_key
+        self.model = model
         self.voice_id = voice_id
         self.voiced: list[str] = []
 
@@ -261,8 +392,8 @@ class FakeSpeech:
         self.stts.append(FakeSTT(key))
         return Hearing(self.stts[-1], self.follow_on_timeout)
 
-    def tts(self, api_key: str, voice_id: str, sample_rate: int) -> FakeTTS:
-        self.ttss.append(FakeTTS(api_key, voice_id, sample_rate))
+    def tts(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> FakeTTS:
+        self.ttss.append(FakeTTS(api_key, model, voice_id, sample_rate))
         return self.ttss[-1]
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
@@ -1223,3 +1354,29 @@ class FakeWorldSites:
             f'</picture>\n<p class="idol-group__logo--name">{name}</p>\n</div>\n'
             f'<ul class="idol-nav__unit">\n{nav}</ul>\n</main></body></html>'
         )
+
+
+class FakeCatalog:
+    """The price catalogs online, models.dev's and OpenRouter's, as `price_catalog` fetches
+    them over HTTP (`transport`): what the test sets, empty by default, or failing. Counts
+    the times both were fetched (`fetches`)."""
+
+    def __init__(
+        self, models_dev: dict | None = None, openrouter: list[dict] | None = None
+    ) -> None:
+        self.models_dev = models_dev or {}
+        self.openrouter = openrouter or []
+        self.failing = False
+        self.fetches = 0
+
+    def transport(self) -> httpx.MockTransport:
+        return httpx.MockTransport(self._handle)
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        if self.failing:
+            return httpx.Response(503, text="unavailable")
+        if request.url.host == "models.dev":
+            return httpx.Response(200, json=self.models_dev)
+        assert request.url.host == "openrouter.ai", request.url
+        self.fetches += 1
+        return httpx.Response(200, json={"data": self.openrouter})

@@ -40,7 +40,7 @@ export default function LoginPage() {
   const [failure, setFailure] = useState<Failure | null>(null);
 
   useEffect(() => {
-    setRefusal(signInFailure(new URLSearchParams(window.location.search).get("error")));
+    setRefusal(new URLSearchParams(window.location.search).get("error"));
     getSignInOptions().then(setOptions, (e) => setFailure(toFailure(e)));
     // 角色名单随 characters.toml 变化，从后端取；取不到只是少了展示，不算失败。
     listCharacters().then(setCharacters, () => {});
@@ -65,7 +65,13 @@ export default function LoginPage() {
           <Text as="p">{t.lede}</Text>
         </VStack>
 
-        {refusal && <Banner status="error" title={t.refusedTitle} description={refusal} />}
+        {refusal && (
+          <Banner
+            status="error"
+            title={t.refusedTitle}
+            description={signInFailure(refusal, options?.contact) ?? undefined}
+          />
+        )}
 
         <VStack as="section" aria-label={t.signInRegion} gap={3} maxWidth={360}>
           {options?.providers.map((provider, i) => (

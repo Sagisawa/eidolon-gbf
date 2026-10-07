@@ -10,7 +10,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from eidolon.database import connect, delete_user_data
 from eidolon.delivery_cues import without_cues
@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     consented_at TEXT,
-    banned_at TEXT
+    banned_at TEXT,
+    ban_note TEXT
 );
 -- Only a hash of each session's token is kept; the times are epoch seconds.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -88,6 +89,12 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
+-- The identities banned users signed in with, kept when those users were deleted so that
+-- deleting is not unbanning; only a keyed hash of each (`accounts.identity_hash`), no one's.
+CREATE TABLE IF NOT EXISTS banned_identities (
+    identity_hash TEXT PRIMARY KEY,
+    added_at TEXT NOT NULL
+);
 """
 
 SESSION_LIFETIME = timedelta(days=30)
@@ -105,6 +112,8 @@ class User:
     consented_at: str | None = None
     """When they agreed to the privacy policy and terms of use; None until they do."""
     banned_at: str | None = None
+    ban_note: str | None = None
+    """Why they were banned, as the admin who banned them wrote; only admins see it."""
 
 
 @dataclass(frozen=True)
@@ -207,7 +216,7 @@ class Store:
             # Before access keys, users had no name; the one default user keeps its id as name.
             self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
             self._db.execute("UPDATE users SET name = id")
-        for column in ("consented_at", "banned_at"):
+        for column in ("consented_at", "banned_at", "ban_note"):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         own_key_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(own_keys)")}
@@ -252,13 +261,61 @@ class Store:
             ).fetchone()
         return User(**row) if row else None
 
-    def set_banned(self, user_id: str, banned_at: datetime | None) -> None:
-        """Ban the user as of `banned_at`, signing them out everywhere; None lifts the ban.
-        Raises NotFound for no such user."""
+    def find_users(
+        self,
+        query: str,
+        offset: int,
+        limit: int,
+        ranking: tuple[str, list[Any]] | None = None,
+    ) -> tuple[list[User], int]:
+        """A page of the users whose id starts with `query`, or whose name, or the name or
+        email of an identity they sign in with, has it in it, in any case; all users for
+        an empty query. Newest first, or highest first by `ranking`, an SQL expression
+        over a row of `users` with its parameters (as `ActivityLog.ranking`), then newest;
+        with how many there are in all."""
+        where, params = "", []
+        if query := query.strip():
+            # Taken as it is: `%` and `_` are not wildcards here.
+            escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            inside = f"%{escaped}%"
+            where = (
+                "WHERE id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR EXISTS ("
+                "SELECT 1 FROM sign_in_methods m WHERE m.user_id = users.id"
+                " AND (m.display_name LIKE ? ESCAPE '!' OR m.email LIKE ? ESCAPE '!'))"
+            )
+            params = [f"{escaped}%", inside, inside, inside]
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users {where}"
+                f" ORDER BY {f'{ranking[0]} DESC, ' if ranking else ''}"
+                "created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                [*params, *(ranking[1] if ranking else []), limit, offset],
+            ).fetchall()
+            [(total,)] = self._db.execute(f"SELECT COUNT(*) FROM users {where}", params)
+        return [User(**row) for row in rows], total
+
+    def last_active(self, user_ids: list[str]) -> dict[str, datetime]:
+        """When each of the users, of those signed in anywhere, was last active: the
+        latest renewal of any of their sessions."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT user_id, MAX(last_active_at) FROM sessions WHERE user_id IN"
+                f" ({','.join('?' * len(user_ids))}) GROUP BY user_id",
+                user_ids,
+            ).fetchall()
+        return {user_id: datetime.fromtimestamp(at, UTC) for user_id, at in rows}
+
+    def set_banned(
+        self, user_id: str, banned_at: datetime | None, note: str | None = None
+    ) -> None:
+        """Ban the user as of `banned_at`, with a note only admins see, signing them out
+        everywhere; None lifts the ban, and the note with it. Raises NotFound for no such
+        user."""
         with self._lock, self._db:
             cursor = self._db.execute(
-                "UPDATE users SET banned_at = ? WHERE id = ?",
-                (banned_at.isoformat() if banned_at else None, user_id),
+                "UPDATE users SET banned_at = ?, ban_note = ? WHERE id = ?",
+                (banned_at.isoformat() if banned_at else None,
+                 note if banned_at else None, user_id),
             )
             if cursor.rowcount == 0:
                 raise NotFound(f"用户 {user_id} 不存在")
@@ -384,11 +441,26 @@ class Store:
             )
         return cursor.rowcount > 0
 
-    def delete_user(self, user_id: str) -> None:
+    def delete_user(self, user_id: str, banned_identities: list[str] | None = None) -> None:
         """Delete the user and everything of theirs, for good, all at once (see
-        `database.delete_user_data`)."""
+        `database.delete_user_data`), first putting `banned_identities`, hashes of the
+        identities they signed in with, on the ban list if they were banned."""
         with self._lock:
+            if banned_identities:
+                with self._db:
+                    self._db.executemany(
+                        "INSERT OR IGNORE INTO banned_identities (identity_hash, added_at)"
+                        " VALUES (?, ?)",
+                        [(h, _now()) for h in banned_identities],
+                    )
             delete_user_data(self._db, user_id)
+
+    def is_banned_identity(self, identity_hash: str) -> bool:
+        """Whether a banned user since deleted signed in with the identity of this hash."""
+        with self._lock:
+            return self._db.execute(
+                "SELECT 1 FROM banned_identities WHERE identity_hash = ?", (identity_hash,)
+            ).fetchone() is not None
 
     def create_session(self, user_id: str, now: datetime) -> str:
         """Start a session for the user; returns its token, which is not stored. Every
@@ -558,7 +630,7 @@ class Store:
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
 
 
-_USER_COLUMNS = "id, name, created_at, consented_at, banned_at"
+_USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(

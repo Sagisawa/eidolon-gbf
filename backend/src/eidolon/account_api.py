@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, model_validator
 
 from eidolon.accounts import SignInRefused
+from eidolon.admin_api import is_admin
 from eidolon.assembly import Backend
 from eidolon.config import LLM_PROTOCOLS, LLMProtocol, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
@@ -109,10 +110,13 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.get("/api/auth/providers")
     def sign_in_providers() -> dict:
-        """The ways to sign in on offer, in the order to show them."""
+        """The ways to sign in on offer, in the order to show them, and how to reach the
+        deployer, which the sign-in page tells a banned user (None if the deployer gave
+        none)."""
         return {
             "providers": [p for p in PROVIDER_NAMES if p in providers],
             "dev_login": settings.dev_login,
+            "contact": settings.contact,
         }
 
     @app.get("/api/auth/{provider}/start")
@@ -199,13 +203,15 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.get("/api/account")
     def account(user_id: UserId) -> dict:
-        """The signed-in user, and the identities they sign in with."""
+        """The signed-in user, the identities they sign in with, and whether they are an
+        admin, who may enter the admin console."""
         return {
             "name": store.get_user(user_id).name,
             "sign_in_methods": [
                 {"provider": m.provider, "display_name": m.display_name, "email": m.email}
                 for m in store.sign_in_methods(user_id)
             ],
+            "is_admin": is_admin(store, settings, user_id),
         }
 
     @app.delete("/api/account/sign-in-methods/{provider}", status_code=204)

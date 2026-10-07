@@ -13,3 +13,10 @@ export {
 
 // 记忆页、设置页用的图标（ticket 06）。
 export { Trash2 as TrashIcon } from "lucide-react";
+
+// 后台导航用的图标。
+export {
+  LayoutDashboard as DashboardIcon,
+  SlidersHorizontal as ConfigIcon,
+  Users as UsersIcon,
+} from "lucide-react";

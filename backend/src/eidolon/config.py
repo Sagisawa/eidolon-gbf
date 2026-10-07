@@ -186,6 +186,12 @@ class Settings:
     gemini_billing_enabled: bool = False
     """The deployer says Gemini's billing is on, so its paid tier, which Google does not
     train on, embeds users' memories (ADR-0005, revised)."""
+    admins: frozenset[tuple[str, str]] = frozenset()
+    """The identities, as (provider, subject), whose users are admins and may enter the
+    admin console (ADR-0013); without any, there is no admin console."""
+    contact: str | None = None
+    """How to reach the deployer, told to banned users when they try to sign in; None
+    tells them no one."""
     stand_assets_url: str | None = None
     """Where browsers download the stands from, without a trailing slash: the public URL
     of the object storage they are synced to (ADR-0003, revised 2026-09-30). None shows
@@ -243,6 +249,8 @@ class Settings:
             secret_key=os.environ.get("EIDOLON_SECRET_KEY") or None,
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
             stand_assets_url=stand_assets_url_from_env(),
+            admins=admins_from_env(),
+            contact=os.environ.get("EIDOLON_CONTACT", "").strip() or None,
         )
 
 
@@ -306,6 +314,30 @@ def stand_build_path_from_env() -> Path:
     outfits` writes the outfit lists and the thumbnails are rendered, laid out as the
     bucket is, before they are uploaded."""
     return Path(os.environ.get("EIDOLON_STAND_BUILD_PATH", "../corpus/stand"))
+
+
+ADMIN_PROVIDERS = ("github", "google")
+"""The identity providers whose identities may make admins (`identity.PROVIDER_NAMES`)."""
+
+
+def admins_from_env() -> frozenset[tuple[str, str]]:
+    """`EIDOLON_ADMINS`: comma-separated `provider:subject`, as `eidolon user list` prints
+    each sign-in method; by subject, not email, as two identities sharing an email are not
+    the same user."""
+    admins: set[tuple[str, str]] = set()
+    for item in _comma_list(os.environ.get("EIDOLON_ADMINS", "")):
+        provider, _, subject = item.partition(":")
+        if provider not in ADMIN_PROVIDERS:
+            raise RuntimeError(
+                f"环境变量 EIDOLON_ADMINS 里的 {item} 不对：每一项是「提供方:身份标识」，"
+                f"提供方只能是 {'、'.join(ADMIN_PROVIDERS)}（身份标识见 eidolon user list）"
+            )
+        if not subject.strip():
+            raise RuntimeError(
+                f"环境变量 EIDOLON_ADMINS 里的 {item} 缺少身份标识（见 eidolon user list）"
+            )
+        admins.add((provider, subject.strip()))
+    return frozenset(admins)
 
 
 def history_turns_from_env() -> int | None:
