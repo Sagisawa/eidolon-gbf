@@ -13,7 +13,6 @@ import pytest
 
 import eidolon.call
 from eidolon.app import create_app
-from eidolon.assembly import build
 from eidolon.call import CallOptions, SessionDescription
 from eidolon.config import Settings, UsageLimits
 from eidolon.own_keys import DeployerLease
@@ -27,6 +26,7 @@ from tests.fakes import (
     FakeLLM,
     FakeReranker,
     FakeSpeech,
+    build_faked,
 )
 from tests.test_text_turn import start_conversation
 
@@ -96,7 +96,7 @@ async def test_call_turns_look_things_up_and_remember(
     browser.type("你还记得我家的猫吗？")
     await browser.turn()
 
-    assert jev.asked == [("mano", "我家的猫叫小白哦"), ("mano", "你还记得我家的猫吗？")]
+    assert jev.asked == [("櫻木真乃", "我家的猫叫小白哦"), ("櫻木真乃", "你还记得我家的猫吗？")]
     system = llm.prompts[-1][0].content
     assert CAT in system[system.index("# 关于制作人的记忆") :]
 
@@ -177,8 +177,8 @@ async def test_a_call_failing_as_it_is_answered_never_connected_and_lets_go_of_i
 ):
     """Answering the offer is replaced, raising: whatever fails in Pipecat as it answers is
     caught there, so no fake can make it raise."""
-    backend = build(
-        one_call_an_hour, chat_llm=FakeLLM(), background_llm=FakeBackgroundLLM(), speech=speech
+    backend = build_faked(
+        one_call_an_hour, FakeLLM(), background_llm=FakeBackgroundLLM(), speech=speech
     )
     try:
         user = backend.store.create_user("producer").id
@@ -274,7 +274,7 @@ async def test_shutting_down_hangs_up_calls_and_drops_the_reply_in_progress(
     settings: Settings, speech: FakeSpeech, browser: Browser
 ):
     slow = FakeLLM(["<ja>ほわっ</ja><zh>哇</zh>", "<ja>今日も</ja><zh>今天也</zh>"], delay=60)
-    backend = build(settings, chat_llm=slow, background_llm=FakeBackgroundLLM(), speech=speech)
+    backend = build_faked(settings, slow, background_llm=FakeBackgroundLLM(), speech=speech)
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(backend)),

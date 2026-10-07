@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.assembly import build
 from eidolon.config import LLMSettings, RerankSettings, Settings
 from eidolon.rerank import KNOWN_THRESHOLDS, RerankThresholds, thresholds_for
 from tests.conftest import CharacterConfig
-from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeSpeech
+from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeSpeech, build_faked
 
 
 def test_each_known_model_has_its_thresholds():
@@ -65,8 +64,8 @@ async def test_the_server_warns_of_an_unknown_model_at_start(
     )
 
     with caplog.at_level(logging.WARNING):
-        backend = build(
-            settings, chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
+        backend = build_faked(
+            settings, FakeLLM([]), background_llm=FakeBackgroundLLM(),
             retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), speech=FakeSpeech(),
         )
     await backend.aclose()

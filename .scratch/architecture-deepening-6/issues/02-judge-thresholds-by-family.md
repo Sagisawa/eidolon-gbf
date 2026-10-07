@@ -27,3 +27,9 @@
 - [ ] **人工验收（留给用户）**：本地起服务，在后台设一个判断阈值；把判断模型换成同一 family 的写法（`.env` 或后台），确认阈值仍生效；换到另一家，确认后台标为失效或已清掉、说明写得清楚；看日志，没校准过的模型不再每个回合打 warning。
 
 ## Comments
+
+### 2026-10-08 实现说明
+
+- `judge.same_judge_family(set_for, model)` 定绑定规则；`judge.warn_if_uncalibrated(model)` 取代 `judge_thresholds_for` 里的 warning（`eidolon eval judge` 也改为显式调它）。
+- 生效时提醒：`LiveConfig` 构造时、后台保存或恢复判断模型且模型名变了时、启动时判断模型的覆盖试不通退回 `.env` 时。
+- 原来的 `test_the_recall_threshold_saved_judges_the_next_turn_until_the_model_changes` 改为「直到换 family」：换到 `typesafe/jev-1.14` 覆盖保留，换到 clef-flash 才清掉——这是本 ticket 要改的行为。

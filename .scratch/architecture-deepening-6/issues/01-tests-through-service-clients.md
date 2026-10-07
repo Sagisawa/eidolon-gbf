@@ -38,3 +38,13 @@
   - 后台换扮演模型、换判断模型，新回合立刻用上，看板的服务调用照常记录。
 
 ## Comments
+
+### 2026-10-08 实现说明
+
+- 简写由 `tests/fakes.py` 的 `build_faked` 统一承接：`make_client`、`Turns.take`、`CallUnderTest` 和其余直接调 `build` 的测试都经它，`build` 本身只收 `clients`。传了判断剧本且 settings 没配判断模型时，配 `FAKE_JUDGE`（jev）。
+- `FakeJudge` 改为判断模型的剧本（`FakeJudgeModel.needs` / `.feels`），按 1.0 / 0.0 或剧本里的概率作答；`asked` 记的是角色名（`櫻木真乃`）和那句话，`segments` 记的是判断模型收到的内容（`AskedSegment`）。
+- 清单之外必须改的断言（原因都是 `.env` 的扮演、记忆模型现在也由 `FakeServiceClients` 造，`opened` / `closed` / `memory_opened` / `memory_keys` 里多了 `.env` 那份）：
+  - `test_live_config.py` 的 `clients.opened` / `clients.closed`（4 处）：前面多了 `ENV_SETTINGS`；后台保存新扮演模型时 `.env` 的那个没人在用，当场关掉。
+  - `test_live_config_services.py`：记忆模型换掉的那条，`closed_while_writing == []` 改为「新记忆模型不在其中」，`clients.closed` 前面多了 `.env` 的那个；`memory_opened` 前面多了 `.env` 的那份。`with_memory` 的 `background` 改为可选（它会替换 `clients.background`，原来那条测试同时传了两个）。
+  - `test_assembly.py` 的 Cloudflare 那条：原来靠 `build` 默认的 `ProviderClients` + monkeypatch `open_judge`，改为一个 `judge_model` 造真 `CloudflareJudge` 的 `FakeServiceClients` 子类，断言不变。
+  - `test_judge_thresholds.py`：去掉已经不起作用的 `CloudflareJudge.ask` monkeypatch。

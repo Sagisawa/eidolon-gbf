@@ -788,14 +788,10 @@ class Calls:
         speech: Speech,
         clock: Clock,
         store: Store | None = None,
-        emotions: EmotionJudging | None = None,
     ) -> None:
         """Calls last as long, and take as many turns, as `limits` says as each starts.
-        With `store`, calls of users banned or deleted meanwhile are hung up; with
-        `emotions`, her emotion in each segment is judged, on the deployer's judge model
-        whoever's keys the call is on."""
+        With `store`, calls of users banned or deleted meanwhile are hung up."""
         self._settings = settings
-        self._emotions = emotions
         self._engine = engine
         self._admissions = admissions
         self._usage_limits = limits
@@ -873,8 +869,7 @@ class Calls:
                 self._owners.pop(connection.pc_id, None)
 
             live = _LiveCall(
-                connection, call, self._engine, self._speech, keys, outcome,
-                keys.emotions or self._emotions,
+                connection, call, self._engine, self._speech, keys, outcome, keys.emotions
             )
             self._live.add(live)
             live.start(on_done=self._live.discard)

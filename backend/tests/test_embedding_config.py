@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.assembly import build
 from eidolon.config import EmbeddingSettings, LLMSettings, RerankSettings, Settings
 from eidolon.embedding import GeminiEmbedder, SiliconFlowEmbedder, open_embedder
 from tests.conftest import Admin, CharacterConfig
-from tests.fakes import FakeBackgroundLLM, FakeJudge, FakeLLM, FakeSpeech
+from tests.fakes import FakeBackgroundLLM, FakeJudge, FakeLLM, FakeSpeech, build_faked
 
 NAMES = (
     "EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS", "GEMINI_API_KEY",
@@ -122,8 +121,8 @@ async def test_retrieval_is_off_without_either_key(
     )
 
     with caplog.at_level(logging.INFO, logger="eidolon.assembly"):
-        backend = build(
-            settings, chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
+        backend = build_faked(
+            settings, FakeLLM([]), background_llm=FakeBackgroundLLM(),
             retrieval_judge=FakeJudge(), speech=FakeSpeech(),
         )
 

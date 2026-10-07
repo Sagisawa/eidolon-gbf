@@ -3,7 +3,8 @@ the backend runs (ADR-0013).
 
 `ServiceClients` is the one place the deployer's clients are made from settings: at
 startup by `assembly.build`, and whenever the live configuration changes (see
-`live_config`). Tests pass in a fake.
+`live_config`). Tests pass in a fake, every deployer's client then made by it all the
+same.
 
 `Swappable` holds the client a service runs on now. Each turn and each call takes a
 `Lease` on it as it starts and runs on that client to the end, whatever replaces it
@@ -82,10 +83,8 @@ class Lease(Generic[C]):
 
 
 class _Held(Generic[C]):
-    def __init__(self, client: C, owned: bool) -> None:
+    def __init__(self, client: C) -> None:
         self.client = client
-        self.owned = owned
-        """Whether it is this holder's to close: one passed in by a test is not."""
         self.leases = 0
 
 
@@ -96,9 +95,9 @@ class Swappable(Generic[C]):
     the counts are kept under a lock; a client retired by its last lease is closed on the
     event loop it was replaced on."""
 
-    def __init__(self, client: C, *, owned: bool = True) -> None:
+    def __init__(self, client: C) -> None:
         self._lock = threading.Lock()
-        self._current = _Held(client, owned)
+        self._current = _Held(client)
         self._retired: set[_Held[C]] = set()
         self._closing: set[asyncio.Task[None]] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -126,11 +125,11 @@ class Swappable(Generic[C]):
         now if nothing is on it, else once the last turn or call on it has ended."""
         self._loop = asyncio.get_running_loop()
         with self._lock:
-            old, self._current = self._current, _Held(client, owned=True)
+            old, self._current = self._current, _Held(client)
             idle = old.leases == 0
             if not idle:
                 self._retired.add(old)
-        if idle and old.owned:
+        if idle:
             await old.client.aclose()
 
     async def aclose(self) -> None:
@@ -139,8 +138,7 @@ class Swappable(Generic[C]):
             held = [self._current, *self._retired]
             self._retired.clear()
         for h in held:
-            if h.owned:
-                await h.client.aclose()
+            await h.client.aclose()
         await asyncio.gather(*self._closing, return_exceptions=True)
 
     def _release(self, held: _Held[C]) -> None:
@@ -149,7 +147,7 @@ class Swappable(Generic[C]):
             done = held in self._retired and held.leases == 0
             if done:
                 self._retired.discard(held)
-        if done and held.owned:
+        if done:
             self._close_later(held.client)
 
     def _close_later(self, client: C) -> None:

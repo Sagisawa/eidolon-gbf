@@ -10,7 +10,7 @@ import pytest
 
 import eidolon.judge
 import eidolon.live_config
-from eidolon.assembly import Backend, build
+from eidolon.assembly import Backend
 from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JevSettings, Settings
 from eidolon.judge import (
     JUDGE_THRESHOLDS,
@@ -21,6 +21,7 @@ from eidolon.judge import (
     warn_if_uncalibrated,
 )
 from eidolon.retrieval import ModelRetrievalJudge
+from tests.fakes import build_faked
 from tests.test_assembly import Services
 from tests.test_retrieval_services import MANO, client
 
@@ -107,13 +108,13 @@ async def test_retrieval_judges_by_the_thresholds_it_is_given(
 
 
 @pytest.fixture
-async def built(settings: Settings, monkeypatch: pytest.MonkeyPatch):
+async def built(settings: Settings):
     made: list[Backend] = []
 
     def make(settings: Settings) -> Backend:
         services = Services()
-        backend = build(
-            settings, chat_llm=services.chat, background_llm=services.background,
+        backend = build_faked(
+            settings, services.chat, background_llm=services.background,
             embedder=services.embedder, reranker=services.reranker,
         )
         made.append(backend)
@@ -154,7 +155,6 @@ async def test_retrieval_is_judged_by_the_models_thresholds(
         return judges[-1]
 
     monkeypatch.setattr(eidolon.live_config, "ModelRetrievalJudge", recording)
-    monkeypatch.setattr(eidolon.judge.CloudflareJudge, "ask", answering_nothing)
 
     backend = built(replace(settings, judge=CloudflareJudgeSettings("t", "a", "clef-flash")))
     assert backend.engine._retrieval is not None
@@ -162,10 +162,6 @@ async def test_retrieval_is_judged_by_the_models_thresholds(
 
     [judge] = judges
     assert judge.thresholds == ODD
-
-
-async def answering_nothing(self, state: dict, questions: dict) -> dict:
-    return {name: {"noul": 0.0} for name in questions}
 
 
 async def test_the_emotion_setting_overrides_every_models_threshold(settings: Settings, built):

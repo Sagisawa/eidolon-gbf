@@ -58,15 +58,19 @@ def admins(settings: Settings) -> Settings:
 
 
 def with_memory(
-    make_client: ClientFactory, background: FakeBackgroundLLM, judge: FakeJudge | None = None
+    make_client: ClientFactory,
+    background: FakeBackgroundLLM | None = None,
+    judge: FakeJudge | None = None,
 ):
-    """A client factory for backends with memory on, writing down with `background` as
-    `.env` has it; turns need what `judge` says (nothing, by default)."""
+    """A client factory for backends with memory on, every memory model writing down from
+    `background`'s script, if given; turns need what `judge` says (nothing, by default)."""
 
     def factory(*args, **kwargs) -> httpx.AsyncClient:
+        if background is not None:
+            kwargs["background_llm"] = background
         return make_client(
             *args, retrieval_judge=judge or FakeJudge("nothing"), embedder=FakeEmbedder(),
-            reranker=FakeReranker(), background_llm=background, **kwargs,
+            reranker=FakeReranker(), **kwargs,
         )
 
     return factory
@@ -83,9 +87,7 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
-    env_background = FakeBackgroundLLM()
-    factory = with_memory(make_client, env_background)
-    client = await admin_client(factory, admins, github, clients)
+    client = await admin_client(with_memory(make_client), admins, github, clients)
     conversation_id = await start_conversation(client)
     before = (await client.get(CONFIG)).json()["memory_llm"]
     await send_turn(client, conversation_id, "早上好")
@@ -107,19 +109,16 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     assert shown["effective"]["api_key_last4"] == "4321"
     assert MEMORY_KEY not in saved.text
     assert restored.json()["memory_llm"] == before
-    assert len(env_background.prompts) == 1
-    assert clients.memory_keys == [MEMORY_KEY, DEPLOYER_KEY]
+    assert clients.memory_keys == [DEPLOYER_KEY, MEMORY_KEY, DEPLOYER_KEY]
     assert clients.llm.keys == [DEPLOYER_KEY] * 3  # the chat model is untouched
-    assert clients.memory_opened == [NEW_MEMORY_SETTINGS, ENV_SETTINGS]
+    assert clients.memory_opened == [ENV_SETTINGS, NEW_MEMORY_SETTINGS, ENV_SETTINGS]
 
 
 async def test_unless_set_apart_the_memory_model_follows_the_chat_model_saved(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     clients = FakeServiceClients(FakeLLM(REPLY, [CAT]))
-    env_background = FakeBackgroundLLM()
-    factory = with_memory(make_client, env_background)
-    client = await admin_client(factory, admins, github, clients)
+    client = await admin_client(with_memory(make_client), admins, github, clients)
     conversation_id = await start_conversation(client)
 
     saved = await client.put("/api/admin/config/chat_llm", json=NEW)
@@ -131,17 +130,15 @@ async def test_unless_set_apart_the_memory_model_follows_the_chat_model_saved(
     assert memory["effective"] == NEW_SHOWN
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
     assert clients.llm.keys == [NEW["api_key"], NEW["api_key"]]
-    assert env_background.prompts == []
+    assert clients.memory_keys == []
 
 
 async def test_a_memory_model_set_apart_in_env_does_not_follow_the_chat_model(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     clients = FakeServiceClients(FakeLLM(REPLY))
-    env_background = FakeBackgroundLLM()
-    factory = with_memory(make_client, env_background)
     apart = replace(admins, background_llm=replace(ENV_SETTINGS, model="background-model"))
-    client = await admin_client(factory, apart, github, clients)
+    client = await admin_client(with_memory(make_client), apart, github, clients)
     conversation_id = await start_conversation(client)
 
     saved = await client.put("/api/admin/config/chat_llm", json=NEW)
@@ -151,7 +148,8 @@ async def test_a_memory_model_set_apart_in_env_does_not_follow_the_chat_model(
     memory = saved.json()["memory_llm"]
     assert memory["follows_chat"] is False
     assert memory["effective"]["model"] == "background-model"
-    assert len(env_background.prompts) == 1
+    assert clients.memory_keys == [DEPLOYER_KEY]
+    assert clients.memory_opened == [replace(ENV_SETTINGS, model="background-model")]
     assert clients.llm.keys == [NEW["api_key"]]
 
 
@@ -161,9 +159,7 @@ async def test_a_memory_model_replaced_while_writing_down_is_closed_once_written
     clients = FakeServiceClients(FakeLLM(REPLY))
     gate = asyncio.Event()
     clients.background = FakeBackgroundLLM(CAT, gate=gate)
-    client = await admin_client(
-        with_memory(make_client, FakeBackgroundLLM()), admins, github, clients
-    )
+    client = await admin_client(with_memory(make_client), admins, github, clients)
     conversation_id = await start_conversation(client)
     assert (await client.put(MEMORY_LLM, json=NEW_MEMORY)).status_code == 200
     await send_turn(client, conversation_id, "我养了一只猫")  # written down after the turn
@@ -174,9 +170,9 @@ async def test_a_memory_model_replaced_while_writing_down_is_closed_once_written
     gate.set()
     memories = await settle(client)
 
-    assert closed_while_writing == []
+    assert NEW_MEMORY_SETTINGS not in closed_while_writing
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
-    assert clients.closed == [NEW_MEMORY_SETTINGS]
+    assert clients.closed == [ENV_SETTINGS, NEW_MEMORY_SETTINGS]
 
 
 async def until(done: Callable[[], object]) -> None:

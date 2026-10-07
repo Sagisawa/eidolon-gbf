@@ -13,7 +13,7 @@ import pytest
 import eidolon.bailian
 from eidolon.__main__ import main
 from eidolon.app import create_app
-from eidolon.assembly import Backend, build
+from eidolon.assembly import Backend
 from eidolon.config import LLMSettings, Settings
 from eidolon.identity import Identity
 from eidolon.sessions import SESSION_COOKIE
@@ -23,13 +23,13 @@ from tests.fakes import (
     DEPLOYER_FISH_KEY,
     DEPLOYER_SONIOX_KEY,
     START,
-    FakeBackgroundLLM,
     FakeCatalog,
     FakeDashScope,
     FakeIdentityProvider,
     FakeLLM,
     FakeLLMService,
     FakeSpeech,
+    build_faked,
 )
 from tests.stories import write_sample_stories
 
@@ -294,13 +294,16 @@ async def make_client(
     google: FakeIdentityProvider,
     own_llm: FakeLLMService,
 ) -> AsyncIterator[ClientFactory]:
-    """Makes API clients; each is signed in as the user with the given name, by default
-    the producer, who has agreed to the terms (None for a client not signed in).
-    Any other keyword is an outside service to use instead of the one the settings
-    describe (see `assembly.build`); the background model, speech, the identity providers
-    (the `github` and `google` fixtures), the LLM services users bring their own keys
-    to (`own_llm`) and the price catalogs online (an empty `FakeCatalog`) are fakes by
-    default, and `voice_configured=False` leaves the deployer without speech keys."""
+    """Makes API clients, the deployer's chat model playing from `llm`'s script; each is
+    signed in as the user with the given name, by default the producer, who has agreed to
+    the terms (None for a client not signed in). Any other keyword is a script for the
+    deployer's models (`background_llm`, `retrieval_judge`, `emotion_judge`), the
+    `FakeServiceClients` that make them (`clients`), or an outside service to use instead
+    of the one the settings describe (see `fakes.build_faked`); speech, the identity
+    providers (the `github` and `google` fixtures), the LLM services users bring their
+    own keys to (`own_llm`) and the price catalogs online (an empty `FakeCatalog`) are
+    fakes by default, and `voice_configured=False` leaves the deployer without speech
+    keys."""
     backends: list[Backend] = []
     clients: list[httpx.AsyncClient] = []
 
@@ -312,14 +315,13 @@ async def make_client(
         voice_configured: bool = True,
         **services: Any,
     ) -> httpx.AsyncClient:
-        services.setdefault("background_llm", FakeBackgroundLLM())
         services.setdefault("identity_providers", {"github": github, "google": google})
         services.setdefault("own_llm_service", own_llm)
         services.setdefault("speech", speech)
         services.setdefault("catalog_transport", FakeCatalog().transport())
         if not voice_configured:
             settings = replace(settings, soniox_api_key=None, fish_audio_api_key=None)
-        backend = build(settings, chat_llm=llm, **services)
+        backend = build_faked(settings, llm, **services)
         backends.append(backend)
         client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=create_app(backend)),

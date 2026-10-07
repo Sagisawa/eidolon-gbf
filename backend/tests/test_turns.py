@@ -12,13 +12,20 @@ from typing import Any
 
 import pytest
 
-from eidolon.assembly import build
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.llm import ToolCall
 from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.store import Conversation, Store
-from tests.fakes import HANG, FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import (
+    HANG,
+    FakeBackgroundLLM,
+    FakeEmbedder,
+    FakeJudge,
+    FakeLLM,
+    FakeReranker,
+    build_faked,
+)
 
 NOW = datetime(2026, 9, 26, 12, 0, tzinfo=UTC)
 REPLY = ["<ja>ほわっ、</ja><zh>哇，</zh>"]
@@ -45,9 +52,9 @@ class Turns:
         """Take one turn; returns its events as they go out on the wire, and with
         `in_house` also those that stay on the server. With `stop_after`, the turn is told
         to stop a moment after that segment is complete, by when it is waiting on the
-        model or a tool. Any other keyword is an outside service to use (see
-        `assembly.build`)."""
-        backend = build(self._settings, chat_llm=llm, clock=lambda: NOW, **services)
+        model or a tool. Any other keyword is a script for the deployer's models or an
+        outside service to use (see `fakes.build_faked`)."""
+        backend = build_faked(self._settings, llm, clock=lambda: NOW, **services)
         stop = asyncio.Event()
         events = []
         try:

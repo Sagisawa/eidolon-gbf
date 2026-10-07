@@ -5,8 +5,8 @@ import html
 import hashlib
 import json
 import secrets
-from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-from dataclasses import dataclass, field
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 import re
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast, get_args
@@ -29,19 +29,21 @@ from pipecat.services.stt_service import STTService
 from pipecat.services.tts_service import TTSService
 from pipecat.utils.time import time_now_iso8601
 
+from eidolon.assembly import Backend, build
 from eidolon.billing import bill
-from eidolon.characters import Character
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
 from eidolon.config import (
     BailianRegion,
     CloudflareJudgeSettings,
+    JevSettings,
     JudgeSettings,
     LLMSettings,
+    Settings,
     SttKey,
     SttProvider,
 )
 from eidolon.embedding import Document, EmbeddingError
-from eidolon.emotion import Emotion, EmotionAnswer, Nod, SegmentToJudge
+from eidolon.emotion import _EMOTION_OPTIONS, _NOD_OPTIONS, Emotion, EmotionAnswer, Nod
 from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
@@ -51,7 +53,6 @@ from eidolon.judge import JudgeError
 if TYPE_CHECKING:
     from eidolon.judge import JudgeModel
 from eidolon.retrieval import Need
-from eidolon.store import Message
 
 START = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
 
@@ -174,16 +175,17 @@ class _KeyedLLM:
 
 class FakeServiceClients:
     """Stands in for making the deployer's service clients from their configuration (see
-    `service_clients.ServiceClients`): records the settings of every chat model it made
-    (`opened`) and closed (`closed`). Every chat model it makes replies from `llm`'s
-    script, recording the key it came with there, but passes the connectivity check
-    without using up the script; a key in `rejects` fails every request, the check too,
-    with that message.
+    `service_clients.ServiceClients`), `.env`'s as well as the admin console's: records
+    the settings of every chat model it made (`opened`) and closed (`closed`). Every chat
+    model it makes replies from `llm`'s script, recording the key it came with there (or
+    is `llm`, if it is not a `FakeLLM`), but passes the connectivity check without using
+    up the script; a key in `rejects` fails every request, the check too, with that
+    message.
 
-    Memory models it makes (`memory_opened`) answer from `background`, recording the key
-    each request came with (`memory_keys`). Judge models it makes (`judges_opened`,
-    `judges_closed`) answer every question as `judge` does, recording the key each
-    question came with there."""
+    Memory models it makes (`memory_opened`, closed in `closed` too) answer from
+    `background`, recording the key each request came with (`memory_keys`). Judge models
+    it makes (`judges_opened`, `judges_closed`) answer every question as `judge` does,
+    recording the key each question came with there."""
 
     def __init__(self, llm: FakeLLM | None = None) -> None:
         self.llm = llm or FakeLLM()
@@ -236,7 +238,12 @@ class _ConfiguredLLM:
             async for item in self._clients.background.stream(messages, tools):
                 yield item
             return
-        async for item in self._clients.llm.stream_with(key, messages, tools):
+        llm = self._clients.llm
+        stream = (
+            llm.stream_with(key, messages, tools) if isinstance(llm, FakeLLM)
+            else llm.stream(messages, tools)
+        )
+        async for item in stream:
             yield item
 
     async def aclose(self) -> None:
@@ -244,19 +251,28 @@ class _ConfiguredLLM:
 
 
 class FakeJudgeModel:
-    """Stands in for the judge model's service: answers the retrieval questions with the
-    probabilities in `retrieval`, her emotion with those in `emotion` and the nod with
-    neither. Records the key each request came with and what it asked (`asked`: "turn",
-    "emotion" or "check")."""
+    """Stands in for the judge model's service: answers what each turn needs as the script
+    `needs` says, her emotion in each segment as `feels` does; without them, the retrieval
+    questions with the probabilities in `retrieval`, her emotion with those in `emotion`
+    and the nod with neither. Records the key each request came with and what it asked
+    (`asked`: "turn", "emotion" or "check")."""
 
     def __init__(self) -> None:
+        self.needs: FakeJudge | None = None
+        self.feels: FakeJudge | None = None
         self.retrieval = {"needs_retrieval": 0.1, "recall": 0.1, "about_producer": 0.1}
         self.emotion = {"平静": 1.0}
         self.asked: list[tuple[str, str]] = []
 
-    def answer(self, key: str, questions: dict[str, dict]) -> dict[str, Any]:
+    async def answer(
+        self, key: str, state: dict[str, Any], questions: dict[str, dict]
+    ) -> dict[str, Any]:
         kind = "turn" if "recall" in questions else "emotion" if "emotion" in questions else "check"
         self.asked.append((key, kind))
+        if kind == "turn" and self.needs is not None:
+            return self.needs.need(state)
+        if kind == "emotion" and self.feels is not None:
+            return await self.feels.feel(state)
         return {
             name: {"noul": self.retrieval.get(name, 0.5)}
             if q.get("type") == "noul"
@@ -274,7 +290,7 @@ class _ConfiguredJudge:
         key = judge_key(self._settings)
         if key in self._clients.rejects:
             raise JudgeError(self._clients.rejects[key])
-        return self._clients.judge.answer(key, questions)
+        return await self._clients.judge.answer(key, state, questions)
 
     async def aclose(self) -> None:
         self._clients.judges_closed.append(self._settings)
@@ -282,6 +298,40 @@ class _ConfiguredJudge:
 
 def judge_key(settings: JudgeSettings) -> str:
     return settings.api_token if isinstance(settings, CloudflareJudgeSettings) else settings.api_key
+
+
+FAKE_JUDGE = JevSettings("fake-judge-key")
+"""The judge model `.env` has when a test hands one a script: Jev, whose thresholds are
+the ones every model not calibrated judges by."""
+
+
+def build_faked(
+    settings: Settings,
+    llm: FakeLLM | None = None,
+    *,
+    clients: "FakeServiceClients | None" = None,
+    background_llm: "FakeBackgroundLLM | None" = None,
+    retrieval_judge: "FakeJudge | None" = None,
+    emotion_judge: "FakeJudge | None" = None,
+    **services: Any,
+) -> Backend:
+    """`build`, with the deployer's models made by `clients` (new ones by default):
+    playing the characters from `llm`'s script, writing down memories from
+    `background_llm`'s, judging what turns need from `retrieval_judge`'s and her emotions
+    from `emotion_judge`'s, either judging both if only one is given. With a judge
+    script, `.env` has the judge model `FAKE_JUDGE` unless it has one. Any other keyword
+    is an outside service passed on to `build`."""
+    clients = clients or FakeServiceClients()
+    if llm is not None:
+        clients.llm = llm
+    if background_llm is not None:
+        clients.background = background_llm
+    if retrieval_judge is not None or emotion_judge is not None:
+        clients.judge.needs = retrieval_judge or emotion_judge
+        clients.judge.feels = emotion_judge or retrieval_judge
+        if settings.judge is None:
+            settings = replace(settings, judge=FAKE_JUDGE)
+    return build(settings, clients=clients, **services)
 
 
 class FakeBackgroundLLM:
@@ -593,12 +643,14 @@ class FakeEmbedder:
 
 
 class FakeJudge:
-    """Stands in for the judge model: answers every turn the same way, or fails if `answer` is None.
-    Records what it was asked.
+    """A script for the judge model (`FakeJudgeModel.needs` and `.feels`): every turn
+    needs `answer`, or the judge model fails if it is None; it answers the yes-or-no
+    questions with probabilities of 1 or 0, which any thresholds read as `answer`.
+    Records the character's name and the user's words of each turn asked about (`asked`).
 
     Asked about segments' emotions, it answers each in turn from `emotions`: an answer,
     None to fail, or `HANG` never to answer; calm and neither nodding nor not once they
-    run out. Records the segments it was asked about (`segments`)."""
+    run out. Records what it was told of each segment (`segments`)."""
 
     def __init__(
         self,
@@ -606,25 +658,53 @@ class FakeJudge:
         emotions: Sequence[EmotionAnswer | object | None] = (),
     ) -> None:
         self.answer: Need | None = answer
-        self.asked: list[tuple[str, str]] = []  # (character id, text)
+        self.asked: list[tuple[str, str]] = []  # (character's name, text)
         self.emotions = list(emotions)
-        self.segments: list[SegmentToJudge] = []
+        self.segments: list[AskedSegment] = []
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
-        self.asked.append((character.id, text))
+    def need(self, state: dict[str, Any]) -> dict[str, Any]:
+        self.asked.append((state["角色"], state["制作人最新的一句话"]))
         if self.answer is None:
             raise JudgeError("fake judge model is down")
-        return self.answer
+        yes = {"references": "needs_retrieval", "recall": "recall", "memories": "about_producer"}
+        return {
+            question: {"noul": 1.0 if yes.get(self.answer) == question else 0.0}
+            for question in ("needs_retrieval", "recall", "about_producer")
+        }
 
-    async def judge_emotion(self, segment: SegmentToJudge) -> EmotionAnswer:
-        self.segments.append(segment)
+    async def feel(self, state: dict[str, Any]) -> dict[str, Any]:
+        self.segments.append(AskedSegment(
+            state["角色"], state["制作人这句话"], state["这条回复前面几段"], state["这一段台词"],
+            state["这一段的中文字幕"],
+        ))
         answer = self.emotions.pop(0) if self.emotions else feeling("calm")
         if answer is None:
             raise JudgeError("fake judge model is down")
         if answer is HANG:
             await asyncio.Event().wait()
         assert isinstance(answer, EmotionAnswer)
-        return answer
+        return {
+            "emotion": {"probabilities": _named(answer.emotions, _EMOTION_OPTIONS)},
+            "nod": {"probabilities": _named(answer.nods, _NOD_OPTIONS)},
+        }
+
+
+@dataclass(frozen=True)
+class AskedSegment:
+    """What the judge model was told of a segment: the character's name, what the user
+    said, the reply's segments before it (each its Japanese and, in brackets, its
+    subtitle; a note if there are none), and the segment's Japanese and subtitle."""
+
+    character: str
+    user_said: str
+    before: list[str] | str
+    ja: str
+    zh: str
+
+
+def _named(probabilities: Mapping[Any, float], options: Mapping[str, tuple[Any, str]]) -> dict:
+    """`probabilities` by the names the judge model gives the options."""
+    return {name: probabilities[o] for name, (o, _) in options.items() if o in probabilities}
 
 
 def feeling(

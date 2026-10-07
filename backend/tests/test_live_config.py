@@ -97,8 +97,8 @@ async def test_a_saved_chat_model_plays_the_next_turn_until_restored(
     assert NEW_KEY not in saved.text and DEPLOYER_KEY not in saved.text
     assert restored.json() == before
     assert clients.llm.keys == [DEPLOYER_KEY, NEW_KEY, DEPLOYER_KEY]
-    assert clients.opened == [NEW_SETTINGS, ENV_SETTINGS]
-    assert clients.closed == [NEW_SETTINGS]  # once no turn was on it
+    assert clients.opened == [ENV_SETTINGS, NEW_SETTINGS, ENV_SETTINGS]
+    assert clients.closed == [ENV_SETTINGS, NEW_SETTINGS]  # each once no turn was on it
 
 
 async def test_a_chat_model_that_fails_its_try_is_not_saved(
@@ -139,7 +139,7 @@ async def test_a_call_keeps_the_chat_model_it_connected_with(
     await speech.stts[-1].hear("早上好")
     await browser.turn()
     assert clients.llm.keys == [NEW_KEY]
-    assert clients.closed == []  # the call is still on it
+    assert clients.closed == [ENV_SETTINGS]  # the call is still on the new one
 
     await browser.close()
     await until_gone(client, browser.pc_id)
@@ -150,7 +150,7 @@ async def test_a_call_keeps_the_chat_model_it_connected_with(
         await again.turn()
 
     assert clients.llm.keys == [NEW_KEY, "sk-other-key-9999"]
-    assert clients.closed == [NEW_SETTINGS]
+    assert clients.closed == [ENV_SETTINGS, NEW_SETTINGS]
 
 
 async def test_without_the_secret_key_the_chat_models_key_is_read_only(
@@ -170,7 +170,7 @@ async def test_without_the_secret_key_the_chat_models_key_is_read_only(
     shown = without_key.json()
     assert shown["keys_editable"] is False
     assert shown["chat_llm"]["effective"] == NEW_SHOWN | {"api_key_last4": DEPLOYER_KEY[-4:]}
-    assert clients.opened == [replace(NEW_SETTINGS, api_key=DEPLOYER_KEY)]
+    assert clients.opened == [ENV_SETTINGS, replace(NEW_SETTINGS, api_key=DEPLOYER_KEY)]
     assert clients.llm.keys == [DEPLOYER_KEY]
 
 

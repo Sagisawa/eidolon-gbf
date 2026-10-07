@@ -54,7 +54,7 @@ from eidolon.config import (
     UsageLimits,
 )
 from eidolon.database import connect
-from eidolon.emotion import EmotionJudge, EmotionJudging, ModelEmotionJudge
+from eidolon.emotion import EmotionJudging, ModelEmotionJudge
 from eidolon.judge import (
     JudgeError,
     JudgeModel,
@@ -468,24 +468,16 @@ class LiveConfig:
         clients: ServiceClients,
         clock: Clock,
         *,
-        background_llm: ChatLLM,
-        chat_llm: ChatLLM | None = None,
+        activity: ActivityLog,
         speech: KeyCheck | None = None,
-        live_judge: bool = False,
-        live_emotions: bool = False,
-        activity: ActivityLog | None = None,
     ) -> None:
-        """With `chat_llm`, the chat model `.env` describes is that one, not made here
-        nor closed; the memory model `.env` describes is `background_llm`, nor closed.
-        `speech` tries the keys for speech synthesis and recognition. With `live_judge`,
-        the judge model is made here from the configuration, and judges each call's
-        emotions too if `live_emotions` (else a judge model passed in does), each question
-        recorded in `activity`."""
+        """The chat, memory and judge models are made by `clients`, each question to the
+        judge model recorded in `activity`; `speech` tries the keys for speech synthesis
+        and recognition."""
         self.settings = settings
         self._clients = clients
         self._clock = clock
         self._speech = speech
-        self._live_emotions = live_emotions
         self._activity = activity
         self._cipher = _cipher(settings.secret_key) if settings.secret_key else None
         self._db = connect(settings.database_path)
@@ -517,20 +509,12 @@ class LiveConfig:
                 except _Unreadable as e:
                     self._failures[item.name] = str(e)
 
-        chat = _llm(self.effective(CHAT_LLM))
-        if chat != settings.chat_llm or chat_llm is None:
-            self._chat = Swappable(clients.chat_llm(chat))
-        else:
-            self._chat = Swappable(chat_llm, owned=False)
+        self._chat = Swappable(clients.chat_llm(self.chat_llm))
         memory = settings.background_llm if self._memory_on_chat() else self.memory_llm
-        if memory != settings.background_llm:
-            self._memory = Swappable(clients.memory_llm(memory))
-        else:
-            self._memory = Swappable(background_llm, owned=False)
+        self._memory = Swappable(clients.memory_llm(memory))
         self._judge: Swappable[JudgeModel] | None = None
-        if live_judge and (judge := self.judge_settings) is not None:
-            self._judge = Swappable(clients.judge_model(judge))
         if (judge := self.judge_settings) is not None:
+            self._judge = Swappable(clients.judge_model(judge))
             warn_if_uncalibrated(judge.model)
 
     @property
@@ -606,16 +590,14 @@ class LiveConfig:
         memory = chat.again() if self._memory_on_chat() else self._memory.lease()
         held.append(memory)
         emotions = None
-        if self._judge is not None and self._live_emotions:
+        if self._judge is not None:
             judge = self._judge.lease()
             held.append(judge)
-            emotion_judge: EmotionJudge = ModelEmotionJudge(judge.client)
-            if self._activity is not None:
-                emotion_judge = MeteredEmotionJudge(
-                    emotion_judge, self._activity, judge_origin(self.judge_settings)
-                )
             emotions = EmotionJudging(
-                emotion_judge,
+                MeteredEmotionJudge(
+                    ModelEmotionJudge(judge.client), self._activity,
+                    judge_origin(self.judge_settings),
+                ),
                 self.judge_thresholds.emotion,
                 self.effective(JUDGE)["emotion_timeout"],
             )
@@ -626,10 +608,12 @@ class LiveConfig:
         )
         return DeployerLease(keys, lambda: _release(held))
 
-    def retrieval_judge(self, activity: ActivityLog) -> "LiveRetrievalJudge | None":
+    def retrieval_judge(self) -> "LiveRetrievalJudge | None":
         """The judge model as retrieval asks it, the one in effect at each question, each
-        recorded as a service call; None unless it is made here."""
-        return None if self._judge is None else LiveRetrievalJudge(self, self._judge, activity)
+        recorded as a service call; None without one."""
+        if self._judge is None:
+            return None
+        return LiveRetrievalJudge(self, self._judge, self._activity)
 
     async def start(self) -> None:
         """Try every override as the server starts: one that fails falls back to `.env`,

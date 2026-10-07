@@ -8,12 +8,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from eidolon.assembly import build
 from eidolon.config import Settings
 from eidolon.characters import load_characters
 from eidolon.world import WorldError, load_world, world_path
 from tests.conftest import CharacterConfig
-from tests.fakes import FakeBackgroundLLM, FakeLLM
+from tests.fakes import FakeBackgroundLLM, FakeLLM, build_faked
 from tests.test_characters import REPO_CHARACTERS
 from tests.test_turns import REPLY, Turns, turns  # noqa: F401  (the fixture)
 
@@ -241,7 +240,7 @@ async def test_whether_a_release_is_out_goes_by_the_day_of_each_turn(
     write_world(characters)  # the data runs to 2026-09-28; the release is on 2026-10-21
     now = [datetime(2026, 10, 20, 12, 0, tzinfo=UTC)]
     llm = FakeLLM(REPLY, REPLY)
-    backend = build(settings, chat_llm=llm, clock=lambda: now[0])
+    backend = build_faked(settings, llm, clock=lambda: now[0])
     try:
         llms = backend.own_keys.for_turn(turns.conversation.user_id).llms
         async for _ in backend.engine.turn(turns.conversation, "新しいCD、いつ出るんだっけ", llms):
@@ -348,7 +347,7 @@ async def test_whether_a_live_is_still_to_come_goes_by_the_day_of_each_turn(
     write_world(characters)
     now = [datetime(2026, 11, 7, 12, 0, tzinfo=UTC)]
     llm = FakeLLM(REPLY)
-    backend = build(settings, chat_llm=llm, clock=lambda: now[0])
+    backend = build_faked(settings, llm, clock=lambda: now[0])
     try:
         llms = backend.own_keys.for_turn(turns.conversation.user_id).llms
         async for _ in backend.engine.turn(turns.conversation, "今日のライブ、楽しみ！", llms):
@@ -391,7 +390,7 @@ def test_a_character_who_is_none_of_the_idols_stops_the_backend_from_starting(
     write_world(characters, idols=[("櫻木真乃", "illumination STARS", "関根瞳")])
 
     with pytest.raises(WorldError, match="kogane.*月岡恋鐘"):
-        build(settings, chat_llm=FakeLLM())
+        build_faked(settings, FakeLLM())
 
 
 def test_every_character_in_the_repository_is_one_of_the_idols_in_its_world_setting():

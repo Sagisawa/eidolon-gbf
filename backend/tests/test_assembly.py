@@ -13,14 +13,26 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-import eidolon.assembly
-import eidolon.service_clients
-from eidolon.assembly import Backend, build
-from eidolon.config import CloudflareJudgeSettings, LLMSettings, Settings
+from eidolon.assembly import Backend
+from eidolon.config import (
+    CloudflareJudgeSettings,
+    JevSettings,
+    JudgeSettings,
+    LLMSettings,
+    Settings,
+)
 from eidolon.emotion import SaidSegment, SegmentToJudge
-from eidolon.judge import open_judge
+from eidolon.judge import JudgeModel, open_judge
 from eidolon.retrieval import RECALL_STORY_TOOL
-from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import (
+    FakeBackgroundLLM,
+    FakeEmbedder,
+    FakeJudge,
+    FakeLLM,
+    FakeReranker,
+    FakeServiceClients,
+    build_faked,
+)
 from tests.test_cloudflare_judge import URL, envelope
 from tests.test_retrieval_services import Handler, client
 
@@ -61,8 +73,8 @@ async def test_with_every_service_turns_retrieve_and_remember(
     settings: Settings, backends: list[Backend]
 ):
     services = Services()
-    backend = build(
-        settings, chat_llm=services.chat, background_llm=services.background,
+    backend = build_faked(
+        settings, services.chat, background_llm=services.background,
         retrieval_judge=services.retrieval_judge, embedder=services.embedder, reranker=services.reranker,
         clock=lambda: NOW,
     )
@@ -71,7 +83,7 @@ async def test_with_every_service_turns_retrieve_and_remember(
     user_id, events = await tell_mano(backend, "我家的猫叫小白哦")
 
     assert events[-1]["type"] == "done"
-    assert services.retrieval_judge.asked == [("mano", "我家的猫叫小白哦")]
+    assert services.retrieval_judge.asked == [("櫻木真乃", "我家的猫叫小白哦")]
     assert services.chat.tools == [[RECALL_STORY_TOOL]]
     assert [m.text for m in await backend.memories.entries(user_id)] == [CAT]
 
@@ -82,8 +94,8 @@ async def test_without_any_one_of_them_retrieval_and_memory_are_off(
 ):
     services = Services()
     given = {name: getattr(services, name) for name in ALL if name != missing}
-    backend = build(
-        settings, chat_llm=services.chat, background_llm=services.background,
+    backend = build_faked(
+        settings, services.chat, background_llm=services.background,
         clock=lambda: NOW, **given,
     )
     backends.append(backend)
@@ -119,17 +131,18 @@ def answering_every_question(requests: list[dict]) -> Handler:
 
 
 async def test_cloudflare_chosen_judges_both_what_turns_need_and_her_emotions(
-    settings: Settings, backends: list[Backend], monkeypatch: pytest.MonkeyPatch
+    settings: Settings, backends: list[Backend]
 ):
     requests: list[dict] = []
-    monkeypatch.setattr(
-        eidolon.service_clients, "open_judge",
-        lambda s: open_judge(s, client(answering_every_question(requests))),
-    )
+
+    class CloudflareClients(FakeServiceClients):
+        def judge_model(self, settings: JudgeSettings) -> JudgeModel:
+            return open_judge(settings, client(answering_every_question(requests)))
+
     services = Services()
-    backend = build(
+    backend = build_faked(
         replace(settings, judge=CloudflareJudgeSettings("cf-token", "acc-id")),
-        chat_llm=services.chat, background_llm=services.background,
+        services.chat, background_llm=services.background, clients=CloudflareClients(),
         embedder=services.embedder, reranker=services.reranker, clock=lambda: NOW,
     )
     backends.append(backend)
@@ -143,6 +156,42 @@ async def test_cloudflare_chosen_judges_both_what_turns_need_and_her_emotions(
 
     assert [(r["url"], set(r["questions"])) for r in requests] == [
         (URL, {"needs_retrieval", "recall", "about_producer"}), (URL, {"emotion", "nod"})
+    ]
+
+
+async def test_the_judge_model_made_judges_both_on_the_thresholds_in_effect(
+    settings: Settings, backends: list[Backend]
+):
+    services = Services()
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY))
+    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.6, "about_producer": 0.1}
+    clients.judge.emotion = {"开心": 0.6, "平静": 0.4}
+    backend = build_faked(
+        replace(settings, judge=JevSettings("jev-key")), clients=clients,
+        embedder=services.embedder, reranker=services.reranker, clock=lambda: NOW,
+    )
+    backends.append(backend)
+
+    async def felt() -> str:
+        """The emotion the next call hears in a segment."""
+        lease = backend.config.lease()
+        assert lease.keys.emotions is not None
+        said = SegmentToJudge(backend.characters["mano"], "早上好", [], SaidSegment("わーい！", "耶！"))
+        message = await lease.keys.emotions.message(1, 0, said)
+        lease.release()
+        assert message is not None
+        return message["emotion"]
+
+    await tell_mano(backend, "那次比赛怎么样")  # Jev's 0.5: recalled
+    before = await felt()
+    await backend.config.save("judge_thresholds", {"recall": 0.7, "emotion": 0.7})
+    await tell_mano(backend, "那次比赛怎么样")  # 0.7: not recalled
+    after = await felt()
+
+    assert [[t.name for t in tools] for tools in clients.llm.tools] == [[], ["recall_story"]]
+    assert (before, after) == ("happy", "calm")
+    assert clients.judge.asked == [
+        ("jev-key", "turn"), ("jev-key", "emotion"), ("jev-key", "turn"), ("jev-key", "emotion")
     ]
 
 

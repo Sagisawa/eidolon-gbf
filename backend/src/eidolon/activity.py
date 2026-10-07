@@ -618,16 +618,11 @@ def turn_llms(
 
 
 def metered_retrieval(
-    log: ActivityLog,
-    settings: Settings,
-    judge: "RetrievalJudge | None",
-    embedder: Embedder | None,
-    reranker: Reranker | None,
-) -> "tuple[RetrievalJudge | None, Embedder | None, Reranker | None]":
-    """The judge model, the embedder and the reranker turns retrieve with, whichever are
-    at hand, each request recorded as a service call to the service `settings` name."""
-    if judge is not None:
-        judge = MeteredJudge(judge, log, judge_origin(settings.judge))
+    log: ActivityLog, settings: Settings, embedder: Embedder | None, reranker: Reranker | None
+) -> tuple[Embedder | None, Reranker | None]:
+    """The embedder and the reranker turns retrieve with, whichever are at hand, each
+    request recorded as a service call to the service `settings` name. The judge model is
+    the live configuration's, recorded there (`live_config.LiveRetrievalJudge`)."""
     if embedder is not None:
         e = settings.embedding
         origin = Origin("embedding", host(e and e.base_url), embedder.model)
@@ -637,7 +632,7 @@ def metered_retrieval(
         reranker = MeteredReranker(
             reranker, log, Origin("rerank", host(r and r.base_url), r.model if r else "unknown")
         )
-    return judge, embedder, reranker
+    return embedder, reranker
 
 
 def judge_origin(settings: JudgeSettings | None) -> Origin:
