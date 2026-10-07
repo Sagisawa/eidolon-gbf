@@ -639,7 +639,7 @@ async def _eval_judge(args: argparse.Namespace) -> int:
         EmotionSettings,
         judge_from_env,
     )
-    from eidolon.judge import judge_thresholds, open_judge
+    from eidolon.judge import judge_thresholds, open_judge, warn_if_uncalibrated
     from eidolon.judge_eval import (
         JudgeEvalError,
         evaluate,
@@ -667,6 +667,7 @@ async def _eval_judge(args: argparse.Namespace) -> int:
     warnings = logging.StreamHandler()  # a model without thresholds of its own
     warnings.setFormatter(logging.Formatter("注意：%(message)s"))
     logging.getLogger("eidolon.judge").addHandler(warnings)
+    warn_if_uncalibrated(judge.model)
     thresholds = judge_thresholds(judge, emotion)
     model = open_judge(judge)
     try:

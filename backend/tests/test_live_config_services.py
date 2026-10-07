@@ -6,6 +6,7 @@ connected with. What cannot be changed in the admin console is only shown. The c
 are made by a fake `ServiceClients`, the speech services' keys tried on `FakeSpeech`."""
 
 import asyncio
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 
@@ -358,32 +359,133 @@ async def test_a_judge_model_that_fails_its_try_is_not_saved(
     assert clients.judges_closed == [CloudflareJudgeSettings(CF_TOKEN, "account-1", "clef-flash")]
 
 
-async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_model_changes(
+async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_changes(
     make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
 ):
-    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
-    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.6, "about_producer": 0.1}
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY, REPLY))
+    clients.judge.retrieval = {"needs_retrieval": 0.1, "recall": 0.75, "about_producer": 0.1}
     client = await admin_client(with_retrieval(make_client), judged, github, clients)
     conversation_id = await start_conversation(client)
     await send_turn(client, conversation_id, "那次比赛怎么样")  # Jev's 0.5: recalled
 
-    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.7, "emotion": 0.5})
+    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.5})
     assert saved.status_code == 200, saved.text
-    await send_turn(client, conversation_id, "那次比赛怎么样")  # 0.7: not recalled
-    changed = await client.put(JUDGE, json={
+    await send_turn(client, conversation_id, "那次比赛怎么样")  # 0.9: not recalled
+    upgraded = await client.put(JUDGE, json={
         "provider": "jev", "model": "typesafe/jev-1.14", "emotion_timeout": 1.5
     })
+    assert upgraded.status_code == 200, upgraded.text
+    await send_turn(client, conversation_id, "那次比赛怎么样")  # still 0.9
+    changed = await client.put(JUDGE, json=CLOUDFLARE)
     assert changed.status_code == 200, changed.text
-    await send_turn(client, conversation_id, "那次比赛怎么样")  # Jev's 0.5 again
+    await send_turn(client, conversation_id, "那次比赛怎么样")  # Clef-flash's 0.7: recalled
 
     offered = [[t.name for t in tools] for tools in clients.llm.tools]
-    assert offered == [[], ["recall_story"], []]
+    assert offered == [[], ["recall_story"], ["recall_story"], []]
     thresholds = saved.json()["judge_thresholds"]
     assert thresholds["status"] == "overridden"
     assert thresholds["env"] == {"recall": 0.5, "emotion": 0.5}
-    assert thresholds["effective"] == {"recall": 0.7, "emotion": 0.5}
+    assert thresholds["effective"] == {"recall": 0.9, "emotion": 0.5}
+    kept = upgraded.json()["judge_thresholds"]
+    assert kept["status"] == "overridden" and kept["model"] == "typesafe/jev-1.14"
+    assert kept["effective"] == {"recall": 0.9, "emotion": 0.5}
+    cleared = changed.json()["judge_thresholds"]
+    assert cleared["status"] == "env" and cleared["override"] is None
+    assert cleared["effective"] == {"recall": 0.7, "emotion": 0.4}
+    assert cleared["model"] == "clef-flash"
+
+
+def judging_by(client: httpx.AsyncClient) -> tuple[float, float]:
+    """The recall and emotion thresholds the next turn and call judge by."""
+    config = backend_of(client).config
+    lease = config.lease()
+    lease.release()
+    assert lease.keys.emotions is not None
+    return config.judge_thresholds.recall, lease.keys.emotions.min_probability
+
+
+async def test_judge_thresholds_saved_hold_for_the_models_family_whatever_env_calls_it(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    factory = with_retrieval(make_client)
+    first = await admin_client(factory, judged, github, FakeServiceClients())
+    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    assert saved.status_code == 200, saved.text
+
+    for model in ("jev-1.13", "typesafe/jev-1.14"):
+        renamed = replace(judged, judge=JevSettings(JEV_KEY, model))
+        restarted = await admin_client(factory, renamed, github, FakeServiceClients())
+        await start(restarted)
+
+        shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
+        assert shown["status"] == "overridden", model
+        assert shown["effective"] == {"recall": 0.9, "emotion": 0.6}, model
+        assert judging_by(restarted) == (0.9, 0.6), model
+
+
+async def test_judge_thresholds_saved_do_not_hold_once_env_has_another_family(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    factory = with_retrieval(make_client)
+    first = await admin_client(factory, judged, github, FakeServiceClients())
+    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    assert saved.status_code == 200, saved.text
+
+    clef = replace(judged, judge=CloudflareJudgeSettings(CF_TOKEN, "account-1", "clef"))
+    restarted = await admin_client(factory, clef, github, FakeServiceClients())
+    await start(restarted)
+
+    shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
+    assert shown["status"] == "failed"
+    assert "typesafe/jev-1.13" in shown["failure"]
+    assert shown["effective"] == {"recall": 0.8, "emotion": 0.4}
+    assert judging_by(restarted) == (0.8, 0.4)
+
+
+async def test_judge_thresholds_saved_for_a_model_of_no_family_go_with_its_name(
+    make_client: ClientFactory, judged: Settings, github: FakeIdentityProvider
+):
+    unknown = replace(judged, judge=JevSettings(JEV_KEY, "someone/new-judge"))
+    client = await admin_client(with_retrieval(make_client), unknown, github, FakeServiceClients())
+    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    assert saved.status_code == 200, saved.text
+
+    changed = await client.put(JUDGE, json={
+        "provider": "jev", "model": "someone/newer-judge", "emotion_timeout": 1.5
+    })
+
+    assert changed.status_code == 200, changed.text
     assert changed.json()["judge_thresholds"]["status"] == "env"
-    assert changed.json()["judge_thresholds"]["model"] == "typesafe/jev-1.14"
+    assert judging_by(client) == (0.5, 0.5)
+
+
+async def test_a_judge_model_not_calibrated_is_warned_of_once_as_it_takes_effect(
+    make_client: ClientFactory,
+    judged: Settings,
+    github: FakeIdentityProvider,
+    caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.WARNING)
+    unknown = replace(judged, judge=JevSettings(JEV_KEY, "someone/new-judge"))
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
+    client = await admin_client(with_retrieval(make_client), unknown, github, clients)
+    await start(client)
+    conversation_id = await start_conversation(client)
+    for said in ("早上好", "你好", "再见"):
+        await send_turn(client, conversation_id, said)
+    judging_by(client)
+
+    def warned(model: str) -> int:
+        return sum(model in r.getMessage() for r in caplog.records)
+
+    assert warned("someone/new-judge") == 1
+    changed = await client.put(JUDGE, json={
+        "provider": "jev", "model": "someone/other-judge", "emotion_timeout": 1.5
+    })
+    assert changed.status_code == 200, changed.text
+    judging_by(client)
+    assert warned("someone/other-judge") == 1
+    assert warned("someone/new-judge") == 1
 
 
 RERANK = "/api/admin/config/rerank"

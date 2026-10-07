@@ -14,8 +14,9 @@ it, while those under way keep what they started with (see `lease` and
 
 The memory model, unless `.env` sets it apart (`BACKGROUND_LLM_*`) or the admin console
 does, is the chat model in effect. The thresholds hold only for the model they were set
-for: the judge model's are cleared when it changes, and either is not in effect once
-`.env` has the server start on another model.
+for, the judge model's for its family (`judge.judge_family`): they are cleared when the
+judge model changes to another, and either is not in effect once `.env` has the server
+start on another model.
 
 As the server starts (`start`), every override of a service is tried again. One that
 fails falls back to `.env`, kept but marked as failed, so a revoked key cannot keep the
@@ -54,7 +55,15 @@ from eidolon.config import (
 )
 from eidolon.database import connect
 from eidolon.emotion import EmotionJudge, EmotionJudging, ModelEmotionJudge
-from eidolon.judge import JudgeError, JudgeModel, JudgeThresholds, judge_thresholds, try_judge_model
+from eidolon.judge import (
+    JudgeError,
+    JudgeModel,
+    JudgeThresholds,
+    judge_thresholds,
+    same_judge_family,
+    try_judge_model,
+    warn_if_uncalibrated,
+)
 from eidolon.llm import ChatLLM, LLMError
 from eidolon.llm.providers import check_chat_llm
 from eidolon.own_keys import DeployerKeys, DeployerLease, KeyCheck, OwnKeyRejected
@@ -521,6 +530,8 @@ class LiveConfig:
         self._judge: Swappable[JudgeModel] | None = None
         if live_judge and (judge := self.judge_settings) is not None:
             self._judge = Swappable(clients.judge_model(judge))
+        if (judge := self.judge_settings) is not None:
+            warn_if_uncalibrated(judge.model)
 
     @property
     def keys_editable(self) -> bool:
@@ -646,6 +657,7 @@ class LiveConfig:
             except ConfigRejected as e:
                 self._failures[item.name] = str(e)
                 await item.apply(self.effective(item.name))
+                self._judge_changed(values, self.effective(item.name), clear=False)
                 log.warning(
                     "the admin console's override of %s failed, so .env's is used until an"
                     " admin fixes or restores it: %s",
@@ -732,9 +744,17 @@ class LiveConfig:
             self._changed(name, before, after)
 
     def _changed(self, name: str, before: dict[str, Any], after: dict[str, Any]) -> None:
-        """Item `name` went from `before` to `after`: thresholds set for a judge model
-        no longer in effect go."""
-        if name == JUDGE and after["model"] != before["model"]:
+        """Item `name` went from `before` to `after`."""
+        if name == JUDGE:
+            self._judge_changed(before, after, clear=True)
+
+    def _judge_changed(self, before: Values, after: Values, *, clear: bool) -> None:
+        """The judge model went from `before`'s to `after`'s: a model not calibrated is
+        warned of, and with `clear`, thresholds that no longer hold for it go."""
+        if after["model"] == before["model"]:
+            return
+        warn_if_uncalibrated(after["model"])
+        if clear and not same_judge_family(before["model"], after["model"]):
             self._delete(JUDGE_THRESHOLDS)
 
     async def aclose(self) -> None:
@@ -799,8 +819,12 @@ class LiveConfig:
         """Whether the item's overrides were set for the model in effect, if they go
         with one."""
         bound = item.bound_model()
-        override = self._overrides.get(item.name, {})
-        return bound is None or override.get(FOR_MODEL) == bound
+        if bound is None:
+            return True
+        set_for = self._overrides.get(item.name, {}).get(FOR_MODEL)
+        if item.name == JUDGE_THRESHOLDS:
+            return set_for is not None and same_judge_family(set_for, bound)
+        return set_for == bound
 
     def _overridden(self, name: str) -> bool:
         return any(row.startswith(f"{name}.") for row in self._rows)
