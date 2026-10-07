@@ -203,8 +203,9 @@ async function api(path: string, init: RequestInit = {}): Promise<Response> {
   return res;
 }
 
-/** The ways to sign in the backend offers. */
-export type SignInOptions = { providers: Provider[]; dev_login: boolean };
+/** The ways to sign in the backend offers, and how to reach the deployer (null if the
+ * deployer gave none), which a banned user is told. */
+export type SignInOptions = { providers: Provider[]; dev_login: boolean; contact: string | null };
 
 export async function getSignInOptions(): Promise<SignInOptions> {
   return json(await fetch("/api/auth/providers"));

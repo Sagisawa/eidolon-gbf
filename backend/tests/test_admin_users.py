@@ -1,0 +1,235 @@
+"""Managing users in the admin console: admins list and search the users, look one up,
+and ban or unban them with a note only admins see. A ban signs the user out everywhere,
+keeps them from signing in and hangs up their calls; no admin can be banned there. The
+admin console never shows what anyone said, what was remembered of them or their
+producer profile."""
+
+from dataclasses import replace
+
+import httpx
+import pytest
+
+import eidolon.call
+from eidolon.config import Settings
+from tests.browser import Browser
+from tests.conftest import (
+    ClientFactory,
+    agree_to_terms,
+    github_identity,
+    google_identity,
+    sign_in_with,
+)
+from tests.fakes import START, FakeClock, FakeIdentityProvider, FakeLLM
+from tests.test_delete_account import memory_client, use_everything
+from tests.test_shared_memory import CAT
+from tests.test_text_turn import start_conversation
+
+ADMIN = ("github", "9001")
+
+
+@pytest.fixture
+def settings(settings: Settings) -> Settings:
+    return replace(settings, admins=frozenset({ADMIN}))
+
+
+async def admin_client(
+    make_client: ClientFactory, github: FakeIdentityProvider, **services
+) -> httpx.AsyncClient:
+    client = make_client(FakeLLM(), user=None, **services)
+    await sign_in_with(client, github, github_identity(ADMIN[1], name="boss", email="boss@example.com"))
+    await agree_to_terms(client)
+    return client
+
+
+async def github_user(
+    make_client: ClientFactory,
+    github: FakeIdentityProvider,
+    subject: str,
+    name: str,
+    email: str,
+    **services,
+) -> httpx.AsyncClient:
+    client = make_client(FakeLLM(), user=None, **services)
+    await sign_in_with(client, github, github_identity(subject, name=name, email=email))
+    await agree_to_terms(client)
+    return client
+
+
+async def users(admin: httpx.AsyncClient, **params) -> dict:
+    res = await admin.get("/api/admin/users", params=params)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+async def find(admin: httpx.AsyncClient, name: str) -> dict:
+    [user] = [u for u in (await users(admin))["users"] if u["name"] == name]
+    return user
+
+
+async def details(admin: httpx.AsyncClient, user_id: str) -> dict:
+    res = await admin.get(f"/api/admin/users/{user_id}")
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+async def test_admins_see_each_users_sign_in_methods_activity_ban_and_own_keys(
+    make_client: ClientFactory,
+    github: FakeIdentityProvider,
+    google: FakeIdentityProvider,
+):
+    clock = FakeClock()
+    admin = await admin_client(make_client, github, clock=clock)
+    octo = await github_user(make_client, github, "1001", "octo", "octo@example.com", clock=clock)
+    await sign_in_with(octo, google, google_identity("g-1001", "Octo G", email="g@example.com"), link=True)
+    own = {"base_url": "https://llm.example.com/v1", "api_key": "sk-own-key-5678", "model": "m"}
+    assert (await octo.put("/api/account/keys/llm", json=own)).status_code == 200
+    clock.advance(hours=2)
+    await octo.get("/api/account")  # a session in use is renewed hourly
+
+    listed = await find(admin, "octo")
+    found = await details(admin, listed["id"])
+
+    assert listed == {
+        "id": listed["id"],
+        "name": "octo",
+        "sign_in_methods": [
+            {"provider": "github", "subject": "1001", "display_name": "octo",
+             "email": "octo@example.com"},
+            {"provider": "google", "subject": "g-1001", "display_name": "Octo G",
+             "email": "g@example.com"},
+        ],
+        "created_at": listed["created_at"],
+        "last_active_at": (START.replace(hour=14)).isoformat(),
+        "banned": False,
+        "is_admin": False,
+        "own_keys": {"llm": True, "tts": False, "stt": False},
+    }
+    assert found == listed | {"banned_at": None, "ban_note": None}
+    assert (await find(admin, "boss"))["is_admin"] is True
+    # Not to anyone else, nor about someone who is not there.
+    assert (await octo.get("/api/admin/users")).status_code == 404
+    assert (await octo.get(f"/api/admin/users/{listed['id']}")).status_code == 404
+    assert (await admin.get("/api/admin/users/nobody")).status_code == 404
+    assert (await admin.post("/api/admin/users/nobody/ban", json={})).status_code == 404
+
+
+async def test_the_list_comes_in_pages_newest_first_and_finds_users_by_name_email_or_id(
+    make_client: ClientFactory, github: FakeIdentityProvider
+):
+    admin = await admin_client(make_client, github)
+    for subject, name in [("1", "mano-fan"), ("2", "kogane-fan"), ("3", "hiori-fan")]:
+        await github_user(make_client, github, subject, name, f"{name}@mail.example.com")
+    hiori = await find(admin, "hiori-fan")
+
+    first = await users(admin, limit=2)
+    second = await users(admin, limit=2, offset=2)
+
+    assert first["total"] == second["total"] == 4
+    assert [u["name"] for u in first["users"] + second["users"]] == [
+        "hiori-fan", "kogane-fan", "mano-fan", "boss",
+    ]
+    for query, names in [
+        ("KOGANE", ["kogane-fan"]),  # name, in any case
+        ("mano-fan@mail", ["mano-fan"]),  # email
+        (hiori["id"], ["hiori-fan"]),  # user id
+        ("-fan", ["hiori-fan", "kogane-fan", "mano-fan"]),
+        ("%", []),  # taken as it is, not as a pattern
+    ]:
+        found = await users(admin, q=query)
+        assert [u["name"] for u in found["users"]] == names, query
+        assert found["total"] == len(names), query
+
+
+async def test_a_ban_signs_the_user_out_hangs_up_their_call_and_keeps_them_out_until_lifted(
+    make_client: ClientFactory,
+    github: FakeIdentityProvider,
+    browser: Browser,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(eidolon.call, "USER_CHECK_INTERVAL", 0.05)
+    clock = FakeClock()
+    admin = await admin_client(make_client, github, clock=clock)
+    octo = await github_user(make_client, github, "1001", "octo", "octo@example.com", clock=clock)
+    phone = make_client(FakeLLM(), user=None)
+    await sign_in_with(phone, github, github_identity("1001", name="octo"))
+    await browser.call(octo, conversation_id=await start_conversation(octo))
+    await browser.connect()
+    octo_id = (await find(admin, "octo"))["id"]
+
+    res = await admin.post(f"/api/admin/users/{octo_id}/ban", json={"note": "刷量"})
+
+    assert res.status_code == 200, res.text
+    assert res.json()["banned"] is True
+    assert res.json()["banned_at"] == START.isoformat()
+    assert res.json()["ban_note"] == "刷量"
+    await browser.hung_up()
+    for client in (octo, phone):  # their sessions are gone
+        assert (await client.get("/api/account")).status_code == 401
+    refused = await sign_in_with(octo, github, github_identity("1001", name="octo"))
+    assert refused.headers["location"] == "/login?error=banned"
+
+    res = await admin.delete(f"/api/admin/users/{octo_id}/ban")
+
+    assert res.status_code == 200, res.text
+    assert (res.json()["banned"], res.json()["banned_at"], res.json()["ban_note"]) == (
+        False, None, None,
+    )
+    welcome = await sign_in_with(octo, github, github_identity("1001", name="octo"))
+    assert welcome.headers["location"] == "/"
+    assert (await octo.get("/api/account")).status_code == 200
+
+
+async def test_no_admin_can_be_banned_in_the_admin_console_not_even_oneself(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    settings = replace(settings, admins=frozenset({ADMIN, ("github", "9002")}))
+    admin = await admin_client(make_client, github, settings=settings)
+    other = make_client(FakeLLM(), user=None, settings=settings)
+    await sign_in_with(other, github, github_identity("9002", name="deputy"))
+    await agree_to_terms(other)
+
+    for name in ("boss", "deputy"):
+        target = await find(admin, name)
+        res = await admin.post(f"/api/admin/users/{target['id']}/ban", json={"note": "试试"})
+        assert res.status_code == 409, name
+        assert "管理者" in res.json()["detail"], name
+        assert (await details(admin, target["id"]))["banned"] is False, name
+    assert (await other.get("/api/admin")).status_code == 200
+
+
+async def test_a_banned_user_signing_in_is_told_whom_to_contact(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    contacted = replace(settings, contact="admin@example.com")
+    admin = await admin_client(make_client, github, settings=contacted)
+    await github_user(make_client, github, "1001", "octo", "octo@example.com", settings=contacted)
+    await admin.post(f"/api/admin/users/{(await find(admin, 'octo'))['id']}/ban", json={})
+    visitor = make_client(FakeLLM(), user=None, settings=contacted)
+
+    refused = await sign_in_with(visitor, github, github_identity("1001", name="octo"))
+
+    assert refused.headers["location"] == "/login?error=banned"
+    assert (await visitor.get("/api/auth/providers")).json()["contact"] == "admin@example.com"
+
+
+async def test_nothing_the_user_said_or_had_remembered_or_their_profile_shows(
+    make_client: ClientFactory, github: FakeIdentityProvider
+):
+    admin = await admin_client(make_client, github)
+    producer = memory_client(make_client)
+    await use_everything(producer)
+    conversation = (await producer.get(
+        "/api/conversations", params={"character_id": "mano"}
+    )).json()[0]["id"]
+    producer_id = (await find(admin, "producer"))["id"]
+
+    shown = [
+        (await admin.get("/api/admin/users")).text,
+        (await admin.get(f"/api/admin/users/{producer_id}")).text,
+        (await admin.post(f"/api/admin/users/{producer_id}/ban", json={})).text,
+        (await admin.delete(f"/api/admin/users/{producer_id}/ban")).text,
+    ]
+
+    for text in shown:
+        for content in (CAT, "我家的猫叫小白哦", "はいっ", "好的", "小林", conversation, "5678"):
+            assert content not in text, content

@@ -28,8 +28,10 @@ const REASONS: Record<string, string> = {
   already_linked: "你已经绑定了这种登录方式的另一个身份，请先解绑它。",
 };
 
-/** What to tell the user about the reason the backend gave for not signing them in. */
-export function signInFailure(reason: string | null): string | null {
+/** What to tell the user about the reason the backend gave for not signing them in; a
+ * banned user is also told how to reach the deployer, if the deployer says how. */
+export function signInFailure(reason: string | null, contact?: string | null): string | null {
   if (!reason) return null;
-  return REASONS[reason] ?? "登录失败，请重新登录。";
+  const said = REASONS[reason] ?? "登录失败，请重新登录。";
+  return reason === "banned" && contact ? `${said}如有疑问，请联系：${contact}` : said;
 }

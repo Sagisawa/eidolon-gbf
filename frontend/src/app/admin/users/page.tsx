@@ -1,6 +1,5 @@
-import { AdminPlaceholder } from "@/components/AdminPlaceholder";
-import { copy } from "@/i18n";
+import { AdminUserList } from "@/components/AdminUserList";
 
 export default function AdminUsersPage() {
-  return <AdminPlaceholder title={copy.admin.pages.users} />;
+  return <AdminUserList />;
 }

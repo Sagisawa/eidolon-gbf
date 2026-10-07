@@ -189,6 +189,9 @@ class Settings:
     admins: frozenset[tuple[str, str]] = frozenset()
     """The identities, as (provider, subject), whose users are admins and may enter the
     admin console (ADR-0013); without any, there is no admin console."""
+    contact: str | None = None
+    """How to reach the deployer, told to banned users when they try to sign in; None
+    tells them no one."""
     stand_assets_url: str | None = None
     """Where browsers download the stands from, without a trailing slash: the public URL
     of the object storage they are synced to (ADR-0003, revised 2026-09-30). None shows
@@ -247,6 +250,7 @@ class Settings:
             gemini_billing_enabled=os.environ.get("GEMINI_BILLING_ENABLED", "").strip() == "1",
             stand_assets_url=stand_assets_url_from_env(),
             admins=admins_from_env(),
+            contact=os.environ.get("EIDOLON_CONTACT", "").strip() or None,
         )
 
 

@@ -27,6 +27,7 @@ from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile
 from eidolon.account_api import add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
+from eidolon.admin_users_api import add_admin_user_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
@@ -170,6 +171,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_account_routes(app, backend)
     add_admin_routes(app, backend)
     add_dashboard_routes(app, backend)
+    add_admin_user_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:

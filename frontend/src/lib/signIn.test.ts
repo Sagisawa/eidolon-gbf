@@ -14,6 +14,12 @@ describe("signInFailure", () => {
     expect(signInFailure("taken")).toContain("另一位用户");
   });
 
+  it("tells a banned user how to reach the deployer, when the deployer says how", () => {
+    expect(signInFailure("banned", "admin@example.com")).toContain("admin@example.com");
+    expect(signInFailure("banned", null)).toBe(signInFailure("banned"));
+    expect(signInFailure("too_new", "admin@example.com")).not.toContain("admin@example.com");
+  });
+
   it("still says signing in failed for a reason it does not know", () => {
     expect(signInFailure("something_new")).toBe("登录失败，请重新登录。");
   });

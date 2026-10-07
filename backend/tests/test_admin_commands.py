@@ -1,5 +1,5 @@
-"""The admin command line: listing users with their sign-in methods, banning and unbanning
-them, and looking over their usage. A ban signs the user out everywhere, keeps them from
+"""The admin command line: listing users with their sign-in methods, banning them (with a
+note only admins see) and unbanning them, and looking over their usage. A ban signs the user out everywhere, keeps them from
 signing in and hangs up their calls."""
 
 import sqlite3
@@ -47,7 +47,7 @@ async def test_listing_users_shows_their_sign_in_methods_and_whether_banned(
     client = await github_user(make_client, github)
     await sign_in_with(client, google, google_identity(name="Octo G"), link=True)
     make_client(FakeLLM(), "friend")
-    admin.run("user", "ban", user_id(settings, "friend"))
+    admin.run("user", "ban", user_id(settings, "friend"), "--note", "刷量，见工单 12")
 
     listing = admin.run("user", "list").splitlines()
 
@@ -56,6 +56,7 @@ async def test_listing_users_shows_their_sign_in_methods_and_whether_banned(
     assert "GitHub octo (github:1001)、Google Octo G (google:g-1001)" in octo and "正常" in octo
     assert friend.startswith(user_id(settings, "friend"))
     assert "（没有登录方式）" in friend and "已封禁于" in friend
+    assert "备注：刷量，见工单 12" in friend
 
 
 async def test_a_banned_user_is_signed_out_and_cannot_sign_in_until_unbanned(
