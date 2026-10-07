@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS users (
     name TEXT NOT NULL,
     created_at TEXT NOT NULL,
     consented_at TEXT,
-    banned_at TEXT
+    banned_at TEXT,
+    ban_note TEXT
 );
 -- Only a hash of each session's token is kept; the times are epoch seconds.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -105,6 +106,8 @@ class User:
     consented_at: str | None = None
     """When they agreed to the privacy policy and terms of use; None until they do."""
     banned_at: str | None = None
+    ban_note: str | None = None
+    """Why they were banned, as the admin who banned them wrote; only admins see it."""
 
 
 @dataclass(frozen=True)
@@ -207,7 +210,7 @@ class Store:
             # Before access keys, users had no name; the one default user keeps its id as name.
             self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
             self._db.execute("UPDATE users SET name = id")
-        for column in ("consented_at", "banned_at"):
+        for column in ("consented_at", "banned_at", "ban_note"):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
         own_key_columns = {row["name"] for row in self._db.execute("PRAGMA table_info(own_keys)")}
@@ -252,13 +255,52 @@ class Store:
             ).fetchone()
         return User(**row) if row else None
 
-    def set_banned(self, user_id: str, banned_at: datetime | None) -> None:
-        """Ban the user as of `banned_at`, signing them out everywhere; None lifts the ban.
-        Raises NotFound for no such user."""
+    def find_users(self, query: str, offset: int, limit: int) -> tuple[list[User], int]:
+        """A page of the users whose id starts with `query`, or whose name, or the name or
+        email of an identity they sign in with, has it in it, in any case; all users for
+        an empty query. Newest first; with how many there are in all."""
+        where, params = "", []
+        if query := query.strip():
+            # Taken as it is: `%` and `_` are not wildcards here.
+            escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+            inside = f"%{escaped}%"
+            where = (
+                "WHERE id LIKE ? ESCAPE '!' OR name LIKE ? ESCAPE '!' OR EXISTS ("
+                "SELECT 1 FROM sign_in_methods m WHERE m.user_id = users.id"
+                " AND (m.display_name LIKE ? ESCAPE '!' OR m.email LIKE ? ESCAPE '!'))"
+            )
+            params = [f"{escaped}%", inside, inside, inside]
+        with self._lock:
+            rows = self._db.execute(
+                f"SELECT {_USER_COLUMNS} FROM users {where}"
+                " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            ).fetchall()
+            [(total,)] = self._db.execute(f"SELECT COUNT(*) FROM users {where}", params)
+        return [User(**row) for row in rows], total
+
+    def last_active(self, user_ids: list[str]) -> dict[str, datetime]:
+        """When each of the users, of those signed in anywhere, was last active: the
+        latest renewal of any of their sessions."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT user_id, MAX(last_active_at) FROM sessions WHERE user_id IN"
+                f" ({','.join('?' * len(user_ids))}) GROUP BY user_id",
+                user_ids,
+            ).fetchall()
+        return {user_id: datetime.fromtimestamp(at, UTC) for user_id, at in rows}
+
+    def set_banned(
+        self, user_id: str, banned_at: datetime | None, note: str | None = None
+    ) -> None:
+        """Ban the user as of `banned_at`, with a note only admins see, signing them out
+        everywhere; None lifts the ban, and the note with it. Raises NotFound for no such
+        user."""
         with self._lock, self._db:
             cursor = self._db.execute(
-                "UPDATE users SET banned_at = ? WHERE id = ?",
-                (banned_at.isoformat() if banned_at else None, user_id),
+                "UPDATE users SET banned_at = ?, ban_note = ? WHERE id = ?",
+                (banned_at.isoformat() if banned_at else None,
+                 note if banned_at else None, user_id),
             )
             if cursor.rowcount == 0:
                 raise NotFound(f"用户 {user_id} 不存在")
@@ -558,7 +600,7 @@ class Store:
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
 
 
-_USER_COLUMNS = "id, name, created_at, consented_at, banned_at"
+_USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(

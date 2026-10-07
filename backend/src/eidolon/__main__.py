@@ -4,8 +4,9 @@
     eidolon user list                every user: id, name, sign-in methods (each with the
                                      `provider:subject` EIDOLON_ADMINS lists), when made,
                                      whether banned (users are made by signing in)
-    eidolon user ban <id>            ban a user, signing them out everywhere; the server
-                                     hangs up their calls within seconds
+    eidolon user ban <id> [--note …] ban a user, with a note only admins see, signing them
+                                     out everywhere; the server hangs up their calls within
+                                     seconds (the same as banning in the admin console)
     eidolon user unban <id>
     eidolon user usage <id>          the user's text turns and calls in the last 24 hours,
                                      by hour, and how many were on their own keys
@@ -683,11 +684,13 @@ def _list_users(store: Store, _: argparse.Namespace) -> None:
             for m in store.sign_in_methods(user.id)
         ) or "（没有登录方式）"
         state = f"已封禁于 {user.banned_at}" if user.banned_at else "正常"
+        if user.ban_note:
+            state += f"（备注：{user.ban_note}）"
         print(f"{user.id}\t{user.name}\t{methods}\t创建于 {user.created_at}\t{state}")
 
 
 def _ban_user(store: Store, args: argparse.Namespace) -> None:
-    store.set_banned(args.user_id, datetime.now(UTC))
+    store.set_banned(args.user_id, datetime.now(UTC), args.note or None)
     print(f"已封禁用户 {args.user_id}，并让他在所有设备上退出登录；正在进行的通话会在几秒内挂断")
 
 
@@ -731,6 +734,7 @@ def _parser() -> argparse.ArgumentParser:
     ).set_defaults(run=_list_users)
     ban = user.add_parser("ban", help="封禁用户，并让他在所有设备上退出登录")
     ban.add_argument("user_id", help="用户 ID（见 user list）")
+    ban.add_argument("--note", help="封禁的原因，只有管理者看得到（user list 和后台里显示）")
     ban.set_defaults(run=_ban_user)
     unban = user.add_parser("unban", help="解除封禁")
     unban.add_argument("user_id", help="用户 ID（见 user list）")

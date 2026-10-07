@@ -190,7 +190,7 @@ async def test_only_configured_providers_are_offered(
     github_only = make_client(FakeLLM(), user=None, identity_providers={"github": github})
 
     assert (await both.get("/api/auth/providers")).json() == {
-        "providers": ["github", "google"], "dev_login": True,
+        "providers": ["github", "google"], "dev_login": True, "contact": None,
     }
     assert (await github_only.get("/api/auth/providers")).json()["providers"] == ["github"]
     assert (await github_only.get("/api/auth/google/start")).status_code == 404

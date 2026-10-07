@@ -110,10 +110,13 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.get("/api/auth/providers")
     def sign_in_providers() -> dict:
-        """The ways to sign in on offer, in the order to show them."""
+        """The ways to sign in on offer, in the order to show them, and how to reach the
+        deployer, which the sign-in page tells a banned user (None if the deployer gave
+        none)."""
         return {
             "providers": [p for p in PROVIDER_NAMES if p in providers],
             "dev_login": settings.dev_login,
+            "contact": settings.contact,
         }
 
     @app.get("/api/auth/{provider}/start")
