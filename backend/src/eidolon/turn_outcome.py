@@ -36,22 +36,28 @@ class TurnOutcome:
         deployer: tuple[LLMSettings, LLMSettings],
     ) -> None:
         """Take the turn on the user's keys, or the deployer's `deployer` chat and memory
-        models. Raises OverLimit when the user has no turns left this hour, OwnKeyFailed
+        models, held until `release`. Raises OverLimit when the user has no turns left this hour, OwnKeyFailed
         when their own key can no longer be decrypted."""
         try:
             keys = own_keys.for_turn(user_id)
         except OwnKeyFailed:
             activity.begin("turn", user_id, character_id, own_keys=True).finish("failed")
             raise
-        self._recording = activity.begin("turn", user_id, character_id, keys.exempt)
+        self.release = keys.release
+        """Called once the turn has ended, to let go of the deployer's keys it ran on."""
         try:
-            self._use = usage.take(user_id, "turn", exempt=keys.exempt)
-        except OverLimit:
-            self._recording.finish("rejected")
+            self._recording = activity.begin("turn", user_id, character_id, keys.exempt)
+            try:
+                self._use = usage.take(user_id, "turn", exempt=keys.exempt)
+            except OverLimit:
+                self._recording.finish("rejected")
+                raise
+            own = own_keys.describe(user_id).get("llm") if keys.exempt else None
+            self.llms: TurnLLMs = turn_llms(activity, keys.llms, own, *deployer)
+            """The models the turn runs on, each request recorded as a service call."""
+        except BaseException:
+            keys.release()
             raise
-        own = own_keys.describe(user_id).get("llm") if keys.exempt else None
-        self.llms: TurnLLMs = turn_llms(activity, keys.llms, own, *deployer)
-        """The models the turn runs on, each request recorded as a service call."""
         self._result: Result | None = None
 
     @contextmanager

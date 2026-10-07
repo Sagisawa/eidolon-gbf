@@ -1,6 +1,5 @@
-import { AdminPlaceholder } from "@/components/AdminPlaceholder";
-import { copy } from "@/i18n";
+import { AdminConfig } from "@/components/AdminConfig";
 
 export default function AdminConfigPage() {
-  return <AdminPlaceholder title={copy.admin.pages.config} />;
+  return <AdminConfig />;
 }

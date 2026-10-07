@@ -667,6 +667,7 @@ class Calls:
         OwnKeyFailed, as `OwnKeys.for_call` does, before anything is spent on a call that
         could not start."""
         keys = self._own_keys.for_call(user_id)
+        keys.release()  # only asked, for whether the call would be exempt
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
@@ -687,8 +688,24 @@ class Calls:
     ) -> dict:
         """Answer a new call into the user's `conversation` with `character`, on the keys
         `OwnKeys.for_call` says. Raises OverLimit when the user has no calls left this
-        hour, unless the call is exempt."""
+        hour, unless the call is exempt. The call holds on to the deployer's keys it
+        started with until it ends."""
         keys = self._own_keys.for_call(user_id)
+        try:
+            return await self._start(user_id, conversation, character, options, offer, keys)
+        except BaseException:
+            keys.release()
+            raise
+
+    async def _start(
+        self,
+        user_id: str,
+        conversation: Conversation,
+        character: Character,
+        options: CallOptions,
+        offer: SessionDescription,
+        keys: CallKeys,
+    ) -> dict:
         outcome = CallOutcome(self._usage, user_id, keys.exempt, self._limits)
         call = Call(
             conversation, character, keys.llms, options.muted, options.quality,
@@ -708,7 +725,11 @@ class Calls:
                 connection, call, self._engine, self._speech, keys, outcome, self._emotions
             )
             self._live.add(live)
-            live.start(on_done=self._live.discard)
+            def done(live: _LiveCall) -> None:
+                self._live.discard(live)
+                keys.release()
+
+            live.start(on_done=done)
             started.append(live)
             if self._store is not None and (self._watch is None or self._watch.done()):
                 self._watch = asyncio.create_task(self._hang_up_users_gone())

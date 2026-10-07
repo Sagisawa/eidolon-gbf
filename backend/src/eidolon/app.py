@@ -2,7 +2,7 @@
 
 import json
 import math
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Annotated
@@ -28,6 +28,7 @@ from eidolon.account_api import add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
+from eidolon.admin_config_api import add_admin_config_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
@@ -123,6 +124,7 @@ def create_app(backend: Backend) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await backend.start()
         yield
         await backend.aclose()
 
@@ -172,6 +174,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_admin_routes(app, backend)
     add_dashboard_routes(app, backend)
     add_admin_user_routes(app, backend)
+    add_admin_config_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId) -> dict:
@@ -318,7 +321,7 @@ def create_app(backend: Backend) -> FastAPI:
         conversation = conversation_or_404(conversation_id, user_id)
         outcome = TurnOutcome(
             usage, backend.activity, own_keys, user_id, conversation.character_id,
-            (backend.settings.chat_llm, backend.settings.background_llm),
+            (backend.config.chat_llm, backend.settings.background_llm),
         )
 
         async def events() -> AsyncIterator[str]:
@@ -331,12 +334,23 @@ def create_app(backend: Backend) -> FastAPI:
                     yield _sse(asdict(event))
 
         return StreamingResponse(
-            events(),
+            _releasing(events(), outcome.release),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     return app
+
+
+async def _releasing(
+    stream: AsyncIterator[str], release: Callable[[], None]
+) -> AsyncIterator[str]:
+    """`stream`, then `release` once it has ended, however it ended."""
+    try:
+        async for item in stream:
+            yield item
+    finally:
+        release()
 
 
 def _sse(payload: dict) -> str:
