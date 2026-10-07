@@ -1,6 +1,6 @@
 # 判断模型可选用 Cloudflare Clef
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `GLOSSARY.md` 为准（本次新增「判断模型」）。调研见 `research.md`。
 

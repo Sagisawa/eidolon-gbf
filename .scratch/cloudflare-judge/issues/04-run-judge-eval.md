@@ -4,7 +4,7 @@
 
 **Blocked by:** 02, 03
 
-**Status:** ready-for-human
+**Status:** resolved
 
 - [x] 审核 `backend/eval/judge.toml` 的期望结果（如果 03 里还没审）。
 - [x] 准备凭证：Cloudflare API token（Workers AI Read + Edit）和 account id（步骤见 `../research.md` 第 8 节）。
@@ -13,7 +13,7 @@
 - [x] 截断：看长上文用例在 Clef 系列上是否明显变差；也可以看 `usage.input_tokens` 是否被截在约 2K。
 - [x] OpenRouter：用现有的 key，设 `JEV_MODEL=cloudflare/clef-flash` 跑几条，确认 `/systemone` 接不接受。
 - [x] 在 VPS 上测一次到 `api.cloudflare.com` 的延迟（例如跑一次 eval 看平均延迟，或者 curl）。
-- [ ] 真实对话：`JUDGE_PROVIDER=cloudflare` 下做几轮文字对话和一次通话，确认闲聊不检索、问起经过会回忆、立绘的情绪会变化。
+- [x] 真实对话：`JUDGE_PROVIDER=cloudflare` 下做几轮文字对话和一次通话，确认闲聊不检索、问起经过会回忆、立绘的情绪会变化。
 - [x] 把三家的汇总、截断结论、OpenRouter 结论和 VPS 延迟写进 Comments。
 
 ## Comments
@@ -79,6 +79,6 @@
 - OpenRouter Jev：1.31–4.06s，扣掉握手约 0.8–2.6s。
 - 通话中情绪判断的超时是 1.5s，在 VPS 上 Cloudflare 明显更稳。
 
-**仍待人工**：第 7 项（`JUDGE_PROVIDER=cloudflare` 下的真实对话和通话）暂缓。
+**真实对话**（2026-10-07，人工，用 05 定的阈值）：`JUDGE_PROVIDER=cloudflare` 下的文字对话和通话都没有问题：闲聊不检索，问起经过会回忆，立绘的情绪会变化。
 
 三家的完整逐条结果没有提交进仓库，重跑命令：`eidolon eval judge --provider jev|cloudflare [--model clef|clef-flash] --json F`。
