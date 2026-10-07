@@ -67,7 +67,7 @@ async def test_the_server_warns_of_an_unknown_model_at_start(
     with caplog.at_level(logging.WARNING):
         backend = build(
             settings, chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
-            jev=FakeJudge(), embedder=FakeEmbedder(), speech=FakeSpeech(),
+            retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), speech=FakeSpeech(),
         )
     await backend.aclose()
 

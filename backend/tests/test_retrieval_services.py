@@ -10,7 +10,8 @@ import pytest
 from eidolon.characters import Character
 from eidolon.config import JevSettings, Settings
 from eidolon.rerank import RerankError, SiliconFlowReranker
-from eidolon.retrieval import JevJudge, JudgeError
+from eidolon.judge import JevJudge, JudgeError
+from eidolon.retrieval import ModelRetrievalJudge
 from eidolon.store import Message
 
 Handler = Callable[[httpx.Request], httpx.Response]
@@ -76,7 +77,7 @@ def message(role: str, text: str) -> Message:
 
 def judge_answering(
     requests: list[dict], retrieve: float, recall: float = 0.01, about_producer: float = 0.02
-) -> JevJudge:
+) -> ModelRetrievalJudge:
     body = {
         "id": "gen-dec-1",
         "model": "typesafe/jev-1.13-20260917",
@@ -88,10 +89,10 @@ def judge_answering(
         },
         "usage": {"input_tokens": 500, "output_tokens": 0, "cost": 0.00002},
     }
-    return JevJudge(
+    return ModelRetrievalJudge(JevJudge(
         "jev-key", "typesafe/jev-1.13", "http://jev.test/api/v1",
         client(recording(requests, httpx.Response(200, json=body))),
-    )
+    ))
 
 
 @pytest.mark.parametrize(
@@ -135,16 +136,20 @@ async def test_jev_sees_the_latest_messages_and_what_was_just_said():
 
 
 async def test_jev_errors_are_reported():
-    judge = JevJudge("k", "typesafe/jev-1.13", "http://jev.test/api/v1",
-                     client(lambda _: httpx.Response(503, text="busy")))
+    judge = ModelRetrievalJudge(JevJudge(
+        "k", "typesafe/jev-1.13", "http://jev.test/api/v1",
+        client(lambda _: httpx.Response(503, text="busy")),
+    ))
 
     with pytest.raises(JudgeError, match="503"):
         await judge.judge(MANO, [], "在吗")
 
 
 async def test_unparsable_jev_answers_are_reported():
-    judge = JevJudge("k", "typesafe/jev-1.13", "http://jev.test/api/v1",
-                     client(lambda _: httpx.Response(200, json={"answers": {}})))
+    judge = ModelRetrievalJudge(JevJudge(
+        "k", "typesafe/jev-1.13", "http://jev.test/api/v1",
+        client(lambda _: httpx.Response(200, json={"answers": {}})),
+    ))
 
     with pytest.raises(JudgeError, match="无法解析"):
         await judge.judge(MANO, [], "在吗")

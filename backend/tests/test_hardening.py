@@ -28,7 +28,7 @@ async def test_a_memory_answer_that_cannot_be_read_is_logged_by_its_length_only(
 ):
     unreadable = f"好的，我记下了：{SECRET}"  # not the JSON asked for
     client = make_client(
-        FakeLLM(REPLY), jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker(),
+        FakeLLM(REPLY), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker(),
         background_llm=FakeBackgroundLLM(unreadable),
     )
     conversation_id = await start_conversation(client)

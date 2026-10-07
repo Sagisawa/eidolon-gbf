@@ -61,6 +61,17 @@ DEFAULT_JEV_MODEL = "typesafe/jev-1.13"
 """Pinned: a new Jev changes which turns retrieve, so moving to one is a choice, checked
 in a real conversation."""
 
+JudgeProvider = Literal["jev", "cloudflare"]
+"""The services the judge model may be: Jev through a System One endpoint, or Cloudflare's
+Clef on Workers AI."""
+
+JUDGE_PROVIDERS: tuple[JudgeProvider, ...] = get_args(JudgeProvider)
+
+CloudflareJudgeModel = Literal["clef", "clef-flash"]
+CLOUDFLARE_JUDGE_MODELS: tuple[CloudflareJudgeModel, ...] = get_args(CloudflareJudgeModel)
+DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
+"""For now: the judge eval (ticket cloudflare-judge 03) decides."""
+
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 DEFAULT_TURNS_PER_HOUR = 60
@@ -154,9 +165,10 @@ class Settings:
     fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
     embedding: "EmbeddingSettings | None" = None
     rerank: "RerankSettings | None" = None
-    jev: "JevSettings | None" = None
-    """Retrieval needs the embedding service, the reranker and Jev; without any of them,
-    turns go unretrieved. Without Jev, neither is any emotion judged during calls."""
+    judge: "JudgeSettings | None" = None
+    """The judge model (`JUDGE_PROVIDER`). Retrieval needs the embedding service, the
+    reranker and the judge model; without any of them, turns go unretrieved. Without the
+    judge model, neither is any emotion judged during calls."""
     emotion: "EmotionSettings" = field(default_factory=lambda: EmotionSettings())
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
@@ -220,7 +232,7 @@ class Settings:
             fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
-            jev=_jev_from_env(),
+            judge=judge_from_env(),
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
@@ -449,22 +461,32 @@ class JevSettings:
 
 @dataclass(frozen=True)
 class EmotionSettings:
-    """How Jev's judging of each segment's emotion during calls is taken (see `emotion`):
-    the likeliest answer's probability below which she is calm and does not nod, and how
-    long, in seconds, a segment may take to be judged before it goes without."""
+    """How the judge model's judging of each segment's emotion during calls is taken (see
+    `emotion`): the likeliest answer's probability below which she is calm and does not
+    nod, and how long, in seconds, a segment may take to be judged before it goes without."""
 
-    min_probability: float = 0.5
+    min_probability: float | None = None
+    """None is the judge model's own (`judge.JUDGE_THRESHOLDS`); set, it is every model's."""
     timeout: float = 1.5
 
     @classmethod
     def from_env(cls) -> "EmotionSettings":
-        min_probability = _relevance("JEV_EMOTION_MIN_PROBABILITY")
-        timeout = (os.environ.get("JEV_EMOTION_TIMEOUT") or "").strip()
-        defaults = cls()
+        for old, new in _RENAMED_EMOTION_SETTINGS.items():
+            if os.environ.get(old):
+                raise RuntimeError(
+                    f"环境变量 {old} 已改名为 {new}（判断模型不再只有 Jev），请改用新名字"
+                )
+        timeout = (os.environ.get("JUDGE_EMOTION_TIMEOUT") or "").strip()
         return cls(
-            min_probability=defaults.min_probability if min_probability is None else min_probability,
-            timeout=_seconds("JEV_EMOTION_TIMEOUT", timeout) if timeout else defaults.timeout,
+            min_probability=_relevance("JUDGE_EMOTION_MIN_PROBABILITY"),
+            timeout=_seconds("JUDGE_EMOTION_TIMEOUT", timeout) if timeout else cls.timeout,
         )
+
+
+_RENAMED_EMOTION_SETTINGS = {
+    "JEV_EMOTION_MIN_PROBABILITY": "JUDGE_EMOTION_MIN_PROBABILITY",
+    "JEV_EMOTION_TIMEOUT": "JUDGE_EMOTION_TIMEOUT",
+}
 
 
 def _seconds(name: str, value: str) -> float:
@@ -475,6 +497,48 @@ def _seconds(name: str, value: str) -> float:
     if not seconds > 0:
         raise RuntimeError(f"环境变量 {name} 需要是大于 0 的秒数，而不是 {value}")
     return seconds
+
+
+@dataclass(frozen=True)
+class CloudflareJudgeSettings:
+    """Cloudflare's Clef or Clef-flash on Workers AI, called directly with an API token
+    that may use Workers AI on the account."""
+
+    api_token: str
+    account_id: str
+    model: CloudflareJudgeModel = DEFAULT_CLOUDFLARE_JUDGE_MODEL
+
+    @classmethod
+    def from_env(cls) -> "CloudflareJudgeSettings":
+        model = os.environ.get("CLOUDFLARE_JUDGE_MODEL") or DEFAULT_CLOUDFLARE_JUDGE_MODEL
+        if model not in CLOUDFLARE_JUDGE_MODELS:
+            raise RuntimeError(
+                f"环境变量 CLOUDFLARE_JUDGE_MODEL 只能是 {'、'.join(CLOUDFLARE_JUDGE_MODELS)}，"
+                f"而不是 {model}"
+            )
+        return cls(
+            api_token=_required("CLOUDFLARE_API_TOKEN"),
+            account_id=_required("CLOUDFLARE_ACCOUNT_ID"),
+            model=model,  # pyright: ignore[reportArgumentType]  # checked above
+        )
+
+
+JudgeSettings = JevSettings | CloudflareJudgeSettings
+"""The judge model chosen, and how to reach it."""
+
+
+def judge_from_env(provider: str | None = None) -> JudgeSettings | None:
+    """The judge model `provider`, or else `JUDGE_PROVIDER`, chooses: Cloudflare's needs
+    both its settings, and the `JEV_*` ones are then ignored; Jev, the default, is off
+    without its key."""
+    provider = provider or os.environ.get("JUDGE_PROVIDER") or "jev"
+    if provider not in JUDGE_PROVIDERS:
+        raise RuntimeError(
+            f"环境变量 JUDGE_PROVIDER 只能是 {'、'.join(JUDGE_PROVIDERS)}，而不是 {provider}"
+        )
+    if provider == "cloudflare":
+        return CloudflareJudgeSettings.from_env()
+    return _jev_from_env()
 
 
 def _jev_from_env() -> JevSettings | None:

@@ -95,7 +95,7 @@ async def test_the_users_own_llm_writes_down_their_memories(
     own_llm.llm = FakeLLM(REPLY, [memorized(CAT)])
     deployers_background = FakeBackgroundLLM()
     client = make_client(
-        FakeLLM(), jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+        FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
         background_llm=deployers_background,
     )
     await bring_llm(client)

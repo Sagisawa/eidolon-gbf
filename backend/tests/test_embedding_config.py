@@ -16,7 +16,7 @@ NAMES = (
     "EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS", "GEMINI_API_KEY",
     "GEMINI_BASE_URL", "SILICONFLOW_API_KEY", "SILICONFLOW_BASE_URL", "RERANK_MODEL",
     "RERANK_MIN_RELEVANCE", "RERANK_MEMORY_MIN_RELEVANCE", "AI_GATEWAY_API_KEY", "JEV_API_KEY",
-    "JEV_MODEL",
+    "JEV_MODEL", "JUDGE_PROVIDER",
 )
 
 
@@ -124,7 +124,7 @@ async def test_retrieval_is_off_without_either_key(
     with caplog.at_level(logging.INFO, logger="eidolon.assembly"):
         backend = build(
             settings, chat_llm=FakeLLM([]), background_llm=FakeBackgroundLLM(),
-            jev=FakeJudge(), speech=FakeSpeech(),
+            retrieval_judge=FakeJudge(), speech=FakeSpeech(),
         )
 
     await backend.aclose()

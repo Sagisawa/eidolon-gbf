@@ -3,9 +3,10 @@
 `build` makes every module the backend runs on from `Settings`: the store, the
 characters and the world setting beside them, the identity providers users sign in with, the chat and background models,
 the services users bring their own keys to, retrieval, memory, the conversation engine,
-usage limits and voice calls. It decides what is on. Retrieval needs Jev, the
+usage limits and voice calls. It decides what is on. Retrieval needs the judge model, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
-retrieval finds memories again; judging her emotion during calls needs only Jev; the
+retrieval finds memories again; judging her emotion during calls needs only the judge
+model, the same one; the
 background model is always at hand, being the chat model unless configured apart.
 
 The outside services can be passed in instead of made from the settings, as tests do
@@ -23,7 +24,7 @@ from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
-from eidolon.emotion import EmotionJudge, EmotionJudging, JevEmotionJudge
+from eidolon.emotion import EmotionJudge, EmotionJudging, ModelEmotionJudge
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
 from eidolon.llm import ChatLLM
@@ -38,7 +39,13 @@ from eidolon.rerank import (
     SiliconFlowReranker,
     thresholds_for,
 )
-from eidolon.retrieval import JevJudge, Retrieval, RetrievalJudge, open_reference_sources
+from eidolon.judge import judge_thresholds, open_judge
+from eidolon.retrieval import (
+    ModelRetrievalJudge,
+    Retrieval,
+    RetrievalJudge,
+    open_reference_sources,
+)
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
 from eidolon.world import load_world, world_path
@@ -61,7 +68,7 @@ class Backend:
     clock: Clock
     calls: Calls
     emotions: EmotionJudging | None
-    """Judging her emotion in each segment during calls; None without Jev."""
+    """Judging her emotion in each segment during calls; None without the judge model."""
     own_keys: OwnKeys
     accounts: Accounts
     identity_providers: dict[ProviderName, IdentityProvider]
@@ -80,7 +87,7 @@ def build(
     *,
     chat_llm: ChatLLM | None = None,
     background_llm: ChatLLM | None = None,
-    jev: RetrievalJudge | None = None,
+    retrieval_judge: RetrievalJudge | None = None,
     emotion_judge: EmotionJudge | None = None,
     embedder: Embedder | None = None,
     reranker: Reranker | None = None,
@@ -148,21 +155,22 @@ def build(
         if reranker is None:
             reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
             closers.append(reranker.aclose)
-    if (jev is None or emotion_judge is None) and (j := settings.jev) is not None:
-        judge = JevJudge(j.api_key, j.model, j.base_url)
-        closers.append(judge.aclose)
-        jev = jev or judge
-        emotion_judge = emotion_judge or JevEmotionJudge(judge)
+    thresholds_of_judge = judge_thresholds(settings.judge, settings.emotion)
+    if (retrieval_judge is None or emotion_judge is None) and settings.judge is not None:
+        judge_model = open_judge(settings.judge)
+        closers.append(judge_model.aclose)
+        retrieval_judge = retrieval_judge or ModelRetrievalJudge(judge_model, thresholds_of_judge)
+        emotion_judge = emotion_judge or ModelEmotionJudge(judge_model)
     emotions = None
     if emotion_judge is not None:
         emotions = EmotionJudging(
-            emotion_judge, settings.emotion.min_probability, settings.emotion.timeout
+            emotion_judge, thresholds_of_judge.emotion, settings.emotion.timeout
         )
 
     retrieval = None
-    if jev is not None and embedder is not None and reranker is not None:
+    if retrieval_judge is not None and embedder is not None and reranker is not None:
         retrieval = Retrieval(
-            jev,
+            retrieval_judge,
             open_reference_sources(
                 settings.database_path, embedder, characters.values(), world
             ),
@@ -178,7 +186,8 @@ def build(
         log.info(
             "retrieval and memory are off: they need the embedding service's key"
             " (SILICONFLOW_API_KEY, or GEMINI_API_KEY with EMBEDDING_PROVIDER=gemini),"
-            " SILICONFLOW_API_KEY for reranking, and JEV_API_KEY"
+            " SILICONFLOW_API_KEY for reranking, and the judge model's (JEV_API_KEY, or"
+            " CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID with JUDGE_PROVIDER=cloudflare)"
         )
         memories = Memories(settings.database_path, characters, clock)
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish

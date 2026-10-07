@@ -638,8 +638,8 @@ class Calls:
         emotions: EmotionJudging | None = None,
     ) -> None:
         """With `store`, calls of users banned or deleted meanwhile are hung up; with
-        `emotions`, her emotion in each segment is judged, on the deployer's Jev whoever's
-        keys the call is on."""
+        `emotions`, her emotion in each segment is judged, on the deployer's judge model
+        whoever's keys the call is on."""
         self._settings = settings
         self._emotions = emotions
         self._engine = engine

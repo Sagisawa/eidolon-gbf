@@ -23,7 +23,7 @@ def memory_client(
     """A client whose background model writes down each of `memories` in turn, one per
     turn, and whose reranker finds every memory relevant."""
     return make_client(
-        llm, jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+        llm, retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
         background_llm=FakeBackgroundLLM(*(memorized(m) for m in memories)), **options,
     )
 

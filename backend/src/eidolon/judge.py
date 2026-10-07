@@ -1,0 +1,303 @@
+"""The judge model (GLOSSARY.md「判断模型」): asked typed questions about a state, it answers
+each with probabilities, and writes nothing. Retrieval asks it what a turn needs looked up,
+and calls ask it how she feels in each segment of a reply; what is asked is theirs, how it
+is asked is here.
+
+The deployer chooses one service for the whole deployment (`JUDGE_PROVIDER`): Jev through
+any endpoint that serves TypeSafe's System One API, OpenRouter's by default; or Cloudflare's
+Clef or Clef-flash on Workers AI, which take the same questions. Neither stands in for the
+other when it fails.
+"""
+
+import logging
+from dataclasses import dataclass, replace
+from typing import Any, Literal, Protocol
+
+import httpx
+
+from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JudgeSettings
+
+log = logging.getLogger(__name__)
+
+CLOUDFLARE_API_URL = "https://api.cloudflare.com/client/v4"
+
+_ACCOUNT_ERROR_CODES = {7000, 7003}
+"""Cloudflare's codes for a path it cannot route, as with an account id that is wrong."""
+_QUOTA_ERROR_CODES = {4006}
+"""Cloudflare's code for the day's free allocation of neurons being used up."""
+
+_CHECK_QUESTION = {"type": "noul", "instructions": "这是一条测试消息吗？"}
+
+
+@dataclass(frozen=True)
+class JudgeThresholds:
+    """The judge model's probabilities at or above which its answer counts as yes. Each
+    model is sure of itself in its own way, so each has thresholds of its own."""
+
+    needs_retrieval: float
+    """Whether the turn needs references looked up."""
+    recall: float
+    """Whether the turn asks how a past episode went."""
+    about_producer: float
+    """Whether the turn is about the user's own life, so their memories are found."""
+    emotion: float
+    """The likeliest emotion's probability below which she is calm, and the likeliest
+    nod's below which there is none (overridden by `JUDGE_EMOTION_MIN_PROBABILITY`)."""
+
+
+JudgeFamily = Literal["jev", "clef", "clef-flash"]
+"""The judge models with thresholds of their own, by whatever name and service they are
+reached: Clef-flash through OpenRouter judges as it does on Workers AI."""
+
+JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
+    # Set by the judge eval (backend/eval/judge.toml); how each was chosen from the spread
+    # of probabilities is in .scratch/cloudflare-judge/issues/05-apply-eval-and-docs.md.
+    "jev": JudgeThresholds(needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5),
+    # Clef and Clef-flash are surer of recall than they should be, less sure of the user's
+    # own life, and less sure of the emotion they hear.
+    "clef": JudgeThresholds(needs_retrieval=0.5, recall=0.8, about_producer=0.1, emotion=0.4),
+    "clef-flash": JudgeThresholds(
+        needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4
+    ),
+}
+FALLBACK_FAMILY: JudgeFamily = "jev"
+"""Whose thresholds a model not in `JUDGE_THRESHOLDS` gets."""
+
+
+def judge_family(model: str) -> JudgeFamily | None:
+    """The group of `model`, named as any service names it (`typesafe/jev-1.13`,
+    `cloudflare/clef-flash`, `clef`); None for a model of none of them."""
+    name = model.rsplit("/", 1)[-1].lower()
+    if name in ("clef", "clef-flash"):
+        return name  # pyright: ignore[reportReturnType]  # checked above
+    if name == "jev" or name.startswith("jev-"):  # Jev is named by version, or as latest
+        return "jev"
+    return None
+
+
+def judge_thresholds_for(model: str) -> JudgeThresholds:
+    """The thresholds `model` judges by; Jev's, with a warning, for a model not known."""
+    family = judge_family(model)
+    if family is None:
+        family = FALLBACK_FAMILY
+        log.warning(
+            "judge model %s has no thresholds of its own; it judges by %s's: %s",
+            model, family, JUDGE_THRESHOLDS[family],
+        )
+    return JUDGE_THRESHOLDS[family]
+
+
+def judge_thresholds(
+    settings: JudgeSettings | None, emotion: EmotionSettings
+) -> JudgeThresholds:
+    """The thresholds the judge model `settings` choose judges by, with the emotion
+    settings' minimum probability, if set, over every model's."""
+    thresholds = JUDGE_THRESHOLDS[FALLBACK_FAMILY]
+    if settings is not None:
+        thresholds = judge_thresholds_for(settings.model)
+    if emotion.min_probability is not None:
+        thresholds = replace(thresholds, emotion=emotion.min_probability)
+    return thresholds
+
+
+class JudgeError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class JudgeReply:
+    """The judge model's answers, and how many tokens of input it read, if it said."""
+
+    answers: dict[str, Any]
+    input_tokens: int | None
+
+
+class JudgeModel(Protocol):
+    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        """The answer to each of `questions` about `state`, by the question's key, all in
+        one request. Raises JudgeError if the model cannot be reached or its answer read."""
+        ...
+
+    async def aclose(self) -> None: ...
+
+
+def _client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
+
+
+def _reply(answers: Any, usage: Any, service: str, res: httpx.Response) -> JudgeReply:
+    if not isinstance(answers, dict) or not all(isinstance(a, dict) for a in answers.values()):
+        raise JudgeError(f"{service} 的返回无法解析（{len(res.text)} 字）")
+    tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+    return JudgeReply(answers, tokens if isinstance(tokens, int) else None)
+
+
+class JevJudge:
+    """Jev through TypeSafe's System One endpoint (`/systemone`, which OpenRouter, Vercel AI
+    Gateway and TypeSafe itself all serve alike): Jev is an evaluation model, answering
+    typed questions about a state with probabilities, and is not served by the Chat
+    Completions endpoint."""
+
+    def __init__(
+        self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
+    ) -> None:
+        self._url = base_url.rstrip("/") + "/systemone"
+        self._api_key = api_key
+        self._model = model
+        self._client = client or _client()
+
+    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        return (await self.reply(state, questions)).answers
+
+    async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
+        """As `ask`, with the input tokens Jev read."""
+        body = {"model": self._model, "state": state, "questions": questions}
+        try:
+            res = await self._client.post(
+                self._url, json=body, headers={"Authorization": f"Bearer {self._api_key}"}
+            )
+        except httpx.HTTPError as e:
+            raise JudgeError(f"无法连接 Jev：{e!r}") from e
+        if res.status_code >= 400:
+            raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
+        try:
+            body = res.json()
+            answers = body["answers"]
+        except (ValueError, KeyError, TypeError) as e:
+            raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
+        return _reply(answers, body.get("usage"), "Jev", res)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+
+class CloudflareRefused(JudgeError):
+    """Workers AI answered with an error: its HTTP status and Cloudflare's error codes."""
+
+    def __init__(self, message: str, status: int, codes: set[int]) -> None:
+        super().__init__(message)
+        self.status = status
+        self.codes = codes
+
+
+class CloudflareJudge:
+    """Cloudflare's Clef or Clef-flash on Workers AI, over its REST API: the questions are
+    System One's, but the model is named by its bare name and the answers come wrapped in
+    Cloudflare's envelope (`{result, success, errors, messages}`)."""
+
+    def __init__(
+        self, api_token: str, account_id: str, model: str, client: httpx.AsyncClient | None = None
+    ) -> None:
+        self._url = f"{CLOUDFLARE_API_URL}/accounts/{account_id}/ai/run/@cf/cloudflare/{model}"
+        self._api_token = api_token
+        self._model = model
+        self._client = client or _client()
+
+    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        return (await self.reply(state, questions)).answers
+
+    async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
+        """As `ask`, with the input tokens Workers AI counted (after any truncating)."""
+        body = {"model": self._model, "state": state, "questions": questions}
+        try:
+            res = await self._client.post(
+                self._url, json=body, headers={"Authorization": f"Bearer {self._api_token}"}
+            )
+        except httpx.HTTPError as e:
+            raise JudgeError(f"无法连接 Cloudflare Workers AI：{e!r}") from e
+        try:
+            envelope = res.json()
+        except ValueError:
+            envelope = None
+        if not isinstance(envelope, dict):
+            if res.status_code >= 400:
+                raise CloudflareRefused(
+                    f"Cloudflare Workers AI 返回 {res.status_code}: {res.text[:500]}",
+                    res.status_code, set(),
+                )
+            raise JudgeError(f"Cloudflare Workers AI 的返回无法解析（{len(res.text)} 字）")
+        if res.status_code >= 400 or envelope.get("success") is False:
+            raise _refused(res.status_code, envelope.get("errors"))
+        result = envelope.get("result")
+        if not isinstance(result, dict):
+            result = {}
+        return _reply(result.get("answers"), result.get("usage"), "Cloudflare Workers AI", res)
+
+    async def check(self) -> None:
+        """Tries the token and the account id with the least of requests. Raises
+        RuntimeError naming the setting that is wrong if Cloudflare refuses either; only
+        warns if it cannot be told, say on a timeout, an outage or the day's free
+        allocation used up."""
+        try:
+            await self.ask({"测试": "启动检查"}, {"check": _CHECK_QUESTION})
+        except JudgeError as e:
+            if isinstance(e, CloudflareRefused):
+                if e.status == 404 or e.codes & _ACCOUNT_ERROR_CODES:
+                    raise RuntimeError(
+                        f"CLOUDFLARE_ACCOUNT_ID 不对，Cloudflare 找不到这个账号：{e}"
+                    ) from None
+                if e.status in (401, 403) and await self._token_active():
+                    raise RuntimeError(
+                        "CLOUDFLARE_ACCOUNT_ID 不对，或者 CLOUDFLARE_API_TOKEN 没有这个账号的 Workers AI"
+                        f" 权限（token 本身有效）：{e}"
+                    ) from None
+                if e.status in (401, 403):
+                    raise RuntimeError(
+                        "CLOUDFLARE_API_TOKEN 无效或缺少 Workers AI 权限（需要 Workers AI 的 Read 和"
+                        f" Edit），或者它不属于 CLOUDFLARE_ACCOUNT_ID 这个账号：{e}"
+                    ) from None
+            log.warning("could not check the Cloudflare judge model; starting anyway: %s", e)
+
+    async def _token_active(self) -> bool:
+        """Whether Cloudflare says the token itself is good: Workers AI refuses a wrong
+        account id just as it does a wrong token ("Authentication error"). False if it
+        cannot be told, as for a token the account rather than a user owns."""
+        try:
+            res = await self._client.get(
+                f"{CLOUDFLARE_API_URL}/user/tokens/verify",
+                headers={"Authorization": f"Bearer {self._api_token}"},
+            )
+            return res.json()["result"]["status"] == "active"
+        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+            return False
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+
+def _refused(status: int, errors: Any) -> CloudflareRefused:
+    """What Workers AI's `errors` say went wrong, in so many words when it is the day's
+    free allocation used up."""
+    errors = errors if isinstance(errors, list) else []
+    codes = {e["code"] for e in errors if isinstance(e, dict) and isinstance(e.get("code"), int)}
+    said = str(errors)[:500]
+    if codes & _QUOTA_ERROR_CODES or "neurons" in said.lower():
+        return CloudflareRefused(
+            "Workers AI 每日的免费额度（10,000 neurons）已用完，今天的判断都会失败；"
+            f"公开部署请开 Workers Paid：{status} {said}",
+            status, codes,
+        )
+    return CloudflareRefused(f"Cloudflare Workers AI 返回 {status}: {said}", status, codes)
+
+
+def open_judge(
+    settings: JudgeSettings, client: httpx.AsyncClient | None = None
+) -> JevJudge | CloudflareJudge:
+    """The judge model `settings` choose."""
+    if isinstance(settings, CloudflareJudgeSettings):
+        return CloudflareJudge(settings.api_token, settings.account_id, settings.model, client)
+    return JevJudge(settings.api_key, settings.model, settings.base_url, client)
+
+
+async def check_judge(
+    settings: JudgeSettings | None, client: httpx.AsyncClient | None = None
+) -> None:
+    """Tries Cloudflare's credentials as the server starts (see `CloudflareJudge.check`);
+    Jev is not tried."""
+    if not isinstance(settings, CloudflareJudgeSettings):
+        return
+    judge = CloudflareJudge(settings.api_token, settings.account_id, settings.model, client)
+    try:
+        await judge.check()
+    finally:
+        await judge.aclose()

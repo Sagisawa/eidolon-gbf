@@ -78,7 +78,7 @@ async def test_small_talk_retrieves_nothing(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     jev, reranker, llm = FakeJudge(answer="nothing"), FakeReranker(), FakeLLM(REPLY)
-    client = make_client(llm, jev=jev, embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=jev, embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "早上好")
 
@@ -93,7 +93,7 @@ async def test_a_character_recalls_episodes_she_is_cast_in(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker(PARK_LINE))
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker(PARK_LINE))
 
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
 
@@ -107,7 +107,7 @@ async def test_a_character_cannot_recall_episodes_she_is_not_in(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM(REPLY, REPLY), FakeReranker()
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
 
     # Mano's park episode is the closest match, but Kogane is not in it.
     kogane = await system_prompt(client, llm, "公園の鳩のこと覚えてる？", "kogane")
@@ -126,7 +126,7 @@ async def test_character_facts_are_retrieved_for_their_own_character(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker("風野灯織"))
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker("風野灯織"))
 
     system = await system_prompt(client, llm, "灯織ちゃんは元気？")
 
@@ -141,7 +141,7 @@ async def test_references_are_reranked_then_capped(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     reranker, llm = FakeReranker("ピーちゃん"), FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "鳩の話をしよう")
 
@@ -159,7 +159,7 @@ async def test_irrelevant_references_are_left_out(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm, reranker = FakeLLM(REPLY, REPLY), FakeReranker(PARK_LINE, others=0.01)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=reranker)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
 
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
 
@@ -179,7 +179,7 @@ async def test_edited_facts_take_effect_on_restart(
 ):
     characters.write("facts/mano.md", "# 鸟\n## ピーちゃん\n最近学会了说「ほわっ」。")
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker())
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker())
 
     system = await system_prompt(client, llm, "ピーちゃんは元気？")
 
@@ -191,7 +191,7 @@ async def test_retrieval_goes_ahead_when_jev_is_down(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(answer=None), embedder=embedder, reranker=FakeReranker())
+    client = make_client(llm, retrieval_judge=FakeJudge(answer=None), embedder=embedder, reranker=FakeReranker())
 
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
 
@@ -203,7 +203,7 @@ async def test_a_turn_still_gets_a_reply_when_retrieval_fails(
 ):
     embedder.down = True
     llm = FakeLLM(REPLY)
-    client = make_client(llm, jev=FakeJudge(), embedder=embedder, reranker=FakeReranker())
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=FakeReranker())
 
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
 

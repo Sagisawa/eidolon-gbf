@@ -1,7 +1,7 @@
 """Retrieval for a conversation turn: whether to look anything up, and what to bring back.
 
-Jev (through OpenRouter, by default) first judges what the user just said needs: nothing,
-so small talk costs no retrieval latency; memories only, when the user talks about their
+The judge model (`judge`) first judges what the user just said needs: nothing, so small
+talk costs no retrieval latency; memories only, when the user talks about their
 own life, for which the turn finds the memories of what they have told any of the
 characters; references, for which the reference sources (the story corpus, only episodes
 the character is cast in; the character's facts; and the work facts all characters share,
@@ -14,13 +14,13 @@ reranked along with them, and the result goes into the prompt, saving the chat m
 round of calling it. The story not telling how something went does not mean she never
 went through it: she may have stood on that stage all the same.
 
-Retrieval never fails a turn: if Jev cannot answer, the turn retrieves anyway; if
-embedding or reranking fails, the turn goes on without references (or memories).
+Retrieval never fails a turn: if the judge model cannot answer, the turn retrieves anyway;
+if embedding or reranking fails, the turn goes on without references (or memories).
 
 The chat model can also look an episode up itself with the recall-story tool, for
-general questions like "what happened that time with the photo book" that Jev did
-not catch: the best matching episodes she is cast in come back with where they sit in
-her story catalog (card or event, and its other episodes) and what happened in them.
+general questions like "what happened that time with the photo book" that the judge
+model did not catch: the best matching episodes she is cast in come back with where they
+sit in her story catalog (card or event, and its other episodes) and what happened in them.
 The tool looks only in the story.
 """
 
@@ -29,14 +29,19 @@ import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Protocol
-
-import httpx
+from typing import Literal, Protocol
 
 from eidolon.characters import Character
 from eidolon.corpus import CatalogSource, Episode, StoryCorpus
 from eidolon.embedding import Embedder, EmbeddingError, Reembeddable
 from eidolon.facts import CharacterFacts
+from eidolon.judge import (
+    FALLBACK_FAMILY,
+    JUDGE_THRESHOLDS,
+    JudgeError,
+    JudgeModel,
+    JudgeThresholds,
+)
 from eidolon.llm import Tool
 from eidolon.memory import MemoryTurn
 from eidolon.references import Reference, ReferenceKind, ReferenceSource
@@ -52,7 +57,7 @@ MAX_REFERENCES = 5
 CANDIDATES_PER_SOURCE = 12
 """How many candidates each reference source offers the reranker."""
 JUDGE_HISTORY = 4
-"""How many of the latest messages Jev sees along with what the user just said."""
+"""How many of the latest messages the judge model sees along with what the user just said."""
 
 
 RECALL_EPISODES = 2
@@ -101,10 +106,6 @@ class RetrievalJudge(Protocol):
     async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
         """What answering `text` needs looked up."""
         ...
-
-
-class JudgeError(RuntimeError):
-    pass
 
 
 class StoryReferences:
@@ -418,32 +419,43 @@ _ABOUT_PRODUCER_QUESTION = {
         "false": "只是打招呼、说偶像自己的事、问原作剧情或角色设定，与制作人自己的生活无关",
     },
 }
-JUDGE_THRESHOLD = 0.5
-"""Jev's probability at or above which a turn retrieves, or recalls."""
+@dataclass(frozen=True)
+class RetrievalAnswer:
+    """The judge model's probability of yes to each of its three questions."""
+
+    needs_retrieval: float
+    recall: float
+    about_producer: float
 
 
-class JevJudge:
-    """Jev through TypeSafe's System One endpoint (`/systemone`, which OpenRouter, Vercel AI
-    Gateway and TypeSafe itself all serve alike): Jev is an evaluation model, answering
-    typed questions about a state (here yes-or-no ones, `noul`) with probabilities, and is
-    not served by the Chat Completions endpoint."""
+class ModelRetrievalJudge:
+    """The judge model, asked three yes-or-no questions (`noul`) about the turn in one
+    request: whether it needs looking anything up, whether it asks how a past episode
+    went, and whether it is about the user's own life. Each answer is yes at or above the
+    model's threshold for it."""
 
     def __init__(
-        self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
+        self,
+        judge_model: JudgeModel,
+        thresholds: JudgeThresholds = JUDGE_THRESHOLDS[FALLBACK_FAMILY],
     ) -> None:
-        self._url = base_url.rstrip("/") + "/systemone"
-        self._api_key = api_key
-        self._model = model
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
+        self._judge_model = judge_model
+        self.thresholds = thresholds
 
     async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
+        return self.decide(await self.ask(character, history, text))
+
+    async def ask(
+        self, character: Character, history: Sequence[Message], text: str
+    ) -> RetrievalAnswer:
+        """How likely the judge model finds yes to each question about `text`."""
         recent = []
         for message in history[-JUDGE_HISTORY:]:
             if message.role == "user":
                 recent.append(f"制作人：{message.text}")
             else:
                 recent.append(f"{character.name}：{message.without_cues().ja}")
-        answers = await self.ask(
+        answers = await self._judge_model.ask(
             {
                 "角色": character.name,
                 "上文": recent or "（对话刚开始）",
@@ -456,36 +468,20 @@ class JevJudge:
             },
         )
         try:
-            retrieve = float(answers["needs_retrieval"]["noul"])
-            recall = float(answers["recall"]["noul"])
-            about_producer = float(answers["about_producer"]["noul"])
-        except (ValueError, KeyError, TypeError) as e:
-            raise JudgeError("Jev 的返回无法解析（缺少回答）") from e
-        if recall >= JUDGE_THRESHOLD:
-            return "recall"
-        if retrieve >= JUDGE_THRESHOLD:
-            return "references"
-        return "memories" if about_producer >= JUDGE_THRESHOLD else "nothing"
-
-    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
-        """Jev's answer to each of `questions` about `state`, by the question's key, all
-        in one request. Raises JudgeError if Jev cannot be reached or its answer read."""
-        body = {"model": self._model, "state": state, "questions": questions}
-        try:
-            res = await self._client.post(
-                self._url, json=body, headers={"Authorization": f"Bearer {self._api_key}"}
+            return RetrievalAnswer(
+                float(answers["needs_retrieval"]["noul"]),
+                float(answers["recall"]["noul"]),
+                float(answers["about_producer"]["noul"]),
             )
-        except httpx.HTTPError as e:
-            raise JudgeError(f"无法连接 Jev：{e!r}") from e
-        if res.status_code >= 400:
-            raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
-        try:
-            answers = res.json()["answers"]
         except (ValueError, KeyError, TypeError) as e:
-            raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
-        if not isinstance(answers, dict) or not all(isinstance(a, dict) for a in answers.values()):
-            raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）")
-        return answers
+            raise JudgeError("判断模型的返回无法解析（缺少回答）") from e
 
-    async def aclose(self) -> None:
-        await self._client.aclose()
+    def decide(self, answer: RetrievalAnswer) -> Need:
+        """What a turn so answered needs: recall first, then references, then memories."""
+        if answer.recall >= self.thresholds.recall:
+            return "recall"
+        if answer.needs_retrieval >= self.thresholds.needs_retrieval:
+            return "references"
+        if answer.about_producer >= self.thresholds.about_producer:
+            return "memories"
+        return "nothing"

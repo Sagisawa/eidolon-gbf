@@ -35,7 +35,7 @@ def test_connecting_makes_the_directory_the_database_is_in(tmp_path: Path):
 async def test_every_table_is_either_a_users_data_or_not(
     make_client: ClientFactory, settings: Settings
 ):
-    make_client(FakeLLM(), jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker())
+    make_client(FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker())
 
     with sqlite3.connect(settings.database_path) as db:
         tables = {

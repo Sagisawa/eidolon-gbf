@@ -107,7 +107,7 @@ class CallUnderTest:
         `emotion` says, and its speech recognition taking `follow_on_timeout` at most to
         transcribe a follow-on."""
         remembering = {} if memory is None else {
-            "background_llm": memory, "jev": FakeJudge(), "embedder": FakeEmbedder(),
+            "background_llm": memory, "retrieval_judge": FakeJudge(), "embedder": FakeEmbedder(),
             "reranker": FakeReranker(),
         }
         settings = self._settings if emotion is None else replace(self._settings, emotion=emotion)

@@ -149,7 +149,7 @@ async def test_a_turn_told_to_stop_is_recorded_with_only_its_complete_segments(t
 
     events = await turns.take(
         llm, "早上好", stop_after=0,
-        background_llm=memory, jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker(),
+        background_llm=memory, retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker(),
     )
 
     assert events[-1]["type"] == "done"
@@ -168,7 +168,7 @@ async def test_a_turn_told_to_stop_in_its_tool_round_is_recorded_with_its_comple
 
     events = await turns.take(
         llm, "那次在公园怎么了？", stop_after=1,
-        jev=FakeJudge(answer="nothing"), embedder=FakeEmbedder(), reranker=FakeReranker(),
+        retrieval_judge=FakeJudge(answer="nothing"), embedder=FakeEmbedder(), reranker=FakeReranker(),
         background_llm=FakeBackgroundLLM(),
     )
 
@@ -199,7 +199,7 @@ async def test_a_turn_told_to_stop_while_a_tool_runs_is_recorded_with_its_comple
 
     events = await turns.take(
         llm, "那次和鸽子唱歌怎么了？", stop_after=0,
-        jev=FakeJudge(answer="nothing"), embedder=HangingEmbedder("鳩の歌"),
+        retrieval_judge=FakeJudge(answer="nothing"), embedder=HangingEmbedder("鳩の歌"),
         reranker=FakeReranker(), background_llm=FakeBackgroundLLM(),
     )
 

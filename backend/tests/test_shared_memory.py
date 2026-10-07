@@ -34,7 +34,7 @@ async def turn(client: httpx.AsyncClient, conversation_id: str, text: str) -> No
 async def test_what_the_user_told_mano_reaches_kogane_as_hearsay(make_client: ClientFactory):
     llm, background = FakeLLM(REPLY, REPLY), FakeBackgroundLLM(memorized(CAT))
     client = make_client(
-        llm, jev=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("猫"),
+        llm, retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("猫"),
         background_llm=background,
     )
 
@@ -56,7 +56,7 @@ async def test_talk_of_the_users_own_life_retrieves_memories_only(
     llm, reranker = FakeLLM(REPLY, REPLY), FakeReranker("猫")
     jev = FakeJudge(answer="memories")
     client = make_client(
-        llm, jev=jev, embedder=FakeEmbedder(), reranker=reranker,
+        llm, retrieval_judge=jev, embedder=FakeEmbedder(), reranker=reranker,
         background_llm=FakeBackgroundLLM(memorized(CAT)),
     )
 
@@ -72,7 +72,7 @@ async def test_talk_of_the_users_own_life_retrieves_memories_only(
 async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
     llm, embedder = FakeLLM(REPLY, REPLY), FakeEmbedder()
     client = make_client(
-        llm, jev=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(),
+        llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(),
         background_llm=FakeBackgroundLLM(memorized(CAT)),
     )
 
