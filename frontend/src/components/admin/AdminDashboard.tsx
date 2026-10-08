@@ -15,7 +15,7 @@ import { AppLink } from "@/components/AppLink";
 import { CostSection } from "@/components/admin/CostSection";
 import { AdminPage } from "@/components/admin/AdminPage";
 import { Numeric, Pair, RowList, Section, StatTile, TileRow, useWide } from "@/components/admin/DashboardParts";
-import { TrendChart } from "@/components/admin/TrendChart";
+import { CHART_INK, TrendChart } from "@/components/admin/TrendChart";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
 import {
@@ -277,6 +277,11 @@ function CountTrend({ board, series }: { board: Dashboard; series: "turns" | "ca
       points={board.trend.map((p) => ({ start: p.start, value: p[series] }))}
       bucket={board.bucket}
       title={words.title}
+      total={words.total(
+        t.ranges[board.range],
+        formatCount(series === "turns" ? board.turns.total : board.calls.total),
+        formatCount(board.active_users),
+      )}
       describe={(span, i) =>
         words.tooltip(span, formatCount(board.trend[i][series]), formatCount(board.trend[i].active_users))
       }
@@ -511,7 +516,7 @@ function ShareBar({ part, whole }: { part: number; whole: number }) {
   const width = whole > 0 ? (part / whole) * 100 : 0;
   return (
     <svg width="100%" height={12} aria-hidden="true" style={{ display: "block" }}>
-      <rect x={0} y={2} width={`${width}%`} height={8} rx={4} fill="var(--color-data-categorical-blue)" />
+      <rect x={0} y={2} width={`${width}%`} height={8} rx={4} fill={CHART_INK} />
     </svg>
   );
 }

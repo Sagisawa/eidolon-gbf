@@ -23,16 +23,23 @@ function column(x: number, width: number, top: number, base: number): string {
 /** One stretch of the range and its value. */
 export type TrendValue = { start: string; value: number };
 
+/** The columns' colour: the one ink (DESIGN.md「The One Ink Rule」), office navy by day and the
+ * night periwinkle in dark mode. The admin console is outside any character's subtree, so the
+ * accent here is always the ink. */
+export const CHART_INK = "var(--color-accent)";
+
 /**
  * One series over the stretches of the range (the turns, the calls, or what was spent in
  * one currency), as columns (dataviz: a single series needs no legend; the heading names
- * it). Hovering a column reads out its stretch and value above the chart (`describe`, given
- * the stretch's index); the same words are in a table for screen readers.
+ * it). Above the chart, the range's total (`total`); hovering a column reads out its stretch
+ * and value instead (`describe`, given the stretch's index). The same words are in a table
+ * for screen readers.
  */
 export function TrendChart({
   points,
   bucket,
   title,
+  total,
   describe,
   empty,
   ticks: ticksFor,
@@ -42,6 +49,8 @@ export function TrendChart({
   bucket: Bucket;
   /** What the chart shows, for screen readers. */
   title: string;
+  /** The whole range at a glance, read out while no column is hovered. */
+  total: string;
   describe: (span: string, index: number) => string;
   empty: string;
   /** The value axis's ticks, from 0 to at least the largest value. */
@@ -68,12 +77,18 @@ export function TrendChart({
   const slot = plotWidth / Math.max(1, points.length);
   const bar = Math.max(1, Math.min(MAX_BAR, slot - GAP));
   const labelled = labelledStretches(points.length, Math.max(2, Math.floor(plotWidth / 64)));
-  const shown = hovered ?? points.length - 1;
-  const readout = points[shown];
+  const readout =
+    hovered !== null && points[hovered]
+      ? describe(stretchSpan(points[hovered].start, bucket), hovered)
+      : points.some((p) => p.value > 0)
+        ? total
+        : empty;
 
   return (
     <VStack gap={2}>
-      <Text type="supporting">{readout ? describe(stretchSpan(readout.start, bucket), shown) : empty}</Text>
+      <Text type="supporting" hasTabularNumbers>
+        {readout}
+      </Text>
       <svg
         ref={ref}
         width="100%"
@@ -122,7 +137,7 @@ export function TrendChart({
                 />
               )}
               {point.value > 0 && (
-                <path d={column(x, bar, y(point.value), base)} fill="var(--color-data-categorical-blue)" />
+                <path d={column(x, bar, y(point.value), base)} fill={CHART_INK} />
               )}
               {labelled.has(i) && (
                 <text

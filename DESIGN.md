@@ -147,7 +147,7 @@ components:
 ### Named Rules
 **The Paired Colour Rule.** 任何她颜色的底色或前景都只能取自 `imageColorScale()` 的成对值（经 `herVars()` / `ld()`），绝不直接把官方原色写成字色或底色。新增一种用法，就在 `imageColor.ts` 加一对颜色，并在 `imageColor.test.ts` 的 `pairs()` 里加上它的对比度要求；契约覆盖 5 位官方色和 216 色网格。
 
-**The One Ink Rule.** 全站只有一种墨水。正文、标题和制作人的气泡用同一个事务所深蓝；她的颜色只属于她的东西，不用来写制作人的字或系统界面。
+**The One Ink Rule.** 全站只有一种墨水。正文、标题和制作人的气泡用同一个事务所深蓝；她的颜色只属于她的东西，不用来写制作人的字或系统界面。后台图表（趋势柱、按角色和通话时长的比例条）也用这种墨水（`--color-accent`，深色模式下是夜间墨水），不用 Astryx 的分类色。
 
 **The Scoped Colour Rule.** 她的颜色只注入到这段对话的子树（`herVars(character.color)`），从不写进主题或 `:root`。需要在子树里仍用制作人墨水时，读 `--office-ink`（`PageShell` 在页面根上从 `--color-accent` 取下，对话子树覆盖 accent 之前）。
 

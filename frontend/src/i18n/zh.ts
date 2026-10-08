@@ -337,6 +337,7 @@ export const zh = {
           hint: { hour: "每小时的回合数", "6h": "每 6 小时的回合数", day: "每天的回合数" },
           tooltip: (span: string, turns: string, users: string) =>
             `${span}：${turns} 个回合，${users} 位活跃用户`,
+          total: (range: string, turns: string, users: string) => `${range}合计：${turns} 个回合，${users} 位活跃用户`,
           empty: "这段时间没有回合。",
         },
         calls: {
@@ -344,6 +345,7 @@ export const zh = {
           hint: { hour: "每小时的通话数", "6h": "每 6 小时的通话数", day: "每天的通话数" },
           tooltip: (span: string, calls: string, users: string) =>
             `${span}：${calls} 次通话，${users} 位活跃用户`,
+          total: (range: string, calls: string, users: string) => `${range}合计：${calls} 次通话，${users} 位活跃用户`,
           empty: "这段时间没有通话。",
         },
       },
@@ -449,6 +451,7 @@ export const zh = {
         trendTitle: (currency: string) => `花费趋势（${currency}）`,
         trendHint: { hour: "每小时的花费", "6h": "每 6 小时的花费", day: "每天的花费" },
         trendReadout: (span: string, amount: string) => `${span}：约 ${amount}`,
+        trendTotal: (range: string, amount: string) => `${range}合计：约 ${amount}`,
         trendEmpty: "这段时间没有花费。",
         byService: "按服务",
         byModel: "按模型",
