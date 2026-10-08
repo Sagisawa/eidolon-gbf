@@ -302,6 +302,9 @@ export const zh = {
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
       failed: (reason: string) => `看板加载失败：${reason}`,
+      groups: {
+        usage: { title: "用量", hint: "回合和通话的走势、结果和时长，以及各位角色。" },
+      },
       tiles: {
         turns: "回合",
         turnsInCalls: (n: string) => `其中 ${n} 个在通话里`,
@@ -490,6 +493,7 @@ export const zh = {
       backToList: "返回用户列表",
       loading: "正在加载这位用户",
       details: {
+        title: "资料",
         signInMethods: "登录方式",
         identifier: "标识",
         email: "邮箱",
@@ -538,6 +542,7 @@ export const zh = {
         needsOne: "至少要单独设定一项，并填好次数。",
       },
       delete: "删除这位用户",
+      deleteSection: { hint: "彻底删除他的全部数据，无法恢复。确认之前会再列出要删掉什么。" },
       deleteDialog: {
         title: (name: string) => `删除 ${name} 的全部数据？`,
         hint: "和他自己删除完全一样：彻底删除他的记忆、对话、制作人档案、登录方式、自带密钥、登录状态和限额的计数，无法恢复，进行中的通话随即挂断；每天的加密备份里的副本最多再留 30 天。",

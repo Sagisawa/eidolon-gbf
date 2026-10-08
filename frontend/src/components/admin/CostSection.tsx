@@ -1,13 +1,13 @@
 "use client";
 
-import { Grid } from "@astryxdesign/core/Grid";
 import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
 
-import { Numeric, Section, StatTile } from "@/components/admin/DashboardParts";
+import { Numeric, Pair, Section, StatTile, TileRow } from "@/components/admin/DashboardParts";
 import { TrendChart } from "@/components/admin/TrendChart";
+import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
 import {
   amountTicks,
@@ -32,8 +32,8 @@ function serviceName(service: ServiceName): string {
 }
 
 /**
- * 看板的花费一节：每种币种的合计（估算，不扣免费额度，不换算汇率）、每种币种一张趋势图、按服务和
- * 按模型的明细（没有单价的模型显示用量和「未设单价」），以及自带密钥的用量（只有数量，不算钱）。
+ * 看板的花费一组：每种币种的合计（估算，不扣免费额度，不换算汇率）、每种币种一张趋势图（和按服务的明细
+ * 两两并排）、按模型的明细（没有单价的模型显示用量和「未设单价」），以及自带密钥的用量（只有数量，不算钱）。
  * 金额全由后端按单价算好。
  */
 export function CostSection({ board }: { board: Dashboard }) {
@@ -41,12 +41,12 @@ export function CostSection({ board }: { board: Dashboard }) {
   const dates = costPriceDates(cost);
   const unknown = cost.usage_unknown > 0 ? t.totalNote(formatCount(cost.usage_unknown)) : undefined;
   return (
-    <VStack gap={8}>
-      <Section title={t.title} hint={t.hint(dates.catalog, dates.preset)}>
+    <SettingsSection title={t.title} description={t.hint(dates.catalog, dates.preset)}>
+      <VStack gap={8}>
         {cost.totals.length === 0 ? (
           <Text color="secondary">{t.empty}</Text>
         ) : (
-          <Grid columns={{ minWidth: 160, max: 3 }} gap={3}>
+          <TileRow>
             {cost.totals.map((total) => (
               <StatTile
                 key={total.currency}
@@ -55,42 +55,43 @@ export function CostSection({ board }: { board: Dashboard }) {
                 note={unknown}
               />
             ))}
-          </Grid>
+          </TileRow>
         )}
-      </Section>
 
-      {trendCurrencies(cost.trend).map((currency) => (
-        <Section key={currency} title={t.trendTitle(currency)} hint={t.trendHint[board.bucket]}>
-          <TrendChart
-            points={cost.trend.map((p) => ({ start: p.start, value: p.amounts[currency] ?? 0 }))}
-            bucket={board.bucket}
-            title={t.trendTitle(currency)}
-            describe={(span, i) => t.trendReadout(span, formatMoney(cost.trend[i].amounts[currency] ?? 0, currency))}
-            empty={t.trendEmpty}
-            ticks={amountTicks}
-            format={(value) => formatMoney(value, currency)}
-          />
-        </Section>
-      ))}
+        <Pair>
+          {trendCurrencies(cost.trend).map((currency) => (
+            <Section key={currency} title={t.trendTitle(currency)} hint={t.trendHint[board.bucket]}>
+              <TrendChart
+                points={cost.trend.map((p) => ({ start: p.start, value: p.amounts[currency] ?? 0 }))}
+                bucket={board.bucket}
+                title={t.trendTitle(currency)}
+                describe={(span, i) => t.trendReadout(span, formatMoney(cost.trend[i].amounts[currency] ?? 0, currency))}
+                empty={t.trendEmpty}
+                ticks={amountTicks}
+                format={(value) => formatMoney(value, currency)}
+              />
+            </Section>
+          ))}
+          {cost.services.length > 0 && (
+            <Section title={t.byService}>
+              <ServicesTable cost={cost} />
+            </Section>
+          )}
+        </Pair>
 
-      {cost.services.length > 0 && (
-        <Section title={t.byService}>
-          <ServicesTable cost={cost} />
-        </Section>
-      )}
+        {cost.rows.length > 0 && (
+          <Section title={t.byModel}>
+            <ModelsTable rows={cost.rows} />
+          </Section>
+        )}
 
-      {cost.rows.length > 0 && (
-        <Section title={t.byModel}>
-          <ModelsTable rows={cost.rows} />
-        </Section>
-      )}
-
-      {cost.own_keys.length > 0 && (
-        <Section title={t.own.title} hint={t.own.hint}>
-          <OwnKeysTable cost={cost} />
-        </Section>
-      )}
-    </VStack>
+        {cost.own_keys.length > 0 && (
+          <Section title={t.own.title} hint={t.own.hint}>
+            <OwnKeysTable cost={cost} />
+          </Section>
+        )}
+      </VStack>
+    </SettingsSection>
   );
 }
 

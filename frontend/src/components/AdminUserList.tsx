@@ -2,7 +2,6 @@
 
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Pagination } from "@astryxdesign/core/Pagination";
 import { Table, pixel, proportional, useTableSortable, type TableColumn } from "@astryxdesign/core/Table";
@@ -13,6 +12,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useCallback, useEffect, useState } from "react";
 
+import { AdminPage } from "@/components/admin/AdminPage";
 import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { FailureNotice } from "@/components/FailureNotice";
@@ -193,72 +193,65 @@ export function AdminUserList() {
   ];
 
   return (
-    <VStack gap={6}>
-      <VStack gap={2}>
-        <Heading level={1} style={{ fontSize: "var(--text-large-size)" }}>
-          {copy.admin.pages.users}
-        </Heading>
-        <Text as="p" color="secondary">
-          {t.intro}
-        </Text>
-      </VStack>
-
-      <VStack gap={3}>
-        <TextInput
-          label={t.search}
-          isLabelHidden
-          placeholder={t.searchPlaceholder}
-          value={query}
-          onChange={search}
-          hasClear
-          width="100%"
-        />
-        {result && (
-          <Text type="supporting" color="secondary">
-            {t.total(result.total)}
-          </Text>
-        )}
-      </VStack>
-
-      {failure && <FailureNotice failure={failure} />}
-
-      {result && result.users.length === 0 && <EmptyState title={t.empty} description={t.emptyHint} />}
-
-      {result && result.users.length > 0 && (
-        <VStack gap={4}>
-          <Table
-            data={result.users}
-            columns={columns}
-            idKey="id"
-            density="compact"
-            verticalAlign="top"
-            rowIndexStart={(page - 1) * USERS_PAGE_SIZE + 1}
-            rowCount={result.total}
-            plugins={{ sort: sortPlugin }}
+    <AdminPage width="wide" title={copy.admin.pages.users} intro={t.intro}>
+      <VStack gap={6} paddingBlockStart={4}>
+        <VStack gap={3}>
+          <TextInput
+            label={t.search}
+            isLabelHidden
+            placeholder={t.searchPlaceholder}
+            value={query}
+            onChange={search}
+            hasClear
+            width="100%"
           />
-          {result.total > USERS_PAGE_SIZE && (
-            <Pagination
-              label={t.pagination}
-              page={page}
-              onChange={setPage}
-              totalItems={result.total}
-              pageSize={USERS_PAGE_SIZE}
-              variant="compact"
-              size="sm"
-            />
+          {result && (
+            <Text type="supporting" color="secondary">
+              {t.total(result.total)}
+            </Text>
           )}
         </VStack>
-      )}
 
-      <BanUserDialog
-        user={banning}
-        onClose={() => setBanning(null)}
-        onBanned={() => {
-          setBanning(null);
-          load();
-        }}
-      />
-    </VStack>
+        {failure && <FailureNotice failure={failure} />}
+
+        {result && result.users.length === 0 && <EmptyState title={t.empty} description={t.emptyHint} />}
+
+        {result && result.users.length > 0 && (
+          <VStack gap={4}>
+            <Table
+              data={result.users}
+              columns={columns}
+              idKey="id"
+              density="compact"
+              verticalAlign="top"
+              rowIndexStart={(page - 1) * USERS_PAGE_SIZE + 1}
+              rowCount={result.total}
+              plugins={{ sort: sortPlugin }}
+            />
+            {result.total > USERS_PAGE_SIZE && (
+              <Pagination
+                label={t.pagination}
+                page={page}
+                onChange={setPage}
+                totalItems={result.total}
+                pageSize={USERS_PAGE_SIZE}
+                variant="compact"
+                size="sm"
+              />
+            )}
+          </VStack>
+        )}
+
+        <BanUserDialog
+          user={banning}
+          onClose={() => setBanning(null)}
+          onBanned={() => {
+            setBanning(null);
+            load();
+          }}
+        />
+      </VStack>
+    </AdminPage>
   );
 }
 

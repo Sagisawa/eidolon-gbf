@@ -3,7 +3,6 @@
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -11,9 +10,9 @@ import { proportional, Table, type TableColumn } from "@astryxdesign/core/Table"
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Token } from "@astryxdesign/core/Token";
-import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useState } from "react";
 
+import { AdminPage } from "@/components/admin/AdminPage";
 import { AdminPrices } from "@/components/AdminPrices";
 import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
@@ -53,13 +52,7 @@ export function AdminConfig() {
   }, []);
 
   return (
-    <VStack gap={2}>
-      <Heading level={1} style={{ fontSize: "var(--text-large-size)" }}>
-        {copy.admin.pages.config}
-      </Heading>
-      <Text as="p" color="secondary">
-        {t.intro}
-      </Text>
+    <AdminPage width="narrow" title={copy.admin.pages.config} intro={t.intro}>
       {failure && !config && <FailureNotice failure={failure} />}
       {!failure && !config && (
         <Text as="p" color="secondary" role="status">
@@ -70,7 +63,7 @@ export function AdminConfig() {
         ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
       {config && <AdminPrices />}
       {config && <ReadOnlySection items={config.read_only} />}
-    </VStack>
+    </AdminPage>
   );
 }
 

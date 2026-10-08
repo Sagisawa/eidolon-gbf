@@ -2,7 +2,6 @@
 
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Spinner } from "@astryxdesign/core/Spinner";
@@ -14,10 +13,12 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AdminPage } from "@/components/admin/AdminPage";
 import { BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
 import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { FailureNotice } from "@/components/FailureNotice";
+import { SettingsSection } from "@/components/SettingsSection";
 import { UserLimitsDialog } from "@/components/UserLimitsDialog";
 import { copy } from "@/i18n";
 import {
@@ -98,153 +99,162 @@ export function AdminUserDetails({ id }: { id: string }) {
   }
 
   const action = user && banAction(user);
+  const back = (
+    <HStack>
+      <AppLink href="/admin/users" isStandalone>
+        {t.backToList}
+      </AppLink>
+    </HStack>
+  );
+
+  if (!user) {
+    return (
+      <VStack gap={6}>
+        {back}
+        {failure && <FailureNotice failure={failure} />}
+        {!failure && <Spinner size="lg" aria-label={t.loading} />}
+      </VStack>
+    );
+  }
 
   return (
-    <VStack gap={6}>
-      <HStack>
-        <AppLink href="/admin/users" isStandalone>
-          {t.backToList}
-        </AppLink>
-      </HStack>
-
+    <AdminPage
+      width="narrow"
+      above={back}
+      title={user.name}
+      meta={
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <BanStatus banned={user.banned} />
+          {user.is_admin && <Token label={t.admin} size="sm" color="blue" />}
+        </HStack>
+      }
+      end={
+        action === "ban" ? (
+          <Button label={t.ban} variant="destructive" onClick={() => setBanning(true)} />
+        ) : action === "unban" ? (
+          <Button label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
+        ) : (
+          <Text color="secondary">{t.adminCannotBeBanned}</Text>
+        )
+      }
+    >
       {failure && <FailureNotice failure={failure} />}
 
-      {!user && !failure && <Spinner size="lg" aria-label={t.loading} />}
-
-      {user && (
-        <VStack gap={6}>
-          <VStack gap={2}>
-            <Heading level={1} style={{ fontSize: "var(--text-large-size)" }}>
-              {user.name}
-            </Heading>
-            <HStack gap={2} vAlign="center" wrap="wrap">
-              <BanStatus banned={user.banned} />
-              {user.is_admin && <Token label={t.admin} size="sm" color="blue" />}
-            </HStack>
-          </VStack>
-
-          <MetadataList label={{ position: "top" }}>
-            <MetadataListItem label={t.details.signInMethods}>
-              {user.sign_in_methods.length === 0 ? (
-                <Text color="secondary">{t.noSignInMethods}</Text>
-              ) : (
-                <VStack gap={2}>
-                  {user.sign_in_methods.map((method) => (
-                    <VStack key={method.provider} gap={0}>
-                      <Text>
-                        {PROVIDER_LABELS[method.provider]} {method.display_name}
-                      </Text>
-                      <Text type="supporting" color="secondary">
-                        {t.details.email}：{method.email ?? t.details.noEmail}
-                      </Text>
-                      <Text type="supporting" color="secondary">
-                        {t.details.identifier}：{method.provider}:{method.subject}
-                      </Text>
-                    </VStack>
-                  ))}
-                </VStack>
-              )}
-            </MetadataListItem>
-            <MetadataListItem label={t.details.id}>
-              <Text type="code">{user.id}</Text>
-            </MetadataListItem>
-            <MetadataListItem label={t.details.createdAt}>
-              <Timestamp value={user.created_at} format="date_time" type="body" />
-            </MetadataListItem>
-            <MetadataListItem label={t.details.lastActive}>
-              {user.last_active_at ? (
-                <Timestamp value={user.last_active_at} format="date_time" type="body" />
-              ) : (
-                <Text color="secondary">{t.never}</Text>
-              )}
-            </MetadataListItem>
-            <MetadataListItem label={t.details.ownKeys}>
-              <OwnKeys user={user} />
-            </MetadataListItem>
-            <MetadataListItem label={t.limits.title}>
+      <SettingsSection title={t.details.title}>
+        <MetadataList columns="multi">
+          <MetadataListItem label={t.details.signInMethods}>
+            {user.sign_in_methods.length === 0 ? (
+              <Text color="secondary">{t.noSignInMethods}</Text>
+            ) : (
               <VStack gap={2}>
-                <UserLimits user={user} />
-                {user.limits?.note && (
-                  <Text type="supporting" color="secondary">
-                    {user.limits.note}
-                  </Text>
-                )}
-                {user.limits && (
-                  <HStack gap={1} vAlign="center">
-                    <Text type="supporting" color="secondary">
-                      {t.limits.updatedAt}
+                {user.sign_in_methods.map((method) => (
+                  <VStack key={method.provider} gap={0}>
+                    <Text>
+                      {PROVIDER_LABELS[method.provider]} {method.display_name}
                     </Text>
-                    <Timestamp value={user.limits.updated_at} format="date_time" type="supporting" />
-                  </HStack>
-                )}
-                <HStack gap={2} wrap="wrap">
+                    <Text type="supporting" color="secondary">
+                      {t.details.email}：{method.email ?? t.details.noEmail}
+                    </Text>
+                    <Text type="supporting" color="secondary">
+                      {t.details.identifier}：{method.provider}:{method.subject}
+                    </Text>
+                  </VStack>
+                ))}
+              </VStack>
+            )}
+          </MetadataListItem>
+          <MetadataListItem label={t.details.id}>
+            <Text type="code">{user.id}</Text>
+          </MetadataListItem>
+          <MetadataListItem label={t.details.createdAt}>
+            <Timestamp value={user.created_at} format="date_time" type="body" />
+          </MetadataListItem>
+          <MetadataListItem label={t.details.lastActive}>
+            {user.last_active_at ? (
+              <Timestamp value={user.last_active_at} format="date_time" type="body" />
+            ) : (
+              <Text color="secondary">{t.never}</Text>
+            )}
+          </MetadataListItem>
+          <MetadataListItem label={t.details.ownKeys}>
+            <OwnKeys user={user} />
+          </MetadataListItem>
+          <MetadataListItem label={t.limits.title}>
+            <VStack gap={2}>
+              <UserLimits user={user} />
+              {user.limits?.note && (
+                <Text type="supporting" color="secondary">
+                  {user.limits.note}
+                </Text>
+              )}
+              {user.limits && (
+                <HStack gap={1} vAlign="center">
+                  <Text type="supporting" color="secondary">
+                    {t.limits.updatedAt}
+                  </Text>
+                  <Timestamp value={user.limits.updated_at} format="date_time" type="supporting" />
+                </HStack>
+              )}
+              <HStack gap={2} wrap="wrap">
+                <Button
+                  label={user.limits ? t.limits.edit : t.limits.set}
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setEditingLimits(true)}
+                />
+                {user.limits && (
                   <Button
-                    label={user.limits ? t.limits.edit : t.limits.set}
+                    label={t.limits.takeOff}
                     variant="secondary"
                     size="sm"
-                    onClick={() => setEditingLimits(true)}
+                    onClick={takeOffLimits}
+                    isLoading={takingOffLimits}
                   />
-                  {user.limits && (
-                    <Button
-                      label={t.limits.takeOff}
-                      variant="secondary"
-                      size="sm"
-                      onClick={takeOffLimits}
-                      isLoading={takingOffLimits}
-                    />
-                  )}
-                </HStack>
-              </VStack>
-            </MetadataListItem>
-            {user.banned_at && (
-              <MetadataListItem label={t.details.bannedAt}>
-                <Timestamp value={user.banned_at} format="date_time" type="body" />
-              </MetadataListItem>
-            )}
-            {user.banned && (
-              <MetadataListItem label={t.details.banNote}>
-                {user.ban_note ? (
-                  <Text>{user.ban_note}</Text>
-                ) : (
-                  <Text color="secondary">{t.details.noNote}</Text>
                 )}
-              </MetadataListItem>
-            )}
-          </MetadataList>
+              </HStack>
+            </VStack>
+          </MetadataListItem>
+          {user.banned_at && (
+            <MetadataListItem label={t.details.bannedAt}>
+              <Timestamp value={user.banned_at} format="date_time" type="body" />
+            </MetadataListItem>
+          )}
+          {user.banned && (
+            <MetadataListItem label={t.details.banNote}>
+              {user.ban_note ? (
+                <Text>{user.ban_note}</Text>
+              ) : (
+                <Text color="secondary">{t.details.noNote}</Text>
+              )}
+            </MetadataListItem>
+          )}
+        </MetadataList>
+      </SettingsSection>
 
-          <RecentUsage usage={user.usage} />
+      <RecentUsage usage={user.usage} />
 
-          <HStack gap={2} wrap="wrap">
-            {action === "ban" && (
-              <Button label={t.ban} variant="destructive" onClick={() => setBanning(true)} />
-            )}
-            {action === "unban" && (
-              <Button label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
-            )}
-            {action !== null && (
-              <Button label={t.delete} variant="destructive" onClick={() => setConfirmingDelete(true)} />
-            )}
-            {action === null && <Text color="secondary">{t.adminCannotBeBanned}</Text>}
+      {action !== null && (
+        <SettingsSection title={t.delete} description={t.deleteSection.hint}>
+          <HStack>
+            <Button label={t.delete} variant="destructive" onClick={() => setConfirmingDelete(true)} />
           </HStack>
-        </VStack>
+        </SettingsSection>
       )}
 
-      {user && (
-        <AlertDialog
-          isOpen={confirmingDelete}
-          onOpenChange={(open) => !deleting && setConfirmingDelete(open)}
-          title={t.deleteDialog.title(user.name)}
-          description={`${t.deleteDialog.hint}${user.banned ? t.deleteDialog.banned : t.deleteDialog.notBanned}`}
-          actionLabel={t.deleteDialog.confirm}
-          cancelLabel={copy.common.cancel}
-          onAction={remove}
-          isActionLoading={deleting}
-          width={480}
-        />
-      )}
+      <AlertDialog
+        isOpen={confirmingDelete}
+        onOpenChange={(open) => !deleting && setConfirmingDelete(open)}
+        title={t.deleteDialog.title(user.name)}
+        description={`${t.deleteDialog.hint}${user.banned ? t.deleteDialog.banned : t.deleteDialog.notBanned}`}
+        actionLabel={t.deleteDialog.confirm}
+        cancelLabel={copy.common.cancel}
+        onAction={remove}
+        isActionLoading={deleting}
+        width={480}
+      />
 
       <UserLimitsDialog
-        user={editingLimits && user ? user : null}
+        user={editingLimits ? user : null}
         onClose={() => setEditingLimits(false)}
         onSaved={(saved) => {
           setEditingLimits(false);
@@ -253,14 +263,14 @@ export function AdminUserDetails({ id }: { id: string }) {
       />
 
       <BanUserDialog
-        user={banning && user ? user : null}
+        user={banning ? user : null}
         onClose={() => setBanning(false)}
         onBanned={(banned) => {
           setBanning(false);
           setUser(banned);
         }}
       />
-    </VStack>
+    </AdminPage>
   );
 }
 
@@ -279,15 +289,9 @@ function RecentUsage({ usage }: { usage: AdminUserUsage }) {
     ),
   ];
   return (
-    <VStack gap={2}>
-      <Heading level={2} style={{ fontSize: "var(--text-body-size)" }}>
-        {u.title}
-      </Heading>
-      <Text type="supporting" color="secondary">
-        {u.hint}
-      </Text>
+    <SettingsSection title={u.title} description={u.hint}>
       <Table data={usageRows(usage)} columns={columns} idKey="what" density="compact" verticalAlign="top" />
-    </VStack>
+    </SettingsSection>
   );
 }
 

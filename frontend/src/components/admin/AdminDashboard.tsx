@@ -1,8 +1,6 @@
 "use client";
 
 import { Banner } from "@astryxdesign/core/Banner";
-import { Grid } from "@astryxdesign/core/Grid";
-import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
@@ -13,8 +11,10 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState } from "react";
 
 import { CostSection } from "@/components/admin/CostSection";
-import { Numeric, Section, StatTile } from "@/components/admin/DashboardParts";
+import { AdminPage } from "@/components/admin/AdminPage";
+import { Numeric, Pair, Section, StatTile, TileRow } from "@/components/admin/DashboardParts";
 import { TrendChart } from "@/components/admin/TrendChart";
+import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
 import {
   CALL_END_REASONS,
@@ -88,41 +88,43 @@ export function AdminDashboard() {
   }, [range]);
 
   return (
-    <VStack gap={6}>
-      <VStack gap={2}>
-        <Heading level={1} style={{ fontSize: "var(--text-large-size)" }}>
-          {copy.admin.pages.dashboard}
-        </Heading>
-        <Text as="p" color="secondary">
-          {t.intro}
-        </Text>
+    <AdminPage
+      width="wide"
+      title={copy.admin.pages.dashboard}
+      intro={t.intro}
+      end={
+        <SegmentedControl
+          label={t.rangeLabel}
+          value={range}
+          onChange={(value) => isDashboardRange(value) && setRange(value)}
+        >
+          {DASHBOARD_RANGES.map((r) => (
+            <SegmentedControlItem key={r} value={r} label={t.ranges[r]} />
+          ))}
+        </SegmentedControl>
+      }
+    >
+      <VStack gap={6} paddingBlockStart={4}>
+        {error !== null && <Banner status="error" title={t.failed(error)} />}
+        {board === null ? (
+          error === null && <Skeleton height={320} />
+        ) : (
+          <DashboardBody board={board} inProgress={inProgress} />
+        )}
       </VStack>
-
-      <SegmentedControl
-        label={t.rangeLabel}
-        value={range}
-        onChange={(value) => isDashboardRange(value) && setRange(value)}
-      >
-        {DASHBOARD_RANGES.map((r) => (
-          <SegmentedControlItem key={r} value={r} label={t.ranges[r]} />
-        ))}
-      </SegmentedControl>
-
-      {error !== null && <Banner status="error" title={t.failed(error)} />}
-      {board === null ? (
-        error === null && <Skeleton height={320} />
-      ) : (
-        <DashboardBody board={board} inProgress={inProgress} />
-      )}
-    </VStack>
+    </AdminPage>
   );
 }
 
+/**
+ * 先回答「用了多少」：一行数字卡；紧接着是服务健康（出事时第一眼要看到）；然后是用量的明细，
+ * 小表两两并排；最后是花费。每一组是一节（标题、说明、内容、分隔线），和配置页、用户详情一致。
+ */
 function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: number | null }) {
   const { turns, calls } = board;
   return (
-    <VStack gap={8}>
-      <Grid columns={{ minWidth: 160, max: 3 }} gap={3}>
+    <VStack>
+      <TileRow>
         <StatTile
           label={t.tiles.turns}
           value={formatCount(turns.total)}
@@ -149,60 +151,67 @@ function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: nu
           value={formatMs(turns.time_to_speak_ms.p50)}
           note={turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))}
         />
-      </Grid>
+      </TileRow>
 
-      <Section title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
-        <CountTrend board={board} series="turns" />
-      </Section>
-
-      <Section title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
-        <CountTrend board={board} series="calls" />
-      </Section>
-
-      <Section title={t.results.title} hint={t.results.hint}>
-        <CountsTable
-          rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
-          total={turns.total}
-          labelHeader={t.results.result}
-          countHeader={t.results.turns}
-          shareHeader={t.results.share}
-        />
-      </Section>
-
-      <Section title={t.callResults.title} hint={t.callResults.hint}>
-        <CountsTable
-          rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
-          total={calls.total}
-          labelHeader={t.callResults.result}
-          countHeader={t.callResults.calls}
-          shareHeader={t.callResults.share}
-        />
-      </Section>
-
-      <Section
-        title={t.durations.title}
-        hint={t.durations.hint(formatDuration(calls.duration_s.p50), formatDuration(calls.duration_s.p90))}
-      >
-        <DurationsTable board={board} />
-      </Section>
-
-      <Section title={t.endReasons.title} hint={t.endReasons.hint}>
-        <CountsTable
-          rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
-          total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
-          labelHeader={t.endReasons.reason}
-          countHeader={t.endReasons.calls}
-          shareHeader={t.endReasons.share}
-        />
-      </Section>
-
-      <Section title={t.health.title} hint={t.health.hint}>
+      <SettingsSection title={t.health.title} description={t.health.hint}>
         <HealthTable board={board} />
-      </Section>
+      </SettingsSection>
 
-      <Section title={t.characters.title}>
-        <CharactersTable board={board} />
-      </Section>
+      <SettingsSection title={t.groups.usage.title} description={t.groups.usage.hint}>
+        <VStack gap={8}>
+          <Pair>
+            <Section title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
+              <CountTrend board={board} series="turns" />
+            </Section>
+            <Section title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
+              <CountTrend board={board} series="calls" />
+            </Section>
+          </Pair>
+
+          <Pair>
+            <Section title={t.results.title} hint={t.results.hint}>
+              <CountsTable
+                rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
+                total={turns.total}
+                labelHeader={t.results.result}
+                countHeader={t.results.turns}
+                shareHeader={t.results.share}
+              />
+            </Section>
+            <Section title={t.callResults.title} hint={t.callResults.hint}>
+              <CountsTable
+                rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
+                total={calls.total}
+                labelHeader={t.callResults.result}
+                countHeader={t.callResults.calls}
+                shareHeader={t.callResults.share}
+              />
+            </Section>
+          </Pair>
+
+          <Pair>
+            <Section
+              title={t.durations.title}
+              hint={t.durations.hint(formatDuration(calls.duration_s.p50), formatDuration(calls.duration_s.p90))}
+            >
+              <DurationsTable board={board} />
+            </Section>
+            <Section title={t.endReasons.title} hint={t.endReasons.hint}>
+              <CountsTable
+                rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
+                total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
+                labelHeader={t.endReasons.reason}
+                countHeader={t.endReasons.calls}
+                shareHeader={t.endReasons.share}
+              />
+            </Section>
+          </Pair>
+
+          <Section title={t.characters.title}>
+            <CharactersTable board={board} />
+          </Section>
+        </VStack>
+      </SettingsSection>
 
       <CostSection board={board} />
     </VStack>
