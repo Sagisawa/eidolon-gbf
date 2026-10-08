@@ -23,7 +23,7 @@ class Datagrams(asyncio.DatagramProtocol):
 
 async def test_closing_with_a_datagram_in_flight_still_loses_the_connection():
     loop = asyncio.get_running_loop()
-    assert isinstance(loop, asyncio.ProactorEventLoop)
+    assert type(loop).__name__ == "ProactorEventLoop"  # the class is Windows-only to pyright
     transport, protocol = await loop.create_datagram_endpoint(
         Datagrams, local_addr=("127.0.0.1", 0)
     )
