@@ -197,6 +197,25 @@ async def test_the_background_model_reads_the_exchange_and_what_is_already_remem
     assert [m.text for m in listed] == [TRIP, CAT]
 
 
+async def test_the_background_model_is_told_to_keep_only_what_still_matters_later(
+    world: World, make_memories: MemoriesFactory
+):
+    background = FakeBackgroundLLM(memorized())
+    memories = make_memories(background_llm=background)
+
+    await tell(memories, world, world.conversation("mano"), "今天好累")
+    await memories.entries(world.producer)
+
+    instructions = next(m.content for m in background.prompts[0] if m.role == "system")
+    assert "过后仍有意义" in instructions
+    # What lasts a few days and a friend would ask about later is written down…
+    assert "持续几天" in instructions and "过后会问起" in instructions
+    assert all(event in instructions for event in ("生病", "考试", "面试", "搬家", "出差"))
+    # …what is over by the end of the day is not.
+    assert "当天就会过去" in instructions
+    assert all(state in instructions for state in ("累", "困", "心情不好"))
+
+
 async def test_irrelevant_memories_are_not_found(world: World, make_memories: MemoriesFactory):
     memories = make_memories(memorized(CAT), reranker=FakeReranker("北海道", others=0.001))
 
