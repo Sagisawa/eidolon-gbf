@@ -7,15 +7,16 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Selector } from "@astryxdesign/core/Selector";
-import { pixel, proportional, Table, type TableColumn } from "@astryxdesign/core/Table";
+import { pixel, proportional, Table, useTableRowExpansion, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { TouchButton, useWide } from "@/components/admin/DashboardParts";
+import { useOpenForm } from "@/components/admin/OpenForm";
 import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -71,6 +72,10 @@ export function AdminPrices() {
   const [prices, setPrices] = useState<Prices | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [form, setForm] = useState<PriceForm | null>(null);
+  // 配置页同一时间只开一个表单：别的配置项打开表单时，这里的收起（见 OpenForm）。
+  const [isOpen, setOpen] = useOpenForm("prices");
+  /** 是自己关的（取消、保存成功），不是被别的表单挤掉：只有这时才把焦点还回去。 */
+  const closedHere = useRef(false);
   /** 表单在做什么：新增，修改一条（列出它的三种单价作参考），或给未设单价的模型设单价。后两种的提供方、
    * 模型和单位是定的，不能改：改了就成了另一条。 */
   const [mode, setMode] = useState<FormMode>({ kind: "add" });
@@ -119,7 +124,7 @@ export function AdminPrices() {
     setNotice(null);
     try {
       setPrices(await request());
-      setForm(null);
+      close(id === "save");
       setNotice(done);
     } catch (e) {
       setFailure(toFailure(e));
@@ -127,6 +132,18 @@ export function AdminPrices() {
       setBusy(null);
     }
   }
+
+  /** 收起表单；`returnFocus` 时（取消、保存成功）焦点回到打开它的按钮。 */
+  function close(returnFocus: boolean) {
+    closedHere.current = returnFocus;
+    setForm(null);
+    setOpen(false);
+  }
+
+  // 别的配置项打开了表单：这里的收起，焦点留在那边。
+  useEffect(() => {
+    if (!isOpen && form !== null) setForm(null);
+  }, [isOpen, form]);
 
   function open(next: PriceForm, nextMode: FormMode) {
     const from = document.activeElement;
@@ -136,9 +153,10 @@ export function AdminPrices() {
     setForm(next);
     setMode(nextMode);
     setOpened((n) => n + 1);
+    setOpen(true);
   }
 
-  // 表单在表格下面：点长表格中间一行的「修改」时，把它滚进视野，焦点移到第一个能填的框。
+  // 打开表单时把它滚进视野，焦点移到第一个能填的框。
   useEffect(() => {
     const editor = editorRef.current;
     if (opened === 0 || !editor) return;
@@ -148,7 +166,8 @@ export function AdminPrices() {
 
   const formOpen = form !== null;
   useEffect(() => {
-    if (formOpen || opened === 0) return;
+    if (formOpen || opened === 0 || !closedHere.current) return;
+    closedHere.current = false;
     const back = returnTo.current?.isConnected ? returnTo.current : addRef.current?.querySelector<HTMLElement>("button");
     back?.focus();
     returnTo.current = null;
@@ -186,7 +205,7 @@ export function AdminPrices() {
   }
 
   const matching = (prices?.prices ?? [])
-    .map((entry) => ({ id: `${entry.provider}|${entry.model}|${entry.unit}`, entry }))
+    .map((entry) => ({ id: keyOf(entry), entry }))
     .filter(({ entry }) => matches(entry, query));
   const folded = query === "" && !showAll && matching.length > FOLDED_ROWS;
   const listed = folded ? matching.slice(0, FOLDED_ROWS) : matching;
@@ -212,6 +231,43 @@ export function AdminPrices() {
       renderCell: ({ id, entry }) => entryActions(id, entry),
     },
   ];
+
+  const editor = form && (
+    <VStack ref={editorRef} gap={4} maxWidth="calc(var(--spacing-8) * 20)" paddingBlock={2}>
+      <VStack gap={1}>
+        <Heading level={3} style={{ fontSize: "var(--text-body-size)" }} wordBreak="break-word">
+          {mode.kind === "add" ? t.formTitle.add : t.formTitle[mode.kind](form.model)}
+        </Heading>
+        {mode.kind !== "add" && (
+          <Text type="supporting" wordBreak="break-word">
+            {t.formKey(form.provider, unitWord(form.unit))}
+          </Text>
+        )}
+      </VStack>
+      {mode.kind === "edit" && <PriceReference entry={mode.entry} />}
+      <PriceEditor
+        key={opened}
+        form={form}
+        isKeyFixed={mode.kind !== "add"}
+        onChange={setForm}
+        busy={busy === "save"}
+        onCancel={() => close(true)}
+        onSave={(change) => void run("save", () => savePrice(change), t.saved)}
+      />
+    </VStack>
+  );
+
+  // 表单放在哪：修改时就地展开在那一行下面（宽屏是表格的展开行，窄屏把列表在那一项后面断开）；
+  // 设单价时在「未设单价」列表下面；新增时在最下面。
+  const editingId = form && mode.kind === "edit" ? keyOf(mode.entry) : null;
+  const editingAt = editingId === null ? -1 : listed.findIndex(({ id }) => id === editingId);
+  const expansion = useTableRowExpansion<EntryRow>({
+    expandedKeys: new Set(editingId ? [editingId] : []),
+    onToggle: () => close(true),
+    getRowKey: (row) => row.id,
+    renderExpanded: () => editor,
+    getIsItemExpandable: (row) => row.id === editingId,
+  });
 
   return (
     <SettingsSection id="config-prices" title={t.title} description={t.hint(prices?.preset_as_of ?? null)}>
@@ -245,6 +301,7 @@ export function AdminPrices() {
               />
             ))}
           </List>
+          {mode.kind === "price" && editor}
         </VStack>
       )}
       {prices && (
@@ -274,23 +331,13 @@ export function AdminPrices() {
           {listed.length === 0 ? (
             <Text color="secondary">{t.noMatch}</Text>
           ) : wide ? (
-            <Table data={listed} columns={columns} idKey="id" density="compact" />
+            <Table data={listed} columns={columns} idKey="id" density="compact" plugins={{ expansion }} />
           ) : (
-            <List hasDividers density="compact">
-              {listed.map(({ id, entry }) => (
-                <ListItem
-                  key={id}
-                  label={entry.model}
-                  description={
-                    <VStack gap={0.5}>
-                      <Text type="supporting" wordBreak="break-word">{`${entry.provider} · ${unitWord(entry.unit)}`}</Text>
-                      <EffectivePrice entry={entry} />
-                    </VStack>
-                  }
-                  endContent={entryActions(id, entry)}
-                />
-              ))}
-            </List>
+            <VStack gap={2}>
+              <EntryList rows={editingAt < 0 ? listed : listed.slice(0, editingAt + 1)} actions={entryActions} />
+              {editingAt >= 0 && editor}
+              {editingAt >= 0 && <EntryList rows={listed.slice(editingAt + 1)} actions={entryActions} />}
+            </VStack>
           )}
           {query === "" && matching.length > FOLDED_ROWS && (
             <HStack>
@@ -309,31 +356,35 @@ export function AdminPrices() {
           <TouchButton label={t.add} onClick={() => open(emptyPriceForm(), { kind: "add" })} isDisabled={busy !== null} />
         </HStack>
       )}
-      {form && (
-        <VStack ref={editorRef} gap={4} maxWidth="calc(var(--spacing-8) * 20)">
-          <VStack gap={1}>
-            <Heading level={3} style={{ fontSize: "var(--text-body-size)" }} wordBreak="break-word">
-              {mode.kind === "add" ? t.formTitle.add : t.formTitle[mode.kind](form.model)}
-            </Heading>
-            {mode.kind !== "add" && (
-              <Text type="supporting" wordBreak="break-word">
-                {t.formKey(form.provider, unitWord(form.unit))}
-              </Text>
-            )}
-          </VStack>
-          {mode.kind === "edit" && <PriceReference entry={mode.entry} />}
-          <PriceEditor
-            key={opened}
-            form={form}
-            isKeyFixed={mode.kind !== "add"}
-            onChange={setForm}
-            busy={busy === "save"}
-            onCancel={() => setForm(null)}
-            onSave={(change) => void run("save", () => savePrice(change), t.saved)}
-          />
-        </VStack>
-      )}
+      {mode.kind === "add" && editor}
     </SettingsSection>
+  );
+}
+
+/** 一条单价的键：提供方、模型、计费单位。 */
+function keyOf(entry: PriceEntry): string {
+  return `${entry.provider}|${entry.model}|${entry.unit}`;
+}
+
+/** 窄屏上代替单价表的列表：模型名，副行是提供方、单位和生效单价，行尾是操作。 */
+function EntryList({ rows, actions }: { rows: EntryRow[]; actions: (id: string, entry: PriceEntry) => ReactNode }) {
+  if (rows.length === 0) return null;
+  return (
+    <List hasDividers density="compact">
+      {rows.map(({ id, entry }) => (
+        <ListItem
+          key={id}
+          label={entry.model}
+          description={
+            <VStack gap={0.5}>
+              <Text type="supporting" wordBreak="break-word">{`${entry.provider} · ${unitWord(entry.unit)}`}</Text>
+              <EffectivePrice entry={entry} />
+            </VStack>
+          }
+          endContent={actions(id, entry)}
+        />
+      ))}
+    </List>
   );
 }
 

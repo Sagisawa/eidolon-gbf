@@ -15,6 +15,7 @@ import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
 import { RowList, TOUCH_LINK, TouchButton, useTouch, useWide } from "@/components/admin/DashboardParts";
+import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { AdminPrices } from "@/components/AdminPrices";
 import { AppLink } from "@/components/AppLink";
 import { FailureNotice } from "@/components/FailureNotice";
@@ -59,17 +60,19 @@ export function AdminConfig() {
 
   return (
     <AdminPage width="narrow" title={copy.admin.pages.config} intro={t.intro}>
-      {failure && !config && <FailureNotice failure={failure} />}
-      {!failure && !config && (
-        <Text as="p" color="secondary" role="status">
-          {t.loading}
-        </Text>
-      )}
-      {config && <ConfigNav />}
-      {config &&
-        ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
-      {config && <AdminPrices />}
-      {config && <ReadOnlySection items={config.read_only} />}
+      <OpenFormProvider>
+        {failure && !config && <FailureNotice failure={failure} />}
+        {!failure && !config && (
+          <Text as="p" color="secondary" role="status">
+            {t.loading}
+          </Text>
+        )}
+        {config && <ConfigNav />}
+        {config &&
+          ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
+        {config && <AdminPrices />}
+        {config && <ReadOnlySection items={config.read_only} />}
+      </OpenFormProvider>
     </AdminPage>
   );
 }
@@ -211,7 +214,10 @@ function AvailableItem({
 }) {
   const spec = ITEM_SPECS[name];
   const display = statusDisplay(item);
-  const [editing, setEditing] = useState(false);
+  // 同一时间只开一个表单：点了别的「修改」，这一项的表单就收起（见 OpenForm）。
+  const [editing, setEditing] = useOpenForm(name);
+  /** 是自己关的（取消、保存成功），不是因为别的表单打开而收起：只有这时才把焦点还给「修改」。 */
+  const closedHere = useRef(false);
   const [form, setForm] = useState<Form>(() => formOf(spec, item.effective));
   const [busy, setBusy] = useState<"save" | "restore" | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -227,8 +233,9 @@ function AvailableItem({
   useEffect(() => {
     if (editing) formRef.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled])")?.focus();
     // 关掉表单（取消或保存）后焦点回到「修改」：它随表单关闭重新挂上，原来的那个元素已经不在了。
-    else if (wasEditing.current) actionsRef.current?.querySelector<HTMLElement>("button")?.focus();
+    else if (wasEditing.current && closedHere.current) actionsRef.current?.querySelector<HTMLElement>("button")?.focus();
     wasEditing.current = editing;
+    closedHere.current = false;
   }, [editing]);
 
   function edit() {
@@ -244,6 +251,7 @@ function AvailableItem({
     setNotice(null);
     try {
       onChange(await request());
+      closedHere.current = true;
       setEditing(false);
       setNotice(done);
     } catch (e) {
@@ -343,7 +351,12 @@ function AvailableItem({
                 isLoading={busy === "save"}
                 isDisabled={problem !== null || busy !== null}
               />
-              <TouchButton variant="ghost" label={copy.common.cancel} onClick={() => setEditing(false)} isDisabled={busy !== null} />
+              <TouchButton variant="ghost" label={copy.common.cancel} onClick={() => {
+                  closedHere.current = true;
+                  setEditing(false);
+                }}
+                isDisabled={busy !== null}
+              />
             </HStack>
           </FormLayout>
         </form>
