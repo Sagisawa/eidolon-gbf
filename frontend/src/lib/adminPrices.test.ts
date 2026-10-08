@@ -8,6 +8,7 @@ import {
   effectiveColumn,
   formatMoney,
   formatPrice,
+  formatMoneyTick,
   formatRowUsage,
   formatTotals,
   matchText,
@@ -95,6 +96,15 @@ describe("formatPrice", () => {
   });
 });
 
+describe("formatMoneyTick", () => {
+  it("writes small ticks out instead of all reading <¥0.0001", () => {
+    const ticks = amountTicks(0.00007).map((tick) => formatMoneyTick(tick, "CNY"));
+    expect(new Set(ticks).size).toBe(ticks.length);
+    expect(ticks.slice(0, 3)).toEqual(["¥0", "¥0.00002", "¥0.00004"]);
+    expect(formatMoneyTick(1.5, "USD")).toBe("$1.50");
+  });
+});
+
 describe("formatRowUsage", () => {
   it("shows input and output, input alone, or nothing when no call said", () => {
     expect(formatRowUsage({ unit: "tokens", input: 12_000, output: 3400 })).toBe("输入 1.2万 · 输出 3,400 tokens");
@@ -157,7 +167,7 @@ describe("price form", () => {
     });
   });
 
-  it("names the first field that is missing or not an amount", () => {
+  it("names each field that is missing or not an amount", () => {
     const cases: [Partial<PriceForm>, object][] = [
       [{ provider: "  " }, { field: "provider", reason: "required" }],
       [{ model: "" }, { field: "model", reason: "required" }],
@@ -166,7 +176,17 @@ describe("price form", () => {
       [{ output: "abc" }, { field: "output", reason: "amount" }],
     ];
     for (const [change, problem] of cases) {
-      expect(priceChangeOf({ ...form, ...change }), JSON.stringify(change)).toEqual({ problem });
+      expect(priceChangeOf({ ...form, ...change }), JSON.stringify(change)).toEqual({ problems: [problem] });
     }
+  });
+
+  it("names every problem at once, in the form's order", () => {
+    expect(priceChangeOf({ ...form, provider: "", input: "", output: "abc" })).toEqual({
+      problems: [
+        { field: "provider", reason: "required" },
+        { field: "input", reason: "required" },
+        { field: "output", reason: "amount" },
+      ],
+    });
   });
 });

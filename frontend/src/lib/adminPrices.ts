@@ -3,7 +3,8 @@
 // 这里只负责措辞、格式化、目录状态的判断和单价表单的换算与校验。
 
 import { apiHeaders, json } from "@/lib/api";
-import { formatCount, type ServiceName } from "@/lib/dashboard";
+import { copy } from "@/i18n";
+import { formatAmount, formatCount, type ServiceName, unitWord } from "@/lib/dashboard";
 
 export type Unit = "tokens" | "bytes" | "seconds";
 export const UNITS: Unit[] = ["tokens", "bytes", "seconds"];
@@ -100,21 +101,27 @@ export function formatMoney(amount: number, currency: string): string {
   return money(String(Number(amount.toPrecision(2))));
 }
 
+/**
+ * 金额轴上的刻度和趋势图的读数：不像 `formatMoney` 那样把很小的数都写成「<¥0.0001」，否则花费很少时几个刻度
+ * 一模一样；按两位有效数字写出，例如 ¥0.00002、¥0.00004。
+ */
+export function formatMoneyTick(amount: number, currency: string): string {
+  if (amount >= 0.0001 || amount <= 0) return formatMoney(amount, currency);
+  const sign = SYMBOLS[currency];
+  const text = amount.toLocaleString("en-US", { maximumSignificantDigits: 2, maximumFractionDigits: 20 });
+  return sign ? `${sign}${text}` : `${text} ${currency}`;
+}
+
 /** 几种币种的合计，各算各的、不换算："$1.20 + ¥3.40"；一笔都没有时是 "—"。 */
 export function formatTotals(totals: Amount[]): string {
   return totals.map((t) => formatMoney(t.amount, t.currency)).join(" + ") || NONE;
 }
 
-const UNIT_WORDS: Record<string, string> = { tokens: "tokens", bytes: "字节", seconds: "秒" };
-const PER_WORDS: Record<string, string> = { tokens: "每百万 tokens", bytes: "每百万字节", seconds: "每小时" };
-
-export function unitWord(unit: string): string {
-  return UNIT_WORDS[unit] ?? unit;
-}
+export { unitWord };
 
 /** 单价的计价口径："每百万 tokens"、"每小时"。 */
 export function perWord(unit: string, per: number): string {
-  return PER_WORDS[unit] ?? `每 ${formatCount(per)} ${unitWord(unit)}`;
+  return copy.admin.usage.per[unit] ?? copy.admin.usage.perCount(formatCount(per), unitWord(unit));
 }
 
 /** 一个单价："输入 $2 · 输出 $8 / 每百万 tokens"；输出不单独计价时只有一个数。 */
@@ -134,9 +141,7 @@ function formatUnitPrice(amount: number, currency: string): string {
 /** 一行的用量："输入 2,000 · 输出 1,000 tokens"、"3,600 秒"；全都没说用量时是 "—"。 */
 export function formatRowUsage(row: Pick<CostRow, "unit" | "input" | "output">): string {
   if (row.unit === null) return NONE;
-  const word = unitWord(row.unit);
-  if (row.output === null) return `${row.input === null ? NONE : formatCount(row.input)} ${word}`;
-  return `输入 ${row.input === null ? NONE : formatCount(row.input)} · 输出 ${formatCount(row.output)} ${word}`;
+  return formatAmount(row.unit, row.input, row.output);
 }
 
 /** 一行花费怎么显示：算出了钱；有用量但没有单价（「未设单价」）；或者调用都没说用量。 */
@@ -238,20 +243,19 @@ export function priceFormOf(
   };
 }
 
-/** 表单换成要保存的单价，或者第一个不对的地方。输出价留空表示按输入价算。 */
-export function priceChangeOf(form: PriceForm): { change: PriceChange } | { problem: PriceProblem } {
+/** 表单换成要保存的单价，或者所有不对的地方（每项一条，按表单顺序）。输出价留空表示按输入价算。 */
+export function priceChangeOf(form: PriceForm): { change: PriceChange } | { problems: PriceProblem[] } {
   const provider = form.provider.trim();
   const model = form.model.trim();
-  if (!provider) return { problem: { field: "provider", reason: "required" } };
-  if (!model) return { problem: { field: "model", reason: "required" } };
-  if (!form.input.trim()) return { problem: { field: "input", reason: "required" } };
-  const input = amountOf(form.input);
-  if (input === null) return { problem: { field: "input", reason: "amount" } };
-  let output: number | null = null;
-  if (form.output.trim()) {
-    output = amountOf(form.output);
-    if (output === null) return { problem: { field: "output", reason: "amount" } };
-  }
+  const problems: PriceProblem[] = [];
+  if (!provider) problems.push({ field: "provider", reason: "required" });
+  if (!model) problems.push({ field: "model", reason: "required" });
+  const input = form.input.trim() ? amountOf(form.input) : null;
+  if (!form.input.trim()) problems.push({ field: "input", reason: "required" });
+  else if (input === null) problems.push({ field: "input", reason: "amount" });
+  const output = form.output.trim() ? amountOf(form.output) : null;
+  if (form.output.trim() && output === null) problems.push({ field: "output", reason: "amount" });
+  if (problems.length > 0 || input === null) return { problems };
   return { change: { provider, model, unit: form.unit, input, output, currency: form.currency } };
 }
 

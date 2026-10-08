@@ -48,7 +48,8 @@ export type UsageRange = (typeof USAGE_RANGES)[number];
 export type AdminUserUsage = Record<UsageRange, RangeUsage>;
 
 /** How the list is sorted: newest first, or by the last 24 hours' turns or calls, most first. */
-export type UserSort = "newest" | "turns" | "calls";
+export const USER_SORTS = ["newest", "turns", "calls"] as const;
+export type UserSort = (typeof USER_SORTS)[number];
 
 /** A user's own limit an hour: a number (0: on their own keys only), unlimited, or null,
  * the deployment's. */
@@ -63,7 +64,9 @@ export type AdminUserLimits = {
 };
 
 /** One limit as the editor holds it: which kind, and the number typed for "number". */
-export type LimitDraft = { choice: "default" | "number" | "unlimited"; count: number | null };
+/** A limit as the editor holds it: follow the deployment, a number of times (1 and up),
+ * none, or only on their own keys (sent as 0). */
+export type LimitDraft = { choice: "default" | "number" | "unlimited" | "own_keys"; count: number | null };
 
 /** A user's own page adds when they were banned, the note only admins see, and their
  * recent usage. */
@@ -103,21 +106,33 @@ export function describeLimit(limit: UserLimit): string {
 export function limitDraft(limit: UserLimit): LimitDraft {
   if (limit === null) return { choice: "default", count: null };
   if (limit === "unlimited") return { choice: "unlimited", count: null };
+  if (limit === 0) return { choice: "own_keys", count: null };
   return { choice: "number", count: limit };
 }
 
-/** The limits to save from the editor; null while there is nothing to save: both follow
- * the deployment, or a number is chosen but none given. */
+/** What keeps the limits from being saved: a number chosen but none from 1 up given
+ * (`count`), or both following the deployment, which is no limit of the user's own
+ * (`needsOne`, put on the turns). */
+export type LimitProblem = { field: "turns" | "calls"; reason: "count" | "needsOne" };
+
+/** The limits to save from the editor, or every problem that keeps them from being saved. */
 export function limitsInput(
   turns: LimitDraft,
   calls: LimitDraft,
-): { turns_per_hour: UserLimit; calls_per_hour: UserLimit } | null {
-  const limit = (draft: LimitDraft): UserLimit | undefined =>
-    draft.choice === "default" ? null : draft.choice === "unlimited" ? "unlimited" : (draft.count ?? undefined);
+): { input: { turns_per_hour: UserLimit; calls_per_hour: UserLimit } } | { problems: LimitProblem[] } {
+  const limit = (draft: LimitDraft): UserLimit | undefined => {
+    if (draft.choice === "default") return null;
+    if (draft.choice === "unlimited") return "unlimited";
+    if (draft.choice === "own_keys") return 0;
+    return draft.count !== null && draft.count >= 1 ? draft.count : undefined;
+  };
   const [turnsPerHour, callsPerHour] = [limit(turns), limit(calls)];
-  if (turnsPerHour === undefined || callsPerHour === undefined) return null;
-  if (turnsPerHour === null && callsPerHour === null) return null;
-  return { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour };
+  const problems: LimitProblem[] = [];
+  if (turnsPerHour === null && callsPerHour === null) problems.push({ field: "turns", reason: "needsOne" });
+  if (turnsPerHour === undefined) problems.push({ field: "turns", reason: "count" });
+  if (callsPerHour === undefined) problems.push({ field: "calls", reason: "count" });
+  if (problems.length > 0 || turnsPerHour === undefined || callsPerHour === undefined) return { problems };
+  return { input: { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour } };
 }
 
 /** The list's sort from the table's: a usage column's header sorts by it, most first,

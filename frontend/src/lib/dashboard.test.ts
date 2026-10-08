@@ -5,12 +5,18 @@ import {
   durationRange,
   formatCount,
   formatDuration,
+  formatFetchedAt,
   formatMs,
   formatShare,
   formatUsage,
   healthStatus,
+  healthSummary,
   isDashboardRange,
+  axisLabels,
   labelledStretches,
+  rangeFromQuery,
+  rangeHref,
+  splitZeroRows,
   stretchLabel,
   stretchSpan,
 } from "@/lib/dashboard";
@@ -23,6 +29,26 @@ describe("isDashboardRange", () => {
   it("knows only the ranges the backend serves", () => {
     for (const [value, known] of [["24h", true], ["1y", false]] as const)
       expect(isDashboardRange(value), value).toBe(known);
+  });
+});
+
+describe("rangeFromQuery and rangeHref", () => {
+  it("takes a served range from the address and falls back to 24 hours", () => {
+    expect(rangeFromQuery("7d")).toBe("7d");
+    for (const value of [undefined, "1y", ["7d", "30d"]]) expect(rangeFromQuery(value), String(value)).toBe("24h");
+  });
+
+  it("leaves the default range out of the address", () => {
+    expect(rangeHref("/admin", "24h")).toBe("/admin");
+    expect(rangeHref("/admin", "90d")).toBe("/admin?range=90d");
+  });
+});
+
+describe("formatFetchedAt", () => {
+  it("gives the clock today and the day as well on another day", () => {
+    const now = new Date(2026, 9, 8, 16, 30);
+    expect(formatFetchedAt(new Date(2026, 9, 8, 9, 5), now)).toBe("09:05");
+    expect(formatFetchedAt(new Date(2026, 9, 7, 23, 59), now)).toBe("10月7日 23:59");
   });
 });
 
@@ -55,6 +81,37 @@ describe("healthStatus", () => {
   });
 });
 
+describe("healthSummary", () => {
+  const row = (service: string, calls: number, error_rate: number) =>
+    ({ service, own_key: false, calls, error_rate, errors_by_kind: {}, latency_ms: { p50: null, p95: null }, usage: [], usage_unknown: 0 }) as unknown as Parameters<typeof healthSummary>[0][number];
+
+  it("is idle without calls, ok when every called service is fine", () => {
+    expect(healthSummary([]).kind).toBe("idle");
+    expect(healthSummary([row("tts", 0, 0)]).kind).toBe("idle");
+    expect(healthSummary([row("tts", 100, 0.01), row("stt", 0, 0)]).kind).toBe("ok");
+  });
+
+  it("lists the troubled services, failing first, then by error rate", () => {
+    const summary = healthSummary([
+      row("tts", 100, 0.05), row("stt", 100, 0.5), row("rerank", 100, 0.08), row("judge", 100, 0),
+    ]);
+    expect(summary.kind).toBe("problems");
+    if (summary.kind !== "problems") return;
+    expect(summary.worst).toBe("failing");
+    expect(summary.rows.map((r) => r.service)).toEqual(["stt", "rerank", "tts"]);
+  });
+});
+
+describe("splitZeroRows", () => {
+  it("keeps the counted rows in order and sets the zeros apart", () => {
+    const { counted, zero } = splitZeroRows([
+      { id: "a", count: 3 }, { id: "b", count: 0 }, { id: "c", count: 1 }, { id: "d", count: 0 },
+    ]);
+    expect(counted.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(zero.map((r) => r.id)).toEqual(["b", "d"]);
+  });
+});
+
 describe("formatUsage", () => {
   it("shows input and output where billed apart, input alone otherwise, and the calls that did not say", () => {
     expect(formatUsage([{ unit: "tokens", input: 12_345, output: 678 }], 0)).toBe(
@@ -62,6 +119,9 @@ describe("formatUsage", () => {
     );
     expect(formatUsage([{ unit: "tokens", input: 300, output: null }], 2)).toBe("300 tokens；2 次未知");
     expect(formatUsage([], 0)).toBe("—");
+    // 单位译成中文，和花费表一致，不再是后端的 bytes、seconds。
+    expect(formatUsage([{ unit: "bytes", input: 770, output: null }], 0)).toBe("770 字节");
+    expect(formatUsage([{ unit: "seconds", input: 89, output: null }], 0)).toBe("89 秒");
   });
 });
 
@@ -77,6 +137,16 @@ describe("stretches of the trend", () => {
     expect(stretchSpan(local(10, 7, 14), "hour")).toBe("10月7日 14:00–15:00");
     expect(stretchSpan(local(10, 7, 18), "6h")).toBe("10月7日 18:00–00:00");
     expect(stretchSpan(local(10, 7, 0), "day")).toBe("10月7日");
+  });
+
+  it("label six-hour stretches by day where the day changes, so a week never reads 12:00 throughout", () => {
+    // 28 six-hour stretches starting at 02:00 local, as UTC-aligned stretches do at UTC+8.
+    const starts = Array.from({ length: 28 }, (_, i) => local(10, 1, 2 + i * 6));
+    const every4 = axisLabels(starts, "6h", labelledStretches(28, 7));
+    expect([...every4.values()]).toEqual(["10月1日", "10月2日", "10月3日", "10月4日", "10月5日", "10月6日", "10月7日"]);
+    const every2 = axisLabels(starts, "6h", labelledStretches(28, 14));
+    expect([...every2.values()].slice(0, 3)).toEqual(["10月1日", "20:00", "10月2日"]);
+    expect(axisLabels(starts, "hour", new Set([0])).get(0)).toBe("02:00");
   });
 
   it("label at most so many, always the latest", () => {

@@ -143,11 +143,12 @@ components:
 - **Margin Line（装订边距线）**（`margin-line` / `night-margin-line`）：`--color-border-emphasized`，比横线深一档的竖线。
 - **Pencil Grey（铅笔灰）**（`pencil-grey` / `night-pencil-grey`）：`--color-text-secondary`，时间戳、列表描述、免责声明。
 - **Night Overlay Edge**（`night-overlay-edge`）：只在深色模式出现的弹层边线（对话框、底部面板、浮层），与 `night-surface`、`night-popover` 都 ≥ 3:1（`notebookTheme.test.ts` 校验）。
+- **Banner Note（横幅说明）**（`#4a566e` / `#c0c8d8`，`notebookTheme.ts` 的 `bannerNote`）：横幅说明文字的颜色。Astryx 默认用铅笔灰，压在状态色淡底上不到 4.5:1（深色警告横幅 4.0），主题 `banner-description` 覆盖成比铅笔灰再深（浅色）或再亮（深色）一档；四种状态在纸面、卡片、菜单上都 ≥ 4.5（`notebookTheme.test.ts` 校验）。
 
 ### Named Rules
 **The Paired Colour Rule.** 任何她颜色的底色或前景都只能取自 `imageColorScale()` 的成对值（经 `herVars()` / `ld()`），绝不直接把官方原色写成字色或底色。新增一种用法，就在 `imageColor.ts` 加一对颜色，并在 `imageColor.test.ts` 的 `pairs()` 里加上它的对比度要求；契约覆盖 5 位官方色和 216 色网格。
 
-**The One Ink Rule.** 全站只有一种墨水。正文、标题和制作人的气泡用同一个事务所深蓝；她的颜色只属于她的东西，不用来写制作人的字或系统界面。
+**The One Ink Rule.** 全站只有一种墨水。正文、标题和制作人的气泡用同一个事务所深蓝；她的颜色只属于她的东西，不用来写制作人的字或系统界面。后台图表（趋势柱、按角色和通话时长的比例条）也用这种墨水（`--color-accent`，深色模式下是夜间墨水），不用 Astryx 的分类色。
 
 **The Scoped Colour Rule.** 她的颜色只注入到这段对话的子树（`herVars(character.color)`），从不写进主题或 `:root`。需要在子树里仍用制作人墨水时，读 `--office-ink`（`PageShell` 在页面根上从 `--color-accent` 取下，对话子树覆盖 accent 之前）。
 
@@ -166,6 +167,7 @@ components:
 - **Body**（400，0.875rem）：制作人的消息、列表名、通话层里的中文字幕。
 - **Status**（500，0.875rem，等宽数字）：通话计时、「正在呼叫…」「通话已结束」、便利贴文字，配线形状态。
 - **Label**（400，0.75rem）：气泡里的中文字幕（`Text type="supporting"`，paperMuted 色）、时间戳、圆形控制键下的标签、免责声明。
+- **后台（/admin）**：数据密集，层级要比其余页面多一级。页标题 h1 用 Heading 默认的 heading-1（600，1.5rem）；组标题 h2 是 Title（`SettingsSection`）；组里的小节 h3 和正文同字号、靠 semibold 区分；表头 Label 字号、500、铅笔灰（主题 `table-header-cell` 覆盖）；数字卡的数字 600、1.25rem、等宽数字，不和页标题抢。说明文字最宽 42em（`PROSE_WIDTH`）。
 
 ### Named Rules
 **The Original-Then-Subtitle Rule.** 她的一句话永远是两行：日语原文在上、大一号、M PLUS 1p、标 `lang="ja"`；中文字幕在下、小一号、次要色。字幕不能比原文大，也不能单独出现来代替原文。
@@ -179,6 +181,8 @@ components:
 - **输入栏**：Astryx 自带的 `ChatComposer`，放在 `ChatLayout` 的 composer 槽里，实底，不透出横线。宽屏上拖动它的上沿可以调输入框空着时的高度（一行到消息区的一半，记在这台设备上），字多了照旧往上长；窄屏不能调。
 - **通话层**：内边距 20px / 16px；上排收起键、居中「语音通话」、「只看文字」开关；中部垂直居中头像、名字、状态、台词（间距 16–24px）；底部三枚圆形控制键，间距 32px，上下各 24px。有立绘时中部换成立绘版布局（见「Call layer」）。
 - 间距全部取 Astryx 的 `--spacing-*` 令牌（2、4、6、8、12、16、20、24、32、40、44、48px；44px 即 `--spacing-11`，是手机上的触控下限）。更大的尺寸由令牌相乘得到，例如圆形控制键 `calc(var(--spacing-8) * 2)`。
+
+- **后台（/admin）**：侧栏在 768px 以上常驻。每页一个 `AdminPage` 页框（页首加限宽内容列：看板、用户列表 1200px，配置、用户详情 960px），下面各组用 `SettingsSection`。内容区放不下表格时，表格换成 `List` 行（名字在左、要紧的数字在行尾、其余进副行），不横向滚动：三四列的小表在视口 1024px 以上用表格，七列的服务健康、按模型的花费和用户表要到 1280px（`useWide`）。看板的数字卡分两组、各带一行小字：「此刻」（进行中的通话，不随时间范围变、切换范围时不变淡）和「30 天内」这类按范围统计的五张，1280px 以上左右排，以下上下排。两张小表并排（`Pair`）时表格只向两侧出血 8px、小节里不上下出血，并排小表的比例列给更小的最小宽度，两张表之间始终留出空隙、不越过列距。手机宽度（768px 以下）或触屏上，后台的按钮（`TouchButton`）和单独成行的链接（`TOUCH_LINK`）撑到 44px 触控区，桌面用鼠标时保持紧凑；分段控件和 Astryx 自带的输入框、导航开关、对话框关闭键还是 32–36px，要动得改全站主题。
 
 **The Paper-Only-Where-She-Writes Rule.** 横线纸只是消息区的地面。页首、输入栏、列表栏、弹层都是实底，不铺横线。
 
@@ -209,6 +213,7 @@ components:
 - **在通话层上:** `MediaTheme mode="dark"` 把 accent 换成白色，所以结束页的主操作（「重拨」「去设置自带密钥」）是白底；secondary 的底（`--color-neutral`）换成和圆形键一样的 16% 白，否则系统是浅色时会取到浅色模式的值，几乎看不见。
 - **Her call button（电话键）:** `IconButton` 正圆，底 `--her-button`，图标 `--her-button-fg`，无边框。通话中同一个键变成「回到通话」。
 - **Destructive:** 挂断与「挂断并离开」用 `hang-up-red`，白字。
+- **后台（/admin）:** 表单的提交键（保存、试调并保存）是 primary，取消是 ghost；表格行、列表行里的操作（修改、恢复、设单价、封禁、解除封禁）一律 ghost `sm`；一节里单独的操作（某个配置项的「修改」、新增单价、刷新目录、详情页的封禁和删除）是 secondary。封禁、删除这类按钮只打开确认框，自身不用红色；红色（destructive）只给确认框里真正执行的那一下。
 
 ### Chat bubbles
 - **Producer:** 右侧，底为制作人墨水（`--office-ink`），字为纸色。深色模式下是 `office-ink-night` 底、`night-paper` 字。

@@ -4,6 +4,7 @@ import {
   changeOf,
   formOf,
   ITEM_SPECS,
+  UNLIMITED,
   readOnlyValue,
   rows,
   statusDisplay,
@@ -31,8 +32,8 @@ function item(status: ConfigItem["status"]): ConfigItem {
 }
 
 describe("statusDisplay", () => {
-  it("shows each of the three states, restorable once overridden, with why it is not in effect", () => {
-    expect(statusDisplay(item("env"))).toEqual({ variant: "neutral", canRestore: false, failure: null });
+  it("marks only the overridden and failed states, restorable once overridden, with why it is not in effect", () => {
+    expect(statusDisplay(item("env"))).toEqual({ variant: null, canRestore: false, failure: null });
     expect(statusDisplay(item("overridden"))).toEqual({ variant: "accent", canRestore: true, failure: null });
     expect(statusDisplay(item("failed"))).toEqual({
       variant: "warning",
@@ -124,10 +125,20 @@ describe("formOf and changeOf", () => {
     expect(changeOf(llm, { ...form, max_tokens: "" }, true)).toMatchObject({ change: { max_tokens: null } });
     for (const bad of ["0", "-1", "1.5", "abc"]) {
       expect(changeOf(llm, { ...form, max_tokens: bad }, true), bad).toEqual({
-        problem: { field: "max_tokens", reason: "maxTokens" },
+        problems: [{ field: "max_tokens", reason: "maxTokens" }],
       });
     }
-    expect(changeOf(llm, { ...form, model: " " }, true)).toEqual({ problem: { field: "model", reason: "required" } });
+    expect(changeOf(llm, { ...form, model: " " }, true)).toEqual({ problems: [{ field: "model", reason: "required" }] });
+  });
+
+  it("names every problem at once, in the form's order", () => {
+    expect(changeOf(llm, { ...form, base_url: "", model: " ", max_tokens: "0" }, true)).toEqual({
+      problems: [
+        { field: "base_url", reason: "required" },
+        { field: "model", reason: "required" },
+        { field: "max_tokens", reason: "maxTokens" },
+      ],
+    });
   });
 
   it("takes thresholds from 0 to 1 and seconds above 0", () => {
@@ -135,12 +146,12 @@ describe("formOf and changeOf", () => {
     expect(changeOf(thresholds, { recall: "0.7", emotion: "0" }, true)).toEqual({ change: { recall: 0.7, emotion: 0 } });
     for (const bad of ["1.1", "-0.1", "", "high"]) {
       expect(changeOf(thresholds, { recall: bad, emotion: "0.5" }, true), bad).toEqual({
-        problem: { field: "recall", reason: "probability" },
+        problems: [{ field: "recall", reason: "probability" }],
       });
     }
     const judge = { provider: "jev", model: "typesafe/jev-1.13", account_id: "", api_key: "" };
     expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "0" }, true)).toEqual({
-      problem: { field: "emotion_timeout", reason: "seconds" },
+      problems: [{ field: "emotion_timeout", reason: "seconds" }],
     });
     expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "1.5" }, true)).toEqual({
       change: { provider: "jev", model: "typesafe/jev-1.13", emotion_timeout: 1.5 },
@@ -150,18 +161,29 @@ describe("formOf and changeOf", () => {
 
 describe("limits", () => {
   const limits = ITEM_SPECS.limits;
-  const form = { turns_per_hour: "2", calls_per_hour: "0", call_minutes: "10", turns_per_call: "40", history_turns: "20" };
+  const form = {
+    turns_per_hour: "2",
+    calls_per_hour: UNLIMITED,
+    call_minutes: "10",
+    turns_per_call: "40",
+    history_turns: "20",
+  };
 
-  it("takes whole numbers from 0 up, 0 for no limit", () => {
+  it("starts a limit of 0 as none, not as a number", () => {
+    expect(formOf(limits, { ...form, calls_per_hour: 0, turns_per_hour: 2 }).calls_per_hour).toBe(UNLIMITED);
+    expect(formOf(limits, { ...form, calls_per_hour: 0, turns_per_hour: 2 }).turns_per_hour).toBe("2");
+  });
+
+  it("takes whole numbers from 1 up, and sends none as 0", () => {
     expect(changeOf(limits, form, true)).toEqual({
       change: { turns_per_hour: 2, calls_per_hour: 0, call_minutes: 10, turns_per_call: 40, history_turns: 20 },
     });
   });
 
-  it("refuses one that is negative, not whole or empty", () => {
-    for (const bad of ["-1", "1.5", "", "十"]) {
+  it("refuses one that is 0, negative, not whole or empty", () => {
+    for (const bad of ["0", "-1", "1.5", "", "十"]) {
       expect(changeOf(limits, { ...form, calls_per_hour: bad }, true), bad).toEqual({
-        problem: { field: "calls_per_hour", reason: "limit" },
+        problems: [{ field: "calls_per_hour", reason: "limit" }],
       });
     }
   });
@@ -177,5 +199,14 @@ describe("readOnlyValue", () => {
     expect(readOnlyValue([], words)).toBe("—");
     expect(readOnlyValue(null, words)).toBe("—");
     expect(readOnlyValue({ ice_servers: ["stun:a"], turn: [] }, words)).toBe("ice_servers：stun:a；turn：—");
+  });
+});
+
+describe("tried", () => {
+  it("is set for the items whose change the server tries, not for thresholds and limits", () => {
+    const tried = Object.entries(ITEM_SPECS)
+      .filter(([, spec]) => spec.tried)
+      .map(([name]) => name);
+    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge"]);
   });
 });

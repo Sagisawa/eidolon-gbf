@@ -10,6 +10,13 @@ const { body, ink } = paperColors;
 export const overlayEdge = "#61799c";
 
 /**
+ * 横幅说明文字的颜色。Astryx 默认用次要色，压在状态色的淡底上（浅色约 20%、深色约 25%）不够 4.5:1：
+ * 深色的警告横幅在卡片底上 4.0、信息横幅在菜单底上 3.3，浅色的信息横幅 3.6、错误 4.0。两种模式都比次要色
+ * 再深（浅色）或再亮（深色）一档，四种状态在纸面、卡片、菜单上都 ≥ 4.5，仍和标题分得出主次。
+ */
+export const bannerNote = { light: "#4a566e", dark: "#c0c8d8" };
+
+/**
  * 制作人的手帐（DESIGN.md）：冷白复印纸、天蓝横线、事务所深蓝墨水，明暗两套。
  * 角色的颜色不在这里，由 herVars() 按对话局部注入。
  *
@@ -30,6 +37,16 @@ export const notebookTheme = defineTheme({
     dialog: { base: { border: `var(--border-width) solid light-dark(transparent, ${overlayEdge})` } },
     "bottom-sheet": { base: { borderColor: `light-dark(transparent, ${overlayEdge})` } },
     popover: { base: { border: `var(--border-width) solid light-dark(transparent, ${overlayEdge})` } },
+    // 横幅的说明文字：次要色压在状态色的淡底上不到 4.5:1（见 bannerNote）。
+    "banner-description": { base: { color: `light-dark(${bannerNote.light}, ${bannerNote.dark})` } },
+    // 表头比正文小一号、次要色：默认和正文同字号同 semibold，和后台小节标题（h3）分不开。
+    "table-header-cell": {
+      base: {
+        fontSize: "var(--text-supporting-size)",
+        fontWeight: "var(--font-weight-medium)",
+        color: "var(--color-text-secondary)",
+      },
+    },
   },
   icons: notebookIcons,
   tokens: {

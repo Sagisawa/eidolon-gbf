@@ -66,7 +66,8 @@ export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigI
 /** How an item's status is shown: the StatusDot's variant, whether it can be restored to
  * `.env`'s, and why the override is not in effect, if it is not. */
 export type StatusDisplay = {
-  variant: "neutral" | "accent" | "warning";
+  /** 状态点的颜色；常态（用 .env 的值）不标，是 null。 */
+  variant: "accent" | "warning" | null;
   canRestore: boolean;
   failure: string | null;
 };
@@ -74,7 +75,9 @@ export type StatusDisplay = {
 export function statusDisplay(item: ConfigItem): StatusDisplay {
   switch (item.status) {
     case "env":
-      return { variant: "neutral", canRestore: false, failure: null };
+      // 用 .env 的值是常态，不标：八项都标同一个点只是噪音（页首说明里讲了没标的就是 .env）。
+      // 被覆盖是蓝点，覆盖没生效是黄点。
+      return { variant: null, canRestore: false, failure: null };
     case "overridden":
       return { variant: "accent", canRestore: true, failure: null };
     case "failed":
@@ -84,7 +87,7 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
 
 /** How a field is typed in: a choice, text, a key (left empty to keep it), max_tokens (a
  * positive whole number, empty for the protocol's default), a probability or score from 0
- * to 1, a number of seconds, or a limit (a whole number from 0 up, 0 for none). */
+ * to 1, a number of seconds, or a limit (a whole number from 1 up, or none: sent as 0). */
 export type FieldKind =
   | "select"
   | "text"
@@ -105,6 +108,8 @@ export type ItemSpec = {
   rows: string[];
   secrets: string[];
   form: FieldSpec[];
+  /** Whether the server tries a change before keeping it (a service is called); thresholds and limits are only range-checked. */
+  tried: boolean;
 };
 
 export const LLM_PROTOCOLS: LLMProtocol[] = ["chat-completions", "responses", "anthropic"];
@@ -119,12 +124,14 @@ const LLM: ItemSpec = {
     { name: "max_tokens", kind: "maxTokens" },
     { name: "api_key", kind: "secret" },
   ],
+  tried: true,
 };
 
 const THRESHOLD = (names: string[]): ItemSpec => ({
   rows: names,
   secrets: [],
   form: names.map((name) => ({ name, kind: "probability" })),
+  tried: false,
 });
 
 export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
@@ -137,6 +144,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "model", kind: "text" },
       { name: "api_key", kind: "secret" },
     ],
+    tried: true,
   },
   stt: {
     rows: ["provider", "soniox_api_key", "dashscope_api_key", "region"],
@@ -145,6 +153,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "provider", kind: "select", options: ["soniox", "bailian"] },
       { name: "api_key", kind: "secret" },
     ],
+    tried: true,
   },
   judge: {
     rows: ["provider", "model", "account_id", "emotion_timeout", "api_key"],
@@ -156,10 +165,11 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "emotion_timeout", kind: "seconds" },
       { name: "api_key", kind: "secret" },
     ],
+    tried: true,
   },
   judge_thresholds: THRESHOLD(["recall", "emotion"]),
   rerank: THRESHOLD(["references", "memories"]),
-  limits: { rows: LIMIT_FIELDS, secrets: [], form: LIMIT_FIELDS.map((name) => ({ name, kind: "limit" })) },
+  limits: { rows: LIMIT_FIELDS, secrets: [], form: LIMIT_FIELDS.map((name) => ({ name, kind: "limit" })), tried: false },
 };
 
 /** One field of an item, as the table shows it: `.env`'s, the one in effect, and whether
@@ -192,13 +202,17 @@ export function rows(item: ConfigItem, spec: ItemSpec): FieldRow[] {
   });
 }
 
-/** An item's form, as typed: starts from the values in effect, every key empty. */
+/** An item's form, as typed: starts from the values in effect, every key empty. A limit
+ * with none is `UNLIMITED`, never "0", so that 0 is not typed in to mean anything. */
 export type Form = Record<string, string>;
+
+export const UNLIMITED = "unlimited";
 
 export function formOf(spec: ItemSpec, effective: Shown): Form {
   return Object.fromEntries(
     spec.form.map(({ name, kind }) => {
       const value = kind === "secret" ? null : effective[name];
+      if (kind === "limit" && !value) return [name, UNLIMITED];
       return [name, value === null || value === undefined ? "" : String(value)];
     }),
   );
@@ -208,11 +222,13 @@ export type Problem = { field: string; reason: "required" | "maxTokens" | "proba
 
 export type Change = Record<string, string | number | null>;
 
-/** What saving the form sends, or the first problem that keeps it from being saved. A key
- * left empty, or one that cannot be changed here, stays as it is; so does an optional
- * field left empty. */
-export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { change: Change } | { problem: Problem } {
+/** What saving the form sends, or every problem that keeps it from being saved (one per
+ * field, in the form's order). A key left empty, or one that cannot be changed here, stays
+ * as it is; so does an optional field left empty. */
+export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { change: Change } | { problems: Problem[] } {
   const change: Change = {};
+  const problems: Problem[] = [];
+  const refuse = (field: string, reason: Problem["reason"]) => problems.push({ field, reason });
   for (const { name, kind } of spec.form) {
     const typed = (form[name] ?? "").trim();
     switch (kind) {
@@ -220,8 +236,8 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         change[name] = form[name];
         break;
       case "text":
-        if (!typed) return { problem: { field: name, reason: "required" } };
-        change[name] = typed;
+        if (!typed) refuse(name, "required");
+        else change[name] = typed;
         break;
       case "optionalText":
         if (typed) change[name] = typed;
@@ -230,28 +246,29 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         if (keysEditable && typed) change[name] = typed;
         break;
       case "maxTokens":
-        if (typed && !/^[1-9]\d*$/.test(typed)) return { problem: { field: name, reason: "maxTokens" } };
-        change[name] = typed ? Number(typed) : null;
+        if (typed && !/^[1-9]\d*$/.test(typed)) refuse(name, "maxTokens");
+        else change[name] = typed ? Number(typed) : null;
         break;
       case "probability": {
         const value = Number(typed);
-        if (!typed || !(value >= 0 && value <= 1)) return { problem: { field: name, reason: "probability" } };
-        change[name] = value;
+        if (!typed || !(value >= 0 && value <= 1)) refuse(name, "probability");
+        else change[name] = value;
         break;
       }
       case "limit":
-        if (!/^\d+$/.test(typed)) return { problem: { field: name, reason: "limit" } };
-        change[name] = Number(typed);
+        if (typed === UNLIMITED) change[name] = 0;
+        else if (!/^[1-9]\d*$/.test(typed)) refuse(name, "limit");
+        else change[name] = Number(typed);
         break;
       case "seconds": {
         const value = Number(typed);
-        if (!typed || !(value > 0 && value <= 30)) return { problem: { field: name, reason: "seconds" } };
-        change[name] = value;
+        if (!typed || !(value > 0 && value <= 30)) refuse(name, "seconds");
+        else change[name] = value;
         break;
       }
     }
   }
-  return { change };
+  return problems.length > 0 ? { problems } : { change };
 }
 
 /** A read-only setting's value, in words: a list joined, a setting set or not, the parts

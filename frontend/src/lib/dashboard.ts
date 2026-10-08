@@ -2,6 +2,7 @@
 // activity records, and how the page words and lays out its numbers. Nothing is summed up
 // here; the backend does all of that.
 
+import { copy } from "@/i18n";
 import type { Cost } from "@/lib/adminPrices";
 import { apiHeaders, json } from "@/lib/api";
 
@@ -11,6 +12,16 @@ export type DashboardRange = (typeof DASHBOARD_RANGES)[number];
 
 export function isDashboardRange(value: string): value is DashboardRange {
   return (DASHBOARD_RANGES as readonly string[]).includes(value);
+}
+
+/** The range a link asks for in `?range=`; 24 hours when it asks for none or one not served. */
+export function rangeFromQuery(value: string | string[] | undefined): DashboardRange {
+  return typeof value === "string" && isDashboardRange(value) ? value : "24h";
+}
+
+/** The address of the dashboard showing `range`: 24 hours, the default, needs no query. */
+export function rangeHref(pathname: string, range: DashboardRange): string {
+  return range === "24h" ? pathname : `${pathname}?range=${range}`;
 }
 
 export type ServiceName =
@@ -31,6 +42,26 @@ export type ErrorKind =
   | "server_error"
   | "unreadable"
   | "other";
+
+/**
+ * The page head's one line on health: "ok" when every service that was called kept its errors
+ * low, "idle" when nothing was called, else the troubled rows, the worst first (失败多的在前，
+ * 同档按出错率).
+ */
+export function healthSummary(
+  health: ServiceHealth[],
+): { kind: "ok" | "idle" } | { kind: "problems"; worst: "degraded" | "failing"; rows: ServiceHealth[] } {
+  const rank = (row: ServiceHealth) => (healthStatus(row) === "failing" ? 2 : healthStatus(row) === "degraded" ? 1 : 0);
+  const rows = health.filter((row) => rank(row) > 0).sort((a, b) => rank(b) - rank(a) || b.error_rate - a.error_rate);
+  if (rows.length > 0) return { kind: "problems", worst: rank(rows[0]) === 2 ? "failing" : "degraded", rows };
+  return { kind: health.some((row) => row.calls > 0) ? "ok" : "idle" };
+}
+
+/** A breakdown's rows with a count, in their order, and the labels of those at 0, which the
+ * table folds into one line rather than a row each. */
+export function splitZeroRows<T extends { count: number }>(rows: T[]): { counted: T[]; zero: T[] } {
+  return { counted: rows.filter((row) => row.count > 0), zero: rows.filter((row) => row.count <= 0) };
+}
 
 /** What a service's calls were billed for in one unit; null where no call said. */
 export type Usage = { unit: string; input: number | null; output: number | null };
@@ -123,8 +154,17 @@ export async function getDashboard(range: DashboardRange): Promise<Dashboard> {
   return json(await fetch(`/api/admin/dashboard?range=${range}`, { headers: apiHeaders() }));
 }
 
-/** How often the page asks how many calls are in progress. */
-export const LIVE_CALLS_REFRESH_MS = 60_000;
+/** How often the page, while it can be seen, fetches the dashboard and the calls in progress
+ * again. */
+export const DASHBOARD_REFRESH_MS = 60_000;
+
+/** When the numbers were fetched: "16:25" today, with the day before it on another day. */
+export function formatFetchedAt(at: Date, now: Date = new Date()): string {
+  const clock = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  const sameDay =
+    at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
+  return sameDay ? clock : `${at.getMonth() + 1}月${at.getDate()}日 ${clock}`;
+}
 
 /** How many calls are in progress now, connected or still connecting. */
 export async function getCallsInProgress(): Promise<number> {
@@ -196,12 +236,22 @@ export function healthStatus(row: Pick<ServiceHealth, "calls" | "error_rate">): 
 /** What a service's calls were billed for, e.g. "输入 1.2万 · 输出 3,400 tokens"; how
  * many calls did not say, if any. */
 export function formatUsage(usage: Usage[], unknown: number): string {
-  const parts = usage.map(({ unit, input, output }) => {
-    if (output === null) return `${input === null ? NONE : formatCount(input)} ${unit}`;
-    return `输入 ${input === null ? NONE : formatCount(input)} · 输出 ${formatCount(output)} ${unit}`;
-  });
-  if (unknown > 0) parts.push(`${formatCount(unknown)} 次未知`);
+  const parts = usage.map(({ unit, input, output }) => formatAmount(unit, input, output));
+  if (unknown > 0) parts.push(copy.admin.usage.unknown(formatCount(unknown)));
   return parts.join("；") || NONE;
+}
+
+/** 计费单位的叫法：tokens、字节、秒；后端的单位名原样传来，这里统一译出。 */
+export function unitWord(unit: string): string {
+  return copy.admin.usage.units[unit] ?? unit;
+}
+
+/** 一种单位的用量："1.2万 字节"，分输入输出时 "输入 1.2万 · 输出 3,400 tokens"。看板健康表和花费表共用。 */
+export function formatAmount(unit: string, input: number | null, output: number | null): string {
+  const word = unitWord(unit);
+  const shown = input === null ? NONE : formatCount(input);
+  if (output === null) return copy.admin.usage.amount(shown, word);
+  return copy.admin.usage.inOut(shown, formatCount(output), word);
 }
 
 /** Where a stretch of the trend begins, as its axis labels it, in the browser's time. */
@@ -236,6 +286,29 @@ export function countTicks(max: number, count = 4): number[] {
   const ticks = [];
   for (let tick = 0; tick < max + whole; tick += whole) ticks.push(tick);
   return ticks;
+}
+
+/**
+ * The axis labels of the stretches `labelled` picks (index → label). Hourly and daily
+ * stretches label themselves (`stretchLabel`). Six-hour stretches are labelled by their day
+ * wherever the day changes since the label before, and by their hour otherwise: they line up
+ * with UTC, so in most time zones none starts at local midnight, and labelling every fourth
+ * one by its hour would print the same hour every day（东八区 7 天视图全是「12:00」）.
+ */
+export function axisLabels(starts: string[], bucket: Bucket, labelled: Set<number>): Map<number, string> {
+  const labels = new Map<number, string>();
+  let lastDay: string | null = null;
+  for (const i of [...labelled].sort((a, b) => a - b)) {
+    if (bucket !== "6h") {
+      labels.set(i, stretchLabel(starts[i], bucket));
+      continue;
+    }
+    const at = new Date(starts[i]);
+    const day = `${at.getMonth() + 1}月${at.getDate()}日`;
+    labels.set(i, day === lastDay ? `${String(at.getHours()).padStart(2, "0")}:00` : day);
+    lastDay = day;
+  }
+  return labels;
 }
 
 /** Which of `n` stretches the axis labels, so that at most `most` labels fit: every

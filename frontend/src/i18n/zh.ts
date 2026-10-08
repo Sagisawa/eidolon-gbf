@@ -287,6 +287,8 @@ export const zh = {
     },
   },
   admin: {
+    /** 一排同名按钮（每行一个「修改」「封禁」）的读屏名：动作加对象，看得见的字仍只是动作。 */
+    actionOn: (action: string, target: string) => `${action}：${target}`,
     title: "后台",
     nav: "后台导航",
     pages: {
@@ -297,19 +299,46 @@ export const zh = {
     signedInAs: (name: string) => `管理者：${name}`,
     backToSettings: "返回设置",
     comingSoon: "这一页还在做。",
+    usage: {
+      units: { tokens: "tokens", bytes: "字节", seconds: "秒" } as Record<string, string>,
+      per: { tokens: "每百万 tokens", bytes: "每百万字节", seconds: "每小时" } as Record<string, string>,
+      perCount: (count: string, unit: string) => `每 ${count} ${unit}`,
+      amount: (count: string, unit: string) => `${count} ${unit}`,
+      inOut: (input: string, output: string, unit: string) => `输入 ${input} · 输出 ${output} ${unit}`,
+      unknown: (n: string) => `${n} 次未知`,
+    },
     dashboard: {
       intro: "各项服务是否正常、用的人多不多、部署者大约花了多少钱。数字来自运行记录，不含任何对话内容；运行记录保留 90 天。",
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
       failed: (reason: string) => `看板加载失败：${reason}`,
+      freshness: {
+        at: (time: string) => `数据截至 ${time}`,
+        loading: "正在读取…",
+        refresh: "刷新",
+        refreshLabel: "刷新看板",
+        shownFrom: (time: string) => `下面仍是 ${time} 的数据，每分钟会再试一次。`,
+        shownFromRange: (time: string, range: string) => `下面仍是 ${time} 取到的 ${range}数据，每分钟会再试一次。`,
+      },
+      groups: {
+        usage: { title: "用量", hint: "回合和通话的走势、结果和时长，以及各位角色。" },
+      },
+      zeroRows: {
+        rest: (n: string) => `其余 ${n} 项为 0`,
+        all: (n: string) => `${n} 项都为 0`,
+      },
       tiles: {
         turns: "回合",
         turnsInCalls: (n: string) => `其中 ${n} 个在通话里`,
         calls: "通话",
         callsOnOwnKeys: (n: string) => `其中 ${n} 次全用自带密钥`,
         activeUsers: "活跃用户",
+        activeUsersNote: "这段时间有过回合或通话",
+        /** 数字卡分两组的小标题：此刻的，和按时间范围统计的（「30 天内」）。 */
+        now: "此刻",
+        inRange: (range: string) => `${range}内`,
         callsInProgress: "进行中的通话",
-        callsInProgressNote: "此刻，含正在接通的；每分钟刷新",
+        callsInProgressNote: "含正在接通的；每分钟刷新",
         ownKeys: "用自带密钥的回合",
         ownKeysShare: (share: string) => `占 ${share}`,
         timeToSpeak: "到开口（中位数）",
@@ -321,6 +350,7 @@ export const zh = {
           hint: { hour: "每小时的回合数", "6h": "每 6 小时的回合数", day: "每天的回合数" },
           tooltip: (span: string, turns: string, users: string) =>
             `${span}：${turns} 个回合，${users} 位活跃用户`,
+          total: (range: string, turns: string, users: string) => `${range}合计：${turns} 个回合，${users} 位活跃用户`,
           empty: "这段时间没有回合。",
         },
         calls: {
@@ -328,6 +358,7 @@ export const zh = {
           hint: { hour: "每小时的通话数", "6h": "每 6 小时的通话数", day: "每天的通话数" },
           tooltip: (span: string, calls: string, users: string) =>
             `${span}：${calls} 次通话，${users} 位活跃用户`,
+          total: (range: string, calls: string, users: string) => `${range}合计：${calls} 次通话，${users} 位活跃用户`,
           empty: "这段时间没有通话。",
         },
       },
@@ -382,6 +413,13 @@ export const zh = {
         usage: "计费用量",
         own: "自带密钥",
         empty: "这段时间没有服务调用。",
+        summary: {
+          ok: "这段时间各项服务正常",
+          idle: "这段时间没有服务调用",
+          problem: (service: string, status: string, rate: string) => `${service}${status}（${rate}）`,
+          more: (n: string) => `等 ${n} 项`,
+          link: "看服务健康",
+        },
         statuses: { ok: "正常", degraded: "出错偏多", failing: "大量出错", idle: "没有调用" },
         services: {
           chat_llm: "扮演角色的 LLM",
@@ -413,6 +451,7 @@ export const zh = {
       },
       cost: {
         title: "花费",
+        notes: "备注",
         hint: (catalogAsOf: string | null, presetAsOf: string | null) =>
           `部署者的 key 大约花了多少钱：按单价估算，不扣免费额度，不是账单；不同币种分开合计，不做汇率换算。${
             catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""
@@ -425,6 +464,7 @@ export const zh = {
         trendTitle: (currency: string) => `花费趋势（${currency}）`,
         trendHint: { hour: "每小时的花费", "6h": "每 6 小时的花费", day: "每天的花费" },
         trendReadout: (span: string, amount: string) => `${span}：约 ${amount}`,
+        trendTotal: (range: string, amount: string) => `${range}合计：约 ${amount}`,
         trendEmpty: "这段时间没有花费。",
         byService: "按服务",
         byModel: "按模型",
@@ -477,6 +517,10 @@ export const zh = {
         rows: { turns: "回合", calls: "通话", rejected: "被拒绝" },
         split: (deployer: string, ownKeys: string) => `部署者 ${deployer} · 自带密钥 ${ownKeys}`,
       },
+      usage24h: (turns: string, calls: string) => `24 小时：回合 ${turns} · 通话 ${calls}`,
+      ownKeysToken: (services: string) => `自带密钥：${services}`,
+      limitsToken: (summary: string) => `单独限额：${summary}`,
+      sort: { label: "排序", newest: "最近注册", turns: "24 小时回合最多", calls: "24 小时通话最多" },
       never: "—",
       noSignInMethods: "没有登录方式",
       noOwnKeys: "没有",
@@ -490,6 +534,7 @@ export const zh = {
       backToList: "返回用户列表",
       loading: "正在加载这位用户",
       details: {
+        title: "资料",
         signInMethods: "登录方式",
         identifier: "标识",
         email: "邮箱",
@@ -528,16 +573,21 @@ export const zh = {
         hint: "只对这位用户生效，保存后从他的下一个回合、下一次通话起按这里的数字计算；没有单独设定的一项跟随全站。用自带密钥、免计入的回合和通话照常放行。单次通话的时长和回合上限对所有人都一样，不能单独设。",
         turns: "每小时的回合数",
         calls: "每小时的通话次数",
-        choices: { default: "跟随全站", number: "设定次数", unlimited: "不限" },
+        choices: { default: "跟随全站", number: "设定次数", unlimited: "不限", ownKeys: "只能用自带密钥" },
+        ownKeysHint: "部署者的 key 一次也不放行，只放行用自带密钥的。",
+        /** 「跟随全站」带上全站现在的数字，不用去配置页查：「跟随全站（60 次）」。 */
+        defaultIs: (site: string) => `跟随全站（${site}）`,
+        siteCount: (n: number) => (n === 0 ? "不限" : `${n} 次`),
         count: (what: string) => `${what}（次数）`,
         units: "次 / 小时",
-        countHint: "填 0 表示只能用自带密钥。",
         note: "备注",
         noteHint: "只有管理者看得到。",
         confirm: "保存",
-        needsOne: "至少要单独设定一项，并填好次数。",
+        needsOne: "至少要单独设定一项；两项都跟随全站的话，用「取消单独限额」。",
+        needsCount: "填 1 以上的次数。",
       },
       delete: "删除这位用户",
+      deleteSection: { hint: "彻底删除他的全部数据，无法恢复。确认之前会再列出要删掉什么。" },
       deleteDialog: {
         title: (name: string) => `删除 ${name} 的全部数据？`,
         hint: "和他自己删除完全一样：彻底删除他的记忆、对话、制作人档案、登录方式、自带密钥、登录状态和限额的计数，无法恢复，进行中的通话随即挂断；每天的加密备份里的副本最多再留 30 天。",
@@ -548,8 +598,9 @@ export const zh = {
     },
     config: {
       intro:
-        "这里改的配置存进数据库，优先于 .env。保存前会先试一下，试不通不保存；保存后新的回合和新的通话立刻用上，进行中的通话不受影响，不用重启。",
+        "这里改的配置存进数据库，优先于 .env。LLM、语音和判断模型保存前会先试调一次，试不通不保存；保存后新的回合和新的通话立刻用上，进行中的通话不受影响，不用重启。没有标注状态的项用的是 .env 的值。",
       loading: "正在读取…",
+      nav: "配置项",
       items: {
         chat_llm: {
           title: "扮演角色的 LLM",
@@ -581,7 +632,7 @@ export const zh = {
         },
         limits: {
           title: "限额、单次通话上限和历史回合数",
-          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。这几项不需要试调。",
+          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。",
         },
       },
       status: {
@@ -620,16 +671,17 @@ export const zh = {
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",
-        limit: "非负整数，0 表示不限。",
       } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,
         maxTokens: (field: string) => `${field}需要是正整数，留空用默认值。`,
         probability: (field: string) => `${field}需要是 0 到 1 之间的数。`,
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
-        limit: (field: string) => `${field}需要是非负整数（0 表示不限）。`,
+        limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
       },
       unlimited: "不限",
+      /** 限额一项先选种类：设定上限，或者不限。不用 0 表示不限（单独限额里另有「只能用自带密钥」）。 */
+      limitChoices: { number: "设定上限", unlimited: "不限" },
       providers: {
         soniox: "Soniox",
         bailian: "阿里云百炼",
@@ -670,8 +722,9 @@ export const zh = {
       inEffect: "生效中",
       notInEffect: "已失效",
       edit: "修改",
-      save: "试调并保存",
-      saving: "正在试调…",
+      /** 服务类的项保存前先试调；阈值和限额只查范围，直接保存。 */
+      save: { tried: "试调并保存", plain: "保存" },
+      saving: { tried: "正在试调…", plain: "正在保存…" },
       saved: "已保存，新的回合和通话会用上新的配置。",
       restore: "恢复成 .env 的值",
       restored: "已恢复成 .env 的值。",
@@ -692,6 +745,7 @@ export const zh = {
         preset: "预设",
         catalog: "目录",
         override: "后台设定",
+        effective: "生效单价",
         actions: "操作",
       },
       none: "—",
@@ -716,10 +770,20 @@ export const zh = {
       remove: "删除",
       add: "新增单价",
       priceIt: "设单价",
+      filter: "按模型或提供方筛选",
+      noMatch: "没有匹配的模型。",
+      showAll: (n: number) => `显示全部 ${n} 个`,
+      fold: "收起",
       save: "保存",
       saved: "已保存，看板按新单价估算。",
       restored: "已恢复。",
-      formTitle: "设定单价",
+      formTitle: {
+        add: "新增单价",
+        edit: (model: string) => `修改单价：${model}`,
+        price: (model: string) => `设单价：${model}`,
+      },
+      /** 修改、设单价时标题下的一行：这条单价的键，表单里不能改。 */
+      formKey: (provider: string, unit: string) => `${provider} · ${unit}`,
       unpriced: {
         title: "用过但未设单价的模型",
         hint: "最近 90 天部署者的 key 用过、目录和预设里却都找不到单价的模型。看板上它们只显示用量和「未设单价」。",
