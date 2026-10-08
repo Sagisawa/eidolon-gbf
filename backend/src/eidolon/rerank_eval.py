@@ -5,7 +5,8 @@ Each question is run as a turn would: story, character-fact and work-fact questi
 through the same reference sources, candidates and reranking as retrieval
 (`ReferenceSources.rank`: the story, the character's facts and the work facts reranked
 together), memory questions through the nearest of the set's sample memories, which are
-embedded for the run and never stored. Each candidate the reranker scores is labelled
+embedded for the run and never stored, asked with the character's reply before them
+when the question gives one, as a turn finds memories. Each candidate the reranker scores is labelled
 relevant, acceptable (either way is fine, so left out of the counts) or irrelevant; an
 episode scores as its best passage. The report sets the scores of the relevant against
 those of the irrelevant, for the references (under their threshold) and the memories
@@ -26,7 +27,7 @@ import numpy as np
 
 from eidolon.characters import Character
 from eidolon.embedding import Document, nearest, to_blob
-from eidolon.memory import CANDIDATES
+from eidolon.memory import CANDIDATES, joined_query
 from eidolon.rerank import Reranker, RerankThresholds
 from eidolon.retrieval import ReferenceSources
 from eidolon.world import World
@@ -60,6 +61,9 @@ class Case:
     """Episode identifiers and fact titles, for a work-fact question the titles of the
     work facts, or for a memory question, memory keys."""
     acceptable: tuple[str, ...] = ()
+    previous: str | None = None
+    """For a memory question, what the character replied just before, if anything: a turn
+    finds memories with it (`memory.memory_query`)."""
 
 
 @dataclass(frozen=True)
@@ -116,7 +120,10 @@ def load_calibration(path: Path, world: World | None = None) -> Calibration:
             _text(entry, "query", case_id),
             _labels(entry, "relevant", case_id, required=True),
             _labels(entry, "acceptable", case_id),
+            _previous(entry, case_id),
         )
+        if case.previous is not None and kind != "memory":
+            raise CalibrationError(f"问题 {case_id}：只有 memory 类问题可以写 previous")
         if kind == "memory" and (unknown := set(case.relevant + case.acceptable) - keys):
             raise CalibrationError(f"问题 {case_id} 引用了不存在的示例记忆 {'、'.join(sorted(unknown))}")
         # The work facts are reranked with the story and the character facts, so any
@@ -152,6 +159,13 @@ def _text(entry: dict, field: str, where: str) -> str:
     return value
 
 
+def _previous(entry: dict, case_id: str) -> str | None:
+    value = entry.get("previous")
+    if value is not None and (not isinstance(value, str) or not value):
+        raise CalibrationError(f"问题 {case_id} 的 previous 应为字符串")
+    return value
+
+
 def _labels(entry: dict, field: str, case_id: str, required: bool = False) -> tuple[str, ...]:
     value = entry.get(field, None if required else [])
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
@@ -183,12 +197,13 @@ async def evaluate(
     results = []
     for case in calibration.cases:
         if case.kind == "memory":
-            query = await embedder.embed_query(case.query)
+            query_text = joined_query(case.previous, case.query)
+            query = await embedder.embed_query(query_text)
             near = [
                 calibration.memories[i] for i, _ in nearest(memory_vectors, query, CANDIDATES)
             ]
             best = (
-                await reranker.rerank(case.query, [m.text for m in near], len(near))
+                await reranker.rerank(query_text, [m.text for m in near], len(near))
                 if near
                 else []
             )

@@ -31,6 +31,9 @@ KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
     # threshold separates. A short memory scores low against a loosely worded remark (a
     # quarter of the relevant ones below 0.015) but unrelated ones lower still (nine in ten
     # below 0.0011), so memories get a threshold well below that of story and character facts.
+    # Checked again once memories were found with the character's previous reply (2026-10-08):
+    # the questions leaning on it score 0.99, the one whose previous reply is beside the point
+    # leaves every memory below 0.002, and 0.01 still lets in 12 of 15 relevant, 1 of 158 not.
     "Qwen/Qwen3-Reranker-0.6B": RerankThresholds(references=0.3, memories=0.01),
     # From the same set. 4B scores near misses (another year's Christmas, another bento)
     # between 0.4 and 0.7 where 0.6B puts them below 0.3, so it needs a higher bar for the

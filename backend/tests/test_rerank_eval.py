@@ -4,6 +4,7 @@ and the work facts together), and the scores the reranker gives what is labelled
 and what is not are laid side by side, against the model's thresholds."""
 
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -217,6 +218,46 @@ async def test_the_report_puts_work_facts_among_the_references(world, work):
     assert f"  + 0.8000 {HIKARI}" in text
 
 
+class RecordingReranker(KeywordReranker):
+    def __init__(self, scores: dict[str, float]) -> None:
+        super().__init__(scores)
+        self.queries: list[str] = []
+
+    async def rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        self.queries.append(query)
+        return await super().rerank(query, documents, top_n)
+
+
+async def test_a_memory_question_after_a_reply_is_asked_as_a_turn_would(world):
+    """A memory question may say what the character replied just before, which a turn
+    finds memories with too (`memory.memory_query`); one that does not is asked alone."""
+    characters, calibration, sources = world
+    calibration.write_text(
+        CALIBRATION + """
+[[cases]]
+id = "cat-pronoun"
+character = "mano"
+kind = "memory"
+previous = "小猫还好吗？"
+query = "它昨晚又叫了一夜"
+relevant = ["cat"]
+""",
+        encoding="utf-8",
+    )
+    reranker = RecordingReranker({"猫": 0.6})
+
+    *_, cat, pronoun = await evaluate(
+        load_calibration(calibration), characters, reranker, sources
+    )
+
+    assert sources.embedder.queries[-2:] == ["我家的猫最近胖了", "小猫还好吗？\n它昨晚又叫了一夜"]
+    assert reranker.queries[-2:] == ["我家的猫最近胖了", "小猫还好吗？\n它昨晚又叫了一夜"]
+    assert pronoun.case.previous == "小猫还好吗？"
+    assert cat.case.previous is None
+
+
 @pytest.mark.parametrize(
     "broken, complaint",
     [
@@ -226,6 +267,10 @@ async def test_the_report_puts_work_facts_among_the_references(world, work):
          'relevant = ["dog"]\n', "dog"),
         ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "story"\nrelevant = []\n', "query"),
         ("[[cases]\n", "格式有误"),
+        ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "story"\nquery = "q"\n'
+         'previous = "嗯"\nrelevant = []\n', "只有 memory 类问题可以写 previous"),
+        ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "memory"\nquery = "q"\n'
+         'previous = 1\nrelevant = []\n', "previous"),
     ],
 )
 def test_a_broken_calibration_file_is_reported(tmp_path: Path, broken: str, complaint: str):

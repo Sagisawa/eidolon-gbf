@@ -51,6 +51,10 @@
     eidolon eval judge [--provider P] [--model M] [--json F]
                                      ask the judge model the judge eval set's turns and
                                      segments, to set its thresholds and compare models
+    eidolon eval memory [--json F]
+                                     take the memory eval set's turns on the deployer's
+                                     background model, embedder, reranker and judge
+                                     model, and count what passes by category
 """
 
 import argparse
@@ -103,6 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_reembed(args))
     if args.command == "eval" and args.action == "judge":
         return asyncio.run(_eval_judge(args))
+    if args.command == "eval" and args.action == "memory":
+        return asyncio.run(_eval_memory(args))
     if args.command == "eval":
         return asyncio.run(_eval_rerank(args))
 
@@ -685,6 +691,88 @@ async def _eval_judge(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _eval_memory(args: argparse.Namespace) -> int:
+    import json
+    import tempfile
+
+    from eidolon.characters import load_characters
+    from eidolon.config import EmbeddingSettings, LLMSettings, RerankSettings, judge_from_env
+    from eidolon.embedding import open_embedder
+    from eidolon.judge import judge_thresholds_for, open_judge, warn_if_uncalibrated
+    from eidolon.llm.providers import open_llm
+    from eidolon.memory_eval import (
+        MemoryEvalError,
+        MemoryServices,
+        evaluate,
+        load_memory_eval,
+        report,
+        summarize,
+    )
+    from eidolon.rerank import SiliconFlowReranker, thresholds_for
+
+    try:
+        characters = load_characters(args.characters or characters_path_from_env())
+        memory_eval = load_memory_eval(args.file, characters)
+    except (RuntimeError, MemoryEvalError) as e:
+        print(e, file=sys.stderr)
+        return 1
+    try:
+        background = LLMSettings.background_from_env()
+        embedding = EmbeddingSettings.required_from_env()
+        rerank = RerankSettings.from_env()
+        if rerank is None:
+            raise RuntimeError("环境变量 SILICONFLOW_API_KEY 未设置（重排需要）")
+        judge = judge_from_env()
+        if judge is None:
+            raise RuntimeError("环境变量 JEV_API_KEY 未设置（判断模型需要）")
+    except RuntimeError as e:
+        print(f"记忆评测要用部署者配置的背景模型、向量化、重排和判断模型：{e}", file=sys.stderr)
+        return 1
+    warnings = logging.StreamHandler()  # a model without thresholds of its own
+    warnings.setFormatter(logging.Formatter("注意：%(message)s"))
+    logging.getLogger("eidolon.judge").addHandler(warnings)
+    warn_if_uncalibrated(judge.model)
+    llm = open_llm(background)
+    embedder = open_embedder(embedding)
+    reranker = SiliconFlowReranker(rerank.api_key, rerank.model, rerank.base_url)
+    judge_model = open_judge(judge)
+    services = MemoryServices(
+        background_llm=llm,
+        embedder=embedder,
+        reranker=reranker,
+        rerank_thresholds=thresholds_for(rerank),
+        judge_model=judge_model,
+        judge_thresholds=judge_thresholds_for(judge.model),
+    )
+    models = {
+        "background": background.model, "judge": judge.model, "embedding": embedding.model,
+        "rerank": rerank.model,
+    }
+    try:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as workdir:
+            results = await evaluate(
+                memory_eval, characters, services, Path(workdir),
+                lambda case: print(case, file=sys.stderr, flush=True),
+            )
+    except MemoryEvalError as e:
+        print(e, file=sys.stderr)
+        return 1
+    finally:
+        await llm.aclose()
+        await embedder.aclose()
+        await reranker.aclose()
+        await judge_model.aclose()
+    summary = summarize(results, models)
+    print(report(results, summary))
+    if args.json:
+        args.json.write_text(
+            json.dumps(results.to_json(summary), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"\n结果已写入 {args.json}")
+    return 0
+
+
 def _list_users(store: Store, _: argparse.Namespace) -> None:
     for user in store.list_users():
         methods = "、".join(
@@ -922,6 +1010,26 @@ def _parser() -> argparse.ArgumentParser:
         help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
     )
     judge.add_argument("--json", type=Path, help="把逐条结果和汇总写成 JSON 文件，方便对比")
+
+    memory = evaluation.add_parser(
+        "memory",
+        help="用记忆评测集按真实回合的路径跑提炼和召回，按题型打印通过数，用来和提交的基线比较"
+        "（用部署者配置的背景模型、向量化、重排和判断模型，记忆写在临时数据库里）",
+    )
+    memory.add_argument(
+        "--file",
+        type=Path,
+        default=Path("eval/memory.toml"),
+        help="记忆评测集（默认 eval/memory.toml）",
+    )
+    memory.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
+    memory.add_argument(
+        "--json", type=Path, help="把逐条结果和汇总写成 JSON 文件（基线就是这样提交的）"
+    )
 
     commands.add_parser(
         "backup",

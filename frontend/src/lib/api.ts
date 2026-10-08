@@ -82,6 +82,8 @@ export type Memory = {
   source_character_id: string;
   source_character_name: string | null;
   created_at: string;
+  /** 已被后来的记忆取代：角色不会再想起，删掉取代它的那条就恢复（ADR-0014）。 */
+  superseded: boolean;
 };
 
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each

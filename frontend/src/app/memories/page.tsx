@@ -4,10 +4,12 @@ import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { HStack } from "@astryxdesign/core/HStack";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { FailureNotice } from "@/components/FailureNotice";
 import { MarkedAvatar } from "@/components/MarkedAvatar";
@@ -24,12 +26,12 @@ import {
   type Memory,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { sourceCharacter } from "@/lib/memories";
+import { sourceCharacter, supersededMark } from "@/lib/memories";
 import { TrashIcon } from "@/theme/icons";
 
 const t = copy.memories;
 
-/** 所有角色共用的、关于用户的记忆：只能删，不能改。每条都标出来源角色。 */
+/** 所有角色共用的、关于用户的记忆：只能删，不能改。每条都标出来源角色；被取代的原地列出，淡一些并标出来。 */
 export default function MemoriesPage() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -38,6 +40,8 @@ export default function MemoriesPage() {
   const [confirmingDelete, setConfirmingDelete] = useState<Memory | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  // 只用最后一次重新取到的列表：连着删几条时，先发出的那次晚到，会把后删的又列出来。
+  const refetches = useRef(0);
 
   useEffect(() => {
     listMemories().then(setMemories, (e) => setFailure(toFailure(e)));
@@ -55,6 +59,9 @@ export default function MemoriesPage() {
     try {
       await deleteMemory(id);
       forget(id);
+      // 删掉的是取代别的记忆的那条时，被它取代的会恢复，重新取一次才看得到；取不到时照旧列着。
+      const refetch = ++refetches.current;
+      listMemories().then((list) => refetch === refetches.current && setMemories(list), () => {});
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) forget(id); // 已经删掉了
       else setFailure(toFailure(e));
@@ -123,17 +130,25 @@ export default function MemoriesPage() {
               const source = sourceCharacter(memory, characters);
               const name = memory.source_character_name ?? t.goneCharacter;
               const created = new Date(memory.created_at);
+              const mark = supersededMark(memory);
               return (
                 <ListItem
                   key={memory.id}
                   startContent={
                     <MarkedAvatar name={name} src={source?.avatar_url} color={source?.color} size="sm" />
                   }
-                  label={<Text wordBreak="break-word">{memory.text}</Text>}
-                  description={
-                    <Text type="supporting">
-                      {t.toldTo(name)} · {t.date(created.getFullYear(), created.getMonth() + 1, created.getDate())}
+                  label={
+                    <Text wordBreak="break-word" color={mark ? "secondary" : undefined}>
+                      {memory.text}
                     </Text>
+                  }
+                  description={
+                    <HStack gap={2} align="center" wrap="wrap">
+                      {mark && <Token label={mark} size="sm" color="gray" />}
+                      <Text type="supporting">
+                        {t.toldTo(name)} · {t.date(created.getFullYear(), created.getMonth() + 1, created.getDate())}
+                      </Text>
+                    </HStack>
                   }
                   endContent={
                     <IconButton

@@ -258,7 +258,8 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
-        """Newest first, each with the name of the character it was told to."""
+        """Newest first, each with the name of the character it was told to and whether
+        it has been superseded (ADR-0014)."""
         return [
             {
                 "id": m.id,
@@ -266,6 +267,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "source_character_id": m.source_character_id,
                 "source_character_name": m.source_character_name,
                 "created_at": m.created_at,
+                "superseded": m.superseded_by is not None,
             }
             for m in await memory.entries(user_id)
         ]

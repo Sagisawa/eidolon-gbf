@@ -5,7 +5,7 @@ import html
 import hashlib
 import json
 import secrets
-from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 import re
 from datetime import UTC, datetime, timedelta
@@ -337,12 +337,15 @@ def build_faked(
 class FakeBackgroundLLM:
     """Stands in for the background model: answers each request with the next scripted
     reply, and with no memories once the script runs out; a reply that is an exception
-    is raised instead. Records every prompt it receives. With a `gate`, it answers only
-    once the gate is open, like a slow model."""
+    is raised instead, one that is a function is called with the prompt, as one text, for
+    the answer. Records every prompt it receives. With a `gate`, it answers only once the
+    gate is open, like a slow model."""
 
     NOTHING = '{"memories": []}'
 
-    def __init__(self, *replies: str | Exception, gate: asyncio.Event | None = None) -> None:
+    def __init__(
+        self, *replies: str | Exception | Callable[[str], str], gate: asyncio.Event | None = None
+    ) -> None:
         self._replies = list(replies)
         self._gate = gate
         self.prompts: list[list[ChatMessage]] = []
@@ -352,6 +355,8 @@ class FakeBackgroundLLM:
     ) -> AsyncIterator[str | ToolCall]:
         self.prompts.append(list(messages))
         reply = self._replies.pop(0) if self._replies else self.NOTHING
+        if callable(reply):
+            reply = reply("\n".join(m.content for m in messages))
         if self._gate is not None:
             await self._gate.wait()
         if isinstance(reply, Exception):

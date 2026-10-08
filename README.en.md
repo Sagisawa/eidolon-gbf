@@ -580,6 +580,7 @@ eidolon-sc/
 │   │   ├── reembed.py        #   re-embedding after switching embedding models (eidolon reembed)
 │   │   ├── rerank_eval.py    #   reranker threshold calibration (eidolon eval rerank)
 │   │   ├── judge_eval.py     #   judge model threshold calibration (eidolon eval judge)
+│   │   ├── memory_eval.py    #   memory eval (eidolon eval memory)
 │   │   ├── story_import.py   #   story corpus import (CSV / JSON) and the canon rules
 │   │   ├── story_sync.py     #   keeping the corpus in step with the game (eidolon story sync)
 │   │   ├── mirror.py         #   client for the ShinyColorsDB mirror and API

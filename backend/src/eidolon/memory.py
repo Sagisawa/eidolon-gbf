@@ -11,6 +11,12 @@ holds up the reply; the user's next turn begins by waiting briefly for it, so wh
 just said is remembered by the time they go on. A new conversation picks up where
 earlier ones left off only through the memories it finds.
 
+What a user says may update what they said before: writing it down, the background model
+is shown the memories nearest the turn and says which of them the new memory supersedes
+(ADR-0014). A superseded memory is neither found nor shown to the background model again,
+but stays listed until the user deletes it; deleting what superseded it brings it back,
+unless that was superseded in turn, by what superseded that.
+
 Users can list their memories and delete them one by one or all at once, never add or
 edit them. Listing and deleting wait briefly for what is being written down too;
 whatever turns begun before a clearing write down after it is dropped, so a cleared
@@ -50,9 +56,9 @@ log = logging.getLogger(__name__)
 SETTLE_TIMEOUT = 5.0
 """How long, in seconds, a turn waits for the memories of the user's previous turn to be
 written before going on without them."""
-KNOWN_MEMORIES = 50
-"""How many of the user's latest memories the background model is shown, so it does not
-write them down again."""
+SHOWN_MEMORIES = 20
+"""How many of the user's holding memories nearest the turn the background model is shown,
+numbered, so it neither writes them down again nor misses what the turn supersedes."""
 EXCHANGE_HISTORY = 4
 """How many of the messages before the user's latest the background model reads with it."""
 MAX_NEW_MEMORIES = 5
@@ -76,6 +82,7 @@ CREATE TABLE IF NOT EXISTS memories (
     conversation_id TEXT REFERENCES conversations(id),
     text TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    superseded_by INTEGER,
     UNIQUE (user_id, text)
 );
 CREATE TABLE IF NOT EXISTS memory_vectors (
@@ -102,6 +109,8 @@ class Memory:
     text: str
     created_at: str
     """When it was told, as an ISO timestamp in UTC."""
+    superseded_by: int | None = None
+    """The memory that superseded it, None while it holds (ADR-0014)."""
 
 
 @dataclass(frozen=True)
@@ -137,6 +146,9 @@ class Memories:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            columns = {row[1] for row in self._db.execute("PRAGMA table_info(memories)")}
+            if "superseded_by" not in columns:  # kept from before superseding: all hold
+                self._db.execute("ALTER TABLE memories ADD COLUMN superseded_by INTEGER")
         self._characters = characters
         self._clock = clock
         self._embedder = embedder
@@ -253,22 +265,17 @@ class Memories:
             await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
 
     async def _find(
-        self, conversation: Conversation, timezone: str, text: str
+        self, conversation: Conversation, timezone: str, query_text: str
     ) -> str | None:
         if (services := self._services) is None:
             return None
-        user_id = conversation.user_id
         try:
-            query = await services.embedder.embed_query(text)
-            memories = await asyncio.to_thread(self._all, user_id)
-            vectors = await self._vectors(services.embedder, user_id, memories)
-            nearest_memories = [
-                memories[i]
-                for i, _ in nearest([vectors[m.id] for m in memories], query, CANDIDATES)
-            ]
+            nearest_memories = await self._nearest(
+                services.embedder, conversation.user_id, query_text, CANDIDATES
+            )
             best = (
                 await services.reranker.rerank(
-                    text, [m.text for m in nearest_memories], len(nearest_memories)
+                    query_text, [m.text for m in nearest_memories], len(nearest_memories)
                 )
                 if nearest_memories
                 else []
@@ -280,6 +287,28 @@ class Memories:
         found = [nearest_memories[i] for i, score in best if score >= min_relevance]
         character = self._characters[conversation.character_id]
         return _memories_prompt(found[:MAX_FOUND], character, timezone) if found else None
+
+    async def _nearest(
+        self, embedder: Embedder, user_id: str, query_text: str, limit: int
+    ) -> list[Memory]:
+        """As many as `limit` of the user's holding memories nearest `query_text`, nearest
+        first. Raises EmbeddingError."""
+        query = await embedder.embed_query(query_text)
+        memories = await asyncio.to_thread(self._all, user_id)
+        vectors = await self._vectors(embedder, user_id, memories)
+        holding = [m for m in memories if m.superseded_by is None]
+        return [holding[i] for i, _ in nearest([vectors[m.id] for m in holding], query, limit)]
+
+    async def _shown(self, embedder: Embedder, user_id: str, query_text: str) -> list[Memory]:
+        """The memories the background model is shown: the user's holding memories nearest
+        `query_text`, or while that cannot be embedded, their latest."""
+        try:
+            return await self._nearest(embedder, user_id, query_text, SHOWN_MEMORIES)
+        except EmbeddingError:
+            log.warning("embedding the turn failed; the background model is shown the latest"
+                        " memories", exc_info=True)
+            memories = await asyncio.to_thread(self._all, user_id)
+            return [m for m in memories if m.superseded_by is None][-SHOWN_MEMORIES:]
 
     def _write_down(
         self,
@@ -326,14 +355,14 @@ class Memories:
         user_id = conversation.user_id
         try:
             character = self._characters[conversation.character_id]
-            known = await asyncio.to_thread(self._all, user_id)
-            prompt = _extraction_prompt(character, history, text, reply, known, now)
+            shown = await self._shown(services.embedder, user_id, memory_query(history, text))
+            prompt = _extraction_prompt(character, history, text, reply, shown, now)
             answer = "".join([
                 chunk async for chunk in llm.stream(prompt)
                 if isinstance(chunk, str)
             ])
-            texts = parse_memories(answer)
-            if texts is None:
+            written = parse_memories(answer)
+            if written is None:
                 log.warning(  # its length only: the answer is about the user
                     "background model wrote no memories JSON (%d characters) in conversation %s",
                     len(answer), conversation.id,
@@ -341,7 +370,7 @@ class Memories:
                 return
             if self._clearings.get(user_id, 0) != clearings:
                 return  # cleared since the turn began
-            added = await asyncio.to_thread(self._add, conversation, texts, now)
+            added = await asyncio.to_thread(self._add, conversation, written, shown, now)
         except Exception:
             log.warning("writing memories failed in conversation %s", conversation.id,
                         exc_info=True)
@@ -357,52 +386,97 @@ class Memories:
         """Oldest first."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, user_id, source_character_id, text, created_at FROM memories"
-                " WHERE user_id = ? ORDER BY id",
+                "SELECT id, user_id, source_character_id, text, created_at, superseded_by"
+                " FROM memories WHERE user_id = ? ORDER BY id",
                 (user_id,),
             ).fetchall()
         return [self._memory(*row) for row in rows]
 
     def _memory(
-        self, id: int, user_id: str, source_character_id: str, text: str, created_at: str
+        self, id: int, user_id: str, source_character_id: str, text: str, created_at: str,
+        superseded_by: int | None = None,
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, source.name if source else None, text,
-            created_at,
+            created_at, superseded_by,
         )
 
-    def _add(self, conversation: Conversation, texts: list[str], now: datetime) -> list[Memory]:
-        """Remember what the user told the conversation's character just `now`; returns the
-        memories that are new, leaving out any the user already has."""
+    def _add(
+        self,
+        conversation: Conversation,
+        written: Sequence["NewMemory"],
+        shown: Sequence[Memory],
+        now: datetime,
+    ) -> list[Memory]:
+        """Remember what the user told the conversation's character just `now`, each new
+        memory superseding those it names among the memories the background model was
+        `shown` that still hold; returns the memories that are new. One the user already
+        has is left out, or if superseded, holds again and supersedes what it names."""
         added = []
+        user_id = conversation.user_id
         created_at = now.astimezone(UTC).isoformat()
         with self._lock, self._db:
-            for text in texts:
-                cursor = self._db.execute(
-                    "INSERT OR IGNORE INTO memories"
-                    " (user_id, source_character_id, conversation_id, text, created_at)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (conversation.user_id, conversation.character_id, conversation.id, text,
-                     created_at),
-                )
-                if cursor.rowcount and cursor.lastrowid is not None:
+            for memory in written:
+                kept = self._db.execute(
+                    "SELECT id, superseded_by IS NOT NULL FROM memories"
+                    " WHERE user_id = ? AND text = ?",
+                    (user_id, memory.text),
+                ).fetchone()
+                if kept is None:
+                    cursor = self._db.execute(
+                        "INSERT INTO memories"
+                        " (user_id, source_character_id, conversation_id, text, created_at)"
+                        " VALUES (?, ?, ?, ?, ?)",
+                        (user_id, conversation.character_id, conversation.id, memory.text,
+                         created_at),
+                    )
+                    assert cursor.lastrowid is not None
+                    id = cursor.lastrowid
                     added.append(self._memory(
-                        cursor.lastrowid, conversation.user_id, conversation.character_id,
-                        text, created_at,
+                        id, user_id, conversation.character_id, memory.text, created_at
                     ))
+                else:
+                    id, superseded = kept
+                    if not superseded:
+                        continue  # already remembered
+                    self._db.execute(
+                        "UPDATE memories SET superseded_by = NULL WHERE id = ?", (id,)
+                    )
+                # Only what still holds: a memory deleted or superseded since it was shown
+                # is left as it is.
+                self._db.executemany(
+                    "UPDATE memories SET superseded_by = ?"
+                    " WHERE id = ? AND user_id = ? AND superseded_by IS NULL",
+                    [
+                        (id, shown[n - 1].id, user_id)
+                        for n in memory.supersedes
+                        if 1 <= n <= len(shown) and shown[n - 1].id != id
+                    ],
+                )
         return added
 
     def _delete(self, user_id: str, memory_id: int) -> bool:
+        """Delete the memory, what it superseded superseded instead by what superseded it,
+        or holding again if nothing did."""
         with self._lock, self._db:
-            cursor = self._db.execute(
-                "DELETE FROM memories WHERE id = ? AND user_id = ?", (memory_id, user_id)
+            deleted = self._db.execute(
+                "SELECT superseded_by FROM memories WHERE id = ? AND user_id = ?",
+                (memory_id, user_id),
+            ).fetchone()
+            if deleted is None:
+                return False
+            [superseded_by] = deleted
+            self._db.execute(
+                "UPDATE memories SET superseded_by = ? WHERE superseded_by = ? AND user_id = ?",
+                (superseded_by, memory_id, user_id),
             )
+            self._db.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
             self._db.execute(
                 "DELETE FROM memory_vectors WHERE user_id = ? AND memory_id = ?",
                 (user_id, memory_id),
             )
-        return cursor.rowcount > 0
+        return True
 
     def _clear(self, user_id: str) -> None:
         with self._lock, self._db:
@@ -462,12 +536,14 @@ class MemoryTurn:
         self._llm = llm
         self._hold = hold
 
-    async def find(self, text: str) -> str | None:
-        """The prompt section carrying the user's memories relevant to `text`, most
-        relevant first, each labelled with who it was told to and to be passed on as
-        hearsay when that was someone else; None if none are relevant, memory is off or
-        finding them failed."""
-        return await self._memories._find(self._conversation, self._timezone, text)
+    async def find(self, history: Sequence[Message], text: str) -> str | None:
+        """The prompt section carrying the user's holding memories relevant to `text`, said
+        after `history` (see `memory_query`), most relevant first, each labelled with who it was
+        told to and to be passed on as hearsay when that was someone else; None if none are
+        relevant, memory is off or finding them failed."""
+        return await self._memories._find(
+            self._conversation, self._timezone, memory_query(history, text)
+        )
 
     def write_down(self, history: Sequence[Message], text: str, reply: Message) -> None:
         """Start writing down what the user revealed in this turn: `text`, said after
@@ -482,14 +558,26 @@ _INSTRUCTIONS = """\
 你负责替《偶像大师 闪耀色彩》283 事务所的偶像们记住关于制作人的事。制作人就是正在和偶像对话的用户。
 读下面的对话，从制作人最新的一句话里找出值得长期记住的、关于制作人本人的信息。
 
-要记的：制作人自己透露的个人情况、喜好、经历、近况、计划、身边的人和宠物、希望偶像记住的事。
-不要记的：寒暄和一时的情绪；偶像说的话；原作剧情和偶像的设定；制作人向偶像提的问题；已经记住的事。
+只记过后仍有意义的事。
+要记的：制作人自己透露的个人情况、喜好、经历、计划、身边的人和宠物、希望偶像记住的事；\
+会持续几天、朋友过后会问起的近况，例如生病、考试、面试、搬家、出差。
+不要记的：当天就会过去的状态（例如累、困、饿、无聊、心情不好）和一时的情绪，\
+同一句话里还说了值得记的事时只记那件事、不记这种状态；寒暄；偶像说的话；原作剧情和偶像的设定；制作人向偶像提的问题。
 
 每条记忆是一句能单独看懂的中文陈述，以「制作人」开头，例如「制作人养了一只叫小白的猫」。
 提到「明天」「下周六」这样的相对时间时，换算成具体日期写下来。
-和已经记住的事有出入时（例如搬了家），把新的情况写成一条新记忆。
 
-只输出 JSON，格式为 {"memories": ["……"]}；没有值得记住的就输出 {"memories": []}。"""
+「已经记住的事」按编号列出了和这轮对话最相关的记忆，写之前先对照：
+- 和已经记住的一样的，不要再写。
+- 更新或修正了已经记住的事（例如搬了家、换了工作），写一条单独看也完整的新记忆，写清从什么变成了什么，\
+例如「制作人从大阪搬到了东京」，并在 supersedes 里写上被它取代的记忆的编号，可以写多个。
+- 补充了已经记住的事的细节（例如说出了猫的名字），写一条把细节合进去的完整记忆，取代原来那条。
+- 一件事只变了一部分的，新记忆要把仍然成立的部分也写进去，例如原来记着养了一只猫和一只狗、\
+现在狗去世了，就写「制作人的狗去世了，现在还养着那只猫」，取代原来那条。
+- 两件事可以同时成立的（例如喜欢喝咖啡，最近也开始喝茶），新的照常写，不取代旧的。
+
+只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号]}]}，不取代任何记忆时 \
+supersedes 写 []；没有值得记住的就输出 {"memories": []}。"""
 
 
 def _extraction_prompt(
@@ -497,11 +585,11 @@ def _extraction_prompt(
     history: Sequence[Message],
     text: str,
     reply: Message,
-    known: Sequence[Memory],
+    shown: Sequence[Memory],
     now: datetime,
 ) -> list[ChatMessage]:
     lines = [f"今天是 {_date(now)}（制作人所在时区）。", "", "# 已经记住的事"]
-    lines += [f"- {m.text}" for m in known[-KNOWN_MEMORIES:]] or ["（还没有）"]
+    lines += [f"{n}. {m.text}" for n, m in enumerate(shown, 1)] or ["（还没有）"]
     lines += ["", f"# 制作人和{character.name}的对话"]
     for message in history[-EXCHANGE_HISTORY:]:
         if message.role == "user":
@@ -512,13 +600,38 @@ def _extraction_prompt(
     return [ChatMessage("system", _INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
 
 
+def memory_query(history: Sequence[Message], text: str) -> str:
+    """What memories relevant to `text`, said after `history`, are searched and reranked
+    with: the character's reply before it, which says what 「它」 or 「那件事」 is, then
+    `text`."""
+    previous = next((m for m in reversed(history) if m.role == "character"), None)
+    return joined_query(_said(previous) if previous else None, text)
+
+
+def joined_query(previous_reply: str | None, text: str) -> str:
+    """`memory_query` of `text` said after `previous_reply`, as people see it, if any."""
+    return f"{previous_reply}\n{text}" if previous_reply else text
+
+
 def _said(reply: Message) -> str:
     reply = reply.without_cues()
     return reply.zh or reply.ja or ""
 
 
-def parse_memories(answer: str) -> list[str] | None:
-    """The memories in the background model's answer; None if it is not the JSON asked for."""
+@dataclass(frozen=True)
+class NewMemory:
+    """A memory the background model wrote down."""
+
+    text: str
+    supersedes: tuple[int, ...] = ()
+    """The numbers it was shown the memories this one supersedes under, counting from 1;
+    any it was not shown are left for `Memories._add` to ignore."""
+
+
+def parse_memories(answer: str) -> list[NewMemory] | None:
+    """The memories in the background model's answer; None if it is not the JSON asked for.
+    A memory written as text alone, as before superseding, supersedes nothing; what it
+    supersedes is read as whole numbers only."""
     start, end = answer.find("{"), answer.rfind("}")
     try:
         memories = json.loads(answer[start : end + 1])["memories"] if start >= 0 else None
@@ -526,8 +639,19 @@ def parse_memories(answer: str) -> list[str] | None:
         return None
     if not isinstance(memories, list):
         return None
-    texts = [m.strip() for m in memories if isinstance(m, str) and m.strip()]
-    return [t[:MAX_MEMORY_LENGTH] for t in dict.fromkeys(texts)][:MAX_NEW_MEMORIES]
+    written: dict[str, NewMemory] = {}
+    for memory in memories:
+        if isinstance(memory, dict):
+            text, supersedes = memory.get("text"), memory.get("supersedes")
+        else:
+            text, supersedes = memory, None
+        if not isinstance(text, str) or not (text := text.strip()[:MAX_MEMORY_LENGTH]):
+            continue
+        numbers = supersedes if isinstance(supersedes, list) else []
+        written.setdefault(text, NewMemory(
+            text, tuple(dict.fromkeys(n for n in numbers if type(n) is int))
+        ))
+    return list(written.values())[:MAX_NEW_MEMORIES]
 
 
 def _memories_prompt(memories: Sequence[Memory], character: Character, timezone: str) -> str:
