@@ -127,6 +127,7 @@ export function UserLimitsDialog({
               <TouchButton label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
               <TouchButton
                 label={t.confirm}
+                variant="primary"
                 onClick={save}
                 isLoading={busy}
                 isDisabled={!input || note.length > NOTE_MAX}
@@ -139,7 +140,9 @@ export function UserLimitsDialog({
   );
 }
 
-/** 一项限额：先选种类，选了「设定次数」再填数字。四个选项竖排：手机宽度上横排放不下。 */
+/**
+ * 一项限额：先选种类，选了「设定次数」就在这一项底下填数字。四个选项竖排：手机宽度上横排放不下。
+ */
 function LimitField({
   label,
   draft,
@@ -152,33 +155,36 @@ function LimitField({
   /** 全站现在的数字，0 是不限；不知道时 null。 */
   site: number | null;
 }) {
+  const count = (
+    <NumberInput
+      label={t.count(label)}
+      isLabelHidden
+      value={draft.count}
+      onChange={(n) => onChange({ ...draft, count: n })}
+      min={1}
+      max={COUNT_MAX}
+      isIntegerOnly
+      units={t.units}
+      width={200}
+    />
+  );
   return (
-    <VStack gap={2}>
-      <RadioList
-        label={label}
-        value={draft.choice}
-        onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
-      >
-        <RadioListItem
-          value="default"
-          label={site === null ? t.choices.default : t.defaultIs(t.siteCount(site))}
-        />
-        <RadioListItem value="number" label={t.choices.number} />
-        <RadioListItem value="unlimited" label={t.choices.unlimited} />
-        <RadioListItem value="own_keys" label={t.choices.ownKeys} description={t.ownKeysHint} />
-      </RadioList>
-      {draft.choice === "number" && (
-        <NumberInput
-          label={t.count(label)}
-          value={draft.count}
-          onChange={(count) => onChange({ ...draft, count })}
-          min={1}
-          max={COUNT_MAX}
-          isIntegerOnly
-          units={t.units}
-          width={240}
-        />
-      )}
-    </VStack>
+    <RadioList
+      label={label}
+      value={draft.choice}
+      onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
+    >
+      <RadioListItem
+        value="default"
+        label={site === null ? t.choices.default : t.defaultIs(t.siteCount(site))}
+      />
+      <RadioListItem
+        value="number"
+        label={t.choices.number}
+        description={draft.choice === "number" ? count : undefined}
+      />
+      <RadioListItem value="unlimited" label={t.choices.unlimited} />
+      <RadioListItem value="own_keys" label={t.choices.ownKeys} description={t.ownKeysHint} />
+    </RadioList>
   );
 }
