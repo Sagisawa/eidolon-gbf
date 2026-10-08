@@ -102,6 +102,9 @@ class Memory:
     text: str
     created_at: str
     """When it was told, as an ISO timestamp in UTC."""
+    superseded_by: int | None = None
+    """The memory that superseded it, None while it holds (ADR-0014); memories cannot be
+    superseded yet, so every one holds."""
 
 
 @dataclass(frozen=True)

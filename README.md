@@ -576,6 +576,7 @@ eidolon-sc/
 │   │   ├── reembed.py        #   换向量化模型后重新向量化（eidolon reembed）
 │   │   ├── rerank_eval.py    #   重排阈值校准（eidolon eval rerank）
 │   │   ├── judge_eval.py     #   判断模型的阈值校准（eidolon eval judge）
+│   │   ├── memory_eval.py    #   记忆评测（eidolon eval memory）
 │   │   ├── story_import.py   #   剧情库导入（CSV / JSON）与正式经历规则
 │   │   ├── story_sync.py     #   与原作同步（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB 镜像与 API 的客户端

@@ -182,6 +182,16 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval judge --prov
 
 不带 `--provider` 时用 `.env` 里配的那一家。定上面这些阈值时（47 条检索、33 条情绪），检索判断的准确率 Jev 和 Clef 都是 94%，Clef-flash 87%；情绪准确率 Jev 100%，Clef 和 Clef-flash 都是 91%。eval 集不大，换模型或改了判断的问题后，先跑一遍看概率分布再改阈值。
 
+## 记忆评测
+
+`eidolon eval memory` 用仓库里的评测集（`backend/eval/memory.toml`：虚构的用户说的话和角色的回复，以及这一轮该写下什么、该想起哪些记忆，不含剧情原文）检查角色「记得对不对」。它用 `.env` 里配的背景模型、向量化、重排和判断模型，按真实回合的路径跑：每题用一个临时数据库和一位虚构的用户，不碰部署的数据库。提炼题看这一轮该记的记了没有、不该记的有没有记、该取代的取代了没有，每题跑 3 次取多数；召回题看该想起的想起来没有、不该想起的有没有出现，并打印判断模型的结论。结果按题型（取代、重复、短期状态、代词、专有名词、前情）汇总；`--json` 把逐条结果写进文件：
+
+```sh
+docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --json /tmp/memory.json
+```
+
+基线结果提交在评测集旁边（`backend/eval/memory-baseline.json`）。改动记忆的提炼或召回以后重跑：针对的那一类题，通过数要多于基线；其他各类最多比基线少 1 个用例（前情类只作参考）。一次完整的运行要调用背景模型一百次左右，需要几分钟。
+
 ## 立绘素材
 
 通话层上可以叠一层原作的 Spine 立绘（GLOSSARY.md「立绘」）。素材不进仓库（ADR-0003 的 2026-09-30 修订），放在你选的 S3 兼容对象存储里，浏览器直接从存储桶下载。三项都配好了，这位角色的通话层才显示立绘；少一项就和原来一样，只显示背景图：

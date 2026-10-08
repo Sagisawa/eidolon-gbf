@@ -580,6 +580,7 @@ eidolon-sc/
 │   │   ├── reembed.py        #   ベクトル化モデル変更後の再ベクトル化（eidolon reembed）
 │   │   ├── rerank_eval.py    #   並べ替えしきい値の調整（eidolon eval rerank）
 │   │   ├── judge_eval.py     #   判断モデルのしきい値の調整（eidolon eval judge）
+│   │   ├── memory_eval.py    #   メモリーの評価（eidolon eval memory）
 │   │   ├── story_import.py   #   シナリオの取り込み（CSV / JSON）と正規ルートのルール
 │   │   ├── story_sync.py     #   原作との同期（eidolon story sync）
 │   │   ├── mirror.py         #   ShinyColorsDB のミラーと API のクライアント
