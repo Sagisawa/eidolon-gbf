@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -7,7 +8,7 @@ import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
-import type { ReactNode } from "react";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
 
 import { PROSE_WIDTH } from "@/components/SettingsSection";
 
@@ -76,6 +77,28 @@ export function Numeric({ children }: { children: string }) {
  */
 export function useWide(table: "table" | "table-wide" = "table"): boolean {
   return useMediaQuery(table === "table" ? "(min-width: 1024px)" : "(min-width: 1280px)", true);
+}
+
+/**
+ * 手机宽度或触屏：行内的小按钮（ghost sm，28px 高）和页内链接要撑到 44px 的触控区（`TOUCH_TARGET`）。
+ * 桌面上用鼠标时保持原来的紧凑。
+ */
+export function useTouch(): boolean {
+  const coarse = useMediaQuery("(pointer: coarse)", false);
+  const phone = !useMediaQuery("(min-width: 768px)", true);
+  return coarse || phone;
+}
+
+/** 触控区下限 44px（`--spacing-11`），宽高都不小于它。 */
+export const TOUCH_TARGET: CSSProperties = { minHeight: "var(--spacing-11)", minWidth: "var(--spacing-11)" };
+
+/** 单独成行的文字链接（页内链接、返回链接）的触控区：撑到 44px 高，字仍在这一行里居中。 */
+export const TOUCH_LINK: CSSProperties = { ...TOUCH_TARGET, display: "inline-flex", alignItems: "center" };
+
+/** 后台的按钮：Astryx `Button`，手机或触屏上撑到 44px（md 默认 32px、sm 28px）。 */
+export function TouchButton({ style, ...props }: ComponentProps<typeof Button>) {
+  const touch = useTouch();
+  return <Button {...props} style={touch ? { ...TOUCH_TARGET, ...style } : style} />;
 }
 
 export interface Row {

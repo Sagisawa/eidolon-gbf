@@ -1,7 +1,6 @@
 "use client";
 
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Icon } from "@astryxdesign/core/Icon";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
@@ -15,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
-import { RowList, useWide } from "@/components/admin/DashboardParts";
+import { RowList, TOUCH_LINK, TouchButton, useTouch, useWide } from "@/components/admin/DashboardParts";
 import { BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
 import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
@@ -59,6 +58,7 @@ export function AdminUserDetails({ id }: { id: string }) {
   const [editingLimits, setEditingLimits] = useState(false);
   const [takingOffLimits, setTakingOffLimits] = useState(false);
   const router = useRouter();
+  const touch = useTouch();
 
   useEffect(() => {
     getAdminUser(id).then(setUser, (e) => setFailure(toFailure(e)));
@@ -105,7 +105,7 @@ export function AdminUserDetails({ id }: { id: string }) {
   const back = (
     <HStack gap={1} vAlign="center">
       <Icon icon={BackIcon} size="sm" color="secondary" />
-      <AppLink href="/admin/users" isStandalone>
+      <AppLink href="/admin/users" isStandalone style={touch ? TOUCH_LINK : undefined}>
         {t.backToList}
       </AppLink>
     </HStack>
@@ -134,9 +134,9 @@ export function AdminUserDetails({ id }: { id: string }) {
       }
       end={
         action === "ban" ? (
-          <Button label={t.ban} variant="secondary" onClick={() => setBanning(true)} />
+          <TouchButton label={t.ban} variant="secondary" onClick={() => setBanning(true)} />
         ) : action === "unban" ? (
-          <Button label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
+          <TouchButton label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
         ) : (
           <Text color="secondary">{t.adminCannotBeBanned}</Text>
         )
@@ -200,14 +200,14 @@ export function AdminUserDetails({ id }: { id: string }) {
                 </HStack>
               )}
               <HStack gap={2} wrap="wrap">
-                <Button
+                <TouchButton
                   label={user.limits ? t.limits.edit : t.limits.set}
                   variant="secondary"
                   size="sm"
                   onClick={() => setEditingLimits(true)}
                 />
                 {user.limits && (
-                  <Button
+                  <TouchButton
                     label={t.limits.takeOff}
                     variant="secondary"
                     size="sm"
@@ -240,7 +240,7 @@ export function AdminUserDetails({ id }: { id: string }) {
       {action !== null && (
         <SettingsSection title={t.delete} description={t.deleteSection.hint}>
           <HStack>
-            <Button label={t.delete} variant="secondary" onClick={() => setConfirmingDelete(true)} />
+            <TouchButton label={t.delete} variant="secondary" onClick={() => setConfirmingDelete(true)} />
           </HStack>
         </SettingsSection>
       )}

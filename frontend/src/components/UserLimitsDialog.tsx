@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HStack, Layout, LayoutContent, LayoutFooter, VStack } from "@astryxdesign/core/Layout";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
@@ -9,6 +8,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { useEffect, useState } from "react";
 
+import { TouchButton, useTouch } from "@/components/admin/DashboardParts";
 import { FailureNotice } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import {
@@ -103,8 +103,8 @@ export function UserLimitsDialog({
         footer={
           <LayoutFooter>
             <HStack gap={2} hAlign="end" wrap="wrap">
-              <Button label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
-              <Button
+              <TouchButton label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
+              <TouchButton
                 label={t.confirm}
                 onClick={save}
                 isLoading={busy}
@@ -128,6 +128,7 @@ function LimitField({
   draft: LimitDraft;
   onChange: (draft: LimitDraft) => void;
 }) {
+  const touch = useTouch();
   return (
     <VStack gap={2}>
       <Text type="label">{label}</Text>
@@ -135,7 +136,7 @@ function LimitField({
         label={label}
         value={draft.choice}
         onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
-        size="sm"
+        size={touch ? "lg" : "sm"}
       >
         <SegmentedControlItem value="default" label={t.choices.default} />
         <SegmentedControlItem value="number" label={t.choices.number} />

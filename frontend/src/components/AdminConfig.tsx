@@ -1,7 +1,6 @@
 "use client";
 
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { HStack } from "@astryxdesign/core/HStack";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
@@ -12,10 +11,10 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
-import { RowList, useWide } from "@/components/admin/DashboardParts";
+import { RowList, TOUCH_LINK, TouchButton, useTouch, useWide } from "@/components/admin/DashboardParts";
 import { AdminPrices } from "@/components/AdminPrices";
 import { AppLink } from "@/components/AppLink";
 import { FailureNotice } from "@/components/FailureNotice";
@@ -80,17 +79,21 @@ function anchor(section: ItemName | "prices" | "read_only"): string {
   return `config-${section}`;
 }
 
+/** 触屏上链接各自撑到 44px 高，行与行之间不再另加间距（不然折成几行时太松），只在行内隔开。 */
+const NAV_LINK_TOUCH = { ...TOUCH_LINK, marginInlineEnd: "var(--spacing-4)" };
+
 /** 页首的页内导航：一项一个链接，配置项多、页面长，想改限额不用滚过前面六项。 */
 function ConfigNav() {
+  const touch = useTouch();
   const links: { section: ItemName | "prices" | "read_only"; label: string }[] = [
     ...ITEMS.map((name) => ({ section: name, label: t.items[name].title })),
     { section: "prices", label: copy.admin.prices.title },
     { section: "read_only", label: t.readOnly.title },
   ];
   return (
-    <HStack as="nav" aria-label={t.nav} gap={4} wrap="wrap" paddingBlockStart={2}>
+    <HStack as="nav" aria-label={t.nav} gap={touch ? 0 : 4} wrap="wrap" paddingBlockStart={2}>
       {links.map(({ section, label }) => (
-        <AppLink key={section} href={`#${anchor(section)}`} isStandalone>
+        <AppLink key={section} href={`#${anchor(section)}`} isStandalone style={touch ? NAV_LINK_TOUCH : undefined}>
           {label}
         </AppLink>
       ))}
@@ -277,9 +280,9 @@ function AvailableItem({
       {(!editing || fieldRows.some((row) => row.overridden)) && <Values name={name} rows={fieldRows} />}
       {!editing && (
         <HStack gap={2} wrap="wrap">
-          <Button label={t.edit} onClick={edit} isDisabled={busy !== null} />
+          <TouchButton label={t.edit} onClick={edit} isDisabled={busy !== null} />
           {display.canRestore && (
-            <Button
+            <TouchButton
               variant="ghost"
               label={t.restore}
               isLoading={busy === "restore"}
@@ -326,14 +329,14 @@ function AvailableItem({
               );
             })}
             <HStack gap={2}>
-              <Button
+              <TouchButton
                 type="submit"
                 variant="primary"
                 label={busy === "save" ? t.saving : t.save}
                 isLoading={busy === "save"}
                 isDisabled={problem !== null || busy !== null}
               />
-              <Button variant="ghost" label={copy.common.cancel} onClick={() => setEditing(false)} isDisabled={busy !== null} />
+              <TouchButton variant="ghost" label={copy.common.cancel} onClick={() => setEditing(false)} isDisabled={busy !== null} />
             </HStack>
           </FormLayout>
         </form>
@@ -342,12 +345,31 @@ function AvailableItem({
   );
 }
 
+/** 「EIDOLON_SECRET_KEY」这类名字窄列里放不下时只在下划线后折行，不从词中间断开。 */
+function BreakAtUnderscores({ text }: { text: string }) {
+  const parts = text.split("_");
+  return (
+    <Text>
+      {parts.map((part, i) => (
+        <Fragment key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <>
+              _<wbr />
+            </>
+          )}
+        </Fragment>
+      ))}
+    </Text>
+  );
+}
+
 const READ_ONLY_COLUMNS: TableColumn<ReadOnlyItem>[] = [
   {
     key: "name",
     header: t.readOnly.columns.name,
     width: proportional(1),
-    renderCell: (row) => t.readOnly.names[row.name] ?? row.name,
+    renderCell: (row) => <BreakAtUnderscores text={t.readOnly.names[row.name] ?? row.name} />,
   },
   {
     key: "value",

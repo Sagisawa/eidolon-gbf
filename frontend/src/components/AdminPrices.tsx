@@ -1,7 +1,6 @@
 "use client";
 
 import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
@@ -16,7 +15,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { useWide } from "@/components/admin/DashboardParts";
+import { TouchButton, useWide } from "@/components/admin/DashboardParts";
 import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -146,7 +145,7 @@ export function AdminPrices() {
   function entryActions(id: string, entry: PriceEntry) {
     return (
       <HStack gap={1} wrap="wrap">
-        <Button
+        <TouchButton
           size="sm"
           variant="ghost"
           label={t.edit}
@@ -154,7 +153,7 @@ export function AdminPrices() {
           onClick={() => open(priceFormOf(entry), { kind: "edit", entry })}
         />
         {entry.override && (
-          <Button
+          <TouchButton
             size="sm"
             variant="ghost"
             label={entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove}
@@ -214,7 +213,7 @@ export function AdminPrices() {
                 label={u.model}
                 description={`${services[u.service] ?? u.service} · ${u.provider} · ${unitWord(u.unit)}`}
                 endContent={
-                  <Button
+                  <TouchButton
                     size="sm"
                     variant="ghost"
                     label={t.priceIt}
@@ -230,7 +229,7 @@ export function AdminPrices() {
       {prices && (
         <HStack gap={2} wrap="wrap" vAlign="center">
           <CatalogLine state={prices.catalog} />
-          <Button
+          <TouchButton
             size="sm"
             variant="secondary"
             label={t.catalog.refresh}
@@ -274,7 +273,7 @@ export function AdminPrices() {
           )}
           {query === "" && matching.length > FOLDED_ROWS && (
             <HStack>
-              <Button
+              <TouchButton
                 size="sm"
                 variant="ghost"
                 label={showAll ? t.fold : t.showAll(matching.length)}
@@ -286,7 +285,7 @@ export function AdminPrices() {
       )}
       {prices && !form && (
         <HStack gap={2}>
-          <Button label={t.add} onClick={() => open(emptyPriceForm(), { kind: "add" })} isDisabled={busy !== null} />
+          <TouchButton label={t.add} onClick={() => open(emptyPriceForm(), { kind: "add" })} isDisabled={busy !== null} />
         </HStack>
       )}
       {form && (
@@ -496,8 +495,8 @@ function PriceEditor({
         {text("input")}
         {text("output")}
         <HStack gap={2}>
-          <Button type="submit" variant="primary" label={t.save} isLoading={busy} isDisabled={problem !== null || busy} />
-          <Button variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
+          <TouchButton type="submit" variant="primary" label={t.save} isLoading={busy} isDisabled={problem !== null || busy} />
+          <TouchButton variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
         </HStack>
       </FormLayout>
     </form>

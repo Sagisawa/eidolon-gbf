@@ -1,12 +1,12 @@
 "use client";
 
-import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HStack, Layout, LayoutContent, LayoutFooter, VStack } from "@astryxdesign/core/Layout";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { useState } from "react";
 
+import { TouchButton } from "@/components/admin/DashboardParts";
 import { FailureNotice } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import { banUser, type AdminUserDetails } from "@/lib/adminUsers";
@@ -78,8 +78,8 @@ export function BanUserDialog({
         footer={
           <LayoutFooter>
             <HStack gap={2} hAlign="end" wrap="wrap">
-              <Button label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
-              <Button
+              <TouchButton label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
+              <TouchButton
                 label={t.confirm}
                 variant="destructive"
                 onClick={confirm}

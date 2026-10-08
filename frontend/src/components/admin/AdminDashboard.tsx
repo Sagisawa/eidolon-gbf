@@ -14,7 +14,7 @@ import { useEffect, useState } from "react";
 import { AppLink } from "@/components/AppLink";
 import { CostSection } from "@/components/admin/CostSection";
 import { AdminPage } from "@/components/admin/AdminPage";
-import { Numeric, Pair, RowList, Section, StatTile, TileRow, useWide } from "@/components/admin/DashboardParts";
+import { Numeric, Pair, RowList, Section, StatTile, TileRow, TOUCH_LINK, useTouch, useWide } from "@/components/admin/DashboardParts";
 import { CHART_INK, TrendChart } from "@/components/admin/TrendChart";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -68,6 +68,7 @@ export function AdminDashboard() {
   const [board, setBoard] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [inProgress, setInProgress] = useState<number | null>(null);
+  const touch = useTouch();
 
   useEffect(() => {
     let current = true;
@@ -105,6 +106,7 @@ export function AdminDashboard() {
       end={
         <SegmentedControl
           label={t.rangeLabel}
+          size={touch ? "lg" : "md"}
           value={range}
           onChange={(value) => isDashboardRange(value) && setRange(value)}
         >
@@ -131,6 +133,7 @@ export function AdminDashboard() {
  * 只占一行，首屏的主体仍是下面回答「用了多少」的数字卡。
  */
 function HealthSummary({ board }: { board: Dashboard }) {
+  const touch = useTouch();
   const summary = healthSummary(board.health);
   const words = t.health.summary;
   let variant: "success" | "warning" | "error" | "neutral";
@@ -156,7 +159,9 @@ function HealthSummary({ board }: { board: Dashboard }) {
         <StatusDot variant={variant} label={text} />
         <Text weight="medium">{text}</Text>
       </HStack>
-      <AppLink href={`#${HEALTH_ANCHOR}`}>{words.link}</AppLink>
+      <AppLink href={`#${HEALTH_ANCHOR}`} style={touch ? TOUCH_LINK : undefined}>
+        {words.link}
+      </AppLink>
     </HStack>
   );
 }

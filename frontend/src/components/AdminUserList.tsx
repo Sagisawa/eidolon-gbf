@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { HStack } from "@astryxdesign/core/HStack";
 import { List, ListItem } from "@astryxdesign/core/List";
@@ -15,7 +14,7 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
-import { useWide } from "@/components/admin/DashboardParts";
+import { TouchButton, useWide } from "@/components/admin/DashboardParts";
 import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { FailureNotice } from "@/components/FailureNotice";
@@ -103,11 +102,11 @@ export function AdminUserList() {
   function rowAction(user: AdminUser) {
     const action = banAction(user);
     if (action === "ban") {
-      return <Button label={t.ban} variant="ghost" size="sm" onClick={() => setBanning(user)} />;
+      return <TouchButton label={t.ban} variant="ghost" size="sm" onClick={() => setBanning(user)} />;
     }
     if (action === "unban") {
       return (
-        <Button
+        <TouchButton
           label={t.unban}
           variant="ghost"
           size="sm"
