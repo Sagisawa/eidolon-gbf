@@ -68,9 +68,9 @@ export function CostSection({ board }: { board: Dashboard }) {
                 title={t.trendTitle(currency)}
                 total={t.trendTotal(
                   copy.admin.dashboard.ranges[board.range],
-                  formatMoney(cost.totals.find((c) => c.currency === currency)?.amount ?? 0, currency),
+                  formatMoneyTick(cost.totals.find((c) => c.currency === currency)?.amount ?? 0, currency),
                 )}
-                describe={(span, i) => t.trendReadout(span, formatMoney(cost.trend[i].amounts[currency] ?? 0, currency))}
+                describe={(span, i) => t.trendReadout(span, formatMoneyTick(cost.trend[i].amounts[currency] ?? 0, currency))}
                 empty={t.trendEmpty}
                 ticks={amountTicks}
                 format={(value) => formatMoneyTick(value, currency)}

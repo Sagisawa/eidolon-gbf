@@ -49,6 +49,8 @@ const services = copy.admin.dashboard.health.services;
 
 type FormField = keyof PriceForm;
 
+type FormMode = { kind: "add" } | { kind: "edit"; entry: PriceEntry } | { kind: "price" };
+
 interface EntryRow extends Record<string, unknown> {
   id: string;
   entry: PriceEntry;
@@ -70,8 +72,11 @@ export function AdminPrices() {
   const [prices, setPrices] = useState<Prices | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [form, setForm] = useState<PriceForm | null>(null);
-  /** 正在修改的那一条（新增或给未设单价的模型设单价时没有），表单上方列出它的三种单价作参考。 */
-  const [editing, setEditing] = useState<PriceEntry | null>(null);
+  /** 表单在做什么：新增，修改一条（列出它的三种单价作参考），或给未设单价的模型设单价。后两种的提供方、
+   * 模型和单位是定的，不能改：改了就成了另一条。 */
+  const [mode, setMode] = useState<FormMode>({ kind: "add" });
+  /** 每打开一次表单加一，用来把表单滚进视野、把焦点移进去；不跟着输入变。 */
+  const [opened, setOpened] = useState(0);
   const editorRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -121,24 +126,33 @@ export function AdminPrices() {
     }
   }
 
-  function open(next: PriceForm, entry: PriceEntry | null = null) {
+  function open(next: PriceForm, nextMode: FormMode) {
     setFailure(null);
     setNotice(null);
     setForm(next);
-    setEditing(entry);
+    setMode(nextMode);
+    setOpened((n) => n + 1);
   }
 
-  // 表单在表格下面：点长表格中间一行的「修改」时，把它滚进视野。
-  const editingKey = form ? `${form.provider}|${form.model}|${form.unit}` : null;
+  // 表单在表格下面：点长表格中间一行的「修改」时，把它滚进视野，焦点移到第一个能填的框。
   useEffect(() => {
-    if (editingKey !== null) editorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [editingKey]);
+    const editor = editorRef.current;
+    if (opened === 0 || !editor) return;
+    editor.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    editor.querySelector<HTMLInputElement>("input:not([disabled])")?.focus({ preventScroll: true });
+  }, [opened]);
 
   /** 一条单价的操作：修改，有后台设定时还能恢复（回到目录或预设，都没有的就删除）。 */
   function entryActions(id: string, entry: PriceEntry) {
     return (
       <HStack gap={1} wrap="wrap">
-        <Button size="sm" variant="ghost" label={t.edit} isDisabled={busy !== null} onClick={() => open(priceFormOf(entry), entry)} />
+        <Button
+          size="sm"
+          variant="ghost"
+          label={t.edit}
+          isDisabled={busy !== null}
+          onClick={() => open(priceFormOf(entry), { kind: "edit", entry })}
+        />
         {entry.override && (
           <Button
             size="sm"
@@ -205,7 +219,7 @@ export function AdminPrices() {
                     variant="secondary"
                     label={t.priceIt}
                     isDisabled={busy !== null}
-                    onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }))}
+                    onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }), { kind: "price" })}
                   />
                 }
               />
@@ -272,14 +286,25 @@ export function AdminPrices() {
       )}
       {prices && !form && (
         <HStack gap={2}>
-          <Button label={t.add} onClick={() => open(emptyPriceForm())} isDisabled={busy !== null} />
+          <Button label={t.add} onClick={() => open(emptyPriceForm(), { kind: "add" })} isDisabled={busy !== null} />
         </HStack>
       )}
       {form && (
         <VStack ref={editorRef} gap={4} maxWidth="calc(var(--spacing-8) * 20)">
-          {editing && <PriceReference entry={editing} />}
+          <VStack gap={1}>
+            <Heading level={3} style={{ fontSize: "var(--text-body-size)" }} wordBreak="break-word">
+              {mode.kind === "add" ? t.formTitle.add : t.formTitle[mode.kind](form.model)}
+            </Heading>
+            {mode.kind !== "add" && (
+              <Text type="supporting" wordBreak="break-word">
+                {t.formKey(form.provider, unitWord(form.unit))}
+              </Text>
+            )}
+          </VStack>
+          {mode.kind === "edit" && <PriceReference entry={mode.entry} />}
           <PriceEditor
             form={form}
+            isKeyFixed={mode.kind !== "add"}
             onChange={setForm}
             busy={busy === "save"}
             onCancel={() => setForm(null)}
@@ -408,14 +433,18 @@ function CatalogLine({ state }: { state: CatalogState }) {
   );
 }
 
+/** 单价表单。`isKeyFixed` 时（修改一条、给未设单价的模型设单价）提供方、模型和单位写在标题里，
+ * 这里不列：只填单价和币种。 */
 function PriceEditor({
   form,
+  isKeyFixed,
   onChange,
   busy,
   onCancel,
   onSave,
 }: {
   form: PriceForm;
+  isKeyFixed: boolean;
   onChange: (form: PriceForm) => void;
   busy: boolean;
   onCancel: () => void;
@@ -448,17 +477,16 @@ function PriceEditor({
   return (
     <form onSubmit={submit}>
       <FormLayout>
-        <Heading level={3} style={{ fontSize: "var(--text-body-size)" }}>
-          {t.formTitle}
-        </Heading>
-        {text("provider")}
-        {text("model")}
-        <Selector
-          label={t.fields.unit}
-          value={form.unit}
-          onChange={(value) => set("unit")(String(value))}
-          options={UNITS.map((u) => ({ value: u, label: t.units[u] ?? u }))}
-        />
+        {!isKeyFixed && text("provider")}
+        {!isKeyFixed && text("model")}
+        {!isKeyFixed && (
+          <Selector
+            label={t.fields.unit}
+            value={form.unit}
+            onChange={(value) => set("unit")(String(value))}
+            options={UNITS.map((u) => ({ value: u, label: t.units[u] ?? u }))}
+          />
+        )}
         <Selector
           label={t.fields.currency}
           value={form.currency}

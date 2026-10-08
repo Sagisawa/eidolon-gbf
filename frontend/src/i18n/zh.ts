@@ -758,7 +758,13 @@ export const zh = {
       save: "保存",
       saved: "已保存，看板按新单价估算。",
       restored: "已恢复。",
-      formTitle: "设定单价",
+      formTitle: {
+        add: "新增单价",
+        edit: (model: string) => `修改单价：${model}`,
+        price: (model: string) => `设单价：${model}`,
+      },
+      /** 修改、设单价时标题下的一行：这条单价的键，表单里不能改。 */
+      formKey: (provider: string, unit: string) => `${provider} · ${unit}`,
       unpriced: {
         title: "用过但未设单价的模型",
         hint: "最近 90 天部署者的 key 用过、目录和预设里却都找不到单价的模型。看板上它们只显示用量和「未设单价」。",

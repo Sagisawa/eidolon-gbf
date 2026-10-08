@@ -12,7 +12,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
 import { RowList, useWide } from "@/components/admin/DashboardParts";
@@ -215,6 +215,13 @@ function AvailableItem({
   const [notice, setNotice] = useState<string | null>(null);
   const result = changeOf(spec, form, keysEditable);
   const problem = "problem" in result ? result.problem : null;
+  const fieldRows = rows(item, spec);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // 打开表单时焦点移到第一个能填的框（按钮被表单替换掉，焦点不移就落回页首）。
+  useEffect(() => {
+    if (editing) formRef.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled])")?.focus();
+  }, [editing]);
 
   function edit() {
     setForm(formOf(spec, item.effective));
@@ -264,7 +271,8 @@ function AvailableItem({
       {display.failure && <Banner status="warning" title={t.status.failed} description={t.failed(display.failure)} />}
       {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
       {failure && <FailureNotice failure={failure} />}
-      <Values name={name} rows={rows(item, spec)} />
+      {/* 修改时表单里已经填着当前的值：没有覆盖时上面那份「项：当前值」只是重复，收起；有覆盖时三列对照还有用，留着。 */}
+      {(!editing || fieldRows.some((row) => row.overridden)) && <Values name={name} rows={fieldRows} />}
       {!editing && (
         <HStack gap={2} wrap="wrap">
           <Button label={t.edit} onClick={edit} isDisabled={busy !== null} />
@@ -280,7 +288,7 @@ function AvailableItem({
         </HStack>
       )}
       {editing && (
-        <form onSubmit={submit}>
+        <form ref={formRef} onSubmit={submit}>
           <FormLayout>
             {spec.form.map((field) => {
               const label = t.fields[field.name] ?? field.name;

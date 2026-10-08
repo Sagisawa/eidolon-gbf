@@ -102,7 +102,7 @@ export function formatMoney(amount: number, currency: string): string {
 }
 
 /**
- * 金额轴上的刻度：不像 `formatMoney` 那样把很小的数都写成「<¥0.0001」，否则花费很少时几个刻度
+ * 金额轴上的刻度和趋势图的读数：不像 `formatMoney` 那样把很小的数都写成「<¥0.0001」，否则花费很少时几个刻度
  * 一模一样；按两位有效数字写出，例如 ¥0.00002、¥0.00004。
  */
 export function formatMoneyTick(amount: number, currency: string): string {
