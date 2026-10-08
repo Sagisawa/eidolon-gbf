@@ -136,8 +136,11 @@ from eidolon.turn_taking import (
     Voice,
     WaitForFollowOn,
 )
+from eidolon import windows_udp
 
 log = logging.getLogger(__name__)
+
+windows_udp.install()  # or closing a call's connection could hang on Windows
 
 Quality = Literal["low", "standard", "high"]
 
@@ -167,6 +170,18 @@ from the admin command line in another process."""
 
 CONNECT_TIMEOUT = timedelta(seconds=30)
 """How long a call may take to connect after it is answered; after that it is given up."""
+
+DISCONNECT_TIMEOUT = 5.0
+"""How long, in seconds, closing a call's connection may take; one that takes longer is
+given up, so that hanging up and shutting down always finish."""
+
+
+async def _within_disconnect_timeout(closing: Awaitable[None], what: str) -> None:
+    """Wait for `closing` the connection of `what`, giving it up after DISCONNECT_TIMEOUT."""
+    try:
+        await asyncio.wait_for(closing, DISCONNECT_TIMEOUT)
+    except TimeoutError:
+        log.warning("gave up closing %s after %s seconds", what, DISCONNECT_TIMEOUT)
 
 
 class CallNotFound(Exception):
@@ -891,7 +906,7 @@ class Calls:
             if started:
                 await started[0].hang_up("failed")
             elif connections:  # the pipeline could not be built; Pipecat only logs why
-                await connections[0].disconnect()
+                await _within_disconnect_timeout(connections[0].disconnect(), "a call")
             outcome.set_up_failed()
             raise CallFailed()
         self._owners[answer["pc_id"]] = user_id
@@ -953,7 +968,7 @@ class Calls:
         if self._watch is not None:
             self._watch.cancel()
         await asyncio.gather(*(live.hang_up("shutdown") for live in list(self._live)))
-        await self._webrtc.close()
+        await _within_disconnect_timeout(self._webrtc.close(), "the calls left")
 
     async def _answer(
         self,
@@ -1088,7 +1103,10 @@ class _LiveCall:
         finally:
             self._meter.close()
             self._outcome.settle()
-            await self._connection.disconnect()  # lets the browser know the call is over
+            await _within_disconnect_timeout(  # lets the browser know the call is over
+                self._connection.disconnect(),
+                f"the call in conversation {self._call.conversation.id}",
+            )
 
     async def _run(self) -> None:
         running = asyncio.create_task(WorkerRunner(handle_sigint=False).run(self._worker))
