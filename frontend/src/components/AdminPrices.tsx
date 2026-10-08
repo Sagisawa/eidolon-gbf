@@ -17,6 +17,7 @@ import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { TouchButton, useWide } from "@/components/admin/DashboardParts";
 import { useOpenForm } from "@/components/admin/OpenForm";
+import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -523,30 +524,22 @@ function PriceEditor({
   onSave: (change: PriceChange) => void;
 }) {
   const result = priceChangeOf(form);
-  const problem = "problem" in result ? result.problem : null;
-  // 刚打开的空表单不先报「不能为空」：一项改过之后，或者点过一次保存，才在那一项下面说哪里不对。
-  const [edited, setEdited] = useState<ReadonlySet<FormField>>(new Set());
-  const [tried, setTried] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
-  const set = (field: FormField) => (value: string) => {
-    setEdited((fields) => new Set(fields).add(field));
-    onChange({ ...form, [field]: value });
-  };
-  const shownProblem = problem && (tried || edited.has(problem.field)) ? problem : null;
+  // 刚打开的空表单不先报「不能为空」：点过一次保存才标出所有不对的项（见 useSubmitCheck）。
+  // 每次打开表单换 key，重新开始。
+  const check = useSubmitCheck<HTMLFormElement>();
+  const set = (field: FormField) => (value: string) => onChange({ ...form, [field]: value });
+  const problemOf = (field: FormField) =>
+    check.shown && "problems" in result ? (result.problems.find((p) => p.field === field) ?? null) : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if ("change" in result) {
-      onSave(result.change);
-      return;
-    }
-    setTried(true);
-    // 焦点移到出错的那一项（字段按表单顺序排，出错的是第一个不对的）。
-    requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
+    if ("change" in result) onSave(result.change);
+    else check.refuse();
   }
 
   function text(field: "provider" | "model" | "input" | "output") {
     const label = t.fields[field];
+    const problem = problemOf(field);
     return (
       <TextInput
         label={label}
@@ -554,16 +547,14 @@ function PriceEditor({
         value={form[field]}
         onChange={set(field)}
         isOptional={field === "output"}
-        status={
-          shownProblem?.field === field ? { type: "error", message: t.problems[shownProblem.reason](label) } : undefined
-        }
+        status={problem ? { type: "error", message: t.problems[problem.reason](label) } : undefined}
         autoComplete="off"
       />
     );
   }
 
   return (
-    <form ref={formRef} onSubmit={submit} noValidate>
+    <form ref={check.ref} onSubmit={submit} noValidate>
       <FormLayout>
         {!isKeyFixed && text("provider")}
         {!isKeyFixed && text("model")}

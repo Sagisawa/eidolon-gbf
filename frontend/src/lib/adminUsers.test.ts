@@ -62,20 +62,31 @@ describe("limitDraft and limitsInput", () => {
   it("round-trips each kind of limit through the editor", () => {
     for (const limit of [null, "unlimited", 0, 5] as const) {
       expect(limitsInput(limitDraft(limit), limitDraft(5)), String(limit)).toEqual({
-        turns_per_hour: limit,
-        calls_per_hour: 5,
+        input: { turns_per_hour: limit, calls_per_hour: 5 },
       });
     }
   });
 
   it("keeps own keys only apart from a number: 0 is never typed in", () => {
     expect(limitDraft(0)).toEqual({ choice: "own_keys", count: null });
-    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5))).toBeNull();
+    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5))).toEqual({
+      problems: [{ field: "turns", reason: "count" }],
+    });
   });
 
-  it("has nothing to save when both follow the deployment or a number is chosen but not given", () => {
-    expect(limitsInput(limitDraft(null), limitDraft(null))).toBeNull();
-    expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toBeNull();
+  it("names why there is nothing to save: both follow the deployment, or a number is chosen but not given", () => {
+    expect(limitsInput(limitDraft(null), limitDraft(null))).toEqual({
+      problems: [{ field: "turns", reason: "needsOne" }],
+    });
+    expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toEqual({
+      problems: [{ field: "turns", reason: "count" }],
+    });
+    expect(limitsInput({ choice: "number", count: null }, { choice: "number", count: null })).toEqual({
+      problems: [
+        { field: "turns", reason: "count" },
+        { field: "calls", reason: "count" },
+      ],
+    });
   });
 });
 

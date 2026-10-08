@@ -110,12 +110,16 @@ export function limitDraft(limit: UserLimit): LimitDraft {
   return { choice: "number", count: limit };
 }
 
-/** The limits to save from the editor; null while there is nothing to save: both follow
- * the deployment, or a number is chosen but none from 1 up given. */
+/** What keeps the limits from being saved: a number chosen but none from 1 up given
+ * (`count`), or both following the deployment, which is no limit of the user's own
+ * (`needsOne`, put on the turns). */
+export type LimitProblem = { field: "turns" | "calls"; reason: "count" | "needsOne" };
+
+/** The limits to save from the editor, or every problem that keeps them from being saved. */
 export function limitsInput(
   turns: LimitDraft,
   calls: LimitDraft,
-): { turns_per_hour: UserLimit; calls_per_hour: UserLimit } | null {
+): { input: { turns_per_hour: UserLimit; calls_per_hour: UserLimit } } | { problems: LimitProblem[] } {
   const limit = (draft: LimitDraft): UserLimit | undefined => {
     if (draft.choice === "default") return null;
     if (draft.choice === "unlimited") return "unlimited";
@@ -123,9 +127,12 @@ export function limitsInput(
     return draft.count !== null && draft.count >= 1 ? draft.count : undefined;
   };
   const [turnsPerHour, callsPerHour] = [limit(turns), limit(calls)];
-  if (turnsPerHour === undefined || callsPerHour === undefined) return null;
-  if (turnsPerHour === null && callsPerHour === null) return null;
-  return { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour };
+  const problems: LimitProblem[] = [];
+  if (turnsPerHour === null && callsPerHour === null) problems.push({ field: "turns", reason: "needsOne" });
+  if (turnsPerHour === undefined) problems.push({ field: "turns", reason: "count" });
+  if (callsPerHour === undefined) problems.push({ field: "calls", reason: "count" });
+  if (problems.length > 0 || turnsPerHour === undefined || callsPerHour === undefined) return { problems };
+  return { input: { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour } };
 }
 
 /** The list's sort from the table's: a usage column's header sorts by it, most first,

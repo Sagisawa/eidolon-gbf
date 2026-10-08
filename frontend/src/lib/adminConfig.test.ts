@@ -125,10 +125,20 @@ describe("formOf and changeOf", () => {
     expect(changeOf(llm, { ...form, max_tokens: "" }, true)).toMatchObject({ change: { max_tokens: null } });
     for (const bad of ["0", "-1", "1.5", "abc"]) {
       expect(changeOf(llm, { ...form, max_tokens: bad }, true), bad).toEqual({
-        problem: { field: "max_tokens", reason: "maxTokens" },
+        problems: [{ field: "max_tokens", reason: "maxTokens" }],
       });
     }
-    expect(changeOf(llm, { ...form, model: " " }, true)).toEqual({ problem: { field: "model", reason: "required" } });
+    expect(changeOf(llm, { ...form, model: " " }, true)).toEqual({ problems: [{ field: "model", reason: "required" }] });
+  });
+
+  it("names every problem at once, in the form's order", () => {
+    expect(changeOf(llm, { ...form, base_url: "", model: " ", max_tokens: "0" }, true)).toEqual({
+      problems: [
+        { field: "base_url", reason: "required" },
+        { field: "model", reason: "required" },
+        { field: "max_tokens", reason: "maxTokens" },
+      ],
+    });
   });
 
   it("takes thresholds from 0 to 1 and seconds above 0", () => {
@@ -136,12 +146,12 @@ describe("formOf and changeOf", () => {
     expect(changeOf(thresholds, { recall: "0.7", emotion: "0" }, true)).toEqual({ change: { recall: 0.7, emotion: 0 } });
     for (const bad of ["1.1", "-0.1", "", "high"]) {
       expect(changeOf(thresholds, { recall: bad, emotion: "0.5" }, true), bad).toEqual({
-        problem: { field: "recall", reason: "probability" },
+        problems: [{ field: "recall", reason: "probability" }],
       });
     }
     const judge = { provider: "jev", model: "typesafe/jev-1.13", account_id: "", api_key: "" };
     expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "0" }, true)).toEqual({
-      problem: { field: "emotion_timeout", reason: "seconds" },
+      problems: [{ field: "emotion_timeout", reason: "seconds" }],
     });
     expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "1.5" }, true)).toEqual({
       change: { provider: "jev", model: "typesafe/jev-1.13", emotion_timeout: 1.5 },
@@ -173,7 +183,7 @@ describe("limits", () => {
   it("refuses one that is 0, negative, not whole or empty", () => {
     for (const bad of ["0", "-1", "1.5", "", "十"]) {
       expect(changeOf(limits, { ...form, calls_per_hour: bad }, true), bad).toEqual({
-        problem: { field: "calls_per_hour", reason: "limit" },
+        problems: [{ field: "calls_per_hour", reason: "limit" }],
       });
     }
   });

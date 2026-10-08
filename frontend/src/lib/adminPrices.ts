@@ -243,20 +243,19 @@ export function priceFormOf(
   };
 }
 
-/** 表单换成要保存的单价，或者第一个不对的地方。输出价留空表示按输入价算。 */
-export function priceChangeOf(form: PriceForm): { change: PriceChange } | { problem: PriceProblem } {
+/** 表单换成要保存的单价，或者所有不对的地方（每项一条，按表单顺序）。输出价留空表示按输入价算。 */
+export function priceChangeOf(form: PriceForm): { change: PriceChange } | { problems: PriceProblem[] } {
   const provider = form.provider.trim();
   const model = form.model.trim();
-  if (!provider) return { problem: { field: "provider", reason: "required" } };
-  if (!model) return { problem: { field: "model", reason: "required" } };
-  if (!form.input.trim()) return { problem: { field: "input", reason: "required" } };
-  const input = amountOf(form.input);
-  if (input === null) return { problem: { field: "input", reason: "amount" } };
-  let output: number | null = null;
-  if (form.output.trim()) {
-    output = amountOf(form.output);
-    if (output === null) return { problem: { field: "output", reason: "amount" } };
-  }
+  const problems: PriceProblem[] = [];
+  if (!provider) problems.push({ field: "provider", reason: "required" });
+  if (!model) problems.push({ field: "model", reason: "required" });
+  const input = form.input.trim() ? amountOf(form.input) : null;
+  if (!form.input.trim()) problems.push({ field: "input", reason: "required" });
+  else if (input === null) problems.push({ field: "input", reason: "amount" });
+  const output = form.output.trim() ? amountOf(form.output) : null;
+  if (form.output.trim() && output === null) problems.push({ field: "output", reason: "amount" });
+  if (problems.length > 0 || input === null) return { problems };
   return { change: { provider, model, unit: form.unit, input, output, currency: form.currency } };
 }
 

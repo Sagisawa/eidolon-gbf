@@ -167,7 +167,7 @@ describe("price form", () => {
     });
   });
 
-  it("names the first field that is missing or not an amount", () => {
+  it("names each field that is missing or not an amount", () => {
     const cases: [Partial<PriceForm>, object][] = [
       [{ provider: "  " }, { field: "provider", reason: "required" }],
       [{ model: "" }, { field: "model", reason: "required" }],
@@ -176,7 +176,17 @@ describe("price form", () => {
       [{ output: "abc" }, { field: "output", reason: "amount" }],
     ];
     for (const [change, problem] of cases) {
-      expect(priceChangeOf({ ...form, ...change }), JSON.stringify(change)).toEqual({ problem });
+      expect(priceChangeOf({ ...form, ...change }), JSON.stringify(change)).toEqual({ problems: [problem] });
     }
+  });
+
+  it("names every problem at once, in the form's order", () => {
+    expect(priceChangeOf({ ...form, provider: "", input: "", output: "abc" })).toEqual({
+      problems: [
+        { field: "provider", reason: "required" },
+        { field: "input", reason: "required" },
+        { field: "output", reason: "amount" },
+      ],
+    });
   });
 });

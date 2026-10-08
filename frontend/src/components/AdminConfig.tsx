@@ -18,6 +18,7 @@ import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
 import { RowList, TOUCH_LINK, TouchButton, useTouch, useWide } from "@/components/admin/DashboardParts";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
+import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { AdminPrices } from "@/components/AdminPrices";
 import { AppLink } from "@/components/AppLink";
 import { FailureNotice } from "@/components/FailureNotice";
@@ -225,10 +226,13 @@ function AvailableItem({
   const [failure, setFailure] = useState<Failure | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const result = changeOf(spec, form, keysEditable);
-  const problem = "problem" in result ? result.problem : null;
+  // 不先报错：点过一次保存才标出不对的项（见 useSubmitCheck）。
+  const check = useSubmitCheck<HTMLFormElement>();
+  const problemOf = (field: string) =>
+    check.shown && "problems" in result ? (result.problems.find((p) => p.field === field) ?? null) : null;
   const fieldRows = rows(item, spec);
   const saveKind = spec.tried ? "tried" : "plain";
-  const formRef = useRef<HTMLFormElement>(null);
+  const formRef = check.ref;
 
   // 打开表单时焦点移到第一个能填的框（按钮被表单替换掉，焦点不移就落回页首）。
   const actionsRef = useRef<HTMLDivElement>(null);
@@ -245,6 +249,7 @@ function AvailableItem({
     setForm(formOf(spec, item.effective));
     setFailure(null);
     setNotice(null);
+    check.reset();
     setEditing(true);
   }
 
@@ -267,6 +272,7 @@ function AvailableItem({
   function submit(event: FormEvent) {
     event.preventDefault();
     if ("change" in result) void run("save", () => saveItem(name, result.change), t.saved);
+    else check.refuse();
   }
 
   const set = (field: string) => (value: string) => setForm((f) => ({ ...f, [field]: value }));
@@ -311,10 +317,11 @@ function AvailableItem({
         </HStack>
       )}
       {editing && (
-        <form ref={formRef} onSubmit={submit}>
+        <form ref={formRef} onSubmit={submit} noValidate>
           <FormLayout>
             {spec.form.map((field) => {
               const label = t.fields[field.name] ?? field.name;
+              const problem = problemOf(field.name);
               if (field.kind === "limit") {
                 return (
                   <LimitInput
@@ -322,7 +329,7 @@ function AvailableItem({
                     label={label}
                     value={form[field.name]}
                     onChange={set(field.name)}
-                    error={problem?.field === field.name ? t.problems.limit(label) : null}
+                    error={problem ? t.problems.limit(label) : null}
                   />
                 );
               }
@@ -348,11 +355,7 @@ function AvailableItem({
                   onChange={set(field.name)}
                   isDisabled={secret && !keysEditable}
                   isOptional={field.kind === "optionalText"}
-                  status={
-                    problem?.field === field.name
-                      ? { type: "error", message: t.problems[problem.reason](label) }
-                      : undefined
-                  }
+                  status={problem ? { type: "error", message: t.problems[problem.reason](label) } : undefined}
                   autoComplete="off"
                 />
               );
@@ -363,7 +366,7 @@ function AvailableItem({
                 variant="primary"
                 label={busy === "save" ? t.saving[saveKind] : t.save[saveKind]}
                 isLoading={busy === "save"}
-                isDisabled={problem !== null || busy !== null}
+                isDisabled={busy !== null}
               />
               <TouchButton variant="ghost" label={copy.common.cancel} onClick={() => {
                   closedHere.current = true;

@@ -9,6 +9,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { useEffect, useState } from "react";
 
 import { TouchButton } from "@/components/admin/DashboardParts";
+import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { FailureNotice } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
@@ -18,6 +19,7 @@ import {
   setUserLimits,
   type AdminUserDetails,
   type LimitDraft,
+  type LimitProblem,
 } from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
 
@@ -48,6 +50,7 @@ export function UserLimitsDialog({
   const [failure, setFailure] = useState<Failure | null>(null);
   /** 全站现在的每小时回合数和通话次数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
   const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
+  const check = useSubmitCheck();
 
   useEffect(() => {
     if (!user) return;
@@ -73,16 +76,25 @@ export function UserLimitsDialog({
     setCalls(limitDraft(user.limits?.calls_per_hour ?? null));
     setNote(user.limits?.note ?? "");
     setFailure(null);
+    check.reset();
   }, [user]);
 
-  const input = limitsInput(turns, calls);
+  const result = limitsInput(turns, calls);
+  // 不先报错、保存键不变灰：点过一次保存才标出不对的项（见 useSubmitCheck）。
+  const problemOf = (field: LimitProblem["field"]) =>
+    check.shown && "problems" in result ? result.problems.filter((p) => p.field === field) : [];
 
   function close() {
     if (!busy) onClose();
   }
 
   async function save() {
-    if (!user || !input) return;
+    if (!user) return;
+    if (!("input" in result)) {
+      check.refuse();
+      return;
+    }
+    const { input } = result;
     setBusy(true);
     setFailure(null);
     try {
@@ -100,10 +112,22 @@ export function UserLimitsDialog({
         header={<DialogHeader title={t.title(user?.name ?? "")} onOpenChange={() => close()} />}
         content={
           <LayoutContent>
-            <VStack gap={5}>
+            <VStack ref={check.ref} gap={5}>
               <Text as="p">{t.hint}</Text>
-              <LimitField label={t.turns} draft={turns} onChange={setTurns} site={site?.turns ?? null} />
-              <LimitField label={t.calls} draft={calls} onChange={setCalls} site={site?.calls ?? null} />
+              <LimitField
+                label={t.turns}
+                draft={turns}
+                onChange={setTurns}
+                site={site?.turns ?? null}
+                problems={problemOf("turns")}
+              />
+              <LimitField
+                label={t.calls}
+                draft={calls}
+                onChange={setCalls}
+                site={site?.calls ?? null}
+                problems={problemOf("calls")}
+              />
               <TextArea
                 label={t.note}
                 description={t.noteHint}
@@ -112,11 +136,6 @@ export function UserLimitsDialog({
                 onChange={setNote}
                 maxLength={NOTE_MAX}
               />
-              {!input && (
-                <Text type="supporting" color="secondary">
-                  {t.needsOne}
-                </Text>
-              )}
               {failure && <FailureNotice failure={failure} />}
             </VStack>
           </LayoutContent>
@@ -130,7 +149,7 @@ export function UserLimitsDialog({
                 variant="primary"
                 onClick={save}
                 isLoading={busy}
-                isDisabled={!input || note.length > NOTE_MAX}
+                isDisabled={busy}
               />
             </HStack>
           </LayoutFooter>
@@ -148,13 +167,18 @@ function LimitField({
   draft,
   onChange,
   site,
+  problems,
 }: {
   label: string;
   draft: LimitDraft;
   onChange: (draft: LimitDraft) => void;
   /** 全站现在的数字，0 是不限；不知道时 null。 */
   site: number | null;
+  /** 点过保存后这一项不对的地方。 */
+  problems: LimitProblem[];
 }) {
+  const needsCount = problems.some((p) => p.reason === "count");
+  const needsOne = problems.some((p) => p.reason === "needsOne");
   const count = (
     <NumberInput
       label={t.count(label)}
@@ -166,6 +190,7 @@ function LimitField({
       isIntegerOnly
       units={t.units}
       width={200}
+      status={needsCount ? { type: "error", message: t.needsCount } : undefined}
     />
   );
   return (
@@ -173,6 +198,7 @@ function LimitField({
       label={label}
       value={draft.choice}
       onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
+      status={needsOne ? { type: "error", message: t.needsOne } : undefined}
     >
       <RadioListItem
         value="default"

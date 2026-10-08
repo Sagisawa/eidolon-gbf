@@ -222,11 +222,13 @@ export type Problem = { field: string; reason: "required" | "maxTokens" | "proba
 
 export type Change = Record<string, string | number | null>;
 
-/** What saving the form sends, or the first problem that keeps it from being saved. A key
- * left empty, or one that cannot be changed here, stays as it is; so does an optional
- * field left empty. */
-export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { change: Change } | { problem: Problem } {
+/** What saving the form sends, or every problem that keeps it from being saved (one per
+ * field, in the form's order). A key left empty, or one that cannot be changed here, stays
+ * as it is; so does an optional field left empty. */
+export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { change: Change } | { problems: Problem[] } {
   const change: Change = {};
+  const problems: Problem[] = [];
+  const refuse = (field: string, reason: Problem["reason"]) => problems.push({ field, reason });
   for (const { name, kind } of spec.form) {
     const typed = (form[name] ?? "").trim();
     switch (kind) {
@@ -234,8 +236,8 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         change[name] = form[name];
         break;
       case "text":
-        if (!typed) return { problem: { field: name, reason: "required" } };
-        change[name] = typed;
+        if (!typed) refuse(name, "required");
+        else change[name] = typed;
         break;
       case "optionalText":
         if (typed) change[name] = typed;
@@ -244,32 +246,29 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         if (keysEditable && typed) change[name] = typed;
         break;
       case "maxTokens":
-        if (typed && !/^[1-9]\d*$/.test(typed)) return { problem: { field: name, reason: "maxTokens" } };
-        change[name] = typed ? Number(typed) : null;
+        if (typed && !/^[1-9]\d*$/.test(typed)) refuse(name, "maxTokens");
+        else change[name] = typed ? Number(typed) : null;
         break;
       case "probability": {
         const value = Number(typed);
-        if (!typed || !(value >= 0 && value <= 1)) return { problem: { field: name, reason: "probability" } };
-        change[name] = value;
+        if (!typed || !(value >= 0 && value <= 1)) refuse(name, "probability");
+        else change[name] = value;
         break;
       }
       case "limit":
-        if (typed === UNLIMITED) {
-          change[name] = 0;
-          break;
-        }
-        if (!/^[1-9]\d*$/.test(typed)) return { problem: { field: name, reason: "limit" } };
-        change[name] = Number(typed);
+        if (typed === UNLIMITED) change[name] = 0;
+        else if (!/^[1-9]\d*$/.test(typed)) refuse(name, "limit");
+        else change[name] = Number(typed);
         break;
       case "seconds": {
         const value = Number(typed);
-        if (!typed || !(value > 0 && value <= 30)) return { problem: { field: name, reason: "seconds" } };
-        change[name] = value;
+        if (!typed || !(value > 0 && value <= 30)) refuse(name, "seconds");
+        else change[name] = value;
         break;
       }
     }
   }
-  return { change };
+  return problems.length > 0 ? { problems } : { change };
 }
 
 /** A read-only setting's value, in words: a list joined, a setting set or not, the parts
