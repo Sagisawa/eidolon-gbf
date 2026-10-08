@@ -64,7 +64,9 @@ export type AdminUserLimits = {
 };
 
 /** One limit as the editor holds it: which kind, and the number typed for "number". */
-export type LimitDraft = { choice: "default" | "number" | "unlimited"; count: number | null };
+/** A limit as the editor holds it: follow the deployment, a number of times (1 and up),
+ * none, or only on their own keys (sent as 0). */
+export type LimitDraft = { choice: "default" | "number" | "unlimited" | "own_keys"; count: number | null };
 
 /** A user's own page adds when they were banned, the note only admins see, and their
  * recent usage. */
@@ -104,17 +106,22 @@ export function describeLimit(limit: UserLimit): string {
 export function limitDraft(limit: UserLimit): LimitDraft {
   if (limit === null) return { choice: "default", count: null };
   if (limit === "unlimited") return { choice: "unlimited", count: null };
+  if (limit === 0) return { choice: "own_keys", count: null };
   return { choice: "number", count: limit };
 }
 
 /** The limits to save from the editor; null while there is nothing to save: both follow
- * the deployment, or a number is chosen but none given. */
+ * the deployment, or a number is chosen but none from 1 up given. */
 export function limitsInput(
   turns: LimitDraft,
   calls: LimitDraft,
 ): { turns_per_hour: UserLimit; calls_per_hour: UserLimit } | null {
-  const limit = (draft: LimitDraft): UserLimit | undefined =>
-    draft.choice === "default" ? null : draft.choice === "unlimited" ? "unlimited" : (draft.count ?? undefined);
+  const limit = (draft: LimitDraft): UserLimit | undefined => {
+    if (draft.choice === "default") return null;
+    if (draft.choice === "unlimited") return "unlimited";
+    if (draft.choice === "own_keys") return 0;
+    return draft.count !== null && draft.count >= 1 ? draft.count : undefined;
+  };
   const [turnsPerHour, callsPerHour] = [limit(turns), limit(calls)];
   if (turnsPerHour === undefined || callsPerHour === undefined) return null;
   if (turnsPerHour === null && callsPerHour === null) return null;

@@ -68,6 +68,11 @@ describe("limitDraft and limitsInput", () => {
     }
   });
 
+  it("keeps own keys only apart from a number: 0 is never typed in", () => {
+    expect(limitDraft(0)).toEqual({ choice: "own_keys", count: null });
+    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5))).toBeNull();
+  });
+
   it("has nothing to save when both follow the deployment or a number is chosen but not given", () => {
     expect(limitsInput(limitDraft(null), limitDraft(null))).toBeNull();
     expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toBeNull();

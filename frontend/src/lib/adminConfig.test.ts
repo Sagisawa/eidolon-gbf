@@ -4,6 +4,7 @@ import {
   changeOf,
   formOf,
   ITEM_SPECS,
+  UNLIMITED,
   readOnlyValue,
   rows,
   statusDisplay,
@@ -150,16 +151,27 @@ describe("formOf and changeOf", () => {
 
 describe("limits", () => {
   const limits = ITEM_SPECS.limits;
-  const form = { turns_per_hour: "2", calls_per_hour: "0", call_minutes: "10", turns_per_call: "40", history_turns: "20" };
+  const form = {
+    turns_per_hour: "2",
+    calls_per_hour: UNLIMITED,
+    call_minutes: "10",
+    turns_per_call: "40",
+    history_turns: "20",
+  };
 
-  it("takes whole numbers from 0 up, 0 for no limit", () => {
+  it("starts a limit of 0 as none, not as a number", () => {
+    expect(formOf(limits, { ...form, calls_per_hour: 0, turns_per_hour: 2 }).calls_per_hour).toBe(UNLIMITED);
+    expect(formOf(limits, { ...form, calls_per_hour: 0, turns_per_hour: 2 }).turns_per_hour).toBe("2");
+  });
+
+  it("takes whole numbers from 1 up, and sends none as 0", () => {
     expect(changeOf(limits, form, true)).toEqual({
       change: { turns_per_hour: 2, calls_per_hour: 0, call_minutes: 10, turns_per_call: 40, history_turns: 20 },
     });
   });
 
-  it("refuses one that is negative, not whole or empty", () => {
-    for (const bad of ["-1", "1.5", "", "十"]) {
+  it("refuses one that is 0, negative, not whole or empty", () => {
+    for (const bad of ["0", "-1", "1.5", "", "十"]) {
       expect(changeOf(limits, { ...form, calls_per_hour: bad }, true), bad).toEqual({
         problem: { field: "calls_per_hour", reason: "limit" },
       });

@@ -3,12 +3,12 @@
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HStack, Layout, LayoutContent, LayoutFooter, VStack } from "@astryxdesign/core/Layout";
 import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { useEffect, useState } from "react";
 
-import { TouchButton, useTouch } from "@/components/admin/DashboardParts";
+import { TouchButton } from "@/components/admin/DashboardParts";
 import { FailureNotice } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
 import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
@@ -27,8 +27,9 @@ const NOTE_MAX = 500;
 const COUNT_MAX = 100_000;
 
 /**
- * 设定或修改一位用户的单独限额：每小时的回合数和通话次数各自选「跟随全站 / 设定次数 / 不限」，
- * 次数填 0 即只能用自带密钥；附一句只有管理者看得到的备注。`user` 为 null 时对话框关着；
+ * 设定或修改一位用户的单独限额：每小时的回合数和通话次数各自选「跟随全站 / 设定次数 / 不限 /
+ * 只能用自带密钥」，次数从 1 起；附一句只有管理者看得到的备注。「只能用自带密钥」是单列的一项，
+ * 不再让人填 0：全站限额里 0 是不限，同一个数字两处意思相反容易配错。`user` 为 null 时对话框关着；
  * 保存成功后把后端返回的这位用户交给 `onSaved`。
  */
 export function UserLimitsDialog({
@@ -138,7 +139,7 @@ export function UserLimitsDialog({
   );
 }
 
-/** 一项限额：先选种类，选了「设定次数」再填数字。 */
+/** 一项限额：先选种类，选了「设定次数」再填数字。四个选项竖排：手机宽度上横排放不下。 */
 function LimitField({
   label,
   draft,
@@ -151,30 +152,27 @@ function LimitField({
   /** 全站现在的数字，0 是不限；不知道时 null。 */
   site: number | null;
 }) {
-  const touch = useTouch();
   return (
     <VStack gap={2}>
-      <Text type="label">{label}</Text>
-      <SegmentedControl
+      <RadioList
         label={label}
         value={draft.choice}
         onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
-        size={touch ? "lg" : "sm"}
       >
-        <SegmentedControlItem
+        <RadioListItem
           value="default"
           label={site === null ? t.choices.default : t.defaultIs(t.siteCount(site))}
         />
-        <SegmentedControlItem value="number" label={t.choices.number} />
-        <SegmentedControlItem value="unlimited" label={t.choices.unlimited} />
-      </SegmentedControl>
+        <RadioListItem value="number" label={t.choices.number} />
+        <RadioListItem value="unlimited" label={t.choices.unlimited} />
+        <RadioListItem value="own_keys" label={t.choices.ownKeys} description={t.ownKeysHint} />
+      </RadioList>
       {draft.choice === "number" && (
         <NumberInput
           label={t.count(label)}
-          description={t.countHint}
           value={draft.count}
           onChange={(count) => onChange({ ...draft, count })}
-          min={0}
+          min={1}
           max={COUNT_MAX}
           isIntegerOnly
           units={t.units}

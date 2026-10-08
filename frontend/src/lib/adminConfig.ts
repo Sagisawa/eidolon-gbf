@@ -87,7 +87,7 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
 
 /** How a field is typed in: a choice, text, a key (left empty to keep it), max_tokens (a
  * positive whole number, empty for the protocol's default), a probability or score from 0
- * to 1, a number of seconds, or a limit (a whole number from 0 up, 0 for none). */
+ * to 1, a number of seconds, or a limit (a whole number from 1 up, or none: sent as 0). */
 export type FieldKind =
   | "select"
   | "text"
@@ -195,13 +195,17 @@ export function rows(item: ConfigItem, spec: ItemSpec): FieldRow[] {
   });
 }
 
-/** An item's form, as typed: starts from the values in effect, every key empty. */
+/** An item's form, as typed: starts from the values in effect, every key empty. A limit
+ * with none is `UNLIMITED`, never "0", so that 0 is not typed in to mean anything. */
 export type Form = Record<string, string>;
+
+export const UNLIMITED = "unlimited";
 
 export function formOf(spec: ItemSpec, effective: Shown): Form {
   return Object.fromEntries(
     spec.form.map(({ name, kind }) => {
       const value = kind === "secret" ? null : effective[name];
+      if (kind === "limit" && !value) return [name, UNLIMITED];
       return [name, value === null || value === undefined ? "" : String(value)];
     }),
   );
@@ -243,7 +247,11 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         break;
       }
       case "limit":
-        if (!/^\d+$/.test(typed)) return { problem: { field: name, reason: "limit" } };
+        if (typed === UNLIMITED) {
+          change[name] = 0;
+          break;
+        }
+        if (!/^[1-9]\d*$/.test(typed)) return { problem: { field: name, reason: "limit" } };
         change[name] = Number(typed);
         break;
       case "seconds": {

@@ -4,6 +4,8 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { HStack } from "@astryxdesign/core/HStack";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { NumberInput } from "@astryxdesign/core/NumberInput";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Selector } from "@astryxdesign/core/Selector";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { proportional, Table, type TableColumn } from "@astryxdesign/core/Table";
@@ -40,6 +42,7 @@ import {
   type Form,
   type ItemName,
   type ReadOnlyItem,
+  UNLIMITED,
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
@@ -173,7 +176,6 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): stri
   }
   if (spec.kind === "maxTokens") return t.maxTokensHint;
   if (spec.kind === "probability") return t.formHints.probability;
-  if (spec.kind === "limit") return t.formHints.limit;
   if (name === "judge" && spec.name === "model") return t.formHints.judge_model;
   return t.formHints[spec.name];
 }
@@ -312,6 +314,17 @@ function AvailableItem({
           <FormLayout>
             {spec.form.map((field) => {
               const label = t.fields[field.name] ?? field.name;
+              if (field.kind === "limit") {
+                return (
+                  <LimitInput
+                    key={field.name}
+                    label={label}
+                    value={form[field.name]}
+                    onChange={set(field.name)}
+                    error={problem?.field === field.name ? t.problems.limit(label) : null}
+                  />
+                );
+              }
               if (field.kind === "select") {
                 return (
                   <Selector
@@ -362,6 +375,58 @@ function AvailableItem({
         </form>
       )}
     </SettingsSection>
+  );
+}
+
+/**
+ * 一项限额：先选「设定上限」还是「不限」，选了上限再填 1 以上的数。不让 0 当「不限」：
+ * 用户的单独限额里 0 是「只能用自带密钥」，同一个数字两处意思相反容易配错。
+ * 从「不限」切回「设定上限」时填回刚才的数。
+ */
+function LimitInput({
+  label,
+  value,
+  onChange,
+  error,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error: string | null;
+}) {
+  const touch = useTouch();
+  const unlimited = value === UNLIMITED;
+  const lastCount = useRef(unlimited ? "" : value);
+  return (
+    <VStack gap={2}>
+      <Text type="label">{label}</Text>
+      <HStack gap={3} vAlign="start" wrap="wrap">
+        <SegmentedControl
+          label={label}
+          value={unlimited ? "unlimited" : "number"}
+          onChange={(choice) => onChange(choice === "unlimited" ? UNLIMITED : lastCount.current)}
+          size={touch ? "lg" : "md"}
+        >
+          <SegmentedControlItem value="number" label={t.limitChoices.number} />
+          <SegmentedControlItem value="unlimited" label={t.limitChoices.unlimited} />
+        </SegmentedControl>
+        {!unlimited && (
+          <NumberInput
+            label={label}
+            isLabelHidden
+            value={value === "" ? null : Number(value)}
+            onChange={(count) => {
+              lastCount.current = count === null ? "" : String(count);
+              onChange(lastCount.current);
+            }}
+            min={1}
+            isIntegerOnly
+            width={160}
+            status={error ? { type: "error", message: error } : undefined}
+          />
+        )}
+      </HStack>
+    </VStack>
   );
 }
 
