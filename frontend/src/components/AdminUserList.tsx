@@ -102,17 +102,23 @@ export function AdminUserList() {
   function rowAction(user: AdminUser) {
     const action = banAction(user);
     if (action === "ban") {
-      return <TouchButton label={t.ban} variant="ghost" size="sm" onClick={() => setBanning(user)} />;
+      return (
+        <TouchButton label={copy.admin.actionOn(t.ban, user.name)} variant="ghost" size="sm" onClick={() => setBanning(user)}>
+          {t.ban}
+        </TouchButton>
+      );
     }
     if (action === "unban") {
       return (
         <TouchButton
-          label={t.unban}
+          label={copy.admin.actionOn(t.unban, user.name)}
           variant="ghost"
           size="sm"
           onClick={() => unban(user)}
           isLoading={unbanning === user.id}
-        />
+        >
+          {t.unban}
+        </TouchButton>
       );
     }
     return null;

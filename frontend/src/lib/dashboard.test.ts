@@ -11,6 +11,7 @@ import {
   healthStatus,
   healthSummary,
   isDashboardRange,
+  axisLabels,
   labelledStretches,
   splitZeroRows,
   stretchLabel,
@@ -113,6 +114,16 @@ describe("stretches of the trend", () => {
     expect(stretchSpan(local(10, 7, 14), "hour")).toBe("10月7日 14:00–15:00");
     expect(stretchSpan(local(10, 7, 18), "6h")).toBe("10月7日 18:00–00:00");
     expect(stretchSpan(local(10, 7, 0), "day")).toBe("10月7日");
+  });
+
+  it("label six-hour stretches by day where the day changes, so a week never reads 12:00 throughout", () => {
+    // 28 six-hour stretches starting at 02:00 local, as UTC-aligned stretches do at UTC+8.
+    const starts = Array.from({ length: 28 }, (_, i) => local(10, 1, 2 + i * 6));
+    const every4 = axisLabels(starts, "6h", labelledStretches(28, 7));
+    expect([...every4.values()]).toEqual(["10月1日", "10月2日", "10月3日", "10月4日", "10月5日", "10月6日", "10月7日"]);
+    const every2 = axisLabels(starts, "6h", labelledStretches(28, 14));
+    expect([...every2.values()].slice(0, 3)).toEqual(["10月1日", "20:00", "10月2日"]);
+    expect(axisLabels(starts, "hour", new Set([0])).get(0)).toBe("02:00");
   });
 
   it("label at most so many, always the latest", () => {

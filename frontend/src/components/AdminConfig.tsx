@@ -222,8 +222,13 @@ function AvailableItem({
   const formRef = useRef<HTMLFormElement>(null);
 
   // 打开表单时焦点移到第一个能填的框（按钮被表单替换掉，焦点不移就落回页首）。
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const wasEditing = useRef(false);
   useEffect(() => {
     if (editing) formRef.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled])")?.focus();
+    // 关掉表单（取消或保存）后焦点回到「修改」：它随表单关闭重新挂上，原来的那个元素已经不在了。
+    else if (wasEditing.current) actionsRef.current?.querySelector<HTMLElement>("button")?.focus();
+    wasEditing.current = editing;
   }, [editing]);
 
   function edit() {
@@ -279,8 +284,10 @@ function AvailableItem({
       {/* 修改时表单里已经填着当前的值：没有覆盖时上面那份「项：当前值」只是重复，收起；有覆盖时三列对照还有用，留着。 */}
       {(!editing || fieldRows.some((row) => row.overridden)) && <Values name={name} rows={fieldRows} />}
       {!editing && (
-        <HStack gap={2} wrap="wrap">
-          <TouchButton label={t.edit} onClick={edit} isDisabled={busy !== null} />
+        <HStack ref={actionsRef} gap={2} wrap="wrap">
+          <TouchButton label={copy.admin.actionOn(t.edit, t.items[name].title)} onClick={edit} isDisabled={busy !== null}>
+            {t.edit}
+          </TouchButton>
           {display.canRestore && (
             <TouchButton
               variant="ghost"

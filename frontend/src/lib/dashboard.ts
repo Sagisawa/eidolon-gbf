@@ -269,6 +269,29 @@ export function countTicks(max: number, count = 4): number[] {
   return ticks;
 }
 
+/**
+ * The axis labels of the stretches `labelled` picks (index → label). Hourly and daily
+ * stretches label themselves (`stretchLabel`). Six-hour stretches are labelled by their day
+ * wherever the day changes since the label before, and by their hour otherwise: they line up
+ * with UTC, so in most time zones none starts at local midnight, and labelling every fourth
+ * one by its hour would print the same hour every day（东八区 7 天视图全是「12:00」）.
+ */
+export function axisLabels(starts: string[], bucket: Bucket, labelled: Set<number>): Map<number, string> {
+  const labels = new Map<number, string>();
+  let lastDay: string | null = null;
+  for (const i of [...labelled].sort((a, b) => a - b)) {
+    if (bucket !== "6h") {
+      labels.set(i, stretchLabel(starts[i], bucket));
+      continue;
+    }
+    const at = new Date(starts[i]);
+    const day = `${at.getMonth() + 1}月${at.getDate()}日`;
+    labels.set(i, day === lastDay ? `${String(at.getHours()).padStart(2, "0")}:00` : day);
+    lastDay = day;
+  }
+  return labels;
+}
+
 /** Which of `n` stretches the axis labels, so that at most `most` labels fit: every
  * stretch, or every second, third… counting back from the latest. */
 export function labelledStretches(n: number, most: number): Set<number> {

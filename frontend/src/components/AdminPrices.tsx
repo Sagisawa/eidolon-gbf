@@ -77,6 +77,9 @@ export function AdminPrices() {
   /** 每打开一次表单加一，用来把表单滚进视野、把焦点移进去；不跟着输入变。 */
   const [opened, setOpened] = useState(0);
   const editorRef = useRef<HTMLDivElement>(null);
+  /** 打开表单的那个按钮；关掉表单（取消或保存）后焦点回到它，它不在了（「新增单价」随表单隐藏）就回到「新增单价」。 */
+  const returnTo = useRef<HTMLElement | null>(null);
+  const addRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
   const wide = useWide();
@@ -126,6 +129,8 @@ export function AdminPrices() {
   }
 
   function open(next: PriceForm, nextMode: FormMode) {
+    const from = document.activeElement;
+    returnTo.current = from instanceof HTMLElement ? from : null;
     setFailure(null);
     setNotice(null);
     setForm(next);
@@ -141,26 +146,40 @@ export function AdminPrices() {
     editor.querySelector<HTMLInputElement>("input:not([disabled])")?.focus({ preventScroll: true });
   }, [opened]);
 
+  const formOpen = form !== null;
+  useEffect(() => {
+    if (formOpen || opened === 0) return;
+    const back = returnTo.current?.isConnected ? returnTo.current : addRef.current?.querySelector<HTMLElement>("button");
+    back?.focus();
+    returnTo.current = null;
+    // 只在表单关上的那一刻跑，`opened` 不算触发条件。
+  }, [formOpen]);
+
   /** 一条单价的操作：修改，有后台设定时还能恢复（回到目录或预设，都没有的就删除）。 */
   function entryActions(id: string, entry: PriceEntry) {
+    const restoreWord = entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove;
     return (
       <HStack gap={1} wrap="wrap">
         <TouchButton
           size="sm"
           variant="ghost"
-          label={t.edit}
+          label={t.formTitle.edit(entry.model)}
           isDisabled={busy !== null}
           onClick={() => open(priceFormOf(entry), { kind: "edit", entry })}
-        />
+        >
+          {t.edit}
+        </TouchButton>
         {entry.override && (
           <TouchButton
             size="sm"
             variant="ghost"
-            label={entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove}
+            label={copy.admin.actionOn(restoreWord, entry.model)}
             isLoading={busy === id}
             isDisabled={busy !== null}
             onClick={() => void run(id, () => restorePrice(entry), t.restored)}
-          />
+          >
+            {restoreWord}
+          </TouchButton>
         )}
       </HStack>
     );
@@ -216,10 +235,12 @@ export function AdminPrices() {
                   <TouchButton
                     size="sm"
                     variant="ghost"
-                    label={t.priceIt}
+                    label={t.formTitle.price(u.model)}
                     isDisabled={busy !== null}
                     onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }), { kind: "price" })}
-                  />
+                  >
+                    {t.priceIt}
+                  </TouchButton>
                 }
               />
             ))}
@@ -284,7 +305,7 @@ export function AdminPrices() {
         </VStack>
       )}
       {prices && !form && (
-        <HStack gap={2}>
+        <HStack ref={addRef} gap={2}>
           <TouchButton label={t.add} onClick={() => open(emptyPriceForm(), { kind: "add" })} isDisabled={busy !== null} />
         </HStack>
       )}

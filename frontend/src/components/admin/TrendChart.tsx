@@ -5,7 +5,7 @@ import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useRef, useState } from "react";
 
-import { type Bucket, labelledStretches, stretchLabel, stretchSpan } from "@/lib/dashboard";
+import { axisLabels, type Bucket, labelledStretches, stretchSpan } from "@/lib/dashboard";
 
 const HEIGHT = 180;
 const AXIS = { left: 56, bottom: 24, top: 8, right: 24 }; // room for the latest label
@@ -76,7 +76,11 @@ export function TrendChart({
   const y = (n: number) => base - (n / top) * (base - AXIS.top);
   const slot = plotWidth / Math.max(1, points.length);
   const bar = Math.max(1, Math.min(MAX_BAR, slot - GAP));
-  const labelled = labelledStretches(points.length, Math.max(2, Math.floor(plotWidth / 64)));
+  const labels = axisLabels(
+    points.map((p) => p.start),
+    bucket,
+    labelledStretches(points.length, Math.max(2, Math.floor(plotWidth / 64))),
+  );
   const readout =
     hovered !== null && points[hovered]
       ? describe(stretchSpan(points[hovered].start, bucket), hovered)
@@ -139,7 +143,7 @@ export function TrendChart({
               {point.value > 0 && (
                 <path d={column(x, bar, y(point.value), base)} fill={CHART_INK} />
               )}
-              {labelled.has(i) && (
+              {labels.has(i) && (
                 <text
                   x={x + bar / 2}
                   y={HEIGHT - 6}
@@ -147,7 +151,7 @@ export function TrendChart({
                   fill="var(--color-text-secondary)"
                   style={{ fontSize: "var(--text-supporting-size)" }}
                 >
-                  {stretchLabel(point.start, bucket)}
+                  {labels.get(i)}
                 </text>
               )}
             </g>

@@ -287,6 +287,8 @@ export const zh = {
     },
   },
   admin: {
+    /** 一排同名按钮（每行一个「修改」「封禁」）的读屏名：动作加对象，看得见的字仍只是动作。 */
+    actionOn: (action: string, target: string) => `${action}：${target}`,
     title: "后台",
     nav: "后台导航",
     pages: {
