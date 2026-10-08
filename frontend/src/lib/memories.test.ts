@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Character, Memory } from "@/lib/api";
-import { sourceCharacter } from "@/lib/memories";
+import { sourceCharacter, supersededMark } from "@/lib/memories";
 
 const mano: Character = {
   id: "mano",
@@ -12,12 +12,13 @@ const mano: Character = {
   stand: null,
 };
 
-const memory = (source: string): Memory => ({
+const memory = (source: string, superseded = false): Memory => ({
   id: 1,
   text: "制作人喜欢喝咖啡",
   source_character_id: source,
   source_character_name: source === "mano" ? "櫻木真乃" : null,
   created_at: "2026-09-01T12:00:00Z",
+  superseded,
 });
 
 describe("sourceCharacter", () => {
@@ -31,5 +32,15 @@ describe("sourceCharacter", () => {
 
   it("角色列表还没取到时也没有角色", () => {
     expect(sourceCharacter(memory("mano"), [])).toBeNull();
+  });
+});
+
+describe("supersededMark", () => {
+  it("被取代的记忆标出「已被取代」", () => {
+    expect(supersededMark(memory("mano", true))).toBe("已被取代");
+  });
+
+  it("有效的记忆不标", () => {
+    expect(supersededMark(memory("mano"))).toBeNull();
   });
 });

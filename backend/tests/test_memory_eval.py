@@ -157,7 +157,7 @@ async def test_a_run_goes_through_the_memories_module_and_is_summed_up_by_catego
         LLMError("背景模型返回 502"),
         FakeBackgroundLLM.NOTHING,
         memorized("制作人今天很累"),
-        # osaka-superseded: right but for superseding, which memories cannot do yet
+        # osaka-superseded: right but for not saying it supersedes Osaka
         *[memorized("制作人搬到了东京")] * 3,
     )
     judge = FakeRetrievalJudge()
@@ -223,6 +223,37 @@ async def test_a_run_goes_through_the_memories_module_and_is_summed_up_by_catego
     [cat_json] = [c for c in dumped["recall"] if c["id"] == "it-cat"]
     assert cat_json["found"] == ["cat"] and cat_json["judge"]["need"] == "memories"
     assert cat_json["judge"]["probabilities"]["about_producer"] == 0.9
+
+
+SUPERSEDED = """
+[[recall]]
+id = "kitten-named"
+category = "supersede"
+character = "mano"
+memories = [
+  { key = "kitten", source = "mano", text = "制作人养了一只小猫", superseded_by = "shiro" },
+  { key = "shiro", source = "kogane", text = "制作人养了一只叫小白的猫" },
+]
+history = [{ ja = "猫ちゃん、元気ですか？", zh = "猫咪还好吗？" }]
+said = "它昨晚又叫了一夜"
+found = ["shiro"]
+not_found = ["kitten"]
+"""
+
+
+async def test_a_starting_memory_superseded_is_so_before_the_turn(
+    tmp_path: Path, config: dict[str, Character]
+):
+    """Written down through the module, by a turn saying what it supersedes."""
+    memory_eval = load_memory_eval(write(tmp_path, SUPERSEDED), config)
+
+    results = await evaluate(
+        memory_eval, config, services(FakeBackgroundLLM(), FakeRetrievalJudge()),
+        tmp_path / "work",
+    )
+
+    [named] = results.recall
+    assert named.found == ("shiro",) and named.passed
 
 
 async def test_memories_found_but_not_told_apart_stop_the_run(

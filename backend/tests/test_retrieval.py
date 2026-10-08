@@ -83,7 +83,8 @@ async def test_small_talk_retrieves_nothing(
     system = await system_prompt(client, llm, "早上好")
 
     assert jev.asked == [("櫻木真乃", "早上好")]
-    assert embedder.queries == []
+    # Embedded only to show the background model the memories nearest the turn, after it.
+    assert embedder.queries == ["早上好"]
     assert reranker.calls == []
     assert "# 回忆与资料" not in system
     assert PARK_LINE not in system

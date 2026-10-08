@@ -70,9 +70,9 @@ async def test_talk_of_the_users_own_life_retrieves_memories_only(
 
 
 async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
-    llm, embedder = FakeLLM(REPLY, REPLY), FakeEmbedder()
+    llm, embedder, reranker = FakeLLM(REPLY, REPLY), FakeEmbedder(), FakeReranker()
     client = make_client(
-        llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(),
+        llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=reranker,
         background_llm=FakeBackgroundLLM(memorized(CAT)),
     )
 
@@ -80,7 +80,9 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
     await turn(client, await start_conversation(client, "kogane"), "早上好")
 
     assert memories_section(llm.prompts[-1][0].content) == ""
-    assert embedder.queries == []
+    assert reranker.calls == []
+    # Each turn is embedded only to show the background model the memories nearest it.
+    assert embedder.queries == ["我家的猫叫小白哦", "早上好"]
     assert embedder.documents == [CAT]  # embedded as it was written down, not when searched
 
 

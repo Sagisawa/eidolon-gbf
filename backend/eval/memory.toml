@@ -19,7 +19,8 @@
 #   character = "mano"                 # 这一轮对话的角色，characters.toml 里的角色 id
 #   memories = [                       # 预置的记忆，可省略；按顺序写入
 #     { key = "osaka", source = "kogane", text = "制作人住在大阪" },
-#     # superseded_by：已被哪条取代，那条要写在它后面（取代功能做好之前不生效，见下）
+#     # superseded_by：已被哪条取代，那条要写在它后面；写下那条的回合会标出取代它
+#     # （和真实回合一样，只能取代背景模型看到的最相关的 20 条有效记忆，没看到时评测报错）
 #     { key = "old", source = "mano", text = "……", superseded_by = "new" },
 #   ]
 #   history = [                        # 上文，从旧到新；{ user = "…" } 或 { ja = "…", zh = "…" }（角色的回复）
@@ -65,8 +66,8 @@
 # 每项改动完成后用真模型重跑，把结果以 JSON 更新到 memory-baseline.json（`--json eval/memory-baseline.json`），
 # 并在对应 ticket 的 Comments 里记下对比。
 #
-# 取代功能（ADR-0014）做好之前，所有记忆都算有效：预置记忆的 superseded_by 不生效，提炼也不会取代任何记忆，
-# 基线里取代类题失败是预期的。
+# 基线（01）是在取代功能（ADR-0014）做好之前跑的：那时预置记忆的 superseded_by 不生效，提炼也不会取代
+# 任何记忆，取代类题失败是预期的。
 #
 # 标注规则：
 # - 关键词按「意思对了就该出现」来挑，留出同义的写法（「东京」「東京」）；不要求整句一致。

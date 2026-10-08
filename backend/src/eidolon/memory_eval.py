@@ -5,7 +5,7 @@ Each case runs through the memories module as a turn would, with the deployer's
 background model, embedder, reranker and judge model, on a scratch database of its own
 with one made-up user. The memories a case starts with are written down through the
 module too, each in a turn with the character it names, by a background model that
-writes down just that memory.
+writes down just that memory, superseding those the case says it superseded.
 
 An extraction case takes one more turn and looks at what it wrote down: every group of
 keywords it must have in some new memory (any keyword of the group will do), none it must
@@ -21,10 +21,6 @@ Each case has a category, and the passes are counted by category: a change aimed
 must pass more of its cases than the baseline committed beside the set, and may pass at
 most one fewer case of any other. The continuity cases are there to decide on later
 work, never a bar to a change.
-
-Until memories can be superseded (ADR-0014), every memory holds: a starting memory's
-`superseded_by` is not applied, nothing a turn writes down supersedes anything, and the
-cases that should supersede fail, as the baseline expects.
 
 The set holds a made-up user's words and made-up replies, never story text, so it can be
 committed (ADR-0003).
@@ -45,7 +41,7 @@ from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder
 from eidolon.judge import JudgeError, JudgeModel, JudgeThresholds
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
-from eidolon.memory import Memories, parse_memories
+from eidolon.memory import SHOWN_MEMORIES, Memories, parse_memories
 from eidolon.rerank import Reranker, RerankThresholds
 from eidolon.retrieval import ModelRetrievalJudge, Need, ReferenceSources, Retrieval, RetrievalAnswer
 from eidolon.store import Conversation, Message, Segment, Store
@@ -597,15 +593,19 @@ class _Scratch:
         return self._conversations[character_id]
 
     async def start_with(self, memories: Sequence[StartingMemory]) -> dict[str, int]:
-        """Write `memories` down, each in a turn with its source character, in order;
-        returns each one's id by key."""
-        # Memories cannot be superseded yet (ADR-0014): once they can, the turn writing
-        # down what supersedes others is to say so, and `superseded_by` is applied.
+        """Write `memories` down, each in a turn with its source character, in order,
+        superseding those it superseded; returns each one's id by key."""
         for memory in memories:
+            superseded = [m.text for m in memories if m.superseded_by == memory.key]
+            model = _ScriptedBackground(memory.text, superseded)
             await self.take_turn(
-                memory.source, _ScriptedBackground(memory.text), (), memory.text,
-                _reply_message(0, "はい", "好的"),
+                memory.source, model, (), memory.text, _reply_message(0, "はい", "好的"),
             )
+            if model.unseen:
+                raise MemoryEvalError(
+                    f"预置的记忆 {memory.key} 要取代的记忆没有交给背景模型（只交给最相关的"
+                    f" {SHOWN_MEMORIES} 条）：{'、'.join(model.unseen)}"
+                )
         ids = {m.text: m.id for m in await self.memories.entries(self.user)}
         if missing := [m.text for m in memories if m.text not in ids]:
             raise MemoryEvalError(f"预置的记忆没有写进去：{'、'.join(missing)}")
@@ -630,15 +630,29 @@ class _Scratch:
 
 
 class _ScriptedBackground:
-    """A background model that writes down just `text`, or nothing."""
+    """A background model that writes down just `text` (or nothing), superseding the memories
+    `superseded` by the numbers it is shown them under; those it is not shown are listed
+    in `unseen`."""
 
-    def __init__(self, text: str | None) -> None:
-        self._answer = json.dumps({"memories": [text] if text else []}, ensure_ascii=False)
+    def __init__(self, text: str | None, superseded: Sequence[str] = ()) -> None:
+        self._text = text
+        self._superseded = superseded
+        self.unseen: list[str] = []
 
     async def stream(
         self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
     ) -> AsyncIterator[str | ToolCall]:
-        yield self._answer
+        # As `memory._extraction_prompt` numbers them: 「1. 制作人……」 under 「# 已经记住的事」.
+        section = messages[-1].content.split("# 已经记住的事")[-1].split("\n# ")[0]
+        shown = {
+            text: int(number)
+            for number, _, text in (line.partition(". ") for line in section.splitlines())
+            if number.isdigit()
+        }
+        self.unseen = [t for t in self._superseded if t not in shown]
+        supersedes = [shown[t] for t in self._superseded if t in shown]
+        written = [{"text": self._text, "supersedes": supersedes}] if self._text else []
+        yield json.dumps({"memories": written}, ensure_ascii=False)
 
     async def aclose(self) -> None:
         pass

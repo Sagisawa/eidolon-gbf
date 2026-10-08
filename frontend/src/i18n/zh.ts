@@ -748,11 +748,12 @@ export const zh = {
   },
   memories: {
     title: "记忆",
-    intro: "角色们在对话中记下的、关于你的事。所有角色共用这些记忆，对一位角色说过的事，其他角色会以转述的口吻知道。删除后，角色不会再想起这件事。",
+    intro: "角色们在对话中记下的、关于你的事。所有角色共用这些记忆，对一位角色说过的事，其他角色会以转述的口吻知道。删除后，角色不会再想起这件事。标为「已被取代」的记忆，已经被你后来说的话更新，角色不会再想起；删掉取代它的那条，它就恢复。",
     loading: "正在读取…",
     empty: "角色们还没有记下关于你的事。",
     toldTo: (name: string) => `对${name}说的`,
     goneCharacter: "已不在的角色",
+    superseded: "已被取代",
     date: (year: number, month: number, day: number) => `${year}年${month}月${day}日`,
     remove: "删除",
     removeLabel: (text: string) => `删除记忆：${text}`,

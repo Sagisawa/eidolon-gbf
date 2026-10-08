@@ -14,6 +14,7 @@ from tests.test_shared_memory import (
     memorized,
     turn,
 )
+from tests.test_memories import OSAKA, TOKYO, superseding
 from tests.test_text_turn import start_conversation
 
 
@@ -49,7 +50,7 @@ async def test_lists_every_memory_with_the_character_it_was_told_to(
         (CAT, "mano", "櫻木真乃"),
     ]
     assert all(set(m) == {"id", "text", "source_character_id", "source_character_name",
-                          "created_at"} for m in listed)
+                          "created_at", "superseded"} for m in listed)
 
 
 async def test_deleting_a_memory_that_is_gone_is_not_found(make_client: ClientFactory):
@@ -97,3 +98,21 @@ async def test_without_memory_there_is_nothing_to_list(make_client: ClientFactor
 
     assert await memories(client) == []
     assert (await client.delete("/api/memories")).status_code == 204
+
+
+async def test_superseded_memories_are_listed_as_such_until_what_superseded_them_goes(
+    make_client: ClientFactory,
+):
+    client = make_client(
+        FakeLLM(REPLY, REPLY), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(),
+        reranker=FakeReranker("制作人"),
+        background_llm=FakeBackgroundLLM(memorized(OSAKA), superseding(TOKYO, OSAKA)),
+    )
+    await turn(client, await start_conversation(client, "mano"), "我住在大阪")
+    await turn(client, await start_conversation(client, "kogane"), "我搬到东京了")
+
+    listed = await memories(client)
+    assert [(m["text"], m["superseded"]) for m in listed] == [(TOKYO, False), (OSAKA, True)]
+
+    assert (await client.delete(f"/api/memories/{listed[0]['id']}")).status_code == 204
+    assert [(m["text"], m["superseded"]) for m in await memories(client)] == [(OSAKA, False)]

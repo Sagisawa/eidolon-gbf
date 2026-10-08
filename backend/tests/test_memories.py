@@ -4,6 +4,8 @@ character of that user's (as hearsay when it was told to someone else, ADR-0002)
 can be listed, deleted and cleared; no user ever reaches another's."""
 
 import asyncio
+import json
+import sqlite3
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -348,3 +350,254 @@ async def test_without_a_previous_reply_memories_are_found_with_what_the_user_sa
 
     assert embedder.queries[-1] == "你知道我家的猫吗？"
     assert reranker.calls[-1][0] == "你知道我家的猫吗？"
+
+
+# Superseding (ADR-0014): what a new memory updates is superseded by it, found no more but
+# still listed, and comes back when what superseded it is deleted.
+
+OSAKA = "制作人住在大阪"
+TOKYO = "制作人从大阪搬到了东京"
+KYOTO = "制作人从东京搬到了京都"
+DOG = "制作人养了一只狗"
+
+
+def known(prompt: str) -> dict[str, int]:
+    """The number of each memory the background model was shown as already remembered."""
+    section = prompt.split("# 已经记住的事")[1].split("# 制作人和")[0]
+    numbered = (line.partition(". ") for line in section.splitlines())
+    return {text: int(number) for number, _, text in numbered if number.isdigit()}
+
+
+def superseding(text: str, *old: str) -> Callable[[str], str]:
+    """The background model's answer writing down `text`, superseding the memories `old`
+    by the numbers it was shown them under."""
+    def answer(prompt: str) -> str:
+        numbers = [known(prompt)[o] for o in old]
+        return json.dumps({"memories": [{"text": text, "supersedes": numbers}]},
+                          ensure_ascii=False)
+    return answer
+
+
+async def listed(memories: Memories, world: World) -> dict[str, str | None]:
+    """Each of the user's memories, with the text of what superseded it, if anything."""
+    entries = await memories.entries(world.producer)
+    texts = {m.id: m.text for m in entries}
+    return {m.text: texts.get(m.superseded_by) if m.superseded_by else None for m in entries}
+
+
+async def test_the_background_model_is_shown_the_holding_memories_nearest_the_turn(
+    world: World, make_memories: MemoriesFactory
+):
+    """Not the latest: a memory told long ago is still known when it comes up again."""
+    others = [f"制作人喜欢第{i}种点心" for i in range(1, 26)]
+    background = FakeBackgroundLLM(
+        memorized(CAT), *(memorized(*others[i:i + 5]) for i in range(0, 25, 5))
+    )
+    memories = make_memories(background_llm=background)
+    conversation = world.conversation("mano")
+    for said in ["我家的猫叫小白哦", *["我喜欢点心"] * 5]:
+        await tell(memories, world, conversation, said)
+    await memories.entries(world.producer)
+
+    await tell(memories, world, conversation, "我家的猫最近总是半夜叫")
+    await memories.entries(world.producer)
+
+    shown = known("\n".join(m.content for m in background.prompts[-1]))
+    assert len(shown) == memory.SHOWN_MEMORIES
+    assert shown[CAT] == 1  # the nearest first
+
+
+async def test_superseded_memories_are_not_shown_to_the_background_model(
+    world: World, make_memories: MemoriesFactory
+):
+    background = FakeBackgroundLLM(memorized(OSAKA), superseding(TOKYO, OSAKA))
+    memories = make_memories(background_llm=background)
+    await tell(memories, world, world.conversation("mano"), "我住在大阪")
+    await tell(memories, world, world.conversation("mano"), "我搬到东京了")
+
+    await tell(memories, world, world.conversation("mano"), "东京好热闹")
+    await memories.entries(world.producer)
+
+    assert list(known("\n".join(m.content for m in background.prompts[-1]))) == [TOKYO]
+
+
+async def test_while_the_embedder_is_down_the_background_model_is_shown_the_latest(
+    world: World, make_memories: MemoriesFactory
+):
+    others = [f"制作人喜欢第{i}种点心" for i in range(1, 26)]
+    embedder = FakeEmbedder()
+    background = FakeBackgroundLLM(
+        memorized(CAT), *(memorized(*others[i:i + 5]) for i in range(0, 25, 5))
+    )
+    memories = make_memories(background_llm=background, embedder=embedder)
+    conversation = world.conversation("mano")
+    for said in ["我家的猫叫小白哦", *["我喜欢点心"] * 5]:
+        await tell(memories, world, conversation, said)
+    embedder.down = True
+
+    await tell(memories, world, conversation, "我家的猫最近总是半夜叫")
+    await memories.entries(world.producer)
+
+    shown = known("\n".join(m.content for m in background.prompts[-1]))
+    assert set(shown) == set(others[-memory.SHOWN_MEMORIES:])
+
+
+async def test_a_new_memory_supersedes_what_it_updates_whoever_it_was_told_to(
+    world: World, make_memories: MemoriesFactory
+):
+    """Told to Mano they live in Osaka and to Kogane they moved to Tokyo, Mano hears of
+    Tokyo, not Osaka; Osaka is still listed, as superseded."""
+    memories = make_memories(memorized(OSAKA, DOG), superseding(TOKYO, OSAKA))
+    await tell(memories, world, world.conversation("mano"), "我住在大阪，养了一只狗")
+    await tell(memories, world, world.conversation("kogane"), "我搬到东京了")
+
+    assert await listed(memories, world) == {TOKYO: None, DOG: None, OSAKA: TOKYO}
+    section = await find(memories, world, world.conversation("mano"), "你知道我住在哪吗？")
+    assert TOKYO in section and "听月岡恋鐘说" in line_of(section, TOKYO)
+    assert OSAKA not in section and DOG in section
+
+
+async def test_one_memory_may_supersede_several(world: World, make_memories: MemoriesFactory):
+    both = "制作人的狗去世了，现在住在东京"
+    memories = make_memories(memorized(OSAKA, DOG, CAT), superseding(both, OSAKA, DOG))
+    await tell(memories, world, world.conversation("mano"), "我住在大阪，养了猫和狗")
+    await tell(memories, world, world.conversation("mano"), "狗去世了，我也搬到东京了")
+
+    assert await listed(memories, world) == {both: None, CAT: None, OSAKA: both, DOG: both}
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"memories": [{"text": TOKYO, "supersedes": [0, 3, -1, 99]}]},  # out of range
+        {"memories": [{"text": TOKYO, "supersedes": ["1", True, 1.0, None]}]},  # not numbers
+        {"memories": [{"text": TOKYO, "supersedes": 1}]},  # not a list
+        {"memories": [TOKYO]},  # as before superseding
+    ],
+)
+async def test_what_the_background_model_gets_wrong_supersedes_nothing(
+    world: World, make_memories: MemoriesFactory, answer: dict
+):
+    memories = make_memories(
+        memorized(OSAKA, DOG), json.dumps(answer, ensure_ascii=False)
+    )
+    await tell(memories, world, world.conversation("mano"), "我住在大阪，养了一只狗")
+    await tell(memories, world, world.conversation("mano"), "我搬到东京了")
+
+    assert await listed(memories, world) == {TOKYO: None, DOG: None, OSAKA: None}
+
+
+async def test_a_memory_supersedes_only_what_the_background_model_was_shown(
+    world: World, make_memories: MemoriesFactory
+):
+    """Another user's memory, numbered past what was shown, stays as it is."""
+    friend = world.store.create_user("friend").id
+    memories = make_memories(
+        memorized(OSAKA), memorized(DOG),
+        json.dumps({"memories": [{"text": TOKYO, "supersedes": [1, 2]}]}, ensure_ascii=False),
+    )
+    await tell(memories, world, world.conversation("mano", friend), "我住在大阪")
+    await tell(memories, world, world.conversation("mano"), "我养了一只狗")
+    await tell(memories, world, world.conversation("mano"), "我搬到东京了")
+
+    assert await listed(memories, world) == {TOKYO: None, DOG: TOKYO}
+    assert [m.superseded_by for m in await memories.entries(friend)] == [None]
+
+
+async def test_a_superseded_memory_comes_back_when_what_superseded_it_is_deleted(
+    world: World, make_memories: MemoriesFactory
+):
+    memories = make_memories(memorized(OSAKA), superseding(TOKYO, OSAKA))
+    await tell(memories, world, world.conversation("mano"), "我住在大阪")
+    await tell(memories, world, world.conversation("kogane"), "我搬到东京了")
+    tokyo = next(m for m in await memories.entries(world.producer) if m.text == TOKYO)
+
+    assert await memories.delete(world.producer, tokyo.id)
+
+    assert await listed(memories, world) == {OSAKA: None}
+    section = await find(memories, world, world.conversation("mano"), "你知道我住在哪吗？")
+    assert OSAKA in section
+
+
+async def test_deleting_a_superseded_memory_brings_back_none_before_it(
+    world: World, make_memories: MemoriesFactory
+):
+    """Osaka, then Tokyo, then Kyoto: deleting Tokyo leaves Kyoto superseding Osaka."""
+    memories = make_memories(
+        memorized(OSAKA), superseding(TOKYO, OSAKA), superseding(KYOTO, TOKYO)
+    )
+    for said in ["我住在大阪", "我搬到东京了", "我又搬到京都了"]:
+        await tell(memories, world, world.conversation("mano"), said)
+    tokyo = next(m for m in await memories.entries(world.producer) if m.text == TOKYO)
+
+    assert await memories.delete(world.producer, tokyo.id)
+
+    assert await listed(memories, world) == {KYOTO: None, OSAKA: KYOTO}
+    kyoto = next(m for m in await memories.entries(world.producer) if m.text == KYOTO)
+    assert await memories.delete(world.producer, kyoto.id)
+    assert await listed(memories, world) == {OSAKA: None}
+
+
+async def test_a_memory_deleted_while_being_superseded_stays_deleted(
+    world: World, make_memories: MemoriesFactory, monkeypatch: pytest.MonkeyPatch
+):
+    gate = asyncio.Event()
+    background = FakeBackgroundLLM(memorized(OSAKA, DOG), superseding(TOKYO, OSAKA, DOG),
+                                   gate=gate)
+    memories = make_memories(background_llm=background)
+    gate.set()
+    await tell(memories, world, world.conversation("mano"), "我住在大阪，养了一只狗")
+    osaka = next(m for m in await memories.entries(world.producer) if m.text == OSAKA)
+    gate.clear()
+    await tell(memories, world, world.conversation("mano"), "我搬到东京了，狗也送人了")
+    monkeypatch.setattr(memory, "SETTLE_TIMEOUT", 0.01)
+
+    assert await memories.delete(world.producer, osaka.id)
+    gate.set()  # the background model answers at last
+    monkeypatch.setattr(memory, "SETTLE_TIMEOUT", 5.0)
+
+    assert await listed(memories, world) == {TOKYO: None, DOG: TOKYO}
+
+
+async def test_writing_down_what_was_superseded_brings_it_back(
+    world: World, make_memories: MemoriesFactory
+):
+    """Moving back to Osaka: the memory of living there holds again, superseding Tokyo,
+    rather than being written down a second time."""
+    memories = make_memories(
+        memorized(OSAKA), superseding(TOKYO, OSAKA), superseding(OSAKA, TOKYO)
+    )
+    for said in ["我住在大阪", "我搬到东京了", "我又搬回大阪了"]:
+        await tell(memories, world, world.conversation("mano"), said)
+
+    assert await listed(memories, world) == {TOKYO: OSAKA, OSAKA: None}
+    section = await find(memories, world, world.conversation("mano"), "你知道我住在哪吗？")
+    assert OSAKA in section and TOKYO not in section
+
+
+async def test_memories_kept_before_superseding_all_hold(tmp_path: Path, world: World):
+    """A database from before superseding gains it on opening, every memory holding."""
+    with sqlite3.connect(tmp_path / "eidolon.db") as db:
+        db.execute(
+            "CREATE TABLE memories (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            " user_id TEXT NOT NULL REFERENCES users(id), source_character_id TEXT NOT NULL,"
+            " conversation_id TEXT REFERENCES conversations(id), text TEXT NOT NULL,"
+            " created_at TEXT NOT NULL, UNIQUE (user_id, text))"
+        )
+        db.execute(
+            "INSERT INTO memories (user_id, source_character_id, text, created_at)"
+            " VALUES (?, 'mano', ?, ?)",
+            (world.producer, CAT, NOW.isoformat()),
+        )
+    db.close()
+    memories = Memories(
+        tmp_path / "eidolon.db", world.characters, lambda: NOW,
+        embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+    )
+
+    [cat] = await memories.entries(world.producer)
+    section = await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？")
+    await memories.aclose()
+
+    assert (cat.text, cat.superseded_by) == (CAT, None)
+    assert CAT in section
