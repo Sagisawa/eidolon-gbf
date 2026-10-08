@@ -559,6 +559,7 @@ export const zh = {
       intro:
         "这里改的配置存进数据库，优先于 .env。保存前会先试一下，试不通不保存；保存后新的回合和新的通话立刻用上，进行中的通话不受影响，不用重启。",
       loading: "正在读取…",
+      nav: "配置项",
       items: {
         chat_llm: {
           title: "扮演角色的 LLM",
@@ -701,6 +702,7 @@ export const zh = {
         preset: "预设",
         catalog: "目录",
         override: "后台设定",
+        effective: "生效单价",
         actions: "操作",
       },
       none: "—",
@@ -725,6 +727,10 @@ export const zh = {
       remove: "删除",
       add: "新增单价",
       priceIt: "设单价",
+      filter: "按模型或提供方筛选",
+      noMatch: "没有匹配的模型。",
+      showAll: (n: number) => `显示全部 ${n} 个`,
+      fold: "收起",
       save: "保存",
       saved: "已保存，看板按新单价估算。",
       restored: "已恢复。",

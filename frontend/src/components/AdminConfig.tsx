@@ -4,16 +4,20 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { HStack } from "@astryxdesign/core/HStack";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Selector } from "@astryxdesign/core/Selector";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { proportional, Table, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Token } from "@astryxdesign/core/Token";
+import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
+import { RowList, useWide } from "@/components/admin/DashboardParts";
 import { AdminPrices } from "@/components/AdminPrices";
+import { AppLink } from "@/components/AppLink";
 import { FailureNotice } from "@/components/FailureNotice";
 import { PROSE_WIDTH, SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -42,7 +46,10 @@ import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.admin.config;
 
-/** 后台的「配置」页：每一项列出 .env 的值、当前生效的值和状态，可以修改、恢复；然后是各模型的单价；最后是只能查看的项。 */
+/**
+ * 后台的「配置」页：页首一排页内链接；每一项列出状态和当前生效的值（有后台覆盖时对照 .env 和覆盖的值），
+ * 可以修改、恢复；然后是各模型的单价；最后是只能查看的项。
+ */
 export function AdminConfig() {
   const [config, setConfig] = useState<Config | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -59,11 +66,54 @@ export function AdminConfig() {
           {t.loading}
         </Text>
       )}
+      {config && <ConfigNav />}
       {config &&
         ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
       {config && <AdminPrices />}
       {config && <ReadOnlySection items={config.read_only} />}
     </AdminPage>
+  );
+}
+
+/** 页内一节的锚点，页首的导航跳到这里。 */
+function anchor(section: ItemName | "prices" | "read_only"): string {
+  return `config-${section}`;
+}
+
+/** 页首的页内导航：一项一个链接，配置项多、页面长，想改限额不用滚过前面六项。 */
+function ConfigNav() {
+  const links: { section: ItemName | "prices" | "read_only"; label: string }[] = [
+    ...ITEMS.map((name) => ({ section: name, label: t.items[name].title })),
+    { section: "prices", label: copy.admin.prices.title },
+    { section: "read_only", label: t.readOnly.title },
+  ];
+  return (
+    <HStack as="nav" aria-label={t.nav} gap={4} wrap="wrap" paddingBlockStart={2}>
+      {links.map(({ section, label }) => (
+        <AppLink key={section} href={`#${anchor(section)}`} isStandalone>
+          {label}
+        </AppLink>
+      ))}
+    </HStack>
+  );
+}
+
+/**
+ * 一项的各个值。没有后台覆盖时 .env 的值就是当前生效的值，三列对照只会重复一遍，所以只列「项：当前值」；
+ * 有覆盖时才展开 .env、当前生效、后台覆盖三列，看得出改了哪里、是否生效。
+ */
+function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] }) {
+  if (fieldRows.some((row) => row.overridden)) {
+    return <Table data={fieldRows} columns={columns(name)} idKey="field" density="compact" />;
+  }
+  return (
+    <MetadataList columns="multi">
+      {fieldRows.map((row) => (
+        <MetadataListItem key={row.field} label={t.fields[row.field] ?? row.field}>
+          <Text wordBreak="break-word">{shown(name, row.field, row.effective)}</Text>
+        </MetadataListItem>
+      ))}
+    </MetadataList>
   );
 }
 
@@ -135,7 +185,7 @@ function ItemSection({ name, config, onChange }: { name: ItemName; config: Confi
   const title = t.items[name].title;
   if (!isAvailable(item)) {
     return (
-      <SettingsSection title={title} description={t.items[name].hint}>
+      <SettingsSection id={anchor(name)} title={title} description={t.items[name].hint}>
         <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
           {t.unavailable(item.unavailable)}
         </Text>
@@ -196,7 +246,7 @@ function AvailableItem({
   const set = (field: string) => (value: string) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <SettingsSection title={t.items[name].title} description={t.items[name].hint}>
+    <SettingsSection id={anchor(name)} title={t.items[name].title} description={t.items[name].hint}>
       <HStack gap={2} vAlign="center" wrap="wrap">
         <StatusDot variant={display.variant} label={t.status[item.status]} />
         <Text>{t.status[item.status]}</Text>
@@ -214,7 +264,7 @@ function AvailableItem({
       {display.failure && <Banner status="warning" title={t.status.failed} description={t.failed(display.failure)} />}
       {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
       {failure && <FailureNotice failure={failure} />}
-      <Table data={rows(item, spec)} columns={columns(name)} idKey="field" density="compact" />
+      <Values name={name} rows={rows(item, spec)} />
       {!editing && (
         <HStack gap={2} wrap="wrap">
           <Button label={t.edit} onClick={edit} isDisabled={busy !== null} />
@@ -299,9 +349,27 @@ const READ_ONLY_COLUMNS: TableColumn<ReadOnlyItem>[] = [
 
 /** 只能查看的项：当前的值（密钥只说设没设）和为什么不能在后台改。 */
 function ReadOnlySection({ items }: { items: ReadOnlyItem[] }) {
+  const wide = useWide();
   return (
-    <SettingsSection title={t.readOnly.title} description={t.readOnly.hint}>
-      <Table data={items} columns={READ_ONLY_COLUMNS} idKey="name" density="compact" />
+    <SettingsSection id={anchor("read_only")} title={t.readOnly.title} description={t.readOnly.hint}>
+      {wide ? (
+        <Table data={items} columns={READ_ONLY_COLUMNS} idKey="name" density="compact" />
+      ) : (
+        <RowList
+          rows={items.map((row) => ({
+            id: row.name,
+            label: t.readOnly.names[row.name] ?? row.name,
+            description: (
+              <VStack gap={0.5}>
+                <Text type="supporting" color="primary" wordBreak="break-word">
+                  {readOnlyValue(row.value, { ...t.readOnly, none: t.none })}
+                </Text>
+                <Text type="supporting">{row.why}</Text>
+              </VStack>
+            ),
+          }))}
+        />
+      )}
     </SettingsSection>
   );
 }

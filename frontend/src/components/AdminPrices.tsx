@@ -5,6 +5,8 @@ import { Button } from "@astryxdesign/core/Button";
 import { FormLayout } from "@astryxdesign/core/FormLayout";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Selector } from "@astryxdesign/core/Selector";
 import { pixel, proportional, Table, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
@@ -12,8 +14,9 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
+import { useWide } from "@/components/admin/DashboardParts";
 import { FailureNotice } from "@/components/FailureNotice";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -54,15 +57,25 @@ interface EntryRow extends Record<string, unknown> {
 /** 后台拉取目录时，隔多久再读一次单价，看它拉完没有。 */
 const POLL_MS = 2000;
 
+/** 单价表默认只列这么多行，其余点「显示全部」或筛选后才列出：预设和目录加起来有几十个模型。 */
+const FOLDED_ROWS = 12;
+
 /**
- * 「配置」页的单价一节：在线目录的状态和「立即从目录刷新」；预设、后台设定过的和最近用过的模型，
- * 后台设定、目录、预设三种单价并列、标出生效的那一种，可以修改、恢复（回到目录或预设，都没有的就删除）、
- * 新增；最近用过却没有单价的模型单独列出，点一下就能按运行记录里的名字设单价。
+ * 「配置」页的单价一节：最近用过却没有单价的模型放在最上面（待办：一条提醒，每个模型一行，点一下就能
+ * 按运行记录里的名字设单价）；在线目录的状态和「立即从目录刷新」；预设、后台设定过的和最近用过的模型，
+ * 每行只列生效的单价和它来自哪一种，后台设定、目录、预设三种并列的对照在「修改」时列出；可以修改、
+ * 恢复（回到目录或预设，都没有的就删除）、新增。
  */
 export function AdminPrices() {
   const [prices, setPrices] = useState<Prices | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [form, setForm] = useState<PriceForm | null>(null);
+  /** 正在修改的那一条（新增或给未设单价的模型设单价时没有），表单上方列出它的三种单价作参考。 */
+  const [editing, setEditing] = useState<PriceEntry | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const wide = useWide();
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -108,79 +121,97 @@ export function AdminPrices() {
     }
   }
 
-  function open(next: PriceForm) {
+  function open(next: PriceForm, entry: PriceEntry | null = null) {
     setFailure(null);
     setNotice(null);
     setForm(next);
+    setEditing(entry);
   }
+
+  // 表单在表格下面：点长表格中间一行的「修改」时，把它滚进视野。
+  const editingKey = form ? `${form.provider}|${form.model}|${form.unit}` : null;
+  useEffect(() => {
+    if (editingKey !== null) editorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [editingKey]);
+
+  /** 一条单价的操作：修改，有后台设定时还能恢复（回到目录或预设，都没有的就删除）。 */
+  function entryActions(id: string, entry: PriceEntry) {
+    return (
+      <HStack gap={1} wrap="wrap">
+        <Button size="sm" variant="ghost" label={t.edit} isDisabled={busy !== null} onClick={() => open(priceFormOf(entry), entry)} />
+        {entry.override && (
+          <Button
+            size="sm"
+            variant="ghost"
+            label={entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove}
+            isLoading={busy === id}
+            isDisabled={busy !== null}
+            onClick={() => void run(id, () => restorePrice(entry), t.restored)}
+          />
+        )}
+      </HStack>
+    );
+  }
+
+  const matching = (prices?.prices ?? [])
+    .map((entry) => ({ id: `${entry.provider}|${entry.model}|${entry.unit}`, entry }))
+    .filter(({ entry }) => matches(entry, query));
+  const folded = query === "" && !showAll && matching.length > FOLDED_ROWS;
+  const listed = folded ? matching.slice(0, FOLDED_ROWS) : matching;
 
   const columns: TableColumn<EntryRow>[] = [
     {
       key: "model",
       header: t.columns.model,
       width: proportional(2),
-      renderCell: ({ entry }) => (
-        <VStack gap={0.5}>
-          <Text wordBreak="break-word">{entry.model}</Text>
-          <Text type="supporting" wordBreak="break-word">
-            {entry.provider}
-          </Text>
-        </VStack>
-      ),
+      renderCell: ({ entry }) => <ModelName entry={entry} />,
     },
     { key: "unit", header: t.columns.unit, width: pixel(72), renderCell: ({ entry }) => unitWord(entry.unit) },
     {
-      key: "override",
-      header: t.columns.override,
-      width: proportional(2),
-      renderCell: ({ entry }) => (
-        <PriceCell entry={entry} column="override" price={entry.override} note={(p) => t.setOn(p.as_of)} />
-      ),
-    },
-    {
-      key: "catalog",
-      header: t.columns.catalog,
-      width: proportional(2),
-      renderCell: ({ entry }) => <PriceCell entry={entry} column="catalog" price={entry.catalog} note={catalogNote(entry)} />,
-    },
-    {
-      key: "preset",
-      header: t.columns.preset,
-      width: proportional(2),
-      renderCell: ({ entry }) => (
-        <PriceCell entry={entry} column="preset" price={entry.preset} note={(p) => t.asOf(p.as_of)} />
-      ),
+      key: "effective",
+      header: t.columns.effective,
+      width: proportional(3),
+      renderCell: ({ entry }) => <EffectivePrice entry={entry} />,
     },
     {
       key: "actions",
       header: t.columns.actions,
       width: proportional(1.5),
-      renderCell: ({ id, entry }) => (
-        <HStack gap={1} wrap="wrap">
-          <Button size="sm" variant="ghost" label={t.edit} isDisabled={busy !== null} onClick={() => open(priceFormOf(entry))} />
-          {entry.override && (
-            <Button
-              size="sm"
-              variant="ghost"
-              label={entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove}
-              isLoading={busy === id}
-              isDisabled={busy !== null}
-              onClick={() => void run(id, () => restorePrice(entry), t.restored)}
-            />
-          )}
-        </HStack>
-      ),
+      renderCell: ({ id, entry }) => entryActions(id, entry),
     },
   ];
 
   return (
-    <SettingsSection title={t.title} description={t.hint(prices?.preset_as_of ?? null)}>
+    <SettingsSection id="config-prices" title={t.title} description={t.hint(prices?.preset_as_of ?? null)}>
       {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
       {failure && <FailureNotice failure={failure} />}
       {!prices && !failure && (
         <Text as="p" color="secondary" role="status">
           {t.loading}
         </Text>
+      )}
+      {prices && prices.unpriced.length > 0 && (
+        <VStack gap={2}>
+          <Banner status="warning" title={t.unpriced.title} description={t.unpriced.hint} />
+          <List hasDividers density="compact">
+            {prices.unpriced.map((u) => (
+              <ListItem
+                key={`${u.provider}|${u.model}|${u.unit}`}
+                label={u.model}
+                description={`${services[u.service] ?? u.service} · ${u.provider} · ${unitWord(u.unit)}`}
+                endContent={
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    label={t.priceIt}
+                    isDisabled={busy !== null}
+                    onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }))}
+                  />
+                }
+              />
+            ))}
+          </List>
+        </VStack>
       )}
       {prices && (
         <HStack gap={2} wrap="wrap" vAlign="center">
@@ -195,57 +226,49 @@ export function AdminPrices() {
           />
         </HStack>
       )}
-      {prices && prices.unpriced.length > 0 && (
-        <VStack gap={2}>
-          <Heading level={3} style={{ fontSize: "var(--text-body-size)" }}>
-            {t.unpriced.title}
-          </Heading>
-          <Text type="supporting">{t.unpriced.hint}</Text>
-          <Table
-            data={prices.unpriced.map((u) => ({ id: `${u.provider}|${u.model}|${u.unit}`, ...u }))}
-            columns={[
-              { key: "service", header: copy.admin.dashboard.cost.service, width: proportional(1), renderCell: (u) => services[u.service] ?? u.service },
-              {
-                key: "model",
-                header: t.columns.model,
-                width: proportional(2),
-                renderCell: (u) => (
-                  <VStack gap={0.5}>
-                    <Text wordBreak="break-word">{u.model}</Text>
-                    <Text type="supporting" wordBreak="break-word">
-                      {u.provider}
-                    </Text>
-                  </VStack>
-                ),
-              },
-              { key: "unit", header: t.columns.unit, width: pixel(72), renderCell: (u) => unitWord(u.unit) },
-              {
-                key: "actions",
-                header: t.columns.actions,
-                width: proportional(1),
-                renderCell: (u) => (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    label={t.priceIt}
-                    isDisabled={busy !== null}
-                    onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }))}
-                  />
-                ),
-              },
-            ]}
-            idKey="id"
-            density="compact"
-          />
-        </VStack>
-      )}
       {prices && (
-        <Table
-          data={prices.prices.map((entry) => ({ id: `${entry.provider}|${entry.model}|${entry.unit}`, entry }))}
-          columns={columns}
-          idKey="id"
-          density="compact"
-        />
+        <VStack gap={3}>
+          <TextInput
+            label={t.filter}
+            isLabelHidden
+            placeholder={t.filter}
+            value={query}
+            onChange={setQuery}
+            hasClear
+            width={wide ? "calc(var(--spacing-8) * 10)" : "100%"}
+          />
+          {listed.length === 0 ? (
+            <Text color="secondary">{t.noMatch}</Text>
+          ) : wide ? (
+            <Table data={listed} columns={columns} idKey="id" density="compact" />
+          ) : (
+            <List hasDividers density="compact">
+              {listed.map(({ id, entry }) => (
+                <ListItem
+                  key={id}
+                  label={entry.model}
+                  description={
+                    <VStack gap={0.5}>
+                      <Text type="supporting" wordBreak="break-word">{`${entry.provider} · ${unitWord(entry.unit)}`}</Text>
+                      <EffectivePrice entry={entry} />
+                    </VStack>
+                  }
+                  endContent={entryActions(id, entry)}
+                />
+              ))}
+            </List>
+          )}
+          {query === "" && matching.length > FOLDED_ROWS && (
+            <HStack>
+              <Button
+                size="sm"
+                variant="ghost"
+                label={showAll ? t.fold : t.showAll(matching.length)}
+                onClick={() => setShowAll(!showAll)}
+              />
+            </HStack>
+          )}
+        </VStack>
       )}
       {prices && !form && (
         <HStack gap={2}>
@@ -253,13 +276,16 @@ export function AdminPrices() {
         </HStack>
       )}
       {form && (
-        <PriceEditor
-          form={form}
-          onChange={setForm}
-          busy={busy === "save"}
-          onCancel={() => setForm(null)}
-          onSave={(change) => void run("save", () => savePrice(change), t.saved)}
-        />
+        <VStack ref={editorRef} gap={4} maxWidth="calc(var(--spacing-8) * 20)">
+          {editing && <PriceReference entry={editing} />}
+          <PriceEditor
+            form={form}
+            onChange={setForm}
+            busy={busy === "save"}
+            onCancel={() => setForm(null)}
+            onSave={(change) => void run("save", () => savePrice(change), t.saved)}
+          />
+        </VStack>
       )}
     </SettingsSection>
   );
@@ -275,29 +301,85 @@ function catalogNote(entry: PriceEntry) {
   };
 }
 
-/** 一种单价：价格、附注，生效的那一种标上「生效」。 */
-function PriceCell({
-  entry,
-  column,
-  price,
-  note,
-}: {
-  entry: PriceEntry;
-  column: "override" | "catalog" | "preset";
-  price: Price | null;
-  note: (price: Price) => string;
-}) {
-  if (!price) return <Text color="secondary">{t.none}</Text>;
+/** 筛选：模型名或提供方里含有这几个字（不分大小写）。 */
+function matches(entry: PriceEntry, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q === "" || entry.model.toLowerCase().includes(q) || entry.provider.toLowerCase().includes(q);
+}
+
+/** 模型名，提供方小一号跟在同一行，放不下时折到下一行。 */
+function ModelName({ entry }: { entry: PriceEntry }) {
+  return (
+    <HStack gap={1.5} wrap="wrap" vAlign="center">
+      <Text wordBreak="break-word">{entry.model}</Text>
+      <Text type="supporting" wordBreak="break-word">
+        {entry.provider}
+      </Text>
+    </HStack>
+  );
+}
+
+const COLUMNS = ["override", "catalog", "preset"] as const;
+
+/** 一种单价的附注：后台设定的日期、目录的拉取日期和对应的模型、预设的整理日期。 */
+function noteOf(entry: PriceEntry, column: (typeof COLUMNS)[number], price: Price): string {
+  if (column === "override") return t.setOn(price.as_of);
+  if (column === "preset") return t.asOf(price.as_of);
+  return catalogNote(entry)(price);
+}
+
+/**
+ * 生效的单价：价格和它来自哪一种（后台设定、目录、预设）。附注只留有新信息的：后台设定的日期，目录里
+ * 按原厂价格估算或名字不同时对应哪个模型；目录的拉取日期在表格上方、预设的整理日期在这一节的说明里，
+ * 每行重复一遍只是噪音，修改时的对照里才逐条列出。另外两种单价也只在修改时列出。
+ */
+function EffectivePrice({ entry }: { entry: PriceEntry }) {
+  const column = effectiveColumn(entry);
+  const price = column && entry[column];
+  if (!column || !price) return <Text color="secondary">{t.none}</Text>;
+  const full = noteOf(entry, column, price);
+  const note = column === "override" || (column === "catalog" && full !== t.fetchedOn(price.as_of)) ? full : null;
   return (
     <VStack gap={0.5}>
-      <HStack gap={1} wrap="wrap" vAlign="center">
+      <HStack gap={1.5} wrap="wrap" vAlign="center">
         <Text>{formatPrice(price, entry.unit)}</Text>
-        {effectiveColumn(entry) === column && <Token size="sm" color="green" label={t.inEffect} />}
+        <Token size="sm" color={column === "override" ? "blue" : "gray"} label={t.columns[column]} />
       </HStack>
-      <Text type="supporting" wordBreak="break-word">
-        {note(price)}
-      </Text>
+      {note && (
+        <Text type="supporting" wordBreak="break-word">
+          {note}
+        </Text>
+      )}
     </VStack>
+  );
+}
+
+/** 修改时作参考：这条的三种单价，生效的那一种标上「生效」。 */
+function PriceReference({ entry }: { entry: PriceEntry }) {
+  const column = effectiveColumn(entry);
+  return (
+    <MetadataList columns="multi">
+      {COLUMNS.map((c) => {
+        const price = entry[c];
+        return (
+          <MetadataListItem key={c} label={t.columns[c]}>
+            {price ? (
+              <VStack gap={0.5}>
+                <HStack gap={1} wrap="wrap" vAlign="center">
+                  <Text>{formatPrice(price, entry.unit)}</Text>
+                  {column === c && <Token size="sm" color="green" label={t.inEffect} />}
+                </HStack>
+                <Text type="supporting" wordBreak="break-word">
+                  {noteOf(entry, c, price)}
+                </Text>
+              </VStack>
+            ) : (
+              <Text color="secondary">{t.none}</Text>
+            )}
+          </MetadataListItem>
+        );
+      })}
+    </MetadataList>
   );
 }
 
