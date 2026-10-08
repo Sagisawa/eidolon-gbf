@@ -216,7 +216,7 @@ export function AdminPrices() {
                 endContent={
                   <Button
                     size="sm"
-                    variant="secondary"
+                    variant="ghost"
                     label={t.priceIt}
                     isDisabled={busy !== null}
                     onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }), { kind: "price" })}
@@ -496,7 +496,7 @@ function PriceEditor({
         {text("input")}
         {text("output")}
         <HStack gap={2}>
-          <Button type="submit" label={t.save} isLoading={busy} isDisabled={problem !== null || busy} />
+          <Button type="submit" variant="primary" label={t.save} isLoading={busy} isDisabled={problem !== null || busy} />
           <Button variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
         </HStack>
       </FormLayout>

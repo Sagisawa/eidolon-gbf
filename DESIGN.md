@@ -212,6 +212,7 @@ components:
 - **在通话层上:** `MediaTheme mode="dark"` 把 accent 换成白色，所以结束页的主操作（「重拨」「去设置自带密钥」）是白底；secondary 的底（`--color-neutral`）换成和圆形键一样的 16% 白，否则系统是浅色时会取到浅色模式的值，几乎看不见。
 - **Her call button（电话键）:** `IconButton` 正圆，底 `--her-button`，图标 `--her-button-fg`，无边框。通话中同一个键变成「回到通话」。
 - **Destructive:** 挂断与「挂断并离开」用 `hang-up-red`，白字。
+- **后台（/admin）:** 表单的提交键（保存、试调并保存）是 primary，取消是 ghost；表格行、列表行里的操作（修改、恢复、设单价、封禁、解除封禁）一律 ghost `sm`；一节里单独的操作（某个配置项的「修改」、新增单价、刷新目录、详情页的封禁和删除）是 secondary。封禁、删除这类按钮只打开确认框，自身不用红色；红色（destructive）只给确认框里真正执行的那一下。
 
 ### Chat bubbles
 - **Producer:** 右侧，底为制作人墨水（`--office-ink`），字为纸色。深色模式下是 `office-ink-night` 底、`night-paper` 字。

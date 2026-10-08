@@ -12,7 +12,6 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
@@ -60,7 +59,6 @@ export function AdminUserList() {
   const [banning, setBanning] = useState<AdminUser | null>(null);
   const [unbanning, setUnbanning] = useState<string | null>(null);
   const isWide = useWide("table-wide");
-  const router = useRouter();
 
   const load = useCallback(async () => {
     try {
@@ -105,13 +103,13 @@ export function AdminUserList() {
   function rowAction(user: AdminUser) {
     const action = banAction(user);
     if (action === "ban") {
-      return <Button label={t.ban} variant="secondary" size="sm" onClick={() => setBanning(user)} />;
+      return <Button label={t.ban} variant="ghost" size="sm" onClick={() => setBanning(user)} />;
     }
     if (action === "unban") {
       return (
         <Button
           label={t.unban}
-          variant="secondary"
+          variant="ghost"
           size="sm"
           onClick={() => unban(user)}
           isLoading={unbanning === user.id}
@@ -185,7 +183,7 @@ export function AdminUserList() {
             value={query}
             onChange={search}
             hasClear
-            width="100%"
+            width={isWide ? "calc(var(--spacing-8) * 12)" : "100%"}
           />
           {!isWide && (
             <Selector
@@ -228,13 +226,13 @@ export function AdminUserList() {
                   <ListItem
                     key={user.id}
                     label={user.name}
-                    onClick={() => router.push(`/admin/users/${user.id}`)}
+                    href={`/admin/users/${user.id}`}
                     description={
                       <VStack gap={1}>
                         <Text type="supporting" hasTabularNumbers>
                           {t.usage24h(formatCount(user.usage_24h.turns), formatCount(user.usage_24h.calls))}
                         </Text>
-                        <StatusTokens user={user} />
+                        <StatusTokens user={user} withAdmin />
                       </VStack>
                     }
                     endContent={rowAction(user)}
@@ -291,11 +289,13 @@ function LastActive({ user }: { user: AdminUser }) {
   );
 }
 
-/** 状态一格：封禁与否，再加上有才显示的自带密钥和单独限额。 */
-function StatusTokens({ user }: { user: AdminUser }) {
+/** 状态一格：封禁与否，再加上有才显示的自带密钥和单独限额。窄屏的行里名字只能是纯文字，管理者标签
+ * 也放进这里（`withAdmin`）；宽屏上它跟在名字后面。 */
+function StatusTokens({ user, withAdmin = false }: { user: AdminUser; withAdmin?: boolean }) {
   const keys = broughtKeys(user.own_keys);
   return (
     <HStack gap={1.5} vAlign="center" wrap="wrap">
+      {withAdmin && user.is_admin && <Token label={t.admin} size="sm" color="blue" />}
       <BanStatus banned={user.banned} />
       {keys.length > 0 && (
         <Token size="sm" color="gray" label={t.ownKeysToken(keys.map((k) => t.services[k]).join("、"))} />

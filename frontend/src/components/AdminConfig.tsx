@@ -328,6 +328,7 @@ function AvailableItem({
             <HStack gap={2}>
               <Button
                 type="submit"
+                variant="primary"
                 label={busy === "save" ? t.saving : t.save}
                 isLoading={busy === "save"}
                 isDisabled={problem !== null || busy !== null}

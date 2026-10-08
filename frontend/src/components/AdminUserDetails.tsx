@@ -3,6 +3,7 @@
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { Icon } from "@astryxdesign/core/Icon";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
@@ -37,6 +38,7 @@ import {
   type UsageRow,
 } from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
+import { BackIcon } from "@/theme/icons";
 import { PROVIDER_LABELS } from "@/lib/signIn";
 
 const t = copy.admin.users;
@@ -101,7 +103,8 @@ export function AdminUserDetails({ id }: { id: string }) {
 
   const action = user && banAction(user);
   const back = (
-    <HStack>
+    <HStack gap={1} vAlign="center">
+      <Icon icon={BackIcon} size="sm" color="secondary" />
       <AppLink href="/admin/users" isStandalone>
         {t.backToList}
       </AppLink>
@@ -131,7 +134,7 @@ export function AdminUserDetails({ id }: { id: string }) {
       }
       end={
         action === "ban" ? (
-          <Button label={t.ban} variant="destructive" onClick={() => setBanning(true)} />
+          <Button label={t.ban} variant="secondary" onClick={() => setBanning(true)} />
         ) : action === "unban" ? (
           <Button label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
         ) : (
@@ -237,7 +240,7 @@ export function AdminUserDetails({ id }: { id: string }) {
       {action !== null && (
         <SettingsSection title={t.delete} description={t.deleteSection.hint}>
           <HStack>
-            <Button label={t.delete} variant="destructive" onClick={() => setConfirmingDelete(true)} />
+            <Button label={t.delete} variant="secondary" onClick={() => setConfirmingDelete(true)} />
           </HStack>
         </SettingsSection>
       )}
@@ -299,6 +302,7 @@ function RecentUsage({ usage }: { usage: AdminUserUsage }) {
         key: range,
         header: u.ranges[range],
         width: proportional(1),
+        align: "end",
         renderCell: (row) => <Count count={row[range]} />,
       }),
     ),
@@ -313,8 +317,8 @@ function RecentUsage({ usage }: { usage: AdminUserUsage }) {
 function Count({ count }: { count: KeyedCount }) {
   const { total, split } = describeCount(count);
   return (
-    <VStack gap={0}>
-      <Text>{total}</Text>
+    <VStack gap={0} hAlign="end">
+      <Text hasTabularNumbers>{total}</Text>
       {split && (
         <Text type="supporting" color="secondary">
           {split}
