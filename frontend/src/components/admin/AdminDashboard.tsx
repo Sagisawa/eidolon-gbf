@@ -140,7 +140,7 @@ function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: nu
           value={inProgress === null ? "—" : formatCount(inProgress)}
           note={t.tiles.callsInProgressNote}
         />
-        <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} />
+        <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
         <StatTile
           label={t.tiles.ownKeys}
           value={formatCount(turns.own_keys)}

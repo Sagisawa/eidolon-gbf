@@ -297,6 +297,14 @@ export const zh = {
     signedInAs: (name: string) => `管理者：${name}`,
     backToSettings: "返回设置",
     comingSoon: "这一页还在做。",
+    usage: {
+      units: { tokens: "tokens", bytes: "字节", seconds: "秒" } as Record<string, string>,
+      per: { tokens: "每百万 tokens", bytes: "每百万字节", seconds: "每小时" } as Record<string, string>,
+      perCount: (count: string, unit: string) => `每 ${count} ${unit}`,
+      amount: (count: string, unit: string) => `${count} ${unit}`,
+      inOut: (input: string, output: string, unit: string) => `输入 ${input} · 输出 ${output} ${unit}`,
+      unknown: (n: string) => `${n} 次未知`,
+    },
     dashboard: {
       intro: "各项服务是否正常、用的人多不多、部署者大约花了多少钱。数字来自运行记录，不含任何对话内容；运行记录保留 90 天。",
       rangeLabel: "时间范围",
@@ -311,6 +319,7 @@ export const zh = {
         calls: "通话",
         callsOnOwnKeys: (n: string) => `其中 ${n} 次全用自带密钥`,
         activeUsers: "活跃用户",
+        activeUsersNote: "这段时间有过回合或通话",
         callsInProgress: "进行中的通话",
         callsInProgressNote: "此刻，含正在接通的；每分钟刷新",
         ownKeys: "用自带密钥的回合",
@@ -416,6 +425,7 @@ export const zh = {
       },
       cost: {
         title: "花费",
+        notes: "备注",
         hint: (catalogAsOf: string | null, presetAsOf: string | null) =>
           `部署者的 key 大约花了多少钱：按单价估算，不扣免费额度，不是账单；不同币种分开合计，不做汇率换算。${
             catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""

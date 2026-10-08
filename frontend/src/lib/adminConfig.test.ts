@@ -32,7 +32,7 @@ function item(status: ConfigItem["status"]): ConfigItem {
 
 describe("statusDisplay", () => {
   it("shows each of the three states, restorable once overridden, with why it is not in effect", () => {
-    expect(statusDisplay(item("env"))).toEqual({ variant: "neutral", canRestore: false, failure: null });
+    expect(statusDisplay(item("env"))).toEqual({ variant: "success", canRestore: false, failure: null });
     expect(statusDisplay(item("overridden"))).toEqual({ variant: "accent", canRestore: true, failure: null });
     expect(statusDisplay(item("failed"))).toEqual({
       variant: "warning",

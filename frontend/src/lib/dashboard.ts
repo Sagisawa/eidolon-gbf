@@ -2,6 +2,7 @@
 // activity records, and how the page words and lays out its numbers. Nothing is summed up
 // here; the backend does all of that.
 
+import { copy } from "@/i18n";
 import type { Cost } from "@/lib/adminPrices";
 import { apiHeaders, json } from "@/lib/api";
 
@@ -196,12 +197,22 @@ export function healthStatus(row: Pick<ServiceHealth, "calls" | "error_rate">): 
 /** What a service's calls were billed for, e.g. "输入 1.2万 · 输出 3,400 tokens"; how
  * many calls did not say, if any. */
 export function formatUsage(usage: Usage[], unknown: number): string {
-  const parts = usage.map(({ unit, input, output }) => {
-    if (output === null) return `${input === null ? NONE : formatCount(input)} ${unit}`;
-    return `输入 ${input === null ? NONE : formatCount(input)} · 输出 ${formatCount(output)} ${unit}`;
-  });
-  if (unknown > 0) parts.push(`${formatCount(unknown)} 次未知`);
+  const parts = usage.map(({ unit, input, output }) => formatAmount(unit, input, output));
+  if (unknown > 0) parts.push(copy.admin.usage.unknown(formatCount(unknown)));
   return parts.join("；") || NONE;
+}
+
+/** 计费单位的叫法：tokens、字节、秒；后端的单位名原样传来，这里统一译出。 */
+export function unitWord(unit: string): string {
+  return copy.admin.usage.units[unit] ?? unit;
+}
+
+/** 一种单位的用量："1.2万 字节"，分输入输出时 "输入 1.2万 · 输出 3,400 tokens"。看板健康表和花费表共用。 */
+export function formatAmount(unit: string, input: number | null, output: number | null): string {
+  const word = unitWord(unit);
+  const shown = input === null ? NONE : formatCount(input);
+  if (output === null) return copy.admin.usage.amount(shown, word);
+  return copy.admin.usage.inOut(shown, formatCount(output), word);
 }
 
 /** Where a stretch of the trend begins, as its axis labels it, in the browser's time. */

@@ -66,7 +66,7 @@ export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigI
 /** How an item's status is shown: the StatusDot's variant, whether it can be restored to
  * `.env`'s, and why the override is not in effect, if it is not. */
 export type StatusDisplay = {
-  variant: "neutral" | "accent" | "warning";
+  variant: "success" | "accent" | "warning";
   canRestore: boolean;
   failure: string | null;
 };
@@ -74,7 +74,8 @@ export type StatusDisplay = {
 export function statusDisplay(item: ConfigItem): StatusDisplay {
   switch (item.status) {
     case "env":
-      return { variant: "neutral", canRestore: false, failure: null };
+      // 用 .env 的值是常态，和看板上「正常」同一个绿点；被覆盖是蓝点，覆盖没生效是黄点。
+      return { variant: "success", canRestore: false, failure: null };
     case "overridden":
       return { variant: "accent", canRestore: true, failure: null };
     case "failed":

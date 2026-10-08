@@ -62,6 +62,9 @@ describe("formatUsage", () => {
     );
     expect(formatUsage([{ unit: "tokens", input: 300, output: null }], 2)).toBe("300 tokens；2 次未知");
     expect(formatUsage([], 0)).toBe("—");
+    // 单位译成中文，和花费表一致，不再是后端的 bytes、seconds。
+    expect(formatUsage([{ unit: "bytes", input: 770, output: null }], 0)).toBe("770 字节");
+    expect(formatUsage([{ unit: "seconds", input: 89, output: null }], 0)).toBe("89 秒");
   });
 });
 

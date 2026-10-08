@@ -16,6 +16,7 @@ import {
   type CostRow,
   costStatus,
   formatMoney,
+  formatMoneyTick,
   formatPrice,
   formatRowUsage,
   formatTotals,
@@ -68,7 +69,7 @@ export function CostSection({ board }: { board: Dashboard }) {
                 describe={(span, i) => t.trendReadout(span, formatMoney(cost.trend[i].amounts[currency] ?? 0, currency))}
                 empty={t.trendEmpty}
                 ticks={amountTicks}
-                format={(value) => formatMoney(value, currency)}
+                format={(value) => formatMoneyTick(value, currency)}
               />
             </Section>
           ))}
@@ -129,7 +130,7 @@ function ServicesTable({ cost }: { cost: Cost }) {
     { key: "amount", header: t.amount, width: proportional(1.5), align: "end", renderCell: ({ row }) => <Numeric>{formatTotals(row.totals)}</Numeric> },
     {
       key: "notes",
-      header: "",
+      header: t.notes,
       width: proportional(2),
       renderCell: ({ row }) => serviceNotes(row) || "—",
     },

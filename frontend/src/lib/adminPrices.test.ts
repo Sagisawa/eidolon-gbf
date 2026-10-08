@@ -8,6 +8,7 @@ import {
   effectiveColumn,
   formatMoney,
   formatPrice,
+  formatMoneyTick,
   formatRowUsage,
   formatTotals,
   matchText,
@@ -92,6 +93,15 @@ describe("formatPrice", () => {
   it("names input and output apart, or one price when output costs as input does", () => {
     expect(formatPrice(PRESET, "tokens")).toBe("输入 $2 · 输出 $8 / 每百万 tokens");
     expect(formatPrice({ ...PRESET, output: null, currency: "CNY", per: 3600 }, "seconds")).toBe("¥2 / 每小时");
+  });
+});
+
+describe("formatMoneyTick", () => {
+  it("writes small ticks out instead of all reading <¥0.0001", () => {
+    const ticks = amountTicks(0.00007).map((tick) => formatMoneyTick(tick, "CNY"));
+    expect(new Set(ticks).size).toBe(ticks.length);
+    expect(ticks.slice(0, 3)).toEqual(["¥0", "¥0.00002", "¥0.00004"]);
+    expect(formatMoneyTick(1.5, "USD")).toBe("$1.50");
   });
 });
 
