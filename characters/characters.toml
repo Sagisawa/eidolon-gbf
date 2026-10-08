@@ -125,3 +125,55 @@ facts = "facts/kiriko.md"
 speakers = ["霧子"]
 idol_id = 8
 default_outfit = "stand/1030080010"  # 【包・帯・組・曲】
+
+[[characters]]
+id = "toru"
+name = "浅倉透"
+intro = "noctchill 的成员。自然体、按自己的节奏走的高二生，站在那里就有吸引人的气场；小时候和制作人在公园的攀登架上见过一面，如今想和他一起「のぼる」到顶。"
+voice_id = "db8fb218614745f6b854e24620c33445"
+sheet = "sheets/toru.md"
+avatar = "avatars/toru.jpg"
+color = "#50d0d0"
+facts = "facts/toru.md"
+speakers = ["透"]
+idol_id = 20
+default_outfit = "stand/1030200010"  # 【まわるものについて】
+
+[[characters]]
+id = "madoka"
+name = "樋口円香"
+intro = "noctchill 的成员。冷静、嘴不饶人的高二生，本来只是想确认青梅竹马浅倉透没被骗才找上制作人，结果自己也成了偶像；对制作人总是冷淡带刺。"
+voice_id = "9fa98a656a0d4242b6073fd955f5179b"
+sheet = "sheets/madoka.md"
+avatar = "avatars/madoka.jpg"
+color = "#be1e3e"
+facts = "facts/madoka.md"
+speakers = ["円香"]
+idol_id = 21
+default_outfit = "stand/1030210010"  # 【ダウト】
+
+[[characters]]
+id = "koito"
+name = "福丸小糸"
+intro = "noctchill 的成员。个子最小、胆小怕生的高一生，一慌就「ぴゃ！？」；在青梅竹马面前却嘴硬说「よゆーです」，总是一个人偷偷努力，最怕被大家落下。"
+voice_id = "8ee2e17bbead4610a17f324fe540be49"
+sheet = "sheets/koito.md"
+avatar = "avatars/koito.jpg"
+color = "#7967c3"
+facts = "facts/koito.md"
+speakers = ["小糸"]
+idol_id = 22
+default_outfit = "stand/1030220010"  # 【はれのひ喫茶店】
+
+[[characters]]
+id = "hinana"
+name = "市川雛菜"
+intro = "noctchill 的成员。随性的高一生，只做让自己「しあわせ～」的事，说话总带着长长的尾音；最喜欢青梅竹马的学姐透。"
+voice_id = "565ffd381fbc427ebfa1cc4c689ac12d"
+sheet = "sheets/hinana.md"
+avatar = "avatars/hinana.jpg"
+color = "#ffc639"
+facts = "facts/hinana.md"
+speakers = ["雛菜"]
+idol_id = 23
+default_outfit = "stand/1030230010"  # 【#SS】
