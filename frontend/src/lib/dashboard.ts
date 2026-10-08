@@ -33,6 +33,26 @@ export type ErrorKind =
   | "unreadable"
   | "other";
 
+/**
+ * The page head's one line on health: "ok" when every service that was called kept its errors
+ * low, "idle" when nothing was called, else the troubled rows, the worst first (失败多的在前，
+ * 同档按出错率).
+ */
+export function healthSummary(
+  health: ServiceHealth[],
+): { kind: "ok" | "idle" } | { kind: "problems"; worst: "degraded" | "failing"; rows: ServiceHealth[] } {
+  const rank = (row: ServiceHealth) => (healthStatus(row) === "failing" ? 2 : healthStatus(row) === "degraded" ? 1 : 0);
+  const rows = health.filter((row) => rank(row) > 0).sort((a, b) => rank(b) - rank(a) || b.error_rate - a.error_rate);
+  if (rows.length > 0) return { kind: "problems", worst: rank(rows[0]) === 2 ? "failing" : "degraded", rows };
+  return { kind: health.some((row) => row.calls > 0) ? "ok" : "idle" };
+}
+
+/** A breakdown's rows with a count, in their order, and the labels of those at 0, which the
+ * table folds into one line rather than a row each. */
+export function splitZeroRows<T extends { count: number }>(rows: T[]): { counted: T[]; zero: T[] } {
+  return { counted: rows.filter((row) => row.count > 0), zero: rows.filter((row) => row.count <= 0) };
+}
+
 /** What a service's calls were billed for in one unit; null where no call said. */
 export type Usage = { unit: string; input: number | null; output: number | null };
 

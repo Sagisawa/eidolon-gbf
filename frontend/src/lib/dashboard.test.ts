@@ -9,8 +9,10 @@ import {
   formatShare,
   formatUsage,
   healthStatus,
+  healthSummary,
   isDashboardRange,
   labelledStretches,
+  splitZeroRows,
   stretchLabel,
   stretchSpan,
 } from "@/lib/dashboard";
@@ -52,6 +54,37 @@ describe("healthStatus", () => {
     ];
     for (const [calls, rate, status] of cases)
       expect(healthStatus({ calls, error_rate: rate }), `${calls} ${rate}`).toBe(status);
+  });
+});
+
+describe("healthSummary", () => {
+  const row = (service: string, calls: number, error_rate: number) =>
+    ({ service, own_key: false, calls, error_rate, errors_by_kind: {}, latency_ms: { p50: null, p95: null }, usage: [], usage_unknown: 0 }) as unknown as Parameters<typeof healthSummary>[0][number];
+
+  it("is idle without calls, ok when every called service is fine", () => {
+    expect(healthSummary([]).kind).toBe("idle");
+    expect(healthSummary([row("tts", 0, 0)]).kind).toBe("idle");
+    expect(healthSummary([row("tts", 100, 0.01), row("stt", 0, 0)]).kind).toBe("ok");
+  });
+
+  it("lists the troubled services, failing first, then by error rate", () => {
+    const summary = healthSummary([
+      row("tts", 100, 0.05), row("stt", 100, 0.5), row("rerank", 100, 0.08), row("judge", 100, 0),
+    ]);
+    expect(summary.kind).toBe("problems");
+    if (summary.kind !== "problems") return;
+    expect(summary.worst).toBe("failing");
+    expect(summary.rows.map((r) => r.service)).toEqual(["stt", "rerank", "tts"]);
+  });
+});
+
+describe("splitZeroRows", () => {
+  it("keeps the counted rows in order and sets the zeros apart", () => {
+    const { counted, zero } = splitZeroRows([
+      { id: "a", count: 3 }, { id: "b", count: 0 }, { id: "c", count: 1 }, { id: "d", count: 0 },
+    ]);
+    expect(counted.map((r) => r.id)).toEqual(["a", "c"]);
+    expect(zero.map((r) => r.id)).toEqual(["b", "d"]);
   });
 });
 

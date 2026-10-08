@@ -2,6 +2,7 @@
 
 import { Banner } from "@astryxdesign/core/Banner";
 import { HStack } from "@astryxdesign/core/HStack";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
@@ -10,6 +11,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState } from "react";
 
+import { AppLink } from "@/components/AppLink";
 import { CostSection } from "@/components/admin/CostSection";
 import { AdminPage } from "@/components/admin/AdminPage";
 import { Numeric, Pair, RowList, Section, StatTile, TileRow, useWide } from "@/components/admin/DashboardParts";
@@ -35,12 +37,19 @@ import {
   getDashboard,
   type HealthStatus,
   healthStatus,
+  healthSummary,
   isDashboardRange,
   LIVE_CALLS_REFRESH_MS,
+  splitZeroRows,
   TURN_RESULTS,
 } from "@/lib/dashboard";
 
 const t = copy.admin.dashboard;
+
+/** 页首健康摘要的锚点：链到「服务健康」一节。 */
+const HEALTH_ANCHOR = "health";
+/** 摘要里最多点名几项有问题的服务，再多写「等 N 项」。 */
+const SUMMARY_NAMES = 3;
 
 const STATUS_DOT: Record<HealthStatus, "success" | "warning" | "error" | "neutral"> = {
   ok: "success",
@@ -91,6 +100,7 @@ export function AdminDashboard() {
     <AdminPage
       width="wide"
       title={copy.admin.pages.dashboard}
+      meta={board && <HealthSummary board={board} />}
       intro={t.intro}
       end={
         <SegmentedControl
@@ -117,11 +127,48 @@ export function AdminDashboard() {
 }
 
 /**
- * 先回答「用了多少」：一行数字卡；紧接着是服务健康（出事时第一眼要看到）；然后是用量的明细，
- * 小表两两并排；最后是花费。每一组是一节（标题、说明、内容、分隔线），和配置页、用户详情一致。
+ * 页首的一行健康结论：都正常、没有调用，或者点名出问题的服务（最糟的在前），链到「服务健康」一节。
+ * 只占一行，首屏的主体仍是下面回答「用了多少」的数字卡。
+ */
+function HealthSummary({ board }: { board: Dashboard }) {
+  const summary = healthSummary(board.health);
+  const words = t.health.summary;
+  let variant: "success" | "warning" | "error" | "neutral";
+  let text: string;
+  if (summary.kind === "problems") {
+    variant = STATUS_DOT[summary.worst];
+    const named = summary.rows.slice(0, SUMMARY_NAMES).map((row) =>
+      words.problem(
+        `${t.health.services[row.service] ?? row.service}${row.own_key ? `（${t.health.own}）` : ""}`,
+        t.health.statuses[healthStatus(row)],
+        formatPercent(row.error_rate),
+      ),
+    );
+    const more = summary.rows.length > SUMMARY_NAMES ? words.more(formatCount(summary.rows.length)) : "";
+    text = named.join("、") + more;
+  } else {
+    variant = summary.kind === "ok" ? "success" : "neutral";
+    text = words[summary.kind];
+  }
+  return (
+    <HStack gap={3} vAlign="center" wrap="wrap">
+      <HStack gap={1.5} vAlign="center">
+        <StatusDot variant={variant} label={text} />
+        <Text weight="medium">{text}</Text>
+      </HStack>
+      <AppLink href={`#${HEALTH_ANCHOR}`}>{words.link}</AppLink>
+    </HStack>
+  );
+}
+
+/**
+ * 先回答「用了多少」：一行数字卡（手机上只留回合、通话、进行中、活跃用户四张）；紧接着是服务健康
+ * （出事时第一眼要看到，页首已有一句结论）；然后是用量的明细，小表两两并排；最后是花费。每一组是
+ * 一节（标题、说明、内容、分隔线），和配置页、用户详情一致。
  */
 function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: number | null }) {
   const { turns, calls } = board;
+  const phone = !useMediaQuery("(min-width: 768px)", true);
   return (
     <VStack>
       <TileRow>
@@ -141,19 +188,23 @@ function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: nu
           note={t.tiles.callsInProgressNote}
         />
         <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
-        <StatTile
-          label={t.tiles.ownKeys}
-          value={formatCount(turns.own_keys)}
-          note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
-        />
-        <StatTile
-          label={t.tiles.timeToSpeak}
-          value={formatMs(turns.time_to_speak_ms.p50)}
-          note={turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))}
-        />
+        {!phone && (
+          <StatTile
+            label={t.tiles.ownKeys}
+            value={formatCount(turns.own_keys)}
+            note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
+          />
+        )}
+        {!phone && (
+          <StatTile
+            label={t.tiles.timeToSpeak}
+            value={formatMs(turns.time_to_speak_ms.p50)}
+            note={turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))}
+          />
+        )}
       </TileRow>
 
-      <SettingsSection title={t.health.title} description={t.health.hint}>
+      <SettingsSection id={HEALTH_ANCHOR} title={t.health.title} description={t.health.hint}>
         <HealthTable board={board} />
       </SettingsSection>
 
@@ -240,9 +291,12 @@ interface CountRow extends Record<string, unknown> {
   id: string;
   label: string;
   count: number;
+  /** 合并起来的零值行：为 0 的各项名字。 */
+  zeroLabels?: string;
 }
 
-/** How many of `total` fell under each row's label, and what share of it. */
+/** How many of `total` fell under each row's label, and what share of it. The rows at 0
+ * fold into one last line, 「其余 N 项为 0」, naming them beneath. */
 function CountsTable({
   rows,
   total,
@@ -257,19 +311,52 @@ function CountsTable({
   shareHeader: string;
 }) {
   const wide = useWide();
+  const { counted, zero } = splitZeroRows(rows);
+  const shown: CountRow[] =
+    zero.length === 0
+      ? counted
+      : [
+          ...counted,
+          {
+            id: "zero",
+            label: (counted.length === 0 ? t.zeroRows.all : t.zeroRows.rest)(formatCount(zero.length)),
+            count: 0,
+            zeroLabels: zero.map((row) => row.label).join("、"),
+          },
+        ];
   if (!wide) {
     return (
       <RowList
-        rows={rows.map((row) => ({ id: row.id, label: row.label, end: `${formatCount(row.count)} · ${formatShare(row.count, total)}` }))}
+        rows={shown.map((row) =>
+          row.zeroLabels === undefined
+            ? { id: row.id, label: row.label, end: `${formatCount(row.count)} · ${formatShare(row.count, total)}` }
+            : // 包成节点：纯字符串的副行会被截成一行，名字要全列出来。
+              { id: row.id, label: row.label, description: <Text type="supporting">{row.zeroLabels}</Text> },
+        )}
       />
     );
   }
+  const counts = (render: (row: CountRow) => string) => (row: CountRow) =>
+    row.zeroLabels === undefined ? <Numeric>{render(row)}</Numeric> : null;
   const columns: TableColumn<CountRow>[] = [
-    { key: "label", header: labelHeader, width: proportional(2), renderCell: (row) => row.label },
-    { key: "count", header: countHeader, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatCount(row.count)}</Numeric> },
-    { key: "share", header: shareHeader, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatShare(row.count, total)}</Numeric> },
+    {
+      key: "label",
+      header: labelHeader,
+      width: proportional(2),
+      renderCell: (row) =>
+        row.zeroLabels === undefined ? (
+          row.label
+        ) : (
+          <VStack gap={0.5}>
+            <Text color="secondary">{row.label}</Text>
+            <Text type="supporting">{row.zeroLabels}</Text>
+          </VStack>
+        ),
+    },
+    { key: "count", header: countHeader, width: proportional(1), align: "end", renderCell: counts((row) => formatCount(row.count)) },
+    { key: "share", header: shareHeader, width: proportional(1), align: "end", renderCell: counts((row) => formatShare(row.count, total)) },
   ];
-  return <Table data={rows} columns={columns} idKey="id" density="compact" />;
+  return <Table data={shown} columns={columns} idKey="id" density="compact" />;
 }
 
 interface DurationRow extends Record<string, unknown> {

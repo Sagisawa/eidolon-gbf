@@ -313,6 +313,10 @@ export const zh = {
       groups: {
         usage: { title: "用量", hint: "回合和通话的走势、结果和时长，以及各位角色。" },
       },
+      zeroRows: {
+        rest: (n: string) => `其余 ${n} 项为 0`,
+        all: (n: string) => `${n} 项都为 0`,
+      },
       tiles: {
         turns: "回合",
         turnsInCalls: (n: string) => `其中 ${n} 个在通话里`,
@@ -394,6 +398,13 @@ export const zh = {
         usage: "计费用量",
         own: "自带密钥",
         empty: "这段时间没有服务调用。",
+        summary: {
+          ok: "这段时间各项服务正常",
+          idle: "这段时间没有服务调用",
+          problem: (service: string, status: string, rate: string) => `${service}${status}（${rate}）`,
+          more: (n: string) => `等 ${n} 项`,
+          link: "看服务健康",
+        },
         statuses: { ok: "正常", degraded: "出错偏多", failing: "大量出错", idle: "没有调用" },
         services: {
           chat_llm: "扮演角色的 LLM",
