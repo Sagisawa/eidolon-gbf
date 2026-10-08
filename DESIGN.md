@@ -166,6 +166,7 @@ components:
 - **Body**（400，0.875rem）：制作人的消息、列表名、通话层里的中文字幕。
 - **Status**（500，0.875rem，等宽数字）：通话计时、「正在呼叫…」「通话已结束」、便利贴文字，配线形状态。
 - **Label**（400，0.75rem）：气泡里的中文字幕（`Text type="supporting"`，paperMuted 色）、时间戳、圆形控制键下的标签、免责声明。
+- **后台（/admin）**：数据密集，层级要比其余页面多一级。页标题 h1 用 Heading 默认的 heading-1（600，1.5rem）；组标题 h2 是 Title（`SettingsSection`）；组里的小节 h3 和正文同字号、靠 semibold 区分；表头 Label 字号、500、铅笔灰（主题 `table-header-cell` 覆盖）；数字卡的数字 600、1.25rem、等宽数字，不和页标题抢。说明文字最宽 42em（`PROSE_WIDTH`）。
 
 ### Named Rules
 **The Original-Then-Subtitle Rule.** 她的一句话永远是两行：日语原文在上、大一号、M PLUS 1p、标 `lang="ja"`；中文字幕在下、小一号、次要色。字幕不能比原文大，也不能单独出现来代替原文。

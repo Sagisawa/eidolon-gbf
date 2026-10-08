@@ -7,6 +7,9 @@ import { useId, type ReactNode } from "react";
 
 import { SectionHeading } from "@/components/SubpageHeader";
 
+/** 说明文字的行长上限：一行四十来个汉字。 */
+export const PROSE_WIDTH = "42em";
+
 type Props = {
   title: string;
   /** 标题下的一段说明。 */
@@ -27,7 +30,7 @@ export function SettingsSection({ title, description, children }: Props) {
         <VStack gap={1}>
           <SectionHeading id={headingId}>{title}</SectionHeading>
           {description && (
-            <Text as="p" color="secondary">
+            <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
               {description}
             </Text>
           )}

@@ -7,6 +7,8 @@ import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import type { ReactNode } from "react";
 
+import { PROSE_WIDTH } from "@/components/SettingsSection";
+
 // 看板各节共用的几块：数字卡片和放卡片的一行、组里带标题和说明的一小节、两节并排、等宽数字。
 
 export function StatTile({ label, value, note }: { label: string; value: string; note?: string }) {
@@ -14,7 +16,7 @@ export function StatTile({ label, value, note }: { label: string; value: string;
     <Card>
       <VStack gap={1}>
         <Text type="supporting">{label}</Text>
-        <Text type="display-3" weight="semibold">
+        <Text type="display-3" size="xl" weight="semibold" hasTabularNumbers>
           {value}
         </Text>
         {note && <Text type="supporting">{note}</Text>}
@@ -40,7 +42,11 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
         <Heading level={3} style={{ fontSize: "var(--text-body-size)" }}>
           {title}
         </Heading>
-        {hint && <Text type="supporting">{hint}</Text>}
+        {hint && (
+          <Text type="supporting" style={{ maxWidth: PROSE_WIDTH }}>
+            {hint}
+          </Text>
+        )}
       </VStack>
       {children}
     </VStack>

@@ -15,7 +15,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AdminPage } from "@/components/admin/AdminPage";
 import { AdminPrices } from "@/components/AdminPrices";
 import { FailureNotice } from "@/components/FailureNotice";
-import { SettingsSection } from "@/components/SettingsSection";
+import { PROSE_WIDTH, SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
 import {
   changeOf,
@@ -136,7 +136,7 @@ function ItemSection({ name, config, onChange }: { name: ItemName; config: Confi
   if (!isAvailable(item)) {
     return (
       <SettingsSection title={title} description={t.items[name].hint}>
-        <Text as="p" color="secondary">
+        <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
           {t.unavailable(item.unavailable)}
         </Text>
       </SettingsSection>
@@ -202,12 +202,12 @@ function AvailableItem({
         <Text>{t.status[item.status]}</Text>
       </HStack>
       {item.follows_chat && (
-        <Text as="p" color="secondary">
+        <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
           {t.followsChat}
         </Text>
       )}
       {item.model && (
-        <Text as="p" color="secondary">
+        <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
           {t.forModel(item.model)}
         </Text>
       )}

@@ -200,6 +200,12 @@
   .astryx-popover {
     border: var(--border-width) solid light-dark(transparent, #61799c);
   }
+
+  .astryx-table-header-cell {
+    font-size: var(--text-supporting-size);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+  }
 }
 }
 

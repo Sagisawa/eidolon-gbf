@@ -30,6 +30,14 @@ export const notebookTheme = defineTheme({
     dialog: { base: { border: `var(--border-width) solid light-dark(transparent, ${overlayEdge})` } },
     "bottom-sheet": { base: { borderColor: `light-dark(transparent, ${overlayEdge})` } },
     popover: { base: { border: `var(--border-width) solid light-dark(transparent, ${overlayEdge})` } },
+    // 表头比正文小一号、次要色：默认和正文同字号同 semibold，和后台小节标题（h3）分不开。
+    "table-header-cell": {
+      base: {
+        fontSize: "var(--text-supporting-size)",
+        fontWeight: "var(--font-weight-medium)",
+        color: "var(--color-text-secondary)",
+      },
+    },
   },
   icons: notebookIcons,
   tokens: {

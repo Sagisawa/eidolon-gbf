@@ -7,10 +7,14 @@ import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import type { ReactNode } from "react";
 
+import { PROSE_WIDTH } from "@/components/SettingsSection";
+
 const WIDTHS = { wide: 1200, narrow: 960 } as const;
 
-/** 说明文字的行长上限：一行四十来个汉字。 */
-export const PROSE_WIDTH = "42em";
+
+// 后台的字号层级（DESIGN.md「Typography」的后台部分）：页标题 h1 用 Heading 默认的 heading-1（24px），
+// 组标题 h2 是 Title（17px，SettingsSection），组里的小节 h3 和正文同字号、靠 semibold 区分，
+// 表头小一号、medium、次要色（主题里覆盖），数字卡的数字 20px，不和页标题抢。
 
 type Props = {
   title: ReactNode;
@@ -38,9 +42,7 @@ export function AdminPage({ title, intro, above, meta, end, width, children }: P
         <HStack gap={4} vAlign="end" wrap="wrap">
           <StackItem size="fill">
             <VStack gap={2}>
-              <Heading level={1} style={{ fontSize: "var(--text-large-size)" }}>
-                {title}
-              </Heading>
+              <Heading level={1}>{title}</Heading>
               {meta}
               {intro && (
                 <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
