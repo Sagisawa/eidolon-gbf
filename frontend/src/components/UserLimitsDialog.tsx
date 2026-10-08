@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { TouchButton, useTouch } from "@/components/admin/DashboardParts";
 import { FailureNotice } from "@/components/FailureNotice";
 import { copy } from "@/i18n";
+import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
 import {
   limitDraft,
   limitsInput,
@@ -44,6 +45,25 @@ export function UserLimitsDialog({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  /** 全站现在的每小时回合数和通话次数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
+  const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    let current = true;
+    getAdminConfig().then(
+      (config) => {
+        const limits = config.limits;
+        if (!current || !isAvailable(limits)) return;
+        const { turns_per_hour: turns, calls_per_hour: calls } = limits.effective;
+        if (typeof turns === "number" && typeof calls === "number") setSite({ turns, calls });
+      },
+      () => {},
+    );
+    return () => {
+      current = false;
+    };
+  }, [user]);
 
   // Opened afresh: start from what the user has now.
   useEffect(() => {
@@ -81,8 +101,8 @@ export function UserLimitsDialog({
           <LayoutContent>
             <VStack gap={5}>
               <Text as="p">{t.hint}</Text>
-              <LimitField label={t.turns} draft={turns} onChange={setTurns} />
-              <LimitField label={t.calls} draft={calls} onChange={setCalls} />
+              <LimitField label={t.turns} draft={turns} onChange={setTurns} site={site?.turns ?? null} />
+              <LimitField label={t.calls} draft={calls} onChange={setCalls} site={site?.calls ?? null} />
               <TextArea
                 label={t.note}
                 description={t.noteHint}
@@ -123,10 +143,13 @@ function LimitField({
   label,
   draft,
   onChange,
+  site,
 }: {
   label: string;
   draft: LimitDraft;
   onChange: (draft: LimitDraft) => void;
+  /** 全站现在的数字，0 是不限；不知道时 null。 */
+  site: number | null;
 }) {
   const touch = useTouch();
   return (
@@ -138,7 +161,10 @@ function LimitField({
         onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
         size={touch ? "lg" : "sm"}
       >
-        <SegmentedControlItem value="default" label={t.choices.default} />
+        <SegmentedControlItem
+          value="default"
+          label={site === null ? t.choices.default : t.defaultIs(t.siteCount(site))}
+        />
         <SegmentedControlItem value="number" label={t.choices.number} />
         <SegmentedControlItem value="unlimited" label={t.choices.unlimited} />
       </SegmentedControl>

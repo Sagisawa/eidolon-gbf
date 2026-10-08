@@ -323,6 +323,7 @@ export function AdminPrices() {
           </VStack>
           {mode.kind === "edit" && <PriceReference entry={mode.entry} />}
           <PriceEditor
+            key={opened}
             form={form}
             isKeyFixed={mode.kind !== "add"}
             onChange={setForm}
@@ -472,11 +473,25 @@ function PriceEditor({
 }) {
   const result = priceChangeOf(form);
   const problem = "problem" in result ? result.problem : null;
-  const set = (field: FormField) => (value: string) => onChange({ ...form, [field]: value });
+  // 刚打开的空表单不先报「不能为空」：一项改过之后，或者点过一次保存，才在那一项下面说哪里不对。
+  const [edited, setEdited] = useState<ReadonlySet<FormField>>(new Set());
+  const [tried, setTried] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const set = (field: FormField) => (value: string) => {
+    setEdited((fields) => new Set(fields).add(field));
+    onChange({ ...form, [field]: value });
+  };
+  const shownProblem = problem && (tried || edited.has(problem.field)) ? problem : null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if ("change" in result) onSave(result.change);
+    if ("change" in result) {
+      onSave(result.change);
+      return;
+    }
+    setTried(true);
+    // 焦点移到出错的那一项（字段按表单顺序排，出错的是第一个不对的）。
+    requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus());
   }
 
   function text(field: "provider" | "model" | "input" | "output") {
@@ -488,14 +503,16 @@ function PriceEditor({
         value={form[field]}
         onChange={set(field)}
         isOptional={field === "output"}
-        status={problem?.field === field ? { type: "error", message: t.problems[problem.reason](label) } : undefined}
+        status={
+          shownProblem?.field === field ? { type: "error", message: t.problems[shownProblem.reason](label) } : undefined
+        }
         autoComplete="off"
       />
     );
   }
 
   return (
-    <form onSubmit={submit}>
+    <form ref={formRef} onSubmit={submit} noValidate>
       <FormLayout>
         {!isKeyFixed && text("provider")}
         {!isKeyFixed && text("model")}
@@ -516,7 +533,7 @@ function PriceEditor({
         {text("input")}
         {text("output")}
         <HStack gap={2}>
-          <TouchButton type="submit" variant="primary" label={t.save} isLoading={busy} isDisabled={problem !== null || busy} />
+          <TouchButton type="submit" variant="primary" label={t.save} isLoading={busy} isDisabled={busy} />
           <TouchButton variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
         </HStack>
       </FormLayout>

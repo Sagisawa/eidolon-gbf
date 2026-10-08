@@ -563,6 +563,9 @@ export const zh = {
         turns: "每小时的回合数",
         calls: "每小时的通话次数",
         choices: { default: "跟随全站", number: "设定次数", unlimited: "不限" },
+        /** 「跟随全站」带上全站现在的数字，不用去配置页查：「跟随全站（60 次）」。 */
+        defaultIs: (site: string) => `跟随全站（${site}）`,
+        siteCount: (n: number) => (n === 0 ? "不限" : `${n} 次`),
         count: (what: string) => `${what}（次数）`,
         units: "次 / 小时",
         countHint: "填 0 表示只能用自带密钥。",
