@@ -1,6 +1,6 @@
 # 01: Windows 上关闭通话的 WebRTC 连接偶发一直卡住
 
-**Status:** ready-for-human
+**Status:** resolved
 
 **发现于：** 2026-10-08，`memory-upgrade` 第三波跑完整 pytest 时卡住（被 pytest-timeout 结束），随后由子 agent 定位根因。
 
@@ -93,7 +93,7 @@ aiortc 层的压测：建两个 `RTCPeerConnection`，不让它们连通，先�
 - [x] 测试：服务端关闭 WebRTC 连接一直不返回时（用假的连接模拟），通话照样在超时后结束，`Calls.aclose` 能返回，并记下一条 warning。
 - [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
 - [x] 完整 pytest 连跑至少 10 遍（可以两个并行），一次都不卡。输出写进文件，外面包 timeout。
-- [ ] **人工验收（留给用户）**：本地起服务，打几通电话，其中有接通前就挂断的，关掉服务时不卡。
+- [x] **人工验收（留给用户）**：本地起服务，打几通电话，其中有接通前就挂断的，关掉服务时不卡。
 
 ## Comments
 
@@ -106,4 +106,4 @@ aiortc 层的压测：建两个 `RTCPeerConnection`，不让它们连通，先�
   - `tests/test_windows_udp.py`：最小复现，非 Windows 平台跳过。
   - `test_call.py::test_a_connection_that_will_not_close_is_given_up_and_the_call_still_ends`：把超时临时调成 100 秒时，确认这条测试会失败。
 - 完整 pytest 先跑 1 遍，再两路并行各跑 5 遍，共 11 遍，每遍 1098 个全部通过，没有卡住，也没有 faulthandler 调用栈。`ruff` 和 `pyright` 没有报错。
-- 还剩人工验收：本地起服务，打几通电话，其中有接通前就挂断的，关服务时不卡。
+- 人工验收（2026-10-08 用户确认通过）：本地起服务，打几通电话，其中有接通前就挂断的，关服务时不卡。
