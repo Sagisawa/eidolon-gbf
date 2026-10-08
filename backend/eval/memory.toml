@@ -75,7 +75,7 @@
 # - 召回题的预置记忆里放几条相似但不相干的干扰项，用 not_found 检查它们没有被想起。
 # - 期望结果有歧义的用例不放；收进来的边界情况在 note 里写清为什么这样判。
 # - 用户说的话和角色的回复都是虚构的，只用到角色的名字和口吻，不含剧情原文（ADR-0003），可以提交。
-# - 标注由 agent 起草；新加的用例先写 reviewed = false，人工逐条校对后改成 true，基线以校对后的结果为准。
+# - 标注由 agent 起草，已人工审核（reviewed = true）；新加的用例先写 reviewed = false，人工校对后改成 true。
 
 # ===========================================================================
 # 取代（supersede）
@@ -99,7 +99,7 @@ must = [["东京", "東京"]]
 supersedes = ["osaka"]
 keeps = ["cat"]
 note = "住处变了：大阪那条（对恋鐘说的）应被取代，跨来源角色；猫和搬家无关，应保留。新记忆写成「从大阪搬到了东京」也对。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "supersede-new-job"
@@ -119,7 +119,7 @@ must = [["出版社", "编辑"]]
 supersedes = ["job"]
 keeps = ["coffee"]
 note = "工作变了：程序员那条应被取代；喝咖啡的习惯不受影响。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "supersede-dog-died-cat-stays"
@@ -137,7 +137,7 @@ reply = { ja = "そうだったんだ……つらかったね。猫ちゃんの�
 must = [["狗"], ["猫"]]
 supersedes = ["pets"]
 note = "一件事只变了一部分：新记忆要把仍然成立的「还养着猫」也写进去，旧的那条被取代。只写「狗去世了」不算通过。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "supersede-tea-and-coffee-both-hold"
@@ -155,7 +155,7 @@ reply = { ja = "よかね〜！うちもウーロン茶好きばい", zh = "真�
 must = [["茶"]]
 keeps = ["coffee"]
 note = "两件事都成立：早上喝咖啡，下午也喝茶。喝茶不取代喝咖啡。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "supersede-cat-gets-a-name"
@@ -175,7 +175,7 @@ must = [["小白"], ["猫"]]
 supersedes = ["cat"]
 keeps = ["hometown"]
 note = "说得更完整了：新记忆「制作人养了一只叫小白的白猫」单独看也完整，取代只说「养了一只猫」的那条。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "supersede-friend-fell-out"
@@ -195,7 +195,7 @@ must = [["阿哲"]]
 supersedes = ["friend"]
 keeps = ["fishing"]
 note = "关系变了：「关系很好、经常一起钓鱼」不再成立，应被取代；钓鱼这个爱好本身还在。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "supersede-moved-again"
@@ -214,7 +214,7 @@ reply = { ja = "福岡！？長崎のすぐ近くやん！遊びに行きたか�
 must = [["福冈", "福岡"]]
 supersedes = ["osaka"]
 note = "预置里札幌已被大阪取代；这次搬去福冈，应取代现在有效的大阪那条。基线里札幌那条也算有效，这是预期的。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "supersede-recall-where-i-live"
@@ -233,7 +233,7 @@ said = "我住的这附近有什么好逛的地方吗？"
 found = ["tokyo"]
 not_found = ["osaka"]
 note = "大阪那条已被取代，不该再被想起。基线里两条都有效，大阪那条措辞更贴近「住」，很可能被想起，这是预期的失败。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "supersede-recall-my-job"
@@ -252,7 +252,7 @@ said = "我那份工作最近忙得要命，天天加班"
 found = ["editor"]
 not_found = ["programmer"]
 note = "说起自己的工作，应想起现在的编辑工作，不该想起已被取代的程序员那条。"
-reviewed = false
+reviewed = true
 
 # ===========================================================================
 # 重复（duplicate）
@@ -273,7 +273,7 @@ said = "我家也养了一只猫，叫小白"
 reply = { ja = "小白ちゃん！今度写真見せてほしか〜", zh = "小白！下次给我看看照片嘛～" }
 nothing = true
 note = "对真乃说过的事又对恋鐘说了一遍，记忆是共享的，不该再写一条。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "duplicate-pollen-reworded"
@@ -290,7 +290,7 @@ said = "我有花粉症，一到春天就鼻涕眼泪流个不停"
 reply = { ja = "ほわっ……それは大変です。マスク、忘れないでくださいね", zh = "哇……那可真辛苦。别忘了戴口罩哦" }
 nothing = true
 note = "换了说法的同一件事，不该再写。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "duplicate-hiking-to-another"
@@ -308,7 +308,7 @@ said = "我一般都去爬山"
 reply = { ja = "山登り、いいですね。体力もつきますし", zh = "爬山不错呢。还能锻炼体力" }
 nothing = true
 note = "对めぐる说过的爱好对灯织又说了一遍，不该再写。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "duplicate-trip-date"
@@ -325,7 +325,7 @@ said = "10月17号我要回北海道老家一趟"
 reply = { ja = "いいなー！北海道のおいしいもの、たくさん食べてきてね！", zh = "真好～！要在北海道多吃点好吃的哦！" }
 nothing = true
 note = "日期、地点都和已经记住的一样，不该再写。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "duplicate-cat-plus-guitar"
@@ -343,7 +343,7 @@ reply = { ja = "ほわっ、ギターですか！今度聴かせてください"
 must = [["吉他"]]
 must_not = ["小白"]
 note = "一句话里有一件已经记住的事（养猫）和一件新事（学吉他）：只记吉他。猫趴在腿上是一时的事，也不用记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "duplicate-told-long-ago"
@@ -410,7 +410,7 @@ said = "说起来，我小时候奶奶家养过一条狗，叫阿福"
 reply = { ja = "阿福ちゃん……どんなわんちゃんだったんですか？", zh = "阿福……是什么样的狗狗呀？" }
 nothing = true
 note = "很久以前说过的事（阿福那条之后又记了 50 条），重复时同样不该再写。基线里背景模型只看得到最近 50 条，看不到阿福那条，很可能会再写一次。"
-reviewed = false
+reviewed = true
 
 # ===========================================================================
 # 短期状态（transient）
@@ -428,7 +428,7 @@ said = "今天加班到好晚，累死了"
 reply = { ja = "お疲れさまです……今日はゆっくり休んでくださいね", zh = "辛苦了……今天要好好休息哦" }
 nothing = true
 note = "当天的疲惫，过后不会被问起，不记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-sleepy"
@@ -442,7 +442,7 @@ said = "好困啊，昨晚没怎么睡好"
 reply = { ja = "えー、大丈夫？今日は早く寝なきゃだめだよ！", zh = "诶，没事吧？今天一定要早点睡哦！" }
 nothing = true
 note = "一时的困，不记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-bad-mood"
@@ -456,7 +456,7 @@ said = "没什么，就是今天心情不太好"
 reply = { ja = "そうですか……わたしでよければ、話を聞きます", zh = "这样啊……如果不嫌弃的话，我可以听你说说" }
 nothing = true
 note = "当天的心情，没说原因，不记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-hungry"
@@ -470,7 +470,7 @@ said = "饿死了，到现在还没吃晚饭"
 reply = { ja = "えー！早う何か食べんと！ちゃんぽんとかどう？", zh = "诶！快点吃点东西！吃什锦面怎么样？" }
 nothing = true
 note = "一时的饿，不记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-tired-but-moving-tomorrow"
@@ -485,7 +485,7 @@ reply = { ja = "お引っ越しなんですね……！無理しないでくだ�
 must = ["搬家"]
 must_not = ["累"]
 note = "累是当天的状态，不记；明天（10月9日）搬家是会持续几天、过后会被问起的事，要记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-sick-with-fever"
@@ -499,7 +499,7 @@ said = "感冒了，烧到38度，这几天都得请假在家"
 reply = { ja = "大丈夫ですか……！ちゃんと水分をとって、温かくして寝てください", zh = "没事吧……！要多喝水，盖暖和了好好睡" }
 must = [["感冒", "发烧", "烧"]]
 note = "生病会持续几天，朋友过后会问起，要记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-exam-tomorrow"
@@ -513,7 +513,7 @@ said = "明天要考日语能力考试N2，有点紧张"
 reply = { ja = "N2！？すごい！プロデューサーなら絶対大丈夫だよ、がんばって！", zh = "N2！？好厉害！制作人一定没问题的，加油！" }
 must = [["N2", "日语能力考试", "能力考"], ["10月9日"]]
 note = "考试过后会被问起，要记，并把「明天」换算成 10月9日。紧张是一时的情绪，写不写都不判。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-interview-this-afternoon"
@@ -527,7 +527,7 @@ said = "下午有个面试，好紧张"
 reply = { ja = "面接！？プロデューサーなら大丈夫ばい！応援しとるけん！", zh = "面试！？制作人一定没问题的！我会为你加油的！" }
 must = ["面试"]
 note = "面试结果过后会被问起，要记；紧张不用单独记。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "transient-business-trip"
@@ -541,7 +541,7 @@ said = "下周一到周三要去大阪出差"
 reply = { ja = "出張ですか。お気をつけて", zh = "出差吗。路上小心" }
 must = ["出差", "大阪"]
 note = "出差持续几天，过后会被问起，要记。「下周一」换算成哪天不判（10月12日），只看事情本身。"
-reviewed = false
+reviewed = true
 
 # ===========================================================================
 # 代词（pronoun）
@@ -564,7 +564,7 @@ said = "它昨晚又叫了一夜，我都没睡好"
 found = ["cat"]
 not_found = ["coffee"]
 note = "「它」指上一条回复里的猫。只拿这句话去找，找不到猫。柴犬也是宠物，不放进 not_found。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "pronoun-car-broke-down"
@@ -583,7 +583,7 @@ said = "它在半路上抛锚了"
 found = ["car"]
 not_found = ["commute"]
 note = "「它」指上一条回复里的新车。自行车也是交通工具，不放进 not_found。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "pronoun-sister-visiting"
@@ -601,7 +601,7 @@ history = [
 said = "对，她下个月要来东京玩"
 found = ["sister"]
 note = "「她」指上一条回复里的妹妹。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "pronoun-hometown-snowing"
@@ -620,7 +620,7 @@ said = "那边现在已经开始下雪了"
 found = ["hometown"]
 not_found = ["okinawa"]
 note = "「那边」指上一条回复里的老家。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "pronoun-tomatoes-eaten"
@@ -638,7 +638,7 @@ history = [
 said = "别提了，那些全被鸟吃光了"
 found = ["tomato"]
 note = "「那些」指上一条回复里的小番茄。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "pronoun-friend-ramen-shop"
@@ -657,7 +657,7 @@ said = "去了，他还说想请你们去尝尝"
 found = ["friend"]
 not_found = ["colleague"]
 note = "「他」指上一条回复里的朋友（开拉面店的阿哲）。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "pronoun-cat-surgery-named"
@@ -675,7 +675,7 @@ reply = { ja = "ほわっ……ちょっと心配ですね。でも、きっと�
 must = [["小白", "猫"], ["绝育", "手术"]]
 must_not = ["它"]
 note = "写下的记忆要把「它」换成小白（或猫），单独看也知道是谁做手术。"
-reviewed = false
+reviewed = true
 
 # ===========================================================================
 # 专有名词（proper-noun）
@@ -698,7 +698,7 @@ said = "豆太最近胖了好多"
 found = ["parents-dog"]
 not_found = ["diet"]
 note = "豆太只在一条记忆里出现过，只靠名字才能对上。减肥和「胖」字面相近，是干扰项。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "proper-noun-friend-azhe"
@@ -717,7 +717,7 @@ said = "阿哲打来的，聊了好久"
 found = ["friend"]
 not_found = ["colleague"]
 note = "阿哲只在一条记忆里出现过。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "proper-noun-colleague-yamada"
@@ -736,7 +736,7 @@ said = "山田那边得准备个红包"
 found = ["colleague"]
 not_found = ["nephew"]
 note = "山田只出现过一次；「准备红包」要靠记忆才知道是婚礼。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "proper-noun-cat-xiaobai"
@@ -755,7 +755,7 @@ said = "小白把桌上的杯子推下去摔碎了"
 found = ["cat"]
 not_found = ["parents-dog"]
 note = "小白只靠名字才能对上；豆太也是宠物名，但这句话说的不是它。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "proper-noun-cafe-moonlight"
@@ -774,7 +774,7 @@ said = "月光今天居然没开门"
 found = ["cafe"]
 not_found = ["jazz"]
 note = "「月光」是店名，只出现过一次。喝咖啡那条写不写都不判。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "proper-noun-hamster-dango"
@@ -793,7 +793,7 @@ said = "团子生了三只小宝宝"
 found = ["hamster"]
 not_found = ["dango-sweets"]
 note = "团子是仓鼠的名字，上一条回复没有提到仓鼠，只能靠名字；喜欢吃三色团子那条字面上也有「团子」，是干扰项。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "proper-noun-keep-dog-name"
@@ -807,7 +807,7 @@ said = "它叫豆太，是我爸妈养的，已经十岁了"
 reply = { ja = "豆太くん……十歳なら、もうおじいちゃんですね", zh = "豆太……十岁的话，已经是老爷爷了呢" }
 must = ["豆太", "柴犬"]
 note = "写下的记忆要保留名字「豆太」，也要说清是柴犬。"
-reviewed = false
+reviewed = true
 
 [[extraction]]
 id = "proper-noun-keep-colleague-name"
@@ -821,7 +821,7 @@ said = "我同事山田要结婚了，我还得在婚礼上致辞"
 reply = { ja = "すごーい！スピーチがんばってね！", zh = "好厉害！致辞要加油哦！" }
 must = ["山田", ["婚礼", "结婚"]]
 note = "名字「山田」要留在记忆里；只写「同事要结婚」以后就对不上了。"
-reviewed = false
+reviewed = true
 
 # ===========================================================================
 # 前情（continuity，只作参考）
@@ -840,7 +840,7 @@ said = "我回来了～"
 found = ["interview"]
 not_found = ["ramen"]
 note = "对话刚开始，打招呼时该想起今天的面试，问问结果。判断模型多半判 nothing。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "continuity-morning-of-exam"
@@ -854,7 +854,7 @@ history = []
 said = "早上好！"
 found = ["exam"]
 note = "考试当天的早上，打招呼时该想起考试，给制作人打气。喝咖啡写不写都不判。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "continuity-feeling-better"
@@ -872,7 +872,7 @@ said = "今天精神好多了"
 found = ["sick"]
 not_found = ["hiking"]
 note = "「好多了」该接上前几天的感冒。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "continuity-back-from-trip"
@@ -887,7 +887,7 @@ said = "我回来啦，带了点土特产"
 found = ["trip"]
 not_found = ["okinawa"]
 note = "该想起刚结束的北海道出差，问问怎么样、带了什么。"
-reviewed = false
+reviewed = true
 
 [[recall]]
 id = "continuity-weekend-hike"
@@ -905,4 +905,4 @@ said = "终于快到周末了"
 found = ["hike"]
 not_found = ["jazz"]
 note = "闲聊说到周末，该接上周六的爬山计划。"
-reviewed = false
+reviewed = true
