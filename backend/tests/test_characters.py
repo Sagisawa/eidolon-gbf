@@ -133,10 +133,10 @@ def test_repository_configures_its_idols_with_their_voices():
         "sakuya": "3543f8d3e498439794f14be23dafbe89",
         "yuika": "e6b09fdf01874e63adf5f8aa45c0d2ea",
         "kiriko": "115e921e1b4740b08f3ec723666b2b40",
-        "toru": "",
-        "madoka": "",
-        "koito": "",
-        "hinana": "",
+        "toru": "db8fb218614745f6b854e24620c33445",
+        "madoka": "9fa98a656a0d4242b6073fd955f5179b",
+        "koito": "8ee2e17bbead4610a17f324fe540be49",
+        "hinana": "565ffd381fbc427ebfa1cc4c689ac12d",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
