@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 
 import eidolon.call
 from eidolon.app import create_app
@@ -298,3 +299,43 @@ async def test_shutting_down_hangs_up_calls_and_drops_the_reply_in_progress(
         assert store.list_messages(conversation_id) == []
     finally:
         store.close()
+
+
+async def test_a_connection_that_will_not_close_is_given_up_and_the_call_still_ends(
+    settings: Settings, speech: FakeSpeech, browser: Browser,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+):
+    disconnect = SmallWebRTCConnection.disconnect
+    stuck: list[SmallWebRTCConnection] = []
+
+    async def never_closes(connection: SmallWebRTCConnection) -> None:
+        stuck.append(connection)
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(SmallWebRTCConnection, "disconnect", never_closes)
+    monkeypatch.setattr(eidolon.call, "CONNECT_TIMEOUT", timedelta(seconds=0.2))
+    monkeypatch.setattr(eidolon.call, "DISCONNECT_TIMEOUT", 0.2)
+    backend = build_faked(settings, FakeLLM(), background_llm=FakeBackgroundLLM(), speech=speech)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app(backend)),
+            base_url="http://test",
+            headers=SITE,
+            cookies=sign_in(backend.store, "producer", backend.clock()),
+        ) as client:
+            conversation_id = await start_conversation(client)
+            # never connects, as when the browser left first: only the call closes it
+            assert (await browser.call(client, conversation_id=conversation_id)).status_code == 200
+
+            async with asyncio.timeout(TIMEOUT):
+                while backend.calls.in_progress:
+                    await asyncio.sleep(0.05)
+            await asyncio.wait_for(backend.aclose(), TIMEOUT)  # the connection is still there
+
+        assert stuck
+        assert [r.levelname for r in caplog.records if r.name == "eidolon.call"].count(
+            "WARNING"
+        ) == 2
+    finally:
+        for connection in set(stuck):  # close them after all, so nothing is left running
+            await disconnect(connection)

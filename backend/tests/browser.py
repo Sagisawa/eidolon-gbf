@@ -101,8 +101,12 @@ class Browser:
         await self.close()
 
     async def close(self) -> None:
-        """Close the connection without a word, as leaving the page does."""
-        await self.pc.close()
+        """Close the connection without a word, as leaving the page does; one that will
+        not close is given up, rather than hang the test."""
+        try:
+            await asyncio.wait_for(self.pc.close(), TIMEOUT)
+        except TimeoutError:
+            pass
 
     def _send(self, type: str, data: dict) -> None:
         self._channel.send(json.dumps({"label": "rtvi-ai", "type": type, "id": type, "data": data}))

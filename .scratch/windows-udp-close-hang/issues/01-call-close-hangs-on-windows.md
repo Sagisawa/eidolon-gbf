@@ -1,6 +1,6 @@
 # 01: Windows 上关闭通话的 WebRTC 连接偶发一直卡住
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 **发现于：** 2026-10-08，`memory-upgrade` 第三波跑完整 pytest 时卡住（被 pytest-timeout 结束），随后由子 agent 定位根因。
 
@@ -89,8 +89,21 @@ aiortc 层的压测：建两个 `RTCPeerConnection`，不让它们连通，先�
 
 ## 验收
 
-- [ ] 测试：在 Windows 的 Proactor 事件循环上，UDP 传输 `sendto` 之后马上 `close`，`connection_lost` 会被调用（就是上面的最小复现）。非 Windows 平台跳过。
-- [ ] 测试：服务端关闭 WebRTC 连接一直不返回时（用假的连接模拟），通话照样在超时后结束，`Calls.aclose` 能返回，并记下一条 warning。
-- [ ] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
-- [ ] 完整 pytest 连跑至少 10 遍（可以两个并行），一次都不卡。输出写进文件，外面包 timeout。
+- [x] 测试：在 Windows 的 Proactor 事件循环上，UDP 传输 `sendto` 之后马上 `close`，`connection_lost` 会被调用（就是上面的最小复现）。非 Windows 平台跳过。
+- [x] 测试：服务端关闭 WebRTC 连接一直不返回时（用假的连接模拟），通话照样在超时后结束，`Calls.aclose` 能返回，并记下一条 warning。
+- [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
+- [x] 完整 pytest 连跑至少 10 遍（可以两个并行），一次都不卡。输出写进文件，外面包 timeout。
 - [ ] **人工验收（留给用户）**：本地起服务，打几通电话，其中有接通前就挂断的，关掉服务时不卡。
+
+## Comments
+
+**2026-10-08 实现**
+
+- 治本：`backend/src/eidolon/windows_udp.py` 的 `install()` 给 `_loop_writing` 打补丁，`eidolon/call.py` 导入时调用。上游对应 CPython 问题 [gh-156920](https://github.com/python/cpython/issues/156920)，修复 PR 是 [#156921](https://github.com/python/cpython/pull/156921)。这个修复 2026-09 合入，只回移到 3.13（[#157609](https://github.com/python/cpython/pull/157609)）、3.14 和 3.15，3.11 和 3.12 不会再修，所以补丁只在 Windows、3.13 以下打。后端要求的 Python 升到带修复的 3.13 以后，这个补丁可以删掉。
+- 兜底：`DISCONNECT_TIMEOUT = 5.0` 秒，超时记一条 warning 后放弃等待，用在三个地方：`_LiveCall._serve` 里的 `disconnect`；建通话失败时关连接；`Calls.aclose` 里的 `self._webrtc.close()`。最后这处不包的话，`aclose` 还会对同一个连接再 `disconnect` 一次，照样卡住。`tests/browser.py` 的 `Browser.close()` 也加了 `TIMEOUT` 上限。
+- 兜底管不到的情况：已接通的通话里，Pipecat 的传输层在取消 pipeline 时也会关连接。这里卡住只受 Pipecat 自己的取消超时（20 秒）约束，不在这次兜底范围内。实际查到的卡死都是没接通的通话，那时传输层不会去关连接。所以 `test_call.py` 里的新测试模拟的是没接通的通话。
+- 测试：
+  - `tests/test_windows_udp.py`：最小复现，非 Windows 平台跳过。
+  - `test_call.py::test_a_connection_that_will_not_close_is_given_up_and_the_call_still_ends`：把超时临时调成 100 秒时，确认这条测试会失败。
+- 完整 pytest 先跑 1 遍，再两路并行各跑 5 遍，共 11 遍，每遍 1098 个全部通过，没有卡住，也没有 faulthandler 调用栈。`ruff` 和 `pyright` 没有报错。
+- 还剩人工验收：本地起服务，打几通电话，其中有接通前就挂断的，关服务时不卡。
