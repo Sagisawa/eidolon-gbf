@@ -28,7 +28,16 @@ function pairs(hex: string) {
 }
 
 describe("imageColorScale", () => {
-  const officials = { 真乃: "#ffbad6", 恋鐘: "#f84cad", 灯織: "#144384", めぐる: "#ffe012", 咲耶: "#006047" };
+  const officials = {
+    真乃: "#ffbad6",
+    恋鐘: "#f84cad",
+    灯織: "#144384",
+    めぐる: "#ffe012",
+    摩美々: "#a846fb",
+    咲耶: "#006047",
+    結華: "#3b91c4",
+    霧子: "#d9f2ff",
+  };
 
   it("官方印象色和任意色相、任意深浅的印象色，每一对颜色在明暗两种模式下都看得清", () => {
     const colors = Object.entries(officials).map(([name, hex]) => ({ name: `${name} ${hex}`, hex }));
