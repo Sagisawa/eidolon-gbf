@@ -11,77 +11,61 @@
       "supersede": {
         "name": "取代",
         "cases": 9,
-        "passed": 1,
+        "passed": 9,
         "extraction": {
           "cases": 7,
-          "passed": 1
+          "passed": 7
         },
         "recall": {
           "cases": 2,
-          "passed": 0
+          "passed": 2
         },
-        "failed": [
-          "supersede-moved-to-tokyo",
-          "supersede-new-job",
-          "supersede-dog-died-cat-stays",
-          "supersede-cat-gets-a-name",
-          "supersede-friend-fell-out",
-          "supersede-moved-again",
-          "supersede-recall-where-i-live",
-          "supersede-recall-my-job"
-        ]
+        "failed": []
       },
       "duplicate": {
         "name": "重复",
         "cases": 6,
-        "passed": 5,
+        "passed": 6,
         "extraction": {
           "cases": 6,
-          "passed": 5
+          "passed": 6
         },
         "recall": {
           "cases": 0,
           "passed": 0
         },
-        "failed": [
-          "duplicate-told-long-ago"
-        ]
+        "failed": []
       },
       "transient": {
         "name": "短期状态",
         "cases": 9,
-        "passed": 8,
+        "passed": 9,
         "extraction": {
           "cases": 9,
-          "passed": 8
+          "passed": 9
         },
         "recall": {
           "cases": 0,
           "passed": 0
         },
-        "failed": [
-          "transient-tired-after-overtime"
-        ]
+        "failed": []
       },
       "pronoun": {
         "name": "代词",
         "cases": 7,
-        "passed": 1,
+        "passed": 4,
         "extraction": {
           "cases": 1,
           "passed": 1
         },
         "recall": {
           "cases": 6,
-          "passed": 0
+          "passed": 3
         },
         "failed": [
           "pronoun-cat-cried-all-night",
-          "pronoun-car-broke-down",
-          "pronoun-sister-visiting",
           "pronoun-hometown-snowing",
-          "pronoun-tomatoes-eaten",
-          "pronoun-friend-ramen-shop"
+          "pronoun-tomatoes-eaten"
         ]
       },
       "proper-noun": {
@@ -97,72 +81,73 @@
           "passed": 4
         },
         "failed": [
-          "proper-noun-dog-mameta",
+          "proper-noun-friend-azhe",
           "proper-noun-hamster-dango"
         ]
       },
       "continuity": {
         "name": "前情",
         "cases": 5,
-        "passed": 1,
+        "passed": 0,
         "extraction": {
           "cases": 0,
           "passed": 0
         },
         "recall": {
           "cases": 5,
-          "passed": 1
+          "passed": 0
         },
         "failed": [
           "continuity-back-from-interview",
           "continuity-morning-of-exam",
           "continuity-feeling-better",
-          "continuity-back-from-trip"
+          "continuity-back-from-trip",
+          "continuity-weekend-hike"
         ]
       }
     },
     "total": {
       "cases": 44,
-      "passed": 22
+      "passed": 34
     }
   },
   "extraction": [
     {
       "id": "supersede-moved-to-tokyo",
       "category": "supersede",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人于2026年10月3日至4日的周末从大阪搬到了东京，住处离事务所更近了"
+            "制作人从大阪搬到了东京，是2026年10月3日至4日那个周末搬的，离事务所近多了"
           ],
-          "superseded": [],
-          "problems": [
-            "osaka 没有被取代"
+          "superseded": [
+            "osaka"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人在2026年10月3日至4日的周末从大阪搬到了东京，新住处离283事务所很近"
+            "制作人从大阪搬到了东京，住处离 283 事务所近多了"
           ],
-          "superseded": [],
-          "problems": [
-            "osaka 没有被取代"
+          "superseded": [
+            "osaka"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人于2026年10月3日或4日的周末从大阪搬到了东京，住得离事务所更近了"
+            "制作人上周末（2026年10月3日前后）从大阪搬到了东京，现在住得离事务所近多了"
           ],
-          "superseded": [],
-          "problems": [
-            "osaka 没有被取代"
+          "superseded": [
+            "osaka"
           ],
+          "problems": [],
           "error": null
         }
       ]
@@ -170,39 +155,39 @@
     {
       "id": "supersede-new-job",
       "category": "supersede",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人换工作了，现在在一家出版社当编辑"
+            "制作人换了工作，从游戏公司的程序员变成了出版社的编辑"
           ],
-          "superseded": [],
-          "problems": [
-            "job 没有被取代"
+          "superseded": [
+            "job"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人换工作了，现在在一家出版社当编辑"
+            "制作人从游戏公司的程序员换到了出版社当编辑"
           ],
-          "superseded": [],
-          "problems": [
-            "job 没有被取代"
+          "superseded": [
+            "job"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人换工作了，现在在一家出版社当编辑"
+            "制作人从游戏公司的程序员换工作到了出版社当编辑"
           ],
-          "superseded": [],
-          "problems": [
-            "job 没有被取代"
+          "superseded": [
+            "job"
           ],
+          "problems": [],
           "error": null
         }
       ]
@@ -210,39 +195,39 @@
     {
       "id": "supersede-dog-died-cat-stays",
       "category": "supersede",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人家的狗在2026年9月去世了，现在家里只剩一只猫。"
+            "制作人家里的狗在2026年9月去世了，现在家里只剩下一只猫"
           ],
-          "superseded": [],
-          "problems": [
-            "pets 没有被取代"
+          "superseded": [
+            "pets"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人家的狗在2026年9月去世了，现在家里只剩一只猫"
+            "制作人的狗在上个月（2026年9月）去世了，现在家里只养着那只猫"
           ],
-          "superseded": [],
-          "problems": [
-            "pets 没有被取代"
+          "superseded": [
+            "pets"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人家的狗在2026年9月去世了，现在家里只剩一只猫"
+            "制作人的狗在2026年9月去世了，现在家里只剩那只猫"
           ],
-          "superseded": [],
-          "problems": [
-            "pets 没有被取代"
+          "superseded": [
+            "pets"
           ],
+          "problems": [],
           "error": null
         }
       ]
@@ -255,7 +240,7 @@
         {
           "passed": true,
           "written": [
-            "制作人最近开始喝茶了，下午会喝一杯乌龙茶，觉得挺不错"
+            "制作人最近也开始喝茶了，觉得下午来一杯乌龙茶挺不错"
           ],
           "superseded": [],
           "problems": [],
@@ -264,7 +249,7 @@
         {
           "passed": true,
           "written": [
-            "制作人最近开始喝茶了，下午会喝一杯乌龙茶"
+            "制作人最近也开始喝茶了，下午喜欢喝一杯乌龙茶"
           ],
           "superseded": [],
           "problems": [],
@@ -273,7 +258,7 @@
         {
           "passed": true,
           "written": [
-            "制作人最近开始喝茶了，觉得下午喝一杯乌龙茶很不错"
+            "制作人最近也开始喝茶了，下午会喝一杯乌龙茶"
           ],
           "superseded": [],
           "problems": [],
@@ -284,39 +269,39 @@
     {
       "id": "supersede-cat-gets-a-name",
       "category": "supersede",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人的猫叫小白，全身都是白色的"
+            "制作人养了一只全身都是白色的猫，叫小白"
           ],
-          "superseded": [],
-          "problems": [
-            "cat 没有被取代"
+          "superseded": [
+            "cat"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人的猫叫小白，全身都是白色的"
+            "制作人养了一只叫小白的猫，全身都是白的"
           ],
-          "superseded": [],
-          "problems": [
-            "cat 没有被取代"
+          "superseded": [
+            "cat"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人的猫叫小白，全身都是白色的"
+            "制作人养了一只叫小白的猫，全身都是白的"
           ],
-          "superseded": [],
-          "problems": [
-            "cat 没有被取代"
+          "superseded": [
+            "cat"
           ],
+          "problems": [],
           "error": null
         }
       ]
@@ -324,39 +309,39 @@
     {
       "id": "supersede-friend-fell-out",
       "category": "supersede",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人和大学同学阿哲大吵了一架，现在不怎么联系了"
+            "制作人和大学同学阿哲大吵了一架，现在都不怎么联系了"
           ],
-          "superseded": [],
-          "problems": [
-            "friend 没有被取代"
+          "superseded": [
+            "friend"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人和大学同学阿哲大吵了一架，现在两人都不怎么联系了"
+            "制作人和大学同学阿哲大吵了一架，现在都不怎么联系了（此前两人关系很好，经常一起钓鱼）"
           ],
-          "superseded": [],
-          "problems": [
-            "friend 没有被取代"
+          "superseded": [
+            "friend"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人和大学同学阿哲大吵了一架，现在两人不怎么联系了"
+            "制作人和大学同学阿哲大吵了一架，现在两人都不怎么联系了，也不再经常一起去钓鱼"
           ],
-          "superseded": [],
-          "problems": [
-            "friend 没有被取代"
+          "superseded": [
+            "friend"
           ],
+          "problems": [],
           "error": null
         }
       ]
@@ -364,39 +349,42 @@
     {
       "id": "supersede-moved-again",
       "category": "supersede",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人被公司调去福冈工作，将在2026年11月从大阪搬过去"
+            "制作人此前从札幌搬到了大阪，现在因公司调动要搬去福冈，预计2026年11月搬家。"
           ],
-          "superseded": [],
-          "problems": [
-            "osaka 没有被取代"
+          "superseded": [
+            "sapporo",
+            "osaka"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人因公司调动将要搬去福冈，预计2026年11月搬过去"
+            "制作人因公司调动将从大阪搬到福冈，预计2026年11月搬过去"
           ],
-          "superseded": [],
-          "problems": [
-            "osaka 没有被取代"
+          "superseded": [
+            "sapporo",
+            "osaka"
           ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
+          "passed": true,
           "written": [
-            "制作人因公司调动被安排去福冈，并将在2026年11月搬过去"
+            "制作人因公司调动将从大阪搬到福冈，预计2026年11月搬家"
           ],
-          "superseded": [],
-          "problems": [
-            "osaka 没有被取代"
+          "superseded": [
+            "sapporo",
+            "osaka"
           ],
+          "problems": [],
           "error": null
         }
       ]
@@ -530,7 +518,7 @@
         {
           "passed": true,
           "written": [
-            "制作人最近开始学吉他了"
+            "制作人最近开始学吉他"
           ],
           "superseded": [],
           "problems": [],
@@ -539,7 +527,7 @@
         {
           "passed": true,
           "written": [
-            "制作人最近开始学吉他了"
+            "制作人最近开始学吉他，截至2026年10月8日正在学"
           ],
           "superseded": [],
           "problems": [],
@@ -550,39 +538,27 @@
     {
       "id": "duplicate-told-long-ago",
       "category": "duplicate",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
-          "passed": false,
-          "written": [
-            "制作人小时候奶奶家养过一条狗，叫阿福"
-          ],
+          "passed": true,
+          "written": [],
           "superseded": [],
-          "problems": [
-            "不该写下任何记忆"
-          ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
-          "written": [
-            "制作人小时候奶奶家养过一条狗，叫阿福"
-          ],
+          "passed": true,
+          "written": [],
           "superseded": [],
-          "problems": [
-            "不该写下任何记忆"
-          ],
+          "problems": [],
           "error": null
         },
         {
-          "passed": false,
-          "written": [
-            "制作人小时候奶奶家养过一条叫阿福的狗"
-          ],
+          "passed": true,
+          "written": [],
           "superseded": [],
-          "problems": [
-            "不该写下任何记忆"
-          ],
+          "problems": [],
           "error": null
         }
       ]
@@ -590,7 +566,7 @@
     {
       "id": "transient-tired-after-overtime",
       "category": "transient",
-      "passed": false,
+      "passed": true,
       "runs": [
         {
           "passed": true,
@@ -602,7 +578,7 @@
         {
           "passed": false,
           "written": [
-            "制作人在2026年10月8日加班到很晚才回家"
+            "制作人在2026年10月8日加班到很晚。"
           ],
           "superseded": [],
           "problems": [
@@ -611,14 +587,10 @@
           "error": null
         },
         {
-          "passed": false,
-          "written": [
-            "制作人在2026年10月8日加班到很晚才回家"
-          ],
+          "passed": true,
+          "written": [],
           "superseded": [],
-          "problems": [
-            "不该写下任何记忆"
-          ],
+          "problems": [],
           "error": null
         }
       ]
@@ -715,7 +687,7 @@
         {
           "passed": true,
           "written": [
-            "制作人计划在2026年10月9日搬家"
+            "制作人将在2026年10月9日搬家"
           ],
           "superseded": [],
           "problems": [],
@@ -724,7 +696,7 @@
         {
           "passed": true,
           "written": [
-            "制作人正在搬家，2026年10月8日打包了一整天行李，预计2026年10月9日搬家"
+            "制作人计划于2026年10月9日搬家"
           ],
           "superseded": [],
           "problems": [],
@@ -733,7 +705,7 @@
         {
           "passed": true,
           "written": [
-            "制作人将于2026年10月9日搬家"
+            "制作人2026年10月8日在打包行李，准备2026年10月9日搬家"
           ],
           "superseded": [],
           "problems": [],
@@ -749,8 +721,7 @@
         {
           "passed": true,
           "written": [
-            "制作人在2026年10月8日感冒了，发烧到38度，在家休息",
-            "制作人因为感冒请了假，从2026年10月8日起这几天都要待在家里"
+            "制作人感冒发烧到38度，从2026年10月8日起请假在家休息几天"
           ],
           "superseded": [],
           "problems": [],
@@ -759,7 +730,7 @@
         {
           "passed": true,
           "written": [
-            "制作人感冒发烧到38度，从2026年10月8日起请几天假在家休息。"
+            "制作人感冒了，烧到 38 度，从 2026 年 10 月 8 日起要请假在家休息几天"
           ],
           "superseded": [],
           "problems": [],
@@ -768,7 +739,7 @@
         {
           "passed": true,
           "written": [
-            "制作人在2026年10月8日感冒发烧到38度，这几天请假在家休养"
+            "制作人感冒了，发烧到38度，从2026年10月8日起这几天都得请假在家休养。"
           ],
           "superseded": [],
           "problems": [],
@@ -784,25 +755,25 @@
         {
           "passed": true,
           "written": [
-            "制作人将于2026年10月9日参加日语能力考试N2"
-          ],
-          "superseded": [],
-          "problems": [],
-          "error": null
-        },
-        {
-          "passed": true,
-          "written": [
-            "制作人将于2026年10月9日参加日语能力考试N2"
-          ],
-          "superseded": [],
-          "problems": [],
-          "error": null
-        },
-        {
-          "passed": true,
-          "written": [
             "制作人将在2026年10月9日参加日语能力考试N2"
+          ],
+          "superseded": [],
+          "problems": [],
+          "error": null
+        },
+        {
+          "passed": true,
+          "written": [
+            "制作人计划参加日语能力考试N2，考试日期是2026年10月9日"
+          ],
+          "superseded": [],
+          "problems": [],
+          "error": null
+        },
+        {
+          "passed": true,
+          "written": [
+            "制作人明天（2026年10月9日）要参加日语能力考试N2"
           ],
           "superseded": [],
           "problems": [],
@@ -818,6 +789,15 @@
         {
           "passed": true,
           "written": [
+            "制作人在2026年10月8日下午有一个面试"
+          ],
+          "superseded": [],
+          "problems": [],
+          "error": null
+        },
+        {
+          "passed": true,
+          "written": [
             "制作人2026年10月8日下午有一个面试"
           ],
           "superseded": [],
@@ -827,16 +807,7 @@
         {
           "passed": true,
           "written": [
-            "制作人在2026年10月8日下午有一场面试"
-          ],
-          "superseded": [],
-          "problems": [],
-          "error": null
-        },
-        {
-          "passed": true,
-          "written": [
-            "制作人在2026年10月8日下午有一场面试"
+            "制作人2026年10月8日下午有一场面试，为此穿了西装"
           ],
           "superseded": [],
           "problems": [],
@@ -852,7 +823,7 @@
         {
           "passed": true,
           "written": [
-            "制作人将于2026年10月12日至14日去大阪出差"
+            "制作人2026年10月12日（周一）到10月14日（周三）要去大阪出差，下周不在东京"
           ],
           "superseded": [],
           "problems": [],
@@ -861,7 +832,7 @@
         {
           "passed": true,
           "written": [
-            "制作人将于2026年10月12日至10月14日去大阪出差"
+            "制作人将于2026年10月12日至14日去大阪出差，期间不在东京。"
           ],
           "superseded": [],
           "problems": [],
@@ -870,7 +841,7 @@
         {
           "passed": true,
           "written": [
-            "制作人将于2026年10月12日至10月14日去大阪出差。"
+            "制作人下周一到周三（2026年10月12日至14日）要去大阪出差，不在东京。"
           ],
           "superseded": [],
           "problems": [],
@@ -886,27 +857,33 @@
         {
           "passed": true,
           "written": [
-            "制作人的猫小白下周（2026年10月12日至10月18日）要去做绝育手术"
+            "制作人养了一只叫小白的猫，小白将在2026年10月12日至10月18日之间去做绝育手术。"
           ],
-          "superseded": [],
+          "superseded": [
+            "cat"
+          ],
           "problems": [],
           "error": null
         },
         {
           "passed": true,
           "written": [
-            "制作人的猫小白将在2026年10月12日至10月18日期间去做绝育手术"
+            "制作人养了一只叫小白的猫，小白将在2026年10月12日至18日之间去做绝育手术"
           ],
-          "superseded": [],
+          "superseded": [
+            "cat"
+          ],
           "problems": [],
           "error": null
         },
         {
           "passed": true,
           "written": [
-            "制作人的猫小白将在下周（2026年10月12日至10月18日）去做绝育手术"
+            "制作人养了一只叫小白的猫，小白下周（2026年10月12日至18日那一周）要去做绝育手术"
           ],
-          "superseded": [],
+          "superseded": [
+            "cat"
+          ],
           "problems": [],
           "error": null
         }
@@ -918,9 +895,20 @@
       "passed": true,
       "runs": [
         {
+          "passed": false,
+          "written": [
+            "制作人的父母养了一只叫豆太的狗，已经十岁了"
+          ],
+          "superseded": [],
+          "problems": [
+            "没有写下「柴犬」"
+          ],
+          "error": null
+        },
+        {
           "passed": true,
           "written": [
-            "制作人的父母养了一只叫豆太的柴犬，豆太现在十岁。"
+            "制作人的老家养着一只叫豆太的柴犬，是制作人父母养的，已经十岁"
           ],
           "superseded": [],
           "problems": [],
@@ -929,16 +917,7 @@
         {
           "passed": true,
           "written": [
-            "制作人的父母养了一只叫豆太的柴犬，豆太已经十岁了"
-          ],
-          "superseded": [],
-          "problems": [],
-          "error": null
-        },
-        {
-          "passed": true,
-          "written": [
-            "制作人的父母养了一只叫豆太的柴犬，豆太已经十岁了"
+            "制作人的父母养了一只叫豆太的柴犬，已经十岁了"
           ],
           "superseded": [],
           "problems": [],
@@ -954,7 +933,7 @@
         {
           "passed": true,
           "written": [
-            "制作人的同事山田将在2026年11月结婚，制作人要在其婚礼上致辞。"
+            "制作人的同事山田将在2026年11月结婚，制作人要去参加婚礼并在婚礼上致辞"
           ],
           "superseded": [],
           "problems": [],
@@ -963,7 +942,7 @@
         {
           "passed": true,
           "written": [
-            "制作人的同事山田将在2026年11月结婚，制作人要在婚礼上致辞。"
+            "制作人的同事山田要在2026年11月结婚，制作人需要在婚礼上致辞"
           ],
           "superseded": [],
           "problems": [],
@@ -972,8 +951,7 @@
         {
           "passed": true,
           "written": [
-            "制作人的同事山田要结婚了",
-            "制作人需要在同事山田的婚礼上致辞"
+            "制作人的同事山田将在2026年11月结婚，制作人要在婚礼上致辞"
           ],
           "superseded": [],
           "problems": [],
@@ -986,17 +964,18 @@
     {
       "id": "supersede-recall-where-i-live",
       "category": "supersede",
-      "passed": false,
-      "found": [],
-      "problems": [
-        "没有想起 tokyo"
+      "passed": true,
+      "found": [
+        "hometown",
+        "tokyo"
       ],
+      "problems": [],
       "judge": {
         "need": "memories",
         "probabilities": {
           "needs_retrieval": 0.23,
           "recall": 0.01,
-          "about_producer": 0.85
+          "about_producer": 0.83
         },
         "error": null
       }
@@ -1004,15 +983,16 @@
     {
       "id": "supersede-recall-my-job",
       "category": "supersede",
-      "passed": false,
-      "found": [],
-      "problems": [
-        "没有想起 editor"
+      "passed": true,
+      "found": [
+        "coffee",
+        "editor"
       ],
+      "problems": [],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.1,
+          "needs_retrieval": 0.11,
           "recall": 0.02,
           "about_producer": 0.95
         },
@@ -1023,16 +1003,20 @@
       "id": "pronoun-cat-cried-all-night",
       "category": "pronoun",
       "passed": false,
-      "found": [],
+      "found": [
+        "cat",
+        "parents-dog",
+        "coffee"
+      ],
       "problems": [
-        "没有想起 cat"
+        "想起了不该想起的 coffee"
       ],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.13,
+          "needs_retrieval": 0.12,
           "recall": 0.03,
-          "about_producer": 0.92
+          "about_producer": 0.91
         },
         "error": null
       }
@@ -1040,11 +1024,11 @@
     {
       "id": "pronoun-car-broke-down",
       "category": "pronoun",
-      "passed": false,
-      "found": [],
-      "problems": [
-        "没有想起 car"
+      "passed": true,
+      "found": [
+        "car"
       ],
+      "problems": [],
       "judge": {
         "need": "memories",
         "probabilities": {
@@ -1058,17 +1042,18 @@
     {
       "id": "pronoun-sister-visiting",
       "category": "pronoun",
-      "passed": false,
-      "found": [],
-      "problems": [
-        "没有想起 sister"
+      "passed": true,
+      "found": [
+        "sister",
+        "nephew"
       ],
+      "problems": [],
       "judge": {
         "need": "memories",
         "probabilities": {
           "needs_retrieval": 0.17,
           "recall": 0.02,
-          "about_producer": 0.8
+          "about_producer": 0.87
         },
         "error": null
       }
@@ -1077,16 +1062,20 @@
       "id": "pronoun-hometown-snowing",
       "category": "pronoun",
       "passed": false,
-      "found": [],
+      "found": [
+        "hometown",
+        "okinawa",
+        "nagasaki-trip"
+      ],
       "problems": [
-        "没有想起 hometown"
+        "想起了不该想起的 okinawa"
       ],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.15,
+          "needs_retrieval": 0.14,
           "recall": 0.02,
-          "about_producer": 0.88
+          "about_producer": 0.86
         },
         "error": null
       }
@@ -1104,7 +1093,7 @@
         "probabilities": {
           "needs_retrieval": 0.1,
           "recall": 0.02,
-          "about_producer": 0.45
+          "about_producer": 0.41
         },
         "error": null
       }
@@ -1112,17 +1101,18 @@
     {
       "id": "pronoun-friend-ramen-shop",
       "category": "pronoun",
-      "passed": false,
-      "found": [],
-      "problems": [
-        "没有想起 friend"
+      "passed": true,
+      "found": [
+        "friend",
+        "ramen"
       ],
+      "problems": [],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.16,
+          "needs_retrieval": 0.17,
           "recall": 0.03,
-          "about_producer": 0.82
+          "about_producer": 0.83
         },
         "error": null
       }
@@ -1130,20 +1120,17 @@
     {
       "id": "proper-noun-dog-mameta",
       "category": "proper-noun",
-      "passed": false,
+      "passed": true,
       "found": [
-        "parents-dog",
-        "diet"
+        "parents-dog"
       ],
-      "problems": [
-        "想起了不该想起的 diet"
-      ],
+      "problems": [],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.26,
+          "needs_retrieval": 0.29,
           "recall": 0.02,
-          "about_producer": 0.54
+          "about_producer": 0.59
         },
         "error": null
       }
@@ -1151,17 +1138,20 @@
     {
       "id": "proper-noun-friend-azhe",
       "category": "proper-noun",
-      "passed": true,
+      "passed": false,
       "found": [
-        "friend"
+        "friend",
+        "colleague"
       ],
-      "problems": [],
+      "problems": [
+        "想起了不该想起的 colleague"
+      ],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.24,
+          "needs_retrieval": 0.23,
           "recall": 0.02,
-          "about_producer": 0.56
+          "about_producer": 0.55
         },
         "error": null
       }
@@ -1177,9 +1167,9 @@
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.29,
+          "needs_retrieval": 0.28,
           "recall": 0.02,
-          "about_producer": 0.76
+          "about_producer": 0.78
         },
         "error": null
       }
@@ -1195,7 +1185,7 @@
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.12,
+          "needs_retrieval": 0.11,
           "recall": 0.02,
           "about_producer": 0.79
         },
@@ -1213,8 +1203,8 @@
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.23,
-          "recall": 0.03,
+          "needs_retrieval": 0.25,
+          "recall": 0.02,
           "about_producer": 0.5
         },
         "error": null
@@ -1236,7 +1226,7 @@
         "probabilities": {
           "needs_retrieval": 0.12,
           "recall": 0.02,
-          "about_producer": 0.88
+          "about_producer": 0.9
         },
         "error": null
       }
@@ -1254,7 +1244,7 @@
         "probabilities": {
           "needs_retrieval": 0.09,
           "recall": 0.01,
-          "about_producer": 0.1
+          "about_producer": 0.11
         },
         "error": null
       }
@@ -1281,14 +1271,17 @@
       "id": "continuity-feeling-better",
       "category": "continuity",
       "passed": false,
-      "found": [],
+      "found": [
+        "sick",
+        "hiking"
+      ],
       "problems": [
-        "没有想起 sick"
+        "想起了不该想起的 hiking"
       ],
       "judge": {
         "need": "memories",
         "probabilities": {
-          "needs_retrieval": 0.09,
+          "needs_retrieval": 0.08,
           "recall": 0.02,
           "about_producer": 0.88
         },
@@ -1308,7 +1301,7 @@
         "probabilities": {
           "needs_retrieval": 0.12,
           "recall": 0.01,
-          "about_producer": 0.52
+          "about_producer": 0.54
         },
         "error": null
       }
@@ -1316,17 +1309,20 @@
     {
       "id": "continuity-weekend-hike",
       "category": "continuity",
-      "passed": true,
+      "passed": false,
       "found": [
-        "hike"
+        "hike",
+        "jazz"
       ],
-      "problems": [],
+      "problems": [
+        "想起了不该想起的 jazz"
+      ],
       "judge": {
         "need": "memories",
         "probabilities": {
           "needs_retrieval": 0.07,
           "recall": 0.01,
-          "about_producer": 0.62
+          "about_producer": 0.64
         },
         "error": null
       }

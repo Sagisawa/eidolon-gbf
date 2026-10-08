@@ -556,7 +556,7 @@ query = "它昨晚又闹了一夜，我都没睡好。"
 relevant = ["cat"]
 acceptable = []
 note = "「它」指上一条回复里的小白（猫）。易混：parents-dog（也是宠物）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-memory-pronoun-dog"
@@ -567,7 +567,7 @@ query = "它最近腿不太好，我爸妈带它去看兽医了。"
 relevant = ["parents-dog"]
 acceptable = ["hometown"]
 note = "「它」指上一条回复里的豆太。老家在札幌可放可不放。易混：cat（制作人自己养的猫）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-memory-ellipsis-driving"
@@ -578,7 +578,7 @@ query = "嗯，就是后天，越想越紧张。"
 relevant = ["driving-test"]
 acceptable = []
 note = "query 里没有提路考，全靠上一条回复。其余都不相关。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "kogane-memory-ellipsis-wedding"
@@ -589,7 +589,7 @@ query = "差不多了，我得先去把西装取回来。"
 relevant = ["sister-wedding"]
 acceptable = []
 note = "「差不多了」接的是上一条回复里的婚礼。易混：hometown（婚礼在东京，不是回老家）。"
-reviewed = false
+reviewed = true
 
 [[cases]]
 id = "mano-memory-previous-unrelated"
@@ -600,7 +600,7 @@ query = "辛苦啦，早点休息吧。"
 relevant = []
 acceptable = []
 note = "上一条回复是偶像自己的事，和制作人的记忆都无关，什么都不该想起；看带上上一条回复以后会不会多放进东西。"
-reviewed = false
+reviewed = true
 
 # ---------------------------------------------------------------------------
 # 什么都不该放进提示词（relevant = []）
