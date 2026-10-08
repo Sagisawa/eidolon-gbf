@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { eidolonNotebookTheme } from "./built/eidolon-notebook";
 import { contrast } from "../lib/imageColor";
-import { notebookTheme, overlayEdge } from "./notebookTheme";
+import { bannerNote, notebookTheme, overlayEdge } from "./notebookTheme";
 
 describe("预构建的主题", () => {
   it("和源文件一致，带着 Lucide 图标表（不一致就运行 npm run theme:build）", () => {
@@ -36,4 +36,26 @@ describe("深色模式修补", () => {
     expect(contrast(overlayEdge, "#1f232c")).toBeGreaterThanOrEqual(3);
     expect(contrast(overlayEdge, "#262b36")).toBeGreaterThanOrEqual(3);
   });
+
+  it("横幅的说明文字在四种状态的淡底上都 ≥ 4.5（浅色 20%、深色 25% 的状态色叠在纸面、卡片、菜单上）", () => {
+    // Astryx 各状态的 muted 底色；信息横幅用 accent（浅色是事务所深蓝，深色是夜间墨水）。
+    const modes = [
+      { note: bannerNote.light, alpha: 0.2, statuses: ["#e2a400", "#f5394f", "#0b991f", "#1c2a4a"], bases: ["#fbfcfe", "#ffffff"] },
+      { note: bannerNote.dark, alpha: 0.25, statuses: ["#e2a400", "#f5394f", "#0b991f", "#a9c6f5"], bases: ["#14171d", "#1f232c", "#262b36"] },
+    ];
+    for (const { note, alpha, statuses, bases } of modes) {
+      for (const base of bases) {
+        for (const status of statuses) {
+          expect(contrast(note, over(status, alpha, base)), `${note}: ${status} on ${base}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
 });
+
+/** `color` 以 `alpha` 的不透明度叠在 `base` 上得到的颜色。 */
+function over(color: string, alpha: number, base: string): string {
+  const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [c, b] = [channels(color), channels(base)];
+  return `#${c.map((v, i) => Math.round(v * alpha + b[i] * (1 - alpha)).toString(16).padStart(2, "0")).join("")}`;
+}

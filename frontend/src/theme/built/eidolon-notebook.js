@@ -73,6 +73,11 @@ export const eidolonNotebookTheme = {
         "border": "var(--border-width) solid light-dark(transparent, #61799c)"
       }
     },
+    "banner-description": {
+      "base": {
+        "color": "light-dark(#4a566e, #c0c8d8)"
+      }
+    },
     "table-header-cell": {
       "base": {
         "fontSize": "var(--text-supporting-size)",

@@ -143,6 +143,7 @@ components:
 - **Margin Line（装订边距线）**（`margin-line` / `night-margin-line`）：`--color-border-emphasized`，比横线深一档的竖线。
 - **Pencil Grey（铅笔灰）**（`pencil-grey` / `night-pencil-grey`）：`--color-text-secondary`，时间戳、列表描述、免责声明。
 - **Night Overlay Edge**（`night-overlay-edge`）：只在深色模式出现的弹层边线（对话框、底部面板、浮层），与 `night-surface`、`night-popover` 都 ≥ 3:1（`notebookTheme.test.ts` 校验）。
+- **Banner Note（横幅说明）**（`#4a566e` / `#c0c8d8`，`notebookTheme.ts` 的 `bannerNote`）：横幅说明文字的颜色。Astryx 默认用铅笔灰，压在状态色淡底上不到 4.5:1（深色警告横幅 4.0），主题 `banner-description` 覆盖成比铅笔灰再深（浅色）或再亮（深色）一档；四种状态在纸面、卡片、菜单上都 ≥ 4.5（`notebookTheme.test.ts` 校验）。
 
 ### Named Rules
 **The Paired Colour Rule.** 任何她颜色的底色或前景都只能取自 `imageColorScale()` 的成对值（经 `herVars()` / `ld()`），绝不直接把官方原色写成字色或底色。新增一种用法，就在 `imageColor.ts` 加一对颜色，并在 `imageColor.test.ts` 的 `pairs()` 里加上它的对比度要求；契约覆盖 5 位官方色和 216 色网格。

@@ -201,6 +201,10 @@
     border: var(--border-width) solid light-dark(transparent, #61799c);
   }
 
+  .astryx-banner-description {
+    color: light-dark(#4a566e, #c0c8d8);
+  }
+
   .astryx-table-header-cell {
     font-size: var(--text-supporting-size);
     font-weight: var(--font-weight-medium);
