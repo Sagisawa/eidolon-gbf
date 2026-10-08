@@ -407,10 +407,10 @@ function HealthTable({ board }: { board: Dashboard }) {
             label: `${t.health.services[row.service] ?? row.service}${row.own_key ? ` · ${t.health.own}` : ""}`,
             description: (
               <VStack gap={0.5}>
-                <HStack gap={1.5} vAlign="center">
-                  <StatusDot variant={STATUS_DOT[status]} label={t.health.statuses[status]} />
+                <HStack gap={1.5} vAlign="center" wrap="wrap">
+                  {isTrouble(status) && <HealthStatusText status={status} size="supporting" />}
                   <Text type="supporting" color="primary" hasTabularNumbers>
-                    {`${t.health.statuses[status]} · ${t.health.calls} ${formatCount(row.calls)} · ${t.health.errorRate} ${formatPercent(row.error_rate)}`}
+                    {`${t.health.calls} ${formatCount(row.calls)} · ${t.health.errorRate} ${formatPercent(row.error_rate)}`}
                   </Text>
                 </HStack>
                 <Text type="supporting" hasTabularNumbers>
@@ -440,15 +440,7 @@ function HealthTable({ board }: { board: Dashboard }) {
       key: "status",
       header: t.health.status,
       width: proportional(1.5),
-      renderCell: ({ row }) => {
-        const status = healthStatus(row);
-        return (
-          <HStack gap={1.5} vAlign="center">
-            <StatusDot variant={STATUS_DOT[status]} label={t.health.statuses[status]} />
-            <Text>{t.health.statuses[status]}</Text>
-          </HStack>
-        );
-      },
+      renderCell: ({ row }) => <HealthStatusText status={healthStatus(row)} />,
     },
     { key: "calls", header: t.health.calls, width: pixel(88), align: "end", renderCell: ({ row }) => <Numeric>{formatCount(row.calls)}</Numeric> },
     { key: "errorRate", header: t.health.errorRate, width: pixel(88), align: "end", renderCell: ({ row }) => <Numeric>{formatPercent(row.error_rate)}</Numeric> },
@@ -468,6 +460,34 @@ function HealthTable({ board }: { board: Dashboard }) {
     { key: "usage", header: t.health.usage, width: proportional(2.5), renderCell: ({ row }) => formatUsage(row.usage, row.usage_unknown) },
   ];
   return <Table data={rows} columns={columns} idKey="id" density="compact" />;
+}
+
+function isTrouble(status: HealthStatus): boolean {
+  return status === "degraded" || status === "failing";
+}
+
+/**
+ * 一行服务的状态。正常和没有调用是常态，只写次要色的字、不带点：七行都是绿点只是噪音，页首已经说了
+ * 「各项服务正常」；出错偏多、大量出错才带点、加粗，一眼找得到。
+ */
+function HealthStatusText({ status, size = "body" }: { status: HealthStatus; size?: "body" | "supporting" }) {
+  const label = t.health.statuses[status];
+  const type = size === "supporting" ? "supporting" : undefined;
+  if (!isTrouble(status)) {
+    return (
+      <Text type={type} color="secondary">
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <HStack gap={1.5} vAlign="center">
+      <StatusDot variant={STATUS_DOT[status]} label={label} />
+      <Text type={type} color="primary" weight="semibold">
+        {label}
+      </Text>
+    </HStack>
+  );
 }
 
 interface CharacterRow extends Record<string, unknown> {

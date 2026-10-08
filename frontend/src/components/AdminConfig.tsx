@@ -254,10 +254,12 @@ function AvailableItem({
 
   return (
     <SettingsSection id={anchor(name)} title={t.items[name].title} description={t.items[name].hint}>
-      <HStack gap={2} vAlign="center" wrap="wrap">
-        <StatusDot variant={display.variant} label={t.status[item.status]} />
-        <Text>{t.status[item.status]}</Text>
-      </HStack>
+      {display.variant && (
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <StatusDot variant={display.variant} label={t.status[item.status]} />
+          <Text>{t.status[item.status]}</Text>
+        </HStack>
+      )}
       {item.follows_chat && (
         <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
           {t.followsChat}
