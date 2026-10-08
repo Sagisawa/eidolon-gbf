@@ -1,6 +1,7 @@
 "use client";
 
 import { Banner } from "@astryxdesign/core/Banner";
+import { Grid } from "@astryxdesign/core/Grid";
 import { HStack } from "@astryxdesign/core/HStack";
 import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
@@ -20,6 +21,7 @@ import {
   RowList,
   Section,
   StatTile,
+  TileGroup,
   TileRow,
   TOUCH_LINK,
   TouchButton,
@@ -182,9 +184,7 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
         {board === null ? (
           error === null && <Skeleton height={320} />
         ) : (
-          <VStack aria-busy={loading} style={faded ? STALE : FRESH}>
-            <DashboardBody board={board} inProgress={inProgress} />
-          </VStack>
+          <DashboardBody board={board} inProgress={inProgress} loading={loading} faded={faded} />
         )}
       </VStack>
     </AdminPage>
@@ -283,105 +283,135 @@ function HealthSummary({ board }: { board: Dashboard }) {
  * （出事时第一眼要看到，页首已有一句结论）；然后是用量的明细，小表两两并排；最后是花费。每一组是
  * 一节（标题、说明、内容、分隔线），和配置页、用户详情一致。
  */
-function DashboardBody({ board, inProgress }: { board: Dashboard; inProgress: number | null }) {
+function DashboardBody({
+  board,
+  inProgress,
+  loading,
+  faded,
+}: {
+  board: Dashboard;
+  inProgress: number | null;
+  loading: boolean;
+  /** 眼前是上一个范围的数字，或者新数字还在路上：按范围统计的部分变淡，「此刻」那张不变。 */
+  faded: boolean;
+}) {
   const { turns, calls } = board;
   const phone = !useMediaQuery("(min-width: 768px)", true);
+  // 左右排要放得下 1 + 5 张不窄于 140px 的卡（内容区约 920px），视口到 1280px 才够。
+  const sideBySide = useWide("table-wide");
+  const fade = faded ? STALE : FRESH;
   return (
-    <VStack>
-      <TileRow>
-        <StatTile
-          label={t.tiles.turns}
-          value={formatCount(turns.total)}
-          note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
-        />
-        <StatTile
-          label={t.tiles.calls}
-          value={formatCount(calls.total)}
-          note={t.tiles.callsOnOwnKeys(formatCount(calls.own_keys))}
-        />
-        <StatTile
-          label={t.tiles.callsInProgress}
-          value={inProgress === null ? "—" : formatCount(inProgress)}
-          note={t.tiles.callsInProgressNote}
-        />
-        <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
-        {!phone && (
-          <StatTile
-            label={t.tiles.ownKeys}
-            value={formatCount(turns.own_keys)}
-            note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
-          />
-        )}
-        {!phone && (
-          <StatTile
-            label={t.tiles.timeToSpeak}
-            value={formatMs(turns.time_to_speak_ms.p50)}
-            note={turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))}
-          />
-        )}
-      </TileRow>
-
-      <SettingsSection id={HEALTH_ANCHOR} title={t.health.title} description={t.health.hint}>
-        <HealthTable board={board} />
-      </SettingsSection>
-
-      <SettingsSection title={t.groups.usage.title} description={t.groups.usage.hint}>
-        <VStack gap={8}>
-          <Pair>
-            <Section title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
-              <CountTrend board={board} series="turns" />
-            </Section>
-            <Section title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
-              <CountTrend board={board} series="calls" />
-            </Section>
-          </Pair>
-
-          <Pair>
-            <Section title={t.results.title} hint={t.results.hint}>
-              <CountsTable
-                rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
-                total={turns.total}
-                labelHeader={t.results.result}
-                countHeader={t.results.turns}
-                shareHeader={t.results.share}
+    <VStack aria-busy={loading}>
+      {/* 「进行中的通话」是此刻的数，不随时间范围变：单独一组放在前面，和按范围统计的几张隔开。
+          宽屏上左右排，此刻一张占一份、范围五张占五份；窄下来上下排，此刻那张仍按同样的格子只占一格。 */}
+      <Grid columns={1} gap={sideBySide ? 8 : 6} style={sideBySide ? { gridTemplateColumns: "1fr 5fr" } : undefined}>
+        <TileGroup caption={t.tiles.now}>
+          <TileRow max={sideBySide ? 1 : 5}>
+            <StatTile
+              label={t.tiles.callsInProgress}
+              value={inProgress === null ? "—" : formatCount(inProgress)}
+              note={t.tiles.callsInProgressNote}
+            />
+          </TileRow>
+        </TileGroup>
+        <TileGroup caption={t.tiles.inRange(t.ranges[board.range])} style={fade}>
+          <TileRow max={5}>
+            <StatTile
+              label={t.tiles.turns}
+              value={formatCount(turns.total)}
+              note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
+            />
+            <StatTile
+              label={t.tiles.calls}
+              value={formatCount(calls.total)}
+              note={t.tiles.callsOnOwnKeys(formatCount(calls.own_keys))}
+            />
+            <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
+            {!phone && (
+              <StatTile
+                label={t.tiles.ownKeys}
+                value={formatCount(turns.own_keys)}
+                note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
               />
-            </Section>
-            <Section title={t.callResults.title} hint={t.callResults.hint}>
-              <CountsTable
-                rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
-                total={calls.total}
-                labelHeader={t.callResults.result}
-                countHeader={t.callResults.calls}
-                shareHeader={t.callResults.share}
+            )}
+            {!phone && (
+              <StatTile
+                label={t.tiles.timeToSpeak}
+                value={formatMs(turns.time_to_speak_ms.p50)}
+                note={
+                  turns.time_to_speak_ms.p90 === null
+                    ? undefined
+                    : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))
+                }
               />
-            </Section>
-          </Pair>
+            )}
+          </TileRow>
+        </TileGroup>
+      </Grid>
 
-          <Pair>
-            <Section
-              title={t.durations.title}
-              hint={t.durations.hint(formatDuration(calls.duration_s.p50), formatDuration(calls.duration_s.p90))}
-            >
-              <DurationsTable board={board} />
-            </Section>
-            <Section title={t.endReasons.title} hint={t.endReasons.hint}>
-              <CountsTable
-                rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
-                total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
-                labelHeader={t.endReasons.reason}
-                countHeader={t.endReasons.calls}
-                shareHeader={t.endReasons.share}
-              />
-            </Section>
-          </Pair>
+      <VStack style={fade}>
+        <SettingsSection id={HEALTH_ANCHOR} title={t.health.title} description={t.health.hint}>
+          <HealthTable board={board} />
+        </SettingsSection>
 
-          <Section title={t.characters.title}>
-            <CharactersTable board={board} />
-          </Section>
-        </VStack>
-      </SettingsSection>
+        <SettingsSection title={t.groups.usage.title} description={t.groups.usage.hint}>
+          <VStack gap={8}>
+            <Pair>
+              <Section title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
+                <CountTrend board={board} series="turns" />
+              </Section>
+              <Section title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
+                <CountTrend board={board} series="calls" />
+              </Section>
+            </Pair>
 
-      <CostSection board={board} />
+            <Pair>
+              <Section title={t.results.title} hint={t.results.hint}>
+                <CountsTable
+                  rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
+                  total={turns.total}
+                  labelHeader={t.results.result}
+                  countHeader={t.results.turns}
+                  shareHeader={t.results.share}
+                />
+              </Section>
+              <Section title={t.callResults.title} hint={t.callResults.hint}>
+                <CountsTable
+                  rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
+                  total={calls.total}
+                  labelHeader={t.callResults.result}
+                  countHeader={t.callResults.calls}
+                  shareHeader={t.callResults.share}
+                />
+              </Section>
+            </Pair>
+
+            <Pair>
+              <Section
+                title={t.durations.title}
+                hint={t.durations.hint(formatDuration(calls.duration_s.p50), formatDuration(calls.duration_s.p90))}
+              >
+                <DurationsTable board={board} />
+              </Section>
+              <Section title={t.endReasons.title} hint={t.endReasons.hint}>
+                <CountsTable
+                  rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
+                  total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
+                  labelHeader={t.endReasons.reason}
+                  countHeader={t.endReasons.calls}
+                  shareHeader={t.endReasons.share}
+                />
+              </Section>
+            </Pair>
+
+            <Section title={t.characters.title}>
+              <CharactersTable board={board} />
+            </Section>
+          </VStack>
+        </SettingsSection>
+
+        <CostSection board={board} />
+      </VStack>
     </VStack>
   );
 }
@@ -460,6 +490,8 @@ function CountsTable({
   }
   const counts = (render: (row: CountRow) => string) => (row: CountRow) =>
     row.zeroLabels === undefined ? <Numeric>{render(row)}</Numeric> : null;
+  // 这几张表两两并排：比例列默认每列最少 120px，按百分比换算整张表最少 480px，比并排的一栏宽，
+  // 会压进旁边那张。数字列给小一些的最小宽度，整张表最少约 290px。
   const columns: TableColumn<CountRow>[] = [
     {
       key: "label",
@@ -475,8 +507,8 @@ function CountsTable({
           </VStack>
         ),
     },
-    { key: "count", header: countHeader, width: proportional(1), align: "end", renderCell: counts((row) => formatCount(row.count)) },
-    { key: "share", header: shareHeader, width: proportional(1), align: "end", renderCell: counts((row) => formatShare(row.count, total)) },
+    { key: "count", header: countHeader, width: proportional(1, { minWidth: 72 }), align: "end", renderCell: counts((row) => formatCount(row.count)) },
+    { key: "share", header: shareHeader, width: proportional(1, { minWidth: 72 }), align: "end", renderCell: counts((row) => formatShare(row.count, total)) },
   ];
   return <Table data={shown} columns={columns} idKey="id" density="compact" />;
 }
@@ -498,8 +530,9 @@ function DurationsTable({ board }: { board: Dashboard }) {
   const wide = useWide();
   if (!wide) return <RowList rows={rows.map((row) => ({ id: row.id, label: row.label, end: formatCount(row.calls) }))} />;
   const columns: TableColumn<DurationRow>[] = [
-    { key: "label", header: t.durations.range, width: proportional(1), renderCell: (row) => row.label },
-    { key: "bar", header: "", width: proportional(2), renderCell: (row) => <ShareBar part={row.calls} whole={most} /> },
+    // 和结束原因并排：最小宽度同 CountsTable 的理由，整张表最少约 390px。
+    { key: "label", header: t.durations.range, width: proportional(1, { minWidth: 96 }), renderCell: (row) => row.label },
+    { key: "bar", header: "", width: proportional(2, { minWidth: 64 }), renderCell: (row) => <ShareBar part={row.calls} whole={most} /> },
     { key: "calls", header: t.durations.calls, width: pixel(96), align: "end", renderCell: (row) => <Numeric>{formatCount(row.calls)}</Numeric> },
   ];
   return <Table data={rows} columns={columns} idKey="id" density="compact" />;

@@ -129,13 +129,14 @@ function ServicesTable({ cost }: { cost: Cost }) {
       />
     );
   }
+  // 和花费趋势并排：比例列默认每列最少 120px，整张表最少 400px，比并排的一栏宽；放到 96px，最少约 320px。
   const columns: TableColumn<ServiceRow>[] = [
-    { key: "service", header: t.service, width: proportional(1.5), renderCell: ({ row }) => serviceName(row.service) },
-    { key: "amount", header: t.amount, width: proportional(1.5), align: "end", renderCell: ({ row }) => <Numeric>{formatTotals(row.totals)}</Numeric> },
+    { key: "service", header: t.service, width: proportional(1.5, { minWidth: 96 }), renderCell: ({ row }) => serviceName(row.service) },
+    { key: "amount", header: t.amount, width: proportional(1.5, { minWidth: 96 }), align: "end", renderCell: ({ row }) => <Numeric>{formatTotals(row.totals)}</Numeric> },
     {
       key: "notes",
       header: t.notes,
-      width: proportional(2),
+      width: proportional(2, { minWidth: 96 }),
       renderCell: ({ row }) => serviceNotes(row) || "—",
     },
   ];

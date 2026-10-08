@@ -334,8 +334,11 @@ export const zh = {
         callsOnOwnKeys: (n: string) => `其中 ${n} 次全用自带密钥`,
         activeUsers: "活跃用户",
         activeUsersNote: "这段时间有过回合或通话",
+        /** 数字卡分两组的小标题：此刻的，和按时间范围统计的（「30 天内」）。 */
+        now: "此刻",
+        inRange: (range: string) => `${range}内`,
         callsInProgress: "进行中的通话",
-        callsInProgressNote: "此刻，含正在接通的；每分钟刷新",
+        callsInProgressNote: "含正在接通的；每分钟刷新",
         ownKeys: "用自带密钥的回合",
         ownKeysShare: (share: string) => `占 ${share}`,
         timeToSpeak: "到开口（中位数）",

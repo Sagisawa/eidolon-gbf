@@ -29,19 +29,33 @@ export function StatTile({ label, value, note }: { label: string; value: string;
   );
 }
 
-/** 数字卡排成一行：宽屏上六张一行，窄下来按每张不窄于 140px 折行（手机上一行两张）；张数少时也按同样的格子排，和上面的一行对齐。 */
-export function TileRow({ children }: { children: ReactNode }) {
+/** 数字卡排成一行：最多 `max` 张一行，窄下来按每张不窄于 140px 折行（手机上一行两张）。 */
+export function TileRow({ max = 6, children }: { max?: number; children: ReactNode }) {
   return (
-    <Grid columns={{ minWidth: 140, max: 6 }} gap={3}>
+    <Grid columns={{ minWidth: 140, max }} gap={3}>
       {children}
     </Grid>
   );
 }
 
-/** 组里的一小节（`SettingsSection` 是一组，这里是组里的一项）：h3 标题、说明和内容。 */
+/** 一组数字卡，上面一行小字说明这组数字是什么时候的（「此刻」「30 天内」）。 */
+export function TileGroup({ caption, style, children }: { caption: string; style?: CSSProperties; children: ReactNode }) {
+  return (
+    <VStack gap={2} style={style}>
+      <Text type="supporting">{caption}</Text>
+      {children}
+    </VStack>
+  );
+}
+
+/**
+ * 组里的一小节（`SettingsSection` 是一组，这里是组里的一项）：h3 标题、说明和内容。
+ * 表格是小节的最后一项时，Astryx 会按 `--container-padding-block-end`（24px）让它向下出血，压进下面一节的
+ * 间距里（下一行的小节标题只隔十几像素）；小节里不要上下出血。
+ */
 export function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
-    <VStack gap={3}>
+    <VStack gap={3} style={NO_BLOCK_BLEED}>
       <VStack gap={1}>
         <Heading level={3} style={{ fontSize: "var(--text-body-size)" }}>
           {title}
@@ -57,14 +71,29 @@ export function Section({ title, hint, children }: { title: string; hint?: strin
   );
 }
 
-/** 两小节并排：宽栏里左右各一半，窄到放不下两张不窄于 360px 的表时上下排。 */
+/**
+ * 两小节并排：宽栏里左右各一半，窄到放不下两张不窄于 360px 的表时上下排。
+ * Astryx 的表格在内容区里按 `--container-padding-inline-*`（24px）向两侧出血，并排时两张表各伸进列距
+ * 24px，32px 的列距被吃成重叠，横线连成一张表。这里把出血收到 8px：表格的首末列内边距也随之是 8px，
+ * 字仍和小节标题对齐，两张表的横线之间留出 16px。
+ */
 export function Pair({ children }: { children: ReactNode }) {
   return (
-    <Grid columns={{ minWidth: 360, max: 2 }} columnGap={8} rowGap={8} align="start">
+    <Grid columns={{ minWidth: 360, max: 2 }} columnGap={8} rowGap={8} align="start" style={PAIR_BLEED}>
       {children}
     </Grid>
   );
 }
+
+const NO_BLOCK_BLEED = {
+  "--container-padding-block-start": "0px",
+  "--container-padding-block-end": "0px",
+} as CSSProperties;
+
+const PAIR_BLEED = {
+  "--container-padding-inline-start": "var(--spacing-2)",
+  "--container-padding-inline-end": "var(--spacing-2)",
+} as CSSProperties;
 
 export function Numeric({ children }: { children: string }) {
   return <Text hasTabularNumbers>{children}</Text>;
