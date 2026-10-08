@@ -15,11 +15,17 @@
 
 ## 验收
 
-- [ ] 记忆模块的测试：找记忆的 query 带上角色的上一条回复（去掉语气提示），重排也用同样的 query；没有上一条回复时只用这句话。
-- [ ] 检索的测试：上文从 `Retrieval.retrieve` 传到了找记忆那一步。
-- [ ] 重排校准的测试：带「上一条回复」的记忆题按新的方式拼 query；不带的和以前一样。
-- [ ] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
+- [x] 记忆模块的测试：找记忆的 query 带上角色的上一条回复（去掉语气提示），重排也用同样的 query；没有上一条回复时只用这句话。
+- [x] 检索的测试：上文从 `Retrieval.retrieve` 传到了找记忆那一步。
+- [x] 重排校准的测试：带「上一条回复」的记忆题按新的方式拼 query；不带的和以前一样。
+- [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
 - [ ] **人工验收（留给用户）**：
   - 校对新补的校准题；
   - 用真模型跑 `eidolon eval rerank`，按结果更新预设的记忆阈值和校准记录；
   - 用真模型跑 `eidolon eval memory`：代词类的通过数多于基线，其他类最多少 1 个用例；更新提交的结果，在 Comments 里记下对比。
+
+## Comments
+
+- 2026-10-08（实现）：query 由 `memory.memory_query(history, text)` 拼成：history 里最后一条角色的回复（`without_cues` 后的中文字幕，没有字幕时用日语），换行，再接用户这句话；没有角色的回复时只用这句话。向量化和重排都用它，调用次数不变。`MemoryTurn.find(history, text)`，`Retrieval.retrieve` 把 history 传下去。02 提炼时用的也是 `memory_query`。
+  - 重排校准集：记忆题可以写 `previous`（只有 memory 类可以写），`eval rerank` 用 `memory.joined_query(previous, query)` 拼，和对话里一致。补了 5 道 `reviewed = false` 的题：`mano-memory-pronoun-cat`、`kogane-memory-pronoun-dog`、`mano-memory-ellipsis-driving`、`kogane-memory-ellipsis-wedding`、`mano-memory-previous-unrelated`（上一条回复和记忆无关，看会不会多放进东西）。
+  - 预设的记忆阈值没有改，等人工跑完 `eval rerank` 再定。
