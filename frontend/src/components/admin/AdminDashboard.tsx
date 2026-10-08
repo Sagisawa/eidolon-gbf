@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 
 import { CostSection } from "@/components/admin/CostSection";
 import { AdminPage } from "@/components/admin/AdminPage";
-import { Numeric, Pair, Section, StatTile, TileRow } from "@/components/admin/DashboardParts";
+import { Numeric, Pair, RowList, Section, StatTile, TileRow, useWide } from "@/components/admin/DashboardParts";
 import { TrendChart } from "@/components/admin/TrendChart";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -256,6 +256,14 @@ function CountsTable({
   countHeader: string;
   shareHeader: string;
 }) {
+  const wide = useWide();
+  if (!wide) {
+    return (
+      <RowList
+        rows={rows.map((row) => ({ id: row.id, label: row.label, end: `${formatCount(row.count)} · ${formatShare(row.count, total)}` }))}
+      />
+    );
+  }
   const columns: TableColumn<CountRow>[] = [
     { key: "label", header: labelHeader, width: proportional(2), renderCell: (row) => row.label },
     { key: "count", header: countHeader, width: proportional(1), align: "end", renderCell: (row) => <Numeric>{formatCount(row.count)}</Numeric> },
@@ -278,6 +286,8 @@ function DurationsTable({ board }: { board: Dashboard }) {
     calls: d.calls,
   }));
   const most = Math.max(0, ...rows.map((row) => row.calls));
+  const wide = useWide();
+  if (!wide) return <RowList rows={rows.map((row) => ({ id: row.id, label: row.label, end: formatCount(row.calls) }))} />;
   const columns: TableColumn<DurationRow>[] = [
     { key: "label", header: t.durations.range, width: proportional(1), renderCell: (row) => row.label },
     { key: "bar", header: "", width: proportional(2), renderCell: (row) => <ShareBar part={row.calls} whole={most} /> },
@@ -292,8 +302,36 @@ interface HealthRow extends Record<string, unknown> {
 }
 
 function HealthTable({ board }: { board: Dashboard }) {
+  const wide = useWide("table-wide");
   if (board.health.length === 0) return <Text color="secondary">{t.health.empty}</Text>;
   const rows: HealthRow[] = board.health.map((row) => ({ id: `${row.service}:${row.own_key}`, row }));
+  if (!wide) {
+    return (
+      <RowList
+        rows={rows.map(({ id, row }) => {
+          const status = healthStatus(row);
+          return {
+            id,
+            label: `${t.health.services[row.service] ?? row.service}${row.own_key ? ` · ${t.health.own}` : ""}`,
+            description: (
+              <VStack gap={0.5}>
+                <HStack gap={1.5} vAlign="center">
+                  <StatusDot variant={STATUS_DOT[status]} label={t.health.statuses[status]} />
+                  <Text type="supporting" color="primary" hasTabularNumbers>
+                    {`${t.health.statuses[status]} · ${t.health.calls} ${formatCount(row.calls)} · ${t.health.errorRate} ${formatPercent(row.error_rate)}`}
+                  </Text>
+                </HStack>
+                <Text type="supporting" hasTabularNumbers>
+                  {`${t.health.latency} ${formatMs(row.latency_ms.p50)} / ${formatMs(row.latency_ms.p95)} · ${formatUsage(row.usage, row.usage_unknown)}`}
+                </Text>
+                {errorsText(row) !== "—" && <Text type="supporting">{`${t.health.errors} ${errorsText(row)}`}</Text>}
+              </VStack>
+            ),
+          };
+        })}
+      />
+    );
+  }
   const columns: TableColumn<HealthRow>[] = [
     {
       key: "service",
@@ -326,10 +364,7 @@ function HealthTable({ board }: { board: Dashboard }) {
       key: "errors",
       header: t.health.errors,
       width: proportional(2),
-      renderCell: ({ row }) =>
-        Object.entries(row.errors_by_kind)
-          .map(([kind, n]) => `${t.health.errorKinds[kind as ErrorKind] ?? kind} ${formatCount(n ?? 0)}`)
-          .join("、") || "—",
+      renderCell: ({ row }) => errorsText(row),
     },
     {
       key: "latency",
@@ -350,8 +385,29 @@ interface CharacterRow extends Record<string, unknown> {
   calls: number;
 }
 
+/** 每类错误各几次，没有时是「—」。 */
+function errorsText(row: Dashboard["health"][number]): string {
+  return (
+    Object.entries(row.errors_by_kind)
+      .map(([kind, n]) => `${t.health.errorKinds[kind as ErrorKind] ?? kind} ${formatCount(n ?? 0)}`)
+      .join("、") || "—"
+  );
+}
+
 function CharactersTable({ board }: { board: Dashboard }) {
+  const wide = useWide();
   if (board.characters.length === 0) return <Text color="secondary">{t.characters.empty}</Text>;
+  if (!wide) {
+    return (
+      <RowList
+        rows={board.characters.map((c) => ({
+          id: c.character_id,
+          label: c.name ?? t.characters.removed,
+          end: `${t.characters.turns} ${formatCount(c.turns)} · ${t.characters.calls} ${formatCount(c.calls)}`,
+        }))}
+      />
+    );
+  }
   const most = Math.max(...board.characters.map((c) => c.turns));
   const columns: TableColumn<CharacterRow>[] = [
     { key: "name", header: t.characters.character, width: proportional(1), renderCell: (row) => row.name ?? t.characters.removed },

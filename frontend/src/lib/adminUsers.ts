@@ -48,7 +48,8 @@ export type UsageRange = (typeof USAGE_RANGES)[number];
 export type AdminUserUsage = Record<UsageRange, RangeUsage>;
 
 /** How the list is sorted: newest first, or by the last 24 hours' turns or calls, most first. */
-export type UserSort = "newest" | "turns" | "calls";
+export const USER_SORTS = ["newest", "turns", "calls"] as const;
+export type UserSort = (typeof USER_SORTS)[number];
 
 /** A user's own limit an hour: a number (0: on their own keys only), unlimited, or null,
  * the deployment's. */

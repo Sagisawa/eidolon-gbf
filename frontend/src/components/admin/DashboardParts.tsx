@@ -3,13 +3,16 @@
 import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
+import { List, ListItem } from "@astryxdesign/core/List";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
 import type { ReactNode } from "react";
 
 import { PROSE_WIDTH } from "@/components/SettingsSection";
 
-// 看板各节共用的几块：数字卡片和放卡片的一行、组里带标题和说明的一小节、两节并排、等宽数字。
+// 看板各节共用的几块：数字卡片和放卡片的一行、组里带标题和说明的一小节、两节并排、等宽数字，
+// 以及窄屏上代替表格的列表行。
 
 export function StatTile({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
@@ -64,4 +67,38 @@ export function Pair({ children }: { children: ReactNode }) {
 
 export function Numeric({ children }: { children: string }) {
   return <Text hasTabularNumbers>{children}</Text>;
+}
+
+/**
+ * 后台内容区放得下表格吗；放不下时表格换成 `RowList`，不横向滚动。侧栏在 768px 以上常驻、占去约 260px：
+ * 视口到 1024px，内容区有七百多像素，放得下三四列的小表；七列的服务健康、按模型的花费和用户表要九百多
+ * 像素，视口到 1280px 才放得下，所以这几张传 `"table-wide"`。
+ */
+export function useWide(table: "table" | "table-wide" = "table"): boolean {
+  return useMediaQuery(table === "table" ? "(min-width: 1024px)" : "(min-width: 1280px)", true);
+}
+
+export interface Row {
+  id: string;
+  label: string;
+  /** 名字下面的副行：窄屏上放不进行尾的其余各列。 */
+  description?: ReactNode;
+  /** 行尾：这一行最要紧的数字。 */
+  end?: string;
+}
+
+/** 窄屏上代替表格的列表：一行一项，名字在左、数字在行尾，其余各列缩进副行。 */
+export function RowList({ rows }: { rows: Row[] }) {
+  return (
+    <List hasDividers density="compact">
+      {rows.map((row) => (
+        <ListItem
+          key={row.id}
+          label={row.label}
+          description={row.description}
+          endContent={row.end === undefined ? undefined : <Numeric>{row.end}</Numeric>}
+        />
+      ))}
+    </List>
+  );
 }

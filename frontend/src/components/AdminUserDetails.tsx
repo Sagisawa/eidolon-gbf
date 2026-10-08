@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AdminPage } from "@/components/admin/AdminPage";
+import { RowList, useWide } from "@/components/admin/DashboardParts";
 import { BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
 import { AppLink } from "@/components/AppLink";
 import { BanUserDialog } from "@/components/BanUserDialog";
@@ -277,6 +278,20 @@ export function AdminUserDetails({ id }: { id: string }) {
 /** 近期用量：回合、通话、被拒绝各一行，最近 24 小时、7 天、30 天各一列；每格是总数，下面分出部署者的 key 和自带密钥。 */
 function RecentUsage({ usage }: { usage: AdminUserUsage }) {
   const u = t.usage;
+  const wide = useWide();
+  if (!wide) {
+    return (
+      <SettingsSection title={u.title} description={u.hint}>
+        <RowList
+          rows={usageRows(usage).map((row) => ({
+            id: row.what,
+            label: row.label,
+            description: USAGE_RANGES.map((range) => `${u.ranges[range]} ${describeCount(row[range]).total}`).join(" · "),
+          }))}
+        />
+      </SettingsSection>
+    );
+  }
   const columns: TableColumn<UsageRow>[] = [
     { key: "label", header: "", width: pixel(80), renderCell: (row) => <Text weight="semibold">{row.label}</Text> },
     ...USAGE_RANGES.map(
