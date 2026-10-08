@@ -191,3 +191,12 @@ describe("readOnlyValue", () => {
     expect(readOnlyValue({ ice_servers: ["stun:a"], turn: [] }, words)).toBe("ice_servers：stun:a；turn：—");
   });
 });
+
+describe("tried", () => {
+  it("is set for the items whose change the server tries, not for thresholds and limits", () => {
+    const tried = Object.entries(ITEM_SPECS)
+      .filter(([, spec]) => spec.tried)
+      .map(([name]) => name);
+    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge"]);
+  });
+});

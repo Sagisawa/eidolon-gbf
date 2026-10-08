@@ -108,6 +108,8 @@ export type ItemSpec = {
   rows: string[];
   secrets: string[];
   form: FieldSpec[];
+  /** Whether the server tries a change before keeping it (a service is called); thresholds and limits are only range-checked. */
+  tried: boolean;
 };
 
 export const LLM_PROTOCOLS: LLMProtocol[] = ["chat-completions", "responses", "anthropic"];
@@ -122,12 +124,14 @@ const LLM: ItemSpec = {
     { name: "max_tokens", kind: "maxTokens" },
     { name: "api_key", kind: "secret" },
   ],
+  tried: true,
 };
 
 const THRESHOLD = (names: string[]): ItemSpec => ({
   rows: names,
   secrets: [],
   form: names.map((name) => ({ name, kind: "probability" })),
+  tried: false,
 });
 
 export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
@@ -140,6 +144,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "model", kind: "text" },
       { name: "api_key", kind: "secret" },
     ],
+    tried: true,
   },
   stt: {
     rows: ["provider", "soniox_api_key", "dashscope_api_key", "region"],
@@ -148,6 +153,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "provider", kind: "select", options: ["soniox", "bailian"] },
       { name: "api_key", kind: "secret" },
     ],
+    tried: true,
   },
   judge: {
     rows: ["provider", "model", "account_id", "emotion_timeout", "api_key"],
@@ -159,10 +165,11 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
       { name: "emotion_timeout", kind: "seconds" },
       { name: "api_key", kind: "secret" },
     ],
+    tried: true,
   },
   judge_thresholds: THRESHOLD(["recall", "emotion"]),
   rerank: THRESHOLD(["references", "memories"]),
-  limits: { rows: LIMIT_FIELDS, secrets: [], form: LIMIT_FIELDS.map((name) => ({ name, kind: "limit" })) },
+  limits: { rows: LIMIT_FIELDS, secrets: [], form: LIMIT_FIELDS.map((name) => ({ name, kind: "limit" })), tried: false },
 };
 
 /** One field of an item, as the table shows it: `.env`'s, the one in effect, and whether

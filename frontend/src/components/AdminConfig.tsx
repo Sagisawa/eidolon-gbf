@@ -186,7 +186,7 @@ function optionLabel(field: string, option: string): string {
 
 /**
  * 一项配置：状态、三列对照（.env、当前生效、后台覆盖），修改表单和恢复按钮。
- * 保存时后端先试调（阈值不用），试不通照原话显示原因、不保存。
+ * 服务类的项保存时后端先试调，试不通照原话显示原因、不保存；阈值和限额不试调，保存键只写「保存」。
  */
 function ItemSection({ name, config, onChange }: { name: ItemName; config: Config; onChange: (config: Config) => void }) {
   const item = config[name];
@@ -227,6 +227,7 @@ function AvailableItem({
   const result = changeOf(spec, form, keysEditable);
   const problem = "problem" in result ? result.problem : null;
   const fieldRows = rows(item, spec);
+  const saveKind = spec.tried ? "tried" : "plain";
   const formRef = useRef<HTMLFormElement>(null);
 
   // 打开表单时焦点移到第一个能填的框（按钮被表单替换掉，焦点不移就落回页首）。
@@ -360,7 +361,7 @@ function AvailableItem({
               <TouchButton
                 type="submit"
                 variant="primary"
-                label={busy === "save" ? t.saving : t.save}
+                label={busy === "save" ? t.saving[saveKind] : t.save[saveKind]}
                 isLoading={busy === "save"}
                 isDisabled={problem !== null || busy !== null}
               />
