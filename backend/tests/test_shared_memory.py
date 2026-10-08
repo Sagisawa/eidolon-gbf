@@ -84,6 +84,24 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
     assert embedder.documents == [CAT]  # embedded as it was written down, not when searched
 
 
+async def test_memories_are_found_with_what_the_character_said_just_before(
+    make_client: ClientFactory,
+):
+    llm = FakeLLM(["<ja>猫ちゃん、元気？</ja><zh>小猫还好吗？</zh>"], REPLY)
+    embedder, reranker = FakeEmbedder(), FakeReranker("猫")
+    client = make_client(
+        llm, retrieval_judge=FakeJudge(answer="memories"), embedder=embedder,
+        reranker=reranker, background_llm=FakeBackgroundLLM(memorized(CAT)),
+    )
+    conversation_id = await start_conversation(client, "mano")
+
+    await turn(client, conversation_id, "我家的猫叫小白哦")
+    await turn(client, conversation_id, "它昨晚又叫了一夜")
+
+    assert embedder.queries[-1] == "小猫还好吗？\n它昨晚又叫了一夜"
+    assert reranker.calls[-1][0] == "小猫还好吗？\n它昨晚又叫了一夜"
+
+
 def test_the_background_model_is_configured_apart_from_the_chat_model(
     monkeypatch: pytest.MonkeyPatch,
 ):

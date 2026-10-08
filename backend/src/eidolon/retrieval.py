@@ -275,10 +275,10 @@ class Retrieval:
                 await self._recall(character, text, self._sources.work), recalled=True
             )
         if need == "memories":
-            return Retrieved(None, await _find(memory, text))
+            return Retrieved(None, await _find(memory, history, text))
         if need == "references":
             references, memories = await asyncio.gather(
-                self._references(character, text), _find(memory, text)
+                self._references(character, text), _find(memory, history, text)
             )
             return Retrieved(self._sources.prompt(references) if references else None, memories)
         return Retrieved(None)
@@ -337,8 +337,10 @@ class Retrieval:
         self._sources.close()
 
 
-async def _find(memory: MemoryTurn | None, text: str) -> str | None:
-    return await memory.find(text) if memory else None
+async def _find(
+    memory: MemoryTurn | None, history: Sequence[Message], text: str
+) -> str | None:
+    return await memory.find(history, text) if memory else None
 
 
 async def _search_work(work: WorkFacts | None, query_vector: Sequence[float]) -> list[WorldEntry]:

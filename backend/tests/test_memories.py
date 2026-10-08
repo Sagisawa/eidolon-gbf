@@ -103,9 +103,10 @@ async def tell(memories: Memories, world: World, conversation: Conversation, tex
     turn.write_down(history, text, world.reply(conversation, text))
 
 
-async def find(memories: Memories, conversation: Conversation, text: str) -> str:
+async def find(memories: Memories, world: World, conversation: Conversation, text: str) -> str:
+    """Take a turn in which the user says `text`, finding the memories relevant to it."""
     turn = await begin(memories, conversation)
-    return await turn.find(text) or ""
+    return await turn.find(world.store.list_messages(conversation.id), text) or ""
 
 
 def line_of(section: str, memory: str) -> str:
@@ -118,7 +119,7 @@ async def test_what_the_user_told_mano_reaches_kogane_as_hearsay(
     memories = make_memories(memorized(CAT))
 
     await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
-    section = await find(memories, world.conversation("kogane"), "你知道我家的猫吗？")
+    section = await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？")
 
     line = line_of(section, CAT)
     assert "櫻木真乃" in line and "转述" in line
@@ -131,7 +132,7 @@ async def test_a_memory_told_to_the_character_herself_is_not_hearsay(
     memories = make_memories(memorized(CAT))
 
     await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
-    section = await find(memories, world.conversation("mano"), "你还记得我家的猫吗？")
+    section = await find(memories, world, world.conversation("mano"), "你还记得我家的猫吗？")
 
     line = line_of(section, CAT)
     assert "对你说的" in line
@@ -150,7 +151,7 @@ async def test_a_memory_told_to_a_character_since_removed_is_hearsay_from_anothe
         embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
     )
 
-    section = await find(memories, world.conversation("kogane"), "你知道我家的猫吗？")
+    section = await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？")
     [cat] = await memories.entries(world.producer)
     await memories.aclose()
 
@@ -167,7 +168,7 @@ async def test_one_users_memories_never_reach_another_user(
 
     await tell(memories, world, world.conversation("mano"), "我家的猫叫小白")
     await tell(memories, world, world.conversation("mano", friend), "我喜欢狗")
-    section = await find(memories, world.conversation("kogane", friend), "你知道我家的猫吗？")
+    section = await find(memories, world, world.conversation("kogane", friend), "你知道我家的猫吗？")
 
     assert CAT not in section and "制作人喜欢狗" in section
     assert not any(CAT in doc for _, docs in reranker.calls for doc in docs)
@@ -199,7 +200,7 @@ async def test_irrelevant_memories_are_not_found(world: World, make_memories: Me
 
     await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
 
-    assert await find(memories, world.conversation("kogane"), "北海道に行ったことある？") == ""
+    assert await find(memories, world, world.conversation("kogane"), "北海道に行ったことある？") == ""
 
 
 async def test_only_the_most_relevant_few_are_found(world: World, make_memories: MemoriesFactory):
@@ -207,7 +208,7 @@ async def test_only_the_most_relevant_few_are_found(world: World, make_memories:
     memories = make_memories(memorized(*told))
 
     await tell(memories, world, world.conversation("mano"), "我喜欢好多点心")
-    section = await find(memories, world.conversation("mano"), "你知道我喜欢什么点心吗？")
+    section = await find(memories, world, world.conversation("mano"), "你知道我喜欢什么点心吗？")
 
     assert sum(t in section for t in told) == 3
 
@@ -233,7 +234,7 @@ async def test_nothing_is_found_while_the_embedder_is_down(
     await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
     embedder.down = True
 
-    assert await find(memories, world.conversation("kogane"), "你知道我家的猫吗？") == ""
+    assert await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？") == ""
 
 
 async def test_a_deleted_memory_is_found_no_more(world: World, make_memories: MemoriesFactory):
@@ -246,7 +247,7 @@ async def test_a_deleted_memory_is_found_no_more(world: World, make_memories: Me
 
     assert [m.text for m in await memories.entries(world.producer)] == [TRIP]
     kogane = world.conversation("kogane")
-    section = await find(memories, kogane, "你知道我家的猫吗？")
+    section = await find(memories, world, kogane, "你知道我家的猫吗？")
     assert TRIP in section and CAT not in section
     # Nor is the background model told it is still remembered.
     await tell(memories, world, kogane, "对了")
@@ -265,7 +266,7 @@ async def test_clearing_forgets_everything(world: World, make_memories: Memories
     await memories.clear(world.producer)
 
     assert await memories.entries(world.producer) == []
-    assert await find(memories, world.conversation("kogane"), "你知道我家的猫吗？") == ""
+    assert await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？") == ""
 
 
 async def test_what_is_written_down_too_slowly_to_wait_for_is_still_forgotten(
@@ -294,7 +295,7 @@ async def test_with_memory_off_turns_neither_find_nor_write_down_but_users_still
     await kept.entries(world.producer)
     memories = make_memories(off=True)
 
-    assert await find(memories, world.conversation("kogane"), "你知道我家的猫吗？") == ""
+    assert await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？") == ""
     await tell(memories, world, world.conversation("kogane"), "我最近在学吉他")
     listed = await memories.entries(world.producer)
     assert [m.text for m in listed] == [TRIP, CAT]  # newest first
@@ -314,3 +315,36 @@ async def test_memories_are_embedded_without_a_title(world: World, make_memories
     await memories.entries(world.producer)  # written down
 
     assert embedder.documents == [CAT] and embedder.titles == [None]
+
+
+async def test_memories_are_found_with_the_characters_previous_reply_as_people_see_it(
+    world: World, make_memories: MemoriesFactory
+):
+    """「它昨晚又叫了一夜」: the reply before it says what 「它」 is."""
+    embedder, reranker = FakeEmbedder(), FakeReranker("猫")
+    memories = make_memories(memorized(CAT), embedder=embedder, reranker=reranker)
+    conversation = world.conversation("mano")
+    await tell(memories, world, conversation, "我家的猫叫小白哦")
+    world.store.add_turn(
+        conversation.id, "我回来了", [Segment("[happy] おかえりなさい", "[happy] 欢迎回来，猫还好吗？")]
+    )
+
+    section = await find(memories, world, conversation, "它昨晚又叫了一夜")
+
+    assert CAT in section
+    query = "欢迎回来，猫还好吗？\n它昨晚又叫了一夜"
+    assert embedder.queries[-1] == query
+    assert reranker.calls[-1][0] == query
+
+
+async def test_without_a_previous_reply_memories_are_found_with_what_the_user_said(
+    world: World, make_memories: MemoriesFactory
+):
+    embedder, reranker = FakeEmbedder(), FakeReranker("猫")
+    memories = make_memories(memorized(CAT), embedder=embedder, reranker=reranker)
+    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
+
+    await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？")
+
+    assert embedder.queries[-1] == "你知道我家的猫吗？"
+    assert reranker.calls[-1][0] == "你知道我家的猫吗？"

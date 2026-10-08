@@ -256,13 +256,13 @@ class Memories:
             await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
 
     async def _find(
-        self, conversation: Conversation, timezone: str, text: str
+        self, conversation: Conversation, timezone: str, query_text: str
     ) -> str | None:
         if (services := self._services) is None:
             return None
         user_id = conversation.user_id
         try:
-            query = await services.embedder.embed_query(text)
+            query = await services.embedder.embed_query(query_text)
             memories = await asyncio.to_thread(self._all, user_id)
             vectors = await self._vectors(services.embedder, user_id, memories)
             nearest_memories = [
@@ -271,7 +271,7 @@ class Memories:
             ]
             best = (
                 await services.reranker.rerank(
-                    text, [m.text for m in nearest_memories], len(nearest_memories)
+                    query_text, [m.text for m in nearest_memories], len(nearest_memories)
                 )
                 if nearest_memories
                 else []
@@ -465,12 +465,14 @@ class MemoryTurn:
         self._llm = llm
         self._hold = hold
 
-    async def find(self, text: str) -> str | None:
-        """The prompt section carrying the user's memories relevant to `text`, most
-        relevant first, each labelled with who it was told to and to be passed on as
-        hearsay when that was someone else; None if none are relevant, memory is off or
-        finding them failed."""
-        return await self._memories._find(self._conversation, self._timezone, text)
+    async def find(self, history: Sequence[Message], text: str) -> str | None:
+        """The prompt section carrying the user's memories relevant to `text`, said after
+        `history` (see `memory_query`), most relevant first, each labelled with who it was
+        told to and to be passed on as hearsay when that was someone else; None if none are
+        relevant, memory is off or finding them failed."""
+        return await self._memories._find(
+            self._conversation, self._timezone, memory_query(history, text)
+        )
 
     def write_down(self, history: Sequence[Message], text: str, reply: Message) -> None:
         """Start writing down what the user revealed in this turn: `text`, said after
@@ -513,6 +515,19 @@ def _extraction_prompt(
             lines.append(f"{character.name}：{_said(message)}")
     lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
     return [ChatMessage("system", _INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
+
+
+def memory_query(history: Sequence[Message], text: str) -> str:
+    """What memories relevant to `text`, said after `history`, are searched and reranked
+    with: the character's reply before it, which says what 「它」 or 「那件事」 is, then
+    `text`."""
+    previous = next((m for m in reversed(history) if m.role == "character"), None)
+    return joined_query(_said(previous) if previous else None, text)
+
+
+def joined_query(previous_reply: str | None, text: str) -> str:
+    """`memory_query` of `text` said after `previous_reply`, as people see it, if any."""
+    return f"{previous_reply}\n{text}" if previous_reply else text
 
 
 def _said(reply: Message) -> str:

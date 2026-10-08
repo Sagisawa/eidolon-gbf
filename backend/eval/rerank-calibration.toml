@@ -17,6 +17,8 @@
 #   id = "mano-story-birds"          # 唯一，kebab-case
 #   character = "mano"
 #   kind = "story"                    # story | facts | work | memory
+#   previous = "……"                   # 可选，只用于 memory：偶像的上一条回复（中文字幕），
+#                                     # 和对话中一样拼在 query 前面一起检索、重排
 #   query = "……"                      # 制作人说的原话，口语
 #   relevant = ["produce_events/…"]   # story: 剧情编号；facts: 资料标题路径；work: 作品资料标题；memory: 记忆 key
 #   acceptable = []                   # 放进提示词也可以、不放也可以的，不计入统计（可省略）
@@ -542,6 +544,63 @@ relevant = []
 acceptable = []
 note = "闲聊，什么记忆都不该想起，所有示例记忆都算不相关。"
 reviewed = true
+
+# 带上一条回复的 memory 问题（代词、省略：只看 query 找不到指的是什么）
+
+[[cases]]
+id = "mano-memory-pronoun-cat"
+character = "mano"
+kind = "memory"
+previous = "小白最近还好吗？晚上还会在家里跑来跑去吗？"
+query = "它昨晚又闹了一夜，我都没睡好。"
+relevant = ["cat"]
+acceptable = []
+note = "「它」指上一条回复里的小白（猫）。易混：parents-dog（也是宠物）。"
+reviewed = false
+
+[[cases]]
+id = "kogane-memory-pronoun-dog"
+character = "kogane"
+kind = "memory"
+previous = "老家的豆太还好吗？柴犬好可爱的说～"
+query = "它最近腿不太好，我爸妈带它去看兽医了。"
+relevant = ["parents-dog"]
+acceptable = ["hometown"]
+note = "「它」指上一条回复里的豆太。老家在札幌可放可不放。易混：cat（制作人自己养的猫）。"
+reviewed = false
+
+[[cases]]
+id = "mano-memory-ellipsis-driving"
+character = "mano"
+kind = "memory"
+previous = "驾照的路考是不是快到了？"
+query = "嗯，就是后天，越想越紧张。"
+relevant = ["driving-test"]
+acceptable = []
+note = "query 里没有提路考，全靠上一条回复。其余都不相关。"
+reviewed = false
+
+[[cases]]
+id = "kogane-memory-ellipsis-wedding"
+character = "kogane"
+kind = "memory"
+previous = "妹妹的婚礼准备得怎么样了？"
+query = "差不多了，我得先去把西装取回来。"
+relevant = ["sister-wedding"]
+acceptable = []
+note = "「差不多了」接的是上一条回复里的婚礼。易混：hometown（婚礼在东京，不是回老家）。"
+reviewed = false
+
+[[cases]]
+id = "mano-memory-previous-unrelated"
+character = "mano"
+kind = "memory"
+previous = "今天的练习好累，不过大家都很努力哦。"
+query = "辛苦啦，早点休息吧。"
+relevant = []
+acceptable = []
+note = "上一条回复是偶像自己的事，和制作人的记忆都无关，什么都不该想起；看带上上一条回复以后会不会多放进东西。"
+reviewed = false
 
 # ---------------------------------------------------------------------------
 # 什么都不该放进提示词（relevant = []）
