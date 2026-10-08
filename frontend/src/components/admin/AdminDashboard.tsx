@@ -9,12 +9,23 @@ import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/VStack";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AppLink } from "@/components/AppLink";
 import { CostSection } from "@/components/admin/CostSection";
 import { AdminPage } from "@/components/admin/AdminPage";
-import { Numeric, Pair, RowList, Section, StatTile, TileRow, TOUCH_LINK, useTouch, useWide } from "@/components/admin/DashboardParts";
+import {
+  Numeric,
+  Pair,
+  RowList,
+  Section,
+  StatTile,
+  TileRow,
+  TOUCH_LINK,
+  TouchButton,
+  useTouch,
+  useWide,
+} from "@/components/admin/DashboardParts";
 import { CHART_INK, TrendChart } from "@/components/admin/TrendChart";
 import { SettingsSection } from "@/components/SettingsSection";
 import { copy } from "@/i18n";
@@ -23,12 +34,14 @@ import {
   CALL_RESULTS,
   countTicks,
   DASHBOARD_RANGES,
+  DASHBOARD_REFRESH_MS,
   type Dashboard,
   type DashboardRange,
   durationRange,
   type ErrorKind,
   formatCount,
   formatDuration,
+  formatFetchedAt,
   formatMs,
   formatPercent,
   formatShare,
@@ -39,7 +52,7 @@ import {
   healthStatus,
   healthSummary,
   isDashboardRange,
-  LIVE_CALLS_REFRESH_MS,
+  rangeHref,
   splitZeroRows,
   TURN_RESULTS,
 } from "@/lib/dashboard";
@@ -59,57 +72,97 @@ const STATUS_DOT: Record<HealthStatus, "success" | "warning" | "error" | "neutra
 };
 
 /**
- * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数（每分钟刷新）；回合和
- * 通话的趋势；回合结果；通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；
- * 按角色的回合数和通话数。数字全由后端汇总，这里只负责排版和格式化。
+ * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数；回合和通话的趋势；回合结果；
+ * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；按角色的回合数和通话数。
+ * 数字全由后端汇总，这里只负责排版和格式化。
+ *
+ * 数字要看得出新旧：页首写「数据截至 16:25」，旁边可以手动刷新；页面看得见时每分钟自动重新取一次
+ * （切到别的标签页就停，切回来时过了一分钟就马上取），自动刷新不闪、不变淡。切换时间范围或手动刷新时，
+ * 新数字到之前旧的整体变淡并标 aria-busy，不让人把上一个范围的数字当成这个范围的。取不到时旧数字留着，
+ * 横幅写明下面是几点的数据。时间范围记在地址里（`?range=7d`），可以收藏、刷新不丢。
  */
-export function AdminDashboard() {
-  const [range, setRange] = useState<DashboardRange>("24h");
+export function AdminDashboard({ initialRange }: { initialRange: DashboardRange }) {
+  const [range, setRange] = useState<DashboardRange>(initialRange);
   const [board, setBoard] = useState<Dashboard | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  /** 切换范围或手动刷新、新数字还没到：旧的变淡。自动刷新不算。 */
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inProgress, setInProgress] = useState<number | null>(null);
   const touch = useTouch();
+  const rangeRef = useRef(range);
+  /** 只认最后发出的那次请求：先发的自动刷新晚到，不能盖掉刚切换的范围。 */
+  const latest = useRef(0);
 
-  useEffect(() => {
-    let current = true;
-    const refresh = () =>
-      getCallsInProgress().then(
-        (n) => current && setInProgress(n),
-        () => current && setInProgress(null),
-      );
-    void refresh();
-    const timer = setInterval(refresh, LIVE_CALLS_REFRESH_MS);
-    return () => {
-      current = false;
-      clearInterval(timer);
-    };
+  const load = useCallback((which: DashboardRange, quietly: boolean) => {
+    const request = ++latest.current;
+    if (!quietly) setLoading(true);
+    getDashboard(which).then(
+      (loaded) => {
+        if (request !== latest.current) return;
+        setBoard(loaded);
+        setFetchedAt(new Date());
+        setError(null);
+        setLoading(false);
+      },
+      (e: Error) => {
+        if (request !== latest.current) return;
+        setError(e.message);
+        setLoading(false);
+      },
+    );
+  }, []);
+
+  const refreshCalls = useCallback(() => {
+    getCallsInProgress().then(setInProgress, () => setInProgress(null));
   }, []);
 
   useEffect(() => {
-    let current = true;
-    setError(null);
-    getDashboard(range).then(
-      (loaded) => current && setBoard(loaded),
-      (e: Error) => current && setError(e.message),
-    );
-    return () => {
-      current = false;
-    };
-  }, [range]);
+    rangeRef.current = range;
+    load(range, false);
+  }, [range, load]);
 
+  useEffect(refreshCalls, [refreshCalls]);
+
+  useWhileVisible(() => {
+    load(rangeRef.current, true);
+    refreshCalls();
+  }, DASHBOARD_REFRESH_MS);
+
+  function chooseRange(value: string) {
+    if (!isDashboardRange(value)) return;
+    setRange(value);
+    window.history.replaceState(null, "", rangeHref(window.location.pathname, value));
+  }
+
+  function refresh() {
+    load(range, false);
+    refreshCalls();
+  }
+
+  const stamp = fetchedAt && formatFetchedAt(fetchedAt);
+  /** 眼前的数字是上一个范围的：切换后还没到，或者切换那次没取到。 */
+  const otherRange = board !== null && board.range !== range;
+  const faded = loading || otherRange;
   return (
     <AdminPage
       width="wide"
       title={copy.admin.pages.dashboard}
-      meta={board && <HealthSummary board={board} />}
+      meta={
+        // 手机上折成两行时不另加行距：两行各有 44px 的触控区，已经隔得开。
+        <HStack gap={4} vAlign="center" wrap="wrap" style={{ rowGap: 0 }}>
+          {/* 健康结论也是上一个范围的，和下面的数字一起变淡。 */}
+          {board && (
+            <HStack style={faded ? STALE : FRESH}>
+              <HealthSummary board={board} />
+            </HStack>
+          )}
+          <Freshness stamp={stamp} loading={loading} onRefresh={refresh} />
+        </HStack>
+      }
       intro={t.intro}
       end={
-        <SegmentedControl
-          label={t.rangeLabel}
-          size={touch ? "lg" : "md"}
-          value={range}
-          onChange={(value) => isDashboardRange(value) && setRange(value)}
-        >
+        <SegmentedControl label={t.rangeLabel} size={touch ? "lg" : "md"} value={range} onChange={chooseRange}>
           {DASHBOARD_RANGES.map((r) => (
             <SegmentedControlItem key={r} value={r} label={t.ranges[r]} />
           ))}
@@ -117,14 +170,73 @@ export function AdminDashboard() {
       }
     >
       <VStack gap={6} paddingBlockStart={4}>
-        {error !== null && <Banner status="error" title={t.failed(error)} />}
+        {error !== null && (
+          <Banner status="error" title={t.failed(error)} description={
+              board && stamp
+                ? otherRange
+                  ? t.freshness.shownFromRange(stamp, t.ranges[board.range])
+                  : t.freshness.shownFrom(stamp)
+                : undefined
+            } />
+        )}
         {board === null ? (
           error === null && <Skeleton height={320} />
         ) : (
-          <DashboardBody board={board} inProgress={inProgress} />
+          <VStack aria-busy={loading} style={faded ? STALE : FRESH}>
+            <DashboardBody board={board} inProgress={inProgress} />
+          </VStack>
         )}
       </VStack>
     </AdminPage>
+  );
+}
+
+/** 新数字到之前，旧的变淡：一眼看得出眼前的数字不属于刚选的范围。 */
+const FRESH = { opacity: 1, transition: "opacity var(--duration-medium-min) var(--ease-standard)" };
+const STALE = { ...FRESH, opacity: 0.45 };
+
+/**
+ * 页面看得见时每隔 `ms` 调一次 `tick`；藏起来（切到别的标签页、锁屏）就不调，再露出来时离上次已过
+ * `ms` 就马上补一次。不在看的看板不必每分钟去问后端。
+ */
+function useWhileVisible(tick: () => void, ms: number) {
+  const tickRef = useRef(tick);
+  useEffect(() => {
+    tickRef.current = tick;
+  });
+  useEffect(() => {
+    let last = Date.now();
+    const run = () => {
+      last = Date.now();
+      tickRef.current();
+    };
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") run();
+    }, ms);
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && Date.now() - last >= ms) run();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [ms]);
+}
+
+/** 「数据截至 16:25」和刷新键。第一次读取时写「正在读取…」，占住这一行，数字到了页首不跳。 */
+function Freshness({ stamp, loading, onRefresh }: { stamp: string | null; loading: boolean; onRefresh: () => void }) {
+  return (
+    <HStack gap={1} vAlign="center">
+      <Text type="supporting" hasTabularNumbers>
+        {stamp ? t.freshness.at(stamp) : t.freshness.loading}
+      </Text>
+      {stamp && (
+        <TouchButton variant="ghost" size="sm" label={t.freshness.refreshLabel} isLoading={loading} onClick={onRefresh}>
+          {t.freshness.refresh}
+        </TouchButton>
+      )}
+    </HStack>
   );
 }
 

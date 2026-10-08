@@ -14,6 +14,16 @@ export function isDashboardRange(value: string): value is DashboardRange {
   return (DASHBOARD_RANGES as readonly string[]).includes(value);
 }
 
+/** The range a link asks for in `?range=`; 24 hours when it asks for none or one not served. */
+export function rangeFromQuery(value: string | string[] | undefined): DashboardRange {
+  return typeof value === "string" && isDashboardRange(value) ? value : "24h";
+}
+
+/** The address of the dashboard showing `range`: 24 hours, the default, needs no query. */
+export function rangeHref(pathname: string, range: DashboardRange): string {
+  return range === "24h" ? pathname : `${pathname}?range=${range}`;
+}
+
 export type ServiceName =
   | "chat_llm"
   | "memory_llm"
@@ -144,8 +154,17 @@ export async function getDashboard(range: DashboardRange): Promise<Dashboard> {
   return json(await fetch(`/api/admin/dashboard?range=${range}`, { headers: apiHeaders() }));
 }
 
-/** How often the page asks how many calls are in progress. */
-export const LIVE_CALLS_REFRESH_MS = 60_000;
+/** How often the page, while it can be seen, fetches the dashboard and the calls in progress
+ * again. */
+export const DASHBOARD_REFRESH_MS = 60_000;
+
+/** When the numbers were fetched: "16:25" today, with the day before it on another day. */
+export function formatFetchedAt(at: Date, now: Date = new Date()): string {
+  const clock = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  const sameDay =
+    at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
+  return sameDay ? clock : `${at.getMonth() + 1}月${at.getDate()}日 ${clock}`;
+}
 
 /** How many calls are in progress now, connected or still connecting. */
 export async function getCallsInProgress(): Promise<number> {

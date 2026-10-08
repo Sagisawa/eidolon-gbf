@@ -5,6 +5,7 @@ import {
   durationRange,
   formatCount,
   formatDuration,
+  formatFetchedAt,
   formatMs,
   formatShare,
   formatUsage,
@@ -13,6 +14,8 @@ import {
   isDashboardRange,
   axisLabels,
   labelledStretches,
+  rangeFromQuery,
+  rangeHref,
   splitZeroRows,
   stretchLabel,
   stretchSpan,
@@ -26,6 +29,26 @@ describe("isDashboardRange", () => {
   it("knows only the ranges the backend serves", () => {
     for (const [value, known] of [["24h", true], ["1y", false]] as const)
       expect(isDashboardRange(value), value).toBe(known);
+  });
+});
+
+describe("rangeFromQuery and rangeHref", () => {
+  it("takes a served range from the address and falls back to 24 hours", () => {
+    expect(rangeFromQuery("7d")).toBe("7d");
+    for (const value of [undefined, "1y", ["7d", "30d"]]) expect(rangeFromQuery(value), String(value)).toBe("24h");
+  });
+
+  it("leaves the default range out of the address", () => {
+    expect(rangeHref("/admin", "24h")).toBe("/admin");
+    expect(rangeHref("/admin", "90d")).toBe("/admin?range=90d");
+  });
+});
+
+describe("formatFetchedAt", () => {
+  it("gives the clock today and the day as well on another day", () => {
+    const now = new Date(2026, 9, 8, 16, 30);
+    expect(formatFetchedAt(new Date(2026, 9, 8, 9, 5), now)).toBe("09:05");
+    expect(formatFetchedAt(new Date(2026, 9, 7, 23, 59), now)).toBe("10月7日 23:59");
   });
 });
 

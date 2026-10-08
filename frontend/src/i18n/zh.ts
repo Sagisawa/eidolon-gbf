@@ -312,6 +312,14 @@ export const zh = {
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
       failed: (reason: string) => `看板加载失败：${reason}`,
+      freshness: {
+        at: (time: string) => `数据截至 ${time}`,
+        loading: "正在读取…",
+        refresh: "刷新",
+        refreshLabel: "刷新看板",
+        shownFrom: (time: string) => `下面仍是 ${time} 的数据，每分钟会再试一次。`,
+        shownFromRange: (time: string, range: string) => `下面仍是 ${time} 取到的 ${range}数据，每分钟会再试一次。`,
+      },
       groups: {
         usage: { title: "用量", hint: "回合和通话的走势、结果和时长，以及各位角色。" },
       },
