@@ -27,6 +27,7 @@ Label: wayfinder:map
 - [迁移策略](issues/04-migration-strategy.md)：在 feat 分支上一次换完，再合进 main；分支内两套库并存，靠层顺序隔离；第一波是不改外观的底座波；以屏为单位替换；每波开工前把 main 合进分支；回滚靠 revert，不搭预发环境
 - [DESIGN.md / PRODUCT.md 改写与说法统一](issues/05-design-docs-rewrite.md)：新的 `DESIGN.md`（「制作人的手机」）已经写进分支；主题用 shadcn neutral，不进 tweakcn；深蓝只用于制作人气泡；选中状态一律中性底；壁纸纳入成对颜色契约；列表叫「对话」；旧规格里的「微信式」不改；通话层和后台两节待对应 ticket 补
 - [后台视觉原型](issues/06-admin-style-prototype.md)：整体取方案 A：shadcn Sidebar；内容列限宽（1200 / 960px）；数字、图表、表格都装在 Card 里；配置每项一张卡、卡里展开表单；图表用前景黑白。不引入 TanStack Table；对话列表改用 Resizable、按像素调宽；后台 Card 保留默认细线
+- [通话层的其他状态与立绘衔接](issues/07-call-layer-variants.md)：全部取方案 A：立绘铺在底上，台词卡和底栏压在衣服上；收起后对话页首下面出一条她颜色的「通话条」；通话层从底部滑上来；Line-State Rule 和 `note`/`noteRule` 等用不上的颜色对删掉，只留 `call.deep`；背景图保留但目前没人配
 
 ## Not yet specified
 
