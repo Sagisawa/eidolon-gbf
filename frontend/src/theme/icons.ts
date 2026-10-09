@@ -20,3 +20,6 @@ export {
   SlidersHorizontal as ConfigIcon,
   Users as UsersIcon,
 } from "lucide-react";
+
+// 发送键和更多菜单（shadcn 新代码用；旧的 Astryx 输入栏用 astryxIcons.ts 里注册的图标）。
+export { ArrowUp as SendIcon, Ellipsis as MoreIcon } from "lucide-react";
