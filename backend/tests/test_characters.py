@@ -150,6 +150,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "amana": "d5a68fc022604b23b94e2a0b9f823b59",
         "tenka": "7f50c8ef897c402fa7967a11aa94261e",
         "chiyuki": "7de8d70dc5e04759be11c01f69c8c863",
+        "luca": "",
+        "hana": "",
+        "haruki": "",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
@@ -177,6 +180,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "amana": "大崎甘奈",
         "tenka": "大崎甜花",
         "chiyuki": "桑山千雪",
+        "luca": "斑鳩ルカ",
+        "hana": "鈴木羽那",
+        "haruki": "郁田はるき",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "mano": ("真乃",),
@@ -204,6 +210,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "amana": ("甘奈",),
         "tenka": ("甜花",),
         "chiyuki": ("千雪",),
+        "luca": ("ルカ",),
+        "hana": ("羽那",),
+        "haruki": ("はるき",),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
     assert {id: c.color for id, c in loaded.items()} == {
@@ -232,6 +241,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "amana": "#f54275",
         "tenka": "#e75bec",
         "chiyuki": "#fbfafa",
+        "luca": "#24130d",
+        "hana": "#e0b5d3",
+        "haruki": "#ead7a4",
     }
 
 
@@ -441,6 +453,9 @@ def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
         "amana": (14, "stand/1030140010"),
         "tenka": (15, "stand/1030150010"),
         "chiyuki": (16, "stand/1030160010"),
+        "luca": (26, "stand/1030260010"),
+        "hana": (27, "stand/1030270010"),
+        "haruki": (28, "stand/1030280010"),
     }
 
 
