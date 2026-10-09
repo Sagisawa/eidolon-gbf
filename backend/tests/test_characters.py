@@ -139,6 +139,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "hinana": "565ffd381fbc427ebfa1cc4c689ac12d",
         "nichika": "b3757a5a71ba4078be1e25b446190975",
         "mikoto": "bf578eec18ca49daaf9216f5df3fabd4",
+        "asahi": "2dcc8351008f4714b33506d7d45a861e",
+        "fuyuko": "105efba2160a40119d6d21e5445b889e",
+        "mei": "1f0033aac5b34d478ec975114c845bf9",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
@@ -155,6 +158,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "hinana": "市川雛菜",
         "nichika": "七草にちか",
         "mikoto": "緋田美琴",
+        "asahi": "芹沢あさひ",
+        "fuyuko": "黛冬優子",
+        "mei": "和泉愛依",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "mano": ("真乃",),
@@ -171,6 +177,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "hinana": ("雛菜",),
         "nichika": ("にちか",),
         "mikoto": ("美琴",),
+        "asahi": ("あさひ",),
+        "fuyuko": ("冬優子",),
+        "mei": ("愛依",),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
     assert {id: c.color for id, c in loaded.items()} == {
@@ -188,6 +197,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "hinana": "#ffc639",
         "nichika": "#a6ceb6",
         "mikoto": "#760f10",
+        "asahi": "#f30100",
+        "fuyuko": "#5ce626",
+        "mei": "#ff00ff",
     }
 
 
@@ -386,6 +398,9 @@ def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
         "hinana": (23, "stand/1030230010"),
         "nichika": (24, "stand/1030240010"),
         "mikoto": (25, "stand/1030250010"),
+        "asahi": (17, "stand/1030170010"),
+        "fuyuko": (18, "stand/1030180010"),
+        "mei": (19, "stand/1030190010"),
     }
 
 

@@ -203,3 +203,42 @@ facts = "facts/mikoto.md"
 speakers = ["美琴"]
 idol_id = 25
 default_outfit = "stand/1030250010"  # 【SEASON】
+
+[[characters]]
+id = "asahi"
+name = "芹沢あさひ"
+intro = "Straylight 的成员、绝对的センター。总在找「面白い」事情的初二学生，看一眼就能把舞照样跳出来，想到什么就一头冲过去；在冬優子和愛依身边，学着「三个人一起」站上舞台。"
+voice_id = "2dcc8351008f4714b33506d7d45a861e"
+sheet = "sheets/asahi.md"
+avatar = "avatars/asahi.jpg"
+color = "#f30100"
+facts = "facts/asahi.md"
+speakers = ["あさひ"]
+idol_id = 17
+default_outfit = "stand/1030170010"  # 【さかさま世界】
+
+[[characters]]
+id = "fuyuko"
+name = "黛冬優子"
+intro = "Straylight 的成员兼队长。19 岁的专门学校学生，在镜头前是笑容甜美、自称「ふゆ」的清纯偶像，只在制作人和あさひ、愛依面前露出嘴毒好胜的本性；她把精心打造的「ふゆ」也当作真正的自己，誓要站上谁都比不上的顶点。"
+voice_id = "105efba2160a40119d6d21e5445b889e"
+sheet = "sheets/fuyuko.md"
+avatar = "avatars/fuyuko.jpg"
+color = "#5ce626"
+facts = "facts/fuyuko.md"
+speakers = ["冬優子"]
+idol_id = 18
+default_outfit = "stand/1030180010"  # 【ザ・冬優子イズム】
+
+[[characters]]
+id = "mei"
+name = "和泉愛依"
+intro = "Straylight 的成员。开朗随和、爱照顾弟妹的高三辣妹，一站上舞台却紧张得说不出话——于是和制作人一起把这份沉默做成了「クールでミステリアス」的偶像形象；如今想在あさひ和冬優子身边，亲口说出自己的话。"
+voice_id = "1f0033aac5b34d478ec975114c845bf9"
+sheet = "sheets/mei.md"
+avatar = "avatars/mei.jpg"
+color = "#ff00ff"
+facts = "facts/mei.md"
+speakers = ["愛依"]
+idol_id = 19
+default_outfit = "stand/1030190010"  # 【気になる！？染めちゃう！？】
