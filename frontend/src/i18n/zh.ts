@@ -644,6 +644,8 @@ export const zh = {
         overridden: "已被后台覆盖",
         failed: "覆盖没有生效，回退到 .env",
       },
+      /** 卡片标题旁的 Badge：用 .env 的值是常态，不标（DESIGN.md「Admin status & charts」）。 */
+      badges: { overridden: "已被后台覆盖", failed: "覆盖没有生效" },
       failed: (reason: string) => `后台覆盖的配置没有生效，现在用的是 .env 的值。原因：${reason}`,
       columns: { field: "项", env: ".env 的值", effective: "当前生效", override: "后台覆盖" },
       fields: {
