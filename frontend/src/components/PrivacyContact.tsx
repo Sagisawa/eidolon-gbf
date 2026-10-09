@@ -1,10 +1,8 @@
 "use client";
 
-import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState } from "react";
 
-import { SectionHeading } from "@/components/SubpageHeader";
+import { SectionHeading } from "@/components/app/SubpageHeader";
 import { copy } from "@/i18n";
 import { getSignInOptions } from "@/lib/api";
 
@@ -23,9 +21,9 @@ export function PrivacyContact() {
 
   if (!contact) return null;
   return (
-    <VStack as="section" gap={3}>
+    <section className="flex flex-col gap-3">
       <SectionHeading>{t.title}</SectionHeading>
-      <Text as="p">{t.text(contact)}</Text>
-    </VStack>
+      <p className="text-body">{t.text(contact)}</p>
+    </section>
   );
 }

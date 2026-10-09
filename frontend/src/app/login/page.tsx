@@ -1,22 +1,16 @@
 "use client";
 
-import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { StackItem } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { TextInput } from "@astryxdesign/core/TextInput";
-import { VStack } from "@astryxdesign/core/VStack";
 import { FormEvent, useEffect, useState } from "react";
 
-import { AppLink } from "@/components/AppLink";
-import { FailureNotice } from "@/components/FailureNotice";
+import { AppLink } from "@/components/app/AppLink";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { PageShell } from "@/components/app/PageShell";
+import { SectionHeading } from "@/components/app/SubpageHeader";
 import { LegalFooter } from "@/components/LegalFooter";
-import { MarkedAvatar } from "@/components/MarkedAvatar";
-import { PageShell } from "@/components/PageShell";
-import { SectionHeading } from "@/components/SubpageHeader";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { copy } from "@/i18n";
 import { interpolate } from "@/i18n/interpolate";
 import {
@@ -28,6 +22,7 @@ import {
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS, signInFailure, signInUrl } from "@/lib/signIn";
+import { FailureIcon } from "@/theme/icons";
 
 const t = copy.login;
 
@@ -57,37 +52,43 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <PageShell contentWidth={640} padding={4} footer={<LegalFooter />}>
-      <VStack gap={8} paddingBlock={8}>
-        <VStack gap={3}>
-          <Heading level={1}>{copy.app.name}</Heading>
-          <Text as="p">{t.lede}</Text>
-        </VStack>
+  const refusalText = refusal ? signInFailure(refusal, options?.contact) : null;
 
+  return (
+    <PageShell footer={<LegalFooter />}>
+      <div className="flex flex-col gap-8 py-2">
+        <div className="flex flex-col gap-3">
+          <h1 className="text-list-title">{copy.app.name}</h1>
+          <p className="text-body">{t.lede}</p>
+        </div>
+
+        {/* 登录被拒绝：和 FailureNotice 一样用中性的 Alert 加警示图标，挂断红只给挂断和删除、封禁（DESIGN.md「Tertiary」）。 */}
         {refusal && (
-          <Banner
-            status="error"
-            title={t.refusedTitle}
-            description={signInFailure(refusal, options?.contact) ?? undefined}
-          />
+          <Alert>
+            <FailureIcon />
+            <AlertTitle>{t.refusedTitle}</AlertTitle>
+            {refusalText && <AlertDescription>{refusalText}</AlertDescription>}
+          </Alert>
         )}
 
-        <VStack as="section" aria-label={t.signInRegion} gap={3} maxWidth={360}>
+        <section aria-label={t.signInRegion} className="flex max-w-90 flex-col gap-3">
           {options?.providers.map((provider, i) => (
+            // 登录要整页跳到后端的 OAuth 入口，用普通的 <a>，不走客户端路由。
             <Button
               key={provider}
-              label={t.signInWith(PROVIDER_LABELS[provider])}
-              href={signInUrl(provider)}
-              variant={i === 0 ? "primary" : "secondary"}
+              variant={i === 0 ? "default" : "outline"}
               size="lg"
-              width="100%"
-            />
+              nativeButton={false}
+              render={<a href={signInUrl(provider)} />}
+              className="w-full"
+            >
+              {t.signInWith(PROVIDER_LABELS[provider])}
+            </Button>
           ))}
           {options && options.providers.length === 0 && !options.dev_login && (
-            <Text color="secondary">{t.noProviders}</Text>
+            <p className="text-body text-muted-foreground">{t.noProviders}</p>
           )}
-          <Text type="supporting" as="p">
+          <p className="text-sm text-muted-foreground">
             {interpolate(t.agreement, {
               privacy: (
                 <AppLink key="privacy" href="/privacy">
@@ -100,46 +101,44 @@ export default function LoginPage() {
                 </AppLink>
               ),
             })}
-          </Text>
-        </VStack>
+          </p>
+        </section>
 
         {options?.dev_login && (
-          <form onSubmit={submit}>
-            <VStack gap={3} maxWidth={360}>
-              <VStack gap={1}>
-                <SectionHeading>{t.devTitle}</SectionHeading>
-                <Text color="secondary">{t.devHint}</Text>
-              </VStack>
-              <HStack gap={2} vAlign="end">
-                <StackItem size="fill">
-                  <TextInput label={t.devName} isLabelHidden value={name} onChange={setName} />
-                </StackItem>
-                <Button type="submit" label={t.devSubmit} isDisabled={!name.trim()} />
-              </HStack>
-            </VStack>
+          <form onSubmit={submit} className="flex max-w-90 flex-col gap-3">
+            <div className="flex flex-col gap-1">
+              <SectionHeading>{t.devTitle}</SectionHeading>
+              <p className="text-body text-muted-foreground">{t.devHint}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Input aria-label={t.devName} value={name} onChange={(e) => setName(e.target.value)} className="flex-1" />
+              <Button type="submit" disabled={!name.trim()}>
+                {t.devSubmit}
+              </Button>
+            </div>
           </form>
         )}
 
         {failure && <FailureNotice failure={failure} />}
 
         {characters.length > 0 && (
-          <List
-            header={<SectionHeading>{t.castTitle}</SectionHeading>}
-            density="spacious"
-          >
-            {characters.map((character) => (
-              <ListItem
-                key={character.id}
-                label={character.name}
-                description={<Text color="secondary">{character.intro}</Text>}
-                startContent={
-                  <MarkedAvatar name={character.name} src={character.avatar_url} color={character.color} />
-                }
-              />
-            ))}
-          </List>
+          <section className="flex flex-col gap-2">
+            <SectionHeading>{t.castTitle}</SectionHeading>
+            {/* 偶像名单是行，不套卡片（DESIGN.md「Conversation list」）。 */}
+            <ul className="flex flex-col">
+              {characters.map((character) => (
+                <li key={character.id} className="flex items-center gap-3 py-3">
+                  <MarkedAvatar name={character.name} src={character.avatar_url} />
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-row-name">{character.name}</span>
+                    <span className="text-sm text-muted-foreground">{character.intro}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
-      </VStack>
+      </div>
     </PageShell>
   );
 }
