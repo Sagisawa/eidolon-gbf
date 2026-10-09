@@ -4,7 +4,7 @@ import { themePair } from "@/theme/themeCss";
 
 import { CALL_MUTED, contrast, distance, imageColorScale, mix, paperColors } from "./imageColor";
 
-const { body, ink } = paperColors;
+const { body } = paperColors;
 /** 新主题（globals.css）里压在她壁纸上的正文和次要文字（时间戳、日期条）。 */
 const foreground = themePair("--foreground");
 const mutedForeground = themePair("--muted-foreground");
@@ -16,19 +16,14 @@ function pairs(hex: string) {
     ...(["light", "dark"] as const).flatMap((mode) => [
       { what: `${mode} 壁纸上的正文`, fg: foreground[mode], bg: s.wall[mode], min: 4.5 },
       { what: `${mode} 壁纸上的次要文字`, fg: mutedForeground[mode], bg: s.wall[mode], min: 4.5 },
-      { what: `${mode} 气泡和选中行的正文`, fg: ink[mode], bg: s.paper[mode], min: 4.5 },
-      { what: `${mode} 气泡字幕`, fg: s.paperMuted[mode], bg: s.paper[mode], min: 4.8 },
       { what: `${mode} 头像描边`, fg: s.mark[mode], bg: body[mode], min: 3 },
       { what: `${mode} 按钮图标`, fg: s.button.fg[mode], bg: s.button.bg[mode], min: 4.5 },
       { what: `${mode} 她颜色的字`, fg: s.accent[mode], bg: body[mode], min: 4.5 },
       { what: `${mode} 强调色填底上的字`, fg: s.onAccent[mode], bg: s.accent[mode], min: 4.5 },
     ]),
     { what: "dark 按钮底色和页面", fg: s.button.bg.dark, bg: body.dark, min: 3 },
-    { what: "通话层上沿白字", fg: "#ffffff", bg: s.call.top, min: 4.5 },
-    { what: "通话层上沿次要字", fg: mix("#ffffff", s.call.top, CALL_MUTED), bg: s.call.top, min: 4.5 },
-    { what: "通话层状态线（上沿）", fg: s.call.rule, bg: s.call.top, min: 3 },
-    { what: "通话层状态线（下部）", fg: s.call.rule, bg: s.call.deep, min: 3 },
     { what: "通话层下部白字", fg: "#ffffff", bg: s.call.deep, min: 7 },
+    { what: "通话层下部次要字", fg: mix("#ffffff", s.call.deep, CALL_MUTED), bg: s.call.deep, min: 4.5 },
   ];
 }
 
@@ -86,7 +81,6 @@ describe("imageColorScale", () => {
     const mano = imageColorScale("#ffbad6");
     const kogane = imageColorScale("#f84cad");
     expect(distance(mano.call.deep, kogane.call.deep)).toBeGreaterThan(0.03);
-    expect(distance(mano.call.top, kogane.call.top)).toBeGreaterThan(0.03);
   });
 
   it("拒绝不是 #rrggbb 的色值", () => {

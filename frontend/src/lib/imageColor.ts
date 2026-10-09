@@ -18,10 +18,6 @@ export type ImageColorScale = {
   mark: ModePair;
   /** 她的对话壁纸：她色相的极淡底；上面放新主题的 --foreground 和 --muted-foreground（都 ≥ 4.5）。 */
   wall: ModePair;
-  /** 她的气泡、选中行的底色；上面的正文用 paperColors.ink。 */
-  paper: ModePair;
-  /** paper 上的次要文字（字幕）。 */
-  paperMuted: ModePair;
   /** 她颜色的圆按钮（通话、发送）：底色和图标色。浅色模式用原色（图标保证可辨认）；
    *  深色模式下原色可能和页面一样暗，改用与页面对比度 ≥ 3 的 mark。 */
   button: { bg: ModePair; fg: ModePair };
@@ -29,18 +25,16 @@ export type ImageColorScale = {
   accent: ModePair;
   /** 放在 accent 填底上的字和图标。 */
   onAccent: ModePair;
-  /** 通话层：从 top 渐变到 deep，上面放白字和 74% 白的次要字；glow 是头像背后的一点原色；
-   *  rule 是状态下划线和头像描边，在 top、deep 上都看得见。 */
-  call: { top: string; deep: string; glow: string; rule: string };
+  /** 通话层渐变和底部压暗的终点、收起后通话条的底（通话层永远是深色，只有一份）；上面的白字 ≥ 7。 */
+  call: { deep: string };
 };
 
 type Oklch = { l: number; c: number; h: number };
 
 const AA = 4.5;
 const GRAPHIC = 3;
-const SMALL_TEXT = 4.8;
-/** 通话层次要字的白色不透明度，与 CallLayer 里的 color-mix 一致。 */
-export const CALL_MUTED = 0.74;
+/** 通话层次要字的白色不透明度，与 CallLayer 里的 `text-white/80` 一致（DESIGN.md「Call layer」）。 */
+export const CALL_MUTED = 0.8;
 
 /** 按规整后的原色记下推算结果：界面每次渲染都要取她的颜色，逐级搜索明度太慢，通话中会卡住立绘。 */
 const scales = new Map<string, ImageColorScale>();
@@ -58,8 +52,6 @@ function deriveScale(raw: string): ImageColorScale {
   const { body } = paperColors;
 
   const wall = { light: at(0.955, 0.018), dark: at(0.2, 0.016) };
-  const paper = { light: at(0.955, 0.035), dark: at(0.3, 0.06) };
-  const callTop = darkenWhile(base, (c) => contrast(mix("#ffffff", c, CALL_MUTED), c) < AA, 0.16);
   const callDeep = at(0.26, base.c * 0.45);
   const mark = {
     light: contrast(raw, body.light) >= GRAPHIC ? raw : readableOn(base, body.light, GRAPHIC, 0.16),
@@ -71,24 +63,13 @@ function deriveScale(raw: string): ImageColorScale {
     raw,
     mark,
     wall,
-    paper,
-    paperMuted: {
-      // 字幕是小字，细笔画渲染出来比设定色浅，所以多留一点余量。
-      light: readableOn(base, paper.light, SMALL_TEXT, 0.05),
-      dark: readableOn(base, paper.dark, SMALL_TEXT, 0.05),
-    },
     button: {
       bg: buttonBg,
       fg: { light: readableOn(base, buttonBg.light, AA, 0.14), dark: readableOn(base, buttonBg.dark, AA, 0.14) },
     },
     accent,
     onAccent: { light: mostReadable(accent.light), dark: mostReadable(accent.dark) },
-    call: {
-      top: callTop,
-      deep: callDeep,
-      glow: raw,
-      rule: lightenWhile(base, (c) => contrast(c, callTop) < GRAPHIC || contrast(c, callDeep) < GRAPHIC, 0.14),
-    },
+    call: { deep: callDeep },
   };
 }
 
@@ -112,22 +93,6 @@ export function contrast(a: string, b: string): number {
 export function mix(a: string, b: string, weight: number): string {
   const [x, y] = [toRgb(a), toRgb(b)];
   return toHex(x.map((v, i) => v * weight + y[i] * (1 - weight)));
-}
-
-function darkenWhile(base: Oklch, bad: (hex: string) => boolean, maxC: number): string {
-  for (let l = Math.min(base.l, 0.7); l > 0.05; l -= 0.01) {
-    const hex = fromOklch({ l, c: Math.min(base.c, maxC), h: base.h });
-    if (!bad(hex)) return hex;
-  }
-  return "#000000";
-}
-
-function lightenWhile(base: Oklch, bad: (hex: string) => boolean, maxC: number): string {
-  for (let l = Math.max(base.l, 0.5); l < 1; l += 0.01) {
-    const hex = fromOklch({ l, c: Math.min(base.c, maxC), h: base.h });
-    if (!bad(hex)) return hex;
-  }
-  return "#ffffff";
 }
 
 /** 纸面色、墨水色、黑白里在 bg 上最清楚的一个。 */
