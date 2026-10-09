@@ -347,7 +347,7 @@ function DashboardBody({
       </div>
 
       <div className={cn("flex flex-col gap-6", fade)}>
-        <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} hint={t.health.hint} className="scroll-mt-16">
+        <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} hint={t.health.hint} level={2} className="scroll-mt-16">
           <HealthTable board={board} />
         </DashboardCard>
 

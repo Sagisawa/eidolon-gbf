@@ -145,20 +145,15 @@ export function CallLayer(props: Props) {
         </div>
         <div className="flex justify-end">
           {!ended && (
-            <button
-              type="button"
+            <Button
+              variant="call-glass"
+              size={isFullScreen ? "call" : "call-sm"}
               aria-pressed={props.textOnly}
               onClick={props.onToggleTextOnly}
-              className={cn(
-                pill,
-                "h-9 gap-1.5 px-3",
-                isFullScreen && "h-11",
-                props.textOnly ? "bg-white text-black" : "bg-white/15 hover:bg-white/25",
-              )}
             >
               <TextOnlyIcon aria-hidden />
               {t.textOnly}
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -196,10 +191,6 @@ export function CallLayer(props: Props) {
     </section>
   );
 }
-
-/** 通话层上胶囊形按钮的共同部分（「只看文字」、结束卡上的两个按钮）。 */
-const pill =
-  "inline-flex items-center justify-center rounded-full text-sm whitespace-nowrap outline-none transition-colors focus-visible:ring-3 focus-visible:ring-white/60 [&_svg]:size-4 [&_svg]:shrink-0";
 
 /**
  * 底：没有背景图时她的头像放大、`blur-3xl`；有背景图时背景图清晰铺满。上面压一层从 25% 黑到
@@ -399,8 +390,6 @@ function usePreviousLine(line: Segment | null, phase: ShownCall["phase"]): Segme
 function Ended({ end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
   const ending = t.endings[end.reason];
   const toOwnKeys = end.reason === "over_limit" || end.reason === "own_key";
-  // 44px 高，手机上也够触控下限。
-  const size = "h-11 gap-2 px-5";
   return (
     <div
       role="alert"
@@ -411,17 +400,13 @@ function Ended({ end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }
       <p className="text-sm text-white/80">{ending.body}</p>
       <p className="text-meta text-white/60">{end.counts ? t.counted : t.notCounted}</p>
       <div className="mt-3 flex flex-wrap justify-center gap-2">
-        <button type="button" onClick={onDismiss} className={cn(pill, size, "bg-white/15 hover:bg-white/25")}>
+        <Button variant="call-glass" size="call" onClick={onDismiss}>
           {t.backToConversation}
-        </button>
-        <button
-          type="button"
-          onClick={toOwnKeys ? onOwnKeys : onRedial}
-          className={cn(pill, size, "bg-white font-medium text-black hover:bg-white/90")}
-        >
+        </Button>
+        <Button variant="call-solid" size="call" onClick={toOwnKeys ? onOwnKeys : onRedial}>
           {!toOwnKeys && <PhoneIcon aria-hidden />}
           {toOwnKeys ? t.toOwnKeys : t.redial}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -443,14 +428,10 @@ function Dock({ isConnected, micMuted, onToggleMic, onHangUp, onSwitchMic }: Pro
           onClick={onToggleMic}
         />
         <RoundKey label={t.switchMic} icon={MicSwitchIcon} isDisabled={!isConnected} onClick={onSwitchMic} />
-        <button
-          type="button"
-          onClick={onHangUp}
-          className="ml-2 inline-flex h-call-dock-control items-center gap-2 rounded-full bg-hangup px-6 text-sm font-medium text-white outline-none transition-colors hover:bg-hangup/90 focus-visible:ring-3 focus-visible:ring-white/60 [&_svg]:size-5"
-        >
+        <Button variant="hangup" size="call-dock" onClick={onHangUp} className="ml-2">
           <HangUpIcon aria-hidden />
           {t.hangUp}
-        </button>
+        </Button>
       </div>
     </footer>
   );
@@ -473,17 +454,13 @@ function RoundKey({
     <Tooltip>
       <TooltipTrigger
         render={
-          <button
-            type="button"
+          <Button
+            variant="call-round"
+            size="icon-call-dock"
             aria-label={label}
             aria-pressed={isPressed}
             disabled={isDisabled}
             onClick={onClick}
-            className={cn(
-              "grid size-call-dock-control place-items-center rounded-full outline-none transition-colors focus-visible:ring-3 focus-visible:ring-white/60 [&_svg]:size-5",
-              isPressed ? "bg-white text-black" : "hover:bg-white/10",
-              "disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent",
-            )}
           />
         }
       >

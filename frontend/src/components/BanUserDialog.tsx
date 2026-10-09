@@ -26,7 +26,7 @@ const NOTE_MAX = 500;
 /**
  * 封禁一位用户：说明后果，可以写一句只有管理者看得到的备注，再确认。
  * `user` 为 null 时对话框关着；封禁成功后把后端返回的这位用户交给 `onBanned`。
- * 真正执行的「确认封禁」是 destructive（挂断红），取消是 outline（DESIGN.md「Buttons」）。
+ * 真正执行的「确认封禁」是 destructive（挂断红），取消是 ghost（DESIGN.md「Buttons」）。
  */
 export function BanUserDialog({
   user,
@@ -78,7 +78,7 @@ export function BanUserDialog({
         </Field>
         {failure && <FailureNotice failure={failure} />}
         <DialogFooter>
-          <Button variant="outline" onClick={close} disabled={busy}>
+          <Button variant="ghost" onClick={close} disabled={busy}>
             {copy.common.cancel}
           </Button>
           <Button variant="destructive" onClick={confirm} disabled={busy || note.length > NOTE_MAX}>

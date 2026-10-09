@@ -4,12 +4,13 @@ import { FormEvent, Fragment, type ReactNode, useEffect, useId, useRef, useState
 
 import { AdminPage } from "@/components/app/admin/AdminPage";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
+import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { AppLink } from "@/components/app/AppLink";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
-import { AdminPrices, Notice } from "@/components/AdminPrices";
+import { AdminPrices } from "@/components/AdminPrices";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import {
   restoreItem,
   rows,
   saveItem,
+  statusDisplay,
   type AdminConfig as Config,
   type ConfigItem,
   type FieldRow,
@@ -248,7 +250,8 @@ function AvailableItem({
   const fieldRows = rows(item, spec);
   const overridden = fieldRows.some((row) => row.overridden);
   const saveKind = spec.tried ? "tried" : "plain";
-  const canRestore = item.status !== "env";
+  const display = statusDisplay(item);
+  const canRestore = display.canRestore;
   const formRef = check.ref;
 
   // 打开表单时焦点移到第一个能填的框（「修改」随表单打开收起，焦点不移就落回页首）。
@@ -305,9 +308,9 @@ function AvailableItem({
         <ItemTitle
           title={t.items[name].title}
           badge={
-            item.status === "overridden" ? (
+            display.variant === "accent" ? (
               <Badge variant="secondary">{t.badges.overridden}</Badge>
-            ) : item.status === "failed" ? (
+            ) : display.variant === "warning" ? (
               <Badge variant="outline">{t.badges.failed}</Badge>
             ) : null
           }
@@ -331,11 +334,11 @@ function AvailableItem({
       <CardContent className="flex flex-col gap-4">
         {item.follows_chat && <p className="text-muted-foreground">{t.followsChat}</p>}
         {item.model && <p className="text-muted-foreground">{t.forModel(item.model)}</p>}
-        {item.status === "failed" && item.failure && (
+        {display.failure && (
           <Alert>
             <FailureIcon />
             <AlertTitle>{t.status.failed}</AlertTitle>
-            <AlertDescription>{t.failed(item.failure)}</AlertDescription>
+            <AlertDescription>{t.failed(display.failure)}</AlertDescription>
           </Alert>
         )}
         {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
@@ -389,7 +392,12 @@ function AvailableItem({
                 const hint = fieldHint(name, field, keysEditable);
                 return (
                   <Field key={field.name} data-invalid={problem ? true : undefined} data-disabled={secret && !keysEditable ? true : undefined}>
-                    <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
+                    <FieldLabel htmlFor={fieldId}>
+                      {label}
+                      {field.kind === "optionalText" && (
+                        <span className="font-normal text-muted-foreground">{copy.common.optional}</span>
+                      )}
+                    </FieldLabel>
                     <Input
                       id={fieldId}
                       type={secret ? "password" : "text"}

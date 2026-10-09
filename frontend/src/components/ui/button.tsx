@@ -23,6 +23,20 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
         // eidolon: 她颜色的圆按钮（发送键等，DESIGN.md「button.bg / button.fg」），要在 herVars() 的子树里用。
         her: "rounded-full bg-her-button text-her-button-fg hover:bg-her-button/80",
+        // eidolon: 通话层（强制深色、底是她的头像或立绘）上的几种胶囊和圆键（DESIGN.md「Call layer」）。焦点环一律 60% 白：
+        // 底色随她的颜色和立绘变，--ring 在上面不一定看得见。
+        // 毛玻璃胶囊：「只看文字」、结束卡的「回到对话」。按下（aria-pressed）时白底黑字。
+        "call-glass":
+          "rounded-full bg-white/15 font-normal text-white hover:bg-white/25 focus-visible:border-transparent focus-visible:ring-white/60 aria-pressed:bg-white aria-pressed:text-black",
+        // 白底黑字的主操作：结束卡上的重拨、「去设置自带密钥」。
+        "call-solid":
+          "rounded-full bg-white text-black hover:bg-white/90 focus-visible:border-transparent focus-visible:ring-white/60",
+        // 底栏的圆形图标键（静音、切换麦克风）：按下时白底黑图标；呼叫中置灰，但仍接得到悬停，好显示提示。
+        "call-round":
+          "rounded-full text-white hover:bg-white/10 focus-visible:border-transparent focus-visible:ring-white/60 aria-pressed:bg-white aria-pressed:text-black disabled:pointer-events-auto disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent",
+        // 底栏的挂断：挂断红的胶囊（白字对比度在 themeContrast.test.ts 里）。
+        hangup:
+          "rounded-full bg-hangup text-white hover:bg-hangup/90 focus-visible:border-transparent focus-visible:ring-white/60",
       },
       size: {
         default:
@@ -36,6 +50,12 @@ const buttonVariants = cva(
         "icon-sm":
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
+        // eidolon: 通话层用的尺寸。call 44px 高，手机上也够触控下限；call-sm 是电脑上头部的「只看文字」。
+        call: "h-11 gap-2 px-5",
+        "call-sm": "h-9 gap-1.5 px-3",
+        // 底栏里的挂断胶囊和 56px 圆键，图标 20px。
+        "call-dock": "h-call-dock-control gap-2 px-6 [&_svg:not([class*='size-'])]:size-5",
+        "icon-call-dock": "size-call-dock-control [&_svg:not([class*='size-'])]:size-5",
       },
     },
     defaultVariants: {

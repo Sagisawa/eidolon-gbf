@@ -5,14 +5,16 @@ import { FormEvent, Fragment, type ReactNode, useEffect, useId, useRef, useState
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Timestamp } from "@/components/app/admin/Timestamp";
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { Notice } from "@/components/app/admin/Notice";
 import { useOpenForm } from "@/components/admin/OpenForm";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -41,7 +43,7 @@ import {
   unitWord,
 } from "@/lib/adminPrices";
 import { toFailure, type Failure } from "@/lib/failure";
-import { CloseIcon, FailureIcon, SuccessIcon } from "@/theme/icons";
+import { CloseIcon, FailureIcon } from "@/theme/icons";
 
 const t = copy.admin.prices;
 const services = copy.admin.dashboard.health.services;
@@ -60,21 +62,6 @@ const POLL_MS = 2000;
 
 /** 单价表默认只列这么多行，其余点「显示全部」或筛选后才列出：预设和目录加起来有几十个模型。 */
 const FOLDED_ROWS = 12;
-
-/** 操作成功的一句提示，可以关掉。配置页的各张卡和单价卡共用。 */
-export function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
-  return (
-    <Alert role="status">
-      <SuccessIcon />
-      <AlertTitle>{text}</AlertTitle>
-      <AlertAction>
-        <Button variant="ghost" size="icon-xs" aria-label={copy.common.close} onClick={onDismiss}>
-          <CloseIcon />
-        </Button>
-      </AlertAction>
-    </Alert>
-  );
-}
 
 /**
  * 「配置」页的单价卡：最近用过却没有单价的模型放在最上面（待办：一条提醒，每个模型一行，点一下就能
@@ -318,14 +305,22 @@ export function AdminPrices() {
         )}
         {prices && (
           <div className="flex flex-col gap-3">
-            <Input
-              type="search"
-              aria-label={t.filter}
-              placeholder={t.filter}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="lg:max-w-80"
-            />
+            <InputGroup className="lg:max-w-80">
+              <InputGroupInput
+                type="search"
+                aria-label={t.filter}
+                placeholder={t.filter}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query && (
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton size="icon-xs" aria-label={t.clearFilter} onClick={() => setQuery("")}>
+                    <CloseIcon />
+                  </InputGroupButton>
+                </InputGroupAddon>
+              )}
+            </InputGroup>
             {listed.length === 0 ? (
               <p className="text-muted-foreground">{t.noMatch}</p>
             ) : wide ? (

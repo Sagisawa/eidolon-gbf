@@ -4,11 +4,9 @@ import type { ReactNode } from "react";
 
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { cn } from "@/lib/utils";
 
 // 看板各块共用的零件：一组数字卡、装一块内容的 Card、比例条，以及窄屏上代替表格的 divide-y 行。
-// 用户列表、配置页也用这里的 `useWide`、`useTouch`、`RowList`（签名不变）。
 
 /**
  * 一组数字卡，上面一行 Caption 写这组数字是什么时候的（「此刻」「30 天内」）。卡片排成格子：
@@ -27,7 +25,7 @@ export function TileGroup({
 }) {
   return (
     <section className={cn("flex min-w-0 flex-col gap-2", className)}>
-      <h3 className="text-xs text-muted-foreground">{caption}</h3>
+      <h2 className="text-xs text-muted-foreground">{caption}</h2>
       <div className={cn("grid gap-3", grid)}>{children}</div>
     </section>
   );
@@ -39,19 +37,23 @@ export function DashboardCard({
   title,
   hint,
   className,
+  level = 3,
   children,
 }: {
   id?: string;
   title: string;
   hint?: string;
   className?: string;
+  /** 标题的层级：放在「用量」「花费」这类 h2 组里是 h3，直接挂在页面标题下面是 h2。 */
+  level?: 2 | 3;
   children: ReactNode;
 }) {
+  const Heading = level === 2 ? "h2" : "h3";
   return (
     <Card id={id} className={cn("min-w-0", className)}>
       <CardHeader>
         <CardTitle>
-          <h3>{title}</h3>
+          <Heading>{title}</Heading>
         </CardTitle>
         {hint && <CardDescription>{hint}</CardDescription>}
       </CardHeader>
@@ -111,21 +113,6 @@ export function ShareBar({ part, whole }: { part: number; whole: number }) {
 /** 有比例条的表体、表行要带的 group 类：悬停的那一行的条保持实色，其余降到半透明。 */
 export const BAR_BODY = "group/bars";
 export const BAR_ROW = "group/bar";
-
-/**
- * 后台内容区放得下表格吗。侧栏在 768px 以上常驻、占去 16rem：视口到 1024px 放得下三四列的小表；
- * 七列的宽表要视口到 1280px，传 `"table-wide"`。看板自己用 `TableOrRows` 按 CSS 切换。
- */
-export function useWide(table: "table" | "table-wide" = "table"): boolean {
-  return useMediaQuery(table === "table" ? "(min-width: 1024px)" : "(min-width: 1280px)", true);
-}
-
-/** 手机宽度或触屏：行内的小按钮和页内链接要撑到 44px 的触控区。 */
-export function useTouch(): boolean {
-  const coarse = useMediaQuery("(pointer: coarse)", false);
-  const phone = !useMediaQuery("(min-width: 768px)", true);
-  return coarse || phone;
-}
 
 export interface Row {
   id: string;

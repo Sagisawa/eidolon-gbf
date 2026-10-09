@@ -12,6 +12,7 @@ export const zh = {
     close: "关闭",
     more: "更多",
     cancel: "取消",
+    optional: "可选",
   },
   conversationList: {
     title: "对话",
@@ -784,6 +785,7 @@ export const zh = {
       add: "新增单价",
       priceIt: "设单价",
       filter: "按模型或提供方筛选",
+      clearFilter: "清空筛选",
       noMatch: "没有匹配的模型。",
       showAll: (n: number) => `显示全部 ${n} 个`,
       fold: "收起",

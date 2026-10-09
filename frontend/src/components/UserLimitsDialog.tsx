@@ -155,7 +155,7 @@ export function UserLimitsDialog({
           </FieldGroup>
           {failure && <FailureNotice failure={failure} />}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={close} disabled={busy}>
+            <Button type="button" variant="ghost" onClick={close} disabled={busy}>
               {copy.common.cancel}
             </Button>
             <Button type="submit" disabled={busy}>
