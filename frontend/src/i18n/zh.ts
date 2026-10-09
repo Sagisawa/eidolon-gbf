@@ -84,13 +84,14 @@ export const zh = {
     leaveConfirm: "挂断并离开",
     stay: "留在这里",
     layer: (name: string) => `和${name}的通话`,
-    heading: "语音通话",
     collapse: "收起通话",
     collapseTooltip: "收起（Esc）",
     /** 通话中，页首的电话键变成这个。 */
     expand: "回到通话",
     textOnly: "只看文字",
     dialing: "正在呼叫…",
+    /** 通话层的状态行：后面跟着三个依次闪的小点，所以不带省略号。 */
+    calling: "正在呼叫",
     remaining: (clock: string) => `还剩 ${clock}`,
     speakFreely: "直接说话就好",
     repliesInText: "她会用文字回复",
@@ -115,6 +116,8 @@ export const zh = {
     /** 消息列表里她那一行，也是收起后页首下面那条通话条上的字（呼叫中用 dialing）。 */
     listConnected: (clock: string) => `通话中 ${clock}`,
     ended: "通话已结束",
+    /** 接通过的通话结束后，状态行带上通话时长。 */
+    endedAfter: (clock: string) => `通话已结束 · ${clock}`,
     /** 是否计入限额（GLOSSARY.md「限额」「接通」）。 */
     counted: "这次通话计入每小时的限额。",
     notCounted: "这次通话不计入每小时的限额。",

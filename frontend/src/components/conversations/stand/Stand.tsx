@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { Outfit } from "@/lib/api";
 import type { StandDirection } from "@/lib/standAnimations";
+import { cn } from "@/lib/utils";
 
 import { loadSpineRuntime } from "./spineRuntime";
 import { StandEngine, type Framing } from "./StandEngine";
@@ -114,22 +115,17 @@ export function Stand({ outfits, framing, isPaused, entrance, direction, isReduc
 
   if (phase === "failed") return null;
   const shown = phase === "shown";
+  // 画布铺满外框。到了之后 0.3 秒淡入（spec「通话层」）；手机上同时从下方 12% 处升起，
+  // 曲线和时长与通话层的滑动一样（410ms、ease-call）。
   return (
     <canvas
       ref={canvas}
       aria-hidden
-      style={{
-        ...fill,
-        opacity: shown ? 1 : 0,
-        transform: entrance === "rise" && !shown ? "translateY(12%)" : "none",
-        transition: `opacity ${fadeIn}, transform var(--duration-medium) var(--ease-standard)`,
-      }}
+      className={cn(
+        "block size-full [transition:opacity_300ms_linear,translate_410ms_cubic-bezier(0.24,1,0.4,1)]",
+        shown ? "opacity-100" : "opacity-0",
+        entrance === "rise" && !shown ? "translate-y-[12%]" : "translate-y-0",
+      )}
     />
   );
 }
-
-/** 画布铺满外框；它是 WebGL 的绘制面，没有对应的 Astryx 组件。 */
-const fill: CSSProperties = { display: "block", width: "100%", height: "100%" };
-
-/** 立绘到了之后的淡入：0.3 秒（spec「通话层」），取最接近的时长令牌。 */
-const fadeIn = "var(--duration-medium-min) linear";

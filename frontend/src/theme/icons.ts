@@ -32,3 +32,6 @@ export { CircleCheck as SuccessIcon, X as CloseIcon } from "lucide-react";
 
 // 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
 export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";
+
+// 通话层右上角的「只看文字」胶囊。
+export { Captions as TextOnlyIcon } from "lucide-react";

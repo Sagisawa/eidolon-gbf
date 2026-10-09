@@ -1,23 +1,17 @@
 "use client";
 
-import { BottomSheet } from "@astryxdesign/core/BottomSheet";
-import { Heading } from "@astryxdesign/core/Heading";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useState } from "react";
 
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { copy } from "@/i18n";
 import { listMicrophones } from "@/lib/microphone";
-import { listRow } from "@/theme/herVars";
+import { cn } from "@/lib/utils";
 
 const t = copy.call.micSheet;
 
 type Props = {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
-  /** 她的印象色：选中行铺她的 paper。 */
-  color: string;
   /** 正在用的麦克风；空白是系统默认。 */
   micId: string;
   /** 选了另一个麦克风（空白是系统默认）。 */
@@ -25,10 +19,10 @@ type Props = {
 };
 
 /**
- * 通话中切换麦克风（DESIGN.md「BottomSheet」）：列出这台设备上的麦克风，当前这个标明「正在使用」，
- * 选中行铺她的 paper、次要字用 paperMuted。选中后当场换过去，也成为以后通话的默认麦克风。
+ * 通话中切换麦克风（DESIGN.md「Overlays」）：底部面板列出这台设备上的麦克风，当前这个铺中性的 `bg-muted`、
+ * 标明「正在使用」（选中状态不用她的颜色，所以不注入 herVars）。选中后当场换过去，也成为以后通话的默认麦克风。
  */
-export function MicSheet({ isOpen, onOpenChange, color, micId, onSelect }: Props) {
+export function MicSheet({ isOpen, onOpenChange, micId, onSelect }: Props) {
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
 
   // 每次打开都重新列一遍：通话中可能刚插上或拔掉了设备。
@@ -50,33 +44,38 @@ export function MicSheet({ isOpen, onOpenChange, color, micId, onSelect }: Props
   ];
 
   return (
-    <BottomSheet isOpen={isOpen} onOpenChange={onOpenChange} label={t.title} height="hug">
-      <VStack gap={3} padding={5}>
-        <VStack gap={1}>
-          <Heading level={2}>{t.title}</Heading>
-          <Text type="supporting" color="secondary">
-            {t.hint}
-          </Text>
-        </VStack>
-        <List>
+    <Drawer open={isOpen} onOpenChange={(open) => onOpenChange(open)} showSwipeHandle>
+      {/* 电脑上不铺满整个窗口宽，居中一条 */}
+      <DrawerContent className="md:mx-auto md:max-w-md">
+        <DrawerHeader>
+          <DrawerTitle>{t.title}</DrawerTitle>
+          <DrawerDescription>{t.hint}</DrawerDescription>
+        </DrawerHeader>
+        <ul className="flex flex-col gap-1 overflow-y-auto p-4">
           {choices.map((choice) => {
             const inUse = choice.id === micId;
             return (
-              <ListItem
-                key={choice.id || "system-default"}
-                label={choice.label}
-                description={inUse ? t.inUse : undefined}
-                isSelected={inUse}
-                style={listRow(color, inUse)}
-                onClick={() => {
-                  onOpenChange(false);
-                  if (!inUse) onSelect(choice.id);
-                }}
-              />
+              <li key={choice.id || "system-default"}>
+                <button
+                  type="button"
+                  aria-current={inUse || undefined}
+                  onClick={() => {
+                    onOpenChange(false);
+                    if (!inUse) onSelect(choice.id);
+                  }}
+                  className={cn(
+                    "flex min-h-11 w-full flex-col items-start justify-center gap-0.5 rounded-lg px-3 py-2 text-left outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/50",
+                    inUse ? "bg-muted" : "hover:bg-muted/60",
+                  )}
+                >
+                  <span className="text-body">{choice.label}</span>
+                  {inUse && <span className="text-xs text-muted-foreground">{t.inUse}</span>}
+                </button>
+              </li>
             );
           })}
-        </List>
-      </VStack>
-    </BottomSheet>
+        </ul>
+      </DrawerContent>
+    </Drawer>
   );
 }
