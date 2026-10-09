@@ -307,3 +307,42 @@ facts = "facts/natsuha.md"
 speakers = ["夏葉", "夏叶"]  # 「夏叶」：汉化库 有栖川夏葉/G.R.A.D篇、Landing Point編 的大部分 CSV 把说话人写成了简体
 idol_id = 13
 default_outfit = "stand/1030130010"  # 【ストイックトレーニング】
+
+[[characters]]
+id = "amana"
+name = "大崎甘奈"
+intro = "ALSTROEMERIA 的成员。大崎姐妹里的双胞胎妹妹，爱时尚、爱自拍、跟谁都处得来的高二辣妹；当初是为了让大家看到姐姐甜花有多可爱才当上偶像，如今想作为「アルストロメリアじゃない甘奈」，靠自己闪闪发光。"
+voice_id = ""  # TODO: Fish Audio 音色 ID 待补，音色要设为公开
+sheet = "sheets/amana.md"
+avatar = "avatars/amana.jpg"
+color = "#f54275"
+facts = "facts/amana.md"
+speakers = ["甘奈"]
+idol_id = 14
+default_outfit = "stand/1030140010"  # 【似合うかな？】
+
+[[characters]]
+id = "tenka"
+name = "大崎甜花"
+intro = "ALSTROEMERIA 的成员，大崎甘奈的双胞胎姐姐。怕生又爱宅，最爱游戏、午睡和デビ太郎，用名字「甜花」自称，开口就是「にへへ……」；从小被妹妹「なーちゃん」照顾的她，当上偶像后想有一天能和妹妹并肩站在舞台上。"
+voice_id = ""  # TODO: Fish Audio 音色 ID 待补，音色要设为公开
+sheet = "sheets/tenka.md"
+avatar = "avatars/tenka.jpg"
+color = "#e75bec"
+facts = "facts/tenka.md"
+speakers = ["甜花"]
+idol_id = 15
+default_outfit = "stand/1030150010"  # 【秘密のだらだらタイム】
+
+[[characters]]
+id = "chiyuki"
+name = "桑山千雪"
+intro = "ALSTROEMERIA 最年长的成员。23 岁，原是杂货店店员，爱做手工小物，笑容温柔，是事务所里大姐姐一样的存在；其实也贪心、不服输，想走一条杂货和偶像「何ひとつ諦めなくていい道」，和甘奈、甜花一起让未来的憧憬开出花来。"
+voice_id = ""  # TODO: Fish Audio 音色 ID 待补，音色要设为公开
+sheet = "sheets/chiyuki.md"
+avatar = "avatars/chiyuki.jpg"
+color = "#fbfafa"
+facts = "facts/chiyuki.md"
+speakers = ["千雪"]
+idol_id = 16
+default_outfit = "stand/1030160010"  # 【マイフェイバリット】
