@@ -5,7 +5,10 @@ time (new cards come out every week or two), and the files of their everyday clo
 (`stand`) and stage costumes (`stand_costume`) that the source in the build directory
 lacks are downloaded from its CDN, as they are: about half the textures are WebP under a
 `.png` name, which browsers read all the same. An outfit's files never change, so one
-already fetched is not asked for again.
+already fetched is not asked for again. A few atlases name their texture page something
+other than `data.png` (`date.png`), a slip under which the CDN serves the identical image;
+those are pointed back at `data.png`, the name the texture is kept and served under, so
+that the browser and the thumbnail renderer find it.
 
 The source's `spine_manifest.json` (laid out as the old Spine mirror's, which can seed
 it) lists every outfit fetched and only ever grows: a card the API stops listing, or
@@ -102,6 +105,8 @@ async def _fetch_outfit(
             return False
         write_atomically(target, content)
         downloaded += len(content)
+    if not await _point_atlas_at_its_texture(mirror, directory, cdn_path, outfit_id, dress.name, report):
+        return False
     if downloaded:
         log.info("拉取了 %s（%s）", outfit_id, dress.name)
         report.fetched.append(outfit_id)
@@ -112,6 +117,51 @@ async def _fetch_outfit(
 def _start_of(path: Path) -> bytes:
     with path.open("rb") as file:
         return file.read(64)
+
+
+async def _point_atlas_at_its_texture(
+    mirror: Mirror, directory: Path, cdn_path: str, outfit_id: str, dress_name: str, report: FetchReport
+) -> bool:
+    """Rewrite the outfit's atlas so the page it names is `data.png`, the name its texture is
+    fetched and uploaded under, when ShinyColorsDB names it something else. A few of its
+    atlases say `date.png` — a slip, under which the CDN serves the identical image — which
+    would otherwise leave the browser and the thumbnail renderer asking for a file that is
+    never fetched, and an outfit shown with no texture at all. A named page that is not that
+    same image is left as it is, and the outfit is passed over until it is."""
+    atlas = directory / "data.atlas"
+    try:
+        text = atlas.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return True
+    lines = text.splitlines(keepends=True)
+    named = {line.strip() for index, line in enumerate(lines) if _names_a_page(lines, index)}
+    renamed = sorted(named - {"data.png"})
+    if not renamed:
+        return True
+    texture = (directory / "data.png").read_bytes()
+    for page in renamed:
+        if await mirror.stand_file(f"{cdn_path}{page}") != texture:
+            report.skipped.append(
+                f"ShinyColorsDB 的 {outfit_id}（{dress_name}）图集里的贴图页 {page} 和 data.png 对不上，"
+                "下次同步再试"
+            )
+            return False
+    for index, line in enumerate(lines):
+        if _names_a_page(lines, index) and line.strip() in renamed:
+            lines[index] = line.replace(line.strip(), "data.png", 1)
+    write_atomically(atlas, "".join(lines).encode("utf-8"))
+    log.info("把 %s（%s）图集里的贴图页 %s 指回 data.png", outfit_id, dress_name, "、".join(renamed))
+    return True
+
+
+def _names_a_page(lines: list[str], index: int) -> bool:
+    """Whether a line of a spine atlas names a texture page (the line before its `size:`
+    header) rather than a region."""
+    name = lines[index].strip()
+    if not name or ":" in name:
+        return False
+    following = next((later.strip() for later in lines[index + 1 :] if later.strip()), "")
+    return following.startswith("size:")
 
 
 def _looks_valid(name: str, content: bytes) -> bool:

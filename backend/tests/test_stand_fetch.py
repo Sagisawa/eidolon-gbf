@@ -197,6 +197,47 @@ def test_a_texture_in_webp_is_kept_as_it_is(stands: Stands, site: FakeShinyColor
     assert stands.file("stand/1030010010", "data.png").read_bytes().startswith(WEBP)
 
 
+def test_an_atlas_naming_another_texture_page_is_pointed_back_at_data_png(stands: Stands, site: FakeShinyColorsDB):
+    site.card(1, "1030010010", f"【ナチュラルモード】{MANO}", "P_SR")
+    # Some of ShinyColorsDB's atlases name their page `date.png`, and it serves the same
+    # image under both names: the texture is kept as data.png and the atlas points at it.
+    stand = "spine/idols/stand/1030010010/"
+    site.files[f"{stand}data.atlas"] = b"\ndate.png\nsize: 2048,2048\n"
+    site.files[f"{stand}date.png"] = site.files[f"{stand}data.png"]
+
+    code, _, err = stands.fetch()
+
+    assert code == 0, err
+    assert stands.file("stand/1030010010", "data.atlas").read_bytes() == b"\ndata.png\nsize: 2048,2048\n"
+    assert "stand/1030010010" in stands.outfits()
+
+
+def test_an_atlas_fetched_before_the_fix_is_pointed_at_data_png_too(stands: Stands, site: FakeShinyColorsDB):
+    site.card(1, "1030010010", f"【ナチュラルモード】{MANO}", "P_SR")
+    stands.fetch()
+    # What a source fetched before this fix looks like: the atlas still names `date.png`.
+    stands.file("stand/1030010010", "data.atlas").write_bytes(b"\ndate.png\nsize: 2048,2048\n")
+    site.files["spine/idols/stand/1030010010/date.png"] = site.files["spine/idols/stand/1030010010/data.png"]
+    site.requests.clear()
+
+    stands.fetch()
+
+    assert stands.file("stand/1030010010", "data.atlas").read_bytes() == b"\ndata.png\nsize: 2048,2048\n"
+
+
+def test_an_atlas_page_that_is_not_the_same_image_is_passed_over(stands: Stands, site: FakeShinyColorsDB):
+    site.card(1, "1030010010", f"【ナチュラルモード】{MANO}", "P_SR")
+    stand = "spine/idols/stand/1030010010/"
+    site.files[f"{stand}data.atlas"] = b"\ndate.png\nsize: 2048,2048\n"
+    site.files[f"{stand}date.png"] = PNG + b" a different image"
+
+    code, _, err = stands.fetch()
+
+    assert code == 0, err
+    assert "stand/1030010010" in err
+    assert stands.outfits() == ["stand_costume/1030010010"]
+
+
 def test_when_shinycolorsdb_cannot_be_reached_what_was_fetched_before_stays(
     stands: Stands, site: FakeShinyColorsDB
 ):
