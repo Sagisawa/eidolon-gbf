@@ -283,7 +283,6 @@ export function ConversationView({ character, onBack }: { character: Character; 
       <MicSheet
         isOpen={snapshot.pickingMic}
         onOpenChange={(open) => (open ? live?.openMicPicker() : live?.closeMicPicker())}
-        color={character.color}
         micId={snapshot.micId}
         onSelect={(micId) => void live?.switchMic(micId)}
       />

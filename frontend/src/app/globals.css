@@ -62,6 +62,8 @@
   --color-her-button: var(--her-button);
   --color-her-button-fg: var(--her-button-fg);
   --color-her-call-deep: var(--her-call-deep);
+  /* 通话层压在底图上那层渐变的终点：call.deep 再混 15% 的黑（DESIGN.md「Call layer」）。 */
+  --color-her-call-shade: color-mix(in oklch, var(--her-call-deep) 85%, black);
   /* 固定色，定义在下面的 :root 里，都有对比度测试。 */
   --color-hangup: var(--hangup);
   --color-warning: var(--warning);
@@ -81,6 +83,10 @@
   --text-preview: 0.8125rem; /* 13px */
   --text-subtitle: 0.75rem;
   --text-meta: 0.6875rem; /* 11px */
+  /* 通话层（Call layer）：没有立绘时的名字 26px bold，台词卡里的日语原文 17px。 */
+  --text-call-name: 1.625rem;
+  --text-call-name--font-weight: 700;
+  --text-call-line: 1.0625rem;
 
   /* 圆角（rounded）。 */
   --radius-bubble: 22px;
@@ -91,6 +97,9 @@
   --spacing-bubble-avatar: 2.25rem; /* 36px */
   --spacing-call-dock-control: 3.5rem; /* 56px */
   --spacing-call-bar: 2.5rem; /* 40px */
+
+  /* 通话层展开、收起的曲线（配 duration-410，DESIGN.md「Call layer」的「动效」）。 */
+  --ease-call: cubic-bezier(0.24, 1, 0.4, 1);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

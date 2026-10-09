@@ -11,6 +11,9 @@ const toggleVariants = cva(
       variant: {
         default: "bg-transparent",
         outline: "border border-input bg-transparent hover:bg-muted",
+        // eidolon: 分段切换（换衣装卡片上的「私服 / 演出」）。卡片被选中时铺 bg-muted，按下的一项再铺 bg-muted 就看不出来，
+        // 所以按下的一项改成页面底色（DESIGN.md「Overlays」的「换衣装」）。
+        segment: "border border-input bg-transparent aria-pressed:bg-background data-[state=on]:bg-background",
       },
       size: {
         default:

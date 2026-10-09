@@ -35,3 +35,6 @@ export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react"
 
 // 后台用户列表可以排序的表头：按它从多到少排着的，和还没按它排的（shadcn-redesign 22）。
 export { ArrowDown as SortedIcon, ArrowUpDown as SortableIcon } from "lucide-react";
+
+// 通话层右上角的「只看文字」胶囊。
+export { Captions as TextOnlyIcon } from "lucide-react";
