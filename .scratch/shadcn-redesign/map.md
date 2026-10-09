@@ -31,6 +31,7 @@ Label: wayfinder:map
 - [测试替换与每波验收方式](issues/08-testing-and-acceptance.md)：底座波就加主题对比度测试和 `--primary`/`--ring` 断言，旧断言和 `theme:check` 留到最后一波再删，删时 CI 加 `grep @astryxdesign` 必须为零；Playwright 截图只存档、不做回归；底座波先单独提交换字体，在这个提交上拍基准图，后续底座提交必须和基准像素零差异；验收清单写进 `spec.md`，按波分配
 - [实现波次的切分](issues/09-wave-slicing.md)：共五波：底座 → 共用件（在旧组件旁另建新版，不改外观）→ 用户侧主屏（三张并行）→ 通话层与后台（四张并行，后台同一波换完）→ 清理；验收清单按页面分到各波；`--her-note` 的断言随通话条在第三波删掉；`spec.md` 由单独的 task 来写
 - [新的组件纪律](issues/10-component-discipline.md)：布局直接写 div 加 Tailwind 类、有名字的重复结构才抽组件；颜色和 DESIGN.md 里的尺寸都注册成具名 token，任意值只用于布局；`ui/` 直接改并加 `// eidolon:` 标记，禁止 `!`；共用件放 `components/app/`；`cn` 从 `@/lib/utils` 导入；底座波就把纪律写进 `frontend/AGENTS.md`，并在 CI 加 grep 检查
+- [写 spec.md 并切出实现 ticket](issues/11-write-spec.md)：`spec.md` 写好（验收清单 35 行，按波分配）；实现 ticket 是 12–24，底座波拆成 12–15 四张，其余按五波切分；**地图到达终点**，从 12 号开始实现
 
 ## Not yet specified
 
