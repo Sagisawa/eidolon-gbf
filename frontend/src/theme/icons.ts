@@ -23,3 +23,6 @@ export {
 
 // 发送键和更多菜单（shadcn 新代码用；旧的 Astryx 输入栏用 astryxIcons.ts 里注册的图标）。
 export { ArrowUp as SendIcon, Ellipsis as MoreIcon } from "lucide-react";
+
+// 失败提示（components/app/FailureNotice）。
+export { CircleAlert as FailureIcon } from "lucide-react";

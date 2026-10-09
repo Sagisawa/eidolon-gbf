@@ -27,6 +27,14 @@ describe("主题对比度", () => {
         expect(pair("--foreground", "--bubble-her", mode)).toBeGreaterThanOrEqual(4.5);
         expect(pair("--muted-foreground", "--bubble-her", mode)).toBeGreaterThanOrEqual(4.5);
       });
+
+      // 后台服务健康的状态点（DESIGN.md「Admin status & charts」）：出错偏多是琥珀色，大量出错是挂断红。
+      it("状态点在页面底和卡片底上都 ≥ 3", () => {
+        for (const dot of ["--warning", "--destructive"]) {
+          expect(pair(dot, "--background", mode), dot).toBeGreaterThanOrEqual(3);
+          expect(pair(dot, "--card", mode), dot).toBeGreaterThanOrEqual(3);
+        }
+      });
     });
   }
 

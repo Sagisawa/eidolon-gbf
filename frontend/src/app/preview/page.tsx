@@ -4,6 +4,7 @@
 // 单独检查她的颜色注入 shadcn 变量的效果（验收清单第 2、3 行）。文案只给开发者看，不进 i18n。
 import { useRef, type ReactNode } from "react";
 
+import { AppLink } from "@/components/app/AppLink";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -50,6 +51,10 @@ export default function PreviewPage() {
         <p className="text-body text-muted-foreground">
           每一栏是一位角色的对话子树（herVars）。primary 按钮、焦点环、壁纸、发送键、未读数应是她的颜色； 浮层通过
           container 渲染在子树里，也带她的颜色。按 Tab 看焦点环。最后一栏是强制深色（.dark）的子树。
+        </p>
+        <p className="flex gap-4 text-body">
+          <AppLink href="/preview/shared">用户侧共用件</AppLink>
+          <AppLink href="/preview/admin">后台共用件</AppLink>
         </p>
       </header>
       <div className="grid gap-6 md:grid-cols-3">

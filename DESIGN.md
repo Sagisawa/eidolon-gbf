@@ -14,6 +14,8 @@ colors:
   muted-night: "oklch(0.269 0 0)"
   her-bubble-night: "oklch(0.3 0.01 260)"
   hang-up-red: "#c8283c"
+  warning-amber: "oklch(0.666 0.179 58.318)"
+  warning-amber-night: "oklch(0.769 0.188 70.08)"
 typography:
   list-title:
     fontFamily: "Noto Sans SC, PingFang SC, Microsoft YaHei, system-ui, sans-serif"
@@ -122,6 +124,7 @@ components:
 
 ### Tertiary
 - **Hang-up Red（挂断红）**（`hang-up-red` `#c8283c`）：覆盖 shadcn 的 `--destructive`，两种模式都保证白字 ≥ 4.5。只给挂断、「挂断并离开」和确认框里真正执行删除、封禁的那一下。
+- **Warning Amber（琥珀色）**（`warning-amber`，深色模式 `warning-amber-night`，主题变量 `--warning`）：只给后台服务健康里「出错偏多」的状态点。和挂断红一样，状态点在页面底和卡片底上 ≥ 3。
 
 ### Neutral
 - shadcn neutral 的 `--background`、`--foreground`、`--muted`、`--border`、`--card`、`--popover` 原样使用。`--muted-foreground` 浅色模式从 0.556 压到 `oklch(0.52 0 0)`：原值在 `--muted` 上只有约 4.3:1，0.54 在她的壁纸上也只有约 4.4:1；深色模式原样。系统文字（标题、列表名、说明）一律 `--foreground` / `--muted-foreground`，不是墨水色。

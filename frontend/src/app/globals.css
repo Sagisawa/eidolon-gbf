@@ -64,6 +64,7 @@
   --color-her-call-deep: var(--her-call-deep);
   /* 固定色，定义在下面的 :root 里，都有对比度测试。 */
   --color-hangup: var(--hangup);
+  --color-warning: var(--warning);
   --color-producer-ink: var(--producer-ink);
   --color-on-producer-ink: var(--on-producer-ink);
   --color-bubble-her: var(--bubble-her);
@@ -136,6 +137,8 @@
   --radius: 0.625rem;
   /* 新增：深色浮层的边线（The Night Edge Rule），和浮层底、页面底都 ≥ 3；浅色靠阴影，不画线。 */
   --overlay-edge: light-dark(transparent, oklch(0.556 0 0));
+  /* 新增：后台服务健康里「出错偏多」的琥珀色状态点（大量出错用 --destructive），在页面底和卡片底上 ≥ 3。 */
+  --warning: light-dark(oklch(0.666 0.179 58.318), oklch(0.769 0.188 70.08));
   /* 新增：挂断键（DESIGN.md hang-up-red），就是 --destructive。 */
   --hangup: var(--destructive);
   /* 新增：制作人气泡的事务所深蓝墨水和上面的字（producer-ink、producer-ink-night）。 */

@@ -298,6 +298,8 @@ export const zh = {
     },
     signedInAs: (name: string) => `管理者：${name}`,
     backToSettings: "返回设置",
+    toggleNav: "展开或收起后台导航",
+    breadcrumb: "当前位置",
     comingSoon: "这一页还在做。",
     usage: {
       units: { tokens: "tokens", bytes: "字节", seconds: "秒" } as Record<string, string>,
