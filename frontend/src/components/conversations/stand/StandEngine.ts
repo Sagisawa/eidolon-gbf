@@ -435,7 +435,7 @@ export class StandEngine {
    * 「剪裁到此结束」的判断，结束插槽当下没有附件时剪裁永远不结束，后面画的东西全被裁掉
    * （2215 套里有 304 套在初始姿势下就会触发，例如「花風Smiley」的眼睛、睫毛、眉毛）。
    * 每帧把结束插槽改成「剪裁开始之后、原结束插槽为止，最后一个真的会画出来的插槽」；
-   * 范围里这一帧什么都不画时，这一帧摘掉剪裁附件，下一帧有东西画了再挂回去。
+   * 范围里这一帧什么都不画时，这一帧摘掉剪裁附件（动画挂回去了就再摘），有东西画了再挂回去。
    */
   private keepClipsEnding({ skeleton, clips }: Pose): void {
     const { ClippingAttachment, RegionAttachment, MeshAttachment } = this.spine;
@@ -467,7 +467,9 @@ export class StandEngine {
         clip.endSlot = last;
         if (c.detached) c.slot.setAttachment(clip);
         c.detached = false;
-      } else if (!c.detached) {
+      } else {
+        // 已经摘过也要再摘：有的衣装（例如「ザ・冬優子イズム」）的动画每帧都把剪裁附件挂回去，
+        // 眨眼时范围里什么都不画，挂回去的剪裁就会把后面的眼皮、眉毛、手臂都裁掉。
         c.slot.setAttachment(null);
         c.detached = true;
       }
