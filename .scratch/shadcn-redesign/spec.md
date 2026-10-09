@@ -151,7 +151,7 @@ Status: ready-for-agent
 - **调用处不改外观**：调用处的 className 只管定位和排布。外观要变就到 `ui/` 组件加 variant/prop 或改那条带条件的类；禁止 `!` important；`group-data-[…]` 盖不住的情况同样这样处理。
 - **目录和命名**：项目共用件放 `components/app/`，后台的放 `components/app/admin/`，文件名与旧版相同（PascalCase），新旧靠目录区分；清理波只删旧文件，不搬家不改名。各屏自己的组件（`conversations/`、`admin/` 下）在所属那一波就地重写。`ui/` 用 shadcn 的 kebab-case。
 - **`cn`** 一律从 `@/lib/utils` 导入，`shadcn add` 生成的 `from "cn"` 当场改掉。
-- **机器检查**：不装 ESLint。底座波在 CI 前端 job 加一个 grep 脚本，禁止 `from "cn"`（`lib/utils.ts` 除外）、任意值里的颜色（`-\[(#|oklch|rgb|hsl|var\(--)`）、`!` 前缀的 important 类；清理波把 `@astryxdesign` 加进同一个脚本。字号、圆角任意值的界线交给代码审查。
+- **机器检查**：不装 ESLint。底座波在 CI 前端 job 加一个 grep 脚本，禁止 `from "cn"`（`lib/utils.ts` 除外）、任意值里的颜色（`-\[(#|oklch|rgb|hsl|var\(--)`，以及 v4 的变量简写 `bg-(--x)`、`text-(--x)` 这类颜色工具类）、`!` 前缀的 important 类；清理波把 `@astryxdesign` 加进同一个脚本。字号、圆角任意值的界线交给代码审查。
 
 ### 五个波次（09、10）
 

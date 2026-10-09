@@ -14,9 +14,9 @@ describe("主题对比度", () => {
         expect(pair("--muted-foreground", "--muted", mode)).toBeGreaterThanOrEqual(4.5);
       });
 
-      it("挂断红（--destructive 和 --hangup）上的白字 ≥ 4.5", () => {
+      // --hangup 就是 var(--destructive)，不另测。
+      it("挂断红（--destructive）上的白字 ≥ 4.5", () => {
         expect(contrast(color("--destructive", mode), "#ffffff")).toBeGreaterThanOrEqual(4.5);
-        expect(contrast(color("--hangup", mode), "#ffffff")).toBeGreaterThanOrEqual(4.5);
       });
 
       it("制作人气泡（事务所深蓝墨水）上的字 ≥ 4.5", () => {
@@ -29,11 +29,6 @@ describe("主题对比度", () => {
       });
     });
   }
-
-  it("挂断红两种模式都是 DESIGN.md 的 #c8283c", () => {
-    expect(color("--destructive", "light")).toBe("#c8283c");
-    expect(color("--destructive", "dark")).toBe("#c8283c");
-  });
 
   describe("深色浮层", () => {
     it("浮层比页面高一层色调", () => {

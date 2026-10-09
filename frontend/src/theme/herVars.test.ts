@@ -15,9 +15,15 @@ describe("ld", () => {
 });
 
 describe("herVars", () => {
-  it("强调色和她的颜色都取自成对校验过的色阶；官方原色只作通话层头像背后的光晕，没有单独露出原色的变量", () => {
+  it("shadcn 的 primary、焦点环和 --her-* 都取自成对校验过的色阶，迁移期间 Astryx 的强调色照旧；官方原色只作通话层头像背后的光晕", () => {
     const s = imageColorScale(COLOR);
     const vars = herVars(COLOR) as Record<string, string>;
+
+    // shadcn：primary 换成她的强调色，焦点环换成她的记号色；不碰 --accent（那是悬停底色）。
+    expect(vars["--primary"]).toBe(ld(s.accent));
+    expect(vars["--primary-foreground"]).toBe(ld(s.onAccent));
+    expect(vars["--ring"]).toBe(ld(s.mark));
+    expect(vars["--her-wall"]).toBe(ld(s.wall));
 
     expect(vars["--color-accent"]).toBe(ld(s.accent));
     expect(vars["--color-text-accent"]).toBe(ld(s.accent));
@@ -38,25 +44,12 @@ describe("herVars", () => {
     // 其他颜色在已经达标时可能恰好等于原色，但那是色阶校验过的结果，不是直接取用原色。
     expect(vars["--her-call-glow"]).toBe(s.raw);
     expect(Object.keys(vars)).not.toContain("--her-raw");
-  });
 
-  it("shadcn 的 primary 换成她的强调色，焦点环换成她的记号色，壁纸取她的 wall", () => {
-    const s = imageColorScale(COLOR);
-    const vars = herVars(COLOR) as Record<string, string>;
-
-    expect(vars["--primary"]).toBe(ld(s.accent));
-    expect(vars["--primary-foreground"]).toBe(ld(s.onAccent));
-    expect(vars["--ring"]).toBe(ld(s.mark));
-    expect(vars["--her-wall"]).toBe(ld(s.wall));
-  });
-
-  it("shadcn 的变量只换 primary 和焦点环，不碰 --accent（那是悬停底色）", () => {
-    const shadcn = Object.keys(herVars(COLOR)).filter((n) => !n.startsWith("--her-") && !n.startsWith("--color-"));
-    expect(shadcn.sort()).toEqual(["--primary", "--primary-foreground", "--ring"]);
-  });
-
-  it("只注入 Astryx 强调色、shadcn 的 primary 和焦点环、--her-* 变量", () => {
-    const names = Object.keys(herVars(COLOR));
+    // 只注入 Astryx 强调色、shadcn 的 primary 和焦点环、--her-* 变量。
+    const names = Object.keys(vars);
+    const shadcn = ["--primary", "--primary-foreground", "--ring"];
+    expect(names.every((n) => n.startsWith("--her-") || n.startsWith("--color-") || shadcn.includes(n))).toBe(true);
+    expect(names.filter((n) => !n.startsWith("--her-") && !n.startsWith("--color-")).sort()).toEqual(shadcn);
     expect(names.filter((n) => n.startsWith("--color-")).sort()).toEqual([
       "--color-accent",
       "--color-accent-muted",

@@ -3,6 +3,7 @@
 #
 #   1. cn 一律从 @/lib/utils 导入：shadcn add 生成的 `from "cn"` 要当场改掉（lib/utils.ts 自己除外）。
 #   2. Tailwind 任意值里不写颜色：`-[#…]`、`-[oklch(…)]`、`-[rgb(…)]`、`-[hsl(…)]`、`-[var(--…)]` 都不行，
+#      v4 的变量简写 `bg-(--x)`、`text-(--x)`、`border-(color:--x)` 这类颜色工具类也不行（尺寸的 `h-(--x)` 不管）；
 #      颜色用 globals.css 里注册的具名 token（bg-her-wall、bg-hangup 等）。
 #   3. 不用 important 类：`!mt-2`、`hover:!bg-x` 这种前缀写法，和 Tailwind v4 的 `mt-2!` 后缀写法。
 #      外观要变就到 components/ui/ 里改组件。
@@ -31,7 +32,7 @@ check() {
 check '✗ cn 要从 @/lib/utils 导入，不要 from "cn"：' \
   "from ['\"]cn['\"]" "$root/lib/utils.ts"
 check '✗ 任意值里不能写颜色，用具名 token：' \
-  '-\[(#|oklch|rgb|hsl|var\(--)'
+  '-\[(#|oklch|rgb|hsl|var\(--)|(^|[^a-z0-9-])(bg|text|border|ring|outline|fill|stroke|from|via|to|decoration|caret|accent|divide|placeholder|shadow)-\((--|color:)'
 check '✗ 不能用 important 类（!mt-2、hover:!bg-x、mt-2!），到 components/ui/ 里改组件：' \
   "(^|[[:space:]\"'\`:])!-?[a-z][a-z0-9]*(-[a-z0-9.]+|:[a-z])|[a-z0-9]-[a-z0-9.]+!([[:space:]\"'\`]|$)"
 

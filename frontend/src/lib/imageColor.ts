@@ -196,6 +196,11 @@ function toOklch(hex: string): Oklch {
   return { l: L, c: Math.hypot(A, B), h: Math.atan2(B, A) };
 }
 
+/** CSS 写法的 `oklch(l c h)`（色相是角度）转成 `#rrggbb`，例如读主题里的颜色。 */
+export function oklchToHex(l: number, c: number, hueDegrees: number): string {
+  return fromOklch({ l, c, h: (hueDegrees * Math.PI) / 180 });
+}
+
 /** OKLCH 转 sRGB；超出色域时降低彩度直到落入色域。 */
 function fromOklch({ l, c, h }: Oklch): string {
   for (let chroma = c; chroma >= 0; chroma -= 0.002) {
