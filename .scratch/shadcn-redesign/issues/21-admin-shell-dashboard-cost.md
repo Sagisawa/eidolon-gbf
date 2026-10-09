@@ -8,13 +8,23 @@
 
 **Blocked by:** 16
 
-**Status:** ready-for-agent
+**Status:** ready-for-human（待人工验收第 27–30 行）
 
-- [ ] 后台的 layout、`AdminDashboard`、`DashboardParts`、`TrendChart`、`CostSection` 里没有 `@astryxdesign` 的引用
+- [x] 后台的 layout、`AdminDashboard`、`DashboardParts`、`TrendChart`、`CostSection` 里没有 `@astryxdesign` 的引用
 - [ ] 验收清单第 27 行：侧栏菜单和当前项、「返回设置」、手机上的 Sheet、面包屑
 - [ ] 验收清单第 28–29 行：范围切换；数字卡在宽屏、中屏、手机上的排法；「数据截至」；趋势图悬停；状态点；各张表在窄屏换成行
 - [ ] 验收清单第 30 行：花费
 - [ ] 以上每行都在浅色、深色，手机宽度、电脑宽度下各看一遍
-- [ ] CI 的 grep 检查脚本通过
-- [ ] `typecheck`、`test` 通过，`next build` 成功
-- [ ] 开工前已把 main 合进 `feat/shadcn-redesign`，冲突在分支里解决
+- [x] CI 的 grep 检查脚本通过
+- [x] `typecheck`、`test` 通过，`next build` 成功
+- [x] 开工前已把 main 合进 `feat/shadcn-redesign`，冲突在分支里解决
+
+## Comments
+
+2026-10-10 交付（提交 80d8e10；合并后 bf38b2e、审查修复 887a1f1）：
+- 后台 layout 换成 `components/app/admin/AdminShell`（手机上点菜单换页后自动收起 Sheet）；旧 `components/AdminShell.tsx`、`components/admin/AdminPage.tsx`、`AdminPlaceholder.tsx` 已无人引用，留给清理波删。
+- 新增 `components/app/admin/AdminTrail.tsx`：页面放 `<AdminTrail value={名字} />`，面包屑变成「后台 › 用户 › 名字」，用户详情已接上（bf38b2e）。名字要等浏览器里加载完才出现。
+- 看板、花费、`TrendChart`、`DashboardParts` 用 shadcn 重写；`AdminPage` 的标题列改成 `grow basis-80`（手机上范围切换折到下一行，所有后台页都受影响）。表格和窄屏行按视口宽度用 CSS 切换（≥1024 / ≥1280，阈值同旧版）；「此刻」「{范围}内」两组数字卡到 `xl` 才左右排。审查后：直接挂在页面标题下的数字卡组、服务健康卡改用 h2；删掉没人用的 `useWide`/`useTouch`。
+- `ui/` 改动：无。
+- 和 DESIGN.md 的偏差（待人定）：「用量」「花费」各加一个 h2 和一句说明（保住原文案，用 `text-lg font-semibold`）；「未设单价」用 `outline` Badge；健康摘要正常时只写灰字（原来有绿点）；「已下线的角色」灰字；比例条也按趋势图的规则悬停时其余半透明；手机上范围切换是 32px 高（原来触屏放大），44px 触控区只留在刷新键和「看服务健康」链接上。
+- 已知：只在 `<html>` 上加 `.dark`（示例路由的强制深色）时，页面标题等没写颜色的字会变成深蓝看不清，是 Astryx 旧样式只认系统设置造成的；跟随系统时正常，清理波后消失。
