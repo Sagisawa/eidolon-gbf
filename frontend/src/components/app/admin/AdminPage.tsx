@@ -29,7 +29,8 @@ export function AdminPage({ title, intro, above, meta, end, width, children }: P
       <header className="flex flex-col gap-3">
         {above}
         <div className="flex flex-wrap items-end gap-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {/* 标题一栏至少 20rem：手机上放不下右边的操作时，操作折到下一行，不把说明挤成窄条。 */}
+          <div className="flex min-w-0 grow basis-80 flex-col gap-2">
             <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
             {meta}
             {intro && <p className={cn(PROSE_WIDTH, "text-sm text-muted-foreground")}>{intro}</p>}

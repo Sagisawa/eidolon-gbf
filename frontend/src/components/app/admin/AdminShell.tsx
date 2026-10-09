@@ -2,8 +2,9 @@
 
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { AdminTrailContext } from "@/components/app/admin/AdminTrail";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -26,6 +27,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { copy } from "@/i18n";
 import { ADMIN_HREFS, ADMIN_PAGES, adminPage, type AdminPage } from "@/lib/admin";
@@ -41,7 +43,10 @@ const ICONS: Record<AdminPage, typeof DashboardIcon> = {
 
 type Props = {
   name: string;
-  /** 面包屑在「后台 › 当前页」后面再接的一级，例如用户详情里的用户名。 */
+  /**
+   * 面包屑在「后台 › 当前页」后面再接的一级，例如用户详情里的用户名。layout 拿不到页面数据，
+   * 页面用 `<AdminTrail value=… />` 报上来；两边都给时以这里为准。
+   */
   trail?: string;
   children: ReactNode;
 };
@@ -51,10 +56,14 @@ type Props = {
  * 菜单「看板 / 配置 / 用户」，底部「返回设置」；窄屏（< 768px）侧栏收进 Sheet。
  * 内容区顶上一条 48px 的页首：SidebarTrigger、细竖线、面包屑。各页的内容列由 AdminPage 限宽。
  */
-export function AdminShell({ name, trail, children }: Props) {
-  const current = adminPage(usePathname());
+export function AdminShell({ name, trail: fixedTrail, children }: Props) {
+  const pathname = usePathname();
+  const current = adminPage(pathname);
+  const [pageTrail, setPageTrail] = useState<string | undefined>(undefined);
+  const trail = fixedTrail ?? pageTrail;
   return (
     <SidebarProvider>
+      <CloseOnNavigate pathname={pathname} />
       <Sidebar aria-label={t.nav}>
         <SidebarHeader className="px-4 py-3">
           <p className="text-sm font-semibold">{t.title}</p>
@@ -116,8 +125,17 @@ export function AdminShell({ name, trail, children }: Props) {
             </BreadcrumbList>
           </Breadcrumb>
         </header>
-        {children}
+        <AdminTrailContext.Provider value={setPageTrail}>{children}</AdminTrailContext.Provider>
       </SidebarInset>
     </SidebarProvider>
   );
+}
+
+/** 手机上侧栏是 Sheet：点了菜单换页之后把它收起来，不然新页面被盖在下面。 */
+function CloseOnNavigate({ pathname }: { pathname: string }) {
+  const { setOpenMobile } = useSidebar();
+  useEffect(() => {
+    setOpenMobile(false);
+  }, [pathname, setOpenMobile]);
+  return null;
 }

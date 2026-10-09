@@ -1,11 +1,9 @@
 "use client";
 
-import { Text } from "@astryxdesign/core/Text";
-import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useEffect, useRef, useState } from "react";
 
 import { axisLabels, type Bucket, labelledStretches, stretchSpan } from "@/lib/dashboard";
+import { cn } from "@/lib/utils";
 
 const HEIGHT = 180;
 const AXIS = { left: 56, bottom: 24, top: 8, right: 24 }; // room for the latest label
@@ -23,17 +21,16 @@ function column(x: number, width: number, top: number, base: number): string {
 /** One stretch of the range and its value. */
 export type TrendValue = { start: string; value: number };
 
-/** The columns' colour: the one ink (DESIGN.md「The One Ink Rule」), office navy by day and the
- * night periwinkle in dark mode. The admin console is outside any character's subtree, so the
- * accent here is always the ink. */
-export const CHART_INK = "var(--color-accent)";
-
 /**
  * One series over the stretches of the range (the turns, the calls, or what was spent in
  * one currency), as columns (dataviz: a single series needs no legend; the heading names
  * it). Above the chart, the range's total (`total`); hovering a column reads out its stretch
  * and value instead (`describe`, given the stretch's index). The same words are in a table
  * for screen readers.
+ *
+ * 颜色只有一种：柱子 `--foreground`（浅色黑、深色白），网格线 `--border`，刻度和读数 muted；悬停的槽位
+ * 铺 `bg-muted`，其余柱子降到半透明（DESIGN.md「Admin status & charts」）。按容器实际宽度画，刻度字号
+ * 不随栏宽变化。
  */
 export function TrendChart({
   points,
@@ -89,10 +86,8 @@ export function TrendChart({
         : empty;
 
   return (
-    <VStack gap={2}>
-      <Text type="supporting" hasTabularNumbers>
-        {readout}
-      </Text>
+    <div className="flex min-w-0 flex-col gap-2">
+      <p className="text-sm text-muted-foreground tabular-nums">{readout}</p>
       <svg
         ref={ref}
         width="100%"
@@ -100,26 +95,12 @@ export function TrendChart({
         role="img"
         aria-label={title}
         onMouseLeave={() => setHovered(null)}
-        style={{ display: "block", overflow: "visible" }}
+        className="block overflow-visible text-xs tabular-nums"
       >
         {ticks.map((tick) => (
           <g key={tick}>
-            <line
-              x1={AXIS.left}
-              x2={width - AXIS.right}
-              y1={y(tick)}
-              y2={y(tick)}
-              stroke="var(--color-border)"
-              strokeWidth={1}
-            />
-            <text
-              x={AXIS.left - 8}
-              y={y(tick)}
-              textAnchor="end"
-              dominantBaseline="middle"
-              fill="var(--color-text-secondary)"
-              style={{ fontSize: "var(--text-supporting-size)", fontVariantNumeric: "tabular-nums" }}
-            >
+            <line x1={AXIS.left} x2={width - AXIS.right} y1={y(tick)} y2={y(tick)} className="stroke-border" strokeWidth={1} />
+            <text x={AXIS.left - 8} y={y(tick)} textAnchor="end" dominantBaseline="middle" className="fill-muted-foreground">
               {format(tick)}
             </text>
           </g>
@@ -130,27 +111,21 @@ export function TrendChart({
           return (
             <g key={point.start} onMouseEnter={() => setHovered(i)}>
               {/* The hit target is the whole slot, taller and wider than the column. */}
-              <rect x={AXIS.left + slot * i} y={AXIS.top} width={slot} height={base - AXIS.top} fill="transparent" />
-              {isHovered && (
-                <rect
-                  x={AXIS.left + slot * i}
-                  y={AXIS.top}
-                  width={slot}
-                  height={base - AXIS.top}
-                  fill="var(--color-overlay-hover)"
+              <rect
+                x={AXIS.left + slot * i}
+                y={AXIS.top}
+                width={slot}
+                height={base - AXIS.top}
+                className={isHovered ? "fill-muted" : "fill-transparent"}
+              />
+              {point.value > 0 && (
+                <path
+                  d={column(x, bar, y(point.value), base)}
+                  className={cn("fill-foreground transition-opacity", hovered !== null && !isHovered && "opacity-50")}
                 />
               )}
-              {point.value > 0 && (
-                <path d={column(x, bar, y(point.value), base)} fill={CHART_INK} />
-              )}
               {labels.has(i) && (
-                <text
-                  x={x + bar / 2}
-                  y={HEIGHT - 6}
-                  textAnchor="middle"
-                  fill="var(--color-text-secondary)"
-                  style={{ fontSize: "var(--text-supporting-size)" }}
-                >
+                <text x={x + bar / 2} y={HEIGHT - 6} textAnchor="middle" className="fill-muted-foreground">
                   {labels.get(i)}
                 </text>
               )}
@@ -158,17 +133,15 @@ export function TrendChart({
           );
         })}
       </svg>
-      <VisuallyHidden>
-        <table>
-          <tbody>
-            {points.map((point, i) => (
-              <tr key={point.start}>
-                <td>{describe(stretchSpan(point.start, bucket), i)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </VisuallyHidden>
-    </VStack>
+      <table className="sr-only">
+        <tbody>
+          {points.map((point, i) => (
+            <tr key={point.start}>
+              <td>{describe(stretchSpan(point.start, bucket), i)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
