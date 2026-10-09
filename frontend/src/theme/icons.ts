@@ -26,3 +26,6 @@ export { ArrowUp as SendIcon, Ellipsis as MoreIcon } from "lucide-react";
 
 // 失败提示（components/app/FailureNotice）。
 export { CircleAlert as FailureIcon } from "lucide-react";
+
+// 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
+export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";

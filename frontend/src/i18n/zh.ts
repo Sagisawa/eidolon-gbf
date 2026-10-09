@@ -20,6 +20,9 @@ export const zh = {
     menu: "更多操作",
     memories: "记忆",
     settings: "设置",
+    /** 列表顶上的搜索框：按名字找偶像。 */
+    search: "搜索",
+    noMatch: "没有找到这位偶像",
     /** 最后一句是制作人自己说的。 */
     you: (text: string) => `你：${text}`,
     neverTalked: "还没有对话",
@@ -39,7 +42,9 @@ export const zh = {
     call: (name: string) => `和${name}通话`,
     callTooltip: "语音通话",
     placeholder: "用中文或日语说点什么",
-    resizeComposer: "调整输入框高度",
+    send: "发送",
+    /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
+    today: "今天",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
     replying: (name: string) => `${name}正在回复`,
@@ -72,7 +77,7 @@ export const zh = {
       preview: (card: string) => `预览${card}`,
     },
   },
-  /** 通话层、收起后的便利贴、列表里的通话状态（spec「通话层」「通话状态」）。 */
+  /** 通话层、收起后的通话条、列表里的通话状态（spec「通话层」「通话状态」）。 */
   call: {
     leaveTitle: (name: string) => `会挂断和${name}的通话`,
     leaveDescription: "离开这个对话，正在进行的通话就会挂断。",
@@ -107,10 +112,7 @@ export const zh = {
       unavailable: "没能打开这个麦克风，仍在用原来的",
       lost: "麦克风断开了，也没有别的麦克风可用",
     },
-    /** 收起后贴在消息区顶端的便利贴。 */
-    noteDialing: "正在呼叫… · 点击返回",
-    noteConnected: (clock: string) => `通话中 ${clock} · 点击返回`,
-    /** 消息列表里她那一行。 */
+    /** 消息列表里她那一行，也是收起后页首下面那条通话条上的字（呼叫中用 dialing）。 */
     listConnected: (clock: string) => `通话中 ${clock}`,
     ended: "通话已结束",
     /** 是否计入限额（GLOSSARY.md「限额」「接通」）。 */
