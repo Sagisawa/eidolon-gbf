@@ -28,10 +28,13 @@ Label: wayfinder:map
 - [DESIGN.md / PRODUCT.md 改写与说法统一](issues/05-design-docs-rewrite.md)：新的 `DESIGN.md`（「制作人的手机」）已经写进分支；主题用 shadcn neutral，不进 tweakcn；深蓝只用于制作人气泡；选中状态一律中性底；壁纸纳入成对颜色契约；列表叫「对话」；旧规格里的「微信式」不改；通话层和后台两节待对应 ticket 补
 - [后台视觉原型](issues/06-admin-style-prototype.md)：整体取方案 A：shadcn Sidebar；内容列限宽（1200 / 960px）；数字、图表、表格都装在 Card 里；配置每项一张卡、卡里展开表单；图表用前景黑白。不引入 TanStack Table；对话列表改用 Resizable、按像素调宽；后台 Card 保留默认细线
 - [通话层的其他状态与立绘衔接](issues/07-call-layer-variants.md)：全部取方案 A：立绘铺在底上，台词卡和底栏压在衣服上；收起后对话页首下面出一条她颜色的「通话条」；通话层从底部滑上来；Line-State Rule 和 `note`/`noteRule` 等用不上的颜色对删掉，只留 `call.deep`；背景图保留但目前没人配
+- [测试替换与每波验收方式](issues/08-testing-and-acceptance.md)：底座波就加主题对比度测试和 `--primary`/`--ring` 断言，旧断言和 `theme:check` 留到最后一波再删，删时 CI 加 `grep @astryxdesign` 必须为零；Playwright 截图只存档、不做回归；底座波先单独提交换字体，在这个提交上拍基准图，后续底座提交必须和基准像素零差异；验收清单写进 `spec.md`，按波分配
+- [实现波次的切分](issues/09-wave-slicing.md)：共五波：底座 → 共用件（在旧组件旁另建新版，不改外观）→ 用户侧主屏（三张并行）→ 通话层与后台（四张并行，后台同一波换完）→ 清理；验收清单按页面分到各波；`--her-note` 的断言随通话条在第三波删掉；`spec.md` 由单独的 task 来写
+- [新的组件纪律](issues/10-component-discipline.md)：布局直接写 div 加 Tailwind 类、有名字的重复结构才抽组件；颜色和 DESIGN.md 里的尺寸都注册成具名 token，任意值只用于布局；`ui/` 直接改并加 `// eidolon:` 标记，禁止 `!`；共用件放 `components/app/`；`cn` 从 `@/lib/utils` 导入；底座波就把纪律写进 `frontend/AGENTS.md`，并在 CI 加 grep 检查
 
 ## Not yet specified
 
-- **新的组件纪律**：`AGENTS.md` / `frontend/AGENTS.md` 里 Astryx 那套规则（不写裸 div、一律用 token）的替代版本，也就是 shadcn + Tailwind 下的写法约束。已知要管的：`cn` 合并不掉 `group-data-[…]` 变体（见「后台视觉原型」）、`cn` 的导入路径统一。
+（暂无。）
 
 ## Out of scope
 
