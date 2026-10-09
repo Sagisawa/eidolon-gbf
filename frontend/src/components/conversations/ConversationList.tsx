@@ -1,25 +1,25 @@
 "use client";
 
-import { Avatar } from "@astryxdesign/core/Avatar";
-import { Button } from "@astryxdesign/core/Button";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { MoreMenu } from "@astryxdesign/core/MoreMenu";
-import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { StackItem } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { SignInButton } from "@/components/FailureNotice";
+import { SignInButton } from "@/components/app/FailureNotice";
+import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
 import { dayOf, previewOf, type Preview } from "@/lib/conversationList";
-import { listRow } from "@/theme/herVars";
+import { cn } from "@/lib/utils";
+import { MoreIcon, SearchIcon } from "@/theme/icons";
 
 import { useDirectory, type CallInList } from "./ConversationDirectory";
 import { useCallTime } from "./useCallTime";
@@ -27,82 +27,94 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 首页的消息列表（DESIGN.md「Conversation list」）：每位角色一行，头像带她的 mark 描边，
- * 下面是最新一次对话的最后一句，右边是时间；选中行铺她的 paper。宽屏时在左栏，窄屏时占满一页。
+ * 首页的对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字找人的搜索框；
+ * 每位角色一行（56px 头像、名字和时间一行，最后一句一行），选中行铺中性的 bg-muted；底部一行免责声明。
+ * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
  */
 export function ConversationList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
   const { characters, latest, failure, reload, call, leave } = useDirectory();
   const now = useMinute();
+  const [query, setQuery] = useState("");
+  const shown = characters?.filter((c) => matches(c, query));
 
   return (
-    <VStack height="100%" style={{ background: "var(--color-background-body)" }}>
-      <HStack
-        as="header"
-        vAlign="center"
-        gap={3}
-        paddingInline={4}
-        paddingBlock={3}
-        style={{ borderBottom: "var(--border-width) solid var(--color-border)" }}
-      >
-        <StackItem size="fill">
-          <Heading level={1} style={{ fontSize: "var(--text-large-size)" }}>
-            {t.title}
-          </Heading>
-        </StackItem>
-        <MoreMenu
-          label={t.menu}
-          alignment="end"
-          items={[
-            { label: t.memories, onClick: () => leave(() => router.push("/memories")) },
-            { label: t.settings, onClick: () => leave(() => router.push("/settings")) },
-          ]}
-        />
-      </HStack>
+    <div className="flex h-full flex-col bg-background text-foreground">
+      <header className="flex shrink-0 items-center gap-2 pt-3 pr-2 pb-2 pl-4">
+        <h1 className="flex-1 text-list-title">{t.title}</h1>
+        <DropdownMenu>
+          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-lg" aria-label={t.menu} />}>
+            <MoreIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => leave(() => router.push("/memories"))}>{t.memories}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => leave(() => router.push("/settings"))}>{t.settings}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </header>
 
-      <StackItem size="fill" isScrollable style={{ padding: "var(--spacing-2)" }}>
+      <div className="shrink-0 px-4 pb-2">
+        <label className="flex h-9 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+          <SearchIcon aria-hidden className="size-4 shrink-0" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.search}
+            aria-label={t.search}
+            className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
+          />
+        </label>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
         {failure ? (
-          <EmptyState
-            title={t.loadFailed}
-            description={failure.message}
-            actions={
-              failure.signedOut ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>{t.loadFailed}</EmptyTitle>
+              <EmptyDescription>{failure.message}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              {failure.signedOut ? (
                 <SignInButton />
               ) : (
-                <Button label={t.retry} variant="secondary" onClick={reload} />
-              )
-            }
-            isCompact
-          />
-        ) : characters === null ? (
+                <Button variant="outline" onClick={reload}>
+                  {t.retry}
+                </Button>
+              )}
+            </EmptyContent>
+          </Empty>
+        ) : !shown ? (
           <Loading />
+        ) : shown.length === 0 ? (
+          <p className="px-4 py-6 text-center text-preview text-muted-foreground">{t.noMatch}</p>
         ) : (
-          <List aria-label={t.title}>
-            {characters.map((c) => (
-              <Row
-                key={c.id}
-                character={c}
-                preview={previewOf(latest[c.id])}
-                call={call?.characterId === c.id ? call : null}
-                isSelected={c.id === selectedId}
-                now={now}
-                onSelect={() => {
-                  if (c.id === selectedId) return;
-                  leave(() => router.push(`/conversation/${c.id}`));
-                }}
-              />
+          <ul aria-label={t.title}>
+            {shown.map((c) => (
+              <li key={c.id}>
+                <Row
+                  character={c}
+                  preview={previewOf(latest[c.id])}
+                  call={call?.characterId === c.id ? call : null}
+                  isSelected={c.id === selectedId}
+                  now={now}
+                  onSelect={() => {
+                    if (c.id === selectedId) return;
+                    leave(() => router.push(`/conversation/${c.id}`));
+                  }}
+                />
+              </li>
             ))}
-          </List>
+          </ul>
         )}
-      </StackItem>
+      </div>
 
-      <Text as="p" type="supporting" color="secondary" style={{ padding: "var(--spacing-4)" }}>
-        {t.disclaimer}
-      </Text>
-    </VStack>
+      <p className="shrink-0 px-4 py-3 text-meta text-muted-foreground">{t.disclaimer}</p>
+    </div>
   );
 }
 
+/** 列表里的一行：一整个按钮，选中时 `aria-current`，铺中性的 bg-muted（不用她的颜色）。 */
 function Row({
   character,
   preview,
@@ -131,33 +143,38 @@ function Row({
           ? preview.text
           : t.nothingSaidYet;
   return (
-    <ListItem
-      label={character.name}
-      description={description}
-      isSelected={isSelected}
+    <button
+      type="button"
       onClick={onSelect}
-      style={listRow(character.color, isSelected)}
-      startContent={
-        <Avatar
-          src={character.avatar_url ?? undefined}
-          name={character.name}
-          size="lg"
-          tooltip={false}
-          style={{ boxShadow: "0 0 0 var(--spacing-0-5) var(--her-mark)" }}
-        />
-      }
-      endContent={
-        preview && !call ? (
-          <Text type="supporting" color="secondary" hasTabularNumbers>
-            {listTime(new Date(preview.at), now)}
-          </Text>
-        ) : undefined
-      }
-    />
+      aria-current={isSelected ? "page" : undefined}
+      className={cn(
+        "flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset",
+        isSelected ? "bg-muted" : "hover:bg-muted/60",
+      )}
+    >
+      <MarkedAvatar name={character.name} src={character.avatar_url} size="list" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate text-row-name">{character.name}</span>
+          {preview && !call && (
+            <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
+              {listTime(new Date(preview.at), now)}
+            </span>
+          )}
+        </span>
+        <span className="truncate text-preview text-muted-foreground tabular-nums">{description}</span>
+      </span>
+    </button>
   );
 }
 
-/** 列表里的时间：今天写时刻（和气泡下的时间一样写成 8:49），昨天写「昨天」，今年写月日，更早写年月日。 */
+/** 搜索框：名字里有这几个字就留下（不分大小写，前后空格不算）；空着时全部显示。 */
+function matches(character: Character, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !q || character.name.toLowerCase().includes(q);
+}
+
+/** 列表里的时间：今天写时刻（和气泡旁的时间一样写成 8:49），昨天写「昨天」，今年写月日，更早写年月日。 */
 function listTime(at: Date, now: Date): string {
   const two = (n: number) => String(n).padStart(2, "0");
   switch (dayOf(at, now)) {
@@ -184,18 +201,16 @@ function useMinute(): Date {
 
 function Loading() {
   return (
-    <VStack gap={4} padding={4} aria-label={t.loading} aria-busy>
+    <div className="flex flex-col" aria-label={t.loading} aria-busy>
       {[0, 1].map((i) => (
-        <HStack key={i} gap={3} vAlign="center">
-          <Skeleton width="var(--spacing-12)" height="var(--spacing-12)" radius="rounded" index={i} />
-          <StackItem size="fill">
-            <VStack gap={2}>
-              <Skeleton width="40%" height="var(--spacing-4)" index={i} />
-              <Skeleton width="70%" height="var(--spacing-3)" index={i} />
-            </VStack>
-          </StackItem>
-        </HStack>
+        <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+          <Skeleton className="size-list-avatar shrink-0 rounded-full" />
+          <div className="flex flex-1 flex-col gap-2">
+            <Skeleton className="h-4 w-2/5" />
+            <Skeleton className="h-3 w-3/4" />
+          </div>
+        </div>
       ))}
-    </VStack>
+    </div>
   );
 }

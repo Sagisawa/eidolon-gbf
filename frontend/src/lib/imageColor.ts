@@ -22,10 +22,6 @@ export type ImageColorScale = {
   paper: ModePair;
   /** paper 上的次要文字（字幕）。 */
   paperMuted: ModePair;
-  /** 便利贴的底色；上面的正文用 paperColors.ink。 */
-  note: ModePair;
-  /** 便利贴上表示状态的下划线（实线、虚线）。 */
-  noteRule: ModePair;
   /** 她颜色的圆按钮（通话、发送）：底色和图标色。浅色模式用原色（图标保证可辨认）；
    *  深色模式下原色可能和页面一样暗，改用与页面对比度 ≥ 3 的 mark。 */
   button: { bg: ModePair; fg: ModePair };
@@ -63,7 +59,6 @@ function deriveScale(raw: string): ImageColorScale {
 
   const wall = { light: at(0.955, 0.018), dark: at(0.2, 0.016) };
   const paper = { light: at(0.955, 0.035), dark: at(0.3, 0.06) };
-  const note = { light: at(0.92, 0.06), dark: at(0.36, 0.08) };
   const callTop = darkenWhile(base, (c) => contrast(mix("#ffffff", c, CALL_MUTED), c) < AA, 0.16);
   const callDeep = at(0.26, base.c * 0.45);
   const mark = {
@@ -82,8 +77,6 @@ function deriveScale(raw: string): ImageColorScale {
       light: readableOn(base, paper.light, SMALL_TEXT, 0.05),
       dark: readableOn(base, paper.dark, SMALL_TEXT, 0.05),
     },
-    note,
-    noteRule: { light: readableOn(base, note.light, GRAPHIC, 0.16), dark: readableOn(base, note.dark, GRAPHIC, 0.14) },
     button: {
       bg: buttonBg,
       fg: { light: readableOn(base, buttonBg.light, AA, 0.14), dark: readableOn(base, buttonBg.dark, AA, 0.14) },

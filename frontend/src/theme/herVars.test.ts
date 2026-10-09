@@ -33,8 +33,6 @@ describe("herVars", () => {
     expect(vars["--her-mark"]).toBe(ld(s.mark));
     expect(vars["--her-paper"]).toBe(ld(s.paper));
     expect(vars["--her-paper-muted"]).toBe(ld(s.paperMuted));
-    expect(vars["--her-note"]).toBe(ld(s.note));
-    expect(vars["--her-note-rule"]).toBe(ld(s.noteRule));
     expect(vars["--her-button"]).toBe(ld(s.button.bg));
     expect(vars["--her-button-fg"]).toBe(ld(s.button.fg));
     expect(vars["--her-call-top"]).toBe(s.call.top);

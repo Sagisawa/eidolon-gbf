@@ -1,9 +1,18 @@
 "use client";
 
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { useMediaQuery } from "@astryxdesign/core/hooks";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 
 import {
@@ -103,19 +112,28 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   return (
     <DirectoryContext.Provider value={{ characters, latest, failure, refresh, reload, call, setCall, leave }}>
       {children}
-      <AlertDialog
-        isOpen={leaving !== null}
-        onOpenChange={(open) => !open && setLeaving(null)}
-        title={copy.call.leaveTitle(callee?.name ?? "")}
-        description={copy.call.leaveDescription}
-        actionLabel={copy.call.leaveConfirm}
-        cancelLabel={copy.call.stay}
-        onAction={() => {
-          const go = leaving;
-          setLeaving(null);
-          go?.();
-        }}
-      />
+      {/* 确认框不在她的子树里：只有中性色和挂断红（DESIGN.md「Hang-up Red」：「挂断并离开」用它）。 */}
+      <AlertDialog open={leaving !== null} onOpenChange={(open) => !open && setLeaving(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{copy.call.leaveTitle(callee?.name ?? "")}</AlertDialogTitle>
+            <AlertDialogDescription>{copy.call.leaveDescription}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{copy.call.stay}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const go = leaving;
+                setLeaving(null);
+                go?.();
+              }}
+            >
+              {copy.call.leaveConfirm}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DirectoryContext.Provider>
   );
 }

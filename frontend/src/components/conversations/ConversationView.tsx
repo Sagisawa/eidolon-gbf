@@ -1,51 +1,50 @@
 "use client";
 
-import { Avatar } from "@astryxdesign/core/Avatar";
-import { Button } from "@astryxdesign/core/Button";
-import {
-  ChatComposer,
-  ChatComposerInput,
-  ChatLayout,
-  ChatMessage,
-  ChatMessageBubble,
-  ChatMessageList,
-  ChatMessageMetadata,
-} from "@astryxdesign/core/Chat";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Heading } from "@astryxdesign/core/Heading";
-import { useMediaQuery } from "@astryxdesign/core/hooks";
-import { HStack } from "@astryxdesign/core/HStack";
-import { Icon } from "@astryxdesign/core/Icon";
-import { IconButton } from "@astryxdesign/core/IconButton";
-import { MoreMenu } from "@astryxdesign/core/MoreMenu";
-import { ResizeHandle } from "@astryxdesign/core/Resizable";
-import { Spinner } from "@astryxdesign/core/Spinner";
-import { StackItem } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
 
-import { FailureNotice, SignInButton } from "@/components/FailureNotice";
+import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
+import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { Bubble, BubbleContent } from "@/components/ui/bubble";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Message, MessageContent, MessageHeader } from "@/components/ui/message";
+import {
+  MessageScroller,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { createConversation, listConversations, listMessages, sendTurn, type Character } from "@/lib/api";
 import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
 import { CharacterVoice } from "@/lib/characterVoice";
+import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
+import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, OutfitIcon, PhoneIcon } from "@/theme/icons";
+import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
+import { CallBar } from "./CallBar";
 import { CallLayer, type ShownCall } from "./CallLayer";
-import { CallNote } from "./CallNote";
 import { MicSheet } from "./MicSheet";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
-import { useSavedSize } from "./useSavedSize";
 import { useCallTones } from "./useCallTones";
 import { useFocusBack } from "./useFocusBack";
 import { useStandOutfits } from "./useStandOutfits";
@@ -56,13 +55,13 @@ const notOpen = () => NOT_OPEN;
 const noSubscription = () => () => {};
 
 /**
- * 和一位角色的 IM 对话页（DESIGN.md「Layout」「Chat bubbles」）：实底页首、只在消息区铺横线纸、
- * Astryx 的气泡和输入栏。对话的状态全在 LiveConversation 里，这里只画它的快照、把操作交给它。
- * 整个子树注入她的颜色（herVars）。
+ * 和一位角色的 IM 对话页（DESIGN.md「Layout」「Chat bubbles」）：页首和消息区铺她的壁纸，
+ * 成组的 22px 圆角气泡，实底的输入栏。对话的状态全在 LiveConversation 里，这里只画它的快照、把操作交给它。
+ * 整个子树注入她的颜色（herVars），浮层（更多菜单）的 container 指回这棵子树。
  *
- * 页首的电话键打开通话层并开始呼叫（spec「通话层」）；通话层可以收起回到这里，页首下方留一张便利贴，
- * 电话键变成「回到通话」。离开这一页（换角色、进设置或记忆、回列表）先经列表外壳确认，然后挂断。
- * 她有立绘时，电话键旁边是「换衣装」（spec「衣装与换衣装」）。
+ * 页首的电话键打开通话层并开始呼叫（spec「通话层」）；通话层可以收起回到这里，页首下面出现通话条，
+ * 电话键变成实心的「回到通话」。离开这一页（换角色、进设置或记忆、回列表）先经列表外壳确认，然后挂断。
+ * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  */
 export function ConversationView({ character, onBack }: { character: Character; onBack?: () => void }) {
   const router = useRouter();
@@ -77,16 +76,8 @@ export function ConversationView({ character, onBack }: { character: Character; 
   const shownCall = useShownCall(call);
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
+  const subtree = useRef<HTMLDivElement>(null);
   useCallTones(call.phase);
-  // 宽屏上拖动输入框上沿调它平时的高度（记在这台设备上）；默认一行，最高到消息区的一半。
-  const messageArea = useRef<HTMLElement>(null);
-  const inputHeight = useSavedSize("composer", {
-    direction: "vertical",
-    containerRef: messageArea,
-    defaultSize: INPUT_LINE,
-    minSize: INPUT_LINE,
-    maxSize: "50%",
-  });
 
   // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话，停下她的声音）。
   useEffect(() => {
@@ -116,191 +107,152 @@ export function ConversationView({ character, onBack }: { character: Character; 
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
 
-  // 列表只在拿到空数组时显示空状态，所以把消息和「正在听」放进同一个数组。
-  const rows = entries.map((entry) => <Bubble key={entry.key} entry={entry} character={character} />);
-  if (hearing) {
-    rows.push(
-      <ChatMessage key="hearing" sender="user">
-        <ChatMessageBubble variant="ghost">
-          <Text color="secondary" aria-label={t.hearing}>
-            {hearing}
-          </Text>
-        </ChatMessageBubble>
-      </ChatMessage>,
-    );
-  }
-
   // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。
   const isLayerCollapsed = collapsed || call.phase === "idle";
   const isCovered = shownCall !== null && !isLayerCollapsed;
-  const noteShown = isLive(call) && collapsed;
-  const focus = useFocusBack({ layerOpen: isCovered, noteShown });
-  const phoneKey = isFullScreen ? { ...herButton, ...touchTarget } : herButton;
+  const barShown = isLive(call) && collapsed;
+  const focus = useFocusBack({ layerOpen: isCovered, noteShown: barShown });
+
+  // 页首的图标键：手机上触控目标不小于 44px（DESIGN.md「Layout」）。
+  const headerKey = "max-md:size-11";
+  const phoneKey = inCall ? (
+    <HeaderTip label={copy.call.expand}>
+      <Button
+        ref={focus.phoneKey}
+        variant="ghost"
+        size="icon-lg"
+        className={headerKey}
+        aria-label={copy.call.expand}
+        onClick={() => live?.expand()}
+      >
+        {/* 通话中换成实心图标 */}
+        <PhoneIcon className="size-5 fill-current text-her-mark" />
+      </Button>
+    </HeaderTip>
+  ) : (
+    <HeaderTip label={t.callTooltip}>
+      <Button
+        ref={focus.phoneKey}
+        variant="ghost"
+        size="icon-lg"
+        className={headerKey}
+        aria-label={t.call(character.name)}
+        disabled={!snapshot.canDial}
+        focusableWhenDisabled
+        onClick={dial}
+      >
+        <PhoneIcon className="size-5 text-her-mark" />
+      </Button>
+    </HeaderTip>
+  );
 
   const header = (
-    <HStack
-      as="header"
-      inert={isCovered}
-      gap={3}
-      vAlign="center"
-      paddingInline={4}
-      paddingBlock={3}
-      style={{
-        background: "var(--color-background-body)",
-        borderBottom: "var(--border-width) solid var(--color-border)",
-      }}
-    >
+    <header inert={isCovered} className="flex h-14 shrink-0 items-center gap-1 px-2">
       {back && (
-        <IconButton
-          label={t.back}
-          icon={<Icon icon={BackIcon} />}
-          variant="ghost"
-          onClick={back}
-          style={isFullScreen ? touchTarget : undefined}
-        />
+        <Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.back} onClick={back}>
+          <BackIcon className="size-6" />
+        </Button>
       )}
-      <Avatar
-        src={character.avatar_url ?? undefined}
-        name={character.name}
-        size="lg"
-        tooltip={false}
-        style={{ boxShadow: "0 0 0 var(--spacing-0-5) var(--her-mark)" }}
-      />
-      <StackItem size="fill" style={{ minWidth: 0 }}>
-        <Heading level={1} maxLines={1} style={{ fontSize: "var(--text-large-size)" }}>
-          {character.name}
-        </Heading>
-      </StackItem>
-      {outfits && (
-        <IconButton
-          label={t.outfits.open}
-          tooltip={t.outfits.open}
-          icon={<Icon icon={OutfitIcon} />}
-          variant="ghost"
-          onClick={() => setPickingOutfit(true)}
-          style={isFullScreen ? touchTarget : undefined}
-        />
-      )}
-      {inCall ? (
-        <IconButton
-          label={copy.call.expand}
-          tooltip={copy.call.expand}
-          icon={<Icon icon={PhoneIcon} />}
-          ref={focus.phoneKey}
-          onClick={() => live?.expand()}
-          style={phoneKey}
-        />
-      ) : (
-        <IconButton
-          label={t.call(character.name)}
-          tooltip={t.callTooltip}
-          icon={<Icon icon={PhoneIcon} />}
-          isDisabled={!snapshot.canDial}
-          ref={focus.phoneKey}
-          onClick={dial}
-          style={phoneKey}
-        />
-      )}
-      <MoreMenu
-        label={t.menu}
-        alignment="end"
-        items={[
-          {
-            label: t.newConversation,
-            onClick: () => void live?.startNewConversation(),
-            isDisabled: !snapshot.canStartNew,
-          },
-        ]}
-      />
-    </HStack>
+      <h1 className="min-w-0 flex-1 truncate px-2 text-header">{character.name}</h1>
+      {phoneKey}
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.menu} />}
+        >
+          <MoreIcon className="size-5" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent container={subtree} align="end">
+          <DropdownMenuItem disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
+            {t.newConversation}
+          </DropdownMenuItem>
+          {outfits && <DropdownMenuItem onClick={() => setPickingOutfit(true)}>{t.outfits.open}</DropdownMenuItem>}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </header>
   );
 
   if (conversation.status === "failed") {
     return (
-      <Frame character={character} header={header}>
-        <VStack height="100%" hAlign="center" vAlign="center" padding={6}>
-          <EmptyState
-            title={t.loadFailed}
-            description={conversation.failure.message}
-            actions={
-              conversation.failure.signedOut ? (
-                <SignInButton />
-              ) : (
-                back && <Button label={t.backToList} variant="secondary" onClick={back} />
+      <Frame character={character} subtree={subtree} header={header}>
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>{t.loadFailed}</EmptyTitle>
+            <EmptyDescription>{conversation.failure.message}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            {conversation.failure.signedOut ? (
+              <SignInButton />
+            ) : (
+              back && (
+                <Button variant="outline" onClick={back}>
+                  {t.backToList}
+                </Button>
               )
-            }
-          />
-        </VStack>
+            )}
+          </EmptyContent>
+        </Empty>
       </Frame>
     );
   }
 
+  const canSend = isOpen && draft.trim() !== "";
   const composer = (
-    <ChatComposer
-      value={draft}
-      onChange={(value) => live?.setDraft(value)}
-      onSubmit={() => void live?.submit()}
-      placeholder={t.placeholder}
-      isDisabled={!isOpen}
-      status={failure && !failure.signedOut ? { type: "error", message: failureText(failure) } : undefined}
-      statusPosition="top"
-      input={
-        // 拖到的高度是输入框空着时的高度；字多了照旧往上长，至少能长到 8 行，再多就在框里滚动。
-        isFullScreen ? undefined : (
-          <ChatComposerInput
-            maxRows={Math.max(8, Math.floor(inputHeight.size / INPUT_LINE))}
-            style={{ minHeight: inputHeight.size }}
-          />
-        )
-      }
-    />
+    <form
+      inert={isCovered}
+      className="flex shrink-0 flex-col gap-2 border-t bg-background px-3 py-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void live?.submit();
+      }}
+    >
+      {/* 失败的原因（没登录时带去登录的入口）；通话层盖着时整栏 inert，Tab 摸不到 */}
+      {failure && <FailureNotice failure={{ ...failure, message: failureText(failure) }} />}
+      <div className="flex items-end gap-2">
+        <Textarea
+          variant="composer"
+          rows={1}
+          value={draft}
+          onChange={(e) => live?.setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            // 回车发送，Shift+回车换行；输入法选字时的回车不算。
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void live?.submit();
+            }
+          }}
+          placeholder={t.placeholder}
+          aria-label={t.placeholder}
+          disabled={!isOpen}
+          className="flex-1"
+        />
+        <Button type="submit" variant="her" size="icon-lg" aria-label={t.send} disabled={!canSend}>
+          <SendIcon className="size-5" />
+        </Button>
+      </div>
+    </form>
   );
 
   return (
-    <Frame character={character} header={header}>
-      {noteShown && <CallNote ref={focus.note} call={call} onExpand={() => live?.expand()} />}
-      {/* 没登录时要给出去登录的入口，输入框的状态行放不下按钮；通话层盖着时不放，免得 Tab 摸到底下 */}
-      {failure?.signedOut && !isCovered && <FailureNotice failure={failure} />}
-      <StackItem ref={messageArea} size="fill" inert={isCovered} style={{ ...ruledPaper, minHeight: 0 }}>
+    <Frame character={character} subtree={subtree} header={header}>
+      {barShown && <CallBar ref={focus.note} call={call} onExpand={() => live?.expand()} />}
+      <div inert={isCovered} className="min-h-0 flex-1">
         {/* 开新对话的过程中也是 opening：旧对话留在原处，只是发送键和电话键禁用 */}
         {!isOpen && entries.length === 0 ? (
-          <VStack height="100%" hAlign="center" vAlign="center">
-            <Spinner size="lg" aria-label={t.loading} />
-          </VStack>
+          <div className="flex h-full items-center justify-center">
+            <Spinner className="size-6 text-muted-foreground" aria-label={t.loading} />
+          </div>
+        ) : entries.length === 0 && !hearing ? (
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyTitle>{t.emptyTitle(character.name)}</EmptyTitle>
+              <EmptyDescription>{t.emptyDescription}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <ChatLayout
-            style={{ height: "100%" }}
-            composer={
-              isFullScreen ? (
-                composer
-              ) : (
-                <VStack>
-                  <ResizeHandle
-                    direction="vertical"
-                    isReversed
-                    pillPlacement="start"
-                    isAlwaysVisible={false}
-                    resizable={inputHeight.props}
-                    label={t.resizeComposer}
-                  />
-                  {composer}
-                </VStack>
-              )
-            }
-          >
-            <ChatMessageList
-              align="top"
-              gap={4}
-              isStreaming={entries.some((e) => e.kind === "character" && e.pending)}
-              emptyState={
-                <EmptyState title={t.emptyTitle(character.name)} description={t.emptyDescription} />
-              }
-            >
-              {rows}
-            </ChatMessageList>
-          </ChatLayout>
+          <Messages entries={entries} hearing={hearing} character={character} />
         )}
-      </StackItem>
+      </div>
+      {composer}
       {/* 静音由 voice 管：只看文字，或者她的声音改走电话质感时，这里只是持有音轨 */}
       <audio ref={voice.attach} autoPlay />
       {shownCall && (
@@ -349,58 +301,189 @@ export function ConversationView({ character, onBack }: { character: Character; 
   );
 }
 
-/** 对话这一栏：注入她的颜色，页首在上，其余填满。 */
-function Frame({ character, header, children }: { character: Character; header: ReactNode; children: ReactNode }) {
+/**
+ * 对话这一栏：注入她的颜色，铺她的壁纸（页首和消息区同一张，DESIGN.md「The Wallpaper Rule」），
+ * 页首在上，其余填满。通话层绝对定位盖在上面。
+ */
+function Frame({
+  character,
+  subtree,
+  header,
+  children,
+}: {
+  character: Character;
+  subtree: RefObject<HTMLDivElement | null>;
+  header: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <VStack height="100%" style={{ ...herVars(character.color), position: "relative", overflow: "hidden" }}>
+    <div
+      ref={subtree}
+      style={herVars(character.color)}
+      className="relative flex h-full flex-col overflow-hidden bg-her-wall text-foreground"
+    >
       {header}
       {children}
-    </VStack>
+    </div>
   );
 }
 
-function Bubble({ entry, character }: { entry: Entry; character: Character }) {
-  const metadata = (
-    <ChatMessageMetadata timestamp={<Timestamp value={entry.at} format="time" hasTooltip={false} />} />
+/** 页首图标键的提示。 */
+function HeaderTip({ label, children }: { label: string; children: ReactElement }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
+}
+
+/** 消息区的一行：跨天处的日期条，或者一条消息和它在组里的位置（The Bubble Group Rule）。 */
+type Line =
+  | { kind: "day"; key: string; label: string }
+  | { kind: "entry"; entry: Entry; first: boolean; last: boolean };
+
+/** 按日期和说话的人把消息排成行：换了一天先放日期条；同一个人连着发、中间没有日期条的算一组。 */
+function linesOf(entries: Entry[], now: Date): Line[] {
+  const days = entries.map((e) => new Date(e.at).toDateString());
+  const lines: Line[] = [];
+  entries.forEach((entry, i) => {
+    const newDay = i === 0 || days[i] !== days[i - 1];
+    if (newDay) lines.push({ kind: "day", key: `day-${days[i]}`, label: dayLabel(new Date(entry.at), now) });
+    const next = entries[i + 1];
+    lines.push({
+      kind: "entry",
+      entry,
+      first: newDay || entries[i - 1].kind !== entry.kind,
+      last: !next || days[i + 1] !== days[i] || next.kind !== entry.kind,
+    });
+  });
+  return lines;
+}
+
+/** 日期条上的字：今天、昨天，今年写月日，更早写年月日（和列表的写法一样）。 */
+function dayLabel(at: Date, now: Date): string {
+  const list = copy.conversationList;
+  switch (dayOf(at, now)) {
+    case "today":
+      return t.today;
+    case "yesterday":
+      return list.yesterday;
+    case "thisYear":
+      return list.monthDay(String(at.getMonth() + 1), String(at.getDate()));
+    case "earlier":
+      return list.fullDate(String(at.getFullYear()), String(at.getMonth() + 1), String(at.getDate()));
+  }
+}
+
+/**
+ * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
+ * 消息从顶部开始排；气泡之间 4px，换人时多 8px。
+ */
+function Messages({ entries, hearing, character }: { entries: Entry[]; hearing: string; character: Character }) {
+  const lines = linesOf(entries, new Date());
+  return (
+    <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+      <MessageScroller>
+        <MessageScrollerViewport>
+          <MessageScrollerContent className="gap-1 px-3 pt-2 pb-4">
+            {lines.map((line) =>
+              line.kind === "day" ? (
+                <MessageScrollerItem key={line.key} className="my-3 flex justify-center">
+                  <span className="rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                    {line.label}
+                  </span>
+                </MessageScrollerItem>
+              ) : (
+                <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className={cn(line.first && "mt-2")}>
+                  <Bubbled line={line} character={character} />
+                </MessageScrollerItem>
+              ),
+            )}
+            {hearing && (
+              <MessageScrollerItem key="hearing" className="mt-2">
+                {/* 用户正在说、还没定稿的话：制作人那一侧，不成气泡 */}
+                <Message align="end">
+                  <Bubble variant="ghost" align="end">
+                    <BubbleContent aria-label={t.hearing}>
+                      <p className="text-body text-muted-foreground">{hearing}</p>
+                    </BubbleContent>
+                  </Bubble>
+                </Message>
+              </MessageScrollerItem>
+            )}
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+      </MessageScroller>
+    </MessageScrollerProvider>
+  );
+}
+
+/**
+ * 一条消息。制作人的在右，深蓝墨水；她的在左，日语原文在上、中文字幕在下（The Original-Then-Subtitle Rule）。
+ * 头像和名字只在一组的第一条，时间只在最后一条的外侧底部。
+ */
+function Bubbled({
+  line: { entry, first, last },
+  character,
+}: {
+  line: Extract<Line, { kind: "entry" }>;
+  character: Character;
+}) {
+  const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;
   if (entry.kind === "user") {
     return (
-      <ChatMessage sender="user">
-        <ChatMessageBubble metadata={metadata} style={producerBubble}>
-          {entry.text}
-        </ChatMessageBubble>
-      </ChatMessage>
+      <Message align="end">
+        <div className="flex min-w-0 flex-1 items-end justify-end gap-1.5">
+          {last && time}
+          <Bubble variant="producer" align="end" joinsPrevious={!first} joinsNext={!last}>
+            <BubbleContent>
+              <p className="text-body whitespace-pre-wrap">{entry.text}</p>
+            </BubbleContent>
+          </Bubble>
+        </div>
+      </Message>
     );
   }
   return (
-    <ChatMessage
-      sender="assistant"
-      avatar={<Avatar src={character.avatar_url ?? undefined} name={character.name} size="md" tooltip={false} />}
-    >
-      <ChatMessageBubble metadata={entry.pending ? undefined : metadata} style={herBubble}>
-        {entry.segments.length === 0 ? (
-          <Spinner size="sm" aria-label={t.replying(character.name)} />
-        ) : (
-          <VStack gap={2}>
-            {entry.segments.map((segment, i) => (
-              <VStack key={i} gap={0.5}>
-                <Ja>
-                  <Text type="large" weight="normal">
-                    {segment.ja}
-                  </Text>
-                </Ja>
-                {segment.zh && (
-                  <Text type="supporting" style={{ color: "var(--her-paper-muted)" }}>
-                    {segment.zh}
-                  </Text>
-                )}
-              </VStack>
-            ))}
-          </VStack>
-        )}
-      </ChatMessageBubble>
-    </ChatMessage>
+    <Message align="start">
+      {first ? (
+        <MarkedAvatar name={character.name} src={character.avatar_url} size="bubble" />
+      ) : (
+        <span aria-hidden className="w-bubble-avatar shrink-0" />
+      )}
+      <MessageContent className="gap-1">
+        {first && <MessageHeader className="px-1">{character.name}</MessageHeader>}
+        <div className="flex min-w-0 items-end gap-1.5">
+          <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
+            <BubbleContent>
+              {entry.segments.length === 0 ? (
+                <Spinner className="my-1 text-muted-foreground" aria-label={t.replying(character.name)} />
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {entry.segments.map((segment, i) => (
+                    <div key={i} className="flex flex-col gap-0.5">
+                      <p className="text-japanese-line">
+                        <Ja>{segment.ja}</Ja>
+                      </p>
+                      {segment.zh && <p className="text-subtitle text-muted-foreground">{segment.zh}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </BubbleContent>
+          </Bubble>
+          {last && !entry.pending && time}
+        </div>
+      </MessageContent>
+    </Message>
   );
+}
+
+/** 气泡旁的时刻，写成 8:49（和列表里今天的时间一样）。 */
+function clock(at: string): string {
+  const d = new Date(at);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 /** 失败提示：后端给的原因，知道算不算限额时加一句（GLOSSARY.md「限额」）。 */
@@ -417,39 +500,3 @@ function useShownCall(call: CallState): ShownCall | null {
   if (call.phase !== "idle" && call !== shown) setShown(call);
   return call.phase === "idle" ? shown : call;
 }
-
-/** 输入框一行的高度：ChatComposerInput 的固定行高，可调的高度以它为下限、按它折算成行数。 */
-const INPUT_LINE = 22;
-
-/** 她颜色的圆形电话键（DESIGN.md「Her call button」）。 */
-const herButton: CSSProperties = {
-  borderRadius: "var(--radius-full)",
-  background: "var(--her-button)",
-  color: "var(--her-button-fg)",
-  border: 0,
-};
-
-/** 手机上页首的按钮不小于 44px，和通话层一致；页首本来就有 48px 的头像，高度不变。 */
-const touchTarget: CSSProperties = { minWidth: "var(--spacing-11)", minHeight: "var(--spacing-11)" };
-
-/** 制作人的气泡：事务所深蓝墨水底、纸色字（深色模式下自动换成夜间墨水和夜间纸色）。 */
-const producerBubble: CSSProperties = {
-  background: "var(--office-ink)",
-  color: "var(--color-background-body)",
-};
-
-/** 她的气泡：她的 paper 底、墨水色正文。 */
-const herBubble: CSSProperties = {
-  background: "var(--her-paper)",
-  color: "var(--color-text-primary)",
-};
-
-/** 横线手帐纸：天蓝横线加一条装订边距线，只铺在消息区（DESIGN.md「The Paper-Only-Where-She-Writes Rule」）。 */
-const ruledPaper: CSSProperties = {
-  backgroundColor: "var(--color-background-body)",
-  backgroundImage: [
-    "linear-gradient(to right, transparent var(--spacing-4), var(--color-border-emphasized) var(--spacing-4), var(--color-border-emphasized) calc(var(--spacing-4) + var(--border-width)), transparent calc(var(--spacing-4) + var(--border-width)))",
-    "linear-gradient(to bottom, transparent calc(var(--spacing-8) - var(--border-width)), var(--color-border-blue) calc(var(--spacing-8) - var(--border-width)))",
-  ].join(", "),
-  backgroundSize: "100% 100%, 100% var(--spacing-8)",
-};

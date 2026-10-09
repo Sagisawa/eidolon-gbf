@@ -28,7 +28,10 @@ export function PageShell({ header, footer, width = "column", isScrollable = tru
         </header>
       )}
       <main className={cn("flex min-h-0 flex-1 flex-col", isScrollable ? "overflow-y-auto" : "overflow-hidden")}>
-        <div className={cn("flex flex-1 flex-col", column && cn(column, "py-6"))}>{children}</div>
+        {/* 内容自带滚动时，这一层也不能被内容撑高（min-h-0），否则里面的滚动区永远不滚、整页被撑出视口。 */}
+        <div className={cn("flex flex-1 flex-col", !isScrollable && "min-h-0", column && cn(column, "py-6"))}>
+          {children}
+        </div>
       </main>
       {footer !== undefined && (
         <footer className="shrink-0 border-t">

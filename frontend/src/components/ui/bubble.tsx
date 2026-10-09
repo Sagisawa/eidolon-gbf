@@ -34,6 +34,12 @@ const bubbleVariants = cva(
           "border-none *:data-[slot=bubble-content]:rounded-none *:data-[slot=bubble-content]:bg-transparent *:data-[slot=bubble-content]:p-0 [&>[data-slot=bubble-content]:is(button,a):hover]:bg-muted [&>[data-slot=bubble-content]:is(button,a):hover]:text-foreground dark:[&>[data-slot=bubble-content]:is(button,a):hover]:bg-muted/50",
         destructive:
           "*:data-[slot=bubble-content]:bg-destructive/10 *:data-[slot=bubble-content]:text-destructive dark:*:data-[slot=bubble-content]:bg-destructive/20 [&>[data-slot=bubble-content]:is(button,a):hover]:bg-destructive/20 dark:[&>[data-slot=bubble-content]:is(button,a):hover]:bg-destructive/30",
+        // eidolon: 对话页的两种气泡（DESIGN.md「Chat bubbles」）：22px 圆角、没有尾巴、不投影。
+        // 她的：浅色白底、深色 her-bubble-night，最宽 min(30rem, 72vw)；制作人的：事务所深蓝墨水，最宽 72%。
+        // 字号由气泡里的内容自己定：cn 不认得项目的字号 token，会把 text-body 当成颜色、被同一处的字色合并掉。
+        her: "max-w-[min(30rem,72vw)] *:data-[slot=bubble-content]:rounded-bubble *:data-[slot=bubble-content]:bg-bubble-her *:data-[slot=bubble-content]:px-4 *:data-[slot=bubble-content]:text-foreground",
+        producer:
+          "max-w-[72%] *:data-[slot=bubble-content]:rounded-bubble *:data-[slot=bubble-content]:bg-producer-ink *:data-[slot=bubble-content]:px-4 *:data-[slot=bubble-content]:text-on-producer-ink",
       },
     },
     defaultVariants: {
@@ -45,18 +51,30 @@ const bubbleVariants = cva(
 function Bubble({
   variant = "default",
   align = "start",
+  joinsPrevious = false,
+  joinsNext = false,
   className,
   ...props
 }: React.ComponentProps<"div"> &
   VariantProps<typeof bubbleVariants> & {
     align?: "start" | "end"
+    // eidolon: The Bubble Group Rule（DESIGN.md）：同一个人连着发的几条成一组，组内相邻气泡靠内侧的角收成 rounded-md。
+    // joinsPrevious：上面紧挨着同一组的一条（收内侧上角）；joinsNext：下面还有（收内侧下角）。
+    joinsPrevious?: boolean
+    joinsNext?: boolean
   }) {
   return (
     <div
       data-slot="bubble"
       data-variant={variant}
       data-align={align}
-      className={cn(bubbleVariants({ variant }), className)}
+      data-joins-previous={joinsPrevious || undefined}
+      data-joins-next={joinsNext || undefined}
+      className={cn(
+        bubbleVariants({ variant }),
+        "data-joins-previous:data-[align=start]:*:data-[slot=bubble-content]:rounded-tl-md data-joins-next:data-[align=start]:*:data-[slot=bubble-content]:rounded-bl-md data-joins-previous:data-[align=end]:*:data-[slot=bubble-content]:rounded-tr-md data-joins-next:data-[align=end]:*:data-[slot=bubble-content]:rounded-br-md",
+        className
+      )}
       {...props}
     />
   )

@@ -29,3 +29,6 @@ export { CircleAlert as FailureIcon } from "lucide-react";
 
 // 设置页「已绑定」的提示和它的关闭键（shadcn-redesign 18）。
 export { CircleCheck as SuccessIcon, X as CloseIcon } from "lucide-react";
+
+// 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
+export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";
