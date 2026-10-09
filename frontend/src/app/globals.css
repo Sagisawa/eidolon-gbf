@@ -1,0 +1,2 @@
+/* Tailwind 和之后的 shadcn 主题。层的先后在 layers.css 里定，Tailwind 的 theme、base 排在 Astryx 的组件样式前面，旧页面不受影响。 */
+@import "tailwindcss";
