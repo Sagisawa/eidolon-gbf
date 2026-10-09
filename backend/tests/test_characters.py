@@ -137,8 +137,8 @@ def test_repository_configures_its_idols_with_their_voices():
         "madoka": "9fa98a656a0d4242b6073fd955f5179b",
         "koito": "8ee2e17bbead4610a17f324fe540be49",
         "hinana": "565ffd381fbc427ebfa1cc4c689ac12d",
-        "nichika": "",
-        "mikoto": "",
+        "nichika": "b3757a5a71ba4078be1e25b446190975",
+        "mikoto": "bf578eec18ca49daaf9216f5df3fabd4",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
