@@ -147,9 +147,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "juri": "8875da3542374b18a29b85fbf48f0de2",
         "rinze": "dd73b57d509b436b90ef9263d2e6c5d1",
         "natsuha": "70e8160d2cf34c5892b9002e42cbafdb",
-        "amana": "",
-        "tenka": "",
-        "chiyuki": "",
+        "amana": "d5a68fc022604b23b94e2a0b9f823b59",
+        "tenka": "7f50c8ef897c402fa7967a11aa94261e",
+        "chiyuki": "7de8d70dc5e04759be11c01f69c8c863",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
