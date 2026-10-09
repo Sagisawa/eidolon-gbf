@@ -1,13 +1,20 @@
 "use client";
 
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { HStack, Layout, LayoutContent, LayoutFooter, VStack } from "@astryxdesign/core/Layout";
-import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
-import { useState } from "react";
+import { useId, useState } from "react";
 
-import { TouchButton } from "@/components/admin/DashboardParts";
-import { FailureNotice } from "@/components/FailureNotice";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
 import { banUser, type AdminUserDetails } from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
@@ -19,6 +26,7 @@ const NOTE_MAX = 500;
 /**
  * 封禁一位用户：说明后果，可以写一句只有管理者看得到的备注，再确认。
  * `user` 为 null 时对话框关着；封禁成功后把后端返回的这位用户交给 `onBanned`。
+ * 真正执行的「确认封禁」是 destructive（挂断红），取消是 outline（DESIGN.md「Buttons」）。
  */
 export function BanUserDialog({
   user,
@@ -32,6 +40,7 @@ export function BanUserDialog({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const noteId = useId();
 
   function close() {
     if (busy) return;
@@ -56,40 +65,28 @@ export function BanUserDialog({
   }
 
   return (
-    <Dialog isOpen={user !== null} onOpenChange={(open) => !open && close()} purpose="form" width={480}>
-      <Layout
-        header={<DialogHeader title={t.title(user?.name ?? "")} onOpenChange={() => close()} />}
-        content={
-          <LayoutContent>
-            <VStack gap={4}>
-              <Text as="p">{t.hint}</Text>
-              <TextArea
-                label={t.note}
-                description={t.noteHint}
-                isOptional
-                value={note}
-                onChange={setNote}
-                maxLength={NOTE_MAX}
-              />
-              {failure && <FailureNotice failure={failure} />}
-            </VStack>
-          </LayoutContent>
-        }
-        footer={
-          <LayoutFooter>
-            <HStack gap={2} hAlign="end" wrap="wrap">
-              <TouchButton label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
-              <TouchButton
-                label={t.confirm}
-                variant="destructive"
-                onClick={confirm}
-                isLoading={busy}
-                isDisabled={note.length > NOTE_MAX}
-              />
-            </HStack>
-          </LayoutFooter>
-        }
-      />
+    <Dialog open={user !== null} onOpenChange={(open) => !open && close()}>
+      <DialogContent showCloseButton={false} className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t.title(user?.name ?? "")}</DialogTitle>
+          <DialogDescription>{t.hint}</DialogDescription>
+        </DialogHeader>
+        <Field>
+          <FieldLabel htmlFor={noteId}>{t.note}</FieldLabel>
+          <Textarea id={noteId} value={note} onChange={(e) => setNote(e.target.value)} maxLength={NOTE_MAX} />
+          <FieldDescription>{t.noteHint}</FieldDescription>
+        </Field>
+        {failure && <FailureNotice failure={failure} />}
+        <DialogFooter>
+          <Button variant="outline" onClick={close} disabled={busy}>
+            {copy.common.cancel}
+          </Button>
+          <Button variant="destructive" onClick={confirm} disabled={busy || note.length > NOTE_MAX}>
+            {busy && <Spinner data-icon="inline-start" />}
+            {t.confirm}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }

@@ -3,8 +3,6 @@
 // what was remembered of them or their producer profile, only who they are and how they
 // use it.
 
-import type { TableSortState } from "@astryxdesign/core/Table";
-
 import { copy } from "@/i18n";
 import { apiHeaders, expectNoContent, followRedirect, json, type OwnService } from "@/lib/api";
 import { formatCount } from "@/lib/dashboard";
@@ -135,17 +133,11 @@ export function limitsInput(
   return { input: { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour } };
 }
 
-/** The list's sort from the table's: a usage column's header sorts by it, most first,
- * whichever way the header was clicked (the backend sorts only that way); none, newest. */
-export function userSort(state: TableSortState): UserSort {
-  const key = state[0]?.sortKey;
-  return key === "turns" || key === "calls" ? key : "newest";
-}
-
-/** The table's sort state showing the list's sort, so that clicking a sorted column's
- * header again takes the sort off. */
-export function sortState(sort: UserSort): TableSortState {
-  return sort === "newest" ? [] : [{ sortKey: sort, direction: "descending" }];
+/** The list's sort once a usage column's header is clicked: by that column, most first (the
+ * backend sorts only that way); clicking the header of the column already sorted by takes
+ * the sort off, back to newest. */
+export function headerSort(sort: UserSort, column: "turns" | "calls"): UserSort {
+  return sort === column ? "newest" : column;
 }
 
 /** A count as the usage section shows it: the total, and below it on whose keys, for

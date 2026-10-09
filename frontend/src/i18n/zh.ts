@@ -502,6 +502,10 @@ export const zh = {
       empty: "没有找到用户。",
       emptyHint: "试试换个名字、邮箱，或者完整的用户 ID。",
       pagination: "用户列表分页",
+      previousPage: "上一页",
+      nextPage: "下一页",
+      pageOf: (page: number, pages: number) => `第 ${page} / ${pages} 页`,
+      clearSearch: "清空搜索",
       columns: {
         user: "用户",
         signInMethods: "登录方式",
