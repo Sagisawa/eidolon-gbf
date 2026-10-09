@@ -123,3 +123,13 @@
     @apply font-sans;
     }
 }
+/*
+ * 并存期间：Astryx 主题在 reset 层给裸的 h1–h6、p、small 设了颜色和字号，会渗进 shadcn 写的地方。
+ * base 层排在 reset 后面，这里改回继承。清理波随 Astryx 一起删掉。
+ */
+@layer base {
+  :where(h1, h2, h3, h4, h5, h6, p, small) {
+    color: inherit;
+    font: inherit;
+  }
+}
