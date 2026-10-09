@@ -142,11 +142,11 @@ def test_repository_configures_its_idols_with_their_voices():
         "asahi": "2dcc8351008f4714b33506d7d45a861e",
         "fuyuko": "105efba2160a40119d6d21e5445b889e",
         "mei": "1f0033aac5b34d478ec975114c845bf9",
-        "kaho": "",
-        "chiyoko": "",
-        "juri": "",
-        "rinze": "",
-        "natsuha": "",
+        "kaho": "d9e61a6914dd47669a9bbae71a78ab38",
+        "chiyoko": "a48ea1f5d81a478ba528b49188bf4ccc",
+        "juri": "8875da3542374b18a29b85fbf48f0de2",
+        "rinze": "dd73b57d509b436b90ef9263d2e6c5d1",
+        "natsuha": "70e8160d2cf34c5892b9002e42cbafdb",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
