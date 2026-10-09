@@ -24,12 +24,11 @@ Label: wayfinder:map
 - [Astryx 组件盘点与 shadcn 对应表](issues/01-astryx-inventory.md)：约 20 项可直接对应 shadcn（含官方聊天组件），9 项需要薄封装，9 项要自写；大头是 300 多处布局排版原语；图表、印象色推色等逻辑保留
 - [shadcn 底层选型与 Tailwind v4 接入](issues/02-shadcn-stack.md)：底层选 Base UI（`base-nova`）；只取 tweakcn 的颜色值；印象色写进 `--primary`/`--ring`，浮层要单独处理；和 Astryx 共存要靠 CSS 层顺序，尚待用 build 验证
 - [LINE 风格视觉原型](issues/03-line-style-prototype.md)：定稿组合 D：外框、气泡配色和列表取 A（她色相的淡壁纸、她的气泡白色、制作人气泡用深蓝墨水、头像 56px），气泡形状取 B（22px、无尾巴），通话层取 B（模糊头像做底、毛玻璃台词卡），底栏取 C；日语用 LINE Seed JP，中文用 Noto Sans SC，不用阴影
+- [迁移策略](issues/04-migration-strategy.md)：在 feat 分支上一次换完，再合进 main；分支内两套库并存，靠层顺序隔离；第一波是不改外观的底座波；以屏为单位替换；每波开工前把 main 合进分支；回滚靠 revert，不搭预发环境
 
 ## Not yet specified
 
-- **测试与验收方式**：现有 vitest 测试中有一部分依赖 Astryx（例如 `notebookTheme.test.ts`），要决定怎么替换；每波是做截图对比还是人工逐页验收。
 - **新的组件纪律**：`AGENTS.md` / `frontend/AGENTS.md` 里 Astryx 那套规则（不写裸 div、一律用 token）的替代版本，也就是 shadcn + Tailwind 下的写法约束。
-- **实现波次的切法**：取决于迁移策略和组件对应表。
 
 ## Out of scope
 
