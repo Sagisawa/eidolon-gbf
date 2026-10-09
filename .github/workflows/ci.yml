@@ -58,13 +58,15 @@ jobs:
       - run: |
           sed -i '/^ \* Source: /s#[\]#/#g' src/theme/built/*
           npm run theme:check
+      # 新代码的 shadcn 纪律里能机器检查的几条：cn 的导入、任意值里的颜色、important 类（frontend/AGENTS.md）
+      - run: sh scripts/check-discipline.sh
       # next build 由下面的镜像构建跑
 
   shellcheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: shellcheck deploy/*.sh scripts/*.sh
+      - run: shellcheck deploy/*.sh scripts/*.sh frontend/scripts/*.sh
 
   image:
     needs: [backend, frontend, shellcheck]

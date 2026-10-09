@@ -12,6 +12,8 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 
 Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
+> 下面的 Astryx 说明只适用于还没迁移的屏。新写和重写的代码按 `frontend/AGENTS.md` 的「shadcn 纪律（新代码）」（前端正在换成 shadcn/ui，见 `.scratch/shadcn-redesign/spec.md`）。
+
 <!-- ASTRYX:START -->
 Astryx v0.6.3 · 90+ components
 CLI: run every command as `npx @astryxdesign/cli <cmd>` (shown below as `astryx ...`).
