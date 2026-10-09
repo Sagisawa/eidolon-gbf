@@ -37,7 +37,7 @@ web
 
 ## Capabilities and Constraints
 
-- 前端：Next.js 16（App Router）+ React 19 + TypeScript，组件库用 Astryx（`@astryxdesign/core`），配一套自定义的「手帐」主题（`frontend/src/theme/`，视觉规范见 `DESIGN.md`）；不写裸 `<div>` 布局，取值都用 token。图标用 Lucide。界面文案集中在 `frontend/src/i18n/`，目前只有简体中文。后端：FastAPI + Pipecat，数据库用 SQLite。
+- 前端：Next.js 16（App Router）+ React 19 + TypeScript，组件库用 shadcn/ui（底层 Base UI，样式 `base-nova`）+ Tailwind v4（ADR-0015），视觉规范见 `DESIGN.md`，组件写法的约束见 `frontend/AGENTS.md`。图标用 Lucide。界面文案集中在 `frontend/src/i18n/`，目前只有简体中文。后端：FastAPI + Pipecat，数据库用 SQLite。
 - 现有页面：`/login`（落地页兼登录页）、`/consent`、`/`（对话列表）、`/conversation/[characterId]`（对话，通话层也在这里）、`/settings`、`/memories`、`/privacy`、`/terms`，以及只有管理者能进入的后台：`/admin`（看板）、`/admin/config`（配置和单价）、`/admin/users`、`/admin/users/[id]`。对话列表和对话共用一个布局：电脑上左右双栏，手机上两级页面。
 - 每位角色的界面以她的印象色为基调（`characters.toml` 的 `color`），颜色由 `frontend/src/lib/imageColor.ts` 按浅色、深色模式成对推出并经过对比度测试；通话层用她的背景图（`background`，可选，没有时用印象色渐变）。其余界面是中性主题，浅色和深色跟随系统。
 - 回合与通话的状态语义（成功、失败、被拒绝、用户离开、没能接通，以及是否计入限额）定义在 `GLOSSARY.md` 里。界面上的提示必须与这些语义一致。
