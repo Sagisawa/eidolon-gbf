@@ -1,5 +1,4 @@
 // 界面上的图标统一用 Lucide，以语义别名导出，不手绘 SVG（DESIGN.md「The Library Icon Rule」）。
-// Astryx 组件内部用的图标在 astryxIcons.ts 里注册到主题。
 export {
   ArrowRightLeft as MicSwitchIcon,
   ChevronDown as CollapseIcon,
@@ -21,7 +20,7 @@ export {
   Users as UsersIcon,
 } from "lucide-react";
 
-// 发送键和更多菜单（shadcn 新代码用；旧的 Astryx 输入栏用 astryxIcons.ts 里注册的图标）。
+// 发送键和更多菜单。
 export { ArrowUp as SendIcon, Ellipsis as MoreIcon } from "lucide-react";
 
 // 失败提示（components/app/FailureNotice）。

@@ -15,7 +15,7 @@ describe("ld", () => {
 });
 
 describe("herVars", () => {
-  it("shadcn 的 primary、焦点环和 --her-* 都取自成对校验过的色阶，迁移期间 Astryx 的强调色照旧；不直接给出官方原色", () => {
+  it("shadcn 的 primary、焦点环和 --her-* 都取自成对校验过的色阶，不直接给出官方原色", () => {
     const s = imageColorScale(COLOR);
     const vars = herVars(COLOR) as Record<string, string>;
 
@@ -25,10 +25,6 @@ describe("herVars", () => {
     expect(vars["--ring"]).toBe(ld(s.mark));
     expect(vars["--her-wall"]).toBe(ld(s.wall));
 
-    expect(vars["--color-accent"]).toBe(ld(s.accent));
-    expect(vars["--color-text-accent"]).toBe(ld(s.accent));
-    expect(vars["--color-icon-accent"]).toBe(ld(s.accent));
-    expect(vars["--color-on-accent"]).toBe(ld(s.onAccent));
     expect(vars["--her-mark"]).toBe(ld(s.mark));
     expect(vars["--her-button"]).toBe(ld(s.button.bg));
     expect(vars["--her-button-fg"]).toBe(ld(s.button.fg));
@@ -40,16 +36,8 @@ describe("herVars", () => {
     for (const gone of ["--her-paper", "--her-paper-muted", "--her-call-top", "--her-call-glow", "--her-call-rule"])
       expect(Object.keys(vars)).not.toContain(gone);
 
-    // 只注入 Astryx 强调色、shadcn 的 primary 和焦点环、--her-* 变量。
+    // 只注入 shadcn 的 primary 和焦点环、--her-* 变量；旧主题的 --color-* 强调色不再注入。
     const names = Object.keys(vars);
-    const shadcn = ["--primary", "--primary-foreground", "--ring"];
-    expect(names.every((n) => n.startsWith("--her-") || n.startsWith("--color-") || shadcn.includes(n))).toBe(true);
-    expect(names.filter((n) => !n.startsWith("--her-") && !n.startsWith("--color-")).sort()).toEqual(shadcn);
-    expect(names.filter((n) => n.startsWith("--color-")).sort()).toEqual([
-      "--color-accent",
-      "--color-icon-accent",
-      "--color-on-accent",
-      "--color-text-accent",
-    ]);
+    expect(names.filter((n) => !n.startsWith("--her-")).sort()).toEqual(["--primary", "--primary-foreground", "--ring"]);
   });
 });

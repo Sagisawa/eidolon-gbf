@@ -21,12 +21,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      # 升级 Astryx 后要在 frontend/ 里运行 npx @astryxdesign/cli upgrade --apply（见 AGENTS.md）
-      # 并重新 npm run theme:build，所以单独成一个 PR，不能直接合
-      astryx:
-        patterns: ["@astryxdesign/*"]
       frontend:
-        exclude-patterns: ["@astryxdesign/*"]
         update-types: [minor, patch]
     ignore:
       # 类型的大版本跟着实际运行的 Node.js（22）走，和 Dockerfile 的 node 一起手动升

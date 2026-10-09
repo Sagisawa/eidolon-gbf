@@ -1,9 +1,5 @@
 {
   "mcpServers": {
-    "astryx": {
-      "type": "http",
-      "url": "https://astryx.atmeta.com/mcp"
-    },
     "shadcn": {
       "command": "cmd",
       "args": ["/c", "npx", "shadcn@latest", "mcp"]

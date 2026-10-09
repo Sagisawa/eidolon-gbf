@@ -21,7 +21,7 @@ export type ImageColorScale = {
   /** 她颜色的圆按钮（通话、发送）：底色和图标色。浅色模式用原色（图标保证可辨认）；
    *  深色模式下原色可能和页面一样暗，改用与页面对比度 ≥ 3 的 mark。 */
   button: { bg: ModePair; fg: ModePair };
-  /** 在纸面上写她颜色的字，以及强调色（Astryx 用它给按钮等填底）。 */
+  /** 在纸面上写她颜色的字，以及强调色（注入成 shadcn 的 --primary，给按钮等填底）。 */
   accent: ModePair;
   /** 放在 accent 填底上的字和图标。 */
   onAccent: ModePair;

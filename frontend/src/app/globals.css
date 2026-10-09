@@ -1,7 +1,4 @@
-/*
- * Tailwind 和 shadcn 的主题（DESIGN.md：shadcn neutral 为底）。层的先后在 layers.css 里定：
- * Tailwind 的 theme、base 排在 Astryx 的组件样式前面，旧页面不受影响。
- */
+/* Tailwind 和 shadcn 的主题（DESIGN.md：shadcn neutral 为底）。 */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -20,6 +17,8 @@
   --font-heading: var(--font-sans);
   /* 中文正文的 Noto Sans SC（根布局用 next/font 载入成 --font-zh）。不用 shadcn init 换上的 Geist。 */
   --font-sans: var(--font-zh), "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  /* 她的日语原文的 LINE Seed JP（--font-ja），缺字时退回中文正文字体。<Ja> 用它。 */
+  --font-japanese: var(--font-ja), var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -110,7 +109,7 @@
 }
 
 /*
- * 颜色变量都是 light-dark(浅色, 深色)，按 color-scheme 取值：根上跟随系统（Astryx 的重置已给 html 设了
+ * 颜色变量都是 light-dark(浅色, 深色)，按 color-scheme 取值：根上跟随系统（下面 base 层给 html 设了
  * color-scheme: light dark），.dark 子树强制取深色。shadcn init 生成的 :root/.dark 两块合成了这一块。
  *
  * 构建时 LightningCSS 把 light-dark() 换成按 color-scheme 切换的变量，在声明处就求值，子树不会跟着变；
@@ -174,19 +173,12 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground;
+    /* antialiased 沿用原先 Astryx 重置的字体平滑，页面观感不变。 */
+    @apply bg-background text-foreground antialiased;
     }
   html {
     @apply font-sans;
+    /* 明暗跟随系统，light-dark() 靠它取值。 */
+    color-scheme: light dark;
     }
-}
-/*
- * 并存期间：Astryx 主题在 reset 层给裸的 h1–h6、p、small 设了颜色和字号，会渗进 shadcn 写的地方。
- * base 层排在 reset 后面，这里改回继承。清理波随 Astryx 一起删掉。
- */
-@layer base {
-  :where(h1, h2, h3, h4, h5, h6, p, small) {
-    color: inherit;
-    font: inherit;
-  }
 }

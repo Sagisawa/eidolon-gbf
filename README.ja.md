@@ -178,7 +178,7 @@ default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 
 キャラクターシート・キャラクター資料・アイコン・通話画面の背景画像はリポジトリに含めます（ADR-0003）。キャラクターを追加するときは [`characters/sheets/example.md`](characters/sheets/example.md) を参考に `characters/sheets/<キャラクターID>.md` を書いてください。キャラクター資料（任意）は [`characters/facts/example.md`](characters/facts/example.md) を参考に `characters/facts/` 以下へ、アイコン（任意）は `characters/avatars/` 以下に置きます。シートが欠けているとバックエンドは起動を拒否し、どのファイルが足りないかを示します。
 
-`color` は原作で公式に決められたそのアイドルのイメージカラー（`#rrggbb`、必須）です。画面上で彼女に属するもの（彼女の吹き出し、通話ボタン、付箋、通話画面）はすべてこの色が基調になり、フロントエンドはここからライト・ダークの 2 組の色を導き、どちらでも文字が読めるようにします。`color` がない、または形式が正しくないと、バックエンドは起動を拒否し、どのアイドルかを示します。通話画面の背景画像（任意）は `characters/backgrounds/` 以下に置き、`background = "backgrounds/mano.jpg"` で指定します。指定がないかファイルが存在しない場合、通話画面はイメージカラーのグラデーションで代用します。docker compose は `characters/` をバックエンドコンテナに読み取り専用でマウントします。`idol_id` と `default_outfit` は通話画面の立ち絵に使います。下記の[立ち絵](#立ち絵)を参照してください。
+`color` は原作で公式に決められたそのアイドルのイメージカラー（`#rrggbb`、必須）です。画面上で彼女に属するもの（会話の壁紙、通話ボタン、送信ボタン、未読数、通話画面と通話バー）はすべてこの色が基調になり、フロントエンドはここからライト・ダークの 2 組の色を導き、どちらでも文字が読めるようにします。`color` がない、または形式が正しくないと、バックエンドは起動を拒否し、どのアイドルかを示します。通話画面の背景画像（任意）は `characters/backgrounds/` 以下に置き、`background = "backgrounds/mano.jpg"` で指定します。指定がないかファイルが存在しない場合、通話画面はイメージカラーのグラデーションで代用します。docker compose は `characters/` をバックエンドコンテナに読み取り専用でマウントします。`idol_id` と `default_outfit` は通話画面の立ち絵に使います。下記の[立ち絵](#立ち絵)を参照してください。
 
 <details>
 <summary><b>バックグラウンドモデルでキャラクターシートの下書きを作る</b></summary>
@@ -216,7 +216,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 > Alibaba Cloud Model Studio を選ぶ場合：バックエンドは起動時にキーを一度試し、両方のリージョンで拒否された、モデルが有効になっていない、または接続できない場合は、理由を示して起動を拒否します。公開デプロイで北京リージョンのキーを使うと、**見知らぬユーザーの声が中国本土で処理され、中国の法律のもとで保存されます**（保存期間は非公開）。従量課金の呼び出しのデータは学習に使わないと Alibaba Cloud は約束しています。プライバシーポリシーには両方のサービスを挙げ、この点を明記しています（ADR-0010）。
 
 - 通話画面には彼女のアイコン、通話の状態とタイマー、いま話している一文の日本語原文と字幕、そしてあなたが話している内容が表示されます。すべての記録は会話のほうで見られます。タイマーはつながった時点から数え、1 回の通話時間の上限まで 1 分を切ると残り時間の表示に変わります。
-- 左上の閉じるボタンか Esc で通話画面を閉じると、通話は続いたまま会話記録に戻り、上部に「通话中 mm:ss · 点击返回」（通話中 · タップで戻る）の付箋が残ります。付箋を押すと通話画面が再び開きます。通話画面では文字を入力できないので、入力したいときは閉じて会話のほうで入力します。
+- 左上の閉じるボタンか Esc で通話画面を閉じると、通話は続いたまま会話記録に戻り、会話のヘッダーの下に彼女の色の通話バーが残り、「通话中 mm:ss」（通話中）と「回到通话 ›」（通話に戻る）と表示されます。押すと通話画面が再び開きます。通話画面では文字を入力できないので、入力したいときは閉じて会話のほうで入力します。
 
 - 中国語でも日本語でも話せます。アイドルは設定された Fish Audio の音声で日本語の返事を読み上げ、日本語の原文と中国語字幕が会話記録に同時に表示されます。
 - 感情がはっきりしたまとまりでは、アイドルは日本語の前に Fish Audio 向けの演技指示（例：`[shyly] えへへ`）を書き、音声合成はそれに沿って抑揚をつけて読みます。書き方が正しくない指示はすべて削除され、読み上げられることはありません。演技指示は画面に表示されず、メモリーの抽出にも渡しませんが、会話記録にはそのまま残します。モデルが自分の付けた指示を見られなくなると、だんだん付けなくなるためです（[ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)）。
@@ -532,7 +532,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 # :8000 で起動し、../characters/characters.toml を読み込む（EIDOLON_CHARACTERS_PATH で変更可）
 ```
 
-**フロントエンド**（Next.js + [Astryx](https://www.npmjs.com/package/@astryxdesign/core)、`frontend/`）：
+**フロントエンド**（Next.js + [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS、`frontend/`）：
 
 ```sh
 cd frontend
@@ -542,9 +542,9 @@ npm run typecheck
 npm test
 ```
 
-画面は Astryx コンポーネントライブラリに独自の「手帳」テーマを組み合わせて作っています（ビジュアル仕様は [`DESIGN.md`](DESIGN.md)）。テーマのソースは `src/theme/notebookTheme.ts` で、変更したら `npm run theme:build` で `src/theme/built/` 以下のビルド済み CSS を作り直します（`npm run theme:check` で両者が一致しているか確認できます）。画面の文言は `src/i18n/` にまとめてあり、いまのところ簡体字中国語だけです。
+画面は shadcn/ui（土台は Base UI）と Tailwind CSS v4 で作った、控えめな LINE 風のデザインです。外枠はニュートラルなグレーと白で、彼女に属する場所だけ彼女のイメージカラーを使います（ビジュアル仕様は [`DESIGN.md`](DESIGN.md)）。テーマ変数は `src/app/globals.css` に、コンポーネントの書き方の決まりは [`frontend/AGENTS.md`](frontend/AGENTS.md) にあります。画面の文言は `src/i18n/` にまとめてあり、いまのところ簡体字中国語だけです。
 
-PR と main へのプッシュごとに、GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）が上記のチェック、`theme:check`、シェルスクリプトの shellcheck を実行し、2 つのイメージをビルドします。main では、すべてのチェックが通ったときだけイメージを GHCR に公開します。Dependabot が毎週月曜に依存関係の更新 PR を作ります。
+PR と main へのプッシュごとに、GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）が上記のチェック、フロントエンドの書き方チェック（`frontend/scripts/check-discipline.sh`）、シェルスクリプトの shellcheck を実行し、2 つのイメージをビルドします。main では、すべてのチェックが通ったときだけイメージを GHCR に公開します。Dependabot が毎週月曜に依存関係の更新 PR を作ります。
 
 ## 📁 ディレクトリ構成
 
@@ -602,7 +602,7 @@ eidolon-sc/
 │   │   └── llm/              #   3 種類のモデル方式のアダプター
 │   ├── eval/                 #   並べ替えの調整用データセット（質問とラベルのみ、シナリオ本文は含まない）
 │   └── tests/
-├── frontend/                 # Next.js + Astryx フロントエンド
+├── frontend/                 # Next.js + shadcn/ui フロントエンド
 ├── characters/               # キャラクター設定・シート・資料・アイコン・通話画面の背景画像
 ├── corpus/                   # シナリオデータ、ミラーのキャッシュ、立ち絵の作業ディレクトリ（リポジトリ外）
 ├── deploy/                   # Caddyfile、シナリオと立ち絵の同期スクリプト、データベースのバックアップスクリプト、イベント名対応表のサンプル

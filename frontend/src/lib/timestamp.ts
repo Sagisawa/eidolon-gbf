@@ -1,4 +1,4 @@
-// 界面上的时间怎么写（取代 Astryx 的 Timestamp）。后台的列表、详情、单价目录都用它。
+// 界面上的时间怎么写。后台的列表、详情、单价目录都用它。
 
 export type TimestampFormat = "date_time" | "auto";
 

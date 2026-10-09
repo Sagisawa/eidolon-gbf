@@ -175,7 +175,7 @@ default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 
 人设文件、角色资料、头像和通话层背景图都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。
 
-`color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（她的气泡、电话键、便利贴、通话层）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。`idol_id` 和 `default_outfit` 用于通话层的立绘，见下方[立绘](#立绘)。
+`color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（对话壁纸、电话键、发送键、未读数、通话层和通话条）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。`idol_id` 和 `default_outfit` 用于通话层的立绘，见下方[立绘](#立绘)。
 
 <details>
 <summary><b>用后台模型生成人设初稿</b></summary>
@@ -213,7 +213,7 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 > 选阿里云百炼时：后端启动时试调一次 key，两个地域都拒绝、模型没开通或连不上，就拒绝启动并说明原因。公开部署用北京地域的 key 时，**陌生用户的声音会送到中国内地处理，按中国法律保存**（期限不公开）；按量付费调用的数据阿里云承诺不用于训练。隐私说明里两家都列出，写明了这一点（ADR-0010）。
 
 - 通话层显示她的头像、通话状态和计时，当前这句的日语原文和字幕，以及你正在说的话；完整的记录在对话里看。计时从接通算起，离单次通话的时长上限不到一分钟时改为显示剩余时间。
-- 左上角的收起键或 Esc 收起通话层，回到文字记录，通话照常继续；页首留一张「通话中 mm:ss · 点击返回」的便利贴，点一下重新展开。通话层上不能打字，想打字就收起，在对话里打。
+- 左上角的收起键或 Esc 收起通话层，回到文字记录，通话照常继续；页首下面留一条她颜色的通话条，写着「通话中 mm:ss」和「回到通话 ›」，点一下重新展开。通话层上不能打字，想打字就收起，在对话里打。
 
 - 说中文或日语都可以，角色用配置的 Fish Audio 音色读日语原文，日语原文和中文字幕同时显示在对话记录里。
 - 情绪明显的段落，角色会在日语前写上给 Fish Audio 看的语气提示（如 `[shyly] えへへ`），合成时照着念出起伏；写法不规范的提示一律删掉，不会被念出来。语气提示不显示在界面上、也不送去提炼记忆，但在对话记录里原样保留，免得模型看不到自己标过、越标越少（[ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)）。
@@ -528,7 +528,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 # 启动在 :8000，读取 ../characters/characters.toml（可用 EIDOLON_CHARACTERS_PATH 覆盖）
 ```
 
-**前端**（Next.js + [Astryx](https://www.npmjs.com/package/@astryxdesign/core)，`frontend/`）：
+**前端**（Next.js + [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS，`frontend/`）：
 
 ```sh
 cd frontend
@@ -538,9 +538,9 @@ npm run typecheck
 npm test
 ```
 
-界面用 Astryx 组件库加一套自定义的「手帐」主题（视觉规范见 [`DESIGN.md`](DESIGN.md)）。主题源文件是 `src/theme/notebookTheme.ts`，改过之后运行 `npm run theme:build` 重新生成 `src/theme/built/` 下预构建的 CSS（`npm run theme:check` 检查两者是否一致）。界面文案集中在 `src/i18n/`，目前只有简体中文。
+界面用 shadcn/ui（底层 Base UI）加 Tailwind CSS v4，是克制的 LINE 风格：中性灰白的外框，属于她的地方用她的印象色（视觉规范见 [`DESIGN.md`](DESIGN.md)）。主题变量在 `src/app/globals.css`，组件写法的约定见 [`frontend/AGENTS.md`](frontend/AGENTS.md)。界面文案集中在 `src/i18n/`，目前只有简体中文。
 
-每个 PR 和 main 上的推送由 GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）跑上面这些检查、`theme:check` 和 shell 脚本的 shellcheck，再构建两个镜像；推送到 main 时，检查全部通过才把镜像发布到 GHCR。Dependabot 每周一提依赖更新的 PR。
+每个 PR 和 main 上的推送由 GitHub Actions（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）跑上面这些检查、前端的写法检查（`frontend/scripts/check-discipline.sh`）和 shell 脚本的 shellcheck，再构建两个镜像；推送到 main 时，检查全部通过才把镜像发布到 GHCR。Dependabot 每周一提依赖更新的 PR。
 
 ## 📁 项目结构
 
@@ -598,7 +598,7 @@ eidolon-sc/
 │   │   └── llm/              #   三种模型接口的适配
 │   ├── eval/                 #   重排校准数据集（只含问题与标注，不含剧情原文）
 │   └── tests/
-├── frontend/                 # Next.js + Astryx 前端
+├── frontend/                 # Next.js + shadcn/ui 前端
 ├── characters/               # 角色配置、人设、资料、头像、通话层背景图
 ├── corpus/                   # 剧情数据、镜像缓存、立绘整理目录（不进仓库）
 ├── deploy/                   # Caddyfile、剧情库与立绘的同步脚本、数据库备份脚本、活动名对照表示例

@@ -32,6 +32,5 @@ Summary 选最小的一种视图讲清要点（diff 草图、调用树、文件�
 - 配置项有增删改时：.env.example、三份 README（中/英/日）、docs/deploy.md 已同步
 - 出现新术语或改了术语含义时：GLOSSARY.md 已更新
 - 做了难以撤回的设计决策时：docs/adr/ 已加 ADR
-- 改了 frontend/src/theme/notebookTheme.ts 时：已运行 npm run theme:build
 - 没有提交 .env、密钥、剧情库或语音数据（ADR-0003）
 -->
