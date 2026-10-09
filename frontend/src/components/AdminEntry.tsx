@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-import { AppLink } from "@/components/AppLink";
-import { SettingsSection } from "@/components/SettingsSection";
+import { AppLink } from "@/components/app/AppLink";
+import { SettingsSection } from "@/components/app/SettingsSection";
 import { copy } from "@/i18n";
 import { getAccount } from "@/lib/api";
 
@@ -20,7 +20,7 @@ export function AdminEntry() {
   if (!isAdmin) return null;
   return (
     <SettingsSection title={t.title} description={t.hint}>
-      <AppLink href="/admin" isStandalone hasUnderline>
+      <AppLink href="/admin" isStandalone className="self-start">
         {t.enter}
       </AppLink>
     </SettingsSection>

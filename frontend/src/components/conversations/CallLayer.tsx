@@ -1,37 +1,27 @@
 "use client";
 
-import { Avatar } from "@astryxdesign/core/Avatar";
-import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack } from "@astryxdesign/core/HStack";
-import { Icon } from "@astryxdesign/core/Icon";
-import { IconButton } from "@astryxdesign/core/IconButton";
-import { StackItem } from "@astryxdesign/core/Stack";
-import { Switch } from "@astryxdesign/core/Switch";
-import { Text } from "@astryxdesign/core/Text";
-import { MediaTheme } from "@astryxdesign/core/theme";
-import { VStack } from "@astryxdesign/core/VStack";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ComponentType,
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-  type SVGProps,
-} from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject, type SVGProps } from "react";
 
+import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { copy } from "@/i18n";
 import type { Character, Outfit, Segment } from "@/lib/api";
 import type { CallEnd } from "@/lib/callEnd";
-import { showTime } from "@/lib/callTime";
-import { CALL_MUTED } from "@/lib/imageColor";
+import { clock, showTime } from "@/lib/callTime";
 import type { CallState, LiveCall, MicNotice } from "@/lib/liveConversation";
 import type { StandDirection } from "@/lib/standAnimations";
-import { CollapseIcon, HangUpIcon, MicIcon, MicOffIcon, MicSwitchIcon } from "@/theme/icons";
+import { cn } from "@/lib/utils";
+import {
+  CollapseIcon,
+  HangUpIcon,
+  MicIcon,
+  MicOffIcon,
+  MicSwitchIcon,
+  PhoneIcon,
+  TextOnlyIcon,
+} from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
-import { lineState } from "@/theme/lineState";
 
 import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
@@ -76,13 +66,17 @@ type Props = {
 };
 
 /**
- * 通话层（DESIGN.md「Call layer」）：像一张折好的纸，从页首整张拉下来；收起是同一个动作反过来。
- * 强制深色；她的背景图全幅，上面叠她 call.top 到 call.deep 的渐变，没有背景图时只用渐变。
- * 她有立绘时（`character.stand`）用立绘版的布局：手机「大立绘」、电脑「半身 ADV」。
+ * 通话层（DESIGN.md「Call layer」）：从对话栏底部整张滑上来，收起是同一个动作反过来（410ms、ease-call），
+ * 减少动态效果时没有过渡。强制深色（`.dark`），文字白色、次要字 80% 白。
+ *
+ * 底是她的头像放大模糊（有背景图时换成清晰的背景图），上面压一层到 call.deep 的渐变。
+ * 没有立绘时中部是 112px 头像、名字和状态行；她有立绘时（`character.stand`）立绘做底，名字和状态行缩进头部，
+ * 底部压暗。台词放在底部的毛玻璃卡里，再下面是毛玻璃底栏；结束后台词卡换成同样毛玻璃的结束卡。
  */
 export function CallLayer(props: Props) {
   const { character, call, isCollapsed, isFullScreen, isReducedMotion, layerRef } = props;
   const ended = call.phase === "ended";
+  const hasStand = Boolean(character.stand);
 
   // Esc 收起（结束页上是回到对话）；按键时取最新的回调。
   const onEscape = useRef(() => {});
@@ -101,140 +95,163 @@ export function CallLayer(props: Props) {
   }, [isCollapsed, layerRef]);
 
   return (
-    <VStack
-      as="section"
+    <section
       ref={layerRef}
       tabIndex={-1}
       aria-label={t.layer(character.name)}
       aria-hidden={isCollapsed}
       inert={isCollapsed}
-      style={{
-        position: isFullScreen ? "fixed" : "absolute",
-        inset: 0,
-        zIndex: 1,
-        outline: "none",
-        colorScheme: "dark",
-        color: "var(--color-text-primary)",
-        backgroundColor: "var(--her-call-deep)",
-        backgroundImage: backdrop(character.background_url),
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        clipPath: isCollapsed ? "inset(0 0 100% 0)" : "inset(0 0 0 0)",
-        visibility: isCollapsed ? "hidden" : "visible",
-        transition: isReducedMotion
-          ? "none"
-          : `clip-path var(--duration-medium) var(--ease-standard), visibility 0s linear ${isCollapsed ? "var(--duration-medium)" : "0s"}`,
-      }}
+      className={cn(
+        "dark inset-0 z-10 flex flex-col overflow-hidden bg-her-call-deep text-white outline-none",
+        isFullScreen ? "fixed" : "absolute",
+        // visibility 跟着一起过渡：收起时等滑完才藏起来，展开时立刻可见。第一次出现也从底部滑上来。
+        isReducedMotion
+          ? "transition-none"
+          : "transition-[translate,visibility] duration-410 ease-call starting:translate-y-full",
+        isCollapsed ? "invisible translate-y-full" : "translate-y-0",
+      )}
     >
-      <MediaTheme mode="dark">
-        <VStack height="100%" paddingInline={5} paddingBlock={4} style={onCall}>
-          <HStack vAlign="center" gap={3}>
-            <StackItem size="fill" style={{ minWidth: 0 }}>
-              {!ended && (
-                <IconButton
-                  label={t.collapse}
-                  tooltip={t.collapseTooltip}
-                  icon={<Icon icon={CollapseIcon} />}
-                  variant="ghost"
-                  onClick={props.onCollapse}
-                  style={isFullScreen ? { ...touchTarget, minWidth: "var(--spacing-11)" } : undefined}
-                />
-              )}
-            </StackItem>
-            <Text type="supporting" color="secondary">
-              {t.heading}
-            </Text>
-            <StackItem size="fill" style={{ minWidth: 0 }}>
-              {!ended && (
-                <HStack hAlign="end">
-                  <Switch
-                    label={t.textOnly}
-                    value={props.textOnly}
-                    onChange={props.onToggleTextOnly}
-                    size="sm"
-                    // Switch 的外层是块元素，撑到 44px 高后要自己变成 flex，开关才落在中间，和收起键、标题对齐
-                    style={isFullScreen ? { ...touchTarget, display: "flex", alignItems: "center" } : undefined}
+      <Backdrop character={character} />
+      {hasStand && <StandStage {...props} />}
+
+      <header className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 pt-4">
+        <div className="flex justify-start">
+          {!ended && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-lg"
+                    className={cn(isFullScreen && "size-11")}
+                    aria-label={t.collapse}
+                    onClick={props.onCollapse}
                   />
-                </HStack>
-              )}
-            </StackItem>
-          </HStack>
-
-          {character.stand ? (
-            <StandBody {...props} />
-          ) : (
-            <StackItem size="fill" isScrollable>
-              <VStack minHeight="100%" hAlign="center" vAlign="center" gap={4} paddingBlock={4}>
-                <Avatar
-                  src={character.avatar_url ?? undefined}
-                  name={character.name}
-                  size="xl"
-                  tooltip={false}
-                  style={portrait}
-                />
-                <Name character={character} />
-                <Words {...props} />
-              </VStack>
-            </StackItem>
+                }
+              >
+                <CollapseIcon className="size-6" />
+              </TooltipTrigger>
+              <TooltipContent>{t.collapseTooltip}</TooltipContent>
+            </Tooltip>
           )}
+        </div>
+        <div className="min-w-0 text-center">
+          {hasStand && (
+            <>
+              <h2 className="truncate text-header font-bold">{character.name}</h2>
+              <Status call={call} />
+            </>
+          )}
+        </div>
+        <div className="flex justify-end">
+          {!ended && (
+            <Button
+              variant="call-glass"
+              size={isFullScreen ? "call" : "call-sm"}
+              aria-pressed={props.textOnly}
+              onClick={props.onToggleTextOnly}
+            >
+              <TextOnlyIcon aria-hidden />
+              {t.textOnly}
+            </Button>
+          )}
+        </div>
+      </header>
 
-          {!ended && <Controls {...props} isConnected={call.phase === "connected"} />}
-        </VStack>
-      </MediaTheme>
-    </VStack>
+      {!hasStand && (
+        <div className="relative flex flex-col items-center gap-3 pt-10 text-center">
+          <Ripple isOn={call.phase === "dialing"}>
+            <MarkedAvatar name={character.name} src={character.avatar_url} size="call" />
+          </Ripple>
+          <h2 className="mt-2 text-call-name">{character.name}</h2>
+          <Status call={call} />
+        </div>
+      )}
+
+      <div
+        className={cn(
+          "relative flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto px-5",
+          ended ? "justify-center py-6" : "justify-end pb-5",
+        )}
+      >
+        {call.phase === "ended" ? (
+          <Ended {...props} end={call.end} />
+        ) : (
+          <>
+            <p role="status" className="text-center text-sm text-white/80">
+              {props.micNotice && t.micNotices[props.micNotice]}
+            </p>
+            {/* 台词卡在接通前不出现 */}
+            {call.phase === "connected" && <LineCard {...props} />}
+          </>
+        )}
+      </div>
+
+      {!ended && <Dock {...props} isConnected={call.phase === "connected"} />}
+    </section>
   );
 }
 
 /**
- * 立绘版的布局（spec「通话层」）。只要她有立绘，一打电话就用它，立绘晚到或者加载失败都不切回去，
- * 字幕的位置在通话中途不会跳。立绘叠在背景图和纱上面，在文字和按钮下面；底部压一层她颜色的深色渐变，
- * 按钮和对话框落在衣服上也看得清。
- * - 手机「大立绘」：立绘从底部升起，贴着头顶、到膝；名字、计时和字幕在上方。
- * - 电脑「半身 ADV」：立绘铺满整层，贴着头顶、到腰；名字、计时和字幕在底部半透明的对话框里。
+ * 底：没有背景图时她的头像放大、`blur-3xl`；有背景图时背景图清晰铺满。上面压一层从 25% 黑到
+ * call.deep 混黑（`her-call-shade`）的渐变，白字的可读性全靠它（DESIGN.md「Call layer」）。
  */
-function StandBody(props: Props) {
-  const { character, call, isCollapsed, isFullScreen, isReducedMotion, standOutfits, standDirection } = props;
-  const dial = useDialCount(call.phase);
-  const stand = (
-    <Stand
-      // 每拨一次重新载入：上一通失败了，这一通再试一次。
-      key={dial}
-      outfits={standOutfits}
-      framing={isFullScreen ? "knees" : "waist"}
-      isPaused={isCollapsed}
-      entrance={isFullScreen && !isReducedMotion ? "rise" : "fade"}
-      direction={standDirection}
-      isReducedMotion={isReducedMotion}
-    />
-  );
-
-  if (isFullScreen) {
-    return (
-      <>
-        <VStack style={{ ...behind, insetInline: 0, bottom: 0, height: "78%" }}>{stand}</VStack>
-        <VStack style={bottomShade} />
-        <StackItem size="fill" isScrollable>
-          <VStack hAlign="center" gap={3} paddingBlock={2}>
-            <Name character={character} />
-            <Words {...props} />
-          </VStack>
-        </StackItem>
-      </>
-    );
-  }
+function Backdrop({ character }: { character: Character }) {
+  const src = character.background_url ?? character.avatar_url;
   return (
     <>
-      <VStack style={{ ...behind, inset: 0 }}>{stand}</VStack>
-      <VStack style={bottomShade} />
-      <StackItem size="fill" />
-      <VStack hAlign="center" gap={2} padding={4} style={dialogBox}>
-        <HStack width="100%">
-          <Text weight="medium" style={{ color: "var(--her-call-rule)" }}>
-            {character.name}
-          </Text>
-        </HStack>
-        <Words {...props} />
-      </VStack>
+      {src && (
+        // 纯装饰的底图，不经 next/image：头像要整张放大模糊，背景图按 cover 铺满。
+        <img
+          src={src}
+          alt=""
+          aria-hidden
+          className={cn(
+            "pointer-events-none absolute inset-0 size-full object-cover",
+            !character.background_url && "scale-125 blur-3xl",
+          )}
+        />
+      )}
+      <div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-b from-black/25 to-her-call-shade" />
+    </>
+  );
+}
+
+/**
+ * 立绘（DESIGN.md「Call layer」的「立绘」）：叠在底图和渐变之上、文字和按钮之下，不接收点击。
+ * 只要她有立绘，一打电话就用这套布局，立绘晚到或者加载失败都不切回头像版，台词的位置不跳。
+ * - 手机：占下方 80% 的高度，取景到膝，到了从下方升起。
+ * - 电脑：铺满头部以下的整层，取景到腰，原地淡入。
+ * 底部 50% 压一层到 call.deep 的渐变，台词卡和底栏落在衣服上也看得清。结束后立绘降到 40%。
+ */
+function StandStage(props: Props) {
+  const { call, isCollapsed, isFullScreen, isReducedMotion, standOutfits, standDirection } = props;
+  const dial = useDialCount(call.phase);
+  return (
+    <>
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 transition-opacity duration-500",
+          isFullScreen ? "h-[80%]" : "top-16",
+          call.phase === "ended" && "opacity-40",
+        )}
+      >
+        <Stand
+          // 每拨一次重新载入：上一通失败了，这一通再试一次。
+          key={dial}
+          outfits={standOutfits}
+          framing={isFullScreen ? "knees" : "waist"}
+          isPaused={isCollapsed}
+          entrance={isFullScreen && !isReducedMotion ? "rise" : "fade"}
+          direction={standDirection}
+          isReducedMotion={isReducedMotion}
+        />
+      </div>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-linear-to-b from-transparent via-her-call-deep/88 via-55% to-her-call-deep"
+      />
     </>
   );
 }
@@ -250,222 +267,206 @@ function useDialCount(phase: ShownCall["phase"]): number {
   return seen.count;
 }
 
-function Name({ character }: { character: Character }) {
+/**
+ * 状态行（名字下面）：呼叫中是「正在呼叫」加三个依次闪的小点，通话中是计时，结束后是挂断图标加
+ * 「通话已结束 · mm:ss」（没接通过就不带时长）。只用文字和图标，不再用线形。
+ */
+function Status({ call }: { call: ShownCall }) {
+  const time = useCallTime(call);
+  const seconds = useEndedSeconds(call);
   return (
-    <Heading level={2} style={{ fontSize: "var(--text-large-size)" }}>
-      {character.name}
-    </Heading>
+    <p className="flex items-center justify-center gap-1.5 text-sm text-white/80 tabular-nums">
+      {call.phase === "dialing" && (
+        <>
+          {t.calling}
+          <span aria-hidden className="inline-flex gap-0.5">
+            {/* 延迟写在 style 里：animate-pulse 是 animation 简写，会盖掉类里的 animation-delay */}
+            {[0, 200, 400].map((delay) => (
+              <span
+                key={delay}
+                className="size-1 rounded-full bg-white/80 motion-safe:animate-pulse"
+                style={{ animationDelay: `${delay}ms` }}
+              />
+            ))}
+          </span>
+        </>
+      )}
+      {call.phase === "connected" && time && showTime(time)}
+      {call.phase === "ended" && (
+        <>
+          <HangUpIcon aria-hidden className="size-3.5" />
+          {seconds === null ? t.ended : t.endedAfter(clock(seconds))}
+        </>
+      )}
+    </p>
   );
 }
 
-/** 名字下面的内容：通话中是状态和字幕，结束后是结束页。 */
-function Words(props: Props) {
-  const { call } = props;
-  return call.phase === "ended" ? <Ended {...props} end={call.end} /> : <Live {...props} call={call} />;
+/** 结束了的通话打了多久（秒）：记下接通的时刻，结束时算出来；没接通过为 null。 */
+function useEndedSeconds(call: ShownCall): number | null {
+  const [since, setSince] = useState<number | null>(null);
+  const [seconds, setSeconds] = useState<number | null>(null);
+  if (call.phase === "connected" && call.since !== since) {
+    setSince(call.since);
+    setSeconds(null);
+  }
+  if (call.phase === "dialing" && since !== null) setSince(null);
+  const isEnded = call.phase === "ended";
+  useEffect(() => {
+    if (isEnded && since !== null) setSeconds(Math.max(0, Math.floor((Date.now() - since) / 1000)));
+  }, [isEnded, since]);
+  return isEnded ? seconds : null;
 }
 
-/** 拨打中、通话中：状态和计时，她当前这句的日语和字幕，用户正在说的话。 */
-function Live({ call, line, hearing, textOnly, micNotice }: Props & { call: LiveCall }) {
-  const time = useCallTime(call);
-  if (!time) return <Status line="dashed">{t.dialing}</Status>;
+/** 呼叫中、没有立绘时头像外两圈 20% 白的波纹，2 秒一圈；减少动态效果时不放。 */
+function Ripple({ isOn, children }: { isOn: boolean; children: ReactNode }) {
   return (
-    <VStack hAlign="center" gap={6} width="100%" maxWidth="34em">
-      <VStack hAlign="center" gap={2}>
-        <Status line="solid">{showTime(time)}</Status>
-        <Text type="supporting" color="secondary" justify="center" role="status">
-          {micNotice && t.micNotices[micNotice]}
-        </Text>
-      </VStack>
-      <VStack hAlign="center" gap={2} aria-live="polite" style={{ minHeight: "calc(var(--spacing-12) * 2.5)" }}>
+    <div className="relative grid place-items-center">
+      {/* 时长和延迟写在 style 里：animate-ping 是 animation 简写，会盖掉类里的 animation-duration */}
+      {isOn &&
+        [0, 1].map((delay) => (
+          <span
+            key={delay}
+            aria-hidden
+            className="absolute inset-0 rounded-full bg-white/20 motion-safe:animate-ping motion-reduce:hidden"
+            style={{ animationDuration: "2s", animationDelay: `${delay}s` }}
+          />
+        ))}
+      {children}
+    </div>
+  );
+}
+
+/**
+ * 台词卡：她当前这句的日语原文在上、字幕在下；「只看文字」开着时上一句以 45% 不透明度留在上面。
+ * 她还没开口时是一句提示。用户正在说、还没定稿的话放在最下面。
+ */
+function LineCard({ line, hearing, textOnly, call }: Props) {
+  const previous = usePreviousLine(line, call.phase);
+  return (
+    <div className="w-full max-w-[34em] rounded-3xl bg-white/12 px-5 py-4 text-center text-balance backdrop-blur-md">
+      <div aria-live="polite">
         {line ? (
           <>
-            <Ja>
-              <Text type="large" weight="normal" justify="center" textWrap="balance">
-                {line.ja}
-              </Text>
-            </Ja>
-            {line.zh && (
-              <Text color="secondary" justify="center" textWrap="balance">
-                {line.zh}
-              </Text>
+            {textOnly && previous && (
+              <div className="mb-3 opacity-45">
+                <p className="text-body">
+                  <Ja>{previous.ja}</Ja>
+                </p>
+                {previous.zh && <p className="text-subtitle text-white/80">{previous.zh}</p>}
+              </div>
             )}
+            <p className="text-call-line leading-relaxed">
+              <Ja>{line.ja}</Ja>
+            </p>
+            {line.zh && <p className="mt-1 text-sm text-white/80">{line.zh}</p>}
           </>
         ) : (
-          <Text color="secondary">{textOnly ? t.repliesInText : t.speakFreely}</Text>
+          <p className="text-sm text-white/80">{textOnly ? t.repliesInText : t.speakFreely}</p>
         )}
-      </VStack>
-      {hearing && (
-        <Text type="supporting" color="secondary" justify="center">
-          {t.hearing(hearing)}
-        </Text>
-      )}
-    </VStack>
+      </div>
+      {hearing && <p className="mt-3 text-sm text-white/80">{t.hearing(hearing)}</p>}
+    </div>
   );
 }
 
-/** 结束页：原因、后端多说的话、是否计入限额，以及「回到对话」和主操作。 */
-function Ended({ end, isFullScreen, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
-  const size = isFullScreen ? touchTarget : undefined;
+/**
+ * 这通电话里她的上一句。一句话的原文在说的过程中会变长，变长的还是同一句；换了一句，原来那句才成为上一句。
+ * 重新拨号时清掉。
+ */
+function usePreviousLine(line: Segment | null, phase: ShownCall["phase"]): Segment | null {
+  const [seen, setSeen] = useState<{ line: Segment | null; previous: Segment | null }>({ line, previous: null });
+  let next = seen;
+  if (phase === "dialing" && (seen.line || seen.previous)) next = { line: null, previous: null };
+  else if (line !== seen.line) {
+    const isSameLine = !line || !seen.line || line.ja.startsWith(seen.line.ja);
+    next = { line, previous: isSameLine ? seen.previous : seen.line };
+  }
+  if (next !== seen) setSeen(next);
+  return next.previous;
+}
+
+/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」）。 */
+function Ended({ end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
   const ending = t.endings[end.reason];
   const toOwnKeys = end.reason === "over_limit" || end.reason === "own_key";
   return (
-    <VStack hAlign="center" gap={4} maxWidth="26em" role="alert">
-      <Status line="struck">{t.ended}</Status>
-      <Heading level={3} style={{ textAlign: "center" }}>
-        {ending.title}
-      </Heading>
-      {end.detail && <Text justify="center">{end.detail}</Text>}
-      <Text color="secondary" justify="center">
-        {ending.body}
-      </Text>
-      <Text type="supporting" color="secondary" justify="center">
-        {end.counts ? t.counted : t.notCounted}
-      </Text>
-      <HStack gap={3} wrap="wrap" hAlign="center">
-        <Button label={t.backToConversation} variant="secondary" onClick={onDismiss} style={size} />
-        {toOwnKeys ? (
-          <Button label={t.toOwnKeys} variant="primary" onClick={onOwnKeys} style={size} />
-        ) : (
-          <Button label={t.redial} variant="primary" onClick={onRedial} style={size} />
-        )}
-      </HStack>
-    </VStack>
-  );
-}
-
-/** 状态行。线形表示状态（DESIGN.md「The Line-State Rule」）：虚线=拨打中，实线=通话中，删除线=已结束。 */
-function Status({ line, children }: { line: "dashed" | "solid" | "struck"; children: ReactNode }) {
-  return (
-    <Text
-      hasTabularNumbers
-      weight="medium"
-      style={lineState(line, "var(--her-call-rule)")}
+    <div
+      role="alert"
+      className="flex w-full max-w-[34em] flex-col items-center gap-2 rounded-3xl bg-white/12 px-5 py-6 text-center text-balance backdrop-blur-md"
     >
-      {children}
-    </Text>
+      <h3 className="text-lg font-semibold">{ending.title}</h3>
+      {end.detail && <p className="text-sm">{end.detail}</p>}
+      <p className="text-sm text-white/80">{ending.body}</p>
+      <p className="text-meta text-white/60">{end.counts ? t.counted : t.notCounted}</p>
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        <Button variant="call-glass" size="call" onClick={onDismiss}>
+          {t.backToConversation}
+        </Button>
+        <Button variant="call-solid" size="call" onClick={toOwnKeys ? onOwnKeys : onRedial}>
+          {!toOwnKeys && <PhoneIcon aria-hidden />}
+          {toOwnKeys ? t.toOwnKeys : t.redial}
+        </Button>
+      </div>
+    </div>
   );
 }
 
-/** 底部三枚圆形键：麦克风静音 · 挂断 · 切换麦克风。拨打中只能挂断。 */
-function Controls({ isConnected, micMuted, onToggleMic, onHangUp, onSwitchMic }: Props & { isConnected: boolean }) {
+/**
+ * 底栏：一条毛玻璃胶囊。静音、切换麦克风是 56px 圆形图标键（静音按下时白底黑图标），
+ * 挂断是带「挂断」二字的挂断红胶囊。呼叫中静音和切换麦克风置灰，只能挂断。
+ */
+function Dock({ isConnected, micMuted, onToggleMic, onHangUp, onSwitchMic }: Props & { isConnected: boolean }) {
   return (
-    <HStack hAlign="center" gap={8} paddingBlock={6}>
-      <RoundControl
-        label={micMuted ? t.micUnmute : t.micMute}
-        icon={micMuted ? MicOffIcon : MicIcon}
-        isPressed={micMuted}
-        isDisabled={!isConnected}
-        onClick={onToggleMic}
-      />
-      <RoundControl label={t.hangUp} icon={HangUpIcon} tone="danger" onClick={onHangUp} />
-      <RoundControl label={t.switchMic} icon={MicSwitchIcon} isDisabled={!isConnected} onClick={onSwitchMic} />
-    </HStack>
+    <footer className="relative flex justify-center px-4 pt-2 pb-8">
+      <div className="flex items-center gap-2 rounded-full bg-white/12 p-2 backdrop-blur-md">
+        <RoundKey
+          label={micMuted ? t.micUnmute : t.micMute}
+          icon={micMuted ? MicOffIcon : MicIcon}
+          isPressed={micMuted}
+          isDisabled={!isConnected}
+          onClick={onToggleMic}
+        />
+        <RoundKey label={t.switchMic} icon={MicSwitchIcon} isDisabled={!isConnected} onClick={onSwitchMic} />
+        <Button variant="hangup" size="call-dock" onClick={onHangUp} className="ml-2">
+          <HangUpIcon aria-hidden />
+          {t.hangUp}
+        </Button>
+      </div>
+    </footer>
   );
 }
 
-function RoundControl({
+function RoundKey({
   label,
-  icon,
-  tone,
+  icon: Icon,
   isPressed,
   isDisabled,
   onClick,
 }: {
   label: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
-  tone?: "danger";
   isPressed?: boolean;
   isDisabled?: boolean;
   onClick: () => void;
 }) {
   return (
-    <VStack hAlign="center" gap={2}>
-      <IconButton
-        label={label}
-        icon={<Icon icon={icon} size="lg" />}
-        variant={tone === "danger" ? "destructive" : "secondary"}
-        isDisabled={isDisabled}
-        aria-pressed={isPressed}
-        onClick={onClick}
-        style={{
-          width: roundSize,
-          height: roundSize,
-          borderRadius: "var(--radius-full)",
-          ...(tone !== "danger" && {
-            background: isPressed
-              ? "var(--color-text-primary)"
-              : translucentWhite,
-            color: isPressed ? "var(--her-call-deep)" : "var(--color-text-primary)",
-            border: 0,
-          }),
-        }}
-      />
-      <Text type="supporting" color="secondary" aria-hidden>
-        {label}
-      </Text>
-    </VStack>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="call-round"
+            size="icon-call-dock"
+            aria-label={label}
+            aria-pressed={isPressed}
+            disabled={isDisabled}
+            onClick={onClick}
+          />
+        }
+      >
+        <Icon aria-hidden />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   );
 }
-
-/** 通话层上圆形键和次要按钮的底：16% 的白（DESIGN.md「Round controls」）。 */
-const translucentWhite = "color-mix(in srgb, var(--color-text-primary) 16%, transparent)";
-
-/** 手机上每个能点的东西不小于 44px（spec「通话层」）。 */
-const touchTarget: CSSProperties = { minHeight: "var(--spacing-11)" };
-
-/** 圆形控制键 64px，手机上也远大于 44px 的触控下限。 */
-const roundSize = "calc(var(--spacing-8) * 2)";
-
-/**
- * 背景：她的背景图全幅，上面叠一层从 call.top 到 call.deep 的渐变，白字才读得清；没有背景图时渐变不透明，
- * 头像背后再透一点原色的光晕（DESIGN.md「Call layer」）。
- */
-function backdrop(backgroundUrl: string | null): string {
-  const glow =
-    "radial-gradient(50% 32% at 50% 38%, color-mix(in oklab, var(--her-call-glow) 30%, transparent) 0%, transparent 100%)";
-  if (!backgroundUrl) {
-    return `${glow}, linear-gradient(180deg, var(--her-call-top) 0%, var(--her-call-deep) 62%)`;
-  }
-  const veil =
-    "linear-gradient(180deg, color-mix(in oklab, var(--her-call-top) 82%, transparent) 0%, color-mix(in oklab, var(--her-call-deep) 94%, transparent) 62%, var(--her-call-deep) 100%)";
-  return `${veil}, url(${JSON.stringify(backgroundUrl)})`;
-}
-
-/**
- * 通话层上的覆盖：次要字是 74% 的白，与 imageColor 校验用的 CALL_MUTED 一致；
- * 开关的圆钮取 surface 色，在她的颜色上换成白色才看得见（DESIGN.md「Switch」）；
- * 次要按钮的底（neutral）在系统浅色时会取到浅色模式的深墨水，这里和圆形键一样换成半透明的白。
- */
-const onCall = {
-  "--color-text-secondary": `color-mix(in srgb, var(--color-text-primary) ${CALL_MUTED * 100}%, transparent)`,
-  "--color-background-surface": "var(--color-text-primary)",
-  "--color-neutral": translucentWhite,
-} as CSSProperties;
-
-/**
- * 铺在通话层底下的立绘：在背景图和纱之上，在文字和按钮之下（整层 zIndex 1 自成层叠上下文），
- * 不接收点击。
- */
-const behind: CSSProperties = { position: "absolute", zIndex: -1, pointerEvents: "none" };
-
-/** 底部压的一层她颜色的深色渐变，挂断、静音这些按钮落在衣服上也看得清（DESIGN.md「Call layer」）。 */
-const bottomShade: CSSProperties = {
-  ...behind,
-  insetInline: 0,
-  bottom: 0,
-  height: "45%",
-  background:
-    "linear-gradient(180deg, transparent 0%, color-mix(in oklab, var(--her-call-deep) 88%, transparent) 55%, var(--her-call-deep) 100%)",
-};
-
-/** 电脑「半身 ADV」的对话框：72% 的 call.deep，一圈 call.rule 细线（DESIGN.md「Call layer」）。 */
-const dialogBox: CSSProperties = {
-  borderRadius: "var(--radius-container)",
-  background: "color-mix(in oklab, var(--her-call-deep) 72%, transparent)",
-  boxShadow: "0 0 0 var(--border-width) var(--her-call-rule)",
-};
-
-/** 大头像：她的 call.rule 描边加柔和投影（DESIGN.md「Call portrait」）。 */
-const portrait: CSSProperties = {
-  boxShadow: "0 0 0 var(--spacing-1) var(--her-call-rule), 0 var(--spacing-3) var(--spacing-10) var(--color-shadow)",
-};

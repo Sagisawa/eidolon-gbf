@@ -178,7 +178,7 @@ default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 
 Character sheets, character facts, avatars and call-screen backgrounds are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file.
 
-`color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (her bubbles, the call button, the sticky note, the call screen) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container. `idol_id` and `default_outfit` are for the call-screen stand; see [Stand](#stand) below.
+`color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (the conversation wallpaper, the call and send buttons, the unread count, the call screen and the call bar) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container. `idol_id` and `default_outfit` are for the call-screen stand; see [Stand](#stand) below.
 
 <details>
 <summary><b>Drafting a character sheet with the background model</b></summary>
@@ -216,7 +216,7 @@ Speech recognition is chosen at deploy time with `STT_PROVIDER`, and the whole d
 > If you choose Alibaba Cloud Model Studio: the backend tries the key once on startup, and refuses to start, saying why, if both regions reject it, the model isn't activated, or the service can't be reached. In a public deployment with a Beijing region key, **strangers' voices are processed in mainland China and kept under Chinese law** (for an undisclosed period); Alibaba Cloud commits to not training on data from pay-as-you-go calls. The privacy notice lists both services and says as much (ADR-0010).
 
 - The call screen shows her avatar, the call status and timer, her current line in Japanese with its subtitle, and what you are saying; the full transcript stays in the conversation. The timer starts when the call is connected, and switches to the time left when less than a minute of the per-call limit remains.
-- The collapse button at the top left, or Esc, collapses the call screen back to the transcript while the call carries on; a sticky note reading “通话中 mm:ss · 点击返回” (in call · tap to return) stays at the top, and pressing it brings the call screen back. You cannot type on the call screen: collapse it and type in the conversation.
+- The collapse button at the top left, or Esc, collapses the call screen back to the transcript while the call carries on; a bar in her colour reading “通话中 mm:ss” (in call) and “回到通话 ›” (back to call) stays below the conversation header, and pressing it brings the call screen back. You cannot type on the call screen: collapse it and type in the conversation.
 
 - Speak Chinese or Japanese. The character reads her Japanese reply in the configured Fish Audio voice, and both the Japanese text and the Chinese subtitle appear in the transcript.
 - Where a segment carries clear emotion, the character puts a delivery cue for Fish Audio before the Japanese (e.g. `[shyly] えへへ`), and the synthesis reads it with that feeling; malformed cues are dropped, never read out. Cues are not shown in the interface or sent for memory extraction, but stay in the conversation record as written, so the model keeps seeing that it marked them and doesn't drift into marking fewer and fewer ([ADR-0007](docs/adr/0007-delivery-cues-kept-in-the-record.md)).
@@ -532,7 +532,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 # serves on :8000 and reads ../characters/characters.toml (override with EIDOLON_CHARACTERS_PATH)
 ```
 
-**Frontend** (Next.js + [Astryx](https://www.npmjs.com/package/@astryxdesign/core), `frontend/`):
+**Frontend** (Next.js + [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS, `frontend/`):
 
 ```sh
 cd frontend
@@ -542,9 +542,9 @@ npm run typecheck
 npm test
 ```
 
-The interface is built on the Astryx component library with a custom “notebook” theme (visual design system in [`DESIGN.md`](DESIGN.md)). The theme source is `src/theme/notebookTheme.ts`; after changing it, run `npm run theme:build` to regenerate the prebuilt CSS under `src/theme/built/` (`npm run theme:check` checks the two match). Interface copy lives in `src/i18n/`; only Simplified Chinese exists so far.
+The interface is built with shadcn/ui (on Base UI) and Tailwind CSS v4 in a restrained LINE-like style: a neutral grey-and-white frame, with her image colour in the places that belong to her (visual design system in [`DESIGN.md`](DESIGN.md)). Theme variables live in `src/app/globals.css`; component conventions are in [`frontend/AGENTS.md`](frontend/AGENTS.md). Interface copy lives in `src/i18n/`; only Simplified Chinese exists so far.
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the checks above, `theme:check` and shellcheck on the shell scripts for every PR and every push to main, then builds both images; on main, the images are published to GHCR only once every check passes. Dependabot opens dependency-update PRs every Monday.
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the checks above, the frontend style check (`frontend/scripts/check-discipline.sh`) and shellcheck on the shell scripts for every PR and every push to main, then builds both images; on main, the images are published to GHCR only once every check passes. Dependabot opens dependency-update PRs every Monday.
 
 ## 📁 Project layout
 
@@ -602,7 +602,7 @@ eidolon-sc/
 │   │   └── llm/              #   adapters for the three model protocols
 │   ├── eval/                 #   reranker calibration dataset (questions and labels only, no story text)
 │   └── tests/
-├── frontend/                 # Next.js + Astryx frontend
+├── frontend/                 # Next.js + shadcn/ui frontend
 ├── characters/               # character config, sheets, facts, avatars, call-screen backgrounds
 ├── corpus/                   # story data, the mirror cache and the stand build directory (not committed)
 ├── deploy/                   # Caddyfile, story and stand sync scripts, database backup script, sample event-name table

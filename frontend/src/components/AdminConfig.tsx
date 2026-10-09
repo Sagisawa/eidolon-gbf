@@ -1,28 +1,27 @@
 "use client";
 
-import { Banner } from "@astryxdesign/core/Banner";
-import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { HStack } from "@astryxdesign/core/HStack";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { Selector } from "@astryxdesign/core/Selector";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { proportional, Table, type TableColumn } from "@astryxdesign/core/Table";
-import { Text } from "@astryxdesign/core/Text";
-import { TextInput } from "@astryxdesign/core/TextInput";
-import { Token } from "@astryxdesign/core/Token";
-import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
-import { AdminPage } from "@/components/admin/AdminPage";
-import { RowList, TOUCH_LINK, TouchButton, useTouch, useWide } from "@/components/admin/DashboardParts";
+import { AdminPage } from "@/components/app/admin/AdminPage";
+import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
+import { Notice } from "@/components/app/admin/Notice";
+import { NumberInput } from "@/components/app/admin/NumberInput";
+import { AppLink } from "@/components/app/AppLink";
+import { FailureNotice } from "@/components/app/FailureNotice";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { AdminPrices } from "@/components/AdminPrices";
-import { AppLink } from "@/components/AppLink";
-import { FailureNotice } from "@/components/FailureNotice";
-import { PROSE_WIDTH, SettingsSection } from "@/components/SettingsSection";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import {
   changeOf,
@@ -47,12 +46,14 @@ import {
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
+import { FailureIcon } from "@/theme/icons";
 
 const t = copy.admin.config;
 
 /**
- * 后台的「配置」页：页首一排页内链接；每一项列出状态和当前生效的值（有后台覆盖时对照 .env 和覆盖的值），
- * 可以修改、恢复；然后是各模型的单价；最后是只能查看的项。
+ * 后台的「配置」页：页首一排页内链接；每一项一张卡，标题旁用 Badge 标出覆盖的状态，列出当前生效的值
+ * （有后台覆盖时对照 .env 的值），可以在卡里展开表单修改、恢复成 .env 的值；然后是各模型的单价；
+ * 最后是只能查看的项（DESIGN.md「Layout · 后台 · 配置」）。
  */
 export function AdminConfig() {
   const [config, setConfig] = useState<Config | null>(null);
@@ -67,15 +68,15 @@ export function AdminConfig() {
       <OpenFormProvider>
         {failure && !config && <FailureNotice failure={failure} />}
         {!failure && !config && (
-          <Text as="p" color="secondary" role="status">
+          <p className="text-sm text-muted-foreground" role="status">
             {t.loading}
-          </Text>
+          </p>
         )}
         {config && <ConfigNav />}
         {config &&
-          ITEMS.map((name) => <ItemSection key={name} name={name} config={config} onChange={setConfig} />)}
+          ITEMS.map((name) => <ItemCard key={name} name={name} config={config} onChange={setConfig} />)}
         {config && <AdminPrices />}
-        {config && <ReadOnlySection items={config.read_only} />}
+        {config && <ReadOnlyCard items={config.read_only} />}
       </OpenFormProvider>
     </AdminPage>
   );
@@ -86,41 +87,81 @@ function anchor(section: ItemName | "prices" | "read_only"): string {
   return `config-${section}`;
 }
 
-/** 触屏上链接各自撑到 44px 高，行与行之间不再另加间距（不然折成几行时太松），只在行内隔开。 */
-const NAV_LINK_TOUCH = { ...TOUCH_LINK, marginInlineEnd: "var(--spacing-4)" };
-
 /** 页首的页内导航：一项一个链接，配置项多、页面长，想改限额不用滚过前面六项。 */
 function ConfigNav() {
-  const touch = useTouch();
   const links: { section: ItemName | "prices" | "read_only"; label: string }[] = [
     ...ITEMS.map((name) => ({ section: name, label: t.items[name].title })),
     { section: "prices", label: copy.admin.prices.title },
     { section: "read_only", label: t.readOnly.title },
   ];
   return (
-    <HStack as="nav" aria-label={t.nav} gap={touch ? 0 : 4} wrap="wrap" paddingBlockStart={2}>
+    <nav aria-label={t.nav} className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
       {links.map(({ section, label }) => (
-        <AppLink key={section} href={`#${anchor(section)}`} isStandalone style={touch ? NAV_LINK_TOUCH : undefined}>
+        // 触屏上一个链接撑到 44px 高，折成几行时不另加行距。
+        <AppLink key={section} href={`#${anchor(section)}`} isStandalone className="inline-flex min-h-11 items-center md:min-h-0">
           {label}
         </AppLink>
       ))}
-    </HStack>
+    </nav>
+  );
+}
+
+/** 卡片的标题：标题本身是 h2（页内链接跳到这张卡时读屏念得出是哪一项），旁边可以跟一个状态 Badge。 */
+function ItemTitle({ title, badge }: { title: string; badge?: ReactNode }) {
+  return (
+    <CardTitle className="flex flex-wrap items-center gap-2">
+      <h2>{title}</h2>
+      {badge}
+    </CardTitle>
   );
 }
 
 /**
- * 一项的各个值。没有后台覆盖时 .env 的值就是当前生效的值，三列对照只会重复一遍，所以只列「项：当前值」；
- * 有覆盖时才展开 .env、当前生效、后台覆盖三列，看得出改了哪里、是否生效。
+ * 一项的各个值。没有后台覆盖时 .env 的值就是当前生效的值，对照只会重复一遍，所以是定义列表「项：当前值」；
+ * 有覆盖时是「项 / .env 的值 / 当前生效」的表，被盖掉的 .env 值划掉；覆盖没有生效的那一项，
+ * 在当前生效的值下面注明后台覆盖的值和「已失效」。
  */
 function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] }) {
   if (fieldRows.some((row) => row.overridden)) {
-    return <Table data={fieldRows} columns={columns(name)} idKey="field" density="compact" />;
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t.columns.field}</TableHead>
+            <TableHead>{t.columns.env}</TableHead>
+            <TableHead>{t.columns.effective}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {fieldRows.map((row) => (
+            <TableRow key={row.field}>
+              <TableCell className="whitespace-normal text-muted-foreground">{t.fields[row.field] ?? row.field}</TableCell>
+              <TableCell className="whitespace-normal break-all">
+                {row.inEffect ? (
+                  <del className="text-muted-foreground">{shown(name, row.field, row.env)}</del>
+                ) : (
+                  shown(name, row.field, row.env)
+                )}
+              </TableCell>
+              <TableCell className="whitespace-normal break-all">
+                {shown(name, row.field, row.effective)}
+                {row.overridden && !row.inEffect && (
+                  <span className="block text-xs text-muted-foreground">
+                    {t.columns.override}：{shown(name, row.field, row.override)}（{t.notInEffect}）
+                  </span>
+                )}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
   }
   return (
-    <MetadataList columns="multi">
+    <MetadataList>
       {fieldRows.map((row) => (
         <MetadataListItem key={row.field} label={t.fields[row.field] ?? row.field}>
-          <Text wordBreak="break-word">{shown(name, row.field, row.effective)}</Text>
+          {shown(name, row.field, row.effective)}
         </MetadataListItem>
       ))}
     </MetadataList>
@@ -136,37 +177,6 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (field === "region") return t.regions[String(value)] ?? String(value);
   if (name === "limits" && value === 0) return t.unlimited;
   return String(value);
-}
-
-function columns(name: ItemName): TableColumn<FieldRow>[] {
-  return [
-    { key: "field", header: t.columns.field, width: proportional(1), renderCell: (row) => t.fields[row.field] ?? row.field },
-    { key: "env", header: t.columns.env, width: proportional(2), renderCell: (row) => shown(name, row.field, row.env) },
-    {
-      key: "effective",
-      header: t.columns.effective,
-      width: proportional(2),
-      renderCell: (row) => shown(name, row.field, row.effective),
-    },
-    {
-      key: "override",
-      header: t.columns.override,
-      width: proportional(2),
-      renderCell: (row) =>
-        row.overridden ? (
-          <HStack gap={2} vAlign="center" wrap="wrap">
-            <Text wordBreak="break-word">{shown(name, row.field, row.override)}</Text>
-            <Token
-              size="sm"
-              color={row.inEffect ? "blue" : "orange"}
-              label={row.inEffect ? t.inEffect : t.notInEffect}
-            />
-          </HStack>
-        ) : (
-          t.none
-        ),
-    },
-  ];
 }
 
 /** 表单里一个字段的说明：key 留空不改，其余按字段给出取值范围。 */
@@ -186,24 +196,31 @@ function optionLabel(field: string, option: string): string {
 }
 
 /**
- * 一项配置：状态、三列对照（.env、当前生效、后台覆盖），修改表单和恢复按钮。
- * 服务类的项保存时后端先试调，试不通照原话显示原因、不保存；阈值和限额不试调，保存键只写「保存」。
+ * 一项配置的卡。.env 没有配置的项只说明为什么不能改；其余见 AvailableItem。
  */
-function ItemSection({ name, config, onChange }: { name: ItemName; config: Config; onChange: (config: Config) => void }) {
+function ItemCard({ name, config, onChange }: { name: ItemName; config: Config; onChange: (config: Config) => void }) {
   const item = config[name];
-  const title = t.items[name].title;
   if (!isAvailable(item)) {
     return (
-      <SettingsSection id={anchor(name)} title={title} description={t.items[name].hint}>
-        <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
-          {t.unavailable(item.unavailable)}
-        </Text>
-      </SettingsSection>
+      <Card id={anchor(name)}>
+        <CardHeader>
+          <ItemTitle title={t.items[name].title} />
+          <CardDescription>{t.items[name].hint}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">{t.unavailable(item.unavailable)}</p>
+        </CardContent>
+      </Card>
     );
   }
   return <AvailableItem name={name} item={item} keysEditable={config.keys_editable} onChange={onChange} />;
 }
 
+/**
+ * 一项能改的配置：状态 Badge、各个值，卡里展开的修改表单（全页同一时间只开一张），CardFooter 里的
+ * 「恢复成 .env 的值」。服务类的项保存时后端先试调，试不通照原话显示原因、不保存；阈值和限额不试调，
+ * 保存键只写「保存」。
+ */
 function AvailableItem({
   name,
   item,
@@ -216,7 +233,7 @@ function AvailableItem({
   onChange: (config: Config) => void;
 }) {
   const spec = ITEM_SPECS[name];
-  const display = statusDisplay(item);
+  const id = useId();
   // 同一时间只开一个表单：点了别的「修改」，这一项的表单就收起（见 OpenForm）。
   const [editing, setEditing] = useOpenForm(name);
   /** 是自己关的（取消、保存成功），不是因为别的表单打开而收起：只有这时才把焦点还给「修改」。 */
@@ -231,16 +248,19 @@ function AvailableItem({
   const problemOf = (field: string) =>
     check.shown && "problems" in result ? (result.problems.find((p) => p.field === field) ?? null) : null;
   const fieldRows = rows(item, spec);
+  const overridden = fieldRows.some((row) => row.overridden);
   const saveKind = spec.tried ? "tried" : "plain";
+  const display = statusDisplay(item);
+  const canRestore = display.canRestore;
   const formRef = check.ref;
 
-  // 打开表单时焦点移到第一个能填的框（按钮被表单替换掉，焦点不移就落回页首）。
-  const actionsRef = useRef<HTMLDivElement>(null);
+  // 打开表单时焦点移到第一个能填的框（「修改」随表单打开收起，焦点不移就落回页首）。
+  const editRef = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
   useEffect(() => {
     if (editing) formRef.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled])")?.focus();
     // 关掉表单（取消或保存）后焦点回到「修改」：它随表单关闭重新挂上，原来的那个元素已经不在了。
-    else if (wasEditing.current && closedHere.current) actionsRef.current?.querySelector<HTMLElement>("button")?.focus();
+    else if (wasEditing.current && closedHere.current) editRef.current?.focus();
     wasEditing.current = editing;
     closedHere.current = false;
   }, [editing]);
@@ -275,110 +295,150 @@ function AvailableItem({
     else check.refuse();
   }
 
+  function cancel() {
+    closedHere.current = true;
+    setEditing(false);
+  }
+
   const set = (field: string) => (value: string) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <SettingsSection id={anchor(name)} title={t.items[name].title} description={t.items[name].hint}>
-      {display.variant && (
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <StatusDot variant={display.variant} label={t.status[item.status]} />
-          <Text>{t.status[item.status]}</Text>
-        </HStack>
-      )}
-      {item.follows_chat && (
-        <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
-          {t.followsChat}
-        </Text>
-      )}
-      {item.model && (
-        <Text as="p" color="secondary" style={{ maxWidth: PROSE_WIDTH }}>
-          {t.forModel(item.model)}
-        </Text>
-      )}
-      {display.failure && <Banner status="warning" title={t.status.failed} description={t.failed(display.failure)} />}
-      {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
-      {failure && <FailureNotice failure={failure} />}
-      {/* 修改时表单里已经填着当前的值：没有覆盖时上面那份「项：当前值」只是重复，收起；有覆盖时三列对照还有用，留着。 */}
-      {(!editing || fieldRows.some((row) => row.overridden)) && <Values name={name} rows={fieldRows} />}
-      {!editing && (
-        <HStack ref={actionsRef} gap={2} wrap="wrap">
-          <TouchButton label={copy.admin.actionOn(t.edit, t.items[name].title)} onClick={edit} isDisabled={busy !== null}>
-            {t.edit}
-          </TouchButton>
-          {display.canRestore && (
-            <TouchButton
-              variant="ghost"
-              label={t.restore}
-              isLoading={busy === "restore"}
-              isDisabled={busy !== null}
-              onClick={() => void run("restore", () => restoreItem(name), t.restored)}
-            />
-          )}
-        </HStack>
-      )}
-      {editing && (
-        <form ref={formRef} onSubmit={submit} noValidate>
-          <FormLayout>
-            {spec.form.map((field) => {
-              const label = t.fields[field.name] ?? field.name;
-              const problem = problemOf(field.name);
-              if (field.kind === "limit") {
+    <Card id={anchor(name)}>
+      <CardHeader>
+        <ItemTitle
+          title={t.items[name].title}
+          badge={
+            display.variant === "accent" ? (
+              <Badge variant="secondary">{t.badges.overridden}</Badge>
+            ) : display.variant === "warning" ? (
+              <Badge variant="outline">{t.badges.failed}</Badge>
+            ) : null
+          }
+        />
+        <CardDescription>{t.items[name].hint}</CardDescription>
+        {!editing && (
+          <CardAction>
+            <Button
+              ref={editRef}
+              variant="outline"
+              size="sm"
+              aria-label={copy.admin.actionOn(t.edit, t.items[name].title)}
+              onClick={edit}
+              disabled={busy !== null}
+            >
+              {t.edit}
+            </Button>
+          </CardAction>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {item.follows_chat && <p className="text-muted-foreground">{t.followsChat}</p>}
+        {item.model && <p className="text-muted-foreground">{t.forModel(item.model)}</p>}
+        {display.failure && (
+          <Alert>
+            <FailureIcon />
+            <AlertTitle>{t.status.failed}</AlertTitle>
+            <AlertDescription>{t.failed(display.failure)}</AlertDescription>
+          </Alert>
+        )}
+        {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
+        {failure && <FailureNotice failure={failure} />}
+        {/* 修改时表单里已经填着当前的值：没有覆盖时上面那份「项：当前值」只是重复，收起；有覆盖时对照还有用，留着。 */}
+        {(!editing || overridden) && <Values name={name} rows={fieldRows} />}
+        {editing && (
+          <form ref={formRef} onSubmit={submit} noValidate className="flex max-w-md flex-col gap-6">
+            <FieldGroup>
+              {spec.form.map((field) => {
+                const label = t.fields[field.name] ?? field.name;
+                const problem = problemOf(field.name);
+                const fieldId = `${id}-${field.name}`;
+                if (field.kind === "limit") {
+                  return (
+                    <LimitInput
+                      key={field.name}
+                      id={fieldId}
+                      label={label}
+                      value={form[field.name]}
+                      onChange={set(field.name)}
+                      error={problem ? t.problems.limit(label) : null}
+                    />
+                  );
+                }
+                if (field.kind === "select") {
+                  const options = (field.options ?? []).map((o) => ({ value: o, label: optionLabel(field.name, o) }));
+                  return (
+                    <Field key={field.name}>
+                      <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
+                      <Select
+                        items={options}
+                        value={form[field.name]}
+                        onValueChange={(value) => value && set(field.name)(String(value))}
+                      >
+                        <SelectTrigger id={fieldId} className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  );
+                }
+                const secret = field.kind === "secret";
+                const hint = fieldHint(name, field, keysEditable);
                 return (
-                  <LimitInput
-                    key={field.name}
-                    label={label}
-                    value={form[field.name]}
-                    onChange={set(field.name)}
-                    error={problem ? t.problems.limit(label) : null}
-                  />
+                  <Field key={field.name} data-invalid={problem ? true : undefined} data-disabled={secret && !keysEditable ? true : undefined}>
+                    <FieldLabel htmlFor={fieldId}>
+                      {label}
+                      {field.kind === "optionalText" && (
+                        <span className="font-normal text-muted-foreground">{copy.common.optional}</span>
+                      )}
+                    </FieldLabel>
+                    <Input
+                      id={fieldId}
+                      type={secret ? "password" : "text"}
+                      value={form[field.name]}
+                      onChange={(event) => set(field.name)(event.target.value)}
+                      disabled={secret && !keysEditable}
+                      aria-invalid={problem ? true : undefined}
+                      autoComplete="off"
+                    />
+                    {hint && <FieldDescription>{hint}</FieldDescription>}
+                    {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
+                  </Field>
                 );
-              }
-              if (field.kind === "select") {
-                return (
-                  <Selector
-                    key={field.name}
-                    label={label}
-                    value={form[field.name]}
-                    onChange={(value) => set(field.name)(String(value))}
-                    options={(field.options ?? []).map((o) => ({ value: o, label: optionLabel(field.name, o) }))}
-                  />
-                );
-              }
-              const secret = field.kind === "secret";
-              return (
-                <TextInput
-                  key={field.name}
-                  type={secret ? "password" : "text"}
-                  label={label}
-                  description={fieldHint(name, field, keysEditable)}
-                  value={form[field.name]}
-                  onChange={set(field.name)}
-                  isDisabled={secret && !keysEditable}
-                  isOptional={field.kind === "optionalText"}
-                  status={problem ? { type: "error", message: t.problems[problem.reason](label) } : undefined}
-                  autoComplete="off"
-                />
-              );
-            })}
-            <HStack gap={2}>
-              <TouchButton
-                type="submit"
-                variant="primary"
-                label={busy === "save" ? t.saving[saveKind] : t.save[saveKind]}
-                isLoading={busy === "save"}
-                isDisabled={busy !== null}
-              />
-              <TouchButton variant="ghost" label={copy.common.cancel} onClick={() => {
-                  closedHere.current = true;
-                  setEditing(false);
-                }}
-                isDisabled={busy !== null}
-              />
-            </HStack>
-          </FormLayout>
-        </form>
+              })}
+            </FieldGroup>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={busy !== null}>
+                {busy === "save" && <Spinner data-icon="inline-start" />}
+                {busy === "save" ? t.saving[saveKind] : t.save[saveKind]}
+              </Button>
+              <Button type="button" variant="ghost" onClick={cancel} disabled={busy !== null}>
+                {copy.common.cancel}
+              </Button>
+            </div>
+          </form>
+        )}
+      </CardContent>
+      {canRestore && !editing && (
+        <CardFooter>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy !== null}
+            onClick={() => void run("restore", () => restoreItem(name), t.restored)}
+          >
+            {busy === "restore" && <Spinner data-icon="inline-start" />}
+            {t.restore}
+          </Button>
+        </CardFooter>
       )}
-    </SettingsSection>
+    </Card>
   );
 }
 
@@ -388,36 +448,43 @@ function AvailableItem({
  * 从「不限」切回「设定上限」时填回刚才的数。
  */
 function LimitInput({
+  id,
   label,
   value,
   onChange,
   error,
 }: {
+  id: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
   error: string | null;
 }) {
-  const touch = useTouch();
   const unlimited = value === UNLIMITED;
   const lastCount = useRef(unlimited ? "" : value);
+  const titleId = `${id}-title`;
   return (
-    <VStack gap={2}>
-      <Text type="label">{label}</Text>
-      <HStack gap={3} vAlign="start" wrap="wrap">
-        <SegmentedControl
-          label={label}
-          value={unlimited ? "unlimited" : "number"}
-          onChange={(choice) => onChange(choice === "unlimited" ? UNLIMITED : lastCount.current)}
-          size={touch ? "lg" : "md"}
+    // 不标 data-invalid：它会把整个 Field 的字染红，连「设定上限 / 不限」两个键也变红；输入框的红框和下面的说明就够了。
+    <Field>
+      <FieldTitle id={titleId}>{label}</FieldTitle>
+      <div className="flex flex-wrap items-start gap-3">
+        <ToggleGroup
+          aria-labelledby={titleId}
+          variant="outline"
+          spacing={0}
+          value={[unlimited ? "unlimited" : "number"]}
+          onValueChange={(choice) => {
+            // 两个里总要选一个：再点一下已选的那个不取消。
+            const next = choice[0];
+            if (next) onChange(next === "unlimited" ? UNLIMITED : lastCount.current);
+          }}
         >
-          <SegmentedControlItem value="number" label={t.limitChoices.number} />
-          <SegmentedControlItem value="unlimited" label={t.limitChoices.unlimited} />
-        </SegmentedControl>
+          <ToggleGroupItem value="number">{t.limitChoices.number}</ToggleGroupItem>
+          <ToggleGroupItem value="unlimited">{t.limitChoices.unlimited}</ToggleGroupItem>
+        </ToggleGroup>
         {!unlimited && (
           <NumberInput
             label={label}
-            isLabelHidden
             value={value === "" ? null : Number(value)}
             onChange={(count) => {
               lastCount.current = count === null ? "" : String(count);
@@ -425,12 +492,12 @@ function LimitInput({
             }}
             min={1}
             isIntegerOnly
-            width={160}
-            status={error ? { type: "error", message: error } : undefined}
+            isInvalid={error !== null}
           />
         )}
-      </HStack>
-    </VStack>
+      </div>
+      {error && <FieldError>{error}</FieldError>}
+    </Field>
   );
 }
 
@@ -438,7 +505,7 @@ function LimitInput({
 function BreakAtUnderscores({ text }: { text: string }) {
   const parts = text.split("_");
   return (
-    <Text>
+    <>
       {parts.map((part, i) => (
         <Fragment key={i}>
           {part}
@@ -449,49 +516,54 @@ function BreakAtUnderscores({ text }: { text: string }) {
           )}
         </Fragment>
       ))}
-    </Text>
+    </>
   );
 }
 
-const READ_ONLY_COLUMNS: TableColumn<ReadOnlyItem>[] = [
-  {
-    key: "name",
-    header: t.readOnly.columns.name,
-    width: proportional(1),
-    renderCell: (row) => <BreakAtUnderscores text={t.readOnly.names[row.name] ?? row.name} />,
-  },
-  {
-    key: "value",
-    header: t.readOnly.columns.value,
-    width: proportional(2),
-    renderCell: (row) => <Text wordBreak="break-word">{readOnlyValue(row.value, { ...t.readOnly, none: t.none })}</Text>,
-  },
-  { key: "why", header: t.readOnly.columns.why, width: proportional(3), renderCell: (row) => row.why },
-];
-
-/** 只能查看的项：当前的值（密钥只说设没设）和为什么不能在后台改。 */
-function ReadOnlySection({ items }: { items: ReadOnlyItem[] }) {
-  const wide = useWide();
+/** 只能查看的项：当前的值（密钥只说设没设）和为什么不能在后台改。宽屏（≥ 1024px）是表，更窄时换成行。 */
+function ReadOnlyCard({ items }: { items: ReadOnlyItem[] }) {
+  const wide = useMediaQuery("(min-width: 1024px)", true);
+  const value = (row: ReadOnlyItem) => readOnlyValue(row.value, { ...t.readOnly, none: t.none });
   return (
-    <SettingsSection id={anchor("read_only")} title={t.readOnly.title} description={t.readOnly.hint}>
-      {wide ? (
-        <Table data={items} columns={READ_ONLY_COLUMNS} idKey="name" density="compact" />
-      ) : (
-        <RowList
-          rows={items.map((row) => ({
-            id: row.name,
-            label: t.readOnly.names[row.name] ?? row.name,
-            description: (
-              <VStack gap={0.5}>
-                <Text type="supporting" color="primary" wordBreak="break-word">
-                  {readOnlyValue(row.value, { ...t.readOnly, none: t.none })}
-                </Text>
-                <Text type="supporting">{row.why}</Text>
-              </VStack>
-            ),
-          }))}
-        />
-      )}
-    </SettingsSection>
+    <Card id={anchor("read_only")}>
+      <CardHeader>
+        <ItemTitle title={t.readOnly.title} />
+        <CardDescription>{t.readOnly.hint}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {wide ? (
+          <Table className="table-fixed">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-1/6">{t.readOnly.columns.name}</TableHead>
+                <TableHead className="w-1/3">{t.readOnly.columns.value}</TableHead>
+                <TableHead>{t.readOnly.columns.why}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((row) => (
+                <TableRow key={row.name}>
+                  <TableCell className="align-top whitespace-normal">
+                    <BreakAtUnderscores text={t.readOnly.names[row.name] ?? row.name} />
+                  </TableCell>
+                  <TableCell className="align-top whitespace-normal break-all">{value(row)}</TableCell>
+                  <TableCell className="align-top whitespace-normal text-muted-foreground">{row.why}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <ul className="flex flex-col divide-y">
+            {items.map((row) => (
+              <li key={row.name} className="flex flex-col gap-0.5 py-2.5 first:pt-0 last:pb-0">
+                <span className="font-medium">{t.readOnly.names[row.name] ?? row.name}</span>
+                <span className="break-all">{value(row)}</span>
+                <span className="text-xs text-muted-foreground">{row.why}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   );
 }

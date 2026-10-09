@@ -1,19 +1,31 @@
 "use client";
 
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { Button } from "@astryxdesign/core/Button";
-import { HStack } from "@astryxdesign/core/HStack";
 import { useState } from "react";
 
-import { FailureNotice } from "@/components/FailureNotice";
-import { SettingsSection } from "@/components/SettingsSection";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { SettingsSection } from "@/components/app/SettingsSection";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import { deleteAccount } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.settings.deleteAccount;
 
-/** 删除用户的全部数据；要再确认一次（PRODUCT.md「尊重陌生人的数据」）。 */
+/**
+ * 删除用户的全部数据；要再确认一次（PRODUCT.md「尊重陌生人的数据」）。
+ * 打开确认框的入口用 outline，只有确认框里真正执行的那一下是挂断红（DESIGN.md「Buttons」）。
+ */
 export function DeleteAccount() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -35,19 +47,24 @@ export function DeleteAccount() {
   return (
     <SettingsSection title={t.title} description={t.hint}>
       {failure && <FailureNotice failure={failure} />}
-      <HStack>
-        <Button variant="destructive" label={t.start} onClick={() => setConfirming(true)} />
-      </HStack>
-      <AlertDialog
-        isOpen={confirming}
-        onOpenChange={(open) => !busy && setConfirming(open)}
-        title={t.confirmTitle}
-        description={t.hint}
-        actionLabel={t.confirm}
-        cancelLabel={copy.common.cancel}
-        onAction={remove}
-        isActionLoading={busy}
-      />
+      <Button variant="outline" className="self-start" onClick={() => setConfirming(true)}>
+        {t.start}
+      </Button>
+      <AlertDialog open={confirming} onOpenChange={(open) => !busy && setConfirming(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.confirmTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{t.hint}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={busy}>{copy.common.cancel}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={busy} onClick={remove}>
+              {busy && <Spinner data-icon="inline-start" />}
+              {t.confirm}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SettingsSection>
   );
 }

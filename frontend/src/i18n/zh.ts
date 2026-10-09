@@ -12,6 +12,7 @@ export const zh = {
     close: "关闭",
     more: "更多",
     cancel: "取消",
+    optional: "可选",
   },
   conversationList: {
     title: "对话",
@@ -20,6 +21,9 @@ export const zh = {
     menu: "更多操作",
     memories: "记忆",
     settings: "设置",
+    /** 列表顶上的搜索框：按名字找偶像。 */
+    search: "搜索",
+    noMatch: "没有找到这位偶像",
     /** 最后一句是制作人自己说的。 */
     you: (text: string) => `你：${text}`,
     neverTalked: "还没有对话",
@@ -39,7 +43,9 @@ export const zh = {
     call: (name: string) => `和${name}通话`,
     callTooltip: "语音通话",
     placeholder: "用中文或日语说点什么",
-    resizeComposer: "调整输入框高度",
+    send: "发送",
+    /** 消息区里跨天处的日期条；昨天、更早的写法和列表一样（conversationList）。 */
+    today: "今天",
     emptyTitle: (name: string) => `和${name}打个招呼吧`,
     emptyDescription: "打字，或者点右上角的电话和她通话。",
     replying: (name: string) => `${name}正在回复`,
@@ -72,20 +78,21 @@ export const zh = {
       preview: (card: string) => `预览${card}`,
     },
   },
-  /** 通话层、收起后的便利贴、列表里的通话状态（spec「通话层」「通话状态」）。 */
+  /** 通话层、收起后的通话条、列表里的通话状态（spec「通话层」「通话状态」）。 */
   call: {
     leaveTitle: (name: string) => `会挂断和${name}的通话`,
     leaveDescription: "离开这个对话，正在进行的通话就会挂断。",
     leaveConfirm: "挂断并离开",
     stay: "留在这里",
     layer: (name: string) => `和${name}的通话`,
-    heading: "语音通话",
     collapse: "收起通话",
     collapseTooltip: "收起（Esc）",
     /** 通话中，页首的电话键变成这个。 */
     expand: "回到通话",
     textOnly: "只看文字",
     dialing: "正在呼叫…",
+    /** 通话层的状态行：后面跟着三个依次闪的小点，所以不带省略号。 */
+    calling: "正在呼叫",
     remaining: (clock: string) => `还剩 ${clock}`,
     speakFreely: "直接说话就好",
     repliesInText: "她会用文字回复",
@@ -107,12 +114,11 @@ export const zh = {
       unavailable: "没能打开这个麦克风，仍在用原来的",
       lost: "麦克风断开了，也没有别的麦克风可用",
     },
-    /** 收起后贴在消息区顶端的便利贴。 */
-    noteDialing: "正在呼叫… · 点击返回",
-    noteConnected: (clock: string) => `通话中 ${clock} · 点击返回`,
-    /** 消息列表里她那一行。 */
+    /** 消息列表里她那一行，也是收起后页首下面那条通话条上的字（呼叫中用 dialing）。 */
     listConnected: (clock: string) => `通话中 ${clock}`,
     ended: "通话已结束",
+    /** 接通过的通话结束后，状态行带上通话时长。 */
+    endedAfter: (clock: string) => `通话已结束 · ${clock}`,
     /** 是否计入限额（GLOSSARY.md「限额」「接通」）。 */
     counted: "这次通话计入每小时的限额。",
     notCounted: "这次通话不计入每小时的限额。",
@@ -298,6 +304,8 @@ export const zh = {
     },
     signedInAs: (name: string) => `管理者：${name}`,
     backToSettings: "返回设置",
+    toggleNav: "展开或收起后台导航",
+    breadcrumb: "当前位置",
     comingSoon: "这一页还在做。",
     usage: {
       units: { tokens: "tokens", bytes: "字节", seconds: "秒" } as Record<string, string>,
@@ -498,6 +506,10 @@ export const zh = {
       empty: "没有找到用户。",
       emptyHint: "试试换个名字、邮箱，或者完整的用户 ID。",
       pagination: "用户列表分页",
+      previousPage: "上一页",
+      nextPage: "下一页",
+      pageOf: (page: number, pages: number) => `第 ${page} / ${pages} 页`,
+      clearSearch: "清空搜索",
       columns: {
         user: "用户",
         signInMethods: "登录方式",
@@ -640,6 +652,8 @@ export const zh = {
         overridden: "已被后台覆盖",
         failed: "覆盖没有生效，回退到 .env",
       },
+      /** 卡片标题旁的 Badge：用 .env 的值是常态，不标（DESIGN.md「Admin status & charts」）。 */
+      badges: { overridden: "已被后台覆盖", failed: "覆盖没有生效" },
       failed: (reason: string) => `后台覆盖的配置没有生效，现在用的是 .env 的值。原因：${reason}`,
       columns: { field: "项", env: ".env 的值", effective: "当前生效", override: "后台覆盖" },
       fields: {
@@ -771,6 +785,7 @@ export const zh = {
       add: "新增单价",
       priceIt: "设单价",
       filter: "按模型或提供方筛选",
+      clearFilter: "清空筛选",
       noMatch: "没有匹配的模型。",
       showAll: (n: number) => `显示全部 ${n} 个`,
       fold: "收起",

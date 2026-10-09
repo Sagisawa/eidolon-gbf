@@ -1,25 +1,24 @@
 "use client";
 
-import { Banner } from "@astryxdesign/core/Banner";
-import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { Selector } from "@astryxdesign/core/Selector";
-import { pixel, proportional, Table, useTableRowExpansion, type TableColumn } from "@astryxdesign/core/Table";
-import { Text } from "@astryxdesign/core/Text";
-import { TextInput } from "@astryxdesign/core/TextInput";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { Token } from "@astryxdesign/core/Token";
-import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { FormEvent, Fragment, type ReactNode, useEffect, useId, useRef, useState } from "react";
 
-import { TouchButton, useWide } from "@/components/admin/DashboardParts";
+import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
+import { Timestamp } from "@/components/app/admin/Timestamp";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { Notice } from "@/components/app/admin/Notice";
 import { useOpenForm } from "@/components/admin/OpenForm";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
-import { FailureNotice } from "@/components/FailureNotice";
-import { SettingsSection } from "@/components/SettingsSection";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import {
   catalogStatus,
@@ -44,6 +43,7 @@ import {
   unitWord,
 } from "@/lib/adminPrices";
 import { toFailure, type Failure } from "@/lib/failure";
+import { CloseIcon, FailureIcon } from "@/theme/icons";
 
 const t = copy.admin.prices;
 const services = copy.admin.dashboard.health.services;
@@ -52,7 +52,7 @@ type FormField = keyof PriceForm;
 
 type FormMode = { kind: "add" } | { kind: "edit"; entry: PriceEntry } | { kind: "price" };
 
-interface EntryRow extends Record<string, unknown> {
+interface EntryRow {
   id: string;
   entry: PriceEntry;
 }
@@ -64,10 +64,10 @@ const POLL_MS = 2000;
 const FOLDED_ROWS = 12;
 
 /**
- * 「配置」页的单价一节：最近用过却没有单价的模型放在最上面（待办：一条提醒，每个模型一行，点一下就能
+ * 「配置」页的单价卡：最近用过却没有单价的模型放在最上面（待办：一条提醒，每个模型一行，点一下就能
  * 按运行记录里的名字设单价）；在线目录的状态和「立即从目录刷新」；预设、后台设定过的和最近用过的模型，
  * 每行只列生效的单价和它来自哪一种，后台设定、目录、预设三种并列的对照在「修改」时列出；可以修改、
- * 恢复（回到目录或预设，都没有的就删除）、新增。
+ * 恢复（回到目录或预设，都没有的就删除）、新增。「修改」在被修改的那一行下面展开（全后台唯一的行展开）。
  */
 export function AdminPrices() {
   const [prices, setPrices] = useState<Prices | null>(null);
@@ -85,10 +85,11 @@ export function AdminPrices() {
   const editorRef = useRef<HTMLDivElement>(null);
   /** 打开表单的那个按钮；关掉表单（取消或保存）后焦点回到它，它不在了（「新增单价」随表单隐藏）就回到「新增单价」。 */
   const returnTo = useRef<HTMLElement | null>(null);
-  const addRef = useRef<HTMLDivElement>(null);
+  const addRef = useRef<HTMLButtonElement>(null);
   const [query, setQuery] = useState("");
   const [showAll, setShowAll] = useState(false);
-  const wide = useWide();
+  // 单价表在 ≥ 1024px 显示，更窄时换成行（DESIGN.md「Layout · 后台 · 表格」）。
+  const wide = useMediaQuery("(min-width: 1024px)", true);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -169,7 +170,7 @@ export function AdminPrices() {
   useEffect(() => {
     if (formOpen || opened === 0 || !closedHere.current) return;
     closedHere.current = false;
-    const back = returnTo.current?.isConnected ? returnTo.current : addRef.current?.querySelector<HTMLElement>("button");
+    const back = returnTo.current?.isConnected ? returnTo.current : addRef.current;
     back?.focus();
     returnTo.current = null;
     // 只在表单关上的那一刻跑，`opened` 不算触发条件。
@@ -179,29 +180,29 @@ export function AdminPrices() {
   function entryActions(id: string, entry: PriceEntry) {
     const restoreWord = entry.catalog ? t.restoreTo.catalog : entry.preset ? t.restoreTo.preset : t.remove;
     return (
-      <HStack gap={1} wrap="wrap">
-        <TouchButton
-          size="sm"
+      <div className="flex flex-wrap justify-end gap-1">
+        <Button
           variant="ghost"
-          label={t.formTitle.edit(entry.model)}
-          isDisabled={busy !== null}
+          size="sm"
+          aria-label={t.formTitle.edit(entry.model)}
+          disabled={busy !== null}
           onClick={() => open(priceFormOf(entry), { kind: "edit", entry })}
         >
           {t.edit}
-        </TouchButton>
+        </Button>
         {entry.override && (
-          <TouchButton
-            size="sm"
+          <Button
             variant="ghost"
-            label={copy.admin.actionOn(restoreWord, entry.model)}
-            isLoading={busy === id}
-            isDisabled={busy !== null}
+            size="sm"
+            aria-label={copy.admin.actionOn(restoreWord, entry.model)}
+            disabled={busy !== null}
             onClick={() => void run(id, () => restorePrice(entry), t.restored)}
           >
+            {busy === id && <Spinner data-icon="inline-start" />}
             {restoreWord}
-          </TouchButton>
+          </Button>
         )}
-      </HStack>
+      </div>
     );
   }
 
@@ -211,40 +212,16 @@ export function AdminPrices() {
   const folded = query === "" && !showAll && matching.length > FOLDED_ROWS;
   const listed = folded ? matching.slice(0, FOLDED_ROWS) : matching;
 
-  const columns: TableColumn<EntryRow>[] = [
-    {
-      key: "model",
-      header: t.columns.model,
-      width: proportional(2),
-      renderCell: ({ entry }) => <ModelName entry={entry} />,
-    },
-    { key: "unit", header: t.columns.unit, width: pixel(72), renderCell: ({ entry }) => unitWord(entry.unit) },
-    {
-      key: "effective",
-      header: t.columns.effective,
-      width: proportional(3),
-      renderCell: ({ entry }) => <EffectivePrice entry={entry} />,
-    },
-    {
-      key: "actions",
-      header: t.columns.actions,
-      width: proportional(1.5),
-      renderCell: ({ id, entry }) => entryActions(id, entry),
-    },
-  ];
-
   const editor = form && (
-    <VStack ref={editorRef} gap={4} maxWidth="calc(var(--spacing-8) * 20)" paddingBlock={2}>
-      <VStack gap={1}>
-        <Heading level={3} style={{ fontSize: "var(--text-body-size)" }} wordBreak="break-word">
+    <div ref={editorRef} className="flex max-w-xl flex-col gap-4 py-2">
+      <div className="flex flex-col gap-1">
+        <h3 className="font-medium break-words">
           {mode.kind === "add" ? t.formTitle.add : t.formTitle[mode.kind](form.model)}
-        </Heading>
+        </h3>
         {mode.kind !== "add" && (
-          <Text type="supporting" wordBreak="break-word">
-            {t.formKey(form.provider, unitWord(form.unit))}
-          </Text>
+          <p className="text-xs break-words text-muted-foreground">{t.formKey(form.provider, unitWord(form.unit))}</p>
         )}
-      </VStack>
+      </div>
       {mode.kind === "edit" && <PriceReference entry={mode.entry} />}
       <PriceEditor
         key={opened}
@@ -255,110 +232,158 @@ export function AdminPrices() {
         onCancel={() => close(true)}
         onSave={(change) => void run("save", () => savePrice(change), t.saved)}
       />
-    </VStack>
+    </div>
   );
 
-  // 表单放在哪：修改时就地展开在那一行下面（宽屏是表格的展开行，窄屏把列表在那一项后面断开）；
+  // 表单放在哪：修改时就地展开在那一行下面（宽屏是表格里那一行下面的一行，窄屏把列表在那一项后面断开）；
   // 设单价时在「未设单价」列表下面；新增时在最下面。
   const editingId = form && mode.kind === "edit" ? keyOf(mode.entry) : null;
   const editingAt = editingId === null ? -1 : listed.findIndex(({ id }) => id === editingId);
-  const expansion = useTableRowExpansion<EntryRow>({
-    expandedKeys: new Set(editingId ? [editingId] : []),
-    onToggle: () => close(true),
-    getRowKey: (row) => row.id,
-    renderExpanded: () => editor,
-    getIsItemExpandable: (row) => row.id === editingId,
-  });
 
   return (
-    <SettingsSection id="config-prices" title={t.title} description={t.hint(prices?.preset_as_of ?? null)}>
-      {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
-      {failure && <FailureNotice failure={failure} />}
-      {!prices && !failure && (
-        <Text as="p" color="secondary" role="status">
-          {t.loading}
-        </Text>
-      )}
-      {prices && prices.unpriced.length > 0 && (
-        <VStack gap={2}>
-          <Banner status="warning" title={t.unpriced.title} description={t.unpriced.hint} />
-          <List hasDividers density="compact">
-            {prices.unpriced.map((u) => (
-              <ListItem
-                key={`${u.provider}|${u.model}|${u.unit}`}
-                label={u.model}
-                description={`${services[u.service] ?? u.service} · ${u.provider} · ${unitWord(u.unit)}`}
-                endContent={
-                  <TouchButton
-                    size="sm"
+    <Card id="config-prices">
+      <CardHeader>
+        <CardTitle>
+          <h2>{t.title}</h2>
+        </CardTitle>
+        <CardDescription>{t.hint(prices?.preset_as_of ?? null)}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {notice && <Notice text={notice} onDismiss={() => setNotice(null)} />}
+        {failure && <FailureNotice failure={failure} />}
+        {!prices && !failure && (
+          <p className="text-muted-foreground" role="status">
+            {t.loading}
+          </p>
+        )}
+        {prices && prices.unpriced.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <Alert>
+              <FailureIcon />
+              <AlertTitle>{t.unpriced.title}</AlertTitle>
+              <AlertDescription>{t.unpriced.hint}</AlertDescription>
+            </Alert>
+            <ul className="flex flex-col divide-y">
+              {prices.unpriced.map((u) => (
+                <li key={`${u.provider}|${u.model}|${u.unit}`} className="flex items-center gap-3 py-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="break-words">{u.model}</span>
+                    <span className="text-xs break-words text-muted-foreground">
+                      {`${services[u.service] ?? u.service} · ${u.provider} · ${unitWord(u.unit)}`}
+                    </span>
+                  </div>
+                  <Button
                     variant="ghost"
-                    label={t.formTitle.price(u.model)}
-                    isDisabled={busy !== null}
-                    onClick={() => open(priceFormOf({ ...u, preset: null, catalog: null, override: null }), { kind: "price" })}
+                    size="sm"
+                    aria-label={t.formTitle.price(u.model)}
+                    disabled={busy !== null}
+                    onClick={() =>
+                      open(priceFormOf({ ...u, preset: null, catalog: null, override: null }), { kind: "price" })
+                    }
                   >
                     {t.priceIt}
-                  </TouchButton>
-                }
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            {mode.kind === "price" && editor}
+          </div>
+        )}
+        {prices && (
+          <div className="flex flex-wrap items-center gap-2">
+            <CatalogLine state={prices.catalog} />
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy !== null || prices.catalog.fetching}
+              onClick={() => void refresh()}
+            >
+              {busy === "refresh" && <Spinner data-icon="inline-start" />}
+              {t.catalog.refresh}
+            </Button>
+          </div>
+        )}
+        {prices && (
+          <div className="flex flex-col gap-3">
+            <InputGroup className="lg:max-w-80">
+              <InputGroupInput
+                type="search"
+                aria-label={t.filter}
+                placeholder={t.filter}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
               />
-            ))}
-          </List>
-          {mode.kind === "price" && editor}
-        </VStack>
-      )}
-      {prices && (
-        <HStack gap={2} wrap="wrap" vAlign="center">
-          <CatalogLine state={prices.catalog} />
-          <TouchButton
-            size="sm"
-            variant="secondary"
-            label={t.catalog.refresh}
-            isLoading={busy === "refresh"}
-            isDisabled={busy !== null || prices.catalog.fetching}
-            onClick={() => void refresh()}
-          />
-        </HStack>
-      )}
-      {prices && (
-        <VStack gap={3}>
-          <TextInput
-            label={t.filter}
-            isLabelHidden
-            placeholder={t.filter}
-            value={query}
-            onChange={setQuery}
-            hasClear
-            width={wide ? "calc(var(--spacing-8) * 10)" : "100%"}
-          />
-          {listed.length === 0 ? (
-            <Text color="secondary">{t.noMatch}</Text>
-          ) : wide ? (
-            <Table data={listed} columns={columns} idKey="id" density="compact" plugins={{ expansion }} />
-          ) : (
-            <VStack gap={2}>
-              <EntryList rows={editingAt < 0 ? listed : listed.slice(0, editingAt + 1)} actions={entryActions} />
-              {editingAt >= 0 && editor}
-              {editingAt >= 0 && <EntryList rows={listed.slice(editingAt + 1)} actions={entryActions} />}
-            </VStack>
-          )}
-          {query === "" && matching.length > FOLDED_ROWS && (
-            <HStack>
-              <TouchButton
-                size="sm"
-                variant="ghost"
-                label={showAll ? t.fold : t.showAll(matching.length)}
-                onClick={() => setShowAll(!showAll)}
-              />
-            </HStack>
-          )}
-        </VStack>
-      )}
-      {prices && !form && (
-        <HStack ref={addRef} gap={2}>
-          <TouchButton label={t.add} onClick={() => open(emptyPriceForm(), { kind: "add" })} isDisabled={busy !== null} />
-        </HStack>
-      )}
-      {mode.kind === "add" && editor}
-    </SettingsSection>
+              {query && (
+                <InputGroupAddon align="inline-end">
+                  <InputGroupButton size="icon-xs" aria-label={t.clearFilter} onClick={() => setQuery("")}>
+                    <CloseIcon />
+                  </InputGroupButton>
+                </InputGroupAddon>
+              )}
+            </InputGroup>
+            {listed.length === 0 ? (
+              <p className="text-muted-foreground">{t.noMatch}</p>
+            ) : wide ? (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t.columns.model}</TableHead>
+                    <TableHead>{t.columns.unit}</TableHead>
+                    <TableHead>{t.columns.effective}</TableHead>
+                    <TableHead className="text-right">{t.columns.actions}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {listed.map(({ id, entry }) => (
+                    <Fragment key={id}>
+                      <TableRow data-state={id === editingId ? "selected" : undefined}>
+                        <TableCell className="whitespace-normal">
+                          <ModelName entry={entry} />
+                        </TableCell>
+                        <TableCell>{unitWord(entry.unit)}</TableCell>
+                        <TableCell className="whitespace-normal">
+                          <EffectivePrice entry={entry} />
+                        </TableCell>
+                        <TableCell>{entryActions(id, entry)}</TableCell>
+                      </TableRow>
+                      {/* 行展开：一条普通的 tr，不用 TableRow，表单上不铺悬停的底色。 */}
+                      {id === editingId && (
+                        <tr className="border-b">
+                          <td colSpan={4} className="px-2 pb-4">
+                            {editor}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </TableBody>
+              </Table>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <EntryList rows={editingAt < 0 ? listed : listed.slice(0, editingAt + 1)} actions={entryActions} />
+                {editingAt >= 0 && editor}
+                {editingAt >= 0 && <EntryList rows={listed.slice(editingAt + 1)} actions={entryActions} />}
+              </div>
+            )}
+            {query === "" && matching.length > FOLDED_ROWS && (
+              <div>
+                <Button variant="ghost" size="sm" onClick={() => setShowAll(!showAll)}>
+                  {showAll ? t.fold : t.showAll(matching.length)}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {prices && !form && (
+          <div>
+            <Button ref={addRef} variant="outline" size="sm" onClick={() => open(emptyPriceForm(), { kind: "add" })} disabled={busy !== null}>
+              {t.add}
+            </Button>
+          </div>
+        )}
+        {mode.kind === "add" && editor}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -367,25 +392,22 @@ function keyOf(entry: PriceEntry): string {
   return `${entry.provider}|${entry.model}|${entry.unit}`;
 }
 
-/** 窄屏上代替单价表的列表：模型名，副行是提供方、单位和生效单价，行尾是操作。 */
+/** 窄屏上代替单价表的行：模型名，副行是提供方、单位和生效单价，行尾是操作。 */
 function EntryList({ rows, actions }: { rows: EntryRow[]; actions: (id: string, entry: PriceEntry) => ReactNode }) {
   if (rows.length === 0) return null;
   return (
-    <List hasDividers density="compact">
+    <ul className="flex flex-col divide-y">
       {rows.map(({ id, entry }) => (
-        <ListItem
-          key={id}
-          label={entry.model}
-          description={
-            <VStack gap={0.5}>
-              <Text type="supporting" wordBreak="break-word">{`${entry.provider} · ${unitWord(entry.unit)}`}</Text>
-              <EffectivePrice entry={entry} />
-            </VStack>
-          }
-          endContent={actions(id, entry)}
-        />
+        <li key={id} className="flex items-start gap-3 py-2.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="break-words">{entry.model}</span>
+            <span className="text-xs break-words text-muted-foreground">{`${entry.provider} · ${unitWord(entry.unit)}`}</span>
+            <EffectivePrice entry={entry} />
+          </div>
+          {actions(id, entry)}
+        </li>
       ))}
-    </List>
+    </ul>
   );
 }
 
@@ -405,15 +427,13 @@ function matches(entry: PriceEntry, query: string): boolean {
   return q === "" || entry.model.toLowerCase().includes(q) || entry.provider.toLowerCase().includes(q);
 }
 
-/** 模型名，提供方小一号跟在同一行，放不下时折到下一行。 */
+/** 模型名，提供方小一号放在副行。 */
 function ModelName({ entry }: { entry: PriceEntry }) {
   return (
-    <HStack gap={1.5} wrap="wrap" vAlign="center">
-      <Text wordBreak="break-word">{entry.model}</Text>
-      <Text type="supporting" wordBreak="break-word">
-        {entry.provider}
-      </Text>
-    </HStack>
+    <div className="flex flex-col gap-0.5">
+      <span className="break-all">{entry.model}</span>
+      <span className="text-xs break-all text-muted-foreground">{entry.provider}</span>
+    </div>
   );
 }
 
@@ -434,21 +454,17 @@ function noteOf(entry: PriceEntry, column: (typeof COLUMNS)[number], price: Pric
 function EffectivePrice({ entry }: { entry: PriceEntry }) {
   const column = effectiveColumn(entry);
   const price = column && entry[column];
-  if (!column || !price) return <Text color="secondary">{t.none}</Text>;
+  if (!column || !price) return <span className="text-muted-foreground">{t.none}</span>;
   const full = noteOf(entry, column, price);
   const note = column === "override" || (column === "catalog" && full !== t.fetchedOn(price.as_of)) ? full : null;
   return (
-    <VStack gap={0.5}>
-      <HStack gap={1.5} wrap="wrap" vAlign="center">
-        <Text>{formatPrice(price, entry.unit)}</Text>
-        <Token size="sm" color={column === "override" ? "blue" : "gray"} label={t.columns[column]} />
-      </HStack>
-      {note && (
-        <Text type="supporting" wordBreak="break-word">
-          {note}
-        </Text>
-      )}
-    </VStack>
+    <div className="flex flex-col gap-0.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="tabular-nums">{formatPrice(price, entry.unit)}</span>
+        <Badge variant={column === "override" ? "secondary" : "outline"}>{t.columns[column]}</Badge>
+      </div>
+      {note && <span className="text-xs break-words text-muted-foreground">{note}</span>}
+    </div>
   );
 }
 
@@ -456,23 +472,21 @@ function EffectivePrice({ entry }: { entry: PriceEntry }) {
 function PriceReference({ entry }: { entry: PriceEntry }) {
   const column = effectiveColumn(entry);
   return (
-    <MetadataList columns="multi">
+    <MetadataList>
       {COLUMNS.map((c) => {
         const price = entry[c];
         return (
           <MetadataListItem key={c} label={t.columns[c]}>
             {price ? (
-              <VStack gap={0.5}>
-                <HStack gap={1} wrap="wrap" vAlign="center">
-                  <Text>{formatPrice(price, entry.unit)}</Text>
-                  {column === c && <Token size="sm" color="green" label={t.inEffect} />}
-                </HStack>
-                <Text type="supporting" wordBreak="break-word">
-                  {noteOf(entry, c, price)}
-                </Text>
-              </VStack>
+              <span className="flex flex-col gap-0.5">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <span className="tabular-nums">{formatPrice(price, entry.unit)}</span>
+                  {column === c && <Badge variant="secondary">{t.inEffect}</Badge>}
+                </span>
+                <span className="text-xs text-muted-foreground">{noteOf(entry, c, price)}</span>
+              </span>
             ) : (
-              <Text color="secondary">{t.none}</Text>
+              <span className="text-muted-foreground">{t.none}</span>
             )}
           </MetadataListItem>
         );
@@ -486,23 +500,23 @@ function CatalogLine({ state }: { state: CatalogState }) {
   const status = catalogStatus(state);
   if (status === "fetching" || status === "never") {
     return (
-      <Text color="secondary" role="status">
+      <p className="text-muted-foreground" role="status">
         {status === "fetching" ? t.catalog.fetching : t.catalog.never}
-      </Text>
+      </p>
     );
   }
-  if (status === "unreachable") return <Text color="secondary">{t.catalog.unreachable(state.error ?? "")}</Text>;
+  if (status === "unreachable") return <p className="text-muted-foreground">{t.catalog.unreachable(state.error ?? "")}</p>;
   return (
-    <VStack gap={0.5}>
-      <Text color="secondary">
-        {t.catalog.fresh} <Timestamp value={state.fetched_at ?? ""} format="date_time" />
-      </Text>
+    <div className="flex flex-col gap-0.5">
+      <p className="text-muted-foreground">
+        {t.catalog.fresh} <Timestamp value={state.fetched_at ?? ""} />
+      </p>
       {status === "kept" && (
-        <Text type="supporting" wordBreak="break-word">
-          {t.catalog.kept(state.error ?? "")}（{t.catalog.failedAt} <Timestamp value={state.failed_at ?? ""} format="date_time" />）
-        </Text>
+        <p className="text-xs break-words text-muted-foreground">
+          {t.catalog.kept(state.error ?? "")}（{t.catalog.failedAt} <Timestamp value={state.failed_at ?? ""} />）
+        </p>
       )}
-    </VStack>
+    </div>
   );
 }
 
@@ -523,6 +537,7 @@ function PriceEditor({
   onCancel: () => void;
   onSave: (change: PriceChange) => void;
 }) {
+  const id = useId();
   const result = priceChangeOf(form);
   // 刚打开的空表单不先报「不能为空」：点过一次保存才标出所有不对的项（见 useSubmitCheck）。
   // 每次打开表单换 key，重新开始。
@@ -540,45 +555,63 @@ function PriceEditor({
   function text(field: "provider" | "model" | "input" | "output") {
     const label = t.fields[field];
     const problem = problemOf(field);
+    const fieldId = `${id}-${field}`;
     return (
-      <TextInput
-        label={label}
-        description={t.formHints[field]}
-        value={form[field]}
-        onChange={set(field)}
-        isOptional={field === "output"}
-        status={problem ? { type: "error", message: t.problems[problem.reason](label) } : undefined}
-        autoComplete="off"
-      />
+      <Field data-invalid={problem ? true : undefined}>
+        <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
+        <Input
+          id={fieldId}
+          value={form[field]}
+          onChange={(event) => set(field)(event.target.value)}
+          aria-invalid={problem ? true : undefined}
+          autoComplete="off"
+        />
+        <FieldDescription>{t.formHints[field]}</FieldDescription>
+        {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
+      </Field>
+    );
+  }
+
+  function select(field: "unit" | "currency", options: { value: string; label: string }[]) {
+    const fieldId = `${id}-${field}`;
+    return (
+      <Field>
+        <FieldLabel htmlFor={fieldId}>{t.fields[field]}</FieldLabel>
+        <Select items={options} value={form[field]} onValueChange={(value) => value && set(field)(String(value))}>
+          <SelectTrigger id={fieldId} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Field>
     );
   }
 
   return (
-    <form ref={check.ref} onSubmit={submit} noValidate>
-      <FormLayout>
+    <form ref={check.ref} onSubmit={submit} noValidate className="flex flex-col gap-6">
+      <FieldGroup>
         {!isKeyFixed && text("provider")}
         {!isKeyFixed && text("model")}
-        {!isKeyFixed && (
-          <Selector
-            label={t.fields.unit}
-            value={form.unit}
-            onChange={(value) => set("unit")(String(value))}
-            options={UNITS.map((u) => ({ value: u, label: t.units[u] ?? u }))}
-          />
-        )}
-        <Selector
-          label={t.fields.currency}
-          value={form.currency}
-          onChange={(value) => set("currency")(String(value))}
-          options={CURRENCIES.map((c) => ({ value: c, label: t.currencies[c] ?? c }))}
-        />
+        {!isKeyFixed && select("unit", UNITS.map((u) => ({ value: u, label: t.units[u] ?? u })))}
+        {select("currency", CURRENCIES.map((c) => ({ value: c, label: t.currencies[c] ?? c })))}
         {text("input")}
         {text("output")}
-        <HStack gap={2}>
-          <TouchButton type="submit" variant="primary" label={t.save} isLoading={busy} isDisabled={busy} />
-          <TouchButton variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
-        </HStack>
-      </FormLayout>
+      </FieldGroup>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={busy}>
+          {busy && <Spinner data-icon="inline-start" />}
+          {t.save}
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+          {copy.common.cancel}
+        </Button>
+      </div>
     </form>
   );
 }

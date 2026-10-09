@@ -6,10 +6,9 @@ import {
   describeLimit,
   limitDraft,
   limitsInput,
+  headerSort,
   pageOffset,
-  sortState,
   usageRows,
-  userSort,
   describeCount,
   type AdminUser,
 } from "@/lib/adminUsers";
@@ -90,12 +89,11 @@ describe("limitDraft and limitsInput", () => {
   });
 });
 
-describe("userSort and sortState", () => {
-  it("sorts by a usage column, most first, whichever way its header was clicked, and newest once unsorted", () => {
-    expect(userSort([{ sortKey: "turns", direction: "ascending" }])).toBe("turns");
-    expect(userSort([])).toBe("newest");
-    expect(sortState("turns")).toEqual([{ sortKey: "turns", direction: "descending" }]);
-    expect(sortState("newest")).toEqual([]);
+describe("headerSort", () => {
+  it("sorts by a usage column, most first, and back to newest when its header is clicked again", () => {
+    expect(headerSort("newest", "turns")).toBe("turns");
+    expect(headerSort("turns", "calls")).toBe("calls");
+    expect(headerSort("turns", "turns")).toBe("newest");
   });
 });
 

@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { AdminShell } from "@/components/AdminShell";
+import { AdminShell } from "@/components/app/admin/AdminShell";
 import { getAdmin } from "@/lib/backend";
 
 /**

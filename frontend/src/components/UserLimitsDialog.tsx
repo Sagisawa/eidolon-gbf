@@ -1,16 +1,32 @@
 "use client";
 
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { HStack, Layout, LayoutContent, LayoutFooter, VStack } from "@astryxdesign/core/Layout";
-import { NumberInput } from "@astryxdesign/core/NumberInput";
-import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
-import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 
-import { TouchButton } from "@/components/admin/DashboardParts";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { NumberInput } from "@/components/app/admin/NumberInput";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
-import { FailureNotice } from "@/components/FailureNotice";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
 import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
 import {
@@ -32,7 +48,7 @@ const COUNT_MAX = 100_000;
  * 设定或修改一位用户的单独限额：每小时的回合数和通话次数各自选「跟随全站 / 设定次数 / 不限 /
  * 只能用自带密钥」，次数从 1 起；附一句只有管理者看得到的备注。「只能用自带密钥」是单列的一项，
  * 不再让人填 0：全站限额里 0 是不限，同一个数字两处意思相反容易配错。`user` 为 null 时对话框关着；
- * 保存成功后把后端返回的这位用户交给 `onSaved`。
+ * 保存成功后把后端返回的这位用户交给 `onSaved`。保存是表单的提交，用 default（DESIGN.md「Buttons」）。
  */
 export function UserLimitsDialog({
   user,
@@ -50,7 +66,8 @@ export function UserLimitsDialog({
   const [failure, setFailure] = useState<Failure | null>(null);
   /** 全站现在的每小时回合数和通话次数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
   const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
-  const check = useSubmitCheck();
+  const check = useSubmitCheck<HTMLFormElement>();
+  const noteId = useId();
 
   useEffect(() => {
     if (!user) return;
@@ -88,7 +105,8 @@ export function UserLimitsDialog({
     if (!busy) onClose();
   }
 
-  async function save() {
+  async function save(event: FormEvent) {
+    event.preventDefault();
     if (!user) return;
     if (!("input" in result)) {
       check.refuse();
@@ -107,54 +125,46 @@ export function UserLimitsDialog({
   }
 
   return (
-    <Dialog isOpen={user !== null} onOpenChange={(open) => !open && close()} purpose="form" width={520}>
-      <Layout
-        header={<DialogHeader title={t.title(user?.name ?? "")} onOpenChange={() => close()} />}
-        content={
-          <LayoutContent>
-            <VStack ref={check.ref} gap={5}>
-              <Text as="p">{t.hint}</Text>
-              <LimitField
-                label={t.turns}
-                draft={turns}
-                onChange={setTurns}
-                site={site?.turns ?? null}
-                problems={problemOf("turns")}
-              />
-              <LimitField
-                label={t.calls}
-                draft={calls}
-                onChange={setCalls}
-                site={site?.calls ?? null}
-                problems={problemOf("calls")}
-              />
-              <TextArea
-                label={t.note}
-                description={t.noteHint}
-                isOptional
-                value={note}
-                onChange={setNote}
-                maxLength={NOTE_MAX}
-              />
-              {failure && <FailureNotice failure={failure} />}
-            </VStack>
-          </LayoutContent>
-        }
-        footer={
-          <LayoutFooter>
-            <HStack gap={2} hAlign="end" wrap="wrap">
-              <TouchButton label={copy.common.cancel} variant="secondary" onClick={close} isDisabled={busy} />
-              <TouchButton
-                label={t.confirm}
-                variant="primary"
-                onClick={save}
-                isLoading={busy}
-                isDisabled={busy}
-              />
-            </HStack>
-          </LayoutFooter>
-        }
-      />
+    <Dialog open={user !== null} onOpenChange={(open) => !open && close()}>
+      <DialogContent showCloseButton={false} className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
+        <form ref={check.ref} onSubmit={save} className="grid gap-4" noValidate>
+          <DialogHeader>
+            <DialogTitle>{t.title(user?.name ?? "")}</DialogTitle>
+            <DialogDescription>{t.hint}</DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <LimitField
+              label={t.turns}
+              draft={turns}
+              onChange={setTurns}
+              site={site?.turns ?? null}
+              problems={problemOf("turns")}
+            />
+            <LimitField
+              label={t.calls}
+              draft={calls}
+              onChange={setCalls}
+              site={site?.calls ?? null}
+              problems={problemOf("calls")}
+            />
+            <Field>
+              <FieldLabel htmlFor={noteId}>{t.note}</FieldLabel>
+              <Textarea id={noteId} value={note} onChange={(e) => setNote(e.target.value)} maxLength={NOTE_MAX} />
+              <FieldDescription>{t.noteHint}</FieldDescription>
+            </Field>
+          </FieldGroup>
+          {failure && <FailureNotice failure={failure} />}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={close} disabled={busy}>
+              {copy.common.cancel}
+            </Button>
+            <Button type="submit" disabled={busy}>
+              {busy && <Spinner data-icon="inline-start" />}
+              {t.confirm}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
     </Dialog>
   );
 }
@@ -177,40 +187,51 @@ function LimitField({
   /** 点过保存后这一项不对的地方。 */
   problems: LimitProblem[];
 }) {
+  const id = useId();
   const needsCount = problems.some((p) => p.reason === "count");
   const needsOne = problems.some((p) => p.reason === "needsOne");
-  const count = (
-    <NumberInput
-      label={t.count(label)}
-      isLabelHidden
-      value={draft.count}
-      onChange={(n) => onChange({ ...draft, count: n })}
-      min={1}
-      max={COUNT_MAX}
-      isIntegerOnly
-      units={t.units}
-      width={200}
-      status={needsCount ? { type: "error", message: t.needsCount } : undefined}
-    />
-  );
+  const choices: { value: LimitDraft["choice"]; label: string; description?: string }[] = [
+    { value: "default", label: site === null ? t.choices.default : t.defaultIs(t.siteCount(site)) },
+    { value: "number", label: t.choices.number },
+    { value: "unlimited", label: t.choices.unlimited },
+    { value: "own_keys", label: t.choices.ownKeys, description: t.ownKeysHint },
+  ];
   return (
-    <RadioList
-      label={label}
-      value={draft.choice}
-      onChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
-      status={needsOne ? { type: "error", message: t.needsOne } : undefined}
-    >
-      <RadioListItem
-        value="default"
-        label={site === null ? t.choices.default : t.defaultIs(t.siteCount(site))}
-      />
-      <RadioListItem
-        value="number"
-        label={t.choices.number}
-        description={draft.choice === "number" ? count : undefined}
-      />
-      <RadioListItem value="unlimited" label={t.choices.unlimited} />
-      <RadioListItem value="own_keys" label={t.choices.ownKeys} description={t.ownKeysHint} />
-    </RadioList>
+    <FieldSet>
+      <FieldLegend variant="label">{label}</FieldLegend>
+      <RadioGroup
+        value={draft.choice}
+        onValueChange={(choice) => onChange({ ...draft, choice: choice as LimitDraft["choice"] })}
+        aria-invalid={needsOne || undefined}
+      >
+        {choices.map((choice) => (
+          <Field key={choice.value} orientation="horizontal">
+            <RadioGroupItem value={choice.value} id={`${id}-${choice.value}`} />
+            <FieldContent>
+              <FieldLabel htmlFor={`${id}-${choice.value}`}>{choice.label}</FieldLabel>
+              {choice.description && <FieldDescription>{choice.description}</FieldDescription>}
+              {choice.value === "number" && draft.choice === "number" && (
+                <div className="mt-1 flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <NumberInput
+                      label={t.count(label)}
+                      value={draft.count}
+                      onChange={(n) => onChange({ ...draft, count: n })}
+                      min={1}
+                      max={COUNT_MAX}
+                      isIntegerOnly
+                      isInvalid={needsCount}
+                    />
+                    <span className="text-sm text-muted-foreground">{t.units}</span>
+                  </div>
+                  {needsCount && <FieldError>{t.needsCount}</FieldError>}
+                </div>
+              )}
+            </FieldContent>
+          </Field>
+        ))}
+      </RadioGroup>
+      {needsOne && <FieldError>{t.needsOne}</FieldError>}
+    </FieldSet>
   );
 }

@@ -1,20 +1,16 @@
 "use client";
 
-import { Button } from "@astryxdesign/core/Button";
-import { Divider } from "@astryxdesign/core/Divider";
-import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack } from "@astryxdesign/core/HStack";
-import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
-import { Selector } from "@astryxdesign/core/Selector";
-import { StackItem } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { TextInput } from "@astryxdesign/core/TextInput";
-import { VStack } from "@astryxdesign/core/VStack";
-import { FormEvent, useEffect, useState, type ReactNode } from "react";
+import { FormEvent, useEffect, useId, useState, type ReactNode } from "react";
 
-import { FailureNotice } from "@/components/FailureNotice";
-import { SettingsSection } from "@/components/SettingsSection";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { SettingsSection } from "@/components/app/SettingsSection";
+import { Button } from "@/components/ui/button";
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import {
   deleteOwnKey,
@@ -28,6 +24,7 @@ import {
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { limitExemption } from "@/lib/ownKeys";
+import { cn } from "@/lib/utils";
 
 const t = copy.settings.ownKeys;
 
@@ -65,14 +62,14 @@ export function OwnKeysSettings() {
 
   return (
     <SettingsSection title={t.title} description={t.hint}>
-      <Text as="p" role="status">
+      <p role="status" className="text-body">
         {EXEMPTION_NOTES[limitExemption(keys.exempt)]}
         {t.perCallLimits}
-      </Text>
+      </p>
       {failure && <FailureNotice failure={failure} />}
-      <VStack gap={4}>
+      <div className="flex flex-col gap-4">
         <OwnLLMForm current={keys.keys.llm} protocols={keys.protocols} onSaved={reload} onDelete={() => remove("llm")} />
-        <Divider />
+        <Separator />
         <OwnSpeechKeyForm
           service="tts"
           title={t.ttsTitle}
@@ -80,7 +77,7 @@ export function OwnKeysSettings() {
           onSaved={reload}
           onDelete={() => remove("tts")}
         />
-        <Divider />
+        <Separator />
         <OwnSpeechKeyForm
           service="stt"
           title={t.sttTitle}
@@ -89,7 +86,7 @@ export function OwnKeysSettings() {
           onSaved={reload}
           onDelete={() => remove("stt")}
         />
-      </VStack>
+      </div>
     </SettingsSection>
   );
 }
@@ -119,45 +116,48 @@ function ServiceKey({
   children: ReactNode;
 }) {
   return (
-    <VStack gap={3}>
-      <VStack gap={1}>
-        <Heading level={3} style={{ fontSize: "var(--text-body-size)" }}>
-          {title}
-        </Heading>
-        {hint && <Text color="secondary">{hint}</Text>}
-      </VStack>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-row-name">{title}</h3>
+        {hint && <p className="text-body text-muted-foreground">{hint}</p>}
+      </div>
       {!editing && (
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <StackItem size="fill">
-            <VStack gap={0.5}>
-              {summary.map((line) => (
-                <Text key={line} color={isSet ? "primary" : "secondary"} wordBreak="break-word">
-                  {line}
-                </Text>
-              ))}
-            </VStack>
-          </StackItem>
-          <HStack gap={1}>
-            <Button variant="ghost" size="sm" label={isSet ? t.edit : t.fill} onClick={onEdit} />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            {summary.map((line) => (
+              <p key={line} className={cn("text-body break-words", !isSet && "text-muted-foreground")}>
+                {line}
+              </p>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={onEdit}>
+              {isSet ? t.edit : t.fill}
+            </Button>
             {isSet && (
-              <Button variant="ghost" size="sm" label={t.removeLabel(title)} onClick={onDelete}>
+              <Button variant="ghost" size="sm" aria-label={t.removeLabel(title)} onClick={onDelete}>
                 {t.remove}
               </Button>
             )}
-          </HStack>
-        </HStack>
+          </div>
+        </div>
       )}
       {editing && children}
-    </VStack>
+    </div>
   );
 }
 
 function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: boolean; onCancel: () => void }) {
   return (
-    <HStack gap={2}>
-      <Button type="submit" label={busy ? t.saving : t.save} isDisabled={!canSubmit} isLoading={busy} />
-      <Button variant="ghost" label={copy.common.cancel} onClick={onCancel} isDisabled={busy} />
-    </HStack>
+    <div className="flex flex-wrap gap-2">
+      <Button type="submit" disabled={!canSubmit || busy}>
+        {busy && <Spinner data-icon="inline-start" />}
+        {busy ? t.saving : t.save}
+      </Button>
+      <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+        {copy.common.cancel}
+      </Button>
+    </div>
   );
 }
 
@@ -188,6 +188,7 @@ function OwnSpeechKeyForm({
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const id = useId();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -221,29 +222,37 @@ function OwnSpeechKeyForm({
       onDelete={onDelete}
     >
       <form onSubmit={submit}>
-        <FormLayout>
+        <FieldGroup>
           {provider && (
-            <RadioList
-              label={t.sttProvider}
-              value={provider}
-              onChange={(value) => setProvider(value as SttProvider)}
-              orientation="horizontal"
-            >
-              {STT_PROVIDERS.map((p) => (
-                <RadioListItem key={p} value={p} label={t.sttProviders[p]} />
-              ))}
-            </RadioList>
+            <FieldSet>
+              <FieldLegend variant="label">{t.sttProvider}</FieldLegend>
+              <RadioGroup
+                value={provider}
+                onValueChange={(value) => setProvider(value as SttProvider)}
+                className="flex flex-wrap gap-x-6 gap-y-2"
+              >
+                {STT_PROVIDERS.map((p) => (
+                  <Field key={p} orientation="horizontal" className="w-auto">
+                    <RadioGroupItem value={p} id={`${id}-${p}`} />
+                    <FieldLabel htmlFor={`${id}-${p}`}>{t.sttProviders[p]}</FieldLabel>
+                  </Field>
+                ))}
+              </RadioGroup>
+            </FieldSet>
           )}
-          <TextInput
-            type="password"
-            label={t.apiKey}
-            value={apiKey}
-            onChange={setApiKey}
-            autoComplete="off"
-          />
+          <Field>
+            <FieldLabel htmlFor={`${id}-key`}>{t.apiKey}</FieldLabel>
+            <Input
+              id={`${id}-key`}
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+            />
+          </Field>
           {failure && <FailureNotice failure={failure} />}
           <FormButtons busy={busy} canSubmit={!!apiKey.trim()} onCancel={() => setEditing(false)} />
-        </FormLayout>
+        </FieldGroup>
       </form>
     </ServiceKey>
   );
@@ -267,6 +276,7 @@ function OwnLLMForm({
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const id = useId();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -284,6 +294,8 @@ function OwnLLMForm({
     }
   }
 
+  const protocolOptions = protocols.map((p) => ({ value: p, label: t.protocols[p] }));
+
   return (
     <ServiceKey
       title={t.llmTitle}
@@ -295,29 +307,62 @@ function OwnLLMForm({
       onDelete={onDelete}
     >
       <form onSubmit={submit}>
-        <FormLayout>
-          <Selector
-            label={t.protocol}
-            value={protocol}
-            onChange={(value) => setProtocol(value as LLMProtocol)}
-            options={protocols.map((p) => ({ value: p, label: t.protocols[p] }))}
-          />
-          <TextInput
-            label={t.baseUrl}
-            value={baseUrl}
-            onChange={setBaseUrl}
-            placeholder="https://api.openai.com/v1"
-            autoComplete="off"
-          />
-          <TextInput label={t.model} value={model} onChange={setModel} autoComplete="off" />
-          <TextInput type="password" label={t.apiKey} value={apiKey} onChange={setApiKey} autoComplete="off" />
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor={`${id}-protocol`}>{t.protocol}</FieldLabel>
+            <Select
+              items={protocolOptions}
+              value={protocol}
+              onValueChange={(value) => value && setProtocol(value as LLMProtocol)}
+            >
+              <SelectTrigger id={`${id}-protocol`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {protocolOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-base-url`}>{t.baseUrl}</FieldLabel>
+            <Input
+              id={`${id}-base-url`}
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder="https://api.openai.com/v1"
+              autoComplete="off"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-model`}>{t.model}</FieldLabel>
+            <Input
+              id={`${id}-model`}
+              value={model}
+              onChange={(event) => setModel(event.target.value)}
+              autoComplete="off"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-key`}>{t.apiKey}</FieldLabel>
+            <Input
+              id={`${id}-key`}
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+            />
+          </Field>
           {failure && <FailureNotice failure={failure} />}
           <FormButtons
             busy={busy}
             canSubmit={!!baseUrl.trim() && !!model.trim() && !!apiKey.trim()}
             onCancel={() => setEditing(false)}
           />
-        </FormLayout>
+        </FieldGroup>
       </form>
     </ServiceKey>
   );

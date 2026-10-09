@@ -1,13 +1,12 @@
 "use client";
 
-import { Button } from "@astryxdesign/core/Button";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Spinner } from "@astryxdesign/core/Spinner";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useParams, useRouter } from "next/navigation";
 
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
 import { ConversationView } from "@/components/conversations/ConversationView";
+import { Button } from "@/components/ui/button";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 
 /** 和一位角色的对话。宽屏时在双栏外壳的右栏，窄屏时占满一页、页首带返回键。 */
@@ -23,17 +22,24 @@ export default function ConversationPage() {
     // 换角色时整页重来：上一位的对话（和通话）就此结束。
     return <ConversationView key={character.id} character={character} onBack={wide ? undefined : back} />;
   }
+  if (characters === null && !failure) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <Spinner className="size-6 text-muted-foreground" aria-label={copy.conversation.loading} />
+      </div>
+    );
+  }
   return (
-    <VStack height="100%" hAlign="center" vAlign="center" padding={6}>
-      {characters === null && !failure ? (
-        <Spinner size="lg" aria-label={copy.conversation.loading} />
-      ) : (
-        <EmptyState
-          title={failure ? copy.conversation.loadFailed : copy.conversation.notFound}
-          description={failure?.message}
-          actions={<Button label={copy.conversation.backToList} variant="secondary" onClick={back} />}
-        />
-      )}
-    </VStack>
+    <Empty className="h-full">
+      <EmptyHeader>
+        <EmptyTitle>{failure ? copy.conversation.loadFailed : copy.conversation.notFound}</EmptyTitle>
+        {failure && <EmptyDescription>{failure.message}</EmptyDescription>}
+      </EmptyHeader>
+      <EmptyContent>
+        <Button variant="outline" onClick={back}>
+          {copy.conversation.backToList}
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }

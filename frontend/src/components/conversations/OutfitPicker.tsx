@@ -1,26 +1,19 @@
 "use client";
 
-import { BottomSheet } from "@astryxdesign/core/BottomSheet";
-import { Button } from "@astryxdesign/core/Button";
-import { Card } from "@astryxdesign/core/Card";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { Grid } from "@astryxdesign/core/Grid";
-import { Heading } from "@astryxdesign/core/Heading";
-import { HStack } from "@astryxdesign/core/HStack";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { Spinner } from "@astryxdesign/core/Spinner";
-import { StackItem } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/VStack";
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { copy } from "@/i18n";
 import type { Outfit } from "@/lib/api";
 import { CALM } from "@/lib/standAnimations";
 import { findOutfit, LOOKS, type ListedOutfit, type Look, type OutfitCard } from "@/lib/standOutfit";
-import { listRow } from "@/theme/herVars";
+import { cn } from "@/lib/utils";
+import { herVars } from "@/theme/herVars";
 import { Ja } from "@/theme/Ja";
 
 import { Stand } from "./stand/Stand";
@@ -31,17 +24,18 @@ const t = copy.conversation.outfits;
 type Props = {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
-  /** 宽屏打开弹窗，窄屏打开底部面板（和对话页同一个断点）。 */
+  /** 宽屏打开对话框，窄屏打开底部面板（和对话页同一个断点）。 */
   isWide: boolean;
   isReducedMotion: boolean;
-  /** 她的印象色：选中（正在预览）的卡铺她的 paper。 */
+  /** 她的印象色：浮层渲染到对话子树外面，在浮层内容上再注入一次（大预览铺她的壁纸，「穿这套」是她的 primary）。 */
   color: string;
   outfits: StandOutfits;
 };
 
 /**
- * 换衣装（spec「衣装与换衣装」）：宽屏是弹窗，左边是大预览；窄屏是底部面板，大预览在上面，随列表一起滚动。
- * 列表按衣装清单的顺序排卡片，每张卡有缩略图、卡名和「私服 / 演出」切换。点卡片只是预览，
+ * 换衣装（spec「衣装与换衣装」，DESIGN.md「Overlays」）：宽屏是对话框，左边是大预览；窄屏是底部面板，
+ * 大预览在上面，随列表一起滚动。大预览的底是她的壁纸。列表按衣装清单的顺序排卡片，每张卡有缩略图、
+ * 卡名和「私服 / 演出」切换，正在预览的卡铺中性的 `bg-muted`。点卡片只是预览，
  * 点「穿这套」才记在这台设备上，下次打电话她就穿这套。
  */
 export function OutfitPicker({ isOpen, onOpenChange, isWide, isReducedMotion, color, outfits }: Props) {
@@ -72,8 +66,8 @@ export function OutfitPicker({ isOpen, onOpenChange, isWide, isReducedMotion, co
   };
 
   const preview = (
-    <VStack gap={3} hAlign="center" width="100%">
-      <VStack width="100%" style={{ ...stage, height: isWide ? previewHeightWide : previewHeightNarrow }}>
+    <div className="flex w-full flex-col items-center gap-3">
+      <div className={cn("w-full overflow-hidden rounded-xl bg-her-wall", isWide ? "h-96" : "h-54")}>
         {/* 关上时卸下，引擎和素材一起释放 */}
         {isOpen && (
           <Stand
@@ -86,75 +80,80 @@ export function OutfitPicker({ isOpen, onOpenChange, isWide, isReducedMotion, co
             onTried={(outfit, isLoaded) => setTried({ url: outfit.url, isLoaded })}
           />
         )}
-      </VStack>
-      <VStack gap={1} hAlign="center">
-        <Ja>
-          <Text weight="medium" justify="center">
-            {found && t.cardName(found.card.name)}
-          </Text>
-        </Ja>
-        <Text type="supporting" color="secondary" justify="center">
+      </div>
+      <div className="flex flex-col items-center gap-1 text-center">
+        <p className="font-medium">
+          <Ja>{found && t.cardName(found.card.name)}</Ja>
+        </p>
+        <p className="text-xs text-muted-foreground">
           {[found && t.lookNames[found.look], found?.card.type, isWorn && t.wearing, isBroken && t.notLoaded]
             .filter(Boolean)
             .join(t.separator)}
-        </Text>
-      </VStack>
-      <Button label={t.wear} variant="primary" onClick={wear} isDisabled={isWorn || !isShown} />
-    </VStack>
+        </p>
+      </div>
+      <Button onClick={wear} disabled={isWorn || !isShown}>
+        {t.wear}
+      </Button>
+    </div>
   );
 
   const list =
     cards === null ? (
-      <VStack hAlign="center" padding={6}>
-        <Spinner size="lg" aria-label={t.loading} />
-      </VStack>
+      <div className="flex justify-center p-6">
+        <Spinner className="size-6 text-muted-foreground" aria-label={t.loading} />
+      </div>
     ) : outfits.isListFailed ? (
-      <EmptyState
-        title={t.loadFailed}
-        actions={<Button label={t.retry} variant="secondary" onClick={outfits.reloadList} />}
-      />
+      <Empty>
+        <EmptyHeader>
+          <EmptyTitle>{t.loadFailed}</EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" onClick={outfits.reloadList}>
+            {t.retry}
+          </Button>
+        </EmptyContent>
+      </Empty>
     ) : (
-      <Grid columns={isWide ? { minWidth: 128 } : 3} gap={3}>
+      <div className={cn("grid gap-3", isWide ? "grid-cols-[repeat(auto-fill,minmax(8rem,1fr))]" : "grid-cols-3")}>
         {cards.map((card) => (
-          <CardTile key={card.id} card={card} picked={picked} color={color} onPick={setPickedId} />
+          <CardTile key={card.id} card={card} picked={picked} onPick={setPickedId} />
         ))}
-      </Grid>
+      </div>
     );
+
+  // 浮层渲染到对话子树外面，在内容上再注入一次她的颜色（DESIGN.md「The Scoped Colour Rule」）。
+  const her = herVars(color);
 
   if (isWide) {
     return (
-      <Dialog isOpen={isOpen} onOpenChange={openChange} width={960} maxHeight="86dvh">
-        <Layout
-          header={<DialogHeader title={t.title} subtitle={t.hint} onOpenChange={openChange} />}
-          content={
-            <LayoutContent>
-              <HStack gap={6} vAlign="start">
-                <VStack width={300} style={{ flexShrink: 0, position: "sticky", top: 0 }}>
-                  {preview}
-                </VStack>
-                <StackItem size="fill" style={{ minWidth: 0 }}>
-                  {list}
-                </StackItem>
-              </HStack>
-            </LayoutContent>
-          }
-        />
+      <Dialog open={isOpen} onOpenChange={(open) => openChange(open)}>
+        <DialogContent style={her} className="flex max-h-[86dvh] flex-col sm:max-w-240">
+          <DialogHeader>
+            <DialogTitle>{t.title}</DialogTitle>
+            <DialogDescription>{t.hint}</DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-0 items-start gap-6 overflow-y-auto">
+            <div className="sticky top-0 w-75 shrink-0">{preview}</div>
+            <div className="min-w-0 flex-1">{list}</div>
+          </div>
+        </DialogContent>
       </Dialog>
     );
   }
   return (
-    <BottomSheet isOpen={isOpen} onOpenChange={openChange} label={t.title} height="tall">
-      <VStack gap={4} padding={4}>
-        <VStack gap={1}>
-          <Heading level={2}>{t.title}</Heading>
-          <Text type="supporting" color="secondary">
-            {t.hint}
-          </Text>
-        </VStack>
-        {preview}
-        {list}
-      </VStack>
-    </BottomSheet>
+    <Drawer open={isOpen} onOpenChange={(open) => openChange(open)} showSwipeHandle>
+      <DrawerContent style={her}>
+        <DrawerHeader>
+          <DrawerTitle>{t.title}</DrawerTitle>
+          <DrawerDescription>{t.hint}</DrawerDescription>
+        </DrawerHeader>
+        {/* 大预览和列表一起滚动 */}
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">
+          {preview}
+          {list}
+        </div>
+      </DrawerContent>
+    </Drawer>
   );
 }
 
@@ -162,17 +161,7 @@ export function OutfitPicker({ isOpen, onOpenChange, isWide, isReducedMotion, co
  * 一张卡：缩略图、卡名（固定占两行，超出截断，悬停时显示全名）和「私服 / 演出」切换，
  * 只有一套的卡是灰掉的「只有一套」，所有卡片一样高。切换和点缩略图都会预览这一套。
  */
-function CardTile({
-  card,
-  picked,
-  color,
-  onPick,
-}: {
-  card: OutfitCard;
-  picked: string;
-  color: string;
-  onPick: (id: string) => void;
-}) {
+function CardTile({ card, picked, onPick }: { card: OutfitCard; picked: string; onPick: (id: string) => void }) {
   const looks = LOOKS.filter((look) => card[look]);
   const pickedLook = looks.find((look) => card[look]?.id === picked);
   const [chosen, setChosen] = useState<Look>(looks[0]);
@@ -181,78 +170,61 @@ function CardTile({
   const outfit = card[look] as ListedOutfit;
   const isPicked = pickedLook !== undefined;
   return (
-    <Card padding={1} style={listRow(color, isPicked)}>
-      <VStack gap={1} height="100%">
-        <VStack
-          as="button"
-          aria-label={t.preview(card.name)}
-          aria-pressed={isPicked}
-          onClick={() => onPick(outfit.id)}
-          style={thumbnailButton}
+    <div className={cn("flex flex-col gap-1 rounded-xl p-1", isPicked && "bg-muted")}>
+      {/*
+       * 缩略图是一个按钮，4:5，铺满卡片宽度，还没下载到时也占着同样的位置，大小不看里面的图（contain: strict）。
+       * 图绝对定位铺满按钮：宽度是百分比的图载入时，浏览器会把它往上的每一层都标成要重排，留在弹性布局里就是
+       * 一路重排到整个面板（60 多张卡，一次约 5ms），滚动中缩略图陆续载入，高刷新率的屏幕上就掉帧；
+       * 脱离弹性布局之后只重排按钮里面。
+       */}
+      <button
+        type="button"
+        aria-label={t.preview(card.name)}
+        aria-pressed={isPicked}
+        onClick={() => onPick(outfit.id)}
+        className="relative aspect-[4/5] cursor-pointer overflow-hidden rounded-lg outline-none [contain:strict] focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        {/* 缩略图同步素材时预先渲染好（400×500），滚到了才下载 */}
+        <img
+          src={outfit.thumbnail}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="absolute inset-0 size-full object-cover"
+        />
+      </button>
+      <p title={card.name} className="line-clamp-2 h-8 px-0.5 text-xs leading-4">
+        <Ja>{card.name}</Ja>
+      </p>
+      {looks.length > 1 ? (
+        <ToggleGroup
+          aria-label={t.lookLabel(card.name)}
+          variant="segment"
+          size="sm"
+          spacing={0}
+          className="w-full"
+          value={[look]}
+          onValueChange={(value: unknown[]) => {
+            const next = value[0] as Look | undefined;
+            // 再点一下当前这一项不会取消选中。
+            if (!next) return;
+            setChosen(next);
+            onPick((card[next] as ListedOutfit).id);
+          }}
         >
-          {/* 缩略图同步素材时预先渲染好（400×500），滚到了才下载 */}
-          <img src={outfit.thumbnail} alt="" loading="lazy" decoding="async" style={thumbnail} />
-        </VStack>
-        <StackItem size="fill">
-          <Ja>
-            <Text type="supporting" maxLines={2} style={twoLines}>
-              {card.name}
-            </Text>
-          </Ja>
-        </StackItem>
-        {looks.length > 1 ? (
-          <SegmentedControl
-            label={t.lookLabel(card.name)}
-            size="sm"
-            layout="fill"
-            value={look}
-            onChange={(value) => {
-              const next = value as Look;
-              setChosen(next);
-              onPick((card[next] as ListedOutfit).id);
-            }}
-          >
-            {LOOKS.map((value) => (
-              <SegmentedControlItem key={value} value={value} label={t.looks[value]} />
-            ))}
-          </SegmentedControl>
-        ) : (
-          <SegmentedControl label={t.lookLabel(card.name)} size="sm" layout="fill" value="only" onChange={() => {}} isDisabled>
-            <SegmentedControlItem value="only" label={t.only} />
-          </SegmentedControl>
-        )}
-      </VStack>
-    </Card>
+          {LOOKS.map((value) => (
+            <ToggleGroupItem key={value} value={value} className="flex-1">
+              {t.looks[value]}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      ) : (
+        <ToggleGroup aria-label={t.lookLabel(card.name)} variant="segment" size="sm" spacing={0} className="w-full" value={["only"]} disabled>
+          <ToggleGroupItem value="only" className="flex-1">
+            {t.only}
+          </ToggleGroupItem>
+        </ToggleGroup>
+      )}
+    </div>
   );
 }
-
-/** 大预览的底：她的 paper，立绘画在上面。 */
-const stage: CSSProperties = { borderRadius: "var(--radius-container)", background: "var(--her-paper)", overflow: "hidden" };
-const previewHeightWide = "calc(var(--spacing-12) * 8)";
-const previewHeightNarrow = "calc(var(--spacing-12) * 4.5)";
-
-/**
- * 缩略图是一个按钮，去掉按钮自带的样式，透出卡片的底。按钮 4:5，铺满卡片宽度，还没下载到时也占着同样的位置，
- * 大小不看里面的图（`contain: strict`）。
- */
-const thumbnailButton: CSSProperties = {
-  border: 0,
-  padding: 0,
-  cursor: "pointer",
-  overflow: "hidden",
-  borderRadius: "var(--radius-inner)",
-  background: "transparent",
-  aspectRatio: "4 / 5",
-  position: "relative",
-  contain: "strict",
-};
-
-/**
- * 缩略图绝对定位铺满按钮。宽度是百分比的图载入时，浏览器会把它往上的每一层都标成要重排，
- * 留在弹性布局里就是一路重排到整个面板（60 多张卡，一次约 5ms），滚动中缩略图陆续载入，高刷新率的屏幕上就掉帧；
- * 脱离弹性布局之后只重排按钮里面。
- */
-const thumbnail: CSSProperties = { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" };
-
-/** 卡名固定占两行高，所有卡片一样高。 */
-const twoLines: CSSProperties = { height: "calc(var(--text-supporting-size) * var(--text-supporting-leading) * 2)" };

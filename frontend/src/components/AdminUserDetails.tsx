@@ -1,26 +1,39 @@
 "use client";
 
-import { AlertDialog } from "@astryxdesign/core/AlertDialog";
-import { HStack } from "@astryxdesign/core/HStack";
-import { Icon } from "@astryxdesign/core/Icon";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { Spinner } from "@astryxdesign/core/Spinner";
-import { Table, pixel, proportional, type TableColumn } from "@astryxdesign/core/Table";
-import { Text } from "@astryxdesign/core/Text";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { Token } from "@astryxdesign/core/Token";
-import { VStack } from "@astryxdesign/core/VStack";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { AdminPage } from "@/components/admin/AdminPage";
-import { RowList, TOUCH_LINK, TouchButton, useTouch, useWide } from "@/components/admin/DashboardParts";
-import { BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
-import { AppLink } from "@/components/AppLink";
+import { AppLink } from "@/components/app/AppLink";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { AdminPage } from "@/components/app/admin/AdminPage";
+import { AdminTrail } from "@/components/app/admin/AdminTrail";
+import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
+import { Timestamp } from "@/components/app/admin/Timestamp";
+import { AdminBadge, BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
 import { BanUserDialog } from "@/components/BanUserDialog";
-import { FailureNotice } from "@/components/FailureNotice";
-import { SettingsSection } from "@/components/SettingsSection";
 import { UserLimitsDialog } from "@/components/UserLimitsDialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Spinner } from "@/components/ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { copy } from "@/i18n";
 import {
   USAGE_RANGES,
@@ -34,19 +47,19 @@ import {
   type AdminUserDetails as Details,
   type AdminUserUsage,
   type KeyedCount,
-  type UsageRow,
 } from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
-import { BackIcon } from "@/theme/icons";
 import { PROVIDER_LABELS } from "@/lib/signIn";
+import { BackIcon } from "@/theme/icons";
 
 const t = copy.admin.users;
 
 /**
  * 一位用户的详情：登录方式（含邮箱和填进管理者名单用的标识）、注册和最后活跃的时间、
  * 自带密钥的有无、单独限额（设定、修改、取消）、封禁的时间和备注、近期用量，以及封禁 / 解除封禁
- * 和删除（二次确认，删完回到列表）。
- * 不含任何对话、记忆和制作人档案。
+ * 和删除（二次确认，删完回到列表）。不含任何对话、记忆和制作人档案。
+ * 资料是一张 Card 里的两列定义列表，单独限额的按钮在 CardFooter；近期用量一张表；删除单独一张 Card
+ * （DESIGN.md「Layout · 后台 · 用户详情」）。打开确认框的入口用 outline，执行的那一下用 destructive。
  */
 export function AdminUserDetails({ id }: { id: string }) {
   const [user, setUser] = useState<Details | null>(null);
@@ -58,7 +71,6 @@ export function AdminUserDetails({ id }: { id: string }) {
   const [editingLimits, setEditingLimits] = useState(false);
   const [takingOffLimits, setTakingOffLimits] = useState(false);
   const router = useRouter();
-  const touch = useTouch();
 
   useEffect(() => {
     getAdminUser(id).then(setUser, (e) => setFailure(toFailure(e)));
@@ -103,21 +115,25 @@ export function AdminUserDetails({ id }: { id: string }) {
 
   const action = user && banAction(user);
   const back = (
-    <HStack gap={1} vAlign="center">
-      <Icon icon={BackIcon} size="sm" color="secondary" />
-      <AppLink href="/admin/users" isStandalone style={touch ? TOUCH_LINK : undefined}>
-        {t.backToList}
-      </AppLink>
-    </HStack>
+    <AppLink href="/admin/users" isStandalone className="inline-flex w-fit items-center gap-1">
+      <BackIcon aria-hidden className="size-4" />
+      {t.backToList}
+    </AppLink>
   );
 
   if (!user) {
+    // 还没拿到这位用户：没有名字可当标题，只放返回链接和转圈（或失败的原因）。限宽同 AdminPage 的 narrow。
     return (
-      <VStack gap={6}>
+      <div className="mx-auto flex w-full max-w-240 flex-col gap-6 p-4 md:p-6">
         {back}
         {failure && <FailureNotice failure={failure} />}
-        {!failure && <Spinner size="lg" aria-label={t.loading} />}
-      </VStack>
+        {!failure && (
+          <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner />
+            {t.loading}
+          </p>
+        )}
+      </div>
     );
   }
 
@@ -127,135 +143,146 @@ export function AdminUserDetails({ id }: { id: string }) {
       above={back}
       title={user.name}
       meta={
-        <HStack gap={2} vAlign="center" wrap="wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <BanStatus banned={user.banned} />
-          {user.is_admin && <Token label={t.admin} size="sm" color="blue" />}
-        </HStack>
+          {user.is_admin && <AdminBadge />}
+        </div>
       }
       end={
         action === "ban" ? (
-          <TouchButton label={t.ban} variant="secondary" onClick={() => setBanning(true)} />
+          <Button variant="outline" onClick={() => setBanning(true)}>
+            {t.ban}
+          </Button>
         ) : action === "unban" ? (
-          <TouchButton label={t.unban} variant="secondary" onClick={unban} isLoading={unbanning} />
+          <Button variant="outline" onClick={unban} disabled={unbanning}>
+            {unbanning && <Spinner data-icon="inline-start" />}
+            {t.unban}
+          </Button>
         ) : (
-          <Text color="secondary">{t.adminCannotBeBanned}</Text>
+          <p className="text-sm text-muted-foreground">{t.adminCannotBeBanned}</p>
         )
       }
     >
       {failure && <FailureNotice failure={failure} />}
 
-      <SettingsSection title={t.details.title}>
-        <MetadataList columns="multi">
-          <MetadataListItem label={t.details.signInMethods}>
-            {user.sign_in_methods.length === 0 ? (
-              <Text color="secondary">{t.noSignInMethods}</Text>
-            ) : (
-              <VStack gap={2}>
-                {user.sign_in_methods.map((method) => (
-                  <VStack key={method.provider} gap={0}>
-                    <Text>
-                      {PROVIDER_LABELS[method.provider]} {method.display_name}
-                    </Text>
-                    <Text type="supporting" color="secondary">
-                      {t.details.email}：{method.email ?? t.details.noEmail}
-                    </Text>
-                    <Text type="supporting" color="secondary">
-                      {t.details.identifier}：{method.provider}:{method.subject}
-                    </Text>
-                  </VStack>
-                ))}
-              </VStack>
-            )}
-          </MetadataListItem>
-          <MetadataListItem label={t.details.id}>
-            <Text type="code">{user.id}</Text>
-          </MetadataListItem>
-          <MetadataListItem label={t.details.createdAt}>
-            <Timestamp value={user.created_at} format="date_time" type="body" />
-          </MetadataListItem>
-          <MetadataListItem label={t.details.lastActive}>
-            {user.last_active_at ? (
-              <Timestamp value={user.last_active_at} format="date_time" type="body" />
-            ) : (
-              <Text color="secondary">{t.never}</Text>
-            )}
-          </MetadataListItem>
-          <MetadataListItem label={t.details.ownKeys}>
-            <OwnKeys user={user} />
-          </MetadataListItem>
-          <MetadataListItem label={t.limits.title}>
-            <VStack gap={2}>
-              <UserLimits user={user} />
-              {user.limits?.note && (
-                <Text type="supporting" color="secondary">
-                  {user.limits.note}
-                </Text>
-              )}
-              {user.limits && (
-                <HStack gap={1} vAlign="center">
-                  <Text type="supporting" color="secondary">
-                    {t.limits.updatedAt}
-                  </Text>
-                  <Timestamp value={user.limits.updated_at} format="date_time" type="supporting" />
-                </HStack>
-              )}
-              <HStack gap={2} wrap="wrap">
-                <TouchButton
-                  label={user.limits ? t.limits.edit : t.limits.set}
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setEditingLimits(true)}
-                />
-                {user.limits && (
-                  <TouchButton
-                    label={t.limits.takeOff}
-                    variant="secondary"
-                    size="sm"
-                    onClick={takeOffLimits}
-                    isLoading={takingOffLimits}
-                  />
-                )}
-              </HStack>
-            </VStack>
-          </MetadataListItem>
-          {user.banned_at && (
-            <MetadataListItem label={t.details.bannedAt}>
-              <Timestamp value={user.banned_at} format="date_time" type="body" />
-            </MetadataListItem>
-          )}
-          {user.banned && (
-            <MetadataListItem label={t.details.banNote}>
-              {user.ban_note ? (
-                <Text>{user.ban_note}</Text>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t.details.title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MetadataList>
+            <MetadataListItem label={t.details.signInMethods}>
+              {user.sign_in_methods.length === 0 ? (
+                <span className="text-muted-foreground">{t.noSignInMethods}</span>
               ) : (
-                <Text color="secondary">{t.details.noNote}</Text>
+                <span className="flex flex-col gap-2">
+                  {user.sign_in_methods.map((method) => (
+                    <span key={method.provider} className="flex flex-col">
+                      <span>
+                        {PROVIDER_LABELS[method.provider]} {method.display_name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {t.details.email}：{method.email ?? t.details.noEmail}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {t.details.identifier}：{method.provider}:{method.subject}
+                      </span>
+                    </span>
+                  ))}
+                </span>
               )}
             </MetadataListItem>
+            <MetadataListItem label={t.details.id}>
+              <code className="font-mono text-xs">{user.id}</code>
+            </MetadataListItem>
+            <MetadataListItem label={t.details.createdAt}>
+              <Timestamp value={user.created_at} />
+            </MetadataListItem>
+            <MetadataListItem label={t.details.lastActive}>
+              {user.last_active_at ? (
+                <Timestamp value={user.last_active_at} />
+              ) : (
+                <span className="text-muted-foreground">{t.never}</span>
+              )}
+            </MetadataListItem>
+            <MetadataListItem label={t.details.ownKeys}>
+              <OwnKeys user={user} />
+            </MetadataListItem>
+            <MetadataListItem label={t.limits.title}>
+              <span className="flex flex-col gap-0.5">
+                <UserLimits user={user} />
+                {user.limits?.note && <span className="text-xs text-muted-foreground">{user.limits.note}</span>}
+                {user.limits && (
+                  <span className="text-xs text-muted-foreground">
+                    {t.limits.updatedAt} <Timestamp value={user.limits.updated_at} />
+                  </span>
+                )}
+              </span>
+            </MetadataListItem>
+            {user.banned_at && (
+              <MetadataListItem label={t.details.bannedAt}>
+                <Timestamp value={user.banned_at} />
+              </MetadataListItem>
+            )}
+            {user.banned && (
+              <MetadataListItem label={t.details.banNote}>
+                {user.ban_note ? (
+                  <span>{user.ban_note}</span>
+                ) : (
+                  <span className="text-muted-foreground">{t.details.noNote}</span>
+                )}
+              </MetadataListItem>
+            )}
+          </MetadataList>
+        </CardContent>
+        <CardFooter className="flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => setEditingLimits(true)}>
+            {user.limits ? t.limits.edit : t.limits.set}
+          </Button>
+          {user.limits && (
+            <Button variant="ghost" size="sm" onClick={takeOffLimits} disabled={takingOffLimits}>
+              {takingOffLimits && <Spinner data-icon="inline-start" />}
+              {t.limits.takeOff}
+            </Button>
           )}
-        </MetadataList>
-      </SettingsSection>
+        </CardFooter>
+      </Card>
 
+      <AdminTrail value={user.name} />
       <RecentUsage usage={user.usage} />
 
       {action !== null && (
-        <SettingsSection title={t.delete} description={t.deleteSection.hint}>
-          <HStack>
-            <TouchButton label={t.delete} variant="secondary" onClick={() => setConfirmingDelete(true)} />
-          </HStack>
-        </SettingsSection>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t.delete}</CardTitle>
+            <CardDescription>{t.deleteSection.hint}</CardDescription>
+            <CardAction>
+              <Button variant="outline" onClick={() => setConfirmingDelete(true)}>
+                {t.delete}
+              </Button>
+            </CardAction>
+          </CardHeader>
+        </Card>
       )}
 
-      <AlertDialog
-        isOpen={confirmingDelete}
-        onOpenChange={(open) => !deleting && setConfirmingDelete(open)}
-        title={t.deleteDialog.title(user.name)}
-        description={`${t.deleteDialog.hint}${user.banned ? t.deleteDialog.banned : t.deleteDialog.notBanned}`}
-        actionLabel={t.deleteDialog.confirm}
-        cancelLabel={copy.common.cancel}
-        onAction={remove}
-        isActionLoading={deleting}
-        width={480}
-      />
+      <AlertDialog open={confirmingDelete} onOpenChange={(open) => !deleting && setConfirmingDelete(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.deleteDialog.title(user.name)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t.deleteDialog.hint}
+              {user.banned ? t.deleteDialog.banned : t.deleteDialog.notBanned}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>{copy.common.cancel}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" disabled={deleting} onClick={remove}>
+              {deleting && <Spinner data-icon="inline-start" />}
+              {t.deleteDialog.confirm}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <UserLimitsDialog
         user={editingLimits ? user : null}
@@ -278,52 +305,68 @@ export function AdminUserDetails({ id }: { id: string }) {
   );
 }
 
-/** 近期用量：回合、通话、被拒绝各一行，最近 24 小时、7 天、30 天各一列；每格是总数，下面分出部署者的 key 和自带密钥。 */
+/**
+ * 近期用量：回合、通话、被拒绝各一行，最近 24 小时、7 天、30 天各一列；每格是总数，下面分出部署者的 key
+ * 和自带密钥。≥ 1024px 是表格，更窄时换成 divide-y 的行（DESIGN.md「Layout · 后台 · 表格」）。
+ */
 function RecentUsage({ usage }: { usage: AdminUserUsage }) {
   const u = t.usage;
-  const wide = useWide();
-  if (!wide) {
-    return (
-      <SettingsSection title={u.title} description={u.hint}>
-        <RowList
-          rows={usageRows(usage).map((row) => ({
-            id: row.what,
-            label: row.label,
-            description: USAGE_RANGES.map((range) => `${u.ranges[range]} ${describeCount(row[range]).total}`).join(" · "),
-          }))}
-        />
-      </SettingsSection>
-    );
-  }
-  const columns: TableColumn<UsageRow>[] = [
-    { key: "label", header: "", width: pixel(80), renderCell: (row) => <Text weight="semibold">{row.label}</Text> },
-    ...USAGE_RANGES.map(
-      (range): TableColumn<UsageRow> => ({
-        key: range,
-        header: u.ranges[range],
-        width: proportional(1),
-        align: "end",
-        renderCell: (row) => <Count count={row[range]} />,
-      }),
-    ),
-  ];
+  const rows = usageRows(usage);
   return (
-    <SettingsSection title={u.title} description={u.hint}>
-      <Table data={usageRows(usage)} columns={columns} idKey="what" density="compact" verticalAlign="top" />
-    </SettingsSection>
+    <Card>
+      <CardHeader>
+        <CardTitle>{u.title}</CardTitle>
+        <CardDescription>{u.hint}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table className="hidden lg:table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>
+                <span className="sr-only">{u.title}</span>
+              </TableHead>
+              {USAGE_RANGES.map((range) => (
+                <TableHead key={range} className="text-right">
+                  {u.ranges[range]}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.what}>
+                <TableCell className="align-top font-medium">{row.label}</TableCell>
+                {USAGE_RANGES.map((range) => (
+                  <TableCell key={range} className="text-right align-top">
+                    <Count count={row[range]} />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+
+        <ul className="divide-y lg:hidden">
+          {rows.map((row) => (
+            <li key={row.what} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
+              <span className="font-medium">{row.label}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {USAGE_RANGES.map((range) => `${u.ranges[range]} ${describeCount(row[range]).total}`).join(" · ")}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   );
 }
 
 function Count({ count }: { count: KeyedCount }) {
   const { total, split } = describeCount(count);
   return (
-    <VStack gap={0} hAlign="end">
-      <Text hasTabularNumbers>{total}</Text>
-      {split && (
-        <Text type="supporting" color="secondary">
-          {split}
-        </Text>
-      )}
-    </VStack>
+    <>
+      <span className="block tabular-nums">{total}</span>
+      {split && <span className="block text-xs text-muted-foreground tabular-nums">{split}</span>}
+    </>
   );
 }
