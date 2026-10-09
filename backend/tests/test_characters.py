@@ -150,9 +150,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "amana": "d5a68fc022604b23b94e2a0b9f823b59",
         "tenka": "7f50c8ef897c402fa7967a11aa94261e",
         "chiyuki": "7de8d70dc5e04759be11c01f69c8c863",
-        "luca": "",
-        "hana": "",
-        "haruki": "",
+        "luca": "79e3dd87aa7649dab07350896ce995ae",
+        "hana": "ccfce7160c664853813988cea175d1ab",
+        "haruki": "5dd68541a9a04f50b9332572e0d266ff",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
