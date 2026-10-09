@@ -10,7 +10,8 @@
     "test": "vitest run",
     "theme:build": "astryx theme build src/theme/notebookTheme.ts -o src/theme/built/notebookTheme.css --icons-specifier ../astryxIcons",
     "theme:check": "astryx theme build --check src/theme/notebookTheme.ts -o src/theme/built/notebookTheme.css --icons-specifier ../astryxIcons",
-    "stand:thumbnails": "node --env-file-if-exists=../.env scripts/stand-thumbnails.mts"
+    "stand:thumbnails": "node --env-file-if-exists=../.env scripts/stand-thumbnails.mts",
+    "screenshots": "node --env-file-if-exists=../.env scripts/screenshots.mts"
   },
   "dependencies": {
     "@astryxdesign/core": "^0.6.3",
