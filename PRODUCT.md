@@ -29,7 +29,7 @@ web
 
 ## Operating Context
 
-- 访客打开网址，先看到登录页：页面说明这是什么、有哪些角色可以对话。用户用 Google 或 GitHub 登录，第一次登录要同意隐私政策和使用条款，并声明年满 13 岁。
+- 访客打开网址，先看到落地页：讲清楚这是什么、有哪些角色、要花谁的钱、数据怎么处理，可以点开每位角色听一句招呼，然后在落地页里弹出的登录面板登录（ADR-0016）。用户用登录方式（目前是 Google 或 GitHub，以后会增加）登录，第一次登录要同意隐私政策和使用条款，并声明年满 13 岁。已登录的用户打开网址直接进入对话列表，可以从设置页回到落地页。
 - 登录后的流程：在对话列表里点一位角色 → 进入对话（打字，或发起通话）→ 在设置页管理制作人档案、登录方式、自带密钥、通话设置和删除数据 → 在记忆页查看和删除记忆。
 - 通话基于 WebRTC，离开对话页就会挂断。通话以全屏的通话层呈现，可以收起回到文字记录；通话中可以「麦克风静音」、切换麦克风，也可以开「只看文字」让角色不出声。默认麦克风和通话音质在设置页选择。拨号时有铃声，接通和挂断各有提示音，和手机打电话一样；设置页还可以打开「电话质感」，让角色的声音像隔着听筒。
 - 每小时有限额；用自带密钥的回合和通话可以不计入限额。
@@ -38,11 +38,11 @@ web
 ## Capabilities and Constraints
 
 - 前端：Next.js 16（App Router）+ React 19 + TypeScript，组件库用 shadcn/ui（底层 Base UI，样式 `base-nova`）+ Tailwind v4（ADR-0015），视觉规范见 `DESIGN.md`，组件写法的约束见 `frontend/AGENTS.md`。图标用 Lucide。界面文案集中在 `frontend/src/i18n/`，目前只有简体中文。后端：FastAPI + Pipecat，数据库用 SQLite。
-- 现有页面：`/login`（落地页兼登录页）、`/consent`、`/`（对话列表）、`/conversation/[characterId]`（对话，通话层也在这里）、`/settings`、`/memories`、`/privacy`、`/terms`，以及只有管理者能进入的后台：`/admin`（看板）、`/admin/config`（配置和单价）、`/admin/users`、`/admin/users/[id]`。对话列表和对话共用一个布局：电脑上左右双栏，手机上两级页面。
+- 现有页面：`/`（访客看到落地页，已登录的用户被带到对话列表）、`/login`（登录被拒的回跳和开发登录）、`/consent`、`/conversations`（对话列表）、`/conversation/[characterId]`（对话，通话层也在这里）、`/settings`、`/memories`、`/privacy`、`/terms`，以及只有管理者能进入的后台：`/admin`（看板）、`/admin/config`（配置和单价）、`/admin/users`、`/admin/users/[id]`。对话列表和对话共用一个布局：电脑上左右双栏，手机上两级页面。
 - 每位角色的界面以她的印象色为基调（`characters.toml` 的 `color`），颜色由 `frontend/src/lib/imageColor.ts` 按浅色、深色模式成对推出并经过对比度测试；通话层用她的背景图（`background`，可选，没有时用印象色渐变）。其余界面是中性主题，浅色和深色跟随系统。
 - 回合与通话的状态语义（成功、失败、被拒绝、用户离开、没能接通，以及是否计入限额）定义在 `GLOSSARY.md` 里。界面上的提示必须与这些语义一致。
 - 自带密钥调用失败时，这个回合就算失败，不会改用部署者的 key。界面上只显示密钥的末 4 位。
-- 角色数量由 `characters/characters.toml` 配置，目前有櫻木真乃、風野灯織、八宮めぐる和月岡恋鐘四位，以后会增加。界面要能容纳数量不定的角色。
+- 角色数量由 `characters/characters.toml` 配置，目前是闪耀色彩全部 28 位偶像，原作出新偶像时会增加。界面要能容纳数量不定的角色。
 - 仓库保持私有；剧情库和音色数据不进仓库（ADR-0003）。
 - 尚未决定：日语界面的范围和实现方式；是否需要英语界面。
 
@@ -55,7 +55,7 @@ web
 
 ## Evidence on Hand
 
-- 角色头像：`characters/avatars/` 下每位角色一张（`mano.jpg`、`hiori.jpg`、`meguru.jpg`、`kogane.jpg`）（可能是官方立绘，只能在私有仓库和本站内使用，见 ADR-0003 修订）。通话层背景图放在 `characters/backgrounds/`，目前还没有。
+- 角色头像：`characters/avatars/` 下每位角色一张（例如 `mano.jpg`）（可能是官方立绘，只能在私有仓库和本站内使用，见 ADR-0003 修订）。通话层背景图放在 `characters/backgrounds/`，目前还没有。
 - 印象色：櫻木真乃 `#ffbad6`、風野灯織 `#144384`、八宮めぐる `#ffe012`、月岡恋鐘 `#f84cad`，出处是アイマスDB「アイドルのイメージカラー」（数据来自官方网站）。
 - 角色简介写在 `characters/characters.toml` 里。
 - 没有用户评价、使用数据或媒体报道，今后的设计不得编造。
