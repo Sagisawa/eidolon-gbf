@@ -25,12 +25,12 @@ Label: wayfinder:map
 - [shadcn 底层选型与 Tailwind v4 接入](issues/02-shadcn-stack.md)：底层选 Base UI（`base-nova`）；只取 tweakcn 的颜色值；印象色写进 `--primary`/`--ring`，浮层要单独处理；和 Astryx 共存要靠 CSS 层顺序，尚待用 build 验证
 - [LINE 风格视觉原型](issues/03-line-style-prototype.md)：定稿组合 D：外框、气泡配色和列表取 A（她色相的淡壁纸、她的气泡白色、制作人气泡用深蓝墨水、头像 56px），气泡形状取 B（22px、无尾巴），通话层取 B（模糊头像做底、毛玻璃台词卡），底栏取 C；日语用 LINE Seed JP，中文用 Noto Sans SC，不用阴影
 - [迁移策略](issues/04-migration-strategy.md)：在 feat 分支上一次换完，再合进 main；分支内两套库并存，靠层顺序隔离；第一波是不改外观的底座波；以屏为单位替换；每波开工前把 main 合进分支；回滚靠 revert，不搭预发环境
-
 - [DESIGN.md / PRODUCT.md 改写与说法统一](issues/05-design-docs-rewrite.md)：新的 `DESIGN.md`（「制作人的手机」）已经写进分支；主题用 shadcn neutral，不进 tweakcn；深蓝只用于制作人气泡；选中状态一律中性底；壁纸纳入成对颜色契约；列表叫「对话」；旧规格里的「微信式」不改；通话层和后台两节待对应 ticket 补
+- [后台视觉原型](issues/06-admin-style-prototype.md)：整体取方案 A：shadcn Sidebar；内容列限宽（1200 / 960px）；数字、图表、表格都装在 Card 里；配置每项一张卡、卡里展开表单；图表用前景黑白。不引入 TanStack Table；对话列表改用 Resizable、按像素调宽；后台 Card 保留默认细线
 
 ## Not yet specified
 
-- **新的组件纪律**：`AGENTS.md` / `frontend/AGENTS.md` 里 Astryx 那套规则（不写裸 div、一律用 token）的替代版本，也就是 shadcn + Tailwind 下的写法约束。
+- **新的组件纪律**：`AGENTS.md` / `frontend/AGENTS.md` 里 Astryx 那套规则（不写裸 div、一律用 token）的替代版本，也就是 shadcn + Tailwind 下的写法约束。已知要管的：`cn` 合并不掉 `group-data-[…]` 变体（见「后台视觉原型」）、`cn` 的导入路径统一。
 
 ## Out of scope
 
