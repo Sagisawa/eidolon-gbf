@@ -1,14 +1,21 @@
 import { describe, expect, it } from "vitest";
 
+import { themePair } from "@/theme/themeCss";
+
 import { CALL_MUTED, contrast, distance, imageColorScale, mix, paperColors } from "./imageColor";
 
 const { body, ink } = paperColors;
+/** 新主题（globals.css）里压在她壁纸上的正文和次要文字（时间戳、日期条）。 */
+const foreground = themePair("--foreground");
+const mutedForeground = themePair("--muted-foreground");
 
 /** 界面上每一对「底色 + 上面的字或图标」，以及要达到的对比度。 */
 function pairs(hex: string) {
   const s = imageColorScale(hex);
   return [
     ...(["light", "dark"] as const).flatMap((mode) => [
+      { what: `${mode} 壁纸上的正文`, fg: foreground[mode], bg: s.wall[mode], min: 4.5 },
+      { what: `${mode} 壁纸上的次要文字`, fg: mutedForeground[mode], bg: s.wall[mode], min: 4.5 },
       { what: `${mode} 气泡和选中行的正文`, fg: ink[mode], bg: s.paper[mode], min: 4.5 },
       { what: `${mode} 气泡字幕`, fg: s.paperMuted[mode], bg: s.paper[mode], min: 4.8 },
       { what: `${mode} 便利贴正文`, fg: ink[mode], bg: s.note[mode], min: 4.5 },

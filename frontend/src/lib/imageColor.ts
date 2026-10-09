@@ -16,6 +16,8 @@ export type ImageColorScale = {
   raw: string;
   /** 属于她的小记号（头像描边等）：和纸面对比度 ≥ 3，太浅就压暗、太暗就提亮。 */
   mark: ModePair;
+  /** 她的对话壁纸：她色相的极淡底；上面放新主题的 --foreground 和 --muted-foreground（都 ≥ 4.5）。 */
+  wall: ModePair;
   /** 她的气泡、选中行的底色；上面的正文用 paperColors.ink。 */
   paper: ModePair;
   /** paper 上的次要文字（字幕）。 */
@@ -59,6 +61,7 @@ function deriveScale(raw: string): ImageColorScale {
   const at = (l: number, c: number) => fromOklch({ l, c: Math.min(c, base.c), h: base.h });
   const { body } = paperColors;
 
+  const wall = { light: at(0.955, 0.018), dark: at(0.2, 0.016) };
   const paper = { light: at(0.955, 0.035), dark: at(0.3, 0.06) };
   const note = { light: at(0.92, 0.06), dark: at(0.36, 0.08) };
   const callTop = darkenWhile(base, (c) => contrast(mix("#ffffff", c, CALL_MUTED), c) < AA, 0.16);
@@ -72,6 +75,7 @@ function deriveScale(raw: string): ImageColorScale {
   return {
     raw,
     mark,
+    wall,
     paper,
     paperMuted: {
       // 字幕是小字，细笔画渲染出来比设定色浅，所以多留一点余量。

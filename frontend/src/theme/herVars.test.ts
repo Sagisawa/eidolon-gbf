@@ -40,9 +40,23 @@ describe("herVars", () => {
     expect(Object.keys(vars)).not.toContain("--her-raw");
   });
 
-  it("只注入 Astryx 强调色和 --her-* 变量", () => {
+  it("shadcn 的 primary 换成她的强调色，焦点环换成她的记号色，壁纸取她的 wall", () => {
+    const s = imageColorScale(COLOR);
+    const vars = herVars(COLOR) as Record<string, string>;
+
+    expect(vars["--primary"]).toBe(ld(s.accent));
+    expect(vars["--primary-foreground"]).toBe(ld(s.onAccent));
+    expect(vars["--ring"]).toBe(ld(s.mark));
+    expect(vars["--her-wall"]).toBe(ld(s.wall));
+  });
+
+  it("shadcn 的变量只换 primary 和焦点环，不碰 --accent（那是悬停底色）", () => {
+    const shadcn = Object.keys(herVars(COLOR)).filter((n) => !n.startsWith("--her-") && !n.startsWith("--color-"));
+    expect(shadcn.sort()).toEqual(["--primary", "--primary-foreground", "--ring"]);
+  });
+
+  it("只注入 Astryx 强调色、shadcn 的 primary 和焦点环、--her-* 变量", () => {
     const names = Object.keys(herVars(COLOR));
-    expect(names.every((n) => n.startsWith("--her-") || n.startsWith("--color-"))).toBe(true);
     expect(names.filter((n) => n.startsWith("--color-")).sort()).toEqual([
       "--color-accent",
       "--color-accent-muted",

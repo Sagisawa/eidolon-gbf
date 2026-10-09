@@ -124,7 +124,7 @@ components:
 - **Hang-up Red（挂断红）**（`hang-up-red` `#c8283c`）：覆盖 shadcn 的 `--destructive`，两种模式都保证白字 ≥ 4.5。只给挂断、「挂断并离开」和确认框里真正执行删除、封禁的那一下。
 
 ### Neutral
-- shadcn neutral 的 `--background`、`--foreground`、`--muted`、`--border`、`--card`、`--popover` 原样使用。`--muted-foreground` 浅色模式从 0.556 压到 `oklch(0.54 0 0)`：原值在 `--muted` 上只有约 4.3:1；深色模式原样。系统文字（标题、列表名、说明）一律 `--foreground` / `--muted-foreground`，不是墨水色。
+- shadcn neutral 的 `--background`、`--foreground`、`--muted`、`--border`、`--card`、`--popover` 原样使用。`--muted-foreground` 浅色模式从 0.556 压到 `oklch(0.52 0 0)`：原值在 `--muted` 上只有约 4.3:1，0.54 在她的壁纸上也只有约 4.4:1；深色模式原样。系统文字（标题、列表名、说明）一律 `--foreground` / `--muted-foreground`，不是墨水色。
 - 她的气泡在深色模式下用 `her-bubble-night`（`oklch(0.3 0.01 260)`），比壁纸高一层。
 - 主题只覆盖有理由的变量（`--destructive`、浅色的 `--muted-foreground`、深色浮层边线 `--overlay-edge`（深色 `oklch(0.556 0 0)`，浅色透明）），每个覆盖值都写进主题对比度测试（替代原来的 `notebookTheme.test.ts`）：`--muted-foreground` 在 `--background` 和 `--muted` 上 ≥ 4.5，`--destructive` 上的白字 ≥ 4.5，深色浮层边线和浮层底、页面底都 ≥ 3。
 

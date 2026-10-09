@@ -52,6 +52,44 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-overlay-edge: var(--overlay-edge);
+
+  /*
+   * 项目自己的具名 token（DESIGN.md frontmatter），新代码一律用它们，不写任意值。
+   * 她的颜色：herVars() 注入到对话子树里的 --her-*；子树外面没有定义，用了也不会生效。
+   */
+  --color-her-wall: var(--her-wall);
+  --color-her-mark: var(--her-mark);
+  --color-her-button: var(--her-button);
+  --color-her-button-fg: var(--her-button-fg);
+  --color-her-call-deep: var(--her-call-deep);
+  /* 固定色，定义在下面的 :root 里，都有对比度测试。 */
+  --color-hangup: var(--hangup);
+  --color-producer-ink: var(--producer-ink);
+  --color-on-producer-ink: var(--on-producer-ink);
+  --color-bubble-her: var(--bubble-her);
+
+  /* 字号层级（Typography「Hierarchy」），字重随字号一起给出。 */
+  --text-list-title: 1.25rem;
+  --text-list-title--font-weight: 700;
+  --text-header: 1.0625rem; /* 17px */
+  --text-header--font-weight: 600;
+  --text-row-name: 0.9375rem; /* 15px */
+  --text-row-name--font-weight: 600;
+  --text-body: 0.9375rem; /* 15px */
+  --text-japanese: 1rem; /* 16px，配合 <Ja> 换字体 */
+  --text-preview: 0.8125rem; /* 13px */
+  --text-subtitle: 0.75rem;
+  --text-meta: 0.6875rem; /* 11px */
+
+  /* 圆角（rounded）。 */
+  --radius-bubble: 22px;
+  --radius-bubble-inner: calc(var(--radius) * 0.8);
+
+  /* 尺寸（components），用作 size-*、h-* 等。 */
+  --spacing-list-avatar: 3.5rem; /* 56px */
+  --spacing-bubble-avatar: 2.25rem; /* 36px */
+  --spacing-call-control: 3.5rem; /* 56px */
+  --spacing-call-bar: 2.5rem; /* 40px */
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -81,8 +119,8 @@
   --secondary: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
   --secondary-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
   --muted: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
-  /* 覆盖：shadcn 的 0.556 在 --muted 上只有约 4.3:1，压到 0.54 才在 --background、--muted 上都 ≥ 4.5。 */
-  --muted-foreground: light-dark(oklch(0.54 0 0), oklch(0.708 0 0));
+  /* 覆盖：shadcn 的 0.556 在 --muted 上只有约 4.3:1；压到 0.52，在 --background、--muted 和她的壁纸上都 ≥ 4.5。 */
+  --muted-foreground: light-dark(oklch(0.52 0 0), oklch(0.708 0 0));
   --accent: light-dark(oklch(0.97 0 0), oklch(0.269 0 0));
   --accent-foreground: light-dark(oklch(0.205 0 0), oklch(0.985 0 0));
   /* 覆盖：挂断红（DESIGN.md hang-up-red），两种模式都是它，白字在上面 ≥ 4.5。 */
@@ -98,6 +136,13 @@
   --radius: 0.625rem;
   /* 新增：深色浮层的边线（The Night Edge Rule），和浮层底、页面底都 ≥ 3；浅色靠阴影，不画线。 */
   --overlay-edge: light-dark(transparent, oklch(0.556 0 0));
+  /* 新增：挂断键（DESIGN.md hang-up-red），就是 --destructive。 */
+  --hangup: var(--destructive);
+  /* 新增：制作人气泡的事务所深蓝墨水和上面的字（producer-ink、producer-ink-night）。 */
+  --producer-ink: light-dark(#1c2a4a, #a9c6f5);
+  --on-producer-ink: light-dark(#fbfcfe, #14171d);
+  /* 新增：她的气泡，浅色是页面底，深色比壁纸高一层（her-bubble-night）。 */
+  --bubble-her: light-dark(oklch(1 0 0), oklch(0.3 0.01 260));
   --sidebar: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
   --sidebar-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
   --sidebar-primary: light-dark(oklch(0.205 0 0), oklch(0.488 0.243 264.376));
