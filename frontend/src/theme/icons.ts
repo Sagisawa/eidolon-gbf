@@ -26,3 +26,6 @@ export { ArrowUp as SendIcon, Ellipsis as MoreIcon } from "lucide-react";
 
 // 失败提示（components/app/FailureNotice）。
 export { CircleAlert as FailureIcon } from "lucide-react";
+
+// 设置页「已绑定」的提示和它的关闭键（shadcn-redesign 18）。
+export { CircleCheck as SuccessIcon, X as CloseIcon } from "lucide-react";

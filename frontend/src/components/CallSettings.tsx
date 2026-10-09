@@ -1,14 +1,12 @@
 "use client";
 
-import { Button } from "@astryxdesign/core/Button";
-import { FormLayout } from "@astryxdesign/core/FormLayout";
-import { Selector } from "@astryxdesign/core/Selector";
-import { Switch } from "@astryxdesign/core/Switch";
-import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/VStack";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
-import { SettingsSection } from "@/components/SettingsSection";
+import { SettingsSection } from "@/components/app/SettingsSection";
+import { Button } from "@/components/ui/button";
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { copy } from "@/i18n";
 import {
   loadCallPreferences,
@@ -21,14 +19,18 @@ import { listMicrophones } from "@/lib/microphone";
 
 const t = copy.settings.call;
 
-/** Selector 的值不能是空字符串；「系统默认」的麦克风在选择框里用这个值代表，存下来仍是空白。 */
+/** 「系统默认」的麦克风在选择框里用这个值代表（选择框的值不用空字符串），存下来仍是空白。 */
 const SYSTEM_DEFAULT = "system-default";
 
-/** 默认麦克风、通话音质和电话质感，记在这台设备上。通话中切换麦克风也会改掉这里的默认。 */
+/**
+ * 默认麦克风、通话音质和电话质感，记在这台设备上。通话中切换麦克风也会改掉这里的默认。
+ * 选择框里当前的一项铺中性的 bg-muted（在 ui/select 里），不用她的颜色。
+ */
 export function CallSettings() {
   const [preferences, setPreferences] = useState<CallPreferences | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [micError, setMicError] = useState("");
+  const id = useId();
 
   useEffect(() => {
     setPreferences(loadCallPreferences());
@@ -58,44 +60,84 @@ export function CallSettings() {
   }
 
   if (!preferences) return null;
+
+  const micOptions = [
+    { value: SYSTEM_DEFAULT, label: t.micDefault },
+    ...mics.map((mic, i) => ({ value: mic.deviceId, label: mic.label || t.micNumbered(i + 1) })),
+    ...(missing ? [{ value: preferences.micId, label: t.micMissing }] : []),
+  ];
+  const qualityOptions = (Object.keys(QUALITY_LABELS) as Quality[]).map((value) => ({
+    value,
+    label: t.qualities[value],
+  }));
+
   return (
     <SettingsSection title={t.title}>
-      <FormLayout>
-        <VStack gap={2}>
-          <Selector
-            label={t.mic}
-            description={t.micHint}
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor={`${id}-mic`}>{t.mic}</FieldLabel>
+          <Select
+            items={micOptions}
             value={preferences.micId || SYSTEM_DEFAULT}
-            onChange={(value) => update({ micId: value === SYSTEM_DEFAULT ? "" : value })}
-            options={[
-              { value: SYSTEM_DEFAULT, label: t.micDefault },
-              ...mics.map((mic, i) => ({ value: mic.deviceId, label: mic.label || t.micNumbered(i + 1) })),
-              ...(missing ? [{ value: preferences.micId, label: t.micMissing }] : []),
-            ]}
-          />
+            onValueChange={(value) => update({ micId: value === SYSTEM_DEFAULT || !value ? "" : value })}
+          >
+            <SelectTrigger id={`${id}-mic`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {micOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FieldDescription>{t.micHint}</FieldDescription>
           {(unnamed || micError) && (
-            <VStack gap={2} hAlign="start">
-              <Text type="supporting" as="p" role={micError ? "alert" : undefined}>
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-subtitle text-muted-foreground" role={micError ? "alert" : undefined}>
                 {micError || t.micUnnamed}
-              </Text>
-              <Button label={t.micAllow} size="sm" onClick={allowMicrophone} />
-            </VStack>
+              </p>
+              <Button size="sm" onClick={allowMicrophone}>
+                {t.micAllow}
+              </Button>
+            </div>
           )}
-        </VStack>
-        <Selector
-          label={t.quality}
-          description={t.qualityHint}
-          value={preferences.quality}
-          onChange={(value) => update({ quality: value as Quality })}
-          options={(Object.keys(QUALITY_LABELS) as Quality[]).map((value) => ({ value, label: t.qualities[value] }))}
-        />
-        <Switch
-          label={t.phoneTexture}
-          description={t.phoneTextureHint}
-          value={preferences.phoneTexture}
-          onChange={(phoneTexture) => update({ phoneTexture })}
-        />
-      </FormLayout>
+        </Field>
+
+        <Field>
+          <FieldLabel htmlFor={`${id}-quality`}>{t.quality}</FieldLabel>
+          <Select
+            items={qualityOptions}
+            value={preferences.quality}
+            onValueChange={(value) => value && update({ quality: value as Quality })}
+          >
+            <SelectTrigger id={`${id}-quality`} className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {qualityOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FieldDescription>{t.qualityHint}</FieldDescription>
+        </Field>
+
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor={`${id}-texture`}>{t.phoneTexture}</FieldLabel>
+            <FieldDescription>{t.phoneTextureHint}</FieldDescription>
+          </FieldContent>
+          <Switch
+            id={`${id}-texture`}
+            checked={preferences.phoneTexture}
+            onCheckedChange={(phoneTexture) => update({ phoneTexture })}
+          />
+        </Field>
+      </FieldGroup>
     </SettingsSection>
   );
 }
