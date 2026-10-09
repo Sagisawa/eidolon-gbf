@@ -14,11 +14,11 @@ CI 的 grep 脚本加入 `@astryxdesign`。删掉根目录 `AGENTS.md` 和 `fron
 
 **Blocked by:** 17、18、19、20、21、22、23
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] `grep -r @astryxdesign src` 结果为零，CI 的 grep 脚本把它当作违规
 - [x] 依赖、脚本、生成产物、旧测试都已删掉，剩下的测试全部通过
-- [ ] 验收清单第 35 行：用 `next build` + `next start` 把清单第 5–34 行从头走一遍（浅色、深色，手机、电脑；用户侧、后台、法务），CI 全绿
+- [x] 验收清单第 35 行：用 `next build` + `next start` 把清单第 5–34 行从头走一遍（浅色、深色，手机、电脑；用户侧、后台、法务），CI 全绿
 - [x] 截图脚本把全部页面重拍一套，附在合进 main 的 PR 里
 - [x] `typecheck`、`test` 通过，`next build` 成功
 - [x] 开工前已把 main 合进 `feat/shadcn-redesign`，冲突在分支里解决
@@ -31,3 +31,4 @@ CI 的 grep 脚本加入 `@astryxdesign`。删掉根目录 `AGENTS.md` 和 `fron
 - Astryx 重置原先给 html 设的 `color-scheme: light dark` 和 body 的字体平滑补进 `globals.css` 的 base 层（不补的话深色模式会失效）。`Ja.tsx` 原先回退到 Astryx 的 `--font-family-body`，删后整条 font-family 会失效，改用新 token `font-japanese`（`var(--font-ja), var(--font-sans)`）。
 - 改前、改后用截图脚本各拍一套（44 张，`frontend/screenshots/before-cleanup`、`after-cleanup`）逐像素比：用户侧、登录、法务全部一致；后台各页标题和面包屑从旧墨水色 `#1c2a4a` 变成主题前景色（之前是 Astryx 主题包裹层的文字色渗进来），其余差异是「最后活跃」等随时间变的数据。`after-cleanup` 就是给 PR 的全套截图。
 - 未处理：`package.json` 里有个没人引用的 `cn` 依赖（纪律禁止 `from "cn"`），不在本票范围，留给人定；`.impeccable/` 下的设计记录还提到 Astryx，非代码，未动。
+- 2026-10-10 用户人工验收通过（第 35 行），随后开 PR 合进 main。
