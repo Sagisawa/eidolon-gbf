@@ -1,14 +1,12 @@
 "use client";
 
-import { Banner } from "@astryxdesign/core/Banner";
-import { Button } from "@astryxdesign/core/Button";
-import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Text } from "@astryxdesign/core/Text";
 import { useEffect, useState } from "react";
 
-import { FailureNotice } from "@/components/FailureNotice";
-import { SettingsSection } from "@/components/SettingsSection";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { SettingsSection } from "@/components/app/SettingsSection";
+import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { copy } from "@/i18n";
 import {
   getAccount,
@@ -21,6 +19,7 @@ import {
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS, linkUrl, signInFailure, type Provider } from "@/lib/signIn";
+import { CloseIcon, SuccessIcon } from "@/theme/icons";
 
 const t = copy.settings.signIn;
 
@@ -71,47 +70,75 @@ export function SignInSettings() {
 
   return (
     <SettingsSection title={t.title} description={t.hint}>
-      {notice && <Banner status="success" title={notice} isDismissable onDismiss={() => setNotice(null)} />}
+      {notice && (
+        <Alert role="status">
+          <SuccessIcon />
+          <AlertTitle>{notice}</AlertTitle>
+          <AlertAction>
+            <Button variant="ghost" size="icon-xs" aria-label={copy.common.close} onClick={() => setNotice(null)}>
+              <CloseIcon />
+            </Button>
+          </AlertAction>
+        </Alert>
+      )}
       {failure && <FailureNotice failure={failure} />}
       {methods.length > 0 && (
-        <List hasDividers>
-          {methods.map((method) => (
-            <ListItem
-              key={method.provider}
-              label={PROVIDER_LABELS[method.provider]}
-              description={
-                <Text color="secondary" wordBreak="break-word">
-                  {method.email ? `${method.display_name} · ${method.email}` : method.display_name}
-                </Text>
-              }
-              endContent={
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  label={t.unlinkLabel(PROVIDER_LABELS[method.provider])}
-                  isDisabled={onlyOne}
-                  tooltip={onlyOne ? t.onlyMethod : undefined}
-                  onClick={() => unlink(method.provider)}
-                >
-                  {t.unlink}
-                </Button>
-              }
-            />
-          ))}
-        </List>
+        <ul className="flex flex-col divide-y">
+          {methods.map((method) => {
+            const label = PROVIDER_LABELS[method.provider];
+            const unlinkButton = (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t.unlinkLabel(label)}
+                disabled={onlyOne}
+                onClick={() => unlink(method.provider)}
+              >
+                {t.unlink}
+              </Button>
+            );
+            return (
+              <li key={method.provider} className="flex items-center gap-3 py-3">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-row-name">{label}</span>
+                  <span className="text-subtitle break-words text-muted-foreground">
+                    {method.email ? `${method.display_name} · ${method.email}` : method.display_name}
+                  </span>
+                </div>
+                {onlyOne ? (
+                  // 按钮禁用时收不到指针事件，提示挂在外面一层上。
+                  <Tooltip>
+                    <TooltipTrigger render={<span />}>
+                      {unlinkButton}
+                    </TooltipTrigger>
+                    <TooltipContent>{t.onlyMethod}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  unlinkButton
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
       {linkable.length > 0 && (
-        <HStack gap={2} wrap="wrap">
+        <div className="flex flex-wrap gap-2">
           {linkable.map((provider) => (
-            <Button key={provider} label={t.link(PROVIDER_LABELS[provider])} href={linkUrl(provider)} />
+            <Button key={provider} variant="outline" nativeButton={false} render={<a href={linkUrl(provider)} />}>
+              {t.link(PROVIDER_LABELS[provider])}
+            </Button>
           ))}
-        </HStack>
+        </div>
       )}
       {/* 退出登录和绑定是两件事，分开一行，窄屏换行时不会搅在一起 */}
-      <HStack gap={2} wrap="wrap">
-        <Button variant="ghost" label={t.signOut} onClick={() => signOut(false)} />
-        <Button variant="ghost" label={t.signOutEverywhere} onClick={() => signOut(true)} />
-      </HStack>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="ghost" onClick={() => signOut(false)}>
+          {t.signOut}
+        </Button>
+        <Button variant="ghost" onClick={() => signOut(true)}>
+          {t.signOutEverywhere}
+        </Button>
+      </div>
     </SettingsSection>
   );
 }
