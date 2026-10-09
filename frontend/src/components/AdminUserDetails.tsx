@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AppLink } from "@/components/app/AppLink";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { AdminPage } from "@/components/app/admin/AdminPage";
+import { AdminTrail } from "@/components/app/admin/AdminTrail";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Timestamp } from "@/components/app/admin/Timestamp";
 import { AdminBadge, BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
@@ -247,6 +248,7 @@ export function AdminUserDetails({ id }: { id: string }) {
         </CardFooter>
       </Card>
 
+      <AdminTrail value={user.name} />
       <RecentUsage usage={user.usage} />
 
       {action !== null && (

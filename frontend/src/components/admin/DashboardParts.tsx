@@ -154,6 +154,3 @@ export function RowList({ rows }: { rows: Row[] }) {
     </ul>
   );
 }
-
-// 过渡：旧版后台页还从这里取这几样，见 legacyTouch.tsx。22、23 合入后删掉这一行和那个文件。
-export { TOUCH_LINK, TOUCH_TARGET, TouchButton } from "@/components/admin/legacyTouch";
