@@ -92,6 +92,7 @@ export function SignInSettings() {
                 size="sm"
                 aria-label={t.unlinkLabel(label)}
                 disabled={onlyOne}
+                focusableWhenDisabled
                 onClick={() => unlink(method.provider)}
               >
                 {t.unlink}
@@ -106,11 +107,9 @@ export function SignInSettings() {
                   </span>
                 </div>
                 {onlyOne ? (
-                  // 按钮禁用时收不到指针事件，提示挂在外面一层上。
+                  // 禁用的按钮照样能拿到焦点（focusableWhenDisabled），键盘和指针都看得到为什么不能解绑。
                   <Tooltip>
-                    <TooltipTrigger render={<span />}>
-                      {unlinkButton}
-                    </TooltipTrigger>
+                    <TooltipTrigger render={unlinkButton} />
                     <TooltipContent>{t.onlyMethod}</TooltipContent>
                   </Tooltip>
                 ) : (
