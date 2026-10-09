@@ -10,10 +10,18 @@
 
 **Blocked by:** 13
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] 纪律一节写入 `frontend/AGENTS.md`，`spec.md` 那边不重复写
-- [ ] grep 脚本对现有代码通过；故意写一个违规样例，脚本会报错（交付时说明怎么验证的）
-- [ ] CI 前端 job 的顺序是 `typecheck` → `npm test` → `theme:check` → grep 脚本
-- [ ] `typecheck`、`test` 通过，`next build` 成功
-- [ ] 开工前已把 main 合进 `feat/shadcn-redesign`，冲突在分支里解决
+- [x] 纪律一节写入 `frontend/AGENTS.md`，`spec.md` 那边不重复写
+- [x] grep 脚本对现有代码通过；故意写一个违规样例，脚本会报错（交付时说明怎么验证的）
+- [x] CI 前端 job 的顺序是 `typecheck` → `npm test` → `theme:check` → grep 脚本
+- [x] `typecheck`、`test` 通过，`next build` 成功
+- [x] 开工前已把 main 合进 `feat/shadcn-redesign`，冲突在分支里解决
+
+## Comments
+
+2026-10-09 交付（提交 7c404b2、0a8c3f3）：
+- `frontend/AGENTS.md` 新增「shadcn 纪律（新代码）」；根目录 `AGENTS.md` 在 Astryx 标记块外加了一句适用范围。
+- `frontend/scripts/check-discipline.sh`：现有代码通过。验证方法：在临时目录写违规样例跑脚本——`from "cn"`、`bg-[#ff0000]`、`text-[var(--x)]`、`bg-[oklch(…)]`、`bg-(--x)`、`hover:text-(--x)`、`!mt-2`、`hover:!bg-muted`、`!-mt-1`、`px-2!` 都报错退出 1；`!flag`、`foo!.bar`、`x! :`、`h-(--x)` 不误报；`lib/utils.ts` 豁免。
+- 比规格多拦两样：v4 的 important 后缀 `mt-2!`，和 v4 的颜色变量简写 `bg-(--x)`（规格的正则拦不住，spec 已同步）。
+- CI：`typecheck` → `npm test` → `theme:check` → grep 脚本；shellcheck 也覆盖 `frontend/scripts/`（本地用 shellcheck-py 跑过）。
