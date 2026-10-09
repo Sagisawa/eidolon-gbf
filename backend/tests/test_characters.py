@@ -147,6 +147,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "juri": "8875da3542374b18a29b85fbf48f0de2",
         "rinze": "dd73b57d509b436b90ef9263d2e6c5d1",
         "natsuha": "70e8160d2cf34c5892b9002e42cbafdb",
+        "amana": "d5a68fc022604b23b94e2a0b9f823b59",
+        "tenka": "7f50c8ef897c402fa7967a11aa94261e",
+        "chiyuki": "7de8d70dc5e04759be11c01f69c8c863",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
@@ -171,6 +174,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "juri": "西城樹里",
         "rinze": "杜野凛世",
         "natsuha": "有栖川夏葉",
+        "amana": "大崎甘奈",
+        "tenka": "大崎甜花",
+        "chiyuki": "桑山千雪",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "mano": ("真乃",),
@@ -195,6 +201,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "juri": ("樹里", "树里"),
         "rinze": ("凛世",),
         "natsuha": ("夏葉", "夏叶"),
+        "amana": ("甘奈",),
+        "tenka": ("甜花",),
+        "chiyuki": ("千雪",),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
     assert {id: c.color for id, c in loaded.items()} == {
@@ -220,6 +229,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "juri": "#ffc602",
         "rinze": "#89c3eb",
         "natsuha": "#90e667",
+        "amana": "#f54275",
+        "tenka": "#e75bec",
+        "chiyuki": "#fbfafa",
     }
 
 
@@ -426,6 +438,9 @@ def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
         "juri": (11, "stand/1030110010"),
         "rinze": (12, "stand/1030120010"),
         "natsuha": (13, "stand/1030130010"),
+        "amana": (14, "stand/1030140010"),
+        "tenka": (15, "stand/1030150010"),
+        "chiyuki": (16, "stand/1030160010"),
     }
 
 
