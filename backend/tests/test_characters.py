@@ -139,9 +139,9 @@ def test_repository_configures_its_idols_with_their_voices():
         "hinana": "565ffd381fbc427ebfa1cc4c689ac12d",
         "nichika": "b3757a5a71ba4078be1e25b446190975",
         "mikoto": "bf578eec18ca49daaf9216f5df3fabd4",
-        "asahi": "",
-        "fuyuko": "",
-        "mei": "",
+        "asahi": "2dcc8351008f4714b33506d7d45a861e",
+        "fuyuko": "105efba2160a40119d6d21e5445b889e",
+        "mei": "1f0033aac5b34d478ec975114c845bf9",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
