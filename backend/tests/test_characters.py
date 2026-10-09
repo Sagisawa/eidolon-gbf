@@ -142,6 +142,11 @@ def test_repository_configures_its_idols_with_their_voices():
         "asahi": "2dcc8351008f4714b33506d7d45a861e",
         "fuyuko": "105efba2160a40119d6d21e5445b889e",
         "mei": "1f0033aac5b34d478ec975114c845bf9",
+        "kaho": "d9e61a6914dd47669a9bbae71a78ab38",
+        "chiyoko": "a48ea1f5d81a478ba528b49188bf4ccc",
+        "juri": "8875da3542374b18a29b85fbf48f0de2",
+        "rinze": "dd73b57d509b436b90ef9263d2e6c5d1",
+        "natsuha": "70e8160d2cf34c5892b9002e42cbafdb",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "mano": "櫻木真乃",
@@ -161,6 +166,11 @@ def test_repository_configures_its_idols_with_their_voices():
         "asahi": "芹沢あさひ",
         "fuyuko": "黛冬優子",
         "mei": "和泉愛依",
+        "kaho": "小宮果穂",
+        "chiyoko": "園田智代子",
+        "juri": "西城樹里",
+        "rinze": "杜野凛世",
+        "natsuha": "有栖川夏葉",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "mano": ("真乃",),
@@ -180,6 +190,11 @@ def test_repository_configures_its_idols_with_their_voices():
         "asahi": ("あさひ",),
         "fuyuko": ("冬優子",),
         "mei": ("愛依",),
+        "kaho": ("果穂", "果穗"),
+        "chiyoko": ("智代子",),
+        "juri": ("樹里", "树里"),
+        "rinze": ("凛世",),
+        "natsuha": ("夏葉", "夏叶"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
     assert {id: c.color for id, c in loaded.items()} == {
@@ -200,6 +215,11 @@ def test_repository_configures_its_idols_with_their_voices():
         "asahi": "#f30100",
         "fuyuko": "#5ce626",
         "mei": "#ff00ff",
+        "kaho": "#e5461c",
+        "chiyoko": "#f93b90",
+        "juri": "#ffc602",
+        "rinze": "#89c3eb",
+        "natsuha": "#90e667",
     }
 
 
@@ -401,6 +421,11 @@ def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
         "asahi": (17, "stand/1030170010"),
         "fuyuko": (18, "stand/1030180010"),
         "mei": (19, "stand/1030190010"),
+        "kaho": (9, "stand/1030090010"),
+        "chiyoko": (10, "stand/1030100010"),
+        "juri": (11, "stand/1030110010"),
+        "rinze": (12, "stand/1030120010"),
+        "natsuha": (13, "stand/1030130010"),
     }
 
 

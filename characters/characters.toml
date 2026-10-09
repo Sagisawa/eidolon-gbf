@@ -242,3 +242,68 @@ facts = "facts/mei.md"
 speakers = ["愛依"]
 idol_id = 19
 default_outfit = "stand/1030190010"  # 【気になる！？染めちゃう！？】
+
+[[characters]]
+id = "kaho"
+name = "小宮果穂"
+intro = "放課後クライマックスガールズ 的レッド兼センター。最喜欢特摄英雄『ジャスティスⅤ』的 12 岁小学六年级生，个子高常被当成大人，其实是什么都觉得「スゴいです！」、像小狗一样直率亲人的孩子；她想当的，是像英雄一样让大家都笑起来的偶像。"
+voice_id = "d9e61a6914dd47669a9bbae71a78ab38"
+sheet = "sheets/kaho.md"
+avatar = "avatars/kaho.jpg"
+color = "#e5461c"
+facts = "facts/kaho.md"
+speakers = ["果穂", "果穗"]  # 「果穗」：汉化库 有栖川夏葉/Landing Point編 有几个 CSV 把说话人写成了简体
+idol_id = 9
+default_outfit = "stand/1030090010"  # 【マメ丸と一緒！】
+
+[[characters]]
+id = "chiyoko"
+name = "園田智代子"
+intro = "放課後クライマックスガールズ 的成员。名字能读成「チョコ」、爱吃甜食的高二生，自认「普通代表」，却把后来加上的「チョコアイドル」当作一路并肩作战的武器；当初替怯场的好友上场试镜而入行，如今想成为「誰かに一番好きって言ってもらえる女の子」。"
+voice_id = "a48ea1f5d81a478ba528b49188bf4ccc"
+sheet = "sheets/chiyoko.md"
+avatar = "avatars/chiyoko.jpg"
+color = "#f93b90"
+facts = "facts/chiyoko.md"
+speakers = ["智代子"]
+idol_id = 10
+default_outfit = "stand/1030100010"  # 【純真チョコレート】
+
+[[characters]]
+id = "juri"
+name = "西城樹里"
+intro = "放課後クライマックスガールズ 的成员。自称「アタシ」、嘴上粗鲁的金发高二生，以前打篮球，离开球场后被制作人在街头发掘；嘴硬心软、总在照顾人，想当一个「アタシのまま」的偶像，把收到的应援一点点还回去。"
+voice_id = "8875da3542374b18a29b85fbf48f0de2"
+sheet = "sheets/juri.md"
+avatar = "avatars/juri.jpg"
+color = "#ffc602"
+facts = "facts/juri.md"
+speakers = ["樹里", "树里"]  # 「树里」：汉化库 有栖川夏葉/Landing Point編 等几个 CSV 把说话人写成了简体
+idol_id = 11
+default_outfit = "stand/1030110010"  # 【バッドガールの羽ばたき】
+
+[[characters]]
+id = "rinze"
+name = "杜野凛世"
+intro = "放課後クライマックスガールズ 的成员。来自鸟取、总穿着和服的高一生，说话慢而古雅、礼数周全，最爱少女漫画；因为制作人一句「最高の舞台に連れていってみせる」走进偶像世界，从「プロデューサーさまに、お喜びいただく」出发，一点点学着把自己的心意说出口。"
+voice_id = "dd73b57d509b436b90ef9263d2e6c5d1"
+sheet = "sheets/rinze.md"
+avatar = "avatars/rinze.jpg"
+color = "#89c3eb"
+facts = "facts/rinze.md"
+speakers = ["凛世"]
+idol_id = 12
+default_outfit = "stand/1030120010"  # 【想ひいろは】
+
+[[characters]]
+id = "natsuha"
+name = "有栖川夏葉"
+intro = "放課後クライマックスガールズ 最年长的成员。从爱知上京的 20 岁大学生、有栖川家的大小姐，凡事全力、好胜又爱尝鲜，开口就是「目指すならトップだけよ！」；如今想和果穂、智代子、樹里、凛世一起，以放クラ的身份站上最高处。"
+voice_id = "70e8160d2cf34c5892b9002e42cbafdb"
+sheet = "sheets/natsuha.md"
+avatar = "avatars/natsuha.jpg"
+color = "#90e667"
+facts = "facts/natsuha.md"
+speakers = ["夏葉", "夏叶"]  # 「夏叶」：汉化库 有栖川夏葉/G.R.A.D篇、Landing Point編 的大部分 CSV 把说话人写成了简体
+idol_id = 13
+default_outfit = "stand/1030130010"  # 【ストイックトレーニング】

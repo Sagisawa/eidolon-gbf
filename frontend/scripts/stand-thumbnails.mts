@@ -163,10 +163,13 @@ async function serve(sourceRoot: string): Promise<Server> {
         response.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8" }).end(outputText);
         return;
       }
+      // 先读文件再写响应头：文件缺失时在上面抛出，由下面的 catch 回 404，不会把响应头写两次
+      const body = await readFile(file);
       response.writeHead(200, { "Content-Type": CONTENT_TYPES[path.extname(file)] ?? "application/octet-stream" });
-      response.end(await readFile(file));
+      response.end(body);
     } catch {
-      response.writeHead(404).end();
+      if (!response.headersSent) response.writeHead(404);
+      response.end();
     }
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
