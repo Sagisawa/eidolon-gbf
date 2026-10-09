@@ -29,8 +29,6 @@ export function herVars(color: string): CSSProperties {
     "--her-mark": ld(s.mark),
     "--her-paper": ld(s.paper),
     "--her-paper-muted": ld(s.paperMuted),
-    "--her-note": ld(s.note),
-    "--her-note-rule": ld(s.noteRule),
     "--her-button": ld(s.button.bg),
     "--her-button-fg": ld(s.button.fg),
     "--her-call-top": s.call.top,
