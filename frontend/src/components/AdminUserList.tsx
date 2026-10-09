@@ -1,23 +1,22 @@
 "use client";
 
-import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Pagination } from "@astryxdesign/core/Pagination";
-import { Selector } from "@astryxdesign/core/Selector";
-import { Table, pixel, proportional, useTableSortable, type TableColumn } from "@astryxdesign/core/Table";
-import { Text } from "@astryxdesign/core/Text";
-import { TextInput } from "@astryxdesign/core/TextInput";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { Token } from "@astryxdesign/core/Token";
-import { VStack } from "@astryxdesign/core/VStack";
-import { useCallback, useEffect, useState } from "react";
+import NextLink from "next/link";
+import { useCallback, useEffect, useId, useState } from "react";
 
-import { AdminPage } from "@/components/admin/AdminPage";
-import { TouchButton, useWide } from "@/components/admin/DashboardParts";
-import { AppLink } from "@/components/AppLink";
+import { AppLink } from "@/components/app/AppLink";
+import { FailureNotice } from "@/components/app/FailureNotice";
+import { AdminPage } from "@/components/app/admin/AdminPage";
+import { Timestamp } from "@/components/app/admin/Timestamp";
 import { BanUserDialog } from "@/components/BanUserDialog";
-import { FailureNotice } from "@/components/FailureNotice";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { copy } from "@/i18n";
 import {
   USER_SORTS,
@@ -25,10 +24,9 @@ import {
   banAction,
   broughtKeys,
   describeLimit,
+  headerSort,
   listAdminUsers,
-  sortState,
   unbanUser,
-  userSort,
   type AdminUser,
   type AdminUserPage,
   type UserSort,
@@ -36,6 +34,8 @@ import {
 import { formatCount } from "@/lib/dashboard";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS } from "@/lib/signIn";
+import { cn } from "@/lib/utils";
+import { BackIcon, CloseIcon, ForwardIcon, SearchIcon, SortableIcon, SortedIcon } from "@/theme/icons";
 
 const t = copy.admin.users;
 
@@ -44,10 +44,10 @@ const SEARCH_DELAY = 300;
 
 /**
  * 后台的「用户」页：搜索框、一行一位用户和分页。点名字进入这位用户的详情；管理者那一行没有封禁按钮。
- * 宽屏是表格：用户（登录方式在副行）、24 小时用量、最后活跃、状态（封禁、自带密钥、单独限额合在一格）、
- * 操作，一屏放得下，不用横向滚动；点「24 小时回合」「24 小时通话」的表头按它从多到少排（后端排好再分页），
- * 再点一次恢复按注册时间。窄屏（平板竖屏，或手机上外出处理刷量）换成列表行：名字、24 小时用量、状态，封禁键在行尾，
- * 排序改用搜索框下的选择框。
+ * 宽屏（≥ 1280px）是装在 Card 里的表格：用户（登录方式在副行）、24 小时用量、最后活跃、状态（封禁、
+ * 自带密钥、单独限额合在一格）、操作；点「24 小时回合」「24 小时通话」的表头按它从多到少排（后端排好再分页），
+ * 再点一次恢复按注册时间。更窄时（平板竖屏，或手机上外出处理刷量）换成 divide-y 的行：名字、24 小时用量、
+ * 状态，封禁键在行尾，排序改用搜索框下的选择框（DESIGN.md「Layout · 后台 · 表格」）。
  */
 export function AdminUserList() {
   const [query, setQuery] = useState("");
@@ -57,7 +57,7 @@ export function AdminUserList() {
   const [failure, setFailure] = useState<Failure | null>(null);
   const [banning, setBanning] = useState<AdminUser | null>(null);
   const [unbanning, setUnbanning] = useState<string | null>(null);
-  const isWide = useWide("table-wide");
+  const sortId = useId();
 
   const load = useCallback(async () => {
     try {
@@ -68,14 +68,6 @@ export function AdminUserList() {
     }
   }, [query, page, sort]);
 
-  const sortPlugin = useTableSortable<AdminUser>({
-    sort: sortState(sort),
-    onSortChange: (state) => {
-      setSort(userSort(state));
-      setPage(1);
-    },
-  });
-
   useEffect(() => {
     const timer = setTimeout(load, SEARCH_DELAY);
     return () => clearTimeout(timer);
@@ -83,6 +75,11 @@ export function AdminUserList() {
 
   function search(value: string) {
     setQuery(value);
+    setPage(1);
+  }
+
+  function sortBy(next: UserSort) {
+    setSort(next);
     setPage(1);
   }
 
@@ -98,191 +95,216 @@ export function AdminUserList() {
     }
   }
 
-  /** 一行的操作：封禁或解除封禁；管理者没有。 */
+  /** 一行的操作：封禁或解除封禁（ghost sm，DESIGN.md「Buttons」）；管理者没有。 */
   function rowAction(user: AdminUser) {
     const action = banAction(user);
     if (action === "ban") {
       return (
-        <TouchButton label={copy.admin.actionOn(t.ban, user.name)} variant="ghost" size="sm" onClick={() => setBanning(user)}>
+        <Button variant="ghost" size="sm" aria-label={copy.admin.actionOn(t.ban, user.name)} onClick={() => setBanning(user)}>
           {t.ban}
-        </TouchButton>
+        </Button>
       );
     }
     if (action === "unban") {
+      const busy = unbanning === user.id;
       return (
-        <TouchButton
-          label={copy.admin.actionOn(t.unban, user.name)}
+        <Button
           variant="ghost"
           size="sm"
+          aria-label={copy.admin.actionOn(t.unban, user.name)}
+          disabled={busy}
           onClick={() => unban(user)}
-          isLoading={unbanning === user.id}
         >
+          {busy && <Spinner data-icon="inline-start" />}
           {t.unban}
-        </TouchButton>
+        </Button>
       );
     }
     return null;
   }
 
-  const columns: TableColumn<AdminUser>[] = [
-    {
-      key: "name",
-      header: t.columns.user,
-      width: proportional(3),
-      renderCell: (user) => (
-        <VStack gap={0.5}>
-          <HStack gap={2} vAlign="center" wrap="wrap">
-            <AppLink href={`/admin/users/${user.id}`} isStandalone>
-              {user.name}
-            </AppLink>
-            {user.is_admin && <Token label={t.admin} size="sm" color="blue" />}
-          </HStack>
-          <SignInSummary user={user} />
-        </VStack>
-      ),
-    },
-    {
-      key: "turns",
-      header: t.columns.turns24h,
-      width: pixel(112),
-      align: "end",
-      sortable: true,
-      renderCell: (user) => <Text hasTabularNumbers>{formatCount(user.usage_24h.turns)}</Text>,
-    },
-    {
-      key: "calls",
-      header: t.columns.calls24h,
-      width: pixel(112),
-      align: "end",
-      sortable: true,
-      renderCell: (user) => <Text hasTabularNumbers>{formatCount(user.usage_24h.calls)}</Text>,
-    },
-    {
-      key: "last_active_at",
-      header: t.columns.lastActive,
-      width: pixel(144),
-      renderCell: (user) => <LastActive user={user} />,
-    },
-    {
-      key: "banned",
-      header: t.columns.status,
-      width: proportional(2),
-      renderCell: (user) => <StatusTokens user={user} />,
-    },
-    {
-      key: "id",
-      header: t.columns.actions,
-      width: pixel(104),
-      renderCell: rowAction,
-    },
-  ];
+  /** 可以排序的表头：点一下按这一列从多到少排，再点一下恢复按注册时间。 */
+  function sortableHead(column: "turns" | "calls", label: string) {
+    const sorted = sort === column;
+    const Icon = sorted ? SortedIcon : SortableIcon;
+    return (
+      <TableHead aria-sort={sorted ? "descending" : "none"} className="text-right">
+        <button
+          type="button"
+          onClick={() => sortBy(headerSort(sort, column))}
+          className="inline-flex items-center gap-1 rounded-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          {label}
+          <Icon aria-hidden className={cn("size-3.5", !sorted && "text-muted-foreground")} />
+        </button>
+      </TableHead>
+    );
+  }
+
+  const pages = result ? Math.ceil(result.total / USERS_PAGE_SIZE) : 0;
 
   return (
     <AdminPage width="wide" title={copy.admin.pages.users} intro={t.intro}>
-      <VStack gap={6} paddingBlockStart={4}>
-        <VStack gap={3}>
-          <TextInput
-            label={t.search}
-            isLabelHidden
+      <div className="flex flex-col gap-3">
+        <InputGroup className="md:w-80">
+          <InputGroupAddon>
+            <SearchIcon aria-hidden />
+          </InputGroupAddon>
+          <InputGroupInput
+            type="search"
+            aria-label={t.search}
             placeholder={t.searchPlaceholder}
             value={query}
-            onChange={search}
-            hasClear
-            width={isWide ? "calc(var(--spacing-8) * 12)" : "100%"}
+            onChange={(e) => search(e.target.value)}
           />
-          {!isWide && (
-            <Selector
-              label={t.sort.label}
-              value={sort}
-              onChange={(value) => {
-                setSort(value as UserSort);
-                setPage(1);
-              }}
-              options={USER_SORTS.map((value) => ({ value, label: t.sort[value] }))}
-            />
+          {query && (
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton size="icon-xs" aria-label={t.clearSearch} onClick={() => search("")}>
+                <CloseIcon />
+              </InputGroupButton>
+            </InputGroupAddon>
           )}
-          {result && (
-            <Text type="supporting" color="secondary">
-              {t.total(result.total)}
-            </Text>
-          )}
-        </VStack>
+        </InputGroup>
+        <div className="flex items-center gap-2 xl:hidden">
+          <Label htmlFor={sortId}>{t.sort.label}</Label>
+          <Select
+            items={USER_SORTS.map((value) => ({ value, label: t.sort[value] }))}
+            value={sort}
+            onValueChange={(value) => value && sortBy(value as UserSort)}
+          >
+            <SelectTrigger id={sortId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {USER_SORTS.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {t.sort[value]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        {result && <p className="text-sm text-muted-foreground tabular-nums">{t.total(result.total)}</p>}
+      </div>
 
-        {failure && <FailureNotice failure={failure} />}
+      {failure && <FailureNotice failure={failure} />}
 
-        {result && result.users.length === 0 && <EmptyState title={t.empty} description={t.emptyHint} />}
+      {result && result.users.length === 0 && (
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>{t.empty}</EmptyTitle>
+            <EmptyDescription>{t.emptyHint}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
 
-        {result && result.users.length > 0 && (
-          <VStack gap={4}>
-            {isWide ? (
-              <Table
-                data={result.users}
-                columns={columns}
-                idKey="id"
-                density="compact"
-                verticalAlign="top"
-                rowIndexStart={(page - 1) * USERS_PAGE_SIZE + 1}
-                rowCount={result.total}
-                plugins={{ sort: sortPlugin }}
-              />
-            ) : (
-              <List hasDividers>
+      {result && result.users.length > 0 && (
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardContent>
+              <Table className="hidden xl:table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t.columns.user}</TableHead>
+                    {sortableHead("turns", t.columns.turns24h)}
+                    {sortableHead("calls", t.columns.calls24h)}
+                    <TableHead>{t.columns.lastActive}</TableHead>
+                    <TableHead>{t.columns.status}</TableHead>
+                    <TableHead>
+                      <span className="sr-only">{t.columns.actions}</span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {result.users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell className="align-top whitespace-normal">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <AppLink href={`/admin/users/${user.id}`} isStandalone>
+                            {user.name}
+                          </AppLink>
+                          {user.is_admin && <AdminBadge />}
+                        </div>
+                        <SignInSummary user={user} />
+                      </TableCell>
+                      <TableCell className="text-right align-top tabular-nums">
+                        {formatCount(user.usage_24h.turns)}
+                      </TableCell>
+                      <TableCell className="text-right align-top tabular-nums">
+                        {formatCount(user.usage_24h.calls)}
+                      </TableCell>
+                      <TableCell className="align-top">
+                        <LastActive user={user} />
+                      </TableCell>
+                      <TableCell className="align-top whitespace-normal">
+                        <StatusBadges user={user} />
+                      </TableCell>
+                      <TableCell className="text-right align-top">{rowAction(user)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <ul className="divide-y xl:hidden">
                 {result.users.map((user) => (
-                  <ListItem
-                    key={user.id}
-                    label={user.name}
-                    href={`/admin/users/${user.id}`}
-                    description={
-                      <VStack gap={1}>
-                        <Text type="supporting" hasTabularNumbers>
-                          {t.usage24h(formatCount(user.usage_24h.turns), formatCount(user.usage_24h.calls))}
-                        </Text>
-                        <StatusTokens user={user} withAdmin />
-                      </VStack>
-                    }
-                    endContent={rowAction(user)}
-                  />
+                  <li key={user.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                    <NextLink
+                      href={`/admin/users/${user.id}`}
+                      className="group flex min-w-0 flex-1 flex-col items-start gap-1 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      <span className="font-medium break-words group-hover:underline">{user.name}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {t.usage24h(formatCount(user.usage_24h.turns), formatCount(user.usage_24h.calls))}
+                      </span>
+                      <StatusBadges user={user} withAdmin />
+                    </NextLink>
+                    {rowAction(user)}
+                  </li>
                 ))}
-              </List>
-            )}
-            {result.total > USERS_PAGE_SIZE && (
-              <Pagination
-                label={t.pagination}
-                page={page}
-                onChange={setPage}
-                totalItems={result.total}
-                pageSize={USERS_PAGE_SIZE}
-                variant="compact"
-                size="sm"
-              />
-            )}
-          </VStack>
-        )}
+              </ul>
+            </CardContent>
+          </Card>
 
-        <BanUserDialog
-          user={banning}
-          onClose={() => setBanning(null)}
-          onBanned={() => {
-            setBanning(null);
-            load();
-          }}
-        />
-      </VStack>
+          {pages > 1 && (
+            <nav aria-label={t.pagination} className="flex items-center justify-end gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                <BackIcon data-icon="inline-start" />
+                {t.previousPage}
+              </Button>
+              <span className="text-sm text-muted-foreground tabular-nums">
+                {t.pageOf(page, pages)}
+              </span>
+              <Button variant="outline" size="sm" disabled={page >= pages} onClick={() => setPage(page + 1)}>
+                {t.nextPage}
+                <ForwardIcon data-icon="inline-end" />
+              </Button>
+            </nav>
+          )}
+        </div>
+      )}
+
+      <BanUserDialog
+        user={banning}
+        onClose={() => setBanning(null)}
+        onBanned={() => {
+          setBanning(null);
+          load();
+        }}
+      />
     </AdminPage>
   );
 }
 
 /** 登录方式缩成一行副字：「Google z@…」，多种用「·」隔开；没有时照说。 */
 function SignInSummary({ user }: { user: AdminUser }) {
-  if (user.sign_in_methods.length === 0) {
-    return <Text type="supporting">{t.noSignInMethods}</Text>;
-  }
   return (
-    <Text type="supporting" wordBreak="break-word">
-      {user.sign_in_methods
-        .map((method) => `${PROVIDER_LABELS[method.provider]} ${method.email ?? method.display_name}`)
-        .join(" · ")}
-    </Text>
+    <p className="mt-0.5 text-xs break-words text-muted-foreground">
+      {user.sign_in_methods.length === 0
+        ? t.noSignInMethods
+        : user.sign_in_methods
+            .map((method) => `${PROVIDER_LABELS[method.provider]} ${method.email ?? method.display_name}`)
+            .join(" · ")}
+    </p>
   );
 }
 
@@ -290,51 +312,55 @@ function LastActive({ user }: { user: AdminUser }) {
   return user.last_active_at ? (
     <Timestamp value={user.last_active_at} format="auto" />
   ) : (
-    <Text color="secondary">{t.never}</Text>
+    <span className="text-muted-foreground">{t.never}</span>
   );
 }
 
-/** 状态一格：封禁与否，再加上有才显示的自带密钥和单独限额。窄屏的行里名字只能是纯文字，管理者标签
+/** 「管理者」：secondary Badge（DESIGN.md「Admin status & charts」）。 */
+export function AdminBadge() {
+  return <Badge variant="secondary">{t.admin}</Badge>;
+}
+
+/** 状态一格：封禁与否，再加上有才显示的自带密钥和单独限额。窄屏的行里名字只是纯文字，管理者标签
  * 也放进这里（`withAdmin`）；宽屏上它跟在名字后面。 */
-function StatusTokens({ user, withAdmin = false }: { user: AdminUser; withAdmin?: boolean }) {
+function StatusBadges({ user, withAdmin = false }: { user: AdminUser; withAdmin?: boolean }) {
   const keys = broughtKeys(user.own_keys);
   return (
-    <HStack gap={1.5} vAlign="center" wrap="wrap">
-      {withAdmin && user.is_admin && <Token label={t.admin} size="sm" color="blue" />}
+    <span className="flex flex-wrap items-center gap-1.5">
+      {withAdmin && user.is_admin && <AdminBadge />}
       <BanStatus banned={user.banned} />
-      {keys.length > 0 && (
-        <Token size="sm" color="gray" label={t.ownKeysToken(keys.map((k) => t.services[k]).join("、"))} />
-      )}
+      {keys.length > 0 && <Badge variant="outline">{t.ownKeysToken(keys.map((k) => t.services[k]).join("、"))}</Badge>}
       {user.limits && (
-        <Token
-          size="sm"
-          color="gray"
-          label={t.limitsToken(
+        <Badge variant="outline">
+          {t.limitsToken(
             t.limits.summary(describeLimit(user.limits.turns_per_hour), describeLimit(user.limits.calls_per_hour)),
           )}
-        />
+        </Badge>
       )}
-    </HStack>
+    </span>
   );
 }
 
+/** 封禁了是 destructive Badge「已封禁」，没有就只写 muted 的「正常」。 */
 export function BanStatus({ banned }: { banned: boolean }) {
-  return banned ? <Token label={t.banned} size="sm" color="red" /> : <Text color="secondary">{t.active}</Text>;
+  return banned ? (
+    <Badge variant="destructive">{t.banned}</Badge>
+  ) : (
+    <span className="text-sm text-muted-foreground">{t.active}</span>
+  );
 }
 
 /** 单独限额：没有时「跟随全站」，有时列出回合和通话各自的数字（没设的一项跟随全站）。 */
 export function UserLimits({ user }: { user: AdminUser }) {
-  if (!user.limits) return <Text color="secondary">{t.limits.default}</Text>;
+  if (!user.limits) return <span className="text-muted-foreground">{t.limits.default}</span>;
   return (
-    <Text>
-      {t.limits.summary(describeLimit(user.limits.turns_per_hour), describeLimit(user.limits.calls_per_hour))}
-    </Text>
+    <span>{t.limits.summary(describeLimit(user.limits.turns_per_hour), describeLimit(user.limits.calls_per_hour))}</span>
   );
 }
 
 /** 自带了哪几项服务的密钥（只说有没有）。 */
 export function OwnKeys({ user }: { user: AdminUser }) {
   const services = broughtKeys(user.own_keys);
-  if (services.length === 0) return <Text color="secondary">{t.noOwnKeys}</Text>;
-  return <Text>{services.map((s) => t.services[s]).join("、")}</Text>;
+  if (services.length === 0) return <span className="text-muted-foreground">{t.noOwnKeys}</span>;
+  return <span>{services.map((s) => t.services[s]).join("、")}</span>;
 }
