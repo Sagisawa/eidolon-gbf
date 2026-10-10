@@ -135,7 +135,8 @@ export type Scene = {
   dispersion: number;
   /** 第 2 幕：横移、当前组合、立绘。其他幕是 null。 */
   spectrum: SpectrumState | null;
-  /** 第 5 幕：传话的光点、横移、回忆光迹的描边进度、指针痕迹。其他幕是 null。 */
+  /** 第 5 幕：传话的光点、横移、连线的描边进度、指针痕迹。第 5 幕从下面进来的那一屏（光谱解开钉住）里
+   * 已经是第 5 幕开头的样子，DOM 上的布景进到画面时就对得上；其他幕是 null。 */
   memory: MemoryState | null;
   /** 第 7 幕的手机屏幕：中心 (x, y)，半宽 w、半高 h，圆角 r；亮度 0 到 1，1 是全站最亮的时候。 */
   screen: { x: number; y: number; w: number; h: number; r: number; intensity: number };
@@ -353,7 +354,8 @@ function act2Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, a: A
   const target = trackTarget((a.q - REGROUP_SCREENS - ZOOM_SCREENS) / SEG_SCREENS, units);
   const track = a.track ?? target.pos;
   const current = clamp(Math.round(track), 0, units - 1);
-  /** 解开钉住：整个画面跟着舞台往上走。 */
+  /** 解开钉住：名牌跟着舞台往上走。竖线本来就铺满整屏，不跟着走（不然下面露出一截黑，接着第 5 幕的光
+   * 又从头铺满）；只有名字处的断口跟着名牌走。 */
   const lift = Math.max(0, a.q - a.length) * vp.h;
   /** 光谱停稳在轨道上（放大完、还没解开钉住）：聚焦只在这时起作用。 */
   const settled = smooth(0.8, 1, zoom) * (a.q < a.length ? 1 : 0);
@@ -387,7 +389,7 @@ function act2Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, a: A
     const dl = Math.hypot(dx, dy) || 1;
     dx /= dl;
     dy /= dl;
-    const oy = lerp(A.y, -40, tb) - lift;
+    const oy = lerp(A.y, -40, tb);
     const name = a.nameGaps[light.id];
     // 名字的区间换算成沿竖线的距离，从中间往两头张开。
     const g0 = name ? name[0] - lift - oy : 0;
@@ -738,7 +740,14 @@ export function describeScene(input: SceneInput): Scene {
     const next = memoryBands(lights, viewport, world, panAt(world, viewport, 0), () => MEMORY_EMBER);
     const gather = smooth(0, 0.3, release);
     const near = picture.bands.map((b) => ({ ...b, x: lerp(b.x, clamp(b.x, -0.15 * viewport.w, 1.15 * viewport.w), gather) }));
-    return { ...where, ...picture, bands: blend(near, next, smooth(0, 1, release)) };
+    // 第 5 幕的布景这时已经从下面进来了：连线一条都还没画，横移停在开头，还不留指针痕迹。
+    const entering = act5Picture(lights, viewport, m, act5, 0, still).memory!;
+    return {
+      ...where,
+      ...picture,
+      bands: blend(near, next, smooth(0, 1, release)),
+      memory: { ...entering, relays: entering.relays.map((r) => ({ ...r, intensity: 0 })), trail: false },
+    };
   }
   const picture = act1Picture(lights, viewport, { ...m, p: still ? 1 : clamp((scroll - act1.from) / act1.length) });
   return { ...where, ...picture, beam: still ? { ...picture.beam, tip: 0 } : picture.beam };

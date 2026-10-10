@@ -139,6 +139,17 @@ describe("describeScene: 横滚的光谱", () => {
     expect(scene({ scroll: act2.from + act2.length - 1e-6 }).spectrum?.unit).toBe(7);
   });
 
+  it("解开钉住时竖线不跟着往上走，只有名字处的断口跟着名牌往上走", () => {
+    const nameGaps = Object.fromEntries(order.map((id) => [id, [300, 560] as const]));
+    const pinned = scene({ scroll: act2.from + act2.length - 1e-6, nameGaps });
+    // 刚解开钉住：这一屏里光同时在往第 5 幕的样子变形，断口也在跟着收，越往后越不只是平移。
+    const lifted = scene({ scroll: act2.from + act2.length + 0.02, nameGaps });
+    const haruki = (s: Scene) => byId(s).get("はるき")!;
+    expect(haruki(lifted).y).toBeCloseTo(haruki(pinned).y);
+    expect(haruki(lifted).length).toBeGreaterThanOrEqual(desktop.h);
+    expect(Math.abs(haruki(lifted).y + haruki(lifted).gap0 - (300 - desktop.h * 0.02))).toBeLessThan(1);
+  });
+
   it("名字处光芯断开：量好的名字区间换算成沿光线的距离；放大之前没有", () => {
     const nameGaps = Object.fromEntries(order.map((id) => [id, [300, 560] as const]));
     const s = scene({ scroll: holding(0), nameGaps });
