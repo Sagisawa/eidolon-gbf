@@ -72,7 +72,7 @@ export function CallSettings() {
   }));
 
   return (
-    <SettingsSection title={t.title}>
+    <SettingsSection>
       <FieldGroup>
         <Field>
           <FieldLabel htmlFor={`${id}-mic`}>{t.mic}</FieldLabel>

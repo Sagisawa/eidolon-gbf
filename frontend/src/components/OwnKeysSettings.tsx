@@ -1,5 +1,6 @@
 "use client";
 
+import { InfoIcon } from "lucide-react";
 import { FormEvent, useEffect, useId, useState, type ReactNode } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
@@ -7,6 +8,7 @@ import { SettingsSection } from "@/components/app/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -55,7 +57,7 @@ export function OwnKeysSettings() {
 
   if (failure && !userId) {
     return (
-      <SettingsSection title={t.title}>
+      <SettingsSection>
         <FailureNotice failure={failure} />
       </SettingsSection>
     );
@@ -69,7 +71,30 @@ export function OwnKeysSettings() {
   };
 
   return (
-    <SettingsSection title={t.title} description={t.hint}>
+    <SettingsSection
+      description={
+        <>
+          {t.summary}
+          {/* ⓘ：悬停或点开都弹出其余说明；用 Popover 不用 Tooltip，Tooltip 不响应触摸，也不该装长段文字。
+              只此一处，按 shadcn 纪律直接写在这里，不抽成项目组件。 */}
+          <Popover>
+            <PopoverTrigger
+              openOnHover
+              render={<Button variant="ghost" size="icon-xs" className="ml-0.5 align-middle" aria-label={t.detailsLabel} />}
+            >
+              <InfoIcon />
+            </PopoverTrigger>
+            <PopoverContent align="start">
+              <ul className="flex list-disc flex-col gap-1 pl-4">
+                {t.details.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </PopoverContent>
+          </Popover>
+        </>
+      }
+    >
       {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
       <p role="status" className="text-body">
         {EXEMPTION_NOTES[limitExemption(ownServices(kept))]}
