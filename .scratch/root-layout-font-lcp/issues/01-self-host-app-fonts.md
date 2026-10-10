@@ -1,6 +1,6 @@
 # 01: 应用根 layout 的 CJK 字体拖慢所有页面的 LCP
 
-**Status:** ready-for-human
+**Status:** done
 
 **Blocked by:** None
 
@@ -119,8 +119,10 @@ next/font 为每个字重的每个切片各生成一条 `@font-face`，打进几
 
 ### 人工验证清单
 
-- [ ] 通话层：她说话时台词卡上的日语原文（LINE Seed JP）和中文字幕，在电脑和手机上看起来都和改动前一样；「只看文字」开着时上一句也一样（截图脚本拍不到通话层）。
-- [ ] 通话层页首的角色名（`font-bold`）和结束卡标题（`font-semibold`）粗细没变。
-- [ ] 换装选择器：卡名（日语，`font-medium`）和改动前一样，没有变粗或被合成加粗。
-- [ ] 过目 `frontend/screenshots/lcp-compare/` 的三张对照图。
-- [ ] 想复测的话：`npm run build && BACKEND_URL=http://localhost:8000 npm run start`，再 `node scripts/app-check.mjs`，`/login`、`/privacy` 应在 2500 ms 以内。
+- [x] 通话层：她说话时台词卡上的日语原文（LINE Seed JP）和中文字幕，在电脑和手机上看起来都和改动前一样；「只看文字」开着时上一句也一样（截图脚本拍不到通话层）。
+- [x] 通话层页首的角色名（`font-bold`）和结束卡标题（`font-semibold`）粗细没变。
+- [x] 换装选择器：卡名（日语，`font-medium`）和改动前一样，没有变粗或被合成加粗。
+- [x] 过目 `frontend/screenshots/lcp-compare/` 的三张对照图。
+- [x] 想复测的话：`npm run build && BACKEND_URL=http://localhost:8000 npm run start`，再 `node scripts/app-check.mjs`，`/login`、`/privacy` 应在 2500 ms 以内。
+
+2026-10-10：用户在本地构建版上逐项验过，通话层字幕、粗体标题、换装卡名都没变，对照图也过目了，票关闭。
