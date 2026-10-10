@@ -4,6 +4,7 @@
 import type { Character } from "@/lib/api";
 
 import { idolColors, type IdolColors } from "./color";
+import type { BandLight } from "./scene";
 
 export type RosterEntry = Pick<Character, "id" | "name" | "color" | "idol_id" | "unit" | "unit_order">;
 
@@ -41,4 +42,21 @@ export function prepareSpectrum(characters: RosterEntry[]): Spectrum {
     unit.idols.push({ id: c.id, name: c.name, idolId: c.idol_id, colors: idolColors(c.color) });
   }
   return { units, idols: units.flatMap((u) => u.idols) };
+}
+
+/**
+ * 光层要的那一份：每位偶像一道光，顺序和光谱一样，带上她的光晕色、补偿系数和分光时的色相名次。
+ * 在服务端算好交给客户端，颜色的算法不进落地页的包。色相相同的保持光谱里的先后。
+ */
+export function lightsOf(spectrum: Spectrum): BandLight[] {
+  const byHue = spectrum.idols.map((idol, i) => ({ order: idol.colors.hueOrder, i })).sort((a, b) => a.order - b.order);
+  const rank = new Array<number>(byHue.length);
+  byHue.forEach(({ i }, r) => (rank[i] = r));
+  return spectrum.idols.map(({ id, colors }, i) => ({
+    id,
+    color: colors.halo,
+    gain: colors.haloGain,
+    spread: colors.haloSpread,
+    hueRank: rank[i],
+  }));
 }

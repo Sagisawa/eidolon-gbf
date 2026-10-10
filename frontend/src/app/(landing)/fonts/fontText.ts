@@ -33,9 +33,15 @@ function configured(key: string): string[] {
 /** 每位角色的显示名。 */
 const characterNames = () => configured("name");
 
-/** 招呼的原文和字幕：角色配置里以 greeting 开头的项，配置里有就收。招呼的配置项由 06 定下，
- * 写法不是单行字符串时要改这里。 */
-const greetings = () => configured(String.raw`greeting\w*`);
+/** 语气提示：方括号里的英文（`[softly]`），照抄后端 delivery_cues.py 的 `_CUE`。只给语音合成听，页面上不显示。
+ * 后端还会去掉括号里的旁白（`（笑）`），这里不去：收的字只多不少，子集不会缺字。 */
+const DELIVERY_CUE = /\[[A-Za-z][A-Za-z ,'\-]*\]/g;
+
+/** 招呼的日语原文（角色配置的 greeting），去掉语气提示；比角色列表接口给的 `greeting.ja` 只多不少。 */
+const greetingJapanese = () => configured("greeting").map((text) => text.replace(DELIVERY_CUE, ""));
+
+/** 招呼的中文字幕（角色配置的 greeting_subtitle）。 */
+const greetingSubtitles = () => configured("greeting_subtitle");
 
 /** 世界设定里的组合名；没有资料文件时没有。 */
 function unitNames(): string[] {
@@ -61,14 +67,15 @@ export function landingText(): string {
     ...strings(copy.login),
     ...Object.values(PROVIDER_LABELS),
     ...characterNames(),
-    ...greetings(),
+    ...greetingJapanese(),
+    ...greetingSubtitles(),
     ...unitNames(),
   ]);
 }
 
-/** 用 Shippori Mincho B1 竖排的字：偶像的名字和组合名。 */
+/** 用 Shippori Mincho B1 排的日文：偶像的名字、组合名、招呼的日语原文和幕名。 */
 export function japaneseText(): string {
-  return unique([...characterNames(), ...unitNames()]);
+  return unique([...characterNames(), ...unitNames(), ...greetingJapanese(), copy.landing.act1.name]);
 }
 
 /**

@@ -190,6 +190,12 @@ export const zh = {
     continue: "继续",
     panelTitle: "登录",
     devSignIn: "开发登录",
+    /** 第 1 幕「分光」：白光射进棱镜，散成她们的颜色。name 是竖排的日文幕名，纯装饰。 */
+    act1: {
+      name: "分光",
+      title: (count: string) => `一束光，散成 ${count} 种颜色。`,
+      body: "每一道光是一位偶像，颜色是她在原作里的印象色。",
+    },
   },
   consent: {
     title: "开始之前",

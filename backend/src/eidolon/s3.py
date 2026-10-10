@@ -1,6 +1,6 @@
-"""An S3-compatible bucket, as far as uploading the stands (`stand_upload`) and backing
-the database up (`backup`) need one: listing what it has, putting objects and deleting
-them. The provider is chosen at deploy time
+"""An S3-compatible bucket, as far as uploading the stands (`stand_upload`) and the
+greetings (`greetings`) and backing the database up (`backup`) need one: listing what it
+has, putting objects and deleting them. The provider is chosen at deploy time
 (Cloudflare R2, Tencent COS, Aliyun OSS, MinIO...), so nothing here is any one
 provider's: requests are signed with Signature Version 4, which all of them take, and
 the bucket is addressed by path (`https://endpoint/bucket/key`) or, for providers that
@@ -84,15 +84,16 @@ class Bucket:
         self._clock = clock
         self._client = httpx.AsyncClient(transport=transport, timeout=_TIMEOUT)
 
-    async def etags(self) -> dict[str, str]:
-        """Every object in the bucket, and its ETag without the quotes: the MD5 of an
-        object put in one piece, as `put` puts them.
+    async def etags(self, prefix: str = "") -> dict[str, str]:
+        """Every object in the bucket whose key starts with `prefix`, and its ETag without
+        the quotes: the MD5 of an object put in one piece, as `put` puts them.
 
         Asked for with List Objects V2, paged by continuation token; a provider that only
         has the original List Objects (Tencent COS) ignores `list-type` and pages by
         `marker`, which is then sent along with the next page's request."""
         etags: dict[str, str] = {}
-        params = {"list-type": "2"}
+        listing = {"list-type": "2"} | ({"prefix": prefix} if prefix else {})
+        params = listing
         while True:
             response = await self._send("GET", self._url("", params))
             try:
@@ -108,15 +109,15 @@ class Bucket:
             if _text(root, "IsTruncated") != "true":
                 return etags
             if token := _text(root, "NextContinuationToken"):
-                params = {"list-type": "2", "continuation-token": token}
+                params = listing | {"continuation-token": token}
             elif marker := _text(root, "NextMarker") or last:
-                params = {"list-type": "2", "marker": marker}
+                params = listing | {"marker": marker}
             else:
                 raise S3Error("存储桶说对象没有列完，却没有给出下一页从哪里开始")
 
-    async def keys(self) -> list[str]:
-        """Every object in the bucket."""
-        return list(await self.etags())
+    async def keys(self, prefix: str = "") -> list[str]:
+        """Every object in the bucket whose key starts with `prefix`."""
+        return list(await self.etags(prefix))
 
     async def put(self, key: str, body: bytes, content_type: str, cache_control: str) -> None:
         await self._send(

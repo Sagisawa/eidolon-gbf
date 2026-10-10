@@ -20,9 +20,14 @@ export type IdolColors = {
   ink: string;
   /** 放在官方色上的字。 */
   onOfficial: string;
+  /** 分光时按色相出射的排序键：OKLab 色相角，从粉红起算，依次是红、橙、黄、绿、青、蓝、紫；
+   * 近乎无彩色的（千雪的白）排在最后。 */
+  hueOrder: number;
 };
 
 const AA = 4.5;
+/** 色相环从这里切开（OKLab 色相角，度）：粉红排在最前，紫排在最后。 */
+const PINK = 345;
 
 export function idolColors(hex: string): IdolColors {
   const official = hex.toLowerCase();
@@ -40,6 +45,7 @@ export function idolColors(hex: string): IdolColors {
     deep,
     ink: oklch(0.9, Math.min(C * 0.6, 0.09), h),
     onOfficial: readableOn(official, C, h),
+    hueOrder: C < 0.02 ? 1000 : ((h * 180) / Math.PI - PINK + 720) % 360,
   };
 }
 

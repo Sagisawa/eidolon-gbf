@@ -6,6 +6,8 @@ import localFont from "next/font/local";
 
 import { copy } from "@/i18n";
 
+import { TIER_SCRIPT } from "./tierScript";
+
 export const metadata: Metadata = {
   title: copy.app.name,
   description: copy.app.description,
@@ -62,10 +64,16 @@ const fontVariables = [jaAct0, ja, zhTitleAct0, zhTitle, zhAct0, zh].map((f) => 
  * 落地页自己的根 layout（ADR-0016 修订）：不加载应用根 layout 里 next/font 的 CJK 字体，那些切片 CSS
  * 会阻塞首屏；全局样式表只为登录面板和按钮（shadcn）引入。永远深色，不跟随系统。
  * 和应用之间跳转是整页加载。
+ *
+ * <head> 里的内联脚本在页面画出来之前定档，写到 <html> 的 data-lp-* 上（tierScript.ts）；
+ * 这几个属性不是 React 渲染的，所以 <html> 不比对它们（suppressHydrationWarning）。
  */
 export default function LandingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className={`dark ${fontVariables}`}>
+    <html lang="zh-CN" className={`dark ${fontVariables}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: TIER_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

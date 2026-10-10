@@ -12,12 +12,21 @@
 //   2. 手机 4G 节流下的 LCP 不超过 2.5 秒（取几轮的中位数），LCP 元素是标题文字（#lp-title）。
 //   3. 落地页自身的首屏 JS 压缩后不超过 50 KB，不含框架基线。基线是 `.next/build-manifest.json` 的
 //      rootMainFiles 和 polyfillFiles（每页都有的 Next + React，约 161 KB），所以要对着这份构建跑；
-//      测别处的部署时用 LANDING_MANIFEST 指向那份构建的 build-manifest.json。
+//      测别处的部署时用 LANDING_MANIFEST 指向那份构建的 build-manifest.json。光层（OGL）在 load 之后、
+//      浏览器空闲时才加载，不算首屏，另外报它的大小。
+//   4. 光层：完整档里 OGL 画好第一帧后淡入、首屏 CSS 画的白光同时淡出，标题一直可见；CSS 白光的尽头
+//      就是落地页模型里白光的锚点（电脑上画面 46% 宽、66% 高处，竖屏是正中、30% 高处），两束光重合。
+//      完整档在几个滚动位置各截一张图。
+//   5. 「减少动态效果」档（浏览器模拟 prefers-reduced-motion）：不加载 Lenis，着色器只画一帧定格的
+//      第 1 幕，等一会儿、滚一下画面都不变；截一张图。
+//   6. 「不支持 WebGL」档（Chromium 关掉 WebGL 启动）：静态档，load 之后不再加载任何脚本（没有画布、
+//      没有 Lenis），SVG 画的光在；第 0、1 幕各截一张图。
+//   截图写到 screenshots/landing-check/（gitignore 掉的），或者环境变量 LANDING_SHOTS 指定的目录。
 //
 // 节流照 Lighthouse 移动端默认：RTT 150 ms、下行 1.6 Mbps、上行 750 Kbps、CPU 4 倍降速；
 // 视口 390×844、DPR 3、触屏。每轮新开上下文，不带缓存。
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,6 +45,19 @@ function report(name, ok, detail) {
   results.push({ name, ok });
   console.log(`${ok === null ? "跳过" : ok ? "通过" : "失败"}  ${name}${detail ? `：${detail}` : ""}`);
 }
+
+/** 等光层淡入（LightStage 给 .lp-root 加上 lp-gl-on），返回从调用起等了多少毫秒；等不到是 null。 */
+async function glOn(page, timeout = 20000) {
+  const t0 = Date.now();
+  return page
+    .waitForFunction(() => document.querySelector(".lp-root")?.classList.contains("lp-gl-on"), null, { timeout })
+    .then(
+      () => Date.now() - t0,
+      () => null,
+    );
+}
+
+const tierOf = (page) => page.evaluate(() => document.documentElement.dataset.lpTier ?? null);
 
 const browser = await chromium.launch();
 
@@ -155,6 +177,8 @@ for (let n = 0; n < runs; n++) {
   });
 
   await page.goto(`${origin}/`, { waitUntil: "load", timeout: 120000 });
+  // 等光层加载完、淡入（浏览器空闲以后），顺便量它的大小。
+  const glAt = await glOn(page, 60000);
   await page.waitForTimeout(1500);
   const lcp = (await page.evaluate(() => window.__lcp)).at(-1) ?? null;
   const loadEnd = await page.evaluate(() => performance.getEntriesByType("navigation")[0].loadEventEnd);
@@ -162,13 +186,22 @@ for (let n = 0; n < runs; n++) {
   // 首屏 JS = load 事件之前请求的脚本；之后的（空闲时加载的光层、点了才加载的登录面板）不算。
   const all = [...requests.values()];
   const loadAt = Math.min(...all.map((r) => r.t)) + loadEnd / 1000;
-  const initial = all.filter((r) => r.type === "Script" && r.bytes && r.t <= loadAt);
+  const scripts = all.filter((r) => r.type === "Script" && r.bytes);
+  const initial = scripts.filter((r) => r.t <= loadAt);
+  const later = scripts.filter((r) => r.t > loadAt);
   const own = baseline ? initial.filter((r) => !baseline.has(new URL(r.url).pathname)) : [];
   const kB = (xs) => +(xs.reduce((a, r) => a + r.bytes, 0) / 1024).toFixed(1);
-  measures.push({ lcp, initialKB: kB(initial), ownKB: kB(own), own: own.map((r) => new URL(r.url).pathname) });
+  measures.push({
+    lcp,
+    initialKB: kB(initial),
+    ownKB: kB(own),
+    own: own.map((r) => new URL(r.url).pathname),
+    laterKB: kB(later),
+    glAt,
+    tier: await page.evaluate(() => document.documentElement.dataset.lpTier),
+  });
   await context.close();
 }
-await browser.close();
 
 const sorted = [...measures].sort((a, b) => (a.lcp?.t ?? Infinity) - (b.lcp?.t ?? Infinity));
 const median = sorted[Math.floor(sorted.length / 2)];
@@ -189,5 +222,144 @@ if (baseline) {
 } else {
   report("落地页自身的首屏 JS", null, "没有框架基线");
 }
+report(
+  "手机上光层在 load 之后、空闲时才加载（不算首屏）",
+  measures.every((m) => m.glAt !== null),
+  measures.map((m) => `${m.tier} 档，load 后 ${m.glAt ?? "∞"} ms 淡入，之后加载 ${m.laterKB} KB`).join("；"),
+);
+
+// —— 4–6. 光层和两个降级档
+
+const shots = process.env.LANDING_SHOTS ?? path.join(frontend, "screenshots", "landing-check");
+mkdirSync(shots, { recursive: true });
+const DESKTOP = { viewport: { width: 1440, height: 900 } };
+const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+
+/** 滚到第 1 幕幕内进度 p 的地方（运动版式）；静止版式下滚到第 1 幕那一屏。 */
+async function toAct1(page, p) {
+  await page.evaluate((p) => {
+    const wrap = document.querySelector(".lp-stage-wrap");
+    const top = wrap.getBoundingClientRect().top + window.scrollY;
+    const act1 = parseFloat(getComputedStyle(wrap).getPropertyValue("--lp-stage-screens")) - 1;
+    const motion = document.documentElement.dataset.lpLayout === "motion";
+    window.scrollTo(0, motion ? top + p * act1 * window.innerHeight : top);
+  }, p);
+  await page.waitForTimeout(1200);
+}
+
+/** CSS 白光的尽头在不在落地页模型的锚点上（差不到 1.5 px）。 */
+async function beamAnchored(page) {
+  const b = await page.evaluate(() => {
+    const r = document.querySelector(".lp-beam").getBoundingClientRect();
+    return { right: r.right, bottom: r.bottom, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: document.documentElement.clientWidth, h: window.innerHeight };
+  });
+  const portrait = b.h > b.w * 1.1;
+  const [x, y, ax, ay] = portrait ? [b.cx, b.bottom, b.w * 0.5, b.h * 0.3] : [b.right, b.cy, b.w * 0.46, b.h * 0.66];
+  return { ok: Math.abs(x - ax) <= 1.5 && Math.abs(y - ay) <= 1.5, detail: `尽头 (${x.toFixed(1)}, ${y.toFixed(1)})，锚点 (${ax.toFixed(1)}, ${ay.toFixed(1)})` };
+}
+
+/** 页面上的报错和警告（OGL 缺 uniform、React 水合不一致等都会打在控制台上）。 */
+function watchConsole(page) {
+  const seen = [];
+  page.on("console", (m) => ["error", "warning"].includes(m.type()) && seen.push(`${m.type()}: ${m.text().slice(0, 120)}`));
+  page.on("pageerror", (e) => seen.push(`pageerror: ${e.message.slice(0, 120)}`));
+  return seen;
+}
+
+{
+  const complaints = [];
+  for (const [name, options] of [
+    ["电脑", DESKTOP],
+    ["竖屏手机", PHONE],
+  ]) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    complaints.push(watchConsole(page));
+    await page.goto(`${origin}/`, { waitUntil: "load" });
+    const anchored = await beamAnchored(page);
+    report(`${name}：首屏 CSS 白光的尽头就是光层白光的锚点`, anchored.ok, anchored.detail);
+    if (name === "电脑") {
+      await page.screenshot({ path: path.join(shots, "full-act0-css.png") });
+      const at = await glOn(page);
+      await page.waitForTimeout(1200);
+      const fade = await page.evaluate(() => {
+        const opacity = (s) => getComputedStyle(document.querySelector(s)).opacity;
+        const title = document.querySelector("#lp-title").getBoundingClientRect();
+        return { beam: opacity(".lp-beam"), canvas: opacity(".lp-canvas"), title: opacity("#lp-title"), titleTop: title.top };
+      });
+      report(
+        "完整档：光层画好后淡入，CSS 白光淡出，标题一直可见",
+        at !== null && fade.beam === "0" && fade.canvas === "1" && fade.title === "1" && fade.titleTop >= 0,
+        `${await tierOf(page)} 档，load 后 ${at ?? "∞"} ms 淡入；CSS 白光 ${fade.beam}、画布 ${fade.canvas}、标题 ${fade.title}`,
+      );
+      await page.screenshot({ path: path.join(shots, "full-act0-gl.png") });
+      for (const p of [0.08, 0.3, 0.55, 1]) {
+        await toAct1(page, p);
+        await page.screenshot({ path: path.join(shots, `full-act1-${Math.round(p * 100)}.png`) });
+      }
+    } else {
+      await glOn(page);
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: path.join(shots, "phone-act0.png") });
+      for (const p of [0.3, 1]) {
+        await toAct1(page, p);
+        await page.screenshot({ path: path.join(shots, `phone-act1-${Math.round(p * 100)}.png`) });
+      }
+    }
+    await context.close();
+  }
+
+  // 「减少动态效果」档。
+  const reduced = await browser.newContext({ ...DESKTOP, reducedMotion: "reduce" });
+  const page = await reduced.newPage();
+  complaints.push(watchConsole(page));
+  await page.goto(`${origin}/`, { waitUntil: "load" });
+  const at = await glOn(page);
+  const lenis = await page.evaluate(() => document.documentElement.classList.contains("lenis"));
+  report("「减少动态效果」：定格档，不加载 Lenis，着色器画出定格的一帧", (await tierOf(page)) === "reduced" && !lenis && at !== null, `${await tierOf(page)} 档，Lenis ${lenis ? "在" : "没有"}，load 后 ${at ?? "∞"} ms 画好`);
+  await toAct1(page, 0);
+  const before = await page.locator(".lp-act1").screenshot();
+  await page.mouse.move(200, 200);
+  await page.mouse.wheel(0, 160);
+  await page.waitForTimeout(1500);
+  const after = await page.locator(".lp-act1").screenshot();
+  report("「减少动态效果」：等一会儿、动一下指针、滚一下，第 1 幕的画面都不变", before.equals(after));
+  await toAct1(page, 0);
+  await page.screenshot({ path: path.join(shots, "reduced-act1.png") });
+  await reduced.close();
+  const all = complaints.flat();
+  report("完整档、简化档和定格档的控制台没有报错和警告", all.length === 0, all.join("；") || "没有");
+}
+
+{
+  // 「不支持 WebGL」档：关掉 WebGL 启动的 Chromium。
+  const noGl = await chromium.launch({ args: ["--disable-3d-apis", "--disable-webgl", "--disable-webgl2"] });
+  const context = await noGl.newContext(DESKTOP);
+  const page = await context.newPage();
+  const scripts = [];
+  let loaded = false;
+  page.on("request", (r) => loaded && r.resourceType() === "script" && scripts.push(new URL(r.url()).pathname));
+  await page.goto(`${origin}/`, { waitUntil: "load" });
+  loaded = true;
+  await page.waitForTimeout(3000);
+  const state = await page.evaluate(() => ({
+    tier: document.documentElement.dataset.lpTier,
+    why: document.documentElement.dataset.lpWhy,
+    gl: document.querySelector(".lp-root").classList.contains("lp-gl-on"),
+    canvas: getComputedStyle(document.querySelector(".lp-canvas")).display,
+  }));
+  await page.screenshot({ path: path.join(shots, "static-act0.png") });
+  await toAct1(page, 0);
+  const svg = await page.locator(".lp-static-landscape").isVisible();
+  await page.screenshot({ path: path.join(shots, "static-act1.png") });
+  report(
+    "「不支持 WebGL」：静态档，不显示画布，load 之后不再加载脚本，SVG 画的光在",
+    state.tier === "static" && !state.gl && state.canvas === "none" && scripts.length === 0 && svg,
+    `${state.tier} 档（${state.why}），画布 ${state.canvas}，load 之后加载的脚本 ${scripts.length ? scripts.join(" ") : "没有"}，SVG ${svg ? "在" : "不在"}`,
+  );
+  await noGl.close();
+}
+await browser.close();
+console.log(`截图在 ${shots}`);
 
 process.exit(results.some((r) => r.ok === false) ? 1 : 0);

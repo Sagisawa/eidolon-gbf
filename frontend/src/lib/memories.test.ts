@@ -13,6 +13,7 @@ const mano: Character = {
   idol_id: 1,
   unit: null,
   unit_order: null,
+  greeting: null,
 };
 
 const memory = (source: string, superseded = false): Memory => ({

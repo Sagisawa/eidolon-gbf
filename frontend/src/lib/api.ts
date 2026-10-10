@@ -19,6 +19,20 @@ export type Character = {
   unit: string | null;
   /** Where her unit is in the units' official order, from 0; null along with `unit`. */
   unit_order: number | null;
+  /** What she says to a visitor on the landing page; null when she has no greeting. */
+  greeting: Greeting | null;
+};
+
+/** A character's greeting (GLOSSARY.md「招呼」). */
+export type Greeting = {
+  /** What she says in Japanese, without its delivery cues. */
+  ja: string;
+  /** Its Chinese subtitle. */
+  subtitle: string;
+  /** Its audio, an mp3 in the stands' bucket; null unless the deployment serves the stand assets
+   * and she has a voice. The server does not check that it was uploaded: when it fails to load, show
+   * the subtitle alone. */
+  audio_url: string | null;
 };
 
 /** Where a character's stand comes from. */

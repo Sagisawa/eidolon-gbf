@@ -7,12 +7,35 @@
  * 每种都先排首屏预载的那一份（-act0，只有第 0 幕上的字），它没有的字落到完整子集。
  * 全局样式表的 font-sans 引用应用根 layout 用 next/font 载入的 --font-zh，落地页不载入它，这里换成
  * 子集的 Noto Sans SC，登录面板也用它。子集外的字（不该有，覆盖契约测试会拦）退回系统字体。
+ *
+ * 版式：首屏前的内联脚本（tierScript.ts）把档位写在 <html> 上。html[data-lp-layout="motion"]（完整、
+ * 简化档）钉住舞台、由滚动驱动第 1 幕；其余（定格档、静态档，以及没有 JS、<html> 上没有档位时）
+ * 是竖着排的静止版式。层叠：光层的画布在最底下（z-index 0，不透明），各幕的内容都在它上面（z-index 1）。
  */
 
 html {
   --font-zh: var(--lp-font-zh-act0), var(--lp-font-zh), "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC";
   --font-ja: "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP";
+  background: #020203; /* 和光层的背景（model/scene.ts 的 BACKGROUND）一样，画布淡入时看不出接缝。 */
+}
+/* 全局样式表给 body 铺了应用的深色底（--background），落地页换成同一个黑。 */
+body {
   background: #020203;
+}
+
+/* Lenis 要的最小样式（lenis/dist/lenis.css）。 */
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
 }
 
 .lp-root {
@@ -50,32 +73,64 @@ html {
 /* —— 第 0 幕：一片黑，一束白光，标题。 */
 .lp-act0 {
   position: relative;
+  z-index: 1;
   height: 100svh;
   overflow: hidden;
 }
 
-/* CSS 画的静态白光：横着射进来，尽头一团光。OGL 的光层接上以后，首屏仍先画这一束（04）。 */
+/* CSS 画的静态白光：横着射进来，尽头一团光。首屏先画这一束；运动版式里 OGL 的光层画好第一帧、
+ * 淡入的同时它淡出。两束的几何是同一套：尽头在画面 46% 宽、66% 高处（竖屏是正中、30% 高处），
+ * 就是落地页模型（model/scene.ts）里第 0 幕白光的锚点，改一边要改另一边。静态档和定格档一直是它。
+ *
+ * 亮度也照着光层的着色器（light.ts）描，淡入淡出时光的粗细、亮度不跳。着色器里白光有两层：光线的
+ * 光晕按到线段的距离衰减（所以尽头外绕成半圆），尽头另有一团会呼吸的光。下面的渐变停靠点就是这两层
+ * 的指数衰减换算到 sRGB 以后、在离光线（光团是离尽头）几个距离处的值，呼吸取平均亮度：
+ * - --lp-halo：光线的光晕，从光线往外 4、14、30、60、120、200、300 px；
+ * - --lp-tip：尽头的光团，从尽头往外 5、10、20、40、80、140、220 px。 */
 .lp-beam {
+  --lp-halo-color: 239 243 255;
+  --lp-halo:
+    rgb(var(--lp-halo-color) / 0.58) 4px, rgb(var(--lp-halo-color) / 0.45) 14px, rgb(var(--lp-halo-color) / 0.31) 30px,
+    rgb(var(--lp-halo-color) / 0.2) 60px, rgb(var(--lp-halo-color) / 0.12) 120px, rgb(var(--lp-halo-color) / 0.06) 200px,
+    transparent 300px;
+  --lp-tip:
+    rgb(255 250 245 / 0.93) 0, rgb(255 248 240 / 0.72) 5px, rgb(255 248 240 / 0.58) 10px, rgb(255 248 240 / 0.38) 20px,
+    rgb(255 248 240 / 0.24) 40px, rgb(255 248 240 / 0.14) 80px, rgb(255 248 240 / 0.06) 140px, transparent 220px;
+  transition: opacity 0.9s ease;
   position: absolute;
   left: 0;
   top: 66%;
   width: 46%;
   height: 2px;
   transform: translateY(-50%);
-  background: linear-gradient(90deg, rgb(255 255 255 / 0.5), #fff 40%);
-  box-shadow:
-    0 0 10px 2px rgb(220 230 255 / 0.32),
-    0 0 50px 6px rgb(220 230 255 / 0.07);
+  background: #fff;
+  pointer-events: none;
 }
+.lp-beam::before,
 .lp-beam::after {
   content: "";
   position: absolute;
-  right: -40px;
+}
+/* 光线的光晕：沿着光线、两边对称（上下两半各一层，从光线往外）。 */
+.lp-beam::before {
+  left: 0;
+  right: 0;
+  top: -300px;
+  bottom: -300px;
+  background:
+    linear-gradient(to top, var(--lp-halo)) top / 100% 50% no-repeat,
+    linear-gradient(to bottom, var(--lp-halo)) bottom / 100% 50% no-repeat;
+}
+/* 尽头：光团，加上光晕在尽头外绕成的半圆。 */
+.lp-beam::after {
+  right: -300px;
   top: 50%;
-  width: 80px;
-  height: 80px;
+  width: 600px;
+  height: 600px;
   transform: translateY(-50%);
-  background: radial-gradient(circle, #fff 0, rgb(255 248 240 / 0.6) 6%, rgb(255 248 240 / 0.12) 26%, transparent 60%);
+  background:
+    radial-gradient(circle 220px, var(--lp-tip)),
+    radial-gradient(circle 300px at 0 50%, var(--lp-halo)) right / 50% 100% no-repeat;
 }
 /* 竖屏：光从上往下射。 */
 @media (max-aspect-ratio: 10/11) {
@@ -85,14 +140,25 @@ html {
     width: 2px;
     height: 30%;
     transform: translateX(-50%);
-    background: linear-gradient(180deg, rgb(255 255 255 / 0.5), #fff 40%);
+  }
+  .lp-beam::before {
+    top: 0;
+    bottom: 0;
+    left: -300px;
+    right: -300px;
+    background:
+      linear-gradient(to left, var(--lp-halo)) left / 50% 100% no-repeat,
+      linear-gradient(to right, var(--lp-halo)) right / 50% 100% no-repeat;
   }
   .lp-beam::after {
     right: auto;
     left: 50%;
     top: auto;
-    bottom: -40px;
+    bottom: -300px;
     transform: translateX(-50%);
+    background:
+      radial-gradient(circle 220px, var(--lp-tip)),
+      radial-gradient(circle 300px at 50% 0, var(--lp-halo)) bottom / 100% 50% no-repeat;
   }
 }
 
@@ -135,11 +201,152 @@ html {
     top: 40%;
   }
 }
+html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-beam {
+  opacity: 0;
+}
+
+/* —— 光层：OGL 画布，首屏画出来以后才加载，画好第一帧才淡入（LightStage.tsx）。
+ * 运动版式铺满视口、固定不动；定格档只盖第 1 幕那一屏。静态档和没有 JS 时不显示。 */
+.lp-canvas {
+  display: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.9s ease;
+  pointer-events: none;
+}
+html[data-lp-layout="motion"] .lp-canvas {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+html[data-lp-tier="reduced"] .lp-canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transition: none;
+}
+.lp-root.lp-gl-on .lp-canvas {
+  opacity: 1;
+}
+
+/* —— 第 1 幕：分光。运动版式里舞台钉住 ACT1_SCREENS 屏，再用一屏解开钉住往上走（model/scene.ts 的
+ * STAGE_SCREENS，由 LightStage 写进 --lp-stage-screens）；--lp-vh 是量出来的视口高度。 */
+.lp-stage-wrap,
+.lp-stage {
+  position: relative;
+}
+html[data-lp-layout="motion"] .lp-stage-wrap {
+  height: calc(var(--lp-stage-screens) * var(--lp-vh, 100svh));
+}
+html[data-lp-layout="motion"] .lp-stage {
+  position: sticky;
+  top: 0;
+  height: var(--lp-vh, 100svh);
+}
+.lp-act1 {
+  position: relative;
+  z-index: 1;
+  height: 100svh;
+  overflow: hidden;
+}
+html[data-lp-layout="motion"] .lp-act1 {
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 静态档的光（StaticLight.tsx）：横屏、竖屏各一张。光层画好以后让开（运动版式里它在画布上面）。 */
+.lp-static-light {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.9s ease;
+}
+.lp-static-portrait {
+  display: none;
+}
+@media (max-aspect-ratio: 10/11) {
+  .lp-static-landscape {
+    display: none;
+  }
+  .lp-static-portrait {
+    display: block;
+  }
+}
+.lp-root.lp-gl-on .lp-static-light {
+  opacity: 0;
+}
+html[data-lp-tier="reduced"] .lp-static-light {
+  transition: none;
+}
+
+/* 第 1 幕的文字：运动版式里跟着时间线淡入（--lp-act1-text 由落地页模型给出），静止版式里一直在。 */
+.lp-act1-copy {
+  position: absolute;
+  right: 7vw;
+  top: 11%;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 28px;
+  max-width: min(36rem, 80vw);
+  text-align: right;
+}
+html[data-lp-layout="motion"] .lp-act1-copy {
+  opacity: var(--lp-act1-text, 0);
+}
+.lp-act1-name {
+  margin: 0;
+  writing-mode: vertical-rl;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(40px, 5vw, 76px);
+  letter-spacing: 0.12em;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 30px rgb(255 255 255 / 0.25);
+}
+.lp-act1-title {
+  margin: 0.2em 0 0;
+  font-family: var(--lp-zh-title);
+  font-weight: 600;
+  font-size: clamp(22px, 2.5vw, 40px);
+  letter-spacing: 0.05em;
+  line-height: 1.45;
+}
+.lp-act1-body {
+  margin: 1.1em 0 0;
+  font-size: 15px;
+  line-height: 2.1;
+  color: rgb(238 236 242 / 0.68);
+}
+@media (max-aspect-ratio: 10/11) {
+  .lp-act1-copy {
+    top: auto;
+    bottom: 8%;
+    left: var(--lp-gutter);
+    right: 20px;
+    gap: 14px;
+    text-align: left;
+    text-shadow: 0 0 18px #000;
+  }
+  .lp-act1-title {
+    font-size: 21px;
+  }
+  .lp-act1-name {
+    font-size: 40px;
+  }
+}
 
 /* —— 第 2 幕：光谱。这一版只有 DOM：组合一段一段竖着排，名字竖排，每道光先是一根细线；
  * 着色器的光、横滚和聚焦由后续的 ticket 接上。她的颜色（--her-ink、--her-halo）由落地页模型算好。 */
 .lp-seg {
   position: relative;
+  z-index: 1;
   min-height: 100svh;
   display: flex;
   flex-direction: column;
@@ -208,6 +415,8 @@ html {
 
 /* —— 页脚：非官方声明和法务链接，常驻在页尾。 */
 .lp-footer {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;

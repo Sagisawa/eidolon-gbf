@@ -22,6 +22,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character
+from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
@@ -116,6 +117,22 @@ def _stand(character: Character, assets_url: str | None) -> dict | None:
     return {
         "default_outfit": {"id": outfit, "url": f"{assets_url}/{outfit_path(outfit)}"},
         "outfits_url": f"{assets_url}/{list_path(character.idol_id)}",
+    }
+
+
+def _greeting(character: Character, assets_url: str | None) -> dict | None:
+    """Her greeting on the landing page: what she says as people see it, its subtitle, and
+    where `eidolon greeting upload` puts its audio (`greeting_path`), without asking the
+    bucket whether it is there; no audio unless the stand assets and her voice are
+    configured. None without a greeting."""
+    greeting = character.greeting
+    if greeting is None:
+        return None
+    path = greeting_path(character)
+    return {
+        "ja": greeting.ja,
+        "subtitle": greeting.subtitle,
+        "audio_url": f"{assets_url}/{path}" if assets_url and path else None,
     }
 
 
@@ -249,6 +266,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "stand": _stand(c, backend.settings.stand_assets_url),
                 "idol_id": c.idol_id,
                 **_unit(c, backend.world),
+                "greeting": _greeting(c, backend.settings.stand_assets_url),
             }
             for c in listed
         ]

@@ -93,7 +93,9 @@ class CharacterConfig:
         facts: str | None = None,
         idol_id: int | None = None,
         default_outfit: str | None = None,
+        greeting: tuple[str, str] | None = None,
     ) -> "CharacterConfig":
+        """`greeting` is her greeting in Japanese, delivery cues and all, and its subtitle."""
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
         if sheet is not None:
@@ -115,6 +117,10 @@ class CharacterConfig:
             entry += f"idol_id = {idol_id}\n"
         if default_outfit is not None:
             entry += f'default_outfit = "{default_outfit}"\n'
+        if greeting is not None:
+            text, subtitle = greeting
+            entry += f"greeting = {json.dumps(text, ensure_ascii=False)}\n"
+            entry += f"greeting_subtitle = {json.dumps(subtitle, ensure_ascii=False)}\n"
         self._entries.append(entry)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")

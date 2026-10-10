@@ -87,3 +87,10 @@ def without_cues(text: str) -> str:
     line = CueFilter()
     shown, _ = line.feed(text)
     return shown + line.finish()[0]
+
+
+def voiced(text: str) -> str:
+    """`text` as speech synthesis hears it: what people see, with its well-formed cues."""
+    line = CueFilter()
+    _, said = line.feed(text)
+    return said + line.finish()[1]

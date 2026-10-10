@@ -28,7 +28,7 @@ describe("落地页的字体子集", () => {
     expect(lacking, `第 0 幕的字体子集缺这些字：${lacking.join("")}。${regenerate}`).toEqual([]);
   });
 
-  it("竖排的名字和组合名，Shippori Mincho B1 里每个字都有", () => {
+  it("名字、组合名、招呼的日语原文和幕名，Shippori Mincho B1 里每个字都有", () => {
     const lacking = missing(japaneseText(), subset.glyphs["shippori-mincho-b1-600"]);
     expect(
       lacking,
