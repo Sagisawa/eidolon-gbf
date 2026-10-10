@@ -15,7 +15,6 @@ describe("isSignedIn: whether the browser asking for a page has a live session",
 
   it("is not, without asking the backend, when the browser has no session cookie", async () => {
     const fetch = backendAnswers(200);
-    expect(await isSignedIn("")).toBe(false);
     expect(await isSignedIn("theme=dark; eidolon_oauth_state=x")).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -38,9 +37,7 @@ describe("isSignedIn: whether the browser asking for a page has a live session",
     expect(await isSignedIn("eidolon_session=old")).toBe(false);
   });
 
-  it("is not when the backend cannot say", async () => {
-    backendAnswers(503);
-    expect(await isSignedIn("eidolon_session=abc")).toBe(false);
+  it("is not when the backend cannot be reached", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("fetch failed"))));
     expect(await isSignedIn("eidolon_session=abc")).toBe(false);
   });

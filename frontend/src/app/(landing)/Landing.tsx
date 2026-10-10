@@ -36,7 +36,7 @@ export function Landing({ isSignedIn }: { isSignedIn: boolean }) {
         </section>
       </main>
 
-      {/* 隐私政策、使用条款在应用的根 layout 下，跨根 layout 本来就是整页加载，用普通的 <a>。 */}
+      {/* 用普通的 <a>：next/link 不进落地页首屏的包；隐私政策、使用条款在应用的根 layout 下，跨根 layout 本来就是整页加载。 */}
       <footer className="lp-footer">
         <p>{copy.legal.disclaimer}</p>
         <p className="lp-footer-links">

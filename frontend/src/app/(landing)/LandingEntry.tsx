@@ -15,7 +15,7 @@ const SignInPanel = lazy(loadPanel);
  */
 export function LandingEntry({ isSignedIn, label, className }: { isSignedIn: boolean; label: string; className: string }) {
   const [open, setOpen] = useState(false);
-  const [wanted, setWanted] = useState(false);
+  const [panelRequested, setPanelRequested] = useState(false);
 
   if (isSignedIn) {
     return (
@@ -34,13 +34,13 @@ export function LandingEntry({ isSignedIn, label, className }: { isSignedIn: boo
         onPointerEnter={loadPanel}
         onFocus={loadPanel}
         onClick={() => {
-          setWanted(true);
+          setPanelRequested(true);
           setOpen(true);
         }}
       >
         {label}
       </button>
-      {wanted && (
+      {panelRequested && (
         <Suspense fallback={null}>
           <SignInPanel open={open} onOpenChange={setOpen} />
         </Suspense>

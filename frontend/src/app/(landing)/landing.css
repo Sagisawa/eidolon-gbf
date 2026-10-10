@@ -22,7 +22,6 @@ html {
   --lp-dim: rgb(238 236 242 / 0.6); /* 12px 的小字在黑底上要过 4.5:1。 */
   position: relative;
   min-height: 100svh;
-  background: #020203;
   color: var(--lp-ink);
   font-family: var(--lp-zh);
   -webkit-font-smoothing: antialiased;

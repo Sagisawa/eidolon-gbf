@@ -1,6 +1,8 @@
 // Server side only: where the backend is, for the API proxy and the server components
 // that ask the backend before rendering.
 
+import { CONSENT_REQUIRED } from "@/lib/api";
+
 export const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 /** The admin console's front door, asked with the browser's cookies: the admin, or null
@@ -18,12 +20,12 @@ const SESSION_COOKIE = "eidolon_session";
 /** Whether the browser whose cookies these are has a live session. A browser without a session
  * cookie, a visitor, is told no without asking the backend; one whose session has expired or
  * ended, or that the backend cannot answer for, is not either. A user yet to agree to the terms
- * is signed in (the backend answers 428). */
+ * is signed in. */
 export async function isSignedIn(cookie: string): Promise<boolean> {
   if (!cookie.split(/;\s*/).some((pair) => pair.startsWith(`${SESSION_COOKIE}=`))) return false;
   try {
     const res = await fetch(`${BACKEND_URL}/api/account`, { headers: { cookie }, cache: "no-store" });
-    return res.ok || res.status === 428;
+    return res.ok || res.status === CONSENT_REQUIRED;
   } catch {
     return false;
   }
