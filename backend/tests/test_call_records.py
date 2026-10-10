@@ -48,7 +48,7 @@ from tests.test_call_turns import (  # noqa: F401
     spoken,
 )
 from tests.test_delete_account import user_id
-from tests.test_own_speech_keys import MY_FISH, MY_LLM, MY_SONIOX, bring, limited
+from tests.test_own_speech_keys import MY_FISH, MY_LLM, MY_SONIOX, limited, own_keys
 from tests.test_text_turn import start_conversation
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
@@ -136,9 +136,10 @@ async def test_calls_over_the_limit_are_refused_and_calls_on_own_keys_counted_ap
     async with open_browser() as second:
         assert (await second.call(client, conversation_id=conversation_id)).status_code == 429
 
-    await bring(client, "llm", "stt", "tts")
     async with open_browser() as third:
-        await third.call(client, conversation_id=conversation_id)
+        await third.call(
+            client, conversation_id=conversation_id, own_keys=own_keys("llm", "stt", "tts")
+        )
         await third.connect()
         await speech.stts[-1].hear("你好")
         await third.turn()

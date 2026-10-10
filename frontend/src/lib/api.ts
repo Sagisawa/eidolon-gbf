@@ -1,4 +1,5 @@
 import type { Provider } from "@/lib/signIn";
+import { forgetOwnKeys, turnOwnLLM, type BailianRegion, type LocalLLM } from "@/lib/localOwnKeys";
 import { detectTimezone } from "@/lib/timezone";
 import type { Emotion, Nod } from "@/lib/standAnimations";
 
@@ -238,8 +239,9 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 /** An identity the user signs in with. */
 export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
 
-/** `is_admin`: the user may enter the admin console (`/admin`). */
-export type Account = { name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
+/** `id`: who the user is, which this browser keeps their own keys apart by (see `localOwnKeys`).
+ * `is_admin`: the user may enter the admin console (`/admin`). */
+export type Account = { id: string; name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
 export async function getAccount(): Promise<Account> {
@@ -253,38 +255,23 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
 
 export type OwnService = "llm" | "tts" | "stt";
 
-export type LLMProtocol = "chat-completions" | "responses" | "anthropic";
+/** The kinds of interface a user's own LLM may speak: the backend's `LLM_PROTOCOLS`, which this
+ * follows (and `copy.settings.ownKeys.protocols` names). */
+export const LLM_PROTOCOLS = ["chat-completions", "responses", "anthropic"] as const;
 
-/** A key the user brought, as they may see it: only its last 4 characters. */
-export type OwnKey = { last4: string };
-
-export type OwnLLM = OwnKey & { base_url: string; model: string; protocol: LLMProtocol };
+export type LLMProtocol = (typeof LLM_PROTOCOLS)[number];
 
 /** The speech recognition services a user may bring a key for. */
 export type SttProvider = "soniox" | "bailian";
 
-export type OwnSttKey = OwnKey & { provider: SttProvider };
-
-export type OwnKeys = {
-  /** Whether the deployment lets users bring their own keys at all. */
-  available: boolean;
-  keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnSttKey };
-  /** What of the user's use does not count towards the hourly limits. */
-  exempt: { turns: boolean; calls: boolean };
-  protocols: LLMProtocol[];
-};
-
-export async function getOwnKeys(): Promise<OwnKeys> {
-  return json(await api("/api/account/keys"));
-}
-
-/** Try the user's own LLM and keep it; fails with what the service said if the try fails. */
-export async function saveOwnLLM(
-  llm: Omit<OwnLLM, "last4"> & { api_key: string },
-): Promise<OwnLLM> {
+/**
+ * Try the user's own LLM, which the server does not keep; fails with what the service said if
+ * the try fails. Its address and model as this browser is to keep them.
+ */
+export async function checkOwnLLM(llm: LocalLLM): Promise<Pick<LocalLLM, "base_url" | "model">> {
   return json(
-    await api("/api/account/keys/llm", {
-      method: "PUT",
+    await api("/api/account/keys/llm/check", {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(llm),
     }),
@@ -293,29 +280,27 @@ export async function saveOwnLLM(
 
 /**
  * Try the user's own key for speech synthesis ("tts") or recognition ("stt", by the service
- * `provider` names) and keep it.
+ * `provider` names), which the server does not keep; fails with what the service said if the try
+ * fails. For speech recognition, the region a DashScope key works in, for this browser to keep
+ * with it (null for Soniox).
  */
-export async function saveOwnSpeechKey(
+export async function checkOwnSpeechKey(
   service: "tts" | "stt",
   apiKey: string,
   provider?: SttProvider,
-): Promise<OwnKey> {
+): Promise<{ region?: BailianRegion | null }> {
   return json(
-    await api(`/api/account/keys/${service}`, {
-      method: "PUT",
+    await api(`/api/account/keys/${service}/check`, {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ api_key: apiKey, provider }),
     }),
   );
 }
 
-/** Forget the user's own key for `service`; the deployer's is used again. */
-export async function deleteOwnKey(service: OwnService): Promise<void> {
-  await expectNoContent(await api(`/api/account/keys/${service}`, { method: "DELETE" }));
-}
-
-/** Delete the user and all their data for good, signing them out everywhere. */
-export async function deleteAccount(): Promise<void> {
+/** Delete the user and all their data for good, signing them out everywhere; then forget the own
+ * keys this browser keeps for them. */
+export async function deleteAccount(userId: string): Promise<void> {
   await expectNoContent(
     await api("/api/account/delete", {
       method: "POST",
@@ -323,11 +308,14 @@ export async function deleteAccount(): Promise<void> {
       body: JSON.stringify({ confirm: true }),
     }),
   );
+  forgetOwnKeys(userId);
 }
 
-/** Sign the user out on every device, this one included. */
-export async function logoutEverywhere(): Promise<void> {
+/** Sign the user out on every device, this one included, forgetting the own keys this browser
+ * keeps for them (none to forget without `userId`); other devices keep theirs. */
+export async function logoutEverywhere(userId?: string): Promise<void> {
   await expectNoContent(await api("/api/account/logout-everywhere", { method: "POST" }));
+  if (userId) forgetOwnKeys(userId);
 }
 
 /** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
@@ -352,9 +340,11 @@ export async function devLogin(name: string): Promise<void> {
   );
 }
 
-/** Sign this browser out. */
-export async function logout(): Promise<void> {
+/** Sign this browser out, forgetting the own keys it keeps for the user. Without `userId`, as
+ * before the user has agreed to the terms, there are none: keys are only kept after. */
+export async function logout(userId?: string): Promise<void> {
   await expectNoContent(await fetch("/api/auth/logout", { method: "POST" }));
+  if (userId) forgetOwnKeys(userId);
 }
 
 export async function getProfile(): Promise<ProducerProfile> {
@@ -422,16 +412,21 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * alone). Fails with the reason when calls are unavailable. */
 export type CallSetup = { iceServers: RTCIceServer[]; maxCallSeconds: number | null; callExempt: boolean };
 
-export async function getCallSetup(): Promise<CallSetup> {
-  return json(await api("/api/ice-servers"));
+/** Asked before a call that is to bring the user's own keys for `own`, naming those services but
+ * bringing none of the keys: the call itself brings them. */
+export async function getCallSetup(own: readonly OwnService[]): Promise<CallSetup> {
+  return json(await api(own.length ? `/api/ice-servers?own=${own.join(",")}` : "/api/ice-servers"));
 }
 
-/** Sends one text turn and yields the reply's server-sent events as they arrive. */
-export async function* sendTurn(conversationId: string, text: string): AsyncGenerator<TurnEvent> {
+/**
+ * Sends one text turn, bringing the user's own LLM if this browser keeps one for them, and yields
+ * the reply's server-sent events as they arrive.
+ */
+export async function* sendTurn(conversationId: string, text: string, userId: string): AsyncGenerator<TurnEvent> {
   const res = await api(`/api/conversations/${conversationId}/turns`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, own_llm: turnOwnLLM(userId) }),
   });
   if (!res.ok || !res.body) {
     await json(res);

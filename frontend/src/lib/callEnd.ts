@@ -24,18 +24,14 @@ export type CallEnd = {
 /** The microphone could not be opened for a call. */
 export class MicUnavailable extends Error {}
 
-/** Statuses of a call the backend refuses: no calls left this hour, one of the user's own
- * keys fails. */
+/** The status of a call the backend refuses because the user has no calls left this hour. */
 const OVER_LIMIT = 429;
-const OWN_KEY_FAILED = 409;
 
 /** A call that could not start. None of them count: it was refused, or it never connected. */
 export function startFailedEnd(e: unknown): CallEnd {
   if (e instanceof MicUnavailable) return { reason: "mic_denied", detail: null, counts: false };
   if (!(e instanceof ApiError)) return { reason: "not_connected", detail: null, counts: false };
-  const reason =
-    e.status === OVER_LIMIT ? "over_limit" : e.status === OWN_KEY_FAILED ? "own_key" : "not_connected";
-  return { reason, detail: e.message, counts: false };
+  return { reason: e.status === OVER_LIMIT ? "over_limit" : "not_connected", detail: e.message, counts: false };
 }
 
 /** The backend hung up and said why. Only a failing own key needs its words: they say which. */

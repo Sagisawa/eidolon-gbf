@@ -5,6 +5,16 @@ import { useEffect, useState } from "react";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { copy } from "@/i18n";
@@ -23,9 +33,13 @@ import { CloseIcon, SuccessIcon } from "@/theme/icons";
 
 const t = copy.settings.signIn;
 
-/** 用户登录用的身份：绑定、解绑，以及退出登录。 */
+/**
+ * 用户登录用的身份：绑定、解绑，以及退出登录。退出时清掉这个浏览器里这位用户的自带密钥；
+ * 退出所有设备要先确认，并说明其他设备上的自带密钥清不到。
+ */
 export function SignInSettings() {
   const [account, setAccount] = useState<Account | null>(null);
+  const [confirmingEverywhere, setConfirmingEverywhere] = useState(false);
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -54,8 +68,9 @@ export function SignInSettings() {
 
   async function signOut(everywhere: boolean) {
     setFailure(null);
+    setConfirmingEverywhere(false);
     try {
-      await (everywhere ? logoutEverywhere() : logout());
+      await (everywhere ? logoutEverywhere(account?.id) : logout(account?.id));
       window.location.assign("/");
     } catch (e) {
       setFailure(toFailure(e));
@@ -131,13 +146,26 @@ export function SignInSettings() {
       )}
       {/* 退出登录和绑定是两件事，分开一行，窄屏换行时不会搅在一起 */}
       <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" onClick={() => signOut(false)}>
+        {/* 要知道是谁，退出时才能清掉这个浏览器里他的自带密钥 */}
+        <Button variant="ghost" disabled={!account} onClick={() => signOut(false)}>
           {t.signOut}
         </Button>
-        <Button variant="ghost" onClick={() => signOut(true)}>
+        <Button variant="ghost" disabled={!account} onClick={() => setConfirmingEverywhere(true)}>
           {t.signOutEverywhere}
         </Button>
       </div>
+      <AlertDialog open={confirmingEverywhere} onOpenChange={setConfirmingEverywhere}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.signOutEverywhereTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{t.signOutEverywhereHint}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{copy.common.cancel}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => signOut(true)}>{t.signOutEverywhere}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SettingsSection>
   );
 }

@@ -3,9 +3,9 @@ banning or unbanning them (ADR-0013).
 
 What an admin sees of a user is who they are and how they use the deployment: their
 sign-in methods (email included), when they joined and were last active, whether they
-are banned and why, whether they are an admin, and for which services they brought their
-own keys, only whether they did. Never what they said, what was remembered of them or
-their producer profile.
+are banned and why, and whether they are an admin. Never what they said, what was
+remembered of them or their producer profile, nor whether they brought their own keys,
+which their browsers keep (ADR-0017): only how much of their use was on them.
 
 Banning here is the same as `eidolon user ban`, both through `Store.set_banned`: the
 user is signed out everywhere, their calls are hung up within seconds by the calls'
@@ -35,7 +35,6 @@ from pydantic import BaseModel, Field, model_validator
 from eidolon.activity import ActivityLog, RecordRow
 from eidolon.admin_api import Admin, is_admin
 from eidolon.assembly import Backend
-from eidolon.own_keys import SERVICES
 from eidolon.store import NotFound, User
 from eidolon.usage import UserLimits
 
@@ -103,7 +102,6 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         return [summary(user, active.get(user.id), taken.get(user.id, {})) for user in users]
 
     def summary(user: User, last_active: datetime | None, taken: dict[str, int]) -> dict:
-        own_keys = store.own_keys(user.id)
         return {
             "id": user.id,
             "name": user.name,
@@ -116,7 +114,6 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
             "last_active_at": last_active.isoformat() if last_active else None,
             "banned": user.banned_at is not None,
             "is_admin": is_admin(store, settings, user.id),
-            "own_keys": {service: service in own_keys for service in SERVICES},
             "limits": limits(user.id),
             "usage_24h": {"turns": taken.get("turn", 0), "calls": taken.get("call", 0)},
         }

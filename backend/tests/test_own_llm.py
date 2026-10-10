@@ -1,6 +1,8 @@
-"""Bringing your own LLM: tried once before it is kept, then used for the user's turns,
-calls and memories instead of the deployer's. It fails loudly rather than falling back to
-the deployer's key, is shown only by its last 4 characters, and is kept encrypted."""
+"""Bringing your own LLM: tried once, without being kept, before the browser keeps it; then
+brought with each of the user's text turns and calls, which it plays the character and
+writes down memories on instead of the deployer's. It fails loudly rather than falling
+back to the deployer's key. The server keeps none, nor needs `EIDOLON_SECRET_KEY` for them;
+those it kept before are deleted."""
 
 import sqlite3
 from dataclasses import replace
@@ -24,6 +26,7 @@ from tests.fakes import (
     FakeReranker,
     FakeSpeech,
 )
+from tests.test_delete_account import rows_mentioning
 from tests.test_shared_memory import CAT, memorized
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -37,56 +40,47 @@ LLM = {
 }
 
 
-async def bring_llm(client: httpx.AsyncClient, **changes: str) -> httpx.Response:
-    return await client.put("/api/account/keys/llm", json=LLM | changes)
+async def check_llm(client: httpx.AsyncClient, **changes: str) -> httpx.Response:
+    return await client.post("/api/account/keys/llm/check", json=LLM | changes)
 
 
-async def test_an_own_llm_is_tried_then_kept_showing_only_its_last_4_characters(
-    make_client: ClientFactory, own_llm: FakeLLMService
+async def test_an_own_llm_is_tried_and_not_kept(
+    make_client: ClientFactory, own_llm: FakeLLMService, settings: Settings
 ):
     client = make_client(FakeLLM())
 
-    saved = await bring_llm(client)
-    listed = await client.get("/api/account/keys")
+    checked = await check_llm(client, base_url=" https://llm.example.com/v1 ", model=" my-model ")
 
-    assert saved.status_code == 200
-    assert [s.api_key for s in own_llm.checked] == [MINE]
-    shown = {"last4": "1234", "base_url": "https://llm.example.com/v1", "model": "my-model",
-             "protocol": "chat-completions"}
-    assert saved.json() == shown
-    assert listed.json()["available"] is True
-    assert listed.json()["keys"] == {"llm": shown}
-    assert MINE not in saved.text + listed.text
+    assert checked.status_code == 200
+    assert checked.json() == {"base_url": "https://llm.example.com/v1", "model": "my-model"}
+    assert [(s.api_key, s.base_url, s.model) for s in own_llm.checked] == [
+        (MINE, "https://llm.example.com/v1", "my-model")
+    ]
+    assert MINE not in checked.text
+    assert rows_mentioning(settings.database_path, "my-model") == {}
 
 
-async def test_an_own_llm_that_fails_its_try_is_not_kept(
+async def test_a_turn_bringing_an_own_llm_plays_on_it_and_one_bringing_none_on_the_deployers(
     make_client: ClientFactory, own_llm: FakeLLMService
 ):
-    client = make_client(FakeLLM())
-    own_llm.rejects[MINE] = "401 Unauthorized: invalid api key"
-
-    res = await bring_llm(client)
-
-    assert res.status_code == 422
-    assert "401 Unauthorized" in res.json()["detail"]
-    assert (await client.get("/api/account/keys")).json()["keys"] == {}
-
-
-async def test_the_users_turns_use_their_own_llm(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    deployers = FakeLLM()
+    deployers = FakeLLM(REPLY)
     own_llm.llm = FakeLLM(REPLY)
     client = make_client(deployers)
-    await bring_llm(client)
+    conversation_id = await start_conversation(client)
 
-    events = await send_turn(client, await start_conversation(client), "在吗")
+    on_own = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
 
-    assert events[-1]["type"] == "done"
+    assert on_own[-1]["type"] == "done"
     assert own_llm.llm.keys == [MINE]
     assert own_llm.opened[-1].base_url == "https://llm.example.com/v1"
     assert own_llm.opened[-1].model == "my-model"
     assert deployers.keys == []
+
+    on_deployers = await send_turn(client, conversation_id, "在吗")
+
+    assert on_deployers[-1]["type"] == "done"
+    assert deployers.keys == [DEPLOYER_KEY]
+    assert own_llm.llm.keys == [MINE]
 
 
 async def test_the_users_own_llm_writes_down_their_memories(
@@ -98,9 +92,8 @@ async def test_the_users_own_llm_writes_down_their_memories(
         FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
         background_llm=deployers_background,
     )
-    await bring_llm(client)
 
-    await send_turn(client, await start_conversation(client), "我家的猫叫小白哦")
+    await send_turn(client, await start_conversation(client), "我家的猫叫小白哦", own_llm=LLM)
 
     assert [m["text"] for m in (await client.get("/api/memories")).json()] == [CAT]
     assert own_llm.llm.keys == [MINE, MINE]
@@ -114,11 +107,10 @@ async def test_a_failing_own_llm_fails_the_turn_without_the_deployers_key_or_cou
     deployers = FakeLLM(REPLY)
     one_turn = replace(settings, usage_limits=UsageLimits(turns_per_hour=1))
     client = make_client(deployers, settings=one_turn)
-    await bring_llm(client)
     conversation_id = await start_conversation(client)
 
-    failed = await send_turn(client, conversation_id, "在吗")
-    again = await send_turn(client, conversation_id, "在吗")
+    failed = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
+    again = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
 
     assert failed[-1]["type"] == "error"
     assert "你的LLM密钥调用失败" in failed[-1]["message"]
@@ -131,91 +123,42 @@ async def test_a_failing_own_llm_fails_the_turn_without_the_deployers_key_or_cou
     assert len(messages.json()) == 2
 
 
-async def test_a_turn_on_an_own_llm_that_can_no_longer_be_decrypted_is_refused_uncounted(
-    make_client: ClientFactory, own_llm: FakeLLMService, settings: Settings
-):
-    await bring_llm(make_client(FakeLLM()))
-    deployers = FakeLLM(REPLY)
-    changed = replace(  # EIDOLON_SECRET_KEY changed since the key was kept
-        settings, secret_key="another-secret-key", usage_limits=UsageLimits(turns_per_hour=1)
-    )
-    client = make_client(deployers, settings=changed)
-    conversation_id = await start_conversation(client)
-
-    refused = await client.post(
-        f"/api/conversations/{conversation_id}/turns", json={"text": "在吗"}
-    )
-    await client.delete("/api/account/keys/llm")
-    again = await send_turn(client, conversation_id, "在吗")
-
-    assert refused.status_code == 409
-    assert "你的LLM密钥调用失败" in refused.json()["detail"]
-    assert "保存的密钥无法解密" in refused.json()["detail"]
-    assert again[-1]["type"] == "done"  # the refused turn did not count
-    assert deployers.keys == [DEPLOYER_KEY]
-    assert own_llm.llm.keys == []
-
-
-async def test_deleting_the_own_llm_goes_back_to_the_deployers(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    deployers = FakeLLM(REPLY)
-    client = make_client(deployers)
-    await bring_llm(client)
-
-    deleted = await client.delete("/api/account/keys/llm")
-    again = await client.delete("/api/account/keys/llm")
-    await send_turn(client, await start_conversation(client), "在吗")
-
-    assert deleted.status_code == 204
-    assert again.status_code == 404
-    assert (await client.get("/api/account/keys")).json()["keys"] == {}
-    assert deployers.keys == [DEPLOYER_KEY]
-    assert own_llm.llm.keys == []
-
-
-async def test_other_users_keep_the_deployers_llm(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    deployers = FakeLLM(REPLY)
-    await bring_llm(make_client(FakeLLM()))
-    friend = make_client(deployers, "friend")
-
-    await send_turn(friend, await start_conversation(friend), "在吗")
-
-    assert deployers.keys == [DEPLOYER_KEY]
-    assert (await friend.get("/api/account/keys")).json()["keys"] == {}
-
-
-async def test_own_keys_are_kept_encrypted(make_client: ClientFactory, settings: Settings):
-    await bring_llm(make_client(FakeLLM()))
-
-    with sqlite3.connect(settings.database_path) as db:
-        [row] = db.execute("SELECT * FROM own_keys").fetchall()
-    assert not any(isinstance(v, (str, bytes)) and MINE.encode() in (
-        v.encode() if isinstance(v, str) else v) for v in row)
-
-
-async def test_without_a_secret_key_no_one_can_bring_their_own(
+async def test_without_a_secret_key_users_still_bring_their_own(
     make_client: ClientFactory, settings: Settings, own_llm: FakeLLMService
 ):
+    own_llm.llm = FakeLLM(REPLY)
     client = make_client(FakeLLM(), settings=replace(settings, secret_key=None))
 
-    listed = await client.get("/api/account/keys")
-    saved = await bring_llm(client)
+    checked = await check_llm(client)
+    turn = await send_turn(client, await start_conversation(client), "在吗", own_llm=LLM)
 
-    assert listed.json()["available"] is False
-    assert saved.status_code == 404
-    assert "没有开放" in saved.json()["detail"]
-    assert own_llm.checked == []
+    assert checked.status_code == 200
+    assert turn[-1]["type"] == "done"
+    assert own_llm.llm.keys == [MINE]
 
 
-async def test_saving_needs_a_plausible_key(make_client: ClientFactory):
+async def test_keys_the_server_kept_before_are_deleted(
+    make_client: ClientFactory, settings: Settings
+):
+    make_client(FakeLLM())
+    with sqlite3.connect(settings.database_path) as db:  # as they were kept, encrypted
+        db.execute("CREATE TABLE own_keys (user_id TEXT, service TEXT, secret BLOB)")
+        db.execute("INSERT INTO own_keys VALUES ('someone', 'llm', x'00ff')")
+
+    make_client(FakeLLM())
+
+    with sqlite3.connect(settings.database_path) as db:
+        tables = {name for (name,) in db.execute("SELECT name FROM sqlite_master")}
+    assert "own_keys" not in tables
+
+
+async def test_trying_needs_a_plausible_key(make_client: ClientFactory, own_llm: FakeLLMService):
     client = make_client(FakeLLM())
 
     for bad in ({"api_key": "short"}, {"api_key": "has space in it"}, {"model": ""},
                 {"protocol": "grpc"}):
-        assert (await bring_llm(client, **bad)).status_code == 422, bad
+        assert (await check_llm(client, **bad)).status_code == 422, bad
+    assert own_llm.checked == []
 
 
 async def test_a_call_uses_the_users_own_llm(
@@ -224,8 +167,9 @@ async def test_a_call_uses_the_users_own_llm(
     own_llm.llm = FakeLLM(REPLY)
     deployers = FakeLLM()
     client = make_client(deployers)
-    await bring_llm(client)
-    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.call(
+        client, conversation_id=await start_conversation(client), own_keys={"llm": LLM}
+    )
     await browser.connect()
 
     await speech.stts[-1].hear("你好")
@@ -234,6 +178,7 @@ async def test_a_call_uses_the_users_own_llm(
     assert messages[-1]["type"] == "done"
     assert own_llm.llm.keys == [MINE]
     assert deployers.keys == []
+
 
 
 @pytest.mark.parametrize(
@@ -278,9 +223,9 @@ async def test_every_connection_to_an_own_llm_goes_to_the_public_address_it_chec
     assert network.connected == ["93.184.216.34"]  # the checked address, never the name
 
 
-async def test_a_public_deployment_never_reaches_a_private_address_on_a_kept_own_llm():
+async def test_a_public_deployment_never_reaches_a_private_address_on_an_own_llm_a_turn_brings():
     service = ProviderLLMService(public_only=True)
-    llm = service.open(LLMSettings("https://localhost:9/v1", MINE, "m"))  # as if kept earlier
+    llm = service.open(LLMSettings("https://localhost:9/v1", MINE, "m"))  # brought, not tried
     try:
         with pytest.raises(LLMError, match="不是公网地址"):
             async for _ in llm.stream([ChatMessage("user", "hi")]):

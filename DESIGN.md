@@ -217,7 +217,7 @@ components:
 - **后台（/admin）**：后台没有她的颜色，`default`（primary）就是 shadcn neutral 的黑底白字（深色模式反过来），只给表单的提交（「试调并保存」「保存」）。卡片上的「修改」、页首的「封禁」用 `outline`；行内操作（表格里的「封禁 / 解除封禁」「修改」）、「刷新」「取消」用 `ghost` 的 `sm`；「删除这位用户」这种打开确认框的入口也用 `outline`，只有确认框里真正执行的那一下用 `destructive`。
 
 ### Admin status & charts
-- **状态**：服务健康只给出问题的项加点并加粗：出错偏多是琥珀色点，大量出错是 `--destructive` 点；正常、没有调用只写 muted 文字，不加点。用户和配置的状态用 Badge：「已封禁」`destructive`，「管理者」「已被后台覆盖」`secondary`，「自带密钥：…」「单独限额：…」「覆盖没有生效」`outline`；「正常」只写 muted 文字。
+- **状态**：服务健康只给出问题的项加点并加粗：出错偏多是琥珀色点，大量出错是 `--destructive` 点；正常、没有调用只写 muted 文字，不加点。用户和配置的状态用 Badge：「已封禁」`destructive`，「管理者」「已被后台覆盖」`secondary`，「单独限额：…」「覆盖没有生效」`outline`；「正常」只写 muted 文字。
 - **图表**：手写 SVG 的 `TrendChart` 和比例条，柱子和条只用一种颜色 `--foreground`（浅色模式黑、深色模式白），网格线 `--border`，刻度和读数 muted；悬停的槽位铺 `bg-muted`，其余柱子降到 50% 不透明度。比例条的底是 `bg-muted`。不用墨水色，也不用 shadcn 的 `--chart-*`。
 - 图表的尺寸按容器实际宽度画（`ResizeObserver`），不靠 `viewBox` 缩放，这样刻度字号不随栏宽变化。
 

@@ -29,7 +29,6 @@ USER_DATA = [
     ("user_limits", "user_id = ?"),
     ("sessions", "user_id = ?"),
     ("sign_in_methods", "user_id = ?"),
-    ("own_keys", "user_id = ?"),
     ("users", "id = ?"),
 ]
 """Every table holding a user's data, and which rows are theirs, in an order that deletes

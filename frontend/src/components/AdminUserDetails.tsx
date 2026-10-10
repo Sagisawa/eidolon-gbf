@@ -9,7 +9,7 @@ import { AdminPage } from "@/components/app/admin/AdminPage";
 import { AdminTrail } from "@/components/app/admin/AdminTrail";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Timestamp } from "@/components/app/admin/Timestamp";
-import { AdminBadge, BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
+import { AdminBadge, BanStatus, UserLimits } from "@/components/AdminUserList";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { UserLimitsDialog } from "@/components/UserLimitsDialog";
 import {
@@ -56,7 +56,7 @@ const t = copy.admin.users;
 
 /**
  * 一位用户的详情：登录方式（含邮箱和填进管理者名单用的标识）、注册和最后活跃的时间、
- * 自带密钥的有无、单独限额（设定、修改、取消）、封禁的时间和备注、近期用量，以及封禁 / 解除封禁
+ * 单独限额（设定、修改、取消）、封禁的时间和备注、近期用量，以及封禁 / 解除封禁
  * 和删除（二次确认，删完回到列表）。不含任何对话、记忆和制作人档案。
  * 资料是一张 Card 里的两列定义列表，单独限额的按钮在 CardFooter；近期用量一张表；删除单独一张 Card
  * （DESIGN.md「Layout · 后台 · 用户详情」）。打开确认框的入口用 outline，执行的那一下用 destructive。
@@ -204,9 +204,6 @@ export function AdminUserDetails({ id }: { id: string }) {
               ) : (
                 <span className="text-muted-foreground">{t.never}</span>
               )}
-            </MetadataListItem>
-            <MetadataListItem label={t.details.ownKeys}>
-              <OwnKeys user={user} />
             </MetadataListItem>
             <MetadataListItem label={t.limits.title}>
               <span className="flex flex-col gap-0.5">

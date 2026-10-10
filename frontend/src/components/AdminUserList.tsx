@@ -22,7 +22,6 @@ import {
   USER_SORTS,
   USERS_PAGE_SIZE,
   banAction,
-  broughtKeys,
   describeLimit,
   headerSort,
   listAdminUsers,
@@ -45,7 +44,7 @@ const SEARCH_DELAY = 300;
 /**
  * 后台的「用户」页：搜索框、一行一位用户和分页。点名字进入这位用户的详情；管理者那一行没有封禁按钮。
  * 宽屏（≥ 1280px）是装在 Card 里的表格：用户（登录方式在副行）、24 小时用量、最后活跃、状态（封禁、
- * 自带密钥、单独限额合在一格）、操作；点「24 小时回合」「24 小时通话」的表头按它从多到少排（后端排好再分页），
+ * 单独限额合在一格）、操作；点「24 小时回合」「24 小时通话」的表头按它从多到少排（后端排好再分页），
  * 再点一次恢复按注册时间。更窄时（平板竖屏，或手机上外出处理刷量）换成 divide-y 的行：名字、24 小时用量、
  * 状态，封禁键在行尾，排序改用搜索框下的选择框（DESIGN.md「Layout · 后台 · 表格」）。
  */
@@ -321,15 +320,13 @@ export function AdminBadge() {
   return <Badge variant="secondary">{t.admin}</Badge>;
 }
 
-/** 状态一格：封禁与否，再加上有才显示的自带密钥和单独限额。窄屏的行里名字只是纯文字，管理者标签
+/** 状态一格：封禁与否，再加上有才显示的单独限额。窄屏的行里名字只是纯文字，管理者标签
  * 也放进这里（`withAdmin`）；宽屏上它跟在名字后面。 */
 function StatusBadges({ user, withAdmin = false }: { user: AdminUser; withAdmin?: boolean }) {
-  const keys = broughtKeys(user.own_keys);
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       {withAdmin && user.is_admin && <AdminBadge />}
       <BanStatus banned={user.banned} />
-      {keys.length > 0 && <Badge variant="outline">{t.ownKeysToken(keys.map((k) => t.services[k]).join("、"))}</Badge>}
       {user.limits && (
         <Badge variant="outline">
           {t.limitsToken(
@@ -356,11 +353,4 @@ export function UserLimits({ user }: { user: AdminUser }) {
   return (
     <span>{t.limits.summary(describeLimit(user.limits.turns_per_hour), describeLimit(user.limits.calls_per_hour))}</span>
   );
-}
-
-/** 自带了哪几项服务的密钥（只说有没有）。 */
-export function OwnKeys({ user }: { user: AdminUser }) {
-  const services = broughtKeys(user.own_keys);
-  if (services.length === 0) return <span className="text-muted-foreground">{t.noOwnKeys}</span>;
-  return <span>{services.map((s) => t.services[s]).join("、")}</span>;
 }

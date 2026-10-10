@@ -28,6 +28,8 @@ services:
       HOSTNAME: 127.0.0.1
       PORT: 3000
       BACKEND_URL: http://127.0.0.1:8000
+      # 写进 CSP：页面只许从这里另外加载立绘、缩略图和招呼
+      EIDOLON_STAND_ASSETS_URL: ${EIDOLON_STAND_ASSETS_URL:-}
     depends_on:
       - backend
     restart: unless-stopped

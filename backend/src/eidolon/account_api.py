@@ -18,22 +18,18 @@ callback then sends the browser back to the settings page, with `?linked=<provid
 
 import logging
 import secrets
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, Secret, StringConstraints, model_validator
 
 from eidolon.accounts import SignInRefused
 from eidolon.admin_api import is_admin
 from eidolon.assembly import Backend
-from eidolon.config import LLM_PROTOCOLS, LLMProtocol, SttProvider
+from eidolon.config import BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
-from eidolon.own_keys import (
-    SERVICES,
-    OwnKeyRejected,
-    OwnKeysUnavailable,
-    OwnLLMSettings,
-)
+from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -67,17 +63,61 @@ class Deletion(BaseModel):
         return self
 
 
+ApiKey = Secret[
+    Annotated[str, StringConstraints(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")]
+]
+"""A user's own key as a request brings it, never shown in a repr or traceback."""
+
+
 class OwnLLMInput(BaseModel):
+    """The user's own LLM, as their browser keeps it and brings it with each text turn."""
+
     base_url: str = Field(min_length=1, max_length=500)
-    api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+    api_key: ApiKey
     model: str = Field(min_length=1, max_length=200)
     protocol: LLMProtocol = "chat-completions"
 
+    def normalized(self) -> OwnLLMSettings:
+        """As turns run on it: its address and model without surrounding spaces."""
+        return OwnLLMSettings(
+            self.base_url.strip(), self.api_key.get_secret_value(), self.model.strip(),
+            self.protocol,
+        )
 
-class OwnSpeechKeyInput(BaseModel):
-    api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+
+class OwnTTSInput(BaseModel):
+    """The user's own key for speech synthesis (Fish Audio), as their browser keeps it."""
+
+    api_key: ApiKey
+
+
+class OwnSTTInput(BaseModel):
+    """The user's own key for speech recognition, as their browser keeps it: for the
+    service it is for, with the region a DashScope key works in, as its try found."""
+
+    api_key: ApiKey
     provider: SttProvider = "soniox"
-    """For speech recognition, the service the key is for."""
+    region: BailianRegion | None = None
+
+    def key(self) -> SttKey:
+        """As calls hear on it; a region only for DashScope."""
+        region = self.region if self.provider == "bailian" else None
+        return SttKey(self.provider, self.api_key.get_secret_value(), region)
+
+
+class OwnKeysInput(BaseModel):
+    """The user's own keys a call brings, by service; each may be left out."""
+
+    llm: OwnLLMInput | None = None
+    tts: OwnTTSInput | None = None
+    stt: OwnSTTInput | None = None
+
+    def brought(self) -> BroughtKeys:
+        return BroughtKeys(
+            self.llm.normalized() if self.llm else None,
+            self.tts.api_key.get_secret_value() if self.tts else None,
+            self.stt.key() if self.stt else None,
+        )
 
 
 class Consent(BaseModel):
@@ -203,9 +243,11 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.get("/api/account")
     def account(user_id: UserId) -> dict:
-        """The signed-in user, the identities they sign in with, and whether they are an
-        admin, who may enter the admin console."""
+        """The signed-in user, by the id their browser keeps their own keys apart by, the
+        identities they sign in with, and whether they are an admin, who may enter the
+        admin console."""
         return {
+            "id": user_id,
             "name": store.get_user(user_id).name,
             "sign_in_methods": [
                 {"provider": m.provider, "display_name": m.display_name, "email": m.email}
@@ -239,52 +281,35 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     own_keys = backend.own_keys
 
-    @app.exception_handler(OwnKeysUnavailable)
-    async def own_keys_unavailable(_: Request, e: OwnKeysUnavailable) -> JSONResponse:
-        return JSONResponse({"detail": str(e)}, status_code=404)
+    @app.exception_handler(OwnKeyRejected)
+    async def own_key_rejected(_: Request, e: OwnKeyRejected) -> JSONResponse:
+        """A user's own key failed its try: what the service said."""
+        return JSONResponse({"detail": f"试调失败：{e}"}, status_code=422)
 
-    @app.get("/api/account/keys")
-    def list_own_keys(user_id: UserId) -> dict:
-        """The keys the user brought, showing only their last 4 characters."""
-        return {
-            "available": own_keys.available,
-            "keys": own_keys.describe(user_id) if own_keys.available else {},
-            "exempt": own_keys.exemptions(user_id),
-            "protocols": list(LLM_PROTOCOLS),
-        }
+    @app.post("/api/account/keys/llm/check")
+    async def check_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
+        """Try the user's own LLM before their browser keeps it, keeping nothing here; 422
+        with what the service said if the try failed. Its address and model as the
+        browser is to keep them."""
+        own = body.normalized()
+        await own_keys.check_llm(own)
+        return {"base_url": own.base_url, "model": own.model}
 
-    @app.put("/api/account/keys/llm")
-    async def save_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
-        """Try the user's own LLM, then keep it; 422 with what the service said if the
-        try failed."""
-        try:
-            await own_keys.save_llm(
-                user_id,
-                OwnLLMSettings(body.base_url.strip(), body.api_key, body.model.strip(),
-                               body.protocol),
-            )
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败，没有保存：{e}") from None
-        return own_keys.describe(user_id)["llm"]
+    @app.post("/api/account/keys/tts/check")
+    async def check_own_tts(body: OwnTTSInput, user_id: UserId) -> dict:
+        """Try the user's own key for speech synthesis before their browser keeps it,
+        keeping nothing here; 422 with what the service said if the try failed."""
+        await own_keys.check_tts(body.api_key.get_secret_value())
+        return {}
 
-    @app.put("/api/account/keys/{service}")
-    async def save_own_speech_key(service: str, body: OwnSpeechKeyInput, user_id: UserId) -> dict:
-        """Try the user's own key for speech synthesis ("tts") or recognition ("stt", by
-        the service it is for), then keep it; 422 with what the service said if the try
-        failed."""
-        if service not in ("tts", "stt"):
-            raise HTTPException(404, "没有这项服务")
-        try:
-            await own_keys.save_speech(user_id, service, body.api_key, body.provider)  # pyright: ignore[reportArgumentType]
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败，没有保存：{e}") from None
-        return own_keys.describe(user_id)[service]  # pyright: ignore[reportArgumentType]
-
-    @app.delete("/api/account/keys/{service}", status_code=204)
-    def delete_own_key(service: str, user_id: UserId) -> None:
-        """Forget the user's own key for `service`; the deployer's is used again."""
-        if service not in SERVICES or not own_keys.delete(user_id, service):  # pyright: ignore[reportArgumentType]
-            raise HTTPException(404, "没有填过这项密钥")
+    @app.post("/api/account/keys/stt/check")
+    async def check_own_stt(body: OwnSTTInput, user_id: UserId) -> dict:
+        """Try the user's own key for speech recognition, by the service it is for, before
+        their browser keeps it, keeping nothing here; 422 with what the service said if
+        the try failed. A DashScope key is tried in each region: the one it works in, for
+        the browser to keep with it (None for Soniox)."""
+        key = await own_keys.check_stt(body.provider, body.api_key.get_secret_value())
+        return {"region": key.region}
 
     @app.post("/api/account/consent", status_code=204)
     def consent(body: Consent, user: SignedIn) -> None:

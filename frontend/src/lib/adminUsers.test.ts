@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   banAction,
-  broughtKeys,
   describeLimit,
   limitDraft,
   limitsInput,
@@ -21,7 +20,6 @@ const USER: AdminUser = {
   last_active_at: null,
   banned: false,
   is_admin: false,
-  own_keys: { llm: false, tts: false, stt: false },
   limits: null,
   usage_24h: { turns: 0, calls: 0 },
 };
@@ -31,13 +29,6 @@ describe("banAction", () => {
     expect(banAction(USER)).toBe("ban");
     expect(banAction({ ...USER, banned: true })).toBe("unban");
     expect(banAction({ ...USER, is_admin: true })).toBeNull();
-  });
-});
-
-describe("broughtKeys", () => {
-  it("lists the services the user brought their own keys for, in the settings page's order", () => {
-    expect(broughtKeys({ llm: false, tts: false, stt: false })).toEqual([]);
-    expect(broughtKeys({ stt: true, llm: true, tts: false })).toEqual(["llm", "stt"]);
   });
 });
 

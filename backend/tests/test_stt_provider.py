@@ -19,7 +19,7 @@ from eidolon.assembly import Backend
 from eidolon.bailian import BailianSTTService
 from eidolon.call import SpeechServices
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings, SttKey
-from eidolon.own_keys import OwnKeyRejected
+from eidolon.own_keys import BroughtKeys, OwnKeyRejected
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeDashScope
 
@@ -132,8 +132,7 @@ async def test_the_deployers_dashscope_key_is_found_in_its_region_as_the_server_
     assert await serve() == 0
 
     [backend] = started
-    user = backend.store.create_user("producer").id
-    assert backend.own_keys.for_call(user).stt == SttKey("bailian", "dashscope-key", "singapore")
+    assert backend.own_keys.for_call(BroughtKeys()).stt == SttKey("bailian", "dashscope-key", "singapore")
     [task] = dashscope.tasks
     assert task.region == "singapore" and task.finished
 

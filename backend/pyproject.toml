@@ -8,6 +8,7 @@ dependencies = [
     "cryptography>=50.0.1",
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
+    "loguru>=0.7.3",
     "numpy>=2.4.6",
     "pipecat-ai[fish,soniox,webrtc]>=1.11.0",
     "pyrage>=1.4.0",

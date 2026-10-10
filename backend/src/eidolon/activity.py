@@ -137,12 +137,17 @@ CREATE INDEX IF NOT EXISTS service_calls_by_record ON service_calls(record_id);
 @dataclass(frozen=True)
 class Origin:
     """Which service a call is to: the host it is at (`provider`), the model, and whether
-    on the user's own key."""
+    on the user's own key. A user's own LLM is named neither by host nor by model (`OWN`)."""
 
     service: ServiceName
     provider: str
     model: str
     own_key: bool = False
+
+
+OWN = "own"
+"""What a call to a user's own LLM is recorded as being to, as its provider and its model:
+the server keeps no note of which host or model a user brings (ADR-0017)."""
 
 
 def host(url: str | None) -> str:
@@ -151,7 +156,11 @@ def host(url: str | None) -> str:
 
 
 def llm_origin(service: ServiceName, settings: LLMSettings, own_key: bool = False) -> Origin:
-    return Origin(service, host(settings.base_url), settings.model, own_key)
+    """The LLM `settings` describe, as its service calls are recorded: a user's own (with
+    `own_key`) only as `OWN`, whichever host and model it is."""
+    if own_key:
+        return Origin(service, OWN, OWN, own_key=True)
+    return Origin(service, host(settings.base_url), settings.model)
 
 
 @dataclass(frozen=True)
@@ -313,6 +322,7 @@ class ActivityLog:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
             _let_latency_be_unknown(self._db)
+            _forget_own_llms(self._db)
         self._clock = clock
 
     def now(self) -> datetime:
@@ -488,6 +498,17 @@ def _let_latency_be_unknown(db: sqlite3.Connection) -> None:
     db.execute("INSERT INTO service_calls SELECT * FROM service_calls_before")
     db.execute("DROP TABLE service_calls_before")
     db.executescript(_SCHEMA)  # the indexes went with the old table
+
+
+def _forget_own_llms(db: sqlite3.Connection) -> None:
+    """Calls to users' own LLMs were recorded with their hosts and models; a database of
+    theirs is left saying only `OWN`."""
+    db.execute(
+        "UPDATE service_calls SET provider = ?, model = ?"
+        " WHERE own_key = 1 AND service IN ('chat_llm', 'memory_llm')"
+        " AND (provider != ? OR model != ?)",
+        (OWN, OWN, OWN, OWN),
+    )
 
 
 def error_kind(error: BaseException) -> ErrorKind:

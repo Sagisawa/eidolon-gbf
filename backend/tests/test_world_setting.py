@@ -10,6 +10,7 @@ import pytest
 
 from eidolon.config import Settings
 from eidolon.characters import load_characters
+from eidolon.own_keys import BroughtKeys
 from eidolon.world import WorldError, load_world, world_path
 from tests.conftest import CharacterConfig, ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeLLM, build_faked
@@ -244,7 +245,7 @@ async def test_whether_a_release_is_out_goes_by_the_day_of_each_turn(
     llm = FakeLLM(REPLY, REPLY)
     backend = build_faked(settings, llm, clock=lambda: now[0])
     try:
-        llms = backend.own_keys.for_turn(turns.conversation.user_id).llms
+        llms = backend.own_keys.for_turn(BroughtKeys()).llms
         async for _ in backend.engine.turn(turns.conversation, "新しいCD、いつ出るんだっけ", llms):
             pass
         now[0] = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)  # the same backend, two days on
@@ -351,7 +352,7 @@ async def test_whether_a_live_is_still_to_come_goes_by_the_day_of_each_turn(
     llm = FakeLLM(REPLY)
     backend = build_faked(settings, llm, clock=lambda: now[0])
     try:
-        llms = backend.own_keys.for_turn(turns.conversation.user_id).llms
+        llms = backend.own_keys.for_turn(BroughtKeys()).llms
         async for _ in backend.engine.turn(turns.conversation, "今日のライブ、楽しみ！", llms):
             pass
     finally:

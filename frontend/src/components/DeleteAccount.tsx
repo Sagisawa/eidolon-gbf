@@ -17,13 +17,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { deleteAccount } from "@/lib/api";
+import { deleteAccount, getAccount } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.settings.deleteAccount;
 
 /**
- * 删除用户的全部数据；要再确认一次（PRODUCT.md「尊重陌生人的数据」）。
+ * 删除用户的全部数据，连同这个浏览器里存的自带密钥；要再确认一次（PRODUCT.md「尊重陌生人的数据」）。
  * 打开确认框的入口用 outline，只有确认框里真正执行的那一下是挂断红（DESIGN.md「Buttons」）。
  */
 export function DeleteAccount() {
@@ -35,7 +35,7 @@ export function DeleteAccount() {
     setBusy(true);
     setFailure(null);
     try {
-      await deleteAccount();
+      await deleteAccount((await getAccount()).id);
       window.location.assign("/");
     } catch (e) {
       setFailure(toFailure(e));
