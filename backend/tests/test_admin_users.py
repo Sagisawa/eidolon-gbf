@@ -70,7 +70,7 @@ async def details(admin: httpx.AsyncClient, user_id: str) -> dict:
     return res.json()
 
 
-async def test_admins_see_each_users_sign_in_methods_activity_ban_and_own_keys(
+async def test_admins_see_each_users_sign_in_methods_activity_and_ban_not_their_own_keys(
     make_client: ClientFactory,
     github: FakeIdentityProvider,
     google: FakeIdentityProvider,
@@ -79,8 +79,6 @@ async def test_admins_see_each_users_sign_in_methods_activity_ban_and_own_keys(
     admin = await admin_client(make_client, github, clock=clock)
     octo = await github_user(make_client, github, "1001", "octo", "octo@example.com", clock=clock)
     await sign_in_with(octo, google, google_identity("g-1001", "Octo G", email="g@example.com"), link=True)
-    own = {"base_url": "https://llm.example.com/v1", "api_key": "sk-own-key-5678", "model": "m"}
-    assert (await octo.put("/api/account/keys/llm", json=own)).status_code == 200
     clock.advance(hours=2)
     await octo.get("/api/account")  # a session in use is renewed hourly
 
@@ -99,8 +97,7 @@ async def test_admins_see_each_users_sign_in_methods_activity_ban_and_own_keys(
         "created_at": listed["created_at"],
         "last_active_at": (START.replace(hour=14)).isoformat(),
         "banned": False,
-        "is_admin": False,
-        "own_keys": {"llm": True, "tts": False, "stt": False},
+        "is_admin": False,  # nor whether they brought their own keys: the server never knows
         "limits": None,  # test_user_limits.py sets them
         "usage_24h": {"turns": 0, "calls": 0},  # test_user_recent_usage.py takes some
     }

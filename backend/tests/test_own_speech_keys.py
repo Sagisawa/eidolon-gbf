@@ -71,7 +71,6 @@ async def test_speech_keys_are_tried_and_not_kept(
     assert stt.json() == {"region": None}
     assert speech.checked == [("tts", MY_FISH), ("soniox", MY_SONIOX)]
     assert MY_FISH not in tts.text and MY_SONIOX not in stt.text
-    assert (await client.get("/api/account/keys")).json()["keys"] == {}
     assert rows_mentioning(settings.database_path, "aaaa") == {}
     assert rows_mentioning(settings.database_path, "bbbb") == {}
 
@@ -144,18 +143,6 @@ async def test_the_deployers_keys_serve_what_the_call_did_not_bring(
     assert [stt.api_key for stt in speech.stts] == [MY_SONIOX]
     assert [tts.api_key for tts in speech.ttss] == [DEPLOYER_FISH_KEY]
     assert DEPLOYER_SONIOX_KEY not in {stt.api_key for stt in speech.stts}
-
-
-async def test_a_call_runs_on_the_keys_it_brings_not_those_kept_on_the_server(
-    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
-):
-    client = make_client(FakeLLM())
-    kept = await client.put("/api/account/keys/tts", json={"api_key": MY_FISH})
-    assert kept.status_code == 200, kept.text
-
-    await browser.call(client, conversation_id=await start_conversation(client))
-
-    assert [tts.api_key for tts in speech.ttss] == [DEPLOYER_FISH_KEY]
 
 
 async def test_the_users_own_keys_let_them_call_where_the_deployer_has_none(

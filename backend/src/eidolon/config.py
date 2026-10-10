@@ -182,7 +182,9 @@ class Settings:
     google: "OAuthSettings | None" = None
     """Signing in with Google; not offered unless configured."""
     secret_key: str | None = None
-    """What users' own API keys are encrypted with; without it, they cannot bring any."""
+    """What the keys the admin console keeps are encrypted with, and the ban list hashed
+    with; without it, no key is kept there and the ban list is a plain hash. Users' own
+    keys are kept by no one but their browsers (ADR-0017)."""
     gemini_billing_enabled: bool = False
     """The deployer says Gemini's billing is on, so its paid tier, which Google does not
     train on, embeds users' memories (ADR-0005, revised)."""

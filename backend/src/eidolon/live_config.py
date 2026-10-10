@@ -104,7 +104,7 @@ MAX_REASON_LENGTH = 300
 
 READ_ONLY: dict[str, str] = {
     "admins": "改错了会把自己锁在门外，被攻破的后台也能借它把别人加成管理者，只能在服务器上改。",
-    "secret_key": "后台保存的 key 和用户自带的 key 都用它加密，换了就都解不开，只能在服务器上改。",
+    "secret_key": "后台保存的 key 用它加密，封禁名单也靠它，换了就都解不开、认不出，只能在服务器上改。",
     "oauth": "登录靠它，改错了谁都进不了后台去修。",
     "domain": "改了以后登录回调、Cookie 和 HTTPS 证书都要跟着变，需要重新部署。",
     "webrtc": "通话的连接方式由服务器和防火墙一起决定，需要在服务器上改。",
@@ -998,7 +998,7 @@ def _llm(values: Values) -> LLMSettings:
 
 def _cipher(secret_key: str) -> Fernet:
     """The cipher for the deployer's keys kept as overrides, derived from the deployment's
-    secret key apart from the one for users' own keys."""
+    secret key apart from the one for the ban list."""
     derived = HKDF(
         algorithm=hashes.SHA256(), length=32, salt=None, info=b"eidolon config overrides"
     ).derive(secret_key.encode())

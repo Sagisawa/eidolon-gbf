@@ -4,7 +4,7 @@
 // use it.
 
 import { copy } from "@/i18n";
-import { apiHeaders, expectNoContent, followRedirect, json, type OwnService } from "@/lib/api";
+import { apiHeaders, expectNoContent, followRedirect, json } from "@/lib/api";
 import { formatCount } from "@/lib/dashboard";
 import type { Provider } from "@/lib/signIn";
 
@@ -16,8 +16,8 @@ export type AdminSignInMethod = {
   email: string | null;
 };
 
-/** A user as the list shows them. `last_active_at` is null for a user signed in nowhere;
- * `own_keys` says only whether they brought their own key for each service. */
+/** A user as the list shows them. `last_active_at` is null for a user signed in nowhere. Whether
+ * they brought their own keys the backend never knows: their browsers keep them (ADR-0017). */
 export type AdminUser = {
   id: string;
   name: string;
@@ -26,7 +26,6 @@ export type AdminUser = {
   last_active_at: string | null;
   banned: boolean;
   is_admin: boolean;
-  own_keys: Record<OwnService, boolean>;
   limits: AdminUserLimits | null;
   /** The turns and calls taken in the last 24 hours, rejected ones not counted. */
   usage_24h: { turns: number; calls: number };
@@ -78,18 +77,11 @@ export type AdminUserPage = { users: AdminUser[]; total: number };
 
 export const USERS_PAGE_SIZE = 50;
 
-const OWN_SERVICES: OwnService[] = ["llm", "tts", "stt"];
-
 /** What an admin can do about the user from the users page: ban them, lift their ban, or
  * nothing, for an admin, who cannot be banned in the admin console. */
 export function banAction(user: AdminUser): "ban" | "unban" | null {
   if (user.is_admin) return null;
   return user.banned ? "unban" : "ban";
-}
-
-/** The services the user brought their own keys for. */
-export function broughtKeys(ownKeys: Record<OwnService, boolean>): OwnService[] {
-  return OWN_SERVICES.filter((service) => ownKeys[service]);
 }
 
 /** What a user's own limit is, in words. */

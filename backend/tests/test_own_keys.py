@@ -3,7 +3,6 @@ user's own keys it brings: theirs where it brought them, the deployer's otherwis
 falling back from a key of theirs that does not work; and whether it counts towards the
 user's limit (before a call, from the services it will bring keys for: see test_admission)."""
 
-import sqlite3
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +20,6 @@ from eidolon.own_keys import (
     OwnLLMSettings,
     Service,
 )
-from eidolon.store import Store
 from tests.fakes import (
     DEPLOYER_FISH_KEY,
     DEPLOYER_SONIOX_KEY,
@@ -34,12 +32,10 @@ from tests.fakes import (
 
 
 class Deployment:
-    """A store with a user, and the deployer's keys."""
+    """The deployer's keys, and where service calls are recorded."""
 
     def __init__(self, path: Path) -> None:
-        self.store = Store(path)
         self.activity = ActivityLog(path, FakeClock())
-        self.user = self.store.create_user("producer").id
         self.chat = FakeLLM()
         self.memory = FakeBackgroundLLM()
         self.llm_service = FakeLLMService()
@@ -47,14 +43,13 @@ class Deployment:
 
     def own_keys(
         self,
-        secret_key: str | None = "test-secret-key",
         *,
         stt: SttKey | None = SttKey("soniox", DEPLOYER_SONIOX_KEY),
         tts: str | None = DEPLOYER_FISH_KEY,
     ) -> OwnKeys:
         return OwnKeys(
-            self.store, secret_key, self.llm_service,
-            DeployerKeys(self.chat, self.memory, stt, tts), self.activity, self.speech,
+            self.llm_service, DeployerKeys(self.chat, self.memory, stt, tts), self.activity,
+            self.speech,
         )
 
 
@@ -73,17 +68,6 @@ def brought(*services: Service, stt: SttKey = MY_SONIOX) -> BroughtKeys:
     )
 
 
-async def keep(own_keys: OwnKeys, user_id: str, *services: Service, stt: SttKey = MY_SONIOX) -> None:
-    """The user saves their own keys for `services`."""
-    for service in services:
-        if service == "llm":
-            await own_keys.save_llm(user_id, MY_LLM)
-        elif service == "tts":
-            await own_keys.save_speech(user_id, "tts", MY_FISH)
-        else:
-            await own_keys.save_speech(user_id, "stt", stt.api_key, stt_provider=stt.provider)
-
-
 async def ask(llm: ChatLLM) -> None:
     async for _ in llm.stream([ChatMessage("user", "在吗")]):
         pass
@@ -92,10 +76,8 @@ async def ask(llm: ChatLLM) -> None:
 @pytest.fixture
 def deployment(tmp_path: Path) -> Iterator[Deployment]:
     deployment = Deployment(tmp_path / "eidolon.db")
-    deployment.speech.regions[MY_DASHSCOPE.api_key] = "singapore"
     yield deployment
     deployment.activity.close()
-    deployment.store.close()
 
 
 async def test_a_turn_that_brings_an_llm_runs_on_it_for_both_and_does_not_count(
@@ -200,34 +182,3 @@ async def test_a_call_can_bring_a_key_for_what_the_deployer_has_none_for(
         without_stt.for_call(BroughtKeys())
     with pytest.raises(CallsUnavailable):
         without_tts.for_call(brought("stt"))
-
-
-async def test_a_speech_recognition_key_kept_before_there_was_a_choice_is_sonioxs(
-    deployment: Deployment, tmp_path: Path
-):
-    await keep(deployment.own_keys(), deployment.user, "stt")
-    deployment.store.close()
-    with sqlite3.connect(tmp_path / "eidolon.db") as db:  # as kept before: no provider, no region
-        db.executescript("""
-            CREATE TABLE before AS SELECT user_id, service, secret, last4, base_url, model,
-                protocol, updated_at FROM own_keys;
-            DROP TABLE own_keys;
-            ALTER TABLE before RENAME TO own_keys;
-        """)
-    db.close()
-    deployment.store = Store(tmp_path / "eidolon.db")
-
-    own_keys = deployment.own_keys(stt=SttKey("bailian", "deployer-dashscope-key", "beijing"))
-
-    assert own_keys.describe(deployment.user)["stt"] == {"last4": "bbbb", "provider": "soniox"}
-
-
-async def test_without_a_secret_key_the_keys_users_kept_exempt_nothing(
-    deployment: Deployment,
-):
-    await keep(deployment.own_keys(), deployment.user, "llm", "tts", "stt")
-    without = deployment.own_keys(secret_key=None)
-
-    assert deployment.own_keys().exemptions(deployment.user) == {"turns": True, "calls": True}
-    assert without.exemptions(deployment.user) == {"turns": False, "calls": False}
-

@@ -12,15 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import {
-  checkOwnLLM,
-  checkOwnSpeechKey,
-  getAccount,
-  getOwnKeys,
-  type LLMProtocol,
-  type OwnKeys,
-  type SttProvider,
-} from "@/lib/api";
+import { LLM_PROTOCOLS, checkOwnLLM, checkOwnSpeechKey, getAccount, type LLMProtocol, type SttProvider } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
@@ -41,20 +33,18 @@ const t = copy.settings.ownKeys;
 const EXEMPTION_NOTES = { all: t.exemptAll, turns: t.exemptTurns, none: t.exemptNone } as const;
 
 /**
- * 用户自带、自己付费的密钥；部署者没有开放时整节不显示。三项都只存在这个浏览器里，按登录的用户分开存；
- * 填写时服务器只试调、不保存。浏览器存不了时如实说，表单停用，不退而存在内存里。
+ * 用户自带、自己付费的密钥。三项都只存在这个浏览器里，按登录的用户分开存；填写时服务器只试调、
+ * 不保存。浏览器存不了时如实说，表单停用，不退而存在内存里。
  */
 export function OwnKeysSettings() {
-  const [server, setServer] = useState<OwnKeys | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [kept, setKept] = useState<LocalOwnKeys>({});
   const [canKeep, setCanKeep] = useState(true);
   const [failure, setFailure] = useState<Failure | null>(null);
 
   useEffect(() => {
-    Promise.all([getOwnKeys(), getAccount()]).then(
-      ([fromServer, account]) => {
-        setServer(fromServer);
+    getAccount().then(
+      (account) => {
         setUserId(account.id);
         setKept(localOwnKeys(account.id));
         setCanKeep(canKeepOwnKeys());
@@ -63,14 +53,14 @@ export function OwnKeysSettings() {
     );
   }, []);
 
-  if (failure && !server) {
+  if (failure && !userId) {
     return (
       <SettingsSection title={t.title}>
         <FailureNotice failure={failure} />
       </SettingsSection>
     );
   }
-  if (!server?.available || !userId) return null;
+  if (!userId) return null;
 
   /** 改了浏览器里存的 key，再按存下的显示：存不下的就是没存。 */
   const change = (keep: () => void) => {
@@ -88,7 +78,6 @@ export function OwnKeysSettings() {
       <div className="flex flex-col gap-4">
         <OwnLLMForm
           current={kept.llm}
-          protocols={server.protocols}
           disabled={!canKeep}
           onChecked={(llm) => change(() => keepOwnKey(userId, "llm", llm))}
           onDelete={() => change(() => forgetOwnKey(userId, "llm"))}
@@ -296,13 +285,11 @@ function OwnSpeechKeyForm({
 /** 自带的 LLM：先让服务器试调一次（它不保存），通过了才存进这个浏览器。 */
 function OwnLLMForm({
   current,
-  protocols,
   disabled,
   onChecked,
   onDelete,
 }: {
   current: LocalLLM | undefined;
-  protocols: LLMProtocol[];
   disabled: boolean;
   /** 试调通过的 LLM，地址和模型名按服务器规范化过的。 */
   onChecked: (llm: LocalLLM) => void;
@@ -333,7 +320,7 @@ function OwnLLMForm({
     }
   }
 
-  const protocolOptions = protocols.map((p) => ({ value: p, label: t.protocols[p] }));
+  const protocolOptions = LLM_PROTOCOLS.map((p) => ({ value: p, label: t.protocols[p] }));
 
   return (
     <ServiceKey

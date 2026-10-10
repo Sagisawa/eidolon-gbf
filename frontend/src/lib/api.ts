@@ -255,30 +255,13 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
 
 export type OwnService = "llm" | "tts" | "stt";
 
-export type LLMProtocol = "chat-completions" | "responses" | "anthropic";
+/** The kinds of interface a user's own LLM may speak, as the backend knows them. */
+export const LLM_PROTOCOLS = ["chat-completions", "responses", "anthropic"] as const;
 
-/** A key the user brought, as they may see it: only its last 4 characters. */
-export type OwnKey = { last4: string };
-
-export type OwnLLM = OwnKey & { base_url: string; model: string; protocol: LLMProtocol };
+export type LLMProtocol = (typeof LLM_PROTOCOLS)[number];
 
 /** The speech recognition services a user may bring a key for. */
 export type SttProvider = "soniox" | "bailian";
-
-export type OwnSttKey = OwnKey & { provider: SttProvider };
-
-export type OwnKeys = {
-  /** Whether the deployment lets users bring their own keys at all. */
-  available: boolean;
-  keys: { llm?: OwnLLM; tts?: OwnKey; stt?: OwnSttKey };
-  /** What of the user's use does not count towards the hourly limits. */
-  exempt: { turns: boolean; calls: boolean };
-  protocols: LLMProtocol[];
-};
-
-export async function getOwnKeys(): Promise<OwnKeys> {
-  return json(await api("/api/account/keys"));
-}
 
 /**
  * Try the user's own LLM, which the server does not keep; fails with what the service said if

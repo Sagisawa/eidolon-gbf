@@ -5,10 +5,8 @@ speech synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Mo
 A user who brings their own key for a service has their turns and calls use it there,
 at their own expense. A call on their key that fails fails the turn, saying which of
 their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. Their keys
-are kept in their browser, which brings them with each text turn and call (ADR-0017).
-Until the server stops keeping them altogether, they can still be kept here, encrypted
-with a key derived from `EIDOLON_SECRET_KEY`, and are used for nothing; only the last 4
-characters of a kept key are ever shown again.
+are kept in their browser, which brings them with each text turn and call (ADR-0017);
+none is kept here, and a turn or call holds the ones it brings only until it ends.
 
 Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
 `for_call`), from the user's own keys it brings (`BroughtKeys`): theirs where it brought
@@ -28,7 +26,6 @@ can resolve to a private one later.
 """
 
 import asyncio
-import base64
 import ipaddress
 import logging
 import socket
@@ -39,14 +36,10 @@ from urllib.parse import urlsplit
 
 import httpcore
 import httpx
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from eidolon.activity import ActivityLog, llm_origin, metered_llm
 from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
-    BailianRegion,
     LLMProtocol,
     LLMSettings,
     SttKey,
@@ -55,7 +48,6 @@ from eidolon.config import (
 from eidolon.emotion import EmotionJudging
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
 from eidolon.llm.providers import check_chat_llm, open_llm
-from eidolon.store import OwnKeyRecord, Store
 
 log = logging.getLogger(__name__)
 
@@ -97,13 +89,6 @@ class CallsUnavailable(Exception):
 
     def __init__(self) -> None:
         super().__init__("语音通话尚未配置，请联系管理员")
-
-
-class OwnKeysUnavailable(Exception):
-    """The deployment has no `EIDOLON_SECRET_KEY`, so users cannot bring their own keys."""
-
-    def __init__(self) -> None:
-        super().__init__("这个部署没有开放自带密钥")
 
 
 class LLMService(Protocol):
@@ -264,12 +249,11 @@ class CallKeys:
 
 
 class OwnKeys:
-    """Every user's own keys, and whose keys each of their turns and calls runs on."""
+    """Whose keys each turn and call runs on, and trying a user's own key before their
+    browser keeps it."""
 
     def __init__(
         self,
-        store: Store,
-        secret_key: str | None,
         llm_service: LLMService,
         deployer: Deployer,
         activity: ActivityLog,
@@ -277,16 +261,10 @@ class OwnKeys:
     ) -> None:
         """Each request to a user's own LLM is recorded in `activity` as a service call
         on their own key; the deployer's models are recorded as `deployer` leases them."""
-        self._store = store
-        self._cipher = _cipher(secret_key) if secret_key else None
         self._llm_service = llm_service
         self._deployer = deployer
         self._activity = activity
         self._speech_check = speech_check
-
-    @property
-    def available(self) -> bool:
-        return self._cipher is not None
 
     def for_turn(self, brought: BroughtKeys) -> TurnKeys:
         """Whose keys a text turn bringing `brought` runs on: the user's own LLM, if it
@@ -330,21 +308,6 @@ class OwnKeys:
             lease.release()
         return _exempt(services)["calls"]
 
-    def describe(self, user_id: str) -> dict[Service, dict]:
-        """What the user may see of their keys, by service: never more of a key than its
-        last 4 characters."""
-        described: dict[Service, dict] = {}
-        for service, record in self._store.own_keys(user_id).items():
-            if service in SERVICES:
-                shown = {"last4": record.last4}
-                if service == "llm":
-                    shown |= {"base_url": record.base_url, "model": record.model,
-                              "protocol": record.protocol}
-                elif service == "stt":
-                    shown |= {"provider": _stt_provider(record)}
-                described[service] = shown  # pyright: ignore[reportArgumentType]
-        return described
-
     async def check_llm(self, own: OwnLLMSettings) -> None:
         """Try the user's LLM, keeping nothing. Raises OwnKeyRejected saying why it does
         not work."""
@@ -365,62 +328,6 @@ class OwnKeys:
         OwnKeyRejected saying why it does not work."""
         return await self._require_speech_check().check_stt(provider, api_key)
 
-    async def save_llm(self, user_id: str, own: OwnLLMSettings) -> None:
-        """Try the user's LLM, and keep it here if it works, for their calls. Raises
-        OwnKeyRejected saying why it did not, OwnKeysUnavailable without
-        `EIDOLON_SECRET_KEY`."""
-        cipher = self._require_cipher()
-        await self.check_llm(own)
-        self._store.save_own_key(
-            user_id,
-            OwnKeyRecord(
-                "llm", cipher.encrypt(own.api_key.encode()), own.api_key[-4:],
-                own.base_url, own.model, own.protocol,
-            ),
-        )
-
-    async def save_speech(
-        self,
-        user_id: str,
-        service: Service,
-        api_key: str,
-        stt_provider: SttProvider = "soniox",
-    ) -> None:
-        """Try the user's key for speech synthesis ("tts") or recognition ("stt", by
-        `stt_provider`), and keep it if it works, a DashScope key with the region it works
-        in. Raises OwnKeyRejected saying why it did not, OwnKeysUnavailable without
-        `EIDOLON_SECRET_KEY`."""
-        assert service in ("tts", "stt")
-        cipher = self._require_cipher()
-        provider: SttProvider | None = None
-        region: BailianRegion | None = None
-        if service == "stt":
-            key = await self.check_stt(stt_provider, api_key)
-            provider, region = key.provider, key.region
-        else:
-            await self.check_tts(api_key)
-        self._store.save_own_key(
-            user_id,
-            OwnKeyRecord(
-                service, cipher.encrypt(api_key.encode()), api_key[-4:],
-                provider=provider, region=region,
-            ),
-        )
-
-    def exemptions(self, user_id: str) -> dict[str, bool]:
-        """What of the user's use does not count towards their limits (see `_exempt`)."""
-        return _exempt(self._records(user_id))
-
-    def delete(self, user_id: str, service: Service) -> bool:
-        """Forget the user's key for `service`; False if they had none."""
-        self._require_cipher()
-        return self._store.delete_own_key(user_id, service)
-
-    def _records(self, user_id: str) -> dict[str, OwnKeyRecord]:
-        """The user's own keys kept here, by service; none without `EIDOLON_SECRET_KEY`,
-        which they could not be decrypted without."""
-        return self._store.own_keys(user_id) if self._cipher else {}
-
     def _llms(self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None) -> TurnLLMs:
         if own_llm is None:
             assert deployer is not None
@@ -436,12 +343,6 @@ class OwnKeys:
         if self._speech_check is None:
             raise OwnKeyRejected("这个部署没有语音服务")
         return self._speech_check
-
-    def _require_cipher(self) -> Fernet:
-        if self._cipher is None:
-            raise OwnKeysUnavailable()
-        return self._cipher
-
 
 class _OwnLLM:
     """The user's LLM, whose every failure is theirs to fix."""
@@ -462,12 +363,6 @@ class _OwnLLM:
         pass  # the service's client is shared; see ProviderLLMService
 
 
-def _stt_provider(record: OwnKeyRecord) -> SttProvider:
-    """The service a kept speech recognition key is for: Soniox, if it was kept before
-    there was a choice."""
-    return record.provider or "soniox"  # pyright: ignore[reportReturnType]
-
-
 def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:
     """Raise CallsUnavailable unless a call bringing the user's own keys for `own` has a
     key for each of speech recognition and synthesis, theirs or the deployer's."""
@@ -481,14 +376,6 @@ def _exempt(own: Iterable[str]) -> dict[str, bool]:
     speech synthesis and recognition alike."""
     own = set(own)
     return {"turns": "llm" in own, "calls": {"llm", "tts", "stt"} <= own}
-
-
-def _cipher(secret_key: str) -> Fernet:
-    """The cipher for users' keys, derived from the deployment's secret key."""
-    derived = HKDF(
-        algorithm=hashes.SHA256(), length=32, salt=None, info=b"eidolon own api keys"
-    ).derive(secret_key.encode())
-    return Fernet(base64.urlsafe_b64encode(derived))
 
 
 async def _check_public(base_url: str) -> None:

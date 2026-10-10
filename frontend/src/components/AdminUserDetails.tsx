@@ -9,7 +9,7 @@ import { AdminPage } from "@/components/app/admin/AdminPage";
 import { AdminTrail } from "@/components/app/admin/AdminTrail";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Timestamp } from "@/components/app/admin/Timestamp";
-import { AdminBadge, BanStatus, OwnKeys, UserLimits } from "@/components/AdminUserList";
+import { AdminBadge, BanStatus, UserLimits } from "@/components/AdminUserList";
 import { BanUserDialog } from "@/components/BanUserDialog";
 import { UserLimitsDialog } from "@/components/UserLimitsDialog";
 import {
@@ -204,9 +204,6 @@ export function AdminUserDetails({ id }: { id: string }) {
               ) : (
                 <span className="text-muted-foreground">{t.never}</span>
               )}
-            </MetadataListItem>
-            <MetadataListItem label={t.details.ownKeys}>
-              <OwnKeys user={user} />
             </MetadataListItem>
             <MetadataListItem label={t.limits.title}>
               <span className="flex flex-col gap-0.5">

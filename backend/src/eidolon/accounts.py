@@ -145,7 +145,7 @@ def identity_hash(key: bytes | None, provider: str, subject: str) -> str:
 
 def _ban_list_key(secret_key: str) -> bytes:
     """The key the ban list is hashed with, derived from the deployment's secret key apart
-    from those for users' own keys and the configuration's overrides."""
+    from the one for the configuration's overrides."""
     return HKDF(
         algorithm=hashes.SHA256(), length=32, salt=None, info=b"eidolon ban list"
     ).derive(secret_key.encode())

@@ -27,15 +27,9 @@ from pydantic import BaseModel, Field, Secret, StringConstraints, model_validato
 from eidolon.accounts import SignInRefused
 from eidolon.admin_api import is_admin
 from eidolon.assembly import Backend
-from eidolon.config import LLM_PROTOCOLS, BailianRegion, LLMProtocol, SttKey, SttProvider
+from eidolon.config import BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
-from eidolon.own_keys import (
-    SERVICES,
-    BroughtKeys,
-    OwnKeyRejected,
-    OwnKeysUnavailable,
-    OwnLLMSettings,
-)
+from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -124,12 +118,6 @@ class OwnKeysInput(BaseModel):
             self.tts.api_key.get_secret_value() if self.tts else None,
             self.stt.key() if self.stt else None,
         )
-
-
-class OwnSpeechKeyInput(BaseModel):
-    api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
-    provider: SttProvider = "soniox"
-    """For speech recognition, the service the key is for."""
 
 
 class Consent(BaseModel):
@@ -293,19 +281,10 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     own_keys = backend.own_keys
 
-    @app.exception_handler(OwnKeysUnavailable)
-    async def own_keys_unavailable(_: Request, e: OwnKeysUnavailable) -> JSONResponse:
-        return JSONResponse({"detail": str(e)}, status_code=404)
-
-    @app.get("/api/account/keys")
-    def list_own_keys(user_id: UserId) -> dict:
-        """The keys the user brought, showing only their last 4 characters."""
-        return {
-            "available": own_keys.available,
-            "keys": own_keys.describe(user_id) if own_keys.available else {},
-            "exempt": own_keys.exemptions(user_id),
-            "protocols": list(LLM_PROTOCOLS),
-        }
+    @app.exception_handler(OwnKeyRejected)
+    async def own_key_rejected(_: Request, e: OwnKeyRejected) -> JSONResponse:
+        """A user's own key failed its try: what the service said."""
+        return JSONResponse({"detail": f"试调失败：{e}"}, status_code=422)
 
     @app.post("/api/account/keys/llm/check")
     async def check_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
@@ -313,20 +292,14 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         with what the service said if the try failed. Its address and model as the
         browser is to keep them."""
         own = body.normalized()
-        try:
-            await own_keys.check_llm(own)
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败：{e}") from None
+        await own_keys.check_llm(own)
         return {"base_url": own.base_url, "model": own.model}
 
     @app.post("/api/account/keys/tts/check")
     async def check_own_tts(body: OwnTTSInput, user_id: UserId) -> dict:
         """Try the user's own key for speech synthesis before their browser keeps it,
         keeping nothing here; 422 with what the service said if the try failed."""
-        try:
-            await own_keys.check_tts(body.api_key.get_secret_value())
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败：{e}") from None
+        await own_keys.check_tts(body.api_key.get_secret_value())
         return {}
 
     @app.post("/api/account/keys/stt/check")
@@ -335,40 +308,8 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         their browser keeps it, keeping nothing here; 422 with what the service said if
         the try failed. A DashScope key is tried in each region: the one it works in, for
         the browser to keep with it (None for Soniox)."""
-        try:
-            key = await own_keys.check_stt(body.provider, body.api_key.get_secret_value())
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败：{e}") from None
+        key = await own_keys.check_stt(body.provider, body.api_key.get_secret_value())
         return {"region": key.region}
-
-    @app.put("/api/account/keys/llm")
-    async def save_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
-        """Try the user's own LLM, then keep it here, for their calls; 422 with what the
-        service said if the try failed."""
-        try:
-            await own_keys.save_llm(user_id, body.normalized())
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败，没有保存：{e}") from None
-        return own_keys.describe(user_id)["llm"]
-
-    @app.put("/api/account/keys/{service}")
-    async def save_own_speech_key(service: str, body: OwnSpeechKeyInput, user_id: UserId) -> dict:
-        """Try the user's own key for speech synthesis ("tts") or recognition ("stt", by
-        the service it is for), then keep it; 422 with what the service said if the try
-        failed."""
-        if service not in ("tts", "stt"):
-            raise HTTPException(404, "没有这项服务")
-        try:
-            await own_keys.save_speech(user_id, service, body.api_key, body.provider)  # pyright: ignore[reportArgumentType]
-        except OwnKeyRejected as e:
-            raise HTTPException(422, f"试调失败，没有保存：{e}") from None
-        return own_keys.describe(user_id)[service]  # pyright: ignore[reportArgumentType]
-
-    @app.delete("/api/account/keys/{service}", status_code=204)
-    def delete_own_key(service: str, user_id: UserId) -> None:
-        """Forget the user's own key for `service`; the deployer's is used again."""
-        if service not in SERVICES or not own_keys.delete(user_id, service):  # pyright: ignore[reportArgumentType]
-            raise HTTPException(404, "没有填过这项密钥")
 
     @app.post("/api/account/consent", status_code=204)
     def consent(body: Consent, user: SignedIn) -> None:

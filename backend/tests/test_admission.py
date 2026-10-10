@@ -30,7 +30,6 @@ from eidolon.store import Store
 from eidolon.usage import OverLimit, UsageKind, UsageLimiter
 from tests.fakes import FakeBackgroundLLM, FakeClock, FakeLLM, FakeLLMService, FakeSpeech
 
-SECRET = "test-secret-key"
 MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
 ALL_OWN = BroughtKeys(MY_LLM, "my-own-fish", SttKey("soniox", "my-own-soniox"))
 """The user's own LLM and speech keys, which their calls are exempt on."""
@@ -68,15 +67,12 @@ class Deployment:
         self.deployer = CountingDeployer()
         self.llm_service = FakeLLMService()
         self.speech = FakeSpeech()
-        self.secret = SECRET
 
     def admissions(self) -> Admissions:
         return Admissions(self.usage, self.activity, self.own_keys())
 
     def own_keys(self) -> OwnKeys:
-        return OwnKeys(
-            self.store, self.secret, self.llm_service, self.deployer, self.activity, self.speech
-        )
+        return OwnKeys(self.llm_service, self.deployer, self.activity, self.speech)
 
     def counted(self, kind: UsageKind = "turn") -> bool:
         """Whether this hour's turn, or call, is used up, that is, the last one counted."""
