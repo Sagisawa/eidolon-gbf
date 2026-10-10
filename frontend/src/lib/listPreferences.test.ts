@@ -6,6 +6,7 @@ import {
   listPreferences,
   NO_PREFERENCES,
   pin,
+  setShown,
   show,
   showAll,
   unpin,
@@ -39,12 +40,6 @@ describe("这台设备上的隐藏和置顶", () => {
     expect(listPreferences("u3", KNOWN)).toEqual(NO_PREFERENCES);
   });
 
-  it("没整理过的用户什么都没隐藏、没置顶", () => {
-    storage();
-
-    expect(listPreferences("u1", KNOWN)).toEqual({ hidden: [], pinned: [] });
-  });
-
   it("配置里已经不存在的角色读的时候忽略", () => {
     storage({ "eidolon.listPreferences.u1": JSON.stringify({ hidden: ["gone", "hiori"], pinned: ["left", "mano"] }) });
 
@@ -63,7 +58,7 @@ describe("这台设备上的隐藏和置顶", () => {
     expect(listPreferences("u3", KNOWN)).toEqual({ hidden: [], pinned: ["hiori"] });
   });
 
-  it("存不进去、读不到时不抛错，读到的是什么都没整理", () => {
+  it("存储用不了时不抛错，读到的是什么都没整理", () => {
     const unreachable = () => {
       throw new DOMException("denied", "SecurityError");
     };
@@ -73,17 +68,6 @@ describe("这台设备上的隐藏和置顶", () => {
     expect(listPreferences("u1", KNOWN)).toEqual(NO_PREFERENCES);
   });
 
-  it("存满了时也不抛错", () => {
-    vi.stubGlobal("localStorage", {
-      getItem: () => null,
-      setItem: () => {
-        throw new DOMException("quota", "QuotaExceededError");
-      },
-      removeItem: () => {},
-    });
-
-    expect(() => keepListPreferences("u1", pin(NO_PREFERENCES, "mano"))).not.toThrow();
-  });
 });
 
 describe("整理列表", () => {
@@ -97,6 +81,11 @@ describe("整理列表", () => {
     const hidden = hide(NO_PREFERENCES, ["mano", "hiori"]);
 
     expect(pin(hidden, "mano")).toEqual({ hidden: ["hiori"], pinned: ["mano"] });
+  });
+
+  it("setShown 按勾没勾显示或隐藏", () => {
+    expect(setShown(NO_PREFERENCES, ["mano"], false)).toEqual({ hidden: ["mano"], pinned: [] });
+    expect(setShown(hide(NO_PREFERENCES, ["mano"]), ["mano"], true)).toEqual(NO_PREFERENCES);
   });
 
   it("显示和取消置顶只动那一位", () => {

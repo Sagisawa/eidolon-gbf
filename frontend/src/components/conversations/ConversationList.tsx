@@ -18,8 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
-import { arrange, dayOf, previewOf, type Preview } from "@/lib/conversationList";
-import { hide, pin, show, unpin } from "@/lib/listPreferences";
+import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
+import { pin, setShown, unpin } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
 import { MoreIcon, PinIcon, SearchIcon } from "@/theme/icons";
 
@@ -113,25 +113,26 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         ) : (
           <>
             <ul aria-label={t.title}>
-              {shown.rows.map(({ character: c, isPinned, isHidden }) => (
-                <li key={c.id}>
-                  <Row
-                    character={c}
-                    preview={previewOf(latest[c.id])}
-                    call={call?.characterId === c.id ? call : null}
-                    isSelected={c.id === selectedId}
-                    isPinned={isPinned}
-                    isHidden={isHidden}
-                    now={now}
-                    onSelect={() => {
-                      if (c.id === selectedId) return;
-                      leave(() => router.push(`/conversation/${c.id}`));
-                    }}
-                    onTogglePin={() => tidy((p) => (isPinned ? unpin(p, c.id) : pin(p, c.id)))}
-                    onToggleHidden={() => tidy((p) => (isHidden ? show(p, [c.id]) : hide(p, [c.id])))}
-                  />
-                </li>
-              ))}
+              {shown.rows.map((row) => {
+                const c = row.character;
+                return (
+                  <li key={c.id}>
+                    <Row
+                      row={row}
+                      preview={previewOf(latest[c.id])}
+                      call={call?.characterId === c.id ? call : null}
+                      isSelected={c.id === selectedId}
+                      now={now}
+                      onSelect={() => {
+                        if (c.id === selectedId) return;
+                        leave(() => router.push(`/conversation/${c.id}`));
+                      }}
+                      onTogglePin={() => tidy((p) => (row.isPinned ? unpin(p, c.id) : pin(p, c.id)))}
+                      onToggleHidden={() => tidy((p) => setShown(p, [c.id], row.isHidden))}
+                    />
+                  </li>
+                );
+              })}
             </ul>
             {showsHidden && (
               <button
@@ -156,23 +157,19 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
  * 右键、触屏长按、菜单键或 Shift+F10 打开行菜单（中性色）：置顶或取消置顶，在列表中隐藏或显示。
  */
 function Row({
-  character,
+  row: { character, isPinned, isHidden },
   preview,
   call,
   isSelected,
-  isPinned,
-  isHidden,
   now,
   onSelect,
   onTogglePin,
   onToggleHidden,
 }: {
-  character: Character;
+  row: ListRow<Character>;
   preview: Preview | null;
   call: CallInList;
   isSelected: boolean;
-  isPinned: boolean;
-  isHidden: boolean;
   now: Date;
   onSelect: () => void;
   onTogglePin: () => void;

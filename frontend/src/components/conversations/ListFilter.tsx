@@ -7,7 +7,7 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/u
 import { Popover, PopoverContent, PopoverHeader, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { copy } from "@/i18n";
 import { unitsOf } from "@/lib/conversationList";
-import { hide, show, showAll } from "@/lib/listPreferences";
+import { setShown, showAll } from "@/lib/listPreferences";
 import { FilterIcon } from "@/theme/icons";
 
 import { useDirectory, useWide } from "./ConversationDirectory";
@@ -47,7 +47,7 @@ export function ListFilter({ isOpen, onOpenChange, hiddenCount }: Props) {
 
   if (wide) {
     return (
-      <Popover open={isOpen} onOpenChange={(open) => onOpenChange(open)}>
+      <Popover open={isOpen} onOpenChange={onOpenChange}>
         <PopoverTrigger render={<Button {...button} />}>{icon}</PopoverTrigger>
         <PopoverContent align="end" className="max-h-[min(32rem,70dvh)]">
           <PopoverHeader className="flex-row items-center justify-between">
@@ -67,7 +67,7 @@ export function ListFilter({ isOpen, onOpenChange, hiddenCount }: Props) {
       <Button {...button} onClick={() => onOpenChange(true)}>
         {icon}
       </Button>
-      <Drawer open={isOpen} onOpenChange={(open) => onOpenChange(open)} showSwipeHandle>
+      <Drawer open={isOpen} onOpenChange={onOpenChange} showSwipeHandle>
         <DrawerContent>
           <DrawerHeader className="flex-row items-center justify-between">
             <DrawerTitle>{t.filterTitle}</DrawerTitle>
@@ -87,7 +87,7 @@ function Groups() {
   const { characters, preferences, tidy } = useDirectory();
   if (!characters) return null;
   const hidden = preferences.hidden;
-return (
+  return (
     <div className="flex flex-col gap-2">
       {unitsOf(characters).map(({ unit, members }) => {
         const ids = members.map((c) => c.id);
@@ -98,7 +98,7 @@ return (
               <Checkbox
                 checked={shownCount === ids.length}
                 indeterminate={shownCount > 0 && shownCount < ids.length}
-                onCheckedChange={(checked) => tidy((p) => (checked ? show(p, ids) : hide(p, ids)))}
+                onCheckedChange={(checked) => tidy((p) => setShown(p, ids, checked))}
               />
               {unit ?? t.noUnit}
             </label>
@@ -108,7 +108,7 @@ return (
                   <label className="flex items-center gap-3 py-1.5 pl-7">
                     <Checkbox
                       checked={!hidden.includes(c.id)}
-                      onCheckedChange={(checked) => tidy((p) => (checked ? show(p, [c.id]) : hide(p, [c.id])))}
+                      onCheckedChange={(checked) => tidy((p) => setShown(p, [c.id], checked))}
                     />
                     <span aria-hidden className="flex">
                       <MarkedAvatar name={c.name} src={c.avatar_url} size="sm" />

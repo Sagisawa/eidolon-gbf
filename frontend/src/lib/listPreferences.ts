@@ -46,6 +46,11 @@ export function show(prefs: ListPreferences, ids: readonly string[]): ListPrefer
   return { ...prefs, hidden: without(prefs.hidden, ids) };
 }
 
+/** 勾选清单和行菜单用：`shown` 为真时显示这几位，否则隐藏。 */
+export function setShown(prefs: ListPreferences, ids: readonly string[], shown: boolean): ListPreferences {
+  return shown ? show(prefs, ids) : hide(prefs, ids);
+}
+
 /** 置顶她，她同时恢复显示。 */
 export function pin(prefs: ListPreferences, id: string): ListPreferences {
   return { hidden: without(prefs.hidden, [id]), pinned: union(prefs.pinned, [id]) };

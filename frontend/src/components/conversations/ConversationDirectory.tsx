@@ -113,11 +113,13 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
 
   const tidy = useCallback(
     (change: (preferences: ListPreferences) => ListPreferences) => {
-      const next = change(preferences);
-      setPreferences(next);
-      if (userId) keepListPreferences(userId, next);
+      setPreferences((current) => {
+        const next = change(current);
+        if (userId) keepListPreferences(userId, next); // 写同样的值，重复执行也无妨
+        return next;
+      });
     },
-    [preferences, userId],
+    [userId],
   );
 
   const leave = useCallback(

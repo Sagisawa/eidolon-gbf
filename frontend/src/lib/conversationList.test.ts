@@ -218,10 +218,11 @@ describe("arrange 加上隐藏、置顶和搜索", () => {
 describe("unitsOf", () => {
   const member = (id: string, unit: string | null, unit_order: number | null) => ({ id, unit, unit_order });
 
-  it("按组合的官方顺序分组，组内保持接口顺序，没有组合的放在最后", () => {
+  it("按组合的官方顺序分组，组内保持接口顺序，没有组合或对不上官方顺序的放在最后", () => {
     const groups = unitsOf([
       member("kogane", "L'Antica", 1),
       member("guest", null, null),
+      member("stray", "未知", null),
       member("mano", "illumination STARS", 0),
       member("mamimi", "L'Antica", 1),
       member("hiori", "illumination STARS", 0),
@@ -230,14 +231,7 @@ describe("unitsOf", () => {
     expect(groups.map((g) => [g.unit, g.members.map((c) => c.id)])).toEqual([
       ["illumination STARS", ["mano", "hiori"]],
       ["L'Antica", ["kogane", "mamimi"]],
-      [null, ["guest"]],
-    ]);
-  });
-
-  it("组合名有但对不上官方顺序的，也放进最后那一组", () => {
-    expect(unitsOf([member("x", "未知", null), member("mano", "illumination STARS", 0)])).toEqual([
-      { unit: "illumination STARS", members: [member("mano", "illumination STARS", 0)] },
-      { unit: null, members: [member("x", "未知", null)] },
+      [null, ["guest", "stray"]],
     ]);
   });
 });
