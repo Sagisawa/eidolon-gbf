@@ -140,11 +140,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _serve() -> int:
     import uvicorn
+    from loguru import logger
 
     from eidolon.app import create_app
     from eidolon.assembly import build
 
     from eidolon.judge import check_judge
+
+    # Pipecat logs through loguru, which shows everything down to DEBUG unless told
+    # otherwise: what users said, and what calls send to services on their own keys.
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
 
     # Which settings the admin console overrides, for a deployer wondering why `.env`'s
     # did not take (ADR-0013); nothing configures the root logger to show it.

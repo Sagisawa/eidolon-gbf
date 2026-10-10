@@ -17,7 +17,8 @@ user's keys from the deployer's. Before a call is placed, whether it would count
 answered from the services it is to bring keys for, touching no key (`call_exempt`).
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
-`check_tts`, `check_stt`). An LLM is tried as the deployer's chat model is at startup: it
+`check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
+shown to the user with the key masked (`_masked`), and logged no other way. An LLM is tried as the deployer's chat model is at startup: it
 must stream and take tools. In a public deployment it must
 also be on the public internet, so no one can point the backend at the machines next to
 it, and read their answers back in the errors they are shown. That is checked on every
@@ -29,7 +30,8 @@ import asyncio
 import ipaddress
 import logging
 import socket
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, get_args
 from urllib.parse import urlsplit
@@ -312,28 +314,28 @@ class OwnKeys:
         """Try the user's LLM, keeping nothing. Raises OwnKeyRejected saying why it does
         not work."""
         settings = LLMSettings(own.base_url, own.api_key, own.model, own.protocol)
-        try:
+        with _rejecting(own.api_key):
             await self._llm_service.check(settings)
-        except LLMError as e:
-            raise OwnKeyRejected(str(e)[:MAX_CAUSE_LENGTH]) from None
 
     async def check_tts(self, api_key: str) -> None:
         """Try the user's key for speech synthesis, keeping nothing. Raises OwnKeyRejected
         saying why it does not work."""
-        await self._require_speech_check().check_tts(api_key)
+        with _rejecting(api_key):
+            await self._require_speech_check().check_tts(api_key)
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
         """Try the user's key for speech recognition by `provider`, keeping nothing: the key
         as calls are to bring it, a DashScope key with the region it works in. Raises
         OwnKeyRejected saying why it does not work."""
-        return await self._require_speech_check().check_stt(provider, api_key)
+        with _rejecting(api_key):
+            return await self._require_speech_check().check_stt(provider, api_key)
 
     def _llms(self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None) -> TurnLLMs:
         if own_llm is None:
             assert deployer is not None
             return TurnLLMs(deployer.chat_llm, deployer.memory_llm, deployer.hold_memory)
         settings = LLMSettings(own_llm.base_url, own_llm.api_key, own_llm.model, own_llm.protocol)
-        own = _OwnLLM(self._llm_service.open(settings))
+        own = _OwnLLM(self._llm_service.open(settings), settings.api_key)
         return TurnLLMs(
             metered_llm(own, self._activity, llm_origin("chat_llm", settings, own_key=True)),
             metered_llm(own, self._activity, llm_origin("memory_llm", settings, own_key=True)),
@@ -347,8 +349,9 @@ class OwnKeys:
 class _OwnLLM:
     """The user's LLM, whose every failure is theirs to fix."""
 
-    def __init__(self, llm: ChatLLM) -> None:
+    def __init__(self, llm: ChatLLM, api_key: str) -> None:
         self._llm = llm
+        self._api_key = api_key
 
     async def stream(
         self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
@@ -357,10 +360,27 @@ class _OwnLLM:
             async for item in self._llm.stream(messages, tools):
                 yield item
         except Exception as e:
-            raise OwnKeyFailed("llm", str(e) or type(e).__name__) from e
+            # Not from `e`, whose message may repeat the key, so no traceback logged shows
+            # it; what kind of failure it was is still found in its context.
+            raise OwnKeyFailed("llm", _masked(str(e) or type(e).__name__, self._api_key)) from None
 
     async def aclose(self) -> None:
         pass  # the service's client is shared; see ProviderLLMService
+
+
+def _masked(message: str, api_key: str) -> str:
+    """What a service said about the user's `api_key`, as they are shown it: the key masked
+    wherever it says it, then cut short, so that no part of the key is left."""
+    return message.replace(api_key, "***")[:MAX_CAUSE_LENGTH]
+
+
+@contextmanager
+def _rejecting(api_key: str) -> Iterator[None]:
+    """Raise OwnKeyRejected, saying why with `api_key` masked, if trying it fails."""
+    try:
+        yield
+    except (LLMError, OwnKeyRejected) as e:
+        raise OwnKeyRejected(_masked(str(e), api_key)) from None
 
 
 def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:

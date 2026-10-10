@@ -665,8 +665,8 @@ class SpeechServices:
                 res = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
         except httpx.HTTPError as e:
             raise OwnKeyRejected(f"连不上 {httpx.URL(url).host}：{e!r}") from None
-        if res.is_error:
-            raise OwnKeyRejected(f"{res.status_code} {res.text[:200]}")
+        if res.is_error:  # cut short by whoever shows it, once they have masked the key
+            raise OwnKeyRejected(f"{res.status_code} {res.text}")
 
 
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
