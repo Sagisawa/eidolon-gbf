@@ -77,13 +77,4 @@ describe("own keys kept in this browser", () => {
     expect(localOwnKeys("u2")).toEqual({});
     expect(localOwnKeys("u3")).toEqual({ llm: LLM, stt: { api_key: "soniox-key-bbbb", provider: "soniox" } });
   });
-
-  it("bring a text turn only the user's LLM, as the turn's own_llm", () => {
-    storage();
-    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
-    expect(turnOwnLLM("u1")).toBeUndefined();
-
-    keepOwnKey("u1", "llm", LLM);
-    expect(turnOwnLLM("u1")).toEqual(LLM);
-  });
 });

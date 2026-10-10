@@ -358,7 +358,7 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        brought = BroughtKeys(llm=body.own_llm.settings() if body.own_llm else None)
+        brought = BroughtKeys(llm=body.own_llm.normalized() if body.own_llm else None)
         admission = admissions.turn(user_id, conversation.character_id, brought)
         outcome = TurnOutcome(admission.recording, admission.settle)
 

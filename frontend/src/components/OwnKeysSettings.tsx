@@ -72,16 +72,14 @@ export function OwnKeysSettings() {
   if (!keys?.available || !userId) return null;
 
   const reload = async () => setKeys(await getOwnKeys());
-  const keepLLM = (kept: LocalLLM) => {
-    keepOwnKey(userId, "llm", kept);
+  /** 改了浏览器里存的 LLM，再按存下的显示。 */
+  const changeLLM = (change: () => void) => {
+    change();
     setLLM(localOwnKeys(userId).llm);
   };
-  const forgetLLM = () => {
-    forgetOwnKey(userId, "llm");
-    setLLM(localOwnKeys(userId).llm);
-  };
-  // 文字对话计不计入看这个浏览器里有没有 LLM；通话还用服务器上存的那几项。
-  const exempt = { turns: !!llm, calls: keys.exempt.calls };
+  // 文字对话计不计入看这个浏览器里有没有 LLM；通话还用服务器上存的那几项，
+  // 但没有 LLM 时不说「都不计入」，文字对话是计入的。
+  const exempt = { turns: !!llm, calls: !!llm && keys.exempt.calls };
 
   return (
     <SettingsSection title={t.title} description={t.hint}>
@@ -91,7 +89,12 @@ export function OwnKeysSettings() {
       </p>
       {failure && <FailureNotice failure={failure} />}
       <div className="flex flex-col gap-4">
-        <OwnLLMForm current={llm} protocols={keys.protocols} onChecked={keepLLM} onDelete={forgetLLM} />
+        <OwnLLMForm
+          current={llm}
+          protocols={keys.protocols}
+          onChecked={(kept) => changeLLM(() => keepOwnKey(userId, "llm", kept))}
+          onDelete={() => changeLLM(() => forgetOwnKey(userId, "llm"))}
+        />
         <Separator />
         <OwnSpeechKeyForm
           service="tts"

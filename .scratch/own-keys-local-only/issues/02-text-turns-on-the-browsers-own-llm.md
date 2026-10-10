@@ -26,7 +26,8 @@
 - `/api/account` 多返回 `id`，浏览器按它分开存 key。
 - 过渡期保留：`PUT /api/account/keys/llm` 和 `GET /api/account/keys` 里服务器存的 LLM 还在，只给通话用（03 换掉，06 删接口）；前端不再调 `PUT`。`GET /api/account/keys` 的 `exempt.turns` 前端不再看。
 - 前端：新模块 `src/lib/localOwnKeys.ts`（键 `eidolon.ownKeys.<userId>`，明文 JSON，三项的形状都定好了，读的时候逐项校验，存错的那项当没有；try/catch 包住）。`sendTurn(conversationId, text, userId)` 每次现读 `turnOwnLLM(userId)` 放进 `own_llm`。用户 ID 由对话外壳（`ConversationDirectory`，本来就先问 `getAccount`）放进 context，对话页传给 `ConversationView`。
-- 设置页 LLM 一节：填写先 `checkOwnLLM`，通过后 `keepOwnKey` 存本地；显示「模型 · 服务地址」和前端算的末 4 位；删除只删本地。豁免提示里文字对话按本地有没有 LLM 算，通话仍取服务器的 `exempt.calls`（03 改）。
+- 设置页 LLM 一节：填写先 `checkOwnLLM`，通过后 `keepOwnKey` 存本地；显示「模型 · 服务地址」和前端算的末 4 位；删除只删本地。豁免提示里文字对话按本地有没有 LLM 算；通话仍取服务器的 `exempt.calls`，但本地没有 LLM 时不显示「都不计入」（03 改成全按本地算）。
+- 代码评审后删掉两条重复测试（`test_own_speech_keys.py` 里回合带 LLM 不计入，准入层 `test_admission.py` 已测；`localOwnKeys.test.ts` 里只带 LLM，`api.test.ts` 已测），`OwnLLMInput.settings()` 改名 `normalized()`。
 - 测试：`test_own_llm.py` 改写（只试不存且库里没有记录、试调失败 422、带了用用户的没带用部署者的、写记忆也用用户的、失败不回退、库里存的 LLM 不再用于回合、格式不对 422 且不试调）；限额为零没带被拒沿用 `test_user_limits.py`，改成在回合里带 key；`test_admission.py` 的回合用例传 `BroughtKeys`，删掉回合「解不开」那条；`test_sign_in.py` 断言同一身份同一 `id`、两个身份不同。前端 `localOwnKeys.test.ts`，`api.test.ts` 测 `sendTurn` 只给存了 LLM 的用户带 `own_llm`。
 
 ### 人工验证

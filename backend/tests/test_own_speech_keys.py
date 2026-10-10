@@ -3,8 +3,8 @@
 Fish Audio (speech synthesis) and Soniox or Alibaba Cloud Model Studio (speech recognition,
 whichever the user chose) keys are tried before they are kept, then used for the user's
 calls; one that fails ends the call saying which, without falling back to the deployer's.
-Text turns on the user's own LLM do not count towards the hourly limit; calls count unless
-the LLM, synthesis and recognition are all the user's own. How long a call may last and
+Calls count towards the hourly limit unless the LLM, synthesis and recognition are all the
+user's own (text turns on their own LLM: see test_admission). How long a call may last and
 how many turns it may take is the same for everyone."""
 
 from dataclasses import replace
@@ -22,7 +22,7 @@ from tests.fakes import (
     FakeLLMService,
     FakeSpeech,
 )
-from tests.test_text_turn import send_turn, start_conversation
+from tests.test_text_turn import start_conversation
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 MY_FISH = "fish-my-own-key-aaaa"
@@ -175,18 +175,6 @@ async def test_a_failing_own_speech_key_ends_the_call_saying_which(
     assert (ended["reason"], ended["counts"]) == ("own_key", False)  # before any turn
     await browser.hung_up()
     assert [stt.api_key for stt in speech.stts] == [MY_SONIOX]  # no second try on the deployer's
-
-
-async def test_text_turns_on_the_users_own_llm_do_not_count(
-    make_client: ClientFactory, settings: Settings, own_llm: FakeLLMService
-):
-    own_llm.llm = FakeLLM(REPLY, REPLY, REPLY)
-    client = make_client(FakeLLM(), settings=limited(settings, turns_per_hour=1), clock=FakeClock())
-    conversation_id = await start_conversation(client)
-
-    for n in range(3):
-        brought = await send_turn(client, conversation_id, "在吗", own_llm=MY_LLM)
-        assert brought[-1]["type"] == "done", n
 
 
 async def test_calls_count_unless_all_three_services_are_the_users_own(

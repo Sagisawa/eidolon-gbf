@@ -19,9 +19,10 @@ export type LocalSttKey = { api_key: string; provider: SttProvider; region?: Bai
 /** 一位用户在这个浏览器里存的自带密钥，每项都可以没有。 */
 export type LocalOwnKeys = { llm?: LocalLLM; tts?: LocalTtsKey; stt?: LocalSttKey };
 
-const PROTOCOLS: readonly unknown[] = ["chat-completions", "responses", "anthropic"] satisfies LLMProtocol[];
-const STT_PROVIDERS: readonly unknown[] = ["soniox", "bailian"] satisfies SttProvider[];
-const REGIONS: readonly unknown[] = ["beijing", "singapore"] satisfies BailianRegion[];
+// 读的时候认得的取值；写成 Record，类型里加了一种而这里漏了，编译就不过。
+const PROTOCOLS: Record<LLMProtocol, true> = { "chat-completions": true, responses: true, anthropic: true };
+const STT_PROVIDERS: Record<SttProvider, true> = { soniox: true, bailian: true };
+const REGIONS: Record<BailianRegion, true> = { beijing: true, singapore: true };
 
 function storageKey(userId: string): string {
   return `eidolon.ownKeys.${userId}`;
@@ -43,19 +44,19 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
     isString(llm.api_key) &&
     isString(llm.base_url) &&
     isString(llm.model) &&
-    PROTOCOLS.includes(llm.protocol)
+    isOneOf(llm.protocol, PROTOCOLS)
   ) {
-    keys.llm = { api_key: llm.api_key, base_url: llm.base_url, model: llm.model, protocol: llm.protocol as LLMProtocol };
+    keys.llm = { api_key: llm.api_key, base_url: llm.base_url, model: llm.model, protocol: llm.protocol };
   }
   if (isRecord(tts) && isString(tts.api_key)) keys.tts = { api_key: tts.api_key };
   if (
     isRecord(stt) &&
     isString(stt.api_key) &&
-    STT_PROVIDERS.includes(stt.provider) &&
-    (stt.region === undefined || REGIONS.includes(stt.region))
+    isOneOf(stt.provider, STT_PROVIDERS) &&
+    (stt.region === undefined || isOneOf(stt.region, REGIONS))
   ) {
-    keys.stt = { api_key: stt.api_key, provider: stt.provider as SttProvider };
-    if (stt.region !== undefined) keys.stt.region = stt.region as BailianRegion;
+    keys.stt = { api_key: stt.api_key, provider: stt.provider };
+    if (stt.region !== undefined) keys.stt.region = stt.region;
   }
   return keys;
 }
@@ -101,6 +102,10 @@ function write(userId: string, keys: LocalOwnKeys): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOneOf<T extends string>(value: unknown, known: Record<T, true>): value is T {
+  return typeof value === "string" && Object.hasOwn(known, value);
 }
 
 function isString(value: unknown): value is string {

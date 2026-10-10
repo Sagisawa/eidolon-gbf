@@ -82,7 +82,7 @@ class OwnLLMInput(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     protocol: LLMProtocol = "chat-completions"
 
-    def settings(self) -> OwnLLMSettings:
+    def normalized(self) -> OwnLLMSettings:
         """As turns run on it: its address and model without surrounding spaces."""
         return OwnLLMSettings(
             self.base_url.strip(), self.api_key.get_secret_value(), self.model.strip(),
@@ -276,7 +276,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         """Try the user's own LLM before their browser keeps it, keeping nothing here; 422
         with what the service said if the try failed. Its address and model as the
         browser is to keep them."""
-        own = body.settings()
+        own = body.normalized()
         try:
             await own_keys.check_llm(own)
         except OwnKeyRejected as e:
@@ -288,7 +288,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         """Try the user's own LLM, then keep it here, for their calls; 422 with what the
         service said if the try failed."""
         try:
-            await own_keys.save_llm(user_id, body.settings())
+            await own_keys.save_llm(user_id, body.normalized())
         except OwnKeyRejected as e:
             raise HTTPException(422, f"试调失败，没有保存：{e}") from None
         return own_keys.describe(user_id)["llm"]
