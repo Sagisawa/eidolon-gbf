@@ -1062,14 +1062,7 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
   letter-spacing: 0.12em;
   color: var(--lp-dim);
 }
-.lp-answer-wrap {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-/* 接听按钮：手机上长按时不弹菜单、不选字，也不拿去滚动页面。 */
+/* 接听按钮。 */
 .lp-answer {
   display: flex;
   flex-direction: column;
@@ -1082,10 +1075,6 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
   letter-spacing: 0.3em;
   color: var(--lp-ink);
   cursor: pointer;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
 }
 .lp-answer-icon {
@@ -1110,44 +1099,6 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
 .lp-answer:focus-visible .lp-answer-icon {
   outline: 2px solid #fff;
   outline-offset: 6px;
-}
-/* 接听时收拢的一圈色光：全部偶像的光晕色排成一圈（--lp-ring），按住多久收拢多少（--lp-hold，Call 写），
- * 收拢完就接通。没按够就松开时退回去。 */
-.lp-answer-ring {
-  --lp-hold: 0;
-  position: absolute;
-  left: 50%;
-  top: 38px;
-  width: calc(90px + (1 - var(--lp-hold)) * 150px);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  transform: translate(-50%, -50%) rotate(calc(var(--lp-hold) * 240deg));
-  background: var(--lp-ring);
-  mask-image: radial-gradient(closest-side, transparent calc(100% - 3px), #000 calc(100% - 2px), #000 99%, transparent);
-  filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.55));
-  opacity: calc(0.16 + var(--lp-hold) * 0.84);
-  pointer-events: none;
-  transition:
-    width 0.35s ease,
-    opacity 0.35s ease;
-}
-[data-phase="answering"] .lp-answer-ring {
-  transition: none;
-}
-/* 定格档：按着时色光照样收拢（那是访客自己按出来的进度），但不转。 */
-html[data-lp-tier="reduced"] .lp-answer-ring {
-  transform: translate(-50%, -50%);
-}
-.lp-answer-hint {
-  display: none;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  color: var(--lp-dim);
-}
-@media (hover: none) {
-  .lp-answer-hint {
-    display: block;
-  }
 }
 /* 接通以后她说的一句：和招呼的字幕一样被扫出来；定格档直接出现。 */
 .lp-hello {

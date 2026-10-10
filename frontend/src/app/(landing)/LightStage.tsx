@@ -429,7 +429,7 @@ export function LightStage({
         nameGaps,
         speaker: speaker ?? undefined,
         speakerStand,
-        call: interactionStore.get().call.phase,
+        call: interactionStore.get().call,
       });
       stage.style.setProperty("--lp-act1-text", String(scene.text.act1));
       stage.style.setProperty("--lp-plates", String(scene.text.plates));

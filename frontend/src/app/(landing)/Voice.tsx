@@ -23,14 +23,11 @@ export type TalkCopy = { title: string; body: string; lines: readonly { ja: stri
 export function Voice({
   section,
   speaker,
-  ringColors,
   talk,
   call,
 }: {
   section: Section;
   speaker: Speaker;
-  /** 接听时收拢的那一圈色光：全部偶像的光晕色，按色相排。 */
-  ringColors: string[];
   talk: TalkCopy;
   call: CallCopy;
 }) {
@@ -66,7 +63,7 @@ export function Voice({
             ))}
           </div>
         </section>
-        <Call speaker={speaker} ringGradient={`conic-gradient(${[...ringColors, ringColors[0]].join(", ")})`} copy={call} />
+        <Call speaker={speaker} copy={call} />
       </div>
     </div>
   );

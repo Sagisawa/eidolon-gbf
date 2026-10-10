@@ -22,9 +22,9 @@
 //   6. 「不支持 WebGL」档（Chromium 关掉 WebGL 启动）：静态档，load 之后不再加载任何脚本（没有画布、
 //      没有 Lenis），SVG 画的光在；第 0、1 幕各截一张图。
 //   7. 第 2 到 7 幕：完整档里电脑、竖屏手机各截几张（光谱归队、停在某个组合、聚焦、她说日语、来电、记忆、
-//      诚实事项、开始），停在某个组合时底部的组合名就是这个组合；第 4 幕电脑上点「接听」、手机上长按以后
-//      接通，手机上点一下不接通；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，
-//      幕名轨跟着滚动走，定格档点「接听」直接接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
+//      诚实事项、开始），停在某个组合时底部的组合名就是这个组合；第 4 幕电脑上点、手机上点一下「接听」
+//      就接通；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走，
+//      定格档点「接听」也接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
 //      和页面同一个出处。
 //   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
 //   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
@@ -450,25 +450,12 @@ function watchConsole(page) {
         await toScreens(page, at);
         await page.screenshot({ path: path.join(shots, `${name}-${label}.png`) });
       }
-      // 接听：电脑上点一下，色光自己收拢；手机上长按（点一下不接通）。
-      const status = () => page.locator(".lp-call-status").innerText();
-      if (name === "full") {
-        await page.locator(".lp-answer").click();
-      } else {
-        await page.locator(".lp-answer").tap();
-        await page.waitForTimeout(2500);
-        const tapped = await status();
-        report("phone：点一下「接听」不接通，要长按", !tapped.startsWith("通话中"), `点一下以后「${tapped}」`);
-        const box = await page.locator(".lp-answer").boundingBox();
-        const cdp = await context.newCDPSession(page);
-        const point = { x: box.x + box.width / 2, y: box.y + 30 };
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
-        await page.waitForTimeout(2500);
-        await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-      }
+      // 接听：电脑上点、手机上点一下就接通。
+      if (name === "full") await page.locator(".lp-answer").click();
+      else await page.locator(".lp-answer").tap();
       await page.waitForTimeout(2500);
-      const connected = await status();
-      report(`${name}：${name === "full" ? "点" : "长按"}「接听」以后接通`, connected.startsWith("通话中"), `「${connected}」`);
+      const connected = await page.locator(".lp-call-status").innerText();
+      report(`${name}：点一下「接听」就接通`, connected.startsWith("通话中"), `「${connected}」`);
       await page.screenshot({ path: path.join(shots, `${name}-act4-connected.png`) });
     }
     for (const [label, at] of [
@@ -514,7 +501,7 @@ function watchConsole(page) {
       await page.locator(".lp-answer").click();
       await page.waitForTimeout(400);
       const status = await page.locator(".lp-call-status").innerText();
-      report("reduced：点「接听」直接接通，不放收拢的动画", status.startsWith("通话中"), `「${status}」`);
+      report("reduced：点「接听」就接通", status.startsWith("通话中"), `「${status}」`);
     }
     await context.close();
   }

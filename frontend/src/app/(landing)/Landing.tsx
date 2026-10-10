@@ -90,7 +90,6 @@ export function Landing({
           <Voice
             section={sectionOf(3)}
             speaker={speaker}
-            ringColors={[...lights].sort((a, b) => a.hueRank - b.hueRank).map((l) => l.color)}
             talk={t.act3}
             call={t.act4}
           />

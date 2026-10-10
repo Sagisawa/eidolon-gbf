@@ -10,7 +10,7 @@
 // 一道，她说日语、打来电话；第 5 幕光又散开，一件事从一位传到另一位；第 7 幕收拢成一块手机屏幕。
 // 各幕占几屏见 timeline.ts。
 
-import type { Call } from "./interaction";
+import type { CallPhase } from "./interaction";
 import { averageOklab, mixOklab } from "./oklab";
 import { layoutOf, qualityOf, type Tier } from "./tier";
 import {
@@ -66,8 +66,8 @@ export type SceneInput = {
   nameGaps?: Readonly<Record<string, readonly [top: number, bottom: number]>>;
   /** 第 3、4 幕里说话、打来电话的那一位；不给或者她不在名单里时，是光谱里的第一位。 */
   speaker?: string;
-  /** 第 4 幕的来电接到哪一步了（交互 reducer 的 `call.phase`）；不给时在响。 */
-  call?: Call["phase"];
+  /** 第 4 幕的来电接通了没有（交互 reducer 的 `call`）；不给时在响。 */
+  call?: CallPhase;
   /** 第 4 幕里她的立绘挂得出来（有默认衣装、不是静态档）：那时她那道光让给立绘。 */
   speakerStand?: boolean;
 };
@@ -809,7 +809,7 @@ function act4Picture(
   m: Moment,
   p: number,
   her: number,
-  phase: Call["phase"],
+  phase: CallPhase,
   still: boolean,
   stand: boolean,
 ): Picture & { call: CallState } {

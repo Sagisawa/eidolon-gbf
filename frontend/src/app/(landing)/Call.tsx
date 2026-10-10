@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { interactionStore, useInteraction } from "./interactionStore";
-import { ANSWER_MS, connectTone, type Call as CallState } from "./model/interaction";
+import { connectTone, type CallPhase } from "./model/interaction";
 import { stageStore, useLayout, useStage } from "./stageStore";
 import { StandSlot } from "./StandSlot";
 import type { Speaker } from "./Voice";
@@ -14,70 +14,38 @@ export type CallCopy = {
   ringing: string;
   connected: string;
   answer: string;
-  holdHint: string;
   hello: { ja: string; zh: string };
 };
 
-/** 手指松开以后这么久之内来的 click 是这次触摸带出来的，不算一次点击。 */
-const TOUCH_CLICK_MS = 800;
-
 /**
- * 第 4 幕「来电」：全屏是她（极深底色、立绘、竖排的名字），画面跟着铃声的节奏振动、发光，滚动经过时
- * 只有画面在响。访客接听才出声：电脑上点「接听」（或者用键盘、读屏器按下），一圈色光自己收拢；手机上
- * 长按，按住多久收拢多少，没按够就松开会退回去。收拢完就接通，播一声接通音（不放铃声），
- * 她说一句话（只有文字）。声音遵守声音开关，接通、挂断都由交互 reducer 决定；离开这一幕就挂断。
+ * 第 4 幕「来电」：全屏是她（极深底色、立绘、竖排的名字），画面跟着铃声的节奏发光、名字跟着振动，滚动经过时
+ * 只有画面在响。访客点一下「接听」（电脑、手机一样，键盘、读屏器按下也是）就接通，播一声接通音（不放铃声），
+ * 她说一句话（只有文字），开始计时。声音遵守声音开关，接通、挂断都由交互 reducer 决定；离开这一幕就挂断。
  *
  * 运动版式里光脉冲和振动由 LightStage 按落地页模型写进 --lp-pulse、--lp-shake-x/y，来电画面的不透明度是
- * --lp-act4；定格档里画面静止，接听不带收拢的动画，照样出声；静态档（不支持 WebGL）没有立绘。
+ * --lp-act4；定格档里画面静止；静态档（不支持 WebGL）没有立绘。
  */
-export function Call({
-  speaker,
-  ringGradient,
-  copy,
-}: {
-  speaker: Speaker;
-  /** 接听时收拢的那一圈色光：CSS 的 conic-gradient。 */
-  ringGradient: string;
-  copy: CallCopy;
-}) {
+export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   const { call } = useInteraction();
   const { act } = useStage();
   const layout = useLayout();
   /** 静止版式：这一幕快滚到了，才挂立绘。 */
   const [near, setNear] = useState(false);
   const section = useRef<HTMLElement>(null);
-  const ringEl = useRef<HTMLSpanElement>(null);
   const statusEl = useRef<HTMLParagraphElement>(null);
-  const hold = useRef<number | null>(null);
-  const touchedAt = useRef(-Infinity);
-  const connectedAt = useConnectedAt(call.phase);
+  const connectedAt = useConnectedAt(call);
 
-  const tone = useConnectTone();
+  useConnectTone();
 
-  const setHold = (k: number) => ringEl.current?.style.setProperty("--lp-hold", String(k));
-  const stopHold = () => {
-    if (hold.current !== null) cancelAnimationFrame(hold.current);
-    hold.current = null;
-  };
-  // 卸下时挂断：交互状态在模块里（interactionStore），不会跟着组件重来，不能停在接听中。
-  useEffect(
-    () => () => {
-      stopHold();
-      interactionStore.dispatch({ type: "hang-up" });
-    },
-    [],
-  );
+  // 卸下时挂断：交互状态在模块里（interactionStore），不会跟着组件重来。
+  useEffect(() => () => void interactionStore.dispatch({ type: "hang-up" }), []);
 
-  // 离开这一幕就挂断：收拢到一半的色光退回去，回到响铃的样子。
+  // 离开这一幕就挂断，回到响铃的样子。
   const lastAct = useRef(act);
   useEffect(() => {
     const before = lastAct.current;
     lastAct.current = act;
-    if (before === 4 && act !== 4) {
-      stopHold();
-      setHold(0);
-      interactionStore.dispatch({ type: "hang-up" });
-    }
+    if (before === 4 && act !== 4) interactionStore.dispatch({ type: "hang-up" });
   }, [act]);
 
   // 静止版式：这一幕进到视口附近才挂立绘。
@@ -88,43 +56,18 @@ export function Call({
     return () => io.disconnect();
   }, [layout]);
 
-  /** 开始接听。`auto`：点了一下（或者用键盘、读屏器按下），色光自己收拢；不然是手指按着，松开就退回去。 */
-  const begin = (auto: boolean) => {
-    const { call } = interactionStore.dispatch({ type: "answer" });
-    if (call.phase !== "answering") return;
-    if (call.audible) tone.prime();
-    // 定格档：点了就接通，不放收拢的动画。
-    if (auto && layout?.tier === "reduced") return answered();
-    const start = performance.now();
-    const tick = (now: number) => {
-      const k = Math.min(1, (now - start) / ANSWER_MS);
-      setHold(k);
-      if (k < 1) hold.current = requestAnimationFrame(tick);
-      else {
-        hold.current = null;
-        answered();
-      }
-    };
-    hold.current = requestAnimationFrame(tick);
-  };
-  const answered = () => {
+  const answer = () => {
     // 接听按钮接通以后就不在了：焦点在它身上的话，交给接通的状态，不掉回页面开头。
     const hadFocus = section.current?.contains(document.activeElement);
-    interactionStore.dispatch({ type: "answered" });
+    interactionStore.dispatch({ type: "answer" });
     if (hadFocus) requestAnimationFrame(() => statusEl.current?.focus());
-  };
-  const cancel = () => {
-    if (hold.current === null) return;
-    stopHold();
-    setHold(0);
-    interactionStore.dispatch({ type: "answer-cancel" });
   };
 
   const wantStand = !!speaker.outfit && !!layout && layout.tier !== "static" && (layout.motion ? act === 3 || act === 4 : near);
-  const connected = call.phase === "connected";
+  const connected = call === "connected";
 
   return (
-    <section ref={section} className="lp-act4" data-lp-act="4" data-phase={call.phase} aria-labelledby="lp-act4-title">
+    <section ref={section} className="lp-act4" data-lp-act="4" data-phase={call} aria-labelledby="lp-act4-title">
       <div className="lp-call-glow" aria-hidden />
       <div className="lp-call-her">
         {wantStand && (
@@ -155,38 +98,18 @@ export function Call({
             <p className="lp-hello-zh">{copy.hello.zh}</p>
           </div>
         ) : (
-          <div className="lp-answer-wrap">
-            <span ref={ringEl} className="lp-answer-ring" style={{ "--lp-ring": ringGradient } as CSSProperties} aria-hidden />
-            <button
-              type="button"
-              className="lp-answer"
-              aria-describedby={layout?.touch ? "lp-answer-hint" : undefined}
-              onPointerDown={(e) => {
-                if (e.pointerType === "mouse") return;
-                touchedAt.current = performance.now();
-                e.currentTarget.setPointerCapture(e.pointerId);
-                begin(false);
-              }}
-              onPointerUp={(e) => {
-                if (e.pointerType === "mouse") return;
-                touchedAt.current = performance.now();
-                cancel();
-              }}
-              onPointerCancel={cancel}
-              onClick={() => performance.now() - touchedAt.current > TOUCH_CLICK_MS && begin(true)}
-              onContextMenu={(e) => e.preventDefault()}
-              // 键盘聚焦到这里时还没滚到来电：先滚过去，按钮才在画面上。
-              onFocus={() => layout?.motion && stageStore.get().act !== 4 && stageStore.goto?.(4)}
-            >
-              <svg className="lp-answer-icon" viewBox="0 0 24 24" aria-hidden>
-                <path d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" />
-              </svg>
-              <span className="lp-answer-label">{copy.answer}</span>
-            </button>
-            <span id="lp-answer-hint" className="lp-answer-hint">
-              {copy.holdHint}
-            </span>
-          </div>
+          <button
+            type="button"
+            className="lp-answer"
+            onClick={answer}
+            // 键盘聚焦到这里时还没滚到来电：先滚过去，按钮才在画面上。
+            onFocus={() => layout?.motion && stageStore.get().act !== 4 && stageStore.goto?.(4)}
+          >
+            <svg className="lp-answer-icon" viewBox="0 0 24 24" aria-hidden>
+              <path d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" />
+            </svg>
+            <span className="lp-answer-label">{copy.answer}</span>
+          </button>
         )}
       </div>
     </section>
@@ -194,9 +117,9 @@ export function Call({
 }
 
 /** 接通的时刻（performance.now()）；没接通时是 null。 */
-function useConnectedAt(phase: CallState["phase"]): number | null {
+function useConnectedAt(call: CallPhase): number | null {
   const [at, setAt] = useState<number | null>(null);
-  useEffect(() => setAt(phase === "connected" ? performance.now() : null), [phase]);
+  useEffect(() => setAt(call === "connected" ? performance.now() : null), [call]);
   return at;
 }
 
@@ -218,48 +141,25 @@ function Elapsed({ since }: { since: number }) {
 const reportTone = (event: "playing" | "failed") => interactionStore.dispatch({ type: "tone", event });
 
 /**
- * 接通音：复用应用通话用的那个文件（GLOSSARY「接通音」），接听时才加载，接通时播一次（model/interaction.ts 的
- * connectTone）。真的响起来了报给 reducer（第一次出声时出现声音开关），放不出来也报，但不当作错误。不放铃声。
- *
- * 接通音在色光收拢完才播，那时已经不在访客的手势里了：开始接听（手势里）时调一下返回的 `prime`，先静音地
- * 播一下再停住，Safari 才肯在之后放它。
+ * 接通音：复用应用通话用的那个文件（GLOSSARY「接通音」），第一次接通时才加载，接通时播一次（model/interaction.ts
+ * 的 connectTone）。订阅者在 dispatch 里同步跑，播放就发生在访客点「接听」的手势里，手机浏览器不会拦。
+ * 真的响起来了报给 reducer（第一次出声时出现声音开关），放不出来也报，但不当作错误。
  */
-function useConnectTone(): { prime: () => void } {
-  const tone = useRef<HTMLAudioElement | null>(null);
-  const load = () => {
-    if (tone.current) return tone.current;
-    const a = new Audio("/sounds/connect.ogg");
-    a.addEventListener("playing", () => !a.muted && reportTone("playing"));
-    return (tone.current = a);
-  };
+function useConnectTone() {
   useEffect(() => {
+    let tone: HTMLAudioElement | null = null;
     const unsubscribe = interactionStore.subscribe((prev, next) => {
       if (!connectTone(prev, next)) return;
-      const a = load();
-      a.muted = false;
-      a.currentTime = 0;
-      a.play().catch(() => reportTone("failed"));
+      if (!tone) {
+        tone = new Audio("/sounds/connect.ogg");
+        tone.addEventListener("playing", () => reportTone("playing"));
+      }
+      tone.currentTime = 0;
+      tone.play().catch(() => reportTone("failed"));
     });
     return () => {
       unsubscribe();
-      tone.current?.pause();
+      tone?.pause();
     };
   }, []);
-  return {
-    prime() {
-      const a = load();
-      if (!a.paused) return;
-      a.muted = true;
-      a.play().then(
-        () => {
-          // 接通音已经要真的播了（muted 被改回来）就不打断它。
-          if (!a.muted) return;
-          a.pause();
-          a.currentTime = 0;
-          a.muted = false;
-        },
-        () => (a.muted = false),
-      );
-    },
-  };
 }
