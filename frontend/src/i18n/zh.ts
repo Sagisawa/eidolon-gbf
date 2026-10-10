@@ -7,6 +7,11 @@ export const zh = {
     name: "Eidolon-SC",
     description: "和 283 事务所的偶像说说话",
   },
+  /** 落地页的链接贴到聊天软件、社交网站时预览卡片上的文字（Open Graph、Twitter 卡片）。页面上不显示，不进字体子集。 */
+  share: {
+    title: "Eidolon-SC · 和 283 事务所的偶像说说话",
+    description: "她们用自己的声音说日语，配中文字幕；可以给她打电话，她还会记得你说过的事。非官方粉丝作品，角色由 AI 扮演。",
+  },
   common: {
     back: "返回",
     close: "关闭",
@@ -207,6 +212,10 @@ export const zh = {
       jump: "按组合跳转",
       jumpTo: (unit: string) => `跳到 ${unit}`,
       others: "其他偶像",
+      /** 声音开关：第一次点偶像、听到招呼以后出现在右上角，关掉以后点偶像只显示字幕。 */
+      sound: "声音",
+      soundOn: "开",
+      soundOff: "关",
     },
     /** 第 5 幕「记忆」：一件事从一位偶像传到另一位。不出现任何剧情原文、台词或歌词。 */
     act5: {

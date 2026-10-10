@@ -526,6 +526,100 @@ html[data-lp-layout="motion"] .lp-track > .lp-stand {
   }
 }
 
+/* 招呼的字幕：日语原文在上、中文字幕在下，被一道亮边从左往右扫出来（不用打字机效果）。
+ * 运动版式里 LightStage 把它摆到立绘那里（写 left），静止版式里贴在视口左下。 */
+.lp-greeting {
+  position: absolute;
+  bottom: 15%;
+  z-index: 4;
+  width: min(30em, 44vw);
+  min-width: min(20em, 84vw);
+  text-align: center;
+  pointer-events: none;
+}
+/* 字幕常常压在立绘的浅色衣服上：垫一层很淡的暗底，跟着字一起被扫出来。 */
+.lp-greeting-line {
+  position: relative;
+  isolation: isolate;
+  /* 暗底要在遮罩的范围里（遮罩只画到盒子的边），盒子往外撑开、内容不动。 */
+  margin: -28px -48px;
+  padding: 28px 48px;
+  mask-image: linear-gradient(90deg, #000 45%, rgb(0 0 0 / 0.2) 50%, transparent 55%);
+  mask-size: 240% 100%;
+  mask-repeat: no-repeat;
+  animation: lp-sweep 1.3s cubic-bezier(0.3, 0.6, 0.2, 1) forwards;
+}
+.lp-greeting-line::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(closest-side, rgb(2 2 3 / 0.62), rgb(2 2 3 / 0.38) 60%, transparent);
+}
+@keyframes lp-sweep {
+  from {
+    mask-position: 100% 0;
+  }
+  to {
+    mask-position: 0 0;
+  }
+}
+.lp-greeting-ja {
+  margin: 0;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(18px, 1.7vw, 24px);
+  line-height: 1.6;
+  letter-spacing: 0.08em;
+  word-break: auto-phrase; /* 按文节换行，不把「ほわっ」拆开；不支持的浏览器照常换行。 */
+  text-wrap: balance;
+  color: var(--her-ink);
+  text-shadow: 0 0 16px rgb(0 0 0 / 0.8);
+}
+.lp-greeting-zh {
+  margin: 0.7em 0 0;
+  font-size: 14px;
+  line-height: 1.9;
+  text-wrap: balance;
+  color: rgb(238 236 242 / 0.85);
+  text-shadow: 0 0 12px rgb(0 0 0 / 0.9);
+}
+html:not([data-lp-layout="motion"]) .lp-greeting {
+  position: fixed;
+  left: var(--lp-gutter);
+  bottom: 8%;
+  text-align: left;
+}
+/* 定格档：字幕直接出现，不扫。 */
+html[data-lp-tier="reduced"] .lp-greeting-line {
+  mask-image: none;
+  animation: none;
+}
+
+/* 声音开关：第一次听到招呼以后出现在右上角入口的左边（Spectrum 用 portal 放进 .lp-top），之后一直在。 */
+.lp-sound {
+  order: -1;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  font: 12px var(--lp-zh);
+  letter-spacing: 0.1em;
+  color: var(--lp-dim);
+  cursor: pointer;
+}
+.lp-sound[aria-pressed="true"] {
+  color: var(--lp-ink);
+}
+.lp-sound:hover {
+  color: var(--lp-ink);
+}
+.lp-sound:focus-visible {
+  outline: 1px solid var(--lp-ink);
+  outline-offset: 2px;
+}
+
 /* 底部常驻当前的组合名，下面一排按组合跳转的按钮。 */
 .lp-unitbar {
   position: absolute;

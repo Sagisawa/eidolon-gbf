@@ -108,7 +108,9 @@ async function signedInContext() {
   report("不带会话打开 /，是落地页", seen.path === "/" && seen.isLanding, `停在 ${seen.path}`);
   report("访客的入口是「登录」", seen.entryText === "登录", seen.entryText ?? "没有入口");
   const about = await visit(visitor, "/about");
-  report("/about 的 canonical 指向 /", about.canonical === "/" || about.canonical === `${origin}/`, about.canonical ?? "没有");
+  // 落地页的元数据按请求的地址拼成绝对地址（layout.tsx 的 metadataBase），Next 会去掉根路径末尾的斜杠。
+  const canonicalPath = about.canonical && new URL(about.canonical, origin);
+  report("/about 的 canonical 指向 /", canonicalPath?.origin === origin && canonicalPath.pathname === "/", about.canonical ?? "没有");
   await visitor.close();
 
   const expired = await browser.newContext();

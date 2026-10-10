@@ -116,9 +116,10 @@ export function Landing({
   );
 }
 
-/** 名牌要的那一份：名字、编号、颜色、她在光谱里的位置和默认衣装，都在服务端算好。 */
+/** 名牌要的那一份：名字、编号、颜色、她在光谱里的位置、默认衣装和招呼，都在服务端算好。 */
 function unitsOf(spectrum: SpectrumModel, characters: Character[]): SpectrumUnit[] {
   const outfitOf = new Map(characters.map((c) => [c.id, c.stand?.default_outfit ?? null]));
+  const greetingOf = new Map(characters.map((c) => [c.id, c.greeting]));
   return spectrum.units.map((unit, u) => ({
     name: unit.name,
     plates: unit.idols.map((idol, slot) => ({
@@ -133,6 +134,7 @@ function unitsOf(spectrum: SpectrumModel, characters: Character[]): SpectrumUnit
       official: idol.colors.official,
       deep: idol.colors.deep,
       outfit: outfitOf.get(idol.id) ?? null,
+      greeting: greetingOf.get(idol.id) ?? null,
     })),
   }));
 }
@@ -142,6 +144,9 @@ const spectrumCopy = (spectrum: SpectrumModel) => ({
   jump: t.act2.jump,
   jumpTo: spectrum.units.map((u) => t.act2.jumpTo(u.name ?? t.act2.others)),
   others: t.act2.others,
+  sound: t.act2.sound,
+  soundOn: t.act2.soundOn,
+  soundOff: t.act2.soundOff,
 });
 
 /**

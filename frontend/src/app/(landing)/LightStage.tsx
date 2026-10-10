@@ -32,7 +32,7 @@ type Measured = Section & { el: HTMLElement; top: number; height: number };
  *   加载之前就是原生滚动。OGL 在浏览器空闲时才加载，画好第一帧才淡入，淡入时首屏 CSS 画的白光
  *   同时淡出；两束光的几何是同一套（model/scene.ts 的锚点就是 landing.css 里 .lp-beam 的尽头）。
  *   第 2 幕的名牌按模型的 slotX 摆到横滚轨道上，轨道的横移经弹簧平滑；名牌上名字的位置量好了传给模型，
- *   光芯在那里断开。第 5 幕的布景（Memory 的 SVG）跟着模型横移、光点走到哪儿连线画到哪儿，指针在这一幕留下
+ *   光芯在那里断开；立绘和招呼的字幕摆到她名牌外侧空间大的一边。第 5 幕的布景（Memory 的 SVG）跟着模型横移、光点走到哪儿连线画到哪儿，指针在这一幕留下
  *   慢慢消散的痕迹；第 7 幕的文字和行动按钮跟着模型淡入。
  * - 定格档（减少动态效果）：不钉住、不加载 Lenis；OGL 只渲染一帧第 1 幕的完成态就停下，
  *   窗口尺寸变了才重画那一帧。画好之前，静态档的 SVG 先顶着。
@@ -137,6 +137,8 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
     // 立绘的框由 Spectrum 在知道版式以后才渲染，比这里晚一步，用到时再找。
     let standBoxEl: HTMLElement | null = null;
     const findStandBox = () => (standBoxEl ??= stage.querySelector<HTMLElement>(".lp-track > .lp-stand"));
+    const greetingEl = stage.querySelector<HTMLElement>(".lp-greeting");
+    const railEl = root.querySelector<HTMLElement>(".lp-rail");
     const track = stage.querySelector<HTMLElement>(".lp-track");
     const railItems = [...root.querySelectorAll<HTMLElement>("[data-lp-rail]")];
     const memoryEl = root.querySelector<HTMLElement>(".lp-memory");
@@ -167,17 +169,31 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
       }
       measureGaps();
       placeStand();
+      placeGreeting();
       light?.resize(vp.w, vp.h);
     };
-    // 立绘站在她名牌外侧空间大的一边。
+    /** 立绘的中线在轨道上的位置：她名牌外侧空间大的一边。 */
+    const standX = (l: BandLight, standWidth: number) => {
+      const x = slotX(vp, l.unit, l.slot, l.unitSize);
+      const side = x - l.unit * vp.w < vp.w * 0.55 ? 1 : -1;
+      return x + side * (standWidth * 0.5 + 24);
+    };
     let standFor: string | undefined;
     const placeStand = () => {
       const standBox = findStandBox();
       const l = standBox && lightOf.get(standBox.dataset.lpStand ?? "");
       if (!standBox || !l) return;
-      const x = slotX(vp, l.unit, l.slot, l.unitSize);
-      const side = x - l.unit * vp.w < vp.w * 0.55 ? 1 : -1;
-      standBox.style.left = `${x + side * (standBox.offsetWidth * 0.5 + 24) - standBox.offsetWidth * 0.5}px`;
+      standBox.style.left = `${standX(l, standBox.offsetWidth) - standBox.offsetWidth * 0.5}px`;
+    };
+    // 招呼的字幕跟着立绘居中（她没有立绘时，在立绘本来站的地方），但不出她那个组合的一屏，也不压着幕名轨。
+    let greetingFor: string | undefined;
+    const placeGreeting = () => {
+      const l = greetingEl && lightOf.get(greetingEl.dataset.lpGreeting ?? "");
+      if (!greetingEl || !l) return;
+      const half = greetingEl.offsetWidth / 2 + 16;
+      const page = l.unit * vp.w;
+      const cx = Math.min(Math.max(standX(l, findStandBox()?.offsetWidth ?? 0), page + (railEl?.offsetWidth ?? 0) + half), page + vp.w - half);
+      greetingEl.style.left = `${cx - greetingEl.offsetWidth / 2}px`;
     };
     measure();
     window.addEventListener("resize", measure);
@@ -307,6 +323,10 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
         if (standBox && standBox.dataset.lpStand !== standFor) {
           standFor = standBox.dataset.lpStand;
           placeStand();
+        }
+        if (greetingEl && greetingEl.dataset.lpGreeting !== greetingFor) {
+          greetingFor = greetingEl.dataset.lpGreeting;
+          placeGreeting();
         }
       }
       if (scene.memory && memoryEl) {
