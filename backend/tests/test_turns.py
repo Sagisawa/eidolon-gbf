@@ -15,6 +15,7 @@ import pytest
 from eidolon.config import Settings
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.llm import ToolCall
+from eidolon.own_keys import BroughtKeys
 from eidolon.reply_format import SegmentComplete, SpeechDelta
 from eidolon.store import Conversation, Store
 from tests.fakes import (
@@ -58,7 +59,7 @@ class Turns:
         stop = asyncio.Event()
         events = []
         try:
-            llms = backend.own_keys.for_turn(self.conversation.user_id).llms
+            llms = backend.own_keys.for_turn(BroughtKeys()).llms
             async for event in backend.engine.turn(self.conversation, text, llms, stop=stop):
                 events.append(event)
                 if isinstance(event, SegmentComplete) and event.segment == stop_after:

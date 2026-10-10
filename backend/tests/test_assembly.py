@@ -23,6 +23,7 @@ from eidolon.config import (
 )
 from eidolon.emotion import SaidSegment, SegmentToJudge
 from eidolon.judge import JudgeModel, open_judge
+from eidolon.own_keys import BroughtKeys
 from eidolon.retrieval import RECALL_STORY_TOOL
 from tests.fakes import (
     FakeBackgroundLLM,
@@ -65,7 +66,7 @@ async def tell_mano(backend: Backend, text: str) -> tuple[str, list[dict]]:
     """Take one turn in a new conversation with Mano; returns its user and events."""
     user = backend.store.create_user("producer")
     conversation = backend.store.create_conversation(user.id, "mano")
-    llms = backend.own_keys.for_turn(user.id).llms
+    llms = backend.own_keys.for_turn(BroughtKeys()).llms
     return user.id, [asdict(e) async for e in backend.engine.turn(conversation, text, llms)]
 
 

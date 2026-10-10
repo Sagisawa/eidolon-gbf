@@ -9,12 +9,14 @@ kept encrypted with a key derived from `EIDOLON_SECRET_KEY`; without that settin
 users cannot bring any. Only the last 4 characters of a key are ever shown again.
 
 Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
-`for_call`): the user's own where they brought them, the deployer's otherwise, with
-whether it counts towards the user's limit. The deployer's are those of the live
-configuration as the turn or call starts (see `live_config`), held until it releases them
-as it ends. A kept key that can no longer be decrypted
-fails it right there, before anything is spent. Nothing downstream tells the user's keys
-from the deployer's.
+`for_call`), from the user's own keys it brings (`BroughtKeys`): theirs where it brought
+them, the deployer's otherwise, with whether it counts towards the user's limit. The
+deployer's are those of the live configuration as the turn or call starts (see
+`live_config`), held until it releases them as it ends. Nothing downstream tells the
+user's keys from the deployer's.
+
+What a turn or call brings are the keys the user kept (`kept`); one that can no longer be
+decrypted fails it right there, before anything is spent.
 
 Before an own LLM is kept, it is tried once, as the deployer's chat model is at startup:
 it must stream and take tools. In a public deployment it must also be on the public
@@ -153,6 +155,23 @@ class OwnLLMSettings:
     protocol: LLMProtocol = "chat-completions"
 
 
+@dataclass(frozen=True)
+class BroughtKeys:
+    """The user's own keys a turn or call brings, by service; None for one it does not
+    bring, which it runs on the deployer's key for."""
+
+    llm: OwnLLMSettings | None = None
+    tts: str | None = None
+    """For Fish Audio."""
+    stt: SttKey | None = None
+    """For the speech recognition the user chose, with the region of a DashScope key."""
+
+    @property
+    def services(self) -> frozenset[Service]:
+        """The services it brings a key for."""
+        return frozenset(s for s in SERVICES if getattr(self, s) is not None)
+
+
 class KeyCheck(Protocol):
     """Trying a speech service's key before keeping it (see `call.Speech`)."""
 
@@ -268,38 +287,56 @@ class OwnKeys:
     def available(self) -> bool:
         return self._cipher is not None
 
-    def for_turn(self, user_id: str) -> TurnKeys:
-        """Whose keys the user's next text turn runs on: their own LLM, if they brought
-        one, both plays the character and writes down their memories."""
-        records = self._records(user_id)
-        exempt = _exempt(records)["turns"]
-        if "llm" in records:
-            return TurnKeys(self._llms(records, None), exempt, own_llm=True)
+    def for_turn(self, brought: BroughtKeys) -> TurnKeys:
+        """Whose keys a text turn bringing `brought` runs on: the user's own LLM, if it
+        brings one, both plays the character and writes down their memories."""
+        exempt = _exempt(brought.services)["turns"]
+        if brought.llm is not None:
+            return TurnKeys(self._llms(brought.llm, None), exempt, own_llm=True)
         lease = self._deployer.lease()
-        return TurnKeys(self._llms(records, lease.keys), exempt, lease.release)
+        return TurnKeys(self._llms(None, lease.keys), exempt, lease.release)
 
-    def for_call(self, user_id: str) -> CallKeys:
-        """Whose keys the user's next call runs on: each of speech recognition and
-        synthesis on their own key if they brought one, else the deployer's; raises
+    def for_call(self, brought: BroughtKeys) -> CallKeys:
+        """Whose keys a call bringing `brought` runs on: each of speech recognition and
+        synthesis on the user's own key if it brings one, else the deployer's; raises
         CallsUnavailable if there is neither for either. A user's own key for speech
         recognition is for the service they chose, whichever the deployer did."""
-        records = self._records(user_id)
         lease = self._deployer.lease()
         try:
             deployer = lease.keys
-            stt = self._stt_key(records["stt"]) if "stt" in records else deployer.stt
-            tts = self._decrypt(records["tts"]) if "tts" in records else deployer.tts
+            stt = brought.stt if brought.stt is not None else deployer.stt
+            tts = brought.tts if brought.tts is not None else deployer.tts
             if not stt or not tts:
                 raise CallsUnavailable()
-            own = frozenset(s for s in ("stt", "tts") if s in records)
-            llms = self._llms(records, deployer)
+            own = brought.services - {"llm"}
+            llms = self._llms(brought.llm, deployer)
         except BaseException:
             lease.release()
             raise
         return CallKeys(
-            llms, stt, tts, own, _exempt(records)["calls"], lease.release,  # pyright: ignore[reportArgumentType]
-            deployer.tts_model, deployer.emotions, own_llm="llm" in records,
+            llms, stt, tts, own, _exempt(brought.services)["calls"], lease.release,
+            deployer.tts_model, deployer.emotions, own_llm=brought.llm is not None,
         )
+
+    def kept(self, user_id: str, services: Iterable[Service] = SERVICES) -> BroughtKeys:
+        """The keys the user kept for `services`, decrypted, as their turn or call brings
+        them; none without `EIDOLON_SECRET_KEY`. Raises OwnKeyFailed for one that can no
+        longer be decrypted, as after `EIDOLON_SECRET_KEY` has changed."""
+        records = self._records(user_id)
+        wanted = set(services)
+        llm, tts, stt = None, None, None
+        if "stt" in wanted and "stt" in records:
+            record = records["stt"]
+            region: BailianRegion | None = record.region  # pyright: ignore[reportAssignmentType]
+            stt = SttKey(_stt_provider(record), self._decrypt(record), region)
+        if "tts" in wanted and "tts" in records:
+            tts = self._decrypt(records["tts"])
+        if "llm" in wanted and "llm" in records:
+            record = records["llm"]
+            assert record.base_url and record.model
+            protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
+            llm = OwnLLMSettings(record.base_url, self._decrypt(record), record.model, protocol)
+        return BroughtKeys(llm, tts, stt)
 
     def describe(self, user_id: str) -> dict[Service, dict]:
         """What the user may see of their keys, by service: never more of a key than its
@@ -377,23 +414,16 @@ class OwnKeys:
         they could not be decrypted without."""
         return self._store.own_keys(user_id) if self._cipher else {}
 
-    def _llms(self, records: dict[str, OwnKeyRecord], deployer: DeployerKeys | None) -> TurnLLMs:
-        record = records.get("llm")
-        if record is None:
+    def _llms(self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None) -> TurnLLMs:
+        if own_llm is None:
             assert deployer is not None
             return TurnLLMs(deployer.chat_llm, deployer.memory_llm, deployer.hold_memory)
-        assert record.base_url and record.model
-        protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
-        settings = LLMSettings(record.base_url, self._decrypt(record), record.model, protocol)
+        settings = LLMSettings(own_llm.base_url, own_llm.api_key, own_llm.model, own_llm.protocol)
         own = _OwnLLM(self._llm_service.open(settings))
         return TurnLLMs(
             metered_llm(own, self._activity, llm_origin("chat_llm", settings, own_key=True)),
             metered_llm(own, self._activity, llm_origin("memory_llm", settings, own_key=True)),
         )
-
-    def _stt_key(self, record: OwnKeyRecord) -> SttKey:
-        region: BailianRegion | None = record.region  # pyright: ignore[reportAssignmentType]
-        return SttKey(_stt_provider(record), self._decrypt(record), region)
 
     def _decrypt(self, record: OwnKeyRecord) -> str:
         """The key, decrypted; raises OwnKeyFailed if it can no longer be, as after
