@@ -24,9 +24,9 @@ from eidolon.call import (
 from eidolon.characters import Character
 from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
+from eidolon.own_keys import BroughtKeys, CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.account_api import add_account_routes
+from eidolon.account_api import OwnLLMInput, add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
@@ -46,6 +46,8 @@ class NewConversation(BaseModel):
 
 class TurnInput(BaseModel):
     text: str
+    own_llm: OwnLLMInput | None = None
+    """The user's own LLM, which their browser keeps, for the turn to run on."""
 
 
 class CallRequest(BaseModel):
@@ -356,7 +358,8 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        admission = admissions.turn(user_id, conversation.character_id)
+        brought = BroughtKeys(llm=body.own_llm.settings() if body.own_llm else None)
+        admission = admissions.turn(user_id, conversation.character_id, brought)
         outcome = TurnOutcome(admission.recording, admission.settle)
 
         async def events() -> AsyncIterator[str]:

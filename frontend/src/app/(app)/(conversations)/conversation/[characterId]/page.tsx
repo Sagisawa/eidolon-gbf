@@ -14,13 +14,15 @@ export default function ConversationPage() {
   const { characterId } = useParams<{ characterId: string }>();
   const router = useRouter();
   const wide = useWide();
-  const { characters, failure } = useDirectory();
+  const { userId, characters, failure } = useDirectory();
   const character = characters?.find((c) => c.id === characterId);
   const back = () => router.push("/conversations");
 
-  if (character) {
+  if (character && userId) {
     // 换角色时整页重来：上一位的对话（和通话）就此结束。
-    return <ConversationView key={character.id} character={character} onBack={wide ? undefined : back} />;
+    return (
+      <ConversationView key={character.id} userId={userId} character={character} onBack={wide ? undefined : back} />
+    );
   }
   if (characters === null && !failure) {
     return (

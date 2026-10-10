@@ -38,7 +38,7 @@ from tests.fakes import (
 from tests.test_delete_account import rows_mentioning, user_id
 from tests.test_llm_protocols import recorded, serving
 from tests.test_openai_compat import RECORDED_STREAM
-from tests.test_own_llm import MINE, bring_llm
+from tests.test_own_llm import LLM, MINE
 from tests.test_rate_limit import post_turn
 from tests.test_shared_memory import CAT, memorized
 from tests.test_text_turn import leave_turn, send_turn, start_conversation
@@ -168,11 +168,10 @@ async def test_calls_on_the_users_own_keys_are_counted_apart(
     deployers = FakeLLM(REPLY)
     client = make_client(deployers, clock=clock)
     admin = await admin_client(make_client, github, clock)
-    await bring_llm(client)
     conversation_id = await start_conversation(client)
 
-    await send_turn(client, conversation_id, "在吗")
-    await send_turn(client, conversation_id, "在吗")
+    await send_turn(client, conversation_id, "在吗", own_llm=LLM)
+    await send_turn(client, conversation_id, "在吗", own_llm=LLM)
     board = await dashboard(admin)
 
     own = health(board, "chat_llm", own_key=True)

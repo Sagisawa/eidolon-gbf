@@ -15,7 +15,7 @@ from tests.conftest import ClientFactory
 from tests.fakes import START, FakeClock, FakeIdentityProvider, FakeLLM, FakeLLMService, FakeSpeech
 from tests.test_admin_users import ADMIN, admin_client, find
 from tests.test_delete_account import rows_mentioning
-from tests.test_own_llm import bring_llm
+from tests.test_own_llm import LLM
 from tests.test_rate_limit import REPLY, post_turn
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -98,8 +98,7 @@ async def test_a_user_set_to_0_turns_has_only_their_own_llm(
     assert "Retry-After" not in refused.headers
     assert deployers.prompts == []
     own_llm.llm = FakeLLM(REPLY)
-    await bring_llm(producer)
-    assert (await send_turn(producer, conversation_id, "在吗"))[-1]["type"] == "done"
+    assert (await send_turn(producer, conversation_id, "在吗", own_llm=LLM))[-1]["type"] == "done"
 
 
 async def test_with_only_turns_set_calls_follow_the_deployments(

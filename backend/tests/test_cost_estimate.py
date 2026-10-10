@@ -14,7 +14,7 @@ from eidolon.prices import Price
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeIdentityProvider, FakeLLM, FakeLLMService
 from tests.test_activity_records import REPLY, admin_client, dashboard
-from tests.test_own_llm import bring_llm
+from tests.test_own_llm import LLM
 from tests.test_text_turn import send_turn, start_conversation
 
 AS_OF = date(2026, 10, 7)
@@ -113,11 +113,11 @@ async def test_usage_on_users_own_keys_is_shown_but_never_priced(
     own_llm.llm = FakeLLM(REPLY, REPLY, tokens=(1000, 500))
     client = make_client(FakeLLM(), clock=clock)
     admin = await admin_client(make_client, github, clock)
-    await bring_llm(client)  # at llm.example.com, my-model, which has a price
     conversation_id = await start_conversation(client)
 
-    await send_turn(client, conversation_id, "在吗")
-    await send_turn(client, conversation_id, "在吗")
+    # at llm.example.com, my-model, which has a price
+    await send_turn(client, conversation_id, "在吗", own_llm=LLM)
+    await send_turn(client, conversation_id, "在吗", own_llm=LLM)
     cost = (await dashboard(admin))["cost"]
 
     assert (cost["totals"], cost["rows"], cost["services"]) == ([], [], [])

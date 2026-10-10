@@ -18,6 +18,7 @@ from eidolon.activity import ActivityLog, Result
 from eidolon.admission import Admissions
 from eidolon.config import SttKey, UsageLimits
 from eidolon.own_keys import (
+    BroughtKeys,
     CallsUnavailable,
     DeployerKeys,
     DeployerLease,
@@ -126,7 +127,7 @@ def deployment(tmp_path: Path) -> Iterator[Deployment]:
 def test_a_turn_counts_when_it_succeeded_or_was_left_and_is_given_back_otherwise(
     deployment: Deployment, result: Result, counted: bool
 ):
-    admission = deployment.admissions().turn(deployment.user, "mano")
+    admission = deployment.admissions().turn(deployment.user, "mano", BroughtKeys())
 
     admission.settle(result)
 
@@ -140,36 +141,21 @@ def test_a_turn_over_the_limit_is_refused_recorded_rejected_and_lets_go_of_its_l
     deployment: Deployment,
 ):
     admissions = deployment.admissions()
-    admissions.turn(deployment.user, "mano").settle("success")
+    admissions.turn(deployment.user, "mano", BroughtKeys()).settle("success")
 
     with pytest.raises(OverLimit):
-        admissions.turn(deployment.user, "mano")
+        admissions.turn(deployment.user, "mano", BroughtKeys())
 
     assert deployment.turns_taken() == 1
     assert deployment.records() == [("success", False), ("rejected", False)]
     assert deployment.deployer.released == 2
 
 
-async def test_a_turn_on_an_own_key_that_no_longer_decrypts_is_recorded_failed_and_takes_no_use(
-    deployment: Deployment,
-):
-    await deployment.bring_llm()
-    deployment.secret = "a-changed-secret-key"
-
-    with pytest.raises(OwnKeyFailed):
-        deployment.admissions().turn(deployment.user, "mano")
-
-    assert deployment.turns_taken() == 0
-    assert deployment.records() == [("failed", True)]
-    assert deployment.deployer.leased == deployment.deployer.released == 0
-
-
-async def test_a_turn_on_an_own_llm_does_not_count_and_leases_nothing(deployment: Deployment):
-    await deployment.bring_llm()
+def test_a_turn_bringing_an_own_llm_does_not_count_and_leases_nothing(deployment: Deployment):
     admissions = deployment.admissions()
 
     for _ in range(2):  # over the limit, were they counted
-        admission = admissions.turn(deployment.user, "mano")
+        admission = admissions.turn(deployment.user, "mano", BroughtKeys(llm=MY_LLM))
         assert admission.exempt
         assert not any(admission.counts(r) for r in ("success", "failed", "rejected", "left"))
         admission.settle("success")
@@ -181,7 +167,7 @@ async def test_a_turn_on_an_own_llm_does_not_count_and_leases_nothing(deployment
 
 
 def test_a_turn_settled_twice_is_settled_once(deployment: Deployment):
-    admission = deployment.admissions().turn(deployment.user, "mano")
+    admission = deployment.admissions().turn(deployment.user, "mano", BroughtKeys())
 
     admission.settle("failed")
     admission.settle("success")

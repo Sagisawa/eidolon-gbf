@@ -63,7 +63,16 @@ const noSubscription = () => () => {};
  * 电话键变成实心的「回到通话」。离开这一页（换角色、进设置或记忆、回列表）先经列表外壳确认，然后挂断。
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  */
-export function ConversationView({ character, onBack }: { character: Character; onBack?: () => void }) {
+export function ConversationView({
+  userId,
+  character,
+  onBack,
+}: {
+  /** 登录的用户：发回合时带上浏览器里存的、这位用户的自带 LLM。 */
+  userId: string;
+  character: Character;
+  onBack?: () => void;
+}) {
   const router = useRouter();
   const { refresh, setCall, leave } = useDirectory();
   const isFullScreen = !useWide();
@@ -87,13 +96,13 @@ export function ConversationView({ character, onBack }: { character: Character; 
       listMessages,
       onListChanged: refresh,
       startCall,
-      sendTurn,
+      sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
       voice,
     });
     setLive(conversation);
     return () => conversation.dispose();
-  }, [character.id, refresh, voice]);
+  }, [character.id, userId, refresh, voice]);
 
   // 通话的进展告诉列表那一行。
   useEffect(() => {

@@ -6,6 +6,7 @@ through the API with the providers faked (FakeIdentityProvider)."""
 import sqlite3
 from dataclasses import replace
 from datetime import timedelta
+from unittest.mock import ANY
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -34,6 +35,11 @@ async def conversations(client: httpx.AsyncClient) -> list[str]:
     return [c["id"] for c in res.json()]
 
 
+async def account_id(client: httpx.AsyncClient) -> str:
+    """Who the user is, as their browser keeps their own keys apart by."""
+    return (await client.get("/api/account")).json()["id"]
+
+
 async def signed_in(client: httpx.AsyncClient) -> bool:
     res = await client.get("/api/conversations", params={"character_id": "mano"})
     return res.status_code != 401
@@ -52,6 +58,7 @@ async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
     assert await conversations(client) == []
     account = (await client.get("/api/account")).json()
     assert account == {
+        "id": ANY,
         "name": "producer",
         "sign_in_methods": [
             {"provider": "github", "display_name": "producer", "email": "producer@example.com"}
@@ -73,6 +80,7 @@ async def test_signing_in_again_with_the_same_identity_is_the_same_user(
     await sign_in_with(phone, github, github_identity(name="renamed on GitHub"))
 
     assert await conversations(phone) == [conversation_id]
+    assert await account_id(phone) == await account_id(desktop)
 
 
 async def test_two_identities_are_two_users(
@@ -87,6 +95,7 @@ async def test_two_identities_are_two_users(
     await sign_in_with(theirs, github, github_identity("2002", "friend"))
 
     assert await conversations(theirs) == []
+    assert await account_id(theirs) != await account_id(mine)
 
 
 async def test_github_accounts_less_than_a_year_old_cannot_sign_in(

@@ -1,4 +1,5 @@
 import type { Provider } from "@/lib/signIn";
+import { turnOwnLLM, type LocalLLM } from "@/lib/localOwnKeys";
 import { detectTimezone } from "@/lib/timezone";
 import type { Emotion, Nod } from "@/lib/standAnimations";
 
@@ -238,8 +239,9 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 /** An identity the user signs in with. */
 export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
 
-/** `is_admin`: the user may enter the admin console (`/admin`). */
-export type Account = { name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
+/** `id`: who the user is, which this browser keeps their own keys apart by (see `localOwnKeys`).
+ * `is_admin`: the user may enter the admin console (`/admin`). */
+export type Account = { id: string; name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
 export async function getAccount(): Promise<Account> {
@@ -278,13 +280,14 @@ export async function getOwnKeys(): Promise<OwnKeys> {
   return json(await api("/api/account/keys"));
 }
 
-/** Try the user's own LLM and keep it; fails with what the service said if the try fails. */
-export async function saveOwnLLM(
-  llm: Omit<OwnLLM, "last4"> & { api_key: string },
-): Promise<OwnLLM> {
+/**
+ * Try the user's own LLM, which the server does not keep; fails with what the service said if
+ * the try fails. Its address and model as this browser is to keep them.
+ */
+export async function checkOwnLLM(llm: LocalLLM): Promise<Pick<LocalLLM, "base_url" | "model">> {
   return json(
-    await api("/api/account/keys/llm", {
-      method: "PUT",
+    await api("/api/account/keys/llm/check", {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(llm),
     }),
@@ -426,12 +429,15 @@ export async function getCallSetup(): Promise<CallSetup> {
   return json(await api("/api/ice-servers"));
 }
 
-/** Sends one text turn and yields the reply's server-sent events as they arrive. */
-export async function* sendTurn(conversationId: string, text: string): AsyncGenerator<TurnEvent> {
+/**
+ * Sends one text turn, bringing the user's own LLM if this browser keeps one for them, and yields
+ * the reply's server-sent events as they arrive.
+ */
+export async function* sendTurn(conversationId: string, text: string, userId: string): AsyncGenerator<TurnEvent> {
   const res = await api(`/api/conversations/${conversationId}/turns`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, own_llm: turnOwnLLM(userId) }),
   });
   if (!res.ok || !res.body) {
     await json(res);

@@ -4,9 +4,11 @@ speech synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Mo
 
 A user who brings their own key for a service has their turns and calls use it there,
 at their own expense. A call on their key that fails fails the turn, saying which of
-their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. Keys are
-kept encrypted with a key derived from `EIDOLON_SECRET_KEY`; without that setting,
-users cannot bring any. Only the last 4 characters of a key are ever shown again.
+their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. Their LLM
+is kept in their browser, which brings it with each text turn (ADR-0017). Calls, until
+they bring their keys too, run on those kept here, encrypted with a key derived from
+`EIDOLON_SECRET_KEY`; without that setting, users cannot keep any here. Only the last 4
+characters of a kept key are ever shown again.
 
 Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
 `for_call`), from the user's own keys it brings (`BroughtKeys`): theirs where it brought
@@ -15,15 +17,15 @@ deployer's are those of the live configuration as the turn or call starts (see
 `live_config`), held until it releases them as it ends. Nothing downstream tells the
 user's keys from the deployer's.
 
-What a turn or call brings are the keys the user kept (`kept`); one that can no longer be
+What a call brings are the keys the user kept here (`kept`); one that can no longer be
 decrypted fails it right there, before anything is spent.
 
-Before an own LLM is kept, it is tried once, as the deployer's chat model is at startup:
-it must stream and take tools. In a public deployment it must also be on the public
-internet, so no one can point the backend at the machines next to it, and read their
-answers back in the errors they are shown. That is checked on every connection, not only
-when the key is saved: a name that resolved to a public address then can resolve to a
-private one later.
+Before the browser keeps an own LLM, it is tried once (`check_llm`), as the deployer's
+chat model is at startup: it must stream and take tools. In a public deployment it must
+also be on the public internet, so no one can point the backend at the machines next to
+it, and read their answers back in the errors they are shown. That is checked on every
+connection, not only when the key is tried: a name that resolved to a public address then
+can resolve to a private one later.
 """
 
 import asyncio
@@ -87,7 +89,7 @@ class OwnKeyFailed(Exception):
 
 
 class OwnKeyRejected(Exception):
-    """Trying the key before keeping it failed; kept nothing."""
+    """Trying the key before keeping it failed."""
 
 
 class CallsUnavailable(Exception):
@@ -353,15 +355,21 @@ class OwnKeys:
                 described[service] = shown  # pyright: ignore[reportArgumentType]
         return described
 
-    async def save_llm(self, user_id: str, own: OwnLLMSettings) -> None:
-        """Try the user's LLM, and keep it if it works. Raises OwnKeyRejected saying why
-        it did not, OwnKeysUnavailable without `EIDOLON_SECRET_KEY`."""
-        cipher = self._require_cipher()
+    async def check_llm(self, own: OwnLLMSettings) -> None:
+        """Try the user's LLM, keeping nothing. Raises OwnKeyRejected saying why it does
+        not work."""
         settings = LLMSettings(own.base_url, own.api_key, own.model, own.protocol)
         try:
             await self._llm_service.check(settings)
         except LLMError as e:
             raise OwnKeyRejected(str(e)[:MAX_CAUSE_LENGTH]) from None
+
+    async def save_llm(self, user_id: str, own: OwnLLMSettings) -> None:
+        """Try the user's LLM, and keep it here if it works, for their calls. Raises
+        OwnKeyRejected saying why it did not, OwnKeysUnavailable without
+        `EIDOLON_SECRET_KEY`."""
+        cipher = self._require_cipher()
+        await self.check_llm(own)
         self._store.save_own_key(
             user_id,
             OwnKeyRecord(

@@ -182,14 +182,11 @@ async def test_text_turns_on_the_users_own_llm_do_not_count(
 ):
     own_llm.llm = FakeLLM(REPLY, REPLY, REPLY)
     client = make_client(FakeLLM(), settings=limited(settings, turns_per_hour=1), clock=FakeClock())
-    await bring(client, "llm")
     conversation_id = await start_conversation(client)
 
-    for _ in range(3):
-        assert (await send_turn(client, conversation_id, "在吗"))[-1]["type"] == "done"
-    assert (await client.get("/api/account/keys")).json()["exempt"] == {
-        "turns": True, "calls": False,
-    }
+    for n in range(3):
+        brought = await send_turn(client, conversation_id, "在吗", own_llm=MY_LLM)
+        assert brought[-1]["type"] == "done", n
 
 
 async def test_calls_count_unless_all_three_services_are_the_users_own(

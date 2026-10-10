@@ -2,10 +2,10 @@
 「运行记录」): whose keys it runs on, its activity record, its use of the limit and the
 deployer's keys it holds, all in one place.
 
-`Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), from those the
-user kept, whose models record each request as a service call to the model they are,
-opens the activity record, and only then takes a use of the limit, so that nothing
-failing before it is counted. Whatever fails on the way is recorded so (`_FAILED`), and
+`Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), from those a turn
+brings or the user kept for calls, whose models record each request as a service call to
+the model they are, opens the activity record, and only then takes a use of the limit, so
+that nothing failing before it is counted. Whatever fails on the way is recorded so (`_FAILED`), and
 what was taken let go, before it is raised. Before a call is placed, it is only asked
 whether the call would count.
 
@@ -18,7 +18,7 @@ from typing import Generic, TypeVar
 
 from eidolon.activity import ActivityLog, CallEndReason, Recording, Result
 from eidolon.llm import TurnLLMs
-from eidolon.own_keys import CallKeys, OwnKeyFailed, OwnKeys, TurnKeys
+from eidolon.own_keys import BroughtKeys, CallKeys, OwnKeyFailed, OwnKeys, TurnKeys
 from eidolon.usage import OverLimit, UsageKind, UsageLimiter, Use
 
 _COUNTED: dict[UsageKind, frozenset[Result]] = {
@@ -95,12 +95,15 @@ class Admissions:
         self._activity = activity
         self._own_keys = own_keys
 
-    def turn(self, user_id: str, character_id: str) -> Admission[TurnKeys]:
-        """Let the user's next text turn with `character_id` begin. Raises OverLimit when
-        they have no turns left this hour, OwnKeyFailed when their own key can no longer
-        be decrypted; either way, and whatever else fails before it begins, it is
-        recorded and takes no use of the limit."""
-        return self._admit("turn", user_id, character_id, self._turn_keys)
+    def turn(
+        self, user_id: str, character_id: str, brought: BroughtKeys
+    ) -> Admission[TurnKeys]:
+        """Let the user's next text turn with `character_id`, bringing `brought`, begin.
+        Raises OverLimit when they have no turns left this hour; then, and whatever else
+        fails before it begins, it is recorded and takes no use of the limit."""
+        return self._admit(
+            "turn", user_id, character_id, lambda _: self._own_keys.for_turn(brought)
+        )
 
     def call(self, user_id: str, character_id: str) -> Admission[CallKeys]:
         """Let the user's next call with `character_id` begin. Raises OverLimit when they
@@ -118,9 +121,6 @@ class Admissions:
         keys = self._keys("call", user_id, "", self._call_keys)
         keys.release()
         return keys.exempt
-
-    def _turn_keys(self, user_id: str) -> TurnKeys:
-        return self._own_keys.for_turn(self._own_keys.kept(user_id, ("llm",)))
 
     def _call_keys(self, user_id: str) -> CallKeys:
         return self._own_keys.for_call(self._own_keys.kept(user_id))

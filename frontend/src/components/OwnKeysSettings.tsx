@@ -13,16 +13,17 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import {
+  checkOwnLLM,
   deleteOwnKey,
+  getAccount,
   getOwnKeys,
-  saveOwnLLM,
   saveOwnSpeechKey,
   type LLMProtocol,
   type OwnKeys,
-  type OwnService,
   type SttProvider,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
+import { forgetOwnKey, keepOwnKey, last4, localOwnKeys, type LocalLLM } from "@/lib/localOwnKeys";
 import { limitExemption } from "@/lib/ownKeys";
 import { cn } from "@/lib/utils";
 
@@ -30,16 +31,28 @@ const t = copy.settings.ownKeys;
 
 const EXEMPTION_NOTES = { all: t.exemptAll, turns: t.exemptTurns, none: t.exemptNone } as const;
 
-/** 用户自带、自己付费的密钥；部署者没有开放时整节不显示。 */
+/**
+ * 用户自带、自己付费的密钥；部署者没有开放时整节不显示。LLM 只存在这个浏览器里（按登录的用户分开存），
+ * 语音的两项还存在服务器上。
+ */
 export function OwnKeysSettings() {
   const [keys, setKeys] = useState<OwnKeys | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [llm, setLLM] = useState<LocalLLM | undefined>(undefined);
   const [failure, setFailure] = useState<Failure | null>(null);
 
   useEffect(() => {
-    getOwnKeys().then(setKeys, (e) => setFailure(toFailure(e)));
+    Promise.all([getOwnKeys(), getAccount()]).then(
+      ([kept, account]) => {
+        setKeys(kept);
+        setUserId(account.id);
+        setLLM(localOwnKeys(account.id).llm);
+      },
+      (e) => setFailure(toFailure(e)),
+    );
   }, []);
 
-  async function remove(service: OwnService) {
+  async function remove(service: "tts" | "stt") {
     setFailure(null);
     try {
       await deleteOwnKey(service);
@@ -56,19 +69,29 @@ export function OwnKeysSettings() {
       </SettingsSection>
     );
   }
-  if (!keys?.available) return null;
+  if (!keys?.available || !userId) return null;
 
   const reload = async () => setKeys(await getOwnKeys());
+  const keepLLM = (kept: LocalLLM) => {
+    keepOwnKey(userId, "llm", kept);
+    setLLM(localOwnKeys(userId).llm);
+  };
+  const forgetLLM = () => {
+    forgetOwnKey(userId, "llm");
+    setLLM(localOwnKeys(userId).llm);
+  };
+  // 文字对话计不计入看这个浏览器里有没有 LLM；通话还用服务器上存的那几项。
+  const exempt = { turns: !!llm, calls: keys.exempt.calls };
 
   return (
     <SettingsSection title={t.title} description={t.hint}>
       <p role="status" className="text-body">
-        {EXEMPTION_NOTES[limitExemption(keys.exempt)]}
+        {EXEMPTION_NOTES[limitExemption(exempt)]}
         {t.perCallLimits}
       </p>
       {failure && <FailureNotice failure={failure} />}
       <div className="flex flex-col gap-4">
-        <OwnLLMForm current={keys.keys.llm} protocols={keys.protocols} onSaved={reload} onDelete={() => remove("llm")} />
+        <OwnLLMForm current={llm} protocols={keys.protocols} onChecked={keepLLM} onDelete={forgetLLM} />
         <Separator />
         <OwnSpeechKeyForm
           service="tts"
@@ -258,15 +281,17 @@ function OwnSpeechKeyForm({
   );
 }
 
+/** 自带的 LLM：先让服务器试调一次（它不保存），通过了才存进这个浏览器。 */
 function OwnLLMForm({
   current,
   protocols,
-  onSaved,
+  onChecked,
   onDelete,
 }: {
-  current: OwnKeys["keys"]["llm"];
+  current: LocalLLM | undefined;
   protocols: LLMProtocol[];
-  onSaved: () => Promise<void>;
+  /** 试调通过的 LLM，地址和模型名按服务器规范化过的。 */
+  onChecked: (llm: LocalLLM) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -283,10 +308,10 @@ function OwnLLMForm({
     setBusy(true);
     setFailure(null);
     try {
-      await saveOwnLLM({ base_url: baseUrl.trim(), api_key: apiKey.trim(), model: model.trim(), protocol });
+      const llm = { base_url: baseUrl.trim(), api_key: apiKey.trim(), model: model.trim(), protocol };
+      onChecked({ ...llm, ...(await checkOwnLLM(llm)) });
       setApiKey("");
       setEditing(false);
-      await onSaved();
     } catch (e) {
       setFailure(toFailure(e));
     } finally {
@@ -300,7 +325,7 @@ function OwnLLMForm({
     <ServiceKey
       title={t.llmTitle}
       hint={t.llmHint}
-      summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(current.last4)] : [t.notSet]}
+      summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(last4(current.api_key))] : [t.notSet]}
       isSet={!!current}
       editing={editing}
       onEdit={() => setEditing(true)}

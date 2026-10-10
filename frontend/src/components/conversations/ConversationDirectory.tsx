@@ -30,6 +30,8 @@ export type CallInList = { characterId: string; state: LiveCall } | null;
 
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由双栏外壳载入一次。 */
 export type Directory = {
+  /** 登录的用户，浏览器里的自带密钥按它分开存；和角色一起载入，还在载入时为 null。 */
+  userId: string | null;
   /** 还在载入时为 null。 */
   characters: Character[] | null;
   latest: Record<string, LatestConversation>;
@@ -62,6 +64,7 @@ export function useDirectory(): Directory {
 }
 
 export function DirectoryProvider({ children }: { children: ReactNode }) {
+  const [userId, setUserId] = useState<string | null>(null);
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [latest, setLatest] = useState<Record<string, LatestConversation>>({});
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -80,10 +83,11 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     // 先问账户：没登录或还没同意条款的浏览器会被送去该去的页面。
     getAccount()
-      .then(() => Promise.all([listCharacters(), listLatestConversations()]))
+      .then((account) => Promise.all([account, listCharacters(), listLatestConversations()]))
       .then(
-        ([all, summaries]) => {
+        ([account, all, summaries]) => {
           if (cancelled) return;
+          setUserId(account.id);
           setCharacters(all);
           setLatest(Object.fromEntries(summaries.map((c) => [c.character_id, c])));
         },
@@ -110,7 +114,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
 
   const callee = characters?.find((c) => c.id === call?.characterId);
   return (
-    <DirectoryContext.Provider value={{ characters, latest, failure, refresh, reload, call, setCall, leave }}>
+    <DirectoryContext.Provider value={{ userId, characters, latest, failure, refresh, reload, call, setCall, leave }}>
       {children}
       {/* 确认框不在她的子树里：只有中性色和挂断红（DESIGN.md「Hang-up Red」：「挂断并离开」用它）。 */}
       <AlertDialog open={leaving !== null} onOpenChange={(open) => !open && setLeaving(null)}>

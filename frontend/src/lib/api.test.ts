@@ -126,19 +126,31 @@ describe("sendTurn", () => {
     return fetch;
   }
 
-  async function events(conversationId: string, text: string): Promise<TurnEvent[]> {
+  async function events(conversationId: string, text: string, userId = "u1"): Promise<TurnEvent[]> {
     const all: TurnEvent[] = [];
-    for await (const event of sendTurn(conversationId, text)) all.push(event);
+    for await (const event of sendTurn(conversationId, text, userId)) all.push(event);
     return all;
   }
 
-  it("posts the text to the conversation's turns", async () => {
+  it("posts the text to the conversation's turns, bringing the user's own LLM kept in this browser", async () => {
+    const llm = {
+      api_key: "sk-my-own-key-1234",
+      base_url: "https://llm.example.com/v1",
+      model: "my-model",
+      protocol: "chat-completions",
+    };
+    const items = new Map([["eidolon.ownKeys.u1", JSON.stringify({ llm })]]);
+    vi.stubGlobal("localStorage", { getItem: (key: string) => items.get(key) ?? null });
     const fetch = answerWith([]);
-    await events("c1", "おはよう");
+
+    await events("c1", "おはよう", "u1");
+    await events("c1", "おはよう", "u2");
+
     const [path, init] = fetch.mock.calls[0];
     expect(path).toBe("/api/conversations/c1/turns");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう" });
+    expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_llm: llm });
+    expect(JSON.parse(fetch.mock.calls[1][1].body as string)).toEqual({ text: "おはよう" });
   });
 
   it("yields each event once its frame is complete, however the stream is split", async () => {

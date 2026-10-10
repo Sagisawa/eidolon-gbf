@@ -15,11 +15,15 @@ async def start_conversation(client: httpx.AsyncClient, character: str = "mano")
     return res.json()["id"]
 
 
-async def send_turn(client: httpx.AsyncClient, conversation_id: str, text: str) -> list[dict]:
-    """Send a text turn and collect the server-sent events it streams back."""
+async def send_turn(
+    client: httpx.AsyncClient, conversation_id: str, text: str, own_llm: dict | None = None
+) -> list[dict]:
+    """Send a text turn, bringing the user's `own_llm` if given, and collect the
+    server-sent events it streams back."""
     events: list[dict] = []
+    body = {"text": text} | ({"own_llm": own_llm} if own_llm else {})
     async with client.stream(
-        "POST", f"/api/conversations/{conversation_id}/turns", json={"text": text}
+        "POST", f"/api/conversations/{conversation_id}/turns", json=body
     ) as res:
         assert res.status_code == 200
         assert res.headers["content-type"].startswith("text/event-stream")

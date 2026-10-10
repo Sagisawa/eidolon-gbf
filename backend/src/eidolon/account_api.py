@@ -18,10 +18,11 @@ callback then sends the browser back to the settings page, with `?linked=<provid
 
 import logging
 import secrets
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, Secret, StringConstraints, model_validator
 
 from eidolon.accounts import SignInRefused
 from eidolon.admin_api import is_admin
@@ -67,11 +68,26 @@ class Deletion(BaseModel):
         return self
 
 
+ApiKey = Secret[
+    Annotated[str, StringConstraints(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")]
+]
+"""A user's own key as a request brings it, never shown in a repr or traceback."""
+
+
 class OwnLLMInput(BaseModel):
+    """The user's own LLM, as their browser keeps it and brings it with each text turn."""
+
     base_url: str = Field(min_length=1, max_length=500)
-    api_key: str = Field(min_length=8, max_length=500, pattern=r"^[\x21-\x7e]+$")
+    api_key: ApiKey
     model: str = Field(min_length=1, max_length=200)
     protocol: LLMProtocol = "chat-completions"
+
+    def settings(self) -> OwnLLMSettings:
+        """As turns run on it: its address and model without surrounding spaces."""
+        return OwnLLMSettings(
+            self.base_url.strip(), self.api_key.get_secret_value(), self.model.strip(),
+            self.protocol,
+        )
 
 
 class OwnSpeechKeyInput(BaseModel):
@@ -203,9 +219,11 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.get("/api/account")
     def account(user_id: UserId) -> dict:
-        """The signed-in user, the identities they sign in with, and whether they are an
-        admin, who may enter the admin console."""
+        """The signed-in user, by the id their browser keeps their own keys apart by, the
+        identities they sign in with, and whether they are an admin, who may enter the
+        admin console."""
         return {
+            "id": user_id,
             "name": store.get_user(user_id).name,
             "sign_in_methods": [
                 {"provider": m.provider, "display_name": m.display_name, "email": m.email}
@@ -253,16 +271,24 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             "protocols": list(LLM_PROTOCOLS),
         }
 
+    @app.post("/api/account/keys/llm/check")
+    async def check_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
+        """Try the user's own LLM before their browser keeps it, keeping nothing here; 422
+        with what the service said if the try failed. Its address and model as the
+        browser is to keep them."""
+        own = body.settings()
+        try:
+            await own_keys.check_llm(own)
+        except OwnKeyRejected as e:
+            raise HTTPException(422, f"试调失败：{e}") from None
+        return {"base_url": own.base_url, "model": own.model}
+
     @app.put("/api/account/keys/llm")
     async def save_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
-        """Try the user's own LLM, then keep it; 422 with what the service said if the
-        try failed."""
+        """Try the user's own LLM, then keep it here, for their calls; 422 with what the
+        service said if the try failed."""
         try:
-            await own_keys.save_llm(
-                user_id,
-                OwnLLMSettings(body.base_url.strip(), body.api_key, body.model.strip(),
-                               body.protocol),
-            )
+            await own_keys.save_llm(user_id, body.settings())
         except OwnKeyRejected as e:
             raise HTTPException(422, f"试调失败，没有保存：{e}") from None
         return own_keys.describe(user_id)["llm"]

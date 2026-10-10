@@ -16,7 +16,7 @@ from tests.browser import TIMEOUT, open_browser
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeIdentityProvider, FakeLLM, FakeLLMService, FakeSpeech
 from tests.test_admin_users import ADMIN, admin_client, details, find, users
-from tests.test_own_speech_keys import bring
+from tests.test_own_speech_keys import MY_LLM, bring
 from tests.test_rate_limit import REPLY, post_turn
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -78,7 +78,7 @@ async def test_the_users_turns_calls_and_rejections_in_each_range_on_whose_keys(
     assert await call(producer, conversation_id, speech) == 429
     clock.advance(days=5)
     await bring(producer, "llm", "stt", "tts")
-    await send_turn(producer, conversation_id, "在吗")  # now, on the user's own keys
+    await send_turn(producer, conversation_id, "在吗", own_llm=MY_LLM)  # now, on the user's own keys
     assert await call(producer, conversation_id, speech) == 200
     admin = await admin_client(make_client, github, clock=clock)
     found = await calls_recorded(admin, (await find(admin, "producer"))["id"], 2)

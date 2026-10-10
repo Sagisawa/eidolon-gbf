@@ -117,10 +117,9 @@ async def test_usage_shows_the_last_day_by_hour_and_what_was_on_own_keys(
     conversation_id = await start_conversation(client)
     await send_turn(client, conversation_id, "在吗")
     await send_turn(client, conversation_id, "在吗")
-    await client.put("/api/account/keys/llm", json={
+    await send_turn(client, conversation_id, "在吗", own_llm={
         "base_url": "https://llm.example.com/v1", "api_key": "sk-own-key-1234", "model": "m",
     })
-    await send_turn(client, conversation_id, "在吗")
 
     out = admin.run("user", "usage", user_id(settings, "producer")).splitlines()
 
