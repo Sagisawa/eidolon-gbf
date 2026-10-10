@@ -120,6 +120,7 @@ from eidolon.own_keys import (
     OwnKeyRejected,
     Service,
 )
+from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.store import Conversation, NotFound, Store
 from eidolon.turn_outcome import TurnOutcome
@@ -375,10 +376,14 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
 
     Interrupted, the service drops its connections, the spare one too, and opens another
     (`InterruptsFirst`); `segment-playing` messages still queued go with the audio they
-    were queued with."""
+    were queued with.
 
-    def __init__(self, **kwargs: Any) -> None:
+    Each session starts with `readings` as its pronunciation dictionary (`readings`), so
+    that names are said as the deployer has them read, the Japanese sent as written."""
+
+    def __init__(self, readings: Sequence[Reading] = (), **kwargs: Any) -> None:
         super().__init__(**kwargs)
+        self._dictionary = pronunciation_dictionary(readings)
         self._arriving: tuple[int, int] | None = None  # (reply, segment) of the Japanese coming in
         self._voiced: tuple[int, int] | None = None  # (reply, segment) being voiced
         self._announced = False  # its `segment-playing` message is queued
@@ -555,6 +560,8 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
             request["temperature"] = self._settings.temperature
         if self._settings.top_p is not None:
             request["top_p"] = self._settings.top_p
+        if self._dictionary is not None:
+            request["pronunciation_dictionary"] = self._dictionary
         websocket: ClientConnection | None = None
         try:
             websocket = await self._websocket_connect(self._base_url, additional_headers=headers)
@@ -600,9 +607,11 @@ sends no transcription at all when it heard no words."""
 class SpeechServices:
     """Soniox or Alibaba Cloud Model Studio, whichever the key is for, hears the user, the
     latter with `bailian_model`, users' own keys too; Fish Audio speaks as the character,
-    with the model the call is given (the deployer's, as it connected)."""
+    with the model the call is given (the deployer's, as it connected), and the readings
+    whoever's key it is on."""
 
     bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
+    readings: tuple[Reading, ...] = ()
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
@@ -627,6 +636,7 @@ class SpeechServices:
             api_key=api_key,
             sample_rate=sample_rate,
             settings=FishAudioTTSService.Settings(voice=voice_id, model=model),
+            readings=self.readings,
         )
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:

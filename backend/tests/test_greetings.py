@@ -14,7 +14,8 @@ import pytest
 from eidolon.activity import ActivityLog
 from eidolon.characters import load_characters
 from eidolon.config import Settings
-from eidolon.greetings import FishAudioSettings, GreetingReport, upload_greetings
+from eidolon.greetings import FishAudioSettings, GreetingReport, greeting_path, upload_greetings
+from eidolon.readings import load_readings, readings_path
 from eidolon.s3 import S3Error, S3Settings
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, Admin, CharacterConfig, ClientFactory
 from tests.fakes import START, FakeFishAudio, FakeLLM
@@ -25,6 +26,7 @@ MANO = ("[softly] ほわっ……はじめまして、櫻木真乃です", "…�
 KOGANE = ("うちが月岡恋鐘ばい！", "我就是月冈恋钟哦！")
 MEGURU = ("はじめまして！八宮めぐるだよ！", "初次见面！我是八宫めぐる！")
 STAND_FILE = "spine/idols/stand/1030010010/data.png"
+READINGS = (("櫻木真乃", "sa0ku1ra1gi0ma1no0"), ("真乃", "ma1no0"), ("283", "tsu0ba1sa1"))
 
 
 class Deployment:
@@ -54,14 +56,28 @@ class Deployment:
             "kogane", "月岡恋鐘", KOGANE_SHEET, voice_id=kogane_voice, greeting=kogane
         ).add("hiori", "風野灯織", "sheet", voice_id="hiori-voice")
 
+    def write_readings(self, *readings: tuple[str, str]) -> None:
+        """The readings file has `readings`, each a name as written and its phonemes."""
+        self.characters.write("readings.toml", "".join(
+            f'[[readings]]\nwritten = "{written}"\nkana = "かな"\nphonemes = "{phonemes}"\n'
+            for written, phonemes in readings
+        ))
+
     async def upload(self) -> GreetingReport:
+        """As `eidolon greeting upload` does it."""
         characters = load_characters(self.characters.path, require_sheets=False)
         return await upload_greetings(
             characters.values(),
             S3Settings("http://storage.test", "stands", "key-id", "secret"),
             FishAudioSettings("deployer-fish-key", "s2.1-pro-free"),
+            load_readings(readings_path(self.characters.path)),
             transport=httpx.MockTransport(self._handle),
         )
+
+    def paths(self) -> dict[str, str | None]:
+        """Where each character's greeting is, as the configuration is now."""
+        characters = load_characters(self.characters.path, require_sheets=False)
+        return {c.id: greeting_path(c) for c in characters.values()}
 
     def greetings(self) -> list[str]:
         return sorted(key for key in self.storage.objects if key.startswith("greetings/"))
@@ -114,6 +130,62 @@ async def test_each_greeting_is_voiced_in_her_voice_and_put_where_the_character_
     assert report.voiced == ["櫻木真乃", "月岡恋鐘"]
     assert report.failed == []
     assert report.exit_code == 0
+
+
+async def test_every_greeting_is_voiced_with_the_readings_as_its_pronunciation_dictionary(
+    deployment: Deployment,
+):
+    """All of them, those her greeting does not use too; she is told to say her words as
+    they are written."""
+    deployment.write_readings(*READINGS)
+
+    await deployment.upload()
+
+    whole = [{"items": [
+        {"key": written, "value": phonemes, "case_sensitive": True} for written, phonemes in READINGS
+    ]}]
+    first, second = deployment.fish.requests
+    assert first["pronunciation_dictionary"] == whole
+    assert second["pronunciation_dictionary"] == whole
+    assert first["text"].endswith("はじめまして、櫻木真乃です")
+    assert second["text"] == KOGANE[0]
+
+
+async def test_without_readings_greetings_are_voiced_with_no_pronunciation_dictionary(
+    deployment: Deployment,
+):
+    await deployment.upload()
+
+    assert all("pronunciation_dictionary" not in request for request in deployment.fish.requests)
+
+
+async def test_a_greeting_is_voiced_again_once_a_reading_it_uses_changes(deployment: Deployment):
+    """Its address is of the readings it uses too: one whose name is read anew is at an
+    address no browser has cached. One that uses none is where it always was."""
+    before = deployment.paths()
+    deployment.write_readings(*READINGS)
+    read = deployment.paths()
+
+    assert read["mano"] != before["mano"]
+    assert read["kogane"] == before["kogane"] == "greetings/kogane-ae29b5dbfc3a.mp3"
+    await deployment.upload()
+    deployment.fish.requests.clear()
+
+    deployment.write_readings(("櫻木真乃", "sa0ku1ra1gi1ma1no0"), *READINGS[1:])  # tuned by hand
+    report = await deployment.upload()
+
+    assert deployment.paths()["mano"] not in (read["mano"], before["mano"])
+    assert [r["reference_id"] for r in deployment.fish.requests] == ["mano-voice"]
+    assert report.voiced == ["櫻木真乃"]
+    assert report.deleted == [read["mano"]]
+
+    # Readings her greeting does not use change: nothing is voiced again.
+    deployment.write_readings(("櫻木真乃", "sa0ku1ra1gi1ma1no0"), ("真乃", "ma0no1"), ("283", "tsu1ba0sa0"))
+    deployment.fish.requests.clear()
+    report = await deployment.upload()
+
+    assert report.voiced == []
+    assert deployment.fish.requests == []
 
 
 async def test_only_the_greetings_the_bucket_lacks_are_voiced(deployment: Deployment):
