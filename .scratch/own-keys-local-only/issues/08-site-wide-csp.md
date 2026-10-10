@@ -4,11 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Next 的全局响应头给所有页面加上 CSP，至少包括：`script-src 'self' 'unsafe-inline'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`。其他指令（`default-src`、`img-src`、`media-src`、`font-src`、`worker-src` 等）按实际用到的来源补齐。
 - [x] 页面的渲染方式不变：构建输出里原来是静态的页面，加了 CSP 以后仍然是静态的。
-- [ ] 逐项确认没有挡住正常功能：落地页（包括招呼的音频）、登录、对话页、立绘和 Spine、通话（WebRTC、TURN、通话提示音）、后台各页。
+- [x] 逐项确认没有挡住正常功能：落地页（包括招呼的音频）、登录、对话页、立绘和 Spine、通话（WebRTC、TURN、通话提示音）、后台各页。
 - [x] 票里写好人工验证清单：用构建版前端（`next build` 加 `next start`），实际打一通电话、发一个回合、打开落地页和后台，看浏览器控制台里没有被 CSP 挡掉的请求。
 
 ## Comments
@@ -49,3 +49,7 @@ matcher 除了 `/api/` 和 `/_next/` 都加。
 4. 打一通电话：接通提示音、她的声音、你的声音都通；立绘出现、会动；换一套衣装，缩略图能显示、换上去正常；挂断提示音正常。手机网络（走 TURN）下再打一次更好。
 5. 后台：看板、用户列表和详情、配置页、价格页逐个打开，图表和操作正常。
 6. 部署到 VPS 后，在线上再看一遍 1 和 4（线上前端容器要拿到 `EIDOLON_STAND_ASSETS_URL`，compose 已经传了）。
+
+### 人工验证通过（2026-10-10）
+
+用户按上面的清单在本地构建版（带 `EIDOLON_STAND_ASSETS_URL`）逐项验证：落地页招呼、真实账号登录、文字回合、通话（立绘、换衣装、提示音）、后台各页，控制台没有被 CSP 挡掉的请求，全部正常。部署到 VPS 后线上那一项（清单第 6 条）随部署再看。
