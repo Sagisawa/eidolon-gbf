@@ -47,3 +47,23 @@
 - [ ] 前端单测和 shadcn 纪律检查都通过。
 
 ## Comments
+
+### 实现说明（2026-10-10）
+
+- 「当前标签」规则在 `frontend/src/lib/settingsTab.ts`：`settingsTab(params)` 读、`settingsTabSearch(params, tab)` 写、`settingsHref(tab)` 给别处直达（通话结束页的「去设置自带密钥」用 `settingsHref("own-keys")`）。单测 `settingsTab.test.ts`。
+- 页面里读地址参数的 `SettingsTabs` 包在 `Suspense` 里（Next 文档：预渲染的页面用 `useSearchParams` 必须有 Suspense 边界）；切换用原生 `window.history.replaceState`，Next 文档写明它跟路由和 `useSearchParams` 同步，不请求、不滚动、不加历史记录。
+- 面板都设 `keepMounted`（Base UI 用 `hidden` 藏起切走的面板，并自动给面板加 `aria-labelledby` 指向标签）。
+- 标签栏外包一层 `sticky top-0 z-10 border-b bg-background` 的 div，`TabsList` 用 `variant="line"`、`w-full gap-0`（去掉 gap，375px 宽时四个标签能等宽）。320px 宽时「登录与数据」最小宽度比四等分略宽，会比其他三个宽一点，仍在一行。
+- `SettingsSection` 的 `title` 改成可选；没有标题时不渲染标题，也不写 `aria-labelledby`。去掉了已不用的 `copy.settings.call.title`；`ownKeys.title` 同理。
+- 标签名在 `copy.settings.tabs`，键就是标签值。
+- DESIGN.md 版式一章加了「设置页」整条。
+
+#### 人工验证清单
+
+- 375px / 320px / 电脑宽度，浅色、深色：标签一行放下、下划线选中态清楚。
+- 无参数、`?tab=call`、`?tab=`、`?tab=xxx` 打开的组；点标签后地址变、按返回直接回对话、页面不跳回顶部；刷新停在原标签。
+- 档案改了称呼不保存，切走再切回：改动和「尚未保存」都在，没有闪「正在读取…」。
+- 自带密钥那组往下翻，标签栏吸在页首下面、内容不透上来。
+- 通话因限额或自带密钥出错结束，「去设置自带密钥」打开自带密钥那组。
+- 管理者、普通用户在「登录与数据」里看到/看不到后台入口；「关于」在四个标签下都在最后。
+- 读屏：通话、自带密钥面板读得出所属标签。

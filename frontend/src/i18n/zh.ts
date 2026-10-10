@@ -278,6 +278,8 @@ export const zh = {
     title: "设置",
     loading: "正在读取…",
     about: "关于 Eidolon-SC",
+    /** 设置页顶上的四个标签。第四组不叫「账号」：GLOSSARY 把它列为避免的说法。 */
+    tabs: { profile: "档案", call: "通话", "own-keys": "自带密钥", "sign-in": "登录与数据" },
     profile: {
       title: "制作人档案",
       formOfAddress: "称呼",
@@ -304,7 +306,6 @@ export const zh = {
       manage: "管理记忆",
     },
     call: {
-      title: "通话",
       mic: "默认麦克风",
       micHint: "语音通话默认使用的麦克风。通话中可以在通话层上切换，切换后的会成为新的默认。",
       micMissing: "已选的麦克风（现在没有连接）",

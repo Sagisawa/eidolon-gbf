@@ -35,6 +35,7 @@ import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
+import { settingsHref } from "@/lib/settingsTab";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
@@ -286,7 +287,7 @@ export function ConversationView({
           onToggleTextOnly={() => live?.toggleTextOnly()}
           onRedial={dial}
           onDismiss={() => live?.dismissEnd()}
-          onOwnKeys={() => leave(() => router.push("/settings"))}
+          onOwnKeys={() => leave(() => router.push(settingsHref("own-keys")))}
         />
       )}
       <MicSheet

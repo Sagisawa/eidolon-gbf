@@ -55,7 +55,7 @@ export function OwnKeysSettings() {
 
   if (failure && !userId) {
     return (
-      <SettingsSection title={t.title}>
+      <SettingsSection>
         <FailureNotice failure={failure} />
       </SettingsSection>
     );
@@ -69,7 +69,7 @@ export function OwnKeysSettings() {
   };
 
   return (
-    <SettingsSection title={t.title} description={t.hint}>
+    <SettingsSection description={t.hint}>
       {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
       <p role="status" className="text-body">
         {EXEMPTION_NOTES[limitExemption(ownServices(kept))]}
