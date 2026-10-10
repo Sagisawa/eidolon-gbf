@@ -34,8 +34,7 @@
 //  11. 按帧降档：完整档在 CPU 降速的小窗口里跑一会儿，档位只降不升。
 //   截图写到 screenshots/landing-check/（gitignore 掉的），或者环境变量 LANDING_SHOTS 指定的目录。
 //
-// 节流照 Lighthouse 移动端默认：RTT 150 ms、下行 1.6 Mbps、上行 750 Kbps、CPU 4 倍降速；
-// 视口 390×844、DPR 3、触屏。每轮新开上下文，不带缓存。
+// 手机 4G 的节流和视口见 phone-4g.mjs（和应用页检查 app-check.mjs 共用）。
 
 import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -44,6 +43,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
 import { ACT1_SCREENS, holdAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
+import { lastLcp, medianByLcp, phone4gPage } from "./phone-4g.mjs";
 
 const origin = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const runs = Number(process.argv[3] ?? 3);
@@ -155,47 +155,13 @@ try {
 
 const measures = [];
 for (let n = 0; n < runs; n++) {
-  const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    deviceScaleFactor: 3,
-    isMobile: true,
-    hasTouch: true,
-  });
-  const page = await context.newPage();
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("Network.enable");
-  await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
-  await cdp.send("Network.emulateNetworkConditions", {
-    offline: false,
-    latency: 150,
-    downloadThroughput: (1.6 * 1024 * 1024) / 8,
-    uploadThroughput: (750 * 1024) / 8,
-  });
-  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-
-  const requests = new Map();
-  cdp.on("Network.requestWillBeSent", (e) => requests.set(e.requestId, { url: e.request.url, t: e.timestamp }));
-  cdp.on("Network.responseReceived", (e) => {
-    const r = requests.get(e.requestId);
-    if (r) r.type = e.type;
-  });
-  cdp.on("Network.loadingFinished", (e) => {
-    const r = requests.get(e.requestId);
-    if (r) r.bytes = e.encodedDataLength;
-  });
-
-  await page.addInitScript(() => {
-    window.__lcp = [];
-    new PerformanceObserver((list) => {
-      for (const e of list.getEntries()) window.__lcp.push({ t: e.startTime, id: e.element?.id ?? null, text: e.element?.textContent?.slice(0, 30) });
-    }).observe({ type: "largest-contentful-paint", buffered: true });
-  });
+  const { context, page, requests } = await phone4gPage(browser);
 
   await page.goto(`${origin}/`, { waitUntil: "load", timeout: 120000 });
   // 等光层加载完、淡入（浏览器空闲以后），顺便量它的大小。
   const glAt = await glOn(page, 60000);
   await page.waitForTimeout(1500);
-  const lcp = (await page.evaluate(() => window.__lcp)).at(-1) ?? null;
+  const lcp = await lastLcp(page);
   const loadEnd = await page.evaluate(() => performance.getEntriesByType("navigation")[0].loadEventEnd);
 
   // 首屏 JS = load 事件之前请求的脚本；之后的（空闲时加载的光层、点了才加载的登录面板）不算。
@@ -218,9 +184,7 @@ for (let n = 0; n < runs; n++) {
   await context.close();
 }
 
-const sorted = [...measures].sort((a, b) => (a.lcp?.t ?? Infinity) - (b.lcp?.t ?? Infinity));
-const median = sorted[Math.floor(sorted.length / 2)];
-const lcpMs = median.lcp?.t ?? NaN;
+const lcpMs = medianByLcp(measures).lcp?.t ?? NaN;
 report(`手机 4G 下的 LCP 不超过 ${LCP_BUDGET_MS} ms（${runs} 轮的中位数）`, lcpMs <= LCP_BUDGET_MS, `${lcpMs.toFixed(0)} ms`);
 report(
   "LCP 元素是标题文字",
