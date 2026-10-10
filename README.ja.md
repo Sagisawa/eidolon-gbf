@@ -538,6 +538,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 cd frontend
 npm install
 BACKEND_URL=http://localhost:8000 npm run dev   # :3000 で起動し、/api/* をバックエンドへ転送
+# 立ち絵を見るときは、フロントエンドにも .env と同じ EIDOLON_STAND_ASSETS_URL を渡す（ページの CSP はこのアドレス以外から立ち絵を読み込まない）
 npm run typecheck
 npm test
 ```

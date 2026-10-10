@@ -202,6 +202,8 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --jso
 
 改完重启后端。`idol_id` 或 `default_outfit` 格式不对时后端拒绝启动，并说明是哪位角色的哪一项。
 
+前端也读 `EIDOLON_STAND_ASSETS_URL`：全站的 CSP 只许页面向本站发请求，这个地址是唯一的例外（立绘、衣装清单、缩略图和落地页的招呼都从这里加载）。用 docker compose 部署时它会自动传给前端，改了之后前端和后端都要重启；不用 docker 跑前端时，要在前端的环境里也设上它，不然立绘会被浏览器挡掉，通话层退回背景图。
+
 ### 选择对象存储
 
 任何 S3 兼容的对象存储都行：Cloudflare R2（不收流量费）、腾讯云 COS、阿里云 OSS、AWS S3，或者自己搭的 MinIO、SeaweedFS。同步脚本只用 S3 接口，不依赖哪一家。每位角色约 120MB（真乃 84 套、恋钟 80 套衣装，加上缩略图），浏览器打电话时下载一套，平均约 1.3MB（之后走缓存）。服务器在国内时，选国内的存储、配上已备案的域名，手机上的加载会快很多。
@@ -318,7 +320,7 @@ npx http-server corpus/stand/source/assets -p 8765 --cors
 EIDOLON_STAND_ASSETS_URL=http://localhost:8765
 ```
 
-然后重启后端，打开对话页打电话。换一套衣装看效果时，改 `characters.toml` 的 `default_outfit` 再重启后端。这样没有衣装清单和缩略图；要连换衣装一起看，就在本机跑一个 S3 兼容的存储（例如 SeaweedFS：`weed server -s3 -s3.allowedOrigins='*'`，配一个可写的密钥和匿名只读），照上面同步一次，再把 `EIDOLON_STAND_ASSETS_URL` 指向存储桶的地址（例如 `http://localhost:8333/<存储桶>`）。
+然后重启后端，前端启动时也带上同样的 `EIDOLON_STAND_ASSETS_URL`（见上面的 CSP），打开对话页打电话。换一套衣装看效果时，改 `characters.toml` 的 `default_outfit` 再重启后端。这样没有衣装清单和缩略图；要连换衣装一起看，就在本机跑一个 S3 兼容的存储（例如 SeaweedFS：`weed server -s3 -s3.allowedOrigins='*'`，配一个可写的密钥和匿名只读），照上面同步一次，再把 `EIDOLON_STAND_ASSETS_URL` 指向存储桶的地址（例如 `http://localhost:8333/<存储桶>`）。
 
 ## 招呼
 

@@ -534,6 +534,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 cd frontend
 npm install
 BACKEND_URL=http://localhost:8000 npm run dev   # 启动在 :3000，/api/* 转发给后端
+# 要看立绘时，前端也带上和 .env 一样的 EIDOLON_STAND_ASSETS_URL：页面的 CSP 只许从这个地址加载立绘
 npm run typecheck
 npm test
 ```

@@ -538,6 +538,7 @@ EIDOLON_DEV_LOGIN=1 CHAT_LLM_BASE_URL=... CHAT_LLM_API_KEY=... CHAT_LLM_MODEL=..
 cd frontend
 npm install
 BACKEND_URL=http://localhost:8000 npm run dev   # serves on :3000, proxies /api/* to the backend
+# to see the stands, also give the frontend the same EIDOLON_STAND_ASSETS_URL as in .env: the page's CSP loads stands from nowhere else
 npm run typecheck
 npm test
 ```
