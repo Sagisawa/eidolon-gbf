@@ -68,6 +68,8 @@ export type SceneInput = {
   speaker?: string;
   /** 第 4 幕的来电接到哪一步了（交互 reducer 的 `call.phase`）；不给时在响。 */
   call?: Call["phase"];
+  /** 第 4 幕里她的立绘挂得出来（有默认衣装、不是静态档）：那时她那道光让给立绘。 */
+  speakerStand?: boolean;
 };
 
 export type Band = {
@@ -797,9 +799,9 @@ function ringPulse(time: number): number {
 }
 
 /**
- * 第 4 幕「来电」：全屏是她。背景过渡到她的极深底色，她那道光站到画面中间；铃声在画面上是一阵一阵的
- * 光脉冲，响的时候画面振动（访客接听以前从不出声）。接通以后不再响，她的光稳稳地亮着。`p` 是幕内进度；
- * 静止版式里画面静止：光脉冲定格在一半，不振动。
+ * 第 4 幕「来电」：全屏是她。背景过渡到她的极深底色，她那道光站到画面中间；她有立绘时，光在来电的画面
+ * 显出来的同时熄掉，不在立绘正后面竖一条线。铃声在画面上是一阵一阵的光脉冲，响的时候画面振动（访客接听
+ * 以前从不出声）。接通以后不再响，她的光稳稳地亮着。`p` 是幕内进度；静止版式里画面静止：光脉冲定格在一半，不振动。
  */
 function act4Picture(
   lights: readonly BandLight[],
@@ -809,6 +811,7 @@ function act4Picture(
   her: number,
   phase: Call["phase"],
   still: boolean,
+  stand: boolean,
 ): Picture & { call: CallState } {
   const from = act3Picture(lights, vp, m, 1, her, still);
   const enter = still ? 1 : easeInOut(smooth(0, CALL_IN, p));
@@ -824,7 +827,7 @@ function act4Picture(
           ...b,
           x: lerp(b.x, vp.w * 0.5, enter),
           halo: lerp(b.halo, 46 * light.spread, enter),
-          intensity: lerp(b.intensity, ringing ? 0.5 + 0.38 * pulse : 0.78, enter),
+          intensity: lerp(b.intensity, stand ? 0 : ringing ? 0.5 + 0.38 * pulse : 0.78, enter),
         }
       : b,
   );
@@ -884,7 +887,7 @@ export function describeScene(input: SceneInput): Scene {
   const her = speakerIndex(lights, input.speaker);
   if (act4 && scroll >= act4.from) {
     const q = still ? act4.length : scroll - act4.from;
-    const picture = act4Picture(lights, viewport, m, clamp(q / act4.length), her, input.call ?? "ringing", still);
+    const picture = act4Picture(lights, viewport, m, clamp(q / act4.length), her, input.call ?? "ringing", still, !!input.speakerStand);
     const release = q - act4.length;
     if (release <= 0) return { ...where, ...picture };
     // 解开钉住的那一屏：她的光和熄着的光一起变形成第 5 幕开头的样子，背景回到黑，铃声的光暗下去，来电的画面淡出。

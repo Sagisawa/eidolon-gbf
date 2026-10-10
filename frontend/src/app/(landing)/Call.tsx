@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { interactionStore, useInteraction } from "./interactionStore";
-import { ANSWER_MS, callSounds, type Call as CallState } from "./model/interaction";
+import { ANSWER_MS, connectTone, type Call as CallState } from "./model/interaction";
 import { stageStore, useLayout, useStage } from "./stageStore";
 import { StandSlot } from "./StandSlot";
 import type { Speaker } from "./Voice";
@@ -24,7 +24,7 @@ const TOUCH_CLICK_MS = 800;
 /**
  * 第 4 幕「来电」：全屏是她（极深底色、立绘、竖排的名字），画面跟着铃声的节奏振动、发光，滚动经过时
  * 只有画面在响。访客接听才出声：电脑上点「接听」（或者用键盘、读屏器按下），一圈色光自己收拢；手机上
- * 长按，按住多久收拢多少，没按够就松开会退回去。收拢的同时响起铃声，收拢完就接通，播一声接通音，
+ * 长按，按住多久收拢多少，没按够就松开会退回去。收拢完就接通，播一声接通音（不放铃声），
  * 她说一句话（只有文字）。声音遵守声音开关，接通、挂断都由交互 reducer 决定；离开这一幕就挂断。
  *
  * 运动版式里光脉冲和振动由 LightStage 按落地页模型写进 --lp-pulse、--lp-shake-x/y，来电画面的不透明度是
@@ -52,7 +52,7 @@ export function Call({
   const touchedAt = useRef(-Infinity);
   const connectedAt = useConnectedAt(call.phase);
 
-  useCallTones();
+  const tone = useConnectTone();
 
   const setHold = (k: number) => ringEl.current?.style.setProperty("--lp-hold", String(k));
   const stopHold = () => {
@@ -68,7 +68,7 @@ export function Call({
     [],
   );
 
-  // 离开这一幕就挂断：接听中的铃声停下，回到响铃的样子。
+  // 离开这一幕就挂断：收拢到一半的色光退回去，回到响铃的样子。
   const lastAct = useRef(act);
   useEffect(() => {
     const before = lastAct.current;
@@ -90,7 +90,9 @@ export function Call({
 
   /** 开始接听。`auto`：点了一下（或者用键盘、读屏器按下），色光自己收拢；不然是手指按着，松开就退回去。 */
   const begin = (auto: boolean) => {
-    if (interactionStore.dispatch({ type: "answer" }).call.phase !== "answering") return;
+    const { call } = interactionStore.dispatch({ type: "answer" });
+    if (call.phase !== "answering") return;
+    if (call.audible) tone.prime();
     // 定格档：点了就接通，不放收拢的动画。
     if (auto && layout?.tier === "reduced") return answered();
     const start = performance.now();
@@ -213,37 +215,44 @@ function Elapsed({ since }: { since: number }) {
   );
 }
 
+const reportTone = (event: "playing" | "failed") => interactionStore.dispatch({ type: "tone", event });
+
 /**
- * 电话的声音：铃声（循环）和接通音，复用应用通话用的那两个文件（GLOSSARY「铃声」「接通音」），接听时才加载。
- * 开始、停下、播一次都按交互状态的变化来（model/interaction.ts 的 callSounds）。真的响起来了报给 reducer
- * （第一次出声时出现声音开关），放不出来也报，但不当作错误。
+ * 接通音：复用应用通话用的那个文件（GLOSSARY「接通音」），接听时才加载，接通时播一次（model/interaction.ts 的
+ * connectTone）。真的响起来了报给 reducer（第一次出声时出现声音开关），放不出来也报，但不当作错误。不放铃声。
  *
- * 接通音在色光收拢完才播，那时已经不在访客的手势里了：开始接听（手势里）时先静音地播一下再停住，Safari
- * 才肯在之后放它。
+ * 接通音在色光收拢完才播，那时已经不在访客的手势里了：开始接听（手势里）时调一下返回的 `prime`，先静音地
+ * 播一下再停住，Safari 才肯在之后放它。
  */
-function useCallTones() {
+function useConnectTone(): { prime: () => void } {
+  const tone = useRef<HTMLAudioElement | null>(null);
+  const load = () => {
+    if (tone.current) return tone.current;
+    const a = new Audio("/sounds/connect.ogg");
+    a.addEventListener("playing", () => !a.muted && reportTone("playing"));
+    return (tone.current = a);
+  };
   useEffect(() => {
-    let tones: { ring: HTMLAudioElement; connect: HTMLAudioElement } | null = null;
-    const report = (event: "playing" | "failed") => interactionStore.dispatch({ type: "tone", event });
-    const load = () => {
-      if (tones) return tones;
-      const ring = new Audio("/sounds/ringback.mp3");
-      ring.loop = true;
-      const connect = new Audio("/sounds/connect.ogg");
-      for (const a of [ring, connect]) a.addEventListener("playing", () => !a.muted && report("playing"));
-      return (tones = { ring, connect });
-    };
-    const play = (a: HTMLAudioElement) => {
+    const unsubscribe = interactionStore.subscribe((prev, next) => {
+      if (!connectTone(prev, next)) return;
+      const a = load();
       a.muted = false;
       a.currentTime = 0;
-      a.play().catch(() => report("failed"));
+      a.play().catch(() => reportTone("failed"));
+    });
+    return () => {
+      unsubscribe();
+      tone.current?.pause();
     };
-    const prime = (a: HTMLAudioElement) => {
+  }, []);
+  return {
+    prime() {
+      const a = load();
       if (!a.paused) return;
       a.muted = true;
       a.play().then(
         () => {
-          // 接通音已经要真的播了（muted 被 play 改回来）就不打断它。
+          // 接通音已经要真的播了（muted 被改回来）就不打断它。
           if (!a.muted) return;
           a.pause();
           a.currentTime = 0;
@@ -251,21 +260,6 @@ function useCallTones() {
         },
         () => (a.muted = false),
       );
-    };
-    const unsubscribe = interactionStore.subscribe((prev, next) => {
-      const { ring, connect } = callSounds(prev, next);
-      if (ring === "start") {
-        const t = load();
-        play(t.ring);
-        prime(t.connect);
-      }
-      if (ring === "stop") tones?.ring.pause();
-      if (connect) play(load().connect);
-    });
-    return () => {
-      unsubscribe();
-      tones?.ring.pause();
-      tones?.connect.pause();
-    };
-  }, []);
+    },
+  };
 }

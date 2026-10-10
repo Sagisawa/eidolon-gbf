@@ -54,12 +54,14 @@ export function LightStage({
   lights,
   section,
   speaker,
+  speakerStand,
   children,
 }: {
   lights: BandLight[];
   section: Section;
-  /** 第 3、4 幕说话、打来电话的那一位。 */
+  /** 第 3、4 幕说话、打来电话的那一位，和她有没有立绘（有的话第 4 幕里她那道光让给立绘）。 */
   speaker: string | null;
+  speakerStand: boolean;
   children: ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -426,6 +428,7 @@ export function LightStage({
         focus,
         nameGaps,
         speaker: speaker ?? undefined,
+        speakerStand,
         call: interactionStore.get().call.phase,
       });
       stage.style.setProperty("--lp-act1-text", String(scene.text.act1));
@@ -520,7 +523,7 @@ export function LightStage({
       document.removeEventListener("visibilitychange", onVisible);
     });
     return unmount;
-  }, [lights, speaker]);
+  }, [lights, speaker, speakerStand]);
 
   return (
     <div

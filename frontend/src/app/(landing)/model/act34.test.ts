@@ -159,6 +159,18 @@ describe("describeScene: 第 4 幕，来电", () => {
     expect(s.bands.filter((x) => x.id !== "真乃").every((x) => x.intensity === 0)).toBe(true);
   });
 
+  it("她有立绘时，来电的画面显出来、她那道光就熄了（不在立绘正后面竖一条线）；没有立绘时光留着", () => {
+    for (const p of [0, 0.05, 0.1, 0.5]) {
+      const a = bandOf(scene({ scroll: in4(p), speakerStand: true }), "真乃").intensity;
+      const b = bandOf(scene({ scroll: in4(p + 0.001), speakerStand: true }), "真乃").intensity;
+      expect(Math.abs(b - a), `p ${p}`).toBeLessThan(0.05);
+    }
+    const s = scene({ scroll: in4(0.5), time: 0.25, speakerStand: true });
+    expect(s.bands.every((b) => b.intensity === 0)).toBe(true);
+    expect(s.call!.pulse).toBeGreaterThan(0.9);
+    expect(bandOf(scene({ scroll: in4(0.5) }), "真乃").intensity).toBeGreaterThan(0.4);
+  });
+
   it("响铃：光一阵一阵地脉动，响的时候画面振动、她的光和背景跟着亮，停的时候不动", () => {
     const frames = Array.from({ length: 300 }, (_, k) => scene({ scroll: in4(0.5), time: k * 0.02 }));
     const pulses = frames.map((s) => s.call!.pulse);

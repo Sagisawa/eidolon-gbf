@@ -974,7 +974,7 @@ html:not([data-lp-layout="motion"]) .lp-sub {
 }
 
 /* 来电：全屏是她。底色是她的极深同色相（光层画好以后由着色器画，跟着铃声一阵阵亮），一圈她的光晕跟着
- * 光脉冲（--lp-pulse）亮；她的立绘和名字跟着振动（--lp-shake-x/y）。 */
+ * 光脉冲（--lp-pulse）亮；她的名字跟着振动（--lp-shake-x/y），立绘不抖。 */
 .lp-act4 {
   background: var(--her-deep);
 }
@@ -994,7 +994,6 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
 .lp-call-her {
   position: absolute;
   inset: 0;
-  transform: translate(var(--lp-shake-x, 0px), var(--lp-shake-y, 0px));
 }
 .lp-call-stand {
   position: absolute;
@@ -1012,6 +1011,7 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
   left: calc(50% - min(19vw, 25vh));
   margin: 0;
   transform: translateX(-100%);
+  translate: var(--lp-shake-x, 0px) var(--lp-shake-y, 0px); /* 和摆位的 transform 分开写，竖屏上 transform 换掉也不丢。 */
   writing-mode: vertical-rl;
   font-family: var(--lp-ja);
   font-weight: 600;

@@ -5,8 +5,8 @@
 // - 第一次点就出声；真的出了声，才出现常驻的声音开关（开着），音频加载不出来时不出现一个管不了什么的开关。
 //   关掉以后点偶像只显示字幕，接听也不出声。
 // - 同时只说一句：点另一位、或者指针移到另一位身上，上一句就停下；接听时招呼也停下，接听中点了偶像就挂断。
-// - 第 4 幕的来电，滚动经过时只有画面在响。访客接听（电脑上点，手机上长按）时才响起铃声
-//   （GLOSSARY「铃声」），色光收束完就接通、播一声接通音。离开这一幕就挂断，回到响铃的样子。
+// - 第 4 幕的来电，滚动经过时只有画面在响。访客接听（电脑上点，手机上长按）时色光收束，不放铃声；
+//   收束完就接通、播一声接通音（GLOSSARY「接通音」）。离开这一幕就挂断，回到响铃的样子。
 
 /** 正在说的一句。`n` 每说一句加一：音频事件和字幕的计时都带着它，上一句的事件不会落到这一句上。 */
 export type Saying = {
@@ -20,7 +20,7 @@ export type Saying = {
 export type Call = {
   /** `ringing` 在响（只有画面）、`answering` 接听中（色光在收束）、`connected` 接通了。 */
   phase: "ringing" | "answering" | "connected";
-  /** 这次接听出不出声：开始接听时声音开关没关就出声；接听中关掉开关就不再出声，再打开也不从中间响起来。 */
+  /** 这次接听出不出声：开始接听时声音开关没关，接通时就播接通音；接听中关掉开关就不播，再打开也不补。 */
   audible: boolean;
 };
 
@@ -64,7 +64,7 @@ export type InteractionAction =
   | { type: "answered" }
   /** 离开第 4 幕：挂断，回到响铃的样子。 */
   | { type: "hang-up" }
-  /** 铃声或接通音真的响起来了，或者放不出来。 */
+  /** 接通音真的响起来了，或者放不出来。 */
   | { type: "tone"; event: "playing" | "failed" };
 
 /** 聚焦的那位：指着谁就是谁；谁都没指着时，正在说话的她。 */
@@ -133,9 +133,6 @@ export function interactionReducer(s: Interaction, a: InteractionAction): Intera
   }
 }
 
-/** 状态从 `prev` 变成 `next` 时，电话的声音要做什么：铃声开始或停下，接通音播不播。 */
-export function callSounds(prev: Interaction, next: Interaction): { ring: "start" | "stop" | null; connect: boolean } {
-  const ringing = (s: Interaction) => s.call.phase === "answering" && s.call.audible;
-  const ring = ringing(next) === ringing(prev) ? null : ringing(next) ? "start" : "stop";
-  return { ring, connect: prev.call.phase === "answering" && next.call.phase === "connected" && next.call.audible };
-}
+/** 状态从 `prev` 变成 `next` 时要不要播接通音：接听中接通了，并且这次接听出声。 */
+export const connectTone = (prev: Interaction, next: Interaction): boolean =>
+  prev.call.phase === "answering" && next.call.phase === "connected" && next.call.audible;

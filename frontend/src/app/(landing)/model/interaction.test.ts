@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { callSounds, focusOf, holdMs, INITIAL, interactionReducer, type Interaction, type InteractionAction } from "./interaction";
+import { connectTone, focusOf, holdMs, INITIAL, interactionReducer, type Interaction, type InteractionAction } from "./interaction";
 
 const run = (...actions: InteractionAction[]): Interaction => actions.reduce(interactionReducer, INITIAL);
 
@@ -118,68 +118,58 @@ describe("holdMs: 字幕还要留多久", () => {
 });
 
 describe("interactionReducer: 第 4 幕的接听", () => {
-  /** 从 `from` 走到 `actions` 以后，每一步要放什么声音。 */
-  const sounds = (from: Interaction, ...actions: InteractionAction[]) => {
-    const steps: ReturnType<typeof callSounds>[] = [];
+  /** 从 `from` 走到 `actions` 以后，每一步要不要播接通音。 */
+  const tones = (from: Interaction, ...actions: InteractionAction[]) => {
+    const steps: boolean[] = [];
     actions.reduce((s, a) => {
       const next = interactionReducer(s, a);
-      steps.push(callSounds(s, next));
+      steps.push(connectTone(s, next));
       return next;
     }, from);
     return steps;
   };
-  const silent = { ring: null, connect: false };
 
   it("滚动经过时只有画面在响：没接听就不出声", () => {
-    expect(callSounds(INITIAL, INITIAL)).toEqual(silent);
-    expect(sounds(INITIAL, { type: "point", id: "mano" }, { type: "leave" }, { type: "hang-up" })).toEqual([silent, silent, silent]);
+    expect(tones(INITIAL, { type: "point", id: "mano" }, { type: "leave" }, { type: "hang-up" })).toEqual([false, false, false]);
   });
 
-  it("接听：开始接听时响起铃声，色光收束完就接通，铃声停下、播一声接通音", () => {
+  it("接听：色光收束的时候不出声（没有铃声），收束完接通，播一声接通音", () => {
     const answering = run({ type: "answer" });
     expect(answering.call).toEqual({ phase: "answering", audible: true });
-    const connected = interactionReducer(answering, { type: "answered" });
-    expect(connected.call.phase).toBe("connected");
-    expect(sounds(INITIAL, { type: "answer" }, { type: "answered" })).toEqual([
-      { ring: "start", connect: false },
-      { ring: "stop", connect: true },
-    ]);
+    expect(interactionReducer(answering, { type: "answered" }).call.phase).toBe("connected");
+    expect(tones(INITIAL, { type: "answer" }, { type: "answered" })).toEqual([false, true]);
   });
 
-  it("铃声真的响了才出现声音开关；放不出来就不出现", () => {
-    expect(run({ type: "answer" }).sound).toBe("hidden");
-    expect(run({ type: "answer" }, { type: "tone", event: "playing" }).sound).toBe("on");
-    expect(run({ type: "answer" }, { type: "tone", event: "failed" }).sound).toBe("hidden");
+  it("接通音真的响了才出现声音开关；放不出来就不出现", () => {
+    const connected = run({ type: "answer" }, { type: "answered" });
+    expect(connected.sound).toBe("hidden");
+    expect(interactionReducer(connected, { type: "tone", event: "playing" }).sound).toBe("on");
+    expect(interactionReducer(connected, { type: "tone", event: "failed" }).sound).toBe("hidden");
   });
 
-  it("声音开关关着时接听：照样接通，但从头到尾不出声", () => {
+  it("声音开关关着时接听：照样接通，但不播接通音", () => {
     const off = run(press("meguru"), { type: "voice", n: 1, event: "playing" }, { type: "sound" });
     expect(off.sound).toBe("off");
-    expect(sounds(off, { type: "answer" }, { type: "answered" })).toEqual([silent, silent]);
+    expect(tones(off, { type: "answer" }, { type: "answered" })).toEqual([false, false]);
     expect(run(press("meguru"), { type: "voice", n: 1, event: "playing" }, { type: "sound" }, { type: "answer" }, { type: "answered" }).call.phase).toBe(
       "connected",
     );
   });
 
-  it("接听到一半关掉声音开关：铃声停下，接通时也不播接通音；再打开也不从中间响起来", () => {
-    const answering = run({ type: "answer" }, { type: "tone", event: "playing" });
-    expect(sounds(answering, { type: "sound" }, { type: "sound" }, { type: "answered" })).toEqual([
-      { ring: "stop", connect: false },
-      silent,
-      silent,
-    ]);
+  it("接听到一半关掉声音开关：接通时不播接通音；再打开也不从中间响起来", () => {
+    const answering = run(press("meguru"), { type: "voice", n: 1, event: "playing" }, { type: "answer" });
+    expect(tones(answering, { type: "sound" }, { type: "sound" }, { type: "answered" })).toEqual([false, false, false]);
   });
 
-  it("手机上没按够就松开：回到响铃，铃声停下", () => {
+  it("手机上没按够就松开：回到响铃，不出声", () => {
     const s = run({ type: "answer" }, { type: "answer-cancel" });
     expect(s.call.phase).toBe("ringing");
-    expect(sounds(INITIAL, { type: "answer" }, { type: "answer-cancel" })[1]).toEqual({ ring: "stop", connect: false });
+    expect(tones(INITIAL, { type: "answer" }, { type: "answer-cancel" })).toEqual([false, false]);
   });
 
-  it("离开第 4 幕就挂断：回到响铃的样子，接听中的铃声停下，不播别的声音", () => {
+  it("离开第 4 幕就挂断：回到响铃的样子，不播别的声音", () => {
     expect(run({ type: "answer" }, { type: "answered" }, { type: "hang-up" }).call.phase).toBe("ringing");
-    expect(sounds(INITIAL, { type: "answer" }, { type: "hang-up" })[1]).toEqual({ ring: "stop", connect: false });
-    expect(sounds(run({ type: "answer" }, { type: "answered" }), { type: "hang-up" })).toEqual([silent]);
+    expect(tones(run({ type: "answer" }, { type: "answered" }), { type: "hang-up" })).toEqual([false]);
   });
 
   it("同时只有一种声音：接听时正在说的招呼停下", () => {
@@ -187,11 +177,10 @@ describe("interactionReducer: 第 4 幕的接听", () => {
     expect(s.saying).toBeNull();
   });
 
-  it("接听中点了偶像：电话挂断、铃声停下，换成她的招呼", () => {
+  it("接听中点了偶像：电话挂断，换成她的招呼", () => {
     const s = run({ type: "answer" }, press("meguru"));
     expect(s.call.phase).toBe("ringing");
     expect(s.saying).toMatchObject({ id: "meguru" });
-    expect(callSounds(run({ type: "answer" }), s)).toEqual({ ring: "stop", connect: false });
   });
 
   it("只在响铃时能开始接听，只在接听中能接通", () => {

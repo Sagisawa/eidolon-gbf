@@ -67,7 +67,7 @@ export function Landing({
           </div>
           <p className="lp-disclaimer">{t.disclaimer}</p>
         </section>
-        <LightStage lights={lights} section={sectionOf(1)} speaker={speaker?.id ?? null}>
+        <LightStage lights={lights} section={sectionOf(1)} speaker={speaker?.id ?? null} speakerStand={!!speaker?.outfit}>
           <section className="lp-act1" aria-labelledby={lights.length > 0 ? "lp-act1-title" : undefined} data-lp-act="1">
             <StaticLight lights={lights} />
             {lights.length > 0 && (
