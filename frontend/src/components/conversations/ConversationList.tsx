@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,28 +18,35 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
-import { matchesSearch } from "@/lib/characterSearch";
 import { arrange, dayOf, previewOf, type Preview } from "@/lib/conversationList";
+import { hide, pin, show, unpin } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
-import { MoreIcon, SearchIcon } from "@/theme/icons";
+import { MoreIcon, PinIcon, SearchIcon } from "@/theme/icons";
 
 import { useDirectory, type CallInList } from "./ConversationDirectory";
+import { ListFilter } from "./ListFilter";
 import { useCallTime } from "./useCallTime";
 
 const t = copy.conversationList;
 
 /**
- * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字或组合找人的搜索框；
- * 每位角色一行（56px 头像、名字和时间一行，最后一句一行），选中行铺中性的 bg-muted；底部一行免责声明。
- * 最近有过往来的排在上面（`arrange`），搜索结果也一样；一整列不按组合分段，换位置时直接跳过去、不做动画。
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字或组合找人的搜索框，
+ * 右边是筛选按钮（`ListFilter`）；每位角色一行（56px 头像、名字和时间一行，最后一句一行），选中行铺中性的 bg-muted；
+ * 底部一行免责声明。显示谁、按什么顺序由 `arrange` 决定：置顶的在前，最近有过往来的在上面；隐藏的不显示，
+ * 但搜索时照样能搜到，当前打开的和正在通话的始终留下。一整列不按组合分段，换位置时直接跳过去、不做动画。
  * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
  */
 export function ConversationList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
-  const { characters, latest, failure, reload, call, leave } = useDirectory();
+  const { characters, latest, preferences, tidy, failure, reload, call, leave } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
-  const shown = characters && arrange(characters.filter((c) => matchesSearch(c, query)), latest);
+  const [isFilterOpen, setFilterOpen] = useState(false);
+  const keep = [selectedId, call?.characterId].filter((id): id is string => !!id);
+  const shown = characters && arrange(characters, latest, { preferences, query, keep });
+  const hiddenCount = shown?.hiddenCount ?? 0;
+  // 搜索时隐藏的人照样出现，「已隐藏 n 位」和全部隐藏的空状态只在没有搜索时出现。
+  const showsHidden = query.trim() === "" && hiddenCount > 0;
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -55,8 +63,8 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         </DropdownMenu>
       </header>
 
-      <div className="shrink-0 px-4 pb-2">
-        <label className="flex h-9 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+      <div className="flex shrink-0 items-center gap-1 pr-2 pb-2 pl-4">
+        <label className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 text-muted-foreground has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
           <SearchIcon aria-hidden className="size-4 shrink-0" />
           <input
             type="search"
@@ -67,6 +75,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
             className="min-w-0 flex-1 bg-transparent text-body text-foreground outline-none placeholder:text-muted-foreground"
           />
         </label>
+        <ListFilter isOpen={isFilterOpen} onOpenChange={setFilterOpen} hiddenCount={hiddenCount} />
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -88,26 +97,52 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
           </Empty>
         ) : !shown ? (
           <Loading />
-        ) : shown.length === 0 ? (
+        ) : shown.rows.length === 0 && showsHidden ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>{t.allHidden}</EmptyTitle>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button variant="outline" onClick={() => setFilterOpen(true)}>
+                {t.chooseShown}
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : shown.rows.length === 0 ? (
           <p className="px-4 py-6 text-center text-preview text-muted-foreground">{t.noMatch}</p>
         ) : (
-          <ul aria-label={t.title}>
-            {shown.map((c) => (
-              <li key={c.id}>
-                <Row
-                  character={c}
-                  preview={previewOf(latest[c.id])}
-                  call={call?.characterId === c.id ? call : null}
-                  isSelected={c.id === selectedId}
-                  now={now}
-                  onSelect={() => {
-                    if (c.id === selectedId) return;
-                    leave(() => router.push(`/conversation/${c.id}`));
-                  }}
-                />
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul aria-label={t.title}>
+              {shown.rows.map(({ character: c, isPinned, isHidden }) => (
+                <li key={c.id}>
+                  <Row
+                    character={c}
+                    preview={previewOf(latest[c.id])}
+                    call={call?.characterId === c.id ? call : null}
+                    isSelected={c.id === selectedId}
+                    isPinned={isPinned}
+                    isHidden={isHidden}
+                    now={now}
+                    onSelect={() => {
+                      if (c.id === selectedId) return;
+                      leave(() => router.push(`/conversation/${c.id}`));
+                    }}
+                    onTogglePin={() => tidy((p) => (isPinned ? unpin(p, c.id) : pin(p, c.id)))}
+                    onToggleHidden={() => tidy((p) => (isHidden ? show(p, [c.id]) : hide(p, [c.id])))}
+                  />
+                </li>
+              ))}
+            </ul>
+            {showsHidden && (
+              <button
+                type="button"
+                onClick={() => setFilterOpen(true)}
+                className="w-full px-4 py-3 text-left text-meta text-muted-foreground outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"
+              >
+                {t.hiddenCount(String(hiddenCount))}
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -116,23 +151,36 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   );
 }
 
-/** 列表里的一行：一整个按钮，选中时 `aria-current`，铺中性的 bg-muted（不用她的颜色）。 */
+/**
+ * 列表里的一行：一整个按钮，选中时 `aria-current`，铺中性的 bg-muted（不用她的颜色）；置顶的时间旁边有个小图钉。
+ * 右键、触屏长按、菜单键或 Shift+F10 打开行菜单（中性色）：置顶或取消置顶，在列表中隐藏或显示。
+ */
 function Row({
   character,
   preview,
   call,
   isSelected,
+  isPinned,
+  isHidden,
   now,
   onSelect,
+  onTogglePin,
+  onToggleHidden,
 }: {
   character: Character;
   preview: Preview | null;
   call: CallInList;
   isSelected: boolean;
+  isPinned: boolean;
+  isHidden: boolean;
   now: Date;
   onSelect: () => void;
+  onTogglePin: () => void;
+  onToggleHidden: () => void;
 }) {
   const time = useCallTime(call?.state);
+  // 长按打开菜单后，松手时浏览器可能还会补发一次点击；菜单打开之后、下一次按下之前的点击不打开对话。
+  const openedMenu = useRef(false);
   const description = call
     ? time
       ? copy.call.listConnected(showTime(time))
@@ -145,28 +193,48 @@ function Row({
           ? preview.text
           : t.nothingSaidYet;
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={isSelected ? "page" : undefined}
-      className={cn(
-        "flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset",
-        isSelected ? "bg-muted" : "hover:bg-muted/60",
-      )}
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (open) openedMenu.current = true;
+      }}
     >
-      <MarkedAvatar name={character.name} src={character.avatar_url} size="list" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex items-baseline gap-2">
-          <span className="min-w-0 flex-1 truncate text-row-name">{character.name}</span>
-          {preview && !call && (
-            <span className="shrink-0 text-meta text-muted-foreground tabular-nums">
-              {listTime(new Date(preview.at), now)}
-            </span>
-          )}
+      <ContextMenuTrigger
+        render={<button type="button" />}
+        onPointerDown={() => (openedMenu.current = false)}
+        onKeyDown={() => (openedMenu.current = false)}
+        onClick={() => {
+          if (!openedMenu.current) onSelect();
+        }}
+        aria-current={isSelected ? "page" : undefined}
+        className={cn(
+          "flex w-full items-center gap-3 px-4 py-2.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset",
+          isSelected ? "bg-muted" : "hover:bg-muted/60",
+        )}
+      >
+        <MarkedAvatar name={character.name} src={character.avatar_url} size="list" />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-row-name">{character.name}</span>
+            {((preview && !call) || isPinned) && (
+              <span className="flex shrink-0 items-center gap-1 text-meta text-muted-foreground tabular-nums">
+                {preview && !call && listTime(new Date(preview.at), now)}
+                {isPinned && (
+                  <>
+                    <PinIcon aria-hidden className="size-3" />
+                    <span className="sr-only">{t.pinned}</span>
+                  </>
+                )}
+              </span>
+            )}
+          </span>
+          <span className="truncate text-preview text-muted-foreground tabular-nums">{description}</span>
         </span>
-        <span className="truncate text-preview text-muted-foreground tabular-nums">{description}</span>
-      </span>
-    </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onTogglePin}>{isPinned ? t.unpin : t.pin}</ContextMenuItem>
+        <ContextMenuItem onClick={onToggleHidden}>{isHidden ? t.show : t.hide}</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 

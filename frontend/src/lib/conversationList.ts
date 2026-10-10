@@ -1,7 +1,9 @@
-// 消息列表每一行的内容：她最新一次对话的最后一句和时间（spec「信息架构」）；以及各行按什么顺序排。
+// 消息列表每一行的内容：她最新一次对话的最后一句和时间（spec「信息架构」）；以及显示哪些行、按什么顺序排。
 // 只给出结构，文字由界面按当前语言拼（`copy.conversationList`）。
 
 import type { LatestConversation } from "@/lib/api";
+import { matchesSearch, type Searchable } from "@/lib/characterSearch";
+import { NO_PREFERENCES, type ListPreferences } from "@/lib/listPreferences";
 
 /** 列表里的一行预览。`from` 为 null 表示对话已经开了但还没有话。 */
 export type Preview = { from: "her" | "you" | null; text: string; at: string };
@@ -15,20 +17,67 @@ export function previewOf(latest: LatestConversation | undefined): Preview | nul
   return { from: "her", text: last.zh || last.ja || "", at: last.created_at };
 }
 
+/** 列表里的一行：哪位角色，她是不是置顶的、是不是隐藏的（行菜单和图钉据此显示）。 */
+export type ListRow<C> = { character: C; isPinned: boolean; isHidden: boolean };
+
+export type ArrangeOptions = {
+  /** 这台设备上的隐藏和置顶。 */
+  preferences?: ListPreferences;
+  /** 搜索框里的文字。 */
+  query?: string;
+  /** 始终留下的角色：当前打开的那位、正在通话的那位，隐藏了也不去掉。 */
+  keep?: readonly string[];
+};
+
 /**
- * 列表的显示顺序（spec「排序（前端，纯逻辑）」）：最近有过往来的在上面，往来的时间就是这一行显示的时间
- * （`previewOf`）；时间相同的、从没聊过的（排在最后）都保持 `characters` 原来的顺序，即原作的偶像顺序。
+ * 列表显示哪些角色、按什么顺序（spec「排序」「隐藏和置顶」）：
+ * - 没有搜索时去掉隐藏的人，`keep` 里的不去掉；有搜索时在所有人里搜（`matchesSearch`），隐藏的照样出现。
+ * - 置顶的排在前面；置顶的之间、其余的之间都按最近往来排，往来的时间就是这一行显示的时间（`previewOf`）；
+ *   时间相同的、从没聊过的（排在最后）都保持 `characters` 原来的顺序，即原作的偶像顺序。
+ * `hiddenCount` 是这台设备上隐藏的人数，只数 `characters` 里还有的。
  */
-export function arrange<C extends { id: string }>(characters: C[], latest: Record<string, LatestConversation>): C[] {
+export function arrange<C extends Searchable & { id: string }>(
+  characters: C[],
+  latest: Record<string, LatestConversation>,
+  { preferences = NO_PREFERENCES, query = "", keep = [] }: ArrangeOptions = {},
+): { rows: ListRow<C>[]; hiddenCount: number } {
+  const hidden = new Set(preferences.hidden);
+  const pinned = new Set(preferences.pinned);
+  const isSearching = query.trim() !== "";
   const lastTalked = (c: C) => {
     const preview = previewOf(latest[c.id]);
     return preview ? Date.parse(preview.at) : -Infinity;
   };
   // sort 是稳定的：时间相同的保持原来的先后。
-  return characters
-    .map((c) => ({ c, at: lastTalked(c) }))
-    .sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1))
-    .map(({ c }) => c);
+  const rows = characters
+    .filter((c) => (isSearching ? matchesSearch(c, query) : !hidden.has(c.id) || keep.includes(c.id)))
+    .map((c) => ({ row: { character: c, isPinned: pinned.has(c.id), isHidden: hidden.has(c.id) }, at: lastTalked(c) }))
+    .sort((a, b) => Number(b.row.isPinned) - Number(a.row.isPinned) || (a.at === b.at ? 0 : b.at > a.at ? 1 : -1))
+    .map(({ row }) => row);
+  return { rows, hiddenCount: characters.filter((c) => hidden.has(c.id)).length };
+}
+
+/** 筛选面板的一组：组合名（null 是最后的「其他」），和组里的人。 */
+export type UnitGroup<C> = { unit: string | null; members: C[] };
+
+/**
+ * 按组合分组（spec「筛选面板」）：组合按官方顺序（`unit_order`），组内保持 `characters` 原来的顺序；
+ * 没有组合、或者对不上官方顺序的角色放在最后一组。
+ */
+export function unitsOf<C extends { unit: string | null; unit_order: number | null }>(characters: C[]): UnitGroup<C>[] {
+  const units = new Map<number, UnitGroup<C>>();
+  const others: C[] = [];
+  for (const c of characters) {
+    if (c.unit === null || c.unit_order === null) {
+      others.push(c);
+      continue;
+    }
+    const group = units.get(c.unit_order) ?? { unit: c.unit, members: [] };
+    group.members.push(c);
+    units.set(c.unit_order, group);
+  }
+  const groups = [...units.entries()].sort(([a], [b]) => a - b).map(([, group]) => group);
+  return others.length ? [...groups, { unit: null, members: others }] : groups;
 }
 
 /** 时间按哪一种写法显示：今天只写时刻，昨天写「昨天」，今年写月日，更早写年月日。按本地日历算。 */
