@@ -23,6 +23,10 @@ type Props = {
   isReducedMotion: boolean;
   /** 每试完一套衣装：载入了没有（换衣装的预览据此判断画面上是不是这一套）。 */
   onTried?: (outfit: Outfit, isLoaded: boolean) => void;
+  /** 画布的像素比上限，默认同通话层（`MAX_PIXEL_RATIO`）。挂载时定下，之后不变。 */
+  maxPixelRatio?: number;
+  /** 静帧：只画一帧就停（落地页的「减少动态效果」档）。挂载时定下，之后不变。 */
+  isStill?: boolean;
 };
 
 /**
@@ -32,7 +36,17 @@ type Props = {
  * 换一通电话（重新挂载）或者换一套衣装再试。已经画出来之后换衣装失败的，身上那套照旧。
  * runtime 加载不到、浏览器不支持 WebGL 时整块去掉，这次挂载不再重试。
  */
-export function Stand({ outfits, framing, isPaused, entrance, direction, isReducedMotion, onTried }: Props) {
+export function Stand({
+  outfits,
+  framing,
+  isPaused,
+  entrance,
+  direction,
+  isReducedMotion,
+  onTried,
+  maxPixelRatio,
+  isStill = false,
+}: Props) {
   // 按衣装的值而不是数组来载入：角色列表或衣装清单重新拉取时，同样的衣装不会让立绘重新载入。
   const wanted = JSON.stringify(outfits.map(({ id, url }) => ({ id, url })));
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -42,7 +56,7 @@ export function Stand({ outfits, framing, isPaused, entrance, direction, isReduc
   const [phase, setPhase] = useState<"loading" | "shown" | "failed">("loading");
 
   // 引擎要等 runtime 和素材，晚于这几个 effect 创建：创建时按这里记下的最新取景、暂停状态和立绘指令来。
-  const current = useRef({ framing, isPaused, direction, isReducedMotion });
+  const current = useRef({ framing, isPaused, direction, isReducedMotion, maxPixelRatio, isStill });
   const tried = useRef(onTried);
   useEffect(() => {
     tried.current = onTried;
@@ -73,7 +87,8 @@ export function Stand({ outfits, framing, isPaused, entrance, direction, isReduc
     loadSpineRuntime()
       .then((spine) => {
         if (cancelled) return;
-        created = new StandEngine(target, spine, current.current.framing);
+        created = new StandEngine(target, spine, current.current.framing, current.current.maxPixelRatio);
+        created.setStill(current.current.isStill);
         created.setPaused(current.current.isPaused);
         created.direct(current.current.direction, current.current.isReducedMotion);
         engine.current = created;

@@ -37,6 +37,12 @@
     eidolon stand upload             upload the outfits the lists name, their thumbnails and
                                      the lists to the S3-compatible bucket, skipping what it
                                      has as it is; exits 2 if the bucket failed
+    eidolon greeting upload          voice the greetings the character configuration has in
+                                     each one's voice on the deployer's Fish Audio key, and
+                                     put those the stands' bucket lacks in it, deleting the
+                                     old ones and those no character has any more; exits 2
+                                     if the bucket could not be listed, 3 if some could not
+                                     be voiced, put or deleted
     eidolon backup                   back the database up, compressed and encrypted to the
                                      deployer's age key, to the private bucket, and delete
                                      the backups over 30 days old save the newest; exits 2
@@ -101,6 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _stand_outfits(args)
     if args.command == "stand":
         return asyncio.run(_stand_upload(args))
+    if args.command == "greeting":
+        return asyncio.run(_greeting_upload(args))
     if args.command == "backup":
         return asyncio.run(_backup(args))
     if args.command == "reembed":
@@ -439,6 +447,42 @@ async def _stand_upload(args: argparse.Namespace) -> int:
         f"{report.unchanged} 个存储桶里已有、内容没变，没有上传；用时 {time.monotonic() - started:.0f} 秒"
     )
     return 0
+
+
+async def _greeting_upload(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.greetings import FishAudioSettings, upload_greetings
+    from eidolon.s3 import S3Error, S3Settings
+
+    try:
+        characters = load_characters(
+            args.characters or characters_path_from_env(), require_sheets=False
+        )
+        bucket = S3Settings.from_env(purpose="上传招呼")
+        fish = FishAudioSettings.from_env()
+    except RuntimeError as e:  # a broken character configuration, settings missing
+        print(e, file=sys.stderr)
+        return 1
+    try:
+        report = await upload_greetings(characters.values(), bucket, fish)
+    except S3Error as e:
+        print(f"列不出存储桶里已有的招呼，什么都没有合成：{e}", file=sys.stderr)
+        return 2
+    for key in report.deleted:
+        print(f"删除了旧版本 {key}")
+    voiced = f"：{'、'.join(report.voiced)}" if report.voiced else ""
+    print(
+        f"合成并上传了 {len(report.voiced)} 句招呼{voiced}；"
+        f"{report.unchanged} 句存储桶里已有，没有重新合成"
+    )
+    for name, why in report.failed:
+        print(f"{name}：{why}", file=sys.stderr)
+    if report.failed:
+        print(
+            f"{len(report.failed)} 处没有处理完，见上方；改好后重新运行即可，已上传的不会重复合成",
+            file=sys.stderr,
+        )
+    return report.exit_code
 
 
 async def _backup(args: argparse.Namespace) -> int:
@@ -961,6 +1005,21 @@ def _parser() -> argparse.ArgumentParser:
             help="拉取的立绘、衣装清单和缩略图的整理目录（默认取环境变量 EIDOLON_STAND_BUILD_PATH，没有时是 ../corpus/stand），"
             "不要放进仓库",
         )
+
+    greeting = commands.add_parser("greeting", help="管理落地页的招呼").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    greeting_upload = greeting.add_parser(
+        "upload",
+        help="用每位角色的音色和部署者的语音合成 key（FISH_AUDIO_API_KEY、FISH_AUDIO_MODEL）把角色配置里的招呼合成为 mp3，"
+        "上传到立绘的存储桶（EIDOLON_STAND_S3_*）的 greetings/ 下，并删掉旧版本和配置里已经没有的招呼；只合成存储桶里还没有的"
+        "（可重复执行；存储桶列不出来时退出码为 2，有角色的招呼没有上传完时为 3）",
+    )
+    greeting_upload.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
 
     evaluation = commands.add_parser("eval", help="评估检索和判断效果").add_subparsers(
         dest="action", required=True, metavar="操作"

@@ -221,6 +221,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --jso
 | `spine/idols/<stand 或 stand_costume>/<enzaId>/` | 一套衣装的 `data.json`、`data.atlas`、`data.png`，和 ShinyColorsDB 的 CDN 上一样。贴图原样上传：约一半其实是 WebP，只是叫 `.png`，上传时按文件内容标成 `image/webp` |
 | `thumbnails/<stand 或 stand_costume>/<enzaId>.png` | 这套衣装的缩略图：电脑「半身 ADV」的取景，400×500，透明背景 |
 | `outfits/<idol_id>.json` | 这位角色的衣装清单，换衣装面板按它列出衣装 |
+| `greetings/<角色标识>-<哈希>.mp3` | 落地页上她的招呼，由 `eidolon greeting upload` 合成上传，见下面的「招呼」 |
 
 后端通过 `/api/characters` 把默认衣装的地址和衣装清单的地址（`stand.outfits_url`）告诉浏览器。
 
@@ -302,7 +303,7 @@ tail -f logs/stand-sync.log   # 另开一个终端看进度
 
 **新增角色**：在 `characters.toml` 里给她配上 `idol_id` 和 `default_outfit`，重新运行 `deploy/stand-sync.sh`（已上传的衣装不会重复上传），再重启后端。
 
-**下架**：收到权利方的要求时，清空存储桶即可。前端加载不到素材，通话层自动退回背景图，不需要改代码或重新部署。之后别再运行同步脚本，也可以把 `EIDOLON_STAND_ASSETS_URL` 清空、重启后端，连换衣装的入口一起去掉。
+**下架**：收到权利方的要求时，清空存储桶即可，落地页的招呼也在这个存储桶里，会一起下线（见「招呼」的「下线」）。前端加载不到素材，通话层自动退回背景图，不需要改代码或重新部署。之后别再运行同步脚本，也可以把 `EIDOLON_STAND_ASSETS_URL` 清空、重启后端，连换衣装的入口一起去掉。
 
 ### 本地开发时怎么看效果
 
@@ -318,6 +319,57 @@ EIDOLON_STAND_ASSETS_URL=http://localhost:8765
 ```
 
 然后重启后端，打开对话页打电话。换一套衣装看效果时，改 `characters.toml` 的 `default_outfit` 再重启后端。这样没有衣装清单和缩略图；要连换衣装一起看，就在本机跑一个 S3 兼容的存储（例如 SeaweedFS：`weed server -s3 -s3.allowedOrigins='*'`，配一个可写的密钥和匿名只读），照上面同步一次，再把 `EIDOLON_STAND_ASSETS_URL` 指向存储桶的地址（例如 `http://localhost:8333/<存储桶>`）。
+
+## 招呼
+
+落地页上每位偶像有一句招呼（GLOSSARY.md「招呼」）：访客点她，就听到她用自己的音色说一句日语，同时看到原文和中文字幕。台词写在 `characters/characters.toml` 里她那一段的两项，随仓库提交：
+
+```toml
+greeting = "[softly] ほわっ……はじめまして"   # 日语原文，可以带语气提示，写法和回复里的一样
+greeting_subtitle = "……初次见面"              # 中文字幕
+```
+
+两项要一起配，都写成双引号的单行字符串；只配一项、或原文去掉语气提示后什么都不剩时，后端拒绝启动并说明是哪位角色。语气提示只给语音合成听，页面上不显示。
+
+音频不进仓库（ADR-0003 的 2026-10-10 修订），由下面的命令事先用她的音色合成好，放进立绘的同一个存储桶。访客播放时只是从存储桶下载这个文件，不会实时调用语音合成；合成招呼也不经过回合，不写运行记录，不计入任何人的限额。
+
+后端在 `/api/characters` 里给出每句招呼的原文（去掉了语气提示）、字幕和音频地址 `<EIDOLON_STAND_ASSETS_URL>/greetings/<角色标识>-<哈希>.mp3`。哈希由带语气提示的日语原文和 `voice_id` 算出，所以后端不用查存储桶就知道地址，台词或音色一变地址就变，浏览器不会播到缓存里的旧版本。没配 `EIDOLON_STAND_ASSETS_URL` 时不给音频地址，落地页只显示字幕；地址上还没有音频（改了台词还没跑命令）时，落地页也只显示字幕。
+
+### 合成上传
+
+**什么时候跑**：新增或改了招呼的原文（`greeting`），或者换了她的 `voice_id` 之后，重启后端之前或之后都行。只改字幕不用跑，重启后端即可。改了原文或字幕，还要重新生成落地页的字体子集（`frontend/AGENTS.md`「落地页的字体子集」）。
+
+在服务器或自己的电脑上，不经过 docker，和立绘同步一样用 uv 运行：
+
+```sh
+cd backend
+uv run --env-file=../.env eidolon greeting upload
+```
+
+用到的设置（没有 `.env` 时去掉 `--env-file`，把变量放进环境里）：
+
+- 存储桶：和立绘同一个，`EIDOLON_STAND_S3_*`（见「同步素材」）。密钥除了上传还要能删除对象：命令要删掉旧版本，下线时也要清空存储桶。只能上传的密钥（例如腾讯云 COS 的预设策略 QcloudCOSDataWriteOnly 不含删除）会让命令在删旧版本时失败、以退出码 3 结束；腾讯云 COS 给密钥所属的子用户加一条只允许 `name/cos:DeleteObject`、资源是这个存储桶的自定义策略即可。
+- 语音合成：`.env` 的 `FISH_AUDIO_API_KEY` 和 `FISH_AUDIO_MODEL`，也就是部署者的 key。命令只读 `.env`，后台里改过的语音合成设置对它不起作用。默认模型 `s2.1-pro-free` 不消耗 API 额度。
+- 角色配置：默认是 `../characters/characters.toml`（相对于 `backend/`），可以用 `--characters` 或 `EIDOLON_CHARACTERS_PATH` 指定。
+
+它做的事：
+
+- 列一遍存储桶的 `greetings/`，只合成还没有的。没有改动时再跑一次只是列一遍，不花钱。
+- 用她的 `voice_id`，带着语气提示合成 mp3，上传到 `greetings/<角色标识>-<哈希>.mp3`，带 `Cache-Control: public, max-age=31536000, immutable`。
+- 新的那句在存储桶里之后，删掉她在 `greetings/` 下的旧版本。
+- 配置里已经没有招呼的角色（删掉了招呼，或者整个删掉了这位角色），她在 `greetings/` 下的招呼也删掉：存储桶是公开的，没有什么再指向它。所以 `--characters` 要指向完整的角色配置，指向只有几位角色的配置会删掉其他人的招呼。
+- 某位角色没有音色（`voice_id` 是空的）、合成失败（key 不对、余额不足等）或上传失败时，报告是谁、为什么，接着处理其他人。
+
+| 退出码 | 含义 | 要做什么 |
+|---|---|---|
+| 0 | 完全成功（或者角色配置里没有招呼） | 不用管 |
+| 1 | 配置出错：缺存储桶的设置、缺 `FISH_AUDIO_API_KEY`、角色配置有误，什么都没做 | 看输出里的错误 |
+| 2 | 列不出存储桶里已有的招呼（连不上、密钥不对），什么都没合成 | 和立绘同步的退出码 2 一样排查 |
+| 3 | 有角色的招呼没有上传完，其余的已照常上传 | 看输出里是哪几位、什么原因；改好后重新运行，已上传的不会重复合成 |
+
+### 下线
+
+收到权利方的要求时，清空存储桶：立绘和招呼一起下线，通话层退回背景图，落地页退回只有字幕和光，不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕）；要连字幕一起去掉，删掉 `characters.toml` 里的招呼再重启后端。
 
 ## 配置 OAuth 应用
 
@@ -341,7 +393,7 @@ EIDOLON_STAND_ASSETS_URL=http://localhost:8765
 2. 「客户端」（旧称「凭据」）里创建 OAuth 客户端 ID，类型选「Web 应用」，已获授权的重定向 URI 填上表的地址。
 3. 把客户端 ID 和客户端密钥填进 `.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`。邮箱没有验证的 Google 账号不能登录。
 
-改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址就是登录页：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见 README 的「登录与用户」和「自带密钥」；封禁、查看用量等管理命令也在那里，同样的事也可以在后台里做（见下一节）。
+改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址是落地页，从右上角的「登录」登录：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见 README 的「登录与用户」和「自带密钥」；封禁、查看用量等管理命令也在那里，同样的事也可以在后台里做（见下一节）。
 
 > [!NOTE]
 > 对公众开放意味着陌生人的对话和记忆会存在这台服务器上，并交给你配置的第三方服务处理（见网站的隐私政策页）。几点注意：

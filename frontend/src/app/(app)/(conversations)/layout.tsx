@@ -1,0 +1,56 @@
+"use client";
+
+import { useParams } from "next/navigation";
+import type { ReactNode } from "react";
+
+import { PageShell } from "@/components/app/PageShell";
+import { DirectoryProvider, useWide } from "@/components/conversations/ConversationDirectory";
+import { ConversationList } from "@/components/conversations/ConversationList";
+import { useSavedSize } from "@/components/conversations/useSavedSize";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { copy } from "@/i18n";
+
+/**
+ * 对话列表和对话共用的双栏外壳（DESIGN.md「Layout」）。
+ * - 宽屏：左栏是列表，默认 320px，拖右边的线在 240–480px 之间调宽窄（shadcn Resizable，按像素；
+ *   窗口变化时保持像素宽，记在这台设备上）；右栏是这一路由的内容（对话，或者没选角色时的一句提示）；
+ *   换角色时列表不动。上限是定值而不是窗口的几成：最宽 480，最窄的宽屏（768px）上对话栏还有将近 300px。
+ * - 窄屏：两级页面。对话列表页只显示列表，进了对话只显示对话（对话页首有返回键）。
+ * 右栏在宽窄屏之间始终是同一个位置上的同一块，窗口跨过 768px 时对话（和通话）不会重新挂载。
+ * 角色和摘要由这里载入一次，列表和对话从 DirectoryProvider 取。
+ */
+export default function ConversationsLayout({ children }: { children: ReactNode }) {
+  const wide = useWide();
+  const { characterId } = useParams<{ characterId?: string }>();
+  const column = useSavedSize("list", wide);
+  const list = <ConversationList selectedId={wide ? (characterId ?? null) : null} />;
+
+  return (
+    <DirectoryProvider>
+      <PageShell width="full" isScrollable={false}>
+        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+          {wide && (
+            <ResizablePanel
+              id="list"
+              panelRef={column.panelRef}
+              onResize={column.onResize}
+              defaultSize={320}
+              minSize={240}
+              maxSize={480}
+              groupResizeBehavior="preserve-pixel-size"
+            >
+              <nav aria-label={copy.conversationList.title} className="h-full">
+                {list}
+              </nav>
+            </ResizablePanel>
+          )}
+          {/* 两栏之间的细线（列表栏的 border-r），也是拖动调宽窄的地方。 */}
+          {wide && <ResizableHandle aria-label={copy.conversationList.resize} />}
+          <ResizablePanel id="content" className="min-w-0">
+            <div className="relative h-full">{wide || characterId ? children : list}</div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </PageShell>
+    </DirectoryProvider>
+  );
+}

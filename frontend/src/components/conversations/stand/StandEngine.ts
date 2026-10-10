@@ -1,6 +1,6 @@
 import type { Outfit } from "@/lib/api";
 import { CALM, pickAnimations, type Emotion, type StandDirection } from "@/lib/standAnimations";
-import { FrameGate, pixelRatio } from "@/lib/standFrames";
+import { FrameGate, MAX_PIXEL_RATIO, pixelRatio } from "@/lib/standFrames";
 
 import type {
   AnimationState,
@@ -90,6 +90,8 @@ export class StandEngine {
   private raf = 0;
   private last = 0;
   private paused = false;
+  /** 静帧：画出一帧就停（落地页的「减少动态效果」档）。 */
+  private still = false;
   private lost = false;
   private disposed = false;
   private direction: StandDirection = CALM;
@@ -109,6 +111,8 @@ export class StandEngine {
     private readonly canvas: HTMLCanvasElement,
     private readonly spine: SpineRuntime,
     public framing: Framing,
+    /** 画布的像素比上限：落地页要的比通话层低。 */
+    private readonly maxPixelRatio: number = MAX_PIXEL_RATIO,
   ) {
     const signal = this.listeners.signal;
     // 要注册在创建 ManagedWebGLRenderingContext 之前：恢复时浏览器按注册顺序调用监听，
@@ -266,6 +270,11 @@ export class StandEngine {
     }
   }
 
+  /** 静帧：只画一帧初始姿势就停下，之后换衣装也只再画一帧。在载入衣装之前定下。 */
+  setStill(still: boolean): void {
+    this.still = still;
+  }
+
   /** 暂停（通话层收起时）不画，也不推进动画；恢复后从当前姿势接着画。 */
   setPaused(paused: boolean): void {
     this.paused = paused;
@@ -387,11 +396,12 @@ export class StandEngine {
     const step = this.last ? Math.min((now - this.last) / 1000, MAX_STEP_SECONDS) : 0;
     this.last = now;
     if (this.pose) this.draw(this.pose, step);
+    if (this.still) this.stop();
   };
 
   private draw(pose: Pose, step: number): void {
     const { canvas, gl, renderer } = this;
-    const ratio = pixelRatio(window.devicePixelRatio);
+    const ratio = pixelRatio(window.devicePixelRatio, this.maxPixelRatio);
     const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
     const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
     if (canvas.width !== width || canvas.height !== height) {

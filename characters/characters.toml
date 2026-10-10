@@ -17,6 +17,11 @@
 #             （这张卡的演出服），enzaId 是卡的十位编号（source/spine_manifest.json 里的 enzaId）。用户没选过衣装时她穿这一套。
 #             idol_id、default_outfit 和后端的 EIDOLON_STAND_ASSETS_URL 都配好了，通话层才显示立绘，
 #             否则只显示背景图（docs/deploy.md「立绘素材」）
+#   greeting  落地页上的招呼（可选）：她对初次见面的制作人说的一句日语，可以带语气提示，写法和回复里的一样
+#             （例如 "[softly] はじめまして"；语气提示只给语音合成听，页面上不显示）。和 greeting_subtitle 一起配
+#   greeting_subtitle 招呼的中文字幕。这两项都写成双引号的单行字符串（落地页的字体子集按这个写法收字）。
+#             改了招呼或 voice_id 之后，运行 eidolon greeting upload 重新合成上传，再重新生成落地页的字体子集
+#             （docs/deploy.md「招呼」）。后端配了 EIDOLON_STAND_ASSETS_URL，访客才听得到声音，否则只显示字幕
 #
 # 人设文件和角色资料是自己写的，提交进仓库：参照 sheets/example.md 编写 sheets/<角色标识>.md
 # （也可以先用 eidolon character draft-sheet 生成初稿再校对），参照 facts/example.md 编写 facts/<角色标识>.md。
@@ -34,6 +39,8 @@ facts = "facts/mano.md"
 speakers = ["真乃"]
 idol_id = 1
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
+greeting = "[shyly] ほわっ……プロデューサーさん、ですか？　よろしくお願いしますっ"
+greeting_subtitle = "呼哇……你就是制作人吗？请多指教！"
 
 [[characters]]
 id = "hiori"
@@ -47,6 +54,8 @@ facts = "facts/hiori.md"
 speakers = ["灯織"]
 idol_id = 2
 default_outfit = "stand/1030020010"  # 【手作りの心遣い】
+greeting = "はじめまして、風野灯織です。……精一杯、精進します"
+greeting_subtitle = "初次见面，我是風野灯織。……我会竭尽全力。"
 
 [[characters]]
 id = "meguru"
@@ -60,6 +69,8 @@ facts = "facts/meguru.md"
 speakers = ["めぐる"]
 idol_id = 3
 default_outfit = "stand/1030030010"  # 【キネマ・リリックで夢見て】
+greeting = "[excitedly] はじめまして！　えへへっ、いっぱい仲良くしようねっ、プロデューサー！"
+greeting_subtitle = "初次见面！嘿嘿，我们要好好相处哦，制作人！"
 
 [[characters]]
 id = "kogane"
@@ -73,6 +84,8 @@ facts = "facts/kogane.md"
 speakers = ["恋鐘"]
 idol_id = 4
 default_outfit = "stand/1030040010"  # 【ばってん長崎恋岬】
+greeting = "[proudly] 月岡恋鐘たい！　うち、ばりすごかアイドルになるけんね！"
+greeting_subtitle = "我是月岡恋鐘！我会成为超——厉害的偶像哦！"
 
 [[characters]]
 id = "mamimi"
@@ -86,6 +99,8 @@ facts = "facts/mamimi.md"
 speakers = ["摩美々"]
 idol_id = 5
 default_outfit = "stand/1030050010"  # 【裏腹あまのじゃく】
+greeting = "[lazily] ふぁ……新しいプロデューサーですかぁ？　まみみ、悪い子ですよー"
+greeting_subtitle = "哈啊……新来的制作人？摩美々可是坏孩子哦～"
 
 [[characters]]
 id = "sakuya"
@@ -99,6 +114,8 @@ facts = "facts/sakuya.md"
 speakers = ["咲耶"]
 idol_id = 6
 default_outfit = "stand/1030060010"  # 【秘めやかファンサービス】
+greeting = "フフ、はじめまして。アナタがプロデューサーかい？　よろしく頼むよ"
+greeting_subtitle = "呵呵，初次见面。你就是制作人吗？请多关照。"
 
 [[characters]]
 id = "yuika"
@@ -112,6 +129,8 @@ facts = "facts/yuika.md"
 speakers = ["結華"]
 idol_id = 7
 default_outfit = "stand/1030070010"  # 【カラフルメタモルフォーゼ】
+greeting = "[teasing] どーも、三峰です！　さてさて、プロデューサーのお手並み拝見かな？"
+greeting_subtitle = "你好呀，我是三峰！那么，就来见识一下制作人的本事吧？"
 
 [[characters]]
 id = "kiriko"
@@ -125,6 +144,8 @@ facts = "facts/kiriko.md"
 speakers = ["霧子"]
 idol_id = 8
 default_outfit = "stand/1030080010"  # 【包・帯・組・曲】
+greeting = "[softly] ゆ、幽谷……霧子です……。よろしく、お願いします……"
+greeting_subtitle = "我、我是幽谷……霧子……请多、指教……"
 
 [[characters]]
 id = "toru"
@@ -138,6 +159,8 @@ facts = "facts/toru.md"
 speakers = ["透"]
 idol_id = 20
 default_outfit = "stand/1030200010"  # 【まわるものについて】
+greeting = "よろしく、プロデューサー。ふふっ、なんか楽しそう、これから"
+greeting_subtitle = "请多关照，制作人。呵呵，接下来好像会很有意思。"
 
 [[characters]]
 id = "madoka"
@@ -151,6 +174,8 @@ facts = "facts/madoka.md"
 speakers = ["円香"]
 idol_id = 21
 default_outfit = "stand/1030210010"  # 【ダウト】
+greeting = "……どうも、樋口です。別に、期待はしてませんので"
+greeting_subtitle = "……你好，我是樋口。我可没抱什么期待。"
 
 [[characters]]
 id = "koito"
@@ -164,6 +189,8 @@ facts = "facts/koito.md"
 speakers = ["小糸"]
 idol_id = 22
 default_outfit = "stand/1030220010"  # 【はれのひ喫茶店】
+greeting = "[nervously] ふ、福丸小糸です……！　ぜ、全然よゆーですから……！"
+greeting_subtitle = "我、我是福丸小糸……！完、完全游刃有余的……！"
 
 [[characters]]
 id = "hinana"
@@ -177,6 +204,8 @@ facts = "facts/hinana.md"
 speakers = ["雛菜"]
 idol_id = 23
 default_outfit = "stand/1030230010"  # 【#SS】
+greeting = "[happily] あは～、プロデューサー？　雛菜と一緒に、しあわせ～になろ～♡"
+greeting_subtitle = "啊哈～，制作人？和雛菜一起变得幸福～吧～"
 
 [[characters]]
 id = "nichika"
@@ -190,6 +219,8 @@ facts = "facts/nichika.md"
 speakers = ["にちか"]
 idol_id = 24
 default_outfit = "stand/1030240010"  # 【一億回めくらいの、その夏】
+greeting = "七草にちかです！　ぜったい、ぜーったい売れてみせますからー！"
+greeting_subtitle = "我是七草にちか！我绝对、绝——对会红给你看的！"
 
 [[characters]]
 id = "mikoto"
@@ -203,6 +234,8 @@ facts = "facts/mikoto.md"
 speakers = ["美琴"]
 idol_id = 25
 default_outfit = "stand/1030250010"  # 【SEASON】
+greeting = "……緋田美琴です。よろしくね、プロデューサー"
+greeting_subtitle = "……我是緋田美琴。请多关照，制作人。"
 
 [[characters]]
 id = "asahi"
@@ -216,6 +249,8 @@ facts = "facts/asahi.md"
 speakers = ["あさひ"]
 idol_id = 17
 default_outfit = "stand/1030170010"  # 【さかさま世界】
+greeting = "芹沢あさひっす！　プロデューサーさん、なんか面白いことあるっすか？"
+greeting_subtitle = "我是芹沢あさひ！制作人，有什么好玩的事吗？"
 
 [[characters]]
 id = "fuyuko"
@@ -229,6 +264,8 @@ facts = "facts/fuyuko.md"
 speakers = ["冬優子"]
 idol_id = 18
 default_outfit = "stand/1030180010"  # 【ザ・冬優子イズム】
+greeting = "[sweetly] ふゆです、よろしくお願いしますっ♡……[flatly]って、あんたがプロデューサー？"
+greeting_subtitle = "我是ふゆ，请多指教～……什么，你就是制作人？"
 
 [[characters]]
 id = "mei"
@@ -242,6 +279,8 @@ facts = "facts/mei.md"
 speakers = ["愛依"]
 idol_id = 19
 default_outfit = "stand/1030190010"  # 【気になる！？染めちゃう！？】
+greeting = "[cheerfully] へいへーい、和泉愛依だよ～！　プロデューサー、マジでヨロシクね！"
+greeting_subtitle = "嘿嘿～，我是和泉愛依！制作人，真心请多关照啦！"
 
 [[characters]]
 id = "kaho"
@@ -255,6 +294,8 @@ facts = "facts/kaho.md"
 speakers = ["果穂", "果穗"]  # 「果穗」：汉化库 有栖川夏葉/Landing Point編 有几个 CSV 把说话人写成了简体
 idol_id = 9
 default_outfit = "stand/1030090010"  # 【マメ丸と一緒！】
+greeting = "[excitedly]小宮果穂です！　ヒーローみたいなアイドル、目指しますっ！"
+greeting_subtitle = "我是小宮果穂！我要成为像英雄一样的偶像！"
 
 [[characters]]
 id = "chiyoko"
@@ -268,6 +309,8 @@ facts = "facts/chiyoko.md"
 speakers = ["智代子"]
 idol_id = 10
 default_outfit = "stand/1030100010"  # 【純真チョコレート】
+greeting = "チョコアイドル、園田智代子です！　ちょこっとだけでも、覚えてくださいねっ"
+greeting_subtitle = "我是巧克力偶像園田智代子！哪怕只记住一点点也好哦！"
 
 [[characters]]
 id = "juri"
@@ -281,6 +324,8 @@ facts = "facts/juri.md"
 speakers = ["樹里", "树里"]  # 「树里」：汉化库 有栖川夏葉/Landing Point編 等几个 CSV 把说话人写成了简体
 idol_id = 11
 default_outfit = "stand/1030110010"  # 【バッドガールの羽ばたき】
+greeting = "……西城樹里。よろしくな。つーか、アタシで本当にいいのかよ？"
+greeting_subtitle = "……我是西城樹里。请多关照。话说，真的选我没问题吗？"
 
 [[characters]]
 id = "rinze"
@@ -294,6 +339,8 @@ facts = "facts/rinze.md"
 speakers = ["凛世"]
 idol_id = 12
 default_outfit = "stand/1030120010"  # 【想ひいろは】
+greeting = "[softly] プロデューサーさま……。凛世は……お傍に、おります……"
+greeting_subtitle = "制作人大人……凛世……会一直在您身边……"
 
 [[characters]]
 id = "natsuha"
@@ -307,6 +354,8 @@ facts = "facts/natsuha.md"
 speakers = ["夏葉", "夏叶"]  # 「夏叶」：汉化库 有栖川夏葉/G.R.A.D篇、Landing Point編 的大部分 CSV 把说话人写成了简体
 idol_id = 13
 default_outfit = "stand/1030130010"  # 【ストイックトレーニング】
+greeting = "[confidently] 有栖川夏葉よ。私と一緒に、トップまで駆け上がりましょう！"
+greeting_subtitle = "我是有栖川夏葉。和我一起，冲上顶点吧！"
 
 [[characters]]
 id = "amana"
@@ -320,6 +369,8 @@ facts = "facts/amana.md"
 speakers = ["甘奈"]
 idol_id = 14
 default_outfit = "stand/1030140010"  # 【似合うかな？】
+greeting = "[happily] 大崎甘奈だよ☆　甜花ちゃんと一緒に、めーっちゃ頑張るね！"
+greeting_subtitle = "我是大崎甘奈！我会和甜花一起超——努力的！"
 
 [[characters]]
 id = "tenka"
@@ -333,6 +384,8 @@ facts = "facts/tenka.md"
 speakers = ["甜花"]
 idol_id = 15
 default_outfit = "stand/1030150010"  # 【秘密のだらだらタイム】
+greeting = "[shyly] て、甜花……です……。お、お手柔らかに……にへへ……"
+greeting_subtitle = "我、我是甜花……请、请手下留情……嘿嘿……"
 
 [[characters]]
 id = "chiyuki"
@@ -346,6 +399,8 @@ facts = "facts/chiyuki.md"
 speakers = ["千雪"]
 idol_id = 16
 default_outfit = "stand/1030160010"  # 【マイフェイバリット】
+greeting = "[gently] 桑山千雪です。ふふっ、これから一緒に、素敵なこといっぱいしましょうね"
+greeting_subtitle = "我是桑山千雪。呵呵，以后一起做很多美好的事吧。"
 
 [[characters]]
 id = "luca"
@@ -359,6 +414,8 @@ facts = "facts/luca.md"
 speakers = ["ルカ"]  # 汉化库只有目录名、文件名写作「路加」，说话人标签都是「ルカ」
 idol_id = 26
 default_outfit = "stand/1030260010"  # 【Blind Driver】
+greeting = "……アンタがプロデューサー？　チッ……勝手にしろよ"
+greeting_subtitle = "……你就是制作人？啧……随你便。"
 
 [[characters]]
 id = "hana"
@@ -372,6 +429,8 @@ facts = "facts/hana.md"
 speakers = ["羽那"]
 idol_id = 27
 default_outfit = "stand/1030270010"  # 【優You】
+greeting = "[happily] 鈴木羽那でーすっ！　あはっ、あたしのこと、ちゃんと見ててね？"
+greeting_subtitle = "我是鈴木羽那！啊哈，要好好看着我哦？"
 
 [[characters]]
 id = "haruki"
@@ -385,3 +444,5 @@ facts = "facts/haruki.md"
 speakers = ["はるき"]  # 汉化库只有 Landing Point 的目录名写作「阳希」，说话人标签都是「はるき」
 idol_id = 28
 default_outfit = "stand/1030280010"  # 【漂白花火】
+greeting = "[softly] 郁田はるきです。ふふ……これから、どんな色が見えるのかなぁ"
+greeting_subtitle = "我是郁田はるき。呵呵……接下来，会看到什么样的色彩呢。"

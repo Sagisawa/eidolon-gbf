@@ -47,7 +47,7 @@ async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
     res = await sign_in_with(client, github, github_identity())
 
     assert res.status_code == 302
-    assert res.headers["location"] == "/"
+    assert res.headers["location"] == "/conversations"
     assert SESSION_COOKIE in client.cookies
     assert await conversations(client) == []
     account = (await client.get("/api/account")).json()

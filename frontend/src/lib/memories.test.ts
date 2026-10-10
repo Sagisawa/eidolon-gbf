@@ -10,6 +10,10 @@ const mano: Character = {
   color: "#ffbad6",
   background_url: null,
   stand: null,
+  idol_id: 1,
+  unit: null,
+  unit_order: null,
+  greeting: null,
 };
 
 const memory = (source: string, superseded = false): Memory => ({

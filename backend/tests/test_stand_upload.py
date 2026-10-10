@@ -72,7 +72,8 @@ def test_signing_matches_amazons_example_of_listing_a_bucket():
 
 class FakeBucket:
     """An S3-compatible bucket at http://storage.test/<name> (path-style) that keeps what
-    it is sent, lists two keys a page, and refuses unsigned requests."""
+    it is sent, lists two keys a page (those under the prefix asked for), and refuses
+    unsigned requests."""
 
     def __init__(self, name: str = "stands") -> None:
         self.name = name
@@ -112,7 +113,8 @@ class FakeBucket:
             return httpx.Response(204)
         query = parse_qs(urlsplit(str(request.url)).query)
         assert request.method == "GET" and query["list-type"] == ["2"]
-        keys = sorted(self.objects)
+        prefix = query.get("prefix", [""])[0]
+        keys = sorted(key for key in self.objects if key.startswith(prefix))
         if self.lists_by_marker:
             marker = query.get("marker", [""])[0]
             start = sum(1 for key in keys if key <= marker) if marker else 0

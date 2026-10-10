@@ -65,7 +65,7 @@ const SHOTS: Shot[] = [
   { name: "login", signedIn: false, path: "/login" },
   { name: "terms", signedIn: false, path: "/terms" },
   { name: "privacy", signedIn: false, path: "/privacy" },
-  { name: "conversations", signedIn: true, path: "/" },
+  { name: "conversations", signedIn: true, path: "/conversations" },
   {
     name: "conversation",
     signedIn: true,

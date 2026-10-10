@@ -22,6 +22,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character
+from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import CallsUnavailable, OwnKeyFailed
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
@@ -36,6 +37,7 @@ from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
+from eidolon.world import World
 
 
 class NewConversation(BaseModel):
@@ -116,6 +118,29 @@ def _stand(character: Character, assets_url: str | None) -> dict | None:
         "default_outfit": {"id": outfit, "url": f"{assets_url}/{outfit_path(outfit)}"},
         "outfits_url": f"{assets_url}/{list_path(character.idol_id)}",
     }
+
+
+def _greeting(character: Character, assets_url: str | None) -> dict | None:
+    """Her greeting on the landing page: what she says as people see it, its subtitle, and
+    where `eidolon greeting upload` puts its audio (`greeting_path`), without asking the
+    bucket whether it is there; no audio unless the stand assets and her voice are
+    configured. None without a greeting."""
+    greeting = character.greeting
+    if greeting is None:
+        return None
+    path = greeting_path(character)
+    return {
+        "ja": greeting.ja,
+        "subtitle": greeting.subtitle,
+        "audio_url": f"{assets_url}/{path}" if assets_url and path else None,
+    }
+
+
+def _unit(character: Character, world: World | None) -> dict:
+    """Her unit and where it is in the units' official order (`World.unit_of`); both None
+    without the world setting, or if its sources could not agree on her unit."""
+    unit, order = (world.unit_of(character.name) if world else None) or (None, None)
+    return {"unit": unit, "unit_order": order}
 
 
 def create_app(backend: Backend) -> FastAPI:
@@ -227,7 +252,9 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/characters")
     def list_characters() -> list[dict]:
-        """Who there is to talk to; shown before signing in too."""
+        """Who there is to talk to; shown before signing in too, and on the landing page.
+        In the order of their idol numbers, those without one after them as configured."""
+        listed = sorted(characters.values(), key=lambda c: (c.idol_id is None, c.idol_id or 0))
         return [
             {
                 "id": c.id,
@@ -237,8 +264,11 @@ def create_app(backend: Backend) -> FastAPI:
                 "color": c.color,
                 "background_url": f"/api/characters/{c.id}/background" if c.background else None,
                 "stand": _stand(c, backend.settings.stand_assets_url),
+                "idol_id": c.idol_id,
+                **_unit(c, backend.world),
+                "greeting": _greeting(c, backend.settings.stand_assets_url),
             }
-            for c in characters.values()
+            for c in listed
         ]
 
     @app.get("/api/characters/{character_id}/avatar")

@@ -1,6 +1,8 @@
 // Server side only: where the backend is, for the API proxy and the server components
 // that ask the backend before rendering.
 
+import { CONSENT_REQUIRED, type Character, type SignInOptions } from "@/lib/api";
+
 export const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 /** The admin console's front door, asked with the browser's cookies: the admin, or null
@@ -10,4 +12,53 @@ export async function getAdmin(cookie: string): Promise<{ name: string } | null>
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`后台接口出错（${res.status}）`);
   return res.json();
+}
+
+/** The cookie the backend keeps a browser's session in (`SESSION_COOKIE` in `sessions.py`). */
+const SESSION_COOKIE = "eidolon_session";
+
+/** Whether the browser whose cookies these are has a live session. A browser without a session
+ * cookie, a visitor, is told no without asking the backend; one whose session has expired or
+ * ended, or that the backend cannot answer for, is not either. A user yet to agree to the terms
+ * is signed in. */
+export async function isSignedIn(cookie: string): Promise<boolean> {
+  if (!cookie.split(/;\s*/).some((pair) => pair.startsWith(`${SESSION_COOKIE}=`))) return false;
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/account`, { headers: { cookie }, cache: "no-store" });
+    return res.ok || res.status === CONSENT_REQUIRED;
+  } catch {
+    return false;
+  }
+}
+
+/** How long the landing page keeps what it asks the backend for (the character list, the ways to
+ * sign in) before asking again. */
+const LANDING_REVALIDATE_SECONDS = 60;
+
+/** The characters, for the landing page's spectrum: kept for a minute rather than asked for on
+ * every visit, so a visitor's first screen does not wait on the backend. None when the backend
+ * fails or cannot be reached; the landing page then goes without the spectrum. */
+export async function getCharacters(): Promise<Character[]> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/characters`, {
+      next: { revalidate: LANDING_REVALIDATE_SECONDS },
+    });
+    return res.ok ? await res.json() : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The ways to sign in the backend offers, for the landing page to say which there are: kept for a
+ * minute like the character list. Null when the backend fails or cannot be reached; the landing page
+ * then does not say. */
+export async function getSignInOptions(): Promise<SignInOptions | null> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/auth/providers`, {
+      next: { revalidate: LANDING_REVALIDATE_SECONDS },
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
 }

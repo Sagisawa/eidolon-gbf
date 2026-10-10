@@ -1,0 +1,265 @@
+"""Voicing the greetings (`eidolon greeting upload`, GLOSSARY.md「招呼」): each greeting the
+character configuration has is voiced in her voice on the deployer's Fish Audio key, as
+mp3, and put in the stands' bucket where `/api/characters` says it is; only those the
+bucket lacks, her old ones deleted once the new one is up. One that cannot be voiced or
+put is reported and the rest go on. No turn, no run record, no one's limit. Checked
+against a fake Fish Audio and a fake bucket that keeps what it is sent."""
+
+from dataclasses import replace
+from datetime import timedelta
+
+import httpx
+import pytest
+
+from eidolon.activity import ActivityLog
+from eidolon.characters import load_characters
+from eidolon.config import Settings
+from eidolon.greetings import FishAudioSettings, GreetingReport, upload_greetings
+from eidolon.s3 import S3Error, S3Settings
+from tests.conftest import KOGANE_SHEET, MANO_SHEET, Admin, CharacterConfig, ClientFactory
+from tests.fakes import START, FakeFishAudio, FakeLLM
+from tests.test_stand_upload import FakeBucket
+
+ASSETS = "https://stand.example"
+MANO = ("[softly] ほわっ……はじめまして、櫻木真乃です", "……初次见面，我是櫻木真乃")
+KOGANE = ("うちが月岡恋鐘ばい！", "我就是月冈恋钟哦！")
+MEGURU = ("はじめまして！八宮めぐるだよ！", "初次见面！我是八宫めぐる！")
+STAND_FILE = "spine/idols/stand/1030010010/data.png"
+
+
+class Deployment:
+    """The character configuration, the deployer's Fish Audio and the stands' bucket,
+    which already has a stand in it."""
+
+    def __init__(self, characters: CharacterConfig) -> None:
+        self.characters = characters
+        self.fish = FakeFishAudio()
+        self.storage = FakeBucket()
+        self.storage.objects[STAND_FILE] = (b"stand", {})
+        self.refused_puts: set[str] = set()
+        """Characters whose greetings the bucket refuses to take."""
+        self.configure()
+
+    def configure(
+        self,
+        mano: tuple[str, str] = MANO,
+        kogane: tuple[str, str] | None = KOGANE,
+        kogane_voice: str = "kogane-voice",
+    ) -> None:
+        """Mano and Kogane with greetings (unless `kogane` is None), Hiori without one;
+        more can be added to `config`."""
+        self.config = CharacterConfig(self.characters.directory).add(
+            "mano", "櫻木真乃", MANO_SHEET, voice_id="mano-voice", greeting=mano
+        ).add(
+            "kogane", "月岡恋鐘", KOGANE_SHEET, voice_id=kogane_voice, greeting=kogane
+        ).add("hiori", "風野灯織", "sheet", voice_id="hiori-voice")
+
+    async def upload(self) -> GreetingReport:
+        characters = load_characters(self.characters.path, require_sheets=False)
+        return await upload_greetings(
+            characters.values(),
+            S3Settings("http://storage.test", "stands", "key-id", "secret"),
+            FishAudioSettings("deployer-fish-key", "s2.1-pro-free"),
+            transport=httpx.MockTransport(self._handle),
+        )
+
+    def greetings(self) -> list[str]:
+        return sorted(key for key in self.storage.objects if key.startswith("greetings/"))
+
+    def _handle(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host == FakeFishAudio.HOST:
+            return self.fish.handle(request)
+        if request.method == "PUT" and any(f"/greetings/{id}-" in request.url.path for id in self.refused_puts):
+            return httpx.Response(403, text="<Error><Code>AccessDenied</Code></Error>")
+        return self.storage.handle(request)
+
+
+@pytest.fixture
+def deployment(characters: CharacterConfig) -> Deployment:
+    return Deployment(characters)
+
+
+async def audio_urls(make_client: ClientFactory, settings: Settings) -> dict[str, str | None]:
+    """Where `/api/characters` says each character's greeting is."""
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=ASSETS), user=None)
+    listed = (await client.get("/api/characters")).json()
+    return {c["id"]: c["greeting"] and c["greeting"]["audio_url"] for c in listed}
+
+
+def said(fish: FakeFishAudio) -> list[str]:
+    return [request["text"] for request in fish.requests]
+
+
+async def test_each_greeting_is_voiced_in_her_voice_and_put_where_the_character_list_says(
+    deployment: Deployment, make_client: ClientFactory, settings: Settings
+):
+    report = await deployment.upload()
+
+    # In her voice, delivery cues and all, on the deployer's key, as mp3.
+    first, second = deployment.fish.requests
+    assert first["reference_id"] == "mano-voice"
+    assert first["text"].startswith("[softly]") and first["text"].endswith("ほわっ……はじめまして、櫻木真乃です")
+    assert first["format"] == "mp3"
+    assert (first["key"], first["model"]) == ("deployer-fish-key", "s2.1-pro-free")
+    assert (second["reference_id"], second["text"]) == ("kogane-voice", KOGANE[0])
+    # Where the character list says it is.
+    urls = await audio_urls(make_client, settings)
+    assert urls["hiori"] is None  # she has no greeting
+    mano, kogane = (url.removeprefix(f"{ASSETS}/") for url in (urls["mano"], urls["kogane"]))  # pyright: ignore[reportOptionalMemberAccess]
+    assert deployment.greetings() == sorted([mano, kogane])
+    body, headers = deployment.storage.objects[mano]
+    assert body == FakeFishAudio.audio(first["text"], "mano-voice")
+    assert headers["content-type"] == "audio/mpeg"
+    assert headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert report.voiced == ["櫻木真乃", "月岡恋鐘"]
+    assert report.failed == []
+    assert report.exit_code == 0
+
+
+async def test_only_the_greetings_the_bucket_lacks_are_voiced(deployment: Deployment):
+    await deployment.upload()
+    deployment.fish.requests.clear()
+    deployment.storage.puts.clear()
+
+    report = await deployment.upload()
+
+    assert deployment.fish.requests == []
+    assert deployment.storage.puts == []
+    assert report.voiced == []
+    assert report.unchanged == 2
+
+    deployment.configure(kogane=("うちが恋鐘ばい！", KOGANE[1]))
+    report = await deployment.upload()
+
+    assert said(deployment.fish) == ["うちが恋鐘ばい！"]
+    assert report.voiced == ["月岡恋鐘"]
+    assert report.unchanged == 1
+
+
+async def test_a_new_subtitle_alone_voices_nothing(deployment: Deployment):
+    await deployment.upload()
+    deployment.fish.requests.clear()
+    deployment.configure(mano=(MANO[0], "初次见面"))
+
+    await deployment.upload()
+
+    assert deployment.fish.requests == []
+
+
+async def test_her_old_greeting_is_deleted_once_the_new_one_is_up(
+    deployment: Deployment, make_client: ClientFactory, settings: Settings
+):
+    # Another character whose identifier starts with hers: hers is not Mano's to delete.
+    mano_2 = ("mano-2", "櫻木真乃（二）", "sheet")
+    deployment.config.add(*mano_2, voice_id="mano-2-voice", greeting=MEGURU)
+    await deployment.upload()
+    old = await audio_urls(make_client, settings)
+
+    deployment.configure(mano=("[happily] はじめまして！", MANO[1]), kogane_voice="new-kogane-voice")
+    deployment.config.add(*mano_2, voice_id="mano-2-voice", greeting=MEGURU)
+    report = await deployment.upload()
+
+    new = await audio_urls(make_client, settings)
+    assert deployment.greetings() == sorted(
+        url.removeprefix(f"{ASSETS}/")  # pyright: ignore[reportOptionalMemberAccess]
+        for url in (new["mano"], new["kogane"], old["mano-2"])
+    )
+    assert sorted(report.deleted) == sorted(
+        url.removeprefix(f"{ASSETS}/") for url in (old["mano"], old["kogane"])  # pyright: ignore[reportOptionalMemberAccess]
+    )
+    assert STAND_FILE in deployment.storage.objects
+
+
+async def test_an_old_greeting_left_behind_is_deleted_on_the_next_run(deployment: Deployment):
+    """As when deleting it failed after the new one went up."""
+    await deployment.upload()
+    left_behind = "greetings/kogane-0123456789ab.mp3"
+    deployment.storage.objects[left_behind] = (b"an old one", {})
+
+    report = await deployment.upload()
+
+    assert report.deleted == [left_behind]
+    assert left_behind not in deployment.storage.objects
+
+
+async def test_a_greeting_taken_out_of_the_configuration_is_deleted(deployment: Deployment):
+    """As when her greeting, or she, is taken out: the bucket is public, and nothing
+    points at it any more."""
+    await deployment.upload()
+    kogane = next(key for key in deployment.greetings() if key.startswith("greetings/kogane-"))
+    deployment.configure(kogane=None)
+
+    report = await deployment.upload()
+
+    assert report.deleted == [kogane]
+    assert [key.split("-")[0] for key in deployment.greetings()] == ["greetings/mano"]
+    assert STAND_FILE in deployment.storage.objects
+
+
+async def test_one_that_fails_is_reported_and_the_rest_go_on(deployment: Deployment):
+    deployment.configure(kogane_voice="")  # Kogane has no voice
+    deployment.config.add("meguru", "八宮めぐる", "sheet", voice_id="meguru-voice", greeting=MEGURU)
+    deployment.config.add("toru", "浅倉透", "sheet", voice_id="toru-voice", greeting=("ふふっ", "呵呵"))
+    deployment.fish.refuses["mano-voice"] = 402
+    deployment.refused_puts.add("meguru")
+
+    report = await deployment.upload()
+
+    failed = dict(report.failed)
+    assert sorted(failed) == ["八宮めぐる", "月岡恋鐘", "櫻木真乃"]
+    assert "音色" in failed["月岡恋鐘"]
+    assert "402" in failed["櫻木真乃"]
+    assert "403" in failed["八宮めぐる"]
+    assert report.voiced == ["浅倉透"]
+    assert [key.split("-")[0] for key in deployment.greetings()] == ["greetings/toru"]
+    assert report.exit_code != 0
+
+
+async def test_a_bucket_that_cannot_be_listed_is_an_error_before_anything_is_voiced(deployment: Deployment):
+    deployment.storage.down = True
+
+    with pytest.raises(S3Error, match="503"):
+        await deployment.upload()
+
+    assert deployment.fish.requests == []
+
+
+async def test_voicing_the_greetings_leaves_no_run_record(
+    deployment: Deployment, make_client: ClientFactory, settings: Settings
+):
+    """Greetings are not turns: nothing about them is recorded, and no one's limit counts
+    them."""
+    make_client(FakeLLM())  # the deployment's database, as the server leaves it
+
+    await deployment.upload()
+
+    activity = ActivityLog(settings.database_path, lambda: START)
+    try:
+        assert activity.since(START - timedelta(days=365)) == ([], [])
+    finally:
+        activity.close()
+
+
+def test_uploading_without_the_bucket_or_fish_audio_exits_1(
+    admin: Admin, deployment: Deployment, monkeypatch: pytest.MonkeyPatch
+):
+    for name in ("ENDPOINT", "BUCKET", "ACCESS_KEY_ID", "SECRET_ACCESS_KEY"):
+        monkeypatch.delenv(f"EIDOLON_STAND_S3_{name}", raising=False)
+    monkeypatch.setenv("FISH_AUDIO_API_KEY", "deployer-fish-key")
+
+    code, _, err = admin.invoke("greeting", "upload", "--characters", str(deployment.characters.path))
+
+    assert code == 1
+    assert "EIDOLON_STAND_S3_ENDPOINT" in err
+
+    for name, value in {
+        "ENDPOINT": "https://storage.example", "BUCKET": "stands", "ACCESS_KEY_ID": "key-id",
+        "SECRET_ACCESS_KEY": "secret",
+    }.items():
+        monkeypatch.setenv(f"EIDOLON_STAND_S3_{name}", value)
+    monkeypatch.delenv("FISH_AUDIO_API_KEY")
+
+    code, _, err = admin.invoke("greeting", "upload", "--characters", str(deployment.characters.path))
+
+    assert code == 1
+    assert "FISH_AUDIO_API_KEY" in err

@@ -124,7 +124,7 @@ cp .env.example .env   # fill in the chat model's base URL, API key and model na
 docker compose up --build
 ```
 
-Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and the home page lists the characters: pick one to start a conversation. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
+Open <http://localhost:3000> to the landing page, click "登录" (sign in) at the top right, follow "开发登录" (dev login) in the sign-in panel (or open `/login` directly) and sign in under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and the conversation list shows the characters: pick one to start a conversation. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
 
 > [!TIP]
 > A chat model alone is enough for text chat. Add the other services' keys as you go to unlock voice, story recall and memory:
@@ -172,11 +172,11 @@ avatar = "avatars/mano.jpg"
 color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
-idol_id = 1                          # these two are optional, for the call-screen stand
+idol_id = 1                          # these two are optional, for the call-screen stand; idol_id also places her in the landing page's spectrum
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 ```
 
-Character sheets, character facts, avatars and call-screen backgrounds are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file.
+Character sheets, character facts, avatars and call-screen backgrounds are committed with the repository (ADR-0003). To add a character, write `characters/sheets/<id>.md` following [`characters/sheets/example.md`](characters/sheets/example.md); optionally add character facts under `characters/facts/` following [`characters/facts/example.md`](characters/facts/example.md), and avatars under `characters/avatars/`. If a sheet is missing, the backend refuses to start and names the missing file. After adding a character or changing a display name, regenerate the landing page's font subsets (run `node scripts/landing-fonts.mts` in `frontend/`, see [`frontend/AGENTS.md`](frontend/AGENTS.md)); otherwise the frontend's font coverage test fails and lists the missing characters.
 
 `color` is the official image colour the original game gives her (`#rrggbb`, required). Everything in the interface that belongs to her (the conversation wallpaper, the call and send buttons, the unread count, the call screen and the call bar) is based on it; the frontend derives light and dark colours from it, keeping text readable in both. If `color` is missing or malformed, the backend refuses to start and names the character. A call-screen background (optional) goes under `characters/backgrounds/`, set with `background = "backgrounds/mano.jpg"`; without one, or if the file is missing, the call screen uses a gradient of her image colour instead. docker compose mounts `characters/` read-only into the backend container. `idol_id` and `default_outfit` are for the call-screen stand; see [Stand](#stand) below.
 

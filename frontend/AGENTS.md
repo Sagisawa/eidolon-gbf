@@ -22,3 +22,13 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **她的颜色**：用 `herVars(官方色)` 注入对话子树（覆盖 `--primary`、`--primary-foreground`、`--ring` 和 `--her-*`），不写进主题或 `:root`。浮层（Dialog、AlertDialog、DropdownMenu、Drawer、Sheet、Popover）渲染到 body，需要她的颜色时把 Content 的 `container` 指到子树里（这样也继承子树的 `.dark`），或在浮层内容上再展开一次 `herVars()`。选中状态一律中性 `bg-muted`。
 - **机器检查**：不装 ESLint。`sh scripts/check-discipline.sh` 拦下 `from "cn"`（`lib/utils.ts` 除外）、任意值里的颜色（`-\[(#|oklch|rgb|hsl|color-mix|var\(--)`，以及 v4 的 `bg-(--x)` 这类颜色简写）、important 类（`!mt-2`、`hover:!bg-x`、`mt-2!`）和对 `@astryxdesign` 的引用（旧组件库，已移除），CI 前端 job 在测试之后跑它。字号、圆角任意值的界线交给代码审查。
 - **shadcn CLI**：本机 npm 全局配置了 `allow-scripts`，CLI 会报 `EALLOWSCRIPTS`；用 `NPM_CONFIG_USERCONFIG` 指向一份不带它的临时 npmrc 再跑 `npx shadcn@latest add …`。
+
+## 落地页的字体子集
+
+落地页（`src/app/(landing)/`）的字体是按实际用字做的静态子集，自托管，和清单 `subset.json` 一起提交在 `src/app/(landing)/fonts/`（ADR-0016 修订）。前端的 Docker 构建拿不到角色配置，所以子集不在构建时生成，由维护者在本地重新生成：
+
+```sh
+node scripts/landing-fonts.mts   # 在 frontend/ 下；要有 uv，第一次运行会下载源字体
+```
+
+新增或改名角色、改了组合或招呼、改了落地页（`copy.landing`）或登录组件（`copy.login`）的文案之后都要跑，然后把 `fonts/` 下的改动一起提交。忘了的话，覆盖契约测试 `fonts/coverage.test.ts` 会失败，并列出缺的字。要收哪些字由 `fonts/fontText.ts` 决定，落地页加了新的文案来源（例如别的文案节）时改它。

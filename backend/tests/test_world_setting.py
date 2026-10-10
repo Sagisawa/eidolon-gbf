@@ -11,7 +11,7 @@ import pytest
 from eidolon.config import Settings
 from eidolon.characters import load_characters
 from eidolon.world import WorldError, load_world, world_path
-from tests.conftest import CharacterConfig
+from tests.conftest import CharacterConfig, ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeLLM, build_faked
 from tests.test_characters import REPO_CHARACTERS
 from tests.test_turns import REPLY, Turns, turns  # noqa: F401  (the fixture)
@@ -83,7 +83,9 @@ SETLISTS = {
 other brand whose song it is, if it is one."""
 
 
-def write_world(characters: CharacterConfig, idols: list[tuple[str, str, str]] | None = None) -> None:
+def write_world(
+    characters: CharacterConfig, idols: list[tuple[str, str | None, str]] | None = None
+) -> None:
     """A data file as `eidolon world sync` writes it: Mano's and Kogane's units, the
     office's president and clerk, and the songs and releases above."""
     idols = idols or [
@@ -382,6 +384,34 @@ async def test_without_the_data_file_turns_go_on_without_the_world_setting(
     assert events[-1]["type"] == "done"
     assert "# 世界设定" not in system_prompt(llm)
     assert "world.json" in caplog.text and "world sync" in caplog.text
+
+
+async def test_character_list_gives_each_character_her_unit_and_where_it_is_in_the_unit_order(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    """The data file lists illumination STARS before L'Antica."""
+    characters.add("hiori", "風野灯織", "sheet", idol_id=2)
+    write_world(characters)
+    client = make_client(FakeLLM(), user=None)
+
+    listed = (await client.get("/api/characters")).json()
+
+    assert [(c["id"], c["unit"], c["unit_order"]) for c in listed] == [
+        ("mano", "illumination STARS", 0),
+        ("hiori", "illumination STARS", 0),
+        ("kogane", "L'Antica", 1),
+    ]
+
+
+async def test_an_idol_whose_unit_the_sources_could_not_agree_on_is_listed_without_one(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    write_world(characters, idols=[("櫻木真乃", "illumination STARS", "関根瞳"), ("月岡恋鐘", None, "礒部花凜")])
+    client = make_client(FakeLLM(), user=None)
+
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+
+    assert (listed["kogane"]["unit"], listed["kogane"]["unit_order"]) == (None, None)
 
 
 def test_a_character_who_is_none_of_the_idols_stops_the_backend_from_starting(

@@ -466,6 +466,38 @@ class FakeSpeech:
             raise OwnKeyRejected(self.rejects[api_key])
 
 
+class FakeFishAudio:
+    """Stands in for Fish Audio's text to speech over HTTP (`POST /v1/tts`, as the greetings
+    are voiced): records each request, with the key and model it came on, and answers with
+    audio naming what it said in which voice. A voice in `refuses` is answered with that
+    status, as Fish Audio answers a key without credit (402)."""
+
+    HOST = "api.fish.audio"
+
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self.refuses: dict[str, int] = {}
+
+    @staticmethod
+    def audio(text: str, voice_id: str) -> bytes:
+        return f"mp3: {text} ({voice_id})".encode()
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST" and request.url.path == "/v1/tts", request.url
+        assert request.headers["content-type"] == "application/json"
+        body = json.loads(request.content)
+        self.requests.append({
+            "key": request.headers["authorization"].removeprefix("Bearer "),
+            "model": request.headers.get("model"),
+            **body,
+        })
+        if status := self.refuses.get(body.get("reference_id")):
+            return httpx.Response(status, json={"status": status, "message": "Insufficient balance"})
+        return httpx.Response(
+            200, content=self.audio(body["text"], body["reference_id"]), headers={"content-type": "audio/mpeg"}
+        )
+
+
 @dataclass
 class DashScopeTask:
     """A recognition task DashScope ran: in which region, the `run-task` that started it,

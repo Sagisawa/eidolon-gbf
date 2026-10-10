@@ -1,7 +1,8 @@
 """Characters come from configuration: the list, the avatars, the image colours, call
-backgrounds and stands, and each one's character sheet."""
+backgrounds, stands and greetings, and each one's character sheet."""
 
 import logging
+import re
 from dataclasses import replace
 from pathlib import Path
 
@@ -34,6 +35,10 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "color": "#ffbad6",
             "background_url": "/api/characters/mano/background",
             "stand": None,  # no stand assets URL is configured
+            "idol_id": 1,
+            "unit": None,  # no world setting
+            "unit_order": None,
+            "greeting": None,  # none configured
         },
         {
             "id": "kogane",
@@ -43,9 +48,29 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "color": "#f84cad",
             "background_url": None,
             "stand": None,
+            "idol_id": None,
+            "unit": None,
+            "unit_order": None,
+            "greeting": None,
         },
     ]
     assert "ほわっ" not in res.text
+
+
+async def test_character_list_is_in_idol_number_order_and_those_without_one_follow_as_configured(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    """Mano is idol 1 and Kogane has no idol number (the fixture)."""
+    characters.add("meguru", "八宮めぐる", "sheet", idol_id=3)
+    characters.add("someone", "誰か", "sheet")
+    characters.add("hiori", "風野灯織", "sheet", idol_id=2)
+    client = make_client(FakeLLM(), user=None)
+
+    listed = (await client.get("/api/characters")).json()
+
+    assert [(c["id"], c["idol_id"]) for c in listed] == [
+        ("mano", 1), ("hiori", 2), ("meguru", 3), ("kogane", None), ("someone", None),
+    ]
 
 
 async def test_avatar_is_served_without_a_session_so_img_tags_can_load_it(
@@ -476,3 +501,102 @@ def test_stand_assets_url_must_be_a_web_address(monkeypatch: pytest.MonkeyPatch,
 
     with pytest.raises(RuntimeError, match="EIDOLON_STAND_ASSETS_URL"):
         stand_assets_url_from_env()
+
+
+MANO_GREETING = ("[softly] ほわっ……はじめまして、櫻木真乃です", "……初次见面，我是櫻木真乃")
+
+
+def mano_with_greeting(
+    characters: CharacterConfig,
+    greeting: tuple[str, str] = MANO_GREETING,
+    voice_id: str = "mano-voice",
+) -> None:
+    """Rewrite the configuration with Mano alone, greeting as given."""
+    CharacterConfig(characters.directory).add(
+        "mano", "櫻木真乃", MANO_SHEET, voice_id=voice_id, greeting=greeting
+    )
+
+
+async def listed_greeting(
+    make_client: ClientFactory, settings: Settings, assets: str | None = STAND_ASSETS
+) -> dict:
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=assets), user=None)
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+    return listed["mano"]["greeting"]
+
+
+async def test_greeting_is_shown_without_its_delivery_cues_with_its_subtitle_and_where_to_hear_it(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    mano_with_greeting(characters)
+
+    greeting = await listed_greeting(make_client, settings)
+
+    assert greeting["ja"] == "ほわっ……はじめまして、櫻木真乃です"
+    assert greeting["subtitle"] == "……初次见面，我是櫻木真乃"
+    assert re.fullmatch(rf"{re.escape(STAND_ASSETS)}/greetings/mano-[0-9a-f]+\.mp3", greeting["audio_url"])
+
+
+async def test_greeting_has_no_audio_unless_the_stand_assets_are_served(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    mano_with_greeting(characters)
+
+    greeting = await listed_greeting(make_client, settings, assets=None)
+
+    assert greeting == {
+        "ja": "ほわっ……はじめまして、櫻木真乃です",
+        "subtitle": "……初次见面，我是櫻木真乃",
+        "audio_url": None,
+    }
+
+
+async def test_greeting_audio_moves_when_its_words_or_her_voice_change_but_not_its_subtitle(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    """The address changes with what she says, cues and all, and in what voice, so a
+    browser never plays an old one from its cache."""
+    mano_with_greeting(characters)
+    first = (await listed_greeting(make_client, settings))["audio_url"]
+    mano_with_greeting(characters, (MANO_GREETING[0], "初次见面"))
+    resubtitled = (await listed_greeting(make_client, settings))["audio_url"]
+    mano_with_greeting(characters, ("[happily] ほわっ……はじめまして、櫻木真乃です", MANO_GREETING[1]))
+    recued = (await listed_greeting(make_client, settings))["audio_url"]
+    mano_with_greeting(characters, voice_id="another-voice")
+    revoiced = (await listed_greeting(make_client, settings))["audio_url"]
+
+    assert resubtitled == first
+    assert len({first, recued, revoiced}) == 3
+
+
+async def test_greeting_of_a_character_without_a_voice_has_no_audio(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    mano_with_greeting(characters, voice_id="")
+
+    greeting = await listed_greeting(make_client, settings)
+
+    assert greeting["ja"] == "ほわっ……はじめまして、櫻木真乃です"
+    assert greeting["audio_url"] is None
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        'greeting = "はじめまして"',
+        'greeting_subtitle = "初次见面"',
+        'greeting = "[softly]"\ngreeting_subtitle = "初次见面"',
+    ],
+)
+def test_greeting_needs_both_its_words_and_its_subtitle(tmp_path: Path, lines: str):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    add_raw(config, lines)
+
+    with pytest.raises(CharacterConfigError, match="角色 mano 的招呼"):
+        load_characters(config.path)
+
+
+def test_greeting_is_optional(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+
+    assert load_characters(config.path)["mano"].greeting is None

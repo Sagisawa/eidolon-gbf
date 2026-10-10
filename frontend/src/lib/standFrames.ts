@@ -31,8 +31,9 @@ export class FrameGate {
   }
 }
 
-/** The pixel ratio to render at: the device's, but no more than `MAX_PIXEL_RATIO`. */
-export function pixelRatio(devicePixelRatio: number): number {
+/** The pixel ratio to render at: the device's, but no more than `max` (`MAX_PIXEL_RATIO` unless
+ * the place showing the stand caps it lower). */
+export function pixelRatio(devicePixelRatio: number, max = MAX_PIXEL_RATIO): number {
   if (!(devicePixelRatio > 0)) return 1;
-  return Math.min(devicePixelRatio, MAX_PIXEL_RATIO);
+  return Math.min(devicePixelRatio, max);
 }

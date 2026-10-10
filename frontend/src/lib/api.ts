@@ -13,6 +13,26 @@ export type Character = {
   /** Her Spine stand on the call layer; null (her call background alone) unless the deployment
    * configures her idol, her default outfit and where the stands are served from. */
   stand: Stand | null;
+  /** Her idol number in the original; the list comes in their order, those without one last. */
+  idol_id: number | null;
+  /** The name of her unit, from the world setting; null when there is none or it does not say. */
+  unit: string | null;
+  /** Where her unit is in the units' official order, from 0; null along with `unit`. */
+  unit_order: number | null;
+  /** What she says to a visitor on the landing page; null when she has no greeting. */
+  greeting: Greeting | null;
+};
+
+/** A character's greeting (GLOSSARY.md「招呼」). */
+export type Greeting = {
+  /** What she says in Japanese, without its delivery cues. */
+  ja: string;
+  /** Its Chinese subtitle. */
+  subtitle: string;
+  /** Its audio, an mp3 in the stands' bucket; null unless the deployment serves the stand assets
+   * and she has a voice. The server does not check that it was uploaded: when it fails to load, show
+   * the subtitle alone. */
+  audio_url: string | null;
 };
 
 /** Where a character's stand comes from. */
@@ -146,10 +166,10 @@ export class ApiError extends Error {
  * terms of use. */
 export const CONSENT_REQUIRED = 428;
 
-/** The page a response sends the browser to before it can go on, if any: signing in
- * when it is not signed in, agreeing to the terms when the user has not yet. */
+/** The page a response sends the browser to before it can go on, if any: the landing page,
+ * to sign in there, when it is not signed in; agreeing to the terms when the user has not yet. */
 export function redirectFor(status: number): string | null {
-  if (status === 401) return "/login";
+  if (status === 401) return "/";
   if (status === CONSENT_REQUIRED) return "/consent";
   return null;
 }
