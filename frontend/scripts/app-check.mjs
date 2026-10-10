@@ -8,9 +8,8 @@
 //   1. `/login`、`/privacy` 在手机 4G 节流下的 LCP（几轮取中位数），每页不超过 2.5 秒才算通过。
 //      节流、视口和落地页检查（landing-check.mjs）相同，见 phone-4g.mjs。
 //   2. 登录后的 `/conversations` 和一个对话页（第一位角色）的 LCP：只打印数字，不算通过与否，
-//      里面还掺着接口耗时。会话用开发登录取（后端要开 EIDOLON_DEV_LOGIN=1，会建一位叫 app-check 的用户
-//      并替它同意条款），
-//      或者把一个有效会话的 cookie 值放进环境变量 APP_SESSION。两者都没有时跳过。
+//      里面还掺着接口耗时。会话用开发登录取（后端要开 EIDOLON_DEV_LOGIN=1，会建一位叫 app-check 的用户并替它
+//      同意条款），或者把一个有效会话的 cookie 值放进环境变量 APP_SESSION。两者都没有时跳过。
 //   3. 每页的阻塞样式表（首屏 HTML 里的 <link rel="stylesheet">）有几个，各自 gzip 后多大；带 @font-face
 //      的算字体 CSS，按字体名列出条数、字重和切片数。gzip 是脚本自己压的（和 next start 默认的压缩一样是
 //      gzip），不受节流和传输头影响，前后好比。
@@ -34,7 +33,7 @@ function report(name, ok, detail) {
   console.log(`${ok === null ? "跳过" : ok ? "通过" : "失败"}  ${name}${detail ? `：${detail}` : ""}`);
 }
 
-const kB = (bytes) => `${(bytes / 1024).toFixed(1)} KB`;
+const formatKB = (bytes) => `${(bytes / 1024).toFixed(1)} KB`;
 
 /** 几轮里各自的 LCP 和中位数那一轮。登录后的页面等接口也回来了再读。 */
 async function measureLcp(pathname, { cookies } = {}) {
@@ -71,16 +70,16 @@ async function printStylesheets(pathname, { cookies } = {}) {
     const faces = fontFaces(css);
     const name = new URL(href, origin).pathname.split("/").at(-1);
     if (faces.length === 0) {
-      lines.push(`        ${name}：样式 ${kB(bytes)}`);
+      lines.push(`        ${name}：样式 ${formatKB(bytes)}`);
       continue;
     }
     fontBytes += bytes;
     const families = fontFamilies(faces)
       .map((f) => `${f.family} ${f.faces} 条${f.weights.length ? `（字重 ${f.weights.join("/")}，${f.ranges} 个切片）` : ""}`)
       .join("；");
-    lines.push(`        ${name}：字体 ${kB(bytes)}，${families}`);
+    lines.push(`        ${name}：字体 ${formatKB(bytes)}，${families}`);
   }
-  console.log(`      阻塞样式表 ${hrefs.length} 个，字体 CSS gzip 后共 ${kB(fontBytes)}`);
+  console.log(`      阻塞样式表 ${hrefs.length} 个，字体 CSS gzip 后共 ${formatKB(fontBytes)}`);
   for (const line of lines) console.log(line);
 }
 

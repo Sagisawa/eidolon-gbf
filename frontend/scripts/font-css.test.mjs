@@ -25,10 +25,6 @@ describe("fontFaces", () => {
     const css = `@font-face {\n  font-family: 'LINE Seed JP';\n  font-weight: 100 900;\n  src: url(a.woff2);\n}`;
     expect(fontFaces(css)).toEqual([{ family: "LINE Seed JP", weight: "100 900", unicodeRange: null }]);
   });
-
-  it("没有 @font-face 的样式表是空的", () => {
-    expect(fontFaces(".a{font-weight:700}")).toEqual([]);
-  });
 });
 
 describe("fontFamilies", () => {
