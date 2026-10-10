@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 
 import { AdminEntry } from "@/components/AdminEntry";
 import { AppLink } from "@/components/app/AppLink";
@@ -66,28 +66,34 @@ function SettingsTabs() {
         </TabsList>
       </div>
 
-      <TabsContent value="profile" keepMounted>
-        <ProducerProfileSettings />
-        <SettingsSection title={t.memories.title} description={t.memories.hint}>
-          <AppLink href="/memories" isStandalone className="self-start">
-            {t.memories.manage}
-          </AppLink>
-        </SettingsSection>
-      </TabsContent>
-
-      <TabsContent value="call" keepMounted>
-        <CallSettings />
-      </TabsContent>
-
-      <TabsContent value="own-keys" keepMounted>
-        <OwnKeysSettings />
-      </TabsContent>
-
-      <TabsContent value="sign-in" keepMounted>
-        <SignInSettings />
-        <AdminEntry />
-        <DeleteAccount />
-      </TabsContent>
+      {SETTINGS_TABS.map((tab) => (
+        <TabsContent key={tab} value={tab} keepMounted>
+          {PANELS[tab]}
+        </TabsContent>
+      ))}
     </Tabs>
   );
 }
+
+/** 各组的内容，按 spec「各组的内容和顺序」。 */
+const PANELS: Record<SettingsTab, ReactNode> = {
+  profile: (
+    <>
+      <ProducerProfileSettings />
+      <SettingsSection title={t.memories.title} description={t.memories.hint}>
+        <AppLink href="/memories" isStandalone className="self-start">
+          {t.memories.manage}
+        </AppLink>
+      </SettingsSection>
+    </>
+  ),
+  call: <CallSettings />,
+  "own-keys": <OwnKeysSettings />,
+  "sign-in": (
+    <>
+      <SignInSettings />
+      <AdminEntry />
+      <DeleteAccount />
+    </>
+  ),
+};
