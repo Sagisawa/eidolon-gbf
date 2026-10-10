@@ -14,3 +14,11 @@
 - 风格可以向原作官方站靠拢，不把「撞脸」当约束；但不使用官方 logo、组合 logo 等商标，组合名一律用文字排出来。非官方声明在首屏和页脚都要有。
 - 已登录的用户打开 `/` 直接进入对话列表（对话列表从 `/` 搬到 `/conversations`），落地页只是访客的门面；登录面板在落地页里弹出，`/login` 保留给登录被拒的回跳和开发登录。
 - 设计依据见 `docs/research/landing-page-references.md`。
+
+## 修订（2026-10-10）：落地页有自己的根 layout，字体自托管子集
+
+原型（`prototype/landing-page` 分支的 `3d07693`）测出：落地页挂在应用的根 layout 下时，next/font/google 为 CJK 字体生成的切片 CSS 约 500 KB，会阻塞渲染，手机 4G 下 LCP 是 4.9 秒；拦掉这些 CSS 后只有 0.86 秒。所以：
+
+- 落地页用路由组拆出**自己的根 layout**，不加载应用根 layout 里的字体。在两个根 layout 之间跳转是整页加载，从落地页进应用本来就要经过登录或「继续」，可以接受。
+- 落地页的字体（Shippori Mincho B1、Noto Serif SC、Noto Sans SC）在构建时按落地页实际用字做静态子集、自托管，**不用 next/font/google 加载 CJK 字体**。
+- 性能预算的口径改成「落地页自身的首屏 JS 压缩后不超过 50 KB，不含框架基线」。Next 16 + React 19 每页本来就有约 161 KB，原来「整页首屏 JS ≤ 150 KB」的写法做不到。手机 4G 下 LCP ≤ 2.5 秒不变。
