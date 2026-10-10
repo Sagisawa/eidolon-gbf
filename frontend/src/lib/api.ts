@@ -16,8 +16,16 @@ export type Character = {
   stand: Stand | null;
   /** Her idol number in the original; the list comes in their order, those without one last. */
   idol_id: number | null;
+  /** Her name in simplified Chinese as the community writes it (八宫巡); null when not configured. */
+  name_zh: string | null;
+  /** Her full name in hiragana, family and given name a space apart (さくらぎ まの); null when not configured. */
+  name_kana: string | null;
+  /** Her full name in romaji, family name first, a space apart (Sakuragi Mano); null when not configured. */
+  name_romaji: string | null;
   /** The name of her unit, from the world setting; null when there is none or it does not say. */
   unit: string | null;
+  /** Her unit's name in hiragana, from the world setting; null along with `unit`. */
+  unit_reading: string | null;
   /** Where her unit is in the units' official order, from 0; null along with `unit`. */
   unit_order: number | null;
   /** What she says to a visitor on the landing page; null when she has no greeting. */

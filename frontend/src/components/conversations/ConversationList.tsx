@@ -17,7 +17,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
-import { dayOf, previewOf, type Preview } from "@/lib/conversationList";
+import { matchesSearch } from "@/lib/characterSearch";
+import { arrange, dayOf, previewOf, type Preview } from "@/lib/conversationList";
 import { cn } from "@/lib/utils";
 import { MoreIcon, SearchIcon } from "@/theme/icons";
 
@@ -27,8 +28,9 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字找人的搜索框；
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字或组合找人的搜索框；
  * 每位角色一行（56px 头像、名字和时间一行，最后一句一行），选中行铺中性的 bg-muted；底部一行免责声明。
+ * 最近有过往来的排在上面（`arrange`），搜索结果也一样；一整列不按组合分段，换位置时直接跳过去、不做动画。
  * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
  */
 export function ConversationList({ selectedId }: { selectedId: string | null }) {
@@ -36,7 +38,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
   const { characters, latest, failure, reload, call, leave } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
-  const shown = characters?.filter((c) => matches(c, query));
+  const shown = characters && arrange(characters.filter((c) => matchesSearch(c, query)), latest);
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -166,12 +168,6 @@ function Row({
       </span>
     </button>
   );
-}
-
-/** 搜索框：名字里有这几个字就留下（不分大小写，前后空格不算）；空着时全部显示。 */
-function matches(character: Character, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  return !q || character.name.toLowerCase().includes(q);
 }
 
 /** 列表里的时间：今天写时刻（和气泡旁的时间一样写成 8:49），昨天写「昨天」，今年写月日，更早写年月日。 */

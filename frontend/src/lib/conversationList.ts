@@ -1,4 +1,4 @@
-// 消息列表每一行的内容：她最新一次对话的最后一句和时间（spec「信息架构」）。
+// 消息列表每一行的内容：她最新一次对话的最后一句和时间（spec「信息架构」）；以及各行按什么顺序排。
 // 只给出结构，文字由界面按当前语言拼（`copy.conversationList`）。
 
 import type { LatestConversation } from "@/lib/api";
@@ -13,6 +13,22 @@ export function previewOf(latest: LatestConversation | undefined): Preview | nul
   if (!last) return { from: null, text: "", at: latest.created_at };
   if (last.role === "user") return { from: "you", text: last.text ?? "", at: last.created_at };
   return { from: "her", text: last.zh || last.ja || "", at: last.created_at };
+}
+
+/**
+ * 列表的显示顺序（spec「排序（前端，纯逻辑）」）：最近有过往来的在上面，往来的时间就是这一行显示的时间
+ * （`previewOf`）；时间相同的、从没聊过的（排在最后）都保持 `characters` 原来的顺序，即原作的偶像顺序。
+ */
+export function arrange<C extends { id: string }>(characters: C[], latest: Record<string, LatestConversation>): C[] {
+  const lastTalked = (c: C) => {
+    const preview = previewOf(latest[c.id]);
+    return preview ? Date.parse(preview.at) : -Infinity;
+  };
+  // sort 是稳定的：时间相同的保持原来的先后。
+  return characters
+    .map((c) => ({ c, at: lastTalked(c) }))
+    .sort((a, b) => (a.at === b.at ? 0 : b.at > a.at ? 1 : -1))
+    .map(({ c }) => c);
 }
 
 /** 时间按哪一种写法显示：今天只写时刻，昨天写「昨天」，今年写月日，更早写年月日。按本地日历算。 */

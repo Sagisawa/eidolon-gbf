@@ -94,8 +94,10 @@ class CharacterConfig:
         idol_id: int | None = None,
         default_outfit: str | None = None,
         greeting: tuple[str, str] | None = None,
+        other_names: tuple[str, str, str] | None = None,
     ) -> "CharacterConfig":
-        """`greeting` is her greeting in Japanese, delivery cues and all, and its subtitle."""
+        """`greeting` is her greeting in Japanese, delivery cues and all, and its subtitle;
+        `other_names` her `name_zh`, `name_kana` and `name_romaji`."""
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
         if sheet is not None:
@@ -121,6 +123,9 @@ class CharacterConfig:
             text, subtitle = greeting
             entry += f"greeting = {json.dumps(text, ensure_ascii=False)}\n"
             entry += f"greeting_subtitle = {json.dumps(subtitle, ensure_ascii=False)}\n"
+        if other_names is not None:
+            for field, value in zip(("name_zh", "name_kana", "name_romaji"), other_names):
+                entry += f"{field} = {json.dumps(value, ensure_ascii=False)}\n"
         self._entries.append(entry)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")

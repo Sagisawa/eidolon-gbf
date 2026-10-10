@@ -12,6 +12,11 @@ mirror's `spine_manifest.json`) and the outfit her stand wears unless the user p
 another (`default_outfit`, e.g. `stand/1030010010`). The stands themselves are not
 committed: they are served from object storage (ADR-0003, revised 2026-09-30).
 
+Optionally, she also has the other names the conversation list searches her by
+(`name_zh`, `name_kana`, `name_romaji`): her name as Chinese readers know it, its reading
+in hiragana and in romaji, given name after family name with a space between. Without
+them she is found by her name alone.
+
 Optionally, she also has a greeting for the landing page (GLOSSARY.md「招呼」): what she
 says in Japanese, delivery cues and all (`greeting`), and its Chinese subtitle
 (`greeting_subtitle`), the one with the other. The words are committed; the audio
@@ -107,6 +112,12 @@ class Character:
     costume. Its files are at `spine/idols/<category>/<enzaId>/` under the stand assets."""
     greeting: Greeting | None = None
     """Her greeting on the landing page; None shows her there without one."""
+    name_zh: str | None = None
+    """Her name in simplified Chinese as the community writes it, e.g. 八宫巡."""
+    name_kana: str | None = None
+    """Her full name in hiragana, family name and given name a space apart, e.g. さくらぎ まの."""
+    name_romaji: str | None = None
+    """Her full name in romaji, family name first, a space apart, e.g. Sakuragi Mano."""
 
 
 def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Character]:
@@ -213,7 +224,20 @@ def _parse_character(
         idol_id=idol_id,
         default_outfit=default_outfit,
         greeting=_greeting(entry, label, readings),
+        name_zh=_other_name(entry, "name_zh", label),
+        name_kana=_other_name(entry, "name_kana", label),
+        name_romaji=_other_name(entry, "name_romaji", label),
     )
+
+
+def _other_name(entry: dict, field: str, label: str) -> str | None:
+    """One of the other names the conversation list searches her by, if given: a line of text."""
+    value = entry.get(field)
+    if value is None:
+        return None
+    if not (isinstance(value, str) and value.strip()) or len(value.splitlines()) > 1:
+        raise CharacterConfigError(f"角色 {label} 的 {field} 应为不空的单行字符串，现在是 {value!r}")
+    return value.strip()
 
 
 def _greeting(entry: dict, label: str, readings: tuple[Reading, ...]) -> Greeting | None:
