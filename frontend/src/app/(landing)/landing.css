@@ -543,11 +543,15 @@ html[data-lp-layout="motion"] .lp-track > .lp-stand {
   width: min(50vw, 66vh);
   height: 94%;
 }
-/* 竖屏：框太窄的话取景按宽度对齐，人只占上半屏；放宽、放矮，让她站在画面下半。 */
+/* 竖屏：框太窄的话取景按宽度对齐，人只占上半屏；放宽、放矮，让她站在画面下半。这么宽的立绘会和她自己的名牌
+ * 叠着，名字盖在脸上不好看（用户验收时定的），竖屏上立绘也压在她的名牌上面。 */
 @media (max-aspect-ratio: 10/11) {
   html[data-lp-layout="motion"] .lp-track > .lp-stand {
     width: 74vw;
     height: 66%;
+  }
+  html[data-lp-layout="motion"] .lp-plate[data-focused] {
+    z-index: 1;
   }
 }
 
