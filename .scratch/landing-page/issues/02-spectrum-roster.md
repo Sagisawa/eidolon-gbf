@@ -4,7 +4,7 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `GET /api/characters` 按偶像编号升序返回；没有编号的角色排在后面，保持配置里的顺序。
 - [ ] 每个角色带 `idol_id` 和 `unit`（组合名，取自世界设定，查不到为空），并给出组合的官方顺序，形式由实现决定。

@@ -54,7 +54,7 @@ from eidolon.retrieval import Retrieval, open_reference_sources
 from eidolon.service_clients import ProviderClients, ServiceClients
 from eidolon.store import Store
 from eidolon.usage import UsageLimiter
-from eidolon.world import load_world, world_path
+from eidolon.world import World, load_world, world_path
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +83,8 @@ class Backend:
     config: LiveConfig
     prices: Prices
     """The prices the dashboard estimates the deployer's costs at."""
+    world: World | None = None
+    """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
     _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
 
@@ -239,5 +241,6 @@ def build(
         activity=activity,
         config=config,
         prices=prices,
+        world=world,
         _closers=closers,
     )

@@ -13,6 +13,12 @@ export type Character = {
   /** Her Spine stand on the call layer; null (her call background alone) unless the deployment
    * configures her idol, her default outfit and where the stands are served from. */
   stand: Stand | null;
+  /** Her idol number in the original; the list comes in their order, those without one last. */
+  idol_id: number | null;
+  /** The name of her unit, from the world setting; null when there is none or it does not say. */
+  unit: string | null;
+  /** Where her unit is in the units' official order, from 0; null along with `unit`. */
+  unit_order: number | null;
 };
 
 /** Where a character's stand comes from. */

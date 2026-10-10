@@ -174,6 +174,15 @@ class World:
     def idol(self, name: str) -> Idol | None:
         return next((idol for idol in self.idols if idol.name == name), None)
 
+    def unit_of(self, name: str) -> tuple[str, int] | None:
+        """The name of her unit and where it is among the office's units (the official
+        order, as the data file lists them); None if the sources could not agree on it."""
+        idol = self.idol(name)
+        names = [unit.name for unit in self.units]
+        if idol is None or idol.unit not in names:
+            return None
+        return idol.unit, names.index(idol.unit)
+
     def songs_of(self, name: str) -> list[Song]:
         """Her songs: those she sings alone and those her whole unit sings, no one else
         joining in. A special unit's song is none of them, whoever is in it."""

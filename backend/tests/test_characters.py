@@ -34,6 +34,9 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "color": "#ffbad6",
             "background_url": "/api/characters/mano/background",
             "stand": None,  # no stand assets URL is configured
+            "idol_id": 1,
+            "unit": None,  # no world setting
+            "unit_order": None,
         },
         {
             "id": "kogane",
@@ -43,9 +46,28 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "color": "#f84cad",
             "background_url": None,
             "stand": None,
+            "idol_id": None,
+            "unit": None,
+            "unit_order": None,
         },
     ]
     assert "ほわっ" not in res.text
+
+
+async def test_character_list_is_in_idol_number_order_and_those_without_one_follow_as_configured(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    """Mano is idol 1 and Kogane has no idol number (the fixture)."""
+    characters.add("meguru", "八宮めぐる", "sheet", idol_id=3)
+    characters.add("someone", "誰か", "sheet")
+    characters.add("hiori", "風野灯織", "sheet", idol_id=2)
+    client = make_client(FakeLLM(), user=None)
+
+    listed = (await client.get("/api/characters")).json()
+
+    assert [(c["id"], c["idol_id"]) for c in listed] == [
+        ("mano", 1), ("hiori", 2), ("meguru", 3), ("kogane", None), ("someone", None),
+    ]
 
 
 async def test_avatar_is_served_without_a_session_so_img_tags_can_load_it(

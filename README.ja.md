@@ -172,11 +172,11 @@ avatar = "avatars/mano.jpg"
 color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
-idol_id = 1                          # 以下の 2 項目は任意。通話画面の立ち絵用
+idol_id = 1                          # 以下の 2 項目は任意。通話画面の立ち絵用。idol_id はランディングページのスペクトルでの位置も決める
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 ```
 
-キャラクターシート・キャラクター資料・アイコン・通話画面の背景画像はリポジトリに含めます（ADR-0003）。キャラクターを追加するときは [`characters/sheets/example.md`](characters/sheets/example.md) を参考に `characters/sheets/<キャラクターID>.md` を書いてください。キャラクター資料（任意）は [`characters/facts/example.md`](characters/facts/example.md) を参考に `characters/facts/` 以下へ、アイコン（任意）は `characters/avatars/` 以下に置きます。シートが欠けているとバックエンドは起動を拒否し、どのファイルが足りないかを示します。
+キャラクターシート・キャラクター資料・アイコン・通話画面の背景画像はリポジトリに含めます（ADR-0003）。キャラクターを追加するときは [`characters/sheets/example.md`](characters/sheets/example.md) を参考に `characters/sheets/<キャラクターID>.md` を書いてください。キャラクター資料（任意）は [`characters/facts/example.md`](characters/facts/example.md) を参考に `characters/facts/` 以下へ、アイコン（任意）は `characters/avatars/` 以下に置きます。シートが欠けているとバックエンドは起動を拒否し、どのファイルが足りないかを示します。キャラクターを追加したり表示名を変えたりしたあとは、ランディングページのフォントサブセットを作り直してください（`frontend/` で `node scripts/landing-fonts.mts` を実行。[`frontend/AGENTS.md`](frontend/AGENTS.md) を参照）。忘れるとフロントエンドのフォント網羅テストが失敗し、足りない文字を示します。
 
 `color` は原作で公式に決められたそのアイドルのイメージカラー（`#rrggbb`、必須）です。画面上で彼女に属するもの（会話の壁紙、通話ボタン、送信ボタン、未読数、通話画面と通話バー）はすべてこの色が基調になり、フロントエンドはここからライト・ダークの 2 組の色を導き、どちらでも文字が読めるようにします。`color` がない、または形式が正しくないと、バックエンドは起動を拒否し、どのアイドルかを示します。通話画面の背景画像（任意）は `characters/backgrounds/` 以下に置き、`background = "backgrounds/mano.jpg"` で指定します。指定がないかファイルが存在しない場合、通話画面はイメージカラーのグラデーションで代用します。docker compose は `characters/` をバックエンドコンテナに読み取り専用でマウントします。`idol_id` と `default_outfit` は通話画面の立ち絵に使います。下記の[立ち絵](#立ち絵)を参照してください。
 

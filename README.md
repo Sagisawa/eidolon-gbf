@@ -169,11 +169,11 @@ avatar = "avatars/mano.jpg"
 color = "#ffbad6"
 facts = "facts/mano.md"
 speakers = ["真乃"]
-idol_id = 1                          # 以下两项可选，用于通话层立绘
+idol_id = 1                          # 以下两项可选，用于通话层立绘；idol_id 也决定她在落地页光谱里的位置
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
 ```
 
-人设文件、角色资料、头像和通话层背景图都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。
+人设文件、角色资料、头像和通话层背景图都随仓库提交（ADR-0003）。新增角色时参照 [`characters/sheets/example.md`](characters/sheets/example.md) 写好 `characters/sheets/<角色标识>.md`；角色资料（可选）参照 [`characters/facts/example.md`](characters/facts/example.md) 写在 `characters/facts/` 下；头像（可选）放在 `characters/avatars/` 下。缺少人设文件时后端会拒绝启动并指出缺哪一份。新增角色或改了显示名之后，还要重新生成落地页的字体子集（在 `frontend/` 下运行 `node scripts/landing-fonts.mts`，见 [`frontend/AGENTS.md`](frontend/AGENTS.md)）；忘了的话，前端的字体覆盖测试会失败并列出缺的字。
 
 `color` 是原作官方为她定的印象色（`#rrggbb`，必填），界面上属于她的地方（对话壁纸、电话键、发送键、未读数、通话层和通话条）都以它为基调，前端从它推出浅色、深色两套颜色并保证文字看得清。缺少 `color` 或格式不对时，后端拒绝启动并指出是哪位角色。通话层背景图（可选）放在 `characters/backgrounds/` 下，用 `background = "backgrounds/mano.jpg"` 指定；没有或文件不存在时，通话层用印象色的渐变代替。docker compose 会把 `characters/` 只读挂载进后端容器。`idol_id` 和 `default_outfit` 用于通话层的立绘，见下方[立绘](#立绘)。
 

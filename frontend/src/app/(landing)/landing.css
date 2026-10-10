@@ -2,12 +2,15 @@
  * 落地页的样式。落地页是独立的视觉世界（ADR-0016），不受 shadcn 纪律约束；只有右上角的入口和登录面板
  * 用 shadcn 组件。这份样式表只在落地页的根 layout 里引入。
  *
- * 字体：这一版先用系统字体，正式的子集字体由 03 接上。全局样式表的 font-sans 引用应用根 layout
- * 用 next/font 载入的 --font-zh，落地页不载入它，这里给成系统字体，登录面板才不会掉到默认衬线体。
+ * 字体：落地页的根 layout 载入三种子集字体（--lp-font-ja、--lp-font-zh-title、--lp-font-zh），
+ * 日文和拉丁字母用 Shippori Mincho B1，中文大标题用 Noto Serif SC，中文正文用 Noto Sans SC。
+ * 每种都先排首屏预载的那一份（-act0，只有第 0 幕上的字），它没有的字落到完整子集。
+ * 全局样式表的 font-sans 引用应用根 layout 用 next/font 载入的 --font-zh，落地页不载入它，这里换成
+ * 子集的 Noto Sans SC，登录面板也用它。子集外的字（不该有，覆盖契约测试会拦）退回系统字体。
  */
 
 html {
-  --font-zh: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC";
+  --font-zh: var(--lp-font-zh-act0), var(--lp-font-zh), "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC";
   --font-ja: "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP";
   background: #020203;
 }
@@ -15,9 +18,9 @@ html {
 .lp-root {
   --lp-rail: 72px;
   --lp-gutter: calc(var(--lp-rail) + 6vw);
-  --lp-ja: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", serif;
+  --lp-ja: var(--lp-font-ja-act0), var(--lp-font-ja), "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", serif;
   --lp-zh: var(--font-zh), system-ui, sans-serif;
-  --lp-zh-title: "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  --lp-zh-title: var(--lp-font-zh-title-act0), var(--lp-font-zh-title), "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
   --lp-ink: #eeecf2;
   --lp-dim: rgb(238 236 242 / 0.6); /* 12px 的小字在黑底上要过 4.5:1。 */
   position: relative;
@@ -130,6 +133,76 @@ html {
 @media (max-aspect-ratio: 10/11) {
   .lp-act0-text {
     top: 40%;
+  }
+}
+
+/* —— 第 2 幕：光谱。这一版只有 DOM：组合一段一段竖着排，名字竖排，每道光先是一根细线；
+ * 着色器的光、横滚和聚焦由后续的 ticket 接上。她的颜色（--her-ink、--her-halo）由落地页模型算好。 */
+.lp-seg {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  padding: 9vh 6vw 6vh var(--lp-gutter);
+  box-sizing: border-box;
+}
+.lp-seg-name {
+  margin: 0 0 4vh;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(15px, 1.5vw, 22px);
+  letter-spacing: 0.2em;
+  color: var(--lp-ink);
+}
+.lp-seg-row {
+  flex: 1;
+  display: flex;
+  justify-content: space-around;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lp-plate {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  color: var(--her-ink);
+}
+.lp-plate::before,
+.lp-plate::after {
+  content: "";
+  flex: 1;
+  width: 1px;
+  background: var(--her-halo);
+  opacity: 0.7;
+}
+.lp-no {
+  font-family: var(--lp-ja);
+  font-size: 13px;
+  letter-spacing: 0.22em;
+  color: var(--lp-dim);
+}
+.lp-name {
+  writing-mode: vertical-rl;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(32px, min(9vh, 8vw), 104px);
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+.lp-hex {
+  font: 11px ui-monospace, "Cascadia Mono", monospace;
+  letter-spacing: 0.14em;
+  color: var(--her-halo);
+  opacity: 0.8;
+}
+/* 窄屏一行五个名字，色值放不下，会挤到隔壁。 */
+@media (max-width: 639px) {
+  .lp-hex {
+    display: none;
   }
 }
 

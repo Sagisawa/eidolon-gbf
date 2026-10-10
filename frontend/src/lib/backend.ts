@@ -1,7 +1,7 @@
 // Server side only: where the backend is, for the API proxy and the server components
 // that ask the backend before rendering.
 
-import { CONSENT_REQUIRED } from "@/lib/api";
+import { CONSENT_REQUIRED, type Character } from "@/lib/api";
 
 export const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -28,5 +28,22 @@ export async function isSignedIn(cookie: string): Promise<boolean> {
     return res.ok || res.status === CONSENT_REQUIRED;
   } catch {
     return false;
+  }
+}
+
+/** How long the landing page keeps the character list before asking the backend again. */
+const CHARACTERS_REVALIDATE_SECONDS = 60;
+
+/** The characters, for the landing page's spectrum: kept for a minute rather than asked for on
+ * every visit, so a visitor's first screen does not wait on the backend. None when the backend
+ * fails or cannot be reached; the landing page then goes without the spectrum. */
+export async function getCharacters(): Promise<Character[]> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/characters`, {
+      next: { revalidate: CHARACTERS_REVALIDATE_SECONDS },
+    });
+    return res.ok ? await res.json() : [];
+  } catch {
+    return [];
   }
 }
