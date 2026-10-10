@@ -11,7 +11,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] 角色配置接受 `name_zh`、`name_kana`、`name_romaji` 三项，都是可选的单行字符串。写成不是字符串或空字符串时，后端启动就报配置错误，并指出是哪位角色；不写也能照常启动。
 - [x] 角色配置开头的说明写清楚这三项的写法：
@@ -56,3 +56,7 @@
    - 「mano sakuragi」「tooru」；
    - 「lantica」「放课后」：应当列出整组；
    - 「佐藤」：应当显示「没有找到这位偶像」。
+
+### 人工验证通过（2026-10-11）
+
+用户用构建版前端（`next build` + `next start`，后端 `eidolon serve`）按清单验证，没有问题。第一波（票 01、02）结束；下一波是 03 隐藏和置顶。
