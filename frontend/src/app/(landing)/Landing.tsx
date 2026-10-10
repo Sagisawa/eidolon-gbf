@@ -9,16 +9,19 @@ import { LightStage } from "./LightStage";
 import { Memory } from "./Memory";
 import { lightsOf, prepareSpectrum, type Spectrum as SpectrumModel } from "./model/spectrum";
 import { timelineOf } from "./model/timeline";
+import { Rail } from "./Rail";
 import { Spectrum, type SpectrumUnit } from "./Spectrum";
 import { StaticLight } from "./StaticLight";
+import { Voice, type Speaker } from "./Voice";
 
 const t = copy.landing;
 
 /**
  * 落地页（ADR-0016）：`/` 和 `/about` 共用。第 0 幕的标题、首屏声明和 CSS 画的白光；第 1 幕白光射进
  * 棱镜、散成一道道印象色（LightStage 加 OGL 光层，静态档是 StaticLight 的 SVG）；第 2 幕沿着光谱
- * 横向走过各个组合（Spectrum）；第 5 幕一件事从一位偶像传到另一位（Memory）；第 6 幕安静的诚实事项、
- * 第 7 幕光汇聚成入口（Closing）；左侧的幕名轨、右上角的入口和页脚。第 3、4 幕由后续的 ticket 接上。
+ * 横向走过各个组合（Spectrum）；第 3 幕她说日语、第 4 幕她打来电话（Voice）；第 5 幕一件事从一位偶像
+ * 传到另一位（Memory）；第 6 幕安静的诚实事项、第 7 幕光汇聚成入口（Closing）；左侧的幕名轨（Rail）、
+ * 右上角的入口和页脚。各幕的元素用 `data-lp-act` 标出它是第几幕，静止版式的幕名轨按它跟着滚动走。
  *
  * 页面按时间线（model/timeline.ts）分成几段，每段用 `data-lp-section` 标出它是第几段；钉住的一段高度
  * 是它占的屏数（landing.css 的 --lp-screens），舞台的循环按这些段把滚动位置换算成屏数。
@@ -43,27 +46,18 @@ export function Landing({
   const builtActs = new Set(timeline.acts.map((a) => a.act));
   const entryLabel = isSignedIn ? t.continue : t.signIn;
   const sectionOf = (act: number) => timeline.sections.find((s) => s.acts.includes(act))!;
+  const units = unitsOf(spectrum, characters);
+  const speaker = speakerOf(units);
   return (
     <div className="lp-root">
-      <nav className="lp-rail" aria-label={t.rail.label}>
-        <ol lang="ja">
-          {t.rail.acts.map(
-            (name, act) =>
-              builtActs.has(act) && (
-                <li key={act} data-lp-rail={act} data-current={act === 0 ? "" : undefined} aria-current={act === 0 ? "step" : undefined}>
-                  {name}
-                </li>
-              ),
-          )}
-        </ol>
-      </nav>
+      <Rail label={t.rail.label} acts={t.rail.acts.flatMap((name, act) => (builtActs.has(act) ? [{ act, name }] : []))} />
 
       <header className="lp-top">
         <LandingEntry isSignedIn={isSignedIn} label={entryLabel} className={buttonVariants({ variant: "outline" })} />
       </header>
 
       <main>
-        <section className="lp-act0" aria-labelledby="lp-title" data-lp-section={sectionOf(0).index}>
+        <section className="lp-act0" aria-labelledby="lp-title" data-lp-section={sectionOf(0).index} data-lp-act="0">
           <div className="lp-beam" aria-hidden />
           <div className="lp-act0-text">
             <h1 id="lp-title" className="lp-title">
@@ -73,11 +67,11 @@ export function Landing({
           </div>
           <p className="lp-disclaimer">{t.disclaimer}</p>
         </section>
-        <LightStage lights={lights} section={sectionOf(1)}>
-          <section className="lp-act1" aria-labelledby={lights.length > 0 ? "lp-act1-title" : undefined}>
+        <LightStage lights={lights} section={sectionOf(1)} speaker={speaker?.id ?? null}>
+          <section className="lp-act1" aria-labelledby={lights.length > 0 ? "lp-act1-title" : undefined} data-lp-act="1">
             <StaticLight lights={lights} />
             {lights.length > 0 && (
-              <div className="lp-act1-copy">
+              <div className="lp-act1-copy" data-lp-find="act1">
                 <p className="lp-act1-name" lang="ja" aria-hidden>
                   {t.act1.name}
                 </p>
@@ -90,8 +84,17 @@ export function Landing({
               </div>
             )}
           </section>
-          {spectrum.idols.length > 0 && <Spectrum units={unitsOf(spectrum, characters)} copy={spectrumCopy(spectrum)} />}
+          {spectrum.idols.length > 0 && <Spectrum units={units} copy={spectrumCopy(spectrum)} />}
         </LightStage>
+        {speaker && (
+          <Voice
+            section={sectionOf(3)}
+            speaker={speaker}
+            ringColors={[...lights].sort((a, b) => a.hueRank - b.hueRank).map((l) => l.color)}
+            talk={t.act3}
+            call={t.act4}
+          />
+        )}
         <Memory lights={lights} section={sectionOf(5)} title={t.act5.title} body={t.act5.body} />
         <Honesty section={sectionOf(6)} title={t.act6.title} lines={honestyLines(signInOptions)} />
         <Start
@@ -137,6 +140,13 @@ function unitsOf(spectrum: SpectrumModel, characters: Character[]): SpectrumUnit
       greeting: greetingOf.get(idol.id) ?? null,
     })),
   }));
+}
+
+/** 第 3、4 幕说话、打来电话的那一位：文案指定的那位（台词照她写的），不在名单里时是光谱里的第一位。 */
+function speakerOf(units: SpectrumUnit[]): (Speaker & { id: string }) | null {
+  const plates = units.flatMap((u) => u.plates);
+  const her = plates.find((p) => p.id === t.act3.speaker) ?? plates[0];
+  return her ?? null;
 }
 
 const spectrumCopy = (spectrum: SpectrumModel) => ({

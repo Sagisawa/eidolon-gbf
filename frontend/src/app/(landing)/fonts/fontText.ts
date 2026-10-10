@@ -73,9 +73,20 @@ export function landingText(): string {
   ]);
 }
 
-/** 用 Shippori Mincho B1 排的：偶像的名字、组合名（查不到组合时的「其他偶像」也排在组合名的位置）、招呼的日语原文、幕名和幕名轨。 */
+/** 用 Shippori Mincho B1 排的：偶像的名字、组合名（查不到组合时的「其他偶像」也排在组合名的位置）、招呼的日语原文、
+ * 幕名和幕名轨，以及第 3、4 幕里她说的日语。 */
 export function japaneseText(): string {
-  return unique([...characterNames(), ...unitNames(), ...greetingJapanese(), copy.landing.act1.name, ...copy.landing.rail.acts, copy.landing.act2.others]);
+  const { act1, act2, act3, act4, rail } = copy.landing;
+  return unique([
+    ...characterNames(),
+    ...unitNames(),
+    ...greetingJapanese(),
+    act1.name,
+    ...rail.acts,
+    act2.others,
+    ...act3.lines.map((l) => l.ja),
+    act4.hello.ja,
+  ]);
 }
 
 /**

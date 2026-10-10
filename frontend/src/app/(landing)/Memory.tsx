@@ -23,7 +23,7 @@ export function Memory({ lights, section, title, body }: { lights: BandLight[]; 
   const reached = new Set(world.arcs.flatMap((a) => [a.source, a.target]));
   return (
     <div className="lp-stage-wrap lp-memory" data-lp-section={section.index} style={{ "--lp-screens": section.screens } as CSSProperties}>
-      <section className="lp-stage lp-act5" aria-labelledby="lp-act5-title">
+      <section className="lp-stage lp-act5" aria-labelledby="lp-act5-title" data-lp-act="5">
         <svg className="lp-memory-world" viewBox="0 0 2000 1000" preserveAspectRatio="none" aria-hidden>
           <defs>
             {world.arcs.map((a, k) => (

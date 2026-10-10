@@ -6,8 +6,11 @@
 // （起点、方向、长度）。第 1 幕里白光先移到棱镜的入射点，射进棱镜后从出口按色相扇出成一道道光；
 // 扫过一遍把每种颜色依次点亮，最后 28 道光以同一个亮度停在扇面上。第 2 幕先「归队」：扇面拉直成
 // 按组合顺序排满一屏的竖线（光谱尺），再放大到横滚的轨道上，每个组合一屏，组合之间整页推入。
-// 三个状态之间逐道插值，就是「扇形 → 拉直 → 归队」的转场。各幕占几屏见 timeline.ts。
+// 三个状态之间逐道插值，就是「扇形 → 拉直 → 归队」的转场。第 3、4 幕里一道道光收成说话那一位的
+// 一道，她说日语、打来电话；第 5 幕光又散开，一件事从一位传到另一位；第 7 幕收拢成一块手机屏幕。
+// 各幕占几屏见 timeline.ts。
 
+import type { Call } from "./interaction";
 import { averageOklab, mixOklab } from "./oklab";
 import { layoutOf, qualityOf, type Tier } from "./tier";
 import {
@@ -61,6 +64,10 @@ export type SceneInput = {
   focus?: Readonly<Record<string, number>>;
   /** 第 2 幕名牌上名字占的竖直区间（视口坐标，舞台钉住时），光芯在那里断开。DOM 层量好了传进来。 */
   nameGaps?: Readonly<Record<string, readonly [top: number, bottom: number]>>;
+  /** 第 3、4 幕里说话、打来电话的那一位；不给或者她不在名单里时，是光谱里的第一位。 */
+  speaker?: string;
+  /** 第 4 幕的来电接到哪一步了（交互 reducer 的 `call.phase`）；不给时在响。 */
+  call?: Call["phase"];
 };
 
 export type Band = {
@@ -117,6 +124,24 @@ export type MemoryState = {
   trail: boolean;
 };
 
+/** 第 3 幕里的一句话：竖排的日语原文一列，和底下的一句中文字幕。 */
+export type TalkLine = {
+  /** 原文这一列的不透明度：出来了就一直留着。 */
+  ja: number;
+  /** 字幕被光扫到了哪儿，0 到 1：DOM 上扫过的部分显出来，扫光的亮边就在这里。 */
+  sweep: number;
+  /** 字幕的不透明度：下一句出来时这一句收掉，同一时刻只看得到一句（静止版式里几句都在）。 */
+  subtitle: number;
+};
+
+/** 第 4 幕的来电。 */
+export type CallState = {
+  /** 光脉冲 0 到 1：铃声在画面上就是它，一阵一阵的。她的光和背景跟着亮。 */
+  pulse: number;
+  /** 画面振动的位移（像素）：响的时候抖，停的时候不动。 */
+  shake: { x: number; y: number };
+};
+
 export type Scene = {
   /** 当前在哪一幕，和幕内进度 0 到 1（timeline.ts）。幕名轨亮到这一格。 */
   act: number;
@@ -138,10 +163,15 @@ export type Scene = {
   /** 第 5 幕：传话的光点、横移、连线的描边进度、指针痕迹。第 5 幕从下面进来的那一屏（光谱解开钉住）里
    * 已经是第 5 幕开头的样子，DOM 上的布景进到画面时就对得上；其他幕是 null。 */
   memory: MemoryState | null;
+  /** 第 3 幕：每一句话的原文、扫光和字幕；第 4 幕里是说完的样子（第 3 幕的字在第 4 幕开头淡出）。其他幕是 null。 */
+  talk: { lines: TalkLine[] } | null;
+  /** 第 4 幕：光脉冲和振动。其他幕是 null。 */
+  call: CallState | null;
   /** 第 7 幕的手机屏幕：中心 (x, y)，半宽 w、半高 h，圆角 r；亮度 0 到 1，1 是全站最亮的时候。 */
   screen: { x: number; y: number; w: number; h: number; r: number; intensity: number };
-  /** DOM 上跟着时间线走的部分的不透明度：第 1 幕的文字，第 2 幕的名牌，第 7 幕的文字和行动按钮。 */
-  text: { act1: number; plates: number; act7: number };
+  /** DOM 上跟着时间线走的部分的不透明度：第 1 幕的文字，第 2 幕的名牌，第 3 幕的文字，第 4 幕的来电画面，
+   * 第 7 幕的文字和行动按钮。 */
+  text: { act1: number; plates: number; act3: number; act4: number; act7: number };
 };
 
 /** 页面的底色（landing.css 的 html、body 用同一个），画布淡入时看不出接缝。 */
@@ -262,7 +292,7 @@ type Picture = Omit<Scene, "act" | "actProgress">;
 /** 没有手机屏幕。 */
 const NO_SCREEN: Scene["screen"] = { x: 0, y: 0, w: 0, h: 0, r: 0, intensity: 0 };
 /** 第 0 到 2 幕以外，白光、棱镜、连续色散都熄着。 */
-const QUIET_TEXT: Scene["text"] = { act1: 0, plates: 0, act7: 0 };
+const QUIET_TEXT: Scene["text"] = { act1: 0, plates: 0, act3: 0, act4: 0, act7: 0 };
 
 /** 第 1 幕进度为 p 时的画面（第 0 幕就是 p = 0）。 */
 function act1Picture(lights: readonly BandLight[], vp: Viewport, m: Moment): Picture {
@@ -329,6 +359,8 @@ function act1Picture(lights: readonly BandLight[], vp: Viewport, m: Moment): Pic
     dispersion: m.samples > 1 ? transition * m.pace : 0,
     spectrum: null,
     memory: null,
+    talk: null,
+    call: null,
     screen: NO_SCREEN,
     text: { ...QUIET_TEXT, act1: smooth(0.4, 0.48, p) },
   };
@@ -433,6 +465,8 @@ function act2Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, a: A
     dispersion: m.samples > 1 ? transition * m.pace : 0,
     spectrum: { track, trackTarget: target.pos, unit: current, stand: standOk ? lights[strongest].id : null },
     memory: null,
+    talk: null,
+    call: null,
     screen: NO_SCREEN,
     text: { ...QUIET_TEXT, act1: 1 - smooth(0, 0.3, regroup), plates: smooth(0.45, 0.9, zoom) },
   };
@@ -450,6 +484,8 @@ function quiet(lights: readonly BandLight[], vp: Viewport, bands: Band[]): Pictu
     dispersion: 0,
     spectrum: null,
     memory: null,
+    talk: null,
+    call: null,
     screen: NO_SCREEN,
     text: QUIET_TEXT,
   };
@@ -683,6 +719,127 @@ function act7Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, span
   };
 }
 
+/** 第 3、4 幕里说话、打来电话的那一位在 lights 里的下标：指定了、并且在名单里的就是她，不然是第一位。 */
+function speakerIndex(lights: readonly BandLight[], id: string | undefined): number {
+  const i = id === undefined ? -1 : lights.findIndex((l) => l.id === id);
+  return Math.max(0, i);
+}
+
+/** 第 3 幕有几句话：落地页文案（copy.landing.act3.lines）正好这么多句。 */
+export const TALK_LINES = 3;
+
+/** 第 3 幕她那道光的横坐标：画面右边，原文竖排在它左边、字幕在底下。landing.css 的 .lp-talk 按同一个比例排字。 */
+const talkLightX = (vp: Viewport) => vp.w * (isPortrait(vp) ? 0.84 : 0.78);
+
+/** 第 3 幕里一道道光收成她一道的那一段（幕内进度）。 */
+const TALK_GATHER = 0.14;
+/** 第 3 幕第 k 句从哪儿开始（幕内进度）：原文那一列先出来，字幕紧跟着被扫出来。 */
+const talkStart = (k: number) => 0.16 + k * 0.27;
+/** 字幕扫一遍占的幕内进度。 */
+const SWEEP = 0.15;
+/** 第 3 幕第 k 句完整显示的时刻（幕内进度）：原文在，字幕刚扫完、下一句还没出来。页内查找找到这一句时滚到这里。 */
+export const talkLineShown = (k: number) => talkStart(k) + 0.03 + SWEEP + 0.01;
+/** 第 3、4 幕里她那道光的亮度：说话、响铃时再亮一点，都算满强度；其余的光都熄了。 */
+const SPEAKER_LIT = 0.6;
+
+/**
+ * 第 3 幕「她说日语」：竖着铺满一屏的光收成说话那一位的一道，站到画面右边。她说几句日语：竖排的原文一列
+ * 一列出来，中文字幕一句一句被光从左往右扫出来（不是打字机）；她说着的时候光亮一点。`p` 是幕内进度；
+ * 静止版式里原文和字幕一开始就完整显示，几句字幕都在。
+ */
+function act3Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, p: number, her: number, still: boolean): Picture {
+  const gather = easeInOut(smooth(0, TALK_GATHER, p));
+  const lines: TalkLine[] = Array.from({ length: TALK_LINES }, (_, k) => {
+    if (still) return { ja: 1, sweep: 1, subtitle: 1 };
+    const start = talkStart(k);
+    const out = k < TALK_LINES - 1 ? 1 - smooth(talkStart(k + 1) - 0.02, talkStart(k + 1) + 0.01, p) : 1;
+    return { ja: smooth(start, start + 0.05, p), sweep: clamp((p - start - 0.03) / SWEEP), subtitle: smooth(start, start + 0.02, p) * out };
+  });
+  const speaking = Math.max(...lines.map((l) => hill(l.sweep)));
+  const x = talkLightX(vp);
+  const bands = curtain(lights, vp, EMBER).map((b, i) =>
+    i === her
+      ? {
+          ...b,
+          x: lerp(b.x, x, gather),
+          core: lerp(b.core, 1.4, gather),
+          halo: lerp(b.halo, 34 * lights[i].spread, gather),
+          intensity: lerp(EMBER, SPEAKER_LIT + 0.22 * speaking, gather),
+        }
+      : // 其余的光朝她那里靠一点，同时熄掉。
+        { ...b, x: lerp(b.x, lerp(b.x, x, 0.5), gather), intensity: EMBER * (1 - gather) },
+  );
+  return {
+    ...quiet(lights, vp, bands),
+    dispersion: m.samples > 1 ? 0.4 * hill(gather) * m.pace : 0,
+    talk: { lines },
+    text: { ...QUIET_TEXT, act3: still ? 1 : smooth(0.04, TALK_GATHER, p) },
+  };
+}
+
+/** 第 4 幕里来电的画面显出来的那一段（幕内进度）：背景过渡到她的极深底色，她的光挪到画面中间。 */
+const CALL_IN = 0.15;
+/** 铃声的节奏（秒）：响两下、停一会儿，和手机来电一样。 */
+const RING_PERIOD = 2.6;
+const RING_BURSTS: readonly [from: number, to: number][] = [
+  [0, 0.5],
+  [0.65, 1.15],
+];
+/** 响铃时画面振动的幅度（像素）。 */
+const SHAKE = 3;
+/** 减少动态效果档里定格的光脉冲：画面静止，但看得出在发光。 */
+const STILL_PULSE = 0.5;
+
+/** 第 `time` 秒的光脉冲：响的两下各是一座小山，停的时候是 0。 */
+function ringPulse(time: number): number {
+  const t = ((time % RING_PERIOD) + RING_PERIOD) % RING_PERIOD;
+  return Math.max(0, ...RING_BURSTS.map(([a, b]) => (t > a && t < b ? Math.sin((Math.PI * (t - a)) / (b - a)) : 0)));
+}
+
+/**
+ * 第 4 幕「来电」：全屏是她。背景过渡到她的极深底色，她那道光站到画面中间；铃声在画面上是一阵一阵的
+ * 光脉冲，响的时候画面振动（访客接听以前从不出声）。接通以后不再响，她的光稳稳地亮着。`p` 是幕内进度；
+ * 静止版式里画面静止：光脉冲定格在一半，不振动。
+ */
+function act4Picture(
+  lights: readonly BandLight[],
+  vp: Viewport,
+  m: Moment,
+  p: number,
+  her: number,
+  phase: Call["phase"],
+  still: boolean,
+): Picture & { call: CallState } {
+  const from = act3Picture(lights, vp, m, 1, her, still);
+  const enter = still ? 1 : easeInOut(smooth(0, CALL_IN, p));
+  const ringing = phase !== "connected";
+  const pulse = !ringing ? 0 : still ? STILL_PULSE : ringPulse(m.time) * enter;
+  const t = m.time;
+  const shake = still || pulse === 0 ? { x: 0, y: 0 } : { x: SHAKE * pulse * Math.sin(2 * Math.PI * 23 * t), y: 0.4 * SHAKE * pulse * Math.sin(2 * Math.PI * 17 * t + 1) };
+  const light = lights[her];
+  const base = mixOklab(BACKGROUND, light.deep, enter);
+  const bands = from.bands.map((b, i) =>
+    i === her
+      ? {
+          ...b,
+          x: lerp(b.x, vp.w * 0.5, enter),
+          halo: lerp(b.halo, 46 * light.spread, enter),
+          intensity: lerp(b.intensity, ringing ? 0.5 + 0.38 * pulse : 0.78, enter),
+        }
+      : b,
+  );
+  return {
+    ...from,
+    background: pulse > 0 ? mixOklab(base, light.color, 0.14 * pulse) : base,
+    bands,
+    dispersion: 0,
+    // 第 3 幕的字在这一幕开头淡出：留着说完的样子。
+    talk: from.talk,
+    call: { pulse, shake },
+    text: { ...QUIET_TEXT, act3: still ? 0 : 1 - smooth(0, 0.08, p), act4: still ? 1 : smooth(0.06, CALL_IN + 0.05, p) },
+  };
+}
+
 /** 页面按名单算出的时间线；同一份名单每帧都要，记下最近一次的。 */
 let memo: { units: number; timeline: Timeline } | null = null;
 function timelineFor(lights: readonly BandLight[]): Timeline {
@@ -722,6 +879,34 @@ export function describeScene(input: SceneInput): Scene {
   if (scroll >= act5.from) {
     return { ...where, ...act5Picture(lights, viewport, m, act5, still ? act5.length : scroll - act5.from, still) };
   }
+  const act3 = spanOf(timeline, 3);
+  const act4 = spanOf(timeline, 4);
+  const her = speakerIndex(lights, input.speaker);
+  if (act4 && scroll >= act4.from) {
+    const q = still ? act4.length : scroll - act4.from;
+    const picture = act4Picture(lights, viewport, m, clamp(q / act4.length), her, input.call ?? "ringing", still);
+    const release = q - act4.length;
+    if (release <= 0) return { ...where, ...picture };
+    // 解开钉住的那一屏：她的光和熄着的光一起变形成第 5 幕开头的样子，背景回到黑，铃声的光暗下去，来电的画面淡出。
+    // 第 5 幕的布景这时已经从下面进来了：连线一条都还没画，横移停在开头，还不留指针痕迹。
+    const t = smooth(0, 1, release);
+    const world = memoryWorld(lights);
+    const next = memoryBands(lights, viewport, world, panAt(world, viewport, 0), () => MEMORY_EMBER);
+    const entering = act5Picture(lights, viewport, m, act5, 0, still).memory!;
+    return {
+      ...where,
+      ...picture,
+      background: mixOklab(picture.background, BACKGROUND, t),
+      bands: blend(picture.bands, next, t),
+      call: { pulse: picture.call.pulse * (1 - t), shake: { x: picture.call.shake.x * (1 - t), y: picture.call.shake.y * (1 - t) } },
+      // 来电的画面（立绘只盖到舞台底边）不跟着舞台整块往上走，先淡出。
+      text: { ...picture.text, act4: 1 - smooth(0, 0.5, release) },
+      memory: { ...entering, relays: entering.relays.map((r) => ({ ...r, intensity: 0 })), trail: false },
+    };
+  }
+  if (act3 && scroll >= act3.from) {
+    return { ...where, ...act3Picture(lights, viewport, m, still ? 1 : clamp((scroll - act3.from) / act3.length), her, still) };
+  }
   if (act2 && scroll >= act2.from) {
     // 定格时是光谱尺：全部的光排在一屏里，一帧就是整条光谱。
     const q = still ? REGROUP_SCREENS : scroll - act2.from;
@@ -734,19 +919,17 @@ export function describeScene(input: SceneInput): Scene {
     });
     const release = q - act2.length;
     if (release <= 0) return { ...where, ...picture };
-    // 解开钉住的那一屏：一道道光变形成第 5 幕开头的样子。画面外很远的那些先在画面外收到画面边上，
-    // 免得几屏外的光一下扫过整个画面。
-    const world = memoryWorld(lights);
-    const next = memoryBands(lights, viewport, world, panAt(world, viewport, 0), () => MEMORY_EMBER);
+    // 解开钉住的那一屏：一道道光变形成第 3 幕开头的样子（竖着铺满一屏）。画面外很远的那些先在画面外收到
+    // 画面边上，免得几屏外的光一下扫过整个画面。第 3 幕的舞台这时从下面进来，原文和字幕都还没出来。
+    const opening = act3Picture(lights, viewport, m, 0, her, still);
     const gather = smooth(0, 0.3, release);
     const near = picture.bands.map((b) => ({ ...b, x: lerp(b.x, clamp(b.x, -0.15 * viewport.w, 1.15 * viewport.w), gather) }));
-    // 第 5 幕的布景这时已经从下面进来了：连线一条都还没画，横移停在开头，还不留指针痕迹。
-    const entering = act5Picture(lights, viewport, m, act5, 0, still).memory!;
     return {
       ...where,
       ...picture,
-      bands: blend(near, next, smooth(0, 1, release)),
-      memory: { ...entering, relays: entering.relays.map((r) => ({ ...r, intensity: 0 })), trail: false },
+      bands: blend(near, opening.bands, smooth(0, 1, release)),
+      talk: opening.talk,
+      text: { ...picture.text, act3: 0 },
     };
   }
   const picture = act1Picture(lights, viewport, { ...m, p: still ? 1 : clamp((scroll - act1.from) / act1.length) });

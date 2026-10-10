@@ -153,32 +153,7 @@ describe("describeScene: 第 5 幕，一件事传开", () => {
   });
 });
 
-describe("describeScene: 第 2 幕到第 5 幕、第 5 幕到第 6 幕", () => {
-  it("光谱解开钉住的那一屏里，一道道光连续地变成第 5 幕的样子", () => {
-    const before = scene({ scroll: act5.from - 1e-9 });
-    const start = scene({ scroll: act5.from });
-    start.bands.forEach((b, i) => {
-      expect(b.x).toBeCloseTo(before.bands[i].x, 3);
-      expect(b.intensity).toBeCloseTo(before.bands[i].intensity, 3);
-    });
-    for (let q = 0; q <= 1; q += 0.01) {
-      const a = scene({ scroll: act5.from - 1 + q });
-      const b = scene({ scroll: act5.from - 1 + q + 0.0002 });
-      a.bands.forEach((band, i) => expect(Math.abs(b.bands[i].x - band.x)).toBeLessThan(desktop.w * 0.01));
-    }
-  });
-
-  it("光谱解开钉住、第 5 幕从下面进来的那一屏里，连线还一条都没画，布景停在第 5 幕开头的横移上", () => {
-    const start = scene({ scroll: act5.from }).memory!;
-    for (const q of [0.01, 0.5, 0.99]) {
-      const entering = scene({ scroll: act5.from - 1 + q }).memory;
-      expect(entering?.paths.every((t) => t === 0), `q ${q}`).toBe(true);
-      expect(entering!.pan).toBeCloseTo(start.pan);
-      expect(entering!.relays.every((r) => r.intensity === 0)).toBe(true);
-      expect(entering!.trail).toBe(false);
-    }
-  });
-
+describe("describeScene: 第 5 幕到第 6 幕", () => {
   it("第 5 幕解开钉住时光暗下去，到第 6 幕全暗", () => {
     const end = scene({ scroll: act6.from - 1e-6 });
     expect(end.bands.every((b) => b.intensity < 0.01)).toBe(true);

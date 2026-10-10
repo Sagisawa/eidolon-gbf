@@ -2,18 +2,23 @@
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import { describeScene, slotX, unitCount, type BandLight, type Scene, type Viewport } from "./model/scene";
+import { describeScene, slotX, talkLineShown, unitCount, type BandLight, type Scene, type Viewport } from "./model/scene";
 import { settleSpring, stepSpring } from "./model/spring";
 import { qualityOf, tierReducer, TIERS, type Tier, type TierAction } from "./model/tier";
-import { holdAt, timelineOf, type Section } from "./model/timeline";
+import { holdAt, restAt, spanOf, timelineOf, type Section } from "./model/timeline";
 import { liveTrail, pushTrail, type TrailPoint } from "./model/trail";
 import { idle } from "./idle";
+import { interactionStore } from "./interactionStore";
 import type { Light } from "./light";
 import { stageStore } from "./stageStore";
 
 /** 按帧降档要攒够的样本：至少这么多帧、这么长时间才算一次平均（原型的做法）。 */
 const MEASURE_FRAMES = 90;
 const MEASURE_MS = 2500;
+/** 不在光谱里时轨道停在哪儿（组合数）：第一个组合的右边一屏外。 */
+const PARKED = -1;
+/** 页面停下来这么久（毫秒）才算浏览器滚完了（页内查找把找到的字滚进画面）。 */
+const SETTLE_MS = 120;
 /** 聚焦淡入淡出的时间常数（秒）。 */
 const FOCUS_EASE = 0.22;
 
@@ -32,15 +37,31 @@ type Measured = Section & { el: HTMLElement; top: number; height: number };
  *   加载之前就是原生滚动。OGL 在浏览器空闲时才加载，画好第一帧才淡入，淡入时首屏 CSS 画的白光
  *   同时淡出；两束光的几何是同一套（model/scene.ts 的锚点就是 landing.css 里 .lp-beam 的尽头）。
  *   第 2 幕的名牌按模型的 slotX 摆到横滚轨道上，轨道的横移经弹簧平滑；名牌上名字的位置量好了传给模型，
- *   光芯在那里断开；立绘和招呼的字幕摆到她名牌外侧空间大的一边。第 5 幕的布景（Memory 的 SVG）跟着模型横移、光点走到哪儿连线画到哪儿，指针在这一幕留下
- *   慢慢消散的痕迹；第 7 幕的文字和行动按钮跟着模型淡入。
+ *   光芯在那里断开；立绘和招呼的字幕摆到她名牌外侧空间大的一边。第 3 幕的原文和字幕跟着模型一句句出来，
+ *   第 4 幕的来电画面跟着模型的光脉冲振动、发光（Voice、Call）。第 5 幕的布景（Memory 的 SVG）跟着模型横移、
+ *   光点走到哪儿连线画到哪儿，指针在这一幕留下慢慢消散的痕迹；第 7 幕的文字和行动按钮跟着模型淡入。
+ *   当前在哪一幕写进 stageStore，幕名轨、光谱和来电据此更新。
+ *   页内查找：画面外的名牌由浏览器去滚光谱的舞台（它是个访客滚不动的滚动容器），这里接住、滚回去，再把
+ *   页面滚到那个组合；跟着滚动淡入淡出的文字（`data-lp-find`）在访客查找时、看不见的那些是 `hidden="until-found"`，
+ *   查找找到它时浏览器发 beforematch，这里把页面滚到它显示出来的地方。平时不藏：藏起来的字读屏器读不到。
  * - 定格档（减少动态效果）：不钉住、不加载 Lenis；OGL 只渲染一帧第 1 幕的完成态就停下，
  *   窗口尺寸变了才重画那一帧。画好之前，静态档的 SVG 先顶着。
  * - 静态档（省流量、不支持 WebGL）：什么都不加载，光由服务端渲染的 SVG（StaticLight）和 CSS 画。
  *
  * 光层建不起来或 WebGL 上下文丢了，就地退到静态档：收起画布，版式不变，各幕的 CSS 光重新露出来。
  */
-export function LightStage({ lights, section, children }: { lights: BandLight[]; section: Section; children: ReactNode }) {
+export function LightStage({
+  lights,
+  section,
+  speaker,
+  children,
+}: {
+  lights: BandLight[];
+  section: Section;
+  /** 第 3、4 幕说话、打来电话的那一位。 */
+  speaker: string | null;
+  children: ReactNode;
+}) {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
 
@@ -140,7 +161,31 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
     const greetingEl = stage.querySelector<HTMLElement>(".lp-greeting");
     const railEl = root.querySelector<HTMLElement>(".lp-rail");
     const track = stage.querySelector<HTMLElement>(".lp-track");
-    const railItems = [...root.querySelectorAll<HTMLElement>("[data-lp-rail]")];
+    const voiceEl = root.querySelector<HTMLElement>(".lp-voice");
+    const stageBox = stage.querySelector<HTMLElement>(".lp-stage")!;
+    /** 跟着滚动淡入淡出的文字，和它们现在藏没藏起来。不支持 until-found 的浏览器里 hidden 就是不显示，不用它。 */
+    const findables = "onbeforematch" in document.body ? [...root.querySelectorAll<HTMLElement>("[data-lp-find]")] : [];
+    const hidden = new Map<HTMLElement, boolean>();
+    /**
+     * 访客在查找：按了 Ctrl/⌘+F 或 F3，还没再碰页面（查找栏开着时按键都落在查找栏上，碰到页面多半是查完了）。
+     * 只在这时把看不见的文字藏成 until-found：藏起来的字不在无障碍树上，平时藏着读屏器就读不到了。
+     */
+    let finding = false;
+    const onKey = (e: KeyboardEvent) => {
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") || e.key === "F3") finding = true;
+      else if (!["Control", "Meta", "Shift", "Alt"].includes(e.key)) finding = false;
+    };
+    const stopFinding = () => (finding = false);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", stopFinding, true);
+    window.addEventListener("wheel", stopFinding, { passive: true });
+    window.addEventListener("touchstart", stopFinding, { passive: true });
+    cleanups.push(() => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", stopFinding, true);
+      window.removeEventListener("wheel", stopFinding);
+      window.removeEventListener("touchstart", stopFinding);
+    });
     const memoryEl = root.querySelector<HTMLElement>(".lp-memory");
     const startEl = root.querySelector<HTMLElement>(".lp-start");
 
@@ -156,9 +201,18 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
         }),
       );
     };
+    /** 光谱的舞台平时停在这么远的地方（像素），第 1、2 幕的内容往右挪同样远：浏览器往左、往右都滚得动它。 */
+    let base = 0;
+    /** 轨道现在的横移（组合数）：光谱里是模型给的，不在光谱里时停在 PARKED。 */
+    let trackNow = 0;
     const measure = () => {
       vp = { w: html.clientWidth, h: window.innerHeight };
       root.style.setProperty("--lp-vh", `${vp.h}px`);
+      base = unitCount(lights) * vp.w;
+      stage.style.setProperty("--lp-base", `${base}px`);
+      stageBox.scrollLeft = base;
+      // 轨道停在画面外的距离按新的视口宽度重算（下一帧）。
+      if (trackNow === PARKED) trackNow = Number.NaN;
       for (const s of sections) {
         s.top = s.el.getBoundingClientRect().top + window.scrollY;
         s.height = Math.max(1, s.el.offsetHeight);
@@ -251,13 +305,76 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
     );
     cleanups.push(() => lenis?.destroy());
 
-    // 按组合跳转：滚到那个组合停稳的地方。
-    stageStore.jump = (u, instant) => {
-      const y = yOf(holdAt(timeline, u));
+    /** 滚到时间线上第 `screens` 屏：Lenis 加载了就交给它（它的平滑状态才对得上），不然用原生滚动。 */
+    const scrollToScreens = (screens: number, instant: boolean) => {
+      const y = yOf(screens);
       if (lenis) lenis.scrollTo(y, instant ? { immediate: true } : { duration: 1.2 });
       else window.scrollTo({ top: y, behavior: instant ? "instant" : "smooth" });
     };
-    cleanups.push(() => (stageStore.jump = null));
+    // 按组合跳转：滚到那个组合停稳的地方。
+    stageStore.jump = (u, instant) => scrollToScreens(holdAt(timeline, u), !!instant);
+    // 键盘聚焦到别的幕里的按钮、页内查找找到一段文字：立即滚到那一幕停稳的地方，或者幕内的某一处。
+    stageStore.goto = (act, progress) => {
+      const span = spanOf(timeline, act);
+      const at = progress === undefined || !span ? restAt(timeline, act) : span.from + span.length * progress;
+      if (at !== undefined) scrollToScreens(at, true);
+    };
+    cleanups.push(() => {
+      stageStore.jump = null;
+      stageStore.goto = null;
+    });
+
+    // 页内查找找到一段文字时，浏览器要把它滚进画面：它按文字在钉住的舞台里的位置滚，不一定是文字显示出来的
+    // 地方。等浏览器滚完（页面停下来一会儿）再滚到该去的地方，不然又被它盖掉。
+    let settling: { run: () => void; timer: number } | null = null;
+    const afterScrollSettles = (run: () => void) => {
+      if (settling) window.clearTimeout(settling.timer);
+      settling = { run, timer: window.setTimeout(settled, SETTLE_MS) };
+    };
+    const settled = () => {
+      const run = settling?.run;
+      settling = null;
+      run?.();
+    };
+    const onScroll = () => {
+      if (!settling) return;
+      window.clearTimeout(settling.timer);
+      settling.timer = window.setTimeout(settled, SETTLE_MS);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    cleanups.push(() => {
+      window.removeEventListener("scroll", onScroll);
+      if (settling) window.clearTimeout(settling.timer);
+    });
+
+    // 页内查找找到画面外的名牌（键盘聚焦到它也一样）：浏览器为了让它露出来去滚光谱的舞台。滚回原处，把页面
+    // 滚到那个组合：先看是哪块名牌（聚焦的、或者查找选中的），认不出来就按浏览器滚了多远估一个组合。
+    // 舞台平时停在 base 处（见 measure），名牌在画面左边、右边都滚得到。
+    const onStageScroll = () => {
+      const dx = stageBox.scrollLeft - base;
+      if (Math.abs(dx) < 1 && stageBox.scrollTop === 0) return;
+      stageBox.scrollLeft = base;
+      stageBox.scrollTop = 0;
+      const plate = [document.activeElement, getSelection()?.anchorNode?.parentElement]
+        .map((n) => n?.closest<HTMLElement>("[data-lp-id]"))
+        .find((n) => n && stage.contains(n));
+      const guess = Math.min(unitCount(lights) - 1, Math.max(0, Math.floor(trackNow + (dx + vp.w / 2) / vp.w)));
+      const unit = lightOf.get(plate?.dataset.lpId ?? "")?.unit ?? guess;
+      afterScrollSettles(() => stageStore.jump?.(unit, true));
+    };
+    stageBox.addEventListener("scroll", onStageScroll);
+    // 查找找到藏起来的文字：滚到它显示出来的地方。
+    const onMatch = (e: Event) => {
+      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-lp-find]")?.dataset.lpFind;
+      if (!key) return;
+      const found = findKeyOf(key);
+      afterScrollSettles(() => stageStore.goto?.(found.act, found.kind === "sub" ? talkLineShown(found.line) : undefined));
+    };
+    document.addEventListener("beforematch", onMatch);
+    cleanups.push(() => {
+      stageBox.removeEventListener("scroll", onStageScroll);
+      document.removeEventListener("beforematch", onMatch);
+    });
 
     void loadLight((l) => l.resize(vp.w, vp.h));
 
@@ -308,14 +425,24 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
         track: trackSpring?.x,
         focus,
         nameGaps,
+        speaker: speaker ?? undefined,
+        call: interactionStore.get().call.phase,
       });
       stage.style.setProperty("--lp-act1-text", String(scene.text.act1));
       stage.style.setProperty("--lp-plates", String(scene.text.plates));
       // 名牌显出来以后才接指针：之前它们透明地盖在第 1 幕上面。
       stage.toggleAttribute("data-lp-plates", scene.text.plates > 0.5);
-      if (!scene.spectrum) trackSpring = null;
-      else {
+      if (!scene.spectrum) {
+        trackSpring = null;
+        // 不在光谱里时把轨道停到画面右边一屏外：名牌都在画面外，页内查找找到哪一块，浏览器都得去滚舞台，
+        // 上面的 onStageScroll 才接得到。
+        if (trackNow !== PARKED) {
+          trackNow = PARKED;
+          if (track) track.style.transform = `translate3d(${-PARKED * vp.w}px,0,0)`;
+        }
+      } else {
         trackTarget = scene.spectrum.trackTarget;
+        trackNow = scene.spectrum.track;
         trackSpring ??= settleSpring(trackTarget);
         if (track) track.style.transform = `translate3d(${-scene.spectrum.track * vp.w}px,0,0)`;
         stageStore.set({ unit: scene.spectrum.unit, stand: scene.spectrum.stand });
@@ -329,9 +456,31 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
           placeGreeting();
         }
       }
+      if (voiceEl) {
+        voiceEl.style.setProperty("--lp-act3", String(scene.text.act3));
+        voiceEl.style.setProperty("--lp-act4", String(scene.text.act4));
+        voiceEl.toggleAttribute("data-lp-call", scene.text.act4 > 0.5);
+        scene.talk?.lines.forEach((l, k) => {
+          voiceEl.style.setProperty(`--lp-ja-${k}`, String(l.ja));
+          voiceEl.style.setProperty(`--lp-sweep-${k}`, String(l.sweep));
+          voiceEl.style.setProperty(`--lp-sub-${k}`, String(l.subtitle));
+        });
+        if (scene.call) {
+          voiceEl.style.setProperty("--lp-pulse", String(scene.call.pulse));
+          voiceEl.style.setProperty("--lp-shake-x", `${scene.call.shake.x}px`);
+          voiceEl.style.setProperty("--lp-shake-y", `${scene.call.shake.y}px`);
+        }
+      }
       if (scene.memory && memoryEl) {
         memoryEl.style.setProperty("--lp-pan", `${-scene.memory.pan}px`);
         scene.memory.paths.forEach((t, k) => memoryEl.style.setProperty(`--lp-path-${k}`, String(t)));
+      }
+      for (const el of findables) {
+        const hide = finding && shownOf(scene, findKeyOf(el.dataset.lpFind!)) < 0.02;
+        if (hidden.get(el) === hide) continue;
+        hidden.set(el, hide);
+        if (hide) el.setAttribute("hidden", "until-found");
+        else el.removeAttribute("hidden");
       }
       trailOn = !!scene.memory?.trail;
       const marks = trailOn ? liveTrail(trail, now / 1000) : [];
@@ -341,12 +490,7 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
       }
       if (scene.act !== act) {
         act = scene.act;
-        for (const li of railItems) {
-          const on = Number(li.dataset.lpRail) === act;
-          li.toggleAttribute("data-current", on);
-          if (on) li.setAttribute("aria-current", "step");
-          else li.removeAttribute("aria-current");
-        }
+        stageStore.set({ act });
       }
 
       if (!light) return;
@@ -376,7 +520,7 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
       document.removeEventListener("visibilitychange", onVisible);
     });
     return unmount;
-  }, [lights]);
+  }, [lights, speaker]);
 
   return (
     <div
@@ -385,12 +529,30 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
       data-lp-section={section.index}
       style={{ "--lp-screens": section.screens } as CSSProperties}
     >
-      <div className="lp-stage">
+      <div className="lp-stage lp-spectrum-stage">
         <canvas ref={canvas} className="lp-canvas" aria-hidden />
         {children}
       </div>
     </div>
   );
+}
+
+/** 一段跟着时间线淡入淡出的文字（`data-lp-find`）：第几幕的说明，或者第 3 幕第几句的原文、字幕。 */
+type FindKey = { kind: "text"; act: 1 | 3 | 4 | 7 } | { kind: "ja" | "sub"; act: 3; line: number };
+
+/** `data-lp-find` 的写法：`act1`、`act3`、`act4`、`act7` 是这几幕的说明，`ja-k`、`sub-k` 是第 3 幕第 k 句。 */
+function findKeyOf(key: string): FindKey {
+  const [kind, k] = key.split("-");
+  if (kind === "ja" || kind === "sub") return { kind, act: 3, line: Number(k) };
+  return { kind: "text", act: Number(kind.slice(3)) as 1 | 3 | 4 | 7 };
+}
+
+/** 这段文字这一刻显示了多少。 */
+function shownOf(scene: Scene, key: FindKey): number {
+  if (key.kind === "text") return scene.text[`act${key.act}`];
+  const line = scene.talk?.lines[key.line];
+  if (!line) return 0;
+  return scene.text.act3 * (key.kind === "ja" ? line.ja : line.subtitle * line.sweep);
 }
 
 /** 画面里没有一处是亮的。 */

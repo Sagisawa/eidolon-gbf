@@ -11,6 +11,7 @@ export function Honesty({ section, title, lines }: { section: Section; title: st
   return (
     <section
       className="lp-act6"
+      data-lp-act="6"
       aria-labelledby="lp-act6-title"
       data-lp-section={section.index}
       style={{ "--lp-screens": section.screens } as CSSProperties}
@@ -51,13 +52,15 @@ export function Start({
 }) {
   return (
     <div className="lp-stage-wrap lp-start" data-lp-section={section.index} style={{ "--lp-screens": section.screens } as CSSProperties}>
-      <section className="lp-stage lp-act7" aria-labelledby="lp-act7-title">
+      <section className="lp-stage lp-act7" aria-labelledby="lp-act7-title" data-lp-act="7">
         <div className="lp-screen-static" aria-hidden />
         <div className="lp-act7-copy">
-          <h2 id="lp-act7-title" className="lp-act-title">
-            {title}
-          </h2>
-          <p className="lp-act-body">{body}</p>
+          <div data-lp-find="act7">
+            <h2 id="lp-act7-title" className="lp-act-title">
+              {title}
+            </h2>
+            <p className="lp-act-body">{body}</p>
+          </div>
           <LandingEntry isSignedIn={isSignedIn} label={label} className={className} />
         </div>
       </section>

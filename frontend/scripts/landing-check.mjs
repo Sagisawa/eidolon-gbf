@@ -21,9 +21,17 @@
 //      第 1 幕，等一会儿、滚一下画面都不变；截一张图。
 //   6. 「不支持 WebGL」档（Chromium 关掉 WebGL 启动）：静态档，load 之后不再加载任何脚本（没有画布、
 //      没有 Lenis），SVG 画的光在；第 0、1 幕各截一张图。
-//   7. 第 2、5、7 幕：完整档里电脑、竖屏手机各截几张（光谱归队、停在某个组合、聚焦、记忆、诚实事项、
-//      开始），停在某个组合时底部的组合名就是这个组合，第 7 幕的行动按钮弹出登录面板；定格档、静态档
-//      各截这几幕的静止版式。滚动位置按落地页模型的时间线（model/timeline.ts）算，和页面同一个出处。
+//   7. 第 2 到 7 幕：完整档里电脑、竖屏手机各截几张（光谱归队、停在某个组合、聚焦、她说日语、来电、记忆、
+//      诚实事项、开始），停在某个组合时底部的组合名就是这个组合；第 4 幕电脑上点「接听」、手机上长按以后
+//      接通，手机上点一下不接通；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，
+//      幕名轨跟着滚动走，定格档点「接听」直接接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
+//      和页面同一个出处。
+//   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
+//   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
+//      找到的字在画面上、看得见：画面外组合里的名牌、第 3 幕的一句字幕、第 7 幕的标题。没在查找时，跟着滚动
+//      淡入淡出的文字（看不见的那些也算）都在无障碍树上，读屏器读得到。
+//  10. 浏览器后退：滚到一半点进隐私政策再后退，回到原来的位置。
+//  11. 按帧降档：完整档在 CPU 降速的小窗口里跑一会儿，档位只降不升。
 //   截图写到 screenshots/landing-check/（gitignore 掉的），或者环境变量 LANDING_SHOTS 指定的目录。
 //
 // 节流照 Lighthouse 移动端默认：RTT 150 ms、下行 1.6 Mbps、上行 750 Kbps、CPU 4 倍降速；
@@ -396,7 +404,7 @@ function watchConsole(page) {
   );
   await noGl.close();
 }
-// —— 7. 第 2、5、7 幕
+// —— 7. 第 2 到 7 幕
 
 {
   const complaints = [];
@@ -411,6 +419,8 @@ function watchConsole(page) {
     await glOn(page);
     const tl = await timelineOn(page);
     const act2 = spanOf(tl, 2);
+    const act3 = spanOf(tl, 3);
+    const act4 = spanOf(tl, 4);
     const act5 = spanOf(tl, 5);
     const act7 = spanOf(tl, 7);
     if (act2) {
@@ -430,6 +440,36 @@ function watchConsole(page) {
       const focused = await page.evaluate(() => document.querySelector(".lp-act2")?.dataset.focus ?? null);
       report(`${name}：聚焦一位偶像`, focused !== null, focused ?? "没有聚焦");
       await page.screenshot({ path: path.join(shots, `${name}-act2-focus.png`) });
+    }
+    if (act3) {
+      for (const [label, at] of [
+        ["act3", act3.from + act3.length * 0.55],
+        ["act3-end", act3.from + act3.length * 0.95],
+        ["act4", act4.from + act4.length * 0.4],
+      ]) {
+        await toScreens(page, at);
+        await page.screenshot({ path: path.join(shots, `${name}-${label}.png`) });
+      }
+      // 接听：电脑上点一下，色光自己收拢；手机上长按（点一下不接通）。
+      const status = () => page.locator(".lp-call-status").innerText();
+      if (name === "full") {
+        await page.locator(".lp-answer").click();
+      } else {
+        await page.locator(".lp-answer").tap();
+        await page.waitForTimeout(2500);
+        const tapped = await status();
+        report("phone：点一下「接听」不接通，要长按", !tapped.startsWith("通话中"), `点一下以后「${tapped}」`);
+        const box = await page.locator(".lp-answer").boundingBox();
+        const cdp = await context.newCDPSession(page);
+        const point = { x: box.x + box.width / 2, y: box.y + 30 };
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [point] });
+        await page.waitForTimeout(2500);
+        await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      }
+      await page.waitForTimeout(2500);
+      const connected = await status();
+      report(`${name}：${name === "full" ? "点" : "长按"}「接听」以后接通`, connected.startsWith("通话中"), `「${connected}」`);
+      await page.screenshot({ path: path.join(shots, `${name}-act4-connected.png`) });
     }
     for (const [label, at] of [
       ["act5", act5.from + act5.length * 0.45],
@@ -451,21 +491,155 @@ function watchConsole(page) {
     await context.close();
   }
   const all = complaints.flat();
-  report("第 2、5、7 幕的控制台没有报错和警告", all.length === 0, all.join("；") || "没有");
+  report("第 2 到 7 幕的控制台没有报错和警告", all.length === 0, all.join("；") || "没有");
 
+  // 静止版式：每一幕截一张，幕名轨亮的就是这一幕。
+  const RAIL = { ".lp-seg": "光譜", ".lp-act3": "ことば", ".lp-act4": "着信", ".lp-act5": "記憶", ".lp-act6": "ことわり", ".lp-act7": "はじまり" };
   for (const tier of ["reduced", "static"]) {
     const context = await browser.newContext({ ...DESKTOP, reducedMotion: tier === "reduced" ? "reduce" : "no-preference" });
     const page = await context.newPage();
     await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
     await page.waitForTimeout(1500);
-    for (const sel of [".lp-seg", ".lp-act5", ".lp-act6", ".lp-act7"]) {
+    const rails = [];
+    for (const [sel, act] of Object.entries(RAIL)) {
       if (!(await page.locator(sel).count())) continue;
       await page.locator(sel).first().evaluate((el) => el.scrollIntoView({ block: "start" }));
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500);
       await page.screenshot({ path: path.join(shots, `${tier}-${sel.slice(4)}.png`) });
+      const lit = await page.locator(".lp-rail [data-current]").innerText();
+      if (lit.replace(/\s/g, "") !== act) rails.push(`${act} 那一屏亮的是 ${lit.replace(/\s/g, "")}`);
+    }
+    report(`${tier}：静止版式的幕名轨跟着滚动走`, rails.length === 0, rails.join("；") || "每一幕都对");
+    if (tier === "reduced" && (await page.locator(".lp-answer").count())) {
+      await page.locator(".lp-answer").click();
+      await page.waitForTimeout(400);
+      const status = await page.locator(".lp-call-status").innerText();
+      report("reduced：点「接听」直接接通，不放收拢的动画", status.startsWith("通话中"), `「${status}」`);
     }
     await context.close();
   }
+}
+
+/** 页面上一个元素在不在画面里、看不看得见（连同祖先的不透明度）。 */
+const shownIn = (page, handle) =>
+  page.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    let o = 1;
+    for (let n = el; n; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
+    const inView = b.bottom > 0 && b.top < innerHeight && b.right > 0 && b.left < innerWidth;
+    return { ok: inView && o > 0.5, at: `(${Math.round(b.left)}, ${Math.round(b.top)})`, o: Math.round(o * 100) / 100 };
+  }, handle);
+
+// —— 8. 键盘
+
+for (const tier of ["full", "reduced", "static"]) {
+  const context = await browser.newContext({ ...DESKTOP, reducedMotion: tier === "reduced" ? "reduce" : "no-preference" });
+  const page = await context.newPage();
+  await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
+  await page.waitForTimeout(2500);
+  const bad = [];
+  let stops = 0;
+  for (let i = 0; i < 80; i++) {
+    await page.keyboard.press("Tab");
+    await page.waitForTimeout(900);
+    const handle = await page.evaluateHandle(() => document.activeElement);
+    const label = await page.evaluate((el) => (el.textContent || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 12), handle);
+    if (label === "BODY") break;
+    stops += 1;
+    const seen = await shownIn(page, handle);
+    if (!seen.ok) bad.push(`「${label}」在 ${seen.at}，不透明度 ${seen.o}`);
+    if (await page.evaluate((el) => el.matches(".lp-footer a:last-child"), handle)) break;
+  }
+  report(`${tier}：按 Tab 走过的每一处焦点都在画面上、看得见`, bad.length === 0, bad.join("；") || `${stops} 处`);
+  await context.close();
+}
+
+// —— 9. 页内查找
+
+{
+  const context = await browser.newContext(DESKTOP);
+  const page = await context.newPage();
+  await page.goto(`${origin}/?tier=full`, { waitUntil: "load" });
+  await glOn(page);
+  const names = await page.locator(".lp-name").allInnerTexts();
+  const targets = [names.at(-1), names[Math.floor(names.length / 2)], names[0], "今天的天空", "她们在屏幕的另一边"].filter(Boolean);
+  const bad = [];
+  for (const text of targets) {
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(1000);
+    // 访客按了查找（无头浏览器不弹查找栏，页面照样收到这一下）。
+    await page.keyboard.press("Control+f");
+    // 同一页里跳到一个文本片段：和页内查找一样，会把 until-found 的文字找出来、滚进画面。
+    await page.evaluate((t) => (location.hash = `:~:text=${encodeURIComponent(t)}`), text);
+    // 浏览器滚完、页面停下来以后落地页才滚到它显示的地方；无头浏览器画一帧很慢，多等一会儿。
+    await page.waitForTimeout(6000);
+    const handle = await page.evaluateHandle((t) => [...document.querySelectorAll("p, h2, span")].find((e) => e.textContent.trim().startsWith(t)), text);
+    const seen = await shownIn(page, handle);
+    if (!seen.ok) bad.push(`「${text}」在 ${seen.at}，不透明度 ${seen.o}`);
+  }
+  report("页内查找找到的字在画面上、看得见", bad.length === 0, bad.join("；") || targets.join("、"));
+  await context.close();
+
+  // 没在查找时：第 3 幕的原文和字幕、各幕的说明，在开头（都还看不见）也都在无障碍树上。
+  const fresh = await (await browser.newContext(DESKTOP)).newPage();
+  await fresh.goto(`${origin}/?tier=full`, { waitUntil: "load" });
+  await glOn(fresh);
+  await fresh.waitForTimeout(2000);
+  const cdp = await fresh.context().newCDPSession(fresh);
+  await cdp.send("Accessibility.enable");
+  const { nodes } = await cdp.send("Accessibility.getFullAXTree");
+  const inTree = nodes.filter((n) => !n.ignored && n.name?.value).map((n) => n.name.value);
+  // 每一段里读屏器该读到的字：不算 aria-hidden 的装饰（第 1 幕竖排的「分光」）。
+  const wanted = await fresh.evaluate(() =>
+    [...document.querySelectorAll("[data-lp-find]")]
+      .flatMap((el) => [el, ...el.querySelectorAll("*")])
+      .filter((e) => e.children.length === 0 && !e.closest("[aria-hidden]") && e.textContent.trim())
+      .map((e) => e.textContent.trim().slice(0, 8)),
+  );
+  const lost = wanted.filter((t) => !inTree.some((n) => n.includes(t)));
+  report("没在查找时，跟着滚动淡入淡出的文字都在无障碍树上", lost.length === 0, lost.join("、") || `${wanted.length} 段`);
+  await fresh.context().close();
+}
+
+// —— 10. 浏览器后退
+
+{
+  const context = await browser.newContext(DESKTOP);
+  const page = await context.newPage();
+  await page.goto(`${origin}/?tier=full`, { waitUntil: "load" });
+  await page.waitForTimeout(2000);
+  await page.evaluate(() => window.scrollTo(0, Math.round(document.documentElement.scrollHeight * 0.55)));
+  await page.waitForTimeout(1500);
+  const before = await page.evaluate(() => scrollY);
+  // 不用 click()：它会先把链接滚进画面。
+  await page.evaluate(() => document.querySelector(".lp-footer a").click());
+  await page.waitForURL("**/privacy");
+  await page.goBack();
+  await page.waitForTimeout(2500);
+  const after = await page.evaluate(() => scrollY);
+  report("从落地页点进隐私政策再后退，回到原来的位置", Math.abs(after - before) < 30, `之前 ${before}，之后 ${after}`);
+  await context.close();
+}
+
+// —— 11. 按帧降档
+
+{
+  const context = await browser.newContext({ viewport: { width: 480, height: 800 } });
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setCPUThrottlingRate", { rate: 6 });
+  await page.goto(`${origin}/?tier=full`, { waitUntil: "load" });
+  const order = ["full", "lite", "basic", "static"];
+  const seen = [await tierOf(page)];
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.wheel(0, 300);
+    await page.waitForTimeout(1000);
+    const t = await tierOf(page);
+    if (t !== seen.at(-1)) seen.push(t);
+  }
+  const down = seen.every((t, i) => i === 0 || order.indexOf(t) > order.indexOf(seen[i - 1]));
+  report("按帧降档：档位只降不升，不来回切换", down, seen.join(" → "));
+  await context.close();
 }
 
 await browser.close();

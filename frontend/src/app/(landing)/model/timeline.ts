@@ -4,7 +4,6 @@
 // 单位是「屏」：滚过一个视口高度是一屏。页面上的一段要么钉住（`position: sticky` 的舞台，滚动驱动
 // 画面变形，高度正好是 screens 个视口），要么照常往上走（第 0 幕、第 6 幕，高度由内容决定，按比例
 // 换算成 screens 屏）。钉住的一段比它的几幕多一屏：舞台解开钉住、往上走，下一段同时从下面进来。
-// 第 3、4 幕（ticket 09）还没有，接上时在光谱和记忆之间插入。
 
 /** 第 1 幕「分光」钉住滚过几屏。 */
 export const ACT1_SCREENS = 3.2;
@@ -14,6 +13,10 @@ export const REGROUP_SCREENS = 1;
 export const ZOOM_SCREENS = 0.9;
 export const SEG_SCREENS = 1.5;
 export const TAIL_SCREENS = 0.4;
+/** 第 3 幕「她说日语」：她说几句日语，竖排的原文一列列出来，中文字幕一句句被光扫出来。 */
+export const ACT3_SCREENS = 2.4;
+/** 第 4 幕「来电」：她打来电话，画面跟着铃声振动、发光；接听由访客点（长按）决定，不随滚动。 */
+export const ACT4_SCREENS = 1.6;
 /** 第 5 幕「记忆」：一个光点从一道光传到另一道光，回忆的光迹跟着画出来。 */
 export const ACT5_SCREENS = 3;
 /** 第 6 幕「诚实事项」照常往上走，按这么多屏换算：最后一屏是第 7 幕进来的时候。 */
@@ -44,12 +47,13 @@ export type Section = {
 
 export type Timeline = { acts: ActSpan[]; sections: Section[] };
 
-/** `unitCount`：光谱里有几个组合。没有角色时没有光谱这一幕。 */
+/** `unitCount`：光谱里有几个组合。没有角色时没有光谱，也没有她说日语、来电这两幕。 */
 export function timelineOf(unitCount: number): Timeline {
   const spectrum = unitCount > 0 ? REGROUP_SCREENS + ZOOM_SCREENS + unitCount * SEG_SCREENS + TAIL_SCREENS : 0;
   const plan: { acts: [act: number, length: number][]; pinned: boolean }[] = [
     { acts: [[0, 1]], pinned: false },
     { acts: spectrum > 0 ? [[1, ACT1_SCREENS], [2, spectrum]] : [[1, ACT1_SCREENS]], pinned: true },
+    ...(spectrum > 0 ? [{ acts: [[3, ACT3_SCREENS], [4, ACT4_SCREENS]] as [number, number][], pinned: true }] : []),
     { acts: [[5, ACT5_SCREENS]], pinned: true },
     { acts: [[6, ACT6_SCREENS]], pinned: false },
     { acts: [[7, ACT7_SCREENS]], pinned: true },
@@ -84,4 +88,17 @@ export const spanOf = (timeline: Timeline, act: number): ActSpan | undefined => 
 export function holdAt(timeline: Timeline, u: number): number {
   const act2 = spanOf(timeline, 2);
   return act2 ? act2.from + REGROUP_SCREENS + ZOOM_SCREENS + u * SEG_SCREENS + 0.05 : 0;
+}
+
+/** 每一幕停稳的地方（幕内进度）：第 3 幕几句话都说完，第 4 幕来电的画面显出来，第 7 幕行动按钮出现。 */
+const REST: Partial<Record<number, number>> = { 3: 0.95, 4: 0.35, 7: 1 };
+
+/**
+ * 第 `act` 幕停稳的地方（屏）：键盘聚焦到别的幕里的按钮时滚到这里，按钮在画面上、看得见。
+ * 第 2 幕是第一个组合停稳的地方；这一幕不在时间线上（没有角色时没有第 2 到 4 幕）时没有。
+ */
+export function restAt(timeline: Timeline, act: number): number | undefined {
+  if (act === 2) return spanOf(timeline, 2) && holdAt(timeline, 0);
+  const span = spanOf(timeline, act);
+  return span && span.from + span.length * (REST[act] ?? 0.5);
 }

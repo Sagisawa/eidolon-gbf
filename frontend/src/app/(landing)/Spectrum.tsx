@@ -1,16 +1,14 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 import type { Greeting, Outfit } from "@/lib/api";
 
-import { focusOf, holdMs, INITIAL, interactionReducer, voicing, type InteractionAction, type Saying, type VoiceEvent } from "./model/interaction";
-import type { Tier } from "./model/tier";
-import { stageStore } from "./stageStore";
-
-// 立绘（spine-ts 和应用的立绘组件）不进首屏的包：聚焦到一位偶像、停稳了才加载。
-const Stand = lazy(() => import("@/components/conversations/stand/Stand").then((m) => ({ default: m.Stand })));
+import { interactionStore, useInteraction } from "./interactionStore";
+import { focusOf, holdMs, voicing, type InteractionAction, type Saying, type VoiceEvent } from "./model/interaction";
+import { stageStore, useLayout, useStage } from "./stageStore";
+import { StandSlot } from "./StandSlot";
 
 /** 一块名牌：名字、编号、颜色都由服务端算好。 */
 export type Plate = {
@@ -54,13 +52,7 @@ export type SpectrumCopy = {
 const STAND_DELAY_MS = 220;
 /** 离开她这么久才卸下立绘，淡出有时间走完。 */
 const STAND_RELEASE_MS = 450;
-/** 立绘画布的像素比上限（spec「渲染层」）。 */
-const STAND_DPR = 1.5;
-/** 立绘的待机姿势：不说话，看着镜头；招呼的声音在播时开口。 */
-const LOOKING = { mood: "calm", speaking: false, looking: true, nod: null } as const;
-const SPEAKING = { ...LOOKING, speaking: true } as const;
 
-type Layout = { motion: boolean; tier: Tier };
 
 /**
  * 第 2 幕「光谱」：全部偶像的竖排日文名，按组合分段，名字和组合名都是真文本，服务端渲染。
@@ -79,34 +71,32 @@ type Layout = { motion: boolean; tier: Tier };
  * 这里只负责放声音、计字幕的时。没有招呼的偶像点了只聚焦。
  */
 export function Spectrum({ units, copy }: { units: SpectrumUnit[]; copy: SpectrumCopy }) {
-  const [state, dispatch] = useReducer(interactionReducer, INITIAL);
-  const [layout, setLayout] = useState<Layout | null>(null);
+  const state = useInteraction();
+  const dispatch = interactionStore.dispatch;
+  const layout = useLayout();
   /** 右上角入口所在的页头（Landing 渲染的 .lp-top）：声音开关放进去，和入口排在一起。 */
   const [header, setHeader] = useState<HTMLElement | null>(null);
-  const { unit, stand } = useSyncExternalStore(stageStore.subscribe, stageStore.get, stageStore.get);
+  const { act, unit, stand } = useStage();
   const plates = units.flatMap((u) => u.plates);
   const focus = focusOf(state);
   const focusedPlate = plates.find((p) => p.id === focus) ?? null;
   const saying = state.saying;
   const sayingPlate = saying && plates.find((p) => p.id === saying.id);
 
-  useEffect(() => {
-    const html = document.documentElement;
-    setLayout({ motion: html.dataset.lpLayout === "motion", tier: (html.dataset.lpTier as Tier | undefined) ?? "static" });
-    setHeader(document.querySelector<HTMLElement>(".lp-top"));
-  }, []);
+  useEffect(() => setHeader(document.querySelector<HTMLElement>(".lp-top")), []);
 
   // 聚焦交给舞台的循环：它据此让她的光和背景淡入。
   useEffect(() => {
     stageStore.focus = focus;
   }, [focus]);
 
-  // 推入下一个组合时放下聚焦，立绘和字幕不跟着跑到别的组合里。
-  const lastUnit = useRef(unit);
+  // 推入下一个组合时放下聚焦，立绘和字幕不跟着跑到别的组合里；离开光谱这一幕时也放下，正在说的收掉。
+  const last = useRef({ act, unit });
   useEffect(() => {
-    if (unit === lastUnit.current) return;
-    lastUnit.current = unit;
-    if (focus && plates.find((p) => p.id === focus)?.unit !== unit) dispatch({ type: "leave" });
+    const before = last.current;
+    last.current = { act, unit };
+    if (before.act === 2 && act !== 2) dispatch({ type: "leave" });
+    else if (unit !== before.unit && focus && plates.find((p) => p.id === focus)?.unit !== unit) dispatch({ type: "leave" });
   });
 
   const voice = useVoice(state.saying, dispatch);
@@ -116,9 +106,8 @@ export function Spectrum({ units, copy }: { units: SpectrumUnit[]; copy: Spectru
       id: plate.id,
       greeting: plate.greeting ? (plate.greeting.audio_url ? "voice" : "subtitle") : "none",
     };
-    dispatch(action);
     // 在点击的处理函数里就开始播：手机浏览器只认用户手势里发起的播放。
-    const next = interactionReducer(state, action).saying;
+    const next = dispatch(action).saying;
     if (next?.voice === "loading" && plate.greeting?.audio_url) voice.play(next.n, plate.greeting.audio_url);
   };
 
@@ -151,6 +140,7 @@ export function Spectrum({ units, copy }: { units: SpectrumUnit[]; copy: Spectru
   return (
     <section
       className="lp-act2"
+      data-lp-act="2"
       aria-label={copy.label}
       data-focus={focus ?? undefined}
       style={focusedPlate ? ({ "--her-deep": focusedPlate.deep } as CSSProperties) : undefined}
@@ -181,8 +171,9 @@ export function Spectrum({ units, copy }: { units: SpectrumUnit[]; copy: Spectru
                     onPointerLeave={(e) => e.pointerType === "mouse" && dispatch({ type: "unpoint", id: plate.id })}
                     onFocus={() => {
                       dispatch({ type: "point", id: plate.id });
-                      // 键盘聚焦到别的组合里的名牌：滚过去，不让浏览器去滚横滚轨道。
-                      if (layout?.motion && plate.unit !== stageStore.get().unit) stageStore.jump?.(plate.unit, true);
+                      // 键盘聚焦到别的组合（或者还没滚到光谱）里的名牌：滚过去，名牌才在画面上。
+                      const at = stageStore.get();
+                      if (layout?.motion && (at.act !== 2 || plate.unit !== at.unit)) stageStore.jump?.(plate.unit, true);
                     }}
                     onBlur={() => dispatch({ type: "unpoint", id: plate.id })}
                     onClick={() => press(plate)}
@@ -239,7 +230,12 @@ export function Spectrum({ units, copy }: { units: SpectrumUnit[]; copy: Spectru
         )}
 
       {layout?.motion && units.length > 1 && (
-        <nav className="lp-unitbar" aria-label={copy.jump}>
+        <nav
+          className="lp-unitbar"
+          aria-label={copy.jump}
+          // 从后面的幕用 Shift+Tab 退回到跳转按钮：先滚回光谱，按钮才在画面上。
+          onFocus={() => stageStore.get().act !== 2 && stageStore.jump?.(stageStore.get().unit, true)}
+        >
           <span className="lp-unitbar-name" lang="ja" aria-hidden>
             {units[unit]?.name ?? copy.others}
           </span>
@@ -317,40 +313,4 @@ function useDelayed(wanted: string | null): string | null {
     return () => window.clearTimeout(t);
   }, [wanted, current]);
   return current;
-}
-
-/**
- * 她的立绘：复用应用的立绘组件（独立 canvas，只盖立绘区域），穿默认衣装。素材加载不到时画布一直是空的，
- * 只剩名字和光，不报错。手机上离开她就释放 WebGL 上下文（立绘组件自己不释放，见 StandEngine.dispose）：
- * 卸下以后画布已经不在页面上了才释放，React 开发模式下 effect 重跑时画布还在，不会误伤。
- */
-function StandSlot({ outfit, still, speaking }: { outfit: Outfit; still: boolean; speaking: boolean }) {
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = box.current;
-    return () => {
-      const canvas = el?.querySelector("canvas");
-      if (!canvas || !matchMedia("(hover: none)").matches) return;
-      window.setTimeout(() => {
-        if (canvas.isConnected) return;
-        (canvas.getContext("webgl2") ?? canvas.getContext("webgl"))?.getExtension("WEBGL_lose_context")?.loseContext();
-      }, 0);
-    };
-  }, []);
-  return (
-    <div ref={box} className="lp-stand-canvas">
-      <Suspense fallback={null}>
-        <Stand
-          outfits={[outfit]}
-          framing="knees"
-          isPaused={false}
-          entrance={still ? "fade" : "rise"}
-          direction={speaking ? SPEAKING : LOOKING}
-          isReducedMotion={still}
-          isStill={still}
-          maxPixelRatio={STAND_DPR}
-        />
-      </Suspense>
-    </div>
-  );
 }
