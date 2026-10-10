@@ -54,7 +54,7 @@ export function DeleteAccount() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t.confirmTitle}</AlertDialogTitle>
-            <AlertDialogDescription>{t.hint}</AlertDialogDescription>
+            <AlertDialogDescription>{t.confirmHint}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={busy}>{copy.common.cancel}</AlertDialogCancel>

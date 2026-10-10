@@ -13,6 +13,7 @@ import { DeleteAccount } from "@/components/DeleteAccount";
 import { OwnKeysSettings } from "@/components/OwnKeysSettings";
 import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
 import { SignInSettings } from "@/components/SignInSettings";
+import { SignOutSettings } from "@/components/SignOutSettings";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { copy } from "@/i18n";
 import { SETTINGS_TABS, settingsTab, settingsTabSearch, type SettingsTab } from "@/lib/settingsTab";
@@ -93,6 +94,7 @@ const PANELS: Record<SettingsTab, ReactNode> = {
     <>
       <SignInSettings />
       <AdminEntry />
+      <SignOutSettings />
       <DeleteAccount />
     </>
   ),

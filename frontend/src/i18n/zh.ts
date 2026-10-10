@@ -371,10 +371,13 @@ export const zh = {
       unlinkLabel: (provider: string) => `解绑 ${provider}`,
       onlyMethod: "这是你唯一的登录方式，不能解绑",
       link: (provider: string) => `绑定 ${provider}`,
-      signOut: "退出登录",
-      signOutEverywhere: "退出所有设备",
-      signOutEverywhereTitle: "退出所有设备？",
-      signOutEverywhereHint:
+    },
+    signOut: {
+      title: "退出登录",
+      button: "退出登录",
+      everywhere: "退出所有设备",
+      everywhereTitle: "退出所有设备？",
+      everywhereHint:
         "你在所有设备上都会退出登录。这个浏览器里的自带密钥会一并清除；其他设备上的自带密钥不会被清除，需要在那几台设备上自己删除。",
     },
     admin: {
@@ -384,9 +387,12 @@ export const zh = {
     },
     deleteAccount: {
       title: "删除我的全部数据",
-      hint: "彻底删除你的记忆、对话、制作人档案、登录方式、登录状态和限额的计数，无法恢复，这个浏览器里的自带密钥也一并清除；每天的加密备份里的副本最多 30 天后清除。运行记录会保留到期满 90 天，但不再关联到你。所有设备都会退出登录；之后再用同一种登录方式登录，会是一位全新的用户。",
+      hint: "彻底删除你在这里的所有数据，无法恢复。",
       start: "删除我的全部数据",
       confirmTitle: "删除全部数据？",
+      // 完整后果只在按下确认前看到，措辞跟以前一模一样。
+      confirmHint:
+        "彻底删除你的记忆、对话、制作人档案、登录方式、登录状态和限额的计数，无法恢复，这个浏览器里的自带密钥也一并清除；每天的加密备份里的副本最多 30 天后清除。运行记录会保留到期满 90 天，但不再关联到你。所有设备都会退出登录；之后再用同一种登录方式登录，会是一位全新的用户。",
       confirm: "确认删除，无法恢复",
     },
   },
