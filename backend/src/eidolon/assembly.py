@@ -43,6 +43,7 @@ from eidolon.memory import Memories
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
+from eidolon.readings import load_readings, readings_path
 from eidolon.rerank import (
     FALLBACK_MODEL,
     KNOWN_THRESHOLDS,
@@ -144,7 +145,9 @@ def build(
         settings.bailian_stt_model if settings.stt_provider == "bailian"
         else DEFAULT_BAILIAN_STT_MODEL
     )
-    speech = speech or SpeechServices(bailian_model)
+    speech = speech or SpeechServices(
+        bailian_model, load_readings(readings_path(settings.characters_path))
+    )
     activity = ActivityLog(settings.database_path, clock)
     closers.append(activity.close)
     catalog = Catalog(settings.database_path, clock, catalog_transport)

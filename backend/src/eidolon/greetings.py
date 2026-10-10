@@ -3,9 +3,12 @@
 Each greeting the character configuration has (`Character.greeting`, GLOSSARY.md「招呼」)
 is voiced once in her voice, delivery cues and all, over Fish Audio's HTTP API as mp3, and
 put in the stands' bucket under `greetings/<id>-<hash>.mp3` (`greeting_path`): the hash is
-of what she says, cues and all, and of her voice. So the server says where it is without
-asking the bucket; a greeting whose words or voice changed is at an address no browser
-has cached; and one the bucket already has is not voiced again. Once hers is up, her
+of what she says, cues and all, of her voice, and of the readings it uses (`readings`,
+each name as written and its phonemes; with none, the hash is of the first two alone). So
+the server says where it is without asking the bucket; a greeting whose words, voice or
+readings changed is at an address no browser has cached; and one the bucket already has
+is not voiced again. Every one is voiced with all the readings as its pronunciation
+dictionary, as calls are. Once hers is up, her
 greetings at other addresses are deleted, and so are those of characters who no longer
 have one. Clearing the bucket takes them down along with
 the stands (ADR-0003, revised 2026-10-10).
@@ -19,7 +22,7 @@ download what was voiced here; nothing is voiced for them.
 import hashlib
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 import httpx
@@ -27,6 +30,7 @@ import httpx
 from eidolon.characters import Character
 from eidolon.config import DEFAULT_FISH_AUDIO_MODEL
 from eidolon.delivery_cues import voiced
+from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.s3 import Bucket, S3Error, S3Settings
 
 GREETINGS_DIR = "greetings"
@@ -48,7 +52,9 @@ def greeting_path(character: Character) -> str | None:
     greeting = character.greeting
     if greeting is None or not character.voice_id.strip():
         return None
-    digest = hashlib.sha256(f"{character.voice_id}\n{greeting.text}".encode()).hexdigest()
+    said = f"{character.voice_id}\n{greeting.text}"
+    said += "".join(f"\n{r.written}\t{r.phonemes}" for r in greeting.readings)
+    digest = hashlib.sha256(said.encode()).hexdigest()
     return f"{GREETINGS_DIR}/{character.id}-{digest[:_HASH_LENGTH]}.mp3"
 
 
@@ -102,13 +108,16 @@ async def upload_greetings(
     characters: Iterable[Character],
     bucket: S3Settings,
     fish: FishAudioSettings,
+    readings: Sequence[Reading] = (),
     *,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> GreetingReport:
-    """Voice what greetings of `characters` the bucket lacks, put them in it, and delete
-    their old versions. One that fails is reported and the rest go on; raises S3Error,
-    having voiced nothing, if the bucket cannot be listed."""
+    """Voice what greetings of `characters` the bucket lacks, with `readings` (the whole
+    file's) as the pronunciation dictionary, put them in it, and delete their old versions.
+    One that fails is reported and the rest go on; raises S3Error, having voiced nothing,
+    if the bucket cannot be listed."""
     greeted = [c for c in characters if c.greeting is not None]
+    dictionary = pronunciation_dictionary(readings)
     report = GreetingReport()
     storage = Bucket(bucket, transport=transport)
     try:
@@ -116,7 +125,7 @@ async def upload_greetings(
             keys = set(await storage.keys(f"{GREETINGS_DIR}/"))
             for character in greeted:
                 try:
-                    await _upload(character, keys, storage, client, fish, report)
+                    await _upload(character, keys, storage, client, fish, dictionary, report)
                 except _Failed as e:
                     report.failed.append((character.name, str(e)))
             await _delete_unclaimed(keys, greeted, storage, report)
@@ -148,6 +157,7 @@ async def _upload(
     storage: Bucket,
     client: httpx.AsyncClient,
     fish: FishAudioSettings,
+    dictionary: list[dict] | None,
     report: GreetingReport,
 ) -> None:
     assert character.greeting is not None
@@ -157,7 +167,9 @@ async def _upload(
     if path in keys:
         report.unchanged += 1
     else:
-        audio = await _voice(client, fish, voiced(character.greeting.text), character.voice_id)
+        audio = await _voice(
+            client, fish, voiced(character.greeting.text), character.voice_id, dictionary
+        )
         try:
             await storage.put(path, audio, "audio/mpeg", GREETING_CACHE)
         except S3Error as e:
@@ -172,13 +184,23 @@ async def _upload(
         report.deleted.append(key)
 
 
-async def _voice(client: httpx.AsyncClient, fish: FishAudioSettings, text: str, voice_id: str) -> bytes:
-    """`text` said in the voice `voice_id`, as mp3."""
+async def _voice(
+    client: httpx.AsyncClient,
+    fish: FishAudioSettings,
+    text: str,
+    voice_id: str,
+    dictionary: list[dict] | None,
+) -> bytes:
+    """`text` said in the voice `voice_id`, with the pronunciation dictionary `dictionary`,
+    as mp3."""
+    body: dict[str, object] = {"text": text, "reference_id": voice_id, "format": "mp3"}
+    if dictionary is not None:
+        body["pronunciation_dictionary"] = dictionary
     try:
         response = await client.post(
             FISH_TTS_HTTP_URL,
             headers={"Authorization": f"Bearer {fish.api_key}", "model": fish.model},
-            json={"text": text, "reference_id": voice_id, "format": "mp3"},
+            json=body,
         )
     except httpx.HTTPError as e:
         raise _Failed(f"连不上 Fish Audio：{e!r}") from None

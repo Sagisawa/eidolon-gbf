@@ -16,7 +16,9 @@ Optionally, she also has a greeting for the landing page (GLOSSARY.md「招呼�
 says in Japanese, delivery cues and all (`greeting`), and its Chinese subtitle
 (`greeting_subtitle`), the one with the other. The words are committed; the audio
 `eidolon greeting upload` voices from them is not, and goes to the stands' bucket
-(ADR-0003, revised 2026-10-10).
+(ADR-0003, revised 2026-10-10). Which of the readings in the readings file beside the
+configuration (`readings`) voicing it uses is read along with it: they are part of where
+its audio is.
 
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
@@ -31,7 +33,8 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-from eidolon.delivery_cues import without_cues
+from eidolon.delivery_cues import voiced, without_cues
+from eidolon.readings import Reading, load_readings, readings_path, used_in
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +71,9 @@ class Greeting:
     """In Japanese as it is voiced, delivery cues and all (`delivery_cues`)."""
     subtitle: str
     """Its Chinese subtitle."""
+    readings: tuple[Reading, ...] = ()
+    """The readings Fish Audio uses voicing it (`readings.used_in`), from the readings file
+    beside the configuration."""
 
     @property
     def ja(self) -> str:
@@ -116,9 +122,10 @@ def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Charac
     except tomllib.TOMLDecodeError as e:
         raise CharacterConfigError(f"角色配置文件 {path} 格式有误：{e}") from None
 
+    readings = load_readings(readings_path(path))
     characters: dict[str, Character] = {}
     for entry in config.get("characters", []):
-        character = _parse_character(entry, path.parent, require_sheets)
+        character = _parse_character(entry, path.parent, require_sheets, readings)
         if character.id in characters:
             raise CharacterConfigError(f"角色标识 {character.id} 重复")
         for other in characters.values():
@@ -132,7 +139,9 @@ def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Charac
     return characters
 
 
-def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
+def _parse_character(
+    entry: dict, base: Path, require_sheet: bool, readings: tuple[Reading, ...]
+) -> Character:
     label = entry.get("id", "（没有标识）")
     missing = [field for field in _REQUIRED if not isinstance(entry.get(field), str)]
     if missing:
@@ -203,12 +212,13 @@ def _parse_character(entry: dict, base: Path, require_sheet: bool) -> Character:
         sheet_path=sheet_path,
         idol_id=idol_id,
         default_outfit=default_outfit,
-        greeting=_greeting(entry, label),
+        greeting=_greeting(entry, label, readings),
     )
 
 
-def _greeting(entry: dict, label: str) -> Greeting | None:
-    """Her greeting, if she has one: its words and its subtitle, both or neither."""
+def _greeting(entry: dict, label: str, readings: tuple[Reading, ...]) -> Greeting | None:
+    """Her greeting, if she has one: its words and its subtitle, both or neither; and the
+    `readings` voicing it uses."""
     text, subtitle = entry.get("greeting"), entry.get("greeting_subtitle")
     if text is None and subtitle is None:
         return None
@@ -222,7 +232,8 @@ def _greeting(entry: dict, label: str) -> Greeting | None:
         raise CharacterConfigError(
             f"角色 {label} 的招呼缺少中文字幕：greeting_subtitle 应为 greeting 的中文字幕，和它一起配"
         )
-    return Greeting(text.strip(), subtitle.strip())
+    text = text.strip()
+    return Greeting(text, subtitle.strip(), used_in(voiced(text), readings))
 
 
 def _optional_file(entry: dict, field: str, base: Path, label: str) -> Path | None:

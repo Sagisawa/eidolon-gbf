@@ -11,6 +11,7 @@ import asyncio
 from typing import Any
 
 import ormsgpack
+import pytest
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     CancelFrame,
@@ -28,7 +29,12 @@ from pipecat.tests.utils import SleepFrame, run_test
 from websockets.exceptions import ConnectionClosedOK
 from websockets.protocol import State
 
-from eidolon.call import FishTTS, SegmentCompleteFrame, SegmentTextFrame
+from eidolon.assembly import build
+from eidolon.call import FishTTS, SegmentCompleteFrame, SegmentTextFrame, SpeechServices
+from eidolon.config import Settings
+from eidolon.readings import Reading
+from tests.conftest import CharacterConfig
+from tests.fakes import FakeServiceClients
 
 CONNECTION = 0.2
 """How long, in seconds, the fake Fish Audio takes to accept a connection."""
@@ -45,15 +51,22 @@ class FakeFish:
     becomes of it, as "<connection> <what>", connections numbered from 1. With
     `idle_timeout`, it closes a connection sent no text that long after its start."""
 
-    def __init__(self, idle_timeout: float | None = None, refused: tuple[int, ...] = ()) -> None:
+    def __init__(
+        self,
+        idle_timeout: float | None = None,
+        refused: tuple[int, ...] = (),
+        readings: tuple[Reading, ...] = (),
+    ) -> None:
         """The attempts to connect numbered (from 1) in `refused` fail; the connections
-        made are numbered on their own."""
+        made are numbered on their own. The service is given `readings`."""
         self.idle_timeout = idle_timeout
         self.refused = refused
+        self.readings = readings
         self.attempts = 0
         self.log: list[str] = []
         self.at: dict[str, float] = {}  # when each entry was first logged
         self.sockets: list[FakeFishSocket] = []
+        self.starts: list[dict[str, Any]] = []  # each session's `start` request
 
     async def connect(self) -> "FakeFishSocket":
         await asyncio.sleep(CONNECTION)
@@ -109,6 +122,8 @@ class FakeFishSocket:
             self._note(f"text {message['text'].strip()}")
             return
         self._note(event)
+        if event == "start":
+            self.fish.starts.append(message["request"])
         if event == "start" and self.fish.idle_timeout is not None:
             self._idle = asyncio.create_task(self._close_when_idle(self.fish.idle_timeout))
         if event in ("flush", "stop") and self._text:
@@ -163,6 +178,7 @@ class FishUnderTest(FishTTS):
             api_key="fish-key",
             sample_rate=16000,
             settings=FishAudioTTSService.Settings(voice="mano-voice", model="s2.1-pro-free"),
+            readings=fish.readings,
             stop_frame_timeout_s=CONTEXT_IDLE,
         )
         self._pause_frame_processing = pausing
@@ -195,11 +211,16 @@ class Speaker(FrameProcessor):
 
 
 async def run(
-    *frames: Frame, fish: FakeFish | None = None, hang_up: bool = False, pausing: bool = False
+    *frames: Frame,
+    fish: FakeFish | None = None,
+    hang_up: bool = False,
+    pausing: bool = False,
+    tts: FishTTS | None = None,
 ) -> FakeFish:
     """Run the frames through, spaced out, then end the call once Fish Audio has had time
     to voice what it was sent, or, with `hang_up`, cancel it straight away; returns the
-    fake, with its log. With `pausing`, the service holds back what follows a reply."""
+    fake, with its log. With `pausing`, the service holds back what follows a reply. The
+    service is `tts`, if given, connecting to the fake as it is patched to."""
     fish = fish or FakeFish()
     spaced: list[Frame] = []
     for frame in frames:
@@ -207,7 +228,7 @@ async def run(
     end = [CancelFrame()] if hang_up else [SleepFrame(SYNTHESIS * 3)]
     async with asyncio.timeout(15):
         await run_test(
-            Pipeline([FishUnderTest(fish, pausing), Speaker(fish)]),
+            Pipeline([tts or FishUnderTest(fish, pausing), Speaker(fish)]),
             frames_to_send=[*spaced, *end],
             send_end_frame=not hang_up,
         )
@@ -350,3 +371,65 @@ async def test_hanging_up_while_her_last_reply_plays_closes_every_connection():
 
     assert heard(fish) == ["playing 1/0", "audio ほわっ。"]
     assert all(socket.state is State.CLOSED for socket in fish.sockets)
+
+
+# Every session starts with the readings (GLOSSARY.md「读音」) as its pronunciation
+# dictionary; what she is to say goes as written.
+
+READINGS = (
+    Reading("櫻木真乃", "さくらぎ まの", "sa0ku1ra1gi0ma1no0"),
+    Reading("283", "つばさ", "tsu0ba1sa1"),
+    Reading("透", "とおる", ""),  # no phonemes yet: Fish Audio is not told it
+)
+DICTIONARY = [{"items": [
+    {"key": "櫻木真乃", "value": "sa0ku1ra1gi0ma1no0", "case_sensitive": True},
+    {"key": "283", "value": "tsu0ba1sa1", "case_sensitive": True},
+]}]
+
+
+async def test_each_session_starts_with_the_readings_as_its_pronunciation_dictionary():
+    fish = await run(*reply(1, ["櫻木真乃です。"], ["283の、"]), fish=FakeFish(readings=READINGS))
+
+    assert len(fish.starts) == len(fish.sockets) >= 2
+    assert all(start["pronunciation_dictionary"] == DICTIONARY for start in fish.starts)
+    assert "text 櫻木真乃です。" in fish.of(1)
+    assert "text 283の、" in fish.of(2)
+
+
+async def test_without_readings_sessions_start_with_no_pronunciation_dictionary():
+    fish = await run(*reply(1, ["ほわっ。"]))
+
+    assert fish.starts and all("pronunciation_dictionary" not in start for start in fish.starts)
+
+
+@pytest.mark.parametrize("key", ["deployer-fish-key", "users-own-fish-key"])
+async def test_calls_on_either_key_speak_with_the_readings(key: str, monkeypatch: pytest.MonkeyPatch):
+    fish = FakeFish()
+
+    async def connect(self: FishTTS, uri: str, **kwargs: Any) -> Any:
+        return await fish.connect()
+
+    monkeypatch.setattr(FishTTS, "_websocket_connect", connect)
+    tts = SpeechServices(readings=READINGS).tts(key, "s2.1-pro-free", "mano-voice", 16000)
+    tts._pause_frame_processing = False  # as `FishUnderTest`: no transport says she stopped
+
+    await run(*reply(1, ["櫻木真乃です。"]), fish=fish, tts=tts)  # pyright: ignore[reportArgumentType]
+
+    assert fish.starts and all(start["pronunciation_dictionary"] == DICTIONARY for start in fish.starts)
+
+
+async def test_the_server_speaks_with_the_readings_file_beside_the_character_configuration(
+    characters: CharacterConfig, settings: Settings
+):
+    characters.write(
+        "readings.toml",
+        '[[readings]]\nwritten = "283"\nkana = "つばさ"\nphonemes = "tsu0ba1sa1"\n',
+    )
+
+    backend = build(settings, clients=FakeServiceClients())
+    try:
+        speech = backend.calls._speech  # pyright: ignore[reportPrivateUsage]
+        assert isinstance(speech, SpeechServices)
+        assert speech.readings == (Reading("283", "つばさ", "tsu0ba1sa1"),)
+    finally:
+        await backend.aclose()

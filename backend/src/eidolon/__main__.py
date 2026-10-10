@@ -37,6 +37,11 @@
     eidolon stand upload             upload the outfits the lists name, their thumbnails and
                                      the lists to the S3-compatible bucket, skipping what it
                                      has as it is; exits 2 if the bucket failed
+    eidolon reading draft            draft the readings file beside the character
+                                     configuration from the characters' sheets and the
+                                     world setting, or fill in the phonemes it lacks and
+                                     add who it lacks, leaving the rest as it is (needs
+                                     the development dependencies)
     eidolon greeting upload          voice the greetings the character configuration has in
                                      each one's voice on the deployer's Fish Audio key, and
                                      put those the stands' bucket lacks in it, deleting the
@@ -107,6 +112,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _stand_outfits(args)
     if args.command == "stand":
         return asyncio.run(_stand_upload(args))
+    if args.command == "reading":
+        return _draft_readings(args)
     if args.command == "greeting":
         return asyncio.run(_greeting_upload(args))
     if args.command == "backup":
@@ -449,22 +456,65 @@ async def _stand_upload(args: argparse.Namespace) -> int:
     return 0
 
 
+def _draft_readings(args: argparse.Namespace) -> int:
+    from eidolon.characters import load_characters
+    from eidolon.readings import load_readings, readings_path
+    from eidolon.world import load_world, world_path
+
+    try:
+        from eidolon.reading_draft import draft_readings, write_readings
+
+        import pyopenjtalk  # noqa: F401
+    except ImportError:
+        print(
+            "生成读音要用开发依赖里的 pyopenjtalk-plus：在 backend 下运行 uv sync，"
+            "再用 uv run eidolon reading draft",
+            file=sys.stderr,
+        )
+        return 1
+    characters_path = args.characters or characters_path_from_env()
+    path = readings_path(characters_path)
+    try:
+        characters = load_characters(characters_path, require_sheets=False)
+        world = load_world(world_path(characters_path))
+        existing = load_readings(path)
+    except RuntimeError as e:  # a broken character configuration, world setting or file
+        print(e, file=sys.stderr)
+        return 1
+    readings, report = draft_readings(existing, characters.values(), world)
+    write_readings(path, readings)
+    print(f"写入了 {path}，共 {len(readings)} 条")
+    if report.added:
+        print(f"新增 {len(report.added)} 条：{'、'.join(report.added)}")
+    if report.filled:
+        print(f"补上音素 {len(report.filled)} 条：{'、'.join(report.filled)}")
+    if report.unread:
+        print(
+            f"这几位的人设开头没有「名字（せい めい）」，没有生成，请手写："
+            f"{'、'.join(report.unread)}"
+        )
+    if world is None:
+        print("没有世界设定（eidolon world sync），组合名和工作人员没有生成")
+    return 0
+
+
 async def _greeting_upload(args: argparse.Namespace) -> int:
     from eidolon.characters import load_characters
     from eidolon.greetings import FishAudioSettings, upload_greetings
+    from eidolon.readings import load_readings, readings_path
     from eidolon.s3 import S3Error, S3Settings
 
+    characters_path = args.characters or characters_path_from_env()
     try:
-        characters = load_characters(
-            args.characters or characters_path_from_env(), require_sheets=False
-        )
+        characters = load_characters(characters_path, require_sheets=False)
+        readings = load_readings(readings_path(characters_path))
         bucket = S3Settings.from_env(purpose="上传招呼")
         fish = FishAudioSettings.from_env()
-    except RuntimeError as e:  # a broken character configuration, settings missing
+    except RuntimeError as e:  # a broken character configuration or readings, settings missing
         print(e, file=sys.stderr)
         return 1
     try:
-        report = await upload_greetings(characters.values(), bucket, fish)
+        report = await upload_greetings(characters.values(), bucket, fish, readings)
     except S3Error as e:
         print(f"列不出存储桶里已有的招呼，什么都没有合成：{e}", file=sys.stderr)
         return 2
@@ -1005,6 +1055,21 @@ def _parser() -> argparse.ArgumentParser:
             help="拉取的立绘、衣装清单和缩略图的整理目录（默认取环境变量 EIDOLON_STAND_BUILD_PATH，没有时是 ../corpus/stand），"
             "不要放进仓库",
         )
+
+    reading = commands.add_parser("reading", help="管理读音").add_subparsers(
+        dest="action", required=True, metavar="操作"
+    )
+    reading_draft = reading.add_parser(
+        "draft",
+        help="从人设开头的「名字（せい めい）」和世界设定生成角色配置旁边的读音文件 readings.toml 的初稿；"
+        "已有文件时只给音素为空的条目补上音素、补进文件里还没有的角色和组合，已有音素的条目不动"
+        "（要用开发依赖：uv run eidolon reading draft）",
+    )
+    reading_draft.add_argument(
+        "--characters",
+        type=Path,
+        help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
+    )
 
     greeting = commands.add_parser("greeting", help="管理落地页的招呼").add_subparsers(
         dest="action", required=True, metavar="操作"
