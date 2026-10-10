@@ -60,19 +60,6 @@ async def test_an_own_llm_is_tried_and_not_kept(
     assert rows_mentioning(settings.database_path, "my-model") == {}
 
 
-async def test_an_own_llm_that_fails_its_try_is_refused_with_what_the_service_said(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    client = make_client(FakeLLM())
-    own_llm.rejects[MINE] = "401 Unauthorized: invalid api key"
-
-    res = await check_llm(client)
-
-    assert res.status_code == 422
-    assert "试调失败" in res.json()["detail"]
-    assert "401 Unauthorized" in res.json()["detail"]
-
-
 async def test_a_turn_bringing_an_own_llm_plays_on_it_and_one_bringing_none_on_the_deployers(
     make_client: ClientFactory, own_llm: FakeLLMService
 ):

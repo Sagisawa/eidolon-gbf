@@ -75,19 +75,6 @@ async def test_speech_keys_are_tried_and_not_kept(
     assert rows_mentioning(settings.database_path, "bbbb") == {}
 
 
-async def test_a_speech_key_that_fails_its_try_is_refused_with_what_the_service_said(
-    make_client: ClientFactory, speech: FakeSpeech
-):
-    client = make_client(FakeLLM())
-    speech.rejects[MY_SONIOX] = "401 Incorrect API key provided"
-
-    res = await client.post("/api/account/keys/stt/check", json={"api_key": MY_SONIOX})
-
-    assert res.status_code == 422
-    assert "试调失败" in res.json()["detail"]
-    assert "Incorrect API key" in res.json()["detail"]
-
-
 async def test_a_dashscope_key_is_tried_in_both_regions_and_the_call_hears_in_the_one_it_works_in(
     make_client: ClientFactory, speech: FakeSpeech, browser: Browser
 ):

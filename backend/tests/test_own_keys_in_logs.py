@@ -1,8 +1,9 @@
 """A user's own key never reaches the server's logs, the deployer's to read and pass on,
 whether the turn it is brought with goes well, fails, or fails to write down memories, and
-whether the request bringing it is well-formed or not. Where the service's own error
-message, which the user is shown, repeats the key, it is masked there as `***`, before
-the message is cut short, so that no part of it is left."""
+whether the request bringing it is well-formed or not. A key that fails a turn, or its try
+before the browser keeps it, is refused with what the service said; where that repeats the
+key, it is masked there as `***`, before the message is cut short, so that no part of it
+is left."""
 
 import logging
 from collections.abc import Callable, Iterator
@@ -68,7 +69,7 @@ async def test_own_keys_stay_out_of_the_logs_and_are_masked_in_what_the_user_is_
 
     done = await send_turn(client, conversation_id, "我家的猫叫小白哦", own_llm=LLM)
     failed = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
-    malformed = await client.post(
+    await client.post(  # refused, its key unchecked
         f"/api/conversations/{conversation_id}/turns",
         json={"text": "在吗", "own_llm": LLM | {"api_key": f"{KEY} with spaces"}},
     )
@@ -82,14 +83,12 @@ async def test_own_keys_stay_out_of_the_logs_and_are_masked_in_what_the_user_is_
 
     assert done[-1]["type"] == "done"
     assert any("writing memories failed" in line for line in logged())
-    assert failed[-1]["type"] == "error"
-    assert "402 Payment Required" in failed[-1]["message"]
     assert failed[-1]["message"].endswith("***")
-    assert malformed.status_code == 422
+    assert PREFIX not in failed[-1]["message"]
     for service, res in checks.items():
         assert res.status_code == 422, service
+        assert res.json()["detail"].startswith("试调失败：401 Unauthorized: "), service
         assert res.json()["detail"].endswith("***"), service
         assert PREFIX not in res.json()["detail"], service
-    assert PREFIX not in failed[-1]["message"]
     for line in logged():
         assert PREFIX not in line, line

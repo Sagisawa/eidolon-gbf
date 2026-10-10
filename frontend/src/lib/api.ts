@@ -255,7 +255,8 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
 
 export type OwnService = "llm" | "tts" | "stt";
 
-/** The kinds of interface a user's own LLM may speak, as the backend knows them. */
+/** The kinds of interface a user's own LLM may speak: the backend's `LLM_PROTOCOLS`, which this
+ * follows (and `copy.settings.ownKeys.protocols` names). */
 export const LLM_PROTOCOLS = ["chat-completions", "responses", "anthropic"] as const;
 
 export type LLMProtocol = (typeof LLM_PROTOCOLS)[number];

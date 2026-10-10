@@ -18,10 +18,10 @@ answered from the services it is to bring keys for, touching no key (`call_exemp
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
 `check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
-shown to the user with the key masked (`_masked`), and logged no other way. An LLM is tried as the deployer's chat model is at startup: it
-must stream and take tools. In a public deployment it must
-also be on the public internet, so no one can point the backend at the machines next to
-it, and read their answers back in the errors they are shown. That is checked on every
+shown to the user with the key masked (`_masked`), and logged no other way. An LLM is
+tried as the deployer's chat model is at startup: it must stream and take tools. In a
+public deployment it must also be on the public internet, so no one can point the backend
+at the machines next to it, and read their answers back in the errors they are shown. That is checked on every
 connection, not only when the key is tried: a name that resolved to a public address then
 can resolve to a private one later.
 """
@@ -335,7 +335,7 @@ class OwnKeys:
             assert deployer is not None
             return TurnLLMs(deployer.chat_llm, deployer.memory_llm, deployer.hold_memory)
         settings = LLMSettings(own_llm.base_url, own_llm.api_key, own_llm.model, own_llm.protocol)
-        own = _OwnLLM(self._llm_service.open(settings), settings.api_key)
+        own = _OwnLLM(self._llm_service, settings)
         return TurnLLMs(
             metered_llm(own, self._activity, llm_origin("chat_llm", settings, own_key=True)),
             metered_llm(own, self._activity, llm_origin("memory_llm", settings, own_key=True)),
@@ -349,9 +349,9 @@ class OwnKeys:
 class _OwnLLM:
     """The user's LLM, whose every failure is theirs to fix."""
 
-    def __init__(self, llm: ChatLLM, api_key: str) -> None:
-        self._llm = llm
-        self._api_key = api_key
+    def __init__(self, service: LLMService, settings: LLMSettings) -> None:
+        self._llm = service.open(settings)
+        self._api_key = settings.api_key
 
     async def stream(
         self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
