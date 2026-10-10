@@ -12,6 +12,7 @@ from datetime import datetime
 import httpx
 import pytest
 
+from eidolon.activity import OWN
 from eidolon.config import Settings, UsageLimits
 from eidolon.engine import MAX_INPUT_LENGTH
 from eidolon.llm import ChatLLM, LLMError
@@ -180,6 +181,42 @@ async def test_calls_on_the_users_own_keys_are_counted_apart(
     assert board["turns"]["own_keys"] == 2
     assert board["turns"]["by_result"]["failed"] == 1
     assert MINE not in str(board)
+
+
+async def test_a_database_from_before_forgets_the_hosts_and_models_of_users_own_llms(
+    make_client: ClientFactory, settings: Settings
+):
+    """Calls to users' own LLMs were recorded with their hosts and models; the deployer's
+    calls, and those to users' own speech services, keep theirs."""
+    make_client(FakeLLM())
+    kept = [
+        ("chat_llm", "llm.invalid", "test-model", 0),
+        ("tts", "api.fish.audio", "s1", 1),
+    ]
+    with sqlite3.connect(settings.database_path) as db:
+        db.executemany(
+            "INSERT INTO service_calls (at, service, provider, model, own_key)"
+            " VALUES (?, ?, ?, ?, ?)",
+            [
+                (START.timestamp(), *row)
+                for row in [
+                    ("chat_llm", "llm.example.com", "my-model", 1),
+                    ("memory_llm", "llm.example.com", "my-model", 1),
+                    *kept,
+                ]
+            ],
+        )
+
+    for start in ["first", "again"]:
+        make_client(FakeLLM())
+
+        with sqlite3.connect(settings.database_path) as db:
+            rows = db.execute(
+                "SELECT service, provider, model, own_key FROM service_calls ORDER BY id"
+            ).fetchall()
+        assert rows == [
+            ("chat_llm", OWN, OWN, 1), ("memory_llm", OWN, OWN, 1), *kept
+        ], start
 
 
 async def test_each_range_takes_the_turns_since_that_long_ago(

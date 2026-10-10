@@ -9,6 +9,7 @@ from datetime import date
 import pytest
 
 import eidolon.prices
+from eidolon.activity import OWN
 from eidolon.config import LLMSettings, Settings
 from eidolon.prices import Price
 from tests.conftest import ClientFactory
@@ -124,6 +125,10 @@ async def test_usage_on_users_own_keys_is_shown_but_never_priced(
     assert cost["own_keys"] == [
         {"service": "chat_llm", "unit": "tokens", "calls": 2, "input": 2000, "output": 1000}
     ]
+    # Nor does the prices page offer what they are recorded as to be priced.
+    prices = (await admin.get("/api/admin/prices")).json()
+    assert prices["unpriced"] == []
+    assert listed(prices, OWN, OWN) is None
 
 
 def listed(prices: dict, provider: str, model: str) -> dict | None:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from eidolon.activity import ActivityLog
+from eidolon.activity import OWN, ActivityLog
 from eidolon.config import SttKey
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.own_keys import (
@@ -112,11 +112,12 @@ async def test_a_turn_that_brings_an_llm_runs_on_it_for_both_and_does_not_count(
     assert deployment.chat.keys == []
     assert deployment.memory.prompts == []
     assert keys.exempt is True and keys.own_llm is True
-    # Each request is recorded as a service call to their model, on their own key.
+    # Each request is recorded as a service call on their own key, never saying which
+    # host or model theirs is.
     _, calls = deployment.activity.since(datetime.min.replace(tzinfo=UTC))
     assert sorted((c.service, c.provider, c.model, c.own_key) for c in calls) == [
-        ("chat_llm", "llm.example.com", "my-model", True),
-        ("memory_llm", "llm.example.com", "my-model", True),
+        ("chat_llm", OWN, OWN, True),
+        ("memory_llm", OWN, OWN, True),
     ]
 
 
