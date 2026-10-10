@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
-import { describeScene, slotX, talkLineShown, unitCount, type BandLight, type Scene, type Viewport } from "./model/scene";
+import { describeScene, slotX, standX, talkLineShown, unitCount, type BandLight, type Scene, type Viewport } from "./model/scene";
 import { settleSpring, stepSpring } from "./model/spring";
 import { qualityOf, tierReducer, TIERS, type Tier, type TierAction } from "./model/tier";
 import { holdAt, restAt, spanOf, timelineOf, type Section } from "./model/timeline";
@@ -228,18 +228,12 @@ export function LightStage({
       placeGreeting();
       light?.resize(vp.w, vp.h);
     };
-    /** 立绘的中线在轨道上的位置：她名牌外侧空间大的一边。 */
-    const standX = (l: BandLight, standWidth: number) => {
-      const x = slotX(vp, l.unit, l.slot, l.unitSize);
-      const side = x - l.unit * vp.w < vp.w * 0.55 ? 1 : -1;
-      return x + side * (standWidth * 0.5 + 24);
-    };
     let standFor: string | undefined;
     const placeStand = () => {
       const standBox = findStandBox();
       const l = standBox && lightOf.get(standBox.dataset.lpStand ?? "");
       if (!standBox || !l) return;
-      standBox.style.left = `${standX(l, standBox.offsetWidth) - standBox.offsetWidth * 0.5}px`;
+      standBox.style.left = `${standX(vp, l, standBox.offsetWidth) - standBox.offsetWidth * 0.5}px`;
     };
     // 招呼的字幕跟着立绘居中（她没有立绘时，在立绘本来站的地方），但不出她那个组合的一屏，也不压着幕名轨。
     let greetingFor: string | undefined;
@@ -248,7 +242,7 @@ export function LightStage({
       if (!greetingEl || !l) return;
       const half = greetingEl.offsetWidth / 2 + 16;
       const page = l.unit * vp.w;
-      const cx = Math.min(Math.max(standX(l, findStandBox()?.offsetWidth ?? 0), page + (railEl?.offsetWidth ?? 0) + half), page + vp.w - half);
+      const cx = Math.min(Math.max(standX(vp, l, findStandBox()?.offsetWidth ?? 0), page + (railEl?.offsetWidth ?? 0) + half), page + vp.w - half);
       greetingEl.style.left = `${cx - greetingEl.offsetWidth / 2}px`;
     };
     measure();

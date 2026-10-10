@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { idolColors } from "./color";
-import { describeScene, type Scene, type SceneInput, type Viewport } from "./scene";
+import { describeScene, standX, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
 import { ACT1_SCREENS, timelineOf } from "./timeline";
 
@@ -257,5 +257,39 @@ describe("describeScene: 名单", () => {
     const s = describeScene({ lights: [one], scroll: ACT1_END, viewport: desktop, tier: "full" });
     expect(s.bands[0].hue).toBe(0.5);
     expect(Math.atan2(s.bands[0].dy, s.bands[0].dx)).toBeCloseTo(s.fan.angle);
+  });
+});
+
+describe("standX: 立绘摆位", () => {
+  // 电脑 1440×900 的立绘宽 min(50vw, 66vh) = 594。
+  it("电脑上站在她名牌外侧空间大的一边，离名牌半个立绘宽再加 24", () => {
+    // 三人组合第 1 位的名牌在 357.6，右边空间大。
+    expect(standX(desktop, { unit: 0, slot: 0, unitSize: 3 }, 594)).toBeCloseTo(678.6);
+    // 第 3 位的名牌在 1154.4，站到左边。
+    expect(standX(desktop, { unit: 0, slot: 2, unitSize: 3 }, 594)).toBeCloseTo(833.4);
+    // 第 2 个组合整体右移一屏。
+    expect(standX(desktop, { unit: 1, slot: 0, unitSize: 3 }, 594)).toBeCloseTo(1440 + 678.6);
+  });
+
+  // 竖屏的立绘宽 74vw：名牌两侧都放不下，以前组合中间几位的立绘有一大块出屏。立绘跟着轨道走，停留时轨道
+  // 从组合的起点往左漂到 0.08 屏，漂到头时也不能压幕名轨。
+  it("竖屏手机上每个组合的每一位，立绘都在她那一屏里、不压幕名轨", () => {
+    const width = phone.w * 0.74;
+    for (let unit = 0; unit < 3; unit++) {
+      for (let unitSize = 1; unitSize <= 6; unitSize++) {
+        for (let slot = 0; slot < unitSize; slot++) {
+          const x = standX(phone, { unit, slot, unitSize }, width);
+          const where = `第 ${unit + 1} 个组合（${unitSize} 人）第 ${slot + 1} 位`;
+          expect(x - width / 2 - 0.08 * phone.w, where).toBeGreaterThanOrEqual(unit * phone.w + 36 - 1e-6);
+          expect(x + width / 2, where).toBeLessThanOrEqual((unit + 1) * phone.w + 1e-6);
+        }
+      }
+    }
+  });
+
+  it("立绘比幕名轨右边的一屏还宽时，在这一段里居中", () => {
+    // 300 宽的屏，幕名轨 36，左边再让出漂移的 24，能用的是 60 到 300，中点 180。
+    expect(standX({ w: 300, h: 800 }, { unit: 0, slot: 1, unitSize: 3 }, 290)).toBeCloseTo(180);
+    expect(standX({ w: 300, h: 800 }, { unit: 2, slot: 0, unitSize: 3 }, 290)).toBeCloseTo(600 + 180);
   });
 });

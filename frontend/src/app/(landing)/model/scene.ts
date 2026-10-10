@@ -218,6 +218,24 @@ export function slotX(vp: Viewport, u: number, j: number, n: number): number {
   return u * vp.w + left + ((j + 0.5) / n) * (vp.w - left - right);
 }
 
+/** 停在一个组合时轨道慢慢往左漂的距离（屏）。 */
+const TRACK_DRIFT = 0.08;
+
+/**
+ * 第 2 幕里她（光谱里的位置是 `at`）聚焦时，宽 `width` 的立绘的中线在轨道上的位置：她名牌外侧空间大的一边，
+ * 但整个立绘不出她那个组合的一屏、不压幕名轨。立绘跟着轨道走，停留时轨道往左漂，左边多让出这一段。
+ * 竖屏的立绘宽，两侧都放不下，就挪回屏里，和她的名牌叠着（她的名牌在立绘之上）；比这一屏能用的宽度
+ * 还宽时在里面居中。
+ */
+export function standX(vp: Viewport, at: Pick<BandLight, "unit" | "slot" | "unitSize">, width: number): number {
+  const x = slotX(vp, at.unit, at.slot, at.unitSize);
+  const side = x - at.unit * vp.w < vp.w * 0.55 ? 1 : -1;
+  const lo = at.unit * vp.w + railWidth(vp) + TRACK_DRIFT * vp.w + width / 2;
+  const hi = (at.unit + 1) * vp.w - width / 2;
+  if (lo > hi) return (lo + hi) / 2;
+  return clamp(x + side * (width * 0.5 + 24), lo, hi);
+}
+
 /** 光谱尺：全部的光按光谱的顺序排满一屏，组合之间多留一点空。 */
 function rulerX(vp: Viewport, lights: readonly BandLight[], i: number): number {
   const left = railWidth(vp) + vp.w * 0.05;
@@ -239,10 +257,9 @@ function trackTarget(seg: number, units: number): { pos: number; push: number } 
   const local = s - k;
   if (k >= last) return { pos: last + Math.min(local, 1) * 0.04, push: 0 };
   const HOLD = 0.55;
-  const DRIFT = 0.08;
-  if (local < HOLD) return { pos: k + (local / HOLD) * DRIFT, push: 0 };
+  if (local < HOLD) return { pos: k + (local / HOLD) * TRACK_DRIFT, push: 0 };
   const t = (local - HOLD) / (1 - HOLD);
-  return { pos: k + DRIFT + easeInOut(t) * (1 - DRIFT), push: hill(t) };
+  return { pos: k + TRACK_DRIFT + easeInOut(t) * (1 - TRACK_DRIFT), push: hill(t) };
 }
 
 /**
