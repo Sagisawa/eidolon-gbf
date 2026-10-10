@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { idolColors } from "./color";
-import { describeScene, memoryWorld, type Scene, type SceneInput, type Viewport } from "./scene";
+import { describeScene, memoryWorld, type MemoryWorld, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
 import { spanOf, timelineOf } from "./timeline";
 
@@ -32,7 +32,7 @@ const act2 = spanOf(tl, 2)!;
 const act5 = spanOf(tl, 5)!;
 const act6 = spanOf(tl, 6)!;
 const desktop: Viewport = { w: 1440, h: 900 };
-const world = memoryWorld(lights) as ReturnType<typeof memoryWorld> & { sender: string; receiver: string };
+const world = memoryWorld(lights) as MemoryWorld & { sender: string; receiver: string };
 
 function scene(input: Partial<SceneInput> = {}): Scene {
   return describeScene({ lights, scroll: act5.from, viewport: desktop, tier: "full", ...input });
@@ -55,55 +55,89 @@ describe("memoryWorld: 第 5 幕的布景", () => {
     expect(xs.at(-1)).toBeLessThan(2);
   });
 
-  it("回忆的光迹是几条从接收的那一位出发的曲线，不带任何文字", () => {
-    expect(world.traces.length).toBeGreaterThanOrEqual(2);
-    for (const d of world.traces) expect(d).toMatch(/^M[\d. ,CS-]+$/);
+  it("再从她那里传给另外三位：三位各不相同，不是发送的人也不是她，弧线落在各自的光上", () => {
+    const targets = world.spreads.map((s) => s.target);
+    expect(new Set(targets).size).toBe(3);
+    expect(targets).not.toContain(world.sender);
+    expect(targets).not.toContain(world.receiver);
+    const lineX = new Map(world.lines.map((l) => [l.id, l.x]));
+    for (const s of world.spreads) {
+      expect(s.from).toEqual(world.arc.to);
+      expect(s.to[0]).toBe(lineX.get(s.target));
+    }
   });
 });
 
-describe("describeScene: 第 5 幕，一件事从一位偶像传到另一位", () => {
-  const relays = ps.map((p) => scene({ scroll: in5(p) }).memory!);
+describe("describeScene: 第 5 幕，一件事传开", () => {
+  const frames = ps.map((p) => scene({ scroll: in5(p) }));
+  const lineX = (id: string, s: Scene) => s.bands.find((b) => b.id === id)!.x;
+  const intensity = (id: string, s: Scene) => s.bands.find((b) => b.id === id)!.intensity;
 
   it("光点从她的光出发，沿预先算好的弧线落到另一位的光上，颜色从她渐变到另一位", () => {
-    const lineX = (id: string, s: Scene) => s.bands.find((b) => b.id === id)!.x;
     const start = scene({ scroll: in5(0.12) });
-    const mid = scene({ scroll: in5(0.45) }).memory!.relay;
-    const end = scene({ scroll: in5(0.8) });
-    expect(start.memory!.relay.x).toBeCloseTo(lineX(world.sender, start));
-    expect(end.memory!.relay.x).toBeCloseTo(lineX(world.receiver, end));
+    const mid = scene({ scroll: in5(0.3) }).memory!.relays[0];
+    const end = scene({ scroll: in5(0.48) });
+    const [a, b] = [start.memory!.relays[0], end.memory!.relays[0]];
+    expect(a.intensity).toBeGreaterThan(0);
+    expect(a.x).toBeCloseTo(lineX(world.sender, start));
+    expect(b.x).toBeCloseTo(lineX(world.receiver, end));
     // 弧线鼓在两端的上方。
-    expect(mid.y).toBeLessThan(Math.min(start.memory!.relay.y, end.memory!.relay.y));
-    expect(start.memory!.relay.color).toBe(halo(world.sender));
-    expect(end.memory!.relay.color).toBe(halo(world.receiver));
+    expect(mid.y).toBeLessThan(Math.min(a.y, b.y));
+    expect(a.color).toBe(halo(world.sender));
+    expect(b.color).toBe(halo(world.receiver));
     expect([halo(world.sender), halo(world.receiver)]).not.toContain(mid.color);
   });
 
-  it("光点跟着滚动连续地走，不跳", () => {
-    relays.slice(1).forEach((r, k) => {
-      expect(Math.abs(r.relay.x - relays[k].relay.x)).toBeLessThan(desktop.w * 0.05);
-      expect(Math.abs(r.relay.y - relays[k].relay.y)).toBeLessThan(desktop.h * 0.05);
+  it("她亮起来以后，再分出三个光点落到另外三位的光上，颜色从她渐变到各自的颜色；落到谁，谁才亮起来", () => {
+    world.spreads.forEach((spread, k) => {
+      const leaving = scene({ scroll: in5(0.54 + 0.05 * k) });
+      const arriving = scene({ scroll: in5(0.8 + 0.05 * k) });
+      const [a, b] = [leaving.memory!.relays[k + 1], arriving.memory!.relays[k + 1]];
+      expect(a.intensity).toBeGreaterThan(0);
+      expect(a.x).toBeCloseTo(lineX(world.receiver, leaving));
+      expect(b.x).toBeCloseTo(lineX(spread.target, arriving));
+      expect(a.color).toBe(halo(world.receiver));
+      expect(b.color).toBe(halo(spread.target));
+      expect(intensity(spread.target, leaving)).toBeLessThan(0.2);
+      expect(intensity(spread.target, scene({ scroll: in5(1) }))).toBeGreaterThan(0.5);
     });
+    // 传开之前，她先亮。
+    expect(intensity(world.receiver, scene({ scroll: in5(0.54) }))).toBeGreaterThan(0.5);
   });
 
-  it("画面跟着光点横移一到两屏，只往一个方向走", () => {
-    const pans = relays.map((r) => r.pan);
+  it("光点跟着滚动连续地走，不跳", () => {
+    frames.slice(1).forEach((f, k) =>
+      f.memory!.relays.forEach((r, i) => {
+        const prev = frames[k].memory!.relays[i];
+        expect(Math.abs(r.x - prev.x)).toBeLessThan(desktop.w * 0.05);
+        expect(Math.abs(r.y - prev.y)).toBeLessThan(desktop.h * 0.05);
+      }),
+    );
+  });
+
+  it("画面跟着光点横移一到两屏，只往一个方向走；传开的三位都在画面里", () => {
+    const pans = frames.map((f) => f.memory!.pan);
     expect(pans).toEqual([...pans].sort((a, b) => a - b));
     expect(pans.at(-1)! - pans[0]).toBeGreaterThanOrEqual(desktop.w * 0.5);
     expect(pans.at(-1)! - pans[0]).toBeLessThanOrEqual(desktop.w * 2);
+    const end = frames.at(-1)!;
+    for (const { target } of world.spreads) {
+      expect(lineX(target, end)).toBeGreaterThan(desktop.w * 0.08);
+      expect(lineX(target, end)).toBeLessThan(desktop.w);
+    }
   });
 
-  it("回忆的光迹在光点落下以后跟着滚动画出来，到这一幕结尾画完", () => {
-    for (let k = 0; k < world.traces.length; k++) {
-      const progress = relays.map((r) => r.traces[k]);
+  it("走过的光路跟着光点画出来（DOM 上的连线），到这一幕结尾画完", () => {
+    for (let k = 0; k < 1 + world.spreads.length; k++) {
+      const progress = frames.map((f) => f.memory!.paths[k]);
       expect(progress).toEqual([...progress].sort((a, b) => a - b));
       expect(progress[0]).toBe(0);
       expect(progress.at(-1)).toBe(1);
     }
-    expect(scene({ scroll: in5(0.3) }).memory!.traces.every((t) => t === 0)).toBe(true);
   });
 
   it("同屏满强度的光不超过 5 道", () => {
-    for (const p of ps) expect(scene({ scroll: in5(p) }).bands.filter((b) => b.intensity > 0.5).length).toBeLessThanOrEqual(5);
+    for (const f of frames) expect(f.bands.filter((b) => b.intensity > 0.5).length).toBeLessThanOrEqual(5);
   });
 
   it("这一幕里指针会留下痕迹；别的幕里没有", () => {
@@ -111,9 +145,10 @@ describe("describeScene: 第 5 幕，一件事从一位偶像传到另一位", (
     expect(scene({ scroll: act2.from + 2 }).memory).toBeNull();
   });
 
-  it("减少动态效果档：光路和光迹直接是完成态，没有指针痕迹", () => {
+  it("减少动态效果档：光路画完、传到的人都亮着，没有指针痕迹", () => {
     const s = scene({ scroll: in5(0.1), tier: "reduced" });
-    expect(s.memory!.traces.every((t) => t === 1)).toBe(true);
+    expect(s.memory!.paths.every((t) => t === 1)).toBe(true);
+    for (const { target } of world.spreads) expect(intensity(target, s)).toBeGreaterThan(0.5);
     expect(s.memory!.trail).toBe(false);
   });
 });
@@ -136,6 +171,6 @@ describe("describeScene: 第 2 幕到第 5 幕、第 5 幕到第 6 幕", () => {
   it("第 5 幕解开钉住时光暗下去，到第 6 幕全暗", () => {
     const end = scene({ scroll: act6.from - 1e-6 });
     expect(end.bands.every((b) => b.intensity < 0.01)).toBe(true);
-    expect(end.memory!.relay.intensity).toBe(0);
+    expect(end.memory!.relays.every((r) => r.intensity === 0)).toBe(true);
   });
 });

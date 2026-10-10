@@ -101,15 +101,18 @@ export type SpectrumState = {
   stand: string | null;
 };
 
+/** 一颗传话的光点：沿二次贝塞尔弧线 from → to（控制点 ctrl，视口坐标，已经减去横移）走到 t 处，
+ * 现在在 (x, y)；颜色从这段路起点的那一位渐变到终点的那一位。 */
+export type Relay = { x: number; y: number; t: number; from: Point; ctrl: Point; to: Point; color: string; intensity: number };
+
 /** 第 5 幕「记忆」。 */
 export type MemoryState = {
-  /** 横移（像素）：布景（两屏宽，memoryWorld）往左移了这么多。DOM 上的光迹跟着它移。 */
+  /** 横移（像素）：布景（两屏宽，memoryWorld）往左移了这么多。DOM 上的连线跟着它移。 */
   pan: number;
-  /** 传话的光点：沿二次贝塞尔弧线 from → to（控制点 ctrl，视口坐标，已经减去横移）走到 t 处，
-   * 现在在 (x, y)；颜色从发送的那一位渐变到接收的那一位。 */
-  relay: { x: number; y: number; t: number; from: Point; ctrl: Point; to: Point; color: string; intensity: number };
-  /** 每条回忆光迹描到了哪儿，0 到 1，顺序和 memoryWorld 的 traces 一样。 */
-  traces: number[];
+  /** 传话的光点，顺序和 memoryWorld 的 arcs 一样：先是发送的那一位传给接收的那一位，再是她传给另外三位。 */
+  relays: Relay[];
+  /** 每段光路（DOM 上的连线）画到了哪儿，0 到 1，顺序同上：光点走到哪儿，连线就画到哪儿。 */
+  paths: number[];
   /** 指针在这一幕留下慢慢消散的痕迹（trail.ts）。 */
   trail: boolean;
 };
@@ -476,13 +479,29 @@ function blend(a: Band[], b: Band[], t: number): Band[] {
   });
 }
 
+/** 第 5 幕布景里的一段光路：从 source 那一位的光传到 target 那一位的光，二次贝塞尔弧线（布景坐标）。 */
+export type MemoryArc = { source: string; target: string; from: Point; ctrl: Point; to: Point };
+
+export type MemoryWorld = {
+  /** 每一道光在布景里的横坐标，顺序和 lights 一样。 */
+  lines: { id: string; color: string; x: number }[];
+  sender: string | null;
+  receiver: string | null;
+  /** 发送的那一位传给接收的那一位的光路。 */
+  arc: MemoryArc;
+  /** 接收的那一位再传给另外三位的光路。 */
+  spreads: MemoryArc[];
+  /** 全部光路，先 arc 后 spreads；DOM 上的连线、着色器的光点都按这个顺序。 */
+  arcs: MemoryArc[];
+};
+
 /**
- * 第 5 幕的布景，单位是视口：两屏宽（x 从 0 到 2）、一屏高（y 从 0 到 1）。全部的光按光谱的顺序竖着排开；
+ * 第 5 幕的布景，单位是视口：两屏宽（x 从 0 到 2）、一屏高（y 从 0 到 1）。全部的光按光谱的顺序竖着排开。
  * 一件事从光谱里的第一位（发送的那一位）传给后半段里和她颜色差得最开的一位（接收的那一位），沿一条
- * 鼓在上方的弧线走；回忆的光迹是几条从接收的那一位出发的曲线，SVG 的路径，viewBox 是 2000 × 1000。
- * 着色器（光、光点）和 DOM 上的 SVG（光迹，静态档里还有光和光路）都照它画。
+ * 鼓在上方的弧线走；再从她那里传开，落到她两边的另外三位身上（「我对一位偶像说的事，别的偶像也会知道」）。
+ * 着色器（光、光点）和 DOM 上的 SVG（连线，静态档里还有光）都照它画，SVG 的 viewBox 是 2000 × 1000。
  */
-export function memoryWorld(lights: readonly BandLight[]) {
+export function memoryWorld(lights: readonly BandLight[]): MemoryWorld {
   const n = lights.length;
   const lines = lights.map((l, i) => ({ id: l.id, color: l.color, x: 0.12 + ((i + 0.5) / Math.max(n, 1)) * 1.76 }));
   const sender = 0;
@@ -493,32 +512,53 @@ export function memoryWorld(lights: readonly BandLight[]) {
     if (ring(lights[i].hueRank, lights[sender].hueRank) > ring(lights[receiver].hueRank, lights[sender].hueRank)) receiver = i;
   const from: Point = [lines[sender]?.x ?? 0.3, 0.66];
   const to: Point = [lines[receiver]?.x ?? 1.3, 0.4];
-  const ctrl: Point = [(from[0] + to[0]) / 2, 0.02];
-  const r = to[0];
-  const v = (x: number, y: number) => `${Math.round(x * 1000)} ${Math.round(y * 1000)}`;
-  const traces = [
-    `M${v(r, 0.4)} C${v(r - 0.1, 0.2)}, ${v(r - 0.3, 0.32)}, ${v(r - 0.46, 0.15)}`,
-    `M${v(r, 0.4)} C${v(r + 0.12, 0.5)}, ${v(r + 0.2, 0.72)}, ${v(r + 0.05, 0.82)} S${v(r - 0.25, 0.76)}, ${v(r - 0.36, 0.9)}`,
-    `M${v(r, 0.4)} C${v(r - 0.15, 0.5)}, ${v(r - 0.24, 0.62)}, ${v(r - 0.52, 0.56)}`,
-  ];
+  const arc: MemoryArc = {
+    source: lights[sender]?.id ?? "",
+    target: lights[receiver]?.id ?? "",
+    from,
+    ctrl: [(from[0] + to[0]) / 2, 0.02],
+    to,
+  };
+  // 传开：她右上、右下、左边各一位，落在光上的高度错开，弧线朝不同的方向鼓。左边那条往下鼓，不和传给她的
+  // 那条（从左上方来）贴在一起；都避开画面左下角的文字。
+  const spreads: MemoryArc[] = [];
+  if (n > 2) {
+    const used = new Set([sender, receiver]);
+    const SPREAD: [dx: number, y: number, bend: number][] = [
+      [0.24, 0.18, -0.12],
+      [0.3, 0.6, 0.1],
+      [-0.3, 0.52, 0.14],
+    ];
+    for (const [dx, y, bend] of SPREAD) {
+      let best = -1;
+      for (let i = 0; i < n; i++)
+        if (!used.has(i) && (best < 0 || Math.abs(lines[i].x - to[0] - dx) < Math.abs(lines[best].x - to[0] - dx))) best = i;
+      if (best < 0) break;
+      used.add(best);
+      const end: Point = [lines[best].x, y];
+      spreads.push({ source: arc.target, target: lines[best].id, from: to, ctrl: [(to[0] + end[0]) / 2, (to[1] + y) / 2 + bend], to: end });
+    }
+  }
   return {
     lines,
     sender: lights[sender]?.id ?? null,
     receiver: n > 1 ? lights[receiver].id : null,
-    arc: { from, ctrl, to },
-    traces,
+    arc,
+    spreads,
+    arcs: n > 1 ? [arc, ...spreads] : [],
   };
 }
 
 /** 第 5 幕里不是这件事主角的光：余烬的亮度。 */
 const MEMORY_EMBER = 0.12;
+/** 被传到的人亮起来的亮度：同屏满强度的是她和传到的三位，不超过 5 道。 */
+const MEMORY_LIT = 0.62;
 
-/** 第 5 幕开头的横移：发送的那一位站在画面左边三成处。 */
-const panAt = (world: ReturnType<typeof memoryWorld>, vp: Viewport, t: number) =>
-  lerp(world.arc.from[0] - 0.3, world.arc.to[0] - 0.7, t) * vp.w;
+/** 第 5 幕的横移：开头发送的那一位站在画面左边三成处，传到她时她站在画面六成处，之后不再动。 */
+const panAt = (world: MemoryWorld, vp: Viewport, t: number) => lerp(world.arc.from[0] - 0.3, world.arc.to[0] - 0.6, t) * vp.w;
 
 /** 第 5 幕的光：两屏宽的布景里竖着的一道道光，减去横移。 */
-function memoryBands(lights: readonly BandLight[], vp: Viewport, world: ReturnType<typeof memoryWorld>, pan: number, lit: (id: string) => number): Band[] {
+function memoryBands(lights: readonly BandLight[], vp: Viewport, world: MemoryWorld, pan: number, lit: (id: string) => number): Band[] {
   return curtain(lights, vp, 0).map((b, i) => ({
     ...b,
     x: world.lines[i].x * vp.w - pan,
@@ -527,50 +567,51 @@ function memoryBands(lights: readonly BandLight[], vp: Viewport, world: ReturnTy
   }));
 }
 
+/** 第 k 段光路的时间（第 5 幕的幕内进度）：光点从 start 出发，到 end 落下。 */
+const relayWindow = (k: number): [start: number, end: number] => (k === 0 ? [0.12, 0.48] : [0.54 + 0.05 * (k - 1), 0.8 + 0.05 * (k - 1)]);
+
 /**
- * 第 5 幕：一个光点从发送的那一位的光出发，颜色渐变着，沿弧线落到接收的那一位的光上；画面跟着它往右
- * 横移不到一屏。光点落下以后，回忆的光迹（DOM 上的 SVG）跟着滚动一条条画出来。最后一屏解开钉住，
- * 光暗下去，接上全站最暗的第 6 幕。`q` 是第 5 幕开始后滚过的屏数。
+ * 第 5 幕：一个光点从发送的那一位的光出发，颜色渐变着，沿弧线落到接收的那一位的光上，她亮起来；
+ * 再从她那里分出三个光点，落到另外三位的光上，落到谁，谁就亮起来。走过的光路留下淡淡的连线
+ * （DOM 上的 SVG）。画面跟着第一个光点往右横移不到一屏。最后一屏解开钉住，光暗下去，接上全站最暗的
+ * 第 6 幕。`q` 是第 5 幕开始后滚过的屏数。
  */
 function act5Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, span: ActSpan, q: number, still: boolean): Picture {
   const world = memoryWorld(lights);
   const p = clamp(q / span.length);
   const fade = 1 - smooth(0, 0.85, q - span.length);
-  const pan = panAt(world, vp, easeInOut(smooth(0.15, 0.78, p)));
-  const t = easeInOut(smooth(0.18, 0.72, p));
+  const pan = panAt(world, vp, easeInOut(smooth(0.1, 0.5, p)));
+  const colorOf = new Map(lights.map((l) => [l.id, l.color]));
+  const px = ([x, y]: Point): Point => [x * vp.w - pan, y * vp.h];
+  // 每个人亮起来的时候：光点落到她身上。
+  const arrived = new Map(world.arcs.map((a, k) => [a.target, smooth(relayWindow(k)[1] - 0.02, relayWindow(k)[1] + 0.04, p)]));
   const lit = (id: string) => {
     const base =
       id === world.sender
-        ? MEMORY_EMBER + 0.6 * smooth(0.04, 0.16, p) * (1 - 0.5 * smooth(0.3, 0.5, p))
-        : id === world.receiver
-          ? MEMORY_EMBER + 0.62 * smooth(0.7, 0.8, p)
-          : MEMORY_EMBER;
+        ? MEMORY_EMBER + 0.6 * smooth(0.04, 0.12, p) * (1 - 0.5 * smooth(0.3, 0.5, p))
+        : MEMORY_EMBER + (MEMORY_LIT - MEMORY_EMBER) * (arrived.get(id) ?? 0);
     return base * fade;
   };
-  const px = ([x, y]: Point): Point => [x * vp.w - pan, y * vp.h];
-  const [from, ctrl, to] = [px(world.arc.from), px(world.arc.ctrl), px(world.arc.to)];
-  const at = (k: number) => (1 - t) * (1 - t) * from[k] + 2 * (1 - t) * t * ctrl[k] + t * t * to[k];
-  const sender = lights.find((l) => l.id === world.sender);
-  const receiver = lights.find((l) => l.id === world.receiver);
-  const relayed = !!sender && !!receiver;
+  const relays = world.arcs.map((a, k): Relay => {
+    const [start, end] = relayWindow(k);
+    const t = easeInOut(smooth(start, end, p));
+    const [from, ctrl, to] = [px(a.from), px(a.ctrl), px(a.to)];
+    const at = (i: number) => (1 - t) * (1 - t) * from[i] + 2 * (1 - t) * t * ctrl[i] + t * t * to[i];
+    return {
+      x: at(0),
+      y: at(1),
+      t,
+      from,
+      ctrl,
+      to,
+      color: mixOklab(colorOf.get(a.source)!, colorOf.get(a.target)!, t),
+      intensity: smooth(start - 0.06, start, p) * (1 - smooth(end, end + 0.05, p)) * fade,
+    };
+  });
   return {
     ...quiet(lights, vp, memoryBands(lights, vp, world, pan, lit)),
     dispersion: 0,
-    memory: {
-      pan,
-      relay: {
-        x: at(0),
-        y: at(1),
-        t,
-        from,
-        ctrl,
-        to,
-        color: relayed ? mixOklab(sender.color, receiver.color, t) : "#ffffff",
-        intensity: relayed ? smooth(0.08, 0.18, p) * (1 - smooth(0.74, 0.84, p)) * fade : 0,
-      },
-      traces: world.traces.map((_, k) => smooth(0.5 + 0.1 * k, 0.85 + 0.05 * k, p)),
-      trail: !still,
-    },
+    memory: { pan, relays, paths: relays.map((r) => r.t), trail: !still },
   };
 }
 

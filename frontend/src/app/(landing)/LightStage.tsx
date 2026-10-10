@@ -32,7 +32,7 @@ type Measured = Section & { el: HTMLElement; top: number; height: number };
  *   加载之前就是原生滚动。OGL 在浏览器空闲时才加载，画好第一帧才淡入，淡入时首屏 CSS 画的白光
  *   同时淡出；两束光的几何是同一套（model/scene.ts 的锚点就是 landing.css 里 .lp-beam 的尽头）。
  *   第 2 幕的名牌按模型的 slotX 摆到横滚轨道上，轨道的横移经弹簧平滑；名牌上名字的位置量好了传给模型，
- *   光芯在那里断开。第 5 幕的布景（Memory 的 SVG）跟着模型横移、描出回忆的光迹，指针在这一幕留下
+ *   光芯在那里断开。第 5 幕的布景（Memory 的 SVG）跟着模型横移、光点走到哪儿连线画到哪儿，指针在这一幕留下
  *   慢慢消散的痕迹；第 7 幕的文字和行动按钮跟着模型淡入。
  * - 定格档（减少动态效果）：不钉住、不加载 Lenis；OGL 只渲染一帧第 1 幕的完成态就停下，
  *   窗口尺寸变了才重画那一帧。画好之前，静态档的 SVG 先顶着。
@@ -311,7 +311,7 @@ export function LightStage({ lights, section, children }: { lights: BandLight[];
       }
       if (scene.memory && memoryEl) {
         memoryEl.style.setProperty("--lp-pan", `${-scene.memory.pan}px`);
-        scene.memory.traces.forEach((t, k) => memoryEl.style.setProperty(`--lp-trace-${k}`, String(t)));
+        scene.memory.paths.forEach((t, k) => memoryEl.style.setProperty(`--lp-path-${k}`, String(t)));
       }
       trailOn = !!scene.memory?.trail;
       const marks = trailOn ? liveTrail(trail, now / 1000) : [];
@@ -379,7 +379,7 @@ const isDark = (s: Scene) =>
   s.prism.intensity < 0.003 &&
   s.fan.intensity < 0.003 &&
   s.screen.intensity < 0.003 &&
-  (s.memory?.relay.intensity ?? 0) < 0.003 &&
+  (s.memory?.relays ?? []).every((r) => r.intensity < 0.003) &&
   s.bands.every((b) => b.intensity < 0.004);
 
 function readTier(html: HTMLElement): Tier {

@@ -10,7 +10,8 @@
  * - 出口附近的连续色散是唯一允许出现中间色的地方：按扇面上的位置在相邻两道光的颜色之间过渡，
  *   往外就只剩一道道她们自己的颜色。
  * - 第 2 幕名牌上的名字压在光上，那一段光芯断开（模型给出沿光线的区间）。
- * - 第 5 幕传话的光点是一颗沿弧线走的彗星，后面拖着一段渐淡的光；指针留下的痕迹连成一道淡淡的光。
+ * - 第 5 幕传话的光点是沿弧线走的彗星，后面拖着一段渐淡的光（同时最多 MAX_RELAYS 颗）；指针留下的痕迹
+ *   连成一道淡淡的光。
  * - 第 7 幕的手机屏幕是一块圆角矩形的白光，外面一圈很大的光晕：全站最亮的时候。
  * - 最后转回 sRGB，加半个色阶的抖动去色带。背景和页面的底色一样，画布淡入时看不出接缝。
  *
@@ -25,6 +26,9 @@ import { idle } from "./idle";
 import type { Scene } from "./model/scene";
 import type { Quality } from "./model/tier";
 import { TRAIL_POINTS } from "./model/trail";
+
+/** 第 5 幕同时最多几颗传话的光点：传给她的一颗，她再传开的三颗。 */
+export const MAX_RELAYS = 4;
 
 /** 着色器里最多画几道光。uniform 数组的长度是编译时定的；28 位偶像留了余量，手机的 uniform 上限也放得下。 */
 export const MAX_BANDS = 32;
@@ -53,9 +57,9 @@ uniform float uCount;
 uniform vec4 uA[${MAX_BANDS}];
 uniform vec4 uC[${MAX_BANDS}];
 uniform vec4 uD[${MAX_BANDS}];
-uniform vec4 uRelayA;
-uniform vec4 uRelayB;
-uniform vec3 uRelayC;
+uniform vec4 uRelayA[${MAX_RELAYS}];
+uniform vec4 uRelayB[${MAX_RELAYS}];
+uniform vec3 uRelayC[${MAX_RELAYS}];
 uniform vec3 uTrail[${TRAIL_POINTS}];
 uniform float uTrailN;
 uniform vec4 uScreen;
@@ -199,10 +203,11 @@ void main() {
     acc = screen(acc, col);
   }
 
-  // —— 第 5 幕：传话的光点，沿二次贝塞尔弧线走，后面拖着一段渐淡的光。
-  if (uRelayB.w > 0.003) {
-    vec2 a = uRelayA.xy, c = uRelayA.zw, b = uRelayB.xy;
-    float head = uRelayB.z;
+  // —— 第 5 幕：传话的光点，沿二次贝塞尔弧线（起点 a、控制点 c、终点 b）走，后面拖着一段渐淡的光。
+  for (int r = 0; r < ${MAX_RELAYS}; r++) {
+    if (uRelayB[r].w < 0.003) continue;
+    vec2 a = uRelayA[r].xy, c = uRelayA[r].zw, b = uRelayB[r].xy;
+    float head = uRelayB[r].z;
     float tail = max(0.0, head - 0.22);
     vec2 prev = mix(mix(a, c, tail), mix(c, b, tail), tail);
     float glow = 0.0;
@@ -216,8 +221,8 @@ void main() {
       prev = cur;
     }
     float hd = length(p - prev);
-    vec3 col = uRelayC * glow + mix(uRelayC, vec3(1.0), 0.6) * (exp(-hd / 5.0) + exp(-hd / 30.0) * 0.45);
-    acc = screen(acc, col * uRelayB.w);
+    vec3 col = uRelayC[r] * glow + mix(uRelayC[r], vec3(1.0), 0.6) * (exp(-hd / 5.0) + exp(-hd / 30.0) * 0.45);
+    acc = screen(acc, col * uRelayB[r].w);
   }
 
   // —— 第 5 幕：指针留下的痕迹，越早留下的越淡。
@@ -277,6 +282,9 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
   const C = new Array<number>(MAX_BANDS * 4).fill(0);
   const D = new Array<number>(MAX_BANDS * 4).fill(0);
   const T = new Array<number>(TRAIL_POINTS * 3).fill(0);
+  const RA = new Array<number>(MAX_RELAYS * 4).fill(0);
+  const RB = new Array<number>(MAX_RELAYS * 4).fill(0);
+  const RC = new Array<number>(MAX_RELAYS * 3).fill(1);
   const program = new Program(gl, {
     vertex,
     fragment,
@@ -301,9 +309,9 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
       uB: { value: B },
       uC: { value: C },
       uD: { value: D },
-      uRelayA: { value: [0, 0, 0, 0] },
-      uRelayB: { value: [0, 0, 0, 0] },
-      uRelayC: { value: [1, 1, 1] },
+      uRelayA: { value: RA },
+      uRelayB: { value: RB },
+      uRelayC: { value: RC },
       uTrail: { value: T },
       uTrailN: { value: 0 },
       uScreen: { value: [0, 0, 0, 0] },
@@ -354,12 +362,17 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
         put(C, i, r, g, bl, b.intensity);
         put(D, i, b.core, b.halo, b.gain, b.hue);
       });
-      const relay = scene.memory?.relay;
-      if (relay && relay.intensity > 0) {
-        u.uRelayA.value = [relay.from[0], relay.from[1], relay.ctrl[0], relay.ctrl[1]];
-        u.uRelayB.value = [relay.to[0], relay.to[1], relay.t, relay.intensity];
-        u.uRelayC.value = linear(relay.color);
-      } else u.uRelayB.value = [0, 0, 0, 0];
+      const relays = scene.memory?.relays ?? [];
+      for (let i = 0; i < MAX_RELAYS; i++) {
+        const r = relays[i];
+        if (!r || r.intensity <= 0) {
+          RB[i * 4 + 3] = 0;
+          continue;
+        }
+        put(RA, i, r.from[0], r.from[1], r.ctrl[0], r.ctrl[1]);
+        put(RB, i, r.to[0], r.to[1], r.t, r.intensity);
+        RC.splice(i * 3, 3, ...linear(r.color));
+      }
       const points = trail.slice(-TRAIL_POINTS);
       u.uTrailN.value = points.length;
       points.forEach((pt, i) => {
@@ -370,7 +383,7 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
       const sc = scene.screen;
       u.uScreen.value = [sc.x, sc.y, sc.w, sc.h];
       u.uScreen2.value = [sc.r, sc.intensity];
-      // A–D、T 是就地改的：OGL 把上一帧传过的值另存一份来比较，改过的照样会重传。
+      // A–D、T、RA–RC 是就地改的：OGL 把上一帧传过的值另存一份来比较，改过的照样会重传。
       renderer.render({ scene: mesh });
     },
     destroy() {
