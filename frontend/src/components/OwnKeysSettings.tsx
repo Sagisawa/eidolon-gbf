@@ -31,7 +31,7 @@ import {
   ownServices,
   type LocalLLM,
   type LocalOwnKeys,
-  type LocalSttKey,
+  type LocalTtsKey,
 } from "@/lib/localOwnKeys";
 import { limitExemption } from "@/lib/ownKeys";
 import { cn } from "@/lib/utils";
@@ -95,21 +95,26 @@ export function OwnKeysSettings() {
         />
         <Separator />
         <OwnSpeechKeyForm
-          service="tts"
           title={t.ttsTitle}
           current={kept.tts}
           disabled={!canKeep}
-          onChecked={(key) => change(() => keepOwnKey(userId, "tts", { api_key: key.api_key }))}
+          onSubmit={async (apiKey) => {
+            await checkOwnSpeechKey("tts", apiKey);
+            change(() => keepOwnKey(userId, "tts", { api_key: apiKey }));
+          }}
           onDelete={() => change(() => forgetOwnKey(userId, "tts"))}
         />
         <Separator />
         <OwnSpeechKeyForm
-          service="stt"
           title={t.sttTitle}
           current={kept.stt}
           provider={kept.stt?.provider ?? "soniox"}
           disabled={!canKeep}
-          onChecked={(key) => change(() => keepOwnKey(userId, "stt", key))}
+          onSubmit={async (apiKey, provider = "soniox") => {
+            // 百炼的 key 连同试调判断出的地域一起存，通话时随 key 带上。
+            const { region } = await checkOwnSpeechKey("stt", apiKey, provider);
+            change(() => keepOwnKey(userId, "stt", { api_key: apiKey, provider, ...(region ? { region } : {}) }));
+          }}
           onDelete={() => change(() => forgetOwnKey(userId, "stt"))}
         />
       </div>
@@ -194,25 +199,23 @@ const STT_PROVIDERS: SttProvider[] = ["soniox", "bailian"];
 
 /**
  * 语音合成或语音识别的 key：先让服务器试调一次（它不保存），通过了才存进这个浏览器。语音识别先选服务商
- * 再填 key；改服务商就是换一个 key，同样要填 key、试调。百炼的 key 连同试调判断出的地域一起存。
+ * 再填 key；改服务商就是换一个 key，同样要填 key、试调。
  */
 function OwnSpeechKeyForm({
-  service,
   title,
   current,
   provider: currentProvider,
   disabled,
-  onChecked,
+  onSubmit,
   onDelete,
 }: {
-  service: "tts" | "stt";
   title: string;
-  current: { api_key: string } | undefined;
+  current: LocalTtsKey | undefined;
   /** 语音识别：已填的 key 所属的服务商，没填时是默认选中的那家。 */
   provider?: SttProvider;
   disabled: boolean;
-  /** 试调通过的 key；语音识别的带着服务商，百炼的还有地域。 */
-  onChecked: (key: LocalSttKey) => void;
+  /** 试调这把 key（语音识别的连同选的服务商），通过了就存下；不通过时带着服务商的原因失败。 */
+  onSubmit: (apiKey: string, provider: SttProvider | undefined) => Promise<void>;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -227,9 +230,7 @@ function OwnSpeechKeyForm({
     setBusy(true);
     setFailure(null);
     try {
-      const key = apiKey.trim();
-      const { region } = await checkOwnSpeechKey(service, key, provider);
-      onChecked({ api_key: key, provider: provider ?? "soniox", ...(region ? { region } : {}) });
+      await onSubmit(apiKey.trim(), provider);
       setApiKey("");
       setEditing(false);
     } catch (e) {

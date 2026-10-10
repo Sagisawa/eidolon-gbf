@@ -305,10 +305,10 @@ class OwnKeys:
         lease = self._deployer.lease()
         try:
             deployer = lease.keys
+            _require_speech(brought.services, deployer)
             stt = brought.stt if brought.stt is not None else deployer.stt
             tts = brought.tts if brought.tts is not None else deployer.tts
-            if not stt or not tts:
-                raise CallsUnavailable()
+            assert stt and tts
             own = brought.services - {"llm"}
             llms = self._llms(brought.llm, deployer)
         except BaseException:
@@ -325,9 +325,7 @@ class OwnKeys:
         services = frozenset(services)
         lease = self._deployer.lease()
         try:
-            deployer = lease.keys
-            if not ("stt" in services or deployer.stt) or not ("tts" in services or deployer.tts):
-                raise CallsUnavailable()
+            _require_speech(services, lease.keys)
         finally:
             lease.release()
         return _exempt(services)["calls"]
@@ -468,6 +466,13 @@ def _stt_provider(record: OwnKeyRecord) -> SttProvider:
     """The service a kept speech recognition key is for: Soniox, if it was kept before
     there was a choice."""
     return record.provider or "soniox"  # pyright: ignore[reportReturnType]
+
+
+def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:
+    """Raise CallsUnavailable unless a call bringing the user's own keys for `own` has a
+    key for each of speech recognition and synthesis, theirs or the deployer's."""
+    if not ("stt" in own or deployer.stt) or not ("tts" in own or deployer.tts):
+        raise CallsUnavailable()
 
 
 def _exempt(own: Iterable[str]) -> dict[str, bool]:

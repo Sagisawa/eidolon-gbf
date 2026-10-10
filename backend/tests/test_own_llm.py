@@ -208,22 +208,6 @@ async def test_a_call_uses_the_users_own_llm(
     assert deployers.keys == []
 
 
-async def test_a_call_runs_on_the_llm_it_brings_not_one_kept_on_the_server(
-    make_client: ClientFactory, own_llm: FakeLLMService, speech: FakeSpeech, browser: Browser
-):
-    own_llm.llm = FakeLLM(REPLY)
-    deployers = FakeLLM(REPLY)
-    client = make_client(deployers)
-    await keep_llm(client)
-    await browser.call(client, conversation_id=await start_conversation(client))
-    await browser.connect()
-
-    await speech.stts[-1].hear("你好")
-    await browser.turn()
-
-    assert deployers.keys == [DEPLOYER_KEY]
-    assert own_llm.llm.keys == []
-
 
 @pytest.mark.parametrize(
     "base_url",

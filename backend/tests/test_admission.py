@@ -229,7 +229,7 @@ def test_a_call_on_the_users_own_keys_alone_does_not_count(deployment: Deploymen
 
 @pytest.mark.parametrize(
     ("services", "exempt"),
-    [(frozenset(), False), (frozenset({"llm", "tts"}), False), (ALL_OWN.services, True)],
+    [(frozenset({"llm", "tts"}), False), (ALL_OWN.services, True)],
 )
 def test_asking_before_a_call_says_whether_it_is_exempt_and_takes_and_records_nothing(
     deployment: Deployment, services: frozenset[Service], exempt: bool

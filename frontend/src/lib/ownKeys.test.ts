@@ -7,12 +7,10 @@ describe("limitExemption", () => {
   });
 
   it("自带了 LLM 但语音没有都自带时，只有文字对话不计入限额", () => {
-    expect(limitExemption(["llm"])).toBe("turns");
     expect(limitExemption(["llm", "tts"])).toBe("turns");
   });
 
   it("没有自带 LLM 时，都计入限额", () => {
-    expect(limitExemption([])).toBe("none");
     expect(limitExemption(["tts", "stt"])).toBe("none");
   });
 });

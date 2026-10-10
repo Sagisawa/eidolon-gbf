@@ -89,21 +89,6 @@ async def test_a_speech_key_that_fails_its_try_is_refused_with_what_the_service_
     assert "Incorrect API key" in res.json()["detail"]
 
 
-async def test_trying_a_speech_key_needs_signing_in_and_a_plausible_key(
-    make_client: ClientFactory, speech: FakeSpeech
-):
-    client = make_client(FakeLLM())
-
-    for bad in ({"api_key": "short"}, {"api_key": "has space in it"},
-                {"api_key": MY_DASHSCOPE, "provider": "azure"}):
-        assert (await client.post("/api/account/keys/stt/check", json=bad)).status_code == 422
-    client.cookies.clear()
-    signed_out = await client.post("/api/account/keys/tts/check", json={"api_key": MY_FISH})
-
-    assert signed_out.status_code == 401
-    assert speech.checked == []
-
-
 async def test_a_dashscope_key_is_tried_in_both_regions_and_the_call_hears_in_the_one_it_works_in(
     make_client: ClientFactory, speech: FakeSpeech, browser: Browser
 ):
@@ -213,33 +198,8 @@ async def test_a_failing_own_speech_key_ends_the_call_saying_which(
     assert [stt.api_key for stt in speech.stts] == [MY_SONIOX]  # no second try on the deployer's
 
 
-async def test_calls_count_unless_they_bring_all_three_services(
-    make_client: ClientFactory, settings: Settings
-):
-    client = make_client(FakeLLM(), settings=limited(settings, calls_per_hour=1), clock=FakeClock())
-    conversation_id = await start_conversation(client)
-
-    assert (await call_setup(client, "llm", "tts")).json()["callExempt"] is False
-    async with open_browser() as first:
-        called = await first.call(
-            client, conversation_id=conversation_id, own_keys=own_keys("llm", "tts")
-        )
-        assert called.status_code == 200
-        await first.connect()
-    async with open_browser() as second:
-        called = await second.call(
-            client, conversation_id=conversation_id, own_keys=own_keys("llm", "tts")
-        )
-        assert called.status_code == 429
-
-    assert (await call_setup(client, "llm", "tts", "stt")).json()["callExempt"] is True
-    async with open_browser() as third:
-        called = await third.call(
-            client, conversation_id=conversation_id, own_keys=own_keys("llm", "tts", "stt")
-        )
-        assert called.status_code == 200
-
-
+# Calls count unless they bring all three; what is said before only answers whether it
+# would, and the call goes by what it brings.
 @pytest.mark.parametrize(
     ("said", "brought", "counted"),
     [(("llm", "tts", "stt"), ("llm", "tts"), True), ((), ("llm", "tts", "stt"), False)],
@@ -255,7 +215,7 @@ async def test_whether_a_call_counts_is_what_it_brings_not_what_was_said_before(
     conversation_id = await start_conversation(client)
 
     said_exempt = (await call_setup(client, *said)).json()["callExempt"]
-    assert said_exempt is (len(said) == 3) is counted  # what was said is otherwise
+    assert said_exempt is (set(said) == {"llm", "tts", "stt"})
     async with open_browser() as first:
         called = await first.call(
             client, conversation_id=conversation_id, own_keys=own_keys(*brought)
@@ -265,21 +225,6 @@ async def test_whether_a_call_counts_is_what_it_brings_not_what_was_said_before(
     async with open_browser() as second:
         called = await second.call(client, conversation_id=conversation_id)
         assert (called.status_code == 429) is counted
-
-
-async def test_a_call_bringing_a_malformed_key_is_refused_before_it_is_tried(
-    make_client: ClientFactory, speech: FakeSpeech, browser: Browser
-):
-    client = make_client(FakeLLM())
-
-    called = await browser.call(
-        client,
-        conversation_id=await start_conversation(client),
-        own_keys={"tts": {"api_key": "short"}},
-    )
-
-    assert called.status_code == 422
-    assert speech.ttss == []
 
 
 async def test_a_calls_own_limits_hold_for_everyone(

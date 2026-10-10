@@ -26,6 +26,13 @@
 - 前端：`localOwnKeys.ts` 加 `ownServices(keys)`；`startCall(..., userId)` 读一次本地 key，`getCallSetup(ownServices(keys))` 只带服务名，`offer` 的 `requestData` 带 `own_keys`。Pipecat 的 transport 每次重新协商都会把同一份 `requestData` 再发一遍（按引用保存），所以接通后把 `own_keys` 从这份对象里删掉，之后的重新协商不再带 key。
 - 设置页语音两节：填写先 `checkOwnSpeechKey`，通过后存本地（百炼连同 `region`），显示服务商和前端算的末 4 位；删除只删本地。豁免提示改成 `limitExemption(ownServices(本地))`（`limitExemption` 的输入从 `{turns, calls}` 改成服务名列表）。通话结束页照旧用预检返回的 `callExempt`，它现在就是按本地存了哪几项算的。
 - 测试：`test_own_speech_keys.py` 改写（只试不存、试调失败 422、未登录 401 和格式不对 422、百炼返回地域并在通话里用上、带了用用户的、没带的用部署者的、库里存的不再用于通话、部署者没有语音时带了也能打、预检服务名不认识 422、三项全带才不计入、预检声明和实际带的不一致时以实际为准、key 格式不对 422）；`test_own_llm.py` 通话带 LLM、库里存的 LLM 不再用于通话；`test_admission.py`、`test_own_keys.py` 的通话改成传 `BroughtKeys`，删掉「解不开」的用例，加预检豁免的用例。前端 `localOwnKeys.test.ts`（`ownServices`）、`ownKeys.test.ts`、`api.test.ts`（`checkOwnSpeechKey`、`getCallSetup` 只带服务名）。
+- 代码评审后：按 CODING_STANDARDS.md「Tests」删掉重复的测试，包括通话不用库里的 LLM（语音那条已经覆盖同一条路径）、`test_own_keys.py` 里预检豁免的两条（`test_admission.py` 测同一条路径，还会看租约有没有放回）、「三项全带才不计入」（参数化的「以实际带的为准」两行已经覆盖），以及只测 pydantic 校验的 422 和未登录 401；不分支的参数行也删了。`for_call` 和 `call_exempt` 里重复的「语音两项要么带、要么部署者有」抽成 `_require_speech`。设置页语音表单改成由外层传 `onSubmit`（试调加存本地），表单本身不再知道 key 存到哪里。
+- 评审里留着没改的：
+  - 三个校验接口各自写 `except OwnKeyRejected → 422`。旧的保存接口还在用「试调失败，没有保存」，等 06 删掉它们再合并。
+  - `Admissions.call_setup` 只转一下 `OwnKeys.call_exempt`。通话模块只认 `Admissions` 这一道门，所以留着。
+  - `own` 用逗号分隔的字符串，按 spec 的 `own=llm,tts,stt` 写法。
+  - 接通以后才把 `own_keys` 从 `requestData` 里删掉。如果在收到 `bot-ready` 之前就发生带 `pc_id` 的重新协商，那一次还会带上 key，不过服务器不看。初次连接失败时 `connect` 会直接失败，所以实际很难碰到。
+  - 百炼的 `stt` 不带 `region` 时通话按北京连。正常流程里校验总会返回地域并一起存下，只有手改本地存储才会出现这种情况。
 
 ### 人工验证
 

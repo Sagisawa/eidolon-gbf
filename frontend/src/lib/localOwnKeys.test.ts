@@ -88,15 +88,12 @@ describe("own keys kept in this browser", () => {
 });
 
 describe("what a call brings", () => {
-  it("names the services the user keeps their own keys for, which the call brings as they are kept", () => {
+  it("names the services the user keeps their own keys for", () => {
     storage();
     keepOwnKey("u1", "stt", STT);
     keepOwnKey("u1", "llm", LLM);
 
-    const keys = localOwnKeys("u1");
-
-    expect(ownServices(keys)).toEqual(["llm", "stt"]);
-    expect(keys).toEqual({ llm: LLM, stt: STT });
+    expect(ownServices(localOwnKeys("u1"))).toEqual(["llm", "stt"]);
     expect(ownServices(localOwnKeys("u2"))).toEqual([]);
   });
 });

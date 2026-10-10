@@ -1,7 +1,7 @@
 """Whose keys a turn or call runs on, answered once, through the own keys module, from the
 user's own keys it brings: theirs where it brought them, the deployer's otherwise, never
 falling back from a key of theirs that does not work; and whether it counts towards the
-user's limit, also before a call, from the services it will bring keys for."""
+user's limit (before a call, from the services it will bring keys for: see test_admission)."""
 
 import sqlite3
 from collections.abc import Iterator
@@ -231,22 +231,3 @@ async def test_without_a_secret_key_the_keys_users_kept_exempt_nothing(
     assert deployment.own_keys().exemptions(deployment.user) == {"turns": True, "calls": True}
     assert without.exemptions(deployment.user) == {"turns": False, "calls": False}
 
-
-@pytest.mark.parametrize(
-    ("services", "exempt"),
-    [((), False), (("llm", "tts"), False), (("llm", "tts", "stt"), True)],
-)
-async def test_asking_before_a_call_says_whether_bringing_keys_for_some_services_would_count(
-    deployment: Deployment, services: tuple[Service, ...], exempt: bool
-):
-    assert deployment.own_keys().call_exempt(services) is exempt
-
-
-async def test_asking_before_a_call_needs_keys_for_speech_from_the_user_or_the_deployer(
-    deployment: Deployment,
-):
-    without_stt = deployment.own_keys(stt=None)
-
-    assert without_stt.call_exempt(("stt",)) is False
-    with pytest.raises(CallsUnavailable):
-        without_stt.call_exempt(("llm", "tts"))

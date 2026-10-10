@@ -146,10 +146,11 @@ export function SignInSettings() {
       )}
       {/* 退出登录和绑定是两件事，分开一行，窄屏换行时不会搅在一起 */}
       <div className="flex flex-wrap gap-2">
-        <Button variant="ghost" onClick={() => signOut(false)}>
+        {/* 要知道是谁，退出时才能清掉这个浏览器里他的自带密钥 */}
+        <Button variant="ghost" disabled={!account} onClick={() => signOut(false)}>
           {t.signOut}
         </Button>
-        <Button variant="ghost" onClick={() => setConfirmingEverywhere(true)}>
+        <Button variant="ghost" disabled={!account} onClick={() => setConfirmingEverywhere(true)}>
           {t.signOutEverywhere}
         </Button>
       </div>
