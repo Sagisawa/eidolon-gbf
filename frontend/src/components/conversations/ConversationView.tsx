@@ -95,7 +95,7 @@ export function ConversationView({
       createConversation,
       listMessages,
       onListChanged: refresh,
-      startCall,
+      startCall: (conversationId, preferences, handlers) => startCall(conversationId, preferences, handlers, userId),
       sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
       voice,

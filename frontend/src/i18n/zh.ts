@@ -326,6 +326,8 @@ export const zh = {
       exemptTurns: "文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要三项都自带才不计入。",
       exemptNone: "现在用的是部署者的服务，文字对话和语音通话都计入每小时限额。",
       perCallLimits: "单次通话的时长和轮数上限对所有人都一样。",
+      cannotKeep:
+        "这个浏览器无法保存自带密钥，可能开着隐私模式，或者禁止了网站保存数据。换一个浏览器，或者允许本站保存数据后再填写。",
       llmTitle: "LLM（扮演角色、记住你说的事）",
       llmHint: "小模型会降低角色扮演和记忆的质量。模型需要支持流式输出和工具调用，保存前会先试调一次。",
       ttsTitle: "语音合成（Fish Audio）",
@@ -361,6 +363,9 @@ export const zh = {
       link: (provider: string) => `绑定 ${provider}`,
       signOut: "退出登录",
       signOutEverywhere: "退出所有设备",
+      signOutEverywhereTitle: "退出所有设备？",
+      signOutEverywhereHint:
+        "你在所有设备上都会退出登录。这个浏览器里的自带密钥会一并清除；其他设备上的自带密钥不会被清除，需要在那几台设备上自己删除。",
     },
     admin: {
       title: "后台",

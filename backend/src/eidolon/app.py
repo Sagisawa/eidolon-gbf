@@ -24,9 +24,9 @@ from eidolon.call import (
 from eidolon.characters import Character
 from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.own_keys import BroughtKeys, CallsUnavailable, OwnKeyFailed
+from eidolon.own_keys import SERVICES, BroughtKeys, CallsUnavailable, Service
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.account_api import OwnLLMInput, add_account_routes
+from eidolon.account_api import OwnKeysInput, OwnLLMInput, add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
@@ -54,6 +54,8 @@ class CallRequest(BaseModel):
     conversation_id: str
     muted: bool = False
     quality: Quality = "standard"
+    own_keys: OwnKeysInput | None = None
+    """The user's own keys, which their browser keeps, for the call to run on."""
 
 
 class ProfileInput(BaseModel):
@@ -181,10 +183,6 @@ def create_app(backend: Backend) -> FastAPI:
     async def call_not_found(_: Request, e: CallNotFound) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=404)
 
-    @app.exception_handler(OwnKeyFailed)
-    async def own_key_failed(_: Request, e: OwnKeyFailed) -> JSONResponse:
-        return JSONResponse({"detail": e.message}, status_code=409)
-
     @app.exception_handler(CallFailed)
     async def call_failed(_: Request, e: CallFailed) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=500)
@@ -209,15 +207,22 @@ def create_app(backend: Backend) -> FastAPI:
     add_admin_price_routes(app, backend)
 
     @app.get("/api/ice-servers")
-    def ice_servers(user_id: UserId) -> dict:
-        """What the browser needs before calling; also tells it when calls are unavailable."""
-        return calls.ice_servers(user_id)
+    def ice_servers(user_id: UserId, own: str = "") -> dict:
+        """What the browser needs before calling, if the call is to bring the user's own
+        keys for the services `own` names (as `llm,tts,stt`), but none of the keys; also
+        tells it when calls are unavailable."""
+        named = {s for s in own.split(",") if s}
+        if unknown := named - set(SERVICES):
+            raise HTTPException(422, f"没有这项服务：{'、'.join(sorted(unknown))}")
+        services: frozenset[Service] = frozenset(named)  # pyright: ignore[reportAssignmentType]
+        return calls.ice_servers(user_id, services)
 
     @app.post("/api/offer")
     async def offer(
         body: Offer, user_id: UserId, device_timezone: DeviceTimezone = None
     ) -> dict:
-        """WebRTC signalling: a new call into one of the user's conversations, or a renegotiation."""
+        """WebRTC signalling: a new call into one of the user's conversations, on the user's
+        own keys it brings, or a renegotiation, which brings none."""
         description = SessionDescription(body.sdp, body.type)
         if body.pc_id is not None:  # renegotiating, possibly on a fresh peer connection
             return await calls.renegotiate(
@@ -232,6 +237,7 @@ def create_app(backend: Backend) -> FastAPI:
             characters[conversation.character_id],
             CallOptions(body.call.muted, body.call.quality, device_timezone),
             description,
+            body.call.own_keys.brought() if body.call.own_keys else BroughtKeys(),
         )
 
     @app.patch("/api/offer")

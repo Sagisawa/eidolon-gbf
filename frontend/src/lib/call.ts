@@ -16,6 +16,7 @@ import {
   type CallEvent,
 } from "@/lib/api";
 import type { CallPreferences } from "@/lib/callPreferences";
+import { localOwnKeys, ownServices } from "@/lib/localOwnKeys";
 import { Microphone, type MicInUse } from "@/lib/microphone";
 
 export type { MicInUse };
@@ -61,16 +62,19 @@ export type Call = {
  * it; the call screen has closed already. */
 const HANG_UP_GRACE_MS = 150;
 
-/** Connects a call; resolves once it has connected, on the bot's `bot-ready`. That comes
- * only after the peer connection and its data channel are open, which is when the backend
- * starts counting the call as connected. Fails with MicUnavailable, an ApiError carrying
- * the backend's reason, or an Error when it could not connect. */
+/** Connects a call, bringing the own keys this browser keeps for `userId` (read once, so the
+ * services named before the call are those it brings); resolves once it has connected, on the
+ * bot's `bot-ready`. That comes only after the peer connection and its data channel are open,
+ * which is when the backend starts counting the call as connected. Fails with MicUnavailable,
+ * an ApiError carrying the backend's reason, or an Error when it could not connect. */
 export async function startCall(
   conversationId: string,
   preferences: CallPreferences,
   handlers: CallHandlers,
+  userId: string,
 ): Promise<Call> {
-  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup();
+  const ownKeys = localOwnKeys(userId);
+  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(ownServices(ownKeys));
   const microphone = await Microphone.open(preferences.micId);
   let hungUp = false;
   let client: PipecatClient | null = null;
@@ -97,17 +101,18 @@ export async function startCall(
         },
       },
     });
+    const requestData: Record<string, unknown> = {
+      conversation_id: conversationId,
+      muted: preferences.muted,
+      quality: preferences.quality,
+      own_keys: ownKeys,
+    };
     await client.connect({
-      webrtcRequestParams: {
-        endpoint: "/api/offer",
-        headers: apiHeaders(),
-        requestData: {
-          conversation_id: conversationId,
-          muted: preferences.muted,
-          quality: preferences.quality,
-        },
-      },
+      webrtcRequestParams: { endpoint: "/api/offer", headers: apiHeaders(), requestData },
     });
+    // The transport sends this same request data again with every renegotiation; only the
+    // offer that started the call is to bring the keys.
+    delete requestData.own_keys;
   } catch (e) {
     hungUp = true;
     await client?.disconnect().catch(() => {});

@@ -14,16 +14,25 @@ import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import {
   checkOwnLLM,
-  deleteOwnKey,
+  checkOwnSpeechKey,
   getAccount,
   getOwnKeys,
-  saveOwnSpeechKey,
   type LLMProtocol,
   type OwnKeys,
   type SttProvider,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { forgetOwnKey, keepOwnKey, last4, localOwnKeys, type LocalLLM } from "@/lib/localOwnKeys";
+import {
+  canKeepOwnKeys,
+  forgetOwnKey,
+  keepOwnKey,
+  last4,
+  localOwnKeys,
+  ownServices,
+  type LocalLLM,
+  type LocalOwnKeys,
+  type LocalSttKey,
+} from "@/lib/localOwnKeys";
 import { limitExemption } from "@/lib/ownKeys";
 import { cn } from "@/lib/utils";
 
@@ -32,85 +41,76 @@ const t = copy.settings.ownKeys;
 const EXEMPTION_NOTES = { all: t.exemptAll, turns: t.exemptTurns, none: t.exemptNone } as const;
 
 /**
- * 用户自带、自己付费的密钥；部署者没有开放时整节不显示。LLM 只存在这个浏览器里（按登录的用户分开存），
- * 语音的两项还存在服务器上。
+ * 用户自带、自己付费的密钥；部署者没有开放时整节不显示。三项都只存在这个浏览器里，按登录的用户分开存；
+ * 填写时服务器只试调、不保存。浏览器存不了时如实说，表单停用，不退而存在内存里。
  */
 export function OwnKeysSettings() {
-  const [keys, setKeys] = useState<OwnKeys | null>(null);
+  const [server, setServer] = useState<OwnKeys | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [llm, setLLM] = useState<LocalLLM | undefined>(undefined);
+  const [kept, setKept] = useState<LocalOwnKeys>({});
+  const [canKeep, setCanKeep] = useState(true);
   const [failure, setFailure] = useState<Failure | null>(null);
 
   useEffect(() => {
     Promise.all([getOwnKeys(), getAccount()]).then(
-      ([kept, account]) => {
-        setKeys(kept);
+      ([fromServer, account]) => {
+        setServer(fromServer);
         setUserId(account.id);
-        setLLM(localOwnKeys(account.id).llm);
+        setKept(localOwnKeys(account.id));
+        setCanKeep(canKeepOwnKeys());
       },
       (e) => setFailure(toFailure(e)),
     );
   }, []);
 
-  async function remove(service: "tts" | "stt") {
-    setFailure(null);
-    try {
-      await deleteOwnKey(service);
-      setKeys(await getOwnKeys());
-    } catch (e) {
-      setFailure(toFailure(e));
-    }
-  }
-
-  if (failure && !keys) {
+  if (failure && !server) {
     return (
       <SettingsSection title={t.title}>
         <FailureNotice failure={failure} />
       </SettingsSection>
     );
   }
-  if (!keys?.available || !userId) return null;
+  if (!server?.available || !userId) return null;
 
-  const reload = async () => setKeys(await getOwnKeys());
-  /** 改了浏览器里存的 LLM，再按存下的显示。 */
-  const changeLLM = (change: () => void) => {
-    change();
-    setLLM(localOwnKeys(userId).llm);
+  /** 改了浏览器里存的 key，再按存下的显示：存不下的就是没存。 */
+  const change = (keep: () => void) => {
+    keep();
+    setKept(localOwnKeys(userId));
   };
-  // 文字对话计不计入看这个浏览器里有没有 LLM；通话还用服务器上存的那几项，
-  // 但没有 LLM 时不说「都不计入」，文字对话是计入的。
-  const exempt = { turns: !!llm, calls: !!llm && keys.exempt.calls };
 
   return (
     <SettingsSection title={t.title} description={t.hint}>
+      {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
       <p role="status" className="text-body">
-        {EXEMPTION_NOTES[limitExemption(exempt)]}
+        {EXEMPTION_NOTES[limitExemption(ownServices(kept))]}
         {t.perCallLimits}
       </p>
-      {failure && <FailureNotice failure={failure} />}
       <div className="flex flex-col gap-4">
         <OwnLLMForm
-          current={llm}
-          protocols={keys.protocols}
-          onChecked={(kept) => changeLLM(() => keepOwnKey(userId, "llm", kept))}
-          onDelete={() => changeLLM(() => forgetOwnKey(userId, "llm"))}
+          current={kept.llm}
+          protocols={server.protocols}
+          disabled={!canKeep}
+          onChecked={(llm) => change(() => keepOwnKey(userId, "llm", llm))}
+          onDelete={() => change(() => forgetOwnKey(userId, "llm"))}
         />
         <Separator />
         <OwnSpeechKeyForm
           service="tts"
           title={t.ttsTitle}
-          current={keys.keys.tts}
-          onSaved={reload}
-          onDelete={() => remove("tts")}
+          current={kept.tts}
+          disabled={!canKeep}
+          onChecked={(key) => change(() => keepOwnKey(userId, "tts", { api_key: key.api_key }))}
+          onDelete={() => change(() => forgetOwnKey(userId, "tts"))}
         />
         <Separator />
         <OwnSpeechKeyForm
           service="stt"
           title={t.sttTitle}
-          current={keys.keys.stt}
-          provider={keys.keys.stt?.provider ?? "soniox"}
-          onSaved={reload}
-          onDelete={() => remove("stt")}
+          current={kept.stt}
+          provider={kept.stt?.provider ?? "soniox"}
+          disabled={!canKeep}
+          onChecked={(key) => change(() => keepOwnKey(userId, "stt", key))}
+          onDelete={() => change(() => forgetOwnKey(userId, "stt"))}
         />
       </div>
     </SettingsSection>
@@ -127,6 +127,7 @@ function ServiceKey({
   summary,
   isSet,
   editing,
+  disabled,
   onEdit,
   onDelete,
   children,
@@ -137,6 +138,8 @@ function ServiceKey({
   summary: string[];
   isSet: boolean;
   editing: boolean;
+  /** 这个浏览器存不了：不能填写、修改。 */
+  disabled: boolean;
   onEdit: () => void;
   onDelete: () => void;
   children: ReactNode;
@@ -157,7 +160,7 @@ function ServiceKey({
             ))}
           </div>
           <div className="flex gap-1">
-            <Button variant="ghost" size="sm" onClick={onEdit}>
+            <Button variant="ghost" size="sm" disabled={disabled} onClick={onEdit}>
               {isSet ? t.edit : t.fill}
             </Button>
             {isSet && (
@@ -168,7 +171,7 @@ function ServiceKey({
           </div>
         </div>
       )}
-      {editing && children}
+      {editing && !disabled && children}
     </div>
   );
 }
@@ -190,23 +193,26 @@ function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: 
 const STT_PROVIDERS: SttProvider[] = ["soniox", "bailian"];
 
 /**
- * 语音合成或语音识别的 key。语音识别先选服务商再填 key；改服务商就是换一个 key，
- * 同样要填 key、试调。
+ * 语音合成或语音识别的 key：先让服务器试调一次（它不保存），通过了才存进这个浏览器。语音识别先选服务商
+ * 再填 key；改服务商就是换一个 key，同样要填 key、试调。百炼的 key 连同试调判断出的地域一起存。
  */
 function OwnSpeechKeyForm({
   service,
   title,
   current,
   provider: currentProvider,
-  onSaved,
+  disabled,
+  onChecked,
   onDelete,
 }: {
   service: "tts" | "stt";
   title: string;
-  current: OwnKeys["keys"]["tts"];
+  current: { api_key: string } | undefined;
   /** 语音识别：已填的 key 所属的服务商，没填时是默认选中的那家。 */
   provider?: SttProvider;
-  onSaved: () => Promise<void>;
+  disabled: boolean;
+  /** 试调通过的 key；语音识别的带着服务商，百炼的还有地域。 */
+  onChecked: (key: LocalSttKey) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -221,10 +227,11 @@ function OwnSpeechKeyForm({
     setBusy(true);
     setFailure(null);
     try {
-      await saveOwnSpeechKey(service, apiKey.trim(), provider);
+      const key = apiKey.trim();
+      const { region } = await checkOwnSpeechKey(service, key, provider);
+      onChecked({ api_key: key, provider: provider ?? "soniox", ...(region ? { region } : {}) });
       setApiKey("");
       setEditing(false);
-      await onSaved();
     } catch (e) {
       setFailure(toFailure(e));
     } finally {
@@ -237,13 +244,14 @@ function OwnSpeechKeyForm({
     setEditing(true);
   }
 
-  const summary = current ? [t.last4(current.last4)] : [t.notSet];
+  const summary = current ? [t.last4(last4(current.api_key))] : [t.notSet];
   return (
     <ServiceKey
       title={title}
       summary={current && currentProvider ? [t.sttProviders[currentProvider], ...summary] : summary}
       isSet={!!current}
       editing={editing}
+      disabled={disabled}
       onEdit={edit}
       onDelete={onDelete}
     >
@@ -288,11 +296,13 @@ function OwnSpeechKeyForm({
 function OwnLLMForm({
   current,
   protocols,
+  disabled,
   onChecked,
   onDelete,
 }: {
   current: LocalLLM | undefined;
   protocols: LLMProtocol[];
+  disabled: boolean;
   /** 试调通过的 LLM，地址和模型名按服务器规范化过的。 */
   onChecked: (llm: LocalLLM) => void;
   onDelete: () => void;
@@ -331,6 +341,7 @@ function OwnLLMForm({
       summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(last4(current.api_key))] : [t.notSet]}
       isSet={!!current}
       editing={editing}
+      disabled={disabled}
       onEdit={() => setEditing(true)}
       onDelete={onDelete}
     >

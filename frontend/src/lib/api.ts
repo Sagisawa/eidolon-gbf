@@ -1,5 +1,5 @@
 import type { Provider } from "@/lib/signIn";
-import { turnOwnLLM, type LocalLLM } from "@/lib/localOwnKeys";
+import { forgetOwnKeys, turnOwnLLM, type BailianRegion, type LocalLLM } from "@/lib/localOwnKeys";
 import { detectTimezone } from "@/lib/timezone";
 import type { Emotion, Nod } from "@/lib/standAnimations";
 
@@ -296,29 +296,27 @@ export async function checkOwnLLM(llm: LocalLLM): Promise<Pick<LocalLLM, "base_u
 
 /**
  * Try the user's own key for speech synthesis ("tts") or recognition ("stt", by the service
- * `provider` names) and keep it.
+ * `provider` names), which the server does not keep; fails with what the service said if the try
+ * fails. For speech recognition, the region a DashScope key works in, for this browser to keep
+ * with it (null for Soniox).
  */
-export async function saveOwnSpeechKey(
+export async function checkOwnSpeechKey(
   service: "tts" | "stt",
   apiKey: string,
   provider?: SttProvider,
-): Promise<OwnKey> {
+): Promise<{ region?: BailianRegion | null }> {
   return json(
-    await api(`/api/account/keys/${service}`, {
-      method: "PUT",
+    await api(`/api/account/keys/${service}/check`, {
+      method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ api_key: apiKey, provider }),
     }),
   );
 }
 
-/** Forget the user's own key for `service`; the deployer's is used again. */
-export async function deleteOwnKey(service: OwnService): Promise<void> {
-  await expectNoContent(await api(`/api/account/keys/${service}`, { method: "DELETE" }));
-}
-
-/** Delete the user and all their data for good, signing them out everywhere. */
-export async function deleteAccount(): Promise<void> {
+/** Delete the user and all their data for good, signing them out everywhere; then forget the own
+ * keys this browser keeps for them. */
+export async function deleteAccount(userId: string): Promise<void> {
   await expectNoContent(
     await api("/api/account/delete", {
       method: "POST",
@@ -326,11 +324,14 @@ export async function deleteAccount(): Promise<void> {
       body: JSON.stringify({ confirm: true }),
     }),
   );
+  forgetOwnKeys(userId);
 }
 
-/** Sign the user out on every device, this one included. */
-export async function logoutEverywhere(): Promise<void> {
+/** Sign the user out on every device, this one included, forgetting the own keys this browser
+ * keeps for them (none to forget without `userId`); other devices keep theirs. */
+export async function logoutEverywhere(userId?: string): Promise<void> {
   await expectNoContent(await api("/api/account/logout-everywhere", { method: "POST" }));
+  if (userId) forgetOwnKeys(userId);
 }
 
 /** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
@@ -355,9 +356,11 @@ export async function devLogin(name: string): Promise<void> {
   );
 }
 
-/** Sign this browser out. */
-export async function logout(): Promise<void> {
+/** Sign this browser out, forgetting the own keys it keeps for the user. Without `userId`, as
+ * before the user has agreed to the terms, there are none: keys are only kept after. */
+export async function logout(userId?: string): Promise<void> {
   await expectNoContent(await fetch("/api/auth/logout", { method: "POST" }));
+  if (userId) forgetOwnKeys(userId);
 }
 
 export async function getProfile(): Promise<ProducerProfile> {
@@ -425,8 +428,10 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
  * alone). Fails with the reason when calls are unavailable. */
 export type CallSetup = { iceServers: RTCIceServer[]; maxCallSeconds: number | null; callExempt: boolean };
 
-export async function getCallSetup(): Promise<CallSetup> {
-  return json(await api("/api/ice-servers"));
+/** Asked before a call that is to bring the user's own keys for `own`, naming those services but
+ * bringing none of the keys: the call itself brings them. */
+export async function getCallSetup(own: readonly OwnService[]): Promise<CallSetup> {
+  return json(await api(own.length ? `/api/ice-servers?own=${own.join(",")}` : "/api/ice-servers"));
 }
 
 /**

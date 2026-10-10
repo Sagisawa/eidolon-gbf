@@ -4,10 +4,10 @@ speech synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Mo
 
 A user who brings their own key for a service has their turns and calls use it there,
 at their own expense. A call on their key that fails fails the turn, saying which of
-their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. Their LLM
-is kept in their browser, which brings it with each text turn (ADR-0017). Calls, until
-they bring their keys too, run on those kept here, encrypted with a key derived from
-`EIDOLON_SECRET_KEY`; without that setting, users cannot keep any here. Only the last 4
+their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. Their keys
+are kept in their browser, which brings them with each text turn and call (ADR-0017).
+Until the server stops keeping them altogether, they can still be kept here, encrypted
+with a key derived from `EIDOLON_SECRET_KEY`, and are used for nothing; only the last 4
 characters of a kept key are ever shown again.
 
 Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
@@ -15,13 +15,12 @@ Whose keys a turn or call runs on is answered here, once as it starts (`for_turn
 them, the deployer's otherwise, with whether it counts towards the user's limit. The
 deployer's are those of the live configuration as the turn or call starts (see
 `live_config`), held until it releases them as it ends. Nothing downstream tells the
-user's keys from the deployer's.
+user's keys from the deployer's. Before a call is placed, whether it would count is
+answered from the services it is to bring keys for, touching no key (`call_exempt`).
 
-What a call brings are the keys the user kept here (`kept`); one that can no longer be
-decrypted fails it right there, before anything is spent.
-
-Before the browser keeps an own LLM, it is tried once (`check_llm`), as the deployer's
-chat model is at startup: it must stream and take tools. In a public deployment it must
+Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
+`check_tts`, `check_stt`). An LLM is tried as the deployer's chat model is at startup: it
+must stream and take tools. In a public deployment it must
 also be on the public internet, so no one can point the backend at the machines next to
 it, and read their answers back in the errors they are shown. That is checked on every
 connection, not only when the key is tried: a name that resolved to a public address then
@@ -40,7 +39,7 @@ from urllib.parse import urlsplit
 
 import httpcore
 import httpx
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
@@ -320,25 +319,18 @@ class OwnKeys:
             deployer.tts_model, deployer.emotions, own_llm=brought.llm is not None,
         )
 
-    def kept(self, user_id: str, services: Iterable[Service] = SERVICES) -> BroughtKeys:
-        """The keys the user kept for `services`, decrypted, as their turn or call brings
-        them; none without `EIDOLON_SECRET_KEY`. Raises OwnKeyFailed for one that can no
-        longer be decrypted, as after `EIDOLON_SECRET_KEY` has changed."""
-        records = self._records(user_id)
-        wanted = set(services)
-        llm, tts, stt = None, None, None
-        if "stt" in wanted and "stt" in records:
-            record = records["stt"]
-            region: BailianRegion | None = record.region  # pyright: ignore[reportAssignmentType]
-            stt = SttKey(_stt_provider(record), self._decrypt(record), region)
-        if "tts" in wanted and "tts" in records:
-            tts = self._decrypt(records["tts"])
-        if "llm" in wanted and "llm" in records:
-            record = records["llm"]
-            assert record.base_url and record.model
-            protocol: LLMProtocol = record.protocol or "chat-completions"  # pyright: ignore[reportAssignmentType]
-            llm = OwnLLMSettings(record.base_url, self._decrypt(record), record.model, protocol)
-        return BroughtKeys(llm, tts, stt)
+    def call_exempt(self, services: Iterable[Service]) -> bool:
+        """Whether a call bringing the user's own keys for `services` would count towards
+        nothing, touching no key. Raises CallsUnavailable as `for_call` would."""
+        services = frozenset(services)
+        lease = self._deployer.lease()
+        try:
+            deployer = lease.keys
+            if not ("stt" in services or deployer.stt) or not ("tts" in services or deployer.tts):
+                raise CallsUnavailable()
+        finally:
+            lease.release()
+        return _exempt(services)["calls"]
 
     def describe(self, user_id: str) -> dict[Service, dict]:
         """What the user may see of their keys, by service: never more of a key than its
@@ -363,6 +355,17 @@ class OwnKeys:
             await self._llm_service.check(settings)
         except LLMError as e:
             raise OwnKeyRejected(str(e)[:MAX_CAUSE_LENGTH]) from None
+
+    async def check_tts(self, api_key: str) -> None:
+        """Try the user's key for speech synthesis, keeping nothing. Raises OwnKeyRejected
+        saying why it does not work."""
+        await self._require_speech_check().check_tts(api_key)
+
+    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+        """Try the user's key for speech recognition by `provider`, keeping nothing: the key
+        as calls are to bring it, a DashScope key with the region it works in. Raises
+        OwnKeyRejected saying why it does not work."""
+        return await self._require_speech_check().check_stt(provider, api_key)
 
     async def save_llm(self, user_id: str, own: OwnLLMSettings) -> None:
         """Try the user's LLM, and keep it here if it works, for their calls. Raises
@@ -391,15 +394,13 @@ class OwnKeys:
         `EIDOLON_SECRET_KEY`."""
         assert service in ("tts", "stt")
         cipher = self._require_cipher()
-        if self._speech_check is None:
-            raise OwnKeyRejected("这个部署没有语音服务")
         provider: SttProvider | None = None
         region: BailianRegion | None = None
         if service == "stt":
-            key = await self._speech_check.check_stt(stt_provider, api_key)
+            key = await self.check_stt(stt_provider, api_key)
             provider, region = key.provider, key.region
         else:
-            await self._speech_check.check_tts(api_key)
+            await self.check_tts(api_key)
         self._store.save_own_key(
             user_id,
             OwnKeyRecord(
@@ -418,8 +419,8 @@ class OwnKeys:
         return self._store.delete_own_key(user_id, service)
 
     def _records(self, user_id: str) -> dict[str, OwnKeyRecord]:
-        """The user's own keys, by service; none without `EIDOLON_SECRET_KEY`, which
-        they could not be decrypted without."""
+        """The user's own keys kept here, by service; none without `EIDOLON_SECRET_KEY`,
+        which they could not be decrypted without."""
         return self._store.own_keys(user_id) if self._cipher else {}
 
     def _llms(self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None) -> TurnLLMs:
@@ -433,18 +434,10 @@ class OwnKeys:
             metered_llm(own, self._activity, llm_origin("memory_llm", settings, own_key=True)),
         )
 
-    def _decrypt(self, record: OwnKeyRecord) -> str:
-        """The key, decrypted; raises OwnKeyFailed if it can no longer be, as after
-        `EIDOLON_SECRET_KEY` has changed."""
-        assert self._cipher is not None
-        try:
-            return self._cipher.decrypt(record.secret).decode()
-        except InvalidToken:
-            raise OwnKeyFailed(
-                record.service,  # pyright: ignore[reportArgumentType]
-                "保存的密钥无法解密，请重新填写",
-                _stt_provider(record) if record.service == "stt" else None,
-            ) from None
+    def _require_speech_check(self) -> KeyCheck:
+        if self._speech_check is None:
+            raise OwnKeyRejected("这个部署没有语音服务")
+        return self._speech_check
 
     def _require_cipher(self) -> Fernet:
         if self._cipher is None:

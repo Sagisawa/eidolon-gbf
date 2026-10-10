@@ -1,6 +1,7 @@
 // 浏览器里存的自带密钥（GLOSSARY.md「自带密钥」，ADR-0017）：服务器不保存，只存在这个浏览器的 localStorage 里，
 // 按用户分开存（键为 eidolon.ownKeys.<用户 ID>），值是明文 JSON。每次发请求都现读，别的标签页改了，下一次请求就用上。
-// 存储不可用（隐私模式等）时不抛错：读到的是什么都没存，存的也存不下。
+// 存储不可用（隐私模式等）时不抛错：读到的是什么都没存，存的也存不下；`canKeepOwnKeys` 如实报告，设置页据此告诉用户。
+// 不退而存在内存里。
 
 import type { LLMProtocol, OwnService, SttProvider } from "@/lib/api";
 
@@ -20,6 +21,7 @@ export type LocalSttKey = { api_key: string; provider: SttProvider; region?: Bai
 export type LocalOwnKeys = { llm?: LocalLLM; tts?: LocalTtsKey; stt?: LocalSttKey };
 
 // 读的时候认得的取值；写成 Record，类型里加了一种而这里漏了，编译就不过。
+const SERVICES: Record<OwnService, true> = { llm: true, tts: true, stt: true };
 const PROTOCOLS: Record<LLMProtocol, true> = { "chat-completions": true, responses: true, anthropic: true };
 const STT_PROVIDERS: Record<SttProvider, true> = { soniox: true, bailian: true };
 const REGIONS: Record<BailianRegion, true> = { beijing: true, singapore: true };
@@ -85,6 +87,23 @@ export function forgetOwnKeys(userId: string): void {
 /** 文字回合要带的 `own_llm`：这位用户存的 LLM，没有就不带。 */
 export function turnOwnLLM(userId: string): LocalLLM | undefined {
   return localOwnKeys(userId).llm;
+}
+
+/** 存了 key 的那几项服务：通话预检时只报这些服务名，不带 key；也是判断计不计入限额的依据。 */
+export function ownServices(keys: LocalOwnKeys): OwnService[] {
+  return (Object.keys(SERVICES) as OwnService[]).filter((service) => keys[service] !== undefined);
+}
+
+/** 这个浏览器能不能存自带密钥：试着写一下再删掉。隐私模式、禁用了本地存储时是不能。 */
+export function canKeepOwnKeys(): boolean {
+  const probe = "eidolon.ownKeys.probe";
+  try {
+    localStorage.setItem(probe, "1");
+    localStorage.removeItem(probe);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** 界面上再显示时，一把 key 只露出末 4 位。 */

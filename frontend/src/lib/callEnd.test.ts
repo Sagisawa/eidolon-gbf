@@ -6,7 +6,6 @@ describe("startFailedEnd", () => {
   it.each([
     ["the microphone is refused", new MicUnavailable("no mic"), "mic_denied", null],
     ["the hour's calls are used up", new ApiError("本小时的通话次数已用完", 429), "over_limit", "本小时的通话次数已用完"],
-    ["an own key fails", new ApiError("你的语音合成密钥调用失败", 409), "own_key", "你的语音合成密钥调用失败"],
     ["calls are unavailable", new ApiError("通话暂时不可用", 503), "not_connected", "通话暂时不可用"],
     ["the connection cannot be made", new Error("无法接通，请稍后再试"), "not_connected", null],
   ])("says why when %s, and that it did not count", (_, error, reason, detail) => {

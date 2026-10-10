@@ -1,10 +1,10 @@
 """Bringing your own LLM: tried once, without being kept, before the browser keeps it; then
-brought with each of the user's text turns, which it plays the character and writes down
-memories on instead of the deployer's. It fails loudly rather than falling back to the
-deployer's key.
+brought with each of the user's text turns and calls, which it plays the character and
+writes down memories on instead of the deployer's. It fails loudly rather than falling
+back to the deployer's key.
 
-Until calls bring their own keys too, a call still runs on an LLM kept on the server
-(`keep_llm`)."""
+Until the server stops keeping own keys altogether, one can still be kept there
+(`keep_llm`), and is used for nothing."""
 
 import sqlite3
 from dataclasses import replace
@@ -47,7 +47,7 @@ async def check_llm(client: httpx.AsyncClient, **changes: str) -> httpx.Response
 
 
 async def keep_llm(client: httpx.AsyncClient) -> httpx.Response:
-    """Keep the LLM on the server, as calls still take it from there."""
+    """Keep the LLM on the server, as the browser no longer does."""
     return await client.put("/api/account/keys/llm", json=LLM)
 
 
@@ -195,8 +195,9 @@ async def test_a_call_uses_the_users_own_llm(
     own_llm.llm = FakeLLM(REPLY)
     deployers = FakeLLM()
     client = make_client(deployers)
-    await keep_llm(client)
-    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.call(
+        client, conversation_id=await start_conversation(client), own_keys={"llm": LLM}
+    )
     await browser.connect()
 
     await speech.stts[-1].hear("你好")
@@ -205,6 +206,23 @@ async def test_a_call_uses_the_users_own_llm(
     assert messages[-1]["type"] == "done"
     assert own_llm.llm.keys == [MINE]
     assert deployers.keys == []
+
+
+async def test_a_call_runs_on_the_llm_it_brings_not_one_kept_on_the_server(
+    make_client: ClientFactory, own_llm: FakeLLMService, speech: FakeSpeech, browser: Browser
+):
+    own_llm.llm = FakeLLM(REPLY)
+    deployers = FakeLLM(REPLY)
+    client = make_client(deployers)
+    await keep_llm(client)
+    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.connect()
+
+    await speech.stts[-1].hear("你好")
+    await browser.turn()
+
+    assert deployers.keys == [DEPLOYER_KEY]
+    assert own_llm.llm.keys == []
 
 
 @pytest.mark.parametrize(

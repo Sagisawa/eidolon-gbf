@@ -1,7 +1,7 @@
 """Whose keys a turn or call runs on, answered once, through the own keys module, from the
 user's own keys it brings: theirs where it brought them, the deployer's otherwise, never
 falling back from a key of theirs that does not work; and whether it counts towards the
-user's limit. And the keys a user kept, as a turn or call brings them."""
+user's limit, also before a call, from the services it will bring keys for."""
 
 import sqlite3
 from collections.abc import Iterator
@@ -17,7 +17,6 @@ from eidolon.own_keys import (
     BroughtKeys,
     CallsUnavailable,
     DeployerKeys,
-    OwnKeyFailed,
     OwnKeys,
     OwnLLMSettings,
     Service,
@@ -203,18 +202,6 @@ async def test_a_call_can_bring_a_key_for_what_the_deployer_has_none_for(
         without_tts.for_call(brought("stt"))
 
 
-async def test_a_turn_or_call_brings_the_keys_the_user_kept_decrypted(
-    deployment: Deployment,
-):
-    own_keys = deployment.own_keys()
-    await keep(own_keys, deployment.user, "llm", "tts", "stt", stt=MY_DASHSCOPE)
-    other = deployment.store.create_user("other").id
-
-    assert own_keys.kept(deployment.user) == brought("llm", "tts", "stt", stt=MY_DASHSCOPE)
-    assert own_keys.kept(other) == BroughtKeys()
-    assert own_keys.exemptions(deployment.user) == {"turns": True, "calls": True}
-
-
 async def test_a_speech_recognition_key_kept_before_there_was_a_choice_is_sonioxs(
     deployment: Deployment, tmp_path: Path
 ):
@@ -232,42 +219,34 @@ async def test_a_speech_recognition_key_kept_before_there_was_a_choice_is_soniox
 
     own_keys = deployment.own_keys(stt=SttKey("bailian", "deployer-dashscope-key", "beijing"))
 
-    assert own_keys.kept(deployment.user).stt == MY_SONIOX
     assert own_keys.describe(deployment.user)["stt"] == {"last4": "bbbb", "provider": "soniox"}
 
 
-@pytest.mark.parametrize(
-    ("stt", "label"), [(MY_SONIOX, "语音识别（Soniox）"), (MY_DASHSCOPE, "语音识别（阿里云百炼）")]
-)
-async def test_a_kept_speech_recognition_key_that_can_no_longer_be_decrypted_says_whose_service_it_is_for(
-    deployment: Deployment, stt: SttKey, label: str
-):
-    await keep(deployment.own_keys(), deployment.user, "stt", stt=stt)
-    changed = deployment.own_keys(secret_key="another-secret-key")
-
-    with pytest.raises(OwnKeyFailed) as failed:
-        changed.kept(deployment.user)
-
-    assert failed.value.service == "stt"
-    assert failed.value.message.startswith(f"你的{label}密钥调用失败")
-    assert "保存的密钥无法解密" in failed.value.message
-
-
-async def test_only_the_kept_keys_a_turn_or_call_brings_are_decrypted(deployment: Deployment):
-    await keep(deployment.own_keys(), deployment.user, "llm")
-    await keep(deployment.own_keys("another-secret-key"), deployment.user, "tts")
-
-    assert deployment.own_keys().kept(deployment.user, ("llm",)) == brought("llm")
-    with pytest.raises(OwnKeyFailed) as failed:
-        deployment.own_keys().kept(deployment.user)
-    assert failed.value.service == "tts"
-
-
-async def test_without_a_secret_key_the_keys_users_kept_are_left_unused_and_all_counts(
+async def test_without_a_secret_key_the_keys_users_kept_exempt_nothing(
     deployment: Deployment,
 ):
     await keep(deployment.own_keys(), deployment.user, "llm", "tts", "stt")
     without = deployment.own_keys(secret_key=None)
 
-    assert without.kept(deployment.user) == BroughtKeys()
+    assert deployment.own_keys().exemptions(deployment.user) == {"turns": True, "calls": True}
     assert without.exemptions(deployment.user) == {"turns": False, "calls": False}
+
+
+@pytest.mark.parametrize(
+    ("services", "exempt"),
+    [((), False), (("llm", "tts"), False), (("llm", "tts", "stt"), True)],
+)
+async def test_asking_before_a_call_says_whether_bringing_keys_for_some_services_would_count(
+    deployment: Deployment, services: tuple[Service, ...], exempt: bool
+):
+    assert deployment.own_keys().call_exempt(services) is exempt
+
+
+async def test_asking_before_a_call_needs_keys_for_speech_from_the_user_or_the_deployer(
+    deployment: Deployment,
+):
+    without_stt = deployment.own_keys(stt=None)
+
+    assert without_stt.call_exempt(("stt",)) is False
+    with pytest.raises(CallsUnavailable):
+        without_stt.call_exempt(("llm", "tts"))

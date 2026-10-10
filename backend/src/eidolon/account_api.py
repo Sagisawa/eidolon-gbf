@@ -27,10 +27,11 @@ from pydantic import BaseModel, Field, Secret, StringConstraints, model_validato
 from eidolon.accounts import SignInRefused
 from eidolon.admin_api import is_admin
 from eidolon.assembly import Backend
-from eidolon.config import LLM_PROTOCOLS, LLMProtocol, SttProvider
+from eidolon.config import LLM_PROTOCOLS, BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
 from eidolon.own_keys import (
     SERVICES,
+    BroughtKeys,
     OwnKeyRejected,
     OwnKeysUnavailable,
     OwnLLMSettings,
@@ -87,6 +88,41 @@ class OwnLLMInput(BaseModel):
         return OwnLLMSettings(
             self.base_url.strip(), self.api_key.get_secret_value(), self.model.strip(),
             self.protocol,
+        )
+
+
+class OwnTTSInput(BaseModel):
+    """The user's own key for speech synthesis (Fish Audio), as their browser keeps it."""
+
+    api_key: ApiKey
+
+
+class OwnSTTInput(BaseModel):
+    """The user's own key for speech recognition, as their browser keeps it: for the
+    service it is for, with the region a DashScope key works in, as its try found."""
+
+    api_key: ApiKey
+    provider: SttProvider = "soniox"
+    region: BailianRegion | None = None
+
+    def key(self) -> SttKey:
+        """As calls hear on it; a region only for DashScope."""
+        region = self.region if self.provider == "bailian" else None
+        return SttKey(self.provider, self.api_key.get_secret_value(), region)
+
+
+class OwnKeysInput(BaseModel):
+    """The user's own keys a call brings, by service; each may be left out."""
+
+    llm: OwnLLMInput | None = None
+    tts: OwnTTSInput | None = None
+    stt: OwnSTTInput | None = None
+
+    def brought(self) -> BroughtKeys:
+        return BroughtKeys(
+            self.llm.normalized() if self.llm else None,
+            self.tts.api_key.get_secret_value() if self.tts else None,
+            self.stt.key() if self.stt else None,
         )
 
 
@@ -282,6 +318,28 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         except OwnKeyRejected as e:
             raise HTTPException(422, f"试调失败：{e}") from None
         return {"base_url": own.base_url, "model": own.model}
+
+    @app.post("/api/account/keys/tts/check")
+    async def check_own_tts(body: OwnTTSInput, user_id: UserId) -> dict:
+        """Try the user's own key for speech synthesis before their browser keeps it,
+        keeping nothing here; 422 with what the service said if the try failed."""
+        try:
+            await own_keys.check_tts(body.api_key.get_secret_value())
+        except OwnKeyRejected as e:
+            raise HTTPException(422, f"试调失败：{e}") from None
+        return {}
+
+    @app.post("/api/account/keys/stt/check")
+    async def check_own_stt(body: OwnSTTInput, user_id: UserId) -> dict:
+        """Try the user's own key for speech recognition, by the service it is for, before
+        their browser keeps it, keeping nothing here; 422 with what the service said if
+        the try failed. A DashScope key is tried in each region: the one it works in, for
+        the browser to keep with it (None for Soniox)."""
+        try:
+            key = await own_keys.check_stt(body.provider, body.api_key.get_secret_value())
+        except OwnKeyRejected as e:
+            raise HTTPException(422, f"试调失败：{e}") from None
+        return {"region": key.region}
 
     @app.put("/api/account/keys/llm")
     async def save_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:

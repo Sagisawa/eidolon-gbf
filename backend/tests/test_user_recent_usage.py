@@ -16,7 +16,7 @@ from tests.browser import TIMEOUT, open_browser
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeIdentityProvider, FakeLLM, FakeLLMService, FakeSpeech
 from tests.test_admin_users import ADMIN, admin_client, details, find, users
-from tests.test_own_speech_keys import MY_LLM, bring
+from tests.test_own_speech_keys import MY_LLM, own_keys
 from tests.test_rate_limit import REPLY, post_turn
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -31,11 +31,13 @@ def settings(settings: Settings) -> Settings:
     )
 
 
-async def call(client: httpx.AsyncClient, conversation_id: str, speech: FakeSpeech) -> int:
+async def call(
+    client: httpx.AsyncClient, conversation_id: str, speech: FakeSpeech, **request_data
+) -> int:
     """Place a call and, if it is let through, take a turn in it and hang up; the status
     placing it was answered with."""
     async with open_browser() as browser:
-        res = await browser.call(client, conversation_id=conversation_id)
+        res = await browser.call(client, conversation_id=conversation_id, **request_data)
         if res.status_code != 200:
             return res.status_code
         await browser.connect()
@@ -77,9 +79,9 @@ async def test_the_users_turns_calls_and_rejections_in_each_range_on_whose_keys(
     assert await call(producer, conversation_id, speech) == 200  # 5 days ago
     assert await call(producer, conversation_id, speech) == 429
     clock.advance(days=5)
-    await bring(producer, "llm", "stt", "tts")
     await send_turn(producer, conversation_id, "在吗", own_llm=MY_LLM)  # now, on the user's own keys
-    assert await call(producer, conversation_id, speech) == 200
+    brought = own_keys("llm", "stt", "tts")
+    assert await call(producer, conversation_id, speech, own_keys=brought) == 200
     admin = await admin_client(make_client, github, clock=clock)
     found = await calls_recorded(admin, (await find(admin, "producer"))["id"], 2)
 

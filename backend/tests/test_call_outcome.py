@@ -16,17 +16,19 @@ import pytest
 
 from eidolon.activity import CallEndReason, Result
 from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
-from eidolon.own_keys import OwnKeyFailed
+from eidolon.own_keys import BroughtKeys, OwnKeyFailed
 from eidolon.usage import UsageKind, Use
-from tests.test_admission import Deployment
+from tests.test_admission import ALL_OWN, Deployment
 from tests.test_turn_outcome import DONE
 
 
 class Limiter(Deployment):
     """A user allowed one call an hour, the limiter counting them and their records."""
 
-    def call(self, limits: CallLimits = CallLimits()) -> CallOutcome:
-        return CallOutcome(self.admissions().call(self.user, "mano"), limits)
+    def call(
+        self, limits: CallLimits = CallLimits(), brought: BroughtKeys = BroughtKeys()
+    ) -> CallOutcome:
+        return CallOutcome(self.admissions().call(self.user, "mano", brought), limits)
 
     def call_records(self) -> list[tuple[Result, CallEndReason | None, bool]]:
         """Each call's record: how it turned out, why it ended, and whether it says how
@@ -54,8 +56,7 @@ def limiter(tmp_path: Path) -> Iterator[Limiter]:
 async def test_a_call_on_the_users_own_keys_alone_is_told_it_does_not_count(
     limiter: Limiter,
 ):
-    await limiter.bring_all()
-    outcome = limiter.call()
+    outcome = limiter.call(brought=ALL_OWN)
     outcome.connected()
     outcome.turn_recorded()
 

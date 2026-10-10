@@ -116,6 +116,7 @@ from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import ConversationEngine, TurnDone, UserSaid
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
+    BroughtKeys,
     CallKeys,
     OwnKeyRejected,
     Service,
@@ -838,13 +839,13 @@ class Calls:
             limits.turns_per_call,
         )
 
-    def ice_servers(self, user_id: str) -> dict:
+    def ice_servers(self, user_id: str, own: frozenset[Service] = frozenset()) -> dict:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
-        own; how long a call may last, in seconds (None for no limit); and whether calls on
-        the keys the user has now are exempt from the limit. Raises CallsUnavailable or
-        OwnKeyFailed, as `Admissions.call_setup` does, before anything is spent on a call
-        that could not start."""
-        exempt = self._admissions.call_setup(user_id)
+        own; how long a call may last, in seconds (None for no limit); and whether a call
+        bringing the user's own keys for `own` would be exempt from the limit. Raises
+        CallsUnavailable, as `Admissions.call_setup` does, before anything is spent on a
+        call that could not start."""
+        exempt = self._admissions.call_setup(own)
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
@@ -862,11 +863,13 @@ class Calls:
         character: Character,
         options: CallOptions,
         offer: SessionDescription,
+        brought: BroughtKeys = BroughtKeys(),
     ) -> dict:
-        """Answer a new call into the user's `conversation` with `character`, let through
-        by `Admissions.call`, whose exceptions it raises. Whatever fails before the call is
-        served, it never connected; once it is served, it is settled as it ends."""
-        admission = self._admissions.call(user_id, character.id)
+        """Answer a new call into the user's `conversation` with `character`, bringing
+        `brought`, let through by `Admissions.call`, whose exceptions it raises. Whatever
+        fails before the call is served, it never connected; once it is served, it is
+        settled as it ends, letting go of the keys it brought."""
+        admission = self._admissions.call(user_id, character.id, brought)
         outcome = CallOutcome(admission, self._limits())
         return await self._start(
             user_id, conversation, character, options, offer, admission, outcome

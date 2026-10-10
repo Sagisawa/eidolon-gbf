@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { forgetOwnKey, forgetOwnKeys, keepOwnKey, localOwnKeys, turnOwnLLM } from "@/lib/localOwnKeys";
+import {
+  canKeepOwnKeys,
+  forgetOwnKey,
+  forgetOwnKeys,
+  keepOwnKey,
+  localOwnKeys,
+  ownServices,
+  turnOwnLLM,
+} from "@/lib/localOwnKeys";
 
 const LLM = {
   api_key: "sk-my-own-key-1234",
@@ -76,5 +84,55 @@ describe("own keys kept in this browser", () => {
     expect(localOwnKeys("u1")).toEqual({});
     expect(localOwnKeys("u2")).toEqual({});
     expect(localOwnKeys("u3")).toEqual({ llm: LLM, stt: { api_key: "soniox-key-bbbb", provider: "soniox" } });
+  });
+});
+
+describe("what a call brings", () => {
+  it("names the services the user keeps their own keys for, which the call brings as they are kept", () => {
+    storage();
+    keepOwnKey("u1", "stt", STT);
+    keepOwnKey("u1", "llm", LLM);
+
+    const keys = localOwnKeys("u1");
+
+    expect(ownServices(keys)).toEqual(["llm", "stt"]);
+    expect(keys).toEqual({ llm: LLM, stt: STT });
+    expect(ownServices(localOwnKeys("u2"))).toEqual([]);
+  });
+});
+
+describe("a browser that cannot keep own keys", () => {
+  it("says so when its storage refuses to keep anything, and nothing it was given is brought", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => null,
+      setItem: () => {
+        throw new DOMException("quota", "QuotaExceededError");
+      },
+      removeItem: () => {},
+    });
+
+    expect(canKeepOwnKeys()).toBe(false);
+    keepOwnKey("u1", "llm", LLM);
+    expect(localOwnKeys("u1")).toEqual({});
+    expect(turnOwnLLM("u1")).toBeUndefined();
+  });
+
+  it("says so when its storage cannot even be reached, without throwing", () => {
+    const unreachable = () => {
+      throw new DOMException("denied", "SecurityError");
+    };
+    vi.stubGlobal("localStorage", { getItem: unreachable, setItem: unreachable, removeItem: unreachable });
+
+    expect(canKeepOwnKeys()).toBe(false);
+    expect(() => keepOwnKey("u1", "llm", LLM)).not.toThrow();
+    expect(() => forgetOwnKeys("u1")).not.toThrow();
+    expect(localOwnKeys("u1")).toEqual({});
+  });
+
+  it("is not one whose storage works, which is left as it was", () => {
+    const items = storage({ "eidolon.ownKeys.u1": JSON.stringify({ llm: LLM }) });
+
+    expect(canKeepOwnKeys()).toBe(true);
+    expect([...items.keys()]).toEqual(["eidolon.ownKeys.u1"]);
   });
 });

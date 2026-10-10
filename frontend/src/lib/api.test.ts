@@ -1,5 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, CONSENT_REQUIRED, json, redirectFor, saveOwnSpeechKey, sendTurn, type TurnEvent } from "@/lib/api";
+import {
+  ApiError,
+  CONSENT_REQUIRED,
+  checkOwnSpeechKey,
+  deleteAccount,
+  getCallSetup,
+  json,
+  logout,
+  logoutEverywhere,
+  redirectFor,
+  sendTurn,
+  type TurnEvent,
+} from "@/lib/api";
+import { keepOwnKey, localOwnKeys } from "@/lib/localOwnKeys";
 
 describe("redirectFor", () => {
   it("sends a browser that is not signed in to the landing page, to sign in there", () => {
@@ -186,23 +199,80 @@ describe("sendTurn", () => {
   });
 });
 
-describe("saveOwnSpeechKey", () => {
+describe("checkOwnSpeechKey", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("names the speech recognition service the key is for", async () => {
-    const fetch = vi.fn(async (_path: string, _init: RequestInit) =>
-      Response.json({ last4: "dddd", provider: "bailian" }),
+  it("asks the server to try the key for the speech recognition service it is for, keeping nothing", async () => {
+    const fetch = vi.fn(async (_path: string, _init: RequestInit) => Response.json({ region: "singapore" }));
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await checkOwnSpeechKey("stt", "sk-my-dashscope-dddd", "bailian")).toEqual({ region: "singapore" });
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe("/api/account/keys/stt/check");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ api_key: "sk-my-dashscope-dddd", provider: "bailian" });
+  });
+});
+
+describe("getCallSetup", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the services the call is to bring the user's own keys for, and none of the keys", async () => {
+    const fetch = vi.fn(async (_path: string, _init?: RequestInit) =>
+      Response.json({ iceServers: [], maxCallSeconds: null, callExempt: false }),
     );
     vi.stubGlobal("fetch", fetch);
 
-    expect(await saveOwnSpeechKey("stt", "sk-my-dashscope-dddd", "bailian")).toEqual({
-      last4: "dddd",
-      provider: "bailian",
+    await getCallSetup(["llm", "tts", "stt"]);
+    await getCallSetup([]);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/ice-servers?own=llm,tts,stt", "/api/ice-servers"]);
+  });
+});
+
+describe("signing out and deleting the account", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** This browser keeps own keys for two users; the backend answers with `status`. */
+  function keptFor(status: number) {
+    const items = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => items.get(key) ?? null,
+      setItem: (key: string, value: string) => void items.set(key, value),
+      removeItem: (key: string) => void items.delete(key),
     });
-    const [path, init] = fetch.mock.calls[0];
-    expect(path).toBe("/api/account/keys/stt");
-    expect(JSON.parse(init.body as string)).toEqual({ api_key: "sk-my-dashscope-dddd", provider: "bailian" });
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key-aaaa" });
+    keepOwnKey("u2", "tts", { api_key: "fish-their-own-key" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => (status === 204 ? new Response(null, { status }) : Response.json({}, { status }))),
+    );
+  }
+
+  it.each([
+    ["signing out", () => logout("u1")],
+    ["signing out everywhere", () => logoutEverywhere("u1")],
+    ["deleting the account", () => deleteAccount("u1")],
+  ])("forgets the user's own keys in this browser after %s, and no one else's", async (_, done) => {
+    keptFor(204);
+
+    await done();
+
+    expect(localOwnKeys("u1")).toEqual({});
+    expect(localOwnKeys("u2")).toEqual({ tts: { api_key: "fish-their-own-key" } });
+  });
+
+  it("keeps them when the backend did not sign the user out", async () => {
+    keptFor(500);
+
+    await expect(logout("u1")).rejects.toThrow();
+
+    expect(localOwnKeys("u1")).toEqual({ tts: { api_key: "fish-my-own-key-aaaa" } });
   });
 });

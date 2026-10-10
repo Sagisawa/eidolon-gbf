@@ -47,6 +47,7 @@ from eidolon.call import (
 from eidolon.call_outcome import CallLimits, CallOutcome
 from eidolon.config import EmotionSettings, Settings
 from eidolon.engine import MAX_INPUT_LENGTH
+from eidolon.own_keys import BroughtKeys
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import (
@@ -124,7 +125,7 @@ class CallUnderTest:
         )
         try:
             mano = backend.characters["mano"]
-            admission = backend.admissions.call(self.conversation.user_id, "mano")
+            admission = backend.admissions.call(self.conversation.user_id, "mano", BroughtKeys())
             call = Call(self.conversation, mano, admission.llms, muted, "standard")
             outcome = CallOutcome(admission, limits)
             turns = CallTurns(
@@ -148,7 +149,7 @@ class CallUnderTest:
         backend = build_faked(self._settings, llm, clock=lambda: NOW)
         try:
             mano = backend.characters["mano"]
-            admission = backend.admissions.call(self.conversation.user_id, "mano")
+            admission = backend.admissions.call(self.conversation.user_id, "mano", BroughtKeys())
             call = Call(self.conversation, mano, admission.llms, False, "standard")
             outcome = CallOutcome(admission, CallLimits())
             turns = CallTurns(backend.engine, call, outcome, SONIOX_FOLLOW_ON_TIMEOUT)
