@@ -147,7 +147,7 @@ components:
 ## Typography
 
 **Body Font:** Noto Sans SC（回退 PingFang SC、Microsoft YaHei、system-ui）
-**Japanese Font:** LINE Seed JP（`next/font` 的 `LINE_Seed_JP`，400/700，回退到正文字体）
+**Japanese Font:** LINE Seed JP（`next/font` 的 `LINE_Seed_JP`，只载 400，回退到正文字体）
 
 **Character:** 中文界面用端正、中性的黑体；她说的日语用 LINE Seed JP，笔画圆润，一眼能分出「她的原话」和「字幕」。
 
