@@ -26,10 +26,10 @@ export function FailureNotice({ failure }: { failure: Failure }) {
   );
 }
 
-/** 没登录时去登录页的按钮。 */
+/** 没登录时回落地页登录的按钮。 */
 export function SignInButton({ size }: { size?: "sm" }) {
   return (
-    <Button size={size} nativeButton={false} render={<NextLink href="/login" />}>
+    <Button size={size} nativeButton={false} render={<NextLink href="/" />}>
       {copy.failure.signIn}
     </Button>
   );

@@ -183,6 +183,14 @@ export const zh = {
     devSubmit: "登录",
     castTitle: "可以说话的偶像",
   },
+  /** 落地页（ADR-0016）。各幕的文案由后续的 ticket 补上，都要交用户审。 */
+  landing: {
+    disclaimer: "非官方粉丝作品，角色由 AI 扮演。",
+    signIn: "登录",
+    continue: "继续",
+    panelTitle: "登录",
+    devSignIn: "开发登录",
+  },
   consent: {
     title: "开始之前",
     intro: "你和角色的对话、角色记下的关于你的事，会保存在这台服务器上，并交给第三方服务处理（语言模型、语音合成与识别等）。详情请看{privacy}和{terms}。",
@@ -195,6 +203,7 @@ export const zh = {
   settings: {
     title: "设置",
     loading: "正在读取…",
+    about: "关于 Eidolon-SC",
     profile: {
       title: "制作人档案",
       formOfAddress: "称呼",

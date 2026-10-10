@@ -27,7 +27,7 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 首页的对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字找人的搜索框；
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题和更多菜单，下面一个按名字找人的搜索框；
  * 每位角色一行（56px 头像、名字和时间一行，最后一句一行），选中行铺中性的 bg-muted；底部一行免责声明。
  * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
  */

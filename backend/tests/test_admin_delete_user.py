@@ -100,7 +100,7 @@ async def test_a_user_deleted_without_a_ban_may_sign_up_again(
     await admin.delete(f"/api/admin/users/{old_id}")
     welcome = await sign_in_with(octo, github, github_identity("1001", name="octo"))
 
-    assert welcome.headers["location"] == "/"
+    assert welcome.headers["location"] == "/conversations"
     assert (await find(admin, "octo"))["id"] != old_id
 
 

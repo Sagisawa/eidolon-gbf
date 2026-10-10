@@ -2,17 +2,16 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-import { AppLink } from "@/components/app/AppLink";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { PageShell } from "@/components/app/PageShell";
+import { SignInChoices } from "@/components/app/SignInChoices";
 import { SectionHeading } from "@/components/app/SubpageHeader";
 import { LegalFooter } from "@/components/LegalFooter";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { copy } from "@/i18n";
-import { interpolate } from "@/i18n/interpolate";
 import {
   devLogin,
   getSignInOptions,
@@ -21,12 +20,12 @@ import {
   type SignInOptions,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { PROVIDER_LABELS, signInFailure, signInUrl } from "@/lib/signIn";
+import { signInFailure } from "@/lib/signIn";
 import { FailureIcon } from "@/theme/icons";
 
 const t = copy.login;
 
-/** 没登录的访客看到的页面：这是什么、有哪些偶像可以说话、怎样登录。 */
+/** 登录页：登录被拒时后端带着 `?error=` 回到这里，开发登录也在这里，也可以直接访问。访客平常在落地页的登录面板登录。 */
 export default function LoginPage() {
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -46,7 +45,7 @@ export default function LoginPage() {
     setFailure(null);
     try {
       await devLogin(name.trim());
-      window.location.assign("/");
+      window.location.assign("/conversations");
     } catch (e) {
       setFailure(toFailure(e));
     }
@@ -71,38 +70,7 @@ export default function LoginPage() {
           </Alert>
         )}
 
-        <section aria-label={t.signInRegion} className="flex max-w-90 flex-col gap-3">
-          {options?.providers.map((provider, i) => (
-            // 登录要整页跳到后端的 OAuth 入口，用普通的 <a>，不走客户端路由。
-            <Button
-              key={provider}
-              variant={i === 0 ? "default" : "outline"}
-              size="lg"
-              nativeButton={false}
-              render={<a href={signInUrl(provider)} />}
-              className="w-full"
-            >
-              {t.signInWith(PROVIDER_LABELS[provider])}
-            </Button>
-          ))}
-          {options && options.providers.length === 0 && !options.dev_login && (
-            <p className="text-body text-muted-foreground">{t.noProviders}</p>
-          )}
-          <p className="text-sm text-muted-foreground">
-            {interpolate(t.agreement, {
-              privacy: (
-                <AppLink key="privacy" href="/privacy">
-                  {copy.legal.privacy}
-                </AppLink>
-              ),
-              terms: (
-                <AppLink key="terms" href="/terms">
-                  {copy.legal.terms}
-                </AppLink>
-              ),
-            })}
-          </p>
-        </section>
+        <SignInChoices options={options} className="max-w-90" />
 
         {options?.dev_login && (
           <form onSubmit={submit} className="flex max-w-90 flex-col gap-3">

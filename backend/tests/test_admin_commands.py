@@ -74,7 +74,7 @@ async def test_a_banned_user_is_signed_out_and_cannot_sign_in_until_unbanned(
     admin.run("user", "unban", octo)
 
     welcome = await sign_in_with(client, github, github_identity(name="octo"))
-    assert welcome.headers["location"] == "/"
+    assert welcome.headers["location"] == "/conversations"
     assert (await client.get("/api/account")).status_code == 200
 
 

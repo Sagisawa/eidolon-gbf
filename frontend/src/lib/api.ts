@@ -146,10 +146,10 @@ export class ApiError extends Error {
  * terms of use. */
 export const CONSENT_REQUIRED = 428;
 
-/** The page a response sends the browser to before it can go on, if any: signing in
- * when it is not signed in, agreeing to the terms when the user has not yet. */
+/** The page a response sends the browser to before it can go on, if any: the landing page,
+ * to sign in there, when it is not signed in; agreeing to the terms when the user has not yet. */
 export function redirectFor(status: number): string | null {
-  if (status === 401) return "/login";
+  if (status === 401) return "/";
   if (status === CONSENT_REQUIRED) return "/consent";
   return null;
 }

@@ -36,7 +36,7 @@ export function DeleteAccount() {
     setFailure(null);
     try {
       await deleteAccount();
-      window.location.assign("/login");
+      window.location.assign("/");
     } catch (e) {
       setFailure(toFailure(e));
       setConfirming(false);

@@ -190,7 +190,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             user = accounts.sign_in(identity)
         except SignInRefused as e:
             return go(f"{back}?error={e.reason}")
-        response = go("/")
+        response = go("/conversations")
         signed_in(user.id, response, request)
         return response
 

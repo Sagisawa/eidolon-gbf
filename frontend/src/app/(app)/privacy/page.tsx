@@ -10,7 +10,7 @@ export const metadata = { title: copy.legal.pageTitle(t.title) };
 
 export default function PrivacyPage() {
   return (
-    <PageShell header={<SubpageHeader title={t.title} backHref="/login" />} footer={<LegalFooter />}>
+    <PageShell header={<SubpageHeader title={t.title} backHref="/" />} footer={<LegalFooter />}>
       <div className="flex flex-col gap-8">
         {t.sections.map((section) => (
           <section key={section.title} className="flex flex-col gap-3">

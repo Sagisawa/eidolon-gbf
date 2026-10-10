@@ -56,7 +56,7 @@ export function SignInSettings() {
     setFailure(null);
     try {
       await (everywhere ? logoutEverywhere() : logout());
-      window.location.assign("/login");
+      window.location.assign("/");
     } catch (e) {
       setFailure(toFailure(e));
     }

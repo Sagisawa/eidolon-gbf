@@ -20,7 +20,7 @@ const t = copy.settings;
  */
 export default function SettingsPage() {
   return (
-    <PageShell header={<SubpageHeader title={t.title} backHref="/" />}>
+    <PageShell header={<SubpageHeader title={t.title} backHref="/conversations" />}>
       <ProducerProfileSettings />
 
       <SettingsSection title={t.memories.title} description={t.memories.hint}>
@@ -38,6 +38,13 @@ export default function SettingsPage() {
       <AdminEntry />
 
       <DeleteAccount />
+
+      {/* 回去看落地页（/about）：已登录也不会被送走，入口是「继续」。 */}
+      <div className="py-6">
+        <AppLink href="/about" isStandalone>
+          {t.about}
+        </AppLink>
+      </div>
     </PageShell>
   );
 }

@@ -33,7 +33,7 @@ export default function ConsentPage() {
     setFailure(null);
     try {
       await agreeToTerms();
-      window.location.assign("/");
+      window.location.assign("/conversations");
     } catch (e) {
       setFailure(toFailure(e));
       setBusy(false);
@@ -42,7 +42,7 @@ export default function ConsentPage() {
 
   async function signOut() {
     await logout().catch(() => {});
-    window.location.assign("/login");
+    window.location.assign("/");
   }
 
   return (

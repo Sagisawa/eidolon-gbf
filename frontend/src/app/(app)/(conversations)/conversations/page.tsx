@@ -2,7 +2,7 @@
 
 import { copy } from "@/i18n";
 
-/** 首页。宽屏时右栏还没选角色，居中一句 muted 标题；窄屏时外壳只显示列表，这一页不出现。 */
+/** 对话列表（`/conversations`，已登录的用户打开 `/` 也到这里）。宽屏时右栏还没选角色，居中一句 muted 标题；窄屏时外壳只显示列表，这一页不出现。 */
 export default function ConversationsHome() {
   return (
     <div className="flex h-full items-center justify-center p-6">

@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, CONSENT_REQUIRED, json, redirectFor, saveOwnSpeechKey, sendTurn, type TurnEvent } from "@/lib/api";
 
 describe("redirectFor", () => {
-  it("sends a browser that is not signed in to sign in", () => {
-    expect(redirectFor(401)).toBe("/login");
+  it("sends a browser that is not signed in to the landing page, to sign in there", () => {
+    expect(redirectFor(401)).toBe("/");
   });
 
   it("sends a user who has not agreed to the terms to agree first", () => {

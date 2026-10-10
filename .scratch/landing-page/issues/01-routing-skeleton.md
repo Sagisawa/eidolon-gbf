@@ -6,7 +6,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] 把现在登录页里的「登录方式列表 + 同意说明 + 没有登录方式时的提示」抽成共用的登录组件。`/login` 用它，外观和行为都不变，继续负责登录被拒原因和开发登录。落地页的登录面板也用它。
 - [ ] `/` 和 `/about` 渲染同一个落地页，`/about` 的 canonical 指向 `/`。

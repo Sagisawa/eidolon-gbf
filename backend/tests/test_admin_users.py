@@ -168,7 +168,7 @@ async def test_a_ban_keeps_the_user_out_with_its_note_until_lifted(
         False, None, None,
     )
     welcome = await sign_in_with(octo, github, github_identity("1001", name="octo"))
-    assert welcome.headers["location"] == "/"
+    assert welcome.headers["location"] == "/conversations"
     assert (await octo.get("/api/account")).status_code == 200
 
 

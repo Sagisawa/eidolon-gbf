@@ -124,7 +124,7 @@ cp .env.example .env   # 会話モデルの URL・API キー・モデル名を�
 docker compose up --build
 ```
 
-<http://localhost:3000> を開き、ログイン画面の「開発ログイン」で好きな名前を入れてログインし（`EIDOLON_DEV_LOGIN=1` のときだけ表示）、プライバシーポリシーと利用規約に同意すれば、トップページの会話一覧でアイドルを選んで話せます。Google や GitHub でログインするには、先に [`docs/deploy.md`](docs/deploy.md) の「OAuth アプリの設定」に従ってアプリを作成し、コールバック URL を `http://localhost:3000/api/auth/github/callback`（Google も同様）にします。`scripts/setup-oauth.sh` を実行して、案内に従って設定することもできます。
+<http://localhost:3000> を開くとランディングページです。右上の「登录」（ログイン）から、ログインパネルの「开发登录」（開発ログイン）に進み（`/login` を直接開いても構いません）、好きな名前を入れてログインし（`EIDOLON_DEV_LOGIN=1` のときだけ表示）、プライバシーポリシーと利用規約に同意すれば、会話一覧でアイドルを選んで話せます。Google や GitHub でログインするには、先に [`docs/deploy.md`](docs/deploy.md) の「OAuth アプリの設定」に従ってアプリを作成し、コールバック URL を `http://localhost:3000/api/auth/github/callback`（Google も同様）にします。`scripts/setup-oauth.sh` を実行して、案内に従って設定することもできます。
 
 > [!TIP]
 > 会話モデルだけでもテキストチャットは可能です。ほかのサービスのキーを追加していくことで、音声・コミュの記憶・メモリーが段階的に有効になります：

@@ -11,7 +11,7 @@ export const metadata = { title: copy.legal.pageTitle(t.title) };
 
 export default function TermsPage() {
   return (
-    <PageShell header={<SubpageHeader title={t.title} backHref="/login" />} footer={<LegalFooter />}>
+    <PageShell header={<SubpageHeader title={t.title} backHref="/" />} footer={<LegalFooter />}>
       <div className="flex flex-col gap-6">
         {/* 条款一条一行：条目名加粗在上，正文在下，行间一条细分隔线（DESIGN.md「The Flat Rule」）。 */}
         <dl className="flex flex-col divide-y">

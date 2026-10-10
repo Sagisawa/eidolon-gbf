@@ -121,7 +121,7 @@ cp .env.example .env   # 填写对话模型的地址、密钥和模型名，本�
 docker compose up --build
 ```
 
-打开 <http://localhost:3000>，在登录页用「开发登录」随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后，首页是对话列表，点一位角色就能开始对话。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）；也可以运行 `scripts/setup-oauth.sh`，按它的提示一步步配置。
+打开 <http://localhost:3000> 是落地页，点右上角的「登录」，在登录面板里点「开发登录」（或直接打开 `/login`），随便填一个名字登录（`EIDOLON_DEV_LOGIN=1` 时才有），同意隐私政策和使用条款后进入对话列表，点一位角色就能开始对话。要用 Google 或 GitHub 登录，先按 [`docs/deploy.md`](docs/deploy.md) 的「配置 OAuth 应用」创建应用，回调地址用 `http://localhost:3000/api/auth/github/callback`（Google 同理）；也可以运行 `scripts/setup-oauth.sh`，按它的提示一步步配置。
 
 > [!TIP]
 > 只填对话模型时就能文字聊天。按需再补上其他服务的密钥，逐步开启语音、剧情回忆和记忆：
@@ -428,7 +428,7 @@ flowchart LR
 任何人都可以用 Google 或 GitHub 登录，不需要邀请或审核（ADR-0006）。在 `.env` 里填了哪一家的 OAuth 应用（`GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`，`GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`），登录页就显示哪一种登录方式；创建应用的步骤见 [`docs/deploy.md`](docs/deploy.md)，也可以在仓库根目录运行 `scripts/setup-oauth.sh`：它逐步打开要用的页面、说明每一栏填什么，把值写进 `.env`，顺带生成 `EIDOLON_SECRET_KEY`，最后重启后端并列出要用真实账号验证的几件事。
 
 - 第一次用某个身份登录时，自动成为一位新用户；之后用同一个身份登录就是同一位用户。GitHub 账号要注册满一年、Google 邮箱要已验证，否则登录会被拒绝并说明原因。
-- 第一次登录后要先同意隐私政策和使用条款、声明年满 13 岁，之后才能使用。没登录的访客只能看到登录页、隐私政策和使用条款。
+- 第一次登录后要先同意隐私政策和使用条款、声明年满 13 岁，之后才能使用。没登录的访客只能看到落地页、登录页、隐私政策和使用条款。
 - 用户可以在设置页绑定另一种登录方式，这样用哪个登录看到的都是同一份记忆；邮箱相同的两个身份不会自动合并，已经属于别人的身份不能再绑定，最后一种登录方式不能解绑。
 - 登录状态保存在后端的会话里，浏览器通过 httpOnly cookie 保持登录，30 天内只要在用就不用重新登录。设置页可以退出当前设备，也可以退出所有设备。
 - 设置页的「删除我的全部数据」会在二次确认后彻底删除这位用户的记忆、对话、制作人档案、登录方式、自带密钥、登录状态和限额的计数，并在所有设备上退出登录，他的运行记录不再关联到他；之后用同一个身份登录会是一位全新的用户。每天的加密备份里的副本要等备份过期才清除，最多 30 天（[ADR-0012](docs/adr/0012-encrypted-offsite-backups-with-bounded-retention.md)）。

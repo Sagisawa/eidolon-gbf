@@ -16,7 +16,7 @@ export default function ConversationPage() {
   const wide = useWide();
   const { characters, failure } = useDirectory();
   const character = characters?.find((c) => c.id === characterId);
-  const back = () => router.push("/");
+  const back = () => router.push("/conversations");
 
   if (character) {
     // 换角色时整页重来：上一位的对话（和通话）就此结束。

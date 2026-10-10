@@ -1,4 +1,4 @@
-import "./globals.css";
+import "../globals.css";
 
 import type { Metadata } from "next";
 import { LINE_Seed_JP, Noto_Sans_SC } from "next/font/google";

@@ -124,7 +124,7 @@ cp .env.example .env   # fill in the chat model's base URL, API key and model na
 docker compose up --build
 ```
 
-Open <http://localhost:3000>, sign in with "dev login" under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and the home page lists the characters: pick one to start a conversation. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
+Open <http://localhost:3000> to the landing page, click "登录" (sign in) at the top right, follow "开发登录" (dev login) in the sign-in panel (or open `/login` directly) and sign in under any name (offered only with `EIDOLON_DEV_LOGIN=1`), agree to the privacy policy and terms of use, and the conversation list shows the characters: pick one to start a conversation. To sign in with Google or GitHub, first create an OAuth app as described under "Configure OAuth apps" in [`docs/deploy.md`](docs/deploy.md), with the callback URL `http://localhost:3000/api/auth/github/callback` (likewise for Google), or run `scripts/setup-oauth.sh` and follow its prompts.
 
 > [!TIP]
 > A chat model alone is enough for text chat. Add the other services' keys as you go to unlock voice, story recall and memory:

@@ -1,0 +1,168 @@
+/*
+ * 落地页的样式。落地页是独立的视觉世界（ADR-0016），不受 shadcn 纪律约束；只有右上角的入口和登录面板
+ * 用 shadcn 组件。这份样式表只在落地页的根 layout 里引入。
+ *
+ * 字体：这一版先用系统字体，正式的子集字体由 03 接上。全局样式表的 font-sans 引用应用根 layout
+ * 用 next/font 载入的 --font-zh，落地页不载入它，这里给成系统字体，登录面板才不会掉到默认衬线体。
+ */
+
+html {
+  --font-zh: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC";
+  --font-ja: "Hiragino Sans", "Yu Gothic", "Noto Sans CJK JP";
+  background: #020203;
+}
+
+.lp-root {
+  --lp-rail: 72px;
+  --lp-gutter: calc(var(--lp-rail) + 6vw);
+  --lp-ja: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", serif;
+  --lp-zh: var(--font-zh), system-ui, sans-serif;
+  --lp-zh-title: "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
+  --lp-ink: #eeecf2;
+  --lp-dim: rgb(238 236 242 / 0.6); /* 12px 的小字在黑底上要过 4.5:1。 */
+  position: relative;
+  min-height: 100svh;
+  background: #020203;
+  color: var(--lp-ink);
+  font-family: var(--lp-zh);
+  -webkit-font-smoothing: antialiased;
+}
+@media (max-width: 639px) {
+  .lp-root {
+    --lp-rail: 36px;
+    --lp-gutter: calc(var(--lp-rail) + 18px);
+  }
+}
+
+/* —— 右上角的入口：始终在。 */
+.lp-top {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* —— 第 0 幕：一片黑，一束白光，标题。 */
+.lp-act0 {
+  position: relative;
+  height: 100svh;
+  overflow: hidden;
+}
+
+/* CSS 画的静态白光：横着射进来，尽头一团光。OGL 的光层接上以后，首屏仍先画这一束（04）。 */
+.lp-beam {
+  position: absolute;
+  left: 0;
+  top: 66%;
+  width: 46%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.5), #fff 40%);
+  box-shadow:
+    0 0 10px 2px rgb(220 230 255 / 0.32),
+    0 0 50px 6px rgb(220 230 255 / 0.07);
+}
+.lp-beam::after {
+  content: "";
+  position: absolute;
+  right: -40px;
+  top: 50%;
+  width: 80px;
+  height: 80px;
+  transform: translateY(-50%);
+  background: radial-gradient(circle, #fff 0, rgb(255 248 240 / 0.6) 6%, rgb(255 248 240 / 0.12) 26%, transparent 60%);
+}
+/* 竖屏：光从上往下射。 */
+@media (max-aspect-ratio: 10/11) {
+  .lp-beam {
+    left: 50%;
+    top: 0;
+    width: 2px;
+    height: 30%;
+    transform: translateX(-50%);
+    background: linear-gradient(180deg, rgb(255 255 255 / 0.5), #fff 40%);
+  }
+  .lp-beam::after {
+    right: auto;
+    left: 50%;
+    top: auto;
+    bottom: -40px;
+    transform: translateX(-50%);
+  }
+}
+
+.lp-act0-text {
+  position: absolute;
+  left: var(--lp-gutter);
+  right: var(--lp-gutter);
+  top: 22%;
+}
+/* 标题从一开始就可见（LCP 元素），不加透明度动画。 */
+.lp-title {
+  margin: 0;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(56px, 11vw, 184px);
+  line-height: 0.95;
+  letter-spacing: -0.02em;
+  font-feature-settings: "palt";
+  color: #f6f4f8;
+}
+.lp-lede {
+  margin: 0.9em 0 0;
+  font-family: var(--lp-zh-title);
+  font-weight: 600;
+  font-size: clamp(20px, 2.5vw, 40px);
+  letter-spacing: 0.08em;
+  color: #dcd9e1;
+}
+.lp-disclaimer {
+  position: absolute;
+  left: var(--lp-gutter);
+  bottom: 28px;
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--lp-dim);
+}
+@media (max-aspect-ratio: 10/11) {
+  .lp-act0-text {
+    top: 40%;
+  }
+}
+
+/* —— 页脚：非官方声明和法务链接，常驻在页尾。 */
+.lp-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 40px var(--lp-gutter);
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--lp-dim);
+}
+.lp-footer p {
+  margin: 0;
+}
+.lp-footer-links {
+  display: flex;
+  gap: 16px;
+}
+.lp-footer a {
+  color: inherit;
+  text-underline-offset: 4px;
+  border-radius: 2px;
+}
+.lp-footer a:hover {
+  color: var(--lp-ink);
+  text-decoration: underline;
+}
+.lp-footer a:focus-visible {
+  outline: 2px solid var(--lp-ink);
+  outline-offset: 3px;
+}
