@@ -185,14 +185,14 @@ finish() {
 # ──────────────────────────────────────────────────────────────────────────
 
 # 在仓库根目录运行：scripts/setup-oauth.sh
-# 配置用户登录（GitHub、Google 的 OAuth 应用）、自带密钥的加密密钥和相关开关，写进 .env，
+# 配置用户登录（GitHub、Google 的 OAuth 应用）、后台 key 和封禁名单用的密钥和相关开关，写进 .env，
 # 然后重启后端并用真实账号走一遍。可以随时 Ctrl-C，重新运行时已保存的值按回车即可保留。
 
 cd "$(dirname "$0")/.."
 
 TOTAL_STAGES=8
 
-banner "Eidolon-SC 登录与自带密钥配置"
+banner "Eidolon-SC 登录配置"
 
 # ── 1 ────────────────────────────────────────────────────────────────────
 stage "网站地址"
@@ -260,14 +260,14 @@ write_env GOOGLE_CLIENT_SECRET "$GOOGLE_CLIENT_SECRET"
 pause "按回车继续"
 
 # ── 5 ────────────────────────────────────────────────────────────────────
-stage "自带密钥的加密密钥"
+stage "后台 key 和封禁名单的密钥"
 if [[ -n "$(_existing EIDOLON_SECRET_KEY || true)" ]]; then
   say "EIDOLON_SECRET_KEY 已经有值，保持不变。"
-  warn "不要更换它：换了以后，用户已保存的自带密钥都无法解密，要重新填写。"
+  warn "不要更换它：换了以后，后台里保存的 key 无法解密，被删除的封禁用户也能重新注册。"
 elif command -v openssl >/dev/null 2>&1; then
   write_env EIDOLON_SECRET_KEY "$(openssl rand -hex 32)"
-  say "已生成。用户自带的 LLM、语音合成、语音识别密钥用它加密保存。"
-  warn "请把 .env 备份好；这个值丢了或换了，已保存的自带密钥都无法解密。"
+  say "已生成。后台里保存的 key 用它加密，封禁名单也用它做哈希；用户的自带密钥只存在他们的浏览器里，跟它无关。"
+  warn "请把 .env 备份好；这个值丢了或换了，后台里保存的 key 无法解密，封禁名单也对不上了。"
 else
   warn "找不到 openssl，没有生成。可以在别处运行 openssl rand -hex 32，把结果粘贴进来："
   ask_secret EIDOLON_SECRET_KEY "粘贴 64 位十六进制字符串（输入不显示）："
@@ -327,7 +327,7 @@ stage "用真实账号走一遍"
 open_url "$SITE"
 step "用 GitHub 登录，勾选同意条款和年满 13 岁，能看到角色列表"
 step "设置页 → 登录方式 → 绑定 Google；退出登录，再用 Google 登录，是同一个用户（记忆、对话都在）"
-step "设置页 → 自带密钥：填一个 LLM 密钥，保存时试调通过；和角色说一句话，回复正常"
+step "设置页 → 自带密钥：填一个 LLM 密钥，试调通过；和角色说一句话，回复正常"
 step "（配了语音时）打一次电话，说一句话，能听到角色的声音"
 step "最后在设置页「删除我的全部数据」，把这个测试用户清掉"
 note "登录失败时，登录页会写明原因；回调地址不匹配时，GitHub 或 Google 自己的页面会报 redirect_uri 错误。"
