@@ -28,3 +28,9 @@
 - [ ] 前端单测和 shadcn 纪律检查都通过。
 
 ## Comments
+
+实现说明：
+
+- `copy.settings.ownKeys.hint` 拆成 `summary`（外面两句）、`details`（详细说明，五句的数组）和 `detailsLabel`（ⓘ 的读屏名称「详细说明」）。只拆分不改说法：外面两句去掉了「不存到服务器；」和「，以前填过的也需要重新填一次」，这两处在详细说明里各成一句（前一句补上主语「密钥」）。文案只有 `zh.ts` 一份。
+- `OwnKeysSettings` 把外面两句和 ⓘ 一起作为 `SettingsSection` 的 `description` 传进去；ⓘ 是 `PopoverTrigger openOnHover`，`render` 成 ghost `icon-xs` 的 `Button`，图标用 lucide `InfoIcon`。浮层用 `PopoverContent`（默认 w-72，靠起始边对齐，Base UI 自动避开屏幕边缘），里面一个列表放详细说明。没动 `SettingsSection.tsx` 和节标题。
+- 检查：`npx tsc --noEmit`、`npx vitest run`（549 个通过）、`scripts/check-discipline.sh` 都通过。悬停、点开、键盘、深色模式和 375px 宽要人工看。
