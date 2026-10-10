@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { idolColors } from "./color";
-import { ACT1_SCREENS, describeScene, type Scene, type SceneInput, type Viewport } from "./scene";
+import { describeScene, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
+import { ACT1_SCREENS, timelineOf } from "./timeline";
 
 /** 28 位偶像的官方印象色（characters/characters.toml），按偶像编号。 */
 const ROSTER: [name: string, color: string, unit: number][] = [
@@ -58,8 +59,11 @@ function scene(input: Partial<SceneInput> = {}): Scene {
 const inAct1 = (p: number) => 1 + p * ACT1_SCREENS;
 const ACT1_END = inAct1(1) - 1e-6;
 
-/** 从第 0 幕开头一直到第 1 幕之后，均匀取的滚动位置。 */
-const everywhere = Array.from({ length: 241 }, (_, k) => (k / 240) * (ACT1_SCREENS + 2));
+/** 从第 0 幕开头一直滚到页尾之后，均匀取的滚动位置。 */
+const END = timelineOf(8).acts.at(-1)!.to + 1;
+const everywhere = Array.from({ length: 481 }, (_, k) => (k / 480) * END);
+/** 第 0、1 幕里均匀取的滚动位置。 */
+const opening = Array.from({ length: 121 }, (_, k) => (k / 120) * (1 + ACT1_SCREENS - 1e-6));
 
 describe("describeScene: 第 0 幕", () => {
   it("一开始只有一束白光：电脑上从左边缘横着射到画面 46% 宽、66% 高处，和首屏 CSS 画的那束重合", () => {
@@ -149,17 +153,6 @@ describe("describeScene: 第 0、1 幕的边界", () => {
     expect(end.text.act1).toBe(1);
   });
 
-  it("第 1 幕之后舞台解开钉住，整个画面跟着页面往上走", () => {
-    const end = scene({ scroll: ACT1_END });
-    const after = scene({ scroll: inAct1(1) + 0.5 });
-    expect(after.act).toBe(2);
-    expect(after.beam.y1).toBeCloseTo(end.beam.y1 - desktop.h * 0.5, 3);
-    expect(after.prism.exit[1]).toBeCloseTo(end.prism.exit[1] - desktop.h * 0.5, 3);
-    after.bands.forEach((b, i) => {
-      expect(b.y).toBeCloseTo(end.bands[i].y - desktop.h * 0.5, 3);
-      expect(b.dx).toBeCloseTo(end.bands[i].dx);
-    });
-  });
 });
 
 describe("describeScene: 分光", () => {
@@ -227,10 +220,22 @@ describe("describeScene: 定格档和静态档", () => {
   const completed = picture(scene({ scroll: ACT1_END }));
 
   // 静态档和它走同一个分支（定格版式），不另测。
-  it("减少动态效果档在任何进度下都是第 1 幕的完成态，不随指针、速度和时间变", () => {
-    for (const scroll of everywhere) {
+  it("减少动态效果档在第 0、1 幕的任何进度下都是第 1 幕的完成态，不随指针、速度和时间变", () => {
+    for (const scroll of opening) {
       const s = scene({ scroll, tier: "reduced", speed: 5, pointer: { x: 1, y: -1 }, time: 12.3 });
       expect(picture(s)).toEqual({ ...completed, beam: { ...completed.beam, tip: 0 } });
+    }
+  });
+
+  it("光谱是定格的一帧：全部的光竖着排在一屏里，滚到哪儿都一样，不随指针、速度和时间变", () => {
+    const act2 = timelineOf(8).acts[2];
+    const a = scene({ scroll: act2.from + 0.1, tier: "reduced" });
+    const b = scene({ scroll: act2.from + act2.length * 0.7, tier: "reduced", speed: 5, pointer: { x: 1, y: -1 }, time: 12.3, track: 3 });
+    expect(picture(b)).toEqual(picture(a));
+    for (const band of a.bands) {
+      expect([band.dx, band.dy]).toEqual([0, 1]);
+      expect(band.x).toBeGreaterThan(0);
+      expect(band.x).toBeLessThan(desktop.w);
     }
   });
 

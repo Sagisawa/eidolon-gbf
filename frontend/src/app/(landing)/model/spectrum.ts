@@ -45,18 +45,22 @@ export function prepareSpectrum(characters: RosterEntry[]): Spectrum {
 }
 
 /**
- * 光层要的那一份：每位偶像一道光，顺序和光谱一样，带上她的光晕色、补偿系数和分光时的色相名次。
- * 在服务端算好交给客户端，颜色的算法不进落地页的包。色相相同的保持光谱里的先后。
+ * 光层要的那一份：每位偶像一道光，顺序和光谱一样，带上她的光晕色、补偿系数、分光时的色相名次、
+ * 聚焦时的底色和她在光谱里的位置。在服务端算好交给客户端，颜色的算法不进落地页的包。
+ * 色相相同的保持光谱里的先后。
  */
 export function lightsOf(spectrum: Spectrum): BandLight[] {
   const byHue = spectrum.idols.map((idol, i) => ({ order: idol.colors.hueOrder, i })).sort((a, b) => a.order - b.order);
   const rank = new Array<number>(byHue.length);
   byHue.forEach(({ i }, r) => (rank[i] = r));
+  const places = spectrum.units.flatMap((unit, u) => unit.idols.map((_, slot) => ({ unit: u, slot, unitSize: unit.idols.length })));
   return spectrum.idols.map(({ id, colors }, i) => ({
     id,
     color: colors.halo,
     gain: colors.haloGain,
     spread: colors.haloSpread,
     hueRank: rank[i],
+    deep: colors.deep,
+    ...places[i],
   }));
 }

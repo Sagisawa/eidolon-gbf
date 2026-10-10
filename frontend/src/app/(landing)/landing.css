@@ -206,7 +206,7 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-beam {
 }
 
 /* —— 光层：OGL 画布，首屏画出来以后才加载，画好第一帧才淡入（LightStage.tsx）。
- * 运动版式铺满视口、固定不动；定格档只盖第 1 幕那一屏。静态档和没有 JS 时不显示。 */
+ * 运动版式铺满视口、固定不动，整页各幕的光都画在它上面；定格档只盖第 1 幕那一屏。静态档和没有 JS 时不显示。 */
 .lp-canvas {
   display: none;
   z-index: 0;
@@ -221,27 +221,31 @@ html[data-lp-layout="motion"] .lp-canvas {
   width: 100%;
   height: 100%;
 }
+/* 定格档只盖第 1 幕那一屏（舞台里第一个就是它，静止版式里高 100svh），光谱在它下面照常竖着排。 */
 html[data-lp-tier="reduced"] .lp-canvas {
   display: block;
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   width: 100%;
-  height: 100%;
+  height: 100svh;
   transition: none;
 }
 .lp-root.lp-gl-on .lp-canvas {
   opacity: 1;
 }
 
-/* —— 第 1 幕：分光。运动版式里舞台钉住 ACT1_SCREENS 屏，再用一屏解开钉住往上走（model/scene.ts 的
- * STAGE_SCREENS，由 LightStage 写进 --lp-stage-screens）；--lp-vh 是量出来的视口高度。 */
+/* —— 钉住的一段：高度是它在时间线上占的屏数（model/timeline.ts，由 Landing 写进 --lp-screens），
+ * 舞台钉住到最后一屏，再解开钉住往上走，下一段同时从下面进来。--lp-vh 是 LightStage 量出来的视口高度。 */
 .lp-stage-wrap,
 .lp-stage {
   position: relative;
 }
 html[data-lp-layout="motion"] .lp-stage-wrap {
-  height: calc(var(--lp-stage-screens) * var(--lp-vh, 100svh));
+  height: calc(var(--lp-screens) * var(--lp-vh, 100svh));
 }
+
+/* —— 第 1 幕：分光。 */
 html[data-lp-layout="motion"] .lp-stage {
   position: sticky;
   top: 0;
@@ -342,49 +346,65 @@ html[data-lp-layout="motion"] .lp-act1-copy {
   }
 }
 
-/* —— 第 2 幕：光谱。这一版只有 DOM：组合一段一段竖着排，名字竖排，每道光先是一根细线；
- * 着色器的光、横滚和聚焦由后续的 ticket 接上。她的颜色（--her-ink、--her-halo）由落地页模型算好。 */
-.lp-seg {
+/* —— 第 2 幕：光谱（Spectrum.tsx）。她的颜色（--her-ink、--her-halo、--her-deep）由落地页模型算好。
+ *
+ * 运动版式：名牌由 LightStage 按模型的 slotX 摆到横滚轨道上（每个组合一屏，left 写在内联样式里），
+ * 轨道整体平移；组合这一层的盒子不参与排版，名牌直接相对轨道定位。层级（原型里用户专门纠正过）：
+ * 其他人的名牌（1）< 立绘（2）< 被聚焦那位的名牌（3）。光由着色器画；光层没起来或丢了时，名牌上下
+ * 各一根 CSS 画的光。整层的不透明度跟着模型走（--lp-plates，放大时显出来）。
+ *
+ * 静止版式：组合一段一段竖着排，每段一屏，名字竖排，光由 CSS 画；聚焦时这一段的背景换成她的极深底色。 */
+.lp-act2 {
   position: relative;
   z-index: 1;
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  padding: 9vh 6vw 6vh var(--lp-gutter);
-  box-sizing: border-box;
-}
-.lp-seg-name {
-  margin: 0 0 4vh;
-  font-family: var(--lp-ja);
-  font-weight: 600;
-  font-size: clamp(15px, 1.5vw, 22px);
-  letter-spacing: 0.2em;
-  color: var(--lp-ink);
-}
-.lp-seg-row {
-  flex: 1;
-  display: flex;
-  justify-content: space-around;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 .lp-plate {
-  flex: 1;
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--her-ink);
+  cursor: pointer;
+  transition: opacity 0.4s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.lp-plate:focus-visible {
+  outline: none;
+}
+.lp-plate:focus-visible .lp-plate-body {
+  outline: 1px solid var(--her-halo);
+  outline-offset: 12px;
+  border-radius: 2px;
+}
+.lp-act2[data-focus] .lp-plate:not([data-focused]) {
+  opacity: 0.26;
+}
+.lp-plate-body {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 18px;
-  color: var(--her-ink);
 }
+/* 名牌上下的光：静止版式一直在；运动版式里光层画好以后让给着色器。 */
 .lp-plate::before,
 .lp-plate::after {
   content: "";
   flex: 1;
-  width: 1px;
-  background: var(--her-halo);
-  opacity: 0.7;
+  width: 2px;
+  background: #fff;
+  box-shadow:
+    0 0 8px 1px var(--her-halo),
+    0 0 40px 8px color-mix(in oklab, var(--her-halo) 32%, transparent);
+  opacity: 0.85;
+}
+html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-plate::before,
+html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-plate::after {
+  visibility: hidden;
 }
 .lp-no {
   font-family: var(--lp-ja);
@@ -399,17 +419,429 @@ html[data-lp-layout="motion"] .lp-act1-copy {
   font-size: clamp(32px, min(9vh, 8vw), 104px);
   line-height: 1;
   letter-spacing: 0.08em;
+  text-shadow:
+    0 0 26px color-mix(in oklab, var(--her-halo) 60%, transparent),
+    0 0 3px rgb(255 255 255 / 0.35);
 }
 .lp-hex {
   font: 11px ui-monospace, "Cascadia Mono", monospace;
   letter-spacing: 0.14em;
-  color: var(--her-halo);
-  opacity: 0.8;
+  color: color-mix(in oklab, var(--her-halo) 70%, white);
+  opacity: 0.75;
 }
 /* 窄屏一行五个名字，色值放不下，会挤到隔壁。 */
 @media (max-width: 639px) {
   .lp-hex {
     display: none;
+  }
+}
+.lp-seg-name {
+  margin: 0 0 4vh;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(15px, 1.5vw, 22px);
+  letter-spacing: 0.2em;
+  color: var(--lp-ink);
+}
+.lp-seg-row {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 立绘：只盖立绘区域的一块画布（立绘组件铺满这个框）。出现、消失都是淡入淡出。 */
+.lp-stand {
+  position: absolute;
+  bottom: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.lp-stand[data-shown] {
+  opacity: 1;
+}
+.lp-stand-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* 运动版式。 */
+html[data-lp-layout="motion"] .lp-stage {
+  overflow: clip; /* 不是滚动容器：键盘聚焦到画面外的名牌时，浏览器不会去滚轨道（由 Spectrum 滚页面过去）。 */
+}
+html[data-lp-layout="motion"] .lp-act2 {
+  position: absolute;
+  inset: 0;
+  opacity: var(--lp-plates, 0);
+  pointer-events: none;
+}
+html[data-lp-layout="motion"] [data-lp-plates] .lp-act2 {
+  pointer-events: auto;
+}
+html[data-lp-layout="motion"] .lp-track {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+/* 每个组合那一屏的左上角写组合名（--u 是第几个组合），随轨道一起推入；底部另有常驻的当前组合名。 */
+html[data-lp-layout="motion"] .lp-seg-name {
+  position: absolute;
+  top: 8vh;
+  left: calc(var(--u) * 100% + var(--lp-gutter));
+  z-index: 1;
+  margin: 0;
+  color: var(--lp-dim);
+}
+/* 光层没起来或丢了：聚焦时的极深底色由 CSS 铺（平时是着色器画）。 */
+html[data-lp-layout="motion"] .lp-act2 {
+  transition: background-color 0.4s ease;
+}
+html[data-lp-layout="motion"] .lp-root:not(.lp-gl-on) .lp-act2[data-focus] {
+  background-color: var(--her-deep);
+}
+html[data-lp-layout="motion"] .lp-plate {
+  position: absolute;
+  top: 0;
+  z-index: 1;
+  height: 100%;
+  width: clamp(90px, 15vw, 220px);
+  transform: translateX(-50%);
+}
+html[data-lp-layout="motion"] .lp-plate[data-focused] {
+  z-index: 3;
+}
+html[data-lp-layout="motion"] .lp-plate-body {
+  margin-top: -6vh;
+}
+html[data-lp-layout="motion"] .lp-track > .lp-stand {
+  width: min(50vw, 66vh);
+  height: 94%;
+}
+/* 竖屏：框太窄的话取景按宽度对齐，人只占上半屏；放宽、放矮，让她站在画面下半。 */
+@media (max-aspect-ratio: 10/11) {
+  html[data-lp-layout="motion"] .lp-track > .lp-stand {
+    width: 74vw;
+    height: 66%;
+  }
+}
+
+/* 底部常驻当前的组合名，下面一排按组合跳转的按钮。 */
+.lp-unitbar {
+  position: absolute;
+  left: var(--lp-rail);
+  right: 0;
+  bottom: 22px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.lp-unitbar-name {
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: clamp(15px, 1.5vw, 22px);
+  letter-spacing: 0.2em;
+  color: #f3f1f6;
+  text-shadow: 0 0 14px rgb(0 0 0 / 0.8);
+}
+.lp-unitjump {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: auto;
+}
+.lp-unitjump button {
+  position: relative;
+  min-width: 36px;
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  font: 12px var(--lp-ja);
+  letter-spacing: 0.12em;
+  color: var(--lp-dim);
+  text-shadow: 0 0 10px rgb(0 0 0 / 0.9); /* 立绘的浅色衣服压在下面时也看得清。 */
+  cursor: pointer;
+}
+.lp-unitjump button:hover {
+  color: var(--lp-ink);
+}
+.lp-unitjump button:focus-visible {
+  outline: 1px solid var(--lp-ink);
+  outline-offset: -2px;
+}
+.lp-unitjump button[aria-current] {
+  color: #fff;
+}
+.lp-unitjump button[aria-current]::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 4px;
+  height: 1px;
+  background: #fff;
+  box-shadow: 0 0 6px rgb(255 255 255 / 0.8);
+}
+
+/* 静止版式（定格档、静态档、没有 JS）。 */
+html:not([data-lp-layout="motion"]) .lp-seg {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  padding: 9vh 6vw 6vh var(--lp-gutter);
+  box-sizing: border-box;
+  transition: background-color 0.4s ease;
+}
+html:not([data-lp-layout="motion"]) .lp-seg[data-focused] {
+  background-color: var(--her-deep);
+}
+html:not([data-lp-layout="motion"]) .lp-seg-row {
+  flex: 1;
+  display: flex;
+  justify-content: space-around;
+}
+html:not([data-lp-layout="motion"]) .lp-plate-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+html:not([data-lp-layout="motion"]) .lp-plate {
+  flex: 1;
+  min-width: 0;
+}
+html:not([data-lp-layout="motion"]) .lp-plate[data-focused] {
+  position: relative;
+  z-index: 3;
+}
+/* 静止版式的立绘：站在名牌旁边空间大的一边，压在同一段里其他人的名牌上。 */
+html:not([data-lp-layout="motion"]) .lp-plate-slot > .lp-stand {
+  width: min(42vw, 52vh);
+  height: 82%;
+}
+html:not([data-lp-layout="motion"]) .lp-stand[data-side="after"] {
+  left: 60%;
+}
+html:not([data-lp-layout="motion"]) .lp-stand[data-side="before"] {
+  right: 60%;
+}
+
+/* —— 左侧的幕名轨：竖排的日文幕名，当前这一幕亮起。 */
+.lp-rail {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 5;
+  width: var(--lp-rail);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.lp-rail ol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lp-rail li {
+  position: relative;
+  writing-mode: vertical-rl;
+  font-family: var(--lp-ja);
+  font-size: 12px;
+  letter-spacing: 0.32em;
+  color: rgb(255 255 255 / 0.32);
+  transition: color 0.5s ease;
+}
+.lp-rail li[data-current] {
+  color: #fff;
+  text-shadow: 0 0 12px rgb(255 255 255 / 0.6);
+}
+.lp-rail li[data-current]::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 0.3em;
+  width: 1px;
+  background: #fff;
+  box-shadow: 0 0 6px 1px rgb(255 255 255 / 0.7);
+}
+@media (max-width: 639px) {
+  .lp-rail ol {
+    gap: 12px;
+  }
+  .lp-rail li {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+  }
+}
+
+/* —— 各幕共用的标题和正文。 */
+.lp-act-title {
+  margin: 0;
+  font-family: var(--lp-zh-title);
+  font-weight: 600;
+  font-size: clamp(22px, 2.5vw, 40px);
+  letter-spacing: 0.05em;
+  line-height: 1.45;
+}
+.lp-act-body {
+  margin: 1.1em 0 0;
+  font-size: 15px;
+  line-height: 2.1;
+  color: rgb(238 236 242 / 0.68);
+}
+
+/* —— 第 5 幕：记忆（Memory.tsx）。布景是两屏宽的一张 SVG：运动版式里跟着模型横移（--lp-pan），
+ * 回忆的光迹按模型给的进度描出来（--lp-trace-0…，默认是画完的样子）；光和光路在光层画好以后让给着色器。
+ * 静止版式里整张布景压进一屏。 */
+.lp-act5 {
+  position: relative;
+  z-index: 1;
+  height: 100svh;
+  overflow: hidden;
+}
+html[data-lp-layout="motion"] .lp-act5 {
+  overflow: clip;
+}
+.lp-memory-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+html[data-lp-layout="motion"] .lp-memory-world {
+  width: 200%;
+  transform: translate3d(var(--lp-pan, 0px), 0, 0);
+  will-change: transform;
+}
+html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-memory-static {
+  display: none;
+}
+.lp-trace path {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: calc(1 - var(--lp-trace));
+}
+/* 竖屏上布景横向压得厉害，光迹跟着变细，加粗一点。 */
+@media (max-aspect-ratio: 10/11) {
+  .lp-trace path + path {
+    stroke-width: 2.4;
+  }
+}
+.lp-act5-copy {
+  position: absolute;
+  left: var(--lp-gutter);
+  bottom: 12%;
+  max-width: min(30rem, 78vw);
+  text-shadow: 0 0 18px #000;
+}
+
+/* —— 第 6 幕：诚实事项（Closing.tsx）。全站最暗、最静：没有任何滚动动画，居中，行高宽松。
+ * 运动版式里它的高度是它在时间线上占的屏数（--lp-screens），最后一屏是第 7 幕进来的时候。 */
+.lp-act6 {
+  position: relative;
+  z-index: 1;
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18svh var(--lp-gutter);
+  box-sizing: border-box;
+}
+html[data-lp-layout="motion"] .lp-act6 {
+  min-height: calc(var(--lp-screens) * var(--lp-vh, 100svh));
+  align-items: flex-start;
+  padding-top: 26svh;
+}
+.lp-act6-text {
+  max-width: 34em;
+  text-align: center;
+}
+.lp-act6-text .lp-act-title {
+  font-size: clamp(20px, 2vw, 30px);
+  margin-bottom: 1.6em;
+}
+.lp-act6-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 2.4;
+  color: rgb(238 236 242 / 0.78);
+}
+.lp-act6-line + .lp-act6-line {
+  margin-top: 0.6em;
+}
+
+/* —— 第 7 幕：开始（Closing.tsx）。光层画收拢的光和手机屏幕；静止版式、光层没起来时由 CSS 画汇聚后的
+ * 那块白光，几何和落地页模型的 screenOf 一样：电脑上在画面左边三成处、高 60%，竖屏上在正中、34% 高处。 */
+.lp-act7 {
+  position: relative;
+  z-index: 1;
+  height: 100svh;
+  overflow: hidden;
+}
+.lp-screen-static {
+  position: absolute;
+  left: calc(var(--lp-rail) + (100% - var(--lp-rail)) * 0.3);
+  top: 50%;
+  height: 60%;
+  aspect-ratio: 0.46;
+  transform: translate(-50%, -50%);
+  border-radius: 8% / 3.7%;
+  background: #fffbf6;
+  box-shadow:
+    0 0 24px 6px rgb(255 251 246 / 0.6),
+    0 0 120px 40px rgb(255 251 246 / 0.28),
+    0 0 320px 100px rgb(255 251 246 / 0.07);
+}
+html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-screen-static {
+  display: none;
+}
+.lp-act7-copy {
+  position: absolute;
+  left: 56%;
+  right: 6vw;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 26rem;
+  text-shadow: 0 0 24px #000;
+}
+.lp-act7-copy .lp-act-body {
+  margin-bottom: 2em;
+}
+html[data-lp-layout="motion"] .lp-act7-copy {
+  opacity: var(--lp-act7, 0);
+  pointer-events: none;
+}
+html[data-lp-layout="motion"] [data-lp-cta] .lp-act7-copy,
+html[data-lp-layout="motion"] .lp-act7-copy:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (max-aspect-ratio: 10/11) {
+  .lp-screen-static {
+    left: 50%;
+    top: 34%;
+    height: min(40%, 124vw);
+  }
+  .lp-act7-copy {
+    left: var(--lp-gutter);
+    right: 20px;
+    top: auto;
+    bottom: 9%;
+    transform: none;
+    text-align: center;
   }
 }
 

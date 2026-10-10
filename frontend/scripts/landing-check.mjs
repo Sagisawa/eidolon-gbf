@@ -21,6 +21,9 @@
 //      第 1 幕，等一会儿、滚一下画面都不变；截一张图。
 //   6. 「不支持 WebGL」档（Chromium 关掉 WebGL 启动）：静态档，load 之后不再加载任何脚本（没有画布、
 //      没有 Lenis），SVG 画的光在；第 0、1 幕各截一张图。
+//   7. 第 2、5、7 幕：完整档里电脑、竖屏手机各截几张（光谱归队、停在某个组合、聚焦、记忆、诚实事项、
+//      开始），停在某个组合时底部的组合名就是这个组合，第 7 幕的行动按钮弹出登录面板；定格档、静态档
+//      各截这几幕的静止版式。滚动位置按落地页模型的时间线（model/timeline.ts）算，和页面同一个出处。
 //   截图写到 screenshots/landing-check/（gitignore 掉的），或者环境变量 LANDING_SHOTS 指定的目录。
 //
 // 节流照 Lighthouse 移动端默认：RTT 150 ms、下行 1.6 Mbps、上行 750 Kbps、CPU 4 倍降速；
@@ -31,6 +34,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
+
+import { ACT1_SCREENS, holdAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
 
 const origin = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
 const runs = Number(process.argv[3] ?? 3);
@@ -237,14 +242,44 @@ const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isM
 
 /** 滚到第 1 幕幕内进度 p 的地方（运动版式）；静止版式下滚到第 1 幕那一屏。 */
 async function toAct1(page, p) {
-  await page.evaluate((p) => {
-    const wrap = document.querySelector(".lp-stage-wrap");
-    const top = wrap.getBoundingClientRect().top + window.scrollY;
-    const act1 = parseFloat(getComputedStyle(wrap).getPropertyValue("--lp-stage-screens")) - 1;
-    const motion = document.documentElement.dataset.lpLayout === "motion";
-    window.scrollTo(0, motion ? top + p * act1 * window.innerHeight : top);
-  }, p);
+  await page.evaluate(
+    ({ p, act1 }) => {
+      const wrap = document.querySelector(".lp-stage-wrap");
+      const top = wrap.getBoundingClientRect().top + window.scrollY;
+      const motion = document.documentElement.dataset.lpLayout === "motion";
+      window.scrollTo(0, motion ? top + p * act1 * window.innerHeight : top);
+    },
+    { p, act1: ACT1_SCREENS },
+  );
   await page.waitForTimeout(1200);
+}
+
+/** 这一页的时间线：组合数从页面上数。 */
+const timelineOn = async (page) => timelineOf(await page.locator(".lp-seg").count());
+
+/**
+ * 运动版式里滚到时间线上第 `screens` 屏（LightStage 的 scrollOf 反过来：钉住的一段一一对应，照常往上走的
+ * 一段按比例，它的最后一屏一一对应）。
+ */
+async function toScreens(page, screens) {
+  const { sections } = await timelineOn(page);
+  await page.evaluate(
+    ({ screens, sections }) => {
+      const els = [...document.querySelectorAll("[data-lp-section]")];
+      const s = sections.find((s) => screens < s.from + s.screens) ?? sections.at(-1);
+      const el = els[s.index];
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const vh = window.innerHeight;
+      const into = screens - s.from;
+      let y;
+      if (s.pinned || el.offsetHeight <= vh) y = top + (into / s.screens) * el.offsetHeight;
+      else if (into < s.screens - 1) y = top + (into / (s.screens - 1)) * (el.offsetHeight - vh);
+      else y = top + el.offsetHeight - vh + (into - s.screens + 1) * vh;
+      window.scrollTo(0, y);
+    },
+    { screens, sections },
+  );
+  await page.waitForTimeout(1600);
 }
 
 /** CSS 白光的尽头在不在落地页模型的锚点上（差不到 1.5 px）。 */
@@ -359,6 +394,78 @@ function watchConsole(page) {
   );
   await noGl.close();
 }
+// —— 7. 第 2、5、7 幕
+
+{
+  const complaints = [];
+  for (const [name, options] of [
+    ["full", DESKTOP],
+    ["phone", PHONE],
+  ]) {
+    const context = await browser.newContext(options);
+    const page = await context.newPage();
+    complaints.push(watchConsole(page));
+    await page.goto(`${origin}/?tier=${name === "full" ? "full" : "lite"}`, { waitUntil: "load" });
+    await glOn(page);
+    const tl = await timelineOn(page);
+    const act2 = spanOf(tl, 2);
+    const act5 = spanOf(tl, 5);
+    const act7 = spanOf(tl, 7);
+    if (act2) {
+      await toScreens(page, act2.from + 0.5);
+      await page.screenshot({ path: path.join(shots, `${name}-act2-regroup.png`) });
+      const units = await page.locator(".lp-seg-name").allInnerTexts();
+      const u = Math.min(1, units.length - 1);
+      await toScreens(page, holdAt(tl, u));
+      const bar = await page.locator(".lp-unitbar-name").innerText();
+      report(`${name}：停在第 ${u + 1} 个组合时，底部的组合名是「${units[u]}」`, bar === units[u], `显示「${bar}」`);
+      await page.screenshot({ path: path.join(shots, `${name}-act2-unit${u + 1}.png`) });
+      // 聚焦：电脑上指针移上去，手机上点一下。
+      const plate = page.locator(".lp-seg").nth(u).locator(".lp-plate").first();
+      if (name === "full") await plate.hover();
+      else await plate.tap();
+      await page.waitForTimeout(2500);
+      const focused = await page.evaluate(() => document.querySelector(".lp-act2")?.dataset.focus ?? null);
+      report(`${name}：聚焦一位偶像`, focused !== null, focused ?? "没有聚焦");
+      await page.screenshot({ path: path.join(shots, `${name}-act2-focus.png`) });
+    }
+    for (const [label, at] of [
+      ["act5", act5.from + act5.length * 0.45],
+      ["act5-end", act5.from + act5.length],
+      ["act6", spanOf(tl, 6).from + 0.2],
+      ["act7", act7.from + act7.length],
+    ]) {
+      await toScreens(page, at);
+      await page.screenshot({ path: path.join(shots, `${name}-${label}.png`) });
+    }
+    if (name === "full") {
+      await page.locator(".lp-act7-copy button").click();
+      const dialog = await page.getByRole("dialog").waitFor({ timeout: 10000 }).then(
+        () => true,
+        () => false,
+      );
+      report("第 7 幕的行动按钮弹出登录面板", dialog);
+    }
+    await context.close();
+  }
+  const all = complaints.flat();
+  report("第 2、5、7 幕的控制台没有报错和警告", all.length === 0, all.join("；") || "没有");
+
+  for (const tier of ["reduced", "static"]) {
+    const context = await browser.newContext({ ...DESKTOP, reducedMotion: tier === "reduced" ? "reduce" : "no-preference" });
+    const page = await context.newPage();
+    await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
+    await page.waitForTimeout(1500);
+    for (const sel of [".lp-seg", ".lp-act5", ".lp-act6", ".lp-act7"]) {
+      if (!(await page.locator(sel).count())) continue;
+      await page.locator(sel).first().evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(shots, `${tier}-${sel.slice(4)}.png`) });
+    }
+    await context.close();
+  }
+}
+
 await browser.close();
 console.log(`截图在 ${shots}`);
 

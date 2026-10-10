@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { getCharacters, isSignedIn } from "@/lib/backend";
+import { getCharacters, getSignInOptions, isSignedIn } from "@/lib/backend";
 
 import { Landing } from "./Landing";
 
@@ -11,5 +11,6 @@ import { Landing } from "./Landing";
  */
 export default async function Home() {
   if (await isSignedIn((await cookies()).toString())) redirect("/conversations");
-  return <Landing isSignedIn={false} characters={await getCharacters()} />;
+  const [characters, signInOptions] = await Promise.all([getCharacters(), getSignInOptions()]);
+  return <Landing isSignedIn={false} characters={characters} signInOptions={signInOptions} />;
 }
