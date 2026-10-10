@@ -108,7 +108,7 @@ async def upload_greetings(
     characters: Iterable[Character],
     bucket: S3Settings,
     fish: FishAudioSettings,
-    readings: Sequence[Reading] = (),
+    readings: Sequence[Reading],
     *,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> GreetingReport:

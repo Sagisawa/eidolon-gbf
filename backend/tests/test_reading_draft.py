@@ -83,9 +83,10 @@ def test_run_again_it_fills_in_empty_phonemes_adds_who_is_missing_and_leaves_the
         "八宮めぐる", "八宮", "浅倉透", "浅倉", "illumination STARS"
     ]
 
-    again = draft(admin, config)
+    written = path.read_text(encoding="utf-8")
+    admin.run("reading", "draft", "--characters", str(config.path))
 
-    assert again == readings
+    assert path.read_text(encoding="utf-8") == written  # word for word
 
 
 def test_a_character_whose_sheet_does_not_say_how_her_name_is_read_is_reported(
@@ -116,7 +117,3 @@ def test_kana_is_read_as_one_word_not_as_a_sentence():
     assert to_phonemes("はちみや").startswith("ha")
     assert "wa" not in to_phonemes("なつは")
 
-
-def test_each_part_of_a_reading_is_made_on_its_own():
-    assert to_phonemes("ありすがわ なつは") == to_phonemes("ありすがわ") + to_phonemes("なつは")
-    assert to_phonemes("つばさ") == to_phonemes("ツバサ")

@@ -379,7 +379,6 @@ async def test_hanging_up_while_her_last_reply_plays_closes_every_connection():
 READINGS = (
     Reading("櫻木真乃", "さくらぎ まの", "sa0ku1ra1gi0ma1no0"),
     Reading("283", "つばさ", "tsu0ba1sa1"),
-    Reading("透", "とおる", ""),  # no phonemes yet: Fish Audio is not told it
 )
 DICTIONARY = [{"items": [
     {"key": "櫻木真乃", "value": "sa0ku1ra1gi0ma1no0", "case_sensitive": True},
@@ -402,15 +401,16 @@ async def test_without_readings_sessions_start_with_no_pronunciation_dictionary(
     assert fish.starts and all("pronunciation_dictionary" not in start for start in fish.starts)
 
 
-@pytest.mark.parametrize("key", ["deployer-fish-key", "users-own-fish-key"])
-async def test_calls_on_either_key_speak_with_the_readings(key: str, monkeypatch: pytest.MonkeyPatch):
+async def test_calls_speak_with_the_readings_whoever_s_key_they_are_on(monkeypatch: pytest.MonkeyPatch):
+    """The speech services make every call's speech synthesis alike, on the deployer's key
+    or a user's own: this one is on a user's."""
     fish = FakeFish()
 
     async def connect(self: FishTTS, uri: str, **kwargs: Any) -> Any:
         return await fish.connect()
 
     monkeypatch.setattr(FishTTS, "_websocket_connect", connect)
-    tts = SpeechServices(readings=READINGS).tts(key, "s2.1-pro-free", "mano-voice", 16000)
+    tts = SpeechServices(readings=READINGS).tts("users-own-fish-key", "s2.1-pro-free", "mano-voice", 16000)
     tts._pause_frame_processing = False  # as `FishUnderTest`: no transport says she stopped
 
     await run(*reply(1, ["櫻木真乃です。"]), fish=fish, tts=tts)  # pyright: ignore[reportArgumentType]

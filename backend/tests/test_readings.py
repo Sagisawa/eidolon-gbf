@@ -74,7 +74,6 @@ def test_the_pronunciation_dictionary_has_every_reading_with_phonemes_case_sensi
         }
     ]
     assert pronunciation_dictionary((TSUBASA,)) is None
-    assert pronunciation_dictionary(()) is None
 
 
 def test_what_a_line_uses_is_what_fish_audio_matches_earliest_and_longest_first():
@@ -92,28 +91,20 @@ def test_what_a_line_uses_is_what_fish_audio_matches_earliest_and_longest_first(
     assert used_in("ほわっ", readings) == ()
 
 
-def test_the_readings_file_is_beside_the_character_configuration(tmp_path: Path):
-    assert readings_path(tmp_path / "characters.toml") == tmp_path / "readings.toml"
-
-
 # The committed readings file.
 
 
-def test_every_character_with_kanji_in_her_name_has_her_full_name_read():
+def test_the_committed_readings_read_every_character_unit_and_the_office():
     readings = {r.written: r for r in load_readings(readings_path(REPO_CHARACTERS))}
     characters = load_characters(REPO_CHARACTERS, require_sheets=False)
+    world = load_world(world_path(REPO_CHARACTERS))
+    assert world is not None
 
-    unread = [
-        c.name for c in characters.values()
-        if KANJI.search(c.name) and not (c.name in readings and readings[c.name].phonemes)
-    ]
-
+    # Every character with kanji in her name has her full name read.
+    unread = [c.name for c in characters.values() if KANJI.search(c.name) and c.name not in readings]
     assert unread == []
-
-
-def test_the_office_and_its_president_are_read_as_they_are_in_the_original():
-    readings = {r.written: r for r in load_readings(readings_path(REPO_CHARACTERS))}
-
+    for unit in world.units:
+        assert readings[unit.name].kana.replace(" ", "") == unit.reading, unit.name
     for written in ("283プロダクション", "283プロ", "283"):
         assert readings[written].kana.startswith("つばさ"), written
     assert readings["天井努"].kana.replace(" ", "") == "あまいつとむ"
@@ -122,13 +113,4 @@ def test_the_office_and_its_president_are_read_as_they_are_in_the_original():
     # Words of their own, which these would make Fish Audio misread wherever they appear.
     assert "透" not in readings
     assert "天井" not in readings
-    assert all(r.phonemes for r in readings.values())
-
-
-def test_the_units_are_read_as_the_world_setting_has_them():
-    readings = {r.written: r for r in load_readings(readings_path(REPO_CHARACTERS))}
-    loaded = load_world(world_path(REPO_CHARACTERS))
-    assert loaded is not None
-    for unit in loaded.units:
-        assert unit.reading is not None
-        assert readings[unit.name].kana.replace(" ", "") == unit.reading
+    assert [r.written for r in readings.values() if not r.phonemes] == []

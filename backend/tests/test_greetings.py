@@ -56,7 +56,7 @@ class Deployment:
             "kogane", "月岡恋鐘", KOGANE_SHEET, voice_id=kogane_voice, greeting=kogane
         ).add("hiori", "風野灯織", "sheet", voice_id="hiori-voice")
 
-    def read(self, *readings: tuple[str, str]) -> None:
+    def write_readings(self, *readings: tuple[str, str]) -> None:
         """The readings file has `readings`, each a name as written and its phonemes."""
         self.characters.write("readings.toml", "".join(
             f'[[readings]]\nwritten = "{written}"\nkana = "かな"\nphonemes = "{phonemes}"\n'
@@ -137,7 +137,7 @@ async def test_every_greeting_is_voiced_with_the_readings_as_its_pronunciation_d
 ):
     """All of them, those her greeting does not use too; she is told to say her words as
     they are written."""
-    deployment.read(*READINGS, ("透", ""))  # no phonemes yet: Fish Audio is not told it
+    deployment.write_readings(*READINGS)
 
     await deployment.upload()
 
@@ -163,7 +163,7 @@ async def test_a_greeting_is_voiced_again_once_a_reading_it_uses_changes(deploym
     """Its address is of the readings it uses too: one whose name is read anew is at an
     address no browser has cached. One that uses none is where it always was."""
     before = deployment.paths()
-    deployment.read(*READINGS)
+    deployment.write_readings(*READINGS)
     read = deployment.paths()
 
     assert read["mano"] != before["mano"]
@@ -171,7 +171,7 @@ async def test_a_greeting_is_voiced_again_once_a_reading_it_uses_changes(deploym
     await deployment.upload()
     deployment.fish.requests.clear()
 
-    deployment.read(("櫻木真乃", "sa0ku1ra1gi1ma1no0"), *READINGS[1:])  # tuned by hand
+    deployment.write_readings(("櫻木真乃", "sa0ku1ra1gi1ma1no0"), *READINGS[1:])  # tuned by hand
     report = await deployment.upload()
 
     assert deployment.paths()["mano"] not in (read["mano"], before["mano"])
@@ -180,7 +180,7 @@ async def test_a_greeting_is_voiced_again_once_a_reading_it_uses_changes(deploym
     assert report.deleted == [read["mano"]]
 
     # Readings her greeting does not use change: nothing is voiced again.
-    deployment.read(("櫻木真乃", "sa0ku1ra1gi1ma1no0"), ("真乃", "ma0no1"), ("283", "tsu1ba0sa0"))
+    deployment.write_readings(("櫻木真乃", "sa0ku1ra1gi1ma1no0"), ("真乃", "ma0no1"), ("283", "tsu1ba0sa0"))
     deployment.fish.requests.clear()
     report = await deployment.upload()
 

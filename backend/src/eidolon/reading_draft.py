@@ -38,10 +38,11 @@ _KANA = "ぁ-んァ-ヶー"
 
 HEADING = """\
 # 读音（GLOSSARY.md「读音」）：角色名、组合名、事务所名在角色的声音里怎么念。每次请求 Fish Audio
-# 都带上 phonemes 不为空的全部条目，作为发音词典（readings.py）。
+# 都把 phonemes 不为空的全部条目放进请求的 pronunciation_dictionary（readings.py）。
 #
 # written：原文写法，Fish Audio 按字面子串、区分大小写匹配，所以别收会和普通词撞上的写法
-#   （「透」「天井」）。kana：读音，姓和名之间空一格。phonemes：发给 Fish Audio 的音素串。
+#   （「透」「天井」）。kana：读音；用空格隔开的每一段分别转成音素再拼起来，人设里的名字在姓和名
+#   之间空一格。phonemes：发给 Fish Audio 的音素串。
 #
 # 改读音：改 kana，把 phonemes 清空成 ""，在 backend 下运行 `uv run eidolon reading draft`
 # 补上音素（已有音素的条目不动）；然后重启后端，再运行 `eidolon greeting upload`。
@@ -75,7 +76,7 @@ def draft_readings(
     for character in characters:
         if not _KANJI.search(character.name) or character.name in readings:
             continue
-        drafted = _character(character)
+        drafted = _name_readings(character)
         if drafted is None:
             report.unread.append(character.name)
             continue
@@ -86,7 +87,8 @@ def draft_readings(
             if unit.reading:
                 add(unit.name, unit.reading)
         for staff in world.staff:
-            add(staff.name, staff.reading)
+            if staff.reading:
+                add(staff.name, staff.reading)
 
     for written, reading in readings.items():
         if not reading.phonemes and reading.kana:
@@ -96,7 +98,7 @@ def draft_readings(
     return list(readings.values()), report
 
 
-def _character(character: Character) -> list[tuple[str, str]] | None:
+def _name_readings(character: Character) -> list[tuple[str, str]] | None:
     """Her full name, surname and given name with their kana, those with kanji in them,
     not words of their own; None if her sheet does not say how her name is read."""
     match = re.search(
