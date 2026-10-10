@@ -99,7 +99,7 @@ facts = "facts/mamimi.md"
 speakers = ["摩美々"]
 idol_id = 5
 default_outfit = "stand/1030050010"  # 【裏腹あまのじゃく】
-greeting = "[sleepy] ふぁ……新しいプロデューサーですかぁ？　まみみ、悪い子ですよー"
+greeting = "[lazily] ふぁ……新しいプロデューサーですかぁ？　まみみ、悪い子ですよー"
 greeting_subtitle = "哈啊……新来的制作人？摩美々可是坏孩子哦～"
 
 [[characters]]
@@ -294,7 +294,7 @@ facts = "facts/kaho.md"
 speakers = ["果穂", "果穗"]  # 「果穗」：汉化库 有栖川夏葉/Landing Point編 有几个 CSV 把说话人写成了简体
 idol_id = 9
 default_outfit = "stand/1030090010"  # 【マメ丸と一緒！】
-greeting = "[excitedly] 小宮果穂です！　ヒーローみたいなアイドル、目指しますっ！"
+greeting = "[excitedly]小宮果穂です！　ヒーローみたいなアイドル、目指しますっ！"
 greeting_subtitle = "我是小宮果穂！我要成为像英雄一样的偶像！"
 
 [[characters]]
