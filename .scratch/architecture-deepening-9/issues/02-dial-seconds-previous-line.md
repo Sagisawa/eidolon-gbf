@@ -16,7 +16,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** claimed
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 

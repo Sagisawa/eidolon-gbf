@@ -12,7 +12,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** claimed
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -41,7 +41,6 @@
 ### 实现说明（2026-10-11）
 
 - `liveConversation.ts`：`characterId` 从 `private readonly` 改成公开的 `readonly`，对外说明这是哪位角色的对话。
-- `liveConversation.test.ts`：`opening` 辅助加一个 `characterId` 选项（默认仍是 `"hikari"`），新增一条「says whose conversation it is」，用 `"misaki"` 建实例、断言 `live.characterId` 就是建它时给的那位。（这个属性原本就在运行时存在，TS 的 `private` 只是编译期；新增的断言现在是经公开接口看得到的。）
 - `ConversationDirectory.tsx`：`Directory` 去掉 `setCall`，换成 `handOver(live: LiveConversation | null)`（对话页建好后交给列表一次、离开时交回 null）；`DirectoryProvider` 保存交来的实例，用 `useSyncExternalStore` 订阅它的 `snapshot`/`subscribe`，`call: CallInList` 从快照里进行中的通话算出（仍暴露算好的 `call`，所以 `ConversationList` 不用改）。`leave()` 改成在点击那一刻读 `live.snapshot().call` 判断通话是否在进行。没有 LiveConversation 交来时用模块级的空快照 `NOT_OPEN` 兜底。
 - `ConversationView.tsx`：在建 LiveConversation 的同一个 effect 里 `handOver(conversation)`，cleanup 里 `handOver(null)` 后再 `dispose()`；删掉原来每次转换都抄状态给列表的两个 effect。对话页自己仍保留 `live` state 供本页订阅（`setLive`），所以交出的是 `handOver`。
 - `ConversationList.tsx` 未改：`call` 的形状（`CallInList`）和来源都不变，只是现在由 Directory 从快照算出来。
@@ -64,3 +63,7 @@
 6. 窄屏（< 768px）下通话中点页首返回键：同样先弹确认框；取消留下通话，确认则挂断回到列表。
 
 （另：换角色、点更多菜单里的「记忆」「设置」也会经同一套 `leave()`，行为与上面第 4 条一致。）
+
+### 代码审查后的改动（2026-10-11）
+
+验收第一条要的测试「LiveConversation 说明的角色，就是建它时给的那位」删掉了，连同 `opening` 辅助里只给它用的 `characterId` 选项（974ad54）。它只断言构造参数原样从 `readonly characterId` 读回，是 `CODING_STANDARDS.md`「Tests」里的 Holds by construction：类型和语法已经保证，测试守不住任何行为。列表用 `live.characterId` 显示那一行，由人工验收第 1、2 条核对。用户同意不再要这条测试。
