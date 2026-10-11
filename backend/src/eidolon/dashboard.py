@@ -183,7 +183,7 @@ def calls(records: Sequence[RecordRow]) -> dict:
     return {
         "total": len(records),
         "by_result": {result: by_result[result] for result in CALL_RESULTS},
-        "own_keys": sum(bool(r.exempt) for r in records),
+        "own_keys": sum(r.own_keys for r in records),
         "duration_s": {"p50": percentile(lasted, 50), "p90": percentile(lasted, 90)},
         "durations": [
             {
