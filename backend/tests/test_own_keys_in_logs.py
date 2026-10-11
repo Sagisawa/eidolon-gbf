@@ -73,7 +73,7 @@ async def test_own_keys_stay_out_of_the_logs_and_are_masked_in_what_the_user_is_
     failed = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
     await client.post(  # refused, its key unchecked
         f"/api/conversations/{conversation_id}/turns",
-        json={"text": "在吗", "own_llm": LLM | {"api_key": f"{KEY} with spaces"}},
+        json={"text": "在吗", "own_keys": {"llm": LLM | {"api_key": f"{KEY} with spaces"}}},
     )
     own_llm.rejects[KEY] = echoing("401 Unauthorized")
     speech.rejects[KEY] = echoing("401 Unauthorized")

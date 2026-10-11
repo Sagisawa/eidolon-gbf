@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { LLM_PROTOCOLS, checkOwnLLM, checkOwnSpeechKey, getAccount, type LLMProtocol, type SttProvider } from "@/lib/api";
+import { checkOwnLLM, checkOwnSpeechKey, getAccount } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
@@ -22,10 +22,14 @@ import {
   keepOwnKey,
   last4,
   localOwnKeys,
+  LLM_PROTOCOLS,
   ownServices,
+  STT_PROVIDERS,
+  type LLMProtocol,
   type LocalLLM,
   type LocalOwnKeys,
   type LocalTtsKey,
+  type SttProvider,
 } from "@/lib/localOwnKeys";
 import { limitExemption } from "@/lib/ownKeys";
 import { cn } from "@/lib/utils";
@@ -208,8 +212,6 @@ function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: 
     </div>
   );
 }
-
-const STT_PROVIDERS: SttProvider[] = ["soniox", "bailian"];
 
 /**
  * 语音合成或语音识别的 key：先让服务器试调一次（它不保存），通过了才存进这个浏览器。语音识别先选服务商
