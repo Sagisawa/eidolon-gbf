@@ -93,11 +93,9 @@ export type Message = {
   created_at: string;
 };
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. In a call, `user` says
- * which of her replies in the call it opens, numbered from 1 (a turn replied to afresh opens
- * again, with the next number). */
+/** A turn's events: `user`, then any `delta`s, then `done` or `error`. */
 export type TurnEvent =
-  | { type: "user"; text: string; reply?: number }
+  | { type: "user"; text: string }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
   | { type: "done"; message: Message }
   | { type: "error"; message: string };
@@ -128,11 +126,16 @@ export type Memory = {
  * and, when it is about to hang up (the call reached its time or turn limit, a voice service
  * or an own key failed), why, and whether the call counted towards the hourly limit. */
 export type CallEvent =
-  | TurnEvent
+  | Exclude<TurnEvent, { type: "user" }>
+  | CallUserEvent
   | SegmentPlaying
   | SegmentEmotion
   | Speaking
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+
+/** A call's turn opens with `user` as any turn does, saying too which of her replies in the call
+ * it opens, numbered from 1 (a turn replied to afresh opens again, with the next number). */
+type CallUserEvent = Extract<TurnEvent, { type: "user" }> & { reply: number };
 
 /** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little

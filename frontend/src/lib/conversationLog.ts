@@ -57,6 +57,14 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
   }
 }
 
+/** The segments of her reply in the turn under way, as far as they have arrived; none if no turn
+ * is under way. */
+export function replySoFar(log: ConversationLog): Segment[] {
+  const turn = log.turn;
+  const reply = turn && log.entries.find((entry) => entry.key === turn.replyKey);
+  return reply?.kind === "character" ? reply.segments : [];
+}
+
 /** Opens a turn with the user's words and an empty reply to fill. The turn in progress is
  * always the last two entries, so an entry's position is never shared by two entries
  * shown together and serves as its key until the entry is replaced by the recorded one. */

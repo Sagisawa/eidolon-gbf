@@ -45,3 +45,15 @@ DESIGN.md「Call layer」里台词卡的说明补上换段节奏。
 - 「被打断」靠用户开口（`user-started-speaking`）或在通话里发出打的字来判断，不靠下一条回复开始；补充同样会触发它，但补充放下的回复本来就不留痕迹。
 - 兜底补放时立绘靠新的 `line-shown` 立绘事件换到台词卡那段（`standDirection.ts`），和 `segment-playing` 同一条规则。
 - 原来的「counts her lines in a call from the start of the new conversation」删掉了：台词卡不再从对话记录里取段，每次接通都清空，它守的东西由「starts each call with nothing on it」覆盖。
+
+## Comments
+
+**代码审查后的修改**（2026-10-11）：
+
+- 兜底不再跑到声音前面：同一条回复两段之间静音超过 0.35 秒（Pipecat 的 `BOT_VAD_STOP_SECS`），后端就会发 `bot-stopped-speaking`，原来一看到不在说话、当前段又过了估算时长就立刻换段。现在声音停下后再等 `VOICE_WAIT_MS`（3 秒，和「回复记下后等她开口」共用：两种等的都是下一段的语音合成），声音一直没回来才开始兜底，兜底的下一段至少在「声音停下的时刻 + 3 秒」。上面实现说明里「声音停了就从停下的那段接着放」以此为准。由测试「waits out a pause in her voice…」守着。
+- 一个通话事件只发布一次快照：`user`、`delta`、`done` 的对话记录和台词卡在同一次 update 里改，挂断时也是。
+- 「这条回复到目前为止的段」挪到 `conversationLog.ts` 的 `replySoFar`。
+- 改名：`Lines` → `LineCard`（`NO_LINES` → `BLANK_CARD`，`movedLines`/`pacedLines` → `movedCard`/`pacedCard`，LiveConversation 的 `moveLines`/`showLines` → `moveCard`/`showCard`，状态字段 `lines` → `card`）；显示过的段的 `line` 改叫 `text`（这段到目前为止的日语和字幕）。`pacedCard` 直接告诉调用方换到了哪段，不再靠引用比较判断。
+- 通话里的 `user` 事件后端总带 `reply`（`call.py` 发 `UserSaid` 时加上），前端把 `CallEvent` 里的 `user` 收紧成必有，去掉 `?? 0`；文字回合的 `TurnEvent` 不带它。测试里通话的 `user` 事件补上回复号。
+
+**没修的两条**（审查时决定这次不动）：打断后 Fish 重连超过 3 秒、台词卡先按估算节奏放了的情形；前端 `textOnly` 与后端判定这条回复有没有声音的竞态。两者都少见，出了也只是这一条回复的台词卡节奏不准，修它们要前后端多传信息，不值得在这张票里加复杂度。

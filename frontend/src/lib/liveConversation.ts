@@ -10,21 +10,21 @@ import type { CallPreferences } from "@/lib/callPreferences";
 import {
   conversationLog,
   emptyLog,
+  replySoFar,
   type ConversationLog,
   type Entry,
   type LogAction,
 } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
+  BLANK_CARD,
   lineOf,
-  movedLines,
+  movedCard,
   nextPacedAt,
-  NO_LINES,
-  pacedLines,
+  pacedCard,
   previousLineOf,
-  shownSegmentOf,
-  type Lines,
-  type LinesEvent,
+  type LineCard,
+  type LineCardEvent,
 } from "@/lib/linePacing";
 import { CALM, type StandDirection } from "@/lib/standAnimations";
 import { directionOf, directStand, startingStand, type StandEvent, type StandState } from "@/lib/standDirection";
@@ -120,15 +120,15 @@ export type Snapshot = {
 
 type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
   log: ConversationLog;
-  /** Her lines on the call screen's line card, in the call under way or the last one. */
-  lines: Lines;
+  /** The call screen's line card, in the call under way or the last one. */
+  card: LineCard;
   /** Which of this page's calls is under way or last shown, from 0 before the first. */
   dial: number;
   /** Her stand direction, moved on by the call under way. */
   stand: StandState;
 };
 
-const IDLE: Omit<State, "log" | "lines" | "stand" | "dial"> = {
+const IDLE: Omit<State, "log" | "card" | "stand" | "dial"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
   layer: null,
@@ -228,7 +228,7 @@ export class LiveConversation {
   ) {
     const textOnly = ports.preferences.load().muted;
     ports.voice.setTextOnly(textOnly);
-    this.state = { ...IDLE, log: emptyLog, lines: NO_LINES, dial: 0, textOnly, stand: startingStand(textOnly) };
+    this.state = { ...IDLE, log: emptyLog, card: BLANK_CARD, dial: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
   }
@@ -283,7 +283,7 @@ export class LiveConversation {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
       // speaks, it interrupts her.
       this.call.sendText(text);
-      this.moveLines({ type: "interrupted" }, { stand: this.directed({ type: "typed" }) });
+      this.moveCard({ type: "interrupted" }, { stand: this.directed({ type: "typed" }) });
       return;
     }
     this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
@@ -374,7 +374,7 @@ export class LiveConversation {
     this.ports.tones.connect();
     this.update({
       call: { phase: "connected", dial: this.state.dial, since: this.now(), maxSeconds: started.maxSeconds },
-      lines: NO_LINES,
+      card: BLANK_CARD,
       ...micInUse(started.mic),
     });
   }
@@ -454,43 +454,44 @@ export class LiveConversation {
         this.endedBy = backendEnd(event);
         return;
       case "user":
-        this.applyTurnEvent(event, { hearing: "", stand });
-        return this.moveLines({ type: "reply", number: event.reply ?? 0, voiced: !this.state.textOnly });
+        return this.applyTurnEvent(event, { hearing: "", stand }, () => ({
+          type: "reply",
+          number: event.reply,
+          voiced: !this.state.textOnly,
+        }));
       case "error":
         return this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false }, stand });
       case "delta":
-        this.applyTurnEvent(event, { stand });
-        return this.moveLines({ type: "text", segments: replySegments(this.state.log) });
+        return this.applyTurnEvent(event, { stand }, (log) => ({ type: "text", segments: replySoFar(log) }));
       case "done":
-        this.applyTurnEvent(event, { stand });
-        return this.moveLines({ type: "recorded", segments: event.message.segments });
+        return this.applyTurnEvent(event, { stand }, () => ({ type: "recorded", segments: event.message.segments }));
       case "segment-playing":
-        return this.moveLines(event, { stand });
+        return this.moveCard(event, { stand });
       case "bot-started-speaking":
       case "bot-stopped-speaking":
-        return this.moveLines({ type: "voice", playing: event.type === "bot-started-speaking" }, { stand });
+        return this.moveCard({ type: "voice", playing: event.type === "bot-started-speaking" }, { stand });
       case "user-started-speaking":
-        return this.moveLines({ type: "interrupted" }, { stand });
+        return this.moveCard({ type: "interrupted" }, { stand });
       default:
         this.update({ stand });
     }
   }
 
-  /** Her lines on the call screen's line card moved on by this event, along with any other
-   * change. */
-  private moveLines(event: LinesEvent, change: Partial<State> = {}): void {
-    this.showLines(movedLines(this.state.lines, event, this.now()), change);
+  /** The call screen's line card moved on by this event, along with any other change. */
+  private moveCard(event: LineCardEvent, change: Partial<State> = {}): void {
+    this.showCard(movedCard(this.state.card, event, this.now()), change);
   }
 
-  /** Shows these lines on the line card, along with any other change, moved on at her pace if
-   * the card keeps it now, and has the card move on again when it is due to. Her stand follows
-   * a line the card moved on to at her pace. */
-  private showLines(moved: Lines, change: Partial<State> = {}): void {
-    const lines = pacedLines(moved, this.now());
-    const shown = shownSegmentOf(lines);
+  /** Shows this line card, along with any other change, moved on at her pace if the card keeps
+   * it and is due to now, and has the card move on again when it is next due to. Her stand
+   * follows a segment the card moved on to at her pace. */
+  private showCard(card: LineCard, change: Partial<State> = {}): void {
+    const paced = pacedCard(card, this.now());
     const stand = change.stand ?? this.state.stand;
-    const paced = lines !== moved && shown ? { stand: directStand(stand, { type: "line-shown", ...shown }) } : {};
-    if (lines !== this.state.lines || Object.keys(change).length > 0) this.update({ ...change, lines, ...paced });
+    const next: Partial<State> = paced
+      ? { card: paced.card, stand: directStand(stand, { type: "line-shown", ...paced.movedTo }) }
+      : { card };
+    if (next.card !== this.state.card || Object.keys(change).length > 0) this.update({ ...change, ...next });
     this.pace();
   }
 
@@ -498,11 +499,11 @@ export class LiveConversation {
   private pace(): void {
     if (this.pacing !== null) clearTimeout(this.pacing);
     this.pacing = null;
-    const at = nextPacedAt(this.state.lines);
+    const at = nextPacedAt(this.state.card);
     if (at === null || this.disposed) return;
     this.pacing = setTimeout(() => {
       this.pacing = null;
-      this.showLines(this.state.lines);
+      this.showCard(this.state.card);
     }, at - this.now());
   }
 
@@ -511,9 +512,17 @@ export class LiveConversation {
     return directStand(this.state.stand, event);
   }
 
-  /** Moves the log on by an event of a turn, typed or spoken in a call. */
-  private applyTurnEvent(event: TurnEvent, change: Partial<State> = {}): void {
-    this.apply(event.type === "user" ? { ...event, at: this.isoNow() } : event, change);
+  /** Moves the log on by an event of a turn, typed or spoken in a call, along with any other
+   * change; in a call the line card moves on too, by what `card` makes of the event given the
+   * log moved on. */
+  private applyTurnEvent(
+    event: TurnEvent,
+    change: Partial<State> = {},
+    card?: (log: ConversationLog) => LineCardEvent,
+  ): void {
+    const log = conversationLog(this.state.log, event.type === "user" ? { ...event, at: this.isoNow() } : event);
+    if (card) this.moveCard(card(log), { ...change, log });
+    else this.update({ ...change, log });
     // Recorded: the list's line for her now ends with it, even if the page has been left.
     if (event.type === "done") this.ports.onListChanged();
   }
@@ -548,7 +557,7 @@ export class LiveConversation {
     this.conversationId = conversationId;
     this.apply(
       { type: "loaded", messages },
-      { ...change, conversation: { status: "open" }, lines: NO_LINES },
+      { ...change, conversation: { status: "open" }, card: BLANK_CARD },
     );
   }
 
@@ -573,9 +582,10 @@ export class LiveConversation {
     this.attempt = null;
     this.call = null;
     this.ports.tones.hangUp();
-    this.apply(
-      { type: "interrupted" },
+    this.moveCard(
+      { type: "call-over" },
       {
+        log: conversationLog(this.state.log, { type: "interrupted" }),
         call: end ? { phase: "ended", dial: this.state.dial, end, seconds } : { phase: "idle" },
         hearing: "",
         micMuted: false,
@@ -584,7 +594,6 @@ export class LiveConversation {
         stand: this.directed({ type: "call-over" }),
       },
     );
-    this.moveLines({ type: "call-over" });
   }
 
   private now(): number {
@@ -643,22 +652,15 @@ function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
 }
 
 function toSnapshot(state: State): Snapshot {
-  const { log, lines, dial, stand, ...rest } = state;
+  const { log, card, dial, stand, ...rest } = state;
   const free = isFree(state);
   return {
     ...rest,
     entries: log.entries,
-    line: lineOf(lines),
-    previousLine: previousLineOf(lines),
+    line: lineOf(card),
+    previousLine: previousLineOf(card),
     stand: directionOf(stand),
     canDial: free,
     canStartNew: free,
   };
-}
-
-/** The segments of the reply under way, as far as they have arrived. */
-function replySegments(log: ConversationLog): Segment[] {
-  const turn = log.turn;
-  const reply = turn && log.entries.find((entry) => entry.key === turn.replyKey);
-  return reply?.kind === "character" ? reply.segments : [];
 }

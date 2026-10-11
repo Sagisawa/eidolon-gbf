@@ -235,7 +235,7 @@ describe("LiveConversation: a call", () => {
     const { live, attempts } = await conversation({ messages: history });
     const call = await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     handlers.onHearing("还有");
 
@@ -288,7 +288,7 @@ describe("LiveConversation: a call", () => {
     await connected(live, attempts);
     const { handlers } = attempts[0];
     handlers.onEvent({ type: "ended", reason: "duration_limit", message: "满 30 分钟了", counts: true });
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onHearing("还有");
 
     handlers.onDropped();
@@ -401,7 +401,7 @@ describe("LiveConversation: a call", () => {
     handlers.onHearing("你好");
     expect(live.snapshot().hearing).toBe("你好");
 
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
 
     expect(live.snapshot().hearing).toBe("");
     expect(live.snapshot().entries.map((e) => e.kind)).toEqual(["user", "character"]);
@@ -411,7 +411,7 @@ describe("LiveConversation: a call", () => {
     const { live, attempts } = await conversation({ messages: history });
     await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
 
     handlers.onEvent({ type: "error", message: "角色暂时无法回复" });
 
@@ -491,8 +491,8 @@ describe("LiveConversation: the line card", () => {
 
   /** Her reply under way is recorded, with segments of this Japanese. */
   function recorded(...segments: string[]): CallEvent {
-    const recorded = message(4, "character", segments.join(""));
-    return { type: "done", message: { ...recorded, segments: segments.map((ja) => ({ ja, zh: "" })) } };
+    const reply = message(4, "character", segments.join(""));
+    return { type: "done", message: { ...reply, segments: segments.map((ja) => ({ ja, zh: "" })) } };
   }
 
   it("shows the segment her voice starts playing, filling it in as its text arrives", async () => {
@@ -546,34 +546,39 @@ describe("LiveConversation: the line card", () => {
     expect(card()).toEqual({ line: "四", previous: "三" });
   });
 
-  it("plays out the rest at her pace once the reply is recorded and her voice stopped short of it, her stand following", async () => {
+  it("waits out a pause in her voice, playing out the rest at her pace once it has not come back for a while, her stand following", async () => {
     const { live, emit, card } = await inCall();
     vi.useFakeTimers();
     // Her pace: 5 characters a second, punctuation too but not spaces, at least 1.5s a line.
-    const first = "ねえ…… 聞いてる？"; // 9 characters: 1.8s
-    const second = "うん"; // 2 characters: 1.5s at least
-    const third = "今日はとても楽しかったね";
-    emit(reply(1), ja(0, first), ja(1, second), ja(2, third));
-    emit({ type: "emotion", reply: 1, segment: 1, emotion: "happy", nod: null });
+    const third = "ねえ…… 今日はとても楽しかったね？"; // 17 characters: 3.4s
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, third), ja(3, "四"));
     emit({ type: "emotion", reply: 1, segment: 2, emotion: "sad", nod: null });
     emit({ type: "bot-started-speaking" }, playing(1, 0));
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(2000);
 
-    emit({ type: "bot-stopped-speaking" }, recorded(first, second, third));
-    vi.advanceTimersByTime(799);
-    expect(card()).toEqual({ line: first, previous: null });
-    vi.advanceTimersByTime(1);
-    expect(card()).toEqual({ line: second, previous: first });
-    expect(live.snapshot().stand.mood).toBe("happy");
+    // Between two segments her voice pauses, long enough to count as stopping, after the first
+    // has had its time at her pace: the card stays with her voice.
+    emit({ type: "bot-stopped-speaking" }, recorded("一", "二", third, "四"));
+    vi.advanceTimersByTime(500);
+    expect(card()).toEqual({ line: "一", previous: null });
+    emit({ type: "bot-started-speaking" }, playing(1, 1));
+    expect(card()).toEqual({ line: "二", previous: "一" });
 
-    vi.advanceTimersByTime(1499);
-    expect(card()).toEqual({ line: second, previous: first });
+    // Her voice stops short and does not come back: 3s on, the card plays out the rest.
+    emit({ type: "bot-stopped-speaking" });
+    vi.advanceTimersByTime(2999);
+    expect(card()).toEqual({ line: "二", previous: "一" });
     vi.advanceTimersByTime(1);
-    expect(card()).toEqual({ line: third, previous: second });
+    expect(card()).toEqual({ line: third, previous: "二" });
     expect(live.snapshot().stand.mood).toBe("sad");
 
+    vi.advanceTimersByTime(3399);
+    expect(card()).toEqual({ line: third, previous: "二" });
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: "四", previous: third });
+
     vi.advanceTimersByTime(60_000);
-    expect(card()).toEqual({ line: third, previous: second });
+    expect(card()).toEqual({ line: "四", previous: third });
   });
 
   it("waits a while for her voice to start on a recorded reply, playing out one it never starts on", async () => {
@@ -686,7 +691,7 @@ describe("LiveConversation: a call that is over", () => {
         await live.hangUp();
         await connected(live, attempts);
         const next = attempts[1].handlers;
-        next.onEvent({ type: "user", text: "再说一次" });
+        next.onEvent({ type: "user", text: "再说一次", reply: 1 });
         next.onEvent({ type: "delta", segment: 0, lang: "ja", text: "もう" });
         next.onEvent({ type: "bot-started-speaking" });
         next.onHearing("还有");
@@ -698,7 +703,7 @@ describe("LiveConversation: a call that is over", () => {
 
   /** What comes too late from the first call. */
   const late: [string, (handlers: CallHandlers) => void][] = [
-    ["what the user said", (h) => h.onEvent({ type: "user", text: "迟到的话" })],
+    ["what the user said", (h) => h.onEvent({ type: "user", text: "迟到的话", reply: 1 })],
     ["a delta of the reply", (h) => h.onEvent({ type: "delta", segment: 0, lang: "ja", text: "おそい" })],
     ["the reply recorded", (h) => h.onEvent({ type: "done", message: message(9, "character", "おそい") })],
     ["an error", (h) => h.onEvent({ type: "error", message: "角色暂时无法回复" })],
@@ -717,7 +722,7 @@ describe("LiveConversation: a call that is over", () => {
     const { live, attempts, listChanged, voice, tones } = await conversation({ messages: history });
     await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     await end(live, attempts);
     const before = live.snapshot();
@@ -1559,7 +1564,7 @@ describe("LiveConversation: the list", () => {
     await connected(live, attempts);
     const { handlers } = attempts[0];
 
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     expect(listChanged()).toBe(0);
     handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
@@ -1571,9 +1576,9 @@ describe("LiveConversation: the list", () => {
     const { live, attempts, listChanged } = await conversation();
     await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "error", message: "角色暂时无法回复" });
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 2 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
 
     await live.hangUp();
@@ -1608,7 +1613,7 @@ describe("LiveConversation: times", () => {
     const { live, attempts } = await conversation();
     await connected(live, attempts);
 
-    attempts[0].handlers.onEvent({ type: "user", text: "你好" });
+    attempts[0].handlers.onEvent({ type: "user", text: "你好", reply: 1 });
 
     expect(live.snapshot().entries[0].at).toBe(new Date(NOW).toISOString());
   });
