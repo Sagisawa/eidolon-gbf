@@ -155,11 +155,17 @@ export type SegmentEmotion = {
 export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";
 
 export class ApiError extends Error {
+  /** Refused because the deployment requires the user to bring their own LLM and this
+   * brought none (GLOSSARY.md「必须自带 LLM」): filling it in on the settings page settles it. */
+  readonly ownLLMRequired: boolean;
+
   constructor(
     message: string,
     readonly status: number,
+    { ownLLMRequired = false }: { ownLLMRequired?: boolean } = {},
   ) {
     super(message);
+    this.ownLLMRequired = ownLLMRequired;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -185,7 +191,11 @@ export async function json<T>(res: Response): Promise<T> {
     const body = await res.json().catch(() => null);
     let message = describe(body?.detail) ?? `请求失败（${res.status}）`;
     if (res.status === 429) message = overLimit(message, body?.retry_at);
-    throw new ApiError(message, res.status);
+    // Refused for want of the user's own LLM, told apart from other 403s (a ban) by its mark:
+    // the sentence ended, as for a user on their own keys only.
+    const ownLLMRequired = res.status === 403 && body?.own_llm_required === true;
+    if (ownLLMRequired) message = `${message}。`;
+    throw new ApiError(message, res.status, { ownLLMRequired });
   }
   return res.json();
 }

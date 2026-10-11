@@ -88,7 +88,8 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
 
 /** How a field is typed in: a choice, text, a key (left empty to keep it), max_tokens (a
  * positive whole number, empty for the protocol's default), a probability or score from 0
- * to 1, a number of seconds, or a limit (a whole number from 1 up, or none: sent as 0). */
+ * to 1, a number of seconds, a limit (a whole number from 1 up, or none: sent as 0), or a
+ * switch (on or off, in the form as "true" or "false"). */
 export type FieldKind =
   | "select"
   | "text"
@@ -97,10 +98,14 @@ export type FieldKind =
   | "maxTokens"
   | "probability"
   | "seconds"
-  | "limit";
+  | "limit"
+  | "switch";
 
 /** The limits, in the order they are shown. */
 export const LIMIT_FIELDS = ["turns_per_hour", "calls_per_hour", "call_minutes", "turns_per_call", "history_turns"];
+
+/** Beside the limits: whether users must bring their own LLM (GLOSSARY.md「必须自带 LLM」). */
+export const OWN_LLM_REQUIRED = "own_llm_required";
 
 export type FieldSpec = { name: string; kind: FieldKind; options?: readonly string[] };
 
@@ -168,7 +173,12 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
   },
   judge_thresholds: THRESHOLD(["recall", "emotion"]),
   rerank: THRESHOLD(["references", "memories"]),
-  limits: { rows: LIMIT_FIELDS, secrets: [], form: LIMIT_FIELDS.map((name) => ({ name, kind: "limit" })), tried: false },
+  limits: {
+    rows: [...LIMIT_FIELDS, OWN_LLM_REQUIRED],
+    secrets: [],
+    form: [...LIMIT_FIELDS.map((name): FieldSpec => ({ name, kind: "limit" })), { name: OWN_LLM_REQUIRED, kind: "switch" }],
+    tried: false,
+  },
 };
 
 /** One field of an item, as the table shows it: `.env`'s, the one in effect, and whether
@@ -219,7 +229,7 @@ export function formOf(spec: ItemSpec, effective: Shown): Form {
 
 export type Problem = { field: string; reason: "required" | "maxTokens" | "probability" | "seconds" | "limit" };
 
-export type Change = Record<string, string | number | null>;
+export type Change = Record<string, string | number | boolean | null>;
 
 /** What saving the form sends, or every problem that keeps it from being saved (one per
  * field, in the form's order). A key left empty, or one that cannot be changed here, stays
@@ -258,6 +268,9 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         if (typed === UNLIMITED) change[name] = 0;
         else if (!/^[1-9]\d*$/.test(typed)) refuse(name, "limit");
         else change[name] = Number(typed);
+        break;
+      case "switch":
+        change[name] = form[name] === "true";
         break;
       case "seconds": {
         const value = Number(typed);

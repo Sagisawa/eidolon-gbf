@@ -193,6 +193,8 @@ export const zh = {
   },
   failure: {
     signIn: "去登录",
+    /** 部署要求自带 LLM、这次没带时（GLOSSARY.md「必须自带 LLM」），和通话结束卡上的同一句。 */
+    toOwnKeys: "去设置自带密钥",
   },
   login: {
     lede: "和《偶像大师 闪耀色彩》283 事务所的偶像们打电话、说话。她们会用自己的声音回答你，记得原作里和制作人一起走过的事，也会记住你告诉她们的事。",
@@ -762,7 +764,7 @@ export const zh = {
         },
         limits: {
           title: "限额、单次通话上限和历史回合数",
-          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。",
+          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。「必须自带 LLM」也在这里开关。",
         },
       },
       status: {
@@ -795,6 +797,7 @@ export const zh = {
         call_minutes: "单次通话的时长上限（分钟）",
         turns_per_call: "单次通话的回合上限",
         history_turns: "带上的历史回合数",
+        own_llm_required: "必须自带 LLM",
       } as Record<string, string>,
       formHints: {
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
@@ -803,6 +806,8 @@ export const zh = {
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",
+        own_llm_required:
+          "打开后，用户没填自己的 LLM 就不能发起文字回合，会被拒绝并提示去设置里填写，被拒绝的回合不计入限额。管理者不受这项要求约束。",
       } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,
@@ -812,6 +817,9 @@ export const zh = {
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
       },
       unlimited: "不限",
+      /** 开关类的值（必须自带 LLM）。 */
+      switchOn: "打开",
+      switchOff: "关闭",
       /** 限额一项先选种类：设定上限，或者不限。不用 0 表示不限（单独限额里另有「只能用自带密钥」）。 */
       limitChoices: { number: "设定上限", unlimited: "不限" },
       providers: {
