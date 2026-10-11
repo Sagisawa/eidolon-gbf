@@ -33,9 +33,9 @@
 
 ### 实现说明（2026-10-11）
 
-- 后端：`OwnKeys.exempt(kind, services)` 是唯一一份豁免规则，`for_turn`、`for_call`、`call_exempt`（通话预检：先查语音两项有没有 key，再按通话的规则答）和新接口 `GET /api/account/keys/exemption` 都用它。`Admissions.call_setup` 删掉，`Calls` 直接收 `OwnKeys`。服务名的解析（不认识的回 422）抽成 `account_api.named_services`，预检和豁免接口共用。
+- 后端：`OwnKeys.exempt(kind, services)` 是唯一一份豁免规则，`for_turn`、`for_call`、`call_exempt`（通话预检：先查语音两项有没有 key，再按通话的规则答）和新接口 `GET /api/account/keys/exemption` 都用它。`Admissions.call_setup` 删掉，`Calls` 直接收 `OwnKeys`。服务名的解析抽成 `own_keys.named_services`（不认识的服务名抛 `UnknownService`，`app.py` 的异常处理回 422），预检和豁免接口共用。
 - 原来 `test_admission.py` 里直接测 `call_setup` 的两条用例搬到 `test_own_keys.py`，改为测 `OwnKeys.call_exempt`（「不占次数、不留记录」这一点随 `Admissions` 那层一起没了：`OwnKeys` 本来就碰不到次数和记录）。
-- 「代码里没有 `call_setup`」：产品代码里没有了；`test_own_speech_keys.py` 里有个同名的测试辅助函数（发 `/api/ice-servers`），按「已有测试不改」保留没改名。
+- 「代码里没有 `call_setup`」：产品代码里没有了；`test_own_speech_keys.py` 里同名的测试辅助函数（发 `/api/ice-servers`）在代码审查后改名为 `ask_before_calling`。
 - 前端：`getLimitExemption(own)`（`lib/api.ts`）走统一的请求函数；设置页按存了哪几项服务问它，只有答案对得上现在存的服务时才显示那句说明，还没问到或问失败都不显示；`perCallLimits` 那句照常显示。
 
 ### 人工验收清单

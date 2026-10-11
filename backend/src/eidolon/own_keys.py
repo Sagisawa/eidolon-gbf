@@ -89,6 +89,22 @@ class OwnKeyRejected(Exception):
     """Trying the key before keeping it failed."""
 
 
+class UnknownService(ValueError):
+    """Services were named that there are none of."""
+
+    def __init__(self, unknown: Iterable[str]) -> None:
+        super().__init__(f"没有这项服务：{'、'.join(sorted(unknown))}")
+
+
+def named_services(own: str) -> frozenset[Service]:
+    """The services `own` names (as `llm,tts,stt`, or nothing). Raises UnknownService for
+    one there is not."""
+    named = {s for s in own.split(",") if s}
+    if unknown := named - set(SERVICES):
+        raise UnknownService(unknown)
+    return frozenset(s for s in SERVICES if s in named)
+
+
 class CallsUnavailable(Exception):
     """Voice calls are not configured: there is no key for speech recognition or
     synthesis, neither the user's own nor the deployer's."""

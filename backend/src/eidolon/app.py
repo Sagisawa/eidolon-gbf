@@ -24,9 +24,9 @@ from eidolon.call import (
 from eidolon.characters import Character
 from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.own_keys import BroughtKeys, CallsUnavailable
+from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.account_api import OwnKeysInput, add_account_routes, named_services
+from eidolon.account_api import OwnKeysInput, add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
@@ -185,6 +185,10 @@ def create_app(backend: Backend) -> FastAPI:
     @app.exception_handler(CallsUnavailable)
     async def calls_unavailable(_: Request, e: CallsUnavailable) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=503)
+
+    @app.exception_handler(UnknownService)
+    async def unknown_service(_: Request, e: UnknownService) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=422)
 
     @app.exception_handler(CallNotFound)
     async def call_not_found(_: Request, e: CallNotFound) -> JSONResponse:

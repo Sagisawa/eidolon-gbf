@@ -50,7 +50,7 @@ def own_keys(*services: str) -> dict:
     return {service: OWN_KEYS[service] for service in services}
 
 
-async def call_setup(client: httpx.AsyncClient, *services: str) -> httpx.Response:
+async def ask_before_calling(client: httpx.AsyncClient, *services: str) -> httpx.Response:
     """Ask before a call, saying it will bring the user's own keys for `services`."""
     return await client.get("/api/ice-servers", params={"own": ",".join(services)})
 
@@ -138,9 +138,9 @@ async def test_the_users_own_keys_let_them_call_where_the_deployer_has_none(
     client = make_client(FakeLLM(), voice_configured=False)
     conversation_id = await start_conversation(client)
 
-    assert (await call_setup(client)).status_code == 503
-    assert (await call_setup(client, "tts")).status_code == 503
-    assert (await call_setup(client, "tts", "stt")).status_code == 200
+    assert (await ask_before_calling(client)).status_code == 503
+    assert (await ask_before_calling(client, "tts")).status_code == 503
+    assert (await ask_before_calling(client, "tts", "stt")).status_code == 200
     assert (await browser.call(client, conversation_id=conversation_id)).status_code == 503
     called = await browser.call(
         client, conversation_id=conversation_id, own_keys=own_keys("tts", "stt")
@@ -151,7 +151,7 @@ async def test_the_users_own_keys_let_them_call_where_the_deployer_has_none(
 async def test_asking_before_a_call_needs_services_there_are(make_client: ClientFactory):
     client = make_client(FakeLLM())
 
-    assert (await call_setup(client, "llm", "gpu")).status_code == 422
+    assert (await ask_before_calling(client, "llm", "gpu")).status_code == 422
 
 
 async def test_a_failing_own_speech_key_ends_the_call_saying_which(
@@ -188,7 +188,7 @@ async def test_whether_a_call_counts_is_what_it_brings_not_what_was_said_before(
     client = make_client(FakeLLM(), settings=limited(settings, calls_per_hour=1), clock=FakeClock())
     conversation_id = await start_conversation(client)
 
-    said_exempt = (await call_setup(client, *said)).json()["callExempt"]
+    said_exempt = (await ask_before_calling(client, *said)).json()["callExempt"]
     assert said_exempt is (set(said) == {"llm", "tts", "stt"})
     async with open_browser() as first:
         called = await first.call(

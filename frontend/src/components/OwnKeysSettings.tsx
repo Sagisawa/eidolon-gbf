@@ -29,7 +29,6 @@ import {
   type LocalLLM,
   type LocalOwnKeys,
   type LocalTtsKey,
-  type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
 import { cn } from "@/lib/utils";
@@ -53,14 +52,15 @@ export function OwnKeysSettings() {
   const [failure, setFailure] = useState<Failure | null>(null);
   // 服务器对哪几项服务答的豁免；和现在存的对不上（还没问到）或问失败时，不显示那句说明。
   const [answered, setAnswered] = useState<{ services: string; exemption: LimitExemption } | null>(null);
-  const services = userId ? ownServices(kept).join(",") : null;
+  const services = ownServices(kept).join(",");
 
   useEffect(() => {
-    if (services === null) return;
+    if (userId === null) return;
+    const own = ownServices(kept);
     let current = true;
-    getLimitExemption(services ? (services.split(",") as OwnService[]) : []).then(
+    getLimitExemption(own).then(
       (exemption) => {
-        if (current) setAnswered({ services, exemption });
+        if (current) setAnswered({ services: own.join(","), exemption });
       },
       () => {
         if (current) setAnswered(null);
@@ -69,7 +69,7 @@ export function OwnKeysSettings() {
     return () => {
       current = false;
     };
-  }, [services]);
+  }, [userId, kept]);
 
   useEffect(() => {
     getAccount().then(
