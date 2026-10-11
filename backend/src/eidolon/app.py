@@ -5,10 +5,11 @@ import math
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -38,6 +39,21 @@ from eidolon.store import Conversation
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 from eidolon.world import World
+
+_PICTURE_CACHE = {"Cache-Control": "public, max-age=86400"}
+"""Avatars and call backgrounds change only with a deploy (ADR-0003): browsers keep them a
+day, then revalidate by ETag, so lists showing every avatar don't download them each visit."""
+
+
+def _picture(path: Path, request: Request) -> Response:
+    """An avatar or call background, or a 304 when the browser's copy is still current;
+    FileResponse sets the ETag but, unlike StaticFiles, never answers 304 itself."""
+    response = FileResponse(path, headers=_PICTURE_CACHE, stat_result=path.stat())
+    etag = response.headers["etag"]
+    sent = request.headers.get("if-none-match", "")
+    if etag in (tag.strip() for tag in sent.split(",")):
+        return Response(status_code=304, headers={"ETag": etag, **_PICTURE_CACHE})
+    return response
 
 
 class NewConversation(BaseModel):
@@ -290,19 +306,19 @@ def create_app(backend: Backend) -> FastAPI:
         ]
 
     @app.get("/api/characters/{character_id}/avatar")
-    def character_avatar(character_id: str) -> FileResponse:
+    def character_avatar(character_id: str, request: Request) -> Response:
         character = characters.get(character_id)
         if character is None or character.avatar is None:
             raise HTTPException(404, "没有这位角色的头像")
-        return FileResponse(character.avatar)
+        return _picture(character.avatar, request)
 
     @app.get("/api/characters/{character_id}/background")
-    def character_background(character_id: str) -> FileResponse:
+    def character_background(character_id: str, request: Request) -> Response:
         """The picture behind her call screen, served like her avatar."""
         character = characters.get(character_id)
         if character is None or character.background is None:
             raise HTTPException(404, "没有这位角色的通话背景图")
-        return FileResponse(character.background)
+        return _picture(character.background, request)
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
