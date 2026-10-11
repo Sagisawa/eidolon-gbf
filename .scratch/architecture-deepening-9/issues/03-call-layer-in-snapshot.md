@@ -56,6 +56,12 @@
 - `ConversationView.tsx` 删掉 `useShownCall` 和页面自己算的「通话层收着」（原来的 `isLayerCollapsed = collapsed || call.phase === "idle"`）。焦点归位的输入改从快照算：`isCovered = layer !== null && !layer.collapsed`，通话条 `barShown = isLive(call) && layer.collapsed`；`<CallLayer>` 只在 `layer` 非空时渲染，`call={layer.call}`、`isCollapsed={layer.collapsed}`。看得见的行为不变，唯一例外是票里写明的「结束后不能再展开」。
 - 测试：`liveConversation.test.ts` 的「the call layer」一组重写，覆盖票里 `layer` 的全部情形；原有用例里断言 `collapsed` 的改断言 `layer.collapsed`（拨号前那条改成断言 `layer` 为 null）。
 
+### 代码审查的修正（2026-10-11）
+
+- 「拨号前为 null」那条删掉：它是「只在通话进行中收起、展开」开头一段的严格前缀（CODING_STANDARDS「Prefix of another case」）。
+- 「挂断后不能再展开」并进「挂断后留着最后一刻并收起」，「看完结束页后不能再展开」删掉：夹具一样、只断言了结果的另一半（「Same setup, assertions split」），两条的 `expand()` 走的又是同一个分支（「Parameters that don't branch」）。
+- 「只在通话进行中收起、展开」改成拨号中收起，再断言接通后仍然收着，补上「接通沿用用户收没收起」的用例。
+
 ### 人工验收清单（构建版前端：在 `frontend/` 下 `npm run build` 然后 `npm run start`）
 
 手机宽度和电脑宽度各看一遍：
