@@ -2,7 +2,7 @@
 // 单价依次取后台设定、在线目录（models.dev 和 OpenRouter）、预设；花费全由后端算好，
 // 这里只负责措辞、格式化、目录状态的判断和单价表单的换算与校验。
 
-import { apiHeaders, json } from "@/lib/api";
+import { api, json } from "@/lib/api";
 import { copy } from "@/i18n";
 import { formatAmount, formatCount, type ServiceName, unitWord } from "@/lib/dashboard";
 
@@ -275,15 +275,15 @@ function isCurrency(value: string): value is Currency {
 }
 
 export async function getPrices(): Promise<Prices> {
-  return json(await fetch("/api/admin/prices", { headers: apiHeaders() }));
+  return json(await api("/api/admin/prices"));
 }
 
 /** 从现在起按这个单价估算，取代同一提供方、模型和单位的目录价格和预设。 */
 export async function savePrice(change: PriceChange): Promise<Prices> {
   return json(
-    await fetch("/api/admin/prices", {
+    await api("/api/admin/prices", {
       method: "PUT",
-      headers: apiHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(change),
     }),
   );
@@ -291,11 +291,11 @@ export async function savePrice(change: PriceChange): Promise<Prices> {
 
 /** 立即重新拉取在线目录；已经在拉取的，等它拉完。拉取失败时返回的目录状态里有原因。 */
 export async function refreshCatalog(): Promise<Prices> {
-  return json(await fetch("/api/admin/prices/refresh", { method: "POST", headers: apiHeaders() }));
+  return json(await api("/api/admin/prices/refresh", { method: "POST" }));
 }
 
 /** 恢复成目录或预设的单价；两者都没有的就不再有单价。 */
 export async function restorePrice(entry: Pick<PriceEntry, "provider" | "model" | "unit">): Promise<Prices> {
   const query = new URLSearchParams({ provider: entry.provider, model: entry.model, unit: entry.unit });
-  return json(await fetch(`/api/admin/prices?${query}`, { method: "DELETE", headers: apiHeaders() }));
+  return json(await api(`/api/admin/prices?${query}`, { method: "DELETE" }));
 }
