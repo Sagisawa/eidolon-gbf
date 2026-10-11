@@ -8,7 +8,7 @@
 
 **Blocked by:** 04（文字回合也带 `own_keys`；它收齐了前端自带密钥 module 的类型）
 
-**Status:** claimed
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
