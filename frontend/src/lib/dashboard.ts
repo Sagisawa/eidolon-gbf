@@ -4,7 +4,7 @@
 
 import { copy } from "@/i18n";
 import type { Cost } from "@/lib/adminPrices";
-import { apiHeaders, json } from "@/lib/api";
+import { api, json } from "@/lib/api";
 
 export const DASHBOARD_RANGES = ["24h", "7d", "30d", "90d"] as const;
 
@@ -151,7 +151,7 @@ export type Dashboard = {
 };
 
 export async function getDashboard(range: DashboardRange): Promise<Dashboard> {
-  return json(await fetch(`/api/admin/dashboard?range=${range}`, { headers: apiHeaders() }));
+  return json(await api(`/api/admin/dashboard?range=${range}`));
 }
 
 /** How often the page, while it can be seen, fetches the dashboard and the calls in progress
@@ -169,7 +169,7 @@ export function formatFetchedAt(at: Date, now: Date = new Date()): string {
 /** How many calls are in progress now, connected or still connecting. */
 export async function getCallsInProgress(): Promise<number> {
   const live: { in_progress: number } = await json(
-    await fetch("/api/admin/calls/live", { headers: apiHeaders() }),
+    await api("/api/admin/calls/live"),
   );
   return live.in_progress;
 }

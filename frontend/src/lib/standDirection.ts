@@ -13,7 +13,8 @@
 // - When the call is over, all is forgotten and the next call starts calm; text only is kept,
 //   and nods go on counting, so that no two share an id.
 
-import { type CallEvent, SPEAKING, type SegmentEmotion, type SegmentPlaying, type Speaking } from "@/lib/api";
+import type { CallEvent, SegmentEmotion, SegmentPlaying } from "@/lib/api";
+import { SPEAKING, type Speaking } from "@/lib/call";
 import { CALM, type Nod, type StandDirection } from "@/lib/standAnimations";
 
 /** A segment of one of her replies in the call. */
