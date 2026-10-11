@@ -3,10 +3,12 @@ refused by holds for calls too. Asked before calling (`/api/ice-servers`), a cal
 no LLM of the user's own is refused, 403 saying why, before anything is spent on it;
 placed, it is refused alike, recorded rejected and counting towards nothing. A call on
 the user's own LLM alone goes on, heard and voiced on the deployer's keys, and counts
-towards the calls an hour; one on all three of their own counts towards nothing, as ever.
-Admins are not bound by it, and a call in progress goes on to its end whatever the admin
-console says meanwhile. Driven through the backend's external API, with a browser calling
-in over a real WebRTC connection and fake outside services."""
+towards the calls an hour; and a call in progress goes on to its end whatever the admin
+console says meanwhile. Whom the rule binds (not admins, not those let) and its being off
+are test_own_llm_required.py's and test_deployer_llm_allowed.py's; a call on all three of
+the user's own keys counting towards nothing, test_own_speech_keys.py's. Driven through
+the backend's external API, with a browser calling in over a real WebRTC connection and
+fake outside services."""
 
 import asyncio
 from dataclasses import replace
@@ -129,74 +131,6 @@ async def test_a_call_on_an_own_llm_alone_is_voiced_on_the_deployers_keys_and_co
     assert [tts.api_key for tts in speech.ttss] == [DEPLOYER_FISH_KEY]
     assert deployers.prompts == []  # she answered on the user's own LLM
     assert over.status_code == 429
-
-
-async def test_a_call_on_all_three_own_keys_counts_towards_nothing_as_ever(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    own_llm.llm = FakeLLM()
-    client = make_client(FakeLLM(), clock=FakeClock())
-    conversation_id = await start_conversation(client)
-
-    asked = await ask_before_calling(client, "llm", "tts", "stt")
-    placed = []
-    for _ in range(2):  # one call an hour, but these count towards nothing
-        async with open_browser() as browser:
-            placed.append(
-                await browser.call(
-                    client,
-                    conversation_id=conversation_id,
-                    own_keys=own_keys("llm", "tts", "stt"),
-                )
-            )
-
-    assert asked.status_code == 200, asked.text
-    assert asked.json()["callExempt"] is True
-    assert [res.status_code for res in placed] == [200, 200]
-
-
-async def test_an_admin_without_an_own_llm_calls_and_counts(
-    make_client: ClientFactory, github: FakeIdentityProvider
-):
-    producer = make_client(FakeLLM(), clock=FakeClock())
-
-    async with admin_beside(producer, github) as admin:
-        conversation_id = await start_conversation(admin)
-        asked = await ask_before_calling(admin)
-        async with open_browser() as browser:
-            placed = await browser.call(admin, conversation_id=conversation_id)
-            await browser.connect()
-            await browser.hang_up()
-        async with open_browser() as browser:
-            over = await browser.call(admin, conversation_id=conversation_id)
-
-    assert asked.status_code == 200, asked.text
-    assert asked.json()["callExempt"] is False
-    assert placed.status_code == 200, placed.text
-    assert over.status_code == 429
-
-
-async def test_off_calls_without_an_own_llm_go_on_and_count_as_before(
-    make_client: ClientFactory, settings: Settings
-):
-    client = make_client(
-        FakeLLM(), settings=replace(settings, own_llm_required=False), clock=FakeClock()
-    )
-    conversation_id = await start_conversation(client)
-
-    asked = await ask_before_calling(client)
-    async with open_browser() as browser:
-        placed = await browser.call(client, conversation_id=conversation_id)
-        await browser.connect()
-        await browser.hang_up()
-    async with open_browser() as browser:
-        over = await browser.call(client, conversation_id=conversation_id)
-
-    assert asked.status_code == 200, asked.text
-    assert asked.json()["callExempt"] is False
-    assert placed.status_code == 200, placed.text
-    assert over.status_code == 429
-    assert "语音通话" in over.json()["detail"]
 
 
 async def test_a_call_in_progress_goes_on_to_its_end_once_an_own_llm_is_required(

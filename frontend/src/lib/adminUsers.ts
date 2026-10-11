@@ -64,11 +64,7 @@ export type AdminUserLimits = {
 };
 
 /** What the editor saves: the limits, and whether the user may use the deployer's LLM. */
-export type UserLimitsInput = {
-  turns_per_hour: UserLimit;
-  calls_per_hour: UserLimit;
-  deployer_llm_allowed: boolean;
-};
+export type UserLimitsInput = Pick<AdminUserLimits, "turns_per_hour" | "calls_per_hour" | "deployer_llm_allowed">;
 
 /** One limit as the editor holds it: which kind, and the number typed for "number". */
 /** A limit as the editor holds it: follow the deployment, a number of times (1 and up),
@@ -112,10 +108,10 @@ export function describeLimits(limits: AdminUserLimits): string {
 
 /** Whether the user may use the deployer's LLM, in words; it does nothing when both their
  * own limits leave them their own keys only. */
-export function deployerLlm(limits: AdminUserLimits | null): string {
+export function describeDeployerLlm(limits: AdminUserLimits | null): string {
   const t = copy.admin.users.limits.deployerLlm;
   if (!limits?.deployer_llm_allowed) return t.no;
-  return limits.turns_per_hour === 0 && limits.calls_per_hour === 0 ? t.noEffect : t.yes;
+  return deployerLlmAllowable(limitDraft(limits.turns_per_hour), limitDraft(limits.calls_per_hour)) ? t.yes : t.noEffect;
 }
 
 /** Whether letting the user use the deployer's LLM does anything with these limits: not

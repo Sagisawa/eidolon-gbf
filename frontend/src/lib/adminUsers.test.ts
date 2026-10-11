@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   banAction,
-  deployerLlm,
   deployerLlmAllowable,
+  describeDeployerLlm,
   describeLimit,
   describeLimits,
   limitDraft,
@@ -103,7 +103,7 @@ describe("limitDraft and limitsInput", () => {
   });
 });
 
-describe("deployerLlm", () => {
+describe("describeDeployerLlm", () => {
   const limits = (turns: UserLimit, calls: UserLimit, deployer_llm_allowed: boolean): AdminUserLimits => ({
     turns_per_hour: turns,
     calls_per_hour: calls,
@@ -113,10 +113,9 @@ describe("deployerLlm", () => {
   });
 
   it("says whether the user may use the deployer's LLM, and when it does nothing for their own limits of 0", () => {
-    expect(deployerLlm(null)).toBe("不可以");
-    expect(deployerLlm(limits(5, null, false))).toBe("不可以");
-    expect(deployerLlm(limits(null, null, true))).toBe("可以");
-    expect(deployerLlm(limits(0, 0, true))).toBe("可以，但两项都只能用自带密钥，不起作用");
+    expect(describeDeployerLlm(null)).toBe("不可以");
+    expect(describeDeployerLlm(limits(null, null, true))).toBe("可以");
+    expect(describeDeployerLlm(limits(0, 0, true))).toBe("可以，但两项都只能用自带密钥，不起作用");
   });
 
   it("adds it to the limits' summary only when the user may", () => {

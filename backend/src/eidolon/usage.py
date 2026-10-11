@@ -204,6 +204,11 @@ class UsageLimiter:
         turns, calls, note, updated_at, allowed = row
         return UserLimits(_from_row(turns), _from_row(calls), note, updated_at, bool(allowed))
 
+    def deployer_llm_allowed(self, user_id: str) -> bool:
+        """Whether an admin let the user use the deployer's LLM, beside their own limits."""
+        own = self.user_limits(user_id)
+        return own is not None and own.deployer_llm_allowed
+
     def set_user_limits(self, user_id: str, limits: UserLimits | None) -> None:
         """Set the user's own limits, as of now, replacing those they had; None takes them
         off, and whether they may use the deployer's LLM with them, and the deployment's

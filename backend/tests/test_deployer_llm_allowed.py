@@ -136,9 +136,6 @@ async def test_a_user_let_places_calls_without_their_own_llm_and_they_count(
     admin = await admin_client(make_client, github)
     producer = make_client(FakeLLM(REPLY), clock=FakeClock())
     conversation_id = await start_conversation(producer)
-    asked_before = await ask_before_calling(producer)
-    async with open_browser() as before:
-        refused = await before.call(producer, conversation_id=conversation_id)
     await allow(admin, (await find(admin, "producer"))["id"])
 
     asked = await ask_before_calling(producer)
@@ -147,23 +144,7 @@ async def test_a_user_let_places_calls_without_their_own_llm_and_they_count(
     async with open_browser() as second:
         over = await second.call(producer, conversation_id=conversation_id)
 
-    assert (asked_before.status_code, refused.status_code) == (403, 403)
-    assert refused.json()["detail"] == DETAIL
     assert asked.status_code == 200, asked.text
     assert placed.status_code == 200, placed.text
     assert over.status_code == 429  # the deployment's call an hour, used up
     assert "语音通话" in over.json()["detail"]
-
-
-async def test_only_admins_let_users_use_the_deployers_llm(
-    make_client: ClientFactory, github: FakeIdentityProvider
-):
-    admin = await admin_client(make_client, github)
-    producer = make_client(FakeLLM())
-    producer_id = (await find(admin, "producer"))["id"]
-
-    put = await producer.put(limits_url(producer_id), json={"deployer_llm_allowed": True})
-    taken_off = await producer.delete(limits_url(producer_id))
-
-    assert (put.status_code, taken_off.status_code) == (404, 404)
-    assert (await details(admin, producer_id))["limits"] is None

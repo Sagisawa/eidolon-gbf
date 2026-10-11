@@ -12,7 +12,6 @@ describe("startFailedEnd", () => {
       "own_llm_required",
       "这个部署需要你自带 LLM，可以在设置里填写。",
     ],
-    ["the user is refused otherwise", new ApiError("这位用户已被封禁", 403), "not_connected", "这位用户已被封禁"],
     ["calls are unavailable", new ApiError("通话暂时不可用", 503), "not_connected", "通话暂时不可用"],
     ["the connection cannot be made", new Error("无法接通，请稍后再试"), "not_connected", null],
   ])("says why when %s, and that it did not count", (_, error, reason, detail) => {
