@@ -14,7 +14,7 @@
 
 **Blocked by:** 02（`layer.call` 要带 `dial`，立绘的 key 才不会在收起动画中途变掉）
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
