@@ -43,6 +43,7 @@ const STT = { api_key: "soniox-my-own-key", provider: "soniox" } as const;
 
 const PREFERENCES: CallPreferences = { micId: "", quality: "standard", muted: false, phoneTexture: false };
 const HANDLERS = {
+  onMicOpen() {},
   onEvent() {},
   onHearing() {},
   onCharacterAudio() {},
