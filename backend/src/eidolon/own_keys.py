@@ -13,12 +13,15 @@ Whose keys a turn or call runs on is answered here, once as it starts (`for_turn
 them, the deployer's otherwise, with whether it counts towards the user's limit. The
 deployer's are those of the live configuration as the turn or call starts (see
 `live_config`), held until it releases them as it ends. Nothing downstream tells the
-user's keys from the deployer's. Before a call is placed, whether it would count is
-answered from the services it is to bring keys for, touching no key (`call_exempt`).
+user's keys from the deployer's. Whether a turn or call counts is answered by one rule,
+from the kind of use and the services it brings keys for, touching no key (`exempt`):
+as it starts, before a call is placed (`call_exempt`), and for the settings page.
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
 `check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
-shown to the user with the key masked (`_masked`), and logged no other way. An LLM is
+shown to the user with the key masked (`_masked`), and logged no other way; a call's
+speech service on the user's key has it masked in its errors before Pipecat logs them
+(`call._masking`). An LLM is
 tried as the deployer's chat model is at startup: it must stream and take tools. In a
 public deployment it must also be on the public internet, so no one can point the backend
 at the machines next to it, and read their answers back in the errors they are shown. That is checked on every
@@ -50,6 +53,7 @@ from eidolon.config import (
 from eidolon.emotion import EmotionJudging
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
 from eidolon.llm.providers import check_chat_llm, open_llm
+from eidolon.usage import UsageKind
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +87,22 @@ class OwnKeyFailed(Exception):
 
 class OwnKeyRejected(Exception):
     """Trying the key before keeping it failed."""
+
+
+class UnknownService(ValueError):
+    """Services were named that there are none of."""
+
+    def __init__(self, unknown: Iterable[str]) -> None:
+        super().__init__(f"没有这项服务：{'、'.join(sorted(unknown))}")
+
+
+def named_services(own: str) -> frozenset[Service]:
+    """The services `own` names (as `llm,tts,stt`, or nothing). Raises UnknownService for
+    one there is not."""
+    named = {s for s in own.split(",") if s}
+    if unknown := named - set(SERVICES):
+        raise UnknownService(unknown)
+    return frozenset(s for s in SERVICES if s in named)
 
 
 class CallsUnavailable(Exception):
@@ -271,7 +291,7 @@ class OwnKeys:
     def for_turn(self, brought: BroughtKeys) -> TurnKeys:
         """Whose keys a text turn bringing `brought` runs on: the user's own LLM, if it
         brings one, both plays the character and writes down their memories."""
-        exempt = _exempt(brought.services)["turns"]
+        exempt = self.exempt("turn", brought.services)
         if brought.llm is not None:
             return TurnKeys(self._llms(brought.llm, None), exempt, own_llm=True)
         lease = self._deployer.lease()
@@ -295,9 +315,17 @@ class OwnKeys:
             lease.release()
             raise
         return CallKeys(
-            llms, stt, tts, own, _exempt(brought.services)["calls"], lease.release,
+            llms, stt, tts, own, self.exempt("call", brought.services), lease.release,
             deployer.tts_model, deployer.emotions, own_llm=brought.llm is not None,
         )
+
+    def exempt(self, kind: UsageKind, services: Iterable[Service]) -> bool:
+        """Whether a use of `kind` bringing the user's own keys for `services` counts
+        towards nothing: a text turn on their own LLM; a call on their own LLM, speech
+        synthesis and recognition alike. Only the rule: no key is touched, and neither
+        the user's own limits nor whether calls are available are asked."""
+        own = frozenset(services)
+        return "llm" in own if kind == "turn" else set(SERVICES) <= own
 
     def call_exempt(self, services: Iterable[Service]) -> bool:
         """Whether a call bringing the user's own keys for `services` would count towards
@@ -308,7 +336,7 @@ class OwnKeys:
             _require_speech(services, lease.keys)
         finally:
             lease.release()
-        return _exempt(services)["calls"]
+        return self.exempt("call", services)
 
     async def check_llm(self, own: OwnLLMSettings) -> None:
         """Try the user's LLM, keeping nothing. Raises OwnKeyRejected saying why it does
@@ -388,14 +416,6 @@ def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:
     key for each of speech recognition and synthesis, theirs or the deployer's."""
     if not ("stt" in own or deployer.stt) or not ("tts" in own or deployer.tts):
         raise CallsUnavailable()
-
-
-def _exempt(own: Iterable[str]) -> dict[str, bool]:
-    """What of a user's use does not count towards their limits, by the services they
-    brought their own keys for: text turns on their own LLM, calls on their own LLM,
-    speech synthesis and recognition alike."""
-    own = set(own)
-    return {"turns": "llm" in own, "calls": {"llm", "tts", "stt"} <= own}
 
 
 async def _check_public(base_url: str) -> None:

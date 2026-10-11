@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { LLM_PROTOCOLS, checkOwnLLM, checkOwnSpeechKey, getAccount, type LLMProtocol, type SttProvider } from "@/lib/api";
+import { checkOwnLLM, checkOwnSpeechKey, getAccount, getLimitExemption, type LimitExemption } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
@@ -22,17 +22,24 @@ import {
   keepOwnKey,
   last4,
   localOwnKeys,
+  LLM_PROTOCOLS,
   ownServices,
+  STT_PROVIDERS,
+  type LLMProtocol,
   type LocalLLM,
   type LocalOwnKeys,
   type LocalTtsKey,
+  type SttProvider,
 } from "@/lib/localOwnKeys";
-import { limitExemption } from "@/lib/ownKeys";
 import { cn } from "@/lib/utils";
 
 const t = copy.settings.ownKeys;
 
-const EXEMPTION_NOTES = { all: t.exemptAll, turns: t.exemptTurns, none: t.exemptNone } as const;
+/** 服务器答的豁免对应哪句说明：通话都不计入时文字对话必然也不计入。 */
+function exemptionNote({ turns, calls }: LimitExemption): string {
+  if (calls) return t.exemptAll;
+  return turns ? t.exemptTurns : t.exemptNone;
+}
 
 /**
  * 用户自带、自己付费的密钥。三项都只存在这个浏览器里，按登录的用户分开存；填写时服务器只试调、
@@ -43,6 +50,26 @@ export function OwnKeysSettings() {
   const [kept, setKept] = useState<LocalOwnKeys>({});
   const [canKeep, setCanKeep] = useState(true);
   const [failure, setFailure] = useState<Failure | null>(null);
+  // 服务器对哪几项服务答的豁免；和现在存的对不上（还没问到）或问失败时，不显示那句说明。
+  const [answered, setAnswered] = useState<{ services: string; exemption: LimitExemption } | null>(null);
+  const services = ownServices(kept).join(",");
+
+  useEffect(() => {
+    if (userId === null) return;
+    const own = ownServices(kept);
+    let current = true;
+    getLimitExemption(own).then(
+      (exemption) => {
+        if (current) setAnswered({ services: own.join(","), exemption });
+      },
+      () => {
+        if (current) setAnswered(null);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [userId, kept]);
 
   useEffect(() => {
     getAccount().then(
@@ -97,7 +124,7 @@ export function OwnKeysSettings() {
     >
       {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
       <p role="status" className="text-body">
-        {EXEMPTION_NOTES[limitExemption(ownServices(kept))]}
+        {answered?.services === services && exemptionNote(answered.exemption)}
         {t.perCallLimits}
       </p>
       <div className="flex flex-col gap-4">
@@ -208,8 +235,6 @@ function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: 
     </div>
   );
 }
-
-const STT_PROVIDERS: SttProvider[] = ["soniox", "bailian"];
 
 /**
  * 语音合成或语音识别的 key：先让服务器试调一次（它不保存），通过了才存进这个浏览器。语音识别先选服务商

@@ -17,7 +17,7 @@ from typing import Generic, TypeVar
 
 from eidolon.activity import ActivityLog, CallEndReason, Recording, Result
 from eidolon.llm import TurnLLMs
-from eidolon.own_keys import BroughtKeys, CallKeys, OwnKeys, Service, TurnKeys
+from eidolon.own_keys import BroughtKeys, CallKeys, OwnKeys, TurnKeys
 from eidolon.usage import OverLimit, UsageKind, UsageLimiter, Use
 
 _COUNTED: dict[UsageKind, frozenset[Result]] = {
@@ -112,15 +112,11 @@ class Admissions:
         neither does the call bring them."""
         return self._admit("call", user_id, character_id, self._own_keys.for_call(brought))
 
-    def call_setup(self, services: frozenset[Service]) -> bool:
-        """Whether a call bringing the user's own keys for `services` would count towards
-        nothing; only asked, taking and recording nothing. Raises CallsUnavailable as
-        `call` does."""
-        return self._own_keys.call_exempt(services)
-
     def _admit(self, kind: UsageKind, user_id: str, character_id: str, keys: K) -> Admission[K]:
         try:
-            recording = self._activity.begin(kind, user_id, character_id, keys.exempt)
+            recording = self._activity.begin(
+                kind, user_id, character_id, own_llm=keys.own_llm, exempt=keys.exempt
+            )
             try:
                 use = self._usage.take(user_id, kind, exempt=keys.exempt)
             except OverLimit:

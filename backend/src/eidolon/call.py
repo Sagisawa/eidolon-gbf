@@ -119,6 +119,7 @@ from eidolon.own_keys import (
     BroughtKeys,
     CallKeys,
     OwnKeyRejected,
+    OwnKeys,
     Service,
 )
 from eidolon.readings import Reading, pronunciation_dictionary
@@ -510,7 +511,10 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
                         await self.push_error(error_msg="Fish Audio server error during synthesis")
                     break
         except ConnectionClosed as e:
-            log.warning("Fish Audio closed a session before it finished: %s", e)
+            # Only the code: the reason is the server's to give, and may repeat the key,
+            # cut short where it could no longer be masked.
+            code = e.rcvd.code if e.rcvd is not None else None
+            log.warning("Fish Audio closed a session before it finished (code %s)", code)
         except Exception as e:
             await self.push_error(error_msg=f"Unknown error occurred: {e}", exception=e)
         finally:
@@ -697,6 +701,17 @@ _CATEGORY_KINDS: dict[ErrorCategory, ErrorKind] = {
 }
 
 
+def _masking(api_key: str) -> Callable[[FrameProcessor, ErrorFrame], Awaitable[None]]:
+    """An `on_error` handler for a service on the user's own `api_key`, masking the key as
+    `***` wherever an error says it (a service may repeat the key it rejects), so that the
+    server's logs never show it. Pipecat calls `on_error` before it logs the error."""
+
+    async def mask(processor: FrameProcessor, error: ErrorFrame) -> None:
+        error.error = error.error.replace(api_key, "***")
+
+    return mask
+
+
 def frame_error_kind(frame: ErrorFrame) -> ErrorKind:
     """What kind of failure an error in the pipeline is: from its exception, or failing
     that, from the category the service gave it, or what it says."""
@@ -810,6 +825,7 @@ class Calls:
         settings: Settings,
         engine: ConversationEngine,
         admissions: Admissions,
+        own_keys: OwnKeys,
         limits: Callable[[], UsageLimits],
         speech: Speech,
         clock: Clock,
@@ -820,6 +836,7 @@ class Calls:
         self._settings = settings
         self._engine = engine
         self._admissions = admissions
+        self._own_keys = own_keys
         self._usage_limits = limits
         self._speech = speech
         self._clock = clock
@@ -843,9 +860,9 @@ class Calls:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
         own; how long a call may last, in seconds (None for no limit); and whether a call
         bringing the user's own keys for `own` would be exempt from the limit. Raises
-        CallsUnavailable, as `Admissions.call_setup` does, before anything is spent on a
+        CallsUnavailable, as `OwnKeys.call_exempt` does, before anything is spent on a
         call that could not start."""
-        exempt = self._admissions.call_setup(own)
+        exempt = self._own_keys.call_exempt(own)
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
@@ -1038,6 +1055,9 @@ class _LiveCall:
             for processor, service in ((stt, "stt"), (tts, "tts"))
             if service in keys.own
         }
+        own_api_keys = {"stt": keys.stt.api_key, "tts": keys.tts}
+        for processor, service in own_services.items():
+            processor.add_event_handler("on_error", _masking(own_api_keys[service]))
         self._meter = CallMeter(
             outcome.recording,
             stt, Origin("stt", _stt_host(keys.stt), _model(stt), "stt" in keys.own),

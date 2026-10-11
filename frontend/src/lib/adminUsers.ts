@@ -4,7 +4,7 @@
 // use it.
 
 import { copy } from "@/i18n";
-import { apiHeaders, expectNoContent, followRedirect, json } from "@/lib/api";
+import { api, expectNoContent, json } from "@/lib/api";
 import { formatCount } from "@/lib/dashboard";
 import type { Provider } from "@/lib/signIn";
 
@@ -162,12 +162,6 @@ export function pageOffset(page: number): number {
   return (page - 1) * USERS_PAGE_SIZE;
 }
 
-async function admin(path: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
-  followRedirect(res);
-  return res;
-}
-
 /** A page of the users, or of those `query` finds by name, email or user id, sorted by
  * `sort` before they are cut into pages. */
 export async function listAdminUsers(query: string, page: number, sort: UserSort): Promise<AdminUserPage> {
@@ -177,17 +171,17 @@ export async function listAdminUsers(query: string, page: number, sort: UserSort
     limit: String(USERS_PAGE_SIZE),
     sort,
   });
-  return json(await admin(`/api/admin/users?${params}`));
+  return json(await api(`/api/admin/users?${params}`));
 }
 
 export async function getAdminUser(id: string): Promise<AdminUserDetails> {
-  return json(await admin(`/api/admin/users/${encodeURIComponent(id)}`));
+  return json(await api(`/api/admin/users/${encodeURIComponent(id)}`));
 }
 
 /** Ban the user, with a note for the admins; they are signed out everywhere at once. */
 export async function banUser(id: string, note: string): Promise<AdminUserDetails> {
   return json(
-    await admin(`/api/admin/users/${encodeURIComponent(id)}/ban`, {
+    await api(`/api/admin/users/${encodeURIComponent(id)}/ban`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ note: note.trim() || null }),
@@ -196,7 +190,7 @@ export async function banUser(id: string, note: string): Promise<AdminUserDetail
 }
 
 export async function unbanUser(id: string): Promise<AdminUserDetails> {
-  return json(await admin(`/api/admin/users/${encodeURIComponent(id)}/ban`, { method: "DELETE" }));
+  return json(await api(`/api/admin/users/${encodeURIComponent(id)}/ban`, { method: "DELETE" }));
 }
 
 /** Set the user's own limits, replacing those they had, from their next turn or call on. */
@@ -206,7 +200,7 @@ export async function setUserLimits(
   note: string,
 ): Promise<AdminUserDetails> {
   return json(
-    await admin(`/api/admin/users/${encodeURIComponent(id)}/limits`, {
+    await api(`/api/admin/users/${encodeURIComponent(id)}/limits`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...limits, note: note.trim() || null }),
@@ -216,11 +210,11 @@ export async function setUserLimits(
 
 /** Take off the user's own limits; the deployment's hold for them again. */
 export async function takeOffUserLimits(id: string): Promise<AdminUserDetails> {
-  return json(await admin(`/api/admin/users/${encodeURIComponent(id)}/limits`, { method: "DELETE" }));
+  return json(await api(`/api/admin/users/${encodeURIComponent(id)}/limits`, { method: "DELETE" }));
 }
 
 /** Delete the user and all their data for good, as they would themselves; a banned user's
  * identities can never sign in or be linked again. */
 export async function deleteUser(id: string): Promise<void> {
-  await expectNoContent(await admin(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" }));
+  await expectNoContent(await api(`/api/admin/users/${encodeURIComponent(id)}`, { method: "DELETE" }));
 }

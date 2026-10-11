@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  agreeToTerms,
   ApiError,
   CONSENT_REQUIRED,
   checkOwnSpeechKey,
   deleteAccount,
   getCallSetup,
+  getLimitExemption,
   json,
   logout,
   logoutEverywhere,
@@ -145,7 +147,7 @@ describe("sendTurn", () => {
     return all;
   }
 
-  it("posts the text to the conversation's turns, bringing the user's own LLM kept in this browser", async () => {
+  it("posts the text to the conversation's turns, bringing the user's own LLM kept in this browser as own_keys", async () => {
     const llm = {
       api_key: "sk-my-own-key-1234",
       base_url: "https://llm.example.com/v1",
@@ -162,7 +164,7 @@ describe("sendTurn", () => {
     const [path, init] = fetch.mock.calls[0];
     expect(path).toBe("/api/conversations/c1/turns");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_llm: llm });
+    expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_keys: { llm } });
     expect(JSON.parse(fetch.mock.calls[1][1].body as string)).toEqual({ text: "おはよう" });
   });
 
@@ -231,6 +233,44 @@ describe("getCallSetup", () => {
     await getCallSetup([]);
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/ice-servers?own=llm,tts,stt", "/api/ice-servers"]);
+  });
+});
+
+describe("getLimitExemption", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the services the user keeps their own keys for, and none of the keys, and hands back the server's answer", async () => {
+    const fetch = vi.fn(async (_path: string, _init?: RequestInit) => Response.json({ turns: true, calls: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await getLimitExemption(["llm", "tts"])).toEqual({ turns: true, calls: false });
+    await getLimitExemption([]);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/account/keys/exemption?own=llm,tts",
+      "/api/account/keys/exemption",
+    ]);
+  });
+});
+
+describe("agreeToTerms", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the browser back to the landing page to sign in when the session has expired", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { pathname: "/consent", assign } });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ detail: "Not signed in" }, { status: 401 })),
+    );
+
+    await expect(agreeToTerms()).rejects.toThrow();
+
+    expect(assign).toHaveBeenCalledWith("/");
   });
 });
 

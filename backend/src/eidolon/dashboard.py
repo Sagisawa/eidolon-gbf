@@ -159,7 +159,7 @@ def turns(records: Sequence[RecordRow]) -> dict:
     return {
         "total": len(records),
         "by_result": {result: by_result[result] for result in RESULTS if result != "not_connected"},
-        "own_keys": sum(r.own_keys for r in records),
+        "own_keys": sum(bool(r.own_llm) for r in records),
         "in_calls": sum(r.in_call for r in records),
         "time_to_speak_ms": _speaking(records),
     }

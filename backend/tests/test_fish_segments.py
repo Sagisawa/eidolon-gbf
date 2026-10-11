@@ -26,7 +26,8 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.fish.tts import FishAudioTTSService
 from pipecat.tests.utils import SleepFrame, run_test
-from websockets.exceptions import ConnectionClosedOK
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+from websockets.frames import Close
 from websockets.protocol import State
 
 from eidolon.assembly import build
@@ -49,17 +50,21 @@ by that long for each reply."""
 class FakeFish:
     """Stands in for Fish Audio's live TTS, logging what each connection is sent and what
     becomes of it, as "<connection> <what>", connections numbered from 1. With
-    `idle_timeout`, it closes a connection sent no text that long after its start."""
+    `idle_timeout`, it closes a connection sent no text that long after its start; with
+    `cut_off`, it closes a session instead of voicing what it is sent, giving that as the
+    reason."""
 
     def __init__(
         self,
         idle_timeout: float | None = None,
         refused: tuple[int, ...] = (),
         readings: tuple[Reading, ...] = (),
+        cut_off: str | None = None,
     ) -> None:
         """The attempts to connect numbered (from 1) in `refused` fail; the connections
         made are numbered on their own. The service is given `readings`."""
         self.idle_timeout = idle_timeout
+        self.cut_off = cut_off
         self.refused = refused
         self.readings = readings
         self.attempts = 0
@@ -109,6 +114,7 @@ class FakeFishSocket:
         self._to_send: asyncio.Queue[bytes | None] = asyncio.Queue()  # None: closed
         self._voicing = asyncio.create_task(self._voice())
         self._idle: asyncio.Task | None = None
+        self._cut_off: str | None = None  # the reason it was closed early, if it was
 
     async def send(self, data: bytes) -> None:
         if self.state is not State.OPEN:
@@ -139,6 +145,10 @@ class FakeFishSocket:
     async def _voice(self) -> None:
         while (text := await self._to_voice.get()) is not None:
             await asyncio.sleep(SYNTHESIS)
+            if self.fish.cut_off is not None:
+                self._cut_off = self.fish.cut_off
+                self._closed()
+                return
             self._to_send.put_nowait(ormsgpack.packb({"event": "audio", "audio": audio(text)}))
         self._to_send.put_nowait(ormsgpack.packb({"event": "finish", "reason": "stop"}))
         self._note("finished")
@@ -150,6 +160,8 @@ class FakeFishSocket:
     async def _messages(self):
         while (message := await self._to_send.get()) is not None:
             yield message
+        if self._cut_off is not None:
+            raise ConnectionClosedError(Close(1008, self._cut_off), None)
 
     async def close(self) -> None:
         self.abort()
@@ -305,6 +317,17 @@ async def test_a_connection_closed_while_left_open_is_replaced_as_the_next_reply
     assert fish.of(2) == ["connected", "start", "closed"]  # by Fish Audio, left idle
     assert "text うん。" in fish.of(3)
     assert heard(fish)[-2:] == ["playing 2/0", "audio うん。"]
+
+
+async def test_a_session_fish_audio_closes_early_is_logged_without_the_reason_it_gives(
+    caplog: pytest.LogCaptureFixture,
+):
+    """The reason is the server's, and may repeat the key."""
+    fish = await run(*reply(1, ["ほわっ。"]), fish=FakeFish(cut_off="invalid api key fish-key"))
+
+    assert fish.of(1)[-1] == "closed" and "finished" not in fish.of(1)
+    assert "closed a session before it finished (code 1008)" in caplog.text
+    assert "fish-key" not in caplog.text
 
 
 async def test_a_segment_no_connection_voices_is_not_announced():

@@ -29,7 +29,7 @@ from eidolon.admin_api import is_admin
 from eidolon.assembly import Backend
 from eidolon.config import BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
-from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings
+from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings, named_services
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -106,7 +106,7 @@ class OwnSTTInput(BaseModel):
 
 
 class OwnKeysInput(BaseModel):
-    """The user's own keys a call brings, by service; each may be left out."""
+    """The user's own keys a turn or a call brings, by service; each may be left out."""
 
     llm: OwnLLMInput | None = None
     tts: OwnTTSInput | None = None
@@ -285,6 +285,18 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
     async def own_key_rejected(_: Request, e: OwnKeyRejected) -> JSONResponse:
         """A user's own key failed its try: what the service said."""
         return JSONResponse({"detail": f"试调失败：{e}"}, status_code=422)
+
+    @app.get("/api/account/keys/exemption")
+    def exemption(user_id: UserId, own: str = "") -> dict:
+        """Whether the user's text turns and calls would count towards nothing, if they
+        brought their own keys for the services `own` names (as `llm,tts,stt`), but none
+        of the keys: only by the rule, whatever their own limits and whether calls are
+        available."""
+        services = named_services(own)
+        return {
+            "turns": own_keys.exempt("turn", services),
+            "calls": own_keys.exempt("call", services),
+        }
 
     @app.post("/api/account/keys/llm/check")
     async def check_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:

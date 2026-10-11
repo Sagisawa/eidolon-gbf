@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  callOwnKeys,
   canKeepOwnKeys,
   forgetOwnKey,
   forgetOwnKeys,
   keepOwnKey,
   localOwnKeys,
-  ownServices,
-  turnOwnLLM,
+  turnOwnKeys,
 } from "@/lib/localOwnKeys";
 
 const LLM = {
@@ -67,7 +67,7 @@ describe("own keys kept in this browser", () => {
 
     items.set("eidolon.ownKeys.u1", JSON.stringify({ llm: { ...LLM, api_key: "sk-changed-elsewhere" } }));
 
-    expect(turnOwnLLM("u1")?.api_key).toBe("sk-changed-elsewhere");
+    expect(turnOwnKeys("u1")?.llm.api_key).toBe("sk-changed-elsewhere");
   });
 
   it("leave out what is stored wrongly, keeping what is right", () => {
@@ -87,14 +87,22 @@ describe("own keys kept in this browser", () => {
   });
 });
 
-describe("what a call brings", () => {
-  it("names the services the user keeps their own keys for", () => {
+describe("what a text turn brings", () => {
+  it("is the user's own LLM alone, leaving their voice keys behind", () => {
     storage();
-    keepOwnKey("u1", "stt", STT);
     keepOwnKey("u1", "llm", LLM);
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
+    keepOwnKey("u1", "stt", STT);
 
-    expect(ownServices(localOwnKeys("u1"))).toEqual(["llm", "stt"]);
-    expect(ownServices(localOwnKeys("u2"))).toEqual([]);
+    expect(turnOwnKeys("u1")).toEqual({ llm: LLM });
+  });
+
+  it("is nothing when the user keeps no LLM, even with voice keys kept", () => {
+    storage();
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
+    keepOwnKey("u1", "stt", STT);
+
+    expect(turnOwnKeys("u1")).toBeUndefined();
   });
 });
 
@@ -111,7 +119,7 @@ describe("a browser that cannot keep own keys", () => {
     expect(canKeepOwnKeys()).toBe(false);
     keepOwnKey("u1", "llm", LLM);
     expect(localOwnKeys("u1")).toEqual({});
-    expect(turnOwnLLM("u1")).toBeUndefined();
+    expect(turnOwnKeys("u1")).toBeUndefined();
   });
 
   it("says so when its storage cannot even be reached, without throwing", () => {
@@ -131,5 +139,26 @@ describe("a browser that cannot keep own keys", () => {
 
     expect(canKeepOwnKeys()).toBe(true);
     expect([...items.keys()]).toEqual(["eidolon.ownKeys.u1"]);
+  });
+});
+
+describe("what a call brings", () => {
+  it("is all the user keeps, with the services named for the check before dialing", () => {
+    storage();
+    keepOwnKey("u1", "stt", STT);
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
+    keepOwnKey("u1", "llm", LLM);
+
+    expect(callOwnKeys("u1")).toEqual({
+      ownKeys: { llm: LLM, tts: { api_key: "fish-my-own-key" }, stt: STT },
+      services: ["llm", "tts", "stt"],
+    });
+  });
+
+  it("is nothing when the user keeps none: no `own_keys`, and no services named", () => {
+    storage();
+    keepOwnKey("u2", "llm", LLM);
+
+    expect(callOwnKeys("u1")).toEqual({ ownKeys: undefined, services: [] });
   });
 });

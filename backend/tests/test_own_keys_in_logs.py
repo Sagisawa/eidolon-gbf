@@ -13,6 +13,7 @@ from loguru import logger
 
 from eidolon.llm import LLMError
 from eidolon.own_keys import MAX_CAUSE_LENGTH
+from tests.browser import Browser
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FakeBackgroundLLM,
@@ -42,10 +43,11 @@ def echoing(status: str) -> str:
 @pytest.fixture
 def logged(caplog: pytest.LogCaptureFixture) -> Iterator[Callable[[], list[str]]]:
     """What has been logged so far, through Python's logging and through loguru
-    (Pipecat's)."""
+    (Pipecat's), loguru's from INFO up as the server shows it (`__main__`): Pipecat's
+    DEBUG lines show what calls send to services, and are never shown."""
     caplog.set_level(logging.DEBUG)
     lines: list[str] = []
-    sink = logger.add(lambda message: lines.append(str(message)), level="DEBUG")
+    sink = logger.add(lambda message: lines.append(str(message)), level="INFO")
     yield lambda: [*lines, caplog.text]
     logger.remove(sink)
 
@@ -71,7 +73,7 @@ async def test_own_keys_stay_out_of_the_logs_and_are_masked_in_what_the_user_is_
     failed = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
     await client.post(  # refused, its key unchecked
         f"/api/conversations/{conversation_id}/turns",
-        json={"text": "在吗", "own_llm": LLM | {"api_key": f"{KEY} with spaces"}},
+        json={"text": "在吗", "own_keys": {"llm": LLM | {"api_key": f"{KEY} with spaces"}}},
     )
     own_llm.rejects[KEY] = echoing("401 Unauthorized")
     speech.rejects[KEY] = echoing("401 Unauthorized")
@@ -91,4 +93,36 @@ async def test_own_keys_stay_out_of_the_logs_and_are_masked_in_what_the_user_is_
         assert res.json()["detail"].endswith("***"), service
         assert PREFIX not in res.json()["detail"], service
     for line in logged():
+        assert PREFIX not in line, line
+
+
+@pytest.mark.parametrize(
+    ("service", "own_keys"),
+    [
+        ("tts", {"tts": {"api_key": KEY}}),
+        ("stt", {"stt": {"api_key": KEY, "provider": "soniox"}}),
+    ],
+)
+async def test_an_own_speech_key_failing_in_a_call_stays_out_of_the_logs_and_the_reason_given(
+    make_client: ClientFactory,
+    speech: FakeSpeech,
+    browser: Browser,
+    logged: Callable[[], list[str]],
+    service: str,
+    own_keys: dict,
+):
+    client = make_client(FakeLLM())
+    await browser.call(
+        client, conversation_id=await start_conversation(client), own_keys=own_keys
+    )
+    await browser.connect()
+
+    failing = speech.ttss[-1] if service == "tts" else speech.stts[-1]
+    await failing.break_down(echoing("401 Unauthorized"))
+    ended = await browser.next_server_message("ended")
+    await browser.hung_up()
+
+    assert PREFIX not in ended["message"]
+    assert any("401 Unauthorized" in line for line in logged())  # it was logged,
+    for line in logged():  # its key masked
         assert PREFIX not in line, line

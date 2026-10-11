@@ -24,9 +24,9 @@ from eidolon.call import (
 from eidolon.characters import Character
 from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.own_keys import SERVICES, BroughtKeys, CallsUnavailable, Service
+from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.account_api import OwnKeysInput, OwnLLMInput, add_account_routes
+from eidolon.account_api import OwnKeysInput, add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
@@ -46,8 +46,13 @@ class NewConversation(BaseModel):
 
 class TurnInput(BaseModel):
     text: str
-    own_llm: OwnLLMInput | None = None
-    """The user's own LLM, which their browser keeps, for the turn to run on."""
+    own_keys: OwnKeysInput | None = None
+    """The user's own keys, which their browser keeps, for the turn to run on; the shape
+    calls bring too. A turn uses only the LLM, voice keys brought along go unused."""
+    own_llm: object = None
+    """Where pages from before brought their own LLM. Transitional, to be deleted once no
+    such page is left open: a turn bringing it is refused, asking for a refresh, rather
+    than quietly run on the deployer's key and counted."""
 
 
 class CallRequest(BaseModel):
@@ -181,6 +186,10 @@ def create_app(backend: Backend) -> FastAPI:
     async def calls_unavailable(_: Request, e: CallsUnavailable) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=503)
 
+    @app.exception_handler(UnknownService)
+    async def unknown_service(_: Request, e: UnknownService) -> JSONResponse:
+        return JSONResponse({"detail": str(e)}, status_code=422)
+
     @app.exception_handler(CallNotFound)
     async def call_not_found(_: Request, e: CallNotFound) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=404)
@@ -213,11 +222,7 @@ def create_app(backend: Backend) -> FastAPI:
         """What the browser needs before calling, if the call is to bring the user's own
         keys for the services `own` names (as `llm,tts,stt`), but none of the keys; also
         tells it when calls are unavailable."""
-        named = {s for s in own.split(",") if s}
-        if unknown := named - set(SERVICES):
-            raise HTTPException(422, f"没有这项服务：{'、'.join(sorted(unknown))}")
-        services: frozenset[Service] = frozenset(named)  # pyright: ignore[reportAssignmentType]
-        return calls.ice_servers(user_id, services)
+        return calls.ice_servers(user_id, named_services(own))
 
     @app.post("/api/offer")
     async def offer(
@@ -369,7 +374,9 @@ def create_app(backend: Backend) -> FastAPI:
         device_timezone: DeviceTimezone = None,
     ) -> StreamingResponse:
         conversation = conversation_or_404(conversation_id, user_id)
-        brought = BroughtKeys(llm=body.own_llm.normalized() if body.own_llm else None)
+        if body.own_llm is not None:  # transitional: see `TurnInput.own_llm`
+            raise HTTPException(422, "页面已经更新，请刷新后再发")
+        brought = body.own_keys.brought() if body.own_keys else BroughtKeys()
         admission = admissions.turn(user_id, conversation.character_id, brought)
         outcome = TurnOutcome(admission.recording, admission.settle)
 

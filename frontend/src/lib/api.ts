@@ -1,6 +1,14 @@
 import type { Provider } from "@/lib/signIn";
-import { forgetOwnKeys, turnOwnLLM, type BailianRegion, type LocalLLM } from "@/lib/localOwnKeys";
+import {
+  forgetOwnKeys,
+  turnOwnKeys,
+  type BailianRegion,
+  type LocalLLM,
+  type OwnService,
+  type SttProvider,
+} from "@/lib/localOwnKeys";
 import { detectTimezone } from "@/lib/timezone";
+import type { Speaking } from "@/lib/call";
 import type { Emotion, Nod } from "@/lib/standAnimations";
 
 export type Character = {
@@ -126,17 +134,6 @@ export type CallEvent =
   | Speaking
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
 
-/** Pipecat's standard RTVI events, not server messages: her voice starts or stops playing
- * (stopping at once when she is interrupted), the user starts or stops speaking. */
-export type Speaking = { type: (typeof SPEAKING)[number] };
-
-export const SPEAKING = [
-  "bot-started-speaking",
-  "bot-stopped-speaking",
-  "user-started-speaking",
-  "user-stopped-speaking",
-] as const;
-
 /** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little
  * before it is heard; a segment cut off before it is voiced gets none. */
@@ -228,9 +225,10 @@ export function followRedirect(res: Response): void {
   if (to && window.location.pathname !== to) window.location.assign(to);
 }
 
-/** fetch() for the backend API; sends the browser on when it has to sign in, or agree to the
- * terms, first. */
-async function api(path: string, init: RequestInit = {}): Promise<Response> {
+/** fetch() for the backend API, which every request from the browser goes through: it carries
+ * the time zone header, and sends the browser on when it has to sign in, or agree to the terms,
+ * first. Read the response with `json` or `expectNoContent` for the backend's reason on failure. */
+export async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
   followRedirect(res);
   return res;
@@ -241,7 +239,7 @@ async function api(path: string, init: RequestInit = {}): Promise<Response> {
 export type SignInOptions = { providers: Provider[]; dev_login: boolean; contact: string | null };
 
 export async function getSignInOptions(): Promise<SignInOptions> {
-  return json(await fetch("/api/auth/providers"));
+  return json(await api("/api/auth/providers"));
 }
 
 /** An identity the user signs in with. */
@@ -260,17 +258,6 @@ export async function getAccount(): Promise<Account> {
 export async function unlinkSignInMethod(provider: Provider): Promise<void> {
   await expectNoContent(await api(`/api/account/sign-in-methods/${provider}`, { method: "DELETE" }));
 }
-
-export type OwnService = "llm" | "tts" | "stt";
-
-/** The kinds of interface a user's own LLM may speak: the backend's `LLM_PROTOCOLS`, which this
- * follows (and `copy.settings.ownKeys.protocols` names). */
-export const LLM_PROTOCOLS = ["chat-completions", "responses", "anthropic"] as const;
-
-export type LLMProtocol = (typeof LLM_PROTOCOLS)[number];
-
-/** The speech recognition services a user may bring a key for. */
-export type SttProvider = "soniox" | "bailian";
 
 /**
  * Try the user's own LLM, which the server does not keep; fails with what the service said if
@@ -329,9 +316,9 @@ export async function logoutEverywhere(userId?: string): Promise<void> {
 /** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
 export async function agreeToTerms(): Promise<void> {
   await expectNoContent(
-    await fetch("/api/account/consent", {
+    await api("/api/account/consent", {
       method: "POST",
-      headers: apiHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ agree_to_terms: true, at_least_13: true }),
     }),
   );
@@ -340,9 +327,9 @@ export async function agreeToTerms(): Promise<void> {
 /** Sign in as the user with this name (development only). */
 export async function devLogin(name: string): Promise<void> {
   await expectNoContent(
-    await fetch("/api/auth/dev-login", {
+    await api("/api/auth/dev-login", {
       method: "POST",
-      headers: apiHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     }),
   );
@@ -351,7 +338,7 @@ export async function devLogin(name: string): Promise<void> {
 /** Sign this browser out, forgetting the own keys it keeps for the user. Without `userId`, as
  * before the user has agreed to the terms, there are none: keys are only kept after. */
 export async function logout(userId?: string): Promise<void> {
-  await expectNoContent(await fetch("/api/auth/logout", { method: "POST" }));
+  await expectNoContent(await api("/api/auth/logout", { method: "POST" }));
   if (userId) forgetOwnKeys(userId);
 }
 
@@ -415,6 +402,17 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 
+/** Whether the user's text turns and calls would count towards nothing (on their own keys alone),
+ * as the server counts them: GLOSSARY.md「限额」「自带密钥」. */
+export type LimitExemption = { turns: boolean; calls: boolean };
+
+/** Asks the server whether keeping the user's own keys for `own` exempts their turns and calls
+ * from the hourly limit, naming those services but bringing none of the keys. */
+export async function getLimitExemption(own: readonly OwnService[]): Promise<LimitExemption> {
+  const path = "/api/account/keys/exemption";
+  return json(await api(own.length ? `${path}?own=${own.join(",")}` : path));
+}
+
 /** What a call needs before it starts: the STUN/TURN servers, how long it may last in seconds
  * (null for no limit), and whether it is exempt from the hourly limit (on the user's own keys
  * alone). Fails with the reason when calls are unavailable. */
@@ -427,14 +425,14 @@ export async function getCallSetup(own: readonly OwnService[]): Promise<CallSetu
 }
 
 /**
- * Sends one text turn, bringing the user's own LLM if this browser keeps one for them, and yields
- * the reply's server-sent events as they arrive.
+ * Sends one text turn, bringing the user's own LLM (as `own_keys`) if this browser keeps one for
+ * them, and yields the reply's server-sent events as they arrive.
  */
 export async function* sendTurn(conversationId: string, text: string, userId: string): AsyncGenerator<TurnEvent> {
   const res = await api(`/api/conversations/${conversationId}/turns`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, own_llm: turnOwnLLM(userId) }),
+    body: JSON.stringify({ text, own_keys: turnOwnKeys(userId) }),
   });
   if (!res.ok || !res.body) {
     await json(res);
