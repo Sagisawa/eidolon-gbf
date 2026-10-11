@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
   AlertDialog,
@@ -24,9 +24,9 @@ import {
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { keepListPreferences, listPreferences, NO_PREFERENCES, type ListPreferences } from "@/lib/listPreferences";
-import type { LiveCall } from "@/lib/liveConversation";
+import { isLive, NOT_OPEN, type LiveCall, type LiveConversation } from "@/lib/liveConversation";
 
-/** 正在和谁通话，列表那一行据此显示「正在呼叫…」「通话中 mm:ss」。 */
+/** 正在和谁通话，列表那一行据此显示「正在呼叫…」「通话中 mm:ss」；从对话页交来的 LiveConversation 的快照算出。 */
 export type CallInList = { characterId: string; state: LiveCall } | null;
 
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由双栏外壳载入一次。 */
@@ -46,8 +46,8 @@ export type Directory = {
   /** 整理列表（隐藏、显示、置顶…），立即生效并存下；存不进去时只在这次页面里生效。 */
   tidy: (change: (preferences: ListPreferences) => ListPreferences) => void;
   call: CallInList;
-  /** 对话页把通话的进展告诉列表。 */
-  setCall: (call: CallInList) => void;
+  /** 对话页建好它的 LiveConversation 后交给列表，离开时交回 null；列表自己订阅这份快照。 */
+  handOver: (live: LiveConversation | null) => void;
   /**
    * 离开对话页（换一位角色、进设置或记忆、回列表）：通话中先确认会挂断，确认了才 `go`。
    * 离开后对话页卸下，照常挂断（GLOSSARY.md「通话」）。
@@ -62,6 +62,10 @@ export function useWide(): boolean {
 
 const DirectoryContext = createContext<Directory | null>(null);
 
+/** 对话页还没交出它的 LiveConversation 时，列表看到的那份空快照。 */
+const notHanded = () => NOT_OPEN;
+const noSubscription = () => () => {};
+
 export function useDirectory(): Directory {
   const directory = useContext(DirectoryContext);
   if (!directory) throw new Error("useDirectory 只能在对话外壳里用");
@@ -75,8 +79,12 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<ListPreferences>(NO_PREFERENCES);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [call, setCall] = useState<CallInList>(null);
+  const [live, setLive] = useState<LiveConversation | null>(null);
   const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  // 订阅对话页交来的那一份快照：列表那一行和隐藏时留下的角色都从它算出来，不再抄一份 call。
+  const liveSnapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notHanded, notHanded);
+  const liveCall = live && isLive(liveSnapshot.call) ? liveSnapshot.call : null;
+  const call: CallInList = live && liveCall ? { characterId: live.characterId, state: liveCall } : null;
 
   const refresh = useCallback(() => {
     listLatestConversations().then(
@@ -124,16 +132,17 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
 
   const leave = useCallback(
     (go: () => void) => {
-      if (call) setLeaving(() => go);
+      // 在点击这一刻读快照：通话正在进行中就先问一句会不会挂断。
+      if (live && isLive(live.snapshot().call)) setLeaving(() => go);
       else go();
     },
-    [call],
+    [live],
   );
 
   const callee = characters?.find((c) => c.id === call?.characterId);
   return (
     <DirectoryContext.Provider
-      value={{ userId, characters, latest, preferences, tidy, failure, refresh, reload, call, setCall, leave }}
+      value={{ userId, characters, latest, preferences, tidy, failure, refresh, reload, call, handOver: setLive, leave }}
     >
       {children}
       {/* 确认框不在她的子树里：只有中性色和挂断红（DESIGN.md「Hang-up Red」：「挂断并离开」用它）。 */}
