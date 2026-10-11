@@ -50,8 +50,8 @@ def _picture(path: Path, request: Request) -> Response:
     FileResponse sets the ETag but, unlike StaticFiles, never answers 304 itself."""
     response = FileResponse(path, headers=_PICTURE_CACHE, stat_result=path.stat())
     etag = response.headers["etag"]
-    sent = request.headers.get("if-none-match", "")
-    if etag in (tag.strip() for tag in sent.split(",")):
+    cached_etags = request.headers.get("if-none-match", "")
+    if etag in (tag.strip() for tag in cached_etags.split(",")):
         return Response(status_code=304, headers={"ETag": etag, **_PICTURE_CACHE})
     return response
 

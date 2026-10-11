@@ -136,6 +136,9 @@ async def test_avatar_and_background_are_cached_by_the_browser_and_revalidated_b
         f"/api/characters/mano/{picture}", headers={"if-none-match": res.headers["etag"]}
     )
     assert again.status_code == 304
+    assert again.headers["cache-control"] == "public, max-age=86400"
+    stale = await client.get(f"/api/characters/mano/{picture}", headers={"if-none-match": '"stale"'})
+    assert stale.status_code == 200
 
 
 @pytest.mark.parametrize(

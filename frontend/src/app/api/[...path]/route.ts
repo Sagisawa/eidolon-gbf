@@ -10,7 +10,7 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   const { search } = new URL(request.url);
   const url = `${BACKEND_URL}/api/${path.map(encodeURIComponent).join("/")}${search}`;
   const headers = new Headers();
-  for (const name of ["content-type", "cookie", "origin", "x-timezone", "if-none-match", "if-modified-since"]) {
+  for (const name of ["content-type", "cookie", "origin", "x-timezone", "if-none-match"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -25,8 +25,8 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   });
 
   const out = new Headers();
-  // etag and last-modified let the browser revalidate avatars instead of downloading them again
-  for (const name of ["content-type", "cache-control", "etag", "last-modified", "location", "retry-after"]) {
+  // the etag lets the browser revalidate an avatar instead of downloading it again
+  for (const name of ["content-type", "cache-control", "etag", "location", "retry-after"]) {
     const value = res.headers.get(name);
     if (value) out.set(name, value);
   }

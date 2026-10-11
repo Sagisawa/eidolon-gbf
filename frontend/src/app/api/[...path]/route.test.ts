@@ -27,7 +27,6 @@ describe("forwarding /api/* to the backend", () => {
             "content-type": "image/jpeg",
             "cache-control": "public, max-age=86400",
             etag: '"abc"',
-            "last-modified": "Fri, 02 Oct 2026 16:28:23 GMT",
           },
         }),
     );
@@ -36,20 +35,15 @@ describe("forwarding /api/* to the backend", () => {
 
     expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
     expect(res.headers.get("etag")).toBe('"abc"');
-    expect(res.headers.get("last-modified")).toBe("Fri, 02 Oct 2026 16:28:23 GMT");
   });
 
   it("asks the backend whether the browser's copy is still current, and passes on its 304", async () => {
     const fetch = backendAnswers(() => new Response(null, { status: 304, headers: { etag: '"abc"' } }));
 
-    const res = await get("characters/mano/avatar", {
-      "if-none-match": '"abc"',
-      "if-modified-since": "Fri, 02 Oct 2026 16:28:23 GMT",
-    });
+    const res = await get("characters/mano/avatar", { "if-none-match": '"abc"' });
 
     const sent = new Headers(fetch.mock.calls[0][1].headers);
     expect(sent.get("if-none-match")).toBe('"abc"');
-    expect(sent.get("if-modified-since")).toBe("Fri, 02 Oct 2026 16:28:23 GMT");
     expect(res.status).toBe(304);
     expect(res.body).toBeNull();
   });
