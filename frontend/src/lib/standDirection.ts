@@ -31,8 +31,9 @@ export type StandState = {
   /** The user interrupted her by typing while her voice played. */
   interruptedByTyping: boolean;
   /** The segment she is saying, which her mood follows. `over` once it has been said: her voice
-   * stopped (until it starts again), or the next turn was taken up. Null until one starts. */
-  saying: (SegmentAt & { over: boolean }) | null;
+   * stopped (until it starts again), or the next turn was taken up. `paced` if the line card
+   * moved on to it without her voice. Null until one starts. */
+  saying: (SegmentAt & { over: boolean; paced: boolean }) | null;
   /** Emotions judged for segments she has yet to say in this call, by `reply:segment`. */
   judged: ReadonlyMap<string, SegmentEmotion>;
   /** The last segment whose emotion she has shown in this call; null until one. */
@@ -86,7 +87,7 @@ function moved(state: StandState, event: StandEvent): StandState {
   switch (event.type) {
     case "segment-playing":
     case "line-shown":
-      return startSaying(state, event);
+      return startSaying(state, event, event.type === "line-shown");
     case "emotion":
       return onEmotion(state, event);
     case "user":
@@ -122,27 +123,27 @@ function nodded(state: StandState, kind: Nod["kind"]): StandState {
   return { ...state, nods, direction: { ...state.direction, nod: { kind, id: nods } } };
 }
 
-/** She starts saying this segment, unless she is past it already: her mood follows it if it has
- * been judged. */
-function startSaying(state: StandState, at: SegmentAt): StandState {
+/** She starts saying this segment, with her voice or as the line card moves on to it at her pace
+ * (`paced`), unless she is past it already: her mood follows it if it has been judged. */
+function startSaying(state: StandState, at: SegmentAt, paced: boolean): StandState {
   const { saying } = state;
   if (saying && !follows(at, saying)) return state;
   const emotion = state.judged.get(key(at));
   const judged = new Map([...state.judged].filter(([, later]) => follows(later, at)));
-  const next = { ...state, judged, saying: { reply: at.reply, segment: at.segment, over: false } };
+  const next = { ...state, judged, saying: { reply: at.reply, segment: at.segment, over: false, paced } };
   return emotion ? showEmotion(next, emotion) : next;
 }
 
 /** A segment's emotion is judged: kept until she says it, taken up at once while she is saying
- * it, and dropped once she has said it. In text only a segment is judged once it is complete, by
- * when the line card may have moved on to the next: there it is taken up still, until the reply
- * is over, unless a later segment's emotion shows already. */
+ * it, and dropped once she has said it. Without her voice a segment is judged once it is
+ * complete, by when the line card may have moved on to the next: there it is taken up still,
+ * until the reply is over, unless a later segment's emotion shows already. */
 function onEmotion(state: StandState, emotion: SegmentEmotion): StandState {
   const { saying, shown } = state;
   if (!saying || follows(emotion, saying)) return { ...state, judged: new Map(state.judged).set(key(emotion), emotion) };
   if (saying.over || emotion.reply !== saying.reply) return state;
   const current = emotion.segment === saying.segment;
-  if (current || (state.textOnly && (!shown || follows(emotion, shown)))) return showEmotion(state, emotion);
+  if (current || (saying.paced && (!shown || follows(emotion, shown)))) return showEmotion(state, emotion);
   return state;
 }
 

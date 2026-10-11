@@ -170,13 +170,14 @@ describe("standDirection: her emotions", () => {
     expect(own?.id).not.toBe(user?.id);
   });
 
-  it("takes up each segment's emotion in text only though the line card moves on before it is judged", () => {
+  it("takes up each segment's emotion though the line card moves on without her voice before it is judged, text only or not", () => {
+    // A reply without her voice is still played at her pace once text only is switched off.
     const shown = [reply(1), lineShown(1, 0), lineShown(1, 1)];
-    expect(direction([...shown, emotion(1, 0, "happy")], { textOnly: true }).mood).toBe("happy");
+    expect(direction([...shown, emotion(1, 0, "happy")]).mood).toBe("happy");
 
     // The later one came first.
     const both = [...shown, emotion(1, 0, "happy"), lineShown(1, 2), emotion(1, 2, "sad"), emotion(1, 1, "angry")];
-    expect(direction(both, { textOnly: true }).mood).toBe("sad");
+    expect(direction(both).mood).toBe("sad");
   });
 
   it("keeps an emotion only for the reply it was judged in", () => {

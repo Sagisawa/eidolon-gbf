@@ -678,22 +678,24 @@ describe("LiveConversation: the line card", () => {
     expect(card()).toEqual({ line: "四", previous: "二" });
   });
 
-  it("stays where it was in text only when the user speaks over her, going straight to her next reply's first segment", async () => {
+  it("stays where it was in text only once the user's words start a new turn, going straight to her next reply's first segment", async () => {
     const { emit, card } = await inCall({ textOnly: true });
     vi.useFakeTimers();
-    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, "三"), recorded("一", "二", "三"));
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, "三"), ja(3, "四"), recorded("一", "二", "三", "四"));
     vi.advanceTimersByTime(1500);
     expect(card()).toEqual({ line: "二", previous: "一" });
 
-    emit({ type: "user-started-speaking" });
-    vi.advanceTimersByTime(60_000);
-    expect(card()).toEqual({ line: "二", previous: "一" });
+    // Speaking alone starts no turn (it may come to nothing): the card goes on at her pace.
+    emit({ type: "user-started-speaking" }, { type: "user-stopped-speaking" });
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "三", previous: "二" });
 
     emit(reply(2, "等一下"));
-    expect(card()).toEqual({ line: "二", previous: "一" });
+    vi.advanceTimersByTime(60_000);
+    expect(card()).toEqual({ line: "三", previous: "二" });
     // The segment she never got to is skipped: the line before is the one the card showed.
-    emit(ja(0, "四"));
-    expect(card()).toEqual({ line: "四", previous: "二" });
+    emit(ja(0, "五"));
+    expect(card()).toEqual({ line: "五", previous: "三" });
   });
 
   it("leaves no trace of a reply a follow-on dropped", async () => {

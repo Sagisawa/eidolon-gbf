@@ -11,7 +11,8 @@
 //   stays where it is until her next reply is said.
 // - A reply started in text only, without her voice, is played at her pace to the end: its first
 //   segment as it arrives, each next one once it has arrived and the one before has had its time.
-//   If the user interrupted her, it stays where it is until her next reply's first segment.
+//   Once the user's words start the next turn, the card stays where it is until her next reply's
+//   first segment: the user speaking alone may come to nothing, and stops nothing she says.
 // - A reply dropped for a follow-on leaves no trace on the card.
 
 import type { Segment, SegmentPlaying } from "@/lib/api";
@@ -36,6 +37,9 @@ const VOICE_WAIT_MS = 3000;
 /** A segment of one of her replies in the call. */
 type SegmentAt = Pick<SegmentPlaying, "reply" | "segment">;
 
+/** The segment of her latest reply the card is next to move on to at her pace, and when. */
+type NextLine = { segment: number; at: number };
+
 /** A segment the card has shown, since when, with its text as far as the card shows it. */
 type Shown = SegmentAt & { text: Segment; at: number };
 
@@ -48,7 +52,8 @@ type Reply = {
   segments: Segment[];
   /** When it was recorded; null until it is. */
   recordedAt: number | null;
-  /** The user spoke or typed over it (GLOSSARY.md「打断」): the card is not to play it out. */
+  /** The user spoke or typed over it (GLOSSARY.md「打断」): the card is not to play out what her
+   * voice did not say of it. */
   interrupted: boolean;
 };
 
@@ -129,27 +134,27 @@ export function nextPacedAt(card: LineCard): number | null {
 
 /** The segment of her latest reply the card is next to move on to at her pace, and when; null
  * if it does not keep her pace now. */
-function nextPaced(card: LineCard): { segment: number; at: number } | null {
+function nextPaced(card: LineCard): NextLine | null {
   const { reply } = card;
   if (!reply) return null;
-  return reply.voiced ? nextUnsaid(card, reply) : nextUnvoiced(card, reply);
+  return reply.voiced ? nextVoiced(card, reply) : nextUnvoiced(card, reply);
 }
 
 /** A reply without her voice: its first segment at once as it arrives, and each next one once it
- * has arrived and the one before has had its time, unless the user interrupted her. */
-function nextUnvoiced(card: LineCard, reply: Reply): { segment: number; at: number } | null {
+ * has arrived and the one before has had its time. */
+function nextUnvoiced(card: LineCard, reply: Reply): NextLine | null {
   const current = card.shown.at(-1);
   if (current?.reply !== reply.number) return reply.segments[0]?.ja ? { segment: 0, at: -Infinity } : null;
   const segment = current.segment + 1;
-  if (reply.interrupted || !reply.segments[segment]?.ja) return null;
+  if (!reply.segments[segment]?.ja) return null;
   return { segment, at: current.at + lineTime(current.text) };
 }
 
-/** A voiced reply, once her voice is not playing it and it is recorded and not interrupted: from
- * the segment her voice stopped on, once that has had its time and her voice has not come back
- * for a while, or from the first segment if her voice has not started on the reply a while after
- * it was recorded. */
-function nextUnsaid(card: LineCard, reply: Reply): { segment: number; at: number } | null {
+/** A voiced reply moves on at her pace only once her voice falls short of it, and it is recorded
+ * and not interrupted: from the segment her voice stopped on, once that has had its time and her
+ * voice has not come back for a while, or from the first segment if her voice has not started on
+ * the reply a while after it was recorded. */
+function nextVoiced(card: LineCard, reply: Reply): NextLine | null {
   const { quietSince } = card;
   if (reply.recordedAt === null || reply.interrupted || quietSince === null) return null;
   const current = card.shown.at(-1);
