@@ -12,7 +12,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -37,3 +37,30 @@
   - 窄屏下通话中点返回，同样先弹确认。
 
 ## Comments
+
+### 实现说明（2026-10-11）
+
+- `liveConversation.ts`：`characterId` 从 `private readonly` 改成公开的 `readonly`，对外说明这是哪位角色的对话。
+- `liveConversation.test.ts`：`opening` 辅助加一个 `characterId` 选项（默认仍是 `"hikari"`），新增一条「says whose conversation it is」，用 `"misaki"` 建实例、断言 `live.characterId` 就是建它时给的那位。（这个属性原本就在运行时存在，TS 的 `private` 只是编译期；新增的断言现在是经公开接口看得到的。）
+- `ConversationDirectory.tsx`：`Directory` 去掉 `setCall`，换成 `handOver(live: LiveConversation | null)`（对话页建好后交给列表一次、离开时交回 null）；`DirectoryProvider` 保存交来的实例，用 `useSyncExternalStore` 订阅它的 `snapshot`/`subscribe`，`call: CallInList` 从快照里进行中的通话算出（仍暴露算好的 `call`，所以 `ConversationList` 不用改）。`leave()` 改成在点击那一刻读 `live.snapshot().call` 判断通话是否在进行。没有 LiveConversation 交来时用模块级的空快照 `NOT_OPEN` 兜底。
+- `ConversationView.tsx`：在建 LiveConversation 的同一个 effect 里 `handOver(conversation)`，cleanup 里 `handOver(null)` 后再 `dispose()`；删掉原来每次转换都抄状态给列表的两个 effect。对话页自己仍保留 `live` state 供本页订阅（`setLive`），所以交出的是 `handOver`。
+- `ConversationList.tsx` 未改：`call` 的形状（`CallInList`）和来源都不变，只是现在由 Directory 从快照算出来。
+- 命名说明：入口原本想叫 `setLive`，但对话页自己已有一个 `setLive`（本页 state 的 setter），会撞名，故取名 `handOver`，语义是「把这通对话交给列表 / 收回」。
+- 与票 01 的重合处：票 01 会在同一个建 LiveConversation 的 effect 里加 `tones` port。本票在这个 effect 里加的是 `handOver` 调用与 cleanup，合并时两处改动并存即可，不冲突。
+- 不碰的部分：`CallState` 形状、`tones`、`collapsed`/通话层规则、`useCallTime` 都没动。
+- 三项检查：`npm test`（52 文件 / 632 用例）通过；`npm run typecheck` 通过；`sh scripts/check-discipline.sh` 通过。
+
+### 人工验收清单
+
+在构建版前端（`frontend/` 下 `npm run build` 后 `npm start`）、电脑宽度（≥ 768px 双栏）下核对：
+
+1. 打开一位角色的对话，点页首电话键拨号：左侧列表里这位角色那一行显示「正在呼叫…」。
+2. 接通后：同一行变成通话计时（mm:ss），每秒走。
+3. 通话进行中，右键（或长按）这一行把它隐藏；这一行照旧留在列表里（通话中的角色不因隐藏消失），显示照旧。
+4. 通话中点列表里另一位角色：先弹出「会不会挂断」确认框。
+   - 点「留下/取消」：确认框关掉，原通话照旧继续，列表那一行仍显示计时。
+   - 点「挂断并离开」：切到新角色，原那一行恢复成平常的样子（最后一句预览，不再是计时）。
+5. 不在通话中时点另一位角色：直接切过去，没有确认框。
+6. 窄屏（< 768px）下通话中点页首返回键：同样先弹确认框；取消留下通话，确认则挂断回到列表。
+
+（另：换角色、点更多菜单里的「记忆」「设置」也会经同一套 `leave()`，行为与上面第 4 条一致。）
