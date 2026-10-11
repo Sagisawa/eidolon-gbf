@@ -17,6 +17,7 @@ from tests.conftest import ClientFactory
 from tests.fakes import START, FakeClock, FakeIdentityProvider, FakeLLM
 from tests.test_admin_users import ADMIN, admin_client, details, find
 from tests.test_own_llm_required import DETAIL
+from tests.test_own_speech_keys import ask_before_calling
 from tests.test_rate_limit import REPLY, post_turn
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -135,17 +136,20 @@ async def test_a_user_let_places_calls_without_their_own_llm_and_they_count(
     admin = await admin_client(make_client, github)
     producer = make_client(FakeLLM(REPLY), clock=FakeClock())
     conversation_id = await start_conversation(producer)
+    asked_before = await ask_before_calling(producer)
     async with open_browser() as before:
         refused = await before.call(producer, conversation_id=conversation_id)
     await allow(admin, (await find(admin, "producer"))["id"])
 
+    asked = await ask_before_calling(producer)
     async with open_browser() as first:
         placed = await first.call(producer, conversation_id=conversation_id)
     async with open_browser() as second:
         over = await second.call(producer, conversation_id=conversation_id)
 
-    assert refused.status_code == 403
+    assert (asked_before.status_code, refused.status_code) == (403, 403)
     assert refused.json()["detail"] == DETAIL
+    assert asked.status_code == 200, asked.text
     assert placed.status_code == 200, placed.text
     assert over.status_code == 429  # the deployment's call an hour, used up
     assert "语音通话" in over.json()["detail"]
