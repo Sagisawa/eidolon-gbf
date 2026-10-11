@@ -80,7 +80,7 @@ greeting_subtitle = "呼哇……你就是制作人吗？请多指教！"
 
 **新增一位角色**要做这几件事：
 
-1. 在 `characters.toml` 里加一段，参照 [`sheets/example.md`](../characters/sheets/example.md) 写人设，资料（可选）参照 [`facts/example.md`](../characters/facts/example.md) 写，头像放进 `characters/avatars/`。
+1. 在 `characters.toml` 里加一段，参照 [`sheets/example.md`](../characters/sheets/example.md) 写人设，资料（可选）参照 [`facts/example.md`](../characters/facts/example.md) 写，头像缩到 224×224 的 JPEG（界面上最大显示 112px，按两倍屏取）再放进 `characters/avatars/`。
 2. 在 `backend/` 下运行 `uv run eidolon reading draft`，给她的名字补上读音（见[读音与招呼](#读音与招呼)）。
 3. 配了招呼的话，在 `backend/` 下运行 `uv run --env-file=../.env eidolon greeting upload` 合成上传。
 4. 在 `frontend/` 下运行 `node scripts/landing-fonts.mts`，重新生成落地页的字体子集（见 [`frontend/AGENTS.md`](../frontend/AGENTS.md)）。改了组合、招呼或显示名也要跑；忘了的话，前端的字体覆盖测试会失败并列出缺的字。
