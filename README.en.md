@@ -8,6 +8,7 @@ Voice · Text · Story recall · Memory shared across characters
 
 [简体中文](README.md) · **English** · [日本語](README.ja.md)
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Sallyn0225/eidolon-sc/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/Sallyn0225/eidolon-sc/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](backend/pyproject.toml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Pipecat](https://img.shields.io/badge/Pipecat-WebRTC-6E56CF?style=flat-square)](https://github.com/pipecat-ai/pipecat)
@@ -87,14 +88,15 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 
 - 📖 **Story recall**: Once the story corpus is imported, she recalls only the canon episodes **she appears in**, and can answer "what happened that time…?"
 - 🔄 **Kept in step with the game**: One command syncs the fan translations and the Japanese originals on the mirror, so new cards and events can be recalled within a week. Songs, releases and lives are written into her world setting too.
-- 🧠 **Memory shared across characters**: Tell Hiori something and Kogane will know too, but she'll bring it up as "Hiori told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). When things change, a new memory supersedes the old one.
+- 🧠 **Memory shared across characters**: Tell Hiori something and Kogane will know too, but she'll bring it up as "Hiori told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). When things change, a new memory supersedes the old one. Users can see and delete everything she remembers.
+- 🪪 **Producer profile**: How she addresses you, your gender and your time zone can all be changed in settings, shared across devices.
 - ⚡ **On-demand retrieval**: The judge first decides whether a line needs any lookup, so small talk adds no latency.
 
 **Deployment and operations**
 
 - 👥 **Open to the public**: Sign in with Google or GitHub. Usage is rate-limited per user, and users' memories are isolated from each other. Users can delete all their data for good, and the database is backed up offsite, encrypted, every day.
-- 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis and speech recognition keys to use their own credits. The keys are kept only in the user's browser.
-- 🛠️ **Admin console**: On the web, see usage and estimated cost, change models and usage limits (no restart), and ban users. No one's conversations or memories are visible there.
+- 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis and speech recognition keys to use their own credits; a turn or call that brings every key it needs doesn't count toward their limits. The keys are kept only in the user's browser ([ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)).
+- 🛠️ **Admin console**: On the web, see usage, estimated cost and live calls, change models, usage limits and prices (no restart), ban users or give one user their own limits. No one's conversations, memories or profile are visible there.
 - 🔌 **Swappable services**: Models can use any of three protocols: OpenAI Chat Completions, Responses and Anthropic Messages. Speech recognition, embedding and the judge each offer two providers.
 - 🚀 **One-command deployment**: A Docker Compose production config, with Caddy (automatic HTTPS) and coturn (TURN relay) built in. CI builds the images and publishes them to GHCR.
 
@@ -202,14 +204,14 @@ uv run --env-file=../.env eidolon serve   # serves on :8000, reads ../characters
 ```sh
 cd frontend
 npm install
-npm run typecheck && npm test
+npm run typecheck && npm test && sh scripts/check-discipline.sh
 npm run build && BACKEND_URL=http://localhost:8000 npm run start   # serves on :3000, forwards /api/* to the backend
 ```
 
 - **Interface**: A restrained LINE-like style, with her image color in the places that belong to her. The landing page is a visual world of its own, always dark ([ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)). The visual design system is in [`DESIGN.md`](DESIGN.md); component conventions are in [`frontend/AGENTS.md`](frontend/AGENTS.md).
 - **Stands**: To see stands, give the frontend the same `EIDOLON_STAND_ASSETS_URL` as in `.env`.
 - **README screenshots**: With the frontend and backend both running, run `npm run readme-media` in `frontend/`. It recaptures the screenshots and animations in `docs/images/`.
-- **CI**: For every PR and every push to main, GitHub Actions runs the checks above, the frontend style check and shellcheck, then builds both images. Pushes to main publish them to GHCR. Dependabot opens dependency updates every Monday.
+- **CI**: For every PR and every push to main, GitHub Actions runs the checks above and shellcheck, then builds both images. Pushes to main and `v*` tags publish them to GHCR. Dependabot opens dependency updates every Monday.
 
 ## 📁 Project layout
 

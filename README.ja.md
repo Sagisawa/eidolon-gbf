@@ -8,6 +8,7 @@
 
 [简体中文](README.md) · [English](README.en.md) · **日本語**
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Sallyn0225/eidolon-sc/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/Sallyn0225/eidolon-sc/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](backend/pyproject.toml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Pipecat](https://img.shields.io/badge/Pipecat-WebRTC-6E56CF?style=flat-square)](https://github.com/pipecat-ai/pipecat)
@@ -87,14 +88,15 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 
 - 📖 **コミュの記憶**：シナリオライブラリを取り込むと、アイドルは**自分が登場した**正規ルートのコミュだけを思い出し、「あのときって……」という質問に答えられます。
 - 🔄 **原作との同期**：ファン翻訳とミラー上の日本語原文をコマンド 1 つで同期し、新しいカードやイベントも 1 週間以内に思い出せます。楽曲・CD・ライブも彼女の世界設定に書き込まれます。
-- 🧠 **キャラクター間で共有されるメモリー**：灯織に話したことは恋鐘も知っています。ただし「灯織から聞いたんだけど……」という口ぶりで持ち出します（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。状況が変われば、新しいメモリーが古いものに取って代わります。
+- 🧠 **キャラクター間で共有されるメモリー**：灯織に話したことは恋鐘も知っています。ただし「灯織から聞いたんだけど……」という口ぶりで持ち出します（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。状況が変われば、新しいメモリーが古いものに取って代わります。覚えていることはすべて確認・削除できます。
+- 🪪 **プロデューサープロフィール**：呼び方・性別・タイムゾーンを設定画面で変えられ、すべての端末で共通です。
 - ⚡ **必要なときだけ検索**：まず判断モデルがその発言に資料の検索が必要かを判断するので、雑談では余計な遅延がありません。
 
 **デプロイと運用**
 
 - 👥 **一般公開**：Google または GitHub でログイン。ユーザーごとに利用上限があり、ユーザー同士のメモリーは分離されています。ユーザーは自分のデータをすべて完全に削除でき、データベースは毎日暗号化して別の場所にバックアップします。
-- 🔑 **自前の API キー**：ユーザーは自分の LLM・音声合成・音声認識のキーを登録して、自分のクレジットで使えます。キーはユーザーのブラウザーにだけ保存されます。
-- 🛠️ **管理画面**：ブラウザーで利用量と推定費用を確認し、モデルや利用上限を変更し（再起動不要）、ユーザーを利用停止にできます。誰の会話やメモリーも見られません。
+- 🔑 **自前の API キー**：ユーザーは自分の LLM・音声合成・音声認識のキーを登録して、自分のクレジットで使えます。必要なキーをすべて自前にすれば、利用上限にも数えられません。キーはユーザーのブラウザーにだけ保存されます（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
+- 🛠️ **管理画面**：ブラウザーで利用量・推定費用・進行中の通話を確認し、モデル・利用上限・単価を変更し（再起動不要）、ユーザーの利用停止や個別の利用上限の設定ができます。誰の会話・メモリー・プロフィールも見られません。
 - 🔌 **サービスは差し替え可能**：モデルは OpenAI Chat Completions・Responses・Anthropic Messages の 3 方式に対応。音声認識・ベクトル化・判断モデルはそれぞれ 2 社から選べます。
 - 🚀 **ワンコマンドでデプロイ**：Caddy（HTTPS 自動化）と coturn（TURN 中継）入りの Docker Compose 本番構成を同梱。CI がイメージをビルドして GHCR に公開します。
 
@@ -202,14 +204,14 @@ uv run --env-file=../.env eidolon serve   # :8000 で起動し、../characters/c
 ```sh
 cd frontend
 npm install
-npm run typecheck && npm test
+npm run typecheck && npm test && sh scripts/check-discipline.sh
 npm run build && BACKEND_URL=http://localhost:8000 npm run start   # :3000 で起動し、/api/* をバックエンドへ転送
 ```
 
 - **画面**：控えめな LINE 風のデザインで、彼女に属する場所には彼女のイメージカラーを使います。ランディングページは常にダークの、独立したビジュアルの世界です（[ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)）。ビジュアル仕様は [`DESIGN.md`](DESIGN.md)、コンポーネントの書き方の決まりは [`frontend/AGENTS.md`](frontend/AGENTS.md) にあります。
 - **立ち絵**：立ち絵を見るときは、フロントエンドにも `.env` と同じ `EIDOLON_STAND_ASSETS_URL` を渡します。
 - **README のスクリーンショット**：フロントエンドとバックエンドを両方起動したあと、`frontend/` で `npm run readme-media` を実行すると、`docs/images/` のスクリーンショットとアニメーションを撮り直します。
-- **CI**：PR と main へのプッシュごとに、GitHub Actions が上記のチェック、フロントエンドの書き方チェック、shellcheck を実行し、2 つのイメージをビルドします。main へのプッシュでは GHCR に公開します。Dependabot が毎週月曜に依存関係の更新を提案します。
+- **CI**：PR と main へのプッシュごとに、GitHub Actions が上記のチェックと shellcheck を実行し、2 つのイメージをビルドします。main と `v*` タグへのプッシュでは GHCR に公開します。Dependabot が毎週月曜に依存関係の更新を提案します。
 
 ## 📁 ディレクトリ構成
 

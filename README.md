@@ -8,6 +8,7 @@
 
 **简体中文** · [English](README.en.md) · [日本語](README.ja.md)
 
+[![CI](https://img.shields.io/github/actions/workflow/status/Sallyn0225/eidolon-sc/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/Sallyn0225/eidolon-sc/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](backend/pyproject.toml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Pipecat](https://img.shields.io/badge/Pipecat-WebRTC-6E56CF?style=flat-square)](https://github.com/pipecat-ai/pipecat)
@@ -87,14 +88,15 @@ Eidolon-SC 让你以 **283 事务所制作人**的身份，和原作中的偶像
 
 - 📖 **回忆原作剧情**：导入剧情库后，她只回忆**自己出场过**的正式经历，可以回答「那次……是怎么回事」。
 - 🔄 **与原作同步**：一条命令同步粉丝汉化和镜像上的日语原文，新卡、新活动一周内就能回忆。歌曲、唱片和演出也写进她的世界设定。
-- 🧠 **跨角色共享记忆**：对灯織说过的事，恋鐘也会知道，但会以「听灯織说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。情况变了，新记忆会取代旧的。
+- 🧠 **跨角色共享记忆**：对灯織说过的事，恋鐘也会知道，但会以「听灯織说……」的口吻提起（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。情况变了，新记忆会取代旧的。她记住的事你都能查看和删除。
+- 🪪 **制作人档案**：她怎么称呼你、你的性别和时区，都可以在设置里改，所有设备共用。
 - ⚡ **按需检索**：先由判断模型决定这句话要不要查资料，寒暄闲聊没有额外延迟。
 
 **部署和运营**
 
 - 👥 **对公众开放**：Google 或 GitHub 登录，按用户限流，用户之间的记忆互相隔离。用户可以彻底删除自己的全部数据，数据库每天加密备份到异地。
-- 🔑 **自带密钥**：用户可以填自己的 LLM、语音合成和语音识别密钥，用自己的额度。密钥只存在用户的浏览器里。
-- 🛠️ **后台**：在网页上看用量和估算的花费，改模型和限额（不用重启），封禁用户；看不到任何人的对话和记忆。
+- 🔑 **自带密钥**：用户可以填自己的 LLM、语音合成和语音识别密钥，用自己的额度；所需的密钥都自带时不占限额。密钥只存在用户的浏览器里（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
+- 🛠️ **后台**：在网页上看用量、估算的花费和进行中的通话，改模型、限额和单价（不用重启），封禁用户或给某位用户单独设限额；看不到任何人的对话、记忆和档案。
 - 🔌 **服务可以替换**：模型支持 OpenAI Chat Completions、Responses 和 Anthropic Messages 三种接口；语音识别、向量化和判断模型都有两家可选。
 - 🚀 **一键部署**：Docker Compose 生产配置，自带 Caddy（自动 HTTPS）和 coturn（TURN 中继）；CI 构建镜像并发布到 GHCR。
 
@@ -202,14 +204,14 @@ uv run --env-file=../.env eidolon serve   # 启动在 :8000，读取 ../characte
 ```sh
 cd frontend
 npm install
-npm run typecheck && npm test
+npm run typecheck && npm test && sh scripts/check-discipline.sh
 npm run build && BACKEND_URL=http://localhost:8000 npm run start   # 启动在 :3000，/api/* 转发给后端
 ```
 
 - **界面**：克制的 LINE 风格，属于她的地方用她的印象色；落地页自成一个永远深色的视觉世界（[ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)）。视觉规范见 [`DESIGN.md`](DESIGN.md)，组件写法的约定见 [`frontend/AGENTS.md`](frontend/AGENTS.md)。
 - **立绘**：要看立绘时，前端也要带上和 `.env` 一样的 `EIDOLON_STAND_ASSETS_URL`。
 - **README 的截图**：前后端都跑起来后，在 `frontend/` 下运行 `npm run readme-media`，会重新拍下 `docs/images/` 里的截图和动图。
-- **CI**：每个 PR 和 main 上的推送都由 GitHub Actions 跑上面这些检查、前端的写法检查和 shellcheck，再构建两个镜像；推送到 main 时发布到 GHCR。Dependabot 每周一提依赖更新。
+- **CI**：每个 PR 和 main 上的推送都由 GitHub Actions 跑上面这些检查和 shellcheck，再构建两个镜像；推送到 main 或 `v*` 标签时发布到 GHCR。Dependabot 每周一提依赖更新。
 
 ## 📁 项目结构
 
