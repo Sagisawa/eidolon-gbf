@@ -92,7 +92,7 @@ class Deployment:
     def records(self) -> list[tuple[Result, bool]]:
         """Each of the user's records: how it turned out, and whether on their own keys."""
         return [
-            (r.result, r.own_keys)
+            (r.result, bool(r.own_llm if r.kind == "turn" else r.exempt))
             for r in self.activity.of_user(self.user, self.clock() - timedelta(hours=1))
         ]
 

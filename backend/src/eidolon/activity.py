@@ -95,6 +95,8 @@ _SCHEMA = """
 -- NULL once the user is deleted, and `anonymous_id` then tells their records apart from
 -- other users' without saying whose they were. `call_id`, `duration_s` and `end_reason`
 -- are for calls: a call's turns name its record in `call_id`, and a call has the other two.
+-- `own_keys` is, for a turn, whether its LLM was the user's own; for a call, whether all
+-- of its LLM, speech recognition and synthesis were (GLOSSARY.md「运行记录」).
 CREATE TABLE IF NOT EXISTS activity_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -195,7 +197,12 @@ class RecordRow:
     character_id: str
     started_at: datetime
     result: Result
-    own_keys: bool
+    own_llm: bool | None
+    """For a turn (one in a call too), whether the character's LLM was the user's own;
+    None for a call (GLOSSARY.md「运行记录」)."""
+    exempt: bool | None
+    """For a call, whether its LLM, speech recognition and synthesis were all the user's
+    own, so that it counted towards no limit; None for a turn."""
     time_to_speak_ms: float | None
     duration_s: float | None = None
     """How long a call lasted once connected; None for a turn, or a call never connected."""
@@ -244,7 +251,8 @@ class Recording:
         user_id: str,
         character_id: str,
         started_at: datetime,
-        own_keys: bool,
+        own_llm: bool,
+        exempt: bool | None,
         call: "Recording | None" = None,
     ) -> None:
         self._log = log
@@ -252,7 +260,12 @@ class Recording:
         self.user_id = user_id
         self.character_id = character_id
         self.started_at = started_at
-        self.own_keys = own_keys
+        self.own_llm = own_llm
+        """Whether the character's LLM is the user's own: what a turn's record keeps of
+        whose keys it ran on (GLOSSARY.md「运行记录」)."""
+        self.exempt = exempt
+        """Whether it is on the user's own keys alone, counting towards no limit: what a
+        call's record keeps of whose keys it ran on; None for a turn in a call."""
         self.time_to_speak_ms: float | None = None
         self.calls: list[ServiceCall] = []
         self.finished = False
@@ -281,11 +294,11 @@ class Recording:
         if self.time_to_speak_ms is None:
             self.time_to_speak_ms = (perf_counter() - self._started) * 1000
 
-    def turn(self, own_keys: bool) -> "Recording":
+    def turn(self, own_llm: bool) -> "Recording":
         """Open the record of a turn taken in this call, on the user's own LLM or not."""
         turn = Recording(
-            self._log, "turn", self.user_id, self.character_id, self._log.now(), own_keys,
-            call=self,
+            self._log, "turn", self.user_id, self.character_id, self._log.now(), own_llm,
+            None, call=self,
         )
         self.turns.append(turn)
         return turn
@@ -329,13 +342,15 @@ class ActivityLog:
         return self._clock()
 
     def begin(
-        self, kind: RecordKind, user_id: str, character_id: str, own_keys: bool
+        self, kind: RecordKind, user_id: str, character_id: str, *, own_llm: bool, exempt: bool
     ) -> Recording:
         """Open the record of a turn or call the user begins with `character_id`, on their
-        own keys alone or not; forgets every record older than `KEPT`."""
+        own LLM or not and on their own keys alone or not: a turn's record keeps the
+        first, a call's the second (GLOSSARY.md「运行记录」). Forgets every record older
+        than `KEPT`."""
         now = self._clock()
         self._forget_before(now - KEPT)
-        return Recording(self, kind, user_id, character_id, now, own_keys)
+        return Recording(self, kind, user_id, character_id, now, own_llm, exempt)
 
     def call(self, origin: Origin, started: float, error: ErrorKind | None, billed: Billing) -> None:
         """A service call, begun at `started` (`perf_counter`), has ended: recorded under
@@ -371,8 +386,8 @@ class ActivityLog:
         return (
             [
                 RecordRow(
-                    kind, who, character, _time(started), result, bool(own), speak, duration,
-                    reason, bool(in_call),
+                    kind, who, character, _time(started), result, *_own(kind, own), speak,
+                    duration, reason, bool(in_call),
                 )
                 for kind, who, character, started, result, own, speak, duration, reason, in_call
                 in records
@@ -396,8 +411,8 @@ class ActivityLog:
                 (user_id, moment.timestamp()),
             ).fetchall()
         return [
-            RecordRow(kind, user_id, character, _time(started), result, bool(own), None,
-                      in_call=bool(in_call))
+            RecordRow(kind, user_id, character, _time(started), result, *_own(kind, own),
+                      None, in_call=bool(in_call))
             for kind, character, started, result, own, in_call in rows
         ]
 
@@ -446,7 +461,7 @@ class ActivityLog:
         assert recording.result is not None
         row = (
             recording.kind, recording.character_id, recording.started_at.timestamp(),
-            recording.result, int(recording.own_keys), recording.time_to_speak_ms,
+            recording.result, int(_kept_own(recording)), recording.time_to_speak_ms,
             recording.call.row_id if recording.call is not None else None,
             recording.duration_s, recording.end_reason,
         )
@@ -485,6 +500,20 @@ class ActivityLog:
 
 def _time(epoch: float) -> datetime:
     return datetime.fromtimestamp(epoch, UTC)
+
+
+def _kept_own(recording: Recording) -> bool:
+    """What the `own_keys` column keeps of a record, by its kind: a turn's own LLM, a
+    call's being on the user's own keys alone."""
+    if recording.kind == "turn":
+        return recording.own_llm
+    assert recording.exempt is not None
+    return recording.exempt
+
+
+def _own(kind: RecordKind, kept: int) -> tuple[bool | None, bool | None]:
+    """`RecordRow.own_llm` and `RecordRow.exempt` from what the `own_keys` column kept."""
+    return (bool(kept), None) if kind == "turn" else (None, bool(kept))
 
 
 def _let_latency_be_unknown(db: sqlite3.Connection) -> None:

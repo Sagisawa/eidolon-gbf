@@ -6,7 +6,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -20,3 +20,26 @@
 - [ ] 运行记录的表结构、看板和用户详情接口的响应都没有变（已有测试不改就通过）。
 - [ ] `pytest` 全部通过，`ruff`、`pyright` 没有新的报错。
 - [ ] 人工验收清单写进 Comments（例如：看板的「用自带密钥的回合」「其中 N 次全用自带密钥」、用户详情的「部署者 · 自带密钥」和改之前一致）。
+
+## Comments
+
+### 实现（2026-10-11）
+
+**选的名字：不用一个名字。开记录的地方分别传 `own_llm`（自带 LLM）和 `exempt`（全都自带、不计入限额），运行记录按种类取用。**
+
+理由：找不到一个名字能同时说清两层意思。`own_keys_alone` 一类的名字放在通话里的回合上会说错（那个回合只看 LLM，语音可能用的是部署者的）；把两层拼进一个名字，又容易读成「或」。而这两个值沿途本来就各有名字：`TurnKeys`、`CallKeys`、`Admission` 上的 `own_llm` 和 `exempt`，还有 `CallOutcome.turn_begun(own_llm)`。所以就让它们用原名一路传到运行记录，不再在半路换成 `own_keys`：
+
+- `ActivityLog.begin(kind, user_id, character_id, *, own_llm, exempt)`：两个都要，用关键字传；回合的记录留 `own_llm`，通话的留 `exempt`。`Admission` 传 `keys.own_llm` 和 `keys.exempt`。以前文字回合传的是 `exempt`，只是碰巧和「自带 LLM」相等；现在不再依赖豁免规则。
+- `Recording.turn(own_llm)`：通话里的回合只有 `own_llm`，`exempt` 为 None。
+- `Recording` 和 `RecordRow` 都有 `own_llm` 和 `exempt` 两个字段，定义处写明各对哪种记录有意义（`RecordRow` 里不适用的那个是 None）。写库、读库时由 `_kept_own`、`_own` 两个小函数按种类和 `own_keys` 列互相换算；表结构的注释也写明了这一列对回合和对通话各指什么。
+- 读的一侧：看板的回合统计用 `own_llm`，通话统计用 `exempt`；用户详情的近期用量按种类取（被拒的回合取 `own_llm`，被拒的通话取 `exempt`，和以前一致）。
+
+数据库列名、看板和用户详情的 JSON 字段名都没改。测试只改了两处直接调内部接口的地方（`test_turn_outcome.py` 调 `begin`，`test_admission.py` 读 `RecordRow`），走 HTTP 的测试一个没动。
+
+验证：`pytest` 1138 passed；`ruff`、`pyright` 都是 0 报错。
+
+### 人工验收清单
+
+- [ ] 看板「回合」里「用自带密钥的回合」的数和改之前一致（用自带 LLM 发的文字回合、通话里用自带 LLM 的回合都算）。
+- [ ] 看板「通话」里「其中 N 次全用自带密钥」的数和改之前一致（只有三项全自带的通话才算，只自带一部分的不算）。
+- [ ] 后台用户详情近期用量里的「部署者 · 自带密钥」两栏（回合、通话、被拒）和改之前一致。
