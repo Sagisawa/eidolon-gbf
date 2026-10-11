@@ -121,6 +121,26 @@ async def test_call_background_is_served_without_a_session_like_the_avatar(
     assert (await client.get("/api/characters/nobody/background")).status_code == 404
 
 
+@pytest.mark.parametrize("picture", ["avatar", "background"])
+async def test_avatar_and_background_are_cached_by_the_browser_and_revalidated_by_etag(
+    make_client: ClientFactory, picture: str
+):
+    """The sidebar and the list filter show every avatar on each visit; without this
+    they were downloaded again every time and flashed the name's first letter."""
+    client = make_client(FakeLLM(), user=None)
+
+    res = await client.get(f"/api/characters/mano/{picture}")
+
+    assert res.headers["cache-control"] == "public, max-age=86400"
+    again = await client.get(
+        f"/api/characters/mano/{picture}", headers={"if-none-match": res.headers["etag"]}
+    )
+    assert again.status_code == 304
+    assert again.headers["cache-control"] == "public, max-age=86400"
+    stale = await client.get(f"/api/characters/mano/{picture}", headers={"if-none-match": '"stale"'})
+    assert stale.status_code == 200
+
+
 @pytest.mark.parametrize(
     ("character", "sheet", "other_sheet"),
     [("mano", MANO_SHEET, KOGANE_SHEET), ("kogane", KOGANE_SHEET, MANO_SHEET)],

@@ -10,7 +10,7 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   const { search } = new URL(request.url);
   const url = `${BACKEND_URL}/api/${path.map(encodeURIComponent).join("/")}${search}`;
   const headers = new Headers();
-  for (const name of ["content-type", "cookie", "origin", "x-timezone"]) {
+  for (const name of ["content-type", "cookie", "origin", "x-timezone", "if-none-match"]) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
@@ -25,12 +25,14 @@ async function forward(request: Request, { params }: { params: Promise<{ path: s
   });
 
   const out = new Headers();
-  for (const name of ["content-type", "cache-control", "location", "retry-after"]) {
+  // the etag lets the browser revalidate an avatar instead of downloading it again
+  for (const name of ["content-type", "cache-control", "etag", "location", "retry-after"]) {
     const value = res.headers.get(name);
     if (value) out.set(name, value);
   }
   for (const cookie of res.headers.getSetCookie()) out.append("set-cookie", cookie);
-  return new Response(res.body, { status: res.status, headers: out });
+  // a 304 has no body, and Response refuses one for it
+  return new Response(res.status === 304 ? null : res.body, { status: res.status, headers: out });
 }
 
 export const dynamic = "force-dynamic";
