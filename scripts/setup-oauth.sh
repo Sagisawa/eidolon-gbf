@@ -219,8 +219,13 @@ pause "按回车继续"
 # ── 2 ────────────────────────────────────────────────────────────────────
 stage "GitHub OAuth App"
 open_url "https://github.com/settings/applications/new"
-step "Application name：随意，例如 Eidolon-SC"
+if [[ -n "$EIDOLON_DOMAIN" ]]; then
+  step "Application name：用户在授权页上看到的名字，和网站标题一样，例如 Eidolon-SC"
+else
+  step "Application name：开发用的单独建一个，例如 Eidolon-SC (dev)"
+fi
 step "Homepage URL：$SITE"
+step "Application description：一两句话说明网站是做什么的，会显示在授权页上"
 step "Authorization callback URL：$SITE/api/auth/github/callback"
 step "不用勾选 Enable Device Flow，点 Register application"
 step "在应用页复制 Client ID"
@@ -229,18 +234,24 @@ step "点 Generate a new client secret，复制生成的 secret（只显示这�
 ask_secret GITHUB_CLIENT_SECRET "粘贴 Client secret（输入不显示）："
 write_env GITHUB_CLIENT_ID "$GITHUB_CLIENT_ID"
 write_env GITHUB_CLIENT_SECRET "$GITHUB_CLIENT_SECRET"
+step "在应用页 Upload new logo，选 docs/brand/oauth-logo-512.png；Badge background color 填 #1c2a4a，点 Update application"
 pause "按回车继续"
 
 # ── 3 ────────────────────────────────────────────────────────────────────
 stage "Google：同意屏幕"
-say "在 Google Cloud Console 选一个项目（没有就新建一个）。"
+say "在 Google Cloud Console 为网站新建一个专用项目，不要和放 Gemini 等 API key 的项目共用。"
 note "新版菜单在「Google Auth Platform」下；旧版叫「API 和服务 → OAuth 同意屏幕」。"
 open_url "https://console.cloud.google.com/auth/branding"
-step "品牌（Branding）：填应用名称和用户支持邮箱，保存"
+step "品牌（Branding）：填应用名称和用户支持邮箱（会显示给用户）"
+if [[ -n "$EIDOLON_DOMAIN" ]]; then
+  step "同一页：应用徽标选 docs/brand/oauth-logo-120.png；首页、隐私权政策、服务条款填 $SITE、$SITE/privacy、$SITE/terms"
+  step "已获授权的网域填顶级域名（$EIDOLON_DOMAIN 的最后两段，例如 example.com），保存"
+fi
 step "目标对象（Audience）：用户类型选「外部（External）」"
 step "数据访问（Data access）：只添加 openid、…/auth/userinfo.email、…/auth/userinfo.profile 三个作用域"
 if [[ -n "$EIDOLON_DOMAIN" ]]; then
-  warn "对公众开放前，要在「目标对象」里点「发布应用」；测试状态下只有测试用户名单里的账号能登录。"
+  warn "对公众开放前，要在「目标对象」里点「发布应用」；只用这三个作用域不需要 Google 审核。"
+  warn "没做品牌验证时，同意页只显示域名，不显示应用名称和图标。品牌验证的步骤见 docs/deploy.md「配置 OAuth 应用」，要等网站上线后再提交。"
 else
   note "本地测试可以保持「测试」状态，把你自己的 Google 账号加进测试用户名单。"
 fi
@@ -252,7 +263,7 @@ note "新版在「Google Auth Platform → 客户端」；旧版在「API 和服
 open_url "https://console.cloud.google.com/auth/clients/create"
 step "应用类型：Web 应用（Web application）"
 step "已获授权的重定向 URI：$SITE/api/auth/google/callback"
-step "点创建，复制客户端 ID 和客户端密钥"
+step "点创建，复制客户端 ID 和客户端密钥；最好也点「下载 JSON」，关掉对话框后就再也看不到密钥了"
 ask GOOGLE_CLIENT_ID "粘贴客户端 ID："
 ask_secret GOOGLE_CLIENT_SECRET "粘贴客户端密钥（输入不显示）："
 write_env GOOGLE_CLIENT_ID "$GOOGLE_CLIENT_ID"

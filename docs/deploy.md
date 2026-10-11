@@ -409,18 +409,22 @@ uv run eidolon reading draft
 | GitHub | `https://你的域名/api/auth/github/callback` |
 | Google | `https://你的域名/api/auth/google/callback` |
 
-本地开发时把 `https://你的域名` 换成 `http://localhost:3000`（可以另建一个开发用的应用）。
+本地开发时把 `https://你的域名` 换成 `http://localhost:3000`，并且另建一套开发用的应用（名字带上 `(dev)`）：线上应用只登记线上的回调地址，线上的密钥也不会出现在开发机的 `.env` 里。
+
+用户在 Google、GitHub 的授权页上看到的是应用的名称、图标和描述，所以名称要填用户认得的（和网站标题一样，例如 `Eidolon-SC`），不要用原作的名字或商标。图标在 `docs/brand/`：`oauth-logo-512.png` 给 GitHub，`oauth-logo-120.png` 给 Google。
 
 > [!TIP]
 > 在仓库根目录运行 `scripts/setup-oauth.sh`，它会一步步打开下面要用的页面，告诉你每一栏填什么，把复制回来的值写进 `.env`，顺带生成 `EIDOLON_SECRET_KEY`、设置开发登录和 Gemini 计费的开关，最后重启后端，并列出用真实账号要验证的几件事。下面是同样的步骤，手动配置时照着做。
 
-**GitHub**：在 [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) 点「New OAuth App」，Homepage URL 填 `https://你的域名`，Authorization callback URL 填上表的地址。创建后生成一个 Client secret，把 Client ID 和它分别填进 `.env` 的 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`。登录时只申请读取公开资料和邮箱（`read:user user:email`）；注册不满一年的 GitHub 账号不能登录。
+**GitHub**：在 [GitHub Developer Settings → OAuth Apps](https://github.com/settings/developers) 点「New OAuth App」，Homepage URL 填 `https://你的域名`，Authorization callback URL 填上表的地址。Application description 写一两句网站是做什么的，它会显示在授权页上。创建后生成一个 Client secret，把 Client ID 和它分别填进 `.env` 的 `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`；再在应用页上传图标，Badge background color 填 `#1c2a4a`。GitHub 没有审核，建好就能给所有人用。登录时只申请读取公开资料和邮箱（`read:user user:email`）；注册不满一年的 GitHub 账号不能登录。
 
-**Google**：在 [Google Cloud Console](https://console.cloud.google.com/) 新建（或选一个）项目：
+**Google**：在 [Google Cloud Console](https://console.cloud.google.com/) 为网站**新建一个专用项目**，不要和放 Gemini 等 API key 的项目共用：那个项目被停用或清理时，登录会跟着失效。
 
-1. 「Google Auth Platform」（旧称「OAuth 同意屏幕」）里填应用名称和支持邮箱，受众选「外部」，数据访问（作用域）只要 `openid`、`email`、`profile`。测试阶段只有加进测试用户名单的账号能登录，对公众开放前点「发布应用」。
-2. 「客户端」（旧称「凭据」）里创建 OAuth 客户端 ID，类型选「Web 应用」，已获授权的重定向 URI 填上表的地址。
+1. 「Google Auth Platform」（旧称「OAuth 同意屏幕」）的「品牌」里填应用名称和用户支持邮箱（会显示给用户）、上传图标，应用首页、隐私权政策、服务条款分别填 `https://你的域名`、`https://你的域名/privacy`、`https://你的域名/terms`，已获授权的网域填你的顶级域名（例如域名是 `eidolon.example.com` 就填 `example.com`）。受众选「外部」，数据访问（作用域）只要 `openid`、`email`、`profile`。
+2. 「客户端」（旧称「凭据」）里创建 OAuth 客户端 ID，类型选「Web 应用」，已获授权的重定向 URI 填上表的地址。创建后的对话框里点「下载 JSON」：关掉对话框以后就再也看不到客户端密钥了。
 3. 把客户端 ID 和客户端密钥填进 `.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`。邮箱没有验证的 Google 账号不能登录。
+4. 在「受众群体」里点「发布应用」。只用这三个作用域不需要 Google 审核，发布后任何 Google 账号都能登录。
+5. **品牌验证**：没验证时，同意页上只显示域名，不显示应用名称和图标。先在 [Google Search Console](https://search.google.com/search-console) 用同一个 Google 账号添加「网域」资源（顶级域名），按提示在 DNS 里加一条 TXT 记录完成所有权验证（这条记录以后不要删）。然后**网站上线、首页和隐私政策能公开打开时**，在「品牌」或「验证中心」里点「验证品牌」：自动检查几分钟，转人工复核一般要 2–3 个工作日，期间网站要一直能打开。结果是「可以发布」后，7 天内点「发布品牌」才会生效。以后改名称、图标或链接要重新验证。
 
 改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址是落地页，从右上角的「登录」登录：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见[配置指南](configuration.md)的「登录、用户与限额」和「自带密钥」；封禁、查看用量等管理命令也在那里，同样的事也可以在后台里做（见下一节）。
 
