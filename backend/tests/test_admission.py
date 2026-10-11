@@ -1,5 +1,4 @@
-"""Letting a turn or call begin and settling it once it is over, and asking before a
-call is placed, through `Admissions` alone: whose keys it runs on, its activity record,
+"""Letting a turn or call begin and settling it once it is over, through `Admissions` alone: whose keys it runs on, its activity record,
 its use of the limit and the deployer's lease, each of them looked at as the admin and the
 limiter see them.
 
@@ -24,7 +23,6 @@ from eidolon.own_keys import (
     DeployerLease,
     OwnKeys,
     OwnLLMSettings,
-    Service,
 )
 from eidolon.store import Store
 from eidolon.usage import OverLimit, UsageKind, UsageLimiter
@@ -221,28 +219,3 @@ def test_a_call_on_the_users_own_keys_alone_does_not_count(deployment: Deploymen
     assert not deployment.counted("call")
     assert deployment.calls_taken() == 2  # kept for the admin all the same
     assert deployment.records() == [("success", True), ("success", True)]
-
-
-@pytest.mark.parametrize(
-    ("services", "exempt"),
-    [(frozenset({"llm", "tts"}), False), (ALL_OWN.services, True)],
-)
-def test_asking_before_a_call_says_whether_it_is_exempt_and_takes_and_records_nothing(
-    deployment: Deployment, services: frozenset[Service], exempt: bool
-):
-    assert deployment.admissions().call_setup(services) is exempt
-
-    assert deployment.calls_taken() == 0
-    assert deployment.records() == []
-    assert deployment.deployer.leased == deployment.deployer.released == 1
-
-
-def test_asking_before_a_call_without_keys_for_speech_is_not_recorded(deployment: Deployment):
-    deployment.deployer.keys = DeployerKeys(FakeLLM(), FakeBackgroundLLM())
-
-    with pytest.raises(CallsUnavailable):
-        deployment.admissions().call_setup(frozenset({"llm", "tts"}))
-
-    assert deployment.records() == []
-    assert deployment.deployer.leased == deployment.deployer.released == 1
-    assert deployment.admissions().call_setup(frozenset({"tts", "stt"})) is False

@@ -6,6 +6,7 @@ import {
   checkOwnSpeechKey,
   deleteAccount,
   getCallSetup,
+  getLimitExemption,
   json,
   logout,
   logoutEverywhere,
@@ -232,6 +233,25 @@ describe("getCallSetup", () => {
     await getCallSetup([]);
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/ice-servers?own=llm,tts,stt", "/api/ice-servers"]);
+  });
+});
+
+describe("getLimitExemption", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("names the services the user keeps their own keys for, and none of the keys, and hands back the server's answer", async () => {
+    const fetch = vi.fn(async (_path: string, _init?: RequestInit) => Response.json({ turns: true, calls: false }));
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await getLimitExemption(["llm", "tts"])).toEqual({ turns: true, calls: false });
+    await getLimitExemption([]);
+
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/account/keys/exemption?own=llm,tts",
+      "/api/account/keys/exemption",
+    ]);
   });
 });
 

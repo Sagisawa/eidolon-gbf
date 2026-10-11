@@ -8,7 +8,7 @@
 
 **Blocked by:** 04（文字回合也带 `own_keys`；它收齐了前端自带密钥 module 的类型）
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -21,10 +21,33 @@
 
 ## 验收
 
-- [ ] 后端 HTTP 测试：豁免接口对没有服务、只有 LLM、LLM 加一项语音、三项全有各答什么；部署者没配语音时照样回答；不认识的服务名 422；未登录 401、未同意 428。
-- [ ] `test_own_keys.py` 里豁免的表驱动用例改成按用量种类问。
-- [ ] 通话预检的已有测试不改就通过；代码里没有 `call_setup`。
-- [ ] 前端请求函数的测试：豁免查询发对的服务名、交回 `{turns, calls}`。
-- [ ] 前端没有 `limitExemption`，它的文件和测试已删。
-- [ ] 后端 `pytest`、`ruff`、`pyright`，前端 `vitest`、`tsc`、`sh scripts/check-discipline.sh` 通过。
-- [ ] 人工验收清单写进 Comments（例如：设置页依次只填 LLM、再填语音合成、再填语音识别、再删掉 LLM，每一步说明都对；断网时说明不显示、其余照常）。
+- [x] 后端 HTTP 测试：豁免接口对没有服务、只有 LLM、LLM 加一项语音、三项全有各答什么；部署者没配语音时照样回答；不认识的服务名 422；未登录 401、未同意 428。
+- [x] `test_own_keys.py` 里豁免的表驱动用例改成按用量种类问。
+- [x] 通话预检的已有测试不改就通过；代码里没有 `call_setup`。
+- [x] 前端请求函数的测试：豁免查询发对的服务名、交回 `{turns, calls}`。
+- [x] 前端没有 `limitExemption`，它的文件和测试已删。
+- [x] 后端 `pytest`、`ruff`、`pyright`，前端 `vitest`、`tsc`、`sh scripts/check-discipline.sh` 通过。
+- [x] 人工验收清单写进 Comments（例如：设置页依次只填 LLM、再填语音合成、再填语音识别、再删掉 LLM，每一步说明都对；断网时说明不显示、其余照常）。
+
+## Comments
+
+### 实现说明（2026-10-11）
+
+- 后端：`OwnKeys.exempt(kind, services)` 是唯一一份豁免规则，`for_turn`、`for_call`、`call_exempt`（通话预检：先查语音两项有没有 key，再按通话的规则答）和新接口 `GET /api/account/keys/exemption` 都用它。`Admissions.call_setup` 删掉，`Calls` 直接收 `OwnKeys`。服务名的解析（不认识的回 422）抽成 `account_api.named_services`，预检和豁免接口共用。
+- 原来 `test_admission.py` 里直接测 `call_setup` 的两条用例搬到 `test_own_keys.py`，改为测 `OwnKeys.call_exempt`（「不占次数、不留记录」这一点随 `Admissions` 那层一起没了：`OwnKeys` 本来就碰不到次数和记录）。
+- 「代码里没有 `call_setup`」：产品代码里没有了；`test_own_speech_keys.py` 里有个同名的测试辅助函数（发 `/api/ice-servers`），按「已有测试不改」保留没改名。
+- 前端：`getLimitExemption(own)`（`lib/api.ts`）走统一的请求函数；设置页按存了哪几项服务问它，只有答案对得上现在存的服务时才显示那句说明，还没问到或问失败都不显示；`perCallLimits` 那句照常显示。
+
+### 人工验收清单
+
+前提：本地起服务（前端 `next build` + `next start`），登录一个已同意条款的用户，打开设置页的自带密钥；开始前三项都没填。
+
+1. 三项都没填：说明是「现在用的是部署者的服务，文字对话和语音通话都计入每小时限额。」，后面跟着「单次通话的时长和轮数上限对所有人都一样。」。
+2. 只填 LLM 并通过试调：说明变成「文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要三项都自带才不计入。」。
+3. 再填语音合成（Fish Audio）：说明不变（仍是第 2 步那句）。
+4. 再填语音识别：说明变成「三项都是你自己的密钥：文字对话和语音通话都不计入每小时限额。」。
+5. 删掉 LLM（保留两项语音）：说明回到第 1 步那句「都计入」。
+6. 开发者工具 Network 里看每次改动后的请求：是 `GET /api/account/keys/exemption?own=…`，`own` 只列服务名（如 `tts,stt`），请求里没有任何 key；三项都没填时没有 `own` 参数。
+7. 断网验证：开发者工具 Network 设为 Offline（或把 `/api/account/keys/exemption` 加进 Block request URL）后刷新设置页并改一项 key（或先在线打开页面、再离线后删/填一项）：那句豁免说明不显示，「单次通话的时长和轮数上限……」那句和三张表单照常显示、可操作；恢复网络后再改一项，说明重新出现且正确。
+8. 刷新设置页：说明短暂不显示，随即按已存的 key 显示正确的那句（不会先闪一句错的）。
+9. 打一通三项都自带的电话、挂断：通话结束页照旧说这通不计入；只带部分自带 key 时照旧计入（预检 `callExempt` 行为不变）。
