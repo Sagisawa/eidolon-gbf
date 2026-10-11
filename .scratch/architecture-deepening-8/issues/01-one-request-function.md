@@ -6,7 +6,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -22,3 +22,13 @@
 - [ ] `SPEAKING`、`Speaking` 不再从请求函数的文件导出。
 - [ ] `vitest`、`tsc`、`sh scripts/check-discipline.sh` 通过；现有测试的断言不改就通过，如果哪条必须改，在 Comments 里写明原因。
 - [ ] 人工验收清单写进 Comments：后台的用户列表、用户详情（封禁、解封、限额）、配置保存与恢复、单价、看板都照常；登录页的登录选项、开发登录、设置页的退出登录、同意页的同意都照常。
+
+## Comments
+
+- 做法：`api.ts` 的请求函数 `api` 改为导出，注释写明前端对后端的请求都经它。后台用户、配置、单价、看板四个 lib 改用它（`adminUsers.ts` 里另写的 `admin` 删掉，不再引用 `apiHeaders`/`followRedirect`）；登录选项、同意、开发登录、登出四个请求也改走它。`SPEAKING`、`Speaking` 搬到 `call.ts`，`standDirection.ts` 从那里引用，`api.ts` 的 `CallEvent` 改为 `import type { Speaking } from "@/lib/call"`。
+- 剩下直接 `fetch` 的：`call.ts` 的 offer 由 Pipecat 发（用 `apiHeaders` 和 `followRedirect` 同一套规则），`useStandOutfits` 拿立绘素材，`backend.ts` 和 `app/api/[...path]/route.ts` 在服务器端。
+- 测试：`api.test.ts` 新增「同意请求遇到 401 跳回落地页」（先红后绿）。现有断言一条没改。`vitest` 629 条全过，`tsc`、`check-discipline.sh` 通过。
+- 人工验收清单：
+  - 后台：用户列表（搜索、排序、翻页）；用户详情的封禁、解封、设置限额、恢复默认限额；配置页保存一项、恢复一项；单价页保存、刷新目录、恢复；看板切换时间范围、进行中的通话数。行为都和以前一样。
+  - 登录页能显示登录选项；开发登录能进；设置页的退出登录能退出并回到落地页。
+  - 同意页正常点「同意」进入对话列表；会话过期后（例如另一个标签页里先「在所有设备退出」）再点「同意」，被送回落地页，而不是停在同意页显示「请先登录」。

@@ -1,6 +1,7 @@
 import type { Provider } from "@/lib/signIn";
 import { forgetOwnKeys, turnOwnLLM, type BailianRegion, type LocalLLM } from "@/lib/localOwnKeys";
 import { detectTimezone } from "@/lib/timezone";
+import type { Speaking } from "@/lib/call";
 import type { Emotion, Nod } from "@/lib/standAnimations";
 
 export type Character = {
@@ -126,17 +127,6 @@ export type CallEvent =
   | Speaking
   | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
 
-/** Pipecat's standard RTVI events, not server messages: her voice starts or stops playing
- * (stopping at once when she is interrupted), the user starts or stops speaking. */
-export type Speaking = { type: (typeof SPEAKING)[number] };
-
-export const SPEAKING = [
-  "bot-started-speaking",
-  "bot-stopped-speaking",
-  "user-started-speaking",
-  "user-stopped-speaking",
-] as const;
-
 /** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little
  * before it is heard; a segment cut off before it is voiced gets none. */
@@ -228,9 +218,10 @@ export function followRedirect(res: Response): void {
   if (to && window.location.pathname !== to) window.location.assign(to);
 }
 
-/** fetch() for the backend API; sends the browser on when it has to sign in, or agree to the
- * terms, first. */
-async function api(path: string, init: RequestInit = {}): Promise<Response> {
+/** fetch() for the backend API, which every request from the browser goes through: it carries
+ * the time zone header, and sends the browser on when it has to sign in, or agree to the terms,
+ * first. Read the response with `json` or `expectNoContent` for the backend's reason on failure. */
+export async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(path, { ...init, headers: apiHeaders(init.headers) });
   followRedirect(res);
   return res;
@@ -241,7 +232,7 @@ async function api(path: string, init: RequestInit = {}): Promise<Response> {
 export type SignInOptions = { providers: Provider[]; dev_login: boolean; contact: string | null };
 
 export async function getSignInOptions(): Promise<SignInOptions> {
-  return json(await fetch("/api/auth/providers"));
+  return json(await api("/api/auth/providers"));
 }
 
 /** An identity the user signs in with. */
@@ -329,9 +320,9 @@ export async function logoutEverywhere(userId?: string): Promise<void> {
 /** Agree to the privacy policy and terms of use, saying the user is 13 or older. */
 export async function agreeToTerms(): Promise<void> {
   await expectNoContent(
-    await fetch("/api/account/consent", {
+    await api("/api/account/consent", {
       method: "POST",
-      headers: apiHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ agree_to_terms: true, at_least_13: true }),
     }),
   );
@@ -340,9 +331,9 @@ export async function agreeToTerms(): Promise<void> {
 /** Sign in as the user with this name (development only). */
 export async function devLogin(name: string): Promise<void> {
   await expectNoContent(
-    await fetch("/api/auth/dev-login", {
+    await api("/api/auth/dev-login", {
       method: "POST",
-      headers: apiHeaders({ "content-type": "application/json" }),
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     }),
   );
@@ -351,7 +342,7 @@ export async function devLogin(name: string): Promise<void> {
 /** Sign this browser out, forgetting the own keys it keeps for the user. Without `userId`, as
  * before the user has agreed to the terms, there are none: keys are only kept after. */
 export async function logout(userId?: string): Promise<void> {
-  await expectNoContent(await fetch("/api/auth/logout", { method: "POST" }));
+  await expectNoContent(await api("/api/auth/logout", { method: "POST" }));
   if (userId) forgetOwnKeys(userId);
 }
 

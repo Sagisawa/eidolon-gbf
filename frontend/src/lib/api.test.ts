@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  agreeToTerms,
   ApiError,
   CONSENT_REQUIRED,
   checkOwnSpeechKey,
@@ -231,6 +232,25 @@ describe("getCallSetup", () => {
     await getCallSetup([]);
 
     expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/ice-servers?own=llm,tts,stt", "/api/ice-servers"]);
+  });
+});
+
+describe("agreeToTerms", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the browser back to the landing page to sign in when the session has expired", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { pathname: "/consent", assign } });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ detail: "Not signed in" }, { status: 401 })),
+    );
+
+    await expect(agreeToTerms()).rejects.toThrow();
+
+    expect(assign).toHaveBeenCalledWith("/");
   });
 });
 

@@ -21,6 +21,17 @@ import { Microphone, type MicInUse } from "@/lib/microphone";
 
 export type { MicInUse };
 
+/** Pipecat's standard RTVI events, not server messages: her voice starts or stops playing
+ * (stopping at once when she is interrupted), the user starts or stops speaking. */
+export type Speaking = { type: (typeof SPEAKING)[number] };
+
+export const SPEAKING = [
+  "bot-started-speaking",
+  "bot-stopped-speaking",
+  "user-started-speaking",
+  "user-stopped-speaking",
+] as const;
+
 export type CallHandlers = {
   onEvent: (event: CallEvent) => void;
   /** What the user is saying so far; empty once the utterance is complete. */
