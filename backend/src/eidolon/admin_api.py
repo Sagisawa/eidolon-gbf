@@ -9,17 +9,10 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from eidolon.accounts import is_admin
 from eidolon.assembly import Backend
-from eidolon.config import Settings
 from eidolon.sessions import session_user
-from eidolon.store import Store, User
-
-
-def is_admin(store: Store, settings: Settings, user_id: str) -> bool:
-    """Whether any identity the user signs in with is one the deployer lists as an admin's."""
-    return bool(settings.admins) and any(
-        (m.provider, m.subject) in settings.admins for m in store.sign_in_methods(user_id)
-    )
+from eidolon.store import User
 
 
 def admin_user(request: Request) -> User:

@@ -173,6 +173,9 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
+    own_llm_required: bool = False
+    """Whether users must bring their own LLM for their turns and calls (GLOSSARY.md「必须自带
+    LLM」); the admin console may override it."""
     domain: str | None = None
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
@@ -244,6 +247,7 @@ class Settings:
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
+            own_llm_required=_switch("EIDOLON_OWN_LLM_REQUIRED"),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),
@@ -653,6 +657,14 @@ def _limit(name: str, default: int) -> int | None:
     if not (value.isascii() and value.isdigit()):
         raise RuntimeError(f"环境变量 {name} 需要是非负整数（0 表示不限制），而不是 {value}")
     return int(value) or None
+
+
+def _switch(name: str) -> bool:
+    """A setting turned on with 1 and off with 0; unset is off."""
+    value = (os.environ.get(name) or "").strip()
+    if value not in ("", "0", "1"):
+        raise RuntimeError(f"环境变量 {name} 需要是 0 或 1（1 表示打开），而不是 {value}")
+    return value == "1"
 
 
 def _required(name: str) -> str:

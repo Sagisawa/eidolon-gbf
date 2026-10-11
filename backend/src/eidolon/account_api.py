@@ -24,8 +24,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, Secret, StringConstraints, model_validator
 
-from eidolon.accounts import SignInRefused
-from eidolon.admin_api import is_admin
+from eidolon.accounts import SignInRefused, is_admin
 from eidolon.assembly import Backend
 from eidolon.config import BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError

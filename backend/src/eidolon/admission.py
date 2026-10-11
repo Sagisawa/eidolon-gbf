@@ -4,15 +4,18 @@ deployer's keys it holds, all in one place.
 
 `Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), from those the turn
 or call brings, whose models record each request as a service call to the model they are,
-opens the activity record, and only then takes a use of the limit, so that nothing
-failing before it is counted. Whatever fails on the way after the record is opened is
-recorded so (`_FAILED`), and what was taken let go, before it is raised. Before a call is
-placed, it is only asked whether the call would count.
+opens the activity record, asks whether the user may begin it without their own LLM
+(`own_llm_required`), and only then takes a use of the limit, so that nothing failing
+before it is counted. One refused, for its LLM or over the limit, is recorded rejected;
+whatever else fails on the way after the record is opened is recorded so (`_FAILED`); and
+what was taken is let go before it is raised. Before a call is placed, it is only asked
+whether the call would count.
 
 The `Admission` it hands out settles it, once: given back unless its result counts
 (`_COUNTED`), the record written, the deployer's keys let go.
 """
 
+from collections.abc import Callable
 from typing import Generic, TypeVar
 
 from eidolon.activity import ActivityLog, CallEndReason, Recording, Result
@@ -31,6 +34,14 @@ _FAILED: dict[UsageKind, Result] = {"turn": "failed", "call": "not_connected"}
 """How a turn or call is recorded that failed before it began: a call never connected."""
 
 K = TypeVar("K", TurnKeys, CallKeys)
+
+
+class OwnLLMRequired(Exception):
+    """The deployment requires the user to bring their own LLM, and the turn or call
+    brought none (GLOSSARY.md「必须自带 LLM」)."""
+
+    def __init__(self) -> None:
+        super().__init__("这个部署需要你自带 LLM，可以在设置里填写")
 
 
 class Admission(Generic[K]):
@@ -89,17 +100,35 @@ class Admission(Generic[K]):
 class Admissions:
     """Lets the users' turns and calls begin, on the limits and keys of the moment."""
 
-    def __init__(self, usage: UsageLimiter, activity: ActivityLog, own_keys: OwnKeys) -> None:
+    def __init__(
+        self,
+        usage: UsageLimiter,
+        activity: ActivityLog,
+        own_keys: OwnKeys,
+        own_llm_required: Callable[[], bool],
+        is_admin: Callable[[str], bool],
+    ) -> None:
+        """`own_llm_required` tells whether the deployment requires users to bring their
+        own LLM now; `is_admin`, whether a user is an admin, whom it does not bind."""
         self._usage = usage
         self._activity = activity
         self._own_keys = own_keys
+        self._deployment_requires_own_llm = own_llm_required
+        self._is_admin = is_admin
+
+    def own_llm_required(self, user_id: str) -> bool:
+        """Whether the user must bring their own LLM for their turns and calls now: the
+        deployment requires it and does not let them use its own, as it lets admins. The
+        one rule they are refused by, with OwnLLMRequired, when they bring none."""
+        return self._deployment_requires_own_llm() and not self._is_admin(user_id)
 
     def turn(
         self, user_id: str, character_id: str, brought: BroughtKeys
     ) -> Admission[TurnKeys]:
         """Let the user's next text turn with `character_id`, bringing `brought`, begin.
-        Raises OverLimit when they have no turns left this hour; then, and whatever else
-        fails before it begins, it is recorded and takes no use of the limit."""
+        Raises OwnLLMRequired when it must bring their own LLM and brings none, OverLimit
+        when they have no turns left this hour; then, and whatever else fails before it
+        begins, it is recorded and takes no use of the limit."""
         return self._admit("turn", user_id, character_id, self._own_keys.for_turn(brought))
 
     def call(
@@ -109,7 +138,7 @@ class Admissions:
         OverLimit when they have no calls left this hour; then, and whatever else fails
         before it begins, it is recorded and takes no use of the limit. Raises
         CallsUnavailable, recording nothing, when the deployment has no keys for calls and
-        neither does the call bring them."""
+        neither does the call bring them; OwnLLMRequired as a turn does."""
         return self._admit("call", user_id, character_id, self._own_keys.for_call(brought))
 
     def _admit(self, kind: UsageKind, user_id: str, character_id: str, keys: K) -> Admission[K]:
@@ -118,8 +147,10 @@ class Admissions:
                 kind, user_id, character_id, own_llm=keys.own_llm, exempt=keys.exempt
             )
             try:
+                if not keys.own_llm and self.own_llm_required(user_id):
+                    raise OwnLLMRequired()
                 use = self._usage.take(user_id, kind, exempt=keys.exempt)
-            except OverLimit:
+            except (OwnLLMRequired, OverLimit):
                 recording.finish("rejected")
                 raise
             except BaseException:

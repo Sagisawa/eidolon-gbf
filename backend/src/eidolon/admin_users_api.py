@@ -32,8 +32,9 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
+from eidolon.accounts import is_admin
 from eidolon.activity import ActivityLog, RecordRow
-from eidolon.admin_api import Admin, is_admin
+from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.store import NotFound, User
 from eidolon.usage import UserLimits

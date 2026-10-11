@@ -67,7 +67,10 @@ class Deployment:
         self.speech = FakeSpeech()
 
     def admissions(self) -> Admissions:
-        return Admissions(self.usage, self.activity, self.own_keys())
+        return Admissions(
+            self.usage, self.activity, self.own_keys(),
+            own_llm_required=lambda: False, is_admin=lambda _: False,
+        )
 
     def own_keys(self) -> OwnKeys:
         return OwnKeys(self.llm_service, self.deployer, self.activity, self.speech)
