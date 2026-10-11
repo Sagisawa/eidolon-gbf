@@ -510,7 +510,10 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
                         await self.push_error(error_msg="Fish Audio server error during synthesis")
                     break
         except ConnectionClosed as e:
-            log.warning("Fish Audio closed a session before it finished: %s", e)
+            # Only the code: the reason is the server's to give, and may repeat the key,
+            # cut short where it could no longer be masked.
+            code = e.rcvd.code if e.rcvd is not None else None
+            log.warning("Fish Audio closed a session before it finished (code %s)", code)
         except Exception as e:
             await self.push_error(error_msg=f"Unknown error occurred: {e}", exception=e)
         finally:

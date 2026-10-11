@@ -202,7 +202,8 @@ class RecordRow:
     None for a call (GLOSSARY.md「运行记录」)."""
     exempt: bool | None
     """For a call, whether its LLM, speech recognition and synthesis were all the user's
-    own, so that it counted towards no limit; None for a turn."""
+    own, so that it counted towards no limit; None for a turn (in a call or not), whose
+    record keeps only `own_llm`."""
     time_to_speak_ms: float | None
     duration_s: float | None = None
     """How long a call lasted once connected; None for a turn, or a call never connected."""
@@ -210,6 +211,12 @@ class RecordRow:
     """Why a call ended; None for a turn, or a call refused."""
     in_call: bool = False
     """Whether a turn was taken in a call."""
+
+    @property
+    def own_keys(self) -> bool:
+        """Whether the record counts as on the user's own keys, as the dashboard and the
+        admin's users page show it: a turn's own LLM, a call's being exempt."""
+        return bool(self.own_llm if self.kind == "turn" else self.exempt)
 
 
 @dataclass(frozen=True)
@@ -265,7 +272,8 @@ class Recording:
         whose keys it ran on (GLOSSARY.md「运行记录」)."""
         self.exempt = exempt
         """Whether it is on the user's own keys alone, counting towards no limit: what a
-        call's record keeps of whose keys it ran on; None for a turn in a call."""
+        call's record keeps of whose keys it ran on. A turn begun on its own has it too,
+        though its record keeps `own_llm` instead; a turn in a call has None."""
         self.time_to_speak_ms: float | None = None
         self.calls: list[ServiceCall] = []
         self.finished = False
@@ -386,8 +394,8 @@ class ActivityLog:
         return (
             [
                 RecordRow(
-                    kind, who, character, _time(started), result, *_own(kind, own), speak,
-                    duration, reason, bool(in_call),
+                    kind, who, character, _time(started), result,
+                    *_reading_own_keys(kind, own), speak, duration, reason, bool(in_call),
                 )
                 for kind, who, character, started, result, own, speak, duration, reason, in_call
                 in records
@@ -411,8 +419,8 @@ class ActivityLog:
                 (user_id, moment.timestamp()),
             ).fetchall()
         return [
-            RecordRow(kind, user_id, character, _time(started), result, *_own(kind, own),
-                      None, in_call=bool(in_call))
+            RecordRow(kind, user_id, character, _time(started), result,
+                      *_reading_own_keys(kind, own), None, in_call=bool(in_call))
             for kind, character, started, result, own, in_call in rows
         ]
 
@@ -461,7 +469,7 @@ class ActivityLog:
         assert recording.result is not None
         row = (
             recording.kind, recording.character_id, recording.started_at.timestamp(),
-            recording.result, int(_kept_own(recording)), recording.time_to_speak_ms,
+            recording.result, int(_writing_own_keys(recording)), recording.time_to_speak_ms,
             recording.call.row_id if recording.call is not None else None,
             recording.duration_s, recording.end_reason,
         )
@@ -502,17 +510,18 @@ def _time(epoch: float) -> datetime:
     return datetime.fromtimestamp(epoch, UTC)
 
 
-def _kept_own(recording: Recording) -> bool:
-    """What the `own_keys` column keeps of a record, by its kind: a turn's own LLM, a
-    call's being on the user's own keys alone."""
+def _writing_own_keys(recording: Recording) -> bool:
+    """What is written to the `own_keys` column of a record, by its kind: a turn's own
+    LLM, a call's being on the user's own keys alone."""
     if recording.kind == "turn":
         return recording.own_llm
     assert recording.exempt is not None
     return recording.exempt
 
 
-def _own(kind: RecordKind, kept: int) -> tuple[bool | None, bool | None]:
-    """`RecordRow.own_llm` and `RecordRow.exempt` from what the `own_keys` column kept."""
+def _reading_own_keys(kind: RecordKind, kept: int) -> tuple[bool | None, bool | None]:
+    """`RecordRow.own_llm` and `RecordRow.exempt`, from what is read of the `own_keys`
+    column of a record of `kind`."""
     return (bool(kept), None) if kind == "turn" else (None, bool(kept))
 
 

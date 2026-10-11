@@ -16,10 +16,10 @@
 
 ## 验收
 
-- [ ] 代码里这个字段和沿途传递它的参数都改了名，定义处写明对回合和对通话各指什么。
-- [ ] 运行记录的表结构、看板和用户详情接口的响应都没有变（已有测试不改就通过）。
-- [ ] `pytest` 全部通过，`ruff`、`pyright` 没有新的报错。
-- [ ] 人工验收清单写进 Comments（例如：看板的「用自带密钥的回合」「其中 N 次全用自带密钥」、用户详情的「部署者 · 自带密钥」和改之前一致）。
+- [x] 代码里这个字段和沿途传递它的参数都改了名，定义处写明对回合和对通话各指什么。
+- [x] 运行记录的表结构、看板和用户详情接口的响应都没有变（已有测试不改就通过）。
+- [x] `pytest` 全部通过，`ruff`、`pyright` 没有新的报错。
+- [x] 人工验收清单写进 Comments（例如：看板的「用自带密钥的回合」「其中 N 次全用自带密钥」、用户详情的「部署者 · 自带密钥」和改之前一致）。
 
 ## Comments
 
@@ -31,8 +31,9 @@
 
 - `ActivityLog.begin(kind, user_id, character_id, *, own_llm, exempt)`：两个都要，用关键字传；回合的记录留 `own_llm`，通话的留 `exempt`。`Admission` 传 `keys.own_llm` 和 `keys.exempt`。以前文字回合传的是 `exempt`，只是碰巧和「自带 LLM」相等；现在不再依赖豁免规则。
 - `Recording.turn(own_llm)`：通话里的回合只有 `own_llm`，`exempt` 为 None。
-- `Recording` 和 `RecordRow` 都有 `own_llm` 和 `exempt` 两个字段，定义处写明各对哪种记录有意义（`RecordRow` 里不适用的那个是 None）。写库、读库时由 `_kept_own`、`_own` 两个小函数按种类和 `own_keys` 列互相换算；表结构的注释也写明了这一列对回合和对通话各指什么。
+- `Recording` 和 `RecordRow` 都有 `own_llm` 和 `exempt` 两个字段，定义处写明各对哪种记录有意义（`RecordRow` 里不适用的那个是 None）。写库、读库时由 `_writing_own_keys`、`_reading_own_keys`（代码审查后改名，原叫 `_kept_own`、`_own`）两个小函数按种类和 `own_keys` 列互相换算；表结构的注释也写明了这一列对回合和对通话各指什么。
 - 读的一侧：看板的回合统计用 `own_llm`，通话统计用 `exempt`；用户详情的近期用量按种类取（被拒的回合取 `own_llm`，被拒的通话取 `exempt`，和以前一致）。
+- 代码审查后：`RecordRow` 加了属性 `own_keys`（对应看板 JSON 的 `own_keys`），按种类取 `own_llm` 或 `exempt`；用户详情的近期用量、看板的通话统计和 `test_admission.py` 都改用它，不再各写一遍按种类的分支。
 
 数据库列名、看板和用户详情的 JSON 字段名都没改。测试只改了两处直接调内部接口的地方（`test_turn_outcome.py` 调 `begin`，`test_admission.py` 读 `RecordRow`），走 HTTP 的测试一个没动。
 
