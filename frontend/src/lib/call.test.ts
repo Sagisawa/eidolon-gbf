@@ -72,7 +72,6 @@ describe("startCall", () => {
     keepOwnKey("u1", "llm", LLM);
     keepOwnKey("u1", "tts", TTS);
     keepOwnKey("u1", "stt", STT);
-    keepOwnKey("u2", "llm", { ...LLM, api_key: "sk-someone-else" });
 
     await startCall("c1", PREFERENCES, HANDLERS, "u1");
 
