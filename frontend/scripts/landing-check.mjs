@@ -540,7 +540,7 @@ for (const tier of ["full", "reduced", "static"]) {
   await cdp.send("Accessibility.enable");
   const { nodes } = await cdp.send("Accessibility.getFullAXTree");
   const inTree = nodes.filter((n) => !n.ignored && n.name?.value).map((n) => n.name.value);
-  // 每一段里读屏器该读到的字：不算 aria-hidden 的装饰（第 1 幕竖排的「分光」）。
+  // 每一段里读屏器该读到的字：不算 aria-hidden 的装饰（第 1 幕竖排的「プリズム」）。
   const wanted = await fresh.evaluate(() =>
     [...document.querySelectorAll("[data-lp-find]")]
       .flatMap((el) => [el, ...el.querySelectorAll("*")])
