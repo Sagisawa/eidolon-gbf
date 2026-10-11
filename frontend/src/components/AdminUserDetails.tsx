@@ -40,6 +40,7 @@ import {
   banAction,
   describeCount,
   deleteUser,
+  deployerLlm,
   getAdminUser,
   takeOffUserLimits,
   unbanUser,
@@ -214,6 +215,11 @@ export function AdminUserDetails({ id }: { id: string }) {
                     {t.limits.updatedAt} <Timestamp value={user.limits.updated_at} />
                   </span>
                 )}
+              </span>
+            </MetadataListItem>
+            <MetadataListItem label={t.limits.deployerLlmLabel}>
+              <span className={user.limits?.deployer_llm_allowed ? undefined : "text-muted-foreground"}>
+                {deployerLlm(user.limits)}
               </span>
             </MetadataListItem>
             {user.banned_at && (

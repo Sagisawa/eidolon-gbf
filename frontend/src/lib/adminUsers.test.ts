@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   banAction,
+  deployerLlm,
+  deployerLlmAllowable,
   describeLimit,
+  describeLimits,
   limitDraft,
   limitsInput,
   headerSort,
@@ -10,6 +13,8 @@ import {
   usageRows,
   describeCount,
   type AdminUser,
+  type AdminUserLimits,
+  type UserLimit,
 } from "@/lib/adminUsers";
 
 const USER: AdminUser = {
@@ -51,32 +56,72 @@ describe("describeLimit", () => {
 describe("limitDraft and limitsInput", () => {
   it("round-trips each kind of limit through the editor", () => {
     for (const limit of [null, "unlimited", 0, 5] as const) {
-      expect(limitsInput(limitDraft(limit), limitDraft(5)), String(limit)).toEqual({
-        input: { turns_per_hour: limit, calls_per_hour: 5 },
+      expect(limitsInput(limitDraft(limit), limitDraft(5), false), String(limit)).toEqual({
+        input: { turns_per_hour: limit, calls_per_hour: 5, deployer_llm_allowed: false },
       });
     }
   });
 
   it("keeps own keys only apart from a number: 0 is never typed in", () => {
     expect(limitDraft(0)).toEqual({ choice: "own_keys", count: null });
-    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5))).toEqual({
+    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5), false)).toEqual({
       problems: [{ field: "turns", reason: "count" }],
     });
   });
 
   it("names why there is nothing to save: both follow the deployment, or a number is chosen but not given", () => {
-    expect(limitsInput(limitDraft(null), limitDraft(null))).toEqual({
+    expect(limitsInput(limitDraft(null), limitDraft(null), false)).toEqual({
       problems: [{ field: "turns", reason: "needsOne" }],
     });
-    expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toEqual({
+    expect(limitsInput({ choice: "number", count: null }, limitDraft(null), false)).toEqual({
       problems: [{ field: "turns", reason: "count" }],
     });
-    expect(limitsInput({ choice: "number", count: null }, { choice: "number", count: null })).toEqual({
+    expect(limitsInput({ choice: "number", count: null }, { choice: "number", count: null }, false)).toEqual({
       problems: [
         { field: "turns", reason: "count" },
         { field: "calls", reason: "count" },
       ],
     });
+  });
+
+  it("saves letting the user use the deployer's LLM alone, both limits following the deployment", () => {
+    expect(limitsInput(limitDraft(null), limitDraft(null), true)).toEqual({
+      input: { turns_per_hour: null, calls_per_hour: null, deployer_llm_allowed: true },
+    });
+  });
+
+  it("lets no one use the deployer's LLM when both limits leave them their own keys only, where it would do nothing", () => {
+    expect(deployerLlmAllowable(limitDraft(0), limitDraft(0))).toBe(false);
+    expect(limitsInput(limitDraft(0), limitDraft(0), true)).toEqual({
+      input: { turns_per_hour: 0, calls_per_hour: 0, deployer_llm_allowed: false },
+    });
+    // Calls on the deployment's limit still use the deployer's LLM.
+    expect(deployerLlmAllowable(limitDraft(0), limitDraft(null))).toBe(true);
+    expect(limitsInput(limitDraft(0), limitDraft(null), true)).toEqual({
+      input: { turns_per_hour: 0, calls_per_hour: null, deployer_llm_allowed: true },
+    });
+  });
+});
+
+describe("deployerLlm", () => {
+  const limits = (turns: UserLimit, calls: UserLimit, deployer_llm_allowed: boolean): AdminUserLimits => ({
+    turns_per_hour: turns,
+    calls_per_hour: calls,
+    note: null,
+    updated_at: "2026-10-11T00:00:00+00:00",
+    deployer_llm_allowed,
+  });
+
+  it("says whether the user may use the deployer's LLM, and when it does nothing for their own limits of 0", () => {
+    expect(deployerLlm(null)).toBe("不可以");
+    expect(deployerLlm(limits(5, null, false))).toBe("不可以");
+    expect(deployerLlm(limits(null, null, true))).toBe("可以");
+    expect(deployerLlm(limits(0, 0, true))).toBe("可以，但两项都只能用自带密钥，不起作用");
+  });
+
+  it("adds it to the limits' summary only when the user may", () => {
+    expect(describeLimits(limits(5, null, false))).toBe("回合 每小时 5 次 · 通话 跟随全站");
+    expect(describeLimits(limits(null, null, true))).toBe("回合 跟随全站 · 通话 跟随全站 · 可以用部署者的 LLM");
   });
 });
 

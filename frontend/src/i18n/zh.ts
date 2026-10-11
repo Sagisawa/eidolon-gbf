@@ -695,6 +695,15 @@ export const zh = {
         turns: "回合",
         calls: "通话",
         summary: (turns: string, calls: string) => `回合 ${turns} · 通话 ${calls}`,
+        /** 被放行时跟在回合、通话后面（GLOSSARY.md「必须自带 LLM」）。 */
+        withDeployerLlm: (summary: string) => `${summary} · 可以用部署者的 LLM`,
+        /** 用户详情里单列一行：这位用户有没有被放行。 */
+        deployerLlmLabel: "部署者的 LLM",
+        deployerLlm: {
+          yes: "可以",
+          no: "不可以",
+          noEffect: "可以，但两项都只能用自带密钥，不起作用",
+        },
         updatedAt: "设定于",
         set: "设定单独限额",
         edit: "修改单独限额",
@@ -707,6 +716,9 @@ export const zh = {
         calls: "每小时的通话次数",
         choices: { default: "跟随全站", number: "设定次数", unlimited: "不限", ownKeys: "只能用自带密钥" },
         ownKeysHint: "部署者的 key 一次也不放行，只放行用自带密钥的。",
+        deployerLlm: "可以用部署者的 LLM",
+        deployerLlmHint:
+          "部署要求必须自带 LLM 时，这位用户不带也能发起回合和通话，照常计入限额。选成「只能用自带密钥」的一项不受影响；两项都选成它时，这一项不起作用。",
         /** 「跟随全站」带上全站现在的数字，不用去配置页查：「跟随全站（60 次）」。 */
         defaultIs: (site: string) => `跟随全站（${site}）`,
         siteCount: (n: number) => (n === 0 ? "不限" : `${n} 次`),
@@ -715,7 +727,7 @@ export const zh = {
         note: "备注",
         noteHint: "只有管理者看得到。",
         confirm: "保存",
-        needsOne: "至少要单独设定一项；两项都跟随全站的话，用「取消单独限额」。",
+        needsOne: "至少要单独设定一项，或者勾上「可以用部署者的 LLM」；都不设的话，用「取消单独限额」。",
         needsCount: "填 1 以上的次数。",
       },
       delete: "删除这位用户",
