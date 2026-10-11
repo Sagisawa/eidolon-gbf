@@ -86,7 +86,8 @@ def recent_usage(records: list[RecordRow], since: datetime) -> dict:
     for record in records:
         if record.started_at > since:
             what = "rejected" if record.result == "rejected" else f"{record.kind}s"
-            counts[what]["own_keys" if record.own_keys else "deployer"] += 1
+            own = record.own_llm if record.kind == "turn" else record.exempt
+            counts[what]["own_keys" if own else "deployer"] += 1
     return counts
 
 

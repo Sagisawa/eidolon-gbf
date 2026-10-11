@@ -120,7 +120,9 @@ class Admissions:
 
     def _admit(self, kind: UsageKind, user_id: str, character_id: str, keys: K) -> Admission[K]:
         try:
-            recording = self._activity.begin(kind, user_id, character_id, keys.exempt)
+            recording = self._activity.begin(
+                kind, user_id, character_id, own_llm=keys.own_llm, exempt=keys.exempt
+            )
             try:
                 use = self._usage.take(user_id, kind, exempt=keys.exempt)
             except OverLimit:

@@ -30,7 +30,9 @@ class Turn:
     """One turn's `TurnOutcome`, and each result it was settled with."""
 
     def __init__(self, activity: ActivityLog) -> None:
-        self.recording: Recording = activity.begin("turn", "producer", "mano", False)
+        self.recording: Recording = activity.begin(
+            "turn", "producer", "mano", own_llm=False, exempt=False
+        )
         self.settled: list[Result] = []
         self.outcome = TurnOutcome(self.recording, self.settled.append)
 
