@@ -80,7 +80,7 @@ greeting_subtitle = "呼哇……你就是制作人吗？请多指教！"
 
 **キャラクターを追加する**ときの手順：
 
-1. `characters.toml` に 1 段落追加し、[`sheets/example.md`](../characters/sheets/example.md) を参考にキャラクターシートを、[`facts/example.md`](../characters/facts/example.md) を参考にキャラクター資料（任意）を書き、アイコンを `characters/avatars/` に置きます。
+1. `characters.toml` に 1 段落追加し、[`sheets/example.md`](../characters/sheets/example.md) を参考にキャラクターシートを、[`facts/example.md`](../characters/facts/example.md) を参考にキャラクター資料（任意）を書き、アイコンを 224×224 の JPEG に縮小して（画面上の最大表示は 112px、高密度ディスプレイ向けに 2 倍）`characters/avatars/` に置きます。
 2. `backend/` で `uv run eidolon reading draft` を実行し、彼女の名前の読みを補います（[読みとあいさつ](#読みとあいさつ)を参照）。
 3. あいさつを設定した場合は、`backend/` で `uv run --env-file=../.env eidolon greeting upload` を実行して合成・アップロードします。
 4. `frontend/` で `node scripts/landing-fonts.mts` を実行し、ランディングページのフォントサブセットを作り直します（[`frontend/AGENTS.md`](../frontend/AGENTS.md) を参照）。ユニット・あいさつ・表示名を変えたときも実行が必要です。忘れるとフロントエンドのフォント網羅テストが失敗し、足りない文字を示します。
