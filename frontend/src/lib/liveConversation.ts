@@ -182,9 +182,10 @@ export class LiveConversation {
   /** The conversation open; null until it is. */
   private conversationId: string | null = null;
 
-  /** Opens her newest conversation, or starts one if she has none. */
+  /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
+   * conversation it is, for the page and the conversation list beside it. */
   constructor(
-    private readonly characterId: string,
+    readonly characterId: string,
     private readonly ports: Ports,
   ) {
     const textOnly = ports.preferences.load().muted;

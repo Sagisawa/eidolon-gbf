@@ -75,7 +75,7 @@ export function ConversationView({
   onBack?: () => void;
 }) {
   const router = useRouter();
-  const { refresh, setCall, leave } = useDirectory();
+  const { refresh, handOver, leave } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
@@ -101,15 +101,14 @@ export function ConversationView({
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
       voice,
     });
+    // 交给列表一次：它自己订阅这份快照，那一行跟着通话走；离开这一页时收回。
     setLive(conversation);
-    return () => conversation.dispose();
-  }, [character.id, userId, refresh, voice]);
-
-  // 通话的进展告诉列表那一行。
-  useEffect(() => {
-    setCall(isLive(call) ? { characterId: character.id, state: call } : null);
-  }, [call, character.id, setCall]);
-  useEffect(() => () => setCall(null), [setCall]);
+    handOver(conversation);
+    return () => {
+      conversation.dispose();
+      handOver(null);
+    };
+  }, [character.id, userId, refresh, voice, handOver]);
 
   const isOpen = conversation.status === "open";
   const inCall = isLive(call);

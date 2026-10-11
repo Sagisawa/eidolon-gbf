@@ -63,6 +63,8 @@ function record(id: string): Conversation {
 }
 
 type Options = {
+  /** Whose conversation it is; "hikari" unless a test says otherwise. */
+  characterId?: string;
   /** Her conversations, newest first; one, "c1", unless a test says otherwise. */
   conversations?: Conversation[];
   /** The messages recorded in "c1". */
@@ -122,7 +124,7 @@ function opening(options: Options = {}) {
     now: () => NOW,
     ...options.ports,
   };
-  const live = new LiveConversation("hikari", ports);
+  const live = new LiveConversation(options.characterId ?? "hikari", ports);
   let published = 0;
   live.subscribe(() => published++);
   return {
@@ -1082,6 +1084,11 @@ describe("LiveConversation: typing", () => {
 });
 
 describe("LiveConversation: opening", () => {
+  it("says whose conversation it is: the character it was made for", () => {
+    const { live } = opening({ characterId: "misaki" });
+    expect(live.characterId).toBe("misaki");
+  });
+
   it("opens her newest conversation with its messages, leaving the list alone", async () => {
     const { live, listChanged, sentTo } = opening({
       conversations: [record("c1"), record("c0")],
