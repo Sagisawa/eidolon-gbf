@@ -15,7 +15,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 完整档电脑上：她的光收成竖线 → 手机侧面 → 背面（看得到相机横条）→ 正面，停稳后亮屏、来电；往回滚倒着走
 - [x] 竖屏手机上同样的动画，整体缩小，标题和正文不和手机重叠
