@@ -395,9 +395,9 @@ class FakeSTT(STTService):
         """The user starts saying something, which never comes to any words."""
         await self.broadcast_frame(ProposedUserStartedSpeakingFrame)
 
-    async def break_down(self) -> None:
-        """Fail as a rejected API key would: for good."""
-        await self.push_error("fake speech recognition is down", force_treat_as_permanent=True)
+    async def break_down(self, error: str = "fake speech recognition is down") -> None:
+        """Fail as a rejected API key would: for good, saying `error`."""
+        await self.push_error(error, force_treat_as_permanent=True)
 
 
 class FakeTTS(TTSService):
@@ -413,9 +413,9 @@ class FakeTTS(TTSService):
         self.voice_id = voice_id
         self.voiced: list[str] = []
 
-    async def break_down(self) -> None:
-        """Fail as a rejected API key would: for good."""
-        await self.push_error("fake speech synthesis is down", force_treat_as_permanent=True)
+    async def break_down(self, error: str = "fake speech synthesis is down") -> None:
+        """Fail as a rejected API key would: for good, saying `error`."""
+        await self.push_error(error, force_treat_as_permanent=True)
 
     async def run_tts(self, text: str, context_id: str) -> AsyncGenerator[Frame | None, None]:
         self.voiced.append(text)
