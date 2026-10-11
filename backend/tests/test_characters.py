@@ -534,16 +534,32 @@ def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
     }
 
 
+def _jpeg_size(path: Path) -> tuple[int, int]:
+    """Width and height from a JPEG's start-of-frame segment, without an imaging library."""
+    data = path.read_bytes()
+    i = 2
+    while i < len(data):
+        marker, length = data[i + 1], int.from_bytes(data[i + 2 : i + 4])
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            return int.from_bytes(data[i + 7 : i + 9]), int.from_bytes(data[i + 5 : i + 7])
+        i += 2 + length
+    raise ValueError(f"{path} has no start-of-frame segment")
+
+
 def test_repository_avatars_are_shrunk_to_what_the_screens_show():
-    """Shown at 112px at most, so 224px for high-density screens (characters.toml); the
-    400px originals were 100–160 KB each, and the list filter loads every one of them."""
+    """Shown at 112px at most, so 224px for high-density screens (characters.toml). The list
+    filter loads every one of them; most 400px originals were 100–160 KB, a few about 30 KB,
+    so the size alone wouldn't catch one being put back."""
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
-    too_big = {
-        id: c.avatar.stat().st_size
-        for id, c in loaded.items()
-        if c.avatar is not None and c.avatar.stat().st_size > 32 * 1024
-    }
+    too_big = {}
+    for id, c in loaded.items():
+        if c.avatar is None:
+            continue
+        width, height = _jpeg_size(c.avatar)
+        size = c.avatar.stat().st_size
+        if width > 224 or height > 224 or size > 32 * 1024:
+            too_big[id] = (width, height, size)
     assert too_big == {}
 
 
