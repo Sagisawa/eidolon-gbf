@@ -137,7 +137,7 @@ Status: ready-for-agent
 
 ## Further Notes
 
-- 手机模型要从 Sketchfab 登录下载。实现的人拿不到账号时，请部署者下载 glTF 或 GLB 放到约定的位置。
+- 手机模型已于 2026-10-12 从 Sketchfab 下载到仓库外的 `E:/Download/others/agent-test/eidolon-sc-assets/iphone-17-pro/`（2048、1024 两种 GLB，glTF 和源文件）。
 - 卡图原图现在在仓库根目录，没有提交；裁好、上传存储桶之后可以删掉。
 - 模型出处：https://sketchfab.com/3d-models/iphone-17-pro-4541aa8a28324b33a2baaf81d263aaec （Ranguel，CC BY 4.0）。
 - 苹果的第三方商标指南不许网站用苹果 logo，原则上也不支持展示苹果产品图；部署者知道这一点，选择保留模型原样以减少工作量和出错。
