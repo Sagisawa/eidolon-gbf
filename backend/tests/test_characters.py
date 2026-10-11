@@ -534,6 +534,19 @@ def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
     }
 
 
+def test_repository_avatars_are_shrunk_to_what_the_screens_show():
+    """Shown at 112px at most, so 224px for high-density screens (characters.toml); the
+    400px originals were 100–160 KB each, and the list filter loads every one of them."""
+    loaded = load_characters(REPO_CHARACTERS / "characters.toml")
+
+    too_big = {
+        id: c.avatar.stat().st_size
+        for id, c in loaded.items()
+        if c.avatar is not None and c.avatar.stat().st_size > 32 * 1024
+    }
+    assert too_big == {}
+
+
 def test_stand_assets_url_is_read_without_its_trailing_slash(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("EIDOLON_STAND_ASSETS_URL", raising=False)
     assert stand_assets_url_from_env() is None
