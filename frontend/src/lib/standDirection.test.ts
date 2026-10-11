@@ -27,6 +27,11 @@ function reply(number: number): CallEvent {
   return { type: "user", text: "你好", reply: number };
 }
 
+/** The call layer's line card moved on to this segment without her voice. */
+function lineShown(reply: number, segment: number): StandEvent {
+  return { type: "line-shown", reply, segment };
+}
+
 function subtitle(segment: number, text = "こんにちは"): CallEvent {
   return { type: "delta", segment, lang: "ja", text };
 }
@@ -165,27 +170,14 @@ describe("standDirection: her emotions", () => {
     expect(own?.id).not.toBe(user?.id);
   });
 
-  it("changes as each segment's first subtitle shows in text only", () => {
-    const judged = [reply(1), emotion(1, 0, "surprised")];
-    expect(direction(judged, { textOnly: true }).mood).toBe("calm");
-
-    const shown = [...judged, subtitle(0)];
-    expect(direction(shown, { textOnly: true }).mood).toBe("surprised");
-    const next = [...shown, subtitle(0, "！"), { type: "delta", segment: 0, lang: "zh", text: "你好" } as const, subtitle(1)];
-    const thinking = [...next, emotion(1, 1, "thinking")]; // judged once the segment is complete: after it shows
-    expect(direction(thinking, { textOnly: true }).mood).toBe("thinking");
-
-    // The last reply's, once the next is under way.
-    expect(direction([...thinking, reply(2), emotion(1, 1, "angry")], { textOnly: true }).mood).toBe("thinking");
-  });
-
-  it("takes up each segment's emotion in text only though the next segment shows before it is judged", () => {
-    const shown = [reply(1), subtitle(0), subtitle(1)];
-    expect(direction([...shown, emotion(1, 0, "happy")], { textOnly: true }).mood).toBe("happy");
+  it("takes up each segment's emotion though the line card moves on without her voice before it is judged, text only or not", () => {
+    // A reply without her voice is still played at her pace once text only is switched off.
+    const shown = [reply(1), lineShown(1, 0), lineShown(1, 1)];
+    expect(direction([...shown, emotion(1, 0, "happy")]).mood).toBe("happy");
 
     // The later one came first.
-    const both = [...shown, emotion(1, 0, "happy"), subtitle(2), emotion(1, 2, "sad"), emotion(1, 1, "angry")];
-    expect(direction(both, { textOnly: true }).mood).toBe("sad");
+    const both = [...shown, emotion(1, 0, "happy"), lineShown(1, 2), emotion(1, 2, "sad"), emotion(1, 1, "angry")];
+    expect(direction(both).mood).toBe("sad");
   });
 
   it("keeps an emotion only for the reply it was judged in", () => {
@@ -221,10 +213,10 @@ describe("standDirection: her emotions", () => {
   });
 
   it("forgets in text only which segment's emotion she showed last call", () => {
-    const events = [reply(1), subtitle(0), subtitle(1), emotion(1, 1, "sad")];
+    const events = [reply(1), lineShown(1, 0), lineShown(1, 1), emotion(1, 1, "sad")];
     expect(direction(events, { textOnly: true }).mood).toBe("sad");
 
-    const next = [...events, callOver, reply(1), subtitle(0), subtitle(1), emotion(1, 0, "happy")];
+    const next = [...events, callOver, reply(1), lineShown(1, 0), lineShown(1, 1), emotion(1, 0, "happy")];
     expect(direction(next, { textOnly: true }).mood).toBe("happy");
   });
 });

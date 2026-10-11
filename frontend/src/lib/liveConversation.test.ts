@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, type CallEvent, type Conversation, type Message, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
-import { CALM, type Emotion } from "@/lib/standAnimations";
+import { CALM } from "@/lib/standAnimations";
 
 /** A call that has connected: records what the conversation asks of it. */
 class FakeCall implements Call {
@@ -235,7 +235,7 @@ describe("LiveConversation: a call", () => {
     const { live, attempts } = await conversation({ messages: history });
     const call = await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     handlers.onHearing("还有");
 
@@ -288,7 +288,7 @@ describe("LiveConversation: a call", () => {
     await connected(live, attempts);
     const { handlers } = attempts[0];
     handlers.onEvent({ type: "ended", reason: "duration_limit", message: "满 30 分钟了", counts: true });
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onHearing("还有");
 
     handlers.onDropped();
@@ -401,32 +401,17 @@ describe("LiveConversation: a call", () => {
     handlers.onHearing("你好");
     expect(live.snapshot().hearing).toBe("你好");
 
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
 
     expect(live.snapshot().hearing).toBe("");
     expect(live.snapshot().entries.map((e) => e.kind)).toEqual(["user", "character"]);
-  });
-
-  it("shows her latest line in this call, not one from before it", async () => {
-    const { live, attempts } = await conversation({ messages: history });
-    await connected(live, attempts);
-    expect(live.snapshot().line).toBeNull();
-    const { handlers } = attempts[0];
-
-    handlers.onEvent({ type: "user", text: "你好" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
-    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "zh", text: "你好" });
-    handlers.onEvent({ type: "delta", segment: 1, lang: "ja", text: "元気？" });
-
-    expect(live.snapshot().line).toEqual({ ja: "元気？", zh: "" });
   });
 
   it("shows a turn failing in a call while the call goes on", async () => {
     const { live, attempts } = await conversation({ messages: history });
     await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
 
     handlers.onEvent({ type: "error", message: "角色暂时无法回复" });
 
@@ -469,65 +454,274 @@ describe("LiveConversation: how long an ended call was", () => {
   });
 });
 
-describe("LiveConversation: the line before", () => {
-  /** A call in "c1" whose history is the two recorded messages. */
-  async function inCall(messages: Message[] = history) {
-    const opened = await conversation({ messages });
+// spec「通话层的台词卡按她说话的节奏换段」: the line card shows one segment at a time, moving
+// on as her voice does.
+describe("LiveConversation: the line card", () => {
+  afterEach(() => void vi.useRealTimers());
+
+  /** A call in "c1", whose history is the two recorded messages, on a clock the test may stop
+   * with `vi.useFakeTimers`; `emit` sends the call under way events. */
+  async function inCall(options: { textOnly?: boolean } = {}) {
+    const opened = await conversation({ messages: history, ports: { now: () => Date.now() } });
+    if (options.textOnly) opened.live.toggleTextOnly();
     await connected(opened.live, opened.attempts);
-    return { ...opened, handlers: opened.attempts[0].handlers };
+    const emit = (...events: CallEvent[]) =>
+      events.forEach((event) => opened.attempts.at(-1)!.handlers.onEvent(event));
+    /** The Japanese of the line the card shows and the one before it. */
+    const card = () => {
+      const { line, previousLine } = opened.live.snapshot();
+      return { line: line?.ja ?? null, previous: previousLine?.ja ?? null };
+    };
+    return { ...opened, emit, card };
   }
 
-  it("takes the line she moved on from as the previous one, and leaves it when this one grows", async () => {
-    const { live, handlers } = await inCall();
+  /** The user's words taken up, as reply `number` starts. */
+  function reply(number: number, text = "你好"): CallEvent {
+    return { type: "user", text, reply: number };
+  }
 
-    handlers.onEvent({ type: "user", text: "你好" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
-    // Only one line so far: nothing before it.
-    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "" });
-    expect(live.snapshot().previousLine).toBeNull();
+  /** Some of segment `segment`'s Japanese arrives. */
+  function ja(segment: number, text: string): CallEvent {
+    return { type: "delta", segment, lang: "ja", text };
+  }
 
-    handlers.onEvent({ type: "delta", segment: 1, lang: "ja", text: "元気？" });
-    expect(live.snapshot().line).toEqual({ ja: "元気？", zh: "" });
-    expect(live.snapshot().previousLine).toEqual({ ja: "こんにちは", zh: "" });
+  function playing(reply: number, segment: number): CallEvent {
+    return { type: "segment-playing", reply, segment };
+  }
 
-    // The same line growing longer is not a new line: the previous one stays put.
-    handlers.onEvent({ type: "delta", segment: 1, lang: "ja", text: "そう" });
-    expect(live.snapshot().line).toEqual({ ja: "元気？そう", zh: "" });
-    expect(live.snapshot().previousLine).toEqual({ ja: "こんにちは", zh: "" });
+  /** Her reply under way is recorded, with segments of this Japanese. */
+  function recorded(...segments: string[]): CallEvent {
+    const reply = message(4, "character", segments.join(""));
+    return { type: "done", message: { ...reply, segments: segments.map((ja) => ({ ja, zh: "" })) } };
+  }
+
+  it("shows the segment her voice starts playing, filling it in as its text arrives", async () => {
+    const { live, emit, card } = await inCall();
+    // Nothing from before the call.
+    expect(card()).toEqual({ line: null, previous: null });
+
+    emit(reply(1), ja(0, "こんにちは"));
+    // Arrived, but not yet said: the text runs ahead of her voice.
+    expect(card()).toEqual({ line: null, previous: null });
+
+    emit(playing(1, 0));
+    expect(card()).toEqual({ line: "こんにちは", previous: null });
+    emit({ type: "delta", segment: 0, lang: "zh", text: "你好" }, ja(1, "元気？"));
+    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "你好" });
+
+    emit(playing(1, 1));
+    expect(live.snapshot()).toMatchObject({
+      line: { ja: "元気？", zh: "" },
+      previousLine: { ja: "こんにちは", zh: "你好" },
+    });
+    // The same segment growing longer is not a new line: the previous one stays put.
+    emit(ja(1, "そう"));
+    expect(card()).toEqual({ line: "元気？そう", previous: "こんにちは" });
   });
 
-  it("does not let the reply a follow-on dropped become the previous one", async () => {
+  it("skips a segment her voice never plays, and never goes back to it", async () => {
+    const { emit, card } = await inCall();
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, "三"), playing(1, 0));
+
+    emit(playing(1, 2));
+    expect(card()).toEqual({ line: "三", previous: "一" });
+
+    emit(playing(1, 1));
+    expect(card()).toEqual({ line: "三", previous: "一" });
+  });
+
+  it("follows a reply to the end the way it started: by her voice even if text only is switched on midway, at her pace even if it is switched off", async () => {
+    const { live, emit, card } = await inCall();
+    vi.useFakeTimers();
+    emit(reply(1), ja(0, "一"), playing(1, 0));
+
+    live.toggleTextOnly();
+    emit(ja(1, "二"));
+    expect(card()).toEqual({ line: "一", previous: null });
+    emit(playing(1, 1));
+    expect(card()).toEqual({ line: "二", previous: "一" });
+
+    emit(recorded("一", "二"), reply(2), ja(0, "三"));
+    expect(card()).toEqual({ line: "三", previous: "二" });
+    live.toggleTextOnly();
+    emit(ja(1, "四"));
+    expect(card()).toEqual({ line: "三", previous: "二" });
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "四", previous: "三" });
+  });
+
+  it("plays a reply started in text only at her pace, the first segment as it arrives, her stand following the card", async () => {
+    const { live, emit, card } = await inCall({ textOnly: true });
+    vi.useFakeTimers();
+    const second = "ねえ…… 今日はとても楽しかったね？"; // 17 characters: 3.4s
+    emit(reply(1), ja(0, "うん！"));
+    expect(card()).toEqual({ line: "うん！", previous: null });
+
+    emit(ja(1, second), { type: "emotion", reply: 1, segment: 1, emotion: "sad", nod: null }, ja(2, "三"));
+    // Even a short line stays 1.5s, and her mood waits for the card.
+    vi.advanceTimersByTime(1499);
+    expect(card()).toEqual({ line: "うん！", previous: null });
+    expect(live.snapshot().stand.mood).toBe("calm");
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: second, previous: "うん！" });
+    expect(live.snapshot().stand.mood).toBe("sad");
+
+    vi.advanceTimersByTime(3399);
+    expect(card()).toEqual({ line: second, previous: "うん！" });
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: "三", previous: second });
+
+    // The next segment has not arrived: the card stays, and moves on to it as soon as it does.
+    vi.advanceTimersByTime(5000);
+    expect(card()).toEqual({ line: "三", previous: second });
+    emit(ja(3, "四"));
+    expect(card()).toEqual({ line: "四", previous: "三" });
+  });
+
+  it("waits out a pause in her voice, playing out the rest at her pace once it has not come back for a while, her stand following", async () => {
+    const { live, emit, card } = await inCall();
+    vi.useFakeTimers();
+    // Her pace: 5 characters a second, punctuation too but not spaces, at least 1.5s a line.
+    const third = "ねえ…… 今日はとても楽しかったね？"; // 17 characters: 3.4s
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, third), ja(3, "四"));
+    emit({ type: "emotion", reply: 1, segment: 2, emotion: "sad", nod: null });
+    emit({ type: "bot-started-speaking" }, playing(1, 0));
+    vi.advanceTimersByTime(2000);
+
+    // Between two segments her voice pauses, long enough to count as stopping, after the first
+    // has had its time at her pace: the card stays with her voice.
+    emit({ type: "bot-stopped-speaking" }, recorded("一", "二", third, "四"));
+    vi.advanceTimersByTime(500);
+    expect(card()).toEqual({ line: "一", previous: null });
+    emit({ type: "bot-started-speaking" }, playing(1, 1));
+    expect(card()).toEqual({ line: "二", previous: "一" });
+
+    // Her voice stops short and does not come back: 3s on, the card plays out the rest.
+    emit({ type: "bot-stopped-speaking" });
+    vi.advanceTimersByTime(2999);
+    expect(card()).toEqual({ line: "二", previous: "一" });
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: third, previous: "二" });
+    expect(live.snapshot().stand.mood).toBe("sad");
+
+    vi.advanceTimersByTime(3399);
+    expect(card()).toEqual({ line: third, previous: "二" });
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: "四", previous: third });
+
+    vi.advanceTimersByTime(60_000);
+    expect(card()).toEqual({ line: "四", previous: third });
+  });
+
+  it("waits a while for her voice to start on a recorded reply, playing out one it never starts on", async () => {
+    const { emit, card } = await inCall();
+    vi.useFakeTimers();
+    // Her text runs ahead of her voice: the reply is often recorded before she starts it.
+    emit(reply(1), ja(0, "一"), ja(1, "二"), recorded("一", "二"));
+    vi.advanceTimersByTime(2000);
+    expect(card()).toEqual({ line: null, previous: null });
+    emit({ type: "bot-started-speaking" }, playing(1, 0));
+    vi.advanceTimersByTime(60_000);
+    expect(card()).toEqual({ line: "一", previous: null });
+    emit(playing(1, 1), { type: "bot-stopped-speaking" });
+
+    emit(reply(2), ja(0, "三"), ja(1, "四"), recorded("三", "四"));
+    vi.advanceTimersByTime(2999);
+    expect(card()).toEqual({ line: "二", previous: "一" });
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: "三", previous: "二" });
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "四", previous: "三" });
+  });
+
+  it("plays out nothing more once the call is over", async () => {
+    const { live, emit, card } = await inCall();
+    vi.useFakeTimers();
+    emit(reply(1), ja(0, "一"), ja(1, "二"), recorded("一", "二"));
+    emit({ type: "emotion", reply: 1, segment: 1, emotion: "happy", nod: null });
+    emit({ type: "bot-started-speaking" }, playing(1, 0), { type: "bot-stopped-speaking" });
+
+    await live.hangUp();
+    vi.advanceTimersByTime(60_000);
+
+    expect(card()).toEqual({ line: "一", previous: null });
+    expect(live.snapshot().stand).toEqual(CALM);
+  });
+
+  it.each([
+    [
+      "speaks",
+      async (_live: LiveConversation, emit: (event: CallEvent) => void) => emit({ type: "user-started-speaking" }),
+    ],
+    [
+      "types",
+      async (live: LiveConversation) => {
+        live.setDraft("等一下");
+        await live.submit();
+      },
+    ],
+  ])("stays where her voice was when the user %s over her, until her next reply is said", async (_, interrupt) => {
+    const { live, emit, card } = await inCall();
+    vi.useFakeTimers();
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, "三"));
+    emit({ type: "bot-started-speaking" }, playing(1, 0), playing(1, 1));
+
+    await interrupt(live, emit);
+    // Her voice stops, and the reply is recorded before the user's words are taken up.
+    emit({ type: "bot-stopped-speaking" }, recorded("一", "二", "三"));
+    vi.advanceTimersByTime(60_000);
+    expect(card()).toEqual({ line: "二", previous: "一" });
+
+    emit(reply(2, "等一下"), ja(0, "四"));
+    expect(card()).toEqual({ line: "二", previous: "一" });
+    emit(playing(2, 0));
+    expect(card()).toEqual({ line: "四", previous: "二" });
+  });
+
+  it("stays where it was in text only once the user's words start a new turn, going straight to her next reply's first segment", async () => {
+    const { emit, card } = await inCall({ textOnly: true });
+    vi.useFakeTimers();
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, "三"), ja(3, "四"), recorded("一", "二", "三", "四"));
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "二", previous: "一" });
+
+    // Speaking alone starts no turn (it may come to nothing): the card goes on at her pace.
+    emit({ type: "user-started-speaking" }, { type: "user-stopped-speaking" });
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "三", previous: "二" });
+
+    emit(reply(2, "等一下"));
+    vi.advanceTimersByTime(60_000);
+    expect(card()).toEqual({ line: "三", previous: "二" });
+    // The segment she never got to is skipped: the line before is the one the card showed.
+    emit(ja(0, "五"));
+    expect(card()).toEqual({ line: "五", previous: "三" });
+  });
+
+  it("leaves no trace of a reply a follow-on dropped", async () => {
     // GLOSSARY.md「补充」：放下的那次回复不留任何痕迹。
-    const { live, handlers } = await inCall();
+    const { emit, card } = await inCall();
+    emit(reply(1, "一"), ja(0, "い"), playing(1, 0));
+    expect(card()).toEqual({ line: "い", previous: null });
 
-    handlers.onEvent({ type: "user", text: "一" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "い" });
-    expect(live.snapshot().line).toEqual({ ja: "い", zh: "" });
+    // A follow-on joins the turn: the reply she had started saying is dropped.
+    emit(reply(2, "一\n二"));
+    expect(card()).toEqual({ line: null, previous: null });
 
-    // A follow-on joins the turn: the reply she was organizing is dropped.
-    handlers.onEvent({ type: "user", text: "一\n二" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "に" });
-
-    expect(live.snapshot().line).toEqual({ ja: "に", zh: "" });
-    expect(live.snapshot().previousLine).toBeNull();
+    emit(ja(0, "に"), playing(2, 0));
+    expect(card()).toEqual({ line: "に", previous: null });
   });
 
-  it("starts each call with no previous line, not taking one from the last call", async () => {
-    const { live, handlers, attempts } = await inCall();
-    handlers.onEvent({ type: "user", text: "你好" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
-    handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
+  it("starts each call with nothing on it, not taking a line from the last call", async () => {
+    const { live, attempts, emit, card } = await inCall();
+    emit(reply(1), ja(0, "こんにちは"), playing(1, 0), recorded("こんにちは"));
     await live.hangUp();
 
     await connected(live, attempts);
-    expect(live.snapshot().line).toBeNull();
-    expect(live.snapshot().previousLine).toBeNull();
+    expect(card()).toEqual({ line: null, previous: null });
 
-    attempts[1].handlers.onEvent({ type: "user", text: "你好" });
-    attempts[1].handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "やあ" });
-
-    expect(live.snapshot().line).toEqual({ ja: "やあ", zh: "" });
-    expect(live.snapshot().previousLine).toBeNull();
+    emit(reply(1), ja(0, "やあ"), playing(1, 0));
+    expect(card()).toEqual({ line: "やあ", previous: null });
   });
 });
 
@@ -549,7 +743,7 @@ describe("LiveConversation: a call that is over", () => {
         await live.hangUp();
         await connected(live, attempts);
         const next = attempts[1].handlers;
-        next.onEvent({ type: "user", text: "再说一次" });
+        next.onEvent({ type: "user", text: "再说一次", reply: 1 });
         next.onEvent({ type: "delta", segment: 0, lang: "ja", text: "もう" });
         next.onEvent({ type: "bot-started-speaking" });
         next.onHearing("还有");
@@ -561,7 +755,7 @@ describe("LiveConversation: a call that is over", () => {
 
   /** What comes too late from the first call. */
   const late: [string, (handlers: CallHandlers) => void][] = [
-    ["what the user said", (h) => h.onEvent({ type: "user", text: "迟到的话" })],
+    ["what the user said", (h) => h.onEvent({ type: "user", text: "迟到的话", reply: 1 })],
     ["a delta of the reply", (h) => h.onEvent({ type: "delta", segment: 0, lang: "ja", text: "おそい" })],
     ["the reply recorded", (h) => h.onEvent({ type: "done", message: message(9, "character", "おそい") })],
     ["an error", (h) => h.onEvent({ type: "error", message: "角色暂时无法回复" })],
@@ -580,7 +774,7 @@ describe("LiveConversation: a call that is over", () => {
     const { live, attempts, listChanged, voice, tones } = await conversation({ messages: history });
     await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     await end(live, attempts);
     const before = live.snapshot();
@@ -1351,17 +1545,6 @@ describe("LiveConversation: a new conversation", () => {
     expect(live.snapshot().conversation).toEqual({ status: "open" });
   });
 
-  it("counts her lines in a call from the start of the new conversation", async () => {
-    const { live, attempts } = await conversation({ messages: history });
-    await live.startNewConversation();
-    await connected(live, attempts);
-
-    attempts[0].handlers.onEvent({ type: "user", text: "你好" });
-    attempts[0].handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
-
-    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "" });
-  });
-
   it("keeps the conversation open and says why when a new one cannot be started", async () => {
     const { live, listChanged } = await conversation({
       messages: history,
@@ -1433,7 +1616,7 @@ describe("LiveConversation: the list", () => {
     await connected(live, attempts);
     const { handlers } = attempts[0];
 
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     expect(listChanged()).toBe(0);
     handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
@@ -1445,9 +1628,9 @@ describe("LiveConversation: the list", () => {
     const { live, attempts, listChanged } = await conversation();
     await connected(live, attempts);
     const { handlers } = attempts[0];
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "error", message: "角色暂时无法回复" });
-    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "user", text: "你好", reply: 2 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
 
     await live.hangUp();
@@ -1482,7 +1665,7 @@ describe("LiveConversation: times", () => {
     const { live, attempts } = await conversation();
     await connected(live, attempts);
 
-    attempts[0].handlers.onEvent({ type: "user", text: "你好" });
+    attempts[0].handlers.onEvent({ type: "user", text: "你好", reply: 1 });
 
     expect(live.snapshot().entries[0].at).toBe(new Date(NOW).toISOString());
   });
@@ -1689,45 +1872,5 @@ describe("LiveConversation: the stand", () => {
 
     await connected(live, attempts);
     expect(live.snapshot().stand).toEqual(CALM);
-  });
-});
-
-describe("LiveConversation: her emotions", () => {
-  /** The judged emotion of segment `segment` of reply `reply`, with a nod if given. */
-  function emotion(reply: number, segment: number, feeling: Emotion, nod: "yes" | "no" | null = null): CallEvent {
-    return { type: "emotion", reply, segment, emotion: feeling, nod };
-  }
-
-  /** A call under way with her voice, as reply `reply` starts; `emit` sends it events. */
-  async function voiced(options: { textOnly?: boolean } = {}) {
-    const opened = await conversation();
-    if (options.textOnly) opened.live.toggleTextOnly();
-    await connected(opened.live, opened.attempts);
-    const emit = (...events: CallEvent[]) => events.forEach((event) => opened.attempts[0].handlers.onEvent(event));
-    const mood = () => opened.live.snapshot().stand.mood;
-    return { ...opened, emit, mood };
-  }
-
-  function reply(number: number): CallEvent {
-    return { type: "user", text: "你好", reply: number };
-  }
-
-  function subtitle(segment: number, text = "こんにちは"): CallEvent {
-    return { type: "delta", segment, lang: "ja", text };
-  }
-
-  it("changes as each segment's first subtitle shows in text only", async () => {
-    const { emit, mood } = await voiced({ textOnly: true });
-    emit(reply(1), emotion(1, 0, "surprised"));
-    expect(mood()).toBe("calm");
-
-    emit(subtitle(0));
-    expect(mood()).toBe("surprised");
-    emit(subtitle(0, "！"), { type: "delta", segment: 0, lang: "zh", text: "你好" }, subtitle(1));
-    emit(emotion(1, 1, "thinking")); // judged once the segment is complete: after it shows
-    expect(mood()).toBe("thinking");
-
-    emit(reply(2), emotion(1, 1, "angry")); // the last reply's, once the next is under way
-    expect(mood()).toBe("thinking");
   });
 });
