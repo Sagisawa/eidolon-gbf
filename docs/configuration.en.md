@@ -121,6 +121,8 @@ A **greeting** is one Japanese line each idol says on the landing page to a prod
 - **Synthesis and upload**: After changing a line, a voice or a reading, run `uv run --env-file=../.env eidolon greeting upload`. It synthesizes only what the bucket doesn't have yet, then deletes old versions.
 - **Without audio**: When `EIDOLON_STAND_ASSETS_URL` isn't set, or the bucket has no audio yet, the landing page shows only the subtitle.
 
+A **call opener** is the first line the idol calling in the landing page's demo call says once the visitor answers. It is written in the `call_opener` and `call_opener_subtitle` fields, and only she needs one. Its rules, synthesis and upload, and what shows without audio are the same as a greeting's.
+
 For bucket setup, exit codes and how to take greetings down, see "招呼" in [`deploy.md`](deploy.md) (Chinese).
 
 ## Voice calls

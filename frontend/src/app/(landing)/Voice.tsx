@@ -1,12 +1,14 @@
 import type { CSSProperties } from "react";
 
+import type { CallOpener } from "@/lib/api";
+
 import { Call, type CallCopy } from "./Call";
 import type { Section } from "./model/timeline";
 import type { Plate } from "./Spectrum";
 
-/** 说话、打来电话的那一位：她在光谱里的名牌的那几样（名字、颜色、默认衣装），都由服务端算好。
- * 没配立绘素材时没有衣装，来电时只有名字和光。 */
-export type Speaker = Pick<Plate, "name" | "ink" | "halo" | "deep" | "outfit">;
+/** 说话、打来电话的那一位：她在光谱里的名牌的那几样（名字、颜色、默认衣装），和接通后她说的开场白（GLOSSARY
+ * 「开场白」），都由服务端算好。没配立绘素材时没有衣装，来电时只有名字和光；没有开场白时接通后只有立绘和计时。 */
+export type Speaker = Pick<Plate, "name" | "ink" | "halo" | "deep" | "outfit"> & { opener: CallOpener | null };
 
 export type TalkCopy = { title: string; body: string; lines: readonly { ja: string; zh: string }[] };
 

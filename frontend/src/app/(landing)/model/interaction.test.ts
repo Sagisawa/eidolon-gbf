@@ -1,8 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-import { connectTone, focusOf, holdMs, INITIAL, interactionReducer, type Interaction, type InteractionAction } from "./interaction";
+import {
+  connectTone,
+  focusOf,
+  holdMs,
+  INITIAL,
+  interactionReducer,
+  openerShown,
+  openerStarts,
+  type Interaction,
+  type InteractionAction,
+} from "./interaction";
 
 const run = (...actions: InteractionAction[]): Interaction => actions.reduce(interactionReducer, INITIAL);
+
+/** 点「接听」；`opener` 是打来电话的那位的开场白：没有、只有字幕（没有音频地址）、有音频。 */
+const answer = (opener: Extract<InteractionAction, { type: "answer" }>["opener"] = "voice"): InteractionAction => ({
+  type: "answer",
+  opener,
+});
 
 const press = (id: string, greeting: Extract<InteractionAction, { type: "press" }>["greeting"] = "voice"): InteractionAction => ({
   type: "press",
@@ -134,12 +150,12 @@ describe("interactionReducer: 第 4 幕的接听", () => {
   });
 
   it("点一下「接听」就接通，播一声接通音（没有铃声）", () => {
-    expect(run({ type: "answer" }).call).toBe("connected");
-    expect(tones(INITIAL, { type: "answer" })).toEqual([true]);
+    expect(run(answer()).call).toBe("connected");
+    expect(tones(INITIAL, answer())).toEqual([true]);
   });
 
   it("接通音真的响了才出现声音开关；放不出来就不出现", () => {
-    const connected = run({ type: "answer" });
+    const connected = run(answer());
     expect(connected.sound).toBe("hidden");
     expect(interactionReducer(connected, { type: "tone", event: "playing" }).sound).toBe("on");
     expect(interactionReducer(connected, { type: "tone", event: "failed" }).sound).toBe("hidden");
@@ -148,18 +164,103 @@ describe("interactionReducer: 第 4 幕的接听", () => {
   it("声音开关关着时接听：照样接通，但不播接通音", () => {
     const off = run(press("meguru"), { type: "voice", n: 1, event: "playing" }, { type: "sound" });
     expect(off.sound).toBe("off");
-    expect(tones(off, { type: "answer" })).toEqual([false]);
-    expect(interactionReducer(off, { type: "answer" }).call).toBe("connected");
+    expect(tones(off, answer())).toEqual([false]);
+    expect(interactionReducer(off, answer()).call).toBe("connected");
   });
 
   it("离开第 4 幕就挂断：回到响铃的样子，不出声；已经接通了再点「接听」不再播", () => {
-    const connected = run({ type: "answer" });
+    const connected = run(answer());
     expect(interactionReducer(connected, { type: "hang-up" }).call).toBe("ringing");
-    expect(tones(connected, { type: "answer" }, { type: "hang-up" })).toEqual([false, false]);
+    expect(tones(connected, answer(), { type: "hang-up" })).toEqual([false, false]);
   });
 
   it("同时只有一种声音：接听时正在说的招呼停下", () => {
-    const s = run(press("meguru"), { type: "voice", n: 1, event: "playing" }, { type: "answer" });
+    const s = run(press("meguru"), { type: "voice", n: 1, event: "playing" }, answer());
     expect(s.saying).toBeNull();
+  });
+});
+
+describe("interactionReducer: 第 4 幕的开场白", () => {
+  /** 从 `from` 走到 `actions` 以后，每一步要不要开始放开场白（放的是第几通电话的）。 */
+  const starts = (from: Interaction, ...actions: InteractionAction[]) => {
+    const steps: (number | null)[] = [];
+    actions.reduce((s, a) => {
+      const next = interactionReducer(s, a);
+      steps.push(openerStarts(s, next));
+      return next;
+    }, from);
+    return steps;
+  };
+  const soundOff = run(press("meguru"), { type: "voice", n: 1, event: "playing" }, { type: "sound" });
+
+  it("接通音响完她才开口：字幕和声音一起出来，真的出了声才出现声音开关", () => {
+    const connected = run(answer());
+    expect(connected.opener).toMatchObject({ voice: "waiting" });
+    expect(openerShown(connected.opener)).toBe(false);
+    expect(starts(connected, { type: "tone", event: "playing" }, { type: "tone", event: "ended" })).toEqual([null, connected.opener!.n]);
+
+    const loading = run(answer(), { type: "tone", event: "ended" });
+    expect(openerShown(loading.opener)).toBe(false);
+    const speaking = interactionReducer(loading, { type: "opener", n: loading.opener!.n, event: "playing" });
+    expect(speaking.opener?.voice).toBe("playing");
+    expect(openerShown(speaking.opener)).toBe(true);
+    expect(speaking.sound).toBe("on");
+    const ended = interactionReducer(speaking, { type: "opener", n: loading.opener!.n, event: "ended" });
+    expect(ended.opener?.voice).toBe("ended");
+    expect(openerShown(ended.opener)).toBe(true);
+  });
+
+  it("接通音放不出来，开场白照样接着放", () => {
+    const connected = run(answer());
+    expect(starts(connected, { type: "tone", event: "failed" })).toEqual([connected.opener!.n]);
+  });
+
+  it("声音开关关着时接听：只有字幕，一接通就显示，不出声", () => {
+    const s = interactionReducer(soundOff, answer());
+    expect(s.opener).toMatchObject({ voice: null });
+    expect(openerShown(s.opener)).toBe(true);
+    expect(starts(soundOff, answer())).toEqual([null]);
+  });
+
+  it("没有音频（没配素材地址或她没有音色）时只有字幕", () => {
+    const s = run(answer("subtitle"));
+    expect(s.opener).toMatchObject({ voice: null });
+    expect(openerShown(s.opener)).toBe(true);
+    expect(starts(INITIAL, answer("subtitle"), { type: "tone", event: "ended" })).toEqual([null, null]);
+  });
+
+  it("音频放不出来就退成只有字幕，不出现声音开关", () => {
+    const s = run(answer(), { type: "tone", event: "failed" }, { type: "opener", n: 1, event: "failed" });
+    expect(s.opener).toMatchObject({ voice: null });
+    expect(openerShown(s.opener)).toBe(true);
+    expect(s.sound).toBe("hidden");
+  });
+
+  it("她说到一半关掉声音开关：声音停下，字幕留着", () => {
+    const s = run(answer(), { type: "tone", event: "ended" }, { type: "opener", n: 1, event: "playing" }, { type: "sound" });
+    expect(s.opener).toMatchObject({ voice: null });
+    expect(openerShown(s.opener)).toBe(true);
+  });
+
+  it("挂断（离开这一幕）时开场白停下；再接一次是新的一通，上一通的音频事件不落到这一通上", () => {
+    const hungUp = run(answer(), { type: "tone", event: "ended" }, { type: "opener", n: 1, event: "playing" }, { type: "hang-up" });
+    expect(hungUp.opener).toBeNull();
+    const again = run(
+      answer(),
+      { type: "tone", event: "ended" },
+      { type: "hang-up" },
+      answer(),
+      { type: "opener", n: 1, event: "playing" },
+      { type: "opener", n: 1, event: "failed" },
+    );
+    expect(again.opener).toMatchObject({ n: 2, voice: "waiting" });
+  });
+
+  it("打来电话的那位没有开场白：接通后只有立绘和计时，没有字幕也不出声", () => {
+    const s = run(answer("none"));
+    expect(s.call).toBe("connected");
+    expect(s.opener).toBeNull();
+    expect(openerShown(s.opener)).toBe(false);
+    expect(starts(INITIAL, answer("none"), { type: "tone", event: "ended" })).toEqual([null, null]);
   });
 });

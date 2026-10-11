@@ -47,11 +47,12 @@ class Deployment:
         mano: tuple[str, str] = MANO,
         kogane: tuple[str, str] | None = KOGANE,
         kogane_voice: str = "kogane-voice",
+        mano_opener: tuple[str, str] | None = None,
     ) -> None:
         """Mano and Kogane with greetings (unless `kogane` is None), Hiori without one;
-        more can be added to `config`."""
+        Mano with a call opener if `mano_opener` is given. More can be added to `config`."""
         self.config = CharacterConfig(self.characters.directory).add(
-            "mano", "櫻木真乃", MANO_SHEET, voice_id="mano-voice", greeting=mano
+            "mano", "櫻木真乃", MANO_SHEET, voice_id="mano-voice", greeting=mano, call_opener=mano_opener
         ).add(
             "kogane", "月岡恋鐘", KOGANE_SHEET, voice_id=kogane_voice, greeting=kogane
         ).add("hiori", "風野灯織", "sheet", voice_id="hiori-voice")
@@ -82,6 +83,9 @@ class Deployment:
     def greetings(self) -> list[str]:
         return sorted(key for key in self.storage.objects if key.startswith("greetings/"))
 
+    def call_openers(self) -> list[str]:
+        return sorted(key for key in self.storage.objects if key.startswith("call-openers/"))
+
     def _handle(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == FakeFishAudio.HOST:
             return self.fish.handle(request)
@@ -100,6 +104,13 @@ async def audio_urls(make_client: ClientFactory, settings: Settings) -> dict[str
     client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=ASSETS), user=None)
     listed = (await client.get("/api/characters")).json()
     return {c["id"]: c["greeting"] and c["greeting"]["audio_url"] for c in listed}
+
+
+async def call_opener_url(make_client: ClientFactory, settings: Settings) -> str:
+    """Where `/api/characters` says Mano's call opener is."""
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=ASSETS), user=None)
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+    return listed["mano"]["call_opener"]["audio_url"].removeprefix(f"{ASSETS}/")
 
 
 def said(fish: FakeFishAudio) -> list[str]:
@@ -284,6 +295,109 @@ async def test_one_that_fails_is_reported_and_the_rest_go_on(deployment: Deploym
     assert "403" in failed["八宮めぐる"]
     assert report.voiced == ["浅倉透"]
     assert [key.split("-")[0] for key in deployment.greetings()] == ["greetings/toru"]
+    assert report.exit_code != 0
+
+
+MANO_OPENER = (
+    "[shyly] あっ、もしもし……真乃です。えっと、今、お電話だいじょうぶですか？",
+    "啊，喂……我是真乃。那个，现在方便接电话吗？",
+)
+
+
+async def test_her_call_opener_is_voiced_in_her_voice_and_put_where_the_character_list_says(
+    deployment: Deployment, make_client: ClientFactory, settings: Settings
+):
+    """GLOSSARY.md「开场白」: as her greeting is, with the same readings, at an address apart
+    from the greetings'."""
+    deployment.write_readings(*READINGS)
+    deployment.configure(mano_opener=MANO_OPENER)
+
+    report = await deployment.upload()
+
+    opener = next(r for r in deployment.fish.requests if "もしもし" in r["text"])
+    assert opener["reference_id"] == "mano-voice"
+    assert opener["text"].startswith("[shyly]") and opener["text"].endswith("お電話だいじょうぶですか？")
+    assert opener["pronunciation_dictionary"] == deployment.fish.requests[0]["pronunciation_dictionary"]
+    path = await call_opener_url(make_client, settings)
+    assert deployment.call_openers() == [path]
+    assert path.startswith("call-openers/mano-")
+    body, headers = deployment.storage.objects[path]
+    assert body == FakeFishAudio.audio(opener["text"], "mano-voice")
+    assert headers["content-type"] == "audio/mpeg"
+    assert len(deployment.greetings()) == 2  # hers and Kogane's, where they were
+    assert sorted(report.voiced) == sorted(["櫻木真乃", "月岡恋鐘", "櫻木真乃的开场白"])
+    assert report.exit_code == 0
+
+
+async def test_her_call_opener_and_her_greeting_are_voiced_again_each_by_its_own_words(
+    deployment: Deployment,
+):
+    deployment.configure(mano_opener=MANO_OPENER)
+    await deployment.upload()
+    greetings, (old_opener,) = deployment.greetings(), deployment.call_openers()
+    deployment.fish.requests.clear()
+
+    report = await deployment.upload()
+
+    assert deployment.fish.requests == []
+    assert report.unchanged == 3
+
+    deployment.configure(mano_opener=("[shyly] もしもし、真乃です", MANO_OPENER[1]))
+    report = await deployment.upload()
+
+    (text,) = said(deployment.fish)
+    assert text.startswith("[shyly]") and text.endswith("もしもし、真乃です")
+    assert report.voiced == ["櫻木真乃的开场白"]
+    assert report.deleted == [old_opener]
+    assert deployment.greetings() == greetings
+    (new_opener,) = deployment.call_openers()
+    assert new_opener != old_opener
+
+    # Her greeting changes: her call opener stays where it is.
+    deployment.configure(mano=("はじめまして", MANO[1]), mano_opener=("[shyly] もしもし、真乃です", MANO_OPENER[1]))
+    report = await deployment.upload()
+
+    assert report.voiced == ["櫻木真乃"]
+    assert deployment.call_openers() == [new_opener]
+
+
+async def test_her_call_opener_moves_when_her_voice_or_a_reading_it_uses_changes(deployment: Deployment):
+    deployment.configure(mano_opener=MANO_OPENER)
+    await deployment.upload()
+    (first,) = deployment.call_openers()
+
+    deployment.write_readings(*READINGS)  # 真乃 is read
+    await deployment.upload()
+    (read,) = deployment.call_openers()
+
+    assert read != first
+
+
+async def test_a_call_opener_taken_out_of_the_configuration_is_deleted_and_her_greeting_kept(
+    deployment: Deployment,
+):
+    deployment.configure(mano_opener=MANO_OPENER)
+    await deployment.upload()
+    (opener,) = deployment.call_openers()
+    greetings = deployment.greetings()
+
+    deployment.configure()
+    report = await deployment.upload()
+
+    assert report.deleted == [opener]
+    assert deployment.call_openers() == []
+    assert deployment.greetings() == greetings
+
+
+async def test_a_call_opener_without_a_voice_is_reported_as_hers(deployment: Deployment):
+    deployment.configure(mano_opener=MANO_OPENER)
+    deployment.config.add(
+        "meguru", "八宮めぐる", "sheet", voice_id="", call_opener=("もしもし！", "喂！")
+    )
+
+    report = await deployment.upload()
+
+    assert [name for name, _ in report.failed] == ["八宮めぐる的开场白"]
     assert report.exit_code != 0
 
 

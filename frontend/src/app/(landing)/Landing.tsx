@@ -47,7 +47,7 @@ export function Landing({
   const entryLabel = isSignedIn ? t.continue : t.signIn;
   const sectionOf = (act: number) => timeline.sections.find((s) => s.acts.includes(act))!;
   const units = unitsOf(spectrum, characters);
-  const speaker = speakerOf(units);
+  const speaker = speakerOf(units, characters);
   return (
     <div className="lp-root">
       <Rail label={t.rail.label} acts={t.rail.acts.flatMap((name, act) => (builtActs.has(act) ? [{ act, name }] : []))} />
@@ -141,11 +141,12 @@ function unitsOf(spectrum: SpectrumModel, characters: Character[]): SpectrumUnit
   }));
 }
 
-/** 第 3、4 幕说话、打来电话的那一位：文案指定的那位（台词照她写的），不在名单里时是光谱里的第一位。 */
-function speakerOf(units: SpectrumUnit[]): (Speaker & { id: string }) | null {
+/** 第 3、4 幕说话、打来电话的那一位：文案指定的那位（台词照她写的），不在名单里时是光谱里的第一位；连同她的开场白。 */
+function speakerOf(units: SpectrumUnit[], characters: Character[]): (Speaker & { id: string }) | null {
   const plates = units.flatMap((u) => u.plates);
   const her = plates.find((p) => p.id === t.act3.speaker) ?? plates[0];
-  return her ?? null;
+  if (!her) return null;
+  return { ...her, opener: characters.find((c) => c.id === her.id)?.call_opener ?? null };
 }
 
 const spectrumCopy = (spectrum: SpectrumModel) => ({

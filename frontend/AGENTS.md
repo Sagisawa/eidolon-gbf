@@ -31,4 +31,4 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 node scripts/landing-fonts.mts   # 在 frontend/ 下；要有 uv，第一次运行会下载源字体
 ```
 
-新增或改名角色、改了组合或招呼、改了落地页（`copy.landing`）或登录组件（`copy.login`）的文案之后都要跑，然后把 `fonts/` 下的改动一起提交。忘了的话，覆盖契约测试 `fonts/coverage.test.ts` 会失败，并列出缺的字。要收哪些字由 `fonts/fontText.ts` 决定，落地页加了新的文案来源（例如别的文案节）时改它。
+新增或改名角色、改了组合、招呼或开场白、改了落地页（`copy.landing`）或登录组件（`copy.login`）的文案之后都要跑，然后把 `fonts/` 下的改动一起提交。忘了的话，覆盖契约测试 `fonts/coverage.test.ts` 会失败，并列出缺的字。要收哪些字由 `fonts/fontText.ts` 决定，落地页加了新的文案来源（例如别的文案节）时改它。

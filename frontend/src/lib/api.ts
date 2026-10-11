@@ -38,6 +38,9 @@ export type Character = {
   unit_order: number | null;
   /** What she says to a visitor on the landing page; null when she has no greeting. */
   greeting: Greeting | null;
+  /** What she says first once a visitor answers her call in the landing page's demo; null when
+   * she has none (only she who calls there needs one). */
+  call_opener: CallOpener | null;
 };
 
 /** A character's greeting (GLOSSARY.md「招呼」). */
@@ -51,6 +54,10 @@ export type Greeting = {
    * the subtitle alone. */
   audio_url: string | null;
 };
+
+/** A character's call opener (GLOSSARY.md「开场白」), given as her greeting is, its audio at an
+ * address of its own. */
+export type CallOpener = Greeting;
 
 /** Where a character's stand comes from. */
 export type Stand = {

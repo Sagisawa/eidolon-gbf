@@ -44,6 +44,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "unit_reading": None,  # no world setting
             "unit_order": None,
             "greeting": None,  # none configured
+            "call_opener": None,
         },
         {
             "id": "kogane",
@@ -61,6 +62,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "unit_reading": None,
             "unit_order": None,
             "greeting": None,
+            "call_opener": None,
         },
     ]
     assert "ほわっ" not in res.text
@@ -699,3 +701,86 @@ def test_greeting_is_optional(tmp_path: Path):
     config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
 
     assert load_characters(config.path)["mano"].greeting is None
+
+
+MANO_CALL_OPENER = (
+    "[shyly] あっ、もしもし……真乃です。えっと、今、お電話だいじょうぶですか？",
+    "啊，喂……我是真乃。那个，现在方便接电话吗？",
+)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        'call_opener = "もしもし"',
+        'call_opener_subtitle = "喂"',
+        'call_opener = "[shyly]"\ncall_opener_subtitle = "喂"',
+    ],
+)
+def test_call_opener_needs_both_its_words_and_its_subtitle(tmp_path: Path, lines: str):
+    """As her greeting does, and said the same way."""
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    add_raw(config, lines)
+
+    with pytest.raises(CharacterConfigError, match="角色 mano 的开场白"):
+        load_characters(config.path)
+
+
+def test_call_opener_is_optional(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+
+    assert load_characters(config.path)["mano"].call_opener is None
+
+
+def test_call_opener_is_seen_without_its_delivery_cues_apart_from_her_greeting(tmp_path: Path):
+    config = CharacterConfig(tmp_path).add(
+        "mano", "櫻木真乃", "a", greeting=MANO_GREETING, call_opener=MANO_CALL_OPENER
+    )
+
+    mano = load_characters(config.path)["mano"]
+
+    assert mano.call_opener is not None and mano.greeting is not None
+    assert mano.call_opener.ja == "あっ、もしもし……真乃です。えっと、今、お電話だいじょうぶですか？"
+    assert mano.call_opener.subtitle == MANO_CALL_OPENER[1]
+    assert mano.greeting.ja == "ほわっ……はじめまして、櫻木真乃です"
+
+
+async def listed_call_opener(
+    make_client: ClientFactory, settings: Settings, assets: str | None = STAND_ASSETS
+) -> dict:
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=assets), user=None)
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+    return listed["mano"]["call_opener"]
+
+
+async def test_call_opener_is_listed_without_its_delivery_cues_with_its_subtitle_and_where_to_hear_it(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    CharacterConfig(characters.directory).add(
+        "mano", "櫻木真乃", MANO_SHEET, voice_id="mano-voice", greeting=MANO_GREETING, call_opener=MANO_CALL_OPENER
+    )
+
+    opener = await listed_call_opener(make_client, settings)
+
+    assert opener["ja"] == "あっ、もしもし……真乃です。えっと、今、お電話だいじょうぶですか？"
+    assert opener["subtitle"] == "啊，喂……我是真乃。那个，现在方便接电话吗？"
+    assert re.fullmatch(rf"{re.escape(STAND_ASSETS)}/call-openers/mano-[0-9a-f]+\.mp3", opener["audio_url"])
+    greeting = await listed_greeting(make_client, settings)
+    assert greeting["audio_url"] != opener["audio_url"]
+
+
+async def test_call_opener_has_no_audio_unless_the_stand_assets_are_served(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    CharacterConfig(characters.directory).add(
+        "mano", "櫻木真乃", MANO_SHEET, voice_id="mano-voice", call_opener=MANO_CALL_OPENER
+    )
+
+    opener = await listed_call_opener(make_client, settings, assets=None)
+
+    assert opener == {
+        "ja": "あっ、もしもし……真乃です。えっと、今、お電話だいじょうぶですか？",
+        "subtitle": "啊，喂……我是真乃。那个，现在方便接电话吗？",
+        "audio_url": None,
+    }
+    assert (await listed_greeting(make_client, settings)) is None

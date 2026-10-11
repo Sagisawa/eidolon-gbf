@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { interactionStore, useInteraction } from "./interactionStore";
-import { connectTone, type CallPhase } from "./model/interaction";
+import { connectTone, openerShown, openerStarts, type CallPhase, type VoiceEvent } from "./model/interaction";
 import { stageStore, useLayout, useStage } from "./stageStore";
 import { StandSlot } from "./StandSlot";
 import type { Speaker } from "./Voice";
@@ -14,19 +14,19 @@ export type CallCopy = {
   ringing: string;
   connected: string;
   answer: string;
-  hello: { ja: string; zh: string };
 };
 
 /**
  * 第 4 幕「来电」：全屏是她（极深底色、立绘、竖排的名字），画面跟着铃声的节奏发光、名字跟着振动，滚动经过时
  * 只有画面在响。访客点一下「接听」（电脑、手机一样，键盘、读屏器按下也是）就接通，播一声接通音（不放铃声），
- * 她说一句话（只有文字），开始计时。声音遵守声音开关，接通、挂断都由交互 reducer 决定；离开这一幕就挂断。
+ * 接着她说开场白（GLOSSARY「开场白」，原文和字幕，有音频时出声、立绘动嘴），开始计时；她没有开场白时只有立绘和
+ * 计时。声音遵守声音开关，接通、挂断、开场白出不出声都由交互 reducer 决定；离开这一幕就挂断。
  *
  * 运动版式里光脉冲和振动由 LightStage 按落地页模型写进 --lp-pulse、--lp-shake-x/y，来电画面的不透明度是
  * --lp-act4；定格档里画面静止；静态档（不支持 WebGL）没有立绘。
  */
 export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
-  const { call } = useInteraction();
+  const { call, opener } = useInteraction();
   const { act } = useStage();
   const layout = useLayout();
   /** 静止版式：这一幕快滚到了，才挂立绘。 */
@@ -35,7 +35,7 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   const statusEl = useRef<HTMLParagraphElement>(null);
   const connectedAt = useConnectedAt(call);
 
-  useConnectTone();
+  useCallAudio(speaker.opener?.audio_url ?? null);
 
   // 卸下时挂断：交互状态在模块里（interactionStore），不会跟着组件重来。
   useEffect(() => () => void interactionStore.dispatch({ type: "hang-up" }), []);
@@ -59,7 +59,8 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   const answer = () => {
     // 接听按钮接通以后就不在了：焦点在它身上的话，交给接通的状态，不掉回页面开头。
     const hadFocus = section.current?.contains(document.activeElement);
-    interactionStore.dispatch({ type: "answer" });
+    const said = speaker.opener;
+    interactionStore.dispatch({ type: "answer", opener: said ? (said.audio_url ? "voice" : "subtitle") : "none" });
     if (hadFocus) requestAnimationFrame(() => statusEl.current?.focus());
   };
 
@@ -72,7 +73,7 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
       <div className="lp-call-her">
         {wantStand && (
           <div className="lp-call-stand" aria-hidden>
-            <StandSlot outfit={speaker.outfit!} framing="waist" still={!layout.motion} speaking={false} />
+            <StandSlot outfit={speaker.outfit!} framing="waist" still={!layout.motion} speaking={opener?.voice === "playing"} />
           </div>
         )}
         <p className="lp-call-name" lang="ja" data-lp-find="act4">
@@ -91,12 +92,15 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
           {connected && connectedAt !== null && <Elapsed since={connectedAt} />}
         </p>
         {connected ? (
-          <div className="lp-hello">
-            <p className="lp-hello-ja" lang="ja">
-              {copy.hello.ja}
-            </p>
-            <p className="lp-hello-zh">{copy.hello.zh}</p>
-          </div>
+          speaker.opener &&
+          openerShown(opener) && (
+            <div className="lp-hello">
+              <p className="lp-hello-ja" lang="ja">
+                {speaker.opener.ja}
+              </p>
+              <p className="lp-hello-zh">{speaker.opener.subtitle}</p>
+            </div>
+          )
         ) : (
           <button
             type="button"
@@ -138,28 +142,80 @@ function Elapsed({ since }: { since: number }) {
   );
 }
 
-const reportTone = (event: "playing" | "failed") => interactionStore.dispatch({ type: "tone", event });
+const CONNECT_TONE = "/sounds/connect.ogg";
+/** 开场白这么久还没开始播就当作加载失败，退成只有字幕（和招呼一样）。 */
+const OPENER_LOAD_TIMEOUT_MS = 8000;
+
+/** 接通音和开场白的那个 <audio> 现在放的是哪一样。 */
+type Playing = { what: "tone" } | { what: "opener"; n: number; timeout: number };
 
 /**
- * 接通音：复用应用通话用的那个文件（GLOSSARY「接通音」），第一次接通时才加载，接通时播一次（model/interaction.ts
- * 的 connectTone）。订阅者在 dispatch 里同步跑，播放就发生在访客点「接听」的手势里，手机浏览器不会拦。
- * 真的响起来了报给 reducer（第一次出声时出现声音开关），放不出来也报，但不当作错误。
+ * 接通音和开场白：接通音复用应用通话用的那个文件（GLOSSARY「接通音」），接通时播一次（model/interaction.ts 的
+ * connectTone）；它放完（或放不出来），reducer 说轮到她开口（openerStarts），就放开场白 `openerUrl`。
+ *
+ * 两样用同一个 <audio>，第一次接通时才建：订阅者在 dispatch 里同步跑，接通音在访客点「接听」的手势里放，
+ * 同一个元素之后换成开场白再放，手机浏览器不会拦。开始播、播完、放不出来都报给 reducer（第一次出声时出现
+ * 声音开关），放不出来不当作错误。挂断、关掉声音开关时 reducer 不再要开场白的声音，这里就停下。
  */
-function useConnectTone() {
+function useCallAudio(openerUrl: string | null) {
+  const url = useRef(openerUrl);
   useEffect(() => {
-    let tone: HTMLAudioElement | null = null;
+    url.current = openerUrl;
+  }, [openerUrl]);
+
+  useEffect(() => {
+    const dispatch = interactionStore.dispatch;
+    let el: HTMLAudioElement | null = null;
+    let now: Playing | null = null;
+
+    /** 正在放的那样报一个事件；早就换掉了的（例如接通音被开场白顶掉时它的 play() 被打断）不报。 */
+    const report = (playing: Playing | null, event: VoiceEvent) => {
+      if (!playing || playing !== now) return;
+      if (playing.what === "tone") return dispatch({ type: "tone", event });
+      if (event !== "playing") now = null;
+      window.clearTimeout(playing.timeout);
+      dispatch({ type: "opener", n: playing.n, event });
+    };
+    const audio = () => {
+      if (el) return el;
+      el = new Audio();
+      el.addEventListener("playing", () => report(now, "playing"));
+      el.addEventListener("ended", () => report(now, "ended"));
+      el.addEventListener("error", () => report(now, "failed"));
+      return el;
+    };
+    const play = (playing: Playing, src: string) => {
+      const a = audio();
+      if (now?.what === "opener") window.clearTimeout(now.timeout);
+      now = playing;
+      a.src = src;
+      a.currentTime = 0;
+      a.play().catch(() => report(playing, "failed"));
+    };
+    const stop = () => {
+      if (now?.what === "opener") window.clearTimeout(now.timeout);
+      now = null;
+      el?.pause();
+    };
+
     const unsubscribe = interactionStore.subscribe((prev, next) => {
-      if (!connectTone(prev, next)) return;
-      if (!tone) {
-        tone = new Audio("/sounds/connect.ogg");
-        tone.addEventListener("playing", () => reportTone("playing"));
+      if (connectTone(prev, next)) play({ what: "tone" }, CONNECT_TONE);
+      const n = openerStarts(prev, next);
+      if (n !== null) {
+        // 没有地址（不该发生：没有音频时接听就只有字幕）也退成字幕；不在订阅者里同步再 dispatch。
+        if (!url.current) return queueMicrotask(() => dispatch({ type: "opener", n, event: "failed" }));
+        const playing: Playing = { what: "opener", n, timeout: 0 };
+        playing.timeout = window.setTimeout(() => report(playing, "failed"), OPENER_LOAD_TIMEOUT_MS);
+        play(playing, url.current);
+        return;
       }
-      tone.currentTime = 0;
-      tone.play().catch(() => reportTone("failed"));
+      // 挂断了、关掉了声音开关：她不再出声。接通音照常放完。
+      const voicing = (v: typeof next.opener) => v?.voice === "loading" || v?.voice === "playing";
+      if (now?.what === "opener" && voicing(prev.opener) && !voicing(next.opener)) stop();
     });
     return () => {
       unsubscribe();
-      tone?.pause();
+      stop();
     };
   }, []);
 }
