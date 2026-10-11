@@ -1162,6 +1162,94 @@ html[data-lp-tier="reduced"] .lp-hello {
   }
 }
 
+/* —— 来电在一台手机上（票 03）：运动档里她的光收成手机的侧边，three.js 画的手机（phoneStage.ts 把画布放进
+ * .lp-phone）转身、亮屏。来电界面摆进落地页模型给的屏幕矩形（--lp-screen-x/y/w/h/r，中心和宽高），和画布在同一个
+ * 容器里一起振动；标题在机身上方（--lp-phone-top）、正文在机身下方（--lp-phone-bottom）。手机画好第一帧以后
+ * .lp-root 才有 lp-phone-on；之前、静止版式、手机画布丢了上下文时，是上面那套全屏来电。 */
+.lp-phone {
+  position: absolute;
+  inset: 0;
+  translate: var(--lp-shake-x, 0px) var(--lp-shake-y, 0px);
+}
+.lp-phone-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: var(--lp-phone, 0);
+  pointer-events: none;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4 {
+  opacity: 1;
+  background: none;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-glow {
+  display: none;
+}
+/* 手机上的字跟着来电界面显出来：手机还在转的时候看不见。键盘聚焦进来时照样看得见。 */
+html[data-lp-layout="motion"] .lp-root.lp-phone-on :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
+  opacity: var(--lp-act4, 0);
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on :is([data-lp-call] .lp-act4, .lp-act4:focus-within) :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
+  opacity: 1;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy {
+  inset: 0;
+  max-width: none;
+  text-align: center;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy > * {
+  position: absolute;
+  left: 50%;
+  width: min(36rem, 86vw);
+  transform: translateX(-50%);
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy > .lp-act-title {
+  bottom: calc(100% - var(--lp-phone-top, 20%) + 3vh);
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy > .lp-act-body {
+  top: calc(var(--lp-phone-bottom, 80%) + 2vh);
+  margin: 0;
+}
+/* 名字在屏幕上方；它不在 .lp-phone 里，要压在手机画布上面（振动用同一对变量），又不挡住接听。 */
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-her {
+  z-index: 1;
+  pointer-events: none;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-name {
+  top: calc(var(--lp-screen-y) - var(--lp-screen-h) * 0.32);
+  left: var(--lp-screen-x);
+  transform: translate(-50%, -50%);
+  writing-mode: horizontal-tb;
+  white-space: nowrap;
+  font-size: calc(var(--lp-screen-w) * 0.15);
+  letter-spacing: 0.06em;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui {
+  left: calc(var(--lp-screen-x) - var(--lp-screen-w) / 2);
+  top: calc(var(--lp-screen-y) - var(--lp-screen-h) / 2);
+  bottom: auto;
+  width: var(--lp-screen-w);
+  height: var(--lp-screen-h);
+  box-sizing: border-box;
+  padding: 0 calc(var(--lp-screen-w) * 0.08) calc(var(--lp-screen-h) * 0.12);
+  transform: none;
+  justify-content: flex-end;
+  gap: 18px;
+  font-size: 13px;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-answer-icon {
+  width: 64px;
+  height: 64px;
+  padding: 20px;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello-ja {
+  font-size: 15px;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello-zh {
+  font-size: 12px;
+}
+
 /* —— 第 5 幕：记忆（Memory.tsx）。布景是两屏宽的一张 SVG：运动版式里跟着模型横移（--lp-pan），
  * 光路的连线跟着光点画出来（--lp-path-0…，默认是画完的样子）；一道道光在光层画好以后让给着色器，
  * 连线留着，淡淡地连起这件事传过的人。

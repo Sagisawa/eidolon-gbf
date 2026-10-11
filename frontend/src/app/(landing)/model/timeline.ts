@@ -15,8 +15,9 @@ export const SEG_SCREENS = 1.5;
 export const TAIL_SCREENS = 0.4;
 /** 第 3 幕「她说日语」：她说几句日语，竖排的原文一列列出来，中文字幕一句句被光扫出来。 */
 export const ACT3_SCREENS = 2.4;
-/** 第 4 幕「来电」：她打来电话，画面跟着铃声振动、发光；接听由访客点（长按）决定，不随滚动。 */
-export const ACT4_SCREENS = 1.6;
+/** 第 4 幕「来电」：她的光收成一条竖线、变成一台手机的侧边，手机转过背面、转到正面，亮屏、来电，跟着铃声
+ * 振动；接听由访客点决定，不随滚动。转身要滚得慢一点才看得清，所以占得长。 */
+export const ACT4_SCREENS = 3.2;
 /** 第 5 幕「记忆」：一个光点从一道光传到另一道光，回忆的光迹跟着画出来。 */
 export const ACT5_SCREENS = 3;
 /** 第 6 幕「诚实事项」照常往上走，按这么多屏换算：最后一屏是第 7 幕进来的时候。 */
@@ -91,7 +92,7 @@ export function holdAt(timeline: Timeline, u: number): number {
 }
 
 /** 每一幕停稳的地方（幕内进度）：第 3 幕几句话都说完，第 4 幕来电的画面显出来，第 7 幕行动按钮出现。 */
-const REST: Partial<Record<number, number>> = { 3: 0.95, 4: 0.35, 7: 1 };
+const REST: Partial<Record<number, number>> = { 3: 0.95, 4: 0.8, 7: 1 };
 
 /**
  * 第 `act` 幕停稳的地方（屏）：键盘聚焦到别的幕里的按钮时滚到这里，按钮在画面上、看得见。

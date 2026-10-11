@@ -17,17 +17,19 @@ export type CallCopy = {
 };
 
 /**
- * 第 4 幕「来电」：全屏是她（极深底色、立绘、竖排的名字），画面跟着铃声的节奏发光、名字跟着振动，滚动经过时
- * 只有画面在响。访客点一下「接听」（电脑、手机一样，键盘、读屏器按下也是）就接通，播一声接通音（不放铃声），
- * 接着她说开场白（GLOSSARY「开场白」，原文和字幕，有音频时出声、立绘动嘴），开始计时；她没有开场白时只有立绘和
+ * 第 4 幕「来电」：她打来电话，画面跟着铃声的节奏发光、振动，滚动经过时只有画面在响。访客点一下「接听」（电脑、
+ * 手机一样，键盘、读屏器按下也是）就接通，播一声接通音（不放铃声），接着她说开场白（GLOSSARY「开场白」，原文和字幕，有音频时出声、立绘动嘴），开始计时；她没有开场白时只有立绘和
  * 计时。声音遵守声音开关，接通、挂断、开场白出不出声都由交互 reducer 决定；离开这一幕就挂断。
  *
- * 运动版式里光脉冲和振动由 LightStage 按落地页模型写进 --lp-pulse、--lp-shake-x/y，来电画面的不透明度是
- * --lp-act4；定格档里画面静止；静态档（不支持 WebGL）没有立绘。
+ * 运动版式里她的光收成一台手机的侧边，手机转到正面、亮屏（LightStage 和 phoneStage.ts 按落地页模型画）：three.js
+ * 的画布放进 .lp-phone，来电界面（名字、状态、接听、接通后她说的一句）摆进模型给的屏幕矩形（--lp-screen-*），
+ * 和手机在同一个容器里一起振动（--lp-shake-x/y）；标题在手机上方、正文在手机下方。手机画出来以前、手机画布丢了
+ * 上下文时，是原来的全屏来电（她的立绘、竖排的名字）。光脉冲是 --lp-pulse，来电界面的不透明度是 --lp-act4；
+ * 定格档里画面静止；静态档（不支持 WebGL）没有立绘。
  */
 export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   const { call, opener } = useInteraction();
-  const { act } = useStage();
+  const { act, phone } = useStage();
   const layout = useLayout();
   /** 静止版式：这一幕快滚到了，才挂立绘。 */
   const [near, setNear] = useState(false);
@@ -64,7 +66,9 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
     if (hadFocus) requestAnimationFrame(() => statusEl.current?.focus());
   };
 
-  const wantStand = !!speaker.outfit && !!layout && layout.tier !== "static" && (layout.motion ? act === 3 || act === 4 : near);
+  // 手机上的来电不挂全屏的立绘。
+  const wantStand =
+    !!speaker.outfit && !!layout && layout.tier !== "static" && !phone && (layout.motion ? act === 3 || act === 4 : near);
   const connected = call === "connected";
 
   return (
@@ -86,35 +90,37 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
         </h2>
         <p className="lp-act-body">{copy.body}</p>
       </div>
-      <div className="lp-call-ui">
-        <p ref={statusEl} className="lp-call-status" role="status" tabIndex={-1}>
-          {connected ? copy.connected : copy.ringing}
-          {connected && connectedAt !== null && <Elapsed since={connectedAt} />}
-        </p>
-        {connected ? (
-          speaker.opener &&
-          openerShown(opener) && (
-            <div className="lp-hello">
-              <p className="lp-hello-ja" lang="ja">
-                {speaker.opener.ja}
-              </p>
-              <p className="lp-hello-zh">{speaker.opener.subtitle}</p>
-            </div>
-          )
-        ) : (
-          <button
-            type="button"
-            className="lp-answer"
-            onClick={answer}
-            // 键盘聚焦到这里时还没滚到来电：先滚过去，按钮才在画面上。
-            onFocus={() => layout?.motion && stageStore.get().act !== 4 && stageStore.goto?.(4)}
-          >
-            <svg className="lp-answer-icon" viewBox="0 0 24 24" aria-hidden>
-              <path d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" />
-            </svg>
-            <span className="lp-answer-label">{copy.answer}</span>
-          </button>
-        )}
+      <div className="lp-phone">
+        <div className="lp-call-ui">
+          <p ref={statusEl} className="lp-call-status" role="status" tabIndex={-1}>
+            {connected ? copy.connected : copy.ringing}
+            {connected && connectedAt !== null && <Elapsed since={connectedAt} />}
+          </p>
+          {connected ? (
+            speaker.opener &&
+            openerShown(opener) && (
+              <div className="lp-hello">
+                <p className="lp-hello-ja" lang="ja">
+                  {speaker.opener.ja}
+                </p>
+                <p className="lp-hello-zh">{speaker.opener.subtitle}</p>
+              </div>
+            )
+          ) : (
+            <button
+              type="button"
+              className="lp-answer"
+              onClick={answer}
+              // 键盘聚焦到这里时来电还没显出来（没滚到，或者手机还在转）：先滚到手机停稳、亮屏的地方，按钮才在画面上。
+              onFocus={() => layout?.motion && !section.current?.closest("[data-lp-call]") && stageStore.goto?.(4)}
+            >
+              <svg className="lp-answer-icon" viewBox="0 0 24 24" aria-hidden>
+                <path d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" />
+              </svg>
+              <span className="lp-answer-label">{copy.answer}</span>
+            </button>
+          )}
+        </div>
       </div>
     </section>
   );

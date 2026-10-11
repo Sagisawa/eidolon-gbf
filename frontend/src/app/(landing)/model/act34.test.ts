@@ -5,7 +5,7 @@ import { copy } from "@/i18n";
 import { idolColors } from "./color";
 import { describeScene, memoryWorld, TALK_LINES, talkLineShown, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
-import { spanOf, timelineOf } from "./timeline";
+import { restAt, spanOf, timelineOf } from "./timeline";
 
 const ROSTER: [name: string, color: string, unit: number][] = [
   ["真乃", "#ffbad6", 0],
@@ -146,11 +146,11 @@ describe("describeScene: 第 4 幕，来电", () => {
   const deep = idolColors("#ffbad6").deep;
   /** 一段时间里光脉冲的最大值和最小值。 */
   const range = (input: Partial<SceneInput>) => {
-    const pulses = Array.from({ length: 300 }, (_, k) => scene({ scroll: in4(0.5), time: k * 0.02, ...input }).call!.pulse);
+    const pulses = Array.from({ length: 300 }, (_, k) => scene({ scroll: in4(0.85), time: k * 0.02, ...input }).call!.pulse);
     return [Math.min(...pulses), Math.max(...pulses)];
   };
 
-  it("全屏是她：背景过渡到她的极深底色，她那道光站到画面中间", () => {
+  it("背景过渡到她的极深底色，她那道光挪到画面中间（手机的位置）", () => {
     const s = scene({ scroll: in4(0.5), time: 1.9 });
     expect(s.act).toBe(4);
     expect(s.background).toBe(deep);
@@ -159,49 +159,78 @@ describe("describeScene: 第 4 幕，来电", () => {
     expect(s.bands.filter((x) => x.id !== "真乃").every((x) => x.intensity === 0)).toBe(true);
   });
 
-  it("她有立绘时，来电的画面显出来、她那道光就熄了（不在立绘正后面竖一条线）；没有立绘时光留着", () => {
-    for (const p of [0, 0.05, 0.1, 0.5]) {
-      const a = bandOf(scene({ scroll: in4(p), speakerStand: true }), "真乃").intensity;
-      const b = bandOf(scene({ scroll: in4(p + 0.001), speakerStand: true }), "真乃").intensity;
-      expect(Math.abs(b - a), `p ${p}`).toBeLessThan(0.05);
+  it("她的光收窄成一条竖线，正好是侧着的手机的侧边：同一个位置、一样长、差不多一样宽；然后熄掉，交给手机", () => {
+    const at = (p: number) => scene({ scroll: in4(p) });
+    // 光和手机都看得见的那一刻：交接。
+    const p = ps.find((x) => at(x).phone!.opacity > 0.05 && bandOf(at(x), "真乃").intensity > 0.05)!;
+    expect(p).toBeDefined();
+    const s = at(p);
+    const b = bandOf(s, "真乃");
+    const ph = s.phone!;
+    expect(ph.yaw).toBeCloseTo(Math.PI / 2, 6);
+    expect([b.dx, b.dy]).toEqual([0, 1]);
+    expect(b.x).toBeCloseTo(ph.x, 1);
+    // 光芯从起点亮到 0.8 倍长度处（light.ts 在最后两成淡出），正好是机身的上下沿。
+    expect(b.y).toBeCloseTo(ph.y - ph.height / 2, 1);
+    expect(b.y + 0.8 * b.length).toBeCloseTo(ph.y + ph.height / 2, 1);
+    expect(b.start).toBeLessThanOrEqual(-90);
+    // 侧边多宽（8.8 mm），光芯的半宽就是它的一半左右；光晕收得比第 3 幕窄得多。
+    const side = (ph.height * 8.8) / 150;
+    expect(b.core).toBeGreaterThan(side * 0.3);
+    expect(b.core).toBeLessThan(side * 0.7);
+    expect(b.halo).toBeLessThan(bandOf(scene({ scroll: in3(1) }), "真乃").halo / 2);
+    // 交接之前只有光，之后只有手机；手机在屏幕亮起以前一直在，光不再回来。
+    expect(at(0.1).phone!.opacity).toBe(0);
+    expect(bandOf(at(0.1), "真乃").intensity).toBeGreaterThan(0.4);
+    for (const q of ps.filter((x) => x >= 0.2 && x < 1)) {
+      expect(at(q).bands.every((band) => band.intensity === 0), `p ${q}`).toBe(true);
+      expect(at(q).phone!.opacity).toBe(1);
     }
-    const s = scene({ scroll: in4(0.5), time: 0.25, speakerStand: true });
-    expect(s.bands.every((b) => b.intensity === 0)).toBe(true);
-    expect(s.call!.pulse).toBeGreaterThan(0.9);
-    expect(bandOf(scene({ scroll: in4(0.5) }), "真乃").intensity).toBeGreaterThan(0.4);
   });
 
-  it("响铃：光一阵一阵地脉动，响的时候画面振动、她的光和背景跟着亮，停的时候不动", () => {
-    const frames = Array.from({ length: 300 }, (_, k) => scene({ scroll: in4(0.5), time: k * 0.02 }));
+  it("响铃：屏幕亮起以后一阵一阵地响，响的时候手机振动、背景跟着亮，停的时候不动", () => {
+    const frames = Array.from({ length: 300 }, (_, k) => scene({ scroll: in4(0.85), time: k * 0.02 }));
     const pulses = frames.map((s) => s.call!.pulse);
     expect(Math.min(...pulses)).toBeLessThan(0.05);
     expect(Math.max(...pulses)).toBeGreaterThan(0.9);
+    const size = (s: Scene) => Math.hypot(s.phone!.shake.x, s.phone!.shake.y);
     for (const [k, s] of frames.entries()) {
-      const { pulse, shake } = s.call!;
-      if (pulse < 0.01) expect(Math.hypot(shake.x, shake.y), `第 ${k} 帧`).toBeLessThan(0.05);
-      expect(Math.hypot(shake.x, shake.y), `第 ${k} 帧`).toBeLessThanOrEqual(4);
+      if (s.call!.pulse < 0.01) expect(size(s), `第 ${k} 帧`).toBeLessThan(0.05);
+      expect(size(s), `第 ${k} 帧`).toBeLessThanOrEqual(4);
     }
     const loud = frames.find((s) => s.call!.pulse > 0.9)!;
     const quiet = frames.find((s) => s.call!.pulse === 0)!;
-    expect(Math.hypot(loud.call!.shake.x, loud.call!.shake.y)).toBeGreaterThan(0);
-    expect(bandOf(loud, "真乃").intensity).toBeGreaterThan(bandOf(quiet, "真乃").intensity);
+    expect(size(loud)).toBeGreaterThan(0);
     expect(loud.background).not.toBe(quiet.background);
+    // 手机还在转、屏幕还没亮的时候不响。
+    for (const p of ps.filter((x) => x < 0.64)) {
+      for (const time of [0.25, 0.9]) {
+        const s = scene({ scroll: in4(p), time });
+        expect(s.call!.pulse, `p ${p}`).toBe(0);
+        expect(size(s), `p ${p}`).toBe(0);
+      }
+    }
   });
 
-  it("接通以后不再响、不再振动，她的光稳稳地亮着", () => {
+  it("接通以后不再响、不再振动", () => {
     const [low, high] = range({ call: "connected" });
     expect(high).toBe(0);
     expect(low).toBe(0);
-    const s = scene({ scroll: in4(0.5), time: 0.2, call: "connected" });
-    expect(s.call!.shake).toEqual({ x: 0, y: 0 });
-    expect(bandOf(s, "真乃").intensity).toBeGreaterThan(0.5);
+    for (const time of [0.2, 0.25, 0.9]) expect(scene({ scroll: in4(0.85), time, call: "connected" }).phone!.shake).toEqual({ x: 0, y: 0 });
   });
 
-  it("减少动态效果档：来电画面静止，不随时间脉动、不振动", () => {
-    const at = (time: number) => scene({ scroll: in4(0), tier: "reduced", time }).call!;
-    expect(at(0)).toEqual(at(0.3));
-    expect(at(0).shake).toEqual({ x: 0, y: 0 });
-    expect(at(0).pulse).toBeGreaterThan(0);
+  it("减少动态效果档（静态档同是静止版式）：手机一开始就是正面、亮屏，不振动，光脉冲定格", () => {
+    const at = (time: number) => scene({ scroll: in4(0), tier: "reduced", time });
+    expect(at(0).call).toEqual(at(0.3).call);
+    expect(at(0).call!.pulse).toBeGreaterThan(0);
+    for (const time of [0, 0.25, 0.9]) {
+      const ph = at(time).phone!;
+      expect(ph.shake).toEqual({ x: 0, y: 0 });
+      expect(ph.yaw).toBeCloseTo(2 * Math.PI, 6);
+      expect(ph.screen).toBe(1);
+      expect(ph.opacity).toBe(1);
+    }
+    expect(scene({ scroll: in4(0), tier: "static" }).phone!.screen).toBe(1);
   });
 
   it("同屏满强度的光只有她一道；没有色散", () => {
@@ -221,7 +250,63 @@ describe("describeScene: 第 4 幕，来电", () => {
     expect(scene({ scroll: in3(0.99) }).text.act3).toBe(1);
     expect(scene({ scroll: in4(0.5) }).text.act3).toBe(0);
     expect(scene({ scroll: in4(0) }).text.act4).toBe(0);
-    expect(scene({ scroll: in4(0.5) }).text.act4).toBe(1);
+    expect(scene({ scroll: in4(0.5) }).text.act4).toBe(0);
+    expect(scene({ scroll: in4(0.8) }).text.act4).toBe(1);
+  });
+});
+
+describe("describeScene: 第 4 幕的手机", () => {
+  const rest = (viewport: Viewport) => describeScene({ lights, scroll: restAt(tl, 4)!, viewport, tier: "full" }).phone!;
+
+  it("停稳以后手机在画面正中，屏幕矩形居中、比例和圆角是这台手机的，上方给标题、下方给正文留出位置（电脑、竖屏）", () => {
+    for (const viewport of [desktop, phone, { w: 1280, h: 640 }]) {
+      const { rect, bounds } = rest(viewport);
+      expect(rect.x).toBeCloseTo(viewport.w / 2, 3);
+      expect(rect.y).toBeCloseTo(viewport.h / 2, 3);
+      // 屏幕 66.8 × 144.9 mm、圆角 11.7 mm；机身 73.1 × 150 mm。
+      expect(rect.w / rect.h).toBeCloseTo(66.8 / 144.9, 3);
+      expect(rect.r / rect.h).toBeCloseTo(11.7 / 144.9, 3);
+      expect((bounds.bottom - bounds.top) / rect.h).toBeCloseTo(150 / 144.9, 3);
+      expect((bounds.right - bounds.left) / (bounds.bottom - bounds.top)).toBeCloseTo(73.1 / 150, 3);
+      // 标题、正文各留出至少 15% 的画面高度；机身左右不出画面。
+      expect(bounds.top).toBeGreaterThanOrEqual(viewport.h * 0.15);
+      expect(viewport.h - bounds.bottom).toBeGreaterThanOrEqual(viewport.h * 0.15);
+      expect(bounds.left).toBeGreaterThan(0);
+      expect(bounds.right).toBeLessThan(viewport.w);
+    }
+    // 竖屏上整体缩小：屏幕占的画面高度比电脑上小。
+    expect(rest(phone).rect.h / phone.h).toBeLessThan(rest(desktop).rect.h / desktop.h);
+  });
+
+  it("随进度依次是侧面、背面（停一会儿）、正面；往回滚就倒着转；转到正面以后屏幕才亮", () => {
+    const at = (p: number) => scene({ scroll: in4(p), time: 0.3 }).phone!;
+    const first = (ok: (s: ReturnType<typeof at>) => boolean) => ps.find((p) => ok(at(p)))!;
+    // 手机出现时是侧面。
+    expect(at(first((s) => s.opacity > 0.5)).yaw).toBeCloseTo(Math.PI / 2, 1);
+    // 转角跟着进度只增不减、不跳：往回滚时一步步倒着转回去。
+    let last = at(0).yaw;
+    for (const p of ps) {
+      const { yaw } = at(p);
+      expect(yaw).toBeGreaterThanOrEqual(last);
+      expect(yaw - last).toBeLessThan(0.2);
+      last = yaw;
+    }
+    const back = first((s) => Math.abs(s.yaw - Math.PI) < 0.05);
+    const front = first((s) => Math.abs(s.yaw - 2 * Math.PI) < 1e-6);
+    expect(back).toBeLessThan(front);
+    // 背面停一会儿，看得清相机那一条。
+    expect(ps.filter((p) => Math.abs(at(p).yaw - Math.PI) < 0.1).length / ps.length).toBeGreaterThan(0.06);
+    for (const p of ps) if (at(p).screen > 0) expect(at(p).yaw, `p ${p}`).toBeCloseTo(2 * Math.PI, 6);
+    expect(at(0).screen).toBe(0);
+  });
+
+  it("停稳的地方（键盘聚焦接听时滚到这里）手机已经转到正面、屏幕亮了、来电界面显出来", () => {
+    const s = describeScene({ lights, scroll: restAt(tl, 4)!, viewport: desktop, tier: "full" });
+    expect(s.phone!.yaw).toBeCloseTo(2 * Math.PI, 6);
+    expect(s.phone!.screen).toBe(1);
+    expect(s.phone!.opacity).toBe(1);
+    expect(s.phone!.height).toBeCloseTo(s.phone!.bounds.bottom - s.phone!.bounds.top, 6);
+    expect(s.text.act4).toBe(1);
   });
 });
 
@@ -241,9 +326,16 @@ describe("describeScene: 第 4 幕到第 5 幕", () => {
     }
   });
 
-  it("来电的画面在解开钉住的那一屏的前半段淡出，不跟着舞台整块往上走", () => {
+  it("来电的画面和手机在解开钉住的那一屏的前半段一起淡出，不跟着舞台整块往上走；第 5 幕里没有手机", () => {
     expect(scene({ scroll: act4.to - 1 }).text.act4).toBe(1);
     expect(scene({ scroll: act4.to - 0.5 }).text.act4).toBe(0);
+    for (const q of [0, 0.1, 0.25, 0.4, 0.5]) {
+      const s = scene({ scroll: act4.to - 1 + q, time: 0.25 });
+      expect(s.phone!.opacity, `q ${q}`).toBeCloseTo(s.text.act4, 6);
+    }
+    expect(scene({ scroll: act4.to - 0.5, time: 0.25 }).phone!.shake).toEqual({ x: 0, y: 0 });
+    expect(scene({ scroll: act5.from + 0.2 }).phone).toBeNull();
+    expect(scene({ scroll: in3(0.5) }).phone).toBeNull();
   });
 
   it("第 5 幕从下面进来的那一屏里，连线还一条都没画，布景停在第 5 幕开头的横移上", () => {

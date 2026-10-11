@@ -30,6 +30,13 @@ describe("qualityOf: 每档的画质", () => {
     expect(qualityOf("basic", true)).toMatchObject({ canvas: true, animate: true, samples: 1, caustics: false, dprCap: 1 });
   });
 
+  it("第 4 幕的手机：只有完整档画前玻璃和相机镜片的反光层，简化档和 basic 档关掉", () => {
+    expect(qualityOf("full", false).reflections).toBe(true);
+    expect(qualityOf("full", true).reflections).toBe(true);
+    expect(qualityOf("lite", true).reflections).toBe(false);
+    expect(qualityOf("basic", true).reflections).toBe(false);
+  });
+
   it("完整档在手机上 DPR 不超过 1.5", () => {
     expect(qualityOf("full", true).dprCap).toBe(1.5);
   });

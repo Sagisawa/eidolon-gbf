@@ -52,22 +52,24 @@ export type Quality = {
   samples: 5 | 3 | 1;
   /** 棱镜里的焦散。 */
   caustics: boolean;
+  /** 第 4 幕的手机上，前玻璃和相机镜片那几层半透明的反光。 */
+  reflections: boolean;
 };
 
 /** 每档的画质。`touch` 是手指操作的设备：完整档在手机上 DPR 不超过 1.5，电脑上不超过 2。 */
 export function qualityOf(tier: Tier, touch: boolean): Quality {
   switch (tier) {
     case "full":
-      return { canvas: true, animate: true, dprCap: touch ? 1.5 : 2, samples: 5, caustics: true };
+      return { canvas: true, animate: true, dprCap: touch ? 1.5 : 2, samples: 5, caustics: true, reflections: true };
     case "lite":
-      return { canvas: true, animate: true, dprCap: 1, samples: 3, caustics: false };
+      return { canvas: true, animate: true, dprCap: 1, samples: 3, caustics: false, reflections: false };
     case "basic":
-      return { canvas: true, animate: true, dprCap: 1, samples: 1, caustics: false };
+      return { canvas: true, animate: true, dprCap: 1, samples: 1, caustics: false, reflections: false };
     case "reduced":
       // 定格的那一帧没有色散，采样次数用不上。
-      return { canvas: true, animate: false, dprCap: 1.5, samples: 1, caustics: false };
+      return { canvas: true, animate: false, dprCap: 1.5, samples: 1, caustics: false, reflections: false };
     case "static":
-      return { canvas: false, animate: false, dprCap: 1, samples: 1, caustics: false };
+      return { canvas: false, animate: false, dprCap: 1, samples: 1, caustics: false, reflections: false };
   }
 }
 

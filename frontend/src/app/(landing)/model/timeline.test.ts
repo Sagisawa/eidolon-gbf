@@ -74,10 +74,10 @@ describe("restAt: 每一幕停稳的地方", () => {
     expect(restAt(timelineOf(0), 3)).toBeUndefined();
   });
 
-  it("第 4 幕停在来电的画面显出来以后；第 3 幕停在几句话都说完以后；第 7 幕停在行动按钮出现以后", () => {
+  it("第 4 幕停在手机转完、来电显出来以后；第 3 幕停在几句话都说完以后；第 7 幕停在行动按钮出现以后", () => {
     const at = (act: number) => whereIs(tl, restAt(tl, act)!).actProgress;
-    expect(at(4)).toBeGreaterThan(0.25);
-    expect(at(4)).toBeLessThan(0.6);
+    expect(at(4)).toBeGreaterThan(0.6);
+    expect(at(4)).toBeLessThan(1);
     expect(at(3)).toBeGreaterThan(0.9);
     expect(at(7)).toBe(1);
   });

@@ -13,7 +13,8 @@
 //   3. 落地页自身的首屏 JS 压缩后不超过 50 KB，不含框架基线。基线是 `.next/build-manifest.json` 的
 //      rootMainFiles 和 polyfillFiles（每页都有的 Next + React，约 161 KB），所以要对着这份构建跑；
 //      测别处的部署时用 LANDING_MANIFEST 指向那份构建的 build-manifest.json。光层（OGL）在 load 之后、
-//      浏览器空闲时才加载，不算首屏，另外报它的大小。
+//      浏览器空闲时才加载，不算首屏，另外报它的大小。第 4 幕的手机（three.js 和模型）滚到第 3 幕附近才加载，
+//      也不算首屏，另外报大小。
 //   4. 光层：完整档里 OGL 画好第一帧后淡入、首屏 CSS 画的白光同时淡出，标题一直可见；CSS 白光的尽头
 //      就是落地页模型里白光的锚点（电脑上画面 46% 宽、66% 高处，竖屏是正中、30% 高处），两束光重合。
 //      完整档在几个滚动位置各截一张图。
@@ -22,8 +23,9 @@
 //   6. 「不支持 WebGL」档（Chromium 关掉 WebGL 启动）：静态档，load 之后不再加载任何脚本（没有画布、
 //      没有 Lenis），SVG 画的光在；第 0、1 幕各截一张图。
 //   7. 第 2 到 7 幕：完整档里电脑、竖屏手机各截几张（光谱归队、停在某个组合、聚焦、她说日语、来电、记忆、
-//      诚实事项、开始），停在某个组合时底部的组合名就是这个组合；第 4 幕电脑上点、手机上点一下「接听」
-//      就接通；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走，
+//      诚实事项、开始），停在某个组合时底部的组合名就是这个组合；第 4 幕的手机转身几个位置（光、交接、侧面、
+//      背面、正面、来电，往回滚再截一次背面），来电界面在落地页模型给的屏幕矩形里，标题在手机上方、正文在
+//      下方，响铃时手机和界面一起振动、接通后不振动；电脑上点、手机上点一下「接听」就接通；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走，
 //      定格档点「接听」也接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
 //      和页面同一个出处。
 //   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
@@ -42,7 +44,7 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 
-import { ACT1_SCREENS, holdAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
+import { ACT1_SCREENS, holdAt, restAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
 import { lastLcp, medianByLcp, phone4gPage } from "./phone-4g.mjs";
 
 const origin = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
@@ -368,6 +370,38 @@ function watchConsole(page) {
   );
   await noGl.close();
 }
+// —— 3b. 第 4 幕的手机：three.js 和模型不算首屏，滚到第 3 幕附近才加载，另外报大小
+{
+  const { context, page, requests } = await phone4gPage(browser);
+  await page.goto(`${origin}/`, { waitUntil: "load", timeout: 120000 });
+  await glOn(page, 60000);
+  await page.waitForTimeout(1500);
+  const before = new Set([...requests.keys()]);
+  const early = [...requests.values()].filter((r) => r.url.includes("/landing/phone/"));
+  const tl = timelineOf(await page.locator(".lp-seg").count());
+  const act3 = spanOf(tl, 3);
+  if (act3) {
+    await toScreens(page, act3.from + 0.3);
+    const loaded = await page
+      .waitForFunction(() => !!document.querySelector(".lp-phone-canvas") && performance.getEntriesByType("resource").some((e) => e.name.endsWith("/landing/phone/phone.bin") && e.responseEnd > 0), null, { timeout: 90000 })
+      .then(
+        () => true,
+        () => false,
+      );
+    await page.waitForTimeout(3000);
+    const later = [...requests.entries()].filter(([id]) => !before.has(id)).map(([, r]) => r);
+    const kB = (xs) => +(xs.reduce((a, r) => a + (r.bytes ?? 0), 0) / 1024).toFixed(1);
+    const scripts = later.filter((r) => r.type === "Script");
+    const model = later.filter((r) => r.url.includes("/landing/phone/"));
+    report(
+      "第 4 幕的手机：three.js 和模型在首屏之后、滚到第 3 幕附近才加载（不算首屏）",
+      early.length === 0 && loaded && scripts.length > 0 && model.length > 0,
+      `首屏时模型 ${early.length ? "已经在下载" : "没有下载"}；滚到第 3 幕后脚本 ${kB(scripts)} KB（${scripts.map((r) => new URL(r.url).pathname.split("/").at(-1)).join(" ")}），模型 ${kB(model)} KB（${model.length} 个文件，传输大小）`,
+    );
+  }
+  await context.close();
+}
+
 // —— 7. 第 2 到 7 幕
 
 {
@@ -409,11 +443,62 @@ function watchConsole(page) {
       for (const [label, at] of [
         ["act3", act3.from + act3.length * 0.55],
         ["act3-end", act3.from + act3.length * 0.95],
-        ["act4", act4.from + act4.length * 0.4],
       ]) {
         await toScreens(page, at);
         await page.screenshot({ path: path.join(shots, `${name}-${label}.png`) });
       }
+      // 第 4 幕的手机：她的光收成竖线 → 交接 → 侧面 → 背面 → 正面 → 亮屏、来电，往回滚再看一次背面。
+      // 进度按 model/phone.ts 的时间线。
+      for (const [label, p] of [
+        ["light", 0.1],
+        ["handoff", 0.15],
+        ["side", 0.2],
+        ["back", 0.38],
+        ["front", 0.55],
+      ]) {
+        await toScreens(page, act4.from + act4.length * p);
+        await page.screenshot({ path: path.join(shots, `${name}-act4-${label}.png`) });
+      }
+      await toScreens(page, restAt(tl, 4));
+      await page.screenshot({ path: path.join(shots, `${name}-act4.png`) });
+      const call = await page.evaluate(() => {
+        const box = (s) => document.querySelector(s)?.getBoundingClientRect();
+        const voice = getComputedStyle(document.querySelector(".lp-voice"));
+        const px = (v) => parseFloat(voice.getPropertyValue(v));
+        return {
+          on: document.querySelector(".lp-root").classList.contains("lp-phone-on"),
+          ui: box(".lp-call-ui"),
+          title: box(".lp-act4-copy .lp-act-title"),
+          body: box(".lp-act4-copy .lp-act-body"),
+          screen: { x: px("--lp-screen-x"), y: px("--lp-screen-y"), w: px("--lp-screen-w"), h: px("--lp-screen-h") },
+          top: px("--lp-phone-top"),
+          bottom: px("--lp-phone-bottom"),
+        };
+      });
+      const near = (a, b) => Math.abs(a - b) <= 4; // 振动最多 4 px
+      report(
+        `${name}：手机画出来了，来电界面摆在落地页模型给的屏幕矩形里`,
+        call.on && near(call.ui.x + call.ui.width / 2, call.screen.x) && near(call.ui.y + call.ui.height / 2, call.screen.y) && near(call.ui.width, call.screen.w),
+        `lp-phone-on ${call.on}；界面中心 (${Math.round(call.ui.x + call.ui.width / 2)}, ${Math.round(call.ui.y + call.ui.height / 2)})、宽 ${Math.round(call.ui.width)}，屏幕 (${Math.round(call.screen.x)}, ${Math.round(call.screen.y)})、宽 ${Math.round(call.screen.w)}`,
+      );
+      report(
+        `${name}：标题在手机上方、正文在手机下方，不和手机重叠`,
+        call.title.bottom <= call.top && call.body.top >= call.bottom && call.body.bottom <= (name === "full" ? DESKTOP : PHONE).viewport.height,
+        `标题底 ${Math.round(call.title.bottom)} ≤ 机身顶 ${Math.round(call.top)}；正文 ${Math.round(call.body.top)}–${Math.round(call.body.bottom)}，机身底 ${Math.round(call.bottom)}`,
+      );
+      // 振动：手机和屏幕上的界面在同一个容器里，响铃时这个容器在抖。
+      const shakes = async () => {
+        const seen = [];
+        for (let i = 0; i < 40; i++) {
+          seen.push(await page.evaluate(() => getComputedStyle(document.querySelector(".lp-phone")).translate));
+          await page.waitForTimeout(100);
+        }
+        return seen.filter((t) => t !== "none" && !/^0px( 0px)?$/.test(t)).length;
+      };
+      const ringing = await shakes();
+      await toScreens(page, act4.from + act4.length * 0.38);
+      await page.screenshot({ path: path.join(shots, `${name}-act4-back-reverse.png`) });
+      await toScreens(page, restAt(tl, 4));
       // 接听：电脑上点、手机上点一下就接通。
       if (name === "full") await page.locator(".lp-answer").click();
       else await page.locator(".lp-answer").tap();
@@ -421,6 +506,21 @@ function watchConsole(page) {
       const connected = await page.locator(".lp-call-status").innerText();
       report(`${name}：点一下「接听」就接通`, connected.startsWith("通话中"), `「${connected}」`);
       await page.screenshot({ path: path.join(shots, `${name}-act4-connected.png`) });
+      const after = await shakes();
+      report(`${name}：响铃时手机和屏幕上的界面一起振动，接通以后不振动`, ringing > 0 && after === 0, `响铃时 4 秒里抖了 ${ringing} 次，接通以后 ${after} 次`);
+      if (name === "full") {
+        // 手机画布丢了 WebGL 上下文：退回原来的全屏来电，落地页不降档。最后再做，后面的截图不受影响（第 5 幕以后没有手机）。
+        const tierBefore = await tierOf(page);
+        await page.evaluate(() => document.querySelector(".lp-phone-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
+        await page.waitForTimeout(1500);
+        const lost = await page.evaluate(() => ({ on: document.querySelector(".lp-root").classList.contains("lp-phone-on"), canvas: !!document.querySelector(".lp-phone-canvas") }));
+        report(
+          "手机画布丢了上下文：退回全屏来电，落地页不降档",
+          !lost.on && !lost.canvas && (await tierOf(page)) === tierBefore,
+          `lp-phone-on ${lost.on}，画布 ${lost.canvas ? "还在" : "收起了"}，档位 ${tierBefore} → ${await tierOf(page)}`,
+        );
+        await page.screenshot({ path: path.join(shots, "full-act4-lost.png") });
+      }
     }
     for (const [label, at] of [
       ["act5", act5.from + act5.length * 0.45],
