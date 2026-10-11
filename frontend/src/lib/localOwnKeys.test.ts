@@ -6,6 +6,8 @@ import {
   forgetOwnKeys,
   keepOwnKey,
   localOwnKeys,
+  needsOwnLLM,
+  subscribeOwnKeys,
   turnOwnKeys,
 } from "@/lib/localOwnKeys";
 
@@ -160,5 +162,48 @@ describe("what a call brings", () => {
     keepOwnKey("u2", "llm", LLM);
 
     expect(callOwnKeys("u1")).toEqual({ ownKeys: undefined, services: [] });
+  });
+});
+
+describe("whether the page stops the user for want of their own LLM", () => {
+  const user = { id: "u1", name: "producer", sign_in_methods: [], is_admin: false };
+
+  it("does not when the deployment does not require it", () => {
+    expect(needsOwnLLM({ ...user, own_llm_required: false }, {})).toBe(false);
+  });
+
+  it("does when it requires it and this browser keeps no LLM of theirs, speech keys or not", () => {
+    expect(needsOwnLLM({ ...user, own_llm_required: true }, {})).toBe(true);
+    expect(
+      needsOwnLLM({ ...user, own_llm_required: true }, { tts: { api_key: "fish-my-own-key" }, stt: STT }),
+    ).toBe(true);
+  });
+
+  it("does not when it requires it and this browser keeps an LLM of theirs, speech keys or not", () => {
+    expect(needsOwnLLM({ ...user, own_llm_required: true }, { llm: LLM })).toBe(false);
+  });
+
+  it("does not for a user it does not bind (an admin, or one let use the deployer's LLM)", () => {
+    expect(needsOwnLLM({ ...user, is_admin: true, own_llm_required: false }, {})).toBe(false);
+  });
+});
+
+describe("own keys changing", () => {
+  it("is told as this tab keeps or forgets them, and as another tab changes them", () => {
+    storage();
+    const window = new EventTarget();
+    vi.stubGlobal("window", window);
+    const told = vi.fn();
+    const stop = subscribeOwnKeys(told);
+
+    keepOwnKey("u1", "llm", LLM);
+    forgetOwnKey("u1", "llm");
+    forgetOwnKeys("u1");
+    window.dispatchEvent(Object.assign(new Event("storage"), { key: "eidolon.ownKeys.u1" }));
+    window.dispatchEvent(Object.assign(new Event("storage"), { key: "eidolon.listPreferences.u1" }));
+    stop();
+    keepOwnKey("u1", "llm", LLM);
+
+    expect(told).toHaveBeenCalledTimes(4);
   });
 });

@@ -256,8 +256,17 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
 
 /** `id`: who the user is, which this browser keeps their own keys apart by (see `localOwnKeys`).
- * `is_admin`: the user may enter the admin console (`/admin`). */
-export type Account = { id: string; name: string; sign_in_methods: SignInMethod[]; is_admin: boolean };
+ * `is_admin`: the user may enter the admin console (`/admin`).
+ * `own_llm_required`: the user must bring their own LLM now, by the rule the backend refuses
+ * their turns and calls by: the deployment requires it, and they are neither an admin nor let
+ * use the deployer's LLM (GLOSSARY.md「必须自带 LLM」; see `needsOwnLLM`). */
+export type Account = {
+  id: string;
+  name: string;
+  sign_in_methods: SignInMethod[];
+  is_admin: boolean;
+  own_llm_required: boolean;
+};
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */
 export async function getAccount(): Promise<Account> {

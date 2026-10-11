@@ -243,8 +243,9 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
     @app.get("/api/account")
     def account(user_id: UserId) -> dict:
         """The signed-in user, by the id their browser keeps their own keys apart by, the
-        identities they sign in with, and whether they are an admin, who may enter the
-        admin console."""
+        identities they sign in with, whether they are an admin, who may enter the admin
+        console, and whether they must bring their own LLM now, by the rule their turns and
+        calls are refused by (GLOSSARY.md「必须自带 LLM」)."""
         return {
             "id": user_id,
             "name": store.get_user(user_id).name,
@@ -253,6 +254,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
                 for m in store.sign_in_methods(user_id)
             ],
             "is_admin": is_admin(store, settings, user_id),
+            "own_llm_required": backend.admissions.own_llm_required(user_id),
         }
 
     @app.delete("/api/account/sign-in-methods/{provider}", status_code=204)

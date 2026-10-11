@@ -197,3 +197,26 @@ def test_env_turns_it_on_with_1_and_refuses_anything_but_0_or_1(
     monkeypatch.setenv("EIDOLON_OWN_LLM_REQUIRED", "true")
     with pytest.raises(RuntimeError, match="EIDOLON_OWN_LLM_REQUIRED.*0 或 1"):
         Settings.from_env()
+
+
+async def account_requires_own_llm(client: httpx.AsyncClient) -> bool:
+    """Whether the account the page reads says the user must bring their own LLM now."""
+    res = await client.get("/api/account")
+    assert res.status_code == 200, res.text
+    return res.json()["own_llm_required"]
+
+
+async def test_the_account_says_whether_the_user_must_bring_their_own_llm_now(
+    make_client: ClientFactory, github: FakeIdentityProvider
+):
+    producer = make_client(FakeLLM())
+
+    async with admin_beside(producer, github) as admin:
+        required = await account_requires_own_llm(producer)
+        for_the_admin = await account_requires_own_llm(admin)
+        await require(admin, False)
+        turned_off = await account_requires_own_llm(producer)
+
+    assert required is True
+    assert for_the_admin is False
+    assert turned_off is False

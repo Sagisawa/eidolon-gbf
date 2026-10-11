@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useId, useState, type ReactNode } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,8 @@ function exemptionNote({ turns, calls }: LimitExemption): string {
  */
 export function OwnKeysSettings() {
   const [userId, setUserId] = useState<string | null>(null);
+  // 这位用户现在必须自带 LLM（GLOSSARY.md「必须自带 LLM」）：LLM 标成必填，并说明通话怎么计数。
+  const [ownLLMRequired, setOwnLLMRequired] = useState(false);
   const [kept, setKept] = useState<LocalOwnKeys>({});
   const [canKeep, setCanKeep] = useState(true);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -75,6 +78,7 @@ export function OwnKeysSettings() {
     getAccount().then(
       (account) => {
         setUserId(account.id);
+        setOwnLLMRequired(account.own_llm_required);
         setKept(localOwnKeys(account.id));
         setCanKeep(canKeepOwnKeys());
       },
@@ -124,12 +128,15 @@ export function OwnKeysSettings() {
     >
       {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
       <p role="status" className="text-body">
-        {answered?.services === services && exemptionNote(answered.exemption)}
+        {/* 必须自带 LLM 又没填时，「用的是部署者的服务」不对，不说 */}
+        {answered?.services === services && !(ownLLMRequired && !kept.llm) && exemptionNote(answered.exemption)}
         {t.perCallLimits}
       </p>
+      {ownLLMRequired && <p className="text-body">{t.ownLLMRequired}</p>}
       <div className="flex flex-col gap-4">
         <OwnLLMForm
           current={kept.llm}
+          required={ownLLMRequired}
           disabled={!canKeep}
           onChecked={(llm) => change(() => keepOwnKey(userId, "llm", llm))}
           onDelete={() => change(() => forgetOwnKey(userId, "llm"))}
@@ -170,6 +177,7 @@ export function OwnKeysSettings() {
 function ServiceKey({
   title,
   hint,
+  required = false,
   summary,
   isSet,
   editing,
@@ -180,6 +188,8 @@ function ServiceKey({
 }: {
   title: string;
   hint?: string;
+  /** 标题旁标「必填」：这位用户必须自带这一项（只有 LLM，GLOSSARY.md「必须自带 LLM」）。 */
+  required?: boolean;
   /** 一行一句：填过的是末 4 位等，没填的是一句说明。 */
   summary: string[];
   isSet: boolean;
@@ -193,7 +203,10 @@ function ServiceKey({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h3 className="text-row-name">{title}</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-row-name">{title}</h3>
+          {required && <Badge variant="outline">{t.required}</Badge>}
+        </div>
         {hint && <p className="text-body text-muted-foreground">{hint}</p>}
       </div>
       {!editing && (
@@ -335,11 +348,14 @@ function OwnSpeechKeyForm({
 /** 自带的 LLM：先让服务器试调一次（它不保存），通过了才存进这个浏览器。 */
 function OwnLLMForm({
   current,
+  required,
   disabled,
   onChecked,
   onDelete,
 }: {
   current: LocalLLM | undefined;
+  /** 这位用户必须自带 LLM：标成必填，没填时不说「使用部署者的服务」。 */
+  required: boolean;
   disabled: boolean;
   /** 试调通过的 LLM，地址和模型名按服务器规范化过的。 */
   onChecked: (llm: LocalLLM) => void;
@@ -376,7 +392,12 @@ function OwnLLMForm({
     <ServiceKey
       title={t.llmTitle}
       hint={t.llmHint}
-      summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(last4(current.api_key))] : [t.notSet]}
+      required={required}
+      summary={
+        current
+          ? [t.llmCurrent(current.model, current.base_url), t.last4(last4(current.api_key))]
+          : [required ? t.llmNotSetRequired : t.notSet]
+      }
       isSet={!!current}
       editing={editing}
       disabled={disabled}
