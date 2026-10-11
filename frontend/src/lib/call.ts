@@ -16,7 +16,7 @@ import {
   type CallEvent,
 } from "@/lib/api";
 import type { CallPreferences } from "@/lib/callPreferences";
-import { localOwnKeys, ownServices } from "@/lib/localOwnKeys";
+import { callOwnKeys } from "@/lib/localOwnKeys";
 import { Microphone, type MicInUse } from "@/lib/microphone";
 
 export type { MicInUse };
@@ -84,8 +84,8 @@ export async function startCall(
   handlers: CallHandlers,
   userId: string,
 ): Promise<Call> {
-  const ownKeys = localOwnKeys(userId);
-  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(ownServices(ownKeys));
+  const { ownKeys, services } = callOwnKeys(userId);
+  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(services);
   const microphone = await Microphone.open(preferences.micId);
   let hungUp = false;
   let client: PipecatClient | null = null;
@@ -116,13 +116,15 @@ export async function startCall(
       conversation_id: conversationId,
       muted: preferences.muted,
       quality: preferences.quality,
-      own_keys: ownKeys,
     };
+    if (ownKeys) requestData.own_keys = ownKeys;
     await client.connect({
       webrtcRequestParams: { endpoint: "/api/offer", headers: apiHeaders(), requestData },
     });
-    // The transport sends this same request data again with every renegotiation; only the
-    // offer that started the call is to bring the keys.
+    // 只有开始通话的那次 offer 要带 key。Pipecat 按引用持有这份请求数据，之后每次重新协商
+    // 都把同一份再发一遍，后端重新协商时也不看它；所以接通后从这份数据里删掉 key，之后的
+    // 重新协商就不再把 key 发出去。哪天 Pipecat 改成拷贝一份，这里就不再起作用，
+    // call.test.ts 守着这一点。
     delete requestData.own_keys;
   } catch (e) {
     hungUp = true;

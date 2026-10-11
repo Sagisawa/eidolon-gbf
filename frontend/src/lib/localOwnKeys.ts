@@ -130,3 +130,14 @@ function isOneOf<T extends string>(value: unknown, known: Record<T, true>): valu
 function isString(value: unknown): value is string {
   return typeof value === "string";
 }
+
+/** 一次通话要带的自带密钥：`ownKeys` 是 offer 带的 `own_keys`（存了的全部几项，什么都没存就不带），
+ * `services` 是拨号前预检要报的服务名（只报名、不带 key）。两者出自同一次读取，预检报的服务就是 offer 带的。 */
+export type CallOwnKeys = { ownKeys: LocalOwnKeys | undefined; services: OwnService[] };
+
+/** 这位用户一次通话要带的自带密钥，调用时现读。 */
+export function callOwnKeys(userId: string): CallOwnKeys {
+  const keys = localOwnKeys(userId);
+  const services = ownServices(keys);
+  return { ownKeys: services.length > 0 ? keys : undefined, services };
+}
