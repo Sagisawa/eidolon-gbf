@@ -122,6 +122,13 @@ class Admissions:
         one rule they are refused by, with OwnLLMRequired, when they bring none."""
         return self._deployment_requires_own_llm() and not self._is_admin(user_id)
 
+    def refuse_without_own_llm(self, user_id: str, own_llm: bool) -> None:
+        """Raise OwnLLMRequired if the user must bring their own LLM and does not
+        (`own_llm` says whether they do): as each turn or call begins, and before a call is
+        placed, so that nothing is spent on one that would be refused for it."""
+        if not own_llm and self.own_llm_required(user_id):
+            raise OwnLLMRequired()
+
     def turn(
         self, user_id: str, character_id: str, brought: BroughtKeys
     ) -> Admission[TurnKeys]:
@@ -147,8 +154,7 @@ class Admissions:
                 kind, user_id, character_id, own_llm=keys.own_llm, exempt=keys.exempt
             )
             try:
-                if not keys.own_llm and self.own_llm_required(user_id):
-                    raise OwnLLMRequired()
+                self.refuse_without_own_llm(user_id, keys.own_llm)
                 use = self._usage.take(user_id, kind, exempt=keys.exempt)
             except (OwnLLMRequired, OverLimit):
                 recording.finish("rejected")
