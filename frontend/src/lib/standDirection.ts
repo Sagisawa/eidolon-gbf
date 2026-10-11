@@ -5,9 +5,9 @@
 // - She looks at the user while they speak, and nods when they stop. Her voice stops at once
 //   when she is interrupted: if the user interrupted her by typing, she looks at them once it
 //   stops, until she speaks again. What is typed before she speaks changes nothing.
-// - Her mood follows the segment she is saying: the one her voice last started playing, the one
-//   the call screen's line card moved on to without her voice, or in text only the one whose
-//   first subtitle last showed. An emotion judged before the segment is said is kept until it
+// - Her mood follows the segment she is saying: the one her voice last started playing, or the
+//   one the call screen's line card moved on to without her voice (in text only, or when her
+//   voice stopped short). An emotion judged before the segment is said is kept until it
 //   is; one judged while it is said is taken up at once; one judged after it has been said is
 //   dropped. Through a calm segment her mood stays as it was, unless the segment opens her
 //   reply. A nod or shake of the head goes with the emotion.
@@ -30,9 +30,6 @@ export type StandState = {
   userSpeaking: boolean;
   /** The user interrupted her by typing while her voice played. */
   interruptedByTyping: boolean;
-  /** Which of her replies in the call the subtitles are of; null until one has started. In text
-   * only, a segment of it is said as its first subtitle shows. */
-  shownReply: number | null;
   /** The segment she is saying, which her mood follows. `over` once it has been said: her voice
    * stopped (until it starts again), or the next turn was taken up. Null until one starts. */
   saying: (SegmentAt & { over: boolean }) | null;
@@ -48,11 +45,12 @@ export type StandState = {
 
 export type StandEvent =
   /** Of the call's events, who is speaking, which segment her voice started playing, a segment's
-   * emotion, the user's words taken up and her subtitles count; the rest change nothing. */
+   * emotion and the user's words taken up count; the rest change nothing. */
   | CallEvent
   /** The user typed something in the call. */
   | { type: "typed" }
-  /** The call screen's line card moved on to this segment without her voice, at her pace. */
+  /** The call screen's line card moved on to this segment without her voice: in text only, or
+   * playing out the rest of a reply her voice stopped short of. */
   | ({ type: "line-shown" } & SegmentAt)
   /** Text only was switched. */
   | { type: "text-only"; textOnly: boolean }
@@ -66,7 +64,6 @@ export function startingStand(textOnly: boolean): StandState {
     voicing: false,
     userSpeaking: false,
     interruptedByTyping: false,
-    shownReply: null,
     saying: null,
     judged: new Map(),
     shown: null,
@@ -92,14 +89,8 @@ function moved(state: StandState, event: StandEvent): StandState {
       return startSaying(state, event);
     case "emotion":
       return onEmotion(state, event);
-    case "user": {
-      const saying = state.saying && { ...state.saying, over: true };
-      return { ...state, shownReply: event.reply ?? null, saying };
-    }
-    case "delta":
-      // In text only, a segment is said as its first subtitle shows.
-      if (!state.textOnly || state.shownReply === null) return state;
-      return startSaying(state, { reply: state.shownReply, segment: event.segment });
+    case "user":
+      return { ...state, saying: state.saying && { ...state.saying, over: true } };
     case "typed":
       return state.voicing ? { ...state, interruptedByTyping: true } : state;
     case "text-only":
@@ -144,8 +135,8 @@ function startSaying(state: StandState, at: SegmentAt): StandState {
 
 /** A segment's emotion is judged: kept until she says it, taken up at once while she is saying
  * it, and dropped once she has said it. In text only a segment is judged once it is complete, by
- * when the next one often shows: there it is taken up still, until the reply is over, unless a
- * later segment's emotion shows already. */
+ * when the line card may have moved on to the next: there it is taken up still, until the reply
+ * is over, unless a later segment's emotion shows already. */
 function onEmotion(state: StandState, emotion: SegmentEmotion): StandState {
   const { saying, shown } = state;
   if (!saying || follows(emotion, saying)) return { ...state, judged: new Map(state.judged).set(key(emotion), emotion) };

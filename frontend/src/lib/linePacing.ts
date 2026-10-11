@@ -9,7 +9,9 @@
 //   `VOICE_WAIT_MS`, or not start on it at all within `VOICE_WAIT_MS` of its being recorded, the
 //   card plays out the rest at her pace (`lineTime`), unless the user interrupted her: then it
 //   stays where it is until her next reply is said.
-// - A reply started in text only shows each segment as its text arrives.
+// - A reply started in text only, without her voice, is played at her pace to the end: its first
+//   segment as it arrives, each next one once it has arrived and the one before has had its time.
+//   If the user interrupted her, it stays where it is until her next reply's first segment.
 // - A reply dropped for a follow-on leaves no trace on the card.
 
 import type { Segment, SegmentPlaying } from "@/lib/api";
@@ -98,7 +100,7 @@ export function movedCard(card: LineCard, event: LineCardEvent, now: number): Li
       const reply = card.reply;
       if (!reply) return card;
       const recordedAt = event.type === "recorded" ? now : null;
-      return withText({ ...card, reply: { ...reply, segments: event.segments, recordedAt } }, now);
+      return withText({ ...card, reply: { ...reply, segments: event.segments, recordedAt } });
     }
     case "segment-playing":
       if (event.reply !== card.reply?.number) return card;
@@ -126,13 +128,30 @@ export function nextPacedAt(card: LineCard): number | null {
 }
 
 /** The segment of her latest reply the card is next to move on to at her pace, and when; null
- * if it does not keep her pace now. It does once her voice is not playing a voiced reply that
- * is recorded and not interrupted: from the segment her voice stopped on, once that has had its
- * time and her voice has not come back for a while, or from the first segment if her voice has
- * not started on the reply a while after it was recorded. */
+ * if it does not keep her pace now. */
 function nextPaced(card: LineCard): { segment: number; at: number } | null {
-  const { reply, quietSince } = card;
-  if (!reply?.voiced || reply.recordedAt === null || reply.interrupted || quietSince === null) return null;
+  const { reply } = card;
+  if (!reply) return null;
+  return reply.voiced ? nextUnsaid(card, reply) : nextUnvoiced(card, reply);
+}
+
+/** A reply without her voice: its first segment at once as it arrives, and each next one once it
+ * has arrived and the one before has had its time, unless the user interrupted her. */
+function nextUnvoiced(card: LineCard, reply: Reply): { segment: number; at: number } | null {
+  const current = card.shown.at(-1);
+  if (current?.reply !== reply.number) return reply.segments[0]?.ja ? { segment: 0, at: -Infinity } : null;
+  const segment = current.segment + 1;
+  if (reply.interrupted || !reply.segments[segment]?.ja) return null;
+  return { segment, at: current.at + lineTime(current.text) };
+}
+
+/** A voiced reply, once her voice is not playing it and it is recorded and not interrupted: from
+ * the segment her voice stopped on, once that has had its time and her voice has not come back
+ * for a while, or from the first segment if her voice has not started on the reply a while after
+ * it was recorded. */
+function nextUnsaid(card: LineCard, reply: Reply): { segment: number; at: number } | null {
+  const { quietSince } = card;
+  if (reply.recordedAt === null || reply.interrupted || quietSince === null) return null;
   const current = card.shown.at(-1);
   const next =
     current?.reply === reply.number
@@ -161,17 +180,13 @@ function lineTime(line: Segment): number {
   return Math.max(SHORTEST_LINE_MS, (characters / CHARACTERS_PER_SECOND) * 1000);
 }
 
-/** The latest reply's text arrived: what the card shows of it fills in, and a reply without
- * her voice shows its newest segment at once. */
-function withText(card: LineCard, now: number): LineCard {
+/** The latest reply's text arrived: what the card shows of it fills in. */
+function withText(card: LineCard): LineCard {
   const reply = card.reply!;
   const shown = card.shown.map((s) =>
     s.reply === reply.number && reply.segments[s.segment] ? { ...s, text: reply.segments[s.segment] } : s,
   );
-  const filled = { ...card, shown };
-  if (reply.voiced) return filled;
-  const newest = reply.segments.findLastIndex((segment) => segment.ja);
-  return newest < 0 ? filled : shownUpTo(filled, newest, now);
+  return { ...card, shown };
 }
 
 /** The card moves on to this segment of the latest reply at `now`, unless it is there or past

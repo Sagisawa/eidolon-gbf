@@ -86,7 +86,8 @@ export type Snapshot = {
   /** What the user is saying in the call so far. */
   hearing: string;
   /** The line the call screen's line card shows, by the rules in `linePacing.ts`: with her
-   * voice, the segment it is saying. Null until the card has shown one in this call. */
+   * voice, the segment it is saying; without it, each segment in turn at her pace. Null until
+   * the card has shown one in this call. */
   line: Segment | null;
   /** The line the card showed before that in this call, shown faintly in text only; null
    * until it has shown two. Never a segment it skipped, nor one of a reply dropped for a

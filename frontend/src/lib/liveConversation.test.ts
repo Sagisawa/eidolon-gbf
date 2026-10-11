@@ -3,7 +3,7 @@ import { ApiError, type CallEvent, type Conversation, type Message, type TurnEve
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
-import { CALM, type Emotion } from "@/lib/standAnimations";
+import { CALM } from "@/lib/standAnimations";
 
 /** A call that has connected: records what the conversation asks of it. */
 class FakeCall implements Call {
@@ -530,8 +530,9 @@ describe("LiveConversation: the line card", () => {
     expect(card()).toEqual({ line: "三", previous: "一" });
   });
 
-  it("follows a reply to the end the way it started: by her voice even if text only is switched on midway, as its text arrives if it started in text only", async () => {
+  it("follows a reply to the end the way it started: by her voice even if text only is switched on midway, at her pace even if it is switched off", async () => {
     const { live, emit, card } = await inCall();
+    vi.useFakeTimers();
     emit(reply(1), ja(0, "一"), playing(1, 0));
 
     live.toggleTextOnly();
@@ -542,7 +543,38 @@ describe("LiveConversation: the line card", () => {
 
     emit(recorded("一", "二"), reply(2), ja(0, "三"));
     expect(card()).toEqual({ line: "三", previous: "二" });
+    live.toggleTextOnly();
     emit(ja(1, "四"));
+    expect(card()).toEqual({ line: "三", previous: "二" });
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "四", previous: "三" });
+  });
+
+  it("plays a reply started in text only at her pace, the first segment as it arrives, her stand following the card", async () => {
+    const { live, emit, card } = await inCall({ textOnly: true });
+    vi.useFakeTimers();
+    const second = "ねえ…… 今日はとても楽しかったね？"; // 17 characters: 3.4s
+    emit(reply(1), ja(0, "うん！"));
+    expect(card()).toEqual({ line: "うん！", previous: null });
+
+    emit(ja(1, second), { type: "emotion", reply: 1, segment: 1, emotion: "sad", nod: null }, ja(2, "三"));
+    // Even a short line stays 1.5s, and her mood waits for the card.
+    vi.advanceTimersByTime(1499);
+    expect(card()).toEqual({ line: "うん！", previous: null });
+    expect(live.snapshot().stand.mood).toBe("calm");
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: second, previous: "うん！" });
+    expect(live.snapshot().stand.mood).toBe("sad");
+
+    vi.advanceTimersByTime(3399);
+    expect(card()).toEqual({ line: second, previous: "うん！" });
+    vi.advanceTimersByTime(1);
+    expect(card()).toEqual({ line: "三", previous: second });
+
+    // The next segment has not arrived: the card stays, and moves on to it as soon as it does.
+    vi.advanceTimersByTime(5000);
+    expect(card()).toEqual({ line: "三", previous: second });
+    emit(ja(3, "四"));
     expect(card()).toEqual({ line: "四", previous: "三" });
   });
 
@@ -643,6 +675,24 @@ describe("LiveConversation: the line card", () => {
     emit(reply(2, "等一下"), ja(0, "四"));
     expect(card()).toEqual({ line: "二", previous: "一" });
     emit(playing(2, 0));
+    expect(card()).toEqual({ line: "四", previous: "二" });
+  });
+
+  it("stays where it was in text only when the user speaks over her, going straight to her next reply's first segment", async () => {
+    const { emit, card } = await inCall({ textOnly: true });
+    vi.useFakeTimers();
+    emit(reply(1), ja(0, "一"), ja(1, "二"), ja(2, "三"), recorded("一", "二", "三"));
+    vi.advanceTimersByTime(1500);
+    expect(card()).toEqual({ line: "二", previous: "一" });
+
+    emit({ type: "user-started-speaking" });
+    vi.advanceTimersByTime(60_000);
+    expect(card()).toEqual({ line: "二", previous: "一" });
+
+    emit(reply(2, "等一下"));
+    expect(card()).toEqual({ line: "二", previous: "一" });
+    // The segment she never got to is skipped: the line before is the one the card showed.
+    emit(ja(0, "四"));
     expect(card()).toEqual({ line: "四", previous: "二" });
   });
 
@@ -1820,45 +1870,5 @@ describe("LiveConversation: the stand", () => {
 
     await connected(live, attempts);
     expect(live.snapshot().stand).toEqual(CALM);
-  });
-});
-
-describe("LiveConversation: her emotions", () => {
-  /** The judged emotion of segment `segment` of reply `reply`, with a nod if given. */
-  function emotion(reply: number, segment: number, feeling: Emotion, nod: "yes" | "no" | null = null): CallEvent {
-    return { type: "emotion", reply, segment, emotion: feeling, nod };
-  }
-
-  /** A call under way with her voice, as reply `reply` starts; `emit` sends it events. */
-  async function voiced(options: { textOnly?: boolean } = {}) {
-    const opened = await conversation();
-    if (options.textOnly) opened.live.toggleTextOnly();
-    await connected(opened.live, opened.attempts);
-    const emit = (...events: CallEvent[]) => events.forEach((event) => opened.attempts[0].handlers.onEvent(event));
-    const mood = () => opened.live.snapshot().stand.mood;
-    return { ...opened, emit, mood };
-  }
-
-  function reply(number: number): CallEvent {
-    return { type: "user", text: "你好", reply: number };
-  }
-
-  function subtitle(segment: number, text = "こんにちは"): CallEvent {
-    return { type: "delta", segment, lang: "ja", text };
-  }
-
-  it("changes as each segment's first subtitle shows in text only", async () => {
-    const { emit, mood } = await voiced({ textOnly: true });
-    emit(reply(1), emotion(1, 0, "surprised"));
-    expect(mood()).toBe("calm");
-
-    emit(subtitle(0));
-    expect(mood()).toBe("surprised");
-    emit(subtitle(0, "！"), { type: "delta", segment: 0, lang: "zh", text: "你好" }, subtitle(1));
-    emit(emotion(1, 1, "thinking")); // judged once the segment is complete: after it shows
-    expect(mood()).toBe("thinking");
-
-    emit(reply(2), emotion(1, 1, "angry")); // the last reply's, once the next is under way
-    expect(mood()).toBe("thinking");
   });
 });
