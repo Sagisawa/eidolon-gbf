@@ -119,6 +119,7 @@ from eidolon.own_keys import (
     BroughtKeys,
     CallKeys,
     OwnKeyRejected,
+    OwnKeys,
     Service,
 )
 from eidolon.readings import Reading, pronunciation_dictionary
@@ -824,6 +825,7 @@ class Calls:
         settings: Settings,
         engine: ConversationEngine,
         admissions: Admissions,
+        own_keys: OwnKeys,
         limits: Callable[[], UsageLimits],
         speech: Speech,
         clock: Clock,
@@ -834,6 +836,7 @@ class Calls:
         self._settings = settings
         self._engine = engine
         self._admissions = admissions
+        self._own_keys = own_keys
         self._usage_limits = limits
         self._speech = speech
         self._clock = clock
@@ -857,9 +860,9 @@ class Calls:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
         own; how long a call may last, in seconds (None for no limit); and whether a call
         bringing the user's own keys for `own` would be exempt from the limit. Raises
-        CallsUnavailable, as `Admissions.call_setup` does, before anything is spent on a
+        CallsUnavailable, as `OwnKeys.call_exempt` does, before anything is spent on a
         call that could not start."""
-        exempt = self._admissions.call_setup(own)
+        exempt = self._own_keys.call_exempt(own)
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))

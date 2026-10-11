@@ -1,7 +1,8 @@
 """Whose keys a turn or call runs on, answered once, through the own keys module, from the
 user's own keys it brings: theirs where it brought them, the deployer's otherwise, never
 falling back from a key of theirs that does not work; and whether it counts towards the
-user's limit (before a call, from the services it will bring keys for: see test_admission)."""
+user's limit, by one rule, also asked before a call from the services it will bring keys
+for."""
 
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from eidolon.own_keys import (
     DeployerKeys,
     OwnKeys,
     OwnLLMSettings,
+    SERVICES,
     Service,
 )
 from tests.fakes import (
@@ -151,6 +153,8 @@ async def test_turns_bringing_an_own_llm_and_calls_bringing_all_three_do_not_cou
 ):
     own_keys = deployment.own_keys()
 
+    assert own_keys.exempt("turn", services) is turns
+    assert own_keys.exempt("call", services) is calls
     assert own_keys.for_turn(brought(*services)).exempt is turns
     assert own_keys.for_call(brought(*services)).exempt is calls
 
@@ -182,3 +186,20 @@ async def test_a_call_can_bring_a_key_for_what_the_deployer_has_none_for(
         without_stt.for_call(BroughtKeys())
     with pytest.raises(CallsUnavailable):
         without_tts.for_call(brought("stt"))
+
+
+@pytest.mark.parametrize(("services", "exempt"), [(("llm", "tts"), False), (SERVICES, True)])
+async def test_asking_before_a_call_answers_by_the_rule_for_calls(
+    deployment: Deployment, services: tuple[Service, ...], exempt: bool
+):
+    assert deployment.own_keys().call_exempt(services) is exempt
+
+
+async def test_asking_before_a_call_without_keys_for_speech_says_calls_are_unavailable(
+    deployment: Deployment,
+):
+    without_speech = deployment.own_keys(stt=None, tts=None)
+
+    with pytest.raises(CallsUnavailable):
+        without_speech.call_exempt(("llm", "tts"))
+    assert without_speech.call_exempt(("tts", "stt")) is False

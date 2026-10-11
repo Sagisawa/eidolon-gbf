@@ -402,6 +402,17 @@ export async function listMessages(conversationId: string): Promise<Message[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 
+/** Whether the user's text turns and calls would count towards nothing (on their own keys alone),
+ * as the server counts them: GLOSSARY.md「限额」「自带密钥」. */
+export type LimitExemption = { turns: boolean; calls: boolean };
+
+/** Asks the server whether keeping the user's own keys for `own` exempts their turns and calls
+ * from the hourly limit, naming those services but bringing none of the keys. */
+export async function getLimitExemption(own: readonly OwnService[]): Promise<LimitExemption> {
+  const path = "/api/account/keys/exemption";
+  return json(await api(own.length ? `${path}?own=${own.join(",")}` : path));
+}
+
 /** What a call needs before it starts: the STUN/TURN servers, how long it may last in seconds
  * (null for no limit), and whether it is exempt from the hourly limit (on the user's own keys
  * alone). Fails with the reason when calls are unavailable. */

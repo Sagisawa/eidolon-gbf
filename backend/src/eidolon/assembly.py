@@ -226,7 +226,9 @@ def build(
     closers.append(usage.close)
     own_keys = OwnKeys(own_llm_service, config, activity, speech)
     admissions = Admissions(usage, activity, own_keys)
-    calls = Calls(settings, engine, admissions, lambda: config.usage_limits, speech, clock, store)
+    calls = Calls(
+        settings, engine, admissions, own_keys, lambda: config.usage_limits, speech, clock, store
+    )
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     return Backend(
         settings=settings,

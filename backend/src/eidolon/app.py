@@ -24,9 +24,9 @@ from eidolon.call import (
 from eidolon.characters import Character
 from eidolon.greetings import greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
-from eidolon.own_keys import SERVICES, BroughtKeys, CallsUnavailable, Service
+from eidolon.own_keys import BroughtKeys, CallsUnavailable
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
-from eidolon.account_api import OwnKeysInput, add_account_routes
+from eidolon.account_api import OwnKeysInput, add_account_routes, named_services
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
 from eidolon.admin_users_api import add_admin_user_routes
@@ -218,11 +218,7 @@ def create_app(backend: Backend) -> FastAPI:
         """What the browser needs before calling, if the call is to bring the user's own
         keys for the services `own` names (as `llm,tts,stt`), but none of the keys; also
         tells it when calls are unavailable."""
-        named = {s for s in own.split(",") if s}
-        if unknown := named - set(SERVICES):
-            raise HTTPException(422, f"没有这项服务：{'、'.join(sorted(unknown))}")
-        services: frozenset[Service] = frozenset(named)  # pyright: ignore[reportAssignmentType]
-        return calls.ice_servers(user_id, services)
+        return calls.ice_servers(user_id, named_services(own))
 
     @app.post("/api/offer")
     async def offer(
