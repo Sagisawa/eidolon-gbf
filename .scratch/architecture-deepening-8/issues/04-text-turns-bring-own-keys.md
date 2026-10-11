@@ -8,7 +8,7 @@
 
 **Blocked by:** 01（前端的请求都走同一个请求函数）
 
-**Status:** ready-for-human
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 

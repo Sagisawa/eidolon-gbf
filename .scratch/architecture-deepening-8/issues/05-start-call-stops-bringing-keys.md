@@ -8,7 +8,7 @@
 
 **Blocked by:** 01（前端的请求都走同一个请求函数；它把说话事件搬进了通话连接的 module）
 
-**Status:** ready-for-human
+**Status:** resolved
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -27,7 +27,7 @@
 ## Comments
 
 - 做法：`localOwnKeys.ts` 末尾新增 `callOwnKeys(userId)`，现读一次，交回 `{ ownKeys, services }`：`ownKeys` 是 offer 带的 `own_keys`（存了的全部几项，什么都没存是 `undefined`），`services` 是预检报的服务名。`startCall` 改用它，什么都没存时请求数据里不再有 `own_keys`（以前带 `{}`；后端 `own_keys` 本来可省，含义相同）。接通后删 key 那一行保留，注释写明为什么、由 `call.test.ts` 守着。按并行约定没有搬动已有的类型和函数，`ownServices` 留给设置页（票 06 再处理）。
-- 测试：`localOwnKeys.test.ts` 新增「通话带存了的全部三项、服务名一致、现读」「什么都没存时不带、服务名为空」（先红后绿）。新增 `call.test.ts`：`vi.mock` 换掉 Pipecat 的 client、WebRTC transport 和麦克风，假的 `fetch` 回预检；断言 offer 发出时请求数据带 `own_keys`（就是 u1 存的三项，不是 u2 的），`startCall` 返回后同一份请求数据里没有 `own_keys`。
+- 测试：`localOwnKeys.test.ts` 新增「通话带存了的全部三项、服务名一致、现读」「什么都没存时不带、服务名为空」（先红后绿）。新增 `call.test.ts`：`vi.mock` 换掉 Pipecat 的 client、WebRTC transport 和麦克风，假的 `fetch` 回预检；断言 offer 发出时请求数据带 `own_keys`（就是 u1 存的三项；分用户由 `callOwnKeys` 的单测守着，代码审查后这里不再另存 u2），`startCall` 返回后同一份请求数据里没有 `own_keys`。
 - 验证过：把 `delete requestData.own_keys;` 注释掉，`call.test.ts` 失败（`expected { conversation_id: 'c1', …(3) } to not have property "own_keys"`），恢复后通过。
 - `vitest` 全过，`tsc`、`check-discipline.sh` 通过。
 - 人工验收清单：
