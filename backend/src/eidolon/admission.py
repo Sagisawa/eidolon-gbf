@@ -107,20 +107,29 @@ class Admissions:
         own_keys: OwnKeys,
         own_llm_required: Callable[[], bool],
         is_admin: Callable[[str], bool],
+        deployer_llm_allowed: Callable[[str], bool],
     ) -> None:
         """`own_llm_required` tells whether the deployment requires users to bring their
-        own LLM now; `is_admin`, whether a user is an admin, whom it does not bind."""
+        own LLM now; `is_admin`, whether a user is an admin, whom it does not bind;
+        `deployer_llm_allowed`, whether an admin let a user use the deployer's LLM all the
+        same."""
         self._usage = usage
         self._activity = activity
         self._own_keys = own_keys
         self._deployment_requires_own_llm = own_llm_required
         self._is_admin = is_admin
+        self._deployer_llm_allowed = deployer_llm_allowed
 
     def own_llm_required(self, user_id: str) -> bool:
         """Whether the user must bring their own LLM for their turns and calls now: the
-        deployment requires it and does not let them use its own, as it lets admins. The
-        one rule they are refused by, with OwnLLMRequired, when they bring none."""
-        return self._deployment_requires_own_llm() and not self._is_admin(user_id)
+        deployment requires it and does not let them use its own, as it lets admins and
+        those an admin let. The one rule they are refused by, with OwnLLMRequired, when
+        they bring none; a user let whose own limit is 0 is still refused, by the limit."""
+        return (
+            self._deployment_requires_own_llm()
+            and not self._is_admin(user_id)
+            and not self._deployer_llm_allowed(user_id)
+        )
 
     def turn(
         self, user_id: str, character_id: str, brought: BroughtKeys
