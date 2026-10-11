@@ -45,6 +45,15 @@ class FakeVoice {
   dispose = () => void this.disposed++;
 }
 
+/** The phone's own sounds: records what the conversation tells it, in order. */
+class FakeTones {
+  calls: string[] = [];
+  ring = () => void this.calls.push("ring");
+  connect = () => void this.calls.push("connect");
+  hangUp = () => void this.calls.push("hangUp");
+  silence = () => void this.calls.push("silence");
+}
+
 /** Her voice as a call hands it over. */
 const herTrack = { kind: "audio" } as MediaStreamTrack;
 
@@ -95,6 +104,7 @@ function opening(options: Options = {}) {
     ...options.preferences,
   };
   const voice = new FakeVoice();
+  const tones = new FakeTones();
   const ports: Ports = {
     listConversations: async () => options.conversations ?? [record("c1")],
     createConversation: async () => {
@@ -121,6 +131,7 @@ function opening(options: Options = {}) {
       save: (change) => (stored = { ...stored, ...change }),
     },
     voice,
+    tones,
     now: () => NOW,
     ...options.ports,
   };
@@ -133,6 +144,7 @@ function opening(options: Options = {}) {
     created,
     sentTo,
     voice,
+    tones,
     loaded,
     preferences: () => stored,
     published: () => published,
@@ -475,7 +487,7 @@ describe("LiveConversation: a call that is over", () => {
   ];
 
   it.each(endings)("once %s, changes nothing by anything the call sends too late", async (_ending, end) => {
-    const { live, attempts, listChanged, voice } = await conversation({ messages: history });
+    const { live, attempts, listChanged, voice, tones } = await conversation({ messages: history });
     await connected(live, attempts);
     const { handlers } = attempts[0];
     handlers.onEvent({ type: "user", text: "你好" });
@@ -484,6 +496,7 @@ describe("LiveConversation: a call that is over", () => {
     const before = live.snapshot();
     const told = listChanged();
     const played = voice.played.length;
+    const heard = tones.calls.length;
 
     for (const [what, send] of late) {
       send(handlers);
@@ -491,6 +504,7 @@ describe("LiveConversation: a call that is over", () => {
       expect(live.snapshot(), what).toEqual(before);
       expect(listChanged(), what).toBe(told);
       expect(voice.played, what).toHaveLength(played);
+      expect(tones.calls, what).toHaveLength(heard);
     }
   });
 });
@@ -818,6 +832,108 @@ describe("LiveConversation: her voice", () => {
     expect(voice.textOnly).toEqual([false, true, false]);
   });
 
+});
+
+describe("LiveConversation: the call tones", () => {
+  it("rings from the moment the user dials, still inside the user's click", async () => {
+    const { live, tones } = await conversation();
+
+    void live.startCall();
+
+    // Nothing awaited yet: the ringback starts as the user clicks.
+    expect(tones.calls).toEqual(["ring"]);
+  });
+
+  it("stops ringing and plays the connect tone once the call connects", async () => {
+    const { live, attempts, tones } = await conversation();
+
+    await connected(live, attempts);
+
+    expect(tones.calls).toEqual(["ring", "connect"]);
+  });
+
+  /** The ways a call ends, however it got there. */
+  const endings: [string, (live: LiveConversation, attempts: Attempt[]) => Promise<void>][] = [
+    [
+      "the user hangs up while dialing",
+      async (live) => {
+        void live.startCall();
+        await live.hangUp();
+      },
+    ],
+    [
+      "the user hangs up a connected call",
+      async (live, attempts) => {
+        await connected(live, attempts);
+        await live.hangUp();
+      },
+    ],
+    [
+      "the call drops",
+      async (live, attempts) => {
+        await connected(live, attempts);
+        attempts[0].handlers.onDropped();
+      },
+    ],
+    [
+      "the backend says why, then it drops",
+      async (live, attempts) => {
+        await connected(live, attempts);
+        attempts[0].handlers.onEvent({ type: "ended", reason: "turn_limit", message: "说了 20 轮了", counts: true });
+        attempts[0].handlers.onDropped();
+      },
+    ],
+    [
+      "it fails to connect",
+      async (live, attempts) => {
+        await failing(live, attempts, new Error("无法接通，请稍后再试"));
+      },
+    ],
+  ];
+
+  it.each(endings)("plays the hang-up tone once when %s", async (_what, end) => {
+    const { live, attempts, tones } = await conversation();
+
+    await end(live, attempts);
+
+    expect(tones.calls.filter((call) => call === "hangUp")).toHaveLength(1);
+  });
+
+  it("stops the ringback alone when the page is left mid-call, never playing the hang-up tone", async () => {
+    const connected1 = await conversation();
+    await connected(connected1.live, connected1.attempts);
+
+    connected1.live.dispose();
+
+    expect(connected1.tones.calls).toEqual(["ring", "connect", "silence"]);
+
+    // 拨号中离开也一样：铃停，不播挂断音。
+    const dialing = await conversation();
+    void dialing.live.startCall();
+
+    dialing.live.dispose();
+
+    expect(dialing.tones.calls).toEqual(["ring", "silence"]);
+  });
+
+  it("stays quiet through everything but the call itself", async () => {
+    const { live, attempts, tones } = await conversation();
+    await connected(live, attempts);
+
+    // 只看文字，收起和展开通话层，都不碰电话的声音。
+    live.collapse();
+    live.expand();
+    live.toggleTextOnly();
+    expect(tones.calls).toEqual(["ring", "connect"]);
+
+    await live.hangUp();
+    expect(tones.calls).toEqual(["ring", "connect", "hangUp"]);
+
+    // 看完结束页回到 idle、开新对话，都不发声。
+    live.dismissEnd();
+    await live.startNewConversation();
+    expect(tones.calls).toEqual(["ring", "connect", "hangUp"]);
+  });
 });
 
 describe("LiveConversation: typing", () => {

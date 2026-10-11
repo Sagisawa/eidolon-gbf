@@ -12,7 +12,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -42,3 +42,22 @@
   - 通话中离开对话页，铃声停下，挂断音不播。
 
 ## Comments
+
+### 实现说明（2026-10-11）
+
+- `Ports` 加 `tones: { ring; connect; hangUp; silence }`（`frontend/src/lib/liveConversation.ts`，`Tones` 类型）。LiveConversation 四处调用它：`startCall` 在用户点击里、任何 await 之前，紧挨 `voice.dial(...)` 之后 `ring()`；接通时（`this.call = started` 之后、写入 connected 快照之前）`connect()`；`ended()` 这个「挂断 / 断线 / 后端挂断 / 没能接通」共同经过的出口里 `hangUp()`；`dispose()` 里 `silence()`。
+- 删掉 `frontend/src/lib/callTones.ts` 和 `callTones.test.ts`；页面不再按阶段的变化推算提示音。
+- `frontend/src/components/conversations/useCallTones.ts` 只剩 adapter：建铃声 / 接通音 / 挂断音三个 Audio 元素，交出一个稳定的 `tones` port，play() 被拒时照旧放弃。`ConversationView` 像交出 `voice` 那样把它放进 `Ports`（`Ports.tones` 是必填项）。
+- `frontend/src/lib/liveConversation.test.ts` 加假 `FakeTones`（按顺序记调用，写法仿 `FakeVoice`），覆盖验收列出的全部情况；已有的 `it.each(endings)`「过时消息什么都不改」那条也顺带断言提示音不被触发。
+
+三项检查（`frontend/` 下）：`npm test` 635 passed、`npm run typecheck` 通过、`sh scripts/check-discipline.sh` 通过。
+
+### 人工验收清单
+
+在构建版前端里核对：`cd frontend && npm run build && npm run start`，浏览器打开某位角色的对话页。
+
+1. 拨号响铃、接通音、挂断音：点页首电话键，立刻听到循环铃声；接通时铃声停、响一次接通音；通话中挂断时响一次挂断音。
+2. 拨号中挂断，挂断音照样播：点电话键后趁还没接通再挂断，应听到一次挂断音。
+3. 只看文字时三种声音照旧：打开「只看文字」，重复第 1 条，铃声 / 接通音 / 挂断音都不受影响。
+4. 通话中离开对话页，铃声停下、挂断音不播：通话中（或拨号中）点返回离开对话页，铃声应立刻停，且不响挂断音。
+
