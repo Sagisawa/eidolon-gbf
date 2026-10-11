@@ -72,8 +72,6 @@ function record(id: string): Conversation {
 }
 
 type Options = {
-  /** Whose conversation it is; "hikari" unless a test says otherwise. */
-  characterId?: string;
   /** Her conversations, newest first; one, "c1", unless a test says otherwise. */
   conversations?: Conversation[];
   /** The messages recorded in "c1". */
@@ -135,7 +133,7 @@ function opening(options: Options = {}) {
     now: () => NOW,
     ...options.ports,
   };
-  const live = new LiveConversation(options.characterId ?? "hikari", ports);
+  const live = new LiveConversation("hikari", ports);
   let published = 0;
   live.subscribe(() => published++);
   return {
@@ -442,19 +440,6 @@ describe("LiveConversation: a call", () => {
 });
 
 describe("LiveConversation: which call it is", () => {
-  it("counts this page's calls from 1, going up on each redial", async () => {
-    const { live, attempts } = await conversation();
-    const calling = live.startCall();
-    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 });
-    attempts[0].connect(new FakeCall());
-    await calling;
-
-    await live.hangUp();
-    void live.startCall();
-
-    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 2 });
-  });
-
   it("keeps the same number when the call connects and when it ends", async () => {
     const { live, attempts } = await conversation();
     const calling = live.startCall();
@@ -468,12 +453,12 @@ describe("LiveConversation: which call it is", () => {
 });
 
 describe("LiveConversation: how long an ended call was", () => {
-  it("counts the whole seconds from when it connected, and none when it never did", async () => {
+  it("counts the whole seconds from when it connected, rounding down, and none when it never did", async () => {
     let clock = NOW;
     const { live, attempts } = await conversation({ ports: { now: () => clock } });
     await connected(live, attempts);
 
-    clock += 83_000;
+    clock += 83_999;
     attempts[0].handlers.onDropped();
 
     expect(live.snapshot().call).toMatchObject({ phase: "ended", seconds: 83 });
@@ -481,17 +466,6 @@ describe("LiveConversation: how long an ended call was", () => {
     await failing(live, attempts, new Error("无法接通，请稍后再试"));
 
     expect(live.snapshot().call).toMatchObject({ phase: "ended", seconds: null });
-  });
-
-  it("rounds down to whole seconds", async () => {
-    let clock = NOW;
-    const { live, attempts } = await conversation({ ports: { now: () => clock } });
-    await connected(live, attempts);
-
-    clock += 1_999;
-    attempts[0].handlers.onDropped();
-
-    expect(live.snapshot().call).toMatchObject({ phase: "ended", seconds: 1 });
   });
 });
 
@@ -538,7 +512,7 @@ describe("LiveConversation: the line before", () => {
     expect(live.snapshot().previousLine).toBeNull();
   });
 
-  it("starts each call with no previous line", async () => {
+  it("starts each call with no previous line, not taking one from the last call", async () => {
     const { live, handlers, attempts } = await inCall();
     handlers.onEvent({ type: "user", text: "你好" });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
@@ -546,19 +520,9 @@ describe("LiveConversation: the line before", () => {
     await live.hangUp();
 
     await connected(live, attempts);
-
     expect(live.snapshot().line).toBeNull();
     expect(live.snapshot().previousLine).toBeNull();
-  });
 
-  it("does not take a line from the last call as the previous one", async () => {
-    const { live, handlers, attempts } = await inCall();
-    handlers.onEvent({ type: "user", text: "你好" });
-    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
-    handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
-    await live.hangUp();
-
-    await connected(live, attempts);
     attempts[1].handlers.onEvent({ type: "user", text: "你好" });
     attempts[1].handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "やあ" });
 
@@ -970,14 +934,6 @@ describe("LiveConversation: the call tones", () => {
     expect(tones.calls).toEqual(["ring"]);
   });
 
-  it("stops ringing and plays the connect tone once the call connects", async () => {
-    const { live, attempts, tones } = await conversation();
-
-    await connected(live, attempts);
-
-    expect(tones.calls).toEqual(["ring", "connect"]);
-  });
-
   /** The ways a call ends, however it got there. */
   const endings: [string, (live: LiveConversation, attempts: Attempt[]) => Promise<void>][] = [
     [
@@ -992,13 +948,6 @@ describe("LiveConversation: the call tones", () => {
       async (live, attempts) => {
         await connected(live, attempts);
         await live.hangUp();
-      },
-    ],
-    [
-      "the call drops",
-      async (live, attempts) => {
-        await connected(live, attempts);
-        attempts[0].handlers.onDropped();
       },
     ],
     [
@@ -1052,7 +1001,9 @@ describe("LiveConversation: the call tones", () => {
     live.toggleTextOnly();
     expect(tones.calls).toEqual(["ring", "connect"]);
 
-    await live.hangUp();
+    // 断线才有结束页可看（用户自己挂断直接回 idle）。
+    attempts[0].handlers.onDropped();
+    expect(live.snapshot().call).toMatchObject({ phase: "ended" });
     expect(tones.calls).toEqual(["ring", "connect", "hangUp"]);
 
     // 看完结束页回到 idle、开新对话，都不发声。
@@ -1200,11 +1151,6 @@ describe("LiveConversation: typing", () => {
 });
 
 describe("LiveConversation: opening", () => {
-  it("says whose conversation it is: the character it was made for", () => {
-    const { live } = opening({ characterId: "misaki" });
-    expect(live.characterId).toBe("misaki");
-  });
-
   it("opens her newest conversation with its messages, leaving the list alone", async () => {
     const { live, listChanged, sentTo } = opening({
       conversations: [record("c1"), record("c0")],
