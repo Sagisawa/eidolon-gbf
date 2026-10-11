@@ -15,6 +15,17 @@ import {
   type LogAction,
 } from "@/lib/conversationLog";
 import { toFailure, type Failure } from "@/lib/failure";
+import {
+  lineOf,
+  movedLines,
+  nextPacedAt,
+  NO_LINES,
+  pacedLines,
+  previousLineOf,
+  shownSegmentOf,
+  type Lines,
+  type LinesEvent,
+} from "@/lib/linePacing";
 import { CALM, type StandDirection } from "@/lib/standAnimations";
 import { directionOf, directStand, startingStand, type StandEvent, type StandState } from "@/lib/standDirection";
 
@@ -74,10 +85,12 @@ export type Snapshot = {
   pickingMic: boolean;
   /** What the user is saying in the call so far. */
   hearing: string;
-  /** The character's latest line in this call, for the call screen; null until she has one. */
+  /** The line the call screen's line card shows, by the rules in `linePacing.ts`: with her
+   * voice, the segment it is saying. Null until the card has shown one in this call. */
   line: Segment | null;
-  /** The line before that in this call, shown faintly in text only; null until she has two.
-   * Taken from the same range as `line`, so a reply dropped for a follow-on is never it. */
+  /** The line the card showed before that in this call, shown faintly in text only; null
+   * until it has shown two. Never a segment it skipped, nor one of a reply dropped for a
+   * follow-on. */
   previousLine: Segment | null;
   /** The microphone is off in the browser (GLOSSARY.md「麦克风静音」). */
   micMuted: boolean;
@@ -107,15 +120,15 @@ export type Snapshot = {
 
 type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
   log: ConversationLog;
-  /** How many entries there were when the call connected: her lines from there on are its. */
-  callFrom: number;
+  /** Her lines on the call screen's line card, in the call under way or the last one. */
+  lines: Lines;
   /** Which of this page's calls is under way or last shown, from 0 before the first. */
   dial: number;
   /** Her stand direction, moved on by the call under way. */
   stand: StandState;
 };
 
-const IDLE: Omit<State, "log" | "callFrom" | "stand" | "dial"> = {
+const IDLE: Omit<State, "log" | "lines" | "stand" | "dial"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
   layer: null,
@@ -204,6 +217,8 @@ export class LiveConversation {
   private disposed = false;
   /** The conversation open; null until it is. */
   private conversationId: string | null = null;
+  /** Moves the line card on when it is next due to at her pace; null while it is not. */
+  private pacing: ReturnType<typeof setTimeout> | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
@@ -213,7 +228,7 @@ export class LiveConversation {
   ) {
     const textOnly = ports.preferences.load().muted;
     ports.voice.setTextOnly(textOnly);
-    this.state = { ...IDLE, log: emptyLog, callFrom: 0, dial: 0, textOnly, stand: startingStand(textOnly) };
+    this.state = { ...IDLE, log: emptyLog, lines: NO_LINES, dial: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
   }
@@ -231,6 +246,7 @@ export class LiveConversation {
    * A conversation still opening is not shown either. */
   dispose(): void {
     this.disposed = true;
+    if (this.pacing !== null) clearTimeout(this.pacing);
     this.attempt = null;
     this.call?.leave().catch(() => {});
     this.call = null;
@@ -267,8 +283,7 @@ export class LiveConversation {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
       // speaks, it interrupts her.
       this.call.sendText(text);
-      const stand = this.directed({ type: "typed" });
-      if (stand !== this.state.stand) this.update({ stand });
+      this.moveLines({ type: "interrupted" }, { stand: this.directed({ type: "typed" }) });
       return;
     }
     this.apply({ type: "submitted", text, at: this.isoNow() }, { busy: true });
@@ -359,7 +374,7 @@ export class LiveConversation {
     this.ports.tones.connect();
     this.update({
       call: { phase: "connected", dial: this.state.dial, since: this.now(), maxSeconds: started.maxSeconds },
-      callFrom: this.state.log.entries.length,
+      lines: NO_LINES,
       ...micInUse(started.mic),
     });
   }
@@ -439,15 +454,56 @@ export class LiveConversation {
         this.endedBy = backendEnd(event);
         return;
       case "user":
-        return this.applyTurnEvent(event, { hearing: "", stand });
+        this.applyTurnEvent(event, { hearing: "", stand });
+        return this.moveLines({ type: "reply", number: event.reply ?? 0, voiced: !this.state.textOnly });
       case "error":
         return this.applyTurnEvent(event, { failure: { message: event.message, signedOut: false }, stand });
       case "delta":
+        this.applyTurnEvent(event, { stand });
+        return this.moveLines({ type: "text", segments: replySegments(this.state.log) });
       case "done":
-        return this.applyTurnEvent(event, { stand });
+        this.applyTurnEvent(event, { stand });
+        return this.moveLines({ type: "recorded", segments: event.message.segments });
+      case "segment-playing":
+        return this.moveLines(event, { stand });
+      case "bot-started-speaking":
+      case "bot-stopped-speaking":
+        return this.moveLines({ type: "voice", playing: event.type === "bot-started-speaking" }, { stand });
+      case "user-started-speaking":
+        return this.moveLines({ type: "interrupted" }, { stand });
       default:
         this.update({ stand });
     }
+  }
+
+  /** Her lines on the call screen's line card moved on by this event, along with any other
+   * change. */
+  private moveLines(event: LinesEvent, change: Partial<State> = {}): void {
+    this.showLines(movedLines(this.state.lines, event, this.now()), change);
+  }
+
+  /** Shows these lines on the line card, along with any other change, moved on at her pace if
+   * the card keeps it now, and has the card move on again when it is due to. Her stand follows
+   * a line the card moved on to at her pace. */
+  private showLines(moved: Lines, change: Partial<State> = {}): void {
+    const lines = pacedLines(moved, this.now());
+    const shown = shownSegmentOf(lines);
+    const stand = change.stand ?? this.state.stand;
+    const paced = lines !== moved && shown ? { stand: directStand(stand, { type: "line-shown", ...shown }) } : {};
+    if (lines !== this.state.lines || Object.keys(change).length > 0) this.update({ ...change, lines, ...paced });
+    this.pace();
+  }
+
+  /** Has the line card move on when it is next due to at her pace, if it keeps her pace. */
+  private pace(): void {
+    if (this.pacing !== null) clearTimeout(this.pacing);
+    this.pacing = null;
+    const at = nextPacedAt(this.state.lines);
+    if (at === null || this.disposed) return;
+    this.pacing = setTimeout(() => {
+      this.pacing = null;
+      this.showLines(this.state.lines);
+    }, at - this.now());
   }
 
   /** Her stand, moved on by this event (see `standDirection.ts` for how she looks). */
@@ -492,7 +548,7 @@ export class LiveConversation {
     this.conversationId = conversationId;
     this.apply(
       { type: "loaded", messages },
-      { ...change, conversation: { status: "open" }, callFrom: messages.length },
+      { ...change, conversation: { status: "open" }, lines: NO_LINES },
     );
   }
 
@@ -528,6 +584,7 @@ export class LiveConversation {
         stand: this.directed({ type: "call-over" }),
       },
     );
+    this.moveLines({ type: "call-over" });
   }
 
   private now(): number {
@@ -586,26 +643,22 @@ function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
 }
 
 function toSnapshot(state: State): Snapshot {
-  const { log, callFrom, dial, stand, ...rest } = state;
+  const { log, lines, dial, stand, ...rest } = state;
   const free = isFree(state);
-  const lines = callLines(log.entries.slice(callFrom));
   return {
     ...rest,
     entries: log.entries,
-    line: lines.at(-1) ?? null,
-    previousLine: lines.at(-2) ?? null,
+    line: lineOf(lines),
+    previousLine: previousLineOf(lines),
     stand: directionOf(stand),
     canDial: free,
     canStartNew: free,
   };
 }
 
-/** The lines she has said in these entries, in order: each segment with Japanese text. */
-function callLines(entries: Entry[]): Segment[] {
-  const lines: Segment[] = [];
-  for (const entry of entries) {
-    if (entry.kind !== "character") continue;
-    for (const segment of entry.segments) if (segment.ja) lines.push(segment);
-  }
-  return lines;
+/** The segments of the reply under way, as far as they have arrived. */
+function replySegments(log: ConversationLog): Segment[] {
+  const turn = log.turn;
+  const reply = turn && log.entries.find((entry) => entry.key === turn.replyKey);
+  return reply?.kind === "character" ? reply.segments : [];
 }

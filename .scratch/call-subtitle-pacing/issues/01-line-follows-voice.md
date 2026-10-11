@@ -26,15 +26,22 @@ DESIGN.md「Call layer」里台词卡的说明补上换段节奏。
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 有声音时，台词卡在收到 `segment-playing` 前不换到新到达的段；收到后换到那段
-- [ ] 同一段的文字随到随补，不算换段
-- [ ] 没出声的段被跳过，台词卡不退回
-- [ ] 被打断后台词卡停在当时那段，不补放没念的段；下一条回复开始念时换过去
-- [ ] 回复记下、声音停了、台词卡没走完时，剩下的段按估算节奏放完，立绘跟着台词卡换表情
-- [ ] 中途打开「只看文字」，这条回复仍跟着 `segment-playing` 换段
-- [ ] `previousLine` 是上一个显示过的段：不包括被跳过的段，补充放下的回复不算，重拨后清空
-- [ ] 测试只走 LiveConversation 快照，用假通话事件和 vitest 假计时器；原有「the line before」等测试按新规则改写，守的东西不丢
-- [ ] DESIGN.md「Call layer」写明台词卡跟着声音换段
-- [ ] 前端的全部测试、类型检查、`check-discipline` 和构建通过
+- [x] 有声音时，台词卡在收到 `segment-playing` 前不换到新到达的段；收到后换到那段
+- [x] 同一段的文字随到随补，不算换段
+- [x] 没出声的段被跳过，台词卡不退回
+- [x] 被打断后台词卡停在当时那段，不补放没念的段；下一条回复开始念时换过去
+- [x] 回复记下、声音停了、台词卡没走完时，剩下的段按估算节奏放完，立绘跟着台词卡换表情
+- [x] 中途打开「只看文字」，这条回复仍跟着 `segment-playing` 换段
+- [x] `previousLine` 是上一个显示过的段：不包括被跳过的段，补充放下的回复不算，重拨后清空
+- [x] 测试只走 LiveConversation 快照，用假通话事件和 vitest 假计时器；原有「the line before」等测试按新规则改写，守的东西不丢
+- [x] DESIGN.md「Call layer」写明台词卡跟着声音换段
+- [x] 前端的全部测试、类型检查、`check-discipline` 和构建通过
+
+**实现说明：**
+
+- 「她已经不在说话」不能只看声音停没停：文字比声音快，回复常常在她开口前就记下了。所以兜底分两种：她念过这条回复的某段、声音停了，就从停下的那段接着放；回复记下后她一直没开口，等 3 秒（`VOICE_WAIT_MS`，在 `lib/linePacing.ts`）再从第一段放。
+- 「被打断」靠用户开口（`user-started-speaking`）或在通话里发出打的字来判断，不靠下一条回复开始；补充同样会触发它，但补充放下的回复本来就不留痕迹。
+- 兜底补放时立绘靠新的 `line-shown` 立绘事件换到台词卡那段（`standDirection.ts`），和 `segment-playing` 同一条规则。
+- 原来的「counts her lines in a call from the start of the new conversation」删掉了：台词卡不再从对话记录里取段，每次接通都清空，它守的东西由「starts each call with nothing on it」覆盖。

@@ -5,11 +5,12 @@
 // - She looks at the user while they speak, and nods when they stop. Her voice stops at once
 //   when she is interrupted: if the user interrupted her by typing, she looks at them once it
 //   stops, until she speaks again. What is typed before she speaks changes nothing.
-// - Her mood follows the segment she is saying: the one her voice last started playing, or in
-//   text only the one whose first subtitle last showed. An emotion judged before the segment
-//   is said is kept until it is; one judged while it is said is taken up at once; one judged
-//   after it has been said is dropped. Through a calm segment her mood stays as it was, unless
-//   the segment opens her reply. A nod or shake of the head goes with the emotion.
+// - Her mood follows the segment she is saying: the one her voice last started playing, the one
+//   the call screen's line card moved on to without her voice, or in text only the one whose
+//   first subtitle last showed. An emotion judged before the segment is said is kept until it
+//   is; one judged while it is said is taken up at once; one judged after it has been said is
+//   dropped. Through a calm segment her mood stays as it was, unless the segment opens her
+//   reply. A nod or shake of the head goes with the emotion.
 // - When the call is over, all is forgotten and the next call starts calm; text only is kept,
 //   and nods go on counting, so that no two share an id.
 
@@ -51,6 +52,8 @@ export type StandEvent =
   | CallEvent
   /** The user typed something in the call. */
   | { type: "typed" }
+  /** The call screen's line card moved on to this segment without her voice, at her pace. */
+  | ({ type: "line-shown" } & SegmentAt)
   /** Text only was switched. */
   | { type: "text-only"; textOnly: boolean }
   /** The call was hung up or dropped. */
@@ -85,6 +88,7 @@ function moved(state: StandState, event: StandEvent): StandState {
   if (isSpeaking(event)) return onSpeaking(state, event);
   switch (event.type) {
     case "segment-playing":
+    case "line-shown":
       return startSaying(state, event);
     case "emotion":
       return onEmotion(state, event);
