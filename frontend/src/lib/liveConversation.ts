@@ -134,8 +134,22 @@ export type Voice = {
   dispose: () => void;
 };
 
+/** The phone's own sounds around a call (GLOSSARY.md「铃声」「接通音」「挂断音」), told by the
+ * conversation as the call is dialed, connects, ends, or the page is left. They are not her
+ * voice: text only and collapsing the call layer never touch them. */
+export type Tones = {
+  /** The ringback starts looping: the user has just dialed. */
+  ring: () => void;
+  /** The call connected: the ringback stops and the connect tone plays once. */
+  connect: () => void;
+  /** The call is over, hung up or not: the ringback stops and the hang-up tone plays once. */
+  hangUp: () => void;
+  /** The page is left: the ringback stops alone, no tone. */
+  silence: () => void;
+};
+
 /** What the conversation needs from outside: the backend, this device's preferences, her
- * voice, and the conversation list beside the page. */
+ * voice, the phone's own sounds, and the conversation list beside the page. */
 export type Ports = {
   /** Her conversations, newest first. */
   listConversations: (characterId: string) => Promise<Conversation[]>;
@@ -155,6 +169,7 @@ export type Ports = {
     save: (change: Partial<CallPreferences>) => CallPreferences;
   };
   voice: Voice;
+  tones: Tones;
   /** The time now, in milliseconds; `Date.now` unless a test stops the clock. */
   now?: () => number;
 };
@@ -200,6 +215,7 @@ export class LiveConversation {
     this.attempt = null;
     this.call?.leave().catch(() => {});
     this.call = null;
+    this.ports.tones.silence();
     this.ports.voice.dispose();
   }
 
@@ -281,6 +297,7 @@ export class LiveConversation {
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);
+    this.ports.tones.ring();
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
@@ -319,6 +336,7 @@ export class LiveConversation {
       return;
     }
     this.call = started;
+    this.ports.tones.connect();
     this.update({
       call: { phase: "connected", since: this.now(), maxSeconds: started.maxSeconds },
       callFrom: this.state.log.entries.length,
@@ -472,6 +490,7 @@ export class LiveConversation {
   private ended(end: CallEnd | null): void {
     this.attempt = null;
     this.call = null;
+    this.ports.tones.hangUp();
     this.apply(
       { type: "interrupted" },
       {

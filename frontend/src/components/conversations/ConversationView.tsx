@@ -87,7 +87,8 @@ export function ConversationView({
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
-  useCallTones(call.phase);
+  // 电话本身的声音（铃声、接通音、挂断音）：像她的声音一样交给 LiveConversation。
+  const tones = useCallTones();
 
   // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话，停下她的声音）。
   useEffect(() => {
@@ -100,10 +101,11 @@ export function ConversationView({
       sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
       preferences: { load: loadCallPreferences, save: saveCallPreferences },
       voice,
+      tones,
     });
     setLive(conversation);
     return () => conversation.dispose();
-  }, [character.id, userId, refresh, voice]);
+  }, [character.id, userId, refresh, voice, tones]);
 
   // 通话的进展告诉列表那一行。
   useEffect(() => {
