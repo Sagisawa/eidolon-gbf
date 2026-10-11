@@ -2,25 +2,53 @@
 
 import { useEffect, useRef } from "react";
 
-import { callTones, type Tone } from "@/lib/callTones";
-import type { CallState } from "@/lib/liveConversation";
+import type { Tones } from "@/lib/liveConversation";
 
-type Sounds = { ring: HTMLAudioElement; tones: Record<Tone, HTMLAudioElement> };
+type Sounds = { ring: HTMLAudioElement; connect: HTMLAudioElement; hangUp: HTMLAudioElement };
 
 /**
- * 电话本身的声音（GLOSSARY.md「铃声」「接通音」「挂断音」）：跟着通话状态的切换响铃、停铃、播一次提示音，
- * 怎么切换对应什么声音见 callTones。它们不是角色的声音，「只看文字」和收起通话层都不影响；离开这一页时铃声跟着停。
- * 播放由用户点下拨打引起，一般不会被自动播放策略拦下；万一被拒就算了，不影响通话。
+ * 电话本身的声音（GLOSSARY.md「铃声」「接通音」「挂断音」）的 adapter：建好铃声、接通音、挂断音三个 Audio
+ * 元素，交出一个 `tones` port，由 LiveConversation 在拨号、接通、结束和离开页面这几处告诉页面响什么。
+ * 它们不是角色的声音，「只看文字」和收起通话层都不影响；播放由用户点下拨打引起，一般不会被自动播放策略拦下，
+ * 万一被拒就算了，不影响通话。
  */
-export function useCallTones(phase: CallState["phase"]): void {
+export function useCallTones(): Tones {
   const sounds = useRef<Sounds | null>(null);
-  const last = useRef(phase);
+  const tones = useRef<Tones | null>(null);
+  if (tones.current === null)
+    tones.current = {
+      ring: () => {
+        const s = sounds.current;
+        if (s) play(s.ring);
+      },
+      connect: () => {
+        const s = sounds.current;
+        if (s) {
+          stop(s.ring);
+          play(s.connect);
+        }
+      },
+      hangUp: () => {
+        const s = sounds.current;
+        if (s) {
+          stop(s.ring);
+          play(s.hangUp);
+        }
+      },
+      silence: () => {
+        const s = sounds.current;
+        if (s) stop(s.ring);
+      },
+    };
+  const port = tones.current;
 
   useEffect(() => {
-    const ring = new Audio("/sounds/ringback.mp3");
-    ring.loop = true;
-    const tones = { connect: new Audio("/sounds/connect.ogg"), "hang-up": new Audio("/sounds/hang-up.mp3") };
-    const loaded = { ring, tones };
+    const loaded: Sounds = {
+      ring: new Audio("/sounds/ringback.mp3"),
+      connect: new Audio("/sounds/connect.ogg"),
+      hangUp: new Audio("/sounds/hang-up.mp3"),
+    };
+    loaded.ring.loop = true;
     sounds.current = loaded;
     return () => {
       stop(loaded.ring);
@@ -28,16 +56,7 @@ export function useCallTones(phase: CallState["phase"]): void {
     };
   }, []);
 
-  useEffect(() => {
-    const from = last.current;
-    last.current = phase;
-    const loaded = sounds.current;
-    if (!loaded) return;
-    const { ring, once } = callTones(from, phase);
-    if (ring === "start") play(loaded.ring);
-    if (ring === "stop") stop(loaded.ring);
-    if (once) play(loaded.tones[once]);
-  }, [phase]);
+  return port;
 }
 
 function play(audio: HTMLAudioElement): void {

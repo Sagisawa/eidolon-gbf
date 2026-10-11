@@ -28,12 +28,16 @@ const MAX_INPUT_LENGTH = 2000;
  *   may last `maxSeconds` (null for no limit);
  * - `ended`: over for a reason other than the user hanging up, shown until dismissed;
  *   a call the user hangs up goes straight back to `idle`.
+ *
+ * `dial` is which of this page's calls it is, from 1, going up on each `startCall` and kept
+ * through dialing, connected and ended (the page uses it as the stand's key). `seconds` is
+ * how long an ended call was connected, counted at that moment, or null if it never connected.
  */
 export type CallState =
   | { phase: "idle" }
-  | { phase: "dialing" }
-  | { phase: "connected"; since: number; maxSeconds: number | null }
-  | { phase: "ended"; end: CallEnd };
+  | { phase: "dialing"; dial: number }
+  | { phase: "connected"; dial: number; since: number; maxSeconds: number | null }
+  | { phase: "ended"; dial: number; end: CallEnd; seconds: number | null };
 
 /** A call under way: dialing or connected. Leaving the page hangs it up. */
 export type LiveCall = Extract<CallState, { phase: "dialing" | "connected" }>;
@@ -41,6 +45,12 @@ export type LiveCall = Extract<CallState, { phase: "dialing" | "connected" }>;
 export function isLive(call: CallState): call is LiveCall {
   return call.phase === "dialing" || call.phase === "connected";
 }
+
+/** The call the call layer draws: dialing, connected, or ended for a reason (spec「通话层」). */
+export type ShownCall = Extract<CallState, { phase: "dialing" | "connected" | "ended" }>;
+
+/** The call layer: the call it draws and whether it is folded onto the conversation. */
+export type Layer = { call: ShownCall; collapsed: boolean };
 
 export type MicNotice = "fell_back" | "unavailable" | "lost";
 
@@ -55,15 +65,20 @@ export type Snapshot = {
   conversation: OpenState;
   entries: Entry[];
   call: CallState;
-  /** The call layer is collapsed onto the conversation. It opens up again when dialing and
-   * when the call ends for a reason, so the user sees why. */
-  collapsed: boolean;
+  /** The call layer: the call it draws and whether it is folded onto the conversation. Null
+   * until this page has dialed once; after that it keeps the last call, folded away, so the
+   * layer has something to draw as it slides down. Dialing and a call that ends for a reason
+   * unfold it, so the user sees the call or why it ended. */
+  layer: Layer | null;
   /** The list of microphones is open; only while the call is connected. */
   pickingMic: boolean;
   /** What the user is saying in the call so far. */
   hearing: string;
   /** The character's latest line in this call, for the call screen; null until she has one. */
   line: Segment | null;
+  /** The line before that in this call, shown faintly in text only; null until she has two.
+   * Taken from the same range as `line`, so a reply dropped for a follow-on is never it. */
+  previousLine: Segment | null;
   /** The microphone is off in the browser (GLOSSARY.md「麦克风静音」). */
   micMuted: boolean;
   /** The microphone the call is using; empty for the system default. */
@@ -90,18 +105,20 @@ export type Snapshot = {
   stand: StandDirection;
 };
 
-type State = Omit<Snapshot, "entries" | "line" | "stand" | "canDial" | "canStartNew"> & {
+type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
   log: ConversationLog;
   /** How many entries there were when the call connected: her lines from there on are its. */
   callFrom: number;
+  /** Which of this page's calls is under way or last shown, from 0 before the first. */
+  dial: number;
   /** Her stand direction, moved on by the call under way. */
   stand: StandState;
 };
 
-const IDLE: Omit<State, "log" | "callFrom" | "stand"> = {
+const IDLE: Omit<State, "log" | "callFrom" | "stand" | "dial"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
-  collapsed: false,
+  layer: null,
   pickingMic: false,
   hearing: "",
   micMuted: false,
@@ -118,6 +135,7 @@ export const NOT_OPEN: Snapshot = {
   ...IDLE,
   entries: [],
   line: null,
+  previousLine: null,
   stand: CALM,
   canDial: false,
   canStartNew: false,
@@ -134,8 +152,22 @@ export type Voice = {
   dispose: () => void;
 };
 
+/** The phone's own sounds around a call (GLOSSARY.md「铃声」「接通音」「挂断音」), told by the
+ * conversation as the call is dialed, connects, ends, or the page is left. They are not her
+ * voice: text only and collapsing the call layer never touch them. */
+export type Tones = {
+  /** The ringback starts looping: the user has just dialed. */
+  ring: () => void;
+  /** The call connected: the ringback stops and the connect tone plays once. */
+  connect: () => void;
+  /** The call is over, hung up or not: the ringback stops and the hang-up tone plays once. */
+  hangUp: () => void;
+  /** The page is left: the ringback stops alone, no tone. */
+  silence: () => void;
+};
+
 /** What the conversation needs from outside: the backend, this device's preferences, her
- * voice, and the conversation list beside the page. */
+ * voice, the phone's own sounds, and the conversation list beside the page. */
 export type Ports = {
   /** Her conversations, newest first. */
   listConversations: (characterId: string) => Promise<Conversation[]>;
@@ -155,6 +187,7 @@ export type Ports = {
     save: (change: Partial<CallPreferences>) => CallPreferences;
   };
   voice: Voice;
+  tones: Tones;
   /** The time now, in milliseconds; `Date.now` unless a test stops the clock. */
   now?: () => number;
 };
@@ -172,14 +205,15 @@ export class LiveConversation {
   /** The conversation open; null until it is. */
   private conversationId: string | null = null;
 
-  /** Opens her newest conversation, or starts one if she has none. */
+  /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
+   * conversation it is, for the page and the conversation list beside it. */
   constructor(
-    private readonly characterId: string,
+    readonly characterId: string,
     private readonly ports: Ports,
   ) {
     const textOnly = ports.preferences.load().muted;
     ports.voice.setTextOnly(textOnly);
-    this.state = { ...IDLE, log: emptyLog, callFrom: 0, textOnly, stand: startingStand(textOnly) };
+    this.state = { ...IDLE, log: emptyLog, callFrom: 0, dial: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
   }
@@ -200,6 +234,7 @@ export class LiveConversation {
     this.attempt = null;
     this.call?.leave().catch(() => {});
     this.call = null;
+    this.ports.tones.silence();
     this.ports.voice.dispose();
   }
 
@@ -281,10 +316,12 @@ export class LiveConversation {
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);
+    this.ports.tones.ring();
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
-    this.update({ call: { phase: "dialing" }, micMuted: false, failure: null });
+    const dial = this.state.dial + 1;
+    this.update({ call: { phase: "dialing", dial }, dial, micMuted: false, failure: null });
     const current = () => this.attempt === attempt;
     // The gate: what the call sends once it is over changes nothing.
     const gated =
@@ -319,8 +356,9 @@ export class LiveConversation {
       return;
     }
     this.call = started;
+    this.ports.tones.connect();
     this.update({
-      call: { phase: "connected", since: this.now(), maxSeconds: started.maxSeconds },
+      call: { phase: "connected", dial: this.state.dial, since: this.now(), maxSeconds: started.maxSeconds },
       callFrom: this.state.log.entries.length,
       ...micInUse(started.mic),
     });
@@ -341,11 +379,14 @@ export class LiveConversation {
 
   /** Collapse the call layer onto the conversation, while the call is under way. */
   collapse(): void {
-    if (isLive(this.state.call) && !this.state.collapsed) this.update({ collapsed: true });
+    const layer = this.state.layer;
+    if (isLive(this.state.call) && layer && !layer.collapsed) this.update({ layer: { ...layer, collapsed: true } });
   }
 
+  /** Unfold the call layer, while the call is under way: once it is over it cannot open again. */
   expand(): void {
-    if (this.state.collapsed) this.update({ collapsed: false });
+    const layer = this.state.layer;
+    if (isLive(this.state.call) && layer?.collapsed) this.update({ layer: { ...layer, collapsed: false } });
   }
 
   /** Open the list of microphones to switch to; only while the call is connected. */
@@ -470,12 +511,16 @@ export class LiveConversation {
    * no longer the call under way, so whatever it sends from now on is too late (see
    * `startCall`). */
   private ended(end: CallEnd | null): void {
+    // How long it was connected, counted now, before the call state is cleared.
+    const connected = this.state.call.phase === "connected" ? this.state.call.since : null;
+    const seconds = connected === null ? null : Math.max(0, Math.floor((this.now() - connected) / 1000));
     this.attempt = null;
     this.call = null;
+    this.ports.tones.hangUp();
     this.apply(
       { type: "interrupted" },
       {
-        call: end ? { phase: "ended", end } : { phase: "idle" },
+        call: end ? { phase: "ended", dial: this.state.dial, end, seconds } : { phase: "idle" },
         hearing: "",
         micMuted: false,
         micId: "",
@@ -503,16 +548,31 @@ export class LiveConversation {
 }
 
 /**
- * How the call screen follows the call, from one state to the next: dialing, and a call
- * ending for a reason, open the call layer up again, so the user sees the call or why it
- * ended; the microphone list is only for a connected call.
+ * How the call screen follows the call, from one state to the next: the layer draws the call
+ * under way, and dialing, and a call ending for a reason, open it up again, so the user sees
+ * the call or why it ended. Back at idle it keeps that last call, folded away, until the next
+ * call. The microphone list is only for a connected call.
  */
 function withCallScreenRules(before: State, next: State): State {
-  const reopens = next.call !== before.call && (next.call.phase === "dialing" || next.call.phase === "ended");
-  const collapsed = next.collapsed && !reopens;
+  const layer = nextLayer(before, next);
   const pickingMic = next.pickingMic && next.call.phase === "connected";
-  if (collapsed === next.collapsed && pickingMic === next.pickingMic) return next;
-  return { ...next, collapsed, pickingMic };
+  if (layer === next.layer && pickingMic === next.pickingMic) return next;
+  return { ...next, layer, pickingMic };
+}
+
+/** The layer for the next state: the call under way, or the last one kept folded away. */
+function nextLayer(before: State, next: State): Layer | null {
+  const layer = next.layer;
+  if (next.call.phase === "idle") {
+    // Over and dismissed, or hung up: still draw the last moment, folded away.
+    if (!layer || layer.collapsed) return layer;
+    return { call: layer.call, collapsed: true };
+  }
+  // The call is the same one: keep the layer, as the user folded or unfolded it.
+  if (next.call === before.call) return layer;
+  // Dialing and a call that ended for a reason unfold it; a call that connects leaves it be.
+  const call = next.call;
+  return { call, collapsed: call.phase === "connected" ? (layer?.collapsed ?? false) : false };
 }
 
 /** Her conversation is open with nothing under way in it, no text turn and no call: a
@@ -526,25 +586,26 @@ function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
 }
 
 function toSnapshot(state: State): Snapshot {
-  const { log, callFrom, stand, ...rest } = state;
+  const { log, callFrom, dial, stand, ...rest } = state;
   const free = isFree(state);
+  const lines = callLines(log.entries.slice(callFrom));
   return {
     ...rest,
     entries: log.entries,
-    line: latestLine(log.entries.slice(callFrom)),
+    line: lines.at(-1) ?? null,
+    previousLine: lines.at(-2) ?? null,
     stand: directionOf(stand),
     canDial: free,
     canStartNew: free,
   };
 }
 
-/** The last line she has begun to say among these entries. */
-function latestLine(entries: Entry[]): Segment | null {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
+/** The lines she has said in these entries, in order: each segment with Japanese text. */
+function callLines(entries: Entry[]): Segment[] {
+  const lines: Segment[] = [];
+  for (const entry of entries) {
     if (entry.kind !== "character") continue;
-    const line = entry.segments.findLast((segment) => segment.ja);
-    if (line) return line;
+    for (const segment of entry.segments) if (segment.ja) lines.push(segment);
   }
-  return null;
+  return lines;
 }

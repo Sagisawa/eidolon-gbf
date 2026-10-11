@@ -164,7 +164,7 @@ tones: {
 ## Further Notes
 
 - 接着第一轮（02「LiveConversation 管整页」）、第四轮（过期的通话消息只过一道闸）的方向往下走，不冲突。
-- 动手实现前，先等第八轮（候选 2，`architecture-deepening-8`）合进 main。之后从 main 开 `architecture-deepening-9` 做实现。第八轮会把 userId 从对话页的 port 里拿掉，本轮的改动在那个基础上做。
+- 分支 `architecture-deepening-9`，第八轮（PR #68）合进 main 之后，从 main 的 7b94d87 开出。第八轮没有把 userId 从对话页的 port 里拿掉，`startCall`、`sendTurn` 的 port 照旧带着它；本轮不碰这一处。
 - 计划切成四张票，分两波，每次会话只做一波：
   - 第一波：01（提示音改成 port）、02（`dial`、`seconds`、`previousLine`）、04（对话列表订阅 LiveConversation），三张并行。04 只改对话页交出对象的那一处和 Directory，不碰 02、03 改的地方。
   - 第二波：03（快照交出 `layer`），依赖 02 的 `dial`。
