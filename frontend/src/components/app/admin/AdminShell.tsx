@@ -13,7 +13,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Separator } from "@/components/ui/separator";
 import {
   Sidebar,
   SidebarContent,
@@ -54,7 +53,7 @@ type Props = {
 /**
  * 后台的外壳（DESIGN.md「Layout · 后台」）：shadcn Sidebar（16rem），头部「后台」和「管理者：{name}」，
  * 菜单「看板 / 配置 / 用户」，底部「返回设置」；窄屏（< 768px）侧栏收进 Sheet。
- * 内容区顶上一条 48px 的页首：SidebarTrigger、细竖线、面包屑。各页的内容列由 AdminPage 限宽。
+ * 内容区顶上一条 48px 的页首：SidebarTrigger 和面包屑。各页的内容列由 AdminPage 限宽。
  */
 export function AdminShell({ name, trail: fixedTrail, children }: Props) {
   const pathname = usePathname();
@@ -102,7 +101,6 @@ export function AdminShell({ name, trail: fixedTrail, children }: Props) {
       <SidebarInset>
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger aria-label={t.toggleNav} className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           <Breadcrumb aria-label={t.breadcrumb}>
             <BreadcrumbList>
               <BreadcrumbItem>{t.title}</BreadcrumbItem>
