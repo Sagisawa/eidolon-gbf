@@ -141,10 +141,12 @@ def _greeting(character: Character, assets_url: str | None) -> dict | None:
 
 
 def _unit(character: Character, world: World | None) -> dict:
-    """Her unit and where it is in the units' official order (`World.unit_of`); both None
-    without the world setting, or if its sources could not agree on her unit."""
+    """Her unit, its reading in hiragana, and where it is in the units' official order
+    (`World.unit_of`); all None without the world setting, or if its sources could not
+    agree on her unit."""
     unit, order = (world.unit_of(character.name) if world else None) or (None, None)
-    return {"unit": unit, "unit_order": order}
+    reading = world.units[order].reading if world and order is not None else None
+    return {"unit": unit, "unit_reading": reading, "unit_order": order}
 
 
 def create_app(backend: Backend) -> FastAPI:
@@ -273,6 +275,9 @@ def create_app(backend: Backend) -> FastAPI:
                 "background_url": f"/api/characters/{c.id}/background" if c.background else None,
                 "stand": _stand(c, backend.settings.stand_assets_url),
                 "idol_id": c.idol_id,
+                "name_zh": c.name_zh,
+                "name_kana": c.name_kana,
+                "name_romaji": c.name_romaji,
                 **_unit(c, backend.world),
                 "greeting": _greeting(c, backend.settings.stand_assets_url),
             }

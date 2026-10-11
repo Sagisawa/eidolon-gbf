@@ -32,6 +32,9 @@ export { CircleCheck as SuccessIcon, X as CloseIcon } from "lucide-react";
 // 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
 export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";
 
+// 对话列表搜索框右边的筛选按钮；置顶那一行的图钉。
+export { ListFilter as FilterIcon, Pin as PinIcon } from "lucide-react";
+
 // 后台用户列表可以排序的表头：按它从多到少排着的，和还没按它排的（shadcn-redesign 22）。
 export { ArrowDown as SortedIcon, ArrowUpDown as SortableIcon } from "lucide-react";
 

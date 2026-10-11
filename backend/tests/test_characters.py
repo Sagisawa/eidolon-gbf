@@ -1,6 +1,7 @@
 """Characters come from configuration: the list, the avatars, the image colours, call
 backgrounds, stands and greetings, and each one's character sheet."""
 
+import json
 import logging
 import re
 from dataclasses import replace
@@ -36,7 +37,11 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "background_url": "/api/characters/mano/background",
             "stand": None,  # no stand assets URL is configured
             "idol_id": 1,
-            "unit": None,  # no world setting
+            "name_zh": None,  # none configured
+            "name_kana": None,
+            "name_romaji": None,
+            "unit": None,
+            "unit_reading": None,  # no world setting
             "unit_order": None,
             "greeting": None,  # none configured
         },
@@ -49,7 +54,11 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "background_url": None,
             "stand": None,
             "idol_id": None,
+            "name_zh": None,  # none configured
+            "name_kana": None,
+            "name_romaji": None,
             "unit": None,
+            "unit_reading": None,
             "unit_order": None,
             "greeting": None,
         },
@@ -70,6 +79,19 @@ async def test_character_list_is_in_idol_number_order_and_those_without_one_foll
 
     assert [(c["id"], c["idol_id"]) for c in listed] == [
         ("mano", 1), ("hiori", 2), ("meguru", 3), ("kogane", None), ("someone", None),
+    ]
+
+
+async def test_character_list_gives_the_other_names_she_is_searched_by(
+    make_client: ClientFactory, characters: CharacterConfig
+):
+    characters.add("meguru", "八宮めぐる", "sheet", other_names=("八宫巡", "はちみや めぐる", "Hachimiya Meguru"))
+    client = make_client(FakeLLM(), user=None)
+
+    listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
+
+    assert [listed["meguru"][f] for f in ("name_zh", "name_kana", "name_romaji")] == [
+        "八宫巡", "はちみや めぐる", "Hachimiya Meguru",
     ]
 
 
@@ -447,6 +469,34 @@ def test_default_outfit_must_name_a_stand_outfit(tmp_path: Path, value: str):
 
     with pytest.raises(CharacterConfigError, match="角色 mano 的 default_outfit.*stand/<enzaId>"):
         load_characters(config.path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("name_zh", '"  "'), ("name_kana", "1"), ("name_romaji", '"Sakuragi\\rMano"')],
+)
+def test_other_names_must_each_be_a_line_of_text(tmp_path: Path, field: str, value: str):
+    """Not configuring them at all is fine (the list test above)."""
+    config = CharacterConfig(tmp_path).add("mano", "櫻木真乃", "a")
+    add_raw(config, f"{field} = {value}")
+
+    with pytest.raises(CharacterConfigError, match=f"角色 mano 的 {field}"):
+        load_characters(config.path)
+
+
+def test_repository_gives_each_idol_her_other_names():
+    """Her reading has a space between her family name and her given name, and is the
+    world setting's reading of her name but for it."""
+    loaded = load_characters(REPO_CHARACTERS / "characters.toml")
+    readings = {
+        idol["name"]: idol["reading"]
+        for idol in json.loads((REPO_CHARACTERS / "world.json").read_text(encoding="utf-8"))["idols"]
+    }
+
+    for c in loaded.values():
+        assert c.name_zh and c.name_kana and c.name_romaji, c.id
+        assert c.name_kana.count(" ") == 1 and c.name_kana.replace(" ", "") == readings[c.name], c.id
+        assert re.fullmatch(r"[A-Z][a-z]+ [A-Z][a-z]+", c.name_romaji), c.id
 
 
 def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():

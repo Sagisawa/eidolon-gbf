@@ -26,8 +26,8 @@ export const zh = {
     menu: "更多操作",
     memories: "记忆",
     settings: "设置",
-    /** 列表顶上的搜索框：按名字找偶像。 */
-    search: "搜索",
+    /** 列表顶上的搜索框：按名字（原名、中文译名、假名、罗马字）或组合找偶像。 */
+    search: "搜索名字或组合",
     noMatch: "没有找到这位偶像",
     /** 最后一句是制作人自己说的。 */
     you: (text: string) => `你：${text}`,
@@ -40,6 +40,25 @@ export const zh = {
     loadFailed: "对话列表没能载入",
     retry: "重试",
     disclaimer: "非官方粉丝作品，与版权方无关；角色由 AI 扮演。",
+    /** 一行的右键、长按菜单（GLOSSARY.md「隐藏 / 置顶」）。 */
+    pin: "置顶",
+    unpin: "取消置顶",
+    hide: "在列表中隐藏",
+    show: "在列表中显示",
+    /** 置顶那一行时间旁边的图钉，给读屏读的。 */
+    pinned: "已置顶",
+    /** 搜索框右边的筛选按钮；有人被隐藏时读出人数。 */
+    filter: "筛选列表",
+    filterHidden: (count: string) => `筛选列表，已隐藏 ${count} 位`,
+    /** 筛选面板：按组合分组的勾选清单。 */
+    filterTitle: "列表里显示谁",
+    showAll: "全部显示",
+    /** 没有组合的角色放在最后这一组。 */
+    noUnit: "其他",
+    /** 列表底部、免责声明上面那一行，点了打开筛选面板。 */
+    hiddenCount: (count: string) => `已隐藏 ${count} 位`,
+    allHidden: "所有角色都隐藏了",
+    chooseShown: "选择显示谁",
   },
   conversation: {
     back: "返回对话列表",

@@ -23,6 +23,7 @@ import {
   type LatestConversation,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
+import { keepListPreferences, listPreferences, NO_PREFERENCES, type ListPreferences } from "@/lib/listPreferences";
 import type { LiveCall } from "@/lib/liveConversation";
 
 /** 正在和谁通话，列表那一行据此显示「正在呼叫…」「通话中 mm:ss」。 */
@@ -40,6 +41,10 @@ export type Directory = {
   refresh: () => void;
   /** 从头重新载入，给「重试」用。 */
   reload: () => void;
+  /** 这台设备上的隐藏和置顶；和角色一起读出，读不到时什么都没整理。 */
+  preferences: ListPreferences;
+  /** 整理列表（隐藏、显示、置顶…），立即生效并存下；存不进去时只在这次页面里生效。 */
+  tidy: (change: (preferences: ListPreferences) => ListPreferences) => void;
   call: CallInList;
   /** 对话页把通话的进展告诉列表。 */
   setCall: (call: CallInList) => void;
@@ -67,6 +72,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [latest, setLatest] = useState<Record<string, LatestConversation>>({});
+  const [preferences, setPreferences] = useState<ListPreferences>(NO_PREFERENCES);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [call, setCall] = useState<CallInList>(null);
@@ -89,6 +95,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
           if (cancelled) return;
           setUserId(account.id);
           setCharacters(all);
+          setPreferences(listPreferences(account.id, all.map((c) => c.id)));
           setLatest(Object.fromEntries(summaries.map((c) => [c.character_id, c])));
         },
         (e) => !cancelled && setFailure(toFailure(e)),
@@ -104,6 +111,17 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
     setAttempt((n) => n + 1);
   }, []);
 
+  const tidy = useCallback(
+    (change: (preferences: ListPreferences) => ListPreferences) => {
+      setPreferences((current) => {
+        const next = change(current);
+        if (userId) keepListPreferences(userId, next); // 写同样的值，重复执行也无妨
+        return next;
+      });
+    },
+    [userId],
+  );
+
   const leave = useCallback(
     (go: () => void) => {
       if (call) setLeaving(() => go);
@@ -114,7 +132,9 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
 
   const callee = characters?.find((c) => c.id === call?.characterId);
   return (
-    <DirectoryContext.Provider value={{ userId, characters, latest, failure, refresh, reload, call, setCall, leave }}>
+    <DirectoryContext.Provider
+      value={{ userId, characters, latest, preferences, tidy, failure, refresh, reload, call, setCall, leave }}
+    >
       {children}
       {/* 确认框不在她的子树里：只有中性色和挂断红（DESIGN.md「Hang-up Red」：「挂断并离开」用它）。 */}
       <AlertDialog open={leaving !== null} onOpenChange={(open) => !open && setLeaving(null)}>

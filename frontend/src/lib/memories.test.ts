@@ -11,7 +11,11 @@ const mano: Character = {
   background_url: null,
   stand: null,
   idol_id: 1,
+  name_zh: null,
+  name_kana: null,
+  name_romaji: null,
   unit: null,
+  unit_reading: null,
   unit_order: null,
   greeting: null,
 };

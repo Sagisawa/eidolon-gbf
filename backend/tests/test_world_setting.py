@@ -387,7 +387,7 @@ async def test_without_the_data_file_turns_go_on_without_the_world_setting(
     assert "world.json" in caplog.text and "world sync" in caplog.text
 
 
-async def test_character_list_gives_each_character_her_unit_and_where_it_is_in_the_unit_order(
+async def test_character_list_gives_each_character_her_unit_its_reading_and_where_it_is_in_the_unit_order(
     make_client: ClientFactory, characters: CharacterConfig
 ):
     """The data file lists illumination STARS before L'Antica."""
@@ -397,10 +397,10 @@ async def test_character_list_gives_each_character_her_unit_and_where_it_is_in_t
 
     listed = (await client.get("/api/characters")).json()
 
-    assert [(c["id"], c["unit"], c["unit_order"]) for c in listed] == [
-        ("mano", "illumination STARS", 0),
-        ("hiori", "illumination STARS", 0),
-        ("kogane", "L'Antica", 1),
+    assert [(c["id"], c["unit"], c["unit_reading"], c["unit_order"]) for c in listed] == [
+        ("mano", "illumination STARS", "いるみねーしょんすたーず", 0),
+        ("hiori", "illumination STARS", "いるみねーしょんすたーず", 0),
+        ("kogane", "L'Antica", "あんてぃーか", 1),
     ]
 
 
@@ -412,7 +412,9 @@ async def test_an_idol_whose_unit_the_sources_could_not_agree_on_is_listed_witho
 
     listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
 
-    assert (listed["kogane"]["unit"], listed["kogane"]["unit_order"]) == (None, None)
+    assert (listed["kogane"]["unit"], listed["kogane"]["unit_reading"], listed["kogane"]["unit_order"]) == (
+        None, None, None,
+    )
 
 
 def test_a_character_who_is_none_of_the_idols_stops_the_backend_from_starting(
