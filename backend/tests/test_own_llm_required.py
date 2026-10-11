@@ -199,24 +199,10 @@ def test_env_turns_it_on_with_1_and_refuses_anything_but_0_or_1(
         Settings.from_env()
 
 
-async def account_requires_own_llm(client: httpx.AsyncClient) -> bool:
-    """Whether the account the page reads says the user must bring their own LLM now."""
-    res = await client.get("/api/account")
+async def test_the_account_says_the_user_must_bring_their_own_llm_now(make_client: ClientFactory):
+    # 字段就是拒绝用的那条规则，它的各个分支由回合的测试守着；
+    # 要求关闭时为 False 由 test_sign_in.py 守着。这里只看它接上了。
+    res = await make_client(FakeLLM()).get("/api/account")
+
     assert res.status_code == 200, res.text
-    return res.json()["own_llm_required"]
-
-
-async def test_the_account_says_whether_the_user_must_bring_their_own_llm_now(
-    make_client: ClientFactory, github: FakeIdentityProvider
-):
-    producer = make_client(FakeLLM())
-
-    async with admin_beside(producer, github) as admin:
-        required = await account_requires_own_llm(producer)
-        for_the_admin = await account_requires_own_llm(admin)
-        await require(admin, False)
-        turned_off = await account_requires_own_llm(producer)
-
-    assert required is True
-    assert for_the_admin is False
-    assert turned_off is False
+    assert res.json()["own_llm_required"] is True

@@ -172,19 +172,14 @@ describe("whether the page stops the user for want of their own LLM", () => {
     expect(needsOwnLLM({ ...user, own_llm_required: false }, {})).toBe(false);
   });
 
-  it("does when it requires it and this browser keeps no LLM of theirs, speech keys or not", () => {
-    expect(needsOwnLLM({ ...user, own_llm_required: true }, {})).toBe(true);
-    expect(
-      needsOwnLLM({ ...user, own_llm_required: true }, { tts: { api_key: "fish-my-own-key" }, stt: STT }),
-    ).toBe(true);
+  it("does when it requires it and this browser keeps no LLM of theirs, though it keeps speech keys", () => {
+    expect(needsOwnLLM({ ...user, own_llm_required: true }, { tts: { api_key: "fish-my-own-key" }, stt: STT })).toBe(
+      true,
+    );
   });
 
-  it("does not when it requires it and this browser keeps an LLM of theirs, speech keys or not", () => {
+  it("does not when it requires it and this browser keeps an LLM of theirs", () => {
     expect(needsOwnLLM({ ...user, own_llm_required: true }, { llm: LLM })).toBe(false);
-  });
-
-  it("does not for a user it does not bind (an admin, or one let use the deployer's LLM)", () => {
-    expect(needsOwnLLM({ ...user, is_admin: true, own_llm_required: false }, {})).toBe(false);
   });
 });
 

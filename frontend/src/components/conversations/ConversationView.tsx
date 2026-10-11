@@ -268,7 +268,8 @@ export function ConversationView({
           <Empty className="h-full">
             <EmptyHeader>
               <EmptyTitle>{t.emptyTitle(character.name)}</EmptyTitle>
-              <EmptyDescription>{t.emptyDescription}</EmptyDescription>
+              {/* 被拦时输入框和电话键都不在，「打字，或者点电话」不对；下面的提示会说明 */}
+              {!ownLLMMissing && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
             </EmptyHeader>
           </Empty>
         ) : (

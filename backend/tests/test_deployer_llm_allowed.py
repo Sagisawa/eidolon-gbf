@@ -16,7 +16,7 @@ from tests.browser import open_browser
 from tests.conftest import ClientFactory
 from tests.fakes import START, FakeClock, FakeIdentityProvider, FakeLLM
 from tests.test_admin_users import ADMIN, admin_client, details, find
-from tests.test_own_llm_required import DETAIL, account_requires_own_llm
+from tests.test_own_llm_required import DETAIL
 from tests.test_own_speech_keys import ask_before_calling
 from tests.test_rate_limit import REPLY, post_turn
 from tests.test_text_turn import send_turn, start_conversation
@@ -112,22 +112,6 @@ async def test_a_user_let_takes_turns_on_the_deployers_llm_and_they_count(
     assert len(deployers.prompts) == 1
     assert over.status_code == 429  # the deployment's turn an hour, used up
     assert "每小时 1 次" in over.json()["detail"]
-
-
-async def test_the_account_of_a_user_let_says_they_need_not_bring_their_own_llm(
-    make_client: ClientFactory, github: FakeIdentityProvider
-):
-    admin = await admin_client(make_client, github)
-    producer = make_client(FakeLLM())
-    producer_id = (await find(admin, "producer"))["id"]
-
-    before = await account_requires_own_llm(producer)
-    await allow(admin, producer_id)
-    let = await account_requires_own_llm(producer)
-    await admin.delete(limits_url(producer_id))
-    taken_off = await account_requires_own_llm(producer)
-
-    assert (before, let, taken_off) == (True, False, True)
 
 
 async def test_a_user_let_with_an_own_limit_of_0_is_still_refused_by_the_limit(

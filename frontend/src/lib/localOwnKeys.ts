@@ -36,8 +36,11 @@ export type LocalSttKey = { api_key: string; provider: SttProvider; region?: Bai
 /** 一位用户在这个浏览器里存的自带密钥，每项都可以没有。原样就是请求里的 `own_keys`（后端 `OwnKeysInput`）。 */
 export type LocalOwnKeys = { llm?: LocalLLM; tts?: LocalTtsKey; stt?: LocalSttKey };
 
+/** 存储键的前缀，后面接用户 ID。 */
+const STORAGE_PREFIX = "eidolon.ownKeys.";
+
 function storageKey(userId: string): string {
-  return `eidolon.ownKeys.${userId}`;
+  return `${STORAGE_PREFIX}${userId}`;
 }
 
 /** 这位用户在这个浏览器里存的自带密钥；存错了的那一项当作没有。 */
@@ -120,7 +123,7 @@ const CHANGED = "eidolon.ownKeys.changed";
 export function subscribeOwnKeys(onChange: () => void): () => void {
   const onStorage = (e: Event) => {
     const key = (e as StorageEvent).key;
-    if (key === null || key.startsWith("eidolon.ownKeys.")) onChange(); // null：整个存储被清空
+    if (key === null || key.startsWith(STORAGE_PREFIX)) onChange(); // null：整个存储被清空
   };
   window.addEventListener(CHANGED, onChange);
   window.addEventListener("storage", onStorage);
@@ -136,7 +139,7 @@ function changed(): void {
 
 /** 这个浏览器能不能存自带密钥：试着写一下再删掉。隐私模式、禁用了本地存储时是不能。 */
 export function canKeepOwnKeys(): boolean {
-  const probe = "eidolon.ownKeys.probe";
+  const probe = `${STORAGE_PREFIX}probe`;
   try {
     localStorage.setItem(probe, "1");
     localStorage.removeItem(probe);

@@ -15,7 +15,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { checkOwnLLM, checkOwnSpeechKey, getAccount, getLimitExemption, type LimitExemption } from "@/lib/api";
+import {
+  checkOwnLLM,
+  checkOwnSpeechKey,
+  getAccount,
+  getLimitExemption,
+  type Account,
+  type LimitExemption,
+} from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
@@ -24,6 +31,7 @@ import {
   last4,
   localOwnKeys,
   LLM_PROTOCOLS,
+  needsOwnLLM,
   ownServices,
   STT_PROVIDERS,
   type LLMProtocol,
@@ -47,9 +55,10 @@ function exemptionNote({ turns, calls }: LimitExemption): string {
  * 不保存。浏览器存不了时如实说，表单停用，不退而存在内存里。
  */
 export function OwnKeysSettings() {
-  const [userId, setUserId] = useState<string | null>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const userId = account?.id ?? null;
   // 这位用户现在必须自带 LLM（GLOSSARY.md「必须自带 LLM」）：LLM 标成必填，并说明通话怎么计数。
-  const [ownLLMRequired, setOwnLLMRequired] = useState(false);
+  const ownLLMRequired = account?.own_llm_required ?? false;
   const [kept, setKept] = useState<LocalOwnKeys>({});
   const [canKeep, setCanKeep] = useState(true);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -77,8 +86,7 @@ export function OwnKeysSettings() {
   useEffect(() => {
     getAccount().then(
       (account) => {
-        setUserId(account.id);
-        setOwnLLMRequired(account.own_llm_required);
+        setAccount(account);
         setKept(localOwnKeys(account.id));
         setCanKeep(canKeepOwnKeys());
       },
@@ -93,7 +101,7 @@ export function OwnKeysSettings() {
       </SettingsSection>
     );
   }
-  if (!userId) return null;
+  if (!account || !userId) return null;
 
   /** 改了浏览器里存的 key，再按存下的显示：存不下的就是没存。 */
   const change = (keep: () => void) => {
@@ -129,7 +137,7 @@ export function OwnKeysSettings() {
       {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
       <p role="status" className="text-body">
         {/* 必须自带 LLM 又没填时，「用的是部署者的服务」不对，不说 */}
-        {answered?.services === services && !(ownLLMRequired && !kept.llm) && exemptionNote(answered.exemption)}
+        {answered?.services === services && !needsOwnLLM(account, kept) && exemptionNote(answered.exemption)}
         {t.perCallLimits}
       </p>
       {ownLLMRequired && <p className="text-body">{t.ownLLMRequired}</p>}
