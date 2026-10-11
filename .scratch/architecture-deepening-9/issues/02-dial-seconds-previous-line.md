@@ -16,7 +16,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** claimed
 
 ## 已定的设计（2026-10-11 grilling，详见 spec）
 
@@ -45,3 +45,19 @@
   - 重拨后台词卡没有上一通的话，立绘重新载入。
 
 ## Comments
+
+### 实现说明（2026-10-11）
+
+- `CallState` 改成 spec 的形状：`dialing`、`connected`、`ended` 都带 `dial`；`ended` 另带 `seconds: number | null`。`dial` 存在 `State` 里（不从 `callFrom` 推），`startCall` 时加一，三个阶段沿用同一个值。
+- `seconds` 在 `ended()` 判定结束的那一刻，用注入的 `ports.now` 从 `connected.since` 算到现在的整秒数（向下取整、不小于 0）；没接通过的为 null。用户自己挂断走 `ended(null)` 回 idle，不算时长。
+- `Snapshot` 加 `previousLine`：与 `line` 同范围（这通电话的记录 `entries.slice(callFrom)`），取倒数第二句有原文（ja 非空）的话。`line` 和 `previousLine` 现在都由一个 `callLines` 摊平后取最后两句（原来的 `latestLine` 删掉）。补充时被放下的回复已经不在记录里，所以不会成为上一句。无论只看文字开没开都交出。
+- `CallLayer.tsx` 删掉 `useDialCount`、`useEndedSeconds`、`usePreviousLine`，改读 `call.dial`、`call.seconds` 和新增的 `previousLine` prop（页面从快照传入）。`ShownCall` 类型没搬（票 03 的事）。
+
+### 人工验收清单（构建版前端：在 `frontend/` 下 `npm run build` 然后 `npm run start`）
+
+1. 进一位角色的对话页，点电话键：立绘载入；挂断后重拨，立绘重新载入（每拨一次都重载）。
+2. 接通后等一会儿让通话因故结束（停掉后端，或等到通话时长上限）：结束页状态行显示「通话已结束 · mm:ss」，时长从接通算起。
+3. 让一次通话没接通就结束（例如后端/语音服务不可用）：结束页只显示「通话已结束」，不带时长。
+4. 打开「只看文字」。她说完第一句换第二句时，第一句以浅色留在当前这句上面；当前这句在说的过程中变长时，上面那句不动、不跳。
+5. 同一通里在她还没说完一段时补充一句：被放下的那句不会留在「上一句」位置。
+6. 重拨：新一通电话的台词卡上没有上一通的话。
