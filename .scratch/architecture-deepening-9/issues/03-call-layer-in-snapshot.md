@@ -47,3 +47,23 @@
   - 用键盘收起时，焦点落在通话条上；结束后焦点落在电话键上。
 
 ## Comments
+
+### 实现说明（2026-10-11）
+
+- `Snapshot` 里的 `collapsed: boolean` 换成 `layer: Layer | null`，`Layer = { call: ShownCall; collapsed: boolean }`。`ShownCall` 的定义从 `CallLayer.tsx` 搬进 `liveConversation.ts`（`Extract<CallState, { phase: "dialing" | "connected" | "ended" }>`）并导出；通话层改从 `@/lib/liveConversation` 引这个类型，组件里不再有它自己的定义。
+- 规则都收进 `withCallScreenRules` 里的新函数 `nextLayer(before, next)`：通话状态变成拨号/接通/因故结束时 `layer.call` 就是它（拨号、因故结束展开，接通沿用用户收起没收起）；回到 idle（用户挂断，或看完结束页）时 `layer.call` 留着最后一刻、`collapsed` 为 true；`call` 没变的更新（收起、展开、hearing 之类）原样保留 `layer`。`layer` 一直在 `State` 里，开新对话不清。
+- `collapse()` 从 `state.collapsed` 改到 `layer.collapsed`，只在通话进行中有效；`expand()` 新加同样的「只在通话进行中」限制，通话结束后的通话层不能再被展开。
+- `ConversationView.tsx` 删掉 `useShownCall` 和页面自己算的「通话层收着」（原来的 `isLayerCollapsed = collapsed || call.phase === "idle"`）。焦点归位的输入改从快照算：`isCovered = layer !== null && !layer.collapsed`，通话条 `barShown = isLive(call) && layer.collapsed`；`<CallLayer>` 只在 `layer` 非空时渲染，`call={layer.call}`、`isCollapsed={layer.collapsed}`。看得见的行为不变，唯一例外是票里写明的「结束后不能再展开」。
+- 测试：`liveConversation.test.ts` 的「the call layer」一组重写，覆盖票里 `layer` 的全部情形；原有用例里断言 `collapsed` 的改断言 `layer.collapsed`（拨号前那条改成断言 `layer` 为 null）。
+
+### 人工验收清单（构建版前端：在 `frontend/` 下 `npm run build` 然后 `npm run start`）
+
+手机宽度和电脑宽度各看一遍：
+
+1. 刚进对话页时没有通话层；页首的电话键可以拨号。
+2. 点电话键拨打：通话层从底部滑上来，显示「正在呼叫」。
+3. 通话中（接通后）点收起键：通话层滑下，页首下面出现通话条；点电话键（或通话条）再展开，回到通话层。
+4. 通话中点挂断：通话层滑下收起，画面停在挂断那一刻的样子，立绘不换、不重新载入。
+5. 让通话因故结束（例如停掉后端，或等到时长上限）：结束页展开显示；点「回到对话」后通话层滑下收起。
+6. 先收起通话层，再让通话因故结束：通话层重新展开，显示结束页。
+7. 用键盘收起通话层（Esc 或点收起键）：焦点落在通话条上；通话结束后焦点落在页首的电话键上。

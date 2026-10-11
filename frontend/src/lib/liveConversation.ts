@@ -46,6 +46,12 @@ export function isLive(call: CallState): call is LiveCall {
   return call.phase === "dialing" || call.phase === "connected";
 }
 
+/** The call the call layer draws: dialing, connected, or ended for a reason (spec「通话层」). */
+export type ShownCall = Extract<CallState, { phase: "dialing" | "connected" | "ended" }>;
+
+/** The call layer: the call it draws and whether it is folded onto the conversation. */
+export type Layer = { call: ShownCall; collapsed: boolean };
+
 export type MicNotice = "fell_back" | "unavailable" | "lost";
 
 /**
@@ -59,9 +65,11 @@ export type Snapshot = {
   conversation: OpenState;
   entries: Entry[];
   call: CallState;
-  /** The call layer is collapsed onto the conversation. It opens up again when dialing and
-   * when the call ends for a reason, so the user sees why. */
-  collapsed: boolean;
+  /** The call layer: the call it draws and whether it is folded onto the conversation. Null
+   * until this page has dialed once; after that it keeps the last call, folded away, so the
+   * layer has something to draw as it slides down. Dialing and a call that ends for a reason
+   * unfold it, so the user sees the call or why it ended. */
+  layer: Layer | null;
   /** The list of microphones is open; only while the call is connected. */
   pickingMic: boolean;
   /** What the user is saying in the call so far. */
@@ -110,7 +118,7 @@ type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "can
 const IDLE: Omit<State, "log" | "callFrom" | "stand" | "dial"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
-  collapsed: false,
+  layer: null,
   pickingMic: false,
   hearing: "",
   micMuted: false,
@@ -371,11 +379,14 @@ export class LiveConversation {
 
   /** Collapse the call layer onto the conversation, while the call is under way. */
   collapse(): void {
-    if (isLive(this.state.call) && !this.state.collapsed) this.update({ collapsed: true });
+    const layer = this.state.layer;
+    if (isLive(this.state.call) && layer && !layer.collapsed) this.update({ layer: { ...layer, collapsed: true } });
   }
 
+  /** Unfold the call layer, while the call is under way: once it is over it cannot open again. */
   expand(): void {
-    if (this.state.collapsed) this.update({ collapsed: false });
+    const layer = this.state.layer;
+    if (isLive(this.state.call) && layer?.collapsed) this.update({ layer: { ...layer, collapsed: false } });
   }
 
   /** Open the list of microphones to switch to; only while the call is connected. */
@@ -537,16 +548,31 @@ export class LiveConversation {
 }
 
 /**
- * How the call screen follows the call, from one state to the next: dialing, and a call
- * ending for a reason, open the call layer up again, so the user sees the call or why it
- * ended; the microphone list is only for a connected call.
+ * How the call screen follows the call, from one state to the next: the layer draws the call
+ * under way, and dialing, and a call ending for a reason, open it up again, so the user sees
+ * the call or why it ended. Back at idle it keeps that last call, folded away, until the next
+ * call. The microphone list is only for a connected call.
  */
 function withCallScreenRules(before: State, next: State): State {
-  const reopens = next.call !== before.call && (next.call.phase === "dialing" || next.call.phase === "ended");
-  const collapsed = next.collapsed && !reopens;
+  const layer = nextLayer(before, next);
   const pickingMic = next.pickingMic && next.call.phase === "connected";
-  if (collapsed === next.collapsed && pickingMic === next.pickingMic) return next;
-  return { ...next, collapsed, pickingMic };
+  if (layer === next.layer && pickingMic === next.pickingMic) return next;
+  return { ...next, layer, pickingMic };
+}
+
+/** The layer for the next state: the call under way, or the last one kept folded away. */
+function nextLayer(before: State, next: State): Layer | null {
+  const layer = next.layer;
+  if (next.call.phase === "idle") {
+    // Over and dismissed, or hung up: still draw the last moment, folded away.
+    if (!layer || layer.collapsed) return layer;
+    return { call: layer.call, collapsed: true };
+  }
+  // The call is the same one: keep the layer, as the user folded or unfolded it.
+  if (next.call === before.call) return layer;
+  // Dialing and a call that ended for a reason unfold it; a call that connects leaves it be.
+  const call = next.call;
+  return { call, collapsed: call.phase === "connected" ? (layer?.collapsed ?? false) : false };
 }
 
 /** Her conversation is open with nothing under way in it, no text turn and no call: a

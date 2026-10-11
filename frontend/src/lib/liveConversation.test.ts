@@ -1472,18 +1472,59 @@ describe("LiveConversation: times", () => {
 });
 
 describe("LiveConversation: the call layer", () => {
-  it("opens up again when the call ends while it is collapsed", async () => {
+  it("is not there before the first call", async () => {
+    const { live } = await conversation();
+
+    expect(live.snapshot().layer).toBeNull();
+  });
+
+  it("shows up and unfolds as the call is dialed", async () => {
+    const { live } = await conversation();
+
+    void live.startCall();
+
+    expect(live.snapshot().layer).toMatchObject({ call: { phase: "dialing", dial: 1 }, collapsed: false });
+  });
+
+  it("keeps the last moment, folded away, when the user hangs up", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    expect(live.snapshot().layer).toMatchObject({ call: { phase: "connected" }, collapsed: false });
+
+    await live.hangUp();
+
+    expect(live.snapshot()).toMatchObject({
+      call: { phase: "idle" },
+      layer: { call: { phase: "connected", dial: 1 }, collapsed: true },
+    });
+  });
+
+  it("keeps the end page, folded away, once it is dismissed", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    attempts[0].handlers.onDropped();
+    expect(live.snapshot().layer).toMatchObject({ call: { phase: "ended" }, collapsed: false });
+
+    live.dismissEnd();
+
+    expect(live.snapshot()).toMatchObject({
+      call: { phase: "idle" },
+      layer: { call: { phase: "ended", dial: 1 }, collapsed: true },
+    });
+  });
+
+  it("unfolds again when the call ends for a reason while it is collapsed", async () => {
     const { live, attempts } = await conversation();
     await connected(live, attempts);
     live.collapse();
-    expect(live.snapshot().collapsed).toBe(true);
+    expect(live.snapshot().layer?.collapsed).toBe(true);
 
     attempts[0].handlers.onDropped();
 
-    expect(live.snapshot()).toMatchObject({ call: { phase: "ended" }, collapsed: false });
+    expect(live.snapshot()).toMatchObject({ layer: { call: { phase: "ended" }, collapsed: false } });
   });
 
-  it("opens up when dialing again, clearing the last failure", async () => {
+  it("unfolds again when dialing, clearing the last failure", async () => {
     const { live, attempts } = await conversation({
       turns: async function* (): AsyncIterable<TurnEvent> {
         throw new ApiError("本小时的对话次数已用完", 429);
@@ -1494,23 +1535,57 @@ describe("LiveConversation: the call layer", () => {
     await live.hangUp();
     live.setDraft("你好");
     await live.submit();
-    expect(live.snapshot()).toMatchObject({ collapsed: true, failure: { signedOut: false } });
+    expect(live.snapshot()).toMatchObject({ layer: { collapsed: true }, failure: { signedOut: false } });
 
     void live.startCall();
 
-    expect(live.snapshot()).toMatchObject({ call: { phase: "dialing" }, collapsed: false, failure: null });
+    expect(live.snapshot()).toMatchObject({ layer: { call: { phase: "dialing" }, collapsed: false }, failure: null });
   });
 
   it("collapses and expands on request, only while a call is under way", async () => {
     const { live, attempts } = await conversation();
     live.collapse();
-    expect(live.snapshot().collapsed).toBe(false);
+    expect(live.snapshot().layer).toBeNull();
 
     await connected(live, attempts);
     live.collapse();
-    expect(live.snapshot().collapsed).toBe(true);
+    expect(live.snapshot().layer?.collapsed).toBe(true);
     live.expand();
-    expect(live.snapshot().collapsed).toBe(false);
+    expect(live.snapshot().layer?.collapsed).toBe(false);
+  });
+
+  it("cannot be unfolded again once the call is over", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    await live.hangUp();
+    expect(live.snapshot().layer?.collapsed).toBe(true);
+
+    live.expand();
+
+    expect(live.snapshot().layer?.collapsed).toBe(true);
+  });
+
+  it("cannot be unfolded again once the end page is dismissed", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    attempts[0].handlers.onDropped();
+    live.dismissEnd();
+    expect(live.snapshot().layer?.collapsed).toBe(true);
+
+    live.expand();
+
+    expect(live.snapshot().layer?.collapsed).toBe(true);
+  });
+
+  it("is kept when a new conversation is started", async () => {
+    const { live, attempts } = await conversation();
+    await connected(live, attempts);
+    const shown = live.snapshot().layer?.call;
+    await live.hangUp();
+
+    await live.startNewConversation();
+
+    expect(live.snapshot().layer?.call).toEqual(shown);
   });
 });
 
