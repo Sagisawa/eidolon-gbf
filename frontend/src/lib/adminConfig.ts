@@ -2,7 +2,8 @@
 // 状态是三种之一：使用 .env 的值、已被后台覆盖、覆盖没有生效（回退到 .env）。
 // 各项的字段、表单的换算和校验都写在这里，页面只负责摆放。
 
-import { api, json, type LLMProtocol } from "@/lib/api";
+import { api, json } from "@/lib/api";
+import { LLM_PROTOCOLS, STT_PROVIDERS } from "@/lib/localOwnKeys";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
 
@@ -112,8 +113,6 @@ export type ItemSpec = {
   tried: boolean;
 };
 
-export const LLM_PROTOCOLS: LLMProtocol[] = ["chat-completions", "responses", "anthropic"];
-
 const LLM: ItemSpec = {
   rows: ["protocol", "base_url", "model", "max_tokens", "api_key"],
   secrets: ["api_key"],
@@ -150,7 +149,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     rows: ["provider", "soniox_api_key", "dashscope_api_key", "region"],
     secrets: ["soniox_api_key", "dashscope_api_key"],
     form: [
-      { name: "provider", kind: "select", options: ["soniox", "bailian"] },
+      { name: "provider", kind: "select", options: STT_PROVIDERS },
       { name: "api_key", kind: "secret" },
     ],
     tried: true,

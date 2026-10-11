@@ -44,7 +44,7 @@ import {
   type ReadOnlyItem,
   UNLIMITED,
 } from "@/lib/adminConfig";
-import type { LLMProtocol } from "@/lib/api";
+import type { LLMProtocol } from "@/lib/localOwnKeys";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FailureIcon } from "@/theme/icons";
 

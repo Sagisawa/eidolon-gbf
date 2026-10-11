@@ -106,7 +106,7 @@ class OwnSTTInput(BaseModel):
 
 
 class OwnKeysInput(BaseModel):
-    """The user's own keys a call brings, by service; each may be left out."""
+    """The user's own keys a turn or a call brings, by service; each may be left out."""
 
     llm: OwnLLMInput | None = None
     tts: OwnTTSInput | None = None

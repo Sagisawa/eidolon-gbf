@@ -1,5 +1,12 @@
 import type { Provider } from "@/lib/signIn";
-import { forgetOwnKeys, turnOwnLLM, type BailianRegion, type LocalLLM } from "@/lib/localOwnKeys";
+import {
+  forgetOwnKeys,
+  turnOwnKeys,
+  type BailianRegion,
+  type LocalLLM,
+  type OwnService,
+  type SttProvider,
+} from "@/lib/localOwnKeys";
 import { detectTimezone } from "@/lib/timezone";
 import type { Speaking } from "@/lib/call";
 import type { Emotion, Nod } from "@/lib/standAnimations";
@@ -252,17 +259,6 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
   await expectNoContent(await api(`/api/account/sign-in-methods/${provider}`, { method: "DELETE" }));
 }
 
-export type OwnService = "llm" | "tts" | "stt";
-
-/** The kinds of interface a user's own LLM may speak: the backend's `LLM_PROTOCOLS`, which this
- * follows (and `copy.settings.ownKeys.protocols` names). */
-export const LLM_PROTOCOLS = ["chat-completions", "responses", "anthropic"] as const;
-
-export type LLMProtocol = (typeof LLM_PROTOCOLS)[number];
-
-/** The speech recognition services a user may bring a key for. */
-export type SttProvider = "soniox" | "bailian";
-
 /**
  * Try the user's own LLM, which the server does not keep; fails with what the service said if
  * the try fails. Its address and model as this browser is to keep them.
@@ -418,14 +414,14 @@ export async function getCallSetup(own: readonly OwnService[]): Promise<CallSetu
 }
 
 /**
- * Sends one text turn, bringing the user's own LLM if this browser keeps one for them, and yields
- * the reply's server-sent events as they arrive.
+ * Sends one text turn, bringing the user's own LLM (as `own_keys`) if this browser keeps one for
+ * them, and yields the reply's server-sent events as they arrive.
  */
 export async function* sendTurn(conversationId: string, text: string, userId: string): AsyncGenerator<TurnEvent> {
   const res = await api(`/api/conversations/${conversationId}/turns`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, own_llm: turnOwnLLM(userId) }),
+    body: JSON.stringify({ text, own_keys: turnOwnKeys(userId) }),
   });
   if (!res.ok || !res.body) {
     await json(res);
