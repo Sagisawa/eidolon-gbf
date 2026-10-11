@@ -342,7 +342,7 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
 /** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」）。 */
 function Ended({ end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
   const ending = t.endings[end.reason];
-  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_key";
+  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
   return (
     <div
       role="alert"
