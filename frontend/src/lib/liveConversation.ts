@@ -170,7 +170,8 @@ export type Voice = {
  * conversation as the call is dialed, connects, ends, or the page is left. They are not her
  * voice: text only and collapsing the call layer never touch them. */
 export type Tones = {
-  /** The ringback starts looping: the user has just dialed. */
+  /** The ringback starts looping: the user has dialed and the microphone is open. Not before:
+   * on phones opening it would cut the ringback off for a moment (see `CallHandlers.onMicOpen`). */
   ring: () => void;
   /** The call connected: the ringback stops and the connect tone plays once. */
   connect: () => void;
@@ -322,9 +323,9 @@ export class LiveConversation {
    * This dialing is the call under way until it ends, however it ends: hung up, dropped
    * (with or without the backend saying why), failed to connect, or the page left. Once it
    * is not, the call's messages are too late and change nothing: not the log, the failure,
-   * why the call ended, what is being heard, the microphone, her stand, her voice, or the
-   * list. That rule is kept here alone, in the gate every handler given to the call goes
-   * through; the handlers behind it do not ask again.
+   * why the call ended, what is being heard, the microphone, her stand, her voice, the
+   * ringback, or the list. That rule is kept here alone, in the gate every handler given to
+   * the call goes through; the handlers behind it do not ask again.
    */
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
@@ -332,7 +333,6 @@ export class LiveConversation {
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);
-    this.ports.tones.ring();
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
@@ -348,6 +348,7 @@ export class LiveConversation {
     let started: Call;
     try {
       started = await this.ports.startCall(conversationId, preferences, {
+        onMicOpen: gated(() => this.ports.tones.ring()),
         onEvent: gated((event) => this.onCallEvent(event)),
         onHearing: gated((hearing) => this.update({ hearing })),
         onCharacterAudio: gated((track) => this.ports.voice.play(track)),

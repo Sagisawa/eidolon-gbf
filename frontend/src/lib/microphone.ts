@@ -18,6 +18,12 @@ export type MicInUse = {
 
 const PROCESSING = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
 
+/** How long the microphone is held open, not listening, once the call is over. On phones
+ * letting it go takes the system out of call audio, which cuts off for most of a second whatever
+ * is playing: here the hang-up tone (GLOSSARY.md「挂断音」; 1.6 s, public/sounds/CREDITS.md),
+ * held through to its end. */
+export const RELEASE_AFTER_MS = 2000;
+
 export class Microphone {
   /** Sends a new track in place of the one the call is sending; set by the call. */
   onTrackChange: ((track: MediaStreamTrack) => Promise<void>) | null = null;
@@ -28,11 +34,15 @@ export class Microphone {
   private disconnected = false;
   /** Switches run one after another, so the last one asked for is the one in use. */
   private switching: Promise<unknown> = Promise.resolve();
+  /** A copy of the track in use, off, that keeps the microphone open once the call is over:
+   * the transport stops the track it sends as the connection closes (see RELEASE_AFTER_MS). */
+  private hold: MediaStreamTrack | undefined;
 
   private constructor(
     private stream: MediaStream,
     private used: MicInUse,
   ) {
+    this.hold = holdOf(stream);
     this.watch();
   }
 
@@ -76,11 +86,14 @@ export class Microphone {
     // Mute may have been pressed while the track was being swapped: it went to the old one.
     if (track) track.enabled = this.isMicEnabled;
     const old = this.stream;
+    const oldHold = this.hold;
     this.unwatch();
     this.stream = stream;
+    this.hold = holdOf(stream);
     this.used = inUse;
     this.watch();
     old.getTracks().forEach((t) => t.stop());
+    oldHold?.stop();
     return inUse;
   }
 
@@ -129,6 +142,8 @@ export class Microphone {
     this.disconnected = true;
     this.unwatch();
     this.stream.getTracks().forEach((track) => track.stop());
+    const hold = this.hold;
+    setTimeout(() => hold?.stop(), RELEASE_AFTER_MS);
   }
   tracks() {
     return { local: { audio: this.track } };
@@ -168,6 +183,13 @@ export class Microphone {
   get selectedSpeaker(): Record<string, never> {
     return {};
   }
+}
+
+/** A copy of the stream's track, off: it sends nothing, but keeps the microphone open. */
+function holdOf(stream: MediaStream): MediaStreamTrack | undefined {
+  const hold = stream.getAudioTracks()[0]?.clone();
+  if (hold) hold.enabled = false;
+  return hold;
 }
 
 /** Opens `micId`, or the system default if it is empty or gone. */

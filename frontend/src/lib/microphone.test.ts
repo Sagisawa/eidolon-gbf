@@ -1,16 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MicUnavailable } from "@/lib/callEnd";
-import { Microphone } from "@/lib/microphone";
+import { Microphone, RELEASE_AFTER_MS } from "@/lib/microphone";
 
-/** A microphone's track: it can be turned off, stopped, or end because its device is unplugged. */
+/** A microphone's track: it can be turned off, stopped, copied, or end because its device is
+ * unplugged. */
 class FakeTrack extends EventTarget {
   enabled = true;
   stopped = false;
-  constructor(readonly deviceId: string) {
+  constructor(
+    readonly deviceId: string,
+    private readonly copies: FakeTrack[] = [],
+  ) {
     super();
   }
   stop() {
     this.stopped = true;
+  }
+  clone() {
+    const copy = new FakeTrack(this.deviceId, this.copies);
+    this.copies.push(copy);
+    return copy;
   }
   unplug() {
     this.dispatchEvent(new Event("ended"));
@@ -20,24 +29,29 @@ class FakeTrack extends EventTarget {
 /** The browser's devices: `plugged` are there, the first is the system default. */
 function devices(plugged: string[], options: { denied?: boolean } = {}) {
   const opened: FakeTrack[] = [];
+  /** The copies made of the tracks opened. */
+  const copies: FakeTrack[] = [];
   const getUserMedia = async ({ audio }: { audio: { deviceId?: { exact: string } } }) => {
     if (options.denied) throw new DOMException("denied", "NotAllowedError");
     const wanted = audio.deviceId?.exact;
     if (wanted !== undefined && !plugged.includes(wanted))
       throw new DOMException("no such device", "OverconstrainedError");
     if (plugged.length === 0) throw new DOMException("no microphone", "NotFoundError");
-    const track = new FakeTrack(wanted ?? plugged[0]);
+    const track = new FakeTrack(wanted ?? plugged[0], copies);
     opened.push(track);
     return { getAudioTracks: () => [track], getTracks: () => [track] };
   };
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia } });
-  return { opened, plugged };
+  return { opened, plugged, copies };
 }
 
 /** Lets the microphone's own promise chains (after an unplug) run. */
 const settle = () => new Promise((resolve) => setTimeout(resolve));
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("Microphone: opening", () => {
   it("opens the chosen microphone", async () => {
@@ -221,5 +235,41 @@ describe("Microphone: switches that overlap", () => {
     await expect(switching).rejects.toBeInstanceOf(MicUnavailable);
     expect(opened.every((t) => t.stopped)).toBe(true);
     await expect(mic.updateMic("usb")).rejects.toBeInstanceOf(MicUnavailable);
+  });
+});
+
+describe("Microphone: once the call is over", () => {
+  it("stops its track at once, but is let go only after the hang-up tone has had time to play", async () => {
+    const { opened, copies } = devices(["built-in"]);
+    const mic = await Microphone.open("");
+    vi.useFakeTimers();
+
+    await mic.disconnect();
+
+    // 手机上一放开麦克风，系统就退出通话音频，正在放的挂断音会断掉一下：留一份关着的副本撑着。
+    expect(opened[0].stopped).toBe(true);
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toMatchObject({ deviceId: "built-in", enabled: false, stopped: false });
+    vi.advanceTimersByTime(RELEASE_AFTER_MS - 1);
+    expect(copies[0].stopped).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(copies[0].stopped).toBe(true);
+  });
+
+  it("holds the microphone switched to, letting the old one go at once", async () => {
+    const { copies } = devices(["built-in", "usb"]);
+    const mic = await Microphone.open("");
+    mic.onTrackChange = async () => {};
+    await mic.updateMic("usb");
+    vi.useFakeTimers();
+
+    await mic.disconnect();
+
+    expect(copies.map((t) => [t.deviceId, t.stopped])).toEqual([
+      ["built-in", true],
+      ["usb", false],
+    ]);
+    vi.advanceTimersByTime(RELEASE_AFTER_MS);
+    expect(copies[1].stopped).toBe(true);
   });
 });

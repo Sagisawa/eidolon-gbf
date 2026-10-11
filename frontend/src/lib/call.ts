@@ -33,6 +33,10 @@ export const SPEAKING = [
 ] as const;
 
 export type CallHandlers = {
+  /** The microphone is open, the call still dialing. On phones opening it puts the system into
+   * call audio, which cuts off whatever is playing for a moment; sounds started from now on are
+   * not cut off by it. */
+  onMicOpen: () => void;
   onEvent: (event: CallEvent) => void;
   /** What the user is saying so far; empty once the utterance is complete. */
   onHearing: (text: string) => void;
@@ -87,6 +91,7 @@ export async function startCall(
   const { ownKeys, services } = callOwnKeys(userId);
   const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(services);
   const microphone = await Microphone.open(preferences.micId);
+  handlers.onMicOpen();
   let hungUp = false;
   let client: PipecatClient | null = null;
   try {

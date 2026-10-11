@@ -114,6 +114,8 @@ function opening(options: Options = {}) {
     onListChanged: () => listChanged++,
     startCall: (conversationId, preferences, handlers) => {
       sentTo.push(conversationId);
+      // 麦克风一拨就打开；要看它打开之前的，测试自己换掉这个 port。
+      handlers.onMicOpen();
       return new Promise((connect, fail) => attempts.push({ preferences, handlers, connect, fail }));
     },
     sendTurn: (conversationId, text) => {
@@ -764,6 +766,7 @@ describe("LiveConversation: a call that is over", () => {
       (h) => h.onEvent({ type: "ended", reason: "duration_limit", message: "满 30 分钟了", counts: true }),
     ],
     ["what the user is saying so far", (h) => h.onHearing("迟到的转写")],
+    ["the microphone opening", (h) => h.onMicOpen()],
     ["the microphone lost", (h) => h.onMicLost(null)],
     ["the call dropping", (h) => h.onDropped()],
     ["an event only her stand follows", (h) => h.onEvent({ type: "bot-started-speaking" })],
@@ -1119,12 +1122,22 @@ describe("LiveConversation: her voice", () => {
 });
 
 describe("LiveConversation: the call tones", () => {
-  it("rings from the moment the user dials, still inside the user's click", async () => {
-    const { live, tones } = await conversation();
+  it("rings once the microphone is open, not before", async () => {
+    let micOpen = () => {};
+    const { live, tones } = await conversation({
+      ports: {
+        startCall: (_conversationId, _preferences, handlers) => {
+          micOpen = handlers.onMicOpen;
+          return new Promise(() => {});
+        },
+      },
+    });
 
     void live.startCall();
+    // 手机上打开麦克风会让正在放的声音断一下：等它打开了再响。
+    expect(tones.calls).toEqual([]);
 
-    // Nothing awaited yet: the ringback starts as the user clicks.
+    micOpen();
     expect(tones.calls).toEqual(["ring"]);
   });
 
