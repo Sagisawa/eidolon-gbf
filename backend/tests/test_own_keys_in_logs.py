@@ -13,6 +13,7 @@ from loguru import logger
 
 from eidolon.llm import LLMError
 from eidolon.own_keys import MAX_CAUSE_LENGTH
+from tests.browser import Browser
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FakeBackgroundLLM,
@@ -37,6 +38,18 @@ def echoing(status: str) -> str:
     shown is cut short."""
     padding = "x" * (MAX_CAUSE_LENGTH - 10 - len(f"{status}:  invalid api key "))
     return f"{status}: {padding} invalid api key {KEY}"
+
+
+@pytest.fixture
+def logged_as_deployed(caplog: pytest.LogCaptureFixture) -> Iterator[Callable[[], list[str]]]:
+    """What has been logged so far, through Python's logging and through loguru
+    (Pipecat's), loguru's from INFO up as the server shows it (`__main__`): Pipecat's
+    DEBUG lines show what calls send to services, and are never shown."""
+    caplog.set_level(logging.DEBUG)
+    lines: list[str] = []
+    sink = logger.add(lambda message: lines.append(str(message)), level="INFO")
+    yield lambda: [*lines, caplog.text]
+    logger.remove(sink)
 
 
 @pytest.fixture
@@ -91,4 +104,37 @@ async def test_own_keys_stay_out_of_the_logs_and_are_masked_in_what_the_user_is_
         assert res.json()["detail"].endswith("***"), service
         assert PREFIX not in res.json()["detail"], service
     for line in logged():
+        assert PREFIX not in line, line
+
+
+@pytest.mark.parametrize(
+    ("service", "own_keys"),
+    [
+        ("tts", {"tts": {"api_key": KEY}}),
+        ("stt", {"stt": {"api_key": KEY, "provider": "soniox"}}),
+    ],
+)
+async def test_an_own_speech_key_failing_in_a_call_stays_out_of_the_logs_and_the_reason_given(
+    make_client: ClientFactory,
+    speech: FakeSpeech,
+    browser: Browser,
+    logged_as_deployed: Callable[[], list[str]],
+    service: str,
+    own_keys: dict,
+):
+    client = make_client(FakeLLM())
+    await browser.call(
+        client, conversation_id=await start_conversation(client), own_keys=own_keys
+    )
+    await browser.connect()
+
+    failing = speech.ttss[-1] if service == "tts" else speech.stts[-1]
+    await failing.break_down(echoing("401 Unauthorized"))
+    ended = await browser.next_server_message("ended")
+    await browser.hung_up()
+
+    assert ended["reason"] == "own_key"
+    assert PREFIX not in ended["message"]
+    assert any("401 Unauthorized" in line for line in logged_as_deployed())  # it was logged,
+    for line in logged_as_deployed():  # its key masked
         assert PREFIX not in line, line

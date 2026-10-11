@@ -697,6 +697,17 @@ _CATEGORY_KINDS: dict[ErrorCategory, ErrorKind] = {
 }
 
 
+def _masking(api_key: str) -> Callable[[FrameProcessor, ErrorFrame], Awaitable[None]]:
+    """An `on_error` handler for a service on the user's own `api_key`, masking the key as
+    `***` wherever an error says it (a service may repeat the key it rejects), so that the
+    server's logs never show it. Pipecat calls `on_error` before it logs the error."""
+
+    async def mask(processor: FrameProcessor, error: ErrorFrame) -> None:
+        error.error = error.error.replace(api_key, "***")
+
+    return mask
+
+
 def frame_error_kind(frame: ErrorFrame) -> ErrorKind:
     """What kind of failure an error in the pipeline is: from its exception, or failing
     that, from the category the service gave it, or what it says."""
@@ -1038,6 +1049,9 @@ class _LiveCall:
             for processor, service in ((stt, "stt"), (tts, "tts"))
             if service in keys.own
         }
+        own_api_keys = {"stt": keys.stt.api_key, "tts": keys.tts}
+        for processor, service in own_services.items():
+            processor.add_event_handler("on_error", _masking(own_api_keys[service]))
         self._meter = CallMeter(
             outcome.recording,
             stt, Origin("stt", _stt_host(keys.stt), _model(stt), "stt" in keys.own),

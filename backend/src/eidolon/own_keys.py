@@ -18,7 +18,9 @@ answered from the services it is to bring keys for, touching no key (`call_exemp
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
 `check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
-shown to the user with the key masked (`_masked`), and logged no other way. An LLM is
+shown to the user with the key masked (`_masked`), and logged no other way; a call's
+speech service on the user's key has it masked in its errors before Pipecat logs them
+(`call._masking`). An LLM is
 tried as the deployer's chat model is at startup: it must stream and take tools. In a
 public deployment it must also be on the public internet, so no one can point the backend
 at the machines next to it, and read their answers back in the errors they are shown. That is checked on every
