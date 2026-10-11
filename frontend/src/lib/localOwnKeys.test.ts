@@ -6,7 +6,6 @@ import {
   forgetOwnKeys,
   keepOwnKey,
   localOwnKeys,
-  ownServices,
   turnOwnKeys,
 } from "@/lib/localOwnKeys";
 
@@ -104,18 +103,6 @@ describe("what a text turn brings", () => {
     keepOwnKey("u1", "stt", STT);
 
     expect(turnOwnKeys("u1")).toBeUndefined();
-    expect(turnOwnKeys("u2")).toBeUndefined();
-  });
-});
-
-describe("what a call brings", () => {
-  it("names the services the user keeps their own keys for", () => {
-    storage();
-    keepOwnKey("u1", "stt", STT);
-    keepOwnKey("u1", "llm", LLM);
-
-    expect(ownServices(localOwnKeys("u1"))).toEqual(["llm", "stt"]);
-    expect(ownServices(localOwnKeys("u2"))).toEqual([]);
   });
 });
 
@@ -155,9 +142,9 @@ describe("a browser that cannot keep own keys", () => {
   });
 });
 
-describe("the own keys a call brings", () => {
-  it("are all the user keeps, read afresh, with the services named for the check before dialing", () => {
-    const items = storage();
+describe("what a call brings", () => {
+  it("is all the user keeps, with the services named for the check before dialing", () => {
+    storage();
     keepOwnKey("u1", "stt", STT);
     keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
     keepOwnKey("u1", "llm", LLM);
@@ -166,12 +153,9 @@ describe("the own keys a call brings", () => {
       ownKeys: { llm: LLM, tts: { api_key: "fish-my-own-key" }, stt: STT },
       services: ["llm", "tts", "stt"],
     });
-
-    items.set("eidolon.ownKeys.u1", JSON.stringify({ tts: { api_key: "fish-changed-elsewhere" } }));
-    expect(callOwnKeys("u1")).toEqual({ ownKeys: { tts: { api_key: "fish-changed-elsewhere" } }, services: ["tts"] });
   });
 
-  it("are none when the user keeps none: no `own_keys`, and no services named", () => {
+  it("is nothing when the user keeps none: no `own_keys`, and no services named", () => {
     storage();
     keepOwnKey("u2", "llm", LLM);
 

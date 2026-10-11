@@ -153,7 +153,7 @@ describe("sendTurn", () => {
       model: "my-model",
       protocol: "chat-completions",
     };
-    const items = new Map([["eidolon.ownKeys.u1", JSON.stringify({ llm, tts: { api_key: "fish-my-own-key" } })]]);
+    const items = new Map([["eidolon.ownKeys.u1", JSON.stringify({ llm })]]);
     vi.stubGlobal("localStorage", { getItem: (key: string) => items.get(key) ?? null });
     const fetch = answerWith([]);
 
