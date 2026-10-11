@@ -167,6 +167,7 @@ describe("limits", () => {
     call_minutes: "10",
     turns_per_call: "40",
     history_turns: "20",
+    own_llm_required: "false",
   };
 
   it("starts a limit of 0 as none, not as a number", () => {
@@ -176,7 +177,22 @@ describe("limits", () => {
 
   it("takes whole numbers from 1 up, and sends none as 0", () => {
     expect(changeOf(limits, form, true)).toEqual({
-      change: { turns_per_hour: 2, calls_per_hour: 0, call_minutes: 10, turns_per_call: 40, history_turns: 20 },
+      change: {
+        turns_per_hour: 2,
+        calls_per_hour: 0,
+        call_minutes: 10,
+        turns_per_call: 40,
+        history_turns: 20,
+        own_llm_required: false,
+      },
+    });
+  });
+
+  it("starts whether users must bring their own LLM as it is in effect, and sends it as true or false", () => {
+    expect(formOf(limits, { ...form, own_llm_required: true }).own_llm_required).toBe("true");
+    expect(formOf(limits, { ...form, own_llm_required: false }).own_llm_required).toBe("false");
+    expect(changeOf(limits, { ...form, own_llm_required: "true" }, true)).toMatchObject({
+      change: { own_llm_required: true },
     });
   });
 

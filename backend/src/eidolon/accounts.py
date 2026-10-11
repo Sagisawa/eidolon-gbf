@@ -25,9 +25,17 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from eidolon.call import Calls
 from eidolon.clock import Clock
+from eidolon.config import Settings
 from eidolon.identity import Identity
 from eidolon.memory import Memories
 from eidolon.store import IdentityTaken, SignInMethod, Store, User
+
+def is_admin(store: Store, settings: Settings, user_id: str) -> bool:
+    """Whether any identity the user signs in with is one the deployer lists as an admin's."""
+    return bool(settings.admins) and any(
+        (m.provider, m.subject) in settings.admins for m in store.sign_in_methods(user_id)
+    )
+
 
 MIN_GITHUB_ACCOUNT_AGE = timedelta(days=365)
 """How old a GitHub account must be to sign in with."""

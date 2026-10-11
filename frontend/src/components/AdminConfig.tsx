@@ -15,10 +15,19 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -168,9 +177,10 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
   );
 }
 
-/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名，限额的 0 是不限。 */
+/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。 */
 function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
+  if (typeof value === "boolean") return value ? t.switchOn : t.switchOff;
   if (ITEM_SPECS[name].secrets.includes(field)) return t.last4(String(value));
   if (field === "protocol") return t.protocols[value as LLMProtocol] ?? String(value);
   if (field === "provider") return t.providers[String(value)] ?? String(value);
@@ -362,6 +372,22 @@ function AvailableItem({
                       onChange={set(field.name)}
                       error={problem ? t.problems.limit(label) : null}
                     />
+                  );
+                }
+                if (field.kind === "switch") {
+                  const hint = fieldHint(name, field, keysEditable);
+                  return (
+                    <Field key={field.name} orientation="horizontal">
+                      <FieldContent>
+                        <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
+                        {hint && <FieldDescription>{hint}</FieldDescription>}
+                      </FieldContent>
+                      <Switch
+                        id={fieldId}
+                        checked={form[field.name] === "true"}
+                        onCheckedChange={(on) => set(field.name)(String(on))}
+                      />
+                    </Field>
                   );
                 }
                 if (field.kind === "select") {

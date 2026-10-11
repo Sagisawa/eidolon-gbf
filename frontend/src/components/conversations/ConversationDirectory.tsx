@@ -19,6 +19,7 @@ import {
   getAccount,
   listCharacters,
   listLatestConversations,
+  type Account,
   type Character,
   type LatestConversation,
 } from "@/lib/api";
@@ -31,8 +32,9 @@ export type CallInList = { characterId: string; state: LiveCall } | null;
 
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由双栏外壳载入一次。 */
 export type Directory = {
-  /** 登录的用户，浏览器里的自带密钥按它分开存；和角色一起载入，还在载入时为 null。 */
-  userId: string | null;
+  /** 登录的用户（浏览器里的自带密钥按他的 ID 分开存；他现在是否必须自带 LLM）；和角色一起载入，还在载入时为 null。
+   * 进设置页再回来时外壳重新挂载，账号随之重新载入。 */
+  account: Account | null;
   /** 还在载入时为 null。 */
   characters: Character[] | null;
   latest: Record<string, LatestConversation>;
@@ -73,7 +75,8 @@ export function useDirectory(): Directory {
 }
 
 export function DirectoryProvider({ children }: { children: ReactNode }) {
-  const [userId, setUserId] = useState<string | null>(null);
+  const [account, setAccount] = useState<Account | null>(null);
+  const userId = account?.id ?? null;
   const [characters, setCharacters] = useState<Character[] | null>(null);
   const [latest, setLatest] = useState<Record<string, LatestConversation>>({});
   const [preferences, setPreferences] = useState<ListPreferences>(NO_PREFERENCES);
@@ -101,7 +104,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
       .then(
         ([account, all, summaries]) => {
           if (cancelled) return;
-          setUserId(account.id);
+          setAccount(account);
           setCharacters(all);
           setPreferences(listPreferences(account.id, all.map((c) => c.id)));
           setLatest(Object.fromEntries(summaries.map((c) => [c.character_id, c])));
@@ -142,7 +145,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const callee = characters?.find((c) => c.id === call?.characterId);
   return (
     <DirectoryContext.Provider
-      value={{ userId, characters, latest, preferences, tidy, failure, refresh, reload, call, handOver: setLive, leave }}
+      value={{ account, characters, latest, preferences, tidy, failure, refresh, reload, call, handOver: setLive, leave }}
     >
       {children}
       {/* 确认框不在她的子树里：只有中性色和挂断红（DESIGN.md「Hang-up Red」：「挂断并离开」用它）。 */}

@@ -6,6 +6,12 @@ describe("startFailedEnd", () => {
   it.each([
     ["the microphone is refused", new MicUnavailable("no mic"), "mic_denied", null],
     ["the hour's calls are used up", new ApiError("本小时的通话次数已用完", 429), "over_limit", "本小时的通话次数已用完"],
+    [
+      "the deployment requires the user's own LLM",
+      new ApiError("这个部署需要你自带 LLM，可以在设置里填写。", 403, { ownLLMRequired: true }),
+      "own_llm_required",
+      "这个部署需要你自带 LLM，可以在设置里填写。",
+    ],
     ["calls are unavailable", new ApiError("通话暂时不可用", 503), "not_connected", "通话暂时不可用"],
     ["the connection cannot be made", new Error("无法接通，请稍后再试"), "not_connected", null],
   ])("says why when %s, and that it did not count", (_, error, reason, detail) => {

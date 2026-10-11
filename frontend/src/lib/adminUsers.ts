@@ -52,13 +52,19 @@ export type UserSort = (typeof USER_SORTS)[number];
  * the deployment's. */
 export type UserLimit = number | "unlimited" | null;
 
-/** The limits an admin set for the user, each apart, with a note for the admins. */
+/** The limits an admin set for the user, each apart, with a note for the admins; and
+ * whether the user may use the deployer's LLM where the deployment requires users to bring
+ * their own (GLOSSARY.md「必须自带 LLM」), which a limit of 0 still keeps them from. */
 export type AdminUserLimits = {
   turns_per_hour: UserLimit;
   calls_per_hour: UserLimit;
   note: string | null;
   updated_at: string;
+  deployer_llm_allowed: boolean;
 };
+
+/** What the editor saves: the limits, and whether the user may use the deployer's LLM. */
+export type UserLimitsInput = Pick<AdminUserLimits, "turns_per_hour" | "calls_per_hour" | "deployer_llm_allowed">;
 
 /** One limit as the editor holds it: which kind, and the number typed for "number". */
 /** A limit as the editor holds it: follow the deployment, a number of times (1 and up),
@@ -92,6 +98,28 @@ export function describeLimit(limit: UserLimit): string {
   return limit === 0 ? t.ownKeysOnly : t.perHour(limit);
 }
 
+/** The user's own limits in a line: turns and calls, and that they may use the deployer's
+ * LLM, if they may. */
+export function describeLimits(limits: AdminUserLimits): string {
+  const t = copy.admin.users.limits;
+  const summary = t.summary(describeLimit(limits.turns_per_hour), describeLimit(limits.calls_per_hour));
+  return limits.deployer_llm_allowed ? t.withDeployerLlm(summary) : summary;
+}
+
+/** Whether the user may use the deployer's LLM, in words; it does nothing when both their
+ * own limits leave them their own keys only. */
+export function describeDeployerLlm(limits: AdminUserLimits | null): string {
+  const t = copy.admin.users.limits.deployerLlm;
+  if (!limits?.deployer_llm_allowed) return t.no;
+  return deployerLlmAllowable(limitDraft(limits.turns_per_hour), limitDraft(limits.calls_per_hour)) ? t.yes : t.noEffect;
+}
+
+/** Whether letting the user use the deployer's LLM does anything with these limits: not
+ * when both leave them their own keys only, which the limits refuse all the same. */
+export function deployerLlmAllowable(turns: LimitDraft, calls: LimitDraft): boolean {
+  return !(turns.choice === "own_keys" && calls.choice === "own_keys");
+}
+
 /** The editor's starting point for a limit the user has. */
 export function limitDraft(limit: UserLimit): LimitDraft {
   if (limit === null) return { choice: "default", count: null };
@@ -101,15 +129,19 @@ export function limitDraft(limit: UserLimit): LimitDraft {
 }
 
 /** What keeps the limits from being saved: a number chosen but none from 1 up given
- * (`count`), or both following the deployment, which is no limit of the user's own
- * (`needsOne`, put on the turns). */
+ * (`count`), or both following the deployment without letting the user use the deployer's
+ * LLM, which is nothing of the user's own (`needsOne`, put on the turns). */
 export type LimitProblem = { field: "turns" | "calls"; reason: "count" | "needsOne" };
 
-/** The limits to save from the editor, or every problem that keeps them from being saved. */
+/** The limits to save from the editor, with whether the user may use the deployer's LLM
+ * (`deployerLlmAllowed`, saved only where it does anything), or every problem that keeps
+ * them from being saved. */
 export function limitsInput(
   turns: LimitDraft,
   calls: LimitDraft,
-): { input: { turns_per_hour: UserLimit; calls_per_hour: UserLimit } } | { problems: LimitProblem[] } {
+  deployerLlmAllowed: boolean,
+): { input: UserLimitsInput } | { problems: LimitProblem[] } {
+  const allowed = deployerLlmAllowed && deployerLlmAllowable(turns, calls);
   const limit = (draft: LimitDraft): UserLimit | undefined => {
     if (draft.choice === "default") return null;
     if (draft.choice === "unlimited") return "unlimited";
@@ -118,11 +150,11 @@ export function limitsInput(
   };
   const [turnsPerHour, callsPerHour] = [limit(turns), limit(calls)];
   const problems: LimitProblem[] = [];
-  if (turnsPerHour === null && callsPerHour === null) problems.push({ field: "turns", reason: "needsOne" });
+  if (turnsPerHour === null && callsPerHour === null && !allowed) problems.push({ field: "turns", reason: "needsOne" });
   if (turnsPerHour === undefined) problems.push({ field: "turns", reason: "count" });
   if (callsPerHour === undefined) problems.push({ field: "calls", reason: "count" });
   if (problems.length > 0 || turnsPerHour === undefined || callsPerHour === undefined) return { problems };
-  return { input: { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour } };
+  return { input: { turns_per_hour: turnsPerHour, calls_per_hour: callsPerHour, deployer_llm_allowed: allowed } };
 }
 
 /** The list's sort once a usage column's header is clicked: by that column, most first (the
@@ -193,10 +225,11 @@ export async function unbanUser(id: string): Promise<AdminUserDetails> {
   return json(await api(`/api/admin/users/${encodeURIComponent(id)}/ban`, { method: "DELETE" }));
 }
 
-/** Set the user's own limits, replacing those they had, from their next turn or call on. */
+/** Set the user's own limits, and whether they may use the deployer's LLM, replacing those
+ * they had, from their next turn or call on. */
 export async function setUserLimits(
   id: string,
-  limits: { turns_per_hour: UserLimit; calls_per_hour: UserLimit },
+  limits: UserLimitsInput,
   note: string,
 ): Promise<AdminUserDetails> {
   return json(
@@ -208,7 +241,8 @@ export async function setUserLimits(
   );
 }
 
-/** Take off the user's own limits; the deployment's hold for them again. */
+/** Take off the user's own limits, and with them whether they may use the deployer's LLM;
+ * the deployment's hold for them again. */
 export async function takeOffUserLimits(id: string): Promise<AdminUserDetails> {
   return json(await api(`/api/admin/users/${encodeURIComponent(id)}/limits`, { method: "DELETE" }));
 }

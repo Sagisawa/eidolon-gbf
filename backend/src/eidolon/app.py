@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from eidolon.admission import OwnLLMRequired
 from eidolon.assembly import Backend
 from eidolon.call import (
     CallFailed,
@@ -197,6 +198,12 @@ def create_app(backend: Backend) -> FastAPI:
             status_code=429,
             headers={"Retry-After": str(wait)},
         )
+
+    @app.exception_handler(OwnLLMRequired)
+    async def own_llm_required(_: Request, e: OwnLLMRequired) -> JSONResponse:
+        """Refused until the user brings their own LLM; `own_llm_required` tells it apart
+        from other refusals, so the page can send them to fill it in."""
+        return JSONResponse({"detail": str(e), "own_llm_required": True}, status_code=403)
 
     @app.exception_handler(CallsUnavailable)
     async def calls_unavailable(_: Request, e: CallsUnavailable) -> JSONResponse:

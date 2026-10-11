@@ -120,6 +120,21 @@ describe("json: over the hourly limit", () => {
   });
 });
 
+describe("json: refused for want of the user's own LLM", () => {
+  it("says why, ending the sentence, and marks it as one the user's own LLM settles", async () => {
+    const error = await failure(403, { detail: "这个部署需要你自带 LLM，可以在设置里填写", own_llm_required: true });
+    expect(error.message).toBe("这个部署需要你自带 LLM，可以在设置里填写。");
+    expect(error.status).toBe(403);
+    expect(error.ownLLMRequired).toBe(true);
+  });
+
+  it("does not take another refusal for it", async () => {
+    const error = await failure(403, { detail: "这位用户已被封禁" });
+    expect(error.message).toBe("这位用户已被封禁");
+    expect(error.ownLLMRequired).toBe(false);
+  });
+});
+
 describe("sendTurn", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

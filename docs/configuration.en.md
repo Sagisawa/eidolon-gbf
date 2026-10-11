@@ -334,7 +334,7 @@ So that no single user drains the deployer's API credits, the following limits a
 | History turns sent per turn | 20 | `EIDOLON_HISTORY_TURNS` |
 
 - **How it counts**: Per user, whichever sign-in method or device they use. Turns that fail because a service erred, and calls that never connected, don't count; ones the user leaves midway still count.
-- **Own keys**: Use on own keys doesn't count. A text turn on the user's own LLM doesn't count; a call doesn't count only if its LLM, speech synthesis and speech recognition are all the user's own.
+- **Own keys**: Use on own keys doesn't count. A text turn on the user's own LLM doesn't count; a call doesn't count only if its LLM, speech synthesis and speech recognition are all the user's own. The deployer can also require users to bring their own LLM; see [Own LLM required](#own-llm-required).
 - **Over the limit**: Requests over the usage limit get a 429 with the time usage resumes, and the frontend tells the user when they can use it again.
 - **History turns**: Each turn, the chat model reads only the most recent turns; earlier content comes back through memory and retrieval. The conversation record itself is kept in full.
 
@@ -362,6 +362,16 @@ By default, the deployer pays for everything. Users can enter their own keys on 
 - **No fallback on failure**: When an own key fails (out of credit, revoked, etc.), that turn or call fails, saying which key had the problem. It **never falls back to the deployer's keys**.
 - **Always on the deployer**: Embedding, reranking and the judge.
 
+### Own LLM required
+
+To have users pay for the LLM themselves while the deployer pays only for speech and retrieval, turn on "own LLM required": set `EIDOLON_OWN_LLM_REQUIRED=1` in `.env` (empty or `0` is off; any other value stops the backend from starting), or turn it on in the "Limits" section of the admin console's config page, which takes precedence over `.env` ([ADR-0013](adr/0013-admin-console-overrides-env.md)).
+
+- **When on**: Text turns and calls that bring no own LLM key are refused (403), and the frontend tells the user to fill one in on the settings page; refused ones are recorded as "rejected" in the activity records and don't count towards the usage limit. The conversation page stops the user up front: when this browser keeps no LLM key, the message box and the phone button are replaced with a note and 「去设置自带密钥」 (Set up own keys), and the settings page marks the LLM as required.
+- **Speech stays on the deployer**: Users who bring only an LLM can still call; speech synthesis and speech recognition run on the deployer's keys.
+- **Usage limits**: The rules don't change. A text turn on the user's own LLM doesn't count; a call with only the user's own LLM still counts towards calls per hour, and doesn't count only with all three of the user's own.
+- **Who isn't bound**: Admins can use the deployer's LLM. An admin can also tick 「可以用部署者的 LLM」 (May use the deployer's LLM) in a user's individual usage limit, on the user's details page; that user's use still counts towards the limits. With both of the user's individual limits set to own keys only, it has no effect. Taking the individual limit off takes this off with it.
+- **When it applies**: From the next turn and the next call; a call in progress carries on until it hangs up. The deployer must still configure their own LLM (admins and users let use it need it).
+
 ## Admin console
 
 List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like `github:12345`; look them up with `eidolon user list`) and recreate the backend. Those users then find 「进入后台」 (Open admin console) on the settings page's 「登录与数据」 (Sign-in and data) tab ([ADR-0013](adr/0013-admin-console-overrides-env.md)). Without it there is no admin console, and anyone else gets a 404 at `/admin`.
@@ -369,8 +379,8 @@ List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like 
 | Page | What it does |
 |---|---|
 | Dashboard (`/admin`) | Calls, error rate and latency per service; active users, the number and trend of turns and calls, usage per character, calls in progress; the deployer's cost estimated from unit prices |
-| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits, per-call caps, history turns and unit prices |
-| Users (`/admin/users`) | Search users, see their sign-in methods and recent usage; ban, unban, set an individual usage limit, delete |
+| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits (with "own LLM required"), per-call caps, history turns and unit prices |
+| Users (`/admin/users`) | Search users, see their sign-in methods and recent usage; ban, unban, set an individual usage limit (with letting them use the deployer's LLM), delete |
 
 - **Overrides `.env`**: Items changed in the admin console are stored in the database and take precedence over `.env`, with no restart needed. Each change is tried before saving and not saved if the try fails. A call in progress finishes on the configuration it connected with.
 - **Only changeable in `.env`**: The admin list, `EIDOLON_SECRET_KEY`, OAuth, the domain, WebRTC/TURN, backups, paths and embedding.

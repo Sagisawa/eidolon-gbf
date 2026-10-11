@@ -13,8 +13,10 @@ polling (`call.USER_CHECK_INTERVAL`), and they cannot sign in until unbanned. No
 can be banned here, oneself included, so that no admin locks the others, or themselves,
 out; the deployer can still on the command line.
 
-An admin may also set a user's own limits on turns and calls an hour, each apart, or take
-them off; the length of a call is the same for everyone.
+An admin may also set a user's own limits on turns and calls an hour, each apart, and
+with them let the user use the deployer's LLM where the deployment requires users to bring
+their own (GLOSSARY.md「必须自带 LLM」), or take them all off; the length of a call is the
+same for everyone.
 
 How much a user has used the deployment lately is from the activity records (not the
 `usage` table, the limit's sliding hour): the list shows how many turns and calls each
@@ -32,8 +34,9 @@ from typing import Annotated, Literal
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
+from eidolon.accounts import is_admin
 from eidolon.activity import ActivityLog, RecordRow
-from eidolon.admin_api import Admin, is_admin
+from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.store import NotFound, User
 from eidolon.usage import UserLimits
@@ -63,17 +66,22 @@ Limit = Annotated[int, Field(ge=0, le=100_000)] | Literal["unlimited"] | None
 
 class LimitsInput(BaseModel):
     """A user's own limits an hour: a number (0: on their own keys only), "unlimited", or
-    None, the deployment's; at least one of the two set."""
+    None, the deployment's; and whether the user may use the deployer's LLM where the
+    deployment requires users to bring their own. At least one of the three set."""
 
     turns_per_hour: Limit = None
     calls_per_hour: Limit = None
+    deployer_llm_allowed: bool = False
     note: str | None = Field(None, max_length=500)
     """Why, for the admins only."""
 
     @model_validator(mode="after")
     def _any(self) -> "LimitsInput":
-        if self.turns_per_hour is None and self.calls_per_hour is None:
-            raise ValueError("至少要单独设定回合数或通话次数中的一项")
+        if (
+            self.turns_per_hour is None and self.calls_per_hour is None
+            and not self.deployer_llm_allowed
+        ):
+            raise ValueError("至少要单独设定回合数、通话次数或可以用部署者的 LLM 中的一项")
         return self
 
 
@@ -192,12 +200,14 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         details(user_id)
         limiter.set_user_limits(user_id, UserLimits(
             body.turns_per_hour, body.calls_per_hour, (body.note or "").strip() or None,
+            deployer_llm_allowed=body.deployer_llm_allowed,
         ))
         return details(user_id)
 
     @app.delete("/api/admin/users/{user_id}/limits")
     def take_off_limits(user_id: str, _: Admin) -> dict:
-        """Take off the user's own limits; the deployment's hold for them again."""
+        """Take off the user's own limits, and with them whether they may use the
+        deployer's LLM; the deployment's hold for them again."""
         details(user_id)
         limiter.set_user_limits(user_id, None)
         return details(user_id)

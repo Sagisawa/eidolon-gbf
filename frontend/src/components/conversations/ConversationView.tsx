@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
-import { createConversation, listConversations, listMessages, sendTurn, type Character } from "@/lib/api";
+import { createConversation, listConversations, listMessages, sendTurn, type Account, type Character } from "@/lib/api";
 import { startCall } from "@/lib/call";
 import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
 import { CharacterVoice } from "@/lib/characterVoice";
@@ -35,6 +35,7 @@ import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, LiveConversation, NOT_OPEN } from "@/lib/liveConversation";
+import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsTab";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
@@ -65,16 +66,23 @@ const noSubscription = () => () => {};
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  */
 export function ConversationView({
-  userId,
+  account,
   character,
   onBack,
 }: {
-  /** 登录的用户：发回合时带上浏览器里存的、这位用户的自带 LLM。 */
-  userId: string;
+  /** 登录的用户：发回合时带上浏览器里存的、这位用户的自带 LLM；他必须自带 LLM 而这个浏览器里没存时提前拦下。 */
+  account: Account;
   character: Character;
   onBack?: () => void;
 }) {
+  const userId = account.id;
   const router = useRouter();
+  // 必须自带 LLM、这个浏览器里又没存：输入框和电话键换成提示和去设置的链接。存了（这个或别的标签页）当场恢复。
+  const ownLLMMissing = useSyncExternalStore(
+    subscribeOwnKeys,
+    () => needsOwnLLM(account, localOwnKeys(userId)),
+    () => false,
+  );
   const { refresh, handOver, leave } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
@@ -139,7 +147,7 @@ export function ConversationView({
         <PhoneIcon className="size-5 fill-current text-her-mark" />
       </Button>
     </HeaderTip>
-  ) : (
+  ) : ownLLMMissing ? null : (
     <HeaderTip label={t.callTooltip}>
       <Button
         ref={focus.phoneKey}
@@ -206,7 +214,12 @@ export function ConversationView({
   }
 
   const canSend = isOpen && draft.trim() !== "";
-  const composer = (
+  const composer = ownLLMMissing ? (
+    // 输入框和电话键换成一句提示和去设置的链接；后端的 403 仍是兜底。
+    <div inert={isCovered} className="shrink-0 border-t bg-background px-3 py-2">
+      <FailureNotice failure={{ message: t.ownLLMRequired, signedOut: false, toOwnKeys: true }} />
+    </div>
+  ) : (
     <form
       inert={isCovered}
       className="flex shrink-0 flex-col gap-2 border-t bg-background px-3 py-2"
@@ -255,7 +268,8 @@ export function ConversationView({
           <Empty className="h-full">
             <EmptyHeader>
               <EmptyTitle>{t.emptyTitle(character.name)}</EmptyTitle>
-              <EmptyDescription>{t.emptyDescription}</EmptyDescription>
+              {/* 被拦时输入框和电话键都不在，「打字，或者点电话」不对；下面的提示会说明 */}
+              {!ownLLMMissing && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
             </EmptyHeader>
           </Empty>
         ) : (

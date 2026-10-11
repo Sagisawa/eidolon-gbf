@@ -6,6 +6,7 @@ import { FailureNotice } from "@/components/app/FailureNotice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
 import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
 import {
+  deployerLlmAllowable,
   limitDraft,
   limitsInput,
   setUserLimits,
@@ -47,7 +49,9 @@ const COUNT_MAX = 100_000;
 /**
  * 设定或修改一位用户的单独限额：每小时的回合数和通话次数各自选「跟随全站 / 设定次数 / 不限 /
  * 只能用自带密钥」，次数从 1 起；附一句只有管理者看得到的备注。「只能用自带密钥」是单列的一项，
- * 不再让人填 0：全站限额里 0 是不限，同一个数字两处意思相反容易配错。`user` 为 null 时对话框关着；
+ * 不再让人填 0：全站限额里 0 是不限，同一个数字两处意思相反容易配错。底下一项勾选「可以用部署者的 LLM」
+ * （放行，GLOSSARY.md「必须自带 LLM」）：只勾它、两项都跟随全站也能保存；两项都选「只能用自带密钥」时它不起作用，
+ * 变灰、显示为不勾，也不保存。`user` 为 null 时对话框关着；
  * 保存成功后把后端返回的这位用户交给 `onSaved`。保存是表单的提交，用 default（DESIGN.md「Buttons」）。
  */
 export function UserLimitsDialog({
@@ -61,6 +65,7 @@ export function UserLimitsDialog({
 }) {
   const [turns, setTurns] = useState<LimitDraft>(limitDraft(null));
   const [calls, setCalls] = useState<LimitDraft>(limitDraft(null));
+  const [deployerLlm, setDeployerLlm] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -68,6 +73,7 @@ export function UserLimitsDialog({
   const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
   const check = useSubmitCheck<HTMLFormElement>();
   const noteId = useId();
+  const deployerLlmId = useId();
 
   useEffect(() => {
     if (!user) return;
@@ -91,12 +97,14 @@ export function UserLimitsDialog({
     if (!user) return;
     setTurns(limitDraft(user.limits?.turns_per_hour ?? null));
     setCalls(limitDraft(user.limits?.calls_per_hour ?? null));
+    setDeployerLlm(user.limits?.deployer_llm_allowed ?? false);
     setNote(user.limits?.note ?? "");
     setFailure(null);
     check.reset();
   }, [user]);
 
-  const result = limitsInput(turns, calls);
+  const result = limitsInput(turns, calls, deployerLlm);
+  const deployerLlmApplies = deployerLlmAllowable(turns, calls);
   // 不先报错、保存键不变灰：点过一次保存才标出不对的项（见 useSubmitCheck）。
   const problemOf = (field: LimitProblem["field"]) =>
     check.shown && "problems" in result ? result.problems.filter((p) => p.field === field) : [];
@@ -147,6 +155,18 @@ export function UserLimitsDialog({
               site={site?.calls ?? null}
               problems={problemOf("calls")}
             />
+            <Field orientation="horizontal" data-disabled={!deployerLlmApplies}>
+              <Checkbox
+                id={deployerLlmId}
+                checked={deployerLlm && deployerLlmApplies}
+                onCheckedChange={setDeployerLlm}
+                disabled={!deployerLlmApplies}
+              />
+              <FieldContent>
+                <FieldLabel htmlFor={deployerLlmId}>{t.deployerLlm}</FieldLabel>
+                <FieldDescription>{t.deployerLlmHint}</FieldDescription>
+              </FieldContent>
+            </Field>
             <Field>
               <FieldLabel htmlFor={noteId}>{t.note}</FieldLabel>
               <Textarea id={noteId} value={note} onChange={(e) => setNote(e.target.value)} maxLength={NOTE_MAX} />
