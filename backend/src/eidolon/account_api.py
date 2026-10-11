@@ -29,7 +29,7 @@ from eidolon.admin_api import is_admin
 from eidolon.assembly import Backend
 from eidolon.config import BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
-from eidolon.own_keys import SERVICES, BroughtKeys, OwnKeyRejected, OwnLLMSettings, Service
+from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings, named_services
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -118,14 +118,6 @@ class OwnKeysInput(BaseModel):
             self.tts.api_key.get_secret_value() if self.tts else None,
             self.stt.key() if self.stt else None,
         )
-
-
-def named_services(own: str) -> frozenset[Service]:
-    """The services `own` names (as `llm,tts,stt`, or nothing); 422 for one there is not."""
-    named = {s for s in own.split(",") if s}
-    if unknown := named - set(SERVICES):
-        raise HTTPException(422, f"没有这项服务：{'、'.join(sorted(unknown))}")
-    return frozenset(named)  # pyright: ignore[reportReturnType]
 
 
 class Consent(BaseModel):

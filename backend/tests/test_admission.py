@@ -1,6 +1,6 @@
-"""Letting a turn or call begin and settling it once it is over, through `Admissions` alone: whose keys it runs on, its activity record,
-its use of the limit and the deployer's lease, each of them looked at as the admin and the
-limiter see them.
+"""Letting a turn or call begin and settling it once it is over, through `Admissions`
+alone: whose keys it runs on, its activity record, its use of the limit and the deployer's
+lease, each of them looked at as the admin and the limiter see them.
 
 All of it is real, on a fresh database, but the deployer, which counts its leases, and the
 speech services the user's own keys are tried on; the user is allowed one turn and one

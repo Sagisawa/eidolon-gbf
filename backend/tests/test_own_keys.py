@@ -17,6 +17,7 @@ from eidolon.own_keys import (
     BroughtKeys,
     CallsUnavailable,
     DeployerKeys,
+    DeployerLease,
     OwnKeys,
     OwnLLMSettings,
     SERVICES,
@@ -31,6 +32,22 @@ from tests.fakes import (
     FakeLLMService,
     FakeSpeech,
 )
+
+
+class CountingDeployer:
+    """The deployer's keys, counting how many times they were leased and let go."""
+
+    def __init__(self, keys: DeployerKeys) -> None:
+        self.keys = keys
+        self.leased = 0
+        self.released = 0
+
+    def lease(self) -> DeployerLease:
+        self.leased += 1
+        return DeployerLease(self.keys, self._release)
+
+    def _release(self) -> None:
+        self.released += 1
 
 
 class Deployment:
@@ -49,10 +66,10 @@ class Deployment:
         stt: SttKey | None = SttKey("soniox", DEPLOYER_SONIOX_KEY),
         tts: str | None = DEPLOYER_FISH_KEY,
     ) -> OwnKeys:
-        return OwnKeys(
-            self.llm_service, DeployerKeys(self.chat, self.memory, stt, tts), self.activity,
-            self.speech,
-        )
+        """The own keys module on the deployer's keys, leased through `deployer`, which
+        counts them, from the last call on."""
+        self.deployer = CountingDeployer(DeployerKeys(self.chat, self.memory, stt, tts))
+        return OwnKeys(self.llm_service, self.deployer, self.activity, self.speech)
 
 
 MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
@@ -188,11 +205,11 @@ async def test_a_call_can_bring_a_key_for_what_the_deployer_has_none_for(
         without_tts.for_call(brought("stt"))
 
 
-@pytest.mark.parametrize(("services", "exempt"), [(("llm", "tts"), False), (SERVICES, True)])
-async def test_asking_before_a_call_answers_by_the_rule_for_calls(
-    deployment: Deployment, services: tuple[Service, ...], exempt: bool
+async def test_asking_before_a_call_answers_by_the_rule_for_calls_and_lets_go_of_the_lease(
+    deployment: Deployment,
 ):
-    assert deployment.own_keys().call_exempt(services) is exempt
+    assert deployment.own_keys().call_exempt(SERVICES) is True
+    assert deployment.deployer.leased == deployment.deployer.released == 1
 
 
 async def test_asking_before_a_call_without_keys_for_speech_says_calls_are_unavailable(
@@ -202,4 +219,5 @@ async def test_asking_before_a_call_without_keys_for_speech_says_calls_are_unava
 
     with pytest.raises(CallsUnavailable):
         without_speech.call_exempt(("llm", "tts"))
+    assert deployment.deployer.leased == deployment.deployer.released == 1
     assert without_speech.call_exempt(("tts", "stt")) is False

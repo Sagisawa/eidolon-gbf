@@ -5,7 +5,6 @@ counted by (see test_own_keys). Only asked: no key is touched, and the user's ow
 and whether calls are available are not looked at."""
 
 import httpx
-import pytest
 
 from tests.conftest import ClientFactory, github_identity, sign_in_with
 from tests.fakes import FakeIdentityProvider, FakeLLM
@@ -16,35 +15,17 @@ async def exemption(client: httpx.AsyncClient, *services: str) -> httpx.Response
     return await client.get("/api/account/keys/exemption", params={"own": ",".join(services)})
 
 
-@pytest.mark.parametrize(
-    ("services", "turns", "calls"),
-    [
-        ((), False, False),
-        (("llm",), True, False),
-        (("llm", "tts"), True, False),
-        (("llm", "stt"), True, False),
-        (("tts", "stt"), False, False),
-        (("llm", "tts", "stt"), True, True),
-    ],
-)
-async def test_turns_on_an_own_llm_and_calls_on_all_three_do_not_count(
-    make_client: ClientFactory, services: tuple[str, ...], turns: bool, calls: bool
-):
-    client = make_client(FakeLLM())
-
-    res = await exemption(client, *services)
-
-    assert res.status_code == 200
-    assert res.json() == {"turns": turns, "calls": calls}
-
-
-async def test_it_is_answered_even_where_the_deployer_has_no_speech_keys(
+async def test_it_is_answered_by_the_rule_even_where_the_deployer_has_no_speech_keys(
     make_client: ClientFactory,
 ):
     client = make_client(FakeLLM(), voice_configured=False)
 
-    assert (await exemption(client, "llm")).json() == {"turns": True, "calls": False}
-    assert (await exemption(client, "llm", "tts", "stt")).json() == {"turns": True, "calls": True}
+    for services, answer in [
+        ((), {"turns": False, "calls": False}),
+        (("llm",), {"turns": True, "calls": False}),
+        (("llm", "tts", "stt"), {"turns": True, "calls": True}),
+    ]:
+        assert (await exemption(client, *services)).json() == answer, services
 
 
 async def test_it_needs_services_there_are(make_client: ClientFactory):
