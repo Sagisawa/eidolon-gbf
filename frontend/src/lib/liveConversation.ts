@@ -28,12 +28,16 @@ const MAX_INPUT_LENGTH = 2000;
  *   may last `maxSeconds` (null for no limit);
  * - `ended`: over for a reason other than the user hanging up, shown until dismissed;
  *   a call the user hangs up goes straight back to `idle`.
+ *
+ * `dial` is which of this page's calls it is, from 1, going up on each `startCall` and kept
+ * through dialing, connected and ended (the page uses it as the stand's key). `seconds` is
+ * how long an ended call was connected, counted at that moment, or null if it never connected.
  */
 export type CallState =
   | { phase: "idle" }
-  | { phase: "dialing" }
-  | { phase: "connected"; since: number; maxSeconds: number | null }
-  | { phase: "ended"; end: CallEnd };
+  | { phase: "dialing"; dial: number }
+  | { phase: "connected"; dial: number; since: number; maxSeconds: number | null }
+  | { phase: "ended"; dial: number; end: CallEnd; seconds: number | null };
 
 /** A call under way: dialing or connected. Leaving the page hangs it up. */
 export type LiveCall = Extract<CallState, { phase: "dialing" | "connected" }>;
@@ -64,6 +68,9 @@ export type Snapshot = {
   hearing: string;
   /** The character's latest line in this call, for the call screen; null until she has one. */
   line: Segment | null;
+  /** The line before that in this call, shown faintly in text only; null until she has two.
+   * Taken from the same range as `line`, so a reply dropped for a follow-on is never it. */
+  previousLine: Segment | null;
   /** The microphone is off in the browser (GLOSSARY.md「麦克风静音」). */
   micMuted: boolean;
   /** The microphone the call is using; empty for the system default. */
@@ -90,15 +97,17 @@ export type Snapshot = {
   stand: StandDirection;
 };
 
-type State = Omit<Snapshot, "entries" | "line" | "stand" | "canDial" | "canStartNew"> & {
+type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
   log: ConversationLog;
   /** How many entries there were when the call connected: her lines from there on are its. */
   callFrom: number;
+  /** Which of this page's calls is under way or last shown, from 0 before the first. */
+  dial: number;
   /** Her stand direction, moved on by the call under way. */
   stand: StandState;
 };
 
-const IDLE: Omit<State, "log" | "callFrom" | "stand"> = {
+const IDLE: Omit<State, "log" | "callFrom" | "stand" | "dial"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
   collapsed: false,
@@ -118,6 +127,7 @@ export const NOT_OPEN: Snapshot = {
   ...IDLE,
   entries: [],
   line: null,
+  previousLine: null,
   stand: CALM,
   canDial: false,
   canStartNew: false,
@@ -195,7 +205,7 @@ export class LiveConversation {
   ) {
     const textOnly = ports.preferences.load().muted;
     ports.voice.setTextOnly(textOnly);
-    this.state = { ...IDLE, log: emptyLog, callFrom: 0, textOnly, stand: startingStand(textOnly) };
+    this.state = { ...IDLE, log: emptyLog, callFrom: 0, dial: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
   }
@@ -302,7 +312,8 @@ export class LiveConversation {
     const attempt = {};
     this.attempt = attempt;
     this.endedBy = null;
-    this.update({ call: { phase: "dialing" }, micMuted: false, failure: null });
+    const dial = this.state.dial + 1;
+    this.update({ call: { phase: "dialing", dial }, dial, micMuted: false, failure: null });
     const current = () => this.attempt === attempt;
     // The gate: what the call sends once it is over changes nothing.
     const gated =
@@ -339,7 +350,7 @@ export class LiveConversation {
     this.call = started;
     this.ports.tones.connect();
     this.update({
-      call: { phase: "connected", since: this.now(), maxSeconds: started.maxSeconds },
+      call: { phase: "connected", dial: this.state.dial, since: this.now(), maxSeconds: started.maxSeconds },
       callFrom: this.state.log.entries.length,
       ...micInUse(started.mic),
     });
@@ -489,13 +500,16 @@ export class LiveConversation {
    * no longer the call under way, so whatever it sends from now on is too late (see
    * `startCall`). */
   private ended(end: CallEnd | null): void {
+    // How long it was connected, counted now, before the call state is cleared.
+    const connected = this.state.call.phase === "connected" ? this.state.call.since : null;
+    const seconds = connected === null ? null : Math.max(0, Math.floor((this.now() - connected) / 1000));
     this.attempt = null;
     this.call = null;
     this.ports.tones.hangUp();
     this.apply(
       { type: "interrupted" },
       {
-        call: end ? { phase: "ended", end } : { phase: "idle" },
+        call: end ? { phase: "ended", dial: this.state.dial, end, seconds } : { phase: "idle" },
         hearing: "",
         micMuted: false,
         micId: "",
@@ -546,25 +560,26 @@ function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
 }
 
 function toSnapshot(state: State): Snapshot {
-  const { log, callFrom, stand, ...rest } = state;
+  const { log, callFrom, dial, stand, ...rest } = state;
   const free = isFree(state);
+  const lines = callLines(log.entries.slice(callFrom));
   return {
     ...rest,
     entries: log.entries,
-    line: latestLine(log.entries.slice(callFrom)),
+    line: lines.at(-1) ?? null,
+    previousLine: lines.at(-2) ?? null,
     stand: directionOf(stand),
     canDial: free,
     canStartNew: free,
   };
 }
 
-/** The last line she has begun to say among these entries. */
-function latestLine(entries: Entry[]): Segment | null {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const entry = entries[i];
+/** The lines she has said in these entries, in order: each segment with Japanese text. */
+function callLines(entries: Entry[]): Segment[] {
+  const lines: Segment[] = [];
+  for (const entry of entries) {
     if (entry.kind !== "character") continue;
-    const line = entry.segments.findLast((segment) => segment.ja);
-    if (line) return line;
+    for (const segment of entry.segments) if (segment.ja) lines.push(segment);
   }
-  return null;
+  return lines;
 }

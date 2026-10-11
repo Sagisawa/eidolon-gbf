@@ -278,6 +278,7 @@ export function ConversationView({
           micNotice={snapshot.micNotice}
           textOnly={textOnly}
           line={snapshot.line}
+          previousLine={snapshot.previousLine}
           hearing={hearing}
           standDirection={snapshot.stand}
           standOutfits={outfits?.toTry ?? []}

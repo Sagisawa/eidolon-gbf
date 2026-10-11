@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ComponentType, type ReactNode, type RefObject, type SVGProps } from "react";
+import { useEffect, useRef, type ComponentType, type ReactNode, type RefObject, type SVGProps } from "react";
 
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,8 @@ type Props = {
   textOnly: boolean;
   /** 她当前这句；还没开口时为 null。 */
   line: Segment | null;
+  /** 这通电话里她的上一句，只看文字时以浅色留在当前这句上面；还没有时为 null。 */
+  previousLine: Segment | null;
   /** 用户正在说、还没定稿的话。 */
   hearing: string;
   /** 她的立绘该是什么样子；她没有立绘时用不上。 */
@@ -226,7 +228,6 @@ function Backdrop({ character }: { character: Character }) {
  */
 function StandStage(props: Props) {
   const { call, isCollapsed, isFullScreen, isReducedMotion, standOutfits, standDirection } = props;
-  const dial = useDialCount(call.phase);
   return (
     <>
       <div
@@ -238,8 +239,8 @@ function StandStage(props: Props) {
         )}
       >
         <Stand
-          // 每拨一次重新载入：上一通失败了，这一通再试一次。
-          key={dial}
+          // 每拨一次重新载入：上一通失败了，这一通再试一次（通话状态带着这是第几次拨号）。
+          key={call.dial}
           outfits={standOutfits}
           framing={isFullScreen ? "knees" : "waist"}
           isPaused={isCollapsed}
@@ -256,24 +257,12 @@ function StandStage(props: Props) {
   );
 }
 
-/** 第几通电话：拨号时加一。 */
-function useDialCount(phase: ShownCall["phase"]): number {
-  const [seen, setSeen] = useState({ phase, count: 0 });
-  if (phase !== seen.phase) {
-    const count = seen.count + (phase === "dialing" ? 1 : 0);
-    setSeen({ phase, count });
-    return count;
-  }
-  return seen.count;
-}
-
 /**
  * 状态行（名字下面）：呼叫中是「正在呼叫」加三个依次闪的小点，通话中是计时，结束后是挂断图标加
  * 「通话已结束 · mm:ss」（没接通过就不带时长）。只用文字和图标，不再用线形。
  */
 function Status({ call }: { call: ShownCall }) {
   const time = useCallTime(call);
-  const seconds = useEndedSeconds(call);
   return (
     <p className="flex items-center justify-center gap-1.5 text-sm text-white/80 tabular-nums">
       {call.phase === "dialing" && (
@@ -295,27 +284,11 @@ function Status({ call }: { call: ShownCall }) {
       {call.phase === "ended" && (
         <>
           <HangUpIcon aria-hidden className="size-3.5" />
-          {seconds === null ? t.ended : t.endedAfter(clock(seconds))}
+          {call.seconds === null ? t.ended : t.endedAfter(clock(call.seconds))}
         </>
       )}
     </p>
   );
-}
-
-/** 结束了的通话打了多久（秒）：记下接通的时刻，结束时算出来；没接通过为 null。 */
-function useEndedSeconds(call: ShownCall): number | null {
-  const [since, setSince] = useState<number | null>(null);
-  const [seconds, setSeconds] = useState<number | null>(null);
-  if (call.phase === "connected" && call.since !== since) {
-    setSince(call.since);
-    setSeconds(null);
-  }
-  if (call.phase === "dialing" && since !== null) setSince(null);
-  const isEnded = call.phase === "ended";
-  useEffect(() => {
-    if (isEnded && since !== null) setSeconds(Math.max(0, Math.floor((Date.now() - since) / 1000)));
-  }, [isEnded, since]);
-  return isEnded ? seconds : null;
 }
 
 /** 呼叫中、没有立绘时头像外两圈 20% 白的波纹，2 秒一圈；减少动态效果时不放。 */
@@ -341,19 +314,18 @@ function Ripple({ isOn, children }: { isOn: boolean; children: ReactNode }) {
  * 台词卡：她当前这句的日语原文在上、字幕在下；「只看文字」开着时上一句以 45% 不透明度留在上面。
  * 她还没开口时是一句提示。用户正在说、还没定稿的话放在最下面。
  */
-function LineCard({ line, hearing, textOnly, call }: Props) {
-  const previous = usePreviousLine(line, call.phase);
+function LineCard({ line, previousLine, hearing, textOnly }: Props) {
   return (
     <div className="w-full max-w-[34em] rounded-3xl bg-white/12 px-5 py-4 text-center text-balance backdrop-blur-md">
       <div aria-live="polite">
         {line ? (
           <>
-            {textOnly && previous && (
+            {textOnly && previousLine && (
               <div className="mb-3 opacity-45">
                 <p className="text-body">
-                  <Ja>{previous.ja}</Ja>
+                  <Ja>{previousLine.ja}</Ja>
                 </p>
-                {previous.zh && <p className="text-subtitle text-white/80">{previous.zh}</p>}
+                {previousLine.zh && <p className="text-subtitle text-white/80">{previousLine.zh}</p>}
               </div>
             )}
             <p className="text-call-line leading-relaxed">
@@ -368,22 +340,6 @@ function LineCard({ line, hearing, textOnly, call }: Props) {
       {hearing && <p className="mt-3 text-sm text-white/80">{t.hearing(hearing)}</p>}
     </div>
   );
-}
-
-/**
- * 这通电话里她的上一句。一句话的原文在说的过程中会变长，变长的还是同一句；换了一句，原来那句才成为上一句。
- * 重新拨号时清掉。
- */
-function usePreviousLine(line: Segment | null, phase: ShownCall["phase"]): Segment | null {
-  const [seen, setSeen] = useState<{ line: Segment | null; previous: Segment | null }>({ line, previous: null });
-  let next = seen;
-  if (phase === "dialing" && (seen.line || seen.previous)) next = { line: null, previous: null };
-  else if (line !== seen.line) {
-    const isSameLine = !line || !seen.line || line.ja.startsWith(seen.line.ja);
-    next = { line, previous: isSameLine ? seen.previous : seen.line };
-  }
-  if (next !== seen) setSeen(next);
-  return next.previous;
 }
 
 /** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」）。 */

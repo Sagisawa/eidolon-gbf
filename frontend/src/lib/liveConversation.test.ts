@@ -225,12 +225,12 @@ describe("LiveConversation: a call", () => {
   it("dials, then counts from when it connects, with the backend's time limit", async () => {
     const { live, attempts } = await conversation();
     const calling = live.startCall();
-    expect(live.snapshot().call).toEqual({ phase: "dialing" });
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 });
 
     attempts[0].connect(new FakeCall(1800));
     await calling;
 
-    expect(live.snapshot().call).toEqual({ phase: "connected", since: NOW, maxSeconds: 1800 });
+    expect(live.snapshot().call).toEqual({ phase: "connected", dial: 1, since: NOW, maxSeconds: 1800 });
   });
 
   it("goes straight back to idle when the user hangs up, taking back the reply cut off", async () => {
@@ -270,7 +270,7 @@ describe("LiveConversation: a call", () => {
 
     attempts[0].fail(new Error("无法接通，请稍后再试"));
     await first;
-    expect(live.snapshot().call).toEqual({ phase: "dialing" });
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 2 });
     attempts[1].connect(new FakeCall());
     await second;
     expect(live.snapshot().call.phase).toBe("connected");
@@ -343,7 +343,7 @@ describe("LiveConversation: a call", () => {
 
     attempts[0].handlers.onDropped();
 
-    expect(live.snapshot().call).toEqual({ phase: "dialing" });
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 });
     attempts[0].fail(new Error("无法接通，请稍后再试"));
     await calling;
     expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "not_connected" } });
@@ -358,7 +358,7 @@ describe("LiveConversation: a call", () => {
 
     await failing(live, attempts, new Error("无法接通，请稍后再试"));
     void live.startCall();
-    expect(live.snapshot().call).toEqual({ phase: "dialing" });
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 3 });
     expect(attempts).toHaveLength(3);
   });
 
@@ -383,7 +383,7 @@ describe("LiveConversation: a call", () => {
     attempts[0].fail(new Error("无法接通，请稍后再试"));
     await calling;
 
-    expect(live.snapshot().call).toEqual({ phase: "dialing" }); // as it was when the page was left
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 }); // as it was when the page was left
   });
 
   it("hangs up the call under way and stops her voice when the page is left", async () => {
@@ -439,6 +439,132 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
   });
 
+});
+
+describe("LiveConversation: which call it is", () => {
+  it("counts this page's calls from 1, going up on each redial", async () => {
+    const { live, attempts } = await conversation();
+    const calling = live.startCall();
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 });
+    attempts[0].connect(new FakeCall());
+    await calling;
+
+    await live.hangUp();
+    void live.startCall();
+
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 2 });
+  });
+
+  it("keeps the same number when the call connects and when it ends", async () => {
+    const { live, attempts } = await conversation();
+    const calling = live.startCall();
+    attempts[0].connect(new FakeCall());
+    await calling;
+
+    attempts[0].handlers.onDropped();
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", dial: 1 });
+  });
+});
+
+describe("LiveConversation: how long an ended call was", () => {
+  it("counts the whole seconds from when it connected, and none when it never did", async () => {
+    let clock = NOW;
+    const { live, attempts } = await conversation({ ports: { now: () => clock } });
+    await connected(live, attempts);
+
+    clock += 83_000;
+    attempts[0].handlers.onDropped();
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", seconds: 83 });
+
+    await failing(live, attempts, new Error("无法接通，请稍后再试"));
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", seconds: null });
+  });
+
+  it("rounds down to whole seconds", async () => {
+    let clock = NOW;
+    const { live, attempts } = await conversation({ ports: { now: () => clock } });
+    await connected(live, attempts);
+
+    clock += 1_999;
+    attempts[0].handlers.onDropped();
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", seconds: 1 });
+  });
+});
+
+describe("LiveConversation: the line before", () => {
+  /** A call in "c1" whose history is the two recorded messages. */
+  async function inCall(messages: Message[] = history) {
+    const opened = await conversation({ messages });
+    await connected(opened.live, opened.attempts);
+    return { ...opened, handlers: opened.attempts[0].handlers };
+  }
+
+  it("takes the line she moved on from as the previous one, and leaves it when this one grows", async () => {
+    const { live, handlers } = await inCall();
+
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+    // Only one line so far: nothing before it.
+    expect(live.snapshot().line).toEqual({ ja: "こんにちは", zh: "" });
+    expect(live.snapshot().previousLine).toBeNull();
+
+    handlers.onEvent({ type: "delta", segment: 1, lang: "ja", text: "元気？" });
+    expect(live.snapshot().line).toEqual({ ja: "元気？", zh: "" });
+    expect(live.snapshot().previousLine).toEqual({ ja: "こんにちは", zh: "" });
+
+    // The same line growing longer is not a new line: the previous one stays put.
+    handlers.onEvent({ type: "delta", segment: 1, lang: "ja", text: "そう" });
+    expect(live.snapshot().line).toEqual({ ja: "元気？そう", zh: "" });
+    expect(live.snapshot().previousLine).toEqual({ ja: "こんにちは", zh: "" });
+  });
+
+  it("does not let the reply a follow-on dropped become the previous one", async () => {
+    // GLOSSARY.md「补充」：放下的那次回复不留任何痕迹。
+    const { live, handlers } = await inCall();
+
+    handlers.onEvent({ type: "user", text: "一" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "い" });
+    expect(live.snapshot().line).toEqual({ ja: "い", zh: "" });
+
+    // A follow-on joins the turn: the reply she was organizing is dropped.
+    handlers.onEvent({ type: "user", text: "一\n二" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "に" });
+
+    expect(live.snapshot().line).toEqual({ ja: "に", zh: "" });
+    expect(live.snapshot().previousLine).toBeNull();
+  });
+
+  it("starts each call with no previous line", async () => {
+    const { live, handlers, attempts } = await inCall();
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+    handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
+    await live.hangUp();
+
+    await connected(live, attempts);
+
+    expect(live.snapshot().line).toBeNull();
+    expect(live.snapshot().previousLine).toBeNull();
+  });
+
+  it("does not take a line from the last call as the previous one", async () => {
+    const { live, handlers, attempts } = await inCall();
+    handlers.onEvent({ type: "user", text: "你好" });
+    handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こんにちは" });
+    handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
+    await live.hangUp();
+
+    await connected(live, attempts);
+    attempts[1].handlers.onEvent({ type: "user", text: "你好" });
+    attempts[1].handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "やあ" });
+
+    expect(live.snapshot().line).toEqual({ ja: "やあ", zh: "" });
+    expect(live.snapshot().previousLine).toBeNull();
+  });
 });
 
 describe("LiveConversation: a call that is over", () => {
