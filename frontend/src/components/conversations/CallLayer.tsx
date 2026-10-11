@@ -9,7 +9,7 @@ import { copy } from "@/i18n";
 import type { Character, Outfit, Segment } from "@/lib/api";
 import type { CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
-import type { CallState, LiveCall, MicNotice } from "@/lib/liveConversation";
+import type { MicNotice, ShownCall } from "@/lib/liveConversation";
 import type { StandDirection } from "@/lib/standAnimations";
 import { cn } from "@/lib/utils";
 import {
@@ -27,9 +27,6 @@ import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
 
 const t = copy.call;
-
-/** 通话层上显示的通话：拨打中、通话中，或者因故结束。 */
-export type ShownCall = LiveCall | Extract<CallState, { phase: "ended" }>;
 
 type Props = {
   character: Character;

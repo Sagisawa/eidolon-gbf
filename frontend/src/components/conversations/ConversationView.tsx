@@ -34,7 +34,7 @@ import { CharacterVoice } from "@/lib/characterVoice";
 import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
-import { isLive, LiveConversation, NOT_OPEN, type CallState } from "@/lib/liveConversation";
+import { isLive, LiveConversation, NOT_OPEN } from "@/lib/liveConversation";
 import { settingsHref } from "@/lib/settingsTab";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
@@ -42,7 +42,7 @@ import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { CallBar } from "./CallBar";
-import { CallLayer, type ShownCall } from "./CallLayer";
+import { CallLayer } from "./CallLayer";
 import { MicSheet } from "./MicSheet";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
@@ -80,10 +80,9 @@ export function ConversationView({
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
-  const { conversation, entries, call, hearing, draft, textOnly, failure, collapsed } = snapshot;
+  const { conversation, entries, call, layer, hearing, draft, textOnly, failure } = snapshot;
   // 她的声音：<audio> 交给它，什么时候拨号、播放、静音由 LiveConversation 告诉它。
   const [voice] = useState(() => new CharacterVoice());
-  const shownCall = useShownCall(call);
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
@@ -118,10 +117,10 @@ export function ConversationView({
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
 
-  // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。
-  const isLayerCollapsed = collapsed || call.phase === "idle";
-  const isCovered = shownCall !== null && !isLayerCollapsed;
-  const barShown = isLive(call) && collapsed;
+  // 通话层展开时盖住整栏：底下的页首和对话不能再被 Tab 或屏幕阅读器摸到。快照里的 layer
+  // 已经管着「画哪一通、收没收起」；通话条只在通话中、通话层收着时出现。
+  const isCovered = layer !== null && !layer.collapsed;
+  const barShown = isLive(call) && layer?.collapsed === true;
   const focus = useFocusBack({ layerOpen: isCovered, noteShown: barShown });
 
   // 页首的图标键：手机上触控目标不小于 44px（DESIGN.md「Layout」）。
@@ -266,11 +265,11 @@ export function ConversationView({
       {composer}
       {/* 静音由 voice 管：只看文字，或者她的声音改走电话质感时，这里只是持有音轨 */}
       <audio ref={voice.attach} autoPlay />
-      {shownCall && (
+      {layer && (
         <CallLayer
           character={character}
-          call={shownCall}
-          isCollapsed={isLayerCollapsed}
+          call={layer.call}
+          isCollapsed={layer.collapsed}
           layerRef={focus.layer}
           isFullScreen={isFullScreen}
           isReducedMotion={isReducedMotion}
@@ -500,14 +499,4 @@ function clock(at: string): string {
 /** 失败提示：后端给的原因，知道算不算限额时加一句（GLOSSARY.md「限额」）。 */
 function failureText(failure: Failure): string {
   return failure.countsTowardLimit === false ? `${failure.message} ${t.notCounted}` : failure.message;
-}
-
-/**
- * 通话层上要画的通话：通话中和结束页照实画；挂断回到空闲后，留着最后一刻的样子，收起的动画才有东西可收。
- * 这一页还没打过电话时为 null，通话层不出现。
- */
-function useShownCall(call: CallState): ShownCall | null {
-  const [shown, setShown] = useState<ShownCall | null>(null);
-  if (call.phase !== "idle" && call !== shown) setShown(call);
-  return call.phase === "idle" ? shown : call;
 }
