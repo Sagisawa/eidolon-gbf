@@ -170,6 +170,11 @@ export const zh = {
         title: "这一小时的通话次数用完了",
         body: "语音识别、语音合成和 LLM 都用自带密钥的通话不计入限额。",
       },
+      /** 部署要求自带 LLM、这次没带（GLOSSARY.md「必须自带 LLM」）；后端的原话放在标题下面。 */
+      own_llm_required: {
+        title: "要先填上你自己的 LLM",
+        body: "只填 LLM 也能打电话，语音合成和语音识别用部署者的；这样的通话计入每小时的通话次数。",
+      },
       own_key: {
         title: "你的自带密钥出错了",
         body: "自带密钥调用失败时，不会悄悄改用部署者的密钥。检查一下设置页里的密钥再重拨。",
@@ -819,7 +824,7 @@ export const zh = {
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",
         own_llm_required:
-          "打开后，用户没填自己的 LLM 就不能发起文字回合，会被拒绝并提示去设置里填写，被拒绝的回合不计入限额。管理者不受这项要求约束。",
+          "打开后，用户没填自己的 LLM 就不能发起文字回合和通话，会被拒绝并提示去设置里填写，被拒绝的回合和通话不计入限额。只填了 LLM 的通话用部署者的语音合成和语音识别，照常计入每小时通话次数。管理者不受这项要求约束；进行中的通话不受影响。",
       } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,

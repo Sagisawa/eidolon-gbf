@@ -860,9 +860,10 @@ class Calls:
         """What the browser needs before calling: ICE servers, with TURN credentials of its
         own; how long a call may last, in seconds (None for no limit); and whether a call
         bringing the user's own keys for `own` would be exempt from the limit. Raises
-        CallsUnavailable, as `OwnKeys.call_exempt` does, before anything is spent on a
-        call that could not start."""
+        CallsUnavailable, as `OwnKeys.call_exempt` does, and OwnLLMRequired, as
+        `Admissions.call` would, before anything is spent on a call that could not start."""
         exempt = self._own_keys.call_exempt(own)
+        self._admissions.refuse_without_own_llm(user_id, "llm" in own)
         servers: list[IceServer] = list(self._settings.ice_servers)
         if self._settings.turn is not None:
             servers.append(self._settings.turn.credentials(user_id, self._clock()))
