@@ -56,7 +56,7 @@ cp .env.example .env
   - 免费层每分钟最多向量化 100 条文本（一次批量请求里的每条文本都各算一次请求）。同步、导入和 `eidolon reembed` 碰到限流会按 Google 给的时间自动等待再继续，所以能跑完，只是整个剧情库要花上几十分钟以上；免费层可能还有每天的上限（在 AI Studio 的 Rate Limit 页面查看），碰到时命令会报错退出，第二天重新运行即可接着做。对话中的查询不等待：限流时这一回合不带检索结果照常回复。
   - **公开部署不要用免费层**（ADR-0005 的修订）：免费层的内容会被 Google 用于改进产品，送去向量化的包括剧情库（没有许可证的剧情文本，ADR-0003）和陌生用户的记忆。在 AI Studio 开通计费（付费层的内容不用于训练；文本约 $0.20 / 百万 token，全量剧情库重新向量化一次只要几美元），然后在 `.env` 里填 `GEMINI_BILLING_ENABLED=1` 声明已开计费；没有声明时，公开部署的后端每次启动都会在日志里警告。不想开计费就改用硅基流动。
 
-然后准备人设文件（见 README 的「角色」：`characters/sheets/` 下每位角色一份，角色资料和头像可选），启动：
+28 位偶像的人设、资料和头像都已随仓库提交，新增角色的步骤见[配置指南](configuration.md)的「角色」。启动：
 
 ```sh
 docker compose -f docker-compose.prod.yml pull
@@ -67,11 +67,11 @@ docker compose -f docker-compose.prod.yml up -d
 
 第一次启动时 Caddy 会申请证书，稍等片刻后用浏览器打开 `https://你的域名`。后端启动失败时（缺少人设文件、对话模型检查不通过等），用 `docker compose -f docker-compose.prod.yml logs backend` 查看原因。
 
-下面的命令都要带上 `-f docker-compose.prod.yml`。嫌麻烦的话，在这台服务器上执行一次 `export COMPOSE_FILE=docker-compose.prod.yml`（或者写进 shell 的配置文件），之后 README 里的 `docker compose ...` 命令就能原样使用。
+下面的命令都要带上 `-f docker-compose.prod.yml`。嫌麻烦的话，在这台服务器上执行一次 `export COMPOSE_FILE=docker-compose.prod.yml`（或者写进 shell 的配置文件），之后 README 和配置指南里的 `docker compose ...` 命令就能原样使用。
 
 ## 同步剧情库
 
-剧情库用一条命令同步：先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐还缺的卡牌剧情、培育剧情和活动剧情（原文剧情，规则见 README 的「剧情库」）。需要 `.env` 里填好向量化服务的 key（默认 `SILICONFLOW_API_KEY`，选 Gemini 时是 `GEMINI_API_KEY`）。
+剧情库用一条命令同步：先导入 SCTranslationData 的汉化版，再从 ShinyColorsDB 镜像补齐还缺的卡牌剧情、培育剧情和活动剧情（原文剧情，规则见[配置指南](configuration.md)的「剧情库」）。需要 `.env` 里填好向量化服务的 key（默认 `SILICONFLOW_API_KEY`，选 Gemini 时是 `GEMINI_API_KEY`）。
 
 `deploy/story-sync.sh` 把这件事做完整：更新（第一次是克隆）仓库根目录下的 `corpus/SCTranslationData`，再在后端容器里运行 `eidolon story sync`，把输出追加到 `logs/story-sync.log`。先手动运行一次首次全量补齐：
 
@@ -146,7 +146,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon story import-json
    docker compose -f docker-compose.prod.yml exec backend eidolon reembed
    ```
 
-   依次处理剧情库、角色资料和全部用户的记忆，打印进度和各处新向量化的条数；全部成功后删除旧模型的向量。整个剧情库要花一段时间（和首次同步的向量化差不多），期间服务照常可用，只是剧情检索暂时只查得到已完成的部分（角色资料和记忆在被检索到时就会按新模型补上向量）。中途中断或向量化出错时，已完成的部分会保留、旧向量不会删除，重新运行即可接着做。
+   依次处理剧情库、角色资料、作品资料（歌曲、唱片和演出）和全部用户的记忆，打印进度和各处新向量化的条数；全部成功后删除旧模型的向量。整个剧情库要花一段时间（和首次同步的向量化差不多），期间服务照常可用，只是剧情检索暂时只查得到已完成的部分（角色资料和记忆在被检索到时就会按新模型补上向量）。中途中断或向量化出错时，已完成的部分会保留、旧向量不会删除，重新运行即可接着做。
 
 模型的存储标识带上了维度（如 `gemini-embedding-2@1536`），所以只改维度也要走一遍这个流程。换回原来的模型同样要再跑一次。
 
@@ -165,7 +165,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 ## 校准判断模型阈值
 
-判断模型（Jev、Clef 或 Clef-flash，见 README 的「对话中的检索」）对每个问题给出概率，达到阈值才算「是」。阈值按模型写在 `backend/src/eidolon/judge.py` 的 `JUDGE_THRESHOLDS` 里，Clef-flash 经 OpenRouter 和直连用同一组；其他模型名用 Jev 的，并在启动日志里提示。情绪的最低概率可以用 `JUDGE_EMOTION_MIN_PROBABILITY` 覆盖，检索的三个阈值不能在 `.env` 里改。
+判断模型（Jev、Clef 或 Clef-flash，见[配置指南](configuration.md)的「对话中的检索」）对每个问题给出概率，达到阈值才算「是」。阈值按模型写在 `backend/src/eidolon/judge.py` 的 `JUDGE_THRESHOLDS` 里，Clef-flash 经 OpenRouter 和直连用同一组；其他模型名用 Jev 的，并在启动日志里提示。情绪的最低概率可以用 `JUDGE_EMOTION_MIN_PROBABILITY` 覆盖，检索的三个阈值不能在 `.env` 里改。
 
 | | 要检索参考资料 | 问过去的经历 | 在说自己的事 | 情绪最低概率 |
 |---|---|---|---|---|
@@ -422,7 +422,7 @@ uv run eidolon reading draft
 2. 「客户端」（旧称「凭据」）里创建 OAuth 客户端 ID，类型选「Web 应用」，已获授权的重定向 URI 填上表的地址。
 3. 把客户端 ID 和客户端密钥填进 `.env` 的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`。邮箱没有验证的 Google 账号不能登录。
 
-改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址是落地页，从右上角的「登录」登录：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见 README 的「登录与用户」和「自带密钥」；封禁、查看用量等管理命令也在那里，同样的事也可以在后台里做（见下一节）。
+改完 `.env` 后 `docker compose -f docker-compose.prod.yml up -d` 让后端生效。打开网址是落地页，从右上角的「登录」登录：第一次登录的用户要同意隐私政策和使用条款、声明年满 13 岁。登录方式、限额、自带密钥等见[配置指南](configuration.md)的「登录、用户与限额」和「自带密钥」；封禁、查看用量等管理命令也在那里，同样的事也可以在后台里做（见下一节）。
 
 > [!NOTE]
 > 对公众开放意味着陌生人的对话和记忆会存在这台服务器上，并交给你配置的第三方服务处理（见网站的隐私政策页）。几点注意：

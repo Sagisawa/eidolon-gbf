@@ -1,0 +1,397 @@
+# 配置指南
+
+**简体中文** · [English](configuration.en.md) · [日本語](configuration.ja.md)
+
+这份指南说明每项功能怎么开、怎么调，以及开了以后角色会怎样表现。所有环境变量的逐项说明见 [`.env.example`](../.env.example)，部署到服务器的完整步骤见 [`deploy.md`](deploy.md)，术语见 [`GLOSSARY.md`](../GLOSSARY.md)。
+
+> [!TIP]
+> 只填对话模型（`CHAT_LLM_*`）就能文字聊天。下表列出其他功能各自要补上哪些配置：
+>
+> | 功能 | 需要的配置 |
+> |---|---|
+> | 文字对话 | `CHAT_LLM_*` |
+> | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认），或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY` |
+> | 剧情库（同步或导入） | 向量化的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
+> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` |
+> | 立绘与落地页的招呼 | `EIDOLON_STAND_ASSETS_URL`，以及存放素材的存储桶 |
+> | Google / GitHub 登录 | `GOOGLE_CLIENT_*`、`GITHUB_CLIENT_*` |
+
+## 目录
+
+- [模型](#模型)
+- [角色](#角色)
+- [读音与招呼](#读音与招呼)
+- [语音通话](#语音通话)
+- [立绘](#立绘)
+- [剧情库](#剧情库)
+- [世界设定](#世界设定)
+- [向量化服务](#向量化服务)
+- [对话中的检索](#对话中的检索)
+- [记忆](#记忆)
+- [登录、用户与限额](#登录用户与限额)
+- [自带密钥](#自带密钥)
+- [后台](#后台)
+- [命令行速查](#命令行速查)
+
+## 模型
+
+「对话模型」扮演角色，「后台模型」抽取记忆、写人设初稿。两者在 `.env` 里分别配置，各自从三种接口里选一种（`CHAT_LLM_PROTOCOL`、`BACKGROUND_LLM_PROTOCOL`）。地址、密钥和模型名都自己填，所以也能接兼容这些接口的第三方服务。
+
+| 取值 | 接口 | 请求地址 |
+|---|---|---|
+| `chat-completions`（默认） | OpenAI 兼容的 Chat Completions | `{地址}/chat/completions` |
+| `responses` | OpenAI Responses | `{地址}/responses` |
+| `anthropic` | Anthropic Messages | `{地址}/messages` |
+
+- **对话模型必须支持流式输出和工具调用**。后端启动时先发一次很小的检查请求，不满足、或地址密钥有误时拒绝启动，并说明是哪一项不满足、服务返回了什么。
+- 模型回复前输出的思考内容（reasoning / thinking）会被丢掉，不进回复。
+- Anthropic 接口必须给出回复长度上限，默认 16384 token，用 `CHAT_LLM_MAX_TOKENS`、`BACKGROUND_LLM_MAX_TOKENS` 调整。这一项两个模型各设各的，免得较长的人设初稿被截断。
+- 后台模型没填的项沿用对话模型。例如只填 `BACKGROUND_LLM_MODEL`，就是在同一个服务上换一个便宜的模型。
+
+## 角色
+
+角色写在 [`characters/characters.toml`](../characters/characters.toml) 里，每位一段 `[[characters]]`。现在原作的八个组合、28 位偶像都已经配好，人设、角色资料和头像也都随仓库提交（ADR-0003）。
+
+```toml
+[[characters]]
+id = "mano"                          # 标识，用在网址和剧情库里
+name = "櫻木真乃"
+name_zh = "樱木真乃"                 # 以下三项给对话列表的搜索用
+name_kana = "さくらぎ まの"
+name_romaji = "Sakuragi Mano"
+intro = "illumination STARS 的中心。温柔又有点慢热，喜欢鸟……"
+voice_id = "a1150f3d14ac46fb8ea59c7803cd8357"   # Fish Audio 音色，要设为公开
+sheet = "sheets/mano.md"
+avatar = "avatars/mano.jpg"
+color = "#ffbad6"                    # 官方印象色，必填
+facts = "facts/mano.md"
+speakers = ["真乃"]                  # 剧本里她的说话人名字
+idol_id = 1                          # 以下两项用于立绘
+default_outfit = "stand/1030010010"  # 【ナチュラルモード】
+greeting = "[shyly] ほわっ……プロデューサーさん、ですか？　よろしくお願いしますっ"
+greeting_subtitle = "呼哇……你就是制作人吗？请多指教！"
+```
+
+每一项的写法见文件开头的注释。几项需要额外说明的：
+
+- **`color`**：界面上属于她的地方（对话壁纸、电话键、发送键、未读数、通话层和通话条）都以它为基调。前端从它推出浅色、深色两套颜色，并保证文字看得清。缺这一项或格式不对时，后端拒绝启动。
+- **`background`**（可选）：通话层的背景图，放在 `characters/backgrounds/`。没配时用印象色的渐变代替。
+- **人设**：缺人设文件时后端拒绝启动，并指出缺哪一份。docker compose 把 `characters/` 只读挂载进后端容器。
+
+**新增一位角色**要做这几件事：
+
+1. 在 `characters.toml` 里加一段，参照 [`sheets/example.md`](../characters/sheets/example.md) 写人设，资料（可选）参照 [`facts/example.md`](../characters/facts/example.md) 写，头像放进 `characters/avatars/`。
+2. 在 `backend/` 下运行 `uv run eidolon reading draft`，给她的名字补上读音（见[读音与招呼](#读音与招呼)）。
+3. 配了招呼的话，在 `backend/` 下运行 `uv run --env-file=../.env eidolon greeting upload` 合成上传。
+4. 在 `frontend/` 下运行 `node scripts/landing-fonts.mts`，重新生成落地页的字体子集（见 [`frontend/AGENTS.md`](../frontend/AGENTS.md)）。改了组合、招呼或显示名也要跑；忘了的话，前端的字体覆盖测试会失败并列出缺的字。
+5. 导入过剧情库的，重新同步或导入一次，她出场的剧情才会算到她名下。
+6. 重启后端。
+
+<details>
+<summary><b>用后台模型生成人设初稿</b></summary>
+
+<br>
+
+人设可以先让后台模型读完她的全部剧情写一份初稿，再人工校对。要先导入剧情库：
+
+```sh
+uv run eidolon --db data/eidolon.db character draft-sheet mano   # 在 backend/ 下
+# docker compose 下 characters/ 是只读的，先写到数据卷再拷出来：
+docker compose exec backend eidolon character draft-sheet mano --output /data/drafts/mano.md
+docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
+```
+
+- **素材**：只用她出场过的剧情（正式经历）。
+- **小节**：初稿依次是身份、自称、对他人的称呼、口癖、与组合伙伴的关系、硬性规则；模型漏掉的小节留下「（待补充）」。
+- **草稿标记**：初稿第一行是草稿标记。标记在的时候人设照常可用，后端启动时会提醒这份人设还没校对；校对完删掉这一行即可。已经校对过的人设不会被覆盖，确实要重写时加 `--force`。
+- **素材超长**：素材超出一次请求的上限（`--budget`，默认 40000 字）时，先分批做笔记，再根据笔记写初稿。以真乃为例，约 220 段剧情、33 万字，大约要请求后台模型十次。
+
+</details>
+
+## 读音与招呼
+
+**读音**是角色名、组合名、事务所名在她的声音里怎么念，写在 [`characters/readings.toml`](../characters/readings.toml) 里，例如「杜野凛世」念「もりの りんぜ」。招呼和通话每次请求 Fish Audio 时都会带上这份读音表，用户自带的 key 也一样。它只改变声音，字幕、文字记录和日语原文里还是原来的写法。
+
+- **改读音**：改那一条的 `kana`，把 `phonemes` 清空成 `""`，在自己的电脑上运行 `uv run eidolon reading draft` 补上音素。这个命令要用开发依赖里的 pyopenjtalk-plus，服务器镜像里没有，所以在本机跑完再提交。已有音素的条目它不会动。
+- **生效**：读音表只在后端启动时读取，改完要重启后端，再重跑一次招呼的合成上传。
+
+**招呼**是落地页上每位偶像对初次见面的制作人说的一句日语，带中文字幕，访客点她才播放（ADR-0016）。台词写在 `greeting`、`greeting_subtitle` 两项里，随仓库提交。
+
+- **音频不进仓库**：事先用她的音色合成好，放进立绘的同一个存储桶。访客播放时只是下载这个文件，不会实时调用语音合成，也不计入任何人的限额。
+- **合成上传**：改了台词、音色或读音之后，运行 `uv run --env-file=../.env eidolon greeting upload`。它只合成存储桶里还没有的，再删掉旧版本。
+- **没有音频时**：没配 `EIDOLON_STAND_ASSETS_URL`，或者存储桶里还没有音频时，落地页只显示字幕。
+
+存储桶的设置、退出码和下线办法见 [`deploy.md`](deploy.md) 的「招呼」。
+
+## 语音通话
+
+填好 `FISH_AUDIO_API_KEY` 和语音识别的 key 后，对话页页首的电话键就能用了。通话层在手机上占满全屏，在电脑上盖住右边的对话栏。
+
+语音识别用 `STT_PROVIDER` 二选一，整个部署只用这一家（[ADR-0010](adr/0010-speech-recognition-provider-chosen-at-deploy-and-per-own-key.md)）。自带语音识别密钥的用户自己选用哪家，与这里无关。
+
+| `STT_PROVIDER` | 服务 | 需要的 key | 模型 |
+|---|---|---|---|
+| `soniox`（默认） | Soniox | `SONIOX_API_KEY` | Pipecat 默认的 Soniox 实时模型 |
+| `bailian` | 阿里云百炼 | `DASHSCOPE_API_KEY`，北京、新加坡地域都可以，自动判断 | `qwen-audio-3.1-asr-flash-streaming`（`BAILIAN_STT_MODEL`），要先在百炼控制台开通 |
+
+> [!WARNING]
+> 选阿里云百炼时，后端启动时会试调一次 key，调不通就拒绝启动。公开部署用北京地域的 key 时，**陌生用户的声音会送到中国内地处理，按中国法律保存**；隐私说明里写明了这一点。
+
+- **语言与字幕**：中文、日语都可以说。她用配置的 Fish Audio 音色读日语原文，原文和中文字幕同时显示，也写进对话记录。
+- **模型**：`FISH_AUDIO_MODEL` 默认是不消耗 API 额度的 `s2.1-pro-free`，有额度时可以换成付费模型。
+- **语气提示**：情绪明显的段落，她会在日语前写上给 Fish Audio 看的提示（如 `[shyly] えへへ`），合成时照着念出起伏；写法不规范的提示一律删掉。提示不显示在界面上，但在对话记录里原样保留（[ADR-0007](adr/0007-delivery-cues-kept-in-the-record.md)）。
+- **补充与打断**：她还没说出完整的一段（日语连同字幕）时，你接着说的话会并入当前回合，她针对整段话重新回答。她已经说出完整的一段后你再开口，就是打断：她停下来，这条回复只记下已经说完的几段。打字也一样。
+- **通话层**：可以收起回到文字记录，通话照常继续，页首下面留一条她颜色的通话条。底部是麦克风静音、挂断和切换麦克风三个按钮；右上角「只看文字」打开后，她不出声，只显示原文和字幕。
+- **电话的声音**：拨号时有铃声，接通有接通音，结束有挂断音。设置页「通话」标签里可以选默认麦克风和通话音质，也可以打开「电话质感」，让她的声音像隔着听筒。
+- **结束页**：通话因故结束（没接通、断线、到了上限、限额用完、自带密钥出错、麦克风被拒）时，通话层停在结束页，写明原因和这次算不算进限额。
+- **离开就挂断**：离开对话页就挂断，还在接通中也一样；在页面里离开之前会先确认。
+
+> [!NOTE]
+> 浏览器和后端之间直接走 WebRTC（UDP）。本机用 docker compose 启动时，Linux 上的浏览器可以直接连到容器；macOS 的 Docker Desktop 或用手机访问时，通常要配 TURN 服务器，见 `.env.example` 里的 `EIDOLON_ICE_SERVERS` 和 `EIDOLON_TURN_URLS`。生产配置自带 coturn，见 [`deploy.md`](deploy.md)。
+
+## 立绘
+
+通话层可以叠上原作的 Spine 立绘（可选）。下面三项都配好才显示，缺一项时通话层只显示背景图：
+
+| 配置 | 写在哪里 | 说明 |
+|---|---|---|
+| `idol_id` | `characters.toml` | 原作的偶像编号（ShinyColorsDB 的 idolId），如真乃是 `1` |
+| `default_outfit` | `characters.toml` | 用户没选过衣装时穿的那套：`stand/<enzaId>`（私服）或 `stand_costume/<enzaId>`（演出服） |
+| `EIDOLON_STAND_ASSETS_URL` | `.env` | 存放立绘素材的 S3 兼容存储桶的公开地址；前端也要带上同一个值，页面的 CSP 只许从这里加载立绘 |
+
+- **动起来**：待机时呼吸、眨眼；她的声音播放时动嘴；你开口时她看向你，说完点头。
+- **情绪**：配好判断模型时，她每说一段话，判断模型都会判断这段的情绪（平静、开心、害羞、惊讶、难过、生气、思考）和要不要点头或摇头，立绘跟着换表情和动作。阈值和超时用 `JUDGE_EMOTION_MIN_PROBABILITY`、`JUDGE_EMOTION_TIMEOUT` 调整。
+- **换衣装**：对话页右上角的「更多操作」里有「换衣装」。每张卡一项，可以在私服和演出服之间切换，有会动的全身预览；选好的那套按角色记在这台设备上。
+- **素材同步**：素材不进仓库，也不在许可证范围内，放在对象存储里（[ADR-0011](adr/0011-stand-assets-fetched-from-shinycolorsdb.md)）。`deploy/stand-sync.sh` 从 ShinyColorsDB 拉新卡、整理衣装清单、渲染缩略图，再上传到存储桶。建议用 cron 每周跑一次。
+
+`stand-sync.sh` 不经过 docker，要用 uv、Node.js 22.18 以上和 Playwright 的 Chromium。存储桶怎么选（R2、腾讯云 COS、阿里云 OSS、MinIO 等）、CORS、退出码和本地预览的方法见 [`deploy.md`](deploy.md) 的「立绘素材」。
+
+## 剧情库
+
+她能回忆的原作剧情有两个来源，由同一条命令一起维护：
+
+| | 汉化版 | 原文剧情 |
+|---|---|---|
+| 来源 | [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData) 的剧情 CSV | ShinyColorsDB 的解码镜像（[ADR-0004](adr/0004-untranslated-episodes-from-shinycolorsdb-mirror.md)） |
+| 内容 | 日语原文 + 粉丝中文翻译 | 只有日语原文 |
+| 时效 | 等粉丝翻译，几周到几个月 | 游戏更新后一周内 |
+
+两者是同一段剧情的两个状态：汉化版到位后，按同一剧本编号取代原文剧情。她回忆时两者没有区别。
+
+剧情数据不进仓库（ADR-0003）。把 SCTranslationData 克隆到仓库根目录的 `corpus/` 下（已被 git 忽略，docker compose 会把它只读挂载到容器的 `/corpus`），填好向量化的 key，然后同步：
+
+```sh
+git clone --depth 1 https://github.com/ShinyGroup/SCTranslationData.git corpus/SCTranslationData
+docker compose exec backend eidolon story sync
+```
+
+首次同步要补齐镜像上缺的全部剧情，大约一到两个小时，中断后重新运行会接着做；之后每次只要几分钟。本地开发时在 `backend/` 下用 `uv run eidolon --db data/eidolon.db story sync`。服务器上的每周自动同步、缓存和手动导入 CSV 或 JSON 见 [`deploy.md`](deploy.md) 的「同步剧情库」。
+
+<details>
+<summary><b>同步做了什么</b></summary>
+
+<br>
+
+`eidolon story sync` 先导入汉化版，再从镜像把剧情库里还缺的剧情作为原文剧情导入。已有汉化版的剧情不会被下载，也不会被覆盖。
+
+- **P 卡、S 卡剧情**：出处是卡名（如 `【ほわっとスマイル】櫻木真乃`，和 SCTranslationData 的目录名一致），标题是游戏里的剧情标题。
+- **培育剧情与特别剧情**：
+  - 培育剧情（W.I.N.G.、感谢祭、G.R.A.D.、Landing Point、S.T.E.P. 及各类交流）和生日、节日等特别剧情来自各偶像的游戏内相册，相册 2024 年 3 月之后不再更新。
+  - 出处沿用 SCTranslationData 对相册同一部分的目录名；同步结束时会列出标题带「敗」「失敗」、却没有被失败结局规则排除的剧情，请人工核对。
+- **活动剧情**：
+  - 没有目录，按剧本编号（`4001` + 三位活动编号 + 两位话数）推算：先补齐已知范围内缺的，再往后试探几个编号。
+  - 活动名来自 `deploy/event-names.toml`（参照 [`event-names.example.toml`](../deploy/event-names.example.toml) 编写，不进仓库）。没填的活动显示为「活动剧情 NNN」，同步结束时会列出这些编号。
+- **礼貌与容错**：请求一个一个发，间隔约一秒，没有变化的卡和相册不再请求。镜像连不上时汉化版照常导入，命令以退出码 2 结束。
+- **参数**：`--idol 1` 只同步某位偶像的卡和相册（可重复）；汉化版目录默认取 `EIDOLON_STORY_PATH`，也可以用 `--story` 指定。
+
+</details>
+
+<details>
+<summary><b>导入规则（汉化版与原文剧情通用）</b></summary>
+
+<br>
+
+- 每段剧情以原始剧本编号为主键，重复导入会覆盖更新；内容没变的剧情不会重新向量化，所以随时可以重新导入。
+- 只收录正式经历：失败结局（W.I.N.G. 敗退、季度目标未达成、G.R.A.D. 败退、试镜落败、约定未遵守）按剧本编号识别并排除；制作人的选项不收录，角色对每个选项的反应都保留。
+- 出场角色按台词的说话人识别（`characters.toml` 的 `speakers`）。改了 `speakers` 或新增角色后要重新导入。
+- 剧情目录按「角色 → 卡或活动 → 话」分层，直接由剧情库生成，导入结束时会列出每位角色的目录规模。
+
+</details>
+
+## 世界设定
+
+每个回合都在人设后面带上一节世界设定（[ADR-0008](adr/0008-real-world-releases-and-lives-are-in-character.md)）：
+
+- 事务所的社长和事务员、八个组合和各自的偶像；
+- 她自己的歌（她一个人唱的、她所在组合全员唱的），附收录的唱片和发售日；
+- 她上过和将要站上的演出：每个演出日的日期和会场，声优缺席的日子不算。
+
+资料在 [`characters/world.json`](../characters/world.json)，已提交进仓库。每位角色的显示名都要和资料里的偶像对得上，否则后端不会启动；没有这个文件时照常运行，只是不带世界设定。
+
+<details>
+<summary><b>更新世界设定（eidolon world sync）</b></summary>
+
+<br>
+
+在 `backend/` 下运行 `uv run eidolon world sync`，它从以下来源导入：
+
+| 内容 | 来源 |
+|---|---|
+| 偶像和组合 | im@sparql、官方组合页 |
+| 唱片、曲目和演唱者 | Lantis 的闪耀色彩站点；Lantis 没写的演唱者由 ふじわらはじめ 的 API 补齐 |
+| 演出 | 偶像大师官方门户（2020 年 9 月以前是旧官方站） |
+| 每个演出日的出演者和缺席 | wikiwiki |
+| 每个演出日的曲目单 | imas-db |
+
+- **核对**：导入结束时打印各类条目的数量、与旧文件相比的增减、来源之间对不上的地方，以及没能对应到偶像的演唱者和出演者。看过 `git diff` 再提交。
+- **人工更正**：查证过的更正写在 [`characters/world-corrections.json`](../characters/world-corrections.json) 里，每条附出处和说明，每次导入都会套用。
+- **失败保护**：任何一个来源失败时，旧文件不会改动。
+
+</details>
+
+## 向量化服务
+
+剧情库、角色资料、作品资料和记忆共用一个向量化服务，部署时用 `EMBEDDING_PROVIDER` 二选一（[ADR-0005](adr/0005-embedding-provider-chosen-at-deploy.md)）。重排不跟着换，始终用硅基流动。
+
+| `EMBEDDING_PROVIDER` | 服务 | 需要的 key | 默认模型 |
+|---|---|---|---|
+| `siliconflow`（默认） | 硅基流动 | `SILICONFLOW_API_KEY` | `Qwen/Qwen3-Embedding-0.6B` |
+| `gemini` | Google Gemini API | `GEMINI_API_KEY`（重排仍需 `SILICONFLOW_API_KEY`） | `gemini-embedding-2`，维度 `EMBEDDING_DIMENSIONS`（默认 1536，128–3072） |
+
+> [!WARNING]
+> 选 Gemini 时要注意两点：
+>
+> - Gemini API **不对中国大陆、香港、澳门开放**，服务器要放在其他地区。
+> - **免费层的内容会被 Google 用于改进产品**，其中包括用户的记忆。公开部署应开通计费，并填 `GEMINI_BILLING_ENABLED=1`，否则后端每次启动都会警告。
+
+换服务、换模型（`EMBEDDING_MODEL`）或换维度后，重启后端，再运行一次：
+
+```sh
+docker compose exec backend eidolon reembed
+```
+
+- **它做什么**：用库里已有的原文重新向量化，不用重新导入剧情；全部完成后才删掉旧模型的向量。
+- **运行期间**：服务照常可用，检索暂时只查得到已完成的部分。可以随时中断、重新运行。
+- **提醒**：后端启动时发现剧情库缺当前模型的向量，会在日志里提示运行它。
+
+## 对话中的检索
+
+填好向量化的 key、`SILICONFLOW_API_KEY`（重排）并配好判断模型后，她就能在对话中回忆剧情、查阅资料、想起记忆；缺任何一项时只凭人设回复。
+
+判断模型每个回合判断要不要检索、检索什么，通话中还判断每段回复的情绪。用 `JUDGE_PROVIDER` 选一家，一家出错时不会换用另一家。
+
+| | Jev（默认） | Clef-flash | Clef |
+|---|---|---|---|
+| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` |
+| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 |
+| 每天的免费额度 | 无 | 约 2,000 次判断 | 约 750 次判断 |
+
+- **Jev**：默认经 [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 调用，`JEV_API_KEY` 填 OpenRouter 的 key。也可以把 `JEV_BASE_URL` 换成 Vercel AI Gateway 或 TypeSafe 直连，写法见 `.env.example`。
+- **Clef 和 Clef-flash**：Cloudflare 的判断模型，直连 Workers AI。Clef 的检索判断更准（在仓库的评测集上 94% 对 87%），但贵将近 3 倍。公开部署应开 Workers Paid：免费额度用完后，当天的判断都按失败处理。凭证怎么取见 `.env.example`。
+- **阈值**：判断的阈值按模型写在代码里，用 `eidolon eval judge` 在仓库的评测集上定出（见 [`deploy.md`](deploy.md) 的「校准判断模型阈值」）。
+
+```mermaid
+flowchart LR
+    Q["用户的一句话"] --> J{"判断模型"}
+    J -- 寒暄闲聊 --> None["不检索"]
+    J -- 聊自己的事 --> Mem["只检索记忆"]
+    J -- 需要资料 --> Ref["剧情 + 角色资料 + 作品资料 + 记忆<br/>→ Reranker 重排"]
+    J -- 问过去的经历 --> Recall["直接回顾剧情<br/>+ 查演出和唱片"]
+```
+
+- **不检索**：寒暄闲聊不检索，不增加延迟。判断模型出错时照常检索。
+- **需要资料**：同时检索她出场过的剧情、她的角色资料和所有角色共享的作品资料（每首歌、每张唱片、每个演出日一条），用 Qwen3-Reranker（`RERANK_MODEL`）重排，取相关程度够高的最多 5 条放进提示词。阈值按重排模型校准过，也可以用 `RERANK_MIN_RELEVANCE`、`RERANK_MEMORY_MIN_RELEVANCE` 手动设置。
+- **回顾剧情**：问「那次……是怎么回事」时，直接用这句话检索剧情，同时查相关的演出和唱片。剧情库里没有这段经过时，提示她这不等于没发生过，不编造也不否认。其他回合里，对话模型也可以自己调用 `recall_story` 工具，一句话最多调用一轮。
+- **资料文件**：角色资料是 `facts` 指向的 Markdown，每个标题下是一条；作品资料由 `characters/world.json` 生成。两者都在第一次检索时向量化，之后只重算改动过的条目，改完重启后端即可。
+
+## 记忆
+
+她会记住你说过的关于自己的事，同一位用户的所有角色共享这份记忆：对灯織说过的事，恋鐘也会知道，但会以「听灯織说……」的口吻提起（[ADR-0002](adr/0002-shared-memory-with-source-character.md)）。不同用户之间完全隔离。记忆和检索一起开启。
+
+- **写入**：每个回合结束后，后台模型读这一轮对话，把值得长期记住的事写成中文记忆（如「制作人领养了一只叫小白的猫」），记下来源角色。「下周六」这样的相对时间按用户的时区换成日期。当天就会过去的状态（累、困）不记，已经记住的事不重复记。这一步在后台进行，不耽误回复。
+- **取代**：情况变了或说得更完整了，新记忆会取代旧的。旧的不再被想起，但仍列在记忆页上、标为「已被取代」；删掉取代它的那条，旧的就恢复（[ADR-0014](adr/0014-superseded-memories-are-marked-not-rewritten.md)）。
+- **想起**：用户说到自己的事时，最多 3 条相关记忆放进提示词，每条注明来源角色和日期。新开的对话只靠记忆接上以前聊过的事。
+- **管理**：设置页「档案」标签里的「管理记忆」列出全部记忆，可以逐条删除或一键清空，不能手动新增或修改。
+
+## 登录、用户与限额
+
+任何人都可以用 Google 或 GitHub 登录，不需要邀请或审核（[ADR-0006](adr/0006-open-to-the-public-with-oauth.md)）。`.env` 里填了哪一家的 OAuth 应用，登录面板就显示哪一种。创建应用的步骤见 [`deploy.md`](deploy.md) 的「配置 OAuth 应用」，也可以运行 `scripts/setup-oauth.sh`，按它的提示一步步配置。
+
+- **新用户**：第一次用某个身份登录就成为一位新用户。GitHub 账号要注册满一年、Google 邮箱要已验证，否则拒绝登录。登录后先同意隐私政策和使用条款、声明年满 13 岁才能使用。没登录的访客只能看到落地页、登录页、隐私政策和使用条款。
+- **制作人档案**：设置页「档案」标签里可以改称呼、性别和时区，所有设备共用。没设的项沿用默认：称呼和性别沿用原作的制作人，时区取当前设备的。档案只影响她现在怎么对待你，不改写剧情。
+- **登录方式**：设置页「登录与数据」标签里可以绑定另一种登录方式，邮箱相同的身份不会自动合并。登录状态 30 天内只要在用就不过期，可以退出当前设备或所有设备。
+- **删除数据**：「删除我的全部数据」二次确认后彻底删除记忆、对话、档案、登录方式和限额的计数，并在所有设备上退出。每天的加密备份里的副本最多 30 天后消失（[ADR-0012](adr/0012-encrypted-offsite-backups-with-bounded-retention.md)）。
+- **开发登录**：本地开发时设 `EIDOLON_DEV_LOGIN=1`，登录面板会多出「开发登录」，按名字直接登录。配置了 `EIDOLON_DOMAIN` 的公开部署检测到这个开关会拒绝启动。
+
+为了不让某位用户耗光部署者的 API 额度，默认有以下限制（填 0 表示不限制）。这几项也可以在后台改，每小时的回合数和通话次数还能给某位用户单独设定：
+
+| 限制 | 默认值 | 环境变量 |
+|---|---|---|
+| 每小时文字对话回合 | 60 次 | `EIDOLON_TURNS_PER_HOUR` |
+| 每小时语音通话 | 5 次 | `EIDOLON_CALLS_PER_HOUR` |
+| 单次通话时长 | 10 分钟 | `EIDOLON_CALL_MINUTES` |
+| 单次通话轮数 | 40 轮 | `EIDOLON_TURNS_PER_CALL` |
+| 每回合带上的历史回合 | 20 个 | `EIDOLON_HISTORY_TURNS` |
+
+- **怎么算**：按用户合并计算，不论用哪种登录方式、在哪台设备上。因服务出错而失败的回合和没接通的通话不计入；用户自己中途离开的照常计入。
+- **自带密钥**：用自带密钥的不计入。文字回合用的是自己的 LLM 就不计入；通话要 LLM、语音合成、语音识别三项都自带才不计入。
+- **超额**：超过限额的请求返回 429，带上恢复时间，前端提示「几点之后可以再用」。
+- **历史回合**：对话模型每个回合只读最近若干回合，更早的内容靠记忆和检索接上；对话记录本身完整保留。
+
+管理者也可以在服务器上用命令行管理用户，效果和后台一样：
+
+```sh
+docker compose exec backend eidolon user list                      # ID、名字、登录方式（括号里是填进 EIDOLON_ADMINS 的标识）
+docker compose exec backend eidolon user ban <用户 ID> [--note 备注]  # 所有设备退出登录，通话几秒内挂断
+docker compose exec backend eidolon user unban <用户 ID>
+docker compose exec backend eidolon user usage <用户 ID>            # 最近 24 小时按小时的用量
+```
+
+## 自带密钥
+
+费用默认全部由部署者承担。用户可以在设置页「自带密钥」标签里填自己的 key，替部署者分担：
+
+| 服务 | 填什么 | 用在哪里 |
+|---|---|---|
+| LLM | 接口类型、base_url、key、模型名 | 扮演角色（文字和通话）、提炼记忆 |
+| 语音合成（Fish Audio） | key | 通话中她的声音，音色照旧取自角色配置 |
+| 语音识别（Soniox 或阿里云百炼） | 服务商和 key | 通话中听用户说话；与部署者选哪家无关 |
+
+- **只存在浏览器里**：key 只保存在用户的浏览器里（按账号分开），每次回合或通话时随请求发给服务器，只在处理期间留在内存里，不写进数据库、日志或备份（[ADR-0017](adr/0017-own-api-keys-stay-in-the-browser.md)）。换设备或清除浏览器数据后要重新填。
+- **先试调**：填写时先试调一次，调不通就不存。LLM 同样要支持流式输出和工具调用；公开部署时 base_url 必须是 HTTPS 的公网地址，每次连接都会重新检查。
+- **失败不回退**：自带密钥调用失败（余额不足、被吊销等）时，这个回合或这次通话就失败，并提示是哪一项出了问题，**不会改用部署者的密钥**。
+- **始终由部署者承担的**：向量化、重排和判断模型。
+
+## 后台
+
+在 `.env` 的 `EIDOLON_ADMINS` 里列出管理者的登录方式标识（如 `github:12345`，用 `eidolon user list` 查），重建后端后，这些用户的设置页「登录与数据」标签里会出现「进入后台」（[ADR-0013](adr/0013-admin-console-overrides-env.md)）。不填就没有后台，其他人访问 `/admin` 得到 404。
+
+| 页面 | 做什么 |
+|---|---|
+| 看板（`/admin`） | 按服务看调用次数、出错率和延迟；活跃用户、回合和通话的数量与趋势、每位角色的用量、进行中的通话；按单价估算部署者的花费 |
+| 配置（`/admin/config`） | 修改扮演角色和提炼记忆的 LLM、语音合成、语音识别、判断模型、重排阈值、限额、单次通话上限、历史回合数和单价 |
+| 用户（`/admin/users`） | 搜索用户，看登录方式和近期用量；封禁、解除封禁、单独设限额、删除 |
+
+- **覆盖 `.env`**：后台改过的项存在数据库里，优先于 `.env`，不用重启。保存前会先试调，试不通就不保存。进行中的通话按接通时的配置打完。
+- **只能在 `.env` 里改的**：管理者名单、`EIDOLON_SECRET_KEY`、OAuth、域名、WebRTC/TURN、备份、路径和向量化。
+- **看不到的**：后台看不到任何人的对话、记忆和制作人档案。看板的数字来自运行记录（不含对话内容），保留 90 天。
+
+开启步骤、后台进不去时怎么办，见 [`deploy.md`](deploy.md) 的「后台」。
+
+## 命令行速查
+
+后端的命令行是 `eidolon`。docker compose 下用 `docker compose exec backend eidolon …`，本地开发时在 `backend/` 下用 `uv run eidolon --db data/eidolon.db …`。每条命令都可以加 `--help` 看参数。
+
+| 命令 | 做什么 |
+|---|---|
+| `serve` | 启动服务（默认） |
+| `story sync` / `import-csv` / `import-json` | 同步或导入剧情库 |
+| `world sync` | 更新世界设定 |
+| `character draft-sheet <id>` | 用后台模型写人设初稿 |
+| `reading draft` | 给读音表补上音素（只在本机跑） |
+| `greeting upload` | 合成并上传落地页的招呼 |
+| `stand fetch` / `outfits` / `upload` | 立绘素材的三步，通常由 `deploy/stand-sync.sh` 串起来 |
+| `reembed` | 换了向量化服务、模型或维度后重新向量化 |
+| `eval rerank` / `judge` / `memory` | 校准重排阈值、判断模型阈值，评测记忆 |
+| `user list` / `ban` / `unban` / `usage` | 管理用户 |
+| `backup` | 把数据库加密备份到私有存储桶 |
