@@ -65,6 +65,9 @@ export const zh = {
     announcements: "公告",
     announcementsUnread: "公告，有未读",
     noAnnouncements: "还没有公告",
+    /** 一次都还没拉到公告时，弹窗里写的。 */
+    announcementsLoading: "正在载入公告",
+    announcementsLoadFailed: "公告没能载入，稍后再试",
     /** 没读过的那条公告，日期后面的标记。 */
     unreadAnnouncement: "新",
     markAnnouncementsRead: "已读",

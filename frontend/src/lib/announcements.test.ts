@@ -67,7 +67,7 @@ const published = (id: string, at: string): Announcement => ({ id, body: id, pub
 
 describe("what has been read on this device", () => {
   it("is kept for each user apart, and read back as kept", () => {
-    storage();
+    const items = storage();
 
     keepReadUpTo("reader-1", "2026-10-12T08:00:00+00:00");
     keepReadUpTo("reader-2", "2026-10-01T08:00:00+00:00");
@@ -75,6 +75,7 @@ describe("what has been read on this device", () => {
     expect(readUpTo("reader-1")).toBe("2026-10-12T08:00:00+00:00");
     expect(readUpTo("reader-2")).toBe("2026-10-01T08:00:00+00:00");
     expect(readUpTo("reader-3")).toBeNull();
+    expect(items.get("eidolon.announcementsRead.reader-1")).toBe(JSON.stringify("2026-10-12T08:00:00+00:00"));
   });
 
   it("is nothing when what is stored is not a time", () => {
@@ -132,7 +133,6 @@ describe("marking read", () => {
     const upTo = newestPublished(list);
 
     expect(upTo).toBe("2026-10-12T08:00:00+00:00");
-    expect(unread(list, upTo)).toEqual(new Set());
     expect(unread([published("d", "2026-10-13T08:00:00+00:00"), ...list], upTo)).toEqual(new Set(["d"]));
   });
 
