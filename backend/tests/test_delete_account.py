@@ -43,7 +43,9 @@ def memory_client(make_client: ClientFactory, user: str | None = "producer") -> 
 
 async def use_everything(client: httpx.AsyncClient) -> None:
     """Leave data of every kind: a conversation, a memory, a profile and usage."""
-    await client.put("/api/profile", json={"form_of_address": "小林"})
+    await client.put(
+        "/api/profile", json={"form_of_address": "小林", "birthday": {"month": 5, "day": 3}}
+    )
     await send_turn(client, await start_conversation(client), "我家的猫叫小白哦")
     assert len((await client.get("/api/memories")).json()) == 1
 
@@ -126,7 +128,9 @@ async def test_signing_in_again_after_deleting_is_a_new_user(
     await agree_to_terms(client)
     assert (await client.get("/api/conversations", params={"character_id": "mano"})).json() == []
     assert (await client.get("/api/memories")).json() == []
-    assert (await client.get("/api/profile")).json()["form_of_address"] is None
+    profile = (await client.get("/api/profile")).json()
+    assert profile["form_of_address"] is None
+    assert profile["birthday"] is None
 
 
 async def test_other_users_keep_their_data(make_client: ClientFactory, settings: Settings):

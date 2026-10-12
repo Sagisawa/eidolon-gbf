@@ -14,7 +14,7 @@ from typing import Any, Literal
 
 from eidolon.database import connect, delete_user_data
 from eidolon.delivery_cues import without_cues
-from eidolon.producer import ProducerProfile
+from eidolon.producer import Birthday, ProducerProfile
 from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS producer_profiles (
     form_of_address TEXT,
     gender TEXT,
     timezone TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    birthday_month INTEGER,
+    birthday_day INTEGER
 );
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
@@ -189,6 +191,12 @@ class Store:
         for column in ("consented_at", "banned_at", "ban_note"):
             if column not in columns:
                 self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
+        profile_columns = {
+            row["name"] for row in self._db.execute("PRAGMA table_info(producer_profiles)")
+        }
+        for column in ("birthday_month", "birthday_day"):
+            if column not in profile_columns:
+                self._db.execute(f"ALTER TABLE producer_profiles ADD COLUMN {column} INTEGER")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -454,22 +462,39 @@ class Store:
         """The user's producer profile; all defaults until they save one."""
         with self._lock:
             row = self._db.execute(
-                "SELECT form_of_address, gender, timezone FROM producer_profiles"
-                " WHERE user_id = ?",
+                "SELECT form_of_address, gender, timezone, birthday_month, birthday_day"
+                " FROM producer_profiles WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
-        return ProducerProfile(**row) if row else ProducerProfile()
+        if not row:
+            return ProducerProfile()
+        birthday = (
+            Birthday(row["birthday_month"], row["birthday_day"])
+            if row["birthday_month"] is not None and row["birthday_day"] is not None
+            else None
+        )
+        return ProducerProfile(row["form_of_address"], row["gender"], row["timezone"], birthday)
 
     def save_profile(self, user_id: str, profile: ProducerProfile) -> None:
+        birthday = profile.birthday
         with self._lock, self._db:
             self._db.execute(
                 "INSERT INTO producer_profiles"
-                " (user_id, form_of_address, gender, timezone, updated_at)"
-                " VALUES (?, ?, ?, ?, ?)"
+                " (user_id, form_of_address, gender, timezone, birthday_month, birthday_day,"
+                " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (user_id) DO UPDATE SET form_of_address = excluded.form_of_address,"
                 " gender = excluded.gender, timezone = excluded.timezone,"
+                " birthday_month = excluded.birthday_month, birthday_day = excluded.birthday_day,"
                 " updated_at = excluded.updated_at",
-                (user_id, profile.form_of_address, profile.gender, profile.timezone, _now()),
+                (
+                    user_id,
+                    profile.form_of_address,
+                    profile.gender,
+                    profile.timezone,
+                    birthday and birthday.month,
+                    birthday and birthday.day,
+                    _now(),
+                ),
             )
 
     def create_conversation(self, user_id: str, character_id: str) -> Conversation:
