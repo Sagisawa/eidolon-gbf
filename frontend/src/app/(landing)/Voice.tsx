@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import type { CallOpener } from "@/lib/api";
 
 import { Call, type CallCopy } from "./Call";
+import { stillPhoneVars } from "./model/phone";
 import type { Section } from "./model/timeline";
 import type { Plate } from "./Spectrum";
 
@@ -21,7 +22,8 @@ export type TalkCopy = { title: string; body: string; lines: readonly { ja: stri
  * 字幕的不透明度），字幕被一道亮边从左往右扫出来，同一时刻只看得到一句；她的光由着色器画。静止版式（定格档、
  * 静态档、没有 JS）里原文和几句字幕都完整显示，光由 CSS 画。
  *
- * 第 4 幕见 Call。两幕的文字跟着模型淡入淡出（--lp-act3、--lp-act4）。
+ * 第 4 幕见 Call。两幕的文字跟着模型淡入淡出（--lp-act3、--lp-act4）。静止版式里第 4 幕的手机由 CSS 摆，摆法的
+ * 几个量（model/phone.ts 的 stillPhoneVars）在这里写进内联样式，落地页模型不进客户端的包。
  */
 export function Voice({
   section,
@@ -34,7 +36,13 @@ export function Voice({
   talk: TalkCopy;
   call: CallCopy;
 }) {
-  const vars = { "--lp-screens": section.screens, "--her-ink": speaker.ink, "--her-halo": speaker.halo, "--her-deep": speaker.deep };
+  const vars = {
+    "--lp-screens": section.screens,
+    "--her-ink": speaker.ink,
+    "--her-halo": speaker.halo,
+    "--her-deep": speaker.deep,
+    ...stillPhoneVars(),
+  };
   return (
     <div className="lp-stage-wrap lp-voice" data-lp-section={section.index} style={vars as CSSProperties}>
       <div className="lp-stage">

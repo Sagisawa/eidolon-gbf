@@ -71,7 +71,7 @@ export type PhoneLayer = {
 
 /**
  * 在 `canvas` 上建手机这一层。分几批做，每批之间让出主线程：建上下文、准备环境光、编译着色器各占一批。
- * 建不起来时 reject，调用方退回原来的全屏来电。
+ * 建不起来时 reject，调用方换成事先渲染好的手机图。
  */
 export async function createPhoneLayer(canvas: HTMLCanvasElement, quality: Quality): Promise<PhoneLayer> {
   const source = await loadPhoneModel();

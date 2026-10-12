@@ -27,9 +27,11 @@
 //      背面、正面、来电，往回滚再截一次背面），来电界面在落地页模型给的屏幕矩形里，标题在手机上方、正文在
 //      下方，响铃时手机和界面一起振动、接通后不振动；电脑上把「滑动接听」拖过一半（拖不到一半不接）、手机上点一下
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
-//      挂断键回车挂断，焦点留在状态那一行；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走，
-//      定格档点「滑动接听」也接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
-//      和页面同一个出处。
+//      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
+//      落地页不降档；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
+//      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
+//      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。滚动位置按落地页模型的
+//      时间线（model/timeline.ts）算，和页面同一个出处。
 //   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
 //   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
 //      找到的字在画面上、看得见：画面外组合里的名牌、第 3 幕的一句字幕、第 7 幕的标题。没在查找时，跟着滚动
@@ -46,6 +48,7 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 
+import { phoneRest, PHONE_MM, STILL_MARGIN } from "../src/app/(landing)/model/phone.ts";
 import { ACT1_SCREENS, holdAt, restAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
 import { lastLcp, medianByLcp, phone4gPage } from "./phone-4g.mjs";
 
@@ -469,7 +472,7 @@ function watchConsole(page) {
         const px = (v) => parseFloat(voice.getPropertyValue(v));
         return {
           on: document.querySelector(".lp-root").classList.contains("lp-phone-on"),
-          ui: box(".lp-screen") ?? box(".lp-call-ui"),
+          ui: box(".lp-screen"),
           poster: !!document.querySelector(".lp-poster[data-shown]"),
           title: box(".lp-act4-copy .lp-act-title"),
           body: box(".lp-act4-copy .lp-act-body"),
@@ -554,15 +557,18 @@ function watchConsole(page) {
         await page.waitForTimeout(1700);
       }
       if (name === "full") {
-        // 手机画布丢了 WebGL 上下文：退回原来的全屏来电，落地页不降档。最后再做，后面的截图不受影响（第 5 幕以后没有手机）。
+        // 手机画布丢了 WebGL 上下文：换成事先渲染好的手机图，屏幕还在图上的屏幕处，落地页不降档。最后再做，后面的截图
+        // 不受影响（第 5 幕以后没有手机）。
         const tierBefore = await tierOf(page);
         await page.evaluate(() => document.querySelector(".lp-phone-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
         await page.waitForTimeout(1500);
+        await page.waitForFunction(() => document.querySelector(".lp-phone-img")?.complete, null, { timeout: 10000 }).catch(() => {});
         const lost = await page.evaluate(() => ({ on: document.querySelector(".lp-root").classList.contains("lp-phone-on"), canvas: !!document.querySelector(".lp-phone-canvas") }));
+        const still = await stillPhoneOn(page);
         report(
-          "手机画布丢了上下文：退回全屏来电，落地页不降档",
-          !lost.on && !lost.canvas && (await tierOf(page)) === tierBefore,
-          `lp-phone-on ${lost.on}，画布 ${lost.canvas ? "还在" : "收起了"}，档位 ${tierBefore} → ${await tierOf(page)}`,
+          "手机画布丢了上下文：换成事先渲染好的手机图，屏幕在图上的屏幕处，落地页不降档",
+          !lost.on && !lost.canvas && still.ok && (await tierOf(page)) === tierBefore,
+          `lp-phone-on ${lost.on}，画布 ${lost.canvas ? "还在" : "收起了"}，${still.detail}，档位 ${tierBefore} → ${await tierOf(page)}`,
         );
         await page.screenshot({ path: path.join(shots, "full-act4-lost.png") });
       }
@@ -606,14 +612,116 @@ function watchConsole(page) {
       if (lit.replace(/\s/g, "") !== act) rails.push(`${act} 那一屏亮的是 ${lit.replace(/\s/g, "")}`);
     }
     report(`${tier}：静止版式的幕名轨跟着滚动走`, rails.length === 0, rails.join("；") || "每一幕都对");
-    if (tier === "reduced" && (await page.locator(".lp-slide").count())) {
-      await page.locator(".lp-slide").click();
-      await page.waitForTimeout(400);
-      const status = await page.locator(".lp-call-status").innerText();
-      report("reduced：点「接听」就接通", status.startsWith("通话中"), `「${status}」`);
-    }
     await context.close();
   }
+
+  // 静止版式的第 4 幕：事先渲染好的手机图，屏幕在停稳时的屏幕矩形里，不振动；来电、接通各截一张，键盘接听、挂断。
+  for (const tier of ["reduced", "static"]) {
+    for (const [name, options] of [
+      ["desktop", DESKTOP],
+      ["phone", PHONE],
+    ]) {
+      const context = await browser.newContext({ ...options, reducedMotion: tier === "reduced" ? "reduce" : "no-preference" });
+      const page = await context.newPage();
+      await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
+      const scripts = [];
+      page.on("request", (r) => r.resourceType() === "script" && scripts.push(new URL(r.url()).pathname));
+      if (!(await page.locator(".lp-act4").count())) {
+        report(`${tier}（${name}）：第 4 幕`, null, "没有打来电话的那一位");
+        await context.close();
+        continue;
+      }
+      await page.locator(".lp-act4").evaluate((el) => el.scrollIntoView({ block: "start" }));
+      await page.waitForFunction(() => document.querySelector(".lp-phone-img")?.complete, null, { timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+      const still = await stillPhoneOn(page);
+      const placed = await page.evaluate(() => {
+        const box = (s) => document.querySelector(s).getBoundingClientRect();
+        const { x, y, width, height } = box(".lp-act4");
+        const screen = box(".lp-screen");
+        return {
+          act: { w: width, h: height },
+          screen: { x: screen.x - x, y: screen.y - y, w: screen.width, h: screen.height },
+          shake: getComputedStyle(document.querySelector(".lp-phone")).translate,
+        };
+      });
+      const { rect } = phoneRest(placed.act);
+      const near = (a, b) => Math.abs(a - b) <= 1.5;
+      report(
+        `${tier}（${name}）：第 4 幕是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，不振动`,
+        still.ok &&
+          near(placed.screen.x + placed.screen.w / 2, rect.x) &&
+          near(placed.screen.y + placed.screen.h / 2, rect.y) &&
+          near(placed.screen.w, rect.w) &&
+          near(placed.screen.h, rect.h) &&
+          /^(none|0px( 0px)?)$/.test(placed.shake),
+        `${still.detail}；屏幕中心 (${Math.round(placed.screen.x + placed.screen.w / 2)}, ${Math.round(placed.screen.y + placed.screen.h / 2)})、${Math.round(placed.screen.w)}×${Math.round(placed.screen.h)}，模型 (${Math.round(rect.x)}, ${Math.round(rect.y)})、${Math.round(rect.w)}×${Math.round(rect.h)}；振动 ${placed.shake}`,
+      );
+      await page.screenshot({ path: path.join(shots, `${tier}-${name}-act4-ringing.png`) });
+      // 键盘：聚焦滑块按回车接听，焦点交给状态那一行；Tab 到挂断键按回车挂断。
+      const status = () => page.locator(".lp-call-status").innerText();
+      const onStatus = () => page.evaluate(() => document.activeElement?.classList.contains("lp-call-status") ?? false);
+      await page.locator(".lp-slide").focus();
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(400);
+      const connected = (await status()).startsWith("通话中") && (await onStatus());
+      await page.waitForTimeout(3000);
+      await page.screenshot({ path: path.join(shots, `${tier}-${name}-act4-connected.png`) });
+      const screen = await page.evaluate(() => ({
+        stand: !!document.querySelector(".lp-screen-stand"),
+        wall: getComputedStyle(document.querySelector(".lp-screen-wall")).display !== "none",
+        hello: !!document.querySelector(".lp-hello"),
+      }));
+      await page.keyboard.press("Tab");
+      const onHangUp = await page.evaluate(() => document.activeElement?.classList.contains("lp-hang-up") ?? false);
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(400);
+      const ended = (await status()).startsWith("通话结束") && (await onStatus());
+      report(
+        `${tier}（${name}）：键盘回车接听、Tab 到挂断键回车挂断，焦点都留在状态那一行`,
+        connected && onHangUp && ended,
+        `接听 ${connected}，Tab 到挂断键 ${onHangUp}，挂断 ${ended}`,
+      );
+      if (tier === "static") {
+        report(
+          `static（${name}）：接通后卡图留着、没有立绘、有开场白的字幕；load 之后到挂断都不加载脚本`,
+          !screen.stand && !screen.wall && screen.hello && scripts.length === 0,
+          `立绘 ${screen.stand ? "有" : "没有"}，深色底 ${screen.wall ? "盖住了卡图" : "没有"}，开场白 ${screen.hello ? "有" : "没有"}，脚本 ${scripts.join(" ") || "没有"}`,
+        );
+      } else {
+        report(`reduced（${name}）：接通后换成深色底、有开场白的字幕`, screen.wall && screen.hello, `深色底 ${screen.wall}，立绘 ${screen.stand}，开场白 ${screen.hello}`);
+      }
+      await context.close();
+    }
+  }
+}
+
+/**
+ * 事先渲染好的手机图显示着、加载出来了，屏幕（.lp-screen）落在图上的屏幕处：图四周比机身多留机身高度的 STILL_MARGIN，
+ * 屏幕在机身正中（model/phone.ts 的 PHONE_MM）。
+ */
+async function stillPhoneOn(page) {
+  const got = await page.evaluate(() => {
+    const img = document.querySelector(".lp-phone-img");
+    const box = (el) => {
+      const b = el.getBoundingClientRect();
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2, w: b.width, h: b.height };
+    };
+    return {
+      shown: getComputedStyle(img).display !== "none",
+      loaded: img.complete && img.naturalWidth > 0,
+      img: box(img),
+      screen: box(document.querySelector(".lp-screen")),
+    };
+  });
+  const body = got.img.h / (1 + 2 * STILL_MARGIN);
+  const want = { w: (body * PHONE_MM.screen.w) / PHONE_MM.h, h: (body * PHONE_MM.screen.h) / PHONE_MM.h };
+  const near = (a, b) => Math.abs(a - b) <= 2;
+  const ok = got.shown && got.loaded && near(got.screen.x, got.img.x) && near(got.screen.y, got.img.y) && near(got.screen.w, want.w) && near(got.screen.h, want.h);
+  return {
+    ok,
+    detail: `手机图${got.shown ? "显示着" : "没显示"}、${got.loaded ? "加载出来了" : "没加载出来"}，图上的屏幕 ${Math.round(want.w)}×${Math.round(want.h)}，界面 ${Math.round(got.screen.w)}×${Math.round(got.screen.h)}，中心差 (${Math.round(got.screen.x - got.img.x)}, ${Math.round(got.screen.y - got.img.y)})`,
+  };
 }
 
 /** 页面上一个元素在不在画面里、看不看得见（连同祖先的不透明度）。 */

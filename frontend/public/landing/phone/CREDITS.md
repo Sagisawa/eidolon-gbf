@@ -13,5 +13,6 @@
 - 去掉透射（KHR_materials_transmission）和镜面（KHR_materials_specular）扩展、切线、第二套 UV 和没有贴图的零件的 UV。
 - 网格量化（KHR_mesh_quantization），贴图缩到 512 并转成 WebP；由 GLB 改存为 glTF 加单独的二进制和贴图文件。
 - 几何形状没有改动。
+- `still.webp` 是用改动后的模型渲染的一张正面、熄屏的图（`frontend/scripts/landing-phone-still.mjs`），给不播放动画的档位和 3D 画布出问题时用。
 
 本模型仅用于展示，与模型所仿的产品的厂商没有关联，也未经其认可。

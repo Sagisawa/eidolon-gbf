@@ -1,15 +1,14 @@
 // 第 4 幕手机这一层的起落（LightStage 的循环每帧调 frame）：滚到第 3 幕附近才去下载 three.js 和模型、建画布；
 // 有手机的那一刻才画，画面没变就不画；离开第 3、4 幕那一段就不画了，手指操作的设备上再把 WebGL 上下文放掉
-// （和立绘一样），回来时重建。画布丢了上下文（不是自己放掉的）就收起手机，退回原来的全屏来电，不连带落地页降档。
+// （和立绘一样），回来时重建。画布丢了上下文（不是自己放掉的）、建不起来，就收起手机，换成事先渲染好的手机图，
+// 不连带落地页降档。
 //
-// 手机画好第一帧以后，.lp-root 加上 lp-phone-on：来电界面从全屏挪进屏幕矩形（landing.css），stageStore 的
-// phone 同时变成 true（来电就不挂全屏的立绘）。
+// 手机画好第一帧以后，.lp-root 加上 lp-phone-on：屏幕下面不再垫事先渲染好的手机图（landing.css）。收起时拿掉。
 
 import type { PhoneState } from "./model/phone";
 import type { Quality } from "./model/tier";
 import { spanOf, type Timeline } from "./model/timeline";
 import type { PhoneLayer } from "./phoneLayer";
-import { stageStore } from "./stageStore";
 
 /** 第 3 幕开始前多少屏开始下载、建画布（第 2 幕解开钉住的那一屏里）。 */
 const LOAD_AHEAD = 1;
@@ -51,10 +50,7 @@ export function createPhoneStage({
   let building = false;
   let dropped = false;
 
-  const setOn = (on: boolean) => {
-    root.classList.toggle("lp-phone-on", on);
-    stageStore.set({ phone: on });
-  };
+  const setOn = (on: boolean) => root.classList.toggle("lp-phone-on", on);
 
   // 放掉上下文：自己放的不算丢了。
   const release = () => {

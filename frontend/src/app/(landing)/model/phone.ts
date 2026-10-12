@@ -90,17 +90,22 @@ export function phoneAt(vp: Viewport, p: number, shake: { x: number; y: number }
   };
 }
 
-/** 竖屏：和 scene.ts 的 isPortrait 是同一条线。 */
+/** 竖屏：和 scene.ts 的 isPortrait 是同一条线（landing.css 的 (max-aspect-ratio: 10/11)）。 */
 const isPortrait = ({ w, h }: Viewport) => h > w * 1.1;
 
 /**
- * 停稳的地方：画面正中。机身高度占画面高度的 64%（竖屏 56%），上下各留出两成左右给标题和正文；
- * 窄的画面上再按宽度收一收，机身左右不出画面。
+ * 停稳时机身的高度：画面高度的 `h` 倍和画面宽度的 `w` 倍里小的那个。机身高度占画面高度的 64%（竖屏 56%），
+ * 上下各留出两成左右给标题和正文；窄的画面上按宽度收一收，机身宽度不超过画面宽度的一半（竖屏 62%）。
  */
+const REST = {
+  landscape: { h: 0.64, w: (0.5 * PHONE_MM.h) / PHONE_MM.w },
+  portrait: { h: 0.56, w: (0.62 * PHONE_MM.h) / PHONE_MM.w },
+} as const;
+
+/** 停稳的地方：画面正中，大小见 REST。 */
 export function phoneRest(vp: Viewport): Pick<PhoneState, "x" | "y" | "height" | "rect" | "bounds"> {
-  const portrait = isPortrait(vp);
-  const aspect = PHONE_MM.h / PHONE_MM.w;
-  const height = Math.min(vp.h * (portrait ? 0.56 : 0.64), vp.w * (portrait ? 0.62 : 0.5) * aspect);
+  const r = REST[isPortrait(vp) ? "portrait" : "landscape"];
+  const height = Math.min(vp.h * r.h, vp.w * r.w);
   const x = vp.w / 2;
   const y = vp.h / 2;
   const mm = height / PHONE_MM.h;
@@ -114,3 +119,35 @@ export function phoneRest(vp: Viewport): Pick<PhoneState, "x" | "y" | "height" |
     bounds: { left: x - width / 2, top: y - height / 2, right: x + width / 2, bottom: y + height / 2 },
   };
 }
+
+/**
+ * 事先渲染好的手机图（scripts/landing-phone-still.mjs）四周比机身多留的边，占机身高度的比例：转身用的是透视相机，
+ * 机身前缘比机身中心那一圈显得大一点点，留出来免得裁掉。
+ */
+export const STILL_MARGIN = 0.02;
+
+/**
+ * 静止版式（定格档、静态档、没有 JS）里没有循环往样式里写屏幕矩形，手机和屏幕由 CSS 摆在第 4 幕那一屏正中
+ * （landing.css 的 .lp-phone）。这里给 CSS 用的几个量，服务端渲染时写进内联样式，和 phoneRest 同一个出处：
+ *
+ * - `--lp-rest-h`、`--lp-rest-h-portrait`：机身的高度（横屏、竖屏），容器查询单位，容器是第 4 幕那一屏；
+ * - `--lp-body-wk`：机身的宽是机身高度的几倍；
+ * - `--lp-screen-wk`、`--lp-screen-hk`、`--lp-screen-rk`：屏幕的宽、高、圆角各是机身高度的几倍；
+ * - `--lp-still-margin`：手机图四周多留的边（STILL_MARGIN）。
+ */
+export function stillPhoneVars(): Record<`--${string}`, string> {
+  const css = (r: { h: number; w: number }) => `min(${num(r.h * 100)}cqh, ${num(r.w * 100)}cqw)`;
+  const s = PHONE_MM.screen;
+  return {
+    "--lp-rest-h": css(REST.landscape),
+    "--lp-rest-h-portrait": css(REST.portrait),
+    "--lp-body-wk": num(PHONE_MM.w / PHONE_MM.h),
+    "--lp-screen-wk": num(s.w / PHONE_MM.h),
+    "--lp-screen-hk": num(s.h / PHONE_MM.h),
+    "--lp-screen-rk": num(s.r / PHONE_MM.h),
+    "--lp-still-margin": num(STILL_MARGIN),
+  };
+}
+
+/** 写进 CSS 的数：留够位数，去掉末尾的 0。 */
+const num = (x: number) => String(Number(x.toFixed(6)));

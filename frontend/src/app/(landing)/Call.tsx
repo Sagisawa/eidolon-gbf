@@ -29,18 +29,20 @@ const ENDED_HOLD_MS = 1500;
  * 只有立绘和计时。点红色挂断键是通话结束：播一声挂断音，屏幕上留一会儿「通话结束」和时长，再回到来电。声音遵守声音
  * 开关，接通音、挂断音、开场白出不出声都由交互 reducer 决定；离开这一幕就直接回到来电，不播挂断音。
  *
- * 运动版式里她的光收成一台手机的侧边，手机转到正面、亮屏（LightStage 和 phoneStage.ts 按落地页模型画）：three.js
- * 的画布放进 .lp-phone，屏幕（.lp-screen）摆进模型给的屏幕矩形（--lp-screen-*），和手机在同一个容器里一起振动
- * （--lp-shake-x/y）；标题在手机上方、正文在手机下方。屏幕上是仿 iOS 的来电：来电时她的卡图作联系人海报占满屏幕
- * （没有卡图、加载不出来时是她的印象色渐变），上面是大号的名字，底部滑动接听；接通后卡图淡出，换成她印象色的深色底，
- * 立绘从下面升上来，顶部是名字和计时，下方是开场白，底部是挂断键。
+ * 来电在一台手机的屏幕上：屏幕（.lp-screen）摆进落地页模型给的屏幕矩形（--lp-screen-*），标题在手机上方、正文在
+ * 手机下方。屏幕上是仿 iOS 的来电：来电时她的卡图作联系人海报占满屏幕（没有卡图、加载不出来时是她的印象色渐变），
+ * 上面是大号的名字，底部滑动接听；接通后卡图淡出，换成她印象色的深色底，立绘从下面升上来，顶部是名字和计时，下方
+ * 是开场白，底部是挂断键。
  *
- * 手机画出来以前、手机画布丢了上下文时，是原来的全屏来电（她的立绘、竖排的名字）。光脉冲是 --lp-pulse，来电界面的
- * 不透明度是 --lp-act4；定格档里画面静止；静态档（不支持 WebGL）没有立绘。
+ * - 运动版式：她的光收成一台手机的侧边，手机转到正面、亮屏（LightStage 和 phoneStage.ts 按落地页模型画）。three.js
+ *   的画布放进 .lp-phone，和屏幕在同一个容器里一起振动（--lp-shake-x/y）；来电界面的不透明度是 --lp-act4，光脉冲是
+ *   --lp-pulse。3D 手机没画出来（还在加载、建不起来、画布丢了上下文）时，屏幕下面垫的是事先渲染好的手机图。
+ * - 静止版式（定格档、静态档、没有 JS）：一开始就是事先渲染好的手机图，屏幕亮着，不振动；手机和屏幕由 CSS 摆
+ *   （Voice 写进 stillPhoneVars）。定格档接通后立绘静止、淡入；静态档不加载立绘，接通后卡图留着。
  */
 export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   const { call, opener } = useInteraction();
-  const { act, phone } = useStage();
+  const { act } = useStage();
   const layout = useLayout();
   /** 静止版式：这一幕快滚到了，才挂立绘。 */
   const [near, setNear] = useState(false);
@@ -72,9 +74,9 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
     return () => window.clearTimeout(t);
   }, [call]);
 
-  // 静止版式：这一幕进到视口附近才挂立绘。
+  // 静止版式：这一幕进到视口附近才挂立绘、加载卡图。
   useEffect(() => {
-    if (!layout || layout.motion || layout.tier === "static") return;
+    if (!layout || layout.motion) return;
     const io = new IntersectionObserver(([e]) => setNear(e.isIntersecting), { rootMargin: "50% 0px" });
     io.observe(section.current!);
     return () => io.disconnect();
@@ -94,13 +96,13 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
     interactionStore.dispatch({ type: "hang-up" });
   };
 
-  // 运动版式里这一幕快到了（第 3、4 幕）才挂立绘、加载卡图；卡图加载过就留着，不跟着滚动重来。
+  // 这一幕快到了（运动版式是第 3、4 幕）才挂立绘、加载卡图；卡图加载过就留着，不跟着滚动重来。静态档不挂立绘。
   const approaching = !!layout && (layout.motion ? act === 3 || act === 4 : near);
   const wantStand = !!speaker.outfit && !!layout && layout.tier !== "static" && approaching;
   const [posterWanted, setPosterWanted] = useState(false);
   useEffect(() => {
-    if (approaching && phone) setPosterWanted(true);
-  }, [approaching, phone]);
+    if (approaching) setPosterWanted(true);
+  }, [approaching]);
   const status = call === "connected" ? copy.connected : call === "ended" ? copy.ended : copy.ringing;
 
   const controls =
@@ -130,32 +132,9 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
         <p className="lp-hello-zh">{speaker.opener.subtitle}</p>
       </div>
     );
-  const statusLine = (
-    <p ref={statusEl} className="lp-call-status" role="status" tabIndex={-1}>
-      {status}
-      {call === "connected" && clock.since !== null && <Elapsed since={clock.since} />}
-      {call === "ended" && clock.lasted !== null && <Duration ms={clock.lasted} />}
-    </p>
-  );
-  const name = (
-    <p className="lp-call-name" lang="ja" data-lp-find="act4">
-      {speaker.name}
-    </p>
-  );
-
   return (
     <section ref={section} className="lp-act4" data-lp-act="4" data-phase={call} aria-labelledby="lp-act4-title">
       <div className="lp-call-glow" aria-hidden />
-      {!phone && (
-        <div className="lp-call-her">
-          {wantStand && (
-            <div className="lp-call-stand" aria-hidden>
-              <StandSlot outfit={speaker.outfit!} framing="waist" still={!layout.motion} speaking={opener?.voice === "playing"} />
-            </div>
-          )}
-          {name}
-        </div>
-      )}
       <div className="lp-act4-copy" data-lp-find="act4">
         <h2 id="lp-act4-title" className="lp-act-title">
           {copy.title}
@@ -163,45 +142,49 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
         <p className="lp-act-body">{copy.body}</p>
       </div>
       <div className="lp-phone">
-        {phone ? (
-          <div className="lp-screen">
-            <div className="lp-screen-poster" aria-hidden>
-              {posterWanted && speaker.poster && <Poster src={speaker.poster} />}
-            </div>
-            <div className="lp-screen-wall" aria-hidden />
-            {wantStand && (
-              <div className="lp-screen-stand" aria-hidden>
-                <StandSlot
-                  outfit={speaker.outfit!}
-                  framing="waist"
-                  still={!layout.motion}
-                  speaking={opener?.voice === "playing"}
-                  paused={call !== "connected"}
-                />
-              </div>
-            )}
-            <div className="lp-call-ui">
-              <div className="lp-call-head">
-                {name}
-                {statusLine}
-              </div>
-              <div className="lp-call-foot">
-                {said}
-                {controls}
-              </div>
-            </div>
+        {/* 事先渲染好的手机（scripts/landing-phone-still.mjs）：静止版式里一直在；运动版式里 3D 手机没画出来时才显示，
+            平时 display: none，懒加载的图不下载（landing.css）。 */}
+        <img className="lp-phone-img" src={PHONE_STILL} alt="" loading="lazy" decoding="async" aria-hidden />
+        <div className="lp-screen">
+          <div className="lp-screen-poster" aria-hidden>
+            {posterWanted && speaker.poster && <Poster src={speaker.poster} />}
           </div>
-        ) : (
+          <div className="lp-screen-wall" aria-hidden />
+          {wantStand && (
+            <div className="lp-screen-stand" aria-hidden>
+              <StandSlot
+                outfit={speaker.outfit!}
+                framing="waist"
+                still={!layout.motion}
+                speaking={opener?.voice === "playing"}
+                paused={call !== "connected"}
+              />
+            </div>
+          )}
           <div className="lp-call-ui">
-            {statusLine}
-            {said}
-            {controls}
+            <div className="lp-call-head">
+              <p className="lp-call-name" lang="ja" data-lp-find="act4">
+                {speaker.name}
+              </p>
+              <p ref={statusEl} className="lp-call-status" role="status" tabIndex={-1}>
+                {status}
+                {call === "connected" && clock.since !== null && <Elapsed since={clock.since} />}
+                {call === "ended" && clock.lasted !== null && <Duration ms={clock.lasted} />}
+              </p>
+            </div>
+            <div className="lp-call-foot">
+              {said}
+              {controls}
+            </div>
           </div>
-        )}
+        </div>
       </div>
     </section>
   );
 }
+
+/** 事先渲染好的正面、熄屏的手机图（public/landing/phone/）。 */
+const PHONE_STILL = "/landing/phone/still.webp";
 
 /** 卡图：加载出来以后才盖住印象色的后备海报；加载不出来就一直是后备海报。 */
 function Poster({ src }: { src: string }) {

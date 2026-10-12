@@ -1,8 +1,9 @@
 // 落地页第 4 幕的手机模型（.scratch/landing-call-phone 票 03）：把 Sketchfab 上 Ranguel 的「iPhone 17 Pro」
 // （CC BY 4.0）改成 18 Pro 的银色、压缩到约 1 MB，写到 public/landing/phone/（phone.gltf 加 .bin 和 WebP 贴图）。
-// 源文件不进仓库，换模型或改色后在 frontend/ 下重新跑：
+// 源文件不进仓库，换模型或改色后在 frontend/ 下重新跑，再跑 landing-phone-still.mjs 重新渲染静止的手机图：
 //
 //   node scripts/landing-phone.mjs <原始下载的 1024 GLB> [输出，默认 public/landing/phone/phone.gltf]
+//   node scripts/landing-phone-still.mjs
 //
 // 改动（public/landing/phone/CREDITS.md 照抄一份）：
 // - 铝框和背面玻璃区改成同一种银色（18 Pro 的背面玻璃和铝同色）：背面玻璃用铝的材质、粗糙一点，
@@ -101,14 +102,15 @@ root.listTextures().forEach((tex, i) => {
   const name = `${users.map((m) => m.getName().toLowerCase().replace(/[^a-z0-9]+/g, "-")).join("+") || `texture-${i}`}-${slot}`;
   tex.setURI(`${name}.webp`);
 });
-// 换掉上一次的：只删这个目录里的模型文件。
+// 换掉上一次的：只删这个目录里的模型文件（事先渲染的手机图 still.webp 不算，它由 landing-phone-still.mjs 重新渲染）。
+const MODEL_FILE = /^(?!still\.webp$).*\.(gltf|bin|webp)$/;
 mkdirSync(path.dirname(out), { recursive: true });
-for (const f of readdirSync(path.dirname(out))) if (/\.(gltf|bin|webp)$/.test(f)) rmSync(path.join(path.dirname(out), f));
+for (const f of readdirSync(path.dirname(out))) if (MODEL_FILE.test(f)) rmSync(path.join(path.dirname(out), f));
 await io.write(out, doc);
 
 const b = getBounds(root.getDefaultScene());
 const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
-const files = readdirSync(path.dirname(out)).filter((f) => /\.(gltf|bin|webp)$/.test(f)).map((f) => {
+const files = readdirSync(path.dirname(out)).filter((f) => MODEL_FILE.test(f)).map((f) => {
   const bytes = readFileSync(path.join(path.dirname(out), f));
   return { f, size: bytes.byteLength, gz: gzipSync(bytes, { level: 9 }).byteLength };
 });

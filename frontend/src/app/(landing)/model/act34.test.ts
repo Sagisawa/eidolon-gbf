@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { copy } from "@/i18n";
 
 import { idolColors } from "./color";
+import { stillPhoneVars } from "./phone";
 import { describeScene, memoryWorld, TALK_LINES, talkLineShown, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
 import { restAt, spanOf, timelineOf } from "./timeline";
@@ -277,6 +278,29 @@ describe("describeScene: 第 4 幕的手机", () => {
     }
     // 竖屏上整体缩小：屏幕占的画面高度比电脑上小。
     expect(rest(phone).rect.h / phone.h).toBeLessThan(rest(desktop).rect.h / desktop.h);
+  });
+
+  it("静止版式里 CSS 按 stillPhoneVars 摆的手机和屏幕，和停稳时在同一处、一样大（电脑、竖屏）", () => {
+    const vars = stillPhoneVars();
+    /** `min(Acqh, Bcqw)` 在一块 vp 大小的容器里是多少像素。 */
+    const length = (css: string, vp: Viewport) => {
+      const [, a, b] = /^min\(([\d.]+)cqh, ([\d.]+)cqw\)$/.exec(css)!;
+      return Math.min((Number(a) / 100) * vp.h, (Number(b) / 100) * vp.w);
+    };
+    for (const viewport of [desktop, phone, { w: 1280, h: 640 }, { w: 820, h: 1180 }]) {
+      // 竖屏是 landing.css 的 (max-aspect-ratio: 10/11)。
+      const portrait = viewport.w / viewport.h < 10 / 11;
+      const height = length(vars[portrait ? "--lp-rest-h-portrait" : "--lp-rest-h"], viewport);
+      const { rect, bounds } = rest(viewport);
+      expect(height, `${viewport.w}×${viewport.h}`).toBeCloseTo(bounds.bottom - bounds.top, 3);
+      expect(height * Number(vars["--lp-screen-wk"])).toBeCloseTo(rect.w, 3);
+      expect(height * Number(vars["--lp-screen-hk"])).toBeCloseTo(rect.h, 3);
+      expect(height * Number(vars["--lp-screen-rk"])).toBeCloseTo(rect.r, 3);
+      expect(height * Number(vars["--lp-body-wk"])).toBeCloseTo(bounds.right - bounds.left, 3);
+    }
+    // 手机图四周比机身多留的边：机身高度的几个百分点，装得下转身时透视多出来的那一点。
+    expect(Number(vars["--lp-still-margin"])).toBeGreaterThan(0);
+    expect(Number(vars["--lp-still-margin"])).toBeLessThan(0.1);
   });
 
   it("随进度依次是侧面、背面（停一会儿）、正面；往回滚就倒着转；转到正面以后屏幕才亮", () => {

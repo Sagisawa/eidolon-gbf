@@ -14,13 +14,11 @@ export type StageSnapshot = {
   unit: number;
   /** 该挂立绘的那一位（落地页模型的 `spectrum.stand`）。 */
   stand: string | null;
-  /** 第 4 幕的 3D 手机画出来了（phoneStage.ts）：来电界面在手机屏幕上，不挂全屏的立绘。 */
-  phone: boolean;
 };
 
 type Listener = () => void;
 
-let snapshot: StageSnapshot = { act: 0, unit: 0, stand: null, phone: false };
+let snapshot: StageSnapshot = { act: 0, unit: 0, stand: null };
 const listeners = new Set<Listener>();
 
 export const stageStore = {
@@ -46,7 +44,7 @@ export const stageStore = {
   goto: null as ((act: number, progress?: number) => void) | null,
 };
 
-/** 当前在哪一幕、哪个组合、该挂立绘的人、手机画出来没有（偶尔才变）。 */
+/** 当前在哪一幕、哪个组合、该挂立绘的人（偶尔才变）。 */
 export const useStage = (): StageSnapshot => useSyncExternalStore(stageStore.subscribe, stageStore.get, stageStore.get);
 
 /** 首屏前定好的版式和档位（tierScript.ts 写在 <html> 上），以及是不是手指操作的设备。 */
