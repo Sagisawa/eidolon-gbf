@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
-import { useSettingsValues } from "@/components/settings/SettingsValues";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -24,15 +23,14 @@ import { CloseIcon, SuccessIcon } from "@/theme/icons";
 const t = copy.settings.signIn;
 
 /** 用户登录用的身份：绑定和解绑。退出登录是另一节（SignOutSettings），跟这里分开。解绑后告诉设置的 layout，
- * 一级「登录与数据」的摘要跟着变。 */
+ * 外壳持有的登录的用户也换上新的，一级「登录与数据」的摘要跟着变。 */
 export function SignInSettings() {
   const [account, setAccount] = useState<Account | null>(null);
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   // 去绑定是整页跳到后端、离开导航外壳：通话中先问会不会挂断。
-  const { guard } = useDirectory();
-  const { accountChanged } = useSettingsValues();
+  const { guard, accountChanged } = useDirectory();
 
   useEffect(() => {
     // 绑定完一个身份回到这里：说一声结果。

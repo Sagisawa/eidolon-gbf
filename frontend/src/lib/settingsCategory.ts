@@ -58,10 +58,12 @@ export function settingsRedirect(href: string): string | null {
   return search ? `${to}?${search}` : to;
 }
 
+/** The profile as saved, and as being edited in the profile's page (not yet saved). */
+export type ProfileEdit = { saved: Draft; draft: Draft };
+
 /** What the first level's summaries are made of; null for what has not been read yet. */
 export type SettingsValues = {
-  /** The profile as saved, and as being edited in the profile's page (not yet saved). */
-  profile: { saved: Draft; draft: Draft } | null;
+  profile: ProfileEdit | null;
   /** The time zone this device reports, which an automatic profile time zone means. */
   detectedTimezone: string;
   memoryCount: number | null;

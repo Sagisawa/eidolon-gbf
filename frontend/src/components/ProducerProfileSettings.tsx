@@ -41,7 +41,7 @@ const DEFAULT = "default";
 /** 制作人档案：存在后端、跟着用户走，所有设备共用。档案和没保存的草稿挂在设置的 layout 上（SettingsValues），
  * 切到别的类别再回来草稿还在。 */
 export function ProducerProfileSettings() {
-  const { profile, profileFailure, editProfile, profileSaved } = useSettingsValues();
+  const { profile, profileFailure, retryProfile, editProfile, profileSaved } = useSettingsValues();
   const saved = profile?.saved ?? null;
   const draft = profile?.draft ?? null;
   const [saveFailure, setSaveFailure] = useState<Failure | null>(null);
@@ -56,6 +56,11 @@ export function ProducerProfileSettings() {
   useEffect(() => {
     setDetected(detectTimezone());
     setTimezones(listTimezones());
+  }, []);
+
+  // 上次没读到档案（切到别的类别再回来）：打开档案页时再读一次，只在打开时。
+  useEffect(() => {
+    if (profileFailure) retryProfile();
   }, []);
 
   // 别的设备上存的时区，这个浏览器可能不认识；照样放进选项里。
