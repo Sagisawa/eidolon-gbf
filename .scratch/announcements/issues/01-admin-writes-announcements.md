@@ -20,7 +20,7 @@ Markdown 正文组件和 `lib/` 里的公告模块在这张票里建好，02 直
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
 - [x] 公告表登记进 `NOT_USER_DATA`，文档字符串跟着改
 - [x] 管理者能新建公告（新建出来是草稿），能修改、发布、撤回、删除；重复发布、重复撤回不报错，也不改字段
@@ -77,3 +77,7 @@ code-review（固定点 a125bb5）之后，按用户的决定修正了下面几�
 - 删掉了重复走同一分支的测试（CODING_STANDARDS「Parameters that don't branch」「Same path, another file」）。
 - 后台列表草稿在前，用户确认保留，spec 那句改成了现在的写法。
 - `listAnnouncements` 和 `Announcement` 类型留给 02 用。
+
+### 人工验证通过（2026-10-12）
+
+用户按上面的清单人工验收通过，没提意见。可以开始票 02。
