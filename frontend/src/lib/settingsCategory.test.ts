@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { settingsCategory, settingsHref, settingsRedirect, shownCategory } from "@/lib/settingsCategory";
+import type { Draft } from "@/lib/producerProfile";
+import {
+  settingsCategory,
+  settingsHref,
+  settingsRedirect,
+  settingsSummaries,
+  shownCategory,
+  type SettingsValues,
+} from "@/lib/settingsCategory";
 
 describe("路径和类别互转", () => {
   it("一类的路径读回来还是这一类", () => {
@@ -36,5 +44,56 @@ describe("旧地址和不认识的地址换成哪个路径", () => {
 
   it.each(["/settings", "/settings/own-keys"])("%s 不用换", (href) => {
     expect(settingsRedirect(href)).toBeNull();
+  });
+});
+
+describe("一级列表上的摘要", () => {
+  const blank: Draft = { formOfAddress: "", gender: "", timezone: "", birthMonth: null, birthDay: null };
+  const loading: SettingsValues = {
+    profile: null,
+    detectedTimezone: "Asia/Shanghai",
+    memoryCount: null,
+    call: null,
+    ownServices: null,
+    signInMethods: null,
+  };
+
+  it("还没读到值时每一类都没有摘要（关于从来没有）", () => {
+    expect(settingsSummaries(loading)).toEqual({});
+  });
+
+  it("档案是称呼 · 时区；没填称呼、时区自动时照实说", () => {
+    const filled = { ...blank, formOfAddress: "小林さん", timezone: "Asia/Tokyo" };
+    expect(settingsSummaries({ ...loading, profile: { saved: filled, draft: filled } }).profile).toBe(
+      "小林さん · Asia/Tokyo",
+    );
+    expect(settingsSummaries({ ...loading, profile: { saved: blank, draft: blank } }).profile).toBe(
+      "按各自的习惯 · 自动（Asia/Shanghai）",
+    );
+  });
+
+  it("档案改了没保存时整句换成「有修改未保存」", () => {
+    const draft = { ...blank, formOfAddress: "小林さん" };
+    expect(settingsSummaries({ ...loading, profile: { saved: blank, draft } }).profile).toBe("有修改未保存");
+  });
+
+  it("记忆是条数，一条都没有时「还没有记忆」", () => {
+    expect(settingsSummaries({ ...loading, memoryCount: 3 }).memories).toBe("3 条");
+    expect(settingsSummaries({ ...loading, memoryCount: 0 }).memories).toBe("还没有记忆");
+  });
+
+  it("通话是通话音质 · 电话质感开／关", () => {
+    const call = { micId: "", quality: "high", muted: false, phoneTexture: true } as const;
+    expect(settingsSummaries({ ...loading, call }).call).toBe("高保真 · 电话质感开");
+    expect(settingsSummaries({ ...loading, call: { ...call, phoneTexture: false } }).call).toBe("高保真 · 电话质感关");
+  });
+
+  it("自带密钥按 LLM、语音合成、语音识别的顺序列出填了的，一项都没填时「全部用部署者的服务」", () => {
+    expect(settingsSummaries({ ...loading, ownServices: ["stt", "llm"] })["own-keys"]).toBe("已填 LLM、语音识别");
+    expect(settingsSummaries({ ...loading, ownServices: [] })["own-keys"]).toBe("全部用部署者的服务");
+  });
+
+  it("登录与数据是已绑定的登录方式，用「、」连", () => {
+    expect(settingsSummaries({ ...loading, signInMethods: ["github", "google"] })["sign-in"]).toBe("GitHub、Google");
   });
 });

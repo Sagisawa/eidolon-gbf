@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from "react";
 
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { useSettingsValues } from "@/components/settings/SettingsValues";
 import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -23,7 +24,7 @@ const t = copy.settings.call;
 const SYSTEM_DEFAULT = "system-default";
 
 /**
- * 默认麦克风、通话音质和电话质感，记在这台设备上。通话中切换麦克风也会改掉这里的默认。
+ * 默认麦克风、通话音质和电话质感，记在这台设备上。通话中切换麦克风也会改掉这里的默认。改了就告诉设置的 layout，一级「通话」的摘要跟着变。
  * 选择框里当前的一项铺中性的 bg-muted（在 ui/select 里），不用她的颜色。
  */
 export function CallSettings() {
@@ -31,6 +32,7 @@ export function CallSettings() {
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [micError, setMicError] = useState("");
   const id = useId();
+  const { callChanged } = useSettingsValues();
 
   useEffect(() => {
     setPreferences(loadCallPreferences());
@@ -56,7 +58,9 @@ export function CallSettings() {
   }
 
   function update(change: Partial<CallPreferences>) {
-    setPreferences(saveCallPreferences(change));
+    const next = saveCallPreferences(change);
+    setPreferences(next);
+    callChanged(next);
   }
 
   if (!preferences) return null;

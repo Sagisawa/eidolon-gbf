@@ -6,6 +6,7 @@ import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
 import { SettingsPane } from "@/components/settings/SettingsPane";
+import { useSettingsValues } from "@/components/settings/SettingsValues";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,7 +42,7 @@ const t = copy.memories;
 /**
  * 设置「记忆」：所有角色共用的、关于用户的记忆，只能删，不能改。每条都标出来源角色；被取代的原地列出，淡一些并标出来。
  * 记忆是一行一行的列表（细分隔线，不套卡片）；删除一条、清空全部都要先确认，执行键是挂断红（DESIGN.md「Buttons」）。
- * 「清空」在二级页首的末端。
+ * 「清空」在二级页首的末端。条数一变就告诉设置的 layout，一级「记忆」的摘要跟着变。
  */
 export function MemoriesSettings() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
@@ -55,12 +56,18 @@ export function MemoriesSettings() {
   const [clearing, setClearing] = useState(false);
   // 只用最后一次重新取到的列表：连着删几条时，先发出的那次晚到，会把后删的又列出来。
   const refetches = useRef(0);
+  const { memoryCountChanged } = useSettingsValues();
 
   useEffect(() => {
     listMemories().then(setMemories, (e) => setFailure(toFailure(e)));
     // 只用来给来源角色配头像；取不到时照样列出记忆。
     listCharacters().then(setCharacters, () => {});
   }, []);
+
+  const count = memories?.length;
+  useEffect(() => {
+    if (count !== undefined) memoryCountChanged(count);
+  }, [count, memoryCountChanged]);
 
   const forget = (id: number) => setMemories((list) => list?.filter((m) => m.id !== id) ?? null);
 

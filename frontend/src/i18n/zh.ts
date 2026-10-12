@@ -334,6 +334,18 @@ export const zh = {
       "sign-in": "登录与数据",
       about: "关于",
     },
+    /** 一级每行名字下面的当前值摘要（「关于」没有）。 */
+    summaries: {
+      addressDefault: "按各自的习惯",
+      profileUnsaved: "有修改未保存",
+      memories: (count: number) => `${count} 条`,
+      noMemories: "还没有记忆",
+      phoneTextureOn: "电话质感开",
+      phoneTextureOff: "电话质感关",
+      ownKeysNone: "全部用部署者的服务",
+      ownKeys: (services: string) => `已填 ${services}`,
+      services: { llm: "LLM", tts: "语音合成", stt: "语音识别" },
+    },
     /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
     about: {
       site: "关于 Eidolon-SC",

@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Fragment, type ReactNode } from "react";
 
 import { SettingsRow } from "@/components/settings/SettingsRow";
+import { SettingsValuesProvider, useSettingsValues } from "@/components/settings/SettingsValues";
 import { Separator } from "@/components/ui/separator";
 import { copy } from "@/i18n";
 import { SETTINGS_GROUPS, settingsCategory, settingsHref, shownCategory } from "@/lib/settingsCategory";
@@ -27,8 +28,18 @@ const ICONS = {
  *   只打开 `/settings` 时右栏是档案，档案是当前项。
  * - 手机：`/settings` 只露一级列表，每行末尾一个 ›；`/settings/<类别>` 只露二级页面，页首返回键回到一级。
  * 两种屏宽同一套路由，露哪一级只靠 CSS 断点，首屏不闪。
+ * 一级每行名字下面是这一类的当前值摘要；各类的当前值和档案没保存的草稿挂在这一层，切类别时留着、离开设置就丢。
  */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
+  return (
+    <SettingsValuesProvider>
+      <SettingsLevels>{children}</SettingsLevels>
+    </SettingsValuesProvider>
+  );
+}
+
+function SettingsLevels({ children }: { children: ReactNode }) {
+  const { summaries } = useSettingsValues();
   const pathname = usePathname();
   const named = settingsCategory(pathname);
   const isFirstLevel = named === null;
@@ -56,6 +67,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                     <SettingsRow
                       href={settingsHref(category)}
                       label={t.categories[category]}
+                      summary={summaries[category]}
                       Icon={ICONS[category]}
                       isCurrent={category === current}
                       isCurrentPage={category === named}

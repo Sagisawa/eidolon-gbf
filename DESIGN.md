@@ -186,7 +186,9 @@ components:
 - **消息区**：铺她的壁纸。气泡之间 4px，换人或换组时多 8px；日期条居中，`bg-foreground/10` 胶囊。消息从顶部开始排。
 - **输入栏**：实底 `--background`，上沿一条 `border-t`；左边「+」，中间 22px 圆角的 `bg-muted` 输入框（一行起、最多长到 8rem），右边圆形发送键。
 - **设置页**：像手机设置那样的一级、二级页面，没有三级。两种屏宽同一套路由，露哪一级只靠 CSS 断点，首屏不闪。
-  - **一级**：六类分四组：档案、记忆／通话、自带密钥／登录与数据／关于，组间一条 `Separator`（上下 4px）。每行整行是一个链接：20px 的 muted 图标、名字（Body 字号），内边距 `px-4 py-2.5`、至少 48px 高，悬停 `bg-muted/60`。图标：档案 `ProfileIcon`、记忆 `MemoriesIcon`、通话 `PhoneIcon`、自带密钥 `OwnKeysIcon`、登录与数据 `SignInIcon`、关于 `AboutIcon`。
+  - **一级**：六类分四组：档案、记忆／通话、自带密钥／登录与数据／关于，组间一条 `Separator`（上下 4px）。每行整行是一个链接：20px 的 muted 图标、名字（Body 字号），名字下面一行 Subtitle 字号、muted 的当前值摘要（单行截断），内边距 `px-4 py-2.5`、至少 48px 高，悬停 `bg-muted/60`。图标：档案 `ProfileIcon`、记忆 `MemoriesIcon`、通话 `PhoneIcon`、自带密钥 `OwnKeysIcon`、登录与数据 `SignInIcon`、关于 `AboutIcon`。
+  - **摘要**：档案「称呼 · 时区」（没填称呼写「按各自的习惯」，自动时区写「自动（{检测到的时区}）」，有修改没保存时整句换成「有修改未保存」）；记忆「n 条」或「还没有记忆」；通话「通话音质 · 电话质感开／关」；自带密钥「已填 LLM、语音合成」这样按 LLM、语音合成、语音识别的顺序列出，一项都没填时「全部用部署者的服务」；登录与数据是已绑定的登录方式，用「、」连；关于没有摘要。还没读到值时只显示名字。在二级里改了值，摘要马上跟着变（`lib/settingsCategory`）。
+  - **没保存的档案**：档案的草稿挂在设置的 layout 上，切到别的类别再回来还在；离开设置就丢，不弹框。
   - **电脑**：导航栏右边第二栏 320px，右边一条 `border-r`；顶上「设置」大标题（List title，和对话列表页首同样的留白），下面一级列表。当前那一类铺中性 `bg-muted`，不带 ›；网址就是这一类时标 `aria-current="page"`（只开 `/settings` 时档案只铺底色，手机上的一级列表也就没有当前页）。右栏是这一类的二级页面：页首是类别名（没有返回键），内容是居中、最宽 640px 的一栏（`PageShell`）。只打开 `/settings` 时右栏是档案、一级里档案是当前项，网址不变。
   - **手机**：`/settings` 只有一级列表，每行末尾一个 muted 的 ›（`ForwardIcon`）；`/settings/<类别>` 只有二级页面，页首左边返回键回到 `/settings`，接着类别名。dock 在一级、二级都在。
   - **网址**：`/settings/profile`、`/settings/memories`、`/settings/call`、`/settings/own-keys`、`/settings/sign-in`、`/settings/about`。旧的 `/settings?tab=<类别>` 和 `/memories` 换成新路径，不认识的 `?tab=` 和 `/settings/<xxx>` 换成 `/settings`，都在服务端重定向，不留旧网址在历史里（`lib/settingsCategory`）。

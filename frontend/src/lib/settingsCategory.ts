@@ -2,7 +2,14 @@
 // 「设置：一级」「设置：网址」): `/settings` is the first level, the list of them; `/settings/<category>`
 // is a category's page, the second level, with nothing below it. A refresh or a shared link opens
 // the same category. The old addresses (`/settings?tab=…`, `/memories`) are sent to the new paths,
-// and settings addresses we do not know to `/settings`.
+// and settings addresses we do not know to `/settings`. Each row of the first level shows the
+// category's current value under its name (「设置：一级」).
+
+import { copy } from "@/i18n";
+import type { CallPreferences } from "@/lib/callPreferences";
+import { OWN_SERVICES, type OwnService } from "@/lib/localOwnKeys";
+import { sameDraft, type Draft } from "@/lib/producerProfile";
+import { PROVIDER_LABELS, type Provider } from "@/lib/signIn";
 
 /** The first level's groups, top to bottom, with a separator between each two. */
 export const SETTINGS_GROUPS = [["profile", "memories"], ["call", "own-keys"], ["sign-in"], ["about"]] as const;
@@ -49,4 +56,41 @@ export function settingsRedirect(href: string): string | null {
   else return null;
   const search = params.toString();
   return search ? `${to}?${search}` : to;
+}
+
+/** What the first level's summaries are made of; null for what has not been read yet. */
+export type SettingsValues = {
+  /** The profile as saved, and as being edited in the profile's page (not yet saved). */
+  profile: { saved: Draft; draft: Draft } | null;
+  /** The time zone this device reports, which an automatic profile time zone means. */
+  detectedTimezone: string;
+  memoryCount: number | null;
+  call: CallPreferences | null;
+  /** The services this browser keeps the user's own key for. */
+  ownServices: OwnService[] | null;
+  signInMethods: Provider[] | null;
+};
+
+/** The line under each category's name on the first level; a category without one (not read yet,
+ * or「关于」) shows its name alone. */
+export function settingsSummaries(values: SettingsValues): Partial<Record<SettingsCategory, string>> {
+  const t = copy.settings.summaries;
+  const { profile, memoryCount, call, ownServices, signInMethods } = values;
+  const summaries: Partial<Record<SettingsCategory, string>> = {};
+  if (profile) {
+    const { saved, draft } = profile;
+    const timezone = saved.timezone || copy.settings.profile.timezoneAuto(values.detectedTimezone);
+    summaries.profile = sameDraft(draft, saved)
+      ? `${saved.formOfAddress || t.addressDefault} · ${timezone}`
+      : t.profileUnsaved;
+  }
+  if (memoryCount !== null) summaries.memories = memoryCount === 0 ? t.noMemories : t.memories(memoryCount);
+  if (call) summaries.call = `${copy.settings.call.qualities[call.quality]} · ${call.phoneTexture ? t.phoneTextureOn : t.phoneTextureOff}`;
+  if (ownServices) {
+    const owned = OWN_SERVICES.filter((service) => ownServices.includes(service));
+    summaries["own-keys"] =
+      owned.length === 0 ? t.ownKeysNone : t.ownKeys(owned.map((service) => t.services[service]).join("、"));
+  }
+  if (signInMethods) summaries["sign-in"] = signInMethods.map((provider) => PROVIDER_LABELS[provider]).join("、");
+  return summaries;
 }

@@ -10,6 +10,8 @@ import { ExternalLinkIcon, ForwardIcon } from "@/theme/icons";
 type Props = {
   href: string;
   label: string;
+  /** 一级列表上名字下面一行当前值的摘要；没有（还没读到、「关于」）时只显示名字。 */
+  summary?: string;
   Icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   /** 右栏正显示的那一类：电脑上铺中性的 bg-muted（只开 `/settings` 时是档案）。 */
   isCurrent?: boolean;
@@ -22,12 +24,13 @@ type Props = {
 };
 
 /**
- * 设置里的一行链接（DESIGN.md「设置页」）：图标、名字，行尾 › 或外链图标，整行可点，至少 48px 高。
+ * 设置里的一行链接（DESIGN.md「设置页」）：图标、名字（一级列表上名字下面一行摘要），行尾 › 或外链图标，整行可点，至少 48px 高。
  * 一级列表的每一类和「关于」的几行都用它。站内的按外壳的去处规则走，通话中离开外壳先问。
  */
 export function SettingsRow({
   href,
   label,
+  summary,
   Icon,
   isCurrent = false,
   isCurrentPage = false,
@@ -42,7 +45,10 @@ export function SettingsRow({
   const inner = (
     <>
       {Icon && <Icon aria-hidden className="size-5 shrink-0 text-muted-foreground" />}
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">{label}</span>
+        {summary && <span className="truncate text-subtitle text-muted-foreground">{summary}</span>}
+      </span>
       {isExternal ? (
         <ExternalLinkIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       ) : (
