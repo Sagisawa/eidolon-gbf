@@ -42,10 +42,11 @@
                                      world setting, or fill in the phonemes it lacks and
                                      add who it lacks, leaving the rest as it is (needs
                                      the development dependencies)
-    eidolon greeting upload          voice the greetings the character configuration has in
-                                     each one's voice on the deployer's Fish Audio key, and
-                                     put those the stands' bucket lacks in it, deleting the
-                                     old ones and those no character has any more; exits 2
+    eidolon greeting upload          voice the greetings and call openers the character
+                                     configuration has in each one's voice on the
+                                     deployer's Fish Audio key, and put those the stands'
+                                     bucket lacks in it, deleting the old ones and those no
+                                     character has any more; exits 2
                                      if the bucket could not be listed, 3 if some could not
                                      be voiced, put or deleted
     eidolon backup                   back the database up, compressed and encrypted to the
@@ -514,7 +515,7 @@ async def _greeting_upload(args: argparse.Namespace) -> int:
     try:
         characters = load_characters(characters_path, require_sheets=False)
         readings = load_readings(readings_path(characters_path))
-        bucket = S3Settings.from_env(purpose="上传招呼")
+        bucket = S3Settings.from_env(purpose="上传招呼和开场白")
         fish = FishAudioSettings.from_env()
     except RuntimeError as e:  # a broken character configuration or readings, settings missing
         print(e, file=sys.stderr)
@@ -522,13 +523,13 @@ async def _greeting_upload(args: argparse.Namespace) -> int:
     try:
         report = await upload_greetings(characters.values(), bucket, fish, readings)
     except S3Error as e:
-        print(f"列不出存储桶里已有的招呼，什么都没有合成：{e}", file=sys.stderr)
+        print(f"列不出存储桶里已有的招呼和开场白，什么都没有合成：{e}", file=sys.stderr)
         return 2
     for key in report.deleted:
         print(f"删除了旧版本 {key}")
     voiced = f"：{'、'.join(report.voiced)}" if report.voiced else ""
     print(
-        f"合成并上传了 {len(report.voiced)} 句招呼{voiced}；"
+        f"合成并上传了 {len(report.voiced)} 句招呼和开场白{voiced}；"
         f"{report.unchanged} 句存储桶里已有，没有重新合成"
     )
     for name, why in report.failed:
@@ -1077,14 +1078,14 @@ def _parser() -> argparse.ArgumentParser:
         help="角色配置文件（默认取环境变量 EIDOLON_CHARACTERS_PATH）",
     )
 
-    greeting = commands.add_parser("greeting", help="管理落地页的招呼").add_subparsers(
+    greeting = commands.add_parser("greeting", help="管理落地页的招呼和开场白").add_subparsers(
         dest="action", required=True, metavar="操作"
     )
     greeting_upload = greeting.add_parser(
         "upload",
-        help="用每位角色的音色和部署者的语音合成 key（FISH_AUDIO_API_KEY、FISH_AUDIO_MODEL）把角色配置里的招呼合成为 mp3，"
-        "上传到立绘的存储桶（EIDOLON_STAND_S3_*）的 greetings/ 下，并删掉旧版本和配置里已经没有的招呼；只合成存储桶里还没有的"
-        "（可重复执行；存储桶列不出来时退出码为 2，有角色的招呼没有上传完时为 3）",
+        help="用每位角色的音色和部署者的语音合成 key（FISH_AUDIO_API_KEY、FISH_AUDIO_MODEL）把角色配置里的招呼和开场白合成为 mp3，"
+        "上传到立绘的存储桶（EIDOLON_STAND_S3_*）的 greetings/、call-openers/ 下，并删掉旧版本和配置里已经没有的；"
+        "只合成存储桶里还没有的（可重复执行；存储桶列不出来时退出码为 2，有没上传完的时为 3）",
     )
     greeting_upload.add_argument(
         "--characters",

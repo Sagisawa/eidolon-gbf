@@ -7,7 +7,7 @@
  *
  *     node scripts/landing-fonts.mts
  *
- * 什么时候跑：新增或改名角色、改了组合、改了招呼，或者改了落地页、登录组件的文案之后。忘了跑的话，
+ * 什么时候跑：新增或改名角色、改了组合、改了招呼或开场白，或者改了落地页、登录组件的文案之后。忘了跑的话，
  * 覆盖契约测试（src/app/(landing)/fonts/coverage.test.ts）会失败，并列出缺的字。
  *
  * 要的字由 fontText.ts 收集（和覆盖契约测试同一份）。源字体第一次运行时从 GitHub 下载（google/fonts、

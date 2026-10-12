@@ -23,8 +23,8 @@ from eidolon.call import (
     Quality,
     SessionDescription,
 )
-from eidolon.characters import Character
-from eidolon.greetings import greeting_path
+from eidolon.characters import Character, ScriptedLine
+from eidolon.greetings import call_opener_path, call_poster_path, greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
@@ -151,13 +151,28 @@ def _greeting(character: Character, assets_url: str | None) -> dict | None:
     where `eidolon greeting upload` puts its audio (`greeting_path`), without asking the
     bucket whether it is there; no audio unless the stand assets and her voice are
     configured. None without a greeting."""
-    greeting = character.greeting
-    if greeting is None:
+    return _scripted(character.greeting, greeting_path(character), assets_url)
+
+
+def _call_opener(character: Character, assets_url: str | None) -> dict | None:
+    """Her call opener on the landing page, as her greeting is (`call_opener_path`); None
+    without one."""
+    return _scripted(character.call_opener, call_opener_path(character), assets_url)
+
+
+def _call_poster(character: Character, assets_url: str | None) -> str | None:
+    """Her card on the landing page's incoming call (ADR-0003, 2026-10-12), at
+    `call_poster_path`, listed without asking the bucket whether it is there (the page shows
+    her colour instead when it is not). None unless the stand assets are served."""
+    return f"{assets_url}/{call_poster_path(character)}" if assets_url else None
+
+
+def _scripted(line: ScriptedLine | None, path: str | None, assets_url: str | None) -> dict | None:
+    if line is None:
         return None
-    path = greeting_path(character)
     return {
-        "ja": greeting.ja,
-        "subtitle": greeting.subtitle,
+        "ja": line.ja,
+        "subtitle": line.subtitle,
         "audio_url": f"{assets_url}/{path}" if assets_url and path else None,
     }
 
@@ -308,6 +323,8 @@ def create_app(backend: Backend) -> FastAPI:
                 "name_romaji": c.name_romaji,
                 **_unit(c, backend.world),
                 "greeting": _greeting(c, backend.settings.stand_assets_url),
+                "call_opener": _call_opener(c, backend.settings.stand_assets_url),
+                "call_poster_url": _call_poster(c, backend.settings.stand_assets_url),
             }
             for c in listed
         ]

@@ -1,5 +1,5 @@
 // 落地页的字体子集要覆盖的文字（ADR-0016 修订）：落地页和登录组件的文案、所有角色名、组合名、
-// 招呼的原文和字幕。子集脚本（scripts/landing-fonts.mts）按它生成子集，覆盖契约测试拿它和子集的
+// 招呼和开场白的原文和字幕。子集脚本（scripts/landing-fonts.mts）按它生成子集，覆盖契约测试拿它和子集的
 // 清单比对。这里读仓库里的角色配置和世界设定，只在本地（脚本和测试）运行，不进页面：前端的
 // Docker 构建拿不到角色配置。
 
@@ -43,6 +43,12 @@ const greetingJapanese = () => configured("greeting").map((text) => text.replace
 /** 招呼的中文字幕（角色配置的 greeting_subtitle）。 */
 const greetingSubtitles = () => configured("greeting_subtitle");
 
+/** 开场白的日语原文（角色配置的 call_opener），去掉语气提示；第 4 幕接通后显示。 */
+const callOpenerJapanese = () => configured("call_opener").map((text) => text.replace(DELIVERY_CUE, ""));
+
+/** 开场白的中文字幕（角色配置的 call_opener_subtitle）。 */
+const callOpenerSubtitles = () => configured("call_opener_subtitle");
+
 /** 世界设定里的组合名；没有资料文件时没有。 */
 function unitNames(): string[] {
   try {
@@ -69,14 +75,16 @@ export function landingText(): string {
     ...characterNames(),
     ...greetingJapanese(),
     ...greetingSubtitles(),
+    ...callOpenerJapanese(),
+    ...callOpenerSubtitles(),
     ...unitNames(),
   ]);
 }
 
 /** 用 Shippori Mincho B1 排的：偶像的名字、组合名（查不到组合时的「其他偶像」也排在组合名的位置）、招呼的日语原文、
- * 幕名和幕名轨，以及第 3、4 幕里她说的日语。 */
+ * 幕名和幕名轨，以及第 3、4 幕里她说的日语（第 4 幕是开场白）。 */
 export function japaneseText(): string {
-  const { act1, act2, act3, act4, rail } = copy.landing;
+  const { act1, act2, act3, rail } = copy.landing;
   return unique([
     ...characterNames(),
     ...unitNames(),
@@ -85,7 +93,7 @@ export function japaneseText(): string {
     ...rail.acts,
     act2.others,
     ...act3.lines.map((l) => l.ja),
-    act4.hello.ja,
+    ...callOpenerJapanese(),
   ]);
 }
 

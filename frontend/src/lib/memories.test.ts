@@ -18,6 +18,8 @@ const mano: Character = {
   unit_reading: null,
   unit_order: null,
   greeting: null,
+  call_opener: null,
+  call_poster_url: null,
 };
 
 const memory = (source: string, superseded = false): Memory => ({

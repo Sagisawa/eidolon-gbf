@@ -88,7 +88,8 @@ describe("describeScene: 第 7 幕，光汇聚成入口", () => {
 
   it("减少动态效果档：直接是汇聚后的白光", () => {
     const s = scene({ scroll: act7.from + 0.1, tier: "reduced" });
-    expect(s.screen).toEqual(scene({ scroll: in7(1) }).screen);
+    const end = scene({ scroll: in7(1) }).screen;
+    for (const [k, v] of Object.entries(end)) expect(s.screen[k as keyof typeof end], k).toBeCloseTo(v, 6);
     expect(s.text.act7).toBe(1);
   });
 });

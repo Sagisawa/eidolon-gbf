@@ -10,6 +10,7 @@ import { liveTrail, pushTrail, type TrailPoint } from "./model/trail";
 import { idle } from "./idle";
 import { interactionStore } from "./interactionStore";
 import type { Light } from "./light";
+import { createPhoneStage, type PhoneStage } from "./phoneStage";
 import { stageStore } from "./stageStore";
 
 /** 按帧降档要攒够的样本：至少这么多帧、这么长时间才算一次平均（原型的做法）。 */
@@ -38,7 +39,8 @@ type Measured = Section & { el: HTMLElement; top: number; height: number };
  *   同时淡出；两束光的几何是同一套（model/scene.ts 的锚点就是 landing.css 里 .lp-beam 的尽头）。
  *   第 2 幕的名牌按模型的 slotX 摆到横滚轨道上，轨道的横移经弹簧平滑；名牌上名字的位置量好了传给模型，
  *   光芯在那里断开；立绘和招呼的字幕摆到她名牌外侧空间大的一边。第 3 幕的原文和字幕跟着模型一句句出来，
- *   第 4 幕的来电画面跟着模型的光脉冲振动、发光（Voice、Call）。第 5 幕的布景（Memory 的 SVG）跟着模型横移、
+ *   第 4 幕她的光收成一台手机的侧边，three.js 画的手机（phoneStage.ts，滚到第 3 幕附近才加载）照模型转身、亮屏，
+ *   屏幕矩形和振动写进样式，来电界面摆在屏幕上、和手机一起抖，光脉冲照样发光（Voice、Call）。第 5 幕的布景（Memory 的 SVG）跟着模型横移、
  *   光点走到哪儿连线画到哪儿，指针在这一幕留下慢慢消散的痕迹；第 7 幕的文字和行动按钮跟着模型淡入。
  *   当前在哪一幕写进 stageStore，幕名轨、光谱和来电据此更新。
  *   页内查找：画面外的名牌由浏览器去滚光谱的舞台（它是个访客滚不动的滚动容器），这里接住、滚回去，再把
@@ -54,14 +56,12 @@ export function LightStage({
   lights,
   section,
   speaker,
-  speakerStand,
   children,
 }: {
   lights: BandLight[];
   section: Section;
-  /** 第 3、4 幕说话、打来电话的那一位，和她有没有立绘（有的话第 4 幕里她那道光让给立绘）。 */
+  /** 第 3、4 幕说话、打来电话的那一位。 */
   speaker: string | null;
-  speakerStand: boolean;
   children: ReactNode;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
@@ -77,6 +77,8 @@ export function LightStage({
     if (!qualityOf(tier, touch).canvas) return;
 
     let light: Light | null = null;
+    /** 第 4 幕的手机（运动版式才有）。 */
+    let phone: PhoneStage | null = null;
     /** 画布收起了：卸载，或者退到了静态档。之后不再建光层。 */
     let dropped = false;
     /** 画布淡入了：之前白光不随指针转，和首屏 CSS 画的那束对得上。 */
@@ -89,8 +91,10 @@ export function LightStage({
       // 版式（data-lp-layout）是首屏前定的，运行中不改：从运动版式退到静态档时舞台照样钉住、
       // 照样那么长，正在第 1 幕中间的人不会被一下甩到光谱。
       html.dataset.lpTier = tier;
-      if (qualityOf(tier, touch).canvas) light?.setQuality(qualityOf(tier, touch));
-      else drop();
+      if (qualityOf(tier, touch).canvas) {
+        light?.setQuality(qualityOf(tier, touch));
+        phone?.setQuality(qualityOf(tier, touch));
+      } else drop();
     };
     // 收起画布：SVG 和 CSS 画的光重新露出来。运动版式的主循环不停，各幕的文字照样由它推进。
     const drop = () => {
@@ -99,6 +103,7 @@ export function LightStage({
       light?.destroy();
       light = null;
       root.classList.remove("lp-gl-on");
+      phone?.drop();
     };
     let unmounted = false;
     const unmount = () => {
@@ -165,8 +170,13 @@ export function LightStage({
     const track = stage.querySelector<HTMLElement>(".lp-track");
     const voiceEl = root.querySelector<HTMLElement>(".lp-voice");
     const stageBox = stage.querySelector<HTMLElement>(".lp-stage")!;
-    /** 跟着滚动淡入淡出的文字，和它们现在藏没藏起来。不支持 until-found 的浏览器里 hidden 就是不显示，不用它。 */
-    const findables = "onbeforematch" in document.body ? [...root.querySelectorAll<HTMLElement>("[data-lp-find]")] : [];
+    /**
+     * 跟着滚动淡入淡出的文字，和它们现在藏没藏起来。不支持 until-found 的浏览器里 hidden 就是不显示，不用它。
+     * 每次开始查找时重新找一遍：第 4 幕的名字在手机画出来以后挪进了屏幕，是另一个元素。
+     */
+    const canFind = "onbeforematch" in document.body;
+    const collectFindables = () => (canFind ? [...root.querySelectorAll<HTMLElement>("[data-lp-find]")] : []);
+    let findables = collectFindables();
     const hidden = new Map<HTMLElement, boolean>();
     /**
      * 访客在查找：按了 Ctrl/⌘+F 或 F3，还没再碰页面（查找栏开着时按键都落在查找栏上，碰到页面多半是查完了）。
@@ -174,7 +184,10 @@ export function LightStage({
      */
     let finding = false;
     const onKey = (e: KeyboardEvent) => {
-      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") || e.key === "F3") finding = true;
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") || e.key === "F3") {
+        if (!finding) findables = collectFindables();
+        finding = true;
+      }
       else if (!["Control", "Meta", "Shift", "Alt"].includes(e.key)) finding = false;
     };
     const stopFinding = () => (finding = false);
@@ -189,13 +202,22 @@ export function LightStage({
       window.removeEventListener("touchstart", stopFinding);
     });
     const memoryEl = root.querySelector<HTMLElement>(".lp-memory");
+    // 第 4 幕的手机：画布放进来电的 .lp-phone，屏幕亮起时发打来电话的她的光。
+    const phoneHost = root.querySelector<HTMLElement>(".lp-phone");
+    const caller = lights.find((l) => l.id === speaker) ?? lights[0];
+    if (phoneHost && caller) {
+      phone = createPhoneStage({ root, host: phoneHost, timeline, touch, quality: qualityOf(tier, touch), glow: caller.color });
+    }
+    /** 上一次写进样式的屏幕矩形，没变就不重写。 */
+    let rectKey = "";
     const startEl = root.querySelector<HTMLElement>(".lp-start");
 
     let vp: Viewport = { w: 1, h: 1 };
     let nameGaps: Record<string, readonly [number, number]> = {};
-    /** 名牌上文字（编号、名字、色值）的竖直区间：舞台钉住时舞台顶就是视口顶。字体晚到会改变名字的高度，到了要重新量。 */
+    /** 名牌上文字（编号、名字、色值）的竖直区间，从钉住的舞台（stageBox）顶算起：舞台钉住时它就是视口顶。不能从外层
+     * 量：在光谱里刷新、改窗口大小时外层的顶在视口上方几屏，断口就跑到画面外了。字体晚到会改变名字的高度，到了要重新量。 */
     const measureGaps = () => {
-      const top = stage.getBoundingClientRect().top;
+      const top = stageBox.getBoundingClientRect().top;
       nameGaps = Object.fromEntries(
         plates.map((el) => {
           const r = el.querySelector(".lp-plate-body")!.getBoundingClientRect();
@@ -227,6 +249,7 @@ export function LightStage({
       placeStand();
       placeGreeting();
       light?.resize(vp.w, vp.h);
+      phone?.resize(vp.w, vp.h);
     };
     let standFor: string | undefined;
     const placeStand = () => {
@@ -422,7 +445,6 @@ export function LightStage({
         focus,
         nameGaps,
         speaker: speaker ?? undefined,
-        speakerStand,
         call: interactionStore.get().call,
       });
       stage.style.setProperty("--lp-act1-text", String(scene.text.act1));
@@ -462,11 +484,21 @@ export function LightStage({
           voiceEl.style.setProperty(`--lp-sweep-${k}`, String(l.sweep));
           voiceEl.style.setProperty(`--lp-sub-${k}`, String(l.subtitle));
         });
-        if (scene.call) {
-          voiceEl.style.setProperty("--lp-pulse", String(scene.call.pulse));
-          voiceEl.style.setProperty("--lp-shake-x", `${scene.call.shake.x}px`);
-          voiceEl.style.setProperty("--lp-shake-y", `${scene.call.shake.y}px`);
-        }
+        if (scene.call) voiceEl.style.setProperty("--lp-pulse", String(scene.call.pulse));
+        if (scene.phone) {
+          const { shake, rect, bounds } = scene.phone;
+          voiceEl.style.setProperty("--lp-phone", String(scene.phone.opacity));
+          voiceEl.style.setProperty("--lp-shake-x", `${shake.x}px`);
+          voiceEl.style.setProperty("--lp-shake-y", `${shake.y}px`);
+          const key = [rect.x, rect.y, rect.w, rect.h, rect.r, bounds.top, bounds.bottom].join(" ");
+          if (key !== rectKey) {
+            rectKey = key;
+            for (const [name, v] of Object.entries({ x: rect.x, y: rect.y, w: rect.w, h: rect.h, r: rect.r }))
+              voiceEl.style.setProperty(`--lp-screen-${name}`, `${v}px`);
+            voiceEl.style.setProperty("--lp-phone-top", `${bounds.top}px`);
+            voiceEl.style.setProperty("--lp-phone-bottom", `${bounds.bottom}px`);
+          }
+        } else voiceEl.style.setProperty("--lp-phone", "0");
       }
       if (scene.memory && memoryEl) {
         memoryEl.style.setProperty("--lp-pan", `${-scene.memory.pan}px`);
@@ -489,6 +521,8 @@ export function LightStage({
         act = scene.act;
         stageStore.set({ act });
       }
+
+      phone?.frame(scroll, scene.phone);
 
       if (!light) return;
       // 画面里什么都没亮时（第 6 幕最暗的那一段）画一帧就歇着。
@@ -517,7 +551,7 @@ export function LightStage({
       document.removeEventListener("visibilitychange", onVisible);
     });
     return unmount;
-  }, [lights, speaker, speakerStand]);
+  }, [lights, speaker]);
 
   return (
     <div

@@ -12,6 +12,7 @@
 
 import type { CallPhase } from "./interaction";
 import { averageOklab, mixOklab } from "./oklab";
+import { CALL_SHOWN, HANDOFF, NARROW, PHONE_MM, phoneAt, type PhoneState } from "./phone";
 import { layoutOf, qualityOf, type Tier } from "./tier";
 import {
   REGROUP_SCREENS,
@@ -66,10 +67,8 @@ export type SceneInput = {
   nameGaps?: Readonly<Record<string, readonly [top: number, bottom: number]>>;
   /** 第 3、4 幕里说话、打来电话的那一位；不给或者她不在名单里时，是光谱里的第一位。 */
   speaker?: string;
-  /** 第 4 幕的来电接通了没有（交互 reducer 的 `call`）；不给时在响。 */
+  /** 第 4 幕的来电在哪一步（交互 reducer 的 `call`），只在响铃时振动；不给时在响。 */
   call?: CallPhase;
-  /** 第 4 幕里她的立绘挂得出来（有默认衣装、不是静态档）：那时她那道光让给立绘。 */
-  speakerStand?: boolean;
 };
 
 export type Band = {
@@ -136,12 +135,10 @@ export type TalkLine = {
   subtitle: number;
 };
 
-/** 第 4 幕的来电。 */
+/** 第 4 幕的来电。振动在手机上（PhoneState 的 shake）。 */
 export type CallState = {
-  /** 光脉冲 0 到 1：铃声在画面上就是它，一阵一阵的。她的光和背景跟着亮。 */
+  /** 光脉冲 0 到 1：铃声在画面上就是它，一阵一阵的。背景跟着亮。 */
   pulse: number;
-  /** 画面振动的位移（像素）：响的时候抖，停的时候不动。 */
-  shake: { x: number; y: number };
 };
 
 export type Scene = {
@@ -167,8 +164,10 @@ export type Scene = {
   memory: MemoryState | null;
   /** 第 3 幕：每一句话的原文、扫光和字幕；第 4 幕里是说完的样子（第 3 幕的字在第 4 幕开头淡出）。其他幕是 null。 */
   talk: { lines: TalkLine[] } | null;
-  /** 第 4 幕：光脉冲和振动。其他幕是 null。 */
+  /** 第 4 幕：光脉冲。其他幕是 null。 */
   call: CallState | null;
+  /** 第 4 幕的手机：位置、转角、缩放、屏幕亮度、振动和停稳以后的屏幕矩形（phone.ts）。其他幕是 null。 */
+  phone: PhoneState | null;
   /** 第 7 幕的手机屏幕：中心 (x, y)，半宽 w、半高 h，圆角 r；亮度 0 到 1，1 是全站最亮的时候。 */
   screen: { x: number; y: number; w: number; h: number; r: number; intensity: number };
   /** DOM 上跟着时间线走的部分的不透明度：第 1 幕的文字，第 2 幕的名牌，第 3 幕的文字，第 4 幕的来电画面，
@@ -380,6 +379,7 @@ function act1Picture(lights: readonly BandLight[], vp: Viewport, m: Moment): Pic
     memory: null,
     talk: null,
     call: null,
+    phone: null,
     screen: NO_SCREEN,
     text: { ...QUIET_TEXT, act1: smooth(0.4, 0.48, p) },
   };
@@ -486,6 +486,7 @@ function act2Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, a: A
     memory: null,
     talk: null,
     call: null,
+    phone: null,
     screen: NO_SCREEN,
     text: { ...QUIET_TEXT, act1: 1 - smooth(0, 0.3, regroup), plates: smooth(0.45, 0.9, zoom) },
   };
@@ -505,6 +506,7 @@ function quiet(lights: readonly BandLight[], vp: Viewport, bands: Band[]): Pictu
     memory: null,
     talk: null,
     call: null,
+    phone: null,
     screen: NO_SCREEN,
     text: QUIET_TEXT,
   };
@@ -796,7 +798,7 @@ function act3Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, p: n
   };
 }
 
-/** 第 4 幕里来电的画面显出来的那一段（幕内进度）：背景过渡到她的极深底色，她的光挪到画面中间。 */
+/** 第 4 幕开头背景过渡到她的极深底色的那一段（幕内进度）。 */
 const CALL_IN = 0.15;
 /** 铃声的节奏（秒）：响两下、停一会儿，和手机来电一样。 */
 const RING_PERIOD = 2.6;
@@ -804,10 +806,12 @@ const RING_BURSTS: readonly [from: number, to: number][] = [
   [0, 0.5],
   [0.65, 1.15],
 ];
-/** 响铃时画面振动的幅度（像素）。 */
+/** 响铃时手机振动的幅度（像素）。 */
 const SHAKE = 3;
 /** 减少动态效果档里定格的光脉冲：画面静止，但看得出在发光。 */
 const STILL_PULSE = 0.5;
+/** 收成竖线时她的光晕（像素）：只剩贴着侧边的一圈。 */
+const SIDE_HALO = 7;
 
 /** 第 `time` 秒的光脉冲：响的两下各是一座小山，停的时候是 0。 */
 function ringPulse(time: number): number {
@@ -816,9 +820,11 @@ function ringPulse(time: number): number {
 }
 
 /**
- * 第 4 幕「来电」：全屏是她。背景过渡到她的极深底色，她那道光站到画面中间；她有立绘时，光在来电的画面
- * 显出来的同时熄掉，不在立绘正后面竖一条线。铃声在画面上是一阵一阵的光脉冲，响的时候画面振动（访客接听
- * 以前从不出声）。接通以后不再响，她的光稳稳地亮着。`p` 是幕内进度；静止版式里画面静止：光脉冲定格在一半，不振动。
+ * 第 4 幕「来电」：她的光从画面右边挪到中间，收窄成一条竖线，正好是一台侧着的手机的侧边：同一个位置、一样长、
+ * 光芯和侧边差不多宽。然后光熄掉，手机在同一个地方淡入，从侧面转到背面、停一会儿、再转到正面，停在画面正中，
+ * 黑屏亮起，来电（phone.ts 的时间线）。背景过渡到她的极深底色。铃声在画面上是一阵一阵的光脉冲（背景跟着亮），
+ * 响的时候手机振动（访客接听以前从不出声）；屏幕亮起来以后才响，接通以后不再响。`p` 是幕内进度；静止版式里
+ * 手机一开始就是正面、亮屏，光脉冲定格在一半，不振动。
  */
 function act4Picture(
   lights: readonly BandLight[],
@@ -828,23 +834,35 @@ function act4Picture(
   her: number,
   phase: CallPhase,
   still: boolean,
-  stand: boolean,
-): Picture & { call: CallState } {
+): Picture & { call: CallState; phone: PhoneState } {
   const from = act3Picture(lights, vp, m, 1, her, still);
   const enter = still ? 1 : easeInOut(smooth(0, CALL_IN, p));
-  const ringing = phase !== "connected";
-  const pulse = !ringing ? 0 : still ? STILL_PULSE : ringPulse(m.time) * enter;
+  const ringing = phase === "ringing";
+  const ringOn = still ? 1 : smooth(CALL_SHOWN[0], CALL_SHOWN[1], p);
+  const pulse = !ringing ? 0 : still ? STILL_PULSE : ringPulse(m.time) * ringOn;
   const t = m.time;
   const shake = still || pulse === 0 ? { x: 0, y: 0 } : { x: SHAKE * pulse * Math.sin(2 * Math.PI * 23 * t), y: 0.4 * SHAKE * pulse * Math.sin(2 * Math.PI * 17 * t + 1) };
   const light = lights[her];
   const base = mixOklab(BACKGROUND, light.deep, enter);
+  const phone = phoneAt(vp, still ? 1 : p, shake);
+
+  // 她的光收成侧着的手机的侧边：交接时手机的大小、位置。
+  const side = phoneAt(vp, HANDOFF[0], { x: 0, y: 0 });
+  const narrow = still ? 1 : easeInOut(smooth(NARROW[0], NARROW[1], p));
+  const handed = still ? 1 : smooth(HANDOFF[0], HANDOFF[1], p);
+  const top = side.y - side.height / 2;
   const bands = from.bands.map((b, i) =>
     i === her
       ? {
           ...b,
-          x: lerp(b.x, vp.w * 0.5, enter),
-          halo: lerp(b.halo, 46 * light.spread, enter),
-          intensity: lerp(b.intensity, stand ? 0 : ringing ? 0.5 + 0.38 * pulse : 0.78, enter),
+          x: lerp(b.x, side.x, narrow),
+          y: lerp(b.y, top, narrow),
+          // 光芯从起点亮到 0.8 倍长度处（light.ts 在最后两成淡出），正好是机身的上下沿。
+          length: lerp(b.length, side.height / 0.8, narrow),
+          start: lerp(b.start, -90, narrow),
+          core: lerp(b.core, (side.height * PHONE_MM.depth) / PHONE_MM.h / 2, narrow),
+          halo: lerp(b.halo, SIDE_HALO * light.spread, narrow),
+          intensity: lerp(b.intensity, 0.7, narrow) * (1 - handed),
         }
       : b,
   );
@@ -855,8 +873,9 @@ function act4Picture(
     dispersion: 0,
     // 第 3 幕的字在这一幕开头淡出：留着说完的样子。
     talk: from.talk,
-    call: { pulse, shake },
-    text: { ...QUIET_TEXT, act3: still ? 0 : 1 - smooth(0, 0.08, p), act4: still ? 1 : smooth(0.06, CALL_IN + 0.05, p) },
+    call: { pulse },
+    phone,
+    text: { ...QUIET_TEXT, act3: still ? 0 : 1 - smooth(0, 0.08, p), act4: ringOn },
   };
 }
 
@@ -904,12 +923,13 @@ export function describeScene(input: SceneInput): Scene {
   const her = speakerIndex(lights, input.speaker);
   if (act4 && scroll >= act4.from) {
     const q = still ? act4.length : scroll - act4.from;
-    const picture = act4Picture(lights, viewport, m, clamp(q / act4.length), her, input.call ?? "ringing", still, !!input.speakerStand);
+    const picture = act4Picture(lights, viewport, m, clamp(q / act4.length), her, input.call ?? "ringing", still);
     const release = q - act4.length;
     if (release <= 0) return { ...where, ...picture };
     // 解开钉住的那一屏：她的光和熄着的光一起变形成第 5 幕开头的样子，背景回到黑，铃声的光暗下去，来电的画面淡出。
     // 第 5 幕的布景这时已经从下面进来了：连线一条都还没画，横移停在开头，还不留指针痕迹。
     const t = smooth(0, 1, release);
+    const gone = 1 - smooth(0, 0.5, release);
     const world = memoryWorld(lights);
     const next = memoryBands(lights, viewport, world, panAt(world, viewport, 0), () => MEMORY_EMBER);
     const entering = act5Picture(lights, viewport, m, act5, 0, still).memory!;
@@ -918,9 +938,10 @@ export function describeScene(input: SceneInput): Scene {
       ...picture,
       background: mixOklab(picture.background, BACKGROUND, t),
       bands: blend(picture.bands, next, t),
-      call: { pulse: picture.call.pulse * (1 - t), shake: { x: picture.call.shake.x * (1 - t), y: picture.call.shake.y * (1 - t) } },
-      // 来电的画面（立绘只盖到舞台底边）不跟着舞台整块往上走，先淡出。
-      text: { ...picture.text, act4: 1 - smooth(0, 0.5, release) },
+      call: { pulse: picture.call.pulse * (1 - t) },
+      // 来电的画面和手机不跟着舞台整块往上走，先淡出；振动跟着停。
+      phone: { ...picture.phone, opacity: gone, shake: gone > 0 ? { x: picture.phone.shake.x * gone, y: picture.phone.shake.y * gone } : { x: 0, y: 0 } },
+      text: { ...picture.text, act4: gone },
       memory: { ...entering, relays: entering.relays.map((r) => ({ ...r, intensity: 0 })), trail: false },
     };
   }

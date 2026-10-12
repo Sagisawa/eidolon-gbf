@@ -25,6 +25,11 @@ says in Japanese, delivery cues and all (`greeting`), and its Chinese subtitle
 configuration (`readings`) voicing it uses is read along with it: they are part of where
 its audio is.
 
+Optionally too, she has a call opener (GLOSSARY.md「开场白」), what she says first once the
+visitor answers her call in the landing page's demo: `call_opener` and
+`call_opener_subtitle`, configured, voiced and put in the bucket as greetings are, at
+addresses of their own. Only she who calls there needs one.
+
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
 
@@ -37,6 +42,7 @@ import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from eidolon.delivery_cues import voiced, without_cues
 from eidolon.readings import Reading, load_readings, readings_path, used_in
@@ -68,9 +74,9 @@ class Fact:
 
 
 @dataclass(frozen=True)
-class Greeting:
-    """What she says to a producer she meets for the first time, on the landing page: written
-    beforehand and reviewed, voiced once in her voice; never part of any turn."""
+class ScriptedLine:
+    """A line she says on the landing page: written beforehand and reviewed, voiced once in
+    her voice; never part of any turn."""
 
     text: str
     """In Japanese as it is voiced, delivery cues and all (`delivery_cues`)."""
@@ -84,6 +90,17 @@ class Greeting:
     def ja(self) -> str:
         """In Japanese as people see it, without its delivery cues."""
         return without_cues(self.text)
+
+
+@dataclass(frozen=True)
+class Greeting(ScriptedLine):
+    """What she says to a producer she meets for the first time, on the landing page."""
+
+
+@dataclass(frozen=True)
+class CallOpener(ScriptedLine):
+    """What she says first once the visitor answers her call, in the landing page's demo: to
+    a producer she already knows, calling him."""
 
 
 @dataclass(frozen=True)
@@ -112,6 +129,8 @@ class Character:
     costume. Its files are at `spine/idols/<category>/<enzaId>/` under the stand assets."""
     greeting: Greeting | None = None
     """Her greeting on the landing page; None shows her there without one."""
+    call_opener: CallOpener | None = None
+    """Her call opener on the landing page; None, and her call there has no words."""
     name_zh: str | None = None
     """Her name in simplified Chinese as the community writes it, e.g. 八宫巡."""
     name_kana: str | None = None
@@ -224,6 +243,7 @@ def _parse_character(
         idol_id=idol_id,
         default_outfit=default_outfit,
         greeting=_greeting(entry, label, readings),
+        call_opener=_call_opener(entry, label, readings),
         name_zh=_other_name(entry, "name_zh", label),
         name_kana=_other_name(entry, "name_kana", label),
         name_romaji=_other_name(entry, "name_romaji", label),
@@ -241,23 +261,40 @@ def _other_name(entry: dict, field: str, label: str) -> str | None:
 
 
 def _greeting(entry: dict, label: str, readings: tuple[Reading, ...]) -> Greeting | None:
-    """Her greeting, if she has one: its words and its subtitle, both or neither; and the
-    `readings` voicing it uses."""
-    text, subtitle = entry.get("greeting"), entry.get("greeting_subtitle")
+    """Her greeting, if she has one."""
+    return _scripted(Greeting, "招呼", "greeting", entry, label, readings)
+
+
+def _call_opener(entry: dict, label: str, readings: tuple[Reading, ...]) -> CallOpener | None:
+    """Her call opener, if she has one."""
+    return _scripted(CallOpener, "开场白", "call_opener", entry, label, readings)
+
+
+L = TypeVar("L", bound=ScriptedLine)
+
+
+def _scripted(
+    kind: type[L], called: str, field: str, entry: dict, label: str, readings: tuple[Reading, ...]
+) -> L | None:
+    """A line she says on the landing page (`kind`, which the deployer knows as `called`),
+    if she has one: its words (`field`) and its subtitle (`<field>_subtitle`), both or
+    neither; and the `readings` voicing it uses."""
+    subtitle_field = f"{field}_subtitle"
+    text, subtitle = entry.get(field), entry.get(subtitle_field)
     if text is None and subtitle is None:
         return None
     if not (isinstance(text, str) and text.strip()):
         raise CharacterConfigError(
-            f"角色 {label} 的招呼缺少日语原文：greeting 应为她说的日语（可以带语气提示），和 greeting_subtitle 一起配"
+            f"角色 {label} 的{called}缺少日语原文：{field} 应为她说的日语（可以带语气提示），和 {subtitle_field} 一起配"
         )
     if not without_cues(text):
-        raise CharacterConfigError(f"角色 {label} 的招呼 greeting 去掉语气提示后什么都不剩，现在是 {text!r}")
+        raise CharacterConfigError(f"角色 {label} 的{called} {field} 去掉语气提示后什么都不剩，现在是 {text!r}")
     if not (isinstance(subtitle, str) and subtitle.strip()):
         raise CharacterConfigError(
-            f"角色 {label} 的招呼缺少中文字幕：greeting_subtitle 应为 greeting 的中文字幕，和它一起配"
+            f"角色 {label} 的{called}缺少中文字幕：{subtitle_field} 应为 {field} 的中文字幕，和它一起配"
         )
     text = text.strip()
-    return Greeting(text, subtitle.strip(), used_in(voiced(text), readings))
+    return kind(text, subtitle.strip(), used_in(voiced(text), readings))
 
 
 def _optional_file(entry: dict, field: str, base: Path, label: str) -> Path | None:
