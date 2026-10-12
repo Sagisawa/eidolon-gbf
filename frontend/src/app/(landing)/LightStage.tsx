@@ -206,9 +206,10 @@ export function LightStage({
 
     let vp: Viewport = { w: 1, h: 1 };
     let nameGaps: Record<string, readonly [number, number]> = {};
-    /** 名牌上文字（编号、名字、色值）的竖直区间：舞台钉住时舞台顶就是视口顶。字体晚到会改变名字的高度，到了要重新量。 */
+    /** 名牌上文字（编号、名字、色值）的竖直区间，从钉住的舞台（stageBox）顶算起：舞台钉住时它就是视口顶。不能从外层
+     * 量：在光谱里刷新、改窗口大小时外层的顶在视口上方几屏，断口就跑到画面外了。字体晚到会改变名字的高度，到了要重新量。 */
     const measureGaps = () => {
-      const top = stage.getBoundingClientRect().top;
+      const top = stageBox.getBoundingClientRect().top;
       nameGaps = Object.fromEntries(
         plates.map((el) => {
           const r = el.querySelector(".lp-plate-body")!.getBoundingClientRect();

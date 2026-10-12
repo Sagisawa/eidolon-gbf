@@ -851,8 +851,11 @@ html[data-lp-layout="motion"] .lp-act3 {
 html[data-lp-layout="motion"] .lp-act4 {
   opacity: var(--lp-act4, 0);
 }
-html[data-lp-layout="motion"] [data-lp-call] .lp-act4,
-html[data-lp-layout="motion"] .lp-act4:focus-within {
+/* 来电显出一半以后才接指针；不透明度照旧跟着模型走，往回滚时原路淡出。键盘聚焦进来时整个看得见。 */
+html[data-lp-layout="motion"] [data-lp-call] .lp-act4 {
+  pointer-events: auto;
+}
+html[data-lp-layout="motion"] .lp-act4:has(:focus-visible) {
   opacity: 1;
   pointer-events: auto;
 }
@@ -1190,7 +1193,7 @@ html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-glow {
 html[data-lp-layout="motion"] .lp-root.lp-phone-on :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
   opacity: var(--lp-act4, 0);
 }
-html[data-lp-layout="motion"] .lp-root.lp-phone-on :is([data-lp-call] .lp-act4, .lp-act4:focus-within) :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4:has(:focus-visible) :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
   opacity: 1;
 }
 html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy {
@@ -1243,11 +1246,20 @@ html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-answer-icon {
   height: 64px;
   padding: 20px;
 }
+/* 开场白的字号跟着屏幕宽度走，两边比来电界面少留一点边、日文字距收一点，常见的手机上一个短语（auto-phrase 不拆的
+ * 那一段）放得下；更窄的手机上还是放不下时，从短语中间断开，不撑出屏幕。 */
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui :is(.lp-hello-ja, .lp-hello-zh) {
+  overflow-wrap: anywhere;
+}
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello {
+  margin: 0 calc(var(--lp-screen-w) * -0.03);
+}
 html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello-ja {
-  font-size: 15px;
+  font-size: clamp(10px, calc(var(--lp-screen-w) * 0.066), 15px);
+  letter-spacing: 0.02em;
 }
 html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello-zh {
-  font-size: 12px;
+  font-size: clamp(10px, calc(var(--lp-screen-w) * 0.056), 12px);
 }
 
 /* —— 第 5 幕：记忆（Memory.tsx）。布景是两屏宽的一张 SVG：运动版式里跟着模型横移（--lp-pan），
@@ -1372,8 +1384,11 @@ html[data-lp-layout="motion"] .lp-act7-copy {
   opacity: var(--lp-act7, 0);
   pointer-events: none;
 }
-html[data-lp-layout="motion"] [data-lp-cta] .lp-act7-copy,
-html[data-lp-layout="motion"] .lp-act7-copy:focus-within {
+/* 和第 4 幕的来电一样：显出一半以后才接指针，不透明度跟着模型走。 */
+html[data-lp-layout="motion"] [data-lp-cta] .lp-act7-copy {
+  pointer-events: auto;
+}
+html[data-lp-layout="motion"] .lp-act7-copy:has(:focus-visible) {
   opacity: 1;
   pointer-events: auto;
 }

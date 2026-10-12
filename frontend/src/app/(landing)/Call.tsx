@@ -42,12 +42,16 @@ export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   // 卸下时挂断：交互状态在模块里（interactionStore），不会跟着组件重来。
   useEffect(() => () => void interactionStore.dispatch({ type: "hang-up" }), []);
 
-  // 离开这一幕就挂断，回到响铃的样子。
+  // 离开这一幕就挂断，回到响铃的样子。焦点还在来电界面上的话放掉：键盘聚焦时来电界面整个看得见（landing.css），
+  // 不放掉就跟着滚到别的幕上。
   const lastAct = useRef(act);
   useEffect(() => {
     const before = lastAct.current;
     lastAct.current = act;
-    if (before === 4 && act !== 4) interactionStore.dispatch({ type: "hang-up" });
+    if (before !== 4 || act === 4) return;
+    interactionStore.dispatch({ type: "hang-up" });
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && section.current?.contains(focused)) focused.blur();
   }, [act]);
 
   // 静止版式：这一幕进到视口附近才挂立绘。
