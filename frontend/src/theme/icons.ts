@@ -16,6 +16,7 @@ export { Trash2 as TrashIcon } from "lucide-react";
 // 后台导航用的图标。
 export {
   LayoutDashboard as DashboardIcon,
+  Megaphone as AnnouncementsIcon,
   SlidersHorizontal as ConfigIcon,
   Users as UsersIcon,
 } from "lucide-react";
