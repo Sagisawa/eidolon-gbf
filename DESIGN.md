@@ -173,9 +173,15 @@ components:
 
 ## Layout
 
-- **宽屏（≥ 768px）**：两栏。左侧对话列表 340px、白底（深色模式 `--background`），右边一条 `border-r` 细线；右侧对话栏填满。通话层绝对定位盖住对话栏，列表仍可见。没选角色时右栏居中一句 muted 标题。列表可以拖右边的线调宽：用 shadcn `Resizable`（react-resizable-panels v4），按像素约束（默认 320px，240–480px，`groupResizeBehavior="preserve-pixel-size"`，窗口变化时保持像素宽），`onResize` 的 `inPixels` 记进 localStorage，沿用现在 `useSavedSize` 的做法（挂载后在 layout effect 里恢复，避免水合不一致）。不自己写拖拽。
-- **窄屏（< 768px）**：一次一栏，列表或对话；对话页首有返回键。通话层固定定位铺满整屏。
-- **对话列表**：顶部「对话」大标题和更多菜单，下面一个 `bg-muted` 的搜索框；行内边距 `px-4 py-2.5`，头像 56px，名字和时间一行、最后一句和未读数一行。
+- **导航外壳**：对话（列表和她的对话页）和设置共用一个外壳，外壳给它们一条导航。两个词只在这里用，不进词汇表，也不叫「侧栏」：
+  - **导航栏**（电脑，≥ 768px）：最左一条 72px，右边一条 `border-r` 细线，不能收起，不用 shadcn `Sidebar`（那是后台的页框）。从上到下对话、设置，每项图标（20px）在上、字（Meta 字号）在下；当前项的图标外面铺一层中性 `bg-muted` 圆角底（48×32 的胶囊），字 foreground 加 medium，其余图标和字都是 muted，悬停时图标底 `bg-muted/60`。最底下是 GitHub 仓库的 ghost `icon-lg` 图标键（`GitHubIcon`，读屏名字「GitHub」，新标签页打开）。整条是一个读屏名字「导航」的 `nav`，当前项 `aria-current="page"`。
+  - **dock**（手机，< 768px）：底部一条，项目和顺序、每项的样子同导航栏，每项高 56px、等宽撑满；实底 `--background`，上沿一条 `border-t`，底部留出 `env(safe-area-inset-bottom)`。进了她的对话页也在，在输入栏下面；任何输入框拿到焦点（textarea、不是勾选框的 input、可编辑元素，大致就是键盘弹起）时藏起来，失去焦点后回来。通话层展开时被盖住（`inert`）。
+  - **当前项和再点一下**：当前项按网址判断，`/conversations` 和 `/conversation/…` 是对话，`/settings…` 是设置。点别的项去那一项的第一级（`/conversations`、`/settings`）；在二级页面上（她的对话页）再点当前那一项回到第一级，已在第一级时不动。导航栏和 dock 同一条规则（`lib/navShell`），去哪都在外壳里，通话中点也不挂断。
+  - **第二栏**：导航栏右边是这一页的内容。对话页是下面说的可拖宽的对话列表加对话栏；设置页是一栏。
+  - **首屏不闪**：导航栏和 dock 都只靠 CSS 断点分宽窄（导航栏窄屏 `max-md:hidden`、dock 宽屏 `md:hidden`），不等脚本判断屏宽；手机首屏（不跑脚本）直接是单栏加 dock。
+- **宽屏（≥ 768px）**：导航栏右边两栏。左侧对话列表 340px、白底（深色模式 `--background`），右边一条 `border-r` 细线；右侧对话栏填满。通话层绝对定位盖住对话栏，列表仍可见。没选角色时右栏居中一句 muted 标题。列表可以拖右边的线调宽：用 shadcn `Resizable`（react-resizable-panels v4），按像素约束（默认 320px，240–480px，`groupResizeBehavior="preserve-pixel-size"`，窗口变化时保持像素宽），`onResize` 的 `inPixels` 记进 localStorage，沿用现在 `useSavedSize` 的做法（挂载后在 layout effect 里恢复，避免水合不一致）。不自己写拖拽。
+- **窄屏（< 768px）**：一次一栏，列表或对话，下面一条 dock；对话页首有返回键。通话层固定定位铺满整屏，盖住 dock。
+- **对话列表**：顶部「对话」大标题和公告铃铛（手机上还有 GitHub 键），下面一个 `bg-muted` 的搜索框；行内边距 `px-4 py-2.5`，头像 56px，名字和时间一行、最后一句和未读数一行。
 - **对话页首**：高 56px，和壁纸同色、不加分隔线；返回键（窄屏）、名字（填满）、搜索、电话键、更多菜单。触控目标不小于 44px。
 - **消息区**：铺她的壁纸。气泡之间 4px，换人或换组时多 8px；日期条居中，`bg-foreground/10` 胶囊。消息从顶部开始排。
 - **输入栏**：实底 `--background`，上沿一条 `border-t`；左边「+」，中间 22px 圆角的 `bg-muted` 输入框（一行起、最多长到 8rem），右边圆形发送键。
@@ -241,7 +247,7 @@ components:
 - 行就是行，不用卡片包。每行：头像（56px，无描边）、名字、时间、最后一句（她的日语，或「你：…」）、未读数（`--her-button` 底、`--her-button-fg` 字的胶囊）。
 - **Selected**：`bg-muted`；悬停 `bg-muted/60`。通话中该行描述换成「通话中 mm:ss」/「正在呼叫…」。
 - 底部固定一行免责声明，Meta 字号。
-- **页首**：左边「对话」大标题，右边三个 ghost `icon-lg` 图标键，依次是 GitHub 仓库链接（`GitHubIcon`，读屏名字「GitHub」，新标签页打开）、公告铃铛（`AnnouncementsBellIcon`，即 Lucide `Bell`）和更多菜单。宽屏窄屏一样。
+- **页首**：左边「对话」大标题，右边 ghost `icon-lg` 图标键：公告铃铛（`AnnouncementsBellIcon`，即 Lucide `Bell`），手机上铃铛左边还有 GitHub 仓库链接（`GitHubIcon`，读屏名字「GitHub」，新标签页打开；电脑上它在导航栏底部）。没有更多菜单：设置在导航里，记忆从设置进。
 - **公告铃铛**：有未读公告时图标右上角一个 6px 小圆点，`bg-foreground`（和筛选按钮的点同位置、同大小；用前景色而不是 muted，因为这是要人去看的事），不用她的颜色也不用强调色。读屏名字「公告」，有未读时「公告，有未读」。点了打开公告弹窗（见「Overlays」）。
 - **顺序**：最近有过往来的在上面（开了新对话也算），从没聊过的在最后、按原作的偶像顺序；搜索结果同样排。一整列平铺，不按组合分段；一行换位置时直接跳过去，不做位移动画。
 - **搜索框**：提示文字「搜索名字或组合」；日文原名、中文简体译名、假名、罗马字都能搜，输组合名列出整组。什么都没搜到时显示「没有找到这位偶像」。隐藏的人照样能搜到。
@@ -285,6 +291,7 @@ components:
 
 ### Icons
 - 全部来自 `lucide-react`，按语义别名从一个文件导出（沿用 `PhoneIcon`、`HangUpIcon`、`MicIcon` 这类名字），组件里不直接散用 Lucide 原名。
+- 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），设置是 `Settings`（`SettingsIcon`）。
 - 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。
 - 品牌标志例外：Lucide 不收品牌标志，需要时照抄 simple-icons 的官方路径，不改形状，同样从那个文件导出。目前只有 `GitHubIcon`。
 

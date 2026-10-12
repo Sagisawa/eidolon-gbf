@@ -6,8 +6,14 @@ export const zh = {
   app: {
     name: "Eidolon-SC",
     description: "和 283 事务所的偶像说说话",
-    /** 链到项目仓库的那个链接：落地页右上角的字，对话列表页首图标键的读屏名字。 */
+    /** 链到项目仓库的那个链接：落地页右上角的字，导航栏底部（电脑）和对话列表页首（手机）图标键的读屏名字。 */
     repositoryLabel: "GitHub",
+  },
+  /** 导航外壳的导航栏（电脑）和 dock（手机），DESIGN.md「Layout」。 */
+  nav: {
+    label: "导航",
+    conversations: "对话",
+    settings: "设置",
   },
   /** 落地页的链接贴到聊天软件、社交网站时预览卡片上的文字（Open Graph、Twitter 卡片）。页面上不显示，不进字体子集。 */
   share: {
@@ -25,9 +31,6 @@ export const zh = {
     title: "对话",
     noneSelected: "选一位偶像开始对话",
     resize: "调整对话列表宽度",
-    menu: "更多操作",
-    memories: "记忆",
-    settings: "设置",
     /** 列表顶上的搜索框：按名字（原名、中文译名、假名、罗马字）或组合找偶像。 */
     search: "搜索名字或组合",
     noMatch: "没有找到这位偶像",

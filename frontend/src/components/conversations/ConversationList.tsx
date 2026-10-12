@@ -6,12 +6,6 @@ import { SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
@@ -21,7 +15,7 @@ import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/con
 import { pin, setShown, unpin } from "@/lib/listPreferences";
 import { REPOSITORY_URL } from "@/lib/repository";
 import { cn } from "@/lib/utils";
-import { GitHubIcon, MoreIcon, PinIcon, SearchIcon } from "@/theme/icons";
+import { GitHubIcon, PinIcon, SearchIcon } from "@/theme/icons";
 
 import { Announcements } from "./Announcements";
 import { useDirectory, type CallInList } from "./ConversationDirectory";
@@ -31,7 +25,7 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、GitHub 仓库链接、公告铃铛和更多菜单，下面一个按名字
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、GitHub 仓库链接（只在手机上，电脑上在导航栏底部）和公告铃铛，下面一个按名字
  * 或组合找人的搜索框，右边是筛选按钮（`ListFilter`）；每位角色一行（56px 头像、名字和时间一行，最后一句一行），
  * 选中行铺中性的 bg-muted；
  * 底部一行免责声明。显示谁、按什么顺序由 `arrange` 决定：置顶的在前，最近有过往来的在上面；隐藏的不显示，
@@ -53,10 +47,11 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
     <div className="flex h-full flex-col bg-background text-foreground">
       <header className="flex shrink-0 items-center gap-2 pt-3 pr-2 pb-2 pl-4">
         <h1 className="flex-1 text-list-title">{t.title}</h1>
-        {/* 新标签页打开：离开这一页会挂断进行中的通话。 */}
+        {/* 新标签页打开，通话照常。电脑上它在导航栏底部。 */}
         <Button
           variant="ghost"
           size="icon-lg"
+          className="md:hidden"
           aria-label={copy.app.repositoryLabel}
           nativeButton={false}
           render={<a href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer" />}
@@ -64,15 +59,6 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
           <GitHubIcon />
         </Button>
         <Announcements userId={account?.id ?? null} />
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-lg" aria-label={t.menu} />}>
-            <MoreIcon />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => go("/memories")}>{t.memories}</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => go("/settings")}>{t.settings}</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </header>
 
       <div className="flex shrink-0 items-center gap-1 pr-2 pb-2 pl-4">

@@ -45,5 +45,8 @@ export { ArrowDown as SortedIcon, ArrowUpDown as SortableIcon } from "lucide-rea
 // 通话层右上角的「只看文字」胶囊。
 export { Captions as TextOnlyIcon } from "lucide-react";
 
-// 对话列表页首的 GitHub 仓库链接；品牌标志 Lucide 不收，是 The Library Icon Rule 的例外。
+// 导航栏（电脑）和 dock（手机）的两项。
+export { MessageCircle as ConversationsIcon, Settings as SettingsIcon } from "lucide-react";
+
+// 导航栏底部（电脑）和对话列表页首（手机）的 GitHub 仓库链接；品牌标志 Lucide 不收，是 The Library Icon Rule 的例外。
 export { GitHubIcon } from "./GitHubIcon";

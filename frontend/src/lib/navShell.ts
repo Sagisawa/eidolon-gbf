@@ -2,7 +2,9 @@
 // 「通话条」, ADR-0018): the conversations and settings share one shell, and the call belongs to
 // it, not to her conversation page. Given a URL and whom the call under way is with (or no one),
 // these say whether that URL is in the shell, whether the call bar shows across its top, and
-// whether going there keeps the call, asks first and then hangs up, or just goes.
+// whether going there keeps the call, asks first and then hangs up, or just goes. They also say
+// which item of the rail (desktop) and the dock (phone) is current and where clicking one goes
+// (spec「电脑导航栏」「手机 dock」).
 
 /** Going somewhere, with or without a call under way:
  * - `keep`: a page in the shell; the call goes on;
@@ -53,4 +55,36 @@ export function departure(href: string, callee: string | null): Departure {
   if (!isInShell(href)) return "ask";
   const other = conversationOf(pathOf(href).path);
   return other !== null && other !== callee ? "ask" : "keep";
+}
+
+/** The items of the rail and the dock, top to bottom (left to right on the dock). */
+export const NAV_ITEMS = ["conversations", "settings"] as const;
+export type NavItem = (typeof NAV_ITEMS)[number];
+
+/** Each item's first level; her conversation page and a settings category below it are its second. */
+export const FIRST_LEVEL: Record<NavItem, string> = { conversations: "/conversations", settings: "/settings" };
+
+/** The item the URL is under, marked current on the rail and the dock; null out of the shell. */
+export function currentNavItem(href: string): NavItem | null {
+  const { path } = pathOf(href);
+  if (!isInShell(href)) return null;
+  return path === "/settings" || path.startsWith("/settings/") ? "settings" : "conversations";
+}
+
+/** Where clicking `item` from `href` goes: another item goes to its first level, and so does
+ * the current one from its second level; the current one on its first level stays (null). */
+export function navDestination(item: NavItem, href: string): string | null {
+  const to = FIRST_LEVEL[item];
+  return currentNavItem(href) === item && pathOf(href).path === to ? null : to;
+}
+
+/** What has the focus, as far as telling typing goes (an Element will do). */
+export type Focused = { tagName: string; type?: string; isContentEditable?: boolean } | null;
+
+/** Typing on a phone, near enough the keyboard being up, which hides the dock: the focus is in a
+ * textarea, an input other than a checkbox, or something editable. */
+export function isTyping(focused: Focused): boolean {
+  if (!focused) return false;
+  if (focused.tagName === "TEXTAREA" || focused.isContentEditable) return true;
+  return focused.tagName === "INPUT" && focused.type !== "checkbox";
 }
