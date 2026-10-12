@@ -212,11 +212,12 @@ describe("describeScene: 第 4 幕，来电", () => {
     }
   });
 
-  it.each(["connected", "ended"] as const)("接通、通话结束时不响、不振动（%s）", (call) => {
-    const [low, high] = range({ call });
+  it("只在响铃时响：接通、通话结束以后不响、不振动", () => {
+    // 接通和通话结束在模型里是同一条路（不在响铃），用通话结束来测。
+    const [low, high] = range({ call: "ended" });
     expect(high).toBe(0);
     expect(low).toBe(0);
-    for (const time of [0.2, 0.25, 0.9]) expect(scene({ scroll: in4(0.85), time, call }).phone!.shake).toEqual({ x: 0, y: 0 });
+    for (const time of [0.2, 0.25, 0.9]) expect(scene({ scroll: in4(0.85), time, call: "ended" }).phone!.shake).toEqual({ x: 0, y: 0 });
   });
 
   it("减少动态效果档（静态档同是静止版式）：手机一开始就是正面、亮屏，不振动，光脉冲定格", () => {

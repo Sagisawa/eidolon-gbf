@@ -38,7 +38,7 @@ const ENDED_HOLD_MS = 1500;
  * 手机画出来以前、手机画布丢了上下文时，是原来的全屏来电（她的立绘、竖排的名字）。光脉冲是 --lp-pulse，来电界面的
  * 不透明度是 --lp-act4；定格档里画面静止；静态档（不支持 WebGL）没有立绘。
  */
-export function Call({ speaker, copy, poster }: { speaker: Speaker; copy: CallCopy; poster: string | null }) {
+export function Call({ speaker, copy }: { speaker: Speaker; copy: CallCopy }) {
   const { call, opener } = useInteraction();
   const { act, phone } = useStage();
   const layout = useLayout();
@@ -95,12 +95,12 @@ export function Call({ speaker, copy, poster }: { speaker: Speaker; copy: CallCo
   };
 
   // 运动版式里这一幕快到了（第 3、4 幕）才挂立绘、加载卡图；卡图加载过就留着，不跟着滚动重来。
-  const close = !!layout && (layout.motion ? act === 3 || act === 4 : near);
-  const wantStand = !!speaker.outfit && !!layout && layout.tier !== "static" && close;
+  const approaching = !!layout && (layout.motion ? act === 3 || act === 4 : near);
+  const wantStand = !!speaker.outfit && !!layout && layout.tier !== "static" && approaching;
   const [posterWanted, setPosterWanted] = useState(false);
   useEffect(() => {
-    if (close && phone) setPosterWanted(true);
-  }, [close, phone]);
+    if (approaching && phone) setPosterWanted(true);
+  }, [approaching, phone]);
   const status = call === "connected" ? copy.connected : call === "ended" ? copy.ended : copy.ringing;
 
   const controls =
@@ -166,7 +166,7 @@ export function Call({ speaker, copy, poster }: { speaker: Speaker; copy: CallCo
         {phone ? (
           <div className="lp-screen">
             <div className="lp-screen-poster" aria-hidden>
-              {posterWanted && poster && <Poster src={poster} />}
+              {posterWanted && speaker.poster && <Poster src={speaker.poster} />}
             </div>
             <div className="lp-screen-wall" aria-hidden />
             {wantStand && (
@@ -176,7 +176,7 @@ export function Call({ speaker, copy, poster }: { speaker: Speaker; copy: CallCo
                   framing="waist"
                   still={!layout.motion}
                   speaking={opener?.voice === "playing"}
-                  paused={call === "ringing"}
+                  paused={call !== "connected"}
                 />
               </div>
             )}
@@ -227,6 +227,8 @@ const HANDSET =
 
 /** 拖动超过这么多像素就不算点按。 */
 const DRAG_SLOP = 6;
+/** 拖完松手以后这么久之内的 click 是浏览器补的那一下，不算点按。触屏上拖远了浏览器多半不补，不能等它来清掉。 */
+const CLICK_AFTER_DRAG_MS = 400;
 
 /**
  * 「滑动接听」：读屏器眼里是一个名为「接听」的按钮。把圆钮往右拖过一半、松手就接听；点按、回车、空格也直接接听。
@@ -247,37 +249,37 @@ function SlideToAnswer({
 }) {
   const track = useRef<HTMLButtonElement>(null);
   const knob = useRef<HTMLSpanElement>(null);
-  const drag = useRef<{ id: number; x: number; max: number; dx: number } | null>(null);
-  /** 刚拖过：松手后浏览器补的那一下 click 不算点按。 */
-  const dragged = useRef(false);
+  const drag = useRef<{ id: number; x: number; max: number; dx: number; moved: boolean } | null>(null);
+  /** 上一次拖完松手的时刻（performance.now()）。 */
+  const droppedAt = useRef(-Infinity);
   const [dx, setDx] = useState<number | null>(null);
 
   const down = (e: PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0 || !track.current || !knob.current) return;
     const max = track.current.clientWidth - knob.current.offsetWidth - 2 * knob.current.offsetLeft;
-    drag.current = { id: e.pointerId, x: e.clientX, max, dx: 0 };
-    dragged.current = false;
+    drag.current = { id: e.pointerId, x: e.clientX, max, dx: 0, moved: false };
   };
   const move = (e: PointerEvent<HTMLButtonElement>) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     d.dx = Math.min(d.max, Math.max(0, e.clientX - d.x));
-    if (!dragged.current && Math.abs(e.clientX - d.x) > DRAG_SLOP) {
-      dragged.current = true;
+    if (!d.moved && Math.abs(e.clientX - d.x) > DRAG_SLOP) {
+      d.moved = true;
       e.currentTarget.setPointerCapture(e.pointerId);
     }
-    if (dragged.current) setDx(d.dx);
+    if (d.moved) setDx(d.dx);
   };
   const up = (e: PointerEvent<HTMLButtonElement>) => {
     const d = drag.current;
     if (!d || d.id !== e.pointerId) return;
     drag.current = null;
     setDx(null);
-    if (dragged.current && d.dx > d.max / 2) onAnswer();
+    if (!d.moved) return;
+    droppedAt.current = performance.now();
+    if (d.dx > d.max / 2) onAnswer();
   };
   const cancel = () => {
     drag.current = null;
-    dragged.current = false;
     setDx(null);
   };
 
@@ -293,8 +295,7 @@ function SlideToAnswer({
       onPointerUp={up}
       onPointerCancel={cancel}
       onClick={() => {
-        if (dragged.current) dragged.current = false;
-        else onAnswer();
+        if (performance.now() - droppedAt.current > CLICK_AFTER_DRAG_MS) onAnswer();
       }}
       onFocus={onFocus}
       style={dx === null ? undefined : ({ "--lp-slide-x": `${dx}px` } as CSSProperties)}

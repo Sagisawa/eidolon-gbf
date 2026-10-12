@@ -99,6 +99,12 @@ def call_opener_path(character: Character) -> str | None:
     return _CALL_OPENERS.path(character)
 
 
+def call_poster_path(character: Character) -> str:
+    """Where her card for the landing page's incoming call is in the bucket. The deployer puts
+    it there by hand (docs/deploy.md「来电卡图」); this command does not touch it."""
+    return f"call-posters/{character.id}.webp"
+
+
 @dataclass(frozen=True)
 class FishAudioSettings:
     """The deployer's key for Fish Audio, and the model it voices with."""

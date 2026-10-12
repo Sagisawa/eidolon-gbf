@@ -24,7 +24,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine
-from eidolon.greetings import call_opener_path, greeting_path
+from eidolon.greetings import call_opener_path, call_poster_path, greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
 from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
@@ -161,11 +161,10 @@ def _call_opener(character: Character, assets_url: str | None) -> dict | None:
 
 
 def _call_poster(character: Character, assets_url: str | None) -> str | None:
-    """Her card on the landing page's incoming call (ADR-0003, 2026-10-12): a portrait
-    WebP the deployer puts in the bucket by hand at `call-posters/<id>.webp`, listed without
-    asking the bucket whether it is there (the page shows her colour instead when it is
-    not). None unless the stand assets are served."""
-    return f"{assets_url}/call-posters/{character.id}.webp" if assets_url else None
+    """Her card on the landing page's incoming call (ADR-0003, 2026-10-12), at
+    `call_poster_path`, listed without asking the bucket whether it is there (the page shows
+    her colour instead when it is not). None unless the stand assets are served."""
+    return f"{assets_url}/{call_poster_path(character)}" if assets_url else None
 
 
 def _scripted(line: ScriptedLine | None, path: str | None, assets_url: str | None) -> dict | None:

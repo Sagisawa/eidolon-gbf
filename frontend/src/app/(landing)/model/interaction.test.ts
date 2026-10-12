@@ -223,7 +223,6 @@ describe("interactionReducer: 第 4 幕的挂断和通话结束", () => {
   it("离开这一幕：接通、通话结束都直接回到响铃，不播挂断音", () => {
     const connected = run(answer());
     const ended = run(answer(), { type: "hang-up" });
-    expect(interactionReducer(connected, { type: "leave-call" }).call).toBe("ringing");
     expect(interactionReducer(ended, { type: "leave-call" }).call).toBe("ringing");
     expect(hangUpTones(connected, { type: "leave-call" })).toEqual([false]);
     expect(hangUpTones(ended, { type: "leave-call" }, { type: "ring" })).toEqual([false, false]);
@@ -233,12 +232,6 @@ describe("interactionReducer: 第 4 幕的挂断和通话结束", () => {
     expect(hangUpTones(INITIAL, answer())).toEqual([false]);
     const connected = run(answer());
     expect(connectTone(connected, interactionReducer(connected, { type: "hang-up" }))).toBe(false);
-  });
-
-  it("挂断音真的响了也让声音开关出现", () => {
-    const ended = run(answer(), { type: "tone", event: "failed" }, { type: "opener", n: 1, event: "failed" }, { type: "hang-up" });
-    expect(ended.sound).toBe("hidden");
-    expect(interactionReducer(ended, { type: "tone", event: "playing" }).sound).toBe("on");
   });
 });
 

@@ -92,7 +92,6 @@ export function Landing({
             speaker={speaker}
             talk={t.act3}
             call={t.act4}
-            poster={characters.find((c) => c.id === speaker.id)?.call_poster_url ?? null}
           />
         )}
         <Memory lights={lights} section={sectionOf(5)} title={t.act5.title} body={t.act5.body} />
@@ -142,12 +141,13 @@ function unitsOf(spectrum: SpectrumModel, characters: Character[]): SpectrumUnit
   }));
 }
 
-/** 第 3、4 幕说话、打来电话的那一位：文案指定的那位（台词照她写的），不在名单里时是光谱里的第一位；连同她的开场白。 */
+/** 第 3、4 幕说话、打来电话的那一位：文案指定的那位（台词照她写的），不在名单里时是光谱里的第一位；连同她的开场白和卡图。 */
 function speakerOf(units: SpectrumUnit[], characters: Character[]): (Speaker & { id: string }) | null {
   const plates = units.flatMap((u) => u.plates);
   const her = plates.find((p) => p.id === t.act3.speaker) ?? plates[0];
   if (!her) return null;
-  return { ...her, opener: characters.find((c) => c.id === her.id)?.call_opener ?? null };
+  const character = characters.find((c) => c.id === her.id);
+  return { ...her, opener: character?.call_opener ?? null, poster: character?.call_poster_url ?? null };
 }
 
 const spectrumCopy = (spectrum: SpectrumModel) => ({

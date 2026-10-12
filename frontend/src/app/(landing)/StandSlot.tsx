@@ -28,7 +28,7 @@ export function StandSlot({
   outfit: Outfit;
   still: boolean;
   speaking: boolean;
-  /** 先挂上、不画：第 4 幕手机屏幕上的立绘在来电时就加载好，接通了才画。 */
+  /** 先挂上、不画：第 4 幕手机屏幕上的立绘在来电时就加载好，接通了才画，挂断就停。 */
   paused?: boolean;
   /** 取景：光谱里到膝盖，第 4 幕的来电到腰。 */
   framing?: "knees" | "waist";

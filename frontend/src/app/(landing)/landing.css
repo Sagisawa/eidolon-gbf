@@ -1046,7 +1046,8 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
   flex-direction: column;
   align-items: center;
   gap: 22px;
-  width: min(18em, 30vw);
+  /* 右边不出画面：窄的横屏上，立绘右边剩下的地方比 18em 窄。 */
+  width: min(18em, 30vw, 50vw - min(22vw, 30vh) - 56px);
   text-align: center;
   text-shadow: 0 0 14px rgb(0 0 0 / 0.7);
 }
@@ -1080,6 +1081,7 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
   display: flex;
   align-items: center;
   width: calc(var(--lp-sw) * 0.84);
+  max-width: 100%; /* 全屏来电在窄的横屏上，来电界面比 300px 的屏幕窄。 */
   height: max(44px, calc(var(--lp-sw) * 0.19));
   padding: 0;
   border: 0;
@@ -1346,6 +1348,7 @@ html[data-lp-tier="reduced"] .lp-screen-stand {
 }
 /* 来电界面铺满屏幕：顶部是名字和状态（来电时名字是大号的），底部是开场白和滑块、挂断键。 */
 .lp-screen .lp-call-ui {
+  z-index: 0; /* 下面那层压暗（::before）垫在界面后面、立绘前面。 */
   inset: 0;
   width: auto;
   transform: none;
@@ -1355,9 +1358,6 @@ html[data-lp-tier="reduced"] .lp-screen-stand {
   text-shadow: 0 1px 10px rgb(0 0 0 / 0.5);
 }
 /* 接通以后屏幕下半压暗：开场白的字压在立绘的浅色衣服上也看得清。 */
-.lp-screen .lp-call-ui {
-  z-index: 0;
-}
 .lp-screen .lp-call-ui::before {
   content: "";
   position: absolute;
