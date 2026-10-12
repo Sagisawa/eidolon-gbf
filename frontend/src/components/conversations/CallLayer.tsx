@@ -122,7 +122,11 @@ export function LiveCallLayer({
       // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
       onRedial={() => void live.startCall()}
       onDismiss={() => live.dismissEnd()}
-      onOwnKeys={onOwnKeys}
+      // 先看完结束卡再去：不然通话层在设置页上（由外壳画）还展开着结束卡，挡住要去的地方。
+      onOwnKeys={() => {
+        live.dismissEnd();
+        onOwnKeys();
+      }}
     />
   );
 }

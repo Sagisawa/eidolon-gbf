@@ -63,7 +63,7 @@ describe("外壳顶上的通话条", () => {
 describe("去某个网址时通话怎么样", () => {
   it("没在通话时哪里都直接走", () => {
     for (const to of ["/conversations", "/conversation/hiori", "/settings", "/admin", "/about", "/memories"])
-      expect(departure(to, null)).toBe("go");
+      expect(departure(to, null), to).toBe("go");
   });
 
   it("通话中在外壳里换页，通话留着", () => {
@@ -83,6 +83,6 @@ describe("去某个网址时通话怎么样", () => {
 
   it("通话中离开外壳，先问再挂断", () => {
     for (const to of ["/admin", "/about", "/privacy", "/terms", "/memories", "/", "/api/auth/link/google"])
-      expect(departure(to, "mano")).toBe("ask");
+      expect(departure(to, "mano"), to).toBe("ask");
   });
 });
