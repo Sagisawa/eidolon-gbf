@@ -11,7 +11,7 @@ from typing import Annotated
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.types import Receive, Scope, Send
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from eidolon.admission import OwnLLMRequired
 from eidolon.assembly import Backend
@@ -27,7 +27,14 @@ from eidolon.characters import Character, ScriptedLine
 from eidolon.greetings import call_opener_path, call_poster_path, greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
-from eidolon.producer import MAX_FORM_OF_ADDRESS_LENGTH, Gender, ProducerProfile, is_timezone
+from eidolon.producer import (
+    MAX_FORM_OF_ADDRESS_LENGTH,
+    Birthday,
+    Gender,
+    ProducerProfile,
+    is_day_of_the_year,
+    is_timezone,
+)
 from eidolon.account_api import OwnKeysInput, add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.dashboard import add_dashboard_routes
@@ -81,12 +88,24 @@ class CallRequest(BaseModel):
     """The user's own keys, which their browser keeps, for the call to run on."""
 
 
+class BirthdayInput(BaseModel):
+    month: int
+    day: int
+
+    @model_validator(mode="after")
+    def _day_of_the_year(self) -> "BirthdayInput":
+        if not is_day_of_the_year(self.month, self.day):
+            raise ValueError(f"没有 {self.month} 月 {self.day} 日这一天")
+        return self
+
+
 class ProfileInput(BaseModel):
     """The whole producer profile; a field left out or empty returns to its default."""
 
     form_of_address: str | None = None
     gender: Gender | None = None
     timezone: str | None = None
+    birthday: BirthdayInput | None = None
 
     @field_validator("form_of_address")
     @classmethod
@@ -301,7 +320,8 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.put("/api/profile")
     def update_profile(body: ProfileInput, user_id: UserId) -> dict:
-        profile = ProducerProfile(body.form_of_address, body.gender, body.timezone)
+        birthday = body.birthday and Birthday(body.birthday.month, body.birthday.day)
+        profile = ProducerProfile(body.form_of_address, body.gender, body.timezone, birthday)
         store.save_profile(user_id, profile)
         return asdict(profile)
 

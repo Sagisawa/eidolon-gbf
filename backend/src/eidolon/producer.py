@@ -2,11 +2,15 @@
 
 A profile field left unset keeps its default: the character sheet decides how
 the character addresses the producer, the producer is the man of the original
-story, and the time zone is the one the user's device reports (Asia/Shanghai
-when it reports none). The profile only shapes how the character treats the
-user now; the stories she recalls stay as they happened.
+story, the time zone is the one the user's device reports (Asia/Shanghai
+when it reports none), and the character does not know the producer's birthday
+(a month and a day, never a year). On the birthday, counted in the producer's
+own time zone, the character is asked to wish them a happy birthday once. The
+profile only shapes how the character treats the user now; the stories she
+recalls stay as they happened.
 """
 
+import calendar
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import cache
@@ -23,10 +27,38 @@ _WEEKDAYS = "一二三四五六日"
 
 
 @dataclass(frozen=True)
+class Birthday:
+    """The producer's birthday: a month and a day, never a year."""
+
+    month: int
+    day: int
+
+
+def is_day_of_the_year(month: int, day: int) -> bool:
+    """Whether some year has this day; February 29 counts."""
+    return 1 <= month <= 12 and 1 <= day <= calendar.monthrange(2000, month)[1]
+
+
+def is_birthday(birthday: Birthday, today: date) -> bool:
+    """Whether `today`, the producer's local date, is their birthday.
+
+    February 29 falls on February 28 in a year that has no February 29.
+    """
+    if (birthday.month, birthday.day) == (today.month, today.day):
+        return True
+    return (
+        (birthday.month, birthday.day) == (2, 29)
+        and (today.month, today.day) == (2, 28)
+        and not calendar.isleap(today.year)
+    )
+
+
+@dataclass(frozen=True)
 class ProducerProfile:
     form_of_address: str | None = None
     gender: Gender | None = None
     timezone: str | None = None
+    birthday: Birthday | None = None
 
 
 @cache
@@ -72,7 +104,18 @@ def producer_prompt(profile: ProducerProfile, now: datetime, timezone: str) -> s
         )
     else:
         lines.append("制作人是男性，和原作一致。")
+    if profile.birthday:
+        lines.append(
+            f"制作人的生日是{profile.birthday.month}月{profile.birthday.day}日，"
+            "这是制作人自己在档案里填的；记忆里如果有不一样的说法，以这里为准。"
+            "被问起时可以回答，平时不要主动提起。"
+        )
     local = now.astimezone(ZoneInfo(timezone))
+    if profile.birthday and is_birthday(profile.birthday, local.date()):
+        lines.append(
+            "今天是制作人的生日。请在合适的时候用你自己的方式祝福一次："
+            "先回应制作人说的话，不要每句都提。"
+        )
     lines.append(
         f"现在是 {local.year}年{local.month}月{local.day}日"
         f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。"

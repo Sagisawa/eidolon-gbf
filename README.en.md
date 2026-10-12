@@ -89,7 +89,7 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 - 📖 **Story recall**: Once the story corpus is imported, she recalls only the canon episodes **she appears in**, and can answer "what happened that time…?"
 - 🔄 **Kept in step with the game**: One command syncs the fan translations and the Japanese originals on the mirror, so new cards and events can be recalled within a week. Songs, releases and lives are written into her world setting too.
 - 🧠 **Memory shared across characters**: Tell Hiori something and Kogane will know too, but she'll bring it up as "Hiori told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). When things change, a new memory supersedes the old one. Users can see and delete everything she remembers.
-- 🪪 **Producer profile**: How she addresses you, your gender and your time zone can all be changed in settings, shared across devices.
+- 🪪 **Producer profile**: How she addresses you, your gender, time zone and birthday can all be changed in settings, shared across devices; on your birthday she'll wish you a happy one.
 - ⚡ **On-demand retrieval**: The judge first decides whether a line needs any lookup, so small talk adds no latency.
 
 **Deployment and operations**
