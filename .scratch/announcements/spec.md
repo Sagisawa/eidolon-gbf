@@ -1,6 +1,6 @@
 # 公告
 
-Status: ready-for-agent
+Status: resolved
 
 术语以 `GLOSSARY.md` 为准，特别是「公告」「未读公告」「后台」「管理者」「对话列表」「隐藏 / 置顶」。设计在 2026-10-12 的 grilling 中定下。已读状态只存在设备上，延续了隐藏、置顶的做法；其他决定改起来也不难，所以不另写 ADR。
 
