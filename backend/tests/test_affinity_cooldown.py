@@ -60,10 +60,11 @@ def ask_before_calling(client: httpx.AsyncClient, conversation_id: str):
     return client.get("/api/ice-servers", params={"conversation": conversation_id})
 
 
-def refused(res: httpx.Response) -> None:
-    """Refused as in a cooldown begun at 0 as the tests begin."""
+def refused(res: httpx.Response, until: str = UNTIL) -> None:
+    """Refused as in a cooldown that ends `until`, by default one begun at 0 as the tests
+    begin."""
     assert res.status_code == 409, res.text
-    assert res.json()["cooldown_until"] == UNTIL
+    assert res.json()["cooldown_until"] == until
     assert res.json()["detail"]
 
 
@@ -99,11 +100,13 @@ async def test_in_a_cooldown_turns_and_calls_are_refused_counting_towards_nothin
 ):
     clock = FakeClock()
     clients = FakeServiceClients()
-    clients.judge.judgings = [level(1, out_of_line=True)]
-    llm = FakeLLM(REPLY)
+    clients.judge.judgings = [level(1, out_of_line=True), level(0)]
+    llm = FakeLLM(REPLY, REPLY)
     client = make_client(llm, clients=clients, clock=clock)
     conversation = await start_conversation(client)
-    keep(settings.database_path, "producer", 0, clock.now, cooling=True)
+    # Just short of the thaw line: it ends in under 15 minutes, within the hour of the limit.
+    keep(settings.database_path, "producer", 9.9, clock.now, cooling=True)
+    until = (clock.now + timedelta(days=0.01)).isoformat()
 
     async with admin_beside(client, github) as admin:
         turn = await post_turn(client, conversation)
@@ -112,22 +115,24 @@ async def test_in_a_cooldown_turns_and_calls_are_refused_counting_towards_nothin
             call = await browser.call(client, conversation_id=conversation)
         board = await dashboard(admin)
 
-        clock.advance(days=1)
+        clock.advance(minutes=15)
         thawed = (await status(client)).json()
         # Had the refused turn counted, the hour's one turn would be used up.
         again = await send_turn(client, conversation, "你这个废物")
+        clock.advance(hours=1)
+        fell_again = await send_turn(client, conversation, "随便你")
         cooling_again = await post_turn(client, conversation)
 
     for res in (turn, asked, call):
-        refused(res)
+        refused(res, until)
     assert board["turns"]["total"] == 0
     assert board["calls"]["total"] == 0
     assert speech.stts == []
     assert thawed == {"tier": "cold", "cooldown_until": None}
     assert again[-1]["type"] == "done"
-    assert again[-1]["message"]["affinity"]["cooldown"] is True
+    assert fell_again[-1]["message"]["affinity"]["cooldown"] is True
     assert cooling_again.status_code == 409
-    assert len(llm.prompts) == 1
+    assert len(llm.prompts) == 2
 
 
 async def test_a_cooldown_is_told_before_the_own_llm_rule(

@@ -4,8 +4,9 @@ deployer's keys it holds, all in one place.
 
 `Admissions` lets each begin, in order: it refuses one with a character who is in a
 cooldown (`CoolingDown`, GLOSSARY.md「冷却」) before anything else is asked, recording
-nothing; it takes the keys (`OwnKeys`), from those the turn or call brings, whose models record each request as a service call to the model they are,
-opens the activity record, asks whether the user may begin it without their own LLM
+nothing; it takes the keys (`OwnKeys`), from those the turn or call brings, whose
+models record each request as a service call to the model they are, opens the activity
+record, asks whether the user may begin it without their own LLM
 (`own_llm_required`), and only then takes a use of the limit, so that nothing failing
 before it is counted. One refused, for its LLM or over the limit, is recorded rejected;
 whatever else fails on the way after the record is opened is recorded so (`_FAILED`); and

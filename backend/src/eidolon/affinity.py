@@ -119,6 +119,12 @@ class Affinity:
             value = min(NORMAL, value + RECOVERY_PER_DAY * days)
         return Affinity(value, now, self.cooling and value < THAW)
 
+    def stepped(self, step: float) -> "Affinity":
+        """Changed by `step`, held between the lowest and the highest: falling to the lowest
+        begins a cooldown."""
+        value = min(max(self.value + step, LOWEST), HIGHEST)
+        return Affinity(value, self.at, self.cooling or value <= LOWEST)
+
     @property
     def tier(self) -> Tier:
         return tier_of(self.value)
@@ -272,7 +278,7 @@ class Affinities:
         turn begins, so that she may part with the producer as she replies. Another turn
         recorded meanwhile may make it otherwise; so be it."""
         affinity = self._read(user_id, character_id)
-        return not affinity.cooling and affinity.value + judged.step <= LOWEST
+        return affinity.stepped(judged.step).cooling and not affinity.cooling
 
     def change(
         self,
@@ -294,8 +300,8 @@ class Affinities:
             step = judged.step
             if step > 0:
                 step = min(step, max(GAINS_PER_DAY - gained_today, 0.0))
-            value = min(max(before.value + step, LOWEST), HIGHEST)
-            after = Affinity(value, now, before.cooling or value <= LOWEST)
+            after = before.stepped(step)
+            value = after.value
             change = None
             if value != before.value:
                 change = Change(

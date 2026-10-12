@@ -21,3 +21,7 @@
 - [ ] 前端纯模块的 vitest：`out_of_line`、`cooldown` 两种结束卡的内容
 - [ ] 本地构建版上用 Playwright 验收：按 `docs/agents/local-acceptance.md` 拦下 `/api/offer` 造出两种结束卡，核对标题、说明和按钮；回到对话后记录里有分隔线
 - [ ] 人工验收留给用户：挂断前那一句她怎么说，要真打一通电话看
+
+## Comments
+
+- 票 05 留下的：`engine.py` 的收尾指示（`affinity_prompt(..., cools)`）不分文字和通话，现在通话里跌进冷却的回合拿到的是文字版那句。这张票要在通话回合里换成「说完这句你就挂断电话」的说法。

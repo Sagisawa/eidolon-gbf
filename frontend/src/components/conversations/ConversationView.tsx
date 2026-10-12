@@ -207,8 +207,7 @@ export function ConversationView({
   }
 
   const canSend = isOpen && draft.trim() !== "";
-  const until = affinity?.cooldown_until;
-  const composer = until ? (
+  const composer = cooling && affinity?.cooldown_until ? (
     // 冷却中：一行说明代替输入框，没有按钮；草稿留着，到点换回输入框时还在。
     <div
       inert={isCovered}
@@ -216,7 +215,7 @@ export function ConversationView({
       className="flex min-h-14 shrink-0 items-center justify-center gap-2 border-t bg-background px-3 py-2 text-body text-muted-foreground"
     >
       <CooldownIcon aria-hidden className="size-4 shrink-0" />
-      <p>{t.affinity.coolingComposer(character.name, untilText(new Date(until), new Date(), timeZone))}</p>
+      <p>{t.affinity.coolingComposer(character.name, untilText(new Date(affinity.cooldown_until), new Date(), timeZone))}</p>
     </div>
   ) : ownLLMMissing ? (
     // 输入框和电话键换成一句提示和去设置的链接；后端的 403 仍是兜底。
