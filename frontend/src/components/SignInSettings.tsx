@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -27,6 +28,8 @@ export function SignInSettings() {
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
+  // 去绑定是整页跳到后端、离开导航外壳：通话中先问会不会挂断。
+  const { guard } = useDirectory();
 
   useEffect(() => {
     // 绑定完一个身份回到这里：说一声结果。
@@ -111,7 +114,7 @@ export function SignInSettings() {
       {linkable.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {linkable.map((provider) => (
-            <Button key={provider} variant="outline" nativeButton={false} render={<a href={linkUrl(provider)} />}>
+            <Button key={provider} variant="outline" nativeButton={false} render={<a href={linkUrl(provider)} onClick={guard(linkUrl(provider), true)} />}>
               {t.link(PROVIDER_LABELS[provider])}
             </Button>
           ))}

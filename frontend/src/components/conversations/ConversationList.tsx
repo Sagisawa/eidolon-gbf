@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { SignInButton } from "@/components/app/FailureNotice";
@@ -40,8 +39,7 @@ const t = copy.conversationList;
  * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
  */
 export function ConversationList({ selectedId }: { selectedId: string | null }) {
-  const router = useRouter();
-  const { account, characters, latest, preferences, tidy, failure, reload, call, leave } = useDirectory();
+  const { account, characters, latest, preferences, tidy, failure, reload, call, go } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
   const [isFilterOpen, setFilterOpen] = useState(false);
@@ -71,8 +69,8 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
             <MoreIcon />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => leave(() => router.push("/memories"))}>{t.memories}</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => leave(() => router.push("/settings"))}>{t.settings}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => go("/memories")}>{t.memories}</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => go("/settings")}>{t.settings}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </header>
@@ -139,7 +137,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
                       now={now}
                       onSelect={() => {
                         if (c.id === selectedId) return;
-                        leave(() => router.push(`/conversation/${c.id}`));
+                        go(`/conversation/${c.id}`);
                       }}
                       onTogglePin={() => tidy((p) => (row.isPinned ? unpin(p, c.id) : pin(p, c.id)))}
                       onToggleHidden={() => tidy((p) => setShown(p, [c.id], row.isHidden))}

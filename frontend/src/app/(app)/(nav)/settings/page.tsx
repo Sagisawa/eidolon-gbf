@@ -4,9 +4,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
 import { AdminEntry } from "@/components/AdminEntry";
-import { AppLink } from "@/components/app/AppLink";
 import { PageShell } from "@/components/app/PageShell";
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { ShellLink } from "@/components/app/ShellLink";
 import { SubpageHeader } from "@/components/app/SubpageHeader";
 import { CallSettings } from "@/components/CallSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
@@ -26,17 +26,17 @@ const t = copy.settings;
  */
 export default function SettingsPage() {
   return (
-    <PageShell header={<SubpageHeader title={t.title} backHref="/conversations" />}>
+    <PageShell header={<SubpageHeader title={t.title} backHref="/conversations" />} isInShell>
       {/* 读地址参数的部分在预渲染时等到浏览器里才渲染，按 Next 的要求包一层 Suspense。 */}
       <Suspense fallback={null}>
         <SettingsTabs />
       </Suspense>
 
-      {/* 回去看落地页（/about）：已登录也不会被送走，入口是「继续」。不归哪一组，哪个标签下都在最后。 */}
+      {/* 回去看落地页（/about）：已登录也不会被送走，入口是「继续」。不归哪一组，哪个标签下都在最后。通话中先问会不会挂断。 */}
       <div className="py-6">
-        <AppLink href="/about" isStandalone>
+        <ShellLink href="/about" isStandalone>
           {t.about}
-        </AppLink>
+        </ShellLink>
       </div>
     </PageShell>
   );
@@ -82,9 +82,9 @@ const PANELS: Record<SettingsTab, ReactNode> = {
     <>
       <ProducerProfileSettings />
       <SettingsSection title={t.memories.title} description={t.memories.hint}>
-        <AppLink href="/memories" isStandalone className="self-start">
+        <ShellLink href="/memories" isStandalone className="self-start">
           {t.memories.manage}
-        </AppLink>
+        </ShellLink>
       </SettingsSection>
     </>
   ),

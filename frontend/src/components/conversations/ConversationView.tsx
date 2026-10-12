@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
 
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
@@ -27,14 +26,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
-import { createConversation, listConversations, listMessages, sendTurn, type Account, type Character } from "@/lib/api";
-import { startCall } from "@/lib/call";
-import { loadCallPreferences, saveCallPreferences } from "@/lib/callPreferences";
-import { CharacterVoice } from "@/lib/characterVoice";
+import type { Account, Character } from "@/lib/api";
 import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
-import { isLive, LiveConversation, NOT_OPEN } from "@/lib/liveConversation";
+import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsTab";
 import { cn } from "@/lib/utils";
@@ -43,11 +39,9 @@ import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { CallBar } from "./CallBar";
-import { CallLayer } from "./CallLayer";
-import { MicSheet } from "./MicSheet";
+import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
-import { useCallTones } from "./useCallTones";
 import { useFocusBack } from "./useFocusBack";
 import { useStandOutfits } from "./useStandOutfits";
 
@@ -62,7 +56,8 @@ const noSubscription = () => () => {};
  * 整个子树注入她的颜色（herVars），浮层（更多菜单）的 container 指回这棵子树。
  *
  * 页首的电话键打开通话层并开始呼叫（spec「通话层」）；通话层可以收起回到这里，页首下面出现通话条，
- * 电话键变成实心的「回到通话」。离开这一页（换角色、进设置或记忆、回列表）先经导航外壳的对话目录确认，然后挂断。
+ * 电话键变成实心的「回到通话」。对话的实时状态（连同通话）由导航外壳持有（ADR-0018）：这一页打开时向外壳要她那一份，
+ * 离开时交回；通话中离开这一页，通话留在外壳里，回来时一切照旧。她的声音、电话本身的声音和切换麦克风的面板也在外壳里。
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  */
 export function ConversationView({
@@ -76,52 +71,32 @@ export function ConversationView({
   onBack?: () => void;
 }) {
   const userId = account.id;
-  const router = useRouter();
   // 必须自带 LLM、这个浏览器里又没存：输入框和电话键换成提示和去设置的链接。存了（这个或别的标签页）当场恢复。
   const ownLLMMissing = useSyncExternalStore(
     subscribeOwnKeys,
     () => needsOwnLLM(account, localOwnKeys(userId)),
     () => false,
   );
-  const { refresh, handOver, leave } = useDirectory();
+  const { open, close, go } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
   const snapshot = useSyncExternalStore(live?.subscribe ?? noSubscription, live?.snapshot ?? notOpen, notOpen);
-  const { conversation, entries, call, layer, hearing, draft, textOnly, failure } = snapshot;
-  // 她的声音：<audio> 交给它，什么时候拨号、播放、静音由 LiveConversation 告诉它。
-  const [voice] = useState(() => new CharacterVoice());
+  const { conversation, entries, call, layer, hearing, draft, failure } = snapshot;
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
-  // 电话本身的声音（铃声、接通音、挂断音）：像她的声音一样交给 LiveConversation。
-  const tones = useCallTones();
 
-  // 打开她的对话（最新的一个，从没聊过就开一个新的）；离开这一页就和它告别（挂断通话，停下她的声音）。
+  // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
+  // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
   useEffect(() => {
-    const conversation = new LiveConversation(character.id, {
-      listConversations,
-      createConversation,
-      listMessages,
-      onListChanged: refresh,
-      startCall: (conversationId, preferences, handlers) => startCall(conversationId, preferences, handlers, userId),
-      sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
-      preferences: { load: loadCallPreferences, save: saveCallPreferences },
-      voice,
-      tones,
-    });
-    // 交给列表一次：它自己订阅这份快照，那一行跟着通话走；离开这一页时收回。
+    const conversation = open(character.id, userId);
     setLive(conversation);
-    handOver(conversation);
-    return () => {
-      conversation.dispose();
-      handOver(null);
-    };
-  }, [character.id, userId, refresh, voice, tones, handOver]);
+    return () => close(conversation);
+  }, [character.id, userId, open, close]);
 
   const isOpen = conversation.status === "open";
   const inCall = isLive(call);
-  const back = onBack && (() => leave(onBack));
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
 
@@ -166,8 +141,8 @@ export function ConversationView({
 
   const header = (
     <header inert={isCovered} className="flex h-14 shrink-0 items-center gap-1 px-2">
-      {back && (
-        <Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.back} onClick={back}>
+      {onBack && (
+        <Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.back} onClick={onBack}>
           <BackIcon className="size-6" />
         </Button>
       )}
@@ -201,8 +176,8 @@ export function ConversationView({
             {conversation.failure.signedOut ? (
               <SignInButton />
             ) : (
-              back && (
-                <Button variant="outline" onClick={back}>
+              onBack && (
+                <Button variant="outline" onClick={onBack}>
                   {t.backToList}
                 </Button>
               )
@@ -277,40 +252,16 @@ export function ConversationView({
         )}
       </div>
       {composer}
-      {/* 静音由 voice 管：只看文字，或者她的声音改走电话质感时，这里只是持有音轨 */}
-      <audio ref={voice.attach} autoPlay />
-      {layer && (
-        <CallLayer
+      {live && (
+        <LiveCallLayer
+          live={live}
           character={character}
-          call={layer.call}
-          isCollapsed={layer.collapsed}
+          standOutfits={outfits?.toTry ?? []}
           layerRef={focus.layer}
           isFullScreen={isFullScreen}
-          isReducedMotion={isReducedMotion}
-          micMuted={snapshot.micMuted}
-          micNotice={snapshot.micNotice}
-          textOnly={textOnly}
-          line={snapshot.line}
-          previousLine={snapshot.previousLine}
-          hearing={hearing}
-          standDirection={snapshot.stand}
-          standOutfits={outfits?.toTry ?? []}
-          onCollapse={() => live?.collapse()}
-          onHangUp={() => void live?.hangUp()}
-          onToggleMic={() => live?.toggleMic()}
-          onSwitchMic={() => live?.openMicPicker()}
-          onToggleTextOnly={() => live?.toggleTextOnly()}
-          onRedial={dial}
-          onDismiss={() => live?.dismissEnd()}
-          onOwnKeys={() => leave(() => router.push(settingsHref("own-keys")))}
+          onOwnKeys={() => go(settingsHref("own-keys"))}
         />
       )}
-      <MicSheet
-        isOpen={snapshot.pickingMic}
-        onOpenChange={(open) => (open ? live?.openMicPicker() : live?.closeMicPicker())}
-        micId={snapshot.micId}
-        onSelect={(micId) => void live?.switchMic(micId)}
-      />
       {outfits && (
         <OutfitPicker
           isOpen={pickingOutfit}

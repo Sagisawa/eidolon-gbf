@@ -31,7 +31,7 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
   const list = <ConversationList selectedId={wide ? (characterId ?? null) : null} />;
 
   return (
-    <PageShell width="full" isScrollable={false}>
+    <PageShell width="full" isScrollable={false} isInShell>
       {hydrated ? (
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           {wide && (

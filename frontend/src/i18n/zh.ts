@@ -116,10 +116,10 @@ export const zh = {
       preview: (card: string) => `预览${card}`,
     },
   },
-  /** 通话层、收起后的通话条、列表里的通话状态（spec「通话层」「通话状态」）。 */
+  /** 通话层、收起后的通话条、列表里的通话状态（spec「通话层」「通话状态」）；换一位角色、离开导航外壳前的确认框。 */
   call: {
     leaveTitle: (name: string) => `会挂断和${name}的通话`,
-    leaveDescription: "离开这个对话，正在进行的通话就会挂断。",
+    leaveDescription: "离开这里，正在进行的通话就会挂断。",
     leaveConfirm: "挂断并离开",
     stay: "留在这里",
     layer: (name: string) => `和${name}的通话`,

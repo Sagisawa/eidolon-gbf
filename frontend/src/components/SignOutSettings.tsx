@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,7 @@ export function SignOutSettings() {
   const [account, setAccount] = useState<Account | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const { hangUp } = useDirectory();
 
   useEffect(() => {
     getAccount().then(setAccount, (e) => setFailure(toFailure(e)));
@@ -38,6 +40,8 @@ export function SignOutSettings() {
     setFailure(null);
     setConfirming(false);
     try {
+      // 通话中退出登录不另问：退出登录自己的确认（退出所有设备）就够了，退出前先挂断（GLOSSARY.md「通话」）。
+      await hangUp();
       await (everywhere ? logoutEverywhere(account?.id) : logout(account?.id));
       window.location.assign("/");
     } catch (e) {

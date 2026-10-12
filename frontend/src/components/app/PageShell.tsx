@@ -11,17 +11,26 @@ type PageShellProps = {
   width?: "column" | "full";
   /** 内容区自己滚动（默认）；内容自带滚动时（例如对话页）关掉。 */
   isScrollable?: boolean;
+  /** 在导航外壳里：占满外壳给它的那一块（顶上可能有一条通话条），而不是整个视口。 */
+  isInShell?: boolean;
   children: ReactNode;
 };
 
 /**
- * 全站共用的页面外壳：占满视口的中性底（DESIGN.md「The Producer's Phone」），上面是页首、内容、页脚。
+ * 全站共用的页面外壳：占满视口（在导航外壳里是外壳给它的那一块）的中性底（DESIGN.md「The Producer's Phone」），上面是页首、内容、页脚。
  * 任何新页面都从这里起步，不自己铺底色。
  */
-export function PageShell({ header, footer, width = "column", isScrollable = true, children }: PageShellProps) {
+export function PageShell({
+  header,
+  footer,
+  width = "column",
+  isScrollable = true,
+  isInShell = false,
+  children,
+}: PageShellProps) {
   const column = width === "column" && "mx-auto w-full max-w-160 px-4";
   return (
-    <div className="flex h-dvh flex-col bg-background text-foreground">
+    <div className={cn("flex flex-col bg-background text-foreground", isInShell ? "h-full" : "h-dvh")}>
       {header !== undefined && (
         <header className="shrink-0 border-b">
           <div className={cn("flex min-h-14 items-center", column || "px-4")}>{header}</div>

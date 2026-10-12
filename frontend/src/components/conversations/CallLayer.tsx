@@ -1,15 +1,24 @@
 "use client";
 
-import { useEffect, useRef, type ComponentType, type ReactNode, type RefObject, type SVGProps } from "react";
+import {
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  type ComponentType,
+  type ReactNode,
+  type RefObject,
+  type SVGProps,
+} from "react";
 
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import type { Character, Outfit, Segment } from "@/lib/api";
 import type { CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
-import type { MicNotice, ShownCall } from "@/lib/liveConversation";
+import { NOT_OPEN, type LiveConversation, type MicNotice, type ShownCall } from "@/lib/liveConversation";
 import type { StandDirection } from "@/lib/standAnimations";
 import { cn } from "@/lib/utils";
 import {
@@ -31,11 +40,11 @@ const t = copy.call;
 type Props = {
   character: Character;
   call: ShownCall;
-  /** 收起：回到 IM，通话照常继续。收起时整层 inert，焦点由对话页送回页上。 */
+  /** 收起：回到 IM（或者通话层展开前所在的那一页），通话照常继续。收起时整层 inert，焦点由画它的那一页送回页上。 */
   isCollapsed: boolean;
-  /** 通话层这一整层；对话页用它看焦点在不在层里。 */
+  /** 通话层这一整层；画它的那一页用它看焦点在不在层里。 */
   layerRef: RefObject<HTMLElement | null>;
-  /** 手机上占满整屏；电脑上只盖右边的对话栏。 */
+  /** 手机上占满整屏；电脑上只盖住画它的那一块（她的对话页上是对话栏，别的外壳页面上是当前页）。 */
   isFullScreen: boolean;
   isReducedMotion: boolean;
   micMuted: boolean;
@@ -64,8 +73,62 @@ type Props = {
   onOwnKeys: () => void;
 };
 
+const notOpen = () => NOT_OPEN;
+
 /**
- * 通话层（DESIGN.md「Call layer」）：从对话栏底部整张滑上来，收起是同一个动作反过来（410ms、ease-call），
+ * 画外壳持有的那段对话的通话层：她的对话页上画在对话栏里，别的外壳页面上由外壳画在当前页（ADR-0018）。
+ * 收没收起、画哪一通都在 `live` 的快照里，两处画出来是同一个通话层；还没打过电话时什么都不画。
+ */
+export function LiveCallLayer({
+  live,
+  character,
+  standOutfits,
+  layerRef,
+  isFullScreen,
+  onOwnKeys,
+}: {
+  live: LiveConversation;
+  character: Character;
+  standOutfits: readonly Outfit[];
+  layerRef: RefObject<HTMLElement | null>;
+  isFullScreen: boolean;
+  onOwnKeys: () => void;
+}) {
+  const snapshot = useSyncExternalStore(live.subscribe, live.snapshot, notOpen);
+  const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
+  const { layer } = snapshot;
+  if (!layer) return null;
+  return (
+    <CallLayer
+      character={character}
+      call={layer.call}
+      isCollapsed={layer.collapsed}
+      layerRef={layerRef}
+      isFullScreen={isFullScreen}
+      isReducedMotion={isReducedMotion}
+      micMuted={snapshot.micMuted}
+      micNotice={snapshot.micNotice}
+      textOnly={snapshot.textOnly}
+      line={snapshot.line}
+      previousLine={snapshot.previousLine}
+      hearing={snapshot.hearing}
+      standDirection={snapshot.stand}
+      standOutfits={standOutfits}
+      onCollapse={() => live.collapse()}
+      onHangUp={() => void live.hangUp()}
+      onToggleMic={() => live.toggleMic()}
+      onSwitchMic={() => live.openMicPicker()}
+      onToggleTextOnly={() => live.toggleTextOnly()}
+      // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
+      onRedial={() => void live.startCall()}
+      onDismiss={() => live.dismissEnd()}
+      onOwnKeys={onOwnKeys}
+    />
+  );
+}
+
+/**
+ * 通话层（DESIGN.md「Call layer」）：从它盖住的那一块（对话栏，或者别的外壳页面）底部整张滑上来，收起是同一个动作反过来（410ms、ease-call），
  * 减少动态效果时没有过渡。强制深色（`.dark`），文字白色、次要字 80% 白。
  *
  * 底是她的头像放大模糊（有背景图时换成清晰的背景图），上面压一层到 call.deep 的渐变。
