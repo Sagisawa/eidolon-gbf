@@ -51,6 +51,8 @@ html.lenis body {
   color: var(--lp-ink);
   font-family: var(--lp-zh);
   -webkit-font-smoothing: antialiased;
+  /* 换行时末行不只剩一两个字。标题和正文这类短句再进一步，几行排得一样长（见「各幕共用的标题和正文」）。 */
+  text-wrap: pretty;
 }
 @media (max-width: 639px) {
   .lp-root {
@@ -824,6 +826,15 @@ html:not([data-lp-layout="motion"]) .lp-stand[data-side="before"] {
   font-size: 15px;
   line-height: 2.1;
   color: rgb(238 236 242 / 0.68);
+}
+/* 这些都是一两行的短句：折行时几行排得一样长，不留下「幕。」「记得。」这样单独一行的尾巴。 */
+.lp-lede,
+.lp-act1-title,
+.lp-act1-body,
+.lp-act-title,
+.lp-act-body,
+.lp-act6-line {
+  text-wrap: balance;
 }
 
 /* —— 第 3 幕「她说日语」、第 4 幕「来电」（Voice.tsx、Call.tsx），钉在同一个舞台上。她的颜色（--her-ink、
