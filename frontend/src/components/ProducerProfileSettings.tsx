@@ -13,14 +13,23 @@ import {
   ComboboxList,
   ComboboxSelectTrigger,
 } from "@/components/ui/combobox";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import { getProfile, saveProfile, type Gender } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { clampFormOfAddress, fromDraft, sameDraft, toDraft, type Draft } from "@/lib/producerProfile";
+import {
+  chooseBirthMonth,
+  clampFormOfAddress,
+  daysInMonth,
+  fromDraft,
+  missingBirthDay,
+  sameDraft,
+  toDraft,
+  type Draft,
+} from "@/lib/producerProfile";
 import { detectTimezone, listTimezones } from "@/lib/timezone";
 
 const t = copy.settings.profile;
@@ -34,6 +43,8 @@ export function ProducerProfileSettings() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [saving, setSaving] = useState(false);
+  // 点过保存、被半个生日挡下之后才提示补日期；补上或清掉月份，提示随之消失。
+  const [triedToSave, setTriedToSave] = useState(false);
   const [detected, setDetected] = useState("");
   const [timezones, setTimezones] = useState<string[]>([]);
   const id = useId();
@@ -75,6 +86,11 @@ export function ProducerProfileSettings() {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!draft) return;
+    if (missingBirthDay(draft)) {
+      setTriedToSave(true);
+      return;
+    }
+    setTriedToSave(false);
     setSaving(true);
     setFailure(null);
     try {
@@ -102,6 +118,18 @@ export function ProducerProfileSettings() {
 
   const update = (change: Partial<Draft>) => setDraft({ ...draft, ...change });
   const dirty = !sameDraft(draft, saved);
+  const showDayMissing = triedToSave && missingBirthDay(draft);
+  const monthOptions = [
+    { value: DEFAULT, label: t.birthdayUnset },
+    ...range(12).map((month) => ({ value: String(month), label: t.monthOption(String(month)) })),
+  ];
+  const dayOptions = [
+    { value: DEFAULT, label: t.birthdayUnset },
+    ...(draft.birthMonth === null ? [] : range(daysInMonth(draft.birthMonth))).map((day) => ({
+      value: String(day),
+      label: t.dayOption(String(day)),
+    })),
+  ];
   const genderOptions = [
     { value: DEFAULT, label: t.genderDefault },
     { value: "male", label: t.male },
@@ -168,6 +196,54 @@ export function ProducerProfileSettings() {
             <FieldDescription>{t.timezoneHint}</FieldDescription>
           </Field>
 
+          <Field aria-labelledby={`${id}-birthday`} data-invalid={showDayMissing || undefined}>
+            <FieldLabel id={`${id}-birthday`} htmlFor={`${id}-birth-month`}>
+              {t.birthday}
+            </FieldLabel>
+            <div className="grid grid-cols-2 gap-3">
+              <Select
+                items={monthOptions}
+                value={draft.birthMonth === null ? DEFAULT : String(draft.birthMonth)}
+                onValueChange={(value) => setDraft(chooseBirthMonth(draft, toNumber(value)))}
+              >
+                <SelectTrigger id={`${id}-birth-month`} aria-label={t.birthMonth} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {monthOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                items={dayOptions}
+                value={draft.birthDay === null ? DEFAULT : String(draft.birthDay)}
+                onValueChange={(value) => update({ birthDay: toNumber(value) })}
+                disabled={draft.birthMonth === null}
+              >
+                <SelectTrigger
+                  aria-label={t.birthDay}
+                  aria-invalid={showDayMissing || undefined}
+                  aria-describedby={showDayMissing ? `${id}-birthday-error` : undefined}
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {dayOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <FieldDescription>{t.birthdayHint}</FieldDescription>
+            {showDayMissing && <FieldError id={`${id}-birthday-error`}>{t.birthDayMissing}</FieldError>}
+          </Field>
+
           {failure && <FailureNotice failure={failure} />}
 
           <div className="flex flex-wrap items-center gap-3">
@@ -187,4 +263,14 @@ export function ProducerProfileSettings() {
 
 function asOption(zone: string) {
   return { value: zone, label: zone };
+}
+
+/** 1 到 n。 */
+function range(n: number): number[] {
+  return Array.from({ length: n }, (_, i) => i + 1);
+}
+
+/** 生日选择框的值换回草稿里的数字，「不填」是 null。 */
+function toNumber(value: string | null): number | null {
+  return value === DEFAULT || !value ? null : Number(value);
 }

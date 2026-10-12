@@ -118,7 +118,11 @@ export type ProducerProfile = {
   form_of_address: string | null;
   gender: Gender | null;
   timezone: string | null;
+  birthday: Birthday | null;
 };
+
+/** The producer's birthday: month and day only, no year. */
+export type Birthday = { month: number; day: number };
 
 /** Something a character remembers about the user, with the character it was told to;
  * the name is null for a character no longer configured. */
