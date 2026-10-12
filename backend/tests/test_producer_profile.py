@@ -277,3 +277,83 @@ async def test_a_profile_saved_before_birthdays_keeps_working(
     res = await upgraded.put("/api/profile", json={**old, "birthday": {"month": 5, "day": 3}})
     assert res.status_code == 200
     assert (await upgraded.get("/api/profile")).json()["birthday"] == {"month": 5, "day": 3}
+
+
+ON_THE_DAY = "今天是制作人的生日"
+
+
+@pytest.mark.parametrize(
+    ("birthday", "on_the_day"),
+    [
+        ({"month": 9, "day": 25}, True),
+        ({"month": 9, "day": 24}, False),
+        ({"month": 9, "day": 26}, False),
+    ],
+    ids=["the-day", "the-day-after", "the-day-before"],
+)
+async def test_on_the_birthday_the_character_is_asked_to_wish_once(
+    make_client: ClientFactory, birthday: dict, on_the_day: bool
+):
+    llm = FakeLLM(REPLY)
+    client = make_client(llm, clock=clock)  # 2026-09-25 in Shanghai
+    await client.put("/api/profile", json={"birthday": birthday})
+
+    prompt = await system_prompt(client, llm)
+
+    assert (ON_THE_DAY in prompt) is on_the_day
+    if on_the_day:
+        assert "祝福一次" in prompt
+        assert "不要每句都提" in prompt
+
+
+TOKYO_MIDNIGHT = datetime(2026, 5, 2, 15, 30, tzinfo=UTC)  # 05-03 00:30 in Tokyo
+
+
+@pytest.mark.parametrize(
+    ("device_timezone", "profile_timezone", "on_the_day"),
+    [
+        ("Asia/Tokyo", None, True),
+        (None, None, False),  # still 05-02 23:30 in Shanghai
+        ("Asia/Tokyo", "America/Los_Angeles", False),  # still 05-02 08:30
+    ],
+    ids=["device-in-tokyo", "no-timezone", "profile-overrides-device"],
+)
+async def test_the_birthday_begins_at_midnight_where_the_producer_is(
+    make_client: ClientFactory,
+    device_timezone: str | None,
+    profile_timezone: str | None,
+    on_the_day: bool,
+):
+    llm = FakeLLM(REPLY)
+    client = make_client(llm, clock=lambda: TOKYO_MIDNIGHT)
+    if device_timezone:
+        client.headers["X-Timezone"] = device_timezone
+    await client.put(
+        "/api/profile",
+        json={"timezone": profile_timezone, "birthday": {"month": 5, "day": 3}},
+    )
+
+    prompt = await system_prompt(client, llm)
+
+    assert (ON_THE_DAY in prompt) is on_the_day
+
+
+@pytest.mark.parametrize(
+    ("today", "on_the_day"),
+    [
+        (datetime(2027, 2, 28, 4, tzinfo=UTC), True),
+        (datetime(2028, 2, 28, 4, tzinfo=UTC), False),
+        (datetime(2028, 2, 29, 4, tzinfo=UTC), True),
+    ],
+    ids=["common-year-feb-28", "leap-year-feb-28", "leap-year-feb-29"],
+)
+async def test_a_february_29_birthday_falls_on_february_28_in_common_years(
+    make_client: ClientFactory, today: datetime, on_the_day: bool
+):
+    llm = FakeLLM(REPLY)
+    client = make_client(llm, clock=lambda: today)
+    await client.put("/api/profile", json={"birthday": {"month": 2, "day": 29}})
+
+    prompt = await system_prompt(client, llm)
+
+    assert (ON_THE_DAY in prompt) is on_the_day
