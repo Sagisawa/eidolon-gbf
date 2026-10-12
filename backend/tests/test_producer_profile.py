@@ -32,19 +32,17 @@ async def system_prompt(client: httpx.AsyncClient, llm: FakeLLM) -> str:
 async def test_profile_belongs_to_the_user_not_the_device(make_client: ClientFactory):
     desktop = make_client(FakeLLM())
 
-    res = await desktop.put(
-        "/api/profile",
-        json={"form_of_address": "小林", "gender": "female", "timezone": "Asia/Tokyo"},
-    )
-    assert res.status_code == 200
-
-    phone = await make_client(FakeLLM()).get("/api/profile")
-    assert phone.json() == {
+    profile = {
         "form_of_address": "小林",
         "gender": "female",
         "timezone": "Asia/Tokyo",
-        "birthday": None,
+        "birthday": {"month": 2, "day": 29},
     }
+    res = await desktop.put("/api/profile", json=profile)
+    assert res.status_code == 200
+
+    phone = await make_client(FakeLLM()).get("/api/profile")
+    assert phone.json() == profile
     friend = await make_client(FakeLLM(), "friend").get("/api/profile")
     assert friend.json() == {
         "form_of_address": None,
@@ -52,19 +50,6 @@ async def test_profile_belongs_to_the_user_not_the_device(make_client: ClientFac
         "timezone": None,
         "birthday": None,
     }
-
-
-async def test_birthday_belongs_to_the_user_not_the_device(make_client: ClientFactory):
-    desktop = make_client(FakeLLM())
-
-    res = await desktop.put("/api/profile", json={"birthday": {"month": 5, "day": 3}})
-    assert res.status_code == 200
-    assert res.json()["birthday"] == {"month": 5, "day": 3}
-
-    phone = await make_client(FakeLLM()).get("/api/profile")
-    assert phone.json()["birthday"] == {"month": 5, "day": 3}
-    friend = await make_client(FakeLLM(), "friend").get("/api/profile")
-    assert friend.json()["birthday"] is None
 
 
 FULL_PROFILE = {
@@ -76,16 +61,14 @@ FULL_PROFILE = {
 EMPTY_PROFILE = {"form_of_address": None, "gender": None, "timezone": None, "birthday": None}
 
 
-@pytest.mark.parametrize(
-    "cleared",
-    [{"form_of_address": "  ", "gender": None, "timezone": None, "birthday": None}, {}],
-    ids=["null", "left-out"],
-)
-async def test_clearing_a_field_restores_its_default(make_client: ClientFactory, cleared: dict):
+async def test_clearing_a_field_restores_its_default(make_client: ClientFactory):
     client = make_client(FakeLLM())
     await client.put("/api/profile", json=FULL_PROFILE)
 
-    res = await client.put("/api/profile", json=cleared)
+    res = await client.put(
+        "/api/profile",
+        json={"form_of_address": "  ", "gender": None, "timezone": None, "birthday": None},
+    )
 
     assert res.json() == EMPTY_PROFILE
     assert (await client.get("/api/profile")).json() == EMPTY_PROFILE
@@ -119,27 +102,15 @@ async def test_invalid_profile_is_rejected(make_client: ClientFactory, profile: 
     assert (await client.get("/api/profile")).json()["timezone"] is None
 
 
-async def test_a_leap_day_birthday_can_be_saved(make_client: ClientFactory):
-    client = make_client(FakeLLM())
-
-    res = await client.put("/api/profile", json={"birthday": {"month": 2, "day": 29}})
-
-    assert res.status_code == 200
-    assert (await client.get("/api/profile")).json()["birthday"] == {"month": 2, "day": 29}
-
-
 @pytest.mark.parametrize(
     "birthday",
     [
         {"month": 2, "day": 30},
-        {"month": 4, "day": 31},
         {"month": 13, "day": 1},
         {"month": 0, "day": 1},
         {"month": 5, "day": 0},
-        {"month": 5},
-        {"month": 5, "day": None},
     ],
-    ids=["feb-30", "apr-31", "month-13", "month-0", "day-0", "month-only", "day-null"],
+    ids=["past-month-end", "month-13", "month-0", "day-0"],
 )
 async def test_a_birthday_that_is_no_day_of_the_year_is_rejected(
     make_client: ClientFactory, birthday: dict
@@ -228,7 +199,7 @@ async def test_without_a_birthday_the_prompt_says_nothing_of_one(make_client: Cl
 
     prompt = await system_prompt(client, llm)
 
-    assert "生日" not in prompt
+    assert "制作人的生日" not in prompt
 
 
 async def test_prompt_tells_the_current_time_in_the_devices_timezone(

@@ -183,25 +183,28 @@ class Store:
             self._migrate()
 
     def _migrate(self) -> None:
-        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(users)")}
+        columns = self._columns("users")
         if "name" not in columns:
             # Before access keys, users had no name; the one default user keeps its id as name.
             self._db.execute("ALTER TABLE users ADD COLUMN name TEXT")
             self._db.execute("UPDATE users SET name = id")
-        for column in ("consented_at", "banned_at", "ban_note"):
-            if column not in columns:
-                self._db.execute(f"ALTER TABLE users ADD COLUMN {column} TEXT")
-        profile_columns = {
-            row["name"] for row in self._db.execute("PRAGMA table_info(producer_profiles)")
-        }
-        for column in ("birthday_month", "birthday_day"):
-            if column not in profile_columns:
-                self._db.execute(f"ALTER TABLE producer_profiles ADD COLUMN {column} INTEGER")
+        self._add_missing_columns("users", ("consented_at", "banned_at", "ban_note"), "TEXT")
+        self._add_missing_columns("producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
         # Users' own keys stay in their browsers (ADR-0017); those kept here, encrypted, go.
         self._db.execute("DROP TABLE IF EXISTS own_keys")
+
+    def _columns(self, table: str) -> set[str]:
+        return {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})")}
+
+    def _add_missing_columns(self, table: str, columns: tuple[str, ...], kind: str) -> None:
+        """Add the columns a table made by an older version lacks; existing rows get NULL."""
+        present = self._columns(table)
+        for column in columns:
+            if column not in present:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
     def create_user(self, name: str) -> User:
         user = User(uuid.uuid4().hex, name, _now())
