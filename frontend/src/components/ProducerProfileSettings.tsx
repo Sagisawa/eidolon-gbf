@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useId, useMemo, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { useSettingsValues } from "@/components/settings/SettingsValues";
 import { Button } from "@/components/ui/button";
 import {
   Combobox,
@@ -18,7 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { getProfile, saveProfile, type Gender } from "@/lib/api";
+import { saveProfile, type Gender } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   chooseBirthMonth,
@@ -37,11 +38,14 @@ const t = copy.settings.profile;
 /** 「沿用默认」在选择框里用这个值代表（选择框的值不用空字符串），草稿里仍是空白。 */
 const DEFAULT = "default";
 
-/** 制作人档案：存在后端、跟着用户走，所有设备共用。 */
+/** 制作人档案：存在后端、跟着用户走，所有设备共用。档案和没保存的草稿挂在设置的 layout 上（SettingsValues），
+ * 切到别的类别再回来草稿还在。 */
 export function ProducerProfileSettings() {
-  const [saved, setSaved] = useState<Draft | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const { profile, profileFailure, retryProfile, editProfile, profileSaved } = useSettingsValues();
+  const saved = profile?.saved ?? null;
+  const draft = profile?.draft ?? null;
+  const [saveFailure, setSaveFailure] = useState<Failure | null>(null);
+  const failure = saveFailure ?? profileFailure;
   const [saving, setSaving] = useState(false);
   // 点过保存、被半个生日挡下之后才提示补日期；之后再动月或日，提示收起，等下次保存再判断。
   const [triedToSave, setTriedToSave] = useState(false);
@@ -54,19 +58,9 @@ export function ProducerProfileSettings() {
     setTimezones(listTimezones());
   }, []);
 
+  // 上次没读到档案（切到别的类别再回来）：打开档案页时再读一次，只在打开时。
   useEffect(() => {
-    let current = true;
-    getProfile().then(
-      (profile) => {
-        if (!current) return;
-        setSaved(toDraft(profile));
-        setDraft(toDraft(profile));
-      },
-      (e) => current && setFailure(toFailure(e)),
-    );
-    return () => {
-      current = false;
-    };
+    if (profileFailure) retryProfile();
   }, []);
 
   // 别的设备上存的时区，这个浏览器可能不认识；照样放进选项里。
@@ -92,13 +86,11 @@ export function ProducerProfileSettings() {
     }
     setTriedToSave(false);
     setSaving(true);
-    setFailure(null);
+    setSaveFailure(null);
     try {
-      const profile = await saveProfile(fromDraft(draft));
-      setSaved(toDraft(profile));
-      setDraft(toDraft(profile));
+      profileSaved(toDraft(await saveProfile(fromDraft(draft))));
     } catch (e) {
-      setFailure(toFailure(e));
+      setSaveFailure(toFailure(e));
     } finally {
       setSaving(false);
     }
@@ -106,7 +98,7 @@ export function ProducerProfileSettings() {
 
   if (!draft || !saved) {
     return (
-      <SettingsSection title={t.title}>
+      <SettingsSection>
         {failure ? (
           <FailureNotice failure={failure} />
         ) : (
@@ -116,7 +108,7 @@ export function ProducerProfileSettings() {
     );
   }
 
-  const update = (change: Partial<Draft>) => setDraft({ ...draft, ...change });
+  const update = (change: Partial<Draft>) => editProfile({ ...draft, ...change });
   const dirty = !sameDraft(draft, saved);
   const showDayMissing = triedToSave && missingBirthDay(draft);
   const monthOptions = [
@@ -137,7 +129,7 @@ export function ProducerProfileSettings() {
   ];
 
   return (
-    <SettingsSection title={t.title}>
+    <SettingsSection>
       <form onSubmit={submit}>
         <FieldGroup>
           <Field>
@@ -205,7 +197,7 @@ export function ProducerProfileSettings() {
                 items={monthOptions}
                 value={draft.birthMonth === null ? DEFAULT : String(draft.birthMonth)}
                 onValueChange={(value) => {
-                  setDraft(chooseBirthMonth(draft, fromBirthdayOption(value)));
+                  editProfile(chooseBirthMonth(draft, fromBirthdayOption(value)));
                   setTriedToSave(false);
                 }}
               >

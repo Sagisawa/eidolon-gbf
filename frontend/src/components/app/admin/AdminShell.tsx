@@ -91,7 +91,7 @@ export function AdminShell({ name, trail: fixedTrail, children }: Props) {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton render={<NextLink href="/settings" />}>
+              <SidebarMenuButton render={<NextLink href="/settings/sign-in" />}>
                 <BackIcon />
                 <span>{t.backToSettings}</span>
               </SidebarMenuButton>

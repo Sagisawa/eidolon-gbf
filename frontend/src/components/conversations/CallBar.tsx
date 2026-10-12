@@ -11,12 +11,24 @@ import { ForwardIcon } from "@/theme/icons";
 import { useCallTime } from "./useCallTime";
 
 /**
- * 通话层收起后，对话页首下面的通话条（DESIGN.md「Call layer」的「收起后：通话条」，取代上一版的便利贴）：
- * 40px 高、铺满对话栏宽，底是她的 `--her-call-deep`、白字；左边一个白色小圆点（呼叫中闪烁），
+ * 通话层收起后的通话条（DESIGN.md「Call layer」的「收起后：通话条」，取代上一版的便利贴）：
+ * 40px 高、铺满所在那一块的宽，底是她的 `--her-call-deep`、白字；左边一个白色小圆点（呼叫中闪烁），
  * 接着「通话中 mm:ss」或「正在呼叫…」，右端「回到通话 ›」。整条是一个按钮，点了展开通话层；
  * 收起后焦点落在这里（useFocusBack），回车或空格再展开。
+ * 两处用它：她的对话页首下面（不带名字），别的外壳页面最顶上（带 `name`，ADR-0018），她的颜色由用的那一处注入。
  */
-export function CallBar({ call, onExpand, ref }: { call: LiveCall; onExpand: () => void; ref?: Ref<HTMLButtonElement> }) {
+export function CallBar({
+  call,
+  name,
+  onExpand,
+  ref,
+}: {
+  call: LiveCall;
+  /** 在和谁通话：不在她的对话页上时写在状态前面。 */
+  name?: string;
+  onExpand: () => void;
+  ref?: Ref<HTMLButtonElement>;
+}) {
   const time = useCallTime(call);
   return (
     <button
@@ -29,8 +41,9 @@ export function CallBar({ call, onExpand, ref }: { call: LiveCall; onExpand: () 
         aria-hidden
         className={cn("size-2 shrink-0 rounded-full bg-white", !time && "motion-safe:animate-pulse")}
       />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium tabular-nums">
-        {time ? copy.call.listConnected(showTime(time)) : copy.call.dialing}
+      <span className="flex min-w-0 flex-1 gap-2 text-sm font-medium tabular-nums">
+        {name && <span className="truncate">{name}</span>}
+        <span className="shrink-0">{time ? copy.call.listConnected(showTime(time)) : copy.call.dialing}</span>
       </span>
       <span className="flex shrink-0 items-center text-sm text-white/80">
         {copy.call.expand}

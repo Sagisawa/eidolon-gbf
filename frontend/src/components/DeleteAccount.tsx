@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,11 +31,14 @@ export function DeleteAccount() {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const { hangUp } = useDirectory();
 
   async function remove() {
     setBusy(true);
     setFailure(null);
     try {
+      // 通话中删除不另问：删除自己的确认就够了，确认了先挂断（GLOSSARY.md「通话」）。
+      await hangUp();
       await deleteAccount((await getAccount()).id);
       window.location.assign("/");
     } catch (e) {

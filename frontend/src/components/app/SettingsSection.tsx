@@ -7,8 +7,8 @@ export const PROSE_WIDTH = "max-w-[42em]";
 
 type Props = {
   /**
-   * 节标题。设置页里只有一节的标签页不写（标签名就是标题），这时这一节也不自己声明标签关系，
-   * 读屏靠外面的标签面板读出它属于哪个标签。
+   * 节标题。设置里只有一节的类别页（档案、通话、自带密钥）不写：页首的类别名就是标题，
+   * 这时这一节也不用 aria-labelledby 指向标题。
    */
   title?: string;
   /** 页内链接跳到这一节用的锚点。 */
@@ -19,7 +19,7 @@ type Props = {
 };
 
 /**
- * 设置页的一节：标题、说明、内容，下沿一条细分隔线。
+ * 设置二级页面的一节：标题、说明、内容，下沿一条细分隔线。
  * 不套卡片、不加描边（DESIGN.md「The Flat Rule」），一节一节靠分隔线和留白分开。
  */
 export function SettingsSection({ title, id, description, children }: Props) {
