@@ -5,12 +5,15 @@ import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import { copy } from "@/i18n";
+import { cn } from "@/lib/utils";
 import { BackIcon } from "@/theme/icons";
 
 type Props = {
   title: string;
   /** 返回键去哪里；不传就没有返回键。 */
   backHref?: string;
+  /** 返回键只在手机上：设置的二级页面在电脑上和一级列表并排，用不着返回。 */
+  isBackNarrowOnly?: boolean;
   /** 页首末端的操作。 */
   end?: ReactNode;
 };
@@ -24,8 +27,8 @@ export function SectionHeading({ children, id }: { children: ReactNode; id?: str
   );
 }
 
-/** 设置、记忆、静态页的页首：返回键、标题和末端操作。放在 PageShell 的 header 里。 */
-export function SubpageHeader({ title, backHref, end }: Props) {
+/** 设置的二级页面、静态页的页首：返回键、标题和末端操作。放在 PageShell 的 header 里。 */
+export function SubpageHeader({ title, backHref, isBackNarrowOnly = false, end }: Props) {
   return (
     <div className="flex w-full items-center gap-2">
       {backHref && (
@@ -35,7 +38,7 @@ export function SubpageHeader({ title, backHref, end }: Props) {
           aria-label={copy.common.back}
           nativeButton={false}
           render={<NextLink href={backHref} />}
-          className="-ml-2"
+          className={cn("-ml-2", isBackNarrowOnly && "md:hidden")}
         >
           <BackIcon />
         </Button>

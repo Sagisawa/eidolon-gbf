@@ -1,0 +1,58 @@
+"use client";
+
+import NextLink from "next/link";
+import type { ComponentType } from "react";
+
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
+import { cn } from "@/lib/utils";
+import { ExternalLinkIcon, ForwardIcon } from "@/theme/icons";
+
+type Props = {
+  href: string;
+  label: string;
+  Icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  /** 选中的那一类：电脑上铺中性的 bg-muted、标 `aria-current`。 */
+  isCurrent?: boolean;
+  /** 行尾的 ›：`narrow` 只在手机上（电脑上靠选中底色），`always` 两种屏宽都有。 */
+  chevron?: "narrow" | "always";
+  /** 别的网站，在新标签页打开，行尾换成外链图标；通话照常。 */
+  isExternal?: boolean;
+};
+
+/**
+ * 设置里的一行链接（DESIGN.md「设置页」）：图标、名字，行尾 › 或外链图标，整行可点，至少 48px 高。
+ * 一级列表的每一类和「关于」的几行都用它。站内的按外壳的去处规则走，通话中离开外壳先问。
+ */
+export function SettingsRow({ href, label, Icon, isCurrent = false, chevron = "narrow", isExternal = false }: Props) {
+  const { guard } = useDirectory();
+  const className = cn(
+    "flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-body outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset",
+    isCurrent && "md:bg-muted md:hover:bg-muted",
+  );
+  const inner = (
+    <>
+      {Icon && <Icon aria-hidden className="size-5 shrink-0 text-muted-foreground" />}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {isExternal ? (
+        <ExternalLinkIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <ForwardIcon
+          aria-hidden
+          className={cn("size-4 shrink-0 text-muted-foreground", chevron === "narrow" && "md:hidden")}
+        />
+      )}
+    </>
+  );
+  if (isExternal) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <NextLink href={href} onClick={guard(href)} aria-current={isCurrent ? "page" : undefined} className={className}>
+      {inner}
+    </NextLink>
+  );
+}

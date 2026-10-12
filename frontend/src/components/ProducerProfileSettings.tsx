@@ -106,7 +106,7 @@ export function ProducerProfileSettings() {
 
   if (!draft || !saved) {
     return (
-      <SettingsSection title={t.title}>
+      <SettingsSection>
         {failure ? (
           <FailureNotice failure={failure} />
         ) : (
@@ -137,7 +137,7 @@ export function ProducerProfileSettings() {
   ];
 
   return (
-    <SettingsSection title={t.title}>
+    <SettingsSection>
       <form onSubmit={submit}>
         <FieldGroup>
           <Field>

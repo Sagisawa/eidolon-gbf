@@ -25,9 +25,9 @@ function conversationOf(path: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/** The conversations (list and each character's page) and the settings are in the shell;
- * memories, the admin console, `/about`, the privacy policy, the terms, sign-in and consent
- * are out of it, and so is anything on another site. */
+/** The conversations (list and each character's page) and the settings (memories among them)
+ * are in the shell; the admin console, `/about`, the privacy policy, the terms, sign-in and
+ * consent are out of it, and so is anything on another site. */
 export function isInShell(href: string): boolean {
   const { path, local } = pathOf(href);
   if (!local) return false;

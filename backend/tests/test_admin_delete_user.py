@@ -80,7 +80,7 @@ async def test_a_banned_user_deleted_cannot_sign_in_or_be_linked_with_their_iden
     await sign_in_with(other, github, github_identity("2002", name="other"))
     await agree_to_terms(other)
     linking = await sign_in_with(other, google, google_identity("g-1001"), link=True)
-    assert linking.headers["location"] == "/settings?error=banned"
+    assert linking.headers["location"] == "/settings/sign-in?error=banned"
     assert [u["name"] for u in (await admin.get("/api/admin/users")).json()["users"]] == [
         "other", "boss",
     ]

@@ -12,8 +12,8 @@ for a callback this browser did not start or that expired, `cancelled` when the 
 turned the provider down, and `provider` when the provider could not be reached).
 
 A signed-in user links another identity the same way, starting with `?link=1`; the
-callback then sends the browser back to the settings page, with `?linked=<provider>` or
-`?error=<reason>`.
+callback then sends the browser back to the sign-in settings (`/settings/sign-in`), with
+`?linked=<provider>` or `?error=<reason>`.
 """
 
 import logging
@@ -196,7 +196,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
             request.cookies.get(STATE_COOKIE, "").split(":", 2) + ["", ""]
         )[:3]
         linking = purpose == "link"
-        back = "/settings" if linking else "/login"
+        back = "/settings/sign-in" if linking else "/login"
 
         def go(to: str) -> RedirectResponse:
             response = RedirectResponse(to, status_code=302)
@@ -225,7 +225,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
                 if user is None or user.consented_at is None:
                     return go("/login?error=state")
                 accounts.link(user.id, identity)
-                return go(f"/settings?linked={provider}")
+                return go(f"/settings/sign-in?linked={provider}")
             user = accounts.sign_in(identity)
         except SignInRefused as e:
             return go(f"{back}?error={e.reason}")

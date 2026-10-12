@@ -32,7 +32,7 @@ import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
-import { settingsHref } from "@/lib/settingsTab";
+import { settingsHref } from "@/lib/settingsCategory";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";

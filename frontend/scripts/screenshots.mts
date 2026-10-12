@@ -75,7 +75,7 @@ const SHOTS: Shot[] = [
     },
   },
   { name: "settings", signedIn: true, path: "/settings" },
-  { name: "memories", signedIn: true, path: "/memories" },
+  { name: "memories", signedIn: true, path: "/settings/memories" },
   { name: "admin", signedIn: true, path: "/admin" },
   { name: "admin-config", signedIn: true, path: "/admin/config" },
   { name: "admin-users", signedIn: true, path: "/admin/users" },

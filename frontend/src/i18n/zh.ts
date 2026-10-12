@@ -6,7 +6,7 @@ export const zh = {
   app: {
     name: "Eidolon-SC",
     description: "和 283 事务所的偶像说说话",
-    /** 链到项目仓库的那个链接：落地页右上角的字，导航栏底部（电脑）和对话列表页首（手机）图标键的读屏名字。 */
+    /** 链到项目仓库的那个链接：落地页右上角的字，导航栏底部（电脑）图标键的读屏名字。 */
     repositoryLabel: "GitHub",
   },
   /** 导航外壳的导航栏（电脑）和 dock（手机），DESIGN.md「Layout」。 */
@@ -44,7 +44,6 @@ export const zh = {
     loading: "正在载入对话列表",
     loadFailed: "对话列表没能载入",
     retry: "重试",
-    disclaimer: "非官方粉丝作品，与版权方无关；角色由 AI 扮演。",
     /** 一行的右键、长按菜单（GLOSSARY.md「隐藏 / 置顶」）。 */
     pin: "置顶",
     unpin: "取消置顶",
@@ -326,11 +325,24 @@ export const zh = {
   settings: {
     title: "设置",
     loading: "正在读取…",
-    about: "关于 Eidolon-SC",
-    /** 设置页顶上的四个标签。第四组不叫「账号」：GLOSSARY 把它列为避免的说法。 */
-    tabs: { profile: "档案", call: "通话", "own-keys": "自带密钥", "sign-in": "登录与数据" },
+    /** 设置一级的六类，也是各自二级页首的名字。「登录与数据」不叫「账号」：GLOSSARY 把它列为避免的说法。 */
+    categories: {
+      profile: "档案",
+      memories: "记忆",
+      call: "通话",
+      "own-keys": "自带密钥",
+      "sign-in": "登录与数据",
+      about: "关于",
+    },
+    /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
+    about: {
+      site: "关于 Eidolon-SC",
+      repository: "GitHub 仓库",
+      privacy: "隐私政策",
+      terms: "使用条款",
+      disclaimer: "非官方粉丝作品，与版权方无关；角色由 AI 扮演。",
+    },
     profile: {
-      title: "制作人档案",
       formOfAddress: "称呼",
       formOfAddressHint: "角色对你的叫法，只改变叫法，你仍然是她们的制作人。留空时，角色按各自的习惯称呼你。",
       formOfAddressPlaceholder: "例如：小林さん",
@@ -356,11 +368,6 @@ export const zh = {
       saving: "正在保存…",
       unsaved: "尚未保存",
       saved: "已保存，所有设备共用这份档案",
-    },
-    memories: {
-      title: "记忆",
-      hint: "查看角色们记下的关于你的事，可以逐条删除或全部清空。",
-      manage: "管理记忆",
     },
     call: {
       mic: "默认麦克风",
@@ -1055,7 +1062,6 @@ export const zh = {
     },
   },
   memories: {
-    title: "记忆",
     intro: "角色们在对话中记下的、关于你的事。所有角色共用这些记忆，对一位角色说过的事，其他角色会以转述的口吻知道。删除后，角色不会再想起这件事。标为「已被取代」的记忆，已经被你后来说的话更新，角色不会再想起；删掉取代它的那条，它就恢复。",
     loading: "正在读取…",
     empty: "角色们还没有记下关于你的事。",

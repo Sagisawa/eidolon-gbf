@@ -4,9 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
-import { PageShell } from "@/components/app/PageShell";
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
-import { SubpageHeader } from "@/components/app/SubpageHeader";
+import { SettingsPane } from "@/components/settings/SettingsPane";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,10 +39,11 @@ import { TrashIcon } from "@/theme/icons";
 const t = copy.memories;
 
 /**
- * 所有角色共用的、关于用户的记忆：只能删，不能改。每条都标出来源角色；被取代的原地列出，淡一些并标出来。
+ * 设置「记忆」：所有角色共用的、关于用户的记忆，只能删，不能改。每条都标出来源角色；被取代的原地列出，淡一些并标出来。
  * 记忆是一行一行的列表（细分隔线，不套卡片）；删除一条、清空全部都要先确认，执行键是挂断红（DESIGN.md「Buttons」）。
+ * 「清空」在二级页首的末端。
  */
-export default function MemoriesPage() {
+export function MemoriesSettings() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
   const [characters, setCharacters] = useState<Character[]>([]);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -110,19 +110,14 @@ export default function MemoriesPage() {
   const hasMemories = !!memories && memories.length > 0;
 
   return (
-    <PageShell
-      header={
-        <SubpageHeader
-          title={t.title}
-          backHref="/settings"
-          end={
-            hasMemories && (
-              <Button variant="ghost" size="sm" onClick={() => setConfirmingClear(true)} disabled={clearing}>
-                {t.clear}
-              </Button>
-            )
-          }
-        />
+    <SettingsPane
+      category="memories"
+      end={
+        hasMemories && (
+          <Button variant="ghost" size="sm" onClick={() => setConfirmingClear(true)} disabled={clearing}>
+            {t.clear}
+          </Button>
+        )
       }
     >
       <div className="flex flex-1 flex-col gap-4">
@@ -215,6 +210,6 @@ export default function MemoriesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </PageShell>
+    </SettingsPane>
   );
 }

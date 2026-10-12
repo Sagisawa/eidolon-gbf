@@ -10,6 +10,7 @@ describe("在不在导航外壳里", () => {
     "/settings",
     "/settings?tab=own-keys",
     "/settings/own-keys",
+    "/settings/memories",
   ])("%s 在外壳里", (href) => {
     expect(isInShell(href)).toBe(true);
   });
@@ -19,7 +20,6 @@ describe("在不在导航外壳里", () => {
     "/about",
     "/privacy",
     "/terms",
-    "/memories",
     "/admin",
     "/admin/users/1",
     "/login",
@@ -55,14 +55,13 @@ describe("外壳顶上的通话条", () => {
   });
 
   it("外壳外面不出现", () => {
-    expect(showsShellCallBar("/memories", "mano")).toBe(false);
     expect(showsShellCallBar("/admin", "mano")).toBe(false);
   });
 });
 
 describe("去某个网址时通话怎么样", () => {
   it("没在通话时哪里都直接走", () => {
-    for (const to of ["/conversations", "/conversation/hiori", "/settings", "/admin", "/about", "/memories"])
+    for (const to of ["/conversations", "/conversation/hiori", "/settings", "/admin", "/about"])
       expect(departure(to, null), to).toBe("go");
   });
 
@@ -70,7 +69,7 @@ describe("去某个网址时通话怎么样", () => {
     expect(departure("/conversations", "mano")).toBe("keep");
     expect(departure("/settings", "mano")).toBe("keep");
     expect(departure("/settings?tab=own-keys", "mano")).toBe("keep");
-    expect(departure("/settings/call", "mano")).toBe("keep");
+    expect(departure("/settings/memories", "mano")).toBe("keep");
   });
 
   it("通话中回她自己的对话页，通话留着", () => {
@@ -82,7 +81,7 @@ describe("去某个网址时通话怎么样", () => {
   });
 
   it("通话中离开外壳，先问再挂断", () => {
-    for (const to of ["/admin", "/about", "/privacy", "/terms", "/memories", "/", "/api/auth/link/google"])
+    for (const to of ["/admin", "/about", "/privacy", "/terms", "/", "/api/auth/link/google"])
       expect(departure(to, "mano"), to).toBe("ask");
   });
 });
@@ -97,7 +96,7 @@ describe("导航栏和 dock 的当前项", () => {
   });
 
   it("外壳外面没有当前项", () => {
-    expect(currentNavItem("/memories")).toBeNull();
+    expect(currentNavItem("/admin")).toBeNull();
   });
 });
 
@@ -106,8 +105,9 @@ describe("点导航栏、dock 里的一项去哪", () => {
     expect(navDestination("settings", "/conversation/mano")).toBe("/settings");
   });
 
-  it("在二级页面上（她的对话页）再点当前那一项，回到这一项的第一级", () => {
+  it("在二级页面上（她的对话页、设置的一类）再点当前那一项，回到这一项的第一级", () => {
     expect(navDestination("conversations", "/conversation/mano")).toBe("/conversations");
+    expect(navDestination("settings", "/settings/call")).toBe("/settings");
   });
 
   it("已经在第一级时再点当前那一项，不动", () => {

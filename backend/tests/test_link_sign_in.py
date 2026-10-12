@@ -45,7 +45,7 @@ async def test_after_linking_either_identity_signs_in_as_the_same_user(
 
     res = await sign_in_with(client, google, google_identity(name="Producer G"), link=True)
 
-    assert res.headers["location"] == "/settings?linked=google"
+    assert res.headers["location"] == "/settings/sign-in?linked=google"
     assert await methods(client) == [("github", "producer"), ("google", "Producer G")]
     phone = make_client(FakeLLM(), user=None)
     await sign_in_with(phone, google, google_identity())
@@ -63,7 +63,7 @@ async def test_an_identity_that_is_someone_elses_cannot_be_linked(
 
     res = await sign_in_with(mine, google, google_identity(), link=True)
 
-    assert res.headers["location"] == "/settings?error=taken"
+    assert res.headers["location"] == "/settings/sign-in?error=taken"
     assert await methods(mine) == [("github", "producer")]
     again = make_client(FakeLLM(), user=None)
     await sign_in_with(again, google, google_identity())
@@ -77,7 +77,7 @@ async def test_linking_an_identity_already_yours_changes_nothing(
 
     res = await sign_in_with(client, github, github_identity(), link=True)
 
-    assert res.headers["location"] == "/settings?linked=github"
+    assert res.headers["location"] == "/settings/sign-in?linked=github"
     assert await methods(client) == [("github", "producer")]
 
 
@@ -88,7 +88,7 @@ async def test_a_second_identity_at_the_same_provider_cannot_be_linked(
 
     res = await sign_in_with(client, github, github_identity("2002", "alt"), link=True)
 
-    assert res.headers["location"] == "/settings?error=already_linked"
+    assert res.headers["location"] == "/settings/sign-in?error=already_linked"
     assert await methods(client) == [("github", "producer")]
 
 
@@ -99,7 +99,7 @@ async def test_linking_checks_the_identity_as_signing_in_does(
 
     res = await sign_in_with(client, google, google_identity(verified=False), link=True)
 
-    assert res.headers["location"] == "/settings?error=email_unverified"
+    assert res.headers["location"] == "/settings/sign-in?error=email_unverified"
     assert await methods(client) == [("github", "producer")]
 
 

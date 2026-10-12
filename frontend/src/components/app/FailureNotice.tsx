@@ -6,7 +6,7 @@ import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { copy } from "@/i18n";
 import type { Failure } from "@/lib/failure";
-import { settingsHref } from "@/lib/settingsTab";
+import { settingsHref } from "@/lib/settingsCategory";
 import { FailureIcon } from "@/theme/icons";
 
 /**
