@@ -31,6 +31,7 @@ import httpx
 from eidolon.accounts import Accounts, is_admin
 from eidolon.activity import ActivityLog, metered_retrieval
 from eidolon.admission import Admissions
+from eidolon.announcements import Announcements
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.clock import Clock, utc_now
@@ -84,6 +85,8 @@ class Backend:
     config: LiveConfig
     prices: Prices
     """The prices the dashboard estimates the deployer's costs at."""
+    announcements: Announcements
+    """What admins write for every user to see."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -154,6 +157,8 @@ def build(
     closers.append(catalog.close)
     prices = Prices(settings.database_path, clock, catalog)
     closers.append(prices.close)
+    announcements = Announcements(settings.database_path, clock)
+    closers.append(announcements.close)
     config = LiveConfig(
         settings, clients or ProviderClients(), clock, activity=activity, speech=speech
     )
@@ -251,6 +256,7 @@ def build(
         activity=activity,
         config=config,
         prices=prices,
+        announcements=announcements,
         world=world,
         _closers=closers,
     )
