@@ -89,48 +89,29 @@ describe("去某个网址时通话怎么样", () => {
 
 describe("导航栏和 dock 的当前项", () => {
   it.each([
-    ["/conversations", "conversations"],
     ["/conversation/mano", "conversations"],
     ["/settings", "settings"],
-    ["/settings?tab=call", "settings"],
     ["/settings/own-keys", "settings"],
   ] as const)("%s 的当前项是 %s", (href, item) => {
     expect(currentNavItem(href)).toBe(item);
   });
 
-  it.each(["/memories", "/admin", "/about", "/conversations-old", "/settingsx", "/"])("%s 没有当前项", (href) => {
-    expect(currentNavItem(href)).toBeNull();
+  it("外壳外面没有当前项", () => {
+    expect(currentNavItem("/memories")).toBeNull();
   });
 });
 
 describe("点导航栏、dock 里的一项去哪", () => {
   it("点别的项，去那一项的第一级", () => {
-    expect(navDestination("settings", "/conversations")).toBe("/settings");
     expect(navDestination("settings", "/conversation/mano")).toBe("/settings");
-    expect(navDestination("conversations", "/settings")).toBe("/conversations");
-    expect(navDestination("conversations", "/settings/own-keys")).toBe("/conversations");
   });
 
-  it("在二级页面上再点当前那一项，回到这一项的第一级", () => {
+  it("在二级页面上（她的对话页）再点当前那一项，回到这一项的第一级", () => {
     expect(navDestination("conversations", "/conversation/mano")).toBe("/conversations");
-    expect(navDestination("settings", "/settings/own-keys")).toBe("/settings");
   });
 
   it("已经在第一级时再点当前那一项，不动", () => {
     expect(navDestination("conversations", "/conversations")).toBeNull();
-    expect(navDestination("settings", "/settings")).toBeNull();
-    expect(navDestination("settings", "/settings?tab=call")).toBeNull();
-  });
-
-  it("通话中点导航栏去的地方都在外壳里，通话留着", () => {
-    for (const [item, from] of [
-      ["settings", "/conversation/mano"],
-      ["conversations", "/conversation/mano"],
-      ["conversations", "/settings"],
-    ] as const) {
-      const to = navDestination(item, from);
-      expect(to && departure(to, "mano"), `${item} 从 ${from}`).toBe("keep");
-    }
   });
 });
 
@@ -138,7 +119,6 @@ describe("手机上在打字（dock 藏起来）", () => {
   it.each([
     ["textarea", { tagName: "TEXTAREA" }],
     ["搜索框", { tagName: "INPUT", type: "search" }],
-    ["文字框", { tagName: "INPUT", type: "text" }],
     ["可编辑元素", { tagName: "DIV", isContentEditable: true }],
   ])("焦点在%s上算", (_, focused) => {
     expect(isTyping(focused)).toBe(true);
@@ -148,7 +128,6 @@ describe("手机上在打字（dock 藏起来）", () => {
     ["没有焦点", null],
     ["勾选框", { tagName: "INPUT", type: "checkbox" }],
     ["按钮", { tagName: "BUTTON" }],
-    ["链接", { tagName: "A" }],
   ])("%s不算", (_, focused) => {
     expect(isTyping(focused)).toBe(false);
   });

@@ -34,9 +34,9 @@ export function NavShell({ children }: { children: ReactNode }) {
   const snapshot = useSyncExternalStore(held?.subscribe ?? noSubscription, held?.snapshot ?? notOpen, notOpen);
   const character = held && !isHeldShown ? characters?.find((c) => c.id === held.characterId) : undefined;
   const layer = character ? snapshot.layer : null;
-  const isCovered = layer !== null && !layer.collapsed;
-  // 她的对话页上展开的通话层（手机上铺满整屏）同样盖住 dock。
-  const isDockCovered = held !== null && snapshot.layer !== null && !snapshot.layer.collapsed;
+  // 外壳持有的通话层展开着，不论是这里画的还是她的对话页画的（手机上铺满整屏，同样盖住 dock）。
+  const isLayerOpen = held !== null && snapshot.layer !== null && !snapshot.layer.collapsed;
+  const isCovered = layer !== null && isLayerOpen;
   const barShown = call !== null && layer?.collapsed === true && showsShellCallBar(pathname, call.characterId);
   const focus = useFocusBack({ layerOpen: isCovered, noteShown: barShown });
 
@@ -56,7 +56,7 @@ export function NavShell({ children }: { children: ReactNode }) {
           {character && held && <HeldLayer live={held} character={character} layerRef={focus.layer} />}
         </div>
       </div>
-      <NavDock isInert={isDockCovered} />
+      <NavDock isInert={isLayerOpen} />
     </div>
   );
 }

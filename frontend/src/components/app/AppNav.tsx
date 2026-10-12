@@ -106,13 +106,18 @@ function NavLinks({ className }: { className: string }) {
 function useTyping(): boolean {
   const [typing, setTyping] = useState(false);
   useEffect(() => {
+    let settling: ReturnType<typeof setTimeout> | undefined;
     const check = () => setTyping(isTyping(document.activeElement as HTMLInputElement | null));
-    const later = () => setTimeout(check, 0);
+    const checkOnceSettled = () => {
+      clearTimeout(settling);
+      settling = setTimeout(check, 0);
+    };
     document.addEventListener("focusin", check);
-    document.addEventListener("focusout", later);
+    document.addEventListener("focusout", checkOnceSettled);
     return () => {
+      clearTimeout(settling);
       document.removeEventListener("focusin", check);
-      document.removeEventListener("focusout", later);
+      document.removeEventListener("focusout", checkOnceSettled);
     };
   }, []);
   return typing;
