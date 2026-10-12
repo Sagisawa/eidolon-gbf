@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
  * 右栏在宽窄屏之间始终是同一个位置上的同一块，窗口跨过 768px 时对话（和通话）不会重新挂载。
  * 水合前还不知道窗口宽窄（useWide 先当宽屏），先按 CSS 断点排出同样的两栏，窄屏只露这一级页面的那一栏，
  * 免得手机上先闪一下宽屏双栏；水合后才换成可拖动的 Resizable。
- * 角色和摘要由外壳（上一层 layout 的 DirectoryProvider）载入一次，列表和对话从那里取。
+ * 角色和摘要由导航外壳（上一层 layout 的 DirectoryProvider）载入一次，列表和对话从那里取。
  */
 export default function ConversationsLayout({ children }: { children: ReactNode }) {
   const wide = useWide();
