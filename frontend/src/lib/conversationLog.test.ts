@@ -9,7 +9,7 @@ import {
 
 function message(id: number, role: Message["role"], text: string): Message {
   return role === "user"
-    ? { id, role, text, ja: null, zh: null, segments: [], created_at: "2026-09-26T00:00:00Z" }
+    ? { id, role, text, ja: null, zh: null, segments: [], created_at: "2026-09-26T00:00:00Z", affinity: null }
     : {
         id,
         role,
@@ -18,6 +18,7 @@ function message(id: number, role: Message["role"], text: string): Message {
         zh: `（${text}）`,
         segments: [{ ja: text, zh: `（${text}）` }],
         created_at: "2026-09-26T00:00:00Z",
+        affinity: null,
       };
 }
 
@@ -47,6 +48,7 @@ describe("conversationLog", () => {
         segments: [{ ja: "おはよう", zh: "（おはよう）" }],
         pending: false,
         at: "2026-09-26T00:00:00Z",
+        affinity: null,
       },
     ]);
   });
@@ -71,7 +73,7 @@ describe("conversationLog", () => {
     // Dated when it was typed; the backend taking it up does not change that.
     expect(log.entries.slice(2)).toEqual([
       { kind: "user", key: log.turn?.userKey, text: "你好", at: NOW },
-      { kind: "character", key: log.turn?.replyKey, segments: [], pending: true, at: NOW },
+      { kind: "character", key: log.turn?.replyKey, segments: [], pending: true, at: NOW, affinity: null },
     ]);
   });
 
@@ -105,14 +107,15 @@ describe("conversationLog", () => {
     });
   });
 
-  it("swaps the reply for the recorded one, dated when recorded, on `done` and ends the turn", () => {
-    const recorded = { ...message(4, "character", "いるよ"), created_at: "2026-09-28T08:49:30Z" };
+  it("swaps the reply for the recorded one, dated when recorded and with how it changed her affinity, on `done` and ends the turn", () => {
+    const affinity = { up: true, tier_changed: false, tier: "trust", cooldown: false } as const;
+    const recorded = { ...message(4, "character", "いるよ"), created_at: "2026-09-28T08:49:30Z", affinity };
     const log = play(
       [
         { type: "submitted", text: "在吗", at: NOW },
         { type: "user", text: "在吗", at: NOW },
         delta(0, "ja", "いる"),
-        { type: "done", message: recorded },
+        { type: "done", message: recorded, affinity: null },
       ],
       history,
     );
@@ -125,6 +128,7 @@ describe("conversationLog", () => {
       segments: recorded.segments,
       pending: false,
       at: "2026-09-28T08:49:30Z",
+      affinity,
     });
   });
 
@@ -147,7 +151,7 @@ describe("conversationLog", () => {
   it("leaves the log alone on `delta`, `done`, `error` and `interrupted` with no turn in progress", () => {
     for (const action of [
       delta(0, "ja", "いる"),
-      { type: "done", message: message(9, "character", "いるよ") },
+      { type: "done", message: message(9, "character", "いるよ"), affinity: null },
       { type: "error", message: "角色暂时无法回复，请稍后再试。" },
       { type: "interrupted" },
     ] as LogAction[]) {
@@ -160,10 +164,10 @@ describe("conversationLog", () => {
       [
         { type: "user", text: "一", at: NOW },
         delta(0, "ja", "いち"),
-        { type: "done", message: message(4, "character", "いち") },
+        { type: "done", message: message(4, "character", "いち"), affinity: null },
         { type: "user", text: "二", at: NOW },
         delta(0, "ja", "に"),
-        { type: "done", message: message(6, "character", "に") },
+        { type: "done", message: message(6, "character", "に"), affinity: null },
       ],
       history,
     );
@@ -183,7 +187,7 @@ describe("conversationLog", () => {
     const log = play(
       [
         { type: "user", text: "一", at: NOW },
-        { type: "done", message: message(4, "character", "いち") },
+        { type: "done", message: message(4, "character", "いち"), affinity: null },
         { type: "user", text: "二", at: NOW },
         delta(0, "ja", "に"),
         { type: "interrupted" },
@@ -199,7 +203,7 @@ describe("conversationLog", () => {
     const log = play(
       [
         { type: "user", text: "一", at: NOW },
-        { type: "done", message: message(4, "character", "いち") },
+        { type: "done", message: message(4, "character", "いち"), affinity: null },
         { type: "user", text: "二", at: NOW },
         { type: "interrupted" },
         { type: "user", text: "三", at: NOW },
@@ -224,7 +228,7 @@ describe("conversationLog", () => {
     expect(followedOn.entries[3]).toMatchObject({ segments: [], pending: true });
 
     const log = play(
-      [delta(0, "ja", "に"), { type: "done", message: message(4, "character", "に") }],
+      [delta(0, "ja", "に"), { type: "done", message: message(4, "character", "に"), affinity: null }],
       followedOn,
     );
     expect(log.entries.slice(2).map((e) => e.kind)).toEqual(["user", "character"]);
@@ -238,7 +242,7 @@ describe("conversationLog", () => {
         delta(0, "ja", "いち"),
         delta(0, "zh", "（いち）"),
         delta(1, "ja", "に"),
-        { type: "done", message: message(4, "character", "いち") },
+        { type: "done", message: message(4, "character", "いち"), affinity: null },
       ],
       history,
     );

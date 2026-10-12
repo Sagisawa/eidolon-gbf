@@ -112,7 +112,7 @@ async def test_jev_answers_what_the_turn_needs(
     requests: list[dict] = []
 
     judge = judge_answering(requests, retrieve, recall, about_producer)
-    assert await judge.judge(MANO, [], "那次比赛") == expected
+    assert await judge.judge(MANO, [], "那次比赛") == (expected, None)
     [request] = requests  # all questions in one call
     assert request["url"] == "http://jev.test/api/v1/systemone"
     assert request["auth"] == "Bearer jev-key"

@@ -1,8 +1,10 @@
 // The conversation page for one character: opening her conversation (or starting a new
-// one), its log, the text turn under way, the call and how the call layer is shown, and her
-// stand as the call moves it on (by the rules in `standDirection.ts`), kept outside React so
-// the page only renders a snapshot and passes on clicks.
+// one), its log, the text turn under way, the call and how the call layer is shown, her
+// stand as the call moves it on (by the rules in `standDirection.ts`), and her affinity as
+// each turn leaves it, kept outside React so the page only renders a snapshot and passes on
+// clicks.
 
+import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
 import { ApiError, type CallEvent, type Conversation, type Message, type Segment, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
@@ -49,6 +51,13 @@ export type CallState =
   | { phase: "dialing"; dial: number }
   | { phase: "connected"; dial: number; since: number; maxSeconds: number | null }
   | { phase: "ended"; dial: number; end: CallEnd; seconds: number | null };
+
+/** How long a change of her affinity is shown, on the header's heart and the call screen's
+ * status line (spec「页首标识」「变化胶囊和通话里的提示」). */
+export const CUE_MS = 2600;
+
+/** A change of her affinity just recorded, shown for `CUE_MS`; `key` tells one from the next. */
+export type AffinityCue = { change: AffinityChange; key: number };
 
 /** A call under way: dialing or connected. Leaving the page hangs it up. */
 export type LiveCall = Extract<CallState, { phase: "dialing" | "connected" }>;
@@ -117,6 +126,12 @@ export type Snapshot = {
   /** How her stand should look (spec「立绘指令」), by the rules in `standDirection.ts`; calm
    * outside a call. It follows the call while the call layer is collapsed too. */
   stand: StandDirection;
+  /** Her affinity with the user (GLOSSARY.md「好感度」), as read when the page opened and
+   * left by each turn since; null while affinity is off, or before it is read, or if it
+   * could not be. */
+  affinity: AffinityStatus | null;
+  /** The change of her affinity the last turn made, for `CUE_MS` after it was recorded. */
+  affinityCue: AffinityCue | null;
 };
 
 type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
@@ -142,6 +157,8 @@ const IDLE: Omit<State, "log" | "card" | "stand" | "dial"> = {
   draft: "",
   textOnly: false,
   failure: null,
+  affinity: null,
+  affinityCue: null,
 };
 
 /** What the page shows before a conversation is open. */
@@ -197,6 +214,8 @@ export type Ports = {
     handlers: CallHandlers,
   ) => Promise<Call>;
   sendTurn: (conversationId: string, text: string) => AsyncIterable<TurnEvent>;
+  /** Her affinity with the user now; null while affinity is off. */
+  getAffinity: (characterId: string) => Promise<AffinityStatus | null>;
   preferences: {
     load: () => CallPreferences;
     save: (change: Partial<CallPreferences>) => CallPreferences;
@@ -221,6 +240,8 @@ export class LiveConversation {
   private conversationId: string | null = null;
   /** Moves the line card on when it is next due to at her pace; null while it is not. */
   private pacing: ReturnType<typeof setTimeout> | null = null;
+  /** Stops showing the change of her affinity; null while none is shown. */
+  private cueing: ReturnType<typeof setTimeout> | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
@@ -233,6 +254,7 @@ export class LiveConversation {
     this.state = { ...IDLE, log: emptyLog, card: BLANK_CARD, dial: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
+    void this.readAffinity();
   }
 
   /** A new object only after an update, as `useSyncExternalStore` needs. */
@@ -249,6 +271,7 @@ export class LiveConversation {
   dispose(): void {
     this.disposed = true;
     if (this.pacing !== null) clearTimeout(this.pacing);
+    if (this.cueing !== null) clearTimeout(this.cueing);
     this.attempt = null;
     this.call?.leave().catch(() => {});
     this.call = null;
@@ -526,7 +549,37 @@ export class LiveConversation {
     if (card) this.moveCard(card(log), { ...change, log });
     else this.update({ ...change, log });
     // Recorded: the list's line for her now ends with it, even if the page has been left.
-    if (event.type === "done") this.ports.onListChanged();
+    if (event.type === "done") {
+      this.ports.onListChanged();
+      this.affinityLeft(event.affinity, event.message.affinity);
+    }
+  }
+
+  /** Her affinity as a recorded turn left it, and how the turn changed it, shown for
+   * `CUE_MS`; a change while affinity is off is not shown. */
+  private affinityLeft(affinity: AffinityStatus | null, change: AffinityChange | null): void {
+    if (!affinity || !change) {
+      this.update({ affinity });
+      return;
+    }
+    if (this.cueing !== null) clearTimeout(this.cueing);
+    const key = (this.state.affinityCue?.key ?? 0) + 1;
+    this.update({ affinity, affinityCue: { change, key } });
+    this.cueing = setTimeout(() => {
+      this.cueing = null;
+      this.update({ affinityCue: null });
+    }, CUE_MS);
+  }
+
+  /** Reads her affinity as the page opens; if it cannot be read, there is none to show. */
+  private async readAffinity(): Promise<void> {
+    let affinity: AffinityStatus | null = null;
+    try {
+      affinity = await this.ports.getAffinity(this.characterId);
+    } catch {
+      // Shown as if affinity were off: no badge, no capsules.
+    }
+    this.update({ affinity });
   }
 
   /** Opens her newest conversation, or starts one if she has none. */

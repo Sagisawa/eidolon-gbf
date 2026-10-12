@@ -17,6 +17,9 @@ went through it: she may have stood on that stage all the same.
 Retrieval never fails a turn: if the judge model cannot answer, the turn retrieves anyway;
 if embedding or reranking fails, the turn goes on without references (or memories).
 
+Where affinity is on, the judge model is asked what the turn does to it in the same
+request (`affinity_judge.QUESTIONS`); failing, it fails both.
+
 The chat model can also look an episode up itself with the recall-story tool, for
 general questions like "what happened that time with the photo book" that the judge
 model did not catch: the best matching episodes she is cast in come back with where they
@@ -27,10 +30,13 @@ The tool looks only in the story.
 import asyncio
 import logging
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
+from eidolon.affinity import Judged
+from eidolon.affinity_judge import QUESTIONS as AFFINITY_QUESTIONS
+from eidolon.affinity_judge import read_judged
 from eidolon.characters import Character
 from eidolon.corpus import CatalogSource, Episode, StoryCorpus
 from eidolon.embedding import Embedder, EmbeddingError, Reembeddable
@@ -41,6 +47,7 @@ from eidolon.judge import (
     JudgeError,
     JudgeModel,
     JudgeThresholds,
+    turn_state,
 )
 from eidolon.llm import Tool
 from eidolon.memory import MemoryTurn
@@ -56,9 +63,6 @@ MAX_REFERENCES = 5
 """The most references one turn's prompt carries, after reranking."""
 CANDIDATES_PER_SOURCE = 12
 """How many candidates each reference source offers the reranker."""
-JUDGE_HISTORY = 4
-"""How many of the latest messages the judge model sees along with what the user just said."""
-
 
 RECALL_EPISODES = 2
 """The most episodes one call of the recall-story tool brings back."""
@@ -103,8 +107,11 @@ reference sources along with the user's memories, or the recall of a past episod
 
 
 class RetrievalJudge(Protocol):
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
-        """What answering `text` needs looked up."""
+    async def judge(
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
+    ) -> tuple[Need, Judged | None]:
+        """What answering `text` needs looked up, and, asked about `affinity` too, what
+        saying it does to her affinity (None if that alone cannot be told)."""
         ...
 
 
@@ -239,6 +246,9 @@ class Retrieved:
     """The prompt section carrying the user's memories relevant to the turn, if any."""
     recalled: bool = False
     """Whether the recall-story tool already ran, so the chat model need not call it."""
+    judged: Judged | None = None
+    """What the turn does to her affinity, asked about it; None if not or if it could not
+    be told."""
 
 
 class Retrieval:
@@ -263,13 +273,26 @@ class Retrieval:
         history: Sequence[Message],
         text: str,
         memory: MemoryTurn | None = None,
+        affinity: bool = False,
     ) -> Retrieved:
-        """Look up what this turn needs, finding the user's memories through `memory`."""
+        """Look up what this turn needs, finding the user's memories through `memory`; and
+        judge what it does to her affinity, if asked to."""
+        judged = None
         try:
-            need = await self._judge.judge(character, history, text)
+            need, judged = await self._judge.judge(character, history, text, affinity)
         except JudgeError:
             log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
             need = "references"
+        return replace(await self._look_up(character, history, text, memory, need), judged=judged)
+
+    async def _look_up(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        memory: MemoryTurn | None,
+        need: Need,
+    ) -> Retrieved:
         if need == "recall":
             return Retrieved(
                 await self._recall(character, text, self._sources.work), recalled=True
@@ -424,6 +447,13 @@ _ABOUT_PRODUCER_QUESTION = {
         "false": "只是打招呼、说偶像自己的事、问原作剧情或角色设定，与制作人自己的生活无关",
     },
 }
+_QUESTIONS = {
+    "needs_retrieval": _JUDGE_QUESTION,
+    "recall": _RECALL_QUESTION,
+    "about_producer": _ABOUT_PRODUCER_QUESTION,
+}
+
+
 @dataclass(frozen=True)
 class RetrievalAnswer:
     """The judge model's probability of yes to each of its three questions."""
@@ -447,39 +477,28 @@ class ModelRetrievalJudge:
         self._judge_model = judge_model
         self.thresholds = thresholds
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
-        return self.decide(await self.ask(character, history, text))
+    async def judge(
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
+    ) -> tuple[Need, Judged | None]:
+        """As `RetrievalJudge.judge`, affinity's questions asked in the same request."""
+        questions = _QUESTIONS | AFFINITY_QUESTIONS if affinity else _QUESTIONS
+        answers = await self._judge_model.ask(turn_state(character, history, text), questions)
+        need = self.decide(_answer(answers))
+        if not affinity:
+            return need, None
+        try:
+            return need, read_judged(answers, self.thresholds)
+        except JudgeError:
+            log.warning("affinity judge's answers could not be read", exc_info=True)
+            return need, None
 
     async def ask(
         self, character: Character, history: Sequence[Message], text: str
     ) -> RetrievalAnswer:
         """How likely the judge model finds yes to each question about `text`."""
-        recent = []
-        for message in history[-JUDGE_HISTORY:]:
-            if message.role == "user":
-                recent.append(f"制作人：{message.text}")
-            else:
-                recent.append(f"{character.name}：{message.without_cues().ja}")
-        answers = await self._judge_model.ask(
-            {
-                "角色": character.name,
-                "上文": recent or "（对话刚开始）",
-                "制作人最新的一句话": text,
-            },
-            {
-                "needs_retrieval": _JUDGE_QUESTION,
-                "recall": _RECALL_QUESTION,
-                "about_producer": _ABOUT_PRODUCER_QUESTION,
-            },
+        return _answer(
+            await self._judge_model.ask(turn_state(character, history, text), _QUESTIONS)
         )
-        try:
-            return RetrievalAnswer(
-                float(answers["needs_retrieval"]["noul"]),
-                float(answers["recall"]["noul"]),
-                float(answers["about_producer"]["noul"]),
-            )
-        except (ValueError, KeyError, TypeError) as e:
-            raise JudgeError("判断模型的返回无法解析（缺少回答）") from e
 
     def decide(self, answer: RetrievalAnswer) -> Need:
         """What a turn so answered needs: recall first, then references, then memories."""
@@ -490,3 +509,15 @@ class ModelRetrievalJudge:
         if answer.about_producer >= self.thresholds.about_producer:
             return "memories"
         return "nothing"
+
+
+def _answer(answers: dict) -> RetrievalAnswer:
+    """The probabilities of yes `answers` give each of the three questions."""
+    try:
+        return RetrievalAnswer(
+            float(answers["needs_retrieval"]["noul"]),
+            float(answers["recall"]["noul"]),
+            float(answers["about_producer"]["noul"]),
+        )
+    except (ValueError, KeyError, TypeError) as e:
+        raise JudgeError("判断模型的返回无法解析（缺少回答）") from e

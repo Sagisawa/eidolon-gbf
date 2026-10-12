@@ -1,3 +1,4 @@
+import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
 import type { Provider } from "@/lib/signIn";
 import {
   forgetOwnKeys,
@@ -102,13 +103,16 @@ export type Message = {
   zh: string | null;
   segments: Segment[];
   created_at: string;
+  /** How the turn changed her affinity, on her reply; null where it did not (and always on the user's). */
+  affinity: AffinityChange | null;
 };
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. */
+/** A turn's events: `user`, then any `delta`s, then `done` or `error`. `done` says too where
+ * the turn left her affinity, null while affinity is off. */
 export type TurnEvent =
   | { type: "user"; text: string }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
-  | { type: "done"; message: Message }
+  | { type: "done"; message: Message; affinity: AffinityStatus | null }
   | { type: "error"; message: string };
 
 export type Gender = "male" | "female";

@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
-
+import { getAffinity } from "@/lib/affinity";
 import {
   createConversation,
   getAccount,
@@ -208,6 +208,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         onListChanged: refresh,
         startCall: (conversationId, preferences, handlers) => startCall(conversationId, preferences, handlers, userId),
         sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
+        getAffinity,
         preferences: { load: loadCallPreferences, save: saveCallPreferences },
         voice,
         tones,

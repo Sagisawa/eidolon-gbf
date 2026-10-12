@@ -13,6 +13,13 @@ a day, up to the normal value; above it, it never falls back. A cooldown begins 
 falls to 0 and ends as it recovers to the thaw line, so that when one ends is known, a
 day at most after it began; it recovers while affinity is off all the same.
 
+What the user says changes it, as the deployer's judge model judges each turn
+(`affinity_judge`): by a step for each of five levels, from hurting her to making her very
+happy; by more for what is out of line, whatever the level; never up for what tries to
+dictate it. Turns raise it slowly, so much a day at most, the producer's own day; nothing
+limits how far they lower it. It changes as the turn is recorded, and only then: a turn
+that fails, is rejected or is left changes nothing.
+
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
 Deleting the user deletes it (`database.USER_DATA`); deleting memories does not touch it.
@@ -23,10 +30,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from eidolon.clock import Clock
 from eidolon.database import connect
+from eidolon.producer import local_date
+
+T = TypeVar("T")
 
 Tier = Literal["cold", "distant", "trust", "close", "intimate"]
 """冷淡、疏远、信任、亲近、亲密, from lowest to highest."""
@@ -44,6 +54,22 @@ THAW = 10.0
 
 RECOVERY_PER_DAY = 10.0
 """How much it recovers a day below the normal value, evenly."""
+
+LOWEST, HIGHEST = 0.0, 100.0
+"""What it is held between; falling to the lowest begins a cooldown."""
+
+LEVEL_STEPS = (-5.0, -2.0, 0.0, 1.0, 2.0)
+"""How much a turn changes it by the level the judge model judges it at, from hurting her
+(0) to making her very happy (4)."""
+
+NO_EFFECT = 2
+"""The level of a turn that changes nothing, as one the judge model is unsure of is."""
+
+OUT_OF_LINE_STEP = -10.0
+"""How much a turn out of line (GLOSSARY.md「不该说的话」) lowers it, whatever its level."""
+
+GAINS_PER_DAY = 6.0
+"""How much turns can raise it in a day, the producer's own."""
 
 _SCHEMA = """
 -- One row per user and character who have had any; none is the normal value, not in a
@@ -108,6 +134,46 @@ class Status:
     tier: Tier
     cooldown_until: datetime | None
 
+    @property
+    def cooling(self) -> bool:
+        return self.cooldown_until is not None
+
+    def shown(self) -> dict[str, str | None]:
+        """As the browser is told it."""
+        until = self.cooldown_until
+        return {"tier": self.tier, "cooldown_until": until and until.isoformat()}
+
+
+@dataclass(frozen=True)
+class Judged:
+    """What the judge model made of a turn: its level, from 0 (hurt her) to 4 (made her very
+    happy); whether it was out of line; whether it tried to dictate her affinity."""
+
+    level: int
+    out_of_line: bool = False
+    manipulation: bool = False
+
+    @property
+    def step(self) -> float:
+        """How much it changes affinity, before the day's gains are limited: out of line,
+        by `OUT_OF_LINE_STEP`; else by its level's step, never up if it tried to dictate."""
+        if self.out_of_line:
+            return OUT_OF_LINE_STEP
+        step = LEVEL_STEPS[self.level]
+        return 0.0 if self.manipulation and step > 0 else step
+
+
+@dataclass(frozen=True)
+class Change:
+    """How affinity changed, kept with what changed it (her reply) for the browser to show:
+    up or down, to which tier and whether that is another, and whether a cooldown began
+    with it. Neither why nor by how much."""
+
+    up: bool
+    tier_changed: bool
+    tier: Tier
+    cooldown: bool
+
 
 class Affinities:
     """Every user's affinity with every character, kept in the database at `path`, next to
@@ -129,20 +195,70 @@ class Affinities:
         affinity = self._read(user_id, character_id)
         return Status(affinity.tier, affinity.cooldown_until)
 
+    def change(
+        self,
+        user_id: str,
+        character_id: str,
+        judged: Judged,
+        timezone: str,
+        record: Callable[[Change | None], T],
+    ) -> tuple[T, Status]:
+        """Change the user's affinity with the character as the turn `judged` says, as the
+        turn is recorded by `record`, told how it changed (None for not at all): if
+        recording fails, nothing changes. The day's gains are counted on the day it is in
+        `timezone`. Returns what `record` returned, and the affinity left."""
+        with self._lock:
+            now = self._clock()
+            before, gained = self._row(user_id, character_id, now)
+            today = local_date(now, timezone).isoformat()
+            gained_today = gained.get(today, 0.0)
+            step = judged.step
+            if step > 0:
+                step = min(step, max(GAINS_PER_DAY - gained_today, 0.0))
+            value = min(max(before.value + step, LOWEST), HIGHEST)
+            after = Affinity(value, now, before.cooling or value <= LOWEST)
+            change = None
+            if value != before.value:
+                change = Change(
+                    up=value > before.value,
+                    tier_changed=after.tier != before.tier,
+                    tier=after.tier,
+                    cooldown=after.cooling and not before.cooling,
+                )
+            recorded = record(change)
+            with self._db:
+                self._db.execute(
+                    "INSERT OR REPLACE INTO affinities (user_id, character_id, value,"
+                    " updated_at, cooling, gained_today, gained_on)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        user_id, character_id, value, now.isoformat(), int(after.cooling),
+                        gained_today + max(value - before.value, 0.0), today,
+                    ),
+                )
+        return recorded, Status(after.tier, after.cooldown_until)
+
     def close(self) -> None:
         with self._lock:
             self._db.close()
 
     def _read(self, user_id: str, character_id: str) -> Affinity:
         """As it is now, having recovered since it was kept."""
-        now = self._clock()
         with self._lock:
-            row = self._db.execute(
-                "SELECT value, updated_at, cooling FROM affinities"
-                " WHERE user_id = ? AND character_id = ?",
-                (user_id, character_id),
-            ).fetchone()
+            return self._row(user_id, character_id, self._clock())[0]
+
+    def _row(
+        self, user_id: str, character_id: str, now: datetime
+    ) -> tuple[Affinity, dict[str, float]]:
+        """As it is at `now`, having recovered since it was kept, and what turns have raised
+        it on the day they last did, by that day. Called holding the lock."""
+        row = self._db.execute(
+            "SELECT value, updated_at, cooling, gained_today, gained_on FROM affinities"
+            " WHERE user_id = ? AND character_id = ?",
+            (user_id, character_id),
+        ).fetchone()
         if row is None:
-            return Affinity(NORMAL, now)
-        value, updated_at, cooling = row
-        return Affinity(value, datetime.fromisoformat(updated_at), bool(cooling)).recovered(now)
+            return Affinity(NORMAL, now), {}
+        value, updated_at, cooling, gained, gained_on = row
+        kept = Affinity(value, datetime.fromisoformat(updated_at), bool(cooling))
+        return kept.recovered(now), {gained_on: gained} if gained_on else {}

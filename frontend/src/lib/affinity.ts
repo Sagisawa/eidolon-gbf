@@ -1,5 +1,6 @@
 // 好感度（GLOSSARY.md「好感度」「冷却」）：她对制作人的态度，用户只看到档位，看不到数值。
 // 这里把读到的状态换成页首标识要显示的东西：哪种心形、写什么、读屏读什么；冷却中换成解除时刻。
+// 回合改变了好感度时，她那条回复带着这次变化，这里写成胶囊上的那句话。
 
 import { api, json } from "@/lib/api";
 import { copy } from "@/i18n";
@@ -10,6 +11,18 @@ export type Tier = (typeof TIERS)[number];
 
 /** 读状态接口给的：档位，冷却中的解除时刻（ISO，不在冷却是 null）。 */
 export type AffinityStatus = { tier: Tier; cooldown_until: string | null };
+
+/** 一次变化：升还是降、变化后的档位、有没有跨档、是不是因此进了冷却。不带原因和变化量。 */
+export type AffinityChange = { up: boolean; tier_changed: boolean; tier: Tier; cooldown: boolean };
+
+/** 胶囊上的那句话：进了冷却最先说，其次跨档写出新档名，同档只说开心或不高兴。 */
+export function cueText(change: AffinityChange, name: string): string {
+  const t = copy.conversation.affinity.cues;
+  const tier = copy.conversation.affinity.tiers[change.tier];
+  if (change.cooldown) return t.cooldown(name);
+  if (change.tier_changed) return change.up ? t.closer(name, tier) : t.further(name, tier);
+  return change.up ? t.happier(name) : t.unhappier(name);
+}
 
 /** 五档的心形：冷淡 HeartOff、疏远 HeartCrack、信任空心、亲近半心（空心叠一层只露下半的实心）、亲密实心。 */
 export type Heart = "off" | "crack" | "outline" | "half" | "filled";

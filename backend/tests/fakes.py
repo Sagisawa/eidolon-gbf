@@ -48,7 +48,9 @@ from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
-from eidolon.judge import JudgeError
+from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
+from eidolon.affinity_judge import MANIPULATION, OUT_OF_LINE
+from eidolon.judge import SAID, JudgeError
 
 if TYPE_CHECKING:
     from eidolon.judge import JudgeModel
@@ -250,27 +252,68 @@ class _ConfiguredLLM:
         self._closed.append(self._settings)
 
 
+@dataclass(frozen=True)
+class Judging:
+    """A script for what the judge model makes of one turn's affinity: how likely each
+    level is (each level the only one by default, `level`), whether it is out of line,
+    whether it tries to dictate her affinity; or that the request fails."""
+
+    levels: Mapping[int, float] = field(default_factory=lambda: {2: 1.0})
+    out_of_line: bool = False
+    manipulation: bool = False
+    fails: bool = False
+
+    def answers(self) -> dict[str, Any]:
+        return {
+            AFFINITY_LEVEL: {"probabilities": {str(n): p for n, p in self.levels.items()}},
+            OUT_OF_LINE: {"noul": 1.0 if self.out_of_line else 0.0},
+            MANIPULATION: {"noul": 1.0 if self.manipulation else 0.0},
+        }
+
+
+def level(n: int, **judging: bool) -> Judging:
+    """A turn judged at level `n` for sure."""
+    return Judging({n: 1.0}, **judging)
+
+
 class FakeJudgeModel:
     """Stands in for the judge model's service: answers what each turn needs as the script
     `needs` says, her emotion in each segment as `feels` does; without them, the retrieval
     questions with the probabilities in `retrieval`, her emotion with those in `emotion`
-    and the nod with neither. Records the key each request came with and what it asked
-    (`asked`: "turn", "emotion" or "check")."""
+    and the nod with neither. Answers each turn's affinity questions as the next of
+    `judgings` says, as having no effect once they run out, recording what the user said
+    (`affinity_asked`). Records the key each request came with and what it asked (`asked`:
+    "turn", with or without affinity's questions, "affinity" for those alone, "emotion" or
+    "check")."""
 
     def __init__(self) -> None:
         self.needs: FakeJudge | None = None
         self.feels: FakeJudge | None = None
         self.retrieval = {"needs_retrieval": 0.1, "recall": 0.1, "about_producer": 0.1}
         self.emotion = {"平静": 1.0}
+        self.judgings: list[Judging] = []
         self.asked: list[tuple[str, str]] = []
+        self.affinity_asked: list[str] = []
 
     async def answer(
         self, key: str, state: dict[str, Any], questions: dict[str, dict]
     ) -> dict[str, Any]:
-        kind = "turn" if "recall" in questions else "emotion" if "emotion" in questions else "check"
+        kind = (
+            "turn" if "recall" in questions
+            else "affinity" if AFFINITY_LEVEL in questions
+            else "emotion" if "emotion" in questions
+            else "check"
+        )
         self.asked.append((key, kind))
+        affinity = {}
+        if AFFINITY_LEVEL in questions:
+            self.affinity_asked.append(state[SAID])
+            judging = self.judgings.pop(0) if self.judgings else Judging()
+            if judging.fails:
+                raise JudgeError("fake judge model is down")
+            affinity = judging.answers()
         if kind == "turn" and self.needs is not None:
-            return self.needs.need(state)
+            return self.needs.need(state) | affinity
         if kind == "emotion" and self.feels is not None:
             return await self.feels.feel(state)
         return {
@@ -278,7 +321,8 @@ class FakeJudgeModel:
             if q.get("type") == "noul"
             else {"probabilities": self.emotion if name == "emotion" else {"都不是": 1.0}}
             for name, q in questions.items()
-        }
+            if name not in affinity
+        } | affinity
 
 
 class _ConfiguredJudge:
@@ -700,7 +744,7 @@ class FakeJudge:
         self.segments: list[AskedSegment] = []
 
     def need(self, state: dict[str, Any]) -> dict[str, Any]:
-        self.asked.append((state["角色"], state["制作人最新的一句话"]))
+        self.asked.append((state["角色"], state[SAID]))
         if self.answer is None:
             raise JudgeError("fake judge model is down")
         yes = {"references": "needs_retrieval", "recall": "recall", "memories": "about_producer"}

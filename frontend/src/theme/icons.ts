@@ -58,8 +58,11 @@ export {
   LogIn as SignInIcon,
 } from "lucide-react";
 
-// 对话页首的好感度标识（GLOSSARY.md「好感度」「冷却」）：五档心形和冷却中的沙漏。
+// 对话页首的好感度标识（GLOSSARY.md「好感度」「冷却」）：五档心形和冷却中的沙漏；
+// 回合改变了好感度时，心形上、变化胶囊里和通话层状态行里的升降小箭头。
 export {
+  ArrowDown as AffinityDownIcon,
+  ArrowUp as AffinityUpIcon,
   Heart as AffinityHeartIcon,
   HeartCrack as AffinityDistantIcon,
   HeartOff as AffinityColdIcon,

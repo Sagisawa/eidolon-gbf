@@ -227,13 +227,14 @@ def build(
         memories = Memories(settings.database_path, characters, clock)
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
 
+    affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
+    closers.append(affinities.close)
     engine = ConversationEngine(
-        store, characters, memories, clock, retrieval, lambda: config.history_turns, world
+        store, characters, memories, clock, retrieval, lambda: config.history_turns, world,
+        affinities, config.affinity_judge(),
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
-    affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
-    closers.append(affinities.close)
     own_keys = OwnKeys(own_llm_service, config, activity, speech)
     admissions = Admissions(
         usage, activity, own_keys,

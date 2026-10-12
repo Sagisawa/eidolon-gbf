@@ -373,10 +373,7 @@ def create_app(backend: Backend) -> FastAPI:
         if character_id not in characters:
             raise HTTPException(404, "角色不存在")
         status = backend.affinities.status(user_id, character_id)
-        if status is None:
-            return None
-        until = status.cooldown_until
-        return {"tier": status.tier, "cooldown_until": until and until.isoformat()}
+        return status and status.shown()
 
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:

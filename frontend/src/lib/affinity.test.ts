@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { badgeOf, heartOf, TIERS, untilText } from "./affinity";
+import { badgeOf, cueText, heartOf, TIERS, untilText } from "./affinity";
 
 // 时刻都按东京时区写，测试不随跑测试的机器变。
 const zone = "Asia/Tokyo";
@@ -38,5 +38,18 @@ describe("untilText：解除时刻按制作人的时区写成今天或明天加�
     const tokyoMorning = new Date("2026-10-13T16:00:00Z");
     expect(untilText(new Date("2026-10-13T20:00:00Z"), tokyoMorning, zone)).toBe("今天 05:00");
     expect(untilText(new Date("2026-10-13T20:00:00Z"), now, zone)).toBe("明天 05:00");
+  });
+});
+
+describe("cueText：胶囊上的那句话，进了冷却最先说，其次跨档", () => {
+  it("冷却、跨档升降、同档升降各一句", () => {
+    const cue = (up: boolean, tier_changed: boolean, cooldown = false) =>
+      cueText({ up, tier_changed, tier: up ? "close" : "cold", cooldown }, "凛世");
+
+    expect(cue(false, true, true)).toBe("凛世现在不想说话了");
+    expect(cue(true, true)).toBe("和凛世更近了一步：亲近");
+    expect(cue(false, true)).toBe("凛世和你疏远了一些：冷淡");
+    expect(cue(true, false)).toBe("凛世有点开心");
+    expect(cue(false, false)).toBe("凛世有点不高兴");
   });
 });

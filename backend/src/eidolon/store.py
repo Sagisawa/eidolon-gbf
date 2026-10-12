@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from eidolon.affinity import Change
 from eidolon.database import connect, delete_user_data
 from eidolon.delivery_cues import without_cues
 from eidolon.producer import Birthday, ProducerProfile
@@ -72,7 +73,8 @@ CREATE TABLE IF NOT EXISTS messages (
     ja TEXT,
     zh TEXT,
     segments TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    affinity TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
 -- The identities banned users signed in with, kept when those users were deleted so that
@@ -148,7 +150,8 @@ class Message:
     """A user's input (`text`) or a character's reply.
 
     A reply keeps its full Japanese text (`ja`) and Chinese subtitle (`zh`), plus
-    the segments that pair each Japanese line with its own subtitle.
+    the segments that pair each Japanese line with its own subtitle, and how the turn
+    changed her affinity, if it did (`affinity`).
     """
 
     id: int
@@ -158,6 +161,7 @@ class Message:
     zh: str | None
     created_at: str
     segments: list[Segment] = field(default_factory=list)
+    affinity: Change | None = None
 
     def without_cues(self) -> "Message":
         """The message as people see it: a reply is kept as the model wrote it, delivery
@@ -170,6 +174,7 @@ class Message:
             None if self.zh is None else without_cues(self.zh),
             self.created_at,
             [Segment(without_cues(s.ja), without_cues(s.zh)) for s in self.segments],
+            self.affinity,
         )
 
 
@@ -190,6 +195,7 @@ class Store:
             self._db.execute("UPDATE users SET name = id")
         self._add_missing_columns("users", ("consented_at", "banned_at", "ban_note"), "TEXT")
         self._add_missing_columns("producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
+        self._add_missing_columns("messages", ("affinity",), "TEXT")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -541,7 +547,7 @@ class Store:
                 newest.setdefault(row["character_id"], Conversation(**row))
             last = {
                 c.id: self._db.execute(
-                    "SELECT id, role, text, ja, zh, segments, created_at FROM messages"
+                    "SELECT id, role, text, ja, zh, segments, created_at, affinity FROM messages"
                     " WHERE conversation_id = ? ORDER BY id DESC LIMIT 1",
                     (c.id,),
                 ).fetchone()
@@ -549,16 +555,25 @@ class Store:
             }
         return [(c, _message(last[c.id]) if last[c.id] else None) for c in newest.values()]
 
-    def add_turn(self, conversation_id: str, text: str, reply: list[Segment]) -> Message:
-        """Record the user's input and the character's reply together; returns the reply."""
+    def add_turn(
+        self,
+        conversation_id: str,
+        text: str,
+        reply: list[Segment],
+        affinity: Change | None = None,
+    ) -> Message:
+        """Record the user's input and the character's reply together, with how the turn
+        changed her affinity, if it did; returns the reply."""
         with self._lock, self._db:
             self._insert_message(conversation_id, "user", text=text)
-            return self._insert_message(conversation_id, "character", segments=reply)
+            return self._insert_message(
+                conversation_id, "character", segments=reply, affinity=affinity
+            )
 
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, role, text, ja, zh, segments, created_at FROM messages"
+                "SELECT id, role, text, ja, zh, segments, created_at, affinity FROM messages"
                 " WHERE conversation_id = ? ORDER BY id",
                 (conversation_id,),
             ).fetchall()
@@ -582,6 +597,7 @@ class Store:
         role: Role,
         text: str | None = None,
         segments: list[Segment] | None = None,
+        affinity: Change | None = None,
     ) -> Message:
         created_at = _now()
         ja = zh = stored_segments = None
@@ -590,12 +606,16 @@ class Store:
             zh = "".join(s.zh for s in segments)
             stored_segments = json.dumps([asdict(s) for s in segments], ensure_ascii=False)
         cursor = self._db.execute(
-            "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (conversation_id, role, text, ja, zh, stored_segments, created_at),
+            "INSERT INTO messages"
+            " (conversation_id, role, text, ja, zh, segments, created_at, affinity)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                conversation_id, role, text, ja, zh, stored_segments, created_at,
+                affinity and json.dumps(asdict(affinity)),
+            ),
         )
         assert cursor.lastrowid is not None
-        return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
+        return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [], affinity)
 
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
@@ -604,6 +624,7 @@ def _message(row: sqlite3.Row) -> Message:
     return Message(
         row["id"], row["role"], row["text"], row["ja"], row["zh"], row["created_at"],
         [Segment(**s) for s in json.loads(row["segments"] or "[]")],
+        Change(**json.loads(row["affinity"])) if row["affinity"] else None,
     )
 
 

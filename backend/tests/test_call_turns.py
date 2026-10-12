@@ -51,14 +51,19 @@ from eidolon.own_keys import BroughtKeys
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import (
+    FAKE_JUDGE,
     HANG,
     FakeBackgroundLLM,
     FakeEmbedder,
     FakeJudge,
     FakeLLM,
     FakeReranker,
+    FakeServiceClients,
+    Judging,
     build_faked,
+    level,
 )
+from tests.test_affinity_turns import value
 from tests.test_text_turn import start_conversation
 
 NOW = datetime(2026, 9, 25, 12, 30, tzinfo=UTC)
@@ -88,11 +93,13 @@ class CallUnderTest:
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
         follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
+        affinity: Sequence[Judging] | None = None,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
             llm, frames, muted=muted, limits=limits, memory=memory, connected=connected,
             judge=judge, emotion=emotion, follow_on_timeout=follow_on_timeout,
+            affinity=affinity,
         )
         spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
@@ -110,18 +117,25 @@ class CallUnderTest:
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
         follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
+        affinity: Sequence[Judging] | None = None,
     ) -> Sequence[Frame]:
         """Run the frames through a call that, unless told otherwise, connects as it starts,
         with `judge` as the deployer's Jev judging each segment's emotion, if given, as
         `emotion` says, and its speech recognition taking `follow_on_timeout` at most to
-        transcribe a follow-on."""
+        transcribe a follow-on. Given `affinity`, affinity is on, the judge model judging
+        each turn's as it says (`FakeJudgeModel.judgings`)."""
         remembering = {} if memory is None else {
             "background_llm": memory, "retrieval_judge": FakeJudge(), "embedder": FakeEmbedder(),
             "reranker": FakeReranker(),
         }
         settings = self._settings if emotion is None else replace(self._settings, emotion=emotion)
+        clients = FakeServiceClients()
+        if affinity is not None:
+            settings = replace(settings, judge=FAKE_JUDGE, affinity_and_gifts=True)
+            clients.judge.judgings = list(affinity)
         backend = build_faked(
-            settings, llm, clock=lambda: NOW, emotion_judge=judge, **remembering
+            settings, llm, clients=clients, clock=lambda: NOW, emotion_judge=judge,
+            **remembering,
         )
         try:
             mano = backend.characters["mano"]
@@ -386,6 +400,26 @@ async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call
         ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
     ]
     assert len(memory.prompts) == 1  # the reply dropped was not written down
+
+
+async def test_a_turn_with_a_follow_on_changes_affinity_as_the_whole_of_it_is_judged(
+    mano_call: CallUnderTest, settings: Settings
+):
+    llm = FakeLLM(SLOW_REPLY, MANO_REPLY, delay=0.3)
+
+    _, messages = await mano_call.run(
+        llm,
+        [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        affinity=[level(0), level(4)],
+    )
+    done = without_emotions(messages)[-1]
+
+    # The reply dropped, what it was judged at went with it.
+    assert value(settings.database_path) == 52
+    assert done["message"]["affinity"] == {
+        "up": True, "tier_changed": False, "tier": "trust", "cooldown": False
+    }
+    assert done["affinity"] == {"tier": "trust", "cooldown_until": None}
 
 
 async def test_what_is_typed_before_the_character_speaks_joins_the_turn_and_stops_its_voice(

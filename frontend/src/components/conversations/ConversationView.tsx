@@ -26,18 +26,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
-import { getAffinity, type AffinityStatus } from "@/lib/affinity";
+import { cueText } from "@/lib/affinity";
 import type { Account, Character } from "@/lib/api";
-import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
+import { linesOf, type Line } from "@/lib/messageLines";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
 import { detectTimezone } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { AffinityDownIcon, AffinityUpIcon, BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge } from "./AffinityBadge";
@@ -90,19 +90,8 @@ export function ConversationView({
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
-  const [affinity, setAffinity] = useState<AffinityStatus | null>(null);
-
-  // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识。
-  useEffect(() => {
-    let current = true;
-    getAffinity(character.id).then(
-      (status) => current && setAffinity(status),
-      () => current && setAffinity(null),
-    );
-    return () => {
-      current = false;
-    };
-  }, [character.id]);
+  // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
+  const { affinity, affinityCue } = snapshot;
 
   // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
   // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
@@ -166,7 +155,13 @@ export function ConversationView({
       <h1 className="min-w-0 flex-1 truncate px-2 text-header">{character.name}</h1>
       {phoneKey}
       {affinity && (
-        <AffinityBadge status={affinity} name={character.name} timeZone={detectTimezone()} subtree={subtree} />
+        <AffinityBadge
+          status={affinity}
+          cue={affinityCue}
+          name={character.name}
+          timeZone={detectTimezone()}
+          subtree={subtree}
+        />
       )}
       <DropdownMenu>
         <DropdownMenuTrigger
@@ -268,7 +263,7 @@ export function ConversationView({
             </EmptyHeader>
           </Empty>
         ) : (
-          <Messages entries={entries} hearing={hearing} character={character} />
+          <Messages entries={entries} hearing={hearing} character={character} affinityOn={affinity !== null} />
         )}
       </div>
       {composer}
@@ -333,50 +328,22 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
   );
 }
 
-/** 消息区的一行：跨天处的日期条，或者一条消息和它在组里的位置（The Bubble Group Rule）。 */
-type Line =
-  | { kind: "day"; key: string; label: string }
-  | { kind: "entry"; entry: Entry; first: boolean; last: boolean };
-
-/** 按日期和说话的人把消息排成行：换了一天先放日期条；同一个人连着发、中间没有日期条的算一组。 */
-function linesOf(entries: Entry[], now: Date): Line[] {
-  const days = entries.map((e) => new Date(e.at).toDateString());
-  const lines: Line[] = [];
-  entries.forEach((entry, i) => {
-    const newDay = i === 0 || days[i] !== days[i - 1];
-    if (newDay) lines.push({ kind: "day", key: `day-${days[i]}`, label: dayLabel(new Date(entry.at), now) });
-    const next = entries[i + 1];
-    lines.push({
-      kind: "entry",
-      entry,
-      first: newDay || entries[i - 1].kind !== entry.kind,
-      last: !next || days[i + 1] !== days[i] || next.kind !== entry.kind,
-    });
-  });
-  return lines;
-}
-
-/** 日期条上的字：今天、昨天，今年写月日，更早写年月日（和列表的写法一样）。 */
-function dayLabel(at: Date, now: Date): string {
-  const list = copy.conversationList;
-  switch (dayOf(at, now)) {
-    case "today":
-      return t.today;
-    case "yesterday":
-      return list.yesterday;
-    case "thisYear":
-      return list.monthDay(String(at.getMonth() + 1), String(at.getDate()));
-    case "earlier":
-      return list.fullDate(String(at.getFullYear()), String(at.getMonth() + 1), String(at.getDate()));
-  }
-}
-
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
- * 消息从顶部开始排；气泡之间 4px，换人时多 8px。
+ * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复后面是一行变化胶囊。
  */
-function Messages({ entries, hearing, character }: { entries: Entry[]; hearing: string; character: Character }) {
-  const lines = linesOf(entries, new Date());
+function Messages({
+  entries,
+  hearing,
+  character,
+  affinityOn,
+}: {
+  entries: Entry[];
+  hearing: string;
+  character: Character;
+  affinityOn: boolean;
+}) {
+  const lines = linesOf(entries, new Date(), affinityOn);
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
       <MessageScroller>
@@ -387,6 +354,18 @@ function Messages({ entries, hearing, character }: { entries: Entry[]; hearing: 
                 <MessageScrollerItem key={line.key} className="my-3 flex justify-center">
                   <span className="rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
                     {line.label}
+                  </span>
+                </MessageScrollerItem>
+              ) : line.kind === "cue" ? (
+                <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
+                  {/* 好感度的变化胶囊：样子和日期条一样，一个升降小箭头加一句话，不用她的颜色 */}
+                  <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                    {line.change.up ? (
+                      <AffinityUpIcon aria-hidden className="size-3" />
+                    ) : (
+                      <AffinityDownIcon aria-hidden className="size-3" />
+                    )}
+                    {cueText(line.change, character.name)}
                   </span>
                 </MessageScrollerItem>
               ) : (

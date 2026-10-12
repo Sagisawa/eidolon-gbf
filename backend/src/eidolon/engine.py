@@ -29,6 +29,13 @@ ever, with only the segments complete by then.
 Each turn runs on the models it is given (see `OwnKeys.for_turn`): one plays the
 character, the other writes down memories. When the user's own fails, the turn fails
 saying so. Retrieval is always the deployer's.
+
+Where affinity is on as the turn begins (GLOSSARY.md「好感度」) and she is not in a cooldown,
+the deployer's judge model judges what the user said to her before she replies: in the
+same request as retrieval's judge, or, retrieval off, in one of its own while the turn gets
+on with the rest. Once her reply is recorded affinity changes as it judged, and the change
+is recorded with her reply; `done` tells it, and where it leaves her affinity. A turn not
+recorded changes nothing; one the judge model could not judge leaves it as it is.
 """
 
 import asyncio
@@ -37,8 +44,11 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Literal, ParamSpec, TypeVar
 
+from eidolon.affinity import Affinities, Judged, Status
+from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
+from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
@@ -46,6 +56,7 @@ from eidolon.producer import effective_timezone, local_date, producer_prompt
 from eidolon.reply_format import (
     FORMAT_INSTRUCTIONS,
     ReplyParser,
+    Segment,
     SegmentComplete,
     SegmentDelta,
     SpeechDelta,
@@ -80,9 +91,11 @@ class UserSaid:
 
 @dataclass(frozen=True)
 class TurnDone:
-    """The recorded reply; the turn succeeded."""
+    """The recorded reply, with how the turn changed her affinity if it did; and her
+    affinity after it (`Status.shown`), None where affinity is off. The turn succeeded."""
 
     message: Message
+    affinity: dict[str, str | None] | None = None
     type: Literal["done"] = field(default="done", init=False)
 
 
@@ -154,6 +167,17 @@ async def _unless_stopped(
     return working.result()
 
 
+async def _judged(
+    judge: AffinityJudge, character: Character, history: list[Message], text: str
+) -> Judged | None:
+    """What saying `text` does to her affinity; None if it cannot be told."""
+    try:
+        return await judge.judge(character, history, text)
+    except JudgeError:
+        log.warning("affinity judge failed; affinity stays as it is", exc_info=True)
+        return None
+
+
 def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     """The messages from the `turns`th last user message on (from the first if None), so
     what the chat model reads always opens with the user."""
@@ -172,11 +196,15 @@ class ConversationEngine:
         retrieval: Retrieval | None = None,
         history_turns: Callable[[], int | None] = lambda: None,
         world: World | None = None,
+        affinities: Affinities | None = None,
+        affinity_judge: AffinityJudge | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest turns, as many as
         `history_turns` says as it begins, or all of them if None. Without `world`, turns
-        carry no world setting."""
+        carry no world setting. Without `affinities`, turns change no affinity; with them,
+        retrieval's judge judges what turns do to it, or without retrieval
+        `affinity_judge`."""
         self._store = store
         self._characters = characters
         self._clock = clock
@@ -184,6 +212,8 @@ class ConversationEngine:
         self._memory = memory
         self._history_turns = history_turns
         self._world = world
+        self._affinities = affinities
+        self._affinity_judge = affinity_judge
 
     async def turn(
         self,
@@ -222,14 +252,28 @@ class ConversationEngine:
     ) -> AsyncIterator[TurnEvent]:
         character = self._characters[conversation.character_id]
         history = latest_turns(self._store.list_messages(conversation.id), self._history_turns())
-        profile = self._store.get_profile(conversation.user_id)
-        timezone = effective_timezone(profile, device_timezone)
-        memory = await self._memory.begin(conversation, timezone, llms.memory, llms.hold_memory)
-        retrieved = (
-            await self._retrieval.retrieve(character, history, text, memory)
-            if self._retrieval
-            else Retrieved(None)
-        )
+        affinity = self._affinity(conversation)
+        judging = affinity is not None and not affinity.cooling
+        judged_apart = None
+        if judging and self._retrieval is None and self._affinity_judge is not None:
+            judged_apart = asyncio.ensure_future(
+                _judged(self._affinity_judge, character, history, text)
+            )
+        try:
+            profile = self._store.get_profile(conversation.user_id)
+            timezone = effective_timezone(profile, device_timezone)
+            memory = await self._memory.begin(
+                conversation, timezone, llms.memory, llms.hold_memory
+            )
+            retrieved = (
+                await self._retrieval.retrieve(character, history, text, memory, judging)
+                if self._retrieval
+                else Retrieved(None)
+            )
+            judged = await judged_apart if judged_apart is not None else retrieved.judged
+        finally:
+            if judged_apart is not None and not judged_apart.done():
+                judged_apart.cancel()
         now = self._clock()
         about_producer = producer_prompt(profile, now, timezone)
         world_prompt = (
@@ -274,9 +318,35 @@ class ConversationEngine:
 
         if not parser.complete:
             raise EmptyReply("对话模型没有返回任何内容")
-        reply = self._store.add_turn(conversation.id, text, parser.complete)
+        reply, affinity = self._record(
+            conversation, text, parser.complete, judged, timezone, affinity
+        )
         memory.write_down(history, text, reply)
-        yield TurnDone(reply.without_cues())
+        yield TurnDone(reply.without_cues(), affinity and affinity.shown())
+
+    def _affinity(self, conversation: Conversation) -> Status | None:
+        """Her affinity with the user as the turn begins; None where affinity is off."""
+        if self._affinities is None:
+            return None
+        return self._affinities.status(conversation.user_id, conversation.character_id)
+
+    def _record(
+        self,
+        conversation: Conversation,
+        text: str,
+        reply: list[Segment],
+        judged: Judged | None,
+        timezone: str,
+        affinity: Status | None,
+    ) -> tuple[Message, Status | None]:
+        """Record the turn, changing her affinity as `judged` says, if judged: the reply,
+        and her affinity after it (`affinity`, as the turn began, if not judged)."""
+        if judged is None or self._affinities is None:
+            return self._store.add_turn(conversation.id, text, reply), affinity
+        return self._affinities.change(
+            conversation.user_id, conversation.character_id, judged, timezone,
+            lambda change: self._store.add_turn(conversation.id, text, reply, change),
+        )
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:
         """The tool's result, or what went wrong, for the model to read."""

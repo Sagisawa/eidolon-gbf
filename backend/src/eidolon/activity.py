@@ -53,6 +53,8 @@ from eidolon.judge import CLOUDFLARE_API_URL
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.rerank import Reranker
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
+    from eidolon.affinity import Judged
+    from eidolon.affinity_judge import AffinityJudge
     from eidolon.emotion import EmotionAnswer, EmotionJudge, SegmentToJudge
     from eidolon.retrieval import Need, RetrievalJudge
 from eidolon.store import Message
@@ -698,7 +700,24 @@ class MeteredJudge:
         self._log = log
         self._origin = origin
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> "Need":
+    async def judge(
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
+    ) -> "tuple[Need, Judged | None]":
+        return await timed(
+            self._log, self._origin, self._judge.judge(character, history, text, affinity)
+        )
+
+
+class MeteredAffinityJudge:
+    """The judge model as a turn asks it about affinity alone, where retrieval is off, each
+    question recorded as a service call."""
+
+    def __init__(self, judge: "AffinityJudge", log: ActivityLog, origin: Origin) -> None:
+        self._judge = judge
+        self._log = log
+        self._origin = origin
+
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> "Judged":
         return await timed(self._log, self._origin, self._judge.judge(character, history, text))
 
 

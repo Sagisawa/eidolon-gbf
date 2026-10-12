@@ -116,6 +116,14 @@ export const zh = {
       /** 解除时刻：按制作人的时区写成今天或明天加时刻。 */
       today: "今天",
       tomorrow: "明天",
+      /** 回合改变了好感度时，她那条回复后面的胶囊、通话层的状态行。 */
+      cues: {
+        cooldown: (name: string) => `${name}现在不想说话了`,
+        closer: (name: string, tier: string) => `和${name}更近了一步：${tier}`,
+        further: (name: string, tier: string) => `${name}和你疏远了一些：${tier}`,
+        happier: (name: string) => `${name}有点开心`,
+        unhappier: (name: string) => `${name}有点不高兴`,
+      },
     },
     /** 页首的「换衣装」和它打开的面板（spec「衣装与换衣装」）。 */
     outfits: {

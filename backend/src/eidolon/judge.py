@@ -10,13 +10,16 @@ other when it fails.
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 
 import httpx
 
 from eidolon.billing import bill
+from eidolon.characters import Character
 from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JudgeSettings
+from eidolon.store import Message
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +31,24 @@ _QUOTA_ERROR_CODES = {4006}
 """Cloudflare's code for the day's free allocation of neurons being used up."""
 
 _CHECK_QUESTION = {"type": "noul", "instructions": "这是一条测试消息吗？"}
+
+JUDGE_HISTORY = 4
+"""How many of the latest messages the judge model sees along with what the user just said."""
+
+SAID = "制作人最新的一句话"
+"""What the user just said, as the judge model is told it about a turn (`turn_state`)."""
+
+
+def turn_state(character: Character, history: Sequence[Message], text: str) -> dict[str, Any]:
+    """What the judge model is told of a turn, whatever it is asked about it: who she is,
+    the latest messages before it, and what the user just said (`SAID`)."""
+    recent = []
+    for message in history[-JUDGE_HISTORY:]:
+        if message.role == "user":
+            recent.append(f"制作人：{message.text}")
+        else:
+            recent.append(f"{character.name}：{message.without_cues().ja}")
+    return {"角色": character.name, "上文": recent or "（对话刚开始）", SAID: text}
 
 
 @dataclass(frozen=True)
@@ -44,6 +65,10 @@ class JudgeThresholds:
     emotion: float
     """The likeliest emotion's probability below which she is calm, and the likeliest
     nod's below which there is none (overridden by `JUDGE_EMOTION_MIN_PROBABILITY`)."""
+    out_of_line: float
+    """Whether what the user said is out of line (GLOSSARY.md「不该说的话」)."""
+    manipulation: float
+    """Whether what the user said tries to dictate her affinity, or poses as the system."""
 
 
 JudgeFamily = Literal["jev", "clef", "clef-flash"]
@@ -53,12 +78,21 @@ reached: Clef-flash through OpenRouter judges as it does on Workers AI."""
 JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
     # Set by the judge eval (backend/eval/judge.toml); how each was chosen from the spread
     # of probabilities is in .scratch/cloudflare-judge/issues/05-apply-eval-and-docs.md.
-    "jev": JudgeThresholds(needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5),
+    # Affinity's two (out_of_line, manipulation) are placeholders until its own eval sets
+    # them (.scratch/affinity/issues/04-judge-eval-and-thresholds.md).
+    "jev": JudgeThresholds(
+        needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5,
+        out_of_line=0.5, manipulation=0.5,
+    ),
     # Clef and Clef-flash are surer of recall than they should be, less sure of the user's
     # own life, and less sure of the emotion they hear.
-    "clef": JudgeThresholds(needs_retrieval=0.5, recall=0.8, about_producer=0.1, emotion=0.4),
+    "clef": JudgeThresholds(
+        needs_retrieval=0.5, recall=0.8, about_producer=0.1, emotion=0.4,
+        out_of_line=0.5, manipulation=0.5,
+    ),
     "clef-flash": JudgeThresholds(
-        needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4
+        needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4,
+        out_of_line=0.5, manipulation=0.5,
     ),
 }
 FALLBACK_FAMILY: JudgeFamily = "jev"

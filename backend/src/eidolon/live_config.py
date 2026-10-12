@@ -42,6 +42,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from eidolon.activity import (
     ActivityLog,
+    MeteredAffinityJudge,
     MeteredEmotionJudge,
     MeteredJudge,
     judge_origin,
@@ -62,6 +63,8 @@ from eidolon.config import (
     UsageLimits,
 )
 from eidolon.database import connect
+from eidolon.affinity import Judged
+from eidolon.affinity_judge import ModelAffinityJudge
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
 from eidolon.judge import (
     JudgeError,
@@ -680,6 +683,14 @@ class LiveConfig:
             return None
         return LiveRetrievalJudge(self, self._judge, self._activity)
 
+    def affinity_judge(self) -> "LiveAffinityJudge | None":
+        """The judge model as a turn asks it about affinity alone, where retrieval is off:
+        the one in effect at each question, each recorded as a service call; None without
+        one."""
+        if self._judge is None:
+            return None
+        return LiveAffinityJudge(self, self._judge, self._activity)
+
     async def start(self) -> None:
         """Try every override as the server starts: one that fails falls back to `.env`,
         with a warning. Logs those in effect."""
@@ -989,11 +1000,40 @@ class LiveRetrievalJudge:
         self._judge = judge
         self._activity = activity
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
+    async def judge(
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
+    ) -> tuple[Need, Judged | None]:
         lease = self._judge.lease()
         try:
             judge = MeteredJudge(
                 ModelRetrievalJudge(lease.client, self._config.judge_thresholds_of(lease.settings)),
+                self._activity,
+                judge_origin(lease.settings),
+            )
+            return await judge.judge(character, history, text, affinity)
+        finally:
+            lease.release()
+
+
+class LiveAffinityJudge:
+    """The judge model as a turn asks it about affinity alone: at each question, the one in
+    effect then, held while it answers, by its own thresholds, recorded as the model it is."""
+
+    def __init__(
+        self,
+        config: LiveConfig,
+        judge: Swappable[JudgeModel, JudgeSettings],
+        activity: ActivityLog,
+    ) -> None:
+        self._config = config
+        self._judge = judge
+        self._activity = activity
+
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Judged:
+        lease = self._judge.lease()
+        try:
+            judge = MeteredAffinityJudge(
+                ModelAffinityJudge(lease.client, self._config.judge_thresholds_of(lease.settings)),
                 self._activity,
                 judge_origin(lease.settings),
             )

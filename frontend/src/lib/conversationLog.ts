@@ -1,13 +1,22 @@
 // The conversation page's log: what it shows of the conversation, kept up to date from
 // the same turn events whether the turn is typed or spoken in a call.
 
+import type { AffinityChange } from "@/lib/affinity";
 import type { Message, Segment, TurnEvent } from "@/lib/api";
 
 /** One message shown. `at` (ISO) is when it was recorded; for the turn under way, when the
- * user sent or said the words, which the reply shares until it is recorded. */
+ * user sent or said the words, which the reply shares until it is recorded. Her reply keeps
+ * how the turn changed her affinity, once recorded; null where it did not. */
 export type Entry =
   | { kind: "user"; key: string; text: string; at: string }
-  | { kind: "character"; key: string; segments: Segment[]; pending: boolean; at: string };
+  | {
+      kind: "character";
+      key: string;
+      segments: Segment[];
+      pending: boolean;
+      at: string;
+      affinity: AffinityChange | null;
+    };
 
 /** The exchange under way: the user's words and the reply, both the last entries shown.
  * A turn the user typed is unconfirmed until the backend's `user` event takes it up. */
@@ -75,7 +84,7 @@ function opened(log: ConversationLog, text: string, at: string, confirmed: boole
     entries: [
       ...log.entries,
       { kind: "user", key: turn.userKey, text, at },
-      { kind: "character", key: turn.replyKey, segments: [], pending: true, at },
+      { kind: "character", key: turn.replyKey, segments: [], pending: true, at, affinity: null },
     ],
     turn,
   };
@@ -110,5 +119,6 @@ function toEntry(message: Message): Entry {
         segments: message.segments,
         pending: false,
         at: message.created_at,
+        affinity: message.affinity,
       };
 }
