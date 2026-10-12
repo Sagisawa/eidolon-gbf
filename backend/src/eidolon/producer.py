@@ -5,8 +5,9 @@ the character addresses the producer, the producer is the man of the original
 story, the time zone is the one the user's device reports (Asia/Shanghai
 when it reports none), and the character does not know the producer's birthday
 (a month and a day, never a year). On the birthday, counted in the producer's
-own time zone, the character is asked to wish them a happy birthday once. The profile only shapes how the character
-treats the user now; the stories she recalls stay as they happened.
+own time zone, the character is asked to wish them a happy birthday once. The
+profile only shapes how the character treats the user now; the stories she
+recalls stay as they happened.
 """
 
 import calendar

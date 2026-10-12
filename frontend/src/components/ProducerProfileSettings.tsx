@@ -43,7 +43,7 @@ export function ProducerProfileSettings() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [saving, setSaving] = useState(false);
-  // 点过保存、被半个生日挡下之后才提示补日期；补上或清掉月份，提示随之消失。
+  // 点过保存、被半个生日挡下之后才提示补日期；之后再动月或日，提示收起，等下次保存再判断。
   const [triedToSave, setTriedToSave] = useState(false);
   const [detected, setDetected] = useState("");
   const [timezones, setTimezones] = useState<string[]>([]);
@@ -204,7 +204,10 @@ export function ProducerProfileSettings() {
               <Select
                 items={monthOptions}
                 value={draft.birthMonth === null ? DEFAULT : String(draft.birthMonth)}
-                onValueChange={(value) => setDraft(chooseBirthMonth(draft, toNumber(value)))}
+                onValueChange={(value) => {
+                  setDraft(chooseBirthMonth(draft, fromBirthdayOption(value)));
+                  setTriedToSave(false);
+                }}
               >
                 <SelectTrigger id={`${id}-birth-month`} aria-label={t.birthMonth} className="w-full">
                   <SelectValue />
@@ -220,7 +223,10 @@ export function ProducerProfileSettings() {
               <Select
                 items={dayOptions}
                 value={draft.birthDay === null ? DEFAULT : String(draft.birthDay)}
-                onValueChange={(value) => update({ birthDay: toNumber(value) })}
+                onValueChange={(value) => {
+                  update({ birthDay: fromBirthdayOption(value) });
+                  setTriedToSave(false);
+                }}
                 disabled={draft.birthMonth === null}
               >
                 <SelectTrigger
@@ -271,6 +277,6 @@ function range(n: number): number[] {
 }
 
 /** 生日选择框的值换回草稿里的数字，「不填」是 null。 */
-function toNumber(value: string | null): number | null {
+function fromBirthdayOption(value: string | null): number | null {
   return value === DEFAULT || !value ? null : Number(value);
 }

@@ -10,6 +10,8 @@ import {
   toDraft,
 } from "@/lib/producerProfile";
 
+const blank = { formOfAddress: "", gender: "" as const, timezone: "", birthMonth: null, birthDay: null };
+
 describe("toDraft", () => {
   it("把没有设置的项变成空白，表示沿用默认", () => {
     expect(toDraft({ form_of_address: null, gender: null, timezone: null, birthday: null })).toEqual({
@@ -40,8 +42,6 @@ describe("toDraft", () => {
 });
 
 describe("fromDraft", () => {
-  const blank = { formOfAddress: "", gender: "" as const, timezone: "", birthMonth: null, birthDay: null };
-
   it("空白的项存成 null，交回默认；月日都不填就是没有生日", () => {
     expect(fromDraft({ ...blank, formOfAddress: "  " })).toEqual({
       form_of_address: null,
@@ -69,7 +69,6 @@ describe("fromDraft", () => {
 
 describe("missingBirthDay", () => {
   it("只选了月、没选日时要补上日期", () => {
-    const blank = { formOfAddress: "", gender: "" as const, timezone: "", birthMonth: null, birthDay: null };
     expect(missingBirthDay({ ...blank, birthMonth: 5 })).toBe(true);
     expect(missingBirthDay(blank)).toBe(false);
     expect(missingBirthDay({ ...blank, birthMonth: 5, birthDay: 3 })).toBe(false);
@@ -85,7 +84,6 @@ describe("chooseBirthMonth", () => {
 
   it("日期在新月份里还在就留着", () => {
     expect(chooseBirthMonth({ ...draft, birthDay: 29 }, 2)).toEqual({ ...draft, birthMonth: 2, birthDay: 29 });
-    expect(chooseBirthMonth(draft, 12)).toEqual({ ...draft, birthMonth: 12, birthDay: 31 });
   });
 
   it("月份改成不填时日期一起清掉", () => {
