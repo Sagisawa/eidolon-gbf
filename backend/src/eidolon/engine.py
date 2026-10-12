@@ -35,7 +35,8 @@ the deployer's judge model judges what the user said to her before she replies: 
 same request as retrieval's judge, or, retrieval off, in one of its own while the turn gets
 on with the rest. Once her reply is recorded affinity changes as it judged, and the change
 is recorded with her reply; `done` tells it, and where it leaves her affinity. A turn not
-recorded changes nothing; one the judge model could not judge leaves it as it is.
+recorded changes nothing; one the judge model could not judge leaves it as it is. She
+replies in the tier the turn began in, knowing how what the user said made her feel.
 """
 
 import asyncio
@@ -45,6 +46,7 @@ from dataclasses import dataclass, field
 from typing import Literal, ParamSpec, TypeVar
 
 from eidolon.affinity import Affinities, Judged, Status
+from eidolon.affinity import prompt as affinity_prompt
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -275,7 +277,8 @@ class ConversationEngine:
             if judged_apart is not None and not judged_apart.done():
                 judged_apart.cancel()
         now = self._clock()
-        about_producer = producer_prompt(profile, now, timezone)
+        toward = affinity_prompt(affinity.tier, judged) if affinity is not None else []
+        about_producer = producer_prompt(profile, now, timezone, toward)
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )

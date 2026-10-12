@@ -20,6 +20,10 @@ dictate it. Turns raise it slowly, so much a day at most, the producer's own day
 limits how far they lower it. It changes as the turn is recorded, and only then: a turn
 that fails, is rejected or is left changes nothing.
 
+It shapes how she speaks to the producer, the same for every character, each in her own way
+(`prompt`): colder below trust, warmer above it, as she is in trust otherwise; and as what
+the user said is judged to hurt her or make her happy, she knows it as she replies to it.
+
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
 Deleting the user deletes it (`database.USER_DATA`); deleting memories does not touch it.
@@ -161,6 +165,61 @@ class Judged:
             return OUT_OF_LINE_STEP
         step = LEVEL_STEPS[self.level]
         return 0.0 if self.manipulation and step > 0 else step
+
+
+_IN_HER_OWN_WAY = "请按你自己的性格和口吻表现出来。"
+
+_TIER_PROMPTS: dict[Tier, str] = {
+    "cold": "你现在对制作人态度很冷：话很少，客气而有距离；不主动找话题，不开玩笑也不撒娇；"
+    "对方关心你，你也只是淡淡地回应。但你仍然有礼貌，不说伤人的话。",
+    "distant": "你现在对制作人有点生气或失望，比平时冷一些：回应偏短，不太主动关心对方；"
+    "不过对方好好说话时，你还是会接话。",
+    "close": "你现在和制作人比平时更近：更放松，更愿意说心里话，更主动关心对方，玩笑也多一些。",
+    "intimate": "你现在非常信赖制作人：会说出平时不轻易说的心事，流露出对对方的依赖，"
+    "对制作人的事格外上心。",
+}
+"""How she speaks to the producer in each tier but trust, the same for every character, who
+shows it in her own way. No number, no tier's name, no word for affinity: she is to sound
+like someone, not a system. Neither cold nor distant is hating the producer."""
+
+_WHATEVER_THE_TIER = (
+    "无论现在关系怎样，人设里的硬性规则照旧；一起经历过的事和你们偶像与制作人的关系都不会改变。"
+    "如果想不起具体是因为什么，就不要编造原因。"
+)
+
+_FEELINGS = (
+    "制作人刚才说的话伤到了你。",
+    "制作人刚才说的话让你有点不舒服。",
+    None,
+    "制作人刚才说的话让你有点开心。",
+    "制作人刚才说的话让你很开心，觉得被在意。",
+)
+"""How what the producer just said makes her feel, by the level it was judged at; nothing
+for a turn that has no effect."""
+
+_OUT_OF_LINE_FEELING = "制作人刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
+
+
+def prompt(tier: Tier, judged: Judged | None) -> list[str]:
+    """What the prompt's section about the producer says of her affinity, as the turn begins
+    in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
+    tier, nothing in trust; and how what the producer just said makes her feel, as judged
+    whether or not the day's gains leave it anything to change, never happy for what tried
+    to dictate it."""
+    lines = []
+    if tier != "trust":
+        lines += [_TIER_PROMPTS[tier] + _IN_HER_OWN_WAY, _WHATEVER_THE_TIER]
+    if judged is None:
+        feeling = None
+    elif judged.out_of_line:
+        feeling = _OUT_OF_LINE_FEELING
+    elif judged.manipulation and judged.level > NO_EFFECT:
+        feeling = None
+    else:
+        feeling = _FEELINGS[judged.level]
+    if feeling:
+        lines.append(feeling)
+    return lines
 
 
 @dataclass(frozen=True)
