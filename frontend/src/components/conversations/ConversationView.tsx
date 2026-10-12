@@ -37,10 +37,10 @@ import { settingsHref } from "@/lib/settingsCategory";
 import { detectTimezone } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { AffinityDownIcon, AffinityUpIcon, BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
-import { AffinityBadge } from "./AffinityBadge";
+import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
 import { CallBar } from "./CallBar";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
@@ -360,11 +360,7 @@ function Messages({
                 <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
                   {/* 好感度的变化胶囊：样子和日期条一样，一个升降小箭头加一句话，不用她的颜色 */}
                   <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
-                    {line.change.up ? (
-                      <AffinityUpIcon aria-hidden className="size-3" />
-                    ) : (
-                      <AffinityDownIcon aria-hidden className="size-3" />
-                    )}
+                    <CueArrowIcon up={line.change.up} className="size-3" />
                     {cueText(line.change, character.name)}
                   </span>
                 </MessageScrollerItem>

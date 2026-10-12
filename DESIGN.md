@@ -232,7 +232,7 @@ components:
 ### Buttons
 - shadcn `Button`。对话子树里 `default`（primary）填她的 accent，字用 onAccent；返回、搜索、更多菜单用 `ghost` 的 `icon-lg`。
 - **电话键**：对话页首的 ghost 图标键，图标用她的颜色。通话中同一个键变成「回到通话」。
-- **好感度标识**：对话页首电话键右边、更多菜单左边的 ghost 键，心形图标（她的颜色）加档名；五档图标冷淡 `HeartOff`、疏远 `HeartCrack`、信任空心 `Heart`、亲近半心（`Heart` 叠一层只露下半的实心）、亲密实心 `Heart`。冷却中换成 muted 的 `Hourglass` 加解除时刻。宽度跟着内容走、高度不小于 44px，挤不下时名字截断。一个回合改变了好感度时，心形跳一下，右上角叠一个 14px 的圆形小箭头，约 2.6 秒后消失：「升」是 `--her-button` 底配 `--her-button-fg` 的 `ArrowUp`，「降」是中性前景色底的 `ArrowDown`；`prefers-reduced-motion` 时不跳，只出箭头。点开是 Popover（`container` 指回对话子树）：现在的关系、这一档的大意、五档横排（当前一档实底）、末尾 Meta 字号的规则说明。
+- **好感度标识**：对话页首电话键右边、更多菜单左边的 ghost 键，心形图标（她的颜色）加档名；五档图标冷淡 `HeartOff`、疏远 `HeartCrack`、信任空心 `Heart`、亲近半心（`Heart` 叠一层只露下半的实心）、亲密实心 `Heart`。冷却中换成 muted 的 `Hourglass` 加解除时刻。宽度跟着内容走、高度不小于 44px，挤不下时名字截断。一个回合改变了好感度时，心形跳一下，右上角叠一个 14px 的圆形小箭头，约 2.6 秒后消失：「升」是 `--her-button` 底配 `--her-button-fg` 的 `ArrowUp`，「降」是中性前景色底的 `ArrowDown`；跳是一次（`animate-jump`，0.6s），不循环；`prefers-reduced-motion` 时不跳，只出箭头。点开是 Popover（`container` 指回对话子树）：现在的关系、这一档的大意、五档横排（当前一档实底）、末尾 Meta 字号的规则说明。
 - **发送键**：正圆，底 `--her-button`，图标 `--her-button-fg`。
 - **Destructive**：挂断红，白字。
 - **后台（/admin）**：后台没有她的颜色，`default`（primary）就是 shadcn neutral 的黑底白字（深色模式反过来），只给表单的提交（「试调并保存」「保存」）。卡片上的「修改」、页首的「封禁」用 `outline`；行内操作（表格里的「封禁 / 解除封禁」「修改」）、「刷新」「取消」用 `ghost` 的 `sm`；「删除这位用户」这种打开确认框的入口也用 `outline`，只有确认框里真正执行的那一下用 `destructive`。

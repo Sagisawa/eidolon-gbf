@@ -209,9 +209,9 @@ class Affinities:
         `timezone`. Returns what `record` returned, and the affinity left."""
         with self._lock:
             now = self._clock()
-            before, gained = self._row(user_id, character_id, now)
+            before, gained, gained_on = self._row(user_id, character_id, now)
             today = local_date(now, timezone).isoformat()
-            gained_today = gained.get(today, 0.0)
+            gained_today = gained if gained_on == today else 0.0
             step = judged.step
             if step > 0:
                 step = min(step, max(GAINS_PER_DAY - gained_today, 0.0))
@@ -249,16 +249,16 @@ class Affinities:
 
     def _row(
         self, user_id: str, character_id: str, now: datetime
-    ) -> tuple[Affinity, dict[str, float]]:
+    ) -> tuple[Affinity, float, str | None]:
         """As it is at `now`, having recovered since it was kept, and what turns have raised
-        it on the day they last did, by that day. Called holding the lock."""
+        it on the day they last did, and that day (None if never). Called holding the lock."""
         row = self._db.execute(
             "SELECT value, updated_at, cooling, gained_today, gained_on FROM affinities"
             " WHERE user_id = ? AND character_id = ?",
             (user_id, character_id),
         ).fetchone()
         if row is None:
-            return Affinity(NORMAL, now), {}
+            return Affinity(NORMAL, now), 0.0, None
         value, updated_at, cooling, gained, gained_on = row
         kept = Affinity(value, datetime.fromisoformat(updated_at), bool(cooling))
-        return kept.recovered(now), {gained_on: gained} if gained_on else {}
+        return kept.recovered(now), gained, gained_on

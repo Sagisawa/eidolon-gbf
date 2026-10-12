@@ -29,8 +29,6 @@ import {
 import type { StandDirection } from "@/lib/standAnimations";
 import { cn } from "@/lib/utils";
 import {
-  AffinityDownIcon,
-  AffinityUpIcon,
   CollapseIcon,
   HangUpIcon,
   MicIcon,
@@ -41,6 +39,7 @@ import {
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
+import { CueArrowIcon } from "./AffinityBadge";
 import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
 
@@ -341,10 +340,9 @@ function StandStage(props: Props) {
 function Status({ call, cue, name }: { call: ShownCall; cue: AffinityCue | null; name: string }) {
   const time = useCallTime(call);
   if (call.phase === "connected" && cue) {
-    const Arrow = cue.change.up ? AffinityUpIcon : AffinityDownIcon;
     return (
       <p className="flex items-center justify-center gap-1 text-sm text-white">
-        <Arrow aria-hidden className="size-3.5" />
+        <CueArrowIcon up={cue.change.up} className="size-3.5" />
         <span className="truncate">{cueText(cue.change, name)}</span>
       </p>
     );

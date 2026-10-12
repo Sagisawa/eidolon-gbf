@@ -1,6 +1,6 @@
 "use client";
 
-import type { RefObject } from "react";
+import type { ComponentProps, RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -56,7 +56,7 @@ export function AffinityBadge({
       <PopoverTrigger
         render={<Button variant="ghost" size="lg" className="min-w-0 shrink max-md:h-11" aria-label={badge.label} />}
       >
-        <span key={cue?.key} aria-hidden className={cn("relative flex", cue && "motion-safe:animate-bounce")}>
+        <span key={cue?.key} aria-hidden className={cn("relative flex", cue && "motion-safe:animate-jump")}>
           {cooling ? (
             <CooldownIcon className="size-5 text-muted-foreground" />
           ) : (
@@ -94,9 +94,14 @@ export function AffinityBadge({
   );
 }
 
+/** 好感度变化的升降小箭头：心形上、变化胶囊里、通话层状态行里都是它。 */
+export function CueArrowIcon({ up, ...props }: { up: boolean } & ComponentProps<typeof AffinityUpIcon>) {
+  const Icon = up ? AffinityUpIcon : AffinityDownIcon;
+  return <Icon aria-hidden {...props} />;
+}
+
 /** 心形右上角的升降小箭头：「升」是她的按钮色底，「降」是中性前景色底。 */
 function CueArrow({ up }: { up: boolean }) {
-  const Icon = up ? AffinityUpIcon : AffinityDownIcon;
   return (
     <span
       className={cn(
@@ -104,7 +109,7 @@ function CueArrow({ up }: { up: boolean }) {
         up ? "bg-her-button text-her-button-fg" : "bg-foreground text-background",
       )}
     >
-      <Icon className="size-2.5" strokeWidth={3} />
+      <CueArrowIcon up={up} className="size-2.5" strokeWidth={3} />
     </span>
   );
 }

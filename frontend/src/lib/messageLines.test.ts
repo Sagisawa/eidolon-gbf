@@ -17,27 +17,13 @@ function her(key: string, affinity: AffinityChange | null = null, at = "2026-09-
 const NOW = new Date("2026-09-28T12:00:00Z");
 
 describe("linesOf", () => {
-  it("变化的胶囊挂在改变了好感度的那条回复后面", () => {
-    const lines = linesOf([user("m1"), her("m2", UP), user("m3"), her("m4")], NOW, true);
-
-    expect(lines.map((line) => (line.kind === "entry" ? line.entry.key : line.kind))).toEqual([
-      "day",
-      "m1",
-      "m2",
-      "cue",
-      "m3",
-      "m4",
-    ]);
-    expect(lines[3]).toEqual({ kind: "cue", key: "cue-m2", change: UP });
-  });
-
   it("好感度不可用时，存下的变化不出胶囊", () => {
     const lines = linesOf([user("m1"), her("m2", UP)], NOW, false);
 
     expect(lines.some((line) => line.kind === "cue")).toBe(false);
   });
 
-  it("换了一天先放日期条；同一个人连着发、中间没有日期条或胶囊的算一组", () => {
+  it("变化的胶囊挂在改变了好感度的那条回复后面；换了一天先放日期条；同一个人连着发、中间没有日期条或胶囊的算一组", () => {
     const lines = linesOf(
       [
         user("m1", "2026-09-27T01:00:00Z"),
@@ -54,5 +40,6 @@ describe("linesOf", () => {
       line.kind === "entry" ? [`${line.entry.key}${line.first ? "<" : ""}${line.last ? ">" : ""}`] : [line.kind],
     );
     expect(groups).toEqual(["day", "m1<>", "day", "m2<", "m3>", "m4<>", "cue", "m5<>"]);
+    expect(lines.find((line) => line.kind === "cue")).toEqual({ kind: "cue", key: "cue-m4", change: UP });
   });
 });
