@@ -160,6 +160,14 @@ def _call_opener(character: Character, assets_url: str | None) -> dict | None:
     return _scripted(character.call_opener, call_opener_path(character), assets_url)
 
 
+def _call_poster(character: Character, assets_url: str | None) -> str | None:
+    """Her card on the landing page's incoming call (ADR-0003, 2026-10-12): a portrait
+    WebP the deployer puts in the bucket by hand at `call-posters/<id>.webp`, listed without
+    asking the bucket whether it is there (the page shows her colour instead when it is
+    not). None unless the stand assets are served."""
+    return f"{assets_url}/call-posters/{character.id}.webp" if assets_url else None
+
+
 def _scripted(line: ScriptedLine | None, path: str | None, assets_url: str | None) -> dict | None:
     if line is None:
         return None
@@ -317,6 +325,7 @@ def create_app(backend: Backend) -> FastAPI:
                 **_unit(c, backend.world),
                 "greeting": _greeting(c, backend.settings.stand_assets_url),
                 "call_opener": _call_opener(c, backend.settings.stand_assets_url),
+                "call_poster_url": _call_poster(c, backend.settings.stand_assets_url),
             }
             for c in listed
         ]

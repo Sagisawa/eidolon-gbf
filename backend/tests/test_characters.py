@@ -45,6 +45,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "unit_order": None,
             "greeting": None,  # none configured
             "call_opener": None,
+            "call_poster_url": None,  # no stand assets URL is configured
         },
         {
             "id": "kogane",
@@ -63,6 +64,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "unit_order": None,
             "greeting": None,
             "call_opener": None,
+            "call_poster_url": None,
         },
     ]
     assert "ほわっ" not in res.text
@@ -784,3 +786,19 @@ async def test_call_opener_has_no_audio_unless_the_stand_assets_are_served(
         "audio_url": None,
     }
     assert (await listed_greeting(make_client, settings)) is None
+
+
+async def test_call_poster_is_where_the_bucket_keeps_it_unless_the_stand_assets_are_not_served(
+    make_client: ClientFactory, settings: Settings, characters: CharacterConfig
+):
+    """Her card on the landing page's incoming call, put in the bucket by hand: listed
+    without asking the bucket whether it is there (the page falls back to her colour)."""
+    async def posters(assets: str | None) -> dict:
+        client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=assets), user=None)
+        return {c["id"]: c["call_poster_url"] for c in (await client.get("/api/characters")).json()}
+
+    assert await posters(STAND_ASSETS) == {
+        "mano": f"{STAND_ASSETS}/call-posters/mano.webp",
+        "kogane": f"{STAND_ASSETS}/call-posters/kogane.webp",
+    }
+    assert await posters(None) == {"mano": None, "kogane": None}

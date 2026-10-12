@@ -25,8 +25,10 @@
 //   7. 第 2 到 7 幕：完整档里电脑、竖屏手机各截几张（光谱归队、停在某个组合、聚焦、她说日语、来电、记忆、
 //      诚实事项、开始），停在某个组合时底部的组合名就是这个组合；第 4 幕的手机转身几个位置（光、交接、侧面、
 //      背面、正面、来电，往回滚再截一次背面），来电界面在落地页模型给的屏幕矩形里，标题在手机上方、正文在
-//      下方，响铃时手机和界面一起振动、接通后不振动；电脑上点、手机上点一下「接听」就接通；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走，
-//      定格档点「接听」也接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
+//      下方，响铃时手机和界面一起振动、接通后不振动；电脑上把「滑动接听」拖过一半（拖不到一半不接）、手机上点一下
+//      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
+//      挂断键回车挂断，焦点留在状态那一行；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走，
+//      定格档点「滑动接听」也接通。滚动位置按落地页模型的时间线（model/timeline.ts）算，
 //      和页面同一个出处。
 //   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
 //   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
@@ -467,7 +469,8 @@ function watchConsole(page) {
         const px = (v) => parseFloat(voice.getPropertyValue(v));
         return {
           on: document.querySelector(".lp-root").classList.contains("lp-phone-on"),
-          ui: box(".lp-call-ui"),
+          ui: box(".lp-screen") ?? box(".lp-call-ui"),
+          poster: !!document.querySelector(".lp-poster[data-shown]"),
           title: box(".lp-act4-copy .lp-act-title"),
           body: box(".lp-act4-copy .lp-act-body"),
           screen: { x: px("--lp-screen-x"), y: px("--lp-screen-y"), w: px("--lp-screen-w"), h: px("--lp-screen-h") },
@@ -477,7 +480,7 @@ function watchConsole(page) {
       });
       const near = (a, b) => Math.abs(a - b) <= 4; // 振动最多 4 px
       report(
-        `${name}：手机画出来了，来电界面摆在落地页模型给的屏幕矩形里`,
+        `${name}：手机画出来了，屏幕上的来电界面摆在落地页模型给的屏幕矩形里`,
         call.on && near(call.ui.x + call.ui.width / 2, call.screen.x) && near(call.ui.y + call.ui.height / 2, call.screen.y) && near(call.ui.width, call.screen.w),
         `lp-phone-on ${call.on}；界面中心 (${Math.round(call.ui.x + call.ui.width / 2)}, ${Math.round(call.ui.y + call.ui.height / 2)})、宽 ${Math.round(call.ui.width)}，屏幕 (${Math.round(call.screen.x)}, ${Math.round(call.screen.y)})、宽 ${Math.round(call.screen.w)}`,
       );
@@ -486,6 +489,7 @@ function watchConsole(page) {
         call.title.bottom <= call.top && call.body.top >= call.bottom && call.body.bottom <= (name === "full" ? DESKTOP : PHONE).viewport.height,
         `标题底 ${Math.round(call.title.bottom)} ≤ 机身顶 ${Math.round(call.top)}；正文 ${Math.round(call.body.top)}–${Math.round(call.body.bottom)}，机身底 ${Math.round(call.bottom)}`,
       );
+      console.log(`      ${name}：来电画面上是${call.poster ? "她的卡图" : "印象色的后备海报（没有卡图，或者加载不出来）"}`);
       // 振动：手机和屏幕上的界面在同一个容器里，响铃时这个容器在抖。
       const shakes = async () => {
         const seen = [];
@@ -499,15 +503,56 @@ function watchConsole(page) {
       await toScreens(page, act4.from + act4.length * 0.38);
       await page.screenshot({ path: path.join(shots, `${name}-act4-back-reverse.png`) });
       await toScreens(page, restAt(tl, 4));
-      // 接听：电脑上点、手机上点一下就接通。
-      if (name === "full") await page.locator(".lp-answer").click();
-      else await page.locator(".lp-answer").tap();
-      await page.waitForTimeout(2500);
-      const connected = await page.locator(".lp-call-status").innerText();
-      report(`${name}：点一下「接听」就接通`, connected.startsWith("通话中"), `「${connected}」`);
+      // 接听：电脑上把圆钮拖过一半（先拖不到一半松手，不该接通），手机上点一下。
+      const status = () => page.locator(".lp-call-status").innerText();
+      if (name === "full") {
+        const slide = await page.locator(".lp-slide").boundingBox();
+        const knob = await page.locator(".lp-slide-knob").boundingBox();
+        const drag = async (to) => {
+          await page.mouse.move(knob.x + knob.width / 2, knob.y + knob.height / 2);
+          await page.mouse.down();
+          for (let i = 1; i <= 8; i++) await page.mouse.move(knob.x + knob.width / 2 + (to * i) / 8, knob.y + knob.height / 2);
+          await page.mouse.up();
+          await page.waitForTimeout(400);
+        };
+        await drag(slide.width * 0.2);
+        const short = await status();
+        report("full：圆钮拖不到一半松手，不接听", short.startsWith("来电"), `「${short}」`);
+        await drag(slide.width * 0.75);
+      } else await page.locator(".lp-slide").tap();
+      await page.waitForTimeout(800);
+      const connected = await status();
+      report(`${name}：${name === "full" ? "拖过一半" : "点一下「滑动接听」"}就接通`, connected.startsWith("通话中"), `「${connected}」`);
+      await page.screenshot({ path: path.join(shots, `${name}-act4-connected-rise.png`) });
+      await page.waitForTimeout(3500);
       await page.screenshot({ path: path.join(shots, `${name}-act4-connected.png`) });
       const after = await shakes();
       report(`${name}：响铃时手机和屏幕上的界面一起振动，接通以后不振动`, ringing > 0 && after === 0, `响铃时 4 秒里抖了 ${ringing} 次，接通以后 ${after} 次`);
+      // 挂断：「通话结束」和时长，约 1.5 秒后回到来电，可以再接一次。
+      if (name === "full") await page.locator(".lp-hang-up").click();
+      else await page.locator(".lp-hang-up").tap();
+      await page.waitForTimeout(300);
+      const ended = await status();
+      report(`${name}：点挂断键，屏幕上是「通话结束」和时长`, /^通话结束\s*\d\d:\d\d$/.test(ended), `「${ended}」`);
+      await page.screenshot({ path: path.join(shots, `${name}-act4-ended.png`) });
+      await page.waitForTimeout(1700);
+      const again = await status();
+      report(`${name}：通话结束约 1.5 秒后回到来电`, again.startsWith("来电") && (await page.locator(".lp-slide").count()) === 1, `「${again}」`);
+      if (name === "full") {
+        // 键盘：聚焦滑块按回车接听，焦点交给状态那一行；Tab 到挂断键按回车挂断，焦点还在状态那一行。
+        await page.locator(".lp-slide").focus();
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(300);
+        const onStatus = () => page.evaluate(() => document.activeElement?.classList.contains("lp-call-status") ?? false);
+        const keyConnected = (await status()).startsWith("通话中") && (await onStatus());
+        await page.keyboard.press("Tab");
+        const onHangUp = await page.evaluate(() => document.activeElement?.classList.contains("lp-hang-up") ?? false);
+        await page.keyboard.press("Enter");
+        await page.waitForTimeout(300);
+        const keyEnded = (await status()).startsWith("通话结束") && (await onStatus());
+        report("full：键盘回车接听、Tab 到挂断键回车挂断，焦点都留在状态那一行", keyConnected && onHangUp && keyEnded, `接听 ${keyConnected}，Tab 到挂断键 ${onHangUp}，挂断 ${keyEnded}`);
+        await page.waitForTimeout(1700);
+      }
       if (name === "full") {
         // 手机画布丢了 WebGL 上下文：退回原来的全屏来电，落地页不降档。最后再做，后面的截图不受影响（第 5 幕以后没有手机）。
         const tierBefore = await tierOf(page);
@@ -561,8 +606,8 @@ function watchConsole(page) {
       if (lit.replace(/\s/g, "") !== act) rails.push(`${act} 那一屏亮的是 ${lit.replace(/\s/g, "")}`);
     }
     report(`${tier}：静止版式的幕名轨跟着滚动走`, rails.length === 0, rails.join("；") || "每一幕都对");
-    if (tier === "reduced" && (await page.locator(".lp-answer").count())) {
-      await page.locator(".lp-answer").click();
+    if (tier === "reduced" && (await page.locator(".lp-slide").count())) {
+      await page.locator(".lp-slide").click();
       await page.waitForTimeout(400);
       const status = await page.locator(".lp-call-status").innerText();
       report("reduced：点「接听」就接通", status.startsWith("通话中"), `「${status}」`);

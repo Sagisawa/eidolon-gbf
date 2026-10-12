@@ -170,8 +170,13 @@ export function LightStage({
     const track = stage.querySelector<HTMLElement>(".lp-track");
     const voiceEl = root.querySelector<HTMLElement>(".lp-voice");
     const stageBox = stage.querySelector<HTMLElement>(".lp-stage")!;
-    /** 跟着滚动淡入淡出的文字，和它们现在藏没藏起来。不支持 until-found 的浏览器里 hidden 就是不显示，不用它。 */
-    const findables = "onbeforematch" in document.body ? [...root.querySelectorAll<HTMLElement>("[data-lp-find]")] : [];
+    /**
+     * 跟着滚动淡入淡出的文字，和它们现在藏没藏起来。不支持 until-found 的浏览器里 hidden 就是不显示，不用它。
+     * 每次开始查找时重新找一遍：第 4 幕的名字在手机画出来以后挪进了屏幕，是另一个元素。
+     */
+    const canFind = "onbeforematch" in document.body;
+    const collectFindables = () => (canFind ? [...root.querySelectorAll<HTMLElement>("[data-lp-find]")] : []);
+    let findables = collectFindables();
     const hidden = new Map<HTMLElement, boolean>();
     /**
      * 访客在查找：按了 Ctrl/⌘+F 或 F3，还没再碰页面（查找栏开着时按键都落在查找栏上，碰到页面多半是查完了）。
@@ -179,7 +184,10 @@ export function LightStage({
      */
     let finding = false;
     const onKey = (e: KeyboardEvent) => {
-      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") || e.key === "F3") finding = true;
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") || e.key === "F3") {
+        if (!finding) findables = collectFindables();
+        finding = true;
+      }
       else if (!["Control", "Meta", "Shift", "Alt"].includes(e.key)) finding = false;
     };
     const stopFinding = () => (finding = false);

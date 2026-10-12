@@ -67,7 +67,7 @@ export type SceneInput = {
   nameGaps?: Readonly<Record<string, readonly [top: number, bottom: number]>>;
   /** 第 3、4 幕里说话、打来电话的那一位；不给或者她不在名单里时，是光谱里的第一位。 */
   speaker?: string;
-  /** 第 4 幕的来电接通了没有（交互 reducer 的 `call`）；不给时在响。 */
+  /** 第 4 幕的来电在哪一步（交互 reducer 的 `call`），只在响铃时振动；不给时在响。 */
   call?: CallPhase;
 };
 
@@ -837,7 +837,7 @@ function act4Picture(
 ): Picture & { call: CallState; phone: PhoneState } {
   const from = act3Picture(lights, vp, m, 1, her, still);
   const enter = still ? 1 : easeInOut(smooth(0, CALL_IN, p));
-  const ringing = phase !== "connected";
+  const ringing = phase === "ringing";
   const ringOn = still ? 1 : smooth(CALL_SHOWN[0], CALL_SHOWN[1], p);
   const pulse = !ringing ? 0 : still ? STILL_PULSE : ringPulse(m.time) * ringOn;
   const t = m.time;

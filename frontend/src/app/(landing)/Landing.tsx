@@ -92,6 +92,7 @@ export function Landing({
             speaker={speaker}
             talk={t.act3}
             call={t.act4}
+            poster={characters.find((c) => c.id === speaker.id)?.call_poster_url ?? null}
           />
         )}
         <Memory lights={lights} section={sectionOf(5)} title={t.act5.title} body={t.act5.body} />

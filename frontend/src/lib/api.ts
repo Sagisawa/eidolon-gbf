@@ -41,6 +41,10 @@ export type Character = {
   /** What she says first once a visitor answers her call in the landing page's demo; null when
    * she has none (only she who calls there needs one). */
   call_opener: CallOpener | null;
+  /** Her card on the incoming call in the landing page's demo, a portrait WebP in the stands'
+   * bucket; null unless the deployment serves the stand assets. The server does not check that it
+   * was put there: when it fails to load, show her colour and name instead. */
+  call_poster_url: string | null;
 };
 
 /** A character's greeting (GLOSSARY.md「招呼」). */

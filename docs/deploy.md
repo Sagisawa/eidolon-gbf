@@ -225,6 +225,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --jso
 | `outfits/<idol_id>.json` | 这位角色的衣装清单，换衣装面板按它列出衣装 |
 | `greetings/<角色标识>-<哈希>.mp3` | 落地页上她的招呼，由 `eidolon greeting upload` 合成上传，见下面的「招呼」 |
 | `call-openers/<角色标识>-<哈希>.mp3` | 落地页演示来电里她的开场白，同样由 `eidolon greeting upload` 合成上传，见下面「招呼」里的「开场白」 |
+| `call-posters/<角色标识>.webp` | 落地页演示来电里她的卡图（联系人海报），手动上传，见下面「招呼」里的「来电卡图」 |
 
 后端通过 `/api/characters` 把默认衣装的地址和衣装清单的地址（`stand.outfits_url`）告诉浏览器。
 
@@ -349,6 +350,12 @@ call_opener_subtitle = "啊，喂……我是真乃。那个，现在方便接�
 
 下面说的招呼的合成上传、地址、退出码和下线，开场白都一样，只是放在存储桶的 `call-openers/` 下（`/api/characters` 里是 `call_opener`），和招呼互不覆盖、互不删除。
 
+### 来电卡图
+
+演示来电的锁屏上，打来电话的那位的一张卡图作联系人海报占满手机屏幕。它不进仓库（ADR-0003 的 2026-10-12 修订），由部署者手动放进存储桶的 `call-posters/<角色标识>.webp`：竖图，约 9:19.5（和手机屏幕一样），宽 300 px 左右就够。后端不查存储桶，配了 `EIDOLON_STAND_ASSETS_URL` 就在 `/api/characters` 里给出这个地址（`call_poster_url`）；那里没有图、加载不出来时，落地页显示她的印象色渐变加名字。地址固定，换图后浏览器和 CDN 可能缓存旧图一阵子，上传时缓存头设成 `public, max-age=86400`（一天）。
+
+现在用的是真乃的「【しじまに華ひととき】櫻木真乃」：《偶像大师 闪耀色彩》的卡面插画（1136×640，©Bandai Namco Entertainment Inc.），取满高、从左起第 455 px 处裁出宽 295 px 的一块，转成 WebP（质量 86）。只在落地页上展示，页面上不署名。
+
 ### 合成上传
 
 **什么时候跑**：新增或改了招呼、开场白的原文（`greeting`、`call_opener`）、换了她的 `voice_id`，或者改了读音文件之后，重启后端之前或之后都行。只改字幕不用跑，重启后端即可。改了原文或字幕，还要重新生成落地页的字体子集（`frontend/AGENTS.md`「落地页的字体子集」）。
@@ -410,7 +417,7 @@ uv run eidolon reading draft
 
 ### 下线
 
-收到权利方的要求时，清空存储桶：立绘、招呼和开场白一起下线，通话层退回背景图，落地页退回只有字幕和光，不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕），开场白是 `call-openers/`；要连字幕一起去掉，删掉 `characters.toml` 里的招呼或开场白再重启后端。
+收到权利方的要求时，清空存储桶：立绘、招呼、开场白和来电卡图一起下线，通话层退回背景图，落地页退回只有字幕、光和后备海报，不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕），开场白是 `call-openers/`；要连字幕一起去掉，删掉 `characters.toml` 里的招呼或开场白再重启后端。
 
 ## 配置 OAuth 应用
 

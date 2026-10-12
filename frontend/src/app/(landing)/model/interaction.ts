@@ -5,8 +5,9 @@
 // - 第一次点就出声；真的出了声，才出现常驻的声音开关（开着），音频加载不出来时不出现一个管不了什么的开关。
 //   关掉以后点偶像只显示字幕，接听也不出声。
 // - 同时只说一句：点另一位、或者指针移到另一位身上，上一句就停下；接听时招呼也停下。
-// - 第 4 幕的来电，滚动经过时只有画面在响。访客点一下「接听」就接通，播一声接通音（GLOSSARY「接通音」），
-//   不放铃声。离开这一幕就挂断，回到响铃的样子。
+// - 第 4 幕的来电：响铃 → 接通 → 通话结束 → 响铃。滚动经过时只有画面在响。访客接听就接通，播一声接通音
+//   （GLOSSARY「接通音」），不放铃声；点挂断键就是通话结束，播一声挂断音（GLOSSARY「挂断音」），留一会儿再回到
+//   响铃，可以再接一次。离开这一幕不论接通还是通话结束，都直接回到响铃，不播挂断音。
 // - 接通音响完，打来电话的那位说开场白（GLOSSARY「开场白」）：声音开关没关、有音频时出声，字幕和声音一起出来；
 //   否则一接通就只有字幕。放不出来退成只有字幕，不当错误；真的出了声，和招呼一样让声音开关出现。挂断就停下。
 
@@ -18,8 +19,8 @@ export type Saying = {
   voice: "loading" | "playing" | "ended" | null;
 };
 
-/** 第 4 幕的来电：`ringing` 在响（只有画面），`connected` 接通了。 */
-export type CallPhase = "ringing" | "connected";
+/** 第 4 幕的来电：`ringing` 在响（只有画面），`connected` 接通了，`ended` 挂断了、屏幕上是「通话结束」。 */
+export type CallPhase = "ringing" | "connected" | "ended";
 
 /** 这一通电话的开场白。`n` 是第几通：音频事件带着它，上一通的事件不会落到这一通上。 */
 export type Opener = {
@@ -70,11 +71,15 @@ export type InteractionAction =
   | { type: "voice"; n: number; event: VoiceEvent }
   /** 第 n 句的字幕留够了。 */
   | { type: "done"; n: number }
-  /** 点了「接听」（或用键盘、读屏器按下）。`opener`：打来电话的那位没有开场白、只有字幕（没有音频地址）、有音频。 */
+  /** 接听了（拖过一半、点按，或用键盘、读屏器按下）。`opener`：打来电话的那位没有开场白、只有字幕（没有音频地址）、有音频。 */
   | { type: "answer"; opener: "none" | "subtitle" | "voice" }
-  /** 离开第 4 幕：挂断，回到响铃的样子。 */
+  /** 点了挂断键。 */
   | { type: "hang-up" }
-  /** 接通音真的响起来了、放完了，或者放不出来。 */
+  /** 「通话结束」留够了：回到响铃。 */
+  | { type: "ring" }
+  /** 离开第 4 幕：不论在哪一步，都回到响铃的样子。 */
+  | { type: "leave-call" }
+  /** 接通音、挂断音真的响起来了、放完了，或者放不出来。 */
   | { type: "tone"; event: "playing" | "ended" | "failed" }
   /** 第 n 通电话的开场白开始播放、播完、加载或播放失败（包括迟迟加载不出来）。 */
   | { type: "opener"; n: number; event: VoiceEvent };
@@ -134,6 +139,10 @@ export function interactionReducer(s: Interaction, a: InteractionAction): Intera
       return { ...s, saying: null, call: "connected", opener, calls: n };
     }
     case "hang-up":
+      return s.call === "connected" ? { ...s, call: "ended", opener: null } : s;
+    case "ring":
+      return s.call === "ended" ? { ...s, call: "ringing" } : s;
+    case "leave-call":
       return s.call === "ringing" ? s : { ...s, call: "ringing", opener: null };
     case "tone":
       if (a.event === "playing") return s.sound === "hidden" ? { ...s, sound: "on" } : s;
@@ -158,3 +167,7 @@ export const openerShown = (opener: Opener | null): boolean =>
 /** 状态从 `prev` 变成 `next` 时要不要播接通音：刚接通，并且声音开关没关。 */
 export const connectTone = (prev: Interaction, next: Interaction): boolean =>
   prev.call === "ringing" && next.call === "connected" && next.sound !== "off";
+
+/** 状态从 `prev` 变成 `next` 时要不要播挂断音：点了挂断键，并且声音开关没关。离开这一幕不播。 */
+export const hangUpTone = (prev: Interaction, next: Interaction): boolean =>
+  prev.call === "connected" && next.call === "ended" && next.sound !== "off";

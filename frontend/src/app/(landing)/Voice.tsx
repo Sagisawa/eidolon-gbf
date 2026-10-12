@@ -27,9 +27,12 @@ export function Voice({
   speaker,
   talk,
   call,
+  poster,
 }: {
   section: Section;
   speaker: Speaker;
+  /** 来电时她的卡图（存储桶上的地址）；没有时是她的印象色。 */
+  poster: string | null;
   talk: TalkCopy;
   call: CallCopy;
 }) {
@@ -65,7 +68,7 @@ export function Voice({
             ))}
           </div>
         </section>
-        <Call speaker={speaker} copy={call} />
+        <Call speaker={speaker} copy={call} poster={poster} />
       </div>
     </div>
   );

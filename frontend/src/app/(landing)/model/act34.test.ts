@@ -212,11 +212,11 @@ describe("describeScene: 第 4 幕，来电", () => {
     }
   });
 
-  it("接通以后不再响、不再振动", () => {
-    const [low, high] = range({ call: "connected" });
+  it.each(["connected", "ended"] as const)("接通、通话结束时不响、不振动（%s）", (call) => {
+    const [low, high] = range({ call });
     expect(high).toBe(0);
     expect(low).toBe(0);
-    for (const time of [0.2, 0.25, 0.9]) expect(scene({ scroll: in4(0.85), time, call: "connected" }).phone!.shake).toEqual({ x: 0, y: 0 });
+    for (const time of [0.2, 0.25, 0.9]) expect(scene({ scroll: in4(0.85), time, call }).phone!.shake).toEqual({ x: 0, y: 0 });
   });
 
   it("减少动态效果档（静态档同是静止版式）：手机一开始就是正面、亮屏，不振动，光脉冲定格", () => {

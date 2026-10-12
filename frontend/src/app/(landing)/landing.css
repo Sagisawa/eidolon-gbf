@@ -1069,43 +1069,105 @@ html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-act4 {
   letter-spacing: 0.12em;
   color: var(--lp-dim);
 }
-/* 接听按钮。 */
-.lp-answer {
+/* 来电界面的尺寸跟着屏幕宽度（--lp-sw）走：手机屏幕上是模型给的屏幕宽，全屏来电里按一块 300px 宽的屏幕算。 */
+.lp-act4 {
+  --lp-sw: 300px;
+}
+/* 滑动接听：一条半透明的槽，白色圆钮带着听筒，往右拖（--lp-slide-x 是拖了多远，Call.tsx 写）；字上有一道光
+ * 从左往右扫过。只吃横向手势，竖着划交给页面滚动。 */
+.lp-slide {
+  position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  width: calc(var(--lp-sw) * 0.84);
+  height: max(44px, calc(var(--lp-sw) * 0.19));
   padding: 0;
   border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.18);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.14);
+  font: inherit;
+  color: #fff;
+  cursor: pointer;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.lp-slide-knob {
+  position: absolute;
+  z-index: 1;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 calc(10px + var(--lp-pulse, 0) * 18px) color-mix(in oklab, var(--her-halo) 70%, transparent);
+  translate: var(--lp-slide-x, 0px) 0;
+  transition: translate 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lp-slide[data-dragging] .lp-slide-knob {
+  transition: none;
+}
+.lp-slide-knob svg {
+  width: 48%;
+  height: 48%;
+  fill: #2fb350;
+}
+.lp-slide-label {
+  flex: 1;
+  padding-left: max(44px, calc(var(--lp-sw) * 0.19));
+  font-size: clamp(11px, calc(var(--lp-sw) * 0.056), 16px);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: transparent;
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.6) 40%, #fff 50%, rgb(255 255 255 / 0.6) 60%) 100% 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: lp-shimmer 2.6s linear infinite paused;
+  transition: opacity 0.2s ease;
+}
+[data-lp-call] .lp-slide-label {
+  animation-play-state: running;
+}
+.lp-slide[data-dragging] .lp-slide-label {
+  opacity: 0.35;
+}
+html[data-lp-tier="reduced"] .lp-slide-label {
+  animation: none;
   background: none;
-  font: 14px var(--lp-zh);
-  letter-spacing: 0.3em;
-  color: var(--lp-ink);
+  color: rgb(255 255 255 / 0.85);
+}
+@keyframes lp-shimmer {
+  to {
+    background-position: 0 0;
+  }
+}
+.lp-slide:focus-visible,
+.lp-hang-up:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 4px;
+}
+/* 挂断键：红色圆钮，听筒横过来。 */
+.lp-hang-up {
+  display: grid;
+  place-items: center;
+  width: max(48px, calc(var(--lp-sw) * 0.22));
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--hangup);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
-.lp-answer-icon {
-  width: 76px;
-  height: 76px;
-  padding: 24px;
-  box-sizing: border-box;
-  border-radius: 50%;
+.lp-hang-up svg {
+  width: 46%;
+  height: 46%;
   fill: #fff;
-  background: color-mix(in oklab, var(--her-halo) 32%, rgb(255 255 255 / 0.06));
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 0.5),
-    0 0 calc(16px + var(--lp-pulse, 0) * 34px) color-mix(in oklab, var(--her-halo) 75%, transparent);
-  transition: transform 0.2s ease;
-}
-.lp-answer:hover .lp-answer-icon {
-  transform: scale(1.06);
-}
-.lp-answer:focus-visible {
-  outline: none;
-}
-.lp-answer:focus-visible .lp-answer-icon {
-  outline: 2px solid #fff;
-  outline-offset: 6px;
 }
 /* 接通以后她说的一句：和招呼的字幕一样被扫出来；定格档直接出现。 */
 .lp-hello {
@@ -1190,10 +1252,10 @@ html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-glow {
   display: none;
 }
 /* 手机上的字跟着来电界面显出来：手机还在转的时候看不见。键盘聚焦进来时照样看得见。 */
-html[data-lp-layout="motion"] .lp-root.lp-phone-on :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
+html[data-lp-layout="motion"] .lp-root.lp-phone-on :is(.lp-act4-copy, .lp-screen) {
   opacity: var(--lp-act4, 0);
 }
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4:has(:focus-visible) :is(.lp-act4-copy, .lp-call-ui, .lp-call-name) {
+html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4:has(:focus-visible) :is(.lp-act4-copy, .lp-screen) {
   opacity: 1;
 }
 html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy {
@@ -1214,52 +1276,147 @@ html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-act4-copy > .lp-act-body 
   top: calc(var(--lp-phone-bottom, 80%) + 2vh);
   margin: 0;
 }
-/* 名字在屏幕上方；它不在 .lp-phone 里，要压在手机画布上面（振动用同一对变量），又不挡住接听。 */
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-her {
-  z-index: 1;
-  pointer-events: none;
-}
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-name {
-  top: calc(var(--lp-screen-y) - var(--lp-screen-h) * 0.32);
-  left: var(--lp-screen-x);
-  transform: translate(-50%, -50%);
-  writing-mode: horizontal-tb;
-  white-space: nowrap;
-  font-size: calc(var(--lp-screen-w) * 0.15);
-  letter-spacing: 0.06em;
-}
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui {
+/* 屏幕：摆进模型给的屏幕矩形，圆角相同，盖住 three.js 画的那块屏幕。最底下是她的印象色渐变（后备海报，没有卡图、
+ * 卡图加载不出来时就是它），上面依次是卡图、接通后的深色底、立绘和来电界面。 */
+.lp-screen {
+  --lp-sw: var(--lp-screen-w);
+  position: absolute;
   left: calc(var(--lp-screen-x) - var(--lp-screen-w) / 2);
   top: calc(var(--lp-screen-y) - var(--lp-screen-h) / 2);
-  bottom: auto;
   width: var(--lp-screen-w);
   height: var(--lp-screen-h);
-  box-sizing: border-box;
-  padding: 0 calc(var(--lp-screen-w) * 0.08) calc(var(--lp-screen-h) * 0.12);
-  transform: none;
-  justify-content: flex-end;
-  gap: 18px;
-  font-size: 13px;
+  overflow: hidden;
+  border-radius: var(--lp-screen-r);
+  isolation: isolate;
+  background: linear-gradient(170deg, color-mix(in oklab, var(--her-halo) 80%, #fff) 0%, var(--her-halo) 30%, var(--her-deep) 92%);
 }
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-answer-icon {
-  width: 64px;
-  height: 64px;
-  padding: 20px;
+.lp-screen-poster,
+.lp-screen-wall,
+.lp-screen-stand {
+  position: absolute;
+  inset: 0;
+}
+.lp-poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.lp-poster[data-shown] {
+  opacity: 1;
+}
+/* 名字和滑块底下压暗一点，浅色的卡图上也看得清。 */
+.lp-screen-poster::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0.38), transparent 28%, transparent 68%, rgb(0 0 0 / 0.45));
+}
+/* 接通以后：卡图淡出，换成她印象色的深色渐变底。 */
+.lp-screen-wall {
+  background: linear-gradient(to bottom, color-mix(in oklab, var(--her-deep) 72%, var(--her-halo)), var(--her-deep) 55%, #050407);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.lp-act4:not([data-phase="ringing"]) .lp-screen-wall {
+  opacity: 1;
+}
+/* 立绘（到腰）从屏幕下面升上来；挂断后淡出。来电时已经挂上、加载好了，只是不画（StandSlot 的 paused）。 */
+.lp-screen-stand {
+  top: auto;
+  height: 80%;
+  opacity: 0;
+  translate: 0 22%;
+  transition:
+    opacity 0.5s ease,
+    translate 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+  mask-image: linear-gradient(to bottom, #000 80%, transparent);
+}
+.lp-act4[data-phase="connected"] .lp-screen-stand {
+  opacity: 1;
+  translate: 0 0;
+}
+.lp-act4[data-phase="ended"] .lp-screen-stand {
+  translate: 0 0;
+}
+html[data-lp-tier="reduced"] .lp-screen-stand {
+  translate: 0 0;
+}
+/* 来电界面铺满屏幕：顶部是名字和状态（来电时名字是大号的），底部是开场白和滑块、挂断键。 */
+.lp-screen .lp-call-ui {
+  inset: 0;
+  width: auto;
+  transform: none;
+  justify-content: space-between;
+  gap: 0;
+  padding: calc(var(--lp-sw) * 0.17) calc(var(--lp-sw) * 0.07) calc(var(--lp-sw) * 0.15);
+  text-shadow: 0 1px 10px rgb(0 0 0 / 0.5);
+}
+/* 接通以后屏幕下半压暗：开场白的字压在立绘的浅色衣服上也看得清。 */
+.lp-screen .lp-call-ui {
+  z-index: 0;
+}
+.lp-screen .lp-call-ui::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0.55) 36%, transparent 62%);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+.lp-act4[data-phase="connected"] .lp-screen .lp-call-ui::before {
+  opacity: 1;
+}
+.lp-call-head,
+.lp-call-foot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--lp-sw) * 0.03);
+}
+.lp-call-foot {
+  gap: calc(var(--lp-sw) * 0.08);
+}
+.lp-screen .lp-call-name {
+  position: static;
+  transform: none;
+  translate: none;
+  writing-mode: horizontal-tb;
+  white-space: nowrap;
+  font-size: calc(var(--lp-sw) * 0.15);
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 1px 14px rgb(0 0 0 / 0.45);
+  transition: font-size 0.4s ease;
+}
+.lp-act4:not([data-phase="ringing"]) .lp-screen .lp-call-name {
+  font-size: calc(var(--lp-sw) * 0.1);
+}
+.lp-screen .lp-call-status {
+  font-size: clamp(10px, calc(var(--lp-sw) * 0.046), 13px);
+  letter-spacing: 0.24em;
+  color: rgb(255 255 255 / 0.88);
 }
 /* 开场白的字号跟着屏幕宽度走，两边比来电界面少留一点边、日文字距收一点，常见的手机上一个短语（auto-phrase 不拆的
  * 那一段）放得下；更窄的手机上还是放不下时，从短语中间断开，不撑出屏幕。 */
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui :is(.lp-hello-ja, .lp-hello-zh) {
+.lp-screen :is(.lp-hello-ja, .lp-hello-zh) {
   overflow-wrap: anywhere;
 }
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello {
-  margin: 0 calc(var(--lp-screen-w) * -0.03);
+.lp-screen .lp-hello {
+  margin: 0 calc(var(--lp-sw) * -0.03);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.85);
 }
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello-ja {
-  font-size: clamp(10px, calc(var(--lp-screen-w) * 0.066), 15px);
+.lp-screen .lp-hello-ja {
+  font-size: clamp(10px, calc(var(--lp-sw) * 0.066), 15px);
   letter-spacing: 0.02em;
+  color: #fff;
 }
-html[data-lp-layout="motion"] .lp-root.lp-phone-on .lp-call-ui .lp-hello-zh {
-  font-size: clamp(10px, calc(var(--lp-screen-w) * 0.056), 12px);
+.lp-screen .lp-hello-zh {
+  font-size: clamp(10px, calc(var(--lp-sw) * 0.056), 12px);
+  color: rgb(255 255 255 / 0.88);
 }
 
 /* —— 第 5 幕：记忆（Memory.tsx）。布景是两屏宽的一张 SVG：运动版式里跟着模型横移（--lp-pan），
