@@ -11,8 +11,10 @@ type Props = {
   href: string;
   label: string;
   Icon?: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
-  /** 选中的那一类：电脑上铺中性的 bg-muted、标 `aria-current`。 */
+  /** 右栏正显示的那一类：电脑上铺中性的 bg-muted（只开 `/settings` 时是档案）。 */
   isCurrent?: boolean;
+  /** 网址就是这一类：标 `aria-current="page"`。手机上的一级列表（`/settings`）没有当前页，不标。 */
+  isCurrentPage?: boolean;
   /** 行尾的 ›：`narrow` 只在手机上（电脑上靠选中底色），`always` 两种屏宽都有。 */
   chevron?: "narrow" | "always";
   /** 别的网站，在新标签页打开，行尾换成外链图标；通话照常。 */
@@ -23,7 +25,15 @@ type Props = {
  * 设置里的一行链接（DESIGN.md「设置页」）：图标、名字，行尾 › 或外链图标，整行可点，至少 48px 高。
  * 一级列表的每一类和「关于」的几行都用它。站内的按外壳的去处规则走，通话中离开外壳先问。
  */
-export function SettingsRow({ href, label, Icon, isCurrent = false, chevron = "narrow", isExternal = false }: Props) {
+export function SettingsRow({
+  href,
+  label,
+  Icon,
+  isCurrent = false,
+  isCurrentPage = false,
+  chevron = "narrow",
+  isExternal = false,
+}: Props) {
   const { guard } = useDirectory();
   const className = cn(
     "flex min-h-12 w-full items-center gap-3 px-4 py-2.5 text-body outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset",
@@ -51,7 +61,12 @@ export function SettingsRow({ href, label, Icon, isCurrent = false, chevron = "n
     );
   }
   return (
-    <NextLink href={href} onClick={guard(href)} aria-current={isCurrent ? "page" : undefined} className={className}>
+    <NextLink
+      href={href}
+      onClick={guard(href)}
+      aria-current={isCurrentPage ? "page" : undefined}
+      className={className}
+    >
       {inner}
     </NextLink>
   );

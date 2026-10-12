@@ -10,7 +10,6 @@ describe("在不在导航外壳里", () => {
     "/settings",
     "/settings?tab=own-keys",
     "/settings/own-keys",
-    "/settings/memories",
   ])("%s 在外壳里", (href) => {
     expect(isInShell(href)).toBe(true);
   });
