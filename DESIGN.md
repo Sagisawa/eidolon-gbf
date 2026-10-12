@@ -119,7 +119,7 @@ components:
 
 - **wall**（`--her-wall`）：对话壁纸，她色相的极淡底（浅 L ≈ 0.955、C ≈ 0.018；深 L ≈ 0.2、C ≈ 0.016）。上面的 `--foreground` 和 `--muted-foreground`（时间戳、日期条）都 ≥ 4.5。
 - **accent / onAccent**：对话子树里覆盖 shadcn 的 `--primary` / `--primary-foreground`，给子树里的 primary 按钮。注意浅色印象色（例如真乃 `#ffbad6`）的 accent 为了让白字达到 4.5 会压暗成灰紫，大面积填底前先看效果。
-- **mark**（`--her-mark`）：子树里的 `--ring`、页首电话键的图标；官方色在底色上达到 3:1 就用官方色，否则调到达标。
+- **mark**（`--her-mark`）：子树里的 `--ring`、页首电话键和好感度标识的图标；官方色在底色上达到 3:1 就用官方色，否则调到达标。
 - **button.bg / button.fg**（`--her-button`、`--her-button-fg`）：发送键和未读数的底与图标、数字，前景 ≥ 4.5，按钮和背景 ≥ 3。原型里未读数是 mark 底配白字，黄色、浅粉这类印象色上白字读不清，所以改用这一对。
 - **call.deep**（`--her-call-deep`）：通话层渐变和底部压暗的终点色、通话条的底；上面的白字 ≥ 7（见 Call layer）。
 - 上一版留下的 `paper`、`paperMuted`、`note`、`noteRule` 和 `call.top`、`call.glow`、`call.rule` 新界面都用不上（选中状态铺中性底，便利贴换成了通话条，状态不再用线形表达），连同它们的对比度契约一起删掉。
@@ -138,7 +138,7 @@ components:
 
 **The Producer's Ink Rule.** 事务所深蓝只代表「制作人自己的话」：只用在制作人气泡上。系统界面的字用中性前景色；她的颜色不用来写制作人的字。
 
-**The Her-Colour-Only-Here Rule.** 她的颜色只出现在：对话壁纸、电话键图标、发送键、未读数、通话层、通话条，以及对话子树里 primary 按钮和焦点环。选中状态（对话列表的选中行、麦克风选择的当前项、换衣装正在预览的卡）一律铺中性的 `bg-muted`。新增一处她的颜色，先改这条规则。
+**The Her-Colour-Only-Here Rule.** 她的颜色只出现在：对话壁纸、电话键图标、页首的好感度标识（心形图标；冷却中的沙漏不用）、发送键、未读数、通话层、通话条，以及对话子树里 primary 按钮和焦点环。选中状态（对话列表的选中行、麦克风选择的当前项、换衣装正在预览的卡）一律铺中性的 `bg-muted`。新增一处她的颜色，先改这条规则。
 
 **The Scoped Colour Rule.** 她的颜色只注入到这段对话的子树，从不写进主题或 `:root`。子树里覆盖的是 `--primary`、`--primary-foreground`、`--ring` 和 `--her-*`。浮层（对话框、菜单、底部面板）通过 portal 渲染到子树外面，需要她的颜色时要在浮层内容上再注入一次。
 
@@ -182,7 +182,7 @@ components:
 - **宽屏（≥ 768px）**：导航栏右边两栏。左侧对话列表 340px、白底（深色模式 `--background`），右边一条 `border-r` 细线；右侧对话栏填满。通话层绝对定位盖住对话栏，列表仍可见。没选角色时右栏居中一句 muted 标题。列表可以拖右边的线调宽：用 shadcn `Resizable`（react-resizable-panels v4），按像素约束（默认 320px，240–480px，`groupResizeBehavior="preserve-pixel-size"`，窗口变化时保持像素宽），`onResize` 的 `inPixels` 记进 localStorage，沿用现在 `useSavedSize` 的做法（挂载后在 layout effect 里恢复，避免水合不一致）。不自己写拖拽。
 - **窄屏（< 768px）**：一次一栏，列表或对话，下面一条 dock；对话页首有返回键。通话层固定定位铺满整屏，盖住 dock。
 - **对话列表**：顶部「对话」大标题和公告铃铛，下面一个 `bg-muted` 的搜索框；行内边距 `px-4 py-2.5`，头像 56px，名字和时间一行、最后一句和未读数一行。
-- **对话页首**：高 56px，和壁纸同色、不加分隔线；返回键（窄屏）、名字（填满）、搜索、电话键、更多菜单。触控目标不小于 44px。
+- **对话页首**：高 56px，和壁纸同色、不加分隔线；返回键（窄屏）、名字（填满）、搜索、电话键、好感度标识、更多菜单。触控目标不小于 44px。
 - **消息区**：铺她的壁纸。气泡之间 4px，换人或换组时多 8px；日期条居中，`bg-foreground/10` 胶囊。消息从顶部开始排。
 - **输入栏**：实底 `--background`，上沿一条 `border-t`；左边「+」，中间 22px 圆角的 `bg-muted` 输入框（一行起、最多长到 8rem），右边圆形发送键。
 - **设置页**：像手机设置那样的一级、二级页面，没有三级。两种屏宽同一套路由，露哪一级只靠 CSS 断点，首屏不闪。
@@ -231,6 +231,7 @@ components:
 ### Buttons
 - shadcn `Button`。对话子树里 `default`（primary）填她的 accent，字用 onAccent；返回、搜索、更多菜单用 `ghost` 的 `icon-lg`。
 - **电话键**：对话页首的 ghost 图标键，图标用她的颜色。通话中同一个键变成「回到通话」。
+- **好感度标识**：对话页首电话键右边、更多菜单左边的 ghost 键，心形图标（她的颜色）加档名；五档图标冷淡 `HeartOff`、疏远 `HeartCrack`、信任空心 `Heart`、亲近半心（`Heart` 叠一层只露下半的实心）、亲密实心 `Heart`。冷却中换成 muted 的 `Hourglass` 加解除时刻。宽度跟着内容走、高度不小于 44px，挤不下时名字截断。点开是 Popover（`container` 指回对话子树）：现在的关系、这一档的大意、五档横排（当前一档实底）、末尾 Meta 字号的规则说明。
 - **发送键**：正圆，底 `--her-button`，图标 `--her-button-fg`。
 - **Destructive**：挂断红，白字。
 - **后台（/admin）**：后台没有她的颜色，`default`（primary）就是 shadcn neutral 的黑底白字（深色模式反过来），只给表单的提交（「试调并保存」「保存」）。卡片上的「修改」、页首的「封禁」用 `outline`；行内操作（表格里的「封禁 / 解除封禁」「修改」）、「刷新」「取消」用 `ghost` 的 `sm`；「删除这位用户」这种打开确认框的入口也用 `outline`，只有确认框里真正执行的那一下用 `destructive`。

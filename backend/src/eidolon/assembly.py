@@ -12,8 +12,8 @@ background model is always at hand, being the chat model unless configured apart
 The deployer's chat and memory models and judge model are made by `ServiceClients` from
 the live configuration (`live_config`): `.env`'s settings as overridden in the admin
 console, replaced while the backend runs as admins change them; the speech keys, the
-thresholds, the limits and whether users must bring their own LLM are read from it as
-each turn or call starts. `Backend.start` tries the overrides as the server starts.
+thresholds, the limits, whether users must bring their own LLM and whether affinity is
+on are read from it as each turn or call starts. `Backend.start` tries the overrides as the server starts.
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes; the deployer's chat, memory and judge models only ever by passing in the
@@ -31,6 +31,7 @@ import httpx
 from eidolon.accounts import Accounts, is_admin
 from eidolon.activity import ActivityLog, metered_retrieval
 from eidolon.admission import Admissions
+from eidolon.affinity import Affinities
 from eidolon.announcements import Announcements
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
@@ -87,6 +88,8 @@ class Backend:
     """The prices the dashboard estimates the deployer's costs at."""
     announcements: Announcements
     """What admins write for every user to see."""
+    affinities: Affinities
+    """Every user's affinity with every character, where it is on."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -229,6 +232,8 @@ def build(
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
+    affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
+    closers.append(affinities.close)
     own_keys = OwnKeys(own_llm_service, config, activity, speech)
     admissions = Admissions(
         usage, activity, own_keys,
@@ -257,6 +262,7 @@ def build(
         config=config,
         prices=prices,
         announcements=announcements,
+        affinities=affinities,
         world=world,
         _closers=closers,
     )

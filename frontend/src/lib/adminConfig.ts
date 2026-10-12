@@ -15,7 +15,8 @@ export type ItemName =
   | "judge"
   | "judge_thresholds"
   | "rerank"
-  | "limits";
+  | "limits"
+  | "affinity";
 
 /** The items, in the order the page shows them. */
 export const ITEMS: ItemName[] = [
@@ -27,6 +28,7 @@ export const ITEMS: ItemName[] = [
   "judge_thresholds",
   "rerank",
   "limits",
+  "affinity",
 ];
 
 type Value = string | number | boolean | null;
@@ -177,6 +179,13 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     rows: [...LIMIT_FIELDS, OWN_LLM_REQUIRED],
     secrets: [],
     form: [...LIMIT_FIELDS.map((name): FieldSpec => ({ name, kind: "limit" })), { name: OWN_LLM_REQUIRED, kind: "switch" }],
+    tried: false,
+  },
+  // 好感度和礼物（GLOSSARY.md「好感度」）：只有一个开关；没配判断模型时整项不可用。
+  affinity: {
+    rows: ["enabled"],
+    secrets: [],
+    form: [{ name: "enabled", kind: "switch" }],
     tried: false,
   },
 };

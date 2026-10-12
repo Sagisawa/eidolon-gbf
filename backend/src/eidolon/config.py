@@ -176,6 +176,9 @@ class Settings:
     own_llm_required: bool = False
     """Whether users must bring their own LLM for their turns and calls (GLOSSARY.md「必须自带
     LLM」); the admin console may override it."""
+    affinity_and_gifts: bool = False
+    """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as they are only with the
+    judge model; the admin console may override it."""
     domain: str | None = None
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
@@ -248,6 +251,7 @@ class Settings:
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
             own_llm_required=_switch("EIDOLON_OWN_LLM_REQUIRED"),
+            affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS"),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),

@@ -366,6 +366,18 @@ def create_app(backend: Backend) -> FastAPI:
             raise HTTPException(404, "没有这位角色的通话背景图")
         return _picture(character.background, request)
 
+    @app.get("/api/characters/{character_id}/affinity")
+    def affinity(character_id: str, user_id: UserId) -> dict | None:
+        """Her affinity with the user now, by tier only, and when the cooldown ends if she
+        is in one; null while affinity is off."""
+        if character_id not in characters:
+            raise HTTPException(404, "角色不存在")
+        status = backend.affinities.status(user_id, character_id)
+        if status is None:
+            return None
+        until = status.cooldown_until
+        return {"tier": status.tier, "cooldown_until": until and until.isoformat()}
+
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
         """Newest first, each with the name of the character it was told to and whether

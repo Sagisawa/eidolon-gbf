@@ -58,5 +58,13 @@ export {
   LogIn as SignInIcon,
 } from "lucide-react";
 
+// 对话页首的好感度标识（GLOSSARY.md「好感度」「冷却」）：五档心形和冷却中的沙漏。
+export {
+  Heart as AffinityIcon,
+  HeartCrack as AffinityDistantIcon,
+  HeartOff as AffinityColdIcon,
+  Hourglass as CooldownIcon,
+} from "lucide-react";
+
 // 导航栏底部（电脑）的 GitHub 仓库链接；品牌标志 Lucide 不收，是 The Library Icon Rule 的例外。
 export { GitHubIcon } from "./GitHubIcon";

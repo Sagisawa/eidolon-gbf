@@ -5,7 +5,8 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with whether users must bring their own LLM). Overrides are kept in the database, one row per field, a
+carries, with whether users must bring their own LLM), and whether affinity and gifts
+are on. Overrides are kept in the database, one row per field, a
 key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
 changed here, only seen). A change to a service is tried before it is kept, as the chat
 model is when the server starts; it then holds for every turn and call that starts after
@@ -93,6 +94,7 @@ JUDGE = "judge"
 JUDGE_THRESHOLDS = "judge_thresholds"
 RERANK = "rerank"
 LIMITS = "limits"
+AFFINITY = "affinity"
 
 LLM_FIELDS = ("protocol", "base_url", "api_key", "model", "max_tokens")
 
@@ -475,6 +477,29 @@ class _Limits(_Item):
         return current | change
 
 
+class _Affinity(_Item):
+    """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as `.env` has it (off by
+    default); not tried. Only with the judge model, which `.env` alone sets up."""
+
+    name = AFFINITY
+    fields = ("enabled",)
+    unavailable_reason = (
+        ".env 里没有配置判断模型，好感度要靠它判断，在启动时就关掉了；"
+        "要启用，请在 .env 里配置判断模型后重启"
+    )
+
+    def available(self) -> bool:
+        return self.c.settings.judge is not None
+
+    def env(self) -> Values:
+        return {"enabled": self.c.settings.affinity_and_gifts}
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        if not isinstance(change.get("enabled"), bool):
+            raise ConfigInvalid(f"好感度和礼物需要是 true 或 false，而不是 {change.get('enabled')!r}")
+        return current | change
+
+
 class LiveConfig:
     """The configuration the backend runs on now, and the deployer's clients made from it."""
 
@@ -512,6 +537,7 @@ class LiveConfig:
             for item in (
                 _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
                 _Judge(self), _JudgeThresholds(self), _Rerank(self), _Limits(self),
+                _Affinity(self),
             )
         }
         self._failures: dict[str, str] = {}
@@ -594,6 +620,13 @@ class LiveConfig:
     def own_llm_required(self) -> bool:
         """Whether the deployment requires users to bring their own LLM now."""
         return self.effective(LIMITS)[OWN_LLM_REQUIRED]
+
+    @property
+    def affinity_on(self) -> bool:
+        """Whether affinity is on now: the deployment has the judge model, and the switch
+        is on."""
+        item = self._items[AFFINITY]
+        return item.available() and self.effective(AFFINITY)["enabled"]
 
     @property
     def history_turns(self) -> int | None:

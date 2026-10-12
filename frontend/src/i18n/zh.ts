@@ -96,6 +96,27 @@ export const zh = {
     notCounted: "这次没有计入限额。",
     /** 部署要求自带 LLM、这个浏览器里又没存时（GLOSSARY.md「必须自带 LLM」），输入框和电话键换成这一句和「去设置自带密钥」。 */
     ownLLMRequired: "这个部署需要你自带 LLM，填上以后就能发消息和打电话；语音合成和语音识别可以不填。",
+    /** 页首的好感度标识和它点开的说明（GLOSSARY.md「好感度」「冷却」）。只说档位，不说数值。 */
+    affinity: {
+      tiers: { cold: "冷淡", distant: "疏远", trust: "信任", close: "亲近", intimate: "亲密" },
+      /** 每一档的大意，写在说明里档名下面。 */
+      notes: {
+        cold: "她对你明显冷淡，话很少。",
+        distant: "她有点生气或失望，比平时冷一些。",
+        trust: "你们一直以来的关系。",
+        close: "她比平时更放松，更愿意和你说心里话。",
+        intimate: "她非常信赖你，会说平时不轻易说的心事。",
+      },
+      label: (tier: string) => `你们的关系：${tier}`,
+      title: (tier: string) => `你们现在的关系：${tier}`,
+      cooling: (name: string) => `${name}现在不想说话`,
+      coolingNote: (until: string) => `${until} 以后可以再找她。`,
+      tiersLabel: "五个档位",
+      rule: "她对你的态度会随你说的话变化。低于「信任」时，不联系也会慢慢回到「信任」。",
+      /** 解除时刻：按制作人的时区写成今天或明天加时刻。 */
+      today: "今天",
+      tomorrow: "明天",
+    },
     /** 页首的「换衣装」和它打开的面板（spec「衣装与换衣装」）。 */
     outfits: {
       open: "换衣装",
@@ -839,6 +860,10 @@ export const zh = {
           title: "限额、单次通话上限和历史回合数",
           hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。「必须自带 LLM」也在这里开关。",
         },
+        affinity: {
+          title: "好感度和礼物",
+          hint: "需要判断模型：每个回合由它判断制作人的话让好感度怎样变化。关掉时不判断、不显示，冷却也不拦人；已有的好感度原样留着，再打开接着用。保存后从下一个回合起生效，进行中的通话也是。",
+        },
       },
       status: {
         env: "使用 .env 的值",
@@ -871,6 +896,7 @@ export const zh = {
         turns_per_call: "单次通话的回合上限",
         history_turns: "带上的历史回合数",
         own_llm_required: "必须自带 LLM",
+        enabled: "好感度和礼物",
       } as Record<string, string>,
       formHints: {
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
@@ -890,7 +916,7 @@ export const zh = {
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
       },
       unlimited: "不限",
-      /** 开关类的值（必须自带 LLM）。 */
+      /** 开关类的值（必须自带 LLM、好感度和礼物）。 */
       switchOn: "打开",
       switchOff: "关闭",
       /** 限额一项先选种类：设定上限，或者不限。不用 0 表示不限（单独限额里另有「只能用自带密钥」）。 */

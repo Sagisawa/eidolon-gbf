@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
+import { getAffinity, type AffinityStatus } from "@/lib/affinity";
 import type { Account, Character } from "@/lib/api";
 import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
@@ -33,11 +34,13 @@ import type { Failure } from "@/lib/failure";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
+import { detectTimezone } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
+import { AffinityBadge } from "./AffinityBadge";
 import { CallBar } from "./CallBar";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
@@ -59,6 +62,7 @@ const noSubscription = () => () => {};
  * 电话键变成实心的「回到通话」。对话的实时状态（连同通话）由导航外壳持有（ADR-0018）：这一页打开时向外壳要她那一份，
  * 离开时交回；通话中离开这一页，通话留在外壳里，回来时一切照旧。她的声音、电话本身的声音和切换麦克风的面板也在外壳里。
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
+ * 好感度可用时，电话键和更多菜单之间是好感度标识（GLOSSARY.md「好感度」）；不可用时读到 null，不显示。
  */
 export function ConversationView({
   account,
@@ -86,6 +90,19 @@ export function ConversationView({
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
+  const [affinity, setAffinity] = useState<AffinityStatus | null>(null);
+
+  // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识。
+  useEffect(() => {
+    let current = true;
+    getAffinity(character.id).then(
+      (status) => current && setAffinity(status),
+      () => current && setAffinity(null),
+    );
+    return () => {
+      current = false;
+    };
+  }, [character.id]);
 
   // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
   // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
@@ -148,6 +165,9 @@ export function ConversationView({
       )}
       <h1 className="min-w-0 flex-1 truncate px-2 text-header">{character.name}</h1>
       {phoneKey}
+      {affinity && (
+        <AffinityBadge status={affinity} name={character.name} timeZone={detectTimezone()} subtree={subtree} />
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={<Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.menu} />}

@@ -32,6 +32,7 @@ async def test_until_they_agree_new_users_are_sent_to_agree_first(
         await client.post("/api/conversations/any/turns", json={"text": "在吗"}),
         await client.get("/api/profile"),
         await client.get("/api/memories"),
+        await client.get("/api/characters/mano/affinity"),
         await client.get("/api/ice-servers"),
         await client.get("/api/account"),
     ]:

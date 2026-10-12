@@ -25,6 +25,7 @@ USER_DATA = [
     ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
+    ("affinities", "user_id = ?"),
     ("usage", "user_id = ?"),
     ("user_limits", "user_id = ?"),
     ("sessions", "user_id = ?"),
