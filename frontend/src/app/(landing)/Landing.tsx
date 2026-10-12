@@ -1,6 +1,7 @@
 import { buttonVariants } from "@/components/ui/button";
 import { copy } from "@/i18n";
 import type { Character, SignInOptions } from "@/lib/api";
+import { REPOSITORY_URL } from "@/lib/repository";
 import { PROVIDER_LABELS } from "@/lib/signIn";
 
 import { Honesty, Start } from "./Closing";
@@ -21,7 +22,7 @@ const t = copy.landing;
  * 棱镜、散成一道道印象色（LightStage 加 OGL 光层，静态档是 StaticLight 的 SVG）；第 2 幕沿着光谱
  * 横向走过各个组合（Spectrum）；第 3 幕她说日语、第 4 幕她打来电话（Voice）；第 5 幕一件事从一位偶像
  * 传到另一位（Memory）；第 6 幕安静的诚实事项、第 7 幕光汇聚成入口（Closing）；左侧的幕名轨（Rail）、
- * 右上角的入口和页脚。各幕的元素用 `data-lp-act` 标出它是第几幕，静止版式的幕名轨按它跟着滚动走。
+ * 右上角的入口（左边是 GitHub 仓库链接，新标签页打开）和页脚。各幕的元素用 `data-lp-act` 标出它是第几幕，静止版式的幕名轨按它跟着滚动走。
  *
  * 页面按时间线（model/timeline.ts）分成几段，每段用 `data-lp-section` 标出它是第几段；钉住的一段高度
  * 是它占的屏数（landing.css 的 --lp-screens），舞台的循环按这些段把滚动位置换算成屏数。
@@ -53,6 +54,9 @@ export function Landing({
       <Rail label={t.rail.label} acts={t.rail.acts.flatMap((name, act) => (builtActs.has(act) ? [{ act, name }] : []))} />
 
       <header className="lp-top">
+        <a href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: "ghost" })}>
+          {copy.app.repository}
+        </a>
         <LandingEntry isSignedIn={isSignedIn} label={entryLabel} className={buttonVariants({ variant: "outline" })} />
       </header>
 
