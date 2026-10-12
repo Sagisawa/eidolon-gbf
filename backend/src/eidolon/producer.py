@@ -91,10 +91,10 @@ def local_date(now: datetime, timezone: str) -> date:
 
 
 def producer_prompt(
-    profile: ProducerProfile, now: datetime, timezone: str, toward: Sequence[str] = ()
+    profile: ProducerProfile, now: datetime, timezone: str, affinity_lines: Sequence[str] = ()
 ) -> str:
     """The prompt section about the user: who they are, and the time where they are; then
-    `toward`, how the character feels toward them now (`affinity.prompt`)."""
+    `affinity_lines`, how the character feels toward them now (`affinity.affinity_prompt`)."""
     lines = ["# 制作人", "和你对话的是你的制作人，也就是 283 事务所的制作人。"]
     if profile.form_of_address:
         lines.append(
@@ -124,5 +124,5 @@ def producer_prompt(
         f"现在是 {local.year}年{local.month}月{local.day}日"
         f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。"
     )
-    lines += toward
+    lines += affinity_lines
     return "\n".join(lines)

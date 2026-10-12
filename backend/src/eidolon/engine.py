@@ -45,8 +45,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Literal, ParamSpec, TypeVar
 
-from eidolon.affinity import Affinities, Judged, Status
-from eidolon.affinity import prompt as affinity_prompt
+from eidolon.affinity import Affinities, Judged, Status, affinity_prompt
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -277,8 +276,8 @@ class ConversationEngine:
             if judged_apart is not None and not judged_apart.done():
                 judged_apart.cancel()
         now = self._clock()
-        toward = affinity_prompt(affinity.tier, judged) if affinity is not None else []
-        about_producer = producer_prompt(profile, now, timezone, toward)
+        affinity_lines = affinity_prompt(affinity.tier, judged) if affinity is not None else []
+        about_producer = producer_prompt(profile, now, timezone, affinity_lines)
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )

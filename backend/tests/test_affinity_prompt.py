@@ -88,31 +88,29 @@ async def test_in_trust_and_wherever_affinity_is_off_the_prompt_is_as_it_was(
     make_client: ClientFactory, settings: Settings
 ):
     on, _ = await prompted(make_client, [level(2)], settings=settings)
+    # Off, neither her tier nor what she was told is there, however low it is kept.
     off, _ = await prompted(
-        make_client, [level(4)], settings=replace(settings, affinity_and_gifts=False)
+        make_client, [level(0)], kept=10, settings=replace(settings, affinity_and_gifts=False)
     )
-    no_judge, _ = await prompted(make_client, [level(4)], settings=replace(settings, judge=None))
+    no_judge, _ = await prompted(make_client, [level(0)], settings=replace(settings, judge=None))
 
     assert on.prompts[0][0].content == off.prompts[0][0].content
     assert no_judge.prompts[0][0].content == off.prompts[0][0].content
     assert IN_HER_OWN_WAY not in about_producer(on)
 
 
-@pytest.mark.parametrize(
-    ("kept", "tier"), [(10, "cold"), (39.9, "distant"), (65, "close"), (100, "intimate")]
-)
 async def test_each_tier_but_trust_has_her_speak_as_its_own_in_her_own_way(
-    make_client: ClientFactory, settings: Settings, kept: float, tier: str
+    make_client: ClientFactory, settings: Settings
 ):
-    llm, _ = await prompted(make_client, [level(2)], kept=kept, settings=settings)
+    for kept, tier in [(10, "cold"), (39.9, "distant"), (65, "close"), (100, "intimate")]:
+        llm, _ = await prompted(make_client, [level(2)], kept=kept, settings=settings)
 
-    section = about_producer(llm)
-    assert TIER_MARKS[tier] in section
-    assert [m for t, m in TIER_MARKS.items() if t != tier and m in section] == []
-    assert IN_HER_OWN_WAY in section
-    assert UNCHANGED in section
-    assert NOTHING_MADE_UP in section
-    assert [w for w in (*TIER_NAMES, "好感度", "他") if w in section] == []
+        section = about_producer(llm)
+        assert [t for t, m in TIER_MARKS.items() if m in section] == [tier]
+        assert IN_HER_OWN_WAY in section, tier
+        assert UNCHANGED in section, tier
+        assert NOTHING_MADE_UP in section, tier
+        assert [w for w in (*TIER_NAMES, "好感度", "讨厌", "他") if w in section] == [], tier
 
 
 async def test_she_speaks_in_the_tier_the_turn_began_in(
@@ -177,14 +175,3 @@ async def test_a_turn_the_judge_model_cannot_judge_tells_her_nothing(
     section = about_producer(llm)
     assert TIER_MARKS["distant"] in section  # her tier as ever
     assert [f for f in (*FEELINGS.values(), OUT_OF_LINE) if f in section] == []
-
-
-async def test_off_neither_her_tier_nor_what_she_was_told_is_in_the_prompt(
-    make_client: ClientFactory, settings: Settings
-):
-    off = replace(settings, affinity_and_gifts=False)
-    llm, _ = await prompted(make_client, [level(0)], kept=10, settings=off)
-
-    section = about_producer(llm)
-    assert IN_HER_OWN_WAY not in section
-    assert FEELINGS[0] not in section

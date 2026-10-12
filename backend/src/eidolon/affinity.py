@@ -21,7 +21,7 @@ limits how far they lower it. It changes as the turn is recorded, and only then:
 that fails, is rejected or is left changes nothing.
 
 It shapes how she speaks to the producer, the same for every character, each in her own way
-(`prompt`): colder below trust, warmer above it, as she is in trust otherwise; and as what
+(`affinity_prompt`): colder below trust, warmer above it, as she is in trust otherwise; and as what
 the user said is judged to hurt her or make her happy, she knows it as she replies to it.
 
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
@@ -148,25 +148,6 @@ class Status:
         return {"tier": self.tier, "cooldown_until": until and until.isoformat()}
 
 
-@dataclass(frozen=True)
-class Judged:
-    """What the judge model made of a turn: its level, from 0 (hurt her) to 4 (made her very
-    happy); whether it was out of line; whether it tried to dictate her affinity."""
-
-    level: int
-    out_of_line: bool = False
-    manipulation: bool = False
-
-    @property
-    def step(self) -> float:
-        """How much it changes affinity, before the day's gains are limited: out of line,
-        by `OUT_OF_LINE_STEP`; else by its level's step, never up if it tried to dictate."""
-        if self.out_of_line:
-            return OUT_OF_LINE_STEP
-        step = LEVEL_STEPS[self.level]
-        return 0.0 if self.manipulation and step > 0 else step
-
-
 _IN_HER_OWN_WAY = "请按你自己的性格和口吻表现出来。"
 
 _TIER_PROMPTS: dict[Tier, str] = {
@@ -200,24 +181,44 @@ for a turn that has no effect."""
 _OUT_OF_LINE_FEELING = "制作人刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
 
 
-def prompt(tier: Tier, judged: Judged | None) -> list[str]:
+@dataclass(frozen=True)
+class Judged:
+    """What the judge model made of a turn: its level, from 0 (hurt her) to 4 (made her very
+    happy); whether it was out of line; whether it tried to dictate her affinity."""
+
+    level: int
+    out_of_line: bool = False
+    manipulation: bool = False
+
+    @property
+    def step(self) -> float:
+        """How much it changes affinity, before the day's gains are limited: out of line,
+        by `OUT_OF_LINE_STEP`; else by its level's step, never up if it tried to dictate."""
+        if self.out_of_line:
+            return OUT_OF_LINE_STEP
+        step = LEVEL_STEPS[self.level]
+        return 0.0 if self.manipulation and step > 0 else step
+
+    @property
+    def feeling(self) -> str | None:
+        """How what was said makes her feel, as she is told it: whether or not the day's
+        gains leave it anything to change; out of line, hurt and angry, whatever its level;
+        never happy if it tried to dictate it."""
+        if self.out_of_line:
+            return _OUT_OF_LINE_FEELING
+        if self.manipulation and self.level > NO_EFFECT:
+            return None
+        return _FEELINGS[self.level]
+
+
+def affinity_prompt(tier: Tier, judged: Judged | None) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
-    tier, nothing in trust; and how what the producer just said makes her feel, as judged
-    whether or not the day's gains leave it anything to change, never happy for what tried
-    to dictate it."""
+    tier, nothing in trust; and how what the producer just said makes her feel."""
     lines = []
     if tier != "trust":
         lines += [_TIER_PROMPTS[tier] + _IN_HER_OWN_WAY, _WHATEVER_THE_TIER]
-    if judged is None:
-        feeling = None
-    elif judged.out_of_line:
-        feeling = _OUT_OF_LINE_FEELING
-    elif judged.manipulation and judged.level > NO_EFFECT:
-        feeling = None
-    else:
-        feeling = _FEELINGS[judged.level]
-    if feeling:
+    if judged is not None and (feeling := judged.feeling):
         lines.append(feeling)
     return lines
 
