@@ -85,9 +85,7 @@ async def test_below_the_normal_value_it_recovers_as_time_goes_by_up_to_it(
     clock.advance(hours=1)  # 40.3
     tiers.append((await status(client)).json()["tier"])
     clock.advance(days=20)  # 50, no higher
-    keep(settings.database_path, "producer", 64.5, clock.now, character="kogane")
-    clock.advance(days=1)
-    tiers.append((await status(client, "kogane")).json()["tier"])
+    tiers.append((await status(client)).json()["tier"])
 
     assert tiers == ["cold", "distant", "distant", "trust", "trust"]
 

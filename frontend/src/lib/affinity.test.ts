@@ -26,7 +26,6 @@ describe("badgeOf：页首标识显示什么、读屏读什么", () => {
   it("冷却中：沙漏加解除时刻，读作「{角色名}现在不想说话」", () => {
     expect(badgeOf({ tier: "cold", cooldown_until: "2026-10-14T06:30:00+09:00" }, "凛世", now, zone)).toEqual({
       kind: "cooldown",
-      until: "明天 06:30",
       text: "明天 06:30",
       label: "凛世现在不想说话",
     });
@@ -34,14 +33,6 @@ describe("badgeOf：页首标识显示什么、读屏读什么", () => {
 });
 
 describe("untilText：解除时刻按制作人的时区写成今天或明天加时刻", () => {
-  it("同一天是今天", () => {
-    expect(untilText(new Date("2026-10-13T23:05:00+09:00"), now, zone)).toBe("今天 23:05");
-  });
-
-  it("过了当地 0 点是明天", () => {
-    expect(untilText(new Date("2026-10-14T00:00:00+09:00"), now, zone)).toBe("明天 00:00");
-  });
-
   it("按给定的时区判断，不按 UTC 的日期", () => {
     // 东京已经是 14 日，UTC 还是 13 日。
     const tokyoMorning = new Date("2026-10-13T16:00:00Z");

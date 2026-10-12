@@ -113,18 +113,18 @@ class Affinities:
     """Every user's affinity with every character, kept in the database at `path`, next to
     the users it belongs to."""
 
-    def __init__(self, path: Path, clock: Clock, on: Callable[[], bool]) -> None:
-        """`on` tells whether affinity is on now (the live configuration's)."""
+    def __init__(self, path: Path, clock: Clock, is_on: Callable[[], bool]) -> None:
+        """`is_on` tells whether affinity is on now (the live configuration's)."""
         self._db = connect(path)
         self._lock = threading.Lock()
         self._clock = clock
-        self._on = on
+        self._is_on = is_on
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
 
     def status(self, user_id: str, character_id: str) -> Status | None:
         """The user's affinity with the character now; None while affinity is off."""
-        if not self._on():
+        if not self._is_on():
             return None
         affinity = self._read(user_id, character_id)
         return Status(affinity.tier, affinity.cooldown_until)

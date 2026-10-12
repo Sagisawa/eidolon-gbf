@@ -29,13 +29,13 @@ export function heartOf(tier: Tier): Heart {
 /** 页首标识：一档的心形加档名，或者冷却中的沙漏加解除时刻；`label` 是读屏读的名字。 */
 export type Badge =
   | { kind: "tier"; tier: Tier; heart: Heart; text: string; label: string }
-  | { kind: "cooldown"; until: string; text: string; label: string };
+  | { kind: "cooldown"; text: string; label: string };
 
 export function badgeOf(status: AffinityStatus, name: string, now: Date, timeZone: string): Badge {
   const t = copy.conversation.affinity;
   if (status.cooldown_until !== null) {
     const until = untilText(new Date(status.cooldown_until), now, timeZone);
-    return { kind: "cooldown", until, text: until, label: t.cooling(name) };
+    return { kind: "cooldown", text: until, label: t.cooling(name) };
   }
   const text = t.tiers[status.tier];
   return { kind: "tier", tier: status.tier, heart: heartOf(status.tier), text, label: t.label(text) };

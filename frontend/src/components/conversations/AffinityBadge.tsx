@@ -7,9 +7,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { copy } from "@/i18n";
 import { badgeOf, TIERS, type AffinityStatus, type Heart } from "@/lib/affinity";
 import { cn } from "@/lib/utils";
-import { AffinityColdIcon, AffinityDistantIcon, AffinityIcon, CooldownIcon } from "@/theme/icons";
+import { AffinityColdIcon, AffinityDistantIcon, AffinityHeartIcon, CooldownIcon } from "@/theme/icons";
 
 const t = copy.conversation.affinity;
+
+const HEART_ICONS: Record<Heart, typeof AffinityHeartIcon> = {
+  off: AffinityColdIcon,
+  crack: AffinityDistantIcon,
+  outline: AffinityHeartIcon,
+  half: AffinityHeartIcon,
+  filled: AffinityHeartIcon,
+};
 
 /**
  * 页首的好感度标识（DESIGN.md「Buttons」的好感度标识）：电话键右边、更多菜单左边的 ghost 键，
@@ -46,7 +54,7 @@ export function AffinityBadge({
       <PopoverContent container={subtree} align="end">
         <div className="flex flex-col gap-0.5">
           <p className="font-medium">{cooling ? t.cooling(name) : t.title(badge.text)}</p>
-          <p className="text-muted-foreground">{cooling ? t.coolingNote(badge.until) : t.notes[badge.tier]}</p>
+          <p className="text-muted-foreground">{cooling ? t.coolingNote(badge.text) : t.notes[badge.tier]}</p>
         </div>
         <ol className="flex gap-1" aria-label={t.tiersLabel}>
           {TIERS.map((tier) => {
@@ -73,12 +81,12 @@ export function AffinityBadge({
 
 /** 五档的心形，她的颜色：亲近是空心叠一层只露下半的实心，亲密是实心。 */
 function HeartIcon({ heart }: { heart: Heart }) {
-  const Icon = heart === "off" ? AffinityColdIcon : heart === "crack" ? AffinityDistantIcon : AffinityIcon;
+  const Icon = HEART_ICONS[heart];
   return (
     <span aria-hidden className="relative flex">
       <Icon className={cn("size-5 text-her-mark", heart === "filled" && "fill-current")} />
       {heart === "half" && (
-        <AffinityIcon className="absolute inset-0 size-5 fill-current text-her-mark [clip-path:inset(50%_0_0_0)]" />
+        <AffinityHeartIcon className="absolute inset-0 size-5 fill-current text-her-mark [clip-path:inset(50%_0_0_0)]" />
       )}
     </span>
   );

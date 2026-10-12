@@ -60,7 +60,7 @@ export {
 
 // 对话页首的好感度标识（GLOSSARY.md「好感度」「冷却」）：五档心形和冷却中的沙漏。
 export {
-  Heart as AffinityIcon,
+  Heart as AffinityHeartIcon,
   HeartCrack as AffinityDistantIcon,
   HeartOff as AffinityColdIcon,
   Hourglass as CooldownIcon,

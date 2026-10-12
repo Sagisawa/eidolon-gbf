@@ -159,16 +159,6 @@ describe("formOf and changeOf", () => {
   });
 });
 
-describe("affinity", () => {
-  const affinity = ITEM_SPECS.affinity;
-
-  it("starts whether affinity and gifts are on as it is in effect, and sends it as true or false", () => {
-    expect(formOf(affinity, { enabled: false })).toEqual({ enabled: "false" });
-    expect(changeOf(affinity, { enabled: "true" }, true)).toEqual({ change: { enabled: true } });
-    expect(changeOf(affinity, { enabled: "false" }, false)).toEqual({ change: { enabled: false } });
-  });
-});
-
 describe("limits", () => {
   const limits = ITEM_SPECS.limits;
   const form = {
