@@ -1,4 +1,4 @@
-// 界面上的图标统一用 Lucide，以语义别名导出，不手绘 SVG（DESIGN.md「The Library Icon Rule」）。
+// 界面上的图标统一用 Lucide，以语义别名导出，不手绘 SVG（DESIGN.md「The Library Icon Rule」；品牌标志是例外，见文件末尾）。
 export {
   ArrowRightLeft as MicSwitchIcon,
   ChevronDown as CollapseIcon,
@@ -40,3 +40,6 @@ export { ArrowDown as SortedIcon, ArrowUpDown as SortableIcon } from "lucide-rea
 
 // 通话层右上角的「只看文字」胶囊。
 export { Captions as TextOnlyIcon } from "lucide-react";
+
+// 对话列表页首的 GitHub 仓库链接；品牌标志 Lucide 不收，是 The Library Icon Rule 的例外。
+export { GitHubIcon } from "./GitHubIcon";

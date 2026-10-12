@@ -6,6 +6,8 @@ export const zh = {
   app: {
     name: "Eidolon-SC",
     description: "和 283 事务所的偶像说说话",
+    /** 链到项目仓库的那个链接：落地页右上角的字，对话列表页首图标键的读屏名字。 */
+    repositoryLabel: "GitHub",
   },
   /** 落地页的链接贴到聊天软件、社交网站时预览卡片上的文字（Open Graph、Twitter 卡片）。页面上不显示，不进字体子集。 */
   share: {

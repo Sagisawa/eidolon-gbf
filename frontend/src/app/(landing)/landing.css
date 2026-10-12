@@ -627,7 +627,7 @@ html[data-lp-tier="reduced"] .lp-greeting-line {
   animation: none;
 }
 
-/* 声音开关：第一次听到招呼以后出现在右上角入口的左边（Spectrum 用 portal 放进 .lp-top），之后一直在。 */
+/* 声音开关：第一次听到招呼以后出现在右上角最左边、仓库链接和入口的前面（Spectrum 用 portal 放进 .lp-top），之后一直在。 */
 .lp-sound {
   order: -1;
   min-height: 32px;
