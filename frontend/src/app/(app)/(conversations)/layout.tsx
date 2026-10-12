@@ -8,7 +8,9 @@ import { DirectoryProvider, useWide } from "@/components/conversations/Conversat
 import { ConversationList } from "@/components/conversations/ConversationList";
 import { useSavedSize } from "@/components/conversations/useSavedSize";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { useHydrated } from "@/hooks/useHydrated";
 import { copy } from "@/i18n";
+import { cn } from "@/lib/utils";
 
 /**
  * 对话列表和对话共用的双栏外壳（DESIGN.md「Layout」）。
@@ -17,39 +19,56 @@ import { copy } from "@/i18n";
  *   换角色时列表不动。上限是定值而不是窗口的几成：最宽 480，最窄的宽屏（768px）上对话栏还有将近 300px。
  * - 窄屏：两级页面。对话列表页只显示列表，进了对话只显示对话（对话页首有返回键）。
  * 右栏在宽窄屏之间始终是同一个位置上的同一块，窗口跨过 768px 时对话（和通话）不会重新挂载。
+ * 水合前还不知道窗口宽窄（useWide 先当宽屏），先按 CSS 断点排出同样的两栏，窄屏只露这一级页面的那一栏，
+ * 免得手机上先闪一下宽屏双栏；水合后才换成可拖动的 Resizable。
  * 角色和摘要由这里载入一次，列表和对话从 DirectoryProvider 取。
  */
 export default function ConversationsLayout({ children }: { children: ReactNode }) {
   const wide = useWide();
+  const hydrated = useHydrated();
   const { characterId } = useParams<{ characterId?: string }>();
-  const column = useSavedSize("list", wide);
+  const column = useSavedSize("list", hydrated && wide);
   const list = <ConversationList selectedId={wide ? (characterId ?? null) : null} />;
 
   return (
     <DirectoryProvider>
       <PageShell width="full" isScrollable={false}>
-        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
-          {wide && (
-            <ResizablePanel
-              id="list"
-              panelRef={column.panelRef}
-              onResize={column.onResize}
-              defaultSize={320}
-              minSize={240}
-              maxSize={480}
-              groupResizeBehavior="preserve-pixel-size"
-            >
-              <nav aria-label={copy.conversationList.title} className="h-full">
-                {list}
-              </nav>
+        {hydrated ? (
+          <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+            {wide && (
+              <ResizablePanel
+                id="list"
+                panelRef={column.panelRef}
+                onResize={column.onResize}
+                defaultSize={320}
+                minSize={240}
+                maxSize={480}
+                groupResizeBehavior="preserve-pixel-size"
+              >
+                <nav aria-label={copy.conversationList.title} className="h-full">
+                  {list}
+                </nav>
+              </ResizablePanel>
+            )}
+            {/* 两栏之间的细线（列表栏的 border-r），也是拖动调宽窄的地方。 */}
+            {wide && <ResizableHandle aria-label={copy.conversationList.resize} />}
+            <ResizablePanel id="content" className="min-w-0">
+              <div className="relative h-full">{wide || characterId ? children : list}</div>
             </ResizablePanel>
-          )}
-          {/* 两栏之间的细线（列表栏的 border-r），也是拖动调宽窄的地方。 */}
-          {wide && <ResizableHandle aria-label={copy.conversationList.resize} />}
-          <ResizablePanel id="content" className="min-w-0">
-            <div className="relative h-full">{wide || characterId ? children : list}</div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+          </ResizablePanelGroup>
+        ) : (
+          // 和上面宽屏的默认样子一样：320px 的列表、1px 的线、右栏占满其余；窄屏只露一栏。
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <nav
+              aria-label={copy.conversationList.title}
+              className={cn("h-full w-80 shrink-0 max-md:w-full", characterId && "max-md:hidden")}
+            >
+              {list}
+            </nav>
+            <div className="w-px shrink-0 bg-border max-md:hidden" />
+            <div className={cn("relative h-full min-w-0 flex-1", !characterId && "max-md:hidden")}>{children}</div>
+          </div>
+        )}
       </PageShell>
     </DirectoryProvider>
   );
