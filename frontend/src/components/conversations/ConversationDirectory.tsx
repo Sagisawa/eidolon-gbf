@@ -30,10 +30,10 @@ import { isLive, NOT_OPEN, type LiveCall, type LiveConversation } from "@/lib/li
 /** 正在和谁通话，列表那一行据此显示「正在呼叫…」「通话中 mm:ss」；从对话页交来的 LiveConversation 的快照算出。 */
 export type CallInList = { characterId: string; state: LiveCall } | null;
 
-/** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由双栏外壳载入一次。 */
+/** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由导航外壳载入一次，设置页也拿得到。 */
 export type Directory = {
   /** 登录的用户（浏览器里的自带密钥按他的 ID 分开存；他现在是否必须自带 LLM）；和角色一起载入，还在载入时为 null。
-   * 进设置页再回来时外壳重新挂载，账号随之重新载入。 */
+   * 由导航外壳持有，在对话和设置之间换页时不重新载入。 */
   account: Account | null;
   /** 还在载入时为 null。 */
   characters: Character[] | null;
@@ -70,7 +70,7 @@ const noSubscription = () => () => {};
 
 export function useDirectory(): Directory {
   const directory = useContext(DirectoryContext);
-  if (!directory) throw new Error("useDirectory 只能在对话外壳里用");
+  if (!directory) throw new Error("useDirectory 只能在导航外壳里用");
   return directory;
 }
 

@@ -4,11 +4,21 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 对话列表、她的对话页、设置在同一个路由组里，共用一个外壳 layout；网址不变（`/conversations`、`/conversation/[characterId]`、`/settings`），记忆、后台、`/about`、隐私政策、使用条款、登录、同意条款仍在外壳外面
-- [ ] 对话目录由外壳持有：从对话页进设置再回来，角色和摘要不重新载入
-- [ ] 对话这一块原来的双栏（可拖宽的列表加对话）原样留在外壳里面，宽窄屏的排版、首屏不闪都和改动前一样
-- [ ] 通话行为不变：通话中离开她的对话页仍弹「会挂断和{name}的通话」确认框，确认后挂断
-- [ ] 两种屏宽在本地构建版上用 Playwright 核对：对话列表、她的对话页、设置页看起来和改动前一样
-- [ ] 现有的前端测试和纪律检查脚本全部通过
+- [x] 对话列表、她的对话页、设置在同一个路由组里，共用一个外壳 layout；网址不变（`/conversations`、`/conversation/[characterId]`、`/settings`），记忆、后台、`/about`、隐私政策、使用条款、登录、同意条款仍在外壳外面
+- [x] 对话目录由外壳持有：从对话页进设置再回来，角色和摘要不重新载入
+- [x] 对话这一块原来的双栏（可拖宽的列表加对话）原样留在外壳里面，宽窄屏的排版、首屏不闪都和改动前一样
+- [x] 通话行为不变：通话中离开她的对话页仍弹「会挂断和{name}的通话」确认框，确认后挂断
+- [x] 两种屏宽在本地构建版上用 Playwright 核对：对话列表、她的对话页、设置页看起来和改动前一样
+- [x] 现有的前端测试和纪律检查脚本全部通过
+
+## Answer
+
+新加路由组 `src/app/(app)/(nav)/`，它的 layout 只包一层 DirectoryProvider；`(conversations)` 和 `settings` 原样搬进去，对话这一块的双栏 layout 去掉自己那层 DirectoryProvider，其余不动。网址不变，记忆、后台、`/about`、条款、登录、同意条款仍在外面。
+
+验收（本地构建版，开发登录 Sallyn）：
+- 改动前后各构建一次，用 `scripts/screenshots.mts` 拍对话列表、她的对话页、设置、记忆，电脑和手机、浅色和深色共 16 张，逐像素零差异。
+- Playwright 两种屏宽：从她的对话页进设置再回列表，`/api/characters` 只请求一次；通话中（呼叫中）换角色或按返回弹「会挂断和{name}的通话」，「留在这里」不走，「挂断并离开」后离开。
+- 手机不跑脚本时 `/conversations` 首屏是单栏列表，没有双栏。
+- vitest 705 条、`check-discipline.sh`、`tsc` 全部通过。
