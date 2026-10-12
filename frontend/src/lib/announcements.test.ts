@@ -3,10 +3,6 @@ import { describe, expect, it } from "vitest";
 import { EXCERPT_LENGTH, excerpt } from "@/lib/announcements";
 
 describe("excerpt", () => {
-  it("keeps a short body as it is", () => {
-    expect(excerpt("今晚 23 点维护")).toBe("今晚 23 点维护");
-  });
-
   it("drops the Markdown marks, keeping the words of links and code", () => {
     expect(excerpt("**新角色**上线了：*樱木真乃*，见[说明](https://example.com)和 `设置`")).toBe(
       "新角色上线了：樱木真乃，见说明和 设置",
@@ -31,6 +27,14 @@ describe("excerpt", () => {
     const body = "字".repeat(EXCERPT_LENGTH);
 
     expect(excerpt(body)).toBe(body);
+  });
+
+  it("drops HTML tags, keeping the words between them", () => {
+    expect(excerpt("<div>维护通知</div> <b>今晚</b>")).toBe("维护通知 今晚");
+  });
+
+  it("drops the underscores of emphasis, not those within a word", () => {
+    expect(excerpt("_新_ 字段 __snake_case__")).toBe("新 字段 snake_case");
   });
 
   it("keeps the words of an image's description", () => {

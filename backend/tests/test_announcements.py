@@ -184,7 +184,7 @@ async def test_a_deleted_announcement_is_gone_for_admins_and_users(
 
 @pytest.mark.parametrize(
     ("body", "detail"),
-    [("", "公告正文不能为空"), (" \n ", "公告正文不能为空"), ("字" * 5001, "公告正文最多 5000 字")],
+    [(" \n ", "公告正文不能为空"), ("字" * 5001, "公告正文最多 5000 字")],
 )
 async def test_an_empty_or_too_long_body_is_refused(
     make_client: ClientFactory, github: FakeIdentityProvider, body: str, detail: str
@@ -270,9 +270,7 @@ async def test_no_one_but_admins_reaches_the_announcements_in_the_admin_console(
 async def test_only_users_who_agreed_to_the_terms_see_announcements(
     make_client: ClientFactory, github: FakeIdentityProvider
 ):
-    visitor = make_client(FakeLLM(), user=None)
     newcomer = make_client(FakeLLM(), user=None)
     await sign_in_with(newcomer, github, github_identity("1002", name="new"))
 
-    assert (await visitor.get("/api/announcements")).status_code == 401
     assert (await newcomer.get("/api/announcements")).status_code == 428

@@ -14,18 +14,22 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { copy } from "@/i18n";
-import { excerpt, listAdminAnnouncements, type AdminAnnouncement, type AnnouncementStatus } from "@/lib/announcements";
+import {
+  NEW_ANNOUNCEMENT,
+  announcementHref,
+  excerpt,
+  listAdminAnnouncements,
+  type AdminAnnouncement,
+  type AnnouncementStatus,
+} from "@/lib/announcements";
 import { toFailure, type Failure } from "@/lib/failure";
 
 const t = copy.admin.announcements;
 
-/** 新写一条公告的编辑页：还没有 id，第一次保存后换成这条公告自己的地址。 */
-export const NEW_ANNOUNCEMENT_HREF = "/admin/announcements/new";
-
 /**
  * 后台的「公告」页：草稿在前（后写的在上），然后是已发布的（后发布的在上）；右上角「写公告」。
  * 公告没有标题，每行用正文开头的一段认出来，点了进编辑页。宽屏（≥ 1024px）是装在 Card 里的表格：
- * 正文、状态、发布时间、最后修改；更窄时换成 divide-y 的行，正文在上，状态和时间在副行
+ * 正文、状态、发布时间、最后修改；更窄时换成 divide-y 的行，正文在上，状态、发布时间和最后修改在副行
  * （DESIGN.md「Layout · 后台 · 公告」）。
  */
 export function AdminAnnouncementList() {
@@ -42,7 +46,7 @@ export function AdminAnnouncementList() {
       title={copy.admin.pages.announcements}
       intro={t.intro}
       end={
-        <Button variant="outline" nativeButton={false} render={<NextLink href={NEW_ANNOUNCEMENT_HREF} />}>
+        <Button variant="outline" nativeButton={false} render={<NextLink href={announcementHref(NEW_ANNOUNCEMENT)} />}>
           {t.write}
         </Button>
       }
@@ -81,7 +85,7 @@ export function AdminAnnouncementList() {
                 {announcements.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell className="whitespace-normal">
-                      <AppLink href={`/admin/announcements/${a.id}`} isStandalone>
+                      <AppLink href={announcementHref(a.id)} isStandalone>
                         {excerpt(a.body)}
                       </AppLink>
                     </TableCell>
@@ -103,13 +107,20 @@ export function AdminAnnouncementList() {
               {announcements.map((a) => (
                 <li key={a.id} className="py-3 first:pt-0 last:pb-0">
                   <NextLink
-                    href={`/admin/announcements/${a.id}`}
+                    href={announcementHref(a.id)}
                     className="group flex flex-col items-start gap-1 rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
                   >
                     <span className="font-medium break-words group-hover:underline">{excerpt(a.body)}</span>
                     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       <StatusBadge status={a.status} />
-                      {a.published_at && <Timestamp value={a.published_at} />}
+                      {a.published_at && (
+                        <span>
+                          {t.editor.publishedAt} <Timestamp value={a.published_at} />
+                        </span>
+                      )}
+                      <span>
+                        {t.editor.updatedAt} <Timestamp value={a.updated_at} />
+                      </span>
                     </span>
                   </NextLink>
                 </li>

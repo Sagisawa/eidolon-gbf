@@ -29,7 +29,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
 import {
+  ANNOUNCEMENTS_HREF,
   MAX_BODY,
+  NEW_ANNOUNCEMENT,
+  announcementHref,
   deleteAnnouncement,
   editAnnouncement,
   excerpt,
@@ -44,9 +47,6 @@ import { BackIcon } from "@/theme/icons";
 
 const t = copy.admin.announcements;
 
-/** 地址里的这个 id 是「写一条新的」，不是哪条已有的公告。 */
-const NEW = "new";
-
 type Busy = "save" | "publish" | "withdraw" | "delete";
 
 /**
@@ -57,7 +57,7 @@ type Busy = "save" | "publish" | "withdraw" | "delete";
  * （DESIGN.md「Layout · 后台 · 公告」）。
  */
 export function AdminAnnouncementEditor({ id }: { id: string }) {
-  const isNew = id === NEW;
+  const isNew = id === NEW_ANNOUNCEMENT;
   const [saved, setSaved] = useState<AdminAnnouncement | null>(null);
   const [body, setBody] = useState("");
   const [mode, setMode] = useState<"edit" | "preview">("edit");
@@ -108,7 +108,7 @@ export function AdminAnnouncementEditor({ id }: { id: string }) {
     const kept = saved ? await editAnnouncement(saved.id, text) : await writeAnnouncement(text);
     setSaved(kept);
     setBody(kept.body);
-    if (!saved) window.history.replaceState(null, "", `/admin/announcements/${kept.id}`);
+    if (!saved) window.history.replaceState(null, "", announcementHref(kept.id));
     return kept;
   }
 
@@ -125,21 +125,20 @@ export function AdminAnnouncementEditor({ id }: { id: string }) {
         setConfirmingDelete(false);
         throw e;
       }
-      router.replace("/admin/announcements");
+      router.replace(ANNOUNCEMENTS_HREF);
     });
 
   const back = (
-    <AppLink href="/admin/announcements" isStandalone className="inline-flex w-fit items-center gap-1">
+    <AppLink href={ANNOUNCEMENTS_HREF} isStandalone className="inline-flex w-fit items-center gap-1">
       <BackIcon aria-hidden className="size-4" />
       {t.backToList}
     </AppLink>
   );
 
   if (!isNew && !saved) {
-    // 还没拿到这条公告：只放返回链接和转圈（或失败的原因）。限宽同 AdminPage 的 narrow。
+    // 还没拿到这条公告：只放转圈（或失败的原因）。
     return (
-      <div className="mx-auto flex w-full max-w-240 flex-col gap-6 p-4 md:p-6">
-        {back}
+      <AdminPage width="narrow" above={back} title={t.editor.title}>
         {failure && <FailureNotice failure={failure} />}
         {!failure && (
           <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -147,7 +146,7 @@ export function AdminAnnouncementEditor({ id }: { id: string }) {
             {t.loading}
           </p>
         )}
-      </div>
+      </AdminPage>
     );
   }
 

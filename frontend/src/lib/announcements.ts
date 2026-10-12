@@ -24,6 +24,18 @@ export type AdminAnnouncement = {
 /** An announcement as users see it: published, and nothing of who wrote it. */
 export type Announcement = { id: string; body: string; published_at: string };
 
+/** The admin console's list of announcements. */
+export const ANNOUNCEMENTS_HREF = "/admin/announcements";
+
+/** The id in the editor's address that stands for writing a new one, which has no id until
+ * first saved. */
+export const NEW_ANNOUNCEMENT = "new";
+
+/** Where an announcement is edited in the admin console; `NEW_ANNOUNCEMENT` for a new one. */
+export function announcementHref(id: string): string {
+  return `${ANNOUNCEMENTS_HREF}/${encodeURIComponent(id)}`;
+}
+
 /** Every announcement, drafts first (last written first), then the latest published. */
 export async function listAdminAnnouncements(): Promise<AdminAnnouncement[]> {
   return json(await api("/api/admin/announcements"));
@@ -79,14 +91,17 @@ export const EXCERPT_LENGTH = 40;
 
 /**
  * The start of a body as plain text, for telling announcements apart where they have no
- * title: the Markdown marks dropped (the words of links, images and code kept), every run
- * of whitespace one space, and cut at `EXCERPT_LENGTH` characters with an ellipsis.
+ * title: the Markdown marks and HTML tags dropped (the words of links, images, code and
+ * tags kept; underscores within a word too, which mark no emphasis), every run of
+ * whitespace one space, and cut at `EXCERPT_LENGTH` characters with an ellipsis.
  */
 export function excerpt(body: string): string {
   const text = body
     .replace(/^[ \t]*(?:[-*+]|\d+[.)]|#{1,6}|>)[ \t]+/gm, "")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_`~]/g, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/[*`]/g, "")
+    .replace(/(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, "")
     .replace(/\s+/g, " ")
     .trim();
   const chars = Array.from(text);
