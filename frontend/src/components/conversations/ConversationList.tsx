@@ -31,8 +31,9 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、GitHub 仓库链接和更多菜单，下面一个按名字或组合找人的搜索框，
- * 右边是筛选按钮（`ListFilter`）；每位角色一行（56px 头像、名字和时间一行，最后一句一行），选中行铺中性的 bg-muted；
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、GitHub 仓库链接和更多菜单，下面一个按名字
+ * 或组合找人的搜索框，右边是筛选按钮（`ListFilter`）；每位角色一行（56px 头像、名字和时间一行，最后一句一行），
+ * 选中行铺中性的 bg-muted；
  * 底部一行免责声明。显示谁、按什么顺序由 `arrange` 决定：置顶的在前，最近有过往来的在上面；隐藏的不显示，
  * 但搜索时照样能搜到，当前打开的和正在通话的始终留下。一整列不按组合分段，换位置时直接跳过去、不做动画。
  * 列表栏是实底，不在她的子树里。宽屏时在左栏，窄屏时占满一页。
@@ -57,7 +58,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         <Button
           variant="ghost"
           size="icon-lg"
-          aria-label={copy.app.repository}
+          aria-label={copy.app.repositoryLabel}
           nativeButton={false}
           render={<a href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer" />}
         >

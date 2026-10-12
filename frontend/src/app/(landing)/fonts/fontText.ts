@@ -98,10 +98,10 @@ export function japaneseText(): string {
 }
 
 /**
- * 第 0 幕（首屏）上的字：标题、副标题、首屏声明和右上角的入口（Landing.tsx）。这几个字另做一份很小的子集，
+ * 第 0 幕（首屏）上的字：标题、副标题、首屏声明和右上角的仓库链接、入口（Landing.tsx）。这几个字另做一份很小的子集，
  * 只预载它：完整子集一起预载会和首屏的 CSS 抢带宽，手机 4G 下首屏晚 0.5 秒。第 0 幕的文案改了而没有
  * 重新生成时，那几个字会从完整子集里取，字体对、只是晚一点到，覆盖契约测试同样会拦。
  */
 export function act0Text(): string {
-  return unique([copy.app.name, copy.app.description, copy.landing.disclaimer, copy.landing.signIn, copy.landing.continue]);
+  return unique([copy.app.name, copy.app.description, copy.landing.disclaimer, copy.app.repositoryLabel, copy.landing.signIn, copy.landing.continue]);
 }
