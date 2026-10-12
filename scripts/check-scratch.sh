@@ -37,6 +37,7 @@ for map in "$root"/*/map.md; do
     fi
 
     # `Blocked by: 01, 02` 里的票号；none、None 之类没有数字，自然跳过
+    # shellcheck disable=SC2013 # 票号本来就是一个个词；改成 while read 的管道会在子 shell 里跑，report 设的 failed 带不出来
     for number in $(sed -n 's/^Blocked by: *//p' "$ticket" | grep -oE '[0-9]+'); do
       # 去掉前导零再补成两位：printf 会把 08、09 当成八进制
       padded=$(printf '%02d' "$(printf '%s' "$number" | sed 's/^0*//; s/^$/0/')")
