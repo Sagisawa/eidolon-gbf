@@ -241,7 +241,8 @@ components:
 - 行就是行，不用卡片包。每行：头像（56px，无描边）、名字、时间、最后一句（她的日语，或「你：…」）、未读数（`--her-button` 底、`--her-button-fg` 字的胶囊）。
 - **Selected**：`bg-muted`；悬停 `bg-muted/60`。通话中该行描述换成「通话中 mm:ss」/「正在呼叫…」。
 - 底部固定一行免责声明，Meta 字号。
-- **页首**：左边「对话」大标题，右边两个 ghost `icon-lg` 图标键：GitHub 仓库链接（`GitHubIcon`，读屏名字「GitHub」，新标签页打开）和更多菜单。
+- **页首**：左边「对话」大标题，右边三个 ghost `icon-lg` 图标键，依次是 GitHub 仓库链接（`GitHubIcon`，读屏名字「GitHub」，新标签页打开）、公告铃铛（`AnnouncementsBellIcon`，即 Lucide `Bell`）和更多菜单。宽屏窄屏一样。
+- **公告铃铛**：有未读公告时图标右上角一个 6px 小圆点，`bg-foreground`（和筛选按钮的点同位置、同大小；用前景色而不是 muted，因为这是要人去看的事），不用她的颜色也不用强调色。读屏名字「公告」，有未读时「公告，有未读」。点了打开公告弹窗（见「Overlays」）。
 - **顺序**：最近有过往来的在上面（开了新对话也算），从没聊过的在最后、按原作的偶像顺序；搜索结果同样排。一整列平铺，不按组合分段；一行换位置时直接跳过去，不做位移动画。
 - **搜索框**：提示文字「搜索名字或组合」；日文原名、中文简体译名、假名、罗马字都能搜，输组合名列出整组。什么都没搜到时显示「没有找到这位偶像」。隐藏的人照样能搜到。
 - **筛选按钮**：搜索框右边一个 ghost 图标键（`FilterIcon`，36px，和搜索框同高）。有人被隐藏时图标右上角一个 6px 小圆点，`bg-muted-foreground`，不用她的颜色也不用强调色；读屏名字带隐藏人数（「筛选列表，已隐藏 n 位」）。
@@ -253,6 +254,7 @@ components:
 
 ### Overlays
 - shadcn 的 `AlertDialog`（离开对话前确认挂断）、`Drawer` 或 `Sheet`（切换麦克风）、`DropdownMenu` / `Popover`（更多菜单），遵守 The Night Edge Rule。麦克风选择的当前项铺 `bg-muted`，写「正在使用」。
+- **公告弹窗**：对话列表的铃铛打开，两种屏宽都是居中的 `Dialog`（最宽 `max-w-md`），中性色，不显示右上角的 ✕。标题「公告」；下面是最近 20 条公告，最新的在上，列表最高 70dvh、超出滚动。每条先是一行 Meta 字号 muted 的发布日期（设备时区，只写年/月/日），没读过的日期后面一个 secondary Badge「新」；下面是公告正文（`AnnouncementBody`，和后台预览同一个组件），条与条之间 `Separator`。一条都没有时是 `Empty`「还没有公告」。底栏两种屏宽都是右对齐的一行：ghost「关闭」、default「已读」（没有未读时禁用）；Esc、点外面等同「关闭」。
 - **换衣装**：宽屏对话框、窄屏底部面板，结构沿用（大预览 + 卡片网格，每张卡有缩略图、卡名、「私服 / 演出」切换）；正在预览的卡铺 `bg-muted`，大预览的底是她的壁纸。
 
 ### Call layer（通话层，signature）
@@ -280,6 +282,7 @@ components:
 
 ### Icons
 - 全部来自 `lucide-react`，按语义别名从一个文件导出（沿用 `PhoneIcon`、`HangUpIcon`、`MicIcon` 这类名字），组件里不直接散用 Lucide 原名。
+- 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。
 - 品牌标志例外：Lucide 不收品牌标志，需要时照抄 simple-icons 的官方路径，不改形状，同样从那个文件导出。目前只有 `GitHubIcon`。
 
 **The Library Icon Rule.** 图标只从 Lucide 取；不手绘 SVG，不用字符或 emoji 当图标。品牌标志是唯一的例外，只能用 simple-icons 的官方路径。

@@ -107,3 +107,55 @@ export function excerpt(body: string): string {
   const chars = Array.from(text);
   return chars.length > EXCERPT_LENGTH ? `${chars.slice(0, EXCERPT_LENGTH).join("")}…` : text;
 }
+
+// What a user has read (GLOSSARY.md「未读公告」) is kept on this device only, like hiding and
+// pinning: in localStorage, apart for each user (eidolon.announcementsRead.<user id>), as the time
+// the newest announcement read was published. Its id is not kept, so deleting one changes nothing,
+// and one withdrawn and published again is new. What cannot be read or makes no sense is nothing
+// read; what cannot be stored (private browsing) stays for this page.
+
+function readKey(userId: string): string {
+  return `eidolon.announcementsRead.${userId}`;
+}
+
+/** Kept for this page too, for when storage cannot be used. */
+const readThisPage = new Map<string, string>();
+
+/** When the newest announcement this user has read on this device was published; null if none. */
+export function readUpTo(userId: string): string | null {
+  let stored: unknown = null;
+  try {
+    stored = JSON.parse(localStorage.getItem(readKey(userId)) ?? "null");
+  } catch {
+    // Unreadable or broken: nothing read, but for what this page kept.
+  }
+  const kept = typeof stored === "string" && !Number.isNaN(Date.parse(stored)) ? stored : null;
+  return later(kept, readThisPage.get(userId) ?? null);
+}
+
+/** Keep that this user has read every announcement published up to `at`. */
+export function keepReadUpTo(userId: string, at: string): void {
+  readThisPage.set(userId, at);
+  try {
+    localStorage.setItem(readKey(userId), JSON.stringify(at));
+  } catch {
+    // Storage cannot be used: kept for this page only.
+  }
+}
+
+/** The ids of those published after `readAt`; every one when nothing has been read. */
+export function unread(announcements: readonly Announcement[], readAt: string | null): Set<string> {
+  const since = readAt === null ? -Infinity : Date.parse(readAt);
+  return new Set(announcements.filter((a) => Date.parse(a.published_at) > since).map((a) => a.id));
+}
+
+/** What 「已读」 keeps: when the newest of these was published, so any published later is new. */
+export function newestPublished(announcements: readonly Announcement[]): string | null {
+  return announcements.reduce<string | null>((newest, a) => later(newest, a.published_at), null);
+}
+
+function later(a: string | null, b: string | null): string | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}

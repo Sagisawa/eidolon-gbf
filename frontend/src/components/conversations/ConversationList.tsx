@@ -24,6 +24,7 @@ import { REPOSITORY_URL } from "@/lib/repository";
 import { cn } from "@/lib/utils";
 import { GitHubIcon, MoreIcon, PinIcon, SearchIcon } from "@/theme/icons";
 
+import { Announcements } from "./Announcements";
 import { useDirectory, type CallInList } from "./ConversationDirectory";
 import { ListFilter } from "./ListFilter";
 import { useCallTime } from "./useCallTime";
@@ -31,7 +32,7 @@ import { useCallTime } from "./useCallTime";
 const t = copy.conversationList;
 
 /**
- * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、GitHub 仓库链接和更多菜单，下面一个按名字
+ * 对话列表（DESIGN.md「Conversation list」）：顶上「对话」大标题、GitHub 仓库链接、公告铃铛和更多菜单，下面一个按名字
  * 或组合找人的搜索框，右边是筛选按钮（`ListFilter`）；每位角色一行（56px 头像、名字和时间一行，最后一句一行），
  * 选中行铺中性的 bg-muted；
  * 底部一行免责声明。显示谁、按什么顺序由 `arrange` 决定：置顶的在前，最近有过往来的在上面；隐藏的不显示，
@@ -40,7 +41,7 @@ const t = copy.conversationList;
  */
 export function ConversationList({ selectedId }: { selectedId: string | null }) {
   const router = useRouter();
-  const { characters, latest, preferences, tidy, failure, reload, call, leave } = useDirectory();
+  const { account, characters, latest, preferences, tidy, failure, reload, call, leave } = useDirectory();
   const now = useMinute();
   const [query, setQuery] = useState("");
   const [isFilterOpen, setFilterOpen] = useState(false);
@@ -64,6 +65,7 @@ export function ConversationList({ selectedId }: { selectedId: string | null }) 
         >
           <GitHubIcon />
         </Button>
+        <Announcements userId={account?.id ?? null} />
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-lg" aria-label={t.menu} />}>
             <MoreIcon />

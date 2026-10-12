@@ -61,6 +61,13 @@ export const zh = {
     hiddenCount: (count: string) => `已隐藏 ${count} 位`,
     allHidden: "所有角色都隐藏了",
     chooseShown: "选择显示谁",
+    /** 页首的铃铛和它打开的公告弹窗（GLOSSARY.md「公告」「未读公告」）。 */
+    announcements: "公告",
+    announcementsUnread: "公告，有未读",
+    noAnnouncements: "还没有公告",
+    /** 没读过的那条公告，日期后面的标记。 */
+    unreadAnnouncement: "新",
+    markAnnouncementsRead: "已读",
   },
   conversation: {
     back: "返回对话列表",
