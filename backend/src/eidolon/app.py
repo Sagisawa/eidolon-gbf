@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from eidolon.admission import OwnLLMRequired
+from eidolon.admission import CoolingDown, OwnLLMRequired
 from eidolon.assembly import Backend
 from eidolon.call import (
     CallFailed,
@@ -240,6 +240,14 @@ def create_app(backend: Backend) -> FastAPI:
         from other refusals, so the page can send them to fill it in."""
         return JSONResponse({"detail": str(e), "own_llm_required": True}, status_code=403)
 
+    @app.exception_handler(CoolingDown)
+    async def cooling_down(_: Request, e: CoolingDown) -> JSONResponse:
+        """Refused while she is in a cooldown, with when it ends; told apart from the limit's
+        429 and the own-LLM rule's 403."""
+        return JSONResponse(
+            {"detail": str(e), "cooldown_until": e.cooldown_until.isoformat()}, status_code=409
+        )
+
     @app.exception_handler(CallsUnavailable)
     async def calls_unavailable(_: Request, e: CallsUnavailable) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=503)
@@ -277,11 +285,15 @@ def create_app(backend: Backend) -> FastAPI:
     add_announcement_routes(app, backend)
 
     @app.get("/api/ice-servers")
-    def ice_servers(user_id: UserId, own: str = "") -> dict:
+    def ice_servers(user_id: UserId, own: str = "", conversation: str | None = None) -> dict:
         """What the browser needs before calling, if the call is to bring the user's own
         keys for the services `own` names (as `llm,tts,stt`), but none of the keys; also
-        tells it when calls are unavailable."""
-        return calls.ice_servers(user_id, named_services(own))
+        tells it when calls are unavailable, or, for a call into `conversation`, when she
+        is in a cooldown."""
+        character_id = (
+            conversation_or_404(conversation, user_id).character_id if conversation else None
+        )
+        return calls.ice_servers(user_id, named_services(own), character_id)
 
     @app.post("/api/offer")
     async def offer(

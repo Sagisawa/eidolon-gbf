@@ -26,7 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
-import { cueText } from "@/lib/affinity";
+import { cueText, untilText } from "@/lib/affinity";
 import type { Account, Character } from "@/lib/api";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
@@ -34,10 +34,9 @@ import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation"
 import { linesOf, type Line } from "@/lib/messageLines";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
-import { detectTimezone } from "@/lib/timezone";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, CooldownIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
@@ -46,6 +45,7 @@ import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
+import { useProducerTimezone } from "./useProducerTimezone";
 import { useStandOutfits } from "./useStandOutfits";
 
 const t = copy.conversation;
@@ -63,6 +63,7 @@ const noSubscription = () => () => {};
  * 离开时交回；通话中离开这一页，通话留在外壳里，回来时一切照旧。她的声音、电话本身的声音和切换麦克风的面板也在外壳里。
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  * 好感度可用时，电话键和更多菜单之间是好感度标识（GLOSSARY.md「好感度」）；不可用时读到 null，不显示。
+ * 她在冷却中（GLOSSARY.md「冷却」）时，输入栏换成一行说明、电话键禁用，到点自己恢复。
  */
 export function ConversationView({
   account,
@@ -91,7 +92,9 @@ export function ConversationView({
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
   // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
-  const { affinity, affinityCue } = snapshot;
+  const { affinity, affinityCue, cooling } = snapshot;
+  // 解除时刻按制作人的时区写成今天或明天。
+  const timeZone = useProducerTimezone();
 
   // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
   // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
@@ -159,7 +162,7 @@ export function ConversationView({
           status={affinity}
           cue={affinityCue}
           name={character.name}
-          timeZone={detectTimezone()}
+          timeZone={timeZone}
           subtree={subtree}
         />
       )}
@@ -204,7 +207,18 @@ export function ConversationView({
   }
 
   const canSend = isOpen && draft.trim() !== "";
-  const composer = ownLLMMissing ? (
+  const until = affinity?.cooldown_until;
+  const composer = until ? (
+    // 冷却中：一行说明代替输入框，没有按钮；草稿留着，到点换回输入框时还在。
+    <div
+      inert={isCovered}
+      role="status"
+      className="flex min-h-14 shrink-0 items-center justify-center gap-2 border-t bg-background px-3 py-2 text-body text-muted-foreground"
+    >
+      <CooldownIcon aria-hidden className="size-4 shrink-0" />
+      <p>{t.affinity.coolingComposer(character.name, untilText(new Date(until), new Date(), timeZone))}</p>
+    </div>
+  ) : ownLLMMissing ? (
     // 输入框和电话键换成一句提示和去设置的链接；后端的 403 仍是兜底。
     <div inert={isCovered} className="shrink-0 border-t bg-background px-3 py-2">
       <FailureNotice failure={{ message: t.ownLLMRequired, signedOut: false, toOwnKeys: true }} />
@@ -259,7 +273,7 @@ export function ConversationView({
             <EmptyHeader>
               <EmptyTitle>{t.emptyTitle(character.name)}</EmptyTitle>
               {/* 被拦时输入框和电话键都不在，「打字，或者点电话」不对；下面的提示会说明 */}
-              {!ownLLMMissing && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
+              {!ownLLMMissing && !cooling && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
             </EmptyHeader>
           </Empty>
         ) : (

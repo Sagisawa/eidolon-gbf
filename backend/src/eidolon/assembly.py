@@ -241,6 +241,7 @@ def build(
         own_llm_required=lambda: config.own_llm_required,
         is_admin=lambda user_id: is_admin(store, settings, user_id),
         deployer_llm_allowed=usage.deployer_llm_allowed,
+        cooldown_until=affinities.cooldown_until,
     )
     calls = Calls(
         settings, engine, admissions, own_keys, lambda: config.usage_limits, speech, clock, store

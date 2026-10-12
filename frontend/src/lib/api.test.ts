@@ -135,6 +135,17 @@ describe("json: refused for want of the user's own LLM", () => {
   });
 });
 
+describe("json: refused while she is in a cooldown", () => {
+  it("says until when, told apart from the limit's 429 and the own-LLM rule's 403", async () => {
+    const until = "2026-10-14T06:30:00+00:00";
+    const error = await failure(409, { detail: "她现在不想说话，晚些时候再来吧", cooldown_until: until });
+    const over = await failure(429, { detail: "本小时的对话次数已用完", retry_at: until });
+
+    expect(error).toMatchObject({ status: 409, cooldownUntil: until, ownLLMRequired: false });
+    expect(over.cooldownUntil).toBeNull();
+  });
+});
+
 describe("sendTurn", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -238,16 +249,19 @@ describe("getCallSetup", () => {
     vi.unstubAllGlobals();
   });
 
-  it("names the services the call is to bring the user's own keys for, and none of the keys", async () => {
+  it("names the conversation, and the services the call is to bring the user's own keys for, but none of the keys", async () => {
     const fetch = vi.fn(async (_path: string, _init?: RequestInit) =>
       Response.json({ iceServers: [], maxCallSeconds: null, callExempt: false }),
     );
     vi.stubGlobal("fetch", fetch);
 
-    await getCallSetup(["llm", "tts", "stt"]);
-    await getCallSetup([]);
+    await getCallSetup("c1", ["llm", "tts", "stt"]);
+    await getCallSetup("c1", []);
 
-    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/api/ice-servers?own=llm,tts,stt", "/api/ice-servers"]);
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/api/ice-servers?conversation=c1&own=llm,tts,stt",
+      "/api/ice-servers?conversation=c1",
+    ]);
   });
 });
 

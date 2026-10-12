@@ -111,6 +111,8 @@ export const zh = {
       title: (tier: string) => `你们现在的关系：${tier}`,
       cooling: (name: string) => `${name}现在不想说话`,
       coolingNote: (until: string) => `${until} 以后可以再找她。`,
+      /** 冷却中换掉输入栏的那一行。 */
+      coolingComposer: (name: string, until: string) => `${name}现在不想说话。${until} 以后可以再找她`,
       tiersLabel: "五个档位",
       rule: "她对你的态度会随你说的话变化。低于「信任」时，不联系也会慢慢回到「信任」。",
       /** 解除时刻：按制作人的时区写成今天或明天加时刻。 */

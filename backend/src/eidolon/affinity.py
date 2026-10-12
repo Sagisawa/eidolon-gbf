@@ -180,6 +180,9 @@ for a turn that has no effect."""
 
 _OUT_OF_LINE_FEELING = "制作人刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
 
+_PARTING = "这句话之后你暂时不想再和制作人说话了。先回应，再用你自己的方式表明你现在不想聊下去。"
+"""For the turn that begins a cooldown: she replies, then parts with the producer."""
+
 
 @dataclass(frozen=True)
 class Judged:
@@ -211,15 +214,18 @@ class Judged:
         return _FEELINGS[self.level]
 
 
-def affinity_prompt(tier: Tier, judged: Judged | None) -> list[str]:
+def affinity_prompt(tier: Tier, judged: Judged | None, cools: bool = False) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
-    tier, nothing in trust; and how what the producer just said makes her feel."""
+    tier, nothing in trust; how what the producer just said makes her feel; and, if it
+    `cools` her into a cooldown, that she parts with the producer after replying."""
     lines = []
     if tier != "trust":
         lines += [_TIER_PROMPTS[tier] + _IN_HER_OWN_WAY, _WHATEVER_THE_TIER]
     if judged is not None and (feeling := judged.feeling):
         lines.append(feeling)
+    if cools:
+        lines.append(_PARTING)
     return lines
 
 
@@ -254,6 +260,19 @@ class Affinities:
             return None
         affinity = self._read(user_id, character_id)
         return Status(affinity.tier, affinity.cooldown_until)
+
+    def cooldown_until(self, user_id: str, character_id: str) -> datetime | None:
+        """When the cooldown the character is in with the user ends; None if she is in none,
+        or while affinity is off, when none holds whatever is kept."""
+        status = self.status(user_id, character_id)
+        return status and status.cooldown_until
+
+    def cools(self, user_id: str, character_id: str, judged: Judged) -> bool:
+        """Whether the turn `judged` would begin a cooldown, recorded now: foretold as the
+        turn begins, so that she may part with the producer as she replies. Another turn
+        recorded meanwhile may make it otherwise; so be it."""
+        affinity = self._read(user_id, character_id)
+        return not affinity.cooling and affinity.value + judged.step <= LOWEST
 
     def change(
         self,

@@ -164,22 +164,17 @@ async def test_it_falls_no_lower_than_0_where_a_cooldown_begins(
     clock = FakeClock()
     clients = FakeServiceClients()
     clients.judge.judgings = [level(0)]
-    client = make_client(FakeLLM(REPLY, REPLY), clients=clients, clock=clock)
+    client = make_client(FakeLLM(REPLY), clients=clients, clock=clock)
     keep(settings.database_path, "producer", 3, clock.now)
     conversation = await start_conversation(client)
 
     [(fell, done)] = await turns(client, settings.database_path, conversation, 1)
-    [(kept, cooling)] = await turns(client, settings.database_path, conversation, 1)
 
     assert fell == 0
     assert done["message"]["affinity"] == change(False, "cold", cooldown=True)
     assert done["affinity"] == {
         "tier": "cold", "cooldown_until": (clock.now + timedelta(days=1)).isoformat()
     }
-    # In a cooldown she is not judged at all.
-    assert kept == 0
-    assert cooling["message"]["affinity"] is None
-    assert clients.judge.affinity_asked == ["第0句"]
 
 
 async def test_a_turn_the_judge_model_cannot_judge_changes_nothing_and_goes_on(

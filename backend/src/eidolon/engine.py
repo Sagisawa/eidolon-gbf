@@ -36,7 +36,9 @@ same request as retrieval's judge, or, retrieval off, in one of its own while th
 on with the rest. Once her reply is recorded affinity changes as it judged, and the change
 is recorded with her reply; `done` tells it, and where it leaves her affinity. A turn not
 recorded changes nothing; one the judge model could not judge leaves it as it is. She
-replies in the tier the turn began in, knowing how what the user said made her feel.
+replies in the tier the turn began in, knowing how what the user said made her feel, and
+parting with the user if it is to begin a cooldown (GLOSSARY.md「冷却」); in one, she has no
+turns (`Admissions`).
 """
 
 import asyncio
@@ -276,7 +278,11 @@ class ConversationEngine:
             if judged_apart is not None and not judged_apart.done():
                 judged_apart.cancel()
         now = self._clock()
-        affinity_lines = affinity_prompt(affinity.tier, judged) if affinity is not None else []
+        affinity_lines = (
+            affinity_prompt(affinity.tier, judged, self._cools(conversation, judged))
+            if affinity is not None
+            else []
+        )
         about_producer = producer_prompt(profile, now, timezone, affinity_lines)
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
@@ -331,6 +337,12 @@ class ConversationEngine:
         if self._affinities is None:
             return None
         return self._affinities.status(conversation.user_id, conversation.character_id)
+
+    def _cools(self, conversation: Conversation, judged: Judged | None) -> bool:
+        """Whether the turn, as `judged`, would begin a cooldown; never if not judged."""
+        if judged is None or self._affinities is None:
+            return False
+        return self._affinities.cools(conversation.user_id, conversation.character_id, judged)
 
     def _record(
         self,

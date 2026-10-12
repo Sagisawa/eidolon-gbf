@@ -89,7 +89,7 @@ export async function startCall(
   userId: string,
 ): Promise<Call> {
   const { ownKeys, services } = callOwnKeys(userId);
-  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(services);
+  const { iceServers, maxCallSeconds, callExempt } = await getCallSetup(conversationId, services);
   const microphone = await Microphone.open(preferences.micId);
   handlers.onMicOpen();
   let hungUp = false;

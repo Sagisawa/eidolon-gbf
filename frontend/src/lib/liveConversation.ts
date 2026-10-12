@@ -116,7 +116,7 @@ export type Snapshot = {
   draft: string;
   /** Show the character's replies as text only (GLOSSARY.md「只看文字」). */
   textOnly: boolean;
-  /** A call can be dialed now: `startCall` would. */
+  /** A call can be dialed now: `startCall` would. Not while she is in a cooldown. */
   canDial: boolean;
   /** A new conversation can be started now: `startNewConversation` would. */
   canStartNew: boolean;
@@ -132,9 +132,12 @@ export type Snapshot = {
   affinity: AffinityStatus | null;
   /** The change of her affinity the last turn made, for `CUE_MS` after it was recorded. */
   affinityCue: AffinityCue | null;
+  /** She is in a cooldown with the user (GLOSSARY.md「冷却」), until `affinity.cooldown_until`:
+   * no text turns, no calls, until it ends by itself. A new conversation can still be started. */
+  cooling: boolean;
 };
 
-type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
+type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew" | "cooling"> & {
   log: ConversationLog;
   /** The call screen's line card, in the call under way or the last one. */
   card: LineCard;
@@ -170,6 +173,7 @@ export const NOT_OPEN: Snapshot = {
   stand: CALM,
   canDial: false,
   canStartNew: false,
+  cooling: false,
 };
 
 /** Her voice in a call (`CharacterVoice`): plain or over a phone line, silent in text only. */
@@ -242,6 +246,8 @@ export class LiveConversation {
   private pacing: ReturnType<typeof setTimeout> | null = null;
   /** Stops showing the change of her affinity; null while none is shown. */
   private cueing: ReturnType<typeof setTimeout> | null = null;
+  /** Ends the cooldown she is in as it is due to; null while she is in none. */
+  private thawing: ReturnType<typeof setTimeout> | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
@@ -272,6 +278,7 @@ export class LiveConversation {
     this.disposed = true;
     if (this.pacing !== null) clearTimeout(this.pacing);
     if (this.cueing !== null) clearTimeout(this.cueing);
+    if (this.thawing !== null) clearTimeout(this.thawing);
     this.attempt = null;
     this.call?.leave().catch(() => {});
     this.call = null;
@@ -301,8 +308,9 @@ export class LiveConversation {
   async submit(): Promise<void> {
     const text = this.state.draft.trim();
     const conversationId = this.openConversationId();
-    // One exchange at a time: not over a text turn, nor into a call still dialing.
+    // One exchange at a time: not over a text turn, nor into a call still dialing; none in a cooldown.
     if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
+    if (isCooling(this.state)) return;
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
@@ -326,6 +334,12 @@ export class LiveConversation {
       // Cut off: whether the backend still recorded (and counted) it cannot be told here.
       if (!done && !failure) failure = { message: "回复中断了，请再试一次", signedOut: false };
     } catch (e) {
+      if (e instanceof ApiError && e.cooldownUntil !== null) {
+        // Refused for a cooldown begun elsewhere: shown as one, the text kept for when it ends.
+        this.apply({ type: "interrupted" }, { draft: text, busy: false });
+        this.cooled(e.cooldownUntil);
+        return;
+      }
       failure = toFailure(e);
       // Refused by the backend (over the limit, own key failed, ...): not counted.
       if (e instanceof ApiError) failure.countsTowardLimit = false;
@@ -352,7 +366,7 @@ export class LiveConversation {
    */
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
-    if (!conversationId || !isFree(this.state)) return;
+    if (!conversationId || !isFree(this.state) || isCooling(this.state)) return;
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);
@@ -387,7 +401,14 @@ export class LiveConversation {
         }),
       });
     } catch (e) {
-      if (current()) this.ended(startFailedEnd(e));
+      if (!current()) return;
+      if (e instanceof ApiError && e.cooldownUntil !== null) {
+        // Refused for a cooldown begun elsewhere: no end to show, the page shows the cooldown.
+        this.ended(null);
+        this.cooled(e.cooldownUntil);
+      } else {
+        this.ended(startFailedEnd(e));
+      }
       return;
     }
     if (!current()) {
@@ -559,12 +580,12 @@ export class LiveConversation {
    * `CUE_MS`; a change while affinity is off is not shown. */
   private affinityLeft(affinity: AffinityStatus | null, change: AffinityChange | null): void {
     if (!affinity || !change) {
-      this.update({ affinity });
+      this.showAffinity(affinity);
       return;
     }
     if (this.cueing !== null) clearTimeout(this.cueing);
     const key = (this.state.affinityCue?.key ?? 0) + 1;
-    this.update({ affinity, affinityCue: { change, key } });
+    this.showAffinity(affinity, { affinityCue: { change, key } });
     this.cueing = setTimeout(() => {
       this.cueing = null;
       this.update({ affinityCue: null });
@@ -579,7 +600,29 @@ export class LiveConversation {
     } catch {
       // Shown as if affinity were off: no badge, no capsules.
     }
-    this.update({ affinity });
+    this.showAffinity(affinity);
+  }
+
+  /** The backend refused a turn or call for a cooldown it says ends `until`. */
+  private cooled(until: string): void {
+    this.showAffinity({ tier: "cold", cooldown_until: until });
+  }
+
+  /** Shows her affinity, along with any other change; a cooldown ends by itself as it is due
+   * to, leaving her cold. */
+  private showAffinity(affinity: AffinityStatus | null, change: Partial<State> = {}): void {
+    if (this.thawing !== null) clearTimeout(this.thawing);
+    this.thawing = null;
+    this.update({ ...change, affinity });
+    const until = affinity?.cooldown_until;
+    if (until == null) return;
+    this.thawing = setTimeout(
+      () => {
+        this.thawing = null;
+        this.update({ affinity: { tier: "cold", cooldown_until: null } });
+      },
+      Math.max(0, Date.parse(until) - this.now()),
+    );
   }
 
   /** Opens her newest conversation, or starts one if she has none. */
@@ -702,6 +745,11 @@ function isFree(state: State): boolean {
   return state.conversation.status === "open" && !state.busy && !isLive(state.call);
 }
 
+/** She is in a cooldown with the user: no turns, no calls. */
+function isCooling(state: State): boolean {
+  return state.affinity !== null && state.affinity.cooldown_until !== null;
+}
+
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
@@ -715,7 +763,8 @@ function toSnapshot(state: State): Snapshot {
     line: lineOf(card),
     previousLine: previousLineOf(card),
     stand: directionOf(stand),
-    canDial: free,
+    canDial: free && !isCooling(state),
     canStartNew: free,
+    cooling: isCooling(state),
   };
 }
