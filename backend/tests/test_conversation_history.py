@@ -38,6 +38,11 @@ def history(llm: FakeLLM) -> list[tuple[str, str]]:
     return [(m.role, m.content) for m in rest]
 
 
+def told(llm: FakeLLM) -> str:
+    """All the last prompt carries after its system message, as one text."""
+    return "\n".join(content for _, content in history(llm))
+
+
 async def test_prompt_carries_only_the_most_recent_turns(
     make_client: ClientFactory, settings: Settings
 ):

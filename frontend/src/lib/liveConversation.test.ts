@@ -1109,7 +1109,7 @@ describe("LiveConversation: a cooldown", () => {
 
   it("begins as a turn leaves her in one: no turns, no calls, but a new conversation; it ends by itself on time", async () => {
     vi.useFakeTimers();
-    const change = { up: false, tier_changed: false, tier: "cold", cooldown: true } as const;
+    const change = { up: false, tier_changed: false, tier: "cold", cooldown: true, thawed: false } as const;
     const opened = opening({
       affinity: { tier: "cold", cooldown_until: null },
       turns: scripted([
@@ -1344,7 +1344,7 @@ describe("LiveConversation: typing", () => {
 
   it("shows her affinity as each recorded turn leaves it, and how it changed for 2.6s", async () => {
     vi.useFakeTimers();
-    const change = { up: true, tier_changed: true, tier: "close", cooldown: false } as const;
+    const change = { up: true, tier_changed: true, tier: "close", cooldown: false, thawed: false } as const;
     const close = { tier: "close", cooldown_until: null } as const;
     const turn = (affinity: AffinityStatus | null) =>
       scripted([
@@ -1509,7 +1509,7 @@ describe("LiveConversation: opening", () => {
 
     await settled();
 
-    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, failure: null });
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open", id: "c1" }, failure: null });
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
     expect(listChanged()).toBe(0);
     live.setDraft("你好");
@@ -1525,7 +1525,7 @@ describe("LiveConversation: opening", () => {
 
     expect(created).toEqual(["new1"]);
     expect(listChanged()).toBe(1);
-    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, entries: [] });
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open", id: "new1" }, entries: [] });
     live.setDraft("你好");
     await live.submit();
     expect(sentTo).toEqual(["new1"]);
@@ -1649,7 +1649,12 @@ describe("LiveConversation: a new conversation", () => {
     await live.startNewConversation();
 
     expect(created).toEqual(["new1"]);
-    expect(live.snapshot()).toMatchObject({ conversation: { status: "open" }, entries: [], draft: "", failure: null });
+    expect(live.snapshot()).toMatchObject({
+      conversation: { status: "open", id: "new1" },
+      entries: [],
+      draft: "",
+      failure: null,
+    });
     expect(listChanged()).toBe(1);
     live.setDraft("你好");
     await live.submit();
@@ -1679,7 +1684,7 @@ describe("LiveConversation: a new conversation", () => {
 
     make();
     await starting;
-    expect(live.snapshot().conversation).toEqual({ status: "open" });
+    expect(live.snapshot().conversation).toEqual({ status: "open", id: "new1" });
   });
 
   it("keeps the conversation open and says why when a new one cannot be started", async () => {
@@ -1696,7 +1701,7 @@ describe("LiveConversation: a new conversation", () => {
     await live.startNewConversation();
 
     expect(live.snapshot()).toMatchObject({
-      conversation: { status: "open" },
+      conversation: { status: "open", id: "c1" },
       draft: "你好",
       failure: { message: "Failed to fetch", signedOut: false },
     });

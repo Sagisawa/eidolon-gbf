@@ -83,7 +83,9 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 - 🎙️ **Real-time voice calls**: Full-duplex calls over WebRTC, in Chinese or Japanese. You can interrupt her at any time. The call screen can also be collapsed, back to the transcript.
 - 🇯🇵 **Japanese voice + Chinese subtitles**: She always answers in Japanese, keeping her sentence-final particles and verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)). Lines go to speech synthesis with delivery cues, so they are read with feeling. Proper names are pronounced correctly from a readings table.
 - 🎭 **A living stand**: The call screen shows her Spine stand from the game. She breathes, blinks and moves her lips, and changes expression, nods or shakes her head with her emotion. When the game releases new cards, the weekly sync makes them wearable.
-- 💗 **Affinity**: What you say draws her closer or pushes her away; offend her too much and she'll stop talking to you for a while, or hang up on a call. The deployer's judge decides, so bringing your own LLM can't change it.
+- 💗 **Affinity and gifts**: What you say draws her closer or pushes her away; offend her too much and she'll stop talking to you for a while, or hang up on a call. The deployer's judge decides, so bringing your own LLM can't change it. Draw gifts every day and give them to her; the ones she likes move her more, and she responds in her next reply.
+
+  <img src="docs/images/gifts.webp" alt="Gifts page: the draw counter, a reset card and the gifts in the backpack" width="100%">
 
 **What she remembers**
 
@@ -97,7 +99,7 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 
 - 👥 **Open to the public**: Sign in with Google or GitHub. Usage is rate-limited per user, and users' memories are isolated from each other. Users can delete all their data for good, and the database is backed up offsite, encrypted, every day.
 - 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis and speech recognition keys to use their own credits; a turn or call that brings every key it needs doesn't count toward their limits. The deployer can also require users to bring their own LLM (`EIDOLON_OWN_LLM_REQUIRED`, off by default, changeable in the admin console) while still paying for speech; see the [configuration guide](docs/configuration.en.md#own-llm-required). The keys are kept only in the user's browser ([ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)).
-- 🛠️ **Admin console**: On the web, see usage, estimated cost and live calls, change models, usage limits and prices (no restart), ban users or give one user their own limits. No one's conversations, memories, profile or affinity are visible there. Affinity needs a judge and can be switched off on its own; see the [configuration guide](docs/configuration.en.md#affinity).
+- 🛠️ **Admin console**: On the web, see usage, estimated cost and live calls, change models, usage limits and prices (no restart), ban users or give one user their own limits. No one's conversations, memories, profile, affinity or gifts are visible there. Affinity and gifts need a judge, are on by default and can be switched off on their own; if the judge gets things wrong, every user can be given a reset card. See the [configuration guide](docs/configuration.en.md#affinity-and-gifts).
 - 🔌 **Swappable services**: Models can use any of three protocols: OpenAI Chat Completions, Responses and Anthropic Messages. Speech recognition, embedding and the judge each offer two providers.
 - 🚀 **One-command deployment**: A Docker Compose production config, with Caddy (automatic HTTPS) and coturn (TURN relay) built in. CI builds the images and publishes them to GHCR.
 

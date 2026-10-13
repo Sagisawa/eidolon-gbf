@@ -12,6 +12,8 @@ Label: wayfinder:map
 
 2026-10-12 已到达：19 张票全部关闭，三份规格都已写成、状态 `ready-for-agent`。实现按「拍板：三份规格的实现顺序和分支衔接」：导航 → 好感度 → 礼物。
 
+实现进度：导航 PR #83 于 2026-10-12 合进 main；好感度 PR #85 于 2026-10-13 合进 main（10 张票，`.scratch/affinity/issues/`）；礼物 2026-10-13 从 main 开 `feat/gifts`，从计划分支取来 `.scratch/gifts/`，下一步 /to-tickets。`GLOSSARY.md` 以 main 为准，不再从计划分支取。
+
 ## Notes
 
 - 术语以 `GLOSSARY.md` 为准，新加了「好感度与礼物」一节：好感度、冷却、礼物、抽奖。不说小偶像、聊天、账号、docker，分别说角色、对话或回合、用户、dock（导航栏）。好感度不是情绪，冷却不是封禁或限额。

@@ -176,9 +176,9 @@ class Settings:
     own_llm_required: bool = False
     """Whether users must bring their own LLM for their turns and calls (GLOSSARY.md「必须自带
     LLM」); the admin console may override it."""
-    affinity_and_gifts: bool = False
+    affinity_and_gifts: bool = True
     """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as they are only with the
-    judge model; the admin console may override it."""
+    judge model; on unless `.env` turns them off, and the admin console may override it."""
     domain: str | None = None
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
@@ -251,7 +251,7 @@ class Settings:
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
             own_llm_required=_switch("EIDOLON_OWN_LLM_REQUIRED"),
-            affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS"),
+            affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),
@@ -663,12 +663,12 @@ def _limit(name: str, default: int) -> int | None:
     return int(value) or None
 
 
-def _switch(name: str) -> bool:
-    """A setting turned on with 1 and off with 0; unset is off."""
+def _switch(name: str, *, default: bool = False) -> bool:
+    """A setting turned on with 1 and off with 0; unset is `default`."""
     value = (os.environ.get(name) or "").strip()
     if value not in ("", "0", "1"):
         raise RuntimeError(f"环境变量 {name} 需要是 0 或 1（1 表示打开），而不是 {value}")
-    return value == "1"
+    return default if value == "" else value == "1"
 
 
 def _required(name: str) -> str:

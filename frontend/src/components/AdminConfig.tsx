@@ -9,6 +9,7 @@ import { NumberInput } from "@/components/app/admin/NumberInput";
 import { AppLink } from "@/components/app/AppLink";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
+import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { AdminPrices } from "@/components/AdminPrices";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -83,12 +84,21 @@ export function AdminConfig() {
         )}
         {config && <ConfigNav />}
         {config &&
-          ITEMS.map((name) => <ItemCard key={name} name={name} config={config} onChange={setConfig} />)}
+          ITEMS.map((name) => (
+            <ItemCard key={name} name={name} config={config} onChange={setConfig}>
+              {name === "affinity" && <ResetCardGrants isOn={isOn(config.affinity)} />}
+            </ItemCard>
+          ))}
         {config && <AdminPrices />}
         {config && <ReadOnlyCard items={config.read_only} />}
       </OpenFormProvider>
     </AdminPage>
   );
+}
+
+/** 好感度和礼物现在是否开着：配了判断模型，开关生效的值是打开。 */
+function isOn(item: Config["affinity"]): boolean {
+  return isAvailable(item) && item.effective.enabled === true;
 }
 
 /** 页内一节的锚点，页首的导航跳到这里。 */
@@ -206,9 +216,20 @@ function optionLabel(field: string, option: string): string {
 }
 
 /**
- * 一项配置的卡。.env 没有配置的项只说明为什么不能改；其余见 AvailableItem。
+ * 一项配置的卡。.env 没有配置的项只说明为什么不能改；其余见 AvailableItem。`children` 跟在卡里各个值的下面
+ * （「好感度和礼物」的发重置卡）。
  */
-function ItemCard({ name, config, onChange }: { name: ItemName; config: Config; onChange: (config: Config) => void }) {
+function ItemCard({
+  name,
+  config,
+  onChange,
+  children,
+}: {
+  name: ItemName;
+  config: Config;
+  onChange: (config: Config) => void;
+  children?: ReactNode;
+}) {
   const item = config[name];
   if (!isAvailable(item)) {
     return (
@@ -219,11 +240,16 @@ function ItemCard({ name, config, onChange }: { name: ItemName; config: Config; 
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground">{t.unavailable(item.unavailable)}</p>
+          {children}
         </CardContent>
       </Card>
     );
   }
-  return <AvailableItem name={name} item={item} keysEditable={config.keys_editable} onChange={onChange} />;
+  return (
+    <AvailableItem name={name} item={item} keysEditable={config.keys_editable} onChange={onChange}>
+      {children}
+    </AvailableItem>
+  );
 }
 
 /**
@@ -236,11 +262,13 @@ function AvailableItem({
   item,
   keysEditable,
   onChange,
+  children,
 }: {
   name: ItemName;
   item: ConfigItem;
   keysEditable: boolean;
   onChange: (config: Config) => void;
+  children?: ReactNode;
 }) {
   const spec = ITEM_SPECS[name];
   const id = useId();
@@ -450,6 +478,7 @@ function AvailableItem({
             </div>
           </form>
         )}
+        {children}
       </CardContent>
       {canRestore && !editing && (
         <CardFooter>

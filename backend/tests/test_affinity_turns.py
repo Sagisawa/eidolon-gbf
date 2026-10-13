@@ -74,7 +74,8 @@ def judge_calls(database: Path) -> int:
 
 
 def change(up: bool, tier: str, *, tier_changed: bool = False, cooldown: bool = False) -> dict:
-    return {"up": up, "tier_changed": tier_changed, "tier": tier, "cooldown": cooldown}
+    return {"up": up, "tier_changed": tier_changed, "tier": tier, "cooldown": cooldown,
+            "thawed": False}
 
 
 async def turns(

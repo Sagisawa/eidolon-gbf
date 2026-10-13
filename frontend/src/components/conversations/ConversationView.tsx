@@ -1,5 +1,6 @@
 "use client";
 
+import NextLink from "next/link";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
 
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
@@ -30,18 +31,18 @@ import { cueText, untilText } from "@/lib/affinity";
 import type { Account, Character } from "@/lib/api";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
-import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
+import { giftsHref } from "@/lib/gifts";
+import { isLive, NOT_OPEN, openIdOf, type LiveConversation } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
-import { settingsHref } from "@/lib/settingsCategory";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, CooldownIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, CooldownIcon, GiftIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
 import { CallBar } from "./CallBar";
-import { EVENT_ICONS } from "./EventIcon";
+import { EVENT_ICONS, eventText } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
@@ -64,7 +65,9 @@ const noSubscription = () => () => {};
  * 离开时交回；通话中离开这一页，通话留在外壳里，回来时一切照旧。她的声音、电话本身的声音和切换麦克风的面板也在外壳里。
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  * 好感度可用时，电话键和更多菜单之间是好感度标识（GLOSSARY.md「好感度」）；不可用时读到 null，不显示。
- * 她在冷却中（GLOSSARY.md「冷却」）时，输入栏换成一行说明、电话键禁用，到点自己恢复。
+ * 她在冷却中（GLOSSARY.md「冷却」）时，输入栏换成一行说明和「送她一件礼物」、电话键禁用，到点自己恢复。
+ * 送礼的入口（冷却时的输入栏、标识的说明末尾、冷却版结束卡）都跳到礼物页，带上她和这段对话（spec「打开好感度藏起的送礼入口」）；
+ * 好感度和礼物同一个开关，好感度读不到时这些入口都不在。
  */
 export function ConversationView({
   account,
@@ -83,7 +86,7 @@ export function ConversationView({
     () => needsOwnLLM(account, localOwnKeys(userId)),
     () => false,
   );
-  const { open, close, go } = useDirectory();
+  const { open, close, go, guard } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
@@ -106,6 +109,8 @@ export function ConversationView({
   }, [character.id, userId, open, close]);
 
   const isOpen = conversation.status === "open";
+  // 送礼入口去的礼物页：记录放回这段对话；正在开新对话时还不知道是哪段，只带她。
+  const gifts = giftsHref(character.id, openIdOf(conversation));
   const inCall = isLive(call);
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
@@ -164,6 +169,7 @@ export function ConversationView({
           cue={affinityCue}
           name={character.name}
           timeZone={timeZone}
+          gifts={gifts}
           subtree={subtree}
         />
       )}
@@ -209,14 +215,16 @@ export function ConversationView({
 
   const canSend = isOpen && draft.trim() !== "";
   const composer = cooling && affinity?.cooldown_until ? (
-    // 冷却中：一行说明代替输入框，没有按钮；草稿留着，到点换回输入框时还在。
-    <div
-      inert={isCovered}
-      role="status"
-      className="flex min-h-14 shrink-0 items-center justify-center gap-2 border-t bg-background px-3 py-2 text-body text-muted-foreground"
-    >
-      <CooldownIcon aria-hidden className="size-4 shrink-0" />
-      <p>{t.affinity.coolingComposer(character.name, untilText(new Date(affinity.cooldown_until), new Date(), timeZone))}</p>
+    // 冷却中：一行说明代替输入框，右边是去礼物页的「送她一件礼物」；草稿留着，到点换回输入框时还在。
+    <div inert={isCovered} className="flex min-h-14 shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
+      <div role="status" className="flex min-w-0 flex-1 items-center gap-2 text-body text-muted-foreground">
+        <CooldownIcon aria-hidden className="size-4 shrink-0" />
+        <p>{t.affinity.coolingComposer(character.name, untilText(new Date(affinity.cooldown_until), new Date(), timeZone))}</p>
+      </div>
+      <Button variant="outline" size="lg" nativeButton={false} render={<NextLink href={gifts} onClick={guard(gifts)} />}>
+        <GiftIcon data-icon="inline-start" />
+        {copy.gifts.giveHer}
+      </Button>
     </div>
   ) : ownLLMMissing ? (
     // 输入框和电话键换成一句提示和去设置的链接；后端的 403 仍是兜底。
@@ -288,7 +296,7 @@ export function ConversationView({
           standOutfits={outfits?.toTry ?? []}
           layerRef={focus.layer}
           isFullScreen={isFullScreen}
-          onOwnKeys={() => go(settingsHref("own-keys"))}
+          go={go}
         />
       )}
       {outfits && (
@@ -344,7 +352,7 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
 
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
- * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复后面是一行变化胶囊。
+ * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复和送礼记录后面是一行变化胶囊。
  * 对话事件占一整行分隔线。
  */
 function Messages({
@@ -416,7 +424,7 @@ function EventLine({ entry, name }: { entry: Extract<Entry, { kind: "event" }>; 
       <span aria-hidden className="h-px flex-1 bg-foreground/15" />
       <span className="flex shrink-0 items-center gap-1.5">
         <Icon aria-hidden className="size-4" />
-        {t.events[entry.event](name)}
+        {eventText(entry.event, name, entry.gift)}
         <time className="text-meta tabular-nums">{clock(entry.at)}</time>
       </span>
       <span aria-hidden className="h-px flex-1 bg-foreground/15" />

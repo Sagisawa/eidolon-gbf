@@ -2,7 +2,7 @@
  * README 里的截图和动图：在 Chromium 里打开本地跑着的网站，拍下各页，压成 WebP 写到仓库的 `docs/images/`。
  * 界面改了以后重跑一遍，README 的图就跟上了。
  *
- *   npm run readme-media -- [--origin <网址>] [--user <名字>] [--only <名字,…>] [--reseed all|<角色,…>]
+ *   npm run readme-media -- [--origin <网址>] [--user <名字>] [--only <名字,…>] [--reseed all|<角色,…>] [--database <路径>]
  *
  * 连的是本地真实的后端和开发库：先起后端（.env 里 EIDOLON_DEV_LOGIN=1，配好对话模型、语音合成、语音识别、
  * 向量化和判断模型），再 `npm run build` 后带上和 .env 一样的 EIDOLON_STAND_ASSETS_URL `npm run start`
@@ -13,6 +13,8 @@
  * 用逗号隔开）给她们开新对话重聊一遍。
  * 通话那几张真的打电话：假麦克风播一段 Windows 语音合成（System.Speech，要装中文语音）念的中文，她听写下来、
  * 用 Fish Audio 的声音回答；每通电话都在她的对话里记下一个回合，所以先拍手机的对话页再打电话。
+ * 礼物页那张不真抽奖：直接往开发库（`--database`，默认 backend/data/eidolon.db）里写下固定的背包、一张重置卡和
+ * 几次抽奖次数，每次重跑都一样；后端要配判断模型，「好感度和礼物」开着。
  * `--only` 只拍列出的几项，例如 `--only landing,app`；落地页的滚动动图（landing-tour）一步一拍，要十几分钟。
  *
  * 需要 Playwright 的 Chromium 和 PATH 里的 ffmpeg（带 libwebp）。退出码：0 成功；1 参数或登录有误；
@@ -22,6 +24,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
@@ -43,6 +46,7 @@ const { values: args } = parseArgs({
     user: { type: "string", default: "readme-demo" },
     only: { type: "string" },
     reseed: { type: "string" },
+    database: { type: "string", default: path.resolve(frontend, "..", "backend", "data", "eidolon.db") },
   },
 });
 const origin = args.origin.replace(/\/$/, "");
@@ -75,6 +79,22 @@ const FEATURED = "kogane";
 const CALLEE = "mano";
 /** 通话里对她说的话（假麦克风念出来）。 */
 const CALL_LINE = "真乃，最近有没有遇到什么开心的事？";
+/** 礼物页上背包里的礼物（目录 characters/gifts.toml 的 id 和件数）：几类、几档都有，两行正好排满。 */
+const BACKPACK: Record<string, number> = {
+  cake: 1,
+  pudding: 2,
+  "meat-bun": 1,
+  "black-tea": 3,
+  cocoa: 1,
+  bouquet: 1,
+  book: 1,
+  "music-cd": 2,
+  plush: 1,
+  "preserved-flower": 1,
+};
+/** 礼物页上的抽奖次数和重置卡张数。 */
+const DRAWS = 3;
+const RESET_CARDS = 1;
 
 /** 一项要拍的东西：`name` 给 `--only` 用。 */
 type Item = { name: string; take: (browser: Browser) => Promise<void> };
@@ -85,6 +105,7 @@ const ITEMS: Item[] = [
   { name: "app", take: app },
   { name: "phone", take: phone },
   { name: "outfits", take: outfits },
+  { name: "gifts", take: gifts },
   { name: "call", take: call },
 ];
 
@@ -449,6 +470,50 @@ async function outfits(browser: Browser): Promise<void> {
     await page.waitForLoadState("networkidle");
     await settle(page, 3000);
     await still(page, "outfits");
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * 把演示用户的礼物换成固定的一套：背包只有 BACKPACK，抽奖次数 DRAWS，重置卡 RESET_CARDS。
+ * 先读一次礼物状态，让后端建好这位用户的行、把到今天为止的次数发完，今天再读就不会加了。
+ */
+async function stockGifts(context: BrowserContext): Promise<void> {
+  const read = await context.request.get(`${origin}/api/gifts`);
+  if (!read.ok()) throw new Error(`读礼物状态失败（${read.status()}）`);
+  if (!((await read.json()) as { open: boolean }).open) {
+    throw new Error("好感度和礼物没开放：后端要配判断模型，开关不能关着");
+  }
+  const { id } = (await (await context.request.get(`${origin}/api/account`)).json()) as { id: string };
+  const db = new DatabaseSync(args.database);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("DELETE FROM gift_backpacks WHERE user_id = ?").run(id);
+      const put = db.prepare("INSERT INTO gift_backpacks (user_id, gift_id, count) VALUES (?, ?, ?)");
+      for (const [gift, count] of Object.entries(BACKPACK)) put.run(id, gift, count);
+      db.prepare("UPDATE gift_balances SET draws = ?, reset_cards = ? WHERE user_id = ?").run(DRAWS, RESET_CARDS, id);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  } finally {
+    db.close();
+  }
+}
+
+async function gifts(browser: Browser): Promise<void> {
+  const context = await signedIn(browser, { ...DESKTOP, colorScheme: "light" });
+  try {
+    await stockGifts(context);
+    const page = await context.newPage();
+    await page.goto(`${origin}/gifts`, { waitUntil: "networkidle" });
+    await page.getByRole("region", { name: "抽奖" }).waitFor();
+    await settle(page);
+    await still(page, "gifts");
   } finally {
     await context.close();
   }

@@ -1,7 +1,7 @@
 """The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
-characters and the world setting beside them, the identity providers users sign in with, the chat and background models,
+characters and the world setting and gift catalog beside them, the identity providers users sign in with, the chat and background models,
 the services users bring their own keys to, retrieval, memory, the conversation engine,
 usage limits and voice calls. It decides what is on. Retrieval needs the judge model, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
@@ -35,6 +35,9 @@ from eidolon.affinity import Affinities
 from eidolon.announcements import Announcements
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
+from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
+from eidolon.gifts import Gifts
+from eidolon.randomness import Random, secure_random
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
@@ -71,6 +74,8 @@ class Backend:
     settings: Settings
     store: Store
     characters: dict[str, Character]
+    gift_catalog: dict[str, Gift]
+    """The gift catalog, by identifier."""
     memories: Memories
     engine: ConversationEngine
     usage: UsageLimiter
@@ -90,6 +95,8 @@ class Backend:
     """What admins write for every user to see."""
     affinities: Affinities
     """Every user's affinity with every character, where it is on."""
+    gifts: Gifts
+    """Every user's draw chances, backpack and reset cards, where gifts are open."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -123,11 +130,15 @@ def build(
     own_llm_service: LLMService | None = None,
     clients: ServiceClients | None = None,
     catalog_transport: httpx.BaseTransport | None = None,
+    random: Random | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
-    configuration or the world setting is broken, or a character is none of its idols."""
+    configuration (her liked gifts and all), the world setting or the gift catalog is broken,
+    or a character is none of its idols."""
     characters = load_characters(settings.characters_path)
+    gift_catalog = load_gift_catalog(gifts_path(settings.characters_path))
+    check_liked_gifts(characters, gift_catalog)
     world = load_world(path := world_path(settings.characters_path))
     if world is None:
         log.info(
@@ -230,8 +241,8 @@ def build(
     affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
     closers.append(affinities.close)
     engine = ConversationEngine(
-        store, characters, memories, clock, retrieval, lambda: config.history_turns, world,
-        affinities, config.affinity_judge(),
+        store, characters, gift_catalog, memories, clock, retrieval,
+        lambda: config.history_turns, world, affinities, config.affinity_judge(),
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
@@ -248,10 +259,17 @@ def build(
     )
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     affinities.on_cooldown(calls.cooled)
+    gifts = Gifts(
+        settings.database_path, clock, lambda: config.affinity_on, affinities, characters,
+        gift_catalog, random or secure_random, store,
+    )
+    closers.append(gifts.close)
+    config.on_change(gifts.notice)
     return Backend(
         settings=settings,
         store=store,
         characters=characters,
+        gift_catalog=gift_catalog,
         memories=memories,
         engine=engine,
         usage=usage,
@@ -266,6 +284,7 @@ def build(
         prices=prices,
         announcements=announcements,
         affinities=affinities,
+        gifts=gifts,
         world=world,
         _closers=closers,
     )

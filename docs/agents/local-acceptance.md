@@ -27,6 +27,22 @@ await context.request.post(`${origin}/api/auth/dev-login`, { data: { name: "Sall
 
 `frontend/scripts/screenshots.mts` 的 `signIn` 也是这么写的。
 
+## 好感度和礼物
+
+开关默认开，本地 `.env` 配了判断模型、没设 `EIDOLON_AFFINITY_AND_GIFTS`，照常起后端就是开的。要看「未开放」时只在这次起的后端上关掉，不改 `.env`、不在后台改配置：
+
+```sh
+cd backend && EIDOLON_AFFINITY_AND_GIFTS=0 uv run --quiet --env-file=../.env eidolon serve
+```
+
+要的状态（背包里有几件、某位角色在冷却中、某一档）不靠抽奖和对话凑，造一个专用的开发登录用户（例如 `gift-accept`），同意条款（`POST /api/account/consent`，`{"agree_to_terms": true, "at_least_13": true}`），读一次 `/api/gifts` 让它建好行，再直接往 `backend/data/eidolon.db` 写：
+
+- 背包：`INSERT INTO gift_backpacks VALUES ('<user_id>', '<礼物 id>', <件数>)`，礼物 id 和名字在 `characters/gifts.toml`
+- 抽奖次数：`UPDATE gift_balances SET draws = <n> WHERE user_id = '<user_id>'`
+- 好感度：`INSERT OR REPLACE INTO affinities (user_id, character_id, value, updated_at, cooling) VALUES ('<user_id>', '<角色 id>', <0–100>, '<ISO 时刻>', <冷却中 1，否则 0>)`
+
+`user_id` 从 `GET /api/account` 拿。验完以这个用户登录调 `POST /api/account/delete`（`{"confirm": true}`），它的一切一起删掉，Sallyn 的数据不动。
+
 ## 通话
 
 Chromium 用假麦克风，上下文给麦克风权限：

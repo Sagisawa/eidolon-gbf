@@ -92,7 +92,7 @@ export type LatestConversation = {
   created_at: string;
   last_message:
     | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
-    | Pick<ConversationEvent, "type" | "kind" | "created_at">
+    | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
     | null;
 };
 
@@ -111,7 +111,8 @@ export type Message = {
 };
 
 /** The kinds of conversation event (GLOSSARY.md「对话事件」): so far only her hanging up. */
-export type EventKind = "hung_up";
+/** She hung up on the user; the user gave her a gift. */
+export type EventKind = "hung_up" | "gift";
 
 /** Something that happened in a conversation that is not a turn, recorded among its messages. */
 export type ConversationEvent = {
@@ -120,6 +121,9 @@ export type ConversationEvent = {
   kind: EventKind;
   created_at: string;
   affinity: AffinityChange | null;
+  /** A gift record's gift, and its name; other events have none. */
+  gift_id?: string;
+  gift_name?: string;
 };
 
 /** What a conversation's record holds, in order. */
@@ -217,15 +221,23 @@ export class ApiError extends Error {
   /** Refused because she is in a cooldown with the user (GLOSSARY.md「冷却」) until this time
    * (ISO); null for any other refusal. */
   readonly cooldownUntil: string | null;
+  /** Refused because affinity and gifts are not open (GLOSSARY.md「礼物」): the gifts page shows
+   * them closed. */
+  readonly giftsClosed: boolean;
 
   constructor(
     message: string,
     readonly status: number,
-    { ownLLMRequired = false, cooldownUntil = null }: { ownLLMRequired?: boolean; cooldownUntil?: string | null } = {},
+    {
+      ownLLMRequired = false,
+      cooldownUntil = null,
+      giftsClosed = false,
+    }: { ownLLMRequired?: boolean; cooldownUntil?: string | null; giftsClosed?: boolean } = {},
   ) {
     super(message);
     this.ownLLMRequired = ownLLMRequired;
     this.cooldownUntil = cooldownUntil;
+    this.giftsClosed = giftsClosed;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -234,8 +246,9 @@ export class ApiError extends Error {
   }
 }
 
-/** The status of a turn or call refused while she is in a cooldown with the user. */
-const COOLING_DOWN = 409;
+/** The status of a turn or call refused while she is in a cooldown with the user, and of what
+ * is done with gifts while they are not open, told apart by their bodies. */
+const CONFLICT = 409;
 
 /** The status of a request from a user who has not yet agreed to the privacy policy and
  * terms of use. */
@@ -259,8 +272,9 @@ export async function json<T>(res: Response): Promise<T> {
     const ownLLMRequired = res.status === 403 && body?.own_llm_required === true;
     if (ownLLMRequired) message = `${message}。`;
     // Refused while she is in a cooldown, told apart from the limit's 429 and the rule's 403.
-    const cooldownUntil = res.status === COOLING_DOWN && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
-    throw new ApiError(message, res.status, { ownLLMRequired, cooldownUntil });
+    const cooldownUntil = res.status === CONFLICT && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
+    const giftsClosed = res.status === CONFLICT && body?.gifts_closed === true;
+    throw new ApiError(message, res.status, { ownLLMRequired, cooldownUntil, giftsClosed });
   }
   return res.json();
 }

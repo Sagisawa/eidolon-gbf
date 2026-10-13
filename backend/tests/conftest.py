@@ -15,6 +15,7 @@ from eidolon.__main__ import main
 from eidolon.app import create_app
 from eidolon.assembly import Backend
 from eidolon.config import LLMSettings, Settings
+from eidolon.gift_catalog import GIFTS_FILE
 from eidolon.identity import Identity
 from eidolon.sessions import SESSION_COOKIE
 from eidolon.store import Store
@@ -68,10 +69,12 @@ MANO_SHEET = "# 人设\n你是櫻木真乃。口癖是「ほわっ」。"
 KOGANE_SHEET = "# 人设\n你是月岡恋鐘。说长崎方言。"
 AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
 BACKGROUND = b"\xff\xd8\xff fake background"
+REPO_GIFTS = Path(__file__).parents[2] / "characters" / GIFTS_FILE
 
 
 class CharacterConfig:
-    """Writes a character configuration directory, the way an administrator would."""
+    """Writes a character configuration directory, the way an administrator would, with the
+    repository's gift catalog beside it unless a test writes its own (`gifts.toml`)."""
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -96,10 +99,12 @@ class CharacterConfig:
         greeting: tuple[str, str] | None = None,
         call_opener: tuple[str, str] | None = None,
         other_names: tuple[str, str, str] | None = None,
+        liked_gifts: tuple[str, ...] | None = ("cake",),
     ) -> "CharacterConfig":
         """`greeting` is her greeting in Japanese, delivery cues and all, and its subtitle;
         `call_opener` her call opener, likewise; `other_names` her `name_zh`, `name_kana`
-        and `name_romaji`."""
+        and `name_romaji`; `liked_gifts` her liked gifts (None leaves them out), cake by
+        default as every catalog the tests write has it."""
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
         if sheet is not None:
@@ -132,9 +137,13 @@ class CharacterConfig:
         if other_names is not None:
             for field, value in zip(("name_zh", "name_kana", "name_romaji"), other_names):
                 entry += f"{field} = {json.dumps(value, ensure_ascii=False)}\n"
+        if liked_gifts is not None:
+            entry += f"liked_gifts = {json.dumps(list(liked_gifts))}\n"
         self._entries.append(entry)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")
+        if not (gifts := self.directory / GIFTS_FILE).exists():
+            gifts.write_bytes(REPO_GIFTS.read_bytes())
         return self
 
     def write(self, relative: str, content: str | bytes) -> None:

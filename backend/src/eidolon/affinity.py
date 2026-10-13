@@ -29,13 +29,19 @@ been out of line in it too many times (`hangs_up`); a cooldown begun elsewhere h
 up the user's calls with her straight away (`Affinities.on_cooldown`). Nothing else has her
 hang up.
 
+Gifts (GLOSSARY.md「礼物」) raise it faster than it recovers, by their rarity and by more if
+she likes the one given, by no more than a little each in a cooldown; draws give them, a
+chance a day, and now and then a reset card instead (GLOSSARY.md「抽奖」「重置卡」), which
+brings every character below trust back to the normal value, out of any cooldown, none of
+them the wiser. How much and how likely are here with the rest.
+
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
 Deleting the user deletes it (`database.USER_DATA`); deleting memories does not touch it.
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -43,6 +49,7 @@ from typing import Literal, TypeVar
 
 from eidolon.clock import Clock
 from eidolon.database import connect
+from eidolon.gift_catalog import Rarity
 from eidolon.producer import local_date
 
 T = TypeVar("T")
@@ -54,6 +61,11 @@ TIERS: tuple[tuple[Tier, float], ...] = (
     ("cold", 0), ("distant", 20), ("trust", 40), ("close", 65), ("intimate", 85),
 )
 """Each tier, from the value it begins at, lowest first."""
+
+BELOW_TRUST: frozenset[Tier] = frozenset(
+    t for t, start in TIERS if start < dict(TIERS)["trust"]
+)
+"""The tiers a reset card brings back from: distant and cold, in a cooldown or not."""
 
 NORMAL = 50.0
 """Where everyone starts, in trust, and what it recovers to."""
@@ -82,6 +94,30 @@ GAINS_PER_DAY = 6.0
 
 OUT_OF_LINE_PER_CALL = 2
 """How many times the user may be out of line in one call: she hangs up after the last."""
+
+GIFT_STEPS: dict[Rarity, float] = {"common": 3.0, "uncommon": 5.0, "rare": 7.0}
+"""How much a gift raises it by its rarity. Gifts are not turns: no day's limit holds them,
+and the rarest she likes raises it more than a day's turns can."""
+
+LIKED_GIFT_STEP = 3.0
+"""How much more a gift she likes raises it, whatever its rarity."""
+
+COOLDOWN_GIFT_STEP = 3.0
+"""How much a gift raises it at most while she is in a cooldown, whatever its rarity and
+whether she likes it: four bring her out of one begun at 0, sooner than recovery would."""
+
+DRAWS_PER_DAY = 1
+"""How many draw chances (GLOSSARY.md「抽奖」) the user is given each day, at the producer's
+own midnight."""
+
+MAX_DRAWS = 7
+"""How many draw chances the user can keep at most: a week's."""
+
+DRAW_ODDS: dict[Rarity | Literal["reset_card"], int] = {
+    "reset_card": 1, "common": 69, "uncommon": 25, "rare": 5,
+}
+"""What a draw gives, in percent: a reset card, or a gift of each rarity, any of that rarity's
+not retired as likely as another; no draw is guaranteed anything rarer."""
 
 _SCHEMA = """
 -- One row per user and character who have had any; none is the normal value, not in a
@@ -270,14 +306,22 @@ def hangs_up(judged: Judged | None, cools: bool, out_of_line_before: int) -> Han
 
 @dataclass(frozen=True)
 class Change:
-    """How affinity changed, kept with what changed it (her reply) for the browser to show:
-    up or down, to which tier and whether that is another, and whether a cooldown began
-    with it. Neither why nor by how much."""
+    """How affinity changed, kept with what changed it (her reply, a gift) for the browser to
+    show: up or down, to which tier and whether that is another, and whether a cooldown began
+    or, as only a gift does, ended with it. Neither why nor by how much."""
 
     up: bool
     tier_changed: bool
     tier: Tier
     cooldown: bool
+    thawed: bool = False
+
+
+def _gift_step(rarity: Rarity, liked: bool, cooling: bool) -> float:
+    """How much a gift of `rarity` raises affinity: more if she `liked` it, no more than
+    `COOLDOWN_GIFT_STEP` while `cooling`."""
+    step = GIFT_STEPS[rarity] + (LIKED_GIFT_STEP if liked else 0.0)
+    return min(step, COOLDOWN_GIFT_STEP) if cooling else step
 
 
 class Affinities:
@@ -366,6 +410,60 @@ class Affinities:
             for listener in self._cooling:
                 listener(user_id, character_id, until)
         return recorded, Status(after.tier, after.cooldown_until)
+
+    def receive_gift(
+        self,
+        user_id: str,
+        character_id: str,
+        rarity: Rarity,
+        liked: bool,
+        record: Callable[[Change | None], T],
+    ) -> tuple[T, Status]:
+        """Raise the user's affinity with the character for a gift of `rarity` she `liked`
+        or not, as it is recorded by `record`, told how it changed (None for no change to
+        show): if recording fails, nothing changes. No day's limit holds gifts, nor do they
+        count towards it. In a cooldown, what it is raised to is when it ends, sooner; there
+        is a change to show only once it ends. Returns what `record` returned, and the
+        affinity left."""
+        with self._lock:
+            now = self._clock()
+            before = self._row(user_id, character_id, now)[0]
+            after = before.stepped(_gift_step(rarity, liked, before.cooling))
+            after = Affinity(after.value, now, after.cooling and after.value < THAW)
+            thawed = before.cooling and not after.cooling
+            change = None
+            if thawed or (not after.cooling and after.value != before.value):
+                change = Change(True, after.tier != before.tier, after.tier, False, thawed)
+            recorded = record(change)
+            with self._db:
+                self._db.execute(
+                    "INSERT INTO affinities (user_id, character_id, value, updated_at, cooling)"
+                    " VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, character_id) DO UPDATE SET"
+                    " value = excluded.value, updated_at = excluded.updated_at,"
+                    " cooling = excluded.cooling",
+                    (user_id, character_id, after.value, now.isoformat(), int(after.cooling)),
+                )
+        return recorded, Status(after.tier, after.cooldown_until)
+
+    def reset(self, user_id: str, character_ids: Iterable[str]) -> list[str]:
+        """Bring each of the characters below trust with the user now, having recovered, back
+        to the normal value, out of any cooldown, as a reset card does (GLOSSARY.md「重置卡」);
+        those in trust or above are left as they are. Nothing is told of it: no change to
+        show, no listener. Returns whom it brought back, in the order given."""
+        with self._lock, self._db:
+            now = self._clock()
+            below = [
+                character_id
+                for character_id in character_ids
+                if self._row(user_id, character_id, now)[0].tier in BELOW_TRUST
+            ]
+            for character_id in below:
+                self._db.execute(
+                    "UPDATE affinities SET value = ?, updated_at = ?, cooling = 0"
+                    " WHERE user_id = ? AND character_id = ?",
+                    (NORMAL, now.isoformat(), user_id, character_id),
+                )
+        return below
 
     def close(self) -> None:
         with self._lock:

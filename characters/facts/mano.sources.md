@@ -124,3 +124,8 @@ Story episodes are from ShinyGroup/SCTranslationData (`data/story/...`), cited a
 
 ## 喜好 / 不喜欢的
 - Morning / morning③ (「人ごみはどうしても息が詰まって」, 「決死の覚悟」). MOE: 「在人多的环境经常会被卷入人流不知所措」.
+
+## 喜欢的礼物
+`characters.toml` 里 `liked_gifts` 的依据，每件写明是哪一种（点单、吃过、收到礼物时的反应、自己说喜欢……）；从具体的东西对应到通用礼物的，写明怎么对应。
+- 盆栽（potted-plant）：照顾自己养的花。Morning / morning⑦（「私が育ててるお花が咲いたんですっ」「毎日水やりして……時々肥料もあげて/いつ咲くか楽しみにしていたんですっ」）。原文只说是她养的花，没说是盆栽，对应到最接近的盆栽。
+- 红茶（black-tea）：喝过、说好喝。283活动剧情 / 青のReflection / 序章-くじらの心は底知れぬ（「灯織ちゃんの紅茶、美味しいから/うれしいな……」）。

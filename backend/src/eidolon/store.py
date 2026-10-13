@@ -19,7 +19,7 @@ from eidolon.producer import Birthday, ProducerProfile
 from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
-EventKind = Literal["hung_up"]
+EventKind = Literal["hung_up", "gift"]
 
 _SCHEMA = """
 -- `name` only tells users apart on the admin command line; it need not be unique.
@@ -84,7 +84,8 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     kind TEXT NOT NULL,
     created_at TEXT NOT NULL,
     affinity TEXT,
-    responded INTEGER NOT NULL DEFAULT 0
+    gift_id TEXT,
+    liked INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS conversation_events_by_conversation
     ON conversation_events(conversation_id, created_at);
@@ -192,19 +193,23 @@ class Message:
 @dataclass(frozen=True)
 class ConversationEvent:
     """Something that happened in a conversation that is not a turn (GLOSSARY.md「对话事件」):
-    so far only her hanging up on the user (`hung_up`). It can carry how it changed her
-    affinity (`affinity`) and say whether she has responded to it yet (`responded`)."""
+    her hanging up on the user (`hung_up`), or the user giving her a gift (`gift`), which
+    one (`gift_id`) and whether she liked it as it was given (`liked`), kept as it was
+    should what she likes change. It can carry how it changed her affinity (`affinity`)."""
 
     id: int
     kind: EventKind
     created_at: str
     affinity: Change | None = None
-    responded: bool = False
+    gift_id: str | None = None
+    liked: bool = False
     type: Literal["event"] = field(default="event", init=False)
 
     def shown(self) -> dict:
-        """As the browser is told it: whether she has responded is for her prompt alone."""
-        return {k: v for k, v in asdict(self).items() if k != "responded"}
+        """As the browser is told it: whether she liked the gift is for her prompt alone;
+        which gift, for a gift's only."""
+        hidden = {"liked"} | ({"gift_id"} if self.gift_id is None else set())
+        return {k: v for k, v in asdict(self).items() if k not in hidden}
 
 
 Recorded = Message | ConversationEvent
@@ -229,6 +234,11 @@ class Store:
         self._add_missing_columns("users", ("consented_at", "banned_at", "ban_note"), "TEXT")
         self._add_missing_columns("producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
         self._add_missing_columns("messages", ("affinity",), "TEXT")
+        self._add_missing_columns("conversation_events", ("gift_id",), "TEXT")
+        self._add_missing_columns("conversation_events", ("liked",), "INTEGER NOT NULL DEFAULT 0")
+        # Whether she has responded to an event is whether she has replied since; never kept.
+        if "responded" in self._columns("conversation_events"):
+            self._db.execute("ALTER TABLE conversation_events DROP COLUMN responded")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -621,17 +631,31 @@ class Store:
                 conversation_id, "character", segments=reply, affinity=affinity
             )
 
-    def add_event(self, conversation_id: str, kind: EventKind) -> ConversationEvent:
-        """Record that `kind` happened in the conversation, now."""
+    def add_event(
+        self,
+        conversation_id: str,
+        kind: EventKind,
+        affinity: Change | None = None,
+        gift_id: str | None = None,
+        liked: bool = False,
+    ) -> ConversationEvent:
+        """Record that `kind` happened in the conversation, now, with how it changed her
+        affinity, if it did, and for a gift, which and whether she liked it."""
         created_at = _now()
         with self._lock, self._db:
             cursor = self._db.execute(
-                "INSERT INTO conversation_events (conversation_id, kind, created_at)"
-                " VALUES (?, ?, ?)",
-                (conversation_id, kind, created_at),
+                "INSERT INTO conversation_events"
+                " (conversation_id, kind, created_at, affinity, gift_id, liked)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    conversation_id, kind, created_at,
+                    affinity and json.dumps(asdict(affinity)), gift_id, int(liked),
+                ),
             )
         assert cursor.lastrowid is not None
-        return ConversationEvent(cursor.lastrowid, kind, created_at)
+        return ConversationEvent(
+            cursor.lastrowid, kind, created_at, affinity, gift_id=gift_id, liked=liked
+        )
 
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._lock:
@@ -702,7 +726,7 @@ class Store:
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
 _MESSAGE_COLUMNS = "id, role, text, ja, zh, segments, created_at, affinity"
-_EVENT_COLUMNS = "id, kind, created_at, affinity, responded"
+_EVENT_COLUMNS = "id, kind, created_at, affinity, gift_id, liked"
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(
@@ -716,7 +740,7 @@ def _event(row: sqlite3.Row) -> ConversationEvent:
     return ConversationEvent(
         row["id"], row["kind"], row["created_at"],
         Change(**json.loads(row["affinity"])) if row["affinity"] else None,
-        bool(row["responded"]),
+        row["gift_id"], bool(row["liked"]),
     )
 
 

@@ -6,10 +6,18 @@ import type { ConversationEvent, EventKind, Recorded, Segment, TurnEvent } from 
 
 /** One message or conversation event shown. `at` (ISO) is when it was recorded; for the turn
  * under way, when the user sent or said the words, which the reply shares until it is recorded.
- * Her reply keeps how the turn changed her affinity, once recorded; null where it did not. */
+ * Her reply keeps how the turn changed her affinity, once recorded, and a gift record how the
+ * gift did; null where it did not. A gift record keeps the gift's name too. */
 export type Entry =
   | { kind: "user"; key: string; text: string; at: string }
-  | { kind: "event"; key: string; event: EventKind; at: string }
+  | {
+      kind: "event";
+      key: string;
+      event: EventKind;
+      at: string;
+      gift: string | null;
+      affinity: AffinityChange | null;
+    }
   | {
       kind: "character";
       key: string;
@@ -116,7 +124,16 @@ function withDelta(entry: Entry, event: TurnEvent & { type: "delta" }): Entry {
 }
 
 function toEntry(message: Recorded): Entry {
-  if ("type" in message) return { kind: "event", key: `e${message.id}`, event: message.kind, at: message.created_at };
+  if ("type" in message) {
+    return {
+      kind: "event",
+      key: `e${message.id}`,
+      event: message.kind,
+      at: message.created_at,
+      gift: message.gift_name ?? null,
+      affinity: message.affinity,
+    };
+  }
   return message.role === "user"
     ? { kind: "user", key: `m${message.id}`, text: message.text ?? "", at: message.created_at }
     : {

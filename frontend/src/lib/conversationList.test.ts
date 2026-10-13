@@ -37,10 +37,14 @@ describe("previewOf", () => {
     expect(preview).toEqual({ from: "you", text: "晚安", at: "2026-09-28T02:00:00Z" });
   });
 
-  it("最后是一条对话事件时，预览是这件事，时间取它的", () => {
-    const preview = previewOf(latest({ type: "event", kind: "hung_up", created_at: "2026-09-28T03:00:00Z" }));
+  it("最后是一条对话事件时，预览是这件事，时间取它的；送礼记录带礼物名", () => {
+    const hungUp = previewOf(latest({ type: "event", kind: "hung_up", created_at: "2026-09-28T03:00:00Z" }));
+    const gift = previewOf(
+      latest({ type: "event", kind: "gift", created_at: "2026-09-28T04:00:00Z", gift_name: "蛋糕" }),
+    );
 
-    expect(preview).toEqual({ from: "event", event: "hung_up", at: "2026-09-28T03:00:00Z" });
+    expect(hungUp).toEqual({ from: "event", event: "hung_up", gift: null, at: "2026-09-28T03:00:00Z" });
+    expect(gift).toEqual({ from: "event", event: "gift", gift: "蛋糕", at: "2026-09-28T04:00:00Z" });
   });
 
   it("刚开的新对话没有最后一句，时间是对话开始的时间", () => {

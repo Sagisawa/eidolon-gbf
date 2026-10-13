@@ -37,6 +37,8 @@ const buttonVariants = cva(
         // 底栏的挂断：挂断红的胶囊（白字对比度在 themeContrast.test.ts 里）。
         hangup:
           "rounded-full bg-hangup text-white hover:bg-hangup/90 focus-visible:border-transparent focus-visible:ring-white/60",
+        // eidolon: 礼物页底部提示（前景色底的反色胶囊）里的「去对话」：反过来的页面底、前景字（DESIGN.md「礼物页」）。
+        toast: "rounded-full bg-background text-foreground hover:bg-background/90",
       },
       size: {
         default:

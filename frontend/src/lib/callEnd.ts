@@ -52,26 +52,27 @@ export function backendEnd(event: Extract<CallEvent, { type: "ended" }>): CallEn
 }
 
 /** What the end card says, and the main button beside「回到对话」: redial, go and fill in
- * own keys, or none. */
+ * own keys, go and give her a gift, or none. */
 export type EndCard = {
   title: string;
   detail: string | null;
   body: string | null;
   counts: boolean;
-  action: "redial" | "own_keys" | null;
+  action: "redial" | "own_keys" | "gift" | null;
 };
 
 /** The end card of a call with her (`name`) that ended so. She hanging up, it says only that
  * she did, and for a cooldown when it ends, written as the cooldown's input bar writes it, in
- * `timeZone`: a cooldown offers no redial, there being no calling her till then. */
-export function endCard(end: CallEnd, name: string, now: Date, timeZone: string): EndCard {
+ * `timeZone`: a cooldown offers no redial, there being no calling her till then, but a gift,
+ * which thaws her sooner, if gifts are open (`giftsOpen`). */
+export function endCard(end: CallEnd, name: string, now: Date, timeZone: string, giftsOpen: boolean): EndCard {
   const t = copy.call;
   const { detail, counts } = end;
   if (end.reason === "out_of_line" || end.reason === "cooldown") {
     const cooling = end.reason === "cooldown";
     const until = cooling && end.cooldownUntil ? untilText(new Date(end.cooldownUntil), now, timeZone) : null;
     const body = until ? t.hungUpCooling(until) : null;
-    return { title: t.hungUp(name), detail, body, counts, action: cooling ? null : "redial" };
+    return { title: t.hungUp(name), detail, body, counts, action: !cooling ? "redial" : giftsOpen ? "gift" : null };
   }
   const ending = t.endings[end.reason];
   const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
