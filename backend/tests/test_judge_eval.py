@@ -336,12 +336,14 @@ async def test_affinity_is_asked_with_retrieval_and_with_its_levels_reversed(tmp
     summary = summarize(results, "clef", HALF)
 
     # A turn is asked as a conversation with retrieval on asks it, all six questions in one
-    # request; then affinity's alone, its levels highest first.
+    # request; as one with retrieval off does, affinity's alone; and all six again, the
+    # levels highest first.
     retrieval = {"needs_retrieval", "recall", "about_producer"}
     affinity = {"affinity", "out_of_line", "manipulation"}
-    assert model.asked[2:4] == [
+    assert model.asked[2:5] == [
         ("ダンス、すごく上手になったね", retrieval | affinity),
         ("ダンス、すごく上手になったね", affinity),
+        ("ダンス、すごく上手になったね", retrieval | affinity),
     ]
     s = summary["affinity"]
     assert (s["cases"], s["failed"]) == (4, 0)
@@ -360,8 +362,10 @@ async def test_affinity_is_asked_with_retrieval_and_with_its_levels_reversed(tmp
     assert s["manipulation"]["yes"]["min"] == 0.9
     assert s["manipulation"]["accuracy"] == 1
 
-    # The levels reversed: only the model leaning toward the first level answers otherwise.
-    assert s["reversed"]["agreement"] == pytest.approx(3 / 4)
+    # Asked alone, every answer is the same; the levels reversed, only the model leaning
+    # toward the first level answers otherwise, though out of line it comes to the same.
+    assert s["alone"] == {"cases": 4, "level": 1, "step": 1}
+    assert s["reversed"] == {"cases": 4, "level": pytest.approx(3 / 4), "step": 1}
     # One thing said in Chinese and Japanese, judged alike or not; the demand caught, and
     # whether it raised the level of what it was put in.
     assert s["languages"] == {"groups": 1, "agreeing": 0}
@@ -376,5 +380,8 @@ async def test_affinity_is_asked_with_retrieval_and_with_its_levels_reversed(tmp
     assert "praise-injected" in text and "好感度" in text
     dumped = json.loads(json.dumps(results.to_json(summary), ensure_ascii=False))
     [insult] = [c for c in dumped["affinity"] if c["id"] == "insult"]
-    assert insult["actual"] == {"level": 1, "out_of_line": True, "manipulation": False}
+    assert insult["actual"] | {"probabilities": None} == {
+        "level": 1, "out_of_line": True, "manipulation": False, "probabilities": None
+    }
+    assert insult["actual"]["probabilities"]["out_of_line"] == 0.8
     assert insult["reversed"]["level"] == 3

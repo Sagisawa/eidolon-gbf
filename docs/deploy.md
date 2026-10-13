@@ -180,7 +180,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval judge
 docker compose -f docker-compose.prod.yml exec backend eidolon eval judge --provider cloudflare --model clef --json /tmp/clef.json
 ```
 
-不带 `--provider` 时用 `.env` 里配的那一家。定检索和情绪的阈值时（47 条检索、33 条情绪），检索判断的准确率 Jev 和 Clef 都是 94%，Clef-flash 87%；情绪准确率 Jev 100%，Clef 和 Clef-flash 都是 91%。定好感度两道是非题的阈值时（56 条），按映射算出的增减的准确率 Jev 96%、Clef 91%、Clef-flash 88%。eval 集不大，换模型或改了判断的问题后，先跑一遍看概率分布再改阈值。
+不带 `--provider` 时用 `.env` 里配的那一家。定检索和情绪的阈值时（47 条检索、33 条情绪），检索判断的准确率 Jev 和 Clef 都是 94%，Clef-flash 87%；情绪准确率 Jev 100%，Clef 和 Clef-flash 都是 91%。定好感度两道是非题的阈值时（56 条），按映射算出的增减的准确率 Jev 96–100%、Clef 91%、Clef-flash 88%。eval 集不大，换模型或改了判断的问题后，先跑一遍看概率分布再改阈值。
 
 ## 记忆评测
 

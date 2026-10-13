@@ -454,6 +454,12 @@ _QUESTIONS = {
 }
 
 
+def judge_questions(affinity: bool = False) -> dict[str, dict]:
+    """What the judge model is asked of a turn: retrieval's three questions, and affinity's
+    in the same request if `affinity`."""
+    return _QUESTIONS | AFFINITY_QUESTIONS if affinity else _QUESTIONS
+
+
 @dataclass(frozen=True)
 class RetrievalAnswer:
     """The judge model's probability of yes to each of its three questions."""
@@ -481,8 +487,9 @@ class ModelRetrievalJudge:
         self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
     ) -> tuple[Need, Judged | None]:
         """As `RetrievalJudge.judge`, affinity's questions asked in the same request."""
-        questions = _QUESTIONS | AFFINITY_QUESTIONS if affinity else _QUESTIONS
-        answers = await self._judge_model.ask(turn_state(character, history, text), questions)
+        answers = await self._judge_model.ask(
+            turn_state(character, history, text), judge_questions(affinity)
+        )
         need = self.decide(_answer(answers))
         if not affinity:
             return need, None
@@ -497,10 +504,9 @@ class ModelRetrievalJudge:
     ) -> RetrievalAnswer:
         """How likely the judge model finds yes to each question about `text`, affinity's
         questions asked in the same request if `affinity`."""
-        questions = _QUESTIONS | AFFINITY_QUESTIONS if affinity else _QUESTIONS
-        return _answer(
-            await self._judge_model.ask(turn_state(character, history, text), questions)
-        )
+        return _answer(await self._judge_model.ask(
+            turn_state(character, history, text), judge_questions(affinity)
+        ))
 
     def decide(self, answer: RetrievalAnswer) -> Need:
         """What a turn so answered needs: recall first, then references, then memories."""

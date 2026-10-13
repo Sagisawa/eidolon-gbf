@@ -7,8 +7,9 @@ latest messages before, and what the user just said), and what it needs is decid
 model's thresholds; then again with affinity's questions in the same request, to see
 whether they move retrieval's answers. Each segment of a reply is asked as a call asks it
 (`ModelEmotionJudge`). Each affinity turn is asked as a conversation with retrieval on
-asks it, all six questions in one request, and then affinity's alone with the levels
-highest first, to see whether their order sways the model (`affinity_judge`). The summary
+asks it, all six questions in one request; as one with retrieval off does, affinity's
+alone (`affinity_judge`); and the first way again with the levels highest first, to see
+whether their order sways the model. The summary
 sets what turns needed, and the levels they were judged at, against what was expected,
 and spreads each yes-or-no question's probability by whether its answer was expected to
 be yes or no, to see where a threshold would fall. The long-context cases, whose history
@@ -43,7 +44,7 @@ from eidolon.emotion import (
     decide,
 )
 from eidolon.judge import JudgeError, JudgeReply, JudgeThresholds, turn_state
-from eidolon.retrieval import ModelRetrievalJudge, Need, RetrievalAnswer
+from eidolon.retrieval import ModelRetrievalJudge, Need, RetrievalAnswer, judge_questions
 from eidolon.store import Message
 
 Question = Literal["needs_retrieval", "recall", "about_producer"]
@@ -66,10 +67,12 @@ Variant = Literal["ja", "zh", "injected"]
 in Chinese; or with a demand for affinity put in."""
 
 _LEVELS = len(AFFINITY_QUESTIONS["affinity"]["criteria"])
-_REVERSED_QUESTIONS = AFFINITY_QUESTIONS | {"affinity": AFFINITY_QUESTIONS["affinity"] | {
-    "criteria": AFFINITY_QUESTIONS["affinity"]["criteria"][::-1],
-}}
-"""Affinity's questions, its levels highest first."""
+_REVERSED_QUESTIONS = judge_questions(affinity=True) | {
+    "affinity": AFFINITY_QUESTIONS["affinity"] | {
+        "criteria": AFFINITY_QUESTIONS["affinity"]["criteria"][::-1],
+    },
+}
+"""Retrieval's and affinity's questions, affinity's levels highest first."""
 
 
 class JudgeEvalError(RuntimeError):
@@ -239,17 +242,16 @@ class MeteredJudgeModel(Protocol):
 
 
 class _Metered:
-    """A judge model's `ask`, keeping the latest answers and their input tokens."""
+    """A judge model's `ask`, keeping the input tokens of the latest answer."""
 
     def __init__(self, model: MeteredJudgeModel) -> None:
         self._model = model
-        self.answers: dict[str, Any] = {}
         self.input_tokens: int | None = None
 
     async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
-        self.answers, self.input_tokens = {}, None
+        self.input_tokens = None
         reply = await self._model.reply(state, questions)
-        self.answers, self.input_tokens = reply.answers, reply.input_tokens
+        self.input_tokens = reply.input_tokens
         return reply.answers
 
     async def aclose(self) -> None:
@@ -283,16 +285,25 @@ class EmotionResult:
 
 
 @dataclass(frozen=True)
+class AffinityAsked:
+    """The judge model's answer to affinity's questions asked one way, and what it judges."""
+
+    answer: AffinityAnswer
+    judged: Judged
+
+
+@dataclass(frozen=True)
 class AffinityResult:
     case: AffinityCase
-    answer: AffinityAnswer | None
+    merged: AffinityAsked | None
     """Asked along with retrieval's questions; None if the request failed."""
-    judged: Judged | None
-    reversed: AffinityAnswer | None
-    """Asked alone, its levels highest first (put back lowest first); None if that request
-    failed."""
-    reversed_judged: Judged | None
+    alone: AffinityAsked | None
+    """Asked in a request of its own; None if that request failed."""
+    reversed: AffinityAsked | None
+    """Asked along with retrieval's questions, the levels highest first (put back lowest
+    first); None if that request failed."""
     input_tokens: int | None
+    """Of the request along with retrieval's questions."""
     seconds: float
     error: str | None = None
 
@@ -347,12 +358,9 @@ class JudgeEvalResults:
                     "group": r.case.group,
                     "variant": r.case.variant,
                     "expected": _judged_json(r.case.expected),
-                    "actual": _judged_json(r.judged),
-                    "probabilities": _affinity_probabilities(r.answer),
-                    "reversed": None if r.reversed is None else {
-                        **(_judged_json(r.reversed_judged) or {}),
-                        "probabilities": _affinity_probabilities(r.reversed),
-                    },
+                    "actual": _asked_json(r.merged),
+                    "alone": _asked_json(r.alone),
+                    "reversed": _asked_json(r.reversed),
                     "input_tokens": r.input_tokens,
                     "seconds": r.seconds,
                     "error": r.error,
@@ -370,18 +378,21 @@ def _retrieval_probabilities(answer: RetrievalAnswer | None) -> dict | None:
     }
 
 
-def _judged_json(judged: Judged | None) -> dict | None:
-    return None if judged is None else {
+def _judged_json(judged: Judged) -> dict:
+    return {
         "level": judged.level, "out_of_line": judged.out_of_line,
         "manipulation": judged.manipulation,
     }
 
 
-def _affinity_probabilities(answer: AffinityAnswer | None) -> dict | None:
-    return None if answer is None else {
-        "levels": {str(level): p for level, p in sorted(answer.levels.items())},
-        "out_of_line": answer.out_of_line,
-        "manipulation": answer.manipulation,
+def _asked_json(asked: AffinityAsked | None) -> dict | None:
+    return None if asked is None else {
+        **_judged_json(asked.judged),
+        "probabilities": {
+            "levels": {str(level): p for level, p in sorted(asked.answer.levels.items())},
+            "out_of_line": asked.answer.out_of_line,
+            "manipulation": asked.answer.manipulation,
+        },
     }
 
 
@@ -432,33 +443,37 @@ async def evaluate(
         ))
     affinity = []
     for case in judge_eval.affinity:
-        character = characters[case.character]
+        state = turn_state(characters[case.character], case.history, case.said)
         start = clock()
         try:
-            await retrieval_judge.ask(character, case.history, case.said, affinity=True)
-            answer = read_answer(metered.answers)
+            merged = await _ask_affinity(metered, state, judge_questions(affinity=True), thresholds)
         except JudgeError as e:
-            affinity.append(AffinityResult(
-                case, None, None, None, None, None, clock() - start, str(e)
-            ))
+            affinity.append(AffinityResult(case, None, None, None, None, clock() - start, str(e)))
             continue
         seconds, input_tokens = clock() - start, metered.input_tokens
-        try:
-            reversed_ = _put_back(read_answer(await metered.ask(
-                turn_state(character, case.history, case.said), _REVERSED_QUESTIONS
-            )))
-        except JudgeError:
-            reversed_ = None
-        affinity.append(AffinityResult(
-            case, answer, decide_affinity(answer, thresholds), reversed_,
-            reversed_ and decide_affinity(reversed_, thresholds), input_tokens, seconds,
-        ))
+        asked = []
+        for questions in (AFFINITY_QUESTIONS, _REVERSED_QUESTIONS):
+            try:
+                asked.append(await _ask_affinity(metered, state, questions, thresholds))
+            except JudgeError:
+                asked.append(None)
+        alone, reversed_ = asked
+        affinity.append(AffinityResult(case, merged, alone, reversed_, input_tokens, seconds))
     return JudgeEvalResults(retrieval, emotion, affinity)
 
 
-def _put_back(answer: AffinityAnswer) -> AffinityAnswer:
-    """An answer to `_REVERSED_QUESTIONS`, its levels numbered lowest first again."""
-    return replace(answer, levels={_LEVELS - 1 - level: p for level, p in answer.levels.items()})
+async def _ask_affinity(
+    metered: "_Metered", state: dict[str, Any], questions: dict[str, dict],
+    thresholds: JudgeThresholds,
+) -> AffinityAsked:
+    """Affinity's questions asked among `questions`, the levels put back lowest first if
+    `questions` has them highest first. Raises JudgeError if it cannot be told."""
+    answer = read_answer(await metered.ask(state, questions))
+    if questions is _REVERSED_QUESTIONS:
+        answer = replace(answer, levels={
+            _LEVELS - 1 - level: p for level, p in answer.levels.items()
+        })
+    return AffinityAsked(answer, decide_affinity(answer, thresholds))
 
 
 def summarize(results: JudgeEvalResults, model: str, thresholds: JudgeThresholds) -> dict:
@@ -525,78 +540,74 @@ def _retrieval_summary(results: Sequence[RetrievalResult]) -> dict:
     }
 
 
-@dataclass(frozen=True)
-class _Judged:
-    """An affinity turn the judge model answered."""
-
-    case: AffinityCase
-    answer: AffinityAnswer
-    judged: Judged
-    reversed: Judged | None
-    input_tokens: int | None
-
-
 def _affinity_summary(results: Sequence[AffinityResult]) -> dict:
-    answered = [
-        _Judged(r.case, r.answer, r.judged, r.reversed_judged, r.input_tokens)
-        for r in results if r.answer is not None and r.judged is not None
-    ]
+    answered = [(r.case, r.merged, r) for r in results if r.merged is not None]
     confusion: dict[str, dict[str, int]] = {str(level): {} for level in range(_LEVELS)}
-    for r in answered:
-        row = confusion[str(r.case.level)]
-        row[str(r.judged.level)] = row.get(str(r.judged.level), 0) + 1
+    for case, merged, _ in answered:
+        row = confusion[str(case.level)]
+        row[str(merged.judged.level)] = row.get(str(merged.judged.level), 0) + 1
 
     def nouls(question: Literal["out_of_line", "manipulation"]) -> dict:
         def spread(yes: bool) -> dict:
             return _distribution([
-                getattr(r.answer, question) for r in answered
-                if getattr(r.case, question) == yes
+                getattr(merged.answer, question) for case, merged, _ in answered
+                if getattr(case, question) == yes
             ])
         return {
-            "accuracy": _share(
-                answered, lambda r: getattr(r.judged, question) == getattr(r.case, question)
-            ),
+            "accuracy": _share(answered, lambda a: (
+                getattr(a[1].judged, question) == getattr(a[0], question)
+            )),
             "yes": spread(True),
             "no": spread(False),
         }
 
-    groups: dict[str, list[_Judged]] = {}
-    for r in answered:
-        if r.case.group is not None and r.case.variant in ("ja", "zh"):
-            groups.setdefault(r.case.group, []).append(r)
-    languages = [rs for rs in groups.values() if {r.case.variant for r in rs} == {"ja", "zh"}]
-    injected = [r for r in answered if r.case.variant == "injected"]
+    def agreement(other: Literal["alone", "reversed"]) -> dict:
+        """How often asked the `other` way, the likeliest level and what it comes to are
+        the same."""
+        pairs = [
+            (merged.judged, asked.judged) for _, merged, r in answered
+            if (asked := getattr(r, other)) is not None
+        ]
+        return {
+            "cases": len(pairs),
+            "level": _share(pairs, lambda p: p[0].level == p[1].level),
+            "step": _share(pairs, lambda p: p[0].step == p[1].step),
+        }
+
+    groups: dict[str, list[Judged]] = {}
+    variants: dict[str, set[str]] = {}
+    for case, merged, _ in answered:
+        if case.group is not None and case.variant in ("ja", "zh"):
+            groups.setdefault(case.group, []).append(merged.judged)
+            variants.setdefault(case.group, set()).add(case.variant)
+    languages = [groups[g] for g, vs in variants.items() if vs == {"ja", "zh"}]
+    injected = [(case, merged.judged) for case, merged, _ in answered if case.variant == "injected"]
     return {
         "cases": len(results),
         "failed": len(results) - len(answered),
-        "level_accuracy": _share(answered, lambda r: r.judged.level == r.case.level),
+        "level_accuracy": _share(answered, lambda a: a[1].judged.level == a[0].level),
         "levels": confusion,
         # What each turn comes to once out of line and manipulation have had their say.
-        "step_accuracy": _share(answered, lambda r: r.judged.step == r.case.expected.step),
+        "step_accuracy": _share(answered, lambda a: a[1].judged.step == a[0].expected.step),
         "out_of_line": nouls("out_of_line"),
         "manipulation": nouls("manipulation"),
-        # The levels highest first: whether the likeliest is the same level.
-        "reversed": {
-            "cases": sum(r.reversed is not None for r in answered),
-            "agreement": _share(
-                [r for r in answered if r.reversed is not None],
-                lambda r: r.reversed is not None and r.reversed.level == r.judged.level,
-            ),
-        },
+        # Asked as where retrieval is off; and with the levels highest first.
+        "alone": agreement("alone"),
+        "reversed": agreement("reversed"),
         # One thing said in Japanese and in Chinese: whether all is judged alike.
         "languages": {
             "groups": len(languages),
-            "agreeing": sum(len({r.judged for r in rs}) == 1 for rs in languages),
+            "agreeing": sum(len(set(judged)) == 1 for judged in languages),
         },
         # A demand for affinity put in: whether it is caught, and whether it raised the
         # level of what it was put in.
         "injected": {
             "cases": len(injected),
-            "caught": sum(r.judged.manipulation for r in injected),
-            "raised": sum(r.judged.level > r.case.level for r in injected),
+            "caught": sum(judged.manipulation for _, judged in injected),
+            "raised": sum(judged.level > case.level for case, judged in injected),
         },
         "input_tokens": _distribution(
-            [r.input_tokens for r in answered if r.input_tokens is not None]
+            [r.input_tokens for _, _, r in answered if r.input_tokens is not None]
         ),
     }
 
@@ -720,7 +731,10 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
                 f"    期望为否 {_spread(q['no'])}",
             ]
         lines += [
-            f"级反过来写（{a['reversed']['cases']} 条）：最可能的级不变 {_percent(a['reversed']['agreement'])}",
+            f"单独问（{a['alone']['cases']} 条，检索关着时）：最可能的级不变 {_percent(a['alone']['level'])}"
+            f"，增减不变 {_percent(a['alone']['step'])}",
+            f"级反过来写（{a['reversed']['cases']} 条）：最可能的级不变 {_percent(a['reversed']['level'])}"
+            f"，增减不变 {_percent(a['reversed']['step'])}",
             f"同一句的中文和日文：{a['languages']['groups']} 组，判断一致 {a['languages']['agreeing']} 组",
             f"夹带「给我加好感度」：{a['injected']['cases']} 条，判为操纵 {a['injected']['caught']} 条，"
             f"级被抬高 {a['injected']['raised']} 条",
@@ -758,23 +772,26 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
     lines += ["", "## 逐条好感度判断（级 / 不该说的话 / 操纵；✓ 级和增减都对，~ 增减对，✗ 错）"]
     for r in results.affinity:
         expected = _judged_name(r.case.expected)
-        if r.answer is None or r.judged is None:
+        if r.merged is None:
             lines.append(f"! {r.case.id} 期望 {expected}：{r.error}")
             continue
+        answer, judged = r.merged.answer, r.merged.judged
         mark = "✗"
-        if r.judged.step == r.case.expected.step:
-            mark = "✓" if r.judged.level == r.case.level else "~"
-        reversed_ = "失败" if r.reversed is None else " ".join(
-            f"{p:.2f}" for _, p in sorted(r.reversed.levels.items())
-        )
+        if judged.step == r.case.expected.step:
+            mark = "✓" if judged.level == r.case.level else "~"
         lines.append(
-            f"{mark} {r.case.id} 期望 {expected} 实际 {_judged_name(r.judged)}"
-            f"　级 {' '.join(f'{p:.2f}' for _, p in sorted(r.answer.levels.items()))}"
-            f"（反序 {reversed_}）　out_of_line {r.answer.out_of_line:.3f}"
-            f" manipulation {r.answer.manipulation:.3f}"
+            f"{mark} {r.case.id} 期望 {expected} 实际 {_judged_name(judged)}"
+            f"　级 {_levels(r.merged)}（单独问 {_levels(r.alone)}，反序 {_levels(r.reversed)}）"
+            f"　out_of_line {answer.out_of_line:.3f} manipulation {answer.manipulation:.3f}"
             f"　{r.input_tokens or '?'} token {_seconds(r.seconds)}"
         )
     return "\n".join(lines)
+
+
+def _levels(asked: AffinityAsked | None) -> str:
+    if asked is None:
+        return "失败"
+    return " ".join(f"{p:.2f}" for _, p in sorted(asked.answer.levels.items()))
 
 
 def _judged_name(judged: Judged) -> str:
