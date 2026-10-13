@@ -2,10 +2,9 @@
 // 「通话条」, ADR-0018): the conversations, the gifts page and the settings share one shell, and
 // the call belongs to it, not to her conversation page. Given a URL and whom the call under way
 // is with (or no one), these say whether that URL is in the shell, whether the call bar shows
-// across its top, and
-// whether going there keeps the call, asks first and then hangs up, or just goes. They also say
-// which item of the rail (desktop) and the dock (phone) is current and where clicking one goes
-// (spec「电脑导航栏」「手机 dock」).
+// across its top, and whether going there keeps the call, asks first and then hangs up, or just
+// goes. They also say which item of the rail (desktop) and the dock (phone) is current and where
+// clicking one goes (spec「电脑导航栏」「手机 dock」).
 
 /** Going somewhere, with or without a call under way:
  * - `keep`: a page in the shell; the call goes on;
@@ -27,8 +26,8 @@ function conversationOf(path: string): string | null {
 }
 
 /** The conversations (list and each character's page), the gifts page and the settings
- * (memories among them) are in the shell; the admin console, `/about`, the privacy policy, the terms, sign-in and
- * consent are out of it, and so is anything on another site. */
+ * (memories among them) are in the shell; the admin console, `/about`, the privacy policy, the
+ * terms, sign-in and consent are out of it, and so is anything on another site. */
 export function isInShell(href: string): boolean {
   const { path, local } = pathOf(href);
   if (!local) return false;
@@ -64,7 +63,7 @@ export const NAV_ITEMS = ["conversations", "gifts", "settings"] as const;
 export type NavItem = (typeof NAV_ITEMS)[number];
 
 /** Each item's first level; her conversation page and a settings category below it are its second.
- * The gifts page has none. */
+ * The gifts page has no second level. */
 export const FIRST_LEVEL: Record<NavItem, string> = {
   conversations: "/conversations",
   gifts: "/gifts",

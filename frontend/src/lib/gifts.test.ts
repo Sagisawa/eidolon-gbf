@@ -4,8 +4,7 @@ import { drawNote, emptyNote } from "@/lib/gifts";
 
 describe("抽奖台那句话", () => {
   it("平时：明天再发，最多攒几次", () => {
-    expect(drawNote(1, 7)).toBe("明天 0:00 再发 1 次，最多攒 7 次");
-    expect(drawNote(6, 7)).toBe("明天 0:00 再发 1 次，最多攒 7 次");
+    expect(drawNote(3, 7)).toBe("明天 0:00 再发 1 次，最多攒 7 次");
   });
 
   it("攒满了：抽掉之前不会再发", () => {

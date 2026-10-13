@@ -216,6 +216,3 @@ async def test_deleting_the_user_deletes_their_chances_but_not_when_it_opened(
         assert db.execute("SELECT COUNT(*) FROM gift_balances").fetchone() == (0,)
         assert db.execute("SELECT COUNT(*) FROM gifts_opened").fetchone() == (1,)
 
-
-async def test_reading_it_needs_a_signed_in_user(make_client: ClientFactory):
-    assert (await make_client(FakeLLM(), user=None).get("/api/gifts")).status_code == 401

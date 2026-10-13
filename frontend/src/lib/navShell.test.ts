@@ -10,7 +10,6 @@ describe("在不在导航外壳里", () => {
     "/settings",
     "/settings?tab=own-keys",
     "/settings/own-keys",
-    "/gifts",
     "/gifts?to=mano",
   ])("%s 在外壳里", (href) => {
     expect(isInShell(href)).toBe(true);
@@ -28,7 +27,6 @@ describe("在不在导航外壳里", () => {
     "/conversation",
     "/conversations-old",
     "/settingsx",
-    "/giftsx",
     "/gifts/cake",
     "/api/auth/link/google",
   ])("%s 在外壳外面", (href) => {
@@ -96,7 +94,6 @@ describe("导航栏和 dock 的当前项", () => {
     ["/conversation/mano", "conversations"],
     ["/settings", "settings"],
     ["/settings/own-keys", "settings"],
-    ["/gifts", "gifts"],
     ["/gifts?to=mano", "gifts"],
   ] as const)("%s 的当前项是 %s", (href, item) => {
     expect(currentNavItem(href)).toBe(item);

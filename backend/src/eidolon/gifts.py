@@ -115,7 +115,9 @@ class Gifts:
 
     def state(self, user_id: str, timezone: str) -> GiftState:
         """What the user has now, having been given the draw chances due by the producer's
-        own day in `timezone`, if gifts are open."""
+        own day in `timezone`, if gifts are open. Notices first whether they have opened,
+        as the switch may have just been turned on and not yet noticed."""
+        self.notice()
         is_open = self._is_open()
         with self._lock, self._db:
             if is_open:

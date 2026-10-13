@@ -34,20 +34,12 @@ export function GiftsPage() {
         {state === null ? (
           !failure && <p className="text-body text-muted-foreground">{t.loading}</p>
         ) : !state.open ? (
-          <Closed />
+          <GiftsEmpty title={t.closed.title} description={t.closed.description} />
         ) : (
           <>
             <DrawDesk draws={state.draws} max={state.max_draws} />
             <SectionHeading>{t.mine}</SectionHeading>
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <GiftIcon />
-                </EmptyMedia>
-                <EmptyTitle>{t.empty.title}</EmptyTitle>
-                <EmptyDescription>{emptyNote(state.draws)}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <GiftsEmpty title={t.empty.title} description={emptyNote(state.draws)} />
           </>
         )}
       </div>
@@ -86,16 +78,16 @@ function DrawDesk({ draws, max }: { draws: number; max: number }) {
   );
 }
 
-/** 没开放：整页一个 `Empty`。 */
-function Closed() {
+/** 礼物图标加一句标题和说明的 `Empty`：「还没有礼物」，以及没开放时的整页。 */
+function GiftsEmpty({ title, description }: { title: string; description: string }) {
   return (
     <Empty>
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <GiftIcon />
         </EmptyMedia>
-        <EmptyTitle>{t.closed.title}</EmptyTitle>
-        <EmptyDescription>{t.closed.description}</EmptyDescription>
+        <EmptyTitle>{title}</EmptyTitle>
+        <EmptyDescription>{description}</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );
