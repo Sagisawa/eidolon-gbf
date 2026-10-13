@@ -65,15 +65,13 @@ export async function drawGifts(all: boolean): Promise<DrawResult> {
   );
 }
 
-/** 用重置卡接口给的：拉回了谁，还剩几张。 */
-export type ResetResult = { reset: string[]; reset_cards: number };
-
 /**
  * 用一张重置卡。没开放时抛 `giftsClosed` 的 ApiError；没有卡了、现在没有低于信任的角色
  * （确认框打开期间她自己回到了信任）是 409，都不扣卡。
  */
-export async function spendResetCard(): Promise<ResetResult> {
-  return json(await api("/api/gifts/resets", { method: "POST" }));
+export async function spendResetCard(): Promise<void> {
+  // 接口还给拉回了谁、剩几张；礼物页用完重新读一遍状态，不看这些。
+  await json(await api("/api/gifts/resets", { method: "POST" }));
 }
 
 /** 送礼接口给的：记录放进了哪段对话、这次的变化（没有胶囊时是 null）、她现在的好感度、这件还剩几件。 */

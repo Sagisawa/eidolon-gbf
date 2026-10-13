@@ -49,9 +49,14 @@ export function ResetCards({
   // 打开时的名单：用完以后状态里已经没有可拉回的了，收起的动画里名单不消失。
   const [pulled, setPulled] = useState<Pulled[]>([]);
 
-  function confirm() {
-    const now = new Map(resettable.map((r) => [r.id, r]));
-    setPulled(characters.flatMap((c) => (now.has(c.id) ? [{ character: c, now: now.get(c.id)! }] : [])));
+  function askFirst() {
+    const byId = new Map(resettable.map((r) => [r.id, r]));
+    setPulled(
+      characters.flatMap((character) => {
+        const now = byId.get(character.id);
+        return now ? [{ character, now }] : [];
+      }),
+    );
     setConfirming(true);
   }
 
@@ -77,7 +82,7 @@ export function ResetCards({
         </p>
         <p className="text-subtitle text-muted-foreground">{resetNote(resettable.length)}</p>
       </div>
-      <Button variant="outline" disabled={resettable.length === 0 || isUsing} onClick={confirm}>
+      <Button variant="outline" disabled={resettable.length === 0 || isUsing} onClick={askFirst}>
         {t.use}
       </Button>
       <AlertDialog open={isConfirming} onOpenChange={(open) => !isUsing && setConfirming(open)}>

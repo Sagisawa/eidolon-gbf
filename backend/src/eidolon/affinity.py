@@ -62,10 +62,9 @@ TIERS: tuple[tuple[Tier, float], ...] = (
 )
 """Each tier, from the value it begins at, lowest first."""
 
-TRUST = dict(TIERS)["trust"]
-"""Where trust begins: a reset card brings those below it back."""
-
-BELOW_TRUST: frozenset[Tier] = frozenset(t for t, start in TIERS if start < TRUST)
+BELOW_TRUST: frozenset[Tier] = frozenset(
+    t for t, start in TIERS if start < dict(TIERS)["trust"]
+)
 """The tiers a reset card brings back from: distant and cold, in a cooldown or not."""
 
 NORMAL = 50.0
@@ -456,7 +455,7 @@ class Affinities:
             below = [
                 character_id
                 for character_id in character_ids
-                if self._row(user_id, character_id, now)[0].value < TRUST
+                if self._row(user_id, character_id, now)[0].tier in BELOW_TRUST
             ]
             for character_id in below:
                 self._db.execute(

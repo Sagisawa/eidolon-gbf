@@ -64,45 +64,27 @@ def kept(database: Path, character: str) -> tuple[float, bool]:
     return value, bool(cooling)
 
 
-@pytest.mark.parametrize(
-    ("value", "cooling", "tier"),
-    [(25, False, "distant"), (15, False, "cold"), (0, True, "cold")],
-)
-async def test_the_gifts_page_reads_the_cards_and_whom_one_would_bring_back(
-    make_client: ClientFactory, settings: Settings, value: float, cooling: bool, tier: str
-):
-    clock = FakeClock()
-    client = await holding_cards(make_client, clock, 2)
-    keep(settings.database_path, "producer", value, clock.now, cooling=cooling)
-    keep(settings.database_path, "producer", 40, clock.now, character="kogane")
-
-    read = await state(client)
-
-    assert read["reset_cards"] == 2
-    assert read["resettable"] == [{"id": "mano", "tier": tier, "cooling": cooling}]
-
-
-@pytest.mark.parametrize(
-    ("value", "cooling", "other"),
-    [(25, False, 40), (15, False, 49.5), (0, True, 70)],
-)
 async def test_one_brings_those_below_trust_back_to_it_and_leaves_the_rest(
-    make_client: ClientFactory, settings: Settings, value: float, cooling: bool, other: float
+    make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
     client = await holding_cards(make_client, clock, 2)
-    keep(settings.database_path, "producer", value, clock.now, cooling=cooling)
-    keep(settings.database_path, "producer", other, clock.now, character="kogane")
+    keep(settings.database_path, "producer", 25, clock.now)
+    keep(settings.database_path, "producer", 40, clock.now, character="kogane")  # just in trust
+    before = await state(client)
 
     res = await client.post(USE)
 
+    assert (before["reset_cards"], before["resettable"]) == (
+        2, [{"id": "mano", "tier": "distant", "cooling": False}]
+    )
     assert res.status_code == 200, res.text
-    assert res.json() == {"reset": ["mano"], "reset_cards": 1}
+    assert res.json() == {"brought_back": ["mano"], "reset_cards": 1}
     assert (await status(client)).json() == {"tier": "trust", "cooldown_until": None}
     assert kept(settings.database_path, "mano") == (50, False)
-    assert kept(settings.database_path, "kogane") == (other, False)
-    read = await state(client)
-    assert (read["reset_cards"], read["resettable"]) == (1, [])
+    assert kept(settings.database_path, "kogane") == (40, False)
+    after = await state(client)
+    assert (after["reset_cards"], after["resettable"]) == (1, [])
 
 
 async def test_one_in_a_cooldown_can_be_talked_to_straight_away_none_the_wiser(

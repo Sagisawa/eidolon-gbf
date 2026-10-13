@@ -194,7 +194,7 @@ class GiftState:
 class Reset:
     """Whom using a reset card brought back, and how many cards are left."""
 
-    reset: list[str]
+    brought_back: list[str]
     reset_cards: int
 
     def shown(self) -> dict:
@@ -378,8 +378,8 @@ class Gifts:
         if taken is None:
             raise NoResetCards()
         try:
-            reset = self._affinities.reset(user_id, self._characters)
-            if not reset:
+            brought_back = self._affinities.reset(user_id, self._characters)
+            if not brought_back:
                 raise NoOneToReset()
         except BaseException:
             with self._lock, self._db:
@@ -388,7 +388,7 @@ class Gifts:
                     (user_id,),
                 )
             raise
-        return Reset(reset, taken[0])
+        return Reset(brought_back, taken[0])
 
     def close(self) -> None:
         with self._lock:
