@@ -95,12 +95,13 @@ class CallUnderTest:
         emotion: EmotionSettings | None = None,
         follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
         affinity: Sequence[Judging] | None = None,
+        cooled: tuple[float, datetime] | None = None,
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
             llm, frames, muted=muted, limits=limits, memory=memory, connected=connected,
             judge=judge, emotion=emotion, follow_on_timeout=follow_on_timeout,
-            affinity=affinity,
+            affinity=affinity, cooled=cooled,
         )
         spoken = [f.text for f in down if isinstance(f, SegmentTextFrame)]
         messages = [f.data for f in down if isinstance(f, RTVIServerMessageFrame)]
@@ -119,12 +120,14 @@ class CallUnderTest:
         emotion: EmotionSettings | None = None,
         follow_on_timeout: float = SONIOX_FOLLOW_ON_TIMEOUT,
         affinity: Sequence[Judging] | None = None,
+        cooled: tuple[float, datetime] | None = None,
     ) -> Sequence[Frame]:
         """Run the frames through a call that, unless told otherwise, connects as it starts,
         with `judge` as the deployer's Jev judging each segment's emotion, if given, as
         `emotion` says, and its speech recognition taking `follow_on_timeout` at most to
         transcribe a follow-on. Given `affinity`, affinity is on, the judge model judging
-        each turn's as it says (`FakeJudgeModel.judgings`)."""
+        each turn's as it says (`FakeJudgeModel.judgings`). Given `cooled`, she falls into a
+        cooldown elsewhere that many seconds into the call, ending when it says."""
         remembering = {} if memory is None else {
             "background_llm": memory, "retrieval_judge": FakeJudge(), "embedder": FakeEmbedder(),
             "reranker": FakeReranker(),
@@ -149,6 +152,8 @@ class CallUnderTest:
             )
             if connected:
                 turns.connected()
+            if cooled is not None:
+                asyncio.get_running_loop().call_later(cooled[0], turns.cooled, cooled[1])
             down, _ = await run_test(turns, frames_to_send=frames)
             outcome.settle()
         finally:

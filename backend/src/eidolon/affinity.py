@@ -25,7 +25,9 @@ It shapes how she speaks to the producer, the same for every character, each in 
 the user said is judged to hurt her or make her happy, she knows it as she replies to it.
 
 In a call she hangs up after the turn that cools her into a cooldown, or after the user has
-been out of line in it too many times (`hangs_up`); nothing else has her hang up.
+been out of line in it too many times (`hangs_up`); a cooldown begun elsewhere has her hang
+up the user's calls with her straight away (`Affinities.on_cooldown`). Nothing else has her
+hang up.
 
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
@@ -288,6 +290,7 @@ class Affinities:
         self._lock = threading.Lock()
         self._clock = clock
         self._is_on = is_on
+        self._cooling: list[Callable[[str, str, datetime], None]] = []
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
 
@@ -303,6 +306,11 @@ class Affinities:
         or while affinity is off, when none holds whatever is kept."""
         status = self.status(user_id, character_id)
         return status and status.cooldown_until
+
+    def on_cooldown(self, listener: Callable[[str, str, datetime], None]) -> None:
+        """Have `listener` told the user, the character and when it ends as each cooldown
+        begins, there and then, as the turn that begins it is recorded."""
+        self._cooling.append(listener)
 
     def cools(self, user_id: str, character_id: str, judged: Judged) -> bool:
         """Whether the turn `judged` would begin a cooldown, recorded now: foretold as the
@@ -352,6 +360,10 @@ class Affinities:
                         gained_today + max(value - before.value, 0.0), today,
                     ),
                 )
+        until = after.cooldown_until
+        if change is not None and change.cooldown and until is not None:
+            for listener in self._cooling:
+                listener(user_id, character_id, until)
         return recorded, Status(after.tier, after.cooldown_until)
 
     def close(self) -> None:

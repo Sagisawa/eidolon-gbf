@@ -27,8 +27,9 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import nullcontext
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 
 import httpx
@@ -130,6 +131,7 @@ from eidolon.turn_taking import (
     ClearVoice,
     Command,
     DropReply,
+    DropTurn,
     FlushVoice,
     QueueTurn,
     Reply,
@@ -166,6 +168,9 @@ class Call:
     device_timezone: str | None = None
     own_llm: bool = False
 
+
+_taking_turn: ContextVar["CallTurns | None"] = ContextVar("_taking_turn", default=None)
+"""The call whose turn is being taken, if one is."""
 
 USER_CHECK_INTERVAL = 5.0
 """How often, in seconds, calls are checked for users banned or deleted since they called,
@@ -817,7 +822,8 @@ class Calls:
     call's own limits on its time and turns, which, told what happens to the call, decides
     when it has reached its own limits, what the browser is told when the backend ends it,
     and how it turned out, settling the call once it is over. Only the user who placed a
-    call can renegotiate it or add ICE candidates to it.
+    call can renegotiate it or add ICE candidates to it. As a character falls into a
+    cooldown with a user (`cooled`), she hangs up the user's calls with her.
     """
 
     def __init__(
@@ -987,6 +993,15 @@ class Calls:
             *(live.hang_up(reason) for live in list(self._live) if live.user_id == user_id)
         )
 
+    def cooled(self, user_id: str, character_id: str, until: datetime) -> None:
+        """The character has fallen into a cooldown with the user, ending `until`: she hangs
+        up the user's calls with her now, but for the one whose turn it is, which she hangs
+        up on after that turn."""
+        taking = _taking_turn.get()
+        for live in self._live:
+            if live.user_id == user_id and live.character_id == character_id:
+                live.cooled(until, taking)
+
     async def _hang_up_users_gone(self) -> None:
         """While there are calls, hang up those of users banned or deleted meanwhile (by
         then, their calls were hung up as they were deleted, unless on the command line)."""
@@ -1116,6 +1131,16 @@ class _LiveCall:
     def user_id(self) -> str:
         return self._call.conversation.user_id
 
+    @property
+    def character_id(self) -> str:
+        return self._call.character.id
+
+    def cooled(self, until: datetime, taking: "CallTurns | None") -> None:
+        """The character has fallen into a cooldown with the user, ending `until`, in a
+        turn of the call `taking`, if one: unless it is this one, she hangs up now."""
+        if taking is not self._turns:
+            self._turns.cooled(until)
+
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
         about it is told now, while the call can still say so."""
@@ -1207,9 +1232,11 @@ class CallTurns(FrameProcessor):
     (`CallOutcome.in_call`). Once a turn is over, and when its time is up, the outcome is
     asked whether she hangs up, then whether the call has reached its limits; if either, the
     browser gets the `ended` message it hands back, if any, and the call ends once the last
-    reply has been voiced; what is said after that is not taken up. As she hangs up, that
-    she did is written into the conversation (GLOSSARY.md「对话事件」) through `store`, and
-    the `ended` message carries it.
+    reply has been voiced; what is said after that is not taken up. So the call ends, too,
+    as soon as she falls into a cooldown with the user elsewhere (`cooled`), the turn in
+    progress going no further, as `TurnTaking` says. As she hangs up, that she did is
+    written into the conversation (GLOSSARY.md「对话事件」) through `store`, and the `ended`
+    message carries it.
     """
 
     def __init__(
@@ -1230,7 +1257,8 @@ class CallTurns(FrameProcessor):
         self._emotions = emotions
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._turns = TurnTaking(text_only=call.muted)
-        self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: wakes it, once time is up
+        self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: wakes it, to hang up
+        self._ended = False  # it has hung up, or is hanging up
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
         self._started = False  # the pipeline has started, so tasks can be created
@@ -1282,6 +1310,16 @@ class CallTurns(FrameProcessor):
         self._connected = True
         self._start_timer()
 
+    def cooled(self, until: datetime) -> None:
+        """She has fallen into a cooldown with the user elsewhere, ending `until`: she hangs
+        up now, as `TurnTaking` says to with the turn in progress, if any, and as the
+        call's `CallOutcome` says to tell the browser."""
+        self._outcome.cooled(until)
+        commands = self._turns.hung_up_on()
+        if commands:  # there is a turn in progress, so the pipeline has started
+            self.create_task(self._carry_out(commands))
+        self._inputs.put_nowait(None)  # wakes the worker, after the turn in progress
+
     def _start_timer(self) -> None:
         duration = self._outcome.time_limit
         if duration is None or not (self._started and self._connected) or self._timer is not None:
@@ -1318,6 +1356,8 @@ class CallTurns(FrameProcessor):
                         await self._carry_out(await self._drop_reply(), after=cut_off)
                     case StopReply():
                         self._stop.set()
+                    case DropTurn():
+                        self._turn_over.set()  # its reply is dropped as the turn is over
                     case ClearVoice():
                         await self.push_frame(InterruptionFrame())
                     case Reply(text=text, number=number):
@@ -1343,12 +1383,13 @@ class CallTurns(FrameProcessor):
         while True:
             text = await self._inputs.get()
             try:
-                if self._turns.ending:
+                if self._ended:
                     continue
-                if text is not None:
+                if text is not None and not self._turns.ending:
                     await self._turn(text)
                 ending = self._outcome.she_hangs_up() or self._outcome.limit_reached()
                 if ending is not None:
+                    self._ended = True
                     await self._end(ending)
             finally:
                 self._inputs.task_done()
@@ -1446,12 +1487,14 @@ class CallTurns(FrameProcessor):
         await self.push_frame(LLMFullResponseStartFrame())
         ja: dict[int, str] = {}  # each segment's Japanese so far, cues and all
         zh: dict[int, str] = {}  # and its subtitle
+        taking = _taking_turn.set(self)
         try:
             with turn.current() if turn is not None else nullcontext():
                 await self._reply_events(text, number, stop, ja, zh, turn)
         except Exception:  # the turn is over all the same, rather than the call stuck in it
             log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:
+            _taking_turn.reset(taking)
             await self.push_frame(LLMFullResponseEndFrame())
         await self._carry_out(self._turns.reply_ended())
         self._turn_over.set()

@@ -247,6 +247,7 @@ def build(
         settings, engine, admissions, own_keys, lambda: config.usage_limits, speech, clock, store
     )
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
+    affinities.on_cooldown(calls.cooled)
     return Backend(
         settings=settings,
         store=store,

@@ -4,17 +4,17 @@ record says of it (GLOSSARY.md「限额」「接通」「运行记录」).
 
 `CallOutcome` is all the rule is: the call is let through (`Admission`) when it is
 offered; the call's pipeline reports what happens to it (set up or not, connected, a turn
-recorded, its time up, a service failing, who or what ended it, over). Each event hands
-back the `ended` message to send the browser, if it is the one that ends the call; between
-turns the pipeline asks whether she hangs up, then whether the call has reached its
-limits, and is handed back why it hangs up and that message. Once the call is over it is
-settled as that message said: the admission keeps the use or gives it back, and writes the
-record, by how it turned out; any turn still open is settled first, as cut short by how
-the call ended.
+recorded, a cooldown begun elsewhere, its time up, a service failing, who or what ended
+it, over). Each event hands back the `ended` message to send the browser, if it is the one
+that ends the call; between turns the pipeline asks whether she hangs up, then whether the
+call has reached its limits, and is handed back why it hangs up and that message. Once the
+call is over it is settled as that message said: the admission keeps the use or gives it
+back, and writes the record, by how it turned out; any turn still open is settled first,
+as cut short by how the call ended.
 """
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Literal
 
@@ -90,7 +90,8 @@ class CallOutcome:
     `time_limit`) or it has recorded as many turns as it may take, and what the browser is
     told then, every word of it, is said here too. So is how often the user has been out of
     line in the call, which its turns are told (`in_call`), and whether she hangs up after
-    the turn recorded last, as it said: before its limits, which the same turn may reach.
+    the turn recorded last, as it said, or for a cooldown begun elsewhere (`cooled`),
+    whichever came first: before its limits, which the same turn may reach.
     The call she hangs up on was connected, and is a success.
 
     It is settled with how it turned out, how long it lasted once connected, and why it
@@ -163,8 +164,15 @@ class CallOutcome:
         """A turn of the call was recorded, coming to what `recorded` says."""
         self._recorded += 1
         self._out_of_line += recorded.out_of_line
-        if recorded.hangs_up is not None:
+        if recorded.hangs_up is not None and self._hanging_up is None:
             self._hanging_up = recorded
+        return None
+
+    def cooled(self, until: datetime) -> dict | None:
+        """She has fallen into a cooldown with the user elsewhere, ending `until`: she hangs
+        up as for one, whatever the turns of the call come to."""
+        if self._hanging_up is None:
+            self._hanging_up = CallTurnRecorded(hangs_up="cooldown", cooldown_until=until)
         return None
 
     @property

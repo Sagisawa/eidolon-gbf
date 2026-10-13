@@ -21,6 +21,11 @@ class DropReply:
 
 
 @dataclass(frozen=True)
+class DropTurn:
+    """Drop the turn in progress, its reply and all, without a trace: the turn is over."""
+
+
+@dataclass(frozen=True)
 class StopReply:
     """Have the reply in progress go no further: it is recorded with only the segments
     complete by then."""
@@ -83,7 +88,7 @@ class Spoke:
 
 
 Command = (
-    DropReply | StopReply | ClearVoice | Reply | Voice | FlushVoice | WaitForFollowOn | QueueTurn
+    DropReply | DropTurn | StopReply | ClearVoice | Reply | Voice | FlushVoice | WaitForFollowOn | QueueTurn
     | Spoke
 )
 
@@ -120,7 +125,10 @@ class TurnTaking:
     reply's Japanese goes to TTS segment by segment, each voiced in full as soon as it is
     complete, rather than held back for the next one's words. Once the
     call is ending, nothing the user says or types is taken up, and her last reply is
-    left to be voiced.
+    left to be voiced. Should she hang up on the user for what happened outside the call,
+    the call ends straight away: a reply she can be interrupted in stops as though she
+    were, and the turn of one she cannot is dropped; what has gone to TTS is left to be
+    voiced.
     """
 
     def __init__(self, text_only: bool) -> None:
@@ -266,6 +274,20 @@ class TurnTaking:
         """The call is ending: nothing the user says or types is taken up from now on."""
         self._ending = True
         return []
+
+    def hung_up_on(self) -> list[Command]:
+        """She hangs up on the user straight away, for what happened outside the call: the
+        call is ending, and the turn in progress, if any, goes no further."""
+        if self._ending:
+            return []
+        self._ending = True
+        if self._reply_state is None:
+            return []
+        if self._open_to_follow_ons():
+            self._reply_state = None
+            self._following_on = False
+            return [DropTurn()]
+        return self._interrupt()
 
     def _spoke(self) -> list[Command]:
         """The character has started speaking the reply in progress: `CallTurns` is told
