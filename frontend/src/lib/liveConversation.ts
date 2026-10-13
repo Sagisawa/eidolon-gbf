@@ -203,6 +203,9 @@ export type Tones = {
   /** The ringback starts looping: the user has dialed and the microphone is open. Not before:
    * on phones opening it would cut the ringback off for a moment (see `CallHandlers.onMicOpen`). */
   ring: () => void;
+  /** How long until the ringback has rung once in full, in milliseconds; 0 once it has, or
+   * if it is not ringing (it never started, or the browser would not play it). */
+  ringLeft: () => number;
   /** The call connected: the ringback stops and the connect tone plays once. */
   connect: () => void;
   /** The call is over, hung up or not: the ringback stops and the hang-up tone plays once. */
@@ -248,6 +251,9 @@ export class LiveConversation {
    * the page is left (see `startCall`). */
   private attempt: object | null = null;
   private endedBy: CallEnd | null = null; // why the backend is hanging up
+  /** Lets a call held for the ringback (see `startCall`) through at once, its dialing being
+   * over; null while none is held. */
+  private holding: (() => void) | null = null;
   private disposed = false;
   /** Moves the line card on when it is next due to at her pace; null while it is not. */
   private pacing: ReturnType<typeof setTimeout> | null = null;
@@ -287,6 +293,7 @@ export class LiveConversation {
     if (this.cueing !== null) clearTimeout(this.cueing);
     if (this.thawing !== null) clearTimeout(this.thawing);
     this.attempt = null;
+    this.holding?.();
     this.call?.leave().catch(() => {});
     this.call = null;
     this.ports.tones.silence();
@@ -384,6 +391,7 @@ export class LiveConversation {
     const dial = this.state.dial + 1;
     this.update({ call: { phase: "dialing", dial }, dial, micMuted: false, failure: null });
     const current = () => this.attempt === attempt;
+    let held = false;
     // The gate: what the call sends once it is over changes nothing.
     const gated =
       <A extends unknown[]>(handler: (...args: A) => void) =>
@@ -398,8 +406,9 @@ export class LiveConversation {
         onHearing: gated((hearing) => this.update({ hearing })),
         onCharacterAudio: gated((track) => this.ports.voice.play(track)),
         onDropped: gated(() => {
-          // Dropped while dialing: startCall fails, and that says why.
-          if (this.state.call.phase === "dialing") return;
+          // Dropped while dialing: startCall fails, and that says why. Not once it has
+          // connected and is held for the ringback: nothing else would end it.
+          if (this.state.call.phase === "dialing" && !held) return;
           this.ended(this.endedBy ?? droppedEnd(started.exempt));
         }),
         onMicLost: gated((now) => {
@@ -418,6 +427,22 @@ export class LiveConversation {
         this.ended(startFailedEnd(e));
       }
       return;
+    }
+    const left = current() ? this.ports.tones.ringLeft() : 0;
+    if (left > 0) {
+      // Connected before the ringback has rung once in full (GLOSSARY.md「铃声」): to the
+      // user it is still dialing, and she does not hear them, until it has.
+      held = true;
+      started.setMicEnabled(false);
+      await new Promise<void>((through) => {
+        const timer = setTimeout(through, left);
+        this.holding = () => {
+          clearTimeout(timer);
+          through();
+        };
+      });
+      this.holding = null;
+      if (current()) started.setMicEnabled(true);
     }
     if (!current()) {
       // Hung up, or the page left, while dialing: nothing else will hang this one up.
@@ -688,6 +713,7 @@ export class LiveConversation {
     const connected = this.state.call.phase === "connected" ? this.state.call.since : null;
     const seconds = connected === null ? null : Math.max(0, Math.floor((this.now() - connected) / 1000));
     this.attempt = null;
+    this.holding?.();
     this.call = null;
     this.ports.tones.hangUp();
     this.moveCard(
