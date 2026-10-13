@@ -27,6 +27,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { copy } from "@/i18n";
 import {
+  AFFINITY_LEVELS,
+  type AffinitySection as AffinityNumbers,
+  affinityRows,
   CALL_END_REASONS,
   CALL_RESULTS,
   countTicks,
@@ -75,7 +78,8 @@ const STALE = "opacity-45";
 
 /**
  * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数；回合和通话的趋势；回合结果；
- * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；按角色的回合数和通话数。
+ * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；按角色的回合数和通话数；
+ * 好感度生效时，判断的结果和冷却。
  * 数字全由后端汇总，这里只负责排版和格式化。
  *
  * 数字要看得出新旧：页首下面写「数据截至 16:25」，旁边可以手动刷新；页面看得见时每分钟自动重新取一次
@@ -286,7 +290,7 @@ function HealthSummary({ board }: { board: Dashboard }) {
 /**
  * 先回答「用了多少」：两组数字卡（「此刻」一张，「{范围}内」五张，手机上只留回合、通话、活跃用户三张）；
  * 紧接着是服务健康（出事时第一眼要看到，页首已有一句结论）；然后是「用量」一组，各张卡宽屏两张一排；
- * 最后是「花费」一组。
+ * 好感度生效时是「好感度」一组；最后是「花费」一组。
  */
 function DashboardBody({
   board,
@@ -397,6 +401,8 @@ function DashboardBody({
             <CharactersTable board={board} />
           </DashboardCard>
         </DashboardGroup>
+
+        {board.affinity !== null && <AffinitySection section={board.affinity} />}
 
         <CostSection board={board} />
       </div>
@@ -675,6 +681,102 @@ function CharactersTable({ board }: { board: Dashboard }) {
             id: c.character_id,
             label: name(c),
             end: `${t.characters.turns} ${formatCount(c.turns)} · ${t.characters.calls} ${formatCount(c.calls)}`,
+          }))}
+        />
+      }
+    />
+  );
+}
+
+/**
+ * 「好感度」一组（好感度生效时才有）：三张数字卡（进入冷却和涉及几位用户、不该说的话、操纵），
+ * 打分分布（样子同「回合结果」），按角色的表（不并进「按角色」那张）。都不落到任何一位用户。
+ */
+function AffinitySection({ section }: { section: AffinityNumbers }) {
+  const words = t.affinity;
+  const judged = section.levels.reduce((sum, n) => sum + n, 0);
+  return (
+    <DashboardGroup title={words.title} hint={words.hint}>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <StatTile
+          label={words.tiles.cooldowns}
+          value={formatCount(section.cooldowns)}
+          note={words.tiles.cooledUsers(formatCount(section.cooled_users))}
+        />
+        <StatTile label={words.tiles.outOfLine} value={formatCount(section.out_of_line)} note={words.tiles.outOfLineNote} />
+        <StatTile
+          label={words.tiles.manipulation}
+          value={formatCount(section.manipulation)}
+          note={words.tiles.manipulationNote}
+        />
+      </div>
+      <CardPair>
+        <DashboardCard title={words.levels.title} hint={words.levels.hint}>
+          <CountsTable
+            rows={AFFINITY_LEVELS.map((level) => ({
+              id: String(level),
+              label: words.levels.names[level],
+              count: section.levels[level] ?? 0,
+            }))}
+            total={judged}
+            labelHeader={words.levels.level}
+            countHeader={words.levels.turns}
+            shareHeader={words.levels.share}
+          />
+        </DashboardCard>
+      </CardPair>
+      <DashboardCard title={words.characters.title} hint={words.characters.hint}>
+        <AffinityCharactersTable section={section} />
+      </DashboardCard>
+    </DashboardGroup>
+  );
+}
+
+/** 按角色的好感度表：顺序是后端排好的；宽屏七列，更窄时每行末尾「减分 {x}% · 冷却 {n}」，其余放副行。 */
+function AffinityCharactersTable({ section }: { section: AffinityNumbers }) {
+  const words = t.affinity.characters;
+  if (section.characters.length === 0) return <p className="text-sm text-muted-foreground">{words.empty}</p>;
+  const rows = affinityRows(section.characters);
+  const name = (row: (typeof rows)[number]) =>
+    row.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
+  return (
+    <TableOrRows
+      at="xl"
+      table={
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{words.character}</TableHead>
+              <TableHead className="text-right">{words.judged}</TableHead>
+              <TableHead className="text-right">{words.lowered}</TableHead>
+              <TableHead className="text-right">{words.cooldowns}</TableHead>
+              <TableHead className="text-right">{words.outOfLine}</TableHead>
+              <TableHead className="text-right">{words.manipulation}</TableHead>
+              <TableHead className="text-right">{words.hungUp}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>{name(row)}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.judged}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.lowered}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.cooldowns}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.out_of_line}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.manipulation}</TableCell>
+                <TableCell className="text-right tabular-nums">{row.hung_up}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      }
+      rows={
+        <RowList
+          rows={rows.map((row) => ({
+            id: row.id,
+            label: name(row),
+            end: row.end,
+            description: <span className="tabular-nums">{row.details}</span>,
           }))}
         />
       }

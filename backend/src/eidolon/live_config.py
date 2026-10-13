@@ -403,7 +403,7 @@ class _Judge(_Item):
 
 class _JudgeThresholds(_Item):
     name = JUDGE_THRESHOLDS
-    fields = ("recall", "emotion")
+    fields = ("recall", "emotion", "out_of_line", "manipulation")
     stored = (FOR_MODEL,)
     unavailable_reason = _Judge.unavailable_reason
 
@@ -412,7 +412,7 @@ class _JudgeThresholds(_Item):
 
     def env(self) -> Values:
         thresholds = judge_thresholds(self.c.judge_settings, self.c.settings.emotion)
-        return {"recall": thresholds.recall, "emotion": thresholds.emotion}
+        return {field: getattr(thresholds, field) for field in self.fields}
 
     def bound_model(self) -> str | None:
         return self.c.effective(JUDGE)["model"]

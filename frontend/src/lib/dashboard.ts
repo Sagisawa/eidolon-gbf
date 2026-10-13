@@ -148,9 +148,82 @@ export type Dashboard = {
   trend: TrendPoint[];
   /** `name` is null for a character since removed from the configuration. */
   characters: { character_id: string; name: string | null; turns: number; calls: number }[];
+  /** How the judge model judged the turns, where affinity is on (GLOSSARY「好感度」); null off. */
+  affinity: AffinitySection | null;
   /** What the deployer's keys cost, estimated at the prices (`lib/adminPrices`). */
   cost: Cost;
 };
+
+/** The levels the judge model judges a turn at, from hurting her (0) to making her very happy (4). */
+export const AFFINITY_LEVELS = [0, 1, 2, 3, 4] as const;
+
+/** One character's judged turns: only those recorded count (`judged`), and the share of them
+ * that lowered her affinity is null for too few of them. `name` is null for a character
+ * since removed from the configuration. */
+export type AffinityCharacter = {
+  character_id: string;
+  name: string | null;
+  judged: number;
+  lowered_share: number | null;
+  cooldowns: number;
+  out_of_line: number;
+  manipulation: number;
+  hung_up: number;
+};
+
+/** The dashboard's「好感度」section: the cooldowns begun and for how many users, the turns out
+ * of line and manipulative, how many at each level, and each character, most lowering first. */
+export type AffinitySection = {
+  cooldowns: number;
+  cooled_users: number;
+  out_of_line: number;
+  manipulation: number;
+  /** How many turns at each of `AFFINITY_LEVELS`. */
+  levels: number[];
+  characters: AffinityCharacter[];
+};
+
+/** A character's row of the section's table, as the page shows it: in the backend's order,
+ * the share lowered a dash for too few; on a phone, the row ends on the share and the
+ * cooldowns (`end`), the rest beneath (`details`). */
+export type AffinityRow = {
+  id: string;
+  name: string | null;
+  judged: string;
+  lowered: string;
+  cooldowns: string;
+  out_of_line: string;
+  manipulation: string;
+  hung_up: string;
+  end: string;
+  details: string;
+};
+
+export function affinityRows(characters: AffinityCharacter[]): AffinityRow[] {
+  const words = copy.admin.dashboard.affinity.characters;
+  return characters.map((c) => {
+    const lowered = c.lowered_share === null ? NONE : formatPercent(c.lowered_share);
+    const [judged, cooldowns, outOfLine, manipulation, hungUp] = [
+      c.judged,
+      c.cooldowns,
+      c.out_of_line,
+      c.manipulation,
+      c.hung_up,
+    ].map(formatCount);
+    return {
+      id: c.character_id,
+      name: c.name,
+      judged,
+      lowered,
+      cooldowns,
+      out_of_line: outOfLine,
+      manipulation,
+      hung_up: hungUp,
+      end: words.end(lowered, cooldowns),
+      details: words.details(judged, outOfLine, manipulation, hungUp),
+    };
+  });
+}
 
 export async function getDashboard(range: DashboardRange): Promise<Dashboard> {
   return json(await api(`/api/admin/dashboard?range=${range}`));

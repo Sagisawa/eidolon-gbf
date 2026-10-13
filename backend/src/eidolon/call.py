@@ -114,7 +114,13 @@ from eidolon.config import (
     UsageLimits,
 )
 from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
-from eidolon.engine import CallTurnRecorded, ConversationEngine, TurnDone, UserSaid
+from eidolon.engine import (
+    CallTurnRecorded,
+    ConversationEngine,
+    TurnDone,
+    TurnJudged,
+    UserSaid,
+)
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
     BroughtKeys,
@@ -1526,6 +1532,10 @@ class CallTurns(FrameProcessor):
         ):
             if isinstance(event, CallTurnRecorded):
                 recorded = event
+                continue
+            if isinstance(event, TurnJudged):
+                if turn is not None:
+                    turn.see(event)
                 continue
             if isinstance(event, SegmentComplete):
                 await self._carry_out(self._turns.segment_complete(event.segment))

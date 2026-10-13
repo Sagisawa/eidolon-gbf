@@ -38,10 +38,11 @@ is recorded with her reply; `done` tells it, and where it leaves her affinity. A
 recorded changes nothing; one the judge model could not judge leaves it as it is. She
 replies in the tier the turn began in, knowing how what the user said made her feel, and
 parting with the user if it is to begin a cooldown (GLOSSARY.md「冷却」); in one, she has no
-turns (`Admissions`). In a call she parts by hanging up, after that turn or after the user has
-been out of line once too often in the call (`affinity.hangs_up`): the turn is told it is in a
-call, and how often so far, and once recorded tells the call what came of it
-(`CallTurnRecorded`).
+turns (`Admissions`). What it judged of a turn recorded, and whether the turn began a
+cooldown, the turn's activity record keeps (`TurnJudged`). In a call she parts by hanging
+up, after that turn or after the user has been out of line once too often in the call
+(`affinity.hangs_up`): the turn is told it is in a call, and how often so far, and once
+recorded tells the call what came of it (`CallTurnRecorded`).
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -140,6 +141,17 @@ class CallTurnRecorded:
 
 
 @dataclass(frozen=True)
+class TurnJudged:
+    """What the judge model made of a turn now recorded (GLOSSARY.md「好感度」), and whether
+    the turn began a cooldown, for its activity record. Comes just before `done`, in turns
+    judged only; it stays on the server."""
+
+    judged: Judged
+    cooled: bool
+    type: Literal["turn-judged"] = field(default="turn-judged", init=False)
+
+
+@dataclass(frozen=True)
 class TurnFailed:
     """Why the turn failed, for the user to read; it left no record."""
 
@@ -162,13 +174,14 @@ TurnEvent = (
     | SpeechDelta
     | SegmentComplete
     | CallTurnRecorded
+    | TurnJudged
     | TurnDone
     | TurnFailed
     | TurnRejected
 )
 """A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
-the event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete` and
-`CallTurnRecorded`, which do not."""
+the event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
+`CallTurnRecorded` and `TurnJudged`, which do not."""
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""
@@ -409,6 +422,8 @@ class ConversationEngine:
             conversation, text, said_at, parser.complete, judged, timezone, affinity
         )
         memory.write_down(history, text, reply)
+        if judged is not None and self._affinities is not None:
+            yield TurnJudged(judged, reply.affinity is not None and reply.affinity.cooldown)
         if in_call is not None:
             yield CallTurnRecorded(
                 judged is not None and judged.out_of_line,

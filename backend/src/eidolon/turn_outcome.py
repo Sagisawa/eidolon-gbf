@@ -3,7 +3,8 @@ alike: its result, the one it is settled with, and when the character began to s
 
 `TurnOutcome` is told each event of the turn as the browser is: the turn done (success),
 rejected for its input, or failed; when the turn is replied to afresh, the last reply's
-result is the turn's. It is told when the character began to speak, by whoever knows
+result is the turn's. It is told too what the judge model made of the turn, which the
+browser is not, for the record to keep. It is told when the character began to speak, by whoever knows
 (`began_speaking`), and once the turn is over, whether a failure cut it short: a turn
 over without a result failed if so, and was left by the user otherwise. It is settled
 as it turned out once, by `settle`: a text turn's `Admission`, which keeps the use or
@@ -14,7 +15,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from eidolon.activity import Recording, Result
-from eidolon.engine import TurnDone, TurnEvent, TurnFailed, TurnRejected
+from eidolon.engine import TurnDone, TurnEvent, TurnFailed, TurnJudged, TurnRejected
 
 
 class TurnOutcome:
@@ -50,6 +51,8 @@ class TurnOutcome:
             self._result = "rejected"
         elif isinstance(event, TurnFailed):
             self._result = "failed"
+        elif isinstance(event, TurnJudged):
+            self._recording.judged(event.judged, event.cooled)
 
     def began_speaking(self) -> None:
         """The character began to speak (only the first time counts)."""

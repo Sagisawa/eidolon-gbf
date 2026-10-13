@@ -24,6 +24,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine
+from eidolon.engine import TurnJudged
 from eidolon.greetings import call_opener_path, call_poster_path, greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
@@ -481,7 +482,7 @@ def create_app(backend: Backend) -> FastAPI:
                     outcome.see(event)
                     if isinstance(event, SegmentDelta):
                         outcome.began_speaking()  # the reply's first words have appeared
-                    if isinstance(event, SegmentComplete | SpeechDelta):
+                    if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                         continue
                     yield _sse(asdict(event))
 

@@ -290,6 +290,8 @@ async def test_a_speech_recognition_override_that_fails_as_the_server_starts_fal
 
 JUDGE = "/api/admin/config/judge"
 JUDGE_THRESHOLDS = "/api/admin/config/judge_thresholds"
+JEV_AFFINITY = {"out_of_line": 0.7, "manipulation": 0.4}
+"""Jev's thresholds for affinity's two questions, saved alongside as they are."""
 JEV_KEY = "env-jev-key-1111"
 CF_TOKEN = "cf-token-2222"
 CLOUDFLARE = {
@@ -394,7 +396,7 @@ async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_
     conversation_id = await start_conversation(client)
     await send_turn(client, conversation_id, "那次比赛怎么样")  # Jev's 0.5: recalled
 
-    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.5})
+    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.5, **JEV_AFFINITY})
     assert saved.status_code == 200, saved.text
     await send_turn(client, conversation_id, "那次比赛怎么样")  # 0.9: not recalled
     upgraded = await client.put(JUDGE, json={
@@ -410,14 +412,16 @@ async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_
     assert offered == [[], ["recall_story"], ["recall_story"], []]
     thresholds = saved.json()["judge_thresholds"]
     assert thresholds["status"] == "overridden"
-    assert thresholds["env"] == {"recall": 0.5, "emotion": 0.5}
-    assert thresholds["effective"] == {"recall": 0.9, "emotion": 0.5}
+    assert thresholds["env"] == {"recall": 0.5, "emotion": 0.5} | JEV_AFFINITY
+    assert thresholds["effective"] == {"recall": 0.9, "emotion": 0.5} | JEV_AFFINITY
     kept = upgraded.json()["judge_thresholds"]
     assert kept["status"] == "overridden" and kept["model"] == "typesafe/jev-1.14"
-    assert kept["effective"] == {"recall": 0.9, "emotion": 0.5}
+    assert kept["effective"] == {"recall": 0.9, "emotion": 0.5} | JEV_AFFINITY
     cleared = changed.json()["judge_thresholds"]
     assert cleared["status"] == "env" and cleared["override"] is None
-    assert cleared["effective"] == {"recall": 0.7, "emotion": 0.4}
+    assert cleared["effective"] == {
+        "recall": 0.7, "emotion": 0.4, "out_of_line": 0.6, "manipulation": 0.6
+    }
     assert cleared["model"] == "clef-flash"
 
 
@@ -435,7 +439,7 @@ async def test_judge_thresholds_saved_hold_for_the_models_family_whatever_env_ca
 ):
     factory = with_retrieval(make_client)
     first = await admin_client(factory, judged, github, FakeServiceClients())
-    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6, **JEV_AFFINITY})
     assert saved.status_code == 200, saved.text
 
     renamed = replace(judged, judge=JevSettings(JEV_KEY, "jev-1.14"))  # and upgraded
@@ -444,7 +448,7 @@ async def test_judge_thresholds_saved_hold_for_the_models_family_whatever_env_ca
 
     shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
     assert shown["status"] == "overridden"
-    assert shown["effective"] == {"recall": 0.9, "emotion": 0.6}
+    assert shown["effective"] == {"recall": 0.9, "emotion": 0.6} | JEV_AFFINITY
     assert judging_by(restarted) == (0.9, 0.6)
 
 
@@ -453,7 +457,7 @@ async def test_judge_thresholds_saved_do_not_hold_once_env_has_another_family(
 ):
     factory = with_retrieval(make_client)
     first = await admin_client(factory, judged, github, FakeServiceClients())
-    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    saved = await first.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6, **JEV_AFFINITY})
     assert saved.status_code == 200, saved.text
 
     clef = replace(judged, judge=CloudflareJudgeSettings(CF_TOKEN, "account-1", "clef"))
@@ -463,7 +467,9 @@ async def test_judge_thresholds_saved_do_not_hold_once_env_has_another_family(
     shown = (await restarted.get(CONFIG)).json()["judge_thresholds"]
     assert shown["status"] == "failed"
     assert "typesafe/jev-1.13" in shown["failure"]
-    assert shown["effective"] == {"recall": 0.8, "emotion": 0.4}
+    assert shown["effective"] == {
+        "recall": 0.8, "emotion": 0.4, "out_of_line": 0.5, "manipulation": 0.5
+    }
     assert judging_by(restarted) == (0.8, 0.4)
 
 
@@ -472,7 +478,7 @@ async def test_judge_thresholds_saved_for_a_model_of_no_family_go_with_its_name(
 ):
     unknown = replace(judged, judge=JevSettings(JEV_KEY, "someone/new-judge"))
     client = await admin_client(with_retrieval(make_client), unknown, github, FakeServiceClients())
-    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6})
+    saved = await client.put(JUDGE_THRESHOLDS, json={"recall": 0.9, "emotion": 0.6, **JEV_AFFINITY})
     assert saved.status_code == 200, saved.text
 
     changed = await client.put(JUDGE, json={

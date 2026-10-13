@@ -173,7 +173,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     ],
     tried: true,
   },
-  judge_thresholds: THRESHOLD(["recall", "emotion"]),
+  judge_thresholds: THRESHOLD(["recall", "emotion", "out_of_line", "manipulation"]),
   rerank: THRESHOLD(["references", "memories"]),
   limits: {
     rows: [...LIMIT_FIELDS, OWN_LLM_REQUIRED],

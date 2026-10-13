@@ -8,8 +8,10 @@ by how they turned out, how many on users' own keys, how soon the character bega
 speak. For calls: how many, by how they turned out, how many on users' own keys, how long
 they lasted and why they ended. How many users took any turn or call; how many turns and
 calls with each character, and in each stretch of the range (`trend`), in stretches
-beginning where the admin's clock (`X-Timezone`) has a round hour or day. Nothing anyone
-said is in it, nor whose any of it was.
+beginning where the admin's clock (`X-Timezone`) has a round hour or day. Where affinity is
+on (GLOSSARY.md「好感度」), how the judge model judged the turns recorded, and the cooldowns
+they began, in all and for each character (`affinity`). Nothing anyone said is in it, nor
+whose any of it was.
 
 How many calls are in progress now is not in the records but the calls themselves:
 `/api/admin/calls/live`, which the page asks every minute.
@@ -26,6 +28,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import FastAPI, Header, Query
 
 from eidolon.activity import CALL_END_REASONS, RESULTS, SERVICES, CallRow, RecordRow
+from eidolon.affinity import LEVEL_STEPS
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.prices import cost
@@ -79,6 +82,7 @@ def add_dashboard_routes(app: FastAPI, backend: Backend) -> None:
             "calls": calls([r for r in records if r.kind == "call"]),
             "trend": trend(records, starts),
             "characters": characters(records, names),
+            "affinity": affinity(records, names) if backend.config.affinity_on else None,
             "cost": spent,
         }
 
@@ -251,3 +255,60 @@ def characters(records: Sequence[RecordRow], names: dict[str, str]) -> list[dict
         {"character_id": id, "name": names.get(id), "turns": n["turn"], "calls": n["call"]}
         for id, n in sorted(counted.items(), key=lambda c: (-c[1]["turn"], -c[1]["call"], c[0]))
     ]
+
+
+FEW = 20
+"""How many judged turns a character needs for the share of them that lowered her affinity
+to be told: fewer, and she is ranked last, her share not told."""
+
+LOWERING = (0, 1)
+"""The levels that lower her affinity."""
+
+
+def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
+    """How the judge model judged the turns recorded (only those, not those failed, refused
+    or left), in all and for each character: how many began a cooldown, and for how many
+    users; how many were out of line, how many tried to dictate her affinity; how many at
+    each level. For each character, how many were judged, the share that lowered it, and how
+    many calls she hung up; ranked by that share, highest first, those judged too few times
+    (`FEW`) last."""
+    judged = [r for r in records if r.kind == "turn" and r.result == "success" and r.judged]
+    by_character: dict[str, list[RecordRow]] = defaultdict(list)
+    for record in judged:
+        by_character[record.character_id].append(record)
+    hung_up = Counter(
+        r.character_id for r in records
+        if r.kind == "call" and r.end_reason == "character_hung_up"
+    )
+    rows = []
+    for id in by_character.keys() | hung_up.keys():
+        turns = by_character.get(id, [])
+        lowered = sum(r.judged is not None and r.judged.level in LOWERING for r in turns)
+        rows.append({
+            "character_id": id,
+            "name": names.get(id),
+            "judged": len(turns),
+            "lowered_share": lowered / len(turns) if len(turns) >= FEW else None,
+            **_judgements(turns),
+            "hung_up": hung_up[id],
+        })
+    rows.sort(key=lambda r: (
+        r["lowered_share"] is None, -(r["lowered_share"] or 0), -r["judged"], r["character_id"]
+    ))
+    levels = Counter(r.judged.level for r in judged if r.judged is not None)
+    return {
+        **_judgements(judged),
+        "cooled_users": len({r.who for r in judged if r.cooled and r.who is not None}),
+        "levels": [levels[level] for level in range(len(LEVEL_STEPS))],
+        "characters": rows,
+    }
+
+
+def _judgements(records: Sequence[RecordRow]) -> dict[str, int]:
+    """How many of the judged turns began a cooldown, were out of line, or tried to dictate
+    her affinity."""
+    return {
+        "cooldowns": sum(r.cooled for r in records),
+        "out_of_line": sum(r.judged is not None and r.judged.out_of_line for r in records),
+        "manipulation": sum(r.judged is not None and r.judged.manipulation for r in records),
+    }

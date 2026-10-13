@@ -79,6 +79,8 @@ class JudgeInput(BaseModel):
 class JudgeThresholdsInput(BaseModel):
     recall: float = Field(ge=0, le=1)
     emotion: float = Field(ge=0, le=1)
+    out_of_line: float = Field(ge=0, le=1)
+    manipulation: float = Field(ge=0, le=1)
 
 
 class RerankInput(BaseModel):
