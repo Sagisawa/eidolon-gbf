@@ -1030,6 +1030,24 @@ export const zh = {
       apiKeyHint: "留空则不改。",
       keysReadOnly: "这个部署没有设置 EIDOLON_SECRET_KEY，key 不能以明文存进数据库，只能在 .env 里修改；其他项照常可以改。",
       maxTokensHint: "留空用接口类型的默认值。",
+      /** 「好感度和礼物」卡里开关下面那一块：一次给所有现有用户各发一张重置卡。 */
+      resetCardGrants: {
+        title: "给所有现有用户各发一张重置卡",
+        hint: "判断模型误判了一阵子时，用它给大家补偿。不能单独给某一位发；好感度和礼物开着时才能发。",
+        /** 「上次发放：」后面是时间，再跟「，共 n 张」。 */
+        last: "上次发放：",
+        lastCount: (n: number) => `，共 ${n} 张`,
+        never: "还没有发过",
+        grant: "发放",
+        dialog: {
+          title: "给所有现有用户各发一张重置卡？",
+          description: (n: number) => `现有的 ${n} 位用户每人多一张，之后注册的用户拿不到。发出后不能收回。`,
+          confirm: (n: number) => `发出 ${n} 张`,
+        },
+        granted: (n: number) => `已发出 ${n} 张重置卡。`,
+        /** 发完的提示下面一句，「去写一条公告」链到公告页。 */
+        announce: { before: "需要的话，", link: "去写一条公告", after: "告诉大家。" },
+      },
     },
     prices: {
       title: "单价",

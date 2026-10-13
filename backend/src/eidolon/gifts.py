@@ -15,6 +15,10 @@ again, which gives one that day. So when it last opened is kept (`notice`), as t
 starts and as the switch changes. That is no one's; what each user has is theirs, deleted
 with them (`database.USER_DATA`).
 
+An admin may give every user there is a reset card at once (`grant_reset_cards`), banned
+ones and admins too, but no one user anything on their own. Each grant is kept, when and
+how many, saying nothing of who granted it or to whom: that too is no one's.
+
 Each draw uses a chance and gives a reset card or a gift, as likely as `affinity.DRAW_ODDS`
 says, any of the rarity's gifts not retired as likely as another: nothing is guaranteed,
 and whom a gift is liked by plays no part. Drawn gifts stack in the backpack, which keeps
@@ -42,7 +46,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.gift_catalog import Gift
-from eidolon.producer import local_date
+from eidolon.producer import ProducerProfile, effective_timezone, local_date
 from eidolon.randomness import Random
 from eidolon.store import Conversation, Store
 
@@ -68,6 +72,11 @@ CREATE TABLE IF NOT EXISTS gift_backpacks (
     gift_id TEXT NOT NULL,
     count INTEGER NOT NULL,
     PRIMARY KEY (user_id, gift_id)
+);
+-- One row each time an admin gave every user a reset card: when, and how many were given.
+CREATE TABLE IF NOT EXISTS reset_card_grants (
+    granted_at TEXT NOT NULL,
+    count INTEGER NOT NULL
 );
 """
 
@@ -200,6 +209,18 @@ class Reset:
     def shown(self) -> dict:
         """As the browser is told it."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class Grant:
+    """A time every user was given a reset card: when, and how many were given."""
+
+    granted_at: datetime
+    count: int
+
+    def shown(self) -> dict:
+        """As the admin console is told it."""
+        return {"granted_at": self.granted_at.isoformat(), "count": self.count}
 
 
 class Gifts:
@@ -389,6 +410,51 @@ class Gifts:
                 )
             raise
         return Reset(brought_back, taken[0])
+
+    def grant_reset_cards(self) -> Grant:
+        """Give every user there is now a reset card, banned ones and admins too, all at
+        once, so that whoever signs up meanwhile gets none; one who has had no draw chances
+        yet is given the new user's one too, that day where their profile says they are
+        (where their device is cannot be told here). Raises GiftsClosed if gifts are not
+        open."""
+        self.notice()
+        if not self._is_open():
+            raise GiftsClosed()
+        now = self._clock()
+        with self._lock, self._db:
+            # Writing first holds the database for writing until done: no one signs up in
+            # between.
+            given = self._db.execute(
+                "UPDATE gift_balances SET reset_cards = reset_cards + 1"
+            ).rowcount
+            # The profile is read here, not from the store, which may be waiting on this.
+            unbalanced = self._db.execute(
+                "SELECT u.id, p.timezone FROM users u"
+                " LEFT JOIN producer_profiles p ON p.user_id = u.id"
+                " WHERE u.id NOT IN (SELECT user_id FROM gift_balances)"
+            ).fetchall()
+            for user_id, timezone in unbalanced:
+                today = local_date(now, effective_timezone(ProducerProfile(timezone=timezone), None))
+                self._db.execute(
+                    "INSERT INTO gift_balances (user_id, draws, given_on, reset_cards)"
+                    " VALUES (?, ?, ?, 1)",
+                    (user_id, DRAWS_PER_DAY, today.isoformat()),
+                )
+            grant = Grant(now, given + len(unbalanced))
+            self._db.execute(
+                "INSERT INTO reset_card_grants (granted_at, count) VALUES (?, ?)",
+                (now.isoformat(), grant.count),
+            )
+        return grant
+
+    def last_grant(self) -> Grant | None:
+        """The latest time every user was given a reset card; None if never."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT granted_at, count FROM reset_card_grants"
+                " ORDER BY granted_at DESC, rowid DESC LIMIT 1"
+            ).fetchone()
+        return row and Grant(datetime.fromisoformat(row[0]), row[1])
 
     def close(self) -> None:
         with self._lock:

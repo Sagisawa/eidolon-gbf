@@ -51,7 +51,7 @@ NOT_USER_DATA = frozenset(
         "episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts",
         "service_calls", "config_overrides", "price_overrides", "price_catalog",
         "price_catalog_hosts", "price_catalog_state", "banned_identities", "announcements",
-        "gifts_opened",
+        "gifts_opened", "reset_card_grants",
     }
 )
 """Every other table: the story corpus, the embedded text set, the calls to outside
@@ -59,7 +59,8 @@ services, which say whose turn they were made in only through its activity recor
 configuration and the prices the admin console overrides, the price catalogs fetched
 online, the ban list, hashes of the identities banned users since deleted signed in
 with, which say whose they were to no one, the announcements admins write, which say
-nothing of who wrote them, and when gifts last opened, which is no one's."""
+nothing of who wrote them, when gifts last opened, which is no one's, and the reset cards
+admins have given every user, which say nothing of who gave them or to whom."""
 
 
 def connect(path: Path) -> sqlite3.Connection:

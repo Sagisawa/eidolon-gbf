@@ -3,8 +3,11 @@ catalog at `/api/gifts/catalog`, what the user has at `/api/gifts`, and drawing 
 `/api/gifts/draws`, the latter two as the producer's own day is where they are
 (`X-Timezone`); giving one to a character at `/api/characters/{id}/gifts`; using a reset
 card at `/api/gifts/resets`. None says which gifts a character likes: the gifts page gives
-none of that away. Gifts not open, drawing, giving and using a reset card are refused with
-409 and `gifts_closed`, told apart from a cooldown's 409, so the page shows them closed."""
+none of that away. Admins give every user a reset card at
+`/api/admin/gifts/reset-card-grants`, which answers 404 to anyone else as the rest of the
+admin console does. Gifts not open, drawing, giving, using a reset card and granting them
+are refused with 409 and `gifts_closed`, told apart from a cooldown's 409, so the page shows
+them closed."""
 
 from typing import Annotated
 
@@ -12,6 +15,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.gifts import (
     GiftsClosed,
@@ -91,3 +95,19 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
     def use_reset_card(user_id: UserId) -> dict:
         """Use a reset card: whom it brought back to trust, and how many cards are left."""
         return gifts.use_reset_card(user_id).shown()
+
+    @app.get("/api/admin/gifts")
+    def read_grants(_: Admin) -> dict:
+        """How many users there are now, each to be given a reset card; when they last were,
+        and how many; and whether gifts are open."""
+        last = gifts.last_grant()
+        return {
+            "users": len(store.list_users()),
+            "last_grant": last and last.shown(),
+            "open": backend.config.affinity_on,
+        }
+
+    @app.post("/api/admin/gifts/reset-card-grants")
+    def grant_reset_cards(_: Admin) -> dict:
+        """Give every user there is now a reset card: when, and how many were given."""
+        return gifts.grant_reset_cards().shown()
