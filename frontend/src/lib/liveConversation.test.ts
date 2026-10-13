@@ -49,7 +49,10 @@ class FakeVoice {
 /** The phone's own sounds: records what the conversation tells it, in order. */
 class FakeTones {
   calls: string[] = [];
+  /** What `ringLeft` says: rung once in full already, unless a test says otherwise. */
+  left = 0;
   ring = () => void this.calls.push("ring");
+  ringLeft = () => this.left;
   connect = () => void this.calls.push("connect");
   hangUp = () => void this.calls.push("hangUp");
   silence = () => void this.calls.push("silence");
@@ -1289,7 +1292,9 @@ describe("LiveConversation: the call tones", () => {
 
   it("stays quiet through everything but the call itself", async () => {
     const { live, attempts, tones } = await conversation();
-    await connected(live, attempts);
+    const call = await connected(live, attempts);
+    // 铃声已经响满一遍：立即接通，麦克风一直开着。
+    expect(call.micEnabled).toEqual([]);
 
     // 只看文字，收起和展开通话层，都不碰电话的声音。
     live.collapse();
@@ -1306,6 +1311,77 @@ describe("LiveConversation: the call tones", () => {
     live.dismissEnd();
     await live.startNewConversation();
     expect(tones.calls).toEqual(["ring", "connect", "hangUp"]);
+  });
+});
+
+describe("LiveConversation: the ringback rung once in full", () => {
+  afterEach(() => void vi.useRealTimers());
+
+  /** A call that connects 3 seconds before the ringback has rung once in full. */
+  async function heldCall() {
+    const opened = await conversation();
+    vi.useFakeTimers();
+    opened.tones.left = 3000;
+    const call = new FakeCall();
+    const calling = opened.live.startCall();
+    opened.attempts[0].connect(call);
+    await vi.advanceTimersByTimeAsync(0);
+    return { ...opened, call, calling };
+  }
+
+  it("keeps dialing, the microphone off, until it has rung once, then connects, its time limit counted from before", async () => {
+    const { live, tones, call, calling } = await heldCall();
+    expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 });
+    expect(call.micEnabled).toEqual([false]);
+    expect(tones.calls).toEqual(["ring"]);
+
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(live.snapshot().call.phase).toBe("dialing");
+
+    await vi.advanceTimersByTimeAsync(1);
+    await calling;
+    // 后端从真正连上时算起：多响的 3 秒也在时长上限里。
+    expect(live.snapshot().call).toEqual({ phase: "connected", dial: 1, since: NOW, maxSeconds: 1797 });
+    expect(call.micEnabled).toEqual([false, true]);
+    expect(tones.calls).toEqual(["ring", "connect"]);
+  });
+
+  it("hangs the call up at once when the user hangs up while it rings on", async () => {
+    const { live, tones, call, calling } = await heldCall();
+
+    await live.hangUp();
+    await calling;
+
+    expect(live.snapshot().call).toEqual({ phase: "idle" });
+    expect(call.hangUps).toBe(1);
+    expect(call.micEnabled).toEqual([false]);
+    expect(tones.calls).toEqual(["ring", "hangUp"]);
+  });
+
+  it("ends, never having connected, when it drops while it rings on", async () => {
+    const { live, attempts, call, calling } = await heldCall();
+
+    attempts[0].handlers.onDropped();
+    await calling;
+
+    expect(live.snapshot().call).toEqual({
+      phase: "ended",
+      dial: 1,
+      end: { reason: "dropped", detail: null, counts: true },
+      seconds: null,
+    });
+    expect(call.micEnabled).toEqual([false]);
+  });
+
+  it("leaves the call at once when the page is left while it rings on", async () => {
+    const { live, tones, call, calling } = await heldCall();
+
+    live.dispose();
+    await calling;
+
+    expect(call.leaves).toBe(1);
+    expect(call.hangUps).toBe(0);
+    expect(tones.calls).toEqual(["ring", "silence"]);
   });
 });
 
