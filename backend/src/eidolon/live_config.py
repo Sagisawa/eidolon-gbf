@@ -5,10 +5,10 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with the exempting keys), and whether affinity and gifts are on. Overrides are kept in the database,
-one row per field, a key encrypted with a key derived from `EIDOLON_SECRET_KEY`
-(without it, keys cannot be changed here, only seen). A change to a service is tried before it is kept, as the chat
-model is when the server starts; it then holds for every turn and call that starts after
+carries, with the exempting keys), and whether affinity and gifts are on. Overrides are
+kept in the database, one row per field, a key encrypted with a key derived from
+`EIDOLON_SECRET_KEY` (without it, keys cannot be changed here, only seen). A change to a
+service is tried before it is kept, as the chat model is when the server starts; it then holds for every turn and call that starts after
 it, while those under way keep what they started with (see `lease` and
 `service_clients.Swappable`). Restoring an item deletes its overrides.
 
@@ -447,15 +447,16 @@ LIMIT_LABELS = {
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
-EXEMPTING_LABELS: dict[str, str] = {
-    "exempting_llm": "免限额密钥里的 LLM",
-    "exempting_tts": "免限额密钥里的语音合成",
-    "exempting_stt": "免限额密钥里的语音识别",
-}
-"""Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md
-「免限额密钥」), as the admin console names them; true or false, never all false."""
-
 EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in SERVICES}
+"""Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md
+「免限额密钥」); true or false, never all false."""
+
+EXEMPTING_LABELS: dict[str, str] = {
+    EXEMPTING_FIELDS["llm"]: "免限额密钥的 LLM 开关",
+    EXEMPTING_FIELDS["tts"]: "免限额密钥的语音合成开关",
+    EXEMPTING_FIELDS["stt"]: "免限额密钥的语音识别开关",
+}
+"""The exempting keys' switches, as the admin console names them."""
 
 NO_EXEMPTING_KEYS = "免限额密钥至少要选一项；想取消限额，请把每小时的回合数和通话次数设成不限"
 
@@ -490,15 +491,19 @@ class _Limits(_Item):
                     f"{LIMIT_LABELS[field]}需要是非负整数（0 表示不限），而不是 {value!r}"
                 )
         values = current | change
-        if not any(values[field] for field in EXEMPTING_LABELS):
+        if not _any_exempting(values):
             raise ConfigInvalid(NO_EXEMPTING_KEYS)
         return values
 
     async def retry(self, values: Values) -> Values:
         # `.env` may since have turned off the exempting keys the override left on.
-        if not any(values[field] for field in EXEMPTING_LABELS):
+        if not _any_exempting(values):
             raise ConfigRejected(NO_EXEMPTING_KEYS)
         return values
+
+
+def _any_exempting(values: Values) -> bool:
+    return any(values[field] for field in EXEMPTING_FIELDS.values())
 
 
 class _Affinity(_Item):

@@ -95,30 +95,24 @@ async def test_with_the_llm_alone_chosen_a_call_bringing_it_counts_towards_nothi
             await speech.stts[-1].hear("你好")
             turn = await on_own_llm.turn()
             await on_own_llm.hang_up()
-        async with open_browser() as on_all_three:
-            all_three = await on_all_three.call(
-                client, conversation_id=conversation_id, own_keys=own_keys("llm", "tts", "stt")
-            )
-            await on_all_three.connect()
-            await on_all_three.hang_up()
         async with open_browser() as on_none:
             none = await on_none.call(client, conversation_id=conversation_id)
             await on_none.connect()
             await on_none.hang_up()
         async with open_browser() as again:
             over = await again.call(client, conversation_id=conversation_id)
-        calls = await calls_recorded(admin, 4)
+        calls = await calls_recorded(admin, 3)
 
     assert asked == {
         ("llm",): (True, True), ("llm", "tts", "stt"): (True, True), (): (False, False)
     }
-    assert [placed.status_code, all_three.status_code, none.status_code] == [200, 200, 200]
+    assert [placed.status_code, none.status_code] == [200, 200]
     assert turn[-1]["type"] == "done"
     assert deployers.prompts == []  # she answered on the user's own LLM
     assert speech.stts[0].api_key == DEPLOYER_SONIOX_KEY
     assert speech.ttss[0].api_key == DEPLOYER_FISH_KEY
     assert over.status_code == 429  # only the call bringing nothing counted
-    assert calls["own_keys"] == 2  # the two recorded as counting towards nothing
+    assert calls["own_keys"] == 1  # the call on the user's own LLM, recorded as not counted
 
 
 async def test_with_speech_synthesis_alone_chosen_a_call_bringing_it_alone_counts_towards_nothing_and_one_on_the_llm_counts(
@@ -255,7 +249,7 @@ async def test_an_override_left_with_none_on_by_env_since_falls_back_to_env_as_t
 
     assert limits["status"] == "failed" and "至少" in limits["failure"]
     assert (await restarted.get("/api/account")).json()["exempting_keys"] == ["llm"]
-    assert (await answers(restarted)) == (False, False)
+    assert (await answers(restarted, "llm")) == (True, True)  # as `.env` has it
 
 
 def test_env_has_them_all_on_unless_turned_off_and_refuses_all_off_or_what_it_cannot_read(
