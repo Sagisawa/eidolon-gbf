@@ -17,7 +17,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText } from "@/lib/affinity";
 import type { Character, Outfit, Segment } from "@/lib/api";
-import type { CallEnd } from "@/lib/callEnd";
+import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
 import {
   NOT_OPEN,
@@ -42,6 +42,7 @@ import { Ja } from "@/theme/Ja";
 import { CueArrowIcon } from "./AffinityBadge";
 import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
+import { useProducerTimezone } from "./useProducerTimezone";
 
 const t = copy.call;
 
@@ -426,27 +427,30 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
   );
 }
 
-/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」）。 */
-function Ended({ end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
-  const ending = t.endings[end.reason];
-  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
+/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」；
+ * 她因为冷却挂断时没有主操作）。 */
+function Ended({ character, end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
+  const timeZone = useProducerTimezone();
+  const card = endCard(end, character.name, new Date(), timeZone);
   return (
     <div
       role="alert"
       className="flex w-full max-w-[34em] flex-col items-center gap-2 rounded-3xl bg-white/12 px-5 py-6 text-center text-balance backdrop-blur-md"
     >
-      <h3 className="text-lg font-semibold">{ending.title}</h3>
-      {end.detail && <p className="text-sm">{end.detail}</p>}
-      <p className="text-sm text-white/80">{ending.body}</p>
-      <p className="text-meta text-white/60">{end.counts ? t.counted : t.notCounted}</p>
+      <h3 className="text-lg font-semibold">{card.title}</h3>
+      {card.detail && <p className="text-sm">{card.detail}</p>}
+      {card.body && <p className="text-sm text-white/80">{card.body}</p>}
+      <p className="text-meta text-white/60">{card.counts ? t.counted : t.notCounted}</p>
       <div className="mt-3 flex flex-wrap justify-center gap-2">
         <Button variant="call-glass" size="call" onClick={onDismiss}>
           {t.backToConversation}
         </Button>
-        <Button variant="call-solid" size="call" onClick={toOwnKeys ? onOwnKeys : onRedial}>
-          {!toOwnKeys && <PhoneIcon aria-hidden />}
-          {toOwnKeys ? t.toOwnKeys : t.redial}
-        </Button>
+        {card.action && (
+          <Button variant="call-solid" size="call" onClick={card.action === "own_keys" ? onOwnKeys : onRedial}>
+            {card.action === "redial" && <PhoneIcon aria-hidden />}
+            {card.action === "own_keys" ? t.toOwnKeys : t.redial}
+          </Button>
+        )}
       </div>
     </div>
   );

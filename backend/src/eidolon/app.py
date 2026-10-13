@@ -208,8 +208,8 @@ def _unit(character: Character, world: World | None) -> dict:
 
 def _recorded(entry: Recorded) -> dict:
     """A message or conversation event as the browser reads it."""
-    if isinstance(entry, ConversationEvent):  # whether she has responded is for her prompt
-        return {k: v for k, v in asdict(entry).items() if k != "responded"}
+    if isinstance(entry, ConversationEvent):
+        return entry.shown()
     return asdict(entry.without_cues())
 
 

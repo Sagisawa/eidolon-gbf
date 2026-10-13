@@ -307,6 +307,20 @@ describe("LiveConversation: a call", () => {
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
   });
 
+  it("shows her hanging up in the log as the backend says she did, and tells the list", async () => {
+    const { live, attempts, listChanged } = await conversation({ messages: history });
+    await connected(live, attempts);
+    const told = listChanged();
+    const hungUp = { type: "event", id: 7, kind: "hung_up", created_at: "2026-10-13T03:00:00Z", affinity: null } as const;
+
+    attempts[0].handlers.onEvent({ type: "ended", reason: "out_of_line", message: "她挂断了电话。", counts: true, event: hungUp });
+    attempts[0].handlers.onDropped();
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "out_of_line", counts: true } });
+    expect(live.snapshot().entries.map((e) => e.kind)).toEqual(["user", "character", "event"]);
+    expect(listChanged()).toBe(told + 1);
+  });
+
   it("says a call that drops with no word from the backend counted, unless it was exempt", async () => {
     const { live, attempts } = await conversation();
     await connected(live, attempts, new FakeCall(1800, false));

@@ -202,6 +202,10 @@ class ConversationEvent:
     responded: bool = False
     type: Literal["event"] = field(default="event", init=False)
 
+    def shown(self) -> dict:
+        """As the browser is told it: whether she has responded is for her prompt alone."""
+        return {k: v for k, v in asdict(self).items() if k != "responded"}
+
 
 Recorded = Message | ConversationEvent
 """What a conversation's record holds."""

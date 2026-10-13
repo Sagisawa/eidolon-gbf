@@ -177,15 +177,16 @@ class ServiceCall:
 
 
 CallEndReason = Literal[
-    "hung_up", "left", "duration_limit", "turn_limit", "banned", "deleted", "failed",
-    "shutdown",
+    "hung_up", "left", "duration_limit", "turn_limit", "character_hung_up", "banned",
+    "deleted", "failed", "shutdown",
 ]
 """Why a call ended: the user hung up, or left the conversation page (or lost the
-connection) without hanging up; it reached its time or its turn limit; the user was
-banned, or deleted; a service, or the connection, failed; the server shut down."""
+connection) without hanging up; it reached its time or its turn limit; she hung up, for
+whichever reason; the user was banned, or deleted; a service, or the connection, failed;
+the server shut down."""
 CALL_END_REASONS: tuple[CallEndReason, ...] = (
-    "hung_up", "left", "duration_limit", "turn_limit", "banned", "deleted", "failed",
-    "shutdown",
+    "hung_up", "left", "duration_limit", "turn_limit", "character_hung_up", "banned",
+    "deleted", "failed", "shutdown",
 )
 
 

@@ -24,6 +24,9 @@ It shapes how she speaks to the producer, the same for every character, each in 
 (`affinity_prompt`): colder below trust, warmer above it, as she is in trust otherwise; and as what
 the user said is judged to hurt her or make her happy, she knows it as she replies to it.
 
+In a call she hangs up after the turn that cools her into a cooldown, or after the user has
+been out of line in it too many times (`hangs_up`); nothing else has her hang up.
+
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
 Deleting the user deletes it (`database.USER_DATA`); deleting memories does not touch it.
@@ -74,6 +77,9 @@ OUT_OF_LINE_STEP = -10.0
 
 GAINS_PER_DAY = 6.0
 """How much turns can raise it in a day, the producer's own."""
+
+OUT_OF_LINE_PER_CALL = 2
+"""How many times the user may be out of line in one call: she hangs up after the last."""
 
 _SCHEMA = """
 -- One row per user and character who have had any; none is the normal value, not in a
@@ -186,8 +192,18 @@ for a turn that has no effect."""
 
 _OUT_OF_LINE_FEELING = "制作人刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
 
-_PARTING = "这句话之后你暂时不想再和制作人说话了。先回应，再用你自己的方式表明你现在不想聊下去。"
-"""For the turn that begins a cooldown: she replies, then parts with the producer."""
+Parting = Literal["parts", "hangs_up"]
+"""How she ends the turn with the producer: in a typed turn, she does not want to talk any
+more; in a call, she hangs up."""
+
+_PARTINGS: dict[Parting, str] = {
+    "parts": "这句话之后你暂时不想再和制作人说话了。先回应，再用你自己的方式表明你现在不想聊下去。",
+    "hangs_up": "说完这句你就挂断电话。先回应，再用你自己的方式表明你要挂电话了。",
+}
+"""For the turn she parts with the producer after: she replies first."""
+
+HangUp = Literal["out_of_line", "cooldown"]
+"""Why she hangs up on the user in a call: out of line once too often, or a cooldown begun."""
 
 
 @dataclass(frozen=True)
@@ -220,19 +236,34 @@ class Judged:
         return _FEELINGS[self.level]
 
 
-def affinity_prompt(tier: Tier, judged: Judged | None, cools: bool = False) -> list[str]:
+def affinity_prompt(
+    tier: Tier, judged: Judged | None, parting: Parting | None = None
+) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
-    tier, nothing in trust; how what the producer just said makes her feel; and, if it
-    `cools` her into a cooldown, that she parts with the producer after replying."""
+    tier, nothing in trust; how what the producer just said makes her feel; and, if she is
+    `parting` with the producer after replying, that she does."""
     lines = []
     if tier != "trust":
         lines += [_TIER_PROMPTS[tier] + _IN_HER_OWN_WAY, _WHATEVER_THE_TIER]
     if judged is not None and (feeling := judged.feeling):
         lines.append(feeling)
-    if cools:
-        lines.append(_PARTING)
+    if parting is not None:
+        lines.append(_PARTINGS[parting])
     return lines
+
+
+def hangs_up(judged: Judged | None, cools: bool, out_of_line_before: int) -> HangUp | None:
+    """Whether she hangs up after a turn of a call, as it is `judged` (None if it was not),
+    and why: it `cools` her into a cooldown, or is out of line once too often, the user
+    having been `out_of_line_before` times already in the call. Never if it was not judged."""
+    if judged is None:
+        return None
+    if cools:
+        return "cooldown"
+    if judged.out_of_line and out_of_line_before + 1 >= OUT_OF_LINE_PER_CALL:
+        return "out_of_line"
+    return None
 
 
 @dataclass(frozen=True)

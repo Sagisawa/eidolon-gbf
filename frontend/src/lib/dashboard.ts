@@ -95,6 +95,7 @@ export type CallEndReason =
   | "left"
   | "duration_limit"
   | "turn_limit"
+  | "character_hung_up"
   | "banned"
   | "deleted"
   | "failed"
@@ -105,6 +106,7 @@ export const CALL_END_REASONS: CallEndReason[] = [
   "left",
   "duration_limit",
   "turn_limit",
+  "character_hung_up",
   "banned",
   "deleted",
   "failed",

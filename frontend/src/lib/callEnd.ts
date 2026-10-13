@@ -2,11 +2,14 @@
 // hourly limit (GLOSSARY.md「限额」「接通」). The backend names its reasons in the `ended`
 // message; the rest are told apart here.
 
+import { untilText } from "@/lib/affinity";
 import { ApiError, type BackendEndReason, type CallEvent } from "@/lib/api";
+import { copy } from "@/i18n";
 
 /**
  * The backend's reasons (it never really connected; a voice service failed, or the connection
- * broke, after it connected; its time or turn limit; an own key failed), and three told apart
+ * broke, after it connected; its time or turn limit; an own key failed; she hung up, the user
+ * out of line once too often or a cooldown begun), and three told apart
  * here: the user has no calls left this hour, the deployment requires them to bring their own
  * LLM and the call brought none (GLOSSARY.md「必须自带 LLM」), or the browser would not let the
  * call use the microphone (or there is none).
@@ -20,6 +23,8 @@ export type CallEnd = {
   detail: string | null;
   /** Whether the call counted towards the hourly limit. */
   counts: boolean;
+  /** When the cooldown she hung up for ends (ISO); only for `cooldown`, and only if known. */
+  cooldownUntil?: string;
 };
 
 /** The microphone could not be opened for a call. */
@@ -42,7 +47,35 @@ export function backendEnd(event: Extract<CallEvent, { type: "ended" }>): CallEn
     reason: event.reason,
     detail: event.reason === "own_key" ? event.message : null,
     counts: event.counts,
+    ...(event.cooldown_until ? { cooldownUntil: event.cooldown_until } : {}),
   };
+}
+
+/** What the end card says, and the main button beside「回到对话」: redial, go and fill in
+ * own keys, or none. */
+export type EndCard = {
+  title: string;
+  detail: string | null;
+  body: string | null;
+  counts: boolean;
+  action: "redial" | "own_keys" | null;
+};
+
+/** The end card of a call with her (`name`) that ended so. She hanging up, it says only that
+ * she did, and for a cooldown when it ends, written as the cooldown's input bar writes it, in
+ * `timeZone`: a cooldown offers no redial, there being no calling her till then. */
+export function endCard(end: CallEnd, name: string, now: Date, timeZone: string): EndCard {
+  const t = copy.call;
+  const { detail, counts } = end;
+  if (end.reason === "out_of_line" || end.reason === "cooldown") {
+    const cooling = end.reason === "cooldown";
+    const until = cooling && end.cooldownUntil ? untilText(new Date(end.cooldownUntil), now, timeZone) : null;
+    const body = until ? t.hungUpCooling(until) : null;
+    return { title: t.hungUp(name), detail, body, counts, action: cooling ? null : "redial" };
+  }
+  const ending = t.endings[end.reason];
+  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
+  return { title: ending.title, detail, body: ending.body, counts, action: toOwnKeys ? "own_keys" : "redial" };
 }
 
 /** The connection broke with no word from the backend. The call had connected, so it counts

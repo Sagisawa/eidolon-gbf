@@ -38,7 +38,10 @@ is recorded with her reply; `done` tells it, and where it leaves her affinity. A
 recorded changes nothing; one the judge model could not judge leaves it as it is. She
 replies in the tier the turn began in, knowing how what the user said made her feel, and
 parting with the user if it is to begin a cooldown (GLOSSARY.md「冷却」); in one, she has no
-turns (`Admissions`).
+turns (`Admissions`). In a call she parts by hanging up, after that turn or after the user has
+been out of line once too often in the call (`affinity.hangs_up`): the turn is told it is in a
+call, and how often so far, and once recorded tells the call what came of it
+(`CallTurnRecorded`).
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -49,9 +52,10 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal, ParamSpec, TypeVar
 
-from eidolon.affinity import Affinities, Judged, Status, affinity_prompt
+from eidolon.affinity import Affinities, HangUp, Judged, Status, affinity_prompt, hangs_up
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -115,6 +119,27 @@ class TurnDone:
 
 
 @dataclass(frozen=True)
+class InCall:
+    """The turn is taken in a call, in which the user has been out of line (GLOSSARY.md
+    「不该说的话」) `out_of_line` times so far, in turns recorded."""
+
+    out_of_line: int = 0
+
+
+@dataclass(frozen=True)
+class CallTurnRecorded:
+    """What a turn of a call, now recorded, comes to for the call: whether the user was out
+    of line in it, and whether she hangs up after it and why; if for a cooldown, when it
+    ends (None should the cooldown not have begun after all, another turn recorded
+    meanwhile). Comes just before `done`, in calls only; it stays on the server."""
+
+    out_of_line: bool = False
+    hangs_up: HangUp | None = None
+    cooldown_until: datetime | None = None
+    type: Literal["call-turn-recorded"] = field(default="call-turn-recorded", init=False)
+
+
+@dataclass(frozen=True)
 class TurnFailed:
     """Why the turn failed, for the user to read; it left no record."""
 
@@ -132,11 +157,18 @@ class TurnRejected:
 
 
 TurnEvent = (
-    UserSaid | SegmentDelta | SpeechDelta | SegmentComplete | TurnDone | TurnFailed | TurnRejected
+    UserSaid
+    | SegmentDelta
+    | SpeechDelta
+    | SegmentComplete
+    | CallTurnRecorded
+    | TurnDone
+    | TurnFailed
+    | TurnRejected
 )
 """A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
-the event as it goes out to the browser, except `SpeechDelta` and `SegmentComplete`, which
-do not."""
+the event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete` and
+`CallTurnRecorded`, which do not."""
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""
@@ -256,17 +288,21 @@ class ConversationEngine:
         llms: TurnLLMs,
         device_timezone: str | None = None,
         stop: asyncio.Event | None = None,
+        in_call: InCall | None = None,
     ) -> AsyncIterator[TurnEvent]:
-        """Take one turn on `llms`. `device_timezone` is the time zone the user's device
-        reports, used unless the producer profile sets one. Once `stop` is set, the turn
-        goes no further and is recorded with the segments complete by then."""
+        """Take one turn on `llms`, `in_call` if it is taken in one. `device_timezone` is
+        the time zone the user's device reports, used unless the producer profile sets one.
+        Once `stop` is set, the turn goes no further and is recorded with the segments
+        complete by then."""
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
             yield TurnRejected(TOO_LONG if text else BLANK)
             return
         try:
-            async for event in self._reply(conversation, text, llms, device_timezone, stop):
+            async for event in self._reply(
+                conversation, text, llms, device_timezone, stop, in_call
+            ):
                 yield event
         except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
             log.warning("turn failed on the user's own key in conversation %s: %s",
@@ -283,6 +319,7 @@ class ConversationEngine:
         llms: TurnLLMs,
         device_timezone: str | None,
         stop: asyncio.Event | None,
+        in_call: InCall | None,
     ) -> AsyncIterator[TurnEvent]:
         character = self._characters[conversation.character_id]
         record = self._store.record(conversation.id)
@@ -314,8 +351,12 @@ class ConversationEngine:
             if judged_apart is not None and not judged_apart.done():
                 judged_apart.cancel()
         now = self._clock()
+        cools = self._cools(conversation, judged)
+        hanging_up = hangs_up(judged, cools, in_call.out_of_line) if in_call else None
         affinity_lines = (
-            affinity_prompt(affinity.tier, judged, self._cools(conversation, judged))
+            affinity_prompt(
+                affinity.tier, judged, "hangs_up" if hanging_up else "parts" if cools else None
+            )
             if affinity is not None
             else []
         )
@@ -368,6 +409,12 @@ class ConversationEngine:
             conversation, text, said_at, parser.complete, judged, timezone, affinity
         )
         memory.write_down(history, text, reply)
+        if in_call is not None:
+            yield CallTurnRecorded(
+                judged is not None and judged.out_of_line,
+                hanging_up,
+                affinity and affinity.cooldown_until,
+            )
         yield TurnDone(reply.without_cues(), affinity and affinity.shown())
 
     def _affinity(self, conversation: Conversation) -> Status | None:

@@ -2,7 +2,7 @@
 // the same turn events whether the turn is typed or spoken in a call.
 
 import type { AffinityChange } from "@/lib/affinity";
-import type { EventKind, Recorded, Segment, TurnEvent } from "@/lib/api";
+import type { ConversationEvent, EventKind, Recorded, Segment, TurnEvent } from "@/lib/api";
 
 /** One message or conversation event shown. `at` (ISO) is when it was recorded; for the turn
  * under way, when the user sent or said the words, which the reply shares until it is recorded.
@@ -35,7 +35,9 @@ export type LogAction =
   | Exclude<TurnEvent, { type: "user" }>
   /** The turn ended without `done` or `error`: the user hung up, the call dropped, or
    * the text turn's event stream closed early. */
-  | { type: "interrupted" };
+  | { type: "interrupted" }
+  /** Something that is not a turn happened, just recorded: she hung up. */
+  | { type: "event"; event: ConversationEvent };
 
 export const emptyLog: ConversationLog = { entries: [], turn: null };
 
@@ -64,6 +66,8 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
     case "error":
     case "interrupted":
       return withoutTurn(log);
+    case "event":
+      return { ...log, entries: [...log.entries, toEntry(action.event)] };
   }
 }
 

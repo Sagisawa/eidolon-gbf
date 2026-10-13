@@ -498,6 +498,10 @@ export class LiveConversation {
     switch (event.type) {
       case "ended":
         this.endedBy = backendEnd(event);
+        if (event.event) {
+          this.apply({ type: "event", event: event.event });
+          this.ports.onListChanged();
+        }
         return;
       case "user":
         return this.applyTurnEvent(event, { hearing: "", stand }, () => ({

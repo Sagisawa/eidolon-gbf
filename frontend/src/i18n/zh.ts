@@ -199,6 +199,9 @@ export const zh = {
     notCounted: "这次通话不计入每小时的限额。",
     backToConversation: "回到对话",
     redial: "重拨",
+    /** 她挂断了（不该说的话说多了，或者跌进冷却）：结束卡的标题；冷却的多一行解除时刻。 */
+    hungUp: (name: string) => `${name}挂断了电话。`,
+    hungUpCooling: (until: string) => `她现在不想说话，${until} 以后可以再找她。`,
     toOwnKeys: "去设置自带密钥",
     endings: {
       not_connected: {
@@ -624,6 +627,7 @@ export const zh = {
           left: "离开对话页",
           duration_limit: "撞上时长上限",
           turn_limit: "撞上回合上限",
+          character_hung_up: "角色挂断",
           banned: "被封禁",
           deleted: "用户被删除",
           failed: "故障",

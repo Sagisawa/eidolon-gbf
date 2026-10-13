@@ -161,14 +161,23 @@ export type Memory = {
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each
  * segment of her voice starts playing, her emotion in each, who starts and stops speaking,
  * and, when it is about to hang up (the call reached its time or turn limit, a voice service
- * or an own key failed), why, and whether the call counted towards the hourly limit. */
+ * or an own key failed, she hung up), why, and whether the call counted towards the hourly
+ * limit. She hanging up, it gives the event that she did, just recorded in the conversation,
+ * and for a cooldown when it ends. */
 export type CallEvent =
   | Exclude<TurnEvent, { type: "user" }>
   | CallUserEvent
   | SegmentPlaying
   | SegmentEmotion
   | Speaking
-  | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+  | {
+      type: "ended";
+      reason: BackendEndReason;
+      message: string;
+      counts: boolean;
+      cooldown_until?: string | null;
+      event?: ConversationEvent;
+    };
 
 /** A call's turn opens with `user` as any turn does, saying too which of her replies in the call
  * it opens, numbered from 1 (a turn replied to afresh opens again, with the next number). */
@@ -191,8 +200,15 @@ export type SegmentEmotion = {
   nod: Nod["kind"] | null;
 };
 
-/** Why the backend hung up (`EndReason` in `call.py`). */
-export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";
+/** Why the backend hung up (`EndReason` in `call_outcome.py`). */
+export type BackendEndReason =
+  | "not_connected"
+  | "dropped"
+  | "duration_limit"
+  | "turn_limit"
+  | "own_key"
+  | "out_of_line"
+  | "cooldown";
 
 export class ApiError extends Error {
   /** Refused because the deployment requires the user to bring their own LLM and this

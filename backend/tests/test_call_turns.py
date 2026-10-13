@@ -144,7 +144,8 @@ class CallUnderTest:
             call = Call(self.conversation, mano, admission.llms, muted, "standard")
             outcome = CallOutcome(admission, limits)
             turns = CallTurns(
-                backend.engine, call, outcome, follow_on_timeout, admission.keys.emotions
+                backend.engine, backend.store, call, outcome, follow_on_timeout,
+                admission.keys.emotions,
             )
             if connected:
                 turns.connected()
@@ -167,7 +168,9 @@ class CallUnderTest:
             admission = backend.admissions.call(self.conversation.user_id, "mano", BroughtKeys())
             call = Call(self.conversation, mano, admission.llms, False, "standard")
             outcome = CallOutcome(admission, CallLimits())
-            turns = CallTurns(backend.engine, call, outcome, SONIOX_FOLLOW_ON_TIMEOUT)
+            turns = CallTurns(
+                backend.engine, backend.store, call, outcome, SONIOX_FOLLOW_ON_TIMEOUT
+            )
             worker = PipelineWorker(
                 Pipeline([HoldsUpCancelling(), turns]),
                 cancel_timeout_secs=cancel_timeout,

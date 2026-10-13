@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from eidolon.activity import CallEndReason, Result
-from eidolon.call_outcome import CallLimits, CallOutcome, LimitReached
+from eidolon.call_outcome import CallLimits, CallOutcome, Ending
 from eidolon.own_keys import BroughtKeys, OwnKeyFailed
 from eidolon.usage import UsageKind, Use
 from tests.test_admission import ALL_OWN, Deployment
@@ -165,7 +165,7 @@ def test_a_call_reaches_its_turn_limit_with_its_last_allowed_turn_and_is_kept(
     reached = outcome.limit_reached()
     outcome.settle()
 
-    assert reached == LimitReached(
+    assert reached == Ending(
         "这次通话已经说了 2 轮了",
         {
             "type": "ended",
@@ -193,7 +193,7 @@ def test_a_call_whose_time_is_up_is_kept_even_before_any_turn(
     reached = outcome.limit_reached()
     outcome.settle()
 
-    assert reached == LimitReached(
+    assert reached == Ending(
         f"这次通话已经满 {minutes} 分钟了",
         {
             "type": "ended",
@@ -254,7 +254,7 @@ def test_the_browser_is_told_why_only_once(limiter: Limiter):
     assert outcome.service_failed(None) is None
     assert outcome.service_failed("stt") is None
     outcome.time_up()
-    assert outcome.limit_reached() == LimitReached("这次通话已经满 10 分钟了", None)
+    assert outcome.limit_reached() == Ending("这次通话已经满 10 分钟了", None)
 
 
 def test_what_the_browser_was_told_is_how_the_call_is_settled(limiter: Limiter):
@@ -301,7 +301,7 @@ def test_a_call_that_could_not_be_set_up_is_given_back_at_most_once_saying_nothi
     assert limiter.call_records() == [("not_connected", "failed", False)]
 
 
-Ending = Callable[[CallOutcome], object]
+CallEnding = Callable[[CallOutcome], object]
 
 
 def hung_up(outcome: CallOutcome) -> None:
@@ -326,7 +326,7 @@ def left(outcome: CallOutcome) -> None:
     ],
 )
 def test_a_turn_still_open_as_the_call_is_settled_is_settled_by_how_the_call_ended(
-    limiter: Limiter, ending: Ending, result: Result
+    limiter: Limiter, ending: CallEnding, result: Result
 ):
     """A failure that ends the call cuts the turn short (GLOSSARY.md「回合」); else the user
     left it. A turn settled already is not changed, and the open one settling later, once
