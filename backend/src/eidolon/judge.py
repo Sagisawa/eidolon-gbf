@@ -77,12 +77,15 @@ reached: Clef-flash through OpenRouter judges as it does on Workers AI."""
 
 JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
     # Set by the judge eval (backend/eval/judge.toml); how each was chosen from the spread
-    # of probabilities is in .scratch/cloudflare-judge/issues/05-apply-eval-and-docs.md.
-    # Affinity's two (out_of_line, manipulation) are placeholders until its own eval sets
-    # them (.scratch/affinity/issues/04-judge-eval-and-thresholds.md).
+    # of probabilities is in .scratch/cloudflare-judge/issues/05-apply-eval-and-docs.md,
+    # and affinity's two (out_of_line, manipulation) in
+    # .scratch/affinity/issues/04-judge-eval-and-thresholds.md. Out of line is set high
+    # where its yes and no come close, as a turn wrongly out of line costs her affinity
+    # most: Jev finds a bare demand for affinity somewhat out of line, and Clef-flash a
+    # user telling her she is only a program.
     "jev": JudgeThresholds(
         needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5,
-        out_of_line=0.5, manipulation=0.5,
+        out_of_line=0.7, manipulation=0.4,
     ),
     # Clef and Clef-flash are surer of recall than they should be, less sure of the user's
     # own life, and less sure of the emotion they hear.
@@ -92,7 +95,7 @@ JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
     ),
     "clef-flash": JudgeThresholds(
         needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4,
-        out_of_line=0.5, manipulation=0.5,
+        out_of_line=0.6, manipulation=0.6,
     ),
 }
 FALLBACK_FAMILY: JudgeFamily = "jev"

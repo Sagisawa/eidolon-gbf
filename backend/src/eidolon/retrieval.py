@@ -493,11 +493,13 @@ class ModelRetrievalJudge:
             return need, None
 
     async def ask(
-        self, character: Character, history: Sequence[Message], text: str
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
     ) -> RetrievalAnswer:
-        """How likely the judge model finds yes to each question about `text`."""
+        """How likely the judge model finds yes to each question about `text`, affinity's
+        questions asked in the same request if `affinity`."""
+        questions = _QUESTIONS | AFFINITY_QUESTIONS if affinity else _QUESTIONS
         return _answer(
-            await self._judge_model.ask(turn_state(character, history, text), _QUESTIONS)
+            await self._judge_model.ask(turn_state(character, history, text), questions)
         )
 
     def decide(self, answer: RetrievalAnswer) -> Need:
