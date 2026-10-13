@@ -1361,13 +1361,14 @@ class CallTurns(FrameProcessor):
     async def _end(self, ending: Ending) -> None:
         """Hang up, once what is already on its way to TTS has been voiced, telling the
         browser why as `CallOutcome` says, unless it has been told already; if she hangs
-        up, writing that she did into the conversation."""
+        up, writing that she did into the conversation there and then, before her last
+        words are voiced, as the call's record says she hung up whoever leaves first."""
+        message = ending.ended
+        if message is not None and ending.by_her:
+            event = self._store.add_event(self._call.conversation.id, "hung_up")
+            message = {**message, "event": event.shown()}
         await self._carry_out(self._turns.call_ending())
-        if ending.ended is not None:
-            message = ending.ended
-            if ending.by_her:
-                event = self._store.add_event(self._call.conversation.id, "hung_up")
-                message = {**message, "event": event.shown()}
+        if message is not None:
             await self._send(message)
         await self.push_frame(EndWorkerFrame(reason=ending.why))
 

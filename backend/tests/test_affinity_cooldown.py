@@ -88,6 +88,7 @@ async def test_the_turn_that_takes_it_to_0_has_her_part_and_begins_a_cooldown(
     assert PARTING not in about_producer(llm, 0)
     assert staying[-1]["affinity"]["cooldown_until"] is None
     assert PARTING in about_producer(llm, 1)
+    assert "挂断电话" not in about_producer(llm, 1)  # that is for calls alone
     assert parting[-1]["message"]["affinity"]["cooldown"] is True
     assert parting[-1]["affinity"]["cooldown_until"] == UNTIL
 

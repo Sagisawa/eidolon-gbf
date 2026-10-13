@@ -57,7 +57,7 @@ from tests.test_call_turns import (  # noqa: F401
 )
 from tests.test_conversation_events import record, shape
 from tests.test_own_llm_required import admin_beside
-from tests.test_text_turn import send_turn, start_conversation
+from tests.test_text_turn import start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]
 HANGING_UP = "说完这句你就挂断电话"
@@ -227,20 +227,3 @@ async def test_her_last_line_cut_short_she_hangs_up_all_the_same(
 
 async def record_of(call: CallUnderTest) -> list[dict]:
     return await record(call._client, call.conversation.id)
-
-
-async def test_in_a_text_turn_she_parts_but_does_not_hang_up(
-    make_client: ClientFactory, settings: Settings
-):
-    """The text version stays as it was: the call's is for calls alone."""
-    clients = FakeServiceClients()
-    clients.judge.judgings = [level(0)]
-    llm = FakeLLM(REPLY)
-    client = make_client(llm, clients=clients, clock=FakeClock())
-    conversation = await start_conversation(client)
-    keep(settings.database_path, "producer", 5, START)
-
-    await send_turn(client, conversation, "随便你")
-
-    assert PARTING in about_producer(llm)
-    assert HANGING_UP not in about_producer(llm)

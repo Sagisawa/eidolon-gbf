@@ -6,10 +6,11 @@ record says of it (GLOSSARY.md「限额」「接通」「运行记录」).
 offered; the call's pipeline reports what happens to it (set up or not, connected, a turn
 recorded, its time up, a service failing, who or what ended it, over). Each event hands
 back the `ended` message to send the browser, if it is the one that ends the call; between
-turns the pipeline asks whether she hangs up, then whether the call has reached its limits,
-and is handed back why it hangs up and that message. Once the call is over it is settled as that message said: the
-admission keeps the use or gives it back, and writes the record, by how it turned out;
-any turn still open is settled first, as cut short by how the call ended.
+turns the pipeline asks whether she hangs up, then whether the call has reached its
+limits, and is handed back why it hangs up and that message. Once the call is over it is
+settled as that message said: the admission keeps the use or gives it back, and writes the
+record, by how it turned out; any turn still open is settled first, as cut short by how
+the call ended.
 """
 
 from dataclasses import dataclass
@@ -202,17 +203,21 @@ class CallOutcome:
 
     def she_hangs_up(self) -> Ending | None:
         """Whether she hangs up after the turn recorded last: if so, why, and the `ended`
-        message telling the browser so, unless it has been told why the call ended already."""
+        message telling the browser so, unless it has been told why the call ended already.
+        Should the cooldown she hung up for not have begun after all, another turn recorded
+        meanwhile, she hung up as for being out of line: the user can call her again."""
         recorded = self._hanging_up
-        if recorded is None or recorded.hangs_up is None:
+        if recorded is None:
             return None
         why = "她挂断了电话"
         if self._told:
             return Ending(why, None, by_her=True)
-        message = self._tell(recorded.hangs_up, f"{why}。")
-        if recorded.hangs_up == "cooldown":
-            until = recorded.cooldown_until
-            message["cooldown_until"] = until and until.isoformat()
+        until = recorded.cooldown_until
+        if recorded.hangs_up == "cooldown" and until is not None:
+            message = self._tell("cooldown", f"{why}。")
+            message["cooldown_until"] = until.isoformat()
+        else:
+            message = self._tell("out_of_line", f"{why}。")
         return Ending(why, message, by_her=True)
 
     def limit_reached(self) -> Ending | None:
