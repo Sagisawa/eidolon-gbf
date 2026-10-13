@@ -6,3 +6,6 @@ contact_links:
   - name: 配置指南
     url: https://github.com/Sallyn0225/eidolon-sc/blob/main/docs/configuration.md
     about: 模型、语音、向量化服务、判断模型等环境变量的含义
+  - name: 安全问题
+    url: https://github.com/Sallyn0225/eidolon-sc/security/advisories/new
+    about: 漏洞请私下报告，不要开公开 issue（见 SECURITY.md）

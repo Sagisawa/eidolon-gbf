@@ -1,6 +1,6 @@
 # Spine Runtimes 3.6（spine-ts WebGL）
 
-这个目录里的 `spine-webgl.js` 和 `LICENSE` 是 Esoteric Software 的 Spine Runtimes，原样取自官方仓库，**一个字都没有改**。它们不属于本项目，**不受本项目的 AGPL-3.0-or-later 约束**，适用的是同目录下它自己的 `LICENSE`（Spine Runtimes Software License v2.5）。本项目许可证里的附加许可允许两者组合在一起、一起分发（见仓库根目录的 `LICENSE` 和 ADR-0009）。
+这个目录里的 `spine-webgl.js` 和 `LICENSE` 是 Esoteric Software 的 Spine Runtimes，原样取自官方仓库，**一个字都没有改**。它们不属于本项目，**不受本项目的 AGPL-3.0-or-later 约束**，适用的是同目录下它自己的 `LICENSE`（Spine Runtimes Software License v2.5）。本项目许可证里的附加许可允许两者组合在一起、一起分发（见仓库根目录的 `LICENSING.md` 和 ADR-0009）。
 
 | 文件 | 来源 | SHA-256 |
 |---|---|---|
