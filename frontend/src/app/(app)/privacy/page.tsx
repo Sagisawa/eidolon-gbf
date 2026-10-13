@@ -34,6 +34,7 @@ export default function PrivacyPage() {
           </section>
         ))}
         <PrivacyContact />
+        <p className="text-meta text-muted-foreground">{t.lastUpdated}</p>
       </div>
     </PageShell>
   );
