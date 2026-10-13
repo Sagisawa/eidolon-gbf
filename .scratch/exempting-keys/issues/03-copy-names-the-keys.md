@@ -23,3 +23,5 @@
 ## Comments
 
 2026-10-13 票 01 留下：`Failure.toOwnKeys` 和 `FailureNotice` 里「去设置自带密钥」的按钮还在，但 01 以后没有地方设它（原来只给「必须自带 LLM」的 403 用）。文字回合超限（429）的提示要「去设置」按钮时，在 `lib/failure.ts` 的 `toFailure` 里按 429 接上就行，不用另做。落地页第六幕和隐私说明里提到「必须自带 LLM」的两处注释（`zh.ts`）按本票的范围留给这里删。
+
+2026-10-13 票 02 留下：`/api/account` 已经返回 `exempting_keys`（按 `llm`、`tts`、`stt` 的固定顺序，至少一项），前端 `lib/api.ts` 的 `Account.exempting_keys` 已有类型，还没有地方用，拼提示就从这里取。后台「限额」卡的说明和三个开关的标签、说明（`zh.ts` 的 `admin.config.items.limits.hint`、`fields.exempting_*`、`formHints.exempting_*`、`lastExemptingKey`）是 02 写的，本票核对用语时一起看。看板的 `calls.own_keys` 计数本来就是「带齐了免限额密钥、不计入」的通话数，只改用语。
