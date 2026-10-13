@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { TierHeart } from "@/components/app/TierHeart";
+import { GiftTile } from "@/components/gifts/GiftTile";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -53,9 +54,7 @@ export function GivePanel({
   const description = gift ? `${t.rarity[gift.rarity]} · ${t.give.left(giving.left)}` : "";
   const head = gift && (
     <div className="flex items-center gap-3 text-left">
-      <div aria-hidden className="size-16 shrink-0 rounded-2xl bg-muted">
-        <img src={`/gifts/${gift.id}.webp`} alt="" decoding="async" className="size-full object-contain p-1.5" />
-      </div>
+      <GiftTile gift={gift} size="small" />
       <div className="flex min-w-0 flex-col gap-0.5">
         <Title isWide={isWide}>{gift.name}</Title>
         <Description isWide={isWide}>{description}</Description>

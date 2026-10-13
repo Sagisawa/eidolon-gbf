@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { SectionHeading } from "@/components/app/SubpageHeader";
+import { GiftTile } from "@/components/gifts/GiftTile";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { copy } from "@/i18n";
 import { GIFT_FILTERS, shownGifts, type GiftFilter, type GiftInfo, type Held, type Owned } from "@/lib/gifts";
@@ -77,15 +78,11 @@ function HeldGift({ held, onGive }: { held: Held; onGive: (held: Held) => void }
         className="group flex w-full flex-col gap-1 rounded-2xl text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         <span className="sr-only">{t.held(gift.name, count, rarity)}</span>
-        <span
-          aria-hidden
-          className="relative block aspect-square rounded-2xl bg-muted transition-colors group-hover:bg-foreground/10"
-        >
-          <img src={`/gifts/${gift.id}.webp`} alt="" loading="lazy" decoding="async" className="size-full object-contain p-2" />
+        <GiftTile gift={gift} size="fill" isHoverable>
           {count > 1 && (
             <span className="absolute right-2 bottom-1.5 text-meta font-medium tabular-nums">{t.count(count)}</span>
           )}
-        </span>
+        </GiftTile>
         <span aria-hidden className="truncate text-sm">
           {gift.name}
         </span>

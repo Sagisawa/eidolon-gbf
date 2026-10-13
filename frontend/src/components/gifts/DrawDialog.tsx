@@ -1,5 +1,6 @@
 "use client";
 
+import { GiftTile } from "@/components/gifts/GiftTile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
@@ -94,14 +95,10 @@ function DrawnItem({ drawn, catalog, isLarge = false }: { drawn: Drawn; catalog:
   const isRare = gift?.rarity === "rare";
   return (
     <div className={cn("flex flex-col items-center text-center", isLarge ? "gap-2" : "gap-1")}>
-      <div className={cn("relative flex aspect-square items-center justify-center rounded-2xl bg-muted", isLarge ? "w-40" : "w-full")}>
-        {gift ? (
-          <img src={`/gifts/${gift.id}.webp`} alt="" decoding="async" className="size-full object-contain p-2" />
-        ) : (
-          <ResetCardIcon aria-hidden className={cn("text-muted-foreground", isLarge ? "size-16" : "size-8")} />
-        )}
-        {isRare && <RareIcon aria-hidden className={cn("absolute text-foreground", isLarge ? "top-2 right-2 size-5" : "top-1 right-1 size-4")} />}
-      </div>
+      <GiftTile gift={gift} size={isLarge ? "large" : "fill"}>
+        {!gift && <ResetCardIcon className={cn("text-muted-foreground", isLarge ? "size-16" : "size-8")} />}
+        {isRare && <RareIcon className={cn("absolute text-foreground", isLarge ? "top-2 right-2 size-5" : "top-1 right-1 size-4")} />}
+      </GiftTile>
       <p className={isLarge ? "text-header" : "text-sm"}>{name}</p>
       {isLarge && (isRare || !gift) ? (
         <Badge variant="secondary">{rarity}</Badge>
