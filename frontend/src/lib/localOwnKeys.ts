@@ -5,9 +5,7 @@
 
 // 下面几份取值列表跟后端同步（不做代码生成）：后端改了，这里照着改。
 
-import type { Account } from "@/lib/api";
-
-/** 能自带 key 的服务：后端 `own_keys.Service`。 */
+/** 能自带 key 的服务：后端 `config.Service`。 */
 export const OWN_SERVICES = ["llm", "tts", "stt"] as const;
 export type OwnService = (typeof OWN_SERVICES)[number];
 
@@ -107,13 +105,6 @@ export function turnOwnKeys(userId: string): { llm: LocalLLM } | undefined {
 /** 存了 key 的那几项服务：通话预检时只报这些服务名，不带 key；也是判断计不计入限额的依据。 */
 export function ownServices(keys: LocalOwnKeys): OwnService[] {
   return OWN_SERVICES.filter((service) => keys[service] !== undefined);
-}
-
-/** 对话页要不要提前拦下这位用户（GLOSSARY.md「必须自带 LLM」）：账号说他现在必须自带 LLM（后端拒绝时用的同一条规则，
- * 管理者和被放行的用户不受约束），这个浏览器里又没存 LLM。按浏览器判断，不按账号（ADR-0017）：换了设备要重填。
- * 只存了语音的 key 不算。拦下时后端的 403 仍是兜底。 */
-export function needsOwnLLM(account: Account, keys: LocalOwnKeys): boolean {
-  return account.own_llm_required && keys.llm === undefined;
 }
 
 /** 这个标签页存、删自带密钥时发的事件；别的标签页改了，浏览器发 `storage`。 */

@@ -30,7 +30,7 @@ from tests.fakes import (
     FakeSpeech,
     level,
 )
-from tests.test_admin_users import ADMIN
+from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep
 from tests.test_call_records import call_recorded
 from tests.test_call_turns import (  # noqa: F401
@@ -45,7 +45,6 @@ from tests.test_call_turns import (  # noqa: F401
     without_emotions,
 )
 from tests.test_conversation_events import record, shape
-from tests.test_own_llm_required import admin_beside
 from tests.test_she_hangs_up import record_of, say
 from tests.test_text_turn import send_turn, start_conversation
 

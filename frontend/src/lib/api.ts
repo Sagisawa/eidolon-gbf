@@ -215,9 +215,6 @@ export type BackendEndReason =
   | "cooldown";
 
 export class ApiError extends Error {
-  /** Refused because the deployment requires the user to bring their own LLM and this
-   * brought none (GLOSSARY.md「必须自带 LLM」): filling it in on the settings page settles it. */
-  readonly ownLLMRequired: boolean;
   /** Refused because she is in a cooldown with the user (GLOSSARY.md「冷却」) until this time
    * (ISO); null for any other refusal. */
   readonly cooldownUntil: string | null;
@@ -228,14 +225,9 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
-    {
-      ownLLMRequired = false,
-      cooldownUntil = null,
-      giftsClosed = false,
-    }: { ownLLMRequired?: boolean; cooldownUntil?: string | null; giftsClosed?: boolean } = {},
+    { cooldownUntil = null, giftsClosed = false }: { cooldownUntil?: string | null; giftsClosed?: boolean } = {},
   ) {
     super(message);
-    this.ownLLMRequired = ownLLMRequired;
     this.cooldownUntil = cooldownUntil;
     this.giftsClosed = giftsClosed;
   }
@@ -244,7 +236,16 @@ export class ApiError extends Error {
   get unauthorized(): boolean {
     return this.status === 401;
   }
+
+  /** Refused for the limit: the user has no turns or calls left this hour, or may take them
+   * only on their own keys (GLOSSARY.md「限额」「免限额密钥」). */
+  get overLimit(): boolean {
+    return this.status === OVER_LIMIT;
+  }
 }
+
+/** The status of a turn or call refused for the limit. */
+const OVER_LIMIT = 429;
 
 /** The status of a turn or call refused while she is in a cooldown with the user, and of what
  * is done with gifts while they are not open, told apart by their bodies. */
@@ -266,15 +267,11 @@ export async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     let message = describe(body?.detail) ?? `请求失败（${res.status}）`;
-    if (res.status === 429) message = overLimit(message, body?.retry_at);
-    // Refused for want of the user's own LLM, told apart from other 403s (a ban) by its mark:
-    // the sentence ended, as for a user on their own keys only.
-    const ownLLMRequired = res.status === 403 && body?.own_llm_required === true;
-    if (ownLLMRequired) message = `${message}。`;
-    // Refused while she is in a cooldown, told apart from the limit's 429 and the rule's 403.
+    if (res.status === OVER_LIMIT) message = overLimit(message, body?.retry_at);
+    // Refused while she is in a cooldown, told apart from the limit's 429.
     const cooldownUntil = res.status === CONFLICT && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
     const giftsClosed = res.status === CONFLICT && body?.gifts_closed === true;
-    throw new ApiError(message, res.status, { ownLLMRequired, cooldownUntil, giftsClosed });
+    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed });
   }
   return res.json();
 }
@@ -336,15 +333,14 @@ export type SignInMethod = { provider: Provider; display_name: string; email: st
 
 /** `id`: who the user is, which this browser keeps their own keys apart by (see `localOwnKeys`).
  * `is_admin`: the user may enter the admin console (`/admin`).
- * `own_llm_required`: the user must bring their own LLM now, by the rule the backend refuses
- * their turns and calls by: the deployment requires it, and they are neither an admin nor let
- * use the deployer's LLM (GLOSSARY.md「必须自带 LLM」; see `needsOwnLLM`). */
+ * `exempting_keys`: the services a call must bring the user's own keys for, all of them, to count
+ * towards no limit (GLOSSARY.md「免限额密钥」), in the order of `OWN_SERVICES`; at least one. */
 export type Account = {
   id: string;
   name: string;
   sign_in_methods: SignInMethod[];
   is_admin: boolean;
-  own_llm_required: boolean;
+  exempting_keys: OwnService[];
 };
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */

@@ -215,9 +215,9 @@ class RecordRow:
     """For a turn (one in a call too), whether the character's LLM was the user's own;
     None for a call (GLOSSARY.md「运行记录」)."""
     exempt: bool | None
-    """For a call, whether its LLM, speech recognition and synthesis were all the user's
-    own, so that it counted towards no limit; None for a turn (in a call or not), whose
-    record keeps only `own_llm`."""
+    """For a call, whether it brought the user's own keys for every one of the exempting
+    keys (GLOSSARY.md「免限额密钥」), so that it counted towards no limit; None for a turn
+    (in a call or not), whose record keeps only `own_llm`."""
     time_to_speak_ms: float | None
     duration_s: float | None = None
     """How long a call lasted once connected; None for a turn, or a call never connected."""
@@ -290,8 +290,8 @@ class Recording:
         """Whether the character's LLM is the user's own: what a turn's record keeps of
         whose keys it ran on (GLOSSARY.md「运行记录」)."""
         self.exempt = exempt
-        """Whether it is on the user's own keys alone, counting towards no limit: what a
-        call's record keeps of whose keys it ran on. A turn begun on its own has it too,
+        """Whether it counts towards no limit, on the user's own keys (GLOSSARY.md「免限额密钥」):
+        what a call's record keeps of whose keys it ran on. A turn begun on its own has it too,
         though its record keeps `own_llm` instead; a turn in a call has None."""
         self.time_to_speak_ms: float | None = None
         self.calls: list[ServiceCall] = []
@@ -380,7 +380,7 @@ class ActivityLog:
         self, kind: RecordKind, user_id: str, character_id: str, *, own_llm: bool, exempt: bool
     ) -> Recording:
         """Open the record of a turn or call the user begins with `character_id`, on their
-        own LLM or not and on their own keys alone or not: a turn's record keeps the
+        own LLM or not and exempt from the limit or not: a turn's record keeps the
         first, a call's the second (GLOSSARY.md「运行记录」). Forgets every record older
         than `KEPT`."""
         now = self._clock()
@@ -544,7 +544,7 @@ def _time(epoch: float) -> datetime:
 
 def _writing_own_keys(recording: Recording) -> bool:
     """What is written to the `own_keys` column of a record, by its kind: a turn's own
-    LLM, a call's being on the user's own keys alone."""
+    LLM, a call's being exempt."""
     if recording.kind == "turn":
         return recording.own_llm
     assert recording.exempt is not None

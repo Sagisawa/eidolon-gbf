@@ -4,17 +4,18 @@
 
 import { untilText } from "@/lib/affinity";
 import { ApiError, type BackendEndReason, type CallEvent } from "@/lib/api";
+import { sayServices } from "@/lib/exemptingKeys";
+import type { OwnService } from "@/lib/localOwnKeys";
 import { copy } from "@/i18n";
 
 /**
  * The backend's reasons (it never really connected; a voice service failed, or the connection
  * broke, after it connected; its time or turn limit; an own key failed; she hung up, for what
- * the user said in the call or a cooldown begun), and three told apart
- * here: the user has no calls left this hour, the deployment requires them to bring their own
- * LLM and the call brought none (GLOSSARY.md「必须自带 LLM」), or the browser would not let the
- * call use the microphone (or there is none).
+ * the user said in the call or a cooldown begun), and two told apart here: the user has no
+ * calls left this hour, or the browser would not let the call use the microphone (or there is
+ * none).
  */
-export type EndReason = BackendEndReason | "over_limit" | "own_llm_required" | "mic_denied";
+export type EndReason = BackendEndReason | "over_limit" | "mic_denied";
 
 export type CallEnd = {
   reason: EndReason;
@@ -30,14 +31,11 @@ export type CallEnd = {
 /** The microphone could not be opened for a call. */
 export class MicUnavailable extends Error {}
 
-/** The status of a call the backend refuses because the user has no calls left this hour. */
-const OVER_LIMIT = 429;
-
 /** A call that could not start. None of them count: it was refused, or it never connected. */
 export function startFailedEnd(e: unknown): CallEnd {
   if (e instanceof MicUnavailable) return { reason: "mic_denied", detail: null, counts: false };
   if (!(e instanceof ApiError)) return { reason: "not_connected", detail: null, counts: false };
-  const reason = e.ownLLMRequired ? "own_llm_required" : e.status === OVER_LIMIT ? "over_limit" : "not_connected";
+  const reason = e.overLimit ? "over_limit" : "not_connected";
   return { reason, detail: e.message, counts: false };
 }
 
@@ -61,11 +59,23 @@ export type EndCard = {
   action: "redial" | "own_keys" | "gift" | null;
 };
 
-/** The end card of a call with her (`name`) that ended so. She hanging up, it says only that
- * she did, and for a cooldown when it ends, written as the cooldown's input bar writes it, in
- * `timeZone`: a cooldown offers no redial, there being no calling her till then, but a gift,
- * which thaws her sooner, if gifts are open (`giftsOpen`). */
-export function endCard(end: CallEnd, name: string, now: Date, timeZone: string, giftsOpen: boolean): EndCard {
+/** Where the end card is shown: her `name`; `now` and the producer's `timeZone`, for when a
+ * cooldown ends; whether gifts are open (`giftsOpen`); and the deployment's exempting keys
+ * (`exemptingKeys`, from the account), null while not known. */
+export type EndCardContext = {
+  name: string;
+  now: Date;
+  timeZone: string;
+  giftsOpen: boolean;
+  exemptingKeys: readonly OwnService[] | null;
+};
+
+/** The end card of a call that ended so. She hanging up, it says only that she did, and for a
+ * cooldown when it ends, written as the cooldown's input bar writes it: a cooldown offers no
+ * redial, there being no calling her till then, but a gift, which thaws her sooner, if gifts
+ * are open. Over the limit, it names the keys a call must bring to count towards none, and
+ * offers the own keys. */
+export function endCard(end: CallEnd, { name, now, timeZone, giftsOpen, exemptingKeys }: EndCardContext): EndCard {
   const t = copy.call;
   const { detail, counts } = end;
   if (end.reason === "she_hung_up" || end.reason === "cooldown") {
@@ -74,9 +84,12 @@ export function endCard(end: CallEnd, name: string, now: Date, timeZone: string,
     const body = until ? t.hungUpCooling(until) : null;
     return { title: t.hungUp(name), detail, body, counts, action: !cooling ? "redial" : giftsOpen ? "gift" : null };
   }
+  if (end.reason === "over_limit") {
+    const { title, body } = t.endings.over_limit;
+    return { title, detail, body: exemptingKeys && sayServices(body, exemptingKeys), counts, action: "own_keys" };
+  }
   const ending = t.endings[end.reason];
-  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
-  return { title: ending.title, detail, body: ending.body, counts, action: toOwnKeys ? "own_keys" : "redial" };
+  return { title: ending.title, detail, body: ending.body, counts, action: end.reason === "own_key" ? "own_keys" : "redial" };
 }
 
 /** The connection broke with no word from the backend. The call had connected, so it counts

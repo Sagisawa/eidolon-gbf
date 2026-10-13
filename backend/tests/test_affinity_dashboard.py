@@ -31,9 +31,8 @@ from tests.fakes import (
     level,
 )
 from tests.test_activity_records import dashboard
-from tests.test_admin_users import ADMIN
+from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep
-from tests.test_own_llm_required import admin_beside
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]

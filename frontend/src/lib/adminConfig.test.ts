@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   changeOf,
   formOf,
+  exemptingKeysOf,
   ITEM_SPECS,
+  lockedOn,
   UNLIMITED,
   readOnlyValue,
   rows,
@@ -170,7 +172,9 @@ describe("limits", () => {
     call_minutes: "10",
     turns_per_call: "40",
     history_turns: "20",
-    own_llm_required: "false",
+    exempting_llm: "true",
+    exempting_tts: "false",
+    exempting_stt: "true",
   };
 
   it("starts a limit of 0 as none, not as a number", () => {
@@ -186,17 +190,27 @@ describe("limits", () => {
         call_minutes: 10,
         turns_per_call: 40,
         history_turns: 20,
-        own_llm_required: false,
+        exempting_llm: true,
+        exempting_tts: false,
+        exempting_stt: true,
       },
     });
   });
 
-  it("starts whether users must bring their own LLM as it is in effect, and sends it as true or false", () => {
-    expect(formOf(limits, { ...form, own_llm_required: true }).own_llm_required).toBe("true");
-    expect(formOf(limits, { ...form, own_llm_required: false }).own_llm_required).toBe("false");
-    expect(changeOf(limits, { ...form, own_llm_required: "true" }, true)).toMatchObject({
-      change: { own_llm_required: true },
-    });
+  it("reads which services are the exempting keys from the effective limits", () => {
+    expect(exemptingKeysOf({ turns_per_hour: 60, exempting_llm: true, exempting_tts: false, exempting_stt: true })).toEqual([
+      "llm",
+      "stt",
+    ]);
+    expect(exemptingKeysOf({ exempting_llm: false, exempting_tts: true, exempting_stt: false })).toEqual(["tts"]);
+  });
+
+  it("keeps the last exempting key on from being turned off, and no other switch", () => {
+    const llmAlone = { ...form, exempting_stt: "false" };
+    expect(lockedOn(llmAlone, "exempting_llm")).toBe(true);
+    expect(lockedOn(llmAlone, "exempting_tts")).toBe(false); // off: it can be turned on
+    expect(lockedOn(form, "exempting_llm")).toBe(false); // another is on
+    expect(lockedOn({ ...llmAlone, enabled: "true" }, "enabled")).toBe(false);
   });
 
   it("refuses one that is 0, negative, not whole or empty", () => {

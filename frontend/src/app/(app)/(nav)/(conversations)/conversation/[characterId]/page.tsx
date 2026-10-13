@@ -21,7 +21,7 @@ export default function ConversationPage() {
   if (character && account) {
     // 换角色时整页重来：上一位的对话（和通话）就此结束。
     return (
-      <ConversationView key={character.id} account={account} character={character} onBack={wide ? undefined : back} />
+      <ConversationView key={character.id} userId={account.id} character={character} onBack={wide ? undefined : back} />
     );
   }
   if (characters === null && !failure) {

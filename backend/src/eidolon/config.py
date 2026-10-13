@@ -3,11 +3,14 @@
 import base64
 import hmac
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, Required, TypedDict, get_args
+
+log = logging.getLogger(__name__)
 
 
 class IceServer(TypedDict, total=False):
@@ -25,6 +28,10 @@ SttProvider = Literal["soniox", "bailian"]
 """The speech recognition services: Soniox, or Alibaba Cloud Model Studio (阿里云百炼)."""
 
 STT_PROVIDERS: tuple[SttProvider, ...] = get_args(SttProvider)
+
+Service = Literal["llm", "tts", "stt"]
+"""A service users may bring their own key for (GLOSSARY.md「自带密钥」)."""
+SERVICES: tuple[Service, ...] = get_args(Service)
 
 BailianRegion = Literal["beijing", "singapore"]
 """Where a DashScope key works: each region's keys are refused in the other."""
@@ -173,9 +180,10 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
-    own_llm_required: bool = False
-    """Whether users must bring their own LLM for their turns and calls (GLOSSARY.md「必须自带
-    LLM」); the admin console may override it."""
+    exempting_keys: frozenset[Service] = frozenset(SERVICES)
+    """The services a call must bring the user's own keys for, all of them, to count
+    towards no limit (GLOSSARY.md「免限额密钥」), at least one; all three unless `.env`
+    turns some off, and the admin console may override it. Text turns go by the LLM alone."""
     affinity_and_gifts: bool = True
     """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as they are only with the
     judge model; on unless `.env` turns them off, and the admin console may override it."""
@@ -231,6 +239,11 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        if "EIDOLON_OWN_LLM_REQUIRED" in os.environ:  # users once had to bring their own LLM
+            log.warning(
+                "EIDOLON_OWN_LLM_REQUIRED no longer does anything: users need not bring their"
+                " own LLM, and only the limits hold them; delete it from .env"
+            )
         return cls(
             database_path=database_path_from_env(),
             characters_path=characters_path_from_env(),
@@ -250,7 +263,7 @@ class Settings:
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
-            own_llm_required=_switch("EIDOLON_OWN_LLM_REQUIRED"),
+            exempting_keys=exempting_keys_from_env(),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
@@ -352,6 +365,19 @@ def admins_from_env() -> frozenset[tuple[str, str]]:
 
 def history_turns_from_env() -> int | None:
     return _limit("EIDOLON_HISTORY_TURNS", DEFAULT_HISTORY_TURNS)
+
+
+def exempting_keys_from_env() -> frozenset[Service]:
+    """`EIDOLON_EXEMPTING_LLM`, `_TTS` and `_STT`, each on unless 0; never all off."""
+    keys: frozenset[Service] = frozenset(
+        s for s in SERVICES if _switch(f"EIDOLON_EXEMPTING_{s.upper()}", default=True)
+    )
+    if not keys:
+        raise RuntimeError(
+            "环境变量 EIDOLON_EXEMPTING_LLM、EIDOLON_EXEMPTING_TTS、EIDOLON_EXEMPTING_STT 不能都是 0："
+            "免限额密钥至少要选一项；想取消限额，请把每小时的回合数和通话次数设成 0（不限）"
+        )
+    return keys
 
 
 @dataclass(frozen=True)

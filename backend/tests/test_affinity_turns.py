@@ -38,9 +38,9 @@ from tests.fakes import (
     Judging,
     level,
 )
+from tests.test_admin_users import admin_beside
 from tests.test_affinity import AFFINITY, keep, status
 from tests.test_delete_account import user_id
-from tests.test_own_llm_required import admin_beside
 from tests.test_text_turn import leave_turn, send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]

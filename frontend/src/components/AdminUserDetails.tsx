@@ -40,7 +40,6 @@ import {
   banAction,
   describeCount,
   deleteUser,
-  describeDeployerLlm,
   getAdminUser,
   takeOffUserLimits,
   unbanUser,
@@ -48,6 +47,7 @@ import {
   type AdminUserDetails as Details,
   type AdminUserUsage,
   type KeyedCount,
+  type UsageRow,
 } from "@/lib/adminUsers";
 import { toFailure, type Failure } from "@/lib/failure";
 import { PROVIDER_LABELS } from "@/lib/signIn";
@@ -217,11 +217,6 @@ export function AdminUserDetails({ id }: { id: string }) {
                 )}
               </span>
             </MetadataListItem>
-            <MetadataListItem label={t.limits.deployerLlmLabel}>
-              <span className={user.limits?.deployer_llm_allowed ? undefined : "text-muted-foreground"}>
-                {describeDeployerLlm(user.limits)}
-              </span>
-            </MetadataListItem>
             {user.banned_at && (
               <MetadataListItem label={t.details.bannedAt}>
                 <Timestamp value={user.banned_at} />
@@ -310,7 +305,7 @@ export function AdminUserDetails({ id }: { id: string }) {
 
 /**
  * 近期用量：回合、通话、被拒绝各一行，最近 24 小时、7 天、30 天各一列；每格是总数，下面分出部署者的 key
- * 和自带密钥。≥ 1024px 是表格，更窄时换成 divide-y 的行（DESIGN.md「Layout · 后台 · 表格」）。
+ * 和自带密钥（通话分出计不计入限额）。≥ 1024px 是表格，更窄时换成 divide-y 的行（DESIGN.md「Layout · 后台 · 表格」）。
  */
 function RecentUsage({ usage }: { usage: AdminUserUsage }) {
   const u = t.usage;
@@ -341,7 +336,7 @@ function RecentUsage({ usage }: { usage: AdminUserUsage }) {
                 <TableCell className="align-top font-medium">{row.label}</TableCell>
                 {USAGE_RANGES.map((range) => (
                   <TableCell key={range} className="text-right align-top">
-                    <Count count={row[range]} />
+                    <Count count={row[range]} what={row.what} />
                   </TableCell>
                 ))}
               </TableRow>
@@ -354,7 +349,7 @@ function RecentUsage({ usage }: { usage: AdminUserUsage }) {
             <li key={row.what} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
               <span className="font-medium">{row.label}</span>
               <span className="text-xs text-muted-foreground tabular-nums">
-                {USAGE_RANGES.map((range) => `${u.ranges[range]} ${describeCount(row[range]).total}`).join(" · ")}
+                {USAGE_RANGES.map((range) => `${u.ranges[range]} ${describeCount(row[range], row.what).total}`).join(" · ")}
               </span>
             </li>
           ))}
@@ -364,8 +359,8 @@ function RecentUsage({ usage }: { usage: AdminUserUsage }) {
   );
 }
 
-function Count({ count }: { count: KeyedCount }) {
-  const { total, split } = describeCount(count);
+function Count({ count, what }: { count: KeyedCount; what: UsageRow["what"] }) {
+  const { total, split } = describeCount(count, what);
   return (
     <>
       <span className="block tabular-nums">{total}</span>

@@ -6,7 +6,6 @@ import { FailureNotice } from "@/components/app/FailureNotice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -29,9 +28,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
-import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
+import { exemptingKeysOf, getAdminConfig, isAvailable } from "@/lib/adminConfig";
 import {
-  deployerLlmAllowable,
   limitDraft,
   limitsInput,
   setUserLimits,
@@ -39,7 +37,9 @@ import {
   type LimitDraft,
   type LimitProblem,
 } from "@/lib/adminUsers";
+import { sayServices } from "@/lib/exemptingKeys";
 import { toFailure, type Failure } from "@/lib/failure";
+import type { OwnService } from "@/lib/localOwnKeys";
 
 const t = copy.admin.users.limitsDialog;
 
@@ -49,9 +49,7 @@ const COUNT_MAX = 100_000;
 /**
  * 设定或修改一位用户的单独限额：每小时的回合数和通话次数各自选「跟随全站 / 设定次数 / 不限 /
  * 只能用自带密钥」，次数从 1 起；附一句只有管理者看得到的备注。「只能用自带密钥」是单列的一项，
- * 不再让人填 0：全站限额里 0 是不限，同一个数字两处意思相反容易配错。底下一项勾选「可以用部署者的 LLM」
- * （放行，GLOSSARY.md「必须自带 LLM」）：只勾它、两项都跟随全站也能保存；两项都选「只能用自带密钥」时它不起作用，
- * 变灰、显示为不勾，也不保存。`user` 为 null 时对话框关着；
+ * 不再让人填 0：全站限额里 0 是不限，同一个数字两处意思相反容易配错。`user` 为 null 时对话框关着；
  * 保存成功后把后端返回的这位用户交给 `onSaved`。保存是表单的提交，用 default（DESIGN.md「Buttons」）。
  */
 export function UserLimitsDialog({
@@ -65,15 +63,15 @@ export function UserLimitsDialog({
 }) {
   const [turns, setTurns] = useState<LimitDraft>(limitDraft(null));
   const [calls, setCalls] = useState<LimitDraft>(limitDraft(null));
-  const [deployerLlm, setDeployerLlm] = useState(false);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   /** 全站现在的每小时回合数和通话次数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
   const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
+  /** 全站现在的免限额密钥（同一项里的三个开关）；读不到时「只能用自带密钥」的说明不点名。 */
+  const [exemptingKeys, setExemptingKeys] = useState<OwnService[] | null>(null);
   const check = useSubmitCheck<HTMLFormElement>();
   const noteId = useId();
-  const deployerLlmId = useId();
 
   useEffect(() => {
     if (!user) return;
@@ -82,6 +80,7 @@ export function UserLimitsDialog({
       (config) => {
         const limits = config.limits;
         if (!current || !isAvailable(limits)) return;
+        setExemptingKeys(exemptingKeysOf(limits.effective));
         const { turns_per_hour: turns, calls_per_hour: calls } = limits.effective;
         if (typeof turns === "number" && typeof calls === "number") setSite({ turns, calls });
       },
@@ -97,14 +96,12 @@ export function UserLimitsDialog({
     if (!user) return;
     setTurns(limitDraft(user.limits?.turns_per_hour ?? null));
     setCalls(limitDraft(user.limits?.calls_per_hour ?? null));
-    setDeployerLlm(user.limits?.deployer_llm_allowed ?? false);
     setNote(user.limits?.note ?? "");
     setFailure(null);
     check.reset();
   }, [user]);
 
-  const result = limitsInput(turns, calls, deployerLlm);
-  const deployerLlmApplies = deployerLlmAllowable(turns, calls);
+  const result = limitsInput(turns, calls);
   // 不先报错、保存键不变灰：点过一次保存才标出不对的项（见 useSubmitCheck）。
   const problemOf = (field: LimitProblem["field"]) =>
     check.shown && "problems" in result ? result.problems.filter((p) => p.field === field) : [];
@@ -146,6 +143,7 @@ export function UserLimitsDialog({
               draft={turns}
               onChange={setTurns}
               site={site?.turns ?? null}
+              ownKeysHint={t.turnsOwnKeysHint}
               problems={problemOf("turns")}
             />
             <LimitField
@@ -153,20 +151,11 @@ export function UserLimitsDialog({
               draft={calls}
               onChange={setCalls}
               site={site?.calls ?? null}
+              ownKeysHint={
+                exemptingKeys?.length ? sayServices(t.callsOwnKeysHint, exemptingKeys) : t.callsOwnKeysHintUnknown
+              }
               problems={problemOf("calls")}
             />
-            <Field orientation="horizontal" data-disabled={!deployerLlmApplies}>
-              <Checkbox
-                id={deployerLlmId}
-                checked={deployerLlm && deployerLlmApplies}
-                onCheckedChange={setDeployerLlm}
-                disabled={!deployerLlmApplies}
-              />
-              <FieldContent>
-                <FieldLabel htmlFor={deployerLlmId}>{t.deployerLlm}</FieldLabel>
-                <FieldDescription>{t.deployerLlmHint}</FieldDescription>
-              </FieldContent>
-            </Field>
             <Field>
               <FieldLabel htmlFor={noteId}>{t.note}</FieldLabel>
               <Textarea id={noteId} value={note} onChange={(e) => setNote(e.target.value)} maxLength={NOTE_MAX} />
@@ -197,6 +186,7 @@ function LimitField({
   draft,
   onChange,
   site,
+  ownKeysHint,
   problems,
 }: {
   label: string;
@@ -204,6 +194,8 @@ function LimitField({
   onChange: (draft: LimitDraft) => void;
   /** 全站现在的数字，0 是不限；不知道时 null。 */
   site: number | null;
+  /** 「只能用自带密钥」放行的是哪些。 */
+  ownKeysHint: string;
   /** 点过保存后这一项不对的地方。 */
   problems: LimitProblem[];
 }) {
@@ -214,7 +206,7 @@ function LimitField({
     { value: "default", label: site === null ? t.choices.default : t.defaultIs(t.siteCount(site)) },
     { value: "number", label: t.choices.number },
     { value: "unlimited", label: t.choices.unlimited },
-    { value: "own_keys", label: t.choices.ownKeys, description: t.ownKeysHint },
+    { value: "own_keys", label: t.choices.ownKeys, description: ownKeysHint },
   ];
   return (
     <FieldSet>

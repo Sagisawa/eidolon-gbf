@@ -6,12 +6,11 @@ deployer's keys it holds, all in one place.
 cooldown (`CoolingDown`, GLOSSARY.md「冷却」) before anything else is asked, recording
 nothing; it takes the keys (`OwnKeys`), from those the turn or call brings, whose
 models record each request as a service call to the model they are, opens the activity
-record, asks whether the user may begin it without their own LLM
-(`own_llm_required`), and only then takes a use of the limit, so that nothing failing
-before it is counted. One refused, for its LLM or over the limit, is recorded rejected;
-whatever else fails on the way after the record is opened is recorded so (`_FAILED`); and
-what was taken is let go before it is raised. Before a call is placed, it is only asked
-whether the call would count.
+record, and only then takes a use of the limit, so that nothing failing before it is
+counted. One refused over the limit is recorded rejected; whatever else fails on the way
+after the record is opened is recorded so (`_FAILED`); and what was taken is let go
+before it is raised. Before a call is placed, it is only asked whether the call would
+count.
 
 The `Admission` it hands out settles it, once: given back unless its result counts
 (`_COUNTED`), the record written, the deployer's keys let go.
@@ -37,14 +36,6 @@ _FAILED: dict[UsageKind, Result] = {"turn": "failed", "call": "not_connected"}
 """How a turn or call is recorded that failed before it began: a call never connected."""
 
 K = TypeVar("K", TurnKeys, CallKeys)
-
-
-class OwnLLMRequired(Exception):
-    """The deployment requires the user to bring their own LLM, and the turn or call
-    brought none (GLOSSARY.md「必须自带 LLM」)."""
-
-    def __init__(self) -> None:
-        super().__init__("这个部署需要你自带 LLM，可以在设置里填写")
 
 
 class CoolingDown(Exception):
@@ -80,7 +71,7 @@ class Admission(Generic[K]):
 
     @property
     def exempt(self) -> bool:
-        """Whether it is on the user's own keys alone, and counts towards nothing."""
+        """Whether it is exempt on the user's own keys, and counts towards nothing."""
         return self.keys.exempt
 
     def counts(self, result: Result) -> bool:
@@ -117,22 +108,13 @@ class Admissions:
         usage: UsageLimiter,
         activity: ActivityLog,
         own_keys: OwnKeys,
-        own_llm_required: Callable[[], bool],
-        is_admin: Callable[[str], bool],
-        deployer_llm_allowed: Callable[[str], bool],
         cooldown_until: Callable[[str, str], datetime | None],
     ) -> None:
-        """`own_llm_required` tells whether the deployment requires users to bring their
-        own LLM now; `is_admin`, whether a user is an admin, whom it does not bind;
-        `deployer_llm_allowed`, whether an admin let a user use the deployer's LLM all the
-        same; `cooldown_until`, when the cooldown a character (by id) is in with a user ends,
-        None if she is in none or affinity is off."""
+        """`cooldown_until` tells when the cooldown a character (by id) is in with a user
+        ends, None if she is in none or affinity is off."""
         self._usage = usage
         self._activity = activity
         self._own_keys = own_keys
-        self._deployment_requires_own_llm = own_llm_required
-        self._is_admin = is_admin
-        self._deployer_llm_allowed = deployer_llm_allowed
         self._cooldown_until = cooldown_until
 
     def refuse_while_cooling(self, user_id: str, character_id: str) -> None:
@@ -142,31 +124,12 @@ class Admissions:
         if until is not None:
             raise CoolingDown(until)
 
-    def own_llm_required(self, user_id: str) -> bool:
-        """Whether the user must bring their own LLM for their turns and calls now: the
-        deployment requires it and does not let them use its own, as it lets admins and
-        those an admin let. The one rule they are refused by, with OwnLLMRequired, when
-        they bring none; a user let whose own limit is 0 is still refused, by the limit."""
-        return (
-            self._deployment_requires_own_llm()
-            and not self._is_admin(user_id)
-            and not self._deployer_llm_allowed(user_id)
-        )
-
-    def refuse_without_own_llm(self, user_id: str, own_llm: bool) -> None:
-        """Raise OwnLLMRequired if the user must bring their own LLM and does not
-        (`own_llm` says whether they do): as each turn or call begins, and before a call is
-        placed, so that nothing is spent on one that would be refused for it."""
-        if not own_llm and self.own_llm_required(user_id):
-            raise OwnLLMRequired()
-
     def turn(
         self, user_id: str, character_id: str, brought: BroughtKeys
     ) -> Admission[TurnKeys]:
         """Let the user's next text turn with `character_id`, bringing `brought`, begin.
         Raises CoolingDown, recording nothing, while she is in a cooldown with them;
-        OwnLLMRequired when it must bring their own LLM and brings none, OverLimit
-        when they have no turns left this hour; then, and whatever else fails before it
+        OverLimit when they have no turns left this hour; then, and whatever else fails before it
         begins, it is recorded and takes no use of the limit."""
         self.refuse_while_cooling(user_id, character_id)
         return self._admit("turn", user_id, character_id, self._own_keys.for_turn(brought))
@@ -178,7 +141,7 @@ class Admissions:
         OverLimit when they have no calls left this hour; then, and whatever else fails
         before it begins, it is recorded and takes no use of the limit. Raises
         CallsUnavailable, recording nothing, when the deployment has no keys for calls and
-        neither does the call bring them; CoolingDown and OwnLLMRequired as a turn does."""
+        neither does the call bring them; CoolingDown as a turn does."""
         self.refuse_while_cooling(user_id, character_id)
         return self._admit("call", user_id, character_id, self._own_keys.for_call(brought))
 
@@ -188,9 +151,8 @@ class Admissions:
                 kind, user_id, character_id, own_llm=keys.own_llm, exempt=keys.exempt
             )
             try:
-                self.refuse_without_own_llm(user_id, keys.own_llm)
                 use = self._usage.take(user_id, kind, exempt=keys.exempt)
-            except (OwnLLMRequired, OverLimit):
+            except OverLimit:
                 recording.finish("rejected")
                 raise
             except BaseException:

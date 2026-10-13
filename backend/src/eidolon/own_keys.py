@@ -14,8 +14,9 @@ them, the deployer's otherwise, with whether it counts towards the user's limit.
 deployer's are those of the live configuration as the turn or call starts (see
 `live_config`), held until it releases them as it ends. Nothing downstream tells the
 user's keys from the deployer's. Whether a turn or call counts is answered by one rule,
-from the kind of use and the services it brings keys for, touching no key (`exempt`):
-as it starts, before a call is placed (`call_exempt`), and for the settings page.
+from the kind of use, the services it brings keys for and, for a call, the exempting keys
+the live configuration has then (GLOSSARY.md「免限额密钥」), touching no key (`exempt`): as
+it starts, before a call is placed (`call_exempt`), and for the settings page.
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
 `check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
@@ -36,7 +37,7 @@ import socket
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Literal, Protocol, get_args
+from typing import Protocol
 from urllib.parse import urlsplit
 
 import httpcore
@@ -45,8 +46,10 @@ import httpx
 from eidolon.activity import ActivityLog, llm_origin, metered_llm
 from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
+    SERVICES,
     LLMProtocol,
     LLMSettings,
+    Service,
     SttKey,
     SttProvider,
 )
@@ -57,8 +60,6 @@ from eidolon.usage import UsageKind
 
 log = logging.getLogger(__name__)
 
-Service = Literal["llm", "tts", "stt"]
-SERVICES: tuple[Service, ...] = get_args(Service)
 SERVICE_LABELS: dict[Service, str] = {
     "llm": "LLM",
     "tts": "语音合成（Fish Audio）",
@@ -280,13 +281,17 @@ class OwnKeys:
         deployer: Deployer,
         activity: ActivityLog,
         speech_check: KeyCheck | None = None,
+        *,
+        exempting: Callable[[], frozenset[Service]],
     ) -> None:
         """Each request to a user's own LLM is recorded in `activity` as a service call
-        on their own key; the deployer's models are recorded as `deployer` leases them."""
+        on their own key; the deployer's models are recorded as `deployer` leases them.
+        `exempting` tells the exempting keys now (GLOSSARY.md「免限额密钥」)."""
         self._llm_service = llm_service
         self._deployer = deployer
         self._activity = activity
         self._speech_check = speech_check
+        self._exempting = exempting
 
     def for_turn(self, brought: BroughtKeys) -> TurnKeys:
         """Whose keys a text turn bringing `brought` runs on: the user's own LLM, if it
@@ -321,11 +326,12 @@ class OwnKeys:
 
     def exempt(self, kind: UsageKind, services: Iterable[Service]) -> bool:
         """Whether a use of `kind` bringing the user's own keys for `services` counts
-        towards nothing: a text turn on their own LLM; a call on their own LLM, speech
-        synthesis and recognition alike. Only the rule: no key is touched, and neither
-        the user's own limits nor whether calls are available are asked."""
+        towards nothing: a text turn on their own LLM; a call on their own keys for every
+        one of the exempting keys now (GLOSSARY.md「免限额密钥」). Only the rule: no key is
+        touched, and neither the user's own limits nor whether calls are available are
+        asked."""
         own = frozenset(services)
-        return "llm" in own if kind == "turn" else set(SERVICES) <= own
+        return "llm" in own if kind == "turn" else self._exempting() <= own
 
     def call_exempt(self, services: Iterable[Service]) -> bool:
         """Whether a call bringing the user's own keys for `services` would count towards

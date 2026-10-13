@@ -5,11 +5,10 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with whether users must bring their own LLM), and whether affinity and gifts
-are on. Overrides are kept in the database, one row per field, a
-key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
-changed here, only seen). A change to a service is tried before it is kept, as the chat
-model is when the server starts; it then holds for every turn and call that starts after
+carries, with the exempting keys), and whether affinity and gifts are on. Overrides are
+kept in the database, one row per field, a key encrypted with a key derived from
+`EIDOLON_SECRET_KEY` (without it, keys cannot be changed here, only seen). A change to a
+service is tried before it is kept, as the chat model is when the server starts; it then holds for every turn and call that starts after
 it, while those under way keep what they started with (see `lease` and
 `service_clients.Swappable`). Restoring an item deletes its overrides.
 
@@ -57,7 +56,9 @@ from eidolon.config import (
     CloudflareJudgeSettings,
     JevSettings,
     JudgeSettings,
+    SERVICES,
     LLMSettings,
+    Service,
     Settings,
     SttKey,
     UsageLimits,
@@ -446,38 +447,63 @@ LIMIT_LABELS = {
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
-OWN_LLM_REQUIRED = "own_llm_required"
-"""Beside the limits: whether users must bring their own LLM (GLOSSARY.md「必须自带 LLM」)."""
+EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in SERVICES}
+"""Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md
+「免限额密钥」); true or false, never all false."""
+
+EXEMPTING_LABELS: dict[str, str] = {
+    EXEMPTING_FIELDS["llm"]: "免限额密钥的 LLM 开关",
+    EXEMPTING_FIELDS["tts"]: "免限额密钥的语音合成开关",
+    EXEMPTING_FIELDS["stt"]: "免限额密钥的语音识别开关",
+}
+"""The exempting keys' switches, as the admin console names them."""
+
+NO_EXEMPTING_KEYS = "免限额密钥至少要选一项；想取消限额，请把每小时的回合数和通话次数设成不限"
 
 
 class _Limits(_Item):
     """The limits per hour, a call's own limits and the turns each prompt carries, as
-    `.env` takes them (0 for none), and whether users must bring their own LLM; not tried."""
+    `.env` takes them (0 for none), and the exempting keys; not tried."""
 
     name = LIMITS
-    fields = (*LIMIT_LABELS, OWN_LLM_REQUIRED)
+    fields = (*LIMIT_LABELS, *EXEMPTING_LABELS)
 
     def env(self) -> Values:
         limits = self.c.settings.usage_limits
+        exempting = self.c.settings.exempting_keys
         return {
             "turns_per_hour": limits.turns_per_hour or 0,
             "calls_per_hour": limits.calls_per_hour or 0,
             "call_minutes": limits.call_minutes or 0,
             "turns_per_call": limits.turns_per_call or 0,
             "history_turns": self.c.settings.history_turns or 0,
-            OWN_LLM_REQUIRED: self.c.settings.own_llm_required,
-        }
+        } | {field: s in exempting for s, field in EXEMPTING_FIELDS.items()}
 
     def candidate(self, current: Values, change: Values) -> Values:
         for field, value in change.items():
-            if field == OWN_LLM_REQUIRED:
+            if field in EXEMPTING_LABELS:
                 if not isinstance(value, bool):
-                    raise ConfigInvalid(f"必须自带 LLM 需要是 true 或 false，而不是 {value!r}")
+                    raise ConfigInvalid(
+                        f"{EXEMPTING_LABELS[field]}需要是 true 或 false，而不是 {value!r}"
+                    )
             elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ConfigInvalid(
                     f"{LIMIT_LABELS[field]}需要是非负整数（0 表示不限），而不是 {value!r}"
                 )
-        return current | change
+        values = current | change
+        if not _any_exempting(values):
+            raise ConfigInvalid(NO_EXEMPTING_KEYS)
+        return values
+
+    async def retry(self, values: Values) -> Values:
+        # `.env` may since have turned off the exempting keys the override left on.
+        if not _any_exempting(values):
+            raise ConfigRejected(NO_EXEMPTING_KEYS)
+        return values
+
+
+def _any_exempting(values: Values) -> bool:
+    return any(values[field] for field in EXEMPTING_FIELDS.values())
 
 
 class _Affinity(_Item):
@@ -530,6 +556,8 @@ class LiveConfig:
         self._listeners: list[Callable[[], None]] = []
         with self._db_lock, self._db:
             self._db.executescript(_SCHEMA)
+            # Whether users had to bring their own LLM, which no longer is a setting.
+            self._db.execute("DELETE FROM config_overrides WHERE name = 'limits.own_llm_required'")
             self._rows = {
                 name: _Row(value, last4)
                 for name, value, last4 in self._db.execute(
@@ -621,9 +649,10 @@ class LiveConfig:
         )
 
     @property
-    def own_llm_required(self) -> bool:
-        """Whether the deployment requires users to bring their own LLM now."""
-        return self.effective(LIMITS)[OWN_LLM_REQUIRED]
+    def exempting_keys(self) -> frozenset[Service]:
+        """The exempting keys now (GLOSSARY.md「免限额密钥」), at least one."""
+        values = self.effective(LIMITS)
+        return frozenset(s for s, field in EXEMPTING_FIELDS.items() if values[field])
 
     @property
     def affinity_on(self) -> bool:

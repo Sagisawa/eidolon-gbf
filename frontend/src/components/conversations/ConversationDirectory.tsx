@@ -54,7 +54,7 @@ export type CallInList = { characterId: string; state: LiveCall } | null;
 
 /** 列表和对话共用的数据：有哪些角色、和每位最新一次对话的摘要。由导航外壳载入一次，设置页也拿得到。 */
 export type Directory = {
-  /** 登录的用户（浏览器里的自带密钥按他的 ID 分开存；他现在是否必须自带 LLM）；和角色一起载入，还在载入时为 null。
+  /** 登录的用户（浏览器里的自带密钥按他的 ID 分开存）；和角色一起载入，还在载入时为 null。
    * 由导航外壳持有，在对话和设置之间换页时不重新载入。 */
   account: Account | null;
   /** 别处重新取到了登录的用户（例如设置里解绑了一种登录方式之后），换上它。 */

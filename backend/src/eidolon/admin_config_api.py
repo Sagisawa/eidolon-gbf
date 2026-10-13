@@ -89,16 +89,18 @@ class RerankInput(BaseModel):
 
 
 class LimitsInput(BaseModel):
-    """Each a whole number from 0 up, 0 for no limit, and whether users must bring their
-    own LLM, true or false; checked by the live configuration, which says what is wrong in
-    so many words."""
+    """Each a whole number from 0 up, 0 for no limit, and whether each service is one of
+    the exempting keys, true or false, not all false; checked by the live configuration,
+    which says what is wrong in so many words."""
 
     turns_per_hour: Any
     calls_per_hour: Any
     call_minutes: Any
     turns_per_call: Any
     history_turns: Any
-    own_llm_required: Any
+    exempting_llm: Any
+    exempting_tts: Any
+    exempting_stt: Any
 
 
 class AffinityInput(BaseModel):

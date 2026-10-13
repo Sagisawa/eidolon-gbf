@@ -2,9 +2,8 @@
 the producer for a while. The turn that will take it there tells her to reply and then make
 it clear, her own way, that she does not want to go on; from then on, until it has
 recovered to the thaw line, turns and new calls with her are refused, 409 with when it ends,
-before the limit, the own-LLM rule and the activity record are asked: they count towards
-nothing and are not recorded, and a cooldown is told before the own-LLM rule. Once over she
-is cold, and falling to 0 again begins another. Each character is apart; off, nothing is
+before the limit and the activity record are asked: they count towards nothing and are not
+recorded. Once over she is cold, and falling to 0 again begins another. Each character is apart; off, nothing is
 refused, whatever is kept.
 
 Driven through the backend's external API, the judge model faked turn by turn and the clock
@@ -30,10 +29,9 @@ from tests.fakes import (
     level,
 )
 from tests.test_activity_records import dashboard
-from tests.test_admin_users import ADMIN
+from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep, status
 from tests.test_affinity_prompt import about_producer
-from tests.test_own_llm_required import admin_beside
 from tests.test_rate_limit import post_turn
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -134,24 +132,6 @@ async def test_in_a_cooldown_turns_and_calls_are_refused_counting_towards_nothin
     assert fell_again[-1]["message"]["affinity"]["cooldown"] is True
     assert cooling_again.status_code == 409
     assert len(llm.prompts) == 2
-
-
-async def test_a_cooldown_is_told_before_the_own_llm_rule(
-    make_client: ClientFactory, settings: Settings
-):
-    client = make_client(
-        FakeLLM(), settings=replace(settings, own_llm_required=True), clock=FakeClock()
-    )
-    conversation = await start_conversation(client)
-    keep(settings.database_path, "producer", 0, START, cooling=True)
-
-    turn = await post_turn(client, conversation)
-    asked = await ask_before_calling(client, conversation)
-    async with open_browser() as browser:
-        call = await browser.call(client, conversation_id=conversation)
-
-    for res in (turn, asked, call):
-        refused(res)
 
 
 async def test_a_cooldown_is_hers_alone(make_client: ClientFactory, settings: Settings):

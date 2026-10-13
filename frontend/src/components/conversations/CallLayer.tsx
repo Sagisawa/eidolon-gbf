@@ -20,6 +20,7 @@ import type { Character, Outfit, Segment } from "@/lib/api";
 import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
 import { giftsHref } from "@/lib/gifts";
+import type { OwnService } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
 import {
   NOT_OPEN,
@@ -90,6 +91,8 @@ type Props = {
   giftsOpen: boolean;
   /** 结束页上「送她一件礼物」。 */
   onGift: () => void;
+  /** 这个部署的免限额密钥：超限的结束卡点名它们；账号还没读到时为 null。 */
+  exemptingKeys: readonly OwnService[] | null;
 };
 
 const notOpen = () => NOT_OPEN;
@@ -106,6 +109,7 @@ export function LiveCallLayer({
   layerRef,
   isFullScreen,
   go,
+  exemptingKeys,
 }: {
   live: LiveConversation;
   character: Character;
@@ -113,6 +117,7 @@ export function LiveCallLayer({
   layerRef: RefObject<HTMLElement | null>;
   isFullScreen: boolean;
   go: (href: string) => void;
+  exemptingKeys: readonly OwnService[] | null;
 }) {
   const snapshot = useSyncExternalStore(live.subscribe, live.snapshot, notOpen);
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
@@ -152,6 +157,7 @@ export function LiveCallLayer({
       // 好感度和礼物同一个开关：读得到好感度就是开放着。送礼记录放回这段对话。
       giftsOpen={snapshot.affinity !== null}
       onGift={() => leave(giftsHref(live.characterId, openIdOf(conversation)))}
+      exemptingKeys={exemptingKeys}
     />
   );
 }
@@ -442,9 +448,18 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
 
 /** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨、「去设置自带密钥」，
  * 或者她因为冷却挂断时的「送她一件礼物」；礼物没开放时冷却版没有主操作）。 */
-function Ended({ character, end, giftsOpen, onRedial, onDismiss, onOwnKeys, onGift }: Props & { end: CallEnd }) {
+function Ended({
+  character,
+  end,
+  giftsOpen,
+  exemptingKeys,
+  onRedial,
+  onDismiss,
+  onOwnKeys,
+  onGift,
+}: Props & { end: CallEnd }) {
   const timeZone = useProducerTimezone();
-  const card = endCard(end, character.name, new Date(), timeZone, giftsOpen);
+  const card = endCard(end, { name: character.name, now: new Date(), timeZone, giftsOpen, exemptingKeys });
   const main = card.action && {
     redial: { onClick: onRedial, label: t.redial, Icon: PhoneIcon },
     own_keys: { onClick: onOwnKeys, label: t.toOwnKeys, Icon: null },

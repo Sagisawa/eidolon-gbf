@@ -71,7 +71,7 @@ function HeldLayer({
   character: Character;
   layerRef: ReturnType<typeof useFocusBack>["layer"];
 }) {
-  const { go } = useDirectory();
+  const { go, account } = useDirectory();
   const outfits = useStandOutfits(character);
   const isFullScreen = !useWide();
   return (
@@ -83,6 +83,7 @@ function HeldLayer({
         layerRef={layerRef}
         isFullScreen={isFullScreen}
         go={go}
+        exemptingKeys={account?.exempting_keys ?? null}
       />
     </div>
   );
