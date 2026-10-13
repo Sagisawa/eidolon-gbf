@@ -435,11 +435,7 @@ class Gifts:
             ).fetchall()
             for user_id, timezone in unbalanced:
                 today = local_date(now, effective_timezone(ProducerProfile(timezone=timezone), None))
-                self._db.execute(
-                    "INSERT INTO gift_balances (user_id, draws, given_on, reset_cards)"
-                    " VALUES (?, ?, ?, 1)",
-                    (user_id, DRAWS_PER_DAY, today.isoformat()),
-                )
+                self._start(user_id, today, reset_cards=1)
             grant = Grant(now, given + len(unbalanced))
             self._db.execute(
                 "INSERT INTO reset_card_grants (granted_at, count) VALUES (?, ?)",
@@ -482,10 +478,7 @@ class Gifts:
             "SELECT draws, given_on FROM gift_balances WHERE user_id = ?", (user_id,)
         ).fetchone()
         if row is None:
-            self._db.execute(
-                "INSERT INTO gift_balances (user_id, draws, given_on) VALUES (?, ?, ?)",
-                (user_id, DRAWS_PER_DAY, today.isoformat()),
-            )
+            self._start(user_id, today)
             return
         draws, given_on = row[0], date.fromisoformat(row[1])
         if today <= given_on:
@@ -498,6 +491,14 @@ class Gifts:
         self._db.execute(
             "UPDATE gift_balances SET draws = ?, given_on = ? WHERE user_id = ?",
             (max(draws, min(draws + due, MAX_DRAWS)), today.isoformat(), user_id),
+        )
+
+    def _start(self, user_id: str, today: date, reset_cards: int = 0) -> None:
+        """Give a user who has had no draw chances yet the new user's one, `today`, and
+        `reset_cards`. Called holding the lock, in a transaction."""
+        self._db.execute(
+            "INSERT INTO gift_balances (user_id, draws, given_on, reset_cards) VALUES (?, ?, ?, ?)",
+            (user_id, DRAWS_PER_DAY, today.isoformat(), reset_cards),
         )
 
     def _draw_one(self) -> str:

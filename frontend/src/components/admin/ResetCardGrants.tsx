@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { Notice } from "@/components/app/admin/Notice";
 import { Timestamp } from "@/components/app/admin/Timestamp";
@@ -28,7 +28,7 @@ const t = copy.admin.config.resetCardGrants;
 /**
  * 「好感度和礼物」卡里开关下面那一块（DESIGN.md「后台 · 配置」）：一句说明、上次发放，「发放」（outline）。
  * 点了先弹 `AlertDialog` 写明人数和后果；发完的提示写实际张数，再提一句可以去写公告，不自动配公告。
- * 好感度和礼物关着时「发放」不可用；开关一变（`isOn`）就重新读一遍是否开放。
+ * 好感度和礼物关着时「发放」不可用；开关一变（`isOn`）就重新读一遍是否开放，发放被拒时也是。
  */
 export function ResetCardGrants({ isOn }: { isOn: boolean }) {
   const [gifts, setGifts] = useState<AdminGifts | null>(null);
@@ -36,6 +36,8 @@ export function ResetCardGrants({ isOn }: { isOn: boolean }) {
   const [isConfirming, setConfirming] = useState(false);
   const [isGranting, setGranting] = useState(false);
   const [granted, setGranted] = useState<number | null>(null);
+  const titleId = useId();
+  const users = gifts?.users ?? 0;
 
   useEffect(() => {
     getAdminGifts().then(setGifts, (e) => setFailure(toFailure(e)));
@@ -51,6 +53,8 @@ export function ResetCardGrants({ isOn }: { isOn: boolean }) {
       setGifts(await getAdminGifts());
     } catch (e) {
       setFailure(toFailure(e));
+      // 多半是别处刚关了开关：重读一遍，「发放」随之不可用。
+      getAdminGifts().then(setGifts, () => {});
     } finally {
       setGranting(false);
       setConfirming(false);
@@ -58,10 +62,10 @@ export function ResetCardGrants({ isOn }: { isOn: boolean }) {
   }
 
   return (
-    <section aria-labelledby="reset-card-grants" className="flex flex-col gap-3 border-t pt-4">
+    <section aria-labelledby={titleId} className="flex flex-col gap-3 border-t pt-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h3 id="reset-card-grants" className="font-medium">
+          <h3 id={titleId} className="font-medium">
             {t.title}
           </h3>
           <p className="text-muted-foreground">{t.hint}</p>
@@ -95,13 +99,13 @@ export function ResetCardGrants({ isOn }: { isOn: boolean }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t.dialog.title}</AlertDialogTitle>
-            <AlertDialogDescription>{t.dialog.description(gifts?.users ?? 0)}</AlertDialogDescription>
+            <AlertDialogDescription>{t.dialog.description(users)}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isGranting}>{copy.common.cancel}</AlertDialogCancel>
             <AlertDialogAction disabled={isGranting} onClick={grant}>
               {isGranting && <Spinner data-icon="inline-start" />}
-              {t.dialog.confirm(gifts?.users ?? 0)}
+              {t.dialog.confirm(users)}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

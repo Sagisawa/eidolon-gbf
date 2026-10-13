@@ -97,7 +97,7 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
         return gifts.use_reset_card(user_id).shown()
 
     @app.get("/api/admin/gifts")
-    def read_grants(_: Admin) -> dict:
+    def read_admin_gifts(_: Admin) -> dict:
         """How many users there are now, each to be given a reset card; when they last were,
         and how many; and whether gifts are open."""
         last = gifts.last_grant()
