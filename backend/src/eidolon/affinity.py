@@ -424,11 +424,10 @@ class Affinities:
             before = self._row(user_id, character_id, now)[0]
             after = before.stepped(_gift_step(rarity, liked, before.cooling))
             after = Affinity(after.value, now, after.cooling and after.value < THAW)
+            thawed = before.cooling and not after.cooling
             change = None
-            if before.cooling and not after.cooling:
-                change = Change(True, after.tier != before.tier, after.tier, False, thawed=True)
-            elif not before.cooling and after.value != before.value:
-                change = Change(True, after.tier != before.tier, after.tier, False)
+            if thawed or (not after.cooling and after.value != before.value):
+                change = Change(True, after.tier != before.tier, after.tier, False, thawed)
             recorded = record(change)
             with self._db:
                 self._db.execute(

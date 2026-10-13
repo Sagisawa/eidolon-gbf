@@ -8,8 +8,7 @@ export const EVENT_ICONS: Record<EventKind, typeof HangUpIcon> = {
   gift: GiftIcon,
 };
 
-/** 对话事件给用户看的那句话，两处共用；送礼记录写上礼物名（`gift`）。 */
+/** 对话事件给用户看的那句话，两处共用；送礼记录写上礼物名（`gift`，别的事件没有）。 */
 export function eventText(event: EventKind, name: string, gift: string | null): string {
-  const t = copy.conversation.events;
-  return event === "gift" ? t.gift(name, gift ?? "") : t[event](name);
+  return copy.conversation.events[event](name, gift ?? "");
 }

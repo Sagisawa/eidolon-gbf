@@ -172,10 +172,10 @@ async def test_what_cannot_be_given_is_refused_changing_nothing(
     await given(client, "tea")
 
     none_left = await give(client, "tea")
-    never_held = await give(client, "plush")
+    no_such_gift = await give(client, "rock")
     no_one = await give(client, "cake", character="nobody")
 
-    assert [none_left.status_code, never_held.status_code, no_one.status_code] == [409, 409, 404]
+    assert [none_left.status_code, no_such_gift.status_code, no_one.status_code] == [409, 409, 404]
     assert none_left.json()["detail"] == "已经没有了"
     assert (await status(client)).json()["tier"] == "trust"
     assert await backpack(client) == {}

@@ -26,6 +26,7 @@ import {
   getGiftState,
   giveGift,
   givenNote,
+  type DrawResult,
   type GiftInfo,
   type GiftState,
   type Given,
@@ -94,7 +95,8 @@ export function GiftsPage() {
         new Promise((resolve) => setTimeout(resolve, isReducedMotion ? 0 : OPENING_MS)),
       ]);
       setDrawing({ all, result });
-      setState((s) => s && { ...s, draws: result.draws });
+      // 先按抽到的把背包补上，「送给谁…」马上打开时件数就是对的；随后再整个读一遍。
+      setState((s) => s && withDrawn(s, result, catalog ?? []));
       getGiftState().then(setState, (e) => setFailure(toFailure(e)));
     } catch (e) {
       setDrawing(null);
@@ -185,6 +187,21 @@ export function GiftsPage() {
       <GivenToast notice={notice} onGo={(n) => go(`/conversation/${encodeURIComponent(n.character.id)}`)} />
     </PageShell>
   );
+}
+
+/** 抽完以后的礼物状态：剩下的次数，抽到的礼物叠进背包（按目录的顺序），重置卡另计。 */
+function withDrawn(state: GiftState, result: DrawResult, catalog: GiftInfo[]): GiftState {
+  const counts = new Map(state.backpack.map((b) => [b.gift_id, b.count]));
+  let cards = state.reset_cards;
+  for (const d of result.drawn) {
+    if (d.kind === "gift") counts.set(d.gift_id, (counts.get(d.gift_id) ?? 0) + 1);
+    else cards += 1;
+  }
+  const backpack = catalog.flatMap((g) => {
+    const count = counts.get(g.id);
+    return count ? [{ gift_id: g.id, count }] : [];
+  });
+  return { ...state, draws: result.draws, backpack, reset_cards: cards };
 }
 
 /** 送出一件以后的礼物状态：这件按接口给的件数（送完的不再列），她的好感度换成现在的。 */

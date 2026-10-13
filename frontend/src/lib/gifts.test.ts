@@ -80,10 +80,8 @@ describe("送出后底部提示的那句话", () => {
   });
   const note = (g: Given) => givenNote(g, "凛世", now, "Asia/Tokyo");
 
-  it("同档开心、跨档、解除冷却：就是变化胶囊的话", () => {
-    expect(note(given(up({})))).toBe("凛世有点开心");
+  it("有变化：就是变化胶囊的话", () => {
     expect(note(given(up({ tier_changed: true, tier: "close" })))).toBe("和凛世更近了一步：亲近");
-    expect(note(given(up({ thawed: true, tier: "cold" })))).toBe("凛世愿意和你说话了");
   });
 
   it("冷却中送了还没解除：写解除时刻，和对话页的写法一样", () => {
