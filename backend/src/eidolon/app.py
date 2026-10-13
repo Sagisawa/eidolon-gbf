@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from starlette.types import Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from eidolon.admission import OwnLLMRequired
+from eidolon.admission import CoolingDown, OwnLLMRequired
 from eidolon.assembly import Backend
 from eidolon.call import (
     CallFailed,
@@ -24,6 +24,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine
+from eidolon.engine import TurnJudged
 from eidolon.greetings import call_opener_path, call_poster_path, greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
@@ -44,7 +45,7 @@ from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
-from eidolon.store import Conversation
+from eidolon.store import Conversation, ConversationEvent, Recorded
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 from eidolon.world import World
@@ -206,6 +207,13 @@ def _unit(character: Character, world: World | None) -> dict:
     return {"unit": unit, "unit_reading": reading, "unit_order": order}
 
 
+def _recorded(entry: Recorded) -> dict:
+    """A message or conversation event as the browser reads it."""
+    if isinstance(entry, ConversationEvent):
+        return entry.shown()
+    return asdict(entry.without_cues())
+
+
 def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
@@ -239,6 +247,14 @@ def create_app(backend: Backend) -> FastAPI:
         """Refused until the user brings their own LLM; `own_llm_required` tells it apart
         from other refusals, so the page can send them to fill it in."""
         return JSONResponse({"detail": str(e), "own_llm_required": True}, status_code=403)
+
+    @app.exception_handler(CoolingDown)
+    async def cooling_down(_: Request, e: CoolingDown) -> JSONResponse:
+        """Refused while she is in a cooldown, with when it ends; told apart from the limit's
+        429 and the own-LLM rule's 403."""
+        return JSONResponse(
+            {"detail": str(e), "cooldown_until": e.cooldown_until.isoformat()}, status_code=409
+        )
 
     @app.exception_handler(CallsUnavailable)
     async def calls_unavailable(_: Request, e: CallsUnavailable) -> JSONResponse:
@@ -277,11 +293,15 @@ def create_app(backend: Backend) -> FastAPI:
     add_announcement_routes(app, backend)
 
     @app.get("/api/ice-servers")
-    def ice_servers(user_id: UserId, own: str = "") -> dict:
+    def ice_servers(user_id: UserId, own: str = "", conversation: str | None = None) -> dict:
         """What the browser needs before calling, if the call is to bring the user's own
         keys for the services `own` names (as `llm,tts,stt`), but none of the keys; also
-        tells it when calls are unavailable."""
-        return calls.ice_servers(user_id, named_services(own))
+        tells it when calls are unavailable, or, for a call into `conversation`, when she
+        is in a cooldown."""
+        character_id = (
+            conversation_or_404(conversation, user_id).character_id if conversation else None
+        )
+        return calls.ice_servers(user_id, named_services(own), character_id)
 
     @app.post("/api/offer")
     async def offer(
@@ -366,6 +386,15 @@ def create_app(backend: Backend) -> FastAPI:
             raise HTTPException(404, "没有这位角色的通话背景图")
         return _picture(character.background, request)
 
+    @app.get("/api/characters/{character_id}/affinity")
+    def affinity(character_id: str, user_id: UserId) -> dict | None:
+        """Her affinity with the user now, by tier only, and when the cooldown ends if she
+        is in one; null while affinity is off."""
+        if character_id not in characters:
+            raise HTTPException(404, "角色不存在")
+        status = backend.affinities.status(user_id, character_id)
+        return status and status.shown()
+
     @app.get("/api/memories")
     async def list_memories(user_id: UserId) -> list[dict]:
         """Newest first, each with the name of the character it was told to and whether
@@ -404,7 +433,8 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/conversations/latest")
     def latest_conversations(user_id: UserId) -> list[dict]:
         """For the conversation list: each character's newest conversation with the user and
-        its last message (null while it has none), in one request."""
+        the last thing in it, a message or a conversation event (null while it has none), in
+        one request."""
         return [
             {
                 "character_id": c.character_id,
@@ -412,6 +442,8 @@ def create_app(backend: Backend) -> FastAPI:
                 "created_at": c.created_at,
                 "last_message": None
                 if last is None
+                else {"type": "event", "kind": last.kind, "created_at": last.created_at}
+                if isinstance(last, ConversationEvent)
                 else {
                     "role": last.role,
                     "text": last.text,
@@ -425,8 +457,9 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/conversations/{conversation_id}/messages")
     def list_messages(conversation_id: str, user_id: UserId) -> list[dict]:
+        """The conversation's record: its messages and conversation events, in order."""
         conversation = conversation_or_404(conversation_id, user_id)
-        return [asdict(m.without_cues()) for m in store.list_messages(conversation.id)]
+        return [_recorded(entry) for entry in store.record(conversation.id)]
 
     @app.post("/api/conversations/{conversation_id}/turns")
     def text_turn(
@@ -449,7 +482,7 @@ def create_app(backend: Backend) -> FastAPI:
                     outcome.see(event)
                     if isinstance(event, SegmentDelta):
                         outcome.began_speaking()  # the reply's first words have appeared
-                    if isinstance(event, SegmentComplete | SpeechDelta):
+                    if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                         continue
                     yield _sse(asdict(event))
 

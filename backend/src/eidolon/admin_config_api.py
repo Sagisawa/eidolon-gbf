@@ -13,6 +13,7 @@ from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.config import JudgeProvider, LLMProtocol, SttProvider
 from eidolon.live_config import (
+    AFFINITY,
     CHAT_LLM,
     JUDGE,
     JUDGE_THRESHOLDS,
@@ -78,6 +79,8 @@ class JudgeInput(BaseModel):
 class JudgeThresholdsInput(BaseModel):
     recall: float = Field(ge=0, le=1)
     emotion: float = Field(ge=0, le=1)
+    out_of_line: float = Field(ge=0, le=1)
+    manipulation: float = Field(ge=0, le=1)
 
 
 class RerankInput(BaseModel):
@@ -98,6 +101,12 @@ class LimitsInput(BaseModel):
     own_llm_required: Any
 
 
+class AffinityInput(BaseModel):
+    """Whether affinity and gifts are on, true or false; checked by the live configuration."""
+
+    enabled: Any
+
+
 INPUTS: dict[str, type[BaseModel]] = {
     CHAT_LLM: LLMInput,
     MEMORY_LLM: LLMInput,
@@ -107,6 +116,7 @@ INPUTS: dict[str, type[BaseModel]] = {
     JUDGE_THRESHOLDS: JudgeThresholdsInput,
     RERANK: RerankInput,
     LIMITS: LimitsInput,
+    AFFINITY: AffinityInput,
 }
 
 

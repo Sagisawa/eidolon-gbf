@@ -7,7 +7,8 @@ its users page, for each user's recent usage (`admin_users_api`).
 A turn's record is open while the turn runs (`ActivityLog.begin`, then `current`), and the
 service calls made meanwhile, in the turn's context, are recorded under it; its outcome
 is told it as the turn's use of the limit is (`admission`), and it is written once it
-has one. A service call made outside any turn, as writing down memories after one is
+has one. A turn recorded keeps what the judge model made of it for affinity, if it judged
+it, and whether it began a cooldown (`Recording.judged`); never what was judged. A service call made outside any turn, as writing down memories after one is
 (`detached`), is recorded on its own.
 
 A call's record is told its outcome as the call's use of the limit is (`call_outcome`),
@@ -43,6 +44,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from eidolon.affinity import Judged
 from eidolon.billing import Billing, billing
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -53,6 +55,7 @@ from eidolon.judge import CLOUDFLARE_API_URL
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.rerank import Reranker
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
+    from eidolon.affinity_judge import AffinityJudge
     from eidolon.emotion import EmotionAnswer, EmotionJudge, SegmentToJudge
     from eidolon.retrieval import Need, RetrievalJudge
 from eidolon.store import Message
@@ -87,6 +90,9 @@ TAKEN = "result != 'rejected'"
 but those rejected, which were refused rather than taken. The admin's users page counts
 these, and sorts the users by them (`Store.find_users`)."""
 
+JUDGEMENT_COLUMNS = ("affinity_level", "out_of_line", "manipulation", "cooled")
+"""What a turn's record keeps of how the judge model judged it, as its columns are named."""
+
 KEPT = timedelta(days=90)
 """How long activity records are kept."""
 
@@ -96,7 +102,10 @@ _SCHEMA = """
 -- other users' without saying whose they were. `call_id`, `duration_s` and `end_reason`
 -- are for calls: a call's turns name its record in `call_id`, and a call has the other two.
 -- `own_keys` is, for a turn, whether its LLM was the user's own; for a call, whether all
--- of its LLM, speech recognition and synthesis were (GLOSSARY.md「运行记录」).
+-- of its LLM, speech recognition and synthesis were (GLOSSARY.md「运行记录」). The last four
+-- are what the judge model made of a turn recorded (GLOSSARY.md「好感度」): its level, 0–4,
+-- whether out of line, whether it tried to dictate her affinity, and whether the turn began
+-- a cooldown; all NULL for a turn not judged, or not recorded.
 CREATE TABLE IF NOT EXISTS activity_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -109,7 +118,11 @@ CREATE TABLE IF NOT EXISTS activity_records (
     time_to_speak_ms REAL,
     call_id INTEGER,
     duration_s REAL,
-    end_reason TEXT
+    end_reason TEXT,
+    affinity_level INTEGER,
+    out_of_line INTEGER,
+    manipulation INTEGER,
+    cooled INTEGER
 );
 CREATE INDEX IF NOT EXISTS activity_records_by_time ON activity_records(started_at);
 CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id, started_at);
@@ -175,15 +188,16 @@ class ServiceCall:
 
 
 CallEndReason = Literal[
-    "hung_up", "left", "duration_limit", "turn_limit", "banned", "deleted", "failed",
-    "shutdown",
+    "hung_up", "left", "duration_limit", "turn_limit", "character_hung_up", "banned",
+    "deleted", "failed", "shutdown",
 ]
 """Why a call ended: the user hung up, or left the conversation page (or lost the
-connection) without hanging up; it reached its time or its turn limit; the user was
-banned, or deleted; a service, or the connection, failed; the server shut down."""
+connection) without hanging up; it reached its time or its turn limit; she hung up, for
+whichever reason; the user was banned, or deleted; a service, or the connection, failed;
+the server shut down."""
 CALL_END_REASONS: tuple[CallEndReason, ...] = (
-    "hung_up", "left", "duration_limit", "turn_limit", "banned", "deleted", "failed",
-    "shutdown",
+    "hung_up", "left", "duration_limit", "turn_limit", "character_hung_up", "banned",
+    "deleted", "failed", "shutdown",
 )
 
 
@@ -211,6 +225,11 @@ class RecordRow:
     """Why a call ended; None for a turn, or a call refused."""
     in_call: bool = False
     """Whether a turn was taken in a call."""
+    judged: Judged | None = None
+    """What the judge model made of a turn recorded; None if it did not judge it, or the turn
+    was not recorded."""
+    cooled: bool = False
+    """Whether a turn began a cooldown."""
 
     @property
     def own_keys(self) -> bool:
@@ -280,6 +299,8 @@ class Recording:
         self.result: Result | None = None
         self.duration_s: float | None = None
         self.end_reason: CallEndReason | None = None
+        self.judged_as: Judged | None = None
+        self.cooled = False
         self.call = call
         """The call this turn was taken in, if any."""
         self.turns: list[Recording] = []
@@ -301,6 +322,11 @@ class Recording:
         """The character began to speak (only the first time counts)."""
         if self.time_to_speak_ms is None:
             self.time_to_speak_ms = (perf_counter() - self._started) * 1000
+
+    def judged(self, judged: Judged, cooled: bool) -> None:
+        """What the judge model made of the turn, now recorded, and whether it began a
+        cooldown."""
+        self.judged_as, self.cooled = judged, cooled
 
     def turn(self, own_llm: bool) -> "Recording":
         """Open the record of a turn taken in this call, on the user's own LLM or not."""
@@ -343,6 +369,7 @@ class ActivityLog:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
             _let_latency_be_unknown(self._db)
+            _add_judgement_columns(self._db)
             _forget_own_llms(self._db)
         self._clock = clock
 
@@ -382,7 +409,8 @@ class ActivityLog:
         with self._lock:
             records = self._db.execute(
                 "SELECT kind, COALESCE(user_id, anonymous_id), character_id, started_at, result,"
-                " own_keys, time_to_speak_ms, duration_s, end_reason, call_id IS NOT NULL"
+                " own_keys, time_to_speak_ms, duration_s, end_reason, call_id IS NOT NULL,"
+                f" {', '.join(JUDGEMENT_COLUMNS)}"
                 " FROM activity_records WHERE started_at > ? ORDER BY started_at",
                 (at,),
             ).fetchall()
@@ -396,9 +424,12 @@ class ActivityLog:
                 RecordRow(
                     kind, who, character, _time(started), result,
                     *_reading_own_keys(kind, own), speak, duration, reason, bool(in_call),
+                    *_reading_judgement(level, out_of_line, manipulation, cooled),
                 )
-                for kind, who, character, started, result, own, speak, duration, reason, in_call
-                in records
+                for (
+                    kind, who, character, started, result, own, speak, duration, reason, in_call,
+                    level, out_of_line, manipulation, cooled,
+                ) in records
             ],
             [
                 CallRow(service, provider, model, bool(own), _time(at), error, latency,
@@ -471,12 +502,13 @@ class ActivityLog:
             recording.kind, recording.character_id, recording.started_at.timestamp(),
             recording.result, int(_writing_own_keys(recording)), recording.time_to_speak_ms,
             recording.call.row_id if recording.call is not None else None,
-            recording.duration_s, recording.end_reason,
+            recording.duration_s, recording.end_reason, *_writing_judgement(recording),
         )
         insert = (
             "INSERT INTO activity_records (user_id, anonymous_id, kind, character_id,"
-            " started_at, result, own_keys, time_to_speak_ms, call_id, duration_s, end_reason)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " started_at, result, own_keys, time_to_speak_ms, call_id, duration_s, end_reason,"
+            f" {', '.join(JUDGEMENT_COLUMNS)})"
+            f" VALUES ({', '.join('?' * (11 + len(JUDGEMENT_COLUMNS)))})"
         )
         try:
             cursor = self._db.execute(insert, (recording.user_id, None, *row))
@@ -523,6 +555,33 @@ def _reading_own_keys(kind: RecordKind, kept: int) -> tuple[bool | None, bool | 
     """`RecordRow.own_llm` and `RecordRow.exempt`, from what is read of the `own_keys`
     column of a record of `kind`."""
     return (bool(kept), None) if kind == "turn" else (None, bool(kept))
+
+
+def _writing_judgement(recording: Recording) -> tuple[int | None, ...]:
+    """What is written to the judgement's columns of a record: all NULL for none."""
+    judged = recording.judged_as
+    if judged is None:
+        return (None, None, None, None)
+    return (
+        judged.level, int(judged.out_of_line), int(judged.manipulation), int(recording.cooled)
+    )
+
+
+def _reading_judgement(
+    level: int | None, out_of_line: int | None, manipulation: int | None, cooled: int | None
+) -> tuple[Judged | None, bool]:
+    """`RecordRow.judged` and `RecordRow.cooled`, from what is read of a record's columns."""
+    if level is None:
+        return None, False
+    return Judged(level, bool(out_of_line), bool(manipulation)), bool(cooled)
+
+
+def _add_judgement_columns(db: sqlite3.Connection) -> None:
+    """Records written before turns' judgements were kept have no columns for them."""
+    columns = {name for _, name, *_ in db.execute("PRAGMA table_info(activity_records)")}
+    for column in JUDGEMENT_COLUMNS:
+        if column not in columns:
+            db.execute(f"ALTER TABLE activity_records ADD COLUMN {column} INTEGER")
 
 
 def _let_latency_be_unknown(db: sqlite3.Connection) -> None:
@@ -698,7 +757,24 @@ class MeteredJudge:
         self._log = log
         self._origin = origin
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> "Need":
+    async def judge(
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
+    ) -> "tuple[Need, Judged | None]":
+        return await timed(
+            self._log, self._origin, self._judge.judge(character, history, text, affinity)
+        )
+
+
+class MeteredAffinityJudge:
+    """The judge model as a turn asks it about affinity alone, where retrieval is off, each
+    question recorded as a service call."""
+
+    def __init__(self, judge: "AffinityJudge", log: ActivityLog, origin: Origin) -> None:
+        self._judge = judge
+        self._log = log
+        self._origin = origin
+
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> "Judged":
         return await timed(self._log, self._origin, self._judge.judge(character, history, text))
 
 

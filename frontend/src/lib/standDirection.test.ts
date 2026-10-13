@@ -92,7 +92,7 @@ describe("standDirection: who is speaking", () => {
       subtitle(0, "！"),
       { type: "delta", segment: 0, lang: "zh", text: "你好" },
       emotion(0, 0, "sad"), // an earlier reply's, dropped
-      { type: "done", message: { id: 1, role: "character", text: null, ja: null, zh: null, segments: [], created_at: "" } },
+      { type: "done", message: { id: 1, role: "character", text: null, ja: null, zh: null, segments: [], created_at: "", affinity: null }, affinity: null },
       { type: "error", message: "角色暂时无法回复" },
       { type: "ended", reason: "duration_limit", message: "", counts: true },
       typed,

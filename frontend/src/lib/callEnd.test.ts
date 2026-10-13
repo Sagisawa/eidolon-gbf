@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
-import { droppedEnd, backendEnd, startFailedEnd, MicUnavailable } from "@/lib/callEnd";
+import { droppedEnd, backendEnd, endCard, startFailedEnd, MicUnavailable } from "@/lib/callEnd";
 
 describe("startFailedEnd", () => {
   it.each([
@@ -34,6 +34,18 @@ describe("backendEnd", () => {
     });
   });
 
+  it("keeps when the cooldown she hung up for ends", () => {
+    const end = backendEnd({
+      type: "ended",
+      reason: "cooldown",
+      message: "她挂断了电话。",
+      counts: true,
+      cooldown_until: "2026-10-14T01:30:00+00:00",
+    });
+
+    expect(end).toEqual({ reason: "cooldown", detail: null, counts: true, cooldownUntil: "2026-10-14T01:30:00+00:00" });
+  });
+
   it("keeps which own key failed", () => {
     const end = backendEnd({ type: "ended", reason: "own_key", message: "你的语音识别（Soniox）密钥调用失败", counts: false });
 
@@ -45,5 +57,43 @@ describe("droppedEnd", () => {
   it("counts a connected call that drops, unless it is on the user's own keys alone", () => {
     expect(droppedEnd(false)).toEqual({ reason: "dropped", detail: null, counts: true });
     expect(droppedEnd(true).counts).toBe(false);
+  });
+});
+
+describe("endCard", () => {
+  const now = new Date("2026-10-13T03:00:00Z");
+
+  it("says only that she hung up, when she did for what was out of line, and offers a redial", () => {
+    expect(endCard({ reason: "out_of_line", detail: null, counts: true }, "真乃", now, "Asia/Tokyo")).toEqual({
+      title: "真乃挂断了电话。",
+      detail: null,
+      body: null,
+      counts: true,
+      action: "redial",
+    });
+  });
+
+  it("says when she will talk again, when she hung up for a cooldown, and offers no redial", () => {
+    const end = { reason: "cooldown", detail: null, counts: true, cooldownUntil: "2026-10-14T01:30:00Z" } as const;
+
+    expect(endCard(end, "真乃", now, "Asia/Tokyo")).toEqual({
+      title: "真乃挂断了电话。",
+      detail: null,
+      body: "她现在不想说话，明天 10:30 以后可以再找她。",
+      counts: true,
+      action: null,
+    });
+  });
+
+  it("gives the other ends their own title and body, and the main button they call for", () => {
+    expect(endCard({ reason: "turn_limit", detail: null, counts: true }, "真乃", now, "Asia/Tokyo")).toMatchObject({
+      title: "这次通话说到回合数上限了",
+      action: "redial",
+    });
+    expect(endCard({ reason: "own_key", detail: "密钥调用失败", counts: false }, "真乃", now, "Asia/Tokyo")).toMatchObject({
+      detail: "密钥调用失败",
+      counts: false,
+      action: "own_keys",
+    });
   });
 });

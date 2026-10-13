@@ -1,13 +1,23 @@
 // The conversation page's log: what it shows of the conversation, kept up to date from
 // the same turn events whether the turn is typed or spoken in a call.
 
-import type { Message, Segment, TurnEvent } from "@/lib/api";
+import type { AffinityChange } from "@/lib/affinity";
+import type { ConversationEvent, EventKind, Recorded, Segment, TurnEvent } from "@/lib/api";
 
-/** One message shown. `at` (ISO) is when it was recorded; for the turn under way, when the
- * user sent or said the words, which the reply shares until it is recorded. */
+/** One message or conversation event shown. `at` (ISO) is when it was recorded; for the turn
+ * under way, when the user sent or said the words, which the reply shares until it is recorded.
+ * Her reply keeps how the turn changed her affinity, once recorded; null where it did not. */
 export type Entry =
   | { kind: "user"; key: string; text: string; at: string }
-  | { kind: "character"; key: string; segments: Segment[]; pending: boolean; at: string };
+  | { kind: "event"; key: string; event: EventKind; at: string }
+  | {
+      kind: "character";
+      key: string;
+      segments: Segment[];
+      pending: boolean;
+      at: string;
+      affinity: AffinityChange | null;
+    };
 
 /** The exchange under way: the user's words and the reply, both the last entries shown.
  * A turn the user typed is unconfirmed until the backend's `user` event takes it up. */
@@ -16,8 +26,8 @@ export type Turn = { confirmed: boolean; userKey: string; replyKey: string };
 export type ConversationLog = { entries: Entry[]; turn: Turn | null };
 
 export type LogAction =
-  /** The conversation was opened or started: show its recorded messages. */
-  | { type: "loaded"; messages: Message[] }
+  /** The conversation was opened or started: show its record. */
+  | { type: "loaded"; messages: Recorded[] }
   /** The user typed something outside a call, at `at`; show it before the backend takes it up. */
   | { type: "submitted"; text: string; at: string }
   /** The backend took up the user's words, heard at `at`; words typed keep the time they were sent. */
@@ -25,7 +35,9 @@ export type LogAction =
   | Exclude<TurnEvent, { type: "user" }>
   /** The turn ended without `done` or `error`: the user hung up, the call dropped, or
    * the text turn's event stream closed early. */
-  | { type: "interrupted" };
+  | { type: "interrupted" }
+  /** Something that is not a turn happened, just recorded: she hung up. */
+  | { type: "event"; event: ConversationEvent };
 
 export const emptyLog: ConversationLog = { entries: [], turn: null };
 
@@ -54,6 +66,8 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
     case "error":
     case "interrupted":
       return withoutTurn(log);
+    case "event":
+      return { ...log, entries: [...log.entries, toEntry(action.event)] };
   }
 }
 
@@ -75,7 +89,7 @@ function opened(log: ConversationLog, text: string, at: string, confirmed: boole
     entries: [
       ...log.entries,
       { kind: "user", key: turn.userKey, text, at },
-      { kind: "character", key: turn.replyKey, segments: [], pending: true, at },
+      { kind: "character", key: turn.replyKey, segments: [], pending: true, at, affinity: null },
     ],
     turn,
   };
@@ -101,7 +115,8 @@ function withDelta(entry: Entry, event: TurnEvent & { type: "delta" }): Entry {
   return { ...entry, segments };
 }
 
-function toEntry(message: Message): Entry {
+function toEntry(message: Recorded): Entry {
+  if ("type" in message) return { kind: "event", key: `e${message.id}`, event: message.kind, at: message.created_at };
   return message.role === "user"
     ? { kind: "user", key: `m${message.id}`, text: message.text ?? "", at: message.created_at }
     : {
@@ -110,5 +125,6 @@ function toEntry(message: Message): Entry {
         segments: message.segments,
         pending: false,
         at: message.created_at,
+        affinity: message.affinity,
       };
 }

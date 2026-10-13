@@ -5,7 +5,8 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with whether users must bring their own LLM). Overrides are kept in the database, one row per field, a
+carries, with whether users must bring their own LLM), and whether affinity and gifts
+are on. Overrides are kept in the database, one row per field, a
 key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
 changed here, only seen). A change to a service is tried before it is kept, as the chat
 model is when the server starts; it then holds for every turn and call that starts after
@@ -41,6 +42,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from eidolon.activity import (
     ActivityLog,
+    MeteredAffinityJudge,
     MeteredEmotionJudge,
     MeteredJudge,
     judge_origin,
@@ -61,6 +63,8 @@ from eidolon.config import (
     UsageLimits,
 )
 from eidolon.database import connect
+from eidolon.affinity import Judged
+from eidolon.affinity_judge import ModelAffinityJudge
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
 from eidolon.judge import (
     JudgeError,
@@ -93,6 +97,7 @@ JUDGE = "judge"
 JUDGE_THRESHOLDS = "judge_thresholds"
 RERANK = "rerank"
 LIMITS = "limits"
+AFFINITY = "affinity"
 
 LLM_FIELDS = ("protocol", "base_url", "api_key", "model", "max_tokens")
 
@@ -398,7 +403,7 @@ class _Judge(_Item):
 
 class _JudgeThresholds(_Item):
     name = JUDGE_THRESHOLDS
-    fields = ("recall", "emotion")
+    fields = ("recall", "emotion", "out_of_line", "manipulation")
     stored = (FOR_MODEL,)
     unavailable_reason = _Judge.unavailable_reason
 
@@ -407,7 +412,7 @@ class _JudgeThresholds(_Item):
 
     def env(self) -> Values:
         thresholds = judge_thresholds(self.c.judge_settings, self.c.settings.emotion)
-        return {"recall": thresholds.recall, "emotion": thresholds.emotion}
+        return {field: getattr(thresholds, field) for field in self.fields}
 
     def bound_model(self) -> str | None:
         return self.c.effective(JUDGE)["model"]
@@ -475,6 +480,29 @@ class _Limits(_Item):
         return current | change
 
 
+class _Affinity(_Item):
+    """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as `.env` has it (off by
+    default); not tried. Only with the judge model, which `.env` alone sets up."""
+
+    name = AFFINITY
+    fields = ("enabled",)
+    unavailable_reason = (
+        ".env 里没有配置判断模型，好感度要靠它判断，在启动时就关掉了；"
+        "要启用，请在 .env 里配置判断模型后重启"
+    )
+
+    def available(self) -> bool:
+        return self.c.settings.judge is not None
+
+    def env(self) -> Values:
+        return {"enabled": self.c.settings.affinity_and_gifts}
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        if not isinstance(change.get("enabled"), bool):
+            raise ConfigInvalid(f"好感度和礼物需要是 true 或 false，而不是 {change.get('enabled')!r}")
+        return current | change
+
+
 class LiveConfig:
     """The configuration the backend runs on now, and the deployer's clients made from it."""
 
@@ -512,6 +540,7 @@ class LiveConfig:
             for item in (
                 _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
                 _Judge(self), _JudgeThresholds(self), _Rerank(self), _Limits(self),
+                _Affinity(self),
             )
         }
         self._failures: dict[str, str] = {}
@@ -596,6 +625,13 @@ class LiveConfig:
         return self.effective(LIMITS)[OWN_LLM_REQUIRED]
 
     @property
+    def affinity_on(self) -> bool:
+        """Whether affinity is on now: the deployment has the judge model, and the switch
+        is on."""
+        item = self._items[AFFINITY]
+        return item.available() and self.effective(AFFINITY)["enabled"]
+
+    @property
     def history_turns(self) -> int | None:
         """How many of the latest turns each prompt carries now; None for all of them."""
         return self.effective(LIMITS)["history_turns"] or None
@@ -646,6 +682,14 @@ class LiveConfig:
         if self._judge is None:
             return None
         return LiveRetrievalJudge(self, self._judge, self._activity)
+
+    def affinity_judge(self) -> "LiveAffinityJudge | None":
+        """The judge model as a turn asks it about affinity alone, where retrieval is off:
+        the one in effect at each question, each recorded as a service call; None without
+        one."""
+        if self._judge is None:
+            return None
+        return LiveAffinityJudge(self, self._judge, self._activity)
 
     async def start(self) -> None:
         """Try every override as the server starts: one that fails falls back to `.env`,
@@ -956,11 +1000,40 @@ class LiveRetrievalJudge:
         self._judge = judge
         self._activity = activity
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Need:
+    async def judge(
+        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
+    ) -> tuple[Need, Judged | None]:
         lease = self._judge.lease()
         try:
             judge = MeteredJudge(
                 ModelRetrievalJudge(lease.client, self._config.judge_thresholds_of(lease.settings)),
+                self._activity,
+                judge_origin(lease.settings),
+            )
+            return await judge.judge(character, history, text, affinity)
+        finally:
+            lease.release()
+
+
+class LiveAffinityJudge:
+    """The judge model as a turn asks it about affinity alone: at each question, the one in
+    effect then, held while it answers, by its own thresholds, recorded as the model it is."""
+
+    def __init__(
+        self,
+        config: LiveConfig,
+        judge: Swappable[JudgeModel, JudgeSettings],
+        activity: ActivityLog,
+    ) -> None:
+        self._config = config
+        self._judge = judge
+        self._activity = activity
+
+    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Judged:
+        lease = self._judge.lease()
+        try:
+            judge = MeteredAffinityJudge(
+                ModelAffinityJudge(lease.client, self._config.judge_thresholds_of(lease.settings)),
                 self._activity,
                 judge_origin(lease.settings),
             )

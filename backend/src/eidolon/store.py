@@ -1,5 +1,5 @@
-"""Relational storage (SQLite) for users, their sessions, producer profiles, conversations
-and their messages; memories are kept by `memory`, recent usage by `usage`."""
+"""Relational storage (SQLite) for users, their sessions, producer profiles, conversations,
+their messages and events; memories are kept by `memory`, recent usage by `usage`."""
 
 import hashlib
 import json
@@ -12,12 +12,14 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from eidolon.affinity import Change
 from eidolon.database import connect, delete_user_data
 from eidolon.delivery_cues import without_cues
 from eidolon.producer import Birthday, ProducerProfile
 from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
+EventKind = Literal["hung_up"]
 
 _SCHEMA = """
 -- `name` only tells users apart on the admin command line; it need not be unique.
@@ -72,9 +74,20 @@ CREATE TABLE IF NOT EXISTS messages (
     ja TEXT,
     zh TEXT,
     segments TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    affinity TEXT
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
+CREATE TABLE IF NOT EXISTS conversation_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    kind TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    affinity TEXT,
+    responded INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS conversation_events_by_conversation
+    ON conversation_events(conversation_id, created_at);
 -- The identities banned users signed in with, kept when those users were deleted so that
 -- deleting is not unbanning; only a keyed hash of each (`accounts.identity_hash`), no one's.
 CREATE TABLE IF NOT EXISTS banned_identities (
@@ -148,7 +161,8 @@ class Message:
     """A user's input (`text`) or a character's reply.
 
     A reply keeps its full Japanese text (`ja`) and Chinese subtitle (`zh`), plus
-    the segments that pair each Japanese line with its own subtitle.
+    the segments that pair each Japanese line with its own subtitle, and how the turn
+    changed her affinity, if it did (`affinity`).
     """
 
     id: int
@@ -158,6 +172,7 @@ class Message:
     zh: str | None
     created_at: str
     segments: list[Segment] = field(default_factory=list)
+    affinity: Change | None = None
 
     def without_cues(self) -> "Message":
         """The message as people see it: a reply is kept as the model wrote it, delivery
@@ -170,7 +185,30 @@ class Message:
             None if self.zh is None else without_cues(self.zh),
             self.created_at,
             [Segment(without_cues(s.ja), without_cues(s.zh)) for s in self.segments],
+            self.affinity,
         )
+
+
+@dataclass(frozen=True)
+class ConversationEvent:
+    """Something that happened in a conversation that is not a turn (GLOSSARY.md「对话事件」):
+    so far only her hanging up on the user (`hung_up`). It can carry how it changed her
+    affinity (`affinity`) and say whether she has responded to it yet (`responded`)."""
+
+    id: int
+    kind: EventKind
+    created_at: str
+    affinity: Change | None = None
+    responded: bool = False
+    type: Literal["event"] = field(default="event", init=False)
+
+    def shown(self) -> dict:
+        """As the browser is told it: whether she has responded is for her prompt alone."""
+        return {k: v for k, v in asdict(self).items() if k != "responded"}
+
+
+Recorded = Message | ConversationEvent
+"""What a conversation's record holds."""
 
 
 class Store:
@@ -190,6 +228,7 @@ class Store:
             self._db.execute("UPDATE users SET name = id")
         self._add_missing_columns("users", ("consented_at", "banned_at", "ban_note"), "TEXT")
         self._add_missing_columns("producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
+        self._add_missing_columns("messages", ("affinity",), "TEXT")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -527,9 +566,10 @@ class Store:
             ).fetchall()
         return [Conversation(**row) for row in rows]
 
-    def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Message | None]]:
-        """Each character's newest conversation with the user, and its last message (None
-        while it has none); for the conversation list."""
+    def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
+        """Each character's newest conversation with the user, and the last thing in its
+        record, a message or an event, as `record` orders them (None while it has none);
+        for the conversation list."""
         with self._lock:
             rows = self._db.execute(
                 "SELECT * FROM conversations WHERE user_id = ?"
@@ -539,30 +579,86 @@ class Store:
             newest: dict[str, Conversation] = {}
             for row in rows:
                 newest.setdefault(row["character_id"], Conversation(**row))
-            last = {
-                c.id: self._db.execute(
-                    "SELECT id, role, text, ja, zh, segments, created_at FROM messages"
-                    " WHERE conversation_id = ? ORDER BY id DESC LIMIT 1",
-                    (c.id,),
-                ).fetchone()
-                for c in newest.values()
-            }
-        return [(c, _message(last[c.id]) if last[c.id] else None) for c in newest.values()]
+            last = {c.id: self._last(c.id) for c in newest.values()}
+        return [(c, last[c.id]) for c in newest.values()]
 
-    def add_turn(self, conversation_id: str, text: str, reply: list[Segment]) -> Message:
-        """Record the user's input and the character's reply together; returns the reply."""
+    def _last(self, conversation_id: str) -> Recorded | None:
+        message = self._db.execute(
+            f"SELECT {_MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ?"
+            " ORDER BY id DESC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+        event = self._db.execute(
+            f"SELECT {_EVENT_COLUMNS} FROM conversation_events WHERE conversation_id = ?"
+            " ORDER BY created_at DESC, id DESC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+        if event is None or message is None:
+            return _event(event) if event else _message(message) if message else None
+        said = self._db.execute(
+            "SELECT created_at FROM messages WHERE conversation_id = ? AND role = 'user'"
+            " ORDER BY id DESC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+        last_turn_said = said["created_at"] if said else message["created_at"]
+        after = _at(event["created_at"]) >= _at(last_turn_said)  # as `record` places it
+        return _event(event) if after else _message(message)
+
+    def add_turn(
+        self,
+        conversation_id: str,
+        text: str,
+        reply: list[Segment],
+        affinity: Change | None = None,
+        said_at: str | None = None,
+    ) -> Message:
+        """Record the user's input, said at `said_at` (as `timestamp` gives it; now by
+        default), and the character's reply together, with how the turn changed her
+        affinity, if it did; returns the reply."""
         with self._lock, self._db:
-            self._insert_message(conversation_id, "user", text=text)
-            return self._insert_message(conversation_id, "character", segments=reply)
+            self._insert_message(conversation_id, "user", text=text, created_at=said_at)
+            return self._insert_message(
+                conversation_id, "character", segments=reply, affinity=affinity
+            )
+
+    def add_event(self, conversation_id: str, kind: EventKind) -> ConversationEvent:
+        """Record that `kind` happened in the conversation, now."""
+        created_at = _now()
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "INSERT INTO conversation_events (conversation_id, kind, created_at)"
+                " VALUES (?, ?, ?)",
+                (conversation_id, kind, created_at),
+            )
+        assert cursor.lastrowid is not None
+        return ConversationEvent(cursor.lastrowid, kind, created_at)
 
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, role, text, ja, zh, segments, created_at FROM messages"
-                " WHERE conversation_id = ? ORDER BY id",
+                f"SELECT {_MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ? ORDER BY id",
                 (conversation_id,),
             ).fetchall()
         return [_message(row) for row in rows]
+
+    def record(self, conversation_id: str) -> list[Recorded]:
+        """The conversation's messages and events in the order things happened: a turn
+        where the user's words were said, its two messages together, an event where it
+        happened; so an event written while a turn was under way comes after the turn."""
+        messages = self.list_messages(conversation_id)
+        with self._lock:
+            events = self._db.execute(
+                f"SELECT {_EVENT_COLUMNS} FROM conversation_events WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchall()
+        pending = sorted(map(_event, events), key=lambda e: (_at(e.created_at), e.id))
+        merged: list[Recorded] = []
+        for message in messages:
+            if message.role == "user":
+                while pending and _at(pending[0].created_at) < _at(message.created_at):
+                    merged.append(pending.pop(0))
+            merged.append(message)
+        return merged + pending
 
     def close(self) -> None:
         self._db.close()
@@ -582,33 +678,59 @@ class Store:
         role: Role,
         text: str | None = None,
         segments: list[Segment] | None = None,
+        affinity: Change | None = None,
+        created_at: str | None = None,
     ) -> Message:
-        created_at = _now()
+        created_at = created_at or _now()
         ja = zh = stored_segments = None
         if segments is not None:
             ja = "".join(s.ja for s in segments)
             zh = "".join(s.zh for s in segments)
             stored_segments = json.dumps([asdict(s) for s in segments], ensure_ascii=False)
         cursor = self._db.execute(
-            "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (conversation_id, role, text, ja, zh, stored_segments, created_at),
+            "INSERT INTO messages"
+            " (conversation_id, role, text, ja, zh, segments, created_at, affinity)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                conversation_id, role, text, ja, zh, stored_segments, created_at,
+                affinity and json.dumps(asdict(affinity)),
+            ),
         )
         assert cursor.lastrowid is not None
-        return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [])
+        return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [], affinity)
 
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
+_MESSAGE_COLUMNS = "id, role, text, ja, zh, segments, created_at, affinity"
+_EVENT_COLUMNS = "id, kind, created_at, affinity, responded"
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(
         row["id"], row["role"], row["text"], row["ja"], row["zh"], row["created_at"],
         [Segment(**s) for s in json.loads(row["segments"] or "[]")],
+        Change(**json.loads(row["affinity"])) if row["affinity"] else None,
     )
+
+
+def _event(row: sqlite3.Row) -> ConversationEvent:
+    return ConversationEvent(
+        row["id"], row["kind"], row["created_at"],
+        Change(**json.loads(row["affinity"])) if row["affinity"] else None,
+        bool(row["responded"]),
+    )
+
+
+def _at(timestamp: str) -> datetime:
+    return datetime.fromisoformat(timestamp)
 
 
 def _hash(secret: str) -> str:
     return hashlib.sha256(secret.encode()).hexdigest()
+
+
+def timestamp() -> str:
+    """Now, as the store writes when things happened."""
+    return _now()
 
 
 def _now() -> str:

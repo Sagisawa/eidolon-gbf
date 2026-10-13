@@ -70,7 +70,7 @@ class Deployment:
         return Admissions(
             self.usage, self.activity, self.own_keys(),
             own_llm_required=lambda: False, is_admin=lambda _: False,
-            deployer_llm_allowed=lambda _: False,
+            deployer_llm_allowed=lambda _: False, cooldown_until=lambda *_: None,
         )
 
     def own_keys(self) -> OwnKeys:

@@ -13,6 +13,25 @@ export function detectTimezone(): string {
   }
 }
 
+/** The producer's time zone, by the backend's rule (`effective_timezone`): the one set in their
+ * profile, else the one this browser reports, else Asia/Shanghai; a zone this browser does not
+ * know is passed over. */
+export function producerTimezone(profileTimezone: string | null, detected: string = detectTimezone()): string {
+  for (const timeZone of [profileTimezone, detected]) {
+    if (timeZone && isKnown(timeZone)) return timeZone;
+  }
+  return FALLBACK_TIMEZONE;
+}
+
+function isKnown(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Every time zone this browser knows, for choosing one by hand. */
 export function listTimezones(): string[] {
   try {

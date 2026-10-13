@@ -1,9 +1,11 @@
 // The conversation page for one character: opening her conversation (or starting a new
-// one), its log, the text turn under way, the call and how the call layer is shown, and her
-// stand as the call moves it on (by the rules in `standDirection.ts`), kept outside React so
-// the page only renders a snapshot and passes on clicks.
+// one), its log, the text turn under way, the call and how the call layer is shown, her
+// stand as the call moves it on (by the rules in `standDirection.ts`), and her affinity as
+// each turn leaves it, kept outside React so the page only renders a snapshot and passes on
+// clicks.
 
-import { ApiError, type CallEvent, type Conversation, type Message, type Segment, type TurnEvent } from "@/lib/api";
+import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
+import { ApiError, type CallEvent, type Conversation, type Recorded, type Segment, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
@@ -49,6 +51,13 @@ export type CallState =
   | { phase: "dialing"; dial: number }
   | { phase: "connected"; dial: number; since: number; maxSeconds: number | null }
   | { phase: "ended"; dial: number; end: CallEnd; seconds: number | null };
+
+/** How long a change of her affinity is shown, on the header's heart and the call screen's
+ * status line (spec「页首标识」「变化胶囊和通话里的提示」). */
+export const CUE_MS = 2600;
+
+/** A change of her affinity just recorded, shown for `CUE_MS`; `key` tells one from the next. */
+export type AffinityCue = { change: AffinityChange; key: number };
 
 /** A call under way: dialing or connected. Leaving the page hangs it up. */
 export type LiveCall = Extract<CallState, { phase: "dialing" | "connected" }>;
@@ -107,7 +116,7 @@ export type Snapshot = {
   draft: string;
   /** Show the character's replies as text only (GLOSSARY.md「只看文字」). */
   textOnly: boolean;
-  /** A call can be dialed now: `startCall` would. */
+  /** A call can be dialed now: `startCall` would. Not while she is in a cooldown. */
   canDial: boolean;
   /** A new conversation can be started now: `startNewConversation` would. */
   canStartNew: boolean;
@@ -117,9 +126,18 @@ export type Snapshot = {
   /** How her stand should look (spec「立绘指令」), by the rules in `standDirection.ts`; calm
    * outside a call. It follows the call while the call layer is collapsed too. */
   stand: StandDirection;
+  /** Her affinity with the user (GLOSSARY.md「好感度」), as read when the page opened and
+   * left by each turn since; null while affinity is off, or before it is read, or if it
+   * could not be. */
+  affinity: AffinityStatus | null;
+  /** The change of her affinity the last turn made, for `CUE_MS` after it was recorded. */
+  affinityCue: AffinityCue | null;
+  /** She is in a cooldown with the user (GLOSSARY.md「冷却」), until `affinity.cooldown_until`:
+   * no text turns, no calls, until it ends by itself. A new conversation can still be started. */
+  cooling: boolean;
 };
 
-type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew"> & {
+type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew" | "cooling"> & {
   log: ConversationLog;
   /** The call screen's line card, in the call under way or the last one. */
   card: LineCard;
@@ -142,6 +160,8 @@ const IDLE: Omit<State, "log" | "card" | "stand" | "dial"> = {
   draft: "",
   textOnly: false,
   failure: null,
+  affinity: null,
+  affinityCue: null,
 };
 
 /** What the page shows before a conversation is open. */
@@ -153,6 +173,7 @@ export const NOT_OPEN: Snapshot = {
   stand: CALM,
   canDial: false,
   canStartNew: false,
+  cooling: false,
 };
 
 /** Her voice in a call (`CharacterVoice`): plain or over a phone line, silent in text only. */
@@ -187,7 +208,7 @@ export type Ports = {
   /** Her conversations, newest first. */
   listConversations: (characterId: string) => Promise<Conversation[]>;
   createConversation: (characterId: string) => Promise<Conversation>;
-  listMessages: (conversationId: string) => Promise<Message[]>;
+  listMessages: (conversationId: string) => Promise<Recorded[]>;
   /** The conversation list's line for her has changed: a turn was recorded, or a
    * conversation was started. Told even after the page is left. */
   onListChanged: () => void;
@@ -197,6 +218,8 @@ export type Ports = {
     handlers: CallHandlers,
   ) => Promise<Call>;
   sendTurn: (conversationId: string, text: string) => AsyncIterable<TurnEvent>;
+  /** Her affinity with the user now; null while affinity is off. */
+  getAffinity: (characterId: string) => Promise<AffinityStatus | null>;
   preferences: {
     load: () => CallPreferences;
     save: (change: Partial<CallPreferences>) => CallPreferences;
@@ -221,6 +244,10 @@ export class LiveConversation {
   private conversationId: string | null = null;
   /** Moves the line card on when it is next due to at her pace; null while it is not. */
   private pacing: ReturnType<typeof setTimeout> | null = null;
+  /** Stops showing the change of her affinity; null while none is shown. */
+  private cueing: ReturnType<typeof setTimeout> | null = null;
+  /** Ends the cooldown she is in as it is due to; null while she is in none. */
+  private thawing: ReturnType<typeof setTimeout> | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
@@ -233,6 +260,7 @@ export class LiveConversation {
     this.state = { ...IDLE, log: emptyLog, card: BLANK_CARD, dial: 0, textOnly, stand: startingStand(textOnly) };
     this.published = toSnapshot(this.state);
     void this.open();
+    void this.readAffinity();
   }
 
   /** A new object only after an update, as `useSyncExternalStore` needs. */
@@ -249,6 +277,8 @@ export class LiveConversation {
   dispose(): void {
     this.disposed = true;
     if (this.pacing !== null) clearTimeout(this.pacing);
+    if (this.cueing !== null) clearTimeout(this.cueing);
+    if (this.thawing !== null) clearTimeout(this.thawing);
     this.attempt = null;
     this.call?.leave().catch(() => {});
     this.call = null;
@@ -278,8 +308,9 @@ export class LiveConversation {
   async submit(): Promise<void> {
     const text = this.state.draft.trim();
     const conversationId = this.openConversationId();
-    // One exchange at a time: not over a text turn, nor into a call still dialing.
+    // One exchange at a time: not over a text turn, nor into a call still dialing; none in a cooldown.
     if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
+    if (isCooling(this.state)) return;
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
@@ -303,6 +334,12 @@ export class LiveConversation {
       // Cut off: whether the backend still recorded (and counted) it cannot be told here.
       if (!done && !failure) failure = { message: "回复中断了，请再试一次", signedOut: false };
     } catch (e) {
+      if (e instanceof ApiError && e.cooldownUntil !== null) {
+        // Refused for a cooldown begun elsewhere: shown as one, the text kept for when it ends.
+        this.apply({ type: "interrupted" }, { draft: text, busy: false });
+        this.cooled(e.cooldownUntil);
+        return;
+      }
       failure = toFailure(e);
       // Refused by the backend (over the limit, own key failed, ...): not counted.
       if (e instanceof ApiError) failure.countsTowardLimit = false;
@@ -329,7 +366,7 @@ export class LiveConversation {
    */
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
-    if (!conversationId || !isFree(this.state)) return;
+    if (!conversationId || !isFree(this.state) || isCooling(this.state)) return;
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);
@@ -364,7 +401,14 @@ export class LiveConversation {
         }),
       });
     } catch (e) {
-      if (current()) this.ended(startFailedEnd(e));
+      if (!current()) return;
+      if (e instanceof ApiError && e.cooldownUntil !== null) {
+        // Refused for a cooldown begun elsewhere: no end to show, the page shows the cooldown.
+        this.ended(null);
+        this.cooled(e.cooldownUntil);
+      } else {
+        this.ended(startFailedEnd(e));
+      }
       return;
     }
     if (!current()) {
@@ -454,6 +498,10 @@ export class LiveConversation {
     switch (event.type) {
       case "ended":
         this.endedBy = backendEnd(event);
+        if (event.event) {
+          this.apply({ type: "event", event: event.event });
+          this.ports.onListChanged();
+        }
         return;
       case "user":
         return this.applyTurnEvent(event, { hearing: "", stand }, () => ({
@@ -526,13 +574,65 @@ export class LiveConversation {
     if (card) this.moveCard(card(log), { ...change, log });
     else this.update({ ...change, log });
     // Recorded: the list's line for her now ends with it, even if the page has been left.
-    if (event.type === "done") this.ports.onListChanged();
+    if (event.type === "done") {
+      this.ports.onListChanged();
+      this.affinityLeft(event.affinity, event.message.affinity);
+    }
+  }
+
+  /** Her affinity as a recorded turn left it, and how the turn changed it, shown for
+   * `CUE_MS`; a change while affinity is off is not shown. */
+  private affinityLeft(affinity: AffinityStatus | null, change: AffinityChange | null): void {
+    if (!affinity || !change) {
+      this.showAffinity(affinity);
+      return;
+    }
+    if (this.cueing !== null) clearTimeout(this.cueing);
+    const key = (this.state.affinityCue?.key ?? 0) + 1;
+    this.showAffinity(affinity, { affinityCue: { change, key } });
+    this.cueing = setTimeout(() => {
+      this.cueing = null;
+      this.update({ affinityCue: null });
+    }, CUE_MS);
+  }
+
+  /** Reads her affinity as the page opens; if it cannot be read, there is none to show. */
+  private async readAffinity(): Promise<void> {
+    let affinity: AffinityStatus | null = null;
+    try {
+      affinity = await this.ports.getAffinity(this.characterId);
+    } catch {
+      // Shown as if affinity were off: no badge, no capsules.
+    }
+    this.showAffinity(affinity);
+  }
+
+  /** The backend refused a turn or call for a cooldown it says ends `until`. */
+  private cooled(until: string): void {
+    this.showAffinity({ tier: "cold", cooldown_until: until });
+  }
+
+  /** Shows her affinity, along with any other change; a cooldown ends by itself as it is due
+   * to, leaving her cold. */
+  private showAffinity(affinity: AffinityStatus | null, change: Partial<State> = {}): void {
+    if (this.thawing !== null) clearTimeout(this.thawing);
+    this.thawing = null;
+    this.update({ ...change, affinity });
+    const until = affinity?.cooldown_until;
+    if (until == null) return;
+    this.thawing = setTimeout(
+      () => {
+        this.thawing = null;
+        this.update({ affinity: { tier: "cold", cooldown_until: null } });
+      },
+      Math.max(0, Date.parse(until) - this.now()),
+    );
   }
 
   /** Opens her newest conversation, or starts one if she has none. */
   private async open(): Promise<void> {
     let conversation: Conversation;
-    let messages: Message[];
+    let messages: Recorded[];
     try {
       const [newest] = await this.ports.listConversations(this.characterId);
       // The page left: no conversation is started for it.
@@ -555,7 +655,7 @@ export class LiveConversation {
   }
 
   /** Shows this conversation and its messages from now on: it is open. */
-  private showConversation(conversationId: string, messages: Message[], change: Partial<State> = {}): void {
+  private showConversation(conversationId: string, messages: Recorded[], change: Partial<State> = {}): void {
     this.conversationId = conversationId;
     this.apply(
       { type: "loaded", messages },
@@ -649,6 +749,11 @@ function isFree(state: State): boolean {
   return state.conversation.status === "open" && !state.busy && !isLive(state.call);
 }
 
+/** She is in a cooldown with the user: no turns, no calls. */
+function isCooling(state: State): boolean {
+  return state.affinity !== null && state.affinity.cooldown_until !== null;
+}
+
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
@@ -662,7 +767,8 @@ function toSnapshot(state: State): Snapshot {
     line: lineOf(card),
     previousLine: previousLineOf(card),
     stand: directionOf(stand),
-    canDial: free,
+    canDial: free && !isCooling(state),
     canStartNew: free,
+    cooling: isCooling(state),
   };
 }

@@ -143,10 +143,13 @@ describe("formOf and changeOf", () => {
 
   it("takes thresholds from 0 to 1 and seconds above 0", () => {
     const thresholds = ITEM_SPECS.judge_thresholds;
-    expect(changeOf(thresholds, { recall: "0.7", emotion: "0" }, true)).toEqual({ change: { recall: 0.7, emotion: 0 } });
+    const affinity = { out_of_line: "0.7", manipulation: "1" };
+    expect(changeOf(thresholds, { recall: "0.7", emotion: "0", ...affinity }, true)).toEqual({
+      change: { recall: 0.7, emotion: 0, out_of_line: 0.7, manipulation: 1 },
+    });
     for (const bad of ["1.1", "-0.1", "", "high"]) {
-      expect(changeOf(thresholds, { recall: bad, emotion: "0.5" }, true), bad).toEqual({
-        problems: [{ field: "recall", reason: "probability" }],
+      expect(changeOf(thresholds, { recall: "0.5", emotion: "0.5", out_of_line: bad, manipulation: "0.5" }, true), bad).toEqual({
+        problems: [{ field: "out_of_line", reason: "probability" }],
       });
     }
     const judge = { provider: "jev", model: "typesafe/jev-1.13", account_id: "", api_key: "" };

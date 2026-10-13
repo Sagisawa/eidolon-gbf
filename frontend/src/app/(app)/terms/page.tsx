@@ -31,6 +31,7 @@ export default function TermsPage() {
             ),
           })}
         </p>
+        <p className="text-meta text-muted-foreground">{t.lastUpdated}</p>
       </div>
     </PageShell>
   );

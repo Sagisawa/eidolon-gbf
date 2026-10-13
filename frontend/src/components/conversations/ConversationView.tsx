@@ -26,23 +26,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
+import { cueText, untilText } from "@/lib/affinity";
 import type { Account, Character } from "@/lib/api";
-import { dayOf } from "@/lib/conversationList";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
+import { linesOf, type Line } from "@/lib/messageLines";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, CooldownIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
+import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
 import { CallBar } from "./CallBar";
+import { EVENT_ICONS } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
+import { useProducerTimezone } from "./useProducerTimezone";
 import { useStandOutfits } from "./useStandOutfits";
 
 const t = copy.conversation;
@@ -59,6 +63,8 @@ const noSubscription = () => () => {};
  * 电话键变成实心的「回到通话」。对话的实时状态（连同通话）由导航外壳持有（ADR-0018）：这一页打开时向外壳要她那一份，
  * 离开时交回；通话中离开这一页，通话留在外壳里，回来时一切照旧。她的声音、电话本身的声音和切换麦克风的面板也在外壳里。
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
+ * 好感度可用时，电话键和更多菜单之间是好感度标识（GLOSSARY.md「好感度」）；不可用时读到 null，不显示。
+ * 她在冷却中（GLOSSARY.md「冷却」）时，输入栏换成一行说明、电话键禁用，到点自己恢复。
  */
 export function ConversationView({
   account,
@@ -86,6 +92,10 @@ export function ConversationView({
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
+  // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
+  const { affinity, affinityCue, cooling } = snapshot;
+  // 解除时刻按制作人的时区写成今天或明天。
+  const timeZone = useProducerTimezone();
 
   // 向外壳要她的对话（外壳里留着她的通话就用那一份，否则打开她最新的一个，从没聊过就开一个新的）；
   // 离开这一页时交回：通话还在进行就留在外壳里，否则就此告别。
@@ -148,6 +158,15 @@ export function ConversationView({
       )}
       <h1 className="min-w-0 flex-1 truncate px-2 text-header">{character.name}</h1>
       {phoneKey}
+      {affinity && (
+        <AffinityBadge
+          status={affinity}
+          cue={affinityCue}
+          name={character.name}
+          timeZone={timeZone}
+          subtree={subtree}
+        />
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={<Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.menu} />}
@@ -189,7 +208,17 @@ export function ConversationView({
   }
 
   const canSend = isOpen && draft.trim() !== "";
-  const composer = ownLLMMissing ? (
+  const composer = cooling && affinity?.cooldown_until ? (
+    // 冷却中：一行说明代替输入框，没有按钮；草稿留着，到点换回输入框时还在。
+    <div
+      inert={isCovered}
+      role="status"
+      className="flex min-h-14 shrink-0 items-center justify-center gap-2 border-t bg-background px-3 py-2 text-body text-muted-foreground"
+    >
+      <CooldownIcon aria-hidden className="size-4 shrink-0" />
+      <p>{t.affinity.coolingComposer(character.name, untilText(new Date(affinity.cooldown_until), new Date(), timeZone))}</p>
+    </div>
+  ) : ownLLMMissing ? (
     // 输入框和电话键换成一句提示和去设置的链接；后端的 403 仍是兜底。
     <div inert={isCovered} className="shrink-0 border-t bg-background px-3 py-2">
       <FailureNotice failure={{ message: t.ownLLMRequired, signedOut: false, toOwnKeys: true }} />
@@ -244,11 +273,11 @@ export function ConversationView({
             <EmptyHeader>
               <EmptyTitle>{t.emptyTitle(character.name)}</EmptyTitle>
               {/* 被拦时输入框和电话键都不在，「打字，或者点电话」不对；下面的提示会说明 */}
-              {!ownLLMMissing && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
+              {!ownLLMMissing && !cooling && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
             </EmptyHeader>
           </Empty>
         ) : (
-          <Messages entries={entries} hearing={hearing} character={character} />
+          <Messages entries={entries} hearing={hearing} character={character} affinityOn={affinity !== null} />
         )}
       </div>
       {composer}
@@ -313,50 +342,23 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
   );
 }
 
-/** 消息区的一行：跨天处的日期条，或者一条消息和它在组里的位置（The Bubble Group Rule）。 */
-type Line =
-  | { kind: "day"; key: string; label: string }
-  | { kind: "entry"; entry: Entry; first: boolean; last: boolean };
-
-/** 按日期和说话的人把消息排成行：换了一天先放日期条；同一个人连着发、中间没有日期条的算一组。 */
-function linesOf(entries: Entry[], now: Date): Line[] {
-  const days = entries.map((e) => new Date(e.at).toDateString());
-  const lines: Line[] = [];
-  entries.forEach((entry, i) => {
-    const newDay = i === 0 || days[i] !== days[i - 1];
-    if (newDay) lines.push({ kind: "day", key: `day-${days[i]}`, label: dayLabel(new Date(entry.at), now) });
-    const next = entries[i + 1];
-    lines.push({
-      kind: "entry",
-      entry,
-      first: newDay || entries[i - 1].kind !== entry.kind,
-      last: !next || days[i + 1] !== days[i] || next.kind !== entry.kind,
-    });
-  });
-  return lines;
-}
-
-/** 日期条上的字：今天、昨天，今年写月日，更早写年月日（和列表的写法一样）。 */
-function dayLabel(at: Date, now: Date): string {
-  const list = copy.conversationList;
-  switch (dayOf(at, now)) {
-    case "today":
-      return t.today;
-    case "yesterday":
-      return list.yesterday;
-    case "thisYear":
-      return list.monthDay(String(at.getMonth() + 1), String(at.getDate()));
-    case "earlier":
-      return list.fullDate(String(at.getFullYear()), String(at.getMonth() + 1), String(at.getDate()));
-  }
-}
-
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
- * 消息从顶部开始排；气泡之间 4px，换人时多 8px。
+ * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复后面是一行变化胶囊。
+ * 对话事件占一整行分隔线。
  */
-function Messages({ entries, hearing, character }: { entries: Entry[]; hearing: string; character: Character }) {
-  const lines = linesOf(entries, new Date());
+function Messages({
+  entries,
+  hearing,
+  character,
+  affinityOn,
+}: {
+  entries: Entry[];
+  hearing: string;
+  character: Character;
+  affinityOn: boolean;
+}) {
+  const lines = linesOf(entries, new Date(), affinityOn);
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
       <MessageScroller>
@@ -369,9 +371,21 @@ function Messages({ entries, hearing, character }: { entries: Entry[]; hearing: 
                     {line.label}
                   </span>
                 </MessageScrollerItem>
+              ) : line.kind === "cue" ? (
+                <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
+                  {/* 好感度的变化胶囊：样子和日期条一样，一个升降小箭头加一句话，不用她的颜色 */}
+                  <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                    <CueArrowIcon up={line.change.up} className="size-3" />
+                    {cueText(line.change, character.name)}
+                  </span>
+                </MessageScrollerItem>
+              ) : line.entry.kind === "event" ? (
+                <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className="my-3">
+                  <EventLine entry={line.entry} name={character.name} />
+                </MessageScrollerItem>
               ) : (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className={cn(line.first && "mt-2")}>
-                  <Bubbled line={line} character={character} />
+                  <Bubbled line={line} entry={line.entry} character={character} />
                 </MessageScrollerItem>
               ),
             )}
@@ -394,15 +408,33 @@ function Messages({ entries, hearing, character }: { entries: Entry[]; hearing: 
   );
 }
 
+/** 一条对话事件：两边细线，中间图标、一句话和时间；不用她的颜色。 */
+function EventLine({ entry, name }: { entry: Extract<Entry, { kind: "event" }>; name: string }) {
+  const Icon = EVENT_ICONS[entry.event];
+  return (
+    <div role="note" className="flex items-center gap-3 px-2 text-sm text-muted-foreground">
+      <span aria-hidden className="h-px flex-1 bg-foreground/15" />
+      <span className="flex shrink-0 items-center gap-1.5">
+        <Icon aria-hidden className="size-4" />
+        {t.events[entry.event](name)}
+        <time className="text-meta tabular-nums">{clock(entry.at)}</time>
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-foreground/15" />
+    </div>
+  );
+}
+
 /**
  * 一条消息。制作人的在右，深蓝墨水；她的在左，日语原文在上、中文字幕在下（The Original-Then-Subtitle Rule）。
  * 头像和名字只在一组的第一条，时间只在最后一条的外侧底部。
  */
 function Bubbled({
-  line: { entry, first, last },
+  line: { first, last },
+  entry,
   character,
 }: {
   line: Extract<Line, { kind: "entry" }>;
+  entry: Exclude<Entry, { kind: "event" }>;
   character: Character;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;

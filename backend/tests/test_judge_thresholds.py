@@ -25,7 +25,10 @@ from tests.fakes import build_faked
 from tests.test_assembly import Services
 from tests.test_retrieval_services import MANO, client
 
-ODD = JudgeThresholds(needs_retrieval=0.3, recall=0.7, about_producer=0.9, emotion=0.8)
+ODD = JudgeThresholds(
+    needs_retrieval=0.3, recall=0.7, about_producer=0.9, emotion=0.8, out_of_line=0.6,
+    manipulation=0.4,
+)
 """Thresholds none of which is 0.5, to see that each is the one used."""
 
 
@@ -100,7 +103,7 @@ async def test_retrieval_judges_by_the_thresholds_it_is_given(
         client(lambda _: httpx.Response(200, json={"answers": answers})),
     )
 
-    assert await ModelRetrievalJudge(judge_model, ODD).judge(MANO, [], "那次比赛") == expected
+    assert await ModelRetrievalJudge(judge_model, ODD).judge(MANO, [], "那次比赛") == (expected, None)
 
 
 @pytest.fixture

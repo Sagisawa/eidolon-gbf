@@ -170,7 +170,7 @@ const spectrumCopy = (spectrum: SpectrumModel) => ({
  * 说法一致：开着开发登录时不说不能登录；取不到登录选项时不提。
  */
 function honestyLines(options: SignInOptions | null): string[] {
-  const lines = [t.act6.unofficial, t.act6.limits, t.act6.ownKey, t.act6.memories];
+  const lines = [t.act6.unofficial, t.act6.limits, t.act6.ownKey, t.act6.memories, t.act6.affinity];
   if (!options || (options.providers.length === 0 && options.dev_login)) return lines;
   const providers = options.providers.map((p) => PROVIDER_LABELS[p]);
   return [...lines, providers.length > 0 ? t.act6.signIn(providers.join(` ${t.act6.or} `)) : t.act6.noSignIn];

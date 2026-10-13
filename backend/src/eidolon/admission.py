@@ -2,9 +2,11 @@
 「运行记录」): whose keys it runs on, its activity record, its use of the limit and the
 deployer's keys it holds, all in one place.
 
-`Admissions` lets each begin, in order: it takes the keys (`OwnKeys`), from those the turn
-or call brings, whose models record each request as a service call to the model they are,
-opens the activity record, asks whether the user may begin it without their own LLM
+`Admissions` lets each begin, in order: it refuses one with a character who is in a
+cooldown (`CoolingDown`, GLOSSARY.md「冷却」) before anything else is asked, recording
+nothing; it takes the keys (`OwnKeys`), from those the turn or call brings, whose
+models record each request as a service call to the model they are, opens the activity
+record, asks whether the user may begin it without their own LLM
 (`own_llm_required`), and only then takes a use of the limit, so that nothing failing
 before it is counted. One refused, for its LLM or over the limit, is recorded rejected;
 whatever else fails on the way after the record is opened is recorded so (`_FAILED`); and
@@ -16,6 +18,7 @@ The `Admission` it hands out settles it, once: given back unless its result coun
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Generic, TypeVar
 
 from eidolon.activity import ActivityLog, CallEndReason, Recording, Result
@@ -42,6 +45,15 @@ class OwnLLMRequired(Exception):
 
     def __init__(self) -> None:
         super().__init__("这个部署需要你自带 LLM，可以在设置里填写")
+
+
+class CoolingDown(Exception):
+    """The character is in a cooldown with the user (GLOSSARY.md「冷却」) until
+    `cooldown_until`: she does not want to talk to them, by text or call, until then."""
+
+    def __init__(self, cooldown_until: datetime) -> None:
+        super().__init__("她现在不想说话，晚些时候再来吧")
+        self.cooldown_until = cooldown_until
 
 
 class Admission(Generic[K]):
@@ -108,17 +120,27 @@ class Admissions:
         own_llm_required: Callable[[], bool],
         is_admin: Callable[[str], bool],
         deployer_llm_allowed: Callable[[str], bool],
+        cooldown_until: Callable[[str, str], datetime | None],
     ) -> None:
         """`own_llm_required` tells whether the deployment requires users to bring their
         own LLM now; `is_admin`, whether a user is an admin, whom it does not bind;
         `deployer_llm_allowed`, whether an admin let a user use the deployer's LLM all the
-        same."""
+        same; `cooldown_until`, when the cooldown a character (by id) is in with a user ends,
+        None if she is in none or affinity is off."""
         self._usage = usage
         self._activity = activity
         self._own_keys = own_keys
         self._deployment_requires_own_llm = own_llm_required
         self._is_admin = is_admin
         self._deployer_llm_allowed = deployer_llm_allowed
+        self._cooldown_until = cooldown_until
+
+    def refuse_while_cooling(self, user_id: str, character_id: str) -> None:
+        """Raise CoolingDown if the character is in a cooldown with the user: as each turn
+        or call begins, before anything else is asked, and before a call is placed."""
+        until = self._cooldown_until(user_id, character_id)
+        if until is not None:
+            raise CoolingDown(until)
 
     def own_llm_required(self, user_id: str) -> bool:
         """Whether the user must bring their own LLM for their turns and calls now: the
@@ -142,9 +164,11 @@ class Admissions:
         self, user_id: str, character_id: str, brought: BroughtKeys
     ) -> Admission[TurnKeys]:
         """Let the user's next text turn with `character_id`, bringing `brought`, begin.
-        Raises OwnLLMRequired when it must bring their own LLM and brings none, OverLimit
+        Raises CoolingDown, recording nothing, while she is in a cooldown with them;
+        OwnLLMRequired when it must bring their own LLM and brings none, OverLimit
         when they have no turns left this hour; then, and whatever else fails before it
         begins, it is recorded and takes no use of the limit."""
+        self.refuse_while_cooling(user_id, character_id)
         return self._admit("turn", user_id, character_id, self._own_keys.for_turn(brought))
 
     def call(
@@ -154,7 +178,8 @@ class Admissions:
         OverLimit when they have no calls left this hour; then, and whatever else fails
         before it begins, it is recorded and takes no use of the limit. Raises
         CallsUnavailable, recording nothing, when the deployment has no keys for calls and
-        neither does the call bring them; OwnLLMRequired as a turn does."""
+        neither does the call bring them; CoolingDown and OwnLLMRequired as a turn does."""
+        self.refuse_while_cooling(user_id, character_id)
         return self._admit("call", user_id, character_id, self._own_keys.for_call(brought))
 
     def _admit(self, kind: UsageKind, user_id: str, character_id: str, keys: K) -> Admission[K]:

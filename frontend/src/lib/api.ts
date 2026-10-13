@@ -1,3 +1,4 @@
+import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
 import type { Provider } from "@/lib/signIn";
 import {
   forgetOwnKeys,
@@ -83,13 +84,16 @@ export type Conversation = {
   created_at: string;
 };
 
-/** A character's newest conversation with the user and its last message (null while it has
- * none), for the conversation list. */
+/** A character's newest conversation with the user and the last thing in it, a message or a
+ * conversation event (null while it has none), for the conversation list. */
 export type LatestConversation = {
   character_id: string;
   conversation_id: string;
   created_at: string;
-  last_message: Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> | null;
+  last_message:
+    | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
+    | Pick<ConversationEvent, "type" | "kind" | "created_at">
+    | null;
 };
 
 export type Segment = { ja: string; zh: string };
@@ -102,13 +106,31 @@ export type Message = {
   zh: string | null;
   segments: Segment[];
   created_at: string;
+  /** How the turn changed her affinity, on her reply; null where it did not (and always on the user's). */
+  affinity: AffinityChange | null;
 };
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. */
+/** The kinds of conversation event (GLOSSARY.md「对话事件」): so far only her hanging up. */
+export type EventKind = "hung_up";
+
+/** Something that happened in a conversation that is not a turn, recorded among its messages. */
+export type ConversationEvent = {
+  type: "event";
+  id: number;
+  kind: EventKind;
+  created_at: string;
+  affinity: AffinityChange | null;
+};
+
+/** What a conversation's record holds, in order. */
+export type Recorded = Message | ConversationEvent;
+
+/** A turn's events: `user`, then any `delta`s, then `done` or `error`. `done` says too where
+ * the turn left her affinity, null while affinity is off. */
 export type TurnEvent =
   | { type: "user"; text: string }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
-  | { type: "done"; message: Message }
+  | { type: "done"; message: Message; affinity: AffinityStatus | null }
   | { type: "error"; message: string };
 
 export type Gender = "male" | "female";
@@ -139,14 +161,23 @@ export type Memory = {
 /** During a call each utterance, spoken or typed, is a turn; the backend also says when each
  * segment of her voice starts playing, her emotion in each, who starts and stops speaking,
  * and, when it is about to hang up (the call reached its time or turn limit, a voice service
- * or an own key failed), why, and whether the call counted towards the hourly limit. */
+ * or an own key failed, she hung up), why, and whether the call counted towards the hourly
+ * limit. She hanging up, it gives the event that she did, just recorded in the conversation,
+ * and for a cooldown when it ends. */
 export type CallEvent =
   | Exclude<TurnEvent, { type: "user" }>
   | CallUserEvent
   | SegmentPlaying
   | SegmentEmotion
   | Speaking
-  | { type: "ended"; reason: BackendEndReason; message: string; counts: boolean };
+  | {
+      type: "ended";
+      reason: BackendEndReason;
+      message: string;
+      counts: boolean;
+      cooldown_until?: string | null;
+      event?: ConversationEvent;
+    };
 
 /** A call's turn opens with `user` as any turn does, saying too which of her replies in the call
  * it opens, numbered from 1 (a turn replied to afresh opens again, with the next number). */
@@ -169,21 +200,32 @@ export type SegmentEmotion = {
   nod: Nod["kind"] | null;
 };
 
-/** Why the backend hung up (`EndReason` in `call.py`). */
-export type BackendEndReason = "not_connected" | "dropped" | "duration_limit" | "turn_limit" | "own_key";
+/** Why the backend hung up (`EndReason` in `call_outcome.py`). */
+export type BackendEndReason =
+  | "not_connected"
+  | "dropped"
+  | "duration_limit"
+  | "turn_limit"
+  | "own_key"
+  | "out_of_line"
+  | "cooldown";
 
 export class ApiError extends Error {
   /** Refused because the deployment requires the user to bring their own LLM and this
    * brought none (GLOSSARY.md「必须自带 LLM」): filling it in on the settings page settles it. */
   readonly ownLLMRequired: boolean;
+  /** Refused because she is in a cooldown with the user (GLOSSARY.md「冷却」) until this time
+   * (ISO); null for any other refusal. */
+  readonly cooldownUntil: string | null;
 
   constructor(
     message: string,
     readonly status: number,
-    { ownLLMRequired = false }: { ownLLMRequired?: boolean } = {},
+    { ownLLMRequired = false, cooldownUntil = null }: { ownLLMRequired?: boolean; cooldownUntil?: string | null } = {},
   ) {
     super(message);
     this.ownLLMRequired = ownLLMRequired;
+    this.cooldownUntil = cooldownUntil;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -191,6 +233,9 @@ export class ApiError extends Error {
     return this.status === 401;
   }
 }
+
+/** The status of a turn or call refused while she is in a cooldown with the user. */
+const COOLING_DOWN = 409;
 
 /** The status of a request from a user who has not yet agreed to the privacy policy and
  * terms of use. */
@@ -213,7 +258,9 @@ export async function json<T>(res: Response): Promise<T> {
     // the sentence ended, as for a user on their own keys only.
     const ownLLMRequired = res.status === 403 && body?.own_llm_required === true;
     if (ownLLMRequired) message = `${message}。`;
-    throw new ApiError(message, res.status, { ownLLMRequired });
+    // Refused while she is in a cooldown, told apart from the limit's 429 and the rule's 403.
+    const cooldownUntil = res.status === COOLING_DOWN && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
+    throw new ApiError(message, res.status, { ownLLMRequired, cooldownUntil });
   }
   return res.json();
 }
@@ -435,7 +482,8 @@ export async function createConversation(characterId: string): Promise<Conversat
   );
 }
 
-export async function listMessages(conversationId: string): Promise<Message[]> {
+/** The conversation's record: its messages and conversation events, in order. */
+export async function listMessages(conversationId: string): Promise<Recorded[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 
@@ -455,10 +503,12 @@ export async function getLimitExemption(own: readonly OwnService[]): Promise<Lim
  * alone). Fails with the reason when calls are unavailable. */
 export type CallSetup = { iceServers: RTCIceServer[]; maxCallSeconds: number | null; callExempt: boolean };
 
-/** Asked before a call that is to bring the user's own keys for `own`, naming those services but
- * bringing none of the keys: the call itself brings them. */
-export async function getCallSetup(own: readonly OwnService[]): Promise<CallSetup> {
-  return json(await api(own.length ? `/api/ice-servers?own=${own.join(",")}` : "/api/ice-servers"));
+/** Asked before a call into `conversationId` that is to bring the user's own keys for `own`,
+ * naming those services but bringing none of the keys: the call itself brings them. Refused, as
+ * the call would be, while she is in a cooldown. */
+export async function getCallSetup(conversationId: string, own: readonly OwnService[]): Promise<CallSetup> {
+  const path = `/api/ice-servers?conversation=${encodeURIComponent(conversationId)}`;
+  return json(await api(own.length ? `${path}&own=${own.join(",")}` : path));
 }
 
 /**

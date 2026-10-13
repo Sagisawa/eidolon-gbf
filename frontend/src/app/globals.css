@@ -14,6 +14,17 @@
 }
 
 @theme inline {
+  /* 页首好感度标识的心形，好感度变化时跳一下（只一下，不像 animate-bounce 那样一直跳）。 */
+  --animate-jump: jump 0.6s ease-out 1;
+  @keyframes jump {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    40% {
+      transform: translateY(-25%);
+    }
+  }
   --font-heading: var(--font-sans);
   /* 中文正文的 Noto Sans SC（根布局用 next/font 载入成 --font-zh）。不用 shadcn init 换上的 Geist。 */
   --font-sans: var(--font-zh), "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;

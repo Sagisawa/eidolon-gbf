@@ -15,10 +15,17 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
+import { cueText } from "@/lib/affinity";
 import type { Character, Outfit, Segment } from "@/lib/api";
-import type { CallEnd } from "@/lib/callEnd";
+import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
-import { NOT_OPEN, type LiveConversation, type MicNotice, type ShownCall } from "@/lib/liveConversation";
+import {
+  NOT_OPEN,
+  type AffinityCue,
+  type LiveConversation,
+  type MicNotice,
+  type ShownCall,
+} from "@/lib/liveConversation";
 import type { StandDirection } from "@/lib/standAnimations";
 import { cn } from "@/lib/utils";
 import {
@@ -32,8 +39,10 @@ import {
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
+import { CueArrowIcon } from "./AffinityBadge";
 import { Stand } from "./stand/Stand";
 import { useCallTime } from "./useCallTime";
+import { useProducerTimezone } from "./useProducerTimezone";
 
 const t = copy.call;
 
@@ -57,6 +66,8 @@ type Props = {
   previousLine: Segment | null;
   /** 用户正在说、还没定稿的话。 */
   hearing: string;
+  /** 刚刚一个回合让她的好感度有了变化，约 2.6 秒；状态行这时写这句话。 */
+  affinityCue: AffinityCue | null;
   /** 她的立绘该是什么样子；她没有立绘时用不上。 */
   standDirection: StandDirection;
   /** 立绘依次试的衣装：选中的那套，再是默认衣装；她没有立绘时用不上。 */
@@ -112,6 +123,7 @@ export function LiveCallLayer({
       line={snapshot.line}
       previousLine={snapshot.previousLine}
       hearing={snapshot.hearing}
+      affinityCue={snapshot.affinityCue}
       standDirection={snapshot.stand}
       standOutfits={standOutfits}
       onCollapse={() => live.collapse()}
@@ -205,7 +217,7 @@ export function CallLayer(props: Props) {
           {hasStand && (
             <>
               <h2 className="truncate text-header font-bold">{character.name}</h2>
-              <Status call={call} />
+              <Status call={call} cue={props.affinityCue} name={character.name} />
             </>
           )}
         </div>
@@ -230,7 +242,7 @@ export function CallLayer(props: Props) {
             <MarkedAvatar name={character.name} src={character.avatar_url} size="call" />
           </Ripple>
           <h2 className="mt-2 text-call-name">{character.name}</h2>
-          <Status call={call} />
+          <Status call={call} cue={props.affinityCue} name={character.name} />
         </div>
       )}
 
@@ -324,9 +336,18 @@ function StandStage(props: Props) {
 /**
  * 状态行（名字下面）：呼叫中是「正在呼叫」加三个依次闪的小点，通话中是计时，结束后是挂断图标加
  * 「通话已结束 · mm:ss」（没接通过就不带时长）。只用文字和图标，不再用线形。
+ * 通话中一个回合刚改变了好感度（`cue`）时，约 2.6 秒换成变化胶囊的那句话，前面一个升降小箭头。
  */
-function Status({ call }: { call: ShownCall }) {
+function Status({ call, cue, name }: { call: ShownCall; cue: AffinityCue | null; name: string }) {
   const time = useCallTime(call);
+  if (call.phase === "connected" && cue) {
+    return (
+      <p className="flex items-center justify-center gap-1 text-sm text-white">
+        <CueArrowIcon up={cue.change.up} className="size-3.5" />
+        <span className="truncate">{cueText(cue.change, name)}</span>
+      </p>
+    );
+  }
   return (
     <p className="flex items-center justify-center gap-1.5 text-sm text-white/80 tabular-nums">
       {call.phase === "dialing" && (
@@ -406,27 +427,30 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
   );
 }
 
-/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」）。 */
-function Ended({ end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
-  const ending = t.endings[end.reason];
-  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
+/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」；
+ * 她因为冷却挂断时没有主操作）。 */
+function Ended({ character, end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
+  const timeZone = useProducerTimezone();
+  const card = endCard(end, character.name, new Date(), timeZone);
   return (
     <div
       role="alert"
       className="flex w-full max-w-[34em] flex-col items-center gap-2 rounded-3xl bg-white/12 px-5 py-6 text-center text-balance backdrop-blur-md"
     >
-      <h3 className="text-lg font-semibold">{ending.title}</h3>
-      {end.detail && <p className="text-sm">{end.detail}</p>}
-      <p className="text-sm text-white/80">{ending.body}</p>
-      <p className="text-meta text-white/60">{end.counts ? t.counted : t.notCounted}</p>
+      <h3 className="text-lg font-semibold">{card.title}</h3>
+      {card.detail && <p className="text-sm">{card.detail}</p>}
+      {card.body && <p className="text-sm text-white/80">{card.body}</p>}
+      <p className="text-meta text-white/60">{card.counts ? t.counted : t.notCounted}</p>
       <div className="mt-3 flex flex-wrap justify-center gap-2">
         <Button variant="call-glass" size="call" onClick={onDismiss}>
           {t.backToConversation}
         </Button>
-        <Button variant="call-solid" size="call" onClick={toOwnKeys ? onOwnKeys : onRedial}>
-          {!toOwnKeys && <PhoneIcon aria-hidden />}
-          {toOwnKeys ? t.toOwnKeys : t.redial}
-        </Button>
+        {card.action && (
+          <Button variant="call-solid" size="call" onClick={card.action === "own_keys" ? onOwnKeys : onRedial}>
+            {card.action === "redial" && <PhoneIcon aria-hidden />}
+            {card.action === "own_keys" ? t.toOwnKeys : t.redial}
+          </Button>
+        )}
       </div>
     </div>
   );

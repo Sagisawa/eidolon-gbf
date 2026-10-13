@@ -66,3 +66,13 @@ await page.route("**/api/offer", (route) => void (held = route));
 // …拨号、收起通话层、换到设置…
 await held!.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ detail: "这一小时的通话次数用完了" }) });
 ```
+
+### 造出后端在通话里发的消息
+
+`ended`（她挂断、到上限）、`done` 这些是接通以后从数据通道来的，拦 `/api/offer` 只能造出拨号被拒。要造它们，在页面里另起一个 `RTCPeerConnection` 冒充后端（Chromium 本机回环接得通）：
+
+1. `context.addInitScript` 注入假后端：`setRemoteDescription(offer)`，把 offer 里的音频收发器改成 `sendrecv` 并换上一条 `AudioContext().createMediaStreamDestination()` 的音轨，`createAnswer`，等 ICE 收集完再交出 SDP；`ondatachannel` 收到 `client-ready` 就回 `{"label":"rtvi-ai","type":"bot-ready","id":<同 id>,"data":{"version":"1.0.0"}}`。
+2. `page.route("**/api/offer")`：POST 用 `page.evaluate` 交给假后端应答，回 `{sdp, type: "answer", pc_id: "fake-pc"}`；PATCH（补发的 ICE 候选）交给它 `addIceCandidate`，回 `200 {}`。
+3. 接通后由假后端发 `{"label":"rtvi-ai","type":"server-message","data":<服务器消息>}`；挂断再发 `{"type":"signalling","message":{"type":"peerLeft"}}`。
+
+这样造出来的对话事件等只在页面上，库里没有；对话列表按接口重读，看不到它。

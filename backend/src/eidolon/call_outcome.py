@@ -4,29 +4,35 @@ record says of it (GLOSSARY.md「限额」「接通」「运行记录」).
 
 `CallOutcome` is all the rule is: the call is let through (`Admission`) when it is
 offered; the call's pipeline reports what happens to it (set up or not, connected, a turn
-recorded, its time up, a service failing, who or what ended it, over). Each event hands
-back the `ended` message to send the browser, if it is the one that ends the call; between
-turns the pipeline asks whether the call has reached its limits, and is handed back why it
-hangs up and that message. Once the call is over it is settled as that message said: the
-admission keeps the use or gives it back, and writes the record, by how it turned out;
-any turn still open is settled first, as cut short by how the call ended.
+recorded, a cooldown begun elsewhere, its time up, a service failing, who or what ended
+it, over). Each event hands back the `ended` message to send the browser, if it is the one
+that ends the call; between turns the pipeline asks whether she hangs up, then whether the
+call has reached its limits, and is handed back why it hangs up and that message. Once the
+call is over it is settled as that message said: the admission keeps the use or gives it
+back, and writes the record, by how it turned out; any turn still open is settled first,
+as cut short by how the call ended.
 """
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from time import perf_counter
 from typing import Literal
 
 from eidolon.activity import CallEndReason, Recording, Result
 from eidolon.admission import Admission
 from eidolon.config import SttProvider
+from eidolon.engine import CallTurnRecorded, InCall
 from eidolon.own_keys import CallKeys, OwnKeyFailed, Service
 from eidolon.turn_outcome import TurnOutcome
 
-EndReason = Literal["not_connected", "dropped", "duration_limit", "turn_limit", "own_key"]
+EndReason = Literal[
+    "not_connected", "dropped", "duration_limit", "turn_limit", "own_key", "out_of_line",
+    "cooldown",
+]
 """Why the backend ended a call, as the `ended` message tells the browser: it never really
 connected (a voice service failed before any turn), a voice service failed later, the call
-reached its time or its turn limit, or one of the user's own keys failed."""
+reached its time or its turn limit, one of the user's own keys failed, or she hung up, the
+user out of line once too often or her affinity fallen into a cooldown."""
 
 _ENDED_BY: dict[EndReason, CallEndReason] = {
     "not_connected": "failed",
@@ -34,6 +40,8 @@ _ENDED_BY: dict[EndReason, CallEndReason] = {
     "own_key": "failed",
     "duration_limit": "duration_limit",
     "turn_limit": "turn_limit",
+    "out_of_line": "character_hung_up",
+    "cooldown": "character_hung_up",
 }
 """Why the call's activity record says it ended, when the browser was told why."""
 
@@ -48,12 +56,14 @@ class CallLimits:
 
 
 @dataclass(frozen=True)
-class LimitReached:
-    """The call has reached its limits: `why` it hangs up, and the `ended` message telling
-    the browser so, None when it has been told why the call ended already."""
+class Ending:
+    """The call hangs up between turns, she hanging up or its limits reached: `why`, and
+    the `ended` message telling the browser so, None when it has been told why the call
+    ended already. Whether `by_her`."""
 
     why: str
     ended: dict | None
+    by_her: bool = False
 
 
 def ended(reason: EndReason, message: str, counts: bool) -> dict:
@@ -78,7 +88,11 @@ class CallOutcome:
     The call's `limits` are kept here, and so is the count of its turns, the only one:
     the call has reached them once its time is up (`time_up`, timed by the pipeline from
     `time_limit`) or it has recorded as many turns as it may take, and what the browser is
-    told then, every word of it, is said here too.
+    told then, every word of it, is said here too. So is how often the user has been out of
+    line in the call, which its turns are told (`in_call`), and whether she hangs up after
+    the turn recorded last, as it said, or for a cooldown begun elsewhere (`cooled`),
+    whichever came first: before its limits, which the same turn may reach.
+    The call she hangs up on was connected, and is a success.
 
     It is settled with how it turned out, how long it lasted once connected, and why it
     ended: whatever ended it first, as the browser was told or as reported (`ended_by`),
@@ -95,6 +109,8 @@ class CallOutcome:
         self._limits = limits
         self._connected_at: float | None = None  # `perf_counter`, once connected
         self._recorded = 0
+        self._out_of_line = 0  # turns recorded out of line
+        self._hanging_up: CallTurnRecorded | None = None  # the turn she hangs up after
         self._time_up = False
         self._told = False  # the browser has been told why the call ended
         self._failed_to_connect = False  # a service failed before any turn (「接通」)
@@ -144,10 +160,32 @@ class CallOutcome:
         short failed (GLOSSARY.md「回合」), rather than being left by the user."""
         return self._ended_by == "failed"
 
-    def turn_recorded(self) -> dict | None:
-        """A turn of the call was recorded."""
+    def turn_recorded(self, recorded: CallTurnRecorded = CallTurnRecorded()) -> dict | None:
+        """A turn of the call was recorded, coming to what `recorded` says."""
         self._recorded += 1
+        self._out_of_line += recorded.out_of_line
+        if recorded.hangs_up is not None:
+            self._hang_up_after(recorded)
         return None
+
+    def cooled(self, until: datetime) -> bool:
+        """She has fallen into a cooldown with the user, ending `until`, whatever the turns
+        of the call come to: whether she hangs up for it, as for one, after the turn in
+        progress, if any. Not if the call is ending already, for whatever reason."""
+        if self._ended_by is not None:
+            return False
+        self._hang_up_after(CallTurnRecorded(hangs_up="cooldown", cooldown_until=until))
+        return True
+
+    def _hang_up_after(self, recorded: CallTurnRecorded) -> None:
+        """She hangs up as `recorded` says, unless she is to for something else already."""
+        if self._hanging_up is None:
+            self._hanging_up = recorded
+
+    @property
+    def in_call(self) -> InCall:
+        """What the call's next turn is told of it."""
+        return InCall(self._out_of_line)
 
     def time_up(self) -> dict | None:
         """The call's time is up, `time_limit` after it connected."""
@@ -178,7 +216,26 @@ class CallOutcome:
             return self._tell("not_connected", "语音服务出了故障，通话没能接通")
         return self._tell("dropped", "语音服务出了故障，通话中断了")
 
-    def limit_reached(self) -> LimitReached | None:
+    def she_hangs_up(self) -> Ending | None:
+        """Whether she hangs up after the turn recorded last: if so, why, and the `ended`
+        message telling the browser so, unless it has been told why the call ended already.
+        Should the cooldown she hung up for not have begun after all, another turn recorded
+        meanwhile, she hung up as for being out of line: the user can call her again."""
+        recorded = self._hanging_up
+        if recorded is None:
+            return None
+        why = "她挂断了电话"
+        if self._told:
+            return Ending(why, None, by_her=True)
+        until = recorded.cooldown_until
+        if recorded.hangs_up == "cooldown" and until is not None:
+            message = self._tell("cooldown", f"{why}。")
+            message["cooldown_until"] = until.isoformat()
+        else:
+            message = self._tell("out_of_line", f"{why}。")
+        return Ending(why, message, by_her=True)
+
+    def limit_reached(self) -> Ending | None:
         """Whether the call has reached its limits, its time before its turns: if so, why
         it hangs up and, unless the browser has been told why the call ended already, the
         `ended` message telling it so. The call was connected, so it is kept."""
@@ -191,8 +248,8 @@ class CallOutcome:
         else:
             return None
         if self._told:
-            return LimitReached(why, None)
-        return LimitReached(why, self._tell(reason, f"{why}，先挂断啦。想接着聊可以重新拨打。"))
+            return Ending(why, None)
+        return Ending(why, self._tell(reason, f"{why}，先挂断啦。想接着聊可以重新拨打。"))
 
     def settle(self) -> dict | None:
         """The call is over, however it ended: settle it, once, any turn still open first."""

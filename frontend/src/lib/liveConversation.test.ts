@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AffinityStatus } from "@/lib/affinity";
 import { ApiError, type CallEvent, type Conversation, type Message, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
@@ -81,6 +82,8 @@ type Options = {
   preferences?: Partial<CallPreferences>;
   /** Ports a test replaces, to make opening fail or wait. */
   ports?: Partial<Ports>;
+  /** Her affinity with the user as the page opens; affinity is off without it. */
+  affinity?: AffinityStatus;
 };
 
 /** A live conversation over fake ports, not yet open: her conversations and their
@@ -111,6 +114,7 @@ function opening(options: Options = {}) {
       return conversation;
     },
     listMessages: async (conversationId) => (conversationId === "c1" ? (options.messages ?? []) : []),
+    getAffinity: async () => options.affinity ?? null,
     onListChanged: () => listChanged++,
     startCall: (conversationId, preferences, handlers) => {
       sentTo.push(conversationId);
@@ -216,6 +220,7 @@ function message(
     zh: role === "user" ? null : `（${text}）`,
     segments,
     created_at: createdAt,
+    affinity: null,
   };
 }
 
@@ -300,6 +305,20 @@ describe("LiveConversation: a call", () => {
       hearing: "",
     });
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
+  });
+
+  it("shows her hanging up in the log as the backend says she did, and tells the list", async () => {
+    const { live, attempts, listChanged } = await conversation({ messages: history });
+    await connected(live, attempts);
+    const told = listChanged();
+    const hungUp = { type: "event", id: 7, kind: "hung_up", created_at: "2026-10-13T03:00:00Z", affinity: null } as const;
+
+    attempts[0].handlers.onEvent({ type: "ended", reason: "out_of_line", message: "她挂断了电话。", counts: true, event: hungUp });
+    attempts[0].handlers.onDropped();
+
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "out_of_line", counts: true } });
+    expect(live.snapshot().entries.map((e) => e.kind)).toEqual(["user", "character", "event"]);
+    expect(listChanged()).toBe(told + 1);
   });
 
   it("says a call that drops with no word from the backend counted, unless it was exempt", async () => {
@@ -494,7 +513,7 @@ describe("LiveConversation: the line card", () => {
   /** Her reply under way is recorded, with segments of this Japanese. */
   function recorded(...segments: string[]): CallEvent {
     const reply = message(4, "character", segments.join(""));
-    return { type: "done", message: { ...reply, segments: segments.map((ja) => ({ ja, zh: "" })) } };
+    return { type: "done", message: { ...reply, segments: segments.map((ja) => ({ ja, zh: "" })) }, affinity: null };
   }
 
   it("shows the segment her voice starts playing, filling it in as its text arrives", async () => {
@@ -759,7 +778,7 @@ describe("LiveConversation: a call that is over", () => {
   const late: [string, (handlers: CallHandlers) => void][] = [
     ["what the user said", (h) => h.onEvent({ type: "user", text: "迟到的话", reply: 1 })],
     ["a delta of the reply", (h) => h.onEvent({ type: "delta", segment: 0, lang: "ja", text: "おそい" })],
-    ["the reply recorded", (h) => h.onEvent({ type: "done", message: message(9, "character", "おそい") })],
+    ["the reply recorded", (h) => h.onEvent({ type: "done", message: message(9, "character", "おそい"), affinity: null })],
     ["an error", (h) => h.onEvent({ type: "error", message: "角色暂时无法回复" })],
     [
       "the backend saying why it hangs up",
@@ -1082,6 +1101,76 @@ describe("LiveConversation: what can be done", () => {
   );
 });
 
+describe("LiveConversation: a cooldown", () => {
+  // GLOSSARY.md「冷却」：她暂时不想说话，到解除时刻自己恢复；页面上的时钟停在 NOW。
+  const until = new Date(NOW + 60_000).toISOString();
+  const cooling = { tier: "cold", cooldown_until: until } as const;
+  const thawed = { tier: "cold", cooldown_until: null } as const;
+
+  it("begins as a turn leaves her in one: no turns, no calls, but a new conversation; it ends by itself on time", async () => {
+    vi.useFakeTimers();
+    const change = { up: false, tier_changed: false, tier: "cold", cooldown: true } as const;
+    const opened = opening({
+      affinity: { tier: "cold", cooldown_until: null },
+      turns: scripted([
+        { type: "user", text: "随便你" },
+        { type: "done", message: { ...message(4, "character", "そう"), affinity: change }, affinity: cooling },
+      ]),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const { live, sentTo } = opened;
+    live.setDraft("随便你");
+    await live.submit();
+
+    const shown = live.snapshot();
+    live.setDraft("在吗");
+    await live.submit();
+    void live.startCall();
+    const refused = live.snapshot();
+    vi.advanceTimersByTime(59_999);
+    const stillCooling = live.snapshot().cooling;
+    vi.advanceTimersByTime(1);
+
+    expect(shown).toMatchObject({ affinity: cooling, cooling: true, canDial: false, canStartNew: true });
+    expect(sentTo).toEqual(["c1"]); // the second turn and the call never went out
+    expect(refused).toMatchObject({ draft: "在吗", call: { phase: "idle" } });
+    expect(stillCooling).toBe(true);
+    expect(live.snapshot()).toMatchObject({ affinity: thawed, cooling: false, canDial: true });
+    vi.useRealTimers();
+  });
+
+  it("opens in one read from the backend", async () => {
+    const { live } = await conversation({ affinity: cooling });
+
+    expect(live.snapshot()).toMatchObject({ cooling: true, canDial: false });
+  });
+
+  it("shows one a text turn is refused for, returning the text to the input, with no failure", async () => {
+    const { live, listChanged } = await conversation({
+      messages: history,
+      affinity: { tier: "trust", cooldown_until: null },
+      turns: async function* (): AsyncIterable<TurnEvent> {
+        throw new ApiError("她现在不想说话，晚些时候再来吧", 409, { cooldownUntil: until });
+      },
+    });
+    live.setDraft("你好");
+
+    await live.submit();
+
+    expect(live.snapshot()).toMatchObject({ draft: "你好", busy: false, failure: null, affinity: cooling, cooling: true });
+    expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
+    expect(listChanged()).toBe(0);
+  });
+
+  it("shows one a call is refused for, with no end to dismiss", async () => {
+    const { live, attempts } = await conversation({ affinity: { tier: "trust", cooldown_until: null } });
+
+    await failing(live, attempts, new ApiError("她现在不想说话，晚些时候再来吧", 409, { cooldownUntil: until }));
+
+    expect(live.snapshot()).toMatchObject({ call: { phase: "idle" }, affinity: cooling, cooling: true });
+  });
+});
+
 describe("LiveConversation: her voice", () => {
   it("is told the phone texture as the call is dialed, still inside the user's click", async () => {
     const { live, attempts, voice, loaded } = await conversation({ preferences: { phoneTexture: true } });
@@ -1235,7 +1324,7 @@ describe("LiveConversation: typing", () => {
       turns: scripted([
         { type: "user", text: "你好" },
         { type: "delta", segment: 0, lang: "ja", text: "こんにちは" },
-        { type: "done", message: message(4, "character", "こんにちは") },
+        { type: "done", message: message(4, "character", "こんにちは"), affinity: null },
       ]),
     });
     live.setDraft(" 你好 ");
@@ -1249,7 +1338,42 @@ describe("LiveConversation: typing", () => {
       segments: [{ ja: "こんにちは", zh: "（こんにちは）" }],
       pending: false,
       at: "2026-09-27T00:00:00Z",
+      affinity: null,
     });
+  });
+
+  it("shows her affinity as each recorded turn leaves it, and how it changed for 2.6s", async () => {
+    vi.useFakeTimers();
+    const change = { up: true, tier_changed: true, tier: "close", cooldown: false } as const;
+    const close = { tier: "close", cooldown_until: null } as const;
+    const turn = (affinity: AffinityStatus | null) =>
+      scripted([
+        { type: "user", text: "你好" },
+        { type: "done", message: { ...message(4, "character", "こんにちは"), affinity: change }, affinity },
+      ])();
+    let next = turn(close);
+    const opened = opening({ affinity: { tier: "trust", cooldown_until: null }, turns: () => next });
+    await vi.advanceTimersByTimeAsync(0);
+    const { live } = opened;
+    const opensWith = live.snapshot().affinity;
+
+    live.setDraft("你好");
+    await live.submit();
+    const shown = live.snapshot();
+    vi.advanceTimersByTime(2599);
+    const stillShown = live.snapshot().affinityCue;
+    vi.advanceTimersByTime(1);
+    const gone = live.snapshot().affinityCue;
+    next = turn(null); // turned off meanwhile: nothing to show
+    live.setDraft("你好");
+    await live.submit();
+
+    expect(opensWith).toEqual({ tier: "trust", cooldown_until: null });
+    expect(shown).toMatchObject({ affinity: close, affinityCue: { change, key: 1 } });
+    expect(stillShown).not.toBeNull();
+    expect(gone).toBeNull();
+    expect(live.snapshot()).toMatchObject({ affinity: null, affinityCue: null });
+    vi.useRealTimers();
   });
 
   it.each([
@@ -1357,7 +1481,7 @@ describe("LiveConversation: typing", () => {
       turns: async function* () {
         yield { type: "user", text: "你好" };
         await answered;
-        yield { type: "done", message: message(4, "character", "こんにちは") };
+        yield { type: "done", message: message(4, "character", "こんにちは"), affinity: null };
         finished = true;
       },
     });
@@ -1586,7 +1710,7 @@ describe("LiveConversation: a new conversation", () => {
       turns: async function* () {
         yield { type: "user", text: "你好" };
         await answered;
-        yield { type: "done", message: message(4, "character", "こんにちは") };
+        yield { type: "done", message: message(4, "character", "こんにちは"), affinity: null };
       },
     });
     live.setDraft("你好");
@@ -1610,7 +1734,7 @@ describe("LiveConversation: the list", () => {
         yield { type: "user", text: "你好" };
         yield { type: "delta", segment: 0, lang: "ja", text: "こん" };
         await answered;
-        yield { type: "done", message: message(4, "character", "こんにちは") };
+        yield { type: "done", message: message(4, "character", "こんにちは"), affinity: null };
       },
     });
     live.setDraft("你好");
@@ -1632,7 +1756,7 @@ describe("LiveConversation: the list", () => {
     handlers.onEvent({ type: "user", text: "你好", reply: 1 });
     handlers.onEvent({ type: "delta", segment: 0, lang: "ja", text: "こん" });
     expect(listChanged()).toBe(0);
-    handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは") });
+    handlers.onEvent({ type: "done", message: message(4, "character", "こんにちは"), affinity: null });
 
     expect(listChanged()).toBe(1);
   });
@@ -1659,7 +1783,7 @@ describe("LiveConversation: times", () => {
       turns: scripted([
         { type: "user", text: "你好" },
         { type: "delta", segment: 0, lang: "ja", text: "こん" },
-        { type: "done", message: message(4, "character", "こんにちは", "2026-09-28T08:49:00Z") },
+        { type: "done", message: message(4, "character", "こんにちは", "2026-09-28T08:49:00Z"), affinity: null },
       ]),
     });
     live.setDraft("你好");

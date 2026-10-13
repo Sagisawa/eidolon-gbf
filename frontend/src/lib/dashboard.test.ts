@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  affinityRows,
   countTicks,
   durationRange,
   formatCount,
@@ -187,5 +188,30 @@ describe("call durations", () => {
       [1800, null, "30 分钟以上"],
     ];
     for (const [from, to, shown] of cases) expect(durationRange(from, to), `${from}-${to}`).toBe(shown);
+  });
+});
+
+describe("affinityRows", () => {
+  const row = (id: string, judged: number, lowered_share: number | null) => ({
+    character_id: id,
+    name: id,
+    judged,
+    lowered_share,
+    cooldowns: 2,
+    out_of_line: 1,
+    manipulation: 0,
+    hung_up: 3,
+  });
+
+  it("tells the share lowered as a percentage, a dash for too few, and on a phone ends the row on it", () => {
+    const [many, few, none] = affinityRows([row("mano", 1200, 0.125), row("meguru", 3, null), row("rinze", 20, 0)]);
+    expect(many.lowered).toBe("12.5%");
+    expect(few.lowered).toBe("—");
+    expect(none.lowered).toBe("0%");
+    expect(many.judged).toBe("1,200");
+    // On a phone, each row ends on the share lowered and the cooldowns, the rest beneath.
+    expect(many.end).toBe("减分 12.5% · 冷却 2");
+    expect(few.end).toBe("减分 — · 冷却 2");
+    expect(many.details).toBe("判断过 1,200 个回合 · 不该说的话 1 · 操纵 0 · 角色挂断 3");
   });
 });

@@ -14,6 +14,7 @@ from eidolon.turn_taking import (
     ClearVoice,
     Command,
     DropReply,
+    DropTurn,
     FlushVoice,
     QueueTurn,
     Reply,
@@ -74,6 +75,7 @@ MISSED: Event = TurnTaking.follow_on_missed
 VOICE_STARTS: Event = TurnTaking.voice_started
 VOICE_STOPS: Event = TurnTaking.voice_stopped
 CALL_ENDING: Event = TurnTaking.call_ending
+HUNG_UP_ON: Event = TurnTaking.hung_up_on
 
 REPLYING: list[Step] = [(turn("早上好"), [Reply("早上好", voiced=True, number=1)])]
 """A turn is being replied to, voiced; nothing of the reply is out yet."""
@@ -386,6 +388,41 @@ def test_once_the_call_is_ending_nothing_is_taken_up_and_her_last_reply_stays_vo
     taking = run([
         *RECORDED_AND_HEARD,
         (CALL_ENDING, []),
+        (TALKS, []),
+        (says("在吗"), []),
+        (types("还在吗"), []),
+        (turn("在吗"), []),
+    ])
+
+    assert taking.ending
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        pytest.param(
+            [*RECORDED_AND_HEARD, (HUNG_UP_ON, [])],
+            id="idle, her last reply stays voiced",
+        ),
+        pytest.param(
+            [*INTERRUPTIBLE, (HUNG_UP_ON, [StopReply()]), (ja("今日", 1), []), (complete(1), [])],
+            id="a reply she has started speaking stops, voiced no further",
+        ),
+        pytest.param(
+            [*SPEAKING, (HUNG_UP_ON, [DropTurn()]), (DROPPED, [])],
+            id="one with nothing complete yet is dropped, turn and all",
+        ),
+        pytest.param(
+            [*REPLYING, (TALKS, [DropReply()]), (DROPPED, [WaitForFollowOn()]),
+             (HUNG_UP_ON, [DropTurn()]), (MISSED, [])],
+            id="so is a turn waiting for a follow-on",
+        ),
+    ],
+)
+def test_hung_up_on_from_outside_the_call_nothing_more_is_taken_up(steps: list[Step]):
+    taking = run([
+        *steps,
+        (HUNG_UP_ON, []),
         (TALKS, []),
         (says("在吗"), []),
         (types("还在吗"), []),
