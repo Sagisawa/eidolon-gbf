@@ -7,8 +7,8 @@ import { ApiError } from "@/lib/api";
 export type Failure = { message: string; signedOut: boolean; toOwnKeys?: boolean; countsTowardLimit?: boolean };
 
 export function toFailure(e: unknown): Failure {
-  return {
-    message: (e as Error).message,
-    signedOut: e instanceof ApiError && e.unauthorized,
-  };
+  const failure: Failure = { message: (e as Error).message, signedOut: e instanceof ApiError && e.unauthorized };
+  // Refused for the limit: own keys get around it (GLOSSARY.md「免限额密钥」).
+  if (e instanceof ApiError && e.overLimit) failure.toOwnKeys = true;
+  return failure;
 }

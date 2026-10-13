@@ -236,7 +236,16 @@ export class ApiError extends Error {
   get unauthorized(): boolean {
     return this.status === 401;
   }
+
+  /** Refused for the limit: the user has no turns or calls left this hour, or may take them
+   * only on their own keys (GLOSSARY.md「限额」「免限额密钥」). */
+  get overLimit(): boolean {
+    return this.status === OVER_LIMIT;
+  }
 }
+
+/** The status of a turn or call refused for the limit. */
+const OVER_LIMIT = 429;
 
 /** The status of a turn or call refused while she is in a cooldown with the user, and of what
  * is done with gifts while they are not open, told apart by their bodies. */
@@ -258,7 +267,7 @@ export async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     let message = describe(body?.detail) ?? `请求失败（${res.status}）`;
-    if (res.status === 429) message = overLimit(message, body?.retry_at);
+    if (res.status === OVER_LIMIT) message = overLimit(message, body?.retry_at);
     // Refused while she is in a cooldown, told apart from the limit's 429.
     const cooldownUntil = res.status === CONFLICT && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
     const giftsClosed = res.status === CONFLICT && body?.gifts_closed === true;

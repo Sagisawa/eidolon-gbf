@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import { checkOwnLLM, checkOwnSpeechKey, getAccount, getLimitExemption, type LimitExemption } from "@/lib/api";
+import { exemptionNote, sayServices } from "@/lib/exemptingKeys";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
@@ -29,17 +30,12 @@ import {
   type LocalLLM,
   type LocalOwnKeys,
   type LocalTtsKey,
+  type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
 import { cn } from "@/lib/utils";
 
 const t = copy.settings.ownKeys;
-
-/** 服务器答的豁免对应哪句说明：通话都不计入时文字对话必然也不计入。 */
-function exemptionNote({ turns, calls }: LimitExemption): string {
-  if (calls) return t.exemptAll;
-  return turns ? t.exemptTurns : t.exemptNone;
-}
 
 /**
  * 用户自带、自己付费的密钥。三项都只存在这个浏览器里，按登录的用户分开存；填写时服务器只试调、
@@ -47,6 +43,8 @@ function exemptionNote({ turns, calls }: LimitExemption): string {
  */
 export function OwnKeysSettings() {
   const [userId, setUserId] = useState<string | null>(null);
+  /** 这个部署的免限额密钥，和 `userId` 一起从账号读到。 */
+  const [exemptingKeys, setExemptingKeys] = useState<OwnService[]>([]);
   const [kept, setKept] = useState<LocalOwnKeys>({});
   const [canKeep, setCanKeep] = useState(true);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -75,6 +73,7 @@ export function OwnKeysSettings() {
     getAccount().then(
       (account) => {
         setUserId(account.id);
+        setExemptingKeys(account.exempting_keys);
         setKept(localOwnKeys(account.id));
         setCanKeep(canKeepOwnKeys());
       },
@@ -123,8 +122,9 @@ export function OwnKeysSettings() {
       }
     >
       {!canKeep && <FailureNotice failure={{ message: t.cannotKeep, signedOut: false }} />}
+      <p className="text-body">{sayServices(t.exempting, exemptingKeys)}</p>
       <p role="status" className="text-body">
-        {answered?.services === services && exemptionNote(answered.exemption)}
+        {answered?.services === services && exemptionNote(answered.exemption, exemptingKeys)}
         {t.perCallLimits}
       </p>
       <div className="flex flex-col gap-4">

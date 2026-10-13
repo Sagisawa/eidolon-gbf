@@ -28,7 +28,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
-import { getAdminConfig, isAvailable } from "@/lib/adminConfig";
+import { exemptingKeysOf, getAdminConfig, isAvailable } from "@/lib/adminConfig";
 import {
   limitDraft,
   limitsInput,
@@ -37,7 +37,9 @@ import {
   type LimitDraft,
   type LimitProblem,
 } from "@/lib/adminUsers";
+import { sayServices } from "@/lib/exemptingKeys";
 import { toFailure, type Failure } from "@/lib/failure";
+import type { OwnService } from "@/lib/localOwnKeys";
 
 const t = copy.admin.users.limitsDialog;
 
@@ -66,6 +68,8 @@ export function UserLimitsDialog({
   const [failure, setFailure] = useState<Failure | null>(null);
   /** 全站现在的每小时回合数和通话次数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
   const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
+  /** 全站现在的免限额密钥（同一项里的三个开关）；读不到时「只能用自带密钥」的说明不点名。 */
+  const [exemptingKeys, setExemptingKeys] = useState<OwnService[] | null>(null);
   const check = useSubmitCheck<HTMLFormElement>();
   const noteId = useId();
 
@@ -76,6 +80,7 @@ export function UserLimitsDialog({
       (config) => {
         const limits = config.limits;
         if (!current || !isAvailable(limits)) return;
+        setExemptingKeys(exemptingKeysOf(limits.effective));
         const { turns_per_hour: turns, calls_per_hour: calls } = limits.effective;
         if (typeof turns === "number" && typeof calls === "number") setSite({ turns, calls });
       },
@@ -138,6 +143,7 @@ export function UserLimitsDialog({
               draft={turns}
               onChange={setTurns}
               site={site?.turns ?? null}
+              ownKeysHint={t.turnsOwnKeysHint}
               problems={problemOf("turns")}
             />
             <LimitField
@@ -145,6 +151,7 @@ export function UserLimitsDialog({
               draft={calls}
               onChange={setCalls}
               site={site?.calls ?? null}
+              ownKeysHint={exemptingKeys ? sayServices(t.callsOwnKeysHint, exemptingKeys) : t.callsOwnKeysOnly}
               problems={problemOf("calls")}
             />
             <Field>
@@ -177,6 +184,7 @@ function LimitField({
   draft,
   onChange,
   site,
+  ownKeysHint,
   problems,
 }: {
   label: string;
@@ -184,6 +192,8 @@ function LimitField({
   onChange: (draft: LimitDraft) => void;
   /** 全站现在的数字，0 是不限；不知道时 null。 */
   site: number | null;
+  /** 「只能用自带密钥」放行的是哪些。 */
+  ownKeysHint: string;
   /** 点过保存后这一项不对的地方。 */
   problems: LimitProblem[];
 }) {
@@ -194,7 +204,7 @@ function LimitField({
     { value: "default", label: site === null ? t.choices.default : t.defaultIs(t.siteCount(site)) },
     { value: "number", label: t.choices.number },
     { value: "unlimited", label: t.choices.unlimited },
-    { value: "own_keys", label: t.choices.ownKeys, description: t.ownKeysHint },
+    { value: "own_keys", label: t.choices.ownKeys, description: ownKeysHint },
   ];
   return (
     <FieldSet>

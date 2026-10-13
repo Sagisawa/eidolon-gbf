@@ -91,7 +91,7 @@ export function settingsSummaries(values: SettingsValues): Partial<Record<Settin
   if (ownServices) {
     const owned = OWN_SERVICES.filter((service) => ownServices.includes(service));
     summaries["own-keys"] =
-      owned.length === 0 ? t.ownKeysNone : t.ownKeys(owned.map((service) => t.services[service]).join("、"));
+      owned.length === 0 ? t.ownKeysNone : t.ownKeys(owned.map((service) => copy.ownServices[service]).join("、"));
   }
   if (signInMethods) summaries["sign-in"] = signInMethods.map((provider) => PROVIDER_LABELS[provider]).join("、");
   return summaries;

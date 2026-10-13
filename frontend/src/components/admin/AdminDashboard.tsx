@@ -327,7 +327,7 @@ function DashboardBody({
           <StatTile
             label={t.tiles.calls}
             value={formatCount(calls.total)}
-            note={t.tiles.callsOnOwnKeys(formatCount(calls.own_keys))}
+            note={t.tiles.callsExempt(formatCount(calls.own_keys))}
           />
           <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
           {/* 这两张手机上不显示。外面包一层 grid，卡片仍撑满格子的高。 */}

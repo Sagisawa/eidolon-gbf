@@ -28,6 +28,10 @@ export const zh = {
     cancel: "取消",
     optional: "可选",
   },
+  /** 能自带密钥的三项服务（GLOSSARY.md「自带密钥」），列在一句话里时的名字。 */
+  ownServices: { llm: "LLM", tts: "语音合成", stt: "语音识别" },
+  /** 把几项服务列成一句：「LLM」「LLM 和语音识别」「LLM、语音合成和语音识别」。 */
+  serviceList: { separator: "、", last: "和" },
   conversationList: {
     title: "对话",
     noneSelected: "选一位偶像开始对话",
@@ -100,6 +104,8 @@ export const zh = {
     backToList: "回到对话列表",
     /** 失败时说明这次算不算进限额（GLOSSARY.md「限额」「回合」）。 */
     notCounted: "这次没有计入限额。",
+    /** 文字回合撞上限额：带上自己的 LLM 就不计入，不论这个部署的免限额密钥是哪几项（GLOSSARY.md「免限额密钥」）。 */
+    ownLLMExempts: "带上自己的 LLM，文字对话就不受限额。",
     /** 页首的好感度标识和它点开的说明（GLOSSARY.md「好感度」「冷却」）。只说档位，不说数值。 */
     affinity: {
       tiers: { cold: "冷淡", distant: "疏远", trust: "信任", close: "亲近", intimate: "亲密" },
@@ -224,7 +230,8 @@ export const zh = {
       },
       over_limit: {
         title: "这一小时的通话次数用完了",
-        body: "语音识别、语音合成和 LLM 都用自带密钥的通话不计入限额。",
+        /** 点名这个部署的免限额密钥（GLOSSARY.md「免限额密钥」），经 `sayServices` 拼上服务名。 */
+        body: (services: string) => `这个部署上，带上自己的${services}的通话不计入限额。`,
       },
       own_key: {
         title: "你的自带密钥出错了",
@@ -333,7 +340,7 @@ export const zh = {
     act6: {
       title: "使用须知",
       unofficial: "非官方粉丝作品，和原作版权方无关。角色完全由 AI 驱动。",
-      // 下面两句不论部署有没有要求「必须自带 LLM」都要对（落地页静态渲染，不随开关变化）。
+      // 下面两句不论免限额密钥是哪几项都要对（落地页静态渲染，不随开关变化），不点名哪几项。
       limits: "部署服务不向你收费，但每人可能存在使用限额。",
       ownKey: "支持 BYOK（自带密钥），密钥只保存于本地",
       memories: "记忆可查看&删除，管理者无法查看",
@@ -380,7 +387,6 @@ export const zh = {
       phoneTextureOff: "电话质感关",
       ownKeysNone: "全部用部署者的服务",
       ownKeys: (services: string) => `已填 ${services}`,
-      services: { llm: "LLM", tts: "语音合成", stt: "语音识别" },
     },
     /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
     about: {
@@ -444,9 +450,16 @@ export const zh = {
         "自带的密钥调用失败时，这一轮会失败并提示是哪一项出了问题，不会改用部署者的密钥。",
         "界面上只显示密钥的末 4 位。",
       ],
-      exemptAll: "三项都是你自己的密钥：文字对话和语音通话都不计入每小时限额。",
-      exemptTurns: "文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要三项都自带才不计入。",
-      exemptNone: "现在用的是部署者的服务，文字对话和语音通话都计入每小时限额。",
+      /** 这个部署的免限额密钥（GLOSSARY.md「免限额密钥」）。带 `services` 的句子经 `sayServices` 拼上服务名，
+       * `${services}` 两边不留空格，拉丁字母和汉字之间的空格由它补。 */
+      exempting: (services: string) =>
+        `这个部署上，带上自己的${services}的通话不计入每小时限额；文字对话带上自己的 LLM 就不计入。`,
+      /** 按这个浏览器里存的 key，服务器答的现在计不计入。 */
+      exemptAll: "文字对话和语音通话都不计入每小时限额。",
+      exemptTurns: (services: string) =>
+        `文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要带上${services}才不计入。`,
+      exemptCalls: "语音通话不计入每小时限额；文字对话要用你自己的 LLM 才不计入。",
+      exemptNone: "现在文字对话和语音通话都计入每小时限额。",
       perCallLimits: "单次通话的时长和轮数上限对所有人都一样。",
       cannotKeep:
         "这个浏览器无法保存自带密钥，可能开着隐私模式，或者禁止了网站保存数据。换一个浏览器，或者允许本站保存数据后再填写。",
@@ -556,7 +569,8 @@ export const zh = {
         turns: "回合",
         turnsInCalls: (n: string) => `其中 ${n} 个在通话里`,
         calls: "通话",
-        callsOnOwnKeys: (n: string) => `其中 ${n} 次全用自带密钥`,
+        /** 带齐了免限额密钥、不计入限额的通话（运行记录里通话的「用了自带密钥」，GLOSSARY.md「运行记录」）。 */
+        callsExempt: (n: string) => `其中 ${n} 次不计入限额`,
         activeUsers: "活跃用户",
         activeUsersNote: "这段时间有过回合或通话",
         /** 数字卡分两组的小标题：此刻的，和按时间范围统计的（「30 天内」）。 */
@@ -830,11 +844,15 @@ export const zh = {
       },
       limitsDialog: {
         title: (name: string) => `${name} 的单独限额`,
-        hint: "只对这位用户生效，保存后从他的下一个回合、下一次通话起按这里的数字计算；没有单独设定的一项跟随全站。用自带密钥、免计入的回合和通话照常放行。单次通话的时长和回合上限对所有人都一样，不能单独设。",
+        hint: "只对这位用户生效，保存后从他的下一个回合、下一次通话起按这里的数字计算；没有单独设定的一项跟随全站。不计入限额的回合和通话照常放行。单次通话的时长和回合上限对所有人都一样，不能单独设。",
         turns: "每小时的回合数",
         calls: "每小时的通话次数",
         choices: { default: "跟随全站", number: "设定次数", unlimited: "不限", ownKeys: "只能用自带密钥" },
-        ownKeysHint: "部署者的 key 一次也不放行，只放行用自带密钥的。",
+        /** 「只能用自带密钥」是什么意思：只放行不计入限额的（GLOSSARY.md「免限额密钥」）。通话的按配置页「限额」
+         * 里现在的免限额密钥点名，经 `sayServices` 拼上服务名；读不到配置时用 `callsOwnKeysOnly`。 */
+        turnsOwnKeysHint: "只放行用自带 LLM 的文字回合。",
+        callsOwnKeysHint: (services: string) => `只放行带上自己的${services}的通话；全站的免限额密钥改了，这里跟着变。`,
+        callsOwnKeysOnly: "只放行不计入限额的通话。",
         /** 「跟随全站」带上全站现在的数字，不用去配置页查：「跟随全站（60 次）」。 */
         defaultIs: (site: string) => `跟随全站（${site}）`,
         siteCount: (n: number) => (n === 0 ? "不限" : `${n} 次`),
@@ -1293,7 +1311,6 @@ export const zh = {
       {
         title: "这些数据会交给哪些第三方处理",
         items: [
-          // 不论部署有没有要求「必须自带 LLM」都要对。
           { term: "语言模型服务", text: "扮演角色、提炼记忆时，对话内容和相关记忆会发给语言模型服务：你填了自己的 LLM，就发给你选择的服务；没填，就发给部署者配置的服务。" },
           { term: "判断模型", text: "每个回合，你说的话连同最近几个回合的对话会发给部署者配置的判断模型（TypeSafe 的 Jev，经 OpenRouter 等转发；或 Cloudflare 的 Clef），用来判断要不要回忆剧情或查资料，以及这句话让角色对你的好感度怎样变化；通话中角色的回复也会一段段发过去，判断她的情绪。判断模型始终由部署者提供，填了自带密钥也不改变这一点。" },
           { term: "语音服务", text: "通话时，你的声音会发给部署者选择的语音识别服务（Soniox 或阿里云百炼）识别成文字，角色的回复会发给 Fish Audio 合成语音。阿里云百炼不会用你的声音训练模型，但会保存一段时间，存放在中国内地或新加坡，取决于部署者的账号。" },

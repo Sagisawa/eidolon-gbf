@@ -3,7 +3,7 @@
 // 各项的字段、表单的换算和校验都写在这里，页面只负责摆放。
 
 import { api, json } from "@/lib/api";
-import { LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS } from "@/lib/localOwnKeys";
+import { LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS, type OwnService } from "@/lib/localOwnKeys";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
 
@@ -109,6 +109,11 @@ export const LIMIT_FIELDS = ["turns_per_hour", "calls_per_hour", "call_minutes",
 /** Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md「免限额密钥」), in
  * the order of `OWN_SERVICES`; at least one stays on. */
 export const EXEMPTING_FIELDS = OWN_SERVICES.map((service) => `exempting_${service}`);
+
+/** The services the limits item has on as exempting keys, in the order of `OWN_SERVICES`. */
+export function exemptingKeysOf(limits: Shown): OwnService[] {
+  return OWN_SERVICES.filter((service) => limits[`exempting_${service}`] === true);
+}
 
 export type FieldSpec = { name: string; kind: FieldKind; options?: readonly string[] };
 

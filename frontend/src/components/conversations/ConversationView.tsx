@@ -78,7 +78,7 @@ export function ConversationView({
   character: Character;
   onBack?: () => void;
 }) {
-  const { open, close, go, guard } = useDirectory();
+  const { open, close, go, guard, account } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
   const [live, setLive] = useState<LiveConversation | null>(null);
@@ -284,6 +284,7 @@ export function ConversationView({
           layerRef={focus.layer}
           isFullScreen={isFullScreen}
           go={go}
+          exemptingKeys={account?.exempting_keys ?? null}
         />
       )}
       {outfits && (
@@ -488,7 +489,10 @@ function clock(at: string): string {
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** 失败提示：后端给的原因，知道算不算限额时加一句（GLOSSARY.md「限额」）。 */
+/** 失败提示：后端给的原因；撞上限额时说带上自己的 LLM 就不受限额（按钮是「去设置自带密钥」），
+ * 知道算不算限额时再加一句（GLOSSARY.md「限额」「免限额密钥」）。 */
 function failureText(failure: Failure): string {
-  return failure.countsTowardLimit === false ? `${failure.message} ${t.notCounted}` : failure.message;
+  return [failure.message, failure.toOwnKeys && t.ownLLMExempts, failure.countsTowardLimit === false && t.notCounted]
+    .filter(Boolean)
+    .join(" ");
 }

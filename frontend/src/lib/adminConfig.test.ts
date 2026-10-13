@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   changeOf,
   formOf,
+  exemptingKeysOf,
   ITEM_SPECS,
   lockedOn,
   UNLIMITED,
@@ -194,6 +195,14 @@ describe("limits", () => {
         exempting_stt: true,
       },
     });
+  });
+
+  it("reads which services are the exempting keys from the effective limits", () => {
+    expect(exemptingKeysOf({ turns_per_hour: 60, exempting_llm: true, exempting_tts: false, exempting_stt: true })).toEqual([
+      "llm",
+      "stt",
+    ]);
+    expect(exemptingKeysOf({ exempting_llm: false, exempting_tts: true, exempting_stt: false })).toEqual(["tts"]);
   });
 
   it("keeps the last exempting key on from being turned off, and no other switch", () => {
