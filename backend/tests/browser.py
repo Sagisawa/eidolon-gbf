@@ -5,10 +5,14 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 
 import httpx
 from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import AudioStreamTrack
+from fastapi import FastAPI
+
+from eidolon.assembly import Backend
 
 TIMEOUT = 10
 """Seconds to wait for anything over the connection; the loopback connects in well under one."""
@@ -126,11 +130,19 @@ async def open_browser() -> AsyncIterator[Browser]:
 
 
 async def until_gone(client: httpx.AsyncClient, pc_id: str) -> None:
-    """Wait until the backend has let go of the call: it no longer takes ICE candidates for it."""
+    """Wait until the backend has let go of the call and settled it: it no longer takes ICE
+    candidates for it, and has no call in progress. Pipecat lets go of the connection a moment
+    before the call is settled (its use kept or given back), so the first alone is not enough;
+    every test waiting here has no other call going."""
     end_of_candidates = {
         "pc_id": pc_id,
         "candidates": [{"candidate": "", "sdp_mid": "0", "sdp_mline_index": 0}],
     }
+    transport = client._transport  # the test client talks to the backend in-process
+    assert isinstance(transport, httpx.ASGITransport)
+    backend: Backend = cast(FastAPI, transport.app).state.backend
     async with asyncio.timeout(TIMEOUT):
         while (await client.patch("/api/offer", json=end_of_candidates)).status_code != 404:
+            await asyncio.sleep(0.05)
+        while backend.calls.in_progress:
             await asyncio.sleep(0.05)
