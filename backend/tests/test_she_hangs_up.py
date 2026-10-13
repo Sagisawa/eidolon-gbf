@@ -51,7 +51,6 @@ from tests.test_call_turns import (  # noqa: F401
     CallUnderTest,
     kinds,
     mano_call,
-    one_by_one,
     spoken,
     without_emotions,
 )
@@ -178,7 +177,8 @@ async def test_a_turn_that_fails_neither_has_her_hang_up_nor_counts(mano_call: C
 
     _, messages = await mano_call.run(
         llm,
-        one_by_one(*(spoken(f"废物{n}") for n in range(4))),
+        # 每句隔开到上一回合说完：只隔 50 毫秒时，慢的机器上下一句会当成补充并进上一回合。
+        [frame for n in range(4) for frame in (spoken(f"废物{n}"), SleepFrame(0.5))],
         affinity=[OUT_OF_LINE, OUT_OF_LINE, level(2), OUT_OF_LINE],
     )
 
