@@ -44,7 +44,7 @@ from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
-from eidolon.store import Conversation
+from eidolon.store import Conversation, ConversationEvent, Recorded
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 from eidolon.world import World
@@ -204,6 +204,13 @@ def _unit(character: Character, world: World | None) -> dict:
     unit, order = (world.unit_of(character.name) if world else None) or (None, None)
     reading = world.units[order].reading if world and order is not None else None
     return {"unit": unit, "unit_reading": reading, "unit_order": order}
+
+
+def _recorded(entry: Recorded) -> dict:
+    """A message or conversation event as the browser reads it."""
+    if isinstance(entry, ConversationEvent):  # whether she has responded is for her prompt
+        return {k: v for k, v in asdict(entry).items() if k != "responded"}
+    return asdict(entry.without_cues())
 
 
 def create_app(backend: Backend) -> FastAPI:
@@ -425,7 +432,8 @@ def create_app(backend: Backend) -> FastAPI:
     @app.get("/api/conversations/latest")
     def latest_conversations(user_id: UserId) -> list[dict]:
         """For the conversation list: each character's newest conversation with the user and
-        its last message (null while it has none), in one request."""
+        the last thing in it, a message or a conversation event (null while it has none), in
+        one request."""
         return [
             {
                 "character_id": c.character_id,
@@ -433,6 +441,8 @@ def create_app(backend: Backend) -> FastAPI:
                 "created_at": c.created_at,
                 "last_message": None
                 if last is None
+                else {"type": "event", "kind": last.kind, "created_at": last.created_at}
+                if isinstance(last, ConversationEvent)
                 else {
                     "role": last.role,
                     "text": last.text,
@@ -446,8 +456,9 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/conversations/{conversation_id}/messages")
     def list_messages(conversation_id: str, user_id: UserId) -> list[dict]:
+        """The conversation's record: its messages and conversation events, in order."""
         conversation = conversation_or_404(conversation_id, user_id)
-        return [asdict(m.without_cues()) for m in store.list_messages(conversation.id)]
+        return [_recorded(entry) for entry in store.record(conversation.id)]
 
     @app.post("/api/conversations/{conversation_id}/turns")
     def text_turn(

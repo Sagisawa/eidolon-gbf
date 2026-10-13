@@ -26,7 +26,7 @@ describe("previewOf", () => {
       latest({ role: "character", text: null, ja: "えっと", zh: "", created_at: "2026-09-28T02:00:00Z" }),
     );
 
-    expect(preview?.text).toBe("えっと");
+    expect(preview).toMatchObject({ text: "えっと" });
   });
 
   it("自己的话标成制作人说的", () => {
@@ -35,6 +35,12 @@ describe("previewOf", () => {
     );
 
     expect(preview).toEqual({ from: "you", text: "晚安", at: "2026-09-28T02:00:00Z" });
+  });
+
+  it("最后是一条对话事件时，预览是这件事，时间取它的", () => {
+    const preview = previewOf(latest({ type: "event", kind: "hung_up", created_at: "2026-09-28T03:00:00Z" }));
+
+    expect(preview).toEqual({ from: "event", event: "hung_up", at: "2026-09-28T03:00:00Z" });
   });
 
   it("刚开的新对话没有最后一句，时间是对话开始的时间", () => {
@@ -97,6 +103,16 @@ describe("arrange", () => {
         talked("hiori", "2026-09-01T00:00:00Z", "2026-09-30T23:00:00Z"),
       ),
     ).toEqual(["mamimi", "meguru", "hiori", "mano", "kogane"]);
+  });
+
+  it("最后是一条对话事件的，按事件的时间排", () => {
+    const hungUp = { ...talked("hiori", "2026-09-01T00:00:00Z") };
+    hungUp.last_message = { type: "event", kind: "hung_up", created_at: "2026-10-03T00:00:00Z" };
+
+    expect(order(talked("mano", "2026-10-01T00:00:00Z", "2026-10-02T09:00:00Z"), hungUp).slice(0, 2)).toEqual([
+      "hiori",
+      "mano",
+    ]);
   });
 
   it("开了新对话还没说话的，按开对话的时间算", () => {

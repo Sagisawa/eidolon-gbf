@@ -172,7 +172,7 @@ describe("conversationLog", () => {
       history,
     );
     expect(log.turn).toBeNull();
-    expect(log.entries.map((e) => (e.kind === "user" ? e.text : e.segments[0].ja))).toEqual([
+    expect(log.entries.map((e) => (e.kind === "character" ? e.segments[0].ja : e.kind === "user" ? e.text : e.event))).toEqual([
       "早上好",
       "おはよう",
       "一",
@@ -196,7 +196,7 @@ describe("conversationLog", () => {
     );
     expect(log.turn).toBeNull();
     expect(log.entries).toHaveLength(4);
-    expect(log.entries.every((e) => e.kind === "user" || !e.pending)).toBe(true);
+    expect(log.entries.every((e) => e.kind !== "character" || !e.pending)).toBe(true);
   });
 
   it("gives a new turn keys no entry shown with it has, after an earlier turn was dropped", () => {

@@ -36,7 +36,7 @@ import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys"
 import { settingsHref } from "@/lib/settingsCategory";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, CooldownIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, CooldownIcon, HangUpIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
@@ -344,6 +344,7 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
  * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复后面是一行变化胶囊。
+ * 对话事件占一整行分隔线。
  */
 function Messages({
   entries,
@@ -377,9 +378,13 @@ function Messages({
                     {cueText(line.change, character.name)}
                   </span>
                 </MessageScrollerItem>
+              ) : line.entry.kind === "event" ? (
+                <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className="my-3">
+                  <EventLine entry={line.entry} name={character.name} />
+                </MessageScrollerItem>
               ) : (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className={cn(line.first && "mt-2")}>
-                  <Bubbled line={line} character={character} />
+                  <Bubbled line={line} entry={line.entry} character={character} />
                 </MessageScrollerItem>
               ),
             )}
@@ -402,15 +407,32 @@ function Messages({
   );
 }
 
+/** 一条对话事件：两边细线，中间图标、一句话和时间；不用她的颜色。 */
+function EventLine({ entry, name }: { entry: Extract<Entry, { kind: "event" }>; name: string }) {
+  return (
+    <div role="note" className="flex items-center gap-3 px-2 text-sm text-muted-foreground">
+      <span aria-hidden className="h-px flex-1 bg-foreground/15" />
+      <span className="flex shrink-0 items-center gap-1.5">
+        <HangUpIcon aria-hidden className="size-4" />
+        {t.events[entry.event](name)}
+        <time className="text-meta tabular-nums">{clock(entry.at)}</time>
+      </span>
+      <span aria-hidden className="h-px flex-1 bg-foreground/15" />
+    </div>
+  );
+}
+
 /**
  * 一条消息。制作人的在右，深蓝墨水；她的在左，日语原文在上、中文字幕在下（The Original-Then-Subtitle Rule）。
  * 头像和名字只在一组的第一条，时间只在最后一条的外侧底部。
  */
 function Bubbled({
-  line: { entry, first, last },
+  line: { first, last },
+  entry,
   character,
 }: {
   line: Extract<Line, { kind: "entry" }>;
+  entry: Exclude<Entry, { kind: "event" }>;
   character: Character;
 }) {
   const time = <time className="shrink-0 pb-0.5 text-meta text-muted-foreground tabular-nums">{clock(entry.at)}</time>;

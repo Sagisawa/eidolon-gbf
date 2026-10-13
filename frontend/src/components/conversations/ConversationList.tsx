@@ -14,7 +14,7 @@ import { showTime } from "@/lib/callTime";
 import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
 import { pin, setShown, unpin } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
-import { PinIcon, SearchIcon } from "@/theme/icons";
+import { HangUpIcon, PinIcon, SearchIcon } from "@/theme/icons";
 
 import { Announcements } from "./Announcements";
 import { useDirectory, type CallInList } from "./ConversationDirectory";
@@ -161,17 +161,27 @@ function Row({
   const time = useCallTime(call?.state);
   // 长按打开菜单后，松手时浏览器可能还会补发一次点击；菜单打开之后、下一次按下之前的点击不打开对话。
   const openedMenu = useRef(false);
-  const description = call
-    ? time
-      ? copy.call.listConnected(showTime(time))
-      : copy.call.dialing
-    : !preview
-      ? t.neverTalked
-      : preview.from === "you"
-        ? t.you(preview.text)
-        : preview.from === "her"
-          ? preview.text
-          : t.nothingSaidYet;
+  const description = call ? (
+    time ? (
+      copy.call.listConnected(showTime(time))
+    ) : (
+      copy.call.dialing
+    )
+  ) : !preview ? (
+    t.neverTalked
+  ) : preview.from === "event" ? (
+    // 对话事件：图标加原文，不加「你：」
+    <>
+      <HangUpIcon aria-hidden className="mr-1 inline size-3.5 align-middle" />
+      {copy.conversation.events[preview.event](character.name)}
+    </>
+  ) : preview.from === "you" ? (
+    t.you(preview.text)
+  ) : preview.from === "her" ? (
+    preview.text
+  ) : (
+    t.nothingSaidYet
+  );
   return (
     <ContextMenu
       onOpenChange={(open) => {

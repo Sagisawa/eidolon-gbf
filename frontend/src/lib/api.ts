@@ -84,13 +84,16 @@ export type Conversation = {
   created_at: string;
 };
 
-/** A character's newest conversation with the user and its last message (null while it has
- * none), for the conversation list. */
+/** A character's newest conversation with the user and the last thing in it, a message or a
+ * conversation event (null while it has none), for the conversation list. */
 export type LatestConversation = {
   character_id: string;
   conversation_id: string;
   created_at: string;
-  last_message: Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> | null;
+  last_message:
+    | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
+    | Pick<ConversationEvent, "type" | "kind" | "created_at">
+    | null;
 };
 
 export type Segment = { ja: string; zh: string };
@@ -106,6 +109,21 @@ export type Message = {
   /** How the turn changed her affinity, on her reply; null where it did not (and always on the user's). */
   affinity: AffinityChange | null;
 };
+
+/** The kinds of conversation event (GLOSSARY.md「对话事件」): so far only her hanging up. */
+export type EventKind = "hung_up";
+
+/** Something that happened in a conversation that is not a turn, recorded among its messages. */
+export type ConversationEvent = {
+  type: "event";
+  id: number;
+  kind: EventKind;
+  created_at: string;
+  affinity: AffinityChange | null;
+};
+
+/** What a conversation's record holds, in order. */
+export type Recorded = Message | ConversationEvent;
 
 /** A turn's events: `user`, then any `delta`s, then `done` or `error`. `done` says too where
  * the turn left her affinity, null while affinity is off. */
@@ -448,7 +466,8 @@ export async function createConversation(characterId: string): Promise<Conversat
   );
 }
 
-export async function listMessages(conversationId: string): Promise<Message[]> {
+/** The conversation's record: its messages and conversation events, in order. */
+export async function listMessages(conversationId: string): Promise<Recorded[]> {
   return json(await api(`/api/conversations/${conversationId}/messages`));
 }
 

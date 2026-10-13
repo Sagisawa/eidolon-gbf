@@ -39,6 +39,10 @@ recorded changes nothing; one the judge model could not judge leaves it as it is
 replies in the tier the turn began in, knowing how what the user said made her feel, and
 parting with the user if it is to begin a cooldown (GLOSSARY.md「冷却」); in one, she has no
 turns (`Admissions`).
+
+She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
+before the user's words that came next, or before what the user is saying now; it leaves
+her prompt with those words. Retrieval, memory and the judge model read only the messages.
 """
 
 import asyncio
@@ -66,7 +70,15 @@ from eidolon.reply_format import (
     format_reply,
 )
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
-from eidolon.store import Conversation, Message, Store
+from eidolon.store import (
+    Conversation,
+    ConversationEvent,
+    EventKind,
+    Message,
+    Recorded,
+    Store,
+    timestamp,
+)
 from eidolon.world import World
 
 MAX_INPUT_LENGTH = 2000
@@ -189,6 +201,25 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     return messages[kept[0]:] if kept else []
 
 
+NARRATIONS: dict[EventKind, str] = {"hung_up": "（你挂断了制作人的电话。）"}
+"""What she is told of each kind of conversation event."""
+
+
+def narrations(record: list[Recorded]) -> dict[int | None, str]:
+    """The narration of the events in `record`, by the id of the user message each comes
+    before, None for those after them all: one line for each event."""
+    lines: list[str] = []
+    told: dict[int | None, str] = {}
+    for entry in record:
+        if isinstance(entry, ConversationEvent):
+            lines.append(f"{NARRATIONS[entry.kind]}\n")
+        elif entry.role == "user" and lines:
+            told[entry.id], lines = "".join(lines), []
+    if lines:
+        told[None] = "".join(lines)
+    return told
+
+
 class ConversationEngine:
     def __init__(
         self,
@@ -253,8 +284,11 @@ class ConversationEngine:
         device_timezone: str | None,
         stop: asyncio.Event | None,
     ) -> AsyncIterator[TurnEvent]:
+        said_at = timestamp()
         character = self._characters[conversation.character_id]
-        history = latest_turns(self._store.list_messages(conversation.id), self._history_turns())
+        record = self._store.record(conversation.id)
+        messages = [entry for entry in record if isinstance(entry, Message)]
+        history = latest_turns(messages, self._history_turns())
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
         judged_apart = None
@@ -287,7 +321,9 @@ class ConversationEngine:
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
-        prompt = self._prompt(character, world_prompt, about_producer, history, retrieved, text)
+        prompt = self._prompt(
+            character, world_prompt, about_producer, history, narrations(record), retrieved, text
+        )
 
         tools: list[Tool] = (
             [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
@@ -327,7 +363,7 @@ class ConversationEngine:
         if not parser.complete:
             raise EmptyReply("对话模型没有返回任何内容")
         reply, affinity = self._record(
-            conversation, text, parser.complete, judged, timezone, affinity
+            conversation, text, said_at, parser.complete, judged, timezone, affinity
         )
         memory.write_down(history, text, reply)
         yield TurnDone(reply.without_cues(), affinity and affinity.shown())
@@ -348,18 +384,20 @@ class ConversationEngine:
         self,
         conversation: Conversation,
         text: str,
+        said_at: str,
         reply: list[Segment],
         judged: Judged | None,
         timezone: str,
         affinity: Status | None,
     ) -> tuple[Message, Status | None]:
-        """Record the turn, changing her affinity as `judged` says, if judged: the reply,
-        and her affinity after it (`affinity`, as the turn began, if not judged)."""
+        """Record the turn, as said at `said_at`, changing her affinity as `judged` says, if
+        judged: the reply, and her affinity after it (`affinity`, as the turn began, if not
+        judged)."""
         if judged is None or self._affinities is None:
-            return self._store.add_turn(conversation.id, text, reply), affinity
+            return self._store.add_turn(conversation.id, text, reply, said_at=said_at), affinity
         return self._affinities.change(
             conversation.user_id, conversation.character_id, judged, timezone,
-            lambda change: self._store.add_turn(conversation.id, text, reply, change),
+            lambda change: self._store.add_turn(conversation.id, text, reply, change, said_at),
         )
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:
@@ -377,6 +415,7 @@ class ConversationEngine:
         world_prompt: str | None,
         about_producer: str,
         history: list[Message],
+        narration: dict[int | None, str],
         retrieved: Retrieved,
         text: str,
     ) -> list[ChatMessage]:
@@ -392,8 +431,9 @@ class ConversationEngine:
         prompt = [ChatMessage("system", system)]
         for message in history:
             if message.role == "user":
-                prompt.append(ChatMessage("user", message.text or ""))
+                told = narration.get(message.id, "")
+                prompt.append(ChatMessage("user", f"{told}{message.text or ''}"))
             else:
                 prompt.append(ChatMessage("assistant", format_reply(message.segments)))
-        prompt.append(ChatMessage("user", text))
+        prompt.append(ChatMessage("user", f"{narration.get(None, '')}{text}"))
         return prompt

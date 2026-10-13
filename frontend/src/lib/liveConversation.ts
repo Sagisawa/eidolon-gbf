@@ -5,7 +5,7 @@
 // clicks.
 
 import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
-import { ApiError, type CallEvent, type Conversation, type Message, type Segment, type TurnEvent } from "@/lib/api";
+import { ApiError, type CallEvent, type Conversation, type Recorded, type Segment, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
@@ -208,7 +208,7 @@ export type Ports = {
   /** Her conversations, newest first. */
   listConversations: (characterId: string) => Promise<Conversation[]>;
   createConversation: (characterId: string) => Promise<Conversation>;
-  listMessages: (conversationId: string) => Promise<Message[]>;
+  listMessages: (conversationId: string) => Promise<Recorded[]>;
   /** The conversation list's line for her has changed: a turn was recorded, or a
    * conversation was started. Told even after the page is left. */
   onListChanged: () => void;
@@ -628,7 +628,7 @@ export class LiveConversation {
   /** Opens her newest conversation, or starts one if she has none. */
   private async open(): Promise<void> {
     let conversation: Conversation;
-    let messages: Message[];
+    let messages: Recorded[];
     try {
       const [newest] = await this.ports.listConversations(this.characterId);
       // The page left: no conversation is started for it.
@@ -651,7 +651,7 @@ export class LiveConversation {
   }
 
   /** Shows this conversation and its messages from now on: it is open. */
-  private showConversation(conversationId: string, messages: Message[], change: Partial<State> = {}): void {
+  private showConversation(conversationId: string, messages: Recorded[], change: Partial<State> = {}): void {
     this.conversationId = conversationId;
     this.apply(
       { type: "loaded", messages },

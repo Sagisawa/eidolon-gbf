@@ -284,7 +284,7 @@ class FakeJudgeModel:
     `judgings` says, as having no effect once they run out, recording what the user said
     (`affinity_asked`). Records the key each request came with and what it asked (`asked`:
     "turn", with or without affinity's questions, "affinity" for those alone, "emotion" or
-    "check")."""
+    "check"), and everything it was told of each (`states`)."""
 
     def __init__(self) -> None:
         self.needs: FakeJudge | None = None
@@ -294,6 +294,7 @@ class FakeJudgeModel:
         self.judgings: list[Judging] = []
         self.asked: list[tuple[str, str]] = []
         self.affinity_asked: list[str] = []
+        self.states: list[dict[str, Any]] = []
 
     async def answer(
         self, key: str, state: dict[str, Any], questions: dict[str, dict]
@@ -305,6 +306,7 @@ class FakeJudgeModel:
             else "check"
         )
         self.asked.append((key, kind))
+        self.states.append(state)
         affinity = {}
         if AFFINITY_LEVEL in questions:
             self.affinity_asked.append(state[SAID])
