@@ -29,6 +29,11 @@ been out of line in it too many times (`hangs_up`); a cooldown begun elsewhere h
 up the user's calls with her straight away (`Affinities.on_cooldown`). Nothing else has her
 hang up.
 
+Gifts (GLOSSARY.md「礼物」) raise it faster than it recovers, by their rarity and by more if
+she likes the one given, by no more than a little each in a cooldown; draws give them, a
+chance a day, and now and then a reset card instead (GLOSSARY.md「抽奖」「重置卡」). How much
+and how likely are here with the rest.
+
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
 Deleting the user deletes it (`database.USER_DATA`); deleting memories does not touch it.
@@ -43,6 +48,7 @@ from typing import Literal, TypeVar
 
 from eidolon.clock import Clock
 from eidolon.database import connect
+from eidolon.gift_catalog import Rarity
 from eidolon.producer import local_date
 
 T = TypeVar("T")
@@ -82,6 +88,30 @@ GAINS_PER_DAY = 6.0
 
 OUT_OF_LINE_PER_CALL = 2
 """How many times the user may be out of line in one call: she hangs up after the last."""
+
+GIFT_STEPS: dict[Rarity, float] = {"common": 3.0, "uncommon": 5.0, "rare": 7.0}
+"""How much a gift raises it by its rarity. Gifts are not turns: no day's limit holds them,
+and the rarest she likes raises it more than a day's turns can."""
+
+LIKED_GIFT_STEP = 3.0
+"""How much more a gift she likes raises it, whatever its rarity."""
+
+COOLDOWN_GIFT_STEP = 3.0
+"""How much a gift raises it at most while she is in a cooldown, whatever its rarity and
+whether she likes it: four bring her out of one begun at 0, sooner than recovery would."""
+
+DRAWS_PER_DAY = 1
+"""How many draw chances (GLOSSARY.md「抽奖」) the user is given each day, at the producer's
+own midnight."""
+
+MAX_DRAWS = 7
+"""How many draw chances the user can keep at most: a week's."""
+
+DRAW_ODDS: dict[Rarity | Literal["reset_card"], int] = {
+    "reset_card": 1, "common": 69, "uncommon": 25, "rare": 5,
+}
+"""What a draw gives, in percent: a reset card, or a gift of each rarity, any of that rarity's
+not retired as likely as another; no draw is guaranteed anything rarer."""
 
 _SCHEMA = """
 -- One row per user and character who have had any; none is the normal value, not in a

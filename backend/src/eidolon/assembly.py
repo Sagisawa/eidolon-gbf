@@ -1,7 +1,7 @@
 """The assembly root: from settings to the running backend, and back down again.
 
 `build` makes every module the backend runs on from `Settings`: the store, the
-characters and the world setting beside them, the identity providers users sign in with, the chat and background models,
+characters and the world setting and gift catalog beside them, the identity providers users sign in with, the chat and background models,
 the services users bring their own keys to, retrieval, memory, the conversation engine,
 usage limits and voice calls. It decides what is on. Retrieval needs the judge model, the
 embedder and the reranker all at hand, and memory is on only with retrieval, since only
@@ -35,6 +35,7 @@ from eidolon.affinity import Affinities
 from eidolon.announcements import Announcements
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
+from eidolon.gift_catalog import Gift, gifts_path, load_gift_catalog
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
@@ -71,6 +72,8 @@ class Backend:
     settings: Settings
     store: Store
     characters: dict[str, Character]
+    gifts: dict[str, Gift]
+    """The gift catalog, by identifier."""
     memories: Memories
     engine: ConversationEngine
     usage: UsageLimiter
@@ -126,8 +129,10 @@ def build(
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
-    configuration or the world setting is broken, or a character is none of its idols."""
+    configuration, the world setting or the gift catalog is broken, or a character is none of
+    its idols."""
     characters = load_characters(settings.characters_path)
+    gifts = load_gift_catalog(gifts_path(settings.characters_path))
     world = load_world(path := world_path(settings.characters_path))
     if world is None:
         log.info(
@@ -252,6 +257,7 @@ def build(
         settings=settings,
         store=store,
         characters=characters,
+        gifts=gifts,
         memories=memories,
         engine=engine,
         usage=usage,

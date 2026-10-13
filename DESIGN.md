@@ -306,6 +306,8 @@ components:
 
 **The Library Icon Rule.** 图标只从 Lucide 取；不手绘 SVG，不用字符或 emoji 当图标。品牌标志是唯一的例外，只能用 simple-icons 的官方路径。
 
+**礼物插画不算界面图标。** 礼物页、抽奖结果、送礼面板里的礼物用它的插画（`public/gifts/<id>.webp`，「柔和平涂」的生成图，放在 `bg-muted` 圆角方块里）；按钮、导航、对话事件分隔线、对话列表的最后一句这些界面图标仍然只用 Lucide。插画没有 Lucide 后备：一件礼物没有插画就不上线。重置卡不是礼物，没有插画，用 Lucide 的票券图标。
+
 ## Do's and Don'ts
 
 ### Do:

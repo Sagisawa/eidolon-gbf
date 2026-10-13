@@ -68,10 +68,12 @@ MANO_SHEET = "# 人设\n你是櫻木真乃。口癖是「ほわっ」。"
 KOGANE_SHEET = "# 人设\n你是月岡恋鐘。说长崎方言。"
 AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
 BACKGROUND = b"\xff\xd8\xff fake background"
+REPO_GIFTS = Path(__file__).parents[2] / "characters" / "gifts.toml"
 
 
 class CharacterConfig:
-    """Writes a character configuration directory, the way an administrator would."""
+    """Writes a character configuration directory, the way an administrator would, with the
+    repository's gift catalog beside it unless a test writes its own (`gifts.toml`)."""
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -135,6 +137,8 @@ class CharacterConfig:
         self._entries.append(entry)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")
+        if not (gifts := self.directory / "gifts.toml").exists():
+            gifts.write_bytes(REPO_GIFTS.read_bytes())
         return self
 
     def write(self, relative: str, content: str | bytes) -> None:
