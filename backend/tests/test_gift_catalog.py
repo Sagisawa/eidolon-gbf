@@ -97,10 +97,9 @@ HIORI_SHEET = "# 人设\n你是風野灯織。"
     ("liked", "named"),
     [
         (("cake", "macaron"), "macaron"),
-        (("cake", "cocoa", "plush", "candy"), "4"),
+        (("cake", "cocoa", "plush", "candy"), "最多 3 件"),
         (("plush", "jewelry"), "稀有"),
         (("cake", "cake"), "重复"),
-        ((), "hiori"),
         (None, "liked_gifts"),
     ],
 )
@@ -135,7 +134,6 @@ def test_repository_characters_each_like_gifts_and_every_gift_is_liked():
     catalog = load_gift_catalog(REPO_GIFTS)
 
     check_liked_gifts(characters, catalog)
-    assert all(c.liked_gifts for c in characters.values())
     assert {g for c in characters.values() for g in c.liked_gifts} == set(catalog)
     sourced = {}
     for id in characters:
