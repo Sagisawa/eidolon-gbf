@@ -107,6 +107,17 @@ export function useWide(): boolean {
   return useMediaQuery("(min-width: 768px)", true);
 }
 
+/** 这次点击链接是在新标签页（或新窗口）打开，不在这一页换页。 */
+export function opensNewTab(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return (
+    event.ctrlKey ||
+    event.metaKey ||
+    event.shiftKey ||
+    event.button !== 0 ||
+    event.currentTarget.target === "_blank"
+  );
+}
+
 const DirectoryContext = createContext<Directory | null>(null);
 
 /** 外壳还没持有对话时，列表看到的那份空快照。 */
@@ -275,13 +286,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const guard = useCallback(
     (href: string, isDocument = false) =>
       (event: MouseEvent<HTMLAnchorElement>) => {
-        const newTab =
-          event.ctrlKey ||
-          event.metaKey ||
-          event.shiftKey ||
-          event.button !== 0 ||
-          event.currentTarget.target === "_blank";
-        if (newTab || event.defaultPrevented) return;
+        if (opensNewTab(event) || event.defaultPrevented) return;
         const leave = () => (isDocument ? window.location.assign(href) : router.push(href));
         if (asks(href, leave)) event.preventDefault();
       },

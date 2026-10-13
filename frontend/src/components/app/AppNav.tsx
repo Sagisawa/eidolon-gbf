@@ -4,7 +4,7 @@ import NextLink from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type MouseEvent } from "react";
 
-import { useDirectory } from "@/components/conversations/ConversationDirectory";
+import { opensNewTab, useDirectory } from "@/components/conversations/ConversationDirectory";
 import { Button } from "@/components/ui/button";
 import { copy } from "@/i18n";
 import { currentNavItem, FIRST_LEVEL, isTyping, NAV_ITEMS, navDestination, type NavItem } from "@/lib/navShell";
@@ -20,13 +20,12 @@ const ICONS: Record<NavItem, typeof SettingsIcon> = {
 
 /**
  * 导航栏（电脑）：最左一条 72px，右边一条细线，不能收起；对话、礼物、设置从上往下，GitHub 仓库链接在最底下
- * （DESIGN.md「Layout」）。窄屏由 CSS 藏起来，换成 dock。
+ * （DESIGN.md「Layout」）。窄屏由 CSS 藏起来，换成 dock。通话层只盖住它右边，展开时它照样能点（见 NavLinks）。
  */
-export function NavRail({ isInert }: { isInert: boolean }) {
+export function NavRail() {
   return (
     <nav
       aria-label={copy.nav.label}
-      inert={isInert}
       className="flex w-18 shrink-0 flex-col items-center gap-2 border-r bg-background py-3 max-md:hidden"
     >
       <NavLinks className="w-16 gap-1 rounded-lg py-1" />
@@ -68,10 +67,11 @@ export function NavDock({ isInert }: { isInert: boolean }) {
 /**
  * 导航的每一项：图标在上、字在下；当前项（按网址，外壳的去处规则）图标铺中性的 bg-muted 圆角底、字 foreground 加 medium，
  * 标 `aria-current="page"`。点别的项去那一项的第一级；在二级页面上（她的对话页）再点当前项回到第一级，已在第一级时不动。
+ * 通话层展开着（只有电脑上点得到，手机上它盖住 dock）时先收起，结束卡就放下，通话照常，去处顶上是通话条。
  */
 function NavLinks({ className }: { className: string }) {
   const pathname = usePathname();
-  const { guard } = useDirectory();
+  const { guard, held } = useDirectory();
   const current = currentNavItem(pathname);
   return NAV_ITEMS.map((item) => {
     const Icon = ICONS[item];
@@ -80,6 +80,10 @@ function NavLinks({ className }: { className: string }) {
       const to = navDestination(item, pathname);
       if (to === null) event.preventDefault();
       else guard(to)(event);
+      if (!opensNewTab(event) && held?.snapshot().layer?.collapsed === false) {
+        held.collapse();
+        held.dismissEnd();
+      }
     };
     return (
       <NextLink
