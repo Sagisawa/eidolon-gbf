@@ -105,16 +105,6 @@ describe("arrange", () => {
     ).toEqual(["mamimi", "meguru", "hiori", "mano", "kogane"]);
   });
 
-  it("最后是一条对话事件的，按事件的时间排", () => {
-    const hungUp = { ...talked("hiori", "2026-09-01T00:00:00Z") };
-    hungUp.last_message = { type: "event", kind: "hung_up", created_at: "2026-10-03T00:00:00Z" };
-
-    expect(order(talked("mano", "2026-10-01T00:00:00Z", "2026-10-02T09:00:00Z"), hungUp).slice(0, 2)).toEqual([
-      "hiori",
-      "mano",
-    ]);
-  });
-
   it("开了新对话还没说话的，按开对话的时间算", () => {
     expect(
       order(

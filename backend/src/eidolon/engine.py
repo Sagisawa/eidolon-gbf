@@ -284,9 +284,11 @@ class ConversationEngine:
         device_timezone: str | None,
         stop: asyncio.Event | None,
     ) -> AsyncIterator[TurnEvent]:
-        said_at = timestamp()
         character = self._characters[conversation.character_id]
         record = self._store.record(conversation.id)
+        # Said after reading the record, so an event this turn's prompt does not tell of
+        # comes before the turn, and is told of with its words from the next turn on.
+        said_at = timestamp()
         messages = [entry for entry in record if isinstance(entry, Message)]
         history = latest_turns(messages, self._history_turns())
         affinity = self._affinity(conversation)

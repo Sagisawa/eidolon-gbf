@@ -9,14 +9,15 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
-import type { Character } from "@/lib/api";
+import type { Character, EventKind } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
 import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
 import { pin, setShown, unpin } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
-import { HangUpIcon, PinIcon, SearchIcon } from "@/theme/icons";
+import { PinIcon, SearchIcon } from "@/theme/icons";
 
 import { Announcements } from "./Announcements";
+import { EVENT_ICONS } from "./EventIcon";
 import { useDirectory, type CallInList } from "./ConversationDirectory";
 import { ListFilter } from "./ListFilter";
 import { useCallTime } from "./useCallTime";
@@ -170,11 +171,7 @@ function Row({
   ) : !preview ? (
     t.neverTalked
   ) : preview.from === "event" ? (
-    // 对话事件：图标加原文，不加「你：」
-    <>
-      <HangUpIcon aria-hidden className="mr-1 inline size-3.5 align-middle" />
-      {copy.conversation.events[preview.event](character.name)}
-    </>
+    <EventPreview event={preview.event} name={character.name} />
   ) : preview.from === "you" ? (
     t.you(preview.text)
   ) : preview.from === "her" ? (
@@ -225,6 +222,17 @@ function Row({
         <ContextMenuItem onClick={onToggleHidden}>{isHidden ? t.show : t.hide}</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}
+
+/** 最后一句是对话事件时：图标加原文，不加「你：」。 */
+function EventPreview({ event, name }: { event: EventKind; name: string }) {
+  const Icon = EVENT_ICONS[event];
+  return (
+    <>
+      <Icon aria-hidden className="mr-1 inline size-3.5 align-middle" />
+      {copy.conversation.events[event](name)}
+    </>
   );
 }
 

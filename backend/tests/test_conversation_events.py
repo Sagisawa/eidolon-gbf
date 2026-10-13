@@ -113,7 +113,7 @@ async def test_she_learns_of_it_before_the_users_next_words_which_are_kept_as_sa
     make_client: ClientFactory, settings: Settings
 ):
     llm = FakeLLM(REPLY, REPLY, REPLY)
-    client = make_client(llm)
+    client = make_client(llm)  # affinity off, as it is by default: she learns of it all the same
     conversation = await start_conversation(client)
     await send_turn(client, conversation, "第一句")
     hang_up(settings.database_path, conversation)
@@ -175,10 +175,10 @@ async def test_memory_and_the_judge_model_never_see_it(
     assert clients.judge.affinity_asked == ["第一句", "刚才怎么了", "第三句"]
 
 
-async def test_the_conversation_lists_last_message_can_be_an_event(
+async def test_the_conversation_lists_last_message_can_be_an_event_until_the_next_turn(
     make_client: ClientFactory, settings: Settings
 ):
-    client = make_client(FakeLLM(REPLY))
+    client = make_client(FakeLLM(REPLY, REPLY))
     conversation = await start_conversation(client)
     await send_turn(client, conversation, "第一句")
 
@@ -186,15 +186,6 @@ async def test_the_conversation_lists_last_message_can_be_an_event(
 
     [latest] = (await client.get("/api/conversations/latest")).json()
     assert latest["last_message"] == {"type": "event", "kind": "hung_up", "created_at": at}
-
-
-async def test_a_turn_after_it_is_the_last_message_again(
-    make_client: ClientFactory, settings: Settings
-):
-    client = make_client(FakeLLM(REPLY, REPLY))
-    conversation = await start_conversation(client)
-    await send_turn(client, conversation, "第一句")
-    hang_up(settings.database_path, conversation)
 
     await send_turn(client, conversation, "第二句")
 

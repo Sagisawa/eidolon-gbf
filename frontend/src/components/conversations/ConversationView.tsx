@@ -36,11 +36,12 @@ import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys"
 import { settingsHref } from "@/lib/settingsCategory";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, CooldownIcon, HangUpIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, CooldownIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
 import { CallBar } from "./CallBar";
+import { EVENT_ICONS } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
@@ -409,11 +410,12 @@ function Messages({
 
 /** 一条对话事件：两边细线，中间图标、一句话和时间；不用她的颜色。 */
 function EventLine({ entry, name }: { entry: Extract<Entry, { kind: "event" }>; name: string }) {
+  const Icon = EVENT_ICONS[entry.event];
   return (
     <div role="note" className="flex items-center gap-3 px-2 text-sm text-muted-foreground">
       <span aria-hidden className="h-px flex-1 bg-foreground/15" />
       <span className="flex shrink-0 items-center gap-1.5">
-        <HangUpIcon aria-hidden className="size-4" />
+        <Icon aria-hidden className="size-4" />
         {t.events[entry.event](name)}
         <time className="text-meta tabular-nums">{clock(entry.at)}</time>
       </span>
