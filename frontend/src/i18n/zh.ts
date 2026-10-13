@@ -100,8 +100,6 @@ export const zh = {
     backToList: "回到对话列表",
     /** 失败时说明这次算不算进限额（GLOSSARY.md「限额」「回合」）。 */
     notCounted: "这次没有计入限额。",
-    /** 部署要求自带 LLM、这个浏览器里又没存时（GLOSSARY.md「必须自带 LLM」），输入框和电话键换成这一句和「去设置自带密钥」。 */
-    ownLLMRequired: "这个部署需要你自带 LLM，填上以后就能发消息和打电话；语音合成和语音识别可以不填。",
     /** 页首的好感度标识和它点开的说明（GLOSSARY.md「好感度」「冷却」）。只说档位，不说数值。 */
     affinity: {
       tiers: { cold: "冷淡", distant: "疏远", trust: "信任", close: "亲近", intimate: "亲密" },
@@ -228,11 +226,6 @@ export const zh = {
         title: "这一小时的通话次数用完了",
         body: "语音识别、语音合成和 LLM 都用自带密钥的通话不计入限额。",
       },
-      /** 部署要求自带 LLM、这次没带（GLOSSARY.md「必须自带 LLM」）；后端的原话放在标题下面。 */
-      own_llm_required: {
-        title: "要先填上你自己的 LLM",
-        body: "只填 LLM 也能打电话，语音合成和语音识别用部署者的；这样的通话计入每小时的通话次数。",
-      },
       own_key: {
         title: "你的自带密钥出错了",
         body: "自带密钥调用失败时，不会悄悄改用部署者的密钥。检查一下设置页里的密钥再重拨。",
@@ -256,7 +249,7 @@ export const zh = {
   },
   failure: {
     signIn: "去登录",
-    /** 部署要求自带 LLM、这次没带时（GLOSSARY.md「必须自带 LLM」），和通话结束卡上的同一句。 */
+    /** 填上自带密钥就能解决时，和通话结束卡上的同一句。 */
     toOwnKeys: "去设置自带密钥",
   },
   login: {
@@ -455,11 +448,6 @@ export const zh = {
       exemptTurns: "文字对话用的是你自己的 LLM，不计入每小时限额；语音通话要三项都自带才不计入。",
       exemptNone: "现在用的是部署者的服务，文字对话和语音通话都计入每小时限额。",
       perCallLimits: "单次通话的时长和轮数上限对所有人都一样。",
-      /** 这位用户现在必须自带 LLM 时（GLOSSARY.md「必须自带 LLM」）：LLM 标成必填，并照实说明通话怎么计数。 */
-      ownLLMRequired:
-        "这个部署需要你自带 LLM，填上以后才能发消息和打电话。语音合成和语音识别可以不填，用部署者的；只自带 LLM 的通话仍计入每小时的通话次数。",
-      required: "必填",
-      llmNotSetRequired: "未填写，填上以后才能发消息和打电话",
       cannotKeep:
         "这个浏览器无法保存自带密钥，可能开着隐私模式，或者禁止了网站保存数据。换一个浏览器，或者允许本站保存数据后再填写。",
       llmTitle: "LLM（扮演角色、记住你说的事）",
@@ -835,15 +823,6 @@ export const zh = {
         turns: "回合",
         calls: "通话",
         summary: (turns: string, calls: string) => `回合 ${turns} · 通话 ${calls}`,
-        /** 被放行时跟在回合、通话后面（GLOSSARY.md「必须自带 LLM」）。 */
-        withDeployerLlm: (summary: string) => `${summary} · 可以用部署者的 LLM`,
-        /** 用户详情里单列一行：这位用户有没有被放行。 */
-        deployerLlmLabel: "部署者的 LLM",
-        deployerLlm: {
-          yes: "可以",
-          no: "不可以",
-          noEffect: "可以，但两项都只能用自带密钥，不起作用",
-        },
         updatedAt: "设定于",
         set: "设定单独限额",
         edit: "修改单独限额",
@@ -856,9 +835,6 @@ export const zh = {
         calls: "每小时的通话次数",
         choices: { default: "跟随全站", number: "设定次数", unlimited: "不限", ownKeys: "只能用自带密钥" },
         ownKeysHint: "部署者的 key 一次也不放行，只放行用自带密钥的。",
-        deployerLlm: "可以用部署者的 LLM",
-        deployerLlmHint:
-          "部署要求必须自带 LLM 时，这位用户不带也能发起回合和通话，照常计入限额。选成「只能用自带密钥」的一项不受影响；两项都选成它时，这一项不起作用。",
         /** 「跟随全站」带上全站现在的数字，不用去配置页查：「跟随全站（60 次）」。 */
         defaultIs: (site: string) => `跟随全站（${site}）`,
         siteCount: (n: number) => (n === 0 ? "不限" : `${n} 次`),
@@ -867,7 +843,7 @@ export const zh = {
         note: "备注",
         noteHint: "只有管理者看得到。",
         confirm: "保存",
-        needsOne: "至少要单独设定一项，或者勾上「可以用部署者的 LLM」；都不设的话，用「取消单独限额」。",
+        needsOne: "至少要单独设定一项；两项都跟随全站的话，用「取消单独限额」。",
         needsCount: "填 1 以上的次数。",
       },
       delete: "删除这位用户",
@@ -916,7 +892,7 @@ export const zh = {
         },
         limits: {
           title: "限额、单次通话上限和历史回合数",
-          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。「必须自带 LLM」也在这里开关。",
+          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。",
         },
         affinity: {
           title: "好感度和礼物",
@@ -955,7 +931,6 @@ export const zh = {
         call_minutes: "单次通话的时长上限（分钟）",
         turns_per_call: "单次通话的回合上限",
         history_turns: "带上的历史回合数",
-        own_llm_required: "必须自带 LLM",
         enabled: "好感度和礼物",
       } as Record<string, string>,
       formHints: {
@@ -965,8 +940,6 @@ export const zh = {
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",
-        own_llm_required:
-          "打开后，用户没填自己的 LLM 就不能发起文字回合和通话，会被拒绝并提示去设置里填写，被拒绝的回合和通话不计入限额。只填了 LLM 的通话用部署者的语音合成和语音识别，照常计入每小时通话次数。管理者不受这项要求约束；进行中的通话不受影响。",
       } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,
@@ -976,7 +949,7 @@ export const zh = {
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
       },
       unlimited: "不限",
-      /** 开关类的值（必须自带 LLM、好感度和礼物）。 */
+      /** 开关类的值（好感度和礼物）。 */
       switchOn: "打开",
       switchOff: "关闭",
       /** 限额一项先选种类：设定上限，或者不限。不用 0 表示不限（单独限额里另有「只能用自带密钥」）。 */

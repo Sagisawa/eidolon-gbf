@@ -28,13 +28,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { cueText, untilText } from "@/lib/affinity";
-import type { Account, Character } from "@/lib/api";
+import type { Character } from "@/lib/api";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, openIdOf, type LiveConversation } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
-import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import { BackIcon, CooldownIcon, GiftIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
@@ -70,22 +69,15 @@ const noSubscription = () => () => {};
  * 好感度和礼物同一个开关，好感度读不到时这些入口都不在。
  */
 export function ConversationView({
-  account,
+  userId,
   character,
   onBack,
 }: {
-  /** 登录的用户：发回合时带上浏览器里存的、这位用户的自带 LLM；他必须自带 LLM 而这个浏览器里没存时提前拦下。 */
-  account: Account;
+  /** 登录的用户：发回合时带上浏览器里存的、这位用户的自带 LLM。 */
+  userId: string;
   character: Character;
   onBack?: () => void;
 }) {
-  const userId = account.id;
-  // 必须自带 LLM、这个浏览器里又没存：输入框和电话键换成提示和去设置的链接。存了（这个或别的标签页）当场恢复。
-  const ownLLMMissing = useSyncExternalStore(
-    subscribeOwnKeys,
-    () => needsOwnLLM(account, localOwnKeys(userId)),
-    () => false,
-  );
   const { open, close, go, guard } = useDirectory();
   const isFullScreen = !useWide();
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
@@ -137,7 +129,7 @@ export function ConversationView({
         <PhoneIcon className="size-5 fill-current text-her-mark" />
       </Button>
     </HeaderTip>
-  ) : ownLLMMissing ? null : (
+  ) : (
     <HeaderTip label={t.callTooltip}>
       <Button
         ref={focus.phoneKey}
@@ -226,11 +218,6 @@ export function ConversationView({
         {copy.gifts.giveHer}
       </Button>
     </div>
-  ) : ownLLMMissing ? (
-    // 输入框和电话键换成一句提示和去设置的链接；后端的 403 仍是兜底。
-    <div inert={isCovered} className="shrink-0 border-t bg-background px-3 py-2">
-      <FailureNotice failure={{ message: t.ownLLMRequired, signedOut: false, toOwnKeys: true }} />
-    </div>
   ) : (
     <form
       inert={isCovered}
@@ -280,8 +267,8 @@ export function ConversationView({
           <Empty className="h-full">
             <EmptyHeader>
               <EmptyTitle>{t.emptyTitle(character.name)}</EmptyTitle>
-              {/* 被拦时输入框和电话键都不在，「打字，或者点电话」不对；下面的提示会说明 */}
-              {!ownLLMMissing && !cooling && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
+              {/* 冷却时输入栏换成说明、电话键禁用，「打字，或者点电话」不对 */}
+              {!cooling && <EmptyDescription>{t.emptyDescription}</EmptyDescription>}
             </EmptyHeader>
           </Empty>
         ) : (

@@ -18,8 +18,8 @@ import pytest
 from eidolon.config import JevSettings, Settings
 from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, START, FakeClock, FakeIdentityProvider, FakeLLM
+from tests.test_admin_users import admin_beside
 from tests.test_delete_account import user_id
-from tests.test_own_llm_required import admin_beside
 
 AFFINITY = "/api/admin/config/affinity"
 UNAVAILABLE = (

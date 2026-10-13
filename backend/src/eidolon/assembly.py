@@ -12,8 +12,8 @@ background model is always at hand, being the chat model unless configured apart
 The deployer's chat and memory models and judge model are made by `ServiceClients` from
 the live configuration (`live_config`): `.env`'s settings as overridden in the admin
 console, replaced while the backend runs as admins change them; the speech keys, the
-thresholds, the limits, whether users must bring their own LLM and whether affinity is
-on are read from it as each turn or call starts. `Backend.start` tries the overrides as the server starts.
+thresholds, the limits and whether affinity is on are read from it as each turn or call
+starts. `Backend.start` tries the overrides as the server starts.
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes; the deployer's chat, memory and judge models only ever by passing in the
@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from eidolon.accounts import Accounts, is_admin
+from eidolon.accounts import Accounts
 from eidolon.activity import ActivityLog, metered_retrieval
 from eidolon.admission import Admissions
 from eidolon.affinity import Affinities
@@ -248,11 +248,7 @@ def build(
     closers.append(usage.close)
     own_keys = OwnKeys(own_llm_service, config, activity, speech)
     admissions = Admissions(
-        usage, activity, own_keys,
-        own_llm_required=lambda: config.own_llm_required,
-        is_admin=lambda user_id: is_admin(store, settings, user_id),
-        deployer_llm_allowed=usage.deployer_llm_allowed,
-        cooldown_until=affinities.cooldown_until,
+        usage, activity, own_keys, cooldown_until=affinities.cooldown_until
     )
     calls = Calls(
         settings, engine, admissions, own_keys, lambda: config.usage_limits, speech, clock, store

@@ -106,9 +106,6 @@ export type FieldKind =
 /** The limits, in the order they are shown. */
 export const LIMIT_FIELDS = ["turns_per_hour", "calls_per_hour", "call_minutes", "turns_per_call", "history_turns"];
 
-/** Beside the limits: whether users must bring their own LLM (GLOSSARY.md「必须自带 LLM」). */
-export const OWN_LLM_REQUIRED = "own_llm_required";
-
 export type FieldSpec = { name: string; kind: FieldKind; options?: readonly string[] };
 
 export type ItemSpec = {
@@ -176,9 +173,9 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
   judge_thresholds: THRESHOLD(["recall", "emotion", "out_of_line", "manipulation"]),
   rerank: THRESHOLD(["references", "memories"]),
   limits: {
-    rows: [...LIMIT_FIELDS, OWN_LLM_REQUIRED],
+    rows: LIMIT_FIELDS,
     secrets: [],
-    form: [...LIMIT_FIELDS.map((name): FieldSpec => ({ name, kind: "limit" })), { name: OWN_LLM_REQUIRED, kind: "switch" }],
+    form: LIMIT_FIELDS.map((name): FieldSpec => ({ name, kind: "limit" })),
     tried: false,
   },
   // 好感度和礼物（GLOSSARY.md「好感度」）：只有一个开关；没配判断模型时整项不可用。

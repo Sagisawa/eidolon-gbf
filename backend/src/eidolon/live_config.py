@@ -5,9 +5,8 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with whether users must bring their own LLM), and whether affinity and gifts
-are on. Overrides are kept in the database, one row per field, a
-key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
+carries), and whether affinity and gifts are on. Overrides are kept in the database,
+one row per field, a key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
 changed here, only seen). A change to a service is tried before it is kept, as the chat
 model is when the server starts; it then holds for every turn and call that starts after
 it, while those under way keep what they started with (see `lease` and
@@ -446,16 +445,12 @@ LIMIT_LABELS = {
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
-OWN_LLM_REQUIRED = "own_llm_required"
-"""Beside the limits: whether users must bring their own LLM (GLOSSARY.md「必须自带 LLM」)."""
-
-
 class _Limits(_Item):
     """The limits per hour, a call's own limits and the turns each prompt carries, as
-    `.env` takes them (0 for none), and whether users must bring their own LLM; not tried."""
+    `.env` takes them (0 for none); not tried."""
 
     name = LIMITS
-    fields = (*LIMIT_LABELS, OWN_LLM_REQUIRED)
+    fields = tuple(LIMIT_LABELS)
 
     def env(self) -> Values:
         limits = self.c.settings.usage_limits
@@ -465,15 +460,11 @@ class _Limits(_Item):
             "call_minutes": limits.call_minutes or 0,
             "turns_per_call": limits.turns_per_call or 0,
             "history_turns": self.c.settings.history_turns or 0,
-            OWN_LLM_REQUIRED: self.c.settings.own_llm_required,
         }
 
     def candidate(self, current: Values, change: Values) -> Values:
         for field, value in change.items():
-            if field == OWN_LLM_REQUIRED:
-                if not isinstance(value, bool):
-                    raise ConfigInvalid(f"必须自带 LLM 需要是 true 或 false，而不是 {value!r}")
-            elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ConfigInvalid(
                     f"{LIMIT_LABELS[field]}需要是非负整数（0 表示不限），而不是 {value!r}"
                 )
@@ -530,6 +521,8 @@ class LiveConfig:
         self._listeners: list[Callable[[], None]] = []
         with self._db_lock, self._db:
             self._db.executescript(_SCHEMA)
+            # Whether users had to bring their own LLM, which no longer is a setting.
+            self._db.execute("DELETE FROM config_overrides WHERE name = 'limits.own_llm_required'")
             self._rows = {
                 name: _Row(value, last4)
                 for name, value, last4 in self._db.execute(
@@ -619,11 +612,6 @@ class LiveConfig:
             values["call_minutes"] or None,
             values["turns_per_call"] or None,
         )
-
-    @property
-    def own_llm_required(self) -> bool:
-        """Whether the deployment requires users to bring their own LLM now."""
-        return self.effective(LIMITS)[OWN_LLM_REQUIRED]
 
     @property
     def affinity_on(self) -> bool:

@@ -21,11 +21,10 @@ from eidolon.llm import ChatMessage, Tool, ToolCall
 from tests.conftest import CharacterConfig, ClientFactory
 from tests.fakes import FAKE_JUDGE, FakeClock, FakeIdentityProvider, FakeLLM, FakeRandom
 from tests.test_activity_records import dashboard
-from tests.test_admin_users import ADMIN
+from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep, status
 from tests.test_gift_backpack import COMMON, FIRST, RARE, SECOND, UNCOMMON
 from tests.test_gift_catalog import gift
-from tests.test_own_llm_required import admin_beside
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]

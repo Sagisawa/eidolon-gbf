@@ -343,7 +343,7 @@ export function BanStatus({ banned }: { banned: boolean }) {
   );
 }
 
-/** 单独限额：没有时「跟随全站」，有时列出回合和通话各自的数字（没设的一项跟随全站），被放行时再加一句。 */
+/** 单独限额：没有时「跟随全站」，有时列出回合和通话各自的数字（没设的一项跟随全站）。 */
 export function UserLimits({ user }: { user: AdminUser }) {
   if (!user.limits) return <span className="text-muted-foreground">{t.limits.default}</span>;
   return <span>{describeLimits(user.limits)}</span>;

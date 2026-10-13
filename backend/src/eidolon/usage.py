@@ -2,9 +2,7 @@
 
 A turn or call on the user's own keys alone is recorded all the same, for the admin to
 see, but does not count towards the limit. An admin may set a user's own limits, apart
-from the deployment's: a number, unlimited, or 0, which leaves them their own keys only;
-and, with them, let the user use the deployer's LLM where the deployment requires users to
-bring their own (GLOSSARY.md「必须自带 LLM」), which the limits do not look at.
+from the deployment's: a number, unlimited, or 0, which leaves them their own keys only.
 Each use is kept in the database, next to the
 user it belongs to, for a day; whoever's they are, uses older than that are deleted
 whenever anyone takes one."""
@@ -47,15 +45,12 @@ CREATE INDEX IF NOT EXISTS usage_by_user ON usage(user_id, kind, at);
 -- For forgetting everyone's uses once they are older than `KEPT`.
 CREATE INDEX IF NOT EXISTS usage_by_time ON usage(at);
 -- A user's own limits, set by an admin; a NULL limit is the deployment's, -1 unlimited.
--- `deployer_llm_allowed`: whether the user may use the deployer's LLM where the deployment
--- requires users to bring their own.
 CREATE TABLE IF NOT EXISTS user_limits (
     user_id TEXT PRIMARY KEY REFERENCES users(id),
     turns_per_hour INTEGER,
     calls_per_hour INTEGER,
     note TEXT,
-    updated_at TEXT NOT NULL,
-    deployer_llm_allowed INTEGER NOT NULL DEFAULT 0
+    updated_at TEXT NOT NULL
 );
 """
 
@@ -81,15 +76,12 @@ class OverLimit(Exception):
 @dataclass(frozen=True)
 class UserLimits:
     """A user's own limits an hour, each apart (None: the deployment's), with a note for
-    the admins and when they were set; and whether the user may use the deployer's LLM
-    where the deployment requires users to bring their own, which a limit of 0 still
-    keeps them from."""
+    the admins and when they were set."""
 
     turns_per_hour: UserLimit
     calls_per_hour: UserLimit
     note: str | None = None
     updated_at: str = ""
-    deployer_llm_allowed: bool = False
 
 
 @dataclass(frozen=True)
@@ -143,11 +135,10 @@ class UsageLimiter:
             columns = {
                 name for _, name, *_ in self._db.execute("PRAGMA table_info(user_limits)")
             }
-            if "deployer_llm_allowed" not in columns:  # from before; no one is let
-                self._db.execute(
-                    "ALTER TABLE user_limits"
-                    " ADD COLUMN deployer_llm_allowed INTEGER NOT NULL DEFAULT 0"
-                )
+            # Whether an admin let the user use the deployer's LLM where users had to bring
+            # their own, which no longer is a rule.
+            if "deployer_llm_allowed" in columns:
+                self._db.execute("ALTER TABLE user_limits DROP COLUMN deployer_llm_allowed")
         self._limits = limits if callable(limits) else lambda: limits
         self._clock = clock
 
@@ -195,34 +186,28 @@ class UsageLimiter:
         """The user's own limits; None if an admin set none."""
         with self._lock:
             row = self._db.execute(
-                "SELECT turns_per_hour, calls_per_hour, note, updated_at, deployer_llm_allowed"
-                " FROM user_limits WHERE user_id = ?",
+                "SELECT turns_per_hour, calls_per_hour, note, updated_at FROM user_limits"
+                " WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
         if row is None:
             return None
-        turns, calls, note, updated_at, allowed = row
-        return UserLimits(_from_row(turns), _from_row(calls), note, updated_at, bool(allowed))
-
-    def deployer_llm_allowed(self, user_id: str) -> bool:
-        """Whether an admin let the user use the deployer's LLM, beside their own limits."""
-        own = self.user_limits(user_id)
-        return own is not None and own.deployer_llm_allowed
+        turns, calls, note, updated_at = row
+        return UserLimits(_from_row(turns), _from_row(calls), note, updated_at)
 
     def set_user_limits(self, user_id: str, limits: UserLimits | None) -> None:
         """Set the user's own limits, as of now, replacing those they had; None takes them
-        off, and whether they may use the deployer's LLM with them, and the deployment's
-        hold again."""
+        off, and the deployment's hold again."""
         with self._lock, self._db:
             if limits is None:
                 self._db.execute("DELETE FROM user_limits WHERE user_id = ?", (user_id,))
                 return
             self._db.execute(
-                "INSERT OR REPLACE INTO user_limits (user_id, turns_per_hour,"
-                " calls_per_hour, note, updated_at, deployer_llm_allowed)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO user_limits"
+                " (user_id, turns_per_hour, calls_per_hour, note, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
                 (user_id, _to_row(limits.turns_per_hour), _to_row(limits.calls_per_hour),
-                 limits.note, self._clock().isoformat(), int(limits.deployer_llm_allowed)),
+                 limits.note, self._clock().isoformat()),
             )
 
     def last_day(self, user_id: str) -> DayOfUse:

@@ -7,10 +7,8 @@ import { ApiError } from "@/lib/api";
 export type Failure = { message: string; signedOut: boolean; toOwnKeys?: boolean; countsTowardLimit?: boolean };
 
 export function toFailure(e: unknown): Failure {
-  const failure: Failure = {
+  return {
     message: (e as Error).message,
     signedOut: e instanceof ApiError && e.unauthorized,
   };
-  if (e instanceof ApiError && e.ownLLMRequired) failure.toOwnKeys = true;
-  return failure;
 }

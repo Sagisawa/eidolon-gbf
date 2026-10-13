@@ -6,15 +6,15 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 没带 LLM 的文字回合、通话和拨号预检都不再因为没带 LLM 被拒绝，照常计入限额；冷却的 409、超限的 429 不变
-- [ ] `/api/account` 不再返回 `own_llm_required`
-- [ ] 后台配置「限额」一节没有这个开关；后台改它的请求不再被接受（这个字段不存在）
-- [ ] 单独限额接口不再读写放行；后台「单独限额」对话框和用户详情里不再有放行
-- [ ] 旧库升级后，`user_limits` 没有 `deployer_llm_allowed` 列，`config_overrides` 没有 `limits.own_llm_required` 这一行；单独限额照常可读写
-- [ ] `.env` 里留着 `EIDOLON_OWN_LLM_REQUIRED`（任何值）时启动照常，并打一条警告
-- [ ] 前端：对话页输入框和电话键不再因为没带 LLM 被替换；设置页不再把 LLM 标成必填；API 层和通话结束原因里不再有这种 403
-- [ ] 部署文档（三种语言）、README（三种语言）、`.env.example`、`docs/agents/local-acceptance.md` 去掉这项要求
-- [ ] 后端测试走 HTTP（`make_client`）：原有两份必须自带 LLM 的测试和放行的测试删掉，补上「没带 LLM 照常放行并计入」和迁移、旧变量警告的测试
-- [ ] 后端、前端的全部测试、类型检查、`check-discipline`、`next build` 通过
+- [x] 没带 LLM 的文字回合、通话和拨号预检都不再因为没带 LLM 被拒绝，照常计入限额；冷却的 409、超限的 429 不变
+- [x] `/api/account` 不再返回 `own_llm_required`
+- [x] 后台配置「限额」一节没有这个开关；后台改它的请求不再被接受（这个字段不存在）
+- [x] 单独限额接口不再读写放行；后台「单独限额」对话框和用户详情里不再有放行
+- [x] 旧库升级后，`user_limits` 没有 `deployer_llm_allowed` 列，`config_overrides` 没有 `limits.own_llm_required` 这一行；单独限额照常可读写
+- [x] `.env` 里留着 `EIDOLON_OWN_LLM_REQUIRED`（任何值）时启动照常，并打一条警告
+- [x] 前端：对话页输入框和电话键不再因为没带 LLM 被替换；设置页不再把 LLM 标成必填；API 层和通话结束原因里不再有这种 403
+- [x] 部署文档（三种语言）、README（三种语言）、`.env.example`、`docs/agents/local-acceptance.md` 去掉这项要求
+- [x] 后端测试走 HTTP（`make_client`）：原有两份必须自带 LLM 的测试和放行的测试删掉，补上「没带 LLM 照常放行并计入」和迁移、旧变量警告的测试
+- [x] 后端、前端的全部测试、类型检查、`check-discipline`、`next build` 通过

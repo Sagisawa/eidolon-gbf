@@ -64,7 +64,6 @@ async def test_the_first_sign_in_with_github_makes_a_user_and_signs_them_in(
             {"provider": "github", "display_name": "producer", "email": "producer@example.com"}
         ],
         "is_admin": False,
-        "own_llm_required": False,
     }
 
 

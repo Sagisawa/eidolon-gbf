@@ -71,7 +71,6 @@ const context = await browser.newContext({ viewport, permissions: ["microphone"]
 | 回答 | 结束卡 |
 | --- | --- |
 | `429`，`{"detail": "…"}` | 超限额（主操作「去设置自带密钥」） |
-| `403`，`{"detail": "…", "own_llm_required": true}` | 必须自带 LLM |
 | 其他错误状态 | 没接通（主操作「重拨」） |
 
 先把请求挂起不回，等换到别的页面再放行，就能造出「在别的页面上因故结束」：

@@ -19,7 +19,7 @@ from tests.test_text_turn import send_turn, start_conversation
 LIMITS = "/api/admin/config/limits"
 ENV_LIMITS = {
     "turns_per_hour": 60, "calls_per_hour": 5, "call_minutes": 10, "turns_per_call": 2,
-    "history_turns": 20, "own_llm_required": False,
+    "history_turns": 20,
 }
 
 

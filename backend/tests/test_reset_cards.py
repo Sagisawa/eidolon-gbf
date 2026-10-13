@@ -18,14 +18,13 @@ import pytest
 from eidolon.config import Settings
 from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, FakeClock, FakeIdentityProvider, FakeLLM, FakeRandom
-from tests.test_admin_users import ADMIN
+from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep, status
 from tests.test_affinity_prompt import IN_HER_OWN_WAY, about_producer
 from tests.test_conversation_events import HUNG_UP, hang_up, record, shape
 from tests.test_conversation_history import history, told
 from tests.test_delete_account import user_id
 from tests.test_gift_backpack import RESET_CARD, state
-from tests.test_own_llm_required import admin_beside
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]

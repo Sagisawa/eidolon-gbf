@@ -3,11 +3,14 @@
 import base64
 import hmac
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, Required, TypedDict, get_args
+
+log = logging.getLogger(__name__)
 
 
 class IceServer(TypedDict, total=False):
@@ -173,9 +176,6 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
-    own_llm_required: bool = False
-    """Whether users must bring their own LLM for their turns and calls (GLOSSARY.md「必须自带
-    LLM」); the admin console may override it."""
     affinity_and_gifts: bool = True
     """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as they are only with the
     judge model; on unless `.env` turns them off, and the admin console may override it."""
@@ -231,6 +231,11 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        if "EIDOLON_OWN_LLM_REQUIRED" in os.environ:  # users once had to bring their own LLM
+            log.warning(
+                "EIDOLON_OWN_LLM_REQUIRED no longer does anything: users need not bring their"
+                " own LLM, and only the limits hold them; delete it from .env"
+            )
         return cls(
             database_path=database_path_from_env(),
             characters_path=characters_path_from_env(),
@@ -250,7 +255,6 @@ class Settings:
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
             history_turns=history_turns_from_env(),
-            own_llm_required=_switch("EIDOLON_OWN_LLM_REQUIRED"),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",

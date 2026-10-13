@@ -120,28 +120,22 @@ describe("json: over the hourly limit", () => {
   });
 });
 
-describe("json: refused for want of the user's own LLM", () => {
-  it("says why, ending the sentence, and marks it as one the user's own LLM settles", async () => {
-    const error = await failure(403, { detail: "这个部署需要你自带 LLM，可以在设置里填写", own_llm_required: true });
-    expect(error.message).toBe("这个部署需要你自带 LLM，可以在设置里填写。");
-    expect(error.status).toBe(403);
-    expect(error.ownLLMRequired).toBe(true);
-  });
-
-  it("does not take another refusal for it", async () => {
+describe("json: refused with 403", () => {
+  it("says what the backend says, no longer telling a refusal for want of the user's own LLM apart", async () => {
     const error = await failure(403, { detail: "这位用户已被封禁" });
     expect(error.message).toBe("这位用户已被封禁");
-    expect(error.ownLLMRequired).toBe(false);
+    expect(error.status).toBe(403);
+    expect(error).not.toHaveProperty("ownLLMRequired");
   });
 });
 
 describe("json: refused while she is in a cooldown", () => {
-  it("says until when, told apart from the limit's 429 and the own-LLM rule's 403", async () => {
+  it("says until when, told apart from the limit's 429", async () => {
     const until = "2026-10-14T06:30:00+00:00";
     const error = await failure(409, { detail: "她现在不想说话，晚些时候再来吧", cooldown_until: until });
     const over = await failure(429, { detail: "本小时的对话次数已用完", retry_at: until });
 
-    expect(error).toMatchObject({ status: 409, cooldownUntil: until, ownLLMRequired: false });
+    expect(error).toMatchObject({ status: 409, cooldownUntil: until });
     expect(over.cooldownUntil).toBeNull();
   });
 });

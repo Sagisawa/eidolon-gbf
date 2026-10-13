@@ -4,6 +4,7 @@ import {
   changeOf,
   formOf,
   ITEM_SPECS,
+  LIMIT_FIELDS,
   UNLIMITED,
   readOnlyValue,
   rows,
@@ -170,7 +171,6 @@ describe("limits", () => {
     call_minutes: "10",
     turns_per_call: "40",
     history_turns: "20",
-    own_llm_required: "false",
   };
 
   it("starts a limit of 0 as none, not as a number", () => {
@@ -186,17 +186,13 @@ describe("limits", () => {
         call_minutes: 10,
         turns_per_call: 40,
         history_turns: 20,
-        own_llm_required: false,
       },
     });
   });
 
-  it("starts whether users must bring their own LLM as it is in effect, and sends it as true or false", () => {
-    expect(formOf(limits, { ...form, own_llm_required: true }).own_llm_required).toBe("true");
-    expect(formOf(limits, { ...form, own_llm_required: false }).own_llm_required).toBe("false");
-    expect(changeOf(limits, { ...form, own_llm_required: "true" }, true)).toMatchObject({
-      change: { own_llm_required: true },
-    });
+  it("has the limits alone, no switch requiring users' own LLM", () => {
+    expect(limits.rows).toEqual(LIMIT_FIELDS);
+    expect(limits.form.map((field) => field.name)).toEqual(LIMIT_FIELDS);
   });
 
   it("refuses one that is 0, negative, not whole or empty", () => {

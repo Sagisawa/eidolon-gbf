@@ -9,12 +9,11 @@ import { copy } from "@/i18n";
 /**
  * The backend's reasons (it never really connected; a voice service failed, or the connection
  * broke, after it connected; its time or turn limit; an own key failed; she hung up, for what
- * the user said in the call or a cooldown begun), and three told apart
- * here: the user has no calls left this hour, the deployment requires them to bring their own
- * LLM and the call brought none (GLOSSARY.md「必须自带 LLM」), or the browser would not let the
- * call use the microphone (or there is none).
+ * the user said in the call or a cooldown begun), and two told apart here: the user has no
+ * calls left this hour, or the browser would not let the call use the microphone (or there is
+ * none).
  */
-export type EndReason = BackendEndReason | "over_limit" | "own_llm_required" | "mic_denied";
+export type EndReason = BackendEndReason | "over_limit" | "mic_denied";
 
 export type CallEnd = {
   reason: EndReason;
@@ -37,7 +36,7 @@ const OVER_LIMIT = 429;
 export function startFailedEnd(e: unknown): CallEnd {
   if (e instanceof MicUnavailable) return { reason: "mic_denied", detail: null, counts: false };
   if (!(e instanceof ApiError)) return { reason: "not_connected", detail: null, counts: false };
-  const reason = e.ownLLMRequired ? "own_llm_required" : e.status === OVER_LIMIT ? "over_limit" : "not_connected";
+  const reason = e.status === OVER_LIMIT ? "over_limit" : "not_connected";
   return { reason, detail: e.message, counts: false };
 }
 
@@ -75,7 +74,7 @@ export function endCard(end: CallEnd, name: string, now: Date, timeZone: string,
     return { title: t.hungUp(name), detail, body, counts, action: !cooling ? "redial" : giftsOpen ? "gift" : null };
   }
   const ending = t.endings[end.reason];
-  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_llm_required" || end.reason === "own_key";
+  const toOwnKeys = end.reason === "over_limit" || end.reason === "own_key";
   return { title: ending.title, detail, body: ending.body, counts, action: toOwnKeys ? "own_keys" : "redial" };
 }
 

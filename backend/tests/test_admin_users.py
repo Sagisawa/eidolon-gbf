@@ -4,6 +4,8 @@ keeps them from signing in and hangs up their calls; no admin can be banned ther
 admin console never shows what anyone said, what was remembered of them or their
 producer profile."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from unittest.mock import ANY
 
@@ -12,6 +14,7 @@ import pytest
 
 from eidolon.config import Settings
 from tests.conftest import (
+    SITE,
     ClientFactory,
     agree_to_terms,
     github_identity,
@@ -37,6 +40,21 @@ async def admin_client(
     await sign_in_with(client, github, github_identity(ADMIN[1], name="boss", email="boss@example.com"))
     await agree_to_terms(client)
     return client
+
+
+@asynccontextmanager
+async def admin_beside(
+    client: httpx.AsyncClient, github: FakeIdentityProvider
+) -> AsyncIterator[httpx.AsyncClient]:
+    """The admin, signed in in another browser on the backend `client` is on, so that what
+    they change in the admin console holds for its next turn."""
+    transport = client._transport
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://test", headers=SITE
+    ) as admin:
+        await sign_in_with(admin, github, github_identity(ADMIN[1], name="boss"))
+        await agree_to_terms(admin)
+        yield admin
 
 
 async def github_user(

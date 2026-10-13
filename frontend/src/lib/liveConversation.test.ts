@@ -1500,23 +1500,6 @@ describe("LiveConversation: typing", () => {
     },
   );
 
-  it("offers to go and set the user's own keys when a text turn is refused for want of their own LLM", async () => {
-    const { live } = await conversation({
-      messages: history,
-      turns: async function* (): AsyncIterable<TurnEvent> {
-        throw new ApiError("这个部署需要你自带 LLM，可以在设置里填写。", 403, { ownLLMRequired: true });
-      },
-    });
-    live.setDraft("你好");
-
-    await live.submit();
-
-    expect(live.snapshot()).toMatchObject({
-      draft: "你好",
-      failure: { message: "这个部署需要你自带 LLM，可以在设置里填写。", toOwnKeys: true, countsTowardLimit: false },
-    });
-  });
-
   it("hands what the user types in a call to the call instead of starting a text turn", async () => {
     const { live, attempts } = await conversation({ messages: history });
     const call = await connected(live, attempts);
