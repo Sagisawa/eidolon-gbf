@@ -1191,11 +1191,11 @@ export const zh = {
       title: "抽奖",
       left: (n: number) => `还有 ${n} 次`,
       label: (n: number, max: number) => `抽奖还有 ${n} 次，最多攒 ${max} 次`,
-      /** 下面那句说明：平时、攒满、用完。 */
+      /** 下面那句说明：平时、攒满、用完。`next` 是下次到账的「今天 / 明天 HH:MM」（每天北京时间 0 点发，按制作人的时区写）。 */
       notes: {
-        usual: (max: number) => `明天 0:00 再发 1 次，最多攒 ${max} 次`,
+        usual: (next: string, max: number) => `${next} 再发 1 次，最多攒 ${max} 次`,
         full: (max: number) => `已攒满 ${max} 次，抽掉之前不会再发`,
-        none: "今天的已经抽了，明天 0:00 再发 1 次",
+        none: (next: string) => `已经抽完了，${next} 再发 1 次`,
       },
       once: "抽一次",
       all: "全部抽完",
@@ -1250,7 +1250,7 @@ export const zh = {
     empty: {
       title: "还没有礼物",
       withDraws: "抽一次，抽到的礼物会放在这里。",
-      withoutDraws: "明天 0:00 会发一次抽奖，抽到的礼物会放在这里。",
+      withoutDraws: (next: string) => `${next} 会发一次抽奖，抽到的礼物会放在这里。`,
     },
     /** 送礼面板：点一件礼物拉出来，选一位送出。 */
     give: {

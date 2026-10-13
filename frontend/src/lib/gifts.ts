@@ -1,5 +1,6 @@
 // 礼物（GLOSSARY.md「礼物」「抽奖」「重置卡」）：礼物页读到的状态，和页上那几句话怎么拼、我的礼物怎么筛。
-// 抽奖次数每天在制作人当地 0 点发 1 次，最多攒 7 次，后端读取时补发；下次什么时候到账固定写「明天 0:00」。
+// 抽奖次数每天北京时间 0 点发 1 次（不论用户在哪个时区），最多攒 7 次，后端读取时补发；下次什么时候到账
+// 由后端给出，按制作人的时区写成「今天 / 明天 HH:MM」，写法和冷却解除时刻一样。
 // 送礼一次一件，送出后页面底部那条提示的话也在这里拼。对话页上的送礼入口跳到礼物页时带着谁、从哪段对话来。
 // 重置卡自己用：把所有低于信任的角色拉回信任，重置卡条上那句话也在这里拼。
 
@@ -33,6 +34,8 @@ export type GiftState = {
   /** 只列持有的，按目录的顺序。 */
   backpack: Owned[];
   reset_cards: number;
+  /** 下次发抽奖次数的时刻（ISO，每天北京时间 0 点），攒满了也照样给；没开放时是 null。 */
+  next_draw_at: string | null;
   /** 现在用重置卡会拉回的角色；没开放时是空的。 */
   resettable: Resettable[];
   characters: GiftCharacter[];
@@ -44,7 +47,7 @@ export type Drawn = { kind: "gift"; gift_id: string } | { kind: "reset_card" };
 /** 抽奖接口给的：按抽出的顺序排的结果，和抽完还剩几次。 */
 export type DrawResult = { drawn: Drawn[]; draws: number };
 
-/** 读礼物状态；后端读的时候按制作人当地的今天补发次数。 */
+/** 读礼物状态；后端读的时候把到今天（北京时间）为止该发的次数补上。 */
 export async function getGiftState(): Promise<GiftState> {
   return json(await api("/api/gifts"));
 }
@@ -130,12 +133,17 @@ export function chosenFirst<C extends { id: string }>(characters: C[], to: strin
   return chosen ? [chosen, ...characters.filter((c) => c !== chosen)] : characters;
 }
 
-/** 抽奖台小点下面那句：用完了、攒满了、平时三种。 */
-export function drawNote(draws: number, max: number): string {
+/** 下次发抽奖次数的时刻按制作人的时区写成「今天 HH:MM」或「明天 HH:MM」（不会超过 24 小时）。 */
+export function nextDrawText(nextDrawAt: string, now: Date, timeZone: string): string {
+  return untilText(new Date(nextDrawAt), now, timeZone);
+}
+
+/** 抽奖台小点下面那句：用完了、攒满了、平时三种；`next` 是 `nextDrawText` 写好的下次到账时刻。 */
+export function drawNote(draws: number, max: number, next: string): string {
   const t = copy.gifts.draw.notes;
-  if (draws <= 0) return t.none;
+  if (draws <= 0) return t.none(next);
   if (draws >= max) return t.full(max);
-  return t.usual(max);
+  return t.usual(next, max);
 }
 
 /** 重置卡条上那句：现在用会拉回几位，一位都没有时留着以后用。 */
@@ -144,9 +152,9 @@ export function resetNote(resettable: number): string {
   return resettable > 0 ? t.some(resettable) : t.none;
 }
 
-/** 「还没有礼物」下面那句：有次数时叫人抽一次，没有时说明天再发。 */
-export function emptyNote(draws: number): string {
-  return draws > 0 ? copy.gifts.empty.withDraws : copy.gifts.empty.withoutDraws;
+/** 「还没有礼物」下面那句：有次数时叫人抽一次，没有时说下次什么时候发（`next`，同 `drawNote`）。 */
+export function emptyNote(draws: number, next: string): string {
+  return draws > 0 ? copy.gifts.empty.withDraws : copy.gifts.empty.withoutDraws(next);
 }
 
 /** 我的礼物的筛选：全部，或某一类。 */

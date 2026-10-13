@@ -1,12 +1,10 @@
 """Gifts (GLOSSARY.md「礼物」「抽奖」「重置卡」): each user's draw chances, what they have drawn
 and their reset cards, the one way into them for the gifts page and the admin console.
 
-Draw chances are given one a day (`affinity.DRAWS_PER_DAY`) at the producer's own midnight,
-kept up to `affinity.MAX_DRAWS`. Nothing gives them on a schedule: whoever reads them first
-gives what the days since they were last given have brought, counted in the producer's own
-time zone (`producer.effective_timezone`). A user without any yet is given one that day,
-new or not. A day that is not later than the one they were last given on, as when the time
-zone is turned back, gives none.
+Draw chances are given one a day (`affinity.DRAWS_PER_DAY`) as the day begins, at midnight
+Beijing time wherever the user is (`affinity.day_of`), kept up to `affinity.MAX_DRAWS`.
+Nothing gives them on a schedule: whoever reads them first gives what the days since they
+were last given have brought. A user without any yet is given one that day, new or not.
 
 Gifts are open where affinity is (`LiveConfig.affinity_on`): the deployment has the judge
 model and the switch「好感度和礼物」is on. Closed, what each user has is kept and read all
@@ -41,18 +39,19 @@ from eidolon.affinity import (
     Affinities,
     Change,
     Status,
+    day_of,
+    next_day,
 )
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.gift_catalog import Gift
-from eidolon.producer import ProducerProfile, effective_timezone, local_date
 from eidolon.randomness import Random
 from eidolon.store import Conversation, Store
 
 _SCHEMA = """
--- One row per user given any draw chances: how many they have, the producer's own day they
--- were last given on, and how many reset cards they have.
+-- One row per user given any draw chances: how many they have, the day they were last given
+-- on (`affinity.day_of`), and how many reset cards they have.
 CREATE TABLE IF NOT EXISTS gift_balances (
     user_id TEXT PRIMARY KEY REFERENCES users(id),
     draws INTEGER NOT NULL,
@@ -95,7 +94,7 @@ class NoDraws(Exception):
     """The user has no draw chances left."""
 
     def __init__(self) -> None:
-        super().__init__("没有抽奖次数了，明天 0:00 再发 1 次")
+        super().__init__("没有抽奖次数了")
 
 
 class NoneLeft(Exception):
@@ -175,6 +174,8 @@ class GiftState:
     backpack: list[tuple[str, int]]
     """Each gift the user has, in catalog order, and how many."""
     reset_cards: int
+    next_draw_at: datetime | None
+    """When the next draw chance is given, kept up to the most or not: none while closed."""
     characters: list[tuple[str, Status]]
     """Each character's affinity with the user, for choosing whom to give to and telling
     whom a reset card would bring back: none while closed, as affinity shows nothing then."""
@@ -187,6 +188,7 @@ class GiftState:
             "max_draws": MAX_DRAWS,
             "backpack": [{"gift_id": g, "count": n} for g, n in self.backpack],
             "reset_cards": self.reset_cards,
+            "next_draw_at": self.next_draw_at and self.next_draw_at.isoformat(),
             "resettable": [
                 {"id": c, "tier": status.tier, "cooling": status.cooling}
                 for c, status in self.characters
@@ -273,15 +275,16 @@ class Gifts:
                     " ON CONFLICT (id) DO UPDATE SET open = 0"
                 )
 
-    def state(self, user_id: str, timezone: str) -> GiftState:
-        """What the user has now, having been given the draw chances due by the producer's
-        own day in `timezone`, if gifts are open. Notices first whether they have opened,
-        as the switch may have just been turned on and not yet noticed."""
+    def state(self, user_id: str) -> GiftState:
+        """What the user has now, having been given the draw chances due today, if gifts are
+        open. Notices first whether they have opened, as the switch may have just been
+        turned on and not yet noticed."""
         self.notice()
         is_open = self._is_open()
+        now = self._clock()
         with self._lock, self._db:
             if is_open:
-                self._give(user_id, local_date(self._clock(), timezone), timezone)
+                self._give(user_id, day_of(now))
             row = self._db.execute(
                 "SELECT draws, reset_cards FROM gift_balances WHERE user_id = ?", (user_id,)
             ).fetchone()
@@ -298,18 +301,19 @@ class Gifts:
             for character_id in (self._characters if is_open else ())
         )
         characters = [(c, status) for c, status in statuses if status is not None]
-        return GiftState(is_open, draws, backpack, reset_cards, characters)
+        next_draw_at = next_day(now) if is_open else None
+        return GiftState(is_open, draws, backpack, reset_cards, next_draw_at, characters)
 
-    def draw(self, user_id: str, timezone: str, *, all: bool = False) -> Drawn:
+    def draw(self, user_id: str, *, all: bool = False) -> Drawn:
         """Draw once, or as many times as the user has chances if `all`, having been given
-        the chances due by the producer's own day in `timezone`; in one go, so that two
-        drawing at once draw no more than there are chances. Raises GiftsClosed if gifts
+        the chances due today; in one go, so that two drawing at once draw no more than
+        there are chances. Raises GiftsClosed if gifts
         are not open, NoDraws if there are no chances to draw."""
         self.notice()
         if not self._is_open():
             raise GiftsClosed()
         with self._lock, self._db:
-            self._give(user_id, local_date(self._clock(), timezone), timezone)
+            self._give(user_id, day_of(self._clock()))
             (draws,) = self._db.execute(
                 "SELECT draws FROM gift_balances WHERE user_id = ?", (user_id,)
             ).fetchone()
@@ -414,8 +418,7 @@ class Gifts:
     def grant_reset_cards(self) -> Grant:
         """Give every user there is now a reset card, banned ones and admins too, all at
         once, so that whoever signs up meanwhile gets none; one who has had no draw chances
-        yet is given the new user's one too, that day where their profile says they are
-        (where their device is cannot be told here). Raises GiftsClosed if gifts are not
+        yet is given the new user's one too, that day. Raises GiftsClosed if gifts are not
         open."""
         self.notice()
         if not self._is_open():
@@ -427,15 +430,11 @@ class Gifts:
             given = self._db.execute(
                 "UPDATE gift_balances SET reset_cards = reset_cards + 1"
             ).rowcount
-            # The profile is read here, not from the store, which may be waiting on this.
             unbalanced = self._db.execute(
-                "SELECT u.id, p.timezone FROM users u"
-                " LEFT JOIN producer_profiles p ON p.user_id = u.id"
-                " WHERE u.id NOT IN (SELECT user_id FROM gift_balances)"
+                "SELECT id FROM users WHERE id NOT IN (SELECT user_id FROM gift_balances)"
             ).fetchall()
-            for user_id, timezone in unbalanced:
-                today = local_date(now, effective_timezone(ProducerProfile(timezone=timezone), None))
-                self._start(user_id, today, reset_cards=1)
+            for (user_id,) in unbalanced:
+                self._start(user_id, day_of(now), reset_cards=1)
             grant = Grant(now, given + len(unbalanced))
             self._db.execute(
                 "INSERT INTO reset_card_grants (granted_at, count) VALUES (?, ?)",
@@ -469,7 +468,7 @@ class Gifts:
         newest = self._store.list_conversations(user_id, character_id)
         return newest[0] if newest else self._store.create_conversation(user_id, character_id)
 
-    def _give(self, user_id: str, today: date, timezone: str) -> None:
+    def _give(self, user_id: str, today: date) -> None:
         """Give the user the draw chances due by `today`: one if they have none yet; else
         one for each day since they were last given, counted from the day before gifts
         last opened if they opened since, up to the most kept. Called holding the lock, in
@@ -484,7 +483,7 @@ class Gifts:
         if today <= given_on:
             return
         since = given_on
-        opened = self._opened_on(timezone)
+        opened = self._opened_on()
         if opened is not None and opened > given_on:
             since = opened - timedelta(days=1)
         due = (today - since).days * DRAWS_PER_DAY
@@ -512,10 +511,10 @@ class Gifts:
         pool = [g.id for g in self._catalog.values() if g.rarity == kind and not g.retired]
         return pool[self._random(len(pool))]
 
-    def _opened_on(self, timezone: str) -> date | None:
-        """The producer's own day gifts last opened on, in `timezone`; None if never
-        noticed opening."""
+    def _opened_on(self) -> date | None:
+        """The day gifts last opened on (`affinity.day_of`); None if never noticed
+        opening."""
         row = self._db.execute("SELECT opened_at FROM gifts_opened WHERE id = 1").fetchone()
         if row is None or row[0] is None:
             return None
-        return local_date(datetime.fromisoformat(row[0]), timezone)
+        return day_of(datetime.fromisoformat(row[0]))

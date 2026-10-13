@@ -16,8 +16,8 @@ day at most after it began; it recovers while affinity is off all the same.
 What the user says changes it, as the deployer's judge model judges each turn
 (`affinity_judge`): by a step for each of five levels, from hurting her to making her very
 happy; by more for what is out of line, whatever the level; never up for what tries to
-dictate it. Turns raise it slowly, so much a day at most, the producer's own day; nothing
-limits how far they lower it. It changes as the turn is recorded, and only then: a turn
+dictate it. Turns raise it slowly, so much a day at most (`day_of`); nothing limits how far
+they lower it. It changes as the turn is recorded, and only then: a turn
 that fails, is rejected or is left changes nothing.
 
 It shapes how she speaks to the producer, the same for every character, each in her own way
@@ -43,14 +43,14 @@ Deleting the user deletes it (`database.USER_DATA`); deleting memories does not 
 import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal, TypeVar
+from zoneinfo import ZoneInfo
 
 from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.gift_catalog import Rarity
-from eidolon.producer import local_date
 
 T = TypeVar("T")
 
@@ -89,8 +89,12 @@ NO_EFFECT = 2
 OUT_OF_LINE_STEP = -10.0
 """How much a turn out of line (GLOSSARY.md「不该说的话」) lowers it, whatever its level."""
 
+DAY_TIMEZONE = "Asia/Shanghai"
+"""Where the days the day's gains and draw chances go by begin: at midnight Beijing time,
+wherever the user is, so that everyone has the same days."""
+
 GAINS_PER_DAY = 6.0
-"""How much turns can raise it in a day, the producer's own."""
+"""How much turns can raise it in a day (`day_of`)."""
 
 OUT_OF_LINE_PER_CALL = 2
 """How many times the user may be out of line in one call: she hangs up after the last."""
@@ -107,8 +111,8 @@ COOLDOWN_GIFT_STEP = 3.0
 whether she likes it: four bring her out of one begun at 0, sooner than recovery would."""
 
 DRAWS_PER_DAY = 1
-"""How many draw chances (GLOSSARY.md「抽奖」) the user is given each day, at the producer's
-own midnight."""
+"""How many draw chances (GLOSSARY.md「抽奖」) the user is given each day (`day_of`), as it
+begins."""
 
 MAX_DRAWS = 7
 """How many draw chances the user can keep at most: a week's."""
@@ -119,11 +123,25 @@ DRAW_ODDS: dict[Rarity | Literal["reset_card"], int] = {
 """What a draw gives, in percent: a reset card, or a gift of each rarity, any of that rarity's
 not retired as likely as another; no draw is guaranteed anything rarer."""
 
+
+
+def day_of(now: datetime) -> date:
+    """The day it is at `now` for the day's gains and draw chances: Beijing's
+    (`DAY_TIMEZONE`)."""
+    return now.astimezone(ZoneInfo(DAY_TIMEZONE)).date()
+
+
+def next_day(now: datetime) -> datetime:
+    """When the day after the one it is at `now` (`day_of`) begins, in UTC."""
+    begins = datetime.combine(day_of(now) + timedelta(days=1), time(), ZoneInfo(DAY_TIMEZONE))
+    return begins.astimezone(UTC)
+
+
 _SCHEMA = """
 -- One row per user and character who have had any; none is the normal value, not in a
 -- cooldown. `value` is as of `updated_at`, from which what it has recovered is added.
 -- `cooling`: whether in a cooldown, as the same value may be in one or just out of one.
--- `gained_today`: what turns have raised it on `gained_on`, the producer's own day.
+-- `gained_today`: what turns have raised it on `gained_on`, the day in Beijing (`day_of`).
 CREATE TABLE IF NOT EXISTS affinities (
     user_id TEXT NOT NULL REFERENCES users(id),
     character_id TEXT NOT NULL,
@@ -368,18 +386,17 @@ class Affinities:
         user_id: str,
         character_id: str,
         judged: Judged,
-        timezone: str,
         record: Callable[[Change | None], T],
     ) -> tuple[T, Status]:
         """Change the user's affinity with the character as the turn `judged` says, as the
         turn is recorded by `record`, told how it changed (None for not at all): if
-        recording fails, nothing changes. The day's gains are counted on the day it is in
-        `timezone`. Should it begin a cooldown, those `on_cooldown` has are told then.
+        recording fails, nothing changes. The day's gains are counted on the day it is
+        (`day_of`). Should it begin a cooldown, those `on_cooldown` has are told then.
         Returns what `record` returned, and the affinity left."""
         with self._lock:
             now = self._clock()
             before, gained, gained_on = self._row(user_id, character_id, now)
-            today = local_date(now, timezone).isoformat()
+            today = day_of(now).isoformat()
             gained_today = gained if gained_on == today else 0.0
             step = judged.step
             if step > 0:

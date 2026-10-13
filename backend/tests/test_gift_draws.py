@@ -1,8 +1,7 @@
-"""Draw chances (GLOSSARY.md「抽奖」): one a day at the producer's own midnight, kept up to
-seven, given as the gifts' state is read rather than on a schedule. The producer's own day
-is in the time zone of their profile, else their device's. Turning the clock back gives
-none twice; the days affinity and gifts are off give none, and the day they open again
-gives one. Off, the state is read all the same, saying so. Deleting the user deletes their
+"""Draw chances (GLOSSARY.md「抽奖」): one a day at midnight Beijing time, wherever the user
+is, kept up to seven, given as the gifts' state is read rather than on a schedule; the state
+tells when the next is given. The days affinity and gifts are off give none, and the day
+they open again gives one. Off, the state is read all the same, saying so. Deleting the user deletes their
 chances; when affinity and gifts last opened is no one's and stays. Driven through the
 backend's external API, with the clock moved."""
 
@@ -53,6 +52,7 @@ async def test_a_new_user_has_one_draw_the_day_they_come_and_nothing_else_yet(
         "max_draws": 7,
         "backpack": [],
         "reset_cards": 0,
+        "next_draw_at": "2026-09-25T16:00:00+00:00",
         "resettable": [],
         "characters": [
             {"id": "mano", "tier": "trust", "cooling": False, "cooldown_until": None},
@@ -91,44 +91,32 @@ async def test_no_more_than_seven_are_kept(make_client: ClientFactory):
     assert await draws(client) == 7
 
 
-async def test_the_day_turns_at_midnight_where_the_device_is_not_where_the_server_is(
+async def test_the_day_turns_at_midnight_in_beijing_not_where_the_user_is(
     make_client: ClientFactory,
 ):
-    clock = FakeClock(datetime.fromisoformat("2026-09-25T14:30:00+00:00"))  # 23:30 in Tokyo
+    clock = FakeClock(datetime.fromisoformat("2026-09-25T14:30:00+00:00"))  # 22:30 in Beijing
     client = make_client(FakeLLM(), clock=clock)
     client.headers["X-Timezone"] = "Asia/Tokyo"
+    await client.put("/api/profile", json={"timezone": "Asia/Tokyo"})
 
     before = await draws(client)
-    clock.advance(hours=1)  # 00:30 in Tokyo, still the 25th in UTC and in Shanghai
+    clock.advance(hours=1)  # 00:30 on the 26th in Tokyo, 23:30 on the 25th in Beijing
+    in_tokyo = await draws(client)
+    clock.advance(hours=1)  # 00:30 on the 26th in Beijing
 
-    assert [before, await draws(client)] == [1, 2]
+    assert [before, in_tokyo, await draws(client)] == [1, 1, 2]
 
 
-async def test_the_profiles_time_zone_counts_over_the_devices(make_client: ClientFactory):
-    clock = FakeClock(datetime.fromisoformat("2026-09-25T14:30:00+00:00"))
+async def test_the_next_draw_is_at_the_next_midnight_in_beijing(make_client: ClientFactory):
+    clock = FakeClock(datetime.fromisoformat("2026-09-25T16:30:00+00:00"))  # 00:30 the 26th
     client = make_client(FakeLLM(), clock=clock)
-    client.headers["X-Timezone"] = "Asia/Tokyo"
-    await client.put("/api/profile", json={"timezone": "America/Los_Angeles"})
+    client.headers["X-Timezone"] = "America/Los_Angeles"
 
-    await draws(client)
-    clock.advance(hours=1)  # the 26th in Tokyo, 08:30 on the 25th in Los Angeles
+    first = (await state(client))["next_draw_at"]
+    clock.advance(hours=23)  # 23:30 the 26th
+    later = (await state(client))["next_draw_at"]
 
-    assert await draws(client) == 1
-
-
-async def test_turning_the_time_zone_back_gives_none_twice(make_client: ClientFactory):
-    clock = FakeClock(datetime.fromisoformat("2026-09-25T15:30:00+00:00"))  # the 26th in Tokyo
-    client = make_client(FakeLLM(), clock=clock)
-    client.headers["X-Timezone"] = "Asia/Tokyo"
-    first = await draws(client)
-
-    client.headers["X-Timezone"] = "America/Los_Angeles"  # the 25th there
-    back = await draws(client)
-    clock.advance(hours=16)  # 00:30 on the 26th in Los Angeles too
-    caught_up = await draws(client)
-    clock.advance(days=1)  # the 27th in Los Angeles
-
-    assert [first, back, caught_up, await draws(client)] == [1, 1, 1, 2]
+    assert [first, later] == ["2026-09-26T16:00:00+00:00"] * 2
 
 
 async def test_the_days_it_is_off_give_none_and_the_day_it_opens_again_gives_one(
@@ -172,6 +160,7 @@ async def test_off_the_state_is_read_all_the_same_saying_so(
         "max_draws": 7,
         "backpack": [],
         "reset_cards": 0,
+        "next_draw_at": None,
         "resettable": [],
         "characters": [],
     }
