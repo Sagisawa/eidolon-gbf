@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { AffinityChange } from "@/lib/affinity";
-import { drawNote, emptyNote, givenNote, shownGifts, type GiftInfo, type Given } from "@/lib/gifts";
+import {
+  chosenFirst,
+  drawNote,
+  emptyNote,
+  giftsFor,
+  giftsHref,
+  givenNote,
+  shownGifts,
+  type GiftInfo,
+  type Given,
+} from "@/lib/gifts";
 
 describe("抽奖台那句话", () => {
   it("平时：明天再发，最多攒几次", () => {
@@ -90,5 +100,39 @@ describe("送出后底部提示的那句话", () => {
 
   it("到顶了没有变化：只写已经送到", () => {
     expect(note(given(null))).toBe("已经送给凛世");
+  });
+});
+
+describe("从对话页跳到礼物页", () => {
+  const query = (href: string) => Object.fromEntries(new URL(href, "http://x.invalid").searchParams);
+
+  it("地址带上她的角色 id 和这段对话的 id，礼物页读回来", () => {
+    const href = giftsHref("rinze", "c 1");
+    expect(href.startsWith("/gifts?")).toBe(true);
+    expect(giftsFor(query(href))).toEqual({ to: "rinze", conversationId: "c 1" });
+  });
+
+  it("还没打开对话时只带角色", () => {
+    expect(giftsFor(query(giftsHref("rinze", null)))).toEqual({ to: "rinze", conversationId: null });
+  });
+
+  it("没有 to，或者 to 给了几个、是空的，都当作没有预选", () => {
+    expect(giftsFor({})).toBeNull();
+    expect(giftsFor({ conversation: "c1" })).toBeNull();
+    expect(giftsFor({ to: ["rinze", "mano"] })).toBeNull();
+    expect(giftsFor({ to: "" })).toBeNull();
+  });
+});
+
+describe("送给谁的顺序", () => {
+  const characters = [{ id: "mano" }, { id: "hiori" }, { id: "rinze" }];
+
+  it("预选的她排第一，其余照原来的顺序", () => {
+    expect(chosenFirst(characters, "rinze").map((c) => c.id)).toEqual(["rinze", "mano", "hiori"]);
+  });
+
+  it("没有预选，或者预选的不在里面，照原来的顺序", () => {
+    expect(chosenFirst(characters, null).map((c) => c.id)).toEqual(["mano", "hiori", "rinze"]);
+    expect(chosenFirst(characters, "gone").map((c) => c.id)).toEqual(["mano", "hiori", "rinze"]);
   });
 });

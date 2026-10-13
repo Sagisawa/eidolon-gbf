@@ -1,8 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { PageShell } from "@/components/app/PageShell";
 import { SectionHeading } from "@/components/app/SubpageHeader";
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
@@ -15,10 +17,11 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
-import { ApiError } from "@/lib/api";
+import { ApiError, type Character } from "@/lib/api";
 import { arrange } from "@/lib/conversationList";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
+  chosenFirst,
   drawGifts,
   drawNote,
   emptyNote,
@@ -28,11 +31,12 @@ import {
   givenNote,
   type DrawResult,
   type GiftInfo,
+  type GiftsFor,
   type GiftState,
   type Given,
 } from "@/lib/gifts";
 import { cn } from "@/lib/utils";
-import { DrawIcon, GiftIcon } from "@/theme/icons";
+import { CloseIcon, DrawIcon, GiftIcon } from "@/theme/icons";
 
 const t = copy.gifts;
 
@@ -47,8 +51,10 @@ const NOTICE_MS = 8000;
  * 上面是抽奖台，下面「我的礼物」；点一件（或单抽结果上的「送给谁…」）拉出送礼面板，送出后面板收起、底部出提示，
  * 页面不跳走。好感度和礼物没开放时整页是「礼物暂时没有开放」，「礼物」照样留在导航里；
  * 抽奖或送礼时才知道没开放（收到「没开放」的 409）也切成这样。
+ * 从对话页跳来（`pick`）时页首下面一条「给{角色名}挑一件礼物」：点哪件礼物，面板里都已选好她、排在第一个，
+ * 送给她的记录放回带来的那段对话；点 ✕ 取消预选，地址里的也去掉。地址里的角色不存在时当作没有预选。
  */
-export function GiftsPage() {
+export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
   const [state, setState] = useState<GiftState | null>(null);
   const [catalog, setCatalog] = useState<GiftInfo[] | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -62,12 +68,17 @@ export function GiftsPage() {
   const isWide = useWide();
   const timeZone = useProducerTimezone();
   const { characters, latest, preferences, go, refresh } = useDirectory();
+  const router = useRouter();
+  // 点过 ✕ 的预选：地址换掉以前（重新渲染要等一下）就不再显示。
+  const [dropped, setDropped] = useState<string | null>(null);
+  const chosen = pick && pick.to !== dropped ? characters?.find((c) => c.id === pick.to) : undefined;
   const giftsById = useMemo(() => new Map((catalog ?? []).map((g) => [g.id, g])), [catalog]);
-  // 送给谁：所有角色（隐藏了的也在），顺序和对话列表一样。
+  // 送给谁：所有角色（隐藏了的也在），顺序和对话列表一样，预选的她排第一。
   const recipients = useMemo(() => {
     const all = characters ?? [];
-    return arrange(all, latest, { preferences, keep: all.map((c) => c.id) }).rows.map((row) => row.character);
-  }, [characters, latest, preferences]);
+    const arranged = arrange(all, latest, { preferences, keep: all.map((c) => c.id) }).rows.map((row) => row.character);
+    return chosenFirst(arranged, chosen?.id ?? null);
+  }, [characters, latest, preferences, chosen]);
   const statuses = useMemo(() => new Map((state?.characters ?? []).map((c) => [c.id, c])), [state]);
 
   useEffect(() => {
@@ -114,7 +125,7 @@ export function GiftsPage() {
   function startGiving(gift: GiftInfo) {
     const left = state?.backpack.find((b) => b.gift_id === gift.id)?.count ?? 0;
     setDrawing(null);
-    setGiving({ gift, left, to: null });
+    setGiving({ gift, left, to: chosen?.id ?? null });
     setGiveOpen(true);
   }
 
@@ -124,7 +135,9 @@ export function GiftsPage() {
     setFailure(null);
     setSending(true);
     try {
-      const given = await giveGift(to.id, giving.gift.id, null);
+      // 送给预选的她时，记录放回带来的那段对话。
+      const from = to.id === chosen?.id ? (pick?.conversationId ?? null) : null;
+      const given = await giveGift(to.id, giving.gift.id, from);
       setGiveOpen(false);
       setState((s) => s && afterGiving(s, giving.gift.id, to.id, given));
       setNotice({
@@ -153,6 +166,15 @@ export function GiftsPage() {
           <GiftsEmpty title={t.closed.title} description={t.closed.description} />
         ) : (
           <>
+            {chosen && (
+              <PickedFor
+                character={chosen}
+                onCancel={() => {
+                  setDropped(chosen.id);
+                  router.replace("/gifts", { scroll: false });
+                }}
+              />
+            )}
             <DrawDesk draws={state.draws} max={state.max_draws} isDrawing={drawing !== null} onDraw={draw} />
             {state.backpack.length > 0 ? (
               <MyGifts backpack={state.backpack} catalog={catalog} onGive={(held) => startGiving(held.gift)} />
@@ -213,6 +235,26 @@ function afterGiving(state: GiftState, giftId: string, characterId: string, give
       .filter((b) => b.count > 0),
     characters: state.characters.map((c) => (c.id === characterId ? { id: c.id, ...given.affinity } : c)),
   };
+}
+
+/** 从对话页跳来时页首下面那一条：她的小头像、「给{角色名}挑一件礼物」和取消预选的 ✕。 */
+function PickedFor({ character, onCancel }: { character: Character; onCancel: () => void }) {
+  return (
+    <div className="flex items-center gap-2 rounded-2xl border py-1 pr-1 pl-3">
+      <MarkedAvatar name={character.name} src={character.avatar_url} size="sm" />
+      <p className="min-w-0 flex-1 truncate text-sm">{t.pickFor(character.name)}</p>
+      {/* 手机上触控目标不小于 44px */}
+      <Button
+        variant="ghost"
+        size="icon-lg"
+        className="max-md:size-11"
+        aria-label={t.cancelPick(character.name)}
+        onClick={onCancel}
+      >
+        <CloseIcon />
+      </Button>
+    </div>
+  );
 }
 
 /**

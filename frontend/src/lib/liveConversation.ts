@@ -75,11 +75,14 @@ export type Layer = { call: ShownCall; collapsed: boolean };
 export type MicNotice = "fell_back" | "unavailable" | "lost";
 
 /**
- * Whether her conversation is open: `opening` while it is looked up (or started) and its
- * messages loaded, and again while a new conversation is started; `failed` when it could
- * not be opened, saying why. Nothing is sent or dialed unless it is `open`.
+ * Whether her conversation is open, and which (`id`): `opening` while it is looked up (or
+ * started) and its messages loaded, and again while a new conversation is started; `failed`
+ * when it could not be opened, saying why. Nothing is sent or dialed unless it is `open`.
  */
-export type OpenState = { status: "opening" } | { status: "open" } | { status: "failed"; failure: Failure };
+export type OpenState =
+  | { status: "opening" }
+  | { status: "open"; id: string }
+  | { status: "failed"; failure: Failure };
 
 export type Snapshot = {
   conversation: OpenState;
@@ -240,8 +243,6 @@ export class LiveConversation {
   private attempt: object | null = null;
   private endedBy: CallEnd | null = null; // why the backend is hanging up
   private disposed = false;
-  /** The conversation open; null until it is. */
-  private conversationId: string | null = null;
   /** Moves the line card on when it is next due to at her pace; null while it is not. */
   private pacing: ReturnType<typeof setTimeout> | null = null;
   /** Stops showing the change of her affinity; null while none is shown. */
@@ -290,13 +291,14 @@ export class LiveConversation {
    * text turn or a call. It is opening until the new one is started; if that fails, this
    * one stays open. */
   async startNewConversation(): Promise<void> {
-    if (!isFree(this.state)) return;
+    const left = this.openConversationId();
+    if (left === null || !isFree(this.state)) return;
     this.update({ conversation: { status: "opening" }, failure: null });
     try {
       const conversation = await this.createConversation();
       this.showConversation(conversation.id, [], { call: { phase: "idle" }, draft: "" });
     } catch (e) {
-      this.update({ conversation: { status: "open" }, failure: toFailure(e) });
+      this.update({ conversation: { status: "open", id: left }, failure: toFailure(e) });
     }
   }
 
@@ -656,17 +658,16 @@ export class LiveConversation {
 
   /** Shows this conversation and its messages from now on: it is open. */
   private showConversation(conversationId: string, messages: Recorded[], change: Partial<State> = {}): void {
-    this.conversationId = conversationId;
     this.apply(
       { type: "loaded", messages },
-      { ...change, conversation: { status: "open" }, card: BLANK_CARD },
+      { ...change, conversation: { status: "open", id: conversationId }, card: BLANK_CARD },
     );
   }
 
   /** The conversation to send to and call in, or null if none is open: still opening,
    * being left for a new one, or failed to open. */
   private openConversationId(): string | null {
-    return this.state.conversation.status === "open" ? this.conversationId : null;
+    return this.state.conversation.status === "open" ? this.state.conversation.id : null;
   }
 
   /** The time now, as the log dates entries. */

@@ -116,7 +116,7 @@ export const zh = {
       label: (tier: string) => `你们的关系：${tier}`,
       title: (tier: string) => `你们现在的关系：${tier}`,
       cooling: (name: string) => `${name}现在不想说话`,
-      coolingNote: (until: string) => `${until} 以后可以再找她。`,
+      coolingNote: (until: string) => `${until} 以后可以再找她。送她一件礼物，她会消气得快一些。`,
       /** 冷却中换掉输入栏的那一行。 */
       coolingComposer: (name: string, until: string) => `${name}现在不想说话。${until} 以后可以再找她`,
       tiersLabel: "五个档位",
@@ -1163,6 +1163,11 @@ export const zh = {
   gifts: {
     title: "礼物",
     loading: "正在读取礼物",
+    /** 对话页上的送礼入口（冷却时输入栏右边、页首好感度标识的说明末尾、冷却版结束卡的主按钮），都跳到礼物页。 */
+    giveHer: "送她一件礼物",
+    /** 从对话页跳来时页首下面那一条，和取消预选的 ✕。 */
+    pickFor: (name: string) => `给${name}挑一件礼物`,
+    cancelPick: (name: string) => `不预选${name}`,
     /** 抽奖台。 */
     draw: {
       title: "抽奖",

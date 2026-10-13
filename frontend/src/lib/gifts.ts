@@ -1,6 +1,6 @@
 // 礼物（GLOSSARY.md「礼物」「抽奖」「重置卡」）：礼物页读到的状态，和页上那几句话怎么拼、我的礼物怎么筛。
 // 抽奖次数每天在制作人当地 0 点发 1 次，最多攒 7 次，后端读取时补发；下次什么时候到账固定写「明天 0:00」。
-// 送礼一次一件，送出后页面底部那条提示的话也在这里拼。
+// 送礼一次一件，送出后页面底部那条提示的话也在这里拼。对话页上的送礼入口跳到礼物页时带着谁、从哪段对话来。
 
 import { api, json } from "@/lib/api";
 import { cueText, untilText, type AffinityChange, type AffinityStatus, type Tier } from "@/lib/affinity";
@@ -90,6 +90,29 @@ export function givenNote(given: Given, name: string, now: Date, timeZone: strin
   if (given.change) return cueText(given.change, name);
   const until = given.affinity.cooldown_until;
   return until ? t.stillCooling(name, untilText(new Date(until), now, timeZone)) : t.given(name);
+}
+
+/** 从对话页跳来的礼物页：预选的她，和记录要放回的那段对话（还没打开对话时是 null）。 */
+export type GiftsFor = { to: string; conversationId: string | null };
+
+/** 对话页上「送她一件礼物」去的地方：礼物页，带上她的角色 id 和这段对话的 id。 */
+export function giftsHref(characterId: string, conversationId: string | null): string {
+  const query = new URLSearchParams({ to: characterId });
+  if (conversationId) query.set("conversation", conversationId);
+  return `/gifts?${query}`;
+}
+
+/** 礼物页地址里的预选；没有 `to`（或者不止一个、是空的）就是没有预选。`to` 是不是真有这位角色由礼物页判断。 */
+export function giftsFor(query: Record<string, string | string[] | undefined>): GiftsFor | null {
+  const { to, conversation } = query;
+  if (typeof to !== "string" || to === "") return null;
+  return { to, conversationId: typeof conversation === "string" && conversation !== "" ? conversation : null };
+}
+
+/** 送给谁的顺序：预选的她（`to`）排第一，其余照原来的顺序；没有预选或者她不在里面时不变。 */
+export function chosenFirst<C extends { id: string }>(characters: C[], to: string | null): C[] {
+  const chosen = characters.find((c) => c.id === to);
+  return chosen ? [chosen, ...characters.filter((c) => c !== chosen)] : characters;
 }
 
 /** 抽奖台小点下面那句：用完了、攒满了、平时三种。 */

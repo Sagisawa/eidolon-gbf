@@ -2,6 +2,7 @@
 
 import type { ComponentProps, RefObject } from "react";
 
+import { ShellLink } from "@/components/app/ShellLink";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { copy } from "@/i18n";
@@ -9,7 +10,7 @@ import { TierHeart } from "@/components/app/TierHeart";
 import { badgeOf, TIERS, type AffinityStatus } from "@/lib/affinity";
 import type { AffinityCue } from "@/lib/liveConversation";
 import { cn } from "@/lib/utils";
-import { AffinityDownIcon, AffinityUpIcon, CooldownIcon } from "@/theme/icons";
+import { AffinityDownIcon, AffinityUpIcon, CooldownIcon, GiftIcon } from "@/theme/icons";
 
 const t = copy.conversation.affinity;
 
@@ -18,12 +19,15 @@ const t = copy.conversation.affinity;
  * 心形（她的颜色）加档名；冷却中换成 muted 的沙漏加解除时刻。点开是说明，container 指回对话子树。
  * 宽度跟着内容走，手机上高度不小于 44px；挤不下时名字截断，不挤压电话键和更多菜单。
  * 一个回合刚改变了好感度（`cue`）时，心形跳一下、右上角叠一个升降小箭头（「升」用她的按钮色）。
+ * 说明末尾是「送她一件礼物」的链接，平时和冷却中都有，跳到礼物页（`gifts`）。好感度和礼物同一个开关，
+ * 这个标识在就是开放着。
  */
 export function AffinityBadge({
   status,
   cue,
   name,
   timeZone,
+  gifts,
   subtree,
 }: {
   status: AffinityStatus;
@@ -33,6 +37,8 @@ export function AffinityBadge({
   name: string;
   /** 制作人的时区：解除时刻按它写成今天或明天。 */
   timeZone: string;
+  /** 送礼链接去的礼物页，带着她和这段对话（`giftsHref`）。 */
+  gifts: string;
   subtree: RefObject<HTMLDivElement | null>;
 }) {
   const badge = badgeOf(status, name, new Date(), timeZone);
@@ -75,6 +81,10 @@ export function AffinityBadge({
           })}
         </ol>
         <p className="text-meta text-muted-foreground">{t.rule}</p>
+        <ShellLink href={gifts} isStandalone className="flex items-center gap-1.5 self-start">
+          <GiftIcon aria-hidden className="size-4" />
+          {copy.gifts.giveHer}
+        </ShellLink>
       </PopoverContent>
     </Popover>
   );

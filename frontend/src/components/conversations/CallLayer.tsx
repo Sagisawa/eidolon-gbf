@@ -19,6 +19,8 @@ import { cueText } from "@/lib/affinity";
 import type { Character, Outfit, Segment } from "@/lib/api";
 import { endCard, type CallEnd } from "@/lib/callEnd";
 import { clock, showTime } from "@/lib/callTime";
+import { giftsHref } from "@/lib/gifts";
+import { settingsHref } from "@/lib/settingsCategory";
 import {
   NOT_OPEN,
   type AffinityCue,
@@ -30,6 +32,7 @@ import type { StandDirection } from "@/lib/standAnimations";
 import { cn } from "@/lib/utils";
 import {
   CollapseIcon,
+  GiftIcon,
   HangUpIcon,
   MicIcon,
   MicOffIcon,
@@ -82,6 +85,10 @@ type Props = {
   onDismiss: () => void;
   /** 结束页上「去设置自带密钥」。 */
   onOwnKeys: () => void;
+  /** 礼物开放着（好感度可用）：她因为冷却挂断时，结束卡的主按钮是「送她一件礼物」。 */
+  giftsOpen: boolean;
+  /** 结束页上「送她一件礼物」。 */
+  onGift: () => void;
 };
 
 const notOpen = () => NOT_OPEN;
@@ -89,6 +96,7 @@ const notOpen = () => NOT_OPEN;
 /**
  * 画外壳持有的那段对话的通话层：她的对话页上画在对话栏里，别的外壳页面上由外壳画在当前页（ADR-0018）。
  * 收没收起、画哪一通都在 `live` 的快照里，两处画出来是同一个通话层；还没打过电话时什么都不画。
+ * 结束卡上去别处的主按钮（自带密钥、送礼）由外壳的 `go` 按去处规则去。
  */
 export function LiveCallLayer({
   live,
@@ -96,19 +104,24 @@ export function LiveCallLayer({
   standOutfits,
   layerRef,
   isFullScreen,
-  onOwnKeys,
+  go,
 }: {
   live: LiveConversation;
   character: Character;
   standOutfits: readonly Outfit[];
   layerRef: RefObject<HTMLElement | null>;
   isFullScreen: boolean;
-  onOwnKeys: () => void;
+  go: (href: string) => void;
 }) {
   const snapshot = useSyncExternalStore(live.subscribe, live.snapshot, notOpen);
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
-  const { layer } = snapshot;
+  const { layer, conversation } = snapshot;
   if (!layer) return null;
+  // 先看完结束卡再去：不然通话层在要去的页面上（由外壳画）还展开着结束卡，挡住要去的地方。
+  const leave = (href: string) => {
+    live.dismissEnd();
+    go(href);
+  };
   return (
     <CallLayer
       character={character}
@@ -134,11 +147,10 @@ export function LiveCallLayer({
       // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
       onRedial={() => void live.startCall()}
       onDismiss={() => live.dismissEnd()}
-      // 先看完结束卡再去：不然通话层在设置页上（由外壳画）还展开着结束卡，挡住要去的地方。
-      onOwnKeys={() => {
-        live.dismissEnd();
-        onOwnKeys();
-      }}
+      onOwnKeys={() => leave(settingsHref("own-keys"))}
+      // 好感度和礼物同一个开关：读得到好感度就是开放着。送礼记录放回这段对话。
+      giftsOpen={snapshot.affinity !== null}
+      onGift={() => leave(giftsHref(live.characterId, conversation.status === "open" ? conversation.id : null))}
     />
   );
 }
@@ -427,11 +439,11 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
   );
 }
 
-/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨或「去设置自带密钥」；
- * 她因为冷却挂断时没有主操作）。 */
-function Ended({ character, end, onRedial, onDismiss, onOwnKeys }: Props & { end: CallEnd }) {
+/** 结束卡：原因、后端多说的话、说明、是否计入限额，以及「回到对话」和主操作（重拨、「去设置自带密钥」，
+ * 或者她因为冷却挂断时的「送她一件礼物」；礼物没开放时冷却版没有主操作）。 */
+function Ended({ character, end, giftsOpen, onRedial, onDismiss, onOwnKeys, onGift }: Props & { end: CallEnd }) {
   const timeZone = useProducerTimezone();
-  const card = endCard(end, character.name, new Date(), timeZone);
+  const card = endCard(end, character.name, new Date(), timeZone, giftsOpen);
   return (
     <div
       role="alert"
@@ -446,9 +458,10 @@ function Ended({ character, end, onRedial, onDismiss, onOwnKeys }: Props & { end
           {t.backToConversation}
         </Button>
         {card.action && (
-          <Button variant="call-solid" size="call" onClick={card.action === "own_keys" ? onOwnKeys : onRedial}>
+          <Button variant="call-solid" size="call" onClick={{ redial: onRedial, own_keys: onOwnKeys, gift: onGift }[card.action]}>
             {card.action === "redial" && <PhoneIcon aria-hidden />}
-            {card.action === "own_keys" ? t.toOwnKeys : t.redial}
+            {card.action === "gift" && <GiftIcon aria-hidden />}
+            {{ redial: t.redial, own_keys: t.toOwnKeys, gift: copy.gifts.giveHer }[card.action]}
           </Button>
         )}
       </div>

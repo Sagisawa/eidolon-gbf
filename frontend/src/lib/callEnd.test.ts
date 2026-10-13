@@ -64,7 +64,7 @@ describe("endCard", () => {
   const now = new Date("2026-10-13T03:00:00Z");
 
   it("says only that she hung up, when she did for what was out of line, and offers a redial", () => {
-    expect(endCard({ reason: "out_of_line", detail: null, counts: true }, "真乃", now, "Asia/Tokyo")).toEqual({
+    expect(endCard({ reason: "out_of_line", detail: null, counts: true }, "真乃", now, "Asia/Tokyo", true)).toEqual({
       title: "真乃挂断了电话。",
       detail: null,
       body: null,
@@ -73,24 +73,30 @@ describe("endCard", () => {
     });
   });
 
-  it("says when she will talk again, when she hung up for a cooldown, and offers no redial", () => {
+  it("says when she will talk again, when she hung up for a cooldown, and offers a gift instead of a redial", () => {
     const end = { reason: "cooldown", detail: null, counts: true, cooldownUntil: "2026-10-14T01:30:00Z" } as const;
 
-    expect(endCard(end, "真乃", now, "Asia/Tokyo")).toEqual({
+    expect(endCard(end, "真乃", now, "Asia/Tokyo", true)).toEqual({
       title: "真乃挂断了电话。",
       detail: null,
       body: "她现在不想说话，明天 10:30 以后可以再找她。",
       counts: true,
-      action: null,
+      action: "gift",
     });
   });
 
+  it("offers nothing but going back after a cooldown, while gifts are not open", () => {
+    const end = { reason: "cooldown", detail: null, counts: true, cooldownUntil: "2026-10-14T01:30:00Z" } as const;
+
+    expect(endCard(end, "真乃", now, "Asia/Tokyo", false)).toMatchObject({ action: null });
+  });
+
   it("gives the other ends their own title and body, and the main button they call for", () => {
-    expect(endCard({ reason: "turn_limit", detail: null, counts: true }, "真乃", now, "Asia/Tokyo")).toMatchObject({
+    expect(endCard({ reason: "turn_limit", detail: null, counts: true }, "真乃", now, "Asia/Tokyo", true)).toMatchObject({
       title: "这次通话说到回合数上限了",
       action: "redial",
     });
-    expect(endCard({ reason: "own_key", detail: "密钥调用失败", counts: false }, "真乃", now, "Asia/Tokyo")).toMatchObject({
+    expect(endCard({ reason: "own_key", detail: "密钥调用失败", counts: false }, "真乃", now, "Asia/Tokyo", true)).toMatchObject({
       detail: "密钥调用失败",
       counts: false,
       action: "own_keys",

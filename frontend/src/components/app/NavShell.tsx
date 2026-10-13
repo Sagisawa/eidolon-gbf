@@ -12,7 +12,6 @@ import { useStandOutfits } from "@/components/conversations/useStandOutfits";
 import type { Character } from "@/lib/api";
 import { NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { showsShellCallBar } from "@/lib/navShell";
-import { settingsHref } from "@/lib/settingsCategory";
 import { herVars } from "@/theme/herVars";
 
 const notOpen = () => NOT_OPEN;
@@ -82,7 +81,7 @@ function HeldLayer({
         standOutfits={outfits?.toTry ?? []}
         layerRef={layerRef}
         isFullScreen={isFullScreen}
-        onOwnKeys={() => go(settingsHref("own-keys"))}
+        go={go}
       />
     </div>
   );
