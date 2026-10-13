@@ -3,7 +3,7 @@ gifts page. It takes one from the backpack and raises her affinity by its rarity
 she likes it, by no more than a little in a cooldown, which enough gifts end sooner than
 recovery would; at the top it changes nothing, given all the same. It leaves a gift record
 in the conversation it came from if that is hers with the user, else in her newest, else in
-one begun for it, after a turn under way; the conversation list's last message is then the
+one begun for it, after a turn under way (tested with her responding to it); the conversation list's last message is then the
 record. It is not a turn: no limit counts it, no cooldown refuses it, no activity record is
 left. Closed, nothing can be given. Driven through the backend's external API, the random
 source giving what is drawn and the clock moved by hand."""
@@ -273,25 +273,6 @@ class HoldsReply(FakeLLM):
             if not self.release.is_set():
                 self.replying.set()
                 await self.release.wait()
-
-
-async def test_a_gift_given_while_she_replies_comes_after_that_turn(
-    make_client: ClientFactory,
-):
-    clock = FakeClock()
-    llm = HoldsReply(["<ja>は", "い</ja><zh>好的</zh>"])
-    client = holding(make_client, clock, TEA, llm=llm)
-    await draw_them(client, clock, 1)
-    conversation = await start_conversation(client)
-
-    turn = asyncio.create_task(send_turn(client, conversation, "在吗"))
-    await llm.replying.wait()
-    await given(client, "tea", conversation=conversation)
-    llm.release.set()
-    await turn
-
-    record = (await client.get(f"/api/conversations/{conversation}/messages")).json()
-    assert [e.get("kind") or e["role"] for e in record] == ["user", "character", "gift"]
 
 
 async def test_closed_nothing_can_be_given(

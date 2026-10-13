@@ -20,10 +20,8 @@ import httpx
 from eidolon.config import Settings
 from eidolon.llm import ChatMessage, Tool, ToolCall
 from tests.conftest import ClientFactory
-from tests.fakes import (
-    FakeLLM,
-)
-from tests.test_conversation_history import history
+from tests.fakes import FakeLLM
+from tests.test_conversation_history import history, told
 from tests.test_delete_account import DELETE
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -140,7 +138,7 @@ async def test_it_slides_out_of_her_prompt_with_the_users_words_after_it(
 
     await send_turn(client, conversation, "第四句")
 
-    assert HUNG_UP not in "\n".join(content for _, content in history(llm))
+    assert HUNG_UP not in told(llm)
 
 
 async def test_the_conversation_lists_last_message_can_be_an_event_until_the_next_turn(

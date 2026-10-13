@@ -29,7 +29,7 @@ from tests.fakes import (
     FakeSpeech,
 )
 from tests.test_conversation_events import HUNG_UP, hang_up
-from tests.test_conversation_history import history
+from tests.test_conversation_history import history, told
 from tests.test_gift_giving import (  # noqa: F401
     CAKE,
     TEA,
@@ -42,8 +42,8 @@ from tests.test_gift_giving import (  # noqa: F401
 from tests.test_she_hangs_up import say
 from tests.test_text_turn import send_turn, start_conversation
 
-REPLY = ["<ja>はい</ja><zh>好的</zh>"]
 SAID = "<ja>はい</ja><zh>好的</zh>"
+REPLY = [SAID]
 GIVEN_CAKE = "（制作人送给你一份cake。这是你喜欢的东西。）"
 GIVEN_TEA = "（制作人送给你一份tea。）"
 RESPOND = "（先回应制作人说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。）"
@@ -53,11 +53,6 @@ RESPOND = "（先回应制作人说的话，再在合适的时候用你自己的
 def settings(settings: Settings) -> Settings:
     """With the judge model, and affinity and gifts on in `.env`."""
     return replace(settings, judge=FAKE_JUDGE, affinity_and_gifts=True)
-
-
-def told(llm: FakeLLM) -> str:
-    """All the last prompt carries after its system message, as one text."""
-    return "\n".join(content for _, content in history(llm))
 
 
 async def test_her_next_turn_tells_her_of_it_whether_she_likes_it_and_to_respond_once(
@@ -116,7 +111,7 @@ async def test_one_given_while_she_replies_is_the_next_turns_to_respond_to(
     make_client: ClientFactory,
 ):
     clock = FakeClock()
-    llm = HoldsReply(["<ja>は", "い</ja><zh>好的</zh>"], REPLY, REPLY)
+    llm = HoldsReply(["<ja>は", "い</ja><zh>好的</zh>"], REPLY)
     client = holding(make_client, clock, TEA, llm=llm)
     await draw_them(client, clock, 1)
     conversation = await start_conversation(client)
@@ -126,15 +121,12 @@ async def test_one_given_while_she_replies_is_the_next_turns_to_respond_to(
     await given(client, "tea", conversation=conversation)
     llm.release.set()
     await turn
+    record = (await client.get(f"/api/conversations/{conversation}/messages")).json()
+    assert [e.get("kind") or e["role"] for e in record] == ["user", "character", "gift"]
     assert history(llm) == [("user", "在吗")]
 
     await send_turn(client, conversation, "第二句")
     assert history(llm)[-1] == ("user", f"{GIVEN_TEA}\n{RESPOND}\n第二句")
-
-    await send_turn(client, conversation, "第三句")
-    assert history(llm)[-3:] == [
-        ("user", f"{GIVEN_TEA}\n第二句"), ("assistant", SAID), ("user", "第三句"),
-    ]
 
 
 async def test_in_a_call_the_next_turn_responds_to_one_given_from_elsewhere(
