@@ -5,7 +5,7 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries), and whether affinity and gifts are on. Overrides are kept in the database,
+carries, with the exempting keys), and whether affinity and gifts are on. Overrides are kept in the database,
 one row per field, a key encrypted with a key derived from `EIDOLON_SECRET_KEY`
 (without it, keys cannot be changed here, only seen). A change to a service is tried before it is kept, as the chat
 model is when the server starts; it then holds for every turn and call that starts after
@@ -56,7 +56,9 @@ from eidolon.config import (
     CloudflareJudgeSettings,
     JevSettings,
     JudgeSettings,
+    SERVICES,
     LLMSettings,
+    Service,
     Settings,
     SttKey,
     UsageLimits,
@@ -445,30 +447,58 @@ LIMIT_LABELS = {
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
+EXEMPTING_LABELS: dict[str, str] = {
+    "exempting_llm": "免限额密钥里的 LLM",
+    "exempting_tts": "免限额密钥里的语音合成",
+    "exempting_stt": "免限额密钥里的语音识别",
+}
+"""Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md
+「免限额密钥」), as the admin console names them; true or false, never all false."""
+
+EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in SERVICES}
+
+NO_EXEMPTING_KEYS = "免限额密钥至少要选一项；想取消限额，请把每小时的回合数和通话次数设成不限"
+
+
 class _Limits(_Item):
     """The limits per hour, a call's own limits and the turns each prompt carries, as
-    `.env` takes them (0 for none); not tried."""
+    `.env` takes them (0 for none), and the exempting keys; not tried."""
 
     name = LIMITS
-    fields = tuple(LIMIT_LABELS)
+    fields = (*LIMIT_LABELS, *EXEMPTING_LABELS)
 
     def env(self) -> Values:
         limits = self.c.settings.usage_limits
+        exempting = self.c.settings.exempting_keys
         return {
             "turns_per_hour": limits.turns_per_hour or 0,
             "calls_per_hour": limits.calls_per_hour or 0,
             "call_minutes": limits.call_minutes or 0,
             "turns_per_call": limits.turns_per_call or 0,
             "history_turns": self.c.settings.history_turns or 0,
-        }
+        } | {field: s in exempting for s, field in EXEMPTING_FIELDS.items()}
 
     def candidate(self, current: Values, change: Values) -> Values:
         for field, value in change.items():
-            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            if field in EXEMPTING_LABELS:
+                if not isinstance(value, bool):
+                    raise ConfigInvalid(
+                        f"{EXEMPTING_LABELS[field]}需要是 true 或 false，而不是 {value!r}"
+                    )
+            elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ConfigInvalid(
                     f"{LIMIT_LABELS[field]}需要是非负整数（0 表示不限），而不是 {value!r}"
                 )
-        return current | change
+        values = current | change
+        if not any(values[field] for field in EXEMPTING_LABELS):
+            raise ConfigInvalid(NO_EXEMPTING_KEYS)
+        return values
+
+    async def retry(self, values: Values) -> Values:
+        # `.env` may since have turned off the exempting keys the override left on.
+        if not any(values[field] for field in EXEMPTING_LABELS):
+            raise ConfigRejected(NO_EXEMPTING_KEYS)
+        return values
 
 
 class _Affinity(_Item):
@@ -612,6 +642,12 @@ class LiveConfig:
             values["call_minutes"] or None,
             values["turns_per_call"] or None,
         )
+
+    @property
+    def exempting_keys(self) -> frozenset[Service]:
+        """The exempting keys now (GLOSSARY.md「免限额密钥」), at least one."""
+        values = self.effective(LIMITS)
+        return frozenset(s for s, field in EXEMPTING_FIELDS.items() if values[field])
 
     @property
     def affinity_on(self) -> bool:

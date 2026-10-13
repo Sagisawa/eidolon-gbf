@@ -40,6 +40,7 @@ import {
   isAvailable,
   ITEM_SPECS,
   ITEMS,
+  lockedOn,
   readOnlyValue,
   restoreItem,
   rows,
@@ -404,16 +405,19 @@ function AvailableItem({
                 }
                 if (field.kind === "switch") {
                   const hint = fieldHint(name, field, keysEditable);
+                  const locked = lockedOn(form, field.name);
                   return (
-                    <Field key={field.name} orientation="horizontal">
+                    <Field key={field.name} orientation="horizontal" data-disabled={locked ? true : undefined}>
                       <FieldContent>
                         <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
                         {hint && <FieldDescription>{hint}</FieldDescription>}
+                        {locked && <FieldDescription>{t.lastExemptingKey}</FieldDescription>}
                       </FieldContent>
                       <Switch
                         id={fieldId}
                         checked={form[field.name] === "true"}
                         onCheckedChange={(on) => set(field.name)(String(on))}
+                        disabled={locked}
                       />
                     </Field>
                   );

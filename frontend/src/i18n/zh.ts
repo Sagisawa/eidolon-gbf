@@ -892,7 +892,7 @@ export const zh = {
         },
         limits: {
           title: "限额、单次通话上限和历史回合数",
-          hint: "每小时的回合数和通话次数对每位用户分别计算，自带密钥的回合和通话不计入。保存后下一个回合、下一次通话就按新数字执行；进行中的通话仍用接通时的时长和回合上限。",
+          hint: "每小时的回合数和通话次数对每位用户分别计算。用了自带 LLM 的文字回合不计入；通话把下面打开的几项免限额密钥都自带了才不计入，没打开的由部署者承担。保存后下一个回合、下一次通话就按新的设置执行；进行中的通话仍按接通时的规则、时长和回合上限。",
         },
         affinity: {
           title: "好感度和礼物",
@@ -931,6 +931,10 @@ export const zh = {
         call_minutes: "单次通话的时长上限（分钟）",
         turns_per_call: "单次通话的回合上限",
         history_turns: "带上的历史回合数",
+        /** 免限额密钥（GLOSSARY.md「免限额密钥」）的三个开关。 */
+        exempting_llm: "免限额密钥：LLM",
+        exempting_tts: "免限额密钥：语音合成",
+        exempting_stt: "免限额密钥：语音识别",
         enabled: "好感度和礼物",
       } as Record<string, string>,
       formHints: {
@@ -940,7 +944,12 @@ export const zh = {
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",
+        exempting_llm: "打开：通话要自带 LLM 才可能不计入限额。关闭：通话的 LLM 由部署者承担，带不带都不影响计数。文字回合不看这里，用了自带 LLM 就不计入。",
+        exempting_tts: "打开：通话要自带语音合成（Fish Audio）才可能不计入限额。关闭：语音合成由部署者承担，带不带都不影响计数。",
+        exempting_stt: "打开：通话要自带语音识别才可能不计入限额。关闭：语音识别由部署者承担，带不带都不影响计数。",
       } as Record<string, string>,
+      /** 免限额密钥只剩这一项开着时，开关关不掉，下面写这一句。 */
+      lastExemptingKey: "至少要开一项；想取消限额，把每小时的回合数和通话次数设成不限。",
       problems: {
         required: (field: string) => `${field}不能为空。`,
         maxTokens: (field: string) => `${field}需要是正整数，留空用默认值。`,
@@ -949,7 +958,7 @@ export const zh = {
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
       },
       unlimited: "不限",
-      /** 开关类的值（好感度和礼物）。 */
+      /** 开关类的值（免限额密钥、好感度和礼物）。 */
       switchOn: "打开",
       switchOff: "关闭",
       /** 限额一项先选种类：设定上限，或者不限。不用 0 表示不限（单独限额里另有「只能用自带密钥」）。 */

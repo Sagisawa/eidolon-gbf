@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, Secret, StringConstraints, model_validato
 
 from eidolon.accounts import SignInRefused, is_admin
 from eidolon.assembly import Backend
-from eidolon.config import BailianRegion, LLMProtocol, SttKey, SttProvider
+from eidolon.config import SERVICES, BailianRegion, LLMProtocol, SttKey, SttProvider
 from eidolon.identity import PROVIDER_NAMES, IdentityError
 from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings, named_services
 from eidolon.store import LastSignInMethod
@@ -243,8 +243,8 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
     @app.get("/api/account")
     def account(user_id: UserId) -> dict:
         """The signed-in user, by the id their browser keeps their own keys apart by, the
-        identities they sign in with, and whether they are an admin, who may enter the
-        admin console."""
+        identities they sign in with, whether they are an admin, who may enter the admin
+        console, and the exempting keys now (GLOSSARY.md「免限额密钥」), in a fixed order."""
         return {
             "id": user_id,
             "name": store.get_user(user_id).name,
@@ -253,6 +253,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
                 for m in store.sign_in_methods(user_id)
             ],
             "is_admin": is_admin(store, settings, user_id),
+            "exempting_keys": [s for s in SERVICES if s in backend.config.exempting_keys],
         }
 
     @app.delete("/api/account/sign-in-methods/{provider}", status_code=204)

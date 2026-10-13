@@ -71,7 +71,7 @@ class Admission(Generic[K]):
 
     @property
     def exempt(self) -> bool:
-        """Whether it is on the user's own keys alone, and counts towards nothing."""
+        """Whether it is exempt on the user's own keys, and counts towards nothing."""
         return self.keys.exempt
 
     def counts(self, result: Result) -> bool:

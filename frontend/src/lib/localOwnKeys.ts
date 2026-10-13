@@ -5,7 +5,7 @@
 
 // 下面几份取值列表跟后端同步（不做代码生成）：后端改了，这里照着改。
 
-/** 能自带 key 的服务：后端 `own_keys.Service`。 */
+/** 能自带 key 的服务：后端 `config.Service`。 */
 export const OWN_SERVICES = ["llm", "tts", "stt"] as const;
 export type OwnService = (typeof OWN_SERVICES)[number];
 

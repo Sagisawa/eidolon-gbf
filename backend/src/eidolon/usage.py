@@ -1,8 +1,9 @@
 """Per-user rate limits, so one user cannot use up the API credit everyone shares.
 
-A turn or call on the user's own keys alone is recorded all the same, for the admin to
-see, but does not count towards the limit. An admin may set a user's own limits, apart
-from the deployment's: a number, unlimited, or 0, which leaves them their own keys only.
+A turn or call exempt on the user's own keys (GLOSSARY.md「免限额密钥」) is recorded all the
+same, for the admin to see, but does not count towards the limit. An admin may set a user's
+own limits, apart from the deployment's: a number, unlimited, or 0, which leaves them the
+exempt ones only.
 Each use is kept in the database, next to the
 user it belongs to, for a day; whoever's they are, uses older than that are deleted
 whenever anyone takes one."""
@@ -33,7 +34,7 @@ _NAMES: dict[UsageKind, str] = {"turn": "文字对话", "call": "语音通话"}
 
 _SCHEMA = """
 -- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
--- A use on the user's own keys alone is `exempt`: recorded, but not limited.
+-- A use exempt on the user's own keys is `exempt`: recorded, but not limited.
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT NOT NULL REFERENCES users(id),

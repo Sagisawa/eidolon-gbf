@@ -356,7 +356,11 @@ So that no single user drains the deployer's API credits, the following limits a
 | History turns sent per turn | 20 | `EIDOLON_HISTORY_TURNS` |
 
 - **How it counts**: Per user, whichever sign-in method or device they use. Turns that fail because a service erred, and calls that never connected, don't count; ones the user leaves midway still count.
-- **Own keys**: Use on own keys doesn't count. A text turn on the user's own LLM doesn't count; a call doesn't count only if its LLM, speech synthesis and speech recognition are all the user's own.
+- **Exempting keys**: The deployer picks some of the LLM, speech synthesis and speech recognition. A call that brings the user's own keys for every service picked doesn't count; the deployer pays for the rest, and bringing more keys still doesn't count. Text turns ignore this setting: a turn on the user's own LLM doesn't count. Users without their own keys can still start turns and calls; those count.
+  - **`.env`**: `EIDOLON_EXEMPTING_LLM`, `EIDOLON_EXEMPTING_TTS` and `EIDOLON_EXEMPTING_STT`, one per service. Unset or `1` picks it, `0` doesn't, and any other value fails at startup. All three are picked by default, so only calls bringing all three don't count.
+  - **At least one**: All three set to `0` fails at startup, and the admin console won't turn off the last one. To lift the limits, set the turns and calls per hour to unlimited instead.
+  - **Admin console**: Three switches in the 「限额」 (Usage limits) card on the config page, which take precedence over `.env`. They take effect from the next turn and call; a call in progress keeps the rule it started with.
+  - **Example**: With only the LLM picked, people without keys try it out within the limits; people who bring their own LLM call without limits, and the deployer pays for speech synthesis and recognition. The per-call duration and turn caps still apply.
 - **Over the limit**: Requests over the usage limit get a 429 with the time usage resumes, and the frontend tells the user when they can use it again.
 - **History turns**: Each turn, the chat model reads only the most recent turns; earlier content comes back through memory and retrieval. The conversation record itself is kept in full.
 
@@ -391,7 +395,7 @@ List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like 
 | Page | What it does |
 |---|---|
 | Dashboard (`/admin`) | Calls, error rate and latency per service; active users, the number and trend of turns and calls, usage per character, calls in progress; with affinity on, totals of judgements, cooldowns and hang-ups, plus figures per character; the deployer's cost estimated from unit prices |
-| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits, per-call caps, history turns, the affinity and gifts switch (and granting every user a reset card) and unit prices |
+| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits, exempting keys, per-call caps, history turns, the affinity and gifts switch (and granting every user a reset card) and unit prices |
 | Users (`/admin/users`) | Search users, see their sign-in methods and recent usage; ban, unban, set an individual usage limit, delete |
 
 - **Overrides `.env`**: Items changed in the admin console are stored in the database and take precedence over `.env`, with no restart needed. Each change is tried before saving and not saved if the try fails. A call in progress finishes on the configuration it connected with.

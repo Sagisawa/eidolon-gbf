@@ -323,12 +323,15 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 export type SignInMethod = { provider: Provider; display_name: string; email: string | null };
 
 /** `id`: who the user is, which this browser keeps their own keys apart by (see `localOwnKeys`).
- * `is_admin`: the user may enter the admin console (`/admin`). */
+ * `is_admin`: the user may enter the admin console (`/admin`).
+ * `exempting_keys`: the services a call must bring the user's own keys for, all of them, to count
+ * towards no limit (GLOSSARY.md「免限额密钥」), in the order of `OWN_SERVICES`; at least one. */
 export type Account = {
   id: string;
   name: string;
   sign_in_methods: SignInMethod[];
   is_admin: boolean;
+  exempting_keys: OwnService[];
 };
 
 /** The signed-in user; sends the browser to sign in, or to agree to the terms, first. */

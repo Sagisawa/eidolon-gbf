@@ -3,7 +3,7 @@
 // 各项的字段、表单的换算和校验都写在这里，页面只负责摆放。
 
 import { api, json } from "@/lib/api";
-import { LLM_PROTOCOLS, STT_PROVIDERS } from "@/lib/localOwnKeys";
+import { LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS } from "@/lib/localOwnKeys";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
 
@@ -106,6 +106,10 @@ export type FieldKind =
 /** The limits, in the order they are shown. */
 export const LIMIT_FIELDS = ["turns_per_hour", "calls_per_hour", "call_minutes", "turns_per_call", "history_turns"];
 
+/** Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md「免限额密钥」), in
+ * the order of `OWN_SERVICES`; at least one stays on. */
+export const EXEMPTING_FIELDS = OWN_SERVICES.map((service) => `exempting_${service}`);
+
 export type FieldSpec = { name: string; kind: FieldKind; options?: readonly string[] };
 
 export type ItemSpec = {
@@ -173,9 +177,12 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
   judge_thresholds: THRESHOLD(["recall", "emotion", "out_of_line", "manipulation"]),
   rerank: THRESHOLD(["references", "memories"]),
   limits: {
-    rows: LIMIT_FIELDS,
+    rows: [...LIMIT_FIELDS, ...EXEMPTING_FIELDS],
     secrets: [],
-    form: LIMIT_FIELDS.map((name): FieldSpec => ({ name, kind: "limit" })),
+    form: [
+      ...LIMIT_FIELDS.map((name): FieldSpec => ({ name, kind: "limit" })),
+      ...EXEMPTING_FIELDS.map((name): FieldSpec => ({ name, kind: "switch" })),
+    ],
     tried: false,
   },
   // 好感度和礼物（GLOSSARY.md「好感度」）：只有一个开关；没配判断模型时整项不可用。
@@ -231,6 +238,13 @@ export function formOf(spec: ItemSpec, effective: Shown): Form {
       return [name, value === null || value === undefined ? "" : String(value)];
     }),
   );
+}
+
+/** Whether the switch `field` is the last exempting key on, which cannot be turned off: the
+ * server refuses them all off. */
+export function lockedOn(form: Form, field: string): boolean {
+  const on = EXEMPTING_FIELDS.filter((name) => form[name] === "true");
+  return on.length === 1 && on[0] === field;
 }
 
 export type Problem = { field: string; reason: "required" | "maxTokens" | "probability" | "seconds" | "limit" };

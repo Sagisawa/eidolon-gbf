@@ -4,6 +4,7 @@ import {
   changeOf,
   formOf,
   ITEM_SPECS,
+  lockedOn,
   UNLIMITED,
   readOnlyValue,
   rows,
@@ -170,6 +171,9 @@ describe("limits", () => {
     call_minutes: "10",
     turns_per_call: "40",
     history_turns: "20",
+    exempting_llm: "true",
+    exempting_tts: "false",
+    exempting_stt: "true",
   };
 
   it("starts a limit of 0 as none, not as a number", () => {
@@ -185,8 +189,24 @@ describe("limits", () => {
         call_minutes: 10,
         turns_per_call: 40,
         history_turns: 20,
+        exempting_llm: true,
+        exempting_tts: false,
+        exempting_stt: true,
       },
     });
+  });
+
+  it("starts the exempting keys as they are in effect", () => {
+    const effective = { ...form, calls_per_hour: 0, exempting_llm: true, exempting_tts: false, exempting_stt: true };
+    expect(formOf(limits, effective)).toMatchObject({ exempting_llm: "true", exempting_tts: "false", exempting_stt: "true" });
+  });
+
+  it("keeps the last exempting key on from being turned off, and no other switch", () => {
+    const llmAlone = { ...form, exempting_stt: "false" };
+    expect(lockedOn(llmAlone, "exempting_llm")).toBe(true);
+    expect(lockedOn(llmAlone, "exempting_tts")).toBe(false); // off: it can be turned on
+    expect(lockedOn(form, "exempting_llm")).toBe(false); // another is on
+    expect(lockedOn({ enabled: "true" }, "enabled")).toBe(false);
   });
 
   it("refuses one that is 0, negative, not whole or empty", () => {

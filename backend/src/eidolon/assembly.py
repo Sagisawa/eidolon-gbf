@@ -12,8 +12,8 @@ background model is always at hand, being the chat model unless configured apart
 The deployer's chat and memory models and judge model are made by `ServiceClients` from
 the live configuration (`live_config`): `.env`'s settings as overridden in the admin
 console, replaced while the backend runs as admins change them; the speech keys, the
-thresholds, the limits and whether affinity is on are read from it as each turn or call
-starts. `Backend.start` tries the overrides as the server starts.
+thresholds, the limits, the exempting keys and whether affinity is on are read from it as
+each turn or call starts. `Backend.start` tries the overrides as the server starts.
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes; the deployer's chat, memory and judge models only ever by passing in the
@@ -246,7 +246,9 @@ def build(
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
-    own_keys = OwnKeys(own_llm_service, config, activity, speech)
+    own_keys = OwnKeys(
+        own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys
+    )
     admissions = Admissions(
         usage, activity, own_keys, cooldown_until=affinities.cooldown_until
     )

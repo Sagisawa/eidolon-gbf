@@ -15,7 +15,7 @@ import pytest
 
 from eidolon.activity import ActivityLog, Result
 from eidolon.admission import Admissions
-from eidolon.config import SttKey, UsageLimits
+from eidolon.config import SERVICES, SttKey, UsageLimits
 from eidolon.own_keys import (
     BroughtKeys,
     CallsUnavailable,
@@ -72,7 +72,10 @@ class Deployment:
         )
 
     def own_keys(self) -> OwnKeys:
-        return OwnKeys(self.llm_service, self.deployer, self.activity, self.speech)
+        return OwnKeys(
+            self.llm_service, self.deployer, self.activity, self.speech,
+            exempting=lambda: frozenset(SERVICES),
+        )
 
     def counted(self, kind: UsageKind = "turn") -> bool:
         """Whether this hour's turn, or call, is used up, that is, the last one counted."""

@@ -69,7 +69,10 @@ class Deployment:
         """The own keys module on the deployer's keys, leased through `deployer`, which
         counts them, from the last call on."""
         self.deployer = CountingDeployer(DeployerKeys(self.chat, self.memory, stt, tts))
-        return OwnKeys(self.llm_service, self.deployer, self.activity, self.speech)
+        return OwnKeys(
+            self.llm_service, self.deployer, self.activity, self.speech,
+            exempting=lambda: frozenset(SERVICES),
+        )
 
 
 MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
