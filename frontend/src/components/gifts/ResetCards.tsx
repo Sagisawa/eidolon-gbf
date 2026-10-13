@@ -3,8 +3,8 @@
 import { useState } from "react";
 
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
-import { GiftTile } from "@/components/gifts/GiftTile";
 import { TierHeart } from "@/components/app/TierHeart";
+import { GiftTile } from "@/components/gifts/GiftTile";
 import {
   AlertDialog,
   AlertDialogAction,

@@ -452,7 +452,13 @@ export class LiveConversation {
     this.call = started;
     this.ports.tones.connect();
     this.update({
-      call: { phase: "connected", dial: this.state.dial, since: this.now(), maxSeconds: started.maxSeconds },
+      call: {
+        phase: "connected",
+        dial: this.state.dial,
+        since: this.now(),
+        // The backend counts from when it connected, the ringback's last few seconds too.
+        maxSeconds: started.maxSeconds === null ? null : Math.floor(started.maxSeconds - left / 1000),
+      },
       card: BLANK_CARD,
       ...micInUse(started.mic),
     });

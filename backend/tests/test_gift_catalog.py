@@ -168,21 +168,20 @@ def test_repository_gifts_each_have_their_illustration_and_nothing_else_is_there
     files = {p.name for p in REPO_ILLUSTRATIONS.iterdir()} - {"CREDITS.md"}
 
     assert files == {f"{id}.webp" for id in ids}
-    wrong = {}
-    for id in ids:
-        path = REPO_ILLUSTRATIONS / f"{id}.webp"
-        size = _webp_size(path)
-        if size != (512, 512) or path.stat().st_size > 64 * 1024:
-            wrong[id] = (size, path.stat().st_size)
-    assert wrong == {}
+    wrong = {id: _oversized(REPO_ILLUSTRATIONS / f"{id}.webp") for id in ids}
+    assert {id: w for id, w in wrong.items() if w} == {}
 
 
-def test_the_reset_card_illustration_is_sized_like_a_gifts():
+def test_the_reset_card_illustration_is_sized_as_the_gifts_are():
     """The reset card is no gift, but it is drawn beside them in a draw's results, and has
     no icon to fall back on either; the CREDITS aside, nothing else is there."""
     folder = REPO_ILLUSTRATIONS.parent / "reset-card"
-    path = folder / "reset-card.webp"
 
     assert {p.name for p in folder.iterdir()} == {"reset-card.webp", "CREDITS.md"}
-    assert _webp_size(path) == (512, 512)
-    assert path.stat().st_size <= 64 * 1024
+    assert _oversized(folder / "reset-card.webp") is None
+
+
+def _oversized(path: Path) -> tuple[tuple[int, int], int] | None:
+    """An illustration's size and bytes, unless it is 512px and within 64 KB."""
+    size, weight = _webp_size(path), path.stat().st_size
+    return None if size == (512, 512) and weight <= 64 * 1024 else (size, weight)

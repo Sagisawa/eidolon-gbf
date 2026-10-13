@@ -15,7 +15,7 @@ type Sounds = { ring: HTMLAudioElement; connect: HTMLAudioElement; hangUp: HTMLA
  */
 export function useCallTones(): Tones {
   const sounds = useRef<Sounds | null>(null);
-  // 这一次铃声从什么时候响起（performance.now()）；没在响、或者被拒了是 null。
+  // 这一次铃声真正放出声音的时刻（performance.now()）；还没放出来、或者没在响是 null。
   const ringSince = useRef<number | null>(null);
   const tones = useRef<Tones | null>(null);
   if (tones.current === null)
@@ -23,20 +23,18 @@ export function useCallTones(): Tones {
       ring: () => {
         const s = sounds.current;
         if (!s) return;
-        const since = performance.now();
-        ringSince.current = since;
-        s.ring.currentTime = 0;
-        s.ring.play().catch(() => {
-          if (ringSince.current === since) ringSince.current = null;
-        });
+        // 从真正放出声音时算起：第一次拨号时铃声可能还在加载。
+        ringSince.current = null;
+        s.ring.addEventListener("playing", () => (ringSince.current = performance.now()), { once: true });
+        play(s.ring);
       },
       ringLeft: () => {
         const s = sounds.current;
-        const since = ringSince.current;
-        if (!s || since === null || !Number.isFinite(s.ring.duration)) return 0;
+        // 被拒了的、已经停了的铃声是 paused。
+        if (!s || s.ring.paused || !Number.isFinite(s.ring.duration)) return 0;
         const round = s.ring.duration * 1000;
-        // 第一遍里按它实际放到哪儿算（开始播放会晚一点）；过了一遍的时长就是响满了。
-        return performance.now() - since >= round ? 0 : Math.max(0, round - s.ring.currentTime * 1000);
+        const since = ringSince.current;
+        return since === null ? round : Math.max(0, round - (performance.now() - since));
       },
       connect: () => {
         const s = sounds.current;

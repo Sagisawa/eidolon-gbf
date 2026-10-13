@@ -1292,7 +1292,9 @@ describe("LiveConversation: the call tones", () => {
 
   it("stays quiet through everything but the call itself", async () => {
     const { live, attempts, tones } = await conversation();
-    await connected(live, attempts);
+    const call = await connected(live, attempts);
+    // 铃声已经响满一遍：立即接通，麦克风一直开着。
+    expect(call.micEnabled).toEqual([]);
 
     // 只看文字，收起和展开通话层，都不碰电话的声音。
     live.collapse();
@@ -1327,7 +1329,7 @@ describe("LiveConversation: the ringback rung once in full", () => {
     return { ...opened, call, calling };
   }
 
-  it("keeps dialing, the microphone off, until it has rung once, then connects", async () => {
+  it("keeps dialing, the microphone off, until it has rung once, then connects, its time limit counted from before", async () => {
     const { live, tones, call, calling } = await heldCall();
     expect(live.snapshot().call).toEqual({ phase: "dialing", dial: 1 });
     expect(call.micEnabled).toEqual([false]);
@@ -1338,17 +1340,9 @@ describe("LiveConversation: the ringback rung once in full", () => {
 
     await vi.advanceTimersByTimeAsync(1);
     await calling;
-    expect(live.snapshot().call).toEqual({ phase: "connected", dial: 1, since: NOW, maxSeconds: 1800 });
+    // 后端从真正连上时算起：多响的 3 秒也在时长上限里。
+    expect(live.snapshot().call).toEqual({ phase: "connected", dial: 1, since: NOW, maxSeconds: 1797 });
     expect(call.micEnabled).toEqual([false, true]);
-    expect(tones.calls).toEqual(["ring", "connect"]);
-  });
-
-  it("connects at once when it has rung once already", async () => {
-    const { live, attempts, tones } = await conversation();
-    const call = await connected(live, attempts);
-
-    expect(live.snapshot().call.phase).toBe("connected");
-    expect(call.micEnabled).toEqual([]);
     expect(tones.calls).toEqual(["ring", "connect"]);
   });
 
