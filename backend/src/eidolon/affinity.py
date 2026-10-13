@@ -330,7 +330,8 @@ class Affinities:
         """Change the user's affinity with the character as the turn `judged` says, as the
         turn is recorded by `record`, told how it changed (None for not at all): if
         recording fails, nothing changes. The day's gains are counted on the day it is in
-        `timezone`. Returns what `record` returned, and the affinity left."""
+        `timezone`. Should it begin a cooldown, those `on_cooldown` has are told then.
+        Returns what `record` returned, and the affinity left."""
         with self._lock:
             now = self._clock()
             before, gained, gained_on = self._row(user_id, character_id, now)

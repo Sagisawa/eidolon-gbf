@@ -995,10 +995,10 @@ class Calls:
 
     def cooled(self, user_id: str, character_id: str, until: datetime) -> None:
         """The character has fallen into a cooldown with the user, ending `until`: she hangs
-        up the user's calls with her now, but for the one whose turn it is, which she hangs
-        up on after that turn."""
-        taking = _taking_turn.get()
-        for live in self._live:
+        up the user's calls with her, but for the one whose turn began it, if a call's did,
+        straight away; that one after its turn."""
+        taking = _taking_turn.get()  # whose turn began it, as told while it is recorded
+        for live in list(self._live):
             if live.user_id == user_id and live.character_id == character_id:
                 live.cooled(until, taking)
 
@@ -1110,6 +1110,7 @@ class _LiveCall:
         self._connected = asyncio.Event()
         self._hung_up = False
         self._task: asyncio.Task | None = None
+        self._hanging_up_on: asyncio.Task | None = None  # hangs it up for a cooldown, unconnected
 
         @transport.event_handler("on_client_connected")
         async def connected(transport: SmallWebRTCTransport, _: SmallWebRTCConnection) -> None:
@@ -1137,9 +1138,13 @@ class _LiveCall:
 
     def cooled(self, until: datetime, taking: "CallTurns | None") -> None:
         """The character has fallen into a cooldown with the user, ending `until`, in a
-        turn of the call `taking`, if one: unless it is this one, she hangs up now."""
-        if taking is not self._turns:
-            self._turns.cooled(until)
+        turn of the call `taking`, if a call's: she hangs up, after that turn if it is this
+        call's, else straight away. A call yet to connect is hung up as it is, never having
+        connected."""
+        if not self._connected.is_set():
+            self._hanging_up_on = asyncio.create_task(self.hang_up("character_hung_up"))
+            return
+        self._turns.cooled(until, in_its_turn=taking is self._turns)
 
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
@@ -1258,7 +1263,8 @@ class CallTurns(FrameProcessor):
         self._judging: set[asyncio.Task] = set()  # segments' emotions being judged
         self._turns = TurnTaking(text_only=call.muted)
         self._inputs: asyncio.Queue[str | None] = asyncio.Queue()  # None: wakes it, to hang up
-        self._ended = False  # it has hung up, or is hanging up
+        self._ended = False  # it is hanging up: the outcome is asked no more
+        # (`TurnTaking.ending` is that no more turns are taken up, as may be before this)
         self._worker: asyncio.Task | None = None
         self._timer: asyncio.Task | None = None
         self._started = False  # the pipeline has started, so tasks can be created
@@ -1310,11 +1316,14 @@ class CallTurns(FrameProcessor):
         self._connected = True
         self._start_timer()
 
-    def cooled(self, until: datetime) -> None:
-        """She has fallen into a cooldown with the user elsewhere, ending `until`: she hangs
-        up now, as `TurnTaking` says to with the turn in progress, if any, and as the
-        call's `CallOutcome` says to tell the browser."""
-        self._outcome.cooled(until)
+    def cooled(self, until: datetime, in_its_turn: bool = False) -> None:
+        """She has fallen into a cooldown with the user, ending `until`, unless the call's
+        `CallOutcome` says it is ending already: she hangs up as it says to tell the browser,
+        after the turn in progress if that began it (`in_its_turn`), else straight away, as
+        `TurnTaking` says to with the turn in progress, if any. (Created here, a task carries
+        the context of the turn that began the cooldown, perhaps another call's.)"""
+        if not self._outcome.cooled(until) or in_its_turn:
+            return
         commands = self._turns.hung_up_on()
         if commands:  # there is a turn in progress, so the pipeline has started
             self.create_task(self._carry_out(commands))
@@ -1487,14 +1496,14 @@ class CallTurns(FrameProcessor):
         await self.push_frame(LLMFullResponseStartFrame())
         ja: dict[int, str] = {}  # each segment's Japanese so far, cues and all
         zh: dict[int, str] = {}  # and its subtitle
-        taking = _taking_turn.set(self)
+        token = _taking_turn.set(self)
         try:
             with turn.current() if turn is not None else nullcontext():
                 await self._reply_events(text, number, stop, ja, zh, turn)
         except Exception:  # the turn is over all the same, rather than the call stuck in it
             log.exception("reply in conversation %s failed", self._call.conversation.id)
         finally:
-            _taking_turn.reset(taking)
+            _taking_turn.reset(token)
             await self.push_frame(LLMFullResponseEndFrame())
         await self._carry_out(self._turns.reply_ended())
         self._turn_over.set()

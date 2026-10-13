@@ -105,6 +105,37 @@ async def test_a_cooldown_begun_elsewhere_has_her_hang_up_an_idle_call_with_her_
     assert still[-1]["type"] == "done"
 
 
+async def test_a_turn_in_one_call_that_cools_her_hangs_up_the_other_and_that_one_after_it(
+    make_client: ClientFactory,
+    settings: Settings,
+    speech: FakeSpeech,
+):
+    clock = FakeClock()
+    clients = FakeServiceClients()
+    clients.judge.judgings = [level(0)]
+    client = make_client(FakeLLM(REPLY), clients=clients, clock=clock)
+    first_conversation = await start_conversation(client)
+    other_conversation = await start_conversation(client)
+    keep(settings.database_path, "producer", 5, clock.now)
+
+    async with open_browser() as first, open_browser() as other:
+        await first.call(client, conversation_id=first_conversation)
+        await first.connect()
+        await other.call(client, conversation_id=other_conversation)
+        await other.connect()
+        await speech.stts[0].hear("随便你")
+        turn = await first.turn()
+        other_ended = await other.next_server_message("ended")
+        first_ended = await first.next_server_message("ended")
+
+    assert turn[-1]["type"] == "done"
+    assert first_ended["reason"] == other_ended["reason"] == "cooldown"
+    assert shape(await record(client, first_conversation)) == [
+        "user:随便你", "character:好的", "hung_up"
+    ]
+    assert shape(await record(client, other_conversation)) == ["hung_up"]
+
+
 async def test_a_reply_she_has_started_speaking_goes_no_further_and_nothing_after_is_taken_up(
     mano_call: CallUnderTest,
 ):

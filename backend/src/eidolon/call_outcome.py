@@ -164,16 +164,23 @@ class CallOutcome:
         """A turn of the call was recorded, coming to what `recorded` says."""
         self._recorded += 1
         self._out_of_line += recorded.out_of_line
-        if recorded.hangs_up is not None and self._hanging_up is None:
-            self._hanging_up = recorded
+        if recorded.hangs_up is not None:
+            self._hang_up_after(recorded)
         return None
 
-    def cooled(self, until: datetime) -> dict | None:
-        """She has fallen into a cooldown with the user elsewhere, ending `until`: she hangs
-        up as for one, whatever the turns of the call come to."""
+    def cooled(self, until: datetime) -> bool:
+        """She has fallen into a cooldown with the user, ending `until`, whatever the turns
+        of the call come to: whether she hangs up for it, as for one, after the turn in
+        progress, if any. Not if the call is ending already, for whatever reason."""
+        if self._ended_by is not None:
+            return False
+        self._hang_up_after(CallTurnRecorded(hangs_up="cooldown", cooldown_until=until))
+        return True
+
+    def _hang_up_after(self, recorded: CallTurnRecorded) -> None:
+        """She hangs up as `recorded` says, unless she is to for something else already."""
         if self._hanging_up is None:
-            self._hanging_up = CallTurnRecorded(hangs_up="cooldown", cooldown_until=until)
-        return None
+            self._hanging_up = recorded
 
     @property
     def in_call(self) -> InCall:
