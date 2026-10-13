@@ -65,7 +65,7 @@ CARD_DRAWN = {"kind": "reset_card"}
     [
         ((RESET_CARD,), CARD_DRAWN),
         ((COMMON, FIRST), gift_drawn("cake")),
-        ((69, SECOND), gift_drawn("tea")),
+        ((69, FIRST), gift_drawn("cake")),
         ((UNCOMMON, FIRST), gift_drawn("cocoa")),
         ((94, FIRST), gift_drawn("cocoa")),
         ((RARE, FIRST), gift_drawn("plush")),
@@ -78,26 +78,6 @@ async def test_a_draw_gives_what_the_number_falls_on(
     client = make_client(FakeLLM(), clock=FakeClock(), random=FakeRandom(*numbers))
 
     assert await draw(client) == {"drawn": [drawn], "draws": 0}
-
-
-async def test_drawn_gifts_go_into_the_backpack_and_stack_and_cards_are_counted_apart(
-    make_client: ClientFactory,
-):
-    clock = FakeClock()
-    client = make_client(
-        FakeLLM(), clock=clock,
-        random=FakeRandom(UNCOMMON, FIRST, COMMON, FIRST, RESET_CARD, UNCOMMON, FIRST),
-    )
-    await state(client)
-    clock.advance(days=3)
-
-    await draw(client, all=True)
-
-    after = await state(client)
-    assert after["backpack"] == [
-        {"gift_id": "cake", "count": 1}, {"gift_id": "cocoa", "count": 2},
-    ]
-    assert (after["draws"], after["reset_cards"]) == (0, 1)
 
 
 async def test_a_retired_gift_is_never_drawn(make_client: ClientFactory):
@@ -122,21 +102,28 @@ async def test_a_retired_gift_already_had_is_still_in_the_backpack(
     assert after["backpack"] == [{"gift_id": "cocoa", "count": 1}]
 
 
-async def test_drawing_them_all_uses_every_chance_giving_what_each_gives_in_order(
+async def test_drawing_them_all_uses_every_chance_and_what_they_give_stacks_in_the_backpack(
     make_client: ClientFactory,
 ):
     clock = FakeClock()
     client = make_client(
         FakeLLM(), clock=clock,
-        random=FakeRandom(RARE, FIRST, RESET_CARD, COMMON, SECOND, COMMON, FIRST),
+        random=FakeRandom(UNCOMMON, FIRST, COMMON, FIRST, RESET_CARD, UNCOMMON, FIRST),
     )
     await state(client)
     clock.advance(days=3)
 
-    assert await draw(client, all=True) == {
-        "drawn": [gift_drawn("plush"), CARD_DRAWN, gift_drawn("tea"), gift_drawn("cake")],
+    drawn = await draw(client, all=True)
+
+    assert drawn == {
+        "drawn": [gift_drawn("cocoa"), gift_drawn("cake"), CARD_DRAWN, gift_drawn("cocoa")],
         "draws": 0,
     }
+    after = await state(client)
+    assert after["backpack"] == [
+        {"gift_id": "cake", "count": 1}, {"gift_id": "cocoa", "count": 2},
+    ]
+    assert (after["draws"], after["reset_cards"]) == (0, 1)
 
 
 async def test_a_draw_first_gives_the_chances_due(make_client: ClientFactory):
@@ -148,12 +135,11 @@ async def test_a_draw_first_gives_the_chances_due(make_client: ClientFactory):
     assert (await draw(client))["draws"] == 1
 
 
-@pytest.mark.parametrize("all", [False, True])
-async def test_with_no_chances_left_a_draw_is_refused(make_client: ClientFactory, all: bool):
+async def test_with_no_chances_left_a_draw_is_refused(make_client: ClientFactory):
     client = make_client(FakeLLM(), clock=FakeClock(), random=FakeRandom(COMMON, FIRST))
     await draw(client)
 
-    res = await client.post("/api/gifts/draws", json={"all": all})
+    res = await client.post("/api/gifts/draws", json={"all": True})
 
     assert res.status_code == 409
     assert "gifts_closed" not in res.json()

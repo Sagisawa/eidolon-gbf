@@ -34,7 +34,8 @@ export function DrawDialog({
 }) {
   const result = drawing?.result ?? null;
   return (
-    <Dialog open={drawing !== null} onOpenChange={(open) => !open && onClose()}>
+    // 礼物盒还在跳时关不掉：接口回来以前收起，回来后又会弹出来，抽奖台的按钮也会提前能点。
+    <Dialog open={drawing !== null} onOpenChange={(open) => !open && result !== null && onClose()}>
       <DialogContent showCloseButton={false}>
         <DialogTitle className="sr-only">
           {result === null ? t.drawing.opening : drawing?.all ? t.drawing.all(result.drawn.length) : t.drawing.one}
