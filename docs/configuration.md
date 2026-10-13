@@ -67,6 +67,7 @@ sheet = "sheets/mano.md"
 avatar = "avatars/mano.jpg"
 color = "#ffbad6"                    # 官方印象色，必填
 facts = "facts/mano.md"
+liked_gifts = ["potted-plant", "black-tea"]   # 喜欢的礼物
 speakers = ["真乃"]                  # 剧本里她的说话人名字
 idol_id = 1                          # 以下两项用于立绘
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
@@ -79,6 +80,7 @@ greeting_subtitle = "呼哇……你就是制作人吗？请多指教！"
 - **`color`**：界面上属于她的地方（对话壁纸、电话键、发送键、未读数、通话层和通话条）都以它为基调。前端从它推出浅色、深色两套颜色，并保证文字看得清。缺这一项或格式不对时，后端拒绝启动。
 - **`background`**（可选）：通话层的背景图，放在 `characters/backgrounds/`。没配时用印象色的渐变代替。
 - **人设**：缺人设文件时后端拒绝启动，并指出缺哪一份。docker compose 把 `characters/` 只读挂载进后端容器。
+- **`liked_gifts`**：她喜欢的礼物，写礼物目录 [`characters/gifts.toml`](../characters/gifts.toml) 里的 `id`，1–3 件，不能全是稀有。每一件都要在她的出处文件（`facts/<标识>.sources.md`）的「喜欢的礼物」一节写明剧情出处。没配、礼物不在目录里或件数不对时，后端拒绝启动。
 
 **新增一位角色**要做这几件事：
 

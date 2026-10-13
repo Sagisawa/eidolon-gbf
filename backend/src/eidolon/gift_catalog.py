@@ -10,14 +10,18 @@ it and can give it. Every rarity needs a gift not retired, or draws of it would 
 empty. What each rarity raises affinity by and how likely a draw is to give it are with
 affinity's other numbers (`affinity`).
 
-Anything wrong in it keeps the backend from starting (`GiftCatalogError`).
+Anything wrong in it keeps the backend from starting (`GiftCatalogError`), as do liked
+gifts in the character configuration that are not right by it (`check_liked_gifts`).
 """
 
 import re
 import tomllib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, get_args
+
+from eidolon.characters import Character, CharacterConfigError
 
 Category = Literal["food", "drink", "flower", "trinket"]
 """吃的、饮品、花草、小物件."""
@@ -27,6 +31,9 @@ Rarity = Literal["common", "uncommon", "rare"]
 
 GIFTS_FILE = "gifts.toml"
 """The file's name, in the directory of the character configuration."""
+
+MAX_LIKED = 3
+"""The most gifts a character likes."""
 
 _VALID_ID = re.compile(r"[a-z0-9_-]+")
 
@@ -82,6 +89,30 @@ def load_gift_catalog(path: Path) -> dict[str, Gift]:
         if not any(g.rarity == rarity and not g.retired for g in catalog.values()):
             raise GiftCatalogError(f"礼物目录里稀有度 {rarity} 没有一件没下架的礼物，这一档抽不出东西")
     return catalog
+
+
+def check_liked_gifts(characters: Mapping[str, Character], catalog: Mapping[str, Gift]) -> None:
+    """Raises CharacterConfigError unless every character likes one to `MAX_LIKED` gifts,
+    all in `catalog`, no one twice, and not all of them rare: a draw seldom gives a rare
+    one, and a character should not have to wait for it."""
+    for c in characters.values():
+        liked = c.liked_gifts
+        if not liked:
+            raise CharacterConfigError(f"角色 {c.id} 没有配 liked_gifts（喜欢的礼物，1–{MAX_LIKED} 件）")
+        if len(liked) > MAX_LIKED:
+            raise CharacterConfigError(
+                f"角色 {c.id} 的 liked_gifts 有 {len(liked)} 件，最多 {MAX_LIKED} 件"
+            )
+        if len(set(liked)) < len(liked):
+            raise CharacterConfigError(f"角色 {c.id} 的 liked_gifts 里有重复的礼物")
+        if unknown := [g for g in liked if g not in catalog]:
+            raise CharacterConfigError(
+                f"角色 {c.id} 的 liked_gifts 里的 {'、'.join(unknown)} 不在礼物目录里"
+            )
+        if all(catalog[g].rarity == "rare" for g in liked):
+            raise CharacterConfigError(
+                f"角色 {c.id} 的 liked_gifts 全是稀有礼物，至少要有一件普通或少见的"
+            )
 
 
 def _parse_gift(entry: object) -> Gift:

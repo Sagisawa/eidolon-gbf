@@ -30,6 +30,10 @@ visitor answers her call in the landing page's demo: `call_opener` and
 `call_opener_subtitle`, configured, voiced and put in the bucket as greetings are, at
 addresses of their own. Only she who calls there needs one.
 
+She likes one to three gifts in the gift catalog (`liked_gifts`, by gift identifier),
+each with her sources behind it in her facts' sources file (「喜欢的礼物」). Whether they
+are in the catalog is checked once both are loaded (`gift_catalog.check_liked_gifts`).
+
 Character facts are a Markdown file; each section under a heading is one fact,
 retrieved on its own when a turn calls for it.
 
@@ -137,6 +141,9 @@ class Character:
     """Her full name in hiragana, family name and given name a space apart, e.g. さくらぎ まの."""
     name_romaji: str | None = None
     """Her full name in romaji, family name first, a space apart, e.g. Sakuragi Mano."""
+    liked_gifts: tuple[str, ...] = ()
+    """The gifts she likes, by identifier in the gift catalog; giving her one raises
+    affinity more. Never told to the user."""
 
 
 def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Character]:
@@ -209,6 +216,10 @@ def _parse_character(
     if not isinstance(speakers, list) or not all(isinstance(s, str) and s for s in speakers):
         raise CharacterConfigError(f"角色 {label} 的 speakers 应为说话人名字的列表")
 
+    liked_gifts = entry.get("liked_gifts", [])
+    if not isinstance(liked_gifts, list) or not all(isinstance(g, str) for g in liked_gifts):
+        raise CharacterConfigError(f"角色 {label} 的 liked_gifts 应为礼物标识的列表")
+
     avatar = _optional_file(entry, "avatar", base, label)
     background = _optional_file(entry, "background", base, label)
 
@@ -247,6 +258,7 @@ def _parse_character(
         name_zh=_other_name(entry, "name_zh", label),
         name_kana=_other_name(entry, "name_kana", label),
         name_romaji=_other_name(entry, "name_romaji", label),
+        liked_gifts=tuple(liked_gifts),
     )
 
 

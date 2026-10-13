@@ -35,7 +35,7 @@ from eidolon.affinity import Affinities
 from eidolon.announcements import Announcements
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
-from eidolon.gift_catalog import Gift, gifts_path, load_gift_catalog
+from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
@@ -129,10 +129,11 @@ def build(
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
-    configuration, the world setting or the gift catalog is broken, or a character is none of
-    its idols."""
+    configuration (her liked gifts and all), the world setting or the gift catalog is broken,
+    or a character is none of its idols."""
     characters = load_characters(settings.characters_path)
     gifts = load_gift_catalog(gifts_path(settings.characters_path))
+    check_liked_gifts(characters, gifts)
     world = load_world(path := world_path(settings.characters_path))
     if world is None:
         log.info(

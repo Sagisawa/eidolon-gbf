@@ -67,6 +67,7 @@ sheet = "sheets/mano.md"
 avatar = "avatars/mano.jpg"
 color = "#ffbad6"                    # official image color, required
 facts = "facts/mano.md"
+liked_gifts = ["potted-plant", "black-tea"]   # gifts she likes
 speakers = ["真乃"]                  # her speaker names in the scripts
 idol_id = 1                          # the next two are for the stand
 default_outfit = "stand/1030010010"  # 【ナチュラルモード】
@@ -79,6 +80,7 @@ How to write each field is in the comments at the top of the file. A few need ex
 - **`color`**: Everything in the interface that belongs to her (the conversation wallpaper, the call button, the send button, the unread count, the call screen and the call bar) is based on it. The frontend derives a light and a dark set of colors from it, keeping text readable. If it is missing or malformed, the backend refuses to start.
 - **`background`** (optional): The call screen's background image, kept in `characters/backgrounds/`. Without one, a gradient of her image color is used instead.
 - **Character sheet**: If a character sheet file is missing, the backend refuses to start and names the missing one. docker compose mounts `characters/` read-only into the backend container.
+- **`liked_gifts`**: The gifts she likes, by `id` in the gift catalog [`characters/gifts.toml`](../characters/gifts.toml): one to three, not all of them rare. Each needs its story source in the 「喜欢的礼物」 section of her sources file (`facts/<id>.sources.md`). If they are missing, not in the catalog or too many, the backend refuses to start.
 
 **To add a character**, do the following:
 
