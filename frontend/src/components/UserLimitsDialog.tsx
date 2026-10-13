@@ -151,7 +151,9 @@ export function UserLimitsDialog({
               draft={calls}
               onChange={setCalls}
               site={site?.calls ?? null}
-              ownKeysHint={exemptingKeys ? sayServices(t.callsOwnKeysHint, exemptingKeys) : t.callsOwnKeysOnly}
+              ownKeysHint={
+                exemptingKeys?.length ? sayServices(t.callsOwnKeysHint, exemptingKeys) : t.callsOwnKeysHintUnknown
+              }
               problems={problemOf("calls")}
             />
             <Field>

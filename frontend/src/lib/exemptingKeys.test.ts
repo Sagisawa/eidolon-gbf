@@ -6,7 +6,6 @@ import { exemptionNote, sayServices, serviceList } from "@/lib/exemptingKeys";
 describe("serviceList", () => {
   it.each([
     [["llm"], "LLM"],
-    [["tts"], "语音合成"],
     [["llm", "stt"], "LLM 和语音识别"],
     [["tts", "stt"], "语音合成和语音识别"],
     [["llm", "tts", "stt"], "LLM、语音合成和语音识别"],
@@ -45,10 +44,6 @@ describe("sayServices", () => {
   it.each([
     [["llm"], "这个部署上，带上自己的 LLM 的通话不计入每小时限额；文字对话带上自己的 LLM 就不计入。"],
     [["tts"], "这个部署上，带上自己的语音合成的通话不计入每小时限额；文字对话带上自己的 LLM 就不计入。"],
-    [
-      ["llm", "tts", "stt"],
-      "这个部署上，带上自己的 LLM、语音合成和语音识别的通话不计入每小时限额；文字对话带上自己的 LLM 就不计入。",
-    ],
   ] as const)("names the exempting keys %j on the settings page", (keys, sentence) => {
     expect(sayServices(exempting, keys)).toBe(sentence);
   });

@@ -229,7 +229,8 @@ export const zh = {
         body: "单次通话的回合数上限对所有人都一样。想接着聊，可以马上重拨。",
       },
       over_limit: {
-        title: "这一小时的通话次数用完了",
+        /** 撞上每小时的次数，或者单独限额设成了零：哪一种由后端的原话（detail）说。 */
+        title: "通话次数超出了限额",
         /** 点名这个部署的免限额密钥（GLOSSARY.md「免限额密钥」），经 `sayServices` 拼上服务名。 */
         body: (services: string) => `这个部署上，带上自己的${services}的通话不计入限额。`,
       },
@@ -794,6 +795,8 @@ export const zh = {
         ranges: { "24h": "最近 24 小时", "7d": "最近 7 天", "30d": "最近 30 天" },
         rows: { turns: "回合", calls: "通话", rejected: "被拒绝" },
         split: (deployer: string, ownKeys: string) => `部署者 ${deployer} · 自带密钥 ${ownKeys}`,
+        /** 通话那一行：运行记录里通话的「用了自带密钥」是带齐了免限额密钥、不计入限额（GLOSSARY.md「运行记录」）。 */
+        splitCalls: (counted: string, exempt: string) => `计入限额 ${counted} · 不计入 ${exempt}`,
       },
       usage24h: (turns: string, calls: string) => `24 小时：回合 ${turns} · 通话 ${calls}`,
       limitsToken: (summary: string) => `单独限额：${summary}`,
@@ -849,10 +852,10 @@ export const zh = {
         calls: "每小时的通话次数",
         choices: { default: "跟随全站", number: "设定次数", unlimited: "不限", ownKeys: "只能用自带密钥" },
         /** 「只能用自带密钥」是什么意思：只放行不计入限额的（GLOSSARY.md「免限额密钥」）。通话的按配置页「限额」
-         * 里现在的免限额密钥点名，经 `sayServices` 拼上服务名；读不到配置时用 `callsOwnKeysOnly`。 */
+         * 里现在的免限额密钥点名，经 `sayServices` 拼上服务名；读不到配置时用 `callsOwnKeysHintUnknown`。 */
         turnsOwnKeysHint: "只放行用自带 LLM 的文字回合。",
         callsOwnKeysHint: (services: string) => `只放行带上自己的${services}的通话；全站的免限额密钥改了，这里跟着变。`,
-        callsOwnKeysOnly: "只放行不计入限额的通话。",
+        callsOwnKeysHintUnknown: "只放行不计入限额的通话。",
         /** 「跟随全站」带上全站现在的数字，不用去配置页查：「跟随全站（60 次）」。 */
         defaultIs: (site: string) => `跟随全站（${site}）`,
         siteCount: (n: number) => (n === 0 ? "不限" : `${n} 次`),
@@ -1311,6 +1314,7 @@ export const zh = {
       {
         title: "这些数据会交给哪些第三方处理",
         items: [
+          // 不论免限额密钥是哪几项都要对，不点名哪几项。
           { term: "语言模型服务", text: "扮演角色、提炼记忆时，对话内容和相关记忆会发给语言模型服务：你填了自己的 LLM，就发给你选择的服务；没填，就发给部署者配置的服务。" },
           { term: "判断模型", text: "每个回合，你说的话连同最近几个回合的对话会发给部署者配置的判断模型（TypeSafe 的 Jev，经 OpenRouter 等转发；或 Cloudflare 的 Clef），用来判断要不要回忆剧情或查资料，以及这句话让角色对你的好感度怎样变化；通话中角色的回复也会一段段发过去，判断她的情绪。判断模型始终由部署者提供，填了自带密钥也不改变这一点。" },
           { term: "语音服务", text: "通话时，你的声音会发给部署者选择的语音识别服务（Soniox 或阿里云百炼）识别成文字，角色的回复会发给 Fish Audio 合成语音。阿里云百炼不会用你的声音训练模型，但会保存一段时间，存放在中国内地或新加坡，取决于部署者的账号。" },

@@ -138,14 +138,16 @@ export function headerSort(sort: UserSort, column: "turns" | "calls"): UserSort 
   return sort === column ? "newest" : column;
 }
 
-/** A count as the usage section shows it: the total, and below it on whose keys, for
- * any at all. */
-export function describeCount(count: KeyedCount): { total: string; split: string | null } {
+/** A count of `what` as the usage section shows it: the total, and below it on whose keys, for
+ * any at all. Calls are split by whether they counted towards the limit instead: a call on own
+ * keys is one that brought every exempting key (GLOSSARY.md「运行记录」), not any own key. */
+export function describeCount(count: KeyedCount, what: keyof RangeUsage): { total: string; split: string | null } {
   const total = count.deployer + count.own_keys;
+  const usage = copy.admin.users.usage;
+  const split = what === "calls" ? usage.splitCalls : usage.split;
   return {
     total: formatCount(total),
-    split:
-      total === 0 ? null : copy.admin.users.usage.split(formatCount(count.deployer), formatCount(count.own_keys)),
+    split: total === 0 ? null : split(formatCount(count.deployer), formatCount(count.own_keys)),
   };
 }
 

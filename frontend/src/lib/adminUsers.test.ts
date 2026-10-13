@@ -104,11 +104,15 @@ describe("headerSort", () => {
 
 describe("describeCount", () => {
   it("gives the total, and on whose keys when there are any", () => {
-    expect(describeCount({ deployer: 0, own_keys: 0 })).toEqual({ total: "0", split: null });
-    expect(describeCount({ deployer: 3, own_keys: 2 })).toEqual({
+    expect(describeCount({ deployer: 0, own_keys: 0 }, "turns")).toEqual({ total: "0", split: null });
+    expect(describeCount({ deployer: 3, own_keys: 2 }, "turns")).toEqual({
       total: "5",
       split: "部署者 3 · 自带密钥 2",
     });
+  });
+
+  it("splits calls by whether they counted, a call on own keys being one that brought every exempting key", () => {
+    expect(describeCount({ deployer: 3, own_keys: 2 }, "calls")).toEqual({ total: "5", split: "计入限额 3 · 不计入 2" });
   });
 });
 
