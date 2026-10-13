@@ -211,7 +211,7 @@ export type BackendEndReason =
   | "duration_limit"
   | "turn_limit"
   | "own_key"
-  | "out_of_line"
+  | "she_hung_up"
   | "cooldown";
 
 export class ApiError extends Error {

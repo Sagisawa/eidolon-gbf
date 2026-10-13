@@ -64,7 +64,7 @@ describe("endCard", () => {
   const now = new Date("2026-10-13T03:00:00Z");
 
   it("says only that she hung up, when she did for what was out of line, and offers a redial", () => {
-    expect(endCard({ reason: "out_of_line", detail: null, counts: true }, "真乃", now, "Asia/Tokyo", true)).toEqual({
+    expect(endCard({ reason: "she_hung_up", detail: null, counts: true }, "真乃", now, "Asia/Tokyo", true)).toEqual({
       title: "真乃挂断了电话。",
       detail: null,
       body: null,

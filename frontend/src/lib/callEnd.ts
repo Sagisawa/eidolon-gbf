@@ -8,8 +8,8 @@ import { copy } from "@/i18n";
 
 /**
  * The backend's reasons (it never really connected; a voice service failed, or the connection
- * broke, after it connected; its time or turn limit; an own key failed; she hung up, the user
- * out of line once too often or a cooldown begun), and three told apart
+ * broke, after it connected; its time or turn limit; an own key failed; she hung up, for what
+ * the user said in the call or a cooldown begun), and three told apart
  * here: the user has no calls left this hour, the deployment requires them to bring their own
  * LLM and the call brought none (GLOSSARY.md「必须自带 LLM」), or the browser would not let the
  * call use the microphone (or there is none).
@@ -68,7 +68,7 @@ export type EndCard = {
 export function endCard(end: CallEnd, name: string, now: Date, timeZone: string, giftsOpen: boolean): EndCard {
   const t = copy.call;
   const { detail, counts } = end;
-  if (end.reason === "out_of_line" || end.reason === "cooldown") {
+  if (end.reason === "she_hung_up" || end.reason === "cooldown") {
     const cooling = end.reason === "cooldown";
     const until = cooling && end.cooldownUntil ? untilText(new Date(end.cooldownUntil), now, timeZone) : null;
     const body = until ? t.hungUpCooling(until) : null;

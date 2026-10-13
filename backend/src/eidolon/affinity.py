@@ -24,10 +24,11 @@ It shapes how she speaks to the producer, the same for every character, each in 
 (`affinity_prompt`): colder below trust, warmer above it, as she is in trust otherwise; and as what
 the user said is judged to hurt her or make her happy, she knows it as she replies to it.
 
-In a call she hangs up after the turn that cools her into a cooldown, or after the user has
-been out of line in it too many times (`hangs_up`); a cooldown begun elsewhere has her hang
-up the user's calls with her straight away (`Affinities.on_cooldown`). Nothing else has her
-hang up.
+In a call she hangs up after the turn that cools her into a cooldown, after the user has
+been out of line in it too many times, or after the call's latest turns have taken too much
+off her affinity between them (`hangs_up`); halfway to that, she warns the user first
+(`warns`). A cooldown begun elsewhere has her hang up the user's calls with her straight
+away (`Affinities.on_cooldown`). Nothing else has her hang up.
 
 Gifts (GLOSSARY.md「礼物」) raise it faster than it recovers, by their rarity and by more if
 she likes the one given, by no more than a little each in a cooldown; draws give them, a
@@ -41,7 +42,7 @@ Deleting the user deletes it (`database.USER_DATA`); deleting memories does not 
 """
 
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -98,6 +99,18 @@ GAINS_PER_DAY = 6.0
 
 OUT_OF_LINE_PER_CALL = 2
 """How many times the user may be out of line in one call: she hangs up after the last."""
+
+FED_UP_TURNS = 8
+"""How many of a call's latest turns what took off her affinity is added up over (`hurt`),
+the turn just taken among them."""
+
+FED_UP_AT = 12.0
+"""How much those turns may take off it between them: she hangs up after the turn that takes
+it this far. Hurting her a little takes six of them, hurting her three."""
+
+WARNS_AT = 6.0
+"""How much those turns take off it between them before she warns the user she will hang up
+should it go on: once as it gets this far, again only should it fall back below first."""
 
 GIFT_STEPS: dict[Rarity, float] = {"common": 3.0, "uncommon": 5.0, "rare": 7.0}
 """How much a gift raises it by its rarity. Gifts are not turns: no day's limit holds them,
@@ -251,14 +264,18 @@ Parting = Literal["parts", "hangs_up"]
 """How she ends the turn with the producer: in a typed turn, she does not want to talk any
 more; in a call, she hangs up."""
 
+_WARNING = "你快受不了了。先回应，再用你自己的方式表明：制作人再这样下去你就要挂电话了。"
+"""For the turn she warns the producer she will hang up should it go on: she replies first."""
+
 _PARTINGS: dict[Parting, str] = {
     "parts": "这句话之后你暂时不想再和制作人说话了。先回应，再用你自己的方式表明你现在不想聊下去。",
     "hangs_up": "说完这句你就挂断电话。先回应，再用你自己的方式表明你要挂电话了。",
 }
 """For the turn she parts with the producer after: she replies first."""
 
-HangUp = Literal["out_of_line", "cooldown"]
-"""Why she hangs up on the user in a call: out of line once too often, or a cooldown begun."""
+HangUp = Literal["out_of_line", "fed_up", "cooldown"]
+"""Why she hangs up on the user in a call: out of line once too often, the call's latest
+turns having taken too much off her affinity, or a cooldown begun."""
 
 
 @dataclass(frozen=True)
@@ -292,12 +309,13 @@ class Judged:
 
 
 def affinity_prompt(
-    tier: Tier, judged: Judged | None, parting: Parting | None = None
+    tier: Tier, judged: Judged | None, parting: Parting | None = None, warns: bool = False
 ) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
     tier, nothing in trust; how what the producer just said makes her feel; and, if she is
-    `parting` with the producer after replying, that she does."""
+    `parting` with the producer after replying, that she does, or else if she `warns` the
+    producer she will hang up should it go on, that she does."""
     lines = []
     if tier != "trust":
         lines += [_TIER_PROMPTS[tier] + _IN_HER_OWN_WAY, _WHATEVER_THE_TIER]
@@ -305,20 +323,50 @@ def affinity_prompt(
         lines.append(feeling)
     if parting is not None:
         lines.append(_PARTINGS[parting])
+    elif warns:
+        lines.append(_WARNING)
     return lines
 
 
-def hangs_up(judged: Judged | None, cools: bool, out_of_line_before: int) -> HangUp | None:
+def hurt(judged: Judged | None) -> float:
+    """How much a turn, as `judged` (None if it was not), took off her affinity, for her
+    hanging up: what its step lowers it by, before it is held at the lowest; nothing if it
+    raises it, or was not judged."""
+    return 0.0 if judged is None else max(-judged.step, 0.0)
+
+
+def _lately(hurts: Sequence[float]) -> float:
+    """How much the latest turns of `hurts`, as many as are weighed, took off her affinity."""
+    return sum(hurts[-FED_UP_TURNS:])
+
+
+def hangs_up(
+    judged: Judged | None, cools: bool, out_of_line_before: int, hurt_before: Sequence[float] = ()
+) -> HangUp | None:
     """Whether she hangs up after a turn of a call, as it is `judged` (None if it was not),
     and why: it `cools` her into a cooldown, or is out of line once too often, the user
-    having been `out_of_line_before` times already in the call. Never if it was not judged."""
+    having been `out_of_line_before` times already in the call, or it has the call's latest
+    turns take too much off her affinity, the call's turns so far having taken `hurt_before`
+    each, the latest last. Never if it was not judged."""
     if judged is None:
         return None
     if cools:
         return "cooldown"
     if judged.out_of_line and out_of_line_before + 1 >= OUT_OF_LINE_PER_CALL:
         return "out_of_line"
+    if _lately([*hurt_before, hurt(judged)]) >= FED_UP_AT:
+        return "fed_up"
     return None
+
+
+def warns(judged: Judged | None, hurt_before: Sequence[float]) -> bool:
+    """Whether she warns the user she will hang up should it go on, after a turn of a call
+    she does not hang up after, as it is `judged` (None if it was not), the call's turns so
+    far having taken `hurt_before` each off her affinity, the latest last: the turn has what
+    the call's latest turns took off it get to `WARNS_AT`, from below."""
+    if judged is None:
+        return False
+    return _lately(hurt_before) < WARNS_AT <= _lately([*hurt_before, hurt(judged)])
 
 
 @dataclass(frozen=True)

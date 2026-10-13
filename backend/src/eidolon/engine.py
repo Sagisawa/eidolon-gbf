@@ -40,9 +40,11 @@ replies in the tier the turn began in, knowing how what the user said made her f
 parting with the user if it is to begin a cooldown (GLOSSARY.md「冷却」); in one, she has no
 turns (`Admissions`). What it judged of a turn recorded, and whether the turn began a
 cooldown, the turn's activity record keeps (`TurnJudged`). In a call she parts by hanging
-up, after that turn or after the user has been out of line once too often in the call
-(`affinity.hangs_up`): the turn is told it is in a call, and how often so far, and once
-recorded tells the call what came of it (`CallTurnRecorded`).
+up, after that turn, after the user has been out of line once too often in the call, or
+after the call's latest turns have taken too much off her affinity (`affinity.hangs_up`),
+warning the user first halfway there (`affinity.warns`): the turn is told it is in a call,
+how often so far and how much each turn so far took, and once recorded tells the call what
+came of it (`CallTurnRecorded`).
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -57,7 +59,16 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, ParamSpec, TypeVar
 
-from eidolon.affinity import Affinities, HangUp, Judged, Status, affinity_prompt, hangs_up
+from eidolon.affinity import (
+    Affinities,
+    HangUp,
+    Judged,
+    Status,
+    affinity_prompt,
+    hangs_up,
+    hurt,
+    warns,
+)
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -123,9 +134,11 @@ class TurnDone:
 @dataclass(frozen=True)
 class InCall:
     """The turn is taken in a call, in which the user has been out of line (GLOSSARY.md
-    「不该说的话」) `out_of_line` times so far, in turns recorded."""
+    「不该说的话」) `out_of_line` times so far, in turns recorded, which took `hurt` each off
+    her affinity (`affinity.hurt`), the latest last."""
 
     out_of_line: int = 0
+    hurt: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -133,11 +146,13 @@ class CallTurnRecorded:
     """What a turn of a call, now recorded, comes to for the call: whether the user was out
     of line in it, and whether she hangs up after it and why; if for a cooldown, when it
     ends (None should the cooldown not have begun after all, another turn recorded
-    meanwhile). Comes just before `done`, in calls only; it stays on the server."""
+    meanwhile); how much it took off her affinity (`affinity.hurt`). Comes just before
+    `done`, in calls only; it stays on the server."""
 
     out_of_line: bool = False
     hangs_up: HangUp | None = None
     cooldown_until: datetime | None = None
+    hurt: float = 0.0
     type: Literal["call-turn-recorded"] = field(default="call-turn-recorded", init=False)
 
 
@@ -388,10 +403,16 @@ class ConversationEngine:
                 judged_apart.cancel()
         now = self._clock()
         cools = self._cools(conversation, judged)
-        hanging_up = hangs_up(judged, cools, in_call.out_of_line) if in_call else None
+        hanging_up = (
+            hangs_up(judged, cools, in_call.out_of_line, in_call.hurt) if in_call else None
+        )
+        warning = in_call is not None and not cools and warns(judged, in_call.hurt)
         affinity_lines = (
             affinity_prompt(
-                affinity.tier, judged, "hangs_up" if hanging_up else "parts" if cools else None
+                affinity.tier,
+                judged,
+                "hangs_up" if hanging_up else "parts" if cools else None,
+                warning,
             )
             if affinity is not None
             else []
@@ -453,6 +474,7 @@ class ConversationEngine:
                 judged is not None and judged.out_of_line,
                 hanging_up,
                 affinity and affinity.cooldown_until,
+                hurt(judged),
             )
         yield TurnDone(reply.without_cues(), affinity and affinity.shown())
 
