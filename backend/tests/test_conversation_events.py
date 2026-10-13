@@ -3,8 +3,8 @@ a turn, here her hanging up on the user (gift records are tested with giving). R
 conversation gives them among its messages, in the order things happened, an event written
 while her reply is still coming after that turn; the conversation list's last message may
 be one. She learns of one from a line before the user's next words in her prompt, which
-slides out of it with them; memory and the judge model never see it. Deleting the user
-deletes them; deleting memories does not.
+slides out of it with them; memory and the judge model never see it (tested with her
+responding to gifts). Deleting the user deletes them; deleting memories does not.
 
 Driven through the backend's external API; the events are put in the database as the
 call that hangs up would write them."""
@@ -21,13 +21,7 @@ from eidolon.config import Settings
 from eidolon.llm import ChatMessage, Tool, ToolCall
 from tests.conftest import ClientFactory
 from tests.fakes import (
-    FAKE_JUDGE,
-    FakeBackgroundLLM,
-    FakeEmbedder,
-    FakeJudge,
     FakeLLM,
-    FakeReranker,
-    FakeServiceClients,
 )
 from tests.test_conversation_history import history
 from tests.test_delete_account import DELETE
@@ -149,32 +143,6 @@ async def test_it_slides_out_of_her_prompt_with_the_users_words_after_it(
     assert HUNG_UP not in "\n".join(content for _, content in history(llm))
 
 
-async def test_memory_and_the_judge_model_never_see_it(
-    make_client: ClientFactory, settings: Settings
-):
-    clients = FakeServiceClients()
-    memory = FakeBackgroundLLM()
-    client = make_client(
-        FakeLLM(REPLY, REPLY, REPLY), clients=clients,
-        settings=replace(settings, judge=FAKE_JUDGE, affinity_and_gifts=True),
-        retrieval_judge=FakeJudge(answer="memories"), embedder=FakeEmbedder(),
-        reranker=FakeReranker(), background_llm=memory,
-    )
-    conversation = await start_conversation(client)
-    await send_turn(client, conversation, "第一句")
-    hang_up(settings.database_path, conversation)
-    await send_turn(client, conversation, "刚才怎么了")
-    hang_up(settings.database_path, conversation)
-
-    await send_turn(client, conversation, "第三句")
-
-    told = [*(str(state) for state in clients.judge.states),
-            *(m.content for prompt in memory.prompts for m in prompt)]
-    assert len(clients.judge.states) == 3 and len(memory.prompts) == 3
-    assert not [t for t in told if "挂断" in t]
-    assert clients.judge.affinity_asked == ["第一句", "刚才怎么了", "第三句"]
-
-
 async def test_the_conversation_lists_last_message_can_be_an_event_until_the_next_turn(
     make_client: ClientFactory, settings: Settings
 ):
@@ -211,3 +179,22 @@ async def test_deleting_memories_keeps_them_and_deleting_the_user_deletes_them(
 
     assert (await client.post("/api/account/delete", json=DELETE)).status_code == 204
     assert events(settings.database_path) == 0
+
+
+async def test_a_database_that_kept_whether_she_responded_drops_it_and_keeps_its_events(
+    make_client: ClientFactory, settings: Settings
+):
+    client = make_client(FakeLLM(REPLY))
+    conversation = await start_conversation(client)
+    with sqlite3.connect(settings.database_path) as db:  # as the table was before gifts
+        db.execute(
+            "ALTER TABLE conversation_events ADD COLUMN responded INTEGER NOT NULL DEFAULT 0"
+        )
+    hang_up(settings.database_path, conversation)
+
+    reopened = make_client(FakeLLM())
+
+    assert shape(await record(reopened, conversation)) == ["hung_up"]
+    with sqlite3.connect(settings.database_path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(conversation_events)")}
+    assert "responded" not in columns

@@ -241,8 +241,8 @@ def build(
     affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
     closers.append(affinities.close)
     engine = ConversationEngine(
-        store, characters, memories, clock, retrieval, lambda: config.history_turns, world,
-        affinities, config.affinity_judge(),
+        store, characters, gift_catalog, memories, clock, retrieval,
+        lambda: config.history_turns, world, affinities, config.affinity_judge(),
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)

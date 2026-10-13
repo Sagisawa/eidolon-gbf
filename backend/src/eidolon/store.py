@@ -84,7 +84,6 @@ CREATE TABLE IF NOT EXISTS conversation_events (
     kind TEXT NOT NULL,
     created_at TEXT NOT NULL,
     affinity TEXT,
-    responded INTEGER NOT NULL DEFAULT 0,
     gift_id TEXT,
     liked INTEGER NOT NULL DEFAULT 0
 );
@@ -196,22 +195,20 @@ class ConversationEvent:
     """Something that happened in a conversation that is not a turn (GLOSSARY.md「对话事件」):
     her hanging up on the user (`hung_up`), or the user giving her a gift (`gift`), which
     one (`gift_id`) and whether she liked it as it was given (`liked`), kept as it was
-    should what she likes change. It can carry how it changed her affinity (`affinity`) and
-    say whether she has responded to it yet (`responded`)."""
+    should what she likes change. It can carry how it changed her affinity (`affinity`)."""
 
     id: int
     kind: EventKind
     created_at: str
     affinity: Change | None = None
-    responded: bool = False
     gift_id: str | None = None
     liked: bool = False
     type: Literal["event"] = field(default="event", init=False)
 
     def shown(self) -> dict:
-        """As the browser is told it: whether she has responded and whether she liked the
-        gift are for her prompt alone; which gift, for a gift's only."""
-        hidden = {"responded", "liked"} | ({"gift_id"} if self.gift_id is None else set())
+        """As the browser is told it: whether she liked the gift is for her prompt alone;
+        which gift, for a gift's only."""
+        hidden = {"liked"} | ({"gift_id"} if self.gift_id is None else set())
         return {k: v for k, v in asdict(self).items() if k not in hidden}
 
 
@@ -239,6 +236,9 @@ class Store:
         self._add_missing_columns("messages", ("affinity",), "TEXT")
         self._add_missing_columns("conversation_events", ("gift_id",), "TEXT")
         self._add_missing_columns("conversation_events", ("liked",), "INTEGER NOT NULL DEFAULT 0")
+        # Whether she has responded to an event is whether she has replied since; never kept.
+        if "responded" in self._columns("conversation_events"):
+            self._db.execute("ALTER TABLE conversation_events DROP COLUMN responded")
         # Access keys are gone (ADR-0006), and with them unique names.
         self._db.execute("DROP INDEX IF EXISTS users_by_name")
         self._db.execute("DROP TABLE IF EXISTS access_keys")
@@ -726,7 +726,7 @@ class Store:
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
 _MESSAGE_COLUMNS = "id, role, text, ja, zh, segments, created_at, affinity"
-_EVENT_COLUMNS = "id, kind, created_at, affinity, responded, gift_id, liked"
+_EVENT_COLUMNS = "id, kind, created_at, affinity, gift_id, liked"
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(
@@ -740,7 +740,7 @@ def _event(row: sqlite3.Row) -> ConversationEvent:
     return ConversationEvent(
         row["id"], row["kind"], row["created_at"],
         Change(**json.loads(row["affinity"])) if row["affinity"] else None,
-        bool(row["responded"]), row["gift_id"], bool(row["liked"]),
+        row["gift_id"], bool(row["liked"]),
     )
 
 

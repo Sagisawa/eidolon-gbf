@@ -46,12 +46,13 @@ recorded tells the call what came of it (`CallTurnRecorded`).
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
-her prompt with those words. Retrieval, memory and the judge model read only the messages.
+her prompt with those words. Until she has replied after a gift, she is also told to respond
+to it, once, however many came. Retrieval, memory and the judge model read only the messages.
 """
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal, ParamSpec, TypeVar
@@ -60,6 +61,7 @@ from eidolon.affinity import Affinities, HangUp, Judged, Status, affinity_prompt
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
+from eidolon.gift_catalog import Gift
 from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
@@ -78,7 +80,6 @@ from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import (
     Conversation,
     ConversationEvent,
-    EventKind,
     Message,
     Recorded,
     Store,
@@ -246,22 +247,40 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     return messages[kept[0]:] if kept else []
 
 
-NARRATIONS: dict[EventKind, str] = {"hung_up": "（你挂断了制作人的电话。）"}
-"""What she is told of each kind of conversation event she is told of; not yet of gifts."""
+RESPOND_TO_GIFTS = (
+    "（先回应制作人说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。）"
+)
+"""Told her after the gifts she has not replied since, once however many there are."""
 
 
-def narrations(record: list[Recorded]) -> dict[int | None, str]:
+def _narration(event: ConversationEvent, gift_catalog: Mapping[str, Gift]) -> str:
+    """What she is told of `event`, as it was."""
+    if event.kind == "hung_up":
+        return "（你挂断了制作人的电话。）"
+    assert event.gift_id is not None
+    liked = "这是你喜欢的东西。" if event.liked else ""
+    return f"（制作人送给你一份{gift_catalog[event.gift_id].name}。{liked}）"
+
+
+def narrations(
+    record: list[Recorded], gift_catalog: Mapping[str, Gift]
+) -> dict[int | None, str]:
     """The narration of the events in `record`, by the id of the user message each comes
-    before, None for those after them all: one line for each event."""
+    before, None for those after them all: one line for each event, then, if she has not
+    replied since a gift, `RESPOND_TO_GIFTS`."""
     lines: list[str] = []
     told: dict[int | None, str] = {}
+    unanswered = False
     for entry in record:
         if isinstance(entry, ConversationEvent):
-            if entry.kind not in NARRATIONS:
-                continue
-            lines.append(f"{NARRATIONS[entry.kind]}\n")
-        elif entry.role == "user" and lines:
+            lines.append(f"{_narration(entry, gift_catalog)}\n")
+            unanswered = unanswered or entry.kind == "gift"
+        elif entry.role == "character":
+            unanswered = False
+        elif lines:
             told[entry.id], lines = "".join(lines), []
+    if unanswered:
+        lines.append(f"{RESPOND_TO_GIFTS}\n")
     if lines:
         told[None] = "".join(lines)
     return told
@@ -272,6 +291,7 @@ class ConversationEngine:
         self,
         store: Store,
         characters: dict[str, Character],
+        gift_catalog: Mapping[str, Gift],
         memory: Memories,
         clock: Clock,
         retrieval: Retrieval | None = None,
@@ -288,6 +308,7 @@ class ConversationEngine:
         `affinity_judge`."""
         self._store = store
         self._characters = characters
+        self._gift_catalog = gift_catalog
         self._clock = clock
         self._retrieval = retrieval
         self._memory = memory
@@ -380,7 +401,8 @@ class ConversationEngine:
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
         prompt = self._prompt(
-            character, world_prompt, about_producer, history, narrations(record), retrieved, text
+            character, world_prompt, about_producer, history,
+            narrations(record, self._gift_catalog), retrieved, text,
         )
 
         tools: list[Tool] = (
