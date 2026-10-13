@@ -395,7 +395,7 @@ List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like 
 
 | Page | What it does |
 |---|---|
-| Dashboard (`/admin`) | Calls, error rate and latency per service; active users, the number and trend of turns and calls, usage per character, calls in progress; with affinity on, totals of judgements and cooldowns; the deployer's cost estimated from unit prices |
+| Dashboard (`/admin`) | Calls, error rate and latency per service; active users, the number and trend of turns and calls, usage per character, calls in progress; with affinity on, totals of judgements, cooldowns and hang-ups, plus figures per character; the deployer's cost estimated from unit prices |
 | Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits (with "own LLM required"), per-call caps, history turns, the affinity switch and unit prices |
 | Users (`/admin/users`) | Search users, see their sign-in methods and recent usage; ban, unban, set an individual usage limit (with letting them use the deployer's LLM), delete |
 
