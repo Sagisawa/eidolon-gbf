@@ -12,7 +12,7 @@ Label: wayfinder:map
 
 2026-10-12 已到达：19 张票全部关闭，三份规格都已写成、状态 `ready-for-agent`。实现按「拍板：三份规格的实现顺序和分支衔接」：导航 → 好感度 → 礼物。
 
-实现进度：导航 PR #83 于 2026-10-12 合进 main；好感度 PR #85 于 2026-10-13 合进 main（10 张票，`.scratch/affinity/issues/`）；礼物 2026-10-13 从 main 开 `feat/gifts`，从计划分支取来 `.scratch/gifts/`，下一步 /to-tickets。`GLOSSARY.md` 以 main 为准，不再从计划分支取。
+实现进度：导航 PR #83 于 2026-10-12 合进 main；好感度 PR #85 于 2026-10-13 合进 main（10 张票，`.scratch/affinity/issues/`）；礼物 PR #86 于 2026-10-13 合进 main（10 张票，`.scratch/gifts/issues/`）。三份规格全部实现完，这张地图到此走完；计划分支 `feat/affinity-and-gifts` 已删（内容都在 main 上）。上线（部署、发公告）见礼物票 10 的 `## Answer`。`GLOSSARY.md` 以 main 为准，不再从计划分支取。
 
 ## Notes
 
