@@ -32,7 +32,7 @@ import type { Account, Character } from "@/lib/api";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
-import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
+import { isLive, NOT_OPEN, openIdOf, type LiveConversation } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { localOwnKeys, needsOwnLLM, subscribeOwnKeys } from "@/lib/localOwnKeys";
 import { cn } from "@/lib/utils";
@@ -110,7 +110,7 @@ export function ConversationView({
 
   const isOpen = conversation.status === "open";
   // 送礼入口去的礼物页：记录放回这段对话；正在开新对话时还不知道是哪段，只带她。
-  const gifts = giftsHref(character.id, isOpen ? conversation.id : null);
+  const gifts = giftsHref(character.id, openIdOf(conversation));
   const inCall = isLive(call);
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();

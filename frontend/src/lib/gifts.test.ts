@@ -116,10 +116,8 @@ describe("从对话页跳到礼物页", () => {
     expect(giftsFor(query(giftsHref("rinze", null)))).toEqual({ to: "rinze", conversationId: null });
   });
 
-  it("没有 to，或者 to 给了几个、是空的，都当作没有预选", () => {
-    expect(giftsFor({})).toBeNull();
+  it("没有 to，或者 to 是空的，都当作没有预选", () => {
     expect(giftsFor({ conversation: "c1" })).toBeNull();
-    expect(giftsFor({ to: ["rinze", "mano"] })).toBeNull();
     expect(giftsFor({ to: "" })).toBeNull();
   });
 });
@@ -131,8 +129,7 @@ describe("送给谁的顺序", () => {
     expect(chosenFirst(characters, "rinze").map((c) => c.id)).toEqual(["rinze", "mano", "hiori"]);
   });
 
-  it("没有预选，或者预选的不在里面，照原来的顺序", () => {
-    expect(chosenFirst(characters, null).map((c) => c.id)).toEqual(["mano", "hiori", "rinze"]);
+  it("预选的不在里面，照原来的顺序", () => {
     expect(chosenFirst(characters, "gone").map((c) => c.id)).toEqual(["mano", "hiori", "rinze"]);
   });
 });

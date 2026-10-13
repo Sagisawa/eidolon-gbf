@@ -23,6 +23,7 @@ import { giftsHref } from "@/lib/gifts";
 import { settingsHref } from "@/lib/settingsCategory";
 import {
   NOT_OPEN,
+  openIdOf,
   type AffinityCue,
   type LiveConversation,
   type MicNotice,
@@ -150,7 +151,7 @@ export function LiveCallLayer({
       onOwnKeys={() => leave(settingsHref("own-keys"))}
       // 好感度和礼物同一个开关：读得到好感度就是开放着。送礼记录放回这段对话。
       giftsOpen={snapshot.affinity !== null}
-      onGift={() => leave(giftsHref(live.characterId, conversation.status === "open" ? conversation.id : null))}
+      onGift={() => leave(giftsHref(live.characterId, openIdOf(conversation)))}
     />
   );
 }
@@ -444,6 +445,11 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
 function Ended({ character, end, giftsOpen, onRedial, onDismiss, onOwnKeys, onGift }: Props & { end: CallEnd }) {
   const timeZone = useProducerTimezone();
   const card = endCard(end, character.name, new Date(), timeZone, giftsOpen);
+  const main = card.action && {
+    redial: { onClick: onRedial, label: t.redial, Icon: PhoneIcon },
+    own_keys: { onClick: onOwnKeys, label: t.toOwnKeys, Icon: null },
+    gift: { onClick: onGift, label: copy.gifts.giveHer, Icon: GiftIcon },
+  }[card.action];
   return (
     <div
       role="alert"
@@ -457,11 +463,10 @@ function Ended({ character, end, giftsOpen, onRedial, onDismiss, onOwnKeys, onGi
         <Button variant="call-glass" size="call" onClick={onDismiss}>
           {t.backToConversation}
         </Button>
-        {card.action && (
-          <Button variant="call-solid" size="call" onClick={{ redial: onRedial, own_keys: onOwnKeys, gift: onGift }[card.action]}>
-            {card.action === "redial" && <PhoneIcon aria-hidden />}
-            {card.action === "gift" && <GiftIcon aria-hidden />}
-            {{ redial: t.redial, own_keys: t.toOwnKeys, gift: copy.gifts.giveHer }[card.action]}
+        {main && (
+          <Button variant="call-solid" size="call" onClick={main.onClick}>
+            {main.Icon && <main.Icon aria-hidden />}
+            {main.label}
           </Button>
         )}
       </div>

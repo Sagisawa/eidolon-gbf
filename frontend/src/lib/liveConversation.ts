@@ -84,6 +84,12 @@ export type OpenState =
   | { status: "open"; id: string }
   | { status: "failed"; failure: Failure };
 
+/** The conversation open, or null if none is: still opening, being left for a new one, or
+ * failed to open. */
+export function openIdOf(state: OpenState): string | null {
+  return state.status === "open" ? state.id : null;
+}
+
 export type Snapshot = {
   conversation: OpenState;
   entries: Entry[];
@@ -291,14 +297,14 @@ export class LiveConversation {
    * text turn or a call. It is opening until the new one is started; if that fails, this
    * one stays open. */
   async startNewConversation(): Promise<void> {
-    const left = this.openConversationId();
-    if (left === null || !isFree(this.state)) return;
+    const current = this.openConversationId();
+    if (current === null || !isFree(this.state)) return;
     this.update({ conversation: { status: "opening" }, failure: null });
     try {
       const conversation = await this.createConversation();
       this.showConversation(conversation.id, [], { call: { phase: "idle" }, draft: "" });
     } catch (e) {
-      this.update({ conversation: { status: "open", id: left }, failure: toFailure(e) });
+      this.update({ conversation: { status: "open", id: current }, failure: toFailure(e) });
     }
   }
 
@@ -664,10 +670,9 @@ export class LiveConversation {
     );
   }
 
-  /** The conversation to send to and call in, or null if none is open: still opening,
-   * being left for a new one, or failed to open. */
+  /** The conversation to send to and call in, or null if none is open. */
   private openConversationId(): string | null {
-    return this.state.conversation.status === "open" ? this.state.conversation.id : null;
+    return openIdOf(this.state.conversation);
   }
 
   /** The time now, as the log dates entries. */

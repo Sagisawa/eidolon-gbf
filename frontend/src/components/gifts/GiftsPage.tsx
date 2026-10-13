@@ -69,8 +69,10 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
   const timeZone = useProducerTimezone();
   const { characters, latest, preferences, go, refresh } = useDirectory();
   const router = useRouter();
-  // 点过 ✕ 的预选：地址换掉以前（重新渲染要等一下）就不再显示。
+  // 点过 ✕ 的预选：地址换掉以前（重新渲染要等一下）就不再显示。地址换回 /gifts 以后忘掉，
+  // 这一页没卸下又从结束卡带着她跳来时（通话层由外壳画在礼物页上）照样预选。
   const [dropped, setDropped] = useState<string | null>(null);
+  if (!pick && dropped !== null) setDropped(null);
   const chosen = pick && pick.to !== dropped ? characters?.find((c) => c.id === pick.to) : undefined;
   const giftsById = useMemo(() => new Map((catalog ?? []).map((g) => [g.id, g])), [catalog]);
   // 送给谁：所有角色（隐藏了的也在），顺序和对话列表一样，预选的她排第一。
