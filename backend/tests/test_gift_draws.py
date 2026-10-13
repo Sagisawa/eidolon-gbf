@@ -53,6 +53,7 @@ async def test_a_new_user_has_one_draw_the_day_they_come_and_nothing_else_yet(
         "max_draws": 7,
         "backpack": [],
         "reset_cards": 0,
+        "resettable": [],
         "characters": [
             {"id": "mano", "tier": "trust", "cooling": False, "cooldown_until": None},
             {"id": "kogane", "tier": "trust", "cooling": False, "cooldown_until": None},
@@ -171,6 +172,7 @@ async def test_off_the_state_is_read_all_the_same_saying_so(
         "max_draws": 7,
         "backpack": [],
         "reset_cards": 0,
+        "resettable": [],
         "characters": [],
     }
 

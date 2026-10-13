@@ -13,6 +13,7 @@ import { DrawDialog, type Drawing } from "@/components/gifts/DrawDialog";
 import { GivenToast, type GivenNotice } from "@/components/gifts/GivenToast";
 import { GivePanel, type Giving } from "@/components/gifts/GivePanel";
 import { MyGifts } from "@/components/gifts/MyGifts";
+import { ResetCards } from "@/components/gifts/ResetCards";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -29,6 +30,7 @@ import {
   getGiftState,
   giveGift,
   givenNote,
+  spendResetCard,
   type DrawResult,
   type GiftInfo,
   type GiftsFor,
@@ -48,9 +50,9 @@ const NOTICE_MS = 8000;
 
 /**
  * 礼物页（DESIGN.md「礼物页」）：导航栏右边整块一栏，内容最宽 `max-w-3xl`、居中，手机和电脑同一个版式。
- * 上面是抽奖台，下面「我的礼物」；点一件（或单抽结果上的「送给谁…」）拉出送礼面板，送出后面板收起、底部出提示，
- * 页面不跳走。好感度和礼物没开放时整页是「礼物暂时没有开放」，「礼物」照样留在导航里；
- * 抽奖或送礼时才知道没开放（收到「没开放」的 409）也切成这样。
+ * 上面是抽奖台，有重置卡时下面一条重置卡条，再下面「我的礼物」；点一件（或单抽结果上的「送给谁…」）拉出送礼面板，
+ * 送出后面板收起、底部出提示，页面不跳走。好感度和礼物没开放时整页是「礼物暂时没有开放」，「礼物」照样留在导航里；
+ * 抽奖、送礼或用重置卡时才知道没开放（收到「没开放」的 409）也切成这样。
  * 从对话页跳来（`pick`）时页首下面一条「给{角色名}挑一件礼物」：点哪件礼物，面板里都已选好她、排在第一个，
  * 送给她的记录放回带来的那段对话；点 ✕ 取消预选，地址里的也去掉。地址里的角色不存在时当作没有预选。
  */
@@ -75,12 +77,12 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
   if (!pick && dropped !== null) setDropped(null);
   const chosen = pick && pick.to !== dropped ? characters?.find((c) => c.id === pick.to) : undefined;
   const giftsById = useMemo(() => new Map((catalog ?? []).map((g) => [g.id, g])), [catalog]);
-  // 送给谁：所有角色（隐藏了的也在），顺序和对话列表一样，预选的她排第一。
-  const recipients = useMemo(() => {
+  // 所有角色（隐藏了的也在），顺序和对话列表一样：重置卡确认框照这个顺序列，送给谁时预选的她排第一。
+  const arranged = useMemo(() => {
     const all = characters ?? [];
-    const arranged = arrange(all, latest, { preferences, keep: all.map((c) => c.id) }).rows.map((row) => row.character);
-    return chosenFirst(arranged, chosen?.id ?? null);
-  }, [characters, latest, preferences, chosen]);
+    return arrange(all, latest, { preferences, keep: all.map((c) => c.id) }).rows.map((row) => row.character);
+  }, [characters, latest, preferences]);
+  const recipients = useMemo(() => chosenFirst(arranged, chosen?.id ?? null), [arranged, chosen]);
   const statuses = useMemo(() => new Map((state?.characters ?? []).map((c) => [c.id, c])), [state]);
 
   useEffect(() => {
@@ -158,6 +160,18 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
     }
   }
 
+  /** 用一张重置卡；拉回了谁、还剩几张都从重新读的状态里来，抽奖台、重置卡条和送礼面板里的档位一起刷新。 */
+  async function spendCard() {
+    setFailure(null);
+    try {
+      await spendResetCard();
+    } catch (e) {
+      // 没开放切成未开放；没有卡了、确认框打开期间她们自己回到了信任，在页上方说，卡没有扣。
+      failed(e);
+    }
+    getGiftState().then(setState, (e) => setFailure(toFailure(e)));
+  }
+
   return (
     <PageShell width="full" isInShell header={<h1 className="text-list-title">{t.title}</h1>}>
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 px-4 py-6">
@@ -178,6 +192,14 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
               />
             )}
             <DrawDesk draws={state.draws} max={state.max_draws} isDrawing={drawing !== null} onDraw={draw} />
+            {state.reset_cards > 0 && (
+              <ResetCards
+                count={state.reset_cards}
+                resettable={state.resettable}
+                characters={arranged}
+                onUse={spendCard}
+              />
+            )}
             {state.backpack.length > 0 ? (
               <MyGifts backpack={state.backpack} catalog={catalog} onGive={(held) => startGiving(held.gift)} />
             ) : (

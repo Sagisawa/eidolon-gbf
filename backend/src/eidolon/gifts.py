@@ -29,7 +29,15 @@ from datetime import date, datetime, timedelta
 from itertools import accumulate
 from pathlib import Path
 
-from eidolon.affinity import DRAW_ODDS, DRAWS_PER_DAY, MAX_DRAWS, Affinities, Change, Status
+from eidolon.affinity import (
+    BELOW_TRUST,
+    DRAW_ODDS,
+    DRAWS_PER_DAY,
+    MAX_DRAWS,
+    Affinities,
+    Change,
+    Status,
+)
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.database import connect
@@ -88,6 +96,20 @@ class NoneLeft(Exception):
         super().__init__("已经没有了")
 
 
+class NoResetCards(Exception):
+    """The user has no reset cards left."""
+
+    def __init__(self) -> None:
+        super().__init__("没有重置卡了")
+
+
+class NoOneToReset(Exception):
+    """No character is below trust with the user: a reset card would bring no one back."""
+
+    def __init__(self) -> None:
+        super().__init__("现在没有低于信任的角色")
+
+
 class NoSuchCharacter(LookupError):
     """There is no such character to give to."""
 
@@ -144,9 +166,9 @@ class GiftState:
     backpack: list[tuple[str, int]]
     """Each gift the user has, in catalog order, and how many."""
     reset_cards: int
-    characters: list[dict]
-    """Each character's affinity with the user, for choosing whom to give to: none while
-    closed, as affinity shows nothing then."""
+    characters: list[tuple[str, Status]]
+    """Each character's affinity with the user, for choosing whom to give to and telling
+    whom a reset card would bring back: none while closed, as affinity shows nothing then."""
 
     def shown(self) -> dict:
         """As the browser is told it."""
@@ -156,8 +178,28 @@ class GiftState:
             "max_draws": MAX_DRAWS,
             "backpack": [{"gift_id": g, "count": n} for g, n in self.backpack],
             "reset_cards": self.reset_cards,
-            "characters": self.characters,
+            "resettable": [
+                {"id": c, "tier": status.tier, "cooling": status.cooling}
+                for c, status in self.characters
+                if status.tier in BELOW_TRUST
+            ],
+            "characters": [
+                {"id": c, "cooling": status.cooling} | status.shown()
+                for c, status in self.characters
+            ],
         }
+
+
+@dataclass(frozen=True)
+class Reset:
+    """Whom using a reset card brought back, and how many cards are left."""
+
+    reset: list[str]
+    reset_cards: int
+
+    def shown(self) -> dict:
+        """As the browser is told it."""
+        return asdict(self)
 
 
 class Gifts:
@@ -234,11 +276,7 @@ class Gifts:
             (character_id, self._affinities.status(user_id, character_id))
             for character_id in (self._characters if is_open else ())
         )
-        characters = [
-            {"id": character_id, "cooling": status.cooling} | status.shown()
-            for character_id, status in statuses
-            if status is not None
-        ]
+        characters = [(c, status) for c, status in statuses if status is not None]
         return GiftState(is_open, draws, backpack, reset_cards, characters)
 
     def draw(self, user_id: str, timezone: str, *, all: bool = False) -> Drawn:
@@ -320,6 +358,37 @@ class Gifts:
                 )
             raise
         return Given(conversation.id, change, affinity, taken[0])
+
+    def use_reset_card(self, user_id: str) -> Reset:
+        """Use one of the user's reset cards, bringing every character below trust with them
+        now back to it (`Affinities.reset`). It leaves no trace: no gift record, no
+        conversation event. The card taken is put back should no one be below trust by now,
+        or bringing them back fail, so two using the last card at once use it once. Raises
+        GiftsClosed if gifts are not open, NoResetCards if the user has none, NoOneToReset
+        if no one is below trust."""
+        self.notice()
+        if not self._is_open():
+            raise GiftsClosed()
+        with self._lock, self._db:
+            taken = self._db.execute(
+                "UPDATE gift_balances SET reset_cards = reset_cards - 1"
+                " WHERE user_id = ? AND reset_cards > 0 RETURNING reset_cards",
+                (user_id,),
+            ).fetchone()
+        if taken is None:
+            raise NoResetCards()
+        try:
+            reset = self._affinities.reset(user_id, self._characters)
+            if not reset:
+                raise NoOneToReset()
+        except BaseException:
+            with self._lock, self._db:
+                self._db.execute(
+                    "UPDATE gift_balances SET reset_cards = reset_cards + 1 WHERE user_id = ?",
+                    (user_id,),
+                )
+            raise
+        return Reset(reset, taken[0])
 
     def close(self) -> None:
         with self._lock:

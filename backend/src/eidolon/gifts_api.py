@@ -1,10 +1,10 @@
 """Gifts over HTTP (GLOSSARY.md「礼物」「抽奖」), for users who agreed to the terms: the
 catalog at `/api/gifts/catalog`, what the user has at `/api/gifts`, and drawing at
 `/api/gifts/draws`, the latter two as the producer's own day is where they are
-(`X-Timezone`); giving one to a character at `/api/characters/{id}/gifts`. None says which
-gifts a character likes: the gifts page gives none of that away. Gifts not open, drawing
-and giving are refused with 409 and `gifts_closed`, told apart from a cooldown's 409, so
-the page shows them closed."""
+(`X-Timezone`); giving one to a character at `/api/characters/{id}/gifts`; using a reset
+card at `/api/gifts/resets`. None says which gifts a character likes: the gifts page gives
+none of that away. Gifts not open, drawing, giving and using a reset card are refused with
+409 and `gifts_closed`, told apart from a cooldown's 409, so the page shows them closed."""
 
 from typing import Annotated
 
@@ -13,7 +13,14 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from eidolon.assembly import Backend
-from eidolon.gifts import GiftsClosed, NoDraws, NoneLeft, NoSuchCharacter
+from eidolon.gifts import (
+    GiftsClosed,
+    NoDraws,
+    NoneLeft,
+    NoOneToReset,
+    NoResetCards,
+    NoSuchCharacter,
+)
 from eidolon.producer import effective_timezone
 from eidolon.sessions import UserId
 
@@ -38,6 +45,8 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
 
     @app.exception_handler(NoDraws)
     @app.exception_handler(NoneLeft)
+    @app.exception_handler(NoResetCards)
+    @app.exception_handler(NoOneToReset)
     async def none_to_use(_: Request, e: Exception) -> JSONResponse:
         return JSONResponse({"detail": str(e)}, status_code=409)
 
@@ -77,3 +86,8 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
         except NoSuchCharacter as e:
             raise HTTPException(404, str(e)) from None
         return given.shown()
+
+    @app.post("/api/gifts/resets")
+    def use_reset_card(user_id: UserId) -> dict:
+        """Use a reset card: whom it brought back to trust, and how many cards are left."""
+        return gifts.use_reset_card(user_id).shown()

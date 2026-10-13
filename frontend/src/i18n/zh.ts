@@ -1197,6 +1197,24 @@ export const zh = {
         note: "不是礼物，自己用：把所有低于信任的角色拉回信任，冷却中的马上可以说话。能攒，不过期。",
       },
     },
+    /** 重置卡条（有重置卡时才出现）和用之前的确认框。 */
+    resetCards: {
+      title: "重置卡",
+      count: (n: number) => `×${n}`,
+      /** 「×n」的读屏。 */
+      label: (n: number) => `${n} 张`,
+      notes: {
+        some: (n: number) => `现在用会把 ${n} 位拉回信任`,
+        none: "现在没有低于信任的角色，留着以后用。",
+      },
+      use: "使用",
+      confirm: {
+        title: "使用一张重置卡？",
+        description: "下面几位会回到信任，冷却中的马上可以说话。她们不会知道发生过什么。",
+        /** 列表里一位名字后面的读屏：现在的档位会回到信任。 */
+        becomes: (now: string) => `，${now}，会回到信任`,
+      },
+    },
     rarity: { common: "普通", uncommon: "少见", rare: "稀有" },
     mine: "我的礼物",
     filters: {

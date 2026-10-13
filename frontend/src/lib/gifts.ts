@@ -1,6 +1,7 @@
 // 礼物（GLOSSARY.md「礼物」「抽奖」「重置卡」）：礼物页读到的状态，和页上那几句话怎么拼、我的礼物怎么筛。
 // 抽奖次数每天在制作人当地 0 点发 1 次，最多攒 7 次，后端读取时补发；下次什么时候到账固定写「明天 0:00」。
 // 送礼一次一件，送出后页面底部那条提示的话也在这里拼。对话页上的送礼入口跳到礼物页时带着谁、从哪段对话来。
+// 重置卡自己用：把所有低于信任的角色拉回信任，重置卡条上那句话也在这里拼。
 
 import { api, json } from "@/lib/api";
 import { cueText, untilText, type AffinityChange, type AffinityStatus, type Tier } from "@/lib/affinity";
@@ -18,6 +19,9 @@ export type GiftInfo = { id: string; name: string; category: Category; rarity: R
 /** 一位角色现在的好感度，送礼时选人用：档位、是否冷却、冷却的解除时刻（ISO，不在冷却是 null）。 */
 export type GiftCharacter = { id: string; tier: Tier; cooling: boolean; cooldown_until: string | null };
 
+/** 现在用重置卡会拉回的一位：她现在的档位（疏远或冷淡）、是否冷却。 */
+export type Resettable = { id: string; tier: Tier; cooling: boolean };
+
 /** 背包里的一件礼物和它的件数。 */
 export type Owned = { gift_id: string; count: number };
 
@@ -29,6 +33,8 @@ export type GiftState = {
   /** 只列持有的，按目录的顺序。 */
   backpack: Owned[];
   reset_cards: number;
+  /** 现在用重置卡会拉回的角色；没开放时是空的。 */
+  resettable: Resettable[];
   characters: GiftCharacter[];
 };
 
@@ -57,6 +63,17 @@ export async function drawGifts(all: boolean): Promise<DrawResult> {
       body: JSON.stringify({ all }),
     }),
   );
+}
+
+/** 用重置卡接口给的：拉回了谁，还剩几张。 */
+export type ResetResult = { reset: string[]; reset_cards: number };
+
+/**
+ * 用一张重置卡。没开放时抛 `giftsClosed` 的 ApiError；没有卡了、现在没有低于信任的角色
+ * （确认框打开期间她自己回到了信任）是 409，都不扣卡。
+ */
+export async function spendResetCard(): Promise<ResetResult> {
+  return json(await api("/api/gifts/resets", { method: "POST" }));
 }
 
 /** 送礼接口给的：记录放进了哪段对话、这次的变化（没有胶囊时是 null）、她现在的好感度、这件还剩几件。 */
@@ -121,6 +138,12 @@ export function drawNote(draws: number, max: number): string {
   if (draws <= 0) return t.none;
   if (draws >= max) return t.full(max);
   return t.usual(max);
+}
+
+/** 重置卡条上那句：现在用会拉回几位，一位都没有时留着以后用。 */
+export function resetNote(resettable: number): string {
+  const t = copy.gifts.resetCards.notes;
+  return resettable > 0 ? t.some(resettable) : t.none;
 }
 
 /** 「还没有礼物」下面那句：有次数时叫人抽一次，没有时说明天再发。 */

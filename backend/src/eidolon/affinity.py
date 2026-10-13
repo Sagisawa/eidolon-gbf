@@ -31,8 +31,9 @@ hang up.
 
 Gifts (GLOSSARY.md「礼物」) raise it faster than it recovers, by their rarity and by more if
 she likes the one given, by no more than a little each in a cooldown; draws give them, a
-chance a day, and now and then a reset card instead (GLOSSARY.md「抽奖」「重置卡」). How much
-and how likely are here with the rest.
+chance a day, and now and then a reset card instead (GLOSSARY.md「抽奖」「重置卡」), which
+brings every character below trust back to the normal value, out of any cooldown, none of
+them the wiser. How much and how likely are here with the rest.
 
 It is on only where the deployment has the judge model and the switch「好感度和礼物」is on
 (`LiveConfig.affinity_on`); off, nothing of it is shown, but what is kept stays as it is.
@@ -40,7 +41,7 @@ Deleting the user deletes it (`database.USER_DATA`); deleting memories does not 
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -60,6 +61,12 @@ TIERS: tuple[tuple[Tier, float], ...] = (
     ("cold", 0), ("distant", 20), ("trust", 40), ("close", 65), ("intimate", 85),
 )
 """Each tier, from the value it begins at, lowest first."""
+
+TRUST = dict(TIERS)["trust"]
+"""Where trust begins: a reset card brings those below it back."""
+
+BELOW_TRUST: frozenset[Tier] = frozenset(t for t, start in TIERS if start < TRUST)
+"""The tiers a reset card brings back from: distant and cold, in a cooldown or not."""
 
 NORMAL = 50.0
 """Where everyone starts, in trust, and what it recovers to."""
@@ -438,6 +445,26 @@ class Affinities:
                     (user_id, character_id, after.value, now.isoformat(), int(after.cooling)),
                 )
         return recorded, Status(after.tier, after.cooldown_until)
+
+    def reset(self, user_id: str, character_ids: Iterable[str]) -> list[str]:
+        """Bring each of the characters below trust with the user now, having recovered, back
+        to the normal value, out of any cooldown, as a reset card does (GLOSSARY.md「重置卡」);
+        those in trust or above are left as they are. Nothing is told of it: no change to
+        show, no listener. Returns whom it brought back, in the order given."""
+        with self._lock, self._db:
+            now = self._clock()
+            below = [
+                character_id
+                for character_id in character_ids
+                if self._row(user_id, character_id, now)[0].value < TRUST
+            ]
+            for character_id in below:
+                self._db.execute(
+                    "UPDATE affinities SET value = ?, updated_at = ?, cooling = 0"
+                    " WHERE user_id = ? AND character_id = ?",
+                    (NORMAL, now.isoformat(), user_id, character_id),
+                )
+        return below
 
     def close(self) -> None:
         with self._lock:

@@ -29,9 +29,10 @@ REPLY = ["<ja>はい</ja><zh>好的</zh>"]
 HUNG_UP = "（你挂断了制作人的电话。）"
 
 
-def hang_up(database: Path, conversation: str) -> str:
-    """Have her hang up on the user in the conversation, now; when it was."""
-    at = datetime.now(UTC).isoformat()
+def hang_up(database: Path, conversation: str, now: datetime | None = None) -> str:
+    """Have her hang up on the user in the conversation, `now` (by default the time it is);
+    when it was."""
+    at = (now or datetime.now(UTC)).isoformat()
     with sqlite3.connect(database) as db:
         db.execute(
             "INSERT INTO conversation_events (conversation_id, kind, created_at)"

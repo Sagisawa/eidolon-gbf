@@ -8,6 +8,7 @@ import {
   giftsFor,
   giftsHref,
   givenNote,
+  resetNote,
   shownGifts,
   type GiftInfo,
   type Given,
@@ -34,6 +35,16 @@ describe("还没有礼物时的说明", () => {
 
   it("没有次数时说明天再发", () => {
     expect(emptyNote(0)).toBe("明天 0:00 会发一次抽奖，抽到的礼物会放在这里。");
+  });
+});
+
+describe("重置卡条那句话", () => {
+  it("有低于信任的角色：现在用会拉回几位", () => {
+    expect(resetNote(2)).toBe("现在用会把 2 位拉回信任");
+  });
+
+  it("一位都没有：留着以后用", () => {
+    expect(resetNote(0)).toBe("现在没有低于信任的角色，留着以后用。");
   });
 });
 
