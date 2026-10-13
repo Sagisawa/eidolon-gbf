@@ -14,4 +14,4 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
     @app.get("/api/gifts/catalog")
     def catalog(_: UserId) -> list[dict]:
         """Every gift, retired ones too (whoever has one still sees it), in catalog order."""
-        return [g.listed() for g in gifts.values()]
+        return [g.described() for g in gifts.values()]

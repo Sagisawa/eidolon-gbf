@@ -26,23 +26,27 @@ Rarity = Literal["common", "uncommon", "rare"]
 """普通、少见、稀有, from the commonest."""
 
 GIFTS_FILE = "gifts.toml"
+"""The file's name, in the directory of the character configuration."""
 
 _VALID_ID = re.compile(r"[a-z0-9_-]+")
 
 
 class GiftCatalogError(RuntimeError):
-    pass
+    """The gift catalog is missing or broken."""
 
 
 @dataclass(frozen=True)
 class Gift:
     id: str
+    """Also its illustration's file name, and what backpacks and gift records keep."""
     name: str
+    """Its everyday name, in Chinese."""
     category: Category
     rarity: Rarity
     retired: bool = False
+    """No draw gives it any more."""
 
-    def listed(self) -> dict:
+    def described(self) -> dict:
         """As the gifts page reads it."""
         return {
             "id": self.id, "name": self.name, "category": self.category,
@@ -80,7 +84,9 @@ def load_gift_catalog(path: Path) -> dict[str, Gift]:
     return catalog
 
 
-def _parse_gift(entry: dict) -> Gift:
+def _parse_gift(entry: object) -> Gift:
+    if not isinstance(entry, dict):
+        raise GiftCatalogError(f"礼物目录里的 {entry!r} 应当是一个 [[gifts]] 段")
     label = entry.get("id", "（没有标识）")
     missing = [f for f in ("id", "name", "category", "rarity") if f not in entry]
     if missing:
@@ -90,15 +96,15 @@ def _parse_gift(entry: dict) -> Gift:
         raise GiftCatalogError(f"礼物标识 {id} 只能用小写字母、数字、- 和 _")
     if not isinstance(name, str) or not name.strip():
         raise GiftCatalogError(f"礼物 {id} 的 name 应当是一段文字")
-    if category not in get_args(Category):
-        raise GiftCatalogError(
-            f"礼物 {id} 的类别 {category} 不在 {'、'.join(get_args(Category))} 之中"
-        )
-    if rarity not in get_args(Rarity):
-        raise GiftCatalogError(
-            f"礼物 {id} 的稀有度 {rarity} 不在 {'、'.join(get_args(Rarity))} 之中"
-        )
+    _one_of(category, Category, f"礼物 {id} 的类别")
+    _one_of(rarity, Rarity, f"礼物 {id} 的稀有度")
     retired = entry.get("retired", False)
     if not isinstance(retired, bool):
         raise GiftCatalogError(f"礼物 {id} 的 retired 应当是 true 或 false")
     return Gift(id, name, category, rarity, retired)
+
+
+def _one_of(value: object, choices: object, label: str) -> None:
+    """Raises GiftCatalogError unless `value` is one of the `Literal` `choices`."""
+    if value not in get_args(choices):
+        raise GiftCatalogError(f"{label} {value} 不在 {'、'.join(get_args(choices))} 之中")

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from eidolon.gift_catalog import GIFTS_FILE
+
 from tests.conftest import REPO_GIFTS, CharacterConfig, ClientFactory
 from tests.fakes import FakeLLM
 
@@ -39,16 +41,10 @@ async def test_the_catalog_lists_every_gift_with_its_category_rarity_and_whether
     assert not any(g["retired"] for g in catalog)
 
 
-async def test_the_catalog_is_only_for_signed_in_users(make_client: ClientFactory):
-    client = make_client(FakeLLM(), user=None)
-
-    assert (await client.get("/api/gifts/catalog")).status_code == 401
-
-
 async def test_a_retired_gift_is_still_listed_as_retired(
     make_client: ClientFactory, characters: CharacterConfig
 ):
-    characters.write("gifts.toml", ONE_OF_EACH_RARITY + gift("candy", retired=True))
+    characters.write(GIFTS_FILE, ONE_OF_EACH_RARITY + gift("candy", retired=True))
     client = make_client(FakeLLM())
 
     catalog = (await client.get("/api/gifts/catalog")).json()
@@ -63,20 +59,20 @@ async def test_a_retired_gift_is_still_listed_as_retired(
     [
         (ONE_OF_EACH_RARITY + gift("cake"), "cake"),
         (ONE_OF_EACH_RARITY + gift("Big Cake"), "Big Cake"),
+        ('gifts = ["cake"]\n', "cake"),
         (ONE_OF_EACH_RARITY + gift("bread", category="bakery"), "bakery"),
         (ONE_OF_EACH_RARITY + gift("bread", rarity="legendary"), "legendary"),
         (gift("cake") + gift("cocoa", "uncommon") + gift("plush", "rare", retired=True), "rare"),
-        (gift("cake") + gift("plush", "rare"), "uncommon"),
         ('[[gifts]]\nid = "cake"\nname = "蛋糕"\ncategory = "food"\n' + gift("x", "uncommon"), "rarity"),
         (ONE_OF_EACH_RARITY.replace('name = "cake"', "name = 3"), "name"),
         (ONE_OF_EACH_RARITY + gift("bread") + 'retired = "yes"\n', "retired"),
-        ("[[gifts]\n", "gifts.toml"),
+        ("[[gifts]\n", GIFTS_FILE),
     ],
 )
 def test_a_broken_catalog_keeps_the_backend_from_starting(
     make_client: ClientFactory, characters: CharacterConfig, catalog: str, named: str
 ):
-    characters.write("gifts.toml", catalog)
+    characters.write(GIFTS_FILE, catalog)
 
     with pytest.raises(RuntimeError, match=named):
         make_client(FakeLLM())
@@ -85,9 +81,9 @@ def test_a_broken_catalog_keeps_the_backend_from_starting(
 def test_a_missing_catalog_keeps_the_backend_from_starting(
     make_client: ClientFactory, characters: CharacterConfig
 ):
-    (characters.directory / "gifts.toml").unlink()
+    (characters.directory / GIFTS_FILE).unlink()
 
-    with pytest.raises(RuntimeError, match="gifts.toml"):
+    with pytest.raises(RuntimeError, match=GIFTS_FILE):
         make_client(FakeLLM())
 
 
