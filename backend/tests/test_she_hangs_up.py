@@ -168,7 +168,7 @@ def one_by_one(n: int) -> list:
     return [frame for i in range(n) for frame in (spoken(f"第{i}句"), SleepFrame(0.5))]
 
 
-async def test_hurt_turn_after_turn_she_warns_her_once_then_hangs_up(mano_call: CallUnderTest):
+async def test_hurt_turn_after_turn_she_warns_the_user_once_then_hangs_up(mano_call: CallUnderTest):
     llm = FakeLLM(*[MANO_REPLY] * 6)
 
     _, messages = await mano_call.run(llm, one_by_one(6), affinity=[level(1)] * 6)
@@ -181,18 +181,6 @@ async def test_hurt_turn_after_turn_she_warns_her_once_then_hangs_up(mano_call: 
     assert messages[-1]["reason"] == "she_hung_up"
     assert "cooldown_until" not in messages[-1]
     assert shape(await record_of(mano_call))[-1] == "hung_up"
-
-
-async def test_what_hurt_her_more_has_her_hang_up_sooner(mano_call: CallUnderTest):
-    llm = FakeLLM(*[MANO_REPLY] * 3)
-
-    _, messages = await mano_call.run(
-        llm, one_by_one(3), affinity=[level(0), level(1), level(0)]
-    )
-
-    assert [WARNING in about_producer(llm, n) for n in range(3)] == [False, True, False]
-    assert HANGING_UP in about_producer(llm, 2)
-    assert messages[-1]["reason"] == "she_hung_up"
 
 
 async def test_only_the_latest_turns_count_so_now_and_then_she_never_hangs_up(

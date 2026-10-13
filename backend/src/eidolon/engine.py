@@ -134,11 +134,11 @@ class TurnDone:
 @dataclass(frozen=True)
 class InCall:
     """The turn is taken in a call, in which the user has been out of line (GLOSSARY.md
-    「不该说的话」) `out_of_line` times so far, in turns recorded, which took `hurt` each off
+    「不该说的话」) `out_of_line` times so far, in turns recorded, which took `hurts` each off
     her affinity (`affinity.hurt`), the latest last."""
 
     out_of_line: int = 0
-    hurt: tuple[float, ...] = ()
+    hurts: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -404,9 +404,9 @@ class ConversationEngine:
         now = self._clock()
         cools = self._cools(conversation, judged)
         hanging_up = (
-            hangs_up(judged, cools, in_call.out_of_line, in_call.hurt) if in_call else None
+            hangs_up(judged, cools, in_call.out_of_line, in_call.hurts) if in_call else None
         )
-        warning = in_call is not None and not cools and warns(judged, in_call.hurt)
+        warning = in_call is not None and warns(judged, cools, in_call.out_of_line, in_call.hurts)
         affinity_lines = (
             affinity_prompt(
                 affinity.tier,

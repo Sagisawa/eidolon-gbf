@@ -91,9 +91,9 @@ class CallOutcome:
     `time_limit`) or it has recorded as many turns as it may take, and what the browser is
     told then, every word of it, is said here too. So is how often the user has been out of
     line in the call, and how much each of its turns took off her affinity, which its turns
-    are told (`in_call`), and whether she hangs up after
-    the turn recorded last, as it said, or for a cooldown begun elsewhere (`cooled`),
-    whichever came first: before its limits, which the same turn may reach.
+    are told (`in_call`), and whether she hangs up after the turn recorded last, as it said,
+    or for a cooldown begun elsewhere (`cooled`), whichever came first: before its limits,
+    which the same turn may reach.
     The call she hangs up on was connected, and is a success.
 
     It is settled with how it turned out, how long it lasted once connected, and why it
@@ -112,7 +112,7 @@ class CallOutcome:
         self._connected_at: float | None = None  # `perf_counter`, once connected
         self._recorded = 0
         self._out_of_line = 0  # turns recorded out of line
-        self._hurt: list[float] = []  # what each turn recorded took off her affinity
+        self._hurts: list[float] = []  # what each turn recorded took off her affinity
         self._hanging_up: CallTurnRecorded | None = None  # the turn she hangs up after
         self._time_up = False
         self._told = False  # the browser has been told why the call ended
@@ -167,7 +167,7 @@ class CallOutcome:
         """A turn of the call was recorded, coming to what `recorded` says."""
         self._recorded += 1
         self._out_of_line += recorded.out_of_line
-        self._hurt.append(recorded.hurt)
+        self._hurts.append(recorded.hurt)
         if recorded.hangs_up is not None:
             self._hang_up_after(recorded)
         return None
@@ -189,7 +189,7 @@ class CallOutcome:
     @property
     def in_call(self) -> InCall:
         """What the call's next turn is told of it."""
-        return InCall(self._out_of_line, tuple(self._hurt))
+        return InCall(self._out_of_line, tuple(self._hurts))
 
     def time_up(self) -> dict | None:
         """The call's time is up, `time_limit` after it connected."""

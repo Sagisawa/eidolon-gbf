@@ -309,13 +309,13 @@ class Judged:
 
 
 def affinity_prompt(
-    tier: Tier, judged: Judged | None, parting: Parting | None = None, warns: bool = False
+    tier: Tier, judged: Judged | None, parting: Parting | None = None, warning: bool = False
 ) -> list[str]:
     """What the prompt's section about the producer says of her affinity, as the turn begins
     in `tier` and is `judged` (None if it was not): how she speaks to the producer in her
     tier, nothing in trust; how what the producer just said makes her feel; and, if she is
-    `parting` with the producer after replying, that she does, or else if she `warns` the
-    producer she will hang up should it go on, that she does."""
+    `parting` with the producer after replying, that she does, or else if she is `warning`
+    the producer she will hang up should it go on (`warns`), that she does."""
     lines = []
     if tier != "trust":
         lines += [_TIER_PROMPTS[tier] + _IN_HER_OWN_WAY, _WHATEVER_THE_TIER]
@@ -323,7 +323,7 @@ def affinity_prompt(
         lines.append(feeling)
     if parting is not None:
         lines.append(_PARTINGS[parting])
-    elif warns:
+    elif warning:
         lines.append(_WARNING)
     return lines
 
@@ -341,7 +341,7 @@ def _lately(hurts: Sequence[float]) -> float:
 
 
 def hangs_up(
-    judged: Judged | None, cools: bool, out_of_line_before: int, hurt_before: Sequence[float] = ()
+    judged: Judged | None, cools: bool, out_of_line_before: int, hurt_before: Sequence[float]
 ) -> HangUp | None:
     """Whether she hangs up after a turn of a call, as it is `judged` (None if it was not),
     and why: it `cools` her into a cooldown, or is out of line once too often, the user
@@ -359,12 +359,13 @@ def hangs_up(
     return None
 
 
-def warns(judged: Judged | None, hurt_before: Sequence[float]) -> bool:
-    """Whether she warns the user she will hang up should it go on, after a turn of a call
-    she does not hang up after, as it is `judged` (None if it was not), the call's turns so
-    far having taken `hurt_before` each off her affinity, the latest last: the turn has what
-    the call's latest turns took off it get to `WARNS_AT`, from below."""
-    if judged is None:
+def warns(
+    judged: Judged | None, cools: bool, out_of_line_before: int, hurt_before: Sequence[float]
+) -> bool:
+    """Whether she warns the user she will hang up should it go on, after a turn of a call,
+    as for `hangs_up`: the turn has what the call's latest turns took off her affinity get to
+    `WARNS_AT`, from below, and she neither hangs up nor parts with the user after it."""
+    if judged is None or cools or hangs_up(judged, cools, out_of_line_before, hurt_before):
         return False
     return _lately(hurt_before) < WARNS_AT <= _lately([*hurt_before, hurt(judged)])
 
