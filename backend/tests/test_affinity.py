@@ -3,7 +3,7 @@ starts at trust. Below the normal value it recovers as time goes by, 10 a day, u
 normal value; above it, it never falls back. A cooldown ends once it has recovered to the
 thaw line, so when it ends is known in advance. It is read by tier only, never by value,
 and only where it is on: the deployment has the judge model and the switch「好感度和礼物」
-is on, as `.env` has it (off by default) or the admin console overrides it. Deleting the
+is on, as `.env` has it (on by default) or the admin console overrides it. Deleting the
 user deletes it. Driven through the backend's external API, with what is kept in the
 database set directly and the clock moved."""
 
@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from eidolon.config import Settings
+from eidolon.config import JevSettings, Settings
 from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, START, FakeClock, FakeIdentityProvider, FakeLLM
 from tests.test_delete_account import user_id
@@ -144,7 +144,37 @@ async def test_reading_it_needs_a_signed_in_user_and_a_character(make_client: Cl
     assert (await status(nobody)).status_code == 401
 
 
-async def test_off_in_env_by_default_there_is_none_until_the_admin_turns_it_on(
+@pytest.mark.parametrize("judge", [FAKE_JUDGE, None])
+async def test_unset_in_env_it_is_on_with_the_judge_model_and_off_without(
+    make_client: ClientFactory,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    judge: JevSettings | None,
+):
+    for name in ("EIDOLON_AFFINITY_AND_GIFTS", "JUDGE_PROVIDER", "JEV_API_KEY", "JEV_MODEL",
+                 "JEV_BASE_URL", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("CHAT_LLM_BASE_URL", "https://llm.example.com/v1")
+    monkeypatch.setenv("CHAT_LLM_API_KEY", "sk-deployer")
+    monkeypatch.setenv("CHAT_LLM_MODEL", "deployer-model")
+    if judge is not None:
+        monkeypatch.setenv("JEV_API_KEY", judge.api_key)
+    env = Settings.from_env()
+    client = make_client(
+        FakeLLM(),
+        settings=replace(settings, judge=env.judge, affinity_and_gifts=env.affinity_and_gifts),
+    )
+
+    affinity = (await status(client)).json()
+    gifts = (await client.get("/api/gifts")).json()
+
+    if judge is None:
+        assert (affinity, gifts["open"]) == (None, False)
+    else:
+        assert (affinity, gifts["open"]) == ({"tier": "trust", "cooldown_until": None}, True)
+
+
+async def test_off_in_env_there_is_none_until_the_admin_turns_it_on(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
     clock = FakeClock()

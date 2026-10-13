@@ -142,7 +142,9 @@ async def test_cloudflare_chosen_judges_both_what_turns_need_and_her_emotions(
 
     services = Services()
     backend = build_faked(
-        replace(settings, judge=CloudflareJudgeSettings("cf-token", "acc-id")),
+        replace(
+            settings, judge=CloudflareJudgeSettings("cf-token", "acc-id"), affinity_and_gifts=False
+        ),
         services.chat, background_llm=services.background, clients=CloudflareClients(),
         embedder=services.embedder, reranker=services.reranker, clock=lambda: NOW,
     )

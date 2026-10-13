@@ -29,10 +29,10 @@ await context.request.post(`${origin}/api/auth/dev-login`, { data: { name: "Sall
 
 ## 好感度和礼物
 
-本地 `.env` 里开关默认关，验收时只在这次起的后端上打开，不改 `.env`、不在后台改配置：
+开关默认开，本地 `.env` 配了判断模型、没设 `EIDOLON_AFFINITY_AND_GIFTS`，照常起后端就是开的。要看「未开放」时只在这次起的后端上关掉，不改 `.env`、不在后台改配置：
 
 ```sh
-cd backend && EIDOLON_AFFINITY_AND_GIFTS=1 uv run --quiet --env-file=../.env eidolon serve
+cd backend && EIDOLON_AFFINITY_AND_GIFTS=0 uv run --quiet --env-file=../.env eidolon serve
 ```
 
 要的状态（背包里有几件、某位角色在冷却中、某一档）不靠抽奖和对话凑，造一个专用的开发登录用户（例如 `gift-accept`），同意条款（`POST /api/account/consent`，`{"agree_to_terms": true, "at_least_13": true}`），读一次 `/api/gifts` 让它建好行，再直接往 `backend/data/eidolon.db` 写：

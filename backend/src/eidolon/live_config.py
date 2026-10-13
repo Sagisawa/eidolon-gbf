@@ -481,7 +481,7 @@ class _Limits(_Item):
 
 
 class _Affinity(_Item):
-    """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as `.env` has it (off by
+    """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as `.env` has it (on by
     default); not tried. Only with the judge model, which `.env` alone sets up."""
 
     name = AFFINITY
