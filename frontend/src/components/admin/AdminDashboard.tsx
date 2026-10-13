@@ -28,7 +28,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { copy } from "@/i18n";
 import {
   AFFINITY_LEVELS,
-  type AffinitySection as AffinityNumbers,
+  type AffinitySection,
   affinityRows,
   CALL_END_REASONS,
   CALL_RESULTS,
@@ -402,7 +402,7 @@ function DashboardBody({
           </DashboardCard>
         </DashboardGroup>
 
-        {board.affinity !== null && <AffinitySection section={board.affinity} />}
+        {board.affinity !== null && <AffinityGroup section={board.affinity} />}
 
         <CostSection board={board} />
       </div>
@@ -692,7 +692,7 @@ function CharactersTable({ board }: { board: Dashboard }) {
  * 「好感度」一组（好感度生效时才有）：三张数字卡（进入冷却和涉及几位用户、不该说的话、操纵），
  * 打分分布（样子同「回合结果」），按角色的表（不并进「按角色」那张）。都不落到任何一位用户。
  */
-function AffinitySection({ section }: { section: AffinityNumbers }) {
+function AffinityGroup({ section }: { section: AffinitySection }) {
   const words = t.affinity;
   const judged = section.levels.reduce((sum, n) => sum + n, 0);
   return (
@@ -733,7 +733,7 @@ function AffinitySection({ section }: { section: AffinityNumbers }) {
 }
 
 /** 按角色的好感度表：顺序是后端排好的；宽屏七列，更窄时每行末尾「减分 {x}% · 冷却 {n}」，其余放副行。 */
-function AffinityCharactersTable({ section }: { section: AffinityNumbers }) {
+function AffinityCharactersTable({ section }: { section: AffinitySection }) {
   const words = t.affinity.characters;
   if (section.characters.length === 0) return <p className="text-sm text-muted-foreground">{words.empty}</p>;
   const rows = affinityRows(section.characters);

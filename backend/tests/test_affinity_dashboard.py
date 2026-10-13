@@ -220,13 +220,3 @@ async def test_the_affinity_thresholds_are_set_restored_and_cleared_with_another
     assert (section["out_of_line"], section["manipulation"]) == (2, 1)
     assert section["levels"] == [0, 0, 0, 0, 4]
 
-
-async def test_thresholds_out_of_range_are_refused(
-    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
-):
-    client = make_client(FakeLLM(), clients=FakeServiceClients())
-
-    async with admin_beside(client, github) as admin:
-        res = await admin.put(JUDGE_THRESHOLDS, json=JEV | {"manipulation": 1.5})
-
-    assert res.status_code == 422

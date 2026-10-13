@@ -90,6 +90,9 @@ TAKEN = "result != 'rejected'"
 but those rejected, which were refused rather than taken. The admin's users page counts
 these, and sorts the users by them (`Store.find_users`)."""
 
+JUDGEMENT_COLUMNS = ("affinity_level", "out_of_line", "manipulation", "cooled")
+"""What a turn's record keeps of how the judge model judged it, as its columns are named."""
+
 KEPT = timedelta(days=90)
 """How long activity records are kept."""
 
@@ -296,7 +299,7 @@ class Recording:
         self.result: Result | None = None
         self.duration_s: float | None = None
         self.end_reason: CallEndReason | None = None
-        self.judgement: Judged | None = None
+        self.judged_as: Judged | None = None
         self.cooled = False
         self.call = call
         """The call this turn was taken in, if any."""
@@ -323,7 +326,7 @@ class Recording:
     def judged(self, judged: Judged, cooled: bool) -> None:
         """What the judge model made of the turn, now recorded, and whether it began a
         cooldown."""
-        self.judgement, self.cooled = judged, cooled
+        self.judged_as, self.cooled = judged, cooled
 
     def turn(self, own_llm: bool) -> "Recording":
         """Open the record of a turn taken in this call, on the user's own LLM or not."""
@@ -407,7 +410,7 @@ class ActivityLog:
             records = self._db.execute(
                 "SELECT kind, COALESCE(user_id, anonymous_id), character_id, started_at, result,"
                 " own_keys, time_to_speak_ms, duration_s, end_reason, call_id IS NOT NULL,"
-                " affinity_level, out_of_line, manipulation, cooled"
+                f" {', '.join(JUDGEMENT_COLUMNS)}"
                 " FROM activity_records WHERE started_at > ? ORDER BY started_at",
                 (at,),
             ).fetchall()
@@ -504,8 +507,8 @@ class ActivityLog:
         insert = (
             "INSERT INTO activity_records (user_id, anonymous_id, kind, character_id,"
             " started_at, result, own_keys, time_to_speak_ms, call_id, duration_s, end_reason,"
-            " affinity_level, out_of_line, manipulation, cooled)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            f" {', '.join(JUDGEMENT_COLUMNS)})"
+            f" VALUES ({', '.join('?' * (11 + len(JUDGEMENT_COLUMNS)))})"
         )
         try:
             cursor = self._db.execute(insert, (recording.user_id, None, *row))
@@ -556,7 +559,7 @@ def _reading_own_keys(kind: RecordKind, kept: int) -> tuple[bool | None, bool | 
 
 def _writing_judgement(recording: Recording) -> tuple[int | None, ...]:
     """What is written to the judgement's columns of a record: all NULL for none."""
-    judged = recording.judgement
+    judged = recording.judged_as
     if judged is None:
         return (None, None, None, None)
     return (
@@ -576,7 +579,7 @@ def _reading_judgement(
 def _add_judgement_columns(db: sqlite3.Connection) -> None:
     """Records written before turns' judgements were kept have no columns for them."""
     columns = {name for _, name, *_ in db.execute("PRAGMA table_info(activity_records)")}
-    for column in ("affinity_level", "out_of_line", "manipulation", "cooled"):
+    for column in JUDGEMENT_COLUMNS:
         if column not in columns:
             db.execute(f"ALTER TABLE activity_records ADD COLUMN {column} INTEGER")
 

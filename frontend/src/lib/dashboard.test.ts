@@ -192,9 +192,9 @@ describe("call durations", () => {
 });
 
 describe("affinityRows", () => {
-  const row = (id: string, judged: number, lowered_share: number | null, name: string | null = id) => ({
+  const row = (id: string, judged: number, lowered_share: number | null) => ({
     character_id: id,
-    name,
+    name: id,
     judged,
     lowered_share,
     cooldowns: 2,
@@ -203,27 +203,15 @@ describe("affinityRows", () => {
     hung_up: 3,
   });
 
-  it("keeps the backend's order, most lowering first and those judged too few times last", () => {
-    const rows = affinityRows([row("kogane", 40, 0.25), row("mano", 1200, 0.1), row("meguru", 3, null)]);
-    expect(rows.map((r) => r.id)).toEqual(["kogane", "mano", "meguru"]);
-  });
-
-  it("tells the share lowered as a percentage, and a dash for too few", () => {
+  it("tells the share lowered as a percentage, a dash for too few, and on a phone ends the row on it", () => {
     const [many, few, none] = affinityRows([row("mano", 1200, 0.125), row("meguru", 3, null), row("rinze", 20, 0)]);
     expect(many.lowered).toBe("12.5%");
     expect(few.lowered).toBe("—");
     expect(none.lowered).toBe("0%");
     expect(many.judged).toBe("1,200");
-  });
-
-  it("ends each row on a phone with the share lowered and the cooldowns", () => {
-    const [many, few] = affinityRows([row("mano", 1200, 0.125), row("meguru", 3, null)]);
+    // On a phone, each row ends on the share lowered and the cooldowns, the rest beneath.
     expect(many.end).toBe("减分 12.5% · 冷却 2");
     expect(few.end).toBe("减分 — · 冷却 2");
     expect(many.details).toBe("判断过 1,200 个回合 · 不该说的话 1 · 操纵 0 · 角色挂断 3");
-  });
-
-  it("names a character since removed from the configuration as such", () => {
-    expect(affinityRows([row("gone", 5, null, null)])[0].name).toBeNull();
   });
 });

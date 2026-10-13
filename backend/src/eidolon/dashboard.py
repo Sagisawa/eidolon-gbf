@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from fastapi import FastAPI, Header, Query
 
 from eidolon.activity import CALL_END_REASONS, RESULTS, SERVICES, CallRow, RecordRow
-from eidolon.affinity import LEVEL_STEPS
+from eidolon.affinity import LEVEL_STEPS, Judged
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.prices import cost
@@ -257,7 +257,7 @@ def characters(records: Sequence[RecordRow], names: dict[str, str]) -> list[dict
     ]
 
 
-FEW = 20
+JUDGED_TO_TELL_SHARE = 20
 """How many judged turns a character needs for the share of them that lowered her affinity
 to be told: fewer, and she is ranked last, her share not told."""
 
@@ -271,7 +271,7 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
     users; how many were out of line, how many tried to dictate her affinity; how many at
     each level. For each character, how many were judged, the share that lowered it, and how
     many calls she hung up; ranked by that share, highest first, those judged too few times
-    (`FEW`) last."""
+    (`JUDGED_TO_TELL_SHARE`) last."""
     judged = [r for r in records if r.kind == "turn" and r.result == "success" and r.judged]
     by_character: dict[str, list[RecordRow]] = defaultdict(list)
     for record in judged:
@@ -283,19 +283,19 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
     rows = []
     for id in by_character.keys() | hung_up.keys():
         turns = by_character.get(id, [])
-        lowered = sum(r.judged is not None and r.judged.level in LOWERING for r in turns)
+        lowered = sum(_judged(r).level in LOWERING for r in turns)
         rows.append({
             "character_id": id,
             "name": names.get(id),
             "judged": len(turns),
-            "lowered_share": lowered / len(turns) if len(turns) >= FEW else None,
+            "lowered_share": lowered / len(turns) if len(turns) >= JUDGED_TO_TELL_SHARE else None,
             **_judgements(turns),
             "hung_up": hung_up[id],
         })
     rows.sort(key=lambda r: (
         r["lowered_share"] is None, -(r["lowered_share"] or 0), -r["judged"], r["character_id"]
     ))
-    levels = Counter(r.judged.level for r in judged if r.judged is not None)
+    levels = Counter(_judged(r).level for r in judged)
     return {
         **_judgements(judged),
         "cooled_users": len({r.who for r in judged if r.cooled and r.who is not None}),
@@ -309,6 +309,12 @@ def _judgements(records: Sequence[RecordRow]) -> dict[str, int]:
     her affinity."""
     return {
         "cooldowns": sum(r.cooled for r in records),
-        "out_of_line": sum(r.judged is not None and r.judged.out_of_line for r in records),
-        "manipulation": sum(r.judged is not None and r.judged.manipulation for r in records),
+        "out_of_line": sum(_judged(r).out_of_line for r in records),
+        "manipulation": sum(_judged(r).manipulation for r in records),
     }
+
+
+def _judged(record: RecordRow) -> Judged:
+    """What the judge model made of a turn known to have been judged."""
+    assert record.judged is not None
+    return record.judged
