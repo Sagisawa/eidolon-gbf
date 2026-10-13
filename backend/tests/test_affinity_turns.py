@@ -2,8 +2,8 @@
 model judges each turn before she replies: by a step for each of five levels, from hurting
 her (−5) to making her very happy (+2), the likeliest level taken and two as likely as each
 other changing nothing; by −10 for what is out of line, whatever the level; never up for
-what tries to dictate it. Turns raise it by 6 a day at most, the producer's own day, the
-last of it as far as it goes; nothing limits how far they lower it. It falls no lower than
+what tries to dictate it. Turns raise it by 6 a day at most, the day in Beijing wherever
+the user is, the last of it as far as it goes; nothing limits how far they lower it. It falls no lower than
 0, where a cooldown begins.
 
 It changes as the turn is recorded, and the change is recorded with her reply: up or down,
@@ -137,25 +137,29 @@ async def test_out_of_line_lowers_it_by_ten_and_dictating_it_never_raises_it(
     assert taken[-1][1]["affinity"] == {"tier": "distant", "cooldown_until": None}
 
 
-async def test_turns_raise_it_by_six_a_day_at_most_the_producers_own_day(
+async def test_turns_raise_it_by_six_a_day_at_most_the_day_in_beijing(
     make_client: ClientFactory, settings: Settings
 ):
-    clock = FakeClock()  # 12:00 UTC, 21:00 in Tokyo
+    clock = FakeClock()  # 12:00 UTC, 20:00 in Beijing, 21:00 in Tokyo
     clients = FakeServiceClients()
     clients.judge.judgings = [
-        level(4), level(4), level(3), level(4), level(3), level(0), level(4), level(4),
+        level(4), level(4), level(3), level(4), level(3), level(0),
+        level(4), level(4), level(4), level(4),
     ]
-    client = make_client(FakeLLM(*[REPLY] * 8), clients=clients, clock=clock)
+    client = make_client(FakeLLM(*[REPLY] * 10), clients=clients, clock=clock)
     await client.put("/api/profile", json={"timezone": "Asia/Tokyo"})
     conversation = await start_conversation(client)
 
     today = await turns(client, settings.database_path, conversation, 6)
-    clock.advance(hours=3, minutes=30)  # 00:30 the next day in Tokyo, still the 25th in UTC
+    clock.advance(hours=3, minutes=30)  # 00:30 the next day in Tokyo, 23:30 in Beijing
+    in_tokyo = await turns(client, settings.database_path, conversation, 2)
+    clock.advance(hours=1)  # 00:30 the next day in Beijing
     tomorrow = await turns(client, settings.database_path, conversation, 2)
 
     # The fourth turn raises it by the 1 left of the day's 6; lowering it gives none back.
     assert [v for v, _ in today] == [52, 54, 55, 56, 56, 51]
     assert today[4][1]["message"]["affinity"] is None
+    assert [v for v, _ in in_tokyo] == [51, 51]
     assert [v for v, _ in tomorrow] == [53, 55]
 
 

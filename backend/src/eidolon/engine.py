@@ -443,7 +443,7 @@ class ConversationEngine:
         if not parser.complete:
             raise EmptyReply("对话模型没有返回任何内容")
         reply, affinity = self._record(
-            conversation, text, said_at, parser.complete, judged, timezone, affinity
+            conversation, text, said_at, parser.complete, judged, affinity
         )
         memory.write_down(history, text, reply)
         if judged is not None and self._affinities is not None:
@@ -475,7 +475,6 @@ class ConversationEngine:
         said_at: str,
         reply: list[Segment],
         judged: Judged | None,
-        timezone: str,
         affinity: Status | None,
     ) -> tuple[Message, Status | None]:
         """Record the turn, as said at `said_at`, changing her affinity as `judged` says, if
@@ -484,7 +483,7 @@ class ConversationEngine:
         if judged is None or self._affinities is None:
             return self._store.add_turn(conversation.id, text, reply, said_at=said_at), affinity
         return self._affinities.change(
-            conversation.user_id, conversation.character_id, judged, timezone,
+            conversation.user_id, conversation.character_id, judged,
             lambda change: self._store.add_turn(conversation.id, text, reply, change, said_at),
         )
 

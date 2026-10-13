@@ -26,6 +26,7 @@ import {
   drawGifts,
   drawNote,
   emptyNote,
+  nextDrawText,
   getGiftCatalog,
   getGiftState,
   giveGift,
@@ -172,6 +173,9 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
     getGiftState().then(setState, (e) => setFailure(toFailure(e)));
   }
 
+  // 没开放时没有下次，抽奖台和「还没有礼物」也不显示。
+  const nextDraw = state?.next_draw_at ? nextDrawText(state.next_draw_at, new Date(), timeZone) : "";
+
   return (
     <PageShell width="full" isInShell header={<h1 className="text-list-title">{t.title}</h1>}>
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 px-4 py-6">
@@ -191,7 +195,13 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
                 }}
               />
             )}
-            <DrawDesk draws={state.draws} max={state.max_draws} isDrawing={drawing !== null} onDraw={draw} />
+            <DrawDesk
+              draws={state.draws}
+              max={state.max_draws}
+              next={nextDraw}
+              isDrawing={drawing !== null}
+              onDraw={draw}
+            />
             {state.reset_cards > 0 && (
               <ResetCards
                 count={state.reset_cards}
@@ -205,7 +215,7 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
             ) : (
               <>
                 <SectionHeading>{t.mine}</SectionHeading>
-                <GiftsEmpty title={t.empty.title} description={emptyNote(state.draws)} />
+                <GiftsEmpty title={t.empty.title} description={emptyNote(state.draws, nextDraw)} />
               </>
             )}
           </>
@@ -288,11 +298,14 @@ function PickedFor({ character, onCancel }: { character: Character; onCancel: ()
 function DrawDesk({
   draws,
   max,
+  next,
   isDrawing,
   onDraw,
 }: {
   draws: number;
   max: number;
+  /** 下次到账的「今天 / 明天 HH:MM」。 */
+  next: string;
   isDrawing: boolean;
   onDraw: (all: boolean) => void;
 }) {
@@ -308,7 +321,7 @@ function DrawDesk({
             <span key={i} className={cn("size-2 rounded-full", i < draws ? "bg-foreground" : "bg-foreground/15")} />
           ))}
         </span>
-        <p className="text-subtitle text-muted-foreground">{drawNote(draws, max)}</p>
+        <p className="text-subtitle text-muted-foreground">{drawNote(draws, max, next)}</p>
       </div>
       <div className="flex gap-2">
         {draws >= 2 && (
