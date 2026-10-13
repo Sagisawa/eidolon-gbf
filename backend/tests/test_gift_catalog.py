@@ -175,3 +175,14 @@ def test_repository_gifts_each_have_their_illustration_and_nothing_else_is_there
         if size != (512, 512) or path.stat().st_size > 64 * 1024:
             wrong[id] = (size, path.stat().st_size)
     assert wrong == {}
+
+
+def test_the_reset_card_illustration_is_sized_like_a_gifts():
+    """The reset card is no gift, but it is drawn beside them in a draw's results, and has
+    no icon to fall back on either; the CREDITS aside, nothing else is there."""
+    folder = REPO_ILLUSTRATIONS.parent / "reset-card"
+    path = folder / "reset-card.webp"
+
+    assert {p.name for p in folder.iterdir()} == {"reset-card.webp", "CREDITS.md"}
+    assert _webp_size(path) == (512, 512)
+    assert path.stat().st_size <= 64 * 1024

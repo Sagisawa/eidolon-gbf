@@ -50,7 +50,7 @@ export { Gift as GiftIcon, MessageCircle as ConversationsIcon, Settings as Setti
 
 // 礼物页：抽奖台的「抽一次」和抽到稀有礼物时插画角上的闪光；抽到的重置卡（不是礼物，没有插画）；我的礼物的四个类别筛选；
 // 重置卡确认框里「现在的档位 → 信任」的箭头。
-export { Sparkles as DrawIcon, Sparkles as RareIcon, Ticket as ResetCardIcon } from "lucide-react";
+export { Sparkles as DrawIcon, Sparkles as RareIcon } from "lucide-react";
 export { ArrowRight as BecomesIcon } from "lucide-react";
 export { Cookie as FoodIcon, CupSoda as DrinkIcon, Flower2 as FlowerIcon, Gem as TrinketIcon } from "lucide-react";
 

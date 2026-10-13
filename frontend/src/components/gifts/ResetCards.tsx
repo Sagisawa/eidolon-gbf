@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
+import { GiftTile } from "@/components/gifts/GiftTile";
 import { TierHeart } from "@/components/app/TierHeart";
 import {
   AlertDialog,
@@ -28,7 +29,7 @@ const t = copy.gifts.resetCards;
 type Pulled = { character: Character; now: Resettable };
 
 /**
- * 重置卡条（DESIGN.md「礼物页」）：有重置卡时才出现的描边圆角块，「重置卡 ×n」，下面一句现在用会拉回几位，
+ * 重置卡条（DESIGN.md「礼物页」）：有重置卡时才出现的描边圆角块，左边 64px 的重置卡插画，「重置卡 ×n」，下面一句现在用会拉回几位，
  * 右边「使用」（没有可拉回的角色时不可用）。点了先弹 `AlertDialog`，列出会回到信任的每一位和她现在的档位；
  * 确认后交给礼物页去用（`onUse`），用完了确认框才收起。
  */
@@ -72,6 +73,7 @@ export function ResetCards({
 
   return (
     <section aria-label={t.title} className="flex flex-wrap items-center gap-4 rounded-2xl border px-5 py-4">
+      <GiftTile isResetCard size="small" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="flex items-baseline gap-2">
           <span className="text-header">{t.title}</span>

@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/u
 import { copy } from "@/i18n";
 import type { Drawn, DrawResult, GiftInfo } from "@/lib/gifts";
 import { cn } from "@/lib/utils";
-import { GiftIcon, RareIcon, ResetCardIcon } from "@/theme/icons";
+import { GiftIcon, RareIcon } from "@/theme/icons";
 
 const t = copy.gifts;
 
@@ -86,7 +86,7 @@ export function DrawDialog({
 
 /**
  * 抽到的一样东西：礼物是 `bg-muted` 圆角方块里的插画、名字、稀有度，稀有的插画角上一个闪光图标；
- * 重置卡是票券图标、「重置卡」、「很少见」。大的（单抽）稀有度写成 Badge，重置卡多一句说明。
+ * 重置卡是它的插画、「重置卡」、「很少见」。大的（单抽）稀有度写成 Badge，重置卡多一句说明。
  */
 function DrawnItem({ drawn, catalog, isLarge = false }: { drawn: Drawn; catalog: Map<string, GiftInfo>; isLarge?: boolean }) {
   const gift = drawn.kind === "gift" ? catalog.get(drawn.gift_id) : undefined;
@@ -95,8 +95,7 @@ function DrawnItem({ drawn, catalog, isLarge = false }: { drawn: Drawn; catalog:
   const isRare = gift?.rarity === "rare";
   return (
     <div className={cn("flex flex-col items-center text-center", isLarge ? "gap-2" : "gap-1")}>
-      <GiftTile gift={gift} size={isLarge ? "large" : "fill"}>
-        {!gift && <ResetCardIcon className={cn("text-muted-foreground", isLarge ? "size-16" : "size-8")} />}
+      <GiftTile gift={gift} isResetCard={drawn.kind === "reset_card"} size={isLarge ? "large" : "fill"}>
         {isRare && <RareIcon className={cn("absolute text-foreground", isLarge ? "top-2 right-2 size-5" : "top-1 right-1 size-4")} />}
       </GiftTile>
       <p className={isLarge ? "text-header" : "text-sm"}>{name}</p>
