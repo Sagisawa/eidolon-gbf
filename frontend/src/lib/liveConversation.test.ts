@@ -313,10 +313,10 @@ describe("LiveConversation: a call", () => {
     const told = listChanged();
     const hungUp = { type: "event", id: 7, kind: "hung_up", created_at: "2026-10-13T03:00:00Z", affinity: null } as const;
 
-    attempts[0].handlers.onEvent({ type: "ended", reason: "out_of_line", message: "她挂断了电话。", counts: true, event: hungUp });
+    attempts[0].handlers.onEvent({ type: "ended", reason: "she_hung_up", message: "她挂断了电话。", counts: true, event: hungUp });
     attempts[0].handlers.onDropped();
 
-    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "out_of_line", counts: true } });
+    expect(live.snapshot().call).toMatchObject({ phase: "ended", end: { reason: "she_hung_up", counts: true } });
     expect(live.snapshot().entries.map((e) => e.kind)).toEqual(["user", "character", "event"]);
     expect(listChanged()).toBe(told + 1);
   });
