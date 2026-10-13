@@ -110,7 +110,7 @@ async def test_the_day_turns_at_midnight_in_beijing_not_where_the_user_is(
 async def test_the_next_draw_is_at_the_next_midnight_in_beijing(make_client: ClientFactory):
     clock = FakeClock(datetime.fromisoformat("2026-09-25T16:30:00+00:00"))  # 00:30 the 26th
     client = make_client(FakeLLM(), clock=clock)
-    client.headers["X-Timezone"] = "America/Los_Angeles"
+    client.headers["X-Timezone"] = "America/Los_Angeles"  # the 25th there, which counts not
 
     first = (await state(client))["next_draw_at"]
     clock.advance(hours=23)  # 23:30 the 26th

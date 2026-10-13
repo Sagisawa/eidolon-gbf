@@ -90,8 +90,8 @@ OUT_OF_LINE_STEP = -10.0
 """How much a turn out of line (GLOSSARY.md「不该说的话」) lowers it, whatever its level."""
 
 DAY_TIMEZONE = "Asia/Shanghai"
-"""Where the days the day's gains and draw chances go by begin: at midnight Beijing time,
-wherever the user is, so that everyone has the same days."""
+"""The time zone whose midnight begins each day for turns' gains and draw chances: Beijing
+time, wherever the user is, so that everyone has the same days."""
 
 GAINS_PER_DAY = 6.0
 """How much turns can raise it in a day (`day_of`)."""
@@ -122,7 +122,6 @@ DRAW_ODDS: dict[Rarity | Literal["reset_card"], int] = {
 }
 """What a draw gives, in percent: a reset card, or a gift of each rarity, any of that rarity's
 not retired as likely as another; no draw is guaranteed anything rarer."""
-
 
 
 def day_of(now: datetime) -> date:

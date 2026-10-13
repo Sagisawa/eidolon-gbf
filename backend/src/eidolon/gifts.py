@@ -307,8 +307,8 @@ class Gifts:
     def draw(self, user_id: str, *, all: bool = False) -> Drawn:
         """Draw once, or as many times as the user has chances if `all`, having been given
         the chances due today; in one go, so that two drawing at once draw no more than
-        there are chances. Raises GiftsClosed if gifts
-        are not open, NoDraws if there are no chances to draw."""
+        there are chances. Raises GiftsClosed if gifts are not open, NoDraws if there are
+        no chances to draw."""
         self.notice()
         if not self._is_open():
             raise GiftsClosed()
