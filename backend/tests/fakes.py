@@ -72,6 +72,21 @@ class FakeClock:
         self.now += timedelta(**delta)
 
 
+class FakeRandom:
+    """A random source giving the numbers it was given, in order: each must be less than
+    what it is asked for, and asking once they are all given fails, so a test sees a draw
+    taking more or fewer than it meant to."""
+
+    def __init__(self, *numbers: int) -> None:
+        self._numbers = list(numbers)
+
+    def __call__(self, below: int) -> int:
+        assert self._numbers, "the fake random source has no numbers left"
+        number = self._numbers.pop(0)
+        assert 0 <= number < below, f"{number} is not below {below}"
+        return number
+
+
 DEPLOYER_KEY = "test-key"
 """The deployer's chat model key in the tests' settings."""
 

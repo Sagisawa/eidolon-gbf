@@ -48,8 +48,9 @@ export { Captions as TextOnlyIcon } from "lucide-react";
 // 导航栏（电脑）和 dock（手机）的三项。
 export { Gift as GiftIcon, MessageCircle as ConversationsIcon, Settings as SettingsIcon } from "lucide-react";
 
-// 礼物页抽奖台的「抽一次」。
-export { Sparkles as DrawIcon } from "lucide-react";
+// 礼物页：抽奖台的「抽一次」和抽到稀有礼物时插画角上的闪光；抽到的重置卡（不是礼物，没有插画）；我的礼物的四个类别筛选。
+export { Sparkles as DrawIcon, Sparkles as RareIcon, Ticket as ResetCardIcon } from "lucide-react";
+export { Cookie as FoodIcon, CupSoda as DrinkIcon, Flower2 as FlowerIcon, Gem as TrinketIcon } from "lucide-react";
 
 // 设置一级的六类（档案、记忆、通话用 PhoneIcon、自带密钥、登录与数据、关于）；「关于」里新标签页打开的链接行尾的外链图标。
 export {

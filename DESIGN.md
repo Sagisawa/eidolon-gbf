@@ -203,7 +203,13 @@ components:
 - **礼物页**（`/gifts`）：
   - **版式**：没有第二栏，导航栏右边整块是一栏。页首左边「礼物」大标题（List title，下沿一条细线）；内容最宽 `max-w-3xl`、居中，`px-4 py-6`，块与块之间 `gap-4`；手机和电脑同一个版式。通话中照外壳的规矩，通话条在最顶上，切过来通话不断。
   - **抽奖台**：`bg-muted` 的 `rounded-2xl` 块，`p-5`。左边「抽奖」（Header 字号）后面跟 muted 的「还有 n 次」（等宽数字）；下面 7 个 8px 的圆点，攒了几次就有几个 `bg-foreground`，其余 `bg-foreground/15`，读屏读「抽奖还有 n 次，最多攒 7 次」；再下面一句 Subtitle 字号、muted 的说明：平时「明天 0:00 再发 1 次，最多攒 7 次」，攒满「已攒满 7 次，抽掉之前不会再发」，用完「今天的已经抽了，明天 0:00 再发 1 次」（`lib/gifts`）。右边「抽一次」（default，前面闪光图标），攒了 2 次以上时左边多一个「全部抽完」（outline）；次数为 0 时「抽一次」不可用。窄屏时按钮折到下一行。
-  - **我的礼物**：「我的礼物」节标题（Header 字号）。一件都没有时是 `Empty`：礼物图标、「还没有礼物」，说明有次数时「抽一次，抽到的礼物会放在这里。」，没有时「明天 0:00 会发一次抽奖，抽到的礼物会放在这里。」
+  - **我的礼物**：「我的礼物」节标题（Header 字号），同一行右边是类别筛选：`ToggleGroup`（`sm`、`spacing={0}`，按下的一项中性 `bg-muted`）「全部 / 吃的 / 饮品 / 花草 / 小物件」，后四项前面各一个类别图标；窄屏放不下时筛选折到标题下一行。下面是插画网格：手机 3 列，≥ 640px 4 列，≥ 768px 5 列，`gap-3`。每格从上到下是插画方块（`bg-muted` 的 `rounded-2xl` 正方形，插画 `object-contain` 留 `p-2`；持有多于 1 件时右下角 Meta 字号、medium、等宽数字的「×n」）、礼物名（`text-sm`，一行放不下截断）、稀有度（Meta 字号、muted：普通、少见、稀有）。读屏每格读「蛋糕，2 件，普通」。网格按目录的顺序，已下架的照常列出；格子里不透露哪位角色喜欢什么。筛到的这一类一件都没有时，网格的位置居中一句 muted「这一类还没有礼物」。怎么筛在 `lib/gifts`。一件都没有时整节是 `Empty`：礼物图标、「还没有礼物」，说明有次数时「抽一次，抽到的礼物会放在这里。」，没有时「明天 0:00 会发一次抽奖，抽到的礼物会放在这里。」，这时不出筛选。
+  - **抽奖弹窗**：「抽一次」「全部抽完」都弹居中的 `Dialog`（默认宽度，不显示右上角的 ✕），中性色。先是 64px 的礼物图标（muted）在 256px 高的空白中间跳两下，共约 0.9 秒（`animate-hop`）；开了减少动态效果时不跳，接口一回来就揭晓。揭晓时抽到的东西放大淡入（减少动态效果时直接出现）：
+    - 单抽：160px 见方的插画方块（同网格的样子），稀有的右上角一个 20px 闪光图标；下面礼物名（Header 字号）、稀有度：稀有的是 secondary Badge「稀有」，其余是 Meta 字号 muted 的「普通」「少见」。
+    - 抽到重置卡：方块里是 64px 的票券图标（muted），名字「重置卡」，secondary Badge「很少见」，再一句 Subtitle 字号 muted 的「不是礼物，自己用：把所有低于信任的角色拉回信任，冷却中的马上可以说话。能攒，不过期。」
+    - 全部抽完：3 列小网格（`gap-3`），每格是撑满的插画方块（稀有的角上 16px 闪光图标，重置卡是 32px 票券图标）、名字（`text-sm`）、稀有度（Meta 字号 muted），按抽出的顺序每格隔 120ms 依次淡入。
+    - 底栏（`DialogFooter`）：单抽时还有次数是 outline「再抽一次（还有 n 次）」，点了在同一个弹窗里重新跳一次再揭晓；最后是 default「收下」。全部抽完只有「收下」。Esc、点外面等同「收下」。抽奖时「抽一次」「全部抽完」不可用。
+    - 抽奖时收到「没开放」的 409，弹窗收起，整页切成下面的未开放。
   - **未开放**：好感度和礼物没开放（开关关着或没配判断模型）时，页首照旧，内容整块是一个 `Empty`：礼物图标、「礼物暂时没有开放」、「这里还没有开放好感度和礼物。已经有的礼物会留着，开放后照常能送。」
 
 - **后台（/admin）**：
@@ -306,7 +312,7 @@ components:
 ### Icons
 - 全部来自 `lucide-react`，按语义别名从一个文件导出（沿用 `PhoneIcon`、`HangUpIcon`、`MicIcon` 这类名字），组件里不直接散用 Lucide 原名。
 - 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），礼物是 `Gift`（`GiftIcon`），设置是 `Settings`（`SettingsIcon`）。
-- 礼物页：抽奖台的「抽一次」是 `Sparkles`（`DrawIcon`）；空状态和未开放用 `GiftIcon`。
+- 礼物页：抽奖台的「抽一次」是 `Sparkles`（`DrawIcon`），抽到稀有礼物时插画角上的闪光也是 `Sparkles`（`RareIcon`）；重置卡是 `Ticket`（`ResetCardIcon`）；类别筛选的吃的、饮品、花草、小物件是 `Cookie`（`FoodIcon`）、`CupSoda`（`DrinkIcon`）、`Flower2`（`FlowerIcon`）、`Gem`（`TrinketIcon`）；空状态、未开放和揭晓前跳的礼物盒用 `GiftIcon`。
 - 设置一级：档案 `CircleUser`（`ProfileIcon`）、记忆 `BookHeart`（`MemoriesIcon`）、通话 `PhoneIcon`、自带密钥 `KeyRound`（`OwnKeysIcon`）、登录与数据 `LogIn`（`SignInIcon`）、关于 `Info`（`AboutIcon`）。新标签页打开的链接行尾是 `ExternalLink`（`ExternalLinkIcon`）。
 - 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。
 - 品牌标志例外：Lucide 不收品牌标志，需要时照抄 simple-icons 的官方路径，不改形状，同样从那个文件导出。目前只有 `GitHubIcon`。

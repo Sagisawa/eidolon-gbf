@@ -1174,7 +1174,35 @@ export const zh = {
       once: "抽一次",
       all: "全部抽完",
     },
+    /** 抽奖弹窗：礼物盒跳一会儿，然后揭晓。 */
+    drawing: {
+      title: "抽奖",
+      opening: "正在打开礼物盒",
+      /** 单抽的读屏标题；全部抽完的是「抽到 n 样东西」。 */
+      one: "抽到了",
+      all: (n: number) => `抽到 ${n} 样东西`,
+      again: (n: number) => `再抽一次（还有 ${n} 次）`,
+      keep: "收下",
+      resetCard: {
+        name: "重置卡",
+        rarity: "很少见",
+        note: "不是礼物，自己用：把所有低于信任的角色拉回信任，冷却中的马上可以说话。能攒，不过期。",
+      },
+    },
+    rarity: { common: "普通", uncommon: "少见", rare: "稀有" },
     mine: "我的礼物",
+    filters: {
+      label: "按类别筛选",
+      all: "全部",
+      food: "吃的",
+      drink: "饮品",
+      flower: "花草",
+      trinket: "小物件",
+    },
+    /** 网格里一格的读屏：名字、件数、稀有度。 */
+    held: (name: string, count: number, rarity: string) => `${name}，${count} 件，${rarity}`,
+    count: (n: number) => `×${n}`,
+    noneOfKind: "这一类还没有礼物",
     empty: {
       title: "还没有礼物",
       withDraws: "抽一次，抽到的礼物会放在这里。",

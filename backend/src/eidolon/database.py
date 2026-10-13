@@ -29,6 +29,7 @@ USER_DATA = [
     ("producer_profiles", "user_id = ?"),
     ("affinities", "user_id = ?"),
     ("gift_balances", "user_id = ?"),
+    ("gift_backpacks", "user_id = ?"),
     ("usage", "user_id = ?"),
     ("user_limits", "user_id = ?"),
     ("sessions", "user_id = ?"),

@@ -37,6 +37,7 @@ from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
 from eidolon.gifts import Gifts
+from eidolon.randomness import Random, secure_random
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import Embedder, open_embedder
@@ -95,7 +96,7 @@ class Backend:
     affinities: Affinities
     """Every user's affinity with every character, where it is on."""
     gifts: Gifts
-    """Every user's draw chances and reset cards, where gifts are open."""
+    """Every user's draw chances, backpack and reset cards, where gifts are open."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -129,6 +130,7 @@ def build(
     own_llm_service: LLMService | None = None,
     clients: ServiceClients | None = None,
     catalog_transport: httpx.BaseTransport | None = None,
+    random: Random | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -258,7 +260,8 @@ def build(
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     affinities.on_cooldown(calls.cooled)
     gifts = Gifts(
-        settings.database_path, clock, lambda: config.affinity_on, affinities, characters
+        settings.database_path, clock, lambda: config.affinity_on, affinities, characters,
+        gift_catalog, random or secure_random,
     )
     closers.append(gifts.close)
     config.on_change(gifts.notice)
