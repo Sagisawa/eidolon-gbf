@@ -1,10 +1,10 @@
 """Conversation events (GLOSSARY.md「对话事件」): what happened in a conversation that is not
-a turn, the one kind so far her hanging up on the user. Reading the conversation gives them
-among its messages, in the order things happened, an event written while her reply is
-still coming after that turn; the conversation list's last message may be one. She learns
-of one from a line before the user's next words in her prompt, which slides out of it with
-them; memory and the judge model never see it. Deleting the user deletes them; deleting
-memories does not.
+a turn, here her hanging up on the user (gift records are tested with giving). Reading the
+conversation gives them among its messages, in the order things happened, an event written
+while her reply is still coming after that turn; the conversation list's last message may
+be one. She learns of one from a line before the user's next words in her prompt, which
+slides out of it with them; memory and the judge model never see it. Deleting the user
+deletes them; deleting memories does not.
 
 Driven through the backend's external API; the events are put in the database as the
 call that hangs up would write them."""

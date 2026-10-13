@@ -208,17 +208,23 @@ def _unit(character: Character, world: World | None) -> dict:
     return {"unit": unit, "unit_reading": reading, "unit_order": order}
 
 
-def _recorded(entry: Recorded) -> dict:
-    """A message or conversation event as the browser reads it."""
-    if isinstance(entry, ConversationEvent):
-        return entry.shown()
-    return asdict(entry.without_cues())
-
-
 def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
     memory, calls, admissions = backend.memories, backend.calls, backend.admissions
+    gift_catalog = backend.gift_catalog
+
+    def gift_of(event: ConversationEvent) -> dict:
+        """For a gift record, which gift and its name, to show it by."""
+        if event.gift_id is None:
+            return {}
+        return {"gift_id": event.gift_id, "gift_name": gift_catalog[event.gift_id].name}
+
+    def recorded(entry: Recorded) -> dict:
+        """A message or conversation event as the browser reads it."""
+        if isinstance(entry, ConversationEvent):
+            return entry.shown() | gift_of(entry)
+        return asdict(entry.without_cues())
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -445,6 +451,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "last_message": None
                 if last is None
                 else {"type": "event", "kind": last.kind, "created_at": last.created_at}
+                | gift_of(last)
                 if isinstance(last, ConversationEvent)
                 else {
                     "role": last.role,
@@ -461,7 +468,7 @@ def create_app(backend: Backend) -> FastAPI:
     def list_messages(conversation_id: str, user_id: UserId) -> list[dict]:
         """The conversation's record: its messages and conversation events, in order."""
         conversation = conversation_or_404(conversation_id, user_id)
-        return [_recorded(entry) for entry in store.record(conversation.id)]
+        return [recorded(entry) for entry in store.record(conversation.id)]
 
     @app.post("/api/conversations/{conversation_id}/turns")
     def text_turn(

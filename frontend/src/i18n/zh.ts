@@ -91,6 +91,7 @@ export const zh = {
     /** 对话事件（GLOSSARY.md「对话事件」）给用户看的一句话：消息区的分隔线和列表的「最后一句」都用它。 */
     events: {
       hung_up: (name: string) => `${name}挂断了电话`,
+      gift: (name: string, gift: string) => `你送给${name}一份${gift}`,
     },
     hearing: "正在听你说",
     loading: "正在打开对话",
@@ -130,6 +131,8 @@ export const zh = {
         further: (name: string, tier: string) => `${name}和你疏远了一些：${tier}`,
         happier: (name: string) => `${name}有点开心`,
         unhappier: (name: string) => `${name}有点不高兴`,
+        /** 送礼让她解除了冷却。 */
+        thawed: (name: string) => `${name}愿意和你说话了`,
       },
     },
     /** 页首的「换衣装」和它打开的面板（spec「衣装与换衣装」）。 */
@@ -1181,6 +1184,7 @@ export const zh = {
       one: "抽到了",
       all: (n: number) => `抽到 ${n} 样东西`,
       again: (n: number) => `再抽一次（还有 ${n} 次）`,
+      give: "送给谁…",
       keep: "收下",
       resetCard: {
         name: "重置卡",
@@ -1206,6 +1210,20 @@ export const zh = {
       title: "还没有礼物",
       withDraws: "抽一次，抽到的礼物会放在这里。",
       withoutDraws: "明天 0:00 会发一次抽奖，抽到的礼物会放在这里。",
+    },
+    /** 送礼面板：点一件礼物拉出来，选一位送出。 */
+    give: {
+      left: (n: number) => `还有 ${n} 件`,
+      to: "送给谁",
+      cooling: "冷却中",
+      send: (name: string) => `送给${name}`,
+      choose: "选一位",
+    },
+    /** 送出后页面底部的提示；有变化时用变化胶囊的话（copy.conversation.affinity.cues）。 */
+    given: {
+      stillCooling: (name: string, until: string) => `${name}还没消气，${until} 就会愿意说话了`,
+      given: (name: string) => `已经送给${name}`,
+      toConversation: "去对话",
     },
     /** 好感度和礼物没开放（开关关着或没配判断模型）时整页是这个。 */
     closed: {

@@ -4,7 +4,7 @@ import type { AffinityChange } from "@/lib/affinity";
 import type { Entry } from "@/lib/conversationLog";
 import { linesOf } from "@/lib/messageLines";
 
-const UP: AffinityChange = { up: true, tier_changed: false, tier: "trust", cooldown: false };
+const UP: AffinityChange = { up: true, tier_changed: false, tier: "trust", cooldown: false, thawed: false };
 
 function user(key: string, at = "2026-09-28T01:00:00Z"): Entry {
   return { kind: "user", key, text: "在吗", at };
@@ -15,7 +15,7 @@ function her(key: string, affinity: AffinityChange | null = null, at = "2026-09-
 }
 
 function hungUp(key: string, at: string): Entry {
-  return { kind: "event", key, event: "hung_up", at };
+  return { kind: "event", key, event: "hung_up", at, gift: null, affinity: null };
 }
 
 const NOW = new Date("2026-09-28T12:00:00Z");
@@ -45,6 +45,20 @@ describe("linesOf", () => {
     );
     expect(groups).toEqual(["day", "m1<>", "day", "m2<", "m3>", "m4<>", "cue", "m5<>"]);
     expect(lines.find((line) => line.kind === "cue")).toEqual({ kind: "cue", key: "cue-m4", change: UP });
+  });
+
+  it("改变了好感度的送礼记录后面也挂胶囊", () => {
+    const gift: Entry = { kind: "event", key: "e1", event: "gift", at: "2026-09-28T01:00:02Z", gift: "蛋糕", affinity: UP };
+
+    const lines = linesOf([user("m1"), gift, her("m2", null, "2026-09-28T01:00:03Z")], NOW, true);
+
+    expect(lines.map((line) => (line.kind === "entry" ? line.entry.key : line.kind))).toEqual([
+      "day",
+      "m1",
+      "e1",
+      "cue",
+      "m2",
+    ]);
   });
 
   it("对话事件把前后分成两组，按它的时间参加跨天判断", () => {

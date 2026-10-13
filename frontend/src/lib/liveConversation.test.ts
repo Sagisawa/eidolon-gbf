@@ -1109,7 +1109,7 @@ describe("LiveConversation: a cooldown", () => {
 
   it("begins as a turn leaves her in one: no turns, no calls, but a new conversation; it ends by itself on time", async () => {
     vi.useFakeTimers();
-    const change = { up: false, tier_changed: false, tier: "cold", cooldown: true } as const;
+    const change = { up: false, tier_changed: false, tier: "cold", cooldown: true, thawed: false } as const;
     const opened = opening({
       affinity: { tier: "cold", cooldown_until: null },
       turns: scripted([
@@ -1344,7 +1344,7 @@ describe("LiveConversation: typing", () => {
 
   it("shows her affinity as each recorded turn leaves it, and how it changed for 2.6s", async () => {
     vi.useFakeTimers();
-    const change = { up: true, tier_changed: true, tier: "close", cooldown: false } as const;
+    const change = { up: true, tier_changed: true, tier: "close", cooldown: false, thawed: false } as const;
     const close = { tier: "close", cooldown_until: null } as const;
     const turn = (affinity: AffinityStatus | null) =>
       scripted([

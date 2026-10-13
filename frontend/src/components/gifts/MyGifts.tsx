@@ -14,9 +14,17 @@ const FILTER_ICONS = { food: FoodIcon, drink: DrinkIcon, flower: FlowerIcon, tri
 
 /**
  * 我的礼物（DESIGN.md「礼物页」）：标题右边是类别筛选（`ToggleGroup`），下面是插画网格（手机 3 列，更宽 4、5 列）。
- * 网格里不透露哪位角色喜欢什么。背包是空的时候由页面放「还没有礼物」，这里不出。
+ * 点一件拉出送礼面板（`onGive`）。网格里不透露哪位角色喜欢什么。背包是空的时候由页面放「还没有礼物」，这里不出。
  */
-export function MyGifts({ backpack, catalog }: { backpack: Owned[]; catalog: GiftInfo[] }) {
+export function MyGifts({
+  backpack,
+  catalog,
+  onGive,
+}: {
+  backpack: Owned[];
+  catalog: GiftInfo[];
+  onGive: (held: Held) => void;
+}) {
   const [filter, setFilter] = useState<GiftFilter>("all");
   const held = shownGifts(backpack, catalog, filter);
   return (
@@ -49,7 +57,7 @@ export function MyGifts({ backpack, catalog }: { backpack: Owned[]; catalog: Gif
       ) : (
         <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
           {held.map((h) => (
-            <HeldGift key={h.gift.id} held={h} />
+            <HeldGift key={h.gift.id} held={h} onGive={onGive} />
           ))}
         </ul>
       )}
@@ -57,24 +65,34 @@ export function MyGifts({ backpack, catalog }: { backpack: Owned[]; catalog: Gif
   );
 }
 
-/** 网格里的一格：插画方块（多于 1 件时右下角「×n」）、礼物名、稀有度。读屏读名字、件数和稀有度。 */
-function HeldGift({ held: { gift, count } }: { held: Held }) {
+/** 网格里的一格，点了送出：插画方块（多于 1 件时右下角「×n」）、礼物名、稀有度。读屏读名字、件数和稀有度。 */
+function HeldGift({ held, onGive }: { held: Held; onGive: (held: Held) => void }) {
+  const { gift, count } = held;
   const rarity = t.rarity[gift.rarity];
   return (
-    <li className="flex flex-col gap-1">
-      <span className="sr-only">{t.held(gift.name, count, rarity)}</span>
-      <div aria-hidden className="relative aspect-square rounded-2xl bg-muted">
-        <img src={`/gifts/${gift.id}.webp`} alt="" loading="lazy" decoding="async" className="size-full object-contain p-2" />
-        {count > 1 && (
-          <span className="absolute right-2 bottom-1.5 text-meta font-medium tabular-nums">{t.count(count)}</span>
-        )}
-      </div>
-      <p aria-hidden className="truncate text-sm">
-        {gift.name}
-      </p>
-      <p aria-hidden className="text-meta text-muted-foreground">
-        {rarity}
-      </p>
+    <li>
+      <button
+        type="button"
+        onClick={() => onGive(held)}
+        className="group flex w-full flex-col gap-1 rounded-2xl text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+      >
+        <span className="sr-only">{t.held(gift.name, count, rarity)}</span>
+        <span
+          aria-hidden
+          className="relative block aspect-square rounded-2xl bg-muted transition-colors group-hover:bg-foreground/10"
+        >
+          <img src={`/gifts/${gift.id}.webp`} alt="" loading="lazy" decoding="async" className="size-full object-contain p-2" />
+          {count > 1 && (
+            <span className="absolute right-2 bottom-1.5 text-meta font-medium tabular-nums">{t.count(count)}</span>
+          )}
+        </span>
+        <span aria-hidden className="truncate text-sm">
+          {gift.name}
+        </span>
+        <span aria-hidden className="text-meta text-muted-foreground">
+          {rarity}
+        </span>
+      </button>
     </li>
   );
 }

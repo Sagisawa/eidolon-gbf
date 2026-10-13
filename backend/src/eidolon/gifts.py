@@ -24,18 +24,19 @@ with (`randomness.Random`). Drawing calls no model and leaves no activity record
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from itertools import accumulate
 from pathlib import Path
 
-from eidolon.affinity import DRAW_ODDS, DRAWS_PER_DAY, MAX_DRAWS, Affinities
+from eidolon.affinity import DRAW_ODDS, DRAWS_PER_DAY, MAX_DRAWS, Affinities, Change, Status
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.gift_catalog import Gift
 from eidolon.producer import local_date
 from eidolon.randomness import Random
+from eidolon.store import Conversation, Store
 
 _SCHEMA = """
 -- One row per user given any draw chances: how many they have, the producer's own day they
@@ -78,6 +79,41 @@ class NoDraws(Exception):
 
     def __init__(self) -> None:
         super().__init__("没有抽奖次数了，明天 0:00 再发 1 次")
+
+
+class NoneLeft(Exception):
+    """The user has none of the gift to give."""
+
+    def __init__(self) -> None:
+        super().__init__("已经没有了")
+
+
+class NoSuchCharacter(LookupError):
+    """There is no such character to give to."""
+
+    def __init__(self) -> None:
+        super().__init__("角色不存在")
+
+
+@dataclass(frozen=True)
+class Given:
+    """What giving a gift did: the conversation its record is in, how it changed her
+    affinity (None for no change to show), her affinity now, and how many of the gift are
+    left."""
+
+    conversation_id: str
+    change: Change | None
+    affinity: Status
+    left: int
+
+    def shown(self) -> dict:
+        """As the browser is told it."""
+        return {
+            "conversation_id": self.conversation_id,
+            "change": self.change and asdict(self.change),
+            "affinity": {"cooling": self.affinity.cooling} | self.affinity.shown(),
+            "left": self.left,
+        }
 
 
 @dataclass(frozen=True)
@@ -137,11 +173,13 @@ class Gifts:
         characters: dict[str, Character],
         catalog: dict[str, Gift],
         random: Random,
+        store: Store,
     ) -> None:
         """`is_open` tells whether gifts are open now (the live configuration's affinity
-        switch); draws take their numbers from `random`. Notices whether they have opened
-        since last noticed."""
+        switch); draws take their numbers from `random`; gift records are kept in `store`.
+        Notices whether they have opened since last noticed."""
         self._db = connect(path)
+        self._store = store
         self._lock = threading.Lock()
         self._clock = clock
         self._is_open = is_open
@@ -238,9 +276,67 @@ class Gifts:
             )
         return Drawn(drawn, left)
 
+    def give(
+        self, user_id: str, gift_id: str, character_id: str, conversation_id: str | None
+    ) -> Given:
+        """Give the character one of the gift, from the conversation `conversation_id` if
+        given. The one taken is put back should recording it fail, so two giving the last
+        one at once give it once. Raises GiftsClosed if gifts are not open, NoSuchCharacter
+        for no such character, NoneLeft if the user has none of it."""
+        self.notice()
+        if not self._is_open():
+            raise GiftsClosed()
+        character = self._characters.get(character_id)
+        if character is None:
+            raise NoSuchCharacter()
+        gift = self._catalog.get(gift_id)
+        if gift is None:
+            raise NoneLeft()
+        with self._lock, self._db:
+            taken = self._db.execute(
+                "UPDATE gift_backpacks SET count = count - 1"
+                " WHERE user_id = ? AND gift_id = ? AND count > 0 RETURNING count",
+                (user_id, gift_id),
+            ).fetchone()
+        if taken is None:
+            raise NoneLeft()
+        liked = gift_id in character.liked_gifts
+
+        def record(change: Change | None) -> Conversation:
+            conversation = self._placed(user_id, character_id, conversation_id)
+            self._store.add_event(conversation.id, "gift", change, gift_id, liked)
+            return conversation
+
+        try:
+            (conversation, change), affinity = self._affinities.receive_gift(
+                user_id, character_id, gift.rarity, liked,
+                lambda change: (record(change), change),
+            )
+        except BaseException:
+            with self._lock, self._db:
+                self._db.execute(
+                    "UPDATE gift_backpacks SET count = count + 1 WHERE user_id = ? AND gift_id = ?",
+                    (user_id, gift_id),
+                )
+            raise
+        return Given(conversation.id, change, affinity, taken[0])
+
     def close(self) -> None:
         with self._lock:
             self._db.close()
+
+    def _placed(self, user_id: str, character_id: str, conversation_id: str | None) -> Conversation:
+        """Where a gift to the character goes: the conversation `conversation_id` if it is
+        hers with the user, else her newest (the one her conversation page opens), else one
+        begun for it."""
+        if conversation_id is not None:
+            conversation = self._store.get_conversation(conversation_id)
+            if conversation is not None and (conversation.user_id, conversation.character_id) == (
+                user_id, character_id
+            ):
+                return conversation
+        newest = self._store.list_conversations(user_id, character_id)
+        return newest[0] if newest else self._store.create_conversation(user_id, character_id)
 
     def _give(self, user_id: str, today: date, timezone: str) -> None:
         """Give the user the draw chances due by `today`: one if they have none yet; else

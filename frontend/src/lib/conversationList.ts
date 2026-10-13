@@ -5,17 +5,18 @@ import type { EventKind, LatestConversation } from "@/lib/api";
 import { matchesSearch, type Searchable } from "@/lib/characterSearch";
 import { NO_PREFERENCES, type ListPreferences } from "@/lib/listPreferences";
 
-/** 列表里的一行预览。`from` 为 null 表示对话已经开了但还没有话；`event` 是一条对话事件，原文由界面拼。 */
+/** 列表里的一行预览。`from` 为 null 表示对话已经开了但还没有话；`event` 是一条对话事件，原文由界面拼，
+ * 送礼记录带礼物名（`gift`）。 */
 export type Preview =
   | { from: "her" | "you" | null; text: string; at: string }
-  | { from: "event"; event: EventKind; at: string };
+  | { from: "event"; event: EventKind; gift: string | null; at: string };
 
 /** 她说的显示字幕（没有字幕时退回日语原文），自己说的原样，对话事件是这件事；从没聊过的角色没有预览。 */
 export function previewOf(latest: LatestConversation | undefined): Preview | null {
   if (!latest) return null;
   const last = latest.last_message;
   if (!last) return { from: null, text: "", at: latest.created_at };
-  if ("type" in last) return { from: "event", event: last.kind, at: last.created_at };
+  if ("type" in last) return { from: "event", event: last.kind, gift: last.gift_name ?? null, at: last.created_at };
   if (last.role === "user") return { from: "you", text: last.text ?? "", at: last.created_at };
   return { from: "her", text: last.zh || last.ja || "", at: last.created_at };
 }

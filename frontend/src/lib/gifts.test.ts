@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { drawNote, emptyNote, shownGifts, type GiftInfo } from "@/lib/gifts";
+import type { AffinityChange } from "@/lib/affinity";
+import { drawNote, emptyNote, givenNote, shownGifts, type GiftInfo, type Given } from "@/lib/gifts";
 
 describe("抽奖台那句话", () => {
   it("平时：明天再发，最多攒几次", () => {
@@ -57,5 +58,39 @@ describe("我的礼物按类别筛选", () => {
 
   it("目录里没有的不列", () => {
     expect(shownGifts([{ gift_id: "gone", count: 1 }], catalog, "all")).toEqual([]);
+  });
+});
+
+describe("送出后底部提示的那句话", () => {
+  // 时刻按东京时区写，测试不随跑测试的机器变。
+  const now = new Date("2026-10-13T20:00:00+09:00");
+  const up = (change: Partial<AffinityChange>): AffinityChange => ({
+    up: true,
+    tier_changed: false,
+    tier: "trust",
+    cooldown: false,
+    thawed: false,
+    ...change,
+  });
+  const given = (change: AffinityChange | null, cooldown_until: string | null = null): Given => ({
+    conversation_id: "c1",
+    change,
+    affinity: { tier: change?.tier ?? "cold", cooling: cooldown_until !== null, cooldown_until },
+    left: 0,
+  });
+  const note = (g: Given) => givenNote(g, "凛世", now, "Asia/Tokyo");
+
+  it("同档开心、跨档、解除冷却：就是变化胶囊的话", () => {
+    expect(note(given(up({})))).toBe("凛世有点开心");
+    expect(note(given(up({ tier_changed: true, tier: "close" })))).toBe("和凛世更近了一步：亲近");
+    expect(note(given(up({ thawed: true, tier: "cold" })))).toBe("凛世愿意和你说话了");
+  });
+
+  it("冷却中送了还没解除：写解除时刻，和对话页的写法一样", () => {
+    expect(note(given(null, "2026-10-14T05:30:00+09:00"))).toBe("凛世还没消气，明天 05:30 就会愿意说话了");
+  });
+
+  it("到顶了没有变化：只写已经送到", () => {
+    expect(note(given(null))).toBe("已经送给凛世");
   });
 });

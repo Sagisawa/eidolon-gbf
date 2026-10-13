@@ -18,21 +18,25 @@ const STAGGER_MS = 120;
 
 /**
  * 抽奖弹窗（DESIGN.md「礼物页」）：居中的 `Dialog`，先是礼物盒图标跳约 0.9 秒（减少动态效果时不跳），
- * 然后抽到的东西放大淡入。单抽是一件大的，下面「再抽一次（还有 n 次）」（没次数时不出）和「收下」；
- * 全部抽完是 3 列小网格，一件件依次淡入。
+ * 然后抽到的东西放大淡入。单抽是一件大的，下面「送给谁…」（抽到礼物时，点了打开这件的送礼面板）、
+ * 「再抽一次（还有 n 次）」（没次数时不出）和「收下」；全部抽完是 3 列小网格，一件件依次淡入。
  */
 export function DrawDialog({
   drawing,
   catalog,
+  onGive,
   onAgain,
   onClose,
 }: {
   drawing: Drawing | null;
   catalog: Map<string, GiftInfo>;
+  onGive: (gift: GiftInfo) => void;
   onAgain: () => void;
   onClose: () => void;
 }) {
   const result = drawing?.result ?? null;
+  const first = result?.drawn[0];
+  const drawnGift = !drawing?.all && first?.kind === "gift" ? catalog.get(first.gift_id) : undefined;
   return (
     // 礼物盒还在跳时关不掉：接口回来以前收起，回来后又会弹出来，抽奖台的按钮也会提前能点。
     <Dialog open={drawing !== null} onOpenChange={(open) => !open && result !== null && onClose()}>
@@ -63,12 +67,15 @@ export function DrawDialog({
         )}
         {result !== null && (
           <DialogFooter>
+            {drawnGift && <Button onClick={() => onGive(drawnGift)}>{t.drawing.give}</Button>}
             {!drawing?.all && result.draws > 0 && (
               <Button variant="outline" onClick={onAgain}>
                 {t.drawing.again(result.draws)}
               </Button>
             )}
-            <Button onClick={onClose}>{t.drawing.keep}</Button>
+            <Button variant={drawnGift ? "ghost" : "default"} onClick={onClose}>
+              {t.drawing.keep}
+            </Button>
           </DialogFooter>
         )}
       </DialogContent>

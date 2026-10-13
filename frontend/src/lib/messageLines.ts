@@ -1,5 +1,5 @@
 // 消息区的一行一行（DESIGN.md「Layout」的消息区）：跨天处的日期条，一条消息和它在组里的位置
-// （The Bubble Group Rule），以及改变了好感度的回复后面那行胶囊。
+// （The Bubble Group Rule），以及改变了好感度的回复、送礼记录后面那行胶囊。
 
 import { copy } from "@/i18n";
 import type { AffinityChange } from "@/lib/affinity";
@@ -14,13 +14,13 @@ export type Line =
 /**
  * 按日期和说话的人把消息排成行：换了一天先放日期条；同一个人连着发、中间没有日期条的算一组。
  * 对话事件自成一行，按它的时间参加跨天判断，也把前后分成两组。
- * 好感度可用时（`affinityOn`），改变了好感度的回复后面插一行胶囊，它也把前后分成两组；
+ * 好感度可用时（`affinityOn`），改变了好感度的回复和送礼记录后面插一行胶囊，它也把前后分成两组；
  * 不可用时存下的变化不显示。
  */
 export function linesOf(entries: Entry[], now: Date, affinityOn: boolean): Line[] {
   const days = entries.map((e) => new Date(e.at).toDateString());
   const cueOf = (entry: Entry | undefined) =>
-    affinityOn && entry?.kind === "character" ? entry.affinity : null;
+    affinityOn && entry && entry.kind !== "user" ? entry.affinity : null;
   const lines: Line[] = [];
   entries.forEach((entry, i) => {
     const newDay = i === 0 || days[i] !== days[i - 1];

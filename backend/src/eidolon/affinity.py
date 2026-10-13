@@ -300,14 +300,22 @@ def hangs_up(judged: Judged | None, cools: bool, out_of_line_before: int) -> Han
 
 @dataclass(frozen=True)
 class Change:
-    """How affinity changed, kept with what changed it (her reply) for the browser to show:
-    up or down, to which tier and whether that is another, and whether a cooldown began
-    with it. Neither why nor by how much."""
+    """How affinity changed, kept with what changed it (her reply, a gift) for the browser to
+    show: up or down, to which tier and whether that is another, and whether a cooldown began
+    or, as only a gift does, ended with it. Neither why nor by how much."""
 
     up: bool
     tier_changed: bool
     tier: Tier
     cooldown: bool
+    thawed: bool = False
+
+
+def _gift_step(rarity: Rarity, liked: bool, cooling: bool) -> float:
+    """How much a gift of `rarity` raises affinity: more if she `liked` it, no more than
+    `COOLDOWN_GIFT_STEP` while `cooling`."""
+    step = GIFT_STEPS[rarity] + (LIKED_GIFT_STEP if liked else 0.0)
+    return min(step, COOLDOWN_GIFT_STEP) if cooling else step
 
 
 class Affinities:
@@ -395,6 +403,41 @@ class Affinities:
         if change is not None and change.cooldown and until is not None:
             for listener in self._cooling:
                 listener(user_id, character_id, until)
+        return recorded, Status(after.tier, after.cooldown_until)
+
+    def receive_gift(
+        self,
+        user_id: str,
+        character_id: str,
+        rarity: Rarity,
+        liked: bool,
+        record: Callable[[Change | None], T],
+    ) -> tuple[T, Status]:
+        """Raise the user's affinity with the character for a gift of `rarity` she `liked`
+        or not, as it is recorded by `record`, told how it changed (None for no change to
+        show): if recording fails, nothing changes. No day's limit holds gifts, nor do they
+        count towards it. In a cooldown, what it is raised to is when it ends, sooner; there
+        is a change to show only once it ends. Returns what `record` returned, and the
+        affinity left."""
+        with self._lock:
+            now = self._clock()
+            before = self._row(user_id, character_id, now)[0]
+            after = before.stepped(_gift_step(rarity, liked, before.cooling))
+            after = Affinity(after.value, now, after.cooling and after.value < THAW)
+            change = None
+            if before.cooling and not after.cooling:
+                change = Change(True, after.tier != before.tier, after.tier, False, thawed=True)
+            elif not before.cooling and after.value != before.value:
+                change = Change(True, after.tier != before.tier, after.tier, False)
+            recorded = record(change)
+            with self._db:
+                self._db.execute(
+                    "INSERT INTO affinities (user_id, character_id, value, updated_at, cooling)"
+                    " VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, character_id) DO UPDATE SET"
+                    " value = excluded.value, updated_at = excluded.updated_at,"
+                    " cooling = excluded.cooling",
+                    (user_id, character_id, after.value, now.isoformat(), int(after.cooling)),
+                )
         return recorded, Status(after.tier, after.cooldown_until)
 
     def close(self) -> None:

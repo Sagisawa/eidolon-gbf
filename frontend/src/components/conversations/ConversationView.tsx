@@ -41,7 +41,7 @@ import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
 import { CallBar } from "./CallBar";
-import { EVENT_ICONS } from "./EventIcon";
+import { EVENT_ICONS, eventText } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { useDirectory, useWide } from "./ConversationDirectory";
@@ -344,7 +344,7 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
 
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
- * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复后面是一行变化胶囊。
+ * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复和送礼记录后面是一行变化胶囊。
  * 对话事件占一整行分隔线。
  */
 function Messages({
@@ -416,7 +416,7 @@ function EventLine({ entry, name }: { entry: Extract<Entry, { kind: "event" }>; 
       <span aria-hidden className="h-px flex-1 bg-foreground/15" />
       <span className="flex shrink-0 items-center gap-1.5">
         <Icon aria-hidden className="size-4" />
-        {t.events[entry.event](name)}
+        {eventText(entry.event, name, entry.gift)}
         <time className="text-meta tabular-nums">{clock(entry.at)}</time>
       </span>
       <span aria-hidden className="h-px flex-1 bg-foreground/15" />

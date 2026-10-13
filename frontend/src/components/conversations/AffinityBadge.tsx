@@ -5,27 +5,13 @@ import type { ComponentProps, RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { copy } from "@/i18n";
-import { badgeOf, TIERS, type AffinityStatus, type Heart } from "@/lib/affinity";
+import { TierHeart } from "@/components/app/TierHeart";
+import { badgeOf, TIERS, type AffinityStatus } from "@/lib/affinity";
 import type { AffinityCue } from "@/lib/liveConversation";
 import { cn } from "@/lib/utils";
-import {
-  AffinityColdIcon,
-  AffinityDistantIcon,
-  AffinityDownIcon,
-  AffinityHeartIcon,
-  AffinityUpIcon,
-  CooldownIcon,
-} from "@/theme/icons";
+import { AffinityDownIcon, AffinityUpIcon, CooldownIcon } from "@/theme/icons";
 
 const t = copy.conversation.affinity;
-
-const HEART_ICONS: Record<Heart, typeof AffinityHeartIcon> = {
-  off: AffinityColdIcon,
-  crack: AffinityDistantIcon,
-  outline: AffinityHeartIcon,
-  half: AffinityHeartIcon,
-  filled: AffinityHeartIcon,
-};
 
 /**
  * 页首的好感度标识（DESIGN.md「Buttons」的好感度标识）：电话键右边、更多菜单左边的 ghost 键，
@@ -60,7 +46,7 @@ export function AffinityBadge({
           {cooling ? (
             <CooldownIcon className="size-5 text-muted-foreground" />
           ) : (
-            <HeartIcon heart={badge.heart} />
+            <TierHeart heart={badge.heart} tone="her" size="badge" />
           )}
           {cue && <CueArrow up={cue.change.up} />}
         </span>
@@ -110,19 +96,6 @@ function CueArrow({ up }: { up: boolean }) {
       )}
     >
       <CueArrowIcon up={up} className="size-2.5" strokeWidth={3} />
-    </span>
-  );
-}
-
-/** 五档的心形，她的颜色：亲近是空心叠一层只露下半的实心，亲密是实心。 */
-function HeartIcon({ heart }: { heart: Heart }) {
-  const Icon = HEART_ICONS[heart];
-  return (
-    <span className="relative flex">
-      <Icon className={cn("size-5 text-her-mark", heart === "filled" && "fill-current")} />
-      {heart === "half" && (
-        <AffinityHeartIcon className="absolute inset-0 size-5 fill-current text-her-mark [clip-path:inset(50%_0_0_0)]" />
-      )}
     </span>
   );
 }

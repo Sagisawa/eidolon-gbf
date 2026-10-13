@@ -261,7 +261,7 @@ def build(
     affinities.on_cooldown(calls.cooled)
     gifts = Gifts(
         settings.database_path, clock, lambda: config.affinity_on, affinities, characters,
-        gift_catalog, random or secure_random,
+        gift_catalog, random or secure_random, store,
     )
     closers.append(gifts.close)
     config.on_change(gifts.notice)

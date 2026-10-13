@@ -92,7 +92,7 @@ export type LatestConversation = {
   created_at: string;
   last_message:
     | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
-    | Pick<ConversationEvent, "type" | "kind" | "created_at">
+    | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
     | null;
 };
 
@@ -111,7 +111,8 @@ export type Message = {
 };
 
 /** The kinds of conversation event (GLOSSARY.md「对话事件」): so far only her hanging up. */
-export type EventKind = "hung_up";
+/** She hung up on the user; the user gave her a gift. */
+export type EventKind = "hung_up" | "gift";
 
 /** Something that happened in a conversation that is not a turn, recorded among its messages. */
 export type ConversationEvent = {
@@ -120,6 +121,9 @@ export type ConversationEvent = {
   kind: EventKind;
   created_at: string;
   affinity: AffinityChange | null;
+  /** A gift record's gift, and its name; other events have none. */
+  gift_id?: string;
+  gift_name?: string;
 };
 
 /** What a conversation's record holds, in order. */

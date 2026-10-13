@@ -1,8 +1,9 @@
 // 礼物（GLOSSARY.md「礼物」「抽奖」「重置卡」）：礼物页读到的状态，和页上那几句话怎么拼、我的礼物怎么筛。
 // 抽奖次数每天在制作人当地 0 点发 1 次，最多攒 7 次，后端读取时补发；下次什么时候到账固定写「明天 0:00」。
+// 送礼一次一件，送出后页面底部那条提示的话也在这里拼。
 
 import { api, json } from "@/lib/api";
-import type { Tier } from "@/lib/affinity";
+import { cueText, untilText, type AffinityChange, type AffinityStatus, type Tier } from "@/lib/affinity";
 import { copy } from "@/i18n";
 
 /** 礼物的类别：吃的、饮品、花草、小物件。 */
@@ -56,6 +57,39 @@ export async function drawGifts(all: boolean): Promise<DrawResult> {
       body: JSON.stringify({ all }),
     }),
   );
+}
+
+/** 送礼接口给的：记录放进了哪段对话、这次的变化（没有胶囊时是 null）、她现在的好感度、这件还剩几件。 */
+export type Given = {
+  conversation_id: string;
+  change: AffinityChange | null;
+  affinity: AffinityStatus & { cooling: boolean };
+  left: number;
+};
+
+/**
+ * 把一件礼物送给她；`conversationId` 是从哪段对话跳来的（记录放回那段）。
+ * 没开放时抛 `giftsClosed` 的 ApiError，这件已经没有了（另一个标签页刚送掉最后一件）是 409。
+ */
+export async function giveGift(characterId: string, giftId: string, conversationId: string | null): Promise<Given> {
+  return json(
+    await api(`/api/characters/${encodeURIComponent(characterId)}/gifts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ gift_id: giftId, conversation_id: conversationId }),
+    }),
+  );
+}
+
+/**
+ * 送出后底部提示的那句话：有变化时就是送礼记录后面那个变化胶囊的话（有点开心、更近了一步、愿意说话了）；
+ * 冷却中送了还没解除时写解除时刻（按制作人的时区，写法和对话页冷却说明一致）；到顶了只写已经送到，不提示已满。
+ */
+export function givenNote(given: Given, name: string, now: Date, timeZone: string): string {
+  const t = copy.gifts.given;
+  if (given.change) return cueText(given.change, name);
+  const until = given.affinity.cooldown_until;
+  return until ? t.stillCooling(name, untilText(new Date(until), now, timeZone)) : t.given(name);
 }
 
 /** 抽奖台小点下面那句：用完了、攒满了、平时三种。 */

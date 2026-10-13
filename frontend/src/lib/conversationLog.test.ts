@@ -108,7 +108,7 @@ describe("conversationLog", () => {
   });
 
   it("swaps the reply for the recorded one, dated when recorded and with how it changed her affinity, on `done` and ends the turn", () => {
-    const affinity = { up: true, tier_changed: false, tier: "trust", cooldown: false } as const;
+    const affinity = { up: true, tier_changed: false, tier: "trust", cooldown: false, thawed: false } as const;
     const recorded = { ...message(4, "character", "いるよ"), created_at: "2026-09-28T08:49:30Z", affinity };
     const log = play(
       [

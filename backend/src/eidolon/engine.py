@@ -247,7 +247,7 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
 
 
 NARRATIONS: dict[EventKind, str] = {"hung_up": "（你挂断了制作人的电话。）"}
-"""What she is told of each kind of conversation event."""
+"""What she is told of each kind of conversation event she is told of; not yet of gifts."""
 
 
 def narrations(record: list[Recorded]) -> dict[int | None, str]:
@@ -257,6 +257,8 @@ def narrations(record: list[Recorded]) -> dict[int | None, str]:
     told: dict[int | None, str] = {}
     for entry in record:
         if isinstance(entry, ConversationEvent):
+            if entry.kind not in NARRATIONS:
+                continue
             lines.append(f"{NARRATIONS[entry.kind]}\n")
         elif entry.role == "user" and lines:
             told[entry.id], lines = "".join(lines), []

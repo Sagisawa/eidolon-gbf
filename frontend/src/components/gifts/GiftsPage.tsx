@@ -5,15 +5,31 @@ import { useEffect, useMemo, useState } from "react";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { PageShell } from "@/components/app/PageShell";
 import { SectionHeading } from "@/components/app/SubpageHeader";
+import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
+import { useProducerTimezone } from "@/components/conversations/useProducerTimezone";
 import { DrawDialog, type Drawing } from "@/components/gifts/DrawDialog";
+import { GivenToast, type GivenNotice } from "@/components/gifts/GivenToast";
+import { GivePanel, type Giving } from "@/components/gifts/GivePanel";
 import { MyGifts } from "@/components/gifts/MyGifts";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { ApiError } from "@/lib/api";
+import { arrange } from "@/lib/conversationList";
 import { toFailure, type Failure } from "@/lib/failure";
-import { drawGifts, drawNote, emptyNote, getGiftCatalog, getGiftState, type GiftInfo, type GiftState } from "@/lib/gifts";
+import {
+  drawGifts,
+  drawNote,
+  emptyNote,
+  getGiftCatalog,
+  getGiftState,
+  giveGift,
+  givenNote,
+  type GiftInfo,
+  type GiftState,
+  type Given,
+} from "@/lib/gifts";
 import { cn } from "@/lib/utils";
 import { DrawIcon, GiftIcon } from "@/theme/icons";
 
@@ -22,18 +38,42 @@ const t = copy.gifts;
 /** 礼物盒揭晓前跳多久，和 `animate-hop` 一样长。 */
 const OPENING_MS = 900;
 
+/** 送出后的提示留多久。 */
+const NOTICE_MS = 8000;
+
 /**
  * 礼物页（DESIGN.md「礼物页」）：导航栏右边整块一栏，内容最宽 `max-w-3xl`、居中，手机和电脑同一个版式。
- * 上面是抽奖台，下面「我的礼物」。好感度和礼物没开放时整页是「礼物暂时没有开放」，「礼物」照样留在导航里；
- * 抽奖时才知道没开放（收到「没开放」的 409）也切成这样。
+ * 上面是抽奖台，下面「我的礼物」；点一件（或单抽结果上的「送给谁…」）拉出送礼面板，送出后面板收起、底部出提示，
+ * 页面不跳走。好感度和礼物没开放时整页是「礼物暂时没有开放」，「礼物」照样留在导航里；
+ * 抽奖或送礼时才知道没开放（收到「没开放」的 409）也切成这样。
  */
 export function GiftsPage() {
   const [state, setState] = useState<GiftState | null>(null);
   const [catalog, setCatalog] = useState<GiftInfo[] | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [drawing, setDrawing] = useState<Drawing | null>(null);
+  // 收起面板时留着上一次送的，收起的动画里内容不消失。
+  const [giving, setGiving] = useState<Giving | null>(null);
+  const [isGiveOpen, setGiveOpen] = useState(false);
+  const [isSending, setSending] = useState(false);
+  const [notice, setNotice] = useState<GivenNotice | null>(null);
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
+  const isWide = useWide();
+  const timeZone = useProducerTimezone();
+  const { characters, latest, preferences, go, refresh } = useDirectory();
   const giftsById = useMemo(() => new Map((catalog ?? []).map((g) => [g.id, g])), [catalog]);
+  // 送给谁：所有角色（隐藏了的也在），顺序和对话列表一样。
+  const recipients = useMemo(() => {
+    const all = characters ?? [];
+    return arrange(all, latest, { preferences, keep: all.map((c) => c.id) }).rows.map((row) => row.character);
+  }, [characters, latest, preferences]);
+  const statuses = useMemo(() => new Map((state?.characters ?? []).map((c) => [c.id, c])), [state]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   useEffect(() => {
     Promise.all([getGiftState(), getGiftCatalog()]).then(
@@ -58,8 +98,46 @@ export function GiftsPage() {
       getGiftState().then(setState, (e) => setFailure(toFailure(e)));
     } catch (e) {
       setDrawing(null);
-      if (e instanceof ApiError && e.giftsClosed) setState((s) => s && { ...s, open: false });
-      else setFailure(toFailure(e));
+      failed(e);
+    }
+  }
+
+  /** 收到「没开放」的 409 时整页切成未开放，别的失败在页上方说。 */
+  function failed(e: unknown) {
+    if (e instanceof ApiError && e.giftsClosed) setState((s) => s && { ...s, open: false });
+    else setFailure(toFailure(e));
+  }
+
+  /** 拉出这件的送礼面板；还有几件按背包里的算。 */
+  function startGiving(gift: GiftInfo) {
+    const left = state?.backpack.find((b) => b.gift_id === gift.id)?.count ?? 0;
+    setDrawing(null);
+    setGiving({ gift, left, to: null });
+    setGiveOpen(true);
+  }
+
+  async function send() {
+    const to = recipients.find((c) => c.id === giving?.to);
+    if (!giving || !to) return;
+    setFailure(null);
+    setSending(true);
+    try {
+      const given = await giveGift(to.id, giving.gift.id, null);
+      setGiveOpen(false);
+      setState((s) => s && afterGiving(s, giving.gift.id, to.id, given));
+      setNotice({
+        key: Date.now(),
+        character: to,
+        note: givenNote(given, to.name, new Date(), timeZone),
+      });
+      refresh();
+    } catch (e) {
+      setGiveOpen(false);
+      failed(e);
+      // 另一个标签页可能刚送掉了最后一件：重新读一遍背包。
+      getGiftState().then(setState, () => {});
+    } finally {
+      setSending(false);
     }
   }
 
@@ -75,7 +153,7 @@ export function GiftsPage() {
           <>
             <DrawDesk draws={state.draws} max={state.max_draws} isDrawing={drawing !== null} onDraw={draw} />
             {state.backpack.length > 0 ? (
-              <MyGifts backpack={state.backpack} catalog={catalog} />
+              <MyGifts backpack={state.backpack} catalog={catalog} onGive={(held) => startGiving(held.gift)} />
             ) : (
               <>
                 <SectionHeading>{t.mine}</SectionHeading>
@@ -85,9 +163,39 @@ export function GiftsPage() {
           </>
         )}
       </div>
-      <DrawDialog drawing={drawing} catalog={giftsById} onAgain={() => draw(false)} onClose={() => setDrawing(null)} />
+      <DrawDialog
+        drawing={drawing}
+        catalog={giftsById}
+        onGive={startGiving}
+        onAgain={() => draw(false)}
+        onClose={() => setDrawing(null)}
+      />
+      <GivePanel
+        giving={giving}
+        isOpen={isGiveOpen}
+        isWide={isWide}
+        isSending={isSending}
+        characters={recipients}
+        statuses={statuses}
+        onChoose={(to) => setGiving((g) => g && { ...g, to })}
+        onSend={send}
+        onClose={() => setGiveOpen(false)}
+      />
+      {/* 「去对话」去她的对话页，那里打开的就是记录放进的那段；通话中去别的角色时先问会不会挂断。 */}
+      <GivenToast notice={notice} onGo={(n) => go(`/conversation/${encodeURIComponent(n.character.id)}`)} />
     </PageShell>
   );
+}
+
+/** 送出一件以后的礼物状态：这件按接口给的件数（送完的不再列），她的好感度换成现在的。 */
+function afterGiving(state: GiftState, giftId: string, characterId: string, given: Given): GiftState {
+  return {
+    ...state,
+    backpack: state.backpack
+      .map((b) => (b.gift_id === giftId ? { ...b, count: given.left } : b))
+      .filter((b) => b.count > 0),
+    characters: state.characters.map((c) => (c.id === characterId ? { id: c.id, ...given.affinity } : c)),
+  };
 }
 
 /**

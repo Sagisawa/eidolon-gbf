@@ -44,7 +44,7 @@ describe("untilText：解除时刻按制作人的时区写成今天或明天加�
 describe("cueText：胶囊上的那句话，进了冷却最先说，其次跨档", () => {
   it("冷却、跨档升降、同档升降各一句", () => {
     const cue = (up: boolean, tier_changed: boolean, cooldown = false) =>
-      cueText({ up, tier_changed, tier: up ? "close" : "cold", cooldown }, "凛世");
+      cueText({ up, tier_changed, tier: up ? "close" : "cold", cooldown, thawed: false }, "凛世");
 
     expect(cue(false, true, true)).toBe("凛世现在不想说话了");
     expect(cue(true, true)).toBe("和凛世更近了一步：亲近");
