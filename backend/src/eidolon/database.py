@@ -28,6 +28,7 @@ USER_DATA = [
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("affinities", "user_id = ?"),
+    ("gift_balances", "user_id = ?"),
     ("usage", "user_id = ?"),
     ("user_limits", "user_id = ?"),
     ("sessions", "user_id = ?"),
@@ -49,14 +50,15 @@ NOT_USER_DATA = frozenset(
         "episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts",
         "service_calls", "config_overrides", "price_overrides", "price_catalog",
         "price_catalog_hosts", "price_catalog_state", "banned_identities", "announcements",
+        "gifts_opened",
     }
 )
 """Every other table: the story corpus, the embedded text set, the calls to outside
 services, which say whose turn they were made in only through its activity record, the
 configuration and the prices the admin console overrides, the price catalogs fetched
 online, the ban list, hashes of the identities banned users since deleted signed in
-with, which say whose they were to no one, and the announcements admins write, which say
-nothing of who wrote them."""
+with, which say whose they were to no one, the announcements admins write, which say
+nothing of who wrote them, and when gifts last opened, which is no one's."""
 
 
 def connect(path: Path) -> sqlite3.Connection:

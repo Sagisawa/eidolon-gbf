@@ -13,6 +13,7 @@ export const zh = {
   nav: {
     label: "导航",
     conversations: "对话",
+    gifts: "礼物",
     settings: "设置",
   },
   /** 落地页的链接贴到聊天软件、社交网站时预览卡片上的文字（Open Graph、Twitter 卡片）。页面上不显示，不进字体子集。 */
@@ -1153,6 +1154,36 @@ export const zh = {
         published: "它已经发布，会从所有用户的公告里消失。",
         confirm: "删除",
       },
+    },
+  },
+  /** 礼物页（GLOSSARY.md「礼物」「抽奖」，DESIGN.md「礼物页」）。 */
+  gifts: {
+    title: "礼物",
+    loading: "正在读取礼物",
+    /** 抽奖台。 */
+    draw: {
+      title: "抽奖",
+      left: (n: number) => `还有 ${n} 次`,
+      label: (n: number, max: number) => `抽奖还有 ${n} 次，最多攒 ${max} 次`,
+      /** 下面那句说明：平时、攒满、用完。 */
+      notes: {
+        usual: (max: number) => `明天 0:00 再发 1 次，最多攒 ${max} 次`,
+        full: (max: number) => `已攒满 ${max} 次，抽掉之前不会再发`,
+        none: "今天的已经抽了，明天 0:00 再发 1 次",
+      },
+      once: "抽一次",
+      all: "全部抽完",
+    },
+    mine: "我的礼物",
+    empty: {
+      title: "还没有礼物",
+      withDraws: "抽一次，抽到的礼物会放在这里。",
+      withoutDraws: "明天 0:00 会发一次抽奖，抽到的礼物会放在这里。",
+    },
+    /** 好感度和礼物没开放（开关关着或没配判断模型）时整页是这个。 */
+    closed: {
+      title: "礼物暂时没有开放",
+      description: "这里还没有开放好感度和礼物。已经有的礼物会留着，开放后照常能送。",
     },
   },
   memories: {

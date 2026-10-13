@@ -45,8 +45,11 @@ export { ArrowDown as SortedIcon, ArrowUpDown as SortableIcon } from "lucide-rea
 // 通话层右上角的「只看文字」胶囊。
 export { Captions as TextOnlyIcon } from "lucide-react";
 
-// 导航栏（电脑）和 dock（手机）的两项。
-export { MessageCircle as ConversationsIcon, Settings as SettingsIcon } from "lucide-react";
+// 导航栏（电脑）和 dock（手机）的三项。
+export { Gift as GiftIcon, MessageCircle as ConversationsIcon, Settings as SettingsIcon } from "lucide-react";
+
+// 礼物页抽奖台的「抽一次」。
+export { Sparkles as DrawIcon } from "lucide-react";
 
 // 设置一级的六类（档案、记忆、通话用 PhoneIcon、自带密钥、登录与数据、关于）；「关于」里新标签页打开的链接行尾的外链图标。
 export {

@@ -10,12 +10,16 @@ import { copy } from "@/i18n";
 import { currentNavItem, FIRST_LEVEL, isTyping, NAV_ITEMS, navDestination, type NavItem } from "@/lib/navShell";
 import { REPOSITORY_URL } from "@/lib/repository";
 import { cn } from "@/lib/utils";
-import { ConversationsIcon, GitHubIcon, SettingsIcon } from "@/theme/icons";
+import { ConversationsIcon, GiftIcon, GitHubIcon, SettingsIcon } from "@/theme/icons";
 
-const ICONS: Record<NavItem, typeof SettingsIcon> = { conversations: ConversationsIcon, settings: SettingsIcon };
+const ICONS: Record<NavItem, typeof SettingsIcon> = {
+  conversations: ConversationsIcon,
+  gifts: GiftIcon,
+  settings: SettingsIcon,
+};
 
 /**
- * 导航栏（电脑）：最左一条 72px，右边一条细线，不能收起；对话、设置从上往下，GitHub 仓库链接在最底下
+ * 导航栏（电脑）：最左一条 72px，右边一条细线，不能收起；对话、礼物、设置从上往下，GitHub 仓库链接在最底下
  * （DESIGN.md「Layout」）。窄屏由 CSS 藏起来，换成 dock。
  */
 export function NavRail({ isInert }: { isInert: boolean }) {

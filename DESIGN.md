@@ -174,10 +174,10 @@ components:
 ## Layout
 
 - **导航外壳**：对话（列表和她的对话页）和设置共用一个外壳，外壳给它们一条导航。两个词只在这里用，不进词汇表，也不叫「侧栏」：
-  - **导航栏**（电脑，≥ 768px）：最左一条 72px，右边一条 `border-r` 细线，不能收起，不用 shadcn `Sidebar`（那是后台的页框）。从上到下对话、设置，每项图标（20px）在上、字（Meta 字号）在下；当前项的图标外面铺一层中性 `bg-muted` 圆角底（48×32 的胶囊），字 foreground 加 medium，其余图标和字都是 muted，悬停时图标底 `bg-muted/60`。最底下是 GitHub 仓库的 ghost `icon-lg` 图标键（`GitHubIcon`，读屏名字「GitHub」，新标签页打开）。整条是一个读屏名字「导航」的 `nav`，当前项 `aria-current="page"`。
+  - **导航栏**（电脑，≥ 768px）：最左一条 72px，右边一条 `border-r` 细线，不能收起，不用 shadcn `Sidebar`（那是后台的页框）。从上到下对话、礼物、设置，每项图标（20px）在上、字（Meta 字号）在下；当前项的图标外面铺一层中性 `bg-muted` 圆角底（48×32 的胶囊），字 foreground 加 medium，其余图标和字都是 muted，悬停时图标底 `bg-muted/60`。最底下是 GitHub 仓库的 ghost `icon-lg` 图标键（`GitHubIcon`，读屏名字「GitHub」，新标签页打开）。整条是一个读屏名字「导航」的 `nav`，当前项 `aria-current="page"`。
   - **dock**（手机，< 768px）：底部一条，项目和顺序、每项的样子同导航栏，每项高 56px、等宽撑满；实底 `--background`，上沿一条 `border-t`，底部留出 `env(safe-area-inset-bottom)`。进了她的对话页也在，在输入栏下面；任何输入框拿到焦点（textarea、不是勾选框的 input、可编辑元素，大致就是键盘弹起）时藏起来，失去焦点后回来。通话层展开时被盖住（`inert`）。
-  - **当前项和再点一下**：当前项按网址判断，`/conversations` 和 `/conversation/…` 是对话，`/settings…` 是设置。点别的项去那一项的第一级（`/conversations`、`/settings`）；在二级页面上（她的对话页、设置的一类）再点当前那一项回到第一级，已在第一级时不动。导航栏和 dock 同一条规则（`lib/navShell`），去哪都在外壳里，通话中点也不挂断。
-  - **第二栏**：导航栏右边是这一页的内容。对话页是下面说的可拖宽的对话列表加对话栏；设置页是 320px 的一级列表加这一类的二级页面（见「设置页」）。
+  - **当前项和再点一下**：当前项按网址判断，`/conversations` 和 `/conversation/…` 是对话，`/gifts` 是礼物，`/settings…` 是设置。礼物页只有一级，好感度和礼物没开放时「礼物」也一直在。点别的项去那一项的第一级（`/conversations`、`/gifts`、`/settings`）；在二级页面上（她的对话页、设置的一类）再点当前那一项回到第一级，已在第一级时不动。导航栏和 dock 同一条规则（`lib/navShell`），去哪都在外壳里，通话中点也不挂断。
+  - **第二栏**：导航栏右边是这一页的内容。对话页是下面说的可拖宽的对话列表加对话栏；设置页是 320px 的一级列表加这一类的二级页面（见「设置页」）；礼物页没有第二栏（见「礼物页」）。
   - **首屏不闪**：导航栏和 dock 都只靠 CSS 断点分宽窄（导航栏窄屏 `max-md:hidden`、dock 宽屏 `md:hidden`），不等脚本判断屏宽；手机首屏（不跑脚本）直接是单栏加 dock。
 - **宽屏（≥ 768px）**：导航栏右边两栏。左侧对话列表 340px、白底（深色模式 `--background`），右边一条 `border-r` 细线；右侧对话栏填满。通话层绝对定位盖住对话栏，列表仍可见。没选角色时右栏居中一句 muted 标题。列表可以拖右边的线调宽：用 shadcn `Resizable`（react-resizable-panels v4），按像素约束（默认 320px，240–480px，`groupResizeBehavior="preserve-pixel-size"`，窗口变化时保持像素宽），`onResize` 的 `inPixels` 记进 localStorage，沿用现在 `useSavedSize` 的做法（挂载后在 layout effect 里恢复，避免水合不一致）。不自己写拖拽。
 - **窄屏（< 768px）**：一次一栏，列表或对话，下面一条 dock；对话页首有返回键。通话层固定定位铺满整屏，盖住 dock。
@@ -199,6 +199,12 @@ components:
   - **危险操作**：退出登录、退出所有设备、删除我的全部数据都放在「登录与数据」最底下，删除全部数据在最后；它的完整后果写在确认框里，节里只留一句。
   - **关于**：四行，样子同一级的行（不带图标）、左右贴齐一栏边缘：「关于 Eidolon-SC」（`/about`）、「GitHub 仓库」（新标签页打开，行尾 `ExternalLinkIcon`）、「隐私政策」（`/privacy`）、「使用条款」（`/terms`），在本页打开的三行行尾 ›。下面一行 Meta 字号、muted 的免责声明「非官方粉丝作品，与版权方无关；角色由 AI 扮演。」，应用里只有这一处（落地页、登录页的照旧）。
   - **长说明**：外面只留最要紧的一两句，其余收进句末 ⓘ 弹出的 `Popover`（触发器 `openOnHover`：电脑上悬停打开，手机上点开），不用 `Tooltip`（不响应触摸，也不该装长段文字）。
+
+- **礼物页**（`/gifts`）：
+  - **版式**：没有第二栏，导航栏右边整块是一栏。页首左边「礼物」大标题（List title，下沿一条细线）；内容最宽 `max-w-3xl`、居中，`px-4 py-6`，块与块之间 `gap-4`；手机和电脑同一个版式。通话中照外壳的规矩，通话条在最顶上，切过来通话不断。
+  - **抽奖台**：`bg-muted` 的 `rounded-2xl` 块，`p-5`。左边「抽奖」（Header 字号）后面跟 muted 的「还有 n 次」（等宽数字）；下面 7 个 8px 的圆点，攒了几次就有几个 `bg-foreground`，其余 `bg-foreground/15`，读屏读「抽奖还有 n 次，最多攒 7 次」；再下面一句 Subtitle 字号、muted 的说明：平时「明天 0:00 再发 1 次，最多攒 7 次」，攒满「已攒满 7 次，抽掉之前不会再发」，用完「今天的已经抽了，明天 0:00 再发 1 次」（`lib/gifts`）。右边「抽一次」（default，前面闪光图标），攒了 2 次以上时左边多一个「全部抽完」（outline）；次数为 0 时「抽一次」不可用。窄屏时按钮折到下一行。
+  - **我的礼物**：「我的礼物」节标题（Header 字号）。一件都没有时是 `Empty`：礼物图标、「还没有礼物」，说明有次数时「抽一次，抽到的礼物会放在这里。」，没有时「明天 0:00 会发一次抽奖，抽到的礼物会放在这里。」
+  - **未开放**：好感度和礼物没开放（开关关着或没配判断模型）时，页首照旧，内容整块是一个 `Empty`：礼物图标、「礼物暂时没有开放」、「这里还没有开放好感度和礼物。已经有的礼物会留着，开放后照常能送。」
 
 - **后台（/admin）**：
   - **页框**：shadcn `Sidebar`（16rem），头部「后台」和「管理者：{name}」，菜单「看板 / 配置 / 用户 / 公告」，底部「返回设置」；当前项用 `isActive`（中性底）。窄屏（< 768px）侧栏收进 Sheet。内容区顶上一条 48px 的页首：`SidebarTrigger` + 面包屑（Caption 字号），两者之间不加竖线。
@@ -299,7 +305,8 @@ components:
 
 ### Icons
 - 全部来自 `lucide-react`，按语义别名从一个文件导出（沿用 `PhoneIcon`、`HangUpIcon`、`MicIcon` 这类名字），组件里不直接散用 Lucide 原名。
-- 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），设置是 `Settings`（`SettingsIcon`）。
+- 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），礼物是 `Gift`（`GiftIcon`），设置是 `Settings`（`SettingsIcon`）。
+- 礼物页：抽奖台的「抽一次」是 `Sparkles`（`DrawIcon`）；空状态和未开放用 `GiftIcon`。
 - 设置一级：档案 `CircleUser`（`ProfileIcon`）、记忆 `BookHeart`（`MemoriesIcon`）、通话 `PhoneIcon`、自带密钥 `KeyRound`（`OwnKeysIcon`）、登录与数据 `LogIn`（`SignInIcon`）、关于 `Info`（`AboutIcon`）。新标签页打开的链接行尾是 `ExternalLink`（`ExternalLinkIcon`）。
 - 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。
 - 品牌标志例外：Lucide 不收品牌标志，需要时照抄 simple-icons 的官方路径，不改形状，同样从那个文件导出。目前只有 `GitHubIcon`。

@@ -527,6 +527,7 @@ class LiveConfig:
         self._db = connect(settings.database_path)
         self._db_lock = threading.Lock()
         self._changing = asyncio.Lock()
+        self._listeners: list[Callable[[], None]] = []
         with self._db_lock, self._db:
             self._db.executescript(_SCHEMA)
             self._rows = {
@@ -804,10 +805,17 @@ class LiveConfig:
                 await item.apply(after)
             self._changed(name, before, after)
 
+    def on_change(self, listener: Callable[[], None]) -> None:
+        """Have `listener` called after each item an admin saves or restores, whether or not
+        it changed what is in effect."""
+        self._listeners.append(listener)
+
     def _changed(self, name: str, before: dict[str, Any], after: dict[str, Any]) -> None:
         """Item `name` went from `before` to `after`."""
         if name == JUDGE:
             self._judge_changed(before, after, clear=True)
+        for listener in self._listeners:
+            listener()
 
     def _judge_changed(self, before: Values, after: Values, *, clear: bool) -> None:
         """The judge model went from `before`'s to `after`'s: a model not calibrated is
