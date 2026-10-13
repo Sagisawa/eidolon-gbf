@@ -4,7 +4,6 @@ import {
   changeOf,
   formOf,
   ITEM_SPECS,
-  LIMIT_FIELDS,
   UNLIMITED,
   readOnlyValue,
   rows,
@@ -188,11 +187,6 @@ describe("limits", () => {
         history_turns: 20,
       },
     });
-  });
-
-  it("has the limits alone, no switch requiring users' own LLM", () => {
-    expect(limits.rows).toEqual(LIMIT_FIELDS);
-    expect(limits.form.map((field) => field.name)).toEqual(LIMIT_FIELDS);
   });
 
   it("refuses one that is 0, negative, not whole or empty", () => {

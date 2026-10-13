@@ -9,8 +9,8 @@ models record each request as a service call to the model they are, opens the ac
 record, and only then takes a use of the limit, so that nothing failing before it is
 counted. One refused over the limit is recorded rejected; whatever else fails on the way
 after the record is opened is recorded so (`_FAILED`); and what was taken is let go
-before it is raised. Before a call is placed, it is only asked
-whether the call would count.
+before it is raised. Before a call is placed, it is only asked whether the call would
+count.
 
 The `Admission` it hands out settles it, once: given back unless its result counts
 (`_COUNTED`), the record written, the deployer's keys let go.

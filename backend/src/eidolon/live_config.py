@@ -6,8 +6,8 @@ The configuration is in items, each a few fields saved and restored together: th
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
 carries), and whether affinity and gifts are on. Overrides are kept in the database,
-one row per field, a key encrypted with a key derived from `EIDOLON_SECRET_KEY` (without it, keys cannot be
-changed here, only seen). A change to a service is tried before it is kept, as the chat
+one row per field, a key encrypted with a key derived from `EIDOLON_SECRET_KEY`
+(without it, keys cannot be changed here, only seen). A change to a service is tried before it is kept, as the chat
 model is when the server starts; it then holds for every turn and call that starts after
 it, while those under way keep what they started with (see `lease` and
 `service_clients.Swappable`). Restoring an item deletes its overrides.

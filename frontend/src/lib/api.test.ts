@@ -120,15 +120,6 @@ describe("json: over the hourly limit", () => {
   });
 });
 
-describe("json: refused with 403", () => {
-  it("says what the backend says, no longer telling a refusal for want of the user's own LLM apart", async () => {
-    const error = await failure(403, { detail: "这位用户已被封禁" });
-    expect(error.message).toBe("这位用户已被封禁");
-    expect(error.status).toBe(403);
-    expect(error).not.toHaveProperty("ownLLMRequired");
-  });
-});
-
 describe("json: refused while she is in a cooldown", () => {
   it("says until when, told apart from the limit's 429", async () => {
     const until = "2026-10-14T06:30:00+00:00";

@@ -18,3 +18,7 @@
 - [x] 部署文档（三种语言）、README（三种语言）、`.env.example`、`docs/agents/local-acceptance.md` 去掉这项要求
 - [x] 后端测试走 HTTP（`make_client`）：原有两份必须自带 LLM 的测试和放行的测试删掉，补上「没带 LLM 照常放行并计入」和迁移、旧变量警告的测试
 - [x] 后端、前端的全部测试、类型检查、`check-discipline`、`next build` 通过
+
+## Comments
+
+2026-10-13 审查后定下：「没带 LLM 照常放行并计入」不另写测试。规则删掉后这里没有分支了，已有的 `test_rate_limit.py`（没带自带密钥的回合、通话超出每小时限额被拒）和 `test_own_speech_keys.py`（没带的语音用部署者的 key）已经覆盖这条路径（`CODING_STANDARDS.md`「Same path, another file」）。新测试只留迁移和旧变量警告两条（`test_own_llm_no_longer_required.py`）。后台 PUT 限额时多带的 `own_llm_required` 被忽略（200），不报 422，和其他配置项一样；开着旧后台页的人照样能保存限额。

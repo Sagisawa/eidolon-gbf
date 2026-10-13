@@ -252,7 +252,7 @@ def create_app(backend: Backend) -> FastAPI:
     @app.exception_handler(CoolingDown)
     async def cooling_down(_: Request, e: CoolingDown) -> JSONResponse:
         """Refused while she is in a cooldown, with when it ends; told apart from the limit's
-        429 and the own-LLM rule's 403."""
+        429."""
         return JSONResponse(
             {"detail": str(e), "cooldown_until": e.cooldown_until.isoformat()}, status_code=409
         )
