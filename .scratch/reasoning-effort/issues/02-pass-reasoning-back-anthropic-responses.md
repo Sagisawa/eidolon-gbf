@@ -4,7 +4,7 @@
 
 **Blocked by:** 01（思考内容这种流式条目、引擎把它挂在助手消息上、检查走两轮，都在 01）
 
-**Status:** ready-for-agent
+**Status:** done
 
 **难度：中高。** 接口和引擎在 01 里已经就位，这张票只改两个适配器的读和写，但两种协议的格式各不相同，要手写录制文件。
 
@@ -16,9 +16,14 @@
 
 ## 验收
 
-- [ ] 适配器测试（Anthropic）：录好的流里有 thinking 块（含签名）和 tool_use，下一次请求的助手消息依次是 thinking、（text）、tool_use，内容和签名原样；有 redacted_thinking 时同样带回。
-- [ ] 适配器测试（Responses）：录好的流里有带 `encrypted_content` 的 reasoning item 和 function_call，下一次请求的 input 里，reasoning item 原样排在 function_call 前面。
-- [ ] 两种协议流里没有思考内容时，请求体和现在一样。
-- [ ] 录制文件放在现有的录制目录，形状以 `../research.md` 第 2 节引用的官方文档为准。
-- [ ] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
+- [x] 适配器测试（Anthropic）：录好的流里有 thinking 块（含签名）和 tool_use，下一次请求的助手消息依次是 thinking、（text）、tool_use，内容和签名原样；有 redacted_thinking 时同样带回。
+- [x] 适配器测试（Responses）：录好的流里有带 `encrypted_content` 的 reasoning item 和 function_call，下一次请求的 input 里，reasoning item 原样排在 function_call 前面。
+- [x] 两种协议流里没有思考内容时，请求体和现在一样。
+- [x] 录制文件放在现有的录制目录，形状以 `../research.md` 第 2 节引用的官方文档为准。
+- [x] `backend/` 下 `pytest` 全部通过，`ruff` 和 `pyright` 没有新的报错。
 - [ ] **人工验收（留给用户，有密钥时）**：用 Claude 5.5 或 OpenAI 推理模型实际走一次回顾剧情。
+
+## Comments
+
+- 2026-10-14 实现：Anthropic 的 `Reasoning.data` 形如 `{"blocks": [thinking 或 redacted_thinking 块, …]}`，块按 content block 的 index 排，字段照服务发来的（thinking 文本由 `thinking_delta` 拼，签名由 `signature_delta` 拼，没发签名就没有 `signature` 键）；写回时放在助手消息 content 的最前面，后面是 text、tool_use。Responses 的形如 `{"items": [reasoning item, …]}`，取 `response.output_item.done` 里的完整 item，按 output_index 排；写回 input 时放在这条助手消息的文字和 function_call 前面。只有一段文字、没调工具的回复也会吐出 `Reasoning`（和 chat-completions 一样），引擎只在带工具调用的助手消息上用它。
+- 没签名的 thinking 块、`encrypted_content` 是空串的 reasoning item 也原样带回，不过滤。依据：现有录制（经网关的 `deepseek-v4.1-flash`）两种协议都是这样发的；DeepSeek 的 `/anthropic` 不带回 thinking 会 400「The `content[].thinking` in the thinking mode must be passed back to the API」，无签名或带它自己的 UUID 签名都接受（NousResearch/hermes-agent #17992、#137235 的实测），经 OpenRouter 调 deepseek-v4-flash 也有同样的报告（hermes-agent #69008）。Anthropic 官方总会发签名，OpenAI 官方在 `store:false` 时总会发 `encrypted_content`，所以对官方服务没有区别。`encrypted_content` 为空的 item 回传给经网关的 DeepSeek 能不能过，**未实测**。

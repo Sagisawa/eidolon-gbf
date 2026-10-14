@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Streamed, Tool, ToolCall
+from eidolon.llm import ChatMessage, LLMError, Reasoning, Streamed, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
 log = logging.getLogger(__name__)
@@ -59,6 +59,9 @@ class ResponsesLLM:
             if forbid_calls:
                 body["tool_choice"] = "none"
         calls: dict[int, dict[str, str]] = {}  # output index → call id, name and arguments
+        # Output index → a reasoning item as done, which goes back as it came: with `store`
+        # off, its encrypted content is all the service keeps of what the model thought.
+        reasoning: dict[int, dict[str, Any]] = {}
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async for event in stream_events(self._client, self._url, body, headers):
             kind = event.get("type")
@@ -67,7 +70,10 @@ class ResponsesLLM:
                     yield delta
             elif kind in ("response.output_item.added", "response.output_item.done"):
                 item = event.get("item") or {}
-                if item.get("type") == "function_call":
+                # What was added at first may be cut short; the done item is complete.
+                if item.get("type") == "reasoning" and kind == "response.output_item.done":
+                    reasoning[event.get("output_index", len(reasoning))] = item
+                elif item.get("type") == "function_call":
                     call = calls.setdefault(
                         event.get("output_index", len(calls)),
                         {"id": "", "name": "", "arguments": ""},
@@ -91,6 +97,8 @@ class ResponsesLLM:
                 usage = (event.get("response") or {}).get("usage")
                 if isinstance(usage, dict):
                     bill("tokens", usage.get("input_tokens"), usage.get("output_tokens"))
+        if reasoning:
+            yield Reasoning({"items": [item for _, item in sorted(reasoning.items())]})
         for index, call in sorted(calls.items()):
             call_id = call["id"] or f"call_{index}"  # the tool result must name its call
             yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))
@@ -108,7 +116,10 @@ def _items(message: ChatMessage) -> list[dict[str, Any]]:
                 "output": message.content,
             }
         ]
-    items: list[dict[str, Any]] = []
+    # What the model thought as it made the calls goes first, as its service sent it.
+    items: list[dict[str, Any]] = [
+        item for r in message.reasoning for item in r.data.get("items", ())
+    ]
     if message.content:
         items.append({"role": message.role, "content": message.content})
     items.extend(

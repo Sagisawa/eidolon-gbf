@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Tool, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
@@ -57,8 +57,10 @@ async def collect(llm: ChatLLM, messages: list[ChatMessage], tools: list[Tool] =
 async def test_the_structured_reply_streams_through_leaving_the_reasoning_out(protocol: str):
     llm = ADAPTERS[protocol](serving(recorded(f"{protocol}_text"), []))
 
-    items = await collect(llm, [ChatMessage("user", "你好")])
+    streamed = await collect(llm, [ChatMessage("user", "你好")])
 
+    # What the model thought streams apart, never as part of what she says.
+    items = [i for i in streamed if not isinstance(i, Reasoning)]
     assert all(isinstance(i, str) for i in items)
     assert len(items) > 3  # streamed in pieces, not all at once
     parser = ReplyParser()
@@ -85,7 +87,9 @@ async def test_a_recorded_tool_call_is_assembled(protocol: str):
         "responses": "call_00_AB1TVlVKx4vdJplfOG716557",
         "anthropic": "call_00_T2lkblEVfvBy77TaH2jI2468",
     }
-    assert items == [ToolCall(call_ids[protocol], "recall_story", {"query": "拍写真集"})]
+    assert [i for i in items if not isinstance(i, Reasoning)] == [
+        ToolCall(call_ids[protocol], "recall_story", {"query": "拍写真集"})
+    ]
 
 
 PROMPT = [
@@ -361,3 +365,149 @@ async def test_forbidding_calls_still_offers_the_tools(protocol: str):
     assert "tool_choice" not in allowed
     # A request offering no tools says nothing of calling them.
     assert "tools" not in without_tools and "tool_choice" not in without_tools
+
+
+async def tool_round(protocol: str, first_stream: str) -> tuple[list, dict]:
+    """The items `first_stream` streams, and the request body sent after them: the calls
+    they made, with all the model sent alongside them, and their results."""
+    replies = iter([first_stream, recorded(f"{protocol}_text")])
+    requests: list[httpx.Request] = []
+    llm = ADAPTERS[protocol](serving(lambda _: httpx.Response(200, text=next(replies)), requests))
+    prompt = [ChatMessage("user", "公园那次呢？")]
+
+    items = await collect(llm, prompt, [RECALL])
+    calls = tuple(i for i in items if isinstance(i, ToolCall))
+    said = "".join(i for i in items if isinstance(i, str))
+    thought = tuple(i for i in items if isinstance(i, Reasoning))
+    results = [ChatMessage("tool", "## 剧情……", tool_call_id=c.id) for c in calls]
+    [_ async for _ in llm.stream(
+        [*prompt, ChatMessage("assistant", said, calls, reasoning=thought), *results],
+        [RECALL], forbid_calls=True,
+    )]
+
+    return items, json.loads(requests[-1].content)
+
+
+async def test_anthropic_thinking_goes_back_as_streamed_ahead_of_the_text_and_calls():
+    # Written after the documented stream: a signed thinking block, a redacted one, then
+    # the text and the call.
+    items, body = await tool_round("anthropic", recorded("anthropic_thinking_tool"))
+
+    # What the model thought is never part of what she says.
+    assert "".join(i for i in items if isinstance(i, str)) == "我想想"
+    assert body["messages"][1] == {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "thinking",
+                "thinking": "制作人问的是公园那次。",
+                "signature": "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds",
+            },
+            {
+                "type": "redacted_thinking",
+                "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qpP",
+            },
+            {"type": "text", "text": "我想想"},
+            {
+                "type": "tool_use",
+                "id": "toolu_01A09q90qw90lq917835lq9",
+                "name": "recall_story",
+                "input": {"query": "公园"},
+            },
+        ],
+    }
+
+
+async def test_responses_reasoning_goes_back_as_completed_ahead_of_the_call():
+    _, body = await tool_round("responses", recorded("responses_reasoning_tool"))
+
+    assert body["store"] is False
+    assert body["input"] == [
+        {"role": "user", "content": "公园那次呢？"},
+        {  # as the item was done: what was added at first may be cut short
+            "id": "rs_01ReasoningToolRound",
+            "type": "reasoning",
+            "summary": [],
+            "encrypted_content": (
+                "gAAAAABoISQ24OyVRYbkYfukuVdmBr9rKfMQSkM04XZa0LBTyRhOxyAfLdNk1vI3AMJ5dGlqaHuMr5Mh"
+            ),
+        },
+        {
+            "type": "function_call",
+            "call_id": "call_Ab12Cd34",
+            "name": "recall_story",
+            "arguments": '{"query": "公园"}',
+        },
+        {"type": "function_call_output", "call_id": "call_Ab12Cd34", "output": "## 剧情……"},
+    ]
+
+
+async def test_thinking_a_service_sent_without_a_signature_goes_back_as_it_came():
+    # Recorded from DeepSeek, which signs nothing yet wants its thinking back.
+    _, anthropic = await tool_round("anthropic", recorded("anthropic_tool"))
+    _, responses = await tool_round("responses", recorded("responses_tool"))
+
+    assert anthropic["messages"][1]["content"][0] == {"type": "thinking", "thinking": "The user is"}
+    reasoning = responses["input"][1]
+    assert reasoning["type"] == "reasoning"
+    assert reasoning["encrypted_content"] == ""
+    assert reasoning["summary"][0]["text"].startswith("The user wants me to use")
+
+
+TOOL_CALL_WITHOUT_THINKING = {
+    "responses": (
+        'data: {"type":"response.output_item.added","output_index":0,"item":'
+        '{"type":"function_call","call_id":"call_x","name":"recall_story","arguments":""}}\n\n'
+        'data: {"type":"response.function_call_arguments.delta","output_index":0,'
+        '"delta":"{\\"query\\": \\"公园\\"}"}\n\n'
+        'data: {"type":"response.completed","response":{"status":"completed"}}\n\n'
+    ),
+    "anthropic": (
+        'data: {"type":"content_block_start","index":0,"content_block":'
+        '{"type":"tool_use","id":"call_x","name":"recall_story","input":{}}}\n\n'
+        'data: {"type":"content_block_delta","index":0,'
+        '"delta":{"type":"input_json_delta","partial_json":"{\\"query\\": \\"公园\\"}"}}\n\n'
+        'data: {"type":"message_stop"}\n\n'
+    ),
+}
+
+
+@pytest.mark.parametrize("protocol", ADAPTERS)
+async def test_calls_made_without_thinking_go_back_as_before(protocol: str):
+    items, body = await tool_round(protocol, TOOL_CALL_WITHOUT_THINKING[protocol])
+
+    assert items == [ToolCall("call_x", "recall_story", {"query": "公园"})]
+    sent_back = {
+        "responses": lambda: body["input"][1:],
+        "anthropic": lambda: body["messages"][1:],
+    }[protocol]()
+    assert sent_back == {
+        "responses": [
+            {
+                "type": "function_call",
+                "call_id": "call_x",
+                "name": "recall_story",
+                "arguments": '{"query": "公园"}',
+            },
+            {"type": "function_call_output", "call_id": "call_x", "output": "## 剧情……"},
+        ],
+        "anthropic": [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "call_x",
+                        "name": "recall_story",
+                        "input": {"query": "公园"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "call_x", "content": "## 剧情……"}
+                ],
+            },
+        ],
+    }[protocol]
