@@ -27,3 +27,4 @@
 ## Comments
 
 - 票 04 留下的：部署者的对话模型现在是两份（`live_config.lease` 里 `chat.client.text` / `chat.client.call`，设置在 `chat.settings.text` / `chat.settings.call`），各自包一层 `metered_llm`，`llm_origin` 拿的就是各自那份 `LLMSettings`，所以强度从 `settings.reasoning_effort` 取就能分出文字和通话。记忆模型是自己那份设置，强度也在它的 `LLMSettings` 上。
+- 票 05 留下的：自带 LLM 的每次请求在 `own_keys.OwnKeys._own_llm(service, settings)` 包 `metered_llm`，`settings` 就是这次用的那份（通话的回合是 `.call`，提炼记忆是 `.text`），强度同样从 `settings.reasoning_effort` 取。`llm_origin(..., own_key=True)` 只记 `OWN`，不记地址和模型名，强度列照记不泄露什么。

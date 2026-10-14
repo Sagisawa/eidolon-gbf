@@ -21,3 +21,7 @@
 - [ ] 前端纯函数测试：有提示时给对应档位加标注，没有提示时和现在一样；标注不影响改动校验和保存。
 - [ ] 实测：本地构建版上，后台选一个 models.dev 里有的模型（如 DeepSeek 或 Gemini），看到标注；换成目录里没有的名字，标注消失、档位照常可选。
 - [ ] `backend/` 下 `pytest`、`frontend/` 下 `npm test` 全部通过，`ruff`、`pyright`、`tsc` 没有新的报错。
+
+## Comments
+
+- 票 05 留下的：后台和设置页的档位下拉框是同一个 `components/app/ReasoningEffortFields.tsx` 的 `EffortField`（档位名用 `lib/reasoningEffort.ts` 的 `effortLabel`、`effortChoices`），标注加在它上面两处就都有了。另外：Base UI 的 Select 在列表里没有当前值时会把值清掉，所以选着「极低」换成 Anthropic 时，表单里的强度变回「不设置」，不会显示「换一档」的提示（票 03 起就这样，后台和设置页一样）；标注只加文字、不删选项，碰不到这个。设置页查档位信息时，协议、地址、模型名取表单里正在填的值。
