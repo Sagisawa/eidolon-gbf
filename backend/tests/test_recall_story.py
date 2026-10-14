@@ -250,6 +250,9 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
     # Recalling takes the place of the turn's general retrieval.
     assert "# 回忆与资料" not in system
     assert [query for query, _ in reranker.calls] == ["那次在公园唱歌是怎么回事？"]
+    assert "（W.I.N.G.編中你出场的剧情依次是：" in system and "「決勝後コミュ」" in system
+    # Embedded once, as the turn began, for recalling and writing down alike.
+    assert embedder.queries == ["那次在公园唱歌是怎么回事？"]
     assert events[-1]["type"] == "done"
 
 

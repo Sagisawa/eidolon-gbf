@@ -16,7 +16,7 @@ import pytest
 from eidolon.characters import Character, load_characters
 from eidolon import memory
 from eidolon.llm import ChatLLM
-from eidolon.memory import Memories, MemoryTurn
+from eidolon.memory import Memories, MemoryTurn, memory_query
 from eidolon.store import Conversation, Message, Segment, Store
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeReranker
@@ -106,9 +106,12 @@ async def tell(memories: Memories, world: World, conversation: Conversation, tex
 
 
 async def find(memories: Memories, world: World, conversation: Conversation, text: str) -> str:
-    """Take a turn in which the user says `text`, finding the memories relevant to it."""
+    """Take a turn in which the user says `text`, finding the memories relevant to it as
+    retrieval does, the turn's query embedded apart from the memories."""
     turn = await begin(memories, conversation)
-    return await turn.find(world.store.list_messages(conversation.id), text) or ""
+    query = memory_query(world.store.list_messages(conversation.id), text)
+    candidates = await turn.candidates(await FakeEmbedder().embed_query(query))
+    return await turn.find(query, candidates) or ""
 
 
 def line_of(section: str, memory: str) -> str:
@@ -247,15 +250,19 @@ async def test_a_failed_extraction_writes_nothing_down(
     assert await memories.entries(world.producer) == []
 
 
-async def test_nothing_is_found_while_the_embedder_is_down(
+async def test_a_memory_is_found_once_it_can_be_embedded(
     world: World, make_memories: MemoriesFactory
 ):
     embedder = FakeEmbedder()
     memories = make_memories(memorized(CAT), embedder=embedder)
-    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
     embedder.down = True
+    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
+    assert [m.text for m in await memories.entries(world.producer)] == [CAT]
 
     assert await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？") == ""
+
+    embedder.down = False
+    assert CAT in await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？")
 
 
 async def test_a_deleted_memory_is_found_no_more(world: World, make_memories: MemoriesFactory):
@@ -338,37 +345,44 @@ async def test_memories_are_embedded_without_a_title(world: World, make_memories
     assert embedder.documents == [CAT] and embedder.titles == [None]
 
 
-async def test_memories_are_found_with_the_characters_previous_reply_as_people_see_it(
+async def test_writing_down_embeds_the_turn_with_the_characters_previous_reply_as_people_see_it(
     world: World, make_memories: MemoriesFactory
 ):
-    """「它昨晚又叫了一夜」: the reply before it says what 「它」 is."""
-    embedder, reranker = FakeEmbedder(), FakeReranker("猫")
-    memories = make_memories(memorized(CAT), embedder=embedder, reranker=reranker)
+    """「它昨晚又叫了一夜」: the reply before it says what 「它」 is, to show the background model
+    the memories nearest it."""
+    embedder = FakeEmbedder()
+    memories = make_memories(memorized(CAT), memorized(), embedder=embedder)
     conversation = world.conversation("mano")
     await tell(memories, world, conversation, "我家的猫叫小白哦")
     world.store.add_turn(
         conversation.id, "我回来了", [Segment("[happy] おかえりなさい", "[happy] 欢迎回来，猫还好吗？")]
     )
 
-    section = await find(memories, world, conversation, "它昨晚又叫了一夜")
+    await tell(memories, world, conversation, "它昨晚又叫了一夜")
+    await memories.entries(world.producer)  # written down
 
-    assert CAT in section
-    query = "欢迎回来，猫还好吗？\n它昨晚又叫了一夜"
-    assert embedder.queries[-1] == query
-    assert reranker.calls[-1][0] == query
+    assert embedder.queries == ["我家的猫叫小白哦", "欢迎回来，猫还好吗？\n它昨晚又叫了一夜"]
 
 
-async def test_without_a_previous_reply_memories_are_found_with_what_the_user_said(
+async def test_writing_down_a_turn_embedded_already_embeds_it_no_more(
     world: World, make_memories: MemoriesFactory
 ):
-    embedder, reranker = FakeEmbedder(), FakeReranker("猫")
-    memories = make_memories(memorized(CAT), embedder=embedder, reranker=reranker)
-    await tell(memories, world, world.conversation("mano"), "我家的猫叫小白哦")
+    """The turn's query, embedded to find its memories (see `retrieval`), shows the
+    background model the memories nearest it all the same."""
+    embedder, background = FakeEmbedder(), FakeBackgroundLLM(memorized(CAT), memorized())
+    memories = make_memories(embedder=embedder, background_llm=background)
+    conversation = world.conversation("mano")
+    await tell(memories, world, conversation, "我家的猫叫小白哦")
+    await memories.entries(world.producer)
+    turn = await begin(memories, conversation)
+    history, text = world.store.list_messages(conversation.id), "小白最近胖了"
+    query_vector = await FakeEmbedder().embed_query(memory_query(history, text))
 
-    await find(memories, world, world.conversation("kogane"), "你知道我家的猫吗？")
+    turn.write_down(history, text, world.reply(conversation, text), query_vector)
+    await memories.entries(world.producer)
 
-    assert embedder.queries[-1] == "你知道我家的猫吗？"
-    assert reranker.calls[-1][0] == "你知道我家的猫吗？"
+    assert embedder.queries == ["我家的猫叫小白哦"]
+    assert f"1. {CAT}" in background.prompts[-1][-1].content
 
 
 # Superseding (ADR-0014): what a new memory updates is superseded by it, found no more but

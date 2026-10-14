@@ -330,7 +330,7 @@ class FakeJudgeModel:
                 raise JudgeError("fake judge model is down")
             affinity = judging.answers()
         if kind == "turn" and self.needs is not None:
-            return self.needs.need(state) | affinity
+            return await self.needs.need(state) | affinity
         if kind == "emotion" and self.feels is not None:
             return await self.feels.feel(state)
         return {
@@ -709,7 +709,8 @@ class FakeEmbedder:
     """Embeds text as counts of a few keywords, so the nearest passages are the ones
     sharing the query's keywords. Records every document (its text, and its title in
     `titles`) and query it embeds; set `down` to have it fail as an unreachable service
-    would."""
+    would. A query among `hanging` is never answered: whoever asked gives up on it, which
+    is recorded (`abandoned`)."""
 
     KEYWORDS = (
         "鳩", "公園", "優勝", "長崎", "ちゃんぽん", "写真", "負け", "猫", "北海道",
@@ -722,6 +723,8 @@ class FakeEmbedder:
         self.titles: list[str | None] = []
         self.queries: list[str] = []
         self.down = False
+        self.hanging: set[str] = set()
+        self.abandoned: list[str] = []
 
     async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
         if self.down:
@@ -734,6 +737,12 @@ class FakeEmbedder:
         if self.down:
             raise EmbeddingError("fake embedding service is down")
         self.queries.append(text)
+        if text in self.hanging:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.abandoned.append(text)
+                raise
         return self._vector(text)
 
     def _vector(self, text: str) -> list[float]:
@@ -745,6 +754,8 @@ class FakeJudge:
     needs `answer`, or the judge model fails if it is None; it answers the yes-or-no
     questions with probabilities of 1 or 0, which any thresholds read as `answer`.
     Records the character's name and the user's words of each turn asked about (`asked`).
+    Once told to `hold`, it answers no turn (or none of those where the user said one of
+    what it was told) until told to `let_go`, `holding` set while it is held up answering.
 
     Asked about segments' emotions, it answers each in turn from `emotions`: an answer,
     None to fail, or `HANG` never to answer; calm and neither nodding nor not once they
@@ -759,9 +770,26 @@ class FakeJudge:
         self.asked: list[tuple[str, str]] = []  # (character's name, text)
         self.emotions = list(emotions)
         self.segments: list[AskedSegment] = []
+        self.holding = asyncio.Event()
+        self._held: asyncio.Event | None = None
+        self._holding_for: set[str] = set()
 
-    def need(self, state: dict[str, Any]) -> dict[str, Any]:
+    def hold(self, *said: str) -> None:
+        self._held = asyncio.Event()
+        self._holding_for = set(said)
+
+    def let_go(self) -> None:
+        if self._held is not None:
+            self._held.set()
+            self._held = None
+        self.holding.clear()
+
+    async def need(self, state: dict[str, Any]) -> dict[str, Any]:
         self.asked.append((state["角色"], state[SAID]))
+        held = self._held
+        if held is not None and (not self._holding_for or state[SAID] in self._holding_for):
+            self.holding.set()
+            await held.wait()
         if self.answer is None:
             raise JudgeError("fake judge model is down")
         yes = {"references": "needs_retrieval", "recall": "recall", "memories": "about_producer"}

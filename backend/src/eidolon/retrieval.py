@@ -19,6 +19,15 @@ character's reply before it, as people see it (`memory.memory_query`): 「那时
 finds nothing, her reply says what 「那时候」 is. Embedding and reranking both use it; the
 judge model is told what it always was, the latest messages and what the user said.
 
+The judge model takes longest, so the turn does not wait for it to start looking: as it
+judges, the query is embedded, once, and the candidates found with the vector, the
+nearest of each reference source and of the user's memories. Once it has judged, only
+the candidates the turn needs are reranked, so no more often than if the turn had
+waited: the references' and the memories', the memories' alone, or the story's with the
+work facts' lives and releases to recall. A turn needing nothing drops them, and
+whatever is still being looked up. The vector goes on to the writing down, which shows
+the background model the memories nearest the same query (`MemoryTurn.write_down`).
+
 Retrieval never fails a turn: if the judge model cannot answer, the turn retrieves anyway;
 if embedding or reranking fails, the turn goes on without references (or memories).
 
@@ -34,7 +43,7 @@ The tool looks only in the story.
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, Protocol
@@ -55,7 +64,7 @@ from eidolon.judge import (
     turn_state,
 )
 from eidolon.llm import Tool
-from eidolon.memory import MemoryTurn, memory_query
+from eidolon.memory import Memory, MemoryTurn, memory_query
 from eidolon.references import Reference, ReferenceKind, ReferenceSource
 from eidolon.rerank import Reranker, RerankError
 from eidolon.store import Message
@@ -104,6 +113,7 @@ _NOT_IN_STORY = (
     "剧情库里没有记录这段经过，但这不等于这件事没有发生过。"
     "不要编造经过，也不要说没有这回事；可以坦率地说细节记不太清了"
 )
+_CANNOT_RECALL = "暂时想不起来，现在查不到剧情。不要编造经过，可以坦率地说记不太清了。"
 
 
 Need = Literal["nothing", "memories", "references", "recall"]
@@ -173,21 +183,40 @@ class ReferenceSources:
         self._sources = list(sources)
         self._unsearched = list(unsearched)
 
+    async def candidates(
+        self,
+        query_vector: Sequence[float],
+        character: Character,
+        kinds: Collection[ReferenceKind] | None = None,
+    ) -> list[Reference]:
+        """The candidate references for a query embedded with `embedder`: as many as
+        `CANDIDATES_PER_SOURCE` of each source's (of `kinds`, or any) nearest it. Raises
+        EmbeddingError if a source's texts not embedded yet cannot be."""
+        found = await asyncio.gather(*(
+            s.search(query_vector, character, CANDIDATES_PER_SOURCE)
+            for s in self._sources
+            if kinds is None or s.kind in kinds
+        ))
+        return [r for references in found for r in references]
+
+    async def rerank(
+        self, reranker: Reranker, query: str, candidates: Sequence[Reference]
+    ) -> list[tuple[Reference, float]]:
+        """The `candidates` for `query`, with the reranker's score, best first, reranked
+        together. Raises RerankError."""
+        if not candidates:
+            return []
+        best = await reranker.rerank(query, [c.text for c in candidates], len(candidates))
+        return [(candidates[i], score) for i, score in best]
+
     async def rank(
         self, reranker: Reranker, character: Character, text: str
     ) -> list[tuple[Reference, float]]:
-        """Every candidate reference for `text`, with the reranker's score, best first: as
-        many as `CANDIDATES_PER_SOURCE` of each source's nearest the query, reranked
-        together. Raises EmbeddingError or RerankError if either service fails."""
+        """Every candidate reference for `text`, with the reranker's score, best first, as a
+        turn needing references finds and reranks them. Raises EmbeddingError or
+        RerankError if either service fails."""
         query_vector = await self.embedder.embed_query(text)
-        found = await asyncio.gather(
-            *(s.search(query_vector, character, CANDIDATES_PER_SOURCE) for s in self._sources)
-        )
-        candidates = [r for references in found for r in references]
-        if not candidates:
-            return []
-        best = await reranker.rerank(text, [c.text for c in candidates], len(candidates))
-        return [(candidates[i], score) for i, score in best]
+        return await self.rerank(reranker, text, await self.candidates(query_vector, character))
 
     def embedded(self) -> list[Reembeddable]:
         """Every source, for `eidolon reembed`, the unsearched among them."""
@@ -254,6 +283,20 @@ class Retrieved:
     judged: Judged | None = None
     """What the turn does to her affinity, asked about it; None if not or if it could not
     be told."""
+    query_vector: list[float] | None = None
+    """The turn's query embedded, for writing down (`MemoryTurn.write_down`); None if it
+    was not by the time the turn knew what it needed, or could not be."""
+
+
+@dataclass(frozen=True)
+class _Found:
+    """What a turn finds before it knows what it needs: its query embedded, the candidate
+    references and the candidate memories."""
+
+    query_vector: list[float]
+    references: list[Reference] | None
+    """None if searching the reference sources failed."""
+    memories: list[Memory]
 
 
 class Retrieval:
@@ -282,41 +325,75 @@ class Retrieval:
     ) -> Retrieved:
         """Look up what this turn needs, finding the user's memories through `memory`; and
         judge what it does to her affinity, if asked to."""
-        judged = None
+        query = memory_query(history, text)
+        finding = asyncio.ensure_future(self._find(character, query, memory))
         try:
-            need, judged = await self._judge.judge(character, history, text, affinity)
-        except JudgeError:
-            log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
-            need = "references"
-        return replace(await self._look_up(character, history, text, memory, need), judged=judged)
+            judged = None
+            try:
+                need, judged = await self._judge.judge(character, history, text, affinity)
+            except JudgeError:
+                log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
+                need = "references"
+            retrieved = (
+                Retrieved(None)
+                if need == "nothing"
+                else await self._look_up(character, text, query, await finding, memory, need)
+            )
+        finally:
+            finding.cancel()  # needing nothing, or no longer anything at all
+        return replace(retrieved, judged=judged, query_vector=_query_vector(finding))
+
+    async def _find(
+        self, character: Character, query: str, memory: MemoryTurn | None
+    ) -> _Found | None:
+        """The turn's query embedded and its candidates; None if it cannot be embedded."""
+        try:
+            query_vector = await self._sources.embedder.embed_query(query)
+        except EmbeddingError:
+            log.warning("embedding the turn failed; replying without references or memories",
+                        exc_info=True)
+            return None
+        references, memories = await asyncio.gather(
+            self._candidates(character, query_vector), _memory_candidates(memory, query_vector)
+        )
+        return _Found(query_vector, references, memories)
+
+    async def _candidates(
+        self, character: Character, query_vector: Sequence[float]
+    ) -> list[Reference] | None:
+        try:
+            return await self._sources.candidates(query_vector, character)
+        except EmbeddingError:
+            log.warning("searching the references failed; replying without them", exc_info=True)
+            return None
 
     async def _look_up(
         self,
         character: Character,
-        history: Sequence[Message],
         text: str,
+        query: str,
+        found: _Found | None,
         memory: MemoryTurn | None,
         need: Need,
     ) -> Retrieved:
-        query = memory_query(history, text)
+        """What the turn needs of what it found for `query`, `text` and her reply before it."""
         if need == "recall":
-            return Retrieved(
-                await self._recall(character, text, query, self._sources.work), recalled=True
-            )
+            return Retrieved(await self._recall_turn(character, text, query, found), recalled=True)
+        if found is None or need == "nothing":
+            return Retrieved(None)
         if need == "memories":
-            return Retrieved(None, await _find(memory, history, text))
-        if need == "references":
-            references, memories = await asyncio.gather(
-                self._references(character, query), _find(memory, history, text)
-            )
-            return Retrieved(self._sources.prompt(references) if references else None, memories)
-        return Retrieved(None)
+            return Retrieved(None, await _find_memories(memory, query, found.memories))
+        references, memories = await asyncio.gather(
+            self._references(query, found.references or []),
+            _find_memories(memory, query, found.memories),
+        )
+        return Retrieved(self._sources.prompt(references) if references else None, memories)
 
-    async def _references(self, character: Character, query: str) -> list[Reference]:
-        """The references for `query`, most relevant first."""
+    async def _references(self, query: str, candidates: Sequence[Reference]) -> list[Reference]:
+        """Those of the `candidates` relevant to `query`, most relevant first."""
         try:
-            ranked = await self._sources.rank(self._reranker, character, query)
-        except (EmbeddingError, RerankError):
+            ranked = await self._sources.rerank(self._reranker, query, candidates)
+        except RerankError:
             log.warning("retrieval failed; replying without references", exc_info=True)
             return []
         min_relevance = self._min_relevance()
@@ -325,53 +402,93 @@ class Retrieval:
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
         `query`, for the chat model to answer from: what the model wrote, looked up alone."""
-        return await self._recall(character, query, query, None)
-
-    async def _recall(
-        self, character: Character, asked: str, query: str, work: WorkFacts | None
-    ) -> str:
-        """The episodes `character` is cast in that best match `query`, and the lives and
-        releases of `work` (if given), reranked together; recalled as what was `asked`."""
-        corpus = self._sources.corpus
         try:
             query_vector = await self._sources.embedder.embed_query(query)
-            passages, entries = await asyncio.gather(
-                asyncio.to_thread(
-                    corpus.search_by_vector, query_vector, character.id, CANDIDATES_PER_SOURCE
-                ),
-                _search_work(work, query_vector),
-            )
-            documents = [p.text for p in passages] + [e.text for e in entries]
+            story = await self._sources.candidates(query_vector, character, ("episode",))
+        except EmbeddingError:
+            log.warning("recall failed", exc_info=True)
+            return _CANNOT_RECALL
+        return await self._recall(character, query, query, story, [])
+
+    async def _recall_turn(
+        self, character: Character, text: str, query: str, found: _Found | None
+    ) -> str:
+        """The recall the judge model sees `text` ask for: the story's candidates for the
+        turn's `query`, and the lives and releases of the work facts nearest it."""
+        if found is None or found.references is None:
+            return _CANNOT_RECALL
+        try:
+            entries = await _search_work(self._sources.work, found.query_vector)
+        except EmbeddingError:
+            log.warning("recall failed", exc_info=True)
+            return _CANNOT_RECALL
+        story = [r for r in found.references if r.kind == "episode"]
+        return await self._recall(character, text, query, story, entries)
+
+    async def _recall(
+        self,
+        character: Character,
+        asked: str,
+        query: str,
+        story: Sequence[Reference],
+        entries: Sequence[WorldEntry],
+    ) -> str:
+        """The episodes of the `story` candidates (passages of episodes `character` is cast
+        in) and the lives and releases of `entries` that best match `query`, reranked
+        together; recalled as what was `asked`."""
+        documents = [r.text for r in story] + [e.text for e in entries]
+        try:
             best = (
                 await self._reranker.rerank(query, documents, len(documents)) if documents else []
             )
-        except (EmbeddingError, RerankError):
+        except RerankError:
             log.warning("recall failed", exc_info=True)
-            return "暂时想不起来，现在查不到剧情。不要编造经过，可以坦率地说记不太清了。"
-        episodes: dict[str, Episode] = {}
+            return _CANNOT_RECALL
+        episode_ids: dict[str, None] = {}
         found: list[WorldEntry] = []
         min_relevance = self._min_relevance()
         for i, score in best:
             if score < min_relevance:
                 continue
-            if i < len(passages):
-                if len(episodes) < RECALL_EPISODES:
-                    episodes.setdefault(passages[i].episode.id, passages[i].episode)
+            if i < len(story):
+                if len(episode_ids) < RECALL_EPISODES:
+                    episode_ids.setdefault(story[i].origin)
             elif len(found) < RECALL_ENTRIES:
-                found.append(entries[i - len(passages)])
+                found.append(entries[i - len(story)])
+        corpus = self._sources.corpus
+        episodes = await asyncio.to_thread(_episodes, corpus, episode_ids) if episode_ids else []
         if not episodes and not found:
             return f"没有想起和「{asked}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
         catalog = await asyncio.to_thread(corpus.catalog, character.id) if episodes else []
-        return recall_prompt(asked, list(episodes.values()), catalog, found)
+        return recall_prompt(asked, episodes, catalog, found)
 
     def close(self) -> None:
         self._sources.close()
 
 
-async def _find(
-    memory: MemoryTurn | None, history: Sequence[Message], text: str
+def _query_vector(finding: "asyncio.Future[_Found | None]") -> list[float] | None:
+    """The turn's query embedded, if it was by the time `finding` was let go of."""
+    if not finding.done() or finding.cancelled() or finding.exception() is not None:
+        return None
+    found = finding.result()
+    return found.query_vector if found is not None else None
+
+
+async def _memory_candidates(
+    memory: MemoryTurn | None, query_vector: Sequence[float]
+) -> list[Memory]:
+    return await memory.candidates(query_vector) if memory else []
+
+
+async def _find_memories(
+    memory: MemoryTurn | None, query: str, candidates: Sequence[Memory]
 ) -> str | None:
-    return await memory.find(history, text) if memory else None
+    return await memory.find(query, candidates) if memory else None
+
+
+def _episodes(corpus: StoryCorpus, ids: Iterable[str]) -> list[Episode]:
+    """The episodes of `ids` still in `corpus`."""
+    return [e for id in ids if (e := corpus.get(id)) is not None]
 
 
 async def _search_work(work: WorkFacts | None, query_vector: Sequence[float]) -> list[WorldEntry]:
