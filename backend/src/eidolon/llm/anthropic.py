@@ -62,7 +62,7 @@ class AnthropicLLM:
             "stream": True,
             "max_tokens": self._max_tokens,
         }
-        if system := "\n\n".join(m.content for m in messages if m.role == "system"):
+        if system := _system([m for m in messages if m.role == "system"]):
             body["system"] = system
         body["messages"] = _messages([m for m in messages if m.role != "system"])
         if self._effort == "none":
@@ -152,6 +152,23 @@ def _input_tokens(usage: dict[str, Any]) -> int | None:
     ]
     counted = [p for p in parts if isinstance(p, int)]
     return sum(counted) if counted else None
+
+
+def _system(system: Sequence[ChatMessage]) -> str | list[dict[str, Any]]:
+    """The system prompt: the messages joined by a blank line, or, with any marked for
+    caching, a text block each, cached up to the end of those marked. A block's mark, not
+    the request's: few other services speaking the protocol say they take that one."""
+    if not any(m.cache_breakpoint for m in system):
+        return "\n\n".join(m.content for m in system)
+    blocks: list[dict[str, Any]] = []
+    for message in system:
+        if not message.content:  # the Messages API rejects empty text
+            continue
+        block: dict[str, Any] = {"type": "text", "text": message.content}
+        if message.cache_breakpoint:
+            block["cache_control"] = {"type": "ephemeral"}  # five minutes, as is the default
+        blocks.append(block)
+    return blocks
 
 
 def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:

@@ -32,14 +32,12 @@ async def talk(client_for, turns: int) -> tuple[FakeLLM, str]:
 
 
 def history(llm: FakeLLM) -> list[tuple[str, str]]:
-    """What the last prompt carries after its system message."""
-    system, *rest = llm.prompts[-1]
-    assert system.role == "system"
-    return [(m.role, m.content) for m in rest]
+    """What the last prompt carries besides its system messages."""
+    return [(m.role, m.content) for m in llm.prompts[-1] if m.role != "system"]
 
 
 def told(llm: FakeLLM) -> str:
-    """All the last prompt carries after its system message, as one text."""
+    """All the last prompt carries besides its system messages, as one text."""
     return "\n".join(content for _, content in history(llm))
 
 

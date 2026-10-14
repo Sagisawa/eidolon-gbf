@@ -12,9 +12,10 @@ from eidolon.corpus import StoryCorpus
 from eidolon import engine
 from eidolon.engine import MAX_TOOL_ROUNDS
 from eidolon.llm import ChatMessage, Reasoning, ToolCall
+from eidolon.retrieval import RECALL_STORY_TOOL
 from eidolon.story_import import import_csv_directory
 from tests.conftest import ClientFactory
-from tests.fakes import FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, system_of
 from tests.test_text_turn import send_turn, start_conversation
 
 PARK_LINE = "公園で鳩と一緒に歌っていました"
@@ -268,10 +269,12 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
 
     events = await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
 
-    # One model call: the episode is already in the prompt, and the tool is not offered again.
+    # One model call: the episode is already in the prompt, and the tool, offered as on every
+    # turn so the prompt opens the same, is not to be called again.
     [prompt] = llm.prompts
-    assert llm.tools == [[]]
-    system = prompt[0].content
+    assert llm.tools == [[RECALL_STORY_TOOL]]
+    assert llm.forbidden == [True]
+    system = system_of(prompt)
     assert "# 回顾剧情：那次在公园唱歌是怎么回事？" in system
     assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in system
     assert f"真乃：{PARK_LINE}" in system
@@ -297,7 +300,7 @@ async def test_with_the_reranker_down_the_nearest_episode_is_recalled(
     conversation_id = await start_conversation(client)
 
     events = await send_turn(client, conversation_id, "公園の鳩と歌ったの、覚えてる？")
-    judged = llm.prompts[-1][0].content
+    judged = system_of(llm.prompts[-1])
     judge.answer = "nothing"
     await send_turn(client, conversation_id, "那次是怎么回事？")
     [called] = tool_results(llm.prompts[-1])
@@ -331,7 +334,7 @@ async def test_a_recall_question_after_her_reply_is_recalled_with_both(
     assert [query for query, _ in reranker.calls] == [AFTER_PARK]
     assert AFTER_PARK in embedder.queries
     assert "那次后来怎么样了？" not in embedder.queries
-    system = llm.prompts[-1][0].content
+    system = system_of(llm.prompts[-1])
     # She is reminded of what the user asked; her reply is right there in the conversation.
     assert "# 回顾剧情：那次后来怎么样了？\n" in system
     assert f"真乃：{PARK_LINE}" in system
@@ -368,6 +371,6 @@ async def test_a_recall_question_about_someone_elses_episode_recalls_nothing(
 
     await send_turn(client, conversation_id, "那次你在公园和鸽子一起唱歌是怎么回事？")
 
-    system = llm.prompts[0][0].content
+    system = system_of(llm.prompts[0])
     assert PARK_LINE not in system
     assert "没有想起" in system

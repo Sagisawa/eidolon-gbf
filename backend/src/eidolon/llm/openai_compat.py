@@ -51,7 +51,7 @@ class OpenAICompatLLM:
             "stream": True,
             # The tokens it is billed for come in a last chunk, sent only when asked for.
             "stream_options": {"include_usage": True},
-            "messages": [_message(m) for m in messages],
+            "messages": _messages(messages),
         }
         if self._max_tokens is not None:
             body["max_tokens"] = self._max_tokens
@@ -137,6 +137,17 @@ def _cache_hits(usage: dict[str, Any]) -> int | None:
         if isinstance(told, int):
             return told
     return None
+
+
+def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
+    """The messages as Chat Completions takes them; the system messages they open with go
+    as one, joined by a blank line, as every service takes them."""
+    opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
+    sent = [_message(m) for m in messages[opening:]]
+    if opening:
+        system = "\n\n".join(m.content for m in messages[:opening])
+        sent.insert(0, {"role": "system", "content": system})
+    return sent
 
 
 def _message(message: ChatMessage) -> dict[str, Any]:

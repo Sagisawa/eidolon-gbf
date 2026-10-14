@@ -25,6 +25,7 @@ from tests.fakes import (
     FakeServiceClients,
     Judging,
     level,
+    system_of,
 )
 from tests.test_affinity import keep
 from tests.test_text_turn import send_turn, start_conversation
@@ -58,7 +59,7 @@ def settings(settings: Settings) -> Settings:
 
 def about_producer(llm: FakeLLM, turn: int = -1) -> str:
     """The prompt's section about the producer in the `turn`th prompt the chat model got."""
-    system = llm.prompts[turn][0].content
+    system = system_of(llm.prompts[turn])
     return "# 制作人\n" + system.split("\n# 制作人\n")[1].split("\n# ")[0]
 
 
@@ -94,8 +95,8 @@ async def test_in_trust_and_wherever_affinity_is_off_the_prompt_is_as_it_was(
     )
     no_judge, _ = await prompted(make_client, [level(0)], settings=replace(settings, judge=None))
 
-    assert on.prompts[0][0].content == off.prompts[0][0].content
-    assert no_judge.prompts[0][0].content == off.prompts[0][0].content
+    assert system_of(on.prompts[0]) == system_of(off.prompts[0])
+    assert system_of(no_judge.prompts[0]) == system_of(off.prompts[0])
     assert IN_HER_OWN_WAY not in about_producer(on)
 
 

@@ -246,6 +246,42 @@ async def test_anthropic_system_messages_are_joined_and_an_empty_assistant_text_
     ]
 
 
+SHARED_THEN_THE_REST = [
+    ChatMessage("system", "甲", cache_breakpoint=True),
+    ChatMessage("system", "乙"),
+    ChatMessage("user", "你好"),
+]
+"""A prompt opening with a part every user's requests share, marked for caching, then the
+rest of what the model is told."""
+
+
+async def test_responses_instructions_are_the_opening_system_messages_joined_by_a_blank_line():
+    requests: list[httpx.Request] = []
+    llm = ADAPTERS["responses"](serving(recorded("responses_text"), requests))
+
+    await collect(llm, SHARED_THEN_THE_REST)
+
+    body = json.loads(requests[0].content)
+    assert body["instructions"] == "甲\n\n乙"
+    assert body["input"] == [{"role": "user", "content": "你好"}]
+
+
+async def test_anthropic_caches_the_system_up_to_the_end_of_the_part_marked_for_it():
+    requests: list[httpx.Request] = []
+    llm = ADAPTERS["anthropic"](serving(recorded("anthropic_text"), requests))
+
+    await collect(llm, SHARED_THEN_THE_REST)
+
+    body = json.loads(requests[0].content)
+    assert body["system"] == [
+        {"type": "text", "text": "甲", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "乙"},
+    ]
+    # Not the top-level one, which few other services speaking the protocol say they take.
+    assert "cache_control" not in body
+    assert body["messages"] == [{"role": "user", "content": "你好"}]
+
+
 @pytest.mark.parametrize("protocol", ADAPTERS)
 async def test_error_status_is_raised_with_the_provider_message(protocol: str):
     llm = ADAPTERS[protocol](

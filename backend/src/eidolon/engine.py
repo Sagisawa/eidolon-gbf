@@ -10,14 +10,18 @@ when a segment is complete; it stays on the server. Input that is blank or too l
 before the model is asked; a turn that is rejected or fails part-way leaves no record,
 and what went wrong stays in the server log.
 
-When retrieval is available the chat model is offered the recall-story tool, unless
-the turn already recalled an episode. Its calls are answered and the model asked
-again, once at most since every round costs the model's time to first token; whatever
-it says along the way is part of the reply, and only the reply is recorded.
+When retrieval is available the chat model is offered the recall-story tool on every
+turn, but forbidden to call it in one that already recalled an episode. Its calls are
+answered and the model asked again, once at most since every round costs the model's
+time to first token; whatever it says along the way is part of the reply, and only the
+reply is recorded.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
 office and its units, and the character's own songs and lives, each release and live
 told as past or still to come by the day it is where the user is, the day the prompt about the producer tells.
+The two open the prompt as a system message of their own, the same for every user's turns
+with her that day, marked for the service to cache; the rest of what she is told follows
+in another.
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
@@ -426,15 +430,16 @@ class ConversationEngine:
             narrations(record, self._gift_catalog), retrieved, text,
         )
 
-        tools: list[Tool] = (
-            [RECALL_STORY_TOOL] if self._retrieval and not retrieved.recalled else []
-        )
+        # Offered on every turn, so that what goes before the history (the tools, with
+        # many services) opens every turn's prompt alike, for the service to cache it.
+        tools: list[Tool] = [RECALL_STORY_TOOL] if self._retrieval else []
         parser = ReplyParser()
         try:
             for step in range(MAX_TOOL_ROUNDS + 1):
                 # The last round offers the same tools, as some models drop what they thought
-                # once the tools change, but forbids calling them.
-                forbidden = step == MAX_TOOL_ROUNDS
+                # once the tools change, but forbids calling them; so does a turn that
+                # already recalled an episode, its one round its last.
+                forbidden = step == MAX_TOOL_ROUNDS or retrieved.recalled
                 said = ""
                 calls: list[ToolCall] = []
                 reasoning: list[Reasoning] = []
@@ -538,16 +543,19 @@ class ConversationEngine:
         retrieved: Retrieved,
         text: str,
     ) -> list[ChatMessage]:
-        sections = [character.sheet]
+        # What every user's turns with her that day open with, apart, for a service to cache.
+        shared = [character.sheet]
         if world_prompt:
-            sections.append(world_prompt)
-        sections.append(about_producer)
+            shared.append(world_prompt)
+        sections = [about_producer]
         if retrieved.memories_prompt:
             sections.append(retrieved.memories_prompt)
         if retrieved.prompt:
             sections.append(retrieved.prompt)
-        system = "\n\n".join([*sections, FORMAT_INSTRUCTIONS])
-        prompt = [ChatMessage("system", system)]
+        prompt = [
+            ChatMessage("system", "\n\n".join(shared), cache_breakpoint=True),
+            ChatMessage("system", "\n\n".join([*sections, FORMAT_INSTRUCTIONS])),
+        ]
         for message in history:
             if message.role == "user":
                 told = narration.get(message.id, "")

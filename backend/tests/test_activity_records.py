@@ -37,6 +37,7 @@ from tests.fakes import (
     FakeLLM,
     FakeLLMService,
     FakeReranker,
+    system_of,
 )
 from tests.test_embedding import Answer, scripted
 from tests.test_retrieval_services import ranked
@@ -185,7 +186,7 @@ async def test_a_request_made_again_counts_as_a_call_of_its_own(
     board = await dashboard(admin)
 
     assert events[-1]["type"] == "done"
-    assert CAT in llm.prompts[-1][0].content  # found once asked again
+    assert CAT in system_of(llm.prompts[-1])  # found once asked again
     rerank = health(board, "rerank")
     assert rerank is not None
     assert (rerank["calls"], rerank["errors"], rerank["errors_by_kind"]) == (

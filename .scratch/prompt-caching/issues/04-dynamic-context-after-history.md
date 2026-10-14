@@ -31,3 +31,5 @@
 - [ ] `backend/` 下 `pytest`、`frontend/` 下 `npm test` 全部通过，`ruff`、`pyright`、`tsc` 没有新的报错。
 
 ## Comments
+
+- 2026-10-15 票 02 留下的（实现时注意）：断点由 `ChatMessage.cache_breakpoint` 标出，引擎在共用固定部分那条系统消息上设它；Anthropic 适配器目前只在 `_system` 里认这个标记，第二个断点打在历史最后一条消息上时，`_messages` 也要认（给那条消息的最后一个内容块加 `cache_control`，字符串内容要先变成文本块）。另外 Responses 现在把**所有**系统消息拼进 `instructions`、Anthropic 的 `_system` 也收**所有**系统消息，不只开头的；加靠后的系统消息之前，这两处要先改成只收开头连续的那几条（Chat Completions 已经是只拼开头的、其余原地发）。测试里读系统提示词用 `tests/fakes.py` 的 `system_of`（只拼开头连续的系统消息），动态内容挪走后，原有提示词测试改位置断言时可能要另一个读靠后系统消息的小助手。

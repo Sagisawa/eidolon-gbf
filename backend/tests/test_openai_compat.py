@@ -173,6 +173,30 @@ async def test_a_tool_round_trip_is_sent_back_in_chat_completions_form():
     ]
 
 
+async def test_the_opening_system_messages_go_as_one_joined_by_a_blank_line():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, text=RECORDED_STREAM)
+
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "sk-test", "some-model",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    [c async for c in llm.stream([
+        ChatMessage("system", "甲", cache_breakpoint=True),
+        ChatMessage("system", "乙"),
+        ChatMessage("user", "你好"),
+    ])]
+
+    assert json.loads(requests[0].content)["messages"] == [
+        {"role": "system", "content": "甲\n\n乙"},
+        {"role": "user", "content": "你好"},
+    ]
+
+
 async def test_tool_call_arguments_that_are_not_json_are_passed_on_as_malformed():
     stream = (
         'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_x",'

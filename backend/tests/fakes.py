@@ -108,6 +108,17 @@ HANG = object()
 """A chunk in a FakeLLM reply where the model stops sending but never finishes."""
 
 
+def system_of(prompt: Sequence[ChatMessage]) -> str:
+    """What the system messages `prompt` opens with tell the model, as one text: joined by
+    a blank line, as the Chat Completions adapter sends them."""
+    opening: list[str] = []
+    for message in prompt:
+        if message.role != "system":
+            break
+        opening.append(message.content)
+    return "\n\n".join(opening)
+
+
 class FakeLLM:
     """Records every prompt it receives, the tools offered with it, whether calling them
     was forbidden (`forbidden`) and the API key it came with (`keys`), and replies from a
