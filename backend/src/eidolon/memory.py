@@ -602,8 +602,8 @@ def _extraction_prompt(
 
 def memory_query(history: Sequence[Message], text: str) -> str:
     """What memories relevant to `text`, said after `history`, are searched and reranked
-    with: the character's reply before it, which says what 「它」 or 「那件事」 is, then
-    `text`."""
+    with, and references and recalled episodes too (`retrieval`): the character's reply
+    before it, which says what 「它」 or 「那件事」 is, then `text`."""
     previous = next((m for m in reversed(history) if m.role == "character"), None)
     return joined_query(_said(previous) if previous else None, text)
 

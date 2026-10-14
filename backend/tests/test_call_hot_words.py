@@ -49,7 +49,8 @@ CHARACTERS = [  # id, name, name_zh
 UNITS = ["illumination STARS", "L'Antica", "放課後クライマックスガールズ"]
 
 HOT_WORDS = {
-    # every way of writing in the readings file, but lone surnames
+    # every way of writing in the readings file, but lone surnames (櫻木, 有栖川, 八宮, 田中,
+    # 黛) and those too long (TOO_LONG)
     "櫻木真乃", "真乃", "有栖川夏葉", "夏葉", "八宮めぐる", "田中摩美々", "摩美々",
     "黛冬優子", "冬優子", "月岡恋鐘", "恋鐘",
     "L'Antica", "illumination STARS", "283プロ", "283", "天井社長",
@@ -138,20 +139,6 @@ async def test_a_call_heard_by_alibaba_cloud_model_studio_asks_for_the_hot_words
     assert parameters["language_hints"] == ["zh", "ja"]
     assert "vocabulary_id" not in parameters
     assert "context" not in task.run_task["payload"]["input"]
-
-
-async def test_the_hot_words_leave_out_lone_surnames_single_characters_and_words_too_long(
-    started: Backend, dashscope: FakeDashScope
-):
-    dashscope.keys[DEPLOYERS_DASHSCOPE] = "beijing"
-
-    await hear(started.speech.stt(SttKey("bailian", DEPLOYERS_DASHSCOPE)).stt)
-
-    [task] = dashscope.tasks
-    words = task.run_task["payload"]["parameters"]["vocabulary"]
-    assert {"櫻木真乃", "真乃", "樱木真乃", "夏叶", "L'Antica", "放課後クライマックスガールズ"} <= set(words)
-    assert not {"櫻木", "有栖川", "田中", "八宮", "黛", "巡"} & set(words)
-    assert not set(TOO_LONG) & set(words)
 
 
 async def test_words_too_long_for_the_services_are_said_to_be_skipped_as_the_server_starts(

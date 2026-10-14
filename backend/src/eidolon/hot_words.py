@@ -48,11 +48,11 @@ def hot_words(
         if not character.name_zh:
             continue
         found.append(character.name_zh)
-        surname = max(
+        surname_length = max(
             (len(s) for s in surnames if character.name.startswith(s)), default=None
         )
-        if surname is not None:
-            found.append(character.name_zh[surname:])
+        if surname_length is not None:
+            found.append(character.name_zh[surname_length:])
     if world is not None:
         found.extend(unit.name for unit in world.units)
 
