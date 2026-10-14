@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** needs-info（实验做完了，结果在 `../experiment.md`；等用户定 Q5、Q9）
 
 **难度：小。** 一次性脚本，放在 `.scratch/prompt-caching/` 下，不进产品代码、不加测试。会花真钱：用户已同意，预计不到 $0.05，超过 $0.2 先停下问。
 
@@ -22,11 +22,12 @@
 
 ## 验收
 
-- [ ] 脚本和结果在 `.scratch/prompt-caching/` 下；结果写成 `experiment.md`：每种情况每回合的命中和未命中、合计命中率、按闲时价算的输入花费。
-- [ ] 结论回答三个问题：B 比 A 好多少，C 比 B 好多少（以及 C 让提示词长了多少）；预先回忆过的回合怎么处理工具最好；工具回合的第二轮用 `none` 损失多少、照常允许会不会只调用不说话。
+- [x] 脚本和结果在 `.scratch/prompt-caching/` 下；结果写成 `experiment.md`：每种情况每回合的命中和未命中、合计命中率、按闲时价算的输入花费。
+- [x] 结论回答三个问题：B 比 A 好多少，C 比 B 好多少（以及 C 让提示词长了多少）；预先回忆过的回合怎么处理工具最好；工具回合的第二轮用 `none` 损失多少、照常允许会不会只调用不说话。
 - [ ] 附推荐，交给用户定；用户的决定记进本票 Comments，并抄进 04 的 Comments。
-- [ ] 实际花费写在结果里。
+- [x] 实际花费写在结果里。
 
 ## Comments
 
 - 2026-10-15 用户补充：除了 `deepseek-flash`，再用用户自己的一家临时第三方服务顺带跑一遍，看结论在非 DeepSeek 的服务上站不站得住（用户担心对 DeepSeek 过拟合）。Chat Completions，`base_url` 为 `https://magpie-api.hmhnk.top/v1`，模型 `antigravity/gemini-3.8-flash`；key 在本地 `.env` 的 `EXPERIMENT_THIRD_PARTY_API_KEY`（仓库公开，key 不进仓库）。这家报不报命中、在哪个字段报都不知道，按票 01 适配器的三个候选字段（`prompt_tokens_details.cached_tokens` → `prompt_cache_hit_tokens` → `cached_tokens`）都读，都没有就记「没报」，先跑一两个回合确认再跑全套。中途系统消息、`tool_choice: none` 它接不接受，也记进结果。
+- 2026-10-15 实验做完，结果和推荐见 `../experiment.md`。DeepSeek 实际花费 $0.083（闲时段，超过预计的 $0.05、没到 $0.2）。推荐 Q5 用 B、Q9 维持 `tool_choice: none`；第三方服务上 B 不比 A 好、只有 C 偶尔命中，这条要用户权衡。用户的决定待记。
