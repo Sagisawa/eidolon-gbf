@@ -36,7 +36,7 @@ from tests.fakes import (
     FakeReranker,
     FakeServiceClients,
     FakeSpeech,
-    system_of,
+    context_of,
 )
 from tests.test_live_config import (
     CONFIG,
@@ -714,7 +714,7 @@ async def test_the_memory_threshold_saved_leaves_out_what_the_next_turn_finds(
     assert saved.status_code == 200, saved.text
     await send_turn(client, conversation_id, "猫怎么样")
 
-    found = ["制作人养了一只猫" in system_of(prompt) for prompt in clients.llm.prompts]
+    found = ["制作人养了一只猫" in context_of(prompt) for prompt in clients.llm.prompts]
     assert found == [False, True, False]
     rerank = saved.json()["rerank"]
     assert rerank["model"] == "Qwen/Qwen3-Reranker-0.6B"

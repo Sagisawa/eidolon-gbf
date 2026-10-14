@@ -119,6 +119,15 @@ def system_of(prompt: Sequence[ChatMessage]) -> str:
     return "\n\n".join(opening)
 
 
+def context_of(prompt: Sequence[ChatMessage]) -> str:
+    """What changes from turn to turn that `prompt` tells the model: the system message
+    just before what the user is saying now, its last user message."""
+    last = max(i for i, m in enumerate(prompt) if m.role == "user")
+    context = prompt[last - 1]
+    assert context.role == "system", "no system message before what the user is saying"
+    return context.content
+
+
 class FakeLLM:
     """Records every prompt it receives, the tools offered with it, whether calling them
     was forbidden (`forbidden`) and the API key it came with (`keys`), and replies from a

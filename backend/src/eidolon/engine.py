@@ -18,10 +18,18 @@ reply is recorded.
 
 Every turn carries the world setting, when there is one, after the character sheet: the
 office and its units, and the character's own songs and lives, each release and live
-told as past or still to come by the day it is where the user is, the day the prompt about the producer tells.
-The two open the prompt as a system message of their own, the same for every user's turns
-with her that day, marked for the service to cache; the rest of what she is told follows
-in another.
+told as past or still to come by the day it is where the user is, the day the prompt about now tells.
+The two open the prompt, with how she is to format her reply, as a system message of their
+own, the same for every user's turns with her that day, marked for the service to cache;
+who the producer is follows in another, then the conversation so far. What changes from
+turn to turn (the time, her affinity, what retrieval found) comes after the conversation,
+in a system message just before what the user is saying now, and is not carried into the
+turns after it: so each turn's prompt opens as the one before it did, up to the end of the
+conversation so far, marked for the service to cache too (ADR-0020).
+
+The chat model reads at least as many of the latest turns as the deployer says, but they
+are cut back only every so often, so what it reads opens the same way for a while
+(`chat_history`).
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
 recorded memory writes down what the user revealed in it, when memory is on.
@@ -59,7 +67,7 @@ to it, once, however many came. Retrieval, memory and the judge model read only 
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Literal, ParamSpec, TypeVar
 
@@ -81,7 +89,7 @@ from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.producer import effective_timezone, local_date, producer_prompt
+from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
     FORMAT_INSTRUCTIONS,
     ReplyParser,
@@ -266,6 +274,17 @@ def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
     return messages[kept[0]:] if kept else []
 
 
+def chat_history(messages: list[Message], turns: int | None) -> list[Message]:
+    """The latest turns of `messages` the chat model reads: at least `turns` (all if None),
+    cut back to that many each time they reach half as many again, rather than one at a
+    time, so what it reads opens the same way from turn to turn in between."""
+    total = sum(m.role == "user" for m in messages)
+    if turns is None or total <= turns:
+        return latest_turns(messages, None)
+    step = max(1, turns // 2)
+    return latest_turns(messages, total - step * ((total - turns) // step))
+
+
 RESPOND_TO_GIFTS = (
     "（先回应制作人说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。）"
 )
@@ -382,7 +401,8 @@ class ConversationEngine:
         # comes before the turn, and is told of with its words from the next turn on.
         said_at = timestamp()
         messages = [entry for entry in record if isinstance(entry, Message)]
-        history = latest_turns(messages, self._history_turns())
+        turns = self._history_turns()
+        history = latest_turns(messages, turns)  # what all but the chat model read
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
         judged_apart = None
@@ -421,13 +441,13 @@ class ConversationEngine:
             if affinity is not None
             else []
         )
-        about_producer = producer_prompt(profile, now, timezone, affinity_lines)
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
         prompt = self._prompt(
-            character, world_prompt, about_producer, history,
-            narrations(record, self._gift_catalog), retrieved, text,
+            character, world_prompt, producer_prompt(profile),
+            chat_history(messages, turns), narrations(record, self._gift_catalog),
+            now_prompt(profile, now, timezone, affinity_lines), retrieved, text,
         )
 
         # Offered on every turn, so that what goes before the history (the tools, with
@@ -540,6 +560,7 @@ class ConversationEngine:
         about_producer: str,
         history: list[Message],
         narration: dict[int | None, str],
+        about_now: str,
         retrieved: Retrieved,
         text: str,
     ) -> list[ChatMessage]:
@@ -547,14 +568,10 @@ class ConversationEngine:
         shared = [character.sheet]
         if world_prompt:
             shared.append(world_prompt)
-        sections = [about_producer]
-        if retrieved.memories_prompt:
-            sections.append(retrieved.memories_prompt)
-        if retrieved.prompt:
-            sections.append(retrieved.prompt)
+        shared.append(FORMAT_INSTRUCTIONS)
         prompt = [
             ChatMessage("system", "\n\n".join(shared), cache_breakpoint=True),
-            ChatMessage("system", "\n\n".join([*sections, FORMAT_INSTRUCTIONS])),
+            ChatMessage("system", about_producer),
         ]
         for message in history:
             if message.role == "user":
@@ -562,5 +579,13 @@ class ConversationEngine:
                 prompt.append(ChatMessage("user", f"{told}{message.text or ''}"))
             else:
                 prompt.append(ChatMessage("assistant", format_reply(message.segments)))
+        if history:  # what the next turn opens with too, for a service to cache
+            prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
+        context = [about_now]
+        if retrieved.memories_prompt:
+            context.append(retrieved.memories_prompt)
+        if retrieved.prompt:
+            context.append(retrieved.prompt)
+        prompt.append(ChatMessage("system", "\n\n".join(context)))
         prompt.append(ChatMessage("user", f"{narration.get(None, '')}{text}"))
         return prompt

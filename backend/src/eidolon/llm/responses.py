@@ -54,9 +54,11 @@ class ResponsesLLM:
             "stream": True,
             "store": False,  # every request carries the whole conversation
         }
-        if system := "\n\n".join(m.content for m in messages if m.role == "system"):
+        # The system messages it opens with are the instructions; a later one goes where it is.
+        opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
+        if system := "\n\n".join(m.content for m in messages[:opening]):
             body["instructions"] = system
-        body["input"] = [item for m in messages if m.role != "system" for item in _items(m)]
+        body["input"] = [item for m in messages[opening:] for item in _items(m)]
         if self._max_tokens is not None:
             body["max_output_tokens"] = self._max_tokens
         if self._effort is not None:

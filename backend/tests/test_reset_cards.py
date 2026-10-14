@@ -20,7 +20,7 @@ from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, FakeClock, FakeIdentityProvider, FakeLLM, FakeRandom, system_of
 from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep, status
-from tests.test_affinity_prompt import IN_HER_OWN_WAY, about_producer
+from tests.test_affinity_prompt import IN_HER_OWN_WAY, about_now
 from tests.test_conversation_events import HUNG_UP, hang_up, record, shape
 from tests.test_conversation_history import history, told
 from tests.test_delete_account import user_id
@@ -103,7 +103,7 @@ async def test_one_in_a_cooldown_can_be_talked_to_straight_away_none_the_wiser(
     assert shape(await record(client, conversation)) == ["hung_up", "user:还在生气吗", "character:好的"]
     assert history(llm) == [("user", f"{HUNG_UP}\n还在生气吗")]
     # In trust, her prompt is as it always is: nothing of the card, nor of how she was.
-    assert IN_HER_OWN_WAY not in about_producer(llm)
+    assert IN_HER_OWN_WAY not in about_now(llm)
     assert "重置" not in system_of(llm.prompts[-1]) + told(llm)
 
 

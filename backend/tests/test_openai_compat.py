@@ -173,7 +173,7 @@ async def test_a_tool_round_trip_is_sent_back_in_chat_completions_form():
     ]
 
 
-async def test_the_opening_system_messages_go_as_one_joined_by_a_blank_line():
+async def test_the_opening_system_messages_go_as_one_and_a_later_one_where_it_is():
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -189,11 +189,19 @@ async def test_the_opening_system_messages_go_as_one_joined_by_a_blank_line():
         ChatMessage("system", "甲", cache_breakpoint=True),
         ChatMessage("system", "乙"),
         ChatMessage("user", "你好"),
+        ChatMessage("assistant", "嗨", cache_breakpoint=True),
+        ChatMessage("system", "丙"),
+        ChatMessage("user", "在吗"),
     ])]
 
+    # The opening ones joined by a blank line, as every service takes them; a later one as a
+    # message of its own, which DeepSeek's own encoder renders as a part of its own.
     assert json.loads(requests[0].content)["messages"] == [
         {"role": "system", "content": "甲\n\n乙"},
         {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "嗨"},
+        {"role": "system", "content": "丙"},
+        {"role": "user", "content": "在吗"},
     ]
 
 

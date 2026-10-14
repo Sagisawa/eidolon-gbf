@@ -15,7 +15,7 @@ from eidolon.llm import ChatMessage, Reasoning, ToolCall
 from eidolon.retrieval import RECALL_STORY_TOOL
 from eidolon.story_import import import_csv_directory
 from tests.conftest import ClientFactory
-from tests.fakes import FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, system_of
+from tests.fakes import FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, context_of, system_of
 from tests.test_text_turn import send_turn, start_conversation
 
 PARK_LINE = "公園で鳩と一緒に歌っていました"
@@ -334,7 +334,7 @@ async def test_a_recall_question_after_her_reply_is_recalled_with_both(
     assert [query for query, _ in reranker.calls] == [AFTER_PARK]
     assert AFTER_PARK in embedder.queries
     assert "那次后来怎么样了？" not in embedder.queries
-    system = system_of(llm.prompts[-1])
+    system = context_of(llm.prompts[-1])
     # She is reminded of what the user asked; her reply is right there in the conversation.
     assert "# 回顾剧情：那次后来怎么样了？\n" in system
     assert f"真乃：{PARK_LINE}" in system

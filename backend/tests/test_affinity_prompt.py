@@ -1,5 +1,5 @@
 """Her affinity shapes how she speaks to the producer (GLOSSARY.md「好感度」), in the prompt's
-section about the producer only: below trust she is cold or sulks, above it she opens up,
+section about now only: below trust she is cold or sulks, above it she opens up,
 each as her own character would, and whatever the tier the hard rules of her sheet, what
 they have been through and that he is her producer stay as they are. As the turn is judged
 to hurt her or make her happy she knows it as she replies; what is out of line she may
@@ -25,6 +25,7 @@ from tests.fakes import (
     FakeServiceClients,
     Judging,
     level,
+    context_of,
     system_of,
 )
 from tests.test_affinity import keep
@@ -57,10 +58,12 @@ def settings(settings: Settings) -> Settings:
     return replace(settings, judge=FAKE_JUDGE, affinity_and_gifts=True)
 
 
-def about_producer(llm: FakeLLM, turn: int = -1) -> str:
-    """The prompt's section about the producer in the `turn`th prompt the chat model got."""
-    system = system_of(llm.prompts[turn])
-    return "# 制作人\n" + system.split("\n# 制作人\n")[1].split("\n# ")[0]
+def about_now(llm: FakeLLM, turn: int = -1) -> str:
+    """The prompt's section about now, the time and how she feels toward the producer, in
+    the `turn`th prompt the chat model got."""
+    context = context_of(llm.prompts[turn])
+    assert context.startswith("# 此刻\n")
+    return context.split("\n# ")[0]
 
 
 async def prompted(
@@ -97,7 +100,7 @@ async def test_in_trust_and_wherever_affinity_is_off_the_prompt_is_as_it_was(
 
     assert system_of(on.prompts[0]) == system_of(off.prompts[0])
     assert system_of(no_judge.prompts[0]) == system_of(off.prompts[0])
-    assert IN_HER_OWN_WAY not in about_producer(on)
+    assert IN_HER_OWN_WAY not in about_now(on)
 
 
 async def test_each_tier_but_trust_has_her_speak_as_its_own_in_her_own_way(
@@ -106,7 +109,7 @@ async def test_each_tier_but_trust_has_her_speak_as_its_own_in_her_own_way(
     for kept, tier in [(10, "cold"), (39.9, "distant"), (65, "close"), (100, "intimate")]:
         llm, _ = await prompted(make_client, [level(2)], kept=kept, settings=settings)
 
-        section = about_producer(llm)
+        section = about_now(llm)
         assert [t for t, m in TIER_MARKS.items() if m in section] == [tier]
         assert IN_HER_OWN_WAY in section, tier
         assert UNCHANGED in section, tier
@@ -120,8 +123,8 @@ async def test_she_speaks_in_the_tier_the_turn_began_in(
     # Close as the first turn begins, it leaves her in trust; the next begins there.
     llm, _ = await prompted(make_client, [level(0), level(2)], kept=66, settings=settings)
 
-    assert TIER_MARKS["close"] in about_producer(llm, 0)
-    assert IN_HER_OWN_WAY not in about_producer(llm, 1)
+    assert TIER_MARKS["close"] in about_now(llm, 0)
+    assert IN_HER_OWN_WAY not in about_now(llm, 1)
 
 
 async def test_she_knows_what_she_was_just_told_hurt_her_or_made_her_happy(
@@ -131,7 +134,7 @@ async def test_she_knows_what_she_was_just_told_hurt_her_or_made_her_happy(
         make_client, [level(0), level(1), level(2), level(3), level(4)], settings=settings
     )
 
-    sections = [about_producer(llm, i) for i in range(5)]
+    sections = [about_now(llm, i) for i in range(5)]
     assert [[n for n, f in FEELINGS.items() if f in s] for s in sections] == [
         [0], [1], [], [3], [4],
     ]
@@ -143,7 +146,7 @@ async def test_what_is_out_of_line_she_may_refuse_whatever_its_level(
 ):
     llm, _ = await prompted(make_client, [level(4, out_of_line=True)], settings=settings)
 
-    section = about_producer(llm)
+    section = about_now(llm)
     assert OUT_OF_LINE in section
     assert [f for f in FEELINGS.values() if f in section] == []
 
@@ -156,8 +159,8 @@ async def test_what_tries_to_dictate_it_makes_her_no_happier_but_still_hurts(
         settings=settings,
     )
 
-    assert [f for f in FEELINGS.values() if f in about_producer(llm, 0)] == []
-    assert FEELINGS[1] in about_producer(llm, 1)
+    assert [f for f in FEELINGS.values() if f in about_now(llm, 0)] == []
+    assert FEELINGS[1] in about_now(llm, 1)
 
 
 async def test_she_is_happy_all_the_same_once_the_days_gains_are_used_up(
@@ -165,7 +168,7 @@ async def test_she_is_happy_all_the_same_once_the_days_gains_are_used_up(
 ):
     llm, _ = await prompted(make_client, [level(4)] * 4, settings=settings)
 
-    assert FEELINGS[4] in about_producer(llm, 3)  # the day's 6 were used up by the third
+    assert FEELINGS[4] in about_now(llm, 3)  # the day's 6 were used up by the third
 
 
 async def test_a_turn_the_judge_model_cannot_judge_tells_her_nothing(
@@ -173,6 +176,6 @@ async def test_a_turn_the_judge_model_cannot_judge_tells_her_nothing(
 ):
     llm, _ = await prompted(make_client, [Judging(fails=True)], kept=30, settings=settings)
 
-    section = about_producer(llm)
+    section = about_now(llm)
     assert TIER_MARKS["distant"] in section  # her tier as ever
     assert [f for f in (*FEELINGS.values(), OUT_OF_LINE) if f in section] == []

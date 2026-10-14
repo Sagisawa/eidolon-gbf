@@ -282,6 +282,85 @@ async def test_anthropic_caches_the_system_up_to_the_end_of_the_part_marked_for_
     assert body["messages"] == [{"role": "user", "content": "你好"}]
 
 
+CONTEXT_AFTER_THE_HISTORY = [
+    ChatMessage("system", "甲", cache_breakpoint=True),
+    ChatMessage("system", "乙"),
+    ChatMessage("user", "你好"),
+    ChatMessage("assistant", "<ja>ほわっ</ja><zh>哇</zh>", cache_breakpoint=True),
+    ChatMessage("system", "丙"),
+    ChatMessage("user", "在吗"),
+]
+"""A prompt as a turn's: what opens it, the history, marked for caching up to its end, then
+what changes from turn to turn in a system message before what the user is saying now."""
+
+
+async def test_responses_sends_a_later_system_message_where_it_is():
+    requests: list[httpx.Request] = []
+    llm = ADAPTERS["responses"](serving(recorded("responses_text"), requests))
+
+    await collect(llm, CONTEXT_AFTER_THE_HISTORY)
+
+    body = json.loads(requests[0].content)
+    assert body["instructions"] == "甲\n\n乙"
+    assert body["input"] == [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "<ja>ほわっ</ja><zh>哇</zh>"},
+        {"role": "system", "content": "丙"},
+        {"role": "user", "content": "在吗"},
+    ]
+
+
+async def test_anthropic_sends_a_later_system_message_as_the_user_turn_s_first_block():
+    requests: list[httpx.Request] = []
+    llm = ADAPTERS["anthropic"](serving(recorded("anthropic_text"), requests))
+
+    await collect(llm, CONTEXT_AFTER_THE_HISTORY)
+
+    body = json.loads(requests[0].content)
+    assert body["system"] == [
+        {"type": "text", "text": "甲", "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": "乙"},
+    ]
+    assert body["messages"] == [
+        {"role": "user", "content": "你好"},
+        {  # the second place cached up to, for the next turn to carry on from
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "<ja>ほわっ</ja><zh>哇</zh>",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "丙"}, {"type": "text", "text": "在吗"}],
+        },
+    ]
+
+
+async def test_anthropic_caches_up_to_the_last_block_of_a_message_with_tool_calls():
+    requests: list[httpx.Request] = []
+    llm = ADAPTERS["anthropic"](serving(recorded("anthropic_text"), requests))
+    call = ToolCall("c", "recall_story", {"query": "写真集"})
+
+    await collect(llm, [
+        ChatMessage("user", "那次拍写真集"),
+        ChatMessage("assistant", "我想想", (call,), cache_breakpoint=True),
+        ChatMessage("tool", "## 剧情……", tool_call_id="c"),
+    ], [RECALL])
+
+    body = json.loads(requests[0].content)
+    assert body["messages"][1]["content"] == [
+        {"type": "text", "text": "我想想"},
+        {
+            "type": "tool_use", "id": "c", "name": "recall_story", "input": {"query": "写真集"},
+            "cache_control": {"type": "ephemeral"},
+        },
+    ]
+
+
 @pytest.mark.parametrize("protocol", ADAPTERS)
 async def test_error_status_is_raised_with_the_provider_message(protocol: str):
     llm = ADAPTERS[protocol](

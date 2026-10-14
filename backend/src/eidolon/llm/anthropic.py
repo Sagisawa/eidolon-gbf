@@ -62,9 +62,10 @@ class AnthropicLLM:
             "stream": True,
             "max_tokens": self._max_tokens,
         }
-        if system := _system([m for m in messages if m.role == "system"]):
+        opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
+        if system := _system(messages[:opening]):
             body["system"] = system
-        body["messages"] = _messages([m for m in messages if m.role != "system"])
+        body["messages"] = _messages(messages[opening:])
         if self._effort == "none":
             body["thinking"] = {"type": "disabled"}
         elif self._effort is not None:
@@ -165,16 +166,18 @@ def _system(system: Sequence[ChatMessage]) -> str | list[dict[str, Any]]:
         if not message.content:  # the Messages API rejects empty text
             continue
         block: dict[str, Any] = {"type": "text", "text": message.content}
-        if message.cache_breakpoint:
-            block["cache_control"] = {"type": "ephemeral"}  # five minutes, as is the default
-        blocks.append(block)
+        blocks.append(_cached(block) if message.cache_breakpoint else block)
     return blocks
 
 
 def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     """Messages API turns; the results of one round of tool calls go back together, in the
-    user turn that follows the calls."""
+    user turn that follows the calls. A system message among them goes as a text block of its
+    own first in the user turn after it: newer models alone take one past `system`, and few
+    other services speaking the protocol. A message marked for caching is cached up to the
+    end of its last block."""
     turns: list[dict[str, Any]] = []
+    told: dict[str, Any] | None = None  # the user turn a system message began
     for message in messages:
         if message.role == "tool":
             result = {
@@ -187,9 +190,11 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 last["content"].append(result)
             else:
                 turns.append({"role": "user", "content": [result]})
-        elif message.tool_calls:
+            told = None
+            continue
+        if message.tool_calls:
             # What the model thought as it made the calls goes first, as its service sent it.
-            content: list[dict[str, Any]] = [
+            content: str | list[dict[str, Any]] = [
                 block for r in message.reasoning for block in r.data.get("blocks", ())
             ]
             if message.content:
@@ -198,7 +203,27 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 {"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments or {}}
                 for c in message.tool_calls
             )
-            turns.append({"role": "assistant", "content": content})
-        elif message.content:  # the Messages API rejects empty text
-            turns.append({"role": message.role, "content": message.content})
+        elif message.content:
+            content = message.content
+        else:
+            continue  # the Messages API rejects empty text
+        if message.cache_breakpoint:
+            *before, last = _blocks(content)
+            content = [*before, _cached(last)]
+        if told is not None and message.role in ("user", "system"):
+            told["content"].extend(_blocks(content))
+        elif message.role == "system":
+            turns.append({"role": "user", "content": _blocks(content)})
+        else:
+            turns.append({"role": message.role, "content": content})
+        told = turns[-1] if message.role == "system" else None
     return turns
+
+
+def _blocks(content: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": content}] if isinstance(content, str) else content
+
+
+def _cached(block: dict[str, Any]) -> dict[str, Any]:
+    """`block`, the prompt cached up to its end, for five minutes, as is the default."""
+    return {**block, "cache_control": {"type": "ephemeral"}}

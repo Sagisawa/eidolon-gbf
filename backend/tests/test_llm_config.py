@@ -349,6 +349,44 @@ async def test_the_check_opens_as_a_turn_does_with_a_part_marked_for_caching():
     assert block["cache_control"] == {"type": "ephemeral"}
 
 
+def mid_conversation_system_refused(bodies: list[dict]) -> OpenAICompatLLM:
+    """A Chat Completions service that takes system messages only at the start."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if any(m["role"] == "system" for m in body["messages"][1:]):
+            return httpx.Response(
+                400, json={"error": {"message": "system messages must come first"}}
+            )
+        return httpx.Response(200, text=STREAMED)
+
+    return OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m", reasoning_effort="high",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+async def test_the_check_has_a_system_message_after_the_conversation_as_a_turn_does():
+    bodies: list[dict] = []
+
+    with pytest.raises(LLMError):
+        await check_chat_llm(mid_conversation_system_refused(bodies))
+
+    assert [m["role"] for m in bodies[0]["messages"]] == [
+        "system", "user", "assistant", "system", "user"
+    ]
+
+
+async def test_a_service_refusing_a_system_message_mid_conversation_is_told_so():
+    """Whatever the effort: answering without the message, the model took it."""
+    with pytest.raises(LLMError) as raised:
+        await check_chat_llm(mid_conversation_system_refused([]), "high")
+
+    assert str(raised.value).startswith("对话模型不接受对话里的缓存标记或中途的系统消息")
+    assert "system messages must come first" in str(raised.value)
+
+
 async def test_the_check_reports_what_failed_when_both_requests_fail():
     llm = OpenAICompatLLM(
         "https://llm.example/v1", "k", "m",

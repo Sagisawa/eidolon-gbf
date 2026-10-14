@@ -152,22 +152,23 @@ def system_prompt(llm: FakeLLM) -> str:
 async def test_every_turn_carries_the_world_setting_after_the_character_sheet(
     turns: Turns, characters: CharacterConfig
 ):
-    """The two open the prompt apart, the same for every user's turns with her that day,
-    marked for a service to cache; the rest of what she is told follows on its own."""
+    """The two open the prompt apart, with how she is to format her reply, the same for
+    every user's turns with her that day, marked for a service to cache; the rest of what
+    she is told follows on its own."""
     write_world(characters)
     llm = FakeLLM(REPLY)
 
     await turns.take(llm, "イルミネのメンバーって誰だっけ")
 
     [prompt] = llm.prompts
-    shared, rest, said = prompt
-    assert (shared.role, rest.role, said.role) == ("system", "system", "user")
-    assert (shared.cache_breakpoint, rest.cache_breakpoint) == (True, False)
-    sheet, world = shared.content.split("\n\n", 1)
-    assert sheet == MANO_SHEET
-    assert world.startswith("# 世界设定")
-    assert rest.content.startswith("# 制作人\n")
-    assert rest.content.endswith(FORMAT_INSTRUCTIONS)
+    shared, producer, now, _ = prompt
+    assert [m.role for m in prompt] == ["system", "system", "system", "user"]
+    assert [m.cache_breakpoint for m in prompt] == [True, False, False, False]
+    assert shared.content.startswith(f"{MANO_SHEET}\n\n# 世界设定")
+    assert shared.content.endswith(f"\n\n{FORMAT_INSTRUCTIONS}")
+    world = shared.content.removeprefix(f"{MANO_SHEET}\n\n")
+    assert producer.content.startswith("# 制作人\n")
+    assert now.content.startswith("# 此刻\n")
     assert "资料截止到 2026年9月28日" in world
     assert "社長：天井努" in world and "事務員：七草はづき" in world
     assert "illumination STARS（いるみねーしょんすたーず）：櫻木真乃、風野灯織" in world

@@ -15,7 +15,7 @@ from eidolon.corpus import StoryCorpus
 from eidolon.retrieval import FALLBACK_REFERENCES, MAX_REFERENCES
 from eidolon.story_import import import_csv_directory
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
-from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, system_of
+from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, context_of, system_of
 from tests.test_live_config import until
 from tests.test_shared_memory import CAT, memorized
 from tests.test_text_turn import send_turn, start_conversation
@@ -186,7 +186,7 @@ async def test_references_are_looked_up_with_her_previous_reply_as_people_see_it
     assert "那时候累吗？" not in embedder.queries  # nor are memories found without it
     # The judge model is told what it was before: the latest messages and what was said.
     assert jev.asked[-1] == ("櫻木真乃", "那时候累吗？")
-    assert PARK_LINE in system_of(llm.prompts[-1])
+    assert PARK_LINE in context_of(llm.prompts[-1])
 
 
 async def test_the_first_line_of_a_conversation_is_looked_up_alone(
