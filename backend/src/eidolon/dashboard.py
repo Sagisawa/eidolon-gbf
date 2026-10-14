@@ -3,7 +3,8 @@ summed up for the admin, under `/api/admin/dashboard`.
 
 Everything is summed up here; the browser only shows it. For each service, on the
 deployer's keys and on users' own apart: how many calls, how many failed and how, how
-long they took, and what they were billed for. For turns (typed or in calls): how many,
+long they took, and what they were billed for; for an LLM, at each reasoning effort apart,
+and how soon its first word came. For turns (typed or in calls): how many,
 by how they turned out, how many on users' own keys, how soon the character began to
 speak. For calls: how many, by how they turned out, how many on users' own keys, how long
 they lasted and why they ended. How many users took any turn or call; how many turns and
@@ -27,10 +28,18 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import FastAPI, Header, Query
 
-from eidolon.activity import CALL_END_REASONS, RESULTS, SERVICES, CallRow, RecordRow
+from eidolon.activity import (
+    CALL_END_REASONS,
+    RESULTS,
+    SERVICES,
+    CallRow,
+    RecordRow,
+    ServiceName,
+)
 from eidolon.affinity import LEVEL_STEPS, Judged
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
+from eidolon.config import REASONING_EFFORTS, ReasoningEffort
 from eidolon.prices import cost
 
 Range = Literal["24h", "7d", "30d", "90d"]
@@ -107,30 +116,50 @@ def percentile(values: Sequence[float], p: float) -> float | None:
     return round(ordered[max(0, math.ceil(p / 100 * len(ordered)) - 1)], 1)
 
 
+LLMS: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
+"""The services whose rows in `health` are each at one reasoning effort, with how soon the
+first word came."""
+
+
 def health(calls: Iterable[CallRow]) -> list[dict]:
     """Each service's calls, on the deployer's keys and on users' own apart, in the order
-    of `SERVICES`."""
-    groups: dict[tuple[str, bool], list[CallRow]] = defaultdict(list)
+    of `SERVICES`; an LLM's also at each reasoning effort apart, none first."""
+    groups: dict[tuple[str, bool, ReasoningEffort | None], list[CallRow]] = defaultdict(list)
     for call in calls:
-        groups[(call.service, call.own_key)].append(call)
+        groups[(call.service, call.own_key, call.effort)].append(call)
     rows = []
-    for (service, own_key), group in sorted(
-        groups.items(), key=lambda g: (_order(g[0][0]), g[0][1])
+    for (service, own_key, effort), group in sorted(
+        groups.items(), key=lambda g: (_order(g[0][0]), g[0][1], _effort_order(g[0][2]))
     ):
         failed = [c for c in group if c.error is not None]
-        latencies = [c.latency_ms for c in group if c.latency_ms is not None]
-        rows.append({
+        row = {
             "service": service,
             "own_key": own_key,
             "calls": len(group),
             "errors": len(failed),
             "error_rate": len(failed) / len(group),
             "errors_by_kind": dict(Counter(c.error for c in failed if c.error)),
-            "latency_ms": {"p50": percentile(latencies, 50), "p95": percentile(latencies, 95)},
+            "latency_ms": _percentiles(c.latency_ms for c in group),
             "usage": _usage(group),
             "usage_unknown": sum(c.usage_unit is None for c in group),
-        })
+        }
+        if service in LLMS:
+            row["effort"] = effort
+            row["first_token_ms"] = _percentiles(c.first_token_ms for c in group)
+        rows.append(row)
     return rows
+
+
+def _percentiles(values: Iterable[float | None]) -> dict:
+    """The p50 and p95 of the values known."""
+    known = [v for v in values if v is not None]
+    return {"p50": percentile(known, 50), "p95": percentile(known, 95)}
+
+
+def _effort_order(effort: ReasoningEffort | None) -> int:
+    if effort is None:
+        return -1
+    return REASONING_EFFORTS.index(effort) if effort in REASONING_EFFORTS else len(REASONING_EFFORTS)
 
 
 def _order(service: str) -> int:

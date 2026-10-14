@@ -5,6 +5,7 @@
 import { copy } from "@/i18n";
 import type { Cost } from "@/lib/adminPrices";
 import { api, json } from "@/lib/api";
+import { EFFORT_UNSET, type ReasoningEffort, effortLabel } from "@/lib/reasoningEffort";
 
 export const DASHBOARD_RANGES = ["24h", "7d", "30d", "90d"] as const;
 
@@ -66,7 +67,13 @@ export function splitZeroRows<T extends { count: number }>(rows: T[]): { counted
 /** What a service's calls were billed for in one unit; null where no call said. */
 export type Usage = { unit: string; input: number | null; output: number | null };
 
-/** One service's calls, on the deployer's keys or on users' own (`own_key`). */
+/** A p50 and a p95 in milliseconds; null where nothing was timed. */
+export type Percentiles = { p50: number | null; p95: number | null };
+
+/**
+ * One service's calls, on the deployer's keys or on users' own (`own_key`); an LLM's, at one
+ * reasoning effort (`effort`, null for none asked), with how soon the first word came.
+ */
 export type ServiceHealth = {
   service: ServiceName;
   own_key: boolean;
@@ -74,11 +81,44 @@ export type ServiceHealth = {
   errors: number;
   error_rate: number;
   errors_by_kind: Partial<Record<ErrorKind, number>>;
-  latency_ms: { p50: number | null; p95: number | null };
+  latency_ms: Percentiles;
   usage: Usage[];
   /** Calls the service did not say what it billed for. */
   usage_unknown: number;
+  /** An LLM's alone. */
+  effort?: ReasoningEffort | null;
+  /** An LLM's alone: from the request to its first text or tool call; thinking is neither. */
+  first_token_ms?: Percentiles;
 };
+
+/** A health row's key: an LLM has a row for each effort. */
+export function healthRowId(row: ServiceHealth): string {
+  return `${row.service}:${row.own_key}:${row.effort === undefined ? "" : (row.effort ?? EFFORT_UNSET)}`;
+}
+
+/** An LLM row's effort as the table shows it, 「高（high）」 or 「不设置」; null for other services. */
+export function healthEffort(row: ServiceHealth): string | null {
+  return row.effort === undefined ? null : effortLabel(row.effort ?? EFFORT_UNSET);
+}
+
+/** 「842 ms / 1.3 s」; 「—」 for what a service has none of, as first words of all but LLMs. */
+export function formatPercentiles(times: Percentiles | undefined): string {
+  return times === undefined ? NONE : `${formatMs(times.p50)} / ${formatMs(times.p95)}`;
+}
+
+/** A health row named in a sentence: 「扮演角色的 LLM（自带密钥，思考强度高）」. */
+export function healthRowName(row: ServiceHealth): string {
+  const words = copy.admin.dashboard.health;
+  const efforts = copy.reasoningEffort;
+  const notes = [
+    ...(row.own_key ? [words.own] : []),
+    ...(row.effort === undefined
+      ? []
+      : [words.atEffort(row.effort === null ? efforts.unset : (efforts.names[row.effort] ?? row.effort))]),
+  ];
+  const name = words.services[row.service] ?? row.service;
+  return notes.length > 0 ? `${name}（${notes.join("，")}）` : name;
+}
 
 export type TurnResult = "success" | "failed" | "rejected" | "left";
 

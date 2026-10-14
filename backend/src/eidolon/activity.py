@@ -1,6 +1,7 @@
 """Activity records (GLOSSARY.md「运行记录」): one for each turn and each call, saying how
 it turned out, and one for each call to an outside service, saying which service, whose
-key, whether it failed and how, how long it took and what it was billed for. They hold
+key, whether it failed and how, how long it took and what it was billed for; an LLM's,
+also how soon its first word came and the reasoning effort it was asked for. They hold
 nothing anyone said. Only the admin console reads them: its dashboard (`dashboard`), and
 its users page, for each user's recent usage (`admin_users_api`).
 
@@ -49,11 +50,17 @@ from eidolon.affinity import Judged
 from eidolon.billing import Billing, billing
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import CloudflareJudgeSettings, JudgeSettings, LLMSettings, Settings
+from eidolon.config import (
+    CloudflareJudgeSettings,
+    JudgeSettings,
+    LLMSettings,
+    ReasoningEffort,
+    Settings,
+)
 from eidolon.database import connect
 from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
-from eidolon.llm import ChatLLM, ChatMessage, Streamed, Tool
+from eidolon.llm import ChatLLM, ChatMessage, Reasoning, Streamed, Tool
 from eidolon.rerank import Reranker
 from eidolon.retry import ServiceError, on_retry
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
@@ -131,7 +138,9 @@ CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id,
 -- Each call to an outside service; `record_id` is the turn or call it was made in, NULL
 -- for one made outside any. `error` is NULL when it succeeded; the usage columns are NULL
 -- when the service did not say; `latency_ms` is NULL for speech recognition, a stream as
--- long as the call, and for speech synthesis that never answered.
+-- long as the call, and for speech synthesis that never answered. `first_token_ms` and
+-- `reasoning_effort` are an LLM's alone: how soon its first text or tool call came (NULL
+-- if none did), and the effort it was asked to think at (NULL for none asked).
 CREATE TABLE IF NOT EXISTS service_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id INTEGER,
@@ -144,7 +153,9 @@ CREATE TABLE IF NOT EXISTS service_calls (
     latency_ms REAL,
     usage_unit TEXT,
     usage_input REAL,
-    usage_output REAL
+    usage_output REAL,
+    first_token_ms REAL,
+    reasoning_effort TEXT
 );
 CREATE INDEX IF NOT EXISTS service_calls_by_time ON service_calls(at);
 CREATE INDEX IF NOT EXISTS service_calls_by_record ON service_calls(record_id);
@@ -154,12 +165,14 @@ CREATE INDEX IF NOT EXISTS service_calls_by_record ON service_calls(record_id);
 @dataclass(frozen=True)
 class Origin:
     """Which service a call is to: the host it is at (`provider`), the model, and whether
-    on the user's own key. A user's own LLM is named neither by host nor by model (`OWN`)."""
+    on the user's own key. A user's own LLM is named neither by host nor by model (`OWN`);
+    an LLM's calls say the effort it was asked to think at, if any."""
 
     service: ServiceName
     provider: str
     model: str
     own_key: bool = False
+    effort: ReasoningEffort | None = None
 
 
 OWN = "own"
@@ -174,10 +187,11 @@ def host(url: str | None) -> str:
 
 def llm_origin(service: ServiceName, settings: LLMSettings, own_key: bool = False) -> Origin:
     """The LLM `settings` describe, as its service calls are recorded: a user's own (with
-    `own_key`) only as `OWN`, whichever host and model it is."""
+    `own_key`) only as `OWN`, whichever host and model it is; either at its effort."""
+    effort = settings.reasoning_effort
     if own_key:
-        return Origin(service, OWN, OWN, own_key=True)
-    return Origin(service, host(settings.base_url), settings.model)
+        return Origin(service, OWN, OWN, own_key=True, effort=effort)
+    return Origin(service, host(settings.base_url), settings.model, effort=effort)
 
 
 @dataclass(frozen=True)
@@ -187,6 +201,8 @@ class ServiceCall:
     error: ErrorKind | None
     latency_ms: float | None
     billed: Billing
+    first_token_ms: float | None = None
+    """For an LLM, how soon its first text or tool call came; None if none did."""
 
 
 CallEndReason = Literal[
@@ -254,6 +270,10 @@ class CallRow:
     usage_unit: str | None
     usage_input: float | None
     usage_output: float | None
+    effort: ReasoningEffort | None = None
+    """For an LLM, the effort it was asked to think at; None for none asked."""
+    first_token_ms: float | None = None
+    """For an LLM, how soon its first text or tool call came; None if none did."""
 
 
 _current: ContextVar["Recording | None"] = ContextVar("activity_record", default=None)
@@ -371,6 +391,7 @@ class ActivityLog:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
             _let_latency_be_unknown(self._db)
+            _add_first_token_columns(self._db)
             _add_judgement_columns(self._db)
             _forget_own_llms(self._db)
         self._clock = clock
@@ -389,11 +410,20 @@ class ActivityLog:
         self._forget_before(now - KEPT)
         return Recording(self, kind, user_id, character_id, now, own_llm, exempt)
 
-    def call(self, origin: Origin, started: float, error: ErrorKind | None, billed: Billing) -> None:
+    def call(
+        self,
+        origin: Origin,
+        started: float,
+        error: ErrorKind | None,
+        billed: Billing,
+        first_token: float | None = None,
+    ) -> None:
         """A service call, begun at `started` (`perf_counter`), has ended: recorded under
-        the turn it was made in, if it is still open, or on its own."""
+        the turn it was made in, if it is still open, or on its own. An LLM's says when its
+        first text or tool call came (`first_token`, also `perf_counter`), if one did."""
         call = ServiceCall(
-            origin, self._clock(), error, (perf_counter() - started) * 1000, billed
+            origin, self._clock(), error, (perf_counter() - started) * 1000, billed,
+            (first_token - started) * 1000 if first_token is not None else None,
         )
         self.record(call, _current.get())
 
@@ -418,7 +448,8 @@ class ActivityLog:
             ).fetchall()
             calls = self._db.execute(
                 "SELECT service, provider, model, own_key, at, error, latency_ms, usage_unit,"
-                " usage_input, usage_output FROM service_calls WHERE at > ? ORDER BY at",
+                " usage_input, usage_output, reasoning_effort, first_token_ms"
+                " FROM service_calls WHERE at > ? ORDER BY at",
                 (at,),
             ).fetchall()
         return (
@@ -435,9 +466,11 @@ class ActivityLog:
             ],
             [
                 CallRow(service, provider, model, bool(own), _time(at), error, latency,
-                        unit, used_in, used_out)
-                for service, provider, model, own, at, error, latency, unit, used_in, used_out
-                in calls
+                        unit, used_in, used_out, effort, first)
+                for (
+                    service, provider, model, own, at, error, latency, unit, used_in, used_out,
+                    effort, first,
+                ) in calls
             ],
         )
 
@@ -524,12 +557,12 @@ class ActivityLog:
         origin, billed = call.origin, call.billed
         self._db.execute(
             "INSERT INTO service_calls (record_id, at, service, provider, model, own_key,"
-            " error, latency_ms, usage_unit, usage_input, usage_output)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " error, latency_ms, usage_unit, usage_input, usage_output, first_token_ms,"
+            " reasoning_effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record_id, call.at.timestamp(), origin.service, origin.provider, origin.model,
                 int(origin.own_key), call.error, call.latency_ms, billed.unit, billed.input,
-                billed.output,
+                billed.output, call.first_token_ms, origin.effort,
             ),
         )
 
@@ -586,6 +619,15 @@ def _add_judgement_columns(db: sqlite3.Connection) -> None:
             db.execute(f"ALTER TABLE activity_records ADD COLUMN {column} INTEGER")
 
 
+def _add_first_token_columns(db: sqlite3.Connection) -> None:
+    """Service calls written before LLMs' first words were timed have no columns for that,
+    nor for the effort they were asked to think at."""
+    columns = {name for _, name, *_ in db.execute("PRAGMA table_info(service_calls)")}
+    for column, kind in [("first_token_ms", "REAL"), ("reasoning_effort", "TEXT")]:
+        if column not in columns:
+            db.execute(f"ALTER TABLE service_calls ADD COLUMN {column} {kind}")
+
+
 def _let_latency_be_unknown(db: sqlite3.Connection) -> None:
     """Service calls written before calls were recorded always had a latency; a database
     of theirs is copied into the table as it is now."""
@@ -594,7 +636,8 @@ def _let_latency_be_unknown(db: sqlite3.Connection) -> None:
         return
     db.execute("ALTER TABLE service_calls RENAME TO service_calls_before")
     db.executescript(_SCHEMA)
-    db.execute("INSERT INTO service_calls SELECT * FROM service_calls_before")
+    kept = ", ".join(name for _, name, *_ in columns)
+    db.execute(f"INSERT INTO service_calls ({kept}) SELECT {kept} FROM service_calls_before")
     db.execute("DROP TABLE service_calls_before")
     db.executescript(_SCHEMA)  # the indexes went with the old table
 
@@ -689,6 +732,7 @@ class _MeteredLLM:
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
         started = perf_counter()
+        first_token: float | None = None  # its first text or tool call; thinking is neither
         billed = Billing()
         error: ErrorKind | None = None
         stream = aiter(self._llm.stream(messages, tools, forbid_calls=forbid_calls))
@@ -701,6 +745,8 @@ class _MeteredLLM:
                         item = await anext(stream)
                     except StopAsyncIteration:
                         break
+                if first_token is None and item and not isinstance(item, Reasoning):
+                    first_token = perf_counter()
                 yield item
         except (GeneratorExit, asyncio.CancelledError):
             raise  # abandoned, not failed
@@ -710,7 +756,7 @@ class _MeteredLLM:
         finally:
             if (close := getattr(stream, "aclose", None)) is not None:
                 await close()
-            self._log.call(self._origin, started, error, billed)
+            self._log.call(self._origin, started, error, billed, first_token)
 
     async def aclose(self) -> None:
         pass  # whoever opened the model closes it

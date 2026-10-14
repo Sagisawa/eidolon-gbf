@@ -7,15 +7,16 @@ external API with a clock the tests control."""
 import sqlite3
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
 
-from eidolon.activity import OWN
-from eidolon.config import Settings, UsageLimits
+from eidolon.activity import OWN, ActivityLog, llm_origin, metered_llm
+from eidolon.config import LLMSettings, Settings, UsageLimits
 from eidolon.engine import MAX_INPUT_LENGTH
-from eidolon.llm import ChatLLM, LLMError
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Streamed, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
@@ -389,3 +390,107 @@ async def test_a_turn_rejected_for_its_input_is_recorded_rejected(
 
     assert rejected[-1] == {"type": "error", "message": f"这句话太长了，最多 {MAX_INPUT_LENGTH} 字。"}
     assert board["turns"]["by_result"] == {"success": 0, "failed": 0, "rejected": 1, "left": 0}
+
+
+SLOW = 0.2
+"""How long, in seconds, the model below waits before each piece after its first."""
+
+
+async def drain(llm: ChatLLM) -> None:
+    async for _ in llm.stream([ChatMessage("user", "你好")]):
+        pass
+
+
+@pytest.mark.parametrize("first_word", [ToolCall("c1", "recall", {}), "はい"])
+async def test_an_llm_call_records_its_first_words_time_but_not_its_thinking_and_its_effort(
+    tmp_path: Path, first_word: Streamed
+):
+    activity = ActivityLog(tmp_path / "eidolon.db", FakeClock())
+    model = LLMSettings("http://llm.invalid/v1", "k", "m", reasoning_effort="high")
+    llm = metered_llm(
+        FakeLLM([Reasoning({"text": "想想"}), first_word, "っ"], delay=SLOW),
+        activity, llm_origin("chat_llm", model),
+    )
+
+    await drain(llm)
+    [call] = activity.since(START - timedelta(days=1))[1]
+    activity.close()
+
+    assert (call.effort, call.error) == ("high", None)
+    assert call.first_token_ms is not None and call.latency_ms is not None
+    # Thinking came at once, the first word only after it; the whole reply later still.
+    assert call.first_token_ms >= SLOW * 1000 * 0.75
+    assert call.latency_ms - call.first_token_ms >= SLOW * 1000 * 0.75
+
+
+async def test_an_llm_call_failing_before_any_word_has_no_first_words_time(tmp_path: Path):
+    activity = ActivityLog(tmp_path / "eidolon.db", FakeClock())
+    llm = metered_llm(
+        FakeLLM(LLMError("模型返回 503: overloaded")), activity,
+        llm_origin("memory_llm", LLMSettings("http://llm.invalid/v1", "k", "m")),
+    )
+
+    with pytest.raises(LLMError):
+        await drain(llm)
+    [call] = activity.since(START - timedelta(days=1))[1]
+    activity.close()
+
+    assert (call.error, call.first_token_ms, call.effort) == ("server_error", None, None)
+
+
+async def test_the_dashboard_shows_each_effort_of_an_llm_on_a_row_with_its_first_words_times(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    high = replace(settings, chat_llm=replace(settings.chat_llm, reasoning_effort="high"))
+    thinking = make_client(FakeLLM(REPLY, REPLY), settings=high, clock=clock)
+    unset = make_client(
+        FakeLLM(REPLY), "friend", clock=clock, retrieval_judge=FakeJudge(None),
+        embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+    )
+    admin = await admin_client(make_client, github, clock)
+
+    conversation_id = await start_conversation(thinking)
+    await send_turn(thinking, conversation_id, "在吗")
+    await send_turn(thinking, conversation_id, "在吗")
+    await send_turn(unset, await start_conversation(unset), "在吗")
+    board = await dashboard(admin)
+
+    chat = [h for h in board["health"] if h["service"] == "chat_llm"]
+    assert [(h["effort"], h["calls"]) for h in chat] == [(None, 1), ("high", 2)]
+    for row in chat:
+        assert row["first_token_ms"]["p50"] is not None
+        assert row["first_token_ms"]["p95"] is not None
+    judge = health(board, "judge")
+    assert judge is not None and judge["calls"] == 1
+    assert "effort" not in judge and "first_token_ms" not in judge
+
+
+async def test_a_database_from_before_first_words_were_timed_takes_them_now(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    """Service calls recorded before had no first word's time nor effort; they keep
+    neither, and are shown on the row of no effort."""
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "CREATE TABLE service_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, record_id"
+            " INTEGER, at REAL NOT NULL, service TEXT NOT NULL, provider TEXT NOT NULL,"
+            " model TEXT NOT NULL, own_key INTEGER NOT NULL DEFAULT 0, error TEXT,"
+            " latency_ms REAL, usage_unit TEXT, usage_input REAL, usage_output REAL)"
+        )
+        db.execute(
+            "INSERT INTO service_calls (at, service, provider, model, latency_ms)"
+            " VALUES (?, 'chat_llm', 'llm.invalid', 'test-model', 900)",
+            (START.timestamp(),),
+        )
+    clock = FakeClock()
+
+    admin = await admin_client(make_client, github, clock)
+    with sqlite3.connect(settings.database_path) as db:
+        kept = db.execute("SELECT first_token_ms, reasoning_effort FROM service_calls").fetchall()
+    chat = health(await dashboard(admin), "chat_llm")
+
+    assert kept == [(None, None)]
+    assert chat is not None
+    assert (chat["calls"], chat["effort"], chat["latency_ms"]["p50"]) == (1, None, 900)
+    assert chat["first_token_ms"] == {"p50": None, "p95": None}
