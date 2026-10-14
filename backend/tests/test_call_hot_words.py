@@ -2,7 +2,8 @@
 is told to listen out for, made once as the server starts from the readings file, the
 characters' Chinese names and the world setting's units, and given to every call, on the
 deployer's key or the user's own: Alibaba Cloud Model Studio (阿里云百炼) as the task's
-`vocabulary`, each at weight 4, Soniox as its context's `terms`."""
+`vocabulary`, each at weight 4 but those in Latin letters at 50, Soniox as its context's
+`terms`."""
 
 import json
 import logging
@@ -19,7 +20,8 @@ from pipecat.services.stt_service import STTService
 from pipecat.tests.utils import SleepFrame, run_test
 
 from eidolon.assembly import Backend
-from eidolon.config import Settings, SttKey
+from eidolon.bailian import BailianSTTService
+from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings, SttKey
 from eidolon.own_keys import BroughtKeys
 from eidolon.world import Idol, Unit, World
 from tests.conftest import CharacterConfig
@@ -122,7 +124,7 @@ async def hear(stt: STTService) -> list[ErrorFrame]:
     [BroughtKeys(), BroughtKeys(stt=SttKey("bailian", MY_DASHSCOPE, "beijing"))],
     ids=["deployers-key", "own-key"],
 )
-async def test_a_call_heard_by_alibaba_cloud_model_studio_asks_for_the_hot_words_at_weight_4(
+async def test_a_call_heard_by_alibaba_cloud_model_studio_asks_for_the_hot_words_the_latin_ones_at_50(
     started: Backend, dashscope: FakeDashScope, brought: BroughtKeys
 ):
     dashscope.keys[DEPLOYERS_DASHSCOPE] = "beijing"
@@ -135,10 +137,27 @@ async def test_a_call_heard_by_alibaba_cloud_model_studio_asks_for_the_hot_words
     assert errors == []
     [task] = dashscope.tasks
     parameters = task.run_task["payload"]["parameters"]
-    assert parameters["vocabulary"] == {word: 4 for word in HOT_WORDS}
+    assert parameters["vocabulary"] == {
+        word: 50 if word in ("L'Antica", "illumination STARS") else 4 for word in HOT_WORDS
+    }
     assert parameters["language_hints"] == ["zh", "ja"]
     assert "vocabulary_id" not in parameters
     assert "context" not in task.run_task["payload"]["input"]
+
+
+async def test_no_more_than_50_latin_hot_words_are_asked_for_at_50(dashscope: FakeDashScope):
+    dashscope.keys[DEPLOYERS_DASHSCOPE] = "beijing"
+    latin = [f"Unit {i}" for i in range(51)]
+
+    await hear(BailianSTTService(
+        api_key=DEPLOYERS_DASHSCOPE, model=DEFAULT_BAILIAN_STT_MODEL, region="beijing",
+        hot_words=latin,
+    ))
+
+    [task] = dashscope.tasks
+    assert task.run_task["payload"]["parameters"]["vocabulary"] == {
+        **{word: 50 for word in latin[:50]}, latin[50]: 4
+    }
 
 
 async def test_words_too_long_for_the_services_are_said_to_be_skipped_as_the_server_starts(

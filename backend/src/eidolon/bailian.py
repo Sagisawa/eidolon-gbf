@@ -83,6 +83,18 @@ HOT_WORD_WEIGHT = 4
 """How strongly each hot word is listened out for, of 1 to 5: what DashScope recommends.
 Higher has words that merely sound alike heard as the hot word."""
 
+LATIN_HOT_WORD_WEIGHT = 50
+"""How strongly a hot word in Latin letters (L'Antica, noctchill) is listened out for: as a
+super hot word, of which DashScope takes at most `MAX_LATIN_HOT_WORDS`. Said in Chinese, at
+`HOT_WORD_WEIGHT` they came out as transliterations (L'Antica as 梁缇卡) whether or not the
+language hints include English; at 50 they were heard right and the Chinese names and
+ordinary sentences (田中, 巡逻) the same (ticket retrieval-and-hotwords 04). Numbers (283)
+stay at `HOT_WORD_WEIGHT`, so that ordinary numbers are not heard as them."""
+
+MAX_LATIN_HOT_WORDS = 50
+"""The most super hot words DashScope takes; those past it are listened out for at
+`HOT_WORD_WEIGHT`."""
+
 FOLLOW_ON_TIMEOUT = 3.0
 """How long, in seconds since the user was last heard, a follow-on may take to be
 transcribed (see `call.Hearing`). A sentence ended at most 1.61 s after the last of it was
@@ -364,7 +376,7 @@ async def _run_task(websocket: ClientConnection, model: str, hot_words: Sequence
     task_id = uuid.uuid4().hex
     parameters = dict(PARAMETERS)
     if hot_words:
-        parameters["vocabulary"] = dict.fromkeys(hot_words, HOT_WORD_WEIGHT)
+        parameters["vocabulary"] = _vocabulary(hot_words)
     await websocket.send(json.dumps({
         "header": {"action": "run-task", "task_id": task_id, "streaming": "duplex"},
         "payload": {
@@ -386,6 +398,16 @@ async def _run_task(websocket: ClientConnection, model: str, hot_words: Sequence
                     f"启动不了 {model} 的识别任务（{_failure(header)}）；"
                     f"如果还没开通这个模型，去阿里云百炼控制台开通 {model}"
                 )
+
+
+def _vocabulary(hot_words: Sequence[str]) -> dict[str, int]:
+    """The task's `vocabulary`: each of `hot_words` with its weight, the first
+    `MAX_LATIN_HOT_WORDS` in Latin letters at `LATIN_HOT_WORD_WEIGHT`."""
+    latin = [w for w in hot_words if w.isascii() and any(c.isalpha() for c in w)]
+    super_words = set(latin[:MAX_LATIN_HOT_WORDS])
+    return {
+        w: LATIN_HOT_WORD_WEIGHT if w in super_words else HOT_WORD_WEIGHT for w in hot_words
+    }
 
 
 def _finish_task_message(task_id: str) -> str:
