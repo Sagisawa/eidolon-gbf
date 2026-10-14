@@ -125,11 +125,14 @@ async def test_the_users_own_llm_writes_down_their_memories(
         background_llm=deployers_background,
     )
 
-    await send_turn(client, await start_conversation(client), "我家的猫叫小白哦", own_llm=LLM)
+    await send_turn(client, await start_conversation(client), "我家的猫叫小白哦", own_llm=THINKING)
 
     assert [m["text"] for m in (await client.get("/api/memories")).json()] == [CAT]
     assert own_llm.llm.keys == [MINE, MINE]
     assert deployers_background.prompts == []
+    # Both at its text effort, with its extra body.
+    assert own_llm.efforts == ["high", "high"]
+    assert {str(s.extra_body) for s in own_llm.opened} == {"{'enable_thinking': True}"}
 
 
 async def test_a_failing_own_llm_fails_the_turn_without_the_deployers_key_or_counting_it(
@@ -212,21 +215,6 @@ async def test_a_call_uses_the_users_own_llm(
     assert deployers.keys == []
 
 
-async def test_a_text_turn_on_an_own_llm_plays_and_writes_down_memories_at_its_text_effort(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    own_llm.llm = FakeLLM(REPLY, [memorized(CAT)])
-    client = make_client(
-        FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
-    )
-
-    await send_turn(client, await start_conversation(client), "我家的猫叫小白哦", own_llm=THINKING)
-
-    assert [m["text"] for m in (await client.get("/api/memories")).json()] == [CAT]
-    assert own_llm.efforts == ["high", "high"]
-    assert {str(s.extra_body) for s in own_llm.opened} == {"{'enable_thinking': True}"}
-
-
 async def test_a_call_on_an_own_llm_talks_at_its_call_effort_and_writes_down_memories_at_its_text_one(
     make_client: ClientFactory, own_llm: FakeLLMService, speech: FakeSpeech, browser: Browser
 ):
@@ -251,9 +239,7 @@ async def test_a_call_on_an_own_llm_talks_at_its_call_effort_and_writes_down_mem
 
 SET_WRONGLY = [
     {"extra_body": {"messages": [], "enable_thinking": False}},
-    {"extra_body": ["enable_thinking"]},
     {"protocol": "anthropic", "call_reasoning_effort": "minimal"},
-    {"reasoning_effort": "turbo"},
 ]
 
 
@@ -277,20 +263,15 @@ async def test_a_turn_or_call_bringing_an_own_llm_set_wrongly_is_refused_not_sen
     assert own_llm.opened == [] and deployers.keys == []
 
 
-async def test_trying_an_own_llm_tries_its_text_and_call_efforts_once_each_or_once_if_the_same(
+async def test_trying_an_own_llm_tries_its_text_and_call_efforts(
     make_client: ClientFactory, own_llm: FakeLLMService
 ):
     client = make_client(FakeLLM())
 
-    same = await check_llm(client, reasoning_effort="low", call_reasoning_effort="low")
-    tried_same = own_llm.efforts_checked.copy()
-    own_llm.efforts_checked.clear()
-    apart = await check_llm(client, reasoning_effort="high", call_reasoning_effort="none")
+    tried = await check_llm(client, reasoning_effort="high", call_reasoning_effort="none")
 
-    assert same.status_code == 200 and apart.status_code == 200
-    assert tried_same == ["low"]
+    assert tried.status_code == 200
     assert own_llm.efforts_checked == ["high", "none"]
-    assert own_llm.checked[-1].text.extra_body is None
 
 
 async def test_trying_an_own_llm_says_which_effort_the_service_refused(

@@ -103,7 +103,7 @@ class OwnLLMInput(BaseModel):
         return self
 
     def settings(self) -> LLMSettings:
-        """As turns run on it: its address and model without surrounding spaces."""
+        """The model as turns run on it: its address and model without surrounding spaces."""
         return LLMSettings(
             self.base_url.strip(), self.api_key.get_secret_value(), self.model.strip(),
             self.protocol, reasoning_effort=self.reasoning_effort, extra_body=self.extra_body,
@@ -121,7 +121,8 @@ class OwnChatLLMInput(OwnLLMInput):
         _require_writable(self.call_reasoning_effort, self.protocol)
         return self
 
-    def normalized(self) -> ChatModelSettings:
+    def chat_settings(self) -> ChatModelSettings:
+        """Its `settings`, with its effort in calls."""
         return ChatModelSettings(self.settings(), self.call_reasoning_effort)
 
 
@@ -160,7 +161,7 @@ class OwnKeysInput(BaseModel):
 
     def brought(self) -> BroughtKeys:
         return BroughtKeys(
-            self.llm.normalized() if self.llm else None,
+            self.llm.chat_settings() if self.llm else None,
             self.tts.api_key.get_secret_value() if self.tts else None,
             self.stt.key() if self.stt else None,
         )
@@ -351,7 +352,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         browser keeps it, keeping nothing here; 422 with what the service said if the try
         failed, or with why its effort or extra body cannot be sent. Its address and model
         as the browser is to keep them."""
-        own = body.normalized()
+        own = body.chat_settings()
         await own_keys.check_llm(own)
         return {"base_url": own.text.base_url, "model": own.text.model}
 

@@ -8,6 +8,7 @@ import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { StatusDot } from "@/components/app/admin/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { EffortField, ExtraBodyField } from "@/components/app/ReasoningEffortFields";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
@@ -31,7 +32,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
@@ -63,7 +63,7 @@ import {
   UNLIMITED,
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/localOwnKeys";
-import { EFFORT_ITEMS, EFFORT_UNSET, effortChoices, effortLabel } from "@/lib/reasoningEffort";
+import { EFFORT_UNSET, effortLabel } from "@/lib/reasoningEffort";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FailureIcon } from "@/theme/icons";
 
@@ -445,50 +445,29 @@ function AvailableItem({
                 }
                 if (field.kind === "effort") {
                   return (
-                    <Field key={field.name} data-invalid={problem ? true : undefined}>
-                      <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
-                      <Select
-                        items={EFFORT_ITEMS}
-                        value={form[field.name]}
-                        onValueChange={(value) => value && set(field.name)(String(value))}
-                      >
-                        <SelectTrigger id={fieldId} className="w-full" aria-invalid={problem ? true : undefined}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {/* Anthropic 接口没有「极低」，不列（ADR-0019）。 */}
-                          {effortChoices(form.protocol).map((value) => (
-                            <SelectItem key={value} value={value}>
-                              {effortLabel(value)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FieldDescription>{fieldHint(name, field, keysEditable)}</FieldDescription>
-                      {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
-                    </Field>
+                    <EffortField
+                      key={field.name}
+                      id={fieldId}
+                      label={label}
+                      hint={fieldHint(name, field, keysEditable)}
+                      protocol={form.protocol}
+                      choice={form[field.name]}
+                      onChoose={set(field.name)}
+                      problem={problem ? t.problems[problem.reason](label) : undefined}
+                    />
                   );
                 }
                 if (field.kind === "extraBody") {
                   return (
-                    <Field key={field.name} data-invalid={problem ? true : undefined}>
-                      <FieldLabel htmlFor={fieldId}>
-                        {label}
-                        <span className="font-normal text-muted-foreground">{copy.common.optional}</span>
-                      </FieldLabel>
-                      <Textarea
-                        id={fieldId}
-                        value={form[field.name]}
-                        onChange={(event) => set(field.name)(event.target.value)}
-                        aria-invalid={problem ? true : undefined}
-                        placeholder='{"enable_thinking": false}'
-                        spellCheck={false}
-                        autoComplete="off"
-                        rows={4}
-                      />
-                      <FieldDescription>{fieldHint(name, field, keysEditable)}</FieldDescription>
-                      {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
-                    </Field>
+                    <ExtraBodyField
+                      key={field.name}
+                      id={fieldId}
+                      label={label}
+                      hint={fieldHint(name, field, keysEditable)}
+                      text={form[field.name]}
+                      onChange={set(field.name)}
+                      problem={problem ? t.problems[problem.reason](label) : undefined}
+                    />
                   );
                 }
                 if (field.kind === "select") {

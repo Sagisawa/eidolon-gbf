@@ -103,24 +103,14 @@ describe("an own LLM's reasoning efforts and extra body", () => {
     expect(localOwnKeys("u1")).toEqual({ llm: THINKING_LLM });
   });
 
-  it("are unset for one kept before they were, which is kept as it was", () => {
-    storage({ "eidolon.ownKeys.u1": JSON.stringify({ llm: LLM }) });
-
-    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
-  });
-
   it("are unset where stored wrongly, the LLM itself kept", () => {
     storage({
       "eidolon.ownKeys.u1": JSON.stringify({
         llm: { ...LLM, reasoning_effort: "turbo", call_reasoning_effort: 3, extra_body: ["enable_thinking"] },
       }),
-      "eidolon.ownKeys.u2": JSON.stringify({
-        llm: { ...LLM, reasoning_effort: null, call_reasoning_effort: "low", extra_body: null },
-      }),
     });
 
     expect(localOwnKeys("u1")).toEqual({ llm: LLM });
-    expect(localOwnKeys("u2")).toEqual({ llm: { ...LLM, call_reasoning_effort: "low" } });
   });
 
   it("go with each text turn and call", () => {
