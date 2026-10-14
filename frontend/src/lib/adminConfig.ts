@@ -18,19 +18,6 @@ export type ItemName =
   | "limits"
   | "affinity";
 
-/** The items, in the order the page shows them. */
-export const ITEMS: ItemName[] = [
-  "chat_llm",
-  "memory_llm",
-  "tts",
-  "stt",
-  "judge",
-  "judge_thresholds",
-  "rerank",
-  "limits",
-  "affinity",
-];
-
 type Value = string | number | boolean | null;
 
 /** An item's values as the admin console shows them: of a key, `<field>_last4` only. */
@@ -64,6 +51,45 @@ export type AdminConfig = {
 
 export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigItem {
   return !("unavailable" in item);
+}
+
+/** The page's tabs, in order. */
+export const CONFIG_TABS = ["models", "voice", "limits", "prices", "read_only"] as const;
+
+export type ConfigTab = (typeof CONFIG_TABS)[number];
+
+/** The items under each tab, in the order it shows them. Every item is under exactly one tab;
+ * the prices and the read-only items are not items, so their tabs list none and the page puts
+ * their cards in itself. */
+export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
+  models: ["chat_llm", "memory_llm", "judge", "judge_thresholds", "rerank"],
+  voice: ["tts", "stt"],
+  limits: ["limits", "affinity"],
+  prices: [],
+  read_only: [],
+};
+
+export function isConfigTab(value: string): value is ConfigTab {
+  return (CONFIG_TABS as readonly string[]).includes(value);
+}
+
+/** The tab a link asks for in `?tab=`; the models when it asks for none or one not there. */
+export function tabFromQuery(value: string | string[] | undefined): ConfigTab {
+  return typeof value === "string" && isConfigTab(value) ? value : "models";
+}
+
+/** The address of the page showing `tab`: the models, the default, need no query. */
+export function tabHref(pathname: string, tab: ConfigTab): string {
+  return tab === "models" ? pathname : `${pathname}?tab=${tab}`;
+}
+
+/** Whether an override under `tab` is not in effect: the tab is marked, so it is not missed
+ * from another one. */
+export function tabHasFailure(config: AdminConfig, tab: ConfigTab): boolean {
+  return TAB_ITEMS[tab].some((name) => {
+    const item = config[name];
+    return isAvailable(item) && statusDisplay(item).variant === "warning";
+  });
 }
 
 /** How an item's status is shown: the StatusDot's variant, whether it can be restored to

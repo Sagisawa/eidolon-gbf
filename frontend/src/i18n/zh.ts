@@ -881,7 +881,11 @@ export const zh = {
       intro:
         "这里改的配置存进数据库，优先于 .env。LLM、语音和判断模型保存前会先试调一次，试不通不保存；保存后新的回合和新的通话立刻用上，进行中的通话不受影响，不用重启。没有标注状态的项用的是 .env 的值。",
       loading: "正在读取…",
-      nav: "配置项",
+      /** 页首的分类标签（TabsList 的读屏名）和各个标签。 */
+      nav: "配置分类",
+      tabs: { models: "模型", voice: "语音", limits: "限额与玩法", prices: "单价", read_only: "只读" },
+      /** 标签里有覆盖没生效的项时，标签旁的琥珀色点念这一句。 */
+      tabFailed: "有覆盖没有生效",
       items: {
         chat_llm: {
           title: "扮演角色的 LLM",

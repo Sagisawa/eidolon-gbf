@@ -241,7 +241,7 @@ export function AdminPrices() {
   const editingAt = editingId === null ? -1 : listed.findIndex(({ id }) => id === editingId);
 
   return (
-    <Card id="config-prices">
+    <Card>
       <CardHeader>
         <CardTitle>
           <h2>{t.title}</h2>

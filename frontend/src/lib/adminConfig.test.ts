@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   changeOf,
+  CONFIG_TABS,
   formOf,
   exemptingKeysOf,
   ITEM_SPECS,
@@ -10,6 +11,11 @@ import {
   readOnlyValue,
   rows,
   statusDisplay,
+  TAB_ITEMS,
+  tabFromQuery,
+  tabHasFailure,
+  tabHref,
+  type AdminConfig,
   type ConfigItem,
   type Shown,
 } from "@/lib/adminConfig";
@@ -241,5 +247,31 @@ describe("tried", () => {
       .filter(([, spec]) => spec.tried)
       .map(([name]) => name);
     expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge"]);
+  });
+});
+
+describe("tabs", () => {
+  it("put every item under exactly one tab", () => {
+    const placed = CONFIG_TABS.flatMap((tab) => TAB_ITEMS[tab]);
+    expect([...placed].sort()).toEqual(Object.keys(ITEM_SPECS).sort());
+  });
+
+  it("take a tab from the address and fall back to the models", () => {
+    expect(tabFromQuery("voice")).toBe("voice");
+    for (const value of [undefined, "nope"]) expect(tabFromQuery(value), String(value)).toBe("models");
+  });
+
+  it("leave the default tab out of the address", () => {
+    expect(tabHref("/admin/config", "models")).toBe("/admin/config");
+    expect(tabHref("/admin/config", "read_only")).toBe("/admin/config?tab=read_only");
+  });
+
+  it("mark a tab holding an override not in effect, not one holding an unavailable item", () => {
+    const config = {
+      ...Object.fromEntries(Object.keys(ITEM_SPECS).map((name) => [name, item("env")])),
+      stt: item("failed"),
+      judge: { unavailable: "没有配置判断模型" },
+    } as unknown as AdminConfig;
+    expect(CONFIG_TABS.filter((tab) => tabHasFailure(config, tab))).toEqual(["voice"]);
   });
 });
