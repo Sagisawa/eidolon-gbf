@@ -5,10 +5,10 @@ import hmac
 import json
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal, Required, TypedDict, get_args
+from typing import Any, Literal, Required, TypedDict, get_args
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +96,52 @@ LLMProtocol = Literal["chat-completions", "responses", "anthropic"]
 
 LLM_PROTOCOLS: tuple[LLMProtocol, ...] = get_args(LLMProtocol)
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+"""How hard the model thinks before it replies (GLOSSARY.md「思考强度」), `none` for not at
+all; sent as each protocol writes it, whatever the model makes of it (ADR-0019)."""
+
+REASONING_EFFORTS: tuple[ReasoningEffort, ...] = get_args(ReasoningEffort)
+
+EFFORT_NAMES: dict[ReasoningEffort, str] = {
+    "none": "关闭",
+    "minimal": "极低",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "极高",
+    "max": "最高",
+}
+
+NOT_ON_ANTHROPIC: frozenset[ReasoningEffort] = frozenset({"minimal"})
+"""The efforts the Anthropic protocol has no way to write."""
+
+EXTRA_BODY_REFUSED = (
+    "model", "stream", "stream_options", "messages", "input", "instructions", "system",
+    "tools", "tool_choice",
+)
+"""What an extra request body may not set: the adapters write these to make the request."""
+
+
+def checked_extra_body(value: object) -> dict[str, Any]:
+    """`value` as an extra request body, merged into each request last; raises ValueError
+    saying why it is not one: it must be a JSON object, and not set what makes the
+    request (`EXTRA_BODY_REFUSED`). What it sets of thinking is up to the deployer."""
+    if not isinstance(value, dict):
+        raise ValueError("额外请求参数需要是一个 JSON 对象，例如 {\"enable_thinking\": false}")
+    if refused := [key for key in EXTRA_BODY_REFUSED if key in value]:
+        keys = "、".join(f"「{key}」" for key in refused)
+        raise ValueError(f"额外请求参数不能包含 {keys}：这些由服务器生成，改了会弄坏请求")
+    return value
+
+
+def effort_problem(effort: object, protocol: str) -> str | None:
+    """Why `effort` is not one a model on `protocol` may be set to, if it is not."""
+    if effort not in REASONING_EFFORTS:
+        return f"思考强度只能是 {'、'.join(REASONING_EFFORTS)} 之一，而不是 {effort}"
+    if protocol == "anthropic" and effort in NOT_ON_ANTHROPIC:
+        return f"Anthropic 接口没有「{EFFORT_NAMES[effort]}」（{effort}）这一档"
+    return None
+
 
 @dataclass(frozen=True)
 class LLMSettings:
@@ -107,6 +153,10 @@ class LLMSettings:
     protocol: LLMProtocol = "chat-completions"
     max_tokens: int | None = None
     """A cap on each reply's length; the Anthropic protocol needs one and has a default."""
+    reasoning_effort: ReasoningEffort | None = None
+    """None to send none, leaving it to the model."""
+    extra_body: dict[str, Any] | None = None
+    """Merged into every request last (see `checked_extra_body`)."""
 
     @classmethod
     def chat_from_env(cls) -> "LLMSettings":
@@ -140,13 +190,48 @@ class LLMSettings:
             max_tokens.isascii() and max_tokens.isdigit() and int(max_tokens) > 0
         ):
             raise RuntimeError(f"环境变量 {slot}_LLM_MAX_TOKENS 需要是正整数，而不是 {max_tokens}")
+        # So are the effort and the extra body: the chat's may not suit drafting a sheet.
+        effort = effort_from_env(f"{slot}_LLM_REASONING_EFFORT", protocol)
+        extra_body = None
+        if text := os.environ.get(f"{slot}_LLM_EXTRA_BODY", "").strip():
+            try:
+                extra_body = checked_extra_body(json.loads(text))
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"环境变量 {slot}_LLM_EXTRA_BODY 不是合法的 JSON：{e}") from None
+            except ValueError as e:
+                raise RuntimeError(f"环境变量 {slot}_LLM_EXTRA_BODY 有误：{e}") from None
         return cls(
             base_url=required("BASE_URL"),
             api_key=required("API_KEY"),
             model=required("MODEL"),
             protocol=protocol,  # pyright: ignore[reportArgumentType]  # checked above
             max_tokens=int(max_tokens) if max_tokens else None,
+            reasoning_effort=effort,
+            extra_body=extra_body,
         )
+
+
+def effort_from_env(name: str, protocol: str) -> ReasoningEffort | None:
+    """The reasoning effort `.env` sets in `name` for a model on `protocol`; None if it sets
+    none. Raises RuntimeError if it is not one such a model may be set to."""
+    effort = os.environ.get(name, "").strip() or None
+    if effort is not None and (problem := effort_problem(effort, protocol)):
+        raise RuntimeError(f"环境变量 {name} 有误：{problem}")
+    return effort  # pyright: ignore[reportReturnType]  # checked above
+
+
+@dataclass(frozen=True)
+class ChatModelSettings:
+    """The chat model: text turns on `text`, calls' turns on the same model at an effort of
+    their own, `call_effort`; None to send none in calls, whatever `text`'s is."""
+
+    text: LLMSettings
+    call_effort: ReasoningEffort | None = None
+
+    @property
+    def call(self) -> LLMSettings:
+        """The model as calls' turns use it."""
+        return replace(self.text, reasoning_effort=self.call_effort)
 
 
 @dataclass(frozen=True)
@@ -156,6 +241,8 @@ class Settings:
     chat_llm: LLMSettings
     background_llm: LLMSettings = None  # pyright: ignore[reportAssignmentType]  # see below
     """Left out, the background model is the chat model."""
+    call_reasoning_effort: ReasoningEffort | None = None
+    """The chat model's in calls (`CHAT_LLM_CALL_REASONING_EFFORT`): see `chat_model`."""
     ice_servers: list[IceServer] = field(default_factory=lambda: list(DEFAULT_ICE_SERVERS))
     turn: "TurnSettings | None" = None
     """A TURN server the browser gets short-lived credentials for, besides `ice_servers`."""
@@ -223,6 +310,11 @@ class Settings:
             )
 
     @property
+    def chat_model(self) -> ChatModelSettings:
+        """The chat model, as text turns and calls each use it."""
+        return ChatModelSettings(self.chat_llm, self.call_reasoning_effort)
+
+    @property
     def stt_key(self) -> SttKey | None:
         """The deployer's key for the speech recognition chosen; None without one."""
         if self.stt_provider == "bailian":
@@ -244,11 +336,15 @@ class Settings:
                 "EIDOLON_OWN_LLM_REQUIRED no longer does anything: users need not bring their"
                 " own LLM, and only the limits hold them; delete it from .env"
             )
+        chat_llm = LLMSettings.chat_from_env()
         return cls(
             database_path=database_path_from_env(),
             characters_path=characters_path_from_env(),
-            chat_llm=LLMSettings.chat_from_env(),
+            chat_llm=chat_llm,
             background_llm=LLMSettings.background_from_env(),
+            call_reasoning_effort=effort_from_env(
+                "CHAT_LLM_CALL_REASONING_EFFORT", chat_llm.protocol
+            ),
             ice_servers=_ice_servers(os.environ.get("EIDOLON_ICE_SERVERS")),
             turn=TurnSettings.from_env(),
             stt_provider=_stt_provider(),

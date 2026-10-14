@@ -8,6 +8,7 @@ import {
   type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
+import type { EffortHint } from "@/lib/reasoningEffort";
 import { detectTimezone } from "@/lib/timezone";
 import type { Speaking } from "@/lib/call";
 import type { Emotion, Nod } from "@/lib/standAnimations";
@@ -365,6 +366,19 @@ export async function checkOwnLLM(llm: LocalLLM): Promise<Pick<LocalLLM, "base_u
       body: JSON.stringify(llm),
     }),
   );
+}
+
+/** How the model at `baseUrl` named `model` thinks, as models.dev lists it, for the efforts
+ * `protocol` sends; null when it is not listed. A hint only (ADR-0019), for the deployer's model
+ * and the user's own alike: no key is sent. */
+export async function getEffortHint(
+  protocol: string,
+  baseUrl: string,
+  model: string,
+  signal?: AbortSignal,
+): Promise<EffortHint | null> {
+  const query = new URLSearchParams({ protocol, base_url: baseUrl, model });
+  return json(await api(`/api/account/keys/llm/efforts?${query}`, { signal }));
 }
 
 /**

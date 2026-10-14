@@ -2,6 +2,23 @@
 // 按界面分组；带参数的句子写成函数，参数的位置由各语言自己决定。
 // 术语以 GLOSSARY.md 为准（对话、通话、通话层、麦克风静音、只看文字、印象色……）。
 
+/** 思考强度和额外请求参数的说明：后台的模型和设置页的自带 LLM 共用，措辞保持一致。 */
+const reasoningEffortHints = {
+  effort:
+    "不设置时什么都不发，交给模型自己的默认；其他档原样发给服务，服务不支持时试调会报错。用额外请求参数控制思考时选「不设置」。",
+  callEffort:
+    "通话里的回合用这一档，文字对话用上面那一档。不设置时通话里什么都不发，不沿用文字那一档；想让她在通话里开口快一些，可以只把这一项设成「关闭」或「低」。两档不同时，保存时各试调一次。",
+  extraBody:
+    '一个 JSON 对象，深合并进每次请求，能覆盖思考强度生成的参数，例如 Qwen 的 {"enable_thinking": false}。不能包含 model、messages、tools 这类由服务器生成的字段。',
+};
+
+/** 思考强度和额外请求参数填错时的提示，`field` 是那一项的名字。后台和设置页共用。 */
+const reasoningEffortProblems = {
+  effort: (field: string) => `Anthropic 接口没有「极低」这一档，请给${field}换一档。`,
+  json: (field: string) => `${field}不是合法的 JSON。`,
+  jsonObject: (field: string) => `${field}需要是一个 JSON 对象（用 { } 括起来），留空表示不设置。`,
+};
+
 export const zh = {
   app: {
     name: "Eidolon-SC",
@@ -32,6 +49,29 @@ export const zh = {
   ownServices: { llm: "LLM", tts: "语音合成", stt: "语音识别" },
   /** 把几项服务列成一句：「LLM」「LLM 和语音识别」「LLM、语音合成和语音识别」。 */
   serviceList: { separator: "、", last: "和" },
+  /** 思考强度（GLOSSARY.md「思考强度」）的各档：下拉框里中文名后面括号写发给服务的原值。 */
+  reasoningEffort: {
+    unset: "不设置",
+    names: { none: "关闭", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" } as Record<string, string>,
+    option: (name: string, value: string) => `${name}（${value}）`,
+    hints: reasoningEffortHints,
+    problems: reasoningEffortProblems,
+    /** 档位提示（ADR-0019）：models.dev 里查得到这个模型时，下拉框里目录没写的档位旁边的标注，和下拉框下面的一句话。 */
+    catalog: {
+      unlisted: "models.dev 未列出",
+      source: (provider: string, model: string) => `据 models.dev 里 ${provider} 的 ${model}：`,
+      efforts: (names: string) => `支持${names}`,
+      separator: "、",
+      noEfforts: "不按档位调节",
+      turnsOff: {
+        by_effort: "可以关闭思考",
+        by_switch: "用它自己的开关关闭思考，「关闭」不一定管用，可以改用额外请求参数关",
+        none: "不能关闭思考",
+      },
+      doesNotThink: "这个模型不思考",
+      onlyAHint: "仅供参考，不影响保存。",
+    },
+  },
   conversationList: {
     title: "对话",
     noneSelected: "选一位偶像开始对话",
@@ -482,6 +522,15 @@ export const zh = {
       baseUrl: "接口地址（base_url）",
       model: "模型名",
       apiKey: "API key",
+      /** 修改已存的 LLM 时，key 一栏留空就沿用存着的那把。 */
+      keepApiKey: "留空则沿用现在的密钥。",
+      textEffort: "文字的思考强度",
+      textEffortHint: "文字对话和记住你说的事都用这一档。",
+      callEffort: "通话的思考强度",
+      extraBody: "额外请求参数",
+      /** 已存的 LLM 设了思考强度或额外请求参数时，摘要多一行。 */
+      llmThinking: (text: string, call: string) => `思考强度：文字 ${text}，通话 ${call}`,
+      llmExtraBody: "带额外请求参数",
       fill: "填写",
       edit: "修改",
       remove: "删除",
@@ -651,6 +700,9 @@ export const zh = {
         errorRate: "出错率",
         errors: "出错类别",
         latency: "延迟 p50 / p95",
+        effort: "思考强度",
+        firstToken: "首字 p50 / p95",
+        atEffort: (effort: string) => `思考强度${effort}`,
         usage: "计费用量",
         own: "自带密钥",
         empty: "这段时间没有服务调用。",
@@ -938,6 +990,9 @@ export const zh = {
         base_url: "接口地址（base_url）",
         model: "模型名",
         max_tokens: "max_tokens",
+        reasoning_effort: "思考强度",
+        call_reasoning_effort: "通话的思考强度",
+        extra_body: "额外请求参数",
         api_key: "API key",
         provider: "服务",
         soniox_api_key: "Soniox 的 key",
@@ -962,7 +1017,12 @@ export const zh = {
         exempting_stt: "免限额密钥：语音识别",
         enabled: "好感度和礼物",
       } as Record<string, string>,
+      /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
+      itemFields: { chat_llm: { reasoning_effort: "文字的思考强度" } } as Partial<Record<string, Record<string, string>>>,
       formHints: {
+        reasoning_effort: `${reasoningEffortHints.effort}选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。`,
+        call_reasoning_effort: reasoningEffortHints.callEffort,
+        extra_body: reasoningEffortHints.extraBody,
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
         emotion_timeout: "大于 0、不超过 30 秒；超时的那一段不判断情绪。",
         stt_api_key: "填写所选服务的 key，留空则沿用这家已有的 key。",
@@ -978,6 +1038,7 @@ export const zh = {
       problems: {
         required: (field: string) => `${field}不能为空。`,
         maxTokens: (field: string) => `${field}需要是正整数，留空用默认值。`,
+        ...reasoningEffortProblems,
         probability: (field: string) => `${field}需要是 0 到 1 之间的数。`,
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
@@ -996,7 +1057,7 @@ export const zh = {
       } as Record<string, string>,
       regions: { beijing: "北京", singapore: "新加坡" } as Record<string, string>,
       followsChat:
-        "当前跟随扮演角色的 LLM：.env 里没有单独设置 BACKGROUND_LLM_*，后台也没有覆盖，所以用的是扮演角色的 LLM 当前生效的值。在这里保存后就单独设置。",
+        "当前跟随扮演角色的 LLM：.env 里没有给它单独设置服务和模型，后台也没有覆盖，所以接口类型、地址、key 和模型名用的是扮演角色的 LLM 当前生效的值；max_tokens、思考强度和额外请求参数仍是它自己的（.env 的 BACKGROUND_LLM_*）。在这里保存后就单独设置。",
       forModel: (model: string) =>
         `这里的阈值只对当前的模型 ${model} 生效；换了模型（包括改了 .env 后重启）以后，这里的覆盖不再生效。`,
       unavailable: (reason: string) => `${reason}。`,

@@ -18,10 +18,10 @@ import threading
 from collections.abc import Awaitable, Callable
 from typing import Generic, Protocol, TypeVar
 
-from eidolon.config import JudgeSettings, LLMSettings
+from eidolon.config import ChatModelSettings, JudgeSettings, LLMSettings
 from eidolon.judge import JudgeModel, open_judge
-from eidolon.llm import ChatLLM
-from eidolon.llm.providers import open_llm
+from eidolon.llm import ChatLLM, ChatModels
+from eidolon.llm.providers import open_chat_models, open_llm
 
 
 class ServiceClients(Protocol):
@@ -29,8 +29,8 @@ class ServiceClients(Protocol):
     closed by whoever made it through this. Speech synthesis and recognition have none:
     each call makes its own from the keys (see `call.Speech`)."""
 
-    def chat_llm(self, settings: LLMSettings) -> ChatLLM:
-        """The model `settings` describe, to play the characters."""
+    def chat_models(self, settings: ChatModelSettings) -> ChatModels:
+        """The model `settings` describe, to play the characters in text turns and calls."""
         ...
 
     def memory_llm(self, settings: LLMSettings) -> ChatLLM:
@@ -45,8 +45,8 @@ class ServiceClients(Protocol):
 class ProviderClients:
     """The clients of the real services."""
 
-    def chat_llm(self, settings: LLMSettings) -> ChatLLM:
-        return open_llm(settings)
+    def chat_models(self, settings: ChatModelSettings) -> ChatModels:
+        return open_chat_models(settings)
 
     def memory_llm(self, settings: LLMSettings) -> ChatLLM:
         return open_llm(settings)
@@ -117,6 +117,11 @@ class Swappable(Generic[C, S]):
     def current(self) -> C:
         """The client in effect now, to try it: what is asked of it is not recorded."""
         return self._current.client
+
+    @property
+    def settings(self) -> S:
+        """What the client in effect now was made from."""
+        return self._current.settings
 
     def lease(self) -> Lease[C, S]:
         with self._lock:

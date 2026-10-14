@@ -7,7 +7,16 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.config import ReasoningEffort
+from eidolon.llm import (
+    ChatMessage,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+    merge_extra_body,
+)
 from eidolon.llm.sse import parse_arguments, stream_events
 
 log = logging.getLogger(__name__)
@@ -18,6 +27,9 @@ several thousand tokens, and the model's reasoning, if it streams any, counts to
 
 API_VERSION = "2023-06-01"
 
+THINKING_DELTAS = {"thinking_delta": "thinking", "signature_delta": "signature"}
+"""The deltas a thinking block streams in, each to the field of the block it adds to."""
+
 
 class AnthropicLLM:
     def __init__(
@@ -27,16 +39,24 @@ class AnthropicLLM:
         model: str,
         client: httpx.AsyncClient | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/messages"
         self._api_key = api_key
         self._model = model
         self._max_tokens = max_tokens or DEFAULT_MAX_TOKENS
+        self._effort = reasoning_effort
+        self._extra_body = extra_body
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         body: dict[str, Any] = {
             "model": self._model,
             "stream": True,
@@ -45,12 +65,25 @@ class AnthropicLLM:
         if system := "\n\n".join(m.content for m in messages if m.role == "system"):
             body["system"] = system
         body["messages"] = _messages([m for m in messages if m.role != "system"])
+        if self._effort == "none":
+            body["thinking"] = {"type": "disabled"}
+        elif self._effort is not None:
+            # Not shown, what it thinks still goes back in a tool round by its signature,
+            # and it starts to say something sooner.
+            body["thinking"] = {"type": "adaptive", "display": "omitted"}
+            body["output_config"] = {"effort": self._effort}
         if tools:
             body["tools"] = [
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
                 for t in tools
             ]
+            if forbid_calls:
+                body["tool_choice"] = {"type": "none"}
+        body = merge_extra_body(body, self._extra_body)
         calls: dict[int, dict[str, Any]] = {}  # content block index → the tool_use so far
+        # Content block index → a thinking or redacted_thinking block as streamed so far,
+        # which goes back as it came: its signature binds it to what came before.
+        thinking: dict[int, dict[str, Any]] = {}
         usage: dict[str, Any] = {}  # as the message started, updated as it goes
         headers = {"x-api-key": self._api_key, "anthropic-version": API_VERSION}
         async for event in stream_events(self._client, self._url, body, headers):
@@ -59,7 +92,9 @@ class AnthropicLLM:
                 usage.update((event.get("message") or {}).get("usage") or {})
             elif kind == "content_block_start":
                 block = event.get("content_block") or {}
-                if block.get("type") == "tool_use":
+                if block.get("type") in ("thinking", "redacted_thinking"):
+                    thinking[event.get("index", len(thinking))] = dict(block)
+                elif block.get("type") == "tool_use":
                     calls[event.get("index", len(calls))] = {
                         "id": block.get("id") or "",
                         "name": block.get("name") or "",
@@ -74,6 +109,10 @@ class AnthropicLLM:
                 elif delta.get("type") == "input_json_delta":
                     if (call := calls.get(event.get("index", -1))) is not None:
                         call["json"] += delta.get("partial_json") or ""
+                elif field := THINKING_DELTAS.get(delta.get("type") or ""):
+                    thought = thinking.get(event.get("index", -1))
+                    if thought is not None and isinstance(part := delta.get(field), str):
+                        thought[field] = (thought.get(field) or "") + part
             elif kind == "message_delta":
                 usage.update(event.get("usage") or {})
                 stop = (event.get("delta") or {}).get("stop_reason")
@@ -84,6 +123,8 @@ class AnthropicLLM:
                 raise LLMError(f"模型在流式输出中报错: {error.get('message') or event}")
         if usage:
             bill("tokens", _input_tokens(usage), usage.get("output_tokens"))
+        if thinking:
+            yield Reasoning({"blocks": [block for _, block in sorted(thinking.items())]})
         for index, call in sorted(calls.items()):
             call_id = call["id"] or f"call_{index}"  # the tool result must name its call
             # Without any input deltas, the input the block started with is all there is.
@@ -126,7 +167,10 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
             else:
                 turns.append({"role": "user", "content": [result]})
         elif message.tool_calls:
-            content: list[dict[str, Any]] = []
+            # What the model thought as it made the calls goes first, as its service sent it.
+            content: list[dict[str, Any]] = [
+                block for r in message.reasoning for block in r.data.get("blocks", ())
+            ]
             if message.content:
                 content.append({"type": "text", "text": message.content})
             content.extend(

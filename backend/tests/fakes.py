@@ -34,10 +34,12 @@ from eidolon.billing import bill
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
 from eidolon.config import (
     BailianRegion,
+    ChatModelSettings,
     CloudflareJudgeSettings,
     JevSettings,
     JudgeSettings,
     LLMSettings,
+    ReasoningEffort,
     Settings,
     SttKey,
     SttProvider,
@@ -46,7 +48,17 @@ from eidolon.embedding import Document, EmbeddingError
 from eidolon.rerank import RerankError
 from eidolon.emotion import _EMOTION_OPTIONS, _NOD_OPTIONS, Emotion, EmotionAnswer, Nod
 from eidolon.identity import Identity, IdentityError, ProviderName
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import (
+    ChatLLM,
+    ChatMessage,
+    ChatModels,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+)
+from eidolon.llm.providers import check_chat_models
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
@@ -97,12 +109,13 @@ HANG = object()
 
 
 class FakeLLM:
-    """Records every prompt it receives, the tools offered with it and the API key it came
-    with (`keys`), and replies from a script.
+    """Records every prompt it receives, the tools offered with it, whether calling them
+    was forbidden (`forbidden`) and the API key it came with (`keys`), and replies from a
+    script.
 
-    Each scripted reply is a list of text chunks and tool calls, streamed in order, so
-    tests can split the structured reply at awkward boundaries or have the model call a
-    tool; a reply that is an LLMError is raised instead, as a failing service would. With
+    Each scripted reply is a list of text chunks, tool calls and reasoning, streamed in
+    order, so tests can split the structured reply at awkward boundaries or have the model
+    call a tool; a reply that is an LLMError is raised instead, as a failing service would. With
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
     model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
     is the deployer's model. With `tokens`, each reply it finishes says it was billed that
@@ -111,7 +124,7 @@ class FakeLLM:
 
     def __init__(
         self,
-        *replies: Sequence[str | ToolCall | object] | LLMError,
+        *replies: Sequence[Streamed | object] | LLMError,
         delay: float = 0,
         tokens: tuple[int, int] | None = None,
     ) -> None:
@@ -120,18 +133,29 @@ class FakeLLM:
         self._tokens = tokens
         self.prompts: list[list[ChatMessage]] = []
         self.tools: list[list[Tool]] = []
+        self.forbidden: list[bool] = []
         self.keys: list[str] = []
 
     def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        return self.stream_with(DEPLOYER_KEY, messages, tools)
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        return self.stream_with(DEPLOYER_KEY, messages, tools, forbid_calls=forbid_calls)
 
     async def stream_with(
-        self, key: str, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        key: str,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
         self.tools.append(list(tools))
+        self.forbidden.append(forbid_calls)
         self.keys.append(key)
         if not self._replies:
             raise AssertionError("FakeLLM ran out of scripted replies")
@@ -143,7 +167,7 @@ class FakeLLM:
                 await asyncio.sleep(self._delay)
             if chunk is HANG:
                 await asyncio.Event().wait()
-            assert isinstance(chunk, str | ToolCall)
+            assert isinstance(chunk, str | ToolCall | Reasoning)
             yield chunk
         if self._tokens is not None:
             bill("tokens", *self._tokens)
@@ -154,38 +178,76 @@ class FakeLLM:
 
 class FakeLLMService:
     """Stands in for the LLM services users bring their own keys to: every model opened on
-    it replies from `llm`'s script, recording the key it came with there. Records what
-    was tried before saving (`checked`); a key in `rejects` fails the try with that
-    message."""
+    it replies from `llm`'s script, recording the key it came with there and the reasoning
+    effort it was opened with (`efforts`). Records what was tried before saving
+    (`checked`); a key in `rejects` fails the try with that message. The try is the real
+    check of the chat model at each of its efforts, on models that pass it without using
+    up the script, recording the effort each was tried at (`efforts_checked`); an effort in
+    `refused_efforts` fails it with that message."""
 
     def __init__(self, llm: FakeLLM | None = None) -> None:
         self.llm = llm or FakeLLM()
-        self.checked: list[LLMSettings] = []
+        self.checked: list[ChatModelSettings] = []
         self.opened: list[LLMSettings] = []
         self.rejects: dict[str, str] = {}
+        self.refused_efforts: dict[str, str] = {}
+        self.efforts: list[ReasoningEffort | None] = []
+        self.efforts_checked: list[ReasoningEffort | None] = []
 
     def open(self, settings: LLMSettings) -> ChatLLM:
         self.opened.append(settings)
-        return _KeyedLLM(self.llm, settings.api_key)
+        return _KeyedLLM(self, settings)
 
-    async def check(self, settings: LLMSettings) -> None:
+    async def check(self, settings: ChatModelSettings) -> None:
         self.checked.append(settings)
-        if settings.api_key in self.rejects:
-            raise LLMError(self.rejects[settings.api_key])
+        if settings.text.api_key in self.rejects:
+            raise LLMError(self.rejects[settings.text.api_key])
+        models = ChatModels(_TriedLLM(self, settings.text), _TriedLLM(self, settings.call))
+        await check_chat_models(models, settings)
 
     async def aclose(self) -> None:
         pass
 
 
 class _KeyedLLM:
-    def __init__(self, llm: FakeLLM, key: str) -> None:
-        self._llm = llm
-        self._key = key
+    def __init__(self, service: FakeLLMService, settings: LLMSettings) -> None:
+        self._service = service
+        self._settings = settings
 
     def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        return self._llm.stream_with(self._key, messages, tools)
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        self._service.efforts.append(self._settings.reasoning_effort)
+        return self._service.llm.stream_with(
+            self._settings.api_key, messages, tools, forbid_calls=forbid_calls
+        )
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _TriedLLM:
+    def __init__(self, service: FakeLLMService, settings: LLMSettings) -> None:
+        self._service = service
+        self._settings = settings
+
+    async def stream(
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        effort = self._settings.reasoning_effort
+        if effort is not None and effort in self._service.refused_efforts:
+            raise LLMError(self._service.refused_efforts[effort])
+        self._service.efforts_checked.append(effort)
+        return
+        yield
 
     async def aclose(self) -> None:
         pass
@@ -194,11 +256,13 @@ class _KeyedLLM:
 class FakeServiceClients:
     """Stands in for making the deployer's service clients from their configuration (see
     `service_clients.ServiceClients`), `.env`'s as well as the admin console's: records
-    the settings of every chat model it made (`opened`) and closed (`closed`). Every chat
-    model it makes replies from `llm`'s script, recording the key it came with there (or
-    is `llm`, if it is not a `FakeLLM`), but passes the connectivity check without using
-    up the script; a key in `rejects` fails every request, the check too, with that
-    message.
+    the settings of every chat model it made (`opened`) and closed (`closed`), as text
+    turns use it. Every chat model it makes, as text turns and calls use it, replies from
+    `llm`'s script, recording the key it came with there (or is `llm`, if it is not a
+    `FakeLLM`) and the reasoning effort it was made with (`efforts`), but passes the
+    connectivity check without using up the script, recording the effort it was checked
+    at (`efforts_checked`); a key in `rejects`, or an effort in `refused_efforts`, fails
+    every request, the check too, with that message.
 
     Memory models it makes (`memory_opened`, closed in `closed` too) answer from
     `background`, recording the key each request came with (`memory_keys`). Judge models
@@ -210,6 +274,9 @@ class FakeServiceClients:
         self.opened: list[LLMSettings] = []
         self.closed: list[LLMSettings] = []
         self.rejects: dict[str, str] = {}
+        self.refused_efforts: dict[str, str] = {}
+        self.efforts: list[ReasoningEffort | None] = []
+        self.efforts_checked: list[ReasoningEffort | None] = []
         self.background = FakeBackgroundLLM()
         self.memory_opened: list[LLMSettings] = []
         self.memory_keys: list[str] = []
@@ -217,9 +284,12 @@ class FakeServiceClients:
         self.judges_opened: list[JudgeSettings] = []
         self.judges_closed: list[JudgeSettings] = []
 
-    def chat_llm(self, settings: LLMSettings) -> ChatLLM:
-        self.opened.append(settings)
-        return _ConfiguredLLM(self, settings, self.closed)
+    def chat_models(self, settings: ChatModelSettings) -> ChatModels:
+        self.opened.append(settings.text)
+        return ChatModels(
+            _ConfiguredLLM(self, settings.text, self.closed),
+            _ConfiguredLLM(self, settings.call, []),  # closed with the text turns' one
+        )
 
     def memory_llm(self, settings: LLMSettings) -> ChatLLM:
         self.memory_opened.append(settings)
@@ -244,22 +314,32 @@ class _ConfiguredLLM:
         self._memory = memory
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        key = self._settings.api_key
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        key, effort = self._settings.api_key, self._settings.reasoning_effort
         if key in self._clients.rejects:
             raise LLMError(self._clients.rejects[key])
+        if effort is not None and effort in self._clients.refused_efforts:
+            raise LLMError(self._clients.refused_efforts[effort])
         if any(t.name == "ping" for t in tools):  # the connectivity check
+            if not self._memory:
+                self._clients.efforts_checked.append(effort)
             return
         if self._memory:
             self._clients.memory_keys.append(key)
             async for item in self._clients.background.stream(messages, tools):
                 yield item
             return
+        self._clients.efforts.append(effort)
         llm = self._clients.llm
         stream = (
-            llm.stream_with(key, messages, tools) if isinstance(llm, FakeLLM)
-            else llm.stream(messages, tools)
+            llm.stream_with(key, messages, tools, forbid_calls=forbid_calls)
+            if isinstance(llm, FakeLLM)
+            else llm.stream(messages, tools, forbid_calls=forbid_calls)
         )
         async for item in stream:
             yield item
@@ -413,8 +493,12 @@ class FakeBackgroundLLM:
         self.prompts: list[list[ChatMessage]] = []
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
         reply = self._replies.pop(0) if self._replies else self.NOTHING
         if callable(reply):

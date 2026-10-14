@@ -44,15 +44,20 @@ import {
   formatFetchedAt,
   formatMs,
   formatPercent,
+  formatPercentiles,
   formatShare,
   formatUsage,
   getCallsInProgress,
   getDashboard,
   type HealthStatus,
+  healthEffort,
+  healthRowId,
+  healthRowName,
   healthStatus,
   healthSummary,
   isDashboardRange,
   rangeHref,
+  serviceName,
   splitZeroRows,
   TURN_RESULTS,
 } from "@/lib/dashboard";
@@ -260,7 +265,7 @@ function HealthSummary({ board }: { board: Dashboard }) {
   if (summary.kind === "problems") {
     const named = summary.rows.slice(0, SUMMARY_NAMES).map((row) =>
       words.problem(
-        `${t.health.services[row.service] ?? row.service}${row.own_key ? `（${t.health.own}）` : ""}`,
+        healthRowName(row),
         t.health.statuses[healthStatus(row)],
         formatPercent(row.error_rate),
       ),
@@ -550,13 +555,9 @@ function DurationsTable({ board }: { board: Dashboard }) {
   );
 }
 
-function serviceLabel(row: Dashboard["health"][number]): string {
-  return t.health.services[row.service] ?? row.service;
-}
-
 function HealthTable({ board }: { board: Dashboard }) {
   if (board.health.length === 0) return <p className="text-sm text-muted-foreground">{t.health.empty}</p>;
-  const rows = board.health.map((row) => ({ id: `${row.service}:${row.own_key}`, row }));
+  const rows = board.health.map((row) => ({ id: healthRowId(row), row }));
   return (
     <TableOrRows
       at="xl"
@@ -565,11 +566,13 @@ function HealthTable({ board }: { board: Dashboard }) {
           <TableHeader>
             <TableRow>
               <TableHead>{t.health.service}</TableHead>
+              <TableHead>{t.health.effort}</TableHead>
               <TableHead>{t.health.status}</TableHead>
               <TableHead className="text-right">{t.health.calls}</TableHead>
               <TableHead className="text-right">{t.health.errorRate}</TableHead>
               <TableHead>{t.health.errors}</TableHead>
               <TableHead className="text-right">{t.health.latency}</TableHead>
+              <TableHead className="text-right">{t.health.firstToken}</TableHead>
               <TableHead>{t.health.usage}</TableHead>
             </TableRow>
           </TableHeader>
@@ -577,16 +580,18 @@ function HealthTable({ board }: { board: Dashboard }) {
             {rows.map(({ id, row }) => (
               <TableRow key={id}>
                 <TableCell>
-                  {serviceLabel(row)}
+                  {serviceName(row)}
                   {row.own_key && <span className="block text-xs text-muted-foreground">{t.health.own}</span>}
                 </TableCell>
+                <TableCell>{healthEffort(row) ?? "—"}</TableCell>
                 <TableCell>
                   <HealthStatusText status={healthStatus(row)} />
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{formatCount(row.calls)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatPercent(row.error_rate)}</TableCell>
                 <TableCell className="whitespace-normal">{errorsText(row)}</TableCell>
-                <TableCell className="text-right tabular-nums">{`${formatMs(row.latency_ms.p50)} / ${formatMs(row.latency_ms.p95)}`}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatPercentiles(row.latency_ms)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatPercentiles(row.first_token_ms)}</TableCell>
                 <TableCell className="whitespace-normal">{formatUsage(row.usage, row.usage_unknown)}</TableCell>
               </TableRow>
             ))}
@@ -599,7 +604,7 @@ function HealthTable({ board }: { board: Dashboard }) {
             const errors = errorsText(row);
             return {
               id,
-              label: `${serviceLabel(row)}${row.own_key ? ` · ${t.health.own}` : ""}`,
+              label: healthRowName(row),
               end: <HealthStatusText status={healthStatus(row)} />,
               description: (
                 <>
@@ -607,8 +612,11 @@ function HealthTable({ board }: { board: Dashboard }) {
                     {`${t.health.calls} ${formatCount(row.calls)} · ${t.health.errorRate} ${formatPercent(row.error_rate)}`}
                   </span>
                   <span className="tabular-nums">
-                    {`${t.health.latency} ${formatMs(row.latency_ms.p50)} / ${formatMs(row.latency_ms.p95)} · ${formatUsage(row.usage, row.usage_unknown)}`}
+                    {`${t.health.latency} ${formatPercentiles(row.latency_ms)} · ${formatUsage(row.usage, row.usage_unknown)}`}
                   </span>
+                  {row.first_token_ms && (
+                    <span className="tabular-nums">{`${t.health.firstToken} ${formatPercentiles(row.first_token_ms)}`}</span>
+                  )}
                   {errors !== "—" && <span>{`${t.health.errors} ${errors}`}</span>}
                 </>
               ),

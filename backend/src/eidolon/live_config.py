@@ -12,11 +12,15 @@ service is tried before it is kept, as the chat model is when the server starts;
 it, while those under way keep what they started with (see `lease` and
 `service_clients.Swappable`). Restoring an item deletes its overrides.
 
-The memory model, unless `.env` sets it apart (`BACKGROUND_LLM_*`) or the admin console
-does, is the chat model in effect. The thresholds hold only for the model they were set
-for, the judge model's for its family (`judge.judge_family`): they are cleared when the
-judge model changes to another, and either is not in effect once `.env` has the server
-start on another model.
+The chat model has a reasoning effort for calls besides its own, for text turns: one
+model, made into two over one HTTP client, replaced together. The memory model, unless
+`.env` sets it apart (`BACKGROUND_LLM_*`) or the admin console does, is the chat model in
+effect, where it is and which (`CONNECTION_FIELDS`), but on its own client: how hard it
+thinks, how long it writes and what else its requests carry stay its own, and it is
+tried with them as the chat model it follows is. The thresholds hold only for the model
+they were set for, the judge model's for its family (`judge.judge_family`): they are
+cleared when the judge model changes to another, and either is not in effect once `.env`
+has the server start on another model.
 
 As the server starts (`start`), every override of a service is tried again. One that
 fails falls back to `.env`, kept but marked as failed, so a revoked key cannot keep the
@@ -52,6 +56,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CLOUDFLARE_JUDGE_MODELS,
+    ChatModelSettings,
     DEFAULT_JEV_BASE_URL,
     CloudflareJudgeSettings,
     JevSettings,
@@ -62,6 +67,8 @@ from eidolon.config import (
     Settings,
     SttKey,
     UsageLimits,
+    checked_extra_body,
+    effort_problem,
 )
 from eidolon.database import connect
 from eidolon.affinity import Judged
@@ -76,8 +83,8 @@ from eidolon.judge import (
     try_judge_model,
     warn_if_uncalibrated,
 )
-from eidolon.llm import ChatLLM, LLMError
-from eidolon.llm.providers import check_chat_llm
+from eidolon.llm import ChatLLM, ChatModels, LLMError
+from eidolon.llm.providers import check_chat_llm, check_chat_models
 from eidolon.own_keys import DeployerKeys, DeployerLease, KeyCheck, OwnKeyRejected
 from eidolon.rerank import DEFAULT_THRESHOLDS, RerankThresholds, thresholds_for
 from eidolon.retrieval import ModelRetrievalJudge, Need
@@ -100,7 +107,18 @@ RERANK = "rerank"
 LIMITS = "limits"
 AFFINITY = "affinity"
 
-LLM_FIELDS = ("protocol", "base_url", "api_key", "model", "max_tokens")
+LLM_FIELDS = (
+    "protocol", "base_url", "api_key", "model", "max_tokens", "reasoning_effort", "extra_body",
+)
+
+CALL_EFFORT = "call_reasoning_effort"
+"""The chat model's alone, beside its fields: its reasoning effort in calls."""
+
+CONNECTION_FIELDS = ("protocol", "base_url", "api_key", "model")
+"""Where a model is and which: what the memory model has of the chat model it follows."""
+
+FOLLOWING = "记忆模型跟随对话模型，用它自己的思考强度和额外请求参数不行："
+"""Before why the memory model following the chat model would not work on it."""
 
 FOR_MODEL = "for_model"
 """Kept beside thresholds: the model they were set for."""
@@ -219,47 +237,118 @@ class _Item:
 
 
 class _LLMItem(_Item):
+    """A model: its client, made from its settings, tried as `check` has it."""
+
     fields = LLM_FIELDS
     secrets = frozenset({"api_key"})
+    efforts: tuple[str, ...] = ("reasoning_effort",)
 
-    def swappable(self) -> Swappable[ChatLLM, LLMSettings]:
+    def swappable(self) -> Swappable[Any, Any]:
         raise NotImplementedError
 
-    def make(self, settings: LLMSettings) -> ChatLLM:
+    def settings_of(self, values: Values) -> Any:
         raise NotImplementedError
+
+    def make(self, settings: Any) -> Any:
+        raise NotImplementedError
+
+    async def check(self, client: Any, settings: Any) -> None:
+        """Raise LLMError saying why, unless `client`, made from `settings`, works."""
+        raise NotImplementedError
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        values = current | change
+        for field in self.efforts:
+            effort = values[field]
+            if effort is not None and (problem := effort_problem(effort, values["protocol"])):
+                raise ConfigInvalid(problem)
+        if values["extra_body"] is not None:
+            try:
+                checked_extra_body(values["extra_body"])
+            except ValueError as e:
+                raise ConfigInvalid(str(e)) from None
+        return values
 
     async def tried(self, values: Values) -> tuple[Values, Any]:
-        client = self.make(_llm(values))
+        settings = self.settings_of(values)
+        client = self.make(settings)
         try:
-            await check_chat_llm(client)
+            await self.check(client, settings)
         except LLMError as e:
             await client.aclose()
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
         return values, client
 
     async def apply(self, values: Values, prepared: Any = None) -> None:
-        settings = _llm(values)
+        settings = self.settings_of(values)
         await self.swappable().replace(prepared or self.make(settings), settings)
 
     async def retry(self, values: Values) -> Values:
         try:
-            await check_chat_llm(self.swappable().current)
+            await self.check(self.swappable().current, self.settings_of(values))
         except LLMError as e:
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
         return values
 
 
 class _ChatLLM(_LLMItem):
+    """The chat model, at one effort in text turns and another in calls."""
+
     name = CHAT_LLM
+    fields = (*LLM_FIELDS, CALL_EFFORT)
+    efforts = ("reasoning_effort", CALL_EFFORT)
 
     def env(self) -> Values:
-        return _llm_values(self.c.settings.chat_llm)
+        return _llm_values(self.c.settings.chat_llm) | {
+            CALL_EFFORT: self.c.settings.call_reasoning_effort
+        }
 
-    def swappable(self) -> Swappable[ChatLLM, LLMSettings]:
+    def swappable(self) -> Swappable[ChatModels, ChatModelSettings]:
         return self.c._chat
 
-    def make(self, settings: LLMSettings) -> ChatLLM:
-        return self.c._clients.chat_llm(settings)
+    def settings_of(self, values: Values) -> ChatModelSettings:
+        return _chat_model(values)
+
+    def make(self, settings: ChatModelSettings) -> ChatModels:
+        return self.c._clients.chat_models(settings)
+
+    async def check(self, client: ChatModels, settings: ChatModelSettings) -> None:
+        await check_chat_models(client, settings)
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        values = super().candidate(current, change)
+        memory = self.c._following(values)
+        if memory is not None and memory.reasoning_effort is not None:
+            if problem := effort_problem(memory.reasoning_effort, memory.protocol):
+                raise ConfigInvalid(f"{FOLLOWING}{problem}")
+        return values
+
+    async def tried(self, values: Values) -> tuple[Values, Any]:
+        """The chat model tried, and the memory model following it, if it is to change,
+        at its own effort and extra body unless the chat model was tried with them."""
+        values, chat = await super().tried(values)
+        memory = self.c._following(values)
+        if memory is None or memory == self.c._memory.settings:
+            return values, (chat, None)
+        settings = self.settings_of(values)
+        if any(
+            memory.reasoning_effort == s.reasoning_effort and memory.extra_body == s.extra_body
+            for s in (settings.text, settings.call)
+        ):
+            return values, (chat, None)
+        client = self.c._clients.memory_llm(memory)
+        try:
+            await check_chat_llm(client, memory.reasoning_effort)
+        except LLMError as e:
+            await client.aclose()
+            await chat.aclose()
+            raise ConfigRejected(f"{FOLLOWING}{e}"[:MAX_REASON_LENGTH]) from None
+        return values, (chat, client)
+
+    async def apply(self, values: Values, prepared: Any = None) -> None:
+        chat, memory = prepared or (None, None)
+        await super().apply(values, chat)
+        await self.c._follow_chat(memory)
 
 
 class _MemoryLLM(_LLMItem):
@@ -271,13 +360,14 @@ class _MemoryLLM(_LLMItem):
     def swappable(self) -> Swappable[ChatLLM, LLMSettings]:
         return self.c._memory
 
+    def settings_of(self, values: Values) -> LLMSettings:
+        return _llm(values)
+
     def make(self, settings: LLMSettings) -> ChatLLM:
         return self.c._clients.memory_llm(settings)
 
-    async def apply(self, values: Values, prepared: Any = None) -> None:
-        if prepared is None and self.c._memory_on_chat():
-            values = self.env()  # turns write down on the chat model's client meanwhile
-        await super().apply(values, prepared)
+    async def check(self, client: ChatLLM, settings: LLMSettings) -> None:
+        await check_chat_llm(client, settings.reasoning_effort)
 
 
 class _TTS(_Item):
@@ -583,9 +673,9 @@ class LiveConfig:
                 except _Unreadable as e:
                     self._failures[item.name] = str(e)
 
-        chat = self.chat_llm
-        self._chat = Swappable(clients.chat_llm(chat), chat)
-        memory = settings.background_llm if self._memory_on_chat() else self.memory_llm
+        chat = self.chat_model
+        self._chat = Swappable(clients.chat_models(chat), chat)
+        memory = self.memory_llm
         self._memory = Swappable(clients.memory_llm(memory), memory)
         self._judge: Swappable[JudgeModel, JudgeSettings] | None = None
         if (judge := self.judge_settings) is not None:
@@ -597,9 +687,9 @@ class LiveConfig:
         return self._cipher is not None
 
     @property
-    def chat_llm(self) -> LLMSettings:
+    def chat_model(self) -> ChatModelSettings:
         """The deployer's chat model in effect now."""
-        return _llm(self.effective(CHAT_LLM))
+        return _chat_model(self.effective(CHAT_LLM))
 
     @property
     def memory_llm(self) -> LLMSettings:
@@ -681,9 +771,8 @@ class LiveConfig:
         them. Each model's requests are recorded as service calls to the model it is, and
         the judge model judges by its own thresholds, whatever replaces it meanwhile."""
         chat = self._chat.lease()
-        held: list[Lease[Any, Any]] = [chat]
-        memory = chat.again() if self._memory_on_chat() else self._memory.lease()
-        held.append(memory)
+        memory = self._memory.lease()
+        held: list[Lease[Any, Any]] = [chat, memory]
         emotions = None
         if self._judge is not None:
             judge = self._judge.lease()
@@ -697,12 +786,17 @@ class LiveConfig:
             )
         tts = self.effective(TTS)
         keys = DeployerKeys(
-            metered_llm(chat.client, self._activity, llm_origin("chat_llm", chat.settings)),
+            metered_llm(
+                chat.client.text, self._activity, llm_origin("chat_llm", chat.settings.text)
+            ),
             metered_llm(
                 memory.client, self._activity, llm_origin("memory_llm", memory.settings)
             ),
             self._stt_key(), tts["api_key"], tts["model"],
             emotions, hold_memory=lambda: memory.again().release,
+            call_llm=metered_llm(
+                chat.client.call, self._activity, llm_origin("chat_llm", chat.settings.call)
+            ),
         )
         return DeployerLease(keys, lambda: _release(held))
 
@@ -871,24 +965,38 @@ class LiveConfig:
         return JevSettings(values["api_key"], values["model"], base_url)
 
     def _memory_follows(self) -> bool:
-        """Whether the memory model is the chat model in effect: `.env` sets it apart in
-        no way, and neither does the admin console."""
-        follows = self.settings.background_llm == self.settings.chat_llm
+        """Whether the memory model is the chat model in effect: `.env` has it nowhere
+        else, and the admin console does not set it apart."""
+        env = self.settings
+        follows = all(
+            getattr(env.background_llm, f) == getattr(env.chat_llm, f) for f in CONNECTION_FIELDS
+        )
         return follows and not self._in_effect(self._items[MEMORY_LLM])
 
     def _memory_values(self) -> Values:
-        if self._memory_follows():
-            return self.effective(CHAT_LLM)
         item = self._items[MEMORY_LLM]
         values = item.env()
+        if self._memory_follows():
+            return _followed(values, self.effective(CHAT_LLM))
         if self._in_effect(item):
             values |= self._overrides[MEMORY_LLM]
         return values
 
-    def _memory_on_chat(self) -> bool:
-        """Whether turns write down memories with the chat model's client: the memory
-        model follows the chat model, which the admin console changed."""
-        return self._memory_follows() and self.chat_llm != self.settings.chat_llm
+    def _following(self, chat: Values) -> LLMSettings | None:
+        """The memory model on the chat model `chat` describes, if it follows the chat
+        model; else None."""
+        if not self._memory_follows():
+            return None
+        return _llm(_followed(self._items[MEMORY_LLM].env(), chat))
+
+    async def _follow_chat(self, prepared: ChatLLM | None = None) -> None:
+        """Have the memory model, if it follows the chat model, on the one now in effect,
+        unless it is already: on `prepared`, if it was made for it."""
+        memory = self.memory_llm
+        if memory != self._memory.settings:
+            await self._memory.replace(prepared or self._clients.memory_llm(memory), memory)
+        elif prepared is not None:
+            await prepared.aclose()
 
     def _stt_key(self) -> SttKey | None:
         values = self.effective(STT)
@@ -1108,14 +1216,25 @@ def _llm_values(settings: LLMSettings) -> Values:
         "api_key": settings.api_key,
         "model": settings.model,
         "max_tokens": settings.max_tokens,
+        "reasoning_effort": settings.reasoning_effort,
+        "extra_body": settings.extra_body,
     }
 
 
 def _llm(values: Values) -> LLMSettings:
     return LLMSettings(
         values["base_url"], values["api_key"], values["model"], values["protocol"],
-        values["max_tokens"],
+        values["max_tokens"], values["reasoning_effort"], values["extra_body"],
     )
+
+
+def _chat_model(values: Values) -> ChatModelSettings:
+    return ChatModelSettings(_llm(values), values[CALL_EFFORT])
+
+
+def _followed(memory: Values, chat: Values) -> Values:
+    """The memory model's values `memory`, following the chat model's, `chat`."""
+    return memory | {field: chat[field] for field in CONNECTION_FIELDS}
 
 
 def _cipher(secret_key: str) -> Fernet:

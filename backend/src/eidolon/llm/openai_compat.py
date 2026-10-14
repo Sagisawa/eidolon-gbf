@@ -7,7 +7,16 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.config import ReasoningEffort
+from eidolon.llm import (
+    ChatMessage,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+    merge_extra_body,
+)
 from eidolon.llm.sse import parse_arguments, stream_events
 
 
@@ -19,16 +28,24 @@ class OpenAICompatLLM:
         model: str,
         client: httpx.AsyncClient | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._api_key = api_key
         self._model = model
         self._max_tokens = max_tokens
+        self._effort = reasoning_effort
+        self._extra_body = extra_body
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         body: dict[str, Any] = {
             "model": self._model,
             "stream": True,
@@ -38,6 +55,8 @@ class OpenAICompatLLM:
         }
         if self._max_tokens is not None:
             body["max_tokens"] = self._max_tokens
+        if self._effort is not None:
+            body["reasoning_effort"] = self._effort
         if tools:
             body["tools"] = [
                 {
@@ -50,7 +69,11 @@ class OpenAICompatLLM:
                 }
                 for t in tools
             ]
-        calls: dict[int, dict[str, str]] = {}  # index → id, name and arguments so far
+            if forbid_calls:
+                body["tool_choice"] = "none"
+        body = merge_extra_body(body, self._extra_body)
+        calls: dict[int, dict[str, Any]] = {}  # index → id, name and arguments so far
+        reasoning = ""
         usage: dict[str, Any] | None = None
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async for event in stream_events(self._client, self._url, body, headers):
@@ -62,6 +85,8 @@ class OpenAICompatLLM:
                 delta = choice.get("delta") or {}
                 if content := delta.get("content"):
                     yield content
+                if isinstance(part := delta.get("reasoning_content"), str):
+                    reasoning += part
                 for fragment in delta.get("tool_calls") or []:
                     call = calls.setdefault(
                         fragment.get("index", 0), {"id": "", "name": "", "arguments": ""}
@@ -74,10 +99,23 @@ class OpenAICompatLLM:
                     if not isinstance(arguments, str):
                         arguments = json.dumps(arguments, ensure_ascii=False)
                     call["arguments"] += arguments
+                    # Gemini's thought signature, which it wants back with the call.
+                    if isinstance(extra := fragment.get("extra_content"), dict):
+                        call["extra_content"] = extra
         if usage is not None:
             bill("tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"))
-        for index, call in sorted(calls.items()):
-            call_id = call["id"] or f"call_{index}"  # the tool result must name its call
+        assembled = [
+            (call["id"] or f"call_{index}", call)  # the tool result must name its call
+            for index, call in sorted(calls.items())
+        ]
+        to_send_back: dict[str, Any] = {}
+        if reasoning:
+            to_send_back["reasoning_content"] = reasoning
+        if extras := {i: c["extra_content"] for i, c in assembled if "extra_content" in c}:
+            to_send_back["extra_content"] = extras  # by call id
+        if to_send_back:
+            yield Reasoning(to_send_back)
+        for call_id, call in assembled:
             yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))
 
     async def aclose(self) -> None:
@@ -88,19 +126,30 @@ def _message(message: ChatMessage) -> dict[str, Any]:
     if message.role == "tool":
         return {"role": "tool", "tool_call_id": message.tool_call_id, "content": message.content}
     if message.tool_calls:
-        return {
-            "role": "assistant",
-            "content": message.content or None,
-            "tool_calls": [
-                {
-                    "id": call.id,
-                    "type": "function",
-                    "function": {
-                        "name": call.name,
-                        "arguments": json.dumps(call.arguments or {}, ensure_ascii=False),
-                    },
-                }
-                for call in message.tool_calls
-            ],
+        # What the model thought as it made the calls goes back as its service sent it.
+        reasoning = "".join(r.data.get("reasoning_content", "") for r in message.reasoning)
+        extras = {
+            call_id: extra
+            for r in message.reasoning
+            for call_id, extra in r.data.get("extra_content", {}).items()
         }
+        assistant: dict[str, Any] = {"role": "assistant", "content": message.content or None}
+        if reasoning:
+            assistant["reasoning_content"] = reasoning
+        assistant["tool_calls"] = [_call(call, extras.get(call.id)) for call in message.tool_calls]
+        return assistant
     return {"role": message.role, "content": message.content}
+
+
+def _call(call: ToolCall, extra: dict[str, Any] | None) -> dict[str, Any]:
+    sent: dict[str, Any] = {
+        "id": call.id,
+        "type": "function",
+        "function": {
+            "name": call.name,
+            "arguments": json.dumps(call.arguments or {}, ensure_ascii=False),
+        },
+    }
+    if extra is not None:
+        sent["extra_content"] = extra
+    return sent

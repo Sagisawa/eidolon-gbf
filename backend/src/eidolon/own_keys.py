@@ -43,19 +43,19 @@ from urllib.parse import urlsplit
 import httpcore
 import httpx
 
-from eidolon.activity import ActivityLog, llm_origin, metered_llm
+from eidolon.activity import ActivityLog, ServiceName, llm_origin, metered_llm
 from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
     SERVICES,
-    LLMProtocol,
+    ChatModelSettings,
     LLMSettings,
     Service,
     SttKey,
     SttProvider,
 )
 from eidolon.emotion import EmotionJudging
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
-from eidolon.llm.providers import check_chat_llm, open_llm
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Streamed, Tool, TurnLLMs
+from eidolon.llm.providers import check_chat_models, open_chat_models, open_llm
 from eidolon.usage import UsageKind
 
 log = logging.getLogger(__name__)
@@ -121,8 +121,9 @@ class LLMService(Protocol):
         """The model `settings` describe, cheap to open for each turn and never closed."""
         ...
 
-    async def check(self, settings: LLMSettings) -> None:
-        """Raise LLMError saying why, unless the model can play the characters."""
+    async def check(self, settings: ChatModelSettings) -> None:
+        """Raise LLMError saying why, unless the model can play the characters in text
+        turns and calls, each at its own effort."""
         ...
 
     async def aclose(self) -> None: ...
@@ -147,21 +148,13 @@ class ProviderLLMService:
     def open(self, settings: LLMSettings) -> ChatLLM:
         return open_llm(settings, client=self._client)
 
-    async def check(self, settings: LLMSettings) -> None:
+    async def check(self, settings: ChatModelSettings) -> None:
         if self._public_only:
-            await _check_public(settings.base_url)
-        await check_chat_llm(self.open(settings))
+            await _check_public(settings.text.base_url)
+        await check_chat_models(open_chat_models(settings, self._client), settings)
 
     async def aclose(self) -> None:
         await self._client.aclose()
-
-
-@dataclass(frozen=True)
-class OwnLLMSettings:
-    base_url: str
-    api_key: str
-    model: str
-    protocol: LLMProtocol = "chat-completions"
 
 
 @dataclass(frozen=True)
@@ -169,7 +162,8 @@ class BroughtKeys:
     """The user's own keys a turn or call brings, by service; None for one it does not
     bring, which it runs on the deployer's key for."""
 
-    llm: OwnLLMSettings | None = None
+    llm: ChatModelSettings | None = None
+    """Text turns and memories on its text settings, calls' turns on its call ones."""
     tts: str | None = None
     """For Fish Audio."""
     stt: SttKey | None = None
@@ -215,6 +209,9 @@ class DeployerKeys:
     the call is on; None if it is not judged here (see `call.Calls`)."""
     hold_memory: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
     """See `TurnLLMs.hold_memory`."""
+    call_llm: ChatLLM | None = None
+    """The chat model as calls' turns use it, at its reasoning effort in calls; None for
+    `chat_llm`."""
 
     def lease(self) -> "DeployerLease":
         """These keys, which never change, for a turn or call."""
@@ -315,7 +312,7 @@ class OwnKeys:
             tts = brought.tts if brought.tts is not None else deployer.tts
             assert stt and tts
             own = brought.services - {"llm"}
-            llms = self._llms(brought.llm, deployer)
+            llms = self._llms(brought.llm, deployer, call=True)
         except BaseException:
             lease.release()
             raise
@@ -344,12 +341,11 @@ class OwnKeys:
             lease.release()
         return self.exempt("call", services)
 
-    async def check_llm(self, own: OwnLLMSettings) -> None:
-        """Try the user's LLM, keeping nothing. Raises OwnKeyRejected saying why it does
-        not work."""
-        settings = LLMSettings(own.base_url, own.api_key, own.model, own.protocol)
-        with _rejecting(own.api_key):
-            await self._llm_service.check(settings)
+    async def check_llm(self, own: ChatModelSettings) -> None:
+        """Try the user's LLM at each of its efforts, keeping nothing. Raises
+        OwnKeyRejected saying why it does not work."""
+        with _rejecting(own.text.api_key):
+            await self._llm_service.check(own)
 
     async def check_tts(self, api_key: str) -> None:
         """Try the user's key for speech synthesis, keeping nothing. Raises OwnKeyRejected
@@ -364,16 +360,24 @@ class OwnKeys:
         with _rejecting(api_key):
             return await self._require_speech_check().check_stt(provider, api_key)
 
-    def _llms(self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None) -> TurnLLMs:
+    def _llms(
+        self, own_llm: ChatModelSettings | None, deployer: DeployerKeys | None, *, call: bool = False
+    ) -> TurnLLMs:
+        """The models a turn runs on, a call's with `call`: the user's own LLM writes down
+        memories at its text effort, in calls too."""
         if own_llm is None:
             assert deployer is not None
-            return TurnLLMs(deployer.chat_llm, deployer.memory_llm, deployer.hold_memory)
-        settings = LLMSettings(own_llm.base_url, own_llm.api_key, own_llm.model, own_llm.protocol)
-        own = _OwnLLM(self._llm_service, settings)
+            chat = deployer.call_llm if call and deployer.call_llm else deployer.chat_llm
+            return TurnLLMs(chat, deployer.memory_llm, deployer.hold_memory)
+        chat_settings = own_llm.call if call else own_llm.text
         return TurnLLMs(
-            metered_llm(own, self._activity, llm_origin("chat_llm", settings, own_key=True)),
-            metered_llm(own, self._activity, llm_origin("memory_llm", settings, own_key=True)),
+            self._own_llm("chat_llm", chat_settings), self._own_llm("memory_llm", own_llm.text)
         )
+
+    def _own_llm(self, service: ServiceName, settings: LLMSettings) -> ChatLLM:
+        """The user's own LLM `settings` describe, its every request recorded."""
+        own = _OwnLLM(self._llm_service, settings)
+        return metered_llm(own, self._activity, llm_origin(service, settings, own_key=True))
 
     def _require_speech_check(self) -> KeyCheck:
         if self._speech_check is None:
@@ -388,10 +392,14 @@ class _OwnLLM:
         self._api_key = settings.api_key
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         try:
-            async for item in self._llm.stream(messages, tools):
+            async for item in self._llm.stream(messages, tools, forbid_calls=forbid_calls):
                 yield item
         except Exception as e:
             # Not from `e`, whose message may repeat the key, so no traceback logged shows

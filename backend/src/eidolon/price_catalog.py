@@ -10,20 +10,26 @@ the model it named: the providers at that host (models.dev's `api`, or the few w
 one written down here, or OpenRouter), then the model's name, as it is and then looser
 and looser. A model at a host no catalog knows (a relay, a proxy) is looked for among
 the providers that make models, and priced as its maker prices it. OpenRouter's catalog
-is its own API's, not models.dev's copy, which goes without the judge models' prices."""
+is its own API's, not models.dev's copy, which goes without the judge models' prices.
+
+models.dev's says how each model thinks, too (`Thinking`), found the same way (`thinking`):
+for the efforts beside a model's to note which it is listed taking, a hint only, never
+what is sent (ADR-0019). OpenRouter's says so in words of its own, not used."""
 
 import asyncio
 import logging
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal, TypeVar
 from urllib.parse import urlsplit
 
 import httpx
 
 from eidolon.clock import Clock
+from eidolon.config import REASONING_EFFORTS, LLMProtocol, ReasoningEffort
 from eidolon.database import connect
 
 MODELS_DEV_URL = "https://models.dev/api.json"
@@ -76,6 +82,21 @@ class Listed:
 
 
 @dataclass(frozen=True)
+class Thinking:
+    """How a model thinks, as models.dev lists it (`reasoning`, `reasoning_options`):
+    whether it does, the efforts it takes (of `REASONING_EFFORTS`, in their order; none
+    for one turned off by an effort), and whether it has a switch of its own to turn
+    thinking on and off (`toggle`). One thinking by a budget of tokens, or as it will
+    (`[]`, "no caller control"), takes no effort."""
+
+    provider: str
+    model: str
+    thinks: bool
+    efforts: tuple[ReasoningEffort, ...]
+    switch: bool
+
+
+@dataclass(frozen=True)
 class State:
     """When the catalogs were last fetched, when and why a fetch last failed since, and
     whether they are being fetched now."""
@@ -88,12 +109,21 @@ class State:
 
 _SCHEMA = """
 -- The price catalogs online as last fetched: each model they price, by provider, in
--- dollars per million tokens; the host each provider is at; when they were fetched.
+-- dollars per million tokens; how each model models.dev lists thinks; the host each
+-- provider is at; when they were fetched.
 CREATE TABLE IF NOT EXISTS price_catalog (
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
     input REAL NOT NULL,
     output REAL,
+    PRIMARY KEY (provider, model)
+);
+CREATE TABLE IF NOT EXISTS price_catalog_thinking (
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    thinks INTEGER NOT NULL,
+    efforts TEXT NOT NULL, -- separated by spaces
+    switch INTEGER NOT NULL,
     PRIMARY KEY (provider, model)
 );
 CREATE TABLE IF NOT EXISTS price_catalog_hosts (
@@ -116,11 +146,32 @@ def _number(value: object) -> float | None:
     return float(value)
 
 
-def parse_models_dev(data: object) -> tuple[list[Listed], list[tuple[str, str]]]:
-    """The models models.dev prices per token, and the host each provider is at, leaving
-    out its copy of OpenRouter's (`parse_openrouter`) and whatever it does not say
-    plainly."""
+def _thinking(provider: str, model: str, m: dict) -> Thinking:
+    """How `m` thinks, leaving out the efforts models.dev's own schema does not explain
+    (`default`, `null`)."""
+    options = m.get("reasoning_options")
+    options = [o for o in options if isinstance(o, dict)] if isinstance(options, list) else []
+    taken = {
+        value
+        for o in options
+        if o.get("type") == "effort" and isinstance(values := o.get("values"), list)
+        for value in values
+    }
+    return Thinking(
+        provider, model, m.get("reasoning") is True,
+        tuple(e for e in REASONING_EFFORTS if e in taken),
+        any(o.get("type") == "toggle" for o in options),
+    )
+
+
+def parse_models_dev(
+    data: object,
+) -> tuple[list[Listed], list[Thinking], list[tuple[str, str]]]:
+    """The models models.dev prices per token, how each model it lists thinks, and the
+    host each provider is at, leaving out its copy of OpenRouter's (`parse_openrouter`)
+    and whatever it does not say plainly."""
     listed: list[Listed] = []
+    thinking: list[Thinking] = []
     hosts: list[tuple[str, str]] = []
     if not isinstance(data, dict):
         raise ValueError("models.dev: not an object")
@@ -133,11 +184,14 @@ def parse_models_dev(data: object) -> tuple[list[Listed], list[tuple[str, str]]]
             hosts.append((host.lower(), provider))
         models = entry.get("models")
         for model, m in (models.items() if isinstance(models, dict) else []):
-            cost = m.get("cost") if isinstance(m, dict) else None
+            if not isinstance(m, dict):
+                continue
+            thinking.append(_thinking(provider, model, m))
+            cost = m.get("cost")
             if not isinstance(cost, dict) or (input := _number(cost.get("input"))) is None:
                 continue
             listed.append(Listed(provider, model, input, _number(cost.get("output"))))
-    return listed, hosts
+    return listed, thinking, hosts
 
 
 def parse_openrouter(data: object) -> list[Listed]:
@@ -180,6 +234,30 @@ def _dashed(model: str) -> str:
     return _bare(model).replace(".", "-")
 
 
+T = TypeVar("T")
+
+
+def _match(listing: Mapping[str, Mapping[str, T]], providers: list[str], model: str) -> T | None:
+    """What the first of `providers` listing `model` in `listing` (by provider, then by
+    model) has for it: by its name as it is, then without a path or case
+    (`openai/GPT-6-Sol` is `gpt-6-sol`), then without a `:tag` or a `(variant)` too, then
+    with a dot taken for a dash (`claude-opus-4.6` is `claude-opus-4-6`). Of two a
+    provider lists under names the same once loosened, the first by name."""
+    for provider in providers:
+        if (found := listing.get(provider, {}).get(model)) is not None:
+            return found
+    bare = _bare(model)
+    untagged = _cut(_cut(bare, ":"), "(")
+    loosened = [(_bare, bare), (_bare, untagged), (_dashed, untagged.replace(".", "-"))]
+    for loosen, want in loosened:
+        for provider in providers:
+            listed = listing.get(provider, {})
+            names = sorted(name for name in listed if loosen(name) == want)
+            if names:
+                return listed[names[0]]
+    return None
+
+
 class Catalog:
     """The price catalogs as last fetched, fetching them again on asking (`refresh`)."""
 
@@ -206,6 +284,9 @@ class Catalog:
             listed = self._db.execute(
                 "SELECT provider, model, input, output FROM price_catalog"
             ).fetchall()
+            thinking = self._db.execute(
+                "SELECT provider, model, thinks, efforts, switch FROM price_catalog_thinking"
+            ).fetchall()
             hosts = self._db.execute("SELECT host, provider FROM price_catalog_hosts").fetchall()
             state = self._db.execute(
                 "SELECT fetched_at, failed_at, error FROM price_catalog_state"
@@ -213,10 +294,18 @@ class Catalog:
         models: dict[str, dict[str, Listed]] = {}
         for provider, model, input, output in listed:
             models.setdefault(provider, {})[model] = Listed(provider, model, input, output)
+        thinks: dict[str, dict[str, Thinking]] = {}
+        for provider, model, does, efforts, switch in thinking:
+            taken = efforts.split()
+            thinks.setdefault(provider, {})[model] = Thinking(
+                provider, model, bool(does),
+                tuple(e for e in REASONING_EFFORTS if e in taken), bool(switch),
+            )
         at: dict[str, list[str]] = {OPENROUTER_HOST: [OPENROUTER]}
         for host, provider in hosts:
             at.setdefault(host, []).append(provider)
         self._models = models
+        self._thinking = thinks
         self._hosts = {host: sorted(set(providers)) for host, providers in at.items()}
         when = lambda s: datetime.fromisoformat(s) if s else None  # noqa: E731
         self._state = (
@@ -262,34 +351,25 @@ class Catalog:
         """The catalogs' price of `model` at `host`, if they have one, and whether it is
         its maker's, for a host no catalog knows (a relay, a proxy): what it is likely
         to cost there, not what it does."""
+        return self._find(self._models, host, model)
+
+    def thinking(self, host: str, model: str) -> Thinking | None:
+        """How `model` at `host` thinks, as models.dev lists it, found as its price is
+        (`find`): at a host no catalog knows, as its maker lists it."""
+        found = self._find(self._thinking, host, model)
+        return found[0] if found else None
+
+    def _find(
+        self, listing: Mapping[str, Mapping[str, T]], host: str, model: str
+    ) -> tuple[T, bool] | None:
         providers = self._hosts.get(host.lower())
         if providers:
-            found = self._match(providers, model)
-            return (found, False) if found else None
+            found = _match(listing, providers, model)
+            return (found, False) if found is not None else None
         # its maker first, where its name says (`deepseek/deepseek-v4-pro`)
         named = model.lower().split("/", 1)[0] if "/" in model else None
-        found = self._match(sorted(MAKERS, key=lambda m: m != named), model)
-        return (found, True) if found else None
-
-    def _match(self, providers: list[str], model: str) -> Listed | None:
-        """The price the first of `providers` listing `model` gives it: by its name as
-        it is, then without a path or case (`openai/GPT-6-Sol` is `gpt-6-sol`), then
-        without a `:tag` or a `(variant)` too, then with a dot taken for a dash
-        (`claude-opus-4.6` is `claude-opus-4-6`). Of two a provider lists under names
-        the same once loosened, the first by name."""
-        for provider in providers:
-            if (found := self._models.get(provider, {}).get(model)) is not None:
-                return found
-        bare = _bare(model)
-        untagged = _cut(_cut(bare, ":"), "(")
-        loosened = [(_bare, bare), (_bare, untagged), (_dashed, untagged.replace(".", "-"))]
-        for loosen, want in loosened:
-            for provider in providers:
-                listed = self._models.get(provider, {})
-                names = sorted(name for name in listed if loosen(name) == want)
-                if names:
-                    return listed[names[0]]
-        return None
+        found = _match(listing, sorted(MAKERS, key=lambda m: m != named), model)
+        return (found, True) if found is not None else None
 
     def refresh(self) -> None:
         """Fetch the catalogs again, keeping the ones last fetched if either fails; when
@@ -301,13 +381,13 @@ class Catalog:
         try:
             now = self._clock()
             try:
-                listed, hosts = parse_models_dev(self._get(MODELS_DEV_URL))
+                listed, thinking, hosts = parse_models_dev(self._get(MODELS_DEV_URL))
                 listed += parse_openrouter(self._get(OPENROUTER_URL))
             except (httpx.HTTPError, ValueError) as e:
                 log.warning("could not fetch the price catalogs: %s", e)
                 self._save_failure(now, f"{type(e).__name__}: {e}"[:500])
             else:
-                self._save(now, listed, hosts)
+                self._save(now, listed, thinking, hosts)
             self._load()
         finally:
             self._fetching.release()
@@ -318,7 +398,11 @@ class Catalog:
         return response.json()
 
     def _save(
-        self, now: datetime, listed: Iterable[Listed], hosts: Iterable[tuple[str, str]]
+        self,
+        now: datetime,
+        listed: Iterable[Listed],
+        thinking: Iterable[Thinking],
+        hosts: Iterable[tuple[str, str]],
     ) -> None:
         with self._lock, self._db:
             self._db.execute("DELETE FROM price_catalog")
@@ -326,6 +410,15 @@ class Catalog:
                 "INSERT OR REPLACE INTO price_catalog (provider, model, input, output)"
                 " VALUES (?, ?, ?, ?)",
                 ((m.provider, m.model, m.input, m.output) for m in listed),
+            )
+            self._db.execute("DELETE FROM price_catalog_thinking")
+            self._db.executemany(
+                "INSERT OR REPLACE INTO price_catalog_thinking"
+                " (provider, model, thinks, efforts, switch) VALUES (?, ?, ?, ?, ?)",
+                (
+                    (t.provider, t.model, t.thinks, " ".join(t.efforts), t.switch)
+                    for t in thinking
+                ),
             )
             self._db.execute("DELETE FROM price_catalog_hosts")
             self._db.executemany(
@@ -354,6 +447,28 @@ class Catalog:
         with self._fetching:
             self._http.close()
             self._db.close()
+
+
+TurnsOff = Literal["by_effort", "by_switch"]
+"""How a model's thinking is turned off, as models.dev lists it: by the effort none, or
+by a switch of its own, which a protocol's none may not be."""
+
+
+def describe_thinking(thinking: Thinking, protocol: LLMProtocol) -> dict:
+    """How a model thinks, as models.dev lists it, for the efforts `protocol` sends: the
+    efforts it takes save none, and how it is turned off (`TurnsOff`), if it is. The
+    Anthropic protocol's none is a switch (`thinking: disabled`)."""
+    turns_off: TurnsOff | None = (
+        "by_effort" if "none" in thinking.efforts or (thinking.switch and protocol == "anthropic")
+        else "by_switch" if thinking.switch else None
+    )
+    return {
+        "provider": thinking.provider,
+        "model": thinking.model,
+        "thinks": thinking.thinks,
+        "efforts": [e for e in thinking.efforts if e != "none"],
+        "turns_off": turns_off,
+    }
 
 
 def describe_state(state: State) -> dict:

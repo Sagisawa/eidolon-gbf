@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import ChatMessage, LLMError, Reasoning, Tool, ToolCall
 from eidolon.llm.openai_compat import OpenAICompatLLM
 
 RECORDED_STREAM = (
@@ -227,3 +227,74 @@ async def test_a_reply_that_is_not_streamed_is_an_error():
 
     with pytest.raises(LLMError, match="流式"):
         [c async for c in llm.stream([ChatMessage("user", "你好")])]
+
+
+# A tool call from a thinking model, written after the shapes DeepSeek and Gemini document:
+# its reasoning streams first, then the calls, the first carrying Gemini's thought signature.
+THINKING_TOOL_CALL_STREAM = (
+    'data: {"choices":[{"delta":{"role":"assistant","reasoning_content":"制作人问的是"}}]}\n\n'
+    'data: {"choices":[{"delta":{"reasoning_content":"公园那次。"}}]}\n\n'
+    'data: {"choices":[{"delta":{"content":"我想想"}}]}\n\n'
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function",'
+    '"extra_content":{"google":{"thought_signature":"c2lnLWE="}},'
+    '"function":{"name":"recall_story","arguments":"{\\"query\\": \\"公园\\"}"}}]}}]}\n\n'
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_b","type":"function",'
+    '"function":{"name":"recall_story","arguments":"{\\"query\\": \\"鸽子\\"}"}}]}}]}\n\n'
+    'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n'
+    "data: [DONE]\n\n"
+)
+
+
+async def tool_round(first_stream: str) -> tuple[list, dict]:
+    """The items `first_stream` streams, and the request body sent after them: the calls
+    they made, with all the model sent alongside them, and their results."""
+    replies = iter([first_stream, RECORDED_STREAM])
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, text=next(replies))
+
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "sk-test", "some-model",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    prompt = [ChatMessage("user", "公园那次呢？")]
+
+    items = [i async for i in llm.stream(prompt, [RECALL])]
+    calls = tuple(i for i in items if isinstance(i, ToolCall))
+    said = "".join(i for i in items if isinstance(i, str))
+    thought = tuple(i for i in items if isinstance(i, Reasoning))
+    results = [ChatMessage("tool", "## 剧情……", tool_call_id=c.id) for c in calls]
+    [c async for c in llm.stream(
+        [*prompt, ChatMessage("assistant", said, calls, reasoning=thought), *results],
+        [RECALL], forbid_calls=True,
+    )]
+
+    return items, json.loads(requests[-1].content)
+
+
+async def test_the_reasoning_and_thought_signatures_streamed_go_back_with_the_tool_calls():
+    items, body = await tool_round(THINKING_TOOL_CALL_STREAM)
+
+    # The reasoning is never part of what she says.
+    assert "".join(i for i in items if isinstance(i, str)) == "我想想"
+    assert body["messages"][1] == {
+        "role": "assistant",
+        "content": "我想想",
+        "reasoning_content": "制作人问的是公园那次。",
+        "tool_calls": [
+            {
+                "id": "call_a",
+                "type": "function",
+                "function": {"name": "recall_story", "arguments": '{"query": "公园"}'},
+                "extra_content": {"google": {"thought_signature": "c2lnLWE="}},
+            },
+            {  # Gemini signs only the first call of a step; nothing is made up for the rest
+                "id": "call_b",
+                "type": "function",
+                "function": {"name": "recall_story", "arguments": '{"query": "鸽子"}'},
+            },
+        ],
+    }
+

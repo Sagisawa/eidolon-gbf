@@ -8,6 +8,7 @@ import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { StatusDot } from "@/components/app/admin/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
@@ -62,6 +63,7 @@ import {
   UNLIMITED,
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/localOwnKeys";
+import { EFFORT_UNSET, effortLabel } from "@/lib/reasoningEffort";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FailureIcon } from "@/theme/icons";
 
@@ -162,7 +164,7 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
         <TableBody>
           {fieldRows.map((row) => (
             <TableRow key={row.field}>
-              <TableCell className="whitespace-normal text-muted-foreground">{t.fields[row.field] ?? row.field}</TableCell>
+              <TableCell className="whitespace-normal text-muted-foreground">{fieldLabel(name, row.field)}</TableCell>
               <TableCell className="whitespace-normal break-all">
                 {row.inEffect ? (
                   <del className="text-muted-foreground">{shown(name, row.field, row.env)}</del>
@@ -187,7 +189,7 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
   return (
     <MetadataList>
       {fieldRows.map((row) => (
-        <MetadataListItem key={row.field} label={t.fields[row.field] ?? row.field}>
+        <MetadataListItem key={row.field} label={fieldLabel(name, row.field)}>
           {shown(name, row.field, row.effective)}
         </MetadataListItem>
       ))}
@@ -195,8 +197,15 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
   );
 }
 
-/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。 */
+/**
+ * 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，思考强度是「中文名（原值）」或「不设置」，
+ * 额外请求参数是一行 JSON，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。
+ */
 function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
+  if (ITEM_SPECS[name].form.some((spec) => spec.name === field && spec.kind === "effort")) {
+    return effortLabel(value === null ? EFFORT_UNSET : String(value));
+  }
+  if (field === "extra_body" && value !== null) return JSON.stringify(value);
   if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
   if (typeof value === "boolean") return value ? t.switchOn : t.switchOff;
   if (ITEM_SPECS[name].secrets.includes(field)) return t.last4(String(value));
@@ -205,6 +214,11 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (field === "region") return t.regions[String(value)] ?? String(value);
   if (name === "limits" && value === 0) return t.unlimited;
   return String(value);
+}
+
+/** 一项的名字：对话模型分文字和通话两项思考强度，文字那一项要写明。 */
+function fieldLabel(name: ItemName, field: string): string {
+  return t.itemFields[name]?.[field] ?? t.fields[field] ?? field;
 }
 
 /** 表单里一个字段的说明：key 留空不改，其余按字段给出取值范围。 */
@@ -299,6 +313,8 @@ function AvailableItem({
   const display = statusDisplay(item);
   const canRestore = display.canRestore;
   const formRef = check.ref;
+  // 档位提示只在改模型时查，按表单里正在填的地址和模型名；不是模型的项没有地址，不查。
+  const catalogHint = useEffortHint(form.protocol ?? "", editing ? (form.base_url ?? "") : "", form.model ?? "");
 
   // 打开表单时焦点移到第一个能填的框（「修改」随表单打开收起，焦点不移就落回页首）。
   const editRef = useRef<HTMLButtonElement>(null);
@@ -395,7 +411,7 @@ function AvailableItem({
           <form ref={formRef} onSubmit={submit} noValidate className="flex max-w-md flex-col gap-6">
             <FieldGroup>
               {spec.form.map((field) => {
-                const label = t.fields[field.name] ?? field.name;
+                const label = fieldLabel(name, field.name);
                 const problem = problemOf(field.name);
                 const fieldId = `${id}-${field.name}`;
                 if (field.kind === "limit") {
@@ -427,6 +443,35 @@ function AvailableItem({
                         disabled={locked}
                       />
                     </Field>
+                  );
+                }
+                if (field.kind === "effort") {
+                  return (
+                    <EffortField
+                      key={field.name}
+                      id={fieldId}
+                      label={label}
+                      hint={fieldHint(name, field, keysEditable)}
+                      protocol={form.protocol}
+                      choice={form[field.name]}
+                      onChoose={set(field.name)}
+                      problem={problem ? t.problems[problem.reason](label) : undefined}
+                      catalogHint={catalogHint}
+                      showCatalogNote={field.name === "reasoning_effort"}
+                    />
+                  );
+                }
+                if (field.kind === "extraBody") {
+                  return (
+                    <ExtraBodyField
+                      key={field.name}
+                      id={fieldId}
+                      label={label}
+                      hint={fieldHint(name, field, keysEditable)}
+                      text={form[field.name]}
+                      onChange={set(field.name)}
+                      problem={problem ? t.problems[problem.reason](label) : undefined}
+                    />
                   );
                 }
                 if (field.kind === "select") {

@@ -4,6 +4,7 @@ that cannot stream or call tools."""
 import json
 import threading
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -18,7 +19,9 @@ from eidolon.llm.providers import check_chat_llm, open_llm
 from tests.conftest import CharacterConfig
 
 SLOTS = ("CHAT", "BACKGROUND")
-NAMES = ("BASE_URL", "API_KEY", "MODEL", "PROTOCOL", "MAX_TOKENS")
+NAMES = (
+    "BASE_URL", "API_KEY", "MODEL", "PROTOCOL", "MAX_TOKENS", "REASONING_EFFORT", "EXTRA_BODY",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +29,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for slot in SLOTS:
         for name in NAMES:
             monkeypatch.delenv(f"{slot}_LLM_{name}", raising=False)
+    monkeypatch.delenv("CHAT_LLM_CALL_REASONING_EFFORT", raising=False)
     for name in ("SILICONFLOW_API_KEY", "AI_GATEWAY_API_KEY", "JEV_API_KEY", "JUDGE_PROVIDER"):
         monkeypatch.delenv(name, raising=False)
 
@@ -102,6 +106,10 @@ async def test_the_protocol_defaults_to_chat_completions_and_the_background_foll
         ("BACKGROUND_LLM_PROTOCOL", "claude", "BACKGROUND_LLM_PROTOCOL.*anthropic"),
         ("CHAT_LLM_MAX_TOKENS", "lots", "CHAT_LLM_MAX_TOKENS.*正整数"),
         ("BACKGROUND_LLM_MAX_TOKENS", "²", "BACKGROUND_LLM_MAX_TOKENS.*正整数"),
+        ("CHAT_LLM_REASONING_EFFORT", "off", "CHAT_LLM_REASONING_EFFORT.*none、minimal"),
+        ("CHAT_LLM_CALL_REASONING_EFFORT", "off", "CHAT_LLM_CALL_REASONING_EFFORT.*none、minimal"),
+        ("CHAT_LLM_EXTRA_BODY", "{enable_thinking: false}", "CHAT_LLM_EXTRA_BODY.*合法的 JSON"),
+        ("BACKGROUND_LLM_EXTRA_BODY", '{"model": "x"}', "BACKGROUND_LLM_EXTRA_BODY.*「model」"),
     ],
 )
 def test_a_misconfigured_model_is_reported(
@@ -110,6 +118,67 @@ def test_a_misconfigured_model_is_reported(
     set_chat_model(monkeypatch, "https://chat.example/v1", **{name: value})
 
     with pytest.raises(RuntimeError, match=message):
+        Settings.from_env()
+
+
+def test_each_slot_has_its_own_effort_and_extra_body(monkeypatch: pytest.MonkeyPatch):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_REASONING_EFFORT="none",
+        CHAT_LLM_EXTRA_BODY='{"enable_thinking": false}',
+        BACKGROUND_LLM_EXTRA_BODY='{"thinking": {"type": "disabled"}}',
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.chat_llm.reasoning_effort == "none"
+    assert settings.chat_llm.extra_body == {"enable_thinking": False}
+    # Neither follows the chat model's: what suits a call may not suit drafting a sheet.
+    assert settings.background_llm.reasoning_effort is None
+    assert settings.background_llm.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_an_effort_the_anthropic_protocol_has_no_way_to_write_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        BACKGROUND_LLM_PROTOCOL="anthropic",
+        BACKGROUND_LLM_REASONING_EFFORT="minimal",
+    )
+
+    with pytest.raises(RuntimeError, match="BACKGROUND_LLM_REASONING_EFFORT.*Anthropic"):
+        Settings.from_env()
+
+
+def test_the_chat_model_has_an_effort_of_its_own_for_calls(monkeypatch: pytest.MonkeyPatch):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_REASONING_EFFORT="high",
+        CHAT_LLM_CALL_REASONING_EFFORT="none",
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.chat_model.text.reasoning_effort == "high"
+    assert settings.chat_model.call == replace(settings.chat_llm, reasoning_effort="none")
+    assert settings.background_llm.reasoning_effort is None
+
+
+def test_a_call_effort_the_chat_models_protocol_has_no_way_to_write_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_PROTOCOL="anthropic",
+        CHAT_LLM_CALL_REASONING_EFFORT="minimal",
+    )
+
+    with pytest.raises(RuntimeError, match="CHAT_LLM_CALL_REASONING_EFFORT.*Anthropic"):
         Settings.from_env()
 
 
@@ -246,9 +315,12 @@ async def test_a_model_that_streams_and_takes_tools_passes_the_check(protocol: L
 
     await check_chat_llm(llm)
 
-    (body,) = bodies
+    body = bodies[0]
     assert body["stream"] is True
     assert body["tools"]
+    # A model that does not call the tool is asked just the once; the Anthropic stream
+    # above calls it, and is asked again with the result.
+    assert len(bodies) == (2 if protocol == "anthropic" else 1)
 
 
 async def test_the_check_reports_what_failed_when_both_requests_fail():
@@ -275,3 +347,108 @@ async def test_a_passing_failure_is_not_blamed_on_tool_calls():
     )
 
     await check_chat_llm(llm)
+
+
+# A model that calls the tool is checked through the round after it, where models that
+# want their reasoning back fail.
+
+PING_CALL = "data: " + json.dumps({"choices": [{"delta": {"tool_calls": [{
+    "index": 0, "id": "call_p", "type": "function",
+    "extra_content": {"google": {"thought_signature": "c2ln"}},
+    "function": {"name": "ping", "arguments": "{}"},
+}]}}]}) + "\n\n"
+
+
+def thinking_model(
+    bodies: list[dict], second_round: httpx.Response | None = None
+) -> OpenAICompatLLM:
+    """A model that calls the tool whenever it may, and answers its result with
+    `second_round`, if given, else with text."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if any(m["role"] == "tool" for m in body["messages"]):
+            return second_round or httpx.Response(200, text=STREAMED)
+        return httpx.Response(200, text=PING_CALL if body.get("tools") else STREAMED)
+
+    return OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+async def test_a_call_to_the_tool_is_answered_and_the_model_asked_again():
+    bodies: list[dict] = []
+
+    await check_chat_llm(thinking_model(bodies))
+
+    first, second = bodies
+    call, result = second["messages"][len(first["messages"]):]
+    assert call["role"] == "assistant"
+    assert [c["id"] for c in call["tool_calls"]] == ["call_p"]
+    assert (result["role"], result["tool_call_id"]) == ("tool", "call_p")
+    assert result["content"]
+    # The same tools, which the model may not call again.
+    assert second["tools"] == first["tools"]
+    assert second["tool_choice"] == "none"
+
+
+async def test_a_round_after_the_call_that_fails_fails_the_check():
+    bodies: list[dict] = []
+    refused = httpx.Response(
+        400, json={"error": {"message": "Function call is missing a thought_signature"}}
+    )
+
+    with pytest.raises(LLMError, match="收到工具结果后.*thought_signature") as raised:
+        await check_chat_llm(thinking_model(bodies, refused))
+
+    # The model can call tools, so it is not told it cannot, nor asked without them.
+    assert "不支持工具调用" not in str(raised.value)
+    assert len(bodies) == 2
+
+
+# A check with a reasoning effort set puts a failure down to the effort, in the service's
+# own words.
+
+REFUSED_EFFORT = httpx.Response(
+    400, json={"error": {"message": "Unsupported value: 'xhigh' is not supported"}}
+)
+
+
+async def test_a_refused_effort_is_named_ahead_of_what_the_service_said():
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m", reasoning_effort="xhigh",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: REFUSED_EFFORT)),
+    )
+
+    with pytest.raises(LLMError) as raised:
+        await check_chat_llm(llm, "xhigh")
+
+    assert str(raised.value).startswith(
+        "思考强度『极高』被服务拒绝：模型返回 400: "
+        '{"error":{"message":"Unsupported value: \'xhigh\' is not supported"}}'
+    )
+
+
+async def test_an_effort_refused_in_the_round_after_the_call_is_named_too():
+    bodies: list[dict] = []
+
+    with pytest.raises(LLMError, match="^思考强度『关闭』被服务拒绝：模型返回 400"):
+        await check_chat_llm(thinking_model(bodies, REFUSED_EFFORT), "none")
+
+
+async def test_a_model_that_cannot_call_tools_is_told_so_whatever_its_effort():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "tools" in json.loads(request.content):
+            return httpx.Response(400, json={"error": "tools are not supported"})
+        return httpx.Response(200, text=STREAMED)
+
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m", reasoning_effort="high",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    # Answering without tools, it took the effort: the tools are what it refuses.
+    with pytest.raises(LLMError, match="^对话模型不支持工具调用.*tools are not supported"):
+        await check_chat_llm(llm, "high")

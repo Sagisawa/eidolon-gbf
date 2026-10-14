@@ -4,6 +4,7 @@
 
 import { api, json } from "@/lib/api";
 import { LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS, type OwnService } from "@/lib/localOwnKeys";
+import { EFFORT_UNSET, effortOf, extraBodyText, parseExtraBody, type JsonObject } from "@/lib/reasoningEffort";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
 
@@ -18,7 +19,8 @@ export type ItemName =
   | "limits"
   | "affinity";
 
-type Value = string | number | boolean | null;
+/** A model's extra request body is a JSON object; every other value is plain. */
+type Value = string | number | boolean | null | JsonObject;
 
 /** An item's values as the admin console shows them: of a key, `<field>_last4` only. */
 export type Shown = Record<string, Value>;
@@ -115,15 +117,18 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
 }
 
 /** How a field is typed in: a choice, text, a key (left empty to keep it), max_tokens (a
- * positive whole number, empty for the protocol's default), a probability or score from 0
- * to 1, a number of seconds, a limit (a whole number from 1 up, or none: sent as 0), or a
- * switch (on or off, in the form as "true" or "false"). */
+ * positive whole number, empty for the protocol's default), a reasoning effort (one the
+ * model's protocol can write, or unset), an extra request body (a JSON object, or empty for
+ * none), a probability or score from 0 to 1, a number of seconds, a limit (a whole number
+ * from 1 up, or none: sent as 0), or a switch (on or off, in the form as "true" or "false"). */
 export type FieldKind =
   | "select"
   | "text"
   | "optionalText"
   | "secret"
   | "maxTokens"
+  | "effort"
+  | "extraBody"
   | "probability"
   | "seconds"
   | "limit"
@@ -153,16 +158,27 @@ export type ItemSpec = {
 };
 
 const LLM: ItemSpec = {
-  rows: ["protocol", "base_url", "model", "max_tokens", "api_key"],
+  rows: ["protocol", "base_url", "model", "max_tokens", "reasoning_effort", "extra_body", "api_key"],
   secrets: ["api_key"],
   form: [
     { name: "protocol", kind: "select", options: LLM_PROTOCOLS },
     { name: "base_url", kind: "text" },
     { name: "model", kind: "text" },
     { name: "max_tokens", kind: "maxTokens" },
+    { name: "reasoning_effort", kind: "effort" },
+    { name: "extra_body", kind: "extraBody" },
     { name: "api_key", kind: "secret" },
   ],
   tried: true,
+};
+
+/** 对话模型多一项通话的思考强度，紧跟在文字那一项后面；后台模型只有一项。 */
+const CHAT_LLM: ItemSpec = {
+  ...LLM,
+  rows: LLM.rows.flatMap((field) => (field === "reasoning_effort" ? [field, "call_reasoning_effort"] : [field])),
+  form: LLM.form.flatMap((field): FieldSpec[] =>
+    field.name === "reasoning_effort" ? [field, { name: "call_reasoning_effort", kind: "effort" }] : [field],
+  ),
 };
 
 const THRESHOLD = (names: string[]): ItemSpec => ({
@@ -173,7 +189,7 @@ const THRESHOLD = (names: string[]): ItemSpec => ({
 });
 
 export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
-  chat_llm: LLM,
+  chat_llm: CHAT_LLM,
   memory_llm: LLM,
   tts: {
     rows: ["model", "api_key"],
@@ -266,6 +282,8 @@ export function formOf(spec: ItemSpec, effective: Shown): Form {
     spec.form.map(({ name, kind }) => {
       const value = kind === "secret" ? null : effective[name];
       if (kind === "limit" && !value) return [name, UNLIMITED];
+      if (kind === "effort") return [name, value === null || value === undefined ? EFFORT_UNSET : String(value)];
+      if (kind === "extraBody") return [name, extraBodyText(value)];
       return [name, value === null || value === undefined ? "" : String(value)];
     }),
   );
@@ -278,9 +296,12 @@ export function lockedOn(form: Form, field: string): boolean {
   return on.length === 1 && on[0] === field;
 }
 
-export type Problem = { field: string; reason: "required" | "maxTokens" | "probability" | "seconds" | "limit" };
+export type Problem = {
+  field: string;
+  reason: "required" | "maxTokens" | "effort" | "json" | "jsonObject" | "probability" | "seconds" | "limit";
+};
 
-export type Change = Record<string, string | number | boolean | null>;
+export type Change = Record<string, string | number | boolean | null | JsonObject>;
 
 /** What saving the form sends, or every problem that keeps it from being saved (one per
  * field, in the form's order). A key left empty, or one that cannot be changed here, stays
@@ -309,6 +330,19 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         if (typed && !/^[1-9]\d*$/.test(typed)) refuse(name, "maxTokens");
         else change[name] = typed ? Number(typed) : null;
         break;
+      case "effort": {
+        // 换成 Anthropic 时，原来选的「极低」还留在表单里：它写不出这一档，要换一档。
+        const effort = effortOf(form[name], form.protocol);
+        if (effort === undefined) refuse(name, "effort");
+        else change[name] = effort;
+        break;
+      }
+      case "extraBody": {
+        const parsed = parseExtraBody(form[name] ?? "");
+        if ("problem" in parsed) refuse(name, parsed.problem);
+        else change[name] = parsed.value;
+        break;
+      }
       case "probability": {
         const value = Number(typed);
         if (!typed || !(value >= 0 && value <= 1)) refuse(name, "probability");

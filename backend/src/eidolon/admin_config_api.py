@@ -47,9 +47,18 @@ class LLMInput(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     model: str = Field(min_length=1, max_length=200)
     max_tokens: int | None = Field(None, gt=0)
+    # Both checked by the live configuration, which says what is wrong in so many words.
+    reasoning_effort: Any = None
+    extra_body: Any = None
     api_key: str | None = ApiKey
 
     _trim = field_validator("base_url", "model")(_trimmed)
+
+
+class ChatLLMInput(LLMInput):
+    """The chat model, with its reasoning effort in calls besides its own, for text turns."""
+
+    call_reasoning_effort: Any = None
 
 
 class TTSInput(BaseModel):
@@ -110,7 +119,7 @@ class AffinityInput(BaseModel):
 
 
 INPUTS: dict[str, type[BaseModel]] = {
-    CHAT_LLM: LLMInput,
+    CHAT_LLM: ChatLLMInput,
     MEMORY_LLM: LLMInput,
     TTS: TTSInput,
     STT: STTInput,

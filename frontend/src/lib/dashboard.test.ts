@@ -8,8 +8,12 @@ import {
   formatDuration,
   formatFetchedAt,
   formatMs,
+  formatPercentiles,
   formatShare,
   formatUsage,
+  healthEffort,
+  healthRowId,
+  healthRowName,
   healthStatus,
   healthSummary,
   isDashboardRange,
@@ -100,6 +104,31 @@ describe("healthSummary", () => {
     if (summary.kind !== "problems") return;
     expect(summary.worst).toBe("failing");
     expect(summary.rows.map((r) => r.service)).toEqual(["stt", "rerank", "tts"]);
+  });
+});
+
+describe("the health table's rows", () => {
+  type Row = Parameters<typeof healthRowId>[0];
+  const base = { own_key: false, calls: 3, errors: 0, error_rate: 0, errors_by_kind: {}, latency_ms: { p50: 900, p95: 1500 }, usage: [], usage_unknown: 0 };
+  const llm = (effort: Row["effort"], own_key = false): Row =>
+    ({ ...base, service: "chat_llm", own_key, effort, first_token_ms: { p50: 842.4, p95: 1250 } }) as Row;
+  const tts = { ...base, service: "tts" } as Row;
+
+  it("an LLM's are one for each effort, no effort one of its own", () => {
+    const rows = [llm(null), llm("high"), llm(null, true), tts];
+    expect(new Set(rows.map(healthRowId)).size).toBe(rows.length);
+    expect(rows.map(healthEffort)).toEqual(["不设置", "高（high）", "不设置", null]);
+  });
+
+  it("say how soon an LLM's first word came, and nothing of it for other services", () => {
+    expect(formatPercentiles(llm("high").first_token_ms)).toBe("842 ms / 1.3 s");
+    expect(formatPercentiles(tts.first_token_ms)).toBe("—");
+  });
+
+  it("are named by service, whose keys and an LLM's effort", () => {
+    expect(healthRowName(tts)).toBe("语音合成");
+    expect(healthRowName(llm("high"))).toBe("扮演角色的 LLM（思考强度高）");
+    expect(healthRowName(llm(null, true))).toBe("扮演角色的 LLM（自带密钥，思考强度不设置）");
   });
 });
 

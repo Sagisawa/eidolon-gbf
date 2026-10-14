@@ -1,7 +1,7 @@
 """LLM providers: a single streaming chat interface with tool calling, one implementation
 per protocol."""
 
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -24,6 +24,17 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class Reasoning:
+    """What the model thought as it replied, as its service sent it: read only by the
+    adapter that streamed it, which sends it back with the calls the reply made."""
+
+    data: Mapping[str, Any]
+
+
+Streamed = str | ToolCall | Reasoning
+
+
+@dataclass(frozen=True)
 class ChatMessage:
     role: Literal["system", "user", "assistant", "tool"]
     content: str
@@ -31,17 +42,53 @@ class ChatMessage:
     """The calls an assistant message made."""
     tool_call_id: str | None = None
     """The call a tool message answers."""
+    reasoning: tuple[Reasoning, ...] = ()
+    """What the model thought as it made an assistant message's calls: kept for the rest
+    of the turn alone, never recorded."""
 
 
 class ChatLLM(Protocol):
     def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         """Stream the model's reply to `messages` as text chunks, then any tool calls it
-        makes, each once complete."""
+        makes, each once complete; what it thought, if its service sends that, comes as
+        `Reasoning` along the way. With `forbid_calls`, `tools` are offered all the same,
+        but the model is told not to call any."""
         ...
 
     async def aclose(self) -> None: ...
+
+
+@dataclass(frozen=True)
+class ChatModels:
+    """The chat model as text turns (`text`) and calls' turns (`call`) use it: the same
+    model, each at its own reasoning effort, over one HTTP client, closed together."""
+
+    text: ChatLLM
+    call: ChatLLM
+
+    async def aclose(self) -> None:
+        await self.text.aclose()
+        await self.call.aclose()  # the client both are on is closed by now; no matter
+
+
+def merge_extra_body(body: dict[str, Any], extra: Mapping[str, Any] | None) -> dict[str, Any]:
+    """`body` with `extra` merged in, deep: an object into an object key by key, any other
+    value in place of what was there. Neither is changed."""
+    if not extra:
+        return body
+    merged = dict(body)
+    for key, value in extra.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), dict):
+            merged[key] = merge_extra_body(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 class LLMError(RuntimeError):

@@ -4,9 +4,10 @@ import { InfoIcon } from "lucide-react";
 import { FormEvent, useEffect, useId, useState, type ReactNode } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -33,6 +34,7 @@ import {
   type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
+import { EFFORT_UNSET, effortLabel, effortOf, extraBodyText, parseExtraBody } from "@/lib/reasoningEffort";
 import { cn } from "@/lib/utils";
 
 const t = copy.settings.ownKeys;
@@ -346,21 +348,62 @@ function OwnLLMForm({
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [baseUrl, setBaseUrl] = useState(current?.base_url ?? "");
-  const [model, setModel] = useState(current?.model ?? "");
-  const [protocol, setProtocol] = useState<LLMProtocol>(current?.protocol ?? "chat-completions");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [protocol, setProtocol] = useState<LLMProtocol>("chat-completions");
   const [apiKey, setApiKey] = useState("");
+  const [textEffort, setTextEffort] = useState(EFFORT_UNSET);
+  const [callEffort, setCallEffort] = useState(EFFORT_UNSET);
+  const [extraBody, setExtraBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const id = useId();
 
+  // 档位换成接口写不出的（选着「极低」换成 Anthropic）是 undefined，额外请求参数不是 JSON 对象时带着 problem：都不能保存。
+  const effortInText = effortOf(textEffort, protocol);
+  const effortInCalls = effortOf(callEffort, protocol);
+  const parsedExtraBody = parseExtraBody(extraBody);
+  // 档位提示按表单里正在填的协议、地址和模型名查，不带密钥。
+  const catalogHint = useEffortHint(protocol, editing ? baseUrl : "", model);
+  const keyToTry = apiKey.trim() || current?.api_key;
+  // 要试调的那份，还没填全或有哪项填不了时没有。不设置的几项不写，和存下它们以前的一样。
+  const toTry: LocalLLM | null =
+    baseUrl.trim() &&
+    model.trim() &&
+    keyToTry &&
+    effortInText !== undefined &&
+    effortInCalls !== undefined &&
+    !("problem" in parsedExtraBody)
+      ? {
+          base_url: baseUrl.trim(),
+          api_key: keyToTry,
+          model: model.trim(),
+          protocol,
+          ...(effortInText && { reasoning_effort: effortInText }),
+          ...(effortInCalls && { call_reasoning_effort: effortInCalls }),
+          ...(parsedExtraBody.value && { extra_body: parsedExtraBody.value }),
+        }
+      : null;
+
+  /** 打开表单，从存着的那份填起。 */
+  function edit() {
+    setBaseUrl(current?.base_url ?? "");
+    setModel(current?.model ?? "");
+    setProtocol(current?.protocol ?? "chat-completions");
+    setTextEffort(current?.reasoning_effort ?? EFFORT_UNSET);
+    setCallEffort(current?.call_reasoning_effort ?? EFFORT_UNSET);
+    setExtraBody(extraBodyText(current?.extra_body));
+    setFailure(null);
+    setEditing(true);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!toTry) return;
     setBusy(true);
     setFailure(null);
     try {
-      const llm = { base_url: baseUrl.trim(), api_key: apiKey.trim(), model: model.trim(), protocol };
-      onChecked({ ...llm, ...(await checkOwnLLM(llm)) });
+      onChecked({ ...toTry, ...(await checkOwnLLM(toTry)) });
       setApiKey("");
       setEditing(false);
     } catch (e) {
@@ -371,16 +414,32 @@ function OwnLLMForm({
   }
 
   const protocolOptions = LLM_PROTOCOLS.map((p) => ({ value: p, label: t.protocols[p] }));
+  const anyEffortSet = current?.reasoning_effort || current?.call_reasoning_effort;
+  const summary = current
+    ? [
+        t.llmCurrent(current.model, current.base_url),
+        t.last4(last4(current.api_key)),
+        ...(anyEffortSet
+          ? [
+              t.llmThinking(
+                effortLabel(current.reasoning_effort ?? EFFORT_UNSET),
+                effortLabel(current.call_reasoning_effort ?? EFFORT_UNSET),
+              ),
+            ]
+          : []),
+        ...(current.extra_body ? [t.llmExtraBody] : []),
+      ]
+    : [t.notSet];
 
   return (
     <ServiceKey
       title={t.llmTitle}
       hint={t.llmHint}
-      summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(last4(current.api_key))] : [t.notSet]}
+      summary={summary}
       isSet={!!current}
       editing={editing}
       disabled={disabled}
-      onEdit={() => setEditing(true)}
+      onEdit={edit}
       onDelete={onDelete}
     >
       <form onSubmit={submit}>
@@ -432,11 +491,45 @@ function OwnLLMForm({
               onChange={(event) => setApiKey(event.target.value)}
               autoComplete="off"
             />
+            {current && <FieldDescription>{t.keepApiKey}</FieldDescription>}
           </Field>
+          <EffortField
+            id={`${id}-effort`}
+            label={t.textEffort}
+            hint={`${t.textEffortHint}${copy.reasoningEffort.hints.effort}`}
+            protocol={protocol}
+            choice={textEffort}
+            onChoose={setTextEffort}
+            problem={effortInText === undefined ? copy.reasoningEffort.problems.effort(t.textEffort) : undefined}
+            catalogHint={catalogHint}
+            showCatalogNote
+          />
+          <EffortField
+            id={`${id}-call-effort`}
+            label={t.callEffort}
+            hint={copy.reasoningEffort.hints.callEffort}
+            protocol={protocol}
+            choice={callEffort}
+            onChoose={setCallEffort}
+            problem={effortInCalls === undefined ? copy.reasoningEffort.problems.effort(t.callEffort) : undefined}
+            catalogHint={catalogHint}
+          />
+          <ExtraBodyField
+            id={`${id}-extra-body`}
+            label={t.extraBody}
+            hint={copy.reasoningEffort.hints.extraBody}
+            text={extraBody}
+            onChange={setExtraBody}
+            problem={
+              "problem" in parsedExtraBody
+                ? copy.reasoningEffort.problems[parsedExtraBody.problem](t.extraBody)
+                : undefined
+            }
+          />
           {failure && <FailureNotice failure={failure} />}
           <FormButtons
             busy={busy}
-            canSubmit={!!baseUrl.trim() && !!model.trim() && !!apiKey.trim()}
+            canSubmit={!!toTry}
             onCancel={() => setEditing(false)}
           />
         </FieldGroup>
