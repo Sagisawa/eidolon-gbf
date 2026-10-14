@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { LINE_Seed_JP, Noto_Sans_SC } from "next/font/google";
 
 import { copy } from "@/i18n";
+import { LIST_WIDTH_SCRIPT } from "@/lib/panelSizes";
 
 // 中文正文用 Noto Sans SC，她的日语原文用 LINE Seed JP（经 <Ja> 取用）。
 // 两者都是很大的 CJK 字体，Google Fonts 按 unicode-range 切片按需下载；不预载，避免首屏拉整套字。
@@ -19,9 +20,16 @@ export const metadata: Metadata = {
   description: copy.app.description,
 };
 
+/**
+ * <head> 里的内联脚本在页面画出来之前把对话列表上次拖到的宽度写到 <html> 的 --list-width 上（panelSizes.ts），
+ * 水合前的列表按它排，不会先按默认宽度画出来再跳；这个 style 不是 React 渲染的，所以 <html> 不比对它。
+ */
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN" className={`${zh.variable} ${ja.variable}`}>
+    <html lang="zh-CN" className={`${zh.variable} ${ja.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: LIST_WIDTH_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );
