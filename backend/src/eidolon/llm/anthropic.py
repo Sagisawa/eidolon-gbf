@@ -18,6 +18,9 @@ several thousand tokens, and the model's reasoning, if it streams any, counts to
 
 API_VERSION = "2023-06-01"
 
+THINKING_DELTAS = {"thinking_delta": "thinking", "signature_delta": "signature"}
+"""The deltas a thinking block streams in, each to the field of the block it adds to."""
+
 
 class AnthropicLLM:
     def __init__(
@@ -85,11 +88,10 @@ class AnthropicLLM:
                 elif delta.get("type") == "input_json_delta":
                     if (call := calls.get(event.get("index", -1))) is not None:
                         call["json"] += delta.get("partial_json") or ""
-                elif delta.get("type") in ("thinking_delta", "signature_delta"):
-                    field = delta["type"].removesuffix("_delta")  # thinking or signature
-                    block = thinking.get(event.get("index", -1))
-                    if block is not None and isinstance(part := delta.get(field), str):
-                        block[field] = (block.get(field) or "") + part
+                elif field := THINKING_DELTAS.get(delta.get("type") or ""):
+                    thought = thinking.get(event.get("index", -1))
+                    if thought is not None and isinstance(part := delta.get(field), str):
+                        thought[field] = (thought.get(field) or "") + part
             elif kind == "message_delta":
                 usage.update(event.get("usage") or {})
                 stop = (event.get("delta") or {}).get("stop_reason")

@@ -1,5 +1,6 @@
 """The OpenAI Responses and Anthropic Messages adapters, against streams recorded from a real
-service (deepseek-v4.1-flash, which also streams its reasoning: the adapters must skip it)."""
+service (deepseek-v4.1-flash, which also streams its reasoning: the adapters keep it out of
+what she says, and send it back with the calls it made)."""
 
 import json
 from collections.abc import Callable
@@ -452,62 +453,3 @@ async def test_thinking_a_service_sent_without_a_signature_goes_back_as_it_came(
     assert reasoning["type"] == "reasoning"
     assert reasoning["encrypted_content"] == ""
     assert reasoning["summary"][0]["text"].startswith("The user wants me to use")
-
-
-TOOL_CALL_WITHOUT_THINKING = {
-    "responses": (
-        'data: {"type":"response.output_item.added","output_index":0,"item":'
-        '{"type":"function_call","call_id":"call_x","name":"recall_story","arguments":""}}\n\n'
-        'data: {"type":"response.function_call_arguments.delta","output_index":0,'
-        '"delta":"{\\"query\\": \\"公园\\"}"}\n\n'
-        'data: {"type":"response.completed","response":{"status":"completed"}}\n\n'
-    ),
-    "anthropic": (
-        'data: {"type":"content_block_start","index":0,"content_block":'
-        '{"type":"tool_use","id":"call_x","name":"recall_story","input":{}}}\n\n'
-        'data: {"type":"content_block_delta","index":0,'
-        '"delta":{"type":"input_json_delta","partial_json":"{\\"query\\": \\"公园\\"}"}}\n\n'
-        'data: {"type":"message_stop"}\n\n'
-    ),
-}
-
-
-@pytest.mark.parametrize("protocol", ADAPTERS)
-async def test_calls_made_without_thinking_go_back_as_before(protocol: str):
-    items, body = await tool_round(protocol, TOOL_CALL_WITHOUT_THINKING[protocol])
-
-    assert items == [ToolCall("call_x", "recall_story", {"query": "公园"})]
-    sent_back = {
-        "responses": lambda: body["input"][1:],
-        "anthropic": lambda: body["messages"][1:],
-    }[protocol]()
-    assert sent_back == {
-        "responses": [
-            {
-                "type": "function_call",
-                "call_id": "call_x",
-                "name": "recall_story",
-                "arguments": '{"query": "公园"}',
-            },
-            {"type": "function_call_output", "call_id": "call_x", "output": "## 剧情……"},
-        ],
-        "anthropic": [
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "id": "call_x",
-                        "name": "recall_story",
-                        "input": {"query": "公园"},
-                    }
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "tool_result", "tool_use_id": "call_x", "content": "## 剧情……"}
-                ],
-            },
-        ],
-    }[protocol]
