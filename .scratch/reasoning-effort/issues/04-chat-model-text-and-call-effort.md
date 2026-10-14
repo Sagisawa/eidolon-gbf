@@ -23,3 +23,7 @@
 - [ ] 前端 `adminConfig` 纯函数测试：对话模型多出「通话」那一行，后台模型没有。
 - [ ] 实测：线上的 DeepSeek 把通话设成「关闭」、文字不设置，保存成功；本地构建版上打一通电话确认能正常对话（假麦克风的做法见 `docs/agents/local-acceptance.md`）。
 - [ ] `backend/` 下 `pytest`、`frontend/` 下 `npm test` 全部通过，`ruff`、`pyright`、`tsc` 没有新的报错。
+
+## Comments
+
+- 票 03 留下的：后台对话模型（`chat_llm`）已经有 `reasoning_effort`、`extra_body` 两个字段（`live_config.LLM_FIELDS` 两个模型共用），这一项就是「文字」；通话那一项只给对话模型加，别加进 `LLM_FIELDS`。前端 `adminConfig.ts` 里两个模型共用 `LLM` 这份 `ItemSpec`，对话模型要分出自己的一份。检查的前缀在 `llm/providers.check_chat_llm(llm, effort)` 里写死成「思考强度『…』被服务拒绝：」，这张票要让它带上「文字的」「通话的」。

@@ -23,3 +23,7 @@
 - [ ] 检查接口测试：两档不同各检查一次，报错前缀写明是哪一项；非法额外参数返回原因。
 - [ ] 实测：在本地构建版的设置页，用 `.env` 里的 DeepSeek 密钥当作自带 LLM，设通话「关闭」，检查通过并保存；刷新后设置还在。
 - [ ] `backend/` 下 `pytest`、`frontend/` 下 `npm test` 全部通过，`ruff`、`pyright`、`tsc` 没有新的报错。
+
+## Comments
+
+- 票 03 留下的：额外请求参数的校验是 `config.checked_extra_body`（抛 `ValueError`，说明原因），档位校验是 `config.effort_problem(effort, protocol)`；自带 LLM 的检查已经把 `settings.reasoning_effort` 传给 `check_chat_llm`，现在 `own_keys` 拼 `LLMSettings` 时还没带上这两项。前端的档位、「不设置」、Anthropic 不列「极低」、额外参数的 JSON 解析在 `src/lib/reasoningEffort.ts`（`effortChoices`、`effortOf`、`parseExtraBody`、`extraBodyText`），文案在 `copy.reasoningEffort`；后台表单的提示在 `copy.admin.config.formHints`，设置页要的话挪到共用处。

@@ -48,7 +48,9 @@
 - **会話モデルはストリーミング出力とツール呼び出しへの対応が必須です**。バックエンドは起動時にごく小さなチェックリクエストを送り、条件を満たさない場合や URL・キーが誤っている場合は起動を拒否し、どの条件を満たしていないか、サービスが何を返したかを示します。
 - 返事の前にモデルが出力する思考内容（reasoning / thinking）は捨てられ、返事には入りません。
 - Anthropic 方式では返事の長さ上限の指定が必須で、デフォルトは 16384 トークンです。`CHAT_LLM_MAX_TOKENS`・`BACKGROUND_LLM_MAX_TOKENS` で調整します。長いキャラクターシートの下書きが途切れないよう、この項目は 2 つのモデルで別々に設定します。
-- バックグラウンドモデルの未設定の項目は会話モデルの設定を引き継ぎます。たとえば `BACKGROUND_LLM_MODEL` だけを指定すれば、同じサービス上で安価なモデルに切り替えられます。
+- **思考の強さ**（任意）：`CHAT_LLM_REASONING_EFFORT`・`BACKGROUND_LLM_REASONING_EFFORT` に `none`（オフ）、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` のいずれかを指定します。空欄なら何も送らず、モデル自身のデフォルトに任せます（ADR-0019）。指定した段階は方式ごとの書き方でそのまま送ります。chat-completions は `reasoning_effort`、Responses は `reasoning.effort`、Anthropic は adaptive 思考と `output_config.effort`、オフのときは `thinking:{type:"disabled"}` です。Anthropic 方式には `minimal` がありません。サービスがその段階に対応していない場合、起動時のチェックが「思考强度『…』被服务拒绝」とサービスの原文を示します。思考も返事の長さ上限に含まれるので、`high` 以上では上限を空欄にするか余裕を持たせてください。
+- **追加リクエストパラメータ**（任意）：`CHAT_LLM_EXTRA_BODY`・`BACKGROUND_LLM_EXTRA_BODY` に JSON オブジェクトを指定すると、毎回のリクエストに最後に深くマージされ、思考の強さが書いたパラメータも上書きできます。Qwen の `enable_thinking`、GLM・Kimi の `thinking`、OpenRouter の `reasoning` といった独自の切り替えに使います。その場合は思考の強さを空欄にして、二つが衝突しないようにしてください。`model`、`stream`、`stream_options`、`messages`、`input`、`instructions`、`system`、`tools`、`tool_choice` は含められません。
+- バックグラウンドモデルの未設定の項目は会話モデルの設定を引き継ぎます。たとえば `BACKGROUND_LLM_MODEL` だけを指定すれば、同じサービス上で安価なモデルに切り替えられます。ただし返事の長さ上限・思考の強さ・追加リクエストパラメータは引き継がず、2 つのモデルで別々に設定します。
 
 ## キャラクター
 

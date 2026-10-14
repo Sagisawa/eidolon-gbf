@@ -47,6 +47,10 @@ class LLMInput(BaseModel):
     base_url: str = Field(min_length=1, max_length=500)
     model: str = Field(min_length=1, max_length=200)
     max_tokens: int | None = Field(None, gt=0)
+    reasoning_effort: Any = None
+    """Checked by the live configuration, which says what is wrong in so many words; so is
+    `extra_body`, a JSON object."""
+    extra_body: Any = None
     api_key: str | None = ApiKey
 
     _trim = field_validator("base_url", "model")(_trimmed)

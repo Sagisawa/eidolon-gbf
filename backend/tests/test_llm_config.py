@@ -18,7 +18,9 @@ from eidolon.llm.providers import check_chat_llm, open_llm
 from tests.conftest import CharacterConfig
 
 SLOTS = ("CHAT", "BACKGROUND")
-NAMES = ("BASE_URL", "API_KEY", "MODEL", "PROTOCOL", "MAX_TOKENS")
+NAMES = (
+    "BASE_URL", "API_KEY", "MODEL", "PROTOCOL", "MAX_TOKENS", "REASONING_EFFORT", "EXTRA_BODY",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -102,6 +104,11 @@ async def test_the_protocol_defaults_to_chat_completions_and_the_background_foll
         ("BACKGROUND_LLM_PROTOCOL", "claude", "BACKGROUND_LLM_PROTOCOL.*anthropic"),
         ("CHAT_LLM_MAX_TOKENS", "lots", "CHAT_LLM_MAX_TOKENS.*正整数"),
         ("BACKGROUND_LLM_MAX_TOKENS", "²", "BACKGROUND_LLM_MAX_TOKENS.*正整数"),
+        ("CHAT_LLM_REASONING_EFFORT", "off", "CHAT_LLM_REASONING_EFFORT.*none、minimal"),
+        ("BACKGROUND_LLM_REASONING_EFFORT", "HIGH", "BACKGROUND_LLM_REASONING_EFFORT"),
+        ("CHAT_LLM_EXTRA_BODY", "{enable_thinking: false}", "CHAT_LLM_EXTRA_BODY.*JSON"),
+        ("BACKGROUND_LLM_EXTRA_BODY", "[]", "BACKGROUND_LLM_EXTRA_BODY.*JSON 对象"),
+        ("CHAT_LLM_EXTRA_BODY", '{"model": "x"}', "CHAT_LLM_EXTRA_BODY.*「model」"),
     ],
 )
 def test_a_misconfigured_model_is_reported(
@@ -110,6 +117,55 @@ def test_a_misconfigured_model_is_reported(
     set_chat_model(monkeypatch, "https://chat.example/v1", **{name: value})
 
     with pytest.raises(RuntimeError, match=message):
+        Settings.from_env()
+
+
+def test_each_slot_has_its_own_effort_and_extra_body(monkeypatch: pytest.MonkeyPatch):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_REASONING_EFFORT="none",
+        CHAT_LLM_EXTRA_BODY='{"enable_thinking": false}',
+        BACKGROUND_LLM_REASONING_EFFORT="xhigh",
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.chat_llm.reasoning_effort == "none"
+    assert settings.chat_llm.extra_body == {"enable_thinking": False}
+    # Neither follows the chat model's: what suits a call may not suit drafting a sheet.
+    assert settings.background_llm.reasoning_effort == "xhigh"
+    assert settings.background_llm.extra_body is None
+
+
+def test_the_background_model_takes_no_effort_or_extra_body_from_the_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_REASONING_EFFORT="low",
+        BACKGROUND_LLM_EXTRA_BODY='{"thinking": {"type": "disabled"}}',
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.chat_llm.extra_body is None
+    assert settings.background_llm.reasoning_effort is None
+    assert settings.background_llm.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_an_effort_the_anthropic_protocol_has_no_way_to_write_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        BACKGROUND_LLM_PROTOCOL="anthropic",
+        BACKGROUND_LLM_REASONING_EFFORT="minimal",
+    )
+
+    with pytest.raises(RuntimeError, match="BACKGROUND_LLM_REASONING_EFFORT.*Anthropic"):
         Settings.from_env()
 
 
@@ -337,3 +393,33 @@ async def test_a_round_after_the_call_that_fails_fails_the_check():
     # The model can call tools, so it is not told it cannot, nor asked without them.
     assert "不支持工具调用" not in str(raised.value)
     assert len(bodies) == 2
+
+
+# A check with a reasoning effort set puts a failure down to the effort, in the service's
+# own words.
+
+REFUSED_EFFORT = httpx.Response(
+    400, json={"error": {"message": "Unsupported value: 'xhigh' is not supported"}}
+)
+
+
+async def test_a_refused_effort_is_named_ahead_of_what_the_service_said():
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m", reasoning_effort="xhigh",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: REFUSED_EFFORT)),
+    )
+
+    with pytest.raises(LLMError) as raised:
+        await check_chat_llm(llm, "xhigh")
+
+    assert str(raised.value).startswith(
+        "思考强度『极高』被服务拒绝：模型返回 400: "
+        '{"error":{"message":"Unsupported value: \'xhigh\' is not supported"}}'
+    )
+
+
+async def test_an_effort_refused_in_the_round_after_the_call_is_named_too():
+    bodies: list[dict] = []
+
+    with pytest.raises(LLMError, match="^思考强度『关闭』被服务拒绝：模型返回 400"):
+        await check_chat_llm(thinking_model(bodies, REFUSED_EFFORT), "none")

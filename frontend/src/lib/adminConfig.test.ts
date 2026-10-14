@@ -19,12 +19,15 @@ import {
   type ConfigItem,
   type Shown,
 } from "@/lib/adminConfig";
+import { EFFORT_UNSET, effortChoices, REASONING_EFFORTS } from "@/lib/reasoningEffort";
 
 const ENV: Shown = {
   protocol: "chat-completions",
   base_url: "https://env.example/v1",
   model: "env-model",
   max_tokens: null,
+  reasoning_effort: null,
+  extra_body: null,
   api_key_last4: "aaaa",
 };
 const OVERRIDE: Shown = { model: "new-model", api_key_last4: "bbbb" };
@@ -109,6 +112,8 @@ describe("formOf and changeOf", () => {
       base_url: "https://env.example/v1",
       model: "env-model",
       max_tokens: "1024",
+      reasoning_effort: EFFORT_UNSET,
+      extra_body: "",
       api_key: "",
     });
   });
@@ -120,6 +125,8 @@ describe("formOf and changeOf", () => {
         base_url: "https://env.example/v1",
         model: "env-model",
         max_tokens: 1024,
+        reasoning_effort: null,
+        extra_body: null,
         api_key: "sk-new",
       },
     });
@@ -147,6 +154,51 @@ describe("formOf and changeOf", () => {
         { field: "max_tokens", reason: "maxTokens" },
       ],
     });
+  });
+
+  it("starts from the effort and the extra body in effect, the extra body as indented JSON", () => {
+    const effective = { ...ENV, reasoning_effort: "high", extra_body: { thinking: { type: "disabled" } } };
+    expect(formOf(llm, effective)).toMatchObject({
+      reasoning_effort: "high",
+      extra_body: ["{", '  "thinking": {', '    "type": "disabled"', "  }", "}"].join("\n"),
+    });
+  });
+
+  it("sends the effort chosen, or none when it is unset", () => {
+    expect(changeOf(llm, { ...form, reasoning_effort: "none" }, true)).toMatchObject({ change: { reasoning_effort: "none" } });
+    expect(changeOf(llm, { ...form, reasoning_effort: EFFORT_UNSET }, true)).toMatchObject({
+      change: { reasoning_effort: null },
+    });
+  });
+
+  it("refuses an effort the protocol has no way to write: Anthropic has no minimal", () => {
+    expect(changeOf(llm, { ...form, reasoning_effort: "minimal" }, true)).toMatchObject({
+      change: { reasoning_effort: "minimal" },
+    });
+    expect(changeOf(llm, { ...form, protocol: "anthropic", reasoning_effort: "minimal" }, true)).toEqual({
+      problems: [{ field: "reasoning_effort", reason: "effort" }],
+    });
+    expect(changeOf(llm, { ...form, protocol: "anthropic", reasoning_effort: "max" }, true)).toMatchObject({
+      change: { reasoning_effort: "max" },
+    });
+  });
+
+  it("sends the extra body as the JSON object typed, none when left empty", () => {
+    expect(changeOf(llm, { ...form, extra_body: ' {"enable_thinking": false} ' }, true)).toMatchObject({
+      change: { extra_body: { enable_thinking: false } },
+    });
+    expect(changeOf(llm, { ...form, extra_body: "  " }, true)).toMatchObject({ change: { extra_body: null } });
+  });
+
+  it("refuses an extra body that is not JSON, or not an object", () => {
+    expect(changeOf(llm, { ...form, extra_body: "{enable_thinking: false}" }, true)).toEqual({
+      problems: [{ field: "extra_body", reason: "json" }],
+    });
+    for (const bad of ["[1]", '"x"', "3", "null"]) {
+      expect(changeOf(llm, { ...form, extra_body: bad }, true), bad).toEqual({
+        problems: [{ field: "extra_body", reason: "jsonObject" }],
+      });
+    }
   });
 
   it("takes thresholds from 0 to 1 and seconds above 0", () => {
@@ -224,6 +276,30 @@ describe("limits", () => {
       expect(changeOf(limits, { ...form, calls_per_hour: bad }, true), bad).toEqual({
         problems: [{ field: "calls_per_hour", reason: "limit" }],
       });
+    }
+  });
+});
+
+describe("effortChoices", () => {
+  it("lists unset first, then every effort the protocol can write, in order", () => {
+    expect(effortChoices("chat-completions")).toEqual([EFFORT_UNSET, ...REASONING_EFFORTS]);
+    expect(effortChoices("responses")).toEqual([EFFORT_UNSET, ...REASONING_EFFORTS]);
+    expect(effortChoices("anthropic")).toEqual([EFFORT_UNSET, "none", "low", "medium", "high", "xhigh", "max"]);
+  });
+});
+
+describe("the model rows", () => {
+  it("show the effort and the extra body beside the rest of a model", () => {
+    for (const name of ["chat_llm", "memory_llm"] as const) {
+      expect(rows(item("env"), ITEM_SPECS[name]).map((row) => row.field)).toEqual([
+        "protocol",
+        "base_url",
+        "model",
+        "max_tokens",
+        "reasoning_effort",
+        "extra_body",
+        "api_key",
+      ]);
     }
   });
 });

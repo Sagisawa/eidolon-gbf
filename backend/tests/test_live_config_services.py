@@ -53,7 +53,7 @@ MEMORY_LLM = "/api/admin/config/memory_llm"
 MEMORY_KEY = "sk-memory-key-4321"
 NEW_MEMORY = NEW | {"api_key": MEMORY_KEY, "model": "memory-model"}
 NEW_MEMORY_SETTINGS = LLMSettings(
-    "https://llm.example/v1", MEMORY_KEY, "memory-model", "anthropic", 1024
+    "https://llm.example/v1", MEMORY_KEY, "memory-model", "anthropic", 1024, "high", {"top_k": 5}
 )
 ENV_SETTINGS = LLMSettings("http://llm.invalid/v1", DEPLOYER_KEY, "test-model")
 CAT = '{"memories": ["制作人养了一只猫"]}'
@@ -180,6 +180,96 @@ async def test_a_memory_model_replaced_while_writing_down_is_closed_once_written
     assert NEW_MEMORY_SETTINGS not in closed_while_writing
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
     assert clients.closed == [ENV_SETTINGS, NEW_MEMORY_SETTINGS]
+
+
+# The memory model's reasoning effort and extra request body, saved and tried as the rest.
+
+async def test_a_memory_models_effort_and_extra_body_are_saved_and_tried_with(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients(FakeLLM(REPLY))
+    client = await admin_client(with_memory(make_client), admins, github, clients)
+    change = NEW_MEMORY | {
+        "protocol": "chat-completions",
+        "reasoning_effort": "minimal",
+        "extra_body": {"enable_thinking": False, "reasoning": {"summary": "auto"}},
+    }
+
+    saved = await client.put(MEMORY_LLM, json=change)
+
+    assert saved.status_code == 200, saved.text
+    shown = saved.json()["memory_llm"]
+    assert shown["effective"]["reasoning_effort"] == "minimal"
+    assert shown["override"]["extra_body"] == change["extra_body"]
+    assert clients.memory_opened[-1] == replace(
+        NEW_MEMORY_SETTINGS,
+        protocol="chat-completions",
+        reasoning_effort="minimal",
+        extra_body=change["extra_body"],
+    )
+
+
+async def test_a_memory_models_effort_left_as_env_has_it_follows_env(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    env = replace(ENV_SETTINGS, model="background-model", reasoning_effort="low")
+    apart = replace(admins, background_llm=env)
+    client = await admin_client(with_memory(make_client), apart, github, FakeServiceClients())
+    shown_env = (await client.get(CONFIG)).json()["memory_llm"]["env"]
+    change = {k: v for k, v in shown_env.items() if k != "api_key_last4"} | {"model": "other"}
+
+    saved = await client.put(MEMORY_LLM, json=change)
+
+    assert saved.status_code == 200, saved.text
+    shown = saved.json()["memory_llm"]
+    assert shown["override"] == {"model": "other"}
+    assert shown["effective"]["reasoning_effort"] == "low"
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"extra_body": {"model": "x", "messages": []}}, "「model」、「messages」"),
+        ({"extra_body": ["enable_thinking"]}, "JSON 对象"),
+        ({"extra_body": "{}"}, "JSON 对象"),
+        ({"reasoning_effort": "minimal"}, "Anthropic 接口没有「极低」"),
+        ({"reasoning_effort": "off"}, "思考强度只能是"),
+    ],
+)
+async def test_a_memory_model_with_an_effort_or_extra_body_it_cannot_take_is_refused(
+    make_client: ClientFactory,
+    admins: Settings,
+    github: FakeIdentityProvider,
+    change: dict,
+    reason: str,
+):
+    clients = FakeServiceClients()
+    client = await admin_client(with_memory(make_client), admins, github, clients)
+
+    res = await client.put(MEMORY_LLM, json=NEW_MEMORY | change)
+
+    assert res.status_code == 422
+    assert reason in res.json()["detail"]
+    assert (await client.get(CONFIG)).json()["memory_llm"]["status"] == "env"
+    assert clients.memory_opened == [ENV_SETTINGS]  # not even tried
+
+
+async def test_a_memory_model_whose_effort_the_service_refuses_is_not_saved_saying_so(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients()
+    said = "400 Unsupported value: 'high' is not supported with this model. " + "x" * 400
+    clients.rejects[MEMORY_KEY] = said
+    client = await admin_client(with_memory(make_client), admins, github, clients)
+
+    res = await client.put(MEMORY_LLM, json=NEW_MEMORY)
+
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    # Cut short, what the service said is cut at its end, never its start.
+    assert "思考强度『高』被服务拒绝：400 Unsupported value: 'high' is not supported" in detail
+    assert len(detail) < len(said)
+    assert (await client.get(CONFIG)).json()["memory_llm"]["status"] == "env"
 
 
 def backend_of(client: httpx.AsyncClient) -> Backend:

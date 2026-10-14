@@ -7,7 +7,16 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Reasoning, Streamed, Tool, ToolCall
+from eidolon.config import ReasoningEffort
+from eidolon.llm import (
+    ChatMessage,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+    merge_extra_body,
+)
 from eidolon.llm.sse import parse_arguments, stream_events
 
 
@@ -19,11 +28,15 @@ class OpenAICompatLLM:
         model: str,
         client: httpx.AsyncClient | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._api_key = api_key
         self._model = model
         self._max_tokens = max_tokens
+        self._effort = reasoning_effort
+        self._extra_body = extra_body
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
@@ -42,6 +55,8 @@ class OpenAICompatLLM:
         }
         if self._max_tokens is not None:
             body["max_tokens"] = self._max_tokens
+        if self._effort is not None:
+            body["reasoning_effort"] = self._effort
         if tools:
             body["tools"] = [
                 {
@@ -56,6 +71,7 @@ class OpenAICompatLLM:
             ]
             if forbid_calls:
                 body["tool_choice"] = "none"
+        body = merge_extra_body(body, self._extra_body)
         calls: dict[int, dict[str, Any]] = {}  # index → id, name and arguments so far
         reasoning = ""
         usage: dict[str, Any] | None = None

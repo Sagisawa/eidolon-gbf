@@ -207,7 +207,7 @@ async def _check_chat_llm(settings: Settings) -> None:
 
     llm = open_llm(settings.chat_llm)
     try:
-        await check_chat_llm(llm)
+        await check_chat_llm(llm, settings.chat_llm.reasoning_effort)
     finally:
         await llm.aclose()
 

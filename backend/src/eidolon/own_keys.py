@@ -150,7 +150,7 @@ class ProviderLLMService:
     async def check(self, settings: LLMSettings) -> None:
         if self._public_only:
             await _check_public(settings.base_url)
-        await check_chat_llm(self.open(settings))
+        await check_chat_llm(self.open(settings), settings.reasoning_effort)
 
     async def aclose(self) -> None:
         await self._client.aclose()

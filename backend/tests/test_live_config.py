@@ -36,9 +36,13 @@ NEW = {
     "base_url": "https://llm.example/v1",
     "model": "new-model",
     "max_tokens": 1024,
+    "reasoning_effort": "high",
+    "extra_body": {"top_k": 5},
     "api_key": NEW_KEY,
 }
-NEW_SETTINGS = LLMSettings("https://llm.example/v1", NEW_KEY, "new-model", "anthropic", 1024)
+NEW_SETTINGS = LLMSettings(
+    "https://llm.example/v1", NEW_KEY, "new-model", "anthropic", 1024, "high", {"top_k": 5}
+)
 NEW_SHOWN = {k: v for k, v in NEW.items() if k != "api_key"} | {"api_key_last4": "5678"}
 ENV_SETTINGS = LLMSettings("http://llm.invalid/v1", DEPLOYER_KEY, "test-model")
 ENV_SHOWN = {
@@ -46,6 +50,8 @@ ENV_SHOWN = {
     "base_url": "http://llm.invalid/v1",
     "model": "test-model",
     "max_tokens": None,
+    "reasoning_effort": None,
+    "extra_body": None,
     "api_key_last4": DEPLOYER_KEY[-4:],
 }
 

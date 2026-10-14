@@ -31,6 +31,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
@@ -62,6 +63,7 @@ import {
   UNLIMITED,
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/localOwnKeys";
+import { EFFORT_UNSET, effortChoices, REASONING_EFFORTS } from "@/lib/reasoningEffort";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FailureIcon } from "@/theme/icons";
 
@@ -195,8 +197,13 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
   );
 }
 
-/** 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。 */
+/**
+ * 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，思考强度是「中文名（原值）」或「不设置」，
+ * 额外请求参数是一行 JSON，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。
+ */
 function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
+  if (field === "reasoning_effort") return effortLabel(value === null ? EFFORT_UNSET : String(value));
+  if (field === "extra_body" && value !== null) return JSON.stringify(value);
   if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
   if (typeof value === "boolean") return value ? t.switchOn : t.switchOff;
   if (ITEM_SPECS[name].secrets.includes(field)) return t.last4(String(value));
@@ -218,6 +225,16 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): stri
   if (name === "judge" && spec.name === "model") return t.formHints.judge_model;
   return t.formHints[spec.name];
 }
+
+/** 思考强度的一档：「高（high）」，没设是「不设置」。 */
+function effortLabel(effort: string): string {
+  const efforts = copy.reasoningEffort;
+  if (effort === EFFORT_UNSET) return efforts.unset;
+  return efforts.option(efforts.names[effort] ?? effort, effort);
+}
+
+/** 思考强度下拉框认得的每一档，包括这种接口不列的（换成 Anthropic 时还选着的「极低」照样显示名字）。 */
+const EFFORT_ITEMS = [EFFORT_UNSET, ...REASONING_EFFORTS].map((value) => ({ value, label: effortLabel(value) }));
 
 function optionLabel(field: string, option: string): string {
   return field === "protocol" ? (t.protocols[option as LLMProtocol] ?? option) : (t.providers[option] ?? option);
@@ -426,6 +443,54 @@ function AvailableItem({
                         onCheckedChange={(on) => set(field.name)(String(on))}
                         disabled={locked}
                       />
+                    </Field>
+                  );
+                }
+                if (field.kind === "effort") {
+                  return (
+                    <Field key={field.name} data-invalid={problem ? true : undefined}>
+                      <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
+                      <Select
+                        items={EFFORT_ITEMS}
+                        value={form[field.name]}
+                        onValueChange={(value) => value && set(field.name)(String(value))}
+                      >
+                        <SelectTrigger id={fieldId} className="w-full" aria-invalid={problem ? true : undefined}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Anthropic 接口没有「极低」，不列（ADR-0019）。 */}
+                          {effortChoices(form.protocol).map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {effortLabel(value)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>{fieldHint(name, field, keysEditable)}</FieldDescription>
+                      {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
+                    </Field>
+                  );
+                }
+                if (field.kind === "extraBody") {
+                  return (
+                    <Field key={field.name} data-invalid={problem ? true : undefined}>
+                      <FieldLabel htmlFor={fieldId}>
+                        {label}
+                        <span className="font-normal text-muted-foreground">{copy.common.optional}</span>
+                      </FieldLabel>
+                      <Textarea
+                        id={fieldId}
+                        value={form[field.name]}
+                        onChange={(event) => set(field.name)(event.target.value)}
+                        aria-invalid={problem ? true : undefined}
+                        placeholder='{"enable_thinking": false}'
+                        spellCheck={false}
+                        autoComplete="off"
+                        rows={4}
+                      />
+                      <FieldDescription>{fieldHint(name, field, keysEditable)}</FieldDescription>
+                      {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
                     </Field>
                   );
                 }

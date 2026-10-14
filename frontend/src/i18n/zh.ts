@@ -32,6 +32,12 @@ export const zh = {
   ownServices: { llm: "LLM", tts: "语音合成", stt: "语音识别" },
   /** 把几项服务列成一句：「LLM」「LLM 和语音识别」「LLM、语音合成和语音识别」。 */
   serviceList: { separator: "、", last: "和" },
+  /** 思考强度（GLOSSARY.md「思考强度」）的各档：下拉框里中文名后面括号写发给服务的原值。 */
+  reasoningEffort: {
+    unset: "不设置",
+    names: { none: "关闭", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" } as Record<string, string>,
+    option: (name: string, value: string) => `${name}（${value}）`,
+  },
   conversationList: {
     title: "对话",
     noneSelected: "选一位偶像开始对话",
@@ -938,6 +944,8 @@ export const zh = {
         base_url: "接口地址（base_url）",
         model: "模型名",
         max_tokens: "max_tokens",
+        reasoning_effort: "思考强度",
+        extra_body: "额外请求参数",
         api_key: "API key",
         provider: "服务",
         soniox_api_key: "Soniox 的 key",
@@ -963,6 +971,10 @@ export const zh = {
         enabled: "好感度和礼物",
       } as Record<string, string>,
       formHints: {
+        reasoning_effort:
+          "不设置时什么都不发，交给模型自己的默认；其他档原样发给服务，服务不支持时试调会报错。用额外请求参数控制思考时选「不设置」。选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。",
+        extra_body:
+          '一个 JSON 对象，深合并进每次请求，能覆盖思考强度生成的参数，例如 Qwen 的 {"enable_thinking": false}。不能包含 model、messages、tools 这类由服务器生成的字段。',
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
         emotion_timeout: "大于 0、不超过 30 秒；超时的那一段不判断情绪。",
         stt_api_key: "填写所选服务的 key，留空则沿用这家已有的 key。",
@@ -978,6 +990,9 @@ export const zh = {
       problems: {
         required: (field: string) => `${field}不能为空。`,
         maxTokens: (field: string) => `${field}需要是正整数，留空用默认值。`,
+        effort: (field: string) => `Anthropic 接口没有「极低」这一档，请给${field}换一档。`,
+        json: (field: string) => `${field}不是合法的 JSON。`,
+        jsonObject: (field: string) => `${field}需要是一个 JSON 对象（用 { } 括起来），留空表示不设置。`,
         probability: (field: string) => `${field}需要是 0 到 1 之间的数。`,
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,

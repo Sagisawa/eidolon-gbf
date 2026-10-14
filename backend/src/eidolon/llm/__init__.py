@@ -64,6 +64,20 @@ class ChatLLM(Protocol):
     async def aclose(self) -> None: ...
 
 
+def merge_extra_body(body: dict[str, Any], extra: Mapping[str, Any] | None) -> dict[str, Any]:
+    """`body` with `extra` merged in, deep: an object into an object key by key, any other
+    value in place of what was there. Neither is changed."""
+    if not extra:
+        return body
+    merged = dict(body)
+    for key, value in extra.items():
+        if isinstance(value, Mapping) and isinstance(merged.get(key), dict):
+            merged[key] = merge_extra_body(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 class LLMError(RuntimeError):
     """The model's service failed, refused the request, or replied in a way the adapter
     cannot read."""

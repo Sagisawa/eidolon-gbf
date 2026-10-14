@@ -8,7 +8,16 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Reasoning, Streamed, Tool, ToolCall
+from eidolon.config import ReasoningEffort
+from eidolon.llm import (
+    ChatMessage,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+    merge_extra_body,
+)
 from eidolon.llm.sse import parse_arguments, stream_events
 
 log = logging.getLogger(__name__)
@@ -22,11 +31,15 @@ class ResponsesLLM:
         model: str,
         client: httpx.AsyncClient | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/responses"
         self._api_key = api_key
         self._model = model
         self._max_tokens = max_tokens
+        self._effort = reasoning_effort
+        self._extra_body = extra_body
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
@@ -46,6 +59,12 @@ class ResponsesLLM:
         body["input"] = [item for m in messages if m.role != "system" for item in _items(m)]
         if self._max_tokens is not None:
             body["max_output_tokens"] = self._max_tokens
+        if self._effort is not None:
+            body["reasoning"] = {"effort": self._effort}
+            if self._effort != "none":
+                # With `store` off, what a tool round sends back of the reasoning is all the
+                # service has of it, and it comes only encrypted, only when asked for.
+                body["include"] = ["reasoning.encrypted_content"]
         if tools:
             body["tools"] = [
                 {
@@ -58,6 +77,7 @@ class ResponsesLLM:
             ]
             if forbid_calls:
                 body["tool_choice"] = "none"
+        body = merge_extra_body(body, self._extra_body)
         calls: dict[int, dict[str, str]] = {}  # output index → call id, name and arguments
         # Output index → a reasoning item as done, which goes back as it came: with `store`
         # off, its encrypted content is all the service keeps of what the model thought.

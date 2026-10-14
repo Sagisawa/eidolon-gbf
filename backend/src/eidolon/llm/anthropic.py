@@ -7,7 +7,16 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Reasoning, Streamed, Tool, ToolCall
+from eidolon.config import ReasoningEffort
+from eidolon.llm import (
+    ChatMessage,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+    merge_extra_body,
+)
 from eidolon.llm.sse import parse_arguments, stream_events
 
 log = logging.getLogger(__name__)
@@ -30,11 +39,15 @@ class AnthropicLLM:
         model: str,
         client: httpx.AsyncClient | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: ReasoningEffort | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._url = base_url.rstrip("/") + "/messages"
         self._api_key = api_key
         self._model = model
         self._max_tokens = max_tokens or DEFAULT_MAX_TOKENS
+        self._effort = reasoning_effort
+        self._extra_body = extra_body
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
@@ -52,6 +65,13 @@ class AnthropicLLM:
         if system := "\n\n".join(m.content for m in messages if m.role == "system"):
             body["system"] = system
         body["messages"] = _messages([m for m in messages if m.role != "system"])
+        if self._effort == "none":
+            body["thinking"] = {"type": "disabled"}
+        elif self._effort is not None:
+            # Not shown, what it thinks still goes back in a tool round by its signature,
+            # and it starts to say something sooner.
+            body["thinking"] = {"type": "adaptive", "display": "omitted"}
+            body["output_config"] = {"effort": self._effort}
         if tools:
             body["tools"] = [
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
@@ -59,6 +79,7 @@ class AnthropicLLM:
             ]
             if forbid_calls:
                 body["tool_choice"] = {"type": "none"}
+        body = merge_extra_body(body, self._extra_body)
         calls: dict[int, dict[str, Any]] = {}  # content block index → the tool_use so far
         # Content block index → a thinking or redacted_thinking block as streamed so far,
         # which goes back as it came: its signature binds it to what came before.

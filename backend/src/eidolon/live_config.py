@@ -62,6 +62,8 @@ from eidolon.config import (
     Settings,
     SttKey,
     UsageLimits,
+    checked_extra_body,
+    effort_problem,
 )
 from eidolon.database import connect
 from eidolon.affinity import Judged
@@ -100,7 +102,9 @@ RERANK = "rerank"
 LIMITS = "limits"
 AFFINITY = "affinity"
 
-LLM_FIELDS = ("protocol", "base_url", "api_key", "model", "max_tokens")
+LLM_FIELDS = (
+    "protocol", "base_url", "api_key", "model", "max_tokens", "reasoning_effort", "extra_body",
+)
 
 FOR_MODEL = "for_model"
 """Kept beside thresholds: the model they were set for."""
@@ -228,10 +232,23 @@ class _LLMItem(_Item):
     def make(self, settings: LLMSettings) -> ChatLLM:
         raise NotImplementedError
 
+    def candidate(self, current: Values, change: Values) -> Values:
+        values = current | change
+        effort = values["reasoning_effort"]
+        if effort is not None and (problem := effort_problem(effort, values["protocol"])):
+            raise ConfigInvalid(problem)
+        if values["extra_body"] is not None:
+            try:
+                checked_extra_body(values["extra_body"])
+            except ValueError as e:
+                raise ConfigInvalid(str(e)) from None
+        return values
+
     async def tried(self, values: Values) -> tuple[Values, Any]:
-        client = self.make(_llm(values))
+        settings = _llm(values)
+        client = self.make(settings)
         try:
-            await check_chat_llm(client)
+            await check_chat_llm(client, settings.reasoning_effort)
         except LLMError as e:
             await client.aclose()
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
@@ -243,7 +260,7 @@ class _LLMItem(_Item):
 
     async def retry(self, values: Values) -> Values:
         try:
-            await check_chat_llm(self.swappable().current)
+            await check_chat_llm(self.swappable().current, values["reasoning_effort"])
         except LLMError as e:
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
         return values
@@ -1108,13 +1125,15 @@ def _llm_values(settings: LLMSettings) -> Values:
         "api_key": settings.api_key,
         "model": settings.model,
         "max_tokens": settings.max_tokens,
+        "reasoning_effort": settings.reasoning_effort,
+        "extra_body": settings.extra_body,
     }
 
 
 def _llm(values: Values) -> LLMSettings:
     return LLMSettings(
         values["base_url"], values["api_key"], values["model"], values["protocol"],
-        values["max_tokens"],
+        values["max_tokens"], values["reasoning_effort"], values["extra_body"],
     )
 
 

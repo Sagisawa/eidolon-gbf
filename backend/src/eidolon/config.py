@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal, Required, TypedDict, get_args
+from typing import Any, Literal, Required, TypedDict, get_args
 
 log = logging.getLogger(__name__)
 
@@ -96,6 +96,52 @@ LLMProtocol = Literal["chat-completions", "responses", "anthropic"]
 
 LLM_PROTOCOLS: tuple[LLMProtocol, ...] = get_args(LLMProtocol)
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+"""How hard the model thinks before it replies (GLOSSARY.md「思考强度」), `none` for not at
+all; sent as each protocol writes it, whatever the model makes of it (ADR-0019)."""
+
+REASONING_EFFORTS: tuple[ReasoningEffort, ...] = get_args(ReasoningEffort)
+
+EFFORT_NAMES: dict[ReasoningEffort, str] = {
+    "none": "关闭",
+    "minimal": "极低",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "极高",
+    "max": "最高",
+}
+
+NOT_ON_ANTHROPIC: frozenset[ReasoningEffort] = frozenset({"minimal"})
+"""The efforts the Anthropic protocol has no way to write."""
+
+EXTRA_BODY_REFUSED = (
+    "model", "stream", "stream_options", "messages", "input", "instructions", "system",
+    "tools", "tool_choice",
+)
+"""What an extra request body may not set: the adapters write these to make the request."""
+
+
+def checked_extra_body(value: object) -> dict[str, Any]:
+    """`value` as an extra request body, merged into each request last; raises ValueError
+    saying why it is not one: it must be a JSON object, and not set what makes the
+    request (`EXTRA_BODY_REFUSED`). What it sets of thinking is up to the deployer."""
+    if not isinstance(value, dict):
+        raise ValueError("额外请求参数需要是一个 JSON 对象，例如 {\"enable_thinking\": false}")
+    if refused := [key for key in EXTRA_BODY_REFUSED if key in value]:
+        keys = "、".join(f"「{key}」" for key in refused)
+        raise ValueError(f"额外请求参数不能包含 {keys}：这些由服务器生成，改了会弄坏请求")
+    return value
+
+
+def effort_problem(effort: object, protocol: str) -> str | None:
+    """Why `effort` is not one a model on `protocol` may be set to, if it is not."""
+    if effort not in REASONING_EFFORTS:
+        return f"思考强度只能是 {'、'.join(REASONING_EFFORTS)} 之一，而不是 {effort}"
+    if protocol == "anthropic" and effort in NOT_ON_ANTHROPIC:
+        return f"Anthropic 接口没有「{EFFORT_NAMES[effort]}」（{effort}）这一档"
+    return None
+
 
 @dataclass(frozen=True)
 class LLMSettings:
@@ -107,6 +153,10 @@ class LLMSettings:
     protocol: LLMProtocol = "chat-completions"
     max_tokens: int | None = None
     """A cap on each reply's length; the Anthropic protocol needs one and has a default."""
+    reasoning_effort: ReasoningEffort | None = None
+    """None to send none, leaving it to the model."""
+    extra_body: dict[str, Any] | None = None
+    """Merged into every request last (see `checked_extra_body`)."""
 
     @classmethod
     def chat_from_env(cls) -> "LLMSettings":
@@ -140,12 +190,26 @@ class LLMSettings:
             max_tokens.isascii() and max_tokens.isdigit() and int(max_tokens) > 0
         ):
             raise RuntimeError(f"环境变量 {slot}_LLM_MAX_TOKENS 需要是正整数，而不是 {max_tokens}")
+        # So are the effort and the extra body: the chat's may not suit drafting a sheet.
+        effort = os.environ.get(f"{slot}_LLM_REASONING_EFFORT", "").strip() or None
+        if effort is not None and (problem := effort_problem(effort, protocol)):
+            raise RuntimeError(f"环境变量 {slot}_LLM_REASONING_EFFORT 有误：{problem}")
+        extra_body = None
+        if text := os.environ.get(f"{slot}_LLM_EXTRA_BODY", "").strip():
+            try:
+                extra_body = checked_extra_body(json.loads(text))
+            except json.JSONDecodeError as e:
+                raise RuntimeError(f"环境变量 {slot}_LLM_EXTRA_BODY 不是合法的 JSON：{e}") from None
+            except ValueError as e:
+                raise RuntimeError(f"环境变量 {slot}_LLM_EXTRA_BODY 有误：{e}") from None
         return cls(
             base_url=required("BASE_URL"),
             api_key=required("API_KEY"),
             model=required("MODEL"),
             protocol=protocol,  # pyright: ignore[reportArgumentType]  # checked above
             max_tokens=int(max_tokens) if max_tokens else None,
+            reasoning_effort=effort,  # pyright: ignore[reportArgumentType]  # checked above
+            extra_body=extra_body,
         )
 
 

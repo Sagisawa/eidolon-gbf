@@ -3,7 +3,7 @@ what conversations need of it."""
 
 import httpx
 
-from eidolon.config import LLMProtocol, LLMSettings
+from eidolon.config import EFFORT_NAMES, LLMProtocol, LLMSettings, ReasoningEffort
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Tool, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
@@ -24,6 +24,8 @@ def open_llm(settings: LLMSettings, client: httpx.AsyncClient | None = None) -> 
         settings.model,
         client=client,
         max_tokens=settings.max_tokens,
+        reasoning_effort=settings.reasoning_effort,
+        extra_body=settings.extra_body,
     )
 
 
@@ -36,11 +38,24 @@ _PROBE = [ChatMessage("user", "这是一次连通性检查，请调用 ping 工�
 _PROBE_RESULT = '{"ok": true}'
 
 
-async def check_chat_llm(llm: ChatLLM) -> None:
+async def check_chat_llm(llm: ChatLLM, effort: ReasoningEffort | None = None) -> None:
     """Raise an `LLMError` saying what is missing unless the model streams its reply to a
     request that offers it a tool, and, if it calls the tool, to the result of the call,
     as a turn's last round asks it: the same tools offered, none to be called. Whether it
-    calls the tool is up to the model."""
+    calls the tool is up to the model. A failure of a model opened with a reasoning
+    `effort` is put down to the effort, in the service's own words first: the effort is
+    sent as it is, whether the model knows it or not (ADR-0019)."""
+    try:
+        await _check(llm)
+    except _CheckFailed as e:
+        if effort is None:
+            raise
+        raise LLMError(
+            f"思考强度『{EFFORT_NAMES[effort]}』被服务拒绝：{e.service_said}"
+        ) from None
+
+
+async def _check(llm: ChatLLM) -> None:
     try:
         await _probe(llm, [_PROBE_TOOL])
         return
@@ -51,15 +66,15 @@ async def check_chat_llm(llm: ChatLLM) -> None:
     try:  # the same request without the tool tells the two failures apart
         await _probe(llm, [])
     except LLMError:
-        raise LLMError(
-            f"对话模型需要支持流式输出和工具调用，但检查请求失败：{with_tool}"
+        raise _CheckFailed(
+            f"对话模型需要支持流式输出和工具调用，但检查请求失败：{with_tool}", with_tool
         ) from None
     try:  # the first failure may have been passing, say a timeout or a rate limit
         await _probe(llm, [_PROBE_TOOL])
         return
     except LLMError as e:
-        raise LLMError(
-            f"对话模型不支持工具调用（不提供工具时可以正常回复），无法使用「回顾剧情」：{e}"
+        raise _CheckFailed(
+            f"对话模型不支持工具调用（不提供工具时可以正常回复），无法使用「回顾剧情」：{e}", e
         ) from None
 
 
@@ -86,9 +101,18 @@ async def _probe(llm: ChatLLM, tools: list[Tool]) -> None:
             pass
     except LLMError as e:
         raise _AnswerRefused(
-            f"对话模型调用了工具，但收到工具结果后的下一轮请求失败，无法使用「回顾剧情」：{e}"
+            f"对话模型调用了工具，但收到工具结果后的下一轮请求失败，无法使用「回顾剧情」：{e}", e
         ) from None
 
 
-class _AnswerRefused(LLMError):
+class _CheckFailed(LLMError):
+    """The check failed, saying what is missing; `service_said` is the failure the service
+    reported, in its own words."""
+
+    def __init__(self, message: str, failure: LLMError) -> None:
+        super().__init__(message)
+        self.service_said = str(failure)
+
+
+class _AnswerRefused(_CheckFailed):
     """The model called the tool, but the request with the call's result failed."""
