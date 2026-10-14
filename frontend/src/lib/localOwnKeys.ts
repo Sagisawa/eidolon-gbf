@@ -34,8 +34,8 @@ export type LocalModel = {
   extra_body?: JsonObject;
 };
 
-/** 自带的 LLM，原样就是请求里 `own_keys` 的 `llm`（后端 `OwnChatLLMInput`）：`reasoning_effort` 用于文字对话和提炼记忆，
- * 通话里的回合用 `call_reasoning_effort`。 */
+/** 自带的 LLM，原样就是请求里 `own_keys` 的 `llm`（后端 `OwnChatLLMInput`）：`reasoning_effort` 用于文字对话和
+ * 提炼记忆（没另配提炼记忆的 LLM 时），通话里的回合用 `call_reasoning_effort`。 */
 export type LocalLLM = LocalModel & { call_reasoning_effort?: ReasoningEffort };
 
 /** 语音合成（Fish Audio）的 key。 */
@@ -44,8 +44,12 @@ export type LocalTtsKey = { api_key: string };
 /** 语音识别的 key，连同它所属的服务商；百炼的还有地域。 */
 export type LocalSttKey = { api_key: string; provider: SttProvider; region?: BailianRegion };
 
-/** 一位用户在这个浏览器里存的自带密钥，每项都可以没有。原样就是请求里的 `own_keys`（后端 `OwnKeysInput`）。 */
-export type LocalOwnKeys = { llm?: LocalLLM; tts?: LocalTtsKey; stt?: LocalSttKey };
+/** 一位用户在这个浏览器里存的自带密钥，每项都可以没有。原样就是请求里的 `own_keys`（后端 `OwnKeysInput`）。
+ * `memory_llm` 是另配的提炼记忆的 LLM：只跟着 `llm` 存在，不算一项服务（`ownServices` 不报它）。 */
+export type LocalOwnKeys = { llm?: LocalLLM; tts?: LocalTtsKey; stt?: LocalSttKey; memory_llm?: LocalModel };
+
+/** 浏览器里存的一项：一项服务的 key，或者提炼记忆的 LLM。 */
+export type OwnKeyItem = keyof LocalOwnKeys;
 
 /** 存储键的前缀，后面接用户 ID。 */
 const STORAGE_PREFIX = "eidolon.ownKeys.";
@@ -64,13 +68,16 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
   }
   if (!isRecord(stored)) return {};
   const keys: LocalOwnKeys = {};
-  const { llm, tts, stt } = stored;
+  const { llm, tts, stt, memory_llm } = stored;
   const model = localModel(llm);
   if (model) {
     keys.llm = model;
     if (isRecord(llm) && isOneOf(llm.call_reasoning_effort, REASONING_EFFORTS)) {
       keys.llm.call_reasoning_effort = llm.call_reasoning_effort;
     }
+    // 提炼记忆的 LLM 只附加在自带 LLM 上：没有自带 LLM（或它存错了）时当作没有。
+    const memoryModel = localModel(memory_llm);
+    if (memoryModel) keys.memory_llm = memoryModel;
   }
   if (isRecord(tts) && isString(tts.api_key)) keys.tts = { api_key: tts.api_key };
   if (
@@ -107,15 +114,17 @@ function localModel(stored: unknown): LocalModel | undefined {
   return model;
 }
 
-/** 存下（或换掉）这位用户某一项服务的 key。 */
-export function keepOwnKey<S extends OwnService>(userId: string, service: S, key: NonNullable<LocalOwnKeys[S]>): void {
-  write(userId, { ...localOwnKeys(userId), [service]: key });
+/** 存下（或换掉）这位用户的某一项。 */
+export function keepOwnKey<K extends OwnKeyItem>(userId: string, item: K, key: NonNullable<LocalOwnKeys[K]>): void {
+  write(userId, { ...localOwnKeys(userId), [item]: key });
 }
 
-/** 删掉这位用户某一项服务的 key，这一项改回用部署者的服务。 */
-export function forgetOwnKey(userId: string, service: OwnService): void {
+/** 删掉这位用户的某一项：一项服务的 key 删掉就改回用部署者的服务；删掉自带 LLM 时连同提炼记忆的 LLM 一起删，
+ * 只删提炼记忆的 LLM 就改回由自带 LLM 提炼记忆。 */
+export function forgetOwnKey(userId: string, item: OwnKeyItem): void {
   const keys = localOwnKeys(userId);
-  delete keys[service];
+  delete keys[item];
+  if (item === "llm") delete keys.memory_llm;
   write(userId, keys);
 }
 
@@ -129,10 +138,11 @@ export function forgetOwnKeys(userId: string): void {
   changed();
 }
 
-/** 一次文字回合要带的 `own_keys`：只有这位用户存的 LLM（文字回合用不上语音 key，不带出去）；没存 LLM 就不带。 */
-export function turnOwnKeys(userId: string): { llm: LocalLLM } | undefined {
-  const { llm } = localOwnKeys(userId);
-  return llm && { llm };
+/** 一次文字回合要带的 `own_keys`：只有这位用户存的 LLM，连同提炼记忆的 LLM（文字回合用不上语音 key，不带出去）；
+ * 没存 LLM 就不带。 */
+export function turnOwnKeys(userId: string): { llm: LocalLLM; memory_llm?: LocalModel } | undefined {
+  const { llm, memory_llm } = localOwnKeys(userId);
+  return llm && { llm, ...(memory_llm && { memory_llm }) };
 }
 
 /** 存了 key 的那几项服务：通话预检时只报这些服务名，不带 key；也是判断计不计入限额的依据。 */
