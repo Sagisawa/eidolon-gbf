@@ -203,13 +203,13 @@ async def _find_dashscope_region(settings: Settings) -> Settings:
 async def _check_chat_llm(settings: Settings) -> None:
     """Checks the chat model on a client of its own: the server's run in uvicorn's event
     loop, and an HTTP client cannot move between loops."""
-    from eidolon.llm.providers import check_chat_llm, open_llm
+    from eidolon.llm.providers import check_chat_models, open_chat_models
 
-    llm = open_llm(settings.chat_llm)
+    models = open_chat_models(settings.chat_model)
     try:
-        await check_chat_llm(llm, settings.chat_llm.reasoning_effort)
+        await check_chat_models(models, settings.chat_model)
     finally:
-        await llm.aclose()
+        await models.aclose()
 
 
 async def _import_story(args: argparse.Namespace) -> int:

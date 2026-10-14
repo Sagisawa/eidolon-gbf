@@ -55,6 +55,12 @@ class LLMInput(BaseModel):
     _trim = field_validator("base_url", "model")(_trimmed)
 
 
+class ChatLLMInput(LLMInput):
+    """The chat model, with its reasoning effort in calls besides its own, for text turns."""
+
+    call_reasoning_effort: Any = None
+
+
 class TTSInput(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     api_key: str | None = ApiKey
@@ -113,7 +119,7 @@ class AffinityInput(BaseModel):
 
 
 INPUTS: dict[str, type[BaseModel]] = {
-    CHAT_LLM: LLMInput,
+    CHAT_LLM: ChatLLMInput,
     MEMORY_LLM: LLMInput,
     TTS: TTSInput,
     STT: STTInput,

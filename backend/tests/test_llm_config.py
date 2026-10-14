@@ -4,6 +4,7 @@ that cannot stream or call tools."""
 import json
 import threading
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -28,6 +29,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for slot in SLOTS:
         for name in NAMES:
             monkeypatch.delenv(f"{slot}_LLM_{name}", raising=False)
+    monkeypatch.delenv("CHAT_LLM_CALL_REASONING_EFFORT", raising=False)
     for name in ("SILICONFLOW_API_KEY", "AI_GATEWAY_API_KEY", "JEV_API_KEY", "JUDGE_PROVIDER"):
         monkeypatch.delenv(name, raising=False)
 
@@ -105,6 +107,7 @@ async def test_the_protocol_defaults_to_chat_completions_and_the_background_foll
         ("CHAT_LLM_MAX_TOKENS", "lots", "CHAT_LLM_MAX_TOKENS.*正整数"),
         ("BACKGROUND_LLM_MAX_TOKENS", "²", "BACKGROUND_LLM_MAX_TOKENS.*正整数"),
         ("CHAT_LLM_REASONING_EFFORT", "off", "CHAT_LLM_REASONING_EFFORT.*none、minimal"),
+        ("CHAT_LLM_CALL_REASONING_EFFORT", "off", "CHAT_LLM_CALL_REASONING_EFFORT.*none、minimal"),
         ("CHAT_LLM_EXTRA_BODY", "{enable_thinking: false}", "CHAT_LLM_EXTRA_BODY.*合法的 JSON"),
         ("BACKGROUND_LLM_EXTRA_BODY", '{"model": "x"}', "BACKGROUND_LLM_EXTRA_BODY.*「model」"),
     ],
@@ -147,6 +150,41 @@ def test_an_effort_the_anthropic_protocol_has_no_way_to_write_is_reported(
     )
 
     with pytest.raises(RuntimeError, match="BACKGROUND_LLM_REASONING_EFFORT.*Anthropic"):
+        Settings.from_env()
+
+
+def test_the_chat_model_has_an_effort_of_its_own_for_calls(monkeypatch: pytest.MonkeyPatch):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_REASONING_EFFORT="high",
+        CHAT_LLM_CALL_REASONING_EFFORT="none",
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.chat_model.text.reasoning_effort == "high"
+    assert settings.chat_model.call == replace(settings.chat_llm, reasoning_effort="none")
+    assert settings.background_llm.reasoning_effort is None
+
+
+def test_the_call_effort_unset_is_none_whatever_the_text_effort(monkeypatch: pytest.MonkeyPatch):
+    set_chat_model(monkeypatch, "https://chat.example/v1", CHAT_LLM_REASONING_EFFORT="high")
+
+    assert Settings.from_env().chat_model.call.reasoning_effort is None
+
+
+def test_a_call_effort_the_chat_models_protocol_has_no_way_to_write_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    set_chat_model(
+        monkeypatch,
+        "https://chat.example/v1",
+        CHAT_LLM_PROTOCOL="anthropic",
+        CHAT_LLM_CALL_REASONING_EFFORT="minimal",
+    )
+
+    with pytest.raises(RuntimeError, match="CHAT_LLM_CALL_REASONING_EFFORT.*Anthropic"):
         Settings.from_env()
 
 

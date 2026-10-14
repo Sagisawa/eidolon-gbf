@@ -945,6 +945,7 @@ export const zh = {
         model: "模型名",
         max_tokens: "max_tokens",
         reasoning_effort: "思考强度",
+        call_reasoning_effort: "通话的思考强度",
         extra_body: "额外请求参数",
         api_key: "API key",
         provider: "服务",
@@ -970,9 +971,13 @@ export const zh = {
         exempting_stt: "免限额密钥：语音识别",
         enabled: "好感度和礼物",
       } as Record<string, string>,
+      /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
+      itemFields: { chat_llm: { reasoning_effort: "文字的思考强度" } } as Partial<Record<string, Record<string, string>>>,
       formHints: {
         reasoning_effort:
           "不设置时什么都不发，交给模型自己的默认；其他档原样发给服务，服务不支持时试调会报错。用额外请求参数控制思考时选「不设置」。选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。",
+        call_reasoning_effort:
+          "通话里的回合用这一档，文字对话用上面那一档。不设置时通话里什么都不发，不沿用文字那一档；想让她在通话里开口快一些，可以只把这一项设成「关闭」或「低」。两档不同时，保存时各试调一次。",
         extra_body:
           '一个 JSON 对象，深合并进每次请求，能覆盖思考强度生成的参数，例如 Qwen 的 {"enable_thinking": false}。不能包含 model、messages、tools 这类由服务器生成的字段。',
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
@@ -1011,7 +1016,7 @@ export const zh = {
       } as Record<string, string>,
       regions: { beijing: "北京", singapore: "新加坡" } as Record<string, string>,
       followsChat:
-        "当前跟随扮演角色的 LLM：.env 里没有单独设置 BACKGROUND_LLM_*，后台也没有覆盖，所以用的是扮演角色的 LLM 当前生效的值。在这里保存后就单独设置。",
+        "当前跟随扮演角色的 LLM：.env 里没有给它单独设置服务和模型，后台也没有覆盖，所以接口类型、地址、key 和模型名用的是扮演角色的 LLM 当前生效的值；max_tokens、思考强度和额外请求参数仍是它自己的（.env 的 BACKGROUND_LLM_*）。在这里保存后就单独设置。",
       forModel: (model: string) =>
         `这里的阈值只对当前的模型 ${model} 生效；换了模型（包括改了 .env 后重启）以后，这里的覆盖不再生效。`,
       unavailable: (reason: string) => `${reason}。`,

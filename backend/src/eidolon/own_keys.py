@@ -215,6 +215,9 @@ class DeployerKeys:
     the call is on; None if it is not judged here (see `call.Calls`)."""
     hold_memory: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
     """See `TurnLLMs.hold_memory`."""
+    call_llm: ChatLLM | None = None
+    """The chat model as calls' turns use it, at its reasoning effort in calls; None for
+    `chat_llm`."""
 
     def lease(self) -> "DeployerLease":
         """These keys, which never change, for a turn or call."""
@@ -315,7 +318,7 @@ class OwnKeys:
             tts = brought.tts if brought.tts is not None else deployer.tts
             assert stt and tts
             own = brought.services - {"llm"}
-            llms = self._llms(brought.llm, deployer)
+            llms = self._llms(brought.llm, deployer, call=True)
         except BaseException:
             lease.release()
             raise
@@ -364,10 +367,14 @@ class OwnKeys:
         with _rejecting(api_key):
             return await self._require_speech_check().check_stt(provider, api_key)
 
-    def _llms(self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None) -> TurnLLMs:
+    def _llms(
+        self, own_llm: OwnLLMSettings | None, deployer: DeployerKeys | None, *, call: bool = False
+    ) -> TurnLLMs:
+        """The models a turn runs on, a call's with `call`."""
         if own_llm is None:
             assert deployer is not None
-            return TurnLLMs(deployer.chat_llm, deployer.memory_llm, deployer.hold_memory)
+            chat = deployer.call_llm if call and deployer.call_llm else deployer.chat_llm
+            return TurnLLMs(chat, deployer.memory_llm, deployer.hold_memory)
         settings = LLMSettings(own_llm.base_url, own_llm.api_key, own_llm.model, own_llm.protocol)
         own = _OwnLLM(self._llm_service, settings)
         return TurnLLMs(

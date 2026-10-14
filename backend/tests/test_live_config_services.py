@@ -121,11 +121,11 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     assert clients.memory_opened == [ENV_SETTINGS, NEW_MEMORY_SETTINGS, ENV_SETTINGS]
 
 
-async def test_unless_set_apart_the_memory_model_follows_the_chat_model_saved(
+async def test_unless_set_apart_the_memory_model_follows_the_chat_models_connection_saved(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
-    clients = FakeServiceClients(FakeLLM(REPLY, [CAT]))
-    client = await admin_client(with_memory(make_client), admins, github, clients)
+    clients = FakeServiceClients(FakeLLM(REPLY))
+    client = await admin_client(with_memory(make_client, FakeBackgroundLLM(CAT)), admins, github, clients)
     conversation_id = await start_conversation(client)
 
     saved = await client.put("/api/admin/config/chat_llm", json=NEW)
@@ -134,10 +134,56 @@ async def test_unless_set_apart_the_memory_model_follows_the_chat_model_saved(
 
     memory = saved.json()["memory_llm"]
     assert memory["status"] == "env" and memory["follows_chat"] is True
-    assert memory["effective"] == NEW_SHOWN
+    # Where the model is and which, not how hard it thinks, how long it writes or what
+    # else its requests carry: those stay the memory model's own.
+    connection = {"protocol", "base_url", "model", "api_key_last4"}
+    assert memory["effective"] == {k: v for k, v in NEW_SHOWN.items() if k in connection} | {
+        "max_tokens": None, "reasoning_effort": None, "extra_body": None,
+    }
     assert [m["text"] for m in memories] == ["制作人养了一只猫"]
-    assert clients.llm.keys == [NEW["api_key"], NEW["api_key"]]
-    assert clients.memory_keys == []
+    assert clients.llm.keys == [NEW["api_key"]]
+    assert clients.memory_keys == [NEW["api_key"]]
+    assert clients.memory_opened[-1] == LLMSettings(
+        "https://llm.example/v1", NEW["api_key"], "new-model", "anthropic"
+    )
+
+
+async def test_a_chat_models_effort_set_in_env_alone_is_not_the_memory_models(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients(FakeLLM(REPLY))
+    chat = replace(ENV_SETTINGS, max_tokens=512, reasoning_effort="none", extra_body={"a": 1})
+    env = replace(admins, chat_llm=chat, background_llm=ENV_SETTINGS)
+    client = await admin_client(with_memory(make_client), env, github, clients)
+
+    saved = await client.put("/api/admin/config/chat_llm", json=NEW)
+
+    memory = saved.json()["memory_llm"]
+    assert memory["follows_chat"] is True
+    assert memory["effective"]["model"] == "new-model"
+    assert memory["effective"]["reasoning_effort"] is None
+    assert clients.memory_opened == [ENV_SETTINGS, replace(
+        ENV_SETTINGS, base_url="https://llm.example/v1", api_key=NEW["api_key"],
+        model="new-model", protocol="anthropic",
+    )]
+
+
+async def test_a_memory_model_following_is_untouched_by_a_change_of_the_chat_models_efforts(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients(FakeLLM(REPLY))
+    client = await admin_client(with_memory(make_client), admins, github, clients)
+    shown_env = (await client.get(CONFIG)).json()["chat_llm"]["env"]
+    change = {k: v for k, v in shown_env.items() if k != "api_key_last4"}
+
+    saved = await client.put(
+        "/api/admin/config/chat_llm",
+        json=change | {"reasoning_effort": "high", "call_reasoning_effort": "none"},
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["memory_llm"]["follows_chat"] is True
+    assert clients.memory_opened == [ENV_SETTINGS]  # the same model, as it was
 
 
 async def test_a_memory_model_set_apart_in_env_does_not_follow_the_chat_model(

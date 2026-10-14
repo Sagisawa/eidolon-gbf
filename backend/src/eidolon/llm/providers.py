@@ -3,8 +3,14 @@ what conversations need of it."""
 
 import httpx
 
-from eidolon.config import EFFORT_NAMES, LLMProtocol, LLMSettings, ReasoningEffort
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Tool, ToolCall
+from eidolon.config import (
+    EFFORT_NAMES,
+    ChatModelSettings,
+    LLMProtocol,
+    LLMSettings,
+    ReasoningEffort,
+)
+from eidolon.llm import ChatLLM, ChatMessage, ChatModels, LLMError, Reasoning, Tool, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
@@ -29,6 +35,15 @@ def open_llm(settings: LLMSettings, client: httpx.AsyncClient | None = None) -> 
     )
 
 
+def open_chat_models(
+    settings: ChatModelSettings, client: httpx.AsyncClient | None = None
+) -> ChatModels:
+    """The chat model as text turns and calls use it, both on `client`, else on one of
+    their own."""
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
+    return ChatModels(open_llm(settings.text, client), open_llm(settings.call, client))
+
+
 _PROBE_TOOL = Tool(
     "ping",
     "检查工具调用是否可用。",
@@ -38,22 +53,34 @@ _PROBE = [ChatMessage("user", "这是一次连通性检查，请调用 ping 工�
 _PROBE_RESULT = '{"ok": true}'
 
 
-async def check_chat_llm(llm: ChatLLM, effort: ReasoningEffort | None = None) -> None:
+async def check_chat_llm(
+    llm: ChatLLM, effort: ReasoningEffort | None = None, whose: str = ""
+) -> None:
     """Raise an `LLMError` saying what is missing unless the model streams its reply to a
     request that offers it a tool, and, if it calls the tool, to the result of the call,
     as a turn's last round asks it: the same tools offered, none to be called. Whether it
     calls the tool is up to the model. A failure of a model opened with a reasoning
-    `effort` is put down to the effort, in the service's own words first: the effort is
-    sent as it is, whether the model knows it or not (ADR-0019); unless the model took
-    it, answering without tools."""
+    `effort` is put down to the effort, `whose` it is (as 「通话的」) and in the service's
+    own words first: the effort is sent as it is, whether the model knows it or not
+    (ADR-0019); unless the model took it, answering without tools."""
     try:
         await _check(llm)
     except _CheckFailed as e:
         if effort is None or not e.effort_may_be_why:
             raise
         raise LLMError(
-            f"思考强度『{EFFORT_NAMES[effort]}』被服务拒绝：{e.service_said}"
+            f"{whose}思考强度『{EFFORT_NAMES[effort]}』被服务拒绝：{e.service_said}"
         ) from None
+
+
+async def check_chat_models(models: ChatModels, settings: ChatModelSettings) -> None:
+    """`check_chat_llm` for the chat model as text turns and calls use it, at each one's
+    effort, saying which was refused; at both, if they are the same, once."""
+    if settings.text.reasoning_effort == settings.call_effort:
+        await check_chat_llm(models.text, settings.call_effort)
+        return
+    await check_chat_llm(models.text, settings.text.reasoning_effort, "文字的")
+    await check_chat_llm(models.call, settings.call_effort, "通话的")
 
 
 async def _check(llm: ChatLLM) -> None:

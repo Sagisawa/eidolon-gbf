@@ -64,6 +64,19 @@ class ChatLLM(Protocol):
     async def aclose(self) -> None: ...
 
 
+@dataclass(frozen=True)
+class ChatModels:
+    """The chat model as text turns (`text`) and calls' turns (`call`) use it: the same
+    model, each at its own reasoning effort, over one HTTP client, closed together."""
+
+    text: ChatLLM
+    call: ChatLLM
+
+    async def aclose(self) -> None:
+        await self.text.aclose()
+        await self.call.aclose()  # the client both are on is closed by now; no matter
+
+
 def merge_extra_body(body: dict[str, Any], extra: Mapping[str, Any] | None) -> dict[str, Any]:
     """`body` with `extra` merged in, deep: an object into an object key by key, any other
     value in place of what was there. Neither is changed."""

@@ -8,13 +8,14 @@ import httpx
 import pytest
 
 from eidolon.config import (
+    ChatModelSettings,
     LLMProtocol,
     LLMSettings,
     ReasoningEffort,
     checked_extra_body,
 )
 from eidolon.llm import ChatMessage, Tool
-from eidolon.llm.providers import open_llm
+from eidolon.llm.providers import open_chat_models, open_llm
 from tests.test_llm_protocols import recorded
 
 STREAMS: dict[LLMProtocol, str] = {
@@ -153,3 +154,26 @@ def test_an_extra_body_that_is_not_an_object_is_refused():
 def test_an_extra_body_that_would_break_the_request_is_refused_naming_each_key():
     with pytest.raises(ValueError, match="「model」、「tools」"):
         checked_extra_body({"enable_thinking": False, "tools": [], "model": "x"})
+
+
+# The chat model as text turns and calls use it: one model over one client, each at its own
+# effort.
+
+async def test_the_chat_models_text_and_call_requests_go_at_their_own_efforts_on_one_client():
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, text=STREAMS["chat-completions"])
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    text = LLMSettings("https://llm.example/v1", "k", "m", reasoning_effort="high")
+    models = open_chat_models(ChatModelSettings(text, call_effort=None), client)
+    for llm in (models.text, models.call):
+        async for _ in llm.stream([ChatMessage("user", "你好")]):
+            pass
+    await models.aclose()
+
+    assert [body.get("reasoning_effort") for body in bodies] == ["high", None]
+    assert "reasoning_effort" not in bodies[1]
+    assert client.is_closed

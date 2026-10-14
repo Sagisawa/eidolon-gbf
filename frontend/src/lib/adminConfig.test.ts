@@ -102,6 +102,38 @@ describe("rows", () => {
   });
 });
 
+describe("the chat model's two efforts", () => {
+  const efforts = (spec: (typeof ITEM_SPECS)[keyof typeof ITEM_SPECS]) =>
+    spec.form.filter(({ kind }) => kind === "effort").map(({ name }) => name);
+
+  it("has the chat model show and take an effort for calls after the one for text, the memory model only its one", () => {
+    const fields = rows(item("env"), ITEM_SPECS.chat_llm).map((row) => row.field);
+    expect(fields.slice(fields.indexOf("reasoning_effort"), fields.indexOf("reasoning_effort") + 2)).toEqual([
+      "reasoning_effort",
+      "call_reasoning_effort",
+    ]);
+    expect(efforts(ITEM_SPECS.chat_llm)).toEqual(["reasoning_effort", "call_reasoning_effort"]);
+    expect(rows(item("env"), ITEM_SPECS.memory_llm).map((row) => row.field)).not.toContain("call_reasoning_effort");
+    expect(efforts(ITEM_SPECS.memory_llm)).toEqual(["reasoning_effort"]);
+  });
+
+  it("starts each from the one in effect and sends each as chosen, unset as none", () => {
+    const llm = ITEM_SPECS.chat_llm;
+    const form = formOf(llm, { ...ENV, reasoning_effort: "high", call_reasoning_effort: "none" });
+    expect(form).toMatchObject({ reasoning_effort: "high", call_reasoning_effort: "none" });
+    expect(changeOf(llm, form, true)).toMatchObject({ change: { reasoning_effort: "high", call_reasoning_effort: "none" } });
+    expect(changeOf(llm, { ...form, call_reasoning_effort: EFFORT_UNSET }, true)).toMatchObject({
+      change: { reasoning_effort: "high", call_reasoning_effort: null },
+    });
+  });
+
+  it("refuses a call effort the protocol has no way to write", () => {
+    const llm = ITEM_SPECS.chat_llm;
+    const form = { ...formOf(llm, ENV), protocol: "anthropic", call_reasoning_effort: "minimal" };
+    expect(changeOf(llm, form, true)).toEqual({ problems: [{ field: "call_reasoning_effort", reason: "effort" }] });
+  });
+});
+
 describe("formOf and changeOf", () => {
   const llm = ITEM_SPECS.chat_llm;
   const form = { ...formOf(llm, { ...ENV, max_tokens: 1024 }), api_key: " sk-new " };
@@ -113,6 +145,7 @@ describe("formOf and changeOf", () => {
       model: "env-model",
       max_tokens: "1024",
       reasoning_effort: EFFORT_UNSET,
+      call_reasoning_effort: EFFORT_UNSET,
       extra_body: "",
       api_key: "",
     });
@@ -126,6 +159,7 @@ describe("formOf and changeOf", () => {
         model: "env-model",
         max_tokens: 1024,
         reasoning_effort: null,
+        call_reasoning_effort: null,
         extra_body: null,
         api_key: "sk-new",
       },

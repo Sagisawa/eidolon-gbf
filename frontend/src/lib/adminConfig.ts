@@ -172,7 +172,16 @@ const LLM: ItemSpec = {
   tried: true,
 };
 
-const THRESHOLD = (names: string[]): ItemSpec => ({
+/** 对话模型多一项通话的思考强度，紧跟在文字那一项后面；后台模型只有一项。 */
+const CHAT_LLM: ItemSpec = {
+  ...LLM,
+  rows: LLM.rows.flatMap((field) => (field === "reasoning_effort" ? [field, "call_reasoning_effort"] : [field])),
+  form: LLM.form.flatMap((field): FieldSpec[] =>
+    field.name === "reasoning_effort" ? [field, { name: "call_reasoning_effort", kind: "effort" }] : [field],
+  ),
+};
+
+const THRESHOLD =(names: string[]): ItemSpec => ({
   rows: names,
   secrets: [],
   form: names.map((name) => ({ name, kind: "probability" })),
@@ -180,7 +189,7 @@ const THRESHOLD = (names: string[]): ItemSpec => ({
 });
 
 export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
-  chat_llm: LLM,
+  chat_llm: CHAT_LLM,
   memory_llm: LLM,
   tts: {
     rows: ["model", "api_key"],

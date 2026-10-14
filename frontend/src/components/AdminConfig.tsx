@@ -164,7 +164,7 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
         <TableBody>
           {fieldRows.map((row) => (
             <TableRow key={row.field}>
-              <TableCell className="whitespace-normal text-muted-foreground">{t.fields[row.field] ?? row.field}</TableCell>
+              <TableCell className="whitespace-normal text-muted-foreground">{fieldLabel(name, row.field)}</TableCell>
               <TableCell className="whitespace-normal break-all">
                 {row.inEffect ? (
                   <del className="text-muted-foreground">{shown(name, row.field, row.env)}</del>
@@ -189,7 +189,7 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
   return (
     <MetadataList>
       {fieldRows.map((row) => (
-        <MetadataListItem key={row.field} label={t.fields[row.field] ?? row.field}>
+        <MetadataListItem key={row.field} label={fieldLabel(name, row.field)}>
           {shown(name, row.field, row.effective)}
         </MetadataListItem>
       ))}
@@ -202,7 +202,7 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
  * 额外请求参数是一行 JSON，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。
  */
 function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
-  if (field === "reasoning_effort") return effortLabel(value === null ? EFFORT_UNSET : String(value));
+  if (field === "reasoning_effort" || field === "call_reasoning_effort") return effortLabel(value === null ? EFFORT_UNSET : String(value));
   if (field === "extra_body" && value !== null) return JSON.stringify(value);
   if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
   if (typeof value === "boolean") return value ? t.switchOn : t.switchOff;
@@ -215,6 +215,11 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
 }
 
 /** 表单里一个字段的说明：key 留空不改，其余按字段给出取值范围。 */
+/** 一项的名字：对话模型分文字和通话两项思考强度，文字那一项要写明。 */
+function fieldLabel(name: ItemName, field: string): string {
+  return t.itemFields[name]?.[field] ?? t.fields[field] ?? field;
+}
+
 function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): string | undefined {
   if (spec.kind === "secret") {
     if (!keysEditable) return t.keysReadOnly;
@@ -412,7 +417,7 @@ function AvailableItem({
           <form ref={formRef} onSubmit={submit} noValidate className="flex max-w-md flex-col gap-6">
             <FieldGroup>
               {spec.form.map((field) => {
-                const label = t.fields[field.name] ?? field.name;
+                const label = fieldLabel(name, field.name);
                 const problem = problemOf(field.name);
                 const fieldId = `${id}-${field.name}`;
                 if (field.kind === "limit") {

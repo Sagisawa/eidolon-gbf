@@ -34,10 +34,12 @@ from eidolon.billing import bill
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Hearing
 from eidolon.config import (
     BailianRegion,
+    ChatModelSettings,
     CloudflareJudgeSettings,
     JevSettings,
     JudgeSettings,
     LLMSettings,
+    ReasoningEffort,
     Settings,
     SttKey,
     SttProvider,
@@ -46,7 +48,16 @@ from eidolon.embedding import Document, EmbeddingError
 from eidolon.rerank import RerankError
 from eidolon.emotion import _EMOTION_OPTIONS, _NOD_OPTIONS, Emotion, EmotionAnswer, Nod
 from eidolon.identity import Identity, IdentityError, ProviderName
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Streamed, Tool, ToolCall
+from eidolon.llm import (
+    ChatLLM,
+    ChatMessage,
+    ChatModels,
+    LLMError,
+    Reasoning,
+    Streamed,
+    Tool,
+    ToolCall,
+)
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
@@ -210,11 +221,13 @@ class _KeyedLLM:
 class FakeServiceClients:
     """Stands in for making the deployer's service clients from their configuration (see
     `service_clients.ServiceClients`), `.env`'s as well as the admin console's: records
-    the settings of every chat model it made (`opened`) and closed (`closed`). Every chat
-    model it makes replies from `llm`'s script, recording the key it came with there (or
-    is `llm`, if it is not a `FakeLLM`), but passes the connectivity check without using
-    up the script; a key in `rejects` fails every request, the check too, with that
-    message.
+    the settings of every chat model it made (`opened`) and closed (`closed`), as text
+    turns use it. Every chat model it makes, as text turns and calls use it, replies from
+    `llm`'s script, recording the key it came with there (or is `llm`, if it is not a
+    `FakeLLM`) and the reasoning effort it was made with (`efforts`), but passes the
+    connectivity check without using up the script, recording the effort it was checked
+    at (`efforts_checked`); a key in `rejects`, or an effort in `refused_efforts`, fails
+    every request, the check too, with that message.
 
     Memory models it makes (`memory_opened`, closed in `closed` too) answer from
     `background`, recording the key each request came with (`memory_keys`). Judge models
@@ -226,6 +239,9 @@ class FakeServiceClients:
         self.opened: list[LLMSettings] = []
         self.closed: list[LLMSettings] = []
         self.rejects: dict[str, str] = {}
+        self.refused_efforts: dict[str, str] = {}
+        self.efforts: list[ReasoningEffort | None] = []
+        self.efforts_checked: list[ReasoningEffort | None] = []
         self.background = FakeBackgroundLLM()
         self.memory_opened: list[LLMSettings] = []
         self.memory_keys: list[str] = []
@@ -233,9 +249,12 @@ class FakeServiceClients:
         self.judges_opened: list[JudgeSettings] = []
         self.judges_closed: list[JudgeSettings] = []
 
-    def chat_llm(self, settings: LLMSettings) -> ChatLLM:
-        self.opened.append(settings)
-        return _ConfiguredLLM(self, settings, self.closed)
+    def chat_llm(self, settings: ChatModelSettings) -> ChatModels:
+        self.opened.append(settings.text)
+        return ChatModels(
+            _ConfiguredLLM(self, settings.text, self.closed),
+            _ConfiguredLLM(self, settings.call, []),  # closed with the text turns' one
+        )
 
     def memory_llm(self, settings: LLMSettings) -> ChatLLM:
         self.memory_opened.append(settings)
@@ -266,16 +285,21 @@ class _ConfiguredLLM:
         *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
-        key = self._settings.api_key
+        key, effort = self._settings.api_key, self._settings.reasoning_effort
         if key in self._clients.rejects:
             raise LLMError(self._clients.rejects[key])
+        if effort is not None and effort in self._clients.refused_efforts:
+            raise LLMError(self._clients.refused_efforts[effort])
         if any(t.name == "ping" for t in tools):  # the connectivity check
+            if not self._memory:
+                self._clients.efforts_checked.append(effort)
             return
         if self._memory:
             self._clients.memory_keys.append(key)
             async for item in self._clients.background.stream(messages, tools):
                 yield item
             return
+        self._clients.efforts.append(effort)
         llm = self._clients.llm
         stream = (
             llm.stream_with(key, messages, tools, forbid_calls=forbid_calls)

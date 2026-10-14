@@ -38,11 +38,14 @@ NEW = {
     "max_tokens": 1024,
     "reasoning_effort": "high",
     "extra_body": {"top_k": 5},
+    "call_reasoning_effort": "low",
     "api_key": NEW_KEY,
 }
 NEW_SETTINGS = LLMSettings(
     "https://llm.example/v1", NEW_KEY, "new-model", "anthropic", 1024, "high", {"top_k": 5}
 )
+NEW_FOLLOWED = LLMSettings("https://llm.example/v1", NEW_KEY, "new-model", "anthropic")
+"""The memory model following the chat model NEW: where it is and which alone."""
 NEW_SHOWN = {k: v for k, v in NEW.items() if k != "api_key"} | {"api_key_last4": "5678"}
 ENV_SETTINGS = LLMSettings("http://llm.invalid/v1", DEPLOYER_KEY, "test-model")
 ENV_SHOWN = {
@@ -52,6 +55,7 @@ ENV_SHOWN = {
     "max_tokens": None,
     "reasoning_effort": None,
     "extra_body": None,
+    "call_reasoning_effort": None,
     "api_key_last4": DEPLOYER_KEY[-4:],
 }
 
@@ -123,7 +127,8 @@ async def test_a_saved_chat_model_plays_the_next_turn_until_restored(
     assert restored.json() == before
     assert clients.llm.keys == [DEPLOYER_KEY, NEW_KEY, DEPLOYER_KEY]
     assert clients.opened == [ENV_SETTINGS, NEW_SETTINGS, ENV_SETTINGS]
-    assert clients.closed == [ENV_SETTINGS, NEW_SETTINGS]  # each once no turn was on it
+    # Each once no turn was on it, the memory model following the chat model's each time.
+    assert clients.closed == [ENV_SETTINGS, ENV_SETTINGS, NEW_SETTINGS, NEW_FOLLOWED]
 
 
 async def test_a_chat_model_that_fails_its_try_is_not_saved(
@@ -164,7 +169,7 @@ async def test_a_call_keeps_the_chat_model_it_connected_with(
     await speech.stts[-1].hear("早上好")
     await browser.turn()
     assert clients.llm.keys == [NEW_KEY]
-    assert clients.closed == [ENV_SETTINGS]  # the call is still on the new one
+    assert clients.closed == [ENV_SETTINGS, ENV_SETTINGS]  # the call is still on the new one
 
     await browser.close()
     await until_gone(client, browser.pc_id)
@@ -175,12 +180,157 @@ async def test_a_call_keeps_the_chat_model_it_connected_with(
         await again.turn()
 
     assert clients.llm.keys == [NEW_KEY, "sk-other-key-9999"]
-    assert clients.closed == [ENV_SETTINGS, NEW_SETTINGS]
+    assert clients.closed == [ENV_SETTINGS, ENV_SETTINGS, NEW_SETTINGS, NEW_FOLLOWED]
     # Each call's turn is recorded as the model it connected with.
     await until(lambda: len(recorded(client, "chat_llm")) == 2)  # as the call is written
     assert recorded(client, "chat_llm") == [
         ("llm.example", "new-model", False), ("llm.example", "other-model", False)
     ]
+
+
+# The chat model's two reasoning efforts: text turns go at one, calls' turns at the other.
+
+async def call_turn(client: httpx.AsyncClient, speech: FakeSpeech, conversation_id: str) -> None:
+    """One turn of a call placed and hung up on the conversation."""
+    async with open_browser() as browser:
+        await browser.call(client, conversation_id=conversation_id)
+        await browser.connect()
+        await speech.stts[-1].hear("早上好")
+        await browser.turn()
+        await browser.close()
+        assert browser.pc_id is not None
+        await until_gone(client, browser.pc_id)
+
+
+async def test_text_turns_go_at_the_text_effort_and_calls_at_the_call_effort(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
+):
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY))
+    client = await admin_client(make_client, admins, github, clients)
+    conversation_id = await start_conversation(client)
+
+    saved = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": "none"})
+    assert saved.status_code == 200, saved.text
+    await send_turn(client, conversation_id, "你好")
+    await call_turn(client, speech, conversation_id)
+
+    shown = saved.json()["chat_llm"]
+    assert shown["effective"]["reasoning_effort"] == "high"
+    assert shown["effective"]["call_reasoning_effort"] == "none"
+    assert clients.efforts == ["high", "none"]
+    assert clients.llm.keys == [NEW_KEY, NEW_KEY]
+    # One model, at two efforts, recorded as the one model it is.
+    await until(lambda: len(recorded(client, "chat_llm")) == 2)
+    assert recorded(client, "chat_llm") == [("llm.example", "new-model", False)] * 2
+
+
+async def test_calls_go_at_no_effort_unless_set_whatever_the_text_effort(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
+):
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY))
+    env = replace(admins, chat_llm=replace(ENV_SETTINGS, reasoning_effort="high"))
+    client = await admin_client(make_client, env, github, clients)
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, "你好")
+    await call_turn(client, speech, conversation_id)
+
+    assert clients.efforts == ["high", None]
+
+
+async def test_a_call_effort_set_in_env_holds_until_overridden_and_again_once_restored(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
+):
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY, REPLY))
+    env = replace(admins, call_reasoning_effort="low")
+    client = await admin_client(make_client, env, github, clients)
+    conversation_id = await start_conversation(client)
+    before = (await client.get(CONFIG)).json()["chat_llm"]
+    shown_env = {k: v for k, v in before["env"].items() if k != "api_key_last4"}
+
+    saved = await client.put(CHAT_LLM, json=shown_env | {"call_reasoning_effort": "none"})
+    assert saved.status_code == 200, saved.text
+    await call_turn(client, speech, conversation_id)
+    restored = await client.delete(CHAT_LLM)
+    await call_turn(client, speech, conversation_id)
+    await send_turn(client, conversation_id, "你好")
+
+    assert before["env"]["call_reasoning_effort"] == "low"
+    assert saved.json()["chat_llm"]["override"] == {"call_reasoning_effort": "none"}
+    assert restored.json()["chat_llm"] == before
+    assert clients.efforts == ["none", "low", None]
+
+
+@pytest.mark.parametrize(
+    ("text", "call", "checked"),
+    [("high", "none", ["high", "none"]), ("low", "low", ["low"]), (None, None, [None])],
+)
+async def test_the_two_efforts_are_each_tried_once_or_once_for_both_if_the_same(
+    make_client: ClientFactory,
+    admins: Settings,
+    github: FakeIdentityProvider,
+    text: str | None,
+    call: str | None,
+    checked: list[str | None],
+):
+    clients = FakeServiceClients()
+    client = await admin_client(make_client, admins, github, clients)
+
+    change = NEW | {"reasoning_effort": text, "call_reasoning_effort": call}
+    res = await client.put(CHAT_LLM, json=change)
+
+    assert res.status_code == 200, res.text
+    assert clients.efforts_checked == checked
+
+
+@pytest.mark.parametrize(
+    ("refused", "prefix"),
+    [("high", "文字的思考强度『高』被服务拒绝："), ("none", "通话的思考强度『关闭』被服务拒绝：")],
+)
+async def test_an_effort_the_service_refuses_is_not_saved_saying_whether_text_or_call(
+    make_client: ClientFactory,
+    admins: Settings,
+    github: FakeIdentityProvider,
+    refused: str,
+    prefix: str,
+):
+    clients = FakeServiceClients()
+    clients.refused_efforts[refused] = f"400 '{refused}' is not supported with this model"
+    client = await admin_client(make_client, admins, github, clients)
+
+    res = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": "none"})
+
+    assert res.status_code == 422
+    assert prefix + f"400 '{refused}' is not supported" in res.json()["detail"]
+    assert (await client.get(CONFIG)).json()["chat_llm"]["status"] == "env"
+
+
+async def test_both_efforts_the_same_and_refused_say_so_once_without_text_or_call(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients()
+    clients.refused_efforts["high"] = "400 'high' is not supported with this model"
+    client = await admin_client(make_client, admins, github, clients)
+
+    res = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": "high"})
+
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert "思考强度『高』被服务拒绝：400" in detail
+    assert "文字的" not in detail and "通话的" not in detail
+
+
+async def test_a_call_effort_the_protocol_cannot_write_is_refused_untried(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients()
+    client = await admin_client(make_client, admins, github, clients)
+
+    res = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": "minimal"})
+
+    assert res.status_code == 422
+    assert "Anthropic 接口没有「极低」" in res.json()["detail"]
+    assert clients.opened == [ENV_SETTINGS]  # not even tried
 
 
 async def test_without_the_secret_key_the_chat_models_key_is_read_only(

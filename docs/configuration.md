@@ -49,6 +49,7 @@
 - 模型回复前输出的思考内容（reasoning / thinking）会被丢掉，不进回复。
 - Anthropic 接口必须给出回复长度上限，默认 16384 token，用 `CHAT_LLM_MAX_TOKENS`、`BACKGROUND_LLM_MAX_TOKENS` 调整。这一项两个模型各设各的，免得较长的人设初稿被截断。
 - **思考强度**（可选）：`CHAT_LLM_REASONING_EFFORT`、`BACKGROUND_LLM_REASONING_EFFORT` 填 `none`（关闭）、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 之一，不填就什么都不发，交给模型自己的默认（ADR-0019）。档位按接口原样发出：chat-completions 发 `reasoning_effort`，Responses 发 `reasoning.effort`，Anthropic 发 adaptive 思考加 `output_config.effort`、关闭时发 `thinking:{type:"disabled"}`。Anthropic 接口没有 `minimal`。对话模型的这一档服务不支持时，启动检查会报「思考强度『…』被服务拒绝」和服务的原话；后台模型启动时不检查，在后台保存时才检查。思考也算在回复长度上限里，选 `high` 及以上时上限留空或设宽裕一些。
+- **通话的思考强度**（可选）：`CHAT_LLM_CALL_REASONING_EFFORT` 只管对话模型在语音通话里的回合，`CHAT_LLM_REASONING_EFFORT` 只管文字对话，档位写法相同。不填就什么都不发，不沿用文字那一项。想让她在通话里开口快一些，可以只把这一项设成 `none` 或 `low`，文字对话保留原来那一档。两项不同时，启动检查各查一次，被拒时报错写明是「文字的思考强度」还是「通话的思考强度」。后台模型不受这两项影响。
 - **额外请求参数**（可选）：`CHAT_LLM_EXTRA_BODY`、`BACKGROUND_LLM_EXTRA_BODY` 填一个 JSON 对象，深合并进每次请求，最后合并，所以能覆盖思考强度生成的参数。用来填 Qwen 的 `enable_thinking`、GLM 和 Kimi 的 `thinking`、OpenRouter 的 `reasoning` 这类私有开关；这时思考强度留空，免得两套参数冲突。不能包含 `model`、`stream`、`stream_options`、`messages`、`input`、`instructions`、`system`、`tools`、`tool_choice`。
 - 后台模型没填的项沿用对话模型。例如只填 `BACKGROUND_LLM_MODEL`，就是在同一个服务上换一个便宜的模型。回复长度上限、思考强度和额外请求参数除外，这几项两个模型各设各的。
 
