@@ -37,3 +37,18 @@
 - 影响范围：`eidolon eval rerank` 和写记忆时给背景模型看的查询也走同一个客户端，所以也是 3 秒加重试一次。
 - 测试：`test_embedding.py` 加了脚本化的假服务（`scripted`、`HANG`），测查询超时、连不上、429、5xx 都重试一次，两次都失败才报错，其他 4xx 和无法解析不重试，文档不受短超时限制；`test_gemini_embedding.py`、`test_retrieval_services.py` 对 Gemini 查询和重排测了同样的情况；`test_activity_records.py` 测重排 503 一次后看板记两次调用、一次 `server_error`。`FakeReranker` 加了 `down`；`test_retrieval.py`（最近 3 条、没有记忆）、`test_recall_story.py`（判断模型触发的回忆和回顾剧情工具都只回一段最近的剧情，附剧情目录）、`test_world_retrieval.py`（回忆加上最近的演出）。
 - 完整 `pytest` 1375 条全部通过，`ruff check`、`pyright` 无报错。
+
+**自审（2026-10-14，agent，固定点 8aad2a5）**
+
+- 已修：
+  - 两个客户端重复的「限时、超时和连不上转成 transient 错误」提到 `retry.answered` 共用。
+  - 只有 `httpx.TransportError`（超时、连不上、读写中断）算 transient；重定向过多这类别的 `httpx.HTTPError` 不重试。
+  - contextvar 和回调改名（`retry.on_retry`、`record_failed_attempt`）；失败那次计费的拆分改成 `Billing.take()`，不再从外面改它的字段。
+  - 按 CODING_STANDARDS 删掉走同一分支的测试参数行：向量化「两次都失败」的 429（和 502 同一分支）、Gemini 的超时（和 SiliconFlow 共用 `_post`）、重排的「超时后 429」（和「超时后 503」同一分支）。
+- 只报告、没改的判断题：
+  - `eidolon eval rerank` 和记忆评测也用上了 3 秒加重试一次（spec 说「只影响回合内的检索」）。评测要量的就是回合里会遇到的情况，卡住时也不必等 30 秒，所以没改。重排客户端默认的 `httpx.Timeout(30)` 现在基本用不到了。
+  - Gemini 查询遇到 429 立刻重试一次：Gemini 按分钟限流，立刻重试多半还是 429，还多用一次配额。这是照 spec「429 立刻重试一次」做的。
+  - 回忆退路里，剧情按 `similarity` 取最近的，作品资料取 `entries[:1]`，靠 `search_entries` 已经按从近到远排好（docstring 写明了），因为 `WorldEntry` 不带相似度。
+  - 回合里要是遇到还没向量化的资料或记忆（比如换了向量模型之后），会现场用 `embed_documents` 补，这一步仍然是长超时、不重试。spec 只要求「单次查询向量化」缩短超时。
+  - 向量化重试记进看板没有单独的测试，走的是和重排同一个 `timed`。
+- 修完后完整 `pytest` 1372 条全部通过，`ruff check`、`pyright` 无报错。

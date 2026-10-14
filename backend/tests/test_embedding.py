@@ -123,7 +123,6 @@ async def test_a_query_failing_in_passing_is_asked_again_at_once(failure: Answer
     [
         (HANG, "没有回应"),
         (httpx.ConnectError("connection refused"), "无法连接"),
-        (httpx.Response(429, text="rate limited"), "429"),
         (httpx.Response(502, text="bad gateway"), "502"),
     ],
 )

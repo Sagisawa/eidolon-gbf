@@ -6,7 +6,6 @@ calibrated (`eidolon eval rerank`) has thresholds of its own.
 Reranking holds up a turn, so each request is given a few seconds and made again once if
 it fails in passing (`retry`)."""
 
-import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
@@ -15,7 +14,7 @@ import httpx
 
 from eidolon.billing import bill
 from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
-from eidolon.retry import TURN_TIMEOUT, ServiceError, retry_once, transient_status
+from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
 
 @dataclass(frozen=True)
@@ -108,23 +107,18 @@ class SiliconFlowReranker:
     async def _rerank(
         self, query: str, documents: Sequence[str], top_n: int
     ) -> list[tuple[int, float]]:
-        try:
-            async with asyncio.timeout(self._timeout):
-                res = await self._client.post(
-                    self._url,
-                    json={
-                        "model": self.model,
-                        "query": query,
-                        "documents": list(documents),
-                        "top_n": top_n,
-                        "return_documents": False,
-                    },
-                    headers={"Authorization": f"Bearer {self._api_key}"},
-                )
-        except TimeoutError as e:
-            raise RerankError(f"重排服务 {self._timeout:g} 秒内没有回应", transient=True) from e
-        except httpx.HTTPError as e:
-            raise RerankError(f"无法连接重排服务：{e!r}", transient=True) from e
+        async with answered("重排服务", self._timeout, RerankError):
+            res = await self._client.post(
+                self._url,
+                json={
+                    "model": self.model,
+                    "query": query,
+                    "documents": list(documents),
+                    "top_n": top_n,
+                    "return_documents": False,
+                },
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
         if res.status_code >= 400:
             raise RerankError(
                 f"重排服务返回 {res.status_code}: {res.text[:500]}",

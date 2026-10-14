@@ -36,7 +36,7 @@ import threading
 from collections.abc import AsyncIterator, Awaitable, Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import Context, ContextVar, copy_context
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
@@ -55,7 +55,7 @@ from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.rerank import Reranker
-from eidolon.retry import ServiceError, telling_retries
+from eidolon.retry import ServiceError, on_retry
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
     from eidolon.affinity_judge import AffinityJudge
     from eidolon.emotion import EmotionAnswer, EmotionJudge, SegmentToJudge
@@ -656,14 +656,13 @@ async def timed(log: ActivityLog, origin: Origin, work: Awaitable[T]) -> T:
     billed = Billing()
     error: ErrorKind | None = None
 
-    def made_again(failure: ServiceError) -> None:
+    def record_failed_attempt(failure: ServiceError) -> None:
         nonlocal started
-        log.call(origin, started, error_kind(failure), replace(billed))
+        log.call(origin, started, error_kind(failure), billed.take())
         started = perf_counter()
-        billed.unit = billed.input = billed.output = None
 
     try:
-        with billing(billed), telling_retries(made_again):
+        with billing(billed), on_retry(record_failed_attempt):
             return await work
     except asyncio.CancelledError:
         raise  # abandoned, not failed

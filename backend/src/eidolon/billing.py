@@ -27,6 +27,13 @@ class Billing:
     input: float | None = None
     output: float | None = None
 
+    def take(self) -> "Billing":
+        """What it was billed for so far, which it then forgets: what an attempt that
+        failed and is made again was billed for, apart from the next."""
+        taken = Billing(self.unit, self.input, self.output)
+        self.unit = self.input = self.output = None
+        return taken
+
 
 _open: ContextVar[Billing | None] = ContextVar("billing", default=None)
 

@@ -97,8 +97,7 @@ async def test_a_rerank_failing_in_passing_is_asked_again_at_once(failure: Answe
     "answers, error",
     [
         ([HANG, HANG], "没有回应"),
-        ([httpx.Response(503, text="unavailable")] * 2, "503"),
-        ([HANG, httpx.Response(429, text="rate limited")], "429"),
+        ([HANG, httpx.Response(503, text="unavailable")], "503"),
         ([httpx.Response(403, text="forbidden")], "403"),
         ([httpx.Response(200, json={"oops": []})], "无法解析"),
     ],

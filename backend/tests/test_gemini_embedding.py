@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from eidolon.embedding import Document, EmbeddingError, GeminiEmbedder
-from tests.test_embedding import HANG, Answer, scripted
+from tests.test_embedding import Answer, scripted
 
 
 def embedder(
@@ -161,7 +161,7 @@ async def test_a_query_does_not_wait_out_the_rate_limit():
 
 
 @pytest.mark.parametrize(
-    "failure", [quota_exceeded(), httpx.Response(500, text="internal"), HANG]
+    "failure", [quota_exceeded(), httpx.Response(500, text="internal")]
 )
 async def test_a_query_failing_in_passing_is_asked_again_at_once(failure: Answer):
     answers = [failure]

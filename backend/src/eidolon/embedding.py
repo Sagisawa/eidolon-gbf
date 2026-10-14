@@ -17,7 +17,7 @@ import numpy as np
 
 from eidolon.billing import bill
 from eidolon.config import EmbeddingSettings
-from eidolon.retry import TURN_TIMEOUT, ServiceError, retry_once, transient_status
+from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
 _REQUEST_BATCH = 16
 """Texts sent in one request to SiliconFlow."""
@@ -271,14 +271,9 @@ async def _post(
     client: httpx.AsyncClient, timeout: float | None, url: str, **request: Any
 ) -> httpx.Response:
     """The answer to a POST of `request` to `url`, given `timeout` seconds if not None.
-    Raises EmbeddingError, transient, if it does not come."""
-    try:
-        async with asyncio.timeout(timeout):
-            return await client.post(url, **request)
-    except TimeoutError as e:
-        raise EmbeddingError(f"向量化服务 {timeout:g} 秒内没有回应", transient=True) from e
-    except httpx.HTTPError as e:
-        raise EmbeddingError(f"无法连接向量化服务：{e!r}", transient=True) from e
+    Raises EmbeddingError if it does not come."""
+    async with answered("向量化服务", timeout, EmbeddingError):
+        return await client.post(url, **request)
 
 
 def _retry_delay(body: str) -> float:

@@ -7,14 +7,17 @@ service that is down costs the turn a few seconds, not half a minute. One refuse
 otherwise (another 4xx) or answered with what cannot be read would only fail again.
 
 Each attempt is a service call of its own on the dashboard: whoever times the request
-(`activity.timed`) is told of a failed one (`telling_retries`) as it is made again.
+(`activity.timed`) is told of a failed one (`on_retry`) as it is made again.
 """
 
+import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from typing import TypeVar
+
+import httpx
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +43,23 @@ def transient_status(status: int) -> bool:
     return status == 429 or status >= 500
 
 
+@asynccontextmanager
+async def answered(
+    service: str, timeout: float | None, error: type[ServiceError]
+) -> AsyncIterator[None]:
+    """Fail a request to `service` made within with `error` if it is not answered: given
+    `timeout` seconds if not None, transient if it times out or cannot get through."""
+    try:
+        async with asyncio.timeout(timeout):
+            yield
+    except TimeoutError as e:
+        raise error(f"{service} {timeout:g} 秒内没有回应", transient=True) from e
+    except httpx.TransportError as e:
+        raise error(f"无法连接{service}：{e!r}", transient=True) from e
+    except httpx.HTTPError as e:  # too many redirects, say: no better asked again
+        raise error(f"无法连接{service}：{e!r}") from e
+
+
 async def retry_once(attempt: Callable[[], Awaitable[T]]) -> T:
     """What `attempt` comes to, made again at once if it fails in passing. Raises the
     ServiceError of the attempt failing last."""
@@ -49,20 +69,22 @@ async def retry_once(attempt: Callable[[], Awaitable[T]]) -> T:
         if not e.transient:
             raise
         log.info("a request failed in passing; asking again: %s", e)
-        if (told := _told.get()) is not None:
-            told(e)
+        if (failed := _on_retry.get()) is not None:
+            failed(e)
     return await attempt()
 
 
-_told: ContextVar[Callable[[ServiceError], None] | None] = ContextVar("retries", default=None)
+_on_retry: ContextVar[Callable[[ServiceError], None] | None] = ContextVar(
+    "on_retry", default=None
+)
 
 
 @contextmanager
-def telling_retries(to: Callable[[ServiceError], None]) -> Iterator[None]:
-    """Tell `to` of each attempt made meanwhile, in this context, that failed and is being
-    made again, with what it failed with."""
-    token = _told.set(to)
+def on_retry(failed: Callable[[ServiceError], None]) -> Iterator[None]:
+    """Tell `failed` of each attempt made meanwhile, in this context, that failed and is
+    being made again, with what it failed with."""
+    token = _on_retry.set(failed)
     try:
         yield
     finally:
-        _told.reset(token)
+        _on_retry.reset(token)
