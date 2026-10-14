@@ -81,9 +81,10 @@ class WritesWhileReplying(FakeLLM):
         key: str,
         messages: Sequence[ChatMessage],
         tools: Sequence[Tool] = (),
+        *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
-        async for chunk in super().stream_with(key, messages, tools, forbid_calls):
+        async for chunk in super().stream_with(key, messages, tools, forbid_calls=forbid_calls):
             yield chunk
             self._meanwhile()
 

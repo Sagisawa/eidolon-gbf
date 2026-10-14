@@ -99,23 +99,6 @@ async def test_the_last_tool_results_the_model_reads_tell_it_no_more_tools_are_c
     assert LAST_ROUND_NOTE not in episode
 
 
-async def test_the_last_round_offers_the_same_tools_but_forbids_calling_them(
-    make_client: ClientFactory, embedder: FakeEmbedder
-):
-    # Some models discard what they thought once the tools offered change (Claude 5.5).
-    llm = FakeLLM([recall("公園で鳩と歌った日")], ANSWER)
-    client = make_client(
-        llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker(PARK_LINE)
-    )
-    conversation_id = await start_conversation(client)
-
-    await send_turn(client, conversation_id, "那次在公园唱歌是怎么回事？")
-
-    first, last = llm.tools
-    assert last == first and [t.name for t in last] == ["recall_story"]
-    assert llm.forbidden == [False, True]
-
-
 async def test_what_the_model_thought_goes_back_with_its_calls_within_the_turn_alone(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
@@ -196,8 +179,10 @@ async def test_tool_calls_stop_after_a_few_rounds_and_a_call_made_then_goes_unan
 
     events = await send_turn(client, conversation_id, "公园那次呢？")
 
-    # The last round forbids calling the tools, so the model has to answer; a call it makes
-    # all the same goes unanswered.
+    # The last round offers the same tools, as some models drop what they thought once the
+    # tools change (Claude 5.5), but forbids calling them, so the model has to answer; a
+    # call it makes all the same goes unanswered.
+    assert all(tools == llm.tools[0] for tools in llm.tools)
     assert [len(tools) for tools in llm.tools] == [1] * (MAX_TOOL_ROUNDS + 1)
     assert llm.forbidden == [False] * MAX_TOOL_ROUNDS + [True]
     assert len(llm.prompts) == MAX_TOOL_ROUNDS + 1

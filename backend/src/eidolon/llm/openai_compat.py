@@ -88,18 +88,18 @@ class OpenAICompatLLM:
                         call["extra_content"] = extra
         if usage is not None:
             bill("tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"))
-        made = [
+        assembled = [
             (call["id"] or f"call_{index}", call)  # the tool result must name its call
             for index, call in sorted(calls.items())
         ]
-        thought: dict[str, Any] = {}
+        to_send_back: dict[str, Any] = {}
         if reasoning:
-            thought["reasoning_content"] = reasoning
-        if extras := {i: c["extra_content"] for i, c in made if "extra_content" in c}:
-            thought["extra_content"] = extras  # by call id
-        if thought:
-            yield Reasoning(thought)
-        for call_id, call in made:
+            to_send_back["reasoning_content"] = reasoning
+        if extras := {i: c["extra_content"] for i, c in assembled if "extra_content" in c}:
+            to_send_back["extra_content"] = extras  # by call id
+        if to_send_back:
+            yield Reasoning(to_send_back)
+        for call_id, call in assembled:
             yield ToolCall(call_id, call["name"], parse_arguments(call["arguments"]))
 
     async def aclose(self) -> None:

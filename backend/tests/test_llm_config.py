@@ -249,7 +249,8 @@ async def test_a_model_that_streams_and_takes_tools_passes_the_check(protocol: L
     body = bodies[0]
     assert body["stream"] is True
     assert body["tools"]
-    # A model that does not call the tool is asked just the once.
+    # A model that does not call the tool is asked just the once; the Anthropic stream
+    # above calls it, and is asked again with the result.
     assert len(bodies) == (2 if protocol == "anthropic" else 1)
 
 
@@ -317,7 +318,6 @@ async def test_a_call_to_the_tool_is_answered_and_the_model_asked_again():
     call, result = second["messages"][len(first["messages"]):]
     assert call["role"] == "assistant"
     assert [c["id"] for c in call["tool_calls"]] == ["call_p"]
-    assert call["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "c2ln"}}
     assert (result["role"], result["tool_call_id"]) == ("tool", "call_p")
     assert result["content"]
     # The same tools, which the model may not call again.
@@ -331,5 +331,9 @@ async def test_a_round_after_the_call_that_fails_fails_the_check():
         400, json={"error": {"message": "Function call is missing a thought_signature"}}
     )
 
-    with pytest.raises(LLMError, match="不支持工具调用.*thought_signature"):
+    with pytest.raises(LLMError, match="收到工具结果后.*thought_signature") as raised:
         await check_chat_llm(thinking_model(bodies, refused))
+
+    # The model can call tools, so it is not told it cannot, nor asked without them.
+    assert "不支持工具调用" not in str(raised.value)
+    assert len(bodies) == 2

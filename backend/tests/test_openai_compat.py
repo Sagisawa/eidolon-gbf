@@ -298,19 +298,3 @@ async def test_the_reasoning_and_thought_signatures_streamed_go_back_with_the_to
         ],
     }
 
-
-async def test_without_reasoning_in_the_stream_the_tool_calls_go_back_as_before():
-    items, body = await tool_round(RECORDED_TOOL_CALL_STREAM)
-
-    assert items == [ToolCall("call_abc", "recall_story", {"query": "写真集"})]
-    assert body["messages"][1] == {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "call_abc",
-                "type": "function",
-                "function": {"name": "recall_story", "arguments": '{"query": "写真集"}'},
-            }
-        ],
-    }

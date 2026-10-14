@@ -44,6 +44,8 @@ async def check_chat_llm(llm: ChatLLM) -> None:
     try:
         await _probe(llm, [_PROBE_TOOL])
         return
+    except _AnswerRefused:
+        raise  # the model can call tools, so asking without them tells nothing
     except LLMError as e:
         with_tool = e
     try:  # the same request without the tool tells the two failures apart
@@ -79,5 +81,14 @@ async def _probe(llm: ChatLLM, tools: list[Tool]) -> None:
         ChatMessage("assistant", said, tuple(calls), reasoning=tuple(reasoning)),
         *(ChatMessage("tool", _PROBE_RESULT, tool_call_id=c.id) for c in calls),
     ]
-    async for _ in llm.stream(answered, tools, forbid_calls=True):
-        pass
+    try:
+        async for _ in llm.stream(answered, tools, forbid_calls=True):
+            pass
+    except LLMError as e:
+        raise _AnswerRefused(
+            f"对话模型调用了工具，但收到工具结果后的下一轮请求失败，无法使用「回顾剧情」：{e}"
+        ) from None
+
+
+class _AnswerRefused(LLMError):
+    """The model called the tool, but the request with the call's result failed."""

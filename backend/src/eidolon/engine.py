@@ -455,7 +455,8 @@ class ConversationEngine:
                         await close()  # a stream left part-way lets go of its connection
                 for event in parser.finish():
                     yield event
-                if not calls or not tools or forbidden:  # such a call goes unanswered
+                # A call to a tool not offered, or made when forbidden, goes unanswered.
+                if not calls or not tools or forbidden:
                     break
                 prompt = [
                     *prompt,

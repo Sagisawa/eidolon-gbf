@@ -131,13 +131,14 @@ class FakeLLM:
         *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
-        return self.stream_with(DEPLOYER_KEY, messages, tools, forbid_calls)
+        return self.stream_with(DEPLOYER_KEY, messages, tools, forbid_calls=forbid_calls)
 
     async def stream_with(
         self,
         key: str,
         messages: Sequence[ChatMessage],
         tools: Sequence[Tool] = (),
+        *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
@@ -200,7 +201,7 @@ class _KeyedLLM:
         *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
-        return self._llm.stream_with(self._key, messages, tools, forbid_calls)
+        return self._llm.stream_with(self._key, messages, tools, forbid_calls=forbid_calls)
 
     async def aclose(self) -> None:
         pass
@@ -277,7 +278,8 @@ class _ConfiguredLLM:
             return
         llm = self._clients.llm
         stream = (
-            llm.stream_with(key, messages, tools, forbid_calls) if isinstance(llm, FakeLLM)
+            llm.stream_with(key, messages, tools, forbid_calls=forbid_calls)
+            if isinstance(llm, FakeLLM)
             else llm.stream(messages, tools, forbid_calls=forbid_calls)
         )
         async for item in stream:
