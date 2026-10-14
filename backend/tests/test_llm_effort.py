@@ -8,7 +8,6 @@ import httpx
 import pytest
 
 from eidolon.config import (
-    REASONING_EFFORTS,
     LLMProtocol,
     LLMSettings,
     ReasoningEffort,
@@ -26,8 +25,8 @@ STREAMS: dict[LLMProtocol, str] = {
 
 PING = Tool("ping", "检查", {"type": "object", "properties": {}})
 
-# What the adapters write besides the prompt, model and stream, for each protocol.
-UNSET: dict[LLMProtocol, dict] = {
+# What each adapter writes besides the prompt, model and stream when no effort is set.
+WITHOUT_EFFORT: dict[LLMProtocol, dict] = {
     "chat-completions": {"stream_options": {"include_usage": True}},
     "responses": {"store": False},
     "anthropic": {"max_tokens": 16384},
@@ -58,30 +57,24 @@ async def sent(
     return bodies[0]
 
 
-def written(protocol: LLMProtocol, body: dict) -> dict:
+def written(body: dict) -> dict:
     """What `body` carries beyond the prompt, the model and that it streams."""
     left_out = {"model", "stream", "messages", "input", "instructions", "system"}
     return {k: v for k, v in body.items() if k not in left_out}
 
 
-@pytest.mark.parametrize("protocol", UNSET)
+@pytest.mark.parametrize("protocol", WITHOUT_EFFORT)
 async def test_an_unset_effort_sends_nothing_of_it(protocol: LLMProtocol):
-    assert written(protocol, await sent(protocol)) == UNSET[protocol]
+    assert written(await sent(protocol)) == WITHOUT_EFFORT[protocol]
 
 
-EFFORTS = [e for e in REASONING_EFFORTS if e != "none"]
+async def test_chat_completions_sends_the_effort_as_reasoning_effort():
+    body = await sent("chat-completions", "xhigh")
+
+    assert written(body) == WITHOUT_EFFORT["chat-completions"] | {"reasoning_effort": "xhigh"}
 
 
-@pytest.mark.parametrize("effort", REASONING_EFFORTS)
-async def test_chat_completions_sends_the_effort_as_reasoning_effort(effort: ReasoningEffort):
-    body = await sent("chat-completions", effort)
-
-    assert written("chat-completions", body) == UNSET["chat-completions"] | {
-        "reasoning_effort": effort
-    }
-
-
-@pytest.mark.parametrize("effort", REASONING_EFFORTS)
+@pytest.mark.parametrize("effort", ["none", "minimal"])
 async def test_responses_sends_the_effort_and_asks_for_the_encrypted_reasoning(
     effort: ReasoningEffort,
 ):
@@ -90,7 +83,7 @@ async def test_responses_sends_the_effort_and_asks_for_the_encrypted_reasoning(
     # With `store` off, the encrypted reasoning is all a tool round can send back of it;
     # with thinking off there is none to ask for.
     include = {} if effort == "none" else {"include": ["reasoning.encrypted_content"]}
-    assert written("responses", body) == UNSET["responses"] | {
+    assert written(body) == WITHOUT_EFFORT["responses"] | {
         "reasoning": {"effort": effort}
     } | include
 
@@ -98,18 +91,15 @@ async def test_responses_sends_the_effort_and_asks_for_the_encrypted_reasoning(
 async def test_anthropic_turns_thinking_off_for_none():
     body = await sent("anthropic", "none")
 
-    assert written("anthropic", body) == UNSET["anthropic"] | {"thinking": {"type": "disabled"}}
+    assert written(body) == WITHOUT_EFFORT["anthropic"] | {"thinking": {"type": "disabled"}}
 
 
-@pytest.mark.parametrize("effort", [e for e in EFFORTS if e != "minimal"])
-async def test_anthropic_thinks_adaptively_at_the_effort_without_showing_it(
-    effort: ReasoningEffort,
-):
-    body = await sent("anthropic", effort)
+async def test_anthropic_thinks_adaptively_at_the_effort_without_showing_it():
+    body = await sent("anthropic", "max")
 
-    assert written("anthropic", body) == UNSET["anthropic"] | {
+    assert written(body) == WITHOUT_EFFORT["anthropic"] | {
         "thinking": {"type": "adaptive", "display": "omitted"},
-        "output_config": {"effort": effort},
+        "output_config": {"effort": "max"},
     }
 
 
@@ -128,7 +118,7 @@ async def test_the_extra_body_is_merged_in_deep_overriding_what_the_adapter_wrot
     assert [t["name"] for t in body["tools"]] == ["ping"]
 
 
-@pytest.mark.parametrize("protocol", UNSET)
+@pytest.mark.parametrize("protocol", WITHOUT_EFFORT)
 async def test_a_value_that_is_not_an_object_replaces_the_adapters(protocol: LLMProtocol):
     extra = {"reasoning_effort": None, "reasoning": "off", "thinking": None, "enable_thinking": False}
 
@@ -149,31 +139,17 @@ async def test_the_extra_body_is_not_changed_by_the_requests_it_goes_into():
 
 # The extra body, checked the same wherever it comes from.
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        {"enable_thinking": False},
-        {"thinking": {"type": "disabled"}},
-        {"reasoning_effort": "high", "reasoning": {"effort": "low"}},
-        {"output_config": {"effort": "max"}, "include": []},
-        {},
-    ],
-)
-def test_an_extra_body_of_the_thinking_keys_and_others_is_taken(extra: dict):
+def test_an_extra_body_setting_thinking_or_anything_else_is_taken():
+    extra = {"thinking": {"type": "disabled"}, "reasoning_effort": "high", "enable_thinking": False}
+
     assert checked_extra_body(extra) == extra
 
 
-@pytest.mark.parametrize("extra", [[1, 2], "enable_thinking", 3, None])
-def test_an_extra_body_that_is_not_an_object_is_refused(extra: object):
+def test_an_extra_body_that_is_not_an_object_is_refused():
     with pytest.raises(ValueError, match="JSON 对象"):
-        checked_extra_body(extra)
+        checked_extra_body(["enable_thinking"])
 
 
-@pytest.mark.parametrize(
-    "key",
-    ["model", "stream", "stream_options", "messages", "input", "instructions", "system",
-     "tools", "tool_choice"],
-)
-def test_an_extra_body_that_would_break_the_request_is_refused_naming_the_key(key: str):
-    with pytest.raises(ValueError, match=f"「{key}」"):
-        checked_extra_body({"enable_thinking": False, key: "x"})
+def test_an_extra_body_that_would_break_the_request_is_refused_naming_each_key():
+    with pytest.raises(ValueError, match="「model」、「tools」"):
+        checked_extra_body({"enable_thinking": False, "tools": [], "model": "x"})

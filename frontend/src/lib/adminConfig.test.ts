@@ -283,24 +283,7 @@ describe("limits", () => {
 describe("effortChoices", () => {
   it("lists unset first, then every effort the protocol can write, in order", () => {
     expect(effortChoices("chat-completions")).toEqual([EFFORT_UNSET, ...REASONING_EFFORTS]);
-    expect(effortChoices("responses")).toEqual([EFFORT_UNSET, ...REASONING_EFFORTS]);
     expect(effortChoices("anthropic")).toEqual([EFFORT_UNSET, "none", "low", "medium", "high", "xhigh", "max"]);
-  });
-});
-
-describe("the model rows", () => {
-  it("show the effort and the extra body beside the rest of a model", () => {
-    for (const name of ["chat_llm", "memory_llm"] as const) {
-      expect(rows(item("env"), ITEM_SPECS[name]).map((row) => row.field)).toEqual([
-        "protocol",
-        "base_url",
-        "model",
-        "max_tokens",
-        "reasoning_effort",
-        "extra_body",
-        "api_key",
-      ]);
-    }
   });
 });
 

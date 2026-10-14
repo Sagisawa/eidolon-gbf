@@ -30,7 +30,7 @@
 ## Comments
 
 - 2026-10-14 实现：`LLMSettings` 加了 `reasoning_effort`、`extra_body`，经 `open_llm` 传给三个适配器；额外请求参数在请求体拼好（含 `tool_choice`）之后深合并（`eidolon.llm.merge_extra_body`）。校验只有一份：`config.checked_extra_body`（不是对象、带禁用键时抛 `ValueError`，说明是哪几个键）和 `config.effort_problem`（档位不认识、Anthropic 配「极低」），`.env` 解析和后台保存都用它们。后台的对话模型和记忆模型共用 `LLM_FIELDS`，所以两项都多了「思考强度」「额外请求参数」，对话模型这一项就是票 04 说的「文字」。
-- 检查的前缀：`check_chat_llm(llm, effort)`，设了强度时，检查的任何失败都报成「思考强度『<中文名>』被服务拒绝：」加服务方原文（适配器的 `LLMError` 原话，不带「对话模型需要支持……」那层说明），所以截到 300 字时原文开头完整。没有区分是档位还是密钥的问题，后面跟着的原文能看出来。
+- 检查的前缀：`check_chat_llm(llm, effort)`，设了强度时，检查失败报成「思考强度『<中文名>』被服务拒绝：」加服务方原文（适配器的 `LLMError` 原话，不带「对话模型需要支持……」那层说明），所以截到 300 字时原文开头完整。例外是「不支持工具」：不提供工具的那次请求带着同一档成功了，说明档位没问题，照旧报「对话模型不支持工具调用……」。其余情况不区分是档位还是密钥的问题，后面跟着的原文能看出来。
 - 后台记忆模型跟随对话模型时（`.env` 两个槽位一样、后台也没单独设），它跟着对话模型的强度和额外参数走，和 `max_tokens` 一样。`.env` 里只给 `CHAT_LLM_REASONING_EFFORT` 时，两个槽位就不一样了，记忆模型不再跟随，也不设强度。
 - 2026-10-14 实测（`.env` 里线上的 DeepSeek，`deepseek-flash`）：三种协议（chat-completions、`/v1/responses`、`/anthropic`）分别用「关闭」「高」和额外参数 `{"thinking":{"type":"disabled"}}` 跑检查，9 种组合都走完两轮，请求体和规格的表一致。DeepSeek 连「极低」「中」「极高」也都接受。对照：Gemini（`gemini-3.1-flash-lite`，chat-completions）「关闭」「高」通过，「极高」「最高」被拒，报错是「思考强度『极高』被服务拒绝：模型返回 400: … Invalid reasoning_effort: xhigh. Valid values are: high, low, medium, minimal, none」。
 - 2026-10-14 本地构建版的后台页面（Playwright）：记忆模型的表单有思考强度下拉框（「不设置」加七档，中文名后面括号写原值）和额外请求参数多行框，提示照票里写；非法 JSON 提示「额外请求参数不是合法的 JSON。」；用线上的 DeepSeek 先存「关闭」、再存「高」都试调通过、保存成功，表里「.env 的值」划掉的是「不设置」，「当前生效」是「高（high）」；接口类型换成 Anthropic 后下拉框不列「极低」。验完把记忆模型恢复成 .env 的值。

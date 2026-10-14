@@ -10,7 +10,7 @@ export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 export const EFFORT_UNSET = "unset";
 
 /** The efforts `protocol` has a way to write: the Anthropic protocol has no minimal. */
-export function effortsFor(protocol: string): ReasoningEffort[] {
+function effortsFor(protocol: string): ReasoningEffort[] {
   return REASONING_EFFORTS.filter((effort) => !(protocol === "anthropic" && effort === "minimal"));
 }
 

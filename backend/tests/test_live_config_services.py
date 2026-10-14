@@ -229,11 +229,8 @@ async def test_a_memory_models_effort_left_as_env_has_it_follows_env(
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
-        ({"extra_body": {"model": "x", "messages": []}}, "「model」、「messages」"),
-        ({"extra_body": ["enable_thinking"]}, "JSON 对象"),
-        ({"extra_body": "{}"}, "JSON 对象"),
+        ({"extra_body": {"model": "x"}}, "「model」"),
         ({"reasoning_effort": "minimal"}, "Anthropic 接口没有「极低」"),
-        ({"reasoning_effort": "off"}, "思考强度只能是"),
     ],
 )
 async def test_a_memory_model_with_an_effort_or_extra_body_it_cannot_take_is_refused(

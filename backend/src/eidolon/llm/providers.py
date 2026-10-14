@@ -44,11 +44,12 @@ async def check_chat_llm(llm: ChatLLM, effort: ReasoningEffort | None = None) ->
     as a turn's last round asks it: the same tools offered, none to be called. Whether it
     calls the tool is up to the model. A failure of a model opened with a reasoning
     `effort` is put down to the effort, in the service's own words first: the effort is
-    sent as it is, whether the model knows it or not (ADR-0019)."""
+    sent as it is, whether the model knows it or not (ADR-0019); unless the model took
+    it, answering without tools."""
     try:
         await _check(llm)
     except _CheckFailed as e:
-        if effort is None:
+        if effort is None or not e.effort_may_be_why:
             raise
         raise LLMError(
             f"思考强度『{EFFORT_NAMES[effort]}』被服务拒绝：{e.service_said}"
@@ -74,7 +75,8 @@ async def _check(llm: ChatLLM) -> None:
         return
     except LLMError as e:
         raise _CheckFailed(
-            f"对话模型不支持工具调用（不提供工具时可以正常回复），无法使用「回顾剧情」：{e}", e
+            f"对话模型不支持工具调用（不提供工具时可以正常回复），无法使用「回顾剧情」：{e}", e,
+            effort_may_be_why=False,
         ) from None
 
 
@@ -109,9 +111,13 @@ class _CheckFailed(LLMError):
     """The check failed, saying what is missing; `service_said` is the failure the service
     reported, in its own words."""
 
-    def __init__(self, message: str, failure: LLMError) -> None:
+    def __init__(
+        self, message: str, failure: LLMError, *, effort_may_be_why: bool = True
+    ) -> None:
         super().__init__(message)
         self.service_said = str(failure)
+        self.effort_may_be_why = effort_may_be_why
+        """False once the model answered with the same effort, without tools."""
 
 
 class _AnswerRefused(_CheckFailed):

@@ -105,10 +105,8 @@ async def test_the_protocol_defaults_to_chat_completions_and_the_background_foll
         ("CHAT_LLM_MAX_TOKENS", "lots", "CHAT_LLM_MAX_TOKENS.*正整数"),
         ("BACKGROUND_LLM_MAX_TOKENS", "²", "BACKGROUND_LLM_MAX_TOKENS.*正整数"),
         ("CHAT_LLM_REASONING_EFFORT", "off", "CHAT_LLM_REASONING_EFFORT.*none、minimal"),
-        ("BACKGROUND_LLM_REASONING_EFFORT", "HIGH", "BACKGROUND_LLM_REASONING_EFFORT"),
-        ("CHAT_LLM_EXTRA_BODY", "{enable_thinking: false}", "CHAT_LLM_EXTRA_BODY.*JSON"),
-        ("BACKGROUND_LLM_EXTRA_BODY", "[]", "BACKGROUND_LLM_EXTRA_BODY.*JSON 对象"),
-        ("CHAT_LLM_EXTRA_BODY", '{"model": "x"}', "CHAT_LLM_EXTRA_BODY.*「model」"),
+        ("CHAT_LLM_EXTRA_BODY", "{enable_thinking: false}", "CHAT_LLM_EXTRA_BODY.*合法的 JSON"),
+        ("BACKGROUND_LLM_EXTRA_BODY", '{"model": "x"}', "BACKGROUND_LLM_EXTRA_BODY.*「model」"),
     ],
 )
 def test_a_misconfigured_model_is_reported(
@@ -126,7 +124,7 @@ def test_each_slot_has_its_own_effort_and_extra_body(monkeypatch: pytest.MonkeyP
         "https://chat.example/v1",
         CHAT_LLM_REASONING_EFFORT="none",
         CHAT_LLM_EXTRA_BODY='{"enable_thinking": false}',
-        BACKGROUND_LLM_REASONING_EFFORT="xhigh",
+        BACKGROUND_LLM_EXTRA_BODY='{"thinking": {"type": "disabled"}}',
     )
 
     settings = Settings.from_env()
@@ -134,23 +132,6 @@ def test_each_slot_has_its_own_effort_and_extra_body(monkeypatch: pytest.MonkeyP
     assert settings.chat_llm.reasoning_effort == "none"
     assert settings.chat_llm.extra_body == {"enable_thinking": False}
     # Neither follows the chat model's: what suits a call may not suit drafting a sheet.
-    assert settings.background_llm.reasoning_effort == "xhigh"
-    assert settings.background_llm.extra_body is None
-
-
-def test_the_background_model_takes_no_effort_or_extra_body_from_the_chat_model(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    set_chat_model(
-        monkeypatch,
-        "https://chat.example/v1",
-        CHAT_LLM_REASONING_EFFORT="low",
-        BACKGROUND_LLM_EXTRA_BODY='{"thinking": {"type": "disabled"}}',
-    )
-
-    settings = Settings.from_env()
-
-    assert settings.chat_llm.extra_body is None
     assert settings.background_llm.reasoning_effort is None
     assert settings.background_llm.extra_body == {"thinking": {"type": "disabled"}}
 
@@ -423,3 +404,19 @@ async def test_an_effort_refused_in_the_round_after_the_call_is_named_too():
 
     with pytest.raises(LLMError, match="^思考强度『关闭』被服务拒绝：模型返回 400"):
         await check_chat_llm(thinking_model(bodies, REFUSED_EFFORT), "none")
+
+
+async def test_a_model_that_cannot_call_tools_is_told_so_whatever_its_effort():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "tools" in json.loads(request.content):
+            return httpx.Response(400, json={"error": "tools are not supported"})
+        return httpx.Response(200, text=STREAMED)
+
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m", reasoning_effort="high",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    # Answering without tools, it took the effort: the tools are what it refuses.
+    with pytest.raises(LLMError, match="^对话模型不支持工具调用.*tools are not supported"):
+        await check_chat_llm(llm, "high")

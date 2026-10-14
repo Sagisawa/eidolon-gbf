@@ -27,3 +27,4 @@
 ## Comments
 
 - 票 03 留下的：后台对话模型（`chat_llm`）已经有 `reasoning_effort`、`extra_body` 两个字段（`live_config.LLM_FIELDS` 两个模型共用），这一项就是「文字」；通话那一项只给对话模型加，别加进 `LLM_FIELDS`。前端 `adminConfig.ts` 里两个模型共用 `LLM` 这份 `ItemSpec`，对话模型要分出自己的一份。检查的前缀在 `llm/providers.check_chat_llm(llm, effort)` 里写死成「思考强度『…』被服务拒绝：」，这张票要让它带上「文字的」「通话的」。
+- **待定（票 03 审查提出，留给用户决定）：** 记忆模型「跟随对话模型」时（`live_config._memory_follows`：`.env` 两个槽位相同、后台也没单独设），`_memory_values` 直接用对话模型生效的全部字段，`lease` 里提炼记忆还用的是对话模型的同一个客户端（`chat.again()`）。所以后台给对话模型设了强度或额外参数，提炼记忆也跟着用；而 `.env` 里只设 `CHAT_LLM_REASONING_EFFORT` 时两个槽位不同，记忆模型就不跟随、不带强度。这和本票「提炼记忆用的是后台模型，不受这两项影响」、规格「不在槽位之间回退」对不上（`max_tokens` 一直是这样）。要改的话，跟随时只沿用连接那几项（协议、地址、密钥、模型名），强度、额外参数、`max_tokens` 取后台模型自己的，记忆模型也就不能再共用对话模型的客户端。
