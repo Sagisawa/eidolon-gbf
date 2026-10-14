@@ -1,5 +1,5 @@
-"""Users' own API keys: an LLM (which plays the characters and writes down memories),
-speech synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Model Studio,
+"""Users' own API keys: an LLM (which plays the characters and writes down memories, unless
+they bring another model of their own for memories), speech synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Model Studio,
 阿里云百炼, whichever the user chose, whatever the deployer did).
 
 A user who brings their own key for a service has their turns and calls use it there,
@@ -19,7 +19,7 @@ the live configuration has then (GLOSSARY.md「免限额密钥」), touching no 
 it starts, before a call is placed (`call_exempt`), and for the settings page.
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
-`check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
+`check_memory_llm`, `check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
 shown to the user with the key masked (`_masked`), and logged no other way; a call's
 speech service on the user's key has it masked in its errors before Pipecat logs them
 (`call._masking`). An LLM is
@@ -66,6 +66,9 @@ SERVICE_LABELS: dict[Service, str] = {
     "stt": "语音识别",
 }
 STT_PROVIDER_NAMES: dict[SttProvider, str] = {"soniox": "Soniox", "bailian": "阿里云百炼"}
+
+MEMORY_LLM_LABEL = "提炼记忆的 LLM："
+"""Before why the user's own model for memories failed its try, telling it from their LLM."""
 
 MAX_CAUSE_LENGTH = 300
 """How much of the service's own error message the user is shown."""
@@ -168,6 +171,12 @@ class BroughtKeys:
     """For Fish Audio."""
     stt: SttKey | None = None
     """For the speech recognition the user chose, with the region of a DashScope key."""
+    memory_llm: LLMSettings | None = None
+    """Memories on it instead of on `llm`, which it is only ever brought with: not a
+    service of its own, whether a use counts is only ever asked of `llm`."""
+
+    def __post_init__(self) -> None:
+        assert self.memory_llm is None or self.llm is not None
 
     @property
     def services(self) -> frozenset[Service]:
@@ -292,12 +301,13 @@ class OwnKeys:
 
     def for_turn(self, brought: BroughtKeys) -> TurnKeys:
         """Whose keys a text turn bringing `brought` runs on: the user's own LLM, if it
-        brings one, both plays the character and writes down their memories."""
+        brings one, both plays the character and writes down their memories, unless it
+        brings their own model for memories too."""
         exempt = self.exempt("turn", brought.services)
         if brought.llm is not None:
-            return TurnKeys(self._llms(brought.llm, None), exempt, own_llm=True)
+            return TurnKeys(self._llms(brought, None), exempt, own_llm=True)
         lease = self._deployer.lease()
-        return TurnKeys(self._llms(None, lease.keys), exempt, lease.release)
+        return TurnKeys(self._llms(brought, lease.keys), exempt, lease.release)
 
     def for_call(self, brought: BroughtKeys) -> CallKeys:
         """Whose keys a call bringing `brought` runs on: each of speech recognition and
@@ -312,7 +322,7 @@ class OwnKeys:
             tts = brought.tts if brought.tts is not None else deployer.tts
             assert stt and tts
             own = brought.services - {"llm"}
-            llms = self._llms(brought.llm, deployer, call=True)
+            llms = self._llms(brought, deployer, call=True)
         except BaseException:
             lease.release()
             raise
@@ -347,6 +357,13 @@ class OwnKeys:
         with _rejecting(own.text.api_key):
             await self._llm_service.check(own)
 
+    async def check_memory_llm(self, own: LLMSettings) -> None:
+        """Try the user's model for memories at its effort, as their LLM is tried, keeping
+        nothing. Raises OwnKeyRejected saying why it does not work, and that it was this
+        one."""
+        with _rejecting(own.api_key, MEMORY_LLM_LABEL):
+            await self._llm_service.check(ChatModelSettings(own, own.reasoning_effort))
+
     async def check_tts(self, api_key: str) -> None:
         """Try the user's key for speech synthesis, keeping nothing. Raises OwnKeyRejected
         saying why it does not work."""
@@ -361,17 +378,20 @@ class OwnKeys:
             return await self._require_speech_check().check_stt(provider, api_key)
 
     def _llms(
-        self, own_llm: ChatModelSettings | None, deployer: DeployerKeys | None, *, call: bool = False
+        self, brought: BroughtKeys, deployer: DeployerKeys | None, *, call: bool = False
     ) -> TurnLLMs:
-        """The models a turn runs on, a call's with `call`: the user's own LLM writes down
-        memories at its text effort, in calls too."""
+        """The models a turn bringing `brought` runs on, a call's with `call`: the user's
+        own LLM writes down memories at its text effort, in calls too, unless they brought
+        their own model for memories."""
+        own_llm = brought.llm
         if own_llm is None:
             assert deployer is not None
             chat = deployer.call_llm if call and deployer.call_llm else deployer.chat_llm
             return TurnLLMs(chat, deployer.memory_llm, deployer.hold_memory)
         chat_settings = own_llm.call if call else own_llm.text
+        memory_settings = brought.memory_llm or own_llm.text
         return TurnLLMs(
-            self._own_llm("chat_llm", chat_settings), self._own_llm("memory_llm", own_llm.text)
+            self._own_llm("chat_llm", chat_settings), self._own_llm("memory_llm", memory_settings)
         )
 
     def _own_llm(self, service: ServiceName, settings: LLMSettings) -> ChatLLM:
@@ -417,12 +437,13 @@ def _masked(message: str, api_key: str) -> str:
 
 
 @contextmanager
-def _rejecting(api_key: str) -> Iterator[None]:
-    """Raise OwnKeyRejected, saying why with `api_key` masked, if trying it fails."""
+def _rejecting(api_key: str, label: str = "") -> Iterator[None]:
+    """Raise OwnKeyRejected, saying why with `api_key` masked after `label`, if trying it
+    fails."""
     try:
         yield
     except (LLMError, OwnKeyRejected) as e:
-        raise OwnKeyRejected(_masked(str(e), api_key)) from None
+        raise OwnKeyRejected(label + _masked(str(e), api_key)) from None
 
 
 def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:

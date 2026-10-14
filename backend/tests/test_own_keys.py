@@ -5,6 +5,7 @@ user's limit, by one rule, also asked before a call from the services it will br
 for."""
 
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -122,6 +123,31 @@ async def test_a_turn_that_brings_an_llm_runs_on_it_for_both_and_does_not_count(
     assert sorted((c.service, c.provider, c.model, c.own_key) for c in calls) == [
         ("chat_llm", OWN, OWN, True),
         ("memory_llm", OWN, OWN, True),
+    ]
+
+
+MY_MEMORY_LLM = LLMSettings("https://cheap.example.com/v1", "sk-my-memory-llm-eeee", "cheap-model")
+
+
+async def test_a_turn_or_call_that_brings_a_memory_llm_writes_down_memories_on_it(
+    deployment: Deployment,
+):
+    deployment.llm_service.llm = FakeLLM(*[["好的"]] * 4)
+    own_keys = deployment.own_keys()
+    with_memory_llm = replace(brought("llm"), memory_llm=MY_MEMORY_LLM)
+
+    for keys in (own_keys.for_turn(with_memory_llm), own_keys.for_call(with_memory_llm)):
+        await ask(keys.llms.chat)
+        await ask(keys.llms.memory)
+
+    mine, memory = MY_LLM.text.api_key, MY_MEMORY_LLM.api_key
+    assert deployment.llm_service.llm.keys == [mine, memory, mine, memory]
+    assert deployment.memory.prompts == []
+    # Recorded as their own key as their LLM is, never saying which host or model it is.
+    _, calls = deployment.activity.since(datetime.min.replace(tzinfo=UTC))
+    assert sorted((c.service, c.provider, c.model, c.own_key) for c in calls) == [
+        ("chat_llm", OWN, OWN, True), ("chat_llm", OWN, OWN, True),
+        ("memory_llm", OWN, OWN, True), ("memory_llm", OWN, OWN, True),
     ]
 
 

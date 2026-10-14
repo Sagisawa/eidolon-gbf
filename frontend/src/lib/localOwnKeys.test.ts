@@ -123,6 +123,76 @@ describe("an own LLM's reasoning efforts and extra body", () => {
   });
 });
 
+/** A cheaper model of the user's own for writing down their memories, at an effort and with an extra body of its own. */
+const MEMORY_LLM = {
+  api_key: "sk-my-memory-key-5678",
+  base_url: "https://cheap.example.com/v1",
+  model: "cheap-model",
+  protocol: "chat-completions",
+  reasoning_effort: "low",
+  extra_body: { thinking: { type: "disabled" } },
+} as const;
+
+describe("an own model for memories", () => {
+  it("is kept with the own LLM, and absent from what was kept before it could be", () => {
+    storage({ "eidolon.ownKeys.u2": JSON.stringify({ llm: LLM }) });
+    keepOwnKey("u1", "llm", LLM);
+    keepOwnKey("u1", "memory_llm", MEMORY_LLM);
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM, memory_llm: MEMORY_LLM });
+    expect(localOwnKeys("u2")).toEqual({ llm: LLM });
+  });
+
+  it("is left out alone where stored wrongly, its effort and extra body unset where they are", () => {
+    storage({
+      "eidolon.ownKeys.u1": JSON.stringify({ llm: LLM, memory_llm: { ...MEMORY_LLM, protocol: "grpc" } }),
+      "eidolon.ownKeys.u2": JSON.stringify({
+        llm: LLM,
+        memory_llm: { ...MEMORY_LLM, reasoning_effort: "turbo", extra_body: "enable_thinking" },
+      }),
+    });
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
+    const { reasoning_effort, extra_body, ...connection } = MEMORY_LLM;
+    expect(localOwnKeys("u2")).toEqual({ llm: LLM, memory_llm: connection });
+  });
+
+  it("is nothing without the own LLM it goes with, and forgotten with it", () => {
+    storage({ "eidolon.ownKeys.u1": JSON.stringify({ memory_llm: MEMORY_LLM }) });
+    expect(localOwnKeys("u1")).toEqual({});
+
+    keepOwnKey("u2", "llm", LLM);
+    keepOwnKey("u2", "memory_llm", MEMORY_LLM);
+    keepOwnKey("u2", "tts", { api_key: "fish-my-own-key" });
+    forgetOwnKey("u2", "llm");
+
+    expect(localOwnKeys("u2")).toEqual({ tts: { api_key: "fish-my-own-key" } });
+  });
+
+  it("can be forgotten alone", () => {
+    storage();
+    keepOwnKey("u1", "llm", LLM);
+    keepOwnKey("u1", "memory_llm", MEMORY_LLM);
+
+    forgetOwnKey("u1", "memory_llm");
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
+  });
+
+  it("goes with each text turn and call, never named as a service of its own", () => {
+    storage();
+    keepOwnKey("u1", "llm", THINKING_LLM);
+    keepOwnKey("u1", "memory_llm", MEMORY_LLM);
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
+
+    expect(turnOwnKeys("u1")).toEqual({ llm: THINKING_LLM, memory_llm: MEMORY_LLM });
+    expect(callOwnKeys("u1")).toEqual({
+      ownKeys: { llm: THINKING_LLM, tts: { api_key: "fish-my-own-key" }, memory_llm: MEMORY_LLM },
+      services: ["llm", "tts"],
+    });
+  });
+});
+
 describe("what a text turn brings", () => {
   it("is the user's own LLM alone, leaving their voice keys behind", () => {
     storage();

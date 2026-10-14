@@ -1,6 +1,7 @@
 """Bringing your own LLM: tried once, without being kept, before the browser keeps it; then
 brought with each of the user's text turns and calls, which it plays the character and
-writes down memories on instead of the deployer's. It fails loudly rather than falling
+writes down memories on instead of the deployer's; memories on another model of the user's
+own, if they bring one with it, tried and brought as it is. It fails loudly rather than falling
 back to the deployer's key. The server keeps none, nor needs `EIDOLON_SECRET_KEY` for them;
 those it kept before are deleted."""
 
@@ -299,6 +300,144 @@ async def test_trying_an_own_llm_with_an_extra_body_that_would_break_the_request
     assert refused.status_code == 422 and not_object.status_code == 422
     assert "「model」、「tools」" in refused.json()["detail"][0]["msg"]
     assert "JSON 对象" in not_object.json()["detail"][0]["msg"]
+    assert own_llm.checked == []
+
+
+MEMORY_KEY = "sk-my-memory-key-5678"
+MEMORY_LLM = {
+    "base_url": "https://cheap.example.com/v1",
+    "api_key": MEMORY_KEY,
+    "model": "cheap-model",
+    "protocol": "chat-completions",
+    "reasoning_effort": "low",
+    "extra_body": {"thinking": {"type": "disabled"}},
+}
+"""A cheaper model of the user's own for writing down their memories, at an effort and with
+an extra body of its own."""
+
+
+async def check_memory_llm(client: httpx.AsyncClient, **changes: object) -> httpx.Response:
+    return await client.post("/api/account/keys/memory-llm/check", json=MEMORY_LLM | changes)
+
+
+async def test_an_own_memory_llm_writes_down_memories_while_the_own_llm_plays(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    own_llm.llm = FakeLLM(REPLY, [memorized(CAT)])
+    deployers_background = FakeBackgroundLLM()
+    client = make_client(
+        FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+        background_llm=deployers_background,
+    )
+
+    await send_turn(
+        client, await start_conversation(client), "我家的猫叫小白哦",
+        own_keys={"llm": THINKING, "memory_llm": MEMORY_LLM},
+    )
+
+    assert [m["text"] for m in (await client.get("/api/memories")).json()] == [CAT]
+    assert own_llm.llm.keys == [MINE, MEMORY_KEY]
+    assert deployers_background.prompts == []
+    # Each at its own effort, with its own extra body: not the own LLM's text effort.
+    assert own_llm.efforts == ["high", "low"]
+    assert [(s.base_url, s.model, s.extra_body) for s in own_llm.opened] == [
+        ("https://llm.example.com/v1", "my-model", {"enable_thinking": True}),
+        ("https://cheap.example.com/v1", "cheap-model", {"thinking": {"type": "disabled"}}),
+    ]
+
+
+async def test_a_call_on_an_own_llm_writes_down_memories_on_an_own_memory_llm(
+    make_client: ClientFactory, own_llm: FakeLLMService, speech: FakeSpeech, browser: Browser
+):
+    own_llm.llm = FakeLLM(REPLY, [memorized(CAT)])
+    client = make_client(
+        FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+    )
+    await browser.call(
+        client, conversation_id=await start_conversation(client),
+        own_keys={"llm": THINKING, "memory_llm": MEMORY_LLM},
+    )
+    await browser.connect()
+
+    await speech.stts[-1].hear("我家的猫叫小白哦")
+    assert (await browser.turn())[-1]["type"] == "done"
+    async with asyncio.timeout(5):  # written down after the turn
+        while len(own_llm.efforts) < 2:
+            await asyncio.sleep(0.01)
+
+    assert own_llm.llm.keys == [MINE, MEMORY_KEY]
+    assert own_llm.efforts == ["none", "low"]
+
+
+MEMORY_LLM_SET_WRONGLY = [
+    {"extra_body": {"messages": [], "enable_thinking": False}},
+    {"protocol": "anthropic", "reasoning_effort": "minimal"},
+]
+
+
+@pytest.mark.parametrize(
+    "own_keys",
+    [{"memory_llm": MEMORY_LLM}]
+    + [{"llm": LLM, "memory_llm": MEMORY_LLM | wrong} for wrong in MEMORY_LLM_SET_WRONGLY],
+    ids=["without-an-own-llm", "extra-body", "effort"],
+)
+async def test_a_turn_or_call_bringing_an_own_memory_llm_alone_or_set_wrongly_is_refused_not_sent(
+    make_client: ClientFactory, own_llm: FakeLLMService, browser: Browser, own_keys: dict
+):
+    deployers = FakeLLM(REPLY)
+    client = make_client(deployers)
+    conversation_id = await start_conversation(client)
+
+    turn = await client.post(
+        f"/api/conversations/{conversation_id}/turns", json={"text": "在吗", "own_keys": own_keys}
+    )
+    call = await browser.call(client, conversation_id=conversation_id, own_keys=own_keys)
+
+    assert turn.status_code == 422 and call.status_code == 422
+    assert own_llm.opened == [] and deployers.keys == []
+
+
+async def test_an_own_memory_llm_is_tried_once_at_its_effort_and_not_kept(
+    make_client: ClientFactory, own_llm: FakeLLMService, settings: Settings
+):
+    client = make_client(FakeLLM())
+
+    checked = await check_memory_llm(client, model=" cheap-model ")
+
+    assert checked.status_code == 200
+    assert checked.json() == {"base_url": "https://cheap.example.com/v1", "model": "cheap-model"}
+    assert [(s.text.api_key, s.text.extra_body) for s in own_llm.checked] == [
+        (MEMORY_KEY, {"thinking": {"type": "disabled"}})
+    ]
+    assert own_llm.efforts_checked == ["low"]
+    assert MEMORY_KEY not in checked.text
+    assert rows_mentioning(settings.database_path, "cheap-model") == {}
+
+
+async def test_trying_an_own_memory_llm_says_it_was_that_one_that_failed(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    client = make_client(FakeLLM())
+
+    own_llm.refused_efforts["low"] = f"模型返回 400: Invalid reasoning_effort for key {MEMORY_KEY}"
+    refused_effort = await check_memory_llm(client)
+    own_llm.rejects[MEMORY_KEY] = f"401 Unauthorized: bad key {MEMORY_KEY}"
+    rejected = await check_memory_llm(client)
+
+    assert refused_effort.status_code == 422 and rejected.status_code == 422
+    assert refused_effort.json()["detail"] == (
+        "试调失败：提炼记忆的 LLM：思考强度『低』被服务拒绝：模型返回 400: Invalid reasoning_effort for key ***"
+    )
+    assert rejected.json()["detail"] == "试调失败：提炼记忆的 LLM：401 Unauthorized: bad key ***"
+
+
+async def test_trying_an_own_memory_llm_set_wrongly_says_why_without_trying_it(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    client = make_client(FakeLLM())
+
+    for wrong in MEMORY_LLM_SET_WRONGLY:
+        assert (await check_memory_llm(client, **wrong)).status_code == 422, wrong
     assert own_llm.checked == []
 
 

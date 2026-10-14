@@ -155,17 +155,26 @@ class OwnSTTInput(BaseModel):
 
 
 class OwnKeysInput(BaseModel):
-    """The user's own keys a turn or a call brings, by service; each may be left out."""
+    """The user's own keys a turn or a call brings, by service; each may be left out. Their
+    own model for memories (`memory_llm`) only with their own LLM."""
 
     llm: OwnChatLLMInput | None = None
     tts: OwnTTSInput | None = None
     stt: OwnSTTInput | None = None
+    memory_llm: OwnLLMInput | None = None
+
+    @model_validator(mode="after")
+    def _memory_llm_with_llm(self) -> "OwnKeysInput":
+        if self.memory_llm is not None and self.llm is None:
+            raise ValueError("提炼记忆的 LLM 要和自带的 LLM 一起带上")
+        return self
 
     def brought(self) -> BroughtKeys:
         return BroughtKeys(
             self.llm.chat_settings() if self.llm else None,
             self.tts.api_key.get_secret_value() if self.tts else None,
             self.stt.key() if self.stt else None,
+            self.memory_llm.settings() if self.memory_llm else None,
         )
 
 
@@ -357,6 +366,15 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         own = body.chat_settings()
         await own_keys.check_llm(own)
         return {"base_url": own.text.base_url, "model": own.text.model}
+
+    @app.post("/api/account/keys/memory-llm/check")
+    async def check_own_memory_llm(body: OwnLLMInput, user_id: UserId) -> dict:
+        """Try the user's own model for memories at its effort before their browser keeps
+        it, as `check_own_llm` does their LLM; why it failed comes after saying it was this
+        one."""
+        own = body.settings()
+        await own_keys.check_memory_llm(own)
+        return {"base_url": own.base_url, "model": own.model}
 
     @app.get("/api/account/keys/llm/efforts")
     def llm_efforts(

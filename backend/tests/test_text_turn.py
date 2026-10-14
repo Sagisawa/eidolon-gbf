@@ -16,12 +16,19 @@ async def start_conversation(client: httpx.AsyncClient, character: str = "mano")
 
 
 async def send_turn(
-    client: httpx.AsyncClient, conversation_id: str, text: str, own_llm: dict | None = None
+    client: httpx.AsyncClient,
+    conversation_id: str,
+    text: str,
+    own_llm: dict | None = None,
+    *,
+    own_keys: dict | None = None,
 ) -> list[dict]:
-    """Send a text turn, bringing the user's `own_llm` if given (as `own_keys`, which turns
-    and calls bring alike), and collect the server-sent events it streams back."""
+    """Send a text turn, bringing the user's `own_keys` if given, or else their `own_llm`
+    alone (as `own_keys`, which turns and calls bring alike), and collect the server-sent
+    events it streams back."""
     events: list[dict] = []
-    body = {"text": text} | ({"own_keys": {"llm": own_llm}} if own_llm else {})
+    own_keys = own_keys or ({"llm": own_llm} if own_llm else None)
+    body = {"text": text} | ({"own_keys": own_keys} if own_keys else {})
     async with client.stream(
         "POST", f"/api/conversations/{conversation_id}/turns", json=body
     ) as res:

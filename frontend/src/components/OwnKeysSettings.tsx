@@ -15,7 +15,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { checkOwnLLM, checkOwnSpeechKey, getAccount, getLimitExemption, type LimitExemption } from "@/lib/api";
+import {
+  checkOwnLLM,
+  checkOwnMemoryLLM,
+  checkOwnSpeechKey,
+  getAccount,
+  getLimitExemption,
+  type LimitExemption,
+} from "@/lib/api";
 import { exemptionNote, sayServices } from "@/lib/exemptingKeys";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
@@ -131,11 +138,25 @@ export function OwnKeysSettings() {
       </p>
       <div className="flex flex-col gap-4">
         <OwnLLMForm
+          kind="chat"
           current={kept.llm}
           disabled={!canKeep}
           onChecked={(llm) => change(() => keepOwnKey(userId, "llm", llm))}
           onDelete={() => change(() => forgetOwnKey(userId, "llm"))}
         />
+        {/* 提炼记忆的 LLM 只附加在自带 LLM 上：没填 LLM 时不显示，删掉 LLM 时一起删掉（`forgetOwnKey`）。 */}
+        {kept.llm && (
+          <>
+            <Separator />
+            <OwnLLMForm
+              kind="memory"
+              current={kept.memory_llm}
+              disabled={!canKeep}
+              onChecked={(llm) => change(() => keepOwnKey(userId, "memory_llm", llm))}
+              onDelete={() => change(() => forgetOwnKey(userId, "memory_llm"))}
+            />
+          </>
+        )}
         <Separator />
         <OwnSpeechKeyForm
           title={t.ttsTitle}
@@ -334,13 +355,18 @@ function OwnSpeechKeyForm({
   );
 }
 
-/** 自带的 LLM：先让服务器试调一次（它不保存），通过了才存进这个浏览器。 */
+/**
+ * 自带的 LLM（`chat`，文字、通话各一档思考强度），或另配的提炼记忆的 LLM（`memory`，只有一档）：
+ * 先让服务器试调一次（它不保存），通过了才存进这个浏览器。
+ */
 function OwnLLMForm({
+  kind,
   current,
   disabled,
   onChecked,
   onDelete,
 }: {
+  kind: "chat" | "memory";
   current: LocalLLM | undefined;
   disabled: boolean;
   /** 试调通过的 LLM，地址和模型名按服务器规范化过的。 */
@@ -360,8 +386,10 @@ function OwnLLMForm({
   const id = useId();
 
   // 档位换成接口写不出的（选着「极低」换成 Anthropic）是 undefined，额外请求参数不是 JSON 对象时带着 problem：都不能保存。
+  // 提炼记忆的 LLM 只有 `textEffort` 那一档，`callEffort` 一直是不设置。
   const effortInText = effortOf(textEffort, protocol);
-  const effortInCalls = effortOf(callEffort, protocol);
+  const effortInCalls = kind === "chat" ? effortOf(callEffort, protocol) : null;
+  const effortField = kind === "chat" ? t.textEffort : t.memoryEffort;
   const parsedExtraBody = parseExtraBody(extraBody);
   // 档位提示按表单里正在填的协议、地址和模型名查，不带密钥。
   const catalogHint = useEffortHint(protocol, editing ? baseUrl : "", model);
@@ -403,7 +431,8 @@ function OwnLLMForm({
     setBusy(true);
     setFailure(null);
     try {
-      onChecked({ ...toTry, ...(await checkOwnLLM(toTry)) });
+      const check = kind === "chat" ? checkOwnLLM : checkOwnMemoryLLM;
+      onChecked({ ...toTry, ...(await check(toTry)) });
       setApiKey("");
       setEditing(false);
     } catch (e) {
@@ -414,27 +443,29 @@ function OwnLLMForm({
   }
 
   const protocolOptions = LLM_PROTOCOLS.map((p) => ({ value: p, label: t.protocols[p] }));
-  const anyEffortSet = current?.reasoning_effort || current?.call_reasoning_effort;
+  const thinking = (llm: LocalLLM) => {
+    if (kind === "memory") return llm.reasoning_effort ? [t.memoryLlmThinking(effortLabel(llm.reasoning_effort))] : [];
+    if (!llm.reasoning_effort && !llm.call_reasoning_effort) return [];
+    return [
+      t.llmThinking(
+        effortLabel(llm.reasoning_effort ?? EFFORT_UNSET),
+        effortLabel(llm.call_reasoning_effort ?? EFFORT_UNSET),
+      ),
+    ];
+  };
   const summary = current
     ? [
         t.llmCurrent(current.model, current.base_url),
         t.last4(last4(current.api_key)),
-        ...(anyEffortSet
-          ? [
-              t.llmThinking(
-                effortLabel(current.reasoning_effort ?? EFFORT_UNSET),
-                effortLabel(current.call_reasoning_effort ?? EFFORT_UNSET),
-              ),
-            ]
-          : []),
+        ...thinking(current),
         ...(current.extra_body ? [t.llmExtraBody] : []),
       ]
-    : [t.notSet];
+    : [kind === "chat" ? t.notSet : t.memoryLlmNotSet];
 
   return (
     <ServiceKey
-      title={t.llmTitle}
-      hint={t.llmHint}
+      title={kind === "chat" ? t.llmTitle : t.memoryLlmTitle}
+      hint={kind === "chat" ? t.llmHint : t.memoryLlmHint}
       summary={summary}
       isSet={!!current}
       editing={editing}
@@ -495,25 +526,27 @@ function OwnLLMForm({
           </Field>
           <EffortField
             id={`${id}-effort`}
-            label={t.textEffort}
-            hint={`${t.textEffortHint}${copy.reasoningEffort.hints.effort}`}
+            label={effortField}
+            hint={`${kind === "chat" ? t.textEffortHint : t.memoryEffortHint}${copy.reasoningEffort.hints.effort}`}
             protocol={protocol}
             choice={textEffort}
             onChoose={setTextEffort}
-            problem={effortInText === undefined ? copy.reasoningEffort.problems.effort(t.textEffort) : undefined}
+            problem={effortInText === undefined ? copy.reasoningEffort.problems.effort(effortField) : undefined}
             catalogHint={catalogHint}
             showCatalogNote
           />
-          <EffortField
-            id={`${id}-call-effort`}
-            label={t.callEffort}
-            hint={copy.reasoningEffort.hints.callEffort}
-            protocol={protocol}
-            choice={callEffort}
-            onChoose={setCallEffort}
-            problem={effortInCalls === undefined ? copy.reasoningEffort.problems.effort(t.callEffort) : undefined}
-            catalogHint={catalogHint}
-          />
+          {kind === "chat" && (
+            <EffortField
+              id={`${id}-call-effort`}
+              label={t.callEffort}
+              hint={copy.reasoningEffort.hints.callEffort}
+              protocol={protocol}
+              choice={callEffort}
+              onChoose={setCallEffort}
+              problem={effortInCalls === undefined ? copy.reasoningEffort.problems.effort(t.callEffort) : undefined}
+              catalogHint={catalogHint}
+            />
+          )}
           <ExtraBodyField
             id={`${id}-extra-body`}
             label={t.extraBody}

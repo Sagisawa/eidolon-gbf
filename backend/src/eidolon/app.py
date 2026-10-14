@@ -75,7 +75,7 @@ class TurnInput(BaseModel):
     text: str
     own_keys: OwnKeysInput | None = None
     """The user's own keys, which their browser keeps, for the turn to run on; the shape
-    calls bring too. A turn uses only the LLM, voice keys brought along go unused."""
+    calls bring too. A turn uses only the LLMs, voice keys brought along go unused."""
     own_llm: object = None
     """Where pages from before brought their own LLM. Transitional, to be deleted once no
     such page is left open: a turn bringing it is refused, asking for a refresh, rather

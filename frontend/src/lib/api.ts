@@ -5,6 +5,7 @@ import {
   turnOwnKeys,
   type BailianRegion,
   type LocalLLM,
+  type LocalModel,
   type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
@@ -359,11 +360,21 @@ export async function unlinkSignInMethod(provider: Provider): Promise<void> {
  * the try fails. Its address and model as this browser is to keep them.
  */
 export async function checkOwnLLM(llm: LocalLLM): Promise<Pick<LocalLLM, "base_url" | "model">> {
+  return checkOwnModel("/api/account/keys/llm/check", llm);
+}
+
+/** Try the user's own LLM for writing down memories at its effort, as `checkOwnLLM` does their
+ * LLM; what the service said, if the try fails, comes after saying it was this one. */
+export async function checkOwnMemoryLLM(llm: LocalModel): Promise<Pick<LocalModel, "base_url" | "model">> {
+  return checkOwnModel("/api/account/keys/memory-llm/check", llm);
+}
+
+async function checkOwnModel(path: string, model: LocalModel): Promise<Pick<LocalModel, "base_url" | "model">> {
   return json(
-    await api("/api/account/keys/llm/check", {
+    await api(path, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(llm),
+      body: JSON.stringify(model),
     }),
   );
 }
