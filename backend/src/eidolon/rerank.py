@@ -1,7 +1,10 @@
 """Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow.
 
 What counts as relevant enough depends on the model, so each model the project has
-calibrated (`eidolon eval rerank`) has thresholds of its own."""
+calibrated (`eidolon eval rerank`) has thresholds of its own.
+
+Reranking holds up a turn, so each request is given a few seconds and made again once if
+it fails in passing (`retry`)."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -11,6 +14,7 @@ import httpx
 
 from eidolon.billing import bill
 from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
+from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
 
 @dataclass(frozen=True)
@@ -34,11 +38,20 @@ KNOWN_THRESHOLDS: dict[str, RerankThresholds] = {
     # Checked again once memories were found with the character's previous reply (2026-10-08):
     # the questions leaning on it score 0.99, the one whose previous reply is beside the point
     # leaves every memory below 0.002, and 0.01 still lets in 12 of 15 relevant, 1 of 158 not.
+    # Checked again once references were looked up with her previous reply too (2026-10-14):
+    # of the 14 relevant candidates of 11 short follow-ups, asked alone 10 never reached the
+    # reranker; with her reply 10 do and all score 0.33 or more, while 0.4 would drop three
+    # (both 1stLIVE days at 0.33 and 0.35, her father's change of heart at 0.36), so 0.3
+    # stays. What her reply lets in besides is the rest of its topic (the other bento, other
+    # illumination STARS events) above 0.9, and, when the user changes the subject, the old
+    # one (the owl episodes when asked her birthday) at 0.99: no threshold separates either.
     "Qwen/Qwen3-Reranker-0.6B": RerankThresholds(references=0.3, memories=0.01),
     # From the same set. 4B scores near misses (another year's Christmas, another bento)
     # between 0.4 and 0.7 where 0.6B puts them below 0.3, so it needs a higher bar for the
     # same precision. Its unrelated memories stay below 0.005 but for one, while it scores
     # loosely worded remarks a little higher than 0.6B, so its memory threshold is lower.
+    # With her previous reply (2026-10-14) the short follow-ups' relevant candidates all score
+    # 0.83 or more, so 0.7 stays; the rest of the topic and an old one get in as with 0.6B.
     "Qwen/Qwen3-Reranker-4B": RerankThresholds(references=0.7, memories=0.005),
 }
 FALLBACK_MODEL = "Qwen/Qwen3-Reranker-4B"
@@ -65,7 +78,7 @@ class Reranker(Protocol):
         ...
 
 
-class RerankError(RuntimeError):
+class RerankError(ServiceError):
     pass
 
 
@@ -73,17 +86,28 @@ class SiliconFlowReranker:
     """SiliconFlow's `/rerank` endpoint."""
 
     def __init__(
-        self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
+        self,
+        api_key: str,
+        model: str,
+        base_url: str,
+        client: httpx.AsyncClient | None = None,
+        timeout: float = TURN_TIMEOUT,
     ) -> None:
         self.model = model
         self._url = base_url.rstrip("/") + "/rerank"
         self._api_key = api_key
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10))
+        self._timeout = timeout
 
     async def rerank(
         self, query: str, documents: Sequence[str], top_n: int
     ) -> list[tuple[int, float]]:
-        try:
+        return await retry_once(lambda: self._rerank(query, documents, top_n))
+
+    async def _rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
+        async with answered("重排服务", self._timeout, RerankError):
             res = await self._client.post(
                 self._url,
                 json={
@@ -95,10 +119,11 @@ class SiliconFlowReranker:
                 },
                 headers={"Authorization": f"Bearer {self._api_key}"},
             )
-        except httpx.HTTPError as e:
-            raise RerankError(f"无法连接重排服务：{e!r}") from e
         if res.status_code >= 400:
-            raise RerankError(f"重排服务返回 {res.status_code}: {res.text[:500]}")
+            raise RerankError(
+                f"重排服务返回 {res.status_code}: {res.text[:500]}",
+                transient=transient_status(res.status_code),
+            )
         try:
             body = res.json()
             results = sorted(body["results"], key=lambda r: -r["relevance_score"])

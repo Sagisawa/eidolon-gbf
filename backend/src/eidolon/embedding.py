@@ -1,18 +1,23 @@
 """Text embeddings for the vector index: Qwen3-Embedding on SiliconFlow, or Gemini
-Embedding on Google's own API, whichever the deployment chose (ADR-0005)."""
+Embedding on Google's own API, whichever the deployment chose (ADR-0005).
+
+A query holds up a turn, so it is given a few seconds and asked again once if it fails in
+passing (`retry`); documents, embedded where no one waits on them (importing the story,
+`eidolon reembed`, writing down memories), are given minutes and asked once."""
 
 import asyncio
 import logging
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 import numpy as np
 
 from eidolon.billing import bill
 from eidolon.config import EmbeddingSettings
+from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
 _REQUEST_BATCH = 16
 """Texts sent in one request to SiliconFlow."""
@@ -77,7 +82,7 @@ class ClosableEmbedder(Embedder, Protocol):
     async def aclose(self) -> None: ...
 
 
-class EmbeddingError(RuntimeError):
+class EmbeddingError(ServiceError):
     pass
 
 
@@ -98,12 +103,18 @@ class SiliconFlowEmbedder:
     front of queries and none in front of documents, whose titles it is not given."""
 
     def __init__(
-        self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
+        self,
+        api_key: str,
+        model: str,
+        base_url: str,
+        client: httpx.AsyncClient | None = None,
+        query_timeout: float = TURN_TIMEOUT,
     ) -> None:
         self.model = model
         self._url = base_url.rstrip("/") + "/embeddings"
         self._api_key = api_key
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+        self._query_timeout = query_timeout
 
     async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
         texts = [d.text for d in documents]
@@ -113,22 +124,29 @@ class SiliconFlowEmbedder:
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:
-        return (await self._embed([_QUERY_INSTRUCTION + text]))[0]
+        texts = [_QUERY_INSTRUCTION + text]
+        return (await retry_once(lambda: self._embed(texts, self._query_timeout)))[0]
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _embed(self, texts: Sequence[str]) -> list[list[float]]:
-        try:
-            res = await self._client.post(
-                self._url,
-                json={"model": self.model, "input": list(texts), "encoding_format": "float"},
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            )
-        except httpx.HTTPError as e:
-            raise EmbeddingError(f"无法连接向量化服务：{e!r}") from e
+    async def _embed(
+        self, texts: Sequence[str], timeout: float | None = None
+    ) -> list[list[float]]:
+        """The vectors of `texts`, asked for in one request given `timeout` seconds if not
+        None, or else as long as the client gives any."""
+        res = await _post(
+            self._client,
+            timeout,
+            self._url,
+            json={"model": self.model, "input": list(texts), "encoding_format": "float"},
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
         if res.status_code >= 400:
-            raise EmbeddingError(f"向量化服务返回 {res.status_code}: {res.text[:500]}")
+            raise EmbeddingError(
+                f"向量化服务返回 {res.status_code}: {res.text[:500]}",
+                transient=transient_status(res.status_code),
+            )
         try:
             body = res.json()
             data = sorted(body["data"], key=lambda d: d["index"])
@@ -150,7 +168,7 @@ class GeminiEmbedder:
 
     Embedding documents (importing, re-embedding, writing down memories) waits out the rate
     limit for as long as Google asks, a few times at most; a query, which holds up a turn,
-    does not wait."""
+    does not wait: it is asked again once at once, as for any failure in passing."""
 
     def __init__(
         self,
@@ -160,6 +178,7 @@ class GeminiEmbedder:
         base_url: str,
         client: httpx.AsyncClient | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        query_timeout: float = TURN_TIMEOUT,
     ) -> None:
         self.model = f"{model}@{dimensions}"
         self._name = f"models/{model}"
@@ -168,6 +187,7 @@ class GeminiEmbedder:
         self._api_key = api_key
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
         self._sleep = sleep
+        self._query_timeout = query_timeout
 
     async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
         texts = [f"title: {d.title or 'none'} | text: {d.text}" for d in documents]
@@ -186,15 +206,20 @@ class GeminiEmbedder:
         return vectors
 
     async def embed_query(self, text: str) -> list[float]:
+        texts = [f"task: search result | query: {text}"]
         try:
-            return (await self._embed([f"task: search result | query: {text}"]))[0]
+            return (await retry_once(lambda: self._embed(texts, self._query_timeout)))[0]
         except _RateLimited as e:
-            raise EmbeddingError(str(e)) from None
+            raise EmbeddingError(str(e), transient=True) from None
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def _embed(self, texts: Sequence[str]) -> list[list[float]]:
+    async def _embed(
+        self, texts: Sequence[str], timeout: float | None = None
+    ) -> list[list[float]]:
+        """The vectors of `texts`, each a request item of its own, asked for in one request
+        given `timeout` seconds if not None, or else as long as the client gives any."""
         requests = [
             {
                 "model": self._name,
@@ -203,12 +228,13 @@ class GeminiEmbedder:
             }
             for text in texts
         ]
-        try:
-            res = await self._client.post(
-                self._url, json={"requests": requests}, headers={"x-goog-api-key": self._api_key}
-            )
-        except httpx.HTTPError as e:
-            raise EmbeddingError(f"无法连接向量化服务：{e!r}") from e
+        res = await _post(
+            self._client,
+            timeout,
+            self._url,
+            json={"requests": requests},
+            headers={"x-goog-api-key": self._api_key},
+        )
         if res.status_code == 429:
             raise _RateLimited(
                 f"向量化服务返回 429（Gemini 限流：免费层每分钟 100 条文本，每条都计一次请求；"
@@ -221,7 +247,10 @@ class GeminiEmbedder:
                 if "location is not supported" in res.text.lower()
                 else ""
             )
-            raise EmbeddingError(f"向量化服务返回 {res.status_code}{hint}: {res.text[:500]}")
+            raise EmbeddingError(
+                f"向量化服务返回 {res.status_code}{hint}: {res.text[:500]}",
+                transient=transient_status(res.status_code),
+            )
         try:
             vectors = [e["values"] for e in res.json()["embeddings"]]
         except (ValueError, KeyError, TypeError) as e:
@@ -233,9 +262,18 @@ class GeminiEmbedder:
 
 class _RateLimited(EmbeddingError):
     def __init__(self, message: str, delay: float) -> None:
-        super().__init__(message)
+        super().__init__(message, transient=True)
         self.delay = delay
         """Seconds Google asks to wait before retrying; 0 if it does not say."""
+
+
+async def _post(
+    client: httpx.AsyncClient, timeout: float | None, url: str, **request: Any
+) -> httpx.Response:
+    """The answer to a POST of `request` to `url`, given `timeout` seconds if not None.
+    Raises EmbeddingError if it does not come."""
+    async with answered("向量化服务", timeout, EmbeddingError):
+        return await client.post(url, **request)
 
 
 def _retry_delay(body: str) -> float:

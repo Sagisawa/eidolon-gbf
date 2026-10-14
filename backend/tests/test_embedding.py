@@ -1,11 +1,18 @@
-"""The SiliconFlow embedder speaks the OpenAI-compatible embeddings protocol."""
+"""The SiliconFlow embedder speaks the OpenAI-compatible embeddings protocol. A query,
+which holds up a turn, is given a few seconds and asked again once if it fails in
+passing; documents are given longer."""
 
+import asyncio
 import json
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 import httpx
 import pytest
 
 from eidolon.embedding import Document, EmbeddingError, SiliconFlowEmbedder
+
+Handler = Callable[[httpx.Request], Coroutine[Any, Any, httpx.Response]]
 
 
 def embedder(requests: list[dict], status: int = 200) -> SiliconFlowEmbedder:
@@ -56,4 +63,101 @@ async def test_an_unreachable_service_is_reported():
     embedder = SiliconFlowEmbedder("sk-test", "m", "http://sf.test/v1", client)
 
     with pytest.raises(EmbeddingError, match="无法连接"):
+        await embedder.embed_query("在吗")
+
+
+HANG = object()
+"""A scripted answer: the service never answers."""
+Answer = httpx.Response | Exception | object
+
+
+def scripted(answers: list[Answer], answer: Callable[[httpx.Request], httpx.Response]) -> Handler:
+    """A service answering with `answers` in turn (a response, an error to raise, or `HANG`),
+    then as `answer` does; each request it is sent is taken off `answers`."""
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        if not answers:
+            return answer(request)
+        scripted = answers.pop(0)
+        if scripted is HANG:
+            await asyncio.Event().wait()
+        if isinstance(scripted, Exception):
+            raise scripted
+        assert isinstance(scripted, httpx.Response)
+        # A copy, as the same answer may be scripted more than once.
+        return httpx.Response(scripted.status_code, content=scripted.content)
+
+    return handle
+
+
+def vectors(request: httpx.Request) -> httpx.Response:
+    count = len(json.loads(request.content)["input"])
+    return httpx.Response(200, json={"data": [{"index": i, "embedding": [1.0]} for i in range(count)]})
+
+
+def scripted_embedder(answers: list[Answer], query_timeout: float = 0.05) -> SiliconFlowEmbedder:
+    client = httpx.AsyncClient(transport=httpx.MockTransport(scripted(answers, vectors)))
+    return SiliconFlowEmbedder(
+        "sk-test", "m", "http://sf.test/v1", client, query_timeout=query_timeout
+    )
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        HANG,
+        httpx.ConnectError("connection refused"),
+        httpx.Response(429, text="rate limited"),
+        httpx.Response(503, text="unavailable"),
+    ],
+)
+async def test_a_query_failing_in_passing_is_asked_again_at_once(failure: Answer):
+    answers = [failure]
+
+    assert await scripted_embedder(answers).embed_query("在吗") == [1.0]
+    assert answers == []
+
+
+@pytest.mark.parametrize(
+    "failure, error",
+    [
+        (HANG, "没有回应"),
+        (httpx.ConnectError("connection refused"), "无法连接"),
+        (httpx.Response(502, text="bad gateway"), "502"),
+    ],
+)
+async def test_a_query_failing_twice_is_reported(failure: Answer, error: str):
+    answers = [failure, failure, httpx.Response(200)]
+
+    with pytest.raises(EmbeddingError, match=error):
+        await scripted_embedder(answers).embed_query("在吗")
+    assert len(answers) == 1  # asked twice, no more
+
+
+@pytest.mark.parametrize(
+    "failure, error",
+    [
+        (httpx.Response(401, text="unauthorized"), "401"),
+        (httpx.Response(400, text="bad request"), "400"),
+        (httpx.Response(200, json={"oops": []}), "无法解析"),
+    ],
+)
+async def test_a_query_refused_or_unreadable_is_not_asked_again(failure: Answer, error: str):
+    answers = [failure, httpx.Response(200)]
+
+    with pytest.raises(EmbeddingError, match=error):
+        await scripted_embedder(answers).embed_query("在吗")
+    assert len(answers) == 1
+
+
+async def test_documents_take_longer_than_a_query_may():
+    async def slow(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.2)
+        return vectors(request)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(slow))
+    embedder = SiliconFlowEmbedder("sk-test", "m", "http://sf.test/v1", client, query_timeout=0.05)
+
+    assert await embedder.embed_documents([Document("doc")]) == [[1.0]]
+    with pytest.raises(EmbeddingError, match="没有回应"):
         await embedder.embed_query("在吗")

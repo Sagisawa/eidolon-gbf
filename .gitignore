@@ -26,3 +26,5 @@ deploy/event-names.toml
 
 # 百炼语音识别测量用的录音（.scratch/bailian-stt ticket 01），不进仓库
 /.scratch/bailian-stt/prototype/audio/
+# 识别热词实测用的合成录音（.scratch/retrieval-and-hotwords 票 04），不进仓库
+/.scratch/retrieval-and-hotwords/prototype/audio/

@@ -466,7 +466,7 @@ class ConversationEngine:
         reply, affinity = self._record(
             conversation, text, said_at, parser.complete, judged, affinity
         )
-        memory.write_down(history, text, reply)
+        memory.write_down(history, text, reply, retrieved.query_vector)
         if judged is not None and self._affinities is not None:
             yield TurnJudged(judged, reply.affinity is not None and reply.affinity.cooldown)
         if in_call is not None:

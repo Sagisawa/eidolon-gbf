@@ -90,6 +90,8 @@ class CallUnderTest:
         muted: bool = False,
         limits: CallLimits = CallLimits(),
         memory: FakeBackgroundLLM | None = None,
+        retrieval_judge: FakeJudge | None = None,
+        embedder: FakeEmbedder | None = None,
         connected: bool = True,
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
@@ -99,7 +101,8 @@ class CallUnderTest:
     ) -> tuple[list[str], list[dict]]:
         """Run the frames through; returns the text sent to TTS and the messages sent to the browser."""
         down = await self.run_frames(
-            llm, frames, muted=muted, limits=limits, memory=memory, connected=connected,
+            llm, frames, muted=muted, limits=limits, memory=memory,
+            retrieval_judge=retrieval_judge, embedder=embedder, connected=connected,
             judge=judge, emotion=emotion, follow_on_timeout=follow_on_timeout,
             affinity=affinity, cooled=cooled,
         )
@@ -115,6 +118,8 @@ class CallUnderTest:
         muted: bool = False,
         limits: CallLimits = CallLimits(),
         memory: FakeBackgroundLLM | None = None,
+        retrieval_judge: FakeJudge | None = None,
+        embedder: FakeEmbedder | None = None,
         connected: bool = True,
         judge: FakeJudge | None = None,
         emotion: EmotionSettings | None = None,
@@ -123,13 +128,15 @@ class CallUnderTest:
         cooled: tuple[float, datetime] | None = None,
     ) -> Sequence[Frame]:
         """Run the frames through a call that, unless told otherwise, connects as it starts,
-        with `judge` as the deployer's Jev judging each segment's emotion, if given, as
-        `emotion` says, and its speech recognition taking `follow_on_timeout` at most to
-        transcribe a follow-on. Given `affinity`, affinity is on, the judge model judging
+        remembering with the background model `memory`, if given, and retrieving with
+        `retrieval_judge` and `embedder` (new ones unless given), with `judge` as the deployer's Jev judging
+        each segment's emotion, if given, as `emotion` says, and its speech recognition
+        taking `follow_on_timeout` at most to transcribe a follow-on. Given `affinity`, affinity is on, the judge model judging
         each turn's as it says (`FakeJudgeModel.judgings`). Given `cooled`, she falls into a
         cooldown elsewhere that many seconds into the call, ending when it says."""
         remembering = {} if memory is None else {
-            "background_llm": memory, "retrieval_judge": FakeJudge(), "embedder": FakeEmbedder(),
+            "background_llm": memory, "retrieval_judge": retrieval_judge or FakeJudge(),
+            "embedder": embedder or FakeEmbedder(),
             "reranker": FakeReranker(),
         }
         settings = self._settings if emotion is None else replace(self._settings, emotion=emotion)
@@ -409,6 +416,27 @@ async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call
         ("character", None, "ほわっ、おはようございます！今日も", "哇，早上好！今天也"),
     ]
     assert len(memory.prompts) == 1  # the reply dropped was not written down
+
+
+async def test_a_follow_on_drops_what_the_turn_was_looking_up_and_looks_up_the_whole_of_it(
+    mano_call: CallUnderTest,
+):
+    llm, judge, embedder = FakeLLM(MANO_REPLY), FakeJudge(), FakeEmbedder()
+    judge.hold("早上好")  # still judging, and looking up, when the user goes on
+    embedder.hanging = {"早上好"}
+
+    _, messages = await mano_call.run(
+        llm,
+        [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
+        memory=FakeBackgroundLLM(), retrieval_judge=judge, embedder=embedder,
+    )
+
+    assert said(without_emotions(messages)) == ["早上好", "早上好\n在吗"]
+    assert [text for _, text in judge.asked] == ["早上好", "早上好\n在吗"]
+    assert embedder.abandoned == ["早上好"]
+    assert embedder.queries == ["早上好", "早上好\n在吗"]
+    assert len(llm.prompts) == 1
+    assert await mano_call.said() == ["早上好\n在吗", None]
 
 
 async def test_a_turn_with_a_follow_on_changes_affinity_as_the_whole_of_it_is_judged(

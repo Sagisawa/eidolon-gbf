@@ -116,6 +116,8 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 **Readings** are how character names, unit names and the office's name are pronounced in her voice. They are written in [`characters/readings.toml`](../characters/readings.toml); for example, 「杜野凛世」 is read 「もりの りんぜ」. Every request to Fish Audio for greetings and calls carries this readings table, including requests on users' own keys. It only changes the voice: subtitles, the transcript and the Japanese text keep the original spelling.
 
+Calls' speech recognition uses it too: as the backend starts, it makes a list of hot words from the spellings in the readings table, the characters' Chinese names (`name_zh`, and those names without the surname) and the units in the world setting, and every call's recognition carries it, on Soniox and Alibaba Cloud Model Studio alike, users' own keys included. Lone surnames and single characters are left out; words longer than the recognition services allow are skipped, with a note in the startup log.
+
 - **Changing a reading**: Change that entry's `kana`, clear its `phonemes` to `""`, and run `uv run eidolon reading draft` on your own computer to fill in the phonemes. This command needs pyopenjtalk-plus from the dev dependencies, which the server image doesn't have, so run it locally and commit the result. It leaves entries that already have phonemes alone.
 - **Taking effect**: The readings table is read only at backend startup. After editing it, restart the backend and rerun the greeting synthesis and upload.
 

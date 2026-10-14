@@ -34,7 +34,10 @@ class CharacterFacts:
         best = await self._texts.search(
             character_scope(character.id), _documents(facts), query_vector, limit
         )
-        return [Reference(self.kind, facts[i].text, facts[i].title or facts[i].text) for i in best]
+        return [
+            Reference(self.kind, facts[i].text, facts[i].title or facts[i].text, similarity)
+            for i, similarity in best
+        ]
 
     async def embed_missing(
         self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None

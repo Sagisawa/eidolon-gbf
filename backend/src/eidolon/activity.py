@@ -19,7 +19,8 @@ synthesis and emotion judging are recorded under the call (`Recording.add`), not
 The services are timed by thin wrappers around their clients (`metered_llm`,
 `MeteredJudge`, `MeteredEmbedder`, `MeteredReranker`), which also open a `Billing` for
 the client to tell what the request is billed for. A call abandoned part-way, as when the
-user leaves, is not a failure.
+user leaves, is not a failure; an attempt the client made again (`retry`) is a call of
+its own, failed.
 
 Records are kept for 90 days (`KEPT`); older ones are deleted whenever a turn begins, as
 uses of the limit are. A deleted user's records stay, for the numbers not to change, but
@@ -54,6 +55,7 @@ from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
 from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
 from eidolon.rerank import Reranker
+from eidolon.retry import ServiceError, on_retry
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
     from eidolon.affinity_judge import AffinityJudge
     from eidolon.emotion import EmotionAnswer, EmotionJudge, SegmentToJudge
@@ -649,12 +651,18 @@ T = TypeVar("T")
 
 async def timed(log: ActivityLog, origin: Origin, work: Awaitable[T]) -> T:
     """What `work`, a request to the service `origin` names, comes to, recorded as a
-    service call."""
+    service call; each attempt of it that failed and was made again, as one of its own."""
     started = perf_counter()
     billed = Billing()
     error: ErrorKind | None = None
+
+    def record_failed_attempt(failure: ServiceError) -> None:
+        nonlocal started
+        log.call(origin, started, error_kind(failure), billed.take())
+        started = perf_counter()
+
     try:
-        with billing(billed):
+        with billing(billed), on_retry(record_failed_attempt):
             return await work
     except asyncio.CancelledError:
         raise  # abandoned, not failed

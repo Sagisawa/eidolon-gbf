@@ -95,14 +95,14 @@ class EmbeddedTexts:
         query_vector: Sequence[float],
         limit: int,
         among: Sequence[int] | None = None,
-    ) -> list[int]:
+    ) -> list[tuple[int, float]]:
         """The positions in `documents` (the scope's texts, all of them) of those most
-        similar to a query embedded with this set's embedder, best first; only those at
-        the positions `among`, if given."""
+        similar to a query embedded with this set's embedder, best first, with their
+        similarity; only those at the positions `among`, if given."""
         vectors = await self._load(scope, documents)
         positions = range(len(documents)) if among is None else among
         best = nearest([vectors[i] for i in positions], query_vector, limit)
-        return [positions[i] for i, _ in best]
+        return [(positions[i], similarity) for i, similarity in best]
 
     async def embed_missing(
         self, scope: str, documents: Sequence[Document], batch: int = REEMBED_BATCH

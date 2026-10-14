@@ -6,8 +6,12 @@ to the user and names the character it was told to, its source character. All of
 user's characters share their memories, and a character finding one told to someone
 else is asked to pass it on as hearsay (ADR-0002); users never share theirs.
 
-A turn goes `begin` → `find` → `write_down`. Writing runs in the background so it never
-holds up the reply; the user's next turn begins by waiting briefly for it, so what they
+A turn goes `begin` → `candidates` → `find` → `write_down`. The turn's query (see
+`memory_query`) is embedded once, by whoever takes the turn (`retrieval`), and the vector
+serves all of them: the candidates are the user's holding memories nearest it, found
+before anyone knows whether the turn needs memories at all, which only `find` reranks;
+and writing down shows the background model the memories nearest it. Writing runs in
+the background so it never holds up the reply; the user's next turn begins by waiting briefly for it, so what they
 just said is remembered by the time they go on. A new conversation picks up where
 earlier ones left off only through the memories it finds.
 
@@ -264,46 +268,62 @@ class Memories:
         if pending := self._pending.get(user_id):
             await asyncio.wait(set(pending), timeout=SETTLE_TIMEOUT)
 
-    async def _find(
-        self, conversation: Conversation, timezone: str, query_text: str
-    ) -> str | None:
+    async def _candidates(self, user_id: str, query_vector: Sequence[float]) -> list[Memory]:
         if (services := self._services) is None:
+            return []
+        try:
+            return await self._nearest(services.embedder, user_id, query_vector, CANDIDATES)
+        except EmbeddingError:
+            log.warning("embedding memories failed; replying without them", exc_info=True)
+            return []
+
+    async def _find(
+        self,
+        conversation: Conversation,
+        timezone: str,
+        query_text: str,
+        candidates: Sequence[Memory],
+    ) -> str | None:
+        if (services := self._services) is None or not candidates:
             return None
         try:
-            nearest_memories = await self._nearest(
-                services.embedder, conversation.user_id, query_text, CANDIDATES
+            best = await services.reranker.rerank(
+                query_text, [m.text for m in candidates], len(candidates)
             )
-            best = (
-                await services.reranker.rerank(
-                    query_text, [m.text for m in nearest_memories], len(nearest_memories)
-                )
-                if nearest_memories
-                else []
-            )
-        except (EmbeddingError, RerankError):
+        except RerankError:
             log.warning("finding memories failed; replying without them", exc_info=True)
             return None
         min_relevance = services.min_relevance()
-        found = [nearest_memories[i] for i, score in best if score >= min_relevance]
+        found = [candidates[i] for i, score in best if score >= min_relevance]
         character = self._characters[conversation.character_id]
         return _memories_prompt(found[:MAX_FOUND], character, timezone) if found else None
 
     async def _nearest(
-        self, embedder: Embedder, user_id: str, query_text: str, limit: int
+        self, embedder: Embedder, user_id: str, query_vector: Sequence[float], limit: int
     ) -> list[Memory]:
-        """As many as `limit` of the user's holding memories nearest `query_text`, nearest
-        first. Raises EmbeddingError."""
-        query = await embedder.embed_query(query_text)
+        """As many as `limit` of the user's holding memories nearest a query embedded with
+        `embedder`, nearest first. Raises EmbeddingError, embedding those not embedded yet."""
         memories = await asyncio.to_thread(self._all, user_id)
         vectors = await self._vectors(embedder, user_id, memories)
         holding = [m for m in memories if m.superseded_by is None]
-        return [holding[i] for i, _ in nearest([vectors[m.id] for m in holding], query, limit)]
+        return [
+            holding[i] for i, _ in nearest([vectors[m.id] for m in holding], query_vector, limit)
+        ]
 
-    async def _shown(self, embedder: Embedder, user_id: str, query_text: str) -> list[Memory]:
+    async def _shown(
+        self,
+        embedder: Embedder,
+        user_id: str,
+        query_text: str,
+        query_vector: Sequence[float] | None,
+    ) -> list[Memory]:
         """The memories the background model is shown: the user's holding memories nearest
-        `query_text`, or while that cannot be embedded, their latest."""
+        `query_text`, embedded unless it already was (`query_vector`), or while that cannot
+        be embedded, their latest."""
         try:
-            return await self._nearest(embedder, user_id, query_text, SHOWN_MEMORIES)
+            if query_vector is None:
+                query_vector = await embedder.embed_query(query_text)
+            return await self._nearest(embedder, user_id, query_vector, SHOWN_MEMORIES)
         except EmbeddingError:
             log.warning("embedding the turn failed; the background model is shown the latest"
                         " memories", exc_info=True)
@@ -320,13 +340,16 @@ class Memories:
         history: Sequence[Message],
         text: str,
         reply: Message,
+        query_vector: Sequence[float] | None,
     ) -> None:
         if (services := self._services) is None:
             return
         now = self._clock().astimezone(ZoneInfo(timezone))
         release = hold() if hold is not None else None
         task = asyncio.create_task(
-            self._write(services, llm, conversation, clearings, history, text, reply, now),
+            self._write(
+                services, llm, conversation, clearings, history, text, reply, query_vector, now
+            ),
             context=detached(),  # after the turn, not part of it (see `activity`)
         )
         pending = self._pending.setdefault(conversation.user_id, set())
@@ -350,12 +373,15 @@ class Memories:
         history: Sequence[Message],
         text: str,
         reply: Message,
+        query_vector: Sequence[float] | None,
         now: datetime,
     ) -> None:
         user_id = conversation.user_id
         try:
             character = self._characters[conversation.character_id]
-            shown = await self._shown(services.embedder, user_id, memory_query(history, text))
+            shown = await self._shown(
+                services.embedder, user_id, memory_query(history, text), query_vector
+            )
             prompt = _extraction_prompt(character, history, text, reply, shown, now)
             answer = "".join([
                 chunk async for chunk in llm.stream(prompt)
@@ -536,21 +562,32 @@ class MemoryTurn:
         self._llm = llm
         self._hold = hold
 
-    async def find(self, history: Sequence[Message], text: str) -> str | None:
-        """The prompt section carrying the user's holding memories relevant to `text`, said
-        after `history` (see `memory_query`), most relevant first, each labelled with who it was
-        told to and to be passed on as hearsay when that was someone else; None if none are
-        relevant, memory is off or finding them failed."""
-        return await self._memories._find(
-            self._conversation, self._timezone, memory_query(history, text)
-        )
+    async def candidates(self, query_vector: Sequence[float]) -> list[Memory]:
+        """As many as `CANDIDATES` of the user's holding memories nearest the turn's query
+        (see `memory_query`) embedded with the memories' embedder, nearest first, for
+        `find`; none if memory is off or the memories not embedded yet cannot be."""
+        return await self._memories._candidates(self._conversation.user_id, query_vector)
 
-    def write_down(self, history: Sequence[Message], text: str, reply: Message) -> None:
+    async def find(self, query: str, candidates: Sequence[Memory]) -> str | None:
+        """The prompt section carrying those of the `candidates` relevant to `query`, the
+        turn's query, most relevant first, each labelled with who it was told to and to be
+        passed on as hearsay when that was someone else; None if none are relevant, memory
+        is off or reranking failed."""
+        return await self._memories._find(self._conversation, self._timezone, query, candidates)
+
+    def write_down(
+        self,
+        history: Sequence[Message],
+        text: str,
+        reply: Message,
+        query_vector: Sequence[float] | None = None,
+    ) -> None:
         """Start writing down what the user revealed in this turn: `text`, said after
-        `history` and answered with `reply`."""
+        `history` and answered with `reply`; `query_vector` is the turn's query embedded
+        already, if it was, so it is not embedded again."""
         self._memories._write_down(
             self._conversation, self._timezone, self._clearings, self._llm, self._hold,
-            history, text, reply,
+            history, text, reply, query_vector,
         )
 
 
@@ -602,8 +639,8 @@ def _extraction_prompt(
 
 def memory_query(history: Sequence[Message], text: str) -> str:
     """What memories relevant to `text`, said after `history`, are searched and reranked
-    with: the character's reply before it, which says what 「它」 or 「那件事」 is, then
-    `text`."""
+    with, and references and recalled episodes too (`retrieval`): the character's reply
+    before it, which says what 「它」 or 「那件事」 is, then `text`."""
     previous = next((m for m in reversed(history) if m.role == "character"), None)
     return joined_query(_said(previous) if previous else None, text)
 

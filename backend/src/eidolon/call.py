@@ -71,7 +71,7 @@ from pipecat.processors.frameworks.rtvi.frames import (
 from pipecat.processors.frameworks.rtvi.models import ServerMessage
 from pipecat.services.ai_service import AIService
 from pipecat.services.fish.tts import FishAudioTTSService
-from pipecat.services.soniox.stt import SonioxSTTService
+from pipecat.services.soniox.stt import SonioxContextObject, SonioxSTTService
 from pipecat.services.stt_service import STTService
 from pipecat.services.tts_service import InterruptibleTTSService, TTSService
 from pipecat.transcriptions.language import Language
@@ -622,12 +622,15 @@ sends no transcription at all when it heard no words."""
 @dataclass(frozen=True)
 class SpeechServices:
     """Soniox or Alibaba Cloud Model Studio, whichever the key is for, hears the user, the
-    latter with `bailian_model`, users' own keys too; Fish Audio speaks as the character,
-    with the model the call is given (the deployer's, as it connected), and the readings
-    whoever's key it is on."""
+    latter with `bailian_model`, users' own keys too, listening out for `hot_words`
+    (`hot_words.hot_words`) whoever's key it is on: Soniox as its context's terms (an
+    object, as its models of context version 2 take), Alibaba Cloud Model Studio as the
+    task's vocabulary. Fish Audio speaks as the character, with the model the call is
+    given (the deployer's, as it connected), and the readings whoever's key it is on."""
 
     bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
     readings: tuple[Reading, ...] = ()
+    hot_words: tuple[str, ...] = ()
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
@@ -637,13 +640,17 @@ class SpeechServices:
         # proposals into interruptions of the character's voice.
         if key.provider == "bailian":
             bailian = BailianSTTService(
-                api_key=key.api_key, model=self.bailian_model, region=key.region
+                api_key=key.api_key, model=self.bailian_model, region=key.region,
+                hot_words=self.hot_words,
             )
             return Hearing(bailian, BAILIAN_FOLLOW_ON_TIMEOUT)
         soniox = SonioxSTTService(
             api_key=key.api_key,
             vad_force_turn_endpoint=False,
-            settings=SonioxSTTService.Settings(language_hints=[Language.ZH, Language.JA]),
+            settings=SonioxSTTService.Settings(
+                language_hints=[Language.ZH, Language.JA],
+                context=SonioxContextObject(terms=list(self.hot_words)) if self.hot_words else None,
+            ),
         )
         return Hearing(soniox, SONIOX_FOLLOW_ON_TIMEOUT)
 

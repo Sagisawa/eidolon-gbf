@@ -212,8 +212,24 @@ async def test_recalling_a_live_brings_its_days_even_when_no_episode_tells_it(
     assert [d.split("\n")[1] for d in days] == ["日期：2024年3月2日", "日期：2024年3月3日"]
     assert "没有经历过" not in system
     assert not any(cv in system for cv in CVS)
-    # The episodes and the work facts are reranked together, once.
+    # The episodes and the work facts are reranked together, once, the query embedded once.
     assert len(reranker.calls) == 1
+    assert embedder.queries == ["ドームでのライブ、どうだった？"]
+
+
+async def test_with_the_reranker_down_recalling_brings_the_nearest_live_or_release_too(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm, reranker = FakeLLM(ANSWER), FakeReranker()
+    reranker.down = True
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
+
+    system = await system_prompt(client, llm, "公園の鳩とドームのライブ、どうだった？")
+
+    recalled = section(system, "# 回顾剧情")
+    assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in recalled
+    [day] = entries(recalled)
+    assert "ベルーナドーム" in day
 
 
 async def test_recalling_brings_lives_and_releases_but_not_songs(
@@ -312,17 +328,6 @@ async def test_an_edited_data_file_takes_effect_on_restart_embedding_only_what_c
     assert changed.startswith("歌曲「MAGICAL FOREST!!」")
     assert entries(system)[0] == changed
     assert stored_entries(settings) == {"fake-embedding": ENTRIES}  # the old one is gone
-
-
-async def test_turns_without_references_embed_no_work_facts(
-    make_client: ClientFactory, embedder: FakeEmbedder, settings: Settings
-):
-    llm = FakeLLM(REPLY)
-    client = make_client(llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=FakeReranker())
-
-    await system_prompt(client, llm, "おはよう")
-
-    assert stored_entries(settings) == {}
 
 
 async def test_the_work_facts_are_embedded_once_however_many_turns_search_them(

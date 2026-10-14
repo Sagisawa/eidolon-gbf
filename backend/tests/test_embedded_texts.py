@@ -45,7 +45,7 @@ def stored(database: Path) -> set[tuple[str, str, str]]:
 async def nearest_text(
     texts: EmbeddedTexts, embedder: FakeEmbedder, scope: str, documents: list[Document], query: str
 ) -> str:
-    [best] = await texts.search(scope, documents, await embedder.embed_query(query), 1)
+    [(best, _)] = await texts.search(scope, documents, await embedder.embed_query(query), 1)
     return documents[best].text
 
 
@@ -88,7 +88,7 @@ async def test_searches_at_the_same_time_embed_each_text_once(database: Path):
     results = await asyncio.gather(*(texts.search(SCOPE, DOCUMENTS, query, 1) for _ in range(3)))
     texts.close()
 
-    assert results == [[0]] * 3
+    assert [[i for i, _ in found] for found in results] == [[0]] * 3
     assert embedder.documents == [d.text for d in DOCUMENTS]
 
 
@@ -100,7 +100,7 @@ async def test_a_search_can_look_among_only_some_of_the_texts(database: Path):
     best = await texts.search(SCOPE, DOCUMENTS, query, 2, among=[1, 2])
     texts.close()
 
-    assert sorted(best) == [1, 2]
+    assert sorted(i for i, _ in best) == [1, 2]
     assert stored(database) == {(SCOPE, embedder.model, d.text) for d in DOCUMENTS}
 
 

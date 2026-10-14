@@ -45,8 +45,8 @@ class WorkFacts:
         self, query_vector: Sequence[float], character: Character, limit: int
     ) -> list[Reference]:
         return [
-            Reference(self.kind, e.text, e.title)
-            for e in await self.search_entries(query_vector, limit)
+            Reference(self.kind, e.text, e.title, similarity)
+            for e, similarity in await self._nearest(query_vector, limit)
         ]
 
     async def search_entries(
@@ -57,9 +57,18 @@ class WorkFacts:
     ) -> list[WorldEntry]:
         """The entries (of `kinds`, or any) most similar to a query embedded with this
         source's embedder, best first."""
+        return [e for e, _ in await self._nearest(query_vector, limit, kinds)]
+
+    async def _nearest(
+        self,
+        query_vector: Sequence[float],
+        limit: int,
+        kinds: Collection[EntryKind] | None = None,
+    ) -> list[tuple[WorldEntry, float]]:
+        """As `search_entries`, with their similarity."""
         among = [i for i, e in enumerate(self._entries) if kinds is None or e.kind in kinds]
         best = await self._texts.search(WORK_SCOPE, self._documents, query_vector, limit, among)
-        return [self._entries[i] for i in best]
+        return [(self._entries[i], similarity) for i, similarity in best]
 
     async def embed_missing(
         self, batch: int = REEMBED_BATCH, progress: Callable[[int], None] | None = None

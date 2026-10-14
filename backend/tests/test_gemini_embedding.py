@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from eidolon.embedding import Document, EmbeddingError, GeminiEmbedder
+from tests.test_embedding import Answer, scripted
 
 
 def embedder(
@@ -149,12 +150,32 @@ async def test_documents_wait_out_the_rate_limit_as_google_asks():
 
 async def test_a_query_does_not_wait_out_the_rate_limit():
     waits: list[float] = []
-    gemini = rate_limited([quota_exceeded()], waits)
+    answers = [quota_exceeded(), quota_exceeded(), quota_exceeded()]
+    gemini = rate_limited(answers, waits)
 
     with pytest.raises(EmbeddingError, match="429"):
         await gemini.embed_query("在吗")
 
     assert waits == []
+    assert len(answers) == 1  # asked again once at once, as for any failure in passing
+
+
+@pytest.mark.parametrize(
+    "failure", [quota_exceeded(), httpx.Response(500, text="internal")]
+)
+async def test_a_query_failing_in_passing_is_asked_again_at_once(failure: Answer):
+    answers = [failure]
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"embeddings": [{"values": [1.0, 0.0]}]})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(scripted(answers, answer)))
+    gemini = GeminiEmbedder(
+        "k", "gemini-embedding-2", 1536, "http://gemini.test/v1beta", client, query_timeout=0.05
+    )
+
+    assert await gemini.embed_query("在吗") == [1.0, 0.0]
+    assert answers == []
 
 
 @pytest.mark.parametrize(
