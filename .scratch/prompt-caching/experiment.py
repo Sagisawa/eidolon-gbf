@@ -62,6 +62,25 @@ SERVICES = {
         "key": "EXPERIMENT_THIRD_PARTY_API_KEY",
         "prices": None,
     },
+    # 同一家第三方换个模型：Gemini 那边命中时有时无，用户怀疑是模型的问题
+    "mimo": {
+        "url": "https://magpie-api.hmhnk.top/v1/chat/completions",
+        "model": "clinepass/cline-free/mimo-v2.6-flash",
+        "key": "EXPERIMENT_THIRD_PARTY_API_KEY",
+        "prices": None,
+    },
+    "qoder": {
+        "url": "https://magpie-api.hmhnk.top/v1/chat/completions",
+        "model": "qoder-cn/qfmodel",
+        "key": "EXPERIMENT_THIRD_PARTY_API_KEY",
+        "prices": None,
+    },
+    "qwen": {
+        "url": "https://magpie-api.hmhnk.top/v1/chat/completions",
+        "model": "qwen-cn/qwen3.8-flash",
+        "key": "EXPERIMENT_THIRD_PARTY_API_KEY",
+        "prices": None,
+    },
 }
 
 # 一段 10 回合的闲聊。工具那组把第 4、7 回合换成问往事、并带上预先回忆的剧情。
@@ -325,26 +344,33 @@ class Service:
                                 if not isinstance(arguments, str):
                                     arguments = json.dumps(arguments, ensure_ascii=False)
                                 call["arguments"] += arguments
+                                # Gemini 的思维签名，产品的适配器会随调用发回去
+                                if isinstance(extra := fragment.get("extra_content"), dict):
+                                    call["extra_content"] = extra
         except httpx.HTTPError as e:
             error = repr(e)
-        tool_calls = [
-            ToolCall(c["id"] or f"call_{i}", c["name"], parse_arguments(c["arguments"]))
-            for i, c in sorted(calls.items())
-        ]
+        assembled = [(c["id"] or f"call_{i}", c) for i, c in sorted(calls.items())]
+        tool_calls = [ToolCall(i, c["name"], parse_arguments(c["arguments"])) for i, c in assembled]
+        sent_back: dict[str, Any] = {}
+        if reasoning:
+            sent_back["reasoning_content"] = reasoning
+        if extras := {i: c["extra_content"] for i, c in assembled if "extra_content" in c}:
+            sent_back["extra_content"] = extras  # 和产品一样按调用 id 存
         record.update(
             seconds=round(time.monotonic() - started, 2), error=error, usage=usage,
             total=usage.get("prompt_tokens") if usage else None,
             hit=hits(usage) if usage else None,
             output=usage.get("completion_tokens") if usage else None,
-            reply=text, reasoning_chars=len(reasoning),
+            reply=text, reasoning_chars=len(reasoning), signed=bool(extras),
             calls=[{"name": c.name, "arguments": c.arguments} for c in tool_calls],
         )
         self.log(record)
         shown = f"命中 {record['hit']} / {record['total']}" if usage else f"错误 {error}"
         print(f"  {record['case']} 回合 {record['turn']} 第 {record['round']} 轮 [{tools}]: "
-              f"{shown}，回复 {len(text)} 字，调用 {len(tool_calls)} 次", flush=True)
+              f"{shown}，回复 {len(text)} 字，调用 {len(tool_calls)} 次"
+              f"{'（带思维签名）' if extras else ''}", flush=True)
         await asyncio.sleep(self.gap)
-        return text, tool_calls, Reasoning({"reasoning_content": reasoning}) if reasoning else None
+        return text, tool_calls, Reasoning(sent_back) if sent_back else None
 
 
 def hits(usage: dict[str, Any]) -> int | None:
@@ -446,6 +472,12 @@ def read(name: str) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
+def input_cost(r: dict[str, Any], prices: tuple[float, float, float]) -> float:
+    """按闲时价算的输入花费（美元）；没报命中的按全部未命中。"""
+    hit = r.get("hit") or 0
+    return (((r.get("total") or 0) - hit) * prices[0] + hit * prices[1]) / 1e6
+
+
 def cost(r: dict[str, Any], prices: tuple[float, float, float]) -> float:
     """按闲时价算的花费（美元），含输出。"""
     miss_price, hit_price, out_price = prices
@@ -468,10 +500,7 @@ def report(name: str, prices: tuple[float, float, float] | None) -> None:
         later = [r for r in ok if r["turn"] != 1]
         later_total = sum(r["total"] or 0 for r in later)
         later_hit = sum(r["hit"] or 0 for r in later)
-        spend = (
-            f"${sum(((r['total'] or 0) - (r['hit'] or 0)) * prices[0] + (r['hit'] or 0) * prices[1] for r in ok) / 1e6:.5f}"
-            if prices else "—"
-        )
+        spend = f"${sum(input_cost(r, prices) for r in ok):.5f}" if prices else "—"
         chars = sum(r["prompt_chars"] for r in ok) // max(len(ok), 1)
         rate = f"{hit / total:.1%}" if total else "—"
         later_rate = f"{later_hit / later_total:.1%}" if later_total else "—"
@@ -510,6 +539,16 @@ def report(name: str, prices: tuple[float, float, float] | None) -> None:
             print(f"| {r['turn']} | {r['round']} | {r['tools']} | {r['sent_at'][11:19]} | "
                   f"{r.get('total')} | {'没报' if hit is None and r.get('usage') else hit} | {miss} | "
                   f"{r.get('output')} | {len(r['reply'])} | {calls} | {'；'.join(notes)} |")
+    upstream = [
+        r["usage"]["cost_details"]["upstream_inference_cost"] for r in records
+        if isinstance((r.get("usage") or {}).get("cost_details"), dict)
+        and isinstance(r["usage"]["cost_details"].get("upstream_inference_cost"), (int, float))
+    ]
+    if upstream:
+        charged = sum(r["usage"]["cost"] for r in records
+                      if isinstance((r.get("usage") or {}).get("cost"), (int, float)))
+        print(f"\n服务报的花费：上游推理 ${sum(upstream):.5f}（{len(upstream)} 次请求），"
+              f"`cost` 合计 ${charged:.5f}")
     if prices:
         print(f"\n实际花费（闲时价，含输出）：${sum(cost(r, prices) for r in records):.5f}，"
               f"{len(records)} 次请求")
@@ -536,14 +575,20 @@ async def main() -> None:
     for case in args.cases:
         print(case, flush=True)
         kind, _, variant = case.partition("-")
+        if (kind == "layout" and variant not in ("A", "B", "C")) or (
+            kind in ("tools", "toolcall") and variant not in ("drop", "none", "auto")
+        ):
+            sys.exit(f"不认识 {case}")
         if kind == "layout":
             await conversation(s, case + args.tag, variant, m, None, "none")
         elif kind == "tools":
             # 一致的禁止调用方式：预先回忆过的回合、调过工具后的第二轮都用它
-            await conversation(s, f"{case}-{args.layout}", args.layout, m, variant, variant)
+            await conversation(s, f"{case}-{args.layout}{args.tag}", args.layout, m, variant,
+                               variant)
         elif kind == "toolcall":
             for trial in range(args.first_trial, args.first_trial + args.trials):
-                await tool_call_trial(s, f"{case}-{args.layout}", args.layout, m, variant, trial)
+                await tool_call_trial(s, f"{case}-{args.layout}{args.tag}", args.layout, m, variant,
+                                      trial)
         elif kind == "probe":  # 第三方：先跑两个回合看报不报命中、接不接受中途系统消息
             nonce = secrets.token_hex(6)
             past: list[Past] = []

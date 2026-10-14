@@ -30,4 +30,4 @@
 ## Comments
 
 - 2026-10-15 用户补充：除了 `deepseek-flash`，再用用户自己的一家临时第三方服务顺带跑一遍，看结论在非 DeepSeek 的服务上站不站得住（用户担心对 DeepSeek 过拟合）。Chat Completions，`base_url` 为 `https://magpie-api.hmhnk.top/v1`，模型 `antigravity/gemini-3.8-flash`；key 在本地 `.env` 的 `EXPERIMENT_THIRD_PARTY_API_KEY`（仓库公开，key 不进仓库）。这家报不报命中、在哪个字段报都不知道，按票 01 适配器的三个候选字段（`prompt_tokens_details.cached_tokens` → `prompt_cache_hit_tokens` → `cached_tokens`）都读，都没有就记「没报」，先跑一两个回合确认再跑全套。中途系统消息、`tool_choice: none` 它接不接受，也记进结果。
-- 2026-10-15 实验做完，结果和推荐见 `../experiment.md`。DeepSeek 实际花费 $0.083（闲时段，超过预计的 $0.05、没到 $0.2）。推荐 Q5 用 B、Q9 维持 `tool_choice: none`；第三方服务上 B 不比 A 好、只有 C 偶尔命中，这条要用户权衡。用户的决定待记。
+- 2026-10-15 实验做完，结果和推荐见 `../experiment.md`。DeepSeek 实际花费 $0.1225（闲时段；超过预计的 $0.05，没到 $0.2），多出来的是工具回合每次都换编号全未命中，以及 review 后在 B 上补测的工具那组。第三方服务除 Gemini 外，按用户提议又测了 mimo、qwen、qfmodel（qwen 的免费额度在最后几次请求用完）。推荐 Q5 用 B（DeepSeek、mimo、qwen 上 B 拿到了大头，C 多省得很少、提示词翻倍；Gemini、qfmodel 上 A、B 都不命中，这条要用户权衡），Q9 维持 `tool_choice: none`。用户的决定待记。
