@@ -1,7 +1,7 @@
 """Retrieval in conversation, driven through the text turn API: Jev decides whether a
 turn looks anything up; if so, the story corpus (only episodes the character is cast
 in) and her character facts are searched, reranked and capped into the prompt. They
-are searched while Jev judges, and reranked only once it has."""
+are searched while the judge model judges, and reranked only once it has."""
 
 import asyncio
 from pathlib import Path
@@ -87,8 +87,8 @@ async def test_small_talk_retrieves_nothing(
     system = await system_prompt(client, llm, "早上好")
 
     assert jev.asked == [("櫻木真乃", "早上好")]
-    # Jev answering at once, nothing was looked up before it did: embedded only to show the
-    # background model the memories nearest the turn, after it.
+    # The judge model answering at once, nothing was looked up before it did: embedded only
+    # to show the background model the memories nearest the turn, after it.
     assert embedder.queries == ["早上好"]
     assert reranker.calls == []
     assert "# 回忆与资料" not in system
@@ -270,13 +270,13 @@ async def tell_of_the_cat(client: httpx.AsyncClient) -> None:
 async def test_a_turn_needing_references_embeds_its_query_once_for_them_and_memories(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
-    jev, reranker, llm = FakeJudge(answer="nothing"), FakeReranker(PARK_LINE), FakeLLM(REPLY, REPLY)
+    judge, reranker, llm = FakeJudge(answer="nothing"), FakeReranker(PARK_LINE), FakeLLM(REPLY, REPLY)
     client = make_client(
-        llm, retrieval_judge=jev, embedder=embedder, reranker=reranker,
+        llm, retrieval_judge=judge, embedder=embedder, reranker=reranker,
         background_llm=FakeBackgroundLLM(memorized(CAT)),
     )
     await tell_of_the_cat(client)
-    jev.answer = "references"
+    judge.answer = "references"
     before = len(embedder.queries)
 
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
@@ -293,44 +293,62 @@ async def test_a_turn_needing_references_embeds_its_query_once_for_them_and_memo
 async def test_the_query_is_embedded_while_the_judge_model_judges(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
-    jev, reranker, llm = FakeJudge(), FakeReranker(PARK_LINE), FakeLLM(REPLY)
-    client = make_client(llm, retrieval_judge=jev, embedder=embedder, reranker=reranker)
+    judge, reranker, llm = FakeJudge(), FakeReranker(PARK_LINE), FakeLLM(REPLY)
+    client = make_client(llm, retrieval_judge=judge, embedder=embedder, reranker=reranker)
     conversation_id = await start_conversation(client)
-    jev.hold()
+    judge.hold()
 
     turn = asyncio.create_task(send_turn(client, conversation_id, "公園の鳩のこと覚えてる？"))
-    await asyncio.wait_for(jev.holding.wait(), 5)
+    await asyncio.wait_for(judge.holding.wait(), 5)
     await until(lambda: embedder.queries)
 
     assert embedder.queries == ["公園の鳩のこと覚えてる？"]
     assert reranker.calls == []  # not until the judge model has answered
-    jev.let_go()
+    judge.let_go()
     events = await turn
     assert events[-1]["type"] == "done"
-    assert embedder.queries == ["公園の鳩のこと覚えてる？"]
-    assert len(reranker.calls) == 1
     assert PARK_LINE in llm.prompts[-1][0].content
 
 
 async def test_a_turn_needing_nothing_drops_what_it_found_while_the_judge_model_judged(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
-    jev, reranker, llm = FakeJudge(answer="nothing"), FakeReranker("猫"), FakeLLM(REPLY, REPLY)
+    judge, reranker, llm = FakeJudge(answer="nothing"), FakeReranker("猫"), FakeLLM(REPLY, REPLY)
     client = make_client(
-        llm, retrieval_judge=jev, embedder=embedder, reranker=reranker,
+        llm, retrieval_judge=judge, embedder=embedder, reranker=reranker,
         background_llm=FakeBackgroundLLM(memorized(CAT)),
     )
     await tell_of_the_cat(client)
     conversation_id = await start_conversation(client)
-    jev.hold()
+    judge.hold()
 
     turn = asyncio.create_task(send_turn(client, conversation_id, "公園の鳩と猫、かわいいね"))
-    await asyncio.wait_for(jev.holding.wait(), 5)
+    await asyncio.wait_for(judge.holding.wait(), 5)
     await until(lambda: "公園の鳩と猫、かわいいね" in embedder.queries)
-    jev.let_go()
+    judge.let_go()
     events = await turn
 
     assert events[-1]["type"] == "done"
     assert reranker.calls == []
     system = llm.prompts[-1][0].content
     assert "# 回忆与资料" not in system and "# 关于制作人的记忆" not in system
+    await client.get("/api/memories")  # once written down, with the query embedded already
+    assert embedder.queries.count("公園の鳩と猫、かわいいね") == 1
+
+
+async def test_a_recall_question_is_recalled_though_her_facts_cannot_be_embedded(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    """Her facts are embedded the first time they are searched, which a turn does as it
+    begins; recalling never needed them."""
+    embedder.documents_down = True
+    llm = FakeLLM(REPLY)
+    client = make_client(
+        llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder,
+        reranker=FakeReranker(PARK_LINE),
+    )
+
+    system = await system_prompt(client, llm, "那次在公园唱歌是怎么回事？")
+
+    assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in system
+    assert f"真乃：{PARK_LINE}" in system

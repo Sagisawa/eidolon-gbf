@@ -40,3 +40,23 @@
 - 行为变化：作品资料第一次被检索时才向量化（启动或数据文件改动后只做一次），现在每个回合都会提前检索，所以第一个回合不管要不要查都可能触发这一次。删掉了 `test_turns_without_references_embed_no_work_facts`，它的前提已经不成立了（在测试里还能过，只是因为假判断模型立刻作答）。
 - 测试：假判断模型加了 `hold(*said)` / `let_go()`，假向量化服务加了 `hanging`（这些查询一直不返回）和 `abandoned`（被取消的查询）。`test_retrieval.py` 新增三条（查资料只向量化一次、资料和记忆都带上；判断模型拖着时已经向量化、还没重排；不用查时不重排、不带资料和记忆）；`test_recall_story.py`、`test_world_retrieval.py` 的回顾剧情测试加了「只向量化一次」和剧情目录的断言；`test_shared_memory.py` 的「只想起记忆」改成断言只重排记忆；`test_call_turns.py` 新增一条：判断模型和向量化都被拖住时用户补充，旧回合的向量化被取消（临时去掉 `finally` 里的取消，这条会失败）。`test_memories.py` 跟着接口改：两条查询拼法的测试改成测写记忆时的查询（检索那边的拼法由 `test_retrieval.py` 和 `test_shared_memory.py` 测）；「向量化服务挂了就找不到」改成「记忆补上向量以后才找得到」。
 - 完整 `pytest` 1346 条全部通过，`ruff check`、`pyright` 无报错。
+
+**自审（2026-10-14，agent，固定点 1e08aaf）**
+
+- 已修：
+  - 向量化和取候选拆成两个任务。判断为「不用查」时，只要向量已经算好，就交给写记忆用，不管候选检索做完没有。
+  - 角色资料或作品资料向量化失败、资料候选拿不到时，回顾剧情改为只查剧情库，不再整个变成「想不起来」。改动前回顾剧情本来就只查剧情库和作品资料。新增 `test_a_recall_question_is_recalled_though_her_facts_cannot_be_embedded`，假向量化服务加了 `documents_down`。
+  - 回合没等提前检索就结束时（不用查，或回合被取消），检索要是出了意外的错，会打一条警告，不再悄悄丢掉，也不会出现 "Task exception was never retrieved"。
+  - `_look_up` 里永远不成立的 `need == "nothing"` 删了。
+  - `ReferenceSources.candidates` 的 docstring 里把不是参数的 `embedder` 写清楚了。
+  - 新加的注释和测试变量不再写 Jev（GLOSSARY）。
+  - 「判断模型拖着」那条测试去掉了和已有测试重复的结尾断言。
+  - 「不用查」那条测试加了断言：写完记忆以后这句查询只向量化过一次。
+- 只报告、没改的判断题：
+  - `_memory_candidates`、`_find_memories` 和 `MemoryTurn` 的几个转发方法（Middle Man）：沿用原来 `MemoryTurn` 包一层 `Memories` 私有方法的写法。
+  - `ReferenceSources.rank` 只剩 `rerank_eval` 在用，留着是为了评测和回合用同一种拼法。
+  - `history, text, reply, query_vector` 一起传（Data Clumps）。
+  - 用裸的 `list[float]` 表示查询向量（Primitive Obsession）。
+  - 回忆里「捕获异常 → 打日志 → 返回想不起来」重复三处。
+  - 检索和记忆用的是同一个 embedder，代码里没有强制约束；`assembly.py` 现在传的是同一个，`MemoryTurn.candidates` 的 docstring 写明了要用记忆的 embedder 算向量。
+- 修完后完整 `pytest` 1347 条全部通过，`ruff check`、`pyright` 无报错。

@@ -46,7 +46,7 @@ import logging
 from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from eidolon.affinity import Judged
 from eidolon.affinity_judge import QUESTIONS as AFFINITY_QUESTIONS
@@ -189,7 +189,7 @@ class ReferenceSources:
         character: Character,
         kinds: Collection[ReferenceKind] | None = None,
     ) -> list[Reference]:
-        """The candidate references for a query embedded with `embedder`: as many as
+        """The candidate references for a query embedded with the sources' embedder: as many as
         `CANDIDATES_PER_SOURCE` of each source's (of `kinds`, or any) nearest it. Raises
         EmbeddingError if a source's texts not embedded yet cannot be."""
         found = await asyncio.gather(*(
@@ -326,7 +326,9 @@ class Retrieval:
         """Look up what this turn needs, finding the user's memories through `memory`; and
         judge what it does to her affinity, if asked to."""
         query = memory_query(history, text)
-        finding = asyncio.ensure_future(self._find(character, query, memory))
+        embedding = asyncio.ensure_future(self._embed(query))
+        finding = asyncio.ensure_future(self._find(character, embedding, memory))
+        looked_up = False
         try:
             judged = None
             try:
@@ -334,24 +336,36 @@ class Retrieval:
             except JudgeError:
                 log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
                 need = "references"
-            retrieved = (
-                Retrieved(None)
-                if need == "nothing"
-                else await self._look_up(character, text, query, await finding, memory, need)
-            )
+            if need == "nothing":
+                retrieved = Retrieved(None)
+            else:
+                looked_up = True
+                retrieved = await self._look_up(character, text, query, await finding, memory, need)
         finally:
-            finding.cancel()  # needing nothing, or no longer anything at all
-        return replace(retrieved, judged=judged, query_vector=_query_vector(finding))
+            for task in (finding, embedding):  # needing nothing, or no longer anything at all
+                task.cancel()
+                if not looked_up:  # nor will anyone else see what it failed with
+                    task.add_done_callback(_log_failure)
+        return replace(retrieved, judged=judged, query_vector=_query_vector(embedding))
 
-    async def _find(
-        self, character: Character, query: str, memory: MemoryTurn | None
-    ) -> _Found | None:
-        """The turn's query embedded and its candidates; None if it cannot be embedded."""
+    async def _embed(self, query: str) -> list[float] | None:
+        """The turn's query embedded; None if it cannot be."""
         try:
-            query_vector = await self._sources.embedder.embed_query(query)
+            return await self._sources.embedder.embed_query(query)
         except EmbeddingError:
             log.warning("embedding the turn failed; replying without references or memories",
                         exc_info=True)
+            return None
+
+    async def _find(
+        self,
+        character: Character,
+        embedding: "asyncio.Future[list[float] | None]",
+        memory: MemoryTurn | None,
+    ) -> _Found | None:
+        """The candidates for the turn's query, once `embedding` it is done; None if it
+        cannot be embedded."""
+        if (query_vector := await embedding) is None:
             return None
         references, memories = await asyncio.gather(
             self._candidates(character, query_vector), _memory_candidates(memory, query_vector)
@@ -376,10 +390,11 @@ class Retrieval:
         memory: MemoryTurn | None,
         need: Need,
     ) -> Retrieved:
-        """What the turn needs of what it found for `query`, `text` and her reply before it."""
+        """What the turn `need`s (something) of what it found for `query`, `text` and her
+        reply before it."""
         if need == "recall":
             return Retrieved(await self._recall_turn(character, text, query, found), recalled=True)
-        if found is None or need == "nothing":
+        if found is None:
             return Retrieved(None)
         if need == "memories":
             return Retrieved(None, await _find_memories(memory, query, found.memories))
@@ -415,14 +430,19 @@ class Retrieval:
     ) -> str:
         """The recall the judge model sees `text` ask for: the story's candidates for the
         turn's `query`, and the lives and releases of the work facts nearest it."""
-        if found is None or found.references is None:
+        if found is None:
             return _CANNOT_RECALL
         try:
+            story = (
+                [r for r in found.references if r.kind == "episode"]
+                if found.references is not None
+                # Another source failed: the story's are still to be had.
+                else await self._sources.candidates(found.query_vector, character, ("episode",))
+            )
             entries = await _search_work(self._sources.work, found.query_vector)
         except EmbeddingError:
             log.warning("recall failed", exc_info=True)
             return _CANNOT_RECALL
-        story = [r for r in found.references if r.kind == "episode"]
         return await self._recall(character, text, query, story, entries)
 
     async def _recall(
@@ -466,12 +486,17 @@ class Retrieval:
         self._sources.close()
 
 
-def _query_vector(finding: "asyncio.Future[_Found | None]") -> list[float] | None:
-    """The turn's query embedded, if it was by the time `finding` was let go of."""
-    if not finding.done() or finding.cancelled() or finding.exception() is not None:
+def _query_vector(embedding: "asyncio.Future[list[float] | None]") -> list[float] | None:
+    """The turn's query embedded, if it was by the time `embedding` was let go of."""
+    if not embedding.done() or embedding.cancelled() or embedding.exception() is not None:
         return None
-    found = finding.result()
-    return found.query_vector if found is not None else None
+    return embedding.result()
+
+
+def _log_failure(task: "asyncio.Future[Any]") -> None:
+    """Log what looking a turn up failed with that no one awaited."""
+    if not task.cancelled() and (error := task.exception()) is not None:
+        log.warning("looking the turn up failed", exc_info=error)
 
 
 async def _memory_candidates(

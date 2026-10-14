@@ -421,18 +421,18 @@ async def test_what_is_said_before_the_character_speaks_joins_the_turn(mano_call
 async def test_a_follow_on_drops_what_the_turn_was_looking_up_and_looks_up_the_whole_of_it(
     mano_call: CallUnderTest,
 ):
-    llm, jev, embedder = FakeLLM(MANO_REPLY), FakeJudge(), FakeEmbedder()
-    jev.hold("早上好")  # still judging, and looking up, when the user goes on
+    llm, judge, embedder = FakeLLM(MANO_REPLY), FakeJudge(), FakeEmbedder()
+    judge.hold("早上好")  # still judging, and looking up, when the user goes on
     embedder.hanging = {"早上好"}
 
     _, messages = await mano_call.run(
         llm,
         [spoken("早上好"), SleepFrame(0.1), InterruptionFrame(), SleepFrame(0.1), spoken("在吗")],
-        memory=FakeBackgroundLLM(), retrieval_judge=jev, embedder=embedder,
+        memory=FakeBackgroundLLM(), retrieval_judge=judge, embedder=embedder,
     )
 
     assert said(without_emotions(messages)) == ["早上好", "早上好\n在吗"]
-    assert [text for _, text in jev.asked] == ["早上好", "早上好\n在吗"]
+    assert [text for _, text in judge.asked] == ["早上好", "早上好\n在吗"]
     assert embedder.abandoned == ["早上好"]
     assert embedder.queries == ["早上好", "早上好\n在吗"]
     assert len(llm.prompts) == 1

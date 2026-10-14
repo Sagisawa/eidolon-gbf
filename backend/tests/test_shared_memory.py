@@ -66,7 +66,7 @@ async def test_talk_of_the_users_own_life_retrieves_memories_only(
     system = llm.prompts[-1][0].content
     assert CAT in memories_section(system)
     assert "# 回忆与资料" not in system
-    # The story corpus and facts searched while Jev judged are not reranked.
+    # The story corpus and facts searched while the judge model judged are not reranked.
     assert [docs for _, docs in reranker.calls] == [[CAT]]
 
 
@@ -82,8 +82,8 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
 
     assert memories_section(llm.prompts[-1][0].content) == ""
     assert reranker.calls == []
-    # Jev answering at once, nothing was looked up before it did: each turn is embedded only
-    # to show the background model the memories nearest it.
+    # The judge model answering at once, nothing was looked up before it did: each turn is
+    # embedded only to show the background model the memories nearest it.
     assert embedder.queries == ["我家的猫叫小白哦", "早上好"]
     assert embedder.documents == [CAT]  # embedded as it was written down, not when searched
 

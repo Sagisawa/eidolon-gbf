@@ -709,7 +709,8 @@ class FakeEmbedder:
     """Embeds text as counts of a few keywords, so the nearest passages are the ones
     sharing the query's keywords. Records every document (its text, and its title in
     `titles`) and query it embeds; set `down` to have it fail as an unreachable service
-    would. A query among `hanging` is never answered: whoever asked gives up on it, which
+    would, or set `documents_down` to have it fail embedding documents only. A query among
+    `hanging` is never answered: whoever asked gives up on it, which
     is recorded (`abandoned`)."""
 
     KEYWORDS = (
@@ -723,11 +724,12 @@ class FakeEmbedder:
         self.titles: list[str | None] = []
         self.queries: list[str] = []
         self.down = False
+        self.documents_down = False
         self.hanging: set[str] = set()
         self.abandoned: list[str] = []
 
     async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
-        if self.down:
+        if self.down or self.documents_down:
             raise EmbeddingError("fake embedding service is down")
         self.documents.extend(d.text for d in documents)
         self.titles.extend(d.title for d in documents)
