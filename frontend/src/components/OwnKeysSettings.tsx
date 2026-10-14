@@ -6,13 +6,22 @@ import { FormEvent, useEffect, useId, useState, type ReactNode } from "react";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { Button } from "@/components/ui/button";
-import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { copy } from "@/i18n";
 import { checkOwnLLM, checkOwnSpeechKey, getAccount, getLimitExemption, type LimitExemption } from "@/lib/api";
 import { exemptionNote, sayServices } from "@/lib/exemptingKeys";
@@ -33,6 +42,15 @@ import {
   type OwnService,
   type SttProvider,
 } from "@/lib/localOwnKeys";
+import {
+  EFFORT_ITEMS,
+  EFFORT_UNSET,
+  effortChoices,
+  effortLabel,
+  effortOf,
+  extraBodyText,
+  parseExtraBody,
+} from "@/lib/reasoningEffort";
 import { cn } from "@/lib/utils";
 
 const t = copy.settings.ownKeys;
@@ -346,20 +364,52 @@ function OwnLLMForm({
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [baseUrl, setBaseUrl] = useState(current?.base_url ?? "");
-  const [model, setModel] = useState(current?.model ?? "");
-  const [protocol, setProtocol] = useState<LLMProtocol>(current?.protocol ?? "chat-completions");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [protocol, setProtocol] = useState<LLMProtocol>("chat-completions");
   const [apiKey, setApiKey] = useState("");
+  const [textEffort, setTextEffort] = useState(EFFORT_UNSET);
+  const [callEffort, setCallEffort] = useState(EFFORT_UNSET);
+  const [extraBody, setExtraBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   const id = useId();
 
+  // 档位换成接口写不出的（选着「极低」换成 Anthropic）是 undefined，额外请求参数不是 JSON 对象时带着 problem：都不能保存。
+  const effortInText = effortOf(textEffort, protocol);
+  const effortInCalls = effortOf(callEffort, protocol);
+  const parsedExtraBody = parseExtraBody(extraBody);
+  const extraBodyProblem = "problem" in parsedExtraBody ? parsedExtraBody.problem : null;
+  const keyToTry = apiKey.trim() || current?.api_key;
+
+  /** 打开表单，从存着的那份填起。 */
+  function edit() {
+    setBaseUrl(current?.base_url ?? "");
+    setModel(current?.model ?? "");
+    setProtocol(current?.protocol ?? "chat-completions");
+    setTextEffort(current?.reasoning_effort ?? EFFORT_UNSET);
+    setCallEffort(current?.call_reasoning_effort ?? EFFORT_UNSET);
+    setExtraBody(extraBodyText(current?.extra_body));
+    setFailure(null);
+    setEditing(true);
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!keyToTry || effortInText === undefined || effortInCalls === undefined || "problem" in parsedExtraBody) return;
     setBusy(true);
     setFailure(null);
     try {
-      const llm = { base_url: baseUrl.trim(), api_key: apiKey.trim(), model: model.trim(), protocol };
+      // 不设置的几项不写，和存下它们以前的一样。
+      const llm: LocalLLM = {
+        base_url: baseUrl.trim(),
+        api_key: keyToTry,
+        model: model.trim(),
+        protocol,
+        ...(effortInText && { reasoning_effort: effortInText }),
+        ...(effortInCalls && { call_reasoning_effort: effortInCalls }),
+        ...(parsedExtraBody.value && { extra_body: parsedExtraBody.value }),
+      };
       onChecked({ ...llm, ...(await checkOwnLLM(llm)) });
       setApiKey("");
       setEditing(false);
@@ -371,16 +421,32 @@ function OwnLLMForm({
   }
 
   const protocolOptions = LLM_PROTOCOLS.map((p) => ({ value: p, label: t.protocols[p] }));
+  const thinking = current?.reasoning_effort || current?.call_reasoning_effort;
+  const summary = current
+    ? [
+        t.llmCurrent(current.model, current.base_url),
+        t.last4(last4(current.api_key)),
+        ...(thinking
+          ? [
+              t.llmThinking(
+                effortLabel(current.reasoning_effort ?? EFFORT_UNSET),
+                effortLabel(current.call_reasoning_effort ?? EFFORT_UNSET),
+              ),
+            ]
+          : []),
+        ...(current.extra_body ? [t.llmExtraBody] : []),
+      ]
+    : [t.notSet];
 
   return (
     <ServiceKey
       title={t.llmTitle}
       hint={t.llmHint}
-      summary={current ? [t.llmCurrent(current.model, current.base_url), t.last4(last4(current.api_key))] : [t.notSet]}
+      summary={summary}
       isSet={!!current}
       editing={editing}
       disabled={disabled}
-      onEdit={() => setEditing(true)}
+      onEdit={edit}
       onDelete={onDelete}
     >
       <form onSubmit={submit}>
@@ -432,15 +498,97 @@ function OwnLLMForm({
               onChange={(event) => setApiKey(event.target.value)}
               autoComplete="off"
             />
+            {current && <FieldDescription>{t.keepApiKey}</FieldDescription>}
+          </Field>
+          <EffortField
+            id={`${id}-effort`}
+            label={t.textEffort}
+            hint={`${t.textEffortHint}${copy.reasoningEffort.hints.effort}`}
+            protocol={protocol}
+            choice={textEffort}
+            onChoose={setTextEffort}
+          />
+          <EffortField
+            id={`${id}-call-effort`}
+            label={t.callEffort}
+            hint={copy.reasoningEffort.hints.callEffort}
+            protocol={protocol}
+            choice={callEffort}
+            onChoose={setCallEffort}
+          />
+          <Field data-invalid={extraBodyProblem ? true : undefined}>
+            <FieldLabel htmlFor={`${id}-extra-body`}>
+              {t.extraBody}
+              <span className="font-normal text-muted-foreground">{copy.common.optional}</span>
+            </FieldLabel>
+            <Textarea
+              id={`${id}-extra-body`}
+              value={extraBody}
+              onChange={(event) => setExtraBody(event.target.value)}
+              aria-invalid={extraBodyProblem ? true : undefined}
+              placeholder='{"enable_thinking": false}'
+              spellCheck={false}
+              autoComplete="off"
+              rows={4}
+            />
+            <FieldDescription>{copy.reasoningEffort.hints.extraBody}</FieldDescription>
+            {extraBodyProblem && (
+              <FieldError>{copy.reasoningEffort.problems[extraBodyProblem](t.extraBody)}</FieldError>
+            )}
           </Field>
           {failure && <FailureNotice failure={failure} />}
           <FormButtons
             busy={busy}
-            canSubmit={!!baseUrl.trim() && !!model.trim() && !!apiKey.trim()}
+            canSubmit={
+              !!baseUrl.trim() &&
+              !!model.trim() &&
+              !!keyToTry &&
+              effortInText !== undefined &&
+              effortInCalls !== undefined &&
+              !extraBodyProblem
+            }
             onCancel={() => setEditing(false)}
           />
         </FieldGroup>
       </form>
     </ServiceKey>
+  );
+}
+
+/** 一项思考强度的下拉框：Anthropic 接口没有「极低」，不列（ADR-0019）；换成它时还选着「极低」就提示换一档。 */
+function EffortField({
+  id,
+  label,
+  hint,
+  protocol,
+  choice,
+  onChoose,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  protocol: LLMProtocol;
+  choice: string;
+  onChoose: (choice: string) => void;
+}) {
+  const unwritable = effortOf(choice, protocol) === undefined;
+  return (
+    <Field data-invalid={unwritable ? true : undefined}>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Select items={EFFORT_ITEMS} value={choice} onValueChange={(value) => value && onChoose(String(value))}>
+        <SelectTrigger id={id} className="w-full" aria-invalid={unwritable ? true : undefined}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {effortChoices(protocol).map((value) => (
+            <SelectItem key={value} value={value}>
+              {effortLabel(value)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FieldDescription>{hint}</FieldDescription>
+      {unwritable && <FieldError>{copy.reasoningEffort.problems.effort(label)}</FieldError>}
+    </Field>
   );
 }

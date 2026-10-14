@@ -2,6 +2,23 @@
 // 按界面分组；带参数的句子写成函数，参数的位置由各语言自己决定。
 // 术语以 GLOSSARY.md 为准（对话、通话、通话层、麦克风静音、只看文字、印象色……）。
 
+/** 思考强度和额外请求参数的说明：后台的模型和设置页的自带 LLM 共用，措辞保持一致。 */
+const reasoningEffortHints = {
+  effort:
+    "不设置时什么都不发，交给模型自己的默认；其他档原样发给服务，服务不支持时试调会报错。用额外请求参数控制思考时选「不设置」。",
+  callEffort:
+    "通话里的回合用这一档，文字对话用上面那一档。不设置时通话里什么都不发，不沿用文字那一档；想让她在通话里开口快一些，可以只把这一项设成「关闭」或「低」。两档不同时，保存时各试调一次。",
+  extraBody:
+    '一个 JSON 对象，深合并进每次请求，能覆盖思考强度生成的参数，例如 Qwen 的 {"enable_thinking": false}。不能包含 model、messages、tools 这类由服务器生成的字段。',
+};
+
+/** 思考强度和额外请求参数填错时的提示，`field` 是那一项的名字。后台和设置页共用。 */
+const reasoningEffortProblems = {
+  effort: (field: string) => `Anthropic 接口没有「极低」这一档，请给${field}换一档。`,
+  json: (field: string) => `${field}不是合法的 JSON。`,
+  jsonObject: (field: string) => `${field}需要是一个 JSON 对象（用 { } 括起来），留空表示不设置。`,
+};
+
 export const zh = {
   app: {
     name: "Eidolon-SC",
@@ -37,6 +54,8 @@ export const zh = {
     unset: "不设置",
     names: { none: "关闭", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" } as Record<string, string>,
     option: (name: string, value: string) => `${name}（${value}）`,
+    hints: reasoningEffortHints,
+    problems: reasoningEffortProblems,
   },
   conversationList: {
     title: "对话",
@@ -488,6 +507,15 @@ export const zh = {
       baseUrl: "接口地址（base_url）",
       model: "模型名",
       apiKey: "API key",
+      /** 修改已存的 LLM 时，key 一栏留空就沿用存着的那把。 */
+      keepApiKey: "留空则沿用现在的密钥。",
+      textEffort: "文字的思考强度",
+      textEffortHint: "文字对话和记住你说的事都用这一档。",
+      callEffort: "通话的思考强度",
+      extraBody: "额外请求参数",
+      /** 已存的 LLM 设了思考强度或额外请求参数时，摘要多一行。 */
+      llmThinking: (text: string, call: string) => `思考强度：文字 ${text}，通话 ${call}`,
+      llmExtraBody: "带额外请求参数",
       fill: "填写",
       edit: "修改",
       remove: "删除",
@@ -974,12 +1002,9 @@ export const zh = {
       /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
       itemFields: { chat_llm: { reasoning_effort: "文字的思考强度" } } as Partial<Record<string, Record<string, string>>>,
       formHints: {
-        reasoning_effort:
-          "不设置时什么都不发，交给模型自己的默认；其他档原样发给服务，服务不支持时试调会报错。用额外请求参数控制思考时选「不设置」。选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。",
-        call_reasoning_effort:
-          "通话里的回合用这一档，文字对话用上面那一档。不设置时通话里什么都不发，不沿用文字那一档；想让她在通话里开口快一些，可以只把这一项设成「关闭」或「低」。两档不同时，保存时各试调一次。",
-        extra_body:
-          '一个 JSON 对象，深合并进每次请求，能覆盖思考强度生成的参数，例如 Qwen 的 {"enable_thinking": false}。不能包含 model、messages、tools 这类由服务器生成的字段。',
+        reasoning_effort: `${reasoningEffortHints.effort}选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。`,
+        call_reasoning_effort: reasoningEffortHints.callEffort,
+        extra_body: reasoningEffortHints.extraBody,
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
         emotion_timeout: "大于 0、不超过 30 秒；超时的那一段不判断情绪。",
         stt_api_key: "填写所选服务的 key，留空则沿用这家已有的 key。",
@@ -995,9 +1020,7 @@ export const zh = {
       problems: {
         required: (field: string) => `${field}不能为空。`,
         maxTokens: (field: string) => `${field}需要是正整数，留空用默认值。`,
-        effort: (field: string) => `Anthropic 接口没有「极低」这一档，请给${field}换一档。`,
-        json: (field: string) => `${field}不是合法的 JSON。`,
-        jsonObject: (field: string) => `${field}需要是一个 JSON 对象（用 { } 括起来），留空表示不设置。`,
+        ...reasoningEffortProblems,
         probability: (field: string) => `${field}需要是 0 到 1 之间的数。`,
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,

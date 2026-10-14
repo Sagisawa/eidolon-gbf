@@ -17,6 +17,13 @@ const LLM = {
   protocol: "chat-completions",
 } as const;
 const STT = { api_key: "sk-my-dashscope-dddd", provider: "bailian", region: "singapore" } as const;
+/** An own LLM set to think hard in text turns and not at all in calls, with an extra body. */
+const THINKING_LLM = {
+  ...LLM,
+  reasoning_effort: "high",
+  call_reasoning_effort: "none",
+  extra_body: { enable_thinking: true, thinking: { type: "enabled" } },
+} as const;
 
 /** This browser's local storage, in memory. */
 function storage(initial: Record<string, string> = {}) {
@@ -85,6 +92,44 @@ describe("own keys kept in this browser", () => {
     expect(localOwnKeys("u1")).toEqual({});
     expect(localOwnKeys("u2")).toEqual({});
     expect(localOwnKeys("u3")).toEqual({ llm: LLM, stt: { api_key: "soniox-key-bbbb", provider: "soniox" } });
+  });
+});
+
+describe("an own LLM's reasoning efforts and extra body", () => {
+  it("are kept with it, for text turns and calls apart", () => {
+    storage();
+    keepOwnKey("u1", "llm", THINKING_LLM);
+
+    expect(localOwnKeys("u1")).toEqual({ llm: THINKING_LLM });
+  });
+
+  it("are unset for one kept before they were, which is kept as it was", () => {
+    storage({ "eidolon.ownKeys.u1": JSON.stringify({ llm: LLM }) });
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
+  });
+
+  it("are unset where stored wrongly, the LLM itself kept", () => {
+    storage({
+      "eidolon.ownKeys.u1": JSON.stringify({
+        llm: { ...LLM, reasoning_effort: "turbo", call_reasoning_effort: 3, extra_body: ["enable_thinking"] },
+      }),
+      "eidolon.ownKeys.u2": JSON.stringify({
+        llm: { ...LLM, reasoning_effort: null, call_reasoning_effort: "low", extra_body: null },
+      }),
+    });
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
+    expect(localOwnKeys("u2")).toEqual({ llm: { ...LLM, call_reasoning_effort: "low" } });
+  });
+
+  it("go with each text turn and call", () => {
+    storage();
+    keepOwnKey("u1", "llm", THINKING_LLM);
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
+
+    expect(turnOwnKeys("u1")).toEqual({ llm: THINKING_LLM });
+    expect(callOwnKeys("u1").ownKeys).toEqual({ llm: THINKING_LLM, tts: { api_key: "fish-my-own-key" } });
   });
 });
 

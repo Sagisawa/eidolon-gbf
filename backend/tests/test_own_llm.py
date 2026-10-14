@@ -4,6 +4,7 @@ writes down memories on instead of the deployer's. It fails loudly rather than f
 back to the deployer's key. The server keeps none, nor needs `EIDOLON_SECRET_KEY` for them;
 those it kept before are deleted."""
 
+import asyncio
 import sqlite3
 from dataclasses import replace
 
@@ -11,7 +12,7 @@ import httpcore
 import httpx
 import pytest
 
-from eidolon.config import LLMSettings, Settings, UsageLimits
+from eidolon.config import ChatModelSettings, LLMSettings, Settings, UsageLimits
 from eidolon.llm import ChatMessage, LLMError
 from eidolon.own_keys import ProviderLLMService, PublicOnlyBackend
 from tests.browser import Browser
@@ -40,7 +41,15 @@ LLM = {
 }
 
 
-async def check_llm(client: httpx.AsyncClient, **changes: str) -> httpx.Response:
+THINKING = LLM | {
+    "reasoning_effort": "high",
+    "call_reasoning_effort": "none",
+    "extra_body": {"enable_thinking": True},
+}
+"""An own LLM set to think hard in text turns, and not at all in calls."""
+
+
+async def check_llm(client: httpx.AsyncClient, **changes: object) -> httpx.Response:
     return await client.post("/api/account/keys/llm/check", json=LLM | changes)
 
 
@@ -53,7 +62,7 @@ async def test_an_own_llm_is_tried_and_not_kept(
 
     assert checked.status_code == 200
     assert checked.json() == {"base_url": "https://llm.example.com/v1", "model": "my-model"}
-    assert [(s.api_key, s.base_url, s.model) for s in own_llm.checked] == [
+    assert [(s.text.api_key, s.text.base_url, s.text.model) for s in own_llm.checked] == [
         (MINE, "https://llm.example.com/v1", "my-model")
     ]
     assert MINE not in checked.text
@@ -74,6 +83,8 @@ async def test_a_turn_bringing_an_own_llm_plays_on_it_and_one_bringing_none_on_t
     assert own_llm.llm.keys == [MINE]
     assert own_llm.opened[-1].base_url == "https://llm.example.com/v1"
     assert own_llm.opened[-1].model == "my-model"
+    # Kept by a page from before efforts were, it sends none: the model's own default holds.
+    assert own_llm.efforts == [None] and own_llm.opened[-1].extra_body is None
     assert deployers.keys == []
 
     on_deployers = await send_turn(client, conversation_id, "在吗")
@@ -201,6 +212,114 @@ async def test_a_call_uses_the_users_own_llm(
     assert deployers.keys == []
 
 
+async def test_a_text_turn_on_an_own_llm_plays_and_writes_down_memories_at_its_text_effort(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    own_llm.llm = FakeLLM(REPLY, [memorized(CAT)])
+    client = make_client(
+        FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+    )
+
+    await send_turn(client, await start_conversation(client), "我家的猫叫小白哦", own_llm=THINKING)
+
+    assert [m["text"] for m in (await client.get("/api/memories")).json()] == [CAT]
+    assert own_llm.efforts == ["high", "high"]
+    assert {str(s.extra_body) for s in own_llm.opened} == {"{'enable_thinking': True}"}
+
+
+async def test_a_call_on_an_own_llm_talks_at_its_call_effort_and_writes_down_memories_at_its_text_one(
+    make_client: ClientFactory, own_llm: FakeLLMService, speech: FakeSpeech, browser: Browser
+):
+    own_llm.llm = FakeLLM(REPLY, [memorized(CAT)])
+    client = make_client(
+        FakeLLM(), retrieval_judge=FakeJudge(), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+    )
+    await browser.call(
+        client, conversation_id=await start_conversation(client), own_keys={"llm": THINKING}
+    )
+    await browser.connect()
+
+    await speech.stts[-1].hear("我家的猫叫小白哦")
+    assert (await browser.turn())[-1]["type"] == "done"
+    async with asyncio.timeout(5):  # written down after the turn
+        while len(own_llm.efforts) < 2:
+            await asyncio.sleep(0.01)
+
+    assert own_llm.efforts == ["none", "high"]
+    assert {str(s.extra_body) for s in own_llm.opened} == {"{'enable_thinking': True}"}
+
+
+SET_WRONGLY = [
+    {"extra_body": {"messages": [], "enable_thinking": False}},
+    {"extra_body": ["enable_thinking"]},
+    {"protocol": "anthropic", "call_reasoning_effort": "minimal"},
+    {"reasoning_effort": "turbo"},
+]
+
+
+@pytest.mark.parametrize("wrong", SET_WRONGLY)
+async def test_a_turn_or_call_bringing_an_own_llm_set_wrongly_is_refused_not_sent(
+    make_client: ClientFactory, own_llm: FakeLLMService, browser: Browser, wrong: dict
+):
+    deployers = FakeLLM(REPLY)
+    client = make_client(deployers)
+    conversation_id = await start_conversation(client)
+
+    turn = await client.post(
+        f"/api/conversations/{conversation_id}/turns",
+        json={"text": "在吗", "own_keys": {"llm": LLM | wrong}},
+    )
+    call = await browser.call(
+        client, conversation_id=conversation_id, own_keys={"llm": LLM | wrong}
+    )
+
+    assert turn.status_code == 422 and call.status_code == 422
+    assert own_llm.opened == [] and deployers.keys == []
+
+
+async def test_trying_an_own_llm_tries_its_text_and_call_efforts_once_each_or_once_if_the_same(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    client = make_client(FakeLLM())
+
+    same = await check_llm(client, reasoning_effort="low", call_reasoning_effort="low")
+    tried_same = own_llm.efforts_checked.copy()
+    own_llm.efforts_checked.clear()
+    apart = await check_llm(client, reasoning_effort="high", call_reasoning_effort="none")
+
+    assert same.status_code == 200 and apart.status_code == 200
+    assert tried_same == ["low"]
+    assert own_llm.efforts_checked == ["high", "none"]
+    assert own_llm.checked[-1].text.extra_body is None
+
+
+async def test_trying_an_own_llm_says_which_effort_the_service_refused(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    own_llm.refused_efforts["none"] = f"模型返回 400: Invalid reasoning_effort for key {MINE}"
+    client = make_client(FakeLLM())
+
+    refused = await check_llm(client, reasoning_effort="high", call_reasoning_effort="none")
+
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == (
+        "试调失败：通话的思考强度『关闭』被服务拒绝：模型返回 400: Invalid reasoning_effort for key ***"
+    )
+
+
+async def test_trying_an_own_llm_with_an_extra_body_that_would_break_the_request_says_why(
+    make_client: ClientFactory, own_llm: FakeLLMService
+):
+    client = make_client(FakeLLM())
+
+    refused = await check_llm(client, extra_body={"model": "x", "tools": [], "thinking": {}})
+    not_object = await check_llm(client, extra_body="enable_thinking")
+
+    assert refused.status_code == 422 and not_object.status_code == 422
+    assert "「model」、「tools」" in refused.json()["detail"][0]["msg"]
+    assert "JSON 对象" in not_object.json()["detail"][0]["msg"]
+    assert own_llm.checked == []
+
 
 @pytest.mark.parametrize(
     "base_url",
@@ -211,7 +330,7 @@ async def test_a_public_deployment_tries_only_llms_on_the_public_internet(base_u
     service = ProviderLLMService(public_only=True)
     try:
         with pytest.raises(LLMError, match="https|公网地址"):
-            await service.check(LLMSettings(base_url, MINE, "m"))
+            await service.check(ChatModelSettings(LLMSettings(base_url, MINE, "m")))
     finally:
         await service.aclose()
 

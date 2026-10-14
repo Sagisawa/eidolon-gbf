@@ -3,6 +3,8 @@
 // 存储不可用（隐私模式等）时不抛错：读到的是什么都没存，存的也存不下；`canKeepOwnKeys` 如实报告，设置页据此告诉用户。
 // 不退而存在内存里。
 
+import { REASONING_EFFORTS, type JsonObject, type ReasoningEffort } from "@/lib/reasoningEffort";
+
 // 下面几份取值列表跟后端同步（不做代码生成）：后端改了，这里照着改。
 
 /** 能自带 key 的服务：后端 `config.Service`。 */
@@ -22,8 +24,19 @@ export type SttProvider = (typeof STT_PROVIDERS)[number];
 const BAILIAN_REGIONS = ["beijing", "singapore"] as const;
 export type BailianRegion = (typeof BAILIAN_REGIONS)[number];
 
-/** 自带的 LLM，原样就是请求里 `own_keys` 的 `llm`。 */
-export type LocalLLM = { api_key: string; base_url: string; model: string; protocol: LLMProtocol };
+/** 自带的一个模型（后端 `OwnLLMInput`）：连接的四项，加上思考强度和额外请求参数，这两项没有就是不设置。 */
+export type LocalModel = {
+  api_key: string;
+  base_url: string;
+  model: string;
+  protocol: LLMProtocol;
+  reasoning_effort?: ReasoningEffort;
+  extra_body?: JsonObject;
+};
+
+/** 自带的 LLM，原样就是请求里 `own_keys` 的 `llm`（后端 `OwnChatLLMInput`）：`reasoning_effort` 用于文字对话和提炼记忆，
+ * 通话里的回合用 `call_reasoning_effort`。 */
+export type LocalLLM = LocalModel & { call_reasoning_effort?: ReasoningEffort };
 
 /** 语音合成（Fish Audio）的 key。 */
 export type LocalTtsKey = { api_key: string };
@@ -52,14 +65,12 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
   if (!isRecord(stored)) return {};
   const keys: LocalOwnKeys = {};
   const { llm, tts, stt } = stored;
-  if (
-    isRecord(llm) &&
-    isString(llm.api_key) &&
-    isString(llm.base_url) &&
-    isString(llm.model) &&
-    isOneOf(llm.protocol, LLM_PROTOCOLS)
-  ) {
-    keys.llm = { api_key: llm.api_key, base_url: llm.base_url, model: llm.model, protocol: llm.protocol };
+  const model = localModel(llm);
+  if (model) {
+    keys.llm = model;
+    if (isRecord(llm) && isOneOf(llm.call_reasoning_effort, REASONING_EFFORTS)) {
+      keys.llm.call_reasoning_effort = llm.call_reasoning_effort;
+    }
   }
   if (isRecord(tts) && isString(tts.api_key)) keys.tts = { api_key: tts.api_key };
   if (
@@ -72,6 +83,28 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
     if (stt.region !== undefined) keys.stt.region = stt.region;
   }
   return keys;
+}
+
+/** 存下的一个自带模型；存错了就没有。存下它以前没有、或者存错了的思考强度和额外请求参数当作不设置。 */
+function localModel(stored: unknown): LocalModel | undefined {
+  if (
+    !isRecord(stored) ||
+    !isString(stored.api_key) ||
+    !isString(stored.base_url) ||
+    !isString(stored.model) ||
+    !isOneOf(stored.protocol, LLM_PROTOCOLS)
+  ) {
+    return undefined;
+  }
+  const model: LocalModel = {
+    api_key: stored.api_key,
+    base_url: stored.base_url,
+    model: stored.model,
+    protocol: stored.protocol,
+  };
+  if (isOneOf(stored.reasoning_effort, REASONING_EFFORTS)) model.reasoning_effort = stored.reasoning_effort;
+  if (isRecord(stored.extra_body)) model.extra_body = stored.extra_body;
+  return model;
 }
 
 /** 存下（或换掉）这位用户某一项服务的 key。 */

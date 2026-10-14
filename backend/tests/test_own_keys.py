@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from eidolon.activity import OWN, ActivityLog
-from eidolon.config import SttKey
+from eidolon.config import ChatModelSettings, LLMSettings, SttKey
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.own_keys import (
     BroughtKeys,
@@ -19,7 +19,6 @@ from eidolon.own_keys import (
     DeployerKeys,
     DeployerLease,
     OwnKeys,
-    OwnLLMSettings,
     SERVICES,
     Service,
 )
@@ -75,7 +74,9 @@ class Deployment:
         )
 
 
-MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
+MY_LLM = ChatModelSettings(
+    LLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
+)
 MY_FISH = "fish-my-own-key-aaaa"
 MY_SONIOX = SttKey("soniox", "soniox-my-own-key-bbbb")
 MY_DASHSCOPE = SttKey("bailian", "sk-my-own-dashscope-dddd", "singapore")
@@ -111,7 +112,7 @@ async def test_a_turn_that_brings_an_llm_runs_on_it_for_both_and_does_not_count(
     await ask(keys.llms.chat)
     await ask(keys.llms.memory)
 
-    assert deployment.llm_service.llm.keys == [MY_LLM.api_key, MY_LLM.api_key]
+    assert deployment.llm_service.llm.keys == [MY_LLM.text.api_key, MY_LLM.text.api_key]
     assert deployment.chat.keys == []
     assert deployment.memory.prompts == []
     assert keys.exempt is True and keys.own_llm is True
@@ -154,7 +155,7 @@ async def test_a_call_that_brings_all_three_runs_on_them_alone(deployment: Deplo
 
     assert (keys.stt, keys.tts, keys.own) == (MY_SONIOX, MY_FISH, {"stt", "tts"})
     assert keys.own_llm is True
-    assert deployment.llm_service.llm.keys == [MY_LLM.api_key]
+    assert deployment.llm_service.llm.keys == [MY_LLM.text.api_key]
     assert deployment.chat.keys == []
 
 

@@ -15,20 +15,21 @@ import pytest
 
 from eidolon.activity import ActivityLog, Result
 from eidolon.admission import Admissions
-from eidolon.config import SERVICES, SttKey, UsageLimits
+from eidolon.config import SERVICES, ChatModelSettings, LLMSettings, SttKey, UsageLimits
 from eidolon.own_keys import (
     BroughtKeys,
     CallsUnavailable,
     DeployerKeys,
     DeployerLease,
     OwnKeys,
-    OwnLLMSettings,
 )
 from eidolon.store import Store
 from eidolon.usage import OverLimit, UsageKind, UsageLimiter
 from tests.fakes import FakeBackgroundLLM, FakeClock, FakeLLM, FakeLLMService, FakeSpeech
 
-MY_LLM = OwnLLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
+MY_LLM = ChatModelSettings(
+    LLMSettings("https://llm.example.com/v1", "sk-my-own-llm-cccc", "my-model")
+)
 ALL_OWN = BroughtKeys(MY_LLM, "my-own-fish", SttKey("soniox", "my-own-soniox"))
 """The user's own LLM and speech keys, which their calls are exempt on."""
 

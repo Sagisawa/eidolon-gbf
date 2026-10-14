@@ -58,6 +58,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
 )
+from eidolon.llm.providers import check_chat_models
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
@@ -177,33 +178,41 @@ class FakeLLM:
 
 class FakeLLMService:
     """Stands in for the LLM services users bring their own keys to: every model opened on
-    it replies from `llm`'s script, recording the key it came with there. Records what
-    was tried before saving (`checked`); a key in `rejects` fails the try with that
-    message."""
+    it replies from `llm`'s script, recording the key it came with there and the reasoning
+    effort it was opened with (`efforts`). Records what was tried before saving
+    (`checked`); a key in `rejects` fails the try with that message. The try is the real
+    check of the chat model at each of its efforts, on models that pass it without using
+    up the script, recording the effort each was tried at (`efforts_checked`); an effort in
+    `refused_efforts` fails it with that message."""
 
     def __init__(self, llm: FakeLLM | None = None) -> None:
         self.llm = llm or FakeLLM()
-        self.checked: list[LLMSettings] = []
+        self.checked: list[ChatModelSettings] = []
         self.opened: list[LLMSettings] = []
         self.rejects: dict[str, str] = {}
+        self.refused_efforts: dict[str, str] = {}
+        self.efforts: list[ReasoningEffort | None] = []
+        self.efforts_checked: list[ReasoningEffort | None] = []
 
     def open(self, settings: LLMSettings) -> ChatLLM:
         self.opened.append(settings)
-        return _KeyedLLM(self.llm, settings.api_key)
+        return _KeyedLLM(self, settings)
 
-    async def check(self, settings: LLMSettings) -> None:
+    async def check(self, settings: ChatModelSettings) -> None:
         self.checked.append(settings)
-        if settings.api_key in self.rejects:
-            raise LLMError(self.rejects[settings.api_key])
+        if settings.text.api_key in self.rejects:
+            raise LLMError(self.rejects[settings.text.api_key])
+        models = ChatModels(_TriedLLM(self, settings.text), _TriedLLM(self, settings.call))
+        await check_chat_models(models, settings)
 
     async def aclose(self) -> None:
         pass
 
 
 class _KeyedLLM:
-    def __init__(self, llm: FakeLLM, key: str) -> None:
-        self._llm = llm
-        self._key = key
+    def __init__(self, service: FakeLLMService, settings: LLMSettings) -> None:
+        self._service = service
+        self._settings = settings
 
     def stream(
         self,
@@ -212,7 +221,33 @@ class _KeyedLLM:
         *,
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
-        return self._llm.stream_with(self._key, messages, tools, forbid_calls=forbid_calls)
+        self._service.efforts.append(self._settings.reasoning_effort)
+        return self._service.llm.stream_with(
+            self._settings.api_key, messages, tools, forbid_calls=forbid_calls
+        )
+
+    async def aclose(self) -> None:
+        pass
+
+
+class _TriedLLM:
+    def __init__(self, service: FakeLLMService, settings: LLMSettings) -> None:
+        self._service = service
+        self._settings = settings
+
+    async def stream(
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        effort = self._settings.reasoning_effort
+        if effort is not None and effort in self._service.refused_efforts:
+            raise LLMError(self._service.refused_efforts[effort])
+        self._service.efforts_checked.append(effort)
+        return
+        yield
 
     async def aclose(self) -> None:
         pass

@@ -18,17 +18,28 @@ callback then sends the browser back to the sign-in settings (`/settings/sign-in
 
 import logging
 import secrets
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field, Secret, StringConstraints, model_validator
+from pydantic import BaseModel, Field, Secret, StringConstraints, field_validator, model_validator
 
 from eidolon.accounts import SignInRefused, is_admin
 from eidolon.assembly import Backend
-from eidolon.config import SERVICES, BailianRegion, LLMProtocol, SttKey, SttProvider
+from eidolon.config import (
+    SERVICES,
+    BailianRegion,
+    ChatModelSettings,
+    LLMProtocol,
+    LLMSettings,
+    ReasoningEffort,
+    SttKey,
+    SttProvider,
+    checked_extra_body,
+    effort_problem,
+)
 from eidolon.identity import PROVIDER_NAMES, IdentityError
-from eidolon.own_keys import BroughtKeys, OwnKeyRejected, OwnLLMSettings, named_services
+from eidolon.own_keys import BroughtKeys, OwnKeyRejected, named_services
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -69,19 +80,55 @@ ApiKey = Secret[
 
 
 class OwnLLMInput(BaseModel):
-    """The user's own LLM, as their browser keeps it and brings it with each text turn."""
+    """A model of the user's own, as their browser keeps it and brings it with each text
+    turn and call: its effort and extra body checked here each time, as the admin console
+    checks the deployer's when saved, for they are never saved (ADR-0017); left out by
+    pages from before, for none."""
 
     base_url: str = Field(min_length=1, max_length=500)
     api_key: ApiKey
     model: str = Field(min_length=1, max_length=200)
     protocol: LLMProtocol = "chat-completions"
+    reasoning_effort: ReasoningEffort | None = None
+    extra_body: dict[str, Any] | None = None
 
-    def normalized(self) -> OwnLLMSettings:
+    @field_validator("extra_body", mode="before")
+    @classmethod
+    def _extra_body(cls, value: object) -> dict[str, Any] | None:
+        return None if value is None else checked_extra_body(value)
+
+    @model_validator(mode="after")
+    def _effort(self) -> "OwnLLMInput":
+        _require_writable(self.reasoning_effort, self.protocol)
+        return self
+
+    def settings(self) -> LLMSettings:
         """As turns run on it: its address and model without surrounding spaces."""
-        return OwnLLMSettings(
+        return LLMSettings(
             self.base_url.strip(), self.api_key.get_secret_value(), self.model.strip(),
-            self.protocol,
+            self.protocol, reasoning_effort=self.reasoning_effort, extra_body=self.extra_body,
         )
+
+
+class OwnChatLLMInput(OwnLLMInput):
+    """The user's own LLM playing the characters, at an effort of its own in calls (see
+    `ChatModelSettings`)."""
+
+    call_reasoning_effort: ReasoningEffort | None = None
+
+    @model_validator(mode="after")
+    def _call_effort(self) -> "OwnChatLLMInput":
+        _require_writable(self.call_reasoning_effort, self.protocol)
+        return self
+
+    def normalized(self) -> ChatModelSettings:
+        return ChatModelSettings(self.settings(), self.call_reasoning_effort)
+
+
+def _require_writable(effort: ReasoningEffort | None, protocol: LLMProtocol) -> None:
+    """Raise ValueError saying why, if `protocol` has no way to write `effort`."""
+    if effort is not None and (problem := effort_problem(effort, protocol)):
+        raise ValueError(problem)
 
 
 class OwnTTSInput(BaseModel):
@@ -107,7 +154,7 @@ class OwnSTTInput(BaseModel):
 class OwnKeysInput(BaseModel):
     """The user's own keys a turn or a call brings, by service; each may be left out."""
 
-    llm: OwnLLMInput | None = None
+    llm: OwnChatLLMInput | None = None
     tts: OwnTTSInput | None = None
     stt: OwnSTTInput | None = None
 
@@ -299,13 +346,14 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         }
 
     @app.post("/api/account/keys/llm/check")
-    async def check_own_llm(body: OwnLLMInput, user_id: UserId) -> dict:
-        """Try the user's own LLM before their browser keeps it, keeping nothing here; 422
-        with what the service said if the try failed. Its address and model as the
-        browser is to keep them."""
+    async def check_own_llm(body: OwnChatLLMInput, user_id: UserId) -> dict:
+        """Try the user's own LLM at its text effort and its call effort before their
+        browser keeps it, keeping nothing here; 422 with what the service said if the try
+        failed, or with why its effort or extra body cannot be sent. Its address and model
+        as the browser is to keep them."""
         own = body.normalized()
         await own_keys.check_llm(own)
-        return {"base_url": own.base_url, "model": own.model}
+        return {"base_url": own.text.base_url, "model": own.text.model}
 
     @app.post("/api/account/keys/tts/check")
     async def check_own_tts(body: OwnTTSInput, user_id: UserId) -> dict:

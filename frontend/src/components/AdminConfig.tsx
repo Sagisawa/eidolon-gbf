@@ -63,7 +63,7 @@ import {
   UNLIMITED,
 } from "@/lib/adminConfig";
 import type { LLMProtocol } from "@/lib/localOwnKeys";
-import { EFFORT_UNSET, effortChoices, REASONING_EFFORTS } from "@/lib/reasoningEffort";
+import { EFFORT_ITEMS, EFFORT_UNSET, effortChoices, effortLabel } from "@/lib/reasoningEffort";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FailureIcon } from "@/theme/icons";
 
@@ -232,16 +232,6 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): stri
   if (name === "judge" && spec.name === "model") return t.formHints.judge_model;
   return t.formHints[spec.name];
 }
-
-/** 思考强度的一档：「高（high）」，没设是「不设置」。 */
-function effortLabel(effort: string): string {
-  const efforts = copy.reasoningEffort;
-  if (effort === EFFORT_UNSET) return efforts.unset;
-  return efforts.option(efforts.names[effort] ?? effort, effort);
-}
-
-/** 思考强度下拉框认得的每一档，包括这种接口不列的（换成 Anthropic 时还选着的「极低」照样显示名字）。 */
-const EFFORT_ITEMS = [EFFORT_UNSET, ...REASONING_EFFORTS].map((value) => ({ value, label: effortLabel(value) }));
 
 function optionLabel(field: string, option: string): string {
   return field === "protocol" ? (t.protocols[option as LLMProtocol] ?? option) : (t.providers[option] ?? option);
