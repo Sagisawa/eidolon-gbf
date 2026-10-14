@@ -258,6 +258,66 @@ relevant = ["cat"]
     assert cat.case.previous is None
 
 
+async def test_a_reference_question_after_a_reply_is_asked_as_a_turn_would(world, work):
+    """A story, character-fact or work-fact question may say what the character replied
+    just before, which a turn looks references up with too; one that does not is asked
+    alone."""
+    characters, calibration, _ = world
+    data, sources = work
+    await sources.corpus.save([PARK, FINAL])
+    calibration.write_text(
+        CALIBRATION + WORK_CASE + f"""
+[[cases]]
+id = "park-tired"
+character = "mano"
+kind = "story"
+previous = "是和鸽子一起在公园唱歌的那天吧"
+query = "那时候累吗？"
+relevant = ["produce_events/100100101"]
+
+[[cases]]
+id = "pichan-pronoun"
+character = "mano"
+kind = "facts"
+previous = "ピーちゃんのこと？"
+query = "它会说话吗？"
+relevant = ["鸟 / ピーちゃん"]
+
+[[cases]]
+id = "hikari-who"
+character = "mano"
+kind = "work"
+previous = "ヒカリのdestination、いい曲ですよね"
+query = "那是谁唱的？"
+relevant = ["{HIKARI}"]
+""",
+        encoding="utf-8",
+    )
+    reranker = RecordingReranker({"鳩": 0.9, HIKARI: 0.8})
+
+    park, _, _, hikari, tired, pronoun, who = await evaluate(
+        load_calibration(calibration, data), characters, reranker, sources
+    )
+
+    asked = [
+        "是和鸽子一起在公园唱歌的那天吧\n那时候累吗？",
+        "ピーちゃんのこと？\n它会说话吗？",
+        "ヒカリのdestination、いい曲ですよね\n那是谁唱的？",
+    ]
+    assert reranker.queries[-3:] == asked
+    assert sources.embedder.queries[-3:] == asked
+    # Without a reply, as before.
+    assert reranker.queries[0] == park.case.query
+    assert reranker.queries[-4] == hikari.case.query
+    assert ("produce_events/100100101", 0.9, "relevant") in [
+        (s.label, s.score, s.verdict) for s in tired.scored
+    ]
+    assert pronoun.case.previous == "ピーちゃんのこと？"
+    assert (HIKARI, 0.8, "relevant") in [(s.label, s.score, s.verdict) for s in who.scored]
+    text = report([tired], "fake-reranker", RerankThresholds(references=0.3, memories=0.01))
+    assert "park-tired（story）那时候累吗？\n  上一句：是和鸽子一起在公园唱歌的那天吧\n" in text
+
+
 @pytest.mark.parametrize(
     "broken, complaint",
     [
@@ -268,8 +328,6 @@ relevant = ["cat"]
         ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "story"\nrelevant = []\n', "query"),
         ("[[cases]\n", "格式有误"),
         ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "story"\nquery = "q"\n'
-         'previous = "嗯"\nrelevant = []\n', "只有 memory 类问题可以写 previous"),
-        ('[[cases]]\nid = "x"\ncharacter = "mano"\nkind = "memory"\nquery = "q"\n'
          'previous = 1\nrelevant = []\n', "previous"),
     ],
 )

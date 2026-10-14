@@ -14,6 +14,11 @@ reranked along with them, and the result goes into the prompt, saving the chat m
 round of calling it. The story not telling how something went does not mean she never
 went through it: she may have stood on that stage all the same.
 
+References, memories and recall alike are looked up with what the user said after the
+character's reply before it, as people see it (`memory.memory_query`): 「那时候累吗」 alone
+finds nothing, her reply says what 「那时候」 is. Embedding and reranking both use it; the
+judge model is told what it always was, the latest messages and what the user said.
+
 Retrieval never fails a turn: if the judge model cannot answer, the turn retrieves anyway;
 if embedding or reranking fails, the turn goes on without references (or memories).
 
@@ -50,7 +55,7 @@ from eidolon.judge import (
     turn_state,
 )
 from eidolon.llm import Tool
-from eidolon.memory import MemoryTurn
+from eidolon.memory import MemoryTurn, memory_query
 from eidolon.references import Reference, ReferenceKind, ReferenceSource
 from eidolon.rerank import Reranker, RerankError
 from eidolon.store import Message
@@ -293,23 +298,24 @@ class Retrieval:
         memory: MemoryTurn | None,
         need: Need,
     ) -> Retrieved:
+        query = memory_query(history, text)
         if need == "recall":
             return Retrieved(
-                await self._recall(character, text, self._sources.work), recalled=True
+                await self._recall(character, text, query, self._sources.work), recalled=True
             )
         if need == "memories":
             return Retrieved(None, await _find(memory, history, text))
         if need == "references":
             references, memories = await asyncio.gather(
-                self._references(character, text), _find(memory, history, text)
+                self._references(character, query), _find(memory, history, text)
             )
             return Retrieved(self._sources.prompt(references) if references else None, memories)
         return Retrieved(None)
 
-    async def _references(self, character: Character, text: str) -> list[Reference]:
-        """The references for `text`, most relevant first."""
+    async def _references(self, character: Character, query: str) -> list[Reference]:
+        """The references for `query`, most relevant first."""
         try:
-            ranked = await self._sources.rank(self._reranker, character, text)
+            ranked = await self._sources.rank(self._reranker, character, query)
         except (EmbeddingError, RerankError):
             log.warning("retrieval failed; replying without references", exc_info=True)
             return []
@@ -318,12 +324,14 @@ class Retrieval:
 
     async def recall_story(self, character: Character, query: str) -> str:
         """The recall-story tool: the episodes `character` is cast in that best match
-        `query`, for the chat model to answer from."""
-        return await self._recall(character, query, None)
+        `query`, for the chat model to answer from: what the model wrote, looked up alone."""
+        return await self._recall(character, query, query, None)
 
-    async def _recall(self, character: Character, query: str, work: WorkFacts | None) -> str:
+    async def _recall(
+        self, character: Character, asked: str, query: str, work: WorkFacts | None
+    ) -> str:
         """The episodes `character` is cast in that best match `query`, and the lives and
-        releases of `work` (if given), reranked together."""
+        releases of `work` (if given), reranked together; recalled as what was `asked`."""
         corpus = self._sources.corpus
         try:
             query_vector = await self._sources.embedder.embed_query(query)
@@ -352,9 +360,9 @@ class Retrieval:
             elif len(found) < RECALL_ENTRIES:
                 found.append(entries[i - len(passages)])
         if not episodes and not found:
-            return f"没有想起和「{query}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
+            return f"没有想起和「{asked}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
         catalog = await asyncio.to_thread(corpus.catalog, character.id) if episodes else []
-        return recall_prompt(query, list(episodes.values()), catalog, found)
+        return recall_prompt(asked, list(episodes.values()), catalog, found)
 
     def close(self) -> None:
         self._sources.close()

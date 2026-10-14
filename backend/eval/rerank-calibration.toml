@@ -17,8 +17,8 @@
 #   id = "mano-story-birds"          # 唯一，kebab-case
 #   character = "mano"
 #   kind = "story"                    # story | facts | work | memory
-#   previous = "……"                   # 可选，只用于 memory：偶像的上一条回复（中文字幕），
-#                                     # 和对话中一样拼在 query 前面一起检索、重排
+#   previous = "……"                   # 可选，任何类型都可以写：偶像的上一条回复（中文字幕），
+#                                     # 和对话中一样拼在 query 前面（中间换行）一起向量检索、重排
 #   query = "……"                      # 制作人说的原话，口语
 #   relevant = ["produce_events/…"]   # story: 剧情编号；facts: 资料标题路径；work: 作品资料标题；memory: 记忆 key
 #   acceptable = []                   # 放进提示词也可以、不放也可以的，不计入统计（可省略）
@@ -711,3 +711,168 @@ relevant = ["演出「283PRODUCTION SOLO PERFORMANCE LIVE「我儘なまま」�
 acceptable = ["演出「283PRODUCTION SOLO PERFORMANCE LIVE「我儘なまま」」2023年7月22日"]
 note = "第二天（2023年7月23日）的曲目单里恋鐘唱了「アポイント・シグナル」和「Killer×Mission」。第一天的曲目单不同，但问的是同一场演出，算可放可不放。容易混淆的：5thLIVE、6thLIVE 等其他恋鐘出演的演出日。"
 reviewed = true
+
+# ---------------------------------------------------------------------------
+# 短追问（retrieval-and-hotwords 票 01）：剧情、资料、作品资料问题带上一条回复。
+# 上一句聊某段剧情或某个人，这一句省略主语或用代词追问，只看 query 查不到；
+# 最后两道是上一句和这一句话题无关的，看会不会被旧话题带偏。
+# previous 是我们自己写的偶像台词（中文字幕），不是剧情原文。
+# ---------------------------------------------------------------------------
+
+[[cases]]
+id = "mano-followup-injury"
+character = "mano"
+kind = "story"
+previous = "在花鸟园去雏鸟饲养舍的路上，我不小心受伤了……"
+query = "那时候疼不疼啊？"
+relevant = ["produce_events/100100404"]
+acceptable = ["produce_events/100100405", "鸟 / 鸟类节目"]
+note = "「那时候」指上一句的受伤。Landing Point「暗がりから、つかんで」：去雏鸟饲养舍途中受伤，不想暂停节目拍摄。「鮮やかに茜さす」是伤好复工，可放可不放。易混：同一条花鸟园线的其他几话（火烈鸟报道、猫头鹰访谈）。"
+reviewed = false
+
+[[cases]]
+id = "mano-followup-hatsumoude-wish"
+character = "mano"
+kind = "story"
+previous = "过年在神社碰到制作人先生，我们还一起喝了甜酒呢"
+query = "那天你许了什么愿？"
+relevant = ["produce_events/200100602", "produce_events/200100611"]
+acceptable = ["produce_events/200100601"]
+note = "「那天」指上一句的初次参拜。【しじまに華ひととき】「迎春の巡り逢い」是那次偶遇；TE「あのときの願い」里她说出了初次参拜许的愿，正好回答。第一话是年末演出后说「说不定会偶遇」，可放可不放。易混：各年的圣诞、情人节短剧情。"
+reviewed = false
+
+[[cases]]
+id = "kogane-followup-bento-revenge"
+character = "kogane"
+kind = "story"
+previous = "制作人把那个掉在地上的便当都吃掉了……我到现在还觉得过意不去"
+query = "后来不是说要补偿我吗？"
+relevant = ["produce_events/200400403"]
+acceptable = ["produce_events/200400402"]
+note = "省略了「便当的事」。【ばりうまかブルース】「リベンジごはん！！！！！」：为了答谢吃了乱成一团的便当，要请制作人吃午饭。上一话「残念お弁当（泣）」是便当掉地上本身，可放可不放。易混：同卡的饭团、夜宵三明治、在事务所做的晚饭。"
+reviewed = false
+
+[[cases]]
+id = "kogane-followup-father-now"
+character = "kogane"
+kind = "story"
+previous = "爸爸一开始是反对我当偶像的"
+query = "那他现在怎么看？"
+relevant = ["produce_events/100400506", "人物关系 / 父亲"]
+acceptable = [
+  "produce_events/100400501",
+  "produce_events/100400502",
+  "produce_events/100400503",
+  "produce_events/100400504",
+  "produce_events/100400505",
+  "produce_events/200400411",
+  "produce_events/300402702",
+  "produce_events/200401811",
+  "档案 / 上京与出道前",
+  "档案 / 学校与家庭",
+]
+note = "「他」指上一句的爸爸。S.T.E.P.「恋の岬に鐘が鳴る」：长崎外景后爸爸说「成为超级厉害的偶像了啊」，最直接；「人物关系 / 父亲」写了父女关系。S.T.E.P. 篇其余几话和 kogane-story-father-arc 里的其他剧情可放可不放。"
+reviewed = false
+
+[[cases]]
+id = "mano-followup-hiori-pronoun"
+character = "mano"
+kind = "facts"
+previous = "灯织酱今天也陪我练了好久的舞"
+query = "她私下是什么样的人？"
+relevant = ["人物关系 / 風野灯織"]
+acceptable = [
+  "produce_events/300201401",
+  "组合 / 三人的日常",
+  "组合 / illumination STARS",
+  "game_event_communications/400100104",
+  "game_event_communications/400100105",
+  "game_event_communications/400100106",
+  "game_event_communications/400106004",
+  "produce_events/300200503",
+  "produce_events/300200602",
+  "produce_events/300200802",
+  "produce_events/300201203",
+  "produce_events/300300502",
+]
+note = "「她」指上一句的灯织。人物关系条目最直接；灯織【幾星霜の先に】「今は言える話」（两人独处）和三人私下相处的剧情可放可不放（同 mano-facts-hiori）。易混：「人物关系 / 八宮めぐる」，应判不相关。"
+reviewed = false
+
+[[cases]]
+id = "mano-followup-pichan-pronoun"
+character = "mano"
+kind = "facts"
+previous = "小P今天也在家里乖乖地等我回去呢"
+query = "它是什么品种的鸟来着？"
+relevant = ["鸟 / ピーちゃん"]
+acceptable = [
+  "鸟 / 和ピーちゃん的日常",
+  "produce_events/100100102",
+  "produce_communications/100100100141",
+  "produce_communications/100100100091",
+  "produce_events/200101303",
+]
+note = "「它」指上一句的小P。「鸟 / ピーちゃん」写了品种（银鸠），最直接；其余同 mano-facts-pichan。易混：「鸟 / 喜欢鸟」「鸟 / 公园」（鸟的话题，但不是小P）。"
+reviewed = false
+
+[[cases]]
+id = "kogane-followup-mamimi-pronoun"
+character = "kogane"
+kind = "facts"
+previous = "摩美美今天又把我的点心藏起来了！"
+query = "她怎么老是捉弄你？"
+relevant = ["人物关系 / 田中摩美々", "produce_events/300501501"]
+acceptable = [
+  "人物关系 / 三峰結華",
+  "produce_events/300601901",
+  "produce_events/300601203",
+  "produce_events/300500404",
+  "produce_events/300801203",
+  "produce_events/500200204",
+]
+note = "「她」指上一句的摩美々。标注同 kogane-facts-mamimi：【COOL JOKERS】「気持ちから」是摩美々捉弄恋鐘的事例；结华的人物关系条目写了两人一起捉弄恋鐘，可放可不放；其他成员（咲耶、霧子）的人物关系条目应判不相关。"
+reviewed = false
+
+[[cases]]
+id = "kogane-followup-genwaku-cd"
+character = "kogane"
+kind = "work"
+previous = "「幻惑SILHOUETTE」是我们 L'Antica 五个人一起唱的歌哦"
+query = "收在哪张 CD 里来着？"
+relevant = ["唱片《THE IDOLM@STER SHINY COLORS BRILLI@NT WING 03 バベルシティ・グレイス》（LACM-14783）"]
+acceptable = ["歌曲「幻惑SILHOUETTE」"]
+note = "省略了歌名。首发唱片 BRILLI@NT WING 03 的条目列了这首；原版的歌曲条目写着「收录于 BRILLI@NT WING 03」，也能答，算可放可不放。易混：恋鐘 Ver.、2023 Ver. 等其他版本（收在别的唱片），其他 WING 03。"
+reviewed = false
+
+[[cases]]
+id = "mano-followup-1st-live-venue"
+character = "mano"
+kind = "work"
+previous = "1stLIVE 的时候，我紧张得手一直在抖"
+query = "那是在哪儿办的来着？"
+relevant = [
+  "演出「THE IDOLM@STER SHINY COLORS 1stLIVE」2019年3月9日",
+  "演出「THE IDOLM@STER SHINY COLORS 1stLIVE」2019年3月10日",
+]
+note = "「那」指上一句的 1stLIVE；两个演出日的条目都写了会场（舞浜アンフィシアター）。易混：2ndLIVE、3rd LIVE TOUR 各站等其他演出。"
+reviewed = false
+
+[[cases]]
+id = "mano-followup-topic-change-birthday"
+character = "mano"
+kind = "facts"
+previous = "花鸟园的猫头鹰一直盯着我看，好可爱呢"
+query = "对了，你生日是几号来着？"
+relevant = ["档案 / 基本信息"]
+note = "换了话题：上一句聊猫头鹰，这一句问生日。只有档案的基本信息相关；花鸟园、猫头鹰的剧情和「鸟 / 猫头鹰」「鸟 / 鸟类节目」都应判不相关，看上一句会不会把它们拉过线。"
+reviewed = false
+
+[[cases]]
+id = "kogane-followup-topic-change-football"
+character = "kogane"
+kind = "story"
+previous = "长崎的什锦面真的超好吃的！下次一定要带制作人去吃"
+query = "说起来，昨晚那场足球你看了吗？"
+relevant = []
+note = "换了话题：上一句聊长崎美食，这一句问足球，剧情库和资料里都没有足球（同 kogane-none-football）。长崎、什锦面相关的剧情和资料都应判不相关，看上一句会不会把它们拉过线。"
+reviewed = false

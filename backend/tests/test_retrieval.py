@@ -156,6 +156,46 @@ async def test_references_are_reranked_then_capped(
     assert references.index("ピーちゃん") < references.index("## 剧情")
 
 
+PARK_REPLY = ["<ja>[happy] 公園で鳩さんと歌った日ですね</ja><zh>[happily] 是和鸽子一起在公园唱歌的那天吧</zh>"]
+
+
+async def test_references_are_looked_up_with_her_previous_reply_as_people_see_it(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    """「那时候累吗」: her reply before it says what 「那时候」 is."""
+    jev, reranker = FakeJudge(answer="nothing"), FakeReranker(PARK_LINE)
+    llm = FakeLLM(PARK_REPLY, REPLY)
+    client = make_client(llm, retrieval_judge=jev, embedder=embedder, reranker=reranker)
+    conversation_id = await start_conversation(client)
+    await send_turn(client, conversation_id, "还记得那天吗？")
+    jev.answer = "references"
+
+    events = await send_turn(client, conversation_id, "那时候累吗？")
+
+    assert events[-1]["type"] == "done"
+    query = "是和鸽子一起在公园唱歌的那天吧\n那时候累吗？"
+    [(reranked, candidates)] = reranker.calls
+    assert reranked == query
+    assert any(PARK_LINE in c for c in candidates)
+    assert query in embedder.queries
+    assert "那时候累吗？" not in embedder.queries  # nor are memories found without it
+    # The judge model is told what it was before: the latest messages and what was said.
+    assert jev.asked[-1] == ("櫻木真乃", "那时候累吗？")
+    assert PARK_LINE in llm.prompts[-1][0].content
+
+
+async def test_the_first_line_of_a_conversation_is_looked_up_alone(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    reranker, llm = FakeReranker(PARK_LINE), FakeLLM(REPLY)
+    client = make_client(llm, retrieval_judge=FakeJudge(), embedder=embedder, reranker=reranker)
+
+    await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
+
+    assert [query for query, _ in reranker.calls] == ["公園の鳩のこと覚えてる？"]
+    assert set(embedder.queries) == {"公園の鳩のこと覚えてる？"}
+
+
 async def test_irrelevant_references_are_left_out(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):

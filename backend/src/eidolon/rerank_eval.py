@@ -5,8 +5,9 @@ Each question is run as a turn would: story, character-fact and work-fact questi
 through the same reference sources, candidates and reranking as retrieval
 (`ReferenceSources.rank`: the story, the character's facts and the work facts reranked
 together), memory questions through the nearest of the set's sample memories, which are
-embedded for the run and never stored, asked with the character's reply before them
-when the question gives one, as a turn finds memories. Each candidate the reranker scores is labelled
+embedded for the run and never stored. Any question is asked after the character's reply
+before it when it gives one, as a turn looks references and memories up (`memory.memory_query`).
+Each candidate the reranker scores is labelled
 relevant, acceptable (either way is fine, so left out of the counts) or irrelevant; an
 episode scores as its best passage. The report sets the scores of the relevant against
 those of the irrelevant, for the references (under their threshold) and the memories
@@ -62,8 +63,8 @@ class Case:
     work facts, or for a memory question, memory keys."""
     acceptable: tuple[str, ...] = ()
     previous: str | None = None
-    """For a memory question, what the character replied just before, if anything: a turn
-    finds memories with it (`memory.memory_query`)."""
+    """What the character replied just before, if anything: a turn looks references and
+    memories up with it (`memory.memory_query`)."""
 
 
 @dataclass(frozen=True)
@@ -122,8 +123,6 @@ def load_calibration(path: Path, world: World | None = None) -> Calibration:
             _labels(entry, "acceptable", case_id),
             _previous(entry, case_id),
         )
-        if case.previous is not None and kind != "memory":
-            raise CalibrationError(f"问题 {case_id}：只有 memory 类问题可以写 previous")
         if kind == "memory" and (unknown := set(case.relevant + case.acceptable) - keys):
             raise CalibrationError(f"问题 {case_id} 引用了不存在的示例记忆 {'、'.join(sorted(unknown))}")
         # The work facts are reranked with the story and the character facts, so any
@@ -196,8 +195,8 @@ async def evaluate(
     )
     results = []
     for case in calibration.cases:
+        query_text = joined_query(case.previous, case.query)
         if case.kind == "memory":
-            query_text = joined_query(case.previous, case.query)
             query = await embedder.embed_query(query_text)
             near = [
                 calibration.memories[i] for i, _ in nearest(memory_vectors, query, CANDIDATES)
@@ -209,7 +208,7 @@ async def evaluate(
             )
             scores = {near[i].key: score for i, score in best}
         else:
-            ranked = await sources.rank(reranker, characters[case.character], case.query)
+            ranked = await sources.rank(reranker, characters[case.character], query_text)
             scores: dict[str, float] = {}
             for reference, score in ranked:  # an episode scores as its best passage
                 scores[reference.origin] = max(score, scores.get(reference.origin, 0.0))
@@ -257,6 +256,8 @@ def report(results: Sequence[CaseResult], model: str, thresholds: RerankThreshol
     marks = {"relevant": "+", "acceptable": "~", "irrelevant": "-"}
     for result in results:
         lines.append(f"{result.case.id}（{result.case.kind}）{result.case.query}")
+        if result.case.previous:
+            lines.append(f"  上一句：{result.case.previous}")
         lines += [f"  {marks[s.verdict]} {s.score:.4f} {s.label}" for s in result.scored]
     return "\n".join(lines)
 

@@ -253,6 +253,51 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
     assert events[-1]["type"] == "done"
 
 
+PARK_REPLY = ["<ja>[happy] 公園で鳩さんと歌った日ですね</ja><zh>[happily] 是和鸽子一起在公园唱歌的那天吧</zh>"]
+AFTER_PARK = "是和鸽子一起在公园唱歌的那天吧\n那次后来怎么样了？"
+
+
+async def test_a_recall_question_after_her_reply_is_recalled_with_both(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    """「那次后来怎么样了」: her reply before it says which time 「那次」 is."""
+    jev, reranker = FakeJudge(answer="nothing"), FakeReranker(PARK_LINE)
+    llm = FakeLLM(PARK_REPLY, ANSWER)
+    client = make_client(llm, retrieval_judge=jev, embedder=embedder, reranker=reranker)
+    conversation_id = await start_conversation(client)
+    await send_turn(client, conversation_id, "还记得那天吗？")
+    jev.answer = "recall"
+
+    await send_turn(client, conversation_id, "那次后来怎么样了？")
+
+    assert [query for query, _ in reranker.calls] == [AFTER_PARK]
+    assert AFTER_PARK in embedder.queries
+    assert "那次后来怎么样了？" not in embedder.queries
+    system = llm.prompts[-1][0].content
+    # She is reminded of what the user asked; her reply is right there in the conversation.
+    assert "# 回顾剧情：那次后来怎么样了？\n" in system
+    assert f"真乃：{PARK_LINE}" in system
+
+
+async def test_the_tool_looks_up_what_the_model_wrote_alone(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    reranker = FakeReranker(PARK_LINE)
+    llm = FakeLLM(PARK_REPLY, [recall("公園で鳩と歌った日")], ANSWER)
+    client = make_client(
+        llm, retrieval_judge=FakeJudge(answer="nothing"), embedder=embedder, reranker=reranker
+    )
+    conversation_id = await start_conversation(client)
+    await send_turn(client, conversation_id, "还记得那天吗？")
+
+    await send_turn(client, conversation_id, "那次后来怎么样了？")
+
+    assert [query for query, _ in reranker.calls] == ["公園で鳩と歌った日"]
+    assert "公園で鳩と歌った日" in embedder.queries
+    [result] = tool_results(llm.prompts[-1])
+    assert f"真乃：{PARK_LINE}" in result
+
+
 async def test_a_recall_question_about_someone_elses_episode_recalls_nothing(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):
