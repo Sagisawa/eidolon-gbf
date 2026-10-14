@@ -58,8 +58,9 @@ export const CONFIG_TABS = ["models", "voice", "limits", "prices", "read_only"] 
 
 export type ConfigTab = (typeof CONFIG_TABS)[number];
 
-/** The items under each tab, in the order it shows them; prices and the read-only items
- * have a tab of their own. Every item is under exactly one tab. */
+/** The items under each tab, in the order it shows them. Every item is under exactly one tab;
+ * the prices and the read-only items are not items, so their tabs list none and the page puts
+ * their cards in itself. */
 export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
   models: ["chat_llm", "memory_llm", "judge", "judge_thresholds", "rerank"],
   voice: ["tts", "stt"],
@@ -87,7 +88,7 @@ export function tabHref(pathname: string, tab: ConfigTab): string {
 export function tabHasFailure(config: AdminConfig, tab: ConfigTab): boolean {
   return TAB_ITEMS[tab].some((name) => {
     const item = config[name];
-    return isAvailable(item) && item.status === "failed";
+    return isAvailable(item) && statusDisplay(item).variant === "warning";
   });
 }
 

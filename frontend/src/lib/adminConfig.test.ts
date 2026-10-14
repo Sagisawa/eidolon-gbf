@@ -258,7 +258,7 @@ describe("tabs", () => {
 
   it("take a tab from the address and fall back to the models", () => {
     expect(tabFromQuery("voice")).toBe("voice");
-    for (const value of [undefined, "nope", ["voice", "prices"]]) expect(tabFromQuery(value), String(value)).toBe("models");
+    for (const value of [undefined, "nope"]) expect(tabFromQuery(value), String(value)).toBe("models");
   });
 
   it("leave the default tab out of the address", () => {

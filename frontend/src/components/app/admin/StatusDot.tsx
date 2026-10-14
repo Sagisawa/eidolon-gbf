@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 
 type Props = {
-  /** `warning`：出错偏多（琥珀色）；`error`：大量出错（挂断红）。正常的不加点，只写字（DESIGN.md「Admin status & charts」）。 */
+  /** `warning`：出错偏多、配置标签里有覆盖没有生效（琥珀色）；`error`：大量出错（挂断红）。正常的不加点，只写字（DESIGN.md「Admin status & charts」）。 */
   variant: "warning" | "error";
   /** 读屏念的状态；旁边已经写着同样的字时不传，点就只是装饰。 */
   label?: string;

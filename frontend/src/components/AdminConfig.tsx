@@ -72,8 +72,9 @@ const t = copy.admin.config;
  * 每一项一张卡，标题旁用 Badge 标出覆盖的状态，列出当前生效的值（有后台覆盖时对照 .env 的值），
  * 可以在卡里展开表单修改、恢复成 .env 的值（DESIGN.md「Layout · 后台 · 配置」）。
  *
- * 当前标签记在地址里（`?tab=voice`），可以收藏、刷新不丢。别的标签里有覆盖没生效的项时，那个标签旁加
- * 琥珀色点，不会因为没切过去就漏看。切走时各标签的内容留着不卸，没保存的表单切回来还在。
+ * 当前标签记在地址里（`?tab=voice`），可以收藏、刷新不丢。一个标签里有覆盖没生效的项时，标签字后面加
+ * 琥珀色点，不会因为没切过去就漏看。切走时各标签的内容留着不卸，没保存的表单切回来还在（除非在别的
+ * 标签开了另一张表单，全页同一时间只开一张）。
  */
 export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
   const [config, setConfig] = useState<Config | null>(null);
