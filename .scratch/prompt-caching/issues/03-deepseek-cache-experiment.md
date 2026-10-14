@@ -28,3 +28,5 @@
 - [ ] 实际花费写在结果里。
 
 ## Comments
+
+- 2026-10-15 用户补充：除了 `deepseek-flash`，再用用户自己的一家临时第三方服务顺带跑一遍，看结论在非 DeepSeek 的服务上站不站得住（用户担心对 DeepSeek 过拟合）。Chat Completions，`base_url` 为 `https://magpie-api.hmhnk.top/v1`，模型 `antigravity/gemini-3.8-flash`；key 在本地 `.env` 的 `EXPERIMENT_THIRD_PARTY_API_KEY`（仓库公开，key 不进仓库）。这家报不报命中、在哪个字段报都不知道，按票 01 适配器的三个候选字段（`prompt_tokens_details.cached_tokens` → `prompt_cache_hit_tokens` → `cached_tokens`）都读，都没有就记「没报」，先跑一两个回合确认再跑全套。中途系统消息、`tool_choice: none` 它接不接受，也记进结果。
