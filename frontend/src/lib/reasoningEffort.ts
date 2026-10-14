@@ -43,6 +43,46 @@ export function effortLabel(effort: string): string {
 /** 思考强度下拉框认得的每一档，包括这种接口不列的（换成 Anthropic 时还选着的「极低」照样显示名字）。 */
 export const EFFORT_ITEMS = [EFFORT_UNSET, ...REASONING_EFFORTS].map((value) => ({ value, label: effortLabel(value) }));
 
+/** How a model thinks, as models.dev lists it, for the efforts a protocol sends (the backend's
+ * `price_catalog.describe_thinking`): the efforts it takes save none, and whether it is turned off
+ * by the effort none, by a switch of its own, or not at all. */
+export type EffortHint = {
+  provider: string;
+  model: string;
+  thinks: boolean;
+  efforts: string[];
+  turns_off: "by_effort" | "by_switch" | null;
+};
+
+/** Whether `hint` leaves `choice` out: none unless turned off by that effort, any other effort
+ * unless listed. Unset is never left out, nor is anything without a hint. */
+function unlisted(choice: string, hint: EffortHint | null): boolean {
+  if (!hint || choice === EFFORT_UNSET) return false;
+  if (choice === "none") return hint.turns_off !== "by_effort";
+  return !hint.efforts.includes(choice);
+}
+
+/** 下拉框里的每一档（`effortChoices`），目录里没写的带上标注。只是提示：一档不少，选哪档都照常保存（ADR-0019）。 */
+export function effortOptions(
+  protocol: string,
+  hint: EffortHint | null,
+): { value: string; label: string; unlisted: boolean }[] {
+  return effortChoices(protocol).map((value) => ({ value, label: effortLabel(value), unlisted: unlisted(value, hint) }));
+}
+
+/** 下拉框下面那句「据 models.dev……」，查不到这个模型时没有。不说默认是哪档：各目录说法不一。 */
+export function effortHintText(hint: EffortHint | null): string | null {
+  if (!hint) return null;
+  const t = copy.reasoningEffort.catalog;
+  const said = hint.thinks
+    ? [
+        hint.efforts.length ? t.efforts(hint.efforts.map(effortName).join(t.separator)) : t.noEfforts,
+        t.turnsOff[hint.turns_off ?? "none"],
+      ].join("；")
+    : t.doesNotThink;
+  return `${t.source(hint.provider, hint.model)}${said}。${t.onlyAHint}`;
+}
+
 export type JsonObject = { [key: string]: unknown };
 
 /** An extra request body as typed in: empty for none, else what keeps it from being sent,

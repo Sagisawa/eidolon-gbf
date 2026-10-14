@@ -56,6 +56,21 @@ export const zh = {
     option: (name: string, value: string) => `${name}（${value}）`,
     hints: reasoningEffortHints,
     problems: reasoningEffortProblems,
+    /** 档位提示（ADR-0019）：models.dev 里查得到这个模型时，下拉框里目录没写的档位旁边的标注，和下拉框下面的一句话。 */
+    catalog: {
+      unlisted: "models.dev 未列出",
+      source: (provider: string, model: string) => `据 models.dev 里 ${provider} 的 ${model}：`,
+      efforts: (names: string) => `支持${names}`,
+      separator: "、",
+      noEfforts: "不按档位调节",
+      turnsOff: {
+        by_effort: "可以关闭思考",
+        by_switch: "用它自己的开关关闭思考，「关闭」不一定管用，可以改用额外请求参数关",
+        none: "不能关闭思考",
+      },
+      doesNotThink: "这个模型不思考",
+      onlyAHint: "仅供参考，不影响保存。",
+    },
   },
   conversationList: {
     title: "对话",

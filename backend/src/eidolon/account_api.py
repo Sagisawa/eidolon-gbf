@@ -19,8 +19,9 @@ callback then sends the browser back to the sign-in settings (`/settings/sign-in
 import logging
 import secrets
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, Secret, StringConstraints, field_validator, model_validator
 
@@ -40,6 +41,7 @@ from eidolon.config import (
 )
 from eidolon.identity import PROVIDER_NAMES, IdentityError
 from eidolon.own_keys import BroughtKeys, OwnKeyRejected, named_services
+from eidolon.price_catalog import describe_thinking
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
     SESSION_COOKIE,
@@ -355,6 +357,29 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         own = body.chat_settings()
         await own_keys.check_llm(own)
         return {"base_url": own.text.base_url, "model": own.text.model}
+
+    @app.get("/api/account/keys/llm/efforts")
+    def llm_efforts(
+        user_id: UserId,
+        protocol: LLMProtocol,
+        base_url: Annotated[str, Query(max_length=500)],
+        model: Annotated[str, Query(max_length=200)],
+    ) -> dict | None:
+        """How the model at `base_url` named `model` thinks, as models.dev lists it, for
+        the efforts `protocol` sends (`price_catalog.describe_thinking`), or None if it
+        is not listed, which has the catalogs fetched again if they were last tried a
+        while ago. A hint for the deployer's model and a user's own alike: no key needed,
+        nothing kept."""
+        catalog = backend.prices.catalog
+        try:
+            host = urlsplit(base_url.strip()).hostname
+        except ValueError:  # not an address (`http://[`)
+            host = None
+        thinking = catalog.thinking(host, model.strip()) if host else None
+        if thinking is None:
+            catalog.refresh_soon(missing=True)
+            return None
+        return describe_thinking(thinking, protocol)
 
     @app.post("/api/account/keys/tts/check")
     async def check_own_tts(body: OwnTTSInput, user_id: UserId) -> dict:

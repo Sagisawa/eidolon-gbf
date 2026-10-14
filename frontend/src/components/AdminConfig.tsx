@@ -8,7 +8,7 @@ import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { StatusDot } from "@/components/app/admin/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
-import { EffortField, ExtraBodyField } from "@/components/app/ReasoningEffortFields";
+import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
 import { useSubmitCheck } from "@/components/admin/useSubmitCheck";
@@ -313,6 +313,8 @@ function AvailableItem({
   const display = statusDisplay(item);
   const canRestore = display.canRestore;
   const formRef = check.ref;
+  // 档位提示只在改模型时查，按表单里正在填的地址和模型名；不是模型的项没有地址，不查。
+  const catalog = useEffortHint(form.protocol ?? "", editing ? (form.base_url ?? "") : "", form.model ?? "");
 
   // 打开表单时焦点移到第一个能填的框（「修改」随表单打开收起，焦点不移就落回页首）。
   const editRef = useRef<HTMLButtonElement>(null);
@@ -454,6 +456,8 @@ function AvailableItem({
                       choice={form[field.name]}
                       onChoose={set(field.name)}
                       problem={problem ? t.problems[problem.reason](label) : undefined}
+                      catalog={catalog}
+                      sayCatalog={field.name === "reasoning_effort"}
                     />
                   );
                 }
