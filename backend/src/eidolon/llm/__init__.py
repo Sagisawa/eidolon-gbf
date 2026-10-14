@@ -50,6 +50,15 @@ class ChatMessage:
     service caching: an adapter whose protocol caches only where told to says so here."""
 
 
+def opening_system(
+    messages: Sequence[ChatMessage],
+) -> tuple[Sequence[ChatMessage], Sequence[ChatMessage]]:
+    """`messages` split into the system messages they open with, what a protocol's system
+    prompt is, and the rest, later system messages among them."""
+    opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
+    return messages[:opening], messages[opening:]
+
+
 class ChatLLM(Protocol):
     def stream(
         self,

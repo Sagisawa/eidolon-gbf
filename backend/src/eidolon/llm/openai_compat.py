@@ -16,6 +16,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
     merge_extra_body,
+    opening_system,
 )
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -142,10 +143,10 @@ def _cache_hits(usage: dict[str, Any]) -> int | None:
 def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     """The messages as Chat Completions takes them; the system messages they open with go
     as one, joined by a blank line, as every service takes them."""
-    opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
-    sent = [_message(m) for m in messages[opening:]]
+    opening, rest = opening_system(messages)
+    sent = [_message(m) for m in rest]
     if opening:
-        system = "\n\n".join(m.content for m in messages[:opening])
+        system = "\n\n".join(m.content for m in opening)
         sent.insert(0, {"role": "system", "content": system})
     return sent
 

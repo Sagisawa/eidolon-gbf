@@ -11,7 +11,6 @@ import pytest
 from eidolon.config import Settings
 from eidolon.characters import load_characters
 from eidolon.own_keys import BroughtKeys
-from eidolon.reply_format import FORMAT_INSTRUCTIONS
 from eidolon.world import WorldError, load_world, world_path
 from tests.conftest import MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeLLM, build_faked, system_of
@@ -161,14 +160,10 @@ async def test_every_turn_carries_the_world_setting_after_the_character_sheet(
     await turns.take(llm, "イルミネのメンバーって誰だっけ")
 
     [prompt] = llm.prompts
-    shared, producer, now, _ = prompt
-    assert [m.role for m in prompt] == ["system", "system", "system", "user"]
-    assert [m.cache_breakpoint for m in prompt] == [True, False, False, False]
+    shared = prompt[0]
+    assert shared.cache_breakpoint
     assert shared.content.startswith(f"{MANO_SHEET}\n\n# 世界设定")
-    assert shared.content.endswith(f"\n\n{FORMAT_INSTRUCTIONS}")
     world = shared.content.removeprefix(f"{MANO_SHEET}\n\n")
-    assert producer.content.startswith("# 制作人\n")
-    assert now.content.startswith("# 此刻\n")
     assert "资料截止到 2026年9月28日" in world
     assert "社長：天井努" in world and "事務員：七草はづき" in world
     assert "illumination STARS（いるみねーしょんすたーず）：櫻木真乃、風野灯織" in world

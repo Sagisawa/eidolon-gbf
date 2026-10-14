@@ -108,7 +108,8 @@ async def _check(llm: ChatLLM) -> None:
     try:  # the same request without the tool tells the two failures apart
         await _probe(llm, [])
     except LLMError as e:
-        raise await _failed_without_tool(llm, with_tool, e) from None
+        if (failed := await _failed_without_tool(llm, with_tool, e)) is not None:
+            raise failed from None
     try:  # the first failure may have been passing, say a timeout or a rate limit
         await _probe(llm, [_PROBE_TOOL])
         return
@@ -121,16 +122,22 @@ async def _check(llm: ChatLLM) -> None:
 
 async def _failed_without_tool(
     llm: ChatLLM, with_tool: LLMError, without_tool: LLMError
-) -> "_CheckFailed":
+) -> "_CheckFailed | None":
     """Why the check failed, with the tool and without: the marks for caching or the
     system message after the conversation so far, if the model answers a request without
-    them; else the model's not streaming, or not answering at all."""
+    them but not, asked again, one with them; else the model's not streaming, or not
+    answering at all. None if, asked again, it answers: the failures were passing."""
     try:
         await _probe(llm, [], _PLAIN_PROBE)
     except LLMError:
         return _CheckFailed(
             f"对话模型需要支持流式输出和工具调用，但检查请求失败：{with_tool}", with_tool
         )
+    try:
+        await _probe(llm, [])
+        return None
+    except LLMError as e:
+        without_tool = e
     return _CheckFailed(
         f"对话模型不接受对话里的缓存标记或中途的系统消息（不带它们时可以正常回复）：{without_tool}",
         without_tool,

@@ -70,9 +70,9 @@ async def test_talk_of_the_users_own_life_retrieves_memories_only(
     await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
     await turn(client, await start_conversation(client, "kogane"), "我家的猫最近总是半夜叫")
 
-    system = context_of(llm.prompts[-1])
-    assert CAT in memories_section(system)
-    assert "# 回忆与资料" not in system
+    context = context_of(llm.prompts[-1])
+    assert CAT in memories_section(context)
+    assert "# 回忆与资料" not in context
     # The story corpus and facts searched while the judge model judged are not reranked.
     assert [docs for _, docs in reranker.calls] == [[CAT]]
 

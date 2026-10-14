@@ -340,7 +340,8 @@ class ConversationEngine:
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest turns, as many as
-        `history_turns` says as it begins, or all of them if None. Without `world`, turns
+        `history_turns` says as it begins, or all of them if None; the chat model reads
+        at least as many (`chat_history`). Without `world`, turns
         carry no world setting. Without `affinities`, turns change no affinity; with them,
         retrieval's judge judges what turns do to it, or without retrieval
         `affinity_judge`."""

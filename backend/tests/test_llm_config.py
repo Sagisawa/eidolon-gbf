@@ -367,24 +367,34 @@ def mid_conversation_system_refused(bodies: list[dict]) -> OpenAICompatLLM:
     )
 
 
-async def test_the_check_has_a_system_message_after_the_conversation_as_a_turn_does():
+async def test_a_service_refusing_a_system_message_mid_conversation_as_a_turn_has_is_told_so():
+    """Whatever the effort: answering without the message, the model took it."""
     bodies: list[dict] = []
 
-    with pytest.raises(LLMError):
-        await check_chat_llm(mid_conversation_system_refused(bodies))
+    with pytest.raises(LLMError) as raised:
+        await check_chat_llm(mid_conversation_system_refused(bodies), "high")
 
     assert [m["role"] for m in bodies[0]["messages"]] == [
         "system", "user", "assistant", "system", "user"
     ]
-
-
-async def test_a_service_refusing_a_system_message_mid_conversation_is_told_so():
-    """Whatever the effort: answering without the message, the model took it."""
-    with pytest.raises(LLMError) as raised:
-        await check_chat_llm(mid_conversation_system_refused([]), "high")
-
     assert str(raised.value).startswith("对话模型不接受对话里的缓存标记或中途的系统消息")
     assert "system messages must come first" in str(raised.value)
+
+
+async def test_a_passing_failure_is_not_blamed_on_the_system_message_mid_conversation():
+    replies = iter([
+        httpx.Response(429, json={"error": "rate limited"}),
+        httpx.Response(429, json={"error": "rate limited"}),
+        httpx.Response(200, text=STREAMED),
+        httpx.Response(200, text=STREAMED),
+        httpx.Response(200, text=STREAMED),
+    ])
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: next(replies))),
+    )
+
+    await check_chat_llm(llm)
 
 
 async def test_the_check_reports_what_failed_when_both_requests_fail():

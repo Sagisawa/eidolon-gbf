@@ -17,6 +17,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
     merge_extra_body,
+    opening_system,
 )
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -55,10 +56,10 @@ class ResponsesLLM:
             "store": False,  # every request carries the whole conversation
         }
         # The system messages it opens with are the instructions; a later one goes where it is.
-        opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
-        if system := "\n\n".join(m.content for m in messages[:opening]):
+        opening, rest = opening_system(messages)
+        if system := "\n\n".join(m.content for m in opening):
             body["instructions"] = system
-        body["input"] = [item for m in messages[opening:] for item in _items(m)]
+        body["input"] = [item for m in rest for item in _items(m)]
         if self._max_tokens is not None:
             body["max_output_tokens"] = self._max_tokens
         if self._effort is not None:

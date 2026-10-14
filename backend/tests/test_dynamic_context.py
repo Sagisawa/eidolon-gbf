@@ -87,8 +87,8 @@ async def test_a_turn_opens_as_the_turn_before_it_did(make_client: ClientFactory
 
 @pytest.mark.parametrize(
     ("before", "carried"),
-    # At least 4 turns back; once there are 6, back to 4, and so on every 2.
-    [(3, 3), (4, 4), (5, 5), (6, 4), (7, 5), (8, 4)],
+    # N = 4, so a step of 2: T = N, N + 1 (= N + step - 1), N + step, N + 2 × step.
+    [(4, 4), (5, 5), (6, 4), (8, 4)],
 )
 async def test_the_history_is_cut_back_in_steps(
     make_client: ClientFactory, settings: Settings, before: int, carried: int

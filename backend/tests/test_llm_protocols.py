@@ -255,17 +255,6 @@ SHARED_THEN_THE_REST = [
 rest of what the model is told."""
 
 
-async def test_responses_instructions_are_the_opening_system_messages_joined_by_a_blank_line():
-    requests: list[httpx.Request] = []
-    llm = ADAPTERS["responses"](serving(recorded("responses_text"), requests))
-
-    await collect(llm, SHARED_THEN_THE_REST)
-
-    body = json.loads(requests[0].content)
-    assert body["instructions"] == "甲\n\n乙"
-    assert body["input"] == [{"role": "user", "content": "你好"}]
-
-
 async def test_anthropic_caches_the_system_up_to_the_end_of_the_part_marked_for_it():
     requests: list[httpx.Request] = []
     llm = ADAPTERS["anthropic"](serving(recorded("anthropic_text"), requests))
@@ -294,7 +283,7 @@ CONTEXT_AFTER_THE_HISTORY = [
 what changes from turn to turn in a system message before what the user is saying now."""
 
 
-async def test_responses_sends_a_later_system_message_where_it_is():
+async def test_responses_instructions_are_the_opening_system_messages_and_a_later_one_is_input():
     requests: list[httpx.Request] = []
     llm = ADAPTERS["responses"](serving(recorded("responses_text"), requests))
 

@@ -16,6 +16,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
     merge_extra_body,
+    opening_system,
 )
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -62,10 +63,10 @@ class AnthropicLLM:
             "stream": True,
             "max_tokens": self._max_tokens,
         }
-        opening = next((i for i, m in enumerate(messages) if m.role != "system"), len(messages))
-        if system := _system(messages[:opening]):
+        opening, rest = opening_system(messages)
+        if system := _system(opening):
             body["system"] = system
-        body["messages"] = _messages(messages[opening:])
+        body["messages"] = _messages(rest)
         if self._effort == "none":
             body["thinking"] = {"type": "disabled"}
         elif self._effort is not None:
@@ -177,7 +178,7 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     other services speaking the protocol. A message marked for caching is cached up to the
     end of its last block."""
     turns: list[dict[str, Any]] = []
-    told: dict[str, Any] | None = None  # the user turn a system message began
+    system_turn: dict[str, Any] | None = None  # the user turn a system message began
     for message in messages:
         if message.role == "tool":
             result = {
@@ -190,7 +191,7 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 last["content"].append(result)
             else:
                 turns.append({"role": "user", "content": [result]})
-            told = None
+            system_turn = None
             continue
         if message.tool_calls:
             # What the model thought as it made the calls goes first, as its service sent it.
@@ -210,13 +211,13 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
         if message.cache_breakpoint:
             *before, last = _blocks(content)
             content = [*before, _cached(last)]
-        if told is not None and message.role in ("user", "system"):
-            told["content"].extend(_blocks(content))
+        if system_turn is not None and message.role in ("user", "system"):
+            system_turn["content"].extend(_blocks(content))
         elif message.role == "system":
             turns.append({"role": "user", "content": _blocks(content)})
         else:
             turns.append({"role": message.role, "content": content})
-        told = turns[-1] if message.role == "system" else None
+        system_turn = turns[-1] if message.role == "system" else None
     return turns
 
 
