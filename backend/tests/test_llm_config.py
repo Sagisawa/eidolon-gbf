@@ -323,6 +323,32 @@ async def test_a_model_that_streams_and_takes_tools_passes_the_check(protocol: L
     assert len(bodies) == (2 if protocol == "anthropic" else 1)
 
 
+async def test_the_check_opens_as_a_turn_does_with_a_part_marked_for_caching():
+    """A service that would refuse a turn's prompt for the mark fails the check, not every
+    turn after it."""
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if any("cache_control" in block for block in body.get("system") or []):
+            return httpx.Response(
+                400, json={"error": {"message": "system.0.cache_control: Extra inputs are not permitted"}}
+            )
+        return httpx.Response(200, text=PASSING["anthropic"])
+
+    llm = open_llm(
+        LLMSettings("https://llm.example/v1", "k", "m", "anthropic"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(LLMError, match="cache_control: Extra inputs are not permitted"):
+        await check_chat_llm(llm)
+
+    [block] = bodies[0]["system"]
+    assert block["cache_control"] == {"type": "ephemeral"}
+
+
 async def test_the_check_reports_what_failed_when_both_requests_fail():
     llm = OpenAICompatLLM(
         "https://llm.example/v1", "k", "m",
