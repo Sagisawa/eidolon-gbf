@@ -6,7 +6,7 @@ import { AdminPage } from "@/components/app/admin/AdminPage";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
-import { AppLink } from "@/components/app/AppLink";
+import { StatusDot } from "@/components/app/admin/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
@@ -30,23 +30,29 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import {
   changeOf,
+  CONFIG_TABS,
   formOf,
   getAdminConfig,
   isAvailable,
+  isConfigTab,
   ITEM_SPECS,
-  ITEMS,
   lockedOn,
   readOnlyValue,
   restoreItem,
   rows,
   saveItem,
   statusDisplay,
+  TAB_ITEMS,
+  tabHasFailure,
+  tabHref,
   type AdminConfig as Config,
+  type ConfigTab,
   type ConfigItem,
   type FieldRow,
   type FieldSpec,
@@ -62,17 +68,27 @@ import { FailureIcon } from "@/theme/icons";
 const t = copy.admin.config;
 
 /**
- * 后台的「配置」页：页首一排页内链接；每一项一张卡，标题旁用 Badge 标出覆盖的状态，列出当前生效的值
- * （有后台覆盖时对照 .env 的值），可以在卡里展开表单修改、恢复成 .env 的值；然后是各模型的单价；
- * 最后是只能查看的项（DESIGN.md「Layout · 后台 · 配置」）。
+ * 后台的「配置」页：页首下面一排分类标签（模型 / 语音 / 限额与玩法 / 单价 / 只读），一次只看一类。
+ * 每一项一张卡，标题旁用 Badge 标出覆盖的状态，列出当前生效的值（有后台覆盖时对照 .env 的值），
+ * 可以在卡里展开表单修改、恢复成 .env 的值（DESIGN.md「Layout · 后台 · 配置」）。
+ *
+ * 当前标签记在地址里（`?tab=voice`），可以收藏、刷新不丢。别的标签里有覆盖没生效的项时，那个标签旁加
+ * 琥珀色点，不会因为没切过去就漏看。切走时各标签的内容留着不卸，没保存的表单切回来还在。
  */
-export function AdminConfig() {
+export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
   const [config, setConfig] = useState<Config | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const [tab, setTab] = useState<ConfigTab>(initialTab);
 
   useEffect(() => {
     getAdminConfig().then(setConfig, (e) => setFailure(toFailure(e)));
   }, []);
+
+  function chooseTab(value: string) {
+    if (!isConfigTab(value)) return;
+    setTab(value);
+    window.history.replaceState(null, "", tabHref(window.location.pathname, value));
+  }
 
   return (
     <AdminPage width="narrow" title={copy.admin.pages.config} intro={t.intro}>
@@ -83,15 +99,29 @@ export function AdminConfig() {
             {t.loading}
           </p>
         )}
-        {config && <ConfigNav />}
-        {config &&
-          ITEMS.map((name) => (
-            <ItemCard key={name} name={name} config={config} onChange={setConfig}>
-              {name === "affinity" && <ResetCardGrants isOn={isOn(config.affinity)} />}
-            </ItemCard>
-          ))}
-        {config && <AdminPrices />}
-        {config && <ReadOnlyCard items={config.read_only} />}
+        {config && (
+          <Tabs value={tab} onValueChange={(value) => chooseTab(String(value))} className="gap-6">
+            <TabsList aria-label={t.nav}>
+              {CONFIG_TABS.map((name) => (
+                <TabsTrigger key={name} value={name}>
+                  {t.tabs[name]}
+                  {tabHasFailure(config, name) && <StatusDot variant="warning" label={t.tabFailed} />}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+            {CONFIG_TABS.map((name) => (
+              <TabsContent key={name} value={name} keepMounted className="flex flex-col gap-6">
+                {TAB_ITEMS[name].map((item) => (
+                  <ItemCard key={item} name={item} config={config} onChange={setConfig}>
+                    {item === "affinity" && <ResetCardGrants isOn={isOn(config.affinity)} />}
+                  </ItemCard>
+                ))}
+                {name === "prices" && <AdminPrices />}
+                {name === "read_only" && <ReadOnlyCard items={config.read_only} />}
+              </TabsContent>
+            ))}
+          </Tabs>
+        )}
       </OpenFormProvider>
     </AdminPage>
   );
@@ -102,31 +132,7 @@ function isOn(item: Config["affinity"]): boolean {
   return isAvailable(item) && item.effective.enabled === true;
 }
 
-/** 页内一节的锚点，页首的导航跳到这里。 */
-function anchor(section: ItemName | "prices" | "read_only"): string {
-  return `config-${section}`;
-}
-
-/** 页首的页内导航：一项一个链接，配置项多、页面长，想改限额不用滚过前面六项。 */
-function ConfigNav() {
-  const links: { section: ItemName | "prices" | "read_only"; label: string }[] = [
-    ...ITEMS.map((name) => ({ section: name, label: t.items[name].title })),
-    { section: "prices", label: copy.admin.prices.title },
-    { section: "read_only", label: t.readOnly.title },
-  ];
-  return (
-    <nav aria-label={t.nav} className="-mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-      {links.map(({ section, label }) => (
-        // 触屏上一个链接撑到 44px 高，折成几行时不另加行距。
-        <AppLink key={section} href={`#${anchor(section)}`} isStandalone className="inline-flex min-h-11 items-center md:min-h-0">
-          {label}
-        </AppLink>
-      ))}
-    </nav>
-  );
-}
-
-/** 卡片的标题：标题本身是 h2（页内链接跳到这张卡时读屏念得出是哪一项），旁边可以跟一个状态 Badge。 */
+/** 卡片的标题：标题本身是 h2（读屏可以按标题在卡之间跳），旁边可以跟一个状态 Badge。 */
 function ItemTitle({ title, badge }: { title: string; badge?: ReactNode }) {
   return (
     <CardTitle className="flex flex-wrap items-center gap-2">
@@ -234,7 +240,7 @@ function ItemCard({
   const item = config[name];
   if (!isAvailable(item)) {
     return (
-      <Card id={anchor(name)}>
+      <Card>
         <CardHeader>
           <ItemTitle title={t.items[name].title} />
           <CardDescription>{t.items[name].hint}</CardDescription>
@@ -342,7 +348,7 @@ function AvailableItem({
   const set = (field: string) => (value: string) => setForm((f) => ({ ...f, [field]: value }));
 
   return (
-    <Card id={anchor(name)}>
+    <Card>
       <CardHeader>
         <ItemTitle
           title={t.items[name].title}
@@ -584,7 +590,7 @@ function ReadOnlyCard({ items }: { items: ReadOnlyItem[] }) {
   const wide = useMediaQuery("(min-width: 1024px)", true);
   const value = (row: ReadOnlyItem) => readOnlyValue(row.value, { ...t.readOnly, none: t.none });
   return (
-    <Card id={anchor("read_only")}>
+    <Card>
       <CardHeader>
         <ItemTitle title={t.readOnly.title} />
         <CardDescription>{t.readOnly.hint}</CardDescription>
