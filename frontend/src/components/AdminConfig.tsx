@@ -314,7 +314,7 @@ function AvailableItem({
   const canRestore = display.canRestore;
   const formRef = check.ref;
   // 档位提示只在改模型时查，按表单里正在填的地址和模型名；不是模型的项没有地址，不查。
-  const catalog = useEffortHint(form.protocol ?? "", editing ? (form.base_url ?? "") : "", form.model ?? "");
+  const catalogHint = useEffortHint(form.protocol ?? "", editing ? (form.base_url ?? "") : "", form.model ?? "");
 
   // 打开表单时焦点移到第一个能填的框（「修改」随表单打开收起，焦点不移就落回页首）。
   const editRef = useRef<HTMLButtonElement>(null);
@@ -456,8 +456,8 @@ function AvailableItem({
                       choice={form[field.name]}
                       onChoose={set(field.name)}
                       problem={problem ? t.problems[problem.reason](label) : undefined}
-                      catalog={catalog}
-                      sayCatalog={field.name === "reasoning_effort"}
+                      catalogHint={catalogHint}
+                      showCatalogNote={field.name === "reasoning_effort"}
                     />
                   );
                 }

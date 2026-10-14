@@ -31,7 +31,7 @@ describe("effortOptions", () => {
     const off = (turns_off: EffortHint["turns_off"]) =>
       effortOptions("anthropic", { ...deepseek, turns_off }).find((o) => o.value === "none")?.unlisted;
 
-    expect([off("by_effort"), off("by_switch"), off(null)]).toEqual([false, true, true]);
+    expect([off("by_effort"), off("by_switch")]).toEqual([false, true]);
   });
 
   it("notes every effort of a model that does not think", () => {

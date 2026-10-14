@@ -364,7 +364,7 @@ function OwnLLMForm({
   const effortInCalls = effortOf(callEffort, protocol);
   const parsedExtraBody = parseExtraBody(extraBody);
   // 档位提示按表单里正在填的协议、地址和模型名查，不带密钥。
-  const catalog = useEffortHint(protocol, editing ? baseUrl : "", model);
+  const catalogHint = useEffortHint(protocol, editing ? baseUrl : "", model);
   const keyToTry = apiKey.trim() || current?.api_key;
   // 要试调的那份，还没填全或有哪项填不了时没有。不设置的几项不写，和存下它们以前的一样。
   const toTry: LocalLLM | null =
@@ -501,8 +501,8 @@ function OwnLLMForm({
             choice={textEffort}
             onChoose={setTextEffort}
             problem={effortInText === undefined ? copy.reasoningEffort.problems.effort(t.textEffort) : undefined}
-            catalog={catalog}
-            sayCatalog
+            catalogHint={catalogHint}
+            showCatalogNote
           />
           <EffortField
             id={`${id}-call-effort`}
@@ -512,7 +512,7 @@ function OwnLLMForm({
             choice={callEffort}
             onChoose={setCallEffort}
             problem={effortInCalls === undefined ? copy.reasoningEffort.problems.effort(t.callEffort) : undefined}
-            catalog={catalog}
+            catalogHint={catalogHint}
           />
           <ExtraBodyField
             id={`${id}-extra-body`}

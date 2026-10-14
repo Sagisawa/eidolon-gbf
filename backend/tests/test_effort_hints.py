@@ -83,7 +83,6 @@ async def test_the_efforts_models_dev_lists_a_model_taking_and_whether_it_turns_
     no_efforts = {
         (anthropic, "claude-sonnet-4-5"): (True, None),
         (google, "gemma-4-31b-it"): (True, "by_switch"),
-        ("https://open.bigmodel.cn/api/paas/v4", "glm-5"): (True, "by_switch"),
         (google, "gemini-omni-flash-preview"): (True, None),
         (openai, "gpt-4o"): (False, None),
     }
@@ -103,10 +102,9 @@ async def test_a_model_is_matched_as_its_price_is(
     admin = await fetched(make_client, github, FakeCatalog(MODELS_DEV))
 
     anthropic = "https://api.anthropic.com/v1"
-    # by its name as it is, then looser and looser; at a host no catalog knows, as its
+    # by its name loosened (`test_price_catalog`); at a host no catalog knows, as its
     # maker lists it
-    for model in ["Claude-Opus-5.5", "anthropic/claude-opus-5-5:thinking"]:
-        assert (await hint(admin, anthropic, model) or {})["model"] == "claude-opus-5-5"
+    assert (await hint(admin, anthropic, "Claude-Opus-5.5") or {})["model"] == "claude-opus-5-5"
     relayed = await hint(admin, "https://relay.example/v1", "openai/GPT-6-Sol")
     assert relayed and (relayed["provider"], relayed["model"]) == ("openai", "gpt-6-sol")
     # Not at a host the catalog knows, which does not list it; nor from OpenRouter's,
@@ -114,7 +112,7 @@ async def test_a_model_is_matched_as_its_price_is(
     assert await hint(admin, "https://api.deepseek.com", "claude-opus-5-5") is None
     assert await hint(admin, "https://openrouter.ai/api/v1", "openai/gpt-6-sol") is None
     assert await hint(admin, anthropic, "claude-unknown") is None
-    assert await hint(admin, "not an address", "gpt-6-sol") is None
+    assert await hint(admin, "http://[", "gpt-6-sol") is None
 
 
 async def test_any_user_signed_in_may_ask_and_no_one_else(

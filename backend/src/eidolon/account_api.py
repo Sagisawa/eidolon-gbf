@@ -19,13 +19,13 @@ callback then sends the browser back to the sign-in settings (`/settings/sign-in
 import logging
 import secrets
 from typing import Annotated, Any
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field, Secret, StringConstraints, field_validator, model_validator
 
 from eidolon.accounts import SignInRefused, is_admin
+from eidolon.activity import host
 from eidolon.assembly import Backend
 from eidolon.config import (
     SERVICES,
@@ -371,11 +371,10 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         while ago. A hint for the deployer's model and a user's own alike: no key needed,
         nothing kept."""
         catalog = backend.prices.catalog
-        try:
-            host = urlsplit(base_url.strip()).hostname
+        try:  # the host, as the model's calls are priced by
+            thinking = catalog.thinking(host(base_url.strip()), model.strip())
         except ValueError:  # not an address (`http://[`)
-            host = None
-        thinking = catalog.thinking(host, model.strip()) if host else None
+            thinking = None
         if thinking is None:
             catalog.refresh_soon(missing=True)
             return None

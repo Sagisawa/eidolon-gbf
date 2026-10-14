@@ -37,7 +37,7 @@ export function useEffortHint(protocol: string, baseUrl: string, model: string):
 }
 
 /** 一项思考强度的下拉框，`choice` 是表单里的值（`EFFORT_UNSET` 或一档）。Anthropic 接口没有「极低」，不列（ADR-0019）。
- * 有档位提示（`catalog`）时，目录里没写的档位标上「models.dev 未列出」，照样能选。 */
+ * 有档位提示（`catalogHint`）时，目录里没写的档位标上「models.dev 未列出」，照样能选。 */
 export function EffortField({
   id,
   label,
@@ -46,8 +46,8 @@ export function EffortField({
   choice,
   onChoose,
   problem,
-  catalog = null,
-  sayCatalog = false,
+  catalogHint = null,
+  showCatalogNote = false,
 }: {
   id: string;
   label: string;
@@ -57,11 +57,11 @@ export function EffortField({
   onChoose: (choice: string) => void;
   /** 选的这档填不了时说什么。 */
   problem?: string;
-  catalog?: EffortHint | null;
+  catalogHint?: EffortHint | null;
   /** 在说明下面加一句目录里怎么写的：一个模型的几项强度只在第一项说。 */
-  sayCatalog?: boolean;
+  showCatalogNote?: boolean;
 }) {
-  const fromCatalog = sayCatalog ? effortHintText(catalog) : null;
+  const catalogNote = showCatalogNote ? effortHintText(catalogHint) : null;
   return (
     <Field data-invalid={problem ? true : undefined}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -70,7 +70,7 @@ export function EffortField({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {effortOptions(protocol, catalog).map((option) => (
+          {effortOptions(protocol, catalogHint).map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
               {option.unlisted && (
@@ -81,7 +81,7 @@ export function EffortField({
         </SelectContent>
       </Select>
       {hint && <FieldDescription>{hint}</FieldDescription>}
-      {fromCatalog && <FieldDescription>{fromCatalog}</FieldDescription>}
+      {catalogNote && <FieldDescription>{catalogNote}</FieldDescription>}
       {problem && <FieldError>{problem}</FieldError>}
     </Field>
   );

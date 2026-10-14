@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from eidolon.clock import Clock
-from eidolon.config import REASONING_EFFORTS, LLMProtocol
+from eidolon.config import REASONING_EFFORTS, LLMProtocol, ReasoningEffort
 from eidolon.database import connect
 
 MODELS_DEV_URL = "https://models.dev/api.json"
@@ -92,7 +92,7 @@ class Thinking:
     provider: str
     model: str
     thinks: bool
-    efforts: tuple[str, ...]
+    efforts: tuple[ReasoningEffort, ...]
     switch: bool
 
 
@@ -296,8 +296,10 @@ class Catalog:
             models.setdefault(provider, {})[model] = Listed(provider, model, input, output)
         thinks: dict[str, dict[str, Thinking]] = {}
         for provider, model, does, efforts, switch in thinking:
+            taken = efforts.split()
             thinks.setdefault(provider, {})[model] = Thinking(
-                provider, model, bool(does), tuple(efforts.split()), bool(switch)
+                provider, model, bool(does),
+                tuple(e for e in REASONING_EFFORTS if e in taken), bool(switch),
             )
         at: dict[str, list[str]] = {OPENROUTER_HOST: [OPENROUTER]}
         for host, provider in hosts:

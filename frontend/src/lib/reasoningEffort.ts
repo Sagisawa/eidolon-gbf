@@ -50,7 +50,7 @@ export type EffortHint = {
   provider: string;
   model: string;
   thinks: boolean;
-  efforts: string[];
+  efforts: ReasoningEffort[];
   turns_off: "by_effort" | "by_switch" | null;
 };
 
@@ -59,7 +59,7 @@ export type EffortHint = {
 function unlisted(choice: string, hint: EffortHint | null): boolean {
   if (!hint || choice === EFFORT_UNSET) return false;
   if (choice === "none") return hint.turns_off !== "by_effort";
-  return !hint.efforts.includes(choice);
+  return !hint.efforts.some((effort) => effort === choice);
 }
 
 /** 下拉框里的每一档（`effortChoices`），目录里没写的带上标注。只是提示：一档不少，选哪档都照常保存（ADR-0019）。 */
