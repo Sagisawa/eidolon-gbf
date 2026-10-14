@@ -23,3 +23,7 @@
 - [ ] 改表结构前，提醒用户按 VPS 部署的惯例先手动备份线上库。
 - [ ] 实测：本地构建版上发几个文字回合，看板上出现首字耗时。
 - [ ] `backend/` 下 `pytest`、`frontend/` 下 `npm test` 全部通过，`ruff`、`pyright`、`tsc` 没有新的报错。
+
+## Comments
+
+- 票 04 留下的：部署者的对话模型现在是两份（`live_config.lease` 里 `chat.client.text` / `chat.client.call`，设置在 `chat.settings.text` / `chat.settings.call`），各自包一层 `metered_llm`，`llm_origin` 拿的就是各自那份 `LLMSettings`，所以强度从 `settings.reasoning_effort` 取就能分出文字和通话。记忆模型是自己那份设置，强度也在它的 `LLMSettings` 上。
