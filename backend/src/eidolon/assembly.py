@@ -37,6 +37,7 @@ from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
 from eidolon.gifts import Gifts
+from eidolon.hot_words import hot_words
 from eidolon.randomness import Random, secure_random
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
@@ -81,6 +82,8 @@ class Backend:
     usage: UsageLimiter
     clock: Clock
     calls: Calls
+    speech: Speech
+    """The speech services calls hear and speak with."""
     own_keys: OwnKeys
     admissions: Admissions
     """Lets text turns and calls begin, and settles them."""
@@ -162,8 +165,9 @@ def build(
         settings.bailian_stt_model if settings.stt_provider == "bailian"
         else DEFAULT_BAILIAN_STT_MODEL
     )
+    readings = load_readings(readings_path(settings.characters_path))
     speech = speech or SpeechServices(
-        bailian_model, load_readings(readings_path(settings.characters_path))
+        bailian_model, readings, hot_words(readings, characters.values(), world)
     )
     activity = ActivityLog(settings.database_path, clock)
     closers.append(activity.close)
@@ -273,6 +277,7 @@ def build(
         usage=usage,
         clock=clock,
         calls=calls,
+        speech=speech,
         own_keys=own_keys,
         admissions=admissions,
         accounts=Accounts(store, clock, memories, calls, settings.secret_key),

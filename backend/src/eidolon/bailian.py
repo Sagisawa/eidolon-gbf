@@ -11,7 +11,8 @@ with words in it (not the empty one DashScope sends as soon as it hears a voice,
 heartbeats) starts the utterance; the sentence's end ends it, transcribed unless it came
 to no words (a cough, say). Near-field voice detection (`vad_model`) is what keeps coughs
 from being heard as sentences at all; the model and parameters are those measured in
-ticket bailian-stt 01.
+ticket bailian-stt 01. The call's hot words (`hot_words`) go with the task as its
+`vocabulary`, made for the task alone: no hot word list is kept on anyone's account.
 
 DashScope ends a task sent nothing for 23 seconds, so while no audio comes (the
 microphone muted, say) the service sends silence itself.
@@ -78,6 +79,10 @@ PARAMETERS: dict[str, Any] = {
 Japanese, and heartbeats. How long a pause ends a sentence is DashScope's default (1.3 s),
 which has it end about 1.0–1.2 s after the last word."""
 
+HOT_WORD_WEIGHT = 4
+"""How strongly each hot word is listened out for, of 1 to 5: what DashScope recommends.
+Higher has words that merely sound alike heard as the hot word."""
+
 FOLLOW_ON_TIMEOUT = 3.0
 """How long, in seconds since the user was last heard, a follow-on may take to be
 transcribed (see `call.Hearing`). A sentence ended at most 1.61 s after the last of it was
@@ -132,7 +137,8 @@ async def find_region(api_key: str, model: str) -> BailianRegion:
 
 class BailianSTTService(WebsocketSTTService):
     """Alibaba Cloud Model Studio, hearing the user in one call on `api_key` with `model`:
-    in `region`, if known, else where the key is found to work."""
+    in `region`, if known, else where the key is found to work; listening out for
+    `hot_words`."""
 
     def __init__(
         self,
@@ -140,6 +146,7 @@ class BailianSTTService(WebsocketSTTService):
         api_key: str,
         model: str,
         region: BailianRegion | None,
+        hot_words: Sequence[str] = (),
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -151,6 +158,7 @@ class BailianSTTService(WebsocketSTTService):
         self._api_key = api_key
         self._model = model
         self._region: BailianRegion | None = region
+        self._hot_words = tuple(hot_words)
         self._task_id: str | None = None
         self._finished = asyncio.Event()  # the task has finished, told to
         self._receive_task: asyncio.Task | None = None
@@ -225,7 +233,7 @@ class BailianSTTService(WebsocketSTTService):
         regions: list[BailianRegion] = [self._region] if self._region else list(REGION_URLS)
         try:
             websocket, self._task_id, self._region = await _start_task(
-                self._websocket_connect, self._api_key, self._model, regions
+                self._websocket_connect, self._api_key, self._model, regions, self._hot_words
             )
         except _Refused as e:
             await self.push_error(
@@ -322,10 +330,11 @@ async def _start_task(
     api_key: str,
     model: str,
     regions: Sequence[BailianRegion],
+    hot_words: Sequence[str] = (),
 ) -> tuple[ClientConnection, str, BailianRegion]:
-    """A connection with a recognition task started on it, the task's id, and the region,
-    the first of `regions` whose handshake takes `api_key`. Raises _Refused if none takes
-    it or the task fails to start."""
+    """A connection with a recognition task started on it, listening out for `hot_words`,
+    the task's id, and the region, the first of `regions` whose handshake takes `api_key`.
+    Raises _Refused if none takes it or the task fails to start."""
     refused: list[tuple[BailianRegion, int]] = []
     for region in regions:
         try:
@@ -339,7 +348,7 @@ async def _start_task(
             refused.append((region, status))
             continue
         try:
-            task_id = await _run_task(websocket, model)
+            task_id = await _run_task(websocket, model, hot_words)
         except BaseException:
             await websocket.close()
             raise
@@ -349,9 +358,13 @@ async def _start_task(
     raise _Refused(f"key 无效，{names}地域都不接受（HTTP {statuses}）")
 
 
-async def _run_task(websocket: ClientConnection, model: str) -> str:
-    """Start a recognition task with `model`; its id, once it has started."""
+async def _run_task(websocket: ClientConnection, model: str, hot_words: Sequence[str]) -> str:
+    """Start a recognition task with `model`, listening out for `hot_words`; its id, once
+    it has started."""
     task_id = uuid.uuid4().hex
+    parameters = dict(PARAMETERS)
+    if hot_words:
+        parameters["vocabulary"] = dict.fromkeys(hot_words, HOT_WORD_WEIGHT)
     await websocket.send(json.dumps({
         "header": {"action": "run-task", "task_id": task_id, "streaming": "duplex"},
         "payload": {
@@ -359,7 +372,7 @@ async def _run_task(websocket: ClientConnection, model: str) -> str:
             "task": "asr",
             "function": "recognition",
             "model": model,
-            "parameters": PARAMETERS,
+            "parameters": parameters,
             "input": {},
         },
     }))

@@ -116,6 +116,8 @@ docker compose cp backend:/data/drafts/mano.md characters/sheets/mano.md
 
 **读音**是角色名、组合名、事务所名在她的声音里怎么念，写在 [`characters/readings.toml`](../characters/readings.toml) 里，例如「杜野凛世」念「もりの りんぜ」。招呼和通话每次请求 Fish Audio 时都会带上这份读音表，用户自带的 key 也一样。它只改变声音，字幕、文字记录和日语原文里还是原来的写法。
 
+通话的语音识别也用它：后端启动时把读音表里的写法、角色的中文译名（`name_zh`，连同去掉姓的中文名）和世界设定里的组合名合成一份热词表，每通电话的识别都带上，Soniox 和阿里云百炼都一样，用户自带的 key 也一样。单独的姓和单个字不收；超出识别服务长度限制的词跳过，启动日志里会提示。
+
 - **改读音**：改那一条的 `kana`，把 `phonemes` 清空成 `""`，在自己的电脑上运行 `uv run eidolon reading draft` 补上音素。这个命令要用开发依赖里的 pyopenjtalk-plus，服务器镜像里没有，所以在本机跑完再提交。已有音素的条目它不会动。
 - **生效**：读音表只在后端启动时读取，改完要重启后端，再重跑一次招呼的合成上传。
 
