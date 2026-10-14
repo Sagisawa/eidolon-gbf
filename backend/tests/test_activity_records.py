@@ -19,6 +19,7 @@ from eidolon.llm import ChatLLM, LLMError
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
+from eidolon.rerank import SiliconFlowReranker
 from tests.conftest import (
     ClientFactory,
     agree_to_terms,
@@ -36,6 +37,8 @@ from tests.fakes import (
     FakeLLMService,
     FakeReranker,
 )
+from tests.test_embedding import Answer, scripted
+from tests.test_retrieval_services import ranked
 from tests.test_delete_account import rows_mentioning, user_id
 from tests.test_llm_protocols import recorded, serving
 from tests.test_openai_compat import RECORDED_STREAM
@@ -156,6 +159,37 @@ async def test_a_failing_judge_shows_in_health_though_the_turn_goes_on(
         row = health(board, service)
         assert row is not None and row["calls"] >= 1 and row["errors"] == 0, service
     assert CAT not in str(board)
+
+
+async def test_a_request_made_again_counts_as_a_call_of_its_own(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    answers: list[Answer] = [httpx.Response(503, text="unavailable")]
+    reranker = SiliconFlowReranker(
+        "sk-test", "m", "http://sf.test/v1",
+        httpx.AsyncClient(transport=httpx.MockTransport(scripted(answers, ranked))),
+    )
+    llm = FakeLLM(REPLY, REPLY)
+    client = make_client(
+        llm, clock=clock, retrieval_judge=FakeJudge("memories"),
+        embedder=FakeEmbedder(), reranker=reranker,
+        background_llm=FakeBackgroundLLM(memorized(CAT)),
+    )
+    admin = await admin_client(make_client, github, clock)
+    conversation_id = await start_conversation(client)
+
+    await send_turn(client, conversation_id, SAID)
+    events = await send_turn(client, conversation_id, "你还记得我的猫吗")
+    board = await dashboard(admin)
+
+    assert events[-1]["type"] == "done"
+    assert CAT in llm.prompts[-1][0].content  # found once asked again
+    rerank = health(board, "rerank")
+    assert rerank is not None
+    assert (rerank["calls"], rerank["errors"], rerank["errors_by_kind"]) == (
+        2, 1, {"server_error": 1}
+    )
 
 
 async def test_calls_on_the_users_own_keys_are_counted_apart(

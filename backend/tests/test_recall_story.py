@@ -256,6 +256,33 @@ async def test_when_jev_sees_a_recall_question_the_episode_is_recalled_before_th
     assert events[-1]["type"] == "done"
 
 
+async def test_with_the_reranker_down_the_nearest_episode_is_recalled(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    """By the judge model's recall and the recall-story tool alike, with its place in the
+    catalog."""
+    reranker = FakeReranker()
+    reranker.down = True
+    llm = FakeLLM(ANSWER, [recall("公園で鳩と歌った日")], ANSWER)
+    judge = FakeJudge(answer="recall")
+    client = make_client(llm, retrieval_judge=judge, embedder=embedder, reranker=reranker)
+    conversation_id = await start_conversation(client)
+
+    events = await send_turn(client, conversation_id, "公園の鳩と歌ったの、覚えてる？")
+    judged = llm.prompts[-1][0].content
+    judge.answer = "nothing"
+    await send_turn(client, conversation_id, "那次是怎么回事？")
+    [called] = tool_results(llm.prompts[-1])
+
+    assert events[-1]["type"] == "done"
+    assert len(reranker.calls) == 2  # each asked, each failing
+    for recalled in [judged[judged.index("# 回顾剧情") :], called]:
+        assert recalled.count("\n## ") == 1  # the nearest episode alone
+        assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in recalled
+        assert "（W.I.N.G.編中你出场的剧情依次是：" in recalled and "「決勝後コミュ」" in recalled
+        assert f"真乃：{PARK_LINE}" in recalled
+
+
 PARK_REPLY = ["<ja>[happy] 公園で鳩さんと歌った日ですね</ja><zh>[happily] 是和鸽子一起在公园唱歌的那天吧</zh>"]
 AFTER_PARK = "是和鸽子一起在公园唱歌的那天吧\n那次后来怎么样了？"
 

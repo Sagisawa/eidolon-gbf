@@ -217,6 +217,21 @@ async def test_recalling_a_live_brings_its_days_even_when_no_episode_tells_it(
     assert embedder.queries == ["ドームでのライブ、どうだった？"]
 
 
+async def test_with_the_reranker_down_recalling_brings_the_nearest_live_or_release_too(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    llm, reranker = FakeLLM(ANSWER), FakeReranker()
+    reranker.down = True
+    client = make_client(llm, retrieval_judge=FakeJudge(answer="recall"), embedder=embedder, reranker=reranker)
+
+    system = await system_prompt(client, llm, "公園の鳩とドームのライブ、どうだった？")
+
+    recalled = section(system, "# 回顾剧情")
+    assert "培育剧情 / W.I.N.G.編 /「公園の歌声」" in recalled
+    [day] = entries(recalled)
+    assert "ベルーナドーム" in day
+
+
 async def test_recalling_brings_lives_and_releases_but_not_songs(
     make_client: ClientFactory, embedder: FakeEmbedder
 ):

@@ -1,8 +1,12 @@
 """Reranking retrieved text against the query: Qwen3-Reranker on SiliconFlow.
 
 What counts as relevant enough depends on the model, so each model the project has
-calibrated (`eidolon eval rerank`) has thresholds of its own."""
+calibrated (`eidolon eval rerank`) has thresholds of its own.
 
+Reranking holds up a turn, so each request is given a few seconds and made again once if
+it fails in passing (`retry`)."""
+
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Protocol
@@ -11,6 +15,7 @@ import httpx
 
 from eidolon.billing import bill
 from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
+from eidolon.retry import TURN_TIMEOUT, ServiceError, retry_once, transient_status
 
 
 @dataclass(frozen=True)
@@ -74,7 +79,7 @@ class Reranker(Protocol):
         ...
 
 
-class RerankError(RuntimeError):
+class RerankError(ServiceError):
     pass
 
 
@@ -82,32 +87,49 @@ class SiliconFlowReranker:
     """SiliconFlow's `/rerank` endpoint."""
 
     def __init__(
-        self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
+        self,
+        api_key: str,
+        model: str,
+        base_url: str,
+        client: httpx.AsyncClient | None = None,
+        timeout: float = TURN_TIMEOUT,
     ) -> None:
         self.model = model
         self._url = base_url.rstrip("/") + "/rerank"
         self._api_key = api_key
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10))
+        self._timeout = timeout
 
     async def rerank(
         self, query: str, documents: Sequence[str], top_n: int
     ) -> list[tuple[int, float]]:
+        return await retry_once(lambda: self._rerank(query, documents, top_n))
+
+    async def _rerank(
+        self, query: str, documents: Sequence[str], top_n: int
+    ) -> list[tuple[int, float]]:
         try:
-            res = await self._client.post(
-                self._url,
-                json={
-                    "model": self.model,
-                    "query": query,
-                    "documents": list(documents),
-                    "top_n": top_n,
-                    "return_documents": False,
-                },
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            )
+            async with asyncio.timeout(self._timeout):
+                res = await self._client.post(
+                    self._url,
+                    json={
+                        "model": self.model,
+                        "query": query,
+                        "documents": list(documents),
+                        "top_n": top_n,
+                        "return_documents": False,
+                    },
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                )
+        except TimeoutError as e:
+            raise RerankError(f"重排服务 {self._timeout:g} 秒内没有回应", transient=True) from e
         except httpx.HTTPError as e:
-            raise RerankError(f"无法连接重排服务：{e!r}") from e
+            raise RerankError(f"无法连接重排服务：{e!r}", transient=True) from e
         if res.status_code >= 400:
-            raise RerankError(f"重排服务返回 {res.status_code}: {res.text[:500]}")
+            raise RerankError(
+                f"重排服务返回 {res.status_code}: {res.text[:500]}",
+                transient=transient_status(res.status_code),
+            )
         try:
             body = res.json()
             results = sorted(body["results"], key=lambda r: -r["relevance_score"])

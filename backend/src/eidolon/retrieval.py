@@ -28,8 +28,12 @@ work facts' lives and releases to recall. A turn needing nothing drops them, and
 whatever is still being looked up. The vector goes on to the writing down, which shows
 the background model the memories nearest the same query (`MemoryTurn.write_down`).
 
-Retrieval never fails a turn: if the judge model cannot answer, the turn retrieves anyway;
-if embedding or reranking fails, the turn goes on without references (or memories).
+Retrieval never fails a turn, nor holds it up for long: embedding and reranking are given
+a few seconds and asked again once (`retry`). If the judge model cannot answer, the turn
+retrieves anyway; if the query cannot be embedded, it goes on without references or
+memories. If reranking fails, the nearest few references by their vectors go into the
+prompt instead, unthresholded, as do the nearest episode (and live or release) for recall;
+memories do not, as one the reranker never judged might be what the user never said.
 
 Where affinity is on, the judge model is asked what the turn does to it in the same
 request (`affinity_judge.QUESTIONS`); failing, it fails both.
@@ -77,6 +81,9 @@ MAX_REFERENCES = 5
 """The most references one turn's prompt carries, after reranking."""
 CANDIDATES_PER_SOURCE = 12
 """How many candidates each reference source offers the reranker."""
+FALLBACK_REFERENCES = 3
+"""How many references a turn's prompt carries if reranking fails: those nearest by their
+vectors, of which no threshold can tell the relevant."""
 
 RECALL_EPISODES = 2
 """The most episodes one call of the recall-story tool brings back."""
@@ -149,7 +156,7 @@ class StoryReferences:
         passages = await asyncio.to_thread(
             self.corpus.search_by_vector, query_vector, character.id, limit
         )
-        return [Reference(self.kind, p.text, p.episode.id) for p in passages]
+        return [Reference(self.kind, p.text, p.episode.id, p.score) for p in passages]
 
     async def embed_missing(self, batch: int, progress: Callable[[int], None]) -> int:
         return await self.corpus.embed_missing(batch, progress)
@@ -409,8 +416,9 @@ class Retrieval:
         try:
             ranked = await self._sources.rerank(self._reranker, query, candidates)
         except RerankError:
-            log.warning("retrieval failed; replying without references", exc_info=True)
-            return []
+            log.warning("reranking the references failed; replying with the nearest",
+                        exc_info=True)
+            return sorted(candidates, key=lambda r: -r.similarity)[:FALLBACK_REFERENCES]
         min_relevance = self._min_relevance()
         return [r for r, score in ranked if score >= min_relevance][:MAX_REFERENCES]
 
@@ -454,16 +462,36 @@ class Retrieval:
         entries: Sequence[WorldEntry],
     ) -> str:
         """The episodes of the `story` candidates (passages of episodes `character` is cast
-        in) and the lives and releases of `entries` that best match `query`, reranked
-        together; recalled as what was `asked`."""
+        in) and the lives and releases of `entries` (nearest first) that best match
+        `query`, reranked together; recalled as what was `asked`. If reranking fails, the
+        episode of the nearest candidate and the nearest of `entries`."""
         documents = [r.text for r in story] + [e.text for e in entries]
         try:
             best = (
                 await self._reranker.rerank(query, documents, len(documents)) if documents else []
             )
         except RerankError:
-            log.warning("recall failed", exc_info=True)
-            return _CANNOT_RECALL
+            log.warning("reranking the recall failed; recalling the nearest", exc_info=True)
+            nearest = max(story, key=lambda r: r.similarity, default=None)
+            episode_ids = {nearest.origin: None} if nearest else {}
+            found = list(entries[:1])
+        else:
+            episode_ids, found = self._relevant(best, story, entries)
+        corpus = self._sources.corpus
+        episodes = await asyncio.to_thread(_episodes, corpus, episode_ids) if episode_ids else []
+        if not episodes and not found:
+            return f"没有想起和「{asked}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
+        catalog = await asyncio.to_thread(corpus.catalog, character.id) if episodes else []
+        return recall_prompt(asked, episodes, catalog, found)
+
+    def _relevant(
+        self,
+        best: Sequence[tuple[int, float]],
+        story: Sequence[Reference],
+        entries: Sequence[WorldEntry],
+    ) -> tuple[dict[str, None], list[WorldEntry]]:
+        """The episodes (their identifiers, in order) and the work facts to recall, of the
+        `story` candidates and `entries` reranked together, `best` first."""
         episode_ids: dict[str, None] = {}
         found: list[WorldEntry] = []
         min_relevance = self._min_relevance()
@@ -475,12 +503,7 @@ class Retrieval:
                     episode_ids.setdefault(story[i].origin)
             elif len(found) < RECALL_ENTRIES:
                 found.append(entries[i - len(story)])
-        corpus = self._sources.corpus
-        episodes = await asyncio.to_thread(_episodes, corpus, episode_ids) if episode_ids else []
-        if not episodes and not found:
-            return f"没有想起和「{asked}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
-        catalog = await asyncio.to_thread(corpus.catalog, character.id) if episodes else []
-        return recall_prompt(asked, episodes, catalog, found)
+        return episode_ids, found
 
     def close(self) -> None:
         self._sources.close()

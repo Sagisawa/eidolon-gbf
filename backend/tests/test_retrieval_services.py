@@ -13,6 +13,7 @@ from eidolon.rerank import RerankError, SiliconFlowReranker
 from eidolon.judge import JevJudge, JudgeError
 from eidolon.retrieval import ModelRetrievalJudge
 from eidolon.store import Message
+from tests.test_embedding import HANG, Answer, scripted
 
 Handler = Callable[[httpx.Request], httpx.Response]
 
@@ -64,6 +65,50 @@ async def test_reranker_errors_are_reported(response: httpx.Response, error: str
 
     with pytest.raises(RerankError, match=error):
         await reranker.rerank("q", ["a"], top_n=1)
+
+
+
+def ranked(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, json={"results": [{"index": 0, "relevance_score": 0.9}]})
+
+
+def scripted_reranker(answers: list[Answer]) -> SiliconFlowReranker:
+    scripted_client = httpx.AsyncClient(transport=httpx.MockTransport(scripted(answers, ranked)))
+    return SiliconFlowReranker("k", "m", "http://sf.test/v1", scripted_client, timeout=0.05)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        HANG,
+        httpx.ReadError("connection reset"),
+        httpx.Response(429, text="rate limited"),
+        httpx.Response(500, text="internal error"),
+    ],
+)
+async def test_a_rerank_failing_in_passing_is_asked_again_at_once(failure: Answer):
+    answers = [failure]
+
+    assert await scripted_reranker(answers).rerank("q", ["a"], top_n=1) == [(0, 0.9)]
+    assert answers == []
+
+
+@pytest.mark.parametrize(
+    "answers, error",
+    [
+        ([HANG, HANG], "没有回应"),
+        ([httpx.Response(503, text="unavailable")] * 2, "503"),
+        ([HANG, httpx.Response(429, text="rate limited")], "429"),
+        ([httpx.Response(403, text="forbidden")], "403"),
+        ([httpx.Response(200, json={"oops": []})], "无法解析"),
+    ],
+)
+async def test_a_rerank_failing_again_or_refused_is_reported(answers: list[Answer], error: str):
+    answers = [*answers, httpx.Response(200)]
+
+    with pytest.raises(RerankError, match=error):
+        await scripted_reranker(answers).rerank("q", ["a"], top_n=1)
+    assert len(answers) == 1  # never asked a third time, nor a second when refused
 
 
 MANO = Character("mano", "櫻木真乃", "", "voice", "sheet", None, "#ffbad6")

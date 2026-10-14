@@ -43,6 +43,7 @@ from eidolon.config import (
     SttProvider,
 )
 from eidolon.embedding import Document, EmbeddingError
+from eidolon.rerank import RerankError
 from eidolon.emotion import _EMOTION_OPTIONS, _NOD_OPTIONS, Emotion, EmotionAnswer, Nod
 from eidolon.identity import Identity, IdentityError, ProviderName
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
@@ -853,17 +854,21 @@ def feeling(
 
 class FakeReranker:
     """Ranks documents containing `prefer` first (scoring them 0.9), otherwise keeping the
-    order it was given (scoring the rest `others`). Records every call."""
+    order it was given (scoring the rest `others`). Records every call; set `down` to have
+    it fail them as a service still failing when asked again would."""
 
     def __init__(self, prefer: str = "", others: float = 0.5) -> None:
         self.prefer = prefer
         self.others = others
         self.calls: list[tuple[str, list[str]]] = []
+        self.down = False
 
     async def rerank(
         self, query: str, documents: Sequence[str], top_n: int
     ) -> list[tuple[int, float]]:
         self.calls.append((query, list(documents)))
+        if self.down:
+            raise RerankError("fake rerank service is down")
         order = sorted(range(len(documents)), key=lambda i: self.prefer not in documents[i])
         return [(i, 0.9 if self.prefer in documents[i] else self.others) for i in order[:top_n]]
 

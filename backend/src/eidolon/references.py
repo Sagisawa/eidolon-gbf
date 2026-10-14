@@ -25,6 +25,9 @@ class Reference:
     origin: str
     """The episode's identifier, the fact's title (its text, if it has none), or the work
     fact's title."""
+    similarity: float
+    """Its vector's cosine similarity to the query's: as every source embeds with the same
+    embedder, comparable across sources."""
 
 
 class ReferenceSource(Reembeddable, Protocol):

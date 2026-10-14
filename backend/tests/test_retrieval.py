@@ -12,7 +12,7 @@ import pytest
 from eidolon.characters import load_characters
 from eidolon.config import Settings
 from eidolon.corpus import StoryCorpus
-from eidolon.retrieval import MAX_REFERENCES
+from eidolon.retrieval import FALLBACK_REFERENCES, MAX_REFERENCES
 from eidolon.story_import import import_csv_directory
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
@@ -254,6 +254,29 @@ async def test_a_turn_still_gets_a_reply_when_retrieval_fails(
     system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
 
     assert "# 回忆与资料" not in system
+
+
+async def test_with_the_reranker_down_the_nearest_references_are_brought_but_no_memories(
+    make_client: ClientFactory, embedder: FakeEmbedder
+):
+    judge, reranker, llm = FakeJudge(answer="nothing"), FakeReranker(), FakeLLM(REPLY, REPLY)
+    client = make_client(
+        llm, retrieval_judge=judge, embedder=embedder, reranker=reranker,
+        background_llm=FakeBackgroundLLM(memorized(CAT)),
+    )
+    await tell_of_the_cat(client)
+    judge.answer, reranker.down = "references", True
+
+    system = await system_prompt(client, llm, "公園の鳩のこと覚えてる？")
+
+    # The three nearest of all the candidates, whatever the threshold: the park episode
+    # and the park among her facts, and one of those sharing no word with the question.
+    assert sorted(len(docs) for _, docs in reranker.calls) == [1, 8]  # it was asked
+    assert reference_count(system) == FALLBACK_REFERENCES == 3
+    references = system[system.index("# 回忆与资料") :]
+    assert PARK_LINE in references and "真乃常去公园看鸟。" in references
+    # A memory the reranker never judged might be what the user never said.
+    assert "# 关于制作人的记忆" not in system and CAT not in system
 
 
 # While the judge model judges, the turn's query is embedded, once, and its candidates
