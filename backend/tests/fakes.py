@@ -119,14 +119,15 @@ class FakeLLM:
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
     model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
     is the deployer's model. With `tokens`, each reply it finishes says it was billed that
-    many input and output tokens, as a real service does; without, it says nothing.
+    many input and output tokens, and, with a third, that many of the input read from the
+    prompt cache, as a real service does; without, it says nothing.
     """
 
     def __init__(
         self,
         *replies: Sequence[Streamed | object] | LLMError,
         delay: float = 0,
-        tokens: tuple[int, int] | None = None,
+        tokens: tuple[int, int] | tuple[int, int, int] | None = None,
     ) -> None:
         self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay

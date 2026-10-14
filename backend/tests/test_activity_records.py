@@ -331,22 +331,23 @@ async def test_the_dashboard_is_for_admins_only(
 
 
 Protocol = Callable[[httpx.AsyncClient], ChatLLM]
-PROTOCOLS: dict[str, tuple[Protocol, str, tuple[int, int]]] = {
-    # Each protocol's recorded reply, and the tokens it says the request was billed for.
+PROTOCOLS: dict[str, tuple[Protocol, str, tuple[int, int, int | None]]] = {
+    # Each protocol's recorded reply, and the tokens it says the request was billed for: in,
+    # out, and of the input, those read from the prompt cache, if it says.
     "chat-completions": (
         lambda http: OpenAICompatLLM("https://llm.example/v1", "sk", "m", client=http),
         RECORDED_STREAM,
-        (10, 5),
+        (10, 5, None),
     ),
     "responses": (
         lambda http: ResponsesLLM("https://llm.example/v1", "sk", "m", client=http),
         recorded("responses_text"),
-        (57, 518),
+        (57, 518, 0),
     ),
     "anthropic": (
         lambda http: AnthropicLLM("https://llm.example/v1", "sk", "m", client=http),
         recorded("anthropic_text"),
-        (57, 124),
+        (57, 124, None),
     ),
 }
 
@@ -358,7 +359,7 @@ async def test_the_tokens_each_protocol_bills_are_recorded(
     github: FakeIdentityProvider,
     protocol: str,
 ):
-    adapter, stream, (input_tokens, output_tokens) = PROTOCOLS[protocol]
+    adapter, stream, (input_tokens, output_tokens, cached) = PROTOCOLS[protocol]
     requests: list[httpx.Request] = []
     clock = FakeClock()
     client = make_client(adapter(serving(stream, requests)), clock=clock)  # pyright: ignore[reportArgumentType]
@@ -369,7 +370,9 @@ async def test_the_tokens_each_protocol_bills_are_recorded(
 
     assert events[-1]["type"] == "done"
     assert chat is not None
-    assert chat["usage"] == [{"unit": "tokens", "input": input_tokens, "output": output_tokens}]
+    assert chat["usage"] == [
+        {"unit": "tokens", "input": input_tokens, "output": output_tokens, "cached": cached}
+    ]
     assert chat["usage_unknown"] == 0
     if protocol == "chat-completions":  # which sends the usage only when asked to
         assert b'"stream_options":{"include_usage":true}' in requests[0].content.replace(
@@ -494,3 +497,93 @@ async def test_a_database_from_before_first_words_were_timed_takes_them_now(
     assert chat is not None
     assert (chat["calls"], chat["effort"], chat["latency_ms"]["p50"]) == (1, None, 900)
     assert chat["first_token_ms"] == {"p50": None, "p95": None}
+
+
+async def test_an_llm_call_records_how_much_of_its_input_hit_the_cache(tmp_path: Path):
+    activity = ActivityLog(tmp_path / "eidolon.db", FakeClock())
+    origin = llm_origin("chat_llm", LLMSettings("http://llm.invalid/v1", "k", "m"))
+
+    await drain(metered_llm(FakeLLM(REPLY, tokens=(1000, 50, 800)), activity, origin))
+    await drain(metered_llm(FakeLLM(REPLY, tokens=(1000, 50)), activity, origin))
+    calls = activity.since(START - timedelta(days=1))[1]
+    activity.close()
+
+    assert [(c.usage_input, c.usage_output, c.usage_cached) for c in calls] == [
+        (1000, 50, 800), (1000, 50, None)
+    ]
+
+
+async def test_the_dashboard_shows_each_llms_cache_hit_rate(
+    make_client: ClientFactory,
+    settings: Settings,
+    github: FakeIdentityProvider,
+    own_llm: FakeLLMService,
+):
+    """Of all the input of an LLM's calls, the share read from the cache; a call that did
+    not say hit nothing. The users' own LLMs are told too, as `OWN`."""
+    clock = FakeClock()
+    own_llm.llm = FakeLLM(REPLY, tokens=(400, 10, 100))
+    told = make_client(FakeLLM(REPLY, REPLY, tokens=(1000, 50, 900)), clock=clock)
+    untold = make_client(
+        FakeLLM(REPLY, tokens=(2000, 50)), "friend", clock=clock,
+        retrieval_judge=FakeJudge(None), embedder=FakeEmbedder(), reranker=FakeReranker("制作人"),
+    )
+    admin = await admin_client(make_client, github, clock)
+
+    conversation_id = await start_conversation(told)
+    await send_turn(told, conversation_id, "在吗")
+    await send_turn(told, conversation_id, "在吗", own_llm=LLM)
+    await send_turn(untold, await start_conversation(untold), "在吗")
+    board = await dashboard(admin)
+
+    chat, own = health(board, "chat_llm"), health(board, "chat_llm", own_key=True)
+    assert chat is not None and own is not None
+    assert chat["usage"] == [{"unit": "tokens", "input": 3000, "output": 100, "cached": 900}]
+    assert chat["cache_hit_rate"] == pytest.approx(0.3)
+    assert own["cache_hit_rate"] == pytest.approx(0.25)
+    judge = health(board, "judge")
+    assert judge is not None and "cache_hit_rate" not in judge
+
+
+async def test_an_llm_that_said_nothing_of_its_input_has_no_cache_hit_rate(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    client = make_client(FakeLLM(REPLY), clock=clock)
+    admin = await admin_client(make_client, github, clock)
+
+    await send_turn(client, await start_conversation(client), "在吗")
+    chat = health(await dashboard(admin), "chat_llm")
+
+    assert chat is not None
+    assert (chat["usage"], chat["cache_hit_rate"]) == ([], None)
+
+
+async def test_a_database_from_before_cache_hits_were_recorded_takes_them_now(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    """Service calls recorded before said nothing of the cache; they hit none of it."""
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "CREATE TABLE service_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, record_id"
+            " INTEGER, at REAL NOT NULL, service TEXT NOT NULL, provider TEXT NOT NULL,"
+            " model TEXT NOT NULL, own_key INTEGER NOT NULL DEFAULT 0, error TEXT,"
+            " latency_ms REAL, usage_unit TEXT, usage_input REAL, usage_output REAL,"
+            " first_token_ms REAL, reasoning_effort TEXT)"
+        )
+        db.execute(
+            "INSERT INTO service_calls (at, service, provider, model, latency_ms, usage_unit,"
+            " usage_input, usage_output) VALUES (?, 'chat_llm', 'llm.invalid', 'test-model',"
+            " 900, 'tokens', 1000, 50)",
+            (START.timestamp(),),
+        )
+    clock = FakeClock()
+
+    admin = await admin_client(make_client, github, clock)
+    with sqlite3.connect(settings.database_path) as db:
+        kept = db.execute("SELECT usage_input, usage_cached FROM service_calls").fetchall()
+    chat = health(await dashboard(admin), "chat_llm")
+
+    assert kept == [(1000, None)]
+    assert chat is not None
+    assert (chat["usage"][0]["cached"], chat["cache_hit_rate"]) == (None, 0)

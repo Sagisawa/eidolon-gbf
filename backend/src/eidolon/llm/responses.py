@@ -116,7 +116,13 @@ class ResponsesLLM:
             if kind in ("response.completed", "response.incomplete"):
                 usage = (event.get("response") or {}).get("usage")
                 if isinstance(usage, dict):
-                    bill("tokens", usage.get("input_tokens"), usage.get("output_tokens"))
+                    # The input tokens are all of it, those read from the cache among them.
+                    details = usage.get("input_tokens_details")
+                    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+                    bill(
+                        "tokens", usage.get("input_tokens"), usage.get("output_tokens"),
+                        cached if isinstance(cached, int) else None,
+                    )
         if reasoning:
             yield Reasoning({"items": [item for _, item in sorted(reasoning.items())]})
         for index, call in sorted(calls.items()):

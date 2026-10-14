@@ -29,6 +29,7 @@ class PriceInput(BaseModel):
     unit: Unit
     input: float = Field(ge=0, allow_inf_nan=False)
     output: float | None = Field(None, ge=0, allow_inf_nan=False)
+    cache_read: float | None = Field(None, ge=0, allow_inf_nan=False)
     currency: Currency
 
     @field_validator("provider", "model")
@@ -62,7 +63,7 @@ def add_admin_price_routes(app: FastAPI, backend: Backend) -> None:
     def save_price(price: PriceInput, _: Admin) -> dict:
         """Price a provider's model so from now on, in place of its preset, if any."""
         prices.save((price.provider, price.model, price.unit), price.input, price.output,
-                    price.currency)
+                    price.currency, price.cache_read)
         return described()
 
     @app.post("/api/admin/prices/refresh")

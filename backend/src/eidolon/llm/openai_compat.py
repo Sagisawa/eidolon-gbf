@@ -103,7 +103,10 @@ class OpenAICompatLLM:
                     if isinstance(extra := fragment.get("extra_content"), dict):
                         call["extra_content"] = extra
         if usage is not None:
-            bill("tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"))
+            bill(
+                "tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"),
+                _cache_hits(usage),
+            )
         assembled = [
             (call["id"] or f"call_{index}", call)  # the tool result must name its call
             for index, call in sorted(calls.items())
@@ -120,6 +123,20 @@ class OpenAICompatLLM:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _cache_hits(usage: dict[str, Any]) -> int | None:
+    """How many of the prompt tokens, which are all of the input, the provider read from its
+    cache: where most services say, else under DeepSeek's own name, else Kimi's older one."""
+    details = usage.get("prompt_tokens_details")
+    for told in (
+        details.get("cached_tokens") if isinstance(details, dict) else None,
+        usage.get("prompt_cache_hit_tokens"),
+        usage.get("cached_tokens"),
+    ):
+        if isinstance(told, int):
+            return told
+    return None
 
 
 def _message(message: ChatMessage) -> dict[str, Any]:

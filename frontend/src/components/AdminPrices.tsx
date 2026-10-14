@@ -552,7 +552,7 @@ function PriceEditor({
     else check.refuse();
   }
 
-  function text(field: "provider" | "model" | "input" | "output") {
+  function text(field: "provider" | "model" | "input" | "output" | "cacheRead") {
     const label = t.fields[field];
     const problem = problemOf(field);
     const fieldId = `${id}-${field}`;
@@ -602,6 +602,7 @@ function PriceEditor({
         {select("currency", CURRENCIES.map((c) => ({ value: c, label: t.currencies[c] ?? c })))}
         {text("input")}
         {text("output")}
+        {form.unit === "tokens" && text("cacheRead")}
       </FieldGroup>
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={busy}>

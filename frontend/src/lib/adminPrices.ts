@@ -15,10 +15,14 @@ export const CURRENCIES: Currency[] = ["USD", "CNY"];
 /** 单价从哪来：后台设定、在线目录、按原厂价格估算（服务地址不在目录里，例如中转）、预设。 */
 export type PriceSource = "override" | "catalog" | "catalog_upstream" | "preset";
 
-/** 每 `per` 个单位的输入、输出价；`output` 为 null 时输出按输入价算。 */
+/**
+ * 每 `per` 个单位的输入、输出价；`output` 为 null 时输出按输入价算。`cache_read` 是输入里命中服务商缓存那部分的价，
+ * 为 null 时命中的部分也按输入价算。
+ */
 export type Price = {
   input: number;
   output: number | null;
+  cache_read: number | null;
   currency: string;
   per: number;
   /** 预设：整理价格的日期；目录：拉取目录的日期；后台设定：设定的日期。 */
@@ -40,6 +44,8 @@ export type CostRow = {
   usage_unknown: number;
   input: number | null;
   output: number | null;
+  /** 输入里命中缓存的部分；都没说时为 null。 */
+  cached: number | null;
   price: Price | null;
   currency: string | null;
   amount: number | null;
@@ -124,11 +130,17 @@ export function perWord(unit: string, per: number): string {
   return copy.admin.usage.per[unit] ?? copy.admin.usage.perCount(formatCount(per), unitWord(unit));
 }
 
-/** 一个单价："输入 $2 · 输出 $8 / 每百万 tokens"；输出不单独计价时只有一个数。 */
+/**
+ * 一个单价："输入 $2 · 命中缓存 $0.2 · 输出 $8 / 每百万 tokens"；没有缓存命中价的不写那一项，输出也不单独计价时只有一个数。
+ */
 export function formatPrice(price: Price, unit: string): string {
-  const input = formatUnitPrice(price.input, price.currency);
-  const amounts =
-    price.output === null ? input : `输入 ${input} · 输出 ${formatUnitPrice(price.output, price.currency)}`;
+  const words = copy.admin.prices.priceParts;
+  const money = (amount: number) => formatUnitPrice(amount, price.currency);
+  const parts = [
+    ...(price.cache_read === null ? [] : [words.cacheRead(money(price.cache_read))]),
+    ...(price.output === null ? [] : [words.output(money(price.output))]),
+  ];
+  const amounts = parts.length === 0 ? money(price.input) : [words.input(money(price.input)), ...parts].join(" · ");
   return `${amounts} / ${perWord(unit, price.per)}`;
 }
 
@@ -210,6 +222,7 @@ export type PriceForm = {
   unit: Unit;
   input: string;
   output: string;
+  cacheRead: string;
   currency: Currency;
 };
 
@@ -219,13 +232,17 @@ export type PriceChange = {
   unit: Unit;
   input: number;
   output: number | null;
+  cache_read: number | null;
   currency: Currency;
 };
 
-export type PriceProblem = { field: "provider" | "model" | "input" | "output"; reason: "required" | "amount" };
+export type PriceProblem = {
+  field: "provider" | "model" | "input" | "output" | "cacheRead";
+  reason: "required" | "amount";
+};
 
 export function emptyPriceForm(): PriceForm {
-  return { provider: "", model: "", unit: "tokens", input: "", output: "", currency: "USD" };
+  return { provider: "", model: "", unit: "tokens", input: "", output: "", cacheRead: "", currency: "USD" };
 }
 
 /** 修改一项单价时表单的初值：后台设定的，没有就是目录的，再没有就是预设的。 */
@@ -239,11 +256,12 @@ export function priceFormOf(
     unit: isUnit(entry.unit) ? entry.unit : "tokens",
     input: price ? String(price.input) : "",
     output: price?.output == null ? "" : String(price.output),
+    cacheRead: price?.cache_read == null ? "" : String(price.cache_read),
     currency: price && isCurrency(price.currency) ? price.currency : "USD",
   };
 }
 
-/** 表单换成要保存的单价，或者所有不对的地方（每项一条，按表单顺序）。输出价留空表示按输入价算。 */
+/** 表单换成要保存的单价，或者所有不对的地方（每项一条，按表单顺序）。输出价、缓存命中价留空表示按输入价算。 */
 export function priceChangeOf(form: PriceForm): { change: PriceChange } | { problems: PriceProblem[] } {
   const provider = form.provider.trim();
   const model = form.model.trim();
@@ -255,8 +273,12 @@ export function priceChangeOf(form: PriceForm): { change: PriceChange } | { prob
   else if (input === null) problems.push({ field: "input", reason: "amount" });
   const output = form.output.trim() ? amountOf(form.output) : null;
   if (form.output.trim() && output === null) problems.push({ field: "output", reason: "amount" });
+  const cacheRead = form.cacheRead.trim() ? amountOf(form.cacheRead) : null;
+  if (form.cacheRead.trim() && cacheRead === null) problems.push({ field: "cacheRead", reason: "amount" });
   if (problems.length > 0 || input === null) return { problems };
-  return { change: { provider, model, unit: form.unit, input, output, currency: form.currency } };
+  return {
+    change: { provider, model, unit: form.unit, input, output, cache_read: cacheRead, currency: form.currency },
+  };
 }
 
 function amountOf(text: string): number | null {

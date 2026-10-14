@@ -122,7 +122,11 @@ class AnthropicLLM:
                 error = event.get("error") or {}
                 raise LLMError(f"模型在流式输出中报错: {error.get('message') or event}")
         if usage:
-            bill("tokens", _input_tokens(usage), usage.get("output_tokens"))
+            cached = usage.get("cache_read_input_tokens")
+            bill(
+                "tokens", _input_tokens(usage), usage.get("output_tokens"),
+                cached if isinstance(cached, int) else None,
+            )
         if thinking:
             yield Reasoning({"blocks": [block for _, block in sorted(thinking.items())]})
         for index, call in sorted(calls.items()):

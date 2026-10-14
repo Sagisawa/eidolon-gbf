@@ -1,7 +1,8 @@
 """Activity records (GLOSSARY.md「运行记录」): one for each turn and each call, saying how
 it turned out, and one for each call to an outside service, saying which service, whose
 key, whether it failed and how, how long it took and what it was billed for; an LLM's,
-also how soon its first word came and the reasoning effort it was asked for. They hold
+also how much of its input hit the provider's prompt cache, how soon its first word came
+and the reasoning effort it was asked for. They hold
 nothing anyone said. Only the admin console reads them: its dashboard (`dashboard`), and
 its users page, for each user's recent usage (`admin_users_api`).
 
@@ -141,9 +142,11 @@ CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id,
 -- Each call to an outside service; `record_id` is the turn or call it was made in, NULL
 -- for one made outside any. `error` is NULL when it succeeded; the usage columns are NULL
 -- when the service did not say; `latency_ms` is NULL for speech recognition, a stream as
--- long as the call, and for speech synthesis that never answered. `first_token_ms` and
--- `reasoning_effort` are an LLM's alone: how soon its first text or tool call came (NULL
--- if none did), and the effort it was asked to think at (NULL for none asked).
+-- long as the call, and for speech synthesis that never answered. `first_token_ms`,
+-- `reasoning_effort` and `usage_cached` are an LLM's alone: how soon its first text or tool
+-- call came (NULL if none did), the effort it was asked to think at (NULL for none asked),
+-- and how much of `usage_input` the provider read from its prompt cache (NULL if it did
+-- not say).
 CREATE TABLE IF NOT EXISTS service_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id INTEGER,
@@ -158,7 +161,8 @@ CREATE TABLE IF NOT EXISTS service_calls (
     usage_input REAL,
     usage_output REAL,
     first_token_ms REAL,
-    reasoning_effort TEXT
+    reasoning_effort TEXT,
+    usage_cached REAL
 );
 CREATE INDEX IF NOT EXISTS service_calls_by_time ON service_calls(at);
 CREATE INDEX IF NOT EXISTS service_calls_by_record ON service_calls(record_id);
@@ -277,6 +281,9 @@ class CallRow:
     """For an LLM, how soon its first text or tool call came; None if none did."""
     effort: ReasoningEffort | None = None
     """For an LLM, the effort it was asked to think at; None for none asked."""
+    usage_cached: float | None = None
+    """For an LLM, how much of its input the provider read from its prompt cache; None if
+    it did not say."""
 
 
 _current: ContextVar["Recording | None"] = ContextVar("activity_record", default=None)
@@ -451,7 +458,7 @@ class ActivityLog:
             ).fetchall()
             calls = self._db.execute(
                 "SELECT service, provider, model, own_key, at, error, latency_ms, usage_unit,"
-                " usage_input, usage_output, first_token_ms, reasoning_effort"
+                " usage_input, usage_output, first_token_ms, reasoning_effort, usage_cached"
                 " FROM service_calls WHERE at > ? ORDER BY at",
                 (at,),
             ).fetchall()
@@ -469,10 +476,10 @@ class ActivityLog:
             ],
             [
                 CallRow(service, provider, model, bool(own), _time(at), error, latency,
-                        unit, used_in, used_out, first, effort)
+                        unit, used_in, used_out, first, effort, cached)
                 for (
                     service, provider, model, own, at, error, latency, unit, used_in, used_out,
-                    first, effort,
+                    first, effort, cached,
                 ) in calls
             ],
         )
@@ -561,11 +568,11 @@ class ActivityLog:
         self._db.execute(
             "INSERT INTO service_calls (record_id, at, service, provider, model, own_key,"
             " error, latency_ms, usage_unit, usage_input, usage_output, first_token_ms,"
-            " reasoning_effort) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " reasoning_effort, usage_cached) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record_id, call.at.timestamp(), origin.service, origin.provider, origin.model,
                 int(origin.own_key), call.error, call.latency_ms, billed.unit, billed.input,
-                billed.output, call.first_token_ms, origin.effort,
+                billed.output, call.first_token_ms, origin.effort, billed.cached,
             ),
         )
 
@@ -624,9 +631,12 @@ def _add_judgement_columns(db: sqlite3.Connection) -> None:
 
 def _add_llm_columns(db: sqlite3.Connection) -> None:
     """Service calls written before LLMs' first words were timed have no columns for that,
-    nor for the effort they were asked to think at."""
+    nor for the effort they were asked to think at, nor for how much of their input hit the
+    prompt cache: none of them say."""
     columns = {name for _, name, *_ in db.execute("PRAGMA table_info(service_calls)")}
-    for column, kind in [("first_token_ms", "REAL"), ("reasoning_effort", "TEXT")]:
+    for column, kind in [
+        ("first_token_ms", "REAL"), ("reasoning_effort", "TEXT"), ("usage_cached", "REAL")
+    ]:
         if column not in columns:
             db.execute(f"ALTER TABLE service_calls ADD COLUMN {column} {kind}")
 
