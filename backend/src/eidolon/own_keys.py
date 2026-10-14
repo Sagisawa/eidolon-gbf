@@ -1,6 +1,7 @@
 """Users' own API keys: an LLM (which plays the characters and writes down memories, unless
-they bring another model of their own for memories), speech synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Model Studio,
-阿里云百炼, whichever the user chose, whatever the deployer did).
+they bring another model of their own for memories), speech synthesis (Fish Audio) and
+speech recognition (Soniox or Alibaba Cloud Model Studio, 阿里云百炼, whichever the user
+chose, whatever the deployer did).
 
 A user who brings their own key for a service has their turns and calls use it there,
 at their own expense. A call on their key that fails fails the turn, saying which of
@@ -19,15 +20,14 @@ the live configuration has then (GLOSSARY.md「免限额密钥」), touching no 
 it starts, before a call is placed (`call_exempt`), and for the settings page.
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
-`check_memory_llm`, `check_tts`, `check_stt`). Whether a key fails its try or a turn, what the service said is
-shown to the user with the key masked (`_masked`), and logged no other way; a call's
-speech service on the user's key has it masked in its errors before Pipecat logs them
-(`call._masking`). An LLM is
-tried as the deployer's chat model is at startup: it must stream and take tools. In a
-public deployment it must also be on the public internet, so no one can point the backend
-at the machines next to it, and read their answers back in the errors they are shown. That is checked on every
-connection, not only when the key is tried: a name that resolved to a public address then
-can resolve to a private one later.
+`check_memory_llm`, `check_tts`, `check_stt`). Whether a key fails its try or a turn, what
+the service said is shown to the user with the key masked (`_masked`), and logged no other
+way; a call's speech service on the user's key has it masked in its errors before Pipecat
+logs them (`call._masking`). An LLM is tried as the deployer's chat model is at startup: it
+must stream and take tools. In a public deployment it must also be on the public internet,
+so no one can point the backend at the machines next to it, and read their answers back in
+the errors they are shown. That is checked on every connection, not only when the key is
+tried: a name that resolved to a public address then can resolve to a private one later.
 """
 
 import asyncio

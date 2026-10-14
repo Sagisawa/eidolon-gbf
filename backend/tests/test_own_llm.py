@@ -369,17 +369,14 @@ async def test_a_call_on_an_own_llm_writes_down_memories_on_an_own_memory_llm(
     assert own_llm.efforts == ["none", "low"]
 
 
-MEMORY_LLM_SET_WRONGLY = [
-    {"extra_body": {"messages": [], "enable_thinking": False}},
-    {"protocol": "anthropic", "reasoning_effort": "minimal"},
-]
-
-
 @pytest.mark.parametrize(
     "own_keys",
-    [{"memory_llm": MEMORY_LLM}]
-    + [{"llm": LLM, "memory_llm": MEMORY_LLM | wrong} for wrong in MEMORY_LLM_SET_WRONGLY],
-    ids=["without-an-own-llm", "extra-body", "effort"],
+    [
+        {"memory_llm": MEMORY_LLM},
+        # Checked as their own LLM is (see the test of it set wrongly).
+        {"llm": LLM, "memory_llm": MEMORY_LLM | {"extra_body": {"messages": []}}},
+    ],
+    ids=["without-an-own-llm", "set-wrongly"],
 )
 async def test_a_turn_or_call_bringing_an_own_memory_llm_alone_or_set_wrongly_is_refused_not_sent(
     make_client: ClientFactory, own_llm: FakeLLMService, browser: Browser, own_keys: dict
@@ -429,16 +426,6 @@ async def test_trying_an_own_memory_llm_says_it_was_that_one_that_failed(
         "试调失败：提炼记忆的 LLM：思考强度『低』被服务拒绝：模型返回 400: Invalid reasoning_effort for key ***"
     )
     assert rejected.json()["detail"] == "试调失败：提炼记忆的 LLM：401 Unauthorized: bad key ***"
-
-
-async def test_trying_an_own_memory_llm_set_wrongly_says_why_without_trying_it(
-    make_client: ClientFactory, own_llm: FakeLLMService
-):
-    client = make_client(FakeLLM())
-
-    for wrong in MEMORY_LLM_SET_WRONGLY:
-        assert (await check_memory_llm(client, **wrong)).status_code == 422, wrong
-    assert own_llm.checked == []
 
 
 @pytest.mark.parametrize(

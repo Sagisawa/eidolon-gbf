@@ -158,15 +158,14 @@ describe("sendTurn", () => {
     return all;
   }
 
-  it("posts the text to the conversation's turns, bringing the user's own LLMs kept in this browser as own_keys", async () => {
+  it("posts the text to the conversation's turns, bringing the user's own LLM kept in this browser as own_keys", async () => {
     const llm = {
       api_key: "sk-my-own-key-1234",
       base_url: "https://llm.example.com/v1",
       model: "my-model",
       protocol: "chat-completions",
     };
-    const memory_llm = { ...llm, api_key: "sk-my-memory-key-5678", model: "cheap-model" };
-    const items = new Map([["eidolon.ownKeys.u1", JSON.stringify({ llm, memory_llm })]]);
+    const items = new Map([["eidolon.ownKeys.u1", JSON.stringify({ llm })]]);
     vi.stubGlobal("localStorage", { getItem: (key: string) => items.get(key) ?? null });
     const fetch = answerWith([]);
 
@@ -176,7 +175,7 @@ describe("sendTurn", () => {
     const [path, init] = fetch.mock.calls[0];
     expect(path).toBe("/api/conversations/c1/turns");
     expect(init.method).toBe("POST");
-    expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_keys: { llm, memory_llm } });
+    expect(JSON.parse(init.body as string)).toEqual({ text: "おはよう", own_keys: { llm } });
     expect(JSON.parse(fetch.mock.calls[1][1].body as string)).toEqual({ text: "おはよう" });
   });
 

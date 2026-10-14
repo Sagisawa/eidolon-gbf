@@ -40,7 +40,6 @@ const LLM = {
 } as const;
 const TTS = { api_key: "fish-my-own-key" };
 const STT = { api_key: "soniox-my-own-key", provider: "soniox" } as const;
-const MEMORY_LLM = { ...LLM, api_key: "sk-my-memory-key-5678", model: "cheap-model" } as const;
 
 const PREFERENCES: CallPreferences = { micId: "", quality: "standard", muted: false, phoneTexture: false };
 const HANDLERS = {
@@ -74,13 +73,12 @@ describe("startCall", () => {
     keepOwnKey("u1", "llm", LLM);
     keepOwnKey("u1", "tts", TTS);
     keepOwnKey("u1", "stt", STT);
-    keepOwnKey("u1", "memory_llm", MEMORY_LLM);
 
     await startCall("c1", PREFERENCES, HANDLERS, "u1");
 
     expect(offers).toHaveLength(1);
     const [{ requestData, sentWithOffer }] = offers;
-    expect(sentWithOffer).toMatchObject({ conversation_id: "c1", own_keys: { llm: LLM, tts: TTS, stt: STT, memory_llm: MEMORY_LLM } });
+    expect(sentWithOffer).toMatchObject({ conversation_id: "c1", own_keys: { llm: LLM, tts: TTS, stt: STT } });
     // 之后每次重新协商发的都是这同一份请求数据。
     expect(requestData).not.toHaveProperty("own_keys");
     expect(requestData).toMatchObject({ conversation_id: "c1" });

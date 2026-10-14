@@ -355,6 +355,28 @@ function OwnSpeechKeyForm({
   );
 }
 
+/** 两种自带 LLM 的表单各自的文案和试调：`callEffort` 是有没有通话那一档。 */
+const LLM_FORMS = {
+  chat: {
+    title: t.llmTitle,
+    hint: t.llmHint,
+    notSet: t.notSet,
+    effort: t.textEffort,
+    effortHint: t.textEffortHint,
+    callEffort: true,
+    check: checkOwnLLM,
+  },
+  memory: {
+    title: t.memoryLlmTitle,
+    hint: t.memoryLlmHint,
+    notSet: t.memoryLlmNotSet,
+    effort: t.memoryEffort,
+    effortHint: t.memoryEffortHint,
+    callEffort: false,
+    check: checkOwnMemoryLLM,
+  },
+};
+
 /**
  * 自带的 LLM（`chat`，文字、通话各一档思考强度），或另配的提炼记忆的 LLM（`memory`，只有一档）：
  * 先让服务器试调一次（它不保存），通过了才存进这个浏览器。
@@ -366,7 +388,7 @@ function OwnLLMForm({
   onChecked,
   onDelete,
 }: {
-  kind: "chat" | "memory";
+  kind: keyof typeof LLM_FORMS;
   current: LocalLLM | undefined;
   disabled: boolean;
   /** 试调通过的 LLM，地址和模型名按服务器规范化过的。 */
@@ -388,8 +410,8 @@ function OwnLLMForm({
   // 档位换成接口写不出的（选着「极低」换成 Anthropic）是 undefined，额外请求参数不是 JSON 对象时带着 problem：都不能保存。
   // 提炼记忆的 LLM 只有 `textEffort` 那一档，`callEffort` 一直是不设置。
   const effortInText = effortOf(textEffort, protocol);
-  const effortInCalls = kind === "chat" ? effortOf(callEffort, protocol) : null;
-  const effortField = kind === "chat" ? t.textEffort : t.memoryEffort;
+  const form = LLM_FORMS[kind];
+  const effortInCalls = form.callEffort ? effortOf(callEffort, protocol) : null;
   const parsedExtraBody = parseExtraBody(extraBody);
   // 档位提示按表单里正在填的协议、地址和模型名查，不带密钥。
   const catalogHint = useEffortHint(protocol, editing ? baseUrl : "", model);
@@ -431,8 +453,7 @@ function OwnLLMForm({
     setBusy(true);
     setFailure(null);
     try {
-      const check = kind === "chat" ? checkOwnLLM : checkOwnMemoryLLM;
-      onChecked({ ...toTry, ...(await check(toTry)) });
+      onChecked({ ...toTry, ...(await form.check(toTry)) });
       setApiKey("");
       setEditing(false);
     } catch (e) {
@@ -443,8 +464,8 @@ function OwnLLMForm({
   }
 
   const protocolOptions = LLM_PROTOCOLS.map((p) => ({ value: p, label: t.protocols[p] }));
-  const thinking = (llm: LocalLLM) => {
-    if (kind === "memory") return llm.reasoning_effort ? [t.memoryLlmThinking(effortLabel(llm.reasoning_effort))] : [];
+  const effortLines = (llm: LocalLLM) => {
+    if (!form.callEffort) return llm.reasoning_effort ? [t.memoryLlmThinking(effortLabel(llm.reasoning_effort))] : [];
     if (!llm.reasoning_effort && !llm.call_reasoning_effort) return [];
     return [
       t.llmThinking(
@@ -457,15 +478,15 @@ function OwnLLMForm({
     ? [
         t.llmCurrent(current.model, current.base_url),
         t.last4(last4(current.api_key)),
-        ...thinking(current),
+        ...effortLines(current),
         ...(current.extra_body ? [t.llmExtraBody] : []),
       ]
-    : [kind === "chat" ? t.notSet : t.memoryLlmNotSet];
+    : [form.notSet];
 
   return (
     <ServiceKey
-      title={kind === "chat" ? t.llmTitle : t.memoryLlmTitle}
-      hint={kind === "chat" ? t.llmHint : t.memoryLlmHint}
+      title={form.title}
+      hint={form.hint}
       summary={summary}
       isSet={!!current}
       editing={editing}
@@ -526,16 +547,16 @@ function OwnLLMForm({
           </Field>
           <EffortField
             id={`${id}-effort`}
-            label={effortField}
-            hint={`${kind === "chat" ? t.textEffortHint : t.memoryEffortHint}${copy.reasoningEffort.hints.effort}`}
+            label={form.effort}
+            hint={`${form.effortHint}${copy.reasoningEffort.hints.effort}`}
             protocol={protocol}
             choice={textEffort}
             onChoose={setTextEffort}
-            problem={effortInText === undefined ? copy.reasoningEffort.problems.effort(effortField) : undefined}
+            problem={effortInText === undefined ? copy.reasoningEffort.problems.effort(form.effort) : undefined}
             catalogHint={catalogHint}
             showCatalogNote
           />
-          {kind === "chat" && (
+          {form.callEffort && (
             <EffortField
               id={`${id}-call-effort`}
               label={t.callEffort}

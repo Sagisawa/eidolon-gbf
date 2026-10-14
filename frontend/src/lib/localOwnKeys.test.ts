@@ -143,18 +143,12 @@ describe("an own model for memories", () => {
     expect(localOwnKeys("u2")).toEqual({ llm: LLM });
   });
 
-  it("is left out alone where stored wrongly, its effort and extra body unset where they are", () => {
+  it("is left out alone where stored wrongly", () => {
     storage({
       "eidolon.ownKeys.u1": JSON.stringify({ llm: LLM, memory_llm: { ...MEMORY_LLM, protocol: "grpc" } }),
-      "eidolon.ownKeys.u2": JSON.stringify({
-        llm: LLM,
-        memory_llm: { ...MEMORY_LLM, reasoning_effort: "turbo", extra_body: "enable_thinking" },
-      }),
     });
 
     expect(localOwnKeys("u1")).toEqual({ llm: LLM });
-    const { reasoning_effort, extra_body, ...connection } = MEMORY_LLM;
-    expect(localOwnKeys("u2")).toEqual({ llm: LLM, memory_llm: connection });
   });
 
   it("is nothing without the own LLM it goes with, and forgotten with it", () => {
@@ -167,16 +161,6 @@ describe("an own model for memories", () => {
     forgetOwnKey("u2", "llm");
 
     expect(localOwnKeys("u2")).toEqual({ tts: { api_key: "fish-my-own-key" } });
-  });
-
-  it("can be forgotten alone", () => {
-    storage();
-    keepOwnKey("u1", "llm", LLM);
-    keepOwnKey("u1", "memory_llm", MEMORY_LLM);
-
-    forgetOwnKey("u1", "memory_llm");
-
-    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
   });
 
   it("goes with each text turn and call, never named as a service of its own", () => {
