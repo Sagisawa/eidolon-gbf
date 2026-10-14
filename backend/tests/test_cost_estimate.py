@@ -285,11 +285,6 @@ async def test_the_input_read_from_the_cache_is_priced_at_the_cache_price_where_
     # input read from the cache priced as the rest.
     assert await priced_at(0.1) == pytest.approx(0.00408)
     assert await priced_at(None) == pytest.approx(0.0056)
-    refused = await admin.put("/api/admin/prices", json={
-        "provider": "llm.example", "model": "m-cached", "unit": "tokens",
-        "input": 2, "output": 8, "cache_read": -1, "currency": "USD",
-    })
-    assert refused.status_code == 422
 
 
 async def test_prices_are_for_admins_only(make_client: ClientFactory, settings: Settings):

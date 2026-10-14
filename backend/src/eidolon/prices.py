@@ -4,20 +4,21 @@ for the dashboard to estimate what their keys cost.
 A price is for a provider (the host the service is at, as service calls are recorded:
 `activity.host`), a model and the unit it is billed in (`billing.Unit`): an amount for
 each `PER` units of input and, where the service prices output apart (an LLM), of output,
-and of the input read from the provider's prompt cache, in a currency. Where a price comes from (`Pricing`): the price an admin set in the admin
-console, kept in the database (`price_overrides`), if any; else, for a model billed in
-tokens, the catalogs online (`price_catalog`), fetched each day; else the one in
-`PRESETS`, gathered from the providers' price pages on the day each says (see
-`.scratch/admin-console/research.md`), there for when the catalogs cannot be fetched and
-for what they do not price. Restoring an admin's price deletes it.
+and of the input read from the provider's prompt cache, in a currency. Where a price
+comes from (`Pricing`): the price an admin set in the admin console, kept in the database
+(`price_overrides`), if any; else, for a model billed in tokens, the catalogs online
+(`price_catalog`), fetched each day; else the one in `PRESETS`, gathered from the
+providers' price pages on the day each says (see `.scratch/admin-console/research.md`),
+there for when the catalogs cannot be fetched and for what they do not price. Restoring
+an admin's price deletes it.
 
 The cost (`cost`) is each call's usage on the deployer's keys times its price at the time
 it is asked for, summed by currency, never converted between them, and without any free
 allowance taken off: an estimate, not a bill. The input an LLM read from the cache is
 priced at the cache price, or as the rest of the input without one; a call that did not
-say how much it read hit none. A call whose usage is unknown is counted,
-not priced; a model without a price shows what it used, and no amount. Usage on users'
-own keys is theirs to pay: shown, never priced.
+say how much it read hit none. A call whose usage is unknown is counted, not priced; a
+model without a price shows what it used, and no amount. Usage on users' own keys is
+theirs to pay: shown, never priced.
 """
 
 import threading

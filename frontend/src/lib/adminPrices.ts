@@ -273,8 +273,10 @@ export function priceChangeOf(form: PriceForm): { change: PriceChange } | { prob
   else if (input === null) problems.push({ field: "input", reason: "amount" });
   const output = form.output.trim() ? amountOf(form.output) : null;
   if (form.output.trim() && output === null) problems.push({ field: "output", reason: "amount" });
-  const cacheRead = form.cacheRead.trim() ? amountOf(form.cacheRead) : null;
-  if (form.cacheRead.trim() && cacheRead === null) problems.push({ field: "cacheRead", reason: "amount" });
+  // 只有按 tokens 计价时表单才显示缓存命中价；换成别的单位后，填过的也不算数。
+  const cacheText = form.unit === "tokens" ? form.cacheRead.trim() : "";
+  const cacheRead = cacheText ? amountOf(cacheText) : null;
+  if (cacheText && cacheRead === null) problems.push({ field: "cacheRead", reason: "amount" });
   if (problems.length > 0 || input === null) return { problems };
   return {
     change: { provider, model, unit: form.unit, input, output, cache_read: cacheRead, currency: form.currency },

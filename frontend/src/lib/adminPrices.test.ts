@@ -192,6 +192,15 @@ describe("price form", () => {
     expect(priceChangeOf({ ...form, cacheRead: " 0.028 " })).toMatchObject({ change: { cache_read: 0.028 } });
   });
 
+  it("leaves out a cache price the form no longer shows, for a unit other than tokens", () => {
+    expect(priceChangeOf({ ...form, unit: "bytes", cacheRead: "0.028" })).toMatchObject({
+      change: { unit: "bytes", cache_read: null },
+    });
+    expect(priceChangeOf({ ...form, unit: "seconds", cacheRead: "abc" })).toMatchObject({
+      change: { cache_read: null },
+    });
+  });
+
   it("names each field that is missing or not an amount", () => {
     const cases: [Partial<PriceForm>, object][] = [
       [{ provider: "  " }, { field: "provider", reason: "required" }],

@@ -1,8 +1,7 @@
 """The price catalogs online (GLOSSARY.md「看板」): models.dev's and OpenRouter's lists of
 models and what each costs per million tokens, in dollars, input read from the prompt
 cache too where they say, for pricing the deployer's service calls in place of the presets
-(`prices`). The way magpie prices its calls
-(github.com/yetone/magpie, `internal/catalog`).
+(`prices`). The way magpie prices its calls (github.com/yetone/magpie, `internal/catalog`).
 
 The catalogs are fetched in the background as the server starts, again once they are a
 day old, and sooner when a model has no price (`refresh_soon`), or when an admin asks

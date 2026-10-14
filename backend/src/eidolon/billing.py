@@ -2,9 +2,9 @@
 
 A service's client tells it here (`bill`) as it reads the service's answer: an LLM its
 input and output tokens, and how many of the input hit the provider's prompt cache; a
-reranker the tokens it read. Whoever times the request for its
-activity record (`activity`) opens a `Billing` around it (`billing`) and reads it off
-afterwards; with none open, as for the startup checks, what the client says goes nowhere.
+reranker the tokens it read. Whoever times the request for its activity record
+(`activity`) opens a `Billing` around it (`billing`) and reads it off afterwards; with
+none open, as for the startup checks, what the client says goes nowhere.
 A client that is never told, or a service that never says, leaves the usage unknown: it
 is never guessed.
 """

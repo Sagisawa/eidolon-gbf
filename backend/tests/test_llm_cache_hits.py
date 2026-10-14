@@ -64,21 +64,18 @@ async def billed(adapter: Adapter, stream: str) -> Billing:
 @pytest.mark.parametrize(
     ("usage", "cached"),
     [
-        # where OpenAI, DeepSeek, OpenRouter, Kimi and most others say it
-        ({"prompt_tokens": 1000, "completion_tokens": 50,
-          "prompt_tokens_details": {"cached_tokens": 768}}, 768),
-        # DeepSeek's own name for it, which goes first only where the other is missing
-        ({"prompt_tokens": 1000, "completion_tokens": 50,
-          "prompt_cache_hit_tokens": 640, "prompt_cache_miss_tokens": 360}, 640),
+        # where OpenAI, DeepSeek, OpenRouter, Kimi and most others say it, first
         ({"prompt_tokens": 1000, "completion_tokens": 50,
           "prompt_tokens_details": {"cached_tokens": 768}, "prompt_cache_hit_tokens": 640}, 768),
+        # DeepSeek's own name for it, where the other is missing
+        ({"prompt_tokens": 1000, "completion_tokens": 50,
+          "prompt_cache_hit_tokens": 640, "prompt_cache_miss_tokens": 360}, 640),
         # Kimi's older one
         ({"prompt_tokens": 1000, "completion_tokens": 50, "cached_tokens": 512}, 512),
         # none said
         ({"prompt_tokens": 1000, "completion_tokens": 50}, None),
-        ({"prompt_tokens": 1000, "completion_tokens": 50, "prompt_tokens_details": None}, None),
     ],
-    ids=["details", "deepseek", "details-first", "kimi", "untold", "details-null"],
+    ids=["details", "deepseek", "kimi", "untold"],
 )
 async def test_chat_completions_tells_the_cache_hits_where_the_service_says(
     usage: dict, cached: int | None

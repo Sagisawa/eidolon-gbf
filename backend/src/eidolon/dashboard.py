@@ -4,9 +4,9 @@ summed up for the admin, under `/api/admin/dashboard`.
 Everything is summed up here; the browser only shows it. For each service, on the
 deployer's keys and on users' own apart: how many calls, how many failed and how, how
 long they took, and what they were billed for; for an LLM, at each reasoning effort apart,
-how soon its first word came and how much of its input hit the provider's prompt cache. For turns (typed or in calls): how many,
-by how they turned out, how many on users' own keys, how soon the character began to
-speak. For calls: how many, by how they turned out, how many on users' own keys, how long
+how soon its first word came and how much of its input hit the provider's prompt cache.
+For turns (typed or in calls): how many, by how they turned out, how many on users' own
+keys, how soon the character began to speak. For calls: how many, by how they turned out, how many on users' own keys, how long
 they lasted and why they ended. How many users took any turn or call; how many turns and
 calls with each character, and in each stretch of the range (`trend`), in stretches
 beginning where the admin's clock (`X-Timezone`) has a round hour or day. Where affinity is
