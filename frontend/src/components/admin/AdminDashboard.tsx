@@ -57,6 +57,7 @@ import {
   healthSummary,
   isDashboardRange,
   rangeHref,
+  serviceName,
   splitZeroRows,
   TURN_RESULTS,
 } from "@/lib/dashboard";
@@ -554,10 +555,6 @@ function DurationsTable({ board }: { board: Dashboard }) {
   );
 }
 
-function serviceLabel(row: Dashboard["health"][number]): string {
-  return t.health.services[row.service] ?? row.service;
-}
-
 function HealthTable({ board }: { board: Dashboard }) {
   if (board.health.length === 0) return <p className="text-sm text-muted-foreground">{t.health.empty}</p>;
   const rows = board.health.map((row) => ({ id: healthRowId(row), row }));
@@ -583,7 +580,7 @@ function HealthTable({ board }: { board: Dashboard }) {
             {rows.map(({ id, row }) => (
               <TableRow key={id}>
                 <TableCell>
-                  {serviceLabel(row)}
+                  {serviceName(row)}
                   {row.own_key && <span className="block text-xs text-muted-foreground">{t.health.own}</span>}
                 </TableCell>
                 <TableCell>{healthEffort(row) ?? "—"}</TableCell>
@@ -605,10 +602,9 @@ function HealthTable({ board }: { board: Dashboard }) {
         <RowList
           rows={rows.map(({ id, row }) => {
             const errors = errorsText(row);
-            const effort = healthEffort(row);
             return {
               id,
-              label: [serviceLabel(row), ...(row.own_key ? [t.health.own] : []), ...(effort ? [effort] : [])].join(" · "),
+              label: healthRowName(row),
               end: <HealthStatusText status={healthStatus(row)} />,
               description: (
                 <>

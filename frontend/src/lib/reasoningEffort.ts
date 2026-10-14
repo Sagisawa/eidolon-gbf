@@ -27,11 +27,17 @@ export function effortOf(choice: string, protocol: string): ReasoningEffort | nu
   return effortsFor(protocol).find((effort) => effort === choice);
 }
 
-/** 思考强度的一档：「高（high）」，没设是「不设置」。 */
-export function effortLabel(effort: string): string {
+/** 思考强度一档的中文名：「高」，没设是「不设置」。 */
+export function effortName(effort: string): string {
   const efforts = copy.reasoningEffort;
   if (effort === EFFORT_UNSET) return efforts.unset;
-  return efforts.option(efforts.names[effort] ?? effort, effort);
+  return efforts.names[effort] ?? effort;
+}
+
+/** 思考强度的一档：「高（high）」，没设是「不设置」。 */
+export function effortLabel(effort: string): string {
+  if (effort === EFFORT_UNSET) return effortName(effort);
+  return copy.reasoningEffort.option(effortName(effort), effort);
 }
 
 /** 思考强度下拉框认得的每一档，包括这种接口不列的（换成 Anthropic 时还选着的「极低」照样显示名字）。 */

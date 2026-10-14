@@ -5,7 +5,7 @@
 import { copy } from "@/i18n";
 import type { Cost } from "@/lib/adminPrices";
 import { api, json } from "@/lib/api";
-import { EFFORT_UNSET, type ReasoningEffort, effortLabel } from "@/lib/reasoningEffort";
+import { EFFORT_UNSET, type ReasoningEffort, effortLabel, effortName } from "@/lib/reasoningEffort";
 
 export const DASHBOARD_RANGES = ["24h", "7d", "30d", "90d"] as const;
 
@@ -91,14 +91,25 @@ export type ServiceHealth = {
   first_token_ms?: Percentiles;
 };
 
+/** An LLM row's effort as a form's choice is, unset for none asked; null for other services. */
+function rowEffort(row: ServiceHealth): string | null {
+  return row.effort === undefined ? null : (row.effort ?? EFFORT_UNSET);
+}
+
 /** A health row's key: an LLM has a row for each effort. */
 export function healthRowId(row: ServiceHealth): string {
-  return `${row.service}:${row.own_key}:${row.effort === undefined ? "" : (row.effort ?? EFFORT_UNSET)}`;
+  return `${row.service}:${row.own_key}:${rowEffort(row) ?? ""}`;
 }
 
 /** An LLM row's effort as the table shows it, 「高（high）」 or 「不设置」; null for other services. */
 export function healthEffort(row: ServiceHealth): string | null {
-  return row.effort === undefined ? null : effortLabel(row.effort ?? EFFORT_UNSET);
+  const effort = rowEffort(row);
+  return effort === null ? null : effortLabel(effort);
+}
+
+/** A service's name: 「扮演角色的 LLM」. */
+export function serviceName(row: ServiceHealth): string {
+  return copy.admin.dashboard.health.services[row.service] ?? row.service;
 }
 
 /** 「842 ms / 1.3 s」; 「—」 for what a service has none of, as first words of all but LLMs. */
@@ -109,15 +120,9 @@ export function formatPercentiles(times: Percentiles | undefined): string {
 /** A health row named in a sentence: 「扮演角色的 LLM（自带密钥，思考强度高）」. */
 export function healthRowName(row: ServiceHealth): string {
   const words = copy.admin.dashboard.health;
-  const efforts = copy.reasoningEffort;
-  const notes = [
-    ...(row.own_key ? [words.own] : []),
-    ...(row.effort === undefined
-      ? []
-      : [words.atEffort(row.effort === null ? efforts.unset : (efforts.names[row.effort] ?? row.effort))]),
-  ];
-  const name = words.services[row.service] ?? row.service;
-  return notes.length > 0 ? `${name}（${notes.join("，")}）` : name;
+  const effort = rowEffort(row);
+  const notes = [...(row.own_key ? [words.own] : []), ...(effort === null ? [] : [words.atEffort(effortName(effort))])];
+  return notes.length > 0 ? `${serviceName(row)}（${notes.join("，")}）` : serviceName(row);
 }
 
 export type TurnResult = "success" | "failed" | "rejected" | "left";

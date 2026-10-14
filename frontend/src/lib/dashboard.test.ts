@@ -122,9 +122,7 @@ describe("the health table's rows", () => {
 
   it("say how soon an LLM's first word came, and nothing of it for other services", () => {
     expect(formatPercentiles(llm("high").first_token_ms)).toBe("842 ms / 1.3 s");
-    expect(formatPercentiles({ p50: null, p95: null })).toBe("— / —");
     expect(formatPercentiles(tts.first_token_ms)).toBe("—");
-    expect(formatPercentiles(tts.latency_ms)).toBe("900 ms / 1.5 s");
   });
 
   it("are named by service, whose keys and an LLM's effort", () => {

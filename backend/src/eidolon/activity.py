@@ -79,6 +79,9 @@ speech synthesis and recognition, the judge model, embedding and reranking."""
 SERVICES: tuple[ServiceName, ...] = (
     "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank"
 )
+LLM_SERVICES: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
+"""The LLMs among them (`llm_origin`): a user's own is recorded as `OWN`, and each call
+says how soon its first word came and at which reasoning effort."""
 
 RecordKind = Literal["turn", "call"]
 Result = Literal["success", "failed", "rejected", "left", "not_connected"]
@@ -270,10 +273,10 @@ class CallRow:
     usage_unit: str | None
     usage_input: float | None
     usage_output: float | None
-    effort: ReasoningEffort | None = None
-    """For an LLM, the effort it was asked to think at; None for none asked."""
     first_token_ms: float | None = None
     """For an LLM, how soon its first text or tool call came; None if none did."""
+    effort: ReasoningEffort | None = None
+    """For an LLM, the effort it was asked to think at; None for none asked."""
 
 
 _current: ContextVar["Recording | None"] = ContextVar("activity_record", default=None)
@@ -391,7 +394,7 @@ class ActivityLog:
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
             _let_latency_be_unknown(self._db)
-            _add_first_token_columns(self._db)
+            _add_llm_columns(self._db)
             _add_judgement_columns(self._db)
             _forget_own_llms(self._db)
         self._clock = clock
@@ -416,14 +419,14 @@ class ActivityLog:
         started: float,
         error: ErrorKind | None,
         billed: Billing,
-        first_token: float | None = None,
+        first_token_at: float | None = None,
     ) -> None:
         """A service call, begun at `started` (`perf_counter`), has ended: recorded under
         the turn it was made in, if it is still open, or on its own. An LLM's says when its
-        first text or tool call came (`first_token`, also `perf_counter`), if one did."""
+        first text or tool call came (`first_token_at`, also `perf_counter`), if one did."""
         call = ServiceCall(
             origin, self._clock(), error, (perf_counter() - started) * 1000, billed,
-            (first_token - started) * 1000 if first_token is not None else None,
+            (first_token_at - started) * 1000 if first_token_at is not None else None,
         )
         self.record(call, _current.get())
 
@@ -448,7 +451,7 @@ class ActivityLog:
             ).fetchall()
             calls = self._db.execute(
                 "SELECT service, provider, model, own_key, at, error, latency_ms, usage_unit,"
-                " usage_input, usage_output, reasoning_effort, first_token_ms"
+                " usage_input, usage_output, first_token_ms, reasoning_effort"
                 " FROM service_calls WHERE at > ? ORDER BY at",
                 (at,),
             ).fetchall()
@@ -466,10 +469,10 @@ class ActivityLog:
             ],
             [
                 CallRow(service, provider, model, bool(own), _time(at), error, latency,
-                        unit, used_in, used_out, effort, first)
+                        unit, used_in, used_out, first, effort)
                 for (
                     service, provider, model, own, at, error, latency, unit, used_in, used_out,
-                    effort, first,
+                    first, effort,
                 ) in calls
             ],
         )
@@ -619,7 +622,7 @@ def _add_judgement_columns(db: sqlite3.Connection) -> None:
             db.execute(f"ALTER TABLE activity_records ADD COLUMN {column} INTEGER")
 
 
-def _add_first_token_columns(db: sqlite3.Connection) -> None:
+def _add_llm_columns(db: sqlite3.Connection) -> None:
     """Service calls written before LLMs' first words were timed have no columns for that,
     nor for the effort they were asked to think at."""
     columns = {name for _, name, *_ in db.execute("PRAGMA table_info(service_calls)")}
@@ -647,9 +650,9 @@ def _forget_own_llms(db: sqlite3.Connection) -> None:
     theirs is left saying only `OWN`."""
     db.execute(
         "UPDATE service_calls SET provider = ?, model = ?"
-        " WHERE own_key = 1 AND service IN ('chat_llm', 'memory_llm')"
+        f" WHERE own_key = 1 AND service IN ({', '.join('?' * len(LLM_SERVICES))})"
         " AND (provider != ? OR model != ?)",
-        (OWN, OWN, OWN, OWN),
+        (OWN, OWN, *LLM_SERVICES, OWN, OWN),
     )
 
 
@@ -732,7 +735,9 @@ class _MeteredLLM:
         forbid_calls: bool = False,
     ) -> AsyncIterator[Streamed]:
         started = perf_counter()
-        first_token: float | None = None  # its first text or tool call; thinking is neither
+        # When its first text or tool call came; thinking is neither. A tool call comes only
+        # once its arguments are whole, so a reply that is one comes about when it ends.
+        first_token_at: float | None = None
         billed = Billing()
         error: ErrorKind | None = None
         stream = aiter(self._llm.stream(messages, tools, forbid_calls=forbid_calls))
@@ -745,8 +750,8 @@ class _MeteredLLM:
                         item = await anext(stream)
                     except StopAsyncIteration:
                         break
-                if first_token is None and item and not isinstance(item, Reasoning):
-                    first_token = perf_counter()
+                if first_token_at is None and item and not isinstance(item, Reasoning):
+                    first_token_at = perf_counter()
                 yield item
         except (GeneratorExit, asyncio.CancelledError):
             raise  # abandoned, not failed
@@ -756,7 +761,7 @@ class _MeteredLLM:
         finally:
             if (close := getattr(stream, "aclose", None)) is not None:
                 await close()
-            self._log.call(self._origin, started, error, billed, first_token)
+            self._log.call(self._origin, started, error, billed, first_token_at)
 
     async def aclose(self) -> None:
         pass  # whoever opened the model closes it

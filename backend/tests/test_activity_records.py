@@ -16,7 +16,7 @@ import pytest
 from eidolon.activity import OWN, ActivityLog, llm_origin, metered_llm
 from eidolon.config import LLMSettings, Settings, UsageLimits
 from eidolon.engine import MAX_INPUT_LENGTH
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Streamed, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
@@ -401,14 +401,14 @@ async def drain(llm: ChatLLM) -> None:
         pass
 
 
-@pytest.mark.parametrize("first_word", [ToolCall("c1", "recall", {}), "はい"])
 async def test_an_llm_call_records_its_first_words_time_but_not_its_thinking_and_its_effort(
-    tmp_path: Path, first_word: Streamed
+    tmp_path: Path,
 ):
+    """A tool call counts as the first word, as text does (which the dashboard's test times)."""
     activity = ActivityLog(tmp_path / "eidolon.db", FakeClock())
     model = LLMSettings("http://llm.invalid/v1", "k", "m", reasoning_effort="high")
     llm = metered_llm(
-        FakeLLM([Reasoning({"text": "想想"}), first_word, "っ"], delay=SLOW),
+        FakeLLM([Reasoning({"text": "想想"}), ToolCall("c1", "recall", {}), "っ"], delay=SLOW),
         activity, llm_origin("chat_llm", model),
     )
 

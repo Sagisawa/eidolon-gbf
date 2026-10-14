@@ -30,11 +30,11 @@ from fastapi import FastAPI, Header, Query
 
 from eidolon.activity import (
     CALL_END_REASONS,
+    LLM_SERVICES,
     RESULTS,
     SERVICES,
     CallRow,
     RecordRow,
-    ServiceName,
 )
 from eidolon.affinity import LEVEL_STEPS, Judged
 from eidolon.admin_api import Admin
@@ -116,11 +116,6 @@ def percentile(values: Sequence[float], p: float) -> float | None:
     return round(ordered[max(0, math.ceil(p / 100 * len(ordered)) - 1)], 1)
 
 
-LLMS: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
-"""The services whose rows in `health` are each at one reasoning effort, with how soon the
-first word came."""
-
-
 def health(calls: Iterable[CallRow]) -> list[dict]:
     """Each service's calls, on the deployer's keys and on users' own apart, in the order
     of `SERVICES`; an LLM's also at each reasoning effort apart, none first."""
@@ -143,7 +138,7 @@ def health(calls: Iterable[CallRow]) -> list[dict]:
             "usage": _usage(group),
             "usage_unknown": sum(c.usage_unit is None for c in group),
         }
-        if service in LLMS:
+        if service in LLM_SERVICES:
             row["effort"] = effort
             row["first_token_ms"] = _percentiles(c.first_token_ms for c in group)
         rows.append(row)
@@ -157,6 +152,8 @@ def _percentiles(values: Iterable[float | None]) -> dict:
 
 
 def _effort_order(effort: ReasoningEffort | None) -> int:
+    """Where an LLM's row at `effort` goes among its others: none first, then as
+    `REASONING_EFFORTS` go, any other last."""
     if effort is None:
         return -1
     return REASONING_EFFORTS.index(effort) if effort in REASONING_EFFORTS else len(REASONING_EFFORTS)
