@@ -18,7 +18,7 @@ from pathlib import Path
 import httpx
 
 from eidolon.config import Settings
-from eidolon.llm import ChatMessage, Tool, ToolCall
+from eidolon.llm import ChatMessage, Streamed, Tool
 from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
 from tests.test_conversation_history import history, told
@@ -77,9 +77,13 @@ class WritesWhileReplying(FakeLLM):
         self._meanwhile = meanwhile
 
     async def stream_with(
-        self, key: str, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        async for chunk in super().stream_with(key, messages, tools):
+        self,
+        key: str,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        async for chunk in super().stream_with(key, messages, tools, forbid_calls):
             yield chunk
             self._meanwhile()
 

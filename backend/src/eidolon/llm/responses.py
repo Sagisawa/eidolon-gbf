@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import ChatMessage, LLMError, Streamed, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
 log = logging.getLogger(__name__)
@@ -30,8 +30,12 @@ class ResponsesLLM:
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         body: dict[str, Any] = {
             "model": self._model,
             "stream": True,
@@ -52,6 +56,8 @@ class ResponsesLLM:
                 }
                 for t in tools
             ]
+            if forbid_calls:
+                body["tool_choice"] = "none"
         calls: dict[int, dict[str, str]] = {}  # output index → call id, name and arguments
         headers = {"Authorization": f"Bearer {self._api_key}"}
         async for event in stream_events(self._client, self._url, body, headers):

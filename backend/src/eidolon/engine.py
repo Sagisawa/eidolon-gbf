@@ -74,7 +74,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.gift_catalog import Gift
 from eidolon.judge import JudgeError
-from eidolon.llm import ChatMessage, Tool, ToolCall, TurnLLMs
+from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import effective_timezone, local_date, producer_prompt
@@ -107,7 +107,7 @@ LAST_ROUND_NOTE = (
     "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
     "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
 )
-"""Added to each tool result the model reads just before the round that offers no tools.
+"""Added to each tool result the model reads just before the round that forbids tool calls.
 Without it the model, still wanting to look something up, writes out its own tool-call
 markup as the reply. Worded and verified against the real chat model; rewording it needs
 that verification again."""
@@ -432,14 +432,20 @@ class ConversationEngine:
         parser = ReplyParser()
         try:
             for step in range(MAX_TOOL_ROUNDS + 1):
-                offered = tools if step < MAX_TOOL_ROUNDS else []
+                # The last round offers the same tools, as some models drop what they thought
+                # once the tools change, but forbids calling them.
+                forbidden = step == MAX_TOOL_ROUNDS
                 said = ""
                 calls: list[ToolCall] = []
-                stream = llms.chat.stream(prompt, offered)
+                reasoning: list[Reasoning] = []
+                stream = llms.chat.stream(prompt, tools, forbid_calls=forbidden)
                 try:
                     while (item := await _unless_stopped(stop, anext, stream, None)) is not None:
                         if isinstance(item, ToolCall):
                             calls.append(item)
+                            continue
+                        if isinstance(item, Reasoning):
+                            reasoning.append(item)
                             continue
                         said += item
                         for event in parser.feed(item):
@@ -449,9 +455,12 @@ class ConversationEngine:
                         await close()  # a stream left part-way lets go of its connection
                 for event in parser.finish():
                     yield event
-                if not calls or not offered:  # a call to a tool not offered goes unanswered
+                if not calls or not tools or forbidden:  # such a call goes unanswered
                     break
-                prompt = [*prompt, ChatMessage("assistant", said, tool_calls=tuple(calls))]
+                prompt = [
+                    *prompt,
+                    ChatMessage("assistant", said, tuple(calls), reasoning=tuple(reasoning)),
+                ]
                 last_round = step + 1 == MAX_TOOL_ROUNDS
                 for call in calls:
                     result = await _unless_stopped(stop, self._call_tool, character, call)

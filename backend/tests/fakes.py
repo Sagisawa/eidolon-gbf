@@ -46,7 +46,7 @@ from eidolon.embedding import Document, EmbeddingError
 from eidolon.rerank import RerankError
 from eidolon.emotion import _EMOTION_OPTIONS, _NOD_OPTIONS, Emotion, EmotionAnswer, Nod
 from eidolon.identity import Identity, IdentityError, ProviderName
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Streamed, Tool, ToolCall
 from eidolon.mirror import Mirror
 from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
@@ -97,12 +97,13 @@ HANG = object()
 
 
 class FakeLLM:
-    """Records every prompt it receives, the tools offered with it and the API key it came
-    with (`keys`), and replies from a script.
+    """Records every prompt it receives, the tools offered with it, whether calling them
+    was forbidden (`forbidden`) and the API key it came with (`keys`), and replies from a
+    script.
 
-    Each scripted reply is a list of text chunks and tool calls, streamed in order, so
-    tests can split the structured reply at awkward boundaries or have the model call a
-    tool; a reply that is an LLMError is raised instead, as a failing service would. With
+    Each scripted reply is a list of text chunks, tool calls and reasoning, streamed in
+    order, so tests can split the structured reply at awkward boundaries or have the model
+    call a tool; a reply that is an LLMError is raised instead, as a failing service would. With
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
     model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
     is the deployer's model. With `tokens`, each reply it finishes says it was billed that
@@ -111,7 +112,7 @@ class FakeLLM:
 
     def __init__(
         self,
-        *replies: Sequence[str | ToolCall | object] | LLMError,
+        *replies: Sequence[Streamed | object] | LLMError,
         delay: float = 0,
         tokens: tuple[int, int] | None = None,
     ) -> None:
@@ -120,18 +121,28 @@ class FakeLLM:
         self._tokens = tokens
         self.prompts: list[list[ChatMessage]] = []
         self.tools: list[list[Tool]] = []
+        self.forbidden: list[bool] = []
         self.keys: list[str] = []
 
     def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        return self.stream_with(DEPLOYER_KEY, messages, tools)
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        return self.stream_with(DEPLOYER_KEY, messages, tools, forbid_calls)
 
     async def stream_with(
-        self, key: str, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        key: str,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
         self.tools.append(list(tools))
+        self.forbidden.append(forbid_calls)
         self.keys.append(key)
         if not self._replies:
             raise AssertionError("FakeLLM ran out of scripted replies")
@@ -143,7 +154,7 @@ class FakeLLM:
                 await asyncio.sleep(self._delay)
             if chunk is HANG:
                 await asyncio.Event().wait()
-            assert isinstance(chunk, str | ToolCall)
+            assert isinstance(chunk, str | ToolCall | Reasoning)
             yield chunk
         if self._tokens is not None:
             bill("tokens", *self._tokens)
@@ -183,9 +194,13 @@ class _KeyedLLM:
         self._key = key
 
     def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        return self._llm.stream_with(self._key, messages, tools)
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        return self._llm.stream_with(self._key, messages, tools, forbid_calls)
 
     async def aclose(self) -> None:
         pass
@@ -244,8 +259,12 @@ class _ConfiguredLLM:
         self._memory = memory
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         key = self._settings.api_key
         if key in self._clients.rejects:
             raise LLMError(self._clients.rejects[key])
@@ -258,8 +277,8 @@ class _ConfiguredLLM:
             return
         llm = self._clients.llm
         stream = (
-            llm.stream_with(key, messages, tools) if isinstance(llm, FakeLLM)
-            else llm.stream(messages, tools)
+            llm.stream_with(key, messages, tools, forbid_calls) if isinstance(llm, FakeLLM)
+            else llm.stream(messages, tools, forbid_calls=forbid_calls)
         )
         async for item in stream:
             yield item
@@ -413,8 +432,12 @@ class FakeBackgroundLLM:
         self.prompts: list[list[ChatMessage]] = []
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         self.prompts.append(list(messages))
         reply = self._replies.pop(0) if self._replies else self.NOTHING
         if callable(reply):

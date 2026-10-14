@@ -11,6 +11,7 @@ import pytest
 import eidolon.prices
 from eidolon.activity import OWN
 from eidolon.config import LLMSettings, Settings
+from eidolon.llm import Reasoning
 from eidolon.prices import Price
 from tests.conftest import ClientFactory
 from tests.fakes import FakeClock, FakeIdentityProvider, FakeLLM, FakeLLMService
@@ -129,6 +130,35 @@ async def test_usage_on_users_own_keys_is_shown_but_never_priced(
     prices = (await admin.get("/api/admin/prices")).json()
     assert prices["unpriced"] == []
     assert listed(prices, OWN, OWN) is None
+
+
+async def test_a_reply_the_model_thought_through_is_billed_as_any_other(
+    make_client: ClientFactory,
+    settings: Settings,
+    github: FakeIdentityProvider,
+    own_llm: FakeLLMService,
+):
+    clock = FakeClock()
+    thought = Reasoning({"reasoning_content": "制作人在吗"})
+    client = make_client(
+        FakeLLM([thought, *REPLY], tokens=(1000, 500)), "a",
+        settings=on(settings, "https://llm.example/v1", "m-usd"), clock=clock,
+    )
+    own_llm.llm = FakeLLM([thought, *REPLY], tokens=(1000, 500))
+    admin = await admin_client(make_client, github, clock)
+    conversation_id = await start_conversation(client)
+
+    deployers = await send_turn(client, conversation_id, "在吗")
+    own = await send_turn(client, conversation_id, "在吗", own_llm=LLM)
+    cost = (await dashboard(admin))["cost"]
+
+    assert [e["type"] for e in (deployers[-1], own[-1])] == ["done", "done"]
+    usd = row({"cost": cost}, "llm.example", "m-usd")
+    assert (usd["calls"], usd["input"], usd["output"]) == (1, 1000, 500)
+    assert usd["amount"] == pytest.approx(0.006)
+    assert cost["own_keys"] == [
+        {"service": "chat_llm", "unit": "tokens", "calls": 1, "input": 1000, "output": 500}
+    ]
 
 
 def listed(prices: dict, provider: str, model: str) -> dict | None:

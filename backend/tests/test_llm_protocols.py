@@ -10,6 +10,7 @@ import pytest
 
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
+from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
 from eidolon.reply_format import ReplyParser, Segment
 
@@ -327,3 +328,36 @@ async def test_tool_call_arguments_that_are_not_json_are_passed_on_as_malformed(
     items = await collect(llm, [ChatMessage("user", "你好")], [RECALL])
 
     assert items == [ToolCall("call_x", "recall_story", None)]
+
+
+FORBIDDING: dict[str, tuple[Adapter, str, object]] = {
+    # protocol: the adapter, a stream it can read, and how it says no tool may be called
+    "chat-completions": (
+        lambda client: OpenAICompatLLM("https://llm.example/v1/", "sk-test", "m", client=client),
+        'data: {"choices":[{"delta":{"content":"はい"}}]}\n\n',
+        "none",
+    ),
+    "responses": (ADAPTERS["responses"], recorded("responses_text"), "none"),
+    "anthropic": (ADAPTERS["anthropic"], recorded("anthropic_text"), {"type": "none"}),
+}
+
+
+@pytest.mark.parametrize("protocol", FORBIDDING)
+async def test_forbidding_calls_still_offers_the_tools(protocol: str):
+    adapter, stream, choice = FORBIDDING[protocol]
+    requests: list[httpx.Request] = []
+    llm = adapter(serving(stream, requests))
+
+    [_ async for _ in llm.stream(PROMPT, [RECALL], forbid_calls=True)]
+    await collect(llm, PROMPT, [RECALL])
+    [_ async for _ in llm.stream(PROMPT, [], forbid_calls=True)]
+
+    forbidden, allowed, without_tools = [json.loads(r.content) for r in requests]
+    assert [t.get("name") or t["function"]["name"] for t in forbidden["tools"]] == [
+        "recall_story"
+    ]
+    assert forbidden["tools"] == allowed["tools"]
+    assert forbidden["tool_choice"] == choice
+    assert "tool_choice" not in allowed
+    # A request offering no tools says nothing of calling them.
+    assert "tools" not in without_tools and "tool_choice" not in without_tools

@@ -246,9 +246,11 @@ async def test_a_model_that_streams_and_takes_tools_passes_the_check(protocol: L
 
     await check_chat_llm(llm)
 
-    (body,) = bodies
+    body = bodies[0]
     assert body["stream"] is True
     assert body["tools"]
+    # A model that does not call the tool is asked just the once.
+    assert len(bodies) == (2 if protocol == "anthropic" else 1)
 
 
 async def test_the_check_reports_what_failed_when_both_requests_fail():
@@ -275,3 +277,59 @@ async def test_a_passing_failure_is_not_blamed_on_tool_calls():
     )
 
     await check_chat_llm(llm)
+
+
+# A model that calls the tool is checked through the round after it, where models that
+# want their reasoning back fail.
+
+PING_CALL = "data: " + json.dumps({"choices": [{"delta": {"tool_calls": [{
+    "index": 0, "id": "call_p", "type": "function",
+    "extra_content": {"google": {"thought_signature": "c2ln"}},
+    "function": {"name": "ping", "arguments": "{}"},
+}]}}]}) + "\n\n"
+
+
+def thinking_model(
+    bodies: list[dict], second_round: httpx.Response | None = None
+) -> OpenAICompatLLM:
+    """A model that calls the tool whenever it may, and answers its result with
+    `second_round`, if given, else with text."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if any(m["role"] == "tool" for m in body["messages"]):
+            return second_round or httpx.Response(200, text=STREAMED)
+        return httpx.Response(200, text=PING_CALL if body.get("tools") else STREAMED)
+
+    return OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+async def test_a_call_to_the_tool_is_answered_and_the_model_asked_again():
+    bodies: list[dict] = []
+
+    await check_chat_llm(thinking_model(bodies))
+
+    first, second = bodies
+    call, result = second["messages"][len(first["messages"]):]
+    assert call["role"] == "assistant"
+    assert [c["id"] for c in call["tool_calls"]] == ["call_p"]
+    assert call["tool_calls"][0]["extra_content"] == {"google": {"thought_signature": "c2ln"}}
+    assert (result["role"], result["tool_call_id"]) == ("tool", "call_p")
+    assert result["content"]
+    # The same tools, which the model may not call again.
+    assert second["tools"] == first["tools"]
+    assert second["tool_choice"] == "none"
+
+
+async def test_a_round_after_the_call_that_fails_fails_the_check():
+    bodies: list[dict] = []
+    refused = httpx.Response(
+        400, json={"error": {"message": "Function call is missing a thought_signature"}}
+    )
+
+    with pytest.raises(LLMError, match="不支持工具调用.*thought_signature"):
+        await check_chat_llm(thinking_model(bodies, refused))

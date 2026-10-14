@@ -17,7 +17,7 @@ import pytest
 
 from eidolon.config import Settings, UsageLimits
 from eidolon.gift_catalog import GIFTS_FILE
-from eidolon.llm import ChatMessage, Tool, ToolCall
+from eidolon.llm import ChatMessage, Streamed, Tool
 from tests.conftest import CharacterConfig, ClientFactory
 from tests.fakes import FAKE_JUDGE, FakeClock, FakeIdentityProvider, FakeLLM, FakeRandom
 from tests.test_activity_records import dashboard
@@ -265,9 +265,13 @@ class HoldsReply(FakeLLM):
         self.release = asyncio.Event()
 
     async def stream_with(
-        self, key: str, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
-        async for chunk in super().stream_with(key, messages, tools):
+        self,
+        key: str,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
+        async for chunk in super().stream_with(key, messages, tools, forbid_calls):
             yield chunk
             if not self.release.is_set():
                 self.replying.set()

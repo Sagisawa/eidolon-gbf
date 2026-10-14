@@ -53,7 +53,7 @@ from eidolon.config import CloudflareJudgeSettings, JudgeSettings, LLMSettings, 
 from eidolon.database import connect
 from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
-from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, Streamed, Tool
 from eidolon.rerank import Reranker
 from eidolon.retry import ServiceError, on_retry
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
@@ -682,12 +682,16 @@ class _MeteredLLM:
         self._origin = origin
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         started = perf_counter()
         billed = Billing()
         error: ErrorKind | None = None
-        stream = aiter(self._llm.stream(messages, tools))
+        stream = aiter(self._llm.stream(messages, tools, forbid_calls=forbid_calls))
         try:
             while True:
                 # Opened and closed around each step alone: a step may be taken in a task

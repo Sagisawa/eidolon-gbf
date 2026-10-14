@@ -54,7 +54,7 @@ from eidolon.config import (
     SttProvider,
 )
 from eidolon.emotion import EmotionJudging
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool, ToolCall, TurnLLMs
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Streamed, Tool, TurnLLMs
 from eidolon.llm.providers import check_chat_llm, open_llm
 from eidolon.usage import UsageKind
 
@@ -388,10 +388,14 @@ class _OwnLLM:
         self._api_key = settings.api_key
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         try:
-            async for item in self._llm.stream(messages, tools):
+            async for item in self._llm.stream(messages, tools, forbid_calls=forbid_calls):
                 yield item
         except Exception as e:
             # Not from `e`, whose message may repeat the key, so no traceback logged shows

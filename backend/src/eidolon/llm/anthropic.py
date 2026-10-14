@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 
 from eidolon.billing import bill
-from eidolon.llm import ChatMessage, LLMError, Tool, ToolCall
+from eidolon.llm import ChatMessage, LLMError, Streamed, Tool, ToolCall
 from eidolon.llm.sse import parse_arguments, stream_events
 
 log = logging.getLogger(__name__)
@@ -35,8 +35,12 @@ class AnthropicLLM:
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         body: dict[str, Any] = {
             "model": self._model,
             "stream": True,
@@ -50,6 +54,8 @@ class AnthropicLLM:
                 {"name": t.name, "description": t.description, "input_schema": t.parameters}
                 for t in tools
             ]
+            if forbid_calls:
+                body["tool_choice"] = {"type": "none"}
         calls: dict[int, dict[str, Any]] = {}  # content block index → the tool_use so far
         usage: dict[str, Any] = {}  # as the message started, updated as it goes
         headers = {"x-api-key": self._api_key, "anthropic-version": API_VERSION}

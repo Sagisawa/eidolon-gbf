@@ -4,7 +4,7 @@ what conversations need of it."""
 import httpx
 
 from eidolon.config import LLMProtocol, LLMSettings
-from eidolon.llm import ChatLLM, ChatMessage, LLMError, Tool
+from eidolon.llm import ChatLLM, ChatMessage, LLMError, Reasoning, Tool, ToolCall
 from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
@@ -33,11 +33,14 @@ _PROBE_TOOL = Tool(
     {"type": "object", "properties": {"ok": {"type": "boolean"}}},
 )
 _PROBE = [ChatMessage("user", "这是一次连通性检查，请调用 ping 工具，不用回复其他内容。")]
+_PROBE_RESULT = '{"ok": true}'
 
 
 async def check_chat_llm(llm: ChatLLM) -> None:
     """Raise an `LLMError` saying what is missing unless the model streams its reply to a
-    request that offers it a tool. Whether it calls the tool is up to the model."""
+    request that offers it a tool, and, if it calls the tool, to the result of the call,
+    as a turn's last round asks it: the same tools offered, none to be called. Whether it
+    calls the tool is up to the model."""
     try:
         await _probe(llm, [_PROBE_TOOL])
         return
@@ -59,5 +62,22 @@ async def check_chat_llm(llm: ChatLLM) -> None:
 
 
 async def _probe(llm: ChatLLM, tools: list[Tool]) -> None:
-    async for _ in llm.stream(_PROBE, tools):
+    said = ""
+    calls: list[ToolCall] = []
+    reasoning: list[Reasoning] = []
+    async for item in llm.stream(_PROBE, tools):
+        if isinstance(item, ToolCall):
+            calls.append(item)
+        elif isinstance(item, Reasoning):
+            reasoning.append(item)
+        else:
+            said += item
+    if not calls:
+        return
+    answered = [
+        *_PROBE,
+        ChatMessage("assistant", said, tuple(calls), reasoning=tuple(reasoning)),
+        *(ChatMessage("tool", _PROBE_RESULT, tool_call_id=c.id) for c in calls),
+    ]
+    async for _ in llm.stream(answered, tools, forbid_calls=True):
         pass

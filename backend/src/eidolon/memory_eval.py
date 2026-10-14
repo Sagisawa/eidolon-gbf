@@ -40,7 +40,7 @@ from eidolon.characters import Character
 from eidolon.corpus import StoryCorpus
 from eidolon.embedding import Embedder
 from eidolon.judge import JudgeError, JudgeModel, JudgeThresholds
-from eidolon.llm import ChatLLM, ChatMessage, Tool, ToolCall
+from eidolon.llm import ChatLLM, ChatMessage, Streamed, Tool
 from eidolon.memory import SHOWN_MEMORIES, Memories, parse_memories
 from eidolon.rerank import Reranker, RerankThresholds
 from eidolon.retrieval import ModelRetrievalJudge, Need, ReferenceSources, Retrieval, RetrievalAnswer
@@ -640,8 +640,12 @@ class _ScriptedBackground:
         self.unseen: list[str] = []
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         # As `memory._extraction_prompt` numbers them: 「1. 制作人……」 under 「# 已经记住的事」.
         section = messages[-1].content.split("# 已经记住的事")[-1].split("\n# ")[0]
         shown = {
@@ -667,10 +671,14 @@ class _RecordedBackground:
         self.error: str | None = None
 
     async def stream(
-        self, messages: Sequence[ChatMessage], tools: Sequence[Tool] = ()
-    ) -> AsyncIterator[str | ToolCall]:
+        self,
+        messages: Sequence[ChatMessage],
+        tools: Sequence[Tool] = (),
+        *,
+        forbid_calls: bool = False,
+    ) -> AsyncIterator[Streamed]:
         try:
-            async for chunk in self._llm.stream(messages, tools):
+            async for chunk in self._llm.stream(messages, tools, forbid_calls=forbid_calls):
                 if isinstance(chunk, str):
                     self.answer += chunk
                 yield chunk
