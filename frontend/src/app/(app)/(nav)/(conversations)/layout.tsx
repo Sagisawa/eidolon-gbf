@@ -10,6 +10,7 @@ import { useSavedSize } from "@/components/conversations/useSavedSize";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { useHydrated } from "@/hooks/useHydrated";
 import { copy } from "@/i18n";
+import { LIST_WIDTH } from "@/lib/panelSizes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,7 +21,8 @@ import { cn } from "@/lib/utils";
  * - 窄屏：两级页面。对话列表页只显示列表，进了对话只显示对话（对话页首有返回键）。
  * 右栏在宽窄屏之间始终是同一个位置上的同一块，窗口跨过 768px 时对话（和通话）不会重新挂载。
  * 水合前还不知道窗口宽窄（useWide 先当宽屏），先按 CSS 断点排出同样的两栏，窄屏只露这一级页面的那一栏，
- * 免得手机上先闪一下宽屏双栏；水合后才换成可拖动的 Resizable。
+ * 免得手机上先闪一下宽屏双栏；水合后才换成可拖动的 Resizable。水合前的列表宽度取 <head> 里的脚本写好的
+ * --list-width（上次拖到的宽度），免得先按默认宽度画出来再跳。
  * 角色和摘要由导航外壳（上一层 layout 的 DirectoryProvider）载入一次，列表和对话从那里取。
  */
 export default function ConversationsLayout({ children }: { children: ReactNode }) {
@@ -39,9 +41,9 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
               id="list"
               panelRef={column.panelRef}
               onResize={column.onResize}
-              defaultSize={320}
-              minSize={240}
-              maxSize={480}
+              defaultSize={LIST_WIDTH.initial}
+              minSize={LIST_WIDTH.min}
+              maxSize={LIST_WIDTH.max}
               groupResizeBehavior="preserve-pixel-size"
             >
               <nav aria-label={copy.conversationList.title} className="h-full">
@@ -56,11 +58,11 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
           </ResizablePanel>
         </ResizablePanelGroup>
       ) : (
-        // 和上面宽屏的默认样子一样：320px 的列表、1px 的线、右栏占满其余；窄屏只露一栏。
+        // 和上面宽屏的样子一样：上次拖到的宽度（没拖过是 320px）的列表、1px 的线、右栏占满其余；窄屏只露一栏。
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <nav
             aria-label={copy.conversationList.title}
-            className={cn("h-full w-80 shrink-0 max-md:w-full", characterId && "max-md:hidden")}
+            className={cn("h-full w-[var(--list-width,20rem)] shrink-0 max-md:w-full", characterId && "max-md:hidden")}
           >
             {list}
           </nav>

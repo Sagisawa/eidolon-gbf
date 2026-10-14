@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadPanelSize, savePanelSize } from "@/lib/panelSizes";
+import {
+  LIST_WIDTH,
+  LIST_WIDTH_SCRIPT,
+  LIST_WIDTH_VARIABLE,
+  loadPanelSize,
+  savePanelSize,
+} from "@/lib/panelSizes";
 
 const KEY = "eidolon.panelSizes";
 
@@ -56,5 +62,34 @@ describe("panel sizes", () => {
 
     expect(() => savePanelSize("list", 400)).not.toThrow();
     expect(loadPanelSize("list")).toBeNull();
+  });
+});
+
+describe("list width script", () => {
+  /** Runs the inline script against this storage; returns the width it put on <html>, if any. */
+  function run(stored: unknown) {
+    storage(stored === undefined ? {} : { [KEY]: typeof stored === "string" ? stored : JSON.stringify(stored) });
+    const style = new Map<string, string>();
+    vi.stubGlobal("document", {
+      documentElement: { style: { setProperty: (name: string, value: string) => void style.set(name, value) } },
+    });
+    new Function(LIST_WIDTH_SCRIPT)();
+    return style.get(LIST_WIDTH_VARIABLE);
+  }
+
+  it("puts the width last dragged to on the page", () => {
+    expect(run({ list: 400, composer: 88 })).toBe("400px");
+  });
+
+  it("keeps the width within what the list drags to", () => {
+    expect(run({ list: 100 })).toBe(`${LIST_WIDTH.min}px`);
+    expect(run({ list: 900 })).toBe(`${LIST_WIDTH.max}px`);
+  });
+
+  it("leaves the initial width when never dragged or stored wrongly", () => {
+    expect(run(undefined)).toBeUndefined();
+    expect(run({ composer: 88 })).toBeUndefined();
+    expect(run({ list: "wide" })).toBeUndefined();
+    expect(run("{")).toBeUndefined();
   });
 });
