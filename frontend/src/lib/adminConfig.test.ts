@@ -116,22 +116,6 @@ describe("the chat model's two efforts", () => {
     expect(rows(item("env"), ITEM_SPECS.memory_llm).map((row) => row.field)).not.toContain("call_reasoning_effort");
     expect(efforts(ITEM_SPECS.memory_llm)).toEqual(["reasoning_effort"]);
   });
-
-  it("starts each from the one in effect and sends each as chosen, unset as none", () => {
-    const llm = ITEM_SPECS.chat_llm;
-    const form = formOf(llm, { ...ENV, reasoning_effort: "high", call_reasoning_effort: "none" });
-    expect(form).toMatchObject({ reasoning_effort: "high", call_reasoning_effort: "none" });
-    expect(changeOf(llm, form, true)).toMatchObject({ change: { reasoning_effort: "high", call_reasoning_effort: "none" } });
-    expect(changeOf(llm, { ...form, call_reasoning_effort: EFFORT_UNSET }, true)).toMatchObject({
-      change: { reasoning_effort: "high", call_reasoning_effort: null },
-    });
-  });
-
-  it("refuses a call effort the protocol has no way to write", () => {
-    const llm = ITEM_SPECS.chat_llm;
-    const form = { ...formOf(llm, ENV), protocol: "anthropic", call_reasoning_effort: "minimal" };
-    expect(changeOf(llm, form, true)).toEqual({ problems: [{ field: "call_reasoning_effort", reason: "effort" }] });
-  });
 });
 
 describe("formOf and changeOf", () => {

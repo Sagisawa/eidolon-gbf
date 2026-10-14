@@ -16,10 +16,11 @@ The chat model has a reasoning effort for calls besides its own, for text turns:
 model, made into two over one HTTP client, replaced together. The memory model, unless
 `.env` sets it apart (`BACKGROUND_LLM_*`) or the admin console does, is the chat model in
 effect, where it is and which (`CONNECTION_FIELDS`), but on its own client: how hard it
-thinks, how long it writes and what else its requests carry stay its own. The thresholds hold only for the model they were set
-for, the judge model's for its family (`judge.judge_family`): they are cleared when the
-judge model changes to another, and either is not in effect once `.env` has the server
-start on another model.
+thinks, how long it writes and what else its requests carry stay its own, and it is
+tried with them as the chat model it follows is. The thresholds hold only for the model
+they were set for, the judge model's for its family (`judge.judge_family`): they are
+cleared when the judge model changes to another, and either is not in effect once `.env`
+has the server start on another model.
 
 As the server starts (`start`), every override of a service is tried again. One that
 fails falls back to `.env`, kept but marked as failed, so a revoked key cannot keep the
@@ -115,6 +116,9 @@ CALL_EFFORT = "call_reasoning_effort"
 
 CONNECTION_FIELDS = ("protocol", "base_url", "api_key", "model")
 """Where a model is and which: what the memory model has of the chat model it follows."""
+
+FOLLOWING = "记忆模型跟随对话模型，用它自己的思考强度和额外请求参数不行："
+"""Before why the memory model following the chat model would not work on it."""
 
 FOR_MODEL = "for_model"
 """Kept beside thresholds: the model they were set for."""
@@ -306,14 +310,45 @@ class _ChatLLM(_LLMItem):
         return _chat_model(values)
 
     def make(self, settings: ChatModelSettings) -> ChatModels:
-        return self.c._clients.chat_llm(settings)
+        return self.c._clients.chat_models(settings)
 
     async def check(self, client: ChatModels, settings: ChatModelSettings) -> None:
         await check_chat_models(client, settings)
 
+    def candidate(self, current: Values, change: Values) -> Values:
+        values = super().candidate(current, change)
+        memory = self.c._following(values)
+        if memory is not None and memory.reasoning_effort is not None:
+            if problem := effort_problem(memory.reasoning_effort, memory.protocol):
+                raise ConfigInvalid(f"{FOLLOWING}{problem}")
+        return values
+
+    async def tried(self, values: Values) -> tuple[Values, Any]:
+        """The chat model tried, and the memory model following it, if it is to change,
+        at its own effort and extra body unless the chat model was tried with them."""
+        values, chat = await super().tried(values)
+        memory = self.c._following(values)
+        if memory is None or memory == self.c._memory.settings:
+            return values, (chat, None)
+        settings = self.settings_of(values)
+        if any(
+            memory.reasoning_effort == s.reasoning_effort and memory.extra_body == s.extra_body
+            for s in (settings.text, settings.call)
+        ):
+            return values, (chat, None)
+        client = self.c._clients.memory_llm(memory)
+        try:
+            await check_chat_llm(client, memory.reasoning_effort)
+        except LLMError as e:
+            await client.aclose()
+            await chat.aclose()
+            raise ConfigRejected(f"{FOLLOWING}{e}"[:MAX_REASON_LENGTH]) from None
+        return values, (chat, client)
+
     async def apply(self, values: Values, prepared: Any = None) -> None:
-        await super().apply(values, prepared)
-        await self.c._follow_chat()
+        chat, memory = prepared or (None, None)
+        await super().apply(values, chat)
+        await self.c._follow_chat(memory)
 
 
 class _MemoryLLM(_LLMItem):
@@ -639,7 +674,7 @@ class LiveConfig:
                     self._failures[item.name] = str(e)
 
         chat = self.chat_model
-        self._chat = Swappable(clients.chat_llm(chat), chat)
+        self._chat = Swappable(clients.chat_models(chat), chat)
         memory = self.memory_llm
         self._memory = Swappable(clients.memory_llm(memory), memory)
         self._judge: Swappable[JudgeModel, JudgeSettings] | None = None
@@ -942,18 +977,26 @@ class LiveConfig:
         item = self._items[MEMORY_LLM]
         values = item.env()
         if self._memory_follows():
-            chat = self.effective(CHAT_LLM)
-            return values | {field: chat[field] for field in CONNECTION_FIELDS}
+            return _followed(values, self.effective(CHAT_LLM))
         if self._in_effect(item):
             values |= self._overrides[MEMORY_LLM]
         return values
 
-    async def _follow_chat(self) -> None:
+    def _following(self, chat: Values) -> LLMSettings | None:
+        """The memory model on the chat model `chat` describes, if it follows the chat
+        model; else None."""
+        if not self._memory_follows():
+            return None
+        return _llm(_followed(self._items[MEMORY_LLM].env(), chat))
+
+    async def _follow_chat(self, prepared: ChatLLM | None = None) -> None:
         """Have the memory model, if it follows the chat model, on the one now in effect,
-        unless it is already."""
+        unless it is already: on `prepared`, if it was made for it."""
         memory = self.memory_llm
         if memory != self._memory.settings:
-            await self._memory.replace(self._clients.memory_llm(memory), memory)
+            await self._memory.replace(prepared or self._clients.memory_llm(memory), memory)
+        elif prepared is not None:
+            await prepared.aclose()
 
     def _stt_key(self) -> SttKey | None:
         values = self.effective(STT)
@@ -1187,6 +1230,11 @@ def _llm(values: Values) -> LLMSettings:
 
 def _chat_model(values: Values) -> ChatModelSettings:
     return ChatModelSettings(_llm(values), values[CALL_EFFORT])
+
+
+def _followed(memory: Values, chat: Values) -> Values:
+    """The memory model's values `memory`, following the chat model's, `chat`."""
+    return memory | {field: chat[field] for field in CONNECTION_FIELDS}
 
 
 def _cipher(secret_key: str) -> Fernet:

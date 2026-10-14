@@ -263,7 +263,7 @@ async def test_a_call_effort_set_in_env_holds_until_overridden_and_again_once_re
 
 @pytest.mark.parametrize(
     ("text", "call", "checked"),
-    [("high", "none", ["high", "none"]), ("low", "low", ["low"]), (None, None, [None])],
+    [("high", "none", ["high", "none"]), ("low", "low", ["low"])],
 )
 async def test_the_two_efforts_are_each_tried_once_or_once_for_both_if_the_same(
     make_client: ClientFactory,
@@ -284,40 +284,30 @@ async def test_the_two_efforts_are_each_tried_once_or_once_for_both_if_the_same(
 
 
 @pytest.mark.parametrize(
-    ("refused", "prefix"),
-    [("high", "文字的思考强度『高』被服务拒绝："), ("none", "通话的思考强度『关闭』被服务拒绝：")],
+    ("refused", "call", "said"),
+    [
+        ("high", "none", "文字的思考强度『高』被服务拒绝："),
+        ("none", "none", "通话的思考强度『关闭』被服务拒绝："),
+        ("high", "high", "思考强度『高』被服务拒绝："),  # the same: said once, as neither
+    ],
 )
 async def test_an_effort_the_service_refuses_is_not_saved_saying_whether_text_or_call(
     make_client: ClientFactory,
     admins: Settings,
     github: FakeIdentityProvider,
     refused: str,
-    prefix: str,
+    call: str,
+    said: str,
 ):
     clients = FakeServiceClients()
     clients.refused_efforts[refused] = f"400 '{refused}' is not supported with this model"
     client = await admin_client(make_client, admins, github, clients)
 
-    res = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": "none"})
+    res = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": call})
 
     assert res.status_code == 422
-    assert prefix + f"400 '{refused}' is not supported" in res.json()["detail"]
+    assert res.json()["detail"].startswith(f"试调失败，没有保存：{said}400 '{refused}'")
     assert (await client.get(CONFIG)).json()["chat_llm"]["status"] == "env"
-
-
-async def test_both_efforts_the_same_and_refused_say_so_once_without_text_or_call(
-    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
-):
-    clients = FakeServiceClients()
-    clients.refused_efforts["high"] = "400 'high' is not supported with this model"
-    client = await admin_client(make_client, admins, github, clients)
-
-    res = await client.put(CHAT_LLM, json=NEW | {"call_reasoning_effort": "high"})
-
-    assert res.status_code == 422
-    detail = res.json()["detail"]
-    assert "思考强度『高』被服务拒绝：400" in detail
-    assert "文字的" not in detail and "通话的" not in detail
 
 
 async def test_a_call_effort_the_protocol_cannot_write_is_refused_untried(

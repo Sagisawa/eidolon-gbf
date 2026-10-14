@@ -29,7 +29,7 @@ class ServiceClients(Protocol):
     closed by whoever made it through this. Speech synthesis and recognition have none:
     each call makes its own from the keys (see `call.Speech`)."""
 
-    def chat_llm(self, settings: ChatModelSettings) -> ChatModels:
+    def chat_models(self, settings: ChatModelSettings) -> ChatModels:
         """The model `settings` describe, to play the characters in text turns and calls."""
         ...
 
@@ -45,7 +45,7 @@ class ServiceClients(Protocol):
 class ProviderClients:
     """The clients of the real services."""
 
-    def chat_llm(self, settings: ChatModelSettings) -> ChatModels:
+    def chat_models(self, settings: ChatModelSettings) -> ChatModels:
         return open_chat_models(settings)
 
     def memory_llm(self, settings: LLMSettings) -> ChatLLM:

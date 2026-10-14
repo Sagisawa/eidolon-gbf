@@ -40,6 +40,7 @@ from tests.fakes import (
 from tests.test_live_config import (
     CONFIG,
     NEW,
+    NEW_SETTINGS,
     NEW_SHOWN,
     REPLY,
     admin_client,
@@ -166,6 +167,47 @@ async def test_a_chat_models_effort_set_in_env_alone_is_not_the_memory_models(
         ENV_SETTINGS, base_url="https://llm.example/v1", api_key=NEW["api_key"],
         model="new-model", protocol="anthropic",
     )]
+
+
+async def test_a_chat_model_the_memory_models_own_effort_cannot_be_written_for_is_refused(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients()
+    env = replace(admins, background_llm=replace(ENV_SETTINGS, reasoning_effort="minimal"))
+    client = await admin_client(with_memory(make_client), env, github, clients)
+
+    res = await client.put("/api/admin/config/chat_llm", json=NEW)  # on Anthropic
+
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert "记忆模型" in detail and "Anthropic 接口没有「极低」" in detail
+    assert (await client.get(CONFIG)).json()["chat_llm"]["status"] == "env"
+    assert clients.memory_opened == [replace(ENV_SETTINGS, reasoning_effort="minimal")]
+
+
+async def test_a_memory_model_following_is_tried_at_its_own_effort_on_the_chat_model_saved(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    clients = FakeServiceClients()
+    clients.refused_efforts["xhigh"] = "400 'xhigh' is not supported with this model"
+    memory_env = replace(ENV_SETTINGS, reasoning_effort="xhigh")
+    env = replace(admins, background_llm=memory_env)
+    client = await admin_client(with_memory(make_client), env, github, clients)
+
+    refused = await client.put("/api/admin/config/chat_llm", json=NEW)
+    del clients.refused_efforts["xhigh"]
+    saved = await client.put("/api/admin/config/chat_llm", json=NEW)
+
+    assert refused.status_code == 422
+    assert "记忆模型" in refused.json()["detail"]
+    assert "思考强度『极高』被服务拒绝：400 'xhigh'" in refused.json()["detail"]
+    assert saved.status_code == 200, saved.text
+    followed = LLMSettings(
+        "https://llm.example/v1", NEW["api_key"], "new-model", "anthropic", reasoning_effort="xhigh"
+    )
+    # Tried each time, kept as it was tried the second.
+    assert clients.memory_opened == [memory_env, followed, followed]
+    assert clients.closed == [followed, NEW_SETTINGS, ENV_SETTINGS, memory_env]
 
 
 async def test_a_memory_model_following_is_untouched_by_a_change_of_the_chat_models_efforts(

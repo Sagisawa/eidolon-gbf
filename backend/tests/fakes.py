@@ -249,7 +249,7 @@ class FakeServiceClients:
         self.judges_opened: list[JudgeSettings] = []
         self.judges_closed: list[JudgeSettings] = []
 
-    def chat_llm(self, settings: ChatModelSettings) -> ChatModels:
+    def chat_models(self, settings: ChatModelSettings) -> ChatModels:
         self.opened.append(settings.text)
         return ChatModels(
             _ConfiguredLLM(self, settings.text, self.closed),

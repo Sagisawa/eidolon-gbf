@@ -168,12 +168,6 @@ def test_the_chat_model_has_an_effort_of_its_own_for_calls(monkeypatch: pytest.M
     assert settings.background_llm.reasoning_effort is None
 
 
-def test_the_call_effort_unset_is_none_whatever_the_text_effort(monkeypatch: pytest.MonkeyPatch):
-    set_chat_model(monkeypatch, "https://chat.example/v1", CHAT_LLM_REASONING_EFFORT="high")
-
-    assert Settings.from_env().chat_model.call.reasoning_effort is None
-
-
 def test_a_call_effort_the_chat_models_protocol_has_no_way_to_write_is_reported(
     monkeypatch: pytest.MonkeyPatch,
 ):

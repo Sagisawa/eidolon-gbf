@@ -181,7 +181,7 @@ const CHAT_LLM: ItemSpec = {
   ),
 };
 
-const THRESHOLD =(names: string[]): ItemSpec => ({
+const THRESHOLD = (names: string[]): ItemSpec => ({
   rows: names,
   secrets: [],
   form: names.map((name) => ({ name, kind: "probability" })),
