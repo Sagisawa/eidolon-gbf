@@ -62,7 +62,7 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <nav
             aria-label={copy.conversationList.title}
-            className={cn("h-full w-[var(--list-width,20rem)] shrink-0 max-md:w-full", characterId && "max-md:hidden")}
+            className={cn("h-full w-(--list-width,20rem) shrink-0 max-md:w-full", characterId && "max-md:hidden")}
           >
             {list}
           </nav>
