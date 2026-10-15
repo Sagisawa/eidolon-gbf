@@ -32,7 +32,7 @@ EndReason = Literal[
 """Why the backend ended a call, as the `ended` message tells the browser: it never really
 connected (a voice service failed before any turn), a voice service failed later, the call
 reached its time or its turn limit, one of the user's own keys failed, or she hung up, for
-what the user said in the call (`affinity.hangs_up`) or her affinity fallen into a
+what the user said in the call (`affinity.ends`) or her affinity fallen into a
 cooldown."""
 
 _ENDED_BY: dict[EndReason, CallEndReason] = {

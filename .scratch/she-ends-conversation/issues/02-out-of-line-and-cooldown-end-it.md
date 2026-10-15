@@ -27,3 +27,9 @@
 - [ ] `liveConversation.test.ts`：冷却中的已结束
 - [ ] 本地构建版 Playwright：冷却版结束卡
 - [ ] 后端完整测试、前端类型检查和测试通过
+
+## Comments
+
+- 2026-10-15 票 01 留下的：`engine._reply` 文字分支里 `if in_call is None and ending != "fed_up": ending = None` 和 `out_of_line_before = 0` 是这张票要拿掉的。`earlier` 读的是之前 8 个文字回合（给 `warns` 比较上一轮的完整窗口用），不该说的话「最近 8 个含这一轮」要数的是 `earlier[-(FED_UP_TURNS - 1):]`。
+- 中途竞态：`_reply` 开头查过 `Store.ended`，之后对话被别处结束时，`narrations` 读到 `ended` 事件会撞上 `_narration` 里 `assert event.gift_id is not None`（回合以失败收场），记下时也没再查。按 spec 要在 `add_turn` 的事务里再查一次、按被拒绝处理，`_narration` 也要认 `ended`。
+- 前端结束卡在 `ConversationView` 的 `composer`：`ended` 先于 `cooling` 判断，冷却版在那一支里加冷却时刻和「送她一件礼物」。

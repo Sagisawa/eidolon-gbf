@@ -52,7 +52,7 @@ class TurnOutcome:
         elif isinstance(event, TurnFailed):
             self._result = "failed"
         elif isinstance(event, TurnJudged):
-            self._recording.judged(event.judged, event.cooled)
+            self._recording.judged(event.judged, event.cooled, event.ended)
 
     def began_speaking(self) -> None:
         """The character began to speak (only the first time counts)."""

@@ -53,10 +53,15 @@ parting with the user if it is to begin a cooldown (GLOSSARY.md「冷却」); in
 turns (`Admissions`). What it judged of a turn recorded, and whether the turn began a
 cooldown, the turn's activity record keeps (`TurnJudged`). In a call she parts by hanging
 up, after that turn, after the user has been out of line once too often in the call, or
-after the call's latest turns have taken too much off her affinity (`affinity.hangs_up`),
+after the call's latest turns have taken too much off her affinity (`affinity.ends`),
 warning the user first halfway there (`affinity.warns`): the turn is told it is in a call,
 how often so far and how much each turn so far took, and once recorded tells the call what
-came of it (`CallTurnRecorded`).
+came of it (`CallTurnRecorded`). Outside calls she parts the same way after the turn that
+has the conversation's latest typed turns take too much off her affinity, warning the user
+first that she will not want to talk, and ends the conversation (GLOSSARY.md「已结束的对话」):
+each typed turn is recorded with what it came to (`Typed`), the latest read back as the next
+begins; the one she ends it after is recorded with her ending it, which `done` tells, and
+why, which the activity record keeps. A turn in a conversation she has ended is rejected.
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -72,12 +77,15 @@ from datetime import datetime
 from typing import Literal, ParamSpec, TypeVar
 
 from eidolon.affinity import (
+    FED_UP_TURNS,
     Affinities,
-    HangUp,
+    Change,
+    EndsFor,
     Judged,
+    Parting,
     Status,
     affinity_prompt,
-    hangs_up,
+    ends,
     hurt,
     warns,
 )
@@ -106,6 +114,7 @@ from eidolon.store import (
     Message,
     Recorded,
     Store,
+    Typed,
     timestamp,
 )
 from eidolon.world import World
@@ -135,11 +144,13 @@ class UserSaid:
 
 @dataclass(frozen=True)
 class TurnDone:
-    """The recorded reply, with how the turn changed her affinity if it did; and her
-    affinity after it (`Status.shown`), None where affinity is off. The turn succeeded."""
+    """The recorded reply, with how the turn changed her affinity if it did; her affinity
+    after it (`Status.shown`), None where affinity is off; and her ending the conversation
+    after it (`ConversationEvent.shown`), None if she did not. The turn succeeded."""
 
     message: Message
     affinity: dict[str, str | None] | None = None
+    ended: dict | None = None
     type: Literal["done"] = field(default="done", init=False)
 
 
@@ -162,7 +173,7 @@ class CallTurnRecorded:
     `done`, in calls only; it stays on the server."""
 
     out_of_line: bool = False
-    hangs_up: HangUp | None = None
+    hangs_up: EndsFor | None = None
     cooldown_until: datetime | None = None
     hurt: float = 0.0
     type: Literal["call-turn-recorded"] = field(default="call-turn-recorded", init=False)
@@ -170,12 +181,13 @@ class CallTurnRecorded:
 
 @dataclass(frozen=True)
 class TurnJudged:
-    """What the judge model made of a turn now recorded (GLOSSARY.md「好感度」), and whether
-    the turn began a cooldown, for its activity record. Comes just before `done`, in turns
-    judged only; it stays on the server."""
+    """What the judge model made of a turn now recorded (GLOSSARY.md「好感度」), whether the
+    turn began a cooldown, and why she ended the conversation after it, if she did, for its
+    activity record. Comes just before `done`, in turns judged only; it stays on the server."""
 
     judged: Judged
     cooled: bool
+    ended: EndsFor | None = None
     type: Literal["turn-judged"] = field(default="turn-judged", init=False)
 
 
@@ -217,6 +229,8 @@ TOO_LONG = f"这句话太长了，最多 {MAX_INPUT_LENGTH} 字。"
 """What the user reads when a turn is rejected for input over `MAX_INPUT_LENGTH`."""
 BLANK = "没有收到要说的话。"
 """What the user reads when a turn is rejected for blank input."""
+ENDED = "她已经结束了对话"
+"""What the user reads when a turn is rejected for the conversation she has ended."""
 
 log = logging.getLogger(__name__)
 
@@ -396,6 +410,9 @@ class ConversationEngine:
         stop: asyncio.Event | None,
         in_call: InCall | None,
     ) -> AsyncIterator[TurnEvent]:
+        if self._store.ended(conversation.id) is not None:
+            yield TurnRejected(ENDED)
+            return
         character = self._characters[conversation.character_id]
         record = self._store.record(conversation.id)
         # Said after reading the record, so an event this turn's prompt does not tell of
@@ -428,16 +445,24 @@ class ConversationEngine:
                 judged_apart.cancel()
         now = self._clock()
         cools = self._cools(conversation, judged)
-        hanging_up = (
-            hangs_up(judged, cools, in_call.out_of_line, in_call.hurts) if in_call else None
-        )
-        warning = in_call is not None and warns(judged, cools, in_call.out_of_line, in_call.hurts)
+        if in_call is not None:
+            out_of_line_before, hurt_before = in_call.out_of_line, in_call.hurts
+        else:
+            # So far only her being fed up ends a conversation: how often the user was out of
+            # line is not counted, and a cooldown has her part as ever. As many as are weighed,
+            # so that whether she warns is told against the latest before this one.
+            earlier = self._store.typed_turns(conversation.id, FED_UP_TURNS)
+            out_of_line_before, hurt_before = 0, [t.hurt for t in earlier]
+        ending = ends(judged, cools, out_of_line_before, hurt_before)
+        if in_call is None and ending != "fed_up":
+            ending = None
+        way: Parting = "hangs_up" if in_call is not None else "parts"
         affinity_lines = (
             affinity_prompt(
                 affinity.tier,
                 judged,
-                "hangs_up" if hanging_up else "parts" if cools else None,
-                warning,
+                way if ending or cools else None,
+                way if warns(judged, cools, out_of_line_before, hurt_before) else None,
             )
             if affinity is not None
             else []
@@ -499,20 +524,31 @@ class ConversationEngine:
 
         if not parser.complete:
             raise EmptyReply("对话模型没有返回任何内容")
+        typed = (
+            None if in_call is not None
+            else Typed(hurt(judged), judged is not None and judged.out_of_line)
+        )
+        ends_conversation = typed is not None and ending is not None
         reply, affinity = self._record(
-            conversation, text, said_at, parser.complete, judged, affinity
+            conversation, text, said_at, parser.complete, judged, affinity, typed,
+            ends_conversation,
         )
         memory.write_down(history, text, reply, retrieved.query_vector)
+        ended = self._store.ended(conversation.id) if ends_conversation else None
         if judged is not None and self._affinities is not None:
-            yield TurnJudged(judged, reply.affinity is not None and reply.affinity.cooldown)
+            yield TurnJudged(
+                judged,
+                reply.affinity is not None and reply.affinity.cooldown,
+                ending if ends_conversation else None,
+            )
         if in_call is not None:
             yield CallTurnRecorded(
                 judged is not None and judged.out_of_line,
-                hanging_up,
+                ending,
                 affinity and affinity.cooldown_until,
                 hurt(judged),
             )
-        yield TurnDone(reply.without_cues(), affinity and affinity.shown())
+        yield TurnDone(reply.without_cues(), affinity and affinity.shown(), ended and ended.shown())
 
     def _affinity(self, conversation: Conversation) -> Status | None:
         """Her affinity with the user as the turn begins; None where affinity is off."""
@@ -534,15 +570,23 @@ class ConversationEngine:
         reply: list[Segment],
         judged: Judged | None,
         affinity: Status | None,
+        typed: Typed | None,
+        ends_conversation: bool,
     ) -> tuple[Message, Status | None]:
         """Record the turn, as said at `said_at`, changing her affinity as `judged` says, if
-        judged: the reply, and her affinity after it (`affinity`, as the turn began, if not
+        judged, with what a typed turn came to and her ending the conversation after it if
+        she does: the reply, and her affinity after it (`affinity`, as the turn began, if not
         judged)."""
+
+        def add_turn(change: Change | None) -> Message:
+            return self._store.add_turn(
+                conversation.id, text, reply, change, said_at, typed, ends_conversation
+            )
+
         if judged is None or self._affinities is None:
-            return self._store.add_turn(conversation.id, text, reply, said_at=said_at), affinity
+            return add_turn(None), affinity
         return self._affinities.change(
-            conversation.user_id, conversation.character_id, judged,
-            lambda change: self._store.add_turn(conversation.id, text, reply, change, said_at),
+            conversation.user_id, conversation.character_id, judged, add_turn
         )
 
     async def _call_tool(self, character: Character, call: ToolCall) -> str:

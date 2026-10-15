@@ -15,3 +15,7 @@
 - [ ] 后端：三种原因各自计数，通话的挂断不算进来
 - [ ] 本地构建版 Playwright 看一眼看板
 - [ ] 后端完整测试、前端类型检查和测试通过
+
+## Comments
+
+- 2026-10-15 票 01 留下的：原因已记在 `activity_records.ended_conversation`（`EndsFor` 字符串，只有文字回合有），`ActivityLog.since` 读出的 `RecordRow.ended_conversation`，看板直接按它和 `character_id` 计数。

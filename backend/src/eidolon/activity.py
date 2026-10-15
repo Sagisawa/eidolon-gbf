@@ -47,7 +47,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from eidolon.affinity import Judged
+from eidolon.affinity import EndsFor, Judged
 from eidolon.billing import Billing, billing
 from eidolon.characters import Character
 from eidolon.clock import Clock
@@ -118,7 +118,8 @@ _SCHEMA = """
 -- of its LLM, speech recognition and synthesis were (GLOSSARY.md「运行记录」). The last four
 -- are what the judge model made of a turn recorded (GLOSSARY.md「好感度」): its level, 0–4,
 -- whether out of line, whether it tried to dictate her affinity, and whether the turn began
--- a cooldown; all NULL for a turn not judged, or not recorded.
+-- a cooldown; all NULL for a turn not judged, or not recorded. `ended_conversation` is why
+-- she ended the conversation after a typed turn (`affinity.EndsFor`), NULL if she did not.
 CREATE TABLE IF NOT EXISTS activity_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT NOT NULL,
@@ -135,7 +136,8 @@ CREATE TABLE IF NOT EXISTS activity_records (
     affinity_level INTEGER,
     out_of_line INTEGER,
     manipulation INTEGER,
-    cooled INTEGER
+    cooled INTEGER,
+    ended_conversation TEXT
 );
 CREATE INDEX IF NOT EXISTS activity_records_by_time ON activity_records(started_at);
 CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id, started_at);
@@ -255,6 +257,8 @@ class RecordRow:
     was not recorded."""
     cooled: bool = False
     """Whether a turn began a cooldown."""
+    ended_conversation: EndsFor | None = None
+    """Why she ended the conversation after a typed turn; None if she did not."""
 
     @property
     def own_keys(self) -> bool:
@@ -333,6 +337,7 @@ class Recording:
         self.end_reason: CallEndReason | None = None
         self.judged_as: Judged | None = None
         self.cooled = False
+        self.ended_conversation: EndsFor | None = None
         self.call = call
         """The call this turn was taken in, if any."""
         self.turns: list[Recording] = []
@@ -355,10 +360,10 @@ class Recording:
         if self.time_to_speak_ms is None:
             self.time_to_speak_ms = (perf_counter() - self._started) * 1000
 
-    def judged(self, judged: Judged, cooled: bool) -> None:
-        """What the judge model made of the turn, now recorded, and whether it began a
-        cooldown."""
-        self.judged_as, self.cooled = judged, cooled
+    def judged(self, judged: Judged, cooled: bool, ended: EndsFor | None = None) -> None:
+        """What the judge model made of the turn, now recorded, whether it began a cooldown,
+        and why she ended the conversation after it, if she did."""
+        self.judged_as, self.cooled, self.ended_conversation = judged, cooled, ended
 
     def turn(self, own_llm: bool) -> "Recording":
         """Open the record of a turn taken in this call, on the user's own LLM or not."""
@@ -452,7 +457,7 @@ class ActivityLog:
             records = self._db.execute(
                 "SELECT kind, COALESCE(user_id, anonymous_id), character_id, started_at, result,"
                 " own_keys, time_to_speak_ms, duration_s, end_reason, call_id IS NOT NULL,"
-                f" {', '.join(JUDGEMENT_COLUMNS)}"
+                f" {', '.join(JUDGEMENT_COLUMNS)}, ended_conversation"
                 " FROM activity_records WHERE started_at > ? ORDER BY started_at",
                 (at,),
             ).fetchall()
@@ -467,11 +472,11 @@ class ActivityLog:
                 RecordRow(
                     kind, who, character, _time(started), result,
                     *_reading_own_keys(kind, own), speak, duration, reason, bool(in_call),
-                    *_reading_judgement(level, out_of_line, manipulation, cooled),
+                    *_reading_judgement(level, out_of_line, manipulation, cooled), ended,
                 )
                 for (
                     kind, who, character, started, result, own, speak, duration, reason, in_call,
-                    level, out_of_line, manipulation, cooled,
+                    level, out_of_line, manipulation, cooled, ended,
                 ) in records
             ],
             [
@@ -548,12 +553,13 @@ class ActivityLog:
             recording.result, int(_writing_own_keys(recording)), recording.time_to_speak_ms,
             recording.call.row_id if recording.call is not None else None,
             recording.duration_s, recording.end_reason, *_writing_judgement(recording),
+            recording.ended_conversation,
         )
         insert = (
             "INSERT INTO activity_records (user_id, anonymous_id, kind, character_id,"
             " started_at, result, own_keys, time_to_speak_ms, call_id, duration_s, end_reason,"
-            f" {', '.join(JUDGEMENT_COLUMNS)})"
-            f" VALUES ({', '.join('?' * (11 + len(JUDGEMENT_COLUMNS)))})"
+            f" {', '.join(JUDGEMENT_COLUMNS)}, ended_conversation)"
+            f" VALUES ({', '.join('?' * (12 + len(JUDGEMENT_COLUMNS)))})"
         )
         try:
             cursor = self._db.execute(insert, (recording.user_id, None, *row))
@@ -622,11 +628,14 @@ def _reading_judgement(
 
 
 def _add_judgement_columns(db: sqlite3.Connection) -> None:
-    """Records written before turns' judgements were kept have no columns for them."""
+    """Records written before turns' judgements were kept have no columns for them, nor for
+    why she ended the conversation."""
     columns = {name for _, name, *_ in db.execute("PRAGMA table_info(activity_records)")}
     for column in JUDGEMENT_COLUMNS:
         if column not in columns:
             db.execute(f"ALTER TABLE activity_records ADD COLUMN {column} INTEGER")
+    if "ended_conversation" not in columns:
+        db.execute("ALTER TABLE activity_records ADD COLUMN ended_conversation TEXT")
 
 
 def _add_llm_columns(db: sqlite3.Connection) -> None:

@@ -136,6 +136,11 @@ export const zh = {
     events: {
       hung_up: (name: string) => `${name}挂断了电话`,
       gift: (name: string, gift: string) => `你送给${name}一份${gift}`,
+      ended: (name: string) => `${name}结束了对话`,
+    },
+    /** 她结束了对话（GLOSSARY.md「已结束的对话」）时换掉输入栏的结束卡：那句话同对话事件（`events.ended`），不写原因。 */
+    ended: {
+      newConversation: "开个新对话",
     },
     hearing: "正在听你说",
     loading: "正在打开对话",

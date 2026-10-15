@@ -24,7 +24,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine
-from eidolon.engine import TurnJudged
+from eidolon.engine import ENDED, TurnJudged
 from eidolon.greetings import call_opener_path, call_poster_path, greeting_path
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
@@ -282,6 +282,12 @@ def create_app(backend: Backend) -> FastAPI:
             raise HTTPException(404, "角色不存在")
         return conversation
 
+    def refuse_if_ended(conversation: Conversation) -> None:
+        """A call into a conversation she has ended (GLOSSARY.md「已结束的对话」) is refused,
+        before anything is asked or spent; told apart from the limit's 429."""
+        if store.ended(conversation.id) is not None:
+            raise HTTPException(409, ENDED)
+
     @app.get("/api/health")
     def health() -> dict:
         return {"ok": True}
@@ -301,10 +307,12 @@ def create_app(backend: Backend) -> FastAPI:
         """What the browser needs before calling, if the call is to bring the user's own
         keys for the services `own` names (as `llm,tts,stt`), but none of the keys; also
         tells it when calls are unavailable, or, for a call into `conversation`, when she
-        is in a cooldown."""
-        character_id = (
-            conversation_or_404(conversation, user_id).character_id if conversation else None
-        )
+        is in a cooldown or has ended it."""
+        character_id = None
+        if conversation:
+            into = conversation_or_404(conversation, user_id)
+            refuse_if_ended(into)
+            character_id = into.character_id
         return calls.ice_servers(user_id, named_services(own), character_id)
 
     @app.post("/api/offer")
@@ -321,6 +329,7 @@ def create_app(backend: Backend) -> FastAPI:
         if body.call is None:
             raise HTTPException(422, "缺少要通话的对话")
         conversation = conversation_or_404(body.call.conversation_id, user_id)
+        refuse_if_ended(conversation)
         return await calls.start(
             user_id,
             conversation,
