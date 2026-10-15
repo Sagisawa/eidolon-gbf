@@ -10,7 +10,7 @@
  *   （发束之间的缝，不填会露出模型内部的暗色）。
  * - 上色：从 6 个方向把模型正交渲染成颜色图和深度图，每格只取从它露在外面的面看得到、深度落在这一格里的像素，
  *   按 4 位一档分桶，取权重最大那一桶的平均色。头部皮肤上比肤色暗的像素（眼睛、嘴）大幅加重。
- * - 去杂点（头部皮肤不碰）；一个方向都看不到的格子从周围借色。
+ * - 去杂点（头上的格子不换成肤色）；一个方向都看不到的格子从周围借色。
  *
  * 需要 Node 24（直接跑 TypeScript）。退出码：0 成功；1 参数不对或读不了 GLB。
  */
@@ -36,10 +36,10 @@ export type Voxels = {
 
 /** 渲染颜色图时每格几个像素（每边）。 */
 const SUPERSAMPLE = 6;
-/** 高度占比在这以上算头部：脸上的皮肤保五官、去杂点不碰。 */
-const HEAD = 0.66;
-/** 高度占比在这以上填发束细缝。 */
-const WAIST = 0.45;
+/** 高度占比在这以上算头部：脸上的皮肤保五官，去杂点不把头上的格子换成肤色。 */
+const HEAD_ABOVE = 0.66;
+/** 高度占比在这以上（腰以上）填发束细缝。 */
+const SLOTS_ABOVE = 0.45;
 /** 正上方、正下方看到的像素的权重：从这两个方向会看进发束之间的缝。 */
 const VERTICAL_VIEW_WEIGHT = 0.15;
 /** 去杂点：两种颜色差多少以内算相近（RGB 距离），周围至少几格彼此相近才换。 */
@@ -128,6 +128,14 @@ const SIX = [
 const isSkin = ([r, g, b]: Rgb) => r > 200 && r - b >= 15 && g / r >= 0.82 && g >= b - 5;
 const luma = ([r, g, b]: Rgb | number[]) => 0.3 * r + 0.59 * g + 0.11 * b;
 const distance = (a: Rgb | number[], b: Rgb | number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const hexRgb = (hex: string): Rgb => [1, 3, 5].map((o) => parseInt(hex.slice(o, o + 2), 16)) as Rgb;
+
+/** (x, y, z) 周围 26 格的位置。 */
+function* around26(x: number, y: number, z: number) {
+  for (let dx = -1; dx <= 1; dx++)
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dz = -1; dz <= 1; dz++) if (dx || dy || dz) yield [x + dx, y + dy, z + dz] as const;
+}
 
 function voxelize(mesh: Mesh, H: number): Voxels {
   const { positions: P, uvs: UV, triangles } = mesh;
@@ -194,7 +202,7 @@ function voxelize(mesh: Mesh, H: number): Voxels {
         const ex = x + dx, ey = y + dy, ez = z + dz;
         if (ex < 0 || ey < 0 || ez < 0 || ex >= W || ey >= Hv || ez >= D || has(ex, ey, ez)) continue;
         const around = SIX.filter(([ax, ay, az]) => has(ex + ax, ey + ay, ez + az)).length;
-        const slot = ey > H * WAIST && (solidWithin2(ex, ey, ez, 1, 0) || solidWithin2(ex, ey, ez, 0, 1));
+        const slot = ey > H * SLOTS_ABOVE && (solidWithin2(ex, ey, ez, 1, 0) || solidWithin2(ex, ey, ez, 0, 1));
         if (around >= 4 || slot) add.push(key(ex, ey, ez));
       }
     }
@@ -278,7 +286,7 @@ function voxelize(mesh: Mesh, H: number): Voxels {
     const meanLuma = luma(mean);
     // 头上皮肤的格子（脸）：比皮肤暗的像素（睫毛、瞳孔、嘴）票数大幅加重，缩小以后一只眼睛只剩两三格，
     // 不加重会和肤色平均掉。别处略偏向亮色：贴图里画的描线、发束间的暗线，体素小人用不着。
-    const face = cell[1] > H * HEAD && isSkin(mean);
+    const face = cell[1] > H * HEAD_ABOVE && isSkin(mean);
     const buckets = new Map<number, { weight: number; sum: Rgb; n: number }>();
     for (const { rgb, weight } of pixels) {
       const b = (rgb[0] >> 4) * 256 + (rgb[1] >> 4) * 16 + (rgb[2] >> 4);
@@ -305,12 +313,10 @@ function voxelize(mesh: Mesh, H: number): Voxels {
       if (colorOf.has(k)) continue;
       const [x, y, z] = unkey(k);
       const count = new Map<number, number>();
-      for (let dx = -1; dx <= 1; dx++)
-        for (let dy = -1; dy <= 1; dy++)
-          for (let dz = -1; dz <= 1; dz++) {
-            const c = colorOf.get(key(x + dx, y + dy, z + dz));
-            if (c !== undefined) count.set(c, (count.get(c) ?? 0) + 1);
-          }
+      for (const [ax, ay, az] of around26(x, y, z)) {
+        const c = colorOf.get(key(ax, ay, az));
+        if (c !== undefined) count.set(c, (count.get(c) ?? 0) + 1);
+      }
       let best = -1;
       let most = 0;
       for (const [c, m] of count) if (m > most) [best, most] = [c, m];
@@ -326,9 +332,9 @@ function voxelize(mesh: Mesh, H: number): Voxels {
   }
 
   // —— 去杂点：表面上一格的颜色在周围表面格子里没有相近的、而周围至少 5 格彼此相近，就换成那种颜色。
-  // 只和表面上的格子比（里面一层看不见，常常也是暗的，会让杂点看起来「有同伴」）。头部皮肤不碰：眼睛里睫毛、瞳孔、
-  // 高光颜色各不相同，一碰就抹成肤色。
-  const rgbOf = (i: number): Rgb => [1, 3, 5].map((o) => parseInt(palette[i].slice(o, o + 2), 16)) as Rgb;
+  // 只和表面上的格子比（里面一层看不见，常常也是暗的，会让杂点看起来「有同伴」）。头上的格子不换成肤色：
+  // 眼睛里睫毛、瞳孔、高光颜色各不相同，在周围的肤色里都像杂点，一换就抹掉了。
+  const rgbOf = (i: number) => hexRgb(palette[i]);
   const exposed = (x: number, y: number, z: number) => SIX.some(([dx, dy, dz]) => !has(x + dx, y + dy, z + dz));
   const surface = new Map<number, number>();
   for (const k of occupied) {
@@ -339,13 +345,10 @@ function voxelize(mesh: Mesh, H: number): Voxels {
     const [x, y, z] = unkey(k);
     const own = rgbOf(ci);
     const around: Rgb[] = [];
-    for (let dx = -1; dx <= 1; dx++)
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dz = -1; dz <= 1; dz++) {
-          if (!dx && !dy && !dz) continue;
-          const c = surface.get(key(x + dx, y + dy, z + dz));
-          if (c !== undefined) around.push(rgbOf(c));
-        }
+    for (const [ax, ay, az] of around26(x, y, z)) {
+      const c = surface.get(key(ax, ay, az));
+      if (c !== undefined) around.push(rgbOf(c));
+    }
     if (around.some((c) => distance(c, own) < NEAR_COLOR)) continue;
     let best: Rgb | null = null;
     let most = 0;
@@ -353,7 +356,7 @@ function voxelize(mesh: Mesh, H: number): Voxels {
       const m = around.filter((o) => distance(o, c) < NEAR_COLOR).length;
       if (m > most) [best, most] = [c, m];
     }
-    if (!best || most < DESPECKLE_QUORUM || (y > H * HEAD && isSkin(best))) continue;
+    if (!best || most < DESPECKLE_QUORUM || (y > H * HEAD_ABOVE && isSkin(best))) continue;
     colorOf.set(k, colorIndex(best));
   }
 
@@ -378,7 +381,7 @@ async function preview({ size: [W, H], palette, voxels }: Voxels): Promise<Buffe
       const pixels = Buffer.alloc(W * H * 3, 40);
       for (const [k, [, c]] of nearest) {
         const o = ((H - 1 - Math.floor(k / W)) * W + (k % W)) * 3;
-        for (let j = 0; j < 3; j++) pixels[o + j] = parseInt(palette[c].slice(1 + j * 2, 3 + j * 2), 16);
+        pixels.set(hexRgb(palette[c]), o);
       }
       return sharp(pixels, { raw: { width: W, height: H, channels: 3 } }).resize({ width: W * SCALE, kernel: "nearest" }).png().toBuffer();
     }),

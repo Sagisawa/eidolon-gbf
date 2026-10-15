@@ -790,27 +790,15 @@ async def test_call_opener_has_no_audio_unless_the_stand_assets_are_served(
     assert (await listed_greeting(make_client, settings)) is None
 
 
-async def test_call_poster_is_where_the_bucket_keeps_it(make_client: ClientFactory, settings: Settings):
-    """Her card on the landing page's incoming call, put in the bucket by hand: listed
-    without asking the bucket whether it is there (the page falls back to her colour)."""
+async def test_call_poster_and_voxels_are_where_the_bucket_keeps_them(make_client: ClientFactory, settings: Settings):
+    """Her card on the landing page's incoming call and her voxel figure in its act about
+    memory, both put in the bucket by hand: listed without asking the bucket whether they are
+    there (the page falls back to her colour)."""
     client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS), user=None)
 
     listed = (await client.get("/api/characters")).json()
 
-    assert {c["id"]: c["call_poster_url"] for c in listed} == {
-        "mano": f"{STAND_ASSETS}/call-posters/mano.webp",
-        "kogane": f"{STAND_ASSETS}/call-posters/kogane.webp",
-    }
-
-
-async def test_voxels_are_where_the_bucket_keeps_them(make_client: ClientFactory, settings: Settings):
-    """Her voxel figure on the landing page's act about memory, put in the bucket by hand:
-    listed without asking the bucket whether it is there (the page falls back to her colour)."""
-    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS), user=None)
-
-    listed = (await client.get("/api/characters")).json()
-
-    assert {c["id"]: c["voxels_url"] for c in listed} == {
-        "mano": f"{STAND_ASSETS}/landing-voxels/mano.json",
-        "kogane": f"{STAND_ASSETS}/landing-voxels/kogane.json",
+    assert {c["id"]: (c["call_poster_url"], c["voxels_url"]) for c in listed} == {
+        "mano": (f"{STAND_ASSETS}/call-posters/mano.webp", f"{STAND_ASSETS}/landing-voxels/mano.json"),
+        "kogane": (f"{STAND_ASSETS}/call-posters/kogane.webp", f"{STAND_ASSETS}/landing-voxels/kogane.json"),
     }
