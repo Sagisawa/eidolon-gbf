@@ -390,6 +390,39 @@ async def test_a_run_cancelled_part_way_is_abandoned(deployment: Deployment):
     assert (await deployment.run("manual")).exit_code == 0
 
 
+async def test_a_run_begun_in_the_background_is_abandoned_as_the_server_shuts_down(
+    deployment: Deployment,
+):
+    uploading = asyncio.Event()
+
+    async def never_uploads(request: httpx.Request) -> httpx.Response:
+        uploading.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    backups = Backups(deployment.database, lambda: START, transport=httpx.MockTransport(never_uploads))
+    assert backups.begin("admin", deployment.settings)
+    await asyncio.wait_for(uploading.wait(), 10)
+
+    await backups.aclose()
+
+    (record,) = deployment.records()
+    assert (record.source, record.abandoned) == ("admin", True)
+
+
+async def test_a_run_is_not_begun_in_the_background_while_another_is_under_way(
+    deployment: Deployment,
+):
+    backups = deployment.backups()
+    backups.start("cron")
+
+    assert not backups.begin("admin", deployment.settings)
+
+    await backups.aclose()
+    assert [record.source for record in deployment.records()] == ["cron"]
+    assert deployment.storage.puts == []
+
+
 async def test_records_over_90_days_old_are_deleted_as_a_run_begins(deployment: Deployment):
     await deployment.run("cron", now=START - timedelta(days=90, minutes=1))
     await deployment.run("cron", now=START - timedelta(days=89))

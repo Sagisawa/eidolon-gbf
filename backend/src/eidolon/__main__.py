@@ -155,11 +155,13 @@ def _serve() -> int:
     logger.add(sys.stderr, level="INFO")
 
     # Which settings the admin console overrides, for a deployer wondering why `.env`'s
-    # did not take (ADR-0013); nothing configures the root logger to show it.
-    overrides = logging.StreamHandler()
-    overrides.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    logging.getLogger("eidolon.live_config").addHandler(overrides)
-    logging.getLogger("eidolon.live_config").setLevel(logging.INFO)
+    # did not take (ADR-0013), and what the backups begun from it did, which is not in
+    # `logs/db-backup.log`; nothing configures the root logger to show either.
+    shown = logging.StreamHandler()
+    shown.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    for name in ["eidolon.live_config", "eidolon.backup"]:
+        logging.getLogger(name).addHandler(shown)
+        logging.getLogger(name).setLevel(logging.INFO)
 
     try:  # missing settings, an unusable DashScope key or Cloudflare token, a broken
         # character configuration
@@ -547,7 +549,7 @@ async def _backup(args: argparse.Namespace) -> int:
     import sqlite3
     import time
 
-    from eidolon.backup import EXPORT_FAILED, GB, Backups
+    from eidolon.backup import EXPORT_FAILED, Backups, describe
 
     started = time.monotonic()
     try:
@@ -559,33 +561,10 @@ async def _backup(args: argparse.Namespace) -> int:
     except sqlite3.Error as e:  # not a missing setting, which exiting 1 would say
         print(f"没有备份：备份记录写不进数据库：{e}", file=sys.stderr)
         return EXPORT_FAILED
-    if report.config_error is not None:
-        print(report.config_error, file=sys.stderr)
+    for wrong, line in describe(report):
+        print(line, file=sys.stderr if wrong else sys.stdout)
+    if report.config_error is not None or report.busy:
         return report.exit_code
-    if report.busy:
-        print("上一次备份还没结束（cron、手动或后台按钮发起的），这次没有运行", file=sys.stderr)
-        return report.exit_code
-    if report.export_error is not None:
-        print(f"没有备份：{report.export_error}", file=sys.stderr)
-    if report.upload_error is not None:
-        print(f"备份没有上传：{report.upload_error}", file=sys.stderr)
-    if report.key is not None:
-        print(f"已备份为 {report.key}（压缩加密后 {report.size / 1_000_000:.1f} MB）")
-    deleted = f"：{'、'.join(report.deleted)}" if report.deleted else ""
-    if report.prune_error is not None:
-        print(
-            f"没能删完过期的备份（已删除 {len(report.deleted)} 份{deleted}），下次备份再删：{report.prune_error}",
-            file=sys.stderr,
-        )
-    else:
-        print(f"删除了 {len(report.deleted)} 份过期的备份{deleted}")
-    if report.kept is not None:
-        size = f"，共 {report.total / GB:.2f} GB" if report.total is not None else "（存储桶没有列出大小）"
-        print(f"存储桶里现有 {report.kept} 份备份{size}")
-    if report.space_warning is not None:
-        print(f"注意：{report.space_warning}", file=sys.stderr)
-    if report.ping_error is not None:
-        print(f"注意：{report.ping_error}", file=sys.stderr)
     print(f"用时 {time.monotonic() - started:.0f} 秒")
     return report.exit_code
 

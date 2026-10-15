@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -64,9 +65,11 @@ async def admin_client(
     github: FakeIdentityProvider,
     clock: FakeClock,
     llm: FakeLLM | None = None,
+    **services: Any,
 ) -> httpx.AsyncClient:
-    """An admin, signed in on a backend of their own, whose turns run on `llm`."""
-    client = make_client(llm or FakeLLM(), user=None, clock=clock)
+    """An admin, signed in on a backend of their own, whose turns run on `llm`, with any
+    other keyword passed on to `make_client`."""
+    client = make_client(llm or FakeLLM(), user=None, clock=clock, **services)
     await sign_in_with(client, github, github_identity("1001", name="octo"))
     await agree_to_terms(client)
     return client

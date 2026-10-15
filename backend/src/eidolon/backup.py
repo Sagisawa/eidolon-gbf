@@ -21,6 +21,7 @@ alike."""
 
 import asyncio
 import gzip
+import logging
 import math
 import os
 import re
@@ -40,6 +41,8 @@ import pyrage
 from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.s3 import Bucket, S3Error, S3Settings
+
+log = logging.getLogger(__name__)
 
 MOST_DAYS_KEPT = 30
 """The longest backups may be kept, and how long they are unless the deployer says less:
@@ -72,6 +75,20 @@ taken to have been killed: a backup takes some 3 minutes (2026-10-15)."""
 
 RECORDS_KEPT = timedelta(days=90)
 """How long the record of a run is kept, as activity records are."""
+
+OVERDUE = timedelta(hours=26)
+"""How long after the last backup that went well the dashboard says something is wrong:
+the cron's are a day apart, and one takes minutes."""
+
+BUSY_MESSAGE = "上一次备份还没结束（cron、手动或后台按钮发起的），这次没有运行"
+
+_NEEDED = (
+    "EIDOLON_BACKUP_S3_ENDPOINT",
+    "EIDOLON_BACKUP_S3_BUCKET",
+    "EIDOLON_BACKUP_S3_ACCESS_KEY_ID",
+    "EIDOLON_BACKUP_S3_SECRET_ACCESS_KEY",
+    "EIDOLON_BACKUP_AGE_RECIPIENT",
+)
 
 
 @dataclass(frozen=True)
@@ -124,6 +141,12 @@ class BackupSettings:
             )
         return cls(bucket, parsed, ping_url, int(days), warn_gb)
 
+    @staticmethod
+    def any_set() -> bool:
+        """Whether the environment has any of the settings a backup needs: a deployment
+        with none has not set backups up, one with some has set them up wrong."""
+        return any((os.environ.get(name) or "").strip() for name in _NEEDED)
+
 
 @dataclass
 class BackupReport:
@@ -165,6 +188,38 @@ class BackupReport:
         if self.prune_error is not None:
             return PRUNE_FAILED
         return SUCCEEDED
+
+
+def describe(report: BackupReport) -> list[tuple[bool, str]]:
+    """What a run did, a line at a time, each with whether it says something went wrong or
+    is a warning: what `eidolon backup` prints, and the server logs of the button's runs."""
+    if report.config_error is not None:
+        return [(True, report.config_error)]
+    if report.busy:
+        return [(True, BUSY_MESSAGE)]
+    lines: list[tuple[bool, str]] = []
+    if report.export_error is not None:
+        lines.append((True, f"没有备份：{report.export_error}"))
+    if report.upload_error is not None:
+        lines.append((True, f"备份没有上传：{report.upload_error}"))
+    if report.key is not None:
+        lines.append((False, f"已备份为 {report.key}（压缩加密后 {report.size / 1_000_000:.1f} MB）"))
+    deleted = f"：{'、'.join(report.deleted)}" if report.deleted else ""
+    if report.prune_error is not None:
+        lines.append((
+            True,
+            f"没能删完过期的备份（已删除 {len(report.deleted)} 份{deleted}），下次备份再删：{report.prune_error}",
+        ))
+    else:
+        lines.append((False, f"删除了 {len(report.deleted)} 份过期的备份{deleted}"))
+    if report.kept is not None:
+        size = f"，共 {report.total / GB:.2f} GB" if report.total is not None else "（存储桶没有列出大小）"
+        lines.append((False, f"存储桶里现有 {report.kept} 份备份{size}"))
+    if report.space_warning is not None:
+        lines.append((True, f"注意：{report.space_warning}"))
+    if report.ping_error is not None:
+        lines.append((True, f"注意：{report.ping_error}"))
+    return lines
 
 
 def backup_key(made_at: datetime) -> str:
@@ -250,6 +305,10 @@ _COLUMNS = (
 )
 
 
+Stage = Literal["config", "export", "upload", "prune", "abandoned"]
+"""Where a run went wrong: its settings would not do, the database was not exported or
+the backup not uploaded, old backups not deleted; or it was taken never to finish."""
+
 @dataclass(frozen=True)
 class BackupRecord:
     """A backup run, as the database keeps it."""
@@ -276,6 +335,58 @@ class BackupRecord:
     upload_error: str | None
     prune_error: str | None
 
+    @property
+    def errors(self) -> list[tuple[Stage, str | None]]:
+        """What went wrong, in the order of the exit codes; an abandoned run's only that
+        it was, with no reason. Empty for a run that went well."""
+        if self.abandoned:
+            return [("abandoned", None)]
+        errors: list[tuple[Stage, str | None]] = [
+            ("config", self.config_error),
+            ("export", self.export_error),
+            ("upload", self.upload_error),
+            ("prune", self.prune_error),
+        ]
+        return [(stage, error) for stage, error in errors if error is not None]
+
+
+Problem = Literal["unconfigured", "misconfigured", "never_succeeded", "overdue"]
+"""What is wrong with the backups, as the dashboard says: none of their settings set, or
+some set wrong; or none has gone well, or the last that did is over `OVERDUE` ago."""
+
+
+@dataclass(frozen=True)
+class BackupStatus:
+    """The backups as the dashboard shows them."""
+
+    any_set: bool
+    """Whether any of the settings a backup needs is set."""
+    settings: BackupSettings | None
+    """None when they will not do, or none are set."""
+    config_error: str | None
+    """Why they will not do, if any is set."""
+    under_way: BackupRecord | None
+    """The run begun within `STALE` and not finished, if there is one."""
+    last_success: BackupRecord | None
+    """The latest run to go well (exit code 0)."""
+    last: BackupRecord | None
+    """The latest run that finished, however it did."""
+    listed: BackupRecord | None
+    """The latest run that listed the bucket: what is in it."""
+    problem: Problem | None
+
+    @property
+    def over_warning(self) -> bool:
+        """Whether the backups listed take more space than the deployer, as they say
+        now, would be warned over."""
+        return (
+            self.settings is not None
+            and self.settings.warn_gb is not None
+            and self.listed is not None
+            and self.listed.total is not None
+            and self.listed.total > self.settings.warn_gb * GB
+        )
+
 
 class Backups:
     """The backups of the database at `database`, and the record of each run kept in it,
@@ -296,6 +407,7 @@ class Backups:
         self._transport = transport
         self._db = connect(database)
         self._lock = threading.Lock()
+        self._background: set[asyncio.Task[None]] = set()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
 
@@ -317,15 +429,63 @@ class Backups:
         run = self.start(source)
         if run is None:
             return BackupReport(busy=True)
-        try:
-            report = await back_up(
-                self._database, loaded, now=self._clock(), transport=self._transport
-            )
-        except BaseException:  # cancelled, as when the server shuts down
-            self._abandon(run)
-            raise
-        self._finish(run, report)
-        return report
+        return await self._carry_out(run, loaded)
+
+    def begin(
+        self,
+        source: Source,
+        settings: Callable[[], BackupSettings] = BackupSettings.from_env,
+    ) -> bool:
+        """Begin a run as `run` does, on the running event loop in the background, its
+        report logged once it is done; whether it began, not if another was under way.
+        Raises RuntimeError, having recorded nothing, if the settings will not do. `aclose`
+        abandons it if it has not finished."""
+        loaded = settings()
+        run = self.start(source)
+        if run is None:
+            return False
+        task = asyncio.create_task(self._in_background(run, loaded))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+        return True
+
+    def status(
+        self, settings: Callable[[], BackupSettings] = BackupSettings.from_env
+    ) -> BackupStatus:
+        """The backups as they are now, with the `settings` read now."""
+        any_set = BackupSettings.any_set()
+        loaded, config_error = None, None
+        if any_set:
+            try:
+                loaded = settings()
+            except RuntimeError as e:
+                config_error = str(e)
+        records = self.records()
+        stale = (self._clock() - STALE).isoformat()
+        finished = [r for r in records if r.finished_at is not None]
+        under_way = next(
+            (r for r in records if r.finished_at is None and r.started_at > stale), None
+        )
+        last_success = next((r for r in finished if r.exit_code == SUCCEEDED), None)
+        problem: Problem | None = None
+        if not any_set:
+            problem = "unconfigured"
+        elif config_error is not None:
+            problem = "misconfigured"
+        elif last_success is None:
+            problem = "never_succeeded"
+        elif datetime.fromisoformat(last_success.started_at) < self._clock() - OVERDUE:
+            problem = "overdue"
+        return BackupStatus(
+            any_set=any_set,
+            settings=loaded,
+            config_error=config_error,
+            under_way=under_way,
+            last_success=last_success,
+            last=next(iter(finished), None),
+            listed=next((r for r in finished if r.kept is not None), None),
+            problem=problem,
+        )
 
     def start(self, source: Source) -> int | None:
         """Record a run begun now, unless another is under way (begun within `STALE` and
@@ -350,6 +510,33 @@ class Backups:
 
     def close(self) -> None:
         self._db.close()
+
+    async def aclose(self) -> None:
+        """`close`, the runs begun in the background and not finished abandoned first."""
+        for task in self._background:
+            task.cancel()
+        await asyncio.gather(*self._background, return_exceptions=True)
+        self.close()
+
+    async def _carry_out(self, run: int, settings: BackupSettings) -> BackupReport:
+        try:
+            report = await back_up(
+                self._database, settings, now=self._clock(), transport=self._transport
+            )
+        except BaseException:  # cancelled, as when the server shuts down
+            self._abandon(run)
+            raise
+        self._finish(run, report)
+        return report
+
+    async def _in_background(self, run: int, settings: BackupSettings) -> None:
+        try:
+            report = await self._carry_out(run, settings)
+        except Exception:
+            log.exception("the backup run %d failed", run)
+            return
+        for wrong, line in describe(report):
+            (log.warning if wrong else log.info)("backup: %s", line)
 
     def _begin(self, source: Source, *, exclusive: bool = False) -> int | None:
         now = self._clock()

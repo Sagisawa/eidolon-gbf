@@ -136,6 +136,7 @@ def build(
     own_llm_service: LLMService | None = None,
     clients: ServiceClients | None = None,
     catalog_transport: httpx.BaseTransport | None = None,
+    backup_transport: httpx.AsyncBaseTransport | None = None,
     random: Random | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
@@ -180,8 +181,8 @@ def build(
     closers.append(prices.close)
     announcements = Announcements(settings.database_path, clock)
     closers.append(announcements.close)
-    backups = Backups(settings.database_path, clock)
-    closers.append(backups.close)
+    backups = Backups(settings.database_path, clock, transport=backup_transport)
+    closers.append(backups.aclose)
     config = LiveConfig(
         settings, clients or ProviderClients(), clock, activity=activity, speech=speech
     )
