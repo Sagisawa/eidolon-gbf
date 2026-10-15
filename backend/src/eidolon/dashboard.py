@@ -12,8 +12,7 @@ calls with each character, and in each stretch of the range (`trend`), in stretc
 beginning where the admin's clock (`X-Timezone`) has a round hour or day. Where affinity is
 on (GLOSSARY.md「好感度」), how the judge model judged the turns recorded, and the cooldowns
 they began, in all and for each character, with the calls she hung up and the conversations
-she ended (`affinity`). Nothing anyone said is in it, nor
-whose any of it was.
+she ended (`affinity`). Nothing anyone said is in it, nor whose any of it was.
 
 How many calls are in progress now is not in the records but the calls themselves:
 `/api/admin/calls/live`, which the page asks every minute.
@@ -314,8 +313,8 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
     users; how many were out of line, how many tried to dictate her affinity; how many at
     each level. For each character, how many were judged, the share that lowered it, how many
     calls she hung up, and how many conversations she ended for each reason (`ENDS_FOR`), her
-    hanging up a call not among them; ranked by that share, highest first, those judged too few times
-    (`JUDGED_TO_TELL_SHARE`) last."""
+    hanging up a call not among them; ranked by that share, highest first, those judged too
+    few times (`JUDGED_TO_TELL_SHARE`) last."""
     judged = [r for r in records if r.kind == "turn" and r.result == "success" and r.judged]
     by_character: dict[str, list[RecordRow]] = defaultdict(list)
     for record in judged:
@@ -324,12 +323,12 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
         r.character_id for r in records
         if r.kind == "call" and r.end_reason == "character_hung_up"
     )
-    ended = Counter(
+    ended_by = Counter(
         (r.character_id, r.ended_conversation) for r in records
         if r.kind == "turn" and r.ended_conversation is not None
     )
     rows = []
-    for id in by_character.keys() | hung_up.keys() | {id for id, _ in ended}:
+    for id in by_character.keys() | hung_up.keys() | {character for character, _ in ended_by}:
         turns = by_character.get(id, [])
         lowered = sum(_judged(r).level in LOWERING for r in turns)
         rows.append({
@@ -339,7 +338,7 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
             "lowered_share": lowered / len(turns) if len(turns) >= JUDGED_TO_TELL_SHARE else None,
             **_judgements(turns),
             "hung_up": hung_up[id],
-            "ended": {why: ended[(id, why)] for why in ENDS_FOR},
+            "ended": {why: ended_by[(id, why)] for why in ENDS_FOR},
         })
     rows.sort(key=lambda r: (
         r["lowered_share"] is None, -(r["lowered_share"] or 0), -r["judged"], r["character_id"]

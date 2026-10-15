@@ -4,8 +4,9 @@ tried to dictate her affinity, how the turns were judged across the five levels,
 each character, the turns judged (only those recorded), the share of them that lowered it,
 her cooldowns, out-of-line and manipulative turns, the calls she hung up and the conversations
 she ended, by why (a cooldown, out of line once too often, the latest typed turns hurting her
-too much; never a call she hung up). Most lowering first; a character judged fewer than `FEW` times last, her share not told. Nothing in it
-says whose any of it was, and where affinity is off there is no section at all.
+too much; never a call she hung up). Most lowering first; a character judged fewer than `FEW`
+times last, her share not told. Nothing in it says whose any of it was, and where affinity is
+off there is no section at all.
 
 Each turn's activity record keeps what the judge model made of it, if the turn was judged and
 recorded: its level, whether it was out of line or manipulative, whether it began a cooldown;
@@ -123,33 +124,22 @@ async def test_the_section_sums_up_the_judged_turns_and_ranks_the_characters_by_
     assert board["turns"]["by_result"]["failed"] == 1
 
 
-async def test_each_character_counts_the_conversations_she_ended_by_why(
+async def test_the_conversations_she_ended_are_counted_by_why(
     make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
 ):
-    clock = FakeClock()
+    # Those she ended as she cooled are counted in the test above.
     clients = FakeServiceClients()
-    clients.judge.judgings = [
-        # Mano: hurt turn after turn in one conversation, out of line twice in another.
-        *[level(1)] * 6, OUT_OF_LINE, OUT_OF_LINE,
-        # Kogane: cooled; Meguru: fine.
-        level(0), level(2),
-    ]
-    client = make_client(FakeLLM(*[REPLY] * 10), clients=clients, clock=clock)
+    # Hurt turn after turn in one conversation, out of line twice in another.
+    clients.judge.judgings = [*[level(1)] * 6, OUT_OF_LINE, OUT_OF_LINE]
+    client = make_client(FakeLLM(*[REPLY] * 8), clients=clients, clock=FakeClock())
 
     async with admin_beside(client, github) as admin:
-        await talk(client, await start_conversation(client, "mano"), 6)
-        await talk(client, await start_conversation(client, "mano"), 2)
-        keep(settings.database_path, "producer", 5, clock.now, character="kogane")
-        await talk(client, await start_conversation(client, "kogane"), 1)
-        await talk(client, await start_conversation(client, "meguru"), 1)
+        await talk(client, await start_conversation(client), 6)
+        await talk(client, await start_conversation(client), 2)
         board = await dashboard(admin)
 
-    ended = {c["character_id"]: c["ended"] for c in board["affinity"]["characters"]}
-    assert ended == {
-        "mano": NONE_ENDED | {"fed_up": 1, "out_of_line": 1},
-        "kogane": COOLED,
-        "meguru": NONE_ENDED,
-    }
+    [mano] = board["affinity"]["characters"]
+    assert mano["ended"] == NONE_ENDED | {"fed_up": 1, "out_of_line": 1}
 
 
 async def test_the_section_follows_the_dashboards_range(

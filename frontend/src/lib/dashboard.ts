@@ -212,9 +212,9 @@ export type Dashboard = {
 export const AFFINITY_LEVELS = [0, 1, 2, 3, 4] as const;
 
 /** Why she ended a conversation (GLOSSARY「已结束的对话」), in the order the dashboard tells them. */
-export type EndsFor = "cooldown" | "out_of_line" | "fed_up";
+export const ENDS_FOR = ["cooldown", "out_of_line", "fed_up"] as const;
 
-export const ENDS_FOR: EndsFor[] = ["cooldown", "out_of_line", "fed_up"];
+export type EndsFor = (typeof ENDS_FOR)[number];
 
 /** One character's judged turns: only those recorded count (`judged`), and the share of them
  * that lowered her affinity is null for too few of them; the calls she hung up, and the
