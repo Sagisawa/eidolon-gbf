@@ -64,9 +64,9 @@ async def test_her_next_turn_tells_her_of_it_whether_she_likes_it_and_to_respond
     await draw_them(client, clock, 2)
     conversation = await start_conversation(client)
 
-    await given(client, "cake", conversation=conversation)
+    await given(client, "cake")
     await send_turn(client, conversation, "尝尝看")
-    await given(client, "tea", conversation=conversation)
+    await given(client, "tea")
     await send_turn(client, conversation, "还有这个")
 
     assert history(llm) == [
@@ -86,7 +86,7 @@ async def test_several_given_at_once_are_each_told_and_she_is_told_to_respond_on
     conversation = await start_conversation(client)
 
     for gift_id in ("tea", "cake", "tea"):
-        await given(client, gift_id, conversation=conversation)
+        await given(client, gift_id)
     await send_turn(client, conversation, "都给你")
 
     assert history(llm) == [("user", f"{GIVEN_TEA}\n{GIVEN_CAKE}\n{GIVEN_TEA}\n{RESPOND}\n都给你")]
@@ -98,7 +98,7 @@ async def test_a_turn_that_fails_is_no_reply_to_it(make_client: ClientFactory):
     client = holding(make_client, clock, TEA, llm=llm)
     await draw_them(client, clock, 1)
     conversation = await start_conversation(client)
-    await given(client, "tea", conversation=conversation)
+    await given(client, "tea")
 
     failed = await send_turn(client, conversation, "送你的")
     await send_turn(client, conversation, "送你的")
@@ -118,7 +118,7 @@ async def test_one_given_while_she_replies_is_the_next_turns_to_respond_to(
 
     turn = asyncio.create_task(send_turn(client, conversation, "在吗"))
     await llm.replying.wait()
-    await given(client, "tea", conversation=conversation)
+    await given(client, "tea")
     llm.release.set()
     await turn
     record = (await client.get(f"/api/conversations/{conversation}/messages")).json()
@@ -165,9 +165,9 @@ async def test_memory_and_the_judge_model_never_see_it_nor_her_hanging_up(
     await draw_them(client, clock, 2)
     conversation = await start_conversation(client)
     await send_turn(client, conversation, "第一句")
-    await given(client, "cake", conversation=conversation)
+    await given(client, "cake")
     await send_turn(client, conversation, "送你的")
-    await given(client, "tea", conversation=conversation)
+    await given(client, "tea")
     hang_up(settings.database_path, conversation)
 
     await send_turn(client, conversation, "还有这个")

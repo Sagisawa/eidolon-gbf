@@ -86,15 +86,15 @@ export type Given = {
 };
 
 /**
- * 把一件礼物送给她；`conversationId` 是从哪段对话跳来的（记录放回那段）。
+ * 把一件礼物送给她；记录进她的当前对话，当前对话已结束就进一段新开的（GLOSSARY.md「礼物」）。
  * 没开放时抛 `giftsClosed` 的 ApiError，这件已经没有了（另一个标签页刚送掉最后一件）是 409。
  */
-export async function giveGift(characterId: string, giftId: string, conversationId: string | null): Promise<Given> {
+export async function giveGift(characterId: string, giftId: string): Promise<Given> {
   return json(
     await api(`/api/characters/${encodeURIComponent(characterId)}/gifts`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ gift_id: giftId, conversation_id: conversationId }),
+      body: JSON.stringify({ gift_id: giftId }),
     }),
   );
 }
@@ -110,21 +110,20 @@ export function givenNote(given: Given, name: string, now: Date, timeZone: strin
   return until ? t.stillCooling(name, untilText(new Date(until), now, timeZone)) : t.given(name);
 }
 
-/** 从对话页跳来的礼物页：预选的她，和记录要放回的那段对话（还没打开对话时是 null）。 */
-export type GiftsFor = { to: string; conversationId: string | null };
+/** 从对话页跳来的礼物页：预选的她。 */
+export type GiftsFor = { to: string };
 
-/** 对话页上「送她一件礼物」去的地方：礼物页，带上她的角色 id 和这段对话的 id。 */
-export function giftsHref(characterId: string, conversationId: string | null): string {
-  const query = new URLSearchParams({ to: characterId });
-  if (conversationId) query.set("conversation", conversationId);
-  return `/gifts?${query}`;
+/** 对话页上「送她一件礼物」去的地方：礼物页，带上她的角色 id。不带对话：礼物一律记进她的当前对话（GLOSSARY.md「礼物」）。 */
+export function giftsHref(characterId: string): string {
+  return `/gifts?${new URLSearchParams({ to: characterId })}`;
 }
 
-/** 礼物页地址里的预选；没有 `to`（或者不止一个、是空的）就是没有预选。`to` 是不是真有这位角色由礼物页判断。 */
+/** 礼物页地址里的预选；没有 `to`（或者不止一个、是空的）就是没有预选。`to` 是不是真有这位角色由礼物页判断。
+ * 以前的链接还带着 `conversation`，不管它。 */
 export function giftsFor(query: Record<string, string | string[] | undefined>): GiftsFor | null {
-  const { to, conversation } = query;
+  const { to } = query;
   if (typeof to !== "string" || to === "") return null;
-  return { to, conversationId: typeof conversation === "string" && conversation !== "" ? conversation : null };
+  return { to };
 }
 
 /** 送给谁的顺序：预选的她（`to`）排第一，其余照原来的顺序；没有预选或者她不在里面时不变。 */

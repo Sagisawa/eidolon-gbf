@@ -11,11 +11,16 @@ export type Preview =
   | { from: "her" | "you" | null; text: string; at: string }
   | { from: "event"; event: EventKind; gift: string | null; at: string };
 
-/** 她说的显示字幕（没有字幕时退回日语原文），自己说的原样，对话事件是这件事；从没聊过的角色没有预览。 */
+/** 她最新一次对话的预览（`previewOf` 一段对话）；从没聊过的角色没有预览。 */
 export function previewOf(latest: LatestConversation | undefined): Preview | null {
-  if (!latest) return null;
-  const last = latest.last_message;
-  if (!last) return { from: null, text: "", at: latest.created_at };
+  return latest ? previewOfOne(latest) : null;
+}
+
+/** 一段对话的预览：她说的显示字幕（没有字幕时退回日语原文），自己说的原样，对话事件是这件事；
+ * 还没有话时是对话开始的时间。对话列表和历史对话面板的每一行都这么写。 */
+export function previewOfOne(conversation: Pick<LatestConversation, "created_at" | "last_message">): Preview {
+  const last = conversation.last_message;
+  if (!last) return { from: null, text: "", at: conversation.created_at };
   if ("type" in last) return { from: "event", event: last.kind, gift: last.gift_name ?? null, at: last.created_at };
   if (last.role === "user") return { from: "you", text: last.text ?? "", at: last.created_at };
   return { from: "her", text: last.zh || last.ja || "", at: last.created_at };

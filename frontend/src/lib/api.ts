@@ -86,17 +86,25 @@ export type Conversation = {
   created_at: string;
 };
 
-/** A character's newest conversation with the user and the last thing in it, a message or a
- * conversation event (null while it has none), for the conversation list. */
+/** The last thing in a conversation as a list shows it, a message (without delivery cues) or
+ * a conversation event other than her ending it; null while it has none. */
+export type LastMessage =
+  | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
+  | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
+  | null;
+
+/** A character's newest conversation with the user and the last thing in it, for the
+ * conversation list. */
 export type LatestConversation = {
   character_id: string;
   conversation_id: string;
   created_at: string;
-  last_message:
-    | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
-    | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
-    | null;
+  last_message: LastMessage;
 };
+
+/** One of her conversations with the user as her list of them gives it, for the past
+ * conversations panel: the last thing in it, and whether she has ended it. */
+export type ListedConversation = Conversation & { last_message: LastMessage; ended: boolean };
 
 export type Segment = { ja: string; zh: string };
 
@@ -498,7 +506,9 @@ export async function listCharacters(): Promise<Character[]> {
   return json(await api("/api/characters"));
 }
 
-export async function listConversations(characterId: string): Promise<Conversation[]> {
+/** Her conversations with the user, newest first: the first is her current one
+ * (GLOSSARY.md「当前对话」). */
+export async function listConversations(characterId: string): Promise<ListedConversation[]> {
   return json(await api(`/api/conversations?character_id=${encodeURIComponent(characterId)}`));
 }
 

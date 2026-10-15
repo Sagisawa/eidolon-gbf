@@ -37,7 +37,7 @@ export function AffinityBadge({
   name: string;
   /** 制作人的时区：解除时刻按它写成今天或明天。 */
   timeZone: string;
-  /** 送礼链接去的礼物页，带着她和这段对话（`giftsHref`）。 */
+  /** 送礼链接去的礼物页，带着她（`giftsHref`）。 */
   gifts: string;
   subtree: RefObject<HTMLDivElement | null>;
 }) {

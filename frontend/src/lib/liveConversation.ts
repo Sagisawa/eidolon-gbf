@@ -86,7 +86,7 @@ export type OpenState =
 
 /** The conversation open, or null if none is: still opening, being left for a new one, or
  * failed to open. */
-export function openIdOf(state: OpenState): string | null {
+function openIdOf(state: OpenState): string | null {
   return state.status === "open" ? state.id : null;
 }
 
@@ -127,7 +127,8 @@ export type Snapshot = {
   textOnly: boolean;
   /** A call can be dialed now: `startCall` would. Not while she is in a cooldown. */
   canDial: boolean;
-  /** A new conversation can be started now: `startNewConversation` would. */
+  /** A new conversation can be started now: `startNewConversation` would. Not while the
+   * one open has nothing in its record, so empty ones do not pile up. */
   canStartNew: boolean;
   /** What went wrong in the conversation open: a turn failed, a new conversation could not
    * be started. Why it could not be opened at all is in `conversation`. */
@@ -313,7 +314,7 @@ export class LiveConversation {
    * one stays open. */
   async startNewConversation(): Promise<void> {
     const current = this.openConversationId();
-    if (current === null || !isFree(this.state)) return;
+    if (current === null || !canStartNew(this.state)) return;
     this.update({ conversation: { status: "opening" }, failure: null });
     try {
       const conversation = await this.createConversation();
@@ -796,6 +797,12 @@ function isFree(state: State): boolean {
   return state.conversation.status === "open" && !state.busy && !isLive(state.call);
 }
 
+/** A new conversation can be started (`canStartNew`): nothing is under way, and the one
+ * open has something in its record (spec「空的当前对话不能再开新对话」). */
+function canStartNew(state: State): boolean {
+  return isFree(state) && state.log.entries.length > 0;
+}
+
 /** She is in a cooldown with the user: no turns, no calls. */
 function isCooling(state: State): boolean {
   return state.affinity !== null && state.affinity.cooldown_until !== null;
@@ -820,7 +827,7 @@ function toSnapshot(state: State): Snapshot {
     previousLine: previousLineOf(card),
     stand: directionOf(stand),
     canDial: free && !isCooling(state) && !isEnded(state),
-    canStartNew: free,
+    canStartNew: canStartNew(state),
     cooling: isCooling(state),
     ended: isEnded(state),
   };

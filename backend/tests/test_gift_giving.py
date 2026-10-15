@@ -2,9 +2,8 @@
 gifts page. It takes one from the backpack and raises her affinity by its rarity, more if
 she likes it, by no more than a little in a cooldown, which enough gifts end sooner than
 recovery would; at the top it changes nothing, given all the same. It leaves a gift record
-in the conversation it came from if that is hers with the user and she has not ended it,
-else in her newest if she has not ended that, else in one begun for it, where she responds
-to it first. Given during a turn under way, the record comes after that turn (tested with her
+in her current conversation (GLOSSARY.md「当前对话」) if she has not ended it, else in one
+begun for it, where she responds to it first, whichever conversation it was given from. Given during a turn under way, the record comes after that turn (tested with her
 responding to it); the conversation list's last message is then the record. It is not a turn: no limit counts it, no cooldown refuses it, no activity record is
 left. Closed, nothing can be given. Driven through the backend's external API, the random
 source giving what is drawn and the clock moved by hand."""
@@ -77,16 +76,14 @@ async def draw_them(client: httpx.AsyncClient, clock: FakeClock, count: int) -> 
     assert len(res.json()["drawn"]) == count
 
 
-def give(
-    client: httpx.AsyncClient, gift_id: str, character: str = "mano", conversation: str | None = None
-):
-    body = {"gift_id": gift_id} | ({"conversation_id": conversation} if conversation else {})
-    return client.post(f"/api/characters/{character}/gifts", json=body)
+def give(client: httpx.AsyncClient, gift_id: str, character: str = "mano", **body: str):
+    """Give her the gift, with whatever else is put in the request `body`."""
+    return client.post(f"/api/characters/{character}/gifts", json={"gift_id": gift_id} | body)
 
 
 async def given(client: httpx.AsyncClient, gift_id: str, character: str = "mano",
-                conversation: str | None = None) -> dict:
-    res = await give(client, gift_id, character, conversation)
+                **body: str) -> dict:
+    res = await give(client, gift_id, character, **body)
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -202,8 +199,8 @@ async def test_it_is_no_turn_no_limit_counts_it_and_no_activity_record_is_left(
     await draw_them(client, clock, 2)
     conversation = await start_conversation(client)
 
-    await given(client, "tea", conversation=conversation)
-    await given(client, "tea", conversation=conversation)
+    await given(client, "tea")
+    await given(client, "tea")
     turn = await send_turn(client, conversation, "在吗")
 
     assert turn[-1]["type"] == "done"  # the hour's one turn was left
@@ -212,9 +209,11 @@ async def test_it_is_no_turn_no_limit_counts_it_and_no_activity_record_is_left(
     assert board["turns"]["total"] == 1
 
 
-async def test_the_record_goes_where_it_came_from_if_that_is_hers_else_her_newest(
+async def test_the_record_goes_into_her_newest_whichever_conversation_the_request_names(
     make_client: ClientFactory,
 ):
+    """Requests from before the gifts page stopped naming the conversation it was come to
+    from name one: it changes nothing."""
     clock = FakeClock()
     client = holding(make_client, clock, TEA, TEA, TEA, TEA)
     await draw_them(client, clock, 4)
@@ -224,11 +223,11 @@ async def test_the_record_goes_where_it_came_from_if_that_is_hers_else_her_newes
     someone_else = await start_conversation(make_client(FakeLLM(), "someone"))
 
     placed = [
-        (await given(client, "tea", conversation=c))["conversation_id"]
+        (await given(client, "tea", **({"conversation_id": c} if c else {})))["conversation_id"]
         for c in (older, None, kogane, someone_else)
     ]
 
-    assert placed == [older, newest, newest, newest]
+    assert placed == [newest, newest, newest, newest]
 
 
 async def test_with_no_conversation_with_her_one_is_begun_for_it_and_listed_by_it(
@@ -260,7 +259,7 @@ async def test_with_no_conversation_with_her_one_is_begun_for_it_and_listed_by_i
     }
 
 
-async def test_from_a_conversation_she_has_ended_it_goes_to_one_begun_for_it_which_she_responds_in(
+async def test_with_her_newest_ended_it_goes_to_one_begun_for_it_which_she_responds_in(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
@@ -270,7 +269,7 @@ async def test_from_a_conversation_she_has_ended_it_goes_to_one_begun_for_it_whi
     ended = await start_conversation(client)
     end(settings.database_path, ended)
 
-    result = await given(client, "cake", conversation=ended)
+    result = await given(client, "cake")
     placed = result["conversation_id"]
     await send_turn(client, placed, "尝尝看")
 
@@ -283,7 +282,7 @@ async def test_from_a_conversation_she_has_ended_it_goes_to_one_begun_for_it_whi
     assert latest["conversation_id"] == placed
 
 
-async def test_from_a_conversation_she_has_ended_it_goes_to_her_newest_if_she_has_not_ended_that(
+async def test_with_her_newest_ended_it_goes_to_one_begun_for_it_not_an_older_one_she_has_not(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
@@ -292,11 +291,9 @@ async def test_from_a_conversation_she_has_ended_it_goes_to_her_newest_if_she_ha
     older = await start_conversation(client)
     ended = await start_conversation(client)
     end(settings.database_path, ended)
-    begun = (await given(client, "tea", conversation=ended))["conversation_id"]
+    begun = (await given(client, "tea"))["conversation_id"]
 
-    placed = [
-        (await given(client, "tea", conversation=c))["conversation_id"] for c in (ended, None)
-    ]
+    placed = [(await given(client, "tea"))["conversation_id"] for _ in range(2)]
 
     assert begun not in (older, ended)
     assert placed == [begun, begun]

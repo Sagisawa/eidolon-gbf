@@ -39,8 +39,14 @@ export { Bell as AnnouncementsBellIcon } from "lucide-react";
 // 对话列表的搜索框；通话条右端「回到通话 ›」的箭头。
 export { ChevronRight as ForwardIcon, Search as SearchIcon } from "lucide-react";
 
-// 对话列表搜索框右边的筛选按钮；置顶那一行的图钉。
+// 对话列表搜索框右边的筛选按钮；置顶那一行的图钉，也是行菜单里「置顶」的图标。
 export { ListFilter as FilterIcon, Pin as PinIcon } from "lucide-react";
+
+// 对话列表行菜单里的「取消置顶」「在列表中隐藏」「在列表中显示」。
+export { Eye as ShowIcon, EyeOff as HideIcon, PinOff as UnpinIcon } from "lucide-react";
+
+// 对话页更多菜单里的「新对话」「历史对话」（换衣装用 OutfitIcon）；历史对话底部只读卡的图标（GLOSSARY.md「历史对话」）。
+export { History as PastConversationsIcon, SquarePen as NewConversationIcon } from "lucide-react";
 
 // 后台用户列表可以排序的表头：按它从多到少排着的，和还没按它排的（shadcn-redesign 22）。
 export { ArrowDown as SortedIcon, ArrowUpDown as SortableIcon } from "lucide-react";

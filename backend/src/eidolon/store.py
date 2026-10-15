@@ -585,10 +585,18 @@ class Store:
             ).fetchone()
         return Conversation(**row) if row else None
 
-    def list_conversations(self, user_id: str, character_id: str) -> list[Conversation]:
-        """Newest first."""
+    def list_conversations(
+        self, user_id: str, character_id: str
+    ) -> list[tuple[Conversation, Recorded | None, bool]]:
+        """The user's conversations with the character, newest first (the first is her
+        current one, GLOSSARY.md「当前对话」), each with the last thing in its record as
+        `latest_conversations` gives it, and whether she has ended it; for the past
+        conversations panel."""
         with self._lock:
-            return self._conversations(user_id, character_id)
+            return [
+                (c, self._last(c.id), self._ended(c.id) is not None)
+                for c in self._conversations(user_id, character_id)
+            ]
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its
@@ -662,24 +670,19 @@ class Store:
         self,
         user_id: str,
         character_id: str,
-        conversation_id: str | None,
         gift_id: str,
         liked: bool,
         affinity: Change | None,
     ) -> Conversation:
         """Record the user's giving the character the gift, now, whether she liked it, with
         how it changed her affinity, if it did; returns the conversation it is recorded in:
-        `conversation_id` if it is hers with the user and she has not ended it, else her
-        newest (the one her conversation page opens) if she has not ended it, else one begun
-        for it, which is her newest from then on. Where it goes is chosen in the same
-        transaction it is recorded in, so it never goes into one she ends meanwhile."""
+        her newest, her current one (GLOSSARY.md「当前对话」), if she has not ended it, else
+        one begun for it, which is her current one from then on. Where it goes is chosen in
+        the same transaction it is recorded in, so it never goes into one she ends
+        meanwhile."""
         with self._lock, self._db:
             hers = self._conversations(user_id, character_id)
-            given_from = next((c for c in hers if c.id == conversation_id), None)
-            newest = hers[0] if hers else None
-            conversation = next(
-                (c for c in (given_from, newest) if c and self._ended(c.id) is None), None
-            )
+            conversation = hers[0] if hers and self._ended(hers[0].id) is None else None
             if conversation is None:
                 conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
                 self._insert_conversation(conversation)

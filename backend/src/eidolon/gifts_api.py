@@ -32,9 +32,6 @@ class DrawInput(BaseModel):
 
 class GiftInput(BaseModel):
     gift_id: str
-    conversation_id: str | None = None
-    """The conversation it is given from, where its record goes if it is hers and she has
-    not ended it."""
 
 
 def add_gift_routes(app: FastAPI, backend: Backend) -> None:
@@ -75,7 +72,7 @@ def add_gift_routes(app: FastAPI, backend: Backend) -> None:
         it is now, and how many of the gift are left. Not a turn: no limit or cooldown holds
         it, and the user need not bring their own LLM."""
         try:
-            given = gifts.give(user_id, body.gift_id, character_id, body.conversation_id)
+            given = gifts.give(user_id, body.gift_id, character_id)
         except NoSuchCharacter as e:
             raise HTTPException(404, str(e)) from None
         return given.shown()

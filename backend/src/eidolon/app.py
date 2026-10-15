@@ -221,6 +221,24 @@ def create_app(backend: Backend) -> FastAPI:
             return {}
         return {"gift_id": event.gift_id, "gift_name": gift_catalog[event.gift_id].name}
 
+    def last_shown(last: Recorded | None) -> dict | None:
+        """The last thing in a conversation as a list shows it: a message without its
+        delivery cues, or a conversation event; None while it has none."""
+        if last is None:
+            return None
+        if isinstance(last, ConversationEvent):
+            return {"type": "event", "kind": last.kind, "created_at": last.created_at} | gift_of(
+                last
+            )
+        shown = last.without_cues()
+        return {
+            "role": shown.role,
+            "text": shown.text,
+            "ja": shown.ja,
+            "zh": shown.zh,
+            "created_at": shown.created_at,
+        }
+
     def recorded(entry: Recorded) -> dict:
         """A message or conversation event as the browser reads it."""
         if isinstance(entry, ConversationEvent):
@@ -441,7 +459,13 @@ def create_app(backend: Backend) -> FastAPI:
 
     @app.get("/api/conversations")
     def list_conversations(character_id: str, user_id: UserId) -> list[dict]:
-        return [asdict(c) for c in store.list_conversations(user_id, character_id)]
+        """Her conversations with the user, newest first, the first her current one; each
+        with the last thing in it, as the conversation list shows it, and whether she has
+        ended it."""
+        return [
+            asdict(c) | {"last_message": last_shown(last), "ended": ended}
+            for c, last, ended in store.list_conversations(user_id, character_id)
+        ]
 
     @app.get("/api/conversations/latest")
     def latest_conversations(user_id: UserId) -> list[dict]:
@@ -453,18 +477,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "character_id": c.character_id,
                 "conversation_id": c.id,
                 "created_at": c.created_at,
-                "last_message": None
-                if last is None
-                else {"type": "event", "kind": last.kind, "created_at": last.created_at}
-                | gift_of(last)
-                if isinstance(last, ConversationEvent)
-                else {
-                    "role": last.role,
-                    "text": last.text,
-                    "ja": last.without_cues().ja,
-                    "zh": last.without_cues().zh,
-                    "created_at": last.created_at,
-                },
+                "last_message": last_shown(last),
             }
             for c, last in store.latest_conversations(user_id)
         ]

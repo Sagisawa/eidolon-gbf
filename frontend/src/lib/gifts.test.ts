@@ -117,14 +117,11 @@ describe("送出后底部提示的那句话", () => {
 describe("从对话页跳到礼物页", () => {
   const query = (href: string) => Object.fromEntries(new URL(href, "http://x.invalid").searchParams);
 
-  it("地址带上她的角色 id 和这段对话的 id，礼物页读回来", () => {
-    const href = giftsHref("rinze", "c 1");
-    expect(href.startsWith("/gifts?")).toBe(true);
-    expect(giftsFor(query(href))).toEqual({ to: "rinze", conversationId: "c 1" });
-  });
-
-  it("还没打开对话时只带角色", () => {
-    expect(giftsFor(query(giftsHref("rinze", null)))).toEqual({ to: "rinze", conversationId: null });
+  it("地址只带她的角色 id，礼物页读回来；旧链接里带着对话也不管它（礼物一律记进当前对话）", () => {
+    const href = giftsHref("rinze");
+    expect(href).toBe("/gifts?to=rinze");
+    expect(giftsFor(query(href))).toEqual({ to: "rinze" });
+    expect(giftsFor({ to: "rinze", conversation: "c1" })).toEqual({ to: "rinze" });
   });
 
   it("没有 to，或者 to 是空的，都当作没有预选", () => {

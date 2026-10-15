@@ -144,6 +144,31 @@ export const zh = {
       cooling: (name: string, until: string) => `${name}结束了对话。${until} 以后可以再找她`,
       newConversation: "开个新对话",
     },
+    /** 更多菜单里的「历史对话」、它打开的面板和历史对话的只读页（GLOSSARY.md「当前对话」「历史对话」）。 */
+    past: {
+      open: "历史对话",
+      title: "历史对话",
+      description: (name: string) => `和${name}的所有对话，最新的在上面。`,
+      /** 面板里只有当前对话这一行时，下面那句说明。 */
+      onlyCurrent: "开了新对话以后，之前的对话会留在这里。",
+      current: "当前",
+      ended: "她结束了",
+      loading: "正在读取历史对话",
+      loadFailed: "历史对话没能读取",
+      retry: "再试一次",
+      /** 行里和页首的日期：北京时间，今年的写月日（同 conversationList.monthDay），不是今年的带上年份。 */
+      yearMonthDay: (year: string, month: string, day: string) => `${year}年${month}月${day}日`,
+      /** 历史对话页首名字下面那一行。 */
+      heading: (day: string) => `${day}的对话`,
+      opening: "正在打开这段对话",
+      openFailed: "这段对话没能打开",
+      /** 换掉输入栏的只读卡。 */
+      readOnly: "这是你们以前的对话",
+      readOnlyEnded: "这是你们以前的对话，她结束了它",
+      backToCurrent: "回到当前对话",
+      /** 历史对话里禁用的电话键的提示。 */
+      callTooltip: "回到当前对话才能打电话",
+    },
     hearing: "正在听你说",
     loading: "正在打开对话",
     loadFailed: "对话没能打开",

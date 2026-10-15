@@ -1019,14 +1019,16 @@ function never<T>(): Promise<T> {
 }
 
 /** Where the conversation can be, and whether a call can be dialed and a new conversation
- * started there (`canDial`, `canStartNew`). */
+ * started there (`canDial`, `canStartNew`). Her conversation has a record in each: an empty
+ * one is the new conversation tests'. */
 const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
   ["her conversation is opening", async () => opening({ ports: { listConversations: never } }), false],
-  ["it is open", () => conversation(), true],
+  ["it is open", () => conversation({ messages: history }), true],
   [
     "a text turn is under way",
     async () => {
       const opened = await conversation({
+        messages: history,
         turns: async function* () {
           yield { type: "user", text: "你好" };
           await never();
@@ -1042,7 +1044,7 @@ const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
   [
     "a new conversation is being started",
     async () => {
-      const opened = await conversation({ ports: { createConversation: never } });
+      const opened = await conversation({ messages: history, ports: { createConversation: never } });
       void opened.live.startNewConversation();
       return opened;
     },
@@ -1051,7 +1053,7 @@ const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
   [
     "a call is dialing",
     async () => {
-      const opened = await conversation();
+      const opened = await conversation({ messages: history });
       void opened.live.startCall();
       return opened;
     },
@@ -1060,7 +1062,7 @@ const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
   [
     "a call is connected",
     async () => {
-      const opened = await conversation();
+      const opened = await conversation({ messages: history });
       await connected(opened.live, opened.attempts);
       return opened;
     },
@@ -1069,7 +1071,7 @@ const states: [string, () => Promise<ReturnType<typeof opening>>, boolean][] = [
   [
     "the last call has ended",
     async () => {
-      const opened = await conversation();
+      const opened = await conversation({ messages: history });
       await failing(opened.live, opened.attempts, new Error("无法接通，请稍后再试"));
       return opened;
     },
@@ -1846,6 +1848,28 @@ describe("LiveConversation: a new conversation", () => {
     });
     expect(live.snapshot().entries.map((e) => e.key)).toEqual(["m1", "m2"]);
     expect(listChanged()).toBe(0);
+  });
+
+  it("does not start one while her current conversation has no record, but once it has one", async () => {
+    // spec「空的当前对话不能再开新对话」：免得堆出一串空对话。
+    const { live, created } = await conversation({
+      turns: scripted([
+        { type: "user", text: "你好" },
+        { type: "done", message: message(4, "character", "こんにちは"), affinity: null },
+      ]),
+    });
+    const empty = live.snapshot().canStartNew;
+    await live.startNewConversation();
+    const refused = [...created];
+
+    live.setDraft("你好");
+    await live.submit();
+    const said = live.snapshot().canStartNew;
+    await live.startNewConversation();
+
+    expect({ empty, refused, said }).toEqual({ empty: false, refused: [], said: true });
+    expect(created).toEqual(["new1"]);
+    expect(live.snapshot()).toMatchObject({ conversation: { status: "open", id: "new1" }, canStartNew: false });
   });
 
   it("does not start one over a text turn or a call", async () => {

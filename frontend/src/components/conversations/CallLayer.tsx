@@ -24,7 +24,6 @@ import type { OwnService } from "@/lib/localOwnKeys";
 import { settingsHref } from "@/lib/settingsCategory";
 import {
   NOT_OPEN,
-  openIdOf,
   type AffinityCue,
   type LiveConversation,
   type MicNotice,
@@ -121,7 +120,7 @@ export function LiveCallLayer({
 }) {
   const snapshot = useSyncExternalStore(live.subscribe, live.snapshot, notOpen);
   const isReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)", false);
-  const { layer, conversation } = snapshot;
+  const { layer } = snapshot;
   if (!layer) return null;
   // 先看完结束卡再去：不然通话层在要去的页面上（由外壳画）还展开着结束卡，挡住要去的地方。
   const leave = (href: string) => {
@@ -154,9 +153,9 @@ export function LiveCallLayer({
       onRedial={() => void live.startCall()}
       onDismiss={() => live.dismissEnd()}
       onOwnKeys={() => leave(settingsHref("own-keys"))}
-      // 好感度和礼物同一个开关：读得到好感度就是开放着。送礼记录放回这段对话。
+      // 好感度和礼物同一个开关：读得到好感度就是开放着。
       giftsOpen={snapshot.affinity !== null}
-      onGift={() => leave(giftsHref(live.characterId, openIdOf(conversation)))}
+      onGift={() => leave(giftsHref(live.characterId))}
       exemptingKeys={exemptingKeys}
     />
   );
