@@ -588,12 +588,7 @@ class Store:
     def list_conversations(self, user_id: str, character_id: str) -> list[Conversation]:
         """Newest first."""
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM conversations WHERE user_id = ? AND character_id = ?"
-                " ORDER BY created_at DESC, rowid DESC",
-                (user_id, character_id),
-            ).fetchall()
-        return [Conversation(**row) for row in rows]
+            return self._conversations(user_id, character_id)
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its
@@ -679,15 +674,11 @@ class Store:
         for it, which is her newest from then on. Where it goes is chosen in the same
         transaction it is recorded in, so it never goes into one she ends meanwhile."""
         with self._lock, self._db:
-            rows = self._db.execute(
-                "SELECT * FROM conversations WHERE user_id = ? AND character_id = ?"
-                " ORDER BY created_at DESC, rowid DESC",
-                (user_id, character_id),
-            ).fetchall()
-            hers = [Conversation(**row) for row in rows]
-            given = [c for c in hers if c.id == conversation_id]
+            hers = self._conversations(user_id, character_id)
+            given_from = next((c for c in hers if c.id == conversation_id), None)
+            newest = hers[0] if hers else None
             conversation = next(
-                (c for c in given + hers[:1] if self._ended(c.id) is None), None
+                (c for c in (given_from, newest) if c and self._ended(c.id) is None), None
             )
             if conversation is None:
                 conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
@@ -795,6 +786,14 @@ class Store:
         )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [], affinity)
+
+    def _conversations(self, user_id: str, character_id: str) -> list[Conversation]:
+        rows = self._db.execute(
+            "SELECT * FROM conversations WHERE user_id = ? AND character_id = ?"
+            " ORDER BY created_at DESC, rowid DESC",
+            (user_id, character_id),
+        ).fetchall()
+        return [Conversation(**row) for row in rows]
 
     def _insert_conversation(self, conversation: Conversation) -> None:
         self._db.execute(

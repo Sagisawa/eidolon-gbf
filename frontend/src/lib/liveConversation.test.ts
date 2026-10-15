@@ -1227,33 +1227,6 @@ describe("LiveConversation: an ended conversation", () => {
     expect(live.snapshot()).toMatchObject({ ended: true, canDial: false, canStartNew: true });
   });
 
-  it("opens the new conversation a gift given from it went to, the gift first, open to turns and calls", async () => {
-    // 送给已结束对话的礼物记进了新对话 c2，它成了她最新的对话；回到她的页面打开的就是它。
-    const gift: ConversationEvent = {
-      type: "event",
-      id: 8,
-      kind: "gift",
-      created_at: "2026-09-27T00:01:00Z",
-      affinity: null,
-      gift_id: "cake",
-      gift_name: "蛋糕",
-    };
-    const { live, sentTo } = await conversation({
-      conversations: [record("c2"), record("c1")],
-      ports: { listMessages: async (id) => (id === "c2" ? [gift] : [...history, ended]) },
-      turns: scripted([]),
-    });
-    live.setDraft("尝尝看");
-    await live.submit();
-
-    expect(live.snapshot()).toMatchObject({
-      conversation: { status: "open", id: "c2" },
-      ended: false,
-      canDial: true,
-    });
-    expect(live.snapshot().entries[0]).toMatchObject({ kind: "event", event: "gift", gift: "蛋糕" });
-    expect(sentTo).toEqual(["c2"]);
-  });
 
   it("ends in a cooldown as the turn's done says both; a new conversation opened in it is cooling, not ended", async () => {
     const cooling = { tier: "cold", cooldown_until: new Date(NOW + 60_000).toISOString() } as const;

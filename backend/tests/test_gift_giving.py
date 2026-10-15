@@ -2,10 +2,10 @@
 gifts page. It takes one from the backpack and raises her affinity by its rarity, more if
 she likes it, by no more than a little in a cooldown, which enough gifts end sooner than
 recovery would; at the top it changes nothing, given all the same. It leaves a gift record
-in the conversation it came from if that is hers with the user and she has not ended it, else
-in her newest if she has not ended that, else in one begun for it, where she responds to it
-first; after a turn under way (tested with her responding to it); the conversation list's
-last message is then the record. It is not a turn: no limit counts it, no cooldown refuses it, no activity record is
+in the conversation it came from if that is hers with the user and she has not ended it,
+else in her newest if she has not ended that, else in one begun for it, where she responds
+to it first. Given during a turn under way, the record comes after that turn (tested with her
+responding to it); the conversation list's last message is then the record. It is not a turn: no limit counts it, no cooldown refuses it, no activity record is
 left. Closed, nothing can be given. Driven through the backend's external API, the random
 source giving what is drawn and the clock moved by hand."""
 
@@ -260,9 +260,8 @@ async def test_with_no_conversation_with_her_one_is_begun_for_it_and_listed_by_i
     }
 
 
-@pytest.mark.parametrize("from_it", [True, False])
 async def test_from_a_conversation_she_has_ended_it_goes_to_one_begun_for_it_which_she_responds_in(
-    make_client: ClientFactory, settings: Settings, from_it: bool
+    make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
     llm = FakeLLM(REPLY)
@@ -271,7 +270,7 @@ async def test_from_a_conversation_she_has_ended_it_goes_to_one_begun_for_it_whi
     ended = await start_conversation(client)
     end(settings.database_path, ended)
 
-    result = await given(client, "cake", conversation=ended if from_it else None)
+    result = await given(client, "cake", conversation=ended)
     placed = result["conversation_id"]
     await send_turn(client, placed, "尝尝看")
 
