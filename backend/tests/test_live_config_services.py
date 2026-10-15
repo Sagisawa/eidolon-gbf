@@ -110,6 +110,7 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     assert restored.status_code == 200, restored.text
     await send_turn(client, conversation_id, "再见")
     await settle(client)
+    await client.get("/api/conversations", params={"character_id": "mano"})  # named, too
 
     assert before["status"] == "env" and before["follows_chat"] is True
     shown = saved.json()["memory_llm"]
@@ -118,7 +119,8 @@ async def test_a_saved_memory_model_writes_down_the_next_turns_memories_until_re
     assert shown["effective"]["api_key_last4"] == "4321"
     assert MEMORY_KEY not in saved.text
     assert restored.json()["memory_llm"] == before
-    assert clients.memory_keys == [DEPLOYER_KEY, MEMORY_KEY, DEPLOYER_KEY]
+    # The third turn's model names the conversation after it, as well as writing down.
+    assert clients.memory_keys == [DEPLOYER_KEY, MEMORY_KEY, DEPLOYER_KEY, DEPLOYER_KEY]
     assert clients.llm.keys == [DEPLOYER_KEY] * 3  # the chat model is untouched
     assert clients.memory_opened == [ENV_SETTINGS, NEW_MEMORY_SETTINGS, ENV_SETTINGS]
 

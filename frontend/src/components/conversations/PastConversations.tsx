@@ -21,7 +21,8 @@ const t = copy.conversation.past;
 /**
  * 「历史对话」面板（DESIGN.md「Overlays」）：宽屏居中的 Dialog，窄屏底部的 Drawer，都用她的颜色。
  * 和她的所有对话一行一段，最新开的在上：当前对话第一行、标「当前」，空的历史对话不列（`pastRows`）。
- * 每行第一行是最后一次往来的日期（北京时间），她结束了的标「她结束了」；第二行是最后一句，写法同对话列表（`PreviewText`）。
+ * 每行第一行是对话标题，右边是最后一次往来的日期（北京时间），没有标题时只有日期；她结束了的标「她结束了」。
+ * 第二行是最后一句，写法同对话列表（`PreviewText`）。
  * 正在看的那一段（没在看历史对话时是当前对话）铺中性的 bg-muted。只有当前对话时下面一句说明。
  * 每次打开都重新读一遍列表，读的时候转圈。点一行交给 `onPick`。
  */
@@ -75,6 +76,8 @@ export function PastConversations({
       <div className="flex flex-col">
         {rows.map((row) => {
           const isSelected = viewingId === null ? row.isCurrent : row.conversation.id === viewingId;
+          const { title } = row.conversation;
+          const day = pastDay(row.preview.at, now);
           return (
             <button
               key={row.conversation.id}
@@ -87,9 +90,10 @@ export function PastConversations({
               )}
             >
               <span className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm font-medium tabular-nums">
-                  {pastDay(row.preview.at, now)}
+                <span className={cn("min-w-0 flex-1 truncate text-sm font-medium", !title && "tabular-nums")}>
+                  {title ?? day}
                 </span>
+                {title && <span className="shrink-0 text-meta text-muted-foreground tabular-nums">{day}</span>}
                 {row.conversation.ended && (
                   <span className="flex shrink-0 items-center gap-1 text-meta text-muted-foreground">
                     <EndedIcon aria-hidden className="size-3" />

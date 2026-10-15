@@ -104,7 +104,13 @@ export type LatestConversation = {
 
 /** One of her conversations with the user as her list of them gives it, for the past
  * conversations panel: the last thing in it, and whether she has ended it. */
-export type ListedConversation = Conversation & { last_message: LastMessage; ended: boolean };
+/** One of her conversations as the past conversations panel lists it; `title` is its conversation
+ * title (GLOSSARY.md「对话标题」), null until it is named, if ever. */
+export type ListedConversation = Conversation & {
+  title: string | null;
+  last_message: LastMessage;
+  ended: boolean;
+};
 
 export type Segment = { ja: string; zh: string };
 

@@ -1,5 +1,6 @@
 """The backend's HTTP API."""
 
+import asyncio
 import json
 import math
 from collections.abc import AsyncIterator, Callable
@@ -213,7 +214,7 @@ def create_app(backend: Backend) -> FastAPI:
     """The API over `backend`, which the app closes when it shuts down."""
     store, characters, engine = backend.store, backend.characters, backend.engine
     memory, calls, admissions = backend.memories, backend.calls, backend.admissions
-    gift_catalog = backend.gift_catalog
+    gift_catalog, titles = backend.gift_catalog, backend.titles
 
     def gift_of(event: ConversationEvent) -> dict:
         """For a gift record, which gift and its name, to show it by."""
@@ -458,13 +459,15 @@ def create_app(backend: Backend) -> FastAPI:
         return asdict(store.create_conversation(user_id, body.character_id))
 
     @app.get("/api/conversations")
-    def list_conversations(character_id: str, user_id: UserId) -> list[dict]:
+    async def list_conversations(character_id: str, user_id: UserId) -> list[dict]:
         """Her conversations with the user, newest first, the first her current one; each
-        with the last thing in it, as the conversation list shows it, and whether she has
-        ended it."""
+        with its title, null if it has none, the last thing in it, as the conversation list
+        shows it, and whether she has ended it. Those being named are waited for a while."""
+        await titles.settle(user_id)
+        listed = await asyncio.to_thread(store.list_conversations, user_id, character_id)
         return [
             asdict(c) | {"last_message": last_shown(last), "ended": ended}
-            for c, last, ended in store.list_conversations(user_id, character_id)
+            for c, last, ended in listed
         ]
 
     @app.get("/api/conversations/latest")

@@ -60,11 +60,13 @@ CREATE TABLE IF NOT EXISTS producer_profiles (
     birthday_month INTEGER,
     birthday_day INTEGER
 );
+-- `title` is its conversation title (`titles`), NULL until it is named, if ever.
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     character_id TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    title TEXT
 );
 -- `hurt` and `out_of_line`, on the user's message of a typed turn (`Typed`), are what the
 -- turn took off her affinity and whether it was out of line; NULL for a turn of a call, or
@@ -165,6 +167,9 @@ class Conversation:
     user_id: str
     character_id: str
     created_at: str
+    title: str | None = None
+    """Its title (GLOSSARY.md「对话标题」), as it was when read; None until it is named, if
+    ever."""
 
 
 @dataclass(frozen=True)
@@ -257,6 +262,7 @@ class Store:
         self._add_missing_columns("messages", ("affinity",), "TEXT")
         self._add_missing_columns("messages", ("hurt",), "REAL")
         self._add_missing_columns("messages", ("out_of_line",), "INTEGER")
+        self._add_missing_columns("conversations", ("title",), "TEXT")
         self._add_missing_columns("conversation_events", ("gift_id",), "TEXT")
         self._add_missing_columns("conversation_events", ("liked",), "INTEGER NOT NULL DEFAULT 0")
         # Whether she has responded to an event is whether she has replied since; never kept.
@@ -597,6 +603,15 @@ class Store:
                 (c, self._last(c.id), self._ended(c.id) is not None)
                 for c in self._conversations(user_id, character_id)
             ]
+
+    def name_conversation(self, conversation_id: str, title: str) -> None:
+        """Give the conversation its title (GLOSSARY.md「对话标题」), unless it has one: it is
+        named once."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE conversations SET title = ? WHERE id = ? AND title IS NULL",
+                (title, conversation_id),
+            )
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its

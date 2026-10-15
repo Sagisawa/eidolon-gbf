@@ -32,15 +32,17 @@ are cut back only every so often, so what it reads opens the same way for a whil
 (`chat_history`).
 
 The user's memories that retrieval finds go into the prompt, and once a turn is
-recorded memory writes down what the user revealed in it, when memory is on.
+recorded memory writes down what the user revealed in it, when memory is on. Once the
+conversation's third turn is recorded, the background model names the conversation
+(`titles`), memory on or off; her prompt never carries the title.
 
 A turn can be told to stop part-way (a call's user interrupting the character): the
 model and any tool it is waiting on are abandoned at once, and the turn is recorded as
 ever, with only the segments complete by then.
 
 Each turn runs on the models it is given (see `OwnKeys.for_turn`): one plays the
-character, the other writes down memories. When the user's own fails, the turn fails
-saying so. Retrieval is always the deployer's.
+character, the other (the background model) writes down memories and names the
+conversation. When the user's own fails, the turn fails saying so. Retrieval is always the deployer's.
 
 Where affinity is on as the turn begins (GLOSSARY.md「好感度」) and she is not in a cooldown,
 the deployer's judge model judges what the user said to her before she replies: in the
@@ -120,6 +122,7 @@ from eidolon.store import (
     Typed,
     timestamp,
 )
+from eidolon.titles import Titles
 from eidolon.world import World
 
 MAX_INPUT_LENGTH = 2000
@@ -350,6 +353,7 @@ class ConversationEngine:
         characters: dict[str, Character],
         gift_catalog: Mapping[str, Gift],
         memory: Memories,
+        titles: Titles,
         clock: Clock,
         retrieval: Retrieval | None = None,
         history_turns: Callable[[], int | None] = lambda: None,
@@ -370,6 +374,7 @@ class ConversationEngine:
         self._clock = clock
         self._retrieval = retrieval
         self._memory = memory
+        self._titles = titles
         self._history_turns = history_turns
         self._world = world
         self._affinities = affinities
@@ -550,6 +555,8 @@ class ConversationEngine:
             yield TurnRejected(ENDED)
             return
         memory.write_down(history, text, reply, retrieved.query_vector)
+        turn = sum(m.role == "user" for m in messages) + 1
+        self._titles.after_turn(conversation, turn, llms.memory, llms.hold_memory)
         ended = self._store.ended(conversation.id) if ends_conversation else None
         if ended is not None and ending is not None:
             for listener in self._ended_listeners:
