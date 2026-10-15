@@ -33,7 +33,8 @@ class DrawInput(BaseModel):
 class GiftInput(BaseModel):
     gift_id: str
     conversation_id: str | None = None
-    """The conversation it is given from, where its record goes if it is hers."""
+    """The conversation it is given from, where its record goes if it is hers and she has
+    not ended it."""
 
 
 def add_gift_routes(app: FastAPI, backend: Backend) -> None:

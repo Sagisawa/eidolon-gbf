@@ -343,7 +343,7 @@ class Gifts:
         self, user_id: str, gift_id: str, character_id: str, conversation_id: str | None
     ) -> Given:
         """Give the character one of the gift, from the conversation `conversation_id` if
-        given. The one taken is put back should recording it fail, so two giving the last
+        given; its record goes where `Store.add_gift` places it. The one taken is put back should recording it fail, so two giving the last
         one at once give it once. Raises GiftsClosed if gifts are not open, NoSuchCharacter
         for no such character, NoneLeft if the user has none of it."""
         self.notice()
@@ -366,9 +366,9 @@ class Gifts:
         liked = gift_id in character.liked_gifts
 
         def record(change: Change | None) -> Conversation:
-            conversation = self._placed(user_id, character_id, conversation_id)
-            self._store.add_event(conversation.id, "gift", change, gift_id, liked)
-            return conversation
+            return self._store.add_gift(
+                user_id, character_id, conversation_id, gift_id, liked, change
+            )
 
         try:
             (conversation, change), affinity = self._affinities.receive_gift(
@@ -454,19 +454,6 @@ class Gifts:
     def close(self) -> None:
         with self._lock:
             self._db.close()
-
-    def _placed(self, user_id: str, character_id: str, conversation_id: str | None) -> Conversation:
-        """Where a gift to the character goes: the conversation `conversation_id` if it is
-        hers with the user, else her newest (the one her conversation page opens), else one
-        begun for it."""
-        if conversation_id is not None:
-            conversation = self._store.get_conversation(conversation_id)
-            if conversation is not None and (conversation.user_id, conversation.character_id) == (
-                user_id, character_id
-            ):
-                return conversation
-        newest = self._store.list_conversations(user_id, character_id)
-        return newest[0] if newest else self._store.create_conversation(user_id, character_id)
 
     def _give(self, user_id: str, today: date) -> None:
         """Give the user the draw chances due by `today`: one if they have none yet; else

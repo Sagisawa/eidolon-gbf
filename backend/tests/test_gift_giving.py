@@ -2,9 +2,10 @@
 gifts page. It takes one from the backpack and raises her affinity by its rarity, more if
 she likes it, by no more than a little in a cooldown, which enough gifts end sooner than
 recovery would; at the top it changes nothing, given all the same. It leaves a gift record
-in the conversation it came from if that is hers with the user, else in her newest, else in
-one begun for it, after a turn under way (tested with her responding to it); the conversation list's last message is then the
-record. It is not a turn: no limit counts it, no cooldown refuses it, no activity record is
+in the conversation it came from if that is hers with the user and she has not ended it, else
+in her newest if she has not ended that, else in one begun for it, where she responds to it
+first; after a turn under way (tested with her responding to it); the conversation list's
+last message is then the record. It is not a turn: no limit counts it, no cooldown refuses it, no activity record is
 left. Closed, nothing can be given. Driven through the backend's external API, the random
 source giving what is drawn and the clock moved by hand."""
 
@@ -23,8 +24,11 @@ from tests.fakes import FAKE_JUDGE, FakeClock, FakeIdentityProvider, FakeLLM, Fa
 from tests.test_activity_records import dashboard
 from tests.test_admin_users import ADMIN, admin_beside
 from tests.test_affinity import keep, status
+from tests.test_conversation_events import record, shape
+from tests.test_conversation_history import history
 from tests.test_gift_backpack import COMMON, FIRST, RARE, SECOND, UNCOMMON
 from tests.test_gift_catalog import gift
+from tests.test_she_ends_conversation import end
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]
@@ -254,6 +258,51 @@ async def test_with_no_conversation_with_her_one_is_begun_for_it_and_listed_by_i
         "type": "event", "kind": "gift", "created_at": record[0]["created_at"],
         "gift_id": "cake", "gift_name": "cake",
     }
+
+
+@pytest.mark.parametrize("from_it", [True, False])
+async def test_from_a_conversation_she_has_ended_it_goes_to_one_begun_for_it_which_she_responds_in(
+    make_client: ClientFactory, settings: Settings, from_it: bool
+):
+    clock = FakeClock()
+    llm = FakeLLM(REPLY)
+    client = holding(make_client, clock, CAKE, llm=llm)
+    await draw_them(client, clock, 1)
+    ended = await start_conversation(client)
+    end(settings.database_path, ended)
+
+    result = await given(client, "cake", conversation=ended if from_it else None)
+    placed = result["conversation_id"]
+    await send_turn(client, placed, "尝尝看")
+
+    assert placed != ended
+    assert shape(await record(client, ended)) == ["ended"]
+    assert shape(await record(client, placed)) == ["gift", "user:尝尝看", "character:好的"]
+    assert result["change"] == happier("trust")
+    assert "（制作人送给你一份cake。这是你喜欢的东西。）" in history(llm)[0][1]
+    [latest] = (await client.get("/api/conversations/latest")).json()
+    assert latest["conversation_id"] == placed
+
+
+async def test_from_a_conversation_she_has_ended_it_goes_to_her_newest_if_she_has_not_ended_that(
+    make_client: ClientFactory, settings: Settings
+):
+    clock = FakeClock()
+    client = holding(make_client, clock, TEA, TEA, TEA)
+    await draw_them(client, clock, 3)
+    older = await start_conversation(client)
+    ended = await start_conversation(client)
+    end(settings.database_path, ended)
+    begun = (await given(client, "tea", conversation=ended))["conversation_id"]
+
+    placed = [
+        (await given(client, "tea", conversation=c))["conversation_id"] for c in (ended, None)
+    ]
+
+    assert begun not in (older, ended)
+    assert placed == [begun, begun]
+    assert shape(await record(client, ended)) == ["ended"]
+    assert shape(await record(client, older)) == []
 
 
 class HoldsReply(FakeLLM):

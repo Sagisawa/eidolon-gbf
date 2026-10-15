@@ -575,11 +575,7 @@ class Store:
     def create_conversation(self, user_id: str, character_id: str) -> Conversation:
         conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
         with self._lock, self._db:
-            self._db.execute(
-                "INSERT INTO conversations (id, user_id, character_id, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (conversation.id, user_id, character_id, conversation.created_at),
-            )
+            self._insert_conversation(conversation)
         return conversation
 
     def get_conversation(self, conversation_id: str) -> Conversation | None:
@@ -667,18 +663,37 @@ class Store:
                 self._insert_event(conversation_id, "ended", _now())
             return replied
 
-    def add_event(
+    def add_gift(
         self,
-        conversation_id: str,
-        kind: EventKind,
-        affinity: Change | None = None,
-        gift_id: str | None = None,
-        liked: bool = False,
-    ) -> ConversationEvent:
-        """Record that `kind` happened in the conversation, now, with how it changed her
-        affinity, if it did, and for a gift, which and whether she liked it."""
+        user_id: str,
+        character_id: str,
+        conversation_id: str | None,
+        gift_id: str,
+        liked: bool,
+        affinity: Change | None,
+    ) -> Conversation:
+        """Record the user's giving the character the gift, now, whether she liked it, with
+        how it changed her affinity, if it did; returns the conversation it is recorded in:
+        `conversation_id` if it is hers with the user and she has not ended it, else her
+        newest (the one her conversation page opens) if she has not ended it, else one begun
+        for it, which is her newest from then on. Where it goes is chosen in the same
+        transaction it is recorded in, so it never goes into one she ends meanwhile."""
         with self._lock, self._db:
-            return self._insert_event(conversation_id, kind, _now(), affinity, gift_id, liked)
+            rows = self._db.execute(
+                "SELECT * FROM conversations WHERE user_id = ? AND character_id = ?"
+                " ORDER BY created_at DESC, rowid DESC",
+                (user_id, character_id),
+            ).fetchall()
+            hers = [Conversation(**row) for row in rows]
+            given = [c for c in hers if c.id == conversation_id]
+            conversation = next(
+                (c for c in given + hers[:1] if self._ended(c.id) is None), None
+            )
+            if conversation is None:
+                conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
+                self._insert_conversation(conversation)
+            self._insert_event(conversation.id, "gift", _now(), affinity, gift_id, liked)
+        return conversation
 
     def hang_up(self, conversation_id: str) -> ConversationEvent:
         """Record that she hung up on the user in the conversation, now (`hung_up`), unless
@@ -780,6 +795,14 @@ class Store:
         )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [], affinity)
+
+    def _insert_conversation(self, conversation: Conversation) -> None:
+        self._db.execute(
+            "INSERT INTO conversations (id, user_id, character_id, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (conversation.id, conversation.user_id, conversation.character_id,
+             conversation.created_at),
+        )
 
     def _insert_event(
         self,
