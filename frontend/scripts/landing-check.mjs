@@ -14,7 +14,8 @@
 //      rootMainFiles 和 polyfillFiles（每页都有的 Next + React，约 161 KB），所以要对着这份构建跑；
 //      测别处的部署时用 LANDING_MANIFEST 指向那份构建的 build-manifest.json。光层（OGL）在 load 之后、
 //      浏览器空闲时才加载，不算首屏，另外报它的大小。第 4 幕的手机（three.js 和模型）滚到第 3 幕附近才加载，
-//      也不算首屏，另外报大小。
+//      也不算首屏，另外报大小。第 5 幕的场景代码和几位演员的体素文件滚到第 5 幕前约一屏才加载（three.js 和手机共用
+//      一个包），同样另外报大小。
 //   4. 光层：完整档里 OGL 画好第一帧后淡入、首屏 CSS 画的白光同时淡出，标题一直可见；CSS 白光的尽头
 //      就是落地页模型里白光的锚点（电脑上画面 46% 宽、66% 高处，竖屏是正中、30% 高处），两束光重合。
 //      完整档在几个滚动位置各截一张图。
@@ -28,7 +29,8 @@
 //      下方，响铃时手机和界面一起振动、接通后不振动；电脑上把「滑动接听」拖过一半（拖不到一半不接）、手机上点一下
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
 //      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
-//      落地页不降档；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
+//      落地页不降档；第 5 幕（3D 场景）在几个镜头位置各截一张、往回滚截一张，某位的体素文件加载不到时她的位置是
+//      印象色方块加名字（截图看），场景画布丢了上下文时收起、落地页不降档；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
 //      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
 //      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。滚动位置按落地页模型的
 //      时间线（model/timeline.ts）算，和页面同一个出处。
@@ -407,6 +409,43 @@ function watchConsole(page) {
   await context.close();
 }
 
+// —— 3c. 第 5 幕的场景：场景代码和体素文件不算首屏，滚到第 5 幕前约一屏才加载，另外报大小
+{
+  const { context, page, requests } = await phone4gPage(browser);
+  await page.goto(`${origin}/`, { waitUntil: "load", timeout: 120000 });
+  await glOn(page, 60000);
+  await page.waitForTimeout(1500);
+  const before = new Set([...requests.keys()]);
+  const early = [...requests.values()].filter((r) => r.url.includes("/landing-voxels/"));
+  const tl = timelineOf(await page.locator(".lp-seg").count());
+  const act5 = spanOf(tl, 5);
+  // 先经过第 4 幕：three.js 在那里已经随手机下载了，这里量的是第 5 幕自己多出来的。
+  const act4 = spanOf(tl, 4);
+  if (act4) {
+    await toScreens(page, act4.from + 0.5);
+    await page.waitForTimeout(8000);
+  }
+  const atAct4 = new Set([...requests.keys()]);
+  await toScreens(page, act5.from - 0.5);
+  const loaded = await page
+    .waitForFunction(() => !!document.querySelector(".lp-memory-canvas") && Number(getComputedStyle(document.querySelector(".lp-memory")).getPropertyValue("--lp-memory")) > 0, null, { timeout: 90000 })
+    .then(
+      () => true,
+      () => false,
+    );
+  await page.waitForTimeout(8000);
+  const kB = (xs) => +(xs.reduce((a, r) => a + (r.bytes ?? 0), 0) / 1024).toFixed(1);
+  const later = [...requests.entries()].filter(([id]) => !atAct4.has(id)).map(([, r]) => r);
+  const scripts = later.filter((r) => r.type === "Script");
+  const voxels = [...requests.entries()].filter(([id, r]) => !before.has(id) && r.url.includes("/landing-voxels/")).map(([, r]) => r);
+  report(
+    "第 5 幕的场景：场景代码和体素文件在首屏之后、滚到第 5 幕前约一屏才加载（不算首屏）",
+    early.length === 0 && loaded && scripts.length > 0,
+    `首屏时体素文件 ${early.length ? "已经在下载" : "没有下载"}；第 5 幕的场景代码 ${kB(scripts)} KB（${scripts.map((r) => new URL(r.url).pathname.split("/").at(-1)).join(" ")}），体素文件 ${kB(voxels)} KB（${voxels.length} 个，传输大小${voxels.length ? "" : "；存储桶里没有体素文件或没配存储桶地址"}）`,
+  );
+  await context.close();
+}
+
 // —— 7. 第 2 到 7 幕
 
 {
@@ -573,9 +612,28 @@ function watchConsole(page) {
         await page.screenshot({ path: path.join(shots, "full-act4-lost.png") });
       }
     }
+    // 第 5 幕：先停在它前面一点，等场景建好，再在几个镜头位置各截一张，最后往回滚截一张。
+    await toScreens(page, act5.from - 0.5);
+    await page.waitForFunction(() => !!document.querySelector(".lp-memory-canvas"), null, { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(5000);
+    for (const p of [0, 0.17, 0.29, 0.4, 0.53, 0.72, 0.84, 1]) {
+      await toScreens(page, act5.from + act5.length * p);
+      await page.screenshot({ path: path.join(shots, `${name}-act5-${Math.round(p * 100)}.png`) });
+    }
+    await toScreens(page, act5.from + act5.length * 0.4);
+    await page.screenshot({ path: path.join(shots, `${name}-act5-back-40.png`) });
+    if (name === "full") {
+      const tierBefore = await tierOf(page);
+      await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
+      await page.waitForTimeout(1500);
+      const lost = await page.evaluate(() => ({ canvas: !!document.querySelector(".lp-memory-canvas"), gl: document.querySelector(".lp-root").classList.contains("lp-gl-on") }));
+      report(
+        "第 5 幕的场景画布丢了上下文：收起画布，光层照旧，落地页不降档",
+        !lost.canvas && lost.gl && (await tierOf(page)) === tierBefore,
+        `画布 ${lost.canvas ? "还在" : "收起了"}，光层 ${lost.gl ? "在" : "不在"}，档位 ${tierBefore} → ${await tierOf(page)}`,
+      );
+    }
     for (const [label, at] of [
-      ["act5", act5.from + act5.length * 0.45],
-      ["act5-end", act5.from + act5.length],
       ["act6", spanOf(tl, 6).from + 0.2],
       ["act7", act7.from + act7.length],
     ]) {
@@ -594,6 +652,24 @@ function watchConsole(page) {
   }
   const all = complaints.flat();
   report("第 2 到 7 幕的控制台没有报错和警告", all.length === 0, all.join("；") || "没有");
+
+  // 第 5 幕：某位的体素文件加载不到（拦下果穗的那一份），她的位置是她印象色的方块加名字。截图看。
+  {
+    const context = await browser.newContext(DESKTOP);
+    const page = await context.newPage();
+    await page.route("**/landing-voxels/kaho.json", (route) => route.fulfill({ status: 404, body: "" }));
+    await page.goto(`${origin}/?tier=full`, { waitUntil: "load" });
+    await glOn(page);
+    const tl = await timelineOn(page);
+    const act5 = spanOf(tl, 5);
+    await toScreens(page, act5.from - 0.5);
+    await page.waitForFunction(() => !!document.querySelector(".lp-memory-canvas"), null, { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(5000);
+    await toScreens(page, act5.from + act5.length * 0.53);
+    await page.screenshot({ path: path.join(shots, "full-act5-no-voxels.png") });
+    report("第 5 幕：某位的体素文件加载不到", null, "截图 full-act5-no-voxels.png 里果穗的位置应是印象色方块加名字");
+    await context.close();
+  }
 
   // 静止版式：每一幕截一张，幕名轨亮的就是这一幕。
   const RAIL = { ".lp-seg": "光譜", ".lp-act3": "ことば", ".lp-act4": "着信", ".lp-act5": "記憶", ".lp-act6": "ことわり", ".lp-act7": "はじまり" };

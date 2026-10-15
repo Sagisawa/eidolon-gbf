@@ -10,7 +10,8 @@
  *
  * 版式：首屏前的内联脚本（tierScript.ts）把档位写在 <html> 上。html[data-lp-layout="motion"]（完整、
  * 简化档）钉住舞台、由滚动驱动第 1 幕；其余（定格档、静态档，以及没有 JS、<html> 上没有档位时）
- * 是竖着排的静止版式。层叠：光层的画布在最底下（z-index 0，不透明），各幕的内容都在它上面（z-index 1）。
+ * 是竖着排的静止版式。层叠：光层的画布在最底下（z-index 0，不透明），各幕的内容都在它上面（z-index 1）；
+ * 第 5 幕的 3D 画布固定铺满视口，在这一幕里、这一幕的文字下面，盖过光层和前面几幕。
  */
 
 html {
@@ -1372,10 +1373,9 @@ html[data-lp-tier="reduced"] .lp-hello {
   color: rgb(255 255 255 / 0.88);
 }
 
-/* —— 第 5 幕：记忆（Memory.tsx）。布景是两屏宽的一张 SVG：运动版式里跟着模型横移（--lp-pan），
- * 光路的连线跟着光点画出来（--lp-path-0…，默认是画完的样子）；一道道光在光层画好以后让给着色器，
- * 连线留着，淡淡地连起这件事传过的人。
- * 静止版式里整张布景压进一屏。 */
+/* —— 第 5 幕：记忆（Memory.tsx）。运动版式里是一块 three.js 画布（memoryLayer.ts，LightStage 滚到附近才建、放在这一幕
+ * 最前面）：固定铺满视口，叠在光层上面、这一幕的文字下面，不透明度由落地页模型给（--lp-memory：第 4 幕解开钉住时淡入，
+ * 这一幕解开钉住时淡出）。标题和正文在左上，镜头推近以前跟着模型淡出（--lp-act5）。静止版式里只有文字。 */
 .lp-act5 {
   position: relative;
   z-index: 1;
@@ -1385,37 +1385,27 @@ html[data-lp-tier="reduced"] .lp-hello {
 html[data-lp-layout="motion"] .lp-act5 {
   overflow: clip;
 }
-.lp-memory-world {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-html[data-lp-layout="motion"] .lp-memory-world {
-  width: 200%;
-  transform: translate3d(var(--lp-pan, 0px), 0, 0);
-  will-change: transform;
-}
-html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-memory-static {
+.lp-memory-canvas {
   display: none;
 }
-.lp-path path {
-  stroke-dasharray: 1 1;
-  stroke-dashoffset: calc(1 - var(--lp-path));
-}
-/* 竖屏上布景横向压得厉害，连线跟着变细，加粗一点。 */
-@media (max-aspect-ratio: 10/11) {
-  .lp-path path + path {
-    stroke-width: 2.4;
-  }
+html[data-lp-layout="motion"] .lp-memory-canvas {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: var(--lp-memory, 0);
+  pointer-events: none;
 }
 .lp-act5-copy {
   position: absolute;
   left: var(--lp-gutter);
-  bottom: 12%;
-  max-width: min(30rem, 78vw);
+  top: 14%;
+  max-width: min(26rem, 78vw);
   text-shadow: 0 0 18px #000;
+}
+html[data-lp-layout="motion"] .lp-act5-copy {
+  opacity: var(--lp-act5, 1);
 }
 
 /* —— 第 6 幕：诚实事项（Closing.tsx）。全站最暗、最静：没有任何滚动动画，居中，行高宽松。

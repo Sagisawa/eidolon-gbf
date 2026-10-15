@@ -7,10 +7,11 @@
 // 扫过一遍把每种颜色依次点亮，最后 28 道光以同一个亮度停在扇面上。第 2 幕先「归队」：扇面拉直成
 // 按组合顺序排满一屏的竖线（光谱尺），再放大到横滚的轨道上，每个组合一屏，组合之间整页推入。
 // 三个状态之间逐道插值，就是「扇形 → 拉直 → 归队」的转场。第 3、4 幕里一道道光收成说话那一位的
-// 一道，她说日语、打来电话；第 5 幕光又散开，一件事从一位传到另一位；第 7 幕收拢成一块手机屏幕。
-// 各幕占几屏见 timeline.ts。
+// 一道，她说日语、打来电话；第 4 幕末尾光都收掉，第 5 幕是 3D 画布自己的夜空（场景状态见 memory.ts），
+// 光层不画这一幕的东西；第 7 幕收拢成一块手机屏幕。各幕占几屏见 timeline.ts。
 
 import type { CallPhase } from "./interaction";
+import { memoryAt, type MemoryScene } from "./memory";
 import { averageOklab, mixOklab } from "./oklab";
 import { CALL_SHOWN, HANDOFF, NARROW, PHONE_MM, phoneAt, type PhoneState } from "./phone";
 import { layoutOf, qualityOf, type Tier } from "./tier";
@@ -109,22 +110,6 @@ export type SpectrumState = {
   stand: string | null;
 };
 
-/** 一颗传话的光点：沿二次贝塞尔弧线 from → to（控制点 ctrl，视口坐标，已经减去横移）走到 t 处，
- * 现在在 (x, y)；颜色从这段路起点的那一位渐变到终点的那一位。 */
-export type Relay = { x: number; y: number; t: number; from: Point; ctrl: Point; to: Point; color: string; intensity: number };
-
-/** 第 5 幕「记忆」。 */
-export type MemoryState = {
-  /** 横移（像素）：布景（两屏宽，memoryWorld）往左移了这么多。DOM 上的连线跟着它移。 */
-  pan: number;
-  /** 传话的光点，顺序和 memoryWorld 的 arcs 一样：先是发送的那一位传给接收的那一位，再是她传给另外三位。 */
-  relays: Relay[];
-  /** 每段光路（DOM 上的连线）画到了哪儿，0 到 1，顺序同上：光点走到哪儿，连线就画到哪儿。 */
-  paths: number[];
-  /** 指针在这一幕留下慢慢消散的痕迹（trail.ts）。 */
-  trail: boolean;
-};
-
 /** 第 3 幕里的一句话：竖排的日语原文一列，和底下的一句中文字幕。 */
 export type TalkLine = {
   /** 原文这一列的不透明度：出来了就一直留着。 */
@@ -159,9 +144,9 @@ export type Scene = {
   dispersion: number;
   /** 第 2 幕：横移、当前组合、立绘。其他幕是 null。 */
   spectrum: SpectrumState | null;
-  /** 第 5 幕：传话的光点、横移、连线的描边进度、指针痕迹。第 5 幕从下面进来的那一屏（光谱解开钉住）里
-   * 已经是第 5 幕开头的样子，DOM 上的布景进到画面时就对得上；其他幕是 null。 */
-  memory: MemoryState | null;
+  /** 第 5 幕的 3D 场景（memory.ts）：镜头、画布的不透明度。第 5 幕从下面进来的那一屏（来电解开钉住）里
+   * 已经是第 5 幕开头的样子，画布在这一屏里淡入；静止版式和其他幕是 null。 */
+  memory: MemoryScene | null;
   /** 第 3 幕：每一句话的原文、扫光和字幕；第 4 幕里是说完的样子（第 3 幕的字在第 4 幕开头淡出）。其他幕是 null。 */
   talk: { lines: TalkLine[] } | null;
   /** 第 4 幕：光脉冲。其他幕是 null。 */
@@ -171,8 +156,8 @@ export type Scene = {
   /** 第 7 幕的手机屏幕：中心 (x, y)，半宽 w、半高 h，圆角 r；亮度 0 到 1，1 是全站最亮的时候。 */
   screen: { x: number; y: number; w: number; h: number; r: number; intensity: number };
   /** DOM 上跟着时间线走的部分的不透明度：第 1 幕的文字，第 2 幕的名牌，第 3 幕的文字，第 4 幕的来电画面，
-   * 第 7 幕的文字和行动按钮。 */
-  text: { act1: number; plates: number; act3: number; act4: number; act7: number };
+   * 第 5 幕的标题和正文，第 7 幕的文字和行动按钮。 */
+  text: { act1: number; plates: number; act3: number; act4: number; act5: number; act7: number };
 };
 
 /** 页面的底色（landing.css 的 html、body 用同一个），画布淡入时看不出接缝。 */
@@ -310,7 +295,7 @@ type Picture = Omit<Scene, "act" | "actProgress">;
 /** 没有手机屏幕。 */
 const NO_SCREEN: Scene["screen"] = { x: 0, y: 0, w: 0, h: 0, r: 0, intensity: 0 };
 /** 第 0 到 2 幕以外，白光、棱镜、连续色散都熄着。 */
-const QUIET_TEXT: Scene["text"] = { act1: 0, plates: 0, act3: 0, act4: 0, act7: 0 };
+const QUIET_TEXT: Scene["text"] = { act1: 0, plates: 0, act3: 0, act4: 0, act5: 0, act7: 0 };
 
 /** 第 1 幕进度为 p 时的画面（第 0 幕就是 p = 0）。 */
 function act1Picture(lights: readonly BandLight[], vp: Viewport, m: Moment): Picture {
@@ -538,139 +523,21 @@ function blend(a: Band[], b: Band[], t: number): Band[] {
   });
 }
 
-/** 第 5 幕布景里的一段光路：从 source 那一位的光传到 target 那一位的光，二次贝塞尔弧线（布景坐标）。 */
-export type MemoryArc = { source: string; target: string; from: Point; ctrl: Point; to: Point };
-
-export type MemoryWorld = {
-  /** 每一道光在布景里的横坐标，顺序和 lights 一样。 */
-  lines: { id: string; color: string; x: number }[];
-  sender: string | null;
-  receiver: string | null;
-  /** 发送的那一位传给接收的那一位的光路。 */
-  arc: MemoryArc;
-  /** 接收的那一位再传给另外三位的光路。 */
-  spreads: MemoryArc[];
-  /** 全部光路，先 arc 后 spreads；DOM 上的连线、着色器的光点都按这个顺序。 */
-  arcs: MemoryArc[];
-};
+/** 第 5 幕开头标题和正文淡出的那一段（幕内进度）：镜头推近以前。 */
+const ACT5_TEXT_OUT: readonly [number, number] = [0.05, 0.08];
+/** 来电解开钉住的那一屏里，夜空从这里开始淡入：手机已经淡出了一大半。 */
+const ACT5_SKY_IN = 0.35;
 
 /**
- * 第 5 幕的布景，单位是视口：两屏宽（x 从 0 到 2）、一屏高（y 从 0 到 1）。全部的光按光谱的顺序竖着排开。
- * 一件事从光谱里的第一位（发送的那一位）传给后半段里和她颜色差得最开的一位（接收的那一位），沿一条
- * 鼓在上方的弧线走；再从她那里传开，落到她两边的另外三位身上（「我对一位偶像说的事，别的偶像也会知道」）。
- * 着色器（光、光点）和 DOM 上的 SVG（连线，静态档里还有光）都照它画，SVG 的 viewBox 是 2000 × 1000。
+ * 第 5 幕「记忆」：3D 画布自己的夜空和浮岛（memory.ts 给镜头），光层只剩页面的底色。标题和正文在开头的全景里，
+ * 镜头推近以前淡出。最后一屏解开钉住，画布淡出，接上全站最暗的第 6 幕。`q` 是第 5 幕开始后滚过的屏数。
  */
-export function memoryWorld(lights: readonly BandLight[]): MemoryWorld {
-  const n = lights.length;
-  const lines = lights.map((l, i) => ({ id: l.id, color: l.color, x: 0.12 + ((i + 0.5) / Math.max(n, 1)) * 1.76 }));
-  const sender = 0;
-  // 后半段里色相离她最远的（色相名次在环上量）。
-  const ring = (a: number, b: number) => Math.min(Math.abs(a - b), n - Math.abs(a - b));
-  let receiver = Math.min(n - 1, Math.ceil(n / 2));
-  for (let i = receiver; i < n; i++)
-    if (ring(lights[i].hueRank, lights[sender].hueRank) > ring(lights[receiver].hueRank, lights[sender].hueRank)) receiver = i;
-  const from: Point = [lines[sender]?.x ?? 0.3, 0.66];
-  const to: Point = [lines[receiver]?.x ?? 1.3, 0.4];
-  const arc: MemoryArc = {
-    source: lights[sender]?.id ?? "",
-    target: lights[receiver]?.id ?? "",
-    from,
-    ctrl: [(from[0] + to[0]) / 2, 0.02],
-    to,
-  };
-  // 传开：她右上、右下、左边各一位，落在光上的高度错开，弧线朝不同的方向鼓。左边那条往下鼓，不和传给她的
-  // 那条（从左上方来）贴在一起；都避开画面左下角的文字。
-  const spreads: MemoryArc[] = [];
-  if (n > 2) {
-    const used = new Set([sender, receiver]);
-    const SPREAD: [dx: number, y: number, bend: number][] = [
-      [0.24, 0.18, -0.12],
-      [0.3, 0.6, 0.1],
-      [-0.3, 0.52, 0.14],
-    ];
-    for (const [dx, y, bend] of SPREAD) {
-      let best = -1;
-      for (let i = 0; i < n; i++)
-        if (!used.has(i) && (best < 0 || Math.abs(lines[i].x - to[0] - dx) < Math.abs(lines[best].x - to[0] - dx))) best = i;
-      if (best < 0) break;
-      used.add(best);
-      const end: Point = [lines[best].x, y];
-      spreads.push({ source: arc.target, target: lines[best].id, from: to, ctrl: [(to[0] + end[0]) / 2, (to[1] + y) / 2 + bend], to: end });
-    }
-  }
-  return {
-    lines,
-    sender: lights[sender]?.id ?? null,
-    receiver: n > 1 ? lights[receiver].id : null,
-    arc,
-    spreads,
-    arcs: n > 1 ? [arc, ...spreads] : [],
-  };
-}
-
-/** 第 5 幕里不是这件事主角的光：余烬的亮度。 */
-const MEMORY_EMBER = 0.12;
-/** 被传到的人亮起来的亮度：同屏满强度的是她和传到的三位，不超过 5 道。 */
-const MEMORY_LIT = 0.62;
-
-/** 第 5 幕的横移：开头发送的那一位站在画面左边三成处，传到她时她站在画面六成处，之后不再动。 */
-const panAt = (world: MemoryWorld, vp: Viewport, t: number) => lerp(world.arc.from[0] - 0.3, world.arc.to[0] - 0.6, t) * vp.w;
-
-/** 第 5 幕的光：两屏宽的布景里竖着的一道道光，减去横移。 */
-function memoryBands(lights: readonly BandLight[], vp: Viewport, world: MemoryWorld, pan: number, lit: (id: string) => number): Band[] {
-  return curtain(lights, vp, 0).map((b, i) => ({
-    ...b,
-    x: world.lines[i].x * vp.w - pan,
-    halo: 12 * lights[i].spread,
-    intensity: lit(b.id),
-  }));
-}
-
-/** 第 k 段光路的时间（第 5 幕的幕内进度）：光点从 start 出发，到 end 落下。 */
-const relayWindow = (k: number): [start: number, end: number] => (k === 0 ? [0.12, 0.48] : [0.54 + 0.05 * (k - 1), 0.8 + 0.05 * (k - 1)]);
-
-/**
- * 第 5 幕：一个光点从发送的那一位的光出发，颜色渐变着，沿弧线落到接收的那一位的光上，她亮起来；
- * 再从她那里分出三个光点，落到另外三位的光上，落到谁，谁就亮起来。走过的光路留下淡淡的连线
- * （DOM 上的 SVG）。画面跟着第一个光点往右横移不到一屏。最后一屏解开钉住，光暗下去，接上全站最暗的
- * 第 6 幕。`q` 是第 5 幕开始后滚过的屏数。
- */
-function act5Picture(lights: readonly BandLight[], vp: Viewport, m: Moment, span: ActSpan, q: number, still: boolean): Picture {
-  const world = memoryWorld(lights);
+function act5Picture(lights: readonly BandLight[], vp: Viewport, span: ActSpan, q: number): Picture {
   const p = clamp(q / span.length);
-  const fade = 1 - smooth(0, 0.85, q - span.length);
-  const pan = panAt(world, vp, easeInOut(smooth(0.1, 0.5, p)));
-  const colorOf = new Map(lights.map((l) => [l.id, l.color]));
-  const px = ([x, y]: Point): Point => [x * vp.w - pan, y * vp.h];
-  // 每个人亮起来的时候：光点落到她身上。
-  const arrived = new Map(world.arcs.map((a, k) => [a.target, smooth(relayWindow(k)[1] - 0.02, relayWindow(k)[1] + 0.04, p)]));
-  const lit = (id: string) => {
-    const base =
-      id === world.sender
-        ? MEMORY_EMBER + 0.6 * smooth(0.04, 0.12, p) * (1 - 0.5 * smooth(0.3, 0.5, p))
-        : MEMORY_EMBER + (MEMORY_LIT - MEMORY_EMBER) * (arrived.get(id) ?? 0);
-    return base * fade;
-  };
-  const relays = world.arcs.map((a, k): Relay => {
-    const [start, end] = relayWindow(k);
-    const t = easeInOut(smooth(start, end, p));
-    const [from, ctrl, to] = [px(a.from), px(a.ctrl), px(a.to)];
-    const at = (i: number) => (1 - t) * (1 - t) * from[i] + 2 * (1 - t) * t * ctrl[i] + t * t * to[i];
-    return {
-      x: at(0),
-      y: at(1),
-      t,
-      from,
-      ctrl,
-      to,
-      color: mixOklab(colorOf.get(a.source)!, colorOf.get(a.target)!, t),
-      intensity: smooth(start - 0.06, start, p) * (1 - smooth(end, end + 0.05, p)) * fade,
-    };
-  });
   return {
-    ...quiet(lights, vp, memoryBands(lights, vp, world, pan, lit)),
-    dispersion: 0,
-    memory: { pan, relays, paths: relays.map((r) => r.t), trail: !still },
+    ...quiet(lights, vp, curtain(lights, vp, 0)),
+    memory: memoryAt(p, vp, 1 - smooth(0, 0.85, q - span.length)),
+    text: { ...QUIET_TEXT, act5: 1 - smooth(ACT5_TEXT_OUT[0], ACT5_TEXT_OUT[1], p) },
   };
 }
 
@@ -916,7 +783,9 @@ export function describeScene(input: SceneInput): Scene {
   }
   const act5 = spanOf(timeline, 5)!;
   if (scroll >= act5.from) {
-    return { ...where, ...act5Picture(lights, viewport, m, act5, still ? act5.length : scroll - act5.from, still) };
+    // 静止版式里这一幕不钉住、没有 3D 场景，只有文字。
+    if (still) return { ...where, ...quiet(lights, viewport, curtain(lights, viewport, 0)), text: { ...QUIET_TEXT, act5: 1 } };
+    return { ...where, ...act5Picture(lights, viewport, act5, scroll - act5.from) };
   }
   const act3 = spanOf(timeline, 3);
   const act4 = spanOf(timeline, 4);
@@ -926,13 +795,11 @@ export function describeScene(input: SceneInput): Scene {
     const picture = act4Picture(lights, viewport, m, clamp(q / act4.length), her, input.call ?? "ringing", still);
     const release = q - act4.length;
     if (release <= 0) return { ...where, ...picture };
-    // 解开钉住的那一屏：她的光和熄着的光一起变形成第 5 幕开头的样子，背景回到黑，铃声的光暗下去，来电的画面淡出。
-    // 第 5 幕的布景这时已经从下面进来了：连线一条都还没画，横移停在开头，还不留指针痕迹。
+    // 解开钉住的那一屏：一道道光收掉、背景回到黑，铃声的光暗下去，来电的画面淡出。第 5 幕的舞台这时从下面进来，
+    // 镜头停在第 5 幕开头，手机淡出了一大半以后夜空才淡入。
     const t = smooth(0, 1, release);
     const gone = 1 - smooth(0, 0.5, release);
-    const world = memoryWorld(lights);
-    const next = memoryBands(lights, viewport, world, panAt(world, viewport, 0), () => MEMORY_EMBER);
-    const entering = act5Picture(lights, viewport, m, act5, 0, still).memory!;
+    const next = curtain(lights, viewport, 0);
     return {
       ...where,
       ...picture,
@@ -941,8 +808,8 @@ export function describeScene(input: SceneInput): Scene {
       call: { pulse: picture.call.pulse * (1 - t) },
       // 来电的画面和手机不跟着舞台整块往上走，先淡出；振动跟着停。
       phone: { ...picture.phone, opacity: gone, shake: gone > 0 ? { x: picture.phone.shake.x * gone, y: picture.phone.shake.y * gone } : { x: 0, y: 0 } },
-      text: { ...picture.text, act4: gone },
-      memory: { ...entering, relays: entering.relays.map((r) => ({ ...r, intensity: 0 })), trail: false },
+      text: { ...picture.text, act4: gone, act5: 1 },
+      memory: memoryAt(0, viewport, smooth(ACT5_SKY_IN, 1, release)),
     };
   }
   if (act3 && scroll >= act3.from) {

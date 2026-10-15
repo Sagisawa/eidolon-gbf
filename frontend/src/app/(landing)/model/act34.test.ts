@@ -4,7 +4,7 @@ import { copy } from "@/i18n";
 
 import { idolColors } from "./color";
 import { stillPhoneVars } from "./phone";
-import { describeScene, memoryWorld, TALK_LINES, talkLineShown, type Scene, type SceneInput, type Viewport } from "./scene";
+import { describeScene, TALK_LINES, talkLineShown, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
 import { restAt, spanOf, timelineOf } from "./timeline";
 
@@ -361,17 +361,5 @@ describe("describeScene: 第 4 幕到第 5 幕", () => {
     expect(scene({ scroll: act4.to - 0.5, time: 0.25 }).phone!.shake).toEqual({ x: 0, y: 0 });
     expect(scene({ scroll: act5.from + 0.2 }).phone).toBeNull();
     expect(scene({ scroll: in3(0.5) }).phone).toBeNull();
-  });
-
-  it("第 5 幕从下面进来的那一屏里，连线还一条都没画，布景停在第 5 幕开头的横移上", () => {
-    const start = scene({ scroll: act5.from }).memory!;
-    for (const q of [0.01, 0.5, 0.99]) {
-      const entering = scene({ scroll: act5.from - 1 + q }).memory;
-      expect(entering?.paths.every((t) => t === 0), `q ${q}`).toBe(true);
-      expect(entering!.pan).toBeCloseTo(start.pan);
-      expect(entering!.relays.every((r) => r.intensity === 0)).toBe(true);
-      expect(entering!.trail).toBe(false);
-    }
-    expect(memoryWorld(lights).arcs.length).toBeGreaterThan(0);
   });
 });
