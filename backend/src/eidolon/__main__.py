@@ -55,11 +55,11 @@
                                      recording the run; exits 2 if the copy failed, 3 if
                                      the upload did, 4 if deleting the old ones did, 6 if
                                      another backup was under way
-    eidolon restore <file>           put the database in a backup the deployer decrypted,
+    eidolon restore [--check] <file> put the database in a backup the deployer decrypted,
                                      .db or .db.gz, in place of this one, with the server
                                      stopped (deploy/db-restore.sh), if it is whole and has
                                      this project's tables, leaving it alone if not; and
-                                     say how many users it has
+                                     say how many users it has; --check only checks it
     eidolon reembed                  after changing the embedding service, model or
                                      dimensions, embed the story corpus, character facts,
                                      work facts, and memories again from
@@ -577,20 +577,21 @@ async def _backup(args: argparse.Namespace) -> int:
 
 
 def _restore(args: argparse.Namespace) -> int:
-    from eidolon.restore import NotRestored, restore
+    from eidolon.restore import NotRestored, check, restore
 
     database = args.db or database_path_from_env()
     try:
-        users, abandoned = restore(args.file, database, utc_now)
-    except NotRestored as e:
-        print(f"没有恢复，现在的数据库没有动：{e}", file=sys.stderr)
+        if args.check:
+            users = check(args.file, database)
+            print(f"{args.file} 通过了检查，库里有 {users} 位用户")
+            return 0
+        restored = restore(args.file, database, utc_now)
+    except (NotRestored, OSError) as e:  # OSError: the rename
+        print(f"没有恢复，现在的数据库没有换：{e}", file=sys.stderr)
         return 1
-    except OSError as e:  # the rename, or deleting the old write-ahead log
-        print(f"恢复失败：{e}", file=sys.stderr)
-        return 1
-    print(f"已用 {args.file} 替换 {database}，恢复进来的库里有 {users} 位用户")
-    if abandoned:
-        print(f"备份时正在进行的 {abandoned} 条备份记录已标成没有完成")
+    print(f"已用 {args.file} 替换 {database}，恢复进来的库里有 {restored.users} 位用户")
+    if restored.abandoned:
+        print(f"备份时正在进行的 {restored.abandoned} 条备份记录已标成没有完成")
     return 0
 
 
@@ -1202,6 +1203,11 @@ def _parser() -> argparse.ArgumentParser:
         "退出码为 1",
     )
     restore.add_argument("file", type=Path, help="解密后的备份文件，压缩的和解压后的都行")
+    restore.add_argument(
+        "--check",
+        action="store_true",
+        help="只检查文件、报出用户数，不替换（不用停后端；deploy/db-restore.sh 先这样检查一遍）",
+    )
 
     reembed = commands.add_parser(
         "reembed",

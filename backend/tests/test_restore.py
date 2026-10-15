@@ -45,14 +45,21 @@ def files_beside(database: Path) -> list[str]:
     return sorted(path.name for path in database.parent.iterdir())
 
 
-@pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize(
+    ("compressed", "name"),
+    [
+        (False, "eidolon.db"),
+        (True, "eidolon.db.gz"),
+        (True, "eidolon.db"),  # told by what is in it, not its name
+    ],
+)
 def test_the_database_is_replaced_by_the_one_in_the_file(
-    admin: Admin, current: Path, tmp_path: Path, compressed: bool
+    admin: Admin, current: Path, tmp_path: Path, compressed: bool, name: str
 ):
-    backup = a_database(tmp_path / "backup.db", "kogane", "mano")
-    if compressed:
-        backup.with_suffix(".db.gz").write_bytes(gzip.compress(backup.read_bytes()))
-        backup = backup.with_suffix(".db.gz")
+    database = a_database(tmp_path / "backup.db", "kogane", "mano")
+    backup = tmp_path / name
+    data = database.read_bytes()
+    backup.write_bytes(gzip.compress(data) if compressed else data)
     before = files_beside(current)
 
     out = admin.run("restore", str(backup))
@@ -62,16 +69,29 @@ def test_the_database_is_replaced_by_the_one_in_the_file(
     assert files_beside(current) == before  # nothing left over
 
 
-def test_whether_it_is_compressed_is_told_by_what_is_in_it_not_its_name(
+def test_checking_the_file_says_how_many_users_it_has_and_replaces_nothing(
     admin: Admin, current: Path, tmp_path: Path
 ):
-    database = a_database(tmp_path / "backup.db", "mano")
-    backup = tmp_path / "eidolon.db"
-    backup.write_bytes(gzip.compress(database.read_bytes()))
+    backup = a_database(tmp_path / "backup.db", "kogane", "mano")
+    before = files_beside(current)
 
-    admin.run("restore", str(backup))
+    out = admin.run("restore", "--check", str(backup))
 
-    assert names(current) == ["mano"]
+    assert "2 位用户" in out
+    assert names(current) == ["current"]
+    assert files_beside(current) == before
+
+
+def test_what_a_restore_killed_part_way_left_is_deleted(
+    admin: Admin, current: Path, tmp_path: Path
+):
+    backup = a_database(tmp_path / "backup.db", "mano")
+    before = files_beside(current)
+    (current.parent / ".restoring-k1ll3d.db").write_bytes(b"half a database")
+
+    admin.run("restore", "--check", str(backup))
+
+    assert files_beside(current) == before
 
 
 def test_the_old_write_ahead_log_is_deleted(admin: Admin, current: Path, tmp_path: Path):
@@ -86,15 +106,32 @@ def test_the_old_write_ahead_log_is_deleted(admin: Admin, current: Path, tmp_pat
     assert names(current) == ["mano"]
 
 
-def a_broken_database(path: Path) -> Path:
+def a_damaged_database(path: Path) -> Path:
     db = sqlite3.connect(path)
     db.execute("CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT)")
     db.executemany("INSERT INTO users VALUES (?, ?)", [(str(i), "x" * 500) for i in range(500)])
     db.commit()
     db.close()
     data = bytearray(path.read_bytes())
-    data[8192:16384] = b"\xff" * 8192  # pages of the table overwritten
+    data[8192:16384] = bytes([0xFF]) * 8192  # pages of the table overwritten
     path.write_bytes(bytes(data))
+    return path
+
+
+def an_inconsistent_database(path: Path) -> Path:
+    """One that opens, with an index that does not match its table."""
+    db = sqlite3.connect(path)
+    db.execute("CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT)")
+    db.execute("CREATE INDEX users_by_name ON users (name)")
+    db.executemany("INSERT INTO users VALUES (?, ?)", [(str(i), f"p{i}") for i in range(50)])
+    db.commit()
+    db.execute("PRAGMA writable_schema = ON")
+    db.execute(
+        "UPDATE sqlite_master SET sql = 'CREATE INDEX users_by_name ON users (id)'"
+        " WHERE name = 'users_by_name'"
+    )
+    db.commit()
+    db.close()
     return path
 
 
@@ -119,19 +156,21 @@ def without_users(path: Path) -> Path:
 @pytest.mark.parametrize(
     ("make", "why"),
     [
-        (a_broken_database, "完整性检查|不是 SQLite"),
+        (a_damaged_database, "已经损坏"),
+        (an_inconsistent_database, "完整性检查.*users_by_name"),
         (a_truncated_gzip, "解压"),
         (not_sqlite, "不是 SQLite"),
-        (without_users, "users"),
+        (without_users, "没有 users 表"),
     ],
 )
+@pytest.mark.parametrize("checking", [[], ["--check"]])
 def test_a_file_that_will_not_do_leaves_the_database_alone(
-    admin: Admin, current: Path, tmp_path: Path, make, why: str
+    admin: Admin, current: Path, tmp_path: Path, make, why: str, checking: list[str]
 ):
     backup = make(tmp_path / "backup.db")
     before = files_beside(current)
 
-    err = admin.fails("restore", str(backup))
+    err = admin.fails("restore", *checking, str(backup))
 
     assert names(current) == ["current"]
     assert files_beside(current) == before
