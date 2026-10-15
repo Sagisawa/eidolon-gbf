@@ -259,7 +259,7 @@ You need to summarize the conversation between user and assistant into a short t
 - **推荐：不会**。标题不进她的提示词，不进记忆，不进判断模型。它只是界面上帮用户认对话的标签。
 - 理由：
   - GLOSSARY 规定「角色知道的关于用户的一切，都来自用户能看到并删除的记忆和制作人档案」；
-  - 规格 Out of Scope 写了「她记得历史对话的原文」不做，她只通过记忆接上以前的对话（[spec.md:101](spec.md)）。
+  - 规格 Out of Scope 写了「她记得历史对话的原文」不做，她只通过记忆接上历史对话（[spec.md:101](spec.md)）。
 - 同样按 GLOSSARY「后台」的规定，管理者看不到标题：标题算对话内容，不进看板、运行记录和日志。删除用户、删除对话时随对话一起删，标题存在 `conversations` 表的新列里就行。
 - 需要在 GLOSSARY 加一个词条，例如「对话标题」，写清楚它由谁生成、何时更新、她不知道、管理者看不到。
 

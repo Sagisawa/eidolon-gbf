@@ -144,7 +144,7 @@ export function OwnKeysSettings() {
           onChecked={(llm) => change(() => keepOwnKey(userId, "llm", llm))}
           onDelete={() => change(() => forgetOwnKey(userId, "llm"))}
         />
-        {/* 提炼记忆的 LLM 只附加在自带 LLM 上：没填 LLM 时不显示，删掉 LLM 时一起删掉（`forgetOwnKey`）。 */}
+        {/* 后台模型只附加在自带 LLM 上：没填 LLM 时不显示，删掉 LLM 时一起删掉（`forgetOwnKey`）。 */}
         {kept.llm && (
           <>
             <Separator />
@@ -378,7 +378,7 @@ const LLM_FORMS = {
 };
 
 /**
- * 自带的 LLM（`chat`，文字、通话各一档思考强度），或另配的提炼记忆的 LLM（`memory`，只有一档）：
+ * 自带的 LLM（`chat`，文字、通话各一档思考强度），或另配的后台模型（`memory`，只有一档）：
  * 先让服务器试调一次（它不保存），通过了才存进这个浏览器。
  */
 function OwnLLMForm({
@@ -408,7 +408,7 @@ function OwnLLMForm({
   const id = useId();
 
   // 档位换成接口写不出的（选着「极低」换成 Anthropic）是 undefined，额外请求参数不是 JSON 对象时带着 problem：都不能保存。
-  // 提炼记忆的 LLM 只有 `textEffort` 那一档，`callEffort` 一直是不设置。
+  // 后台模型只有 `textEffort` 那一档，`callEffort` 一直是不设置。
   const effortInText = effortOf(textEffort, protocol);
   const form = LLM_FORMS[kind];
   const effortInCalls = form.callEffort ? effortOf(callEffort, protocol) : null;

@@ -50,3 +50,16 @@
 **检查**：后端完整测试（1569 条）、ruff、pyright、前端类型检查、vitest（860 条）、纪律检查都通过。第一遍完整测试在 `test_bailian_stt.py` 第一条处卡住（先报 F，之后到 550 秒被 timeout 杀掉，faulthandler_timeout=120 和 pytest-timeout 都没吐出调用栈）；单跑这个文件 21 条 6 秒全过，第二遍完整测试没再卡。
 
 **验收**：本地构建版 Playwright（1280×800、390×844，设备时区 Asia/Tokyo），在本机库的副本上跑（本票加了 `title` 列，main 的代码读到这一列会出错，所以没碰主仓库的库）：开发登录临时用户、直接写库造三段对话（当前对话有标题、一段没标题、一段 16 字长标题且被她结束），接口带出标题；面板里有标题的行第一行是标题（14px/500）、右边 Meta 字号 muted 的日期和「当前」「她结束了」，第二行最后一句；没标题的行第一行是日期（14px/500）；长标题在手机上一行放得下。验完删掉临时用户、停掉服务、删掉副本和脚本。
+---
+
+**code review 之后的修改**（分支 `impl/past-conversations-review`）
+
+- 测试收窄：`test_gift_giving.py` 里「请求点名哪段对话都记进最新的」只留一个代表（点名一段更早的，仍记进最新的）；「最新的已结束时新开一段」的两条合成一条（新开的不是更早那段也不是已结束那段、第二件也进它、她在里面回应、列表最新的是它）。删掉 `gifts.test.ts` 里「旧链接带着 conversation 也不管」（写法本身保证）和 `test_past_conversations.py` 里 `created_at is not None`（约束保证）。
+- 「后台模型」改名：spec「看板和设置里」的「设置」指用户设置页，上面「名字不改」的判断作废。用户设置页「提炼记忆的 LLM（可选）」改成「后台模型（可选）」，未填、说明、文字思考强度和它自己思考强度的说明都补上起对话标题；试调失败的前缀（`own_keys.BACKGROUND_LLM_LABEL`）和「要和自带的 LLM 一起带上」的报错、隐私说明「语言模型服务」那条、GLOSSARY「自带密钥」「思考强度」都改叫后台模型，「提炼记忆的 LLM」进了「自带密钥」的 Avoid。代码里 `TurnLLMs.memory`/`hold_memory` 改成 `background`/`hold_background`，`DeployerKeys.hold_memory` 跟着改；本地存储键、服务名、请求体字段 `memory_llm` 和 i18n 键名没动。
+- `titles.after_turn` 的 `hold` 改成必填。
+- `ConversationView`：结束卡和只读卡共用 `ComposerCard`（外层、图标加一句话、靠右的按钮组）；页首 `<h1>` 只写一次（日期那行只在历史对话里）；电话键三种状态共用一个 Button，只换提示、标签、禁用、点击和实心。删掉 `api.ts` 里 `ListedConversation` 头上过时的 JSDoc。
+- 只读卡文案改用术语「历史对话」：「这是你们的历史对话」「这是你们的历史对话，她结束了它」；DESIGN.md、spec、票 01、research 里「以前的对话」一并改掉（GLOSSARY 的 Avoid 保留；`.scratch/gifts` 里的「以前的对话事件」是别的意思，没动）。
+
+**检查**：后端完整测试（1568 条）、ruff、pyright、前端类型检查、vitest（860 条）、纪律检查都通过。第一遍完整测试又在 `test_bailian_stt.py` 第一条卡住（报 F 后到 550 秒被杀，没有调用栈），单跑 21 条全过，第二遍完整测试通过。
+
+**验收**：本地构建版（worktree 里 node_modules 是联接，turbopack 拒绝，改用 `next build --webpack`），在本机库副本上，开发登录临时用户、写库造三段对话（当前的已结束、一段没结束、一段已结束）。1280×800 和 390×844 下结束卡、只读卡、已结束的只读卡外层都是 56px 高（手机上长句换两行时 62px，和改动前同样会换行），按钮靠右，电话键禁用，页首名字居中、历史对话时下面一行日期；只读卡显示新文案。验完删掉临时用户、停掉服务、删掉副本和脚本。

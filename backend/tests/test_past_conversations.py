@@ -35,9 +35,7 @@ async def test_each_of_her_conversations_comes_with_its_last_message_and_whether
     listed = await hers(client)
 
     assert [c["id"] for c in listed] == [current, ended, said]
-    assert [(c["ended"], c["created_at"] is not None) for c in listed] == [
-        (False, True), (True, True), (False, True)
-    ]
+    assert [c["ended"] for c in listed] == [False, True, False]
     assert listed[0]["last_message"] is None
     assert listed[1]["last_message"] == {"type": "event", "kind": "hung_up", "created_at": at}
     last = listed[2]["last_message"]

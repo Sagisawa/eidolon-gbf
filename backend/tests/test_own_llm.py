@@ -423,9 +423,9 @@ async def test_trying_an_own_memory_llm_says_it_was_that_one_that_failed(
 
     assert refused_effort.status_code == 422 and rejected.status_code == 422
     assert refused_effort.json()["detail"] == (
-        "试调失败：提炼记忆的 LLM：思考强度『低』被服务拒绝：模型返回 400: Invalid reasoning_effort for key ***"
+        "试调失败：后台模型：思考强度『低』被服务拒绝：模型返回 400: Invalid reasoning_effort for key ***"
     )
-    assert rejected.json()["detail"] == "试调失败：提炼记忆的 LLM：401 Unauthorized: bad key ***"
+    assert rejected.json()["detail"] == "试调失败：后台模型：401 Unauthorized: bad key ***"
 
 
 @pytest.mark.parametrize(

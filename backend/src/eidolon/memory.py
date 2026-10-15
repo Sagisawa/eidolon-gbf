@@ -173,7 +173,7 @@ class Memories:
     ) -> "MemoryTurn":
         """Begin a turn of `conversation`, whose user is in `timezone`, once what their
         earlier turns are writing down is written (a while at most). The turn writes down
-        with `llm`, held on to with `hold` (see `TurnLLMs.hold_memory`) until written."""
+        with `llm`, held on to with `hold` (see `TurnLLMs.hold_background`) until written."""
         clearings = self._clearings.get(conversation.user_id, 0)
         await self._settle(conversation.user_id)
         return MemoryTurn(self, conversation, timezone, clearings, llm, hold)

@@ -1,7 +1,16 @@
 "use client";
 
 import NextLink from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -142,48 +151,25 @@ export function ConversationView({
 
   // 页首的图标键：手机上触控目标不小于 44px（DESIGN.md「Layout」）。
   const headerKey = "max-md:size-11";
-  // 历史对话里拨不出去，通话中也一样（回到通话走通话条）。
-  const phoneKey = viewing ? (
-    <HeaderTip label={t.past.callTooltip}>
+  // 历史对话里拨不出去，通话中也一样（回到通话走通话条）；通话中换成实心的「回到通话」。
+  const phone: { tip: string; label: string; disabled?: boolean; onClick?: () => void; filled?: boolean } = viewing
+    ? { tip: t.past.callTooltip, label: t.call(character.name), disabled: true }
+    : inCall
+      ? { tip: copy.call.expand, label: copy.call.expand, onClick: () => live?.expand(), filled: true }
+      : { tip: t.callTooltip, label: t.call(character.name), disabled: !snapshot.canDial, onClick: dial };
+  const phoneKey = (
+    <HeaderTip label={phone.tip}>
       <Button
         ref={focus.phoneKey}
         variant="ghost"
         size="icon-lg"
         className={headerKey}
-        aria-label={t.call(character.name)}
-        disabled
+        aria-label={phone.label}
+        disabled={phone.disabled}
         focusableWhenDisabled
+        onClick={phone.onClick}
       >
-        <PhoneIcon className="size-5 text-her-mark" />
-      </Button>
-    </HeaderTip>
-  ) : inCall ? (
-    <HeaderTip label={copy.call.expand}>
-      <Button
-        ref={focus.phoneKey}
-        variant="ghost"
-        size="icon-lg"
-        className={headerKey}
-        aria-label={copy.call.expand}
-        onClick={() => live?.expand()}
-      >
-        {/* 通话中换成实心图标 */}
-        <PhoneIcon className="size-5 fill-current text-her-mark" />
-      </Button>
-    </HeaderTip>
-  ) : (
-    <HeaderTip label={t.callTooltip}>
-      <Button
-        ref={focus.phoneKey}
-        variant="ghost"
-        size="icon-lg"
-        className={headerKey}
-        aria-label={t.call(character.name)}
-        disabled={!snapshot.canDial}
-        focusableWhenDisabled
-        onClick={dial}
-      >
-        <PhoneIcon className="size-5 text-her-mark" />
+        <PhoneIcon className={cn("size-5 text-her-mark", phone.filled && "fill-current")} />
       </Button>
     </HeaderTip>
   );
@@ -202,16 +188,12 @@ export function ConversationView({
           <BackIcon className="size-6" />
         </Button>
       )}
-      {viewing ? (
-        <div className="flex min-w-0 flex-1 flex-col px-2">
-          <h1 className="truncate text-header">{character.name}</h1>
-          {viewing.status === "open" && (
-            <p className="truncate text-meta text-muted-foreground">{t.past.heading(pastDay(viewing.at, new Date()))}</p>
-          )}
-        </div>
-      ) : (
-        <h1 className="min-w-0 flex-1 truncate px-2 text-header">{character.name}</h1>
-      )}
+      <div className="flex min-w-0 flex-1 flex-col px-2">
+        <h1 className="truncate text-header">{character.name}</h1>
+        {viewing?.status === "open" && (
+          <p className="truncate text-meta text-muted-foreground">{t.past.heading(pastDay(viewing.at, new Date()))}</p>
+        )}
+      </div>
       {phoneKey}
       {affinity && (
         <AffinityBadge
@@ -289,23 +271,16 @@ export function ConversationView({
   ) : ended ? (
     // 已结束：结束卡代替输入框，右边「开个新对话」走更多菜单里的「新对话」，正在开时不可用。
     // 冷却中再写上解除时刻，「开个新对话」前面加「送她一件礼物」；一行放不下时按钮换到下一行、靠右。
-    <div
+    <ComposerCard
       inert={isCovered}
-      className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t bg-background px-3 py-2"
+      icon={EndedIcon}
+      text={until ? t.ended.cooling(character.name, until) : t.events.ended(character.name)}
     >
-      <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
-        <EndedIcon aria-hidden className="size-4 shrink-0" />
-        <p>
-          {until ? t.ended.cooling(character.name, until) : t.events.ended(character.name)}
-        </p>
-      </div>
-      <div className="ml-auto flex gap-2">
-        {until && giveHer}
-        <Button size="lg" disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
-          {t.ended.newConversation}
-        </Button>
-      </div>
-    </div>
+      {until && giveHer}
+      <Button size="lg" disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
+        {t.ended.newConversation}
+      </Button>
+    </ComposerCard>
   ) : until ? (
     // 冷却中：一行说明代替输入框，右边是去礼物页的「送她一件礼物」；草稿留着，到点换回输入框时还在。
     <div inert={isCovered} className="flex min-h-14 shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
@@ -463,8 +438,36 @@ function Frame({
 }
 
 /**
- * 历史对话换掉输入栏的只读卡，样子同结束卡：左边 muted 的历史图标加「这是你们以前的对话」（她结束了的另有一句），
- * 右边描边的大号「回到当前对话」；一行放不下时按钮换到下一行、靠右。
+ * 代替输入栏的一张卡（结束卡、只读卡）：左边 muted 的小图标加一句话，右边是按钮；一行放不下时按钮换到下一行、靠右。
+ */
+function ComposerCard({
+  inert,
+  icon: Icon,
+  text,
+  children,
+}: {
+  inert: boolean;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  text: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      inert={inert}
+      className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t bg-background px-3 py-2"
+    >
+      <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
+        <Icon aria-hidden className="size-4 shrink-0" />
+        <p>{text}</p>
+      </div>
+      <div className="ml-auto flex gap-2">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * 历史对话换掉输入栏的只读卡（`ComposerCard`）：历史图标加「这是你们的历史对话」（她结束了的另有一句），
+ * 右边描边的大号「回到当前对话」。
  */
 function ReadOnlyCard({
   viewing,
@@ -477,18 +480,11 @@ function ReadOnlyCard({
 }) {
   const ended = viewing.status === "open" && viewing.ended;
   return (
-    <div
-      inert={inert}
-      className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t bg-background px-3 py-2"
-    >
-      <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
-        <PastConversationsIcon aria-hidden className="size-4 shrink-0" />
-        <p>{ended ? t.past.readOnlyEnded : t.past.readOnly}</p>
-      </div>
-      <Button variant="outline" size="lg" className="ml-auto" onClick={onBackToCurrent}>
+    <ComposerCard inert={inert} icon={PastConversationsIcon} text={ended ? t.past.readOnlyEnded : t.past.readOnly}>
+      <Button variant="outline" size="lg" onClick={onBackToCurrent}>
         {t.past.backToCurrent}
       </Button>
-    </div>
+    </ComposerCard>
   );
 }
 

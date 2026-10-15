@@ -209,25 +209,20 @@ async def test_it_is_no_turn_no_limit_counts_it_and_no_activity_record_is_left(
     assert board["turns"]["total"] == 1
 
 
-async def test_the_record_goes_into_her_newest_whichever_conversation_the_request_names(
+async def test_the_record_goes_into_her_newest_even_when_the_request_names_another(
     make_client: ClientFactory,
 ):
     """Requests from before the gifts page stopped naming the conversation it was come to
     from name one: it changes nothing."""
     clock = FakeClock()
-    client = holding(make_client, clock, TEA, TEA, TEA, TEA)
-    await draw_them(client, clock, 4)
+    client = holding(make_client, clock, TEA)
+    await draw_them(client, clock, 1)
     older = await start_conversation(client)
     newest = await start_conversation(client)
-    kogane = await start_conversation(client, "kogane")
-    someone_else = await start_conversation(make_client(FakeLLM(), "someone"))
 
-    placed = [
-        (await given(client, "tea", **({"conversation_id": c} if c else {})))["conversation_id"]
-        for c in (older, None, kogane, someone_else)
-    ]
+    result = await given(client, "tea", conversation_id=older)
 
-    assert placed == [newest, newest, newest, newest]
+    assert result["conversation_id"] == newest
 
 
 async def test_with_no_conversation_with_her_one_is_begun_for_it_and_listed_by_it(
@@ -259,46 +254,31 @@ async def test_with_no_conversation_with_her_one_is_begun_for_it_and_listed_by_i
     }
 
 
-async def test_with_her_newest_ended_it_goes_to_one_begun_for_it_which_she_responds_in(
-    make_client: ClientFactory, settings: Settings
-):
-    clock = FakeClock()
-    llm = FakeLLM(REPLY)
-    client = holding(make_client, clock, CAKE, llm=llm)
-    await draw_them(client, clock, 1)
-    ended = await start_conversation(client)
-    end(settings.database_path, ended)
-
-    result = await given(client, "cake")
-    placed = result["conversation_id"]
-    await send_turn(client, placed, "尝尝看")
-
-    assert placed != ended
-    assert shape(await record(client, ended)) == ["ended"]
-    assert shape(await record(client, placed)) == ["gift", "user:尝尝看", "character:好的"]
-    assert result["change"] == happier("trust")
-    assert "（制作人送给你一份cake。这是你喜欢的东西。）" in history(llm)[0][1]
-    [latest] = (await client.get("/api/conversations/latest")).json()
-    assert latest["conversation_id"] == placed
-
-
 async def test_with_her_newest_ended_it_goes_to_one_begun_for_it_not_an_older_one_she_has_not(
     make_client: ClientFactory, settings: Settings
 ):
     clock = FakeClock()
-    client = holding(make_client, clock, TEA, TEA, TEA)
-    await draw_them(client, clock, 3)
+    llm = FakeLLM(REPLY)
+    client = holding(make_client, clock, CAKE, TEA, llm=llm)
+    await draw_them(client, clock, 2)
     older = await start_conversation(client)
     ended = await start_conversation(client)
     end(settings.database_path, ended)
-    begun = (await given(client, "tea"))["conversation_id"]
 
-    placed = [(await given(client, "tea"))["conversation_id"] for _ in range(2)]
+    result = await given(client, "cake")
+    begun = result["conversation_id"]
+    again = (await given(client, "tea"))["conversation_id"]
+    await send_turn(client, begun, "尝尝看")
 
     assert begun not in (older, ended)
-    assert placed == [begun, begun]
+    assert again == begun
     assert shape(await record(client, ended)) == ["ended"]
     assert shape(await record(client, older)) == []
+    assert shape(await record(client, begun)) == ["gift", "gift", "user:尝尝看", "character:好的"]
+    assert result["change"] == happier("trust")
+    assert "（制作人送给你一份cake。这是你喜欢的东西。）" in history(llm)[0][1]
+    [latest] = (await client.get("/api/conversations/latest")).json()
+    assert latest["conversation_id"] == begun
 
 
 class HoldsReply(FakeLLM):

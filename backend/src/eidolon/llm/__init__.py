@@ -118,13 +118,13 @@ def _let_go() -> None:
 
 @dataclass(frozen=True)
 class TurnLLMs:
-    """The models one turn runs on: `chat` plays the character; `memory`, the background
-    model, writes down what the user revealed in it and, after the conversation's third
-    turn, names the conversation (`titles`)."""
+    """The models one turn runs on: `chat` plays the character; `background`, the
+    background model, writes down what the user revealed in it and, after the
+    conversation's third turn, names the conversation (`titles`)."""
 
     chat: ChatLLM
-    memory: ChatLLM
-    hold_memory: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
-    """Holds on to `memory` past the end of the turn, for what it does after it (writing
+    background: ChatLLM
+    hold_background: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
+    """Holds on to `background` past the end of the turn, for what it does after it (writing
     down memories, naming the conversation), until the function it returns is called: the
     deployer's model may be replaced meanwhile (see `service_clients.Swappable`)."""

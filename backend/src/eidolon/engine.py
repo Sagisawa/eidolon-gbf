@@ -448,7 +448,7 @@ class ConversationEngine:
             profile = self._store.get_profile(conversation.user_id)
             timezone = effective_timezone(profile, device_timezone)
             memory = await self._memory.begin(
-                conversation, timezone, llms.memory, llms.hold_memory
+                conversation, timezone, llms.background, llms.hold_background
             )
             retrieved = (
                 await self._retrieval.retrieve(character, history, text, memory, judging)
@@ -556,7 +556,7 @@ class ConversationEngine:
             return
         memory.write_down(history, text, reply, retrieved.query_vector)
         turn = sum(m.role == "user" for m in messages) + 1
-        self._titles.after_turn(conversation, turn, llms.memory, llms.hold_memory)
+        self._titles.after_turn(conversation, turn, llms.background, llms.hold_background)
         ended = self._store.ended(conversation.id) if ends_conversation else None
         if ended is not None and ending is not None:
             for listener in self._ended_listeners:

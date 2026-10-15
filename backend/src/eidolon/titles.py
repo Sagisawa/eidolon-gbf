@@ -3,9 +3,9 @@ conversation's first turns were about, for the user to tell it apart by among he
 conversations.
 
 Once a conversation's `TITLED_AT`th turn is recorded, typed or in a call, the background
-model that turn began with (`TurnLLMs.memory`: the deployer's, or the user's own) names
-it, in the background like writing down memories, so it never holds up the reply; but
-apart from memory, which may be off. It reads the record up to then, events and all, her
+model that turn began with (`TurnLLMs.background`: the deployer's, or the user's own)
+names it, in the background like writing down memories, so it never holds up the reply;
+but apart from memory, which may be off. It reads the record up to then, events and all, her
 name, and nothing else: no memories, nor who she is. What it answers is cut down to a
 title (`title_from`). It is named once: a conversation the model failed to name, or named
 with nothing, is never named again, and the user is not told. The log says what kind of
@@ -70,14 +70,14 @@ class Titles:
         conversation: Conversation,
         turn: int,
         llm: ChatLLM,
-        hold: Callable[[], Callable[[], None]] | None = None,
+        hold: Callable[[], Callable[[], None]],
     ) -> None:
         """Once the conversation's `turn`th turn is recorded: if it is the `TITLED_AT`th,
         start naming the conversation with `llm`, held on to with `hold` (see
-        `TurnLLMs.hold_memory`) until it is named."""
+        `TurnLLMs.hold_background`) until it is named."""
         if turn != TITLED_AT:
             return
-        release = hold() if hold is not None else None
+        release = hold()
         task = asyncio.create_task(
             self._name(conversation, llm),
             context=detached(),  # after the turn, not part of it (see `activity`)
@@ -89,8 +89,7 @@ class Titles:
             pending.discard(task)
             if not pending and self._pending.get(conversation.user_id) is pending:
                 del self._pending[conversation.user_id]
-            if release is not None:
-                release()
+            release()
 
         task.add_done_callback(done)
 
