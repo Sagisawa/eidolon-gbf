@@ -40,3 +40,4 @@
 - `BackupReport.kept`、`total` 现在列不出桶时为 None（以前是 0）；超过阈值时 `space_warning` 是一句话，记录里是 `over_warning`。GB 按 10⁹ 字节（`backup.GB`）。
 - 不卡事件循环：`back_up` 里导出、压缩、加密放进 `asyncio.to_thread`；`s3.Bucket.put_file` 上传前对整份文件算 SHA-256 也放进了线程。`s3.Bucket` 多了 `objects()`（键 → `Listed(etag, size)`），`etags()` 改为从它得出。
 - `deploy/db-backup.sh`：cron 那一行要带 `--cron`（不带记为 `manual`），脚本把 `--source` 交给 `eidolon backup`；主机上的 `flock` 去掉了，锁只在数据库里，两次脚本同时跑时第二次在容器里拿到 6。`docs/deploy.md` 里的 cron 那一行已经加上 `--cron`，线上的 crontab 要手动补。
+- 2026-10-15 审查后：新的一次运行抢到锁时，顺手把开始超过 1 小时、还没结束的记录标成已放弃（不然它们永远是「进行中」）；存储桶列表里没给 `Size` 时 `total` 为 None、不提醒（以前按 0 算，提醒永远不会触发）；`eidolon backup` 写不进备份记录（sqlite 错误）时以 2 退出、写明原因，不再被当成「配置不全」；脚本参数不对时也走 `finish 5`、日志里有「结束：」那行；deploy.md 写明脚本和镜像要一起升级（旧镜像不认 `--source`，会被误报成 2）。

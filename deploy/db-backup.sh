@@ -19,20 +19,10 @@
 #   2  导出数据库或完整性检查失败，没有上传；过期的备份照常删除
 #   3  上传失败；过期的备份照常删除，最新的一份保留
 #   4  备份已上传，但没能删掉过期的备份，下次备份再删
-#   5  后端容器没有运行，或无法运行备份命令
+#   5  后端容器没有运行，或无法运行备份命令（包括参数不对）
 #   6  上一次备份还没结束（可能是后台按钮发起的），这次没有运行
 
 set -u
-
-source=manual
-case ${1:-} in
-  --cron) source=cron ;;
-  "") ;;
-  *)
-    echo "用法：$0 [--cron]" >&2
-    exit 5
-    ;;
-esac
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 5
@@ -61,6 +51,17 @@ finish() {
   echo
   exit "$1"
 }
+
+source=manual
+case ${1:-} in
+  --cron) source=cron ;;
+  "") ;;
+  *)
+    say "==== 开始备份数据库（$root）"
+    say "不认识的参数 $1，用法：deploy/db-backup.sh [--cron]"
+    finish 5
+    ;;
+esac
 
 say "==== 开始备份数据库（$root，$source）"
 

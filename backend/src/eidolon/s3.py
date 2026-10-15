@@ -79,8 +79,8 @@ class Listed:
 
     etag: str
     """Without the quotes: the MD5 of an object put in one piece, as `put` puts them."""
-    size: int
-    """Bytes."""
+    size: int | None
+    """Bytes; None if the bucket did not say."""
 
 
 class Bucket:
@@ -95,7 +95,7 @@ class Bucket:
         self._clock = clock
         self._client = httpx.AsyncClient(transport=transport, timeout=_TIMEOUT)
 
-    async def objects(self, prefix: str = "") -> dict[str, "Listed"]:
+    async def objects(self, prefix: str = "") -> dict[str, Listed]:
         """Every object in the bucket whose key starts with `prefix`, as it is listed.
 
         Asked for with List Objects V2, paged by continuation token; a provider that only
@@ -114,9 +114,9 @@ class Bucket:
             for contents in _children(root, "Contents"):
                 key, etag = _text(contents, "Key"), _text(contents, "ETag")
                 if key is not None:
-                    size = _text(contents, "Size") or ""
+                    size = (_text(contents, "Size") or "").strip()
                     objects[key] = Listed(
-                        (etag or "").strip('"').lower(), int(size) if size.isdigit() else 0
+                        (etag or "").strip('"').lower(), int(size) if size.isdigit() else None
                     )
                     last = key
             if _text(root, "IsTruncated") != "true":

@@ -1,5 +1,5 @@
-"""Backing the database up (`eidolon backup`, ADR-0012), once a day from the host's cron
-through `deploy/db-backup.sh`.
+"""Backing the database up (GLOSSARY.md「备份」, `eidolon backup`, ADR-0012), once a day
+from the host's cron through `deploy/db-backup.sh`.
 
 The whole database, story corpus and all, is copied as it is at one moment without
 stopping the server (`VACUUM INTO`), the copy checked, compressed, and encrypted to the
@@ -137,7 +137,8 @@ class BackupReport:
     """The backups left in the bucket, this one among them; None if it could not be
     listed."""
     total: int | None = None
-    """Their bytes."""
+    """Their bytes; None if they could not be listed, or the bucket did not say the size
+    of each."""
     space_warning: str | None = None
     """Why the backups left take more space than the deployer would be warned over;
     only a warning, as a ping that failed is."""
@@ -321,14 +322,15 @@ class Backups:
                 self._database, loaded, now=self._clock(), transport=self._transport
             )
         except BaseException:  # cancelled, as when the server shuts down
-            self._abandon("id = ?", (run,))
+            self._abandon(run)
             raise
         self._finish(run, report)
         return report
 
     def start(self, source: Source) -> int | None:
         """Record a run begun now, unless another is under way (begun within `STALE` and
-        not finished): its id, or None if there was one. Forgets the records older than
+        not finished): its id, or None if there was one. Takes those begun before that
+        and not finished never to finish, and forgets the records older than
         `RECORDS_KEPT`."""
         return self._begin(source, exclusive=True)
 
@@ -344,7 +346,7 @@ class Backups:
         """Take every run not finished never to finish, as after the database is restored
         from a backup, which was made while its own run was under way; how many there
         were."""
-        return self._abandon("1", ())
+        return self._abandon(None)
 
     def close(self) -> None:
         self._db.close()
@@ -355,16 +357,23 @@ class Backups:
             " WHERE NOT EXISTS (SELECT 1 FROM backup_runs"
             " WHERE finished_at IS NULL AND started_at > :stale)"
         )
+        times = {"now": now.isoformat(), "stale": (now - STALE).isoformat()}
         with self._lock, self._db:
             self._db.execute(
                 "DELETE FROM backup_runs WHERE started_at < ?",
                 ((now - RECORDS_KEPT).isoformat(),),
             )
+            if exclusive:  # their processes were killed
+                self._db.execute(
+                    "UPDATE backup_runs SET finished_at = :now, abandoned = 1"
+                    " WHERE finished_at IS NULL AND started_at <= :stale",
+                    times,
+                )
             # One statement, so that two processes cannot both find none under way.
             begun = self._db.execute(
                 "INSERT INTO backup_runs (source, started_at) SELECT :source, :now"
                 + (unless if exclusive else ""),
-                {"source": source, "now": now.isoformat(), "stale": (now - STALE).isoformat()},
+                times | {"source": source},
             )
         return begun.lastrowid if begun.rowcount == 1 else None
 
@@ -382,12 +391,13 @@ class Backups:
                 ),
             )
 
-    def _abandon(self, where: str, values: tuple) -> int:
+    def _abandon(self, run: int | None) -> int:
+        """Take the run `run`, or every one if None, never to finish, if it has not."""
         with self._lock, self._db:
             abandoned = self._db.execute(
                 "UPDATE backup_runs SET finished_at = ?, abandoned = 1"
-                f" WHERE finished_at IS NULL AND {where}",
-                (self._clock().isoformat(), *values),
+                " WHERE finished_at IS NULL AND (? IS NULL OR id = ?)",
+                (self._clock().isoformat(), run, run),
             )
         return abandoned.rowcount
 
@@ -444,19 +454,23 @@ async def _prune(bucket: Bucket, before: datetime, report: BackupReport) -> None
     that what was done before a failure is still reported. Anything else in the bucket is
     left alone."""
     made: dict[str, datetime] = {}
-    sizes: dict[str, int] = {}
+    sizes: dict[str, int | None] = {}
     for key, listed in (await bucket.objects()).items():
         if match := _NAME.fullmatch(key):
             made[key] = datetime.strptime(match[1], _TIME_FORMAT).replace(tzinfo=UTC)
             sizes[key] = listed.size
-    report.kept, report.total = len(made), sum(sizes.values())
+    listed = [size for size in sizes.values() if size is not None]
+    # Without every size, the total would be too small to warn by.
+    total = sum(listed) if len(listed) == len(sizes) else None
+    report.kept, report.total = len(made), total
     newest = max(made, key=made.__getitem__, default=None)
     for key in sorted(made):
         if key != newest and made[key] < before:
             await bucket.delete(key)
             report.deleted.append(key)
             report.kept -= 1
-            report.total -= sizes[key]
+            if report.total is not None:
+                report.total -= sizes[key] or 0
 
 
 async def _ping(url: str, transport: httpx.AsyncBaseTransport | None) -> str | None:

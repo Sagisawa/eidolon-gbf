@@ -544,16 +544,21 @@ async def _greeting_upload(args: argparse.Namespace) -> int:
 
 
 async def _backup(args: argparse.Namespace) -> int:
+    import sqlite3
     import time
 
-    from eidolon.backup import GB, Backups
+    from eidolon.backup import EXPORT_FAILED, GB, Backups
 
     started = time.monotonic()
-    backups = Backups(args.db or database_path_from_env(), utc_now)
     try:
-        report = await backups.run(args.source)
-    finally:
-        backups.close()
+        backups = Backups(args.db or database_path_from_env(), utc_now)
+        try:
+            report = await backups.run(args.source)
+        finally:
+            backups.close()
+    except sqlite3.Error as e:  # not a missing setting, which exiting 1 would say
+        print(f"没有备份：备份记录写不进数据库：{e}", file=sys.stderr)
+        return EXPORT_FAILED
     if report.config_error is not None:
         print(report.config_error, file=sys.stderr)
         return report.exit_code
@@ -574,8 +579,9 @@ async def _backup(args: argparse.Namespace) -> int:
         )
     else:
         print(f"删除了 {len(report.deleted)} 份过期的备份{deleted}")
-    if report.kept is not None and report.total is not None:
-        print(f"存储桶里现有 {report.kept} 份备份，共 {report.total / GB:.2f} GB")
+    if report.kept is not None:
+        size = f"，共 {report.total / GB:.2f} GB" if report.total is not None else "（存储桶没有列出大小）"
+        print(f"存储桶里现有 {report.kept} 份备份{size}")
     if report.space_warning is not None:
         print(f"注意：{report.space_warning}", file=sys.stderr)
     if report.ping_error is not None:

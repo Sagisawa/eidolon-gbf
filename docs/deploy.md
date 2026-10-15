@@ -600,7 +600,7 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
    43 3 * * * /home/you/eidolon-sc/deploy/db-backup.sh --cron
    ```
 
-   `--cron` 让备份记录里记下这是每天的 cron，不带时记为服务器上手动运行（2026-10-15 以前装的 cron 那一行没有它，补上即可）。运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），对 `logs/` 有写权限。
+   `--cron` 让备份记录里记下这是每天的 cron，不带时记为服务器上手动运行（2026-10-15 以前装的 cron 那一行没有它，补上即可）。脚本和镜像要一起升级（照「升级」，`git pull` 之后也 `pull`、`up -d`）：镜像还是旧的时，容器里的 `eidolon backup` 不认 `--source`，日志会误报成退出码 2。运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），对 `logs/` 有写权限。
 8. **演练一次恢复**（见下文「从备份恢复」），确认私钥能用、步骤走得通。
 
 手动备份也是运行 `deploy/db-backup.sh`。
