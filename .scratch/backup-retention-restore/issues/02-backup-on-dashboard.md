@@ -33,3 +33,5 @@
 - [ ] 线上点一次「立即备份」，几分钟后看板显示新结果，存储桶里多出一份
 
 ## Comments
+
+- 票 01 交接：后端已经有 `Backend.backups`（`eidolon.backup.Backups`，在 `assembly.build` 里开好、关机时关掉），立即备份直接 `asyncio.create_task(backend.backups.run("admin"))`；导出和上传前的哈希已经在线程里做。「已有一次在进行就返回冲突」可以先看 `records()` 里有没有 `finished_at is None` 且开始不到 `backup.STALE` 的；真正的判断还是在 `run` 里那条原子插入，撞上时返回 `report.busy`。「配置不全」用 `BackupSettings.from_env()` 抛的 `RuntimeError` 的消息，和 `run` 记进 `config_error` 的是同一句。读状态需要的「最近一次成功」「最近一次」「进行中」都能从 `records()` 算出来（记录最多 90 天，量很小），要不要在 `Backups` 上加一个 `status()` 由 02 决定。记录里有 `kept`、`total`、`over_warning`（列不出桶时 `kept`/`total` 为空）、`abandoned`。后台任务被取消时那条记录会标成已放弃。

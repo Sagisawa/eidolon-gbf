@@ -33,6 +33,7 @@ from eidolon.activity import ActivityLog, metered_retrieval
 from eidolon.admission import Admissions
 from eidolon.affinity import Affinities
 from eidolon.announcements import Announcements
+from eidolon.backup import Backups
 from eidolon.call import Calls, Speech, SpeechServices
 from eidolon.characters import Character, load_characters
 from eidolon.gift_catalog import Gift, check_liked_gifts, gifts_path, load_gift_catalog
@@ -100,6 +101,8 @@ class Backend:
     """Every user's affinity with every character, where it is on."""
     gifts: Gifts
     """Every user's draw chances, backpack and reset cards, where gifts are open."""
+    backups: Backups
+    """The database's backups, as the admin console runs them, and the record of each."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -177,6 +180,8 @@ def build(
     closers.append(prices.close)
     announcements = Announcements(settings.database_path, clock)
     closers.append(announcements.close)
+    backups = Backups(settings.database_path, clock)
+    closers.append(backups.close)
     config = LiveConfig(
         settings, clients or ProviderClients(), clock, activity=activity, speech=speech
     )
@@ -288,6 +293,7 @@ def build(
         announcements=announcements,
         affinities=affinities,
         gifts=gifts,
+        backups=backups,
         world=world,
         _closers=closers,
     )

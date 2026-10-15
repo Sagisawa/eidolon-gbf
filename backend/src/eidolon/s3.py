@@ -6,6 +6,7 @@ provider's: requests are signed with Signature Version 4, which all of them take
 the bucket is addressed by path (`https://endpoint/bucket/key`) or, for providers that
 only take that, by host (`https://bucket.endpoint/key`)."""
 
+import asyncio
 import hashlib
 import hmac
 import os
@@ -72,6 +73,16 @@ class S3Settings:
         )
 
 
+@dataclass(frozen=True)
+class Listed:
+    """An object as the bucket lists it."""
+
+    etag: str
+    """Without the quotes: the MD5 of an object put in one piece, as `put` puts them."""
+    size: int
+    """Bytes."""
+
+
 class Bucket:
     def __init__(
         self,
@@ -84,14 +95,13 @@ class Bucket:
         self._clock = clock
         self._client = httpx.AsyncClient(transport=transport, timeout=_TIMEOUT)
 
-    async def etags(self, prefix: str = "") -> dict[str, str]:
-        """Every object in the bucket whose key starts with `prefix`, and its ETag without
-        the quotes: the MD5 of an object put in one piece, as `put` puts them.
+    async def objects(self, prefix: str = "") -> dict[str, "Listed"]:
+        """Every object in the bucket whose key starts with `prefix`, as it is listed.
 
         Asked for with List Objects V2, paged by continuation token; a provider that only
         has the original List Objects (Tencent COS) ignores `list-type` and pages by
         `marker`, which is then sent along with the next page's request."""
-        etags: dict[str, str] = {}
+        objects: dict[str, Listed] = {}
         listing = {"list-type": "2"} | ({"prefix": prefix} if prefix else {})
         params = listing
         while True:
@@ -104,16 +114,24 @@ class Bucket:
             for contents in _children(root, "Contents"):
                 key, etag = _text(contents, "Key"), _text(contents, "ETag")
                 if key is not None:
-                    etags[key] = (etag or "").strip('"').lower()
+                    size = _text(contents, "Size") or ""
+                    objects[key] = Listed(
+                        (etag or "").strip('"').lower(), int(size) if size.isdigit() else 0
+                    )
                     last = key
             if _text(root, "IsTruncated") != "true":
-                return etags
+                return objects
             if token := _text(root, "NextContinuationToken"):
                 params = listing | {"continuation-token": token}
             elif marker := _text(root, "NextMarker") or last:
                 params = listing | {"marker": marker}
             else:
                 raise S3Error("存储桶说对象没有列完，却没有给出下一页从哪里开始")
+
+    async def etags(self, prefix: str = "") -> dict[str, str]:
+        """Every object in the bucket whose key starts with `prefix`, and its ETag without
+        the quotes: the MD5 of an object put in one piece, as `put` puts them."""
+        return {key: listed.etag for key, listed in (await self.objects(prefix)).items()}
 
     async def keys(self, prefix: str = "") -> list[str]:
         """Every object in the bucket whose key starts with `prefix`."""
@@ -158,7 +176,8 @@ class Bucket:
         headers = dict(headers or {})
         settings = self._settings
         if isinstance(body, Path):
-            payload_hash, content = _file_hash(body), _chunks(body)
+            # In a thread: a backup is tens of megabytes, and the server has calls to keep going.
+            payload_hash, content = await asyncio.to_thread(_file_hash, body), _chunks(body)
             # Sent in one piece rather than chunked, which not every provider takes.
             headers["Content-Length"] = str(body.stat().st_size)
         else:

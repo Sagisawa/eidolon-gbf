@@ -34,3 +34,5 @@
 - [ ] 服务器上照「从备份恢复」恢复进一个临时数据卷（不动线上的卷），`eidolon user list` 能列出用户；`deploy/db-restore.sh` 的先备份、检查失败、`--no-backup` 三条路各走一次
 
 ## Comments
+
+- 票 01 交接：「把没结束的备份记录标成已放弃」是 `Backups(恢复后的库路径, utc_now).abandon_unfinished()`（返回条数，用完 `close()`）。`deploy/db-backup.sh` 现在不带参数就是手动来源（`--cron` 才是 cron），`db-restore.sh` 里先备份时直接调用它即可；它的 6 现在由容器里的 `eidolon backup` 返回，主机上不再用 `flock`。

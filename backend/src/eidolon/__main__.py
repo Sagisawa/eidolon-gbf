@@ -49,11 +49,12 @@
                                      character has any more; exits 2
                                      if the bucket could not be listed, 3 if some could not
                                      be voiced, put or deleted
-    eidolon backup                   back the database up, compressed and encrypted to the
+    eidolon backup [--source cron]   back the database up, compressed and encrypted to the
                                      deployer's age key, to the private bucket, and delete
-                                     the backups over 30 days old save the newest; exits 2
-                                     if the copy failed, 3 if the upload did, 4 if deleting
-                                     the old ones did
+                                     the backups past the retention save the newest,
+                                     recording the run; exits 2 if the copy failed, 3 if
+                                     the upload did, 4 if deleting the old ones did, 6 if
+                                     another backup was under way
     eidolon reembed                  after changing the embedding service, model or
                                      dimensions, embed the story corpus, character facts,
                                      work facts, and memories again from
@@ -545,15 +546,20 @@ async def _greeting_upload(args: argparse.Namespace) -> int:
 async def _backup(args: argparse.Namespace) -> int:
     import time
 
-    from eidolon.backup import MISCONFIGURED, BackupSettings, back_up
+    from eidolon.backup import GB, Backups
 
-    try:
-        settings = BackupSettings.from_env()
-    except RuntimeError as e:
-        print(e, file=sys.stderr)
-        return MISCONFIGURED
     started = time.monotonic()
-    report = await back_up(args.db or database_path_from_env(), settings, now=utc_now())
+    backups = Backups(args.db or database_path_from_env(), utc_now)
+    try:
+        report = await backups.run(args.source)
+    finally:
+        backups.close()
+    if report.config_error is not None:
+        print(report.config_error, file=sys.stderr)
+        return report.exit_code
+    if report.busy:
+        print("上一次备份还没结束（cron、手动或后台按钮发起的），这次没有运行", file=sys.stderr)
+        return report.exit_code
     if report.export_error is not None:
         print(f"没有备份：{report.export_error}", file=sys.stderr)
     if report.upload_error is not None:
@@ -563,11 +569,15 @@ async def _backup(args: argparse.Namespace) -> int:
     deleted = f"：{'、'.join(report.deleted)}" if report.deleted else ""
     if report.prune_error is not None:
         print(
-            f"没能删完 30 天前的备份（已删除 {len(report.deleted)} 份{deleted}），下次备份再删：{report.prune_error}",
+            f"没能删完过期的备份（已删除 {len(report.deleted)} 份{deleted}），下次备份再删：{report.prune_error}",
             file=sys.stderr,
         )
     else:
-        print(f"删除了 {len(report.deleted)} 份 30 天前的备份{deleted}；存储桶里现有 {report.kept} 份备份")
+        print(f"删除了 {len(report.deleted)} 份过期的备份{deleted}")
+    if report.kept is not None and report.total is not None:
+        print(f"存储桶里现有 {report.kept} 份备份，共 {report.total / GB:.2f} GB")
+    if report.space_warning is not None:
+        print(f"注意：{report.space_warning}", file=sys.stderr)
     if report.ping_error is not None:
         print(f"注意：{report.ping_error}", file=sys.stderr)
     print(f"用时 {time.monotonic() - started:.0f} 秒")
@@ -1162,11 +1172,17 @@ def _parser() -> argparse.ArgumentParser:
         "--json", type=Path, help="把逐条结果和汇总写成 JSON 文件（基线就是这样提交的）"
     )
 
-    commands.add_parser(
+    backup = commands.add_parser(
         "backup",
-        help="把数据库压缩、用 age 公钥加密后备份到私有的存储桶，并删掉 30 天前的备份，最新的一份总是保留"
-        "（存储桶和公钥取环境变量 EIDOLON_BACKUP_S3_*、EIDOLON_BACKUP_AGE_RECIPIENT；"
-        "导出失败退出码为 2，上传失败为 3，删除过期备份失败为 4）",
+        help="把数据库压缩、用 age 公钥加密后备份到私有的存储桶，并删掉过了保留期（默认 30 天）的备份，"
+        "最新的一份总是保留（存储桶、公钥和保留期取环境变量 EIDOLON_BACKUP_*；"
+        "导出失败退出码为 2，上传失败为 3，删除过期备份失败为 4，上一次备份还没结束为 6）",
+    )
+    backup.add_argument(
+        "--source",
+        choices=["manual", "cron"],
+        default="manual",
+        help="谁发起的这次备份，记进备份记录、显示在看板上（默认 manual；主机上的 cron 传 cron）",
     )
 
     reembed = commands.add_parser(
