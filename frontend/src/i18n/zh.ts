@@ -138,8 +138,10 @@ export const zh = {
       gift: (name: string, gift: string) => `你送给${name}一份${gift}`,
       ended: (name: string) => `${name}结束了对话`,
     },
-    /** 她结束了对话（GLOSSARY.md「已结束的对话」）时换掉输入栏的结束卡：那句话同对话事件（`events.ended`），不写原因。 */
+    /** 她结束了对话（GLOSSARY.md「已结束的对话」）时换掉输入栏的结束卡：那句话同对话事件（`events.ended`），不写原因；
+     * 她在冷却中时换成 `cooling`，写上解除时刻。 */
     ended: {
+      cooling: (name: string, until: string) => `${name}结束了对话。${until} 以后可以再找她`,
       newConversation: "开个新对话",
     },
     hearing: "正在听你说",

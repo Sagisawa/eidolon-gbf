@@ -181,6 +181,15 @@ class CallOutcome:
         self._hang_up_after(CallTurnRecorded(hangs_up="cooldown", cooldown_until=until))
         return True
 
+    def conversation_ended(self) -> bool:
+        """She has ended the conversation the call is in, typing elsewhere: whether she
+        hangs up for it, as for what the user said, after the turn in progress, if any. Not
+        if the call is ending already, for whatever reason, nor if she is hanging up already."""
+        if self._ended_by is not None or self._hanging_up is not None:
+            return False
+        self._hang_up_after(CallTurnRecorded(hangs_up="fed_up"))
+        return True
+
     def _hang_up_after(self, recorded: CallTurnRecorded) -> None:
         """She hangs up as `recorded` says, unless she is to for something else already."""
         if self._hanging_up is None:

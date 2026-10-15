@@ -56,12 +56,14 @@ up, after that turn, after the user has been out of line once too often in the c
 after the call's latest turns have taken too much off her affinity (`affinity.ends`),
 warning the user first halfway there (`affinity.warns`): the turn is told it is in a call,
 how often so far and how much each turn so far took, and once recorded tells the call what
-came of it (`CallTurnRecorded`). Outside calls she parts the same way after the turn that
-has the conversation's latest typed turns take too much off her affinity, warning the user
-first that she will not want to talk, and ends the conversation (GLOSSARY.md「已结束的对话」):
-each typed turn is recorded with what it came to (`Typed`), the latest read back as the next
-begins; the one she ends it after is recorded with her ending it, which `done` tells, and
-why, which the activity record keeps. A turn in a conversation she has ended is rejected.
+came of it (`CallTurnRecorded`). Outside calls she parts the same way after the same turns,
+counted over the conversation's latest typed turns, warning the user first that she will not
+want to talk, and ends the conversation (GLOSSARY.md「已结束的对话」): each typed turn is
+recorded with what it came to (`Typed`), the latest read back as the next begins; the one
+she ends it after is recorded with her ending it, which `done` tells, and why, which the
+activity record keeps, and those `on_ended` has are told then, for her to hang up a call in
+it. A turn in a conversation she has ended is rejected, as is one that finds it ended,
+elsewhere, as it is recorded.
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -110,6 +112,7 @@ from eidolon.reply_format import (
 from eidolon.retrieval import RECALL_STORY_TOOL, Retrieval, Retrieved
 from eidolon.store import (
     Conversation,
+    ConversationEnded,
     ConversationEvent,
     Message,
     Recorded,
@@ -309,6 +312,8 @@ def _narration(event: ConversationEvent, gift_catalog: Mapping[str, Gift]) -> st
     """What she is told of `event`, as it was."""
     if event.kind == "hung_up":
         return "（你挂断了制作人的电话。）"
+    if event.kind == "ended":  # only read by a turn it will reject
+        return "（你结束了和制作人的对话。）"
     assert event.gift_id is not None
     liked = "这是你喜欢的东西。" if event.liked else ""
     return f"（制作人送给你一份{gift_catalog[event.gift_id].name}。{liked}）"
@@ -369,6 +374,11 @@ class ConversationEngine:
         self._world = world
         self._affinities = affinities
         self._affinity_judge = affinity_judge
+        self._ending: list[Callable[[str], None]] = []
+
+    def on_ended(self, listener: Callable[[str], None]) -> None:
+        """Have `listener` told the conversation's id as she ends one, once it is recorded."""
+        self._ending.append(listener)
 
     async def turn(
         self,
@@ -448,14 +458,12 @@ class ConversationEngine:
         if in_call is not None:
             out_of_line_before, hurt_before = in_call.out_of_line, in_call.hurts
         else:
-            # So far only her being fed up ends a conversation: how often the user was out of
-            # line is not counted, and a cooldown has her part as ever. As many as are weighed,
-            # so that whether she warns is told against the latest before this one.
+            # As many as are weighed, so that whether she warns is told against the latest
+            # before this one; out of line is counted in the latest with this one among them.
             earlier = self._store.typed_turns(conversation.id, FED_UP_TURNS)
-            out_of_line_before, hurt_before = 0, [t.hurt for t in earlier]
+            out_of_line_before = sum(t.out_of_line for t in earlier[-(FED_UP_TURNS - 1):])
+            hurt_before = [t.hurt for t in earlier]
         ending = ends(judged, cools, out_of_line_before, hurt_before)
-        if in_call is None and ending != "fed_up":
-            ending = None
         way: Parting = "hangs_up" if in_call is not None else "parts"
         affinity_lines = (
             affinity_prompt(
@@ -529,12 +537,19 @@ class ConversationEngine:
             else Typed(hurt(judged), judged is not None and judged.out_of_line)
         )
         ends_conversation = typed is not None and ending is not None
-        reply, affinity = self._record(
-            conversation, text, said_at, parser.complete, judged, affinity, typed,
-            ends_conversation,
-        )
+        try:
+            reply, affinity = self._record(
+                conversation, text, said_at, parser.complete, judged, affinity, typed,
+                ends_conversation,
+            )
+        except ConversationEnded:  # elsewhere, as the turn was under way
+            yield TurnRejected(ENDED)
+            return
         memory.write_down(history, text, reply, retrieved.query_vector)
         ended = self._store.ended(conversation.id) if ends_conversation else None
+        if ended is not None:
+            for listener in self._ending:
+                listener(conversation.id)
         if judged is not None and self._affinities is not None:
             yield TurnJudged(
                 judged,

@@ -150,6 +150,11 @@ class LastSignInMethod(Exception):
     """Removing it would leave the user no way to sign in."""
 
 
+class ConversationEnded(Exception):
+    """She has ended the conversation (GLOSSARY.md「已结束的对话」): nothing more is recorded
+    in it."""
+
+
 class NotFound(LookupError):
     pass
 
@@ -647,8 +652,11 @@ class Store:
         default), and the character's reply together, with how the turn changed her
         affinity, if it did, and for a typed turn what it came to (`typed`); returns the
         reply. Should she end the conversation after it (`ends`), that is recorded with it,
-        after it (`ended`)."""
+        after it (`ended`). Into a conversation she has ended already, nothing is recorded:
+        `ConversationEnded`."""
         with self._lock, self._db:
+            if self._ended(conversation_id) is not None:
+                raise ConversationEnded()
             self._insert_message(
                 conversation_id, "user", text=text, created_at=said_at, typed=typed
             )
@@ -676,11 +684,14 @@ class Store:
         """Her ending the conversation (GLOSSARY.md「已结束的对话」), as recorded; None while
         it is not ended."""
         with self._lock:
-            row = self._db.execute(
-                f"SELECT {_EVENT_COLUMNS} FROM conversation_events"
-                " WHERE conversation_id = ? AND kind = 'ended' ORDER BY id LIMIT 1",
-                (conversation_id,),
-            ).fetchone()
+            return self._ended(conversation_id)
+
+    def _ended(self, conversation_id: str) -> ConversationEvent | None:
+        row = self._db.execute(
+            f"SELECT {_EVENT_COLUMNS} FROM conversation_events"
+            " WHERE conversation_id = ? AND kind = 'ended' ORDER BY id LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
         return _event(row) if row else None
 
     def typed_turns(self, conversation_id: str, latest: int) -> list[Typed]:

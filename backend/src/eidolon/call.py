@@ -836,7 +836,8 @@ class Calls:
     when it has reached its own limits, what the browser is told when the backend ends it,
     and how it turned out, settling the call once it is over. Only the user who placed a
     call can renegotiate it or add ICE candidates to it. As a character falls into a
-    cooldown with a user (`cooled`), she hangs up the user's calls with her.
+    cooldown with a user (`cooled`), she hangs up the user's calls with her; as she ends a
+    conversation (`conversation_ended`), the call in it.
     """
 
     def __init__(
@@ -1013,6 +1014,13 @@ class Calls:
             if live.user_id == user_id and live.character_id == character_id:
                 live.cooled(until, taking)
 
+    def conversation_ended(self, conversation_id: str) -> None:
+        """She has ended the conversation (GLOSSARY.md「已结束的对话」), typing in it: she
+        hangs up any call in it straight away, as she does when she hangs up."""
+        for live in list(self._live):
+            if live.conversation_id == conversation_id:
+                live.conversation_ended()
+
     async def _hang_up_users_gone(self) -> None:
         """While there are calls, hang up those of users banned or deleted meanwhile (by
         then, their calls were hung up as they were deleted, unless on the command line)."""
@@ -1147,6 +1155,10 @@ class _LiveCall:
     def character_id(self) -> str:
         return self._call.character.id
 
+    @property
+    def conversation_id(self) -> str:
+        return self._call.conversation.id
+
     def cooled(self, until: datetime, taking: "CallTurns | None") -> None:
         """The character has fallen into a cooldown with the user, ending `until`, in a
         turn of the call `taking`, if a call's: she hangs up, after that turn if it is this
@@ -1156,6 +1168,14 @@ class _LiveCall:
             self._hanging_up_on = asyncio.create_task(self.hang_up("character_hung_up"))
             return
         self._turns.cooled(until, in_its_turn=taking is self._turns)
+
+    def conversation_ended(self) -> None:
+        """She has ended the conversation the call is in: she hangs up straight away, a call
+        yet to connect as it is, never having connected."""
+        if not self._connected.is_set():
+            self._hanging_up_on = asyncio.create_task(self.hang_up("character_hung_up"))
+            return
+        self._turns.conversation_ended()
 
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
@@ -1250,9 +1270,11 @@ class CallTurns(FrameProcessor):
     browser gets the `ended` message it hands back, if any, and the call ends once the last
     reply has been voiced; what is said after that is not taken up. So the call ends, too,
     as soon as she falls into a cooldown with the user elsewhere (`cooled`), the turn in
-    progress going no further, as `TurnTaking` says. As she hangs up, that she did is
-    written into the conversation (GLOSSARY.md「对话事件」) through `store`, and the `ended`
-    message carries it.
+    progress going no further, as `TurnTaking` says, and as soon as she ends the
+    conversation the call is in, typing elsewhere (`conversation_ended`). As she hangs up,
+    that she did is written into the conversation (GLOSSARY.md「对话事件」) through `store`,
+    and the `ended` message carries it; into one she has ended, nothing is written, and the
+    message carries her ending it instead.
     """
 
     def __init__(
@@ -1335,6 +1357,16 @@ class CallTurns(FrameProcessor):
         the context of the turn that began the cooldown, perhaps another call's.)"""
         if not self._outcome.cooled(until) or in_its_turn:
             return
+        self._hung_up_on()
+
+    def conversation_ended(self) -> None:
+        """She has ended the conversation the call is in, unless the call's `CallOutcome`
+        says it is ending already: she hangs up as it says to tell the browser, straight
+        away, as `TurnTaking` says to with the turn in progress, if any."""
+        if self._outcome.conversation_ended():
+            self._hung_up_on()
+
+    def _hung_up_on(self) -> None:
         commands = self._turns.hung_up_on()
         if commands:  # there is a turn in progress, so the pipeline has started
             self.create_task(self._carry_out(commands))
@@ -1426,7 +1458,10 @@ class CallTurns(FrameProcessor):
         words are voiced, as the call's record says she hung up whoever leaves first."""
         message = ending.ended
         if message is not None and ending.by_her:
-            event = self._store.add_event(self._call.conversation.id, "hung_up")
+            conversation_id = self._call.conversation.id
+            event = self._store.ended(conversation_id) or self._store.add_event(
+                conversation_id, "hung_up"
+            )
             message = {**message, "event": event.shown()}
         await self._carry_out(self._turns.call_ending())
         if message is not None:

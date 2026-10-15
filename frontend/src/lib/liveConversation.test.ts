@@ -1226,6 +1226,41 @@ describe("LiveConversation: an ended conversation", () => {
 
     expect(live.snapshot()).toMatchObject({ ended: true, canDial: false, canStartNew: true });
   });
+
+  it("ends in a cooldown as the turn's done says both; a new conversation opened in it is cooling, not ended", async () => {
+    const cooling = { tier: "cold", cooldown_until: new Date(NOW + 60_000).toISOString() } as const;
+    const { live } = await conversation({
+      messages: history,
+      affinity: { tier: "cold", cooldown_until: null },
+      turns: scripted([
+        { type: "user", text: "随便你" },
+        { type: "done", message: message(4, "character", "そう"), affinity: cooling, ended },
+      ]),
+    });
+    live.setDraft("随便你");
+    await live.submit();
+
+    const shown = live.snapshot();
+    await live.startNewConversation();
+
+    expect(shown).toMatchObject({ ended: true, cooling: true, affinity: cooling, canDial: false, canStartNew: true });
+    expect(live.snapshot()).toMatchObject({
+      conversation: { status: "open", id: "new1" },
+      ended: false,
+      cooling: true,
+      canDial: false,
+    });
+  });
+
+  it("ends as a call in it hangs up carrying her ending it, as she ends it elsewhere", async () => {
+    const { live, attempts } = await conversation({ messages: history });
+    await connected(live, attempts);
+
+    attempts[0].handlers.onEvent({ type: "ended", reason: "she_hung_up", message: "她挂断了电话。", counts: true, event: ended });
+    attempts[0].handlers.onDropped();
+
+    expect(live.snapshot()).toMatchObject({ ended: true, canDial: false, call: { phase: "ended" } });
+  });
 });
 
 describe("LiveConversation: her voice", () => {
