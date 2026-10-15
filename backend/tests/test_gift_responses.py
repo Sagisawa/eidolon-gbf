@@ -173,8 +173,11 @@ async def test_memory_and_the_judge_model_never_see_it_nor_her_hanging_up(
     await send_turn(client, conversation, "还有这个")
 
     assert HUNG_UP in told(llm) and RESPOND in told(llm)  # she is told of them all the same
+    # Naming the conversation after its third turn reads events too, and may or may not
+    # have begun by now; only what memory was asked counts here.
+    memories = [prompt for prompt in memory.prompts if "起标题" not in prompt[0].content]
     seen = [*(str(state) for state in clients.judge.states),
-            *(m.content for prompt in memory.prompts for m in prompt)]
-    assert len(clients.judge.states) == 3 and len(memory.prompts) == 3
+            *(m.content for prompt in memories for m in prompt)]
+    assert len(clients.judge.states) == 3 and len(memories) == 3
     assert not [s for s in seen if "制作人送给你" in s or "回应收到的礼物" in s or "挂断" in s]
     assert clients.judge.affinity_asked == ["第一句", "送你的", "还有这个"]
