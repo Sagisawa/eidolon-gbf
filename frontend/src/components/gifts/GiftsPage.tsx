@@ -55,7 +55,7 @@ const NOTICE_MS = 8000;
  * 送出后面板收起、底部出提示，页面不跳走。好感度和礼物没开放时整页是「礼物暂时没有开放」，「礼物」照样留在导航里；
  * 抽奖、送礼或用重置卡时才知道没开放（收到「没开放」的 409）也切成这样。
  * 从对话页跳来（`pick`）时页首下面一条「给{角色名}挑一件礼物」：点哪件礼物，面板里都已选好她、排在第一个，
- * 送给她的记录放回带来的那段对话；点 ✕ 取消预选，地址里的也去掉。地址里的角色不存在时当作没有预选。
+ * 送出的礼物和别处送的一样记进她的当前对话；点 ✕ 取消预选，地址里的也去掉。地址里的角色不存在时当作没有预选。
  */
 export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
   const [state, setState] = useState<GiftState | null>(null);
@@ -140,9 +140,7 @@ export function GiftsPage({ pick }: { pick: GiftsFor | null }) {
     setFailure(null);
     setSending(true);
     try {
-      // 送给预选的她时，记录放回带来的那段对话。
-      const from = to.id === chosen?.id ? (pick?.conversationId ?? null) : null;
-      const given = await giveGift(to.id, giving.gift.id, from);
+      const given = await giveGift(to.id, giving.gift.id);
       setGiveOpen(false);
       setState((s) => s && afterGiving(s, giving.gift.id, to.id, given));
       setNotice({

@@ -61,6 +61,7 @@ from eidolon.rerank import (
 from eidolon.retrieval import Retrieval, open_reference_sources
 from eidolon.service_clients import ProviderClients, ServiceClients
 from eidolon.store import Store
+from eidolon.titles import Titles
 from eidolon.usage import UsageLimiter
 from eidolon.world import World, load_world, world_path
 
@@ -79,6 +80,8 @@ class Backend:
     gift_catalog: dict[str, Gift]
     """The gift catalog, by identifier."""
     memories: Memories
+    titles: Titles
+    """Names conversations after their third turn."""
     engine: ConversationEngine
     usage: UsageLimiter
     clock: Clock
@@ -247,11 +250,13 @@ def build(
         )
         memories = Memories(settings.database_path, characters, clock)
     closers.append(memories.aclose)  # closed before the clients, so what it writes down can finish
+    titles = Titles(store, characters, gift_catalog)
+    closers.append(titles.aclose)  # likewise, so what it is naming can finish
 
     affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
     closers.append(affinities.close)
     engine = ConversationEngine(
-        store, characters, gift_catalog, memories, clock, retrieval,
+        store, characters, gift_catalog, memories, titles, clock, retrieval,
         lambda: config.history_turns, world, affinities, config.affinity_judge(),
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
@@ -280,6 +285,7 @@ def build(
         characters=characters,
         gift_catalog=gift_catalog,
         memories=memories,
+        titles=titles,
         engine=engine,
         usage=usage,
         clock=clock,

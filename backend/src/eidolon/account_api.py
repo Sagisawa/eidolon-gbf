@@ -166,7 +166,7 @@ class OwnKeysInput(BaseModel):
     @model_validator(mode="after")
     def _memory_llm_with_llm(self) -> "OwnKeysInput":
         if self.memory_llm is not None and self.llm is None:
-            raise ValueError("提炼记忆的 LLM 要和自带的 LLM 一起带上")
+            raise ValueError("后台模型要和自带的 LLM 一起带上")
         return self
 
     def brought(self) -> BroughtKeys:

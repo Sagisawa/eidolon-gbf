@@ -339,11 +339,9 @@ class Gifts:
             )
         return Drawn(drawn, left)
 
-    def give(
-        self, user_id: str, gift_id: str, character_id: str, conversation_id: str | None
-    ) -> Given:
-        """Give the character one of the gift, from the conversation `conversation_id` if
-        given; its record goes where `Store.add_gift` places it. The one taken is put back
+    def give(self, user_id: str, gift_id: str, character_id: str) -> Given:
+        """Give the character one of the gift; its record goes where `Store.add_gift`
+        places it. The one taken is put back
         should recording it fail, so two giving the last one at once give it once. Raises
         GiftsClosed if gifts are not open, NoSuchCharacter for no such character, NoneLeft
         if the user has none of it."""
@@ -368,7 +366,7 @@ class Gifts:
 
         def record(change: Change | None) -> Conversation:
             return self._store.add_gift(
-                user_id, character_id, conversation_id,
+                user_id, character_id,
                 gift_id=gift_id, liked=liked, affinity=change,
             )
 

@@ -144,6 +144,31 @@ export const zh = {
       cooling: (name: string, until: string) => `${name}结束了对话。${until} 以后可以再找她`,
       newConversation: "开个新对话",
     },
+    /** 更多菜单里的「历史对话」、它打开的面板和历史对话的只读页（GLOSSARY.md「当前对话」「历史对话」）。 */
+    past: {
+      open: "历史对话",
+      title: "历史对话",
+      description: (name: string) => `和${name}的所有对话，最新的在上面。`,
+      /** 面板里只有当前对话这一行时，下面那句说明。 */
+      onlyCurrent: "开了新对话以后，之前的对话会留在这里。",
+      current: "当前",
+      ended: "她结束了",
+      loading: "正在读取历史对话",
+      loadFailed: "历史对话没能读取",
+      retry: "再试一次",
+      /** 行里和页首的日期：北京时间，今年的写月日（同 conversationList.monthDay），不是今年的带上年份。 */
+      yearMonthDay: (year: string, month: string, day: string) => `${year}年${month}月${day}日`,
+      /** 历史对话页首名字下面那一行。 */
+      heading: (day: string) => `${day}的对话`,
+      opening: "正在打开这段对话",
+      openFailed: "这段对话没能打开",
+      /** 换掉输入栏的只读卡。 */
+      readOnly: "这是你们的历史对话",
+      readOnlyEnded: "这是你们的历史对话，她结束了它",
+      backToCurrent: "回到当前对话",
+      /** 历史对话里禁用的电话键的提示。 */
+      callTooltip: "回到当前对话才能打电话",
+    },
     hearing: "正在听你说",
     loading: "正在打开对话",
     loadFailed: "对话没能打开",
@@ -532,20 +557,20 @@ export const zh = {
       /** 修改已存的 LLM 时，key 一栏留空就沿用存着的那把。 */
       keepApiKey: "留空则沿用现在的密钥。",
       textEffort: "文字的思考强度",
-      textEffortHint: "文字对话用这一档；没另配提炼记忆的 LLM 时，记住你说的事也用这一档。",
+      textEffortHint: "文字对话用这一档；没另配后台模型时，记住你说的事、给对话起标题也用这一档。",
       callEffort: "通话的思考强度",
       extraBody: "额外请求参数",
       /** 已存的 LLM 设了思考强度或额外请求参数时，摘要多一行。 */
       llmThinking: (text: string, call: string) => `思考强度：文字 ${text}，通话 ${call}`,
       llmExtraBody: "带额外请求参数",
-      /** 另配的提炼记忆的 LLM：只在填了上面的 LLM 时显示，删掉上面的 LLM 时一起删掉。 */
-      memoryLlmTitle: "提炼记忆的 LLM（可选）",
+      /** 另配的后台模型：只在填了上面的 LLM 时显示，删掉上面的 LLM 时一起删掉。 */
+      memoryLlmTitle: "后台模型（可选）",
       memoryLlmHint:
-        "想让记住你说的事换一个模型（比如便宜一些的）时填写；填了，上面的 LLM 就只管扮演角色。同样需要支持流式输出和工具调用，保存前会先试调一次。删掉上面的 LLM 时它也一起删掉。",
-      memoryLlmNotSet: "未填写，用上面的 LLM 记住你说的事",
+        "想让记住你说的事、给对话起标题换一个模型（比如便宜一些的）时填写。填了，上面的 LLM 就只管扮演角色。同样需要支持流式输出和工具调用，保存前会先试调一次。删掉上面的 LLM 时它也一起删掉。",
+      memoryLlmNotSet: "未填写，用上面的 LLM 记住你说的事、给对话起标题",
       memoryEffort: "思考强度",
-      memoryEffortHint: "记住你说的事用这一档，不跟上面 LLM 的档位走。",
-      /** 已存的提炼记忆的 LLM 设了思考强度时，摘要多一行。 */
+      memoryEffortHint: "记住你说的事、给对话起标题用这一档，不跟上面 LLM 的档位走。",
+      /** 已存的后台模型设了思考强度时，摘要多一行。 */
       memoryLlmThinking: (effort: string) => `思考强度：${effort}`,
       fill: "填写",
       edit: "修改",
@@ -733,7 +758,7 @@ export const zh = {
         statuses: { ok: "正常", degraded: "出错偏多", failing: "大量出错", idle: "没有调用" },
         services: {
           chat_llm: "扮演角色的 LLM",
-          memory_llm: "提炼记忆的 LLM",
+          memory_llm: "后台模型",
           tts: "语音合成",
           stt: "语音识别",
           judge: "判断模型",
@@ -1008,8 +1033,8 @@ export const zh = {
           hint: "模型需要支持流式输出和工具调用，保存前会先用同样的检查试调一次。",
         },
         memory_llm: {
-          title: "提炼记忆的 LLM",
-          hint: "每个回合结束后用它从对话里记下关于制作人的事。保存前和扮演角色的 LLM 一样先试调一次。",
+          title: "后台模型",
+          hint: "每个回合结束后用它从对话里记下关于制作人的事，第 3 个回合后也用它给对话起标题。保存前和扮演角色的 LLM 一样先试调一次。",
         },
         tts: {
           title: "语音合成（Fish Audio）",
@@ -1452,7 +1477,7 @@ export const zh = {
         title: "这些数据会交给哪些第三方处理",
         items: [
           // 不论免限额密钥是哪几项都要对，不点名哪几项。
-          { term: "语言模型服务", text: "扮演角色、提炼记忆时，对话内容和相关记忆会发给语言模型服务：你填了自己的 LLM，就发给你选择的服务（另配了提炼记忆的 LLM 的，提炼记忆时发给它）；没填，就发给部署者配置的服务。" },
+          { term: "语言模型服务", text: "扮演角色、提炼记忆和给对话起标题时，对话内容和相关记忆会发给语言模型服务：你填了自己的 LLM，就发给你选择的服务（另配了后台模型的，提炼记忆和起标题时发给它）；没填，就发给部署者配置的服务。" },
           { term: "判断模型", text: "每个回合，你说的话连同最近几个回合的对话会发给部署者配置的判断模型（TypeSafe 的 Jev，经 OpenRouter 等转发；或 Cloudflare 的 Clef），用来判断要不要回忆剧情或查资料，以及这句话让角色对你的好感度怎样变化；通话中角色的回复也会一段段发过去，判断她的情绪。判断模型始终由部署者提供，填了自带密钥也不改变这一点。" },
           { term: "语音服务", text: "通话时，你的声音会发给部署者选择的语音识别服务（Soniox 或阿里云百炼）识别成文字，角色的回复会发给 Fish Audio 合成语音。阿里云百炼不会用你的声音训练模型，但会保存一段时间，存放在中国内地或新加坡，取决于部署者的账号。" },
           { term: "向量化和重排服务", text: "为了在对话中找到相关的剧情和记忆，你说的话和记忆会发给部署者选择的向量化服务（硅基流动或 Google Gemini）和重排服务（硅基流动）。" },

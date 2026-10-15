@@ -1,13 +1,15 @@
-"""Users' own API keys: an LLM (which plays the characters and writes down memories, unless
-they bring another model of their own for memories), speech synthesis (Fish Audio) and
-speech recognition (Soniox or Alibaba Cloud Model Studio, 阿里云百炼, whichever the user
-chose, whatever the deployer did).
+"""Users' own API keys: an LLM (which plays the characters, and writes down memories and
+names conversations unless they bring another model of their own for that), speech
+synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Model Studio,
+阿里云百炼, whichever the user chose, whatever the deployer did).
 
 A user who brings their own key for a service has their turns and calls use it there,
 at their own expense. A call on their key that fails fails the turn, saying which of
 their keys it was (`OwnKeyFailed`); it never falls back to the deployer's key. Their keys
 are kept in their browser, which brings them with each text turn and call (ADR-0017);
-none is kept here, and a turn or call holds the ones it brings only until it ends.
+none is kept here, and a turn or call holds the ones it brings only until it ends and what
+its turns do after them in the background (writing down memories, naming the conversation)
+is done.
 
 Whose keys a turn or call runs on is answered here, once as it starts (`for_turn`,
 `for_call`), from the user's own keys it brings (`BroughtKeys`): theirs where it brought
@@ -67,8 +69,8 @@ SERVICE_LABELS: dict[Service, str] = {
 }
 STT_PROVIDER_NAMES: dict[SttProvider, str] = {"soniox": "Soniox", "bailian": "阿里云百炼"}
 
-MEMORY_LLM_LABEL = "提炼记忆的 LLM："
-"""Before why the user's own model for memories failed its try, telling it from their LLM."""
+BACKGROUND_LLM_LABEL = "后台模型："
+"""Before why the user's own background model failed its try, telling it from their LLM."""
 
 MAX_CAUSE_LENGTH = 300
 """How much of the service's own error message the user is shown."""
@@ -216,8 +218,8 @@ class DeployerKeys:
     emotions: EmotionJudging | None = None
     """Judging her emotion during a call, on the deployer's judge model, whoever's keys
     the call is on; None if it is not judged here (see `call.Calls`)."""
-    hold_memory: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
-    """See `TurnLLMs.hold_memory`."""
+    hold_background: Callable[[], Callable[[], None]] = field(default=_no_hold, compare=False)
+    """See `TurnLLMs.hold_background`."""
     call_llm: ChatLLM | None = None
     """The chat model as calls' turns use it, at its reasoning effort in calls; None for
     `chat_llm`."""
@@ -361,7 +363,7 @@ class OwnKeys:
         """Try the user's model for memories at its effort, as their LLM is tried, keeping
         nothing. Raises OwnKeyRejected saying why it does not work, and that it was this
         one."""
-        with _rejecting(own.api_key, MEMORY_LLM_LABEL):
+        with _rejecting(own.api_key, BACKGROUND_LLM_LABEL):
             await self._llm_service.check(ChatModelSettings(own, own.reasoning_effort))
 
     async def check_tts(self, api_key: str) -> None:
@@ -387,7 +389,7 @@ class OwnKeys:
         if own_llm is None:
             assert deployer is not None
             chat = deployer.call_llm if call and deployer.call_llm else deployer.chat_llm
-            return TurnLLMs(chat, deployer.memory_llm, deployer.hold_memory)
+            return TurnLLMs(chat, deployer.memory_llm, deployer.hold_background)
         chat_settings = own_llm.call if call else own_llm.text
         memory_settings = brought.memory_llm or own_llm.text
         return TurnLLMs(

@@ -9,15 +9,15 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { copy } from "@/i18n";
-import type { Character, EventKind } from "@/lib/api";
+import type { Character } from "@/lib/api";
 import { showTime } from "@/lib/callTime";
 import { arrange, dayOf, previewOf, type ListRow, type Preview } from "@/lib/conversationList";
 import { pin, setShown, unpin } from "@/lib/listPreferences";
 import { cn } from "@/lib/utils";
-import { PinIcon, SearchIcon } from "@/theme/icons";
+import { HideIcon, PinIcon, SearchIcon, ShowIcon, UnpinIcon } from "@/theme/icons";
 
 import { Announcements } from "./Announcements";
-import { EVENT_ICONS, eventText } from "./EventIcon";
+import { PreviewText } from "./PreviewText";
 import { useDirectory, type CallInList } from "./ConversationDirectory";
 import { ListFilter } from "./ListFilter";
 import { useCallTime } from "./useCallTime";
@@ -170,14 +170,8 @@ function Row({
     )
   ) : !preview ? (
     t.neverTalked
-  ) : preview.from === "event" ? (
-    <EventPreview event={preview.event} gift={preview.gift} name={character.name} />
-  ) : preview.from === "you" ? (
-    t.you(preview.text)
-  ) : preview.from === "her" ? (
-    preview.text
   ) : (
-    t.nothingSaidYet
+    <PreviewText preview={preview} name={character.name} />
   );
   return (
     <ContextMenu
@@ -218,21 +212,17 @@ function Row({
         </span>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onClick={onTogglePin}>{isPinned ? t.unpin : t.pin}</ContextMenuItem>
-        <ContextMenuItem onClick={onToggleHidden}>{isHidden ? t.show : t.hide}</ContextMenuItem>
+        {/* 菜单项里的图标默认 16px、跟着菜单文字的颜色（DESIGN.md「行菜单」） */}
+        <ContextMenuItem onClick={onTogglePin}>
+          {isPinned ? <UnpinIcon aria-hidden /> : <PinIcon aria-hidden />}
+          {isPinned ? t.unpin : t.pin}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={onToggleHidden}>
+          {isHidden ? <ShowIcon aria-hidden /> : <HideIcon aria-hidden />}
+          {isHidden ? t.show : t.hide}
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
-}
-
-/** 最后一句是对话事件时：图标加原文，不加「你：」。 */
-function EventPreview({ event, gift, name }: { event: EventKind; gift: string | null; name: string }) {
-  const Icon = EVENT_ICONS[event];
-  return (
-    <>
-      <Icon aria-hidden className="mr-1 inline size-3.5 align-middle" />
-      {eventText(event, name, gift)}
-    </>
   );
 }
 

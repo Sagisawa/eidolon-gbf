@@ -1,7 +1,16 @@
 "use client";
 
 import NextLink from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { FailureNotice, SignInButton } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -32,11 +41,23 @@ import type { Character } from "@/lib/api";
 import type { Entry } from "@/lib/conversationLog";
 import type { Failure } from "@/lib/failure";
 import { giftsHref } from "@/lib/gifts";
-import { isLive, NOT_OPEN, openIdOf, type LiveConversation } from "@/lib/liveConversation";
+import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
+import { pastDay } from "@/lib/pastConversations";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, CooldownIcon, EndedIcon, GiftIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import {
+  BackIcon,
+  CooldownIcon,
+  EndedIcon,
+  GiftIcon,
+  MoreIcon,
+  NewConversationIcon,
+  OutfitIcon,
+  PastConversationsIcon,
+  PhoneIcon,
+  SendIcon,
+} from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
@@ -44,8 +65,10 @@ import { CallBar } from "./CallBar";
 import { EVENT_ICONS, eventText } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
+import { PastConversations } from "./PastConversations";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
+import { usePastConversation, type Viewing } from "./usePastConversation";
 import { useProducerTimezone } from "./useProducerTimezone";
 import { useStandOutfits } from "./useStandOutfits";
 
@@ -66,8 +89,13 @@ const noSubscription = () => () => {};
  * 好感度可用时，电话键和更多菜单之间是好感度标识（GLOSSARY.md「好感度」）；不可用时读到 null，不显示。
  * 她在冷却中（GLOSSARY.md「冷却」）时，输入栏换成一行说明和「送她一件礼物」、电话键禁用，到点自己恢复。
  * 她结束了这个对话（GLOSSARY.md「已结束的对话」）时，输入栏换成结束卡「她结束了对话」和「开个新对话」、电话键禁用，只能往上翻看；她还在冷却中时，结束卡写上解除时刻、加「送她一件礼物」。
- * 送礼的入口（冷却时的输入栏、标识的说明末尾、冷却版结束卡）都跳到礼物页，带上她和这段对话（spec「打开好感度藏起的送礼入口」）；
- * 好感度和礼物同一个开关，好感度读不到时这些入口都不在。
+ * 送礼的入口（冷却时的输入栏、标识的说明末尾、冷却版结束卡）都跳到礼物页，带上她（spec「打开好感度藏起的送礼入口」），
+ * 礼物一律记进当前对话；好感度和礼物同一个开关，好感度读不到时这些入口都不在。
+ *
+ * 更多菜单依次是「新对话」「历史对话」「换衣装」。「历史对话」打开面板（`PastConversations`），点一段就看那段历史对话
+ * （地址带 `?c=`，`usePastConversation`）：消息区照平时画、只读，页首名字下面写「{日期}的对话」，电话键禁用
+ * （通话中也禁用，回通话走通话条），输入栏换成只读卡「回到当前对话」；窄屏页首的返回键、只读卡的按钮都回到当前对话。
+ * 历史对话不碰 LiveConversation：通话和正在进行的回复照旧在当前对话里，回去就看得到。在历史对话里点「新对话」先回到当前对话再开。
  */
 export function ConversationView({
   userId,
@@ -87,6 +115,8 @@ export function ConversationView({
   const { conversation, entries, call, layer, hearing, draft, failure } = snapshot;
   const outfits = useStandOutfits(character);
   const [pickingOutfit, setPickingOutfit] = useState(false);
+  const [pickingPast, setPickingPast] = useState(false);
+  const { viewing, view, backToCurrent } = usePastConversation(character.id);
   const subtree = useRef<HTMLDivElement>(null);
   // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
   const { affinity, affinityCue, cooling, ended } = snapshot;
@@ -102,8 +132,13 @@ export function ConversationView({
   }, [character.id, userId, open, close]);
 
   const isOpen = conversation.status === "open";
-  // 送礼入口去的礼物页：记录放回这段对话；正在开新对话时还不知道是哪段，只带她。
-  const gifts = giftsHref(character.id, openIdOf(conversation));
+  // 送礼入口去的礼物页：只带她，礼物一律记进当前对话（历史对话里点的也一样）。
+  const gifts = giftsHref(character.id);
+  // 在历史对话里开新对话：先回到当前对话。
+  const startNew = () => {
+    if (viewing) backToCurrent();
+    void live?.startNewConversation();
+  };
   const inCall = isLive(call);
   // 要在这次点击里同步调用：她的声音趁这一下唤醒 AudioContext。
   const dial = () => void live?.startCall();
@@ -116,33 +151,25 @@ export function ConversationView({
 
   // 页首的图标键：手机上触控目标不小于 44px（DESIGN.md「Layout」）。
   const headerKey = "max-md:size-11";
-  const phoneKey = inCall ? (
-    <HeaderTip label={copy.call.expand}>
+  // 历史对话里拨不出去，通话中也一样（回到通话走通话条）；通话中换成实心的「回到通话」。
+  const phone: { tip: string; label: string; disabled?: boolean; onClick?: () => void; filled?: boolean } = viewing
+    ? { tip: t.past.callTooltip, label: t.call(character.name), disabled: true }
+    : inCall
+      ? { tip: copy.call.expand, label: copy.call.expand, onClick: () => live?.expand(), filled: true }
+      : { tip: t.callTooltip, label: t.call(character.name), disabled: !snapshot.canDial, onClick: dial };
+  const phoneKey = (
+    <HeaderTip label={phone.tip}>
       <Button
         ref={focus.phoneKey}
         variant="ghost"
         size="icon-lg"
         className={headerKey}
-        aria-label={copy.call.expand}
-        onClick={() => live?.expand()}
-      >
-        {/* 通话中换成实心图标 */}
-        <PhoneIcon className="size-5 fill-current text-her-mark" />
-      </Button>
-    </HeaderTip>
-  ) : (
-    <HeaderTip label={t.callTooltip}>
-      <Button
-        ref={focus.phoneKey}
-        variant="ghost"
-        size="icon-lg"
-        className={headerKey}
-        aria-label={t.call(character.name)}
-        disabled={!snapshot.canDial}
+        aria-label={phone.label}
+        disabled={phone.disabled}
         focusableWhenDisabled
-        onClick={dial}
+        onClick={phone.onClick}
       >
-        <PhoneIcon className="size-5 text-her-mark" />
+        <PhoneIcon className={cn("size-5 text-her-mark", phone.filled && "fill-current")} />
       </Button>
     </HeaderTip>
   );
@@ -150,11 +177,23 @@ export function ConversationView({
   const header = (
     <header inert={isCovered} className="flex h-14 shrink-0 items-center gap-1 px-2">
       {onBack && (
-        <Button variant="ghost" size="icon-lg" className={headerKey} aria-label={t.back} onClick={onBack}>
+        // 历史对话里返回键回到当前对话，不退到对话列表。
+        <Button
+          variant="ghost"
+          size="icon-lg"
+          className={headerKey}
+          aria-label={viewing ? t.past.backToCurrent : t.back}
+          onClick={viewing ? backToCurrent : onBack}
+        >
           <BackIcon className="size-6" />
         </Button>
       )}
-      <h1 className="min-w-0 flex-1 truncate px-2 text-header">{character.name}</h1>
+      <div className="flex min-w-0 flex-1 flex-col px-2">
+        <h1 className="truncate text-header">{character.name}</h1>
+        {viewing?.status === "open" && (
+          <p className="truncate text-meta text-muted-foreground">{t.past.heading(pastDay(viewing.at, new Date()))}</p>
+        )}
+      </div>
       {phoneKey}
       {affinity && (
         <AffinityBadge
@@ -173,10 +212,21 @@ export function ConversationView({
           <MoreIcon className="size-5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent container={subtree} align="end">
-          <DropdownMenuItem disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
+          {/* 菜单项里的图标默认 16px、跟着菜单文字的颜色，不用她的颜色 */}
+          <DropdownMenuItem disabled={!snapshot.canStartNew} onClick={startNew}>
+            <NewConversationIcon aria-hidden />
             {t.newConversation}
           </DropdownMenuItem>
-          {outfits && <DropdownMenuItem onClick={() => setPickingOutfit(true)}>{t.outfits.open}</DropdownMenuItem>}
+          <DropdownMenuItem onClick={() => setPickingPast(true)}>
+            <PastConversationsIcon aria-hidden />
+            {t.past.open}
+          </DropdownMenuItem>
+          {outfits && (
+            <DropdownMenuItem onClick={() => setPickingOutfit(true)}>
+              <OutfitIcon aria-hidden />
+              {t.outfits.open}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </header>
@@ -216,26 +266,21 @@ export function ConversationView({
       {copy.gifts.giveHer}
     </Button>
   );
-  const composer = ended ? (
+  const composer = viewing ? (
+    <ReadOnlyCard viewing={viewing} inert={isCovered} onBackToCurrent={backToCurrent} />
+  ) : ended ? (
     // 已结束：结束卡代替输入框，右边「开个新对话」走更多菜单里的「新对话」，正在开时不可用。
     // 冷却中再写上解除时刻，「开个新对话」前面加「送她一件礼物」；一行放不下时按钮换到下一行、靠右。
-    <div
+    <ComposerCard
       inert={isCovered}
-      className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t bg-background px-3 py-2"
+      icon={EndedIcon}
+      text={until ? t.ended.cooling(character.name, until) : t.events.ended(character.name)}
     >
-      <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
-        <EndedIcon aria-hidden className="size-4 shrink-0" />
-        <p>
-          {until ? t.ended.cooling(character.name, until) : t.events.ended(character.name)}
-        </p>
-      </div>
-      <div className="ml-auto flex gap-2">
-        {until && giveHer}
-        <Button size="lg" disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
-          {t.ended.newConversation}
-        </Button>
-      </div>
-    </div>
+      {until && giveHer}
+      <Button size="lg" disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
+        {t.ended.newConversation}
+      </Button>
+    </ComposerCard>
   ) : until ? (
     // 冷却中：一行说明代替输入框，右边是去礼物页的「送她一件礼物」；草稿留着，到点换回输入框时还在。
     <div inert={isCovered} className="flex min-h-14 shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
@@ -285,8 +330,30 @@ export function ConversationView({
     <Frame character={character} subtree={subtree} header={header}>
       {barShown && <CallBar ref={focus.note} call={call} onExpand={() => live?.expand()} />}
       <div inert={isCovered} className="min-h-0 flex-1">
-        {/* 开新对话的过程中也是 opening：旧对话留在原处，只是发送键和电话键禁用 */}
-        {!isOpen && entries.length === 0 ? (
+        {/* 历史对话：读到之前转圈；换一段时消息区重来，停在最底 */}
+        {viewing ? (
+          viewing.status === "open" ? (
+            <Messages
+              key={viewing.id}
+              entries={viewing.entries}
+              hearing=""
+              character={character}
+              affinityOn={affinity !== null}
+            />
+          ) : viewing.status === "failed" ? (
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyTitle>{t.past.openFailed}</EmptyTitle>
+                <EmptyDescription>{viewing.failure.message}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <Spinner className="size-6 text-muted-foreground" aria-label={t.past.opening} />
+            </div>
+          )
+        ) : /* 开新对话的过程中也是 opening：旧对话留在原处，只是发送键和电话键禁用 */
+        !isOpen && entries.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <Spinner className="size-6 text-muted-foreground" aria-label={t.loading} />
           </div>
@@ -303,6 +370,21 @@ export function ConversationView({
         )}
       </div>
       {composer}
+      <PastConversations
+        isOpen={pickingPast}
+        onOpenChange={setPickingPast}
+        isWide={!isFullScreen}
+        character={character}
+        viewingId={viewing?.id ?? null}
+        onPick={(row) => {
+          setPickingPast(false);
+          if (row.isCurrent) {
+            if (viewing) backToCurrent();
+          } else if (row.conversation.id !== viewing?.id) {
+            view(row.conversation.id);
+          }
+        }}
+      />
       {live && (
         <LiveCallLayer
           live={live}
@@ -352,6 +434,57 @@ function Frame({
       {header}
       {children}
     </div>
+  );
+}
+
+/**
+ * 代替输入栏的一张卡（结束卡、只读卡）：左边 muted 的小图标加一句话，右边是按钮；一行放不下时按钮换到下一行、靠右。
+ */
+function ComposerCard({
+  inert,
+  icon: Icon,
+  text,
+  children,
+}: {
+  inert: boolean;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  text: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      inert={inert}
+      className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t bg-background px-3 py-2"
+    >
+      <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
+        <Icon aria-hidden className="size-4 shrink-0" />
+        <p>{text}</p>
+      </div>
+      <div className="ml-auto flex gap-2">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * 历史对话换掉输入栏的只读卡（`ComposerCard`）：历史图标加「这是你们的历史对话」（她结束了的另有一句），
+ * 右边描边的大号「回到当前对话」。
+ */
+function ReadOnlyCard({
+  viewing,
+  inert,
+  onBackToCurrent,
+}: {
+  viewing: Viewing;
+  inert: boolean;
+  onBackToCurrent: () => void;
+}) {
+  const ended = viewing.status === "open" && viewing.ended;
+  return (
+    <ComposerCard inert={inert} icon={PastConversationsIcon} text={ended ? t.past.readOnlyEnded : t.past.readOnly}>
+      <Button variant="outline" size="lg" onClick={onBackToCurrent}>
+        {t.past.backToCurrent}
+      </Button>
+    </ComposerCard>
   );
 }
 

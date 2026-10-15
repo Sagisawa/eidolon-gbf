@@ -110,7 +110,7 @@ async def test_a_turn_that_brings_an_llm_runs_on_it_for_both_and_does_not_count(
 
     keys = deployment.own_keys().for_turn(brought("llm"))
     await ask(keys.llms.chat)
-    await ask(keys.llms.memory)
+    await ask(keys.llms.background)
 
     assert deployment.llm_service.llm.keys == [MY_LLM.text.api_key, MY_LLM.text.api_key]
     assert deployment.chat.keys == []
@@ -131,7 +131,7 @@ async def test_a_turn_that_brings_nothing_runs_on_the_deployers_models(
     keys = deployment.own_keys().for_turn(BroughtKeys())
 
     assert keys.llms.chat is deployment.chat
-    assert keys.llms.memory is deployment.memory
+    assert keys.llms.background is deployment.memory
     assert keys.own_llm is False
 
 
@@ -143,7 +143,7 @@ async def test_a_call_that_brings_speech_keys_hears_and_speaks_on_them_and_the_r
     assert (keys.stt, keys.tts) == (SttKey("soniox", DEPLOYER_SONIOX_KEY), MY_FISH)
     assert keys.own == {"tts"}
     assert keys.llms.chat is deployment.chat
-    assert keys.llms.memory is deployment.memory
+    assert keys.llms.background is deployment.memory
     assert keys.own_llm is False
 
 

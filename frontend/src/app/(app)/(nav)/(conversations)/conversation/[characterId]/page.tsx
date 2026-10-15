@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
+import { Suspense } from "react";
 
 import { useDirectory, useWide } from "@/components/conversations/ConversationDirectory";
 import { ConversationView } from "@/components/conversations/ConversationView";
@@ -18,19 +19,21 @@ export default function ConversationPage() {
   const character = characters?.find((c) => c.id === characterId);
   const back = () => router.push("/conversations");
 
+  const loading = (
+    <div className="flex h-full items-center justify-center p-6">
+      <Spinner className="size-6 text-muted-foreground" aria-label={copy.conversation.loading} />
+    </div>
+  );
   if (character && account) {
-    // 换角色时整页重来：上一位的对话（和通话）就此结束。
+    // 换角色时整页重来：上一位的对话（和通话）就此结束。对话页读地址里的 `?c=`（看哪段历史对话），
+    // 按 Next 的要求包在 Suspense 里。
     return (
-      <ConversationView key={character.id} userId={account.id} character={character} onBack={wide ? undefined : back} />
+      <Suspense fallback={loading}>
+        <ConversationView key={character.id} userId={account.id} character={character} onBack={wide ? undefined : back} />
+      </Suspense>
     );
   }
-  if (characters === null && !failure) {
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <Spinner className="size-6 text-muted-foreground" aria-label={copy.conversation.loading} />
-      </div>
-    );
-  }
+  if (characters === null && !failure) return loading;
   return (
     <Empty className="h-full">
       <EmptyHeader>

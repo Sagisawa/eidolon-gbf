@@ -793,7 +793,7 @@ class LiveConfig:
                 memory.client, self._activity, llm_origin("memory_llm", memory.settings)
             ),
             self._stt_key(), tts["api_key"], tts["model"],
-            emotions, hold_memory=lambda: memory.again().release,
+            emotions, hold_background=lambda: memory.again().release,
             call_llm=metered_llm(
                 chat.client.call, self._activity, llm_origin("chat_llm", chat.settings.call)
             ),
