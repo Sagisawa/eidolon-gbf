@@ -46,6 +46,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "greeting": None,  # none configured
             "call_opener": None,
             "call_poster_url": None,  # no stand assets URL is configured
+            "voxels_url": None,
         },
         {
             "id": "kogane",
@@ -65,6 +66,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "greeting": None,
             "call_opener": None,
             "call_poster_url": None,
+            "voxels_url": None,
         },
     ]
     assert "ほわっ" not in res.text
@@ -798,4 +800,17 @@ async def test_call_poster_is_where_the_bucket_keeps_it(make_client: ClientFacto
     assert {c["id"]: c["call_poster_url"] for c in listed} == {
         "mano": f"{STAND_ASSETS}/call-posters/mano.webp",
         "kogane": f"{STAND_ASSETS}/call-posters/kogane.webp",
+    }
+
+
+async def test_voxels_are_where_the_bucket_keeps_them(make_client: ClientFactory, settings: Settings):
+    """Her voxel figure on the landing page's act about memory, put in the bucket by hand:
+    listed without asking the bucket whether it is there (the page falls back to her colour)."""
+    client = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS), user=None)
+
+    listed = (await client.get("/api/characters")).json()
+
+    assert {c["id"]: c["voxels_url"] for c in listed} == {
+        "mano": f"{STAND_ASSETS}/landing-voxels/mano.json",
+        "kogane": f"{STAND_ASSETS}/landing-voxels/kogane.json",
     }

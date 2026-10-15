@@ -48,6 +48,11 @@ export type Character = {
    * bucket; null unless the deployment serves the stand assets. The server does not check that it
    * was put there: when it fails to load, show her colour and name instead. */
   call_poster_url: string | null;
+  /** Her voxel figure in the landing page's act about memory, a JSON file in the stands' bucket
+   * (`Voxels` in `scripts/glb-voxelize.mts`); null unless the deployment serves the stand assets. The
+   * server does not check that it was put there: when it fails to load, show her colour and name
+   * instead. */
+  voxels_url: string | null;
 };
 
 /** A character's greeting (GLOSSARY.md「招呼」). */
