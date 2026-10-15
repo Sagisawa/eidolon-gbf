@@ -1,4 +1,5 @@
-"""The producer profile and what it tells the character about the user.
+"""The producer profile and what it tells the character about the user, and the prompt
+section about now: the time where the user is, and whether they are typing or in a call.
 
 A profile field left unset keeps its default: the character sheet decides how
 the character addresses the producer, the producer is the man of the original
