@@ -208,6 +208,14 @@ export function ConversationView({
 
   const canSend = isOpen && draft.trim() !== "";
   const cooldownUntil = cooling ? affinity?.cooldown_until : null;
+  // 冷却中的解除时刻和去礼物页的「送她一件礼物」：冷却那一行和冷却版结束卡共用。
+  const until = cooldownUntil ? untilText(new Date(cooldownUntil), new Date(), timeZone) : null;
+  const giveHer = (
+    <Button variant="outline" size="lg" nativeButton={false} render={<NextLink href={gifts} onClick={guard(gifts)} />}>
+      <GiftIcon data-icon="inline-start" />
+      {copy.gifts.giveHer}
+    </Button>
+  );
   const composer = ended ? (
     // 已结束：结束卡代替输入框，右边「开个新对话」走更多菜单里的「新对话」，正在开时不可用。
     // 冷却中再写上解除时刻，「开个新对话」前面加「送她一件礼物」；一行放不下时按钮换到下一行、靠右。
@@ -218,34 +226,24 @@ export function ConversationView({
       <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
         <EndedIcon aria-hidden className="size-4 shrink-0" />
         <p>
-          {cooldownUntil
-            ? t.ended.cooling(character.name, untilText(new Date(cooldownUntil), new Date(), timeZone))
-            : t.events.ended(character.name)}
+          {until ? t.ended.cooling(character.name, until) : t.events.ended(character.name)}
         </p>
       </div>
       <div className="ml-auto flex gap-2">
-        {cooldownUntil && (
-          <Button variant="outline" size="lg" nativeButton={false} render={<NextLink href={gifts} onClick={guard(gifts)} />}>
-            <GiftIcon data-icon="inline-start" />
-            {copy.gifts.giveHer}
-          </Button>
-        )}
+        {until && giveHer}
         <Button size="lg" disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
           {t.ended.newConversation}
         </Button>
       </div>
     </div>
-  ) : cooldownUntil ? (
+  ) : until ? (
     // 冷却中：一行说明代替输入框，右边是去礼物页的「送她一件礼物」；草稿留着，到点换回输入框时还在。
     <div inert={isCovered} className="flex min-h-14 shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
       <div role="status" className="flex min-w-0 flex-1 items-center gap-2 text-body text-muted-foreground">
         <CooldownIcon aria-hidden className="size-4 shrink-0" />
-        <p>{t.affinity.coolingComposer(character.name, untilText(new Date(cooldownUntil), new Date(), timeZone))}</p>
+        <p>{t.affinity.coolingComposer(character.name, until)}</p>
       </div>
-      <Button variant="outline" size="lg" nativeButton={false} render={<NextLink href={gifts} onClick={guard(gifts)} />}>
-        <GiftIcon data-icon="inline-start" />
-        {copy.gifts.giveHer}
-      </Button>
+      {giveHer}
     </div>
   ) : (
     <form

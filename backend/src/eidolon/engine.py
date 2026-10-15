@@ -374,11 +374,12 @@ class ConversationEngine:
         self._world = world
         self._affinities = affinities
         self._affinity_judge = affinity_judge
-        self._ending: list[Callable[[str], None]] = []
+        self._ended_listeners: list[Callable[[str, EndsFor], None]] = []
 
-    def on_ended(self, listener: Callable[[str], None]) -> None:
-        """Have `listener` told the conversation's id as she ends one, once it is recorded."""
-        self._ending.append(listener)
+    def on_ended(self, listener: Callable[[str, EndsFor], None]) -> None:
+        """Have `listener` told the conversation's id, and why, as she ends one, once it is
+        recorded."""
+        self._ended_listeners.append(listener)
 
     async def turn(
         self,
@@ -547,9 +548,9 @@ class ConversationEngine:
             return
         memory.write_down(history, text, reply, retrieved.query_vector)
         ended = self._store.ended(conversation.id) if ends_conversation else None
-        if ended is not None:
-            for listener in self._ending:
-                listener(conversation.id)
+        if ended is not None and ending is not None:
+            for listener in self._ended_listeners:
+                listener(conversation.id, ending)
         if judged is not None and self._affinities is not None:
             yield TurnJudged(
                 judged,

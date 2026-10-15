@@ -20,6 +20,7 @@ from typing import Literal
 
 from eidolon.activity import CallEndReason, Recording, Result
 from eidolon.admission import Admission
+from eidolon.affinity import EndsFor
 from eidolon.config import SttProvider
 from eidolon.engine import CallTurnRecorded, InCall
 from eidolon.own_keys import CallKeys, OwnKeyFailed, Service
@@ -181,13 +182,14 @@ class CallOutcome:
         self._hang_up_after(CallTurnRecorded(hangs_up="cooldown", cooldown_until=until))
         return True
 
-    def conversation_ended(self) -> bool:
-        """She has ended the conversation the call is in, typing elsewhere: whether she
-        hangs up for it, as for what the user said, after the turn in progress, if any. Not
-        if the call is ending already, for whatever reason, nor if she is hanging up already."""
+    def conversation_ended(self, why: EndsFor) -> bool:
+        """She has ended the conversation the call is in, typing elsewhere, for `why`:
+        whether she hangs up for it, as for what the user said, after the turn in progress,
+        if any. Not if the call is ending already, for whatever reason, nor if she is hanging
+        up already."""
         if self._ended_by is not None or self._hanging_up is not None:
             return False
-        self._hang_up_after(CallTurnRecorded(hangs_up="fed_up"))
+        self._hang_up_after(CallTurnRecorded(hangs_up=why))
         return True
 
     def _hang_up_after(self, recorded: CallTurnRecorded) -> None:

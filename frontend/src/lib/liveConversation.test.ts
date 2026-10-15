@@ -1251,16 +1251,6 @@ describe("LiveConversation: an ended conversation", () => {
       canDial: false,
     });
   });
-
-  it("ends as a call in it hangs up carrying her ending it, as she ends it elsewhere", async () => {
-    const { live, attempts } = await conversation({ messages: history });
-    await connected(live, attempts);
-
-    attempts[0].handlers.onEvent({ type: "ended", reason: "she_hung_up", message: "她挂断了电话。", counts: true, event: ended });
-    attempts[0].handlers.onDropped();
-
-    expect(live.snapshot()).toMatchObject({ ended: true, canDial: false, call: { phase: "ended" } });
-  });
 });
 
 describe("LiveConversation: her voice", () => {

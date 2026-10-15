@@ -99,6 +99,7 @@ from eidolon.activity import (
     host,
 )
 from eidolon.admission import Admission, Admissions
+from eidolon.affinity import EndsFor
 from eidolon.bailian import FOLLOW_ON_TIMEOUT as BAILIAN_FOLLOW_ON_TIMEOUT
 from eidolon.bailian import REGION_URLS, BailianCheckFailed, BailianSTTService, find_region
 from eidolon.billing import Billing
@@ -1014,12 +1015,12 @@ class Calls:
             if live.user_id == user_id and live.character_id == character_id:
                 live.cooled(until, taking)
 
-    def conversation_ended(self, conversation_id: str) -> None:
-        """She has ended the conversation (GLOSSARY.md「已结束的对话」), typing in it: she
-        hangs up any call in it straight away, as she does when she hangs up."""
+    def conversation_ended(self, conversation_id: str, why: EndsFor) -> None:
+        """She has ended the conversation (GLOSSARY.md「已结束的对话」), typing in it, for
+        `why`: she hangs up any call in it straight away, as she does when she hangs up."""
         for live in list(self._live):
             if live.conversation_id == conversation_id:
-                live.conversation_ended()
+                live.conversation_ended(why)
 
     async def _hang_up_users_gone(self) -> None:
         """While there are calls, hang up those of users banned or deleted meanwhile (by
@@ -1165,17 +1166,22 @@ class _LiveCall:
         call's, else straight away. A call yet to connect is hung up as it is, never having
         connected."""
         if not self._connected.is_set():
-            self._hanging_up_on = asyncio.create_task(self.hang_up("character_hung_up"))
+            self._hang_up_unconnected()
             return
         self._turns.cooled(until, in_its_turn=taking is self._turns)
 
-    def conversation_ended(self) -> None:
-        """She has ended the conversation the call is in: she hangs up straight away, a call
-        yet to connect as it is, never having connected."""
+    def conversation_ended(self, why: EndsFor) -> None:
+        """She has ended the conversation the call is in, for `why`: she hangs up straight
+        away, a call yet to connect as it is, never having connected."""
         if not self._connected.is_set():
-            self._hanging_up_on = asyncio.create_task(self.hang_up("character_hung_up"))
+            self._hang_up_unconnected()
             return
-        self._turns.conversation_ended()
+        self._turns.conversation_ended(why)
+
+    def _hang_up_unconnected(self) -> None:
+        """She hangs up the call yet to connect, once, whatever for."""
+        if self._hanging_up_on is None:
+            self._hanging_up_on = asyncio.create_task(self.hang_up("character_hung_up"))
 
     def _report_failure(self, own_service: Service | None = None) -> None:
         """A failing service ends the call. Whatever `CallOutcome` says to tell the browser
@@ -1359,11 +1365,11 @@ class CallTurns(FrameProcessor):
             return
         self._hung_up_on()
 
-    def conversation_ended(self) -> None:
-        """She has ended the conversation the call is in, unless the call's `CallOutcome`
-        says it is ending already: she hangs up as it says to tell the browser, straight
-        away, as `TurnTaking` says to with the turn in progress, if any."""
-        if self._outcome.conversation_ended():
+    def conversation_ended(self, why: EndsFor) -> None:
+        """She has ended the conversation the call is in, for `why`, unless the call's
+        `CallOutcome` says it is ending already: she hangs up as it says to tell the browser,
+        straight away, as `TurnTaking` says to with the turn in progress, if any."""
+        if self._outcome.conversation_ended(why):
             self._hung_up_on()
 
     def _hung_up_on(self) -> None:
@@ -1458,10 +1464,7 @@ class CallTurns(FrameProcessor):
         words are voiced, as the call's record says she hung up whoever leaves first."""
         message = ending.ended
         if message is not None and ending.by_her:
-            conversation_id = self._call.conversation.id
-            event = self._store.ended(conversation_id) or self._store.add_event(
-                conversation_id, "hung_up"
-            )
+            event = self._store.hang_up(self._call.conversation.id)
             message = {**message, "event": event.shown()}
         await self._carry_out(self._turns.call_ending())
         if message is not None:

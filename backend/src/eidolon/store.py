@@ -680,6 +680,15 @@ class Store:
         with self._lock, self._db:
             return self._insert_event(conversation_id, kind, _now(), affinity, gift_id, liked)
 
+    def hang_up(self, conversation_id: str) -> ConversationEvent:
+        """Record that she hung up on the user in the conversation, now (`hung_up`), unless
+        she has ended it: then nothing more is recorded, and it is her ending it that is
+        returned."""
+        with self._lock, self._db:
+            return self._ended(conversation_id) or self._insert_event(
+                conversation_id, "hung_up", _now()
+            )
+
     def ended(self, conversation_id: str) -> ConversationEvent | None:
         """Her ending the conversation (GLOSSARY.md「已结束的对话」), as recorded; None while
         it is not ended."""
