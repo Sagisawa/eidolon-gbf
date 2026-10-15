@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] 「更多」菜单依次是「新对话」「历史对话」「换衣装」，每一项前面有图标；对话列表的长按菜单里，置顶/取消置顶、隐藏/显示也各有图标
 - [x] 点「历史对话」：宽屏弹出 Dialog，窄屏拉出 Drawer，都用她的颜色；每次打开都是最新的列表，读取时显示加载中
