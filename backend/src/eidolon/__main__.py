@@ -55,6 +55,11 @@
                                      recording the run; exits 2 if the copy failed, 3 if
                                      the upload did, 4 if deleting the old ones did, 6 if
                                      another backup was under way
+    eidolon restore <file>           put the database in a backup the deployer decrypted,
+                                     .db or .db.gz, in place of this one, with the server
+                                     stopped (deploy/db-restore.sh), if it is whole and has
+                                     this project's tables, leaving it alone if not; and
+                                     say how many users it has
     eidolon reembed                  after changing the embedding service, model or
                                      dimensions, embed the story corpus, character facts,
                                      work facts, and memories again from
@@ -120,6 +125,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_greeting_upload(args))
     if args.command == "backup":
         return asyncio.run(_backup(args))
+    if args.command == "restore":
+        return _restore(args)
     if args.command == "reembed":
         return asyncio.run(_reembed(args))
     if args.command == "eval" and args.action == "judge":
@@ -567,6 +574,24 @@ async def _backup(args: argparse.Namespace) -> int:
         return report.exit_code
     print(f"用时 {time.monotonic() - started:.0f} 秒")
     return report.exit_code
+
+
+def _restore(args: argparse.Namespace) -> int:
+    from eidolon.restore import NotRestored, restore
+
+    database = args.db or database_path_from_env()
+    try:
+        users, abandoned = restore(args.file, database, utc_now)
+    except NotRestored as e:
+        print(f"没有恢复，现在的数据库没有动：{e}", file=sys.stderr)
+        return 1
+    except OSError as e:  # the rename, or deleting the old write-ahead log
+        print(f"恢复失败：{e}", file=sys.stderr)
+        return 1
+    print(f"已用 {args.file} 替换 {database}，恢复进来的库里有 {users} 位用户")
+    if abandoned:
+        print(f"备份时正在进行的 {abandoned} 条备份记录已标成没有完成")
+    return 0
 
 
 async def _draft_sheet(args: argparse.Namespace) -> int:
@@ -1169,6 +1194,14 @@ def _parser() -> argparse.ArgumentParser:
         default="manual",
         help="谁发起的这次备份，记进备份记录、显示在看板上（默认 manual；主机上的 cron 传 cron）",
     )
+
+    restore = commands.add_parser(
+        "restore",
+        help="用在自己电脑上解密好的备份（.db 或 .db.gz）替换数据库，要先停后端"
+        "（服务器上用 deploy/db-restore.sh）；文件损坏、不是 SQLite 或者不是本项目的数据库时什么都不动，"
+        "退出码为 1",
+    )
+    restore.add_argument("file", type=Path, help="解密后的备份文件，压缩的和解压后的都行")
 
     reembed = commands.add_parser(
         "reembed",

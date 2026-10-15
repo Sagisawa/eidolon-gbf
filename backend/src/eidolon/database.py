@@ -69,12 +69,16 @@ def connect(path: Path) -> sqlite3.Connection:
     usable from any thread and waiting up to 30 seconds for another writer."""
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, check_same_thread=False, timeout=30)
-    # Readers need not wait for a writer: several modules, and the command line in another
-    # process, each have a connection to this database.
-    db.execute("PRAGMA journal_mode = WAL")
-    # What is deleted is overwritten, not just freed: deleting a user is for good.
-    db.execute("PRAGMA secure_delete = ON")
-    db.execute("PRAGMA foreign_keys = ON")
+    try:
+        # Readers need not wait for a writer: several modules, and the command line in
+        # another process, each have a connection to this database.
+        db.execute("PRAGMA journal_mode = WAL")
+        # What is deleted is overwritten, not just freed: deleting a user is for good.
+        db.execute("PRAGMA secure_delete = ON")
+        db.execute("PRAGMA foreign_keys = ON")
+    except sqlite3.Error:  # not a database: closed, so that the file can be deleted
+        db.close()
+        raise
     return db
 
 

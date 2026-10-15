@@ -551,7 +551,7 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
 
 - 数据库（用户及其登录方式、会话、对话、记忆、制作人档案、最近 24 小时的用量、剧情库，以及后台的配置覆盖、单价、单独限额、封禁名单和最近 90 天的运行记录）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
 - 证书在 Docker 卷 `caddy-data` 里；
-- 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步和备份的日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
+- 人设、角色资料、头像在仓库的 `characters/` 目录里，`git pull` 时随仓库更新；剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步和备份的日志在 `logs/`（这几个被 git 忽略，`git pull` 不会动它们）。
 
 不要执行 `docker compose down -v`，`-v` 会删掉这些卷。
 
@@ -561,7 +561,7 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
 
 同一时间只有一次备份：cron、手动运行（和后台的「立即备份」）撞上正在进行的那次，就直接放弃。每次备份都在数据库里留一条记录，正在进行的那条就是锁；进程中途被杀掉（容器重启、断电）留下的记录，开始一小时后就不再挡住新的备份。
 
-`characters/` 目录、`deploy/event-names.toml` 和 `.env` 不在备份里，另外自己保存。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
+备份里只有数据库。`characters/` 在仓库里，不用另外保存；`.env` 和你在服务器上自己加的 compose 叠加文件要另外保存，`deploy/event-names.toml` 写了的话也一起保存（见「换服务器」）。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
 
 ### 第一次配置
 
@@ -662,27 +662,60 @@ EIDOLON_BACKUP_WARN_GB=3      # 存储桶里备份的总量超过它就提醒，
 恢复时不需要用 `EIDOLON_SECRET_KEY` 解开用户的自带密钥：备份里没有，自带密钥只存在用户的浏览器里。从升级之前的备份恢复时，里面加密的旧 key 会在后端启动时随旧表一起删掉，用户要在浏览器里重新填一次。
 
 1. **下载**：在存储桶里（R2 在网页上就能下载）找到最新的 `eidolon-<UTC 时间>.db.gz.age`，下载到**你自己的电脑上**。
-2. **解密、解压**（私钥只在你的电脑上用）：
+2. **解密**（私钥只在你的电脑上用）：
 
    ```sh
-   age -d -i eidolon-backup.key eidolon-20261003T034300Z.db.gz.age | gunzip > eidolon.db
-   sqlite3 eidolon.db 'PRAGMA integrity_check; SELECT count(*) FROM users;'   # 应输出 ok 和用户数
+   age -d -i eidolon-backup.key -o eidolon-20261003T034300Z.db.gz eidolon-20261003T034300Z.db.gz.age
    ```
 
-3. **传到服务器**，例如 `scp eidolon.db 服务器:/tmp/eidolon.db`。
-4. **停后端，替换卷里的数据库**，删掉旧的 `-wal`、`-shm`（不删的话，旧的日志会被当成新数据库的一部分）：
+   解出来的 `.db.gz` 可以直接用；想先在自己电脑上看一眼，就解压（`gunzip -k`）后 `sqlite3 eidolon-20261003T034300Z.db 'PRAGMA integrity_check; SELECT count(*) FROM users;'`，应输出 `ok` 和用户数。
+3. **传到服务器**，例如 `scp eidolon-20261003T034300Z.db.gz 服务器:/tmp/`。
+4. **在服务器上恢复**，在仓库目录里：
 
    ```sh
-   docker compose -f docker-compose.prod.yml stop backend
-   docker compose -f docker-compose.prod.yml run --rm --no-deps -v /tmp/eidolon.db:/restore.db:ro      --entrypoint sh backend -c 'rm -f /data/eidolon.db-wal /data/eidolon.db-shm && cp /restore.db /data/eidolon.db'
-   docker compose -f docker-compose.prod.yml start backend
-   rm /tmp/eidolon.db
+   deploy/db-restore.sh /tmp/eidolon-20261003T034300Z.db.gz
+   rm /tmp/eidolon-20261003T034300Z.db.gz
    ```
 
-   换了一台新服务器时，先照「部署」把 `.env`（包括原来的 `EIDOLON_SECRET_KEY`）、`characters/` 准备好，`up -d` 一次让卷建出来，再做这一步。
-5. **确认**：登录网站，看对话和记忆都在；`docker compose -f docker-compose.prod.yml exec backend eidolon user list` 能列出用户。
+   它依次：
+   - **先把现在的库备份到存储桶**（运行一次 `deploy/db-backup.sh`，记为服务器上手动运行，日志照常在 `logs/db-backup.log`），恢复错了还能从这一份回去；它作为一份普通的备份，保留期满自动删除，服务器上不会多出一份没人管的旧库。这一次没有成功（退出码不是 0）就停下、什么都不换，终端里有这次备份的日志。新服务器上的库是空的，加 `--no-backup` 跳过这一步（见「换服务器」）。
+   - 停后端，在一个一次性的后端容器里运行 `eidolon restore`：`.db` 和 `.db.gz` 都接受（按内容判断是不是压缩的），先解压到数据卷里，检查完整性、确认有本项目的表，**都通过才**替换现在的库、删掉旧的 `-wal`、`-shm`（不删的话，旧的日志会被当成新数据库的一部分）。文件损坏、不是 SQLite、不是本项目的数据库时什么都不换，说明原因。
+   - 启动后端（恢复没成功时也会启动，库没有动），最后报出恢复进来的库里有几位用户。
 
-建议第一次配好备份后就在本地的 compose（`docker-compose.yml`）上演练一次：步骤一样，只是把 `-f docker-compose.prod.yml` 去掉。
+   备份是在备份进行中导出的，所以每份备份里都有一条「进行中」的备份记录；恢复时会把它标成没有完成，看板不会一直显示「备份中…」。恢复以后表结构由后端启动时照常补齐。
+
+   | 退出码 | 含义 |
+   |---|---|
+   | 0 | 恢复完成，后端已启动 |
+   | 1 | 参数不对或者文件不存在，什么都没动 |
+   | 2 | 替换前的备份没有成功，什么都没换 |
+   | 3 | 文件没有通过检查，或者没能替换；现在的库没有动，后端已重新启动 |
+   | 4 | 停止或启动后端失败（docker 的错误在上方） |
+
+5. **确认**：用户数和你预期的一致；登录网站，看对话和记忆都在；`docker compose -f docker-compose.prod.yml exec backend eidolon user list` 能列出用户。
+
+建议第一次配好备份后就在本地的 compose（`docker-compose.yml`）上演练一次：`docker compose up -d` 之后，`COMPOSE_FILE=docker-compose.yml deploy/db-restore.sh <文件> --no-backup`，其余步骤一样。
+
+## 换服务器
+
+搬家就是「在旧服务器上立即备份一次，在新服务器上从它恢复」，和上面的恢复是同一套步骤（ADR-0012 的 2026-10-15 修订）。数据库之外要带走的东西很少：
+
+- `characters/`（人设、资料、头像）、`deploy/` 下的脚本和 compose 配置都在仓库里，`git clone` 就有，不用另外拷。
+- **要手动带走**：`.env`（尤其是原来的 `EIDOLON_SECRET_KEY`，换了它后台保存的 key 就解不开、封禁名单也对不上），以及你在服务器上自己加的 compose 叠加文件（如果有）。
+- `deploy/event-names.toml` 只在你写过它的部署上才有（被 git 忽略），写了就一起带走。
+- 不用带：`corpus/`、原始剧本缓存（下一次同步重新下载）、证书（Caddy 在新服务器上重新申请）、`logs/`。
+
+步骤：
+
+1. **新服务器先照「准备」「部署」装好**：`git clone`，放好带过来的 `.env` 和 compose 叠加文件，`docker compose -f docker-compose.prod.yml up -d` 一次，让数据卷建出来。新服务器部署的提交**不能比旧服务器旧**（用旧服务器上 `git log -1` 的那个提交或更新的）：新代码改过的表结构，旧代码不一定认得，恢复时不做这项检查。
+2. **旧服务器上立即备份一次**：后台看板的「立即备份」，或者 `deploy/db-backup.sh`；确认存储桶里出现了新的一份。
+3. **下载这一份、在自己电脑上解密，传到新服务器**，照「从备份恢复」的 1–3 步。
+4. **在新服务器上恢复**：`deploy/db-restore.sh <文件> --no-backup`。新服务器上的库是空的，不用先备份；备份也可能还没配好。
+5. **确认**：照「从备份恢复」第 5 步。DNS 还没切过去时，在自己电脑的 hosts 文件里把域名指向新服务器的地址再打开网站（证书要等 DNS 切过去才申请得到，在这之前可以只看 `eidolon user list`）。
+6. **把 DNS 切到新服务器**，确认网站正常后，在新服务器上装好 cron（照「备份」的第 7 步，`--cron` 别漏）和剧情同步的 cron（「每周自动同步」），手动跑一次 `deploy/db-backup.sh` 确认新服务器的备份能用。
+7. **停掉旧服务器**：`docker compose -f docker-compose.prod.yml down`（**不要**带 `-v`），删掉它的 cron。
+
+第 2 步之后旧服务器还开着，用户在这段时间里的新对话、新注册都只在旧库里。想一条不丢，就在第 2 步之前先停旧服务器的前端和 Caddy（`docker compose -f docker-compose.prod.yml stop caddy frontend`，网站打不开，后端还在），再运行 `deploy/db-backup.sh`（后台的按钮这时也打不开），用这一份恢复；或者 DNS 切过去以后，停掉旧服务器、在它上面再做最后一次备份，然后在新服务器上用这一份再恢复一次（这时新服务器上已经有用户在用了，要加上先备份，不带 `--no-backup`）。停机的那几分钟换来一条不丢，大多数时候第一种更简单。
 
 ## 排障
 
