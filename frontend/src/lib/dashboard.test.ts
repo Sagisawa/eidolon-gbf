@@ -238,6 +238,7 @@ describe("affinityRows", () => {
     out_of_line: 1,
     manipulation: 0,
     hung_up: 3,
+    ended: { cooldown: 2, out_of_line: 0, fed_up: 1 },
   });
 
   it("tells the share lowered as a percentage, a dash for too few, and on a phone ends the row on it", () => {
@@ -249,6 +250,9 @@ describe("affinityRows", () => {
     // On a phone, each row ends on the share lowered and the cooldowns, the rest beneath.
     expect(many.end).toBe("减分 12.5% · 冷却 2");
     expect(few.end).toBe("减分 — · 冷却 2");
-    expect(many.details).toBe("判断过 1,200 个回合 · 不该说的话 1 · 操纵 0 · 角色挂断 3");
+    expect(many.ended).toEqual({ cooldown: "2", out_of_line: "0", fed_up: "1" });
+    expect(many.details).toBe(
+      "判断过 1,200 个回合 · 不该说的话 1 · 操纵 0 · 角色挂断 3 · 结束对话：冷却 2、不该说的话 0、接连不快 1",
+    );
   });
 });

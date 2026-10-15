@@ -211,9 +211,15 @@ export type Dashboard = {
 /** The levels the judge model judges a turn at, from hurting her (0) to making her very happy (4). */
 export const AFFINITY_LEVELS = [0, 1, 2, 3, 4] as const;
 
+/** Why she ended a conversation (GLOSSARY「已结束的对话」), in the order the dashboard tells them. */
+export type EndsFor = "cooldown" | "out_of_line" | "fed_up";
+
+export const ENDS_FOR: EndsFor[] = ["cooldown", "out_of_line", "fed_up"];
+
 /** One character's judged turns: only those recorded count (`judged`), and the share of them
- * that lowered her affinity is null for too few of them. `name` is null for a character
- * since removed from the configuration. */
+ * that lowered her affinity is null for too few of them; the calls she hung up, and the
+ * conversations she ended for each reason (`ended`), her hanging up a call not among them.
+ * `name` is null for a character since removed from the configuration. */
 export type AffinityCharacter = {
   character_id: string;
   name: string | null;
@@ -223,6 +229,7 @@ export type AffinityCharacter = {
   out_of_line: number;
   manipulation: number;
   hung_up: number;
+  ended: Record<EndsFor, number>;
 };
 
 /** The dashboard's「好感度」section: the cooldowns begun and for how many users, the turns out
@@ -249,6 +256,7 @@ export type AffinityRow = {
   out_of_line: string;
   manipulation: string;
   hung_up: string;
+  ended: Record<EndsFor, string>;
   end: string;
   details: string;
 };
@@ -264,6 +272,10 @@ export function affinityRows(characters: AffinityCharacter[]): AffinityRow[] {
       c.manipulation,
       c.hung_up,
     ].map(formatCount);
+    const ended = Object.fromEntries(ENDS_FOR.map((why) => [why, formatCount(c.ended[why])])) as Record<
+      EndsFor,
+      string
+    >;
     return {
       id: c.character_id,
       name: c.name,
@@ -273,8 +285,15 @@ export function affinityRows(characters: AffinityCharacter[]): AffinityRow[] {
       out_of_line: outOfLine,
       manipulation,
       hung_up: hungUp,
+      ended,
       end: words.end(lowered, cooldowns),
-      details: words.details(judged, outOfLine, manipulation, hungUp),
+      details: words.details(
+        judged,
+        outOfLine,
+        manipulation,
+        hungUp,
+        words.endedDetails(ended.cooldown, ended.out_of_line, ended.fed_up),
+      ),
     };
   });
 }

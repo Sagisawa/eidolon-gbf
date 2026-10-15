@@ -815,7 +815,7 @@ export const zh = {
         },
         characters: {
           title: "按角色",
-          hint: "减分占比是判成级 0、级 1 的回合占判断过的多少，从高到低排；判断过的回合不到 20 的排在最后，占比写「—」。",
+          hint: "减分占比是判成级 0、级 1 的回合占判断过的多少，从高到低排；判断过的回合不到 20 的排在最后，占比写「—」。「角色挂断」是通话里她挂断的次数，「结束对话」是文字对话里她结束对话的次数，按原因分开。",
           character: "角色",
           judged: "判断过的回合",
           lowered: "减分占比",
@@ -823,10 +823,14 @@ export const zh = {
           outOfLine: "不该说的话",
           manipulation: "操纵",
           hungUp: "角色挂断",
+          ended: "结束对话",
+          endsFor: { cooldown: "冷却", out_of_line: "不该说的话", fed_up: "接连不快" },
           empty: "这段时间没有判断过的回合。",
           end: (lowered: string, cooldowns: string) => `减分 ${lowered} · 冷却 ${cooldowns}`,
-          details: (judged: string, outOfLine: string, manipulation: string, hungUp: string) =>
-            `判断过 ${judged} 个回合 · 不该说的话 ${outOfLine} · 操纵 ${manipulation} · 角色挂断 ${hungUp}`,
+          details: (judged: string, outOfLine: string, manipulation: string, hungUp: string, ended: string) =>
+            `判断过 ${judged} 个回合 · 不该说的话 ${outOfLine} · 操纵 ${manipulation} · 角色挂断 ${hungUp} · ${ended}`,
+          endedDetails: (cooldown: string, outOfLine: string, fedUp: string) =>
+            `结束对话：冷却 ${cooldown}、不该说的话 ${outOfLine}、接连不快 ${fedUp}`,
         },
       },
       characters: {
