@@ -23,6 +23,9 @@ import httpx
 DEFAULT_REGION = "us-east-1"
 """What MinIO expects unless told otherwise, and what R2 takes for its `auto`."""
 
+NEEDED = ("ENDPOINT", "BUCKET", "ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
+"""The settings a bucket cannot do without, after the prefix of its variables."""
+
 _TIMEOUT = 60
 """Seconds without a byte sent or received; a texture is under a megabyte or two, and
 a backup, however large, is sent in chunks."""
@@ -52,11 +55,10 @@ class S3Settings:
         """From the environment variables starting with `prefix`: `EIDOLON_STAND_S3_*`
         for the stands, `EIDOLON_BACKUP_S3_*` for the backups; `purpose` says what the
         bucket is for when one is missing."""
-        names = ("ENDPOINT", "BUCKET", "ACCESS_KEY_ID", "SECRET_ACCESS_KEY")
-        missing = [f"{prefix}{name}" for name in names if not os.environ.get(f"{prefix}{name}")]
+        missing = [f"{prefix}{name}" for name in NEEDED if not os.environ.get(f"{prefix}{name}")]
         if missing:
             raise RuntimeError(f"{purpose}需要存储桶的设置，环境变量 {'、'.join(missing)} 未设置")
-        endpoint, bucket, key_id, secret = (os.environ[f"{prefix}{name}"].strip() for name in names)
+        endpoint, bucket, key_id, secret = (os.environ[f"{prefix}{name}"].strip() for name in NEEDED)
         endpoint = endpoint.rstrip("/")
         if not endpoint.startswith(("https://", "http://")):
             raise RuntimeError(f"环境变量 {prefix}ENDPOINT 应为 http:// 或 https:// 开头的地址，而不是 {endpoint}")

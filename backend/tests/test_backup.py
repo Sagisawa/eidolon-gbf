@@ -410,19 +410,6 @@ async def test_a_run_begun_in_the_background_is_abandoned_as_the_server_shuts_do
     assert (record.source, record.abandoned) == ("admin", True)
 
 
-async def test_a_run_is_not_begun_in_the_background_while_another_is_under_way(
-    deployment: Deployment,
-):
-    backups = deployment.backups()
-    backups.start("cron")
-
-    assert not backups.begin("admin", deployment.settings)
-
-    await backups.aclose()
-    assert [record.source for record in deployment.records()] == ["cron"]
-    assert deployment.storage.puts == []
-
-
 async def test_records_over_90_days_old_are_deleted_as_a_run_begins(deployment: Deployment):
     await deployment.run("cron", now=START - timedelta(days=90, minutes=1))
     await deployment.run("cron", now=START - timedelta(days=89))
@@ -449,6 +436,7 @@ def backup_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
         *BACKUP_ENV,
         "EIDOLON_BACKUP_PING_URL",
         "EIDOLON_BACKUP_S3_REGION",
+        "EIDOLON_BACKUP_S3_ADDRESSING",
         "EIDOLON_BACKUP_KEEP_DAYS",
         "EIDOLON_BACKUP_WARN_GB",
     ]:

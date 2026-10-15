@@ -157,10 +157,10 @@ def _serve() -> int:
     # Which settings the admin console overrides, for a deployer wondering why `.env`'s
     # did not take (ADR-0013), and what the backups begun from it did, which is not in
     # `logs/db-backup.log`; nothing configures the root logger to show either.
-    shown = logging.StreamHandler()
-    shown.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    to_stderr = logging.StreamHandler()
+    to_stderr.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     for name in ["eidolon.live_config", "eidolon.backup"]:
-        logging.getLogger(name).addHandler(shown)
+        logging.getLogger(name).addHandler(to_stderr)
         logging.getLogger(name).setLevel(logging.INFO)
 
     try:  # missing settings, an unusable DashScope key or Cloudflare token, a broken

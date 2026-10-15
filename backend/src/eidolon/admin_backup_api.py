@@ -45,8 +45,6 @@ def _status(status: BackupStatus) -> dict:
         "last_success": success and {
             "source": success.source,
             "started_at": success.started_at,
-            "finished_at": success.finished_at,
-            "key": success.key,
             "size": success.size,
         },
         "last": last and _run(last),
@@ -54,7 +52,6 @@ def _status(status: BackupStatus) -> dict:
             "kept": status.listed.kept,
             "total": status.listed.total,
             "over_warning": status.over_warning,
-            "at": status.listed.started_at,
         },
         "problem": status.problem,
     }
@@ -64,6 +61,5 @@ def _run(record: BackupRecord) -> dict:
     return {
         "source": record.source,
         "started_at": record.started_at,
-        "finished_at": record.finished_at,
         "errors": [{"stage": stage, "error": error} for stage, error in record.errors],
     }

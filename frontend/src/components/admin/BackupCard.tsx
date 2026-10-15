@@ -13,6 +13,7 @@ import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import {
   BACKUP_BUSY_REFRESH_MS,
+  type BackupHeadline,
   type BackupStatus,
   backUpNow,
   backupHeadline,
@@ -21,6 +22,7 @@ import {
   failureLines,
   formatBytes,
   getBackupStatus,
+  settingsWillDo,
 } from "@/lib/backups";
 import { DASHBOARD_REFRESH_MS, formatFetchedAt } from "@/lib/dashboard";
 import { FailureIcon } from "@/theme/icons";
@@ -119,13 +121,7 @@ export function BackupCard({ refreshKey }: { refreshKey: number }) {
 
 /** 一句结论：异常带红点并加粗，正常只写 muted 字；备份中带转圈，后面是谁发起、几点开始。未配置和配置有误时
  * 下面再跟一句怎么办或错在哪。 */
-function Headline({
-  headline,
-  status,
-}: {
-  headline: NonNullable<ReturnType<typeof backupHeadline>>;
-  status: BackupStatus | null;
-}) {
+function Headline({ headline, status }: { headline: BackupHeadline; status: BackupStatus | null }) {
   if (headline.kind === "busy") {
     const underWay = status?.under_way;
     return (
@@ -160,6 +156,8 @@ function Headline({
 function Details({ status }: { status: BackupStatus }) {
   const { last_success: success, bucket, last } = status;
   const failures = failureLines(last);
+  /** 设置读不出来时，保留期和空间提醒都无从说起。 */
+  const read = settingsWillDo(status);
   return (
     <MetadataList>
       <MetadataListItem label={t.lastSuccess}>
@@ -188,10 +186,10 @@ function Details({ status }: { status: BackupStatus }) {
         )}
       </MetadataListItem>
       <MetadataListItem label={t.keepDays}>
-        {status.keep_days === null ? "—" : t.keepDaysValue(String(status.keep_days))}
+        {read && status.keep_days !== null ? t.keepDaysValue(String(status.keep_days)) : "—"}
       </MetadataListItem>
       <MetadataListItem label={t.warnGb}>
-        {status.keep_days === null ? "—" : status.warn_gb === null ? t.warnGbUnset : t.warnGbValue(String(status.warn_gb))}
+        {!read ? "—" : status.warn_gb === null ? t.warnGbUnset : t.warnGbValue(String(status.warn_gb))}
       </MetadataListItem>
       {last && failures.length > 0 && (
         <MetadataListItem label={t.lastFailure}>

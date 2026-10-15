@@ -30,7 +30,7 @@ import sqlite3
 import tempfile
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -40,7 +40,7 @@ import pyrage
 
 from eidolon.clock import Clock
 from eidolon.database import connect
-from eidolon.s3 import Bucket, S3Error, S3Settings
+from eidolon.s3 import NEEDED, Bucket, S3Error, S3Settings
 
 log = logging.getLogger(__name__)
 
@@ -82,13 +82,7 @@ the cron's are a day apart, and one takes minutes."""
 
 BUSY_MESSAGE = "上一次备份还没结束（cron、手动或后台按钮发起的），这次没有运行"
 
-_NEEDED = (
-    "EIDOLON_BACKUP_S3_ENDPOINT",
-    "EIDOLON_BACKUP_S3_BUCKET",
-    "EIDOLON_BACKUP_S3_ACCESS_KEY_ID",
-    "EIDOLON_BACKUP_S3_SECRET_ACCESS_KEY",
-    "EIDOLON_BACKUP_AGE_RECIPIENT",
-)
+_BUCKET_PREFIX = "EIDOLON_BACKUP_S3_"
 
 
 @dataclass(frozen=True)
@@ -110,7 +104,7 @@ class BackupSettings:
         """From `EIDOLON_BACKUP_S3_*`, `EIDOLON_BACKUP_AGE_RECIPIENT` and, if they are
         set, `EIDOLON_BACKUP_PING_URL`, `EIDOLON_BACKUP_KEEP_DAYS` and
         `EIDOLON_BACKUP_WARN_GB`."""
-        bucket = S3Settings.from_env("EIDOLON_BACKUP_S3_", "备份数据库")
+        bucket = S3Settings.from_env(_BUCKET_PREFIX, "备份数据库")
         recipient = (os.environ.get("EIDOLON_BACKUP_AGE_RECIPIENT") or "").strip()
         if not recipient:
             raise RuntimeError("备份数据库需要 age 公钥，环境变量 EIDOLON_BACKUP_AGE_RECIPIENT 未设置")
@@ -145,7 +139,8 @@ class BackupSettings:
     def any_set() -> bool:
         """Whether the environment has any of the settings a backup needs: a deployment
         with none has not set backups up, one with some has set them up wrong."""
-        return any((os.environ.get(name) or "").strip() for name in _NEEDED)
+        needed = [f"{_BUCKET_PREFIX}{name}" for name in NEEDED] + ["EIDOLON_BACKUP_AGE_RECIPIENT"]
+        return any((os.environ.get(name) or "").strip() for name in needed)
 
 
 @dataclass
@@ -309,6 +304,7 @@ Stage = Literal["config", "export", "upload", "prune", "abandoned"]
 """Where a run went wrong: its settings would not do, the database was not exported or
 the backup not uploaded, old backups not deleted; or it was taken never to finish."""
 
+
 @dataclass(frozen=True)
 class BackupRecord:
     """A backup run, as the database keeps it."""
@@ -370,7 +366,8 @@ class BackupStatus:
     last_success: BackupRecord | None
     """The latest run to go well (exit code 0)."""
     last: BackupRecord | None
-    """The latest run that finished, however it did."""
+    """The latest run that is not under way, however it went; one never finished,
+    abandoned."""
     listed: BackupRecord | None
     """The latest run that listed the bucket: what is in it."""
     problem: Problem | None
@@ -449,23 +446,26 @@ class Backups:
         task.add_done_callback(self._background.discard)
         return True
 
-    def status(
-        self, settings: Callable[[], BackupSettings] = BackupSettings.from_env
-    ) -> BackupStatus:
-        """The backups as they are now, with the `settings` read now."""
+    def status(self) -> BackupStatus:
+        """The backups as they are now, with their settings read from the environment
+        now. A run begun over `STALE` ago and not finished is taken never to finish, as
+        the next run to begin will take it."""
         any_set = BackupSettings.any_set()
         loaded, config_error = None, None
         if any_set:
             try:
-                loaded = settings()
+                loaded = BackupSettings.from_env()
             except RuntimeError as e:
                 config_error = str(e)
-        records = self.records()
         stale = (self._clock() - STALE).isoformat()
-        finished = [r for r in records if r.finished_at is not None]
-        under_way = next(
-            (r for r in records if r.finished_at is None and r.started_at > stale), None
-        )
+        under_way, finished = None, []
+        for record in self.records():
+            if record.finished_at is not None:
+                finished.append(record)
+            elif record.started_at > stale:
+                under_way = under_way or record
+            else:
+                finished.append(replace(record, abandoned=True))
         last_success = next((r for r in finished if r.exit_code == SUCCEEDED), None)
         problem: Problem | None = None
         if not any_set:

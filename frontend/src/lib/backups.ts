@@ -15,11 +15,10 @@ export type BackupStage = "config" | "export" | "upload" | "prune" | "abandoned"
  * well, or the last that did is over 26 hours ago. */
 export type BackupProblem = "unconfigured" | "misconfigured" | "never_succeeded" | "overdue";
 
-/** A backup run that finished, however it went: `errors` empty when it went well. */
+/** A backup run not under way, however it went: `errors` empty when it went well. */
 export type BackupRun = {
   source: BackupSource;
   started_at: string;
-  finished_at: string;
   errors: { stage: BackupStage; error: string | null }[];
 };
 
@@ -36,16 +35,14 @@ export type BackupStatus = {
   last_success: {
     source: BackupSource;
     started_at: string;
-    finished_at: string;
-    key: string;
     /** Bytes, compressed and encrypted. */
     size: number;
   } | null;
-  /** The latest run to finish, which may have gone wrong. */
+  /** The latest run not under way, which may have gone wrong. */
   last: BackupRun | null;
-  /** What is in the bucket, as the latest run that listed it saw (`at`, when it began);
-   * `total` is null where the bucket did not say each one's size. */
-  bucket: { kept: number; total: number | null; over_warning: boolean; at: string } | null;
+  /** What is in the bucket, as the latest run that listed it saw; `total` is null where the
+   * bucket did not say each one's size. */
+  bucket: { kept: number; total: number | null; over_warning: boolean } | null;
   problem: BackupProblem | null;
 };
 
@@ -78,11 +75,16 @@ export function backupHeadline(status: BackupStatus | null, pressed: boolean): B
   return status.problem === null ? { kind: "ok" } : { kind: "problem", problem: status.problem };
 }
 
+/** Whether the settings are set and will do: the backend read them, and would begin a backup. */
+export function settingsWillDo(status: BackupStatus): boolean {
+  return status.problem !== "unconfigured" && status.problem !== "misconfigured";
+}
+
 /** Whether the button may begin a backup: not while one is under way, nor without settings
  * that will do, which the backend would refuse. */
 export function canBackUp(status: BackupStatus | null, pressed: boolean): boolean {
   if (status === null || backupHeadline(status, pressed)?.kind === "busy") return false;
-  return status.problem !== "unconfigured" && status.problem !== "misconfigured";
+  return settingsWillDo(status);
 }
 
 /** What a finished run that went wrong did wrong, a line for each: 「上传失败：…」. None for a
