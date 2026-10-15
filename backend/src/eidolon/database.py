@@ -51,7 +51,7 @@ NOT_USER_DATA = frozenset(
         "episodes", "episode_cast", "episode_lines", "episode_passages", "embedded_texts",
         "service_calls", "config_overrides", "price_overrides", "price_catalog",
         "price_catalog_thinking", "price_catalog_hosts", "price_catalog_state", "banned_identities", "announcements",
-        "gifts_opened", "reset_card_grants",
+        "gifts_opened", "reset_card_grants", "backup_runs",
     }
 )
 """Every other table: the story corpus, the embedded text set, the calls to outside
@@ -60,7 +60,8 @@ configuration and the prices the admin console overrides, the price catalogs fet
 online, the ban list, hashes of the identities banned users since deleted signed in
 with, which say whose they were to no one, the announcements admins write, which say
 nothing of who wrote them, when gifts last opened, which is no one's, and the reset cards
-admins have given every user, which say nothing of who gave them or to whom."""
+admins have given every user, which say nothing of who gave them or to whom, and the
+record of each backup run, which says nothing of anyone's."""
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -68,12 +69,16 @@ def connect(path: Path) -> sqlite3.Connection:
     usable from any thread and waiting up to 30 seconds for another writer."""
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, check_same_thread=False, timeout=30)
-    # Readers need not wait for a writer: several modules, and the command line in another
-    # process, each have a connection to this database.
-    db.execute("PRAGMA journal_mode = WAL")
-    # What is deleted is overwritten, not just freed: deleting a user is for good.
-    db.execute("PRAGMA secure_delete = ON")
-    db.execute("PRAGMA foreign_keys = ON")
+    try:
+        # Readers need not wait for a writer: several modules, and the command line in
+        # another process, each have a connection to this database.
+        db.execute("PRAGMA journal_mode = WAL")
+        # What is deleted is overwritten, not just freed: deleting a user is for good.
+        db.execute("PRAGMA secure_delete = ON")
+        db.execute("PRAGMA foreign_keys = ON")
+    except sqlite3.Error:  # not a database: closed, so that the file can be deleted
+        db.close()
+        raise
     return db
 
 

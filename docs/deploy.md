@@ -551,15 +551,17 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
 
 - 数据库（用户及其登录方式、会话、对话、记忆、制作人档案、最近 24 小时的用量、剧情库，以及后台的配置覆盖、单价、单独限额、封禁名单和最近 90 天的运行记录）和同步下载的原始剧本缓存在 Docker 卷 `eidolon-data` 里；
 - 证书在 Docker 卷 `caddy-data` 里；
-- 人设、角色资料、头像在服务器上的 `characters/` 目录，剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步和备份的日志在 `logs/`（都被 git 忽略，`git pull` 不会动它们）。
+- 人设、角色资料、头像在仓库的 `characters/` 目录里，`git pull` 时随仓库更新；剧情库的原始数据在 `corpus/` 目录，活动名对照表是 `deploy/event-names.toml`，同步和备份的日志在 `logs/`（这几个被 git 忽略，`git pull` 不会动它们）。
 
 不要执行 `docker compose down -v`，`-v` 会删掉这些卷。
 
 ## 备份
 
-数据库（用户、对话、记忆、剧情库，全部在一个 SQLite 文件里）由 `deploy/db-backup.sh` 每天备份一次（ADR-0012）：它在后端容器里运行 `eidolon backup`，不用停服务，把整个数据库导出成一个一致的副本、检查完整性、压缩，用 age 公钥加密后上传到一个私有的 S3 兼容存储桶，再删掉 30 天前的备份。最新的一份总是保留，哪怕已经超过 30 天，存储桶不会被删空；当天上传失败时过期的备份也照删。
+数据库（用户、对话、记忆、剧情库，全部在一个 SQLite 文件里）由 `deploy/db-backup.sh` 每天备份一次（ADR-0012）：它在后端容器里运行 `eidolon backup`，不用停服务，把整个数据库导出成一个一致的副本、检查完整性、压缩，用 age 公钥加密后上传到一个私有的 S3 兼容存储桶，再删掉过了保留期的备份（默认 30 天，可以调短，见下文「保留期和空间」）。最新的一份总是保留，哪怕已经过了保留期，存储桶不会被删空；当天上传失败时过期的备份也照删。
 
-`characters/` 目录、`deploy/event-names.toml` 和 `.env` 不在备份里，另外自己保存。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
+同一时间只有一次备份：cron、手动运行（和后台的「立即备份」）撞上正在进行的那次，就直接放弃。每次备份都在数据库里留一条记录，正在进行的那条就是锁；进程中途被杀掉（容器重启、断电）留下的记录，开始一小时后就不再挡住新的备份。
+
+备份里只有数据库。`characters/` 在仓库里，不用另外保存；`.env` 和你在服务器上自己加的 compose 叠加文件要另外保存，`deploy/event-names.toml` 写了的话也一起保存（见「换服务器」）。原始剧本缓存不用备份，丢了只是下一次同步重新下载。
 
 ### 第一次配置
 
@@ -595,17 +597,17 @@ CI 第一次发布后，GHCR 上的两个包跟随仓库，默认是私有的，
 7. **装 cron**，每天一次。`crontab -e`，加一行（路径换成仓库的实际位置；时间随意，避开整点和剧情同步即可）：
 
    ```cron
-   43 3 * * * /home/you/eidolon-sc/deploy/db-backup.sh
+   43 3 * * * /home/you/eidolon-sc/deploy/db-backup.sh --cron
    ```
 
-   运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），对 `logs/` 有写权限；主机上要有 `flock`（util-linux）。
+   `--cron` 让备份记录里记下这是每天的 cron，不带时记为服务器上手动运行（2026-10-15 以前装的 cron 那一行没有它，补上即可）。脚本和镜像要一起升级（照「升级」，`git pull` 之后也 `pull`、`up -d`）：镜像还是旧的时，容器里的 `eidolon backup` 不认 `--source`，日志会误报成退出码 2。运行 cron 的用户要能执行 `docker compose`（root，或在 `docker` 组里），对 `logs/` 有写权限。
 8. **演练一次恢复**（见下文「从备份恢复」），确认私钥能用、步骤走得通。
 
 手动备份也是运行 `deploy/db-backup.sh`。
 
 ### 日志和退出码
 
-日志在 `logs/db-backup.log`（可用环境变量 `EIDOLON_BACKUP_LOG` 改到别处），每次备份以「开始备份数据库」开头、以「结束：退出码 N（含义）」结尾，中间是备份的名字和大小、删掉了哪些过期备份、存储桶里还有几份。看最近几次的结果：
+日志在 `logs/db-backup.log`（可用环境变量 `EIDOLON_BACKUP_LOG` 改到别处），每次备份以「开始备份数据库」开头、以「结束：退出码 N（含义）」结尾，中间是备份的名字和大小、删掉了哪些过期备份、存储桶里还有几份、一共多大，超过空间提醒时还有一条「注意」。看最近几次的结果：
 
 ```sh
 grep '结束：' logs/db-backup.log | tail
@@ -614,12 +616,12 @@ grep '结束：' logs/db-backup.log | tail
 | 退出码 | 含义 | 要做什么 |
 |---|---|---|
 | 0 | 完全成功 | 不用管 |
-| 1 | 配置不全：缺存储桶的设置或 age 公钥，或公钥格式不对；没有备份 | 照上面补全 `.env`，`docker compose -f docker-compose.prod.yml up -d` |
+| 1 | 配置不全：缺存储桶的设置或 age 公钥，或公钥、保留期、空间提醒的格式不对；没有备份 | 照上面补全 `.env`，`docker compose -f docker-compose.prod.yml up -d` |
 | 2 | 导出数据库或完整性检查失败（数据库损坏、磁盘满了），没有上传；过期备份照常删除 | 看日志里的错误。数据库损坏时**不要**等它自己好，尽快从最新的备份恢复 |
 | 3 | 上传失败（网络、密钥、存储桶），这次没有备份；过期备份照常删除，最新的一份保留 | 看日志里存储桶返回的错误；网络问题通常下次就好 |
-| 4 | 备份已上传，但没能删掉 30 天前的备份 | 通常是令牌没有删除权限，改成「对象读和写」；下次备份会接着删 |
-| 5 | 后端容器没有运行，或无法运行备份命令（没有 docker 的权限、找不到 flock 等，原因在日志里） | 容器没有运行时 `docker compose -f docker-compose.prod.yml up -d` |
-| 6 | 上一次备份还没结束，这次没有运行 | 不用管 |
+| 4 | 备份已上传，但没能删掉过期的备份 | 通常是令牌没有删除权限，改成「对象读和写」；下次备份会接着删 |
+| 5 | 后端容器没有运行，或无法运行备份命令（没有 docker 的权限等，原因在日志里） | 容器没有运行时 `docker compose -f docker-compose.prod.yml up -d` |
+| 6 | 上一次备份还没结束（可能是 cron、手动运行或后台按钮发起的），这次没有运行 | 不用管 |
 
 日志每天只增加几行，不用轮转。
 
@@ -627,9 +629,29 @@ grep '结束：' logs/db-backup.log | tail
 
 备份停了（cron 没跑、服务器整台没了）脚本自己没法告诉你。配上 `EIDOLON_BACKUP_PING_URL` 后，每次备份**完全成功**（退出码 0）就访问一次这个地址；在 [healthchecks.io](https://healthchecks.io/) 之类的服务建一个每天一次、宽限几小时的检查，地址填进去，超时没收到就会发邮件提醒你。访问失败只在日志里记一条「注意」，不影响退出码。
 
+### 保留期和空间
+
+两个变量都是可选的，只在 `.env` 里改，改完 `docker compose -f docker-compose.prod.yml up -d`：
+
+```sh
+EIDOLON_BACKUP_KEEP_DAYS=14   # 保留期，整数天数 1 到 30，不填为 30
+EIDOLON_BACKUP_WARN_GB=3      # 存储桶里备份的总量超过它就提醒，单位 GB，可以是小数；不填不提醒
+```
+
+- **保留期只能调短。** 30 天是隐私政策和删除确认里的承诺（删除的数据最多 30 天后从备份里消失），调短仍然成立；填 0、超过 30 或者不是整数，备份以退出码 1「配置不全」失败，日志里写明原因（ADR-0012 的 2026-10-15 修订）。调短以后，下一次备份就会删掉比新保留期更早的备份。
+- **空间只提醒，不删。** 每次备份的日志里都有存储桶里还剩几份备份、一共多大（只算 `eidolon-<UTC 时间>.db.gz.age` 这样的备份，桶里别的文件不算）。设了 `EIDOLON_BACKUP_WARN_GB`，总量超过它时日志里多一条「注意」，备份照常成功、退出码不变、心跳照发。线上一份约 77 MB，留满 30 天约 2.3 GB（2026-10-15）；阈值按你那家存储的计费来定。
+
+### 看板上的备份
+
+后台的看板在「服务健康」下面有一块「备份」，每分钟刷新：上一次成功的时间、大小和发起的是谁（每天的 cron、服务器上手动运行、后台按钮），存储桶里的份数和总量（超过 `EIDOLON_BACKUP_WARN_GB` 时标出来），保留期和空间提醒，最近一次失败的原因（导出、上传、清理过期备份，或者配置不全、没有完成）。这几种情况标成异常：上一次成功的备份超过 26 小时（cron 停了）、从来没有成功过、没有配置备份（`.env` 里备份的设置一项都没填）、配置有误（附上和日志里一样的原因）。数字来自上面说的备份记录，看板不去连存储桶。
+
+「立即备份」在后端进程里跑一次和 cron 一样的备份（导出、压缩、加密在单独的线程里做，不卡正在进行的通话），按钮马上变成「备份中…」，几分钟后自动换成新的结果；不管正在进行的那次是谁发起的，都显示「备份中…」，按钮不能点。更新前、换服务器前点一下，就不用 ssh 上去跑脚本。
+
+按钮那次的输出在后端的日志里（`docker compose -f docker-compose.prod.yml logs backend`，每行以 `INFO: backup:` 或 `WARNING: backup:` 开头），**不在** `logs/db-backup.log`：那个文件只记 `deploy/db-backup.sh` 跑的备份。这次备份同样占住锁，cron 撞上它就以退出码 6 放弃；后端在备份中途重启，这次记成没有完成。
+
 ### 30 天和删除用户
 
-用户删除自己的数据时，线上数据库里立刻彻底删除；已经做好的备份里的副本，要等这些备份过期才消失，最多 30 天（隐私政策和删除确认里写明了这一点）。这个期限靠每天的备份来执行：cron 停了，或者服务器整台没了，过期的备份就不会再被删，要你自己去存储桶里删掉 30 天前的。
+用户删除自己的数据时，线上数据库里立刻彻底删除；已经做好的备份里的副本，要等这些备份过期才消失，最多 30 天（隐私政策和删除确认里写明了这一点；保留期调短以后更早）。这个期限靠每天的备份来执行：cron 停了，或者服务器整台没了，过期的备份就不会再被删，要你自己去存储桶里删掉过了保留期的。
 
 自带密钥改为只存在用户的浏览器里（ADR-0017）以后，数据库和备份里都没有自带密钥了。升级之前做的备份里还留着用户加密保存的旧 key，同样要等这些备份过期才消失，最多 30 天（ADR-0012 的 2026-10-10 修订）。
 
@@ -640,27 +662,63 @@ grep '结束：' logs/db-backup.log | tail
 恢复时不需要用 `EIDOLON_SECRET_KEY` 解开用户的自带密钥：备份里没有，自带密钥只存在用户的浏览器里。从升级之前的备份恢复时，里面加密的旧 key 会在后端启动时随旧表一起删掉，用户要在浏览器里重新填一次。
 
 1. **下载**：在存储桶里（R2 在网页上就能下载）找到最新的 `eidolon-<UTC 时间>.db.gz.age`，下载到**你自己的电脑上**。
-2. **解密、解压**（私钥只在你的电脑上用）：
+2. **解密**（私钥只在你的电脑上用）：
 
    ```sh
-   age -d -i eidolon-backup.key eidolon-20261003T034300Z.db.gz.age | gunzip > eidolon.db
-   sqlite3 eidolon.db 'PRAGMA integrity_check; SELECT count(*) FROM users;'   # 应输出 ok 和用户数
+   age -d -i eidolon-backup.key -o eidolon-20261003T034300Z.db.gz eidolon-20261003T034300Z.db.gz.age
    ```
 
-3. **传到服务器**，例如 `scp eidolon.db 服务器:/tmp/eidolon.db`。
-4. **停后端，替换卷里的数据库**，删掉旧的 `-wal`、`-shm`（不删的话，旧的日志会被当成新数据库的一部分）：
+   解出来的 `.db.gz` 可以直接用；想先在自己电脑上看一眼，就解压（`gunzip -k`）后 `sqlite3 eidolon-20261003T034300Z.db 'PRAGMA integrity_check; SELECT count(*) FROM users;'`，应输出 `ok` 和用户数。
+3. **传到服务器**，例如 `scp eidolon-20261003T034300Z.db.gz 服务器:/tmp/`。
+4. **在服务器上恢复**，在仓库目录里：
 
    ```sh
-   docker compose -f docker-compose.prod.yml stop backend
-   docker compose -f docker-compose.prod.yml run --rm --no-deps -v /tmp/eidolon.db:/restore.db:ro      --entrypoint sh backend -c 'rm -f /data/eidolon.db-wal /data/eidolon.db-shm && cp /restore.db /data/eidolon.db'
-   docker compose -f docker-compose.prod.yml start backend
-   rm /tmp/eidolon.db
+   deploy/db-restore.sh /tmp/eidolon-20261003T034300Z.db.gz
+   rm /tmp/eidolon-20261003T034300Z.db.gz
    ```
 
-   换了一台新服务器时，先照「部署」把 `.env`（包括原来的 `EIDOLON_SECRET_KEY`）、`characters/` 准备好，`up -d` 一次让卷建出来，再做这一步。
-5. **确认**：登录网站，看对话和记忆都在；`docker compose -f docker-compose.prod.yml exec backend eidolon user list` 能列出用户。
+   它依次：
+   - **先检查文件**：在一个一次性的后端容器里（后端照常运行）把它解压到数据卷里，检查完整性、确认有本项目的表，报出里面有几位用户。`.db` 和 `.db.gz` 都接受（按内容判断是不是压缩的）。文件损坏、不是 SQLite、不是本项目的数据库时说明原因，**什么都不动**就退出。
+   - **把现在的库备份到存储桶**（运行一次 `deploy/db-backup.sh`，记为服务器上手动运行，日志照常在 `logs/db-backup.log`），恢复错了还能从这一份回去；它作为一份普通的备份，保留期满自动删除，服务器上不会多出一份没人管的旧库。这一次没有成功（退出码不是 0）就停下、什么都不换，终端里有这次备份的日志。新服务器上的库是空的，加 `--no-backup` 跳过这一步（见「换服务器」）。
+   - **停后端，替换**：在一次性的后端容器里运行 `eidolon restore`，再检查一遍，删掉旧库的 `-wal`、`-shm`（不删的话，旧的日志会被当成新数据库的一部分），把解压好的文件改名成数据库，一步换上。
+   - **启动后端**（替换没成功时也会启动，库没有换），报出恢复进来的库里有几位用户。
 
-建议第一次配好备份后就在本地的 compose（`docker-compose.yml`）上演练一次：步骤一样，只是把 `-f docker-compose.prod.yml` 去掉。
+   服务器上自己加了 compose 叠加文件时，照「部署」把它写进 `COMPOSE_FILE`（例如 `export COMPOSE_FILE=docker-compose.prod.yml:docker-compose.local.yml`）再运行：脚本默认只读 `docker-compose.prod.yml`，停、启后端和一次性容器都不会带上叠加文件里的设置。`deploy/db-backup.sh` 也一样。
+
+   备份是在备份进行中导出的，所以每份备份里都有一条「进行中」的备份记录；恢复时会把它标成没有完成，看板不会一直显示「备份中…」。恢复以后表结构由后端启动时照常补齐。
+
+   | 退出码 | 含义 |
+   |---|---|
+   | 0 | 恢复完成，后端已启动 |
+   | 1 | 参数不对或者文件不存在，什么都没动 |
+   | 2 | 替换前的备份没有成功，什么都没换 |
+   | 3 | 文件没有通过检查（或者没能替换），现在的库没有换；后端在运行 |
+   | 4 | 停止或启动后端失败（docker 的错误在上方） |
+
+5. **确认**：用户数和你预期的一致；登录网站，看对话和记忆都在；`docker compose -f docker-compose.prod.yml exec backend eidolon user list` 能列出用户。
+
+建议第一次配好备份后就在本地的 compose（`docker-compose.yml`）上演练一次：`docker compose up -d` 之后，`COMPOSE_FILE=docker-compose.yml deploy/db-restore.sh <文件> --no-backup`，其余步骤一样。
+
+## 换服务器
+
+搬家就是「在旧服务器上立即备份一次，在新服务器上从它恢复」，和上面的恢复是同一套步骤（ADR-0012 的 2026-10-15 修订）。数据库之外要带走的东西很少：
+
+- `characters/`（人设、资料、头像）、`deploy/` 下的脚本和 compose 配置都在仓库里，`git clone` 就有，不用另外拷。
+- **要手动带走**：`.env`（尤其是原来的 `EIDOLON_SECRET_KEY`，换了它后台保存的 key 就解不开、封禁名单也对不上），以及你在服务器上自己加的 compose 叠加文件（如果有）。
+- `deploy/event-names.toml` 只在你写过它的部署上才有（被 git 忽略），写了就一起带走。
+- 不用带：`corpus/`、原始剧本缓存（下一次同步重新下载）、证书（Caddy 在新服务器上重新申请）、`logs/`。
+
+步骤：
+
+1. **新服务器先照「准备」「部署」装好**：`git clone`，放好带过来的 `.env` 和 compose 叠加文件，`docker compose -f docker-compose.prod.yml up -d` 一次，让数据卷建出来。新服务器部署的提交**不能比旧服务器旧**（用旧服务器上 `git log -1` 的那个提交或更新的）：新代码改过的表结构，旧代码不一定认得，恢复时不做这项检查。
+2. **旧服务器上立即备份一次**：后台看板的「立即备份」，或者 `deploy/db-backup.sh`；确认存储桶里出现了新的一份。
+3. **下载这一份、在自己电脑上解密，传到新服务器**，照「从备份恢复」的 1–3 步。
+4. **在新服务器上恢复**：`deploy/db-restore.sh <文件> --no-backup`。新服务器上的库是空的，不用先备份；备份也可能还没配好。
+5. **确认**：照「从备份恢复」第 5 步。DNS 还没切过去时，在自己电脑的 hosts 文件里把域名指向新服务器的地址再打开网站（证书要等 DNS 切过去才申请得到，在这之前可以只看 `eidolon user list`）。
+6. **把 DNS 切到新服务器**，确认网站正常后，在新服务器上装好 cron（照「备份」的第 7 步，`--cron` 别漏）和剧情同步的 cron（「每周自动同步」），手动跑一次 `deploy/db-backup.sh` 确认新服务器的备份能用。
+7. **停掉旧服务器**：`docker compose -f docker-compose.prod.yml down`（**不要**带 `-v`），删掉它的 cron。
+
+第 2 步之后旧服务器还开着，用户在这段时间里的新对话、新注册都只在旧库里，新服务器上没有。想一条不丢，就先让旧服务器停止服务、再做第 2 步：`docker compose -f docker-compose.prod.yml stop caddy frontend`（网站打不开了，后端还在，备份还能做），然后运行 `deploy/db-backup.sh`（后台的按钮这时也打不开），用这一份恢复。代价是从这时起到 DNS 切过去，网站都打不开；不停的话，第 2 步之后旧服务器上的新数据就留在旧库里，不会搬过来。
 
 ## 排障
 

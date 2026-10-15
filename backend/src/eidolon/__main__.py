@@ -49,11 +49,17 @@
                                      character has any more; exits 2
                                      if the bucket could not be listed, 3 if some could not
                                      be voiced, put or deleted
-    eidolon backup                   back the database up, compressed and encrypted to the
+    eidolon backup [--source cron]   back the database up, compressed and encrypted to the
                                      deployer's age key, to the private bucket, and delete
-                                     the backups over 30 days old save the newest; exits 2
-                                     if the copy failed, 3 if the upload did, 4 if deleting
-                                     the old ones did
+                                     the backups past the retention save the newest,
+                                     recording the run; exits 2 if the copy failed, 3 if
+                                     the upload did, 4 if deleting the old ones did, 6 if
+                                     another backup was under way
+    eidolon restore [--check] <file> put the database in a backup the deployer decrypted,
+                                     .db or .db.gz, in place of this one, with the server
+                                     stopped (deploy/db-restore.sh), if it is whole and has
+                                     this project's tables, leaving it alone if not; and
+                                     say how many users it has; --check only checks it
     eidolon reembed                  after changing the embedding service, model or
                                      dimensions, embed the story corpus, character facts,
                                      work facts, and memories again from
@@ -119,6 +125,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return asyncio.run(_greeting_upload(args))
     if args.command == "backup":
         return asyncio.run(_backup(args))
+    if args.command == "restore":
+        return _restore(args)
     if args.command == "reembed":
         return asyncio.run(_reembed(args))
     if args.command == "eval" and args.action == "judge":
@@ -154,11 +162,13 @@ def _serve() -> int:
     logger.add(sys.stderr, level="INFO")
 
     # Which settings the admin console overrides, for a deployer wondering why `.env`'s
-    # did not take (ADR-0013); nothing configures the root logger to show it.
-    overrides = logging.StreamHandler()
-    overrides.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
-    logging.getLogger("eidolon.live_config").addHandler(overrides)
-    logging.getLogger("eidolon.live_config").setLevel(logging.INFO)
+    # did not take (ADR-0013), and what the backups begun from it did, which is not in
+    # `logs/db-backup.log`; nothing configures the root logger to show either.
+    to_stderr = logging.StreamHandler()
+    to_stderr.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    for name in ["eidolon.live_config", "eidolon.backup"]:
+        logging.getLogger(name).addHandler(to_stderr)
+        logging.getLogger(name).setLevel(logging.INFO)
 
     try:  # missing settings, an unusable DashScope key or Cloudflare token, a broken
         # character configuration
@@ -543,35 +553,46 @@ async def _greeting_upload(args: argparse.Namespace) -> int:
 
 
 async def _backup(args: argparse.Namespace) -> int:
+    import sqlite3
     import time
 
-    from eidolon.backup import MISCONFIGURED, BackupSettings, back_up
+    from eidolon.backup import EXPORT_FAILED, Backups, describe
 
-    try:
-        settings = BackupSettings.from_env()
-    except RuntimeError as e:
-        print(e, file=sys.stderr)
-        return MISCONFIGURED
     started = time.monotonic()
-    report = await back_up(args.db or database_path_from_env(), settings, now=utc_now())
-    if report.export_error is not None:
-        print(f"没有备份：{report.export_error}", file=sys.stderr)
-    if report.upload_error is not None:
-        print(f"备份没有上传：{report.upload_error}", file=sys.stderr)
-    if report.key is not None:
-        print(f"已备份为 {report.key}（压缩加密后 {report.size / 1_000_000:.1f} MB）")
-    deleted = f"：{'、'.join(report.deleted)}" if report.deleted else ""
-    if report.prune_error is not None:
-        print(
-            f"没能删完 30 天前的备份（已删除 {len(report.deleted)} 份{deleted}），下次备份再删：{report.prune_error}",
-            file=sys.stderr,
-        )
-    else:
-        print(f"删除了 {len(report.deleted)} 份 30 天前的备份{deleted}；存储桶里现有 {report.kept} 份备份")
-    if report.ping_error is not None:
-        print(f"注意：{report.ping_error}", file=sys.stderr)
+    try:
+        backups = Backups(args.db or database_path_from_env(), utc_now)
+        try:
+            report = await backups.run(args.source)
+        finally:
+            backups.close()
+    except sqlite3.Error as e:  # not a missing setting, which exiting 1 would say
+        print(f"没有备份：备份记录写不进数据库：{e}", file=sys.stderr)
+        return EXPORT_FAILED
+    for wrong, line in describe(report):
+        print(line, file=sys.stderr if wrong else sys.stdout)
+    if report.config_error is not None or report.busy:
+        return report.exit_code
     print(f"用时 {time.monotonic() - started:.0f} 秒")
     return report.exit_code
+
+
+def _restore(args: argparse.Namespace) -> int:
+    from eidolon.restore import NotRestored, check, restore
+
+    database = args.db or database_path_from_env()
+    try:
+        if args.check:
+            users = check(args.file, database)
+            print(f"{args.file} 通过了检查，库里有 {users} 位用户")
+            return 0
+        restored = restore(args.file, database, utc_now)
+    except (NotRestored, OSError) as e:  # OSError: the rename
+        print(f"没有恢复，现在的数据库没有换：{e}", file=sys.stderr)
+        return 1
+    print(f"已用 {args.file} 替换 {database}，恢复进来的库里有 {restored.users} 位用户")
+    if restored.abandoned:
+        print(f"备份时正在进行的 {restored.abandoned} 条备份记录已标成没有完成")
+    return 0
 
 
 async def _draft_sheet(args: argparse.Namespace) -> int:
@@ -1162,11 +1183,30 @@ def _parser() -> argparse.ArgumentParser:
         "--json", type=Path, help="把逐条结果和汇总写成 JSON 文件（基线就是这样提交的）"
     )
 
-    commands.add_parser(
+    backup = commands.add_parser(
         "backup",
-        help="把数据库压缩、用 age 公钥加密后备份到私有的存储桶，并删掉 30 天前的备份，最新的一份总是保留"
-        "（存储桶和公钥取环境变量 EIDOLON_BACKUP_S3_*、EIDOLON_BACKUP_AGE_RECIPIENT；"
-        "导出失败退出码为 2，上传失败为 3，删除过期备份失败为 4）",
+        help="把数据库压缩、用 age 公钥加密后备份到私有的存储桶，并删掉过了保留期（默认 30 天）的备份，"
+        "最新的一份总是保留（存储桶、公钥和保留期取环境变量 EIDOLON_BACKUP_*；"
+        "导出失败退出码为 2，上传失败为 3，删除过期备份失败为 4，上一次备份还没结束为 6）",
+    )
+    backup.add_argument(
+        "--source",
+        choices=["manual", "cron"],
+        default="manual",
+        help="谁发起的这次备份，记进备份记录、显示在看板上（默认 manual；主机上的 cron 传 cron）",
+    )
+
+    restore = commands.add_parser(
+        "restore",
+        help="用在自己电脑上解密好的备份（.db 或 .db.gz）替换数据库，要先停后端"
+        "（服务器上用 deploy/db-restore.sh）；文件损坏、不是 SQLite 或者不是本项目的数据库时什么都不动，"
+        "退出码为 1",
+    )
+    restore.add_argument("file", type=Path, help="解密后的备份文件，压缩的和解压后的都行")
+    restore.add_argument(
+        "--check",
+        action="store_true",
+        help="只检查文件、报出用户数，不替换（不用停后端；deploy/db-restore.sh 先这样检查一遍）",
     )
 
     reembed = commands.add_parser(

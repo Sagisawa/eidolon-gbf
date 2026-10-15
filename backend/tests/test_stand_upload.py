@@ -124,7 +124,8 @@ class FakeBucket:
         more = start + 2 < len(keys)
         contents = "".join(
             f"<Contents><Key>{escape(key)}</Key>"
-            f"<ETag>&quot;{hashlib.md5(self.objects[key][0]).hexdigest()}&quot;</ETag></Contents>"
+            f"<ETag>&quot;{hashlib.md5(self.objects[key][0]).hexdigest()}&quot;</ETag>"
+            f"<Size>{len(self.objects[key][0])}</Size></Contents>"
             for key in page
         )
         token = f"<NextContinuationToken>{start + 2}</NextContinuationToken>" if more else ""

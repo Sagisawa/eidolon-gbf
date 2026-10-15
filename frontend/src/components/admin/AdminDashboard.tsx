@@ -6,6 +6,7 @@ import { AppLink } from "@/components/app/AppLink";
 import { AdminPage } from "@/components/app/admin/AdminPage";
 import { StatTile } from "@/components/app/admin/StatTile";
 import { StatusDot } from "@/components/app/admin/StatusDot";
+import { BackupCard } from "@/components/admin/BackupCard";
 import { CostSection } from "@/components/admin/CostSection";
 import {
   BAR_BODY,
@@ -25,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import {
   AFFINITY_LEVELS,
@@ -101,6 +103,8 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [inProgress, setInProgress] = useState<number | null>(null);
+  /** 页首的「刷新」点了几次：「备份」那块自己轮询，点刷新时跟着再问一次。 */
+  const [refreshes, setRefreshes] = useState(0);
   const rangeRef = useRef(range);
   /** 只认最后发出的那次请求：先发的自动刷新晚到，不能盖掉刚切换的范围。 */
   const latest = useRef(0);
@@ -149,6 +153,7 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
   function refresh() {
     load(range, false);
     refreshCalls();
+    setRefreshes((n) => n + 1);
   }
 
   const stamp = fetchedAt && formatFetchedAt(fetchedAt);
@@ -196,39 +201,10 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
       {board === null ? (
         error === null && <Skeleton className="h-80" />
       ) : (
-        <DashboardBody board={board} inProgress={inProgress} loading={loading} faded={faded} />
+        <DashboardBody board={board} inProgress={inProgress} loading={loading} faded={faded} refreshes={refreshes} />
       )}
     </AdminPage>
   );
-}
-
-/**
- * 页面看得见时每隔 `ms` 调一次 `tick`；藏起来（切到别的标签页、锁屏）就不调，再露出来时离上次已过
- * `ms` 就马上补一次。不在看的看板不必每分钟去问后端。
- */
-function useWhileVisible(tick: () => void, ms: number) {
-  const tickRef = useRef(tick);
-  useEffect(() => {
-    tickRef.current = tick;
-  });
-  useEffect(() => {
-    let last = Date.now();
-    const run = () => {
-      last = Date.now();
-      tickRef.current();
-    };
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") run();
-    }, ms);
-    const onVisible = () => {
-      if (document.visibilityState === "visible" && Date.now() - last >= ms) run();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [ms]);
 }
 
 /** 「数据截至 16:25」和刷新键。第一次读取时写「正在读取…」，占住这一行，数字到了不跳。 */
@@ -295,7 +271,7 @@ function HealthSummary({ board }: { board: Dashboard }) {
 
 /**
  * 先回答「用了多少」：两组数字卡（「此刻」一张，「{范围}内」五张，手机上只留回合、通话、活跃用户三张）；
- * 紧接着是服务健康（出事时第一眼要看到，页首已有一句结论）；然后是「用量」一组，各张卡宽屏两张一排；
+ * 紧接着是服务健康（出事时第一眼要看到，页首已有一句结论）和备份；然后是「用量」一组，各张卡宽屏两张一排；
  * 好感度生效时是「好感度」一组；最后是「花费」一组。
  */
 function DashboardBody({
@@ -303,12 +279,14 @@ function DashboardBody({
   inProgress,
   loading,
   faded,
+  refreshes,
 }: {
   board: Dashboard;
   inProgress: number | null;
   loading: boolean;
-  /** 眼前是上一个范围的数字，或者新数字还在路上：按范围统计的部分变淡，「此刻」那张不变。 */
+  /** 眼前是上一个范围的数字，或者新数字还在路上：按范围统计的部分变淡，「此刻」那张和备份不变。 */
   faded: boolean;
+  refreshes: number;
 }) {
   const { turns, calls } = board;
   const fade = cn(FADE, faded && STALE);
@@ -356,11 +334,20 @@ function DashboardBody({
         </TileGroup>
       </div>
 
-      <div className={cn("flex flex-col gap-6", fade)}>
-        <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} hint={t.health.hint} level={2} className="scroll-mt-16">
-          <HealthTable board={board} />
-        </DashboardCard>
+      <DashboardCard
+        id={HEALTH_ANCHOR}
+        title={t.health.title}
+        hint={t.health.hint}
+        level={2}
+        className={cn("scroll-mt-16", fade)}
+      >
+        <HealthTable board={board} />
+      </DashboardCard>
 
+      {/* 备份是此刻的状态，不随时间范围变，也不变淡。 */}
+      <BackupCard refreshKey={refreshes} />
+
+      <div className={cn("flex flex-col gap-6", fade)}>
         <DashboardGroup title={t.groups.usage.title} hint={t.groups.usage.hint}>
           <CardPair>
             <DashboardCard title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>

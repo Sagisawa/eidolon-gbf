@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 // 看板各块共用的零件：一组数字卡、装一块内容的 Card、比例条，以及窄屏上代替表格的 divide-y 行。
@@ -31,11 +31,13 @@ export function TileGroup({
   );
 }
 
-/** 看板上的一块：一张 Card，标题、一句说明，下面是图表或表格（DESIGN.md「Layout · 后台 · 看板」）。 */
+/** 看板上的一块：一张 Card，标题、一句说明，右上角可以有一个操作（`action`），下面是图表或表格
+ * （DESIGN.md「Layout · 后台 · 看板」）。 */
 export function DashboardCard({
   id,
   title,
   hint,
+  action,
   className,
   level = 3,
   children,
@@ -43,6 +45,7 @@ export function DashboardCard({
   id?: string;
   title: string;
   hint?: string;
+  action?: ReactNode;
   className?: string;
   /** 标题的层级：放在「用量」「花费」这类 h2 组里是 h3，直接挂在页面标题下面是 h2。 */
   level?: 2 | 3;
@@ -56,6 +59,7 @@ export function DashboardCard({
           <Heading>{title}</Heading>
         </CardTitle>
         {hint && <CardDescription>{hint}</CardDescription>}
+        {action && <CardAction>{action}</CardAction>}
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
