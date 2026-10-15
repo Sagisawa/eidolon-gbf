@@ -36,7 +36,7 @@ import { isLive, NOT_OPEN, openIdOf, type LiveConversation } from "@/lib/liveCon
 import { linesOf, type Line } from "@/lib/messageLines";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
-import { BackIcon, CooldownIcon, GiftIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
+import { BackIcon, CooldownIcon, EndedIcon, GiftIcon, MoreIcon, PhoneIcon, SendIcon } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
 
 import { AffinityBadge, CueArrowIcon } from "./AffinityBadge";
@@ -65,6 +65,7 @@ const noSubscription = () => () => {};
  * 她有立绘时，更多菜单里有「换衣装」（spec「衣装与换衣装」）。
  * 好感度可用时，电话键和更多菜单之间是好感度标识（GLOSSARY.md「好感度」）；不可用时读到 null，不显示。
  * 她在冷却中（GLOSSARY.md「冷却」）时，输入栏换成一行说明和「送她一件礼物」、电话键禁用，到点自己恢复。
+ * 她结束了这个对话（GLOSSARY.md「已结束的对话」）时，输入栏换成结束卡「她结束了对话」和「开个新对话」、电话键禁用，只能往上翻看；她还在冷却中时，结束卡写上解除时刻、加「送她一件礼物」。
  * 送礼的入口（冷却时的输入栏、标识的说明末尾、冷却版结束卡）都跳到礼物页，带上她和这段对话（spec「打开好感度藏起的送礼入口」）；
  * 好感度和礼物同一个开关，好感度读不到时这些入口都不在。
  */
@@ -88,7 +89,7 @@ export function ConversationView({
   const [pickingOutfit, setPickingOutfit] = useState(false);
   const subtree = useRef<HTMLDivElement>(null);
   // 她现在对制作人的好感度；读不到（好感度关着、没配判断模型或请求失败）就不显示标识，也不出变化胶囊。
-  const { affinity, affinityCue, cooling } = snapshot;
+  const { affinity, affinityCue, cooling, ended } = snapshot;
   // 解除时刻按制作人的时区写成今天或明天。
   const timeZone = useProducerTimezone();
 
@@ -206,17 +207,43 @@ export function ConversationView({
   }
 
   const canSend = isOpen && draft.trim() !== "";
-  const composer = cooling && affinity?.cooldown_until ? (
+  const cooldownUntil = cooling ? affinity?.cooldown_until : null;
+  // 冷却中的解除时刻和去礼物页的「送她一件礼物」：冷却那一行和冷却版结束卡共用。
+  const until = cooldownUntil ? untilText(new Date(cooldownUntil), new Date(), timeZone) : null;
+  const giveHer = (
+    <Button variant="outline" size="lg" nativeButton={false} render={<NextLink href={gifts} onClick={guard(gifts)} />}>
+      <GiftIcon data-icon="inline-start" />
+      {copy.gifts.giveHer}
+    </Button>
+  );
+  const composer = ended ? (
+    // 已结束：结束卡代替输入框，右边「开个新对话」走更多菜单里的「新对话」，正在开时不可用。
+    // 冷却中再写上解除时刻，「开个新对话」前面加「送她一件礼物」；一行放不下时按钮换到下一行、靠右。
+    <div
+      inert={isCovered}
+      className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-t bg-background px-3 py-2"
+    >
+      <div role="status" className="flex min-w-48 flex-1 items-center gap-2 text-body text-muted-foreground">
+        <EndedIcon aria-hidden className="size-4 shrink-0" />
+        <p>
+          {until ? t.ended.cooling(character.name, until) : t.events.ended(character.name)}
+        </p>
+      </div>
+      <div className="ml-auto flex gap-2">
+        {until && giveHer}
+        <Button size="lg" disabled={!snapshot.canStartNew} onClick={() => void live?.startNewConversation()}>
+          {t.ended.newConversation}
+        </Button>
+      </div>
+    </div>
+  ) : until ? (
     // 冷却中：一行说明代替输入框，右边是去礼物页的「送她一件礼物」；草稿留着，到点换回输入框时还在。
     <div inert={isCovered} className="flex min-h-14 shrink-0 items-center gap-3 border-t bg-background px-3 py-2">
       <div role="status" className="flex min-w-0 flex-1 items-center gap-2 text-body text-muted-foreground">
         <CooldownIcon aria-hidden className="size-4 shrink-0" />
-        <p>{t.affinity.coolingComposer(character.name, untilText(new Date(affinity.cooldown_until), new Date(), timeZone))}</p>
+        <p>{t.affinity.coolingComposer(character.name, until)}</p>
       </div>
-      <Button variant="outline" size="lg" nativeButton={false} render={<NextLink href={gifts} onClick={guard(gifts)} />}>
-        <GiftIcon data-icon="inline-start" />
-        {copy.gifts.giveHer}
-      </Button>
+      {giveHer}
     </div>
   ) : (
     <form

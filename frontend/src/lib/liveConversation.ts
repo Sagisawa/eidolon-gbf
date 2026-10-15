@@ -144,9 +144,16 @@ export type Snapshot = {
   /** She is in a cooldown with the user (GLOSSARY.md「冷却」), until `affinity.cooldown_until`:
    * no text turns, no calls, until it ends by itself. A new conversation can still be started. */
   cooling: boolean;
+  /** She has ended the conversation open (GLOSSARY.md「已结束的对话」), as a turn's `done` said
+   * or its record has it: it can only be read, no text turns, no calls. A new conversation can
+   * still be started. */
+  ended: boolean;
 };
 
-type State = Omit<Snapshot, "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew" | "cooling"> & {
+type State = Omit<
+  Snapshot,
+  "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew" | "cooling" | "ended"
+> & {
   log: ConversationLog;
   /** The call screen's line card, in the call under way or the last one. */
   card: LineCard;
@@ -183,6 +190,7 @@ export const NOT_OPEN: Snapshot = {
   canDial: false,
   canStartNew: false,
   cooling: false,
+  ended: false,
 };
 
 /** Her voice in a call (`CharacterVoice`): plain or over a phone line, silent in text only. */
@@ -323,9 +331,10 @@ export class LiveConversation {
   async submit(): Promise<void> {
     const text = this.state.draft.trim();
     const conversationId = this.openConversationId();
-    // One exchange at a time: not over a text turn, nor into a call still dialing; none in a cooldown.
+    // One exchange at a time: not over a text turn, nor into a call still dialing; none in a
+    // cooldown, nor into a conversation she has ended.
     if (!text || !conversationId || this.state.busy || this.state.call.phase === "dialing") return;
-    if (isCooling(this.state)) return;
+    if (isCooling(this.state) || isEnded(this.state)) return;
     this.update({ draft: "", failure: null });
     if (this.call) {
       // The call takes it up like speech; its reply arrives as call events. Typed while she
@@ -381,7 +390,7 @@ export class LiveConversation {
    */
   async startCall(): Promise<void> {
     const conversationId = this.openConversationId();
-    if (!conversationId || !isFree(this.state) || isCooling(this.state)) return;
+    if (!conversationId || !isFree(this.state) || isCooling(this.state) || isEnded(this.state)) return;
     // Read once: the phone texture her voice is told is the one the call is given.
     const preferences = this.ports.preferences.load();
     this.ports.voice.dial(preferences.phoneTexture);
@@ -792,6 +801,11 @@ function isCooling(state: State): boolean {
   return state.affinity !== null && state.affinity.cooldown_until !== null;
 }
 
+/** She has ended the conversation open: its log has her ending it. No turns, no calls. */
+function isEnded(state: State): boolean {
+  return state.log.entries.some((entry) => entry.kind === "event" && entry.event === "ended");
+}
+
 function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
   return { micId: mic.id, micNotice: mic.fellBack ? "fell_back" : null };
 }
@@ -805,8 +819,9 @@ function toSnapshot(state: State): Snapshot {
     line: lineOf(card),
     previousLine: previousLineOf(card),
     stand: directionOf(stand),
-    canDial: free && !isCooling(state),
+    canDial: free && !isCooling(state) && !isEnded(state),
     canStartNew: free,
     cooling: isCooling(state),
+    ended: isEnded(state),
   };
 }

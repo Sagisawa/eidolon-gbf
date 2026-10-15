@@ -69,7 +69,9 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
       const turn = log.turn;
       if (!turn) return log;
       const reply = toEntry(action.message);
-      return { entries: replaced(log.entries, turn.replyKey, () => reply), turn: null };
+      const entries = replaced(log.entries, turn.replyKey, () => reply);
+      // She ended the conversation after her reply: that comes after it.
+      return { entries: action.ended ? [...entries, toEntry(action.ended)] : entries, turn: null };
     }
     case "error":
     case "interrupted":

@@ -112,9 +112,9 @@ export type Message = {
   affinity: AffinityChange | null;
 };
 
-/** The kinds of conversation event (GLOSSARY.md「对话事件」): so far only her hanging up. */
-/** She hung up on the user; the user gave her a gift. */
-export type EventKind = "hung_up" | "gift";
+/** The kinds of conversation event (GLOSSARY.md「对话事件」): she hung up on the user; the user
+ * gave her a gift; she ended the conversation, which can then only be read (GLOSSARY.md「已结束的对话」). */
+export type EventKind = "hung_up" | "gift" | "ended";
 
 /** Something that happened in a conversation that is not a turn, recorded among its messages. */
 export type ConversationEvent = {
@@ -132,11 +132,12 @@ export type ConversationEvent = {
 export type Recorded = Message | ConversationEvent;
 
 /** A turn's events: `user`, then any `delta`s, then `done` or `error`. `done` says too where
- * the turn left her affinity, null while affinity is off. */
+ * the turn left her affinity, null while affinity is off, and her ending the conversation after
+ * it, recorded after her reply, if she did. */
 export type TurnEvent =
   | { type: "user"; text: string }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
-  | { type: "done"; message: Message; affinity: AffinityStatus | null }
+  | { type: "done"; message: Message; affinity: AffinityStatus | null; ended?: ConversationEvent | null }
   | { type: "error"; message: string };
 
 export type Gender = "male" | "female";

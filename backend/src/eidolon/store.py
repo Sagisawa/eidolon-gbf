@@ -19,7 +19,7 @@ from eidolon.producer import Birthday, ProducerProfile
 from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
-EventKind = Literal["hung_up", "gift"]
+EventKind = Literal["hung_up", "gift", "ended"]
 
 _SCHEMA = """
 -- `name` only tells users apart on the admin command line; it need not be unique.
@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     character_id TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+-- `hurt` and `out_of_line`, on the user's message of a typed turn (`Typed`), are what the
+-- turn took off her affinity and whether it was out of line; NULL for a turn of a call, or
+-- one recorded before typed turns were counted.
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id TEXT NOT NULL REFERENCES conversations(id),
@@ -75,7 +78,9 @@ CREATE TABLE IF NOT EXISTS messages (
     zh TEXT,
     segments TEXT,
     created_at TEXT NOT NULL,
-    affinity TEXT
+    affinity TEXT,
+    hurt REAL,
+    out_of_line INTEGER
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
 CREATE TABLE IF NOT EXISTS conversation_events (
@@ -145,6 +150,11 @@ class LastSignInMethod(Exception):
     """Removing it would leave the user no way to sign in."""
 
 
+class ConversationEnded(Exception):
+    """She has ended the conversation (GLOSSARY.md「已结束的对话」): nothing more is recorded
+    in it."""
+
+
 class NotFound(LookupError):
     pass
 
@@ -191,9 +201,20 @@ class Message:
 
 
 @dataclass(frozen=True)
+class Typed:
+    """What a typed turn, one taken outside calls, comes to for her ending the conversation
+    (GLOSSARY.md「已结束的对话」): how much it took off her affinity (`affinity.hurt`), and
+    whether it was out of line."""
+
+    hurt: float = 0.0
+    out_of_line: bool = False
+
+
+@dataclass(frozen=True)
 class ConversationEvent:
     """Something that happened in a conversation that is not a turn (GLOSSARY.md「对话事件」):
-    her hanging up on the user (`hung_up`), or the user giving her a gift (`gift`), which
+    her hanging up on the user (`hung_up`), her ending the conversation (`ended`), after which
+    it can only be read, or the user giving her a gift (`gift`), which
     one (`gift_id`) and whether she liked it as it was given (`liked`), kept as it was
     should what she likes change. It can carry how it changed her affinity (`affinity`)."""
 
@@ -234,6 +255,8 @@ class Store:
         self._add_missing_columns("users", ("consented_at", "banned_at", "ban_note"), "TEXT")
         self._add_missing_columns("producer_profiles", ("birthday_month", "birthday_day"), "INTEGER")
         self._add_missing_columns("messages", ("affinity",), "TEXT")
+        self._add_missing_columns("messages", ("hurt",), "REAL")
+        self._add_missing_columns("messages", ("out_of_line",), "INTEGER")
         self._add_missing_columns("conversation_events", ("gift_id",), "TEXT")
         self._add_missing_columns("conversation_events", ("liked",), "INTEGER NOT NULL DEFAULT 0")
         # Whether she has responded to an event is whether she has replied since; never kept.
@@ -552,11 +575,7 @@ class Store:
     def create_conversation(self, user_id: str, character_id: str) -> Conversation:
         conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
         with self._lock, self._db:
-            self._db.execute(
-                "INSERT INTO conversations (id, user_id, character_id, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (conversation.id, user_id, character_id, conversation.created_at),
-            )
+            self._insert_conversation(conversation)
         return conversation
 
     def get_conversation(self, conversation_id: str) -> Conversation | None:
@@ -569,12 +588,7 @@ class Store:
     def list_conversations(self, user_id: str, character_id: str) -> list[Conversation]:
         """Newest first."""
         with self._lock:
-            rows = self._db.execute(
-                "SELECT * FROM conversations WHERE user_id = ? AND character_id = ?"
-                " ORDER BY created_at DESC, rowid DESC",
-                (user_id, character_id),
-            ).fetchall()
-        return [Conversation(**row) for row in rows]
+            return self._conversations(user_id, character_id)
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its
@@ -593,6 +607,7 @@ class Store:
         return [(c, last[c.id]) for c in newest.values()]
 
     def _last(self, conversation_id: str) -> Recorded | None:
+        """The last thing in the record, but her ending it: the list shows her last line."""
         message = self._db.execute(
             f"SELECT {_MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ?"
             " ORDER BY id DESC LIMIT 1",
@@ -600,7 +615,7 @@ class Store:
         ).fetchone()
         event = self._db.execute(
             f"SELECT {_EVENT_COLUMNS} FROM conversation_events WHERE conversation_id = ?"
-            " ORDER BY created_at DESC, id DESC LIMIT 1",
+            " AND kind != 'ended' ORDER BY created_at DESC, id DESC LIMIT 1",
             (conversation_id,),
         ).fetchone()
         if event is None or message is None:
@@ -621,41 +636,89 @@ class Store:
         reply: list[Segment],
         affinity: Change | None = None,
         said_at: str | None = None,
+        typed: Typed | None = None,
+        ends: bool = False,
     ) -> Message:
         """Record the user's input, said at `said_at` (as `timestamp` gives it; now by
         default), and the character's reply together, with how the turn changed her
-        affinity, if it did; returns the reply."""
+        affinity, if it did, and for a typed turn what it came to (`typed`); returns the
+        reply. Should she end the conversation after it (`ends`), that is recorded with it,
+        after it (`ended`). Into a conversation she has ended already, nothing is recorded:
+        `ConversationEnded`."""
         with self._lock, self._db:
-            self._insert_message(conversation_id, "user", text=text, created_at=said_at)
-            return self._insert_message(
+            if self._ended(conversation_id) is not None:
+                raise ConversationEnded()
+            self._insert_message(
+                conversation_id, "user", text=text, created_at=said_at, typed=typed
+            )
+            replied = self._insert_message(
                 conversation_id, "character", segments=reply, affinity=affinity
             )
+            if ends:
+                self._insert_event(conversation_id, "ended", _now())
+            return replied
 
-    def add_event(
+    def add_gift(
         self,
-        conversation_id: str,
-        kind: EventKind,
-        affinity: Change | None = None,
-        gift_id: str | None = None,
-        liked: bool = False,
-    ) -> ConversationEvent:
-        """Record that `kind` happened in the conversation, now, with how it changed her
-        affinity, if it did, and for a gift, which and whether she liked it."""
-        created_at = _now()
+        user_id: str,
+        character_id: str,
+        conversation_id: str | None,
+        gift_id: str,
+        liked: bool,
+        affinity: Change | None,
+    ) -> Conversation:
+        """Record the user's giving the character the gift, now, whether she liked it, with
+        how it changed her affinity, if it did; returns the conversation it is recorded in:
+        `conversation_id` if it is hers with the user and she has not ended it, else her
+        newest (the one her conversation page opens) if she has not ended it, else one begun
+        for it, which is her newest from then on. Where it goes is chosen in the same
+        transaction it is recorded in, so it never goes into one she ends meanwhile."""
         with self._lock, self._db:
-            cursor = self._db.execute(
-                "INSERT INTO conversation_events"
-                " (conversation_id, kind, created_at, affinity, gift_id, liked)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (
-                    conversation_id, kind, created_at,
-                    affinity and json.dumps(asdict(affinity)), gift_id, int(liked),
-                ),
+            hers = self._conversations(user_id, character_id)
+            given_from = next((c for c in hers if c.id == conversation_id), None)
+            newest = hers[0] if hers else None
+            conversation = next(
+                (c for c in (given_from, newest) if c and self._ended(c.id) is None), None
             )
-        assert cursor.lastrowid is not None
-        return ConversationEvent(
-            cursor.lastrowid, kind, created_at, affinity, gift_id=gift_id, liked=liked
-        )
+            if conversation is None:
+                conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
+                self._insert_conversation(conversation)
+            self._insert_event(conversation.id, "gift", _now(), affinity, gift_id, liked)
+        return conversation
+
+    def hang_up(self, conversation_id: str) -> ConversationEvent:
+        """Record that she hung up on the user in the conversation, now (`hung_up`), unless
+        she has ended it: then nothing more is recorded, and it is her ending it that is
+        returned."""
+        with self._lock, self._db:
+            return self._ended(conversation_id) or self._insert_event(
+                conversation_id, "hung_up", _now()
+            )
+
+    def ended(self, conversation_id: str) -> ConversationEvent | None:
+        """Her ending the conversation (GLOSSARY.md「已结束的对话」), as recorded; None while
+        it is not ended."""
+        with self._lock:
+            return self._ended(conversation_id)
+
+    def _ended(self, conversation_id: str) -> ConversationEvent | None:
+        row = self._db.execute(
+            f"SELECT {_EVENT_COLUMNS} FROM conversation_events"
+            " WHERE conversation_id = ? AND kind = 'ended' ORDER BY id LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+        return _event(row) if row else None
+
+    def typed_turns(self, conversation_id: str, latest: int) -> list[Typed]:
+        """What the conversation's `latest` typed turns came to, oldest first; turns of calls,
+        and those recorded before typed turns were counted, are not among them."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT hurt, out_of_line FROM messages WHERE conversation_id = ?"
+                " AND role = 'user' AND hurt IS NOT NULL ORDER BY id DESC LIMIT ?",
+                (conversation_id, latest),
+            ).fetchall()
+        return [Typed(row["hurt"], bool(row["out_of_line"])) for row in reversed(rows)]
 
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._lock:
@@ -704,6 +767,7 @@ class Store:
         segments: list[Segment] | None = None,
         affinity: Change | None = None,
         created_at: str | None = None,
+        typed: Typed | None = None,
     ) -> Message:
         created_at = created_at or _now()
         ja = zh = stored_segments = None
@@ -712,16 +776,55 @@ class Store:
             zh = "".join(s.zh for s in segments)
             stored_segments = json.dumps([asdict(s) for s in segments], ensure_ascii=False)
         cursor = self._db.execute(
-            "INSERT INTO messages"
-            " (conversation_id, role, text, ja, zh, segments, created_at, affinity)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
+            " affinity, hurt, out_of_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 conversation_id, role, text, ja, zh, stored_segments, created_at,
                 affinity and json.dumps(asdict(affinity)),
+                typed and typed.hurt, typed and int(typed.out_of_line),
             ),
         )
         assert cursor.lastrowid is not None
         return Message(cursor.lastrowid, role, text, ja, zh, created_at, segments or [], affinity)
+
+    def _conversations(self, user_id: str, character_id: str) -> list[Conversation]:
+        rows = self._db.execute(
+            "SELECT * FROM conversations WHERE user_id = ? AND character_id = ?"
+            " ORDER BY created_at DESC, rowid DESC",
+            (user_id, character_id),
+        ).fetchall()
+        return [Conversation(**row) for row in rows]
+
+    def _insert_conversation(self, conversation: Conversation) -> None:
+        self._db.execute(
+            "INSERT INTO conversations (id, user_id, character_id, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (conversation.id, conversation.user_id, conversation.character_id,
+             conversation.created_at),
+        )
+
+    def _insert_event(
+        self,
+        conversation_id: str,
+        kind: EventKind,
+        created_at: str,
+        affinity: Change | None = None,
+        gift_id: str | None = None,
+        liked: bool = False,
+    ) -> ConversationEvent:
+        cursor = self._db.execute(
+            "INSERT INTO conversation_events"
+            " (conversation_id, kind, created_at, affinity, gift_id, liked)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                conversation_id, kind, created_at,
+                affinity and json.dumps(asdict(affinity)), gift_id, int(liked),
+            ),
+        )
+        assert cursor.lastrowid is not None
+        return ConversationEvent(
+            cursor.lastrowid, kind, created_at, affinity, gift_id=gift_id, liked=liked
+        )
 
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"

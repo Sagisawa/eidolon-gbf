@@ -35,6 +35,7 @@ import {
   CALL_END_REASONS,
   CALL_RESULTS,
   countTicks,
+  ENDS_FOR,
   DASHBOARD_RANGES,
   DASHBOARD_REFRESH_MS,
   type Dashboard,
@@ -732,7 +733,10 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
   );
 }
 
-/** 按角色的好感度表：顺序是后端排好的；宽屏七列，更窄时每行末尾「减分 {x}% · 冷却 {n}」，其余放副行。 */
+/**
+ * 按角色的好感度表：顺序是后端排好的；宽屏十列，「角色挂断」旁边是「结束对话」按三种原因分开的三列，
+ * 表头两行；更窄时每行末尾「减分 {x}% · 冷却 {n}」，其余放副行。
+ */
 function AffinityCharactersTable({ section }: { section: AffinitySection }) {
   const words = t.affinity.characters;
   if (section.characters.length === 0) return <p className="text-sm text-muted-foreground">{words.empty}</p>;
@@ -746,13 +750,19 @@ function AffinityCharactersTable({ section }: { section: AffinitySection }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>{words.character}</TableHead>
-              <TableHead className="text-right">{words.judged}</TableHead>
-              <TableHead className="text-right">{words.lowered}</TableHead>
-              <TableHead className="text-right">{words.cooldowns}</TableHead>
-              <TableHead className="text-right">{words.outOfLine}</TableHead>
-              <TableHead className="text-right">{words.manipulation}</TableHead>
-              <TableHead className="text-right">{words.hungUp}</TableHead>
+              <TableHead rowSpan={2}>{words.character}</TableHead>
+              <TableHead rowSpan={2} className="text-right">{words.judged}</TableHead>
+              <TableHead rowSpan={2} className="text-right">{words.lowered}</TableHead>
+              <TableHead rowSpan={2} className="text-right">{words.cooldowns}</TableHead>
+              <TableHead rowSpan={2} className="text-right">{words.outOfLine}</TableHead>
+              <TableHead rowSpan={2} className="text-right">{words.manipulation}</TableHead>
+              <TableHead rowSpan={2} className="text-right">{words.hungUp}</TableHead>
+              <TableHead colSpan={ENDS_FOR.length} className="text-center">{words.ended}</TableHead>
+            </TableRow>
+            <TableRow>
+              {ENDS_FOR.map((why) => (
+                <TableHead key={why} className="text-right">{words.endsFor[why]}</TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -765,6 +775,9 @@ function AffinityCharactersTable({ section }: { section: AffinitySection }) {
                 <TableCell className="text-right tabular-nums">{row.out_of_line}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.manipulation}</TableCell>
                 <TableCell className="text-right tabular-nums">{row.hung_up}</TableCell>
+                {ENDS_FOR.map((why) => (
+                  <TableCell key={why} className="text-right tabular-nums">{row.ended[why]}</TableCell>
+                ))}
               </TableRow>
             ))}
           </TableBody>

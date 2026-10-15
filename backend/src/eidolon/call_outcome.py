@@ -20,6 +20,7 @@ from typing import Literal
 
 from eidolon.activity import CallEndReason, Recording, Result
 from eidolon.admission import Admission
+from eidolon.affinity import EndsFor
 from eidolon.config import SttProvider
 from eidolon.engine import CallTurnRecorded, InCall
 from eidolon.own_keys import CallKeys, OwnKeyFailed, Service
@@ -32,7 +33,7 @@ EndReason = Literal[
 """Why the backend ended a call, as the `ended` message tells the browser: it never really
 connected (a voice service failed before any turn), a voice service failed later, the call
 reached its time or its turn limit, one of the user's own keys failed, or she hung up, for
-what the user said in the call (`affinity.hangs_up`) or her affinity fallen into a
+what the user said in the call (`affinity.ends`) or her affinity fallen into a
 cooldown."""
 
 _ENDED_BY: dict[EndReason, CallEndReason] = {
@@ -179,6 +180,16 @@ class CallOutcome:
         if self._ended_by is not None:
             return False
         self._hang_up_after(CallTurnRecorded(hangs_up="cooldown", cooldown_until=until))
+        return True
+
+    def conversation_ended(self, why: EndsFor) -> bool:
+        """She has ended the conversation the call is in, typing elsewhere, for `why`:
+        whether she hangs up for it, as for what the user said, after the turn in progress,
+        if any. Not if the call is ending already, for whatever reason, nor if she is hanging
+        up already."""
+        if self._ended_by is not None or self._hanging_up is not None:
+            return False
+        self._hang_up_after(CallTurnRecorded(hangs_up=why))
         return True
 
     def _hang_up_after(self, recorded: CallTurnRecorded) -> None:

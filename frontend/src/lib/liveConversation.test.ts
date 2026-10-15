@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AffinityStatus } from "@/lib/affinity";
-import { ApiError, type CallEvent, type Conversation, type Message, type TurnEvent } from "@/lib/api";
+import { ApiError, type CallEvent, type Conversation, type ConversationEvent, type Message, type Recorded, type TurnEvent } from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
@@ -79,7 +79,7 @@ type Options = {
   /** Her conversations, newest first; one, "c1", unless a test says otherwise. */
   conversations?: Conversation[];
   /** The messages recorded in "c1". */
-  messages?: Message[];
+  messages?: Recorded[];
   turns?: (text: string) => AsyncIterable<TurnEvent>;
   /** The preferences kept on this device, where they are not the defaults. */
   preferences?: Partial<CallPreferences>;
@@ -1171,6 +1171,86 @@ describe("LiveConversation: a cooldown", () => {
     await failing(live, attempts, new ApiError("她现在不想说话，晚些时候再来吧", 409, { cooldownUntil: until }));
 
     expect(live.snapshot()).toMatchObject({ call: { phase: "idle" }, affinity: cooling, cooling: true });
+  });
+});
+
+describe("LiveConversation: an ended conversation", () => {
+  // GLOSSARY.md「已结束的对话」：她结束了这个对话，它从此只能翻看；开个新对话就能接着聊。
+  const ended: ConversationEvent = {
+    type: "event",
+    id: 7,
+    kind: "ended",
+    created_at: "2026-09-27T00:00:01Z",
+    affinity: null,
+  };
+
+  it("ends as the turn's done says she ended it: no turns, no calls, until a new conversation", async () => {
+    const turns: TurnEvent[][] = [
+      [
+        { type: "user", text: "随便你" },
+        { type: "done", message: message(4, "character", "そう"), affinity: null, ended },
+      ],
+      [
+        { type: "user", text: "重新开始吧" },
+        { type: "done", message: message(2, "character", "うん"), affinity: null, ended: null },
+      ],
+    ];
+    const { live, sentTo, voice } = await conversation({
+      messages: history,
+      turns: () => scripted(turns.shift() ?? [])(),
+    });
+    live.setDraft("随便你");
+    await live.submit();
+
+    const shown = live.snapshot();
+    live.setDraft("在吗");
+    await live.submit();
+    void live.startCall();
+    const refused = live.snapshot();
+    await live.startNewConversation();
+    const fresh = live.snapshot();
+    live.setDraft("重新开始吧");
+    await live.submit();
+
+    expect(shown).toMatchObject({ ended: true, canDial: false, canStartNew: true });
+    expect(shown.entries.map((e) => e.key)).toEqual(["m1", "m2", "new-2", "m4", "e7"]);
+    expect(refused).toMatchObject({ draft: "在吗", call: { phase: "idle" } });
+    expect(voice.dials).toEqual([]);
+    expect(fresh).toMatchObject({ conversation: { status: "open", id: "new1" }, ended: false, canDial: true });
+    expect(sentTo).toEqual(["c1", "new1"]); // the turn and the call in the ended one never went out
+    expect(live.snapshot().entries.map((e) => e.key)).toEqual(["new-0", "m2"]);
+  });
+
+  it("opens ended when its record has her ending it", async () => {
+    const { live } = await conversation({ messages: [...history, ended] });
+
+    expect(live.snapshot()).toMatchObject({ ended: true, canDial: false, canStartNew: true });
+  });
+
+
+  it("ends in a cooldown as the turn's done says both; a new conversation opened in it is cooling, not ended", async () => {
+    const cooling = { tier: "cold", cooldown_until: new Date(NOW + 60_000).toISOString() } as const;
+    const { live } = await conversation({
+      messages: history,
+      affinity: { tier: "cold", cooldown_until: null },
+      turns: scripted([
+        { type: "user", text: "随便你" },
+        { type: "done", message: message(4, "character", "そう"), affinity: cooling, ended },
+      ]),
+    });
+    live.setDraft("随便你");
+    await live.submit();
+
+    const shown = live.snapshot();
+    await live.startNewConversation();
+
+    expect(shown).toMatchObject({ ended: true, cooling: true, affinity: cooling, canDial: false, canStartNew: true });
+    expect(live.snapshot()).toMatchObject({
+      conversation: { status: "open", id: "new1" },
+      ended: false,
+      cooling: true,
+      canDial: false,
+    });
   });
 });
 

@@ -267,6 +267,7 @@ def build(
     )
     closers.append(calls.aclose)  # closed before memory, so no call is still taking turns
     affinities.on_cooldown(calls.cooled)
+    engine.on_ended(calls.conversation_ended)
     gifts = Gifts(
         settings.database_path, clock, lambda: config.affinity_on, affinities, characters,
         gift_catalog, random or secure_random, store,
