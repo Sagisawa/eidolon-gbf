@@ -265,6 +265,13 @@ async function toScreens(page, screens) {
   await page.waitForTimeout(1600);
 }
 
+/** 停在第 5 幕前半屏，等它的场景画布建好、体素小人站上去。 */
+async function act5Ready(page, act5) {
+  await toScreens(page, act5.from - 0.5);
+  await page.waitForFunction(() => !!document.querySelector(".lp-memory-canvas"), null, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(5000);
+}
+
 /** CSS 白光的尽头在不在落地页模型的锚点上（差不到 1.5 px）。 */
 async function beamAnchored(page) {
   const b = await page.evaluate(() => {
@@ -613,9 +620,7 @@ function watchConsole(page) {
       }
     }
     // 第 5 幕：先停在它前面一点，等场景建好，再在几个镜头位置各截一张，最后往回滚截一张。
-    await toScreens(page, act5.from - 0.5);
-    await page.waitForFunction(() => !!document.querySelector(".lp-memory-canvas"), null, { timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(5000);
+    await act5Ready(page, act5);
     for (const p of [0, 0.17, 0.29, 0.4, 0.53, 0.72, 0.84, 1]) {
       await toScreens(page, act5.from + act5.length * p);
       await page.screenshot({ path: path.join(shots, `${name}-act5-${Math.round(p * 100)}.png`) });
@@ -662,9 +667,7 @@ function watchConsole(page) {
     await glOn(page);
     const tl = await timelineOn(page);
     const act5 = spanOf(tl, 5);
-    await toScreens(page, act5.from - 0.5);
-    await page.waitForFunction(() => !!document.querySelector(".lp-memory-canvas"), null, { timeout: 30000 }).catch(() => {});
-    await page.waitForTimeout(5000);
+    await act5Ready(page, act5);
     await toScreens(page, act5.from + act5.length * 0.53);
     await page.screenshot({ path: path.join(shots, "full-act5-no-voxels.png") });
     report("第 5 幕：某位的体素文件加载不到", null, "截图 full-act5-no-voxels.png 里果穗的位置应是印象色方块加名字");

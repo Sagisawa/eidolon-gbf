@@ -7,7 +7,7 @@
  * - 相机照模型摆：正交相机，注视点、取景半高、方位角都是模型给的，和 DOM 上按 project 摆的东西同一个出处。
  * - 场景：夜空渐变和星星（铺在画面上，不随镜头转）；四座浮岛的柱子，顶面亮、两侧一明一暗、往下渐隐进夜色；
  *   演员脚下她印象色的地砖。
- * - 体素小人：从角色接口给的地址下载体素文件（scripts/glb-voxelize.mts 的格式），每人露在外面的面合成一份网格，
+ * - 体素小人：从角色接口给的地址下载体素文件（scripts/glb-voxelize.mts 的格式，不等它：布景先画），每人露在外面的面合成一份网格，
  *   顶点色，顶面、底面压到 0.86、0.78 留住方块感；按 `front` 缩放到场景里的身高，默认朝着镜头，轻轻起伏。
  *   地址没有、下载或解析失败时，站着的是她印象色的小方块，上面写她的名字。下载、合成一次，记在模块里：
  *   手机上离开这一段释放了上下文，回来时重建渲染器，不重新下载。
@@ -38,6 +38,7 @@ import {
   WebGLRenderer,
 } from "three";
 
+import type { CanvasLayer } from "./canvasStage";
 import { idle } from "./idle";
 import { cameraBasis, FIGURE_HEIGHT, ISLAND_SIZE, ISLANDS, STANDS, type Actor, type MemoryScene } from "./model/memory";
 import type { Quality } from "./model/tier";
@@ -163,22 +164,20 @@ function figureMesh(v: Voxels): FigureMesh {
   return { position, normal, color, index };
 }
 
-export type MemoryLayer = {
-  /** 画布的 CSS 尺寸（就是视口）。 */
-  resize(w: number, h: number): void;
-  setQuality(quality: Quality): void;
+export type MemoryLayer = CanvasLayer & {
   /** 画这一刻的场景；`time` 是秒，给小人的起伏用。 */
   render(memory: MemoryScene, time: number): void;
-  /** 放掉 WebGL 上下文。 */
-  destroy(): void;
 };
 
 /**
- * 在 `canvas` 上建第 5 幕的场景。先把演员的体素文件都下载、合成好（失败的换成方块），再分几批建：建上下文、
- * 搭布景、编译着色器各占一批，每批之间让出主线程。建不起来时 reject，调用方收起画布。`font` 是方块上写名字的字体。
+ * 在 `canvas` 上建第 5 幕的场景，分几批建：建上下文、搭布景、编译着色器各占一批，每批之间让出主线程。建不起来时
+ * reject，调用方收起画布。演员的体素文件同时开始下载，不等它们：布景先画出来，她站的地方先空着，网格合成好了再站上去，
+ * 加载不到就换成她印象色的方块和名字（`font` 是写名字的字体）。
  */
 export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Quality, actors: readonly Actor[], font: string): Promise<MemoryLayer> {
-  const meshes = await Promise.all(actors.map((a) => (a.voxels ? loadFigure(a.voxels).catch(() => null) : null)));
+  const loading = actors.map((a) => (a.voxels ? loadFigure(a.voxels) : Promise.reject(new Error("没有体素文件"))));
+  // 还没下载完就放掉了上下文：之后到的不再往场景里放。
+  let destroyed = false;
   const dprOf = (q: Quality) => Math.min(window.devicePixelRatio || 1, q.dprCap);
   const renderer = new WebGLRenderer({ canvas, antialias: true });
   renderer.outputColorSpace = SRGBColorSpace;
@@ -224,6 +223,18 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   const figureMat = lift(lambert({ vertexColors: true }));
   const cubeGeo = own(new BoxGeometry(0.55, 0.55, 0.55));
   const bodies: Group[] = [];
+  const stand = (body: Group) => (mesh: FigureMesh) => {
+    if (!destroyed) body.add(new Mesh(own(figureGeometry(mesh)), figureMat));
+  };
+  const standIn = (actor: Actor, body: Group, group: Group) => () => {
+    if (destroyed) return;
+    const cube = new Mesh(cubeGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.25 }));
+    cube.position.y = 0.275;
+    body.add(cube);
+    const label = nameSprite(actor.name, font, own);
+    label.position.y = 0.95;
+    group.add(label);
+  };
   actors.forEach((actor, k) => {
     const [x, y, z] = STANDS[actor.island];
     const tile = new Mesh(tileGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.3 }));
@@ -239,17 +250,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.005;
     group.add(shadow);
-    const mesh = meshes[k];
-    if (mesh) {
-      body.add(new Mesh(own(figureGeometry(mesh)), figureMat));
-      return;
-    }
-    const cube = new Mesh(cubeGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.25 }));
-    cube.position.y = 0.275;
-    body.add(cube);
-    const label = nameSprite(actor.name, font, own);
-    label.position.y = 0.95;
-    group.add(label);
+    loading[k].then(stand(body), standIn(actor, body, group));
   });
   await idle();
 
@@ -296,6 +297,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
       renderer.render(scene, camera);
     },
     destroy() {
+      destroyed = true;
       owned.forEach((x) => x.dispose());
       sky?.dispose();
       renderer.dispose();
@@ -388,7 +390,7 @@ function skyTexture(aspect: number): CanvasTexture {
   return canvasTexture(w, h, (g) => {
     const grad = g.createRadialGradient(w / 2, h * 0.3, 50, w / 2, h * 0.42, Math.max(w, h) * 0.9);
     grad.addColorStop(0, "#2d2152");
-    grad.addColorStop(0.55, "#151030");
+    grad.addColorStop(0.55, NIGHT);
     grad.addColorStop(1, "#090716");
     g.fillStyle = grad;
     g.fillRect(0, 0, w, h);

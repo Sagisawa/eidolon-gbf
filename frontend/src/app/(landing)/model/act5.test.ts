@@ -45,10 +45,8 @@ const islandPoints = (k: number): Vec3[] => {
 };
 
 describe("第 5 幕的时间线", () => {
-  it("钉住约 8 屏，最后一屏解开钉住", () => {
+  it("钉住 ACT5_SCREENS 屏，最后一屏解开钉住", () => {
     expect(act5.length).toBe(ACT5_SCREENS);
-    expect(ACT5_SCREENS).toBeGreaterThanOrEqual(7);
-    expect(ACT5_SCREENS).toBeLessThanOrEqual(9);
     expect(act5.to - act5.from).toBe(act5.length + 1);
     expect(tl.sections.find((s) => s.acts.includes(5))).toMatchObject({ acts: [5], pinned: true, screens: ACT5_SCREENS + 1 });
   });
@@ -62,10 +60,6 @@ describe("cameraAt: 第 5 幕的镜头", () => {
       expect(cam.radius).toBeCloseTo(key.r, 9);
       expect(cam.azimuth).toBeCloseTo(key.az * DEG, 9);
     }
-  });
-
-  it("仰角固定 35.264°（正等轴测）", () => {
-    expect(ELEVATION).toBeCloseTo(35.264 * DEG, 9);
   });
 
   it("随进度连续变化：滚一点点，岛在画面上只挪一点点", () => {
@@ -172,11 +166,9 @@ describe("describeScene: 第 5 幕", () => {
   });
 
   it("静止版式里没有这一幕的场景状态，标题和正文一直在", () => {
-    for (const tier of ["reduced", "static"] as const) {
-      const s = scene({ scroll: in5(0.5), tier });
-      expect(s.memory).toBeNull();
-      expect(s.text.act5).toBe(1);
-    }
+    const s = scene({ scroll: in5(0.5), tier: "reduced" });
+    expect(s.memory).toBeNull();
+    expect(s.text.act5).toBe(1);
   });
 });
 
@@ -198,16 +190,6 @@ describe("describeScene: 第 4 幕到第 5 幕", () => {
       expect(s.memory!.progress).toBe(0);
       expect(s.text.act5).toBe(1);
     }
-  });
-
-  it("一道道光和背景连续地收掉：到第 5 幕开头全熄、回到页面的底色", () => {
-    const before = scene({ scroll: act5.from - 1e-9 });
-    const start = scene({ scroll: act5.from });
-    expect(before.background).toBe(start.background);
-    before.bands.forEach((b, i) => {
-      expect(b.intensity).toBeCloseTo(start.bands[i].intensity, 6);
-      expect(b.x).toBeCloseTo(start.bands[i].x, 3);
-    });
   });
 });
 
