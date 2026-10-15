@@ -15,7 +15,7 @@ from eidolon.corpus import StoryCorpus
 from eidolon.retrieval import FALLBACK_REFERENCES, MAX_REFERENCES
 from eidolon.story_import import import_csv_directory
 from tests.conftest import KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
-from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker, context_of, system_of
 from tests.test_live_config import until
 from tests.test_shared_memory import CAT, memorized
 from tests.test_text_turn import send_turn, start_conversation
@@ -71,7 +71,7 @@ async def system_prompt(
     conversation_id = await start_conversation(client, character)
     events = await send_turn(client, conversation_id, text)
     assert events[-1]["type"] == "done"
-    return llm.prompts[-1][0].content
+    return system_of(llm.prompts[-1])
 
 
 def reference_count(system: str) -> int:
@@ -186,7 +186,7 @@ async def test_references_are_looked_up_with_her_previous_reply_as_people_see_it
     assert "那时候累吗？" not in embedder.queries  # nor are memories found without it
     # The judge model is told what it was before: the latest messages and what was said.
     assert jev.asked[-1] == ("櫻木真乃", "那时候累吗？")
-    assert PARK_LINE in llm.prompts[-1][0].content
+    assert PARK_LINE in context_of(llm.prompts[-1])
 
 
 async def test_the_first_line_of_a_conversation_is_looked_up_alone(
@@ -330,7 +330,7 @@ async def test_the_query_is_embedded_while_the_judge_model_judges(
     judge.let_go()
     events = await turn
     assert events[-1]["type"] == "done"
-    assert PARK_LINE in llm.prompts[-1][0].content
+    assert PARK_LINE in system_of(llm.prompts[-1])
 
 
 async def test_a_turn_needing_nothing_drops_what_it_found_while_the_judge_model_judged(
@@ -353,7 +353,7 @@ async def test_a_turn_needing_nothing_drops_what_it_found_while_the_judge_model_
 
     assert events[-1]["type"] == "done"
     assert reranker.calls == []
-    system = llm.prompts[-1][0].content
+    system = system_of(llm.prompts[-1])
     assert "# 回忆与资料" not in system and "# 关于制作人的记忆" not in system
     await client.get("/api/memories")  # once written down, with the query embedded already
     assert embedder.queries.count("公園の鳩と猫、かわいいね") == 1

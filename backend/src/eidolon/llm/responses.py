@@ -17,6 +17,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
     merge_extra_body,
+    opening_system,
 )
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -54,9 +55,11 @@ class ResponsesLLM:
             "stream": True,
             "store": False,  # every request carries the whole conversation
         }
-        if system := "\n\n".join(m.content for m in messages if m.role == "system"):
+        # The system messages it opens with are the instructions; a later one goes where it is.
+        opening, rest = opening_system(messages)
+        if system := "\n\n".join(m.content for m in opening):
             body["instructions"] = system
-        body["input"] = [item for m in messages if m.role != "system" for item in _items(m)]
+        body["input"] = [item for m in rest for item in _items(m)]
         if self._max_tokens is not None:
             body["max_output_tokens"] = self._max_tokens
         if self._effort is not None:
@@ -116,7 +119,13 @@ class ResponsesLLM:
             if kind in ("response.completed", "response.incomplete"):
                 usage = (event.get("response") or {}).get("usage")
                 if isinstance(usage, dict):
-                    bill("tokens", usage.get("input_tokens"), usage.get("output_tokens"))
+                    # The input tokens are all of it, those read from the cache among them.
+                    details = usage.get("input_tokens_details")
+                    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+                    bill(
+                        "tokens", usage.get("input_tokens"), usage.get("output_tokens"),
+                        cached if isinstance(cached, int) else None,
+                    )
         if reasoning:
             yield Reasoning({"items": [item for _, item in sorted(reasoning.items())]})
         for index, call in sorted(calls.items()):

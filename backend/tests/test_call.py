@@ -28,6 +28,8 @@ from tests.fakes import (
     FakeReranker,
     FakeSpeech,
     build_faked,
+    context_of,
+    system_of,
 )
 from tests.test_text_turn import start_conversation
 
@@ -70,7 +72,7 @@ async def test_a_call_is_heard_and_voiced_and_lands_in_the_conversation(
     [tts] = speech.ttss
     assert tts.voice_id == "mano-voice"
     assert "".join(tts.voiced) == "ほわっ、おはようございます！今日もピーちゃん！"  # Japanese only
-    system = llm.prompts[0][0].content
+    system = system_of(llm.prompts[0])
     assert "21:30" in system and "Asia/Tokyo" in system  # the time on the caller's device
     res = await client.get(f"/api/conversations/{conversation_id}/messages")
     assert [(m["role"], m["text"], m["ja"]) for m in res.json()] == [
@@ -98,8 +100,8 @@ async def test_call_turns_look_things_up_and_remember(
     await browser.turn()
 
     assert jev.asked == [("櫻木真乃", "我家的猫叫小白哦"), ("櫻木真乃", "你还记得我家的猫吗？")]
-    system = llm.prompts[-1][0].content
-    assert CAT in system[system.index("# 关于制作人的记忆") :]
+    context = context_of(llm.prompts[-1])
+    assert CAT in context[context.index("# 关于制作人的记忆") :]
 
 
 async def test_a_call_joins_the_conversation_asked_for_muted_as_asked(

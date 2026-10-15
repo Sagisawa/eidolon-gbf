@@ -30,9 +30,11 @@ def settings(settings: Settings) -> Settings:
 
 @pytest.fixture(autouse=True)
 def presets(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two models priced in advance, one in dollars, one in yuan, per million tokens."""
+    """Models priced in advance, in dollars and in yuan, per million tokens; one with a price
+    for the input read from the cache."""
     monkeypatch.setattr(eidolon.prices, "PRESETS", {
         ("llm.example", "m-usd", "tokens"): Price(2, 8, "USD", AS_OF),
+        ("llm.example", "m-cached", "tokens"): Price(2, 8, "USD", AS_OF, cache_read=0.2),
         ("llm.cn", "m-cny", "tokens"): Price(1, 4, "CNY", AS_OF),
         ("llm.example.com", "my-model", "tokens"): Price(5, 5, "USD", AS_OF),
     })
@@ -86,7 +88,7 @@ async def test_the_deployers_usage_is_priced_and_summed_by_currency(
         "chat_llm", "tokens", 2000, 1000
     )
     assert usd["price"] == {
-        "input": 2, "output": 8, "currency": "USD", "per": 1_000_000,
+        "input": 2, "output": 8, "cache_read": None, "currency": "USD", "per": 1_000_000,
         "as_of": AS_OF.isoformat(), "source": "preset",
     }
     assert usd["amount"] == pytest.approx(0.012)
@@ -201,11 +203,11 @@ async def test_an_admins_price_holds_over_the_preset_and_prices_a_model_without_
     usd = listed(added.json(), "llm.example", "m-usd")
     assert usd is not None
     assert usd["preset"] == {
-        "input": 2, "output": 8, "currency": "USD", "per": 1_000_000,
+        "input": 2, "output": 8, "cache_read": None, "currency": "USD", "per": 1_000_000,
         "as_of": "2026-10-07", "source": "preset",
     }
     assert usd["override"] == {
-        "input": 4, "output": 10, "currency": "CNY", "per": 1_000_000,
+        "input": 4, "output": 10, "cache_read": None, "currency": "CNY", "per": 1_000_000,
         "as_of": "2026-09-26", "source": "override",
     }
     assert added.json()["unpriced"] == []
@@ -233,6 +235,56 @@ async def test_an_admins_price_holds_over_the_preset_and_prices_a_model_without_
     assert unset is not None
     assert (unset["override"], unset["source"]) == (None, None)
     assert cost["totals"] == [{"currency": "USD", "amount": pytest.approx(0.006)}]
+
+
+async def test_the_input_read_from_the_cache_is_priced_at_the_cache_price_where_there_is_one(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    cached = make_client(
+        FakeLLM(REPLY, tokens=(1000, 100, 800)), "a",
+        settings=on(settings, "https://llm.example/v1", "m-cached"), clock=clock,
+    )
+    untold = make_client(
+        FakeLLM(REPLY, tokens=(1000, 100)), "b",
+        settings=on(settings, "https://llm.example/v1", "m-cached"), clock=clock,
+    )
+    no_cache_price = make_client(
+        FakeLLM(REPLY, tokens=(1000, 100, 800)), "c",
+        settings=on(settings, "https://llm.example/v1", "m-usd"), clock=clock,
+    )
+    admin = await admin_client(make_client, github, clock)
+    for client in [cached, untold, no_cache_price]:
+        await send_turn(client, await start_conversation(client), "在吗")
+
+    cost = (await dashboard(admin))["cost"]
+    with_price = row({"cost": cost}, "llm.example", "m-cached")
+    # 1200 input tokens missing the cache (the call that did not say hit none) at $2 a
+    # million, 800 hitting it at $0.2, 200 output at $8; without a cache price, all the
+    # input at the input's.
+    assert (with_price["input"], with_price["cached"], with_price["output"]) == (2000, 800, 200)
+    assert with_price["price"]["cache_read"] == 0.2
+    assert with_price["amount"] == pytest.approx(0.00416)
+    assert row({"cost": cost}, "llm.example", "m-usd")["amount"] == pytest.approx(0.0028)
+    assert cost["totals"] == [{"currency": "USD", "amount": pytest.approx(0.00696)}]
+    assert [p["amounts"] for p in cost["trend"] if p["amounts"]] == [
+        {"USD": pytest.approx(0.00696)}
+    ]
+
+    async def priced_at(cache_read: float | None) -> float:
+        saved = await admin.put("/api/admin/prices", json={
+            "provider": "llm.example", "model": "m-cached", "unit": "tokens",
+            "input": 2, "output": 8, "cache_read": cache_read, "currency": "USD",
+        })
+        assert saved.status_code == 200, saved.text
+        override = listed(saved.json(), "llm.example", "m-cached")
+        assert override is not None and override["override"]["cache_read"] == cache_read
+        return row(await dashboard(admin), "llm.example", "m-cached")["amount"]
+
+    # An admin's cache price holds over the preset's; their price without one has the
+    # input read from the cache priced as the rest.
+    assert await priced_at(0.1) == pytest.approx(0.00408)
+    assert await priced_at(None) == pytest.approx(0.0056)
 
 
 async def test_prices_are_for_admins_only(make_client: ClientFactory, settings: Settings):

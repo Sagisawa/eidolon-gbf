@@ -108,6 +108,26 @@ HANG = object()
 """A chunk in a FakeLLM reply where the model stops sending but never finishes."""
 
 
+def system_of(prompt: Sequence[ChatMessage]) -> str:
+    """What the system messages `prompt` opens with tell the model, as one text: joined by
+    a blank line, as the Chat Completions adapter sends them."""
+    opening: list[str] = []
+    for message in prompt:
+        if message.role != "system":
+            break
+        opening.append(message.content)
+    return "\n\n".join(opening)
+
+
+def context_of(prompt: Sequence[ChatMessage]) -> str:
+    """What changes from turn to turn that `prompt` tells the model: the system message
+    just before what the user is saying now, its last user message."""
+    last = max(i for i, m in enumerate(prompt) if m.role == "user")
+    context = prompt[last - 1]
+    assert context.role == "system", "no system message before what the user is saying"
+    return context.content
+
+
 class FakeLLM:
     """Records every prompt it receives, the tools offered with it, whether calling them
     was forbidden (`forbidden`) and the API key it came with (`keys`), and replies from a
@@ -119,14 +139,15 @@ class FakeLLM:
     a `delay`, it waits that many seconds before each chunk after the first, as a slow
     model would; at `HANG` it waits forever. Unless reached through a FakeLLMService, it
     is the deployer's model. With `tokens`, each reply it finishes says it was billed that
-    many input and output tokens, as a real service does; without, it says nothing.
+    many input and output tokens, and, with a third, that many of the input read from the
+    prompt cache, as a real service does; without, it says nothing.
     """
 
     def __init__(
         self,
         *replies: Sequence[Streamed | object] | LLMError,
         delay: float = 0,
-        tokens: tuple[int, int] | None = None,
+        tokens: tuple[int, int] | tuple[int, int, int] | None = None,
     ) -> None:
         self._replies = [r if isinstance(r, LLMError) else list(r) for r in replies]
         self._delay = delay

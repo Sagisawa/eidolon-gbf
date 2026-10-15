@@ -711,6 +711,7 @@ export const zh = {
         latency: "延迟 p50 / p95",
         effort: "思考强度",
         firstToken: "首字 p50 / p95",
+        cacheHitRate: "缓存命中率",
         atEffort: (effort: string) => `思考强度${effort}`,
         usage: "计费用量",
         own: "自带密钥",
@@ -1143,6 +1144,12 @@ export const zh = {
         actions: "操作",
       },
       none: "—",
+      /** 一个单价里的各项：输入、命中缓存的输入、输出。 */
+      priceParts: {
+        input: (price: string) => `输入 ${price}`,
+        cacheRead: (price: string) => `命中缓存 ${price}`,
+        output: (price: string) => `输出 ${price}`,
+      },
       inEffect: "生效",
       setOn: (date: string) => `设于 ${date}`,
       asOf: (date: string) => `整理于 ${date}`,
@@ -1189,6 +1196,7 @@ export const zh = {
         unit: "计费单位",
         input: "输入单价",
         output: "输出单价",
+        cacheRead: "缓存命中单价",
         currency: "币种",
       },
       formHints: {
@@ -1196,6 +1204,7 @@ export const zh = {
         model: "和运行记录里的一致。",
         input: "每个计价口径的价格，非负数。",
         output: "只有 LLM 的输出单独计价；留空表示按输入单价算。",
+        cacheRead: "只有 LLM 有：输入里命中服务商缓存的部分按这个价算；留空表示按输入单价算。",
       } as Record<string, string>,
       units: { tokens: "tokens（每百万）", bytes: "字节（每百万，UTF-8）", seconds: "秒（每小时）" } as Record<string, string>,
       currencies: { USD: "美元（USD）", CNY: "人民币（CNY）" } as Record<string, string>,

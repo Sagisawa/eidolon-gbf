@@ -10,7 +10,14 @@ import pytest
 
 from eidolon.config import LLMSettings, Settings
 from tests.conftest import ClientFactory
-from tests.fakes import FakeBackgroundLLM, FakeEmbedder, FakeJudge, FakeLLM, FakeReranker
+from tests.fakes import (
+    FakeBackgroundLLM,
+    FakeEmbedder,
+    FakeJudge,
+    FakeLLM,
+    FakeReranker,
+    context_of,
+)
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
@@ -42,12 +49,12 @@ async def test_what_the_user_told_mano_reaches_kogane_as_hearsay(make_client: Cl
     await turn(client, await start_conversation(client, "kogane"), "你知道我家的猫吗？")
 
     kogane = llm.prompts[-1]
-    memories = memories_section(kogane[0].content)
+    memories = memories_section(context_of(kogane))
     assert CAT in memories
     line = next(line for line in memories.splitlines() if CAT in line)
     assert "櫻木真乃" in line and "转述" in line
     # A new conversation carries only what memory retrieves, not the earlier conversation.
-    assert [m.role for m in kogane] == ["system", "user"]
+    assert [m.role for m in kogane] == ["system", "system", "system", "user"]
 
 
 async def test_talk_of_the_users_own_life_retrieves_memories_only(
@@ -63,9 +70,9 @@ async def test_talk_of_the_users_own_life_retrieves_memories_only(
     await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
     await turn(client, await start_conversation(client, "kogane"), "我家的猫最近总是半夜叫")
 
-    system = llm.prompts[-1][0].content
-    assert CAT in memories_section(system)
-    assert "# 回忆与资料" not in system
+    context = context_of(llm.prompts[-1])
+    assert CAT in memories_section(context)
+    assert "# 回忆与资料" not in context
     # The story corpus and facts searched while the judge model judged are not reranked.
     assert [docs for _, docs in reranker.calls] == [[CAT]]
 
@@ -80,7 +87,7 @@ async def test_small_talk_retrieves_no_memories(make_client: ClientFactory):
     await turn(client, await start_conversation(client, "mano"), "我家的猫叫小白哦")
     await turn(client, await start_conversation(client, "kogane"), "早上好")
 
-    assert memories_section(llm.prompts[-1][0].content) == ""
+    assert memories_section(context_of(llm.prompts[-1])) == ""
     assert reranker.calls == []
     # The judge model answering at once, nothing was looked up before it did: each turn is
     # embedded only to show the background model the memories nearest it.

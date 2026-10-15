@@ -191,7 +191,8 @@ async def test_the_judge_model_made_judges_both_on_the_thresholds_in_effect(
     await tell_mano(backend, "那次比赛怎么样")  # 0.7: not recalled
     after = await felt()
 
-    assert [[t.name for t in tools] for tools in clients.llm.tools] == [[], ["recall_story"]]
+    # A turn that recalled forbids the tool its model is offered all the same.
+    assert clients.llm.forbidden == [True, False]
     assert (before, after) == ("happy", "calm")
     assert clients.judge.asked == [
         ("jev-key", "turn"), ("jev-key", "emotion"), ("jev-key", "turn"), ("jev-key", "emotion")

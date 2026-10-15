@@ -16,6 +16,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
     merge_extra_body,
+    opening_system,
 )
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -62,9 +63,10 @@ class AnthropicLLM:
             "stream": True,
             "max_tokens": self._max_tokens,
         }
-        if system := "\n\n".join(m.content for m in messages if m.role == "system"):
+        opening, rest = opening_system(messages)
+        if system := _system(opening):
             body["system"] = system
-        body["messages"] = _messages([m for m in messages if m.role != "system"])
+        body["messages"] = _messages(rest)
         if self._effort == "none":
             body["thinking"] = {"type": "disabled"}
         elif self._effort is not None:
@@ -122,7 +124,11 @@ class AnthropicLLM:
                 error = event.get("error") or {}
                 raise LLMError(f"模型在流式输出中报错: {error.get('message') or event}")
         if usage:
-            bill("tokens", _input_tokens(usage), usage.get("output_tokens"))
+            cached = usage.get("cache_read_input_tokens")
+            bill(
+                "tokens", _input_tokens(usage), usage.get("output_tokens"),
+                cached if isinstance(cached, int) else None,
+            )
         if thinking:
             yield Reasoning({"blocks": [block for _, block in sorted(thinking.items())]})
         for index, call in sorted(calls.items()):
@@ -150,10 +156,29 @@ def _input_tokens(usage: dict[str, Any]) -> int | None:
     return sum(counted) if counted else None
 
 
+def _system(system: Sequence[ChatMessage]) -> str | list[dict[str, Any]]:
+    """The system prompt: the messages joined by a blank line, or, with any marked for
+    caching, a text block each, cached up to the end of those marked. A block's mark, not
+    the request's: few other services speaking the protocol say they take that one."""
+    if not any(m.cache_breakpoint for m in system):
+        return "\n\n".join(m.content for m in system)
+    blocks: list[dict[str, Any]] = []
+    for message in system:
+        if not message.content:  # the Messages API rejects empty text
+            continue
+        block: dict[str, Any] = {"type": "text", "text": message.content}
+        blocks.append(_cached(block) if message.cache_breakpoint else block)
+    return blocks
+
+
 def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     """Messages API turns; the results of one round of tool calls go back together, in the
-    user turn that follows the calls."""
+    user turn that follows the calls. A system message among them goes as a text block of its
+    own first in the user turn after it: newer models alone take one past `system`, and few
+    other services speaking the protocol. A message marked for caching is cached up to the
+    end of its last block."""
     turns: list[dict[str, Any]] = []
+    system_turn: dict[str, Any] | None = None  # the user turn a system message began
     for message in messages:
         if message.role == "tool":
             result = {
@@ -166,9 +191,11 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 last["content"].append(result)
             else:
                 turns.append({"role": "user", "content": [result]})
-        elif message.tool_calls:
+            system_turn = None
+            continue
+        if message.tool_calls:
             # What the model thought as it made the calls goes first, as its service sent it.
-            content: list[dict[str, Any]] = [
+            content: str | list[dict[str, Any]] = [
                 block for r in message.reasoning for block in r.data.get("blocks", ())
             ]
             if message.content:
@@ -177,7 +204,27 @@ def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
                 {"type": "tool_use", "id": c.id, "name": c.name, "input": c.arguments or {}}
                 for c in message.tool_calls
             )
-            turns.append({"role": "assistant", "content": content})
-        elif message.content:  # the Messages API rejects empty text
-            turns.append({"role": message.role, "content": message.content})
+        elif message.content:
+            content = message.content
+        else:
+            continue  # the Messages API rejects empty text
+        if message.cache_breakpoint:
+            *before, last = _blocks(content)
+            content = [*before, _cached(last)]
+        if system_turn is not None and message.role in ("user", "system"):
+            system_turn["content"].extend(_blocks(content))
+        elif message.role == "system":
+            turns.append({"role": "user", "content": _blocks(content)})
+        else:
+            turns.append({"role": message.role, "content": content})
+        system_turn = turns[-1] if message.role == "system" else None
     return turns
+
+
+def _blocks(content: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{"type": "text", "text": content}] if isinstance(content, str) else content
+
+
+def _cached(block: dict[str, Any]) -> dict[str, Any]:
+    """`block`, the prompt cached up to its end, for five minutes, as is the default."""
+    return {**block, "cache_control": {"type": "ephemeral"}}

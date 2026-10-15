@@ -5,6 +5,7 @@ import {
   countTicks,
   durationRange,
   formatCount,
+  formatCacheHitRate,
   formatDuration,
   formatFetchedAt,
   formatMs,
@@ -125,6 +126,13 @@ describe("the health table's rows", () => {
     expect(formatPercentiles(tts.first_token_ms)).toBe("—");
   });
 
+  it("say how much of an LLM's input hit the cache, and nothing of it for other services", () => {
+    expect(formatCacheHitRate({ ...llm("high"), cache_hit_rate: 0.7234 })).toBe("72.3%");
+    expect(formatCacheHitRate({ ...llm("high"), cache_hit_rate: 0 })).toBe("0%");
+    expect(formatCacheHitRate({ ...llm("high"), cache_hit_rate: null })).toBe("—");
+    expect(formatCacheHitRate(tts)).toBe("—");
+  });
+
   it("are named by service, whose keys and an LLM's effort", () => {
     expect(healthRowName(tts)).toBe("语音合成");
     expect(healthRowName(llm("high"))).toBe("扮演角色的 LLM（思考强度高）");
@@ -144,7 +152,7 @@ describe("splitZeroRows", () => {
 
 describe("formatUsage", () => {
   it("shows input and output where billed apart, input alone otherwise, and the calls that did not say", () => {
-    expect(formatUsage([{ unit: "tokens", input: 12_345, output: 678 }], 0)).toBe(
+    expect(formatUsage([{ unit: "tokens", input: 12_345, output: 678, cached: 9000 }], 0)).toBe(
       "输入 1.2万 · 输出 678 tokens",
     );
     expect(formatUsage([{ unit: "tokens", input: 300, output: null }], 2)).toBe("300 tokens；2 次未知");

@@ -323,6 +323,80 @@ async def test_a_model_that_streams_and_takes_tools_passes_the_check(protocol: L
     assert len(bodies) == (2 if protocol == "anthropic" else 1)
 
 
+async def test_the_check_opens_as_a_turn_does_with_a_part_marked_for_caching():
+    """A service that would refuse a turn's prompt for the mark fails the check, not every
+    turn after it."""
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if any("cache_control" in block for block in body.get("system") or []):
+            return httpx.Response(
+                400, json={"error": {"message": "system.0.cache_control: Extra inputs are not permitted"}}
+            )
+        return httpx.Response(200, text=PASSING["anthropic"])
+
+    llm = open_llm(
+        LLMSettings("https://llm.example/v1", "k", "m", "anthropic"),
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(LLMError, match="cache_control: Extra inputs are not permitted"):
+        await check_chat_llm(llm)
+
+    [block] = bodies[0]["system"]
+    assert block["cache_control"] == {"type": "ephemeral"}
+
+
+def mid_conversation_system_refused(bodies: list[dict]) -> OpenAICompatLLM:
+    """A Chat Completions service that takes system messages only at the start."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        if any(m["role"] == "system" for m in body["messages"][1:]):
+            return httpx.Response(
+                400, json={"error": {"message": "system messages must come first"}}
+            )
+        return httpx.Response(200, text=STREAMED)
+
+    return OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m", reasoning_effort="high",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+
+async def test_a_service_refusing_a_system_message_mid_conversation_as_a_turn_has_is_told_so():
+    """Whatever the effort: answering without the message, the model took it."""
+    bodies: list[dict] = []
+
+    with pytest.raises(LLMError) as raised:
+        await check_chat_llm(mid_conversation_system_refused(bodies), "high")
+
+    assert [m["role"] for m in bodies[0]["messages"]] == [
+        "system", "user", "assistant", "system", "user"
+    ]
+    assert str(raised.value).startswith("对话模型不接受对话里的缓存标记或中途的系统消息")
+    assert "system messages must come first" in str(raised.value)
+
+
+async def test_a_passing_failure_is_not_blamed_on_the_system_message_mid_conversation():
+    replies = iter([
+        httpx.Response(429, json={"error": "rate limited"}),
+        httpx.Response(429, json={"error": "rate limited"}),
+        httpx.Response(200, text=STREAMED),
+        httpx.Response(200, text=STREAMED),
+        httpx.Response(200, text=STREAMED),
+    ])
+    llm = OpenAICompatLLM(
+        "https://llm.example/v1", "k", "m",
+        client=httpx.AsyncClient(transport=httpx.MockTransport(lambda _: next(replies))),
+    )
+
+    await check_chat_llm(llm)
+
+
 async def test_the_check_reports_what_failed_when_both_requests_fail():
     llm = OpenAICompatLLM(
         "https://llm.example/v1", "k", "m",

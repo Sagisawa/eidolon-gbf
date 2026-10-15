@@ -1,7 +1,7 @@
 """The price catalogs online (GLOSSARY.md「看板」): models.dev's and OpenRouter's lists of
-models and what each costs per million tokens, in dollars, for pricing the deployer's
-service calls in place of the presets (`prices`). The way magpie prices its calls
-(github.com/yetone/magpie, `internal/catalog`).
+models and what each costs per million tokens, in dollars, input read from the prompt
+cache too where they say, for pricing the deployer's service calls in place of the presets
+(`prices`). The way magpie prices its calls (github.com/yetone/magpie, `internal/catalog`).
 
 The catalogs are fetched in the background as the server starts, again once they are a
 day old, and sooner when a model has no price (`refresh_soon`), or when an admin asks
@@ -73,12 +73,14 @@ CHECK_EVERY = 3600
 @dataclass(frozen=True)
 class Listed:
     """A model a catalog prices: dollars per million input and output tokens (output
-    None, priced as input, when the catalog does not say)."""
+    None, priced as input, when the catalog does not say), and input tokens read from the
+    prompt cache (None, priced as the rest of the input, when it does not say)."""
 
     provider: str
     model: str
     input: float
     output: float | None
+    cache_read: float | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,7 @@ CREATE TABLE IF NOT EXISTS price_catalog (
     model TEXT NOT NULL,
     input REAL NOT NULL,
     output REAL,
+    cache_read REAL,
     PRIMARY KEY (provider, model)
 );
 CREATE TABLE IF NOT EXISTS price_catalog_thinking (
@@ -190,13 +193,17 @@ def parse_models_dev(
             cost = m.get("cost")
             if not isinstance(cost, dict) or (input := _number(cost.get("input"))) is None:
                 continue
-            listed.append(Listed(provider, model, input, _number(cost.get("output"))))
+            listed.append(Listed(
+                provider, model, input, _number(cost.get("output")),
+                _number(cost.get("cache_read")),
+            ))
     return listed, thinking, hosts
 
 
 def parse_openrouter(data: object) -> list[Listed]:
     """The models OpenRouter prices, its prices per token made per million tokens; a
-    price it gives as -1 (one that varies, its router's) is left out."""
+    price it gives as -1 (one that varies, its router's) is left out, and a price for the
+    input read from the cache that is not a plain one is as none."""
     models = data.get("data") if isinstance(data, dict) else None
     if not isinstance(models, list):
         raise ValueError("OpenRouter: no list of models")
@@ -212,11 +219,22 @@ def parse_openrouter(data: object) -> list[Listed]:
             continue
         if input < 0 or (output is not None and output < 0):
             continue
+        cache_read = _per_token(pricing.get("input_cache_read"))
         listed.append(Listed(
             OPENROUTER, m["id"], round(input * 1_000_000, 9),
             None if output is None else round(output * 1_000_000, 9),
+            None if cache_read is None else round(cache_read * 1_000_000, 9),
         ))
     return listed
+
+
+def _per_token(value: object) -> float | None:
+    """An OpenRouter price per token, given as text, if it is one and not below 0."""
+    try:
+        price = float(value)  # pyright: ignore[reportArgumentType]
+    except (TypeError, ValueError):
+        return None
+    return price if price >= 0 else None
 
 
 def _bare(model: str) -> str:
@@ -268,6 +286,10 @@ class Catalog:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            columns = {name for _, name, *_ in self._db.execute("PRAGMA table_info(price_catalog)")}
+            # Catalogs fetched before cache prices were kept have none until fetched again.
+            if "cache_read" not in columns:
+                self._db.execute("ALTER TABLE price_catalog ADD COLUMN cache_read REAL")
         self._clock = clock
         self._fetching = threading.Lock()
         self._background: threading.Thread | None = None
@@ -282,7 +304,7 @@ class Catalog:
     def _load(self) -> None:
         with self._lock:
             listed = self._db.execute(
-                "SELECT provider, model, input, output FROM price_catalog"
+                "SELECT provider, model, input, output, cache_read FROM price_catalog"
             ).fetchall()
             thinking = self._db.execute(
                 "SELECT provider, model, thinks, efforts, switch FROM price_catalog_thinking"
@@ -292,8 +314,10 @@ class Catalog:
                 "SELECT fetched_at, failed_at, error FROM price_catalog_state"
             ).fetchone()
         models: dict[str, dict[str, Listed]] = {}
-        for provider, model, input, output in listed:
-            models.setdefault(provider, {})[model] = Listed(provider, model, input, output)
+        for provider, model, input, output, cache_read in listed:
+            models.setdefault(provider, {})[model] = Listed(
+                provider, model, input, output, cache_read
+            )
         thinks: dict[str, dict[str, Thinking]] = {}
         for provider, model, does, efforts, switch in thinking:
             taken = efforts.split()
@@ -407,9 +431,9 @@ class Catalog:
         with self._lock, self._db:
             self._db.execute("DELETE FROM price_catalog")
             self._db.executemany(
-                "INSERT OR REPLACE INTO price_catalog (provider, model, input, output)"
-                " VALUES (?, ?, ?, ?)",
-                ((m.provider, m.model, m.input, m.output) for m in listed),
+                "INSERT OR REPLACE INTO price_catalog (provider, model, input, output, cache_read)"
+                " VALUES (?, ?, ?, ?, ?)",
+                ((m.provider, m.model, m.input, m.output, m.cache_read) for m in listed),
             )
             self._db.execute("DELETE FROM price_catalog_thinking")
             self._db.executemany(

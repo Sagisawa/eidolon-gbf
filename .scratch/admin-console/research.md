@@ -43,7 +43,7 @@
 |---|---|---|---|---|---|---|
 | api.anthropic.com | `claude-fable-5-1` | tokens | 10 | 50 | USD | 缓存命中 0.25（0.025 倍），5 分钟写缓存 12.50 |
 | api.anthropic.com | `claude-opus-5-5` | tokens | 4 | 20 | USD | 缓存命中 0.20（0.05 倍），5 分钟写缓存 5 |
-| api.anthropic.com | `claude-sonnet-5-5` | tokens | 2 | 10 | USD | 缓存命中 0.20，5 分钟写缓存 2.50 |
+| api.anthropic.com | `claude-sonnet-5-5` | tokens | 2 | 10 | USD | 缓存命中 0.10（0.05 倍；2026-10-14 按 `.scratch/prompt-caching/research.md` 第 5 节更正，原写 0.20），5 分钟写缓存 2.50 |
 | api.anthropic.com | `claude-haiku-4-5-20251001`（别名 `claude-haiku-4-5`） | tokens | 1 | 5 | USD | 缓存命中 0.10，5 分钟写缓存 1.25。官方写的退役时间是 "Not sooner than October 15, 2026" |
 
 - 上面 4 个是 models overview 页列出的当前模型。价格页还列了旧版但仍可用的模型，比如 Claude Opus 5（5 / 25）、Claude Sonnet 5（2 / 10，原文注明 $2/$10 已转为标准价）。但 overview 页没给出这两个模型的 API ID 原文，所以没有列进表里。

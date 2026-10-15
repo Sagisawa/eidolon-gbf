@@ -10,7 +10,7 @@ import pytest
 
 from eidolon.config import Settings
 from tests.conftest import ClientFactory
-from tests.fakes import FakeLLM
+from tests.fakes import FakeLLM, system_of
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
@@ -24,9 +24,7 @@ def clock() -> datetime:
 async def system_prompt(client: httpx.AsyncClient, llm: FakeLLM) -> str:
     conversation_id = await start_conversation(client)
     await send_turn(client, conversation_id, "在吗")
-    system = llm.prompts[-1][0]
-    assert system.role == "system"
-    return system.content
+    return system_of(llm.prompts[-1])
 
 
 async def test_profile_belongs_to_the_user_not_the_device(make_client: ClientFactory):

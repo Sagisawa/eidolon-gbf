@@ -19,7 +19,15 @@ import {
   type PriceForm,
 } from "@/lib/adminPrices";
 
-const PRESET: Price = { input: 2, output: 8, currency: "USD", per: 1_000_000, as_of: "2026-10-07", source: "preset" };
+const PRESET: Price = {
+  input: 2,
+  output: 8,
+  cache_read: null,
+  currency: "USD",
+  per: 1_000_000,
+  as_of: "2026-10-07",
+  source: "preset",
+};
 const LISTED: Price = {
   ...PRESET,
   input: 3,
@@ -94,6 +102,13 @@ describe("formatPrice", () => {
     expect(formatPrice(PRESET, "tokens")).toBe("输入 $2 · 输出 $8 / 每百万 tokens");
     expect(formatPrice({ ...PRESET, output: null, currency: "CNY", per: 3600 }, "seconds")).toBe("¥2 / 每小时");
   });
+
+  it("names the price of the input read from the cache where there is one", () => {
+    expect(formatPrice({ ...PRESET, cache_read: 0.2 }, "tokens")).toBe("输入 $2 · 命中缓存 $0.2 · 输出 $8 / 每百万 tokens");
+    expect(formatPrice({ ...PRESET, output: null, cache_read: 0.04, currency: "CNY" }, "tokens")).toBe(
+      "输入 ¥2 · 命中缓存 ¥0.04 / 每百万 tokens",
+    );
+  });
 });
 
 describe("formatMoneyTick", () => {
@@ -147,23 +162,42 @@ describe("price form", () => {
     unit: "tokens",
     input: "0.28",
     output: "",
+    cacheRead: "",
     currency: "USD",
   };
 
   it("starts from the admin's price, else the catalogs', else the preset", () => {
     const entry = { provider: "p", model: "m", unit: "tokens", preset: PRESET, catalog: null, override: null };
     expect(priceFormOf(entry)).toEqual({
-      provider: "p", model: "m", unit: "tokens", input: "2", output: "8", currency: "USD",
+      provider: "p", model: "m", unit: "tokens", input: "2", output: "8", cacheRead: "", currency: "USD",
     });
-    expect(priceFormOf({ ...entry, catalog: LISTED })).toMatchObject({ input: "3" });
+    expect(priceFormOf({ ...entry, catalog: { ...LISTED, cache_read: 0.3 } })).toMatchObject({ input: "3", cacheRead: "0.3" });
     expect(
       priceFormOf({ ...entry, catalog: LISTED, override: { ...PRESET, input: 4, output: null, currency: "CNY" } }),
     ).toMatchObject({ input: "4", output: "", currency: "CNY" });
   });
 
-  it("trims the names and prices output as input when left empty", () => {
+  it("trims the names and prices output and cached input as input when left empty", () => {
     expect(priceChangeOf(form)).toEqual({
-      change: { provider: "api.deepseek.com", model: "deepseek-chat", unit: "tokens", input: 0.28, output: null, currency: "USD" },
+      change: {
+        provider: "api.deepseek.com",
+        model: "deepseek-chat",
+        unit: "tokens",
+        input: 0.28,
+        output: null,
+        cache_read: null,
+        currency: "USD",
+      },
+    });
+    expect(priceChangeOf({ ...form, cacheRead: " 0.028 " })).toMatchObject({ change: { cache_read: 0.028 } });
+  });
+
+  it("leaves out a cache price the form no longer shows, for a unit other than tokens", () => {
+    expect(priceChangeOf({ ...form, unit: "bytes", cacheRead: "0.028" })).toMatchObject({
+      change: { unit: "bytes", cache_read: null },
+    });
+    expect(priceChangeOf({ ...form, unit: "seconds", cacheRead: "abc" })).toMatchObject({
+      change: { cache_read: null },
     });
   });
 
@@ -174,6 +208,7 @@ describe("price form", () => {
       [{ input: "" }, { field: "input", reason: "required" }],
       [{ input: "-1" }, { field: "input", reason: "amount" }],
       [{ output: "abc" }, { field: "output", reason: "amount" }],
+      [{ cacheRead: "-0.1" }, { field: "cacheRead", reason: "amount" }],
     ];
     for (const [change, problem] of cases) {
       expect(priceChangeOf({ ...form, ...change }), JSON.stringify(change)).toEqual({ problems: [problem] });

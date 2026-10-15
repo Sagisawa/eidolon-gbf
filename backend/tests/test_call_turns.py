@@ -63,7 +63,7 @@ from tests.fakes import (
     build_faked,
     level,
 )
-from tests.test_affinity_prompt import FEELINGS, about_producer
+from tests.test_affinity_prompt import FEELINGS, about_now
 from tests.test_affinity_turns import value
 from tests.test_text_turn import start_conversation
 
@@ -453,9 +453,9 @@ async def test_a_turn_with_a_follow_on_changes_affinity_as_the_whole_of_it_is_ju
 
     # The reply dropped, what it was judged at went with it: she knew it as it was judged.
     assert value(settings.database_path) == 52
-    assert FEELINGS[0] in about_producer(llm, 0)
-    assert FEELINGS[4] in about_producer(llm, 1)
-    assert FEELINGS[0] not in about_producer(llm, 1)
+    assert FEELINGS[0] in about_now(llm, 0)
+    assert FEELINGS[4] in about_now(llm, 1)
+    assert FEELINGS[0] not in about_now(llm, 1)
     assert done["message"]["affinity"] == {
         "up": True, "tier_changed": False, "tier": "trust", "cooldown": False, "thawed": False
     }

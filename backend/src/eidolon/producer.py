@@ -86,15 +86,12 @@ def effective_timezone(profile: ProducerProfile, device_timezone: str | None) ->
 
 
 def local_date(now: datetime, timezone: str) -> date:
-    """The day it is at `now` where the producer is: the day `producer_prompt` tells."""
+    """The day it is at `now` where the producer is: the day `now_prompt` tells."""
     return now.astimezone(ZoneInfo(timezone)).date()
 
 
-def producer_prompt(
-    profile: ProducerProfile, now: datetime, timezone: str, affinity_lines: Sequence[str] = ()
-) -> str:
-    """The prompt section about the user: who they are, and the time where they are; then
-    `affinity_lines`, how the character feels toward them now (`affinity.affinity_prompt`)."""
+def producer_prompt(profile: ProducerProfile) -> str:
+    """The prompt section about the user: who they are, the same from turn to turn."""
     lines = ["# 制作人", "和你对话的是你的制作人，也就是 283 事务所的制作人。"]
     if profile.form_of_address:
         lines.append(
@@ -114,15 +111,25 @@ def producer_prompt(
             "这是制作人自己在档案里填的；记忆里如果有不一样的说法，以这里为准。"
             "被问起时可以回答，平时不要主动提起。"
         )
+    return "\n".join(lines)
+
+
+def now_prompt(
+    profile: ProducerProfile, now: datetime, timezone: str, affinity_lines: Sequence[str] = ()
+) -> str:
+    """The prompt section about now: the time where the user is, and whether it is their
+    birthday; then `affinity_lines`, how the character feels toward them now
+    (`affinity.affinity_prompt`)."""
     local = now.astimezone(ZoneInfo(timezone))
+    lines = [
+        "# 此刻",
+        f"现在是 {local.year}年{local.month}月{local.day}日"
+        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。",
+    ]
     if profile.birthday and is_birthday(profile.birthday, local.date()):
         lines.append(
             "今天是制作人的生日。请在合适的时候用你自己的方式祝福一次："
             "先回应制作人说的话，不要每句都提。"
         )
-    lines.append(
-        f"现在是 {local.year}年{local.month}月{local.day}日"
-        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。"
-    )
     lines += affinity_lines
     return "\n".join(lines)

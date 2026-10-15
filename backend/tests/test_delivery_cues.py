@@ -103,7 +103,8 @@ async def test_a_text_turn_shows_no_cues_but_keeps_them_for_the_next_turn(
     res = await client.get(f"/api/conversations/{conversation_id}/messages")
     assert res.json()[1]["ja"] == "えへへ、ありがとう"
     assert res.json()[1]["segments"] == [{"ja": "えへへ、ありがとう", "zh": "嘿嘿，谢谢"}]
-    assert llm.prompts[1][-2].content == REPLY[0]  # the model reads its reply as it wrote it
+    # The model reads its reply as it wrote it.
+    assert [m.content for m in llm.prompts[1] if m.role == "assistant"] == [REPLY[0]]
     store = Store(settings.database_path)
     try:
         assert store.list_messages(conversation_id)[1].ja == "[shyly] えへへ、(happy)ありがとう"

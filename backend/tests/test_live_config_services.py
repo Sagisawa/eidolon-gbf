@@ -36,6 +36,7 @@ from tests.fakes import (
     FakeReranker,
     FakeServiceClients,
     FakeSpeech,
+    context_of,
 )
 from tests.test_live_config import (
     CONFIG,
@@ -583,8 +584,8 @@ async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_
     assert changed.status_code == 200, changed.text
     await send_turn(client, conversation_id, "那次比赛怎么样")  # Clef-flash's 0.7: recalled
 
-    offered = [[t.name for t in tools] for tools in clients.llm.tools]
-    assert offered == [[], ["recall_story"], ["recall_story"], []]
+    # A turn that recalled forbids the tool its model is offered all the same.
+    assert clients.llm.forbidden == [True, False, False, True]
     thresholds = saved.json()["judge_thresholds"]
     assert thresholds["status"] == "overridden"
     assert thresholds["env"] == {"recall": 0.5, "emotion": 0.5} | JEV_AFFINITY
@@ -713,7 +714,7 @@ async def test_the_memory_threshold_saved_leaves_out_what_the_next_turn_finds(
     assert saved.status_code == 200, saved.text
     await send_turn(client, conversation_id, "猫怎么样")
 
-    found = ["制作人养了一只猫" in prompt[0].content for prompt in clients.llm.prompts]
+    found = ["制作人养了一只猫" in context_of(prompt) for prompt in clients.llm.prompts]
     assert found == [False, True, False]
     rerank = saved.json()["rerank"]
     assert rerank["model"] == "Qwen/Qwen3-Reranker-0.6B"

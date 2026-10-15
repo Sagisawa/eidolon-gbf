@@ -5,6 +5,7 @@ prices. Driven through the backend's external API, the catalogs served by a fake
 HTTP and the clock the tests'."""
 
 import asyncio
+import sqlite3
 from dataclasses import replace
 from datetime import date
 
@@ -16,7 +17,7 @@ from eidolon.config import Settings
 from eidolon.prices import Price
 from tests.browser import TIMEOUT
 from tests.conftest import ClientFactory, agree_to_terms, github_identity, sign_in_with
-from tests.fakes import FakeCatalog, FakeClock, FakeIdentityProvider, FakeLLM
+from tests.fakes import START, FakeCatalog, FakeClock, FakeIdentityProvider, FakeLLM
 from tests.test_activity_records import REPLY, dashboard
 from tests.test_cost_estimate import on, row
 from tests.test_live_config import start
@@ -62,7 +63,7 @@ async def turn_on(
     clock: FakeClock,
     base_url: str,
     model: str,
-    tokens: tuple[int, int] = (1000, 500),
+    tokens: tuple[int, int] | tuple[int, int, int] = (1000, 500),
 ) -> None:
     """A turn on the deployer's chat model at `base_url` named `model`, billed `tokens`."""
     client = make_client(
@@ -73,7 +74,8 @@ async def turn_on(
 
 def models_dev(provider: str, api: str | None, models: dict[str, tuple[float, float]]) -> dict:
     """models.dev's catalog of one provider at `api`, its models priced in dollars per
-    million input and output tokens."""
+    million input and output tokens, and a tenth of the input's for that read from the
+    cache."""
     return {provider: {
         "id": provider,
         **({"api": api} if api else {}),
@@ -110,7 +112,7 @@ async def test_the_catalogs_price_holds_over_the_preset_and_an_admins_over_both(
         "fetched_at": clock().isoformat(), "failed_at": None, "error": None, "fetching": False
     }
     assert row(after, "llm.example", "m-usd")["price"] == {
-        "input": 3, "output": 12, "currency": "USD", "per": 1_000_000,
+        "input": 3, "output": 12, "cache_read": 0.3, "currency": "USD", "per": 1_000_000,
         "as_of": clock().date().isoformat(), "source": "catalog",
         "match": {"provider": "example", "model": "m-usd"},
     }
@@ -231,6 +233,51 @@ async def test_openrouters_own_catalog_prices_its_models_per_million_tokens(
     # A price that varies is no price; nor is one only models.dev's copy has.
     assert row(board, "openrouter.ai", "openrouter/auto")["price"] is None
     assert row(board, "openrouter.ai", "vendor/copied")["price"] is None
+
+
+async def test_the_catalogs_price_the_input_read_from_the_cache_where_they_say(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    clock = FakeClock()
+    catalog = FakeCatalog(
+        {
+            **models_dev("example", "https://llm.example/v1", {"m-usd": (3, 12)}),
+            "plain": {"id": "plain", "api": "https://plain.example/v1", "models": {
+                "m-plain": {"id": "m-plain", "cost": {"input": 1, "output": 2}},
+            }},
+        },
+        [
+            {"id": "vendor/cached", "pricing": {
+                "prompt": "0.000002", "completion": "0.00001", "input_cache_read": "0.0000002",
+            }},
+            {"id": "vendor/uncached", "pricing": {"prompt": "0.000002", "completion": "0.00001"}},
+        ],
+    )
+    for base_url, model in [
+        ("https://llm.example/v1", "m-usd"),
+        ("https://plain.example/v1", "m-plain"),
+        ("https://openrouter.ai/api/v1", "vendor/cached"),
+        ("https://openrouter.ai/api/v1", "vendor/uncached"),
+    ]:
+        await turn_on(make_client, settings, clock, base_url, model, (1000, 0, 800))
+    admin = await admin_on(make_client, github, clock, catalog)
+
+    await admin.post(REFRESH)
+    board = await dashboard(admin)
+    prices = (await admin.get("/api/admin/prices")).json()
+
+    def priced(provider: str, model: str) -> tuple[float | None, float]:
+        found = row(board, provider, model)
+        return found["price"]["cache_read"], found["amount"]
+
+    # 200 input tokens missing the cache, 800 hitting it, at the input's price and the
+    # cache's; where the catalog has no cache price, all 1000 at the input's.
+    assert priced("llm.example", "m-usd") == (0.3, pytest.approx(0.00084))
+    assert priced("plain.example", "m-plain") == (None, pytest.approx(0.001))
+    assert priced("openrouter.ai", "vendor/cached") == (0.2, pytest.approx(0.00056))
+    assert priced("openrouter.ai", "vendor/uncached") == (None, pytest.approx(0.002))
+    [listed] = [p for p in prices["prices"] if p["model"] == "m-usd"]
+    assert listed["catalog"]["cache_read"] == 0.3
 
 
 async def test_a_failed_fetch_keeps_the_catalogs_fetched_before_and_says_why(
@@ -364,3 +411,36 @@ async def test_catalogs_never_fetched_leave_the_presets_in_effect(
     )
     assert row(board, "llm.example", "m-usd")["price"]["source"] == "preset"
     assert board["cost"]["catalog_as_of"] is None
+
+
+async def test_prices_kept_before_cache_prices_were_have_none(
+    make_client: ClientFactory, settings: Settings, github: FakeIdentityProvider
+):
+    """An admin's price and the catalogs as kept before: input read from the cache is priced
+    as the rest, until the admin sets it or the catalogs are fetched again."""
+    with sqlite3.connect(settings.database_path) as db:
+        db.execute(
+            "CREATE TABLE price_overrides (provider TEXT NOT NULL, model TEXT NOT NULL,"
+            " unit TEXT NOT NULL, input REAL NOT NULL, output REAL, currency TEXT NOT NULL,"
+            " updated_at TEXT NOT NULL, PRIMARY KEY (provider, model, unit))"
+        )
+        db.execute(
+            "INSERT INTO price_overrides VALUES ('llm.example', 'm-usd', 'tokens', 1, 1, 'USD',"
+            " ?)",
+            (START.isoformat(),),
+        )
+        db.execute(
+            "CREATE TABLE price_catalog (provider TEXT NOT NULL, model TEXT NOT NULL,"
+            " input REAL NOT NULL, output REAL, PRIMARY KEY (provider, model))"
+        )
+        db.execute("INSERT INTO price_catalog VALUES ('example', 'm-usd', 3, 12)")
+    catalog = FakeCatalog(models_dev("example", "https://llm.example/v1", {"m-usd": (3, 12)}))
+    admin = await admin_on(make_client, github, FakeClock(), catalog)
+
+    before = (await settled(admin))["prices"]
+    after = (await admin.post(REFRESH)).json()["prices"]
+
+    [kept] = [p for p in before if p["model"] == "m-usd"]
+    assert (kept["override"]["input"], kept["override"]["cache_read"]) == (1, None)
+    [fetched] = [p for p in after if p["model"] == "m-usd"]
+    assert fetched["catalog"]["cache_read"] == 0.3

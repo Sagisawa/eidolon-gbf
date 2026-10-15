@@ -4,9 +4,9 @@ summed up for the admin, under `/api/admin/dashboard`.
 Everything is summed up here; the browser only shows it. For each service, on the
 deployer's keys and on users' own apart: how many calls, how many failed and how, how
 long they took, and what they were billed for; for an LLM, at each reasoning effort apart,
-and how soon its first word came. For turns (typed or in calls): how many,
-by how they turned out, how many on users' own keys, how soon the character began to
-speak. For calls: how many, by how they turned out, how many on users' own keys, how long
+how soon its first word came and how much of its input hit the provider's prompt cache.
+For turns (typed or in calls): how many, by how they turned out, how many on users' own
+keys, how soon the character began to speak. For calls: how many, by how they turned out, how many on users' own keys, how long
 they lasted and why they ended. How many users took any turn or call; how many turns and
 calls with each character, and in each stretch of the range (`trend`), in stretches
 beginning where the admin's clock (`X-Timezone`) has a round hour or day. Where affinity is
@@ -118,7 +118,8 @@ def percentile(values: Sequence[float], p: float) -> float | None:
 
 def health(calls: Iterable[CallRow]) -> list[dict]:
     """Each service's calls, on the deployer's keys and on users' own apart, in the order
-    of `SERVICES`; an LLM's also at each reasoning effort apart, none first."""
+    of `SERVICES`; an LLM's also at each reasoning effort apart, none first, with its cache
+    hit rate."""
     groups: dict[tuple[str, bool, ReasoningEffort | None], list[CallRow]] = defaultdict(list)
     for call in calls:
         groups[(call.service, call.own_key, call.effort)].append(call)
@@ -135,14 +136,24 @@ def health(calls: Iterable[CallRow]) -> list[dict]:
             "error_rate": len(failed) / len(group),
             "errors_by_kind": dict(Counter(c.error for c in failed if c.error)),
             "latency_ms": _percentiles(c.latency_ms for c in group),
-            "usage": _usage(group),
+            "usage": _usage(group, llm=service in LLM_SERVICES),
             "usage_unknown": sum(c.usage_unit is None for c in group),
         }
         if service in LLM_SERVICES:
             row["effort"] = effort
             row["first_token_ms"] = _percentiles(c.first_token_ms for c in group)
+            row["cache_hit_rate"] = cache_hit_rate(group)
         rows.append(row)
     return rows
+
+
+def cache_hit_rate(calls: Sequence[CallRow]) -> float | None:
+    """Of all the input tokens an LLM's calls said they were billed for, the share the
+    provider read from its prompt cache; a call that did not say how much hit none. None
+    where no call said what its input was."""
+    told = [c for c in calls if c.usage_unit == "tokens" and c.usage_input is not None]
+    input = sum(c.usage_input or 0 for c in told)
+    return sum(c.usage_cached or 0 for c in told) / input if input else None
 
 
 def _percentiles(values: Iterable[float | None]) -> dict:
@@ -163,8 +174,9 @@ def _order(service: str) -> int:
     return SERVICES.index(service) if service in SERVICES else len(SERVICES)  # pyright: ignore[reportArgumentType]
 
 
-def _usage(calls: Sequence[CallRow]) -> list[dict]:
-    """What the calls were billed for, in each unit they were billed in."""
+def _usage(calls: Sequence[CallRow], llm: bool) -> list[dict]:
+    """What the calls were billed for, in each unit they were billed in; an `llm`'s, of the
+    input, how much hit the prompt cache, where any call said."""
     units: dict[str, list[CallRow]] = defaultdict(list)
     for call in calls:
         if call.usage_unit is not None:
@@ -174,6 +186,7 @@ def _usage(calls: Sequence[CallRow]) -> list[dict]:
             "unit": unit,
             "input": _sum(c.usage_input for c in billed),
             "output": _sum(c.usage_output for c in billed),
+            **({"cached": _sum(c.usage_cached for c in billed)} if llm else {}),
         }
         for unit, billed in sorted(units.items())
     ]

@@ -16,6 +16,7 @@ from eidolon.llm import (
     Tool,
     ToolCall,
     merge_extra_body,
+    opening_system,
 )
 from eidolon.llm.sse import parse_arguments, stream_events
 
@@ -51,7 +52,7 @@ class OpenAICompatLLM:
             "stream": True,
             # The tokens it is billed for come in a last chunk, sent only when asked for.
             "stream_options": {"include_usage": True},
-            "messages": [_message(m) for m in messages],
+            "messages": _messages(messages),
         }
         if self._max_tokens is not None:
             body["max_tokens"] = self._max_tokens
@@ -103,7 +104,10 @@ class OpenAICompatLLM:
                     if isinstance(extra := fragment.get("extra_content"), dict):
                         call["extra_content"] = extra
         if usage is not None:
-            bill("tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"))
+            bill(
+                "tokens", usage.get("prompt_tokens"), usage.get("completion_tokens"),
+                _cache_hits(usage),
+            )
         assembled = [
             (call["id"] or f"call_{index}", call)  # the tool result must name its call
             for index, call in sorted(calls.items())
@@ -120,6 +124,31 @@ class OpenAICompatLLM:
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _cache_hits(usage: dict[str, Any]) -> int | None:
+    """How many of the prompt tokens, which are all of the input, the provider read from its
+    cache: where most services say, else under DeepSeek's own name, else Kimi's older one."""
+    details = usage.get("prompt_tokens_details")
+    for told in (
+        details.get("cached_tokens") if isinstance(details, dict) else None,
+        usage.get("prompt_cache_hit_tokens"),
+        usage.get("cached_tokens"),
+    ):
+        if isinstance(told, int):
+            return told
+    return None
+
+
+def _messages(messages: Sequence[ChatMessage]) -> list[dict[str, Any]]:
+    """The messages as Chat Completions takes them; the system messages they open with go
+    as one, joined by a blank line, as every service takes them."""
+    opening, rest = opening_system(messages)
+    sent = [_message(m) for m in rest]
+    if opening:
+        system = "\n\n".join(m.content for m in opening)
+        sent.insert(0, {"role": "system", "content": system})
+    return sent
 
 
 def _message(message: ChatMessage) -> dict[str, Any]:

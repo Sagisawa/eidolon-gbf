@@ -12,8 +12,8 @@ from eidolon.config import Settings
 from eidolon.characters import load_characters
 from eidolon.own_keys import BroughtKeys
 from eidolon.world import WorldError, load_world, world_path
-from tests.conftest import CharacterConfig, ClientFactory
-from tests.fakes import FakeBackgroundLLM, FakeLLM, build_faked
+from tests.conftest import MANO_SHEET, CharacterConfig, ClientFactory
+from tests.fakes import FakeBackgroundLLM, FakeLLM, build_faked, system_of
 from tests.test_characters import REPO_CHARACTERS
 from tests.test_turns import REPLY, Turns, turns  # noqa: F401  (the fixture)
 
@@ -145,23 +145,29 @@ def section(system: str, heading: str) -> str:
 
 def system_prompt(llm: FakeLLM) -> str:
     [prompt] = llm.prompts
-    return prompt[0].content
+    return system_of(prompt)
 
 
 async def test_every_turn_carries_the_world_setting_after_the_character_sheet(
     turns: Turns, characters: CharacterConfig
 ):
+    """The two open the prompt apart, with how she is to format her reply, the same for
+    every user's turns with her that day, marked for a service to cache; the rest of what
+    she is told follows on its own."""
     write_world(characters)
     llm = FakeLLM(REPLY)
 
     await turns.take(llm, "イルミネのメンバーって誰だっけ")
 
-    system = system_prompt(llm)
-    assert system.index("你是櫻木真乃") < system.index("# 世界设定") < system.index("# 制作人")
-    assert "资料截止到 2026年9月28日" in system
-    assert "社長：天井努" in system and "事務員：七草はづき" in system
-    assert "illumination STARS（いるみねーしょんすたーず）：櫻木真乃、風野灯織" in system
-    assert "L'Antica（あんてぃーか）：月岡恋鐘" in system  # her unit or not, every unit
+    [prompt] = llm.prompts
+    shared = prompt[0]
+    assert shared.cache_breakpoint
+    assert shared.content.startswith(f"{MANO_SHEET}\n\n# 世界设定")
+    world = shared.content.removeprefix(f"{MANO_SHEET}\n\n")
+    assert "资料截止到 2026年9月28日" in world
+    assert "社長：天井努" in world and "事務員：七草はづき" in world
+    assert "illumination STARS（いるみねーしょんすたーず）：櫻木真乃、風野灯織" in world
+    assert "L'Antica（あんてぃーか）：月岡恋鐘" in world  # her unit or not, every unit
 
 
 async def test_the_world_setting_carries_the_rules_for_facts_of_the_original(

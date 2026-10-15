@@ -64,8 +64,9 @@ export function splitZeroRows<T extends { count: number }>(rows: T[]): { counted
   return { counted: rows.filter((row) => row.count > 0), zero: rows.filter((row) => row.count <= 0) };
 }
 
-/** What a service's calls were billed for in one unit; null where no call said. */
-export type Usage = { unit: string; input: number | null; output: number | null };
+/** What a service's calls were billed for in one unit, and for an LLM, of the input, how much hit the
+ * provider's prompt cache; null where no call said. */
+export type Usage = { unit: string; input: number | null; output: number | null; cached?: number | null };
 
 /** A p50 and a p95 in milliseconds; null where nothing was timed. */
 export type Percentiles = { p50: number | null; p95: number | null };
@@ -89,6 +90,9 @@ export type ServiceHealth = {
   effort?: ReasoningEffort | null;
   /** An LLM's alone: from the request to its first text or tool call; thinking is neither. */
   first_token_ms?: Percentiles;
+  /** An LLM's alone: of all its input, the share read from the prompt cache, a call that did not say counting
+   * as none; null where no call said what its input was. */
+  cache_hit_rate?: number | null;
 };
 
 /** An LLM row's effort as a form's choice is, unset for none asked; null for other services. */
@@ -115,6 +119,11 @@ export function serviceName(row: ServiceHealth): string {
 /** 「842 ms / 1.3 s」; 「—」 for what a service has none of, as first words of all but LLMs. */
 export function formatPercentiles(times: Percentiles | undefined): string {
   return times === undefined ? NONE : `${formatMs(times.p50)} / ${formatMs(times.p95)}`;
+}
+
+/** How much of an LLM's input hit the cache: 「72.3%」; 「—」 for other services, or where no call said. */
+export function formatCacheHitRate(row: Pick<ServiceHealth, "cache_hit_rate">): string {
+  return row.cache_hit_rate == null ? NONE : formatPercent(row.cache_hit_rate);
 }
 
 /** A health row named in a sentence: 「扮演角色的 LLM（自带密钥，思考强度高）」. */

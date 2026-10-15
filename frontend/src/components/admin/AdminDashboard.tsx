@@ -39,6 +39,7 @@ import {
   type DashboardRange,
   durationRange,
   type ErrorKind,
+  formatCacheHitRate,
   formatCount,
   formatDuration,
   formatFetchedAt,
@@ -573,6 +574,7 @@ function HealthTable({ board }: { board: Dashboard }) {
               <TableHead>{t.health.errors}</TableHead>
               <TableHead className="text-right">{t.health.latency}</TableHead>
               <TableHead className="text-right">{t.health.firstToken}</TableHead>
+              <TableHead className="text-right">{t.health.cacheHitRate}</TableHead>
               <TableHead>{t.health.usage}</TableHead>
             </TableRow>
           </TableHeader>
@@ -592,6 +594,7 @@ function HealthTable({ board }: { board: Dashboard }) {
                 <TableCell className="whitespace-normal">{errorsText(row)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatPercentiles(row.latency_ms)}</TableCell>
                 <TableCell className="text-right tabular-nums">{formatPercentiles(row.first_token_ms)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCacheHitRate(row)}</TableCell>
                 <TableCell className="whitespace-normal">{formatUsage(row.usage, row.usage_unknown)}</TableCell>
               </TableRow>
             ))}
@@ -615,7 +618,9 @@ function HealthTable({ board }: { board: Dashboard }) {
                     {`${t.health.latency} ${formatPercentiles(row.latency_ms)} · ${formatUsage(row.usage, row.usage_unknown)}`}
                   </span>
                   {row.first_token_ms && (
-                    <span className="tabular-nums">{`${t.health.firstToken} ${formatPercentiles(row.first_token_ms)}`}</span>
+                    <span className="tabular-nums">
+                      {`${t.health.firstToken} ${formatPercentiles(row.first_token_ms)} · ${t.health.cacheHitRate} ${formatCacheHitRate(row)}`}
+                    </span>
                   )}
                   {errors !== "—" && <span>{`${t.health.errors} ${errors}`}</span>}
                 </>

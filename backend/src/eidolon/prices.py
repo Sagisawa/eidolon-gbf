@@ -4,18 +4,21 @@ for the dashboard to estimate what their keys cost.
 A price is for a provider (the host the service is at, as service calls are recorded:
 `activity.host`), a model and the unit it is billed in (`billing.Unit`): an amount for
 each `PER` units of input and, where the service prices output apart (an LLM), of output,
-in a currency. Where a price comes from (`Pricing`): the price an admin set in the admin
-console, kept in the database (`price_overrides`), if any; else, for a model billed in
-tokens, the catalogs online (`price_catalog`), fetched each day; else the one in
-`PRESETS`, gathered from the providers' price pages on the day each says (see
-`.scratch/admin-console/research.md`), there for when the catalogs cannot be fetched and
-for what they do not price. Restoring an admin's price deletes it.
+and of the input read from the provider's prompt cache, in a currency. Where a price
+comes from (`Pricing`): the price an admin set in the admin console, kept in the database
+(`price_overrides`), if any; else, for a model billed in tokens, the catalogs online
+(`price_catalog`), fetched each day; else the one in `PRESETS`, gathered from the
+providers' price pages on the day each says (see `.scratch/admin-console/research.md`),
+there for when the catalogs cannot be fetched and for what they do not price. Restoring
+an admin's price deletes it.
 
 The cost (`cost`) is each call's usage on the deployer's keys times its price at the time
 it is asked for, summed by currency, never converted between them, and without any free
-allowance taken off: an estimate, not a bill. A call whose usage is unknown is counted,
-not priced; a model without a price shows what it used, and no amount. Usage on users'
-own keys is theirs to pay: shown, never priced.
+allowance taken off: an estimate, not a bill. The input an LLM read from the cache is
+priced at the cache price, or as the rest of the input without one; a call that did not
+say how much it read hit none. A call whose usage is unknown is counted, not priced; a
+model without a price shows what it used, and no amount. Usage on users' own keys is
+theirs to pay: shown, never priced.
 """
 
 import threading
@@ -42,51 +45,59 @@ PriceKey = tuple[str, str, str]
 @dataclass(frozen=True)
 class Price:
     """What `PER` units of input, and of output, cost; output costs as input does when the
-    service does not price it apart (`output` None)."""
+    service does not price it apart (`output` None). Input read from the prompt cache costs
+    `cache_read`, or as the rest of the input does without one."""
 
     input: float
     output: float | None
     currency: str
     as_of: date
     """When it was gathered from the price page, or set in the admin console."""
+    cache_read: float | None = None
 
 
 GATHERED = date(2026, 10, 7)
 
 
 def _tokens(
-    provider: str, prices: dict[str, tuple[float, float | None]], currency: str
+    provider: str,
+    prices: dict[str, tuple[float, float | None] | tuple[float, float | None, float]],
+    currency: str,
 ) -> dict[PriceKey, Price]:
+    """`provider`'s models priced per million input and output tokens, and input tokens
+    read from the cache where a third price says."""
     return {
-        (provider, model, "tokens"): Price(input, output, currency, GATHERED)
-        for model, (input, output) in prices.items()
+        (provider, model, "tokens"): Price(
+            price[0], price[1], currency, GATHERED, price[2] if len(price) > 2 else None
+        )
+        for model, price in prices.items()
     }
 
 
 PRESETS: dict[PriceKey, Price] = {
-    # LLMs, per million input and output tokens, at the standard (not batch) price for a
-    # short context, without cache discounts.
+    # LLMs, per million input, output and cached input tokens, at the standard (not batch)
+    # price for a short context.
     **_tokens("api.openai.com", {
-        "gpt-6-astra": (10, 50),
-        "gpt-6.1-sol": (2, 10),
-        "gpt-6-sol": (2, 10),
-        "gpt-6-luna": (0.1, 0.5),
-        "gpt-5.6-sol": (4, 20),  # a promotional price, "at least through November 21, 2026"
-        "gpt-5.4-mini": (0.75, 4.5),
+        "gpt-6-astra": (10, 50, 1),
+        "gpt-6.1-sol": (2, 10, 0.1),
+        "gpt-6-sol": (2, 10, 0.2),
+        "gpt-6-luna": (0.1, 0.5, 0.01),
+        "gpt-5.6-sol": (4, 20, 0.4),  # a promotional price, "at least through November 21, 2026"
+        "gpt-5.4-mini": (0.75, 4.5, 0.075),
     }, "USD"),
     **_tokens("api.anthropic.com", {
-        "claude-fable-5-1": (10, 50),
-        "claude-opus-5-5": (4, 20),
-        "claude-sonnet-5-5": (2, 10),
-        "claude-haiku-4-5": (1, 5),
-        "claude-haiku-4-5-20251001": (1, 5),
+        "claude-fable-5-1": (10, 50, 0.25),
+        "claude-opus-5-5": (4, 20, 0.2),
+        "claude-sonnet-5-5": (2, 10, 0.1),
+        "claude-haiku-4-5": (1, 5, 0.1),
+        "claude-haiku-4-5-20251001": (1, 5, 0.1),
     }, "USD"),
     # DeepSeek's price in yuan at peak hours (off-peak is half); the retired name is
     # served and billed as Flash.
     **_tokens("api.deepseek.com", {
-        "deepseek-flash": (2, 8),
-        "deepseek-v4-flash": (2, 8),
-        "deepseek-v4-pro": (9, 27),
+        "deepseek-flash": (2, 8, 0.04),
+        "deepseek-v4-flash": (2, 8, 0.04),
+        "deepseek-v4-pro": (9, 27, 0.3),
     }, "CNY"),
     # Fish Audio, per million UTF-8 bytes of text spoken.
     **{
@@ -114,8 +125,9 @@ PRESETS: dict[PriceKey, Price] = {
     **_tokens("generativelanguage.googleapis.com", {"gemini-embedding-2": (0.2, None)}, "USD"),
 }
 """The prices of the models supported, as their providers' price pages had them on
-`GATHERED` (`.scratch/admin-console/research.md`): what a model is priced at when the
-catalogs online do not price it, or have never been fetched. Not here, for want of a
+`GATHERED` (`.scratch/admin-console/research.md`; the cache prices
+`.scratch/prompt-caching/research.md`): what a model is priced at when the catalogs online
+do not price it, or have never been fetched. Not here, for want of a
 price in the unit its usage is recorded in: Alibaba Cloud Model Studio's speech
 recognition, billed by tokens, not seconds."""
 
@@ -189,14 +201,15 @@ class Pricing:
             return None
         listed, upstream = found
         return Found(
-            Price(listed.input, listed.output, "USD", as_of),
+            Price(listed.input, listed.output, "USD", as_of, listed.cache_read),
             "catalog_upstream" if upstream else "catalog", (listed.provider, listed.model),
         )
 
 
 _SCHEMA = """
 -- The prices admins set in the admin console, each in place of the preset of its provider,
--- model and unit, if any; `output` NULL when output costs as input does.
+-- model and unit, if any; `output` NULL when output costs as input does, `cache_read` NULL
+-- when input read from the cache does.
 CREATE TABLE IF NOT EXISTS price_overrides (
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
@@ -205,6 +218,7 @@ CREATE TABLE IF NOT EXISTS price_overrides (
     output REAL,
     currency TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    cache_read REAL,
     PRIMARY KEY (provider, model, unit)
 );
 """
@@ -218,20 +232,26 @@ class Prices:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            columns = {
+                name for _, name, *_ in self._db.execute("PRAGMA table_info(price_overrides)")
+            }
+            # Prices set before cache prices were have none: cached input as the rest.
+            if "cache_read" not in columns:
+                self._db.execute("ALTER TABLE price_overrides ADD COLUMN cache_read REAL")
         self._clock = clock
         self.catalog = catalog
 
     def overrides(self) -> dict[PriceKey, Price]:
         with self._lock:
             rows = self._db.execute(
-                "SELECT provider, model, unit, input, output, currency, updated_at"
+                "SELECT provider, model, unit, input, output, currency, updated_at, cache_read"
                 " FROM price_overrides"
             ).fetchall()
         return {
             (provider, model, unit): Price(
-                input, output, currency, datetime.fromisoformat(updated).date()
+                input, output, currency, datetime.fromisoformat(updated).date(), cache_read
             )
-            for provider, model, unit, input, output, currency, updated in rows
+            for provider, model, unit, input, output, currency, updated, cache_read in rows
         }
 
     def pricing(self) -> Pricing:
@@ -264,15 +284,23 @@ class Prices:
             })
         return rows
 
-    def save(self, key: PriceKey, input: float, output: float | None, currency: str) -> None:
+    def save(
+        self,
+        key: PriceKey,
+        input: float,
+        output: float | None,
+        currency: str,
+        cache_read: float | None = None,
+    ) -> None:
         """Price `key` so from now on, in place of its preset, if any."""
         provider, model, unit = key
         with self._lock, self._db:
             self._db.execute(
                 "INSERT OR REPLACE INTO price_overrides"
-                " (provider, model, unit, input, output, currency, updated_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (provider, model, unit, input, output, currency, self._clock().isoformat()),
+                " (provider, model, unit, input, output, currency, updated_at, cache_read)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (provider, model, unit, input, output, currency, self._clock().isoformat(),
+                 cache_read),
             )
 
     def restore(self, key: PriceKey) -> bool:
@@ -298,6 +326,7 @@ def describe_price(key: PriceKey, found: Found) -> dict:
     return {
         "input": price.input,
         "output": price.output,
+        "cache_read": price.cache_read,
         "currency": price.currency,
         "per": per(key[2]),
         "as_of": price.as_of.isoformat(),
@@ -309,9 +338,20 @@ def describe_price(key: PriceKey, found: Found) -> dict:
     }
 
 
-def amount(price: Price, unit: str, input: float | None, output: float | None) -> float:
+def amount(
+    price: Price,
+    unit: str,
+    input: float | None,
+    output: float | None,
+    cached: float | None = None,
+) -> float:
+    """What `input` (`cached` of it read from the cache) and `output` cost at `price`."""
     output_price = price.input if price.output is None else price.output
-    return ((input or 0) * price.input + (output or 0) * output_price) / per(unit)
+    cache_price = price.input if price.cache_read is None else price.cache_read
+    hit = cached or 0
+    return (
+        ((input or 0) - hit) * price.input + hit * cache_price + (output or 0) * output_price
+    ) / per(unit)
 
 
 def _billed(call: CallRow) -> bool:
@@ -358,13 +398,15 @@ def cost(
     rows: list[dict] = []
     for (service, provider, model, unit), group in known.items():
         input, output = _sum(c.usage_input for c in group), _sum(c.usage_output for c in group)
+        cached = _sum(c.usage_cached for c in group)
         found = pricing.find(provider, model, unit)
         rows.append({
             "service": service, "provider": provider, "model": model, "unit": unit,
             "calls": len(group), "usage_unknown": 0, "input": input, "output": output,
+            "cached": cached,
             "price": describe_price((provider, model, unit), found) if found else None,
             "currency": found.price.currency if found else None,
-            "amount": amount(found.price, unit, input, output) if found else None,
+            "amount": amount(found.price, unit, input, output, cached) if found else None,
         })
     for (service, provider, model), count in unknown.items():
         same = next(
@@ -374,7 +416,7 @@ def cost(
         if same is None:
             same = {
                 "service": service, "provider": provider, "model": model, "unit": None,
-                "calls": 0, "usage_unknown": 0, "input": None, "output": None,
+                "calls": 0, "usage_unknown": 0, "input": None, "output": None, "cached": None,
                 "price": None, "currency": None, "amount": None,
             }
             rows.append(same)
@@ -449,7 +491,7 @@ def _trend(
         i = max(0, min(len(starts) - 1, i))
         price = found.price
         amounts[i][price.currency] += amount(
-            price, call.usage_unit, call.usage_input, call.usage_output
+            price, call.usage_unit, call.usage_input, call.usage_output, call.usage_cached
         )
     return [
         {"start": start.isoformat(), "amounts": dict(sorted(a.items()))}
