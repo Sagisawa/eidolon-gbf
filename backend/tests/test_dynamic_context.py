@@ -20,6 +20,7 @@ from tests.fakes import (
     FakeServiceClients,
     context_of,
 )
+from tests.test_call_turns import MANO_REPLY, CallUnderTest, spoken
 from tests.test_text_turn import send_turn, start_conversation
 
 PROFILE = {
@@ -129,3 +130,30 @@ async def test_without_a_limit_the_whole_history_is_carried(
 
     assert len([m for m in llm.prompts[-1] if m.role == "user"]) == 7
 
+
+
+TYPING = "制作人正在用文字和你聊天"
+IN_A_CALL = "制作人正在和你打电话"
+
+
+async def test_she_is_told_whether_the_turn_is_typed_or_in_a_call_after_what_is_cached(
+    make_client: ClientFactory, settings: Settings
+):
+    """Typed or in a call, the turn's prompt says which, where what changes each turn is,
+    and opens as the other does, for a service to cache it."""
+    typed_llm = FakeLLM(reply(1))
+    client = make_client(typed_llm)
+    conversation = await start_conversation(client, "mano")
+    await send_turn(client, conversation, "早上好")
+    call = CallUnderTest(settings, client, conversation)
+    call_llm = FakeLLM(MANO_REPLY)
+    try:
+        await call.run(call_llm, [spoken("早上好")])
+    finally:
+        call.close()
+
+    [typed], [in_call] = typed_llm.prompts, call_llm.prompts
+    assert TYPING in context_of(typed) and IN_A_CALL not in context_of(typed)
+    assert IN_A_CALL in context_of(in_call) and TYPING not in context_of(in_call)
+    assert in_call[:2] == typed[:2]
+    assert not any(TYPING in m.content or IN_A_CALL in m.content for m in typed[:2])

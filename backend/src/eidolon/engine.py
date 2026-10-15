@@ -482,7 +482,7 @@ class ConversationEngine:
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, turns), narrations(record, self._gift_catalog),
-            now_prompt(profile, now, timezone, affinity_lines), retrieved, text,
+            now_prompt(profile, now, timezone, in_call is not None, affinity_lines), retrieved, text,
         )
 
         # Offered on every turn, so that what goes before the history (the tools, with

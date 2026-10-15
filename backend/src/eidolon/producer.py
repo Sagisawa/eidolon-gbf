@@ -114,17 +114,26 @@ def producer_prompt(profile: ProducerProfile) -> str:
     return "\n".join(lines)
 
 
+_TYPING = "制作人正在用文字和你聊天，你们没有在打电话；不想聊的时候就说不想聊，不要说挂电话或挂断。"
+_IN_A_CALL = "制作人正在和你打电话。"
+
+
 def now_prompt(
-    profile: ProducerProfile, now: datetime, timezone: str, affinity_lines: Sequence[str] = ()
+    profile: ProducerProfile,
+    now: datetime,
+    timezone: str,
+    in_call: bool,
+    affinity_lines: Sequence[str] = (),
 ) -> str:
-    """The prompt section about now: the time where the user is, and whether it is their
-    birthday; then `affinity_lines`, how the character feels toward them now
-    (`affinity.affinity_prompt`)."""
+    """The prompt section about now: the time where the user is, whether they are typing or
+    `in_call` with the character, and whether it is their birthday; then `affinity_lines`,
+    how the character feels toward them now (`affinity.affinity_prompt`)."""
     local = now.astimezone(ZoneInfo(timezone))
     lines = [
         "# 此刻",
         f"现在是 {local.year}年{local.month}月{local.day}日"
         f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。",
+        _IN_A_CALL if in_call else _TYPING,
     ]
     if profile.birthday and is_birthday(profile.birthday, local.date()):
         lines.append(

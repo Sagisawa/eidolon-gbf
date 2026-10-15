@@ -47,7 +47,8 @@ from tests.test_affinity_prompt import about_now
 from tests.test_conversation_events import record, shape
 from tests.test_gift_backpack import RESET_CARD
 from tests.test_reset_cards import USE
-from tests.test_she_hangs_up import OUT_OF_LINE, say
+from tests.test_she_hangs_up import HANGING_UP, OUT_OF_LINE, say
+from tests.test_she_hangs_up import WARNING as HANG_UP_WARNING
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>はい</ja><zh>好的</zh>"]
@@ -95,7 +96,9 @@ async def test_hurt_turn_after_turn_she_warns_once_then_ends_the_conversation_af
 
     assert [WARNING in about_now(llm, n) for n in range(6)] == [False, False, True] + [False] * 3
     assert [PARTING in about_now(llm, n) for n in range(6)] == [False] * 5 + [True]
-    assert not any("挂电话" in about_now(llm, n) for n in range(6))
+    assert not any(
+        HANG_UP_WARNING in about_now(llm, n) or HANGING_UP in about_now(llm, n) for n in range(6)
+    )
     assert [ended_by(turn) for turn in turns] == [False] * 5 + [True]
     assert turns[-1][-1]["affinity"]["cooldown_until"] is None
     assert shape(recorded)[-3:] == ["user:第5句", "character:好的", "ended"]
