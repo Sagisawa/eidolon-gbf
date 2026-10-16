@@ -23,3 +23,4 @@
 ## Comments
 
 - 2026-10-16 来自 02：礼物在 `/api/stats` 回答的 `range.gifts`（`{given, liked, most}`），好感度和礼物关掉时把整个 `range.gifts` 给 null；前端「送出的礼物」和礼物那一块都读它（`StatsSettings`、`lib/stats` 的 `statsSections`），见 null 一起藏。
+- 2026-10-17 来自 03：总数现在是四项（回合、通话、通话时长、送出的礼物），`grid-cols-2 sm:grid-cols-4`；关掉礼物后只剩三项，看一眼宽屏四列里空一格是否可以接受，不行就按项数排列。
