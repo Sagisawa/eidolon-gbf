@@ -527,6 +527,11 @@ export async function listConversations(characterId: string): Promise<ListedConv
   return json(await api(`/api/conversations?character_id=${encodeURIComponent(characterId)}`));
 }
 
+/** Deletes a past conversation for good (GLOSSARY.md「历史对话」); her current one is refused (409). */
+export async function deleteConversation(id: string): Promise<void> {
+  await expectNoContent(await api(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" }));
+}
+
 /** Each character's newest conversation with the user, with its last message; characters
  * the user has never talked to are left out. */
 export async function listLatestConversations(): Promise<LatestConversation[]> {

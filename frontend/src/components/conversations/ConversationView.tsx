@@ -384,6 +384,9 @@ export function ConversationView({
             view(row.conversation.id);
           }
         }}
+        onDeleted={(id) => {
+          if (id === viewing?.id) backToCurrent();
+        }}
       />
       {live && (
         <LiveCallLayer
