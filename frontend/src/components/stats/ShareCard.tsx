@@ -5,18 +5,27 @@ import { encode } from "uqr";
 
 import { copy } from "@/i18n";
 import type { Character } from "@/lib/api";
-import type { ShareCard as Card, ShareTotal } from "@/lib/shareCard";
+import {
+  SHARE_INNER_WIDTH,
+  type ShareCardContent,
+  type ShareTotal,
+  type SiteAddress,
+  type TotalSize,
+} from "@/lib/shareCard";
 import { heatmapMonths, heatmapWeeks, type Ranked, type Stats } from "@/lib/stats";
 import { cn } from "@/lib/utils";
 import { shareVars } from "@/theme/herVars";
 
 const t = copy.settings.stats;
 
-/** The picture's size, in px. */
-export const SHARE_WIDTH = 1080;
-export const SHARE_HEIGHT = 1350;
-/** The width inside the card's padding (64 each side). */
-const INNER_WIDTH = SHARE_WIDTH - 128;
+/** The totals' numbers at each size, and their units beside them (`lib/shareCard` 的 `unitSize`). */
+const TOTAL_TEXT: Record<TotalSize, { number: string; unit: string }> = {
+  120: { number: "text-share-total-xl", unit: "text-share-body" },
+  100: { number: "text-share-total-lg", unit: "text-share-label" },
+  80: { number: "text-share-total-md", unit: "text-share-label" },
+  64: { number: "text-share-total-sm", unit: "text-share-label" },
+  48: { number: "text-share-total-xs", unit: "text-share-label" },
+};
 
 /** Each shade of the small heatmap, 0 (did not come) to 4, all of the ink; as on the page. */
 const SHADES = ["fill-share-ink/8", "fill-share-ink/25", "fill-share-ink/45", "fill-share-ink/70", "fill-share-ink"];
@@ -27,11 +36,10 @@ const MONTH_LABEL_WIDTH = 44; // room for 「10月」 at text-share-small
 const QR_SIZE = 120;
 
 type Props = {
-  card: Card;
+  card: ShareCardContent;
   byId: Map<string, Character>;
   heatmap: Stats["heatmap"];
-  /** The site without its scheme, and the landing page the QR code points to (`siteAddress`). */
-  site: { shown: string; landing: string };
+  site: SiteAddress;
   ref?: Ref<HTMLDivElement>;
 };
 
@@ -44,7 +52,6 @@ type Props = {
 export function ShareCard({ card, byId, heatmap, site, ref }: Props) {
   const hero = byId.get(card.hero);
   if (!hero) return null;
-  const isWide = card.totals.length < 4;
   return (
     <div
       ref={ref}
@@ -72,7 +79,7 @@ export function ShareCard({ card, byId, heatmap, site, ref }: Props) {
       <div className="flex flex-1 flex-col px-16 py-13">
         <dl className="flex gap-8">
           {card.totals.map((total) => (
-            <Total key={total.label} total={total} isWide={isWide} />
+            <Total key={total.label} total={total} size={card.totalSize} />
           ))}
         </dl>
         <TopThree top={card.top} byId={byId} />
@@ -84,20 +91,17 @@ export function ShareCard({ card, byId, heatmap, site, ref }: Props) {
   );
 }
 
-/** A total: a 4px ink rule on top, the label under it, and the number big; 120px when only three are left. */
-function Total({ total, isWide }: { total: ShareTotal; isWide: boolean }) {
+/** A total: a 4px ink rule on top, the label under it, and the number big, at the size the whole row is set in. */
+function Total({ total, size }: { total: ShareTotal; size: TotalSize }) {
+  const text = TOTAL_TEXT[size];
   return (
-    <div className="flex flex-1 flex-col gap-2.5 border-t-4 border-share-ink pt-3.5">
+    <div className="flex min-w-0 flex-1 flex-col gap-2.5 border-t-4 border-share-ink pt-3.5">
       <dt className="text-share-label text-share-muted">{total.label}</dt>
       <dd className="flex items-baseline gap-2.5 whitespace-nowrap">
         {total.parts.map((part) => (
           <span key={part.unit ?? ""} className="inline-flex items-baseline gap-1.5">
-            <span className={cn("tabular-nums", isWide ? "text-share-total-wide" : "text-share-total")}>
-              {part.value}
-            </span>
-            {part.unit && (
-              <span className={cn("font-semibold", isWide ? "text-share-body" : "text-share-label")}>{part.unit}</span>
-            )}
+            <span className={cn("tabular-nums", text.number)}>{part.value}</span>
+            {part.unit && <span className={cn("font-semibold", text.unit)}>{part.unit}</span>}
           </span>
         ))}
       </dd>
@@ -138,7 +142,7 @@ function TopThree({ top, byId }: { top: Ranked[]; byId: Map<string, Character> }
 /** 小号热力图：「过去一年」和「来过 N 天」，52 周的格子铺满内容宽，不跟着跨度变。 */
 function SmallHeatmap({ heatmap }: { heatmap: Stats["heatmap"] }) {
   const weeks = useMemo(() => heatmapWeeks(heatmap), [heatmap]);
-  const cell = (INNER_WIDTH - HEAT_GAP * (weeks.length - 1)) / weeks.length;
+  const cell = (SHARE_INNER_WIDTH - HEAT_GAP * (weeks.length - 1)) / weeks.length;
   const step = cell + HEAT_GAP;
   const months = heatmapMonths(weeks, Math.ceil(MONTH_LABEL_WIDTH / step));
   const cameOn = heatmap.counts.filter((n) => n > 0).length;
@@ -148,7 +152,7 @@ function SmallHeatmap({ heatmap }: { heatmap: Stats["heatmap"] }) {
         <h2 className="text-share-title">{t.heatmap}</h2>
         <span className="text-share-caption text-share-muted">{t.cameOn(cameOn)}</span>
       </div>
-      <svg width={INNER_WIDTH} height={MONTH_ROW + step * 7 - HEAT_GAP} className="block text-share-small">
+      <svg width={SHARE_INNER_WIDTH} height={MONTH_ROW + step * 7 - HEAT_GAP} className="block text-share-small">
         {[...months].map(([column, label]) => (
           <text key={column} x={column * step} y={17} className="fill-share-muted">
             {label}
@@ -173,7 +177,7 @@ function SmallHeatmap({ heatmap }: { heatmap: Stats["heatmap"] }) {
 }
 
 /** 页脚：细线下面左边网站名和一句介绍，右边去掉协议的网址和指向落地页的二维码（纠错级别 M，不留白边）。 */
-function Footer({ site }: { site: Props["site"] }) {
+function Footer({ site }: { site: SiteAddress }) {
   const qr = useMemo(() => encode(site.landing, { ecc: "M", border: 0 }), [site.landing]);
   const modules = qr.data.flatMap((row, y) => row.flatMap((on, x) => (on ? [`M${x} ${y}h1v1h-1z`] : []))).join("");
   return (

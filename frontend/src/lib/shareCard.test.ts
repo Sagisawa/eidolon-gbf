@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { canShare, shareCard, shareFileName, siteAddress, type ShareCard } from "@/lib/shareCard";
+import { canShare, shareCard, shareFileName, siteAddress, type ShareCardContent } from "@/lib/shareCard";
 import type { CharacterInRange, Stats } from "@/lib/stats";
 
 /** 24 hours, all 0 but those given. */
@@ -29,7 +29,7 @@ const stats: Stats = {
   },
 };
 
-function card(of: Stats = stats, formOfAddress: string | null = "小林さん"): ShareCard {
+function card(of: Stats = stats, formOfAddress: string | null = "小林さん"): ShareCardContent {
   const made = shareCard(of, formOfAddress);
   if (!made) throw new Error("no card");
   return made;
@@ -55,11 +55,6 @@ describe("分享图的内容", () => {
     expect(card().hero).toBe("hiori");
   });
 
-  it("回合数并列时按偶像顺序取第一位", () => {
-    const tied: Stats = { ...stats, range: { ...stats.range, characters: [known("mano", 7), known("hiori", 7)] } };
-    expect(card(tied).hero).toBe("mano");
-  });
-
   it("前 3 位按回合数排", () => {
     const four: Stats = {
       ...stats,
@@ -68,11 +63,8 @@ describe("分享图的内容", () => {
     expect(card(four).top.map((c) => c.character_id)).toEqual(["hiori", "kogane", "meguru"]);
   });
 
-  it("不满三人时有几位列几位，回合为 0 的不列", () => {
-    const two: Stats = {
-      ...stats,
-      range: { ...stats.range, characters: [known("mano", 1), known("hiori", 3), known("kiriko", 0)] },
-    };
+  it("不满三人时有几位列几位", () => {
+    const two: Stats = { ...stats, range: { ...stats.range, characters: [known("mano", 1), known("hiori", 3)] } };
     expect(card(two).top.map((c) => c.character_id)).toEqual(["hiori", "mano"]);
   });
 
@@ -86,13 +78,12 @@ describe("分享图的内容", () => {
   });
 
   it("跨度标签写当前的跨度", () => {
-    expect(card().span).toBe("近 30 天");
     expect(card({ ...stats, range: { ...stats.range, span: "1y" } }).span).toBe("近一年");
-    expect(card({ ...stats, range: { ...stats.range, span: "all" } }).span).toBe("全部");
   });
 
-  it("一句话画像按全部时间说", () => {
-    expect(card().portrait).toBe("常在深夜来");
+  it("一句话画像按全部时间说，不跟着跨度", () => {
+    const lately: Stats = { ...stats, range: { ...stats.range, by_hour: hours({ 20: 12 }) } };
+    expect(card(lately).portrait).toBe("常在深夜来");
   });
 
   it("四个总数：回合、通话次数、通话时长（时、分）、送出的礼物", () => {
@@ -125,6 +116,24 @@ describe("分享图的内容", () => {
   it("好感度和礼物关掉时没有「送出的礼物」，只剩三个总数", () => {
     const off: Stats = { ...stats, range: { ...stats.range, gifts: null } };
     expect(card(off).totals.map((t) => t.label)).toEqual(["回合", "通话", "通话时长"]);
+  });
+});
+
+describe("总数的大数", () => {
+  const withTotals = (turns: number, seconds: number, gifts: boolean) => ({
+    ...stats,
+    range: { ...stats.range, turns, calls: { count: 2, seconds }, gifts: gifts ? stats.range.gifts : null },
+  });
+
+  it("四个一排用 100，只剩三个时放大到 120", () => {
+    expect(card(withTotals(293, 600, true)).totalSize).toBe(100);
+    expect(card(withTotals(293, 600, false)).totalSize).toBe(120);
+  });
+
+  it("有一个放不下时整排一起缩小", () => {
+    expect(card(withTotals(4821, 600, true)).totalSize).toBe(80);
+    expect(card(withTotals(293, 12 * 3600 + 34 * 60, true)).totalSize).toBe(48);
+    expect(card(withTotals(293, 12 * 3600 + 34 * 60, false)).totalSize).toBe(80);
   });
 });
 

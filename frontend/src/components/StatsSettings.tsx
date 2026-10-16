@@ -138,7 +138,13 @@ export function StatsSettings() {
         )}
         {shown.affinity && <AffinityGroups groups={affinityGroups(stats.affinity)} byId={byId} />}
         <div className="flex flex-col gap-4">
-          <Tabs value={range} onValueChange={(value) => setRange(value as StatsRange)}>
+          <Tabs
+            value={range}
+            onValueChange={(value) => {
+              setRange(value as StatsRange);
+              setShareFailure(null);
+            }}
+          >
             <TabsList aria-label={t.rangeLabel}>
               {STATS_RANGES.map((r) => (
                 <TabsTrigger key={r} value={r}>

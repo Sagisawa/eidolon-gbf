@@ -131,14 +131,27 @@
   --text-share-portrait: 72px; /* 一句话画像 */
   --text-share-portrait--font-weight: 900;
   --text-share-portrait--line-height: 1.05;
-  --text-share-total: 100px; /* 总数的大数 */
-  --text-share-total--font-weight: 900;
-  --text-share-total--line-height: 0.95;
-  --text-share-total--letter-spacing: -0.04em;
-  --text-share-total-wide: 120px; /* 关掉礼物、只剩三个总数时 */
-  --text-share-total-wide--font-weight: 900;
-  --text-share-total-wide--line-height: 0.95;
-  --text-share-total-wide--letter-spacing: -0.04em;
+  /* 总数的大数：只剩三个时 120（xl），四个时 100（lg），有一个放不下时整排缩小（lib/shareCard 的 totalSize）。 */
+  --text-share-total-xl: 120px;
+  --text-share-total-xl--font-weight: 900;
+  --text-share-total-xl--line-height: 0.95;
+  --text-share-total-xl--letter-spacing: -0.04em;
+  --text-share-total-lg: 100px;
+  --text-share-total-lg--font-weight: 900;
+  --text-share-total-lg--line-height: 0.95;
+  --text-share-total-lg--letter-spacing: -0.04em;
+  --text-share-total-md: 80px;
+  --text-share-total-md--font-weight: 900;
+  --text-share-total-md--line-height: 0.95;
+  --text-share-total-md--letter-spacing: -0.04em;
+  --text-share-total-sm: 64px;
+  --text-share-total-sm--font-weight: 900;
+  --text-share-total-sm--line-height: 0.95;
+  --text-share-total-sm--letter-spacing: -0.04em;
+  --text-share-total-xs: 48px;
+  --text-share-total-xs--font-weight: 900;
+  --text-share-total-xs--line-height: 0.95;
+  --text-share-total-xs--letter-spacing: -0.04em;
 
   /* 圆角（rounded）。 */
   --radius-bubble: 22px;

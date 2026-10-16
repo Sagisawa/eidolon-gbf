@@ -38,7 +38,8 @@ describe("主题对比度", () => {
     });
   }
 
-  // 分享图（DESIGN.md「分享图」）固定浅色，两种模式一样。
+  // 分享图（DESIGN.md「分享图」）固定浅色，两种模式一样。分隔线和排行条的底上不放字，不另测；
+  // 条和它的底那一对在 imageColor.test.ts 的 pairs() 里。
   it("分享图的字和次要字在纸上都 ≥ 4.5", () => {
     expect(pair("--share-ink", "--share-paper", "light")).toBeGreaterThanOrEqual(4.5);
     expect(pair("--share-muted", "--share-paper", "light")).toBeGreaterThanOrEqual(4.5);

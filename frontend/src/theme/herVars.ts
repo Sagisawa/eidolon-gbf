@@ -31,13 +31,13 @@ export function herVars(color: string): CSSProperties {
 
 /**
  * 分享图（DESIGN.md「分享图」）里她的颜色：页首色带和上面的字（`--her-banner`、`--her-banner-fg`），
- * 和前 3 的排行条（`--her-bar`）。分享图固定浅色，都取浅色那一份。
+ * 和前 3 的排行条（`--her-bar`，按分享图条的底校验）。分享图固定浅色，只有一份。
  */
 export function shareVars(color: string): CSSProperties {
-  const s = imageColorScale(color);
+  const { share } = imageColorScale(color);
   return {
-    "--her-banner": s.banner.bg,
-    "--her-banner-fg": s.banner.fg,
-    "--her-bar": s.bar.light,
+    "--her-banner": share.banner,
+    "--her-banner-fg": share.onBanner,
+    "--her-bar": share.bar,
   } as CSSProperties;
 }

@@ -537,7 +537,6 @@ export const zh = {
       /** 分享图（GLOSSARY.md「分享图」）。 */
       share: {
         button: "分享",
-        sharing: "正在生成…",
         failed: "分享图没能生成，请再试一次",
         producer: "制作人",
         turnsUnit: "回合",

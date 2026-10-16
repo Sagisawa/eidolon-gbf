@@ -12,6 +12,9 @@ export const paperColors = {
 /** 主题的 `--muted`（shadcn neutral 的 oklch 0.97 / 0.269），统计里排行条的底。 */
 export const mutedColors = { light: "#f5f5f5", dark: "#262626" } as const;
 
+/** 分享图（固定浅色）排行条的底，同主题的 `--share-track`。 */
+export const shareTrack = "#e8e7e2";
+
 export type ModePair = { light: string; dark: string };
 
 export type ImageColorScale = {
@@ -26,9 +29,10 @@ export type ImageColorScale = {
   /** 她颜色的圆按钮（通话、发送）：底色和图标色。浅色模式用原色（图标保证可辨认）；
    *  深色模式下原色可能和页面一样暗，改用与页面对比度 ≥ 3 的 mark。 */
   button: { bg: ModePair; fg: ModePair };
-  /** 分享图页首铺满的色带和上面的字（分享图固定浅色，只有一份）：底是原色；原色上白字 ≥ 4.5 就用白字，
-   *  否则用浅色的 button.fg（同色相的深色）。不用 accent 填底：浅色印象色会被压成灰色。 */
-  banner: { bg: string; fg: string };
+  /** 分享图（固定浅色，只有一份）。banner、onBanner：页首铺满的色带和上面的字，底是原色；原色上白字 ≥ 4.5 就用白字，
+   *  否则用浅色的 button.fg（同色相的深色）。不用 accent 填底：浅色印象色会被压成灰色。
+   *  bar：前 3 的排行条，和条的底（`shareTrack`）对比度 ≥ 3，原色够就用原色。 */
+  share: { banner: string; onBanner: string; bar: string };
   /** 在纸面上写她颜色的字，以及强调色（注入成 shadcn 的 --primary，给按钮等填底）。 */
   accent: ModePair;
   /** 放在 accent 填底上的字和图标。 */
@@ -78,7 +82,11 @@ function deriveScale(raw: string): ImageColorScale {
     bar,
     wall,
     button: { bg: buttonBg, fg: buttonFg },
-    banner: { bg: raw, fg: contrast(raw, "#ffffff") >= AA ? "#ffffff" : buttonFg.light },
+    share: {
+      banner: raw,
+      onBanner: contrast(raw, "#ffffff") >= AA ? "#ffffff" : buttonFg.light,
+      bar: contrast(raw, shareTrack) >= GRAPHIC ? raw : readableOn(base, shareTrack, GRAPHIC, 0.16),
+    },
     accent,
     onAccent: { light: mostReadable(accent.light), dark: mostReadable(accent.dark) },
     call: { deep: callDeep },

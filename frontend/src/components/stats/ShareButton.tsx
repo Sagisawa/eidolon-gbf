@@ -9,23 +9,29 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useSettingsValues } from "@/components/settings/SettingsValues";
-import { SHARE_HEIGHT, SHARE_WIDTH, ShareCard } from "@/components/stats/ShareCard";
+import { ShareCard } from "@/components/stats/ShareCard";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import { getProfile, type Character } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
-import { shareCard, shareFileName, siteAddress, type ShareCard as Card } from "@/lib/shareCard";
+import {
+  SHARE_HEIGHT,
+  SHARE_WIDTH,
+  shareCard,
+  shareFileName,
+  siteAddress,
+  type ShareCardContent,
+  type SiteAddress,
+} from "@/lib/shareCard";
 import type { Stats } from "@/lib/stats";
 
 const t = copy.settings.stats.share;
 
-/** The font weights the card is set in, each loaded for its text before it is drawn. */
-const WEIGHTS = [400, 500, 600, 700, 800, 900];
 /** How long the downloaded picture's address is kept, for the browser to save it. */
 const KEEP_DOWNLOAD_MS = 40_000;
 
-type Making = { card: Card; site: { shown: string; landing: string } };
+type Making = { card: ShareCardContent; site: SiteAddress };
 
 /**
  * 统计页页首末端的「分享」（DESIGN.md「分享图」）：点了在页面外画出当前跨度的分享图，转成 1080×1350 的 PNG 直接下载，
@@ -94,12 +100,14 @@ export function ShareButton({
   );
 }
 
-/** The card as a PNG, once its pictures are in and the fonts for every character on it are loaded. */
+/** The card as a PNG, once its pictures are in and the fonts for every character on it are
+ * loaded, in each weight it is set in. */
 async function draw(node: HTMLElement): Promise<Blob> {
   await Promise.all([...node.querySelectorAll("img")].map((img) => img.decode().catch(() => {})));
   const family = getComputedStyle(node).fontFamily;
   const text = node.textContent ?? "";
-  await Promise.all(WEIGHTS.map((weight) => document.fonts.load(`${weight} 16px ${family}`, text)));
+  const weights = new Set([node, ...node.querySelectorAll("*")].map((el) => getComputedStyle(el).fontWeight));
+  await Promise.all([...weights].map((weight) => document.fonts.load(`${weight} 16px ${family}`, text)));
   return domToBlob(node, { width: SHARE_WIDTH, height: SHARE_HEIGHT, scale: 1, type: "image/png" });
 }
 
