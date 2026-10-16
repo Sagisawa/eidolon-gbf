@@ -52,6 +52,9 @@ export const memoryTop = (k: number): Vec3 => {
   return [x, y + MEMORY_PILLAR_HEIGHT + BLOCK / 2 + 0.08, z];
 };
 
+/** 背景的 embedding 星图上，发送那一位收进记忆时亮起的那颗点：远在浮岛后面，镜头拉远去看桥的那段（电脑）和最后的全景
+ * （电脑在右上的天空，竖屏在右边）都看得到。 */
+export const EMBEDDING_STAR: Vec3 = [2.5, -1.5, -9.5];
 /** 天上那台制作人的手机的中心：消息从它的屏幕里出来。 */
 export const PHONE: Vec3 = [-0.4, 5.6, 1.4];
 /** 真乃在头顶上方接住消息的地方。 */
@@ -210,6 +213,10 @@ export type MemoryStory = {
   message: { position: Vec3; morph: number } | null;
   /** 转台的转角（弧度）：π/2 时桥面横着、没接上，转到 0 接上两边。 */
   turntable: number;
+  /** 转台旁「temperature 0.7」的不透明度：转台转的那一段里一闪而过。 */
+  temperature: number;
+  /** 背景的 embedding 星图上发送那一位颜色的那颗点亮到什么程度，0 到 1：她收进记忆柱时亮起来，之后一直亮着。 */
+  embedding: number;
   /** 两块桥面（BRIDGE 的顺序）被副本走过、亮起她颜色的程度，0 到 1。 */
   bridge: number[];
   /** 每级台阶（STEPS 的顺序）：升起来的程度和被副本走过、亮起的程度，都是 0 到 1。 */
@@ -310,6 +317,8 @@ export function storyAt(p: number, camera: MemoryCamera, cast: readonly number[]
     phone: sends ? smooth(0.07, 0.1, p) * (1 - smooth(0.16, 0.2, p)) : 0,
     message,
     turntable: lerp(Math.PI / 2, 0, smooth(0.31, 0.4, p)),
+    temperature: smooth(0.295, 0.31, p) * (1 - smooth(0.43, 0.46, p)),
+    embedding: sends ? smooth(STORED_AT[0] - 0.01, STORED_AT[0] + 0.02, p) : 0,
     bridge: WALKED.bridge.map(walked),
     steps,
     copies,

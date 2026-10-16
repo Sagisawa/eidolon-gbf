@@ -6,7 +6,7 @@
  *
  * - 相机照模型摆：正交相机，注视点、取景半高、方位角都是模型给的，和 DOM 上按 project 摆的东西同一个出处。
  * - 场景：夜空渐变和星星（铺在画面上，不随镜头转）；四座浮岛的柱子，顶面亮、两侧一明一暗、往下渐隐进夜色；
- *   演员脚下她印象色的地砖。
+ *   演员脚下她印象色的地砖。布景（283 事务所的楼、应援棒路灯、各人岛上的东西、AI 的梗、云和粒子）在 memoryDressing.ts。
  * - 体素小人：从角色接口给的地址下载体素文件（scripts/glb-voxelize.mts 的格式，不等它：布景先画），每人露在外面的面合成一份网格，
  *   顶点色，顶面、底面压到 0.86、0.78 留住方块感；按 `front` 缩放到场景里的身高，轻轻起伏。跳动、后仰、朝向照模型的
  *   动作摆。地址没有、下载或解析失败时，站着的是她印象色的小方块，上面写她的名字。下载、合成一次，记在模块里：
@@ -15,7 +15,8 @@
  *   也按它摆）：天上的手机、制作人的消息（深蓝气泡，变成方块）、每座岛的记忆柱（三层圆盘、一排小灯，收进时闪成发送
  *   那一位的颜色）、转台（把手）、台阶、副本、走过时亮起的桥面、收尾的连线，都照模型摆。记忆方块、柱灯、桥面、台阶、连线一律用发送那一位（真乃）的印象色：传到谁那里都是她的
  *   颜色（来源角色）。
- * - 档位：DPR 按档位封顶。
+ * - 档位（画质表 model/tier.ts）：DPR 按档位封顶；完整档有主光投下的阴影和泛光（UnrealBloomPass，原型的参数），简化档、
+ *   basic 档没有，花瓣和 token 粒子减半。按帧降档时就地关掉，场景照常。
  */
 
 import {
@@ -23,18 +24,18 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
-  CanvasTexture,
+  type Camera,
+  type CanvasTexture,
   Color,
   CylinderGeometry,
   DirectionalLight,
   Group,
+  HalfFloatType,
   HemisphereLight,
   type Material,
   Mesh,
   MeshBasicMaterial,
-  type MeshBasicMaterialParameters,
   MeshLambertMaterial,
-  type MeshLambertMaterialParameters,
   type Object3D,
   OrthographicCamera,
   PlaneGeometry,
@@ -45,12 +46,20 @@ import {
   SRGBColorSpace,
   type Texture,
   TubeGeometry,
+  Vector2,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
 } from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
 import type { CanvasLayer } from "./canvasStage";
 import { idle } from "./idle";
+import { dressScene } from "./memoryDressing";
+import { canvasTexture, fadeIntoNight, glowTexture, type Kit, NIGHT, pillarGeometry, pillTexture, seeded } from "./memoryKit";
 import { cameraBasis, FIGURE_HEIGHT, ISLAND_SIZE, ISLANDS, type Actor, type MemoryScene } from "./model/memory";
 import {
   BLOCK,
@@ -87,8 +96,11 @@ const BOTTOM_SHADE = 0.78;
 const FIGURE_LIFT = 0.18;
 /** 相机退到注视点后面多远：正交投影，远近只管裁切。 */
 const CAMERA_DISTANCE = 50;
-/** 柱子的侧面往下渐隐成这个颜色：夜空渐变中段的颜色，光照以后再混，柱脚才融进夜空、不发黑。 */
-const NIGHT = "#151030";
+/** 主光的阴影：贴图边长（像素），盖住整片布景的范围（主光的正交相机，世界单位）。 */
+const SHADOW_MAP = 2048;
+const SHADOW_REACH = 14;
+/** 泛光（原型的参数）：强度、半径、亮到多少才泛光。 */
+const BLOOM = { strength: 0.5, radius: 0.55, threshold: 0.94 };
 /** 柱子往下伸到这么低：竖屏取景高，柱脚不能露在画面里。 */
 const PILLAR_FOOT = -32;
 /** 收到时跳起多高、身子压扁拉长多少；真乃接住时往后仰多少（弧度）。 */
@@ -99,6 +111,8 @@ const REACH_LEAN = 0.08;
 /** 记忆柱的小灯平时的颜色：一明一暗地闪；收进以后刷成发送那一位的颜色这么多。 */
 const LED_IDLE = "#6ff0d0";
 const LED_STORED = 0.6;
+/** 天上那台手机的屏幕乘上这个颜色：压在泛光的门槛下面。 */
+const PHONE_SCREEN = "#e0e0e0";
 /** 制作人的消息的颜色：深蓝气泡（和 DOM 上制作人的气泡同一个颜色）。 */
 const PRODUCER_INK = "#1c2a4a";
 /** 台阶没升起来时藏在下面多深。 */
@@ -223,14 +237,37 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
 
   const owned: { dispose(): void }[] = [];
   const own = <T extends { dispose(): void }>(x: T) => (owned.push(x), x);
-  const lambert = (params: MeshLambertMaterialParameters) => own(new MeshLambertMaterial(params));
   const scene = new Scene();
+  const glowMap = own(glowTexture());
+  const kit: Kit = {
+    scene,
+    own,
+    lambert: (params) => own(new MeshLambertMaterial(params)),
+    basic: (params) => own(new MeshBasicMaterial(params)),
+    glow(color, size, parent) {
+      const s = new Sprite(own(new SpriteMaterial({ map: glowMap, color, blending: AdditiveBlending, depthWrite: false, transparent: true })));
+      s.scale.setScalar(size);
+      parent.add(s);
+      return s;
+    },
+    place(o, parent, x = 0, y = 0, z = 0) {
+      o.position.set(x, y, z);
+      parent.add(o);
+      return o;
+    },
+    pillarMat: fadeIntoNight(own(new MeshLambertMaterial({ vertexColors: true }))),
+  };
+  const { lambert, basic, glow, place, pillarMat } = kit;
 
   // —— 光：天光从上往下、偏紫；一盏暖色的主光从右前上方打来，柱子两侧一明一暗；一盏紫色的补光从背面。
   scene.add(new HemisphereLight(0xc9c2ff, 0x2a1f3d, 1.5));
   const sun = new DirectionalLight(0xffe2cc, 2.2);
   sun.position.set(2, 10, 7);
   sun.target.position.set(5, 0, 1);
+  sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
+  Object.assign(sun.shadow.camera, { left: -SHADOW_REACH, right: SHADOW_REACH, top: SHADOW_REACH, bottom: -SHADOW_REACH, near: 0.5, far: 50 });
+  sun.shadow.bias = -0.0005;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun, sun.target);
   const fill = new DirectionalLight(0x8a7cff, 0.6);
   fill.position.set(8, 2, -2);
@@ -247,10 +284,9 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   };
 
   // —— 四座浮岛：柱子和一圈沿，往下渐隐进夜色。
-  const pillarMat = fadeIntoNight(lambert({ vertexColors: true }));
   ISLANDS.forEach(([x, y, z]) => {
-    scene.add(new Mesh(own(pillarGeometry(ISLAND_SIZE, y, y - PILLAR_FOOT, 10 + y, x, z, "#8d79b3", "#e6dbf2")), pillarMat));
-    scene.add(new Mesh(own(pillarGeometry(ISLAND_SIZE + 0.12, y - 0.12, 0.35, 0.35, x, z, "#a893c9", "#cdbde6")), pillarMat));
+    scene.add(new Mesh(own(pillarGeometry({ w: ISLAND_SIZE, top: y, depth: y - PILLAR_FOOT, fade: 10 + y, x, z })), pillarMat));
+    scene.add(new Mesh(own(pillarGeometry({ w: ISLAND_SIZE + 0.12, top: y - 0.12, depth: 0.35, x, z, color: "#a893c9", topColor: "#cdbde6" })), pillarMat));
   });
 
   // —— 演员：脚下她印象色的地砖，站着她的体素小人（加载不到时是她印象色的方块和名字）。
@@ -262,12 +298,17 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   const cubeGeo = own(new BoxGeometry(0.55, 0.55, 0.55));
   // 站的地方（脚下的影子不跟着跳）里一层身子：跳起来、压扁拉长，先往后仰、再转朝向（YXZ：仰的是她自己的前后）。
   const bodies = new Map<number, Group>();
+  // 小人投下阴影（完整档），自己身上不接：一级级的体素表面接阴影会起条纹。
   const stand = (body: Group) => (mesh: FigureMesh) => {
-    if (!destroyed) body.add(new Mesh(own(figureGeometry(mesh)), figureMat));
+    if (destroyed) return;
+    const figure = new Mesh(own(figureGeometry(mesh)), figureMat);
+    figure.castShadow = true;
+    body.add(figure);
   };
   const standIn = (actor: Actor, body: Group) => () => {
     if (destroyed) return;
     const cube = new Mesh(cubeGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.25 }));
+    cube.castShadow = true;
     cube.position.y = 0.275;
     body.add(cube);
     const label = nameSprite(actor.name, font, own);
@@ -295,26 +336,14 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   await idle();
 
   // —— 一件事传开。记忆的颜色是发送那一位（第 0 座岛）的印象色；她不在时模型什么都不传，这些东西都不显出来。
-  const basic = (params: MeshBasicMaterialParameters) => own(new MeshBasicMaterial(params));
   const memoryColor = new Color(actors.find((a) => a.island === 0)?.color ?? "#ffffff");
-  const glowMap = own(glowTexture());
-  const glow = (color: Color | string, size: number, parent: Object3D) => {
-    const s = new Sprite(own(new SpriteMaterial({ map: glowMap, color, blending: AdditiveBlending, depthWrite: false, transparent: true })));
-    s.scale.setScalar(size);
-    parent.add(s);
-    return s;
-  };
-  const place = <T extends Object3D>(o: T, parent: Object3D, x = 0, y = 0, z = 0): T => {
-    o.position.set(x, y, z);
-    parent.add(o);
-    return o;
-  };
 
-  // 天上那台制作人的手机：屏幕上是一段对话（只画气泡，不写字），消息发出来时亮一下。
+  // 天上那台制作人的手机：屏幕上是一段对话（只画气泡，不写字），消息发出来时亮一下。屏幕压暗一点：白屏本身过了泛光的
+  // 门槛会被吹成一块白，要等亮起时叠上光晕才泛光。
   const phone = place(new Group(), scene, ...PHONE);
   phone.rotation.set(-0.12, Math.PI / 4, 0);
   place(new Mesh(own(new BoxGeometry(1.05, 2.05, 0.12)), lambert({ color: "#d9d6e2" })), phone);
-  place(new Mesh(own(new PlaneGeometry(0.95, 1.92)), basic({ map: own(phoneScreenTexture(memoryColor)) })), phone, 0, 0, 0.065);
+  place(new Mesh(own(new PlaneGeometry(0.95, 1.92)), basic({ map: own(phoneScreenTexture(memoryColor)), color: PHONE_SCREEN })), phone, 0, 0, 0.065);
   const phoneGlow = glow("#ffd6e8", 3.2, phone);
 
   // 记忆方块：她颜色的一块，外面一圈光。
@@ -395,10 +424,32 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   );
   await idle();
 
+  // —— 布景：楼、路灯、各人岛上的东西、AI 的梗、云和粒子。
+  const dressing = dressScene(kit, actors, memoryColor);
+  // 不透明的东西投下、接住阴影（完整档）；之后才站上去的小人自己设。
+  scene.traverse((o) => {
+    if (o instanceof Mesh && !(o.material as Material).transparent) o.castShadow = o.receiveShadow = true;
+  });
+  await idle();
+
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 3);
   let q = quality;
   let size = { w: 1, h: 1 };
-  const applyQuality = () => renderer.setPixelRatio(dprOf(q));
+  /** 泛光的后期处理：完整档才有，降档时放掉。 */
+  let bloom: Bloom | null = null;
+  const applyQuality = () => {
+    const dpr = dprOf(q);
+    renderer.setPixelRatio(dpr);
+    // 主光不投阴影时，用到阴影的着色器换成不带阴影的那一版（three.js 按灯光的状态自己重编）。
+    renderer.shadowMap.enabled = sun.castShadow = q.shadowsAndBloom;
+    if (q.shadowsAndBloom) bloom ??= createBloom(renderer, scene, camera);
+    else {
+      bloom?.dispose();
+      bloom = null;
+    }
+    bloom?.resize(size.w, size.h, dpr);
+    dressing.setParticles(q.particles);
+  };
   applyQuality();
 
   // 先编一遍着色器，第一次显出来时不顿：支持 KHR_parallel_shader_compile 的浏览器异步编，不卡主线程。
@@ -411,6 +462,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     resize(w, h) {
       size = { w, h };
       renderer.setSize(w, h, false);
+      bloom?.resize(w, h, dprOf(q));
       // 宽高比变得多了才重画夜空：手机上地址栏收起放下只差一点，不重画。
       if (Math.abs(Math.log(w / h / skyAspect)) > 0.15) paintSky(w / h);
     },
@@ -489,10 +541,13 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
         m.visible = t.opacity > 0;
         m.material.opacity = t.opacity;
       }
-      renderer.render(scene, camera);
+      dressing.update(story, time);
+      if (bloom) bloom.render();
+      else renderer.render(scene, camera);
     },
     destroy() {
       destroyed = true;
+      bloom?.dispose();
       owned.forEach((x) => x.dispose());
       sky?.dispose();
       renderer.dispose();
@@ -502,29 +557,6 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   };
 }
 
-/**
- * 一根柱子：边长 `w`，顶面在 `top`，往下 `depth` 深。顶面是 `topColor`，侧面是 `color`；`fade` 属性是侧面融进夜色的
- * 程度（fadeIntoNight），往下 `fade` 深的地方完全融进去。侧面竖着切成一段段，渐隐才照着曲线走，不是首尾之间的直线。
- */
-function pillarGeometry(w: number, top: number, depth: number, fade: number, x: number, z: number, color: string, topColor: string): BufferGeometry {
-  const g = new BoxGeometry(w, depth, w, 1, Math.max(1, Math.ceil(depth / 2))).toNonIndexed();
-  g.translate(x, top - depth / 2, z);
-  const pos = g.getAttribute("position");
-  const nor = g.getAttribute("normal");
-  const colors = new Float32Array(pos.count * 3);
-  const fades = new Float32Array(pos.count);
-  const side = new Color(color);
-  const lit = new Color(topColor);
-  for (let i = 0; i < pos.count; i++) {
-    const c = nor.getY(i) > 0.5 ? lit : side;
-    colors.set([c.r, c.g, c.b], i * 3);
-    fades[i] = nor.getY(i) > 0.5 ? 0 : Math.min(1, Math.max(0, (top - pos.getY(i)) / fade)) ** 0.8;
-  }
-  g.setAttribute("color", new BufferAttribute(colors, 3));
-  g.setAttribute("fade", new BufferAttribute(fades, 1));
-  return g;
-}
-
 function figureGeometry(mesh: FigureMesh): BufferGeometry {
   const g = new BufferGeometry();
   g.setAttribute("position", new BufferAttribute(mesh.position, 3));
@@ -532,27 +564,6 @@ function figureGeometry(mesh: FigureMesh): BufferGeometry {
   g.setAttribute("color", new BufferAttribute(mesh.color, 3));
   g.setIndex(new BufferAttribute(mesh.index, 1));
   return g;
-}
-
-/** 光照算完以后，按顶点的 `fade` 属性把颜色混向夜空的颜色。 */
-function fadeIntoNight<M extends Material>(m: M): M {
-  const night = new Color(NIGHT);
-  m.onBeforeCompile = (shader) => {
-    shader.uniforms.uNight = { value: night };
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `#include <common>
-attribute float fade;
-varying float vFade;`)
-      .replace("#include <begin_vertex>", `#include <begin_vertex>
-  vFade = fade;`);
-    shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>
-uniform vec3 uNight;
-varying float vFade;`)
-      .replace("#include <opaque_fragment>", `outgoingLight = mix(outgoingLight, uNight, vFade);
-#include <opaque_fragment>`);
-  };
-  return m;
 }
 
 /** 在自发光里加上一份自己的底色。 */
@@ -565,17 +576,6 @@ function lift<M extends Material>(m: M): M {
     );
   };
   return m;
-}
-
-/** 一块画布当贴图。 */
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  draw(c.getContext("2d")!);
-  const t = new CanvasTexture(c);
-  t.colorSpace = SRGBColorSpace;
-  return t;
 }
 
 /** 夜空：上方偏紫的径向渐变，撒一层星星（固定的种子，每次一样）。长边 1024 像素。 */
@@ -606,18 +606,6 @@ function shadowTexture(): CanvasTexture {
     const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     grad.addColorStop(0, "rgba(10,6,24,0.55)");
     grad.addColorStop(1, "rgba(10,6,24,0)");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, 64, 64);
-  });
-}
-
-/** 一团白光（叠加混合，按材质的颜色上色）：记忆方块、手机、气泡外面的光晕。 */
-function glowTexture(): CanvasTexture {
-  return canvasTexture(64, 64, (g) => {
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, "rgba(255,255,255,0.9)");
-    grad.addColorStop(0.25, "rgba(255,255,255,0.35)");
-    grad.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
   });
@@ -658,30 +646,34 @@ function phoneScreenTexture(her: Color): CanvasTexture {
 }
 
 /** 方块上她的名字：半透明深色胶囊里的白字，总是朝着镜头。 */
-function nameSprite(name: string, font: string, own: <T extends { dispose(): void }>(x: T) => T): Sprite {
-  const css = `600 44px ${font}`;
-  const probe = document.createElement("canvas").getContext("2d")!;
-  probe.font = css;
-  const w = Math.ceil(probe.measureText(name).width) + 48;
-  const map = own(
-    canvasTexture(w, 72, (g) => {
-      g.fillStyle = "rgba(20,16,40,0.78)";
-      g.beginPath();
-      g.roundRect(0, 0, w, 72, 36);
-      g.fill();
-      g.font = css;
-      g.fillStyle = "#f3eeff";
-      g.textBaseline = "middle";
-      g.fillText(name, 24, 38);
-    }),
-  );
-  const sprite = new Sprite(own(new SpriteMaterial({ map, transparent: true, depthWrite: false })));
-  sprite.scale.set((0.22 * w) / 72, 0.22, 1);
+function nameSprite(name: string, font: string, own: Kit["own"]): Sprite {
+  const { map, aspect } = pillTexture(name, `600 44px ${font}`, "rgba(20,16,40,0.78)", "#f3eeff");
+  const sprite = new Sprite(own(new SpriteMaterial({ map: own(map), transparent: true, depthWrite: false })));
+  sprite.scale.set(0.22 * aspect, 0.22, 1);
   return sprite;
 }
 
-/** 固定种子的伪随机数（0 到 1）。 */
-function seeded(seed: number) {
-  let s = seed;
-  return () => (s = (s * 16807) % 2147483647) / 2147483647;
+type Bloom = {
+  render(): void;
+  /** 画布的 CSS 尺寸和 DPR。 */
+  resize(w: number, h: number, dpr: number): void;
+  dispose(): void;
+};
+
+/** 泛光：先画到一张多重采样（抗锯齿）的半浮点贴图上，亮处泛光，再转成 sRGB 画到画布上。 */
+function createBloom(renderer: WebGLRenderer, scene: Scene, camera: Camera): Bloom {
+  const composer = new EffectComposer(renderer, new WebGLRenderTarget(1, 1, { type: HalfFloatType, samples: 4 }));
+  const passes = [new RenderPass(scene, camera), new UnrealBloomPass(new Vector2(1, 1), BLOOM.strength, BLOOM.radius, BLOOM.threshold), new OutputPass()];
+  passes.forEach((pass) => composer.addPass(pass));
+  return {
+    render: () => composer.render(),
+    resize(w, h, dpr) {
+      composer.setPixelRatio(dpr);
+      composer.setSize(w, h);
+    },
+    dispose() {
+      passes.forEach((pass) => pass.dispose());
+      composer.dispose();
+    },
+  };
 }

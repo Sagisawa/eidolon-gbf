@@ -30,7 +30,9 @@
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
 //      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
 //      落地页不降档；第 5 幕（3D 场景）在九个节拍各截一张、往回滚截一张，某位的体素文件加载不到时她的位置是
-//      印象色方块加名字（截图看），场景画布丢了上下文时收起、落地页不降档；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
+//      印象色方块加名字（截图看），场景画布丢了上下文时收起、落地页不降档；用显卡（软件渲染时跳过）截完整档、简化档
+//      的开场全景（完整档有阴影和泛光，简化档没有、粒子少一半），简化档停在开场全景量一段帧耗时，不超过它降档的门槛；
+//      第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
 //      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
 //      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。滚动位置按落地页模型的
 //      时间线（model/timeline.ts）算，和页面同一个出处。
@@ -676,6 +678,51 @@ function watchConsole(page) {
     await page.screenshot({ path: path.join(shots, "full-act5-no-voxels.png") });
     report("第 5 幕：某位的体素文件加载不到", null, "截图 full-act5-no-voxels.png 里果穗的位置应是印象色方块加名字");
     await context.close();
+  }
+
+  // 第 5 幕的画质：完整档、简化档的开场全景各截一张（完整档有阴影和泛光，简化档没有、粒子少一半，场景其他照常），
+  // 简化档停在开场全景量一段帧耗时。要用显卡：软件渲染（SwiftShader）一帧几百毫秒，完整档一开场就按帧降档了。
+  {
+    const gpu = await chromium.launch({ args: ["--enable-gpu", ...(process.platform === "win32" ? ["--use-angle=d3d11"] : [])] });
+    for (const tier of ["full", "lite"]) {
+      const context = await gpu.newContext(DESKTOP);
+      const page = await context.newPage();
+      await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
+      const software = await page.evaluate(() => {
+        const gl = document.createElement("canvas").getContext("webgl2");
+        const info = gl?.getExtension("WEBGL_debug_renderer_info");
+        return !info || /swiftshader|llvmpipe/i.test(gl.getParameter(info.UNMASKED_RENDERER_WEBGL));
+      });
+      const tl = await timelineOn(page);
+      const act5 = spanOf(tl, 5);
+      await act5Ready(page, act5);
+      await toScreens(page, act5.from + act5.length * 0.02);
+      await page.screenshot({ path: path.join(shots, `${tier}-act5-dressing.png`) });
+      const ms = await page.evaluate(
+        () =>
+          new Promise((resolve) => {
+            const t = [];
+            const step = (now) => {
+              t.push(now);
+              if (now - t[0] < 3000) requestAnimationFrame(step);
+              else resolve((t.at(-1) - t[0]) / (t.length - 1));
+            };
+            requestAnimationFrame(step);
+          }),
+      );
+      const after = await tierOf(page);
+      if (tier === "full") {
+        report("第 5 幕完整档的开场全景（截图 full-act5-dressing.png：楼、路灯、各人岛上的东西、AI 的梗、云和粒子，有阴影和泛光）", software ? null : after === "full", software ? "没有显卡，跳过" : `档位停在 ${after}`);
+      } else {
+        report(
+          "第 5 幕简化档：开场全景的帧耗时在简化档降档的门槛（36 ms）以内（截图 lite-act5-dressing.png：没有阴影和泛光，粒子少一半）",
+          software ? null : ms <= 36 && after === "lite",
+          software ? `没有显卡，跳过（软件渲染 ${ms.toFixed(1)} ms）` : `平均 ${ms.toFixed(1)} ms，档位 ${after}`,
+        );
+      }
+      await context.close();
+    }
+    await gpu.close();
   }
 
   // 静止版式：每一幕截一张，幕名轨亮的就是这一幕。

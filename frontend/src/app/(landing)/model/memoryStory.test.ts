@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { cameraAt, FIGURE_HEIGHT, project, type Vec3 } from "./memory";
-import { BEATS, LINES, lineShownAt, linesOf, memoryTop, STANDS, STEPS, storyAt, type MemoryStory } from "./memoryStory";
+import { BEATS, EMBEDDING_STAR, LINES, lineShownAt, linesOf, memoryTop, STANDS, STEPS, storyAt, type MemoryStory } from "./memoryStory";
 import type { Viewport } from "./scene";
 
 const desktop: Viewport = { w: 1440, h: 900 };
@@ -96,6 +96,42 @@ describe("storyAt: 一件事传开", () => {
     expect(first(scenes, (s) => s.bridge[0] > 0)).toBeGreaterThanOrEqual(first(scenes, (s) => !!copyTo(s, 1)));
   });
 
+  it("转台转动的时候，旁边一闪而过「temperature 0.7」：转之前、副本上桥以后都看不见", () => {
+    const scenes = run();
+    const shown = scenes.map((s) => s.temperature);
+    // 只闪一回：显出来的进度连成一段。
+    const on = shown.flatMap((t, i) => (t > 0 ? [i] : []));
+    expect(on.at(-1)! - on[0] + 1).toBe(on.length);
+    scenes.forEach((s, i) => {
+      if (s.turntable > 0.01 && s.turntable < Math.PI / 2 - 0.01) expect(s.temperature, `p ${ps[i]}`).toBeGreaterThan(0.9);
+    });
+    expect(at(0.29).temperature).toBe(0);
+    expect(at(0.5).temperature).toBe(0);
+  });
+
+  it("真乃收进记忆柱时，embedding 星图上亮起一颗她颜色的点，之后一直亮着，往回滚就灭了", () => {
+    const scenes = run();
+    const stars = scenes.map((s) => s.embedding);
+    expect(stars).toEqual([...stars].sort((a, b) => a - b));
+    expect(at(0.25).embedding).toBe(0);
+    expect(at(1).embedding).toBe(1);
+    // 收进柱子的那一刻前后亮起来。
+    const lit = first(scenes, (s) => s.embedding > 0.5);
+    expect(Math.abs(lit - first(scenes, (s) => stored(s, 0)))).toBeLessThan(0.02);
+  });
+
+  it("星图上她那颗点看得到：镜头拉远去看桥的那段（电脑）和最后的全景（电脑、竖屏）里都在画面里", () => {
+    const inside = (p: number, vp: Viewport) => {
+      const [x, y] = project(cameraAt(p, vp), vp, EMBEDDING_STAR);
+      return x > vp.w * 0.05 && x < vp.w * 0.95 && y > vp.h * 0.05 && y < vp.h * 0.95;
+    };
+    for (const p of ps.filter((p) => p >= 0.38 && p <= 0.45)) expect(inside(p, desktop), `p ${p}`).toBe(true);
+    for (const p of ps.filter((p) => p >= 0.93)) {
+      expect(inside(p, desktop), `p ${p}`).toBe(true);
+      expect(inside(p, portrait), `竖屏 p ${p}`).toBe(true);
+    }
+  });
+
   it("台阶一级级升起来，在副本下台阶之前已经升好；副本走过的台阶亮起来", () => {
     const scenes = run();
     expect(at(0.6).steps.every((s) => s.rise === 0)).toBe(true);
@@ -172,6 +208,7 @@ describe("storyAt: 一件事传开", () => {
       expect(s.stored).toEqual([]);
       expect(s.threads).toEqual([]);
       expect(s.phone).toBe(0);
+      expect(s.embedding).toBe(0);
       expect(s.bridge.every((b) => b === 0)).toBe(true);
       expect(s.figures.map((f) => f.island)).toEqual([1, 2, 3]);
       expect(s.figures.every((f) => f.hop === 0 && f.reach === 0)).toBe(true);
