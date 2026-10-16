@@ -1,8 +1,8 @@
 /**
  * 第 5 幕「记忆」的 3D 场景（.scratch/landing-memory-3d）：一张单独的 three.js 画布（WebGL 渲染器，ADR-0016 的修订），
- * 固定铺满视口、叠在光层上面，把落地页模型给的第 5 幕场景状态（model/memory.ts 的 MemoryScene，和 model/memoryStory.ts 按进度算出的那件事）画出来。three.js
- * 和这个模块只在运动档、滚到第 5 幕前约一屏时才由 LightStage 动态 import（three.js 和第 4 幕的手机共用一个包，
- * 这里的场景代码单独一个包），不进首屏。
+ * 固定铺满视口、叠在光层上面，把落地页模型给的第 5 幕场景状态（model/memory.ts 的 MemoryScene，和
+ * model/memoryStory.ts 按进度算出的那件事）画出来。three.js 和这个模块只在运动档、滚到第 5 幕前约一屏时才由
+ * LightStage 动态 import（three.js 和第 4 幕的手机共用一个包，这里的场景代码单独一个包），不进首屏。
  *
  * - 相机照模型摆：正交相机，注视点、取景半高、方位角都是模型给的，和 DOM 上按 project 摆的东西同一个出处。
  * - 场景：夜空渐变和星星（铺在画面上，不随镜头转）；四座浮岛的柱子，顶面亮、两侧一明一暗、往下渐隐进夜色；
@@ -11,9 +11,10 @@
  *   顶点色，顶面、底面压到 0.86、0.78 留住方块感；按 `front` 缩放到场景里的身高，轻轻起伏。跳动、后仰、朝向照模型的
  *   动作摆。地址没有、下载或解析失败时，站着的是她印象色的小方块，上面写她的名字。下载、合成一次，记在模块里：
  *   手机上离开这一段释放了上下文，回来时重建渲染器，不重新下载。
- * - 一件事传开（model/memoryStory.ts，跟这个模块一起晚加载）：天上的手机、制作人的消息（深蓝气泡，变成方块）、每座岛的记忆柱（三层圆盘、一排小灯，收进时闪成
- *   发送那一位的颜色）、转台（把手）、台阶、副本、走过时亮起的桥面、收尾的连线，都照模型摆。记忆方块、柱灯、桥面、
- *   台阶、连线一律用发送那一位（真乃）的印象色：传到谁那里都是她的颜色（来源角色）。
+ * - 一件事传开（model/memoryStory.ts，跟这个模块一起晚加载）：天上的手机、制作人的消息（深蓝气泡，变成方块）、
+ *   每座岛的记忆柱（三层圆盘、一排小灯，收进时闪成发送那一位的颜色）、转台（把手）、台阶、副本、走过时亮起的桥面、
+ *   收尾的连线，都照模型摆。记忆方块、柱灯、桥面、台阶、连线一律用发送那一位（真乃）的印象色：传到谁那里都是她的
+ *   颜色（来源角色）。
  * - 档位：DPR 按档位封顶。
  */
 
@@ -384,12 +385,12 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   });
 
   // 收尾的连线：柱顶到柱顶拱起的一根细光。
-  const threadMat = basic({ color: memoryColor, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false });
+  const threadMat = () => basic({ color: memoryColor, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false });
   const threads = new Map(
     THREADS.map(([a, b]) => {
       const [pa, pb] = [new Vector3(...memoryTop(a)), new Vector3(...memoryTop(b))];
       const mid = pa.clone().lerp(pb, 0.5).add(new Vector3(0, THREAD_ARCH, 0));
-      const m = place(new Mesh(own(new TubeGeometry(new QuadraticBezierCurve3(pa, mid, pb), 40, 0.022, 6)), threadMat), scene);
+      const m = place(new Mesh(own(new TubeGeometry(new QuadraticBezierCurve3(pa, mid, pb), 40, 0.022, 6)), threadMat()), scene);
       return [`${a}-${b}`, m];
     }),
   );
@@ -488,7 +489,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
         const m = threads.get(`${t.from}-${t.to}`);
         if (!m) continue;
         m.visible = t.opacity > 0;
-        threadMat.opacity = t.opacity;
+        m.material.opacity = t.opacity;
       }
       renderer.render(scene, camera);
     },

@@ -12,6 +12,7 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 
 /** 每座岛上她站的地方（脚底）。 */
 export const STANDS: readonly Vec3[] = [
@@ -20,7 +21,6 @@ export const STANDS: readonly Vec3[] = [
   [4.75, -2, 5.3],
   [9.5, 2, 0.5],
 ];
-
 
 /** 节拍：每一拍从 `at` 开始。 */
 export const BEATS: readonly { at: number; name: string }[] = [
@@ -186,20 +186,16 @@ export type MemoryStory = {
  * 发送的人（第 0 座岛）不在时，什么都不传，只剩布景。
  */
 export function storyAt(p: number, camera: MemoryCamera, cast: readonly number[]): MemoryStory {
-  const here = (k: number) => cast.includes(k);
-  const sends = here(0);
+  // 发送的人在场，消息才发得出来；某位收得到，要发送的人和她都在场。
+  const sends = cast.includes(0);
+  const receives = (k: number) => sends && cast.includes(k);
   const beat = BEATS.findLastIndex((b) => p >= b.at);
 
   // 消息：从手机落到她头顶（中途往上鼓一点），变成方块，再收进柱子。
   const fall = smooth(0.09, 0.17, p);
   const store = smooth(0.22, 0.28, p);
-  const top0 = memoryTop(0);
-  const caught = [lerp(PHONE[0], CATCH[0], fall), lerp(PHONE[1], CATCH[1], fall), lerp(PHONE[2], CATCH[2], fall)];
-  const position: Vec3 = [
-    lerp(caught[0], top0[0], store),
-    lerp(caught[1], top0[1], store) + Math.sin(fall * Math.PI) * 0.4 + Math.sin(store * Math.PI) * 0.5,
-    lerp(caught[2], top0[2], store),
-  ];
+  const [x, y, z] = lerp3(lerp3(PHONE, CATCH, fall), memoryTop(0), store);
+  const position: Vec3 = [x, y + Math.sin(fall * Math.PI) * 0.4 + Math.sin(store * Math.PI) * 0.5, z];
   const message = sends && p > 0.085 && p < STORED_AT[0] ? { position, morph: smooth(0.18, 0.22, p) } : null;
 
   // 副本：沿路线匀速走，下台阶、上台阶时一级跳一下。
@@ -209,15 +205,14 @@ export function storyAt(p: number, camera: MemoryCamera, cast: readonly number[]
     return { u, at: [x, y + Math.abs(Math.sin(u * Math.PI * c.hops)) * COPY_HOP, z] as Vec3, path: [x, y, z] as Vec3 };
   });
   const copies = COPIES.flatMap((c, k) =>
-    sends && here(c.to) && p > c.go[0] - 0.01 && p < STORED_AT[c.to] ? [{ to: c.to, position: going[k].at }] : [],
+    receives(c.to) && p > c.go[0] - 0.01 && p < STORED_AT[c.to] ? [{ to: c.to, position: going[k].at }] : [],
   );
   const walked = (w: { copy: number; axis: number; from: number; to: number }) =>
-    sends && here(COPIES[w.copy].to) ? smooth(w.from, w.to, going[w.copy].path[w.axis]) : 0;
+    receives(COPIES[w.copy].to) ? smooth(w.from, w.to, going[w.copy].path[w.axis]) : 0;
 
   const rise = (p - 0.64) / 0.09;
   const steps = STEPS.map((s, i) => ({ rise: smooth(s.delay, s.delay + 0.5, rise), lit: walked(WALKED.steps[i]) }));
 
-  const receives = (k: number) => sends && here(k);
   const stored = STORED_AT.flatMap((at, k) =>
     receives(k) && p >= at ? [{ island: k, flash: smooth(at, at + 0.015, p) * (1 - smooth(at + 0.03, at + 0.08, p)) }] : [],
   );
@@ -230,8 +225,7 @@ export function storyAt(p: number, camera: MemoryCamera, cast: readonly number[]
   };
   // 果穗传话时朝着在场的那一位，两位都在时朝着两人中间。
   const [fuyuko, kiriko] = [receives(2) ? STANDS[2] : null, receives(3) ? STANDS[3] : null];
-  const listeners: Vec3 | null =
-    fuyuko && kiriko ? [(fuyuko[0] + kiriko[0]) / 2, (fuyuko[1] + kiriko[1]) / 2, (fuyuko[2] + kiriko[2]) / 2] : (fuyuko ?? kiriko);
+  const listeners = fuyuko && kiriko ? lerp3(fuyuko, kiriko, 0.5) : (fuyuko ?? kiriko);
   const yaw = [
     toward(0, receives(1) ? STANDS[1] : null, during([0.4, 0.44], [0.54, 0.58], p)),
     p < 0.6 ? toward(1, STANDS[0], during([0.48, 0.52], [0.56, 0.6], p)) : toward(1, listeners, during([0.72, 0.75], [0.86, 0.9], p)),

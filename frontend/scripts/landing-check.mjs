@@ -627,8 +627,9 @@ function watchConsole(page) {
       await toScreens(page, act5.from + act5.length * beatMid(k));
       await page.screenshot({ path: path.join(shots, `${name}-act5-beat${k}.png`) });
     }
-    await toScreens(page, act5.from + act5.length * beatMid(4));
-    await page.screenshot({ path: path.join(shots, `${name}-act5-back-beat4.png`) });
+    const bridgeBeat = BEATS.findIndex((b) => b.name === "记忆沿桥传给果穗");
+    await toScreens(page, act5.from + act5.length * beatMid(bridgeBeat));
+    await page.screenshot({ path: path.join(shots, `${name}-act5-back-beat${bridgeBeat}.png`) });
     if (name === "full") {
       const tierBefore = await tierOf(page);
       await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
