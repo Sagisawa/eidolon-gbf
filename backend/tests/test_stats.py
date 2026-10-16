@@ -143,9 +143,9 @@ async def test_stats_need_a_session(make_client: ClientFactory):
 
 
 async def test_a_new_user_has_known_them_a_day_and_come_on_none(
-    make_client: ClientFactory, settings: Settings, clock: FakeClock
+    make_client: ClientFactory, settings: Settings, gifting: Settings, clock: FakeClock
 ):
-    client = make_client(FakeLLM(), clock=clock)
+    client = make_client(FakeLLM(), settings=gifting, clock=clock)
     registered_at(settings.database_path, clock.now - timedelta(hours=1))
 
     got = await stats(client)
@@ -363,7 +363,7 @@ async def test_the_gifts_given_in_the_range_she_liked_and_whom_they_went_to_most
     meguru: None,
 ):
     database = settings.database_path
-    client = make_client(FakeLLM(), clock=clock)
+    client = make_client(FakeLLM(), settings=gifting, clock=clock)
     await give_gifts(
         make_client, gifting, clock, database,
         ("kogane", "cake", tokyo(TODAY - timedelta(days=3), 12)),

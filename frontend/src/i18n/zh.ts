@@ -505,6 +505,7 @@ export const zh = {
         anyTime: "什么时段都会来",
       },
       heatmap: "过去一年",
+      affinity: "好感度",
       heatmapLabel: "过去一年每天来的次数",
       cameOn: (days: number) => `来过 ${days} 天`,
       dayCount: (month: number, day: number, count: number) =>

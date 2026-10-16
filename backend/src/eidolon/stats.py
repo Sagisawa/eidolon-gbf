@@ -22,6 +22,12 @@ left with her, a message, an event or a call, counting that day as the first; an
 given, how many she liked as they were given, and whom the most went to, the first in the
 idols' order of those tied. Only numbers: what is shown of them, and how, is the page's to
 decide.
+
+And the characters by her affinity with the user (GLOSSARY.md「好感度」), whatever the range:
+those in each tier, from cold to intimate, in the idols' order, by tier alone, never by
+value, so that none in a tier reads higher than another; one in a cooldown is in cold all
+the same. Where affinity is off there are no tiers and no gifts, as the user is shown
+nothing of either elsewhere.
 """
 
 from collections import Counter, defaultdict
@@ -32,6 +38,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Header, Query
 
+from eidolon.affinity import TIERS, Status
 from eidolon.assembly import Backend
 from eidolon.characters import in_idol_order
 from eidolon.producer import effective_timezone
@@ -70,6 +77,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         days = RANGE_DAYS[span]
         since = None if days is None else today - timedelta(days=days - 1)
         first = store.first_records(user_id)
+        idols = in_idol_order(backend.characters.values())
         return {
             "days_known": days_since(signed_up),
             "visits": visits(per_day.keys(), today),
@@ -80,6 +88,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
                     per_day[start + timedelta(days=i)] for i in range((today - start).days + 1)
                 ],
             },
+            "affinity": by_tier((c.id, backend.affinities.status(user_id, c.id)) for c in idols),
             "range": in_range(
                 span,
                 [(c, at) for c, at in contacts if since is None or at.date() >= since],
@@ -88,11 +97,8 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
                     for call in store.kept_calls(user_id)
                     if since is None or call.connected_at.astimezone(zone).date() >= since
                 ],
-                {
-                    c.id: days_since(first[c.id])
-                    for c in in_idol_order(backend.characters.values())
-                    if c.id in first
-                },
+                {c.id: days_since(first[c.id]) for c in idols if c.id in first},
+                gifts_on=backend.config.affinity_on,
             ),
         }
 
@@ -102,11 +108,13 @@ def in_range(
     within: list[tuple[Contact, datetime]],
     calls: list[KeptCall],
     known_in_idol_order: dict[str, int],
+    *,
+    gifts_on: bool,
 ) -> dict:
     """What changes with the range `span`, of the turns and gifts `within` it, each at its
     time where the user is, and the `calls` that connected in it, and the characters
     anything is left with, in the idols' order, and the days each has been known; whom the
-    most gifts went to, tied, is the first of them."""
+    most gifts went to, tied, is the first of them. No gifts unless `gifts_on`."""
     turns = Counter(c.character_id for c, _ in within if c.kind == "turn")
     called: defaultdict[str, float] = defaultdict(float)
     for call in calls:
@@ -137,8 +145,19 @@ def in_range(
                 ),
                 None,
             ),
-        },
+        } if gifts_on else None,
     }
+
+
+def by_tier(statuses: Iterable[tuple[str, Status | None]]) -> list[dict] | None:
+    """Each tier, from cold to intimate, and the characters in it as `statuses` has them,
+    in the order given; none if any has no status, affinity being off."""
+    tiers: dict[str, list[str]] = {tier: [] for tier, _ in TIERS}
+    for character, status in statuses:
+        if status is None:
+            return None
+        tiers[status.tier].append(character)
+    return [{"tier": tier, "characters": characters} for tier, characters in tiers.items()]
 
 
 def by_hour(times: Iterable[datetime]) -> list[int]:

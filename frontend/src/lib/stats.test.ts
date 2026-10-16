@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { TIERS, type Tier } from "@/lib/affinity";
 import {
+  affinityGroups,
   busiestParts,
   callTime,
   callTimeText,
@@ -12,6 +14,7 @@ import {
   portrait,
   statsSections,
   type Stats,
+  type TierGroup,
 } from "@/lib/stats";
 
 /** 24 hours, all 0 but those given. */
@@ -19,11 +22,20 @@ function hours(counts: Record<number, number> = {}): number[] {
   return Array.from({ length: 24 }, (_, hour) => counts[hour] ?? 0);
 }
 
+/** The five tiers, from cold to intimate, each with those given in it. */
+function tiers(given: Partial<Record<Tier, string[]>> = {}): TierGroup[] {
+  return TIERS.map((tier) => ({
+    tier,
+    characters: given[tier] ?? [],
+  }));
+}
+
 const none: Stats = {
   days_known: 3,
   visits: { current: 0, longest: 0 },
   all_hours: hours(),
   heatmap: { from: "2025-09-22", counts: Array(52 * 7 + 5).fill(0) },
+  affinity: tiers({ trust: ["mano", "kogane"] }),
   range: {
     span: "all",
     turns: 0,
@@ -161,8 +173,25 @@ describe("通话最久", () => {
   });
 });
 
+describe("好感度分组", () => {
+  it("只列有角色的档，从冷淡到亲密；档里照接口给的顺序（偶像顺序）", () => {
+    expect(affinityGroups(tiers({ intimate: ["kogane"], cold: ["meguru", "mano"] }))).toEqual([
+      { tier: "cold", characters: ["meguru", "mano"] },
+      { tier: "intimate", characters: ["kogane"] },
+    ]);
+  });
+});
+
 describe("哪一块显示", () => {
-  const nothing = { totals: false, mostTalked: false, mostCalled: false, hours: false, gifts: false };
+  const nothing = {
+    affinity: false,
+    totals: false,
+    giftsGiven: false,
+    mostTalked: false,
+    mostCalled: false,
+    hours: false,
+    gifts: false,
+  };
 
   it("一个回合、一次送礼都没有时整页为空", () => {
     expect(statsSections(none)).toEqual({ isEmpty: true, visits: false, portrait: false, heatmap: false, ...nothing });
@@ -200,7 +229,9 @@ describe("哪一块显示", () => {
       visits: false,
       portrait: false,
       heatmap: false,
+      affinity: true,
       totals: true,
+      giftsGiven: true,
       mostTalked: false,
       mostCalled: true,
       hours: false,
@@ -219,5 +250,14 @@ describe("哪一块显示", () => {
       },
     };
     expect(statsSections(onlyGave)).toMatchObject({ mostTalked: false, hours: true, gifts: true });
+  });
+
+  it("好感度开着时有好感度分组和送出的礼物，没送过也写 0", () => {
+    expect(statsSections(came)).toMatchObject({ affinity: true, giftsGiven: true, gifts: false });
+  });
+
+  it("好感度和礼物关掉时没有好感度分组、礼物和送出的礼物", () => {
+    const off = { ...came, affinity: null, range: { ...came.range, gifts: null } };
+    expect(statsSections(off)).toMatchObject({ affinity: false, totals: true, giftsGiven: false, gifts: false });
   });
 });

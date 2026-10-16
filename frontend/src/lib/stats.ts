@@ -1,23 +1,29 @@
 // Stats (GLOSSARY.md「统计」): the user's own dealings with the characters, as `/api/stats`
 // sums them up, and what the page makes of them: the heatmap's weeks and shades, the part
-// of the day the portrait speaks of, who is ranked, and which blocks are shown. The backend
-// gives only numbers; how many of what are shown, and how, is decided here.
+// of the day the portrait speaks of, who is ranked, which tiers are shown, and which blocks
+// are. The backend gives only numbers; how many of what are shown, and how, is decided here.
 
 import { copy } from "@/i18n";
+import type { Tier } from "@/lib/affinity";
 
 /** What `/api/stats` answers. Dates are the producer's (`YYYY-MM-DD`, their profile's time zone).
  * `days_known`: the days since the user signed up, that day the first.
  * `visits`: the days in a row they came (took a turn or gave a gift), now and at the longest.
  * `all_hours`: how many turns and gifts at each hour of the day, 0–23, all told.
  * `heatmap`: how many on each day from `from`, a Monday 52 weeks before this week's, to today.
+ * `affinity`: each tier, from cold to intimate, and the characters in it; null while affinity is off.
  * `range`: what changes with the range, `span`: see `InRange`. */
 export type Stats = {
   days_known: number;
   visits: { current: number; longest: number };
   all_hours: number[];
   heatmap: { from: string; counts: number[] };
+  affinity: TierGroup[] | null;
   range: InRange;
 };
+
+/** The characters in a tier, in the idols' order: by tier alone, so that none reads higher than another. */
+export type TierGroup = { tier: Tier; characters: string[] };
 
 /** The ranges the lower part can be over: the past 30 days or 365, today the last, or all of it. */
 export const STATS_RANGES = ["30d", "1y", "all"] as const;
@@ -35,14 +41,15 @@ export type CharacterInRange = { character_id: string; turns: number; days_known
  * `calls`: how many connected in it, and how long they lasted all told once connected, in
  * seconds (ADR-0021: only those since calls were kept).
  * `gifts`: how many given, how many she liked as they were given, and whom the most went to
- * (the first in the idols' order of those tied; null when none were). */
+ * (the first in the idols' order of those tied; null when none were); null while affinity,
+ * and with it gifts, is off. */
 export type InRange = {
   span: StatsRange;
   turns: number;
   by_hour: number[];
   characters: CharacterInRange[];
   calls: { count: number; seconds: number };
-  gifts: { given: number; liked: number; most: { character_id: string; given: number } | null };
+  gifts: { given: number; liked: number; most: { character_id: string; given: number } | null } | null;
 };
 
 /** How many a ranking (「聊得最多」「通话最久」) has at most. */
@@ -150,12 +157,20 @@ export function heatmapMonths(weeks: HeatCell[][], apart: number): Map<number, s
   return months;
 }
 
+/** The tiers the affinity groups show, those with anyone in them, from cold to intimate. */
+export function affinityGroups(affinity: TierGroup[]): TierGroup[] {
+  return affinity.filter((group) => group.characters.length > 0);
+}
+
 export type StatsSections = {
   isEmpty: boolean;
   visits: boolean;
   portrait: boolean;
   heatmap: boolean;
+  affinity: boolean;
   totals: boolean;
+  /** 总数里的「送出的礼物」. */
+  giftsGiven: boolean;
   mostTalked: boolean;
   mostCalled: boolean;
   hours: boolean;
@@ -165,7 +180,9 @@ export type StatsSections = {
 /** Which blocks of the page are shown: none, but a line and a way to the conversations, when
  * nothing is left with any of them, no turn, gift or call (`isEmpty`; the characters are
  * those anything is left with, whatever the range); otherwise each that has something, and
- * the totals, 0 or not, whatever the range. Calls alone are not coming (`visits`). */
+ * the totals, 0 or not, whatever the range. Calls alone are not coming (`visits`). While
+ * affinity and gifts are off, none of them: no affinity groups, gifts, or gifts given among the
+ * totals. */
 export function statsSections(stats: Stats): StatsSections {
   const hasCome = stats.all_hours.some((n) => n > 0);
   const { range } = stats;
@@ -175,10 +192,12 @@ export function statsSections(stats: Stats): StatsSections {
     visits: hasCome && stats.visits.longest > 0,
     portrait: hasCome,
     heatmap: stats.heatmap.counts.some((n) => n > 0),
+    affinity: !isEmpty && stats.affinity !== null && affinityGroups(stats.affinity).length > 0,
     totals: !isEmpty,
+    giftsGiven: !isEmpty && range.gifts !== null,
     mostTalked: range.characters.some((c) => c.turns > 0),
     mostCalled: range.characters.some((c) => c.call_seconds > 0),
     hours: range.by_hour.some((n) => n > 0),
-    gifts: range.gifts.given > 0,
+    gifts: (range.gifts?.given ?? 0) > 0,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import NextLink from "next/link";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -16,6 +16,7 @@ import { getStats, type Character } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FIRST_LEVEL } from "@/lib/navShell";
 import {
+  affinityGroups,
   callTime,
   callTimeText,
   mostCalled,
@@ -26,6 +27,7 @@ import {
   type Ranked,
   type Stats,
   type StatsRange,
+  type TierGroup,
 } from "@/lib/stats";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
@@ -36,8 +38,8 @@ const CONVERSATIONS = FIRST_LEVEL.conversations;
 
 /**
  * 设置「统计」（GLOSSARY.md「统计」，DESIGN.md「统计页」）。上半部分不随时间跨度变，从上到下是一句话画像、
- * 认识天数和连续来访三个数、过去一年的热力图；下半部分顶上是「近 30 天 / 近一年 / 全部」，默认全部，下面是总数、聊得最多、
- * 通话最久、分时段图和礼物。哪一块没数据就不显示；一个回合、一次送礼、一通通话都没有时整页只有一句话和去对话列表的按钮。
+ * 认识天数和连续来访三个数、过去一年的热力图和好感度分组；下半部分顶上是「近 30 天 / 近一年 / 全部」，默认全部，下面是总数、聊得最多、
+ * 通话最久、分时段图和礼物。好感度和礼物关掉时，好感度分组、礼物和总数里的「送出的礼物」都不显示。哪一块没数据就不显示；一个回合、一次送礼、一通通话都没有时整页只有一句话和去对话列表的按钮。
  * 每次打开都重新读，删掉历史对话后回来就是新的数；换跨度时重新读整份，新的到之前眼前的数留着、变淡，页面不跳不空。
  */
 export function StatsSettings() {
@@ -92,7 +94,7 @@ export function StatsSettings() {
   /** 眼前的下半部分是上一个跨度的：换了以后新的还没到，或者没取到。 */
   const otherRange = stats.range.span !== range;
   const { calls, gifts } = stats.range;
-  const giftee = gifts.most && byId.get(gifts.most.character_id);
+  const giftee = gifts?.most && byId.get(gifts.most.character_id);
 
   return (
     <div className="flex flex-col gap-8">
@@ -114,6 +116,7 @@ export function StatsSettings() {
           <Heatmap heatmap={stats.heatmap} />
         </section>
       )}
+      {shown.affinity && stats.affinity && <AffinityGroups groups={affinityGroups(stats.affinity)} byId={byId} />}
       <div className="flex flex-col gap-4">
         <Tabs value={range} onValueChange={(value) => setRange(value as StatsRange)}>
           <TabsList aria-label={t.rangeLabel}>
@@ -130,13 +133,13 @@ export function StatsSettings() {
           className={cn("flex flex-col gap-8 transition-opacity duration-200", otherRange && "opacity-45")}
         >
           {shown.totals && (
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <dl className={cn("grid grid-cols-2 gap-3", shown.giftsGiven ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
               <Figure label={t.turns} value={stats.range.turns} />
               <Figure label={t.calls} value={calls.count} unit={t.timesUnit} />
               <FigureOf label={t.callTime}>
                 <CallTime seconds={calls.seconds} />
               </FigureOf>
-              <Figure label={t.giftsGiven} value={gifts.given} />
+              {shown.giftsGiven && gifts && <Figure label={t.giftsGiven} value={gifts.given} />}
             </dl>
           )}
           {shown.mostTalked && (
@@ -161,7 +164,7 @@ export function StatsSettings() {
               <HourChart hours={stats.range.by_hour} />
             </section>
           )}
-          {shown.gifts && (
+          {shown.gifts && gifts && (
             <section className="flex flex-col gap-3">
               <h2 className="text-header">{t.gifts}</h2>
               <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -244,6 +247,39 @@ function Ranking({
           );
         })}
       </ol>
+    </section>
+  );
+}
+
+/** 好感度分组：Header 字号的标题，下面每档一行，左边 Subtitle 字号 muted 的档名，右边这一档里她们的头像，外面一圈她的 `--her-mark`。 */
+function AffinityGroups({ groups, byId }: { groups: TierGroup[]; byId: Map<string, Character> }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-header">{t.affinity}</h2>
+      <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-3">
+        {groups.map((group) => (
+          <Fragment key={group.tier}>
+            <dt className="text-subtitle text-muted-foreground">{copy.conversation.affinity.tiers[group.tier]}</dt>
+            <dd>
+              <ul className="flex flex-wrap gap-2.5">
+                {group.characters.map((id) => {
+                  const character = byId.get(id);
+                  if (!character) return null;
+                  return (
+                    <li
+                      key={id}
+                      style={herVars(character.color)}
+                      className="rounded-full ring-2 ring-her-mark ring-offset-2 ring-offset-background"
+                    >
+                      <MarkedAvatar name={character.name} src={character.avatar_url} size="bubble" />
+                    </li>
+                  );
+                })}
+              </ul>
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
     </section>
   );
 }
