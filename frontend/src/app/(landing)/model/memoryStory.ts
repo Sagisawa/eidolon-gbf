@@ -80,6 +80,50 @@ const COPIES: readonly { from: number; to: number; go: readonly [number, number]
 ];
 /** 跳着走时一跳多高。 */
 const COPY_HOP = 0.35;
+
+/** 第 5 幕里冒出来的一句话：制作人发给她的那一句（producer）、她头上的「思考中」（thinking）、她说的话（said），
+ * 和她的记忆柱上冒出的「想起 1 条记忆 · 来自真乃」（recalled）。 */
+export type Line = {
+  kind: "producer" | "thinking" | "said" | "recalled";
+  /** 谁的（第几座岛）：制作人那一句算发给的那一位的。 */
+  island: number;
+  /** `${kind}-${island}`：DOM 上那句话的 data-lp-line。 */
+  key: string;
+  /** 从 show[0] 开始淡入，到 show[1] 淡出完。 */
+  show: readonly [number, number];
+};
+const line = (kind: Line["kind"], island: number, show: readonly [number, number]): Line => ({ kind, island, key: `${kind}-${island}`, show });
+/** 几句话，按出现的顺序（原型的时刻）：DOM 上、读屏器、静止版式都按这个顺序排。 */
+export const LINES: readonly Line[] = [
+  line("producer", 0, [0.1, 0.19]),
+  line("thinking", 0, [0.185, 0.225]),
+  line("said", 0, [0.225, 0.3]),
+  line("recalled", 1, [0.535, 0.6]),
+  line("said", 1, [0.56, 0.66]),
+  line("recalled", 2, [0.845, 0.89]),
+  line("recalled", 3, [0.855, 0.9]),
+  line("said", 2, [0.875, 0.985]),
+  line("said", 3, [0.885, 0.985]),
+];
+/** 淡入、淡出各占这么长。 */
+const LINE_EASE = 0.012;
+/** 最后一句淡入的那一段。 */
+const CLOSING_IN: readonly [number, number] = [0.9, 0.95];
+/** 气泡的锚点在她脚底上方这么高：身高（memory.ts 的 FIGURE_HEIGHT）上面再空一点。 */
+const OVERHEAD = 1.95;
+/** 制作人那句的锚点在消息上方这么高；「想起」标签的锚点在柱顶那块的顶上再高这么多。 */
+const ABOVE_MESSAGE = 0.3;
+const ABOVE_BLOCK = 0.12;
+
+/** 演员是这几位（Actor.island）时有哪几句：发送的人不在时一句都没有；某位没收到，她的「想起」和她的话都没有。 */
+export const linesOf = (cast: readonly number[]): Line[] => LINES.filter((l) => cast.includes(0) && cast.includes(l.island));
+
+/** 这句话（Line 的 key，或者最后一句 `closing`）完整显示的时刻：页内查找找到它时滚到这里。 */
+export function lineShownAt(key: string): number {
+  if (key === "closing") return (CLOSING_IN[1] + 1) / 2;
+  const l = LINES.find((l) => l.key === key);
+  return l ? (l.show[0] + l.show[1]) / 2 : 0;
+}
 /** 收尾时连起柱顶的几根光线（两头的岛）。 */
 export const THREADS: readonly (readonly [number, number])[] = [
   [0, 1],
@@ -178,6 +222,11 @@ export type MemoryStory = {
   figures: FigurePose[];
   /** 连起柱顶的光线：两头的岛和不透明度。只连已经在场的几位。 */
   threads: { from: number; to: number; opacity: number }[];
+  /** 在场的几句话（linesOf，LINES 的顺序）：锚点是气泡底边中点的世界坐标（跟着说话的人的头顶、她的记忆柱、
+   * 制作人的消息），不透明度只在它那一段里不是 0。 */
+  lines: { key: string; anchor: Vec3; opacity: number }[];
+  /** 最后一句「她们会记住你的事情……」的不透明度。 */
+  closing: number;
 };
 
 /**
@@ -240,6 +289,21 @@ export function storyAt(p: number, camera: MemoryCamera, cast: readonly number[]
     yaw: receives(k) ? yaw[k] : camera.azimuth,
   }));
 
+  const anchorOf = (l: Line): Vec3 => {
+    if (l.kind === "producer") return [x, position[1] + ABOVE_MESSAGE, z];
+    if (l.kind === "recalled") {
+      const [bx, by, bz] = memoryTop(l.island);
+      return [bx, by + BLOCK / 2 + ABOVE_BLOCK, bz];
+    }
+    const [sx, sy, sz] = STANDS[l.island];
+    return [sx, sy + OVERHEAD, sz];
+  };
+  const lines = linesOf(cast).map((l) => ({
+    key: l.key,
+    anchor: anchorOf(l),
+    opacity: smooth(l.show[0], l.show[0] + LINE_EASE, p) * (1 - smooth(l.show[1] - LINE_EASE, l.show[1], p)),
+  }));
+
   const glow = 0.75 * smooth(0.87, 0.93, p);
   return {
     beat,
@@ -252,5 +316,7 @@ export function storyAt(p: number, camera: MemoryCamera, cast: readonly number[]
     stored,
     figures,
     threads: THREADS.flatMap(([a, b]) => (receives(a) && receives(b) ? [{ from: a, to: b, opacity: glow }] : [])),
+    lines,
+    closing: smooth(CLOSING_IN[0], CLOSING_IN[1], p),
   };
 }

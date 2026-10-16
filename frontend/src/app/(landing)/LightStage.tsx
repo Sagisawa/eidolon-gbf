@@ -4,7 +4,8 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
 
 import { createCanvasStage, type CanvasStage } from "./canvasStage";
 import type { MemoryLayer } from "./memoryLayer";
-import type { Actor } from "./model/memory";
+import { project, type Actor, type MemoryScene } from "./model/memory";
+import type { MemoryStory } from "./model/memoryStory";
 import { describeScene, slotX, standX, talkLineShown, unitCount, type BandLight, type Scene, type Viewport } from "./model/scene";
 import { settleSpring, stepSpring } from "./model/spring";
 import { qualityOf, tierReducer, TIERS, type Tier, type TierAction } from "./model/tier";
@@ -24,6 +25,8 @@ const PARKED = -1;
 const SETTLE_MS = 120;
 /** 聚焦淡入淡出的时间常数（秒）。 */
 const FOCUS_EASE = 0.22;
+/** 第 5 幕的气泡横向收进画面时离画面边（左边是幕名轨）至少这么远（像素）。 */
+const LINE_INSET = 12;
 
 /** 页面上的一段（Landing.tsx 里 `data-lp-section` 的元素），量好的位置。 */
 type Measured = Section & { el: HTMLElement; top: number; height: number };
@@ -44,7 +47,8 @@ type Measured = Section & { el: HTMLElement; top: number; height: number };
  *   第 4 幕她的光收成一台手机的侧边，three.js 画的手机（phoneStage.ts，滚到第 3 幕附近才加载）照模型转身、亮屏，
  *   屏幕矩形和振动写进样式，来电界面摆在屏幕上、和手机一起抖，光脉冲照样发光（Voice、Call）。第 5 幕是 three.js 画的
  *   夜空和浮岛（memoryLayer.ts，滚到第 5 幕前约一屏才加载，canvasStage.ts 管起落），镜头照模型推拉转，一件事从真乃传开
- *   （3D 层按模型的 memoryStory.ts 摆），画布和标题正文跟着模型淡入淡出；第 7 幕的文字和行动按钮跟着模型淡入。
+ *   （model/memoryStory.ts，和场景代码一起晚加载，每帧算一次：3D 层照它画，几个人说的话按它的锚点投影摆成 DOM 上的
+ *   气泡，横向收进画面），画布、标题正文、几句话和最后一句跟着模型淡入淡出；第 7 幕的文字和行动按钮跟着模型淡入。
  *   当前在哪一幕写进 stageStore，幕名轨、光谱和来电据此更新。
  *   页内查找：画面外的名牌由浏览器去滚光谱的舞台（它是个访客滚不动的滚动容器），这里接住、滚回去，再把
  *   页面滚到那个组合；跟着滚动淡入淡出的文字（`data-lp-find`）在访客查找时、看不见的那些是 `hidden="until-found"`，
@@ -216,6 +220,12 @@ export function LightStage({
     if (phoneHost && caller) {
       phone = createPhoneStage({ root, host: phoneHost, timeline, touch, quality: qualityOf(tier, touch), glow: caller.color });
     }
+    // 第 5 幕随进度讲的那件事：滚到这一幕附近（模型给出这一幕的场景状态）才下载，3D 层和 DOM 上的几句话共用。
+    type StoryModule = typeof import("./model/memoryStory");
+    let storyModule: StoryModule | null = null;
+    let storyLoad: Promise<StoryModule> | null = null;
+    const loadStory = () => (storyLoad ??= import("./model/memoryStory").then((m) => (storyModule = m)));
+    const cast = actors.map((a) => a.island);
     // 第 5 幕的场景：画布放进这一幕的最前面。three.js 和第 4 幕的手机共用一个包，场景代码另一个包。
     const memoryEl = root.querySelector<HTMLElement>(".lp-memory");
     const memoryHost = memoryEl?.querySelector<HTMLElement>(".lp-act5");
@@ -228,9 +238,21 @@ export function LightStage({
         span: [act5.from, act5.to],
         touch,
         quality: qualityOf(tier, touch),
-        load: async (c, q) => (await import("./memoryLayer")).createMemoryLayer(c, q, actors, font),
+        load: async (c, q) => {
+          const [mod] = await Promise.all([import("./memoryLayer"), loadStory()]);
+          return mod.createMemoryLayer(c, q, actors, font);
+        },
       });
     }
+    // 第 5 幕的几句话（Memory.tsx 的 data-lp-line）和最后一句。
+    const lineEls = [...(memoryEl?.querySelectorAll<HTMLElement>("[data-lp-line]") ?? [])];
+    const closingEl = memoryEl?.querySelector<HTMLElement>(".lp-closing") ?? null;
+    /** 每句话上一次写进样式的位置和不透明度，没变就不重写；气泡的宽度（横向收进画面要用），量过的记着。 */
+    const lineKeys = new Map<HTMLElement, string>();
+    const lineWidths = new Map<HTMLElement, number>();
+    /** 这一刻每句话（Line 的 key）和最后一句（closing）显示了多少，页内查找按它藏起看不见的。 */
+    let linesShown: Record<string, number> = {};
+    let railWidth = 0;
     /** 上一次写进样式的屏幕矩形，没变就不重写。 */
     let rectKey = "";
     const startEl = root.querySelector<HTMLElement>(".lp-start");
@@ -269,6 +291,8 @@ export function LightStage({
         if (l) el.style.left = `${slotX(vp, l.unit, l.slot, l.unitSize)}px`;
       }
       measureGaps();
+      railWidth = railEl?.offsetWidth ?? 0;
+      lineWidths.clear();
       placeStand();
       placeGreeting();
       light?.resize(vp.w, vp.h);
@@ -291,6 +315,39 @@ export function LightStage({
       const page = l.unit * vp.w;
       const cx = Math.min(Math.max(standX(vp, l, findStandBox()?.offsetWidth ?? 0), page + (railEl?.offsetWidth ?? 0) + half), page + vp.w - half);
       greetingEl.style.left = `${cx - greetingEl.offsetWidth / 2}px`;
+    };
+    /** 把第 5 幕的几句话摆到模型给的锚点上：气泡的底边中点在锚点投影到画面上的地方，横向收进画面、不压着幕名轨。 */
+    const placeLines = (scene: MemoryScene | null, story: MemoryStory | null) => {
+      const shown: Record<string, number> = { closing: story?.closing ?? 0 };
+      const at = new Map(story?.lines.map((l) => [l.key, l]));
+      for (const el of lineEls) {
+        const line = at.get(el.dataset.lpLine!);
+        const opacity = line?.opacity ?? 0;
+        shown[el.dataset.lpLine!] = opacity;
+        let key = "0";
+        let x = 0;
+        let y = 0;
+        if (scene && line && opacity > 0) {
+          [x, y] = project(scene.camera, vp, line.anchor);
+          // 量宽度要等它显出来：藏成 until-found 时量不到。
+          let w = lineWidths.get(el);
+          if (!w) {
+            w = el.offsetWidth;
+            if (w) lineWidths.set(el, w);
+          }
+          x = Math.min(Math.max(x, railWidth + LINE_INSET + w / 2), vp.w - LINE_INSET - w / 2);
+          key = `${opacity} ${x.toFixed(1)} ${y.toFixed(1)}`;
+        }
+        if (lineKeys.get(el) === key) continue;
+        lineKeys.set(el, key);
+        el.style.setProperty("--lp-o", String(opacity));
+        if (opacity > 0) {
+          el.style.setProperty("--lp-x", `${x}px`);
+          el.style.setProperty("--lp-y", `${y}px`);
+        }
+      }
+      closingEl?.style.setProperty("--lp-o", String(shown.closing));
+      linesShown = shown;
     };
     measure();
     window.addEventListener("resize", measure);
@@ -407,7 +464,11 @@ export function LightStage({
       const key = (e.target as HTMLElement).closest<HTMLElement>("[data-lp-find]")?.dataset.lpFind;
       if (!key) return;
       const found = findKeyOf(key);
-      afterScrollSettles(() => stageStore.goto?.(found.act, found.kind === "sub" ? talkLineShown(found.line) : undefined));
+      afterScrollSettles(() => {
+        // 第 5 幕的一句话：它显出来的时刻在晚加载的那件事里。
+        if (found.kind === "memory") void loadStory().then((m) => stageStore.goto?.(5, m.lineShownAt(found.line)));
+        else stageStore.goto?.(found.act, found.kind === "sub" ? talkLineShown(found.line) : undefined);
+      });
     };
     document.addEventListener("beforematch", onMatch);
     cleanups.push(() => {
@@ -520,12 +581,16 @@ export function LightStage({
           }
         } else voiceEl.style.setProperty("--lp-phone", "0");
       }
+      // 第 5 幕：这一刻那件事传到了哪一步（模型给出这一幕的场景状态时才下载、才算）。
+      if (scene.memory) void loadStory();
+      const story = scene.memory && storyModule ? storyModule.storyAt(scene.memory.progress, scene.memory.camera, cast) : null;
       if (memoryEl) {
         memoryEl.style.setProperty("--lp-act5", String(scene.text.act5));
         memoryEl.style.setProperty("--lp-memory", String(scene.memory?.opacity ?? 0));
+        placeLines(scene.memory, story);
       }
       for (const el of findables) {
-        const hide = finding && shownOf(scene, findKeyOf(el.dataset.lpFind!)) < 0.02;
+        const hide = finding && shownOf(scene, findKeyOf(el.dataset.lpFind!), linesShown) < 0.02;
         if (hidden.get(el) === hide) continue;
         hidden.set(el, hide);
         if (hide) el.setAttribute("hidden", "until-found");
@@ -544,8 +609,8 @@ export function LightStage({
       // 第 5 幕的场景：画布显出来的时候才画。
       let drewMemory = false;
       const layer = memory?.frame(scroll);
-      if (layer && scene.memory && scene.memory.opacity > 0) {
-        layer.render(scene.memory, now / 1000);
+      if (layer && scene.memory && story && scene.memory.opacity > 0) {
+        layer.render(scene.memory, story, now / 1000);
         drewMemory = true;
       }
 
@@ -598,19 +663,25 @@ export function LightStage({
   );
 }
 
-/** 一段跟着时间线淡入淡出的文字（`data-lp-find`）：第几幕的说明，或者第 3 幕第几句的原文、字幕。 */
-type FindKey = { kind: "text"; act: 1 | 3 | 4 | 5 | 7 } | { kind: "ja" | "sub"; act: 3; line: number };
+/** 一段跟着时间线淡入淡出的文字（`data-lp-find`）：第几幕的说明，第 3 幕第几句的原文、字幕，或者第 5 幕的一句话。 */
+type FindKey =
+  | { kind: "text"; act: 1 | 3 | 4 | 5 | 7 }
+  | { kind: "ja" | "sub"; act: 3; line: number }
+  | { kind: "memory"; act: 5; line: string };
 
-/** `data-lp-find` 的写法：`act1`、`act3`、`act4`、`act5`、`act7` 是这几幕的说明，`ja-k`、`sub-k` 是第 3 幕第 k 句。 */
+/** `data-lp-find` 的写法：`act1`、`act3`、`act4`、`act5`、`act7` 是这几幕的说明，`ja-k`、`sub-k` 是第 3 幕第 k 句，
+ * `memory-<key>` 是第 5 幕的一句话（model/memoryStory.ts 的 Line 的 key，最后一句是 `closing`）。 */
 function findKeyOf(key: string): FindKey {
+  if (key.startsWith("memory-")) return { kind: "memory", act: 5, line: key.slice("memory-".length) };
   const [kind, k] = key.split("-");
   if (kind === "ja" || kind === "sub") return { kind, act: 3, line: Number(k) };
   return { kind: "text", act: Number(kind.slice(3)) as 1 | 3 | 4 | 5 | 7 };
 }
 
-/** 这段文字这一刻显示了多少。 */
-function shownOf(scene: Scene, key: FindKey): number {
+/** 这段文字这一刻显示了多少；`lines` 是第 5 幕每句话显示了多少。 */
+function shownOf(scene: Scene, key: FindKey, lines: Record<string, number>): number {
   if (key.kind === "text") return scene.text[`act${key.act}`];
+  if (key.kind === "memory") return (lines[key.line] ?? 0) * (scene.memory?.opacity ?? 0);
   const line = scene.talk?.lines[key.line];
   if (!line) return 0;
   return scene.text.act3 * (key.kind === "ja" ? line.ja : line.subtitle * line.sweep);

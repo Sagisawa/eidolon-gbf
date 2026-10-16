@@ -11,8 +11,8 @@
  *   顶点色，顶面、底面压到 0.86、0.78 留住方块感；按 `front` 缩放到场景里的身高，轻轻起伏。跳动、后仰、朝向照模型的
  *   动作摆。地址没有、下载或解析失败时，站着的是她印象色的小方块，上面写她的名字。下载、合成一次，记在模块里：
  *   手机上离开这一段释放了上下文，回来时重建渲染器，不重新下载。
- * - 一件事传开（model/memoryStory.ts，跟这个模块一起晚加载）：天上的手机、制作人的消息（深蓝气泡，变成方块）、
- *   每座岛的记忆柱（三层圆盘、一排小灯，收进时闪成发送那一位的颜色）、转台（把手）、台阶、副本、走过时亮起的桥面、
+ * - 一件事传开（model/memoryStory.ts 的 storyAt，跟这个模块一起晚加载；LightStage 每帧算一次交给 render，DOM 上的几句话
+ *   也按它摆）：天上的手机、制作人的消息（深蓝气泡，变成方块）、每座岛的记忆柱（三层圆盘、一排小灯，收进时闪成发送那一位的颜色）、转台（把手）、台阶、副本、走过时亮起的桥面、
  *   收尾的连线，都照模型摆。记忆方块、柱灯、桥面、台阶、连线一律用发送那一位（真乃）的印象色：传到谁那里都是她的
  *   颜色（来源角色）。
  * - 档位：DPR 按档位封顶。
@@ -58,10 +58,10 @@ import {
   MEMORY_PILLAR_HEIGHT,
   MEMORY_PILLARS,
   memoryTop,
+  type MemoryStory,
   PHONE,
   STANDS,
   STEPS,
-  storyAt,
   THREADS,
   TURNTABLE,
 } from "./model/memoryStory";
@@ -203,8 +203,8 @@ function figureMesh(v: Voxels): FigureMesh {
 }
 
 export type MemoryLayer = CanvasLayer & {
-  /** 画这一刻的场景；`time` 是秒，给小人的起伏用。 */
-  render(memory: MemoryScene, time: number): void;
+  /** 画这一刻的场景，`story` 是这一刻那件事传到了哪一步；`time` 是秒，给小人的起伏用。 */
+  render(memory: MemoryScene, story: MemoryStory, time: number): void;
 };
 
 /**
@@ -297,7 +297,6 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   // —— 一件事传开。记忆的颜色是发送那一位（第 0 座岛）的印象色；她不在时模型什么都不传，这些东西都不显出来。
   const basic = (params: MeshBasicMaterialParameters) => own(new MeshBasicMaterial(params));
   const memoryColor = new Color(actors.find((a) => a.island === 0)?.color ?? "#ffffff");
-  const cast = actors.map((a) => a.island);
   const glowMap = own(glowTexture());
   const glow = (color: Color | string, size: number, parent: Object3D) => {
     const s = new Sprite(own(new SpriteMaterial({ map: glowMap, color, blending: AdditiveBlending, depthWrite: false, transparent: true })));
@@ -419,7 +418,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
       q = next;
       applyQuality();
     },
-    render(memory, time) {
+    render(memory, story, time) {
       const cam = memory.camera;
       const aspect = size.w / size.h;
       camera.left = -cam.half * aspect;
@@ -431,7 +430,6 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
       camera.position.set(tx + back[0] * CAMERA_DISTANCE, ty + back[1] * CAMERA_DISTANCE, tz + back[2] * CAMERA_DISTANCE);
       camera.lookAt(tx, ty, tz);
       camera.updateProjectionMatrix();
-      const story = storyAt(memory.progress, cam, cast);
       // 小人：模型给的跳动、后仰、朝向，平时轻轻起伏（各人错开）。
       for (const pose of story.figures) {
         const body = bodies.get(pose.island);

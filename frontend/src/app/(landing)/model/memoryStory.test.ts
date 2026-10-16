@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { cameraAt, FIGURE_HEIGHT, type Vec3 } from "./memory";
-import { BEATS, memoryTop, STANDS, STEPS, storyAt, type MemoryStory } from "./memoryStory";
+import { cameraAt, FIGURE_HEIGHT, project, type Vec3 } from "./memory";
+import { BEATS, LINES, lineShownAt, linesOf, memoryTop, STANDS, STEPS, storyAt, type MemoryStory } from "./memoryStory";
 import type { Viewport } from "./scene";
 
 const desktop: Viewport = { w: 1440, h: 900 };
+const portrait: Viewport = { w: 390, h: 844 };
 const ps = Array.from({ length: 801 }, (_, k) => k / 800);
 
 describe("storyAt: 一件事传开", () => {
@@ -175,5 +176,128 @@ describe("storyAt: 一件事传开", () => {
       expect(s.figures.map((f) => f.island)).toEqual([1, 2, 3]);
       expect(s.figures.every((f) => f.hop === 0 && f.reach === 0)).toBe(true);
     });
+  });
+});
+
+describe("storyAt: 几个人说的话", () => {
+  const ALL = [0, 1, 2, 3];
+  const at = (p: number, cast: readonly number[] = ALL, vp: Viewport = desktop) => storyAt(p, cameraAt(p, vp), cast);
+  const line = (s: MemoryStory, key: string) => s.lines.find((l) => l.key === key);
+  const shown = (p: number, key: string, cast: readonly number[] = ALL) => line(at(p, cast), key)?.opacity ?? 0;
+  const stored = (s: MemoryStory, k: number) => s.stored.some((b) => b.island === k);
+
+  it("按出现的顺序排：制作人的一句，真乃想了想、说她记住了，果穗想起来、说起来，冬优子和雾子也是", () => {
+    expect(LINES.map((l) => l.key)).toEqual([
+      "producer-0",
+      "thinking-0",
+      "said-0",
+      "recalled-1",
+      "said-1",
+      "recalled-2",
+      "recalled-3",
+      "said-2",
+      "said-3",
+    ]);
+    const starts = LINES.map((l) => l.show[0]);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+    // 每一刻给出的几句也是这个顺序。
+    for (const p of ps) expect(at(p).lines.map((l) => l.key)).toEqual(LINES.map((l) => l.key));
+  });
+
+  it("每句话只在它那一段里显出来：之前之后都看不见，中间完全显出来", () => {
+    for (const l of LINES) {
+      for (const p of ps) {
+        const o = shown(p, l.key);
+        if (p <= l.show[0] || p >= l.show[1]) expect(o, `${l.key}，p ${p}`).toBe(0);
+        else expect(o, `${l.key}，p ${p}`).toBeGreaterThanOrEqual(0);
+      }
+      expect(shown(lineShownAt(l.key), l.key)).toBe(1);
+    }
+  });
+
+  it("跟着那件事走：制作人那句跟着消息落下来；她想了想才说；收到的人收进柱子以后才想起、想起以后才说", () => {
+    for (const p of ps) {
+      const s = at(p);
+      const on = (key: string) => (line(s, key)?.opacity ?? 0) > 0;
+      if (on("producer-0")) {
+        expect(s.message, `p ${p}`).not.toBeNull();
+        const [x, y, z] = s.message!.position;
+        const anchor = line(s, "producer-0")!.anchor;
+        expect(anchor[0]).toBe(x);
+        expect(anchor[2]).toBe(z);
+        expect(anchor[1]).toBeGreaterThan(y);
+      }
+      // 同一个头顶上，「思考中」和她的话不同时出现；说「我记住了」时消息已经变成了方块。
+      expect(on("thinking-0") && on("said-0"), `p ${p}`).toBe(false);
+      if (on("said-0")) expect(s.message === null || s.message.morph === 1, `p ${p}`).toBe(true);
+      for (const k of [1, 2, 3]) {
+        if (on(`recalled-${k}`)) expect(stored(s, k), `第 ${k} 座岛，p ${p}`).toBe(true);
+        if (on(`said-${k}`)) expect(p, `第 ${k} 座岛`).toBeGreaterThan(LINES.find((l) => l.key === `recalled-${k}`)!.show[0]);
+      }
+    }
+  });
+
+  it("她的话、「思考中」在她头顶上方，「想起」标签在她的记忆柱顶上", () => {
+    for (const l of LINES) {
+      const anchor = line(at(lineShownAt(l.key)), l.key)!.anchor;
+      if (l.kind === "said" || l.kind === "thinking") {
+        const [x, y, z] = STANDS[l.island];
+        expect(anchor[0]).toBe(x);
+        expect(anchor[2]).toBe(z);
+        expect(anchor[1]).toBeGreaterThan(y + FIGURE_HEIGHT);
+      }
+      if (l.kind === "recalled") {
+        const [x, y, z] = memoryTop(l.island);
+        expect(anchor[0]).toBe(x);
+        expect(anchor[2]).toBe(z);
+        expect(anchor[1]).toBeGreaterThan(y);
+      }
+    }
+  });
+
+  it("显出来的那段里，锚点投影到画面上都在画面里，离边缘有余量，不压着幕名轨（电脑、竖屏）", () => {
+    // 幕名轨的宽度（landing.css 的 --lp-rail）：窄屏 36px。气泡在锚点上方，上边多留一个气泡的高度。
+    for (const [vp, rail] of [[desktop, 72], [portrait, 36]] as const) {
+      const side = vp.w * 0.04;
+      for (const p of ps) {
+        const cam = cameraAt(p, vp);
+        for (const l of storyAt(p, cam, ALL).lines) {
+          if (l.opacity === 0) continue;
+          const [x, y] = project(cam, vp, l.anchor);
+          const where = `${vp.w}×${vp.h}，${l.key}，p ${p}`;
+          expect(x, where).toBeGreaterThan(rail + side);
+          expect(x, where).toBeLessThan(vp.w - side);
+          expect(y, where).toBeGreaterThan(vp.h * 0.12);
+          expect(y, where).toBeLessThan(vp.h * 0.9);
+        }
+      }
+    }
+  });
+
+  it("最后一句在全景里淡入，一直留到最后", () => {
+    expect(at(0.86).closing).toBe(0);
+    expect(at(1).closing).toBe(1);
+    const closing = ps.map((p) => at(p).closing);
+    expect(closing).toEqual([...closing].sort((a, b) => a - b));
+    expect(at(lineShownAt("closing")).closing).toBe(1);
+    expect(ps.filter((p) => at(p).closing > 0).every((p) => p >= BEATS.at(-1)!.at)).toBe(true);
+  });
+
+  it("演员缺一位时，她的「想起」标签和台词不出现，其他照常", () => {
+    expect(linesOf([0, 1, 3]).map((l) => l.key)).toEqual(LINES.map((l) => l.key).filter((k) => !k.endsWith("-2")));
+    for (const p of ps) {
+      const full = at(p);
+      const s = at(p, [0, 1, 3]);
+      expect(s.lines).toEqual(full.lines.filter((l) => !l.key.endsWith("-2")));
+      expect(s.closing).toBe(full.closing);
+    }
+  });
+
+  it("真乃不在时一句话都没有，最后一句照常", () => {
+    expect(linesOf([1, 2, 3])).toEqual([]);
+    for (const p of ps) {
+      expect(at(p, [1, 2, 3]).lines).toEqual([]);
+      expect(at(p, [1, 2, 3]).closing).toBe(at(p).closing);
+    }
   });
 });

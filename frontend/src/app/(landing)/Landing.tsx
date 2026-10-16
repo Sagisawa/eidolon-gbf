@@ -101,7 +101,7 @@ export function Landing({
             call={t.act4}
           />
         )}
-        <Memory section={sectionOf(5)} title={t.act5.title} body={t.act5.body} />
+        <Memory section={sectionOf(5)} copy={t.act5} actors={actors} />
         <Honesty section={sectionOf(6)} title={t.act6.title} lines={honestyLines(signInOptions)} />
         <Start
           section={sectionOf(7)}

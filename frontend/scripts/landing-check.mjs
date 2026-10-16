@@ -36,8 +36,9 @@
 //      时间线（model/timeline.ts）算，和页面同一个出处。
 //   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
 //   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
-//      找到的字在画面上、看得见：画面外组合里的名牌、第 3 幕的一句字幕、第 7 幕的标题。没在查找时，跟着滚动
-//      淡入淡出的文字（看不见的那些也算）都在无障碍树上，读屏器读得到。
+//      找到的字在画面上、看得见：画面外组合里的名牌、第 3 幕的一句字幕、第 5 幕气泡里的一句、第 7 幕的标题。没在查找时，
+//      跟着滚动淡入淡出的文字（看不见的那些也算）都在无障碍树上，读屏器读得到；第 5 幕的标题、正文、几句话和最后一句
+//      在无障碍树上按出现的顺序排。
 //  10. 浏览器后退：滚到一半点进隐私政策再后退，回到原来的位置。
 //  11. 按帧降档：完整档在 CPU 降速的小窗口里跑一会儿，档位只降不升。
 //   截图写到 screenshots/landing-check/（gitignore 掉的），或者环境变量 LANDING_SHOTS 指定的目录。
@@ -848,7 +849,7 @@ for (const tier of ["full", "reduced", "static"]) {
   await page.goto(`${origin}/?tier=full`, { waitUntil: "load" });
   await glOn(page);
   const names = await page.locator(".lp-name").allInnerTexts();
-  const targets = [names.at(-1), names[Math.floor(names.length / 2)], names[0], "今天的天空", "她们在屏幕的另一边"].filter(Boolean);
+  const targets = [names.at(-1), names[Math.floor(names.length / 2)], names[0], "今天的天空", "听真乃说你要考试了", "她们在屏幕的另一边"].filter(Boolean);
   const bad = [];
   for (const text of targets) {
     await page.evaluate(() => window.scrollTo(0, 0));
@@ -884,6 +885,23 @@ for (const tier of ["full", "reduced", "static"]) {
   );
   const lost = wanted.filter((t) => !inTree.some((n) => n.includes(t)));
   report("没在查找时，跟着滚动淡入淡出的文字都在无障碍树上", lost.length === 0, lost.join("、") || `${wanted.length} 段`);
+  // 读屏器的顺序：第 5 幕的标题、正文、几个人说的话（按出现的顺序）、最后一句，在无障碍树上一段接一段。
+  // 一段段文字按文字节点算：气泡里说话的人的名字和她的话是同一个元素里的两段。
+  const act5Texts = await fresh.evaluate(() => {
+    const walker = document.createTreeWalker(document.querySelector(".lp-act5"), NodeFilter.SHOW_TEXT);
+    const texts = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode())
+      if (n.textContent.trim() && !n.parentElement.closest("[aria-hidden]")) texts.push(n.textContent.trim());
+    return texts;
+  });
+  let from = -1;
+  const outOfOrder = act5Texts.filter((t) => {
+    const i = inTree.findIndex((n, k) => k > from && n.includes(t));
+    if (i < 0) return true;
+    from = i;
+    return false;
+  });
+  report("读屏器按顺序读第 5 幕：标题、正文、几句话、最后一句", outOfOrder.length === 0, outOfOrder.join("、") || act5Texts.join(" / "));
   await fresh.context().close();
 }
 
