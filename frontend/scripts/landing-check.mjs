@@ -29,10 +29,9 @@
 //      下方，响铃时手机和界面一起振动、接通后不振动；电脑上把「滑动接听」拖过一半（拖不到一半不接）、手机上点一下
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
 //      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
-//      落地页不降档；第 5 幕（3D 场景）某位的体素文件加载不到时她的位置是印象色方块加名字（截图看），场景画布丢了上下文时
-//      收起、换成事先渲染好的全景图（存储桶里有的话）、几句话收起来、落地页不降档；用显卡（软件渲染时截图照截、帧耗时和
-//      档位跳过）：电脑（完整档）、竖屏手机（简化档）在九个节拍各截一张、往回滚截一张，档位不降，电脑上截第 4、5、6 幕的
-//      衔接；手机 CPU 降速 4 倍时停着和滚过这一幕的帧耗时不超过简化档降档的门槛；截完整档、简化档的开场全景（完整档有
+//      落地页不降档；第 5 幕（3D 场景）某位的体素文件加载不到时她的位置是印象色方块加名字（截图看）；用显卡（软件渲染时
+//      截图照截、帧耗时和档位跳过）：电脑（完整档）、竖屏手机（简化档）在九个节拍各截一张、往回滚截一张，档位不降，电脑上
+//      截第 4、5、6 幕的衔接，场景画布丢了上下文时收起、换成事先渲染好的全景图（存储桶里有的话）、几句话收起来、完整档不降；手机 CPU 降速 4 倍时停着和滚过这一幕的帧耗时不超过简化档降档的门槛；截完整档、简化档的开场全景（完整档有
 //      阴影和泛光，简化档没有、粒子少一半），简化档停在开场全景量一段帧耗时，不超过它降档的门槛；
 //      第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
 //      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
@@ -100,8 +99,8 @@ async function visit(context, pathname) {
   await page.goto(`${origin}${pathname}`, { waitUntil: "domcontentloaded" });
   const url = new URL(page.url());
   const isLanding = (await page.locator("#lp-title").count()) > 0;
-  // 入口（LandingEntry）在页首最右，左边是仓库链接。
-  const entry = isLanding ? page.locator(".lp-top > a, .lp-top > button").last() : null;
+  // 入口（LandingEntry）：访客是弹出登录面板的按钮，已登录是回对话列表的链接。页首还有仓库链接和第 2 幕的声音开关。
+  const entry = isLanding ? page.locator('.lp-top > button[aria-haspopup="dialog"], .lp-top > a[href="/conversations"]') : null;
   const seen = {
     path: url.pathname,
     isLanding,
@@ -295,9 +294,9 @@ async function beamAnchored(page) {
 
 /**
  * 平均帧耗时：3 秒里相邻两帧的间隔（落地页按帧降档量的也是它）。受屏幕刷新率封顶，只说明没慢到降档，量不出一帧实际
- * 画了多久。`throughAct5` 时这 3 秒从第 5 幕钉住那一段的开头匀速滚到结尾。
+ * 画了多久。`scrollAct5` 时这 3 秒从第 5 幕钉住那一段的开头匀速滚到结尾，否则停着量。
  */
-const frameMs = (page, throughAct5 = false) =>
+const frameMs = (page, { scrollAct5 = false } = {}) =>
   page.evaluate(
     (through) =>
       new Promise((resolve) => {
@@ -314,7 +313,7 @@ const frameMs = (page, throughAct5 = false) =>
         };
         requestAnimationFrame(step);
       }),
-    throughAct5,
+    scrollAct5,
   );
 
 /** 页面上的报错和警告（OGL 缺 uniform、React 水合不一致等都会打在控制台上）。 */
@@ -653,26 +652,6 @@ function watchConsole(page) {
         await page.screenshot({ path: path.join(shots, "full-act4-lost.png") });
       }
     }
-    // 第 5 幕的九个节拍在下面用显卡截（软件渲染在这里一开场就降到 basic 了）；这里只看画布丢了上下文。
-    if (name === "full") {
-      await act5Ready(page, act5);
-      await toScreens(page, act5.from + act5.length * 0.5);
-      const tierBefore = await tierOf(page);
-      await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
-      await page.waitForTimeout(1500);
-      const lost = await page.evaluate(() => ({
-        canvas: !!document.querySelector(".lp-memory-canvas"),
-        gl: document.querySelector(".lp-root").classList.contains("lp-gl-on"),
-        lines: [...document.querySelectorAll(".lp-line")].every((l) => Number(getComputedStyle(l).opacity) === 0),
-      }));
-      const still = await memoryStillOn(page);
-      report(
-        "第 5 幕的场景画布丢了上下文：收起画布，换成事先渲染好的全景图，几句话收起来，光层照旧，落地页不降档",
-        still.ok === null ? null : !lost.canvas && still.ok && lost.lines && lost.gl && (await tierOf(page)) === tierBefore,
-        `画布 ${lost.canvas ? "还在" : "收起了"}，${still.detail}，几句话${lost.lines ? "收起来了" : "还显示着"}，光层 ${lost.gl ? "在" : "不在"}，档位 ${tierBefore} → ${await tierOf(page)}`,
-      );
-      await page.screenshot({ path: path.join(shots, "full-act5-lost.png") });
-    }
     for (const [label, at] of [
       ["act6", spanOf(tl, 6).from + 0.2],
       ["act7", act7.from + act7.length],
@@ -697,7 +676,11 @@ function watchConsole(page) {
   {
     const context = await browser.newContext(DESKTOP);
     const page = await context.newPage();
-    await page.route("**/landing-voxels/kaho.json", (route) => route.fulfill({ status: 404, body: "" }));
+    let stopped = 0;
+    await page.route("**/landing-voxels/kaho.json", (route) => {
+      stopped += 1;
+      return route.fulfill({ status: 404, body: "" });
+    });
     await page.goto(`${origin}/?tier=full`, { waitUntil: "load" });
     await glOn(page);
     const tl = await timelineOn(page);
@@ -705,7 +688,11 @@ function watchConsole(page) {
     await act5Ready(page, act5);
     await toScreens(page, act5.from + act5.length * 0.53);
     await page.screenshot({ path: path.join(shots, "full-act5-no-voxels.png") });
-    report("第 5 幕：某位的体素文件加载不到", null, "截图 full-act5-no-voxels.png 里果穗的位置应是印象色方块加名字");
+    report(
+      "第 5 幕：某位的体素文件加载不到",
+      stopped ? null : false,
+      stopped ? "截图 full-act5-no-voxels.png 里果穗的位置应是印象色方块加名字" : "没拦到果穗的体素文件（没配存储桶地址？）",
+    );
     await context.close();
   }
 
@@ -743,6 +730,7 @@ function watchConsole(page) {
           ["act6-in", act5.to + 0.3],
         ]) {
           await toScreens(page, at);
+          // 从页面开头一下跳到第 4 幕末尾：手机（three.js 和模型）这时才开始加载，多等一会儿它画出来、开始淡出。
           if (label === "act4-out") await page.waitForTimeout(4000);
           await page.screenshot({ path: path.join(shots, `gpu-${name}-seam-${label}.png`) });
         }
@@ -762,21 +750,39 @@ function watchConsole(page) {
         software ? null : after === want,
         software ? "没有显卡，跳过" : `档位 ${after}`,
       );
+      if (name === "full") {
+        // 场景画布丢了上下文（停在往回滚的那一拍）：在显卡上才验得到完整档不因此降档。
+        const tierBefore = await tierOf(page);
+        await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
+        await page.waitForTimeout(1500);
+        const lost = await page.evaluate(() => ({
+          canvas: !!document.querySelector(".lp-memory-canvas"),
+          gl: document.querySelector(".lp-root").classList.contains("lp-gl-on"),
+          lines: [...document.querySelectorAll(".lp-line")].every((l) => Number(getComputedStyle(l).opacity) === 0),
+        }));
+        const still = await memoryStillOn(page);
+        report(
+          "第 5 幕的场景画布丢了上下文：收起画布，换成事先渲染好的全景图，几句话收起来，光层照旧，落地页不降档",
+          still.ok === null ? null : !lost.canvas && still.ok && lost.lines && lost.gl && (await tierOf(page)) === tierBefore,
+          `画布 ${lost.canvas ? "还在" : "收起了"}，${still.detail}，几句话${lost.lines ? "收起来了" : "还显示着"}，光层 ${lost.gl ? "在" : "不在"}，档位 ${tierBefore} → ${await tierOf(page)}`,
+        );
+        await page.screenshot({ path: path.join(shots, "full-act5-lost.png") });
+      }
       if (name === "phone") {
         const cdp = await context.newCDPSession(page);
         await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-        const seen = [];
+        const measured = [];
         for (const k of [0, BEATS.length - 1]) {
           await toScreens(page, act5.from + act5.length * beatMid(k));
-          seen.push([`停在第 ${k} 拍`, await frameMs(page)]);
+          measured.push([`停在第 ${k} 拍`, await frameMs(page)]);
         }
-        seen.push(["滚过这一幕", await frameMs(page, true)]);
-        const worst = Math.max(...seen.map(([, ms]) => ms));
+        measured.push(["滚过这一幕", await frameMs(page, { scrollAct5: true })]);
+        const worst = Math.max(...measured.map(([, ms]) => ms));
         const tier = await tierOf(page);
         report(
           `phone：CPU 降速 4 倍时第 5 幕的帧耗时在简化档降档的门槛（${liteSlow} ms）以内，档位不降`,
           software ? null : worst <= liteSlow && tier === "lite",
-          `${software ? "没有显卡，跳过；" : ""}${seen.map(([at, ms]) => `${at} ${ms.toFixed(1)} ms`).join("，")}，档位 ${tier}`,
+          `${software ? "没有显卡，跳过；" : ""}${measured.map(([at, ms]) => `${at} ${ms.toFixed(1)} ms`).join("，")}，档位 ${tier}`,
         );
       }
       await context.close();
