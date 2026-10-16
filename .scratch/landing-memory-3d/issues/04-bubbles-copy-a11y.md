@@ -19,3 +19,8 @@
 - [ ] 字体子集重新生成，字形覆盖测试通过
 - [ ] 读屏器顺序正确；页内查找能找到一句气泡并滚到它显示的地方
 - [ ] 前端全部测试和类型检查通过
+
+## Comments
+
+- 03 留下的（2026-10-16）：随进度讲的那件事不在 `describeScene` 给的 `MemoryScene` 里，在 `model/memoryStory.ts` 的 `storyAt(p, camera, cast)`。它跟第 5 幕的场景代码一起晚加载：放进 `model/memory.ts`（经 `describeScene` 进首屏）时首屏 JS 到了 50.7 KB，超过 50 KB 的预算。气泡和标签的锚点、不透明度、最后一句也写在 `memoryStory.ts`（或同样晚加载的模块），不要放进 `memory.ts`、`scene.ts`。DOM 气泡要每帧拿到它：LightStage 现在只从 canvasStage 拿到 3D 层，得想办法把晚加载的模型也交给 DOM 那边（比如 3D 层把这一帧的 story 交出来，或 LightStage 跟着 3D 层一起 import 这个模块）。`memoryStory.ts` 只能从 `memory.ts` 引类型：验收脚本用 Node 直接读它，Node 解析不了不带扩展名的值导入。
+- 真乃不在时什么都不传（`storyAt` 里 `sends`），某位不在时传给她的那一份、她收进柱子、她的动作和连到她的线都没有。气泡照这个规则：谁没收到，谁的「想起」标签和台词就不出现。

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { cameraAt, CAMERA, ELEVATION, ISLAND_SIZE, ISLANDS, project, STANDS, FIGURE_HEIGHT, type Vec3 } from "./memory";
+import { cameraAt, CAMERA, ELEVATION, ISLAND_SIZE, ISLANDS, project, FIGURE_HEIGHT, type Vec3 } from "./memory";
+import { STANDS } from "./memoryStory";
 import { describeScene, type Scene, type SceneInput, type Viewport } from "./scene";
 import { lightsOf, prepareSpectrum, type RosterEntry } from "./spectrum";
 import { ACT5_SCREENS, spanOf, timelineOf } from "./timeline";

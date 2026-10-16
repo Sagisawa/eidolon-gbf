@@ -1,7 +1,8 @@
 // 第 5 幕「记忆」的布景和镜头（.scratch/landing-memory-3d/spec.md「落地页模型」）：一片夜空里四座浮岛，
 // 四位演员各站在一座上；正交相机斜着俯看（仰角固定 35.264°，正等轴测），随幕内进度沿原型定下的关键帧
 // 推近、拉远、转向。3D 层（memoryLayer.ts）按这里摆相机、搭布景，DOM 上要跟着场景走的东西按 project 摆，
-// 两边同一个出处才对得齐。纯函数，不碰 DOM。
+// 两边同一个出处才对得齐。随进度讲的那件事在 memoryStory.ts：它跟着第 5 幕的场景代码晚加载，不算首屏。
+// 纯函数，不碰 DOM。
 //
 // 世界坐标：y 朝上，一个单位约是一位小人身高的六成；四座岛按演员的顺序（发送的人、接收并传开的人、
 // 再传到的两位）。
@@ -32,13 +33,6 @@ export const ISLANDS: readonly Vec3[] = [
 ];
 /** 柱顶是边长这么多的正方形。 */
 export const ISLAND_SIZE = 3;
-/** 每座岛上她站的地方（脚底）。 */
-export const STANDS: readonly Vec3[] = [
-  [-0.2, 0, 0.45],
-  [4.75, 0, 0.45],
-  [4.75, -2, 5.3],
-  [9.5, 2, 0.5],
-];
 /** 小人在场景里的身高（脚底到头顶，原型定下的）：体素按 `front` 缩放到这么高。 */
 export const FIGURE_HEIGHT = 1.7;
 
@@ -119,7 +113,7 @@ export function project(camera: MemoryCamera, vp: Viewport, point: Vec3): Point 
   return [vp.w / 2 + u * scale, vp.h / 2 - v * scale];
 }
 
-/** 第 5 幕的场景状态。 */
+/** 第 5 幕的场景状态：镜头和画布的不透明度。随进度讲的那件事由 3D 层按 `progress` 和镜头去问 memoryStory.ts。 */
 export type MemoryScene = {
   /** 幕内进度 0 到 1。 */
   progress: number;

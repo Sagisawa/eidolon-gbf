@@ -1,6 +1,6 @@
 /**
  * 第 5 幕「记忆」的 3D 场景（.scratch/landing-memory-3d）：一张单独的 three.js 画布（WebGL 渲染器，ADR-0016 的修订），
- * 固定铺满视口、叠在光层上面，把落地页模型给的第 5 幕场景状态（model/memory.ts 的 MemoryScene）画出来。three.js
+ * 固定铺满视口、叠在光层上面，把落地页模型给的第 5 幕场景状态（model/memory.ts 的 MemoryScene，和 model/memoryStory.ts 按进度算出的那件事）画出来。three.js
  * 和这个模块只在运动档、滚到第 5 幕前约一屏时才由 LightStage 动态 import（three.js 和第 4 幕的手机共用一个包，
  * 这里的场景代码单独一个包），不进首屏。
  *
@@ -8,39 +8,62 @@
  * - 场景：夜空渐变和星星（铺在画面上，不随镜头转）；四座浮岛的柱子，顶面亮、两侧一明一暗、往下渐隐进夜色；
  *   演员脚下她印象色的地砖。
  * - 体素小人：从角色接口给的地址下载体素文件（scripts/glb-voxelize.mts 的格式，不等它：布景先画），每人露在外面的面合成一份网格，
- *   顶点色，顶面、底面压到 0.86、0.78 留住方块感；按 `front` 缩放到场景里的身高，默认朝着镜头，轻轻起伏。
- *   地址没有、下载或解析失败时，站着的是她印象色的小方块，上面写她的名字。下载、合成一次，记在模块里：
+ *   顶点色，顶面、底面压到 0.86、0.78 留住方块感；按 `front` 缩放到场景里的身高，轻轻起伏。跳动、后仰、朝向照模型的
+ *   动作摆。地址没有、下载或解析失败时，站着的是她印象色的小方块，上面写她的名字。下载、合成一次，记在模块里：
  *   手机上离开这一段释放了上下文，回来时重建渲染器，不重新下载。
+ * - 一件事传开（model/memoryStory.ts，跟这个模块一起晚加载）：天上的手机、制作人的消息（深蓝气泡，变成方块）、每座岛的记忆柱（三层圆盘、一排小灯，收进时闪成
+ *   发送那一位的颜色）、转台（把手）、台阶、副本、走过时亮起的桥面、收尾的连线，都照模型摆。记忆方块、柱灯、桥面、
+ *   台阶、连线一律用发送那一位（真乃）的印象色：传到谁那里都是她的颜色（来源角色）。
  * - 档位：DPR 按档位封顶。
  */
 
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
   Color,
+  CylinderGeometry,
   DirectionalLight,
   Group,
   HemisphereLight,
   type Material,
   Mesh,
   MeshBasicMaterial,
+  type MeshBasicMaterialParameters,
   MeshLambertMaterial,
   type MeshLambertMaterialParameters,
+  type Object3D,
   OrthographicCamera,
   PlaneGeometry,
+  QuadraticBezierCurve3,
   Scene,
   Sprite,
   SpriteMaterial,
   SRGBColorSpace,
   type Texture,
+  TubeGeometry,
+  Vector3,
   WebGLRenderer,
 } from "three";
 
 import type { CanvasLayer } from "./canvasStage";
 import { idle } from "./idle";
-import { cameraBasis, FIGURE_HEIGHT, ISLAND_SIZE, ISLANDS, STANDS, type Actor, type MemoryScene } from "./model/memory";
+import { cameraBasis, FIGURE_HEIGHT, ISLAND_SIZE, ISLANDS, type Actor, type MemoryScene } from "./model/memory";
+import {
+  BLOCK,
+  BRIDGE,
+  MEMORY_PILLAR_HEIGHT,
+  MEMORY_PILLARS,
+  memoryTop,
+  PHONE,
+  STANDS,
+  STEPS,
+  storyAt,
+  THREADS,
+  TURNTABLE,
+} from "./model/memoryStory";
 import type { Quality } from "./model/tier";
 
 /** 体素文件（scripts/glb-voxelize.mts 的 Voxels）。 */
@@ -67,6 +90,20 @@ const CAMERA_DISTANCE = 50;
 const NIGHT = "#151030";
 /** 柱子往下伸到这么低：竖屏取景高，柱脚不能露在画面里。 */
 const PILLAR_FOOT = -32;
+/** 收到时跳起多高、身子压扁拉长多少；真乃接住时往后仰多少（弧度）。 */
+const HOP_HEIGHT = 0.3;
+const HOP_SQUASH = 0.05;
+const HOP_STRETCH = 0.08;
+const REACH_LEAN = 0.08;
+/** 记忆柱的小灯平时的颜色：一明一暗地闪；收进以后刷成发送那一位的颜色这么多。 */
+const LED_IDLE = "#6ff0d0";
+const LED_STORED = 0.6;
+/** 制作人的消息的颜色：深蓝气泡（和 DOM 上制作人的气泡同一个颜色）。 */
+const PRODUCER_INK = "#1c2a4a";
+/** 台阶没升起来时藏在下面多深。 */
+const STEP_DROP = 7;
+/** 连线中间拱起多高。 */
+const THREAD_ARCH = 1.4;
 
 const figures = new Map<string, Promise<FigureMesh>>();
 
@@ -222,18 +259,19 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   const blobMat = own(new MeshBasicMaterial({ map: blob, transparent: true, depthWrite: false }));
   const figureMat = lift(lambert({ vertexColors: true }));
   const cubeGeo = own(new BoxGeometry(0.55, 0.55, 0.55));
-  const bodies: Group[] = [];
+  // 站的地方（脚下的影子不跟着跳）里一层身子：跳起来、压扁拉长，先往后仰、再转朝向（YXZ：仰的是她自己的前后）。
+  const bodies = new Map<number, Group>();
   const stand = (body: Group) => (mesh: FigureMesh) => {
     if (!destroyed) body.add(new Mesh(own(figureGeometry(mesh)), figureMat));
   };
-  const standIn = (actor: Actor, body: Group, group: Group) => () => {
+  const standIn = (actor: Actor, body: Group) => () => {
     if (destroyed) return;
     const cube = new Mesh(cubeGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.25 }));
     cube.position.y = 0.275;
     body.add(cube);
     const label = nameSprite(actor.name, font, own);
     label.position.y = 0.95;
-    group.add(label);
+    body.add(label);
   };
   actors.forEach((actor, k) => {
     const [x, y, z] = STANDS[actor.island];
@@ -244,14 +282,117 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     group.position.set(x, y + 0.04, z);
     scene.add(group);
     const body = new Group();
+    body.rotation.order = "YXZ";
     group.add(body);
-    bodies.push(body);
+    bodies.set(actor.island, body);
     const shadow = new Mesh(blobGeo, blobMat);
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.005;
     group.add(shadow);
-    loading[k].then(stand(body), standIn(actor, body, group));
+    loading[k].then(stand(body), standIn(actor, body));
   });
+  await idle();
+
+  // —— 一件事传开。记忆的颜色是发送那一位（第 0 座岛）的印象色；她不在时模型什么都不传，这些东西都不显出来。
+  const basic = (params: MeshBasicMaterialParameters) => own(new MeshBasicMaterial(params));
+  const memoryColor = new Color(actors.find((a) => a.island === 0)?.color ?? "#ffffff");
+  const cast = actors.map((a) => a.island);
+  const glowMap = own(glowTexture());
+  const glow = (color: Color | string, size: number, parent: Object3D) => {
+    const s = new Sprite(own(new SpriteMaterial({ map: glowMap, color, blending: AdditiveBlending, depthWrite: false, transparent: true })));
+    s.scale.setScalar(size);
+    parent.add(s);
+    return s;
+  };
+  const place = <T extends Object3D>(o: T, parent: Object3D, x = 0, y = 0, z = 0): T => {
+    o.position.set(x, y, z);
+    parent.add(o);
+    return o;
+  };
+
+  // 天上那台制作人的手机：屏幕上是一段对话（只画气泡，不写字），消息发出来时亮一下。
+  const phone = place(new Group(), scene, ...PHONE);
+  phone.rotation.set(-0.12, Math.PI / 4, 0);
+  place(new Mesh(own(new BoxGeometry(1.05, 2.05, 0.12)), lambert({ color: "#d9d6e2" })), phone);
+  place(new Mesh(own(new PlaneGeometry(0.95, 1.92)), basic({ map: own(phoneScreenTexture(memoryColor)) })), phone, 0, 0, 0.065);
+  const phoneGlow = glow("#ffd6e8", 3.2, phone);
+
+  // 记忆方块：她颜色的一块，外面一圈光。
+  const blockGeo = own(new BoxGeometry(BLOCK, BLOCK, BLOCK));
+  const blockMat = basic({ color: memoryColor });
+  const memoryBlock = (parent: Object3D) => {
+    const g = place(new Group(), parent);
+    const cube = place(new Mesh(blockGeo, blockMat), g);
+    return { g, cube, glow: glow(memoryColor, 1.3, g) };
+  };
+
+  // 制作人的消息：深蓝的气泡（三个白点），落到她那里变成记忆方块。
+  const message = place(new Group(), scene);
+  const bubble = place(new Group(), message);
+  const ink = lambert({ color: PRODUCER_INK, emissive: PRODUCER_INK, emissiveIntensity: 0.6 });
+  place(new Mesh(own(new BoxGeometry(0.56, 0.34, 0.12)), ink), bubble);
+  place(new Mesh(own(new BoxGeometry(0.12, 0.12, 0.12)), ink), bubble, 0.16, -0.2, 0);
+  const dotGeo = own(new BoxGeometry(0.07, 0.07, 0.04));
+  const dotMat = basic({ color: "#ffffff" });
+  for (const x of [-0.14, 0, 0.14]) place(new Mesh(dotGeo, dotMat), bubble, x, 0, 0.07);
+  glow("#a9c6f5", 1.4, bubble);
+  const core = memoryBlock(message);
+
+  // 记忆柱：数据库图标那样三层圆盘，前面一排小灯，柱顶收进来的那一块。
+  const discGeo = own(new CylinderGeometry(0.25, 0.25, 0.14, 28));
+  const capGeo = own(new CylinderGeometry(0.27, 0.27, 0.04, 28));
+  const ledGeo = own(new BoxGeometry(0.06, 0.035, 0.02));
+  const discMat = lambert({ color: "#cdbde6" });
+  const capMat = lambert({ color: "#efe6fa" });
+  const ledIdle = new Color(LED_IDLE);
+  const pillars = MEMORY_PILLARS.map((at, k) => {
+    const g = place(new Group(), scene, ...at);
+    const leds = [0, 1, 2].map((j) => {
+      const y = 0.09 + j * 0.17;
+      place(new Mesh(discGeo, discMat), g, 0, y, 0);
+      const led = basic({ color: LED_IDLE });
+      const m = place(new Mesh(ledGeo, led), g, Math.SQRT1_2 * 0.25, y, Math.SQRT1_2 * 0.25);
+      m.rotation.y = Math.PI / 4;
+      return led;
+    });
+    place(new Mesh(capGeo, capMat), g, 0, MEMORY_PILLAR_HEIGHT, 0);
+    const block = memoryBlock(scene);
+    block.g.position.set(...memoryTop(k));
+    return { leds, block };
+  });
+
+  // 传出去的几份，按去的那座岛。
+  const copies = new Map([1, 2, 3].map((to) => [to, memoryBlock(scene)]));
+
+  // 转台：底下一根圆柱，上面两块桥面和一个把手；转过 90° 接上两边。走过的桥面亮起她的颜色。
+  place(new Mesh(own(new CylinderGeometry(0.7, 0.7, 6, 32)), lambert({ color: "#6f5f96" })), scene, TURNTABLE[0], TURNTABLE[1] - 3.25, TURNTABLE[2]);
+  const turntable = place(new Group(), scene, ...TURNTABLE);
+  const tileMat = () => lambert({ color: "#d9cbe8", emissive: memoryColor, emissiveIntensity: 0 });
+  const walkGeo = own(new BoxGeometry(0.98, 0.25, 0.98));
+  const bridge = BRIDGE.map((x) => {
+    const m = tileMat();
+    place(new Mesh(walkGeo, m), turntable, x, -0.125, 0);
+    return m;
+  });
+  const knob = place(new Mesh(own(new CylinderGeometry(0.2, 0.22, 0.14, 24)), lambert({ color: "#ffd88a", emissive: "#ffb24a", emissiveIntensity: 0.35 })), turntable, 0, 0.07, 0);
+  place(new Mesh(own(new BoxGeometry(0.05, 0.05, 0.2)), lambert({ color: "#5a3d10" })), knob, 0, 0.01, 0.1);
+
+  // 台阶：升起来之前藏在下面，一级级升上来；走过的亮起她的颜色。
+  const steps = STEPS.map((s) => {
+    const m = tileMat();
+    return { mesh: place(new Mesh(own(new BoxGeometry(...s.size)), m), scene, ...s.center), mat: m };
+  });
+
+  // 收尾的连线：柱顶到柱顶拱起的一根细光。
+  const threadMat = basic({ color: memoryColor, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false });
+  const threads = new Map(
+    THREADS.map(([a, b]) => {
+      const [pa, pb] = [new Vector3(...memoryTop(a)), new Vector3(...memoryTop(b))];
+      const mid = pa.clone().lerp(pb, 0.5).add(new Vector3(0, THREAD_ARCH, 0));
+      const m = place(new Mesh(own(new TubeGeometry(new QuadraticBezierCurve3(pa, mid, pb), 40, 0.022, 6)), threadMat), scene);
+      return [`${a}-${b}`, m];
+    }),
+  );
   await idle();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 3);
@@ -289,11 +430,66 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
       camera.position.set(tx + back[0] * CAMERA_DISTANCE, ty + back[1] * CAMERA_DISTANCE, tz + back[2] * CAMERA_DISTANCE);
       camera.lookAt(tx, ty, tz);
       camera.updateProjectionMatrix();
-      // 默认朝着镜头，轻轻起伏（各人错开）。
-      bodies.forEach((body, k) => {
-        body.rotation.y = cam.azimuth;
-        body.scale.y = 1 + Math.sin(time * 1.8 + k * 1.3) * 0.006;
+      const story = storyAt(memory.progress, cam, cast);
+      // 小人：模型给的跳动、后仰、朝向，平时轻轻起伏（各人错开）。
+      for (const pose of story.figures) {
+        const body = bodies.get(pose.island);
+        if (!body) continue;
+        body.position.y = pose.hop * HOP_HEIGHT;
+        body.rotation.set(-pose.reach * REACH_LEAN, pose.yaw, 0);
+        const squash = 1 - pose.hop * HOP_SQUASH;
+        body.scale.set(squash, 1 + pose.hop * HOP_STRETCH + Math.sin(time * 1.8 + pose.island * 1.3) * 0.006, squash);
+      }
+
+      // 手机亮起；消息从气泡变成方块（气泡总是正对镜头），方块慢慢转。
+      (phoneGlow.material as SpriteMaterial).opacity = 0.25 + 0.75 * story.phone;
+      message.visible = story.message !== null;
+      if (story.message) {
+        message.position.set(...story.message.position);
+        bubble.scale.setScalar(Math.max(0.001, 1 - story.message.morph));
+        bubble.rotation.y = cam.azimuth;
+        core.g.scale.setScalar(Math.max(0.001, story.message.morph));
+      }
+      const spin = (cube: Mesh) => cube.rotation.set(time * 1.3, time * 0.9, 0);
+      spin(core.cube);
+
+      // 记忆柱：收进来的那块留在柱顶、轻轻浮着；小灯平时一明一暗，收进时闪成她的颜色，之后带着她的颜色。
+      pillars.forEach((pillar, k) => {
+        const stored = story.stored.find((s) => s.island === k);
+        pillar.block.g.visible = !!stored;
+        pillar.block.g.position.y = memoryTop(k)[1] + Math.sin(time * 1.6 + k) * 0.03;
+        pillar.block.cube.rotation.y = time * 0.6;
+        pillar.block.glow.scale.setScalar(1.1 + 0.9 * (stored?.flash ?? 0));
+        pillar.leds.forEach((led, j) => {
+          const blink = 0.5 + 0.5 * Math.sin(time * (3 + j) + k * 2);
+          led.color.copy(ledIdle).multiplyScalar(0.4 + 0.6 * blink).lerp(memoryColor, stored ? Math.max(stored.flash, LED_STORED) : 0);
+        });
       });
+      copies.forEach((copy, to) => {
+        const on = story.copies.find((c) => c.to === to);
+        copy.g.visible = !!on;
+        if (on) copy.g.position.set(...on.position);
+        spin(copy.cube);
+      });
+
+      // 转台（把手跟着转三圈的四分之三）、桥面、台阶。
+      turntable.rotation.y = story.turntable;
+      knob.rotation.y = (Math.PI / 2 - story.turntable) * 3;
+      bridge.forEach((m, k) => (m.emissiveIntensity = 0.55 * story.bridge[k]));
+      steps.forEach((s, i) => {
+        const { rise, lit } = story.steps[i];
+        s.mesh.visible = rise > 0.001;
+        s.mesh.position.y = STEPS[i].center[1] - STEP_DROP * (1 - rise);
+        s.mat.emissiveIntensity = 0.4 * lit;
+      });
+
+      threads.forEach((m) => (m.visible = false));
+      for (const t of story.threads) {
+        const m = threads.get(`${t.from}-${t.to}`);
+        if (!m) continue;
+        m.visible = t.opacity > 0;
+        threadMat.opacity = t.opacity;
+      }
       renderer.render(scene, camera);
     },
     destroy() {
@@ -413,6 +609,52 @@ function shadowTexture(): CanvasTexture {
     grad.addColorStop(1, "rgba(10,6,24,0)");
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
+  });
+}
+
+/** 一团白光（叠加混合，按材质的颜色上色）：记忆方块、手机、气泡外面的光晕。 */
+function glowTexture(): CanvasTexture {
+  return canvasTexture(64, 64, (g) => {
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, "rgba(255,255,255,0.9)");
+    grad.addColorStop(0.25, "rgba(255,255,255,0.35)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 64, 64);
+  });
+}
+
+/** 手机屏幕：和她的一段对话，底色带一点她的颜色；只画气泡和一行行字的样子，不写字。 */
+function phoneScreenTexture(her: Color): CanvasTexture {
+  return canvasTexture(240, 480, (g) => {
+    g.fillStyle = "#ffffff";
+    g.fillRect(0, 0, 240, 480);
+    g.globalAlpha = 0.22;
+    g.fillStyle = `#${her.getHexString()}`;
+    g.fillRect(0, 56, 240, 374);
+    g.globalAlpha = 1;
+    const bubble = (x: number, y: number, w: number, h: number, fill: string, line: string, lines: number[]) => {
+      g.fillStyle = fill;
+      g.beginPath();
+      g.roundRect(x, y, w, h, 18);
+      g.fill();
+      g.fillStyle = line;
+      lines.forEach((lw, i) => g.fillRect(x + 14, y + 14 + i * 14, lw, 6));
+    };
+    // 标题栏：她的头像和名字的位置。
+    g.fillStyle = `#${her.getHexString()}`;
+    g.beginPath();
+    g.arc(40, 28, 14, 0, Math.PI * 2);
+    g.fill();
+    g.fillStyle = "#d8d3e2";
+    g.fillRect(64, 24, 60, 8);
+    bubble(14, 84, 150, 44, "#ffffff", "#d8d3e2", [110, 70]);
+    bubble(70, 150, 156, 30, PRODUCER_INK, "#5d6c8f", [100]);
+    bubble(14, 200, 130, 44, "#ffffff", "#d8d3e2", [96, 60]);
+    // 刚发出去的那一句。
+    bubble(60, 360, 166, 44, PRODUCER_INK, "#8b9bc0", [120, 80]);
+    g.fillStyle = "#f1eff5";
+    g.fillRect(0, 430, 240, 50);
   });
 }
 

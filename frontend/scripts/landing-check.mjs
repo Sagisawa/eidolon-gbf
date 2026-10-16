@@ -29,7 +29,7 @@
 //      下方，响铃时手机和界面一起振动、接通后不振动；电脑上把「滑动接听」拖过一半（拖不到一半不接）、手机上点一下
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
 //      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
-//      落地页不降档；第 5 幕（3D 场景）在几个镜头位置各截一张、往回滚截一张，某位的体素文件加载不到时她的位置是
+//      落地页不降档；第 5 幕（3D 场景）在九个节拍各截一张、往回滚截一张，某位的体素文件加载不到时她的位置是
 //      印象色方块加名字（截图看），场景画布丢了上下文时收起、落地页不降档；第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
 //      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
 //      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。滚动位置按落地页模型的
@@ -50,6 +50,7 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 
+import { BEATS } from "../src/app/(landing)/model/memoryStory.ts";
 import { phoneRest, PHONE_MM, STILL_MARGIN } from "../src/app/(landing)/model/phone.ts";
 import { ACT1_SCREENS, holdAt, restAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
 import { lastLcp, medianByLcp, phone4gPage } from "./phone-4g.mjs";
@@ -619,14 +620,15 @@ function watchConsole(page) {
         await page.screenshot({ path: path.join(shots, "full-act4-lost.png") });
       }
     }
-    // 第 5 幕：先停在它前面一点，等场景建好，再在几个镜头位置各截一张，最后往回滚截一张。
+    // 第 5 幕：先停在它前面一点，等场景建好，再在九个节拍的当中各截一张，最后往回滚到副本过桥那一拍截一张。
     await act5Ready(page, act5);
-    for (const p of [0, 0.17, 0.29, 0.4, 0.53, 0.72, 0.84, 1]) {
-      await toScreens(page, act5.from + act5.length * p);
-      await page.screenshot({ path: path.join(shots, `${name}-act5-${Math.round(p * 100)}.png`) });
+    const beatMid = (k) => (BEATS[k].at + (BEATS[k + 1]?.at ?? 1)) / 2;
+    for (let k = 0; k < BEATS.length; k++) {
+      await toScreens(page, act5.from + act5.length * beatMid(k));
+      await page.screenshot({ path: path.join(shots, `${name}-act5-beat${k}.png`) });
     }
-    await toScreens(page, act5.from + act5.length * 0.4);
-    await page.screenshot({ path: path.join(shots, `${name}-act5-back-40.png`) });
+    await toScreens(page, act5.from + act5.length * beatMid(4));
+    await page.screenshot({ path: path.join(shots, `${name}-act5-back-beat4.png`) });
     if (name === "full") {
       const tierBefore = await tierOf(page);
       await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
