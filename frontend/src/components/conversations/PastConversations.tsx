@@ -61,6 +61,7 @@ export function PastConversations({
 }) {
   const [rows, setRows] = useState<PastRow[] | "failed" | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // 要删的那段。确认框关上时只把 confirmingDelete 置成 false，pendingDelete 留着，关闭动画里的文字不会闪成空白。
   const [pendingDelete, setPendingDelete] = useState<PastRow | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set());
@@ -83,7 +84,7 @@ export function PastConversations({
 
   const now = new Date();
   /** 确认框和读屏里怎么称呼这段：对话标题，没有标题时是日期。 */
-  const which = (row: PastRow) => row.conversation.title ?? pastDay(row.preview.at, now);
+  const label = (row: PastRow) => row.conversation.title ?? pastDay(row.preview.at, now);
 
   function askToRemove(row: PastRow) {
     setPendingDelete(row);
@@ -175,7 +176,7 @@ export function PastConversations({
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        aria-label={t.removeLabel(which(row))}
+                        aria-label={t.removeLabel(label(row))}
                         disabled={busy}
                         onClick={() => askToRemove(row)}
                       />
@@ -199,7 +200,7 @@ export function PastConversations({
     <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
       <AlertDialogContent style={her}>
         <AlertDialogHeader>
-          <AlertDialogTitle>{pendingDelete ? t.removeTitle(which(pendingDelete)) : ""}</AlertDialogTitle>
+          <AlertDialogTitle>{pendingDelete ? t.removeTitle(label(pendingDelete)) : ""}</AlertDialogTitle>
           <AlertDialogDescription>{t.removeDescription}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
