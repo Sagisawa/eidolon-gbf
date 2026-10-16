@@ -17,7 +17,8 @@ export type ItemName =
   | "judge_thresholds"
   | "rerank"
   | "limits"
-  | "affinity";
+  | "affinity"
+  | "proxy";
 
 /** A model's extra request body is a JSON object; every other value is plain. */
 type Value = string | number | boolean | null | JsonObject;
@@ -37,6 +38,8 @@ export type ConfigItem = {
   follows_chat?: boolean;
   /** Thresholds: the model they hold for. */
   model?: string;
+  /** The proxy: the services this deployment has not configured, whose switches do nothing. */
+  unconfigured?: ProxiedService[];
 };
 
 /** An item `.env` does not configure, so there is nothing to change: why. */
@@ -56,7 +59,7 @@ export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigI
 }
 
 /** The page's tabs, in order. */
-export const CONFIG_TABS = ["models", "voice", "limits", "prices", "read_only"] as const;
+export const CONFIG_TABS = ["models", "voice", "network", "limits", "prices", "read_only"] as const;
 
 export type ConfigTab = (typeof CONFIG_TABS)[number];
 
@@ -66,6 +69,7 @@ export type ConfigTab = (typeof CONFIG_TABS)[number];
 export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
   models: ["chat_llm", "memory_llm", "judge", "judge_thresholds", "rerank"],
   voice: ["tts", "stt"],
+  network: ["proxy"],
   limits: ["limits", "affinity"],
   prices: [],
   read_only: [],
@@ -116,7 +120,12 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
   }
 }
 
-/** How a field is typed in: a choice, text, a key (left empty to keep it), max_tokens (a
+/** The deployer's services that may each go through the proxy (GLOSSARY.md「网络代理」), in the order shown. */
+export const PROXIED_SERVICES = ["chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt"] as const;
+
+export type ProxiedService = (typeof PROXIED_SERVICES)[number];
+
+/** How a field is typed in: a choice, text, text that may be emptied (sent as null), a key (left empty to keep it), max_tokens (a
  * positive whole number, empty for the protocol's default), a reasoning effort (one the
  * model's protocol can write, or unset), an extra request body (a JSON object, or empty for
  * none), a probability or score from 0 to 1, a number of seconds, a limit (a whole number
@@ -125,6 +134,7 @@ export type FieldKind =
   | "select"
   | "text"
   | "optionalText"
+  | "clearableText"
   | "secret"
   | "maxTokens"
   | "effort"
@@ -239,6 +249,18 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     form: [{ name: "enabled", kind: "switch" }],
     tried: false,
   },
+  // 网络代理（GLOSSARY.md「网络代理」）：总开关、地址、密码，每项服务一个开关。保存前把换了路线的服务连一遍。
+  proxy: {
+    rows: ["enabled", "url", "password", ...PROXIED_SERVICES],
+    secrets: ["password"],
+    form: [
+      { name: "enabled", kind: "switch" },
+      { name: "url", kind: "clearableText" },
+      { name: "password", kind: "secret" },
+      ...PROXIED_SERVICES.map((name): FieldSpec => ({ name, kind: "switch" })),
+    ],
+    tried: true,
+  },
 };
 
 /** One field of an item, as the table shows it: `.env`'s, the one in effect, and whether
@@ -322,6 +344,9 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         break;
       case "optionalText":
         if (typed) change[name] = typed;
+        break;
+      case "clearableText":
+        change[name] = typed || null;
         break;
       case "secret":
         if (keysEditable && typed) change[name] = typed;
