@@ -468,10 +468,11 @@ export const zh = {
   settings: {
     title: "设置",
     loading: "正在读取…",
-    /** 设置一级的六类，也是各自二级页首的名字。「登录与数据」不叫「账号」：GLOSSARY 把它列为避免的说法。 */
+    /** 设置一级的七类，也是各自二级页首的名字。「登录与数据」不叫「账号」：GLOSSARY 把它列为避免的说法。 */
     categories: {
       profile: "档案",
       memories: "记忆",
+      stats: "统计",
       call: "通话",
       "own-keys": "自带密钥",
       "sign-in": "登录与数据",
@@ -483,10 +484,33 @@ export const zh = {
       profileUnsaved: "有修改未保存",
       memories: (count: number) => `${count} 条`,
       noMemories: "还没有记忆",
+      daysKnown: (days: number) => `已认识 ${days} 天`,
       phoneTextureOn: "电话质感开",
       phoneTextureOff: "电话质感关",
       ownKeysNone: "全部用部署者的服务",
       ownKeys: (services: string) => `已填 ${services}`,
+    },
+    /** 统计（GLOSSARY.md「统计」）。 */
+    stats: {
+      loading: "正在读取…",
+      empty: "还没有和她们说过话",
+      toConversations: "去对话列表",
+      daysKnown: "已认识",
+      currentVisits: "连续来访",
+      longestVisits: "最长连续",
+      days: "天",
+      portrait: {
+        parts: { night: "深夜", morning: "上午", afternoon: "下午", evening: "晚上" },
+        and: "和",
+        comesAt: (parts: string) => `常在${parts}来`,
+        anyTime: "什么时段都会来",
+      },
+      heatmap: "过去一年",
+      heatmapLabel: "过去一年每天来的次数",
+      cameOn: (days: number) => `来过 ${days} 天`,
+      dayCount: (month: number, day: number, count: number) =>
+        count === 0 ? `${month}月${day}日 没来` : `${month}月${day}日 ${count} 次`,
+      month: (month: number) => `${month}月`,
     },
     /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
     about: {

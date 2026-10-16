@@ -53,6 +53,7 @@ describe("一级列表上的摘要", () => {
     profile: null,
     detectedTimezone: "Asia/Shanghai",
     memoryCount: null,
+    daysKnown: null,
     call: null,
     ownServices: null,
     signInMethods: null,
@@ -80,6 +81,10 @@ describe("一级列表上的摘要", () => {
   it("记忆是条数，一条都没有时「还没有记忆」", () => {
     expect(settingsSummaries({ ...loading, memoryCount: 3 }).memories).toBe("3 条");
     expect(settingsSummaries({ ...loading, memoryCount: 0 }).memories).toBe("还没有记忆");
+  });
+
+  it("统计是认识了几天", () => {
+    expect(settingsSummaries({ ...loading, daysKnown: 12 }).stats).toBe("已认识 12 天");
   });
 
   it("通话是通话音质 · 电话质感开／关", () => {

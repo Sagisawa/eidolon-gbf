@@ -10,11 +10,13 @@ import { ProducerProfileSettings } from "@/components/ProducerProfileSettings";
 import { SettingsPane } from "@/components/settings/SettingsPane";
 import { SignInSettings } from "@/components/SignInSettings";
 import { SignOutSettings } from "@/components/SignOutSettings";
+import { StatsSettings } from "@/components/StatsSettings";
 import type { SettingsCategory } from "@/lib/settingsCategory";
 
 /** 各类二级页面的内容，按 spec「设置：二级」。记忆自己带页首末端的「清空」，整页由它画。 */
 const PANELS: Record<Exclude<SettingsCategory, "memories">, ReactNode> = {
   profile: <ProducerProfileSettings />,
+  stats: <StatsSettings />,
   call: <CallSettings />,
   "own-keys": <OwnKeysSettings />,
   "sign-in": (

@@ -13,6 +13,7 @@ import type { EffortHint } from "@/lib/reasoningEffort";
 import { detectTimezone } from "@/lib/timezone";
 import type { Speaking } from "@/lib/call";
 import type { Emotion, Nod } from "@/lib/standAnimations";
+import type { Stats } from "@/lib/stats";
 
 export type Character = {
   id: string;
@@ -483,6 +484,11 @@ export async function devLogin(name: string): Promise<void> {
 export async function logout(userId?: string): Promise<void> {
   await expectNoContent(await api("/api/auth/logout", { method: "POST" }));
   if (userId) forgetOwnKeys(userId);
+}
+
+/** The user's stats (GLOSSARY.md「统计」), in the producer's time zone. */
+export async function getStats(): Promise<Stats> {
+  return json(await api("/api/stats"));
 }
 
 export async function getProfile(): Promise<ProducerProfile> {

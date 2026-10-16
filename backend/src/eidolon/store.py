@@ -246,6 +246,16 @@ Recorded = Message | ConversationEvent
 """What a conversation's record holds."""
 
 
+@dataclass(frozen=True)
+class Contact:
+    """A turn the user took with a character (the time of their message) or a gift they
+    gave her, as stats count them."""
+
+    character_id: str
+    kind: Literal["turn", "gift"]
+    at: datetime
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         self._db = connect(path)
@@ -626,6 +636,22 @@ class Store:
             if hers[0].id == conversation.id:
                 raise IsCurrent()
             delete_conversation_data(self._db, conversation.id)
+
+    def contacts(self, user_id: str) -> list[Contact]:
+        """Every turn the user took and gift they gave, in what is left of their
+        conversations, as stats count them (GLOSSARY.md「统计」); in no order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT c.character_id, 'turn' AS kind, m.created_at FROM messages m"
+                " JOIN conversations c ON c.id = m.conversation_id"
+                " WHERE c.user_id = ? AND m.role = 'user'"
+                " UNION ALL"
+                " SELECT c.character_id, 'gift' AS kind, e.created_at FROM conversation_events e"
+                " JOIN conversations c ON c.id = e.conversation_id"
+                " WHERE c.user_id = ? AND e.kind = 'gift'",
+                (user_id, user_id),
+            ).fetchall()
+        return [Contact(r["character_id"], r["kind"], _at(r["created_at"])) for r in rows]
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its
