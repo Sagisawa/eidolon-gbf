@@ -3,7 +3,7 @@
 // 各项的字段、表单的换算和校验都写在这里，页面只负责摆放。
 
 import { api, json } from "@/lib/api";
-import { LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS, type OwnService } from "@/lib/localOwnKeys";
+import { FISH_AUDIO_MODELS, LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS, type OwnService } from "@/lib/localOwnKeys";
 import { EFFORT_UNSET, effortOf, extraBodyText, parseExtraBody, type JsonObject } from "@/lib/reasoningEffort";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
@@ -205,7 +205,7 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     rows: ["model", "api_key"],
     secrets: ["api_key"],
     form: [
-      { name: "model", kind: "text" },
+      { name: "model", kind: "select", options: FISH_AUDIO_MODELS },
       { name: "api_key", kind: "secret" },
     ],
     tried: true,

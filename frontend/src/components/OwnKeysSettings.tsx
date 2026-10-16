@@ -27,6 +27,7 @@ import { exemptionNote, sayServices } from "@/lib/exemptingKeys";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
+  FISH_AUDIO_MODELS,
   forgetOwnKey,
   keepOwnKey,
   last4,
@@ -34,6 +35,7 @@ import {
   LLM_PROTOCOLS,
   ownServices,
   STT_PROVIDERS,
+  type FishAudioModel,
   type LLMProtocol,
   type LocalLLM,
   type LocalOwnKeys,
@@ -161,10 +163,11 @@ export function OwnKeysSettings() {
         <OwnSpeechKeyForm
           title={t.ttsTitle}
           current={kept.tts}
+          model={kept.tts?.model ?? FISH_AUDIO_MODELS[0]}
           disabled={!canKeep}
-          onSubmit={async (apiKey) => {
-            await checkOwnSpeechKey("tts", apiKey);
-            change(() => keepOwnKey(userId, "tts", { api_key: apiKey }));
+          onSubmit={async (apiKey, _, model = FISH_AUDIO_MODELS[0]) => {
+            await checkOwnSpeechKey("tts", apiKey, { model });
+            change(() => keepOwnKey(userId, "tts", { api_key: apiKey, model }));
           }}
           onDelete={() => change(() => forgetOwnKey(userId, "tts"))}
         />
@@ -176,7 +179,7 @@ export function OwnKeysSettings() {
           disabled={!canKeep}
           onSubmit={async (apiKey, provider = "soniox") => {
             // 百炼的 key 连同试调判断出的地域一起存，通话时随 key 带上。
-            const { region } = await checkOwnSpeechKey("stt", apiKey, provider);
+            const { region } = await checkOwnSpeechKey("stt", apiKey, { provider });
             change(() => keepOwnKey(userId, "stt", { api_key: apiKey, provider, ...(region ? { region } : {}) }));
           }}
           onDelete={() => change(() => forgetOwnKey(userId, "stt"))}
@@ -261,12 +264,14 @@ function FormButtons({ busy, canSubmit, onCancel }: { busy: boolean; canSubmit: 
 
 /**
  * 语音合成或语音识别的 key：先让服务器试调一次（它不保存），通过了才存进这个浏览器。语音识别先选服务商
- * 再填 key；改服务商就是换一个 key，同样要填 key、试调。
+ * 再填 key；改服务商就是换一个 key，同样要填 key、试调。语音合成另选模型；只换模型时 key 可以留空，
+ * 沿用存着的那把，照样按新模型试调。
  */
 function OwnSpeechKeyForm({
   title,
   current,
   provider: currentProvider,
+  model: currentModel,
   disabled,
   onSubmit,
   onDelete,
@@ -275,13 +280,16 @@ function OwnSpeechKeyForm({
   current: LocalTtsKey | undefined;
   /** 语音识别：已填的 key 所属的服务商，没填时是默认选中的那家。 */
   provider?: SttProvider;
+  /** 语音合成：已填的 key 选的模型，没填时是默认选中的那个。 */
+  model?: FishAudioModel;
   disabled: boolean;
-  /** 试调这把 key（语音识别的连同选的服务商），通过了就存下；不通过时带着服务商的原因失败。 */
-  onSubmit: (apiKey: string, provider: SttProvider | undefined) => Promise<void>;
+  /** 试调这把 key（语音识别的连同选的服务商，语音合成的连同选的模型），通过了就存下；不通过时带着服务商的原因失败。 */
+  onSubmit: (apiKey: string, provider: SttProvider | undefined, model: FishAudioModel | undefined) => Promise<void>;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [provider, setProvider] = useState(currentProvider);
+  const [model, setModel] = useState(currentModel);
   const [apiKey, setApiKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -289,10 +297,11 @@ function OwnSpeechKeyForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!keyToTry) return;
     setBusy(true);
     setFailure(null);
     try {
-      await onSubmit(apiKey.trim(), provider);
+      await onSubmit(keyToTry, provider, model);
       setApiKey("");
       setEditing(false);
     } catch (e) {
@@ -304,14 +313,26 @@ function OwnSpeechKeyForm({
 
   function edit() {
     setProvider(currentProvider);
+    setModel(currentModel);
     setEditing(true);
   }
 
+  // 语音合成只换模型时沿用存着的 key；语音识别换服务商就得填新的。
+  const keepsKey = model !== undefined && !!current;
+  const keyToTry = apiKey.trim() || (keepsKey ? current.api_key : "");
   const summary = current ? [t.last4(last4(current.api_key))] : [t.notSet];
+  const named = !current
+    ? null
+    : currentProvider
+      ? t.sttProviders[currentProvider]
+      : currentModel
+        ? t.ttsModels[currentModel]
+        : null;
+  const models = FISH_AUDIO_MODELS.map((m) => ({ value: m, label: t.ttsModels[m] }));
   return (
     <ServiceKey
       title={title}
-      summary={current && currentProvider ? [t.sttProviders[currentProvider], ...summary] : summary}
+      summary={named ? [named, ...summary] : summary}
       isSet={!!current}
       editing={editing}
       disabled={disabled}
@@ -337,6 +358,23 @@ function OwnSpeechKeyForm({
               </RadioGroup>
             </FieldSet>
           )}
+          {model && (
+            <Field>
+              <FieldLabel htmlFor={`${id}-model`}>{t.ttsModel}</FieldLabel>
+              <Select items={models} value={model} onValueChange={(value) => value && setModel(value as FishAudioModel)}>
+                <SelectTrigger id={`${id}-model`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {models.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Field>
             <FieldLabel htmlFor={`${id}-key`}>{t.apiKey}</FieldLabel>
             <Input
@@ -346,9 +384,10 @@ function OwnSpeechKeyForm({
               onChange={(event) => setApiKey(event.target.value)}
               autoComplete="off"
             />
+            {keepsKey && <FieldDescription>{t.keepApiKey}</FieldDescription>}
           </Field>
           {failure && <FailureNotice failure={failure} />}
-          <FormButtons busy={busy} canSubmit={!!apiKey.trim()} onCancel={() => setEditing(false)} />
+          <FormButtons busy={busy} canSubmit={!!keyToTry} onCancel={() => setEditing(false)} />
         </FieldGroup>
       </form>
     </ServiceKey>

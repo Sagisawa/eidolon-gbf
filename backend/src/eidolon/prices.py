@@ -104,6 +104,9 @@ PRESETS: dict[PriceKey, Price] = {
         ("api.fish.audio", model, "bytes"): Price(price, None, "USD", GATHERED)
         for model, price in {"s2.1-pro-free": 0, "s2.1-pro": 15, "s2-pro": 15, "s1": 15}.items()
     },
+    # Drama 3 is billed per character, $50 a million (at $10, through November 12, 2026, as
+    # it launched): a third of that a byte, Japanese in UTF-8 being 3 bytes a character.
+    ("api.fish.audio", "drama-3", "bytes"): Price(50 / 3, None, "USD", date(2026, 10, 17)),
     # Soniox, per hour of audio streamed (its own equivalent of the tokens it bills).
     ("stt-rt.soniox.com", "stt-rt-v5", "seconds"): Price(0.12, None, "USD", GATHERED),
     # The judge model, per million input tokens; output is free.

@@ -22,8 +22,16 @@ class IceServer(TypedDict, total=False):
     credential: str
 
 
-DEFAULT_FISH_AUDIO_MODEL = "s2.1-pro-free"
+FishAudioModel = Literal["s2.1-pro-free", "s2.1-pro", "drama-3", "s2-pro", "s1"]
+"""The Fish Audio models speech is synthesized with, the deployer's and users' own: each
+named as its `model` header has it, which Fish Audio does not check, voicing any other
+name with its paid S2.1 Pro. S1 is there for deployments still set to it, until Fish
+Audio retires it."""
+FISH_AUDIO_MODELS: tuple[FishAudioModel, ...] = get_args(FishAudioModel)
+
+DEFAULT_FISH_AUDIO_MODEL: FishAudioModel = "s2.1-pro-free"
 """Fish Audio's free-tier model: it draws on no API credit, unlike the paid ones."""
+FREE_FISH_AUDIO_MODELS: frozenset[FishAudioModel] = frozenset({DEFAULT_FISH_AUDIO_MODEL})
 
 SttProvider = Literal["soniox", "bailian"]
 """The speech recognition services: Soniox, or Alibaba Cloud Model Studio (阿里云百炼)."""
@@ -320,7 +328,7 @@ class Settings:
     bailian_stt_model: str = DEFAULT_BAILIAN_STT_MODEL
     """What Alibaba Cloud Model Studio recognizes speech with, whoever's key it is on."""
     fish_audio_api_key: str | None = None
-    fish_audio_model: str = DEFAULT_FISH_AUDIO_MODEL
+    fish_audio_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
     embedding: "EmbeddingSettings | None" = None
     rerank: "RerankSettings | None" = None
     judge: "JudgeSettings | None" = None
@@ -419,7 +427,7 @@ class Settings:
             dashscope_api_key=os.environ.get("DASHSCOPE_API_KEY") or None,
             bailian_stt_model=_bailian_stt_model(),
             fish_audio_api_key=os.environ.get("FISH_AUDIO_API_KEY") or None,
-            fish_audio_model=os.environ.get("FISH_AUDIO_MODEL") or DEFAULT_FISH_AUDIO_MODEL,
+            fish_audio_model=fish_audio_model_from_env(),
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
             judge=judge_from_env(),
@@ -448,6 +456,15 @@ def _stt_provider() -> SttProvider:
             f"环境变量 STT_PROVIDER 只能是 {'、'.join(STT_PROVIDERS)}，而不是 {provider}"
         )
     return provider  # pyright: ignore[reportReturnType]  # checked above
+
+
+def fish_audio_model_from_env() -> FishAudioModel:
+    model = (os.environ.get("FISH_AUDIO_MODEL") or "").strip() or DEFAULT_FISH_AUDIO_MODEL
+    if model not in FISH_AUDIO_MODELS:
+        raise RuntimeError(
+            f"环境变量 FISH_AUDIO_MODEL 只能是 {'、'.join(FISH_AUDIO_MODELS)}，而不是 {model}"
+        )
+    return model  # pyright: ignore[reportReturnType]  # checked above
 
 
 def _bailian_stt_model() -> str:

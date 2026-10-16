@@ -13,7 +13,7 @@ import pytest
 
 from eidolon.activity import ActivityLog
 from eidolon.characters import load_characters
-from eidolon.config import Settings
+from eidolon.config import FishAudioModel, Settings
 from eidolon.greetings import FishAudioSettings, GreetingReport, greeting_path, upload_greetings
 from eidolon.readings import load_readings, readings_path
 from eidolon.s3 import S3Error, S3Settings
@@ -64,13 +64,13 @@ class Deployment:
             for written, phonemes in readings
         ))
 
-    async def upload(self) -> GreetingReport:
-        """As `eidolon greeting upload` does it."""
+    async def upload(self, model: FishAudioModel = "s2.1-pro-free") -> GreetingReport:
+        """As `eidolon greeting upload` does it, voicing with `model`."""
         characters = load_characters(self.characters.path, require_sheets=False)
         return await upload_greetings(
             characters.values(),
             S3Settings("http://storage.test", "stands", "key-id", "secret"),
-            FishAudioSettings("deployer-fish-key", "s2.1-pro-free"),
+            FishAudioSettings("deployer-fish-key", model),
             load_readings(readings_path(self.characters.path)),
             transport=httpx.MockTransport(self._handle),
         )
@@ -115,6 +115,18 @@ async def call_opener_url(make_client: ClientFactory, settings: Settings) -> str
 
 def said(fish: FakeFishAudio) -> list[str]:
     return [request["text"] for request in fish.requests]
+
+
+async def test_a_greeting_is_given_paired_tags_only_by_a_model_that_reads_them(
+    deployment: Deployment,
+):
+    deployment.configure(mano=("<whisper>はじめまして</whisper>", MANO[1]), kogane=None)
+    await deployment.upload()
+    deployment.storage.objects.clear()
+    await deployment.upload("drama-3")
+
+    assert said(deployment.fish) == ["はじめまして", "<whisper>はじめまして</whisper>"]
+    assert [r["model"] for r in deployment.fish.requests] == ["s2.1-pro-free", "drama-3"]
 
 
 async def test_each_greeting_is_voiced_in_her_voice_and_put_where_the_character_list_says(

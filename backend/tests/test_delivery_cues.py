@@ -3,7 +3,16 @@ the record keeps them as the model wrote them; nobody sees them."""
 
 import re
 
-from eidolon.reply_format import FORMAT_INSTRUCTIONS, ReplyParser, SegmentDelta, SpeechDelta
+import pytest
+
+from eidolon.delivery_cues import PAIRED_TAGS, spoken_by, voiced, without_cues
+from eidolon.reply_format import (
+    DIRECTED_FORMAT_INSTRUCTIONS,
+    FORMAT_INSTRUCTIONS,
+    ReplyParser,
+    SegmentDelta,
+    SpeechDelta,
+)
 from eidolon.store import Store
 from tests.conftest import ClientFactory
 from tests.fakes import FakeBackgroundLLM, FakeLLM
@@ -59,11 +68,45 @@ def test_a_bracket_that_never_closes_goes_on_as_written():
 
 
 def test_a_long_bracket_is_part_of_the_line_and_does_not_hold_it_back():
-    line = "(" + "あ" * 50
+    line = "(" + "あ" * 90
 
     shown, _, _ = parse(f"<ja>{line}", "</ja>")
 
     assert shown[0] == (0, "ja", line)
+
+
+def test_paired_tags_are_voiced_around_their_words_and_not_shown():
+    shown, voiced, parser = parse(
+        "<ja>これ、<whisper>内", "緒</whisp", "er>だよ。<emphasis>すごく</emphasis></ja><zh><soft>保密</soft>哦</zh>"
+    )
+
+    assert joined(shown) == "これ、内緒だよ。すごく"
+    assert joined(shown, "zh") == "保密哦"
+    # A closing tag goes out with the words it closes on, the line's last too.
+    assert "".join(text for _, text in voiced) == (
+        "これ、<whisper>内緒</whisper>だよ。<emphasis>すごく</emphasis>"
+    )
+    assert parser.complete[0].ja == "これ、<whisper>内緒</whisper>だよ。<emphasis>すごく</emphasis>"
+
+
+def test_tags_written_any_other_way_are_neither_voiced_nor_shown():
+    line = "<|speaker:0|>うん<|phoneme_start|>a<|phoneme_end|><french>oui</french><Whisper>ね"
+
+    assert without_cues(line) == voiced(line) == "うんaouiね"
+
+
+def test_a_directors_direction_is_a_cue():
+    line = "[barely holding back a giggle, trying to sound serious] うん"
+
+    assert voiced(line) == line.replace("] ", "]") and without_cues(line) == "うん"
+
+
+@pytest.mark.parametrize("tag", PAIRED_TAGS)
+def test_only_drama_3_is_given_paired_tags(tag: str):
+    said = f"[softly] <{tag}>内緒</{tag}>だよ"
+
+    assert spoken_by(said, "drama-3") == said
+    assert spoken_by(said, "s2.1-pro-free") == spoken_by(said, "s1") == "[softly] 内緒だよ"
 
 
 def test_a_cue_with_no_words_after_it_is_not_voiced():
@@ -155,11 +198,21 @@ async def test_jev_reads_earlier_replies_without_cues():
     assert requests[0]["state"]["上文"] == ["櫻木真乃：ほわっ"]
 
 
-def test_every_cue_the_format_instructions_show_the_model_is_voiced_and_not_shown():
-    cues = re.findall(r"\[[^\]]*\]", FORMAT_INSTRUCTIONS)  # well-formed or not
+@pytest.mark.parametrize(
+    ("instructions", "least"),
+    [(FORMAT_INSTRUCTIONS, 15), (DIRECTED_FORMAT_INSTRUCTIONS, 14)],
+    ids=["plain", "directed"],
+)
+def test_every_cue_the_format_instructions_show_the_model_is_voiced_and_not_shown(
+    instructions: str, least: int
+):
+    cues = re.findall(r"\[[^\]]*\]", instructions)  # well-formed or not
+    tags = re.findall(r"<(?!ja>|zh>)(\w+)>[^<]*</\1>", instructions)
+    cues += [f"<{tag}>{{}}</{tag}>" for tag in tags]  # around the words they are for
 
-    assert len(cues) >= 15  # the recommended ones at least
+    assert len(cues) >= least  # the recommended ones at least
     for cue in cues:
-        shown, voiced, _ = parse(f"<ja>{cue}えへへ</ja><zh>嘿嘿</zh>")
+        said = cue.format("えへへ") if "{}" in cue else f"{cue}えへへ"
+        shown, voiced, _ = parse(f"<ja>{said}</ja><zh>嘿嘿</zh>")
         assert joined(shown) == "えへへ"
-        assert "".join(text for _, text in voiced) == f"{cue}えへへ"
+        assert "".join(text for _, text in voiced) == said

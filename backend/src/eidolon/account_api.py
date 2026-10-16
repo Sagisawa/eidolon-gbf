@@ -28,9 +28,11 @@ from eidolon.accounts import SignInRefused, is_admin
 from eidolon.activity import host
 from eidolon.assembly import Backend
 from eidolon.config import (
+    DEFAULT_FISH_AUDIO_MODEL,
     SERVICES,
     BailianRegion,
     ChatModelSettings,
+    FishAudioModel,
     LLMProtocol,
     LLMSettings,
     ReasoningEffort,
@@ -135,9 +137,11 @@ def _require_writable(effort: ReasoningEffort | None, protocol: LLMProtocol) -> 
 
 
 class OwnTTSInput(BaseModel):
-    """The user's own key for speech synthesis (Fish Audio), as their browser keeps it."""
+    """The user's own key for speech synthesis (Fish Audio), as their browser keeps it,
+    with the model they chose; the free one, kept before they could choose."""
 
     api_key: ApiKey
+    model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
 
 
 class OwnSTTInput(BaseModel):
@@ -175,6 +179,7 @@ class OwnKeysInput(BaseModel):
             self.tts.api_key.get_secret_value() if self.tts else None,
             self.stt.key() if self.stt else None,
             self.memory_llm.settings() if self.memory_llm else None,
+            self.tts.model if self.tts else DEFAULT_FISH_AUDIO_MODEL,
         )
 
 
@@ -402,7 +407,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
     async def check_own_tts(body: OwnTTSInput, user_id: UserId) -> dict:
         """Try the user's own key for speech synthesis before their browser keeps it,
         keeping nothing here; 422 with what the service said if the try failed."""
-        await own_keys.check_tts(body.api_key.get_secret_value())
+        await own_keys.check_tts(body.api_key.get_secret_value(), body.model)
         return {}
 
     @app.post("/api/account/keys/stt/check")

@@ -109,6 +109,9 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     DEFAULT_BAILIAN_STT_MODEL,
+    DEFAULT_FISH_AUDIO_MODEL,
+    FREE_FISH_AUDIO_MODELS,
+    FishAudioModel,
     IceServer,
     ProxiedService,
     Settings,
@@ -116,6 +119,7 @@ from eidolon.config import (
     SttProvider,
     UsageLimits,
 )
+from eidolon.delivery_cues import spoken_by
 from eidolon.emotion import EmotionJudging, SaidSegment, SegmentToJudge
 from eidolon.engine import (
     CallTurnRecorded,
@@ -167,8 +171,8 @@ change the network traffic: WebRTC always sends Opus at 48 kHz."""
 @dataclass(frozen=True)
 class Call:
     """A call the browser asked for: which conversation, the models its turns run on (the
-    user's own, if `own_llm`), how it wants the audio, and the time zone its device
-    reports."""
+    user's own, if `own_llm`) and the one its replies are voiced with, how it wants the
+    audio, and the time zone its device reports."""
 
     conversation: Conversation
     character: Character
@@ -177,6 +181,7 @@ class Call:
     quality: Quality
     device_timezone: str | None = None
     own_llm: bool = False
+    voiced_by: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
 
 
 _taking_turn: ContextVar["CallTurns | None"] = ContextVar("_taking_turn", default=None)
@@ -264,7 +269,7 @@ class Speech(Protocol):
         ...
 
     def tts(
-        self, api_key: str, model: str, voice_id: str, sample_rate: int, *, own: bool
+        self, api_key: str, model: FishAudioModel, voice_id: str, sample_rate: int, *, own: bool
     ) -> TTSService:
         """Speech synthesis for one call, with `model`, in the character's voice."""
         ...
@@ -274,8 +279,9 @@ class Speech(Protocol):
         OwnKeyRejected saying why, unless `api_key` works for `provider`."""
         ...
 
-    async def check_tts(self, api_key: str, *, own: bool) -> None:
-        """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio."""
+    async def check_tts(self, api_key: str, model: FishAudioModel, *, own: bool) -> None:
+        """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio with
+        `model`."""
         ...
 
 
@@ -400,7 +406,8 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
     were queued with.
 
     Each session starts with `readings` as its pronunciation dictionary (`readings`), so
-    that names are said as the deployer has them read, the Japanese sent as written."""
+    that names are said as the deployer has them read, the Japanese sent as written, its
+    delivery cues as the model reads them (`delivery_cues.spoken_by`)."""
 
     def __init__(
         self,
@@ -457,6 +464,7 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
         if not self._announced and self._voiced is not None:  # ahead of its first audio
             await self.append_to_audio_context(context_id, segment_playing(*self._voiced))
             self._announced = True
+        text = spoken_by(text, self._settings.model)  # pyright: ignore[reportArgumentType]
         try:
             await self._session.send(ormsgpack.packb({"event": "text", "text": text}))
             await self.start_tts_usage_metrics(text)
@@ -682,7 +690,7 @@ class SpeechServices:
         return Hearing(soniox, SONIOX_FOLLOW_ON_TIMEOUT)
 
     def tts(
-        self, api_key: str, model: str, voice_id: str, sample_rate: int, *, own: bool
+        self, api_key: str, model: FishAudioModel, voice_id: str, sample_rate: int, *, own: bool
     ) -> TTSService:
         return FishTTS(
             api_key=api_key,
@@ -706,9 +714,21 @@ class SpeechServices:
         await self._get(self.SONIOX_MODELS_URL, api_key, proxy)
         return SttKey("soniox", api_key)
 
-    async def check_tts(self, api_key: str, *, own: bool) -> None:
-        """Asks for something that costs nothing: Fish Audio's balance."""
-        await self._get(self.FISH_CREDIT_URL, api_key, self._proxy("tts", own)())
+    async def check_tts(self, api_key: str, model: FishAudioModel, *, own: bool) -> None:
+        """Asks for something that costs nothing: Fish Audio's balance, which a paid model
+        needs some of; without any, Fish Audio refuses to open a session of it."""
+        res = await self._get(self.FISH_CREDIT_URL, api_key, self._proxy("tts", own)())
+        if model in FREE_FISH_AUDIO_MODELS:
+            return
+        try:
+            credit = float(res.json()["credit"])
+        except (ValueError, KeyError, TypeError):
+            return  # it says otherwise than it did: a call finds out
+        if credit <= 0:
+            raise OwnKeyRejected(
+                f"这个 key 的 API 余额是 0，用不了付费的 {model}："
+                f"先去 Fish Audio 充值，或改用 {DEFAULT_FISH_AUDIO_MODEL}"
+            )
 
     def _proxy(self, service: ProxiedService, own: bool) -> Callable[[], str | None]:
         """Where a connection of `service` on a user's `own` key or the deployer's goes
@@ -719,9 +739,9 @@ class SpeechServices:
         return lambda: routes.proxy_for(service)
 
     @staticmethod
-    async def _get(url: str, api_key: str, proxy: str | None) -> None:
-        """Raise OwnKeyRejected saying why, unless `url` answers on `api_key`, through
-        `proxy` or direct."""
+    async def _get(url: str, api_key: str, proxy: str | None) -> httpx.Response:
+        """What `url` answers on `api_key`, through `proxy` or direct; raises OwnKeyRejected
+        saying why, unless it does."""
         try:
             async with open_client(proxy, httpx.Timeout(15, connect=10)) as client:
                 res = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
@@ -729,6 +749,7 @@ class SpeechServices:
             raise OwnKeyRejected(masked(f"连不上 {httpx.URL(url).host}：{e!r}", proxy)) from None
         if res.is_error:  # cut short by whoever shows it, once they have masked the key
             raise OwnKeyRejected(f"{res.status_code} {res.text}")
+        return res
 
 
 SONIOX_URL = "wss://stt-rt.soniox.com/transcribe-websocket"
@@ -995,7 +1016,7 @@ class Calls:
         try:
             call = Call(
                 conversation, character, admission.llms, options.muted, options.quality,
-                options.device_timezone, admission.own_llm,
+                options.device_timezone, admission.own_llm, keys.tts_model,
             )
             answer = await self._answer(SmallWebRTCRequest(offer.sdp, offer.type), serve)
         except BaseException:
@@ -1614,7 +1635,7 @@ class CallTurns(FrameProcessor):
         recorded = CallTurnRecorded()
         async for event in self._engine.turn(
             self._call.conversation, text, self._call.llms, self._call.device_timezone, stop,
-            self._outcome.in_call,
+            self._outcome.in_call, self._call.voiced_by,
         ):
             if isinstance(event, CallTurnRecorded):
                 recorded = event

@@ -221,11 +221,23 @@ describe("checkOwnSpeechKey", () => {
     const fetch = vi.fn(async (_path: string, _init: RequestInit) => Response.json({ region: "singapore" }));
     vi.stubGlobal("fetch", fetch);
 
-    expect(await checkOwnSpeechKey("stt", "sk-my-dashscope-dddd", "bailian")).toEqual({ region: "singapore" });
+    expect(await checkOwnSpeechKey("stt", "sk-my-dashscope-dddd", { provider: "bailian" })).toEqual({
+      region: "singapore",
+    });
     const [path, init] = fetch.mock.calls[0];
     expect(path).toBe("/api/account/keys/stt/check");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ api_key: "sk-my-dashscope-dddd", provider: "bailian" });
+  });
+
+  it("asks the server to try a Fish Audio key with the model chosen", async () => {
+    const fetch = vi.fn(async (_path: string, _init: RequestInit) => Response.json({ region: null }));
+    vi.stubGlobal("fetch", fetch);
+
+    await checkOwnSpeechKey("tts", "fish-my-key", { model: "drama-3" });
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe("/api/account/keys/tts/check");
+    expect(JSON.parse(init.body as string)).toEqual({ api_key: "fish-my-key", model: "drama-3" });
   });
 });
 

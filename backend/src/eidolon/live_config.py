@@ -397,7 +397,9 @@ class _TTS(_Item):
     async def tried(self, values: Values) -> tuple[Values, Any]:
         if not values["api_key"]:
             raise ConfigRejected("还没有语音合成的 key，请填写")
-        await self.c._check_speech(lambda check: check.check_tts(values["api_key"], own=False))
+        await self.c._check_speech(
+            lambda check: check.check_tts(values["api_key"], values["model"], own=False)
+        )
         return values, None
 
     async def retry(self, values: Values) -> Values:

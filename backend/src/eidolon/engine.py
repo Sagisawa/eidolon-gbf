@@ -96,6 +96,7 @@ from eidolon.affinity import (
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
+from eidolon.config import FishAudioModel
 from eidolon.gift_catalog import Gift
 from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
@@ -103,7 +104,7 @@ from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
-    FORMAT_INSTRUCTIONS,
+    format_instructions,
     ReplyParser,
     Segment,
     SegmentComplete,
@@ -394,11 +395,13 @@ class ConversationEngine:
         device_timezone: str | None = None,
         stop: asyncio.Event | None = None,
         in_call: InCall | None = None,
+        voiced_by: FishAudioModel | None = None,
     ) -> AsyncIterator[TurnEvent]:
-        """Take one turn on `llms`, `in_call` if it is taken in one. `device_timezone` is
-        the time zone the user's device reports, used unless the producer profile sets one.
-        Once `stop` is set, the turn goes no further and is recorded with the segments
-        complete by then."""
+        """Take one turn on `llms`, `in_call` if it is taken in one, its reply voiced with
+        `voiced_by` (None for a text turn's), which has her write delivery cues as it reads
+        them. `device_timezone` is the time zone the user's device reports, used unless the
+        producer profile sets one. Once `stop` is set, the turn goes no further and is
+        recorded with the segments complete by then."""
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
@@ -406,7 +409,7 @@ class ConversationEngine:
             return
         try:
             async for event in self._reply(
-                conversation, text, llms, device_timezone, stop, in_call
+                conversation, text, llms, device_timezone, stop, in_call, voiced_by
             ):
                 yield event
         except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
@@ -425,6 +428,7 @@ class ConversationEngine:
         device_timezone: str | None,
         stop: asyncio.Event | None,
         in_call: InCall | None,
+        voiced_by: FishAudioModel | None,
     ) -> AsyncIterator[TurnEvent]:
         if self._store.ended(conversation.id) is not None:
             yield TurnRejected(ENDED)
@@ -490,7 +494,7 @@ class ConversationEngine:
             now_prompt(
                 profile, now, timezone, in_call=in_call is not None, affinity_lines=affinity_lines
             ),
-            retrieved, text,
+            retrieved, text, voiced_by,
         )
 
         # Offered on every turn, so that what goes before the history (the tools, with
@@ -634,12 +638,13 @@ class ConversationEngine:
         about_now: str,
         retrieved: Retrieved,
         text: str,
+        voiced_by: FishAudioModel | None,
     ) -> list[ChatMessage]:
         # What every user's turns with her that day open with, apart, for a service to cache.
         shared = [character.sheet]
         if world_prompt:
             shared.append(world_prompt)
-        shared.append(FORMAT_INSTRUCTIONS)
+        shared.append(format_instructions(voiced_by))
         prompt = [
             ChatMessage("system", "\n\n".join(shared), cache_breakpoint=True),
             ChatMessage("system", about_producer),
