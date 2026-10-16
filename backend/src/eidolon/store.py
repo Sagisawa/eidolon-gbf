@@ -157,6 +157,10 @@ class ConversationEnded(Exception):
     in it."""
 
 
+class IsCurrent(Exception):
+    """It is her current conversation (GLOSSARY.md「当前对话」), which is not deleted."""
+
+
 class NotFound(LookupError):
     pass
 
@@ -273,6 +277,13 @@ class Store:
         self._db.execute("DROP TABLE IF EXISTS access_keys")
         # Users' own keys stay in their browsers (ADR-0017); those kept here, encrypted, go.
         self._db.execute("DROP TABLE IF EXISTS own_keys")
+
+    def _tables(self) -> set[str]:
+        """The tables in the database, those other modules keep included."""
+        return {
+            row["name"]
+            for row in self._db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
 
     def _columns(self, table: str) -> set[str]:
         return {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})")}
@@ -612,6 +623,25 @@ class Store:
                 "UPDATE conversations SET title = ? WHERE id = ? AND title IS NULL",
                 (title, conversation_id),
             )
+
+    def delete_conversation(self, conversation: Conversation) -> None:
+        """Delete a past conversation (GLOSSARY.md「历史对话」) and its record, for good, all
+        at once; the memories written in it are kept, no longer saying where. Her current one
+        is not deleted: `IsCurrent`."""
+        with self._lock, self._db:
+            hers = self._conversations(conversation.user_id, conversation.character_id)
+            if hers[0].id == conversation.id:
+                raise IsCurrent()
+            if "memories" in self._tables():
+                self._db.execute(
+                    "UPDATE memories SET conversation_id = NULL WHERE conversation_id = ?",
+                    (conversation.id,),
+                )
+            for table in ("messages", "conversation_events"):
+                self._db.execute(
+                    f"DELETE FROM {table} WHERE conversation_id = ?", (conversation.id,)
+                )
+            self._db.execute("DELETE FROM conversations WHERE id = ?", (conversation.id,))
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its
