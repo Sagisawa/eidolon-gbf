@@ -7,7 +7,6 @@ from urllib.parse import parse_qs, urlsplit
 from typing import Any
 
 import httpx
-import pipecat.utils.string
 import pytest
 
 import eidolon.bailian
@@ -281,11 +280,8 @@ async def dashscope(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeDashSc
 
 
 @pytest.fixture
-def speech(monkeypatch: pytest.MonkeyPatch) -> FakeSpeech:
-    """Soniox and Fish Audio, faked. Tests run offline, without the NLTK data Pipecat splits
-    replies into sentences with; a splitter that never splits sends Pipecat to its own
-    split at 。！？, which is what NLTK does with Japanese anyway."""
-    monkeypatch.setattr(pipecat.utils.string, "_sent_tokenizer", lambda: lambda text: [text])
+def speech() -> FakeSpeech:
+    """Soniox and Fish Audio, faked."""
     return FakeSpeech()
 
 
