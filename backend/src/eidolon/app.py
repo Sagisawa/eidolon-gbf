@@ -54,7 +54,7 @@ from eidolon.announcements_api import add_announcement_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stand_outfits import list_path, outfit_path
-from eidolon.store import Conversation, ConversationEvent, Recorded
+from eidolon.store import Conversation, ConversationEvent, IsCurrent, Recorded
 from eidolon.turn_outcome import TurnOutcome
 from eidolon.usage import OverLimit
 from eidolon.world import World
@@ -506,6 +506,15 @@ def create_app(backend: Backend) -> FastAPI:
             }
             for c, last in store.latest_conversations(user_id)
         ]
+
+    @app.delete("/api/conversations/{conversation_id}", status_code=204)
+    def delete_conversation(conversation_id: str, user_id: UserId) -> None:
+        """Delete a past conversation (GLOSSARY.md「历史对话」), for good; her current one is
+        not deleted (409)."""
+        try:
+            store.delete_conversation(conversation_or_404(conversation_id, user_id))
+        except IsCurrent:
+            raise HTTPException(409, "当前对话不能删除") from None
 
     @app.get("/api/conversations/{conversation_id}/messages")
     def list_messages(conversation_id: str, user_id: UserId) -> list[dict]:

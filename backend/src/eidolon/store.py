@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from eidolon.affinity import Change
-from eidolon.database import connect, delete_user_data
+from eidolon.database import connect, delete_conversation_data, delete_user_data
 from eidolon.delivery_cues import without_cues
 from eidolon.producer import Birthday, ProducerProfile
 from eidolon.reply_format import Segment
@@ -155,6 +155,10 @@ class LastSignInMethod(Exception):
 class ConversationEnded(Exception):
     """She has ended the conversation (GLOSSARY.md「已结束的对话」): nothing more is recorded
     in it."""
+
+
+class IsCurrent(Exception):
+    """It is her current conversation (GLOSSARY.md「当前对话」), which is not deleted."""
 
 
 class NotFound(LookupError):
@@ -612,6 +616,16 @@ class Store:
                 "UPDATE conversations SET title = ? WHERE id = ? AND title IS NULL",
                 (title, conversation_id),
             )
+
+    def delete_conversation(self, conversation: Conversation) -> None:
+        """Delete a past conversation (GLOSSARY.md「历史对话」) and its record, for good, all
+        at once; the memories written in it are kept, no longer saying where. Her current one
+        is not deleted: `IsCurrent`. See `database.delete_conversation_data`."""
+        with self._lock, self._db:
+            hers = self._conversations(conversation.user_id, conversation.character_id)
+            if hers[0].id == conversation.id:
+                raise IsCurrent()
+            delete_conversation_data(self._db, conversation.id)
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its

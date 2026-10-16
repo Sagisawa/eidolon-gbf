@@ -11,8 +11,8 @@ numbers they add up to do not change.
 
 Deleting a user (`delete_user_data`) is for good (ADR-0006): what is deleted is
 overwritten, not just freed, and the write-ahead log is truncated, so none of it is left
-in the files. Deleting a memory, or clearing them all, overwrites it in the database too,
-but earlier frames of the write-ahead log may still hold it until a later checkpoint or
+in the files. Deleting a memory, or clearing them all, or a past conversation
+(`delete_conversation_data`), overwrites it in the database too, but earlier frames of the write-ahead log may still hold it until a later checkpoint or
 the user is deleted."""
 
 import secrets
@@ -38,6 +38,19 @@ USER_DATA = [
 ]
 """Every table holding a user's data, and which rows are theirs, in an order that deletes
 what refers to a row before the row."""
+
+CONVERSATION_DATA = [
+    ("messages", "conversation_id = ?"),
+    ("conversation_events", "conversation_id = ?"),
+]
+"""Every table holding a conversation's record, which is deleted with it, and which rows are
+its."""
+
+FROM_CONVERSATION = [
+    ("memories", "conversation_id = NULL", "conversation_id = ?"),
+]
+"""Every table whose rows say which conversation they came from, kept when it is deleted: how
+they are made to say so no longer, and which rows they are."""
 
 ANONYMIZED_USER_DATA = [
     ("activity_records", "user_id = NULL, anonymous_id = :anonymous", "user_id = :user"),
@@ -87,15 +100,32 @@ def delete_user_data(db: sqlite3.Connection, user_id: str) -> None:
     the caller keeps anyone else from using meanwhile, but what is only made no one's. A
     table not created yet (by a module this process has not opened) is passed over."""
     with db:
-        tables = {
-            name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
+        present = tables(db)
         names = {"user": user_id, "anonymous": secrets.token_hex(16)}
         for table, anonymize, where in ANONYMIZED_USER_DATA:
-            if table in tables:
+            if table in present:
                 db.execute(f"UPDATE {table} SET {anonymize} WHERE {where}", names)
         for table, where in USER_DATA:
-            if table in tables:
+            if table in present:
                 db.execute(f"DELETE FROM {table} WHERE {where}", (user_id,))
     # The write-ahead log still holds the pages as they were.
     db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+
+def delete_conversation_data(db: sqlite3.Connection, conversation_id: str) -> None:
+    """Delete the conversation and its record, for good, through `db`, in the caller's
+    transaction; what only says it came from it is kept, saying so no longer. A table not
+    created yet (by a module this process has not opened) is passed over."""
+    present = tables(db)
+    for table, unlink, where in FROM_CONVERSATION:
+        if table in present:
+            db.execute(f"UPDATE {table} SET {unlink} WHERE {where}", (conversation_id,))
+    for table, where in CONVERSATION_DATA:
+        if table in present:
+            db.execute(f"DELETE FROM {table} WHERE {where}", (conversation_id,))
+    db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+
+
+def tables(db: sqlite3.Connection) -> set[str]:
+    """The tables in the database, whichever module made them."""
+    return {name for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}

@@ -450,10 +450,12 @@ class Memories:
                     (user_id, memory.text),
                 ).fetchone()
                 if kept is None:
+                    # Its conversation may have been deleted since the turn (GLOSSARY.md
+                    # 「历史对话」): the memory is kept all the same, saying where no longer.
                     cursor = self._db.execute(
                         "INSERT INTO memories"
                         " (user_id, source_character_id, conversation_id, text, created_at)"
-                        " VALUES (?, ?, ?, ?, ?)",
+                        " VALUES (?, ?, (SELECT id FROM conversations WHERE id = ?), ?, ?)",
                         (user_id, conversation.character_id, conversation.id, memory.text,
                          created_at),
                     )
