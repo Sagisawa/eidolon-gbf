@@ -54,7 +54,13 @@ const browser = await chromium.launch({
 const context = await browser.newContext({ viewport, permissions: ["microphone"] });
 ```
 
-- 本地后端接不通：拨出去以后一直停在「正在呼叫…」。需要「通话中」的检查，都可以拿呼叫中代替（通话条、换页不挂、确认框）。接通后她的声音听起来怎么样，只能在真机上打电话听，在验收报告里留给用户。
+- 本地后端接得通，几秒到十几秒后变成「通话中」。但 Fish 直连不通，后端要走本机代理，否则接通了也没声音，日志里会有 `FishTTS … timed out during opening handshake`。语音服务不读 `HTTPS_PROXY`，只在这次起的后端上带上代理，不改 `.env`（地址取本机 `HTTPS_PROXY` 的值）：
+
+  ```sh
+  cd backend && EIDOLON_PROXY_URL=http://127.0.0.1:10808 EIDOLON_PROXY_SERVICES=judge,tts uv run --quiet --env-file=../.env eidolon serve
+  ```
+
+  假麦克风只发提示音，听不出她的声音。要听声音，让用户在本机浏览器里打开 :3000 自己打。
 - 页首电话键在对话打开前是禁用的，先等它可点再点：
 
   ```ts
