@@ -19,7 +19,7 @@ from eidolon.config import Settings
 from eidolon.gift_catalog import GIFTS_FILE
 from tests.conftest import CharacterConfig, ClientFactory
 from tests.fakes import FAKE_JUDGE, START, FakeClock, FakeLLM, FakeRandom
-from tests.test_gift_backpack import COMMON, FIRST
+from tests.test_gift_backpack import COMMON, FIRST, UNCOMMON
 from tests.test_gift_catalog import ONE_OF_EACH_RARITY
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -35,8 +35,10 @@ HEATMAP_FROM = date(2025, 9, 22)
 TOKYO = {"X-Timezone": "Asia/Tokyo"}
 
 
-async def stats(client: httpx.AsyncClient, headers: dict[str, str] = TOKYO) -> dict:
-    res = await client.get("/api/stats", headers=headers)
+async def stats(
+    client: httpx.AsyncClient, headers: dict[str, str] = TOKYO, range: str | None = None
+) -> dict:
+    res = await client.get("/api/stats", headers=headers, params={"range": range} if range else None)
     assert res.status_code == 200, res.text
     return res.json()
 
@@ -100,18 +102,38 @@ async def give_cakes(
     *when: datetime, character: str = "mano",
 ) -> None:
     """Have the user give her a cake at each of `when`, drawing them first."""
-    client = make_client(
-        FakeLLM(), settings=gifting, clock=clock, random=FakeRandom(*[COMMON, FIRST] * len(when))
-    )
+    await give_gifts(make_client, gifting, clock, database, *[(character, "cake", at) for at in when])
+
+
+DRAWN = {"cake": COMMON, "cocoa": UNCOMMON}
+"""The number a draw gives each gift by, the first of its rarity: cake, which every test
+character likes, and cocoa, which none does."""
+
+
+async def give_gifts(
+    make_client: ClientFactory, gifting: Settings, clock: FakeClock, database: Path,
+    *given: tuple[str, str, datetime],
+) -> None:
+    """Have the user give each character the gift at the time, `(character, gift, when)`,
+    drawing them first."""
+    numbers = [n for _, gift, _ in given for n in (DRAWN[gift], FIRST)]
+    client = make_client(FakeLLM(), settings=gifting, clock=clock, random=FakeRandom(*numbers))
     now = clock.now
     assert (await client.get("/api/gifts")).status_code == 200
-    clock.advance(days=len(when) - 1)  # the chances to draw them
+    clock.advance(days=len(given) - 1)  # the chances to draw them
     assert (await client.post("/api/gifts/draws", json={"all": True})).status_code == 200
     clock.now = now
-    for at in when:
-        res = await client.post(f"/api/characters/{character}/gifts", json={"gift_id": "cake"})
+    for character, gift, at in given:
+        res = await client.post(f"/api/characters/{character}/gifts", json={"gift_id": gift})
         assert res.status_code == 200, res.text
         given_at(database, at)
+
+
+@pytest.fixture
+def meguru(characters: CharacterConfig) -> None:
+    """Meguru as well, configured after Kogane but before her in the idols' order, as Kogane
+    has no idol number."""
+    characters.add("meguru", "八宮めぐる", "# 人设\n你是八宮めぐる。", idol_id=2)
 
 
 async def test_stats_need_a_session(make_client: ClientFactory):
@@ -134,6 +156,10 @@ async def test_a_new_user_has_known_them_a_day_and_come_on_none(
     assert got["heatmap"]["from"] == HEATMAP_FROM.isoformat()
     # 52 whole weeks, and this one up to today, a Friday.
     assert got["heatmap"]["counts"] == [0] * (52 * 7 + 5)
+    assert got["range"] == {
+        "span": "all", "turns": 0, "by_hour": [0] * 24, "characters": [],
+        "gifts": {"given": 0, "liked": 0, "most": None},
+    }
 
 
 async def test_the_days_since_signing_up_count_from_that_day_in_their_time_zone(
@@ -265,3 +291,101 @@ async def test_a_user_sees_only_their_own(
     assert theirs["all_hours"] == [0] * 24
     assert theirs["visits"] == {"current": 0, "longest": 0}
     assert (await stats(producer))["all_hours"][9] == 1
+
+
+async def test_the_range_is_the_past_30_or_365_days_where_the_user_is_or_all_of_it(
+    make_client: ClientFactory, settings: Settings, clock: FakeClock
+):
+    database = settings.database_path
+    client = make_client(FakeLLM(*[REPLY] * 4), clock=clock)
+    conversation = await start_conversation(client)
+    # The 30th day back counting today, just past midnight in Tokyo, still the 31st in UTC.
+    await say(client, database, conversation, "三十天", tokyo(TODAY - timedelta(days=29), 0, 30))
+    await say(client, database, conversation, "三十一天", tokyo(TODAY - timedelta(days=30), 23))
+    await say(client, database, conversation, "一年", tokyo(TODAY - timedelta(days=364), 12))
+    await say(client, database, conversation, "一年多", tokyo(TODAY - timedelta(days=365), 12))
+
+    got = {span: await stats(client, range=span) for span in ("30d", "1y", "all")}
+    by_default = await stats(client)
+    in_utc = await stats(client, {"X-Timezone": "UTC"}, "30d")
+
+    assert {span: s["range"]["turns"] for span, s in got.items()} == {"30d": 1, "1y": 3, "all": 4}
+    assert [s["range"]["span"] for s in got.values()] == ["30d", "1y", "all"]
+    assert by_default == got["all"]
+    assert got["30d"]["range"]["by_hour"][0] == 1 and sum(got["30d"]["range"]["by_hour"]) == 1
+    assert got["1y"]["range"]["by_hour"][12] == 1 and got["all"]["range"]["by_hour"][12] == 2
+    assert in_utc["range"]["turns"] == 0
+    # What does not change with the range does not.
+    upper = ("days_known", "visits", "all_hours", "heatmap")
+    assert all({k: s[k] for k in upper} == {k: by_default[k] for k in upper} for s in got.values())
+
+
+async def test_a_range_there_is_not_is_refused(make_client: ClientFactory):
+    client = make_client(FakeLLM())
+
+    assert (await client.get("/api/stats", params={"range": "7d"})).status_code == 422
+
+
+async def test_each_character_has_her_turns_and_the_days_since_the_first_thing_left_with_her(
+    make_client: ClientFactory, settings: Settings, gifting: Settings, clock: FakeClock,
+    meguru: None,
+):
+    database = settings.database_path
+    client = make_client(FakeLLM(*[REPLY] * 5), clock=clock)
+    past = await start_conversation(client)
+    await say(client, database, past, "很久以前", tokyo(TODAY - timedelta(days=99), 12))
+    await say(client, database, past, "上个月", tokyo(TODAY - timedelta(days=40), 12))
+    current = await start_conversation(client)
+    await say(client, database, current, "这周", tokyo(TODAY - timedelta(days=4), 12))
+    # Kogane first had a gift, before a word was said to her.
+    await give_cakes(
+        make_client, gifting, clock, database, tokyo(TODAY - timedelta(days=9), 12),
+        character="kogane",
+    )
+    with_kogane = await start_conversation(client, "kogane")
+    await say(client, database, with_kogane, "恋鐘", tokyo(TODAY - timedelta(days=2), 12))
+    with_meguru = await start_conversation(client, "meguru")
+    await say(client, database, with_meguru, "めぐる", tokyo(TODAY, 12))
+
+    everything = (await stats(client))["range"]["characters"]
+    recent = (await stats(client, range="30d"))["range"]["characters"]
+    assert (await client.delete(f"/api/conversations/{past}")).status_code == 204
+    after = (await stats(client))["range"]["characters"]
+
+    # In the idols' order, those without a number after them.
+    assert everything == [
+        {"character_id": "mano", "turns": 3, "days_known": 100},
+        {"character_id": "meguru", "turns": 1, "days_known": 1},
+        {"character_id": "kogane", "turns": 1, "days_known": 10},
+    ]
+    assert [(c["character_id"], c["turns"], c["days_known"]) for c in recent] == [
+        ("mano", 1, 100), ("meguru", 1, 1), ("kogane", 1, 10),
+    ]
+    assert after[0] == {"character_id": "mano", "turns": 1, "days_known": 5}
+
+
+async def test_the_gifts_given_in_the_range_she_liked_and_whom_they_went_to_most(
+    make_client: ClientFactory, settings: Settings, gifting: Settings, clock: FakeClock,
+    meguru: None,
+):
+    database = settings.database_path
+    client = make_client(FakeLLM(), clock=clock)
+    await give_gifts(
+        make_client, gifting, clock, database,
+        ("kogane", "cake", tokyo(TODAY - timedelta(days=3), 12)),
+        ("meguru", "cocoa", tokyo(TODAY - timedelta(days=5), 12)),
+        ("mano", "cake", tokyo(TODAY - timedelta(days=40), 12)),
+        ("mano", "cocoa", tokyo(TODAY - timedelta(days=41), 12)),
+    )
+
+    everything = (await stats(client))["range"]
+    recent = (await stats(client, range="30d"))["range"]
+
+    assert everything["gifts"] == {
+        "given": 4, "liked": 2, "most": {"character_id": "mano", "given": 2},
+    }
+    # Tied, the first in the idols' order, not as configured.
+    assert recent["gifts"] == {
+        "given": 2, "liked": 1, "most": {"character_id": "meguru", "given": 1},
+    }
+    assert recent["turns"] == 0 and sum(recent["by_hour"]) == 2

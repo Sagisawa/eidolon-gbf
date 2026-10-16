@@ -24,7 +24,7 @@ from eidolon.call import (
     Quality,
     SessionDescription,
 )
-from eidolon.characters import Character, ScriptedLine
+from eidolon.characters import Character, ScriptedLine, in_idol_order
 from eidolon.engine import ENDED, TurnJudged
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
@@ -395,7 +395,7 @@ def create_app(backend: Backend) -> FastAPI:
     def list_characters() -> list[dict]:
         """Who there is to talk to; shown before signing in too, and on the landing page.
         In the order of their idol numbers, those without one after them as configured."""
-        listed = sorted(characters.values(), key=lambda c: (c.idol_id is None, c.idol_id or 0))
+        listed = in_idol_order(characters.values())
         return [
             {
                 "id": c.id,

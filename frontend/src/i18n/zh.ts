@@ -510,6 +510,22 @@ export const zh = {
       dayCount: (month: number, day: number, count: number) =>
         count === 0 ? `${month}月${day}日 没来` : `${month}月${day}日 ${count} 次`,
       month: (month: number) => `${month}月`,
+      rangeLabel: "时间跨度",
+      ranges: { "30d": "近 30 天", "1y": "近一年", all: "全部" },
+      turns: "回合",
+      giftsGiven: "送出的礼物",
+      mostTalked: "聊得最多",
+      talked: (turns: number, days: number) => `${turns} 个回合 · 认识 ${days} 天`,
+      hours: "分时段",
+      hoursLabel: "每个钟点来的次数",
+      hoursTotal: (count: number) => `共 ${count} 次`,
+      hour: (hour: number) => `${hour}点`,
+      hourCount: (hour: number, count: number) => `${hour}点 ${count} 次`,
+      gifts: "礼物",
+      mostGiven: "送得最多",
+      likedGiven: "她喜欢的",
+      times: (count: number) => `${count} 次`,
+      timesUnit: "次",
     },
     /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
     about: {

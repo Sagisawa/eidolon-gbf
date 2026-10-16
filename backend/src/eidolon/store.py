@@ -249,11 +249,12 @@ Recorded = Message | ConversationEvent
 @dataclass(frozen=True)
 class Contact:
     """A turn the user took with a character (the time of their message) or a gift they
-    gave her, as stats count them."""
+    gave her, and whether she liked it as it was given, as stats count them."""
 
     character_id: str
     kind: Literal["turn", "gift"]
     at: datetime
+    liked: bool = False
 
 
 class Store:
@@ -642,16 +643,33 @@ class Store:
         conversations, as stats count them (GLOSSARY.md「统计」); in no order."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT c.character_id, 'turn' AS kind, m.created_at FROM messages m"
+                "SELECT c.character_id, 'turn' AS kind, m.created_at, 0 AS liked FROM messages m"
                 " JOIN conversations c ON c.id = m.conversation_id"
                 " WHERE c.user_id = ? AND m.role = 'user'"
                 " UNION ALL"
-                " SELECT c.character_id, 'gift' AS kind, e.created_at FROM conversation_events e"
-                " JOIN conversations c ON c.id = e.conversation_id"
+                " SELECT c.character_id, 'gift' AS kind, e.created_at, e.liked"
+                " FROM conversation_events e JOIN conversations c ON c.id = e.conversation_id"
                 " WHERE c.user_id = ? AND e.kind = 'gift'",
                 (user_id, user_id),
             ).fetchall()
-        return [Contact(r["character_id"], r["kind"], _at(r["created_at"])) for r in rows]
+        return [
+            Contact(r["character_id"], r["kind"], _at(r["created_at"]), bool(r["liked"]))
+            for r in rows
+        ]
+
+    def first_records(self, user_id: str) -> dict[str, datetime]:
+        """When the first thing still in the user's conversations with each character, a
+        message or an event, was recorded; only those with anything left."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT c.character_id, MIN(r.created_at) AS first FROM ("
+                " SELECT conversation_id, created_at FROM messages"
+                " UNION ALL SELECT conversation_id, created_at FROM conversation_events"
+                ") r JOIN conversations c ON c.id = r.conversation_id"
+                " WHERE c.user_id = ? GROUP BY c.character_id",
+                (user_id,),
+            ).fetchall()
+        return {r["character_id"]: _at(r["first"]) for r in rows}
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its

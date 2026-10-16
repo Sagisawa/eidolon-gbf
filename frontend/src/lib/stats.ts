@@ -1,7 +1,7 @@
 // Stats (GLOSSARY.md「统计」): the user's own dealings with the characters, as `/api/stats`
 // sums them up, and what the page makes of them: the heatmap's weeks and shades, the part
-// of the day the portrait speaks of, and which blocks are shown. The backend gives only
-// numbers; how many of what are shown, and how, is decided here.
+// of the day the portrait speaks of, who is ranked, and which blocks are shown. The backend
+// gives only numbers; how many of what are shown, and how, is decided here.
 
 import { copy } from "@/i18n";
 
@@ -9,13 +9,51 @@ import { copy } from "@/i18n";
  * `days_known`: the days since the user signed up, that day the first.
  * `visits`: the days in a row they came (took a turn or gave a gift), now and at the longest.
  * `all_hours`: how many turns and gifts at each hour of the day, 0–23, all told.
- * `heatmap`: how many on each day from `from`, a Monday 52 weeks before this week's, to today. */
+ * `heatmap`: how many on each day from `from`, a Monday 52 weeks before this week's, to today.
+ * `range`: what changes with the range, `span`: see `InRange`. */
 export type Stats = {
   days_known: number;
   visits: { current: number; longest: number };
   all_hours: number[];
   heatmap: { from: string; counts: number[] };
+  range: InRange;
 };
+
+/** The ranges the lower part can be over: the past 30 days or 365, today the last, or all of it. */
+export const STATS_RANGES = ["30d", "1y", "all"] as const;
+
+export type StatsRange = (typeof STATS_RANGES)[number];
+
+/** A character's turns in the range, and the days since the first thing still left with her
+ * (a message or an event, that day the first), whatever the range. */
+export type CharacterTurns = { character_id: string; turns: number; days_known: number };
+
+/** What changes with the range (`span`).
+ * `turns`: the turns taken in it; `by_hour`: how many turns and gifts at each hour, 0–23.
+ * `characters`: each she has anything left with, in the idols' order.
+ * `gifts`: how many given, how many she liked as they were given, and whom the most went to
+ * (the first in the idols' order of those tied; null when none were). */
+export type InRange = {
+  span: StatsRange;
+  turns: number;
+  by_hour: number[];
+  characters: CharacterTurns[];
+  gifts: { given: number; liked: number; most: { character_id: string; given: number } | null };
+};
+
+/** How many 「聊得最多」 ranks. */
+export const MOST_TALKED = 5;
+
+/** A character ranked, with her bar's length as a share of the first's, 0–1. */
+export type Ranked = CharacterTurns & { share: number };
+
+/** The characters talked with most in the range, at most five, those with no turns left out;
+ * tied, in the order given (the idols'). */
+export function mostTalked(characters: CharacterTurns[]): Ranked[] {
+  const ranked = characters.filter((c) => c.turns > 0).sort((a, b) => b.turns - a.turns).slice(0, MOST_TALKED);
+  const most = ranked[0]?.turns ?? 0;
+  return ranked.map((c) => ({ ...c, share: c.turns / most }));
+}
 
 /** The four parts of the day the portrait speaks of, each six hours from midnight. */
 export const DAY_PARTS = ["night", "morning", "afternoon", "evening"] as const;
@@ -81,14 +119,31 @@ export function heatmapMonths(weeks: HeatCell[][], apart: number): Map<number, s
   return months;
 }
 
+export type StatsSections = {
+  isEmpty: boolean;
+  visits: boolean;
+  portrait: boolean;
+  heatmap: boolean;
+  totals: boolean;
+  mostTalked: boolean;
+  hours: boolean;
+  gifts: boolean;
+};
+
 /** Which blocks of the page are shown: none, but a line and a way to the conversations, when
- * the user never took a turn or gave a gift (`isEmpty`); otherwise each that has something. */
-export function statsSections(stats: Stats): { isEmpty: boolean; visits: boolean; portrait: boolean; heatmap: boolean } {
+ * the user never took a turn or gave a gift (`isEmpty`); otherwise each that has something,
+ * and the totals, 0 or not, whatever the range. */
+export function statsSections(stats: Stats): StatsSections {
   const hasCome = stats.all_hours.some((n) => n > 0);
+  const { range } = stats;
   return {
     isEmpty: !hasCome,
     visits: hasCome && stats.visits.longest > 0,
     portrait: hasCome,
     heatmap: stats.heatmap.counts.some((n) => n > 0),
+    totals: hasCome,
+    mostTalked: range.characters.some((c) => c.turns > 0),
+    hours: range.by_hour.some((n) => n > 0),
+    gifts: range.gifts.given > 0,
   };
 }

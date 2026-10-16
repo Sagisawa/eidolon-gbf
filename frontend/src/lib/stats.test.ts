@@ -5,6 +5,7 @@ import {
   heatLevel,
   heatmapMonths,
   heatmapWeeks,
+  mostTalked,
   portrait,
   statsSections,
   type Stats,
@@ -20,7 +21,20 @@ const none: Stats = {
   visits: { current: 0, longest: 0 },
   all_hours: hours(),
   heatmap: { from: "2025-09-22", counts: Array(52 * 7 + 5).fill(0) },
+  range: { span: "all", turns: 0, by_hour: hours(), characters: [], gifts: { given: 0, liked: 0, most: null } },
 };
+
+/** Someone who came, all of it in the range: a turn at 9. */
+const came: Stats = {
+  ...none,
+  visits: { current: 1, longest: 1 },
+  all_hours: hours({ 9: 1 }),
+  range: { ...none.range, turns: 1, by_hour: hours({ 9: 1 }), characters: [known("mano", 1)] },
+};
+
+function known(character_id: string, turns: number, days_known = 10) {
+  return { character_id, turns, days_known };
+}
 
 describe("热力图", () => {
   it("一周一列，周一在上；最后一列只到今天", () => {
@@ -91,16 +105,61 @@ describe("一句话画像", () => {
   });
 });
 
+describe("聊得最多", () => {
+  it("按回合数排前 5 位，条的长短按占第一位的比例", () => {
+    const characters = [known("a", 3), known("b", 9), known("c", 1), known("d", 6), known("e", 2), known("f", 4)];
+    const ranked = mostTalked(characters);
+    expect(ranked.map((c) => c.character_id)).toEqual(["b", "d", "f", "a", "e"]);
+    expect(ranked[0]).toEqual({ character_id: "b", turns: 9, days_known: 10, share: 1 });
+    expect(ranked[1].share).toBeCloseTo(6 / 9);
+  });
+
+  it("只列回合数大于 0 的；并列时照接口给的顺序（偶像顺序）", () => {
+    const ranked = mostTalked([known("a", 0), known("b", 2), known("c", 2), known("d", 0)]);
+    expect(ranked.map((c) => c.character_id)).toEqual(["b", "c"]);
+    expect(mostTalked([known("a", 0)])).toEqual([]);
+  });
+});
+
 describe("哪一块显示", () => {
+  const nothing = { totals: false, mostTalked: false, hours: false, gifts: false };
+
   it("一个回合、一次送礼都没有时整页为空", () => {
-    expect(statsSections(none)).toEqual({ isEmpty: true, visits: false, portrait: false, heatmap: false });
+    expect(statsSections(none)).toEqual({ isEmpty: true, visits: false, portrait: false, heatmap: false, ...nothing });
   });
 
   it("有来过就显示连续来访和画像；过去一年里有才显示热力图", () => {
     const old = { ...none, visits: { current: 0, longest: 2 }, all_hours: hours({ 9: 2 }) };
-    expect(statsSections(old)).toEqual({ isEmpty: false, visits: true, portrait: true, heatmap: false });
+    expect(statsSections(old)).toMatchObject({ isEmpty: false, visits: true, portrait: true, heatmap: false });
     const counts = [...none.heatmap.counts];
     counts[100] = 2;
     expect(statsSections({ ...old, heatmap: { ...old.heatmap, counts } }).heatmap).toBe(true);
+  });
+
+  it("这段跨度里没来过时只剩总数", () => {
+    const quiet = { ...came, range: { ...none.range, span: "30d" as const, characters: [known("mano", 0)] } };
+    expect(statsSections(quiet)).toMatchObject({ totals: true, mostTalked: false, hours: false, gifts: false });
+  });
+
+  it("有回合才有聊得最多和分时段图，送过礼才有礼物", () => {
+    expect(statsSections(came)).toMatchObject({ totals: true, mostTalked: true, hours: true, gifts: false });
+    const gave = {
+      ...came,
+      range: { ...came.range, gifts: { given: 2, liked: 0, most: { character_id: "mano", given: 2 } } },
+    };
+    expect(statsSections(gave).gifts).toBe(true);
+  });
+
+  it("这段跨度里只送了礼时有分时段图，没有聊得最多", () => {
+    const onlyGave = {
+      ...came,
+      range: {
+        ...came.range,
+        turns: 0,
+        characters: [known("mano", 0)],
+        gifts: { given: 1, liked: 1, most: { character_id: "mano", given: 1 } },
+      },
+    };
+    expect(statsSections(onlyGave)).toMatchObject({ mostTalked: false, hours: true, gifts: true });
   });
 });
