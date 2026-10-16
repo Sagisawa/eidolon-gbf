@@ -19,3 +19,7 @@
 - [ ] 后端测试走统计接口：分组和顺序、接口里没有数值、关掉时为 null（先例 `test_affinity.py`）；前端逻辑模块测试：关掉时哪几块不显示
 - [ ] 本地构建版 Playwright 验收（宽屏、手机）：分组的样子；后台关掉好感度和礼物后那几块消失
 - [ ] 后端完整测试、前端类型检查和测试、前端纪律检查都通过
+
+## Comments
+
+- 2026-10-16 来自 02：礼物在 `/api/stats` 回答的 `range.gifts`（`{given, liked, most}`），好感度和礼物关掉时把整个 `range.gifts` 给 null；前端「送出的礼物」和礼物那一块都读它（`StatsSettings`、`lib/stats` 的 `statsSections`），见 null 一起藏。
