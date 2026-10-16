@@ -210,8 +210,16 @@ describe("哪一块显示", () => {
     expect(statsSections(quiet)).toMatchObject({ totals: true, mostTalked: false, hours: false, gifts: false });
   });
 
-  it("有回合才有聊得最多和分时段图，送过礼才有礼物", () => {
-    expect(statsSections(came)).toMatchObject({ totals: true, mostTalked: true, mostCalled: false, hours: true, gifts: false });
+  it("有回合才有聊得最多和分时段图，送过礼才有礼物；好感度开着时有好感度分组，送出的礼物没送过也写 0", () => {
+    expect(statsSections(came)).toMatchObject({
+      affinity: true,
+      totals: true,
+      giftsGiven: true,
+      mostTalked: true,
+      mostCalled: false,
+      hours: true,
+      gifts: false,
+    });
     const gave = {
       ...came,
       range: { ...came.range, gifts: { given: 2, liked: 0, most: { character_id: "mano", given: 2 } } },
@@ -250,10 +258,6 @@ describe("哪一块显示", () => {
       },
     };
     expect(statsSections(onlyGave)).toMatchObject({ mostTalked: false, hours: true, gifts: true });
-  });
-
-  it("好感度开着时有好感度分组和送出的礼物，没送过也写 0", () => {
-    expect(statsSections(came)).toMatchObject({ affinity: true, giftsGiven: true, gifts: false });
   });
 
   it("好感度和礼物关掉时没有好感度分组、礼物和送出的礼物", () => {

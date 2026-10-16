@@ -69,13 +69,12 @@ async def test_each_user_has_their_own(make_client: ClientFactory, settings: Set
     assert theirs["distant"] == [] and theirs["trust"] == ["mano", "kogane"]
 
 
-@pytest.mark.parametrize(
-    "off", [{"judge": None}, {"affinity_and_gifts": False}], ids=["no judge", "switched off"]
-)
 async def test_where_affinity_is_off_there_are_no_tiers_and_no_gifts(
-    make_client: ClientFactory, settings: Settings, off: dict
+    make_client: ClientFactory, settings: Settings
 ):
-    client = make_client(FakeLLM(), settings=replace(settings, **off), clock=FakeClock())
+    client = make_client(
+        FakeLLM(), settings=replace(settings, affinity_and_gifts=False), clock=FakeClock()
+    )
     keep(settings.database_path, "producer", 90, START)
 
     got = await stats(client)

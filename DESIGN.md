@@ -119,7 +119,7 @@ components:
 
 - **wall**（`--her-wall`）：对话壁纸，她色相的极淡底（浅 L ≈ 0.955、C ≈ 0.018；深 L ≈ 0.2、C ≈ 0.016）。上面的 `--foreground` 和 `--muted-foreground`（时间戳、日期条）都 ≥ 4.5。
 - **accent / onAccent**：对话子树里覆盖 shadcn 的 `--primary` / `--primary-foreground`，给子树里的 primary 按钮。注意浅色印象色（例如真乃 `#ffbad6`）的 accent 为了让白字达到 4.5 会压暗成灰紫，大面积填底前先看效果。
-- **mark**（`--her-mark`）：子树里的 `--ring`、页首电话键和好感度标识的图标；官方色在底色上达到 3:1 就用官方色，否则调到达标。
+- **mark**（`--her-mark`）：子树里的 `--ring`、页首电话键和好感度标识的图标、统计页好感度分组头像外的那一圈；官方色在底色上达到 3:1 就用官方色，否则调到达标。
 - **bar**（`--her-bar`）：统计里她的排行条，放在 `--muted` 底上；官方色在这个底上达到 3:1 就用官方色，否则调到达标。
 - **button.bg / button.fg**（`--her-button`、`--her-button-fg`）：发送键和未读数的底与图标、数字，前景 ≥ 4.5，按钮和背景 ≥ 3。原型里未读数是 mark 底配白字，黄色、浅粉这类印象色上白字读不清，所以改用这一对。
 - **call.deep**（`--her-call-deep`）：通话层渐变和底部压暗的终点色、通话条的底；上面的白字 ≥ 7（见 Call layer）。

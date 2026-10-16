@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Header, Query
 
-from eidolon.affinity import TIERS, Status
+from eidolon.affinity import TIERS, Tier
 from eidolon.assembly import Backend
 from eidolon.characters import in_idol_order
 from eidolon.producer import effective_timezone
@@ -78,6 +78,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         since = None if days is None else today - timedelta(days=days - 1)
         first = store.first_records(user_id)
         idols = in_idol_order(backend.characters.values())
+        affinity_on = backend.config.affinity_on
         return {
             "days_known": days_since(signed_up),
             "visits": visits(per_day.keys(), today),
@@ -88,7 +89,9 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
                     per_day[start + timedelta(days=i)] for i in range((today - start).days + 1)
                 ],
             },
-            "affinity": by_tier((c.id, backend.affinities.status(user_id, c.id)) for c in idols),
+            "affinity": by_tier(
+                (c.id, backend.affinities.tier(user_id, c.id)) for c in idols
+            ) if affinity_on else None,
             "range": in_range(
                 span,
                 [(c, at) for c, at in contacts if since is None or at.date() >= since],
@@ -98,7 +101,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
                     if since is None or call.connected_at.astimezone(zone).date() >= since
                 ],
                 {c.id: days_since(first[c.id]) for c in idols if c.id in first},
-                gifts_on=backend.config.affinity_on,
+                gifts_on=affinity_on,
             ),
         }
 
@@ -149,14 +152,12 @@ def in_range(
     }
 
 
-def by_tier(statuses: Iterable[tuple[str, Status | None]]) -> list[dict] | None:
-    """Each tier, from cold to intimate, and the characters in it as `statuses` has them,
-    in the order given; none if any has no status, affinity being off."""
-    tiers: dict[str, list[str]] = {tier: [] for tier, _ in TIERS}
-    for character, status in statuses:
-        if status is None:
-            return None
-        tiers[status.tier].append(character)
+def by_tier(tiers_of: Iterable[tuple[str, Tier]]) -> list[dict]:
+    """Each tier, from cold to intimate, and the characters in it as `tiers_of` has them,
+    in the order given."""
+    tiers: dict[Tier, list[str]] = {tier: [] for tier, _ in TIERS}
+    for character, tier in tiers_of:
+        tiers[tier].append(character)
     return [{"tier": tier, "characters": characters} for tier, characters in tiers.items()]
 
 

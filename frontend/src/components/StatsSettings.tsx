@@ -116,7 +116,7 @@ export function StatsSettings() {
           <Heatmap heatmap={stats.heatmap} />
         </section>
       )}
-      {shown.affinity && stats.affinity && <AffinityGroups groups={affinityGroups(stats.affinity)} byId={byId} />}
+      {shown.affinity && <AffinityGroups groups={affinityGroups(stats.affinity)} byId={byId} />}
       <div className="flex flex-col gap-4">
         <Tabs value={range} onValueChange={(value) => setRange(value as StatsRange)}>
           <TabsList aria-label={t.rangeLabel}>

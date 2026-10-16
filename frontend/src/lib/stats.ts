@@ -157,9 +157,9 @@ export function heatmapMonths(weeks: HeatCell[][], apart: number): Map<number, s
   return months;
 }
 
-/** The tiers the affinity groups show, those with anyone in them, from cold to intimate. */
-export function affinityGroups(affinity: TierGroup[]): TierGroup[] {
-  return affinity.filter((group) => group.characters.length > 0);
+/** The tiers the affinity groups show, those with anyone in them, from cold to intimate; none while affinity is off. */
+export function affinityGroups(affinity: TierGroup[] | null): TierGroup[] {
+  return (affinity ?? []).filter((group) => group.characters.length > 0);
 }
 
 export type StatsSections = {
@@ -192,7 +192,7 @@ export function statsSections(stats: Stats): StatsSections {
     visits: hasCome && stats.visits.longest > 0,
     portrait: hasCome,
     heatmap: stats.heatmap.counts.some((n) => n > 0),
-    affinity: !isEmpty && stats.affinity !== null && affinityGroups(stats.affinity).length > 0,
+    affinity: !isEmpty && affinityGroups(stats.affinity).length > 0,
     totals: !isEmpty,
     giftsGiven: !isEmpty && range.gifts !== null,
     mostTalked: range.characters.some((c) => c.turns > 0),
