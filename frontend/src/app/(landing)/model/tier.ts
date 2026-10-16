@@ -1,6 +1,6 @@
 // 落地页的档位（拷问记录「分档」，原型 page.tsx 的首屏前定档和 Landing.tsx 的按帧降档）。
 // 首屏前按设备的几个信号定初始档；运行中按帧时只降不升，降过就不再回来，免得画面来回跳。
-// 每档决定画布要不要、动不动、DPR 上限、色散采样次数和焦散开关。纯函数，不碰 DOM。
+// 每档决定画布要不要、动不动、DPR 上限、色散采样次数、焦散，和第 5 幕场景的阴影、泛光、粒子。纯函数，不碰 DOM。
 
 /**
  * - `full` 完整档：电脑；
@@ -54,22 +54,28 @@ export type Quality = {
   caustics: boolean;
   /** 第 4 幕的手机上，前玻璃和相机镜片那几层半透明的反光。 */
   reflections: boolean;
+  /** 第 5 幕的场景里，主光投下的阴影和发光处的泛光。 */
+  shadowsAndBloom: boolean;
+  /** 第 5 幕的场景里，飘的花瓣、上飘的 token 粒子画多少（全部的几分之几）。 */
+  particles: 1 | 0.5;
 };
 
 /** 每档的画质。`touch` 是手指操作的设备：完整档在手机上 DPR 不超过 1.5，电脑上不超过 2。 */
 export function qualityOf(tier: Tier, touch: boolean): Quality {
+  // 第 5 幕的场景只在运动档里画，定格档、静态档用不上阴影、泛光和粒子。
+  const sceneOff = { shadowsAndBloom: false, particles: 0.5 } as const;
   switch (tier) {
     case "full":
-      return { canvas: true, animate: true, dprCap: touch ? 1.5 : 2, samples: 5, caustics: true, reflections: true };
+      return { canvas: true, animate: true, dprCap: touch ? 1.5 : 2, samples: 5, caustics: true, reflections: true, shadowsAndBloom: true, particles: 1 };
     case "lite":
-      return { canvas: true, animate: true, dprCap: 1, samples: 3, caustics: false, reflections: false };
+      return { canvas: true, animate: true, dprCap: 1, samples: 3, caustics: false, reflections: false, ...sceneOff };
     case "basic":
-      return { canvas: true, animate: true, dprCap: 1, samples: 1, caustics: false, reflections: false };
+      return { canvas: true, animate: true, dprCap: 1, samples: 1, caustics: false, reflections: false, ...sceneOff };
     case "reduced":
       // 定格的那一帧没有色散，采样次数用不上。
-      return { canvas: true, animate: false, dprCap: 1.5, samples: 1, caustics: false, reflections: false };
+      return { canvas: true, animate: false, dprCap: 1.5, samples: 1, caustics: false, reflections: false, ...sceneOff };
     case "static":
-      return { canvas: false, animate: false, dprCap: 1, samples: 1, caustics: false, reflections: false };
+      return { canvas: false, animate: false, dprCap: 1, samples: 1, caustics: false, reflections: false, ...sceneOff };
   }
 }
 
@@ -83,7 +89,7 @@ export const layoutOf = (tier: Tier): "motion" | "still" => (tier === "reduced" 
 export type TierAction = { type: "frames"; averageMs: number } | { type: "lost" };
 
 /** 平均帧耗时超过它就降到下一档：完整档掉到四十来帧就降，简化档掉到三十帧以下才降。 */
-const SLOW_MS: Partial<Record<Tier, [ms: number, next: Tier]>> = {
+export const SLOW_MS: Partial<Record<Tier, [ms: number, next: Tier]>> = {
   full: [24, "lite"],
   lite: [36, "basic"],
 };

@@ -48,6 +48,11 @@ export type Character = {
    * bucket; null unless the deployment serves the stand assets. The server does not check that it
    * was put there: when it fails to load, show her colour and name instead. */
   call_poster_url: string | null;
+  /** Her voxel figure in the landing page's act about memory, a JSON file in the stands' bucket
+   * (`Voxels` in `scripts/glb-voxelize.mts`); null unless the deployment serves the stand assets. The
+   * server does not check that it was put there: when it fails to load, show her colour and name
+   * instead. */
+  voxels_url: string | null;
 };
 
 /** A character's greeting (GLOSSARY.md「招呼」). */
@@ -338,6 +343,12 @@ export async function api(path: string, init: RequestInit = {}): Promise<Respons
 /** The ways to sign in the backend offers, and how to reach the deployer (null if the
  * deployer gave none), which a banned user is told. */
 export type SignInOptions = { providers: Provider[]; dev_login: boolean; contact: string | null };
+
+/** What the landing page shows that belongs to no one character. `memory_still_url`: its act about
+ * memory as one picture, for visitors who see no animation, in the stands' bucket; null unless the
+ * deployment serves the stand assets. The server does not check that it was put there: when it
+ * fails to load, show only the words. */
+export type LandingAssets = { memory_still_url: string | null };
 
 export async function getSignInOptions(): Promise<SignInOptions> {
   return json(await api("/api/auth/providers"));

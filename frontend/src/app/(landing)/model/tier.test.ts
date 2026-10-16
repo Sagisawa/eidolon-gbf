@@ -37,6 +37,12 @@ describe("qualityOf: 每档的画质", () => {
     expect(qualityOf("basic", true).reflections).toBe(false);
   });
 
+  it("第 5 幕的场景：只有完整档有阴影和泛光、粒子全量；简化档和 basic 档关掉阴影和泛光，粒子减半", () => {
+    expect(qualityOf("full", false)).toMatchObject({ shadowsAndBloom: true, particles: 1 });
+    expect(qualityOf("lite", true)).toMatchObject({ shadowsAndBloom: false, particles: 0.5 });
+    expect(qualityOf("basic", true)).toMatchObject({ shadowsAndBloom: false, particles: 0.5 });
+  });
+
   it("完整档在手机上 DPR 不超过 1.5", () => {
     expect(qualityOf("full", true).dprCap).toBe(1.5);
   });

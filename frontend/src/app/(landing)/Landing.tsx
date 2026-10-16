@@ -1,6 +1,6 @@
 import { buttonVariants } from "@/components/ui/button";
 import { copy } from "@/i18n";
-import type { Character, SignInOptions } from "@/lib/api";
+import type { Character, LandingAssets, SignInOptions } from "@/lib/api";
 import { REPOSITORY_URL } from "@/lib/repository";
 import { PROVIDER_LABELS } from "@/lib/signIn";
 
@@ -8,6 +8,7 @@ import { Honesty, Start } from "./Closing";
 import { LandingEntry } from "./LandingEntry";
 import { LightStage } from "./LightStage";
 import { Memory } from "./Memory";
+import type { Actor } from "./model/memory";
 import { lightsOf, prepareSpectrum, type Spectrum as SpectrumModel } from "./model/spectrum";
 import { timelineOf } from "./model/timeline";
 import { Rail } from "./Rail";
@@ -20,8 +21,8 @@ const t = copy.landing;
 /**
  * 落地页（ADR-0016）：`/` 和 `/about` 共用。第 0 幕的标题、首屏声明和 CSS 画的白光；第 1 幕白光射进
  * 棱镜、散成一道道印象色（LightStage 加 OGL 光层，静态档是 StaticLight 的 SVG）；第 2 幕沿着光谱
- * 横向走过各个组合（Spectrum）；第 3 幕她说日语、第 4 幕她打来电话（Voice）；第 5 幕一件事从一位偶像
- * 传到另一位（Memory）；第 6 幕安静的诚实事项、第 7 幕光汇聚成入口（Closing）；左侧的幕名轨（Rail）、
+ * 横向走过各个组合（Spectrum）；第 3 幕她说日语、第 4 幕她打来电话（Voice）；第 5 幕 3D 的夜空里，一件事从
+ * 一位偶像传到另一位（Memory，three.js 的场景由 LightStage 加载）；第 6 幕安静的诚实事项、第 7 幕光汇聚成入口（Closing）；左侧的幕名轨（Rail）、
  * 右上角的仓库链接和入口，以及页脚。各幕的元素用 `data-lp-act` 标出它是第几幕，静止版式的幕名轨按它
  * 跟着滚动走。
  *
@@ -36,11 +37,14 @@ export function Landing({
   isSignedIn,
   characters,
   signInOptions,
+  assets,
 }: {
   isSignedIn: boolean;
   characters: Character[];
   /** 后端的登录选项；取不到时第 6 幕不提登录方式。 */
   signInOptions: SignInOptions | null;
+  /** 不属于哪一位角色的图（第 5 幕的静止图）；没有时只有文字。 */
+  assets: LandingAssets;
 }) {
   const spectrum = prepareSpectrum(characters);
   const lights = lightsOf(spectrum);
@@ -50,6 +54,7 @@ export function Landing({
   const sectionOf = (act: number) => timeline.sections.find((s) => s.acts.includes(act))!;
   const units = unitsOf(spectrum, characters);
   const speaker = speakerOf(units, characters);
+  const actors = actorsOf(units, characters);
   return (
     <div className="lp-root">
       <Rail label={t.rail.label} acts={t.rail.acts.flatMap((name, act) => (builtActs.has(act) ? [{ act, name }] : []))} />
@@ -72,7 +77,7 @@ export function Landing({
           </div>
           <p className="lp-disclaimer">{t.disclaimer}</p>
         </section>
-        <LightStage lights={lights} section={sectionOf(1)} speaker={speaker?.id ?? null}>
+        <LightStage lights={lights} section={sectionOf(1)} speaker={speaker?.id ?? null} actors={actors}>
           <section className="lp-act1" aria-labelledby={lights.length > 0 ? "lp-act1-title" : undefined} data-lp-act="1">
             <StaticLight lights={lights} />
             {lights.length > 0 && (
@@ -99,7 +104,7 @@ export function Landing({
             call={t.act4}
           />
         )}
-        <Memory lights={lights} section={sectionOf(5)} title={t.act5.title} body={t.act5.body} />
+        <Memory section={sectionOf(5)} copy={t.act5} actors={actors} stillUrl={assets.memory_still_url} />
         <Honesty section={sectionOf(6)} title={t.act6.title} lines={honestyLines(signInOptions)} />
         <Start
           section={sectionOf(7)}
@@ -153,6 +158,16 @@ function speakerOf(units: SpectrumUnit[], characters: Character[]): (Speaker & {
   if (!her) return null;
   const character = characters.find((c) => c.id === her.id);
   return { ...her, opener: character?.call_opener ?? null, poster: character?.call_poster_url ?? null };
+}
+
+/** 第 5 幕的演员：文案指定的几位里在名单上的，连同她站的岛、印象色和体素文件。 */
+function actorsOf(units: SpectrumUnit[], characters: Character[]): Actor[] {
+  const plates = new Map(units.flatMap((u) => u.plates).map((p) => [p.id, p]));
+  const voxelsOf = new Map(characters.map((c) => [c.id, c.voxels_url]));
+  return t.act5.cast.flatMap((id, island) => {
+    const her = plates.get(id);
+    return her ? [{ id, name: her.name, color: her.official, voxels: voxelsOf.get(id) ?? null, island }] : [];
+  });
 }
 
 const spectrumCopy = (spectrum: SpectrumModel) => ({

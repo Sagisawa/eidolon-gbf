@@ -10,8 +10,7 @@
  * - 出口附近的连续色散是唯一允许出现中间色的地方：按扇面上的位置在相邻两道光的颜色之间过渡，
  *   往外就只剩一道道她们自己的颜色。
  * - 第 2 幕名牌上的名字压在光上，那一段光芯断开（模型给出沿光线的区间）。
- * - 第 5 幕传话的光点是沿弧线走的彗星，后面拖着一段渐淡的光（同时最多 MAX_RELAYS 颗）；指针留下的痕迹
- *   连成一道淡淡的光。
+ * - 第 5 幕不画：那是 3D 画布自己的夜空（memoryLayer.ts），这里只剩页面的底色。
  * - 第 7 幕的手机屏幕是一块圆角矩形的白光，外面一圈很大的光晕：全站最亮的时候。
  * - 最后转回 sRGB，加半个色阶的抖动去色带。背景和页面的底色一样，画布淡入时看不出接缝。
  *
@@ -25,10 +24,6 @@ import { Mesh, Program, Renderer, Triangle } from "ogl";
 import { idle } from "./idle";
 import type { Scene } from "./model/scene";
 import type { Quality } from "./model/tier";
-import { TRAIL_POINTS } from "./model/trail";
-
-/** 第 5 幕同时最多几颗传话的光点：传给她的一颗，她再传开的三颗。 */
-export const MAX_RELAYS = 4;
 
 /** 着色器里最多画几道光。uniform 数组的长度是编译时定的；28 位偶像留了余量，手机的 uniform 上限也放得下。 */
 export const MAX_BANDS = 32;
@@ -57,11 +52,6 @@ uniform float uCount;
 uniform vec4 uA[${MAX_BANDS}];
 uniform vec4 uC[${MAX_BANDS}];
 uniform vec4 uD[${MAX_BANDS}];
-uniform vec4 uRelayA[${MAX_RELAYS}];
-uniform vec4 uRelayB[${MAX_RELAYS}];
-uniform vec3 uRelayC[${MAX_RELAYS}];
-uniform vec3 uTrail[${TRAIL_POINTS}];
-uniform float uTrailN;
 uniform vec4 uScreen;
 uniform vec2 uScreen2;
 uniform vec4 uB[${MAX_BANDS}];
@@ -203,39 +193,6 @@ void main() {
     acc = screen(acc, col);
   }
 
-  // —— 第 5 幕：传话的光点，沿二次贝塞尔弧线（起点 a、控制点 c、终点 b）走，后面拖着一段渐淡的光。
-  for (int r = 0; r < ${MAX_RELAYS}; r++) {
-    if (uRelayB[r].w < 0.003) continue;
-    vec2 a = uRelayA[r].xy, c = uRelayA[r].zw, b = uRelayB[r].xy;
-    float head = uRelayB[r].z;
-    float tail = max(0.0, head - 0.22);
-    vec2 prev = mix(mix(a, c, tail), mix(c, b, tail), tail);
-    float glow = 0.0;
-    for (int k = 1; k <= 12; k++) {
-      float s = mix(tail, head, float(k) / 12.0);
-      vec2 cur = mix(mix(a, c, s), mix(c, b, s), s);
-      float h;
-      float d = segDist(p, prev, cur, h);
-      float w = (float(k) - 1.0 + h) / 12.0;
-      glow = max(glow, (exp(-d / 2.2) * 0.7 + exp(-d / 14.0) * 0.25) * w * w);
-      prev = cur;
-    }
-    float hd = length(p - prev);
-    vec3 col = uRelayC[r] * glow + mix(uRelayC[r], vec3(1.0), 0.6) * (exp(-hd / 5.0) + exp(-hd / 30.0) * 0.45);
-    acc = screen(acc, col * uRelayB[r].w);
-  }
-
-  // —— 第 5 幕：指针留下的痕迹，越早留下的越淡。
-  for (int i = 1; i < ${TRAIL_POINTS}; i++) {
-    if (float(i) >= uTrailN) break;
-    vec3 a = uTrail[i - 1];
-    vec3 b = uTrail[i];
-    float h;
-    float d = segDist(p, a.xy, b.xy, h);
-    float alpha = mix(a.z, b.z, h);
-    acc = screen(acc, vec3(0.86, 0.9, 1.0) * (exp(-d / 2.5) * 0.45 + exp(-d / 16.0) * 0.14) * alpha);
-  }
-
   // —— 第 7 幕：手机屏幕的白光。
   if (uScreen2.y > 0.003) {
     vec2 q = abs(p - uScreen.xy) - (uScreen.zw - uScreen2.x);
@@ -261,8 +218,7 @@ export type Light = {
   /** 画布所在盒子的 CSS 尺寸。 */
   resize(w: number, h: number): void;
   setQuality(quality: Quality): void;
-  /** `trail`：第 5 幕里指针留下的痕迹，从早到晚，alpha 是亮度（model/trail.ts 的 liveTrail）。 */
-  render(scene: Scene, time: number, trail?: readonly { x: number; y: number; alpha: number }[]): void;
+  render(scene: Scene, time: number): void;
   destroy(): void;
 };
 
@@ -281,10 +237,6 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
   const B = new Array<number>(MAX_BANDS * 4).fill(0);
   const C = new Array<number>(MAX_BANDS * 4).fill(0);
   const D = new Array<number>(MAX_BANDS * 4).fill(0);
-  const T = new Array<number>(TRAIL_POINTS * 3).fill(0);
-  const RA = new Array<number>(MAX_RELAYS * 4).fill(0);
-  const RB = new Array<number>(MAX_RELAYS * 4).fill(0);
-  const RC = new Array<number>(MAX_RELAYS * 3).fill(1);
   const program = new Program(gl, {
     vertex,
     fragment,
@@ -309,11 +261,6 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
       uB: { value: B },
       uC: { value: C },
       uD: { value: D },
-      uRelayA: { value: RA },
-      uRelayB: { value: RB },
-      uRelayC: { value: RC },
-      uTrail: { value: T },
-      uTrailN: { value: 0 },
       uScreen: { value: [0, 0, 0, 0] },
       uScreen2: { value: [0, 0] },
     },
@@ -341,7 +288,7 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
       u.uSamples.value = next.samples;
       light.resize(size.w, size.h);
     },
-    render(scene, time, trail = []) {
+    render(scene, time) {
       const { beam, prism, fan } = scene;
       u.uTime.value = time;
       u.uBg.value = linear(scene.background);
@@ -362,28 +309,10 @@ export async function createLight(canvas: HTMLCanvasElement, quality: Quality): 
         put(C, i, r, g, bl, b.intensity);
         put(D, i, b.core, b.halo, b.gain, b.hue);
       });
-      const relays = scene.memory?.relays ?? [];
-      for (let i = 0; i < MAX_RELAYS; i++) {
-        const r = relays[i];
-        if (!r || r.intensity <= 0) {
-          RB[i * 4 + 3] = 0;
-          continue;
-        }
-        put(RA, i, r.from[0], r.from[1], r.ctrl[0], r.ctrl[1]);
-        put(RB, i, r.to[0], r.to[1], r.t, r.intensity);
-        RC.splice(i * 3, 3, ...linear(r.color));
-      }
-      const points = trail.slice(-TRAIL_POINTS);
-      u.uTrailN.value = points.length;
-      points.forEach((pt, i) => {
-        T[i * 3] = pt.x;
-        T[i * 3 + 1] = pt.y;
-        T[i * 3 + 2] = pt.alpha;
-      });
       const sc = scene.screen;
       u.uScreen.value = [sc.x, sc.y, sc.w, sc.h];
       u.uScreen2.value = [sc.r, sc.intensity];
-      // A–D、T、RA–RC 是就地改的：OGL 把上一帧传过的值另存一份来比较，改过的照样会重传。
+      // A–D 是就地改的：OGL 把上一帧传过的值另存一份来比较，改过的照样会重传。
       renderer.render({ scene: mesh });
     },
     destroy() {

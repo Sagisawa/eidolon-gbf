@@ -20,6 +20,7 @@ const mano: Character = {
   greeting: null,
   call_opener: null,
   call_poster_url: null,
+  voxels_url: null,
 };
 
 const memory = (source: string, superseded = false): Memory => ({
