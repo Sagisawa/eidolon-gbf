@@ -46,7 +46,7 @@ export type InRange = {
 };
 
 /** How many a ranking (「聊得最多」「通话最久」) has at most. */
-export const RANKED = 5;
+export const RANKING_SIZE = 5;
 
 /** A character ranked, with her bar's length as a share of the first's, 0–1. */
 export type Ranked = CharacterInRange & { share: number };
@@ -57,7 +57,7 @@ function rank(characters: CharacterInRange[], by: (c: CharacterInRange) => numbe
   const ranked = characters
     .filter((c) => by(c) > 0)
     .sort((a, b) => by(b) - by(a))
-    .slice(0, RANKED);
+    .slice(0, RANKING_SIZE);
   const most = ranked[0] ? by(ranked[0]) : 0;
   return ranked.map((c) => ({ ...c, share: by(c) / most }));
 }

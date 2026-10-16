@@ -132,6 +132,24 @@ async def test_a_call_she_hangs_up_as_she_ends_the_conversation_elsewhere_counts
     assert shape(await record(client, conversation))[-1] == "ended"
 
 
+async def test_she_is_known_from_a_call_in_which_nothing_was_said(
+    make_client: ClientFactory, settings: Settings, browser: Browser, clock: FakeClock
+):
+    client = make_client(FakeLLM(), clock=clock)
+    await browser.call(client, conversation_id=await start_conversation(client))
+    await browser.connect()
+    await browser.hang_up()
+    await kept(client, 1)
+    connected_at(settings.database_path, tokyo(TODAY - timedelta(days=9), 12))
+
+    got = await stats(client)
+
+    [mano] = got["range"]["characters"]
+    assert (mano["character_id"], mano["turns"], mano["days_known"]) == ("mano", 0, 10)
+    assert mano["call_seconds"] == got["range"]["calls"]["seconds"] > 0
+    assert sum(got["all_hours"]) == 0  # not a day she came
+
+
 async def test_calls_count_in_the_range_by_when_they_connected_where_the_user_is(
     make_client: ClientFactory, settings: Settings, speech: FakeSpeech, clock: FakeClock
 ):

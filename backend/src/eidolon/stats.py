@@ -24,7 +24,7 @@ idols' order of those tied. Only numbers: what is shown of them, and how, is the
 decide.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable
 from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
@@ -86,7 +86,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
                 [
                     call
                     for call in store.kept_calls(user_id)
-                    if since is None or call.at.astimezone(zone).date() >= since
+                    if since is None or call.connected_at.astimezone(zone).date() >= since
                 ],
                 {
                     c.id: days_since(first[c.id])
@@ -108,9 +108,9 @@ def in_range(
     anything is left with, in the idols' order, and the days each has been known; whom the
     most gifts went to, tied, is the first of them."""
     turns = Counter(c.character_id for c, _ in within if c.kind == "turn")
-    called: dict[str, float] = {}
+    called: defaultdict[str, float] = defaultdict(float)
     for call in calls:
-        called[call.character_id] = called.get(call.character_id, 0) + call.duration_s
+        called[call.character_id] += call.duration_s
     gifts = [c for c, _ in within if c.kind == "gift"]
     given = Counter(c.character_id for c in gifts)
     most = max(given.values(), default=0)
@@ -121,7 +121,7 @@ def in_range(
         "characters": [
             {
                 "character_id": character, "turns": turns[character], "days_known": days,
-                "call_seconds": called.get(character, 0),
+                "call_seconds": called[character],
             }
             for character, days in known_in_idol_order.items()
         ],

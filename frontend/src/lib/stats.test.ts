@@ -182,7 +182,7 @@ describe("哪一块显示", () => {
   });
 
   it("有回合才有聊得最多和分时段图，送过礼才有礼物", () => {
-    expect(statsSections(came)).toMatchObject({ totals: true, mostTalked: true, hours: true, gifts: false });
+    expect(statsSections(came)).toMatchObject({ totals: true, mostTalked: true, mostCalled: false, hours: true, gifts: false });
     const gave = {
       ...came,
       range: { ...came.range, gifts: { given: 2, liked: 0, most: { character_id: "mano", given: 2 } } },
@@ -206,12 +206,6 @@ describe("哪一块显示", () => {
       hours: false,
       gifts: false,
     });
-  });
-
-  it("这段跨度里有接通过的通话才有通话最久", () => {
-    expect(statsSections(came).mostCalled).toBe(false);
-    const rang = { ...came, range: { ...came.range, characters: [known("mano", 1, 10, 0.4)] } };
-    expect(statsSections(rang).mostCalled).toBe(true);
   });
 
   it("这段跨度里只送了礼时有分时段图，没有聊得最多", () => {

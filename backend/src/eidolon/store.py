@@ -274,7 +274,7 @@ class KeptCall:
     lasted once it had, in seconds, as stats count them."""
 
     character_id: str
-    at: datetime
+    connected_at: datetime
     duration_s: float
 
 

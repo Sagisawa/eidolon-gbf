@@ -15,6 +15,7 @@ as cut short by how the call ended. A call that connected is kept, too, for stat
 """
 
 from collections.abc import Callable
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from time import perf_counter
@@ -28,6 +29,8 @@ from eidolon.config import SttProvider
 from eidolon.engine import CallTurnRecorded, InCall
 from eidolon.own_keys import CallKeys, OwnKeyFailed, Service
 from eidolon.turn_outcome import TurnOutcome
+
+log = logging.getLogger(__name__)
 
 EndReason = Literal[
     "not_connected", "dropped", "duration_limit", "turn_limit", "own_key", "she_hung_up",
@@ -127,7 +130,7 @@ class CallOutcome:
         self._clock = clock
         self._keep = keep
         self._connected_at: float | None = None  # `perf_counter`, once connected
-        self._connected_on: datetime | None = None  # by `clock`, once connected
+        self._connected_by_clock: datetime | None = None  # the time `clock` told, once connected
         self._recorded = 0
         self._out_of_line = 0  # turns recorded out of line
         self._hurts: list[float] = []  # what each turn recorded took off her affinity
@@ -155,7 +158,7 @@ class CallOutcome:
         """The call has connected (GLOSSARY.md「接通」)."""
         if self._connected_at is None:
             self._connected_at = perf_counter()
-            self._connected_on = self._clock()
+            self._connected_by_clock = self._clock()
         return None
 
     def ended_by(self, reason: CallEndReason) -> None:
@@ -316,5 +319,9 @@ class CallOutcome:
         try:
             self._admission.settle(result, duration, self._ended_by or "left")
         finally:
-            if result != "not_connected" and self._connected_on is not None and duration is not None:
-                self._keep(self._connected_on, duration)
+            connected = self._connected_by_clock
+            if result != "not_connected" and connected is not None and duration is not None:
+                try:
+                    self._keep(connected, duration)
+                except Exception:  # its record is settled; stats only miss the call
+                    log.exception("could not keep a call for stats")
