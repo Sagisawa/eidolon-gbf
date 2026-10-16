@@ -22,3 +22,7 @@
 - [ ] 后端测试走统计接口：三种跨度的边界、时区、删历史对话、认识天数、送礼并列；前端逻辑模块测试：排行取前 5、只取大于 0 的、哪块不显示
 - [ ] 本地构建版 Playwright 验收（宽屏、手机）：切换三种跨度、排行条的印象色
 - [ ] 后端完整测试、前端类型检查和测试、前端纪律检查都通过
+
+## Comments
+
+- 2026-10-16 来自 01：接口在 `backend/src/eidolon/stats.py`，上半部分的字段是 `days_known`、`visits`、`all_hours`、`heatmap`，下半部分往同一份回答里加（跨度自己的 24 小时分布别再叫 `hours`，免得和 `all_hours` 混）。回合和送礼都从 `Store.contacts(user_id)` 取，已经带 `character_id`；送礼的 `liked` 和「认识她多久」要的最早一条记录（含别的对话事件）还没取，要在 store 里补。前端逻辑在 `lib/stats.ts`（`Stats` 类型、`statsSections` 管哪块显示），页面是 `components/StatsSettings.tsx`，图表放 `components/stats/`（热力图 `Heatmap.tsx` 是按容器宽度画的手写 SVG，分时段图照它和后台 `TrendChart` 的画法）。
