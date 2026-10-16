@@ -22,7 +22,7 @@ those tied. Only numbers: what is shown of them, and how, is the page's to decid
 """
 
 from collections import Counter
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from datetime import date, datetime, timedelta
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -57,7 +57,6 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         today = backend.clock().astimezone(zone).date()
         contacts = [(c, c.at.astimezone(zone)) for c in store.contacts(user_id)]
         per_day = Counter(at.date() for _, at in contacts)
-        per_hour = Counter(at.hour for _, at in contacts)
         signed_up = datetime.fromisoformat(store.get_user(user_id).created_at)
         start = today - timedelta(days=today.weekday() + 7 * HEATMAP_WEEKS)
 
@@ -71,7 +70,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         return {
             "days_known": days_since(signed_up),
             "visits": visits(per_day.keys(), today),
-            "all_hours": [per_hour[hour] for hour in range(24)],
+            "all_hours": by_hour(at for _, at in contacts),
             "heatmap": {
                 "from": start.isoformat(),
                 "counts": [
@@ -90,22 +89,24 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         }
 
 
-def in_range(span: Range, within: list[tuple[Contact, datetime]], known: dict[str, int]) -> dict:
+def in_range(
+    span: Range, within: list[tuple[Contact, datetime]], known_in_idol_order: dict[str, int]
+) -> dict:
     """What changes with the range `span`, of the turns and gifts `within` it, each at its
     time where the user is, and the characters anything is left with, in the idols' order,
-    and the days each has been `known`."""
+    and the days each has been known; whom the most gifts went to, tied, is the first of
+    them."""
     turns = Counter(c.character_id for c, _ in within if c.kind == "turn")
-    per_hour = Counter(at.hour for _, at in within)
     gifts = [c for c, _ in within if c.kind == "gift"]
     given = Counter(c.character_id for c in gifts)
     most = max(given.values(), default=0)
     return {
         "span": span,
         "turns": turns.total(),
-        "by_hour": [per_hour[hour] for hour in range(24)],
+        "by_hour": by_hour(at for _, at in within),
         "characters": [
             {"character_id": character, "turns": turns[character], "days_known": days}
-            for character, days in known.items()
+            for character, days in known_in_idol_order.items()
         ],
         "gifts": {
             "given": len(gifts),
@@ -113,13 +114,19 @@ def in_range(span: Range, within: list[tuple[Contact, datetime]], known: dict[st
             "most": next(
                 (
                     {"character_id": character, "given": most}
-                    for character in known
+                    for character in known_in_idol_order
                     if most and given[character] == most
                 ),
                 None,
             ),
         },
     }
+
+
+def by_hour(times: Iterable[datetime]) -> list[int]:
+    """How many of `times` at each hour of the day, 0–23."""
+    per_hour = Counter(at.hour for at in times)
+    return [per_hour[hour] for hour in range(24)]
 
 
 def visits(days: Collection[date], today: date) -> dict:

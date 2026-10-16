@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { columnPath } from "@/lib/chart";
 import { axisLabels, type Bucket, labelledStretches, stretchSpan } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
 
@@ -10,13 +11,6 @@ const AXIS = { left: 56, bottom: 24, top: 8, right: 24 }; // room for the latest
 const MAX_BAR = 24;
 const GAP = 2; // the surface gap between touching columns
 const RADIUS = 4; // the rounded data end; the baseline end stays square
-
-/** A column from the baseline up to `top`, rounded only at its data end. */
-function column(x: number, width: number, top: number, base: number): string {
-  const r = Math.min(RADIUS, width / 2, base - top);
-  return `M${x},${base} V${top + r} Q${x},${top} ${x + r},${top} H${x + width - r}`
-    + ` Q${x + width},${top} ${x + width},${top + r} V${base} Z`;
-}
 
 /** One stretch of the range and its value. */
 export type TrendValue = { start: string; value: number };
@@ -120,7 +114,7 @@ export function TrendChart({
               />
               {point.value > 0 && (
                 <path
-                  d={column(x, bar, y(point.value), base)}
+                  d={columnPath(x, bar, y(point.value), base, RADIUS)}
                   className={cn("fill-foreground transition-opacity", hovered !== null && !isHovered && "opacity-50")}
                 />
               )}

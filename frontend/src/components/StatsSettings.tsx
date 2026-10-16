@@ -33,7 +33,7 @@ export function StatsSettings() {
   const [range, setRange] = useState<StatsRange>("all");
   const [stats, setStats] = useState<Stats | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
-  const { guard, characters } = useDirectory();
+  const { guard, characters, failure: directoryFailure } = useDirectory();
 
   useEffect(() => {
     let current = true;
@@ -50,8 +50,10 @@ export function StatsSettings() {
     };
   }, [range]);
 
-  if (!stats) {
-    if (failure) return <FailureNotice failure={failure} />;
+  // 排行和礼物要角色的名字和颜色：角色还没到时整页当作读取中，免得那几行晚一步冒出来、页面跳一下。
+  if (!stats || characters === null) {
+    const shownFailure = stats ? directoryFailure : failure;
+    if (shownFailure) return <FailureNotice failure={shownFailure} />;
     return <p className="text-body text-muted-foreground">{copy.settings.loading}</p>;
   }
 
@@ -75,7 +77,7 @@ export function StatsSettings() {
     );
   }
 
-  const byId = new Map((characters ?? []).map((c) => [c.id, c]));
+  const byId = new Map(characters.map((c) => [c.id, c]));
   /** 眼前的下半部分是上一个跨度的：换了以后新的还没到，或者没取到。 */
   const otherRange = stats.range.span !== range;
   const { gifts } = stats.range;
@@ -140,7 +142,7 @@ export function StatsSettings() {
                           </span>
                         </div>
                         <div className="h-2 rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-her-mark" style={{ width: `${ranked.share * 100}%` }} />
+                          <div className="h-full rounded-full bg-her-bar" style={{ width: `${ranked.share * 100}%` }} />
                         </div>
                       </div>
                     </li>

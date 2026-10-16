@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { copy } from "@/i18n";
+import { columnPath } from "@/lib/chart";
 import { cn } from "@/lib/utils";
 
 const t = copy.settings.stats;
@@ -14,13 +15,6 @@ const MAX_BAR = 20;
 const GAP = 2;
 const RADIUS = 3; // the rounded data end; the baseline end stays square
 const LABELLED = [0, 6, 12, 18];
-
-/** A column from the baseline up to `top`, rounded only at its data end. */
-function column(x: number, width: number, top: number, base: number): string {
-  const r = Math.min(RADIUS, width / 2, base - top);
-  return `M${x},${base} V${top + r} Q${x},${top} ${x + r},${top} H${x + width - r}`
-    + ` Q${x + width},${top} ${x + width},${top + r} V${base} Z`;
-}
 
 /**
  * 统计的分时段图（DESIGN.md「统计页」）：0 到 23 点 24 根柱子，这段跨度里每个钟点的回合加送礼，只用 `--foreground` 一种颜色。
@@ -76,7 +70,7 @@ export function HourChart({ hours }: { hours: number[] }) {
               />
               {count > 0 && (
                 <path
-                  d={column(x, bar, y(count), base)}
+                  d={columnPath(x, bar, y(count), base, RADIUS)}
                   className={cn("fill-foreground transition-opacity", hovered !== null && !isHovered && "opacity-50")}
                 />
               )}

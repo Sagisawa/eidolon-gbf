@@ -22,6 +22,7 @@ export function herVars(color: string): CSSProperties {
     "--ring": ld(s.mark),
     "--her-wall": ld(s.wall),
     "--her-mark": ld(s.mark),
+    "--her-bar": ld(s.bar),
     "--her-button": ld(s.button.bg),
     "--her-button-fg": ld(s.button.fg),
     "--her-call-deep": s.call.deep,

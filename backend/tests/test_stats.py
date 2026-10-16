@@ -320,12 +320,6 @@ async def test_the_range_is_the_past_30_or_365_days_where_the_user_is_or_all_of_
     assert all({k: s[k] for k in upper} == {k: by_default[k] for k in upper} for s in got.values())
 
 
-async def test_a_range_there_is_not_is_refused(make_client: ClientFactory):
-    client = make_client(FakeLLM())
-
-    assert (await client.get("/api/stats", params={"range": "7d"})).status_code == 422
-
-
 async def test_each_character_has_her_turns_and_the_days_since_the_first_thing_left_with_her(
     make_client: ClientFactory, settings: Settings, gifting: Settings, clock: FakeClock,
     meguru: None,

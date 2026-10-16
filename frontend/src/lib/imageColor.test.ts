@@ -8,6 +8,8 @@ const { body } = paperColors;
 /** 新主题（globals.css）里压在她壁纸上的正文和次要文字（时间戳、日期条）。 */
 const foreground = themePair("--foreground");
 const mutedForeground = themePair("--muted-foreground");
+/** 统计里排行条的底（DESIGN.md「统计页」）。 */
+const muted = themePair("--muted");
 
 /** 界面上每一对「底色 + 上面的字或图标」，以及要达到的对比度。 */
 function pairs(hex: string) {
@@ -17,6 +19,7 @@ function pairs(hex: string) {
       { what: `${mode} 壁纸上的正文`, fg: foreground[mode], bg: s.wall[mode], min: 4.5 },
       { what: `${mode} 壁纸上的次要文字`, fg: mutedForeground[mode], bg: s.wall[mode], min: 4.5 },
       { what: `${mode} 头像描边`, fg: s.mark[mode], bg: body[mode], min: 3 },
+      { what: `${mode} 统计排行条和它的底`, fg: s.bar[mode], bg: muted[mode], min: 3 },
       { what: `${mode} 按钮图标`, fg: s.button.fg[mode], bg: s.button.bg[mode], min: 4.5 },
       { what: `${mode} 她颜色的字`, fg: s.accent[mode], bg: body[mode], min: 4.5 },
       { what: `${mode} 强调色填底上的字`, fg: s.onAccent[mode], bg: s.accent[mode], min: 4.5 },
