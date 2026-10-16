@@ -30,11 +30,14 @@
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
 //      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
 //      落地页不降档；第 5 幕（3D 场景）在九个节拍各截一张、往回滚截一张，某位的体素文件加载不到时她的位置是
-//      印象色方块加名字（截图看），场景画布丢了上下文时收起、落地页不降档；用显卡（软件渲染时跳过）截完整档、简化档
+//      印象色方块加名字（截图看），场景画布丢了上下文时收起、换成事先渲染好的全景图（存储桶里有的话）、几句话收起来、
+//      落地页不降档；用显卡（软件渲染时跳过）截完整档、简化档
 //      的开场全景（完整档有阴影和泛光，简化档没有、粒子少一半），简化档停在开场全景量一段帧耗时，不超过它降档的门槛；
 //      第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
 //      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
-//      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。滚动位置按落地页模型的
+//      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。第 5 幕（电脑、竖屏手机）是
+//      事先渲染好的全景图（存储桶里有的话）加按顺序的几句话，静态档滚到这一幕也不加载脚本；存储桶里没有图（拦下它，回 404）
+//      时只有文字、没有破图。滚动位置按落地页模型的
 //      时间线（model/timeline.ts）算，和页面同一个出处。
 //   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
 //   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
@@ -638,12 +641,19 @@ function watchConsole(page) {
       const tierBefore = await tierOf(page);
       await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
       await page.waitForTimeout(1500);
-      const lost = await page.evaluate(() => ({ canvas: !!document.querySelector(".lp-memory-canvas"), gl: document.querySelector(".lp-root").classList.contains("lp-gl-on") }));
+      await page.waitForFunction(() => document.querySelector(".lp-memory-still")?.complete !== false, null, { timeout: 10000 }).catch(() => {});
+      const lost = await page.evaluate(() => ({
+        canvas: !!document.querySelector(".lp-memory-canvas"),
+        gl: document.querySelector(".lp-root").classList.contains("lp-gl-on"),
+        lines: [...document.querySelectorAll(".lp-line")].every((l) => Number(getComputedStyle(l).opacity) === 0),
+      }));
+      const still = await memoryStillOn(page);
       report(
-        "第 5 幕的场景画布丢了上下文：收起画布，光层照旧，落地页不降档",
-        !lost.canvas && lost.gl && (await tierOf(page)) === tierBefore,
-        `画布 ${lost.canvas ? "还在" : "收起了"}，光层 ${lost.gl ? "在" : "不在"}，档位 ${tierBefore} → ${await tierOf(page)}`,
+        "第 5 幕的场景画布丢了上下文：收起画布，换成事先渲染好的全景图，几句话收起来，光层照旧，落地页不降档",
+        !lost.canvas && still.ok !== false && lost.lines && lost.gl && (await tierOf(page)) === tierBefore,
+        `画布 ${lost.canvas ? "还在" : "收起了"}，${still.detail}，几句话${lost.lines ? "收起来了" : "还显示着"}，光层 ${lost.gl ? "在" : "不在"}，档位 ${tierBefore} → ${await tierOf(page)}`,
       );
+      await page.screenshot({ path: path.join(shots, "full-act5-lost.png") });
     }
     for (const [label, at] of [
       ["act6", spanOf(tl, 6).from + 0.2],
@@ -828,6 +838,57 @@ function watchConsole(page) {
       await context.close();
     }
   }
+
+  // 静止版式的第 5 幕：事先渲染好的全景图，下面是标题、正文、按顺序的几句话和最后一句；存储桶里没有图时只有文字。
+  for (const tier of ["reduced", "static"]) {
+    for (const [name, options] of [
+      ["desktop", DESKTOP],
+      ["phone", PHONE],
+    ]) {
+      for (const missing of [false, true]) {
+        const context = await browser.newContext({ ...options, reducedMotion: tier === "reduced" ? "reduce" : "no-preference" });
+        const page = await context.newPage();
+        if (missing) await page.route("**/landing-memory/still.webp", (r) => r.fulfill({ status: 404, body: "" }));
+        await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
+        const scripts = [];
+        page.on("request", (r) => r.resourceType() === "script" && scripts.push(new URL(r.url()).pathname));
+        await page.locator(".lp-act5").evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.waitForFunction(() => document.querySelector(".lp-memory-still")?.complete !== false, null, { timeout: 10000 }).catch(() => {});
+        await page.waitForTimeout(1000);
+        const order = await page.evaluate(() => [...document.querySelector(".lp-act5").children].map((c) => c.className.split(" ")[0]));
+        const want = ["lp-memory-still", "lp-act5-copy", "lp-lines", "lp-closing"].filter((c) => order.includes("lp-memory-still") || c !== "lp-memory-still");
+        const ordered = order.join() === want.join();
+        const quiet = tier === "reduced" || scripts.length === 0;
+        const label = `${tier}（${name}）：第 5 幕`;
+        if (missing) {
+          const gone = !(await page.locator(".lp-memory-still").count());
+          report(`${label}在存储桶里没有静止图时只有文字，没有破图`, gone && ordered && quiet, `图${gone ? "拿掉了" : "还在"}，排法 ${order.join(" → ")}${quiet ? "" : `，load 之后加载了脚本 ${scripts.join(" ")}`}`);
+          await page.locator(".lp-act5").screenshot({ path: path.join(shots, `${tier}-${name}-act5-no-still.png`) });
+        } else {
+          const still = await memoryStillOn(page);
+          report(
+            `${label}是事先渲染好的全景图，下面是标题、正文、按顺序的几句话和最后一句${tier === "static" ? "；滚到这里不加载脚本" : ""}`,
+            still.ok === null ? null : still.ok && ordered && quiet,
+            `${still.detail}，排法 ${order.join(" → ")}${quiet ? "" : `，load 之后加载了脚本 ${scripts.join(" ")}`}`,
+          );
+          await page.locator(".lp-act5").screenshot({ path: path.join(shots, `${tier}-${name}-act5.png`) });
+        }
+        await context.close();
+      }
+    }
+  }
+}
+
+/** 第 5 幕事先渲染好的全景图显示着、加载出来了。没有这张图（没配存储桶地址、存储桶里没有）时 ok 是 null。 */
+async function memoryStillOn(page) {
+  const got = await page.evaluate(() => {
+    const img = document.querySelector(".lp-memory-still");
+    if (!img) return null;
+    const b = img.getBoundingClientRect();
+    return { shown: getComputedStyle(img).display !== "none" && b.width > 0, loaded: img.complete && img.naturalWidth > 0, w: Math.round(b.width), h: Math.round(b.height) };
+  });
+  if (!got) return { ok: null, detail: "没有全景图（没配存储桶地址，或者存储桶里没有 landing-memory/still.webp）" };
+  return { ok: got.shown && got.loaded, detail: `全景图${got.shown ? `显示着（${got.w}×${got.h}）` : "没显示"}、${got.loaded ? "加载出来了" : "没加载出来"}` };
 }
 
 /**

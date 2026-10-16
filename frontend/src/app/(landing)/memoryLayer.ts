@@ -217,6 +217,8 @@ function figureMesh(v: Voxels): FigureMesh {
 export type MemoryLayer = CanvasLayer & {
   /** 画这一刻的场景，`story` 是这一刻那件事传到了哪一步；`time` 是秒，给小人的起伏用。 */
   render(memory: MemoryScene, story: MemoryStory, time: number): void;
+  /** 演员都站上去了：每位是不是她的体素小人（加载不到、换成方块的是 false）。渲染静止图的脚本等它。 */
+  standing: Promise<boolean[]>;
 };
 
 /**
@@ -298,13 +300,14 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   const bodies = new Map<number, Group>();
   // 小人投下阴影（完整档），自己身上不接：一级级的体素表面接阴影会起条纹。
   const stand = (body: Group) => (mesh: FigureMesh) => {
-    if (destroyed) return;
+    if (destroyed) return true;
     const figure = new Mesh(own(figureGeometry(mesh)), figureMat);
     figure.castShadow = true;
     body.add(figure);
+    return true;
   };
   const standIn = (actor: Actor, body: Group) => () => {
-    if (destroyed) return;
+    if (destroyed) return false;
     const cube = new Mesh(cubeGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.25 }));
     cube.castShadow = true;
     cube.position.y = 0.275;
@@ -312,8 +315,9 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     const label = pillSprite(own, actor.name, { font: `600 44px ${font}`, bg: "rgba(20,16,40,0.78)", fg: "#f3eeff" }, 0.22);
     label.position.y = 0.95;
     body.add(label);
+    return false;
   };
-  actors.forEach((actor, k) => {
+  const standing = actors.map((actor, k) => {
     const [x, y, z] = STANDS[actor.island];
     const tile = new Mesh(tileGeo, lambert({ color: actor.color, emissive: actor.color, emissiveIntensity: 0.3 }));
     tile.position.set(x, y + 0.02, z);
@@ -329,7 +333,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.005;
     group.add(shadow);
-    loading[k].then(stand(body), standIn(actor, body));
+    return loading[k].then(stand(body), standIn(actor, body));
   });
   await idle();
 
@@ -460,6 +464,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
   await idle();
 
   return {
+    standing: Promise.all(standing),
     resize(w, h) {
       size = { w, h };
       renderer.setSize(w, h, false);

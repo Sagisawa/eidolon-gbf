@@ -48,7 +48,8 @@ type Measured = Section & { el: HTMLElement; top: number; height: number };
  *   屏幕矩形和振动写进样式，来电界面摆在屏幕上、和手机一起抖，光脉冲照样发光（Voice、Call）。第 5 幕是 three.js 画的
  *   夜空和浮岛（memoryLayer.ts，滚到第 5 幕前约一屏才加载，canvasStage.ts 管起落），镜头照模型推拉转，一件事从真乃传开
  *   （model/memoryStory.ts，和场景代码一起晚加载，每帧算一次：3D 层照它画，几个人说的话按它的锚点投影摆成 DOM 上的
- *   气泡，横向收进画面），画布、标题正文、几句话和最后一句跟着模型淡入淡出；第 7 幕的文字和行动按钮跟着模型淡入。
+ *   气泡，横向收进画面），画布、标题正文、几句话和最后一句跟着模型淡入淡出（画布出了问题时换成事先渲染好的全景图）；
+ *   第 7 幕的文字和行动按钮跟着模型淡入。
  *   当前在哪一幕写进 stageStore，幕名轨、光谱和来电据此更新。
  *   页内查找：画面外的名牌由浏览器去滚光谱的舞台（它是个访客滚不动的滚动容器），这里接住、滚回去，再把
  *   页面滚到那个组合；跟着滚动淡入淡出的文字（`data-lp-find`）在访客查找时、看不见的那些是 `hidden="until-found"`，
@@ -226,7 +227,8 @@ export function LightStage({
     let storyLoad: Promise<StoryModule> | null = null;
     const loadStory = () => (storyLoad ??= import("./model/memoryStory").then((m) => (storyModule = m)));
     const cast = actors.map((a) => a.island);
-    // 第 5 幕的场景：画布放进这一幕的最前面。three.js 和第 4 幕的手机共用一个包，场景代码另一个包。
+    // 第 5 幕的场景：画布放进这一幕的最前面。three.js 和第 4 幕的手机共用一个包，场景代码另一个包。画布丢了上下文、
+    // 建不起来（或者落地页退到了静态档）时收起，换成事先渲染好的全景图，几句话收起来（Memory.tsx、landing.css）。
     const memoryEl = root.querySelector<HTMLElement>(".lp-memory");
     const memoryHost = memoryEl?.querySelector<HTMLElement>(".lp-act5");
     const act5 = spanOf(timeline, 5);
@@ -242,6 +244,7 @@ export function LightStage({
           const [mod] = await Promise.all([import("./memoryLayer"), loadStory()]);
           return mod.createMemoryLayer(c, q, actors, font);
         },
+        onDrop: () => root.classList.add("lp-memory-lost"),
       });
     }
     // 第 5 幕的几句话（Memory.tsx 的 data-lp-line）和最后一句。

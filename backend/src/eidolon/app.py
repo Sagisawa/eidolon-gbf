@@ -26,7 +26,13 @@ from eidolon.call import (
 )
 from eidolon.characters import Character, ScriptedLine
 from eidolon.engine import ENDED, TurnJudged
-from eidolon.greetings import call_opener_path, call_poster_path, greeting_path, voxels_path
+from eidolon.greetings import (
+    LANDING_MEMORY_STILL_PATH,
+    call_opener_path,
+    call_poster_path,
+    greeting_path,
+    voxels_path,
+)
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.own_keys import BroughtKeys, CallsUnavailable, UnknownService, named_services
 from eidolon.producer import (
@@ -409,6 +415,15 @@ def create_app(backend: Backend) -> FastAPI:
             }
             for c in listed
         ]
+
+    @app.get("/api/landing")
+    def landing() -> dict:
+        """What the landing page shows that belongs to no one character: its act about memory
+        as one picture, for visitors who see no animation (ADR-0003, 2026-10-16). Listed as a
+        call poster is, without asking the bucket whether it is there (the page shows only the
+        words instead); None unless the stand assets are served."""
+        assets_url = backend.settings.stand_assets_url
+        return {"memory_still_url": f"{assets_url}/{LANDING_MEMORY_STILL_PATH}" if assets_url else None}
 
     @app.get("/api/characters/{character_id}/avatar")
     def character_avatar(character_id: str, request: Request) -> Response:

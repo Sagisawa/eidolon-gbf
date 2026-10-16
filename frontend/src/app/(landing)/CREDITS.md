@@ -18,3 +18,4 @@
 - 版权：©Bandai Namco Entertainment Inc.
 - 做法：生图模型参照官方立绘和 Q 版图画出 Q 版三视图（白底、平光、约三头身）；切出正面放到 1024×1024 白底上，在混元 3D 网页版用「单图生成」带纹理生成网格，导出 GLB；`frontend/scripts/glb-voxelize.mts` 转成 96 格高的体素（2026-10-16）
 - 中间产物（三视图、GLB）在维护者本地，不进仓库也不进存储桶。步骤见 `docs/deploy.md`「体素小人」
+- 第 5 幕的静止图（存储桶的 `landing-memory/still.webp`）画的就是这四个小人：`frontend/scripts/landing-memory-still.mjs` 用页面上同一套场景代码渲染终局全景（2026-10-16）

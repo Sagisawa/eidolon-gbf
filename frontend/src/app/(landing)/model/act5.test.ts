@@ -166,10 +166,11 @@ describe("describeScene: 第 5 幕", () => {
     expect(scene({ scroll: act6.from + 0.2 }).memory).toBeNull();
   });
 
-  it("静止版式里没有这一幕的场景状态，标题和正文一直在", () => {
-    const s = scene({ scroll: in5(0.5), tier: "reduced" });
-    expect(s.memory).toBeNull();
-    expect(s.text.act5).toBe(1);
+  it("静止版式（定格档、静态档）里整页都没有这一幕的场景状态，这一幕的标题和正文一直在", () => {
+    for (const tier of ["reduced", "static"] as const) {
+      for (let scroll = 0; scroll <= act6.to; scroll += 0.05) expect(scene({ scroll, tier }).memory).toBeNull();
+      for (const p of [0, 0.5, 1]) expect(scene({ scroll: in5(p), tier }).text.act5).toBe(1);
+    }
   });
 });
 

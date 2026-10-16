@@ -111,6 +111,11 @@ def voxels_path(character: Character) -> str:
     return f"landing-voxels/{character.id}.json"
 
 
+LANDING_MEMORY_STILL_PATH = "landing-memory/still.webp"
+"""Where the landing page's act about memory, rendered as one picture, is in the bucket. The
+deployer puts it there by hand (docs/deploy.md「第 5 幕的静止图」); this command does not touch it."""
+
+
 @dataclass(frozen=True)
 class FishAudioSettings:
     """The deployer's key for Fish Audio, and the model it voices with."""

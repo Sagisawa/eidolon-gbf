@@ -1376,7 +1376,7 @@ html[data-lp-tier="reduced"] .lp-hello {
 /* —— 第 5 幕：记忆（Memory.tsx）。运动版式里是一块 three.js 画布（memoryLayer.ts，LightStage 滚到附近才建、放在这一幕
  * 最前面）：固定铺满视口，叠在光层上面、这一幕的文字下面，不透明度由落地页模型给（--lp-memory：第 4 幕解开钉住时淡入，
  * 这一幕解开钉住时淡出）。标题和正文在左上，镜头推近以前跟着模型淡出（--lp-act5）。几个人说的话是 DOM 上的气泡，
- * 最后一句在全景下面。静止版式里标题、正文、几句话和最后一句竖着排下来。 */
+ * 最后一句在全景下面。静止版式里事先渲染好的全景图、标题、正文、几句话和最后一句竖着排下来。 */
 .lp-act5 {
   position: relative;
   z-index: 1;
@@ -1406,6 +1406,45 @@ html[data-lp-layout="motion"] .lp-memory-canvas {
   height: 100%;
   opacity: var(--lp-memory, 0);
   pointer-events: none;
+}
+/* 事先渲染好的终局全景图（MemoryStill.tsx）：四边淡进夜色。静止版式里排在最上面，横着占满这一栏；运动版式里平时
+ * display: none（懒加载的图不下载），画布丢了上下文、建不起来时（lp-memory-lost）摆在画面正中，整张放得下，跟着
+ * 画布原本的不透明度（--lp-memory）淡入淡出。图的宽高比 --lp-still-aspect 由 Memory 写。 */
+.lp-memory-still {
+  display: block;
+  height: auto;
+  pointer-events: none;
+  mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent), linear-gradient(transparent, #000 9%, #000 91%, transparent);
+  mask-composite: intersect;
+}
+html:not([data-lp-layout="motion"]) .lp-memory-still {
+  width: 100%;
+  max-width: 72rem;
+  align-self: center;
+}
+/* 竖屏上这一栏太窄：图往右伸到画面边（左边是幕名轨）。 */
+@media (max-aspect-ratio: 10/11) {
+  html:not([data-lp-layout="motion"]) .lp-memory-still {
+    width: calc(100% + var(--lp-gutter));
+    max-width: none;
+    align-self: flex-start;
+  }
+}
+html[data-lp-layout="motion"] .lp-memory-still {
+  display: none;
+}
+html[data-lp-layout="motion"] .lp-root.lp-memory-lost .lp-memory-still {
+  display: block;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: min(100vw, var(--lp-vh, 100svh) * var(--lp-still-aspect));
+  translate: -50% -50%;
+  opacity: var(--lp-memory, 0);
+}
+/* 换成全景图以后几句话收起来：它们按 3D 场景里说话的人摆，图上对不上。还在无障碍树上。 */
+html[data-lp-layout="motion"] .lp-root.lp-memory-lost .lp-line {
+  opacity: 0;
 }
 .lp-act5-copy {
   max-width: min(26rem, 78vw);

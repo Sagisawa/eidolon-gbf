@@ -344,6 +344,12 @@ export async function api(path: string, init: RequestInit = {}): Promise<Respons
  * deployer gave none), which a banned user is told. */
 export type SignInOptions = { providers: Provider[]; dev_login: boolean; contact: string | null };
 
+/** What the landing page shows that belongs to no one character. `memory_still_url`: its act about
+ * memory as one picture, for visitors who see no animation, in the stands' bucket; null unless the
+ * deployment serves the stand assets. The server does not check that it was put there: when it
+ * fails to load, show only the words. */
+export type LandingAssets = { memory_still_url: string | null };
+
 export async function getSignInOptions(): Promise<SignInOptions> {
   return json(await api("/api/auth/providers"));
 }

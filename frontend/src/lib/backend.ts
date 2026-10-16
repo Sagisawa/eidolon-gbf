@@ -1,7 +1,7 @@
 // Server side only: where the backend is, for the API proxy and the server components
 // that ask the backend before rendering.
 
-import { CONSENT_REQUIRED, type Character, type SignInOptions } from "@/lib/api";
+import { CONSENT_REQUIRED, type Character, type LandingAssets, type SignInOptions } from "@/lib/api";
 
 export const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
@@ -32,7 +32,7 @@ export async function isSignedIn(cookie: string): Promise<boolean> {
 }
 
 /** How long the landing page keeps what it asks the backend for (the character list, the ways to
- * sign in) before asking again. */
+ * sign in, its pictures) before asking again. */
 const LANDING_REVALIDATE_SECONDS = 60;
 
 /** The characters, for the landing page's spectrum: kept for a minute rather than asked for on
@@ -62,3 +62,19 @@ export async function getSignInOptions(): Promise<SignInOptions | null> {
     return null;
   }
 }
+
+/** The landing page's pictures that belong to no one character, kept for a minute like the
+ * character list. None of them when the backend fails or cannot be reached; the landing page then
+ * goes without them. */
+export async function getLandingAssets(): Promise<LandingAssets> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/landing`, {
+      next: { revalidate: LANDING_REVALIDATE_SECONDS },
+    });
+    return res.ok ? await res.json() : NO_LANDING_ASSETS;
+  } catch {
+    return NO_LANDING_ASSETS;
+  }
+}
+
+const NO_LANDING_ASSETS: LandingAssets = { memory_still_url: null };

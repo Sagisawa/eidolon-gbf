@@ -1,6 +1,6 @@
 import { buttonVariants } from "@/components/ui/button";
 import { copy } from "@/i18n";
-import type { Character, SignInOptions } from "@/lib/api";
+import type { Character, LandingAssets, SignInOptions } from "@/lib/api";
 import { REPOSITORY_URL } from "@/lib/repository";
 import { PROVIDER_LABELS } from "@/lib/signIn";
 
@@ -37,11 +37,14 @@ export function Landing({
   isSignedIn,
   characters,
   signInOptions,
+  assets,
 }: {
   isSignedIn: boolean;
   characters: Character[];
   /** 后端的登录选项；取不到时第 6 幕不提登录方式。 */
   signInOptions: SignInOptions | null;
+  /** 不属于哪一位角色的图（第 5 幕的静止图）；没有时只有文字。 */
+  assets: LandingAssets;
 }) {
   const spectrum = prepareSpectrum(characters);
   const lights = lightsOf(spectrum);
@@ -101,7 +104,7 @@ export function Landing({
             call={t.act4}
           />
         )}
-        <Memory section={sectionOf(5)} copy={t.act5} actors={actors} />
+        <Memory section={sectionOf(5)} copy={t.act5} actors={actors} still={assets.memory_still_url} />
         <Honesty section={sectionOf(6)} title={t.act6.title} lines={honestyLines(signInOptions)} />
         <Start
           section={sectionOf(7)}

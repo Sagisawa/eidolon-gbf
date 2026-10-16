@@ -802,3 +802,13 @@ async def test_call_poster_and_voxels_are_where_the_bucket_keeps_them(make_clien
         "mano": (f"{STAND_ASSETS}/call-posters/mano.webp", f"{STAND_ASSETS}/landing-voxels/mano.json"),
         "kogane": (f"{STAND_ASSETS}/call-posters/kogane.webp", f"{STAND_ASSETS}/landing-voxels/kogane.json"),
     }
+
+
+async def test_landing_memory_still_is_where_the_bucket_keeps_it(make_client: ClientFactory, settings: Settings):
+    """The landing page's act about memory as one picture, for visitors who see no animation:
+    put in the bucket by hand and listed as her call poster is, without asking the bucket."""
+    served = make_client(FakeLLM(), settings=replace(settings, stand_assets_url=STAND_ASSETS), user=None)
+    unserved = make_client(FakeLLM(), user=None)
+
+    assert (await served.get("/api/landing")).json() == {"memory_still_url": f"{STAND_ASSETS}/landing-memory/still.webp"}
+    assert (await unserved.get("/api/landing")).json() == {"memory_still_url": None}

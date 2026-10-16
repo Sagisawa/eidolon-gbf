@@ -124,3 +124,7 @@ export type MemoryScene = {
 
 /** 幕内进度 p 时的场景状态，画布的不透明度是 `opacity`。 */
 export const memoryAt = (p: number, vp: Viewport, opacity: number): MemoryScene => ({ progress: p, camera: cameraAt(p, vp), opacity });
+
+/** 事先渲染好的终局全景图（scripts/landing-memory-still.mjs，定格档、静态档和 3D 画布出问题时用）的尺寸（像素）：
+ * 按电脑上的取景（横屏，取景半高就是取景半径）渲染，页面按这个比例排它。 */
+export const MEMORY_STILL = { w: 1920, h: 1200 } as const;

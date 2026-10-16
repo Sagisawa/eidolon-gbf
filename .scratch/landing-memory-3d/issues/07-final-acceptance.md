@@ -16,3 +16,8 @@
 - [ ] 手机上第 5 幕的帧耗时在预算内（或已改用 64 格并写进文档）
 - [ ] 人工验证清单写进这张票的 Comments
 - [ ] 前端、后端全部测试和类型检查通过
+
+## Comments
+
+- 06 留下的（2026-10-16）：`landing-check.mjs` 第 1 项里「访客的入口是「登录」」和「/about 入口是「继续」」两条一直失败：它取 `.lp-top` 里第一个链接或按钮，PR #79 在入口左边加了「GitHub」链接以后取到的是它。要改成取入口本身（`LandingEntry`）。其余 71 项在本地构建版上通过（完整档在无头浏览器里按帧降到了 basic，丢上下文那一条的档位是 basic → basic）。
+- 换了体素文件（例如改用 64 格）或改了第 5 幕的场景以后，要重新跑 `node scripts/landing-memory-still.mjs --out <文件>` 出静止图、上传到存储桶 `landing-memory/still.webp`（docs/deploy.md「第 5 幕的静止图」）。

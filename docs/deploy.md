@@ -227,6 +227,7 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --jso
 | `call-openers/<角色标识>-<哈希>.mp3` | 落地页演示来电里她的开场白，同样由 `eidolon greeting upload` 合成上传，见下面「招呼」里的「开场白」 |
 | `call-posters/<角色标识>.webp` | 落地页演示来电里她的卡图（联系人海报），手动上传，见下面「招呼」里的「来电卡图」 |
 | `landing-voxels/<角色标识>.json` | 落地页第 5 幕里她的体素小人，手动上传，见下面「招呼」里的「体素小人」 |
+| `landing-memory/still.webp` | 落地页第 5 幕事先渲染好的终局全景图，给不播放动画的访客，手动上传，见下面「招呼」里的「第 5 幕的静止图」 |
 
 后端通过 `/api/characters` 把默认衣装的地址和衣装清单的地址（`stand.outfits_url`）告诉浏览器。
 
@@ -377,6 +378,21 @@ call_opener_subtitle = "啊，喂……我是真乃。那个，现在方便接�
 
 三视图和 GLB 留在自己电脑上，不进仓库也不进存储桶。出处和做法记在 `frontend/src/app/(landing)/CREDITS.md`；换角色、重做模型时一起改。
 
+### 第 5 幕的静止图
+
+不播放动画的访客（定格档、静态档），和 3D 画布丢了上下文、建不起来的时候，落地页第 5 幕是一张事先渲染好的终局全景图：四位偶像站在各自的岛上，四根记忆柱顶上都是真乃颜色的方块，几根光线连着。图上有体素小人，所以它同样不进仓库，放在存储桶的 `landing-memory/still.webp`。后端不查存储桶，配了 `EIDOLON_STAND_ASSETS_URL` 就在 `/api/landing` 里给出这个地址（`memory_still_url`）；那里没有图、加载不出来时，静止版式里这一幕只有文字。
+
+图由页面上同一套场景代码在无头浏览器里画出来。改了第 5 幕的场景、换了体素文件以后重新出一张：
+
+1. 起后端（要配好 `EIDOLON_STAND_ASSETS_URL`，四位的体素文件已经在存储桶里），在 `frontend/` 下跑
+
+   ```sh
+   node scripts/landing-memory-still.mjs --out <文件> [--backend http://localhost:8000]
+   ```
+
+   输出 1920×1200 的 WebP，几十 KB。有哪位的体素文件加载不到就不出图。
+2. **上传**到存储桶的 `landing-memory/still.webp`，Content-Type 设成 `image/webp`，缓存头 `public, max-age=86400`。
+
 ### 合成上传
 
 **什么时候跑**：新增或改了招呼、开场白的原文（`greeting`、`call_opener`）、换了她的 `voice_id`，或者改了读音文件之后，重启后端之前或之后都行。只改字幕不用跑，重启后端即可。改了原文或字幕，还要重新生成落地页的字体子集（`frontend/AGENTS.md`「落地页的字体子集」）。
@@ -438,7 +454,7 @@ uv run eidolon reading draft
 
 ### 下线
 
-收到权利方的要求时，清空存储桶：立绘、招呼、开场白、来电卡图和体素小人一起下线，通话层退回背景图，落地页退回只有字幕、光、后备海报和印象色方块，不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕），开场白是 `call-openers/`；要连字幕一起去掉，删掉 `characters.toml` 里的招呼或开场白再重启后端。
+收到权利方的要求时，清空存储桶：立绘、招呼、开场白、来电卡图、体素小人和第 5 幕的静止图一起下线，通话层退回背景图，落地页退回只有字幕、光、后备海报和印象色方块（静止版式的第 5 幕只有文字），不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕），开场白是 `call-openers/`；要连字幕一起去掉，删掉 `characters.toml` 里的招呼或开场白再重启后端。
 
 ## 配置 OAuth 应用
 
