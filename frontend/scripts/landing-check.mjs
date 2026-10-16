@@ -29,17 +29,18 @@
 //      下方，响铃时手机和界面一起振动、接通后不振动；电脑上把「滑动接听」拖过一半（拖不到一半不接）、手机上点一下
 //      就接通，截接通、通话结束；挂断键给出「通话结束」和时长，约 1.5 秒后回到来电；电脑上用键盘回车接听、Tab 到
 //      挂断键回车挂断，焦点留在状态那一行；手机画布丢了 WebGL 上下文时换成事先渲染好的手机图，屏幕还在图上的屏幕处，
-//      落地页不降档；第 5 幕（3D 场景）在九个节拍各截一张、往回滚截一张，某位的体素文件加载不到时她的位置是
-//      印象色方块加名字（截图看），场景画布丢了上下文时收起、换成事先渲染好的全景图（存储桶里有的话）、几句话收起来、
-//      落地页不降档；用显卡（软件渲染时跳过）截完整档、简化档
-//      的开场全景（完整档有阴影和泛光，简化档没有、粒子少一半），简化档停在开场全景量一段帧耗时，不超过它降档的门槛；
+//      落地页不降档；第 5 幕（3D 场景）某位的体素文件加载不到时她的位置是印象色方块加名字（截图看），场景画布丢了上下文时
+//      收起、换成事先渲染好的全景图（存储桶里有的话）、几句话收起来、落地页不降档；用显卡（软件渲染时截图照截、帧耗时和
+//      档位跳过）：电脑（完整档）、竖屏手机（简化档）在九个节拍各截一张、往回滚截一张，档位不降，电脑上截第 4、5、6 幕的
+//      衔接；手机 CPU 降速 4 倍时停着和滚过这一幕的帧耗时不超过简化档降档的门槛；截完整档、简化档的开场全景（完整档有
+//      阴影和泛光，简化档没有、粒子少一半），简化档停在开场全景量一段帧耗时，不超过它降档的门槛；
 //      第 7 幕的行动按钮弹出登录面板。定格档、静态档各截这几幕的静止版式，幕名轨跟着滚动走；第 4 幕
 //      （电脑、竖屏手机）是事先渲染好的手机图，屏幕在落地页模型停稳时的屏幕矩形里，截来电和接通，键盘回车接听、Tab 到
 //      挂断键回车挂断；静态档接通后卡图留着、没有立绘，load 之后到挂断为止不加载任何脚本。第 5 幕（电脑、竖屏手机）是
 //      事先渲染好的全景图（存储桶里有的话）加按顺序的几句话，静态档滚到这一幕也不加载脚本；存储桶里没有图（拦下它，回 404）
 //      时只有文字、没有破图。滚动位置按落地页模型的
 //      时间线（model/timeline.ts）算，和页面同一个出处。
-//   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab，每一处焦点都在画面上、看得见（不是透明的）。
+//   8. 键盘：完整档、定格档、静态档从页面开头一路按 Tab 走到页脚最后一个链接，每一处焦点都在画面上、看得见（不是透明的）。
 //   9. 页内查找：完整档里按下 Ctrl+F 再跳到几个文本片段（和页内查找一样会把 until-found 的文字找出来），
 //      找到的字在画面上、看得见：画面外组合里的名牌、第 3 幕的一句字幕、第 5 幕气泡里的一句、第 7 幕的标题。没在查找时，
 //      跟着滚动淡入淡出的文字（看不见的那些也算）都在无障碍树上，读屏器读得到；第 5 幕的标题、正文、几句话和最后一句
@@ -99,7 +100,8 @@ async function visit(context, pathname) {
   await page.goto(`${origin}${pathname}`, { waitUntil: "domcontentloaded" });
   const url = new URL(page.url());
   const isLanding = (await page.locator("#lp-title").count()) > 0;
-  const entry = isLanding ? page.locator(".lp-top a, .lp-top button").first() : null;
+  // 入口（LandingEntry）在页首最右，左边是仓库链接。
+  const entry = isLanding ? page.locator(".lp-top > a, .lp-top > button").last() : null;
   const seen = {
     path: url.pathname,
     isLanding,
@@ -290,6 +292,30 @@ async function beamAnchored(page) {
   const [x, y, ax, ay] = portrait ? [b.cx, b.bottom, b.w * 0.5, b.h * 0.3] : [b.right, b.cy, b.w * 0.46, b.h * 0.66];
   return { ok: Math.abs(x - ax) <= 1.5 && Math.abs(y - ay) <= 1.5, detail: `尽头 (${x.toFixed(1)}, ${y.toFixed(1)})，锚点 (${ax.toFixed(1)}, ${ay.toFixed(1)})` };
 }
+
+/**
+ * 平均帧耗时：3 秒里相邻两帧的间隔（落地页按帧降档量的也是它）。受屏幕刷新率封顶，只说明没慢到降档，量不出一帧实际
+ * 画了多久。`throughAct5` 时这 3 秒从第 5 幕钉住那一段的开头匀速滚到结尾。
+ */
+const frameMs = (page, throughAct5 = false) =>
+  page.evaluate(
+    (through) =>
+      new Promise((resolve) => {
+        const wrap = document.querySelector(".lp-memory");
+        const from = wrap.getBoundingClientRect().top + window.scrollY;
+        const to = from + wrap.offsetHeight - innerHeight;
+        const t = [];
+        const step = (now) => {
+          t.push(now);
+          const f = (now - t[0]) / 3000;
+          if (through) window.scrollTo(0, from + (to - from) * Math.min(1, f));
+          if (f < 1) requestAnimationFrame(step);
+          else resolve((t.at(-1) - t[0]) / (t.length - 1));
+        };
+        requestAnimationFrame(step);
+      }),
+    throughAct5,
+  );
 
 /** 页面上的报错和警告（OGL 缺 uniform、React 水合不一致等都会打在控制台上）。 */
 function watchConsole(page) {
@@ -627,17 +653,10 @@ function watchConsole(page) {
         await page.screenshot({ path: path.join(shots, "full-act4-lost.png") });
       }
     }
-    // 第 5 幕：先停在它前面一点，等场景建好，再在九个节拍的当中各截一张，最后往回滚到副本过桥那一拍截一张。
-    await act5Ready(page, act5);
-    const beatMid = (k) => (BEATS[k].at + (BEATS[k + 1]?.at ?? 1)) / 2;
-    for (let k = 0; k < BEATS.length; k++) {
-      await toScreens(page, act5.from + act5.length * beatMid(k));
-      await page.screenshot({ path: path.join(shots, `${name}-act5-beat${k}.png`) });
-    }
-    const bridgeBeat = BEATS.findIndex((b) => b.name === "记忆沿桥传给果穗");
-    await toScreens(page, act5.from + act5.length * beatMid(bridgeBeat));
-    await page.screenshot({ path: path.join(shots, `${name}-act5-back-beat${bridgeBeat}.png`) });
+    // 第 5 幕的九个节拍在下面用显卡截（软件渲染在这里一开场就降到 basic 了）；这里只看画布丢了上下文。
     if (name === "full") {
+      await act5Ready(page, act5);
+      await toScreens(page, act5.from + act5.length * 0.5);
       const tierBefore = await tierOf(page);
       await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
       await page.waitForTimeout(1500);
@@ -690,19 +709,86 @@ function watchConsole(page) {
     await context.close();
   }
 
-  // 第 5 幕的画质：完整档、简化档的开场全景各截一张（完整档有阴影和泛光，简化档没有、粒子少一半，场景其他照常），
-  // 简化档停在开场全景量一段帧耗时。要用显卡：软件渲染（SwiftShader）一帧几百毫秒，完整档一开场就按帧降档了。
+  // 第 5 幕要用显卡看：软件渲染（SwiftShader）一帧几百毫秒，完整档一开场就按帧降档了。没有显卡时照样截图，帧耗时和档位
+  // 那几项跳过。
   {
     const gpu = await chromium.launch({ args: ["--enable-gpu", ...(process.platform === "win32" ? ["--use-angle=d3d11"] : [])] });
-    for (const tier of ["full", "lite"]) {
-      const context = await gpu.newContext(DESKTOP);
-      const page = await context.newPage();
-      await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
-      const software = await page.evaluate(() => {
+    const softwareOn = (page) =>
+      page.evaluate(() => {
         const gl = document.createElement("canvas").getContext("webgl2");
         const info = gl?.getExtension("WEBGL_debug_renderer_info");
         return !info || /swiftshader|llvmpipe/i.test(gl.getParameter(info.UNMASKED_RENDERER_WEBGL));
       });
+    const [liteSlow] = SLOW_MS.lite;
+
+    // 电脑（完整档）、竖屏手机（触屏，起步就是简化档）不带 ?tier= 打开：九个节拍的当中各截一张，往回滚到副本过桥那一拍
+    // 截一张，档位一直不降。手机再把 CPU 降速 4 倍（中端安卓机），停在开场、终局全景和一路滚过这一幕时量帧耗时，
+    // 不超过简化档降档的门槛：超了就该给手指操作的设备换 64 格的体素（docs/deploy.md「体素小人」）。
+    for (const [name, options, want] of [
+      ["full", DESKTOP, "full"],
+      ["phone", PHONE, "lite"],
+    ]) {
+      const context = await gpu.newContext(options);
+      const page = await context.newPage();
+      await page.goto(`${origin}/`, { waitUntil: "load" });
+      const software = await softwareOn(page);
+      const tl = await timelineOn(page);
+      const act5 = spanOf(tl, 5);
+      if (name === "full") {
+        // 整页一路滚过第 4 幕到第 6 幕的衔接：手机离开后夜空接上来，最后一屏画布淡出、接上第 6 幕。截图看。
+        for (const [label, at] of [
+          ["act4-out", act5.from - 0.6],
+          ["act5-in", act5.from - 0.2],
+          ["act5-out", act5.to - 0.5],
+          ["act6-in", act5.to + 0.3],
+        ]) {
+          await toScreens(page, at);
+          if (label === "act4-out") await page.waitForTimeout(4000);
+          await page.screenshot({ path: path.join(shots, `gpu-${name}-seam-${label}.png`) });
+        }
+      }
+      await act5Ready(page, act5);
+      const beatMid = (k) => (BEATS[k].at + (BEATS[k + 1]?.at ?? 1)) / 2;
+      for (let k = 0; k < BEATS.length; k++) {
+        await toScreens(page, act5.from + act5.length * beatMid(k));
+        await page.screenshot({ path: path.join(shots, `${name}-act5-beat${k}.png`) });
+      }
+      const bridgeBeat = BEATS.findIndex((b) => b.name === "记忆沿桥传给果穗");
+      await toScreens(page, act5.from + act5.length * beatMid(bridgeBeat));
+      await page.screenshot({ path: path.join(shots, `${name}-act5-back-beat${bridgeBeat}.png`) });
+      const after = await tierOf(page);
+      report(
+        `${name}：第 5 幕九个节拍和往回滚（截图 ${name}-act5-beat0…${BEATS.length - 1}.png、${name}-act5-back-beat${bridgeBeat}.png），档位停在 ${want}`,
+        software ? null : after === want,
+        software ? "没有显卡，跳过" : `档位 ${after}`,
+      );
+      if (name === "phone") {
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+        const seen = [];
+        for (const k of [0, BEATS.length - 1]) {
+          await toScreens(page, act5.from + act5.length * beatMid(k));
+          seen.push([`停在第 ${k} 拍`, await frameMs(page)]);
+        }
+        seen.push(["滚过这一幕", await frameMs(page, true)]);
+        const worst = Math.max(...seen.map(([, ms]) => ms));
+        const tier = await tierOf(page);
+        report(
+          `phone：CPU 降速 4 倍时第 5 幕的帧耗时在简化档降档的门槛（${liteSlow} ms）以内，档位不降`,
+          software ? null : worst <= liteSlow && tier === "lite",
+          `${software ? "没有显卡，跳过；" : ""}${seen.map(([at, ms]) => `${at} ${ms.toFixed(1)} ms`).join("，")}，档位 ${tier}`,
+        );
+      }
+      await context.close();
+    }
+
+    // 完整档、简化档的开场全景各截一张（完整档有阴影和泛光，简化档没有、粒子少一半，场景其他照常），简化档停在开场全景量一段
+    // 帧耗时。
+    for (const tier of ["full", "lite"]) {
+      const context = await gpu.newContext(DESKTOP);
+      const page = await context.newPage();
+      await page.goto(`${origin}/?tier=${tier}`, { waitUntil: "load" });
+      const software = await softwareOn(page);
       const tl = await timelineOn(page);
       const act5 = spanOf(tl, 5);
       await act5Ready(page, act5);
@@ -712,24 +798,11 @@ function watchConsole(page) {
         const after = await tierOf(page);
         report("第 5 幕完整档的开场全景（截图 full-act5-dressing.png：楼、路灯、各人岛上的东西、AI 的梗、云和粒子，有阴影和泛光）", software ? null : after === "full", software ? "没有显卡，跳过" : `档位停在 ${after}`);
       } else {
-        // 量的是相邻两帧的间隔：受屏幕刷新率封顶，只说明没慢到降档，量不出一帧实际画了多久。
-        const ms = await page.evaluate(
-          () =>
-            new Promise((resolve) => {
-              const t = [];
-              const step = (now) => {
-                t.push(now);
-                if (now - t[0] < 3000) requestAnimationFrame(step);
-                else resolve((t.at(-1) - t[0]) / (t.length - 1));
-              };
-              requestAnimationFrame(step);
-            }),
-        );
+        const ms = await frameMs(page);
         const after = await tierOf(page);
-        const [slow] = SLOW_MS.lite;
         report(
-          `第 5 幕简化档：开场全景的帧耗时在简化档降档的门槛（${slow} ms）以内（截图 lite-act5-dressing.png：没有阴影和泛光，粒子少一半）`,
-          software ? null : ms <= slow && after === "lite",
+          `第 5 幕简化档：开场全景的帧耗时在简化档降档的门槛（${liteSlow} ms）以内（截图 lite-act5-dressing.png：没有阴影和泛光，粒子少一半）`,
+          software ? null : ms <= liteSlow && after === "lite",
           software ? `没有显卡，跳过（软件渲染 ${ms.toFixed(1)} ms）` : `平均 ${ms.toFixed(1)} ms，档位 ${after}`,
         );
       }
@@ -939,6 +1012,7 @@ for (const tier of ["full", "reduced", "static"]) {
   await page.waitForTimeout(2500);
   const bad = [];
   let stops = 0;
+  let end = false;
   for (let i = 0; i < 80; i++) {
     await page.keyboard.press("Tab");
     await page.waitForTimeout(900);
@@ -948,9 +1022,16 @@ for (const tier of ["full", "reduced", "static"]) {
     stops += 1;
     const seen = await shownIn(page, handle);
     if (!seen.ok) bad.push(`「${label}」在 ${seen.at}，不透明度 ${seen.o}`);
-    if (await page.evaluate((el) => el.matches(".lp-footer a:last-child"), handle)) break;
+    if (await page.evaluate((el) => el.matches(".lp-footer a:last-child"), handle)) {
+      end = true;
+      break;
+    }
   }
-  report(`${tier}：按 Tab 走过的每一处焦点都在画面上、看得见`, bad.length === 0, bad.join("；") || `${stops} 处`);
+  report(
+    `${tier}：按 Tab 一路走到页脚最后一个链接，没卡在哪一幕，走过的每一处焦点都在画面上、看得见`,
+    end && bad.length === 0,
+    [...bad, ...(end ? [] : ["没走到页脚"])].join("；") || `${stops} 处`,
+  );
   await context.close();
 }
 
