@@ -29,7 +29,6 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
   const wide = useWide();
   const hydrated = useHydrated();
   const { characterId } = useParams<{ characterId?: string }>();
-  const column = useSavedSize("list", hydrated && wide);
   const list = <ConversationList selectedId={wide ? (characterId ?? null) : null} />;
 
   return (
@@ -37,19 +36,11 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
       {hydrated ? (
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           {wide && (
-            <ResizablePanel
-              id="list"
-              panelRef={column.panelRef}
-              onResize={column.onResize}
-              defaultSize={LIST_WIDTH.initial}
-              minSize={LIST_WIDTH.min}
-              maxSize={LIST_WIDTH.max}
-              groupResizeBehavior="preserve-pixel-size"
-            >
+            <ListPanel>
               <nav aria-label={copy.conversationList.title} className="h-full">
                 {list}
               </nav>
-            </ResizablePanel>
+            </ListPanel>
           )}
           {/* 两栏之间的细线（列表栏的 border-r），也是拖动调宽窄的地方。 */}
           {wide && <ResizableHandle aria-label={copy.conversationList.resize} />}
@@ -71,5 +62,22 @@ export default function ConversationsLayout({ children }: { children: ReactNode 
         </div>
       )}
     </PageShell>
+  );
+}
+
+/** 宽屏左边的列表栏，和宽屏一起挂上、卸下，每次挂上按上次拖到的宽度排（useSavedSize）。 */
+function ListPanel({ children }: { children: ReactNode }) {
+  const { defaultSize, onResize } = useSavedSize("list", LIST_WIDTH.initial);
+  return (
+    <ResizablePanel
+      id="list"
+      onResize={onResize}
+      defaultSize={defaultSize}
+      minSize={LIST_WIDTH.min}
+      maxSize={LIST_WIDTH.max}
+      groupResizeBehavior="preserve-pixel-size"
+    >
+      {children}
+    </ResizablePanel>
   );
 }
