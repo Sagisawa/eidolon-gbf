@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
-import { getProfile, listMemories } from "@/lib/api";
+import { getProfile, getStats, listMemories } from "@/lib/api";
 import { loadCallPreferences, type CallPreferences } from "@/lib/callPreferences";
 import { toFailure, type Failure } from "@/lib/failure";
 import { localOwnKeys, ownServices, subscribeOwnKeys, type OwnService } from "@/lib/localOwnKeys";
@@ -42,6 +42,7 @@ export function SettingsValuesProvider({ children }: { children: ReactNode }) {
   const [profileFailure, setProfileFailure] = useState<Failure | null>(null);
   const [detectedTimezone, setDetectedTimezone] = useState("");
   const [memoryCount, setMemoryCount] = useState<number | null>(null);
+  const [daysKnown, setDaysKnown] = useState<number | null>(null);
   const [call, setCall] = useState<CallPreferences | null>(null);
   const [ownedServices, setOwnedServices] = useState<OwnService[] | null>(null);
   const [profileAttempt, setProfileAttempt] = useState(0);
@@ -63,6 +64,7 @@ export function SettingsValuesProvider({ children }: { children: ReactNode }) {
     let current = true;
     // 只为摘要里的条数；取不到时那一行只显示名字。
     listMemories().then((memories) => current && setMemoryCount((count) => count ?? memories.length), () => {});
+    getStats().then((stats) => current && setDaysKnown(stats.days_known), () => {});
     return () => {
       current = false;
     };
@@ -81,6 +83,7 @@ export function SettingsValuesProvider({ children }: { children: ReactNode }) {
         profile,
         detectedTimezone,
         memoryCount,
+        daysKnown,
         call,
         ownServices: ownedServices,
         signInMethods: account?.sign_in_methods.map((method) => method.provider) ?? null,
@@ -96,7 +99,7 @@ export function SettingsValuesProvider({ children }: { children: ReactNode }) {
       memoryCountChanged: setMemoryCount,
       callChanged: setCall,
     }),
-    [profile, profileFailure, detectedTimezone, memoryCount, call, ownedServices, account],
+    [profile, profileFailure, detectedTimezone, memoryCount, daysKnown, call, ownedServices, account],
   );
 
   return <SettingsValuesContext.Provider value={values}>{children}</SettingsValuesContext.Provider>;

@@ -36,7 +36,10 @@ export function PageShell({
           <div className={cn("flex min-h-14 items-center", column || "px-4")}>{header}</div>
         </header>
       )}
-      <main className={cn("flex min-h-0 flex-1 flex-col", isScrollable ? "overflow-y-auto" : "overflow-hidden")}>
+      {/* relative：内容里绝对定位的东西（读屏用的 sr-only 表格等）以滚动区为准，不跑出去把整页撑出第二条滚动条。 */}
+      <main
+        className={cn("relative flex min-h-0 flex-1 flex-col", isScrollable ? "overflow-y-auto" : "overflow-hidden")}
+      >
         {/* 内容自带滚动时，这一层也不能被内容撑高（min-h-0），否则里面的滚动区永远不滚、整页被撑出视口。 */}
         <div className={cn("flex flex-1 flex-col", !isScrollable && "min-h-0", column && cn(column, "py-6"))}>
           {children}

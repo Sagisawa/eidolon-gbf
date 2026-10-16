@@ -10,9 +10,12 @@ that ends the call; between turns the pipeline asks whether she hangs up, then w
 call has reached its limits, and is handed back why it hangs up and that message. Once the
 call is over it is settled as that message said: the admission keeps the use or gives it
 back, and writes the record, by how it turned out; any turn still open is settled first,
-as cut short by how the call ended.
+as cut short by how the call ended. A call that connected is kept, too, for stats
+(ADR-0021).
 """
 
+from collections.abc import Callable
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from time import perf_counter
@@ -21,10 +24,13 @@ from typing import Literal
 from eidolon.activity import CallEndReason, Recording, Result
 from eidolon.admission import Admission
 from eidolon.affinity import EndsFor
+from eidolon.clock import Clock
 from eidolon.config import SttProvider
 from eidolon.engine import CallTurnRecorded, InCall
 from eidolon.own_keys import CallKeys, OwnKeyFailed, Service
 from eidolon.turn_outcome import TurnOutcome
+
+log = logging.getLogger(__name__)
 
 EndReason = Literal[
     "not_connected", "dropped", "duration_limit", "turn_limit", "own_key", "she_hung_up",
@@ -46,6 +52,11 @@ _ENDED_BY: dict[EndReason, CallEndReason] = {
     "cooldown": "character_hung_up",
 }
 """Why the call's activity record says it ended, when the browser was told why."""
+
+
+KeepCall = Callable[[datetime, float], None]
+"""Keeps a call that connected, for stats: when it connected, and how long it lasted once it
+had, in seconds."""
 
 
 @dataclass(frozen=True)
@@ -101,16 +112,25 @@ class CallOutcome:
     ended: whatever ended it first, as the browser was told or as reported (`ended_by`),
     the user having left the page if nothing else did. Its turns are kept until each is
     settled: one still open as the call is settled is settled then, cut short by a failure
-    if one ended the call (`ended_by_failure`), as it would be once over.
+    if one ended the call (`ended_by_failure`), as it would be once over. Unless it never
+    connected, it is kept then, too, for as long as its record says it lasted, whoever
+    hung up and whatever ended it.
     """
 
-    def __init__(self, admission: Admission[CallKeys], limits: CallLimits) -> None:
-        """The call let through by `admission`, which may go on as long as `limits` say."""
+    def __init__(
+        self, admission: Admission[CallKeys], limits: CallLimits, clock: Clock, keep: KeepCall
+    ) -> None:
+        """The call let through by `admission`, which may go on as long as `limits` say;
+        kept by `keep` once settled, if it connected, as of the time `clock` tells as it
+        did."""
         self._admission = admission
         self.recording: Recording = admission.recording
         """The call's activity record, which its turns and service calls go under."""
         self._limits = limits
+        self._clock = clock
+        self._keep = keep
         self._connected_at: float | None = None  # `perf_counter`, once connected
+        self._connected_by_clock: datetime | None = None  # the time `clock` told, once connected
         self._recorded = 0
         self._out_of_line = 0  # turns recorded out of line
         self._hurts: list[float] = []  # what each turn recorded took off her affinity
@@ -121,6 +141,7 @@ class CallOutcome:
         self._failed = False  # a service, or an own key, ended it once connected
         self._ended_by: CallEndReason | None = None
         self._open_turns: list[TurnOutcome] = []  # begun, not yet settled
+        self._settled = False
 
     @property
     def _connected(self) -> bool:
@@ -137,6 +158,7 @@ class CallOutcome:
         """The call has connected (GLOSSARY.md「接通」)."""
         if self._connected_at is None:
             self._connected_at = perf_counter()
+            self._connected_by_clock = self._clock()
         return None
 
     def ended_by(self, reason: CallEndReason) -> None:
@@ -287,7 +309,19 @@ class CallOutcome:
         return "failed" if self._failed else "success"
 
     def _settle(self) -> None:
+        if self._settled:
+            return
+        self._settled = True
         duration = None
         if self._connected_at is not None:
             duration = perf_counter() - self._connected_at
-        self._admission.settle(self._result(), duration, self._ended_by or "left")
+        result = self._result()
+        try:
+            self._admission.settle(result, duration, self._ended_by or "left")
+        finally:
+            connected = self._connected_by_clock
+            if result != "not_connected" and connected is not None and duration is not None:
+                try:
+                    self._keep(connected, duration)
+                except Exception:  # its record is settled; stats only miss the call
+                    log.exception("could not keep a call for stats")

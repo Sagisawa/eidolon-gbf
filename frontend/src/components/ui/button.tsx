@@ -39,6 +39,8 @@ const buttonVariants = cva(
           "rounded-full bg-hangup text-white hover:bg-hangup/90 focus-visible:border-transparent focus-visible:ring-white/60",
         // eidolon: 礼物页底部提示（前景色底的反色胶囊）里的「去对话」：反过来的页面底、前景字（DESIGN.md「礼物页」）。
         toast: "rounded-full bg-background text-foreground hover:bg-background/90",
+        // eidolon: 统计页好感度分组收起时的「+N」和展开后的收起键（DESIGN.md「统计页」）：和头像一样的圆，中性底、muted 字。
+        more: "rounded-full bg-muted text-subtitle text-muted-foreground tabular-nums hover:bg-muted/70 hover:text-foreground",
       },
       size: {
         default:

@@ -424,6 +424,11 @@ class Affinities:
         affinity = self._read(user_id, character_id)
         return Status(affinity.tier, affinity.cooldown_until)
 
+    def tier(self, user_id: str, character_id: str) -> Tier:
+        """The tier the user's affinity with the character is in now, on or off: whoever
+        shows it is to show it only while affinity is on."""
+        return self._read(user_id, character_id).tier
+
     def cooldown_until(self, user_id: str, character_id: str) -> datetime | None:
         """When the cooldown the character is in with the user ends; None if she is in none,
         or while affinity is off, when none holds whatever is kept."""

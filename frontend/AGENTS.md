@@ -19,7 +19,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - **调用处不改外观**：调用处的 className 只管定位和排布。外观要变就到 `ui/` 组件加 variant/prop 或改那条带条件的类；禁止 `!` important；`group-data-[…]` 盖不住的情况同样这样处理。
 - **目录和命名**：项目共用件放 `components/app/`，后台的放 `components/app/admin/`，文件名用 PascalCase。各屏自己的组件放在 `conversations/`、`admin/` 等目录下。`ui/` 用 shadcn 的 kebab-case。
 - **`cn`** 一律从 `@/lib/utils` 导入，`shadcn add` 生成的 `from "cn"` 当场改掉。
-- **她的颜色**：用 `herVars(官方色)` 注入对话子树（覆盖 `--primary`、`--primary-foreground`、`--ring` 和 `--her-*`），不写进主题或 `:root`。浮层（Dialog、AlertDialog、DropdownMenu、Drawer、Sheet、Popover）渲染到 body，需要她的颜色时把 Content 的 `container` 指到子树里（这样也继承子树的 `.dark`），或在浮层内容上再展开一次 `herVars()`。选中状态一律中性 `bg-muted`。
+- **她的颜色**：用 `herVars(官方色)` 注入对话子树（覆盖 `--primary`、`--primary-foreground`、`--ring` 和 `--her-*`），不写进主题或 `:root`。浮层（Dialog、AlertDialog、DropdownMenu、Drawer、Sheet、Popover）渲染到 body，需要她的颜色时把 Content 的 `container` 指到子树里（这样也继承子树的 `.dark`），或在浮层内容上再展开一次 `herVars()`。选中状态一律中性 `bg-muted`。分享图固定浅色，用 `shareVars()` 注入（DESIGN.md「分享图」）。
 - **机器检查**：不装 ESLint。`sh scripts/check-discipline.sh` 拦下 `from "cn"`（`lib/utils.ts` 除外）、任意值里的颜色（`-\[(#|oklch|rgb|hsl|color-mix|var\(--)`，以及 v4 的 `bg-(--x)` 这类颜色简写）、important 类（`!mt-2`、`hover:!bg-x`、`mt-2!`）和对 `@astryxdesign` 的引用（旧组件库，已移除），CI 前端 job 在测试之后跑它。字号、圆角任意值的界线交给代码审查。
 - **shadcn CLI**：本机 npm 全局配置了 `allow-scripts`，CLI 会报 `EALLOWSCRIPTS`；用 `NPM_CONFIG_USERCONFIG` 指向一份不带它的临时 npmrc 再跑 `npx shadcn@latest add …`。
 

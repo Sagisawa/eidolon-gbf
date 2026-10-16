@@ -22,8 +22,22 @@ export function herVars(color: string): CSSProperties {
     "--ring": ld(s.mark),
     "--her-wall": ld(s.wall),
     "--her-mark": ld(s.mark),
+    "--her-bar": ld(s.bar),
     "--her-button": ld(s.button.bg),
     "--her-button-fg": ld(s.button.fg),
     "--her-call-deep": s.call.deep,
+  } as CSSProperties;
+}
+
+/**
+ * 分享图（DESIGN.md「分享图」）里她的颜色：页首色带和上面的字（`--her-banner`、`--her-banner-fg`），
+ * 和前 3 的排行条（`--her-bar`，按分享图条的底校验）。分享图固定浅色，只有一份。
+ */
+export function shareVars(color: string): CSSProperties {
+  const { share } = imageColorScale(color);
+  return {
+    "--her-banner": share.banner,
+    "--her-banner-fg": share.onBanner,
+    "--her-bar": share.bar,
   } as CSSProperties;
 }

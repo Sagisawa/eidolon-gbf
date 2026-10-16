@@ -25,6 +25,7 @@ USER_DATA = [
     ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversation_events",
      "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
+    ("calls", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversations", "user_id = ?"),
     ("producer_profiles", "user_id = ?"),
     ("affinities", "user_id = ?"),
@@ -42,9 +43,10 @@ what refers to a row before the row."""
 CONVERSATION_DATA = [
     ("messages", "conversation_id = ?"),
     ("conversation_events", "conversation_id = ?"),
+    ("calls", "conversation_id = ?"),
 ]
-"""Every table holding a conversation's record, which is deleted with it, and which rows are
-its."""
+"""Every table holding a conversation's record, or kept under it as the calls in it are, which
+is deleted with it, and which rows are its."""
 
 FROM_CONVERSATION = [
     ("memories", "conversation_id = NULL", "conversation_id = ?"),

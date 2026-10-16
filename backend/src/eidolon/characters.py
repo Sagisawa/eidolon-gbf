@@ -44,6 +44,7 @@ administrator has reviewed it and removed the line; the marker never reaches the
 import logging
 import re
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -174,6 +175,12 @@ def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Charac
     if not characters:
         raise CharacterConfigError(f"角色配置文件 {path} 里没有任何角色")
     return characters
+
+
+def in_idol_order(characters: Iterable[Character]) -> list[Character]:
+    """The characters in the order of their idol numbers in the original, those without one
+    after them as given."""
+    return sorted(characters, key=lambda c: (c.idol_id is None, c.idol_id or 0))
 
 
 def _parse_character(

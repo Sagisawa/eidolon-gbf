@@ -24,7 +24,7 @@ from eidolon.call import (
     Quality,
     SessionDescription,
 )
-from eidolon.characters import Character, ScriptedLine
+from eidolon.characters import Character, ScriptedLine, in_idol_order
 from eidolon.engine import ENDED, TurnJudged
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
@@ -53,6 +53,7 @@ from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.gifts_api import add_gift_routes
 from eidolon.sessions import UserId, session_middleware
+from eidolon.stats import add_stats_routes
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation, ConversationEvent, IsCurrent, Recorded
 from eidolon.turn_outcome import TurnOutcome
@@ -332,6 +333,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_admin_price_routes(app, backend)
     add_announcement_routes(app, backend)
     add_gift_routes(app, backend)
+    add_stats_routes(app, backend)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId, own: str = "", conversation: str | None = None) -> dict:
@@ -393,7 +395,7 @@ def create_app(backend: Backend) -> FastAPI:
     def list_characters() -> list[dict]:
         """Who there is to talk to; shown before signing in too, and on the landing page.
         In the order of their idol numbers, those without one after them as configured."""
-        listed = sorted(characters.values(), key=lambda c: (c.idol_id is None, c.idol_id or 0))
+        listed = in_idol_order(characters.values())
         return [
             {
                 "id": c.id,

@@ -1,5 +1,6 @@
 """Relational storage (SQLite) for users, their sessions, producer profiles, conversations,
-their messages and events; memories are kept by `memory`, recent usage by `usage`."""
+their messages and events, and the calls in them; memories are kept by `memory`, recent
+usage by `usage`."""
 
 import hashlib
 import json
@@ -96,6 +97,16 @@ CREATE TABLE IF NOT EXISTS conversation_events (
 );
 CREATE INDEX IF NOT EXISTS conversation_events_by_conversation
     ON conversation_events(conversation_id, created_at);
+-- Each call that connected in a conversation (GLOSSARY.md「接通」), for stats alone: when it
+-- connected and how long it lasted once it had, as its activity record says; nothing of what
+-- was said. Not in the conversation's record: she knows nothing of it (ADR-0021).
+CREATE TABLE IF NOT EXISTS calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    connected_at TEXT NOT NULL,
+    duration_s REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS calls_by_conversation ON calls(conversation_id);
 -- The identities banned users signed in with, kept when those users were deleted so that
 -- deleting is not unbanning; only a keyed hash of each (`accounts.identity_hash`), no one's.
 CREATE TABLE IF NOT EXISTS banned_identities (
@@ -244,6 +255,27 @@ class ConversationEvent:
 
 Recorded = Message | ConversationEvent
 """What a conversation's record holds."""
+
+
+@dataclass(frozen=True)
+class Contact:
+    """A turn the user took with a character (the time of their message) or a gift they
+    gave her, and whether she liked it as it was given, as stats count them."""
+
+    character_id: str
+    kind: Literal["turn", "gift"]
+    at: datetime
+    liked: bool = False
+
+
+@dataclass(frozen=True)
+class KeptCall:
+    """A call the user had with a character that connected, when it did, and how long it
+    lasted once it had, in seconds, as stats count them."""
+
+    character_id: str
+    connected_at: datetime
+    duration_s: float
 
 
 class Store:
@@ -626,6 +658,61 @@ class Store:
             if hers[0].id == conversation.id:
                 raise IsCurrent()
             delete_conversation_data(self._db, conversation.id)
+
+    def contacts(self, user_id: str) -> list[Contact]:
+        """Every turn the user took and gift they gave, in what is left of their
+        conversations, as stats count them (GLOSSARY.md「统计」); in no order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT c.character_id, 'turn' AS kind, m.created_at, 0 AS liked FROM messages m"
+                " JOIN conversations c ON c.id = m.conversation_id"
+                " WHERE c.user_id = ? AND m.role = 'user'"
+                " UNION ALL"
+                " SELECT c.character_id, 'gift' AS kind, e.created_at, e.liked"
+                " FROM conversation_events e JOIN conversations c ON c.id = e.conversation_id"
+                " WHERE c.user_id = ? AND e.kind = 'gift'",
+                (user_id, user_id),
+            ).fetchall()
+        return [
+            Contact(r["character_id"], r["kind"], _at(r["created_at"]), bool(r["liked"]))
+            for r in rows
+        ]
+
+    def keep_call(self, conversation_id: str, connected_at: datetime, duration_s: float) -> None:
+        """Keep a call in the conversation that connected at `connected_at` and lasted
+        `duration_s` seconds once it had, for stats; not into its record. Nothing is kept if
+        the conversation is gone meanwhile, deleted with the user, say."""
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO calls (conversation_id, connected_at, duration_s)"
+                " SELECT id, ?, ? FROM conversations WHERE id = ?",
+                (connected_at.astimezone(UTC).isoformat(), duration_s, conversation_id),
+            )
+
+    def kept_calls(self, user_id: str) -> list[KeptCall]:
+        """Every call kept in what is left of the user's conversations; in no order."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT c.character_id, k.connected_at, k.duration_s FROM calls k"
+                " JOIN conversations c ON c.id = k.conversation_id WHERE c.user_id = ?",
+                (user_id,),
+            ).fetchall()
+        return [KeptCall(r["character_id"], _at(r["connected_at"]), r["duration_s"]) for r in rows]
+
+    def first_records(self, user_id: str) -> dict[str, datetime]:
+        """When the first thing still in the user's conversations with each character, a
+        message, an event or a call kept, was recorded; only those with anything left."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT c.character_id, MIN(r.created_at) AS first FROM ("
+                " SELECT conversation_id, created_at FROM messages"
+                " UNION ALL SELECT conversation_id, created_at FROM conversation_events"
+                " UNION ALL SELECT conversation_id, connected_at FROM calls"
+                ") r JOIN conversations c ON c.id = r.conversation_id"
+                " WHERE c.user_id = ? GROUP BY c.character_id",
+                (user_id,),
+            ).fetchall()
+        return {r["character_id"]: _at(r["first"]) for r in rows}
 
     def latest_conversations(self, user_id: str) -> list[tuple[Conversation, Recorded | None]]:
         """Each character's newest conversation with the user, and the last thing in its
