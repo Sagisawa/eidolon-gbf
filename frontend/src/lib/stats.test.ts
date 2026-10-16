@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   busiestParts,
+  callTime,
+  callTimeText,
   heatLevel,
   heatmapMonths,
   heatmapWeeks,
+  mostCalled,
   mostTalked,
   portrait,
   statsSections,
@@ -21,7 +24,14 @@ const none: Stats = {
   visits: { current: 0, longest: 0 },
   all_hours: hours(),
   heatmap: { from: "2025-09-22", counts: Array(52 * 7 + 5).fill(0) },
-  range: { span: "all", turns: 0, by_hour: hours(), characters: [], gifts: { given: 0, liked: 0, most: null } },
+  range: {
+    span: "all",
+    turns: 0,
+    by_hour: hours(),
+    characters: [],
+    calls: { count: 0, seconds: 0 },
+    gifts: { given: 0, liked: 0, most: null },
+  },
 };
 
 /** Someone who came, all of it in the range: a turn at 9. */
@@ -32,8 +42,13 @@ const came: Stats = {
   range: { ...none.range, turns: 1, by_hour: hours({ 9: 1 }), characters: [known("mano", 1)] },
 };
 
-function known(character_id: string, turns: number, days_known = 10) {
-  return { character_id, turns, days_known };
+function known(character_id: string, turns: number, days_known = 10, call_seconds = 0) {
+  return { character_id, turns, days_known, call_seconds };
+}
+
+/** Someone who called her, `seconds` long, and took no turn. */
+function called(character_id: string, call_seconds: number) {
+  return known(character_id, 0, 10, call_seconds);
 }
 
 describe("热力图", () => {
@@ -110,7 +125,7 @@ describe("聊得最多", () => {
     const characters = [known("a", 3), known("b", 9), known("c", 1), known("d", 6), known("e", 2), known("f", 4)];
     const ranked = mostTalked(characters);
     expect(ranked.map((c) => c.character_id)).toEqual(["b", "d", "f", "a", "e"]);
-    expect(ranked[0]).toEqual({ character_id: "b", turns: 9, days_known: 10, share: 1 });
+    expect(ranked[0]).toEqual({ character_id: "b", turns: 9, days_known: 10, call_seconds: 0, share: 1 });
     expect(ranked[1].share).toBeCloseTo(6 / 9);
   });
 
@@ -121,8 +136,33 @@ describe("聊得最多", () => {
   });
 });
 
+describe("通话最久", () => {
+  it("按接通时长排前 5 位，只列大于 0 的；并列时照接口给的顺序", () => {
+    const characters = [called("a", 30), called("b", 0), called("c", 600), called("d", 30), known("e", 9)];
+    const ranked = mostCalled([...characters, called("f", 90), called("g", 45), called("h", 1)]);
+    expect(ranked.map((c) => c.character_id)).toEqual(["c", "f", "g", "a", "d"]);
+    expect(ranked[0].share).toBe(1);
+    expect(ranked[1].share).toBeCloseTo(90 / 600);
+    expect(mostCalled([called("a", 0), known("b", 3)])).toEqual([]);
+  });
+
+  it("时长按分钟四舍五入，不满 1 分的算 1 分；满 60 分进 1 小时", () => {
+    expect(callTime(0)).toEqual({ hours: 0, minutes: 0 });
+    expect(callTime(5)).toEqual({ hours: 0, minutes: 1 });
+    expect(callTime(89)).toEqual({ hours: 0, minutes: 1 });
+    expect(callTime(90)).toEqual({ hours: 0, minutes: 2 });
+    expect(callTime(3599)).toEqual({ hours: 1, minutes: 0 });
+    expect(callTime(2 * 3600 + 5 * 60 + 10)).toEqual({ hours: 2, minutes: 5 });
+  });
+
+  it("排行的读数不满 1 小时只写分", () => {
+    expect(callTimeText(12 * 60)).toBe("12 分");
+    expect(callTimeText(3600)).toBe("1 小时 0 分");
+  });
+});
+
 describe("哪一块显示", () => {
-  const nothing = { totals: false, mostTalked: false, hours: false, gifts: false };
+  const nothing = { totals: false, mostTalked: false, mostCalled: false, hours: false, gifts: false };
 
   it("一个回合、一次送礼都没有时整页为空", () => {
     expect(statsSections(none)).toEqual({ isEmpty: true, visits: false, portrait: false, heatmap: false, ...nothing });
@@ -148,6 +188,30 @@ describe("哪一块显示", () => {
       range: { ...came.range, gifts: { given: 2, liked: 0, most: { character_id: "mano", given: 2 } } },
     };
     expect(statsSections(gave).gifts).toBe(true);
+  });
+
+  it("只打过电话、没有回合和送礼时不算空：有总数和通话最久，没有画像和连续来访", () => {
+    const onlyCalled = {
+      ...none,
+      range: { ...none.range, characters: [called("mano", 12)], calls: { count: 1, seconds: 12 } },
+    };
+    expect(statsSections(onlyCalled)).toEqual({
+      isEmpty: false,
+      visits: false,
+      portrait: false,
+      heatmap: false,
+      totals: true,
+      mostTalked: false,
+      mostCalled: true,
+      hours: false,
+      gifts: false,
+    });
+  });
+
+  it("这段跨度里有接通过的通话才有通话最久", () => {
+    expect(statsSections(came).mostCalled).toBe(false);
+    const rang = { ...came, range: { ...came.range, characters: [known("mano", 1, 10, 0.4)] } };
+    expect(statsSections(rang).mostCalled).toBe(true);
   });
 
   it("这段跨度里只送了礼时有分时段图，没有聊得最多", () => {

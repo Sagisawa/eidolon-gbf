@@ -24,35 +24,66 @@ export const STATS_RANGES = ["30d", "1y", "all"] as const;
 
 export type StatsRange = (typeof STATS_RANGES)[number];
 
-/** A character's turns in the range, and the days since the first thing still left with her
- * (a message or an event, that day the first), whatever the range. */
-export type CharacterTurns = { character_id: string; turns: number; days_known: number };
+/** A character's turns in the range and how long her calls in it lasted once connected, in
+ * seconds, and the days since the first thing still left with her (a message, an event or a
+ * call, that day the first), whatever the range. */
+export type CharacterInRange = { character_id: string; turns: number; days_known: number; call_seconds: number };
 
 /** What changes with the range (`span`).
  * `turns`: the turns taken in it; `by_hour`: how many turns and gifts at each hour, 0–23.
  * `characters`: each she has anything left with, in the idols' order.
+ * `calls`: how many connected in it, and how long they lasted all told once connected, in
+ * seconds (ADR-0021: only those since calls were kept).
  * `gifts`: how many given, how many she liked as they were given, and whom the most went to
  * (the first in the idols' order of those tied; null when none were). */
 export type InRange = {
   span: StatsRange;
   turns: number;
   by_hour: number[];
-  characters: CharacterTurns[];
+  characters: CharacterInRange[];
+  calls: { count: number; seconds: number };
   gifts: { given: number; liked: number; most: { character_id: string; given: number } | null };
 };
 
-/** How many 「聊得最多」 ranks. */
-export const MOST_TALKED = 5;
+/** How many a ranking (「聊得最多」「通话最久」) has at most. */
+export const RANKED = 5;
 
 /** A character ranked, with her bar's length as a share of the first's, 0–1. */
-export type Ranked = CharacterTurns & { share: number };
+export type Ranked = CharacterInRange & { share: number };
 
-/** The characters talked with most in the range, at most five, those with no turns left out;
+/** The characters with the most of `by` in the range, at most five, those with none left out;
  * tied, in the order given (the idols'). */
-export function mostTalked(characters: CharacterTurns[]): Ranked[] {
-  const ranked = characters.filter((c) => c.turns > 0).sort((a, b) => b.turns - a.turns).slice(0, MOST_TALKED);
-  const most = ranked[0]?.turns ?? 0;
-  return ranked.map((c) => ({ ...c, share: c.turns / most }));
+function rank(characters: CharacterInRange[], by: (c: CharacterInRange) => number): Ranked[] {
+  const ranked = characters
+    .filter((c) => by(c) > 0)
+    .sort((a, b) => by(b) - by(a))
+    .slice(0, RANKED);
+  const most = ranked[0] ? by(ranked[0]) : 0;
+  return ranked.map((c) => ({ ...c, share: by(c) / most }));
+}
+
+/** The characters talked with most in the range, by their turns. */
+export function mostTalked(characters: CharacterInRange[]): Ranked[] {
+  return rank(characters, (c) => c.turns);
+}
+
+/** The characters on the phone with longest in the range, by how long her calls lasted. */
+export function mostCalled(characters: CharacterInRange[]): Ranked[] {
+  return rank(characters, (c) => c.call_seconds);
+}
+
+/** How long calls lasted, `seconds` of them, in hours and minutes: to the nearest minute, but
+ * a minute at least, however short, so that a call ranked never reads 0. */
+export function callTime(seconds: number): { hours: number; minutes: number } {
+  const minutes = seconds > 0 ? Math.max(1, Math.round(seconds / 60)) : 0;
+  return { hours: Math.floor(minutes / 60), minutes: minutes % 60 };
+}
+
+/** How long calls lasted, as a ranking's row reads it: 「2 小时 5 分」, or 「12 分」 under an hour. */
+export function callTimeText(seconds: number): string {
+  const t = copy.settings.stats;
+  const { hours, minutes } = callTime(seconds);
+  return hours > 0 ? t.calledHours(hours, minutes) : t.calledMinutes(minutes);
 }
 
 /** The four parts of the day the portrait speaks of, each six hours from midnight. */
@@ -126,23 +157,27 @@ export type StatsSections = {
   heatmap: boolean;
   totals: boolean;
   mostTalked: boolean;
+  mostCalled: boolean;
   hours: boolean;
   gifts: boolean;
 };
 
 /** Which blocks of the page are shown: none, but a line and a way to the conversations, when
- * the user never took a turn or gave a gift (`isEmpty`); otherwise each that has something,
- * and the totals, 0 or not, whatever the range. */
+ * nothing is left with any of them, no turn, gift or call (`isEmpty`; the characters are
+ * those anything is left with, whatever the range); otherwise each that has something, and
+ * the totals, 0 or not, whatever the range. Calls alone are not coming (`visits`). */
 export function statsSections(stats: Stats): StatsSections {
   const hasCome = stats.all_hours.some((n) => n > 0);
   const { range } = stats;
+  const isEmpty = !hasCome && range.characters.length === 0;
   return {
-    isEmpty: !hasCome,
+    isEmpty,
     visits: hasCome && stats.visits.longest > 0,
     portrait: hasCome,
     heatmap: stats.heatmap.counts.some((n) => n > 0),
-    totals: hasCome,
+    totals: !isEmpty,
     mostTalked: range.characters.some((c) => c.turns > 0),
+    mostCalled: range.characters.some((c) => c.call_seconds > 0),
     hours: range.by_hour.some((n) => n > 0),
     gifts: range.gifts.given > 0,
   };

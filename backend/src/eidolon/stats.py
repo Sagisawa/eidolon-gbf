@@ -14,11 +14,14 @@ today, and the longest; how many of either at each hour of the day, all told; an
 on each day of the past 52 weeks, from a Monday, and this week up to today.
 
 What does (`range`): the past 30 days or 365, today the last, or all of it. How many turns
-and how many of either at each hour of the day; each character's turns, she among those
-anything is left with, in the idols' order, and the days since the first thing left with
-her, a message or an event, counting that day as the first; and the gifts given, how many
-she liked as they were given, and whom the most went to, the first in the idols' order of
-those tied. Only numbers: what is shown of them, and how, is the page's to decide.
+and how many of either at each hour of the day; how many calls connected in it, by when
+they did, and how long they lasted all told, in seconds, once connected (ADR-0021: only
+those since calls were kept); each character's turns and how long her calls lasted, she
+among those anything is left with, in the idols' order, and the days since the first thing
+left with her, a message, an event or a call, counting that day as the first; and the gifts
+given, how many she liked as they were given, and whom the most went to, the first in the
+idols' order of those tied. Only numbers: what is shown of them, and how, is the page's to
+decide.
 """
 
 from collections import Counter
@@ -33,7 +36,7 @@ from eidolon.assembly import Backend
 from eidolon.characters import in_idol_order
 from eidolon.producer import effective_timezone
 from eidolon.sessions import UserId
-from eidolon.store import Contact
+from eidolon.store import Contact, KeptCall
 
 HEATMAP_WEEKS = 52
 """The whole weeks before this one the heatmap goes back."""
@@ -80,6 +83,11 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
             "range": in_range(
                 span,
                 [(c, at) for c, at in contacts if since is None or at.date() >= since],
+                [
+                    call
+                    for call in store.kept_calls(user_id)
+                    if since is None or call.at.astimezone(zone).date() >= since
+                ],
                 {
                     c.id: days_since(first[c.id])
                     for c in in_idol_order(backend.characters.values())
@@ -90,13 +98,19 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
 
 
 def in_range(
-    span: Range, within: list[tuple[Contact, datetime]], known_in_idol_order: dict[str, int]
+    span: Range,
+    within: list[tuple[Contact, datetime]],
+    calls: list[KeptCall],
+    known_in_idol_order: dict[str, int],
 ) -> dict:
     """What changes with the range `span`, of the turns and gifts `within` it, each at its
-    time where the user is, and the characters anything is left with, in the idols' order,
-    and the days each has been known; whom the most gifts went to, tied, is the first of
-    them."""
+    time where the user is, and the `calls` that connected in it, and the characters
+    anything is left with, in the idols' order, and the days each has been known; whom the
+    most gifts went to, tied, is the first of them."""
     turns = Counter(c.character_id for c, _ in within if c.kind == "turn")
+    called: dict[str, float] = {}
+    for call in calls:
+        called[call.character_id] = called.get(call.character_id, 0) + call.duration_s
     gifts = [c for c, _ in within if c.kind == "gift"]
     given = Counter(c.character_id for c in gifts)
     most = max(given.values(), default=0)
@@ -105,9 +119,13 @@ def in_range(
         "turns": turns.total(),
         "by_hour": by_hour(at for _, at in within),
         "characters": [
-            {"character_id": character, "turns": turns[character], "days_known": days}
+            {
+                "character_id": character, "turns": turns[character], "days_known": days,
+                "call_seconds": called.get(character, 0),
+            }
             for character, days in known_in_idol_order.items()
         ],
+        "calls": {"count": len(calls), "seconds": sum(c.duration_s for c in calls)},
         "gifts": {
             "given": len(gifts),
             "liked": sum(c.liked for c in gifts),

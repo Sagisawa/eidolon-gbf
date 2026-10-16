@@ -158,7 +158,7 @@ async def test_a_new_user_has_known_them_a_day_and_come_on_none(
     assert got["heatmap"]["counts"] == [0] * (52 * 7 + 5)
     assert got["range"] == {
         "span": "all", "turns": 0, "by_hour": [0] * 24, "characters": [],
-        "gifts": {"given": 0, "liked": 0, "most": None},
+        "calls": {"count": 0, "seconds": 0}, "gifts": {"given": 0, "liked": 0, "most": None},
     }
 
 
@@ -348,14 +348,14 @@ async def test_each_character_has_her_turns_and_the_days_since_the_first_thing_l
 
     # In the idols' order, those without a number after them.
     assert everything == [
-        {"character_id": "mano", "turns": 3, "days_known": 100},
-        {"character_id": "meguru", "turns": 1, "days_known": 1},
-        {"character_id": "kogane", "turns": 1, "days_known": 10},
+        {"character_id": "mano", "turns": 3, "days_known": 100, "call_seconds": 0},
+        {"character_id": "meguru", "turns": 1, "days_known": 1, "call_seconds": 0},
+        {"character_id": "kogane", "turns": 1, "days_known": 10, "call_seconds": 0},
     ]
     assert [(c["character_id"], c["turns"], c["days_known"]) for c in recent] == [
         ("mano", 1, 100), ("meguru", 1, 1), ("kogane", 1, 10),
     ]
-    assert after[0] == {"character_id": "mano", "turns": 1, "days_known": 5}
+    assert after[0] == {"character_id": "mano", "turns": 1, "days_known": 5, "call_seconds": 0}
 
 
 async def test_the_gifts_given_in_the_range_she_liked_and_whom_they_went_to_most(

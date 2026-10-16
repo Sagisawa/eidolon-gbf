@@ -9,7 +9,7 @@ aiortc is needed for any of it.
 """
 
 from collections.abc import Callable, Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -23,12 +23,20 @@ from tests.test_turn_outcome import DONE
 
 
 class Limiter(Deployment):
-    """A user allowed one call an hour, the limiter counting them and their records."""
+    """A user allowed one call an hour, the limiter counting them and their records, and the
+    calls kept for stats (`kept`: when each connected, and how long it lasted)."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.kept: list[tuple[datetime, float]] = []
 
     def call(
         self, limits: CallLimits = CallLimits(), brought: BroughtKeys = BroughtKeys()
     ) -> CallOutcome:
-        return CallOutcome(self.admissions().call(self.user, "mano", brought), limits)
+        admission = self.admissions().call(self.user, "mano", brought)
+        return CallOutcome(
+            admission, limits, self.clock, lambda at, lasted: self.kept.append((at, lasted))
+        )
 
     def call_records(self) -> list[tuple[Result, CallEndReason | None, bool]]:
         """Each call's record: how it turned out, why it ended, and whether it says how
@@ -314,6 +322,30 @@ def pipeline_failed(outcome: CallOutcome) -> None:
 
 def left(outcome: CallOutcome) -> None:
     """Nothing ended it: the user left the conversation page."""
+
+
+def test_a_call_that_connected_is_kept_once_as_of_then_for_as_long_as_its_record_says(
+    limiter: Limiter,
+):
+    """One that never connected, or never really did, is not."""
+    never = limiter.call()
+    never.settle()
+    not_really = limiter.call()
+    not_really.connected()
+    not_really.service_failed(None)
+    not_really.settle()
+    connected_at = limiter.clock()
+    outcome = limiter.call()
+    outcome.connected()
+    limiter.clock.advance(minutes=1)
+    outcome.turn_recorded()
+
+    outcome.settle()
+    outcome.settle()
+
+    records, _ = limiter.activity.since(connected_at - timedelta(hours=1))
+    [lasted] = [r.duration_s for r in records if r.kind == "call" and r.result == "success"]
+    assert limiter.kept == [(connected_at, lasted)]
 
 
 @pytest.mark.parametrize(

@@ -15,7 +15,18 @@ import { copy } from "@/i18n";
 import { getStats, type Character } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FIRST_LEVEL } from "@/lib/navShell";
-import { mostTalked, portrait, STATS_RANGES, statsSections, type Stats, type StatsRange } from "@/lib/stats";
+import {
+  callTime,
+  callTimeText,
+  mostCalled,
+  mostTalked,
+  portrait,
+  STATS_RANGES,
+  statsSections,
+  type Ranked,
+  type Stats,
+  type StatsRange,
+} from "@/lib/stats";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 
@@ -26,7 +37,7 @@ const CONVERSATIONS = FIRST_LEVEL.conversations;
 /**
  * 设置「统计」（GLOSSARY.md「统计」，DESIGN.md「统计页」）。上半部分不随时间跨度变，从上到下是一句话画像、
  * 认识天数和连续来访三个数、过去一年的热力图；下半部分顶上是「近 30 天 / 近一年 / 全部」，默认全部，下面是总数、聊得最多、
- * 分时段图和礼物。哪一块没数据就不显示；一个回合、一次送礼都没有时整页只有一句话和去对话列表的按钮。
+ * 通话最久、分时段图和礼物。哪一块没数据就不显示；一个回合、一次送礼、一通通话都没有时整页只有一句话和去对话列表的按钮。
  * 每次打开都重新读，删掉历史对话后回来就是新的数；换跨度时重新读整份，新的到之前眼前的数留着、变淡，页面不跳不空。
  */
 export function StatsSettings() {
@@ -80,7 +91,7 @@ export function StatsSettings() {
   const byId = new Map(characters.map((c) => [c.id, c]));
   /** 眼前的下半部分是上一个跨度的：换了以后新的还没到，或者没取到。 */
   const otherRange = stats.range.span !== range;
-  const { gifts } = stats.range;
+  const { calls, gifts } = stats.range;
   const giftee = gifts.most && byId.get(gifts.most.character_id);
 
   return (
@@ -119,37 +130,30 @@ export function StatsSettings() {
           className={cn("flex flex-col gap-8 transition-opacity duration-200", otherRange && "opacity-45")}
         >
           {shown.totals && (
-            <dl className="grid grid-cols-3 gap-3">
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Figure label={t.turns} value={stats.range.turns} />
+              <Figure label={t.calls} value={calls.count} unit={t.timesUnit} />
+              <FigureOf label={t.callTime}>
+                <CallTime seconds={calls.seconds} />
+              </FigureOf>
               <Figure label={t.giftsGiven} value={gifts.given} />
             </dl>
           )}
           {shown.mostTalked && (
-            <section className="flex flex-col gap-3">
-              <h2 className="text-header">{t.mostTalked}</h2>
-              <ol className="flex flex-col gap-3">
-                {mostTalked(stats.range.characters).map((ranked) => {
-                  const character = byId.get(ranked.character_id);
-                  if (!character) return null;
-                  return (
-                    <li key={ranked.character_id} style={herVars(character.color)} className="flex items-center gap-3">
-                      <MarkedAvatar name={character.name} src={character.avatar_url} size="sm" />
-                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span className="truncate text-sm font-medium">{character.name}</span>
-                          <span className="shrink-0 text-subtitle text-muted-foreground tabular-nums">
-                            {t.talked(ranked.turns, ranked.days_known)}
-                          </span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-her-bar" style={{ width: `${ranked.share * 100}%` }} />
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            </section>
+            <Ranking
+              title={t.mostTalked}
+              ranked={mostTalked(stats.range.characters)}
+              byId={byId}
+              reading={(ranked) => t.talked(ranked.turns, ranked.days_known)}
+            />
+          )}
+          {shown.mostCalled && (
+            <Ranking
+              title={t.mostCalled}
+              ranked={mostCalled(stats.range.characters)}
+              byId={byId}
+              reading={(ranked) => callTimeText(ranked.call_seconds)}
+            />
           )}
           {shown.hours && (
             <section className="flex flex-col gap-2">
@@ -180,9 +184,67 @@ export function StatsSettings() {
 function Figure({ label, value, unit }: { label: string; value: number; unit?: string }) {
   return (
     <FigureOf label={label}>
+      <Amount value={value} unit={unit} />
+    </FigureOf>
+  );
+}
+
+function Amount({ value, unit }: { value: number; unit?: string }) {
+  return (
+    <>
       <span className="text-2xl font-semibold tabular-nums">{value}</span>
       {unit && <span className="text-subtitle text-muted-foreground">{unit}</span>}
-    </FigureOf>
+    </>
+  );
+}
+
+/** 通话时长：「2 小时 5 分」，不满 1 小时只写「12 分」。 */
+function CallTime({ seconds }: { seconds: number }) {
+  const { hours, minutes } = callTime(seconds);
+  return (
+    <>
+      {hours > 0 && <Amount value={hours} unit={t.hoursUnit} />}
+      <Amount value={minutes} unit={t.minutesUnit} />
+    </>
+  );
+}
+
+/** 一个排行：Header 字号的标题，下面每行她的头像、名字、行尾的读数，和一根她的 `--her-bar` 的条，长短按占第一位的比例。 */
+function Ranking({
+  title,
+  ranked,
+  byId,
+  reading,
+}: {
+  title: string;
+  ranked: Ranked[];
+  byId: Map<string, Character>;
+  reading: (ranked: Ranked) => string;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-header">{title}</h2>
+      <ol className="flex flex-col gap-3">
+        {ranked.map((one) => {
+          const character = byId.get(one.character_id);
+          if (!character) return null;
+          return (
+            <li key={one.character_id} style={herVars(character.color)} className="flex items-center gap-3">
+              <MarkedAvatar name={character.name} src={character.avatar_url} size="sm" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-sm font-medium">{character.name}</span>
+                  <span className="shrink-0 text-subtitle text-muted-foreground tabular-nums">{reading(one)}</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted">
+                  <div className="h-full rounded-full bg-her-bar" style={{ width: `${one.share * 100}%` }} />
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 

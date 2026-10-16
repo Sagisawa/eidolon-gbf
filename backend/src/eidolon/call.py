@@ -30,6 +30,7 @@ from contextlib import nullcontext
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any, Literal, Protocol
 
 import httpx
@@ -953,7 +954,9 @@ class Calls:
         fails before the call is served, it never connected; once it is served, it is
         settled as it ends, letting go of the keys it brought."""
         admission = self._admissions.call(user_id, character.id, brought)
-        outcome = CallOutcome(admission, self._limits())
+        outcome = CallOutcome(
+            admission, self._limits(), self._clock, partial(self._store.keep_call, conversation.id)
+        )
         return await self._start(
             user_id, conversation, character, options, offer, admission, outcome
         )
