@@ -18,3 +18,4 @@
 - [ ] 原型里试一次导出 PNG，确认选的转图库能用、字不缺、二维码能扫
 - [ ] 用户选定方向后，在本票 `## Comments` 写下：选的哪个、版面要点、原型分支和 commit；没选的方向只留作参考
 - [ ] 原型分支不推远端，不合进集成分支
+- 2026-10-17 来自 04：好感度和礼物关掉时 `/api/stats` 的 `affinity`、`range.gifts` 都是 null，「送出的礼物」该不该出现看 `lib/stats` 的 `statsSections(stats).giftsGiven`；版面要给只剩三个总数的情况留排法。`affinity` 不上分享图。

@@ -28,3 +28,4 @@
 - [ ] 本地构建版 Playwright 验收（宽屏、手机）：下载的文件尺寸是 1080×1350，内容对、无缺字（称呼用一个应用字体没有的生僻字试）、二维码能扫出落地页地址；三种跨度各导一次
 - [ ] 前端类型检查和测试、前端纪律检查都通过
 - 2026-10-17 来自 03：四个总数在 `/api/stats` 的 `range` 下：`turns`、`calls.count`、`calls.seconds`（秒，浮点）、`gifts.given`（关掉时 `gifts` 为 null）。通话时长的写法用 `lib/stats` 的 `callTime`（时、分）或 `callTimeText`（「2 小时 5 分」「12 分」），别另写一套。
+- 2026-10-17 来自 04：好感度和礼物关掉时 `/api/stats` 的 `affinity`、`range.gifts` 都是 null，「送出的礼物」该不该出现看 `lib/stats` 的 `statsSections(stats).giftsGiven`；版面要给只剩三个总数的情况留排法。`affinity` 不上分享图。
