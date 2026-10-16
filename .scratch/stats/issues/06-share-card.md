@@ -29,3 +29,4 @@
 - [ ] 前端类型检查和测试、前端纪律检查都通过
 - 2026-10-17 来自 03：四个总数在 `/api/stats` 的 `range` 下：`turns`、`calls.count`、`calls.seconds`（秒，浮点）、`gifts.given`（关掉时 `gifts` 为 null）。通话时长的写法用 `lib/stats` 的 `callTime`（时、分）或 `callTimeText`（「2 小时 5 分」「12 分」），别另写一套。
 - 2026-10-17 来自 04：好感度和礼物关掉时 `/api/stats` 的 `affinity`、`range.gifts` 都是 null，「送出的礼物」该不该出现看 `lib/stats` 的 `statsSections(stats).giftsGiven`；版面要给只剩三个总数的情况留排法。`affinity` 不上分享图。
+- 2026-10-17 来自 05：方向选定为极简数据海报的排法 B（顶部一条印象色带），版面要点见票 05 的 `## Comments`。原型在本地分支 `prototype/stats-share-card` 的 `6ec1103`（`ShareCardPrototype.tsx` 的 `CardB`），只作参考，按前端规矩重写；原型里的固定色、像素值要落成 token 或写明是分享图专用。大面积填底用原色，字色按与白字的对比度选白或 `button.fg.light`。转图库定 `modern-screenshot`，二维码库定 `uqr`，原型里都试过能用。用户说实现时有必要可以用 `/frontend-design` 技能。
