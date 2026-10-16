@@ -19,7 +19,7 @@ export type MemoryCopy = Messages["landing"]["act5"];
  * 顺序读，一直在无障碍树上）：LightStage 按落地页模型（model/memoryStory.ts）把每句摆到说话的人头顶、她的记忆柱上，
  * 只在它那一段里显出来；最后一句在全景里淡入。气泡前面藏着说话的人的名字，给读屏器念。某位演员不在名单里时，
  * 她的话不出现（linesOf）。画布丢了上下文、建不起来时，LightStage 给 .lp-root 加上 lp-memory-lost：画面正中换成事先渲染好的
- * 终局全景图（`still`，存储桶上的），几句话收起来，标题正文和最后一句照旧。
+ * 终局全景图（`stillUrl`，存储桶上的），几句话收起来，标题正文和最后一句照旧。
  *
  * 静止版式（定格档、静态档）里这一幕不钉住：最上面是那张全景图，下面是标题、正文，按顺序列出这几句和最后一句。没有图
  * （没配存储桶）、加载不到时只有文字。
@@ -28,13 +28,13 @@ export function Memory({
   section,
   copy,
   actors,
-  still,
+  stillUrl,
 }: {
   section: Section;
   copy: MemoryCopy;
   actors: readonly Actor[];
   /** 事先渲染好的终局全景图的地址；没有时是 null。 */
-  still: string | null;
+  stillUrl: string | null;
 }) {
   const actorOf = new Map(actors.map((a) => [a.island, a]));
   const lines = linesOf(actors.map((a) => a.island));
@@ -42,7 +42,7 @@ export function Memory({
   return (
     <div className="lp-stage-wrap lp-memory" data-lp-section={section.index} style={vars as CSSProperties}>
       <section className="lp-stage lp-act5" aria-labelledby="lp-act5-title" data-lp-act="5">
-        {still && <MemoryStill src={still} />}
+        {stillUrl && <MemoryStill src={stillUrl} />}
         <div className="lp-act5-copy" data-lp-find="act5">
           <h2 id="lp-act5-title" className="lp-act-title">
             {copy.title}

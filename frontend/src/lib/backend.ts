@@ -35,46 +35,26 @@ export async function isSignedIn(cookie: string): Promise<boolean> {
  * sign in, its pictures) before asking again. */
 const LANDING_REVALIDATE_SECONDS = 60;
 
-/** The characters, for the landing page's spectrum: kept for a minute rather than asked for on
- * every visit, so a visitor's first screen does not wait on the backend. None when the backend
- * fails or cannot be reached; the landing page then goes without the spectrum. */
-export async function getCharacters(): Promise<Character[]> {
+/** What the landing page asks the backend for at `path`, kept for a minute rather than asked for on
+ * every visit, so a visitor's first screen does not wait on the backend; `otherwise` when the
+ * backend fails or cannot be reached. */
+async function forLanding<T>(path: string, otherwise: T): Promise<T> {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/characters`, {
-      next: { revalidate: LANDING_REVALIDATE_SECONDS },
-    });
-    return res.ok ? await res.json() : [];
+    const res = await fetch(`${BACKEND_URL}${path}`, { next: { revalidate: LANDING_REVALIDATE_SECONDS } });
+    return res.ok ? await res.json() : otherwise;
   } catch {
-    return [];
+    return otherwise;
   }
 }
 
-/** The ways to sign in the backend offers, for the landing page to say which there are: kept for a
- * minute like the character list. Null when the backend fails or cannot be reached; the landing page
- * then does not say. */
-export async function getSignInOptions(): Promise<SignInOptions | null> {
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/auth/providers`, {
-      next: { revalidate: LANDING_REVALIDATE_SECONDS },
-    });
-    return res.ok ? await res.json() : null;
-  } catch {
-    return null;
-  }
-}
+/** The characters, for the landing page's spectrum. None when the backend fails; the landing page
+ * then goes without the spectrum. */
+export const getCharacters = (): Promise<Character[]> => forLanding("/api/characters", []);
 
-/** The landing page's pictures that belong to no one character, kept for a minute like the
- * character list. None of them when the backend fails or cannot be reached; the landing page then
- * goes without them. */
-export async function getLandingAssets(): Promise<LandingAssets> {
-  try {
-    const res = await fetch(`${BACKEND_URL}/api/landing`, {
-      next: { revalidate: LANDING_REVALIDATE_SECONDS },
-    });
-    return res.ok ? await res.json() : NO_LANDING_ASSETS;
-  } catch {
-    return NO_LANDING_ASSETS;
-  }
-}
+/** The ways to sign in the backend offers, for the landing page to say which there are. Null when
+ * the backend fails; the landing page then does not say. */
+export const getSignInOptions = (): Promise<SignInOptions | null> => forLanding("/api/auth/providers", null);
 
-const NO_LANDING_ASSETS: LandingAssets = { memory_still_url: null };
+/** The landing page's pictures that belong to no one character. None of them when the backend
+ * fails; the landing page then goes without them. */
+export const getLandingAssets = (): Promise<LandingAssets> => forLanding("/api/landing", { memory_still_url: null });

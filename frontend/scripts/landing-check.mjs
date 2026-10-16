@@ -641,7 +641,6 @@ function watchConsole(page) {
       const tierBefore = await tierOf(page);
       await page.evaluate(() => document.querySelector(".lp-memory-canvas")?.getContext("webgl2")?.getExtension("WEBGL_lose_context")?.loseContext());
       await page.waitForTimeout(1500);
-      await page.waitForFunction(() => document.querySelector(".lp-memory-still")?.complete !== false, null, { timeout: 10000 }).catch(() => {});
       const lost = await page.evaluate(() => ({
         canvas: !!document.querySelector(".lp-memory-canvas"),
         gl: document.querySelector(".lp-root").classList.contains("lp-gl-on"),
@@ -650,7 +649,7 @@ function watchConsole(page) {
       const still = await memoryStillOn(page);
       report(
         "第 5 幕的场景画布丢了上下文：收起画布，换成事先渲染好的全景图，几句话收起来，光层照旧，落地页不降档",
-        !lost.canvas && still.ok !== false && lost.lines && lost.gl && (await tierOf(page)) === tierBefore,
+        still.ok === null ? null : !lost.canvas && still.ok && lost.lines && lost.gl && (await tierOf(page)) === tierBefore,
         `画布 ${lost.canvas ? "还在" : "收起了"}，${still.detail}，几句话${lost.lines ? "收起来了" : "还显示着"}，光层 ${lost.gl ? "在" : "不在"}，档位 ${tierBefore} → ${await tierOf(page)}`,
       );
       await page.screenshot({ path: path.join(shots, "full-act5-lost.png") });
@@ -853,23 +852,24 @@ function watchConsole(page) {
         const scripts = [];
         page.on("request", (r) => r.resourceType() === "script" && scripts.push(new URL(r.url()).pathname));
         await page.locator(".lp-act5").evaluate((el) => el.scrollIntoView({ block: "start" }));
-        await page.waitForFunction(() => document.querySelector(".lp-memory-still")?.complete !== false, null, { timeout: 10000 }).catch(() => {});
         await page.waitForTimeout(1000);
         const order = await page.evaluate(() => [...document.querySelector(".lp-act5").children].map((c) => c.className.split(" ")[0]));
         const want = ["lp-memory-still", "lp-act5-copy", "lp-lines", "lp-closing"].filter((c) => order.includes("lp-memory-still") || c !== "lp-memory-still");
         const ordered = order.join() === want.join();
         const quiet = tier === "reduced" || scripts.length === 0;
+        const arranged = `排法 ${order.join(" → ")}${quiet ? "" : `，load 之后加载了脚本 ${scripts.join(" ")}`}`;
         const label = `${tier}（${name}）：第 5 幕`;
         if (missing) {
+          await page.waitForFunction(() => !document.querySelector(".lp-memory-still"), null, { timeout: 10000 }).catch(() => {});
           const gone = !(await page.locator(".lp-memory-still").count());
-          report(`${label}在存储桶里没有静止图时只有文字，没有破图`, gone && ordered && quiet, `图${gone ? "拿掉了" : "还在"}，排法 ${order.join(" → ")}${quiet ? "" : `，load 之后加载了脚本 ${scripts.join(" ")}`}`);
+          report(`${label}在存储桶里没有静止图时只有文字，没有破图`, gone && ordered && quiet, `图${gone ? "拿掉了" : "还在"}，${arranged}`);
           await page.locator(".lp-act5").screenshot({ path: path.join(shots, `${tier}-${name}-act5-no-still.png`) });
         } else {
           const still = await memoryStillOn(page);
           report(
             `${label}是事先渲染好的全景图，下面是标题、正文、按顺序的几句话和最后一句${tier === "static" ? "；滚到这里不加载脚本" : ""}`,
             still.ok === null ? null : still.ok && ordered && quiet,
-            `${still.detail}，排法 ${order.join(" → ")}${quiet ? "" : `，load 之后加载了脚本 ${scripts.join(" ")}`}`,
+            `${still.detail}，${arranged}`,
           );
           await page.locator(".lp-act5").screenshot({ path: path.join(shots, `${tier}-${name}-act5.png`) });
         }
@@ -879,8 +879,9 @@ function watchConsole(page) {
   }
 }
 
-/** 第 5 幕事先渲染好的全景图显示着、加载出来了。没有这张图（没配存储桶地址、存储桶里没有）时 ok 是 null。 */
+/** 第 5 幕事先渲染好的全景图显示着、加载出来了（等它加载完）。没有这张图（没配存储桶地址、存储桶里没有）时 ok 是 null。 */
 async function memoryStillOn(page) {
+  await page.waitForFunction(() => document.querySelector(".lp-memory-still")?.complete !== false, null, { timeout: 10000 }).catch(() => {});
   const got = await page.evaluate(() => {
     const img = document.querySelector(".lp-memory-still");
     if (!img) return null;

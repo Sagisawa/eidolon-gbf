@@ -66,12 +66,12 @@ import { qualityOf } from "/src/app/(landing)/model/tier.ts";
 const actors = ${JSON.stringify(actors)};
 const vp = { w: innerWidth, h: innerHeight };
 const layer = await createMemoryLayer(document.querySelector("canvas"), qualityOf("full", false), actors, "sans-serif");
-const stood = await layer.standing;
+const standIns = await layer.standIns;
 layer.resize(vp.w, vp.h);
 // 终局全景：四根记忆柱顶上都是发送那一位颜色的方块，连线连起来。
 const memory = memoryAt(1, vp, 1);
 layer.render(memory, storyAt(1, memory.camera, actors.map((a) => a.island)), ${MOMENT});
-window.rendered = stood;
+window.rendered = standIns.map((a) => a.id);
 </script></body></html>`;
 
 /** 地址 → 文件：/src/ 和 /node_modules/ 在 frontend/ 下。.ts 去掉类型标注再给；不带扩展名的 import 补上 .ts。 */
@@ -104,9 +104,8 @@ try {
   const page = await browser.newPage({ viewport: VIEWPORT, deviceScaleFactor: DPR });
   page.on("pageerror", (e) => console.error(e));
   await page.goto(`${origin}/`);
-  const stood = await (await page.waitForFunction(() => window.rendered, null, { timeout: 120000 })).jsonValue();
-  const fallen = actors.filter((_, k) => !stood[k]).map((a) => a.id);
-  if (fallen.length) throw new Error(`体素文件加载不到，不出图：${fallen.join("、")}`);
+  const standIns = await (await page.waitForFunction(() => window.rendered, null, { timeout: 120000 })).jsonValue();
+  if (standIns.length) throw new Error(`体素文件加载不到，不出图：${standIns.join("、")}`);
 
   const png = await page.screenshot();
   const info = await sharp(png).webp({ quality: 82, effort: 6 }).toFile(out);
