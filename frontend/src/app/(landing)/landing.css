@@ -1489,11 +1489,14 @@ html[data-lp-layout="motion"] .lp-act5-copy {
   border-radius: 2px;
   background: var(--lp-sender, #fff);
 }
+/* 几句话和最后一句跟着画布淡出。 */
+html[data-lp-layout="motion"] :is(.lp-line, .lp-closing) {
+  opacity: calc(var(--lp-o, 0) * var(--lp-memory, 0));
+}
 html[data-lp-layout="motion"] .lp-line {
   position: absolute;
   left: 0;
   top: 0;
-  opacity: calc(var(--lp-o, 0) * var(--lp-memory, 0));
   transform: translate3d(
     calc(var(--lp-x, 0px) - 50%),
     calc(var(--lp-y, 0px) - 100% - var(--lp-lift) + (1 - var(--lp-o, 0)) * 8px),
@@ -1525,7 +1528,6 @@ html[data-lp-layout="motion"] .lp-closing {
   right: 6vw;
   bottom: 16%;
   text-align: center;
-  opacity: calc(var(--lp-o, 0) * var(--lp-memory, 0));
 }
 
 /* —— 第 6 幕：诚实事项（Closing.tsx）。全站最暗、最静：没有任何滚动动画，居中，行高宽松。

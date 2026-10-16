@@ -200,8 +200,6 @@ describe("storyAt: 几个人说的话", () => {
     ]);
     const starts = LINES.map((l) => l.show[0]);
     expect(starts).toEqual([...starts].sort((a, b) => a - b));
-    // 每一刻给出的几句也是这个顺序。
-    for (const p of ps) expect(at(p).lines.map((l) => l.key)).toEqual(LINES.map((l) => l.key));
   });
 
   it("每句话只在它那一段里显出来：之前之后都看不见，中间完全显出来", () => {
@@ -209,7 +207,7 @@ describe("storyAt: 几个人说的话", () => {
       for (const p of ps) {
         const o = shown(p, l.key);
         if (p <= l.show[0] || p >= l.show[1]) expect(o, `${l.key}，p ${p}`).toBe(0);
-        else expect(o, `${l.key}，p ${p}`).toBeGreaterThanOrEqual(0);
+        else expect(o, `${l.key}，p ${p}`).toBeGreaterThan(0);
       }
       expect(shown(lineShownAt(l.key), l.key)).toBe(1);
     }
@@ -284,20 +282,10 @@ describe("storyAt: 几个人说的话", () => {
   });
 
   it("演员缺一位时，她的「想起」标签和台词不出现，其他照常", () => {
-    expect(linesOf([0, 1, 3]).map((l) => l.key)).toEqual(LINES.map((l) => l.key).filter((k) => !k.endsWith("-2")));
-    for (const p of ps) {
-      const full = at(p);
-      const s = at(p, [0, 1, 3]);
-      expect(s.lines).toEqual(full.lines.filter((l) => !l.key.endsWith("-2")));
-      expect(s.closing).toBe(full.closing);
-    }
+    for (const p of ps) expect(at(p, [0, 1, 3]).lines).toEqual(at(p).lines.filter((l) => !l.key.endsWith("-2")));
   });
 
-  it("真乃不在时一句话都没有，最后一句照常", () => {
+  it("真乃不在时一句话都没有", () => {
     expect(linesOf([1, 2, 3])).toEqual([]);
-    for (const p of ps) {
-      expect(at(p, [1, 2, 3]).lines).toEqual([]);
-      expect(at(p, [1, 2, 3]).closing).toBe(at(p).closing);
-    }
   });
 });

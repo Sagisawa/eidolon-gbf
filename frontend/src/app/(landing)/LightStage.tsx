@@ -466,7 +466,7 @@ export function LightStage({
       const found = findKeyOf(key);
       afterScrollSettles(() => {
         // 第 5 幕的一句话：它显出来的时刻在晚加载的那件事里。
-        if (found.kind === "memory") void loadStory().then((m) => stageStore.goto?.(5, m.lineShownAt(found.line)));
+        if (found.kind === "memory") void loadStory().then((m) => stageStore.goto?.(found.act, m.lineShownAt(found.line)));
         else stageStore.goto?.(found.act, found.kind === "sub" ? talkLineShown(found.line) : undefined);
       });
     };
