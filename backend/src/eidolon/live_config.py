@@ -1178,7 +1178,7 @@ class LiveConfig:
             if isinstance(result, Unreachable):
                 way = "经代理" if after.proxy_for(service) else "直连"
                 host = urlsplit(url).hostname
-                failed.append(f"{PROXY_LABELS[service]}{way}到 {host} 不通：{result}")
+                failed.append(f"{PROXY_LABELS[service]}（{way}）连 {host} 不通：{result}")
             elif isinstance(result, BaseException):
                 raise result
         if failed:

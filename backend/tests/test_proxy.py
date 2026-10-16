@@ -414,7 +414,7 @@ async def test_a_proxy_some_service_cannot_reach_through_is_not_kept(
     )
 
     assert refused.status_code == 422
-    assert "语音合成经代理到 api.fish.audio 不通" in refused.json()["detail"]
+    assert "语音合成（经代理）连 api.fish.audio 不通" in refused.json()["detail"]
     assert routes_of(client) == ProxySettings(None, False, frozenset())
     assert (await client.get(CONFIG)).json()["proxy"]["status"] == "env"
 
@@ -467,5 +467,5 @@ async def test_a_proxy_that_cannot_be_reached_as_the_server_starts_falls_back_to
 
     shown = (await restarted.get(CONFIG)).json()["proxy"]
     assert shown["status"] == "failed"
-    assert "扮演角色的 LLM经代理到 llm.invalid 不通" in shown["failure"]
+    assert "扮演角色的 LLM（经代理）连 llm.invalid 不通" in shown["failure"]
     assert routes_of(restarted) == ProxySettings(None, False, frozenset())
