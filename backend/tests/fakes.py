@@ -573,7 +573,7 @@ class FakeTTS(TTSService):
 
     def __init__(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> None:
         super().__init__(
-            sample_rate=sample_rate, settings=TTSSettings(model=None, voice=None, language=None)
+            sample_rate=sample_rate, settings=TTSSettings(model=model, voice=None, language=None)
         )
         self.api_key = api_key
         self.model = model

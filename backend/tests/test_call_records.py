@@ -117,6 +117,29 @@ async def test_a_call_ended_by_the_user_is_a_success_and_no_longer_in_progress(
         assert text not in str(board), text
 
 
+async def test_drama_3_is_billed_for_the_characters_it_is_given(
+    make_client: ClientFactory,
+    settings: Settings,  # noqa: F811
+    github: FakeIdentityProvider,
+    speech: FakeSpeech,
+    browser: Browser,
+):
+    admin = await admin_client(
+        make_client, github, FakeClock(), FakeLLM(["<ja>[sigh] はいっ</ja><zh>好的</zh>"]),
+        settings=replace(settings, fish_audio_model="drama-3"),
+    )
+    await browser.call(admin, conversation_id=await start_conversation(admin))
+    await browser.connect()
+    await speech.stts[-1].hear("你好")
+    await browser.turn()
+    await browser.hang_up()
+
+    voiced = health(await call_recorded(admin), "tts")
+
+    assert voiced is not None
+    assert voiced["usage"] == [{"unit": "characters", "input": len("[sigh]はいっ"), "output": None}]
+
+
 async def test_calls_over_the_limit_are_refused_and_calls_on_own_keys_counted_apart(
     make_client: ClientFactory,
     settings: Settings,

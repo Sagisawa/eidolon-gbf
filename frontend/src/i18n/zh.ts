@@ -722,8 +722,11 @@ export const zh = {
     breadcrumb: "当前位置",
     comingSoon: "这一页还在做。",
     usage: {
-      units: { tokens: "tokens", bytes: "字节", seconds: "秒" } as Record<string, string>,
-      per: { tokens: "每百万 tokens", bytes: "每百万字节", seconds: "每小时" } as Record<string, string>,
+      units: { tokens: "tokens", bytes: "字节", characters: "字符", seconds: "秒" } as Record<string, string>,
+      per: { tokens: "每百万 tokens", bytes: "每百万字节", characters: "每百万字符", seconds: "每小时" } as Record<
+        string,
+        string
+      >,
       perCount: (count: string, unit: string) => `每 ${count} ${unit}`,
       amount: (count: string, unit: string) => `${count} ${unit}`,
       inOut: (input: string, output: string, unit: string) => `输入 ${input} · 输出 ${output} ${unit}`,
@@ -1401,7 +1404,12 @@ export const zh = {
         output: "只有 LLM 的输出单独计价；留空表示按输入单价算。",
         cacheRead: "只有 LLM 有：输入里命中服务商缓存的部分按这个价算；留空表示按输入单价算。",
       } as Record<string, string>,
-      units: { tokens: "tokens（每百万）", bytes: "字节（每百万，UTF-8）", seconds: "秒（每小时）" } as Record<string, string>,
+      units: {
+        tokens: "tokens（每百万）",
+        bytes: "字节（每百万，UTF-8）",
+        characters: "字符（每百万）",
+        seconds: "秒（每小时）",
+      } as Record<string, string>,
       currencies: { USD: "美元（USD）", CNY: "人民币（CNY）" } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,

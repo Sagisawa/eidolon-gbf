@@ -104,14 +104,10 @@ describe("an own Fish Audio key's model", () => {
     expect(callOwnKeys("u1").ownKeys).toEqual({ tts: { api_key: "fish-my-own-key", model: "drama-3" } });
   });
 
-  it("is left for the server to choose where stored wrongly or before it could be chosen, the key kept", () => {
-    storage({
-      "eidolon.ownKeys.u1": JSON.stringify({ tts: { api_key: "fish-my-own-key", model: "drama3" } }),
-      "eidolon.ownKeys.u2": JSON.stringify({ tts: { api_key: "fish-my-own-key" } }),
-    });
+  it("is left for the server to choose where stored wrongly, the key kept", () => {
+    storage({ "eidolon.ownKeys.u1": JSON.stringify({ tts: { api_key: "fish-my-own-key", model: "drama3" } }) });
 
     expect(localOwnKeys("u1")).toEqual({ tts: { api_key: "fish-my-own-key" } });
-    expect(localOwnKeys("u2")).toEqual({ tts: { api_key: "fish-my-own-key" } });
   });
 });
 

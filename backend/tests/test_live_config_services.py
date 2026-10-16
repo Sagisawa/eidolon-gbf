@@ -7,6 +7,7 @@ are made by a fake `ServiceClients`, the speech services' keys tried on `FakeSpe
 
 import asyncio
 import logging
+import sqlite3
 from dataclasses import replace
 
 import httpx
@@ -414,17 +415,22 @@ async def test_speech_saved_during_a_call_holds_from_the_next_call(
     assert NEW_FISH not in stt.text and NEW_DASHSCOPE not in stt.text
 
 
-async def test_speech_synthesis_is_only_with_a_model_there_is(
-    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
+async def test_a_speech_override_kept_before_there_was_a_list_of_models_falls_back_to_env(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
-    client = await admin_client(make_client, admins, github, FakeServiceClients())
+    first = await admin_client(make_client, admins, github, FakeServiceClients())
+    assert (await first.put(TTS, json={"api_key": NEW_FISH, "model": "drama-3"})).status_code == 200
+    with sqlite3.connect(admins.database_path) as db:  # as an admin once typed it in
+        db.execute("UPDATE config_overrides SET value = ? WHERE name = 'tts.model'", ('"speech-1.6"',))
 
-    # Fish Audio would voice a misspelt one with its paid S2.1 Pro, saying nothing.
-    res = await client.put(TTS, json={"api_key": NEW_FISH, "model": "drama3"})
+    restarted = await admin_client(make_client, admins, github, FakeServiceClients())
+    await start(restarted)
+    lease = backend_of(restarted).config.lease()
+    lease.release()
 
-    assert res.status_code == 422
-    assert speech.checked == []
-    assert (await client.get(CONFIG)).json()["tts"]["status"] == "env"
+    shown = (await restarted.get(CONFIG)).json()["tts"]
+    assert shown["status"] == "failed" and "speech-1.6" in shown["failure"]
+    assert (lease.keys.tts, lease.keys.tts_model) == (DEPLOYER_FISH_KEY, DEFAULT_FISH_AUDIO_MODEL)
 
 
 async def test_a_speech_key_that_fails_its_try_is_not_saved(

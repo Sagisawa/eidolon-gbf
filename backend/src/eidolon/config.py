@@ -32,6 +32,8 @@ FISH_AUDIO_MODELS: tuple[FishAudioModel, ...] = get_args(FishAudioModel)
 DEFAULT_FISH_AUDIO_MODEL: FishAudioModel = "s2.1-pro-free"
 """Fish Audio's free-tier model: it draws on no API credit, unlike the paid ones."""
 FREE_FISH_AUDIO_MODELS: frozenset[FishAudioModel] = frozenset({DEFAULT_FISH_AUDIO_MODEL})
+CHARACTER_BILLED_FISH_AUDIO_MODELS: frozenset[FishAudioModel] = frozenset({"drama-3"})
+"""Billed for the characters of text spoken; the others for its UTF-8 bytes."""
 
 SttProvider = Literal["soniox", "bailian"]
 """The speech recognition services: Soniox, or Alibaba Cloud Model Studio (阿里云百炼)."""

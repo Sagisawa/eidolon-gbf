@@ -34,9 +34,11 @@ from eidolon.clock import Clock
 from eidolon.database import connect
 from eidolon.price_catalog import Catalog
 
-PER: dict[str, int] = {"tokens": 1_000_000, "bytes": 1_000_000, "seconds": 3600}
+PER: dict[str, int] = {
+    "tokens": 1_000_000, "bytes": 1_000_000, "characters": 1_000_000, "seconds": 3600
+}
 """How many units a price is for: a million tokens, a million bytes (of text spoken, in
-UTF-8), an hour (of audio heard)."""
+UTF-8) or characters (of it), an hour (of audio heard)."""
 
 PriceKey = tuple[str, str, str]
 """A provider, a model, a unit."""
@@ -104,9 +106,8 @@ PRESETS: dict[PriceKey, Price] = {
         ("api.fish.audio", model, "bytes"): Price(price, None, "USD", GATHERED)
         for model, price in {"s2.1-pro-free": 0, "s2.1-pro": 15, "s2-pro": 15, "s1": 15}.items()
     },
-    # Drama 3 is billed per character, $50 a million (at $10, through November 12, 2026, as
-    # it launched): a third of that a byte, Japanese in UTF-8 being 3 bytes a character.
-    ("api.fish.audio", "drama-3", "bytes"): Price(50 / 3, None, "USD", date(2026, 10, 17)),
+    # Drama 3, per million characters ($10 as it launched, through November 12, 2026).
+    ("api.fish.audio", "drama-3", "characters"): Price(50, None, "USD", date(2026, 10, 17)),
     # Soniox, per hour of audio streamed (its own equivalent of the tokens it bills).
     ("stt-rt.soniox.com", "stt-rt-v5", "seconds"): Price(0.12, None, "USD", GATHERED),
     # The judge model, per million input tokens; output is free.

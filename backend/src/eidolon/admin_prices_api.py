@@ -17,7 +17,7 @@ from eidolon.assembly import Backend
 from eidolon.price_catalog import describe_state
 from eidolon.prices import preset_as_of, unpriced, used
 
-Unit = Literal["tokens", "bytes", "seconds"]
+Unit = Literal["tokens", "bytes", "characters", "seconds"]
 """The units service calls are billed in (`prices.PER`)."""
 Currency = Literal["USD", "CNY"]
 """What prices are in: the providers' price pages are in dollars or yuan."""

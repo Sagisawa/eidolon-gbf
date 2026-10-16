@@ -27,6 +27,7 @@ import { exemptionNote, sayServices } from "@/lib/exemptingKeys";
 import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
+  DEFAULT_FISH_AUDIO_MODEL,
   FISH_AUDIO_MODELS,
   forgetOwnKey,
   keepOwnKey,
@@ -163,9 +164,9 @@ export function OwnKeysSettings() {
         <OwnSpeechKeyForm
           title={t.ttsTitle}
           current={kept.tts}
-          model={kept.tts?.model ?? FISH_AUDIO_MODELS[0]}
+          model={kept.tts?.model ?? DEFAULT_FISH_AUDIO_MODEL}
           disabled={!canKeep}
-          onSubmit={async (apiKey, _, model = FISH_AUDIO_MODELS[0]) => {
+          onSubmit={async (apiKey, _, model = DEFAULT_FISH_AUDIO_MODEL) => {
             await checkOwnSpeechKey("tts", apiKey, { model });
             change(() => keepOwnKey(userId, "tts", { api_key: apiKey, model }));
           }}

@@ -60,6 +60,7 @@ from eidolon.config import (
     CLOUDFLARE_JUDGE_MODELS,
     ChatModelSettings,
     DEFAULT_JEV_BASE_URL,
+    FISH_AUDIO_MODELS,
     CloudflareJudgeSettings,
     JevSettings,
     JudgeSettings,
@@ -397,6 +398,8 @@ class _TTS(_Item):
     async def tried(self, values: Values) -> tuple[Values, Any]:
         if not values["api_key"]:
             raise ConfigRejected("还没有语音合成的 key，请填写")
+        if values["model"] not in FISH_AUDIO_MODELS:  # kept before there was a list
+            raise ConfigRejected(f"语音合成的模型只能是 {'、'.join(FISH_AUDIO_MODELS)}，而不是 {values['model']}")
         await self.c._check_speech(
             lambda check: check.check_tts(values["api_key"], values["model"], own=False)
         )

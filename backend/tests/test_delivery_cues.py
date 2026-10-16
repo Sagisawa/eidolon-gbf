@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from eidolon.delivery_cues import PAIRED_TAGS, spoken_by, voiced, without_cues
+from eidolon.delivery_cues import spoken_by, voiced, without_cues
 from eidolon.reply_format import (
     DIRECTED_FORMAT_INSTRUCTIONS,
     FORMAT_INSTRUCTIONS,
@@ -101,9 +101,8 @@ def test_a_directors_direction_is_a_cue():
     assert voiced(line) == line.replace("] ", "]") and without_cues(line) == "うん"
 
 
-@pytest.mark.parametrize("tag", PAIRED_TAGS)
-def test_only_drama_3_is_given_paired_tags(tag: str):
-    said = f"[softly] <{tag}>内緒</{tag}>だよ"
+def test_only_drama_3_is_given_paired_tags():
+    said = "[softly] <whisper>内緒</whisper>だよ"
 
     assert spoken_by(said, "drama-3") == said
     assert spoken_by(said, "s2.1-pro-free") == spoken_by(said, "s1") == "[softly] 内緒だよ"

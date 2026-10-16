@@ -109,6 +109,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     DEFAULT_BAILIAN_STT_MODEL,
+    CHARACTER_BILLED_FISH_AUDIO_MODELS,
     DEFAULT_FISH_AUDIO_MODEL,
     FREE_FISH_AUDIO_MODELS,
     FishAudioModel,
@@ -804,11 +805,11 @@ def frame_error_kind(frame: ErrorFrame) -> ErrorKind:
 @dataclass
 class _Voicing:
     """Speech synthesis of one reply: since when it was given the reply's first words
-    (pipeline clock, ns), how many bytes of them, when its first audio came, and whether
-    it failed."""
+    (pipeline clock, ns), how much of them in the unit it is billed in, when its first
+    audio came, and whether it failed."""
 
     started_ns: int
-    bytes: int = 0
+    given: int = 0
     first_audio_ns: int | None = None
     error: ErrorKind | None = None
 
@@ -821,9 +822,10 @@ class CallMeter(BaseObserver):
     Speech recognition is a stream as long as the call: one service call, billed for the
     seconds of audio sent to it, with no latency, failed if any of its errors came. Speech
     synthesis is a service call for each reply voiced, from its first words to the next
-    reply or interruption: billed for the UTF-8 bytes of Japanese (cues and all) it was
-    given, as Fish Audio charges, timed to its first audio, failed if any of its errors
-    came meanwhile; one of its errors between replies is a failed service call of its own."""
+    reply or interruption: billed for the Japanese (cues and all) it was given, as its
+    model reads it (`delivery_cues.spoken_by`), in UTF-8 bytes or, for those Fish Audio
+    charges so, in characters; timed to its first audio, failed if any of its errors came
+    meanwhile; one of its errors between replies is a failed service call of its own."""
 
     def __init__(
         self,
@@ -837,6 +839,9 @@ class CallMeter(BaseObserver):
         self._recording = recording
         self._stt, self._stt_origin = stt, stt_origin
         self._tts, self._tts_origin = tts, tts_origin
+        model: Any = tts_origin.model  # as the call's Fish Audio was given it
+        self._tts_model: FishAudioModel = model
+        self._tts_unit = "characters" if model in CHARACTER_BILLED_FISH_AUDIO_MODELS else "bytes"
         self._heard_s = 0.0
         self._stt_error: ErrorKind | None = None
         self._voicing: _Voicing | None = None
@@ -850,7 +855,9 @@ class CallMeter(BaseObserver):
             if isinstance(frame, SegmentTextFrame) and frame.text:
                 if self._voicing is None:
                     self._voicing = _Voicing(data.timestamp)
-                self._voicing.bytes += len(frame.text.encode())
+                text = spoken_by(frame.text, self._tts_model)
+                given = len(text) if self._tts_unit == "characters" else len(text.encode())
+                self._voicing.given += given
             elif isinstance(frame, LLMFullResponseStartFrame | InterruptionFrame):
                 self._voiced()
         elif data.source is self._tts and isinstance(frame, TTSAudioRawFrame):
@@ -885,7 +892,7 @@ class CallMeter(BaseObserver):
         latency = None
         if voicing.first_audio_ns is not None:
             latency = (voicing.first_audio_ns - voicing.started_ns) / 1e6
-        billed = Billing("bytes", voicing.bytes)
+        billed = Billing(self._tts_unit, voicing.given)
         self._recording.add(self._tts_origin, voicing.error, latency, billed)
 
 
