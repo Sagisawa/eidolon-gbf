@@ -59,7 +59,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import type { CanvasLayer } from "./canvasStage";
 import { idle } from "./idle";
 import { dressScene } from "./memoryDressing";
-import { canvasTexture, fadeIntoNight, glowTexture, type Kit, NIGHT, pillarGeometry, pillTexture, seeded } from "./memoryKit";
+import { canvasTexture, fadeIntoNight, glowTexture, type Kit, NIGHT, PILLAR_FOOT, pillarGeometry, pillSprite, seeded } from "./memoryKit";
 import { cameraBasis, FIGURE_HEIGHT, ISLAND_SIZE, ISLANDS, type Actor, type MemoryScene } from "./model/memory";
 import {
   BLOCK,
@@ -101,8 +101,6 @@ const SHADOW_MAP = 2048;
 const SHADOW_REACH = 14;
 /** 泛光（原型的参数）：强度、半径、亮到多少才泛光。 */
 const BLOOM = { strength: 0.5, radius: 0.55, threshold: 0.94 };
-/** 柱子往下伸到这么低：竖屏取景高，柱脚不能露在画面里。 */
-const PILLAR_FOOT = -32;
 /** 收到时跳起多高、身子压扁拉长多少；真乃接住时往后仰多少（弧度）。 */
 const HOP_HEIGHT = 0.3;
 const HOP_SQUASH = 0.05;
@@ -311,7 +309,7 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     cube.castShadow = true;
     cube.position.y = 0.275;
     body.add(cube);
-    const label = nameSprite(actor.name, font, own);
+    const label = pillSprite(own, actor.name, { font: `600 44px ${font}`, bg: "rgba(20,16,40,0.78)", fg: "#f3eeff" }, 0.22);
     label.position.y = 0.95;
     body.add(label);
   };
@@ -446,6 +444,9 @@ export async function createMemoryLayer(canvas: HTMLCanvasElement, quality: Qual
     else {
       bloom?.dispose();
       bloom = null;
+      // 阴影贴图也放掉：要用时 three.js 会重建。
+      sun.shadow.map?.dispose();
+      sun.shadow.map = null;
     }
     bloom?.resize(size.w, size.h, dpr);
     dressing.setParticles(q.particles);
@@ -643,14 +644,6 @@ function phoneScreenTexture(her: Color): CanvasTexture {
     g.fillStyle = "#f1eff5";
     g.fillRect(0, 430, 240, 50);
   });
-}
-
-/** 方块上她的名字：半透明深色胶囊里的白字，总是朝着镜头。 */
-function nameSprite(name: string, font: string, own: Kit["own"]): Sprite {
-  const { map, aspect } = pillTexture(name, `600 44px ${font}`, "rgba(20,16,40,0.78)", "#f3eeff");
-  const sprite = new Sprite(own(new SpriteMaterial({ map: own(map), transparent: true, depthWrite: false })));
-  sprite.scale.set(0.22 * aspect, 0.22, 1);
-  return sprite;
 }
 
 type Bloom = {

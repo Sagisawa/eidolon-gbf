@@ -33,13 +33,11 @@ import {
   Points,
   PointsMaterial,
   RepeatWrapping,
-  Sprite,
-  SpriteMaterial,
   TorusGeometry,
   Vector3,
 } from "three";
 
-import { canvasTexture, type Kit, pillarGeometry, pillTexture, seeded } from "./memoryKit";
+import { canvasTexture, type Kit, PILLAR_FOOT, pillarGeometry, pillSprite, seeded } from "./memoryKit";
 import { ISLANDS, type Actor, type Vec3 } from "./model/memory";
 import { EMBEDDING_STAR, TURNTABLE, type MemoryStory } from "./model/memoryStory";
 
@@ -56,13 +54,11 @@ const LAMP_IDLE = "#e6dbf2";
 const TREE = [-1.05, -1.05] as const;
 /** 283 事务所那栋楼：中心的 (x, z)、边长、楼顶的高度。 */
 const TOWER = { x: -1.6, z: -5.4, w: 2.2, top: 1.0 };
-/** 楼、尖塔这些往下伸到这么低（和浮岛的柱子一样：竖屏取景高，柱脚不能露在画面里）。 */
-const FOOT = -32;
 /** embedding 星图：围着这一点的一团，半径这么大，只留浮岛后面离镜头远的那一半（x + z 小的那边）。 */
 const STARS = { center: [4, -3, 1] as Vec3, radius: 26, count: 260 };
 /** 星图上她那颗点亮起来时，光团多大（世界单位）、连向近邻的线多不透明：AI 的梗，压暗缩小。 */
-const MINE_GLOW = 0.7;
-const MINE_LINES = 0.25;
+const SENDER_GLOW = 0.7;
+const SENDER_LINES = 0.25;
 /** 花瓣、上飘的 token 粒子全量时多少颗。 */
 const PETALS = 50;
 const TOKENS = 140;
@@ -106,7 +102,7 @@ export function dressScene(kit: Kit, actors: readonly Actor[], memory: Color): D
     const BLOSSOMS = 46;
     const shades = ["#ffc7dc", "#ffb0cc", "#ffe0ec", "#f7a1c0"].map((c) => new Color(c));
     const crown = place(
-      new InstancedMesh(own(new BoxGeometry(1, 1, 1)), lambert({ color: "#ffffff", emissive: "#ff9cc0", emissiveIntensity: 0.12 }), BLOSSOMS),
+      own(new InstancedMesh(own(new BoxGeometry(1, 1, 1)), lambert({ color: "#ffffff", emissive: "#ff9cc0", emissiveIntensity: 0.12 }), BLOSSOMS)),
       scene,
     );
     const rnd = seeded(3);
@@ -162,12 +158,12 @@ export function dressScene(kit: Kit, actors: readonly Actor[], memory: Color): D
   }
 
   // —— 转台旁一闪而过的「temperature 0.7」：总画在最上面，不被转台挡住。
-  const temperature = place(label(own, "temperature 0.7", `600 44px ${MONO}`, "rgba(20,16,40,0.35)", "rgba(243,238,255,0.6)", 0.16), scene, TURNTABLE[0], TURNTABLE[1] + 0.75, TURNTABLE[2] + 0.35);
+  const temperature = place(pillSprite(own, "temperature 0.7", { font: `600 44px ${MONO}`, bg: "rgba(20,16,40,0.35)", fg: "rgba(243,238,255,0.6)" }, 0.16), scene, TURNTABLE[0], TURNTABLE[1] + 0.75, TURNTABLE[2] + 0.35);
   temperature.material.depthTest = false;
   temperature.renderOrder = 10;
 
   // —— 远处 283 事务所的楼：两面窗灯，正面「283 PRODUCTION」的牌子，楼顶什么都不放。
-  pillar({ w: TOWER.w, top: TOWER.top, depth: TOWER.top - FOOT, fade: 12, x: TOWER.x, z: TOWER.z, color: "#6f5d99", topColor: "#cfc0e6" });
+  pillar({ w: TOWER.w, top: TOWER.top, depth: TOWER.top - PILLAR_FOOT, fade: 12, x: TOWER.x, z: TOWER.z, color: "#6f5d99", topColor: "#cfc0e6" });
   const windows = own(windowsTexture());
   const windowMat = basic({ map: windows, transparent: true, depthWrite: false });
   const windowGeo = own(new PlaneGeometry(TOWER.w - 0.2, 8));
@@ -198,11 +194,11 @@ export function dressScene(kit: Kit, actors: readonly Actor[], memory: Color): D
   const edges = stars.flatMap((s) => near(s, 2).flatMap((q) => (s.distanceTo(q) < 5 ? [s, q] : [])));
   scene.add(new Points(own(new BufferGeometry().setFromPoints(stars)), own(new PointsMaterial({ color: "#d8d0ff", size: 2.2, sizeAttenuation: false, transparent: true, opacity: 0.45 }))));
   scene.add(new LineSegments(own(new BufferGeometry().setFromPoints(edges)), own(new LineBasicMaterial({ color: "#8f84c9", transparent: true, opacity: 0.05 }))));
-  const mine = new Vector3(...EMBEDDING_STAR);
-  const mineLines = own(new LineBasicMaterial({ color: memory, transparent: true, opacity: 0 }));
-  scene.add(new LineSegments(own(new BufferGeometry().setFromPoints(near(mine, 5).flatMap((q) => [mine, q]))), mineLines));
-  const mineStar = glow(memory, 0, scene);
-  mineStar.position.copy(mine);
+  const senderStar = new Vector3(...EMBEDDING_STAR);
+  const senderLines = own(new LineBasicMaterial({ color: memory, transparent: true, opacity: 0 }));
+  scene.add(new LineSegments(own(new BufferGeometry().setFromPoints(near(senderStar, 5).flatMap((q) => [senderStar, q]))), senderLines));
+  const senderGlow = glow(memory, 0, scene);
+  senderGlow.position.copy(senderStar);
 
   // —— 少量上飘的 token 粒子（几位的颜色和白、淡紫）。
   const palette = [...actors.map((a) => a.color), "#ffffff", "#bcb2ff"].map((c) => new Color(c));
@@ -250,8 +246,8 @@ export function dressScene(kit: Kit, actors: readonly Actor[], memory: Color): D
       tokens.offset.y = (time * 0.04) % 1;
       temperature.visible = story.temperature > 0;
       temperature.material.opacity = story.temperature;
-      mineStar.scale.setScalar(MINE_GLOW * story.embedding * (1 + Math.sin(time * 2) * 0.15));
-      mineLines.opacity = MINE_LINES * story.embedding;
+      senderGlow.scale.setScalar(SENDER_GLOW * story.embedding * (1 + Math.sin(time * 2) * 0.15));
+      senderLines.opacity = SENDER_LINES * story.embedding;
 
       petalSeeds.forEach((sd, i) => {
         const t = (time * 0.12 + sd) % 1;
@@ -299,14 +295,6 @@ function starPoints(): Vector3[] {
     stars.push(v);
   }
   return stars;
-}
-
-/** 半透明胶囊里的一行字，做成总是朝着镜头的精灵，高 `height` 个世界单位。 */
-function label(own: Kit["own"], text: string, css: string, bg: string, fg: string, height: number): Sprite {
-  const { map, aspect } = pillTexture(text, css, bg, fg);
-  const sprite = new Sprite(own(new SpriteMaterial({ map: own(map), transparent: true, depthWrite: false })));
-  sprite.scale.set(height * aspect, height, 1);
-  return sprite;
 }
 
 /** 拱门里滚的 token：分词器那样一块块上色的词，竖着能接上，循环滚。 */

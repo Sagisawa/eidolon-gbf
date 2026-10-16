@@ -56,6 +56,7 @@ import { chromium } from "playwright";
 import { BEATS } from "../src/app/(landing)/model/memoryStory.ts";
 import { phoneRest, PHONE_MM, STILL_MARGIN } from "../src/app/(landing)/model/phone.ts";
 import { ACT1_SCREENS, holdAt, restAt, spanOf, timelineOf } from "../src/app/(landing)/model/timeline.ts";
+import { SLOW_MS } from "../src/app/(landing)/model/tier.ts";
 import { lastLcp, medianByLcp, phone4gPage } from "./phone-4g.mjs";
 
 const origin = (process.argv[2] ?? "http://localhost:3000").replace(/\/$/, "");
@@ -698,25 +699,28 @@ function watchConsole(page) {
       await act5Ready(page, act5);
       await toScreens(page, act5.from + act5.length * 0.02);
       await page.screenshot({ path: path.join(shots, `${tier}-act5-dressing.png`) });
-      const ms = await page.evaluate(
-        () =>
-          new Promise((resolve) => {
-            const t = [];
-            const step = (now) => {
-              t.push(now);
-              if (now - t[0] < 3000) requestAnimationFrame(step);
-              else resolve((t.at(-1) - t[0]) / (t.length - 1));
-            };
-            requestAnimationFrame(step);
-          }),
-      );
-      const after = await tierOf(page);
       if (tier === "full") {
+        const after = await tierOf(page);
         report("第 5 幕完整档的开场全景（截图 full-act5-dressing.png：楼、路灯、各人岛上的东西、AI 的梗、云和粒子，有阴影和泛光）", software ? null : after === "full", software ? "没有显卡，跳过" : `档位停在 ${after}`);
       } else {
+        // 量的是相邻两帧的间隔：受屏幕刷新率封顶，只说明没慢到降档，量不出一帧实际画了多久。
+        const ms = await page.evaluate(
+          () =>
+            new Promise((resolve) => {
+              const t = [];
+              const step = (now) => {
+                t.push(now);
+                if (now - t[0] < 3000) requestAnimationFrame(step);
+                else resolve((t.at(-1) - t[0]) / (t.length - 1));
+              };
+              requestAnimationFrame(step);
+            }),
+        );
+        const after = await tierOf(page);
+        const [slow] = SLOW_MS.lite;
         report(
-          "第 5 幕简化档：开场全景的帧耗时在简化档降档的门槛（36 ms）以内（截图 lite-act5-dressing.png：没有阴影和泛光，粒子少一半）",
-          software ? null : ms <= 36 && after === "lite",
+          `第 5 幕简化档：开场全景的帧耗时在简化档降档的门槛（${slow} ms）以内（截图 lite-act5-dressing.png：没有阴影和泛光，粒子少一半）`,
+          software ? null : ms <= slow && after === "lite",
           software ? `没有显卡，跳过（软件渲染 ${ms.toFixed(1)} ms）` : `平均 ${ms.toFixed(1)} ms，档位 ${after}`,
         );
       }

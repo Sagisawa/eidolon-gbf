@@ -14,12 +14,15 @@ import {
   type MeshLambertMaterialParameters,
   type Object3D,
   type Scene,
-  type Sprite,
+  Sprite,
+  SpriteMaterial,
   SRGBColorSpace,
 } from "three";
 
 /** 柱子的侧面往下渐隐成这个颜色：夜空渐变中段的颜色，光照以后再混，柱脚才融进夜空、不发黑。 */
 export const NIGHT = "#151030";
+/** 浮岛的柱子、远处的楼往下伸到这么低：竖屏取景高，柱脚不能露在画面里。 */
+export const PILLAR_FOOT = -32;
 
 /** 建场景时的一套小工具：建出来的几何、材质、贴图记下来，放掉上下文时一起释放。 */
 export type Kit = {
@@ -123,22 +126,29 @@ export function glowTexture(): CanvasTexture {
   });
 }
 
-/** 半透明胶囊里的一行字（`css` 是字体），高 72 像素；`aspect` 是宽比高。 */
-export function pillTexture(text: string, css: string, bg: string, fg: string): { map: CanvasTexture; aspect: number } {
+/** 胶囊字的样子：`font` 是 canvas 的字体（字重、字号、字族），`bg`、`fg` 是底色和字色。 */
+export type PillStyle = { font: string; bg: string; fg: string };
+
+/** 半透明胶囊里的一行字，做成总是朝着镜头的精灵，高 `height` 个世界单位。 */
+export function pillSprite(own: Kit["own"], text: string, { font, bg, fg }: PillStyle, height: number): Sprite {
   const probe = document.createElement("canvas").getContext("2d")!;
-  probe.font = css;
+  probe.font = font;
   const w = Math.ceil(probe.measureText(text).width) + 48;
-  const map = canvasTexture(w, 72, (g) => {
-    g.fillStyle = bg;
-    g.beginPath();
-    g.roundRect(0, 0, w, 72, 36);
-    g.fill();
-    g.font = css;
-    g.fillStyle = fg;
-    g.textBaseline = "middle";
-    g.fillText(text, 24, 38);
-  });
-  return { map, aspect: w / 72 };
+  const map = own(
+    canvasTexture(w, 72, (g) => {
+      g.fillStyle = bg;
+      g.beginPath();
+      g.roundRect(0, 0, w, 72, 36);
+      g.fill();
+      g.font = font;
+      g.fillStyle = fg;
+      g.textBaseline = "middle";
+      g.fillText(text, 24, 38);
+    }),
+  );
+  const sprite = new Sprite(own(new SpriteMaterial({ map, transparent: true, depthWrite: false })));
+  sprite.scale.set((height * w) / 72, height, 1);
+  return sprite;
 }
 
 /** 固定种子的伪随机数（0 到 1）：布景每次一样。 */

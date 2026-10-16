@@ -96,7 +96,7 @@ describe("storyAt: 一件事传开", () => {
     expect(first(scenes, (s) => s.bridge[0] > 0)).toBeGreaterThanOrEqual(first(scenes, (s) => !!copyTo(s, 1)));
   });
 
-  it("转台转动的时候，旁边一闪而过「temperature 0.7」：转之前、副本上桥以后都看不见", () => {
+  it("转台转动的时候，旁边一闪而过「temperature 0.7」：转之前看不见，桥接上以后很快淡掉", () => {
     const scenes = run();
     const shown = scenes.map((s) => s.temperature);
     // 只闪一回：显出来的进度连成一段。
@@ -106,7 +106,7 @@ describe("storyAt: 一件事传开", () => {
       if (s.turntable > 0.01 && s.turntable < Math.PI / 2 - 0.01) expect(s.temperature, `p ${ps[i]}`).toBeGreaterThan(0.9);
     });
     expect(at(0.29).temperature).toBe(0);
-    expect(at(0.5).temperature).toBe(0);
+    expect(at(0.47).temperature).toBe(0);
   });
 
   it("真乃收进记忆柱时，embedding 星图上亮起一颗她颜色的点，之后一直亮着，往回滚就灭了", () => {
