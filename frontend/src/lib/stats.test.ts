@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { TIERS, type Tier } from "@/lib/affinity";
 import {
   affinityGroups,
+  tierPreview,
   busiestParts,
   callTime,
   callTimeText,
@@ -174,6 +175,13 @@ describe("通话最久", () => {
 });
 
 describe("好感度分组", () => {
+  it("一档里人多时收起来只露前 5 位，只多 1 位时照样全露", () => {
+    expect(tierPreview(3)).toBe(3);
+    expect(tierPreview(6)).toBe(6);
+    expect(tierPreview(7)).toBe(5);
+    expect(tierPreview(30)).toBe(5);
+  });
+
   it("只列有角色的档，从冷淡到亲密；档里照接口给的顺序（偶像顺序）", () => {
     expect(affinityGroups(tiers({ intimate: ["kogane"], cold: ["meguru", "mano"] }))).toEqual([
       { tier: "cold", characters: ["meguru", "mano"] },

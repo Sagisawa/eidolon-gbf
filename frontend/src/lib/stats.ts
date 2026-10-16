@@ -162,6 +162,15 @@ export function affinityGroups(affinity: TierGroup[] | null): TierGroup[] {
   return (affinity ?? []).filter((group) => group.characters.length > 0);
 }
 
+/** How many of a tier the affinity groups show folded: the first five, in the idols' order. */
+export const TIER_PREVIEW = 5;
+
+/** How many of the `count` in a tier are shown while it is folded: all of them when no more than
+ * one would be left out (a 「+1」 would take the place of the one it hides). */
+export function tierPreview(count: number): number {
+  return count <= TIER_PREVIEW + 1 ? count : TIER_PREVIEW;
+}
+
 export type StatsSections = {
   isEmpty: boolean;
   visits: boolean;

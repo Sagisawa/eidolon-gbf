@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronUpIcon } from "lucide-react";
 import NextLink from "next/link";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 
@@ -27,6 +28,7 @@ import {
   portrait,
   STATS_RANGES,
   statsSections,
+  tierPreview,
   type Ranked,
   type Stats,
   type StatsRange,
@@ -278,36 +280,67 @@ function Ranking({
   );
 }
 
-/** 好感度分组：Header 字号的标题，下面每档一行，左边 Subtitle 字号 muted 的档名，右边这一档里她们的头像，外面一圈她的 `--her-mark`。 */
+/**
+ * 好感度分组：Header 字号的标题，下面每档一行，左边 Subtitle 字号 muted 的档名，右边这一档里她们的头像，外面一圈她的 `--her-mark`。
+ * 一档里人多时收起来只露前几位（`lib/stats` 的 `tierPreview`），后面一个「+N」：电脑上鼠标移到这一行时展开，移开收回；
+ * 点「+N」（手机上只能点）展开到点末尾的收起键为止。
+ */
 function AffinityGroups({ groups, byId }: { groups: TierGroup[]; byId: Map<string, Character> }) {
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-header">{t.affinity}</h2>
-      <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-3">
+      <dl className="grid grid-cols-[auto_1fr] items-start gap-x-4 gap-y-3">
         {groups.map((group) => (
           <Fragment key={group.tier}>
-            <dt className="text-subtitle text-muted-foreground">{copy.conversation.affinity.tiers[group.tier]}</dt>
+            {/* 档名对着第一排头像的中线，展开时不跟着跳到中间。 */}
+            <dt className="flex h-9 items-center text-subtitle text-muted-foreground">{copy.conversation.affinity.tiers[group.tier]}</dt>
             <dd>
-              <ul className="flex flex-wrap gap-2.5">
-                {group.characters.map((id) => {
-                  const character = byId.get(id);
-                  if (!character) return null;
-                  return (
-                    <li
-                      key={id}
-                      style={herVars(character.color)}
-                      className="rounded-full ring-2 ring-her-mark ring-offset-2 ring-offset-background"
-                    >
-                      <MarkedAvatar name={character.name} src={character.avatar_url} size="bubble" />
-                    </li>
-                  );
-                })}
-              </ul>
+              <TierMembers characters={group.characters} byId={byId} />
             </dd>
           </Fragment>
         ))}
       </dl>
     </section>
+  );
+}
+
+/** 一档里的她们：收起时前几位加「+N」，鼠标在这一行上或点开后是全部。 */
+function TierMembers({ characters, byId }: { characters: string[]; byId: Map<string, Character> }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const shown = tierPreview(characters.length);
+  const folded = characters.length - shown;
+  return (
+    <ul className="group/tier flex flex-wrap gap-2.5">
+      {characters.map((id, i) => {
+        const character = byId.get(id);
+        if (!character) return null;
+        return (
+          <li
+            key={id}
+            style={herVars(character.color)}
+            className={cn(
+              "rounded-full ring-2 ring-her-mark ring-offset-2 ring-offset-background",
+              i >= shown && !isOpen && "hidden group-hover/tier:block",
+            )}
+          >
+            <MarkedAvatar name={character.name} src={character.avatar_url} size="bubble" />
+          </li>
+        );
+      })}
+      {folded > 0 && (
+        <li className={cn(!isOpen && "group-hover/tier:hidden")}>
+          <Button
+            variant="more"
+            size="icon-lg"
+            aria-expanded={isOpen}
+            aria-label={isOpen ? t.tierLess : t.tierMoreLabel(folded)}
+            onClick={() => setIsOpen(!isOpen)}
+          >
+            {isOpen ? <ChevronUpIcon /> : t.tierMore(folded)}
+          </Button>
+        </li>
+      )}
+    </ul>
   );
 }
 
