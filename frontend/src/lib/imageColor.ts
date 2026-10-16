@@ -26,6 +26,9 @@ export type ImageColorScale = {
   /** 她颜色的圆按钮（通话、发送）：底色和图标色。浅色模式用原色（图标保证可辨认）；
    *  深色模式下原色可能和页面一样暗，改用与页面对比度 ≥ 3 的 mark。 */
   button: { bg: ModePair; fg: ModePair };
+  /** 分享图页首铺满的色带和上面的字（分享图固定浅色，只有一份）：底是原色；原色上白字 ≥ 4.5 就用白字，
+   *  否则用浅色的 button.fg（同色相的深色）。不用 accent 填底：浅色印象色会被压成灰色。 */
+  banner: { bg: string; fg: string };
   /** 在纸面上写她颜色的字，以及强调色（注入成 shadcn 的 --primary，给按钮等填底）。 */
   accent: ModePair;
   /** 放在 accent 填底上的字和图标。 */
@@ -68,15 +71,14 @@ function deriveScale(raw: string): ImageColorScale {
   };
   const buttonBg = { light: raw, dark: mark.dark };
   const accent = { light: readableOn(base, body.light, AA, 0.16), dark: readableOn(base, body.dark, AA, 0.14) };
+  const buttonFg = { light: readableOn(base, buttonBg.light, AA, 0.14), dark: readableOn(base, buttonBg.dark, AA, 0.14) };
   return {
     raw,
     mark,
     bar,
     wall,
-    button: {
-      bg: buttonBg,
-      fg: { light: readableOn(base, buttonBg.light, AA, 0.14), dark: readableOn(base, buttonBg.dark, AA, 0.14) },
-    },
+    button: { bg: buttonBg, fg: buttonFg },
+    banner: { bg: raw, fg: contrast(raw, "#ffffff") >= AA ? "#ffffff" : buttonFg.light },
     accent,
     onAccent: { light: mostReadable(accent.light), dark: mostReadable(accent.dark) },
     call: { deep: callDeep },

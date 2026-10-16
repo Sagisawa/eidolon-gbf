@@ -33,6 +33,12 @@ describe("contentSecurityPolicy", () => {
     expect(policy.get("script-src")).toEqual(["'self'", "'unsafe-inline'"]);
   });
 
+  it("allows the data: and blob: images the share card is drawn through", () => {
+    const policy = directives(contentSecurityPolicy(undefined));
+
+    expect(policy.get("img-src")).toEqual(["'self'", "data:", "blob:"]);
+  });
+
   it.each(["not a url", "javascript:alert(1)"])(
     "leaves out a stand address that is not one (%j)",
     (url) => {

@@ -534,6 +534,14 @@ export const zh = {
       likedGiven: "她喜欢的",
       times: (count: number) => `${count} 次`,
       timesUnit: "次",
+      /** 分享图（GLOSSARY.md「分享图」）。 */
+      share: {
+        button: "分享",
+        sharing: "正在生成…",
+        failed: "分享图没能生成，请再试一次",
+        producer: "制作人",
+        turnsUnit: "回合",
+      },
     },
     /** 「关于」的四行和最下面的免责声明（应用里只留这一处）。 */
     about: {

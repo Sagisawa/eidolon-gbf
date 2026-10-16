@@ -75,6 +75,9 @@
   --color-her-button: var(--her-button);
   --color-her-button-fg: var(--her-button-fg);
   --color-her-call-deep: var(--her-call-deep);
+  /* 分享图的色带和上面的字：shareVars() 注入到分享图里。 */
+  --color-her-banner: var(--her-banner);
+  --color-her-banner-fg: var(--her-banner-fg);
   /* 通话层压在底图上那层渐变的终点：call.deep 再混 15% 的黑（DESIGN.md「Call layer」）。 */
   --color-her-call-shade: color-mix(in oklch, var(--her-call-deep) 85%, black);
   /* 固定色，定义在下面的 :root 里，都有对比度测试。 */
@@ -83,6 +86,12 @@
   --color-producer-ink: var(--producer-ink);
   --color-on-producer-ink: var(--on-producer-ink);
   --color-bubble-her: var(--bubble-her);
+  /* 分享图（DESIGN.md「分享图」）固定浅色、不跟深色模式：纸、字、次要字、分隔线、排行条的底。 */
+  --color-share-paper: var(--share-paper);
+  --color-share-ink: var(--share-ink);
+  --color-share-muted: var(--share-muted);
+  --color-share-rule: var(--share-rule);
+  --color-share-track: var(--share-track);
 
   /* 字号层级（Typography「Hierarchy」），字重随字号一起给出。 */
   --text-list-title: 1.25rem;
@@ -100,6 +109,36 @@
   --text-call-name: 1.625rem;
   --text-call-name--font-weight: 700;
   --text-call-line: 1.0625rem;
+  /* 分享图（DESIGN.md「分享图」）：画在固定 1080×1350 的画布上，字号用 px，不随用户的根字号变。 */
+  --text-share-small: 18px; /* 热力图的月份 */
+  --text-share-romaji: 18px; /* 主角名字后面的大写罗马音 */
+  --text-share-romaji--font-weight: 600;
+  --text-share-romaji--letter-spacing: 0.24em;
+  --text-share-caption: 22px; /* 跨度标签、读数、网址 */
+  --text-share-label: 24px; /* 总数的标签和单位 */
+  --text-share-address: 26px; /* 称呼 */
+  --text-share-address--font-weight: 600;
+  --text-share-body: 28px; /* 前 3 的名字和回合数 */
+  --text-share-title: 30px; /* 「聊得最多」「过去一年」 */
+  --text-share-title--font-weight: 800;
+  --text-share-rank: 34px; /* 前 3 的名次 */
+  --text-share-rank--font-weight: 800;
+  --text-share-name: 36px; /* 主角的名字 */
+  --text-share-name--font-weight: 800;
+  --text-share-site: 48px; /* 页脚的网站名 */
+  --text-share-site--font-weight: 800;
+  --text-share-site--letter-spacing: -0.01em;
+  --text-share-portrait: 72px; /* 一句话画像 */
+  --text-share-portrait--font-weight: 900;
+  --text-share-portrait--line-height: 1.05;
+  --text-share-total: 100px; /* 总数的大数 */
+  --text-share-total--font-weight: 900;
+  --text-share-total--line-height: 0.95;
+  --text-share-total--letter-spacing: -0.04em;
+  --text-share-total-wide: 120px; /* 关掉礼物、只剩三个总数时 */
+  --text-share-total-wide--font-weight: 900;
+  --text-share-total-wide--line-height: 0.95;
+  --text-share-total-wide--letter-spacing: -0.04em;
 
   /* 圆角（rounded）。 */
   --radius-bubble: 22px;
@@ -168,6 +207,12 @@
   --on-producer-ink: light-dark(#fbfcfe, #14171d);
   /* 新增：她的气泡，浅色是页面底，深色比壁纸高一层（her-bubble-night）。 */
   --bubble-her: light-dark(oklch(1 0 0), oklch(0.3 0.01 260));
+  /* 新增：分享图的固定浅色（DESIGN.md「分享图」），两种模式都是它们；字和次要字在纸上 ≥ 4.5。 */
+  --share-paper: #f7f6f2;
+  --share-ink: #16181d;
+  --share-muted: #6b6f78;
+  --share-rule: #d9d8d2;
+  --share-track: #e8e7e2;
   --sidebar: light-dark(oklch(0.985 0 0), oklch(0.205 0 0));
   --sidebar-foreground: light-dark(oklch(0.145 0 0), oklch(0.985 0 0));
   --sidebar-primary: light-dark(oklch(0.205 0 0), oklch(0.488 0.243 264.376));
@@ -180,6 +225,11 @@
 
 .dark {
   color-scheme: dark;
+}
+
+/* 分享图的画布：固定 1080×1350 px，间距刻度钉成 4px，导出的图不随用户的根字号变。 */
+.share-canvas {
+  --spacing: 4px;
 }
 
 @layer base {

@@ -28,3 +28,16 @@ export function herVars(color: string): CSSProperties {
     "--her-call-deep": s.call.deep,
   } as CSSProperties;
 }
+
+/**
+ * 分享图（DESIGN.md「分享图」）里她的颜色：页首色带和上面的字（`--her-banner`、`--her-banner-fg`），
+ * 和前 3 的排行条（`--her-bar`）。分享图固定浅色，都取浅色那一份。
+ */
+export function shareVars(color: string): CSSProperties {
+  const s = imageColorScale(color);
+  return {
+    "--her-banner": s.banner.bg,
+    "--her-banner-fg": s.banner.fg,
+    "--her-bar": s.bar.light,
+  } as CSSProperties;
+}

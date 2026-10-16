@@ -38,6 +38,12 @@ describe("主题对比度", () => {
     });
   }
 
+  // 分享图（DESIGN.md「分享图」）固定浅色，两种模式一样。
+  it("分享图的字和次要字在纸上都 ≥ 4.5", () => {
+    expect(pair("--share-ink", "--share-paper", "light")).toBeGreaterThanOrEqual(4.5);
+    expect(pair("--share-muted", "--share-paper", "light")).toBeGreaterThanOrEqual(4.5);
+  });
+
   describe("深色浮层", () => {
     it("浮层比页面高一层色调", () => {
       // 和黑色的对比度越大就越亮。

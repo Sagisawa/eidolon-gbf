@@ -25,6 +25,7 @@ function pairs(hex: string) {
       { what: `${mode} 强调色填底上的字`, fg: s.onAccent[mode], bg: s.accent[mode], min: 4.5 },
     ]),
     { what: "dark 按钮底色和页面", fg: s.button.bg.dark, bg: body.dark, min: 3 },
+    { what: "分享图色带上的字", fg: s.banner.fg, bg: s.banner.bg, min: 4.5 },
     { what: "通话层下部白字", fg: "#ffffff", bg: s.call.deep, min: 7 },
     { what: "通话层下部次要字", fg: mix("#ffffff", s.call.deep, CALL_MUTED), bg: s.call.deep, min: 4.5 },
   ];
@@ -84,6 +85,13 @@ describe("imageColorScale", () => {
     const mano = imageColorScale("#ffbad6");
     const kogane = imageColorScale("#f84cad");
     expect(distance(mano.call.deep, kogane.call.deep)).toBeGreaterThan(0.03);
+  });
+
+  it("分享图的色带铺原色：深的印象色上写白字，浅的写同色相的深色", () => {
+    const hiori = imageColorScale("#144384");
+    expect(hiori.banner).toEqual({ bg: "#144384", fg: "#ffffff" });
+    const mano = imageColorScale("#ffbad6");
+    expect(mano.banner).toEqual({ bg: "#ffbad6", fg: mano.button.fg.light });
   });
 
   it("拒绝不是 #rrggbb 的色值", () => {

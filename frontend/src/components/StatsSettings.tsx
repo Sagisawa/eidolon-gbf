@@ -6,8 +6,10 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { useDirectory } from "@/components/conversations/ConversationDirectory";
+import { SettingsPane } from "@/components/settings/SettingsPane";
 import { Heatmap } from "@/components/stats/Heatmap";
 import { HourChart } from "@/components/stats/HourChart";
+import { ShareButton } from "@/components/stats/ShareButton";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,6 +17,7 @@ import { copy } from "@/i18n";
 import { getStats, type Character } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FIRST_LEVEL } from "@/lib/navShell";
+import { canShare } from "@/lib/shareCard";
 import {
   affinityGroups,
   callTime,
@@ -46,6 +49,7 @@ export function StatsSettings() {
   const [range, setRange] = useState<StatsRange>("all");
   const [stats, setStats] = useState<Stats | null>(null);
   const [failure, setFailure] = useState<Failure | null>(null);
+  const [shareFailure, setShareFailure] = useState<Failure | null>(null);
   const { guard, characters, failure: directoryFailure } = useDirectory();
 
   useEffect(() => {
@@ -66,27 +70,36 @@ export function StatsSettings() {
   // 排行和礼物要角色的名字和颜色：角色还没到时整页当作读取中，免得那几行晚一步冒出来、页面跳一下。
   if (!stats || characters === null) {
     const shownFailure = stats ? directoryFailure : failure;
-    if (shownFailure) return <FailureNotice failure={shownFailure} />;
-    return <p className="text-body text-muted-foreground">{copy.settings.loading}</p>;
+    return (
+      <SettingsPane category="stats">
+        {shownFailure ? (
+          <FailureNotice failure={shownFailure} />
+        ) : (
+          <p className="text-body text-muted-foreground">{copy.settings.loading}</p>
+        )}
+      </SettingsPane>
+    );
   }
 
   const shown = statsSections(stats);
   if (shown.isEmpty) {
     return (
-      <Empty>
-        <EmptyHeader>
-          <EmptyTitle>{t.empty}</EmptyTitle>
-        </EmptyHeader>
-        <EmptyContent>
-          <Button
-            variant="outline"
-            nativeButton={false}
-            render={<NextLink href={CONVERSATIONS} onClick={guard(CONVERSATIONS)} />}
-          >
-            {t.toConversations}
-          </Button>
-        </EmptyContent>
-      </Empty>
+      <SettingsPane category="stats">
+        <Empty>
+          <EmptyHeader>
+            <EmptyTitle>{t.empty}</EmptyTitle>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button
+              variant="outline"
+              nativeButton={false}
+              render={<NextLink href={CONVERSATIONS} onClick={guard(CONVERSATIONS)} />}
+            >
+              {t.toConversations}
+            </Button>
+          </EmptyContent>
+        </Empty>
+      </SettingsPane>
     );
   }
 
@@ -97,89 +110,97 @@ export function StatsSettings() {
   const giftee = gifts?.most && byId.get(gifts.most.character_id);
 
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-4">
-        {shown.portrait && <p className="text-header">{portrait(stats.all_hours)}</p>}
-        <dl className="grid grid-cols-3 gap-3">
-          <Figure label={t.daysKnown} value={stats.days_known} unit={t.days} />
-          {shown.visits && (
-            <>
-              <Figure label={t.currentVisits} value={stats.visits.current} unit={t.days} />
-              <Figure label={t.longestVisits} value={stats.visits.longest} unit={t.days} />
-            </>
-          )}
-        </dl>
-      </div>
-      {shown.heatmap && (
-        <section className="flex flex-col gap-2">
-          <h2 className="text-header">{t.heatmap}</h2>
-          <Heatmap heatmap={stats.heatmap} />
-        </section>
-      )}
-      {shown.affinity && <AffinityGroups groups={affinityGroups(stats.affinity)} byId={byId} />}
-      <div className="flex flex-col gap-4">
-        <Tabs value={range} onValueChange={(value) => setRange(value as StatsRange)}>
-          <TabsList aria-label={t.rangeLabel}>
-            {STATS_RANGES.map((r) => (
-              <TabsTrigger key={r} value={r}>
-                {t.ranges[r]}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        {failure && <FailureNotice failure={failure} />}
-        <div
-          aria-busy={otherRange}
-          className={cn("flex flex-col gap-8 transition-opacity duration-200", otherRange && "opacity-45")}
-        >
-          {shown.totals && (
-            <dl className={cn("grid grid-cols-2 gap-3", shown.giftsGiven ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
-              <Figure label={t.turns} value={stats.range.turns} />
-              <Figure label={t.calls} value={calls.count} unit={t.timesUnit} />
-              <FigureOf label={t.callTime}>
-                <CallTime seconds={calls.seconds} />
-              </FigureOf>
-              {shown.giftsGiven && gifts && <Figure label={t.giftsGiven} value={gifts.given} />}
-            </dl>
-          )}
-          {shown.mostTalked && (
-            <Ranking
-              title={t.mostTalked}
-              ranked={mostTalked(stats.range.characters)}
-              byId={byId}
-              reading={(ranked) => t.talked(ranked.turns, ranked.days_known)}
-            />
-          )}
-          {shown.mostCalled && (
-            <Ranking
-              title={t.mostCalled}
-              ranked={mostCalled(stats.range.characters)}
-              byId={byId}
-              reading={(ranked) => callTimeText(ranked.call_seconds)}
-            />
-          )}
-          {shown.hours && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-header">{t.hours}</h2>
-              <HourChart hours={stats.range.by_hour} />
-            </section>
-          )}
-          {shown.gifts && gifts && (
-            <section className="flex flex-col gap-3">
-              <h2 className="text-header">{t.gifts}</h2>
-              <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {gifts.most && giftee && (
-                  <FigureOf label={t.mostGiven}>
-                    <Giftee character={giftee} given={gifts.most.given} />
-                  </FigureOf>
-                )}
-                <Figure label={t.likedGiven} value={gifts.liked} unit={t.timesUnit} />
+    <SettingsPane
+      category="stats"
+      end={
+        canShare(stats) && <ShareButton stats={stats} byId={byId} disabled={otherRange} onFailure={setShareFailure} />
+      }
+    >
+      <div className="flex flex-col gap-8">
+        {shareFailure && <FailureNotice failure={shareFailure} />}
+        <div className="flex flex-col gap-4">
+          {shown.portrait && <p className="text-header">{portrait(stats.all_hours)}</p>}
+          <dl className="grid grid-cols-3 gap-3">
+            <Figure label={t.daysKnown} value={stats.days_known} unit={t.days} />
+            {shown.visits && (
+              <>
+                <Figure label={t.currentVisits} value={stats.visits.current} unit={t.days} />
+                <Figure label={t.longestVisits} value={stats.visits.longest} unit={t.days} />
+              </>
+            )}
+          </dl>
+        </div>
+        {shown.heatmap && (
+          <section className="flex flex-col gap-2">
+            <h2 className="text-header">{t.heatmap}</h2>
+            <Heatmap heatmap={stats.heatmap} />
+          </section>
+        )}
+        {shown.affinity && <AffinityGroups groups={affinityGroups(stats.affinity)} byId={byId} />}
+        <div className="flex flex-col gap-4">
+          <Tabs value={range} onValueChange={(value) => setRange(value as StatsRange)}>
+            <TabsList aria-label={t.rangeLabel}>
+              {STATS_RANGES.map((r) => (
+                <TabsTrigger key={r} value={r}>
+                  {t.ranges[r]}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          {failure && <FailureNotice failure={failure} />}
+          <div
+            aria-busy={otherRange}
+            className={cn("flex flex-col gap-8 transition-opacity duration-200", otherRange && "opacity-45")}
+          >
+            {shown.totals && (
+              <dl className={cn("grid grid-cols-2 gap-3", shown.giftsGiven ? "sm:grid-cols-4" : "sm:grid-cols-3")}>
+                <Figure label={t.turns} value={stats.range.turns} />
+                <Figure label={t.calls} value={calls.count} unit={t.timesUnit} />
+                <FigureOf label={t.callTime}>
+                  <CallTime seconds={calls.seconds} />
+                </FigureOf>
+                {shown.giftsGiven && gifts && <Figure label={t.giftsGiven} value={gifts.given} />}
               </dl>
-            </section>
-          )}
+            )}
+            {shown.mostTalked && (
+              <Ranking
+                title={t.mostTalked}
+                ranked={mostTalked(stats.range.characters)}
+                byId={byId}
+                reading={(ranked) => t.talked(ranked.turns, ranked.days_known)}
+              />
+            )}
+            {shown.mostCalled && (
+              <Ranking
+                title={t.mostCalled}
+                ranked={mostCalled(stats.range.characters)}
+                byId={byId}
+                reading={(ranked) => callTimeText(ranked.call_seconds)}
+              />
+            )}
+            {shown.hours && (
+              <section className="flex flex-col gap-2">
+                <h2 className="text-header">{t.hours}</h2>
+                <HourChart hours={stats.range.by_hour} />
+              </section>
+            )}
+            {shown.gifts && gifts && (
+              <section className="flex flex-col gap-3">
+                <h2 className="text-header">{t.gifts}</h2>
+                <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {gifts.most && giftee && (
+                    <FigureOf label={t.mostGiven}>
+                      <Giftee character={giftee} given={gifts.most.given} />
+                    </FigureOf>
+                  )}
+                  <Figure label={t.likedGiven} value={gifts.liked} unit={t.timesUnit} />
+                </dl>
+              </section>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </SettingsPane>
   );
 }
 
