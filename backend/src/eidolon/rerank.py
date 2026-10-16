@@ -16,6 +16,8 @@ from eidolon.billing import bill
 from eidolon.config import DEFAULT_RERANK_MODEL, RerankSettings
 from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
+RERANK_TIMEOUT = httpx.Timeout(30, connect=10)
+
 
 @dataclass(frozen=True)
 class RerankThresholds:
@@ -96,7 +98,7 @@ class SiliconFlowReranker:
         self.model = model
         self._url = base_url.rstrip("/") + "/rerank"
         self._api_key = api_key
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10))
+        self._client = client or httpx.AsyncClient(timeout=RERANK_TIMEOUT)
         self._timeout = timeout
 
     async def rerank(

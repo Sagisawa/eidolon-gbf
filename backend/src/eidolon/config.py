@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal, Required, TypedDict, get_args
+from urllib.parse import urlsplit, urlunsplit
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +33,69 @@ STT_PROVIDERS: tuple[SttProvider, ...] = get_args(SttProvider)
 Service = Literal["llm", "tts", "stt"]
 """A service users may bring their own key for (GLOSSARY.md「自带密钥」)."""
 SERVICES: tuple[Service, ...] = get_args(Service)
+
+ProxiedService = Literal["chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt"]
+"""The deployer's services, each of which may reach its provider through the proxy
+(GLOSSARY.md「网络代理」): the chat model, in text turns and calls alike; the memory
+model; the judge model, whichever; the embedding service and the reranker; Fish Audio;
+the speech recognition chosen."""
+PROXIED_SERVICES: tuple[ProxiedService, ...] = get_args(ProxiedService)
+
+PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
+
+
+@dataclass(frozen=True)
+class ProxySettings:
+    """The proxy the deployer's services in `services` reach their providers through, if
+    it is `enabled`; every other one, and every one of users' own keys, goes direct
+    (GLOSSARY.md「网络代理」). `url` carries its password, if any."""
+
+    url: str | None = None
+    enabled: bool = False
+    services: frozenset[ProxiedService] = frozenset()
+
+    def proxy_for(self, service: ProxiedService) -> str | None:
+        """Where `service` connects through; None for direct."""
+        return self.url if self.enabled and self.url and service in self.services else None
+
+
+def checked_proxy_url(url: str) -> str:
+    """`url` as a proxy's address: one of `PROXY_SCHEMES`, a host and a port, perhaps a
+    user and password, nothing else. Raises ValueError saying what is wrong."""
+    url = url.strip()
+    parts = urlsplit(url)
+    example = "比如 http://127.0.0.1:7890 或 socks5://127.0.0.1:7891"
+    if parts.scheme not in PROXY_SCHEMES:
+        raise ValueError(f"代理地址要以 {'、'.join(s + '://' for s in PROXY_SCHEMES)} 开头，{example}")
+    try:
+        port = parts.port
+    except ValueError:
+        raise ValueError(f"代理地址的端口不对，{example}") from None
+    if not parts.hostname or port is None:
+        raise ValueError(f"代理地址要写明主机和端口，{example}")
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        raise ValueError(f"代理地址只写协议、主机和端口（可以带用户名和密码），不带路径，{example}")
+    return urlunsplit(parts._replace(path=""))
+
+
+def split_proxy_password(url: str) -> tuple[str, str | None]:
+    """`url` without its password, and the password; None if it has none."""
+    parts = urlsplit(url)
+    userinfo, at, host = parts.netloc.rpartition("@")
+    user, colon, password = userinfo.partition(":")
+    if not at or not colon:
+        return url, None
+    return urlunsplit(parts._replace(netloc=f"{user}@{host}")), password or None
+
+
+def with_proxy_password(url: str, password: str | None) -> str:
+    """`url`, without a password, with `password`: only if it names a user to go with."""
+    parts = urlsplit(url)
+    user, at, host = parts.netloc.rpartition("@")
+    if not password or not at:
+        return url
+    return urlunsplit(parts._replace(netloc=f"{user}:{password}@{host}"))
+
 
 BailianRegion = Literal["beijing", "singapore"]
 """Where a DashScope key works: each region's keys are refused in the other."""
@@ -274,6 +338,9 @@ class Settings:
     affinity_and_gifts: bool = True
     """Whether affinity and gifts are on (GLOSSARY.md「好感度」), as they are only with the
     judge model; on unless `.env` turns them off, and the admin console may override it."""
+    proxy: ProxySettings = field(default_factory=ProxySettings)
+    """Which of the deployer's services go through which proxy; none unless `.env` sets
+    one, and the admin console may override it."""
     domain: str | None = None
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
@@ -361,6 +428,7 @@ class Settings:
             history_turns=history_turns_from_env(),
             exempting_keys=exempting_keys_from_env(),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
+            proxy=proxy_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),
@@ -474,6 +542,30 @@ def exempting_keys_from_env() -> frozenset[Service]:
             "免限额密钥至少要选一项；想取消限额，请把每小时的回合数和通话次数设成 0（不限）"
         )
     return keys
+
+
+def proxy_from_env() -> ProxySettings:
+    """`EIDOLON_PROXY_URL`, on if set, and `EIDOLON_PROXY_SERVICES`: comma-separated
+    `PROXIED_SERVICES`, or `all`."""
+    services: set[ProxiedService] = set()
+    for name in _comma_list(os.environ.get("EIDOLON_PROXY_SERVICES", "")):
+        if name == "all":
+            services.update(PROXIED_SERVICES)
+        elif name in PROXIED_SERVICES:
+            services.add(name)  # pyright: ignore[reportArgumentType]  # checked above
+        else:
+            raise RuntimeError(
+                f"环境变量 EIDOLON_PROXY_SERVICES 里的 {name} 不对：每一项只能是"
+                f" {'、'.join(PROXIED_SERVICES)}，或者写 all 表示全部"
+            )
+    url = os.environ.get("EIDOLON_PROXY_URL", "").strip()
+    if not url:
+        return ProxySettings(None, False, frozenset(services))
+    try:
+        url = checked_proxy_url(url)
+    except ValueError as e:
+        raise RuntimeError(f"环境变量 EIDOLON_PROXY_URL 不对：{e}") from None
+    return ProxySettings(url, True, frozenset(services))
 
 
 @dataclass(frozen=True)

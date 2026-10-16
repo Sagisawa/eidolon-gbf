@@ -7,7 +7,7 @@ shown; a key left out of a change stays as it is. What cannot be changed here
 from typing import Any
 
 from fastapi import Body, FastAPI, HTTPException
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, StrictBool, ValidationError, field_validator
 
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
@@ -19,6 +19,7 @@ from eidolon.live_config import (
     JUDGE_THRESHOLDS,
     LIMITS,
     MEMORY_LLM,
+    PROXY,
     READ_ONLY,
     RERANK,
     STT,
@@ -118,6 +119,24 @@ class AffinityInput(BaseModel):
     enabled: Any
 
 
+class ProxyInput(BaseModel):
+    """The proxy as the admin saves it: the switch, the address (a password typed into it
+    is kept apart, as a key is; empty for none), and a switch for each service; without
+    `password`, it stays as it is. The address is checked by the live configuration,
+    which says what is wrong in so many words."""
+
+    enabled: StrictBool
+    url: str | None = Field(None, max_length=500)
+    password: str | None = Field(None, min_length=1, max_length=500)
+    chat_llm: StrictBool
+    memory_llm: StrictBool
+    judge: StrictBool
+    embedding: StrictBool
+    rerank: StrictBool
+    tts: StrictBool
+    stt: StrictBool
+
+
 INPUTS: dict[str, type[BaseModel]] = {
     CHAT_LLM: ChatLLMInput,
     MEMORY_LLM: LLMInput,
@@ -128,15 +147,19 @@ INPUTS: dict[str, type[BaseModel]] = {
     RERANK: RerankInput,
     LIMITS: LimitsInput,
     AFFINITY: AffinityInput,
+    PROXY: ProxyInput,
 }
 
 
 def _change(item: str, body: BaseModel) -> dict[str, Any]:
     """What the input changes of the item: every field given (a model slot's max_tokens
-    may be None, its protocol's default), a key and an account id only if given."""
+    may be None, its protocol's default), a key, an account id and a proxy's password
+    only if given."""
     change = body.model_dump()
     if change.get("account_id", "") is None:
         del change["account_id"]
+    if change.get("password", "") is None:
+        del change["password"]
     if key := change.pop("api_key", None):
         change[STT_KEY_FIELDS[change["provider"]] if item == STT else "api_key"] = key
     return change

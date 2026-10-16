@@ -154,8 +154,6 @@ def _serve() -> int:
     from eidolon.app import create_app
     from eidolon.assembly import build
 
-    from eidolon.judge import check_judge
-
     # Pipecat logs through loguru, which shows everything down to DEBUG unless told
     # otherwise: what users said, and what calls send to services on their own keys.
     logger.remove()
@@ -174,7 +172,7 @@ def _serve() -> int:
         # character configuration
         settings = Settings.from_env()
         settings = asyncio.run(_find_dashscope_region(settings))
-        asyncio.run(check_judge(settings.judge))
+        asyncio.run(_check_judge(settings))
         backend = build(settings)
     except RuntimeError as e:
         print(e, file=sys.stderr)
@@ -204,18 +202,32 @@ async def _find_dashscope_region(settings: Settings) -> Settings:
     if key is None or key.provider != "bailian":
         return settings
     try:
-        region = await find_region(key.api_key, settings.bailian_stt_model)
+        region = await find_region(
+            key.api_key, settings.bailian_stt_model, settings.proxy.proxy_for("stt")
+        )
     except BailianCheckFailed as e:
         raise RuntimeError(f"阿里云百炼的 DASHSCOPE_API_KEY 用不了：{e}") from None
     return replace(settings, dashscope_region=region)
 
 
-async def _check_chat_llm(settings: Settings) -> None:
-    """Checks the chat model on a client of its own: the server's run in uvicorn's event
-    loop, and an HTTP client cannot move between loops."""
-    from eidolon.llm.providers import check_chat_models, open_chat_models
+async def _check_judge(settings: Settings) -> None:
+    """Tries Cloudflare's credentials, through the proxy or direct, as `.env` has it."""
+    from eidolon.judge import JUDGE_TIMEOUT, check_judge
+    from eidolon.proxy import open_client
 
-    models = open_chat_models(settings.chat_model)
+    async with open_client(settings.proxy.proxy_for("judge"), JUDGE_TIMEOUT) as client:
+        await check_judge(settings.judge, client)
+
+
+async def _check_chat_llm(settings: Settings) -> None:
+    """Checks the chat model on a client of its own, through the proxy or direct, as
+    `.env` has it: the server's run in uvicorn's event loop, and an HTTP client cannot
+    move between loops."""
+    from eidolon.llm.providers import LLM_TIMEOUT, check_chat_models, open_chat_models
+    from eidolon.proxy import open_client
+
+    proxy = settings.proxy.proxy_for("chat_llm")
+    models = open_chat_models(settings.chat_model, open_client(proxy, LLM_TIMEOUT))
     try:
         await check_chat_models(models, settings.chat_model)
     finally:

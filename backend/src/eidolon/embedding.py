@@ -19,6 +19,8 @@ from eidolon.billing import bill
 from eidolon.config import EmbeddingSettings
 from eidolon.retry import TURN_TIMEOUT, ServiceError, answered, retry_once, transient_status
 
+EMBEDDING_TIMEOUT = httpx.Timeout(120, connect=10)
+
 _REQUEST_BATCH = 16
 """Texts sent in one request to SiliconFlow."""
 _QUERY_INSTRUCTION = "Instruct: 根据问题，检索相关的剧情台词\nQuery: "
@@ -113,7 +115,7 @@ class SiliconFlowEmbedder:
         self.model = model
         self._url = base_url.rstrip("/") + "/embeddings"
         self._api_key = api_key
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+        self._client = client or httpx.AsyncClient(timeout=EMBEDDING_TIMEOUT)
         self._query_timeout = query_timeout
 
     async def embed_documents(self, documents: Sequence[Document]) -> list[list[float]]:
@@ -185,7 +187,7 @@ class GeminiEmbedder:
         self._dimensions = dimensions
         self._url = f"{base_url.rstrip('/')}/{self._name}:batchEmbedContents"
         self._api_key = api_key
-        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(120, connect=10))
+        self._client = client or httpx.AsyncClient(timeout=EMBEDDING_TIMEOUT)
         self._sleep = sleep
         self._query_timeout = query_timeout
 
@@ -282,14 +284,17 @@ def _retry_delay(body: str) -> float:
     return float(found.group(1)) if found else 0.0
 
 
-def open_embedder(settings: EmbeddingSettings) -> ClosableEmbedder:
-    """The embedder of the service the deployment chose."""
+def open_embedder(
+    settings: EmbeddingSettings, client: httpx.AsyncClient | None = None
+) -> ClosableEmbedder:
+    """The embedder of the service the deployment chose, on `client`, else on one of its
+    own."""
     if settings.provider == "gemini":
         assert settings.dimensions is not None, "Gemini's settings always carry dimensions"
         return GeminiEmbedder(
-            settings.api_key, settings.model, settings.dimensions, settings.base_url
+            settings.api_key, settings.model, settings.dimensions, settings.base_url, client
         )
-    return SiliconFlowEmbedder(settings.api_key, settings.model, settings.base_url)
+    return SiliconFlowEmbedder(settings.api_key, settings.model, settings.base_url, client)
 
 
 def nearest(

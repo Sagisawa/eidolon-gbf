@@ -15,6 +15,8 @@ from eidolon.llm.anthropic import AnthropicLLM
 from eidolon.llm.openai_compat import OpenAICompatLLM
 from eidolon.llm.responses import ResponsesLLM
 
+LLM_TIMEOUT = httpx.Timeout(60, connect=10)
+
 _PROVIDERS: dict[LLMProtocol, type[OpenAICompatLLM | ResponsesLLM | AnthropicLLM]] = {
     "chat-completions": OpenAICompatLLM,
     "responses": ResponsesLLM,
@@ -40,7 +42,7 @@ def open_chat_models(
 ) -> ChatModels:
     """The chat model as text turns and calls use it, both on `client`, else on one of
     their own."""
-    client = client or httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10))
+    client = client or httpx.AsyncClient(timeout=LLM_TIMEOUT)
     return ChatModels(open_llm(settings.text, client), open_llm(settings.call, client))
 
 

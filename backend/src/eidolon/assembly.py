@@ -42,18 +42,20 @@ from eidolon.hot_words import hot_words
 from eidolon.randomness import Random, secure_random
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
-from eidolon.embedding import Embedder, open_embedder
+from eidolon.embedding import EMBEDDING_TIMEOUT, Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
-from eidolon.live_config import LiveConfig
+from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
+from eidolon.proxy import ProxyRoutes
 from eidolon.readings import load_readings, readings_path
 from eidolon.rerank import (
     FALLBACK_MODEL,
     KNOWN_THRESHOLDS,
+    RERANK_TIMEOUT,
     Reranker,
     SiliconFlowReranker,
     thresholds_for,
@@ -141,6 +143,7 @@ def build(
     catalog_transport: httpx.BaseTransport | None = None,
     backup_transport: httpx.AsyncBaseTransport | None = None,
     random: Random | None = None,
+    reach: Reach | None = None,
 ) -> Backend:
     """The backend `settings` describe, with any of the outside services passed in
     used instead of made. Raises RuntimeError, having opened nothing, if the character
@@ -172,9 +175,13 @@ def build(
         settings.bailian_stt_model if settings.stt_provider == "bailian"
         else DEFAULT_BAILIAN_STT_MODEL
     )
+    # Each of the deployer's services through the proxy or direct, as the configuration in
+    # effect has it at each request; their clients are made on these.
+    routes = ProxyRoutes(settings.proxy)
+    closers.append(routes.aclose)
     readings = load_readings(readings_path(settings.characters_path))
     speech = speech or SpeechServices(
-        bailian_model, readings, hot_words(readings, characters.values(), world)
+        bailian_model, readings, hot_words(readings, characters.values(), world), routes=routes
     )
     activity = ActivityLog(settings.database_path, clock)
     closers.append(activity.close)
@@ -187,14 +194,17 @@ def build(
     backups = Backups(settings.database_path, clock, transport=backup_transport)
     closers.append(backups.aclose)
     config = LiveConfig(
-        settings, clients or ProviderClients(), clock, activity=activity, speech=speech
+        settings, clients or ProviderClients(routes), clock, activity=activity, speech=speech,
+        routes=routes, **({"reach": reach} if reach is not None else {}),
     )
     closers.append(config.aclose)
     if own_llm_service is None:  # users' own LLMs write down memories too
         own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
         closers.append(own_llm_service.aclose)
     if embedder is None and settings.embedding is not None:
-        opened = open_embedder(settings.embedding)
+        opened = open_embedder(
+            settings.embedding, routes.client("embedding", EMBEDDING_TIMEOUT)
+        )
         closers.append(opened.aclose)
         embedder = opened
     if (
@@ -219,7 +229,9 @@ def build(
                 r.model, FALLBACK_MODEL, thresholds.references, thresholds.memories,
             )
         if reranker is None:
-            reranker = SiliconFlowReranker(r.api_key, r.model, r.base_url)
+            reranker = SiliconFlowReranker(
+                r.api_key, r.model, r.base_url, routes.client("rerank", RERANK_TIMEOUT)
+            )
             closers.append(reranker.aclose)
     embedder, reranker = metered_retrieval(activity, settings, embedder, reranker)
     # The judge model is the live configuration's: retrieval asks the one in effect at

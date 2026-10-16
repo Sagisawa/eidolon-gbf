@@ -109,6 +109,7 @@ from eidolon.clock import Clock
 from eidolon.config import (
     DEFAULT_BAILIAN_STT_MODEL,
     IceServer,
+    ProxiedService,
     Settings,
     SttKey,
     SttProvider,
@@ -130,6 +131,7 @@ from eidolon.own_keys import (
     OwnKeys,
     Service,
 )
+from eidolon.proxy import ProxiedWebsocket, ProxyRoutes, masked, open_client
 from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
 from eidolon.store import Conversation, NotFound, Store
@@ -251,23 +253,27 @@ class Hearing:
 
 
 class Speech(Protocol):
-    """The outside services a call hears and speaks with, on whoever's key is given."""
+    """The outside services a call hears and speaks with, on whoever's key is given: on a
+    user's `own`, direct; on the deployer's, through the proxy or direct, as the proxy
+    settings have it (GLOSSARY.md「网络代理」)."""
 
-    def stt(self, key: SttKey) -> Hearing:
+    def stt(self, key: SttKey, *, own: bool) -> Hearing:
         """Speech recognition for one call, in Chinese and Japanese, by the service `key`
         is for."""
         ...
 
-    def tts(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> TTSService:
+    def tts(
+        self, api_key: str, model: str, voice_id: str, sample_rate: int, *, own: bool
+    ) -> TTSService:
         """Speech synthesis for one call, with `model`, in the character's voice."""
         ...
 
-    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+    async def check_stt(self, provider: SttProvider, api_key: str, *, own: bool) -> SttKey:
         """The key as calls are to use it, with the region a DashScope key works in. Raises
         OwnKeyRejected saying why, unless `api_key` works for `provider`."""
         ...
 
-    async def check_tts(self, api_key: str) -> None:
+    async def check_tts(self, api_key: str, *, own: bool) -> None:
         """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio."""
         ...
 
@@ -370,7 +376,7 @@ Japanese: to send the rest of its audio, some seconds of it at most. A session t
 longer is given up, and the rest of the segment with it."""
 
 
-class FishTTS(InterruptsFirst, FishAudioTTSService):
+class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
     """Fish Audio, speaking as the character a segment at a time.
 
     Fish Audio's audio does not say where one segment ends and the next begins, so each
@@ -395,8 +401,14 @@ class FishTTS(InterruptsFirst, FishAudioTTSService):
     Each session starts with `readings` as its pronunciation dictionary (`readings`), so
     that names are said as the deployer has them read, the Japanese sent as written."""
 
-    def __init__(self, readings: Sequence[Reading] = (), **kwargs: Any) -> None:
+    def __init__(
+        self,
+        readings: Sequence[Reading] = (),
+        proxy: Callable[[], str | None] = lambda: None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
+        self._proxy = proxy
         self._dictionary = pronunciation_dictionary(readings)
         self._arriving: tuple[int, int] | None = None  # (reply, segment) of the Japanese coming in
         self._voiced: tuple[int, int] | None = None  # (reply, segment) being voiced
@@ -620,6 +632,14 @@ finalizes what it heard at most 3 s (its longest endpoint delay) after the last 
 sends no transcription at all when it heard no words."""
 
 
+class ProxiedSoniox(ProxiedWebsocket, SonioxSTTService):
+    """Soniox, connecting through the proxy `proxy` gives as each connection is opened."""
+
+    def __init__(self, proxy: Callable[[], str | None], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._proxy = proxy
+
+
 @dataclass(frozen=True)
 class SpeechServices:
     """Soniox or Alibaba Cloud Model Studio, whichever the key is for, hears the user, the
@@ -627,25 +647,30 @@ class SpeechServices:
     (`hot_words.hot_words`) whoever's key it is on: Soniox as its context's terms (an
     object, as its models of context version 2 take), Alibaba Cloud Model Studio as the
     task's vocabulary. Fish Audio speaks as the character, with the model the call is
-    given (the deployer's, as it connected), and the readings whoever's key it is on."""
+    given (the deployer's, as it connected), and the readings whoever's key it is on.
+    Users' own keys go direct; the deployer's through the proxy or direct, as `routes`
+    have it as each connection is opened (direct without them)."""
 
     bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
     readings: tuple[Reading, ...] = ()
     hot_words: tuple[str, ...] = ()
+    routes: ProxyRoutes | None = None
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
 
-    def stt(self, key: SttKey) -> Hearing:
+    def stt(self, key: SttKey, *, own: bool) -> Hearing:
         # Either decides where an utterance starts and ends; the turn processor turns its
         # proposals into interruptions of the character's voice.
+        proxy = self._proxy("stt", own)
         if key.provider == "bailian":
             bailian = BailianSTTService(
                 api_key=key.api_key, model=self.bailian_model, region=key.region,
-                hot_words=self.hot_words,
+                hot_words=self.hot_words, proxy=proxy,
             )
             return Hearing(bailian, BAILIAN_FOLLOW_ON_TIMEOUT)
-        soniox = SonioxSTTService(
+        soniox = ProxiedSoniox(
+            proxy,
             api_key=key.api_key,
             vad_force_turn_endpoint=False,
             settings=SonioxSTTService.Settings(
@@ -655,39 +680,52 @@ class SpeechServices:
         )
         return Hearing(soniox, SONIOX_FOLLOW_ON_TIMEOUT)
 
-    def tts(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> TTSService:
+    def tts(
+        self, api_key: str, model: str, voice_id: str, sample_rate: int, *, own: bool
+    ) -> TTSService:
         return FishTTS(
             api_key=api_key,
             sample_rate=sample_rate,
             settings=FishAudioTTSService.Settings(voice=voice_id, model=model),
             readings=self.readings,
+            proxy=self._proxy("tts", own),
         )
 
-    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+    async def check_stt(self, provider: SttProvider, api_key: str, *, own: bool) -> SttKey:
         """Asks Soniox for something that costs nothing, its models; starts a task on
         DashScope and finishes it at once, sending no audio, in the region the key works
         in (see `bailian.find_region`)."""
+        proxy = self._proxy("stt", own)()
         if provider == "bailian":
             try:
-                region = await find_region(api_key, self.bailian_model)
+                region = await find_region(api_key, self.bailian_model, proxy)
             except BailianCheckFailed as e:
-                raise OwnKeyRejected(str(e)) from None
+                raise OwnKeyRejected(masked(str(e), proxy)) from None
             return SttKey("bailian", api_key, region)
-        await self._get(self.SONIOX_MODELS_URL, api_key)
+        await self._get(self.SONIOX_MODELS_URL, api_key, proxy)
         return SttKey("soniox", api_key)
 
-    async def check_tts(self, api_key: str) -> None:
+    async def check_tts(self, api_key: str, *, own: bool) -> None:
         """Asks for something that costs nothing: Fish Audio's balance."""
-        await self._get(self.FISH_CREDIT_URL, api_key)
+        await self._get(self.FISH_CREDIT_URL, api_key, self._proxy("tts", own)())
+
+    def _proxy(self, service: ProxiedService, own: bool) -> Callable[[], str | None]:
+        """Where a connection of `service` on a user's `own` key or the deployer's goes
+        through, asked as it is opened; None for direct."""
+        routes = self.routes
+        if own or routes is None:
+            return lambda: None
+        return lambda: routes.proxy_for(service)
 
     @staticmethod
-    async def _get(url: str, api_key: str) -> None:
-        """Raise OwnKeyRejected saying why, unless `url` answers on `api_key`."""
+    async def _get(url: str, api_key: str, proxy: str | None) -> None:
+        """Raise OwnKeyRejected saying why, unless `url` answers on `api_key`, through
+        `proxy` or direct."""
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(15, connect=10)) as client:
+            async with open_client(proxy, httpx.Timeout(15, connect=10)) as client:
                 res = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
         except httpx.HTTPError as e:
-            raise OwnKeyRejected(f"连不上 {httpx.URL(url).host}：{e!r}") from None
+            raise OwnKeyRejected(masked(f"连不上 {httpx.URL(url).host}：{e!r}", proxy)) from None
         if res.is_error:  # cut short by whoever shows it, once they have masked the key
             raise OwnKeyRejected(f"{res.status_code} {res.text}")
 
@@ -1090,13 +1128,15 @@ class _LiveCall:
                 audio_in_enabled=True, audio_out_enabled=True, audio_out_sample_rate=sample_rate
             ),
         )
-        hearing = speech.stt(keys.stt)
+        hearing = speech.stt(keys.stt, own="stt" in keys.own)
         stt = hearing.stt
         self._stt_provider: SttProvider = keys.stt.provider
         self._turns = CallTurns(
             engine, store, call, outcome, hearing.follow_on_timeout, emotions
         )
-        tts = speech.tts(keys.tts, keys.tts_model, call.character.voice_id, sample_rate)
+        tts = speech.tts(
+            keys.tts, keys.tts_model, call.character.voice_id, sample_rate, own="tts" in keys.own
+        )
         own_services: dict[FrameProcessor, Service] = {
             processor: service
             for processor, service in ((stt, "stt"), (tts, "tts"))
