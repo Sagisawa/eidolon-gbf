@@ -2,7 +2,7 @@
 
 import { ChevronUpIcon } from "lucide-react";
 import NextLink from "next/link";
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
@@ -293,7 +293,9 @@ function AffinityGroups({ groups, byId }: { groups: TierGroup[]; byId: Map<strin
         {groups.map((group) => (
           <Fragment key={group.tier}>
             {/* 档名对着第一排头像的中线，展开时不跟着跳到中间。 */}
-            <dt className="flex h-9 items-center text-subtitle text-muted-foreground">{copy.conversation.affinity.tiers[group.tier]}</dt>
+            <dt className="flex h-9 items-center text-subtitle text-muted-foreground">
+              {copy.conversation.affinity.tiers[group.tier]}
+            </dt>
             <dd>
               <TierMembers characters={group.characters} byId={byId} />
             </dd>
@@ -304,43 +306,76 @@ function AffinityGroups({ groups, byId }: { groups: TierGroup[]; byId: Map<strin
   );
 }
 
-/** 一档里的她们：收起时前几位加「+N」，鼠标在这一行上或点开后是全部。 */
+/** 收起的她们展开时一个接一个淡入：每位晚 15ms，最多晚 12 位那么久。 */
+const STAGGER_MS = 15;
+const STAGGER_MOST = 12;
+
+/**
+ * 一档里的她们：收起时前几位加「+N」，鼠标在这一行上或点开后是全部。展开、收回时这一行的高度 200ms 过渡（量出列表的高度给外层），
+ * 收起的她们淡入放大、一个接一个出来，「+N」回来时淡入；开了减少动态效果时都不动。外层多出 4px 给头像外的描边，免得被裁掉。
+ */
 function TierMembers({ characters, byId }: { characters: string[]; byId: Map<string, Character> }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [height, setHeight] = useState<number | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const shown = tierPreview(characters.length);
   const folded = characters.length - shown;
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const observer = new ResizeObserver(() => setHeight(list.offsetHeight));
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <ul className="group/tier flex flex-wrap gap-2.5">
-      {characters.map((id, i) => {
-        const character = byId.get(id);
-        if (!character) return null;
-        return (
+    <div
+      style={height === null ? undefined : { height }}
+      className="group/tier -m-1 overflow-hidden transition-[height] duration-200 ease-out motion-reduce:transition-none"
+    >
+      <ul ref={listRef} className="flex flex-wrap gap-2.5 p-1">
+        {characters.map((id, i) => {
+          const character = byId.get(id);
+          if (!character) return null;
+          const isFolded = i >= shown;
+          return (
+            <li
+              key={id}
+              style={{
+                ...herVars(character.color),
+                ...(isFolded && { animationDelay: `${Math.min(i - shown, STAGGER_MOST) * STAGGER_MS}ms` }),
+              }}
+              className={cn(
+                "rounded-full ring-2 ring-her-mark ring-offset-2 ring-offset-background",
+                isFolded && "animate-in duration-200 fade-in zoom-in-75 fill-mode-backwards motion-reduce:animate-none",
+                isFolded && !isOpen && "hidden group-hover/tier:block",
+              )}
+            >
+              <MarkedAvatar name={character.name} src={character.avatar_url} size="bubble" />
+            </li>
+          );
+        })}
+        {folded > 0 && (
           <li
-            key={id}
-            style={herVars(character.color)}
             className={cn(
-              "rounded-full ring-2 ring-her-mark ring-offset-2 ring-offset-background",
-              i >= shown && !isOpen && "hidden group-hover/tier:block",
+              "animate-in duration-200 fade-in motion-reduce:animate-none",
+              !isOpen && "group-hover/tier:hidden",
             )}
           >
-            <MarkedAvatar name={character.name} src={character.avatar_url} size="bubble" />
+            <Button
+              variant="more"
+              size="icon-lg"
+              aria-expanded={isOpen}
+              aria-label={isOpen ? t.tierLess : t.tierMoreLabel(folded)}
+              onClick={() => setIsOpen(!isOpen)}
+            >
+              {isOpen ? <ChevronUpIcon /> : t.tierMore(folded)}
+            </Button>
           </li>
-        );
-      })}
-      {folded > 0 && (
-        <li className={cn(!isOpen && "group-hover/tier:hidden")}>
-          <Button
-            variant="more"
-            size="icon-lg"
-            aria-expanded={isOpen}
-            aria-label={isOpen ? t.tierLess : t.tierMoreLabel(folded)}
-            onClick={() => setIsOpen(!isOpen)}
-          >
-            {isOpen ? <ChevronUpIcon /> : t.tierMore(folded)}
-          </Button>
-        </li>
-      )}
-    </ul>
+        )}
+      </ul>
+    </div>
   );
 }
 
