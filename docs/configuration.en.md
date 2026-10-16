@@ -32,6 +32,7 @@ This guide explains how to turn on and tune each feature, and how the characters
 - [Affinity and gifts](#affinity-and-gifts)
 - [Sign-in, users and usage limits](#sign-in-users-and-usage-limits)
 - [Bring your own keys](#bring-your-own-keys)
+- [Proxy](#proxy)
 - [Admin console](#admin-console)
 - [Command-line reference](#command-line-reference)
 
@@ -393,6 +394,32 @@ By default, the deployer pays for everything. Users can enter their own keys on 
 - **No fallback on failure**: When an own key fails (out of credit, revoked, etc.), that turn or call fails, saying which key had the problem. It **never falls back to the deployer's keys**.
 - **Always on the deployer**: Embedding, reranking and the judge.
 
+## Proxy
+
+When the server cannot reach some providers (a server in mainland China reaching OpenAI or Soniox, say), those services can go through a proxy while the rest stay direct:
+
+```sh
+EIDOLON_PROXY_URL=http://127.0.0.1:7890
+EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
+```
+
+- **Address**: Starts with `http://`, `https://`, `socks5://` or `socks5h://`, with a host and port, optionally a user and password (`http://user:password@host:port`). Leave it empty for no proxy. In production (`docker-compose.prod.yml`) the backend shares the host's network, so a proxy on the host (mihomo, say) is just `127.0.0.1`.
+- **Services through it**: Comma-separated, or `all` for every one.
+
+| Name | Service |
+|---|---|
+| `chat_llm` | The LLM playing the character (text and calls) |
+| `memory_llm` | The background model (list it even when it follows the chat model) |
+| `judge` | The judge (Jev or Cloudflare) |
+| `embedding` | Embedding |
+| `rerank` | Reranking |
+| `tts` | Speech synthesis (Fish Audio) |
+| `stt` | Speech recognition (Soniox or Alibaba Cloud Model Studio) |
+
+- **Only these two**: `HTTPS_PROXY`, `ALL_PROXY` and the like have no effect on the services above; other outgoing requests (sign-in, backups, story sync) still follow them.
+- **Own keys always go direct**: Keys users bring never go through the deployer's proxy.
+- **Changeable in the admin console**: The 「网络」 (Network) tab of the config page has 「网络代理」 (Proxy): switch it on or off, change the address and pick the services, with no restart. It holds from the next request on (in turns and calls under way too; voice connections already open stay up). Before saving, each service routed a new way is reached that way once, and nothing is saved if one cannot be; if one cannot be as the server restarts, `.env`'s value is used and the admin console says so. A password in the address is encrypted like a key; without `EIDOLON_SECRET_KEY`, an address with a password can only be set in `.env`.
+
 ## Admin console
 
 List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like `github:12345`; look them up with `eidolon user list`) and recreate the backend. Those users then find 「进入后台」 (Open admin console) on the settings page's 「登录与数据」 (Sign-in and data) tab ([ADR-0013](adr/0013-admin-console-overrides-env.md)). Without it there is no admin console, and anyone else gets a 404 at `/admin`.
@@ -400,7 +427,7 @@ List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like 
 | Page | What it does |
 |---|---|
 | Dashboard (`/admin`) | Calls, error rate and latency per service; active users, the number and trend of turns and calls, usage per character, calls in progress; with affinity on, totals of judgements, cooldowns and hang-ups, plus figures per character; the deployer's cost estimated from unit prices |
-| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits, exempting keys, per-call caps, history turns, the affinity and gifts switch (and granting every user a reset card) and unit prices |
+| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, the judge, rerank thresholds, usage limits, exempting keys, per-call caps, history turns, the affinity and gifts switch (and granting every user a reset card), the proxy and unit prices |
 | Users (`/admin/users`) | Search users, see their sign-in methods and recent usage; ban, unban, set an individual usage limit, delete |
 
 - **Overrides `.env`**: Items changed in the admin console are stored in the database and take precedence over `.env`, with no restart needed. Each change is tried before saving and not saved if the try fails. A call in progress finishes on the configuration it connected with.

@@ -7,6 +7,7 @@ import {
   exemptingKeysOf,
   ITEM_SPECS,
   lockedOn,
+  PROXIED_SERVICES,
   UNLIMITED,
   readOnlyValue,
   rows,
@@ -323,7 +324,41 @@ describe("tried", () => {
     const tried = Object.entries(ITEM_SPECS)
       .filter(([, spec]) => spec.tried)
       .map(([name]) => name);
-    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge"]);
+    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge", "proxy"]);
+  });
+});
+
+describe("proxy", () => {
+  const proxy = ITEM_SPECS.proxy;
+  const effective: Shown = {
+    enabled: true,
+    url: "http://me@127.0.0.1:7890",
+    password_last4: "cret",
+    ...Object.fromEntries(PROXIED_SERVICES.map((service) => [service, service === "chat_llm"])),
+  };
+
+  it("starts from the switches and the address in effect, the password left empty", () => {
+    const form = formOf(proxy, effective);
+    expect(form).toMatchObject({ enabled: "true", url: "http://me@127.0.0.1:7890", password: "", chat_llm: "true", tts: "false" });
+  });
+
+  it("sends every switch and the address, an emptied address as none, the password only when typed", () => {
+    const form = { ...formOf(proxy, effective), url: "  ", tts: "true" };
+    expect(changeOf(proxy, form, true)).toEqual({
+      change: {
+        enabled: true,
+        url: null,
+        ...Object.fromEntries(PROXIED_SERVICES.map((service) => [service, service === "chat_llm" || service === "tts"])),
+      },
+    });
+    const typed = changeOf(proxy, { ...form, url: "socks5://127.0.0.1:7891", password: "secret" }, true);
+    expect(typed).toMatchObject({ change: { url: "socks5://127.0.0.1:7891", password: "secret" } });
+  });
+
+  it("shows the password by its last 4, with a switch for every service", () => {
+    const shown = rows({ status: "env", env: effective, effective, override: null, failure: null }, proxy);
+    expect(shown.map((row) => row.field)).toEqual(["enabled", "url", "password", ...PROXIED_SERVICES]);
+    expect(shown.find((row) => row.field === "password")?.effective).toBe("cret");
   });
 });
 
@@ -335,6 +370,7 @@ describe("tabs", () => {
 
   it("take a tab from the address and fall back to the models", () => {
     expect(tabFromQuery("voice")).toBe("voice");
+    expect(tabFromQuery("network")).toBe("network");
     for (const value of [undefined, "nope"]) expect(tabFromQuery(value), String(value)).toBe("models");
   });
 

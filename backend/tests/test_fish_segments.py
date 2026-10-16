@@ -433,7 +433,9 @@ async def test_calls_speak_with_the_readings_whoever_s_key_they_are_on(monkeypat
         return await fish.connect()
 
     monkeypatch.setattr(FishTTS, "_websocket_connect", connect)
-    tts = SpeechServices(readings=READINGS).tts("users-own-fish-key", "s2.1-pro-free", "mano-voice", 16000)
+    tts = SpeechServices(readings=READINGS).tts(
+        "users-own-fish-key", "s2.1-pro-free", "mano-voice", 16000, own=True
+    )
     tts._pause_frame_processing = False  # as `FishUnderTest`: no transport says she stopped
 
     await run(*reply(1, ["櫻木真乃です。"]), fish=fish, tts=tts)  # pyright: ignore[reportArgumentType]

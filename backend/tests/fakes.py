@@ -597,9 +597,11 @@ class FakeSpeech:
     services fail to be made at all. Records the keys tried before saving, by the service
     they are for (`checked`: "tts", "soniox" or "bailian"); a key in `rejects` fails its
     try with that message. A DashScope key works in its region in `regions`, Beijing if
-    not there."""
+    not there. Records, for each service made or key tried, whether it was on a user's own
+    key (`own`: ("stt" | "tts" | "check_stt" | "check_tts", own))."""
 
     def __init__(self) -> None:
+        self.own: list[tuple[str, bool]] = []
         self.follow_on_timeout = SONIOX_FOLLOW_ON_TIMEOUT
         self.stts: list[FakeSTT] = []
         self.ttss: list[FakeTTS] = []
@@ -608,23 +610,29 @@ class FakeSpeech:
         self.rejects: dict[str, str] = {}
         self.regions: dict[str, BailianRegion] = {}
 
-    def stt(self, key: SttKey) -> Hearing:
+    def stt(self, key: SttKey, *, own: bool) -> Hearing:
+        self.own.append(("stt", own))
         if self.down:
             raise RuntimeError("fake speech services are down")
         self.stts.append(FakeSTT(key))
         return Hearing(self.stts[-1], self.follow_on_timeout)
 
-    def tts(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> FakeTTS:
+    def tts(
+        self, api_key: str, model: str, voice_id: str, sample_rate: int, *, own: bool
+    ) -> FakeTTS:
+        self.own.append(("tts", own))
         self.ttss.append(FakeTTS(api_key, model, voice_id, sample_rate))
         return self.ttss[-1]
 
-    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+    async def check_stt(self, provider: SttProvider, api_key: str, *, own: bool) -> SttKey:
+        self.own.append(("check_stt", own))
         self._try(provider, api_key)
         if provider == "bailian":
             return SttKey(provider, api_key, self.regions.get(api_key, "beijing"))
         return SttKey(provider, api_key)
 
-    async def check_tts(self, api_key: str) -> None:
+    async def check_tts(self, api_key: str, *, own: bool) -> None:
+        self.own.append(("check_tts", own))
         self._try("tts", api_key)
 
     def _try(self, service: str, api_key: str) -> None:

@@ -182,7 +182,7 @@ async def test_without_a_dashscope_key_the_server_starts_without_trying_it(
 
 
 def test_a_call_on_a_soniox_key_is_heard_by_soniox():
-    hearing = SpeechServices().stt(SttKey("soniox", "soniox-key"))
+    hearing = SpeechServices().stt(SttKey("soniox", "soniox-key"), own=False)
 
     assert isinstance(hearing.stt, SonioxSTTService)
     assert hearing.follow_on_timeout == 4.0
@@ -191,7 +191,7 @@ def test_a_call_on_a_soniox_key_is_heard_by_soniox():
 def test_a_call_on_a_dashscope_key_is_heard_by_alibaba_cloud_model_studio():
     speech = SpeechServices(DEFAULT_BAILIAN_STT_MODEL)
 
-    hearing = speech.stt(SttKey("bailian", "dashscope-key", "beijing"))
+    hearing = speech.stt(SttKey("bailian", "dashscope-key", "beijing"), own=False)
 
     assert isinstance(hearing.stt, BailianSTTService)
     assert hearing.follow_on_timeout == 3.0
@@ -206,7 +206,7 @@ async def test_a_users_dashscope_key_is_tried_with_the_deployers_model_and_found
     dashscope.keys["my-dashscope-key"] = "singapore"
     speech = SpeechServices(DEFAULT_BAILIAN_STT_MODEL)
 
-    key = await speech.check_stt("bailian", "my-dashscope-key")
+    key = await speech.check_stt("bailian", "my-dashscope-key", own=True)
 
     assert key == SttKey("bailian", "my-dashscope-key", "singapore")
     [task] = dashscope.tasks
@@ -218,7 +218,7 @@ async def test_a_users_dashscope_key_refused_in_both_regions_is_said_to_be_inval
     dashscope: FakeDashScope,
 ):
     with pytest.raises(OwnKeyRejected, match="key 无效") as caught:
-        await SpeechServices().check_stt("bailian", "not-a-dashscope-key")
+        await SpeechServices().check_stt("bailian", "not-a-dashscope-key", own=True)
 
     assert "北京、新加坡" in str(caught.value)
 
@@ -230,6 +230,6 @@ async def test_a_users_dashscope_key_without_the_model_enabled_says_where_to_ena
     dashscope.not_enabled.add(DEFAULT_BAILIAN_STT_MODEL)
 
     with pytest.raises(OwnKeyRejected) as caught:
-        await SpeechServices().check_stt("bailian", "my-dashscope-key")
+        await SpeechServices().check_stt("bailian", "my-dashscope-key", own=True)
 
     assert f"去阿里云百炼控制台开通 {DEFAULT_BAILIAN_STT_MODEL}" in str(caught.value)

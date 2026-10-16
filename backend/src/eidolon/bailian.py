@@ -28,6 +28,7 @@ import logging
 import unicodedata
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
+from functools import partial
 from http import HTTPStatus
 from typing import Any
 
@@ -52,6 +53,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketExce
 from websockets.protocol import State
 
 from eidolon.config import BailianRegion
+from eidolon.proxy import ProxiedWebsocket
 
 log = logging.getLogger(__name__)
 
@@ -124,12 +126,15 @@ class _Refused(Exception):
 Connect = Callable[..., Awaitable[ClientConnection]]
 
 
-async def find_region(api_key: str, model: str) -> BailianRegion:
+async def find_region(api_key: str, model: str, proxy: str | None = None) -> BailianRegion:
     """The region `api_key` works in, found by starting a task with `model` there and
-    finishing it at once, with no audio sent. Raises BailianCheckFailed saying why, if the
-    key works in neither, the model is not enabled for it, or DashScope is out of reach."""
+    finishing it at once, with no audio sent, through `proxy` or direct. Raises
+    BailianCheckFailed saying why, if the key works in neither, the model is not enabled
+    for it, or DashScope is out of reach."""
     try:
-        websocket, task_id, region = await _start_task(connect, api_key, model, list(REGION_URLS))
+        websocket, task_id, region = await _start_task(
+            partial(connect, proxy=proxy), api_key, model, list(REGION_URLS)
+        )
     except _Refused as e:
         raise BailianCheckFailed(str(e)) from None
     except (OSError, TimeoutError, WebSocketException) as e:
@@ -147,10 +152,10 @@ async def find_region(api_key: str, model: str) -> BailianRegion:
     return region
 
 
-class BailianSTTService(WebsocketSTTService):
+class BailianSTTService(ProxiedWebsocket, WebsocketSTTService):
     """Alibaba Cloud Model Studio, hearing the user in one call on `api_key` with `model`:
     in `region`, if known, else where the key is found to work; listening out for
-    `hot_words`."""
+    `hot_words`; connecting through the proxy `proxy` gives as each connection is opened."""
 
     def __init__(
         self,
@@ -159,6 +164,7 @@ class BailianSTTService(WebsocketSTTService):
         model: str,
         region: BailianRegion | None,
         hot_words: Sequence[str] = (),
+        proxy: Callable[[], str | None] = lambda: None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -167,6 +173,7 @@ class BailianSTTService(WebsocketSTTService):
             settings=STTSettings(model=model, language=None),
             **kwargs,
         )
+        self._proxy = proxy
         self._api_key = api_key
         self._model = model
         self._region: BailianRegion | None = region

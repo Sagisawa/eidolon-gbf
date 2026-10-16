@@ -1045,7 +1045,7 @@ export const zh = {
       loading: "正在读取…",
       /** 页首的分类标签（TabsList 的读屏名）和各个标签。 */
       nav: "配置分类",
-      tabs: { models: "模型", voice: "语音", limits: "限额与玩法", prices: "单价", read_only: "只读" },
+      tabs: { models: "模型", voice: "语音", network: "网络", limits: "限额与玩法", prices: "单价", read_only: "只读" },
       /** 标签里有覆盖没生效的项时，标签旁的琥珀色点念这一句。 */
       tabFailed: "有覆盖没有生效",
       items: {
@@ -1084,6 +1084,10 @@ export const zh = {
         affinity: {
           title: "好感度和礼物",
           hint: "需要判断模型：每个回合由它判断制作人的话让好感度怎样变化。关掉时不判断、不显示，冷却也不拦人；已有的好感度原样留着，再打开接着用。保存后从下一个回合起生效，进行中的通话也是。",
+        },
+        proxy: {
+          title: "网络代理",
+          hint: "打开的服务经过这个代理连服务商，其余的直连；用户自带的密钥始终直连。保存前把换了路线的服务按新路线各连一次，有一项不通就不保存。保存后从下一次请求起生效，进行中的回合和通话也是；已经连上的语音连接不断。",
         },
       },
       status: {
@@ -1128,7 +1132,21 @@ export const zh = {
         enabled: "好感度和礼物",
       } as Record<string, string>,
       /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
-      itemFields: { chat_llm: { reasoning_effort: "文字的思考强度" } } as Partial<Record<string, Record<string, string>>>,
+      itemFields: {
+        chat_llm: { reasoning_effort: "文字的思考强度" },
+        proxy: {
+          enabled: "代理",
+          url: "代理地址",
+          password: "代理密码",
+          chat_llm: "扮演角色的 LLM 走代理",
+          memory_llm: "后台模型走代理",
+          judge: "判断模型走代理",
+          embedding: "向量化走代理",
+          rerank: "重排走代理",
+          tts: "语音合成走代理",
+          stt: "语音识别走代理",
+        },
+      } as Partial<Record<string, Record<string, string>>>,
       formHints: {
         reasoning_effort: `${reasoningEffortHints.effort}选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。`,
         call_reasoning_effort: reasoningEffortHints.callEffort,
@@ -1136,6 +1154,11 @@ export const zh = {
         account_id: "只有 Cloudflare 需要；换成 Cloudflare 时必填。",
         emotion_timeout: "大于 0、不超过 30 秒；超时的那一段不判断情绪。",
         stt_api_key: "填写所选服务的 key，留空则沿用这家已有的 key。",
+        proxy_enabled: "关闭时所有服务都直连，地址、密码和下面的选择照样留着。",
+        proxy_url:
+          "http://、https://、socks5:// 或 socks5h:// 开头，写明主机和端口，比如 http://127.0.0.1:7890（生产环境的后端和宿主机共用网络，宿主机上的代理直接写 127.0.0.1）。地址里带的密码会单独加密保存。留空表示没有代理。",
+        proxy_password: "代理要求认证时填写，地址里要写用户名（http://用户名@主机:端口）。留空则不改。",
+        proxy_unconfigured: "这个部署没有配置这项服务，开关暂时不起作用。",
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",

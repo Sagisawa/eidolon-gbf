@@ -221,11 +221,16 @@ function fieldLabel(name: ItemName, field: string): string {
   return t.itemFields[name]?.[field] ?? t.fields[field] ?? field;
 }
 
-/** 表单里一个字段的说明：key 留空不改，其余按字段给出取值范围。 */
-function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean): string | undefined {
+/** 表单里一个字段的说明：key 留空不改，其余按字段给出取值范围；代理的开关里，这个部署没配置的服务注明不起作用。 */
+function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?: ConfigItem): string | undefined {
   if (spec.kind === "secret") {
     if (!keysEditable) return t.keysReadOnly;
+    if (name === "proxy") return t.formHints.proxy_password;
     return name === "stt" ? t.formHints.stt_api_key : name === "judge" ? t.formHints.judge_api_key : t.apiKeyHint;
+  }
+  if (name === "proxy") {
+    if (item?.unconfigured?.some((service) => service === spec.name)) return t.formHints.proxy_unconfigured;
+    return t.formHints[`proxy_${spec.name}`];
   }
   if (spec.kind === "maxTokens") return t.maxTokensHint;
   if (spec.kind === "probability") return t.formHints.probability;
@@ -427,7 +432,7 @@ function AvailableItem({
                   );
                 }
                 if (field.kind === "switch") {
-                  const hint = fieldHint(name, field, keysEditable);
+                  const hint = fieldHint(name, field, keysEditable, item);
                   const locked = lockedOn(form, field.name);
                   return (
                     <Field key={field.name} orientation="horizontal" data-disabled={locked ? true : undefined}>
@@ -504,7 +509,7 @@ function AvailableItem({
                   <Field key={field.name} data-invalid={problem ? true : undefined} data-disabled={secret && !keysEditable ? true : undefined}>
                     <FieldLabel htmlFor={fieldId}>
                       {label}
-                      {field.kind === "optionalText" && (
+                      {(field.kind === "optionalText" || field.kind === "clearableText") && (
                         <span className="font-normal text-muted-foreground">{copy.common.optional}</span>
                       )}
                     </FieldLabel>

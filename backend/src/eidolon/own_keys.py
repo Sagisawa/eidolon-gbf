@@ -187,14 +187,15 @@ class BroughtKeys:
 
 
 class KeyCheck(Protocol):
-    """Trying a speech service's key before keeping it (see `call.Speech`)."""
+    """Trying a speech service's key before keeping it: a user's `own`, direct; the
+    deployer's, as the proxy settings have it (see `call.Speech`)."""
 
-    async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
+    async def check_stt(self, provider: SttProvider, api_key: str, *, own: bool) -> SttKey:
         """The key as calls are to use it, with the region a DashScope key works in. Raises
         OwnKeyRejected saying why, unless `api_key` works for `provider`."""
         ...
 
-    async def check_tts(self, api_key: str) -> None:
+    async def check_tts(self, api_key: str, *, own: bool) -> None:
         """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio."""
         ...
 
@@ -370,14 +371,14 @@ class OwnKeys:
         """Try the user's key for speech synthesis, keeping nothing. Raises OwnKeyRejected
         saying why it does not work."""
         with _rejecting(api_key):
-            await self._require_speech_check().check_tts(api_key)
+            await self._require_speech_check().check_tts(api_key, own=True)
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
         """Try the user's key for speech recognition by `provider`, keeping nothing: the key
         as calls are to bring it, a DashScope key with the region it works in. Raises
         OwnKeyRejected saying why it does not work."""
         with _rejecting(api_key):
-            return await self._require_speech_check().check_stt(provider, api_key)
+            return await self._require_speech_check().check_stt(provider, api_key, own=True)
 
     def _llms(
         self, brought: BroughtKeys, deployer: DeployerKeys | None, *, call: bool = False

@@ -171,8 +171,11 @@ class JudgeModel(Protocol):
     async def aclose(self) -> None: ...
 
 
+JUDGE_TIMEOUT = httpx.Timeout(5, connect=3)
+
+
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=httpx.Timeout(5, connect=3))
+    return httpx.AsyncClient(timeout=JUDGE_TIMEOUT)
 
 
 def _reply(answers: Any, usage: Any, service: str, res: httpx.Response) -> JudgeReply:

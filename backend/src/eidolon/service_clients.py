@@ -18,10 +18,11 @@ import threading
 from collections.abc import Awaitable, Callable
 from typing import Generic, Protocol, TypeVar
 
-from eidolon.config import ChatModelSettings, JudgeSettings, LLMSettings
-from eidolon.judge import JudgeModel, open_judge
+from eidolon.config import ChatModelSettings, JudgeSettings, LLMSettings, ProxySettings
+from eidolon.judge import JUDGE_TIMEOUT, JudgeModel, open_judge
 from eidolon.llm import ChatLLM, ChatModels
-from eidolon.llm.providers import open_chat_models, open_llm
+from eidolon.llm.providers import LLM_TIMEOUT, open_chat_models, open_llm
+from eidolon.proxy import ProxyRoutes
 
 
 class ServiceClients(Protocol):
@@ -43,16 +44,20 @@ class ServiceClients(Protocol):
 
 
 class ProviderClients:
-    """The clients of the real services."""
+    """The clients of the real services, each going through the proxy or direct as
+    `routes` have it at each request (GLOSSARY.md「网络代理」)."""
+
+    def __init__(self, routes: ProxyRoutes | None = None) -> None:
+        self._routes = routes or ProxyRoutes(ProxySettings())
 
     def chat_models(self, settings: ChatModelSettings) -> ChatModels:
-        return open_chat_models(settings)
+        return open_chat_models(settings, self._routes.client("chat_llm", LLM_TIMEOUT))
 
     def memory_llm(self, settings: LLMSettings) -> ChatLLM:
-        return open_llm(settings)
+        return open_llm(settings, self._routes.client("memory_llm", LLM_TIMEOUT))
 
     def judge_model(self, settings: JudgeSettings) -> JudgeModel:
-        return open_judge(settings)
+        return open_judge(settings, self._routes.client("judge", JUDGE_TIMEOUT))
 
 
 class Closable(Protocol):

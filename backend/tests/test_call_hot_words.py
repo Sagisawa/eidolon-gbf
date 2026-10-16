@@ -131,7 +131,7 @@ async def test_a_call_heard_by_alibaba_cloud_model_studio_asks_for_the_hot_words
     dashscope.keys[MY_DASHSCOPE] = "beijing"
     keys = started.own_keys.for_call(brought)
 
-    errors = await hear(started.speech.stt(keys.stt).stt)
+    errors = await hear(started.speech.stt(keys.stt, own="stt" in keys.own).stt)
     keys.release()
 
     assert errors == []
@@ -179,7 +179,7 @@ async def test_a_call_heard_by_soniox_is_given_the_same_hot_words_as_its_context
 ):
     async with backend(settings) as started:  # on the deployer's Soniox key
         keys = started.own_keys.for_call(brought)
-        stt = started.speech.stt(keys.stt).stt
+        stt = started.speech.stt(keys.stt, own="stt" in keys.own).stt
         keys.release()
 
     assert keys.stt.provider == "soniox"

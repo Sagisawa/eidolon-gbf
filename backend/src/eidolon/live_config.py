@@ -5,7 +5,8 @@ read and change the configuration.
 The configuration is in items, each a few fields saved and restored together: the chat
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
-carries, with the exempting keys), and whether affinity and gifts are on. Overrides are
+carries, with the exempting keys), whether affinity and gifts are on, and which of the
+deployer's services go through which proxy (GLOSSARY.md「网络代理」). Overrides are
 kept in the database, one row per field, a key encrypted with a key derived from
 `EIDOLON_SECRET_KEY` (without it, keys cannot be changed here, only seen). A change to a
 service is tried before it is kept, as the chat model is when the server starts; it then holds for every turn and call that starts after
@@ -35,9 +36,10 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -63,18 +65,25 @@ from eidolon.config import (
     JudgeSettings,
     SERVICES,
     LLMSettings,
+    PROXIED_SERVICES,
+    ProxiedService,
+    ProxySettings,
     Service,
     Settings,
     SttKey,
     UsageLimits,
     checked_extra_body,
+    checked_proxy_url,
     effort_problem,
+    split_proxy_password,
+    with_proxy_password,
 )
 from eidolon.database import connect
 from eidolon.affinity import Judged
 from eidolon.affinity_judge import ModelAffinityJudge
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
 from eidolon.judge import (
+    CLOUDFLARE_API_URL,
     JudgeError,
     JudgeModel,
     JudgeThresholds,
@@ -86,6 +95,7 @@ from eidolon.judge import (
 from eidolon.llm import ChatLLM, ChatModels, LLMError
 from eidolon.llm.providers import check_chat_llm, check_chat_models
 from eidolon.own_keys import DeployerKeys, DeployerLease, KeyCheck, OwnKeyRejected
+from eidolon.proxy import ProxyRoutes, Unreachable, reach as reach_provider
 from eidolon.rerank import DEFAULT_THRESHOLDS, RerankThresholds, thresholds_for
 from eidolon.retrieval import ModelRetrievalJudge, Need
 from eidolon.service_clients import Lease, ServiceClients, Swappable
@@ -106,6 +116,7 @@ JUDGE_THRESHOLDS = "judge_thresholds"
 RERANK = "rerank"
 LIMITS = "limits"
 AFFINITY = "affinity"
+PROXY = "proxy"
 
 LLM_FIELDS = (
     "protocol", "base_url", "api_key", "model", "max_tokens", "reasoning_effort", "extra_body",
@@ -201,6 +212,10 @@ class _Item:
 
     def env(self) -> Values:
         raise NotImplementedError
+
+    def normalized(self, change: Values) -> Values:
+        """The change as the item's fields have it, before anything is checked of it."""
+        return change
 
     def bound_model(self) -> str | None:
         """The model the item's values hold for, if they hold for one only."""
@@ -382,7 +397,7 @@ class _TTS(_Item):
     async def tried(self, values: Values) -> tuple[Values, Any]:
         if not values["api_key"]:
             raise ConfigRejected("还没有语音合成的 key，请填写")
-        await self.c._check_speech(lambda check: check.check_tts(values["api_key"]))
+        await self.c._check_speech(lambda check: check.check_tts(values["api_key"], own=False))
         return values, None
 
     async def retry(self, values: Values) -> Values:
@@ -412,7 +427,9 @@ class _STT(_Item):
         api_key = values[STT_KEY_FIELDS[provider]]
         if not api_key:
             raise ConfigRejected("还没有这家语音识别的 key，请填写")
-        key = await self.c._check_speech(lambda check: check.check_stt(provider, api_key))
+        key = await self.c._check_speech(
+            lambda check: check.check_stt(provider, api_key, own=False)
+        )
         assert isinstance(key, SttKey)
         region = key.region if provider == "bailian" else values["region"]
         return values | {"region": region}, None
@@ -619,6 +636,98 @@ class _Affinity(_Item):
         return current | change
 
 
+PROXY_LABELS: dict[ProxiedService, str] = {
+    "chat_llm": "扮演角色的 LLM",
+    "memory_llm": "后台模型",
+    "judge": "判断模型",
+    "embedding": "向量化",
+    "rerank": "重排",
+    "tts": "语音合成",
+    "stt": "语音识别",
+}
+"""The services that may go through the proxy, as the admin console names them."""
+
+PROVIDER_URLS = {
+    "tts": "https://api.fish.audio",
+    "soniox": "https://stt-rt.soniox.com",
+    "beijing": "https://dashscope.aliyuncs.com",
+    "singapore": "https://dashscope-intl.aliyuncs.com",
+}
+"""Where the speech services are reached, tried over HTTP before a proxy change is kept:
+Fish Audio, Soniox, and Alibaba Cloud Model Studio in each region."""
+
+Reach = Callable[[str, str | None], Awaitable[None]]
+"""Raises Unreachable saying why, unless a URL's host answers through a proxy, or direct
+for None (`proxy.reach`)."""
+
+
+class _Proxy(_Item):
+    """Which of the deployer's services go through which proxy (GLOSSARY.md「网络代理」):
+    the switch, the address without its password, the password, and a switch for each
+    service. A change is tried by reaching each service configured that it routes another
+    way; it holds from the next request on, of turns and calls under way too."""
+
+    name = PROXY
+    fields = ("enabled", "url", "password", *PROXIED_SERVICES)
+    secrets = frozenset({"password"})
+
+    def env(self) -> Values:
+        proxy = self.c.settings.proxy
+        url, password = split_proxy_password(proxy.url) if proxy.url else (None, None)
+        return {"enabled": proxy.enabled, "url": url, "password": password} | {
+            s: s in proxy.services for s in PROXIED_SERVICES
+        }
+
+    def normalized(self, change: Values) -> Values:
+        """A password typed into the address is kept apart, as a key is."""
+        if not change.get("url"):
+            return change | {"url": None} if "url" in change else change
+        try:
+            url = checked_proxy_url(change["url"])
+        except ValueError as e:
+            raise ConfigInvalid(str(e)) from None
+        url, password = split_proxy_password(url)
+        change = change | {"url": url}
+        return change | {"password": password} if password else change
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        values = current | change
+        if values["enabled"] and not values["url"]:
+            raise ConfigInvalid("打开代理需要填写代理地址")
+        return values
+
+    async def tried(self, values: Values) -> tuple[Values, Any]:
+        await self.c._reach_changed(self.c.proxy_settings, _proxy_settings(values))
+        return values, None
+
+    async def apply(self, values: Values, prepared: Any = None) -> None:
+        self.c._routes.replace(_proxy_settings(values))
+
+    async def retry(self, values: Values) -> Values:
+        await self.c._reach_changed(self.c.settings.proxy, _proxy_settings(values))
+        return values
+
+    def shown(self, values: Values) -> Values:
+        """A password is not shown with an address naming no user: it goes unused."""
+        shown = super().shown(values)
+        if "url" in values and not _names_user(values["url"]):
+            shown["password_last4"] = None
+        return shown
+
+
+def _proxy_settings(values: Values) -> ProxySettings:
+    url = values["url"]
+    return ProxySettings(
+        with_proxy_password(url, values["password"]) if url else None,
+        values["enabled"],
+        frozenset(s for s in PROXIED_SERVICES if values[s]),
+    )
+
+
+def _names_user(url: str | None) -> bool:
+    return url is not None and "@" in urlsplit(url).netloc
+
+
 class LiveConfig:
     """The configuration the backend runs on now, and the deployer's clients made from it."""
 
@@ -630,12 +739,17 @@ class LiveConfig:
         *,
         activity: ActivityLog,
         speech: KeyCheck | None = None,
+        routes: ProxyRoutes | None = None,
+        reach: Reach = reach_provider,
     ) -> None:
         """The chat, memory and judge models are made by `clients`, each question to the
         judge model recorded in `activity`; `speech` tries the keys for speech synthesis
-        and recognition."""
+        and recognition. Each service goes through the proxy or direct as `routes` have
+        it, kept to the proxy settings in effect; a change to them is tried by `reach`."""
         self.settings = settings
         self._clients = clients
+        self._routes = routes or ProxyRoutes(settings.proxy)
+        self._reach = reach
         self._clock = clock
         self._speech = speech
         self._activity = activity
@@ -657,7 +771,8 @@ class LiveConfig:
         self._items: dict[str, _Item] = {
             item.name: item
             for item in (
-                _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
+                # The proxy first: as the server starts, the services are tried through it.
+                _Proxy(self), _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
                 _Judge(self), _JudgeThresholds(self), _Rerank(self), _Limits(self),
                 _Affinity(self),
             )
@@ -673,6 +788,7 @@ class LiveConfig:
                 except _Unreadable as e:
                     self._failures[item.name] = str(e)
 
+        self._routes.replace(self.proxy_settings)
         chat = self.chat_model
         self._chat = Swappable(clients.chat_models(chat), chat)
         memory = self.memory_llm
@@ -750,6 +866,11 @@ class LiveConfig:
         is on."""
         item = self._items[AFFINITY]
         return item.available() and self.effective(AFFINITY)["enabled"]
+
+    @property
+    def proxy_settings(self) -> ProxySettings:
+        """Which of the deployer's services go through which proxy now."""
+        return _proxy_settings(self.effective(PROXY))
 
     @property
     def history_turns(self) -> int | None:
@@ -887,6 +1008,9 @@ class LiveConfig:
             }
             if name == MEMORY_LLM:
                 entry["follows_chat"] = self._memory_follows()
+            if name == PROXY:
+                targets = self._proxy_targets()
+                entry["unconfigured"] = [s for s in PROXIED_SERVICES if s not in targets]
             if item.bound_model() is not None:
                 entry["model"] = item.bound_model()
             described[name] = entry
@@ -901,6 +1025,7 @@ class LiveConfig:
         item = self._items[name]
         if not item.available():
             raise Unavailable(item.unavailable_reason)
+        change = item.normalized(change)
         if self._cipher is None and any(f in item.secrets for f in change):
             raise KeysReadOnly()
         async with self._changing:
@@ -1013,6 +1138,51 @@ class LiveConfig:
             return await check(self._speech)
         except OwnKeyRejected as e:
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
+
+    def _proxy_targets(self) -> dict[ProxiedService, str]:
+        """Where each of the deployer's services that is configured reaches its provider."""
+        targets: dict[ProxiedService, str] = {
+            "chat_llm": self.chat_model.text.base_url,
+            "memory_llm": self.memory_llm.base_url,
+        }
+        judge = self.judge_settings
+        if isinstance(judge, CloudflareJudgeSettings):
+            targets["judge"] = CLOUDFLARE_API_URL
+        elif judge is not None:
+            targets["judge"] = judge.base_url
+        if self.settings.embedding is not None:
+            targets["embedding"] = self.settings.embedding.base_url
+        if self.settings.rerank is not None:
+            targets["rerank"] = self.settings.rerank.base_url
+        if self.effective(TTS)["api_key"]:
+            targets["tts"] = PROVIDER_URLS["tts"]
+        if (key := self._stt_key()) is not None:
+            where = (key.region or "beijing") if key.provider == "bailian" else "soniox"
+            targets["stt"] = PROVIDER_URLS[where]
+        return targets
+
+    async def _reach_changed(self, before: ProxySettings, after: ProxySettings) -> None:
+        """Reach every service configured that `after` routes otherwise than `before`, the
+        way `after` has it, all at once; raises ConfigRejected saying which could not be
+        reached, and why."""
+        targets: dict[ProxiedService, str] = {
+            s: url for s, url in self._proxy_targets().items()
+            if after.proxy_for(s) != before.proxy_for(s)
+        }
+        results = await asyncio.gather(
+            *(self._reach(url, after.proxy_for(s)) for s, url in targets.items()),
+            return_exceptions=True,
+        )
+        failed: list[str] = []
+        for (service, url), result in zip(targets.items(), results, strict=True):
+            if isinstance(result, Unreachable):
+                way = "经代理" if after.proxy_for(service) else "直连"
+                host = urlsplit(url).hostname
+                failed.append(f"{PROXY_LABELS[service]}（{way}）连 {host} 不通：{result}")
+            elif isinstance(result, BaseException):
+                raise result
+        if failed:
+            raise ConfigRejected("；".join(failed)[:MAX_REASON_LENGTH])
 
     def _in_effect(self, item: _Item, model: str | None = None) -> bool:
         return (
