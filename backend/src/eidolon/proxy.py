@@ -15,6 +15,7 @@ from typing import Any
 
 import httpx
 from socksio import ProtocolError as SocksProtocolError
+from websockets.asyncio.client import ClientConnection
 
 from eidolon.config import ProxiedService, ProxySettings, split_proxy_password
 
@@ -136,6 +137,6 @@ class ProxiedWebsocket:
 
     _proxy: Callable[[], str | None] = staticmethod(lambda: None)
 
-    async def _websocket_connect(self, uri: str, **kwargs: Any) -> Any:
+    async def _websocket_connect(self, uri: str, **kwargs: Any) -> ClientConnection:
         kwargs.setdefault("proxy", self._proxy())
         return await super()._websocket_connect(uri, **kwargs)  # pyright: ignore[reportAttributeAccessIssue]
