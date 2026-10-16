@@ -18,8 +18,8 @@ export const ACT3_SCREENS = 2.4;
 /** 第 4 幕「来电」：她的光收成一条竖线、变成一台手机的侧边，手机转过背面、转到正面，亮屏、来电，跟着铃声
  * 振动；接听由访客点决定，不随滚动。转身要滚得慢一点才看得清，所以占得长。 */
 export const ACT4_SCREENS = 3.2;
-/** 第 5 幕「记忆」：一个光点从一道光传到另一道光，回忆的光迹跟着画出来。 */
-export const ACT5_SCREENS = 3;
+/** 第 5 幕「记忆」：3D 的夜空里，一件事从一位偶像传到另一位、再传开；镜头随滚动推近、拉远、转向（原型的长度）。 */
+export const ACT5_SCREENS = 8;
 /** 第 6 幕「诚实事项」照常往上走，按这么多屏换算：最后一屏是第 7 幕进来的时候。 */
 export const ACT6_SCREENS = 1.6;
 /** 第 7 幕「开始」：28 道光收拢成一块手机屏幕的白光。 */
@@ -91,8 +91,9 @@ export function holdAt(timeline: Timeline, u: number): number {
   return act2 ? act2.from + REGROUP_SCREENS + ZOOM_SCREENS + u * SEG_SCREENS + 0.05 : 0;
 }
 
-/** 每一幕停稳的地方（幕内进度）：第 3 幕几句话都说完，第 4 幕来电的画面显出来，第 7 幕行动按钮出现。 */
-const REST: Partial<Record<number, number>> = { 3: 0.95, 4: 0.8, 7: 1 };
+/** 每一幕停稳的地方（幕内进度）：第 3 幕几句话都说完，第 4 幕来电的画面显出来，第 5 幕开头的全景（标题和正文
+ * 只在这时显示），第 7 幕行动按钮出现。 */
+const REST: Partial<Record<number, number>> = { 3: 0.95, 4: 0.8, 5: 0, 7: 1 };
 
 /**
  * 第 `act` 幕停稳的地方（屏）：键盘聚焦到别的幕里的按钮时滚到这里，按钮在画面上、看得见。

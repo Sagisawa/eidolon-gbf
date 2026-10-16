@@ -226,6 +226,8 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval memory --jso
 | `greetings/<角色标识>-<哈希>.mp3` | 落地页上她的招呼，由 `eidolon greeting upload` 合成上传，见下面的「招呼」 |
 | `call-openers/<角色标识>-<哈希>.mp3` | 落地页演示来电里她的开场白，同样由 `eidolon greeting upload` 合成上传，见下面「招呼」里的「开场白」 |
 | `call-posters/<角色标识>.webp` | 落地页演示来电里她的卡图（联系人海报），手动上传，见下面「招呼」里的「来电卡图」 |
+| `landing-voxels/<角色标识>.json` | 落地页第 5 幕里她的体素小人，手动上传，见下面「招呼」里的「体素小人」 |
+| `landing-memory/still.webp` | 落地页第 5 幕事先渲染好的终局全景图，给不播放动画的访客，手动上传，见下面「招呼」里的「第 5 幕的静止图」 |
 
 后端通过 `/api/characters` 把默认衣装的地址和衣装清单的地址（`stand.outfits_url`）告诉浏览器。
 
@@ -356,6 +358,41 @@ call_opener_subtitle = "啊，喂……我是真乃。那个，现在方便接�
 
 现在用的是真乃的「【しじまに華ひととき】櫻木真乃」，出处和裁法记在 `frontend/src/app/(landing)/CREDITS.md`；换图时一起改。
 
+### 体素小人
+
+落地页第 5 幕「记忆」里，四位偶像（真乃、果穗、冬优子、雾子）是站在浮岛上的方块（体素）小人。它们不进仓库（ADR-0003 的 2026-10-16 修订），由部署者手动放进存储桶的 `landing-voxels/<角色标识>.json`。后端不查存储桶，配了 `EIDOLON_STAND_ASSETS_URL` 就在 `/api/characters` 里给出每位角色的这个地址（`voxels_url`），落地页只用这四位的；那里没有文件、加载不出来时，她站的地方是一块她印象色的小方块加名字。
+
+从官方立绘做到存储桶：
+
+1. **画 Q 版三视图**：用生图模型，参照她的官方半身立绘和 Q 版图画一张三视图：白底、平光、约三头身、站直、双臂略离开身体、不带文字。提示词要点是「Character turnaround / model sheet … clean anime chibi, about 3 heads tall … FRONT, LEFT SIDE PROFILE, BACK … plain white background … arms hanging slightly away from the body … flat even lighting, flat cel colors, no text」，再逐条写清她的发型、服装、鞋袜、配饰，尤其是认得出她的东西（真乃头上的鸽子、果穗的呆毛和腰上的外套、冬优子的丸子头、雾子的双马尾和创可贴）。
+2. **取正面**：从三视图里切出正面，放到 1024×1024 的白底上居中。侧面、背面不用：三张图对不齐，用多视图生成反而更糟。
+3. **生成网格**：在混元 3D 网页版用「单图生成」，带纹理，导出 GLB（每个 30–50 MB）。第一次用之前看一眼它的用户条款，确认生成结果可以公开展示、改成体素。
+4. **转成体素**：在 `frontend/` 下跑
+
+   ```sh
+   node scripts/glb-voxelize.mts --out <输出目录> --preview <预览图目录> mano.glb kaho.glb fuyuko.glb kiriko.glb
+   ```
+
+   GLB 的文件名就是角色标识，输出 `<输出目录>/<角色标识>.json`。默认 96 格高，每个 200–550 KB；手机上吃力时加 `--height 64` 出小一号的，每个 90–210 KB。`--preview` 给每位写一张正面、背面并排的平面图，看一眼：脸上要有眼睛，后脑勺的头发不能有黑点。文件格式见脚本里的 `Voxels` 类型。
+5. **上传**到存储桶的 `landing-voxels/`，Content-Type 设成 `application/json`，缓存头 `public, max-age=86400`（一天；地址固定，换文件后浏览器和 CDN 可能缓存旧的一阵子）。
+
+三视图和 GLB 留在自己电脑上，不进仓库也不进存储桶。出处和做法记在 `frontend/src/app/(landing)/CREDITS.md`；换角色、重做模型时一起改。
+
+### 第 5 幕的静止图
+
+不播放动画的访客（定格档、静态档），和 3D 画布丢了上下文、建不起来的时候，落地页第 5 幕是一张事先渲染好的终局全景图：四位偶像站在各自的岛上，四根记忆柱顶上都是真乃颜色的方块，几根光线连着。图上有体素小人，所以它同样不进仓库，放在存储桶的 `landing-memory/still.webp`。后端不查存储桶，配了 `EIDOLON_STAND_ASSETS_URL` 就在 `/api/landing` 里给出这个地址（`memory_still_url`）；那里没有图、加载不出来时，静止版式里这一幕只有文字。
+
+图由页面上同一套场景代码在无头浏览器里画出来。改了第 5 幕的场景、换了体素文件以后重新出一张：
+
+1. 起后端（要配好 `EIDOLON_STAND_ASSETS_URL`，四位的体素文件已经在存储桶里），在 `frontend/` 下跑
+
+   ```sh
+   node scripts/landing-memory-still.mjs --out <文件> [--backend http://localhost:8000]
+   ```
+
+   输出 1920×1200 的 WebP，几十 KB。有哪位的体素文件加载不到就不出图。
+2. **上传**到存储桶的 `landing-memory/still.webp`，Content-Type 设成 `image/webp`，缓存头 `public, max-age=86400`。
+
 ### 合成上传
 
 **什么时候跑**：新增或改了招呼、开场白的原文（`greeting`、`call_opener`）、换了她的 `voice_id`，或者改了读音文件之后，重启后端之前或之后都行。只改字幕不用跑，重启后端即可。改了原文或字幕，还要重新生成落地页的字体子集（`frontend/AGENTS.md`「落地页的字体子集」）。
@@ -417,7 +454,7 @@ uv run eidolon reading draft
 
 ### 下线
 
-收到权利方的要求时，清空存储桶：立绘、招呼、开场白和来电卡图一起下线，通话层退回背景图，落地页退回只有字幕、光和后备海报，不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕），开场白是 `call-openers/`；要连字幕一起去掉，删掉 `characters.toml` 里的招呼或开场白再重启后端。
+收到权利方的要求时，清空存储桶：立绘、招呼、开场白、来电卡图、体素小人和第 5 幕的静止图一起下线，通话层退回背景图，落地页退回只有字幕、光、后备海报和印象色方块（静止版式的第 5 幕只有文字），不需要改代码或发版。之后别再运行立绘同步脚本和这条命令。只想下线招呼时，删掉存储桶里 `greetings/` 下的文件即可（落地页同样只显示字幕），开场白是 `call-openers/`；要连字幕一起去掉，删掉 `characters.toml` 里的招呼或开场白再重启后端。
 
 ## 配置 OAuth 应用
 

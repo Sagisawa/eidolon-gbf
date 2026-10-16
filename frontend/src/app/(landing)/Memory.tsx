@@ -1,63 +1,108 @@
 import type { CSSProperties } from "react";
 
-import { memoryWorld, type BandLight } from "./model/scene";
+import type { Messages } from "@/i18n";
+
+import { MemoryStill } from "./MemoryStill";
+import { MEMORY_STILL, type Actor } from "./model/memory";
+import { linesOf, type Line } from "./model/memoryStory";
 import type { Section } from "./model/timeline";
 
+export type MemoryCopy = Messages["landing"]["act5"];
+
 /**
- * 第 5 幕「记忆」：一件事从一位偶像传到另一位，再从她那里传开。服务端渲染，不带客户端 JS。
+ * 第 5 幕「记忆」：一件事被一位偶像收进记忆、传给另一位、再从她那里传开。服务端渲染，客户端 JS 只有静止图那一小块
+ * （MemoryStill：加载不到时拿掉）。
  *
- * 布景是两屏宽的一张 SVG（落地页模型的 memoryWorld，viewBox 2000 × 1000，横向拉伸铺满两屏）：
- * - 光路的连线：一段段弧线，颜色从这段路起点的那一位渐变到终点的那一位。运动版式里由 LightStage 按模型
- *   给的进度画出来（--lp-path-0…，光点走到哪儿画到哪儿），整张 SVG 跟着模型的横移平移（--lp-pan）；
- *   光点本身是着色器画的彗星。
- * - 一道道光：静止版式、光层没起来时由这张 SVG 画，这件事传过的人亮着；光层画好以后让给着色器。
- * 静止版式（定格档、静态档、没有 JS）里整张布景压进一屏，连线都是画完的样子。
+ * 运动版式里画面是一块 three.js 画布（memoryLayer.ts）：夜空、四座浮岛和站在上面的几位演员，镜头随滚动推近、
+ * 拉远、转向。画布由 LightStage 滚到这一幕附近时建、放在这一幕的最前面，固定铺满视口，不透明度和标题正文的
+ * 不透明度都由落地页模型给（--lp-memory、--lp-act5）。几个人说的话是 DOM 上的气泡，按出现的顺序排（读屏器照这个
+ * 顺序读，一直在无障碍树上）：LightStage 按落地页模型（model/memoryStory.ts）把每句摆到说话的人头顶、她的记忆柱上，
+ * 只在它那一段里显出来；最后一句在全景里淡入。气泡前面藏着说话的人的名字，给读屏器念。某位演员不在名单里时，
+ * 她的话不出现（linesOf）。画布丢了上下文、建不起来时，LightStage 给 .lp-root 加上 lp-memory-lost：画面正中换成事先渲染好的
+ * 终局全景图（`stillUrl`，存储桶上的），几句话收起来，标题正文和最后一句照旧。
  *
- * 光的线宽不随布景拉伸（non-scaling-stroke）；连线不能这样：描线用的虚线按 pathLength 换算，线宽不随布景
- * 拉伸时虚线改在屏幕上量，描不出进度。连线的线宽跟着布景缩放，竖屏上由样式表加粗。
+ * 静止版式（定格档、静态档）里这一幕不钉住：最上面是那张全景图，下面是标题、正文，按顺序列出这几句和最后一句。没有图
+ * （没配存储桶）、加载不到时只有文字。
  */
-export function Memory({ lights, section, title, body }: { lights: BandLight[]; section: Section; title: string; body: string }) {
-  const world = memoryWorld(lights);
-  const v = (x: number) => Math.round(x * 1000);
-  const colorOf = new Map(lights.map((l) => [l.id, l.color]));
-  const reached = new Set(world.arcs.flatMap((a) => [a.source, a.target]));
+export function Memory({
+  section,
+  copy,
+  actors,
+  stillUrl,
+}: {
+  section: Section;
+  copy: MemoryCopy;
+  actors: readonly Actor[];
+  /** 事先渲染好的终局全景图的地址；没有时是 null。 */
+  stillUrl: string | null;
+}) {
+  const actorOf = new Map(actors.map((a) => [a.island, a]));
+  const lines = linesOf(actors.map((a) => a.island));
+  const vars = { "--lp-screens": section.screens, "--lp-sender": actorOf.get(0)?.color, "--lp-still-aspect": MEMORY_STILL.w / MEMORY_STILL.h };
   return (
-    <div className="lp-stage-wrap lp-memory" data-lp-section={section.index} style={{ "--lp-screens": section.screens } as CSSProperties}>
+    <div className="lp-stage-wrap lp-memory" data-lp-section={section.index} style={vars as CSSProperties}>
       <section className="lp-stage lp-act5" aria-labelledby="lp-act5-title" data-lp-act="5">
-        <svg className="lp-memory-world" viewBox="0 0 2000 1000" preserveAspectRatio="none" aria-hidden>
-          <defs>
-            {world.arcs.map((a, k) => (
-              <linearGradient key={k} id={`lp-path-${k}`} gradientUnits="userSpaceOnUse" x1={v(a.from[0])} y1={v(a.from[1])} x2={v(a.to[0])} y2={v(a.to[1])}>
-                <stop offset="0" stopColor={colorOf.get(a.source)} />
-                <stop offset="1" stopColor={colorOf.get(a.target)} />
-              </linearGradient>
-            ))}
-          </defs>
-          <g className="lp-memory-static">
-            {world.lines.map((line) => (
-              <g key={line.id} opacity={reached.has(line.id) ? 0.9 : 0.32}>
-                <line x1={v(line.x)} y1="0" x2={v(line.x)} y2="1000" stroke={line.color} strokeWidth="10" strokeOpacity="0.35" vectorEffect="non-scaling-stroke" />
-                <line x1={v(line.x)} y1="0" x2={v(line.x)} y2="1000" stroke="#fff" strokeOpacity="0.8" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
-              </g>
-            ))}
-          </g>
-          {world.arcs.map((a, k) => {
-            const d = `M${v(a.from[0])} ${v(a.from[1])} Q${v(a.ctrl[0])} ${v(a.ctrl[1])} ${v(a.to[0])} ${v(a.to[1])}`;
-            return (
-              <g key={k} className="lp-path" style={{ "--lp-path": `var(--lp-path-${k}, 1)` } as CSSProperties}>
-                <path d={d} pathLength={1} fill="none" stroke={`url(#lp-path-${k})`} strokeOpacity="0.22" strokeWidth="7" />
-                <path d={d} pathLength={1} fill="none" stroke={`url(#lp-path-${k})`} strokeOpacity="0.75" strokeWidth="1.4" />
-              </g>
-            );
-          })}
-        </svg>
-        <div className="lp-act5-copy">
+        {stillUrl && <MemoryStill src={stillUrl} />}
+        <div className="lp-act5-copy" data-lp-find="act5">
           <h2 id="lp-act5-title" className="lp-act-title">
-            {title}
+            {copy.title}
           </h2>
-          <p className="lp-act-body">{body}</p>
+          <p className="lp-act-body">{copy.body}</p>
         </div>
+        {lines.length > 0 && (
+          <div className="lp-lines">
+            {lines.map((line) => (
+              <Said key={line.key} line={line} copy={copy} name={actorOf.get(line.island)!.name} />
+            ))}
+          </div>
+        )}
+        <p className="lp-closing" data-lp-find="memory-closing">
+          {copy.closing}
+        </p>
       </section>
     </div>
   );
+}
+
+/** 一句话：制作人的深蓝气泡，她的白气泡（日语原文在上、中文字幕在下）和「思考中」，柱子上的「想起」标签。 */
+function Said({ line, copy, name }: { line: Line; copy: MemoryCopy; name: string }) {
+  const props = { className: `lp-line lp-line-${line.kind}`, "data-lp-line": line.key, "data-lp-find": `memory-${line.key}` };
+  // 一整段字：拆成两个文字节点时无障碍树上也是两段。
+  const by = (who: string) => <span className="sr-only">{`${who}：`}</span>;
+  switch (line.kind) {
+    case "producer":
+      return (
+        <p {...props}>
+          {by(copy.producer.name)}
+          {copy.producer.line}
+        </p>
+      );
+    case "thinking":
+      return (
+        <p {...props}>
+          {by(name)}
+          {copy.thinking}
+        </p>
+      );
+    case "recalled":
+      return (
+        <p {...props}>
+          <span className="lp-line-swatch" aria-hidden />
+          {by(name)}
+          {copy.recalled(copy.from)}
+        </p>
+      );
+    case "said": {
+      const said = copy.lines[line.island];
+      return (
+        <p {...props}>
+          {by(name)}
+          <span className="lp-line-ja" lang="ja">
+            {said.ja}
+          </span>
+          <span className="lp-line-zh">{said.zh}</span>
+        </p>
+      );
+    }
+  }
 }

@@ -31,6 +31,7 @@ import {
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
+import type { CanvasLayer } from "./canvasStage";
 import { idle } from "./idle";
 import { PHONE_MM, type PhoneState } from "./model/phone";
 import type { Quality } from "./model/tier";
@@ -59,14 +60,9 @@ export function loadPhoneModel(): Promise<Object3D> {
   return model;
 }
 
-export type PhoneLayer = {
-  /** 画布的 CSS 尺寸（就是视口）。 */
-  resize(w: number, h: number): void;
-  setQuality(quality: Quality): void;
+export type PhoneLayer = CanvasLayer & {
   /** 画这一刻的手机；和上一次画的一样时不画。`glow` 是屏幕亮起时的颜色（`#rrggbb`）。 */
   render(phone: PhoneState, glow: string): void;
-  /** 放掉 WebGL 上下文。 */
-  destroy(): void;
 };
 
 /**

@@ -10,7 +10,8 @@
  *
  * 版式：首屏前的内联脚本（tierScript.ts）把档位写在 <html> 上。html[data-lp-layout="motion"]（完整、
  * 简化档）钉住舞台、由滚动驱动第 1 幕；其余（定格档、静态档，以及没有 JS、<html> 上没有档位时）
- * 是竖着排的静止版式。层叠：光层的画布在最底下（z-index 0，不透明），各幕的内容都在它上面（z-index 1）。
+ * 是竖着排的静止版式。层叠：光层的画布在最底下（z-index 0，不透明），各幕的内容都在它上面（z-index 1）；
+ * 第 5 幕的 3D 画布固定铺满视口，在这一幕里、这一幕的文字下面，盖过光层和前面几幕。
  */
 
 html {
@@ -1372,50 +1373,200 @@ html[data-lp-tier="reduced"] .lp-hello {
   color: rgb(255 255 255 / 0.88);
 }
 
-/* —— 第 5 幕：记忆（Memory.tsx）。布景是两屏宽的一张 SVG：运动版式里跟着模型横移（--lp-pan），
- * 光路的连线跟着光点画出来（--lp-path-0…，默认是画完的样子）；一道道光在光层画好以后让给着色器，
- * 连线留着，淡淡地连起这件事传过的人。
- * 静止版式里整张布景压进一屏。 */
+/* —— 第 5 幕：记忆（Memory.tsx）。运动版式里是一块 three.js 画布（memoryLayer.ts，LightStage 滚到附近才建、放在这一幕
+ * 最前面）：固定铺满视口，叠在光层上面、这一幕的文字下面，不透明度由落地页模型给（--lp-memory：第 4 幕解开钉住时淡入，
+ * 这一幕解开钉住时淡出）。标题和正文在左上，镜头推近以前跟着模型淡出（--lp-act5）。几个人说的话是 DOM 上的气泡，
+ * 最后一句在全景下面。静止版式里事先渲染好的全景图、标题、正文、几句话和最后一句竖着排下来。 */
 .lp-act5 {
   position: relative;
   z-index: 1;
   height: 100svh;
   overflow: hidden;
 }
+html:not([data-lp-layout="motion"]) .lp-act5 {
+  height: auto;
+  min-height: 100svh;
+  padding: 14svh var(--lp-gutter) 12svh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
 html[data-lp-layout="motion"] .lp-act5 {
   overflow: clip;
 }
-.lp-memory-world {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-}
-html[data-lp-layout="motion"] .lp-memory-world {
-  width: 200%;
-  transform: translate3d(var(--lp-pan, 0px), 0, 0);
-  will-change: transform;
-}
-html[data-lp-layout="motion"] .lp-root.lp-gl-on .lp-memory-static {
+.lp-memory-canvas {
   display: none;
 }
-.lp-path path {
-  stroke-dasharray: 1 1;
-  stroke-dashoffset: calc(1 - var(--lp-path));
+html[data-lp-layout="motion"] .lp-memory-canvas {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: var(--lp-memory, 0);
+  pointer-events: none;
 }
-/* 竖屏上布景横向压得厉害，连线跟着变细，加粗一点。 */
+/* 事先渲染好的终局全景图（MemoryStill.tsx）：四边淡进夜色。静止版式里排在最上面，横着占满这一栏；运动版式里平时
+ * display: none（懒加载的图不下载），画布丢了上下文、建不起来时（lp-memory-lost）摆在画面正中，整张放得下，跟着
+ * 画布原本的不透明度（--lp-memory）淡入淡出。图的宽高比 --lp-still-aspect 由 Memory 写。 */
+.lp-memory-still {
+  display: block;
+  height: auto;
+  pointer-events: none;
+  mask-image: linear-gradient(to right, transparent, #000 7%, #000 93%, transparent), linear-gradient(transparent, #000 9%, #000 91%, transparent);
+  mask-composite: intersect;
+}
+html:not([data-lp-layout="motion"]) .lp-memory-still {
+  width: 100%;
+  max-width: 72rem;
+  align-self: center;
+}
+/* 竖屏上这一栏太窄：图往右伸到画面边（左边是幕名轨）。 */
 @media (max-aspect-ratio: 10/11) {
-  .lp-path path + path {
-    stroke-width: 2.4;
+  html:not([data-lp-layout="motion"]) .lp-memory-still {
+    width: calc(100% + var(--lp-gutter));
+    max-width: none;
+    align-self: flex-start;
   }
 }
+html[data-lp-layout="motion"] .lp-memory-still {
+  display: none;
+}
+html[data-lp-layout="motion"] .lp-root.lp-memory-lost .lp-memory-still {
+  display: block;
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: min(100vw, var(--lp-vh, 100svh) * var(--lp-still-aspect));
+  translate: -50% -50%;
+  opacity: var(--lp-memory, 0);
+}
+/* 换成全景图以后几句话收起来：它们按 3D 场景里说话的人摆，图上对不上。还在无障碍树上。 */
+html[data-lp-layout="motion"] .lp-root.lp-memory-lost .lp-line {
+  opacity: 0;
+}
 .lp-act5-copy {
+  max-width: min(26rem, 78vw);
+  text-shadow: 0 0 18px #000;
+}
+html[data-lp-layout="motion"] .lp-act5-copy {
   position: absolute;
   left: var(--lp-gutter);
-  bottom: 12%;
-  max-width: min(30rem, 78vw);
-  text-shadow: 0 0 18px #000;
+  top: 14%;
+  opacity: var(--lp-act5, 1);
+}
+
+/* 几句话（Memory.tsx）：制作人的深蓝气泡，她们的白气泡（日语原文在上，中文字幕小一号在下）和「思考中」，记忆柱上
+ * 「想起」的半透明深色胶囊，左边一个发送那一位颜色（--lp-sender）的小方块。运动版式里每句按落地页模型摆：LightStage
+ * 写 --lp-x、--lp-y（锚点投影到画面上的地方，横向收进了画面）和 --lp-o（它的不透明度），气泡的底边中点在锚点上方
+ * --lp-lift 处，淡入时从下面浮上来一点；跟着画布淡出（--lp-memory）。 */
+.lp-lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.lp-line {
+  --lp-lift: 10px;
+  margin: 0;
+  width: max-content;
+  max-width: min(24rem, calc(100vw - var(--lp-rail) - 24px));
+  box-sizing: border-box;
+  padding: 0.45rem 0.8rem;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
+  text-wrap: balance;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.35);
+}
+.lp-line-producer {
+  background: #1c2a4a; /* 和 3D 层里制作人的消息（memoryLayer.ts 的 PRODUCER_INK）同一个深蓝。 */
+  color: #fbfcfe;
+}
+.lp-line-said,
+.lp-line-thinking {
+  background: rgb(255 255 255 / 0.94);
+  color: #1a1626;
+}
+.lp-line-thinking {
+  background: rgb(255 255 255 / 0.72);
+  font-size: 12px;
+  color: rgb(26 22 38 / 0.78);
+}
+/* 日语按词组折行，不在「聞きまし／た」这样的地方断开。 */
+.lp-line-ja {
+  display: block;
+  word-break: auto-phrase;
+  font-family: var(--lp-ja);
+  font-weight: 600;
+  font-size: 15px;
+}
+.lp-line-zh {
+  display: block;
+  font-size: 12px;
+  color: rgb(26 22 38 / 0.68);
+}
+.lp-line-recalled {
+  --lp-lift: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0.2rem 0.65rem;
+  border: 1px solid color-mix(in oklab, var(--lp-sender, #fff) 45%, transparent);
+  border-radius: 999px;
+  background: rgb(24 18 46 / 0.72);
+  box-shadow: none;
+  font-size: 11px;
+  color: #fbfcfe;
+}
+.lp-line-swatch {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--lp-sender, #fff);
+}
+/* 几句话和最后一句跟着画布淡出。 */
+html[data-lp-layout="motion"] :is(.lp-line, .lp-closing) {
+  opacity: calc(var(--lp-o, 0) * var(--lp-memory, 0));
+}
+html[data-lp-layout="motion"] .lp-line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate3d(
+    calc(var(--lp-x, 0px) - 50%),
+    calc(var(--lp-y, 0px) - 100% - var(--lp-lift) + (1 - var(--lp-o, 0)) * 8px),
+    0
+  );
+  pointer-events: none;
+}
+/* 静止版式里不排「思考中」：它只是两句话之间的一下。 */
+html:not([data-lp-layout="motion"]) .lp-line-thinking {
+  display: none;
+}
+
+/* 最后一句：全景下面，居中。 */
+.lp-closing {
+  margin: 0;
+  font-family: var(--lp-zh-title);
+  font-weight: 600;
+  font-size: clamp(18px, 2.2vw, 26px);
+  letter-spacing: 0.05em;
+  line-height: 1.6;
+  /* 窄屏上只在逗号后面折行。 */
+  word-break: keep-all;
+  text-wrap: balance;
+  text-shadow: 0 2px 16px rgb(0 0 0 / 0.6);
+}
+html[data-lp-layout="motion"] .lp-closing {
+  position: absolute;
+  left: var(--lp-gutter);
+  right: 6vw;
+  bottom: 16%;
+  text-align: center;
 }
 
 /* —— 第 6 幕：诚实事项（Closing.tsx）。全站最暗、最静：没有任何滚动动画，居中，行高宽松。
