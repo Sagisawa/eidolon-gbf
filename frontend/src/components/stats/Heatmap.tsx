@@ -10,8 +10,8 @@ const t = copy.settings.stats;
 
 const MAX_CELL = 14;
 const GAP = 2;
-const MONTHS = 18; // the row of month labels above the squares
-const MONTH_LABEL = 30; // room for 「10月」 at text-xs
+const MONTH_ROW = 18; // the height of the row of month labels above the squares
+const MONTH_LABEL_WIDTH = 30; // room for 「10月」 at text-xs
 
 /** Each shade, 0 (did not come) to 4, all of the one color. */
 const SHADES = ["fill-foreground/8", "fill-foreground/25", "fill-foreground/45", "fill-foreground/70", "fill-foreground"];
@@ -38,11 +38,11 @@ export function Heatmap({ heatmap }: { heatmap: Stats["heatmap"] }) {
   const cameOn = heatmap.counts.filter((n) => n > 0).length;
   const cell = Math.max(2, Math.min(MAX_CELL, (width - GAP * (weeks.length - 1)) / weeks.length));
   const step = cell + GAP;
-  const months = heatmapMonths(weeks, Math.ceil(MONTH_LABEL / step));
+  const months = heatmapMonths(weeks, Math.ceil(MONTH_LABEL_WIDTH / step));
   const cells = weeks.flat();
   const shown = cells.find((c) => c.date === hovered);
   const readout = shown
-    ? t.dayCount(Number(shown.date.slice(5, 7)), Number(shown.date.slice(8, 10)), shown.count)
+    ? t.dayCount(shown.month, shown.day, shown.count)
     : t.cameOn(cameOn);
 
   return (
@@ -51,7 +51,7 @@ export function Heatmap({ heatmap }: { heatmap: Stats["heatmap"] }) {
       <svg
         ref={ref}
         width="100%"
-        height={MONTHS + step * 7 - GAP}
+        height={MONTH_ROW + step * 7 - GAP}
         role="img"
         aria-label={`${t.heatmapLabel}，${t.cameOn(cameOn)}`}
         onMouseLeave={() => setHovered(null)}
@@ -67,7 +67,7 @@ export function Heatmap({ heatmap }: { heatmap: Stats["heatmap"] }) {
             <rect
               key={day.date}
               x={column * step}
-              y={MONTHS + row * step}
+              y={MONTH_ROW + row * step}
               width={cell}
               height={cell}
               rx={Math.min(2, cell / 4)}

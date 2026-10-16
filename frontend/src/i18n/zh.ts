@@ -492,7 +492,6 @@ export const zh = {
     },
     /** 统计（GLOSSARY.md「统计」）。 */
     stats: {
-      loading: "正在读取…",
       empty: "还没有和她们说过话",
       toConversations: "去对话列表",
       daysKnown: "已认识",

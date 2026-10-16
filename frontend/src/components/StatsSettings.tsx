@@ -11,11 +11,12 @@ import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from "@/components/ui/em
 import { copy } from "@/i18n";
 import { getStats } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
+import { FIRST_LEVEL } from "@/lib/navShell";
 import { portrait, statsSections, type Stats } from "@/lib/stats";
 
 const t = copy.settings.stats;
 
-const CONVERSATIONS = "/conversations";
+const CONVERSATIONS = FIRST_LEVEL.conversations;
 
 /**
  * 设置「统计」（GLOSSARY.md「统计」，DESIGN.md「统计页」）：上半部分不随时间跨度变，从上到下是一句话画像、
@@ -32,7 +33,7 @@ export function StatsSettings() {
   }, []);
 
   if (failure) return <FailureNotice failure={failure} />;
-  if (!stats) return <p className="text-body text-muted-foreground">{t.loading}</p>;
+  if (!stats) return <p className="text-body text-muted-foreground">{copy.settings.loading}</p>;
 
   const shown = statsSections(stats);
   if (shown.isEmpty) {
@@ -67,7 +68,7 @@ export function StatsSettings() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
-        {shown.portrait && <p className="text-header">{portrait(stats.hours)}</p>}
+        {shown.portrait && <p className="text-header">{portrait(stats.all_hours)}</p>}
         <dl className="grid grid-cols-3 gap-3">
           {figures.map(({ label, days }) => (
             <div key={label} className="flex flex-col gap-1">

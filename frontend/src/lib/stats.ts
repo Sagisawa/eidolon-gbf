@@ -8,12 +8,12 @@ import { copy } from "@/i18n";
 /** What `/api/stats` answers. Dates are the producer's (`YYYY-MM-DD`, their profile's time zone).
  * `days_known`: the days since the user signed up, that day the first.
  * `visits`: the days in a row they came (took a turn or gave a gift), now and at the longest.
- * `hours`: how many turns and gifts at each hour of the day, 0–23, all told.
+ * `all_hours`: how many turns and gifts at each hour of the day, 0–23, all told.
  * `heatmap`: how many on each day from `from`, a Monday 52 weeks before this week's, to today. */
 export type Stats = {
   days_known: number;
   visits: { current: number; longest: number };
-  hours: number[];
+  all_hours: number[];
   heatmap: { from: string; counts: number[] };
 };
 
@@ -40,14 +40,18 @@ export function portrait(hours: number[]): string | null {
   return t.comesAt(parts.join(t.and));
 }
 
+export type HeatLevel = 0 | 1 | 2 | 3 | 4;
+
 /** How dark a day's square is: 0 when they did not come, else 1–4 by its share of the
  * busiest day's count. */
-export function heatLevel(count: number, most: number): 0 | 1 | 2 | 3 | 4 {
+export function heatLevel(count: number, most: number): HeatLevel {
   if (count <= 0 || most <= 0) return 0;
-  return Math.min(4, Math.max(1, Math.ceil((count / most) * 4))) as 1 | 2 | 3 | 4;
+  return Math.min(4, Math.max(1, Math.ceil((count / most) * 4))) as HeatLevel;
 }
 
-export type HeatCell = { date: string; count: number; level: 0 | 1 | 2 | 3 | 4 };
+/** A day of the heatmap: its date (`YYYY-MM-DD`), its month and day of the month, how many
+ * turns and gifts, and its shade. */
+export type HeatCell = { date: string; month: number; day: number; count: number; level: HeatLevel };
 
 /** The heatmap's columns, a week each from Monday at the top; the last only up to today. */
 export function heatmapWeeks(heatmap: Stats["heatmap"]): HeatCell[][] {
@@ -57,7 +61,8 @@ export function heatmapWeeks(heatmap: Stats["heatmap"]): HeatCell[][] {
   heatmap.counts.forEach((count, i) => {
     if (i % 7 === 0) weeks.push([]);
     const date = new Date(start + i * 86_400_000).toISOString().slice(0, 10);
-    weeks[weeks.length - 1].push({ date, count, level: heatLevel(count, most) });
+    const [month, day] = [Number(date.slice(5, 7)), Number(date.slice(8, 10))];
+    weeks[weeks.length - 1].push({ date, month, day, count, level: heatLevel(count, most) });
   });
   return weeks;
 }
@@ -68,9 +73,9 @@ export function heatmapMonths(weeks: HeatCell[][], apart: number): Map<number, s
   const months = new Map<number, string>();
   let last = -Infinity;
   weeks.forEach((week, column) => {
-    const first = week.find((cell) => cell.date.endsWith("-01"));
+    const first = week.find((cell) => cell.day === 1);
     if (!first || column - last < apart) return;
-    months.set(column, copy.settings.stats.month(Number(first.date.slice(5, 7))));
+    months.set(column, copy.settings.stats.month(first.month));
     last = column;
   });
   return months;
@@ -79,7 +84,7 @@ export function heatmapMonths(weeks: HeatCell[][], apart: number): Map<number, s
 /** Which blocks of the page are shown: none, but a line and a way to the conversations, when
  * the user never took a turn or gave a gift (`isEmpty`); otherwise each that has something. */
 export function statsSections(stats: Stats): { isEmpty: boolean; visits: boolean; portrait: boolean; heatmap: boolean } {
-  const hasCome = stats.hours.some((n) => n > 0);
+  const hasCome = stats.all_hours.some((n) => n > 0);
   return {
     isEmpty: !hasCome,
     visits: hasCome && stats.visits.longest > 0,

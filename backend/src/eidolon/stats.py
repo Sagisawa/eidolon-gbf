@@ -49,7 +49,7 @@ def add_stats_routes(app: FastAPI, backend: Backend) -> None:
         return {
             "days_known": max(1, (today - signed_up.astimezone(zone).date()).days + 1),
             "visits": visits(per_day.keys(), today),
-            "hours": [per_hour[hour] for hour in range(24)],
+            "all_hours": [per_hour[hour] for hour in range(24)],
             "heatmap": {
                 "from": start.isoformat(),
                 "counts": [

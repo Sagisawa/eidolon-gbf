@@ -130,7 +130,7 @@ async def test_a_new_user_has_known_them_a_day_and_come_on_none(
 
     assert got["days_known"] == 1
     assert got["visits"] == {"current": 0, "longest": 0}
-    assert got["hours"] == [0] * 24
+    assert got["all_hours"] == [0] * 24
     assert got["heatmap"]["from"] == HEATMAP_FROM.isoformat()
     # 52 whole weeks, and this one up to today, a Friday.
     assert got["heatmap"]["counts"] == [0] * (52 * 7 + 5)
@@ -157,26 +157,14 @@ async def test_a_turn_counts_on_the_day_and_at_the_hour_it_was_where_the_user_is
 
     in_tokyo = await stats(client)
     in_utc = await stats(client, {"X-Timezone": "UTC"})
+    assert (await client.put("/api/profile", json={"timezone": "UTC"})).status_code == 200
+    profile_first = await stats(client)  # the browser still says Tokyo
 
-    assert in_tokyo["hours"][0] == 1 and sum(in_tokyo["hours"]) == 1
+    assert in_tokyo["all_hours"][0] == 1 and sum(in_tokyo["all_hours"]) == 1
     assert day(in_tokyo, TODAY) == 1 and sum(in_tokyo["heatmap"]["counts"]) == 1
-    assert in_utc["hours"][15] == 1
-    assert day(in_utc, TODAY - timedelta(days=1)) == 1
-
-
-async def test_the_profiles_time_zone_comes_before_the_browsers(
-    make_client: ClientFactory, settings: Settings, clock: FakeClock
-):
-    client = make_client(FakeLLM(REPLY), clock=clock)
-    conversation = await start_conversation(client)
-    await say(client, settings.database_path, conversation, "晚安", tokyo(TODAY, 0, 30))
-    res = await client.put("/api/profile", json={"timezone": "UTC"})
-    assert res.status_code == 200
-
-    got = await stats(client)  # the browser says Tokyo
-
-    assert got["hours"][15] == 1
-    assert day(got, TODAY - timedelta(days=1)) == 1
+    for got in (in_utc, profile_first):
+        assert got["all_hours"][15] == 1
+        assert day(got, TODAY - timedelta(days=1)) == 1
 
 
 async def test_turns_and_gifts_both_count_each_day_and_hour(
@@ -193,7 +181,7 @@ async def test_turns_and_gifts_both_count_each_day_and_hour(
 
     assert day(got, TODAY) == 2
     assert day(got, TODAY - timedelta(days=3)) == 1
-    assert got["hours"][8] == 3
+    assert got["all_hours"][8] == 3
 
 
 async def test_only_the_past_52_weeks_and_this_one_are_in_the_heatmap_but_every_hour_counts(
@@ -209,7 +197,7 @@ async def test_only_the_past_52_weeks_and_this_one_are_in_the_heatmap_but_every_
 
     assert got["heatmap"]["counts"][0] == 1
     assert sum(got["heatmap"]["counts"]) == 1
-    assert got["hours"][10] == 1 and got["hours"][22] == 1
+    assert got["all_hours"][10] == 1 and got["all_hours"][22] == 1
 
 
 async def test_a_day_they_only_gave_a_gift_is_a_day_they_came(
@@ -259,8 +247,8 @@ async def test_a_deleted_past_conversation_no_longer_counts_but_the_days_known_s
     assert before["visits"] == {"current": 2, "longest": 2}
     assert after["visits"] == {"current": 1, "longest": 1}
     assert (day(before, TODAY - timedelta(days=1)), day(after, TODAY - timedelta(days=1))) == (1, 0)
-    assert (before["hours"][23], after["hours"][23]) == (1, 0)
-    assert after["hours"][9] == 1
+    assert (before["all_hours"][23], after["all_hours"][23]) == (1, 0)
+    assert after["all_hours"][9] == 1
     assert before["days_known"] == after["days_known"] == 31
 
 
@@ -274,6 +262,6 @@ async def test_a_user_sees_only_their_own(
 
     theirs = await stats(friend)
 
-    assert theirs["hours"] == [0] * 24
+    assert theirs["all_hours"] == [0] * 24
     assert theirs["visits"] == {"current": 0, "longest": 0}
-    assert (await stats(producer))["hours"][9] == 1
+    assert (await stats(producer))["all_hours"][9] == 1
