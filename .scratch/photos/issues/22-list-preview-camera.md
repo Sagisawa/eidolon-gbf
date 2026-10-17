@@ -13,3 +13,7 @@
   - 后端：发出来了的带标记；生成中的、失败的不带（先例是 `test_conversation_summaries.py`、`test_past_conversations.py`）。
   - 前端：`conversationList.test.ts`。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。** 列表的最后一句来自 `Store._last`，它没有连照片表，最后一条回复的 `photo` 总是 None；`list_messages` 里有连照片表、不读图片的写法可以照搬。

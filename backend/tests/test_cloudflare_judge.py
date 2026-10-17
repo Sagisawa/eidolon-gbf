@@ -44,7 +44,7 @@ async def test_clef_is_asked_by_its_bare_name_and_answers_from_the_envelope():
     }
     judge = ModelRetrievalJudge(clef(recording(requests, httpx.Response(200, json=envelope(answers)))))
 
-    assert await judge.judge(MANO, [], "我家的猫今天生病了") == ("memories", None)
+    assert await judge.judge(MANO, [], "我家的猫今天生病了") == ("memories", None, False)
 
     [request] = requests
     assert request["url"] == URL

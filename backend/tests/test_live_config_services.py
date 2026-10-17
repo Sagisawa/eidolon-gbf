@@ -488,8 +488,8 @@ async def test_a_speech_recognition_override_that_fails_as_the_server_starts_fal
 
 JUDGE = "/api/admin/config/judge"
 JUDGE_THRESHOLDS = "/api/admin/config/judge_thresholds"
-JEV_AFFINITY = {"out_of_line": 0.7, "manipulation": 0.4}
-"""Jev's thresholds for affinity's two questions, saved alongside as they are."""
+JEV_AFFINITY = {"out_of_line": 0.7, "manipulation": 0.4, "photo": 0.8}
+"""Jev's thresholds for affinity's two questions and the photo's, saved alongside as they are."""
 JEV_KEY = "env-jev-key-1111"
 CF_TOKEN = "cf-token-2222"
 CLOUDFLARE = {
@@ -618,7 +618,7 @@ async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_
     cleared = changed.json()["judge_thresholds"]
     assert cleared["status"] == "env" and cleared["override"] is None
     assert cleared["effective"] == {
-        "recall": 0.7, "emotion": 0.4, "out_of_line": 0.6, "manipulation": 0.6
+        "recall": 0.7, "emotion": 0.4, "out_of_line": 0.6, "manipulation": 0.6, "photo": 0.8
     }
     assert cleared["model"] == "clef-flash"
 
@@ -666,7 +666,7 @@ async def test_judge_thresholds_saved_do_not_hold_once_env_has_another_family(
     assert shown["status"] == "failed"
     assert "typesafe/jev-1.13" in shown["failure"]
     assert shown["effective"] == {
-        "recall": 0.8, "emotion": 0.4, "out_of_line": 0.5, "manipulation": 0.5
+        "recall": 0.8, "emotion": 0.4, "out_of_line": 0.5, "manipulation": 0.5, "photo": 0.8
     }
     assert judging_by(restarted) == (0.8, 0.4)
 

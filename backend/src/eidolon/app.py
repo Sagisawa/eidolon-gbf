@@ -25,7 +25,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine, in_idol_order
-from eidolon.engine import ENDED, TurnJudged
+from eidolon.engine import ENDED, TurnDone, TurnJudged
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
     call_opener_path,
@@ -52,6 +52,7 @@ from eidolon.admin_config_api import add_admin_config_routes
 from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.gifts_api import add_gift_routes
+from eidolon.photos_api import add_photo_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stats import add_stats_routes
 from eidolon.stand_outfits import list_path, outfit_path
@@ -257,7 +258,7 @@ def create_app(backend: Backend) -> FastAPI:
         """A message or conversation event as the browser reads it."""
         if isinstance(entry, ConversationEvent):
             return entry.shown() | gift_of(entry)
-        return asdict(entry.without_cues())
+        return entry.shown()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -333,6 +334,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_admin_price_routes(app, backend)
     add_announcement_routes(app, backend)
     add_gift_routes(app, backend)
+    add_photo_routes(app, backend)
     add_stats_routes(app, backend)
 
     @app.get("/api/ice-servers")
@@ -547,7 +549,7 @@ def create_app(backend: Backend) -> FastAPI:
                         outcome.began_speaking()  # the reply's first words have appeared
                     if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                         continue
-                    yield _sse(asdict(event))
+                    yield _sse(event.shown() if isinstance(event, TurnDone) else asdict(event))
 
         return _TurnResponse(events(), lambda: outcome.over(cut_short_by_failure=False))
 

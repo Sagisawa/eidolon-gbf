@@ -698,9 +698,14 @@ class _RecordedJudge:
         self.judged = Judged(None, None)
 
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> tuple[Need, None]:
-        """Never about affinity, which the memory eval has nothing to do with."""
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> tuple[Need, None, bool]:
+        """Never about affinity nor photos, which the memory eval has nothing to do with."""
         try:
             answer = await self._judge.ask(character, history, text)
         except JudgeError as e:
@@ -708,7 +713,7 @@ class _RecordedJudge:
             raise
         need = self._judge.decide(answer)
         self.judged = Judged(need, answer)
-        return need, None
+        return need, None, False
 
 
 def summarize(results: MemoryEvalResults, models: Mapping[str, str]) -> dict:

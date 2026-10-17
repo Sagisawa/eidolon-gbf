@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AffinityStatus } from "@/lib/affinity";
-import { ApiError, type CallEvent, type Conversation, type ConversationEvent, type Message, type Recorded, type TurnEvent } from "@/lib/api";
+import {
+  ApiError,
+  type CallEvent,
+  type Conversation,
+  type ConversationEvent,
+  type Message,
+  type PhotoStatus,
+  type Recorded,
+  type TurnEvent,
+} from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
@@ -118,6 +127,7 @@ function opening(options: Options = {}) {
     },
     listMessages: async (conversationId) => (conversationId === "c1" ? (options.messages ?? []) : []),
     getAffinity: async () => options.affinity ?? null,
+    getPhoto: async () => ({ status: "pending", reason: null }),
     onListChanged: () => listChanged++,
     startCall: (conversationId, preferences, handlers) => {
       sentTo.push(conversationId);
@@ -1497,6 +1507,7 @@ describe("LiveConversation: typing", () => {
       pending: false,
       at: "2026-09-27T00:00:00Z",
       affinity: null,
+      photo: null,
     });
   });
 
@@ -1636,6 +1647,90 @@ describe("LiveConversation: typing", () => {
 
     expect(finished).toBe(true);
     expect(published()).toBe(before);
+  });
+});
+
+describe("LiveConversation: photos", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const photoOf = (live: LiveConversation, key: string) => {
+    const entry = live.snapshot().entries.find((e) => e.key === key);
+    return entry?.kind === "character" ? entry.photo : undefined;
+  };
+
+  it("asks after a photo sent in a text turn every 2s until it comes out, then no more", async () => {
+    vi.useFakeTimers();
+    const asked: string[] = [];
+    const answers: PhotoStatus[] = [
+      { status: "pending", reason: null },
+      { status: "ready", reason: null },
+    ];
+    const opened = opening({
+      turns: scripted([
+        { type: "user", text: "发张自拍" },
+        { type: "photo", id: "p1", status: "pending" },
+        { type: "delta", segment: 0, lang: "ja", text: "はい" },
+        {
+          type: "done",
+          message: { ...message(4, "character", "はい"), photo: { id: "p1", status: "pending", reason: null } },
+          affinity: null,
+        },
+      ]),
+      ports: {
+        getPhoto: async (id) => {
+          asked.push(id);
+          return answers.shift() ?? { status: "ready", reason: null };
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const { live } = opened;
+
+    live.setDraft("发张自拍");
+    await live.submit();
+    const sent = photoOf(live, "m4");
+    await vi.advanceTimersByTimeAsync(1999);
+    const notYet = [...asked];
+    await vi.advanceTimersByTimeAsync(1);
+    const stillPending = photoOf(live, "m4");
+    await vi.advanceTimersByTimeAsync(2000);
+    const out = photoOf(live, "m4");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(sent).toEqual({ id: "p1", status: "pending", reason: null });
+    expect(notYet).toEqual([]);
+    expect(stillPending).toEqual({ id: "p1", status: "pending", reason: null });
+    expect(out).toEqual({ id: "p1", status: "ready", reason: null });
+    expect(asked).toEqual(["p1", "p1"]);
+  });
+
+  it("asks after one still being generated as the conversation opens, again if it cannot be asked", async () => {
+    vi.useFakeTimers();
+    const answers: (PhotoStatus | Error)[] = [new Error("offline"), { status: "failed", reason: "timeout" }];
+    const opened = opening({
+      messages: [
+        message(1, "user", "发张自拍"),
+        { ...message(2, "character", "はい"), photo: { id: "p1", status: "pending", reason: null } },
+      ],
+      ports: {
+        getPhoto: async () => {
+          const answer = answers.shift();
+          if (!answer || answer instanceof Error) throw answer ?? new Error("asked once too often");
+          return answer;
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const afterFailing = photoOf(opened.live, "m2");
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(afterFailing).toEqual({ id: "p1", status: "pending", reason: null });
+    expect(photoOf(opened.live, "m2")).toEqual({ id: "p1", status: "failed", reason: "timeout" });
+    expect(answers).toEqual([]);
   });
 });
 

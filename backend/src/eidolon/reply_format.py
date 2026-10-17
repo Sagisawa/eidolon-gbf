@@ -11,6 +11,11 @@ says when each segment is complete: once its subtitle closes, the next segment o
 (the model skipped the subtitle), or the stream ends. The segments keep what the model
 wrote; the deltas show it without delivery cues, and the Japanese is voiced with them
 (see `delivery_cues`).
+
+Before her first segment, in a turn she may send a photo in, she can write a photo tag
+(GLOSSARY.md「照片」), `<photo>…</photo>`: the parser hands what it says over the moment it
+closes (`PhotoTagged`), apart from the segments, neither shown nor voiced. One written
+anywhere else, or after the first, is left out of the reply as if never written.
 """
 
 from dataclasses import dataclass, field
@@ -103,7 +108,19 @@ class SpeechDelta:
     type: Literal["speech-delta"] = field(default="speech-delta", init=False)
 
 
-ParserEvent = SegmentDelta | SpeechDelta | SegmentComplete
+@dataclass(frozen=True)
+class PhotoTagged:
+    """She wrote a photo tag at the front of her reply: what it says, between `<photo>` and
+    `</photo>`, as she wrote it. Stays on the server."""
+
+    tag: str
+    type: Literal["photo-tagged"] = field(default="photo-tagged", init=False)
+
+
+ParserEvent = SegmentDelta | SpeechDelta | SegmentComplete | PhotoTagged
+
+_PHOTO: Literal["photo"] = "photo"
+_TAGS = ("<ja>", "<zh>", f"<{_PHOTO}>")
 
 
 @dataclass
@@ -116,7 +133,10 @@ class Segment:
 class ReplyParser:
     segments: list[Segment] = field(default_factory=list)
     _buffer: str = ""
-    _inside: Lang | None = None
+    _inside: Lang | Literal["photo"] | None = None
+    _photo: str = ""  # the open photo tag's content
+    _photo_kept: bool = False  # whether the open photo tag is the one at the front
+    _photo_seen: bool = False
     _stray: str = ""
     _said_complete: int = 0  # how many segments are known to be complete
     _line: CueFilter = field(default_factory=CueFilter)  # the open tag's content
@@ -133,6 +153,10 @@ class ReplyParser:
             if self._inside is None:
                 if not self._open_next_tag():
                     return self._hand_over()
+            elif self._inside == _PHOTO:
+                if not self._take_photo():
+                    return self._hand_over()
+                self._inside = None
             else:
                 closed = self._take_content(self._inside)
                 if not closed:
@@ -145,8 +169,10 @@ class ReplyParser:
     def finish(self) -> list[ParserEvent]:
         """Flush what is left at the end of a stream; the parser can then go on with the
         next stream of the same reply. A reply that ignored the format becomes one
-        Japanese segment."""
-        if self._inside is not None:
+        Japanese segment; a photo tag left open is left out."""
+        if self._inside == _PHOTO:
+            self._photo = ""
+        elif self._inside is not None:
             keep = _partial_suffix(self._buffer, (f"</{self._inside}>",))
             text = self._buffer[: len(self._buffer) - keep]
             if text:
@@ -160,16 +186,23 @@ class ReplyParser:
         return self._hand_over()
 
     def _open_next_tag(self) -> bool:
-        langs: tuple[Lang, ...] = ("ja", "zh")
-        starts: list[tuple[int, Lang]] = [(i, lang) for lang in langs if (i := self._buffer.find(f"<{lang}>")) >= 0]
+        names: tuple[Lang | Literal["photo"], ...] = ("ja", "zh", _PHOTO)
+        starts: list[tuple[int, Lang | Literal["photo"]]] = [
+            (i, name) for name in names if (i := self._buffer.find(f"<{name}>")) >= 0
+        ]
         if not starts:
-            keep = _partial_suffix(self._buffer, ("<ja>", "<zh>"))
+            keep = _partial_suffix(self._buffer, _TAGS)
             self._stray += self._buffer[: len(self._buffer) - keep]
             self._buffer = self._buffer[len(self._buffer) - keep :]
             return False
         start, lang = min(starts)
         self._stray += self._buffer[:start]
         self._buffer = self._buffer[start + len(f"<{lang}>") :]
+        if lang == _PHOTO:
+            front = not self.segments and not self._photo_seen and not self._stray.strip()
+            self._inside, self._photo, self._photo_kept = _PHOTO, "", front
+            self._photo_seen = True
+            return True
         if lang == "ja" or not self.segments or self.segments[-1].zh:
             self._complete_up_to(len(self.segments))
             self.segments.append(Segment())
@@ -189,6 +222,23 @@ class ReplyParser:
         if text:
             self._append(lang, text)
         return closed
+
+    def _take_photo(self) -> bool:
+        """Take what there is of the photo tag's content; True if the tag closed, when the one
+        at the front is handed over."""
+        close = f"</{_PHOTO}>"
+        end = self._buffer.find(close)
+        if end < 0:
+            end = len(self._buffer) - _partial_suffix(self._buffer, (close,))
+            self._photo += self._buffer[:end]
+            self._buffer = self._buffer[end:]
+            return False
+        self._photo += self._buffer[:end]
+        self._buffer = self._buffer[end + len(close) :]
+        if self._photo_kept:
+            self._events.append(PhotoTagged(self._photo))
+        self._photo = ""
+        return True
 
     def _append(self, lang: Lang, text: str) -> None:
         if not self.segments:
@@ -219,9 +269,11 @@ class ReplyParser:
         return events
 
 
-def format_reply(segments: list[Segment]) -> str:
-    """Write segments back in the reply format, e.g. for earlier replies in the prompt."""
-    return "".join(f"<ja>{s.ja}</ja><zh>{s.zh}</zh>" for s in segments)
+def format_reply(segments: list[Segment], photo_tag: str | None = None) -> str:
+    """Write segments back in the reply format, after the photo tag she sent with them if
+    any, e.g. for earlier replies in the prompt."""
+    photo = f"<{_PHOTO}>{photo_tag}</{_PHOTO}>" if photo_tag is not None else ""
+    return photo + "".join(f"<ja>{s.ja}</ja><zh>{s.zh}</zh>" for s in segments)
 
 
 def _partial_suffix(text: str, tags: tuple[str, ...]) -> int:

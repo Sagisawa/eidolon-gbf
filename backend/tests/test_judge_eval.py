@@ -21,7 +21,7 @@ from tests.test_retrieval_services import MANO
 
 HALF = JudgeThresholds(
     needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5, out_of_line=0.5,
-    manipulation=0.5,
+    manipulation=0.5, photo=0.5,
 )
 
 EVAL = """

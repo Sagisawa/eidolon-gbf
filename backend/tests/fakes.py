@@ -3,6 +3,7 @@
 import asyncio
 import html
 import hashlib
+import io
 import json
 import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
@@ -10,10 +11,13 @@ from dataclasses import dataclass, field, replace
 import re
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast, get_args
+import zipfile
 from http import HTTPStatus
 from urllib.parse import quote, unquote, urlencode
 
 import httpx
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
@@ -64,6 +68,7 @@ from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
 from eidolon.affinity_judge import MANIPULATION, OUT_OF_LINE
 from eidolon.judge import SAID, JudgeError
+from eidolon.photo_judge import PHOTO
 
 if TYPE_CHECKING:
     from eidolon.judge import JudgeModel
@@ -399,9 +404,11 @@ class FakeJudgeModel:
     questions with the probabilities in `retrieval`, her emotion with those in `emotion`
     and the nod with neither. Answers each turn's affinity questions as the next of
     `judgings` says, as having no effect once they run out, recording what the user said
-    (`affinity_asked`). Records the key each request came with and what it asked (`asked`:
-    "turn", with or without affinity's questions, "affinity" for those alone, "emotion" or
-    "check"), and everything it was told of each (`states`)."""
+    (`affinity_asked`); and whether the user asks for a photo with the probability `photo`,
+    recording what they said (`photo_asked`). Records the key each request came with and what
+    it asked (`asked`: "turn", with or without affinity's questions and the photo's,
+    "affinity" for those alone, with or without the photo's, "photo" for that alone,
+    "emotion" or "check"), and everything it was told of each (`states`)."""
 
     def __init__(self) -> None:
         self.needs: FakeJudge | None = None
@@ -411,6 +418,8 @@ class FakeJudgeModel:
         self.judgings: list[Judging] = []
         self.asked: list[tuple[str, str]] = []
         self.affinity_asked: list[str] = []
+        self.photo = 0.0
+        self.photo_asked: list[str] = []
         self.states: list[dict[str, Any]] = []
 
     async def answer(
@@ -419,20 +428,24 @@ class FakeJudgeModel:
         kind = (
             "turn" if "recall" in questions
             else "affinity" if AFFINITY_LEVEL in questions
+            else "photo" if PHOTO in questions
             else "emotion" if "emotion" in questions
             else "check"
         )
         self.asked.append((key, kind))
         self.states.append(state)
-        affinity = {}
+        scripted: dict[str, Any] = {}
         if AFFINITY_LEVEL in questions:
             self.affinity_asked.append(state[SAID])
             judging = self.judgings.pop(0) if self.judgings else Judging()
             if judging.fails:
                 raise JudgeError("fake judge model is down")
-            affinity = judging.answers()
+            scripted = judging.answers()
+        if PHOTO in questions:
+            self.photo_asked.append(state[SAID])
+            scripted |= {PHOTO: {"noul": self.photo}}
         if kind == "turn" and self.needs is not None:
-            return await self.needs.need(state) | affinity
+            return await self.needs.need(state) | scripted
         if kind == "emotion" and self.feels is not None:
             return await self.feels.feel(state)
         return {
@@ -440,8 +453,8 @@ class FakeJudgeModel:
             if q.get("type") == "noul"
             else {"probabilities": self.emotion if name == "emotion" else {"都不是": 1.0}}
             for name, q in questions.items()
-            if name not in affinity
-        } | affinity
+            if name not in scripted
+        } | scripted
 
 
 class _ConfiguredJudge:
@@ -533,6 +546,54 @@ class FakeBackgroundLLM:
 
     async def aclose(self) -> None:
         pass
+
+
+class FakeImageService:
+    """Stands in for image generation in NovelAI's own format (`POST /ai/generate-image`):
+    records each request, with the key it came on (`requests`: `key`, `url`, `body`), and
+    answers with a ZIP of one PNG of the size asked for, carrying the prompt in its metadata
+    as NovelAI's pictures do (`METADATA` in it). With a `gate`, it answers only once the
+    gate is open, as a service taking its time."""
+
+    METADATA = "fake NovelAI metadata"
+
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self.gate: asyncio.Event | None = None
+
+    def transport(self) -> httpx.AsyncBaseTransport:
+        return httpx.MockTransport(self.handle)
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST" and request.url.path.endswith("/ai/generate-image")
+        body = json.loads(request.content)
+        self.requests.append({
+            "key": request.headers["authorization"].removeprefix("Bearer "),
+            "url": str(request.url),
+            "body": body,
+        })
+        if self.gate is not None:
+            await self.gate.wait()
+        parameters = body["parameters"]
+        picture = png(parameters["width"], parameters["height"], f"{self.METADATA}: {body['input']}")
+        return httpx.Response(200, content=zipped({"image_0.png": picture}))
+
+
+def png(width: int, height: int, comment: str = "") -> bytes:
+    """A PNG of that size, carrying `comment` in its metadata."""
+    info = PngInfo()
+    info.add_text("Comment", comment)
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (250, 200, 210)).save(out, "PNG", pnginfo=info)
+    return out.getvalue()
+
+
+def zipped(files: dict[str, bytes]) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return out.getvalue()
 
 
 DEPLOYER_SONIOX_KEY = "deployer-soniox-key"

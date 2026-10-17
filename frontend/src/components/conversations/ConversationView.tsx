@@ -66,6 +66,7 @@ import { EVENT_ICONS, eventText } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { PastConversations } from "./PastConversations";
+import { PhotoBlock } from "./PhotoBlock";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
 import { usePastConversation, type Viewing } from "./usePastConversation";
@@ -620,6 +621,7 @@ function Bubbled({
       )}
       <MessageContent className="gap-1">
         {first && <MessageHeader className="px-1">{character.name}</MessageHeader>}
+        {entry.photo && <PhotoBlock photo={entry.photo} />}
         <div className="flex min-w-0 items-end gap-1.5">
           <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
             <BubbleContent>

@@ -27,3 +27,7 @@
   - 前端：通话事件怎么并进对话状态、「新照片」什么时候亮和灭、结束卡不带照片（先例是 `callEnd.test.ts`、`conversationLog.test.ts`）。
 - [ ] **验收**：按 `docs/agents/local-acceptance.md` 在本地构建版上用 Playwright，假麦克风打电话，生图走假服务。电脑看小卡，手机看胶囊；收起时看「新照片」；挂断后才到的照片。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。** 通话里现在没有照片资格：`engine.ConversationEngine._could_send_photo` 要求 `in_call is None`。去掉这个条件以后，`PhotoPending` 会照 `asdict` 发到 RTVI（`call.py` 的 `_reply_events`），`done` 已经改用 `TurnDone.shown()`。前端 `CallEvent` 已经包含 `photo` 事件的类型（来自 `TurnEvent`），`onCallEvent` 现在落到 `default`。

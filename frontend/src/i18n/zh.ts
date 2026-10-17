@@ -175,6 +175,13 @@ export const zh = {
       removeDescription:
         "这段对话里的消息、通话记录和送礼记录都会彻底删除，无法恢复。她在这段对话里记下的事不受影响，可以在设置的「记忆」里删除。",
     },
+    /** 她发来的照片（GLOSSARY.md「照片」）：对话记录里的照片块和点开放大。 */
+    photo: {
+      pending: "照片正在生成",
+      sent: "她发来的照片",
+      open: "放大照片",
+      viewer: "照片",
+    },
     hearing: "正在听你说",
     loading: "正在打开对话",
     loadFailed: "对话没能打开",
@@ -1193,6 +1200,7 @@ export const zh = {
         emotion: "情绪的最低概率",
         out_of_line: "「不该说的话」的阈值",
         manipulation: "「操纵」的阈值",
+        photo: "「要照片」的阈值",
         references: "剧情和角色资料的最低相关度",
         memories: "记忆的最低相关度",
         turns_per_hour: "每小时回合数",

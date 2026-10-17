@@ -17,7 +17,7 @@ each turn or call starts. `Backend.start` tries the overrides as the server star
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes; the deployer's chat, memory and judge models only ever by passing in the
-`ServiceClients` that make them. Whoever passes one in closes it; `Backend.aclose`
+`ServiceClients` that make them; the image service by its transport. Whoever passes one in closes it; `Backend.aclose`
 closes only what `build` made, in the order that lets what is still running finish.
 """
 
@@ -45,11 +45,13 @@ from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import EMBEDDING_TIMEOUT, Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
+from eidolon.image_generation import GENERATION_TIMEOUT, ImageGenerator
 from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
 from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
+from eidolon.photos import Photos
 from eidolon.proxy import ProxyRoutes
 from eidolon.readings import load_readings, readings_path
 from eidolon.rerank import (
@@ -108,6 +110,8 @@ class Backend:
     """Every user's draw chances, backpack and reset cards, where gifts are open."""
     backups: Backups
     """The database's backups, as the admin console runs them, and the record of each."""
+    photos: Photos
+    """The photos she sends with her replies, being generated."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -142,6 +146,7 @@ def build(
     clients: ServiceClients | None = None,
     catalog_transport: httpx.BaseTransport | None = None,
     backup_transport: httpx.AsyncBaseTransport | None = None,
+    image_transport: httpx.AsyncBaseTransport | None = None,
     random: Random | None = None,
     reach: Reach | None = None,
 ) -> Backend:
@@ -270,9 +275,26 @@ def build(
 
     affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
     closers.append(affinities.close)
+    generator = None
+    if settings.image is not None:
+        generator = ImageGenerator(
+            settings.image,
+            httpx.AsyncClient(
+                transport=image_transport, timeout=GENERATION_TIMEOUT, trust_env=False
+            ),
+        )
+        closers.append(generator.aclose)
+    unphotographed = [c.id for c in characters.values() if not c.photographed]
+    if unphotographed:
+        log.warning(
+            "%s have no photo_tag and photo_appearance in the character configuration, and"
+            " send no photos", ", ".join(unphotographed),
+        )
+    photos = Photos(store, lambda: generator)
+    closers.append(photos.aclose)  # closed before the store, so no photo is still kept
     engine = ConversationEngine(
         store, characters, gift_catalog, memories, titles, clock, retrieval,
-        lambda: config.history_turns, world, affinities, config.affinity_judge(),
+        lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
     )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
@@ -317,6 +339,7 @@ def build(
         affinities=affinities,
         gifts=gifts,
         backups=backups,
+        photos=photos,
         world=world,
         _closers=closers,
     )

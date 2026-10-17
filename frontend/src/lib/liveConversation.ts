@@ -1,17 +1,26 @@
 // The conversation page for one character: opening her conversation (or starting a new
 // one), its log, the text turn under way, the call and how the call layer is shown, her
 // stand as the call moves it on (by the rules in `standDirection.ts`), and her affinity as
-// each turn leaves it, kept outside React so the page only renders a snapshot and passes on
-// clicks.
+// each turn leaves it, and the photos she sent as they come out, kept outside React so the page
+// only renders a snapshot and passes on clicks.
 
 import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
-import { ApiError, type CallEvent, type Conversation, type Recorded, type Segment, type TurnEvent } from "@/lib/api";
+import {
+  ApiError,
+  type CallEvent,
+  type Conversation,
+  type PhotoStatus,
+  type Recorded,
+  type Segment,
+  type TurnEvent,
+} from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import {
   conversationLog,
   emptyLog,
+  pendingPhotos,
   replySoFar,
   type ConversationLog,
   type Entry,
@@ -55,6 +64,9 @@ export type CallState =
 /** How long a change of her affinity is shown, on the header's heart and the call screen's
  * status line (spec「页首标识」「变化胶囊和通话里的提示」). */
 export const CUE_MS = 2600;
+
+/** How often a photo she sent that is still being generated is asked after (GLOSSARY.md「照片」). */
+export const PHOTO_POLL_MS = 2000;
 
 /** A change of her affinity just recorded, shown for `CUE_MS`; `key` tells one from the next. */
 export type AffinityCue = { change: AffinityChange; key: number };
@@ -239,6 +251,8 @@ export type Ports = {
     handlers: CallHandlers,
   ) => Promise<Call>;
   sendTurn: (conversationId: string, text: string) => AsyncIterable<TurnEvent>;
+  /** How a photo she sent is coming along. */
+  getPhoto: (id: string) => Promise<PhotoStatus>;
   /** Her affinity with the user now; null while affinity is off. */
   getAffinity: (characterId: string) => Promise<AffinityStatus | null>;
   preferences: {
@@ -270,6 +284,9 @@ export class LiveConversation {
   private cueing: ReturnType<typeof setTimeout> | null = null;
   /** Ends the cooldown she is in as it is due to; null while she is in none. */
   private thawing: ReturnType<typeof setTimeout> | null = null;
+  /** Asks after the photos in the log still being generated when next due to; null while it
+   * is not due to, none being generated or the asking under way. */
+  private polling: ReturnType<typeof setTimeout> | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
@@ -301,6 +318,7 @@ export class LiveConversation {
     if (this.pacing !== null) clearTimeout(this.pacing);
     if (this.cueing !== null) clearTimeout(this.cueing);
     if (this.thawing !== null) clearTimeout(this.thawing);
+    if (this.polling !== null) clearTimeout(this.polling);
     this.attempt = null;
     this.holding?.();
     this.call?.leave().catch(() => {});
@@ -760,6 +778,31 @@ export class LiveConversation {
     this.state = withCallScreenRules(this.state, { ...this.state, ...change });
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
+    if (change.log) this.watchPhotos();
+  }
+
+  /** Has the photos in the log still being generated asked after every `PHOTO_POLL_MS`, until
+   * none is: one sent in this turn, or found being generated as the conversation opens. */
+  private watchPhotos(): void {
+    if (this.polling !== null || this.disposed || pendingPhotos(this.state.log).length === 0) return;
+    this.polling = setTimeout(() => void this.askAfterPhotos(), PHOTO_POLL_MS);
+  }
+
+  /** Asks after each photo still being generated, showing those that came out; one that cannot
+   * be asked after now is asked again next time. */
+  private async askAfterPhotos(): Promise<void> {
+    const asked = await Promise.all(
+      pendingPhotos(this.state.log).map(async (id) => {
+        try {
+          return { id, status: await this.ports.getPhoto(id) };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    this.polling = null;
+    for (const photo of asked) if (photo) this.apply({ type: "photo-status", ...photo });
+    this.watchPhotos();
   }
 }
 

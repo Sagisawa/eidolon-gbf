@@ -15,3 +15,7 @@
 - [ ] 自带 key 的调用照现有规则只统计用量、不计价（自带生图在 20 接上以后自然生效）。
 - [ ] **测试**：生图调用挂在回合下、张数和错误、预设单价算出的花费、看板上的服务名和单位。先例是 `test_activity_records.py`、`test_cost_estimate.py`、`test_service_call_models.py`，前端是 `dashboard` 相关的测试。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。** 生图客户端是 `backend/src/eidolon/image_generation.py` 的 `ImageGenerator.generate`，`photos.Photos._generate` 调它；现在还没有记任何运行记录。`Photos.begin` 是在回合里调的（`engine._begin_photo`），要挂到那个回合的 `record_id` 下面，得在 `begin` 时把回合的运行记录带进去（照 `activity.timed` 和 `recording.current()` 的做法），因为生成在回合结束以后才完。

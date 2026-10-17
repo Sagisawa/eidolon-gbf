@@ -222,12 +222,13 @@ describe("formOf and changeOf", () => {
 
   it("takes thresholds from 0 to 1 and seconds above 0", () => {
     const thresholds = ITEM_SPECS.judge_thresholds;
-    const affinity = { out_of_line: "0.7", manipulation: "1" };
+    const affinity = { out_of_line: "0.7", manipulation: "1", photo: "0.8" };
     expect(changeOf(thresholds, { recall: "0.7", emotion: "0", ...affinity }, true)).toEqual({
-      change: { recall: 0.7, emotion: 0, out_of_line: 0.7, manipulation: 1 },
+      change: { recall: 0.7, emotion: 0, out_of_line: 0.7, manipulation: 1, photo: 0.8 },
     });
     for (const bad of ["1.1", "-0.1", "", "high"]) {
-      expect(changeOf(thresholds, { recall: "0.5", emotion: "0.5", out_of_line: bad, manipulation: "0.5" }, true), bad).toEqual({
+      const others = { recall: "0.5", emotion: "0.5", manipulation: "0.5", photo: "0.5" };
+      expect(changeOf(thresholds, { ...others, out_of_line: bad }, true), bad).toEqual({
         problems: [{ field: "out_of_line", reason: "probability" }],
       });
     }

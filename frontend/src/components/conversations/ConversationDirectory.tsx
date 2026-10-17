@@ -29,6 +29,7 @@ import { getAffinity } from "@/lib/affinity";
 import {
   createConversation,
   getAccount,
+  getPhoto,
   listCharacters,
   listConversations,
   listLatestConversations,
@@ -219,6 +220,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         onListChanged: refresh,
         startCall: (conversationId, preferences, handlers) => startCall(conversationId, preferences, handlers, userId),
         sendTurn: (conversationId, text) => sendTurn(conversationId, text, userId),
+        getPhoto,
         getAffinity,
         preferences: { load: loadCallPreferences, save: saveCallPreferences },
         voice,

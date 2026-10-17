@@ -1666,7 +1666,7 @@ class CallTurns(FrameProcessor):
                 self._outcome.turn_recorded(recorded)
             if turn is not None:
                 turn.see(event)
-            message = asdict(event)
+            message = event.shown() if isinstance(event, TurnDone) else asdict(event)
             if isinstance(event, UserSaid):
                 message["reply"] = number
             await self._send(message)

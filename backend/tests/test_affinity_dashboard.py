@@ -183,8 +183,10 @@ async def test_with_affinity_off_there_is_no_section(
 
 JUDGE = "/api/admin/config/judge"
 JUDGE_THRESHOLDS = "/api/admin/config/judge_thresholds"
-JEV = {"recall": 0.5, "emotion": 0.5, "out_of_line": 0.7, "manipulation": 0.4}
-CLEF_FLASH = {"recall": 0.7, "emotion": 0.4, "out_of_line": 0.6, "manipulation": 0.6}
+JEV = {"recall": 0.5, "emotion": 0.5, "out_of_line": 0.7, "manipulation": 0.4, "photo": 0.8}
+CLEF_FLASH = {
+    "recall": 0.7, "emotion": 0.4, "out_of_line": 0.6, "manipulation": 0.6, "photo": 0.8
+}
 
 
 def judging(out_of_line: float, manipulation: float) -> Judging:

@@ -69,6 +69,8 @@ class JudgeThresholds:
     """Whether what the user said is out of line (GLOSSARY.md「不该说的话」)."""
     manipulation: float
     """Whether what the user said tries to dictate her affinity, or poses as the system."""
+    photo: float
+    """Whether the user asks her for a photo (`photo_judge`)."""
 
 
 JudgeFamily = Literal["jev", "clef", "clef-flash"]
@@ -82,20 +84,22 @@ JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
     # .scratch/affinity/issues/04-judge-eval-and-thresholds.md. Out of line is set high
     # where its yes and no come close, as a turn wrongly out of line costs her affinity
     # most: Jev finds a bare demand for affinity somewhat out of line, and Clef-flash a
-    # user telling her she is only a program.
+    # user telling her she is only a program. Asking for a photo is set high for every model
+    # until it is calibrated (.scratch/photos/issues/23-photo-judge-calibration.md): better
+    # a photo asked for and not sent than one sent unasked.
     "jev": JudgeThresholds(
         needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5,
-        out_of_line=0.7, manipulation=0.4,
+        out_of_line=0.7, manipulation=0.4, photo=0.8,
     ),
     # Clef and Clef-flash are surer of recall than they should be, less sure of the user's
     # own life, and less sure of the emotion they hear.
     "clef": JudgeThresholds(
         needs_retrieval=0.5, recall=0.8, about_producer=0.1, emotion=0.4,
-        out_of_line=0.5, manipulation=0.5,
+        out_of_line=0.5, manipulation=0.5, photo=0.8,
     ),
     "clef-flash": JudgeThresholds(
         needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4,
-        out_of_line=0.6, manipulation=0.6,
+        out_of_line=0.6, manipulation=0.6, photo=0.8,
     ),
 }
 FALLBACK_FAMILY: JudgeFamily = "jev"

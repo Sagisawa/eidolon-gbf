@@ -517,7 +517,7 @@ class _Judge(_Item):
 
 class _JudgeThresholds(_Item):
     name = JUDGE_THRESHOLDS
-    fields = ("recall", "emotion", "out_of_line", "manipulation")
+    fields = ("recall", "emotion", "out_of_line", "manipulation", "photo")
     stored = (FOR_MODEL,)
     unavailable_reason = _Judge.unavailable_reason
 
@@ -939,9 +939,9 @@ class LiveConfig:
         return LiveRetrievalJudge(self, self._judge, self._activity)
 
     def affinity_judge(self) -> "LiveAffinityJudge | None":
-        """The judge model as a turn asks it about affinity alone, where retrieval is off:
-        the one in effect at each question, each recorded as a service call; None without
-        one."""
+        """The judge model as a turn asks it about affinity or a photo apart, where retrieval
+        is off: the one in effect at each question, each recorded as a service call; None
+        without one."""
         if self._judge is None:
             return None
         return LiveAffinityJudge(self, self._judge, self._activity)
@@ -1330,8 +1330,13 @@ class LiveRetrievalJudge:
         self._activity = activity
 
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> tuple[Need, Judged | None]:
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> tuple[Need, Judged | None, bool]:
         lease = self._judge.lease()
         try:
             judge = MeteredJudge(
@@ -1339,14 +1344,15 @@ class LiveRetrievalJudge:
                 self._activity,
                 judge_origin(lease.settings),
             )
-            return await judge.judge(character, history, text, affinity)
+            return await judge.judge(character, history, text, affinity, photo)
         finally:
             lease.release()
 
 
 class LiveAffinityJudge:
-    """The judge model as a turn asks it about affinity alone: at each question, the one in
-    effect then, held while it answers, by its own thresholds, recorded as the model it is."""
+    """The judge model as a turn asks it about affinity or a photo apart, where retrieval is
+    off: at each question, the one in effect then, held while it answers, by its own
+    thresholds, recorded as the model it is."""
 
     def __init__(
         self,
@@ -1358,7 +1364,14 @@ class LiveAffinityJudge:
         self._judge = judge
         self._activity = activity
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Judged:
+    async def judge(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = True,
+        photo: bool = False,
+    ) -> tuple[Judged | None, bool]:
         lease = self._judge.lease()
         try:
             judge = MeteredAffinityJudge(
@@ -1366,7 +1379,7 @@ class LiveAffinityJudge:
                 self._activity,
                 judge_origin(lease.settings),
             )
-            return await judge.judge(character, history, text)
+            return await judge.judge(character, history, text, affinity, photo)
         finally:
             lease.release()
 

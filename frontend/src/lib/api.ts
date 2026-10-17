@@ -129,7 +129,25 @@ export type Message = {
   created_at: string;
   /** How the turn changed her affinity, on her reply; null where it did not (and always on the user's). */
   affinity: AffinityChange | null;
+  /** The photo she sent with her reply (GLOSSARY.md「照片」); none on a reply without one. */
+  photo?: Photo;
 };
+
+/** How a photo she sent is coming along: being generated, sent, or not sent after all, and why not. */
+export type PhotoStatus = { status: "pending" | "ready" | "failed"; reason: string | null };
+
+/** A photo she sent with a reply. */
+export type Photo = PhotoStatus & { id: string };
+
+/** Where the picture of a photo she sent is read, once it is sent: only by the user it was sent to. */
+export function photoImageUrl(id: string): string {
+  return `/api/photos/${encodeURIComponent(id)}/image`;
+}
+
+/** How the photo is coming along now, for waiting on one being generated. */
+export async function getPhoto(id: string): Promise<PhotoStatus> {
+  return json(await api(`/api/photos/${encodeURIComponent(id)}`));
+}
 
 /** The kinds of conversation event (GLOSSARY.md「对话事件」): she hung up on the user; the user
  * gave her a gift; she ended the conversation, which can then only be read (GLOSSARY.md「已结束的对话」). */
@@ -150,11 +168,12 @@ export type ConversationEvent = {
 /** What a conversation's record holds, in order. */
 export type Recorded = Message | ConversationEvent;
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. `done` says too where
- * the turn left her affinity, null while affinity is off, and her ending the conversation after
- * it, recorded after her reply, if she did. */
+/** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
+ * `delta`s, then `done` or `error`. `done` says too where the turn left her affinity, null while
+ * affinity is off, and her ending the conversation after it, recorded after her reply, if she did. */
 export type TurnEvent =
   | { type: "user"; text: string }
+  | { type: "photo"; id: string; status: "pending" }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
   | { type: "done"; message: Message; affinity: AffinityStatus | null; ended?: ConversationEvent | null }
   | { type: "error"; message: string };

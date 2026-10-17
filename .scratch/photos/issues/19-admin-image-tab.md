@@ -25,3 +25,7 @@
   - 先例是 `test_live_config_services.py`、`test_proxy.py`；前端是 `adminConfig.test.ts`。
 - [ ] **验收**：本地构建版上用 Playwright 看生图标签页，保存检查走假服务。用户的中转真生成一张，放在验收清单里交给用户点（花用户的额度）。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。** `.env` 现在只认 `NOVELAI_API_KEY`、`NOVELAI_BASE_URL`、`NOVELAI_MODEL`（`config.ImageSettings`，`.env.example` 也写了）。部署者的生图客户端在 `assembly.build` 里直接用 `httpx.AsyncClient` 建（测试从 `image_transport` 注入假服务），没走 `ProxyRoutes`，`ProxiedService` 也还没有 `image`。`Photos` 拿生图客户端用的是一个函数（`lambda: generator`），换成跟着后台配置走的就行。后台阈值卡已经有「要照片」一项。

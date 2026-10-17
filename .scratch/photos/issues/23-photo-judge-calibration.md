@@ -15,3 +15,7 @@
   - 跑评测要调用真的判断模型。哪个模型这台机器上调不了，就列进人工验证清单交给用户。
 - [ ] 加载评测集的测试照旧通过（先例是 `test_judge_eval.py`、`test_judge_thresholds.py`）。
 - [ ] `uv run pytest`、`uv run pyright` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。** 问题在 `backend/src/eidolon/photo_judge.py`（`QUESTION`，答案的键是 `photo`）。`judge.JUDGE_THRESHOLDS` 三个模型族的 `photo` 先都是 0.8。验收时 Jev 认出了「发张自拍给我看看嘛」。

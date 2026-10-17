@@ -162,6 +162,9 @@ CLOUDFLARE_JUDGE_MODELS: tuple[CloudflareJudgeModel, ...] = get_args(CloudflareJ
 DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
 """For now: the judge eval (ticket cloudflare-judge 03) decides."""
 
+DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net"
+DEFAULT_NOVELAI_MODEL = "nai-diffusion-5-curated"
+
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 DEFAULT_TURNS_PER_HOUR = 60
@@ -342,6 +345,8 @@ class Settings:
     fish_audio_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
     embedding: "EmbeddingSettings | None" = None
     rerank: "RerankSettings | None" = None
+    image: "ImageSettings | None" = None
+    """The deployer's image generation (GLOSSARY.md「生图」), for photos; None without it."""
     judge: "JudgeSettings | None" = None
     """The judge model (`JUDGE_PROVIDER`). Retrieval needs the embedding service, the
     reranker and the judge model; without any of them, turns go unretrieved. Without the
@@ -441,6 +446,7 @@ class Settings:
             fish_audio_model=fish_audio_model_from_env(),
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
+            image=ImageSettings.from_env(),
             judge=judge_from_env(),
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
@@ -740,6 +746,30 @@ class JevSettings:
             api_key=_required("JEV_API_KEY"),
             model=os.environ.get("JEV_MODEL") or DEFAULT_JEV_MODEL,
             base_url=os.environ.get("JEV_BASE_URL") or DEFAULT_JEV_BASE_URL,
+        )
+
+
+@dataclass(frozen=True)
+class ImageSettings:
+    """Image generation in NovelAI's own format (`/ai/generate-image`, answering with a ZIP),
+    at NovelAI or a relay that passes requests on as they are: `base_url` up to the host."""
+
+    api_key: str
+    base_url: str = DEFAULT_NOVELAI_BASE_URL
+    model: str = DEFAULT_NOVELAI_MODEL
+
+    @classmethod
+    def from_env(cls) -> "ImageSettings | None":
+        """`NOVELAI_API_KEY`, without which there is none, `NOVELAI_BASE_URL` and
+        `NOVELAI_MODEL`."""
+        api_key = (os.environ.get("NOVELAI_API_KEY") or "").strip()
+        if not api_key:
+            return None
+        return cls(
+            api_key=api_key,
+            base_url=(os.environ.get("NOVELAI_BASE_URL") or "").strip().rstrip("/")
+            or DEFAULT_NOVELAI_BASE_URL,
+            model=(os.environ.get("NOVELAI_MODEL") or "").strip() or DEFAULT_NOVELAI_MODEL,
         )
 
 

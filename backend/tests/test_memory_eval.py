@@ -32,7 +32,7 @@ from tests.test_shared_memory import memorized
 REPO = Path(__file__).parents[2]
 HALF = JudgeThresholds(
     needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5, out_of_line=0.5,
-    manipulation=0.5,
+    manipulation=0.5, photo=0.5,
 )
 THRESHOLDS = RerankThresholds(references=0.5, memories=0.6)
 MODELS = {"background": "fake-llm", "judge": "fake-judge", "embedding": "fake-embedding",

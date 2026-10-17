@@ -11,7 +11,7 @@ function user(key: string, at = "2026-09-28T01:00:00Z"): Entry {
 }
 
 function her(key: string, affinity: AffinityChange | null = null, at = "2026-09-28T01:00:01Z"): Entry {
-  return { kind: "character", key, segments: [{ ja: "はい", zh: "好的" }], pending: false, at, affinity };
+  return { kind: "character", key, segments: [{ ja: "はい", zh: "好的" }], pending: false, at, affinity, photo: null };
 }
 
 function hungUp(key: string, at: string): Entry {

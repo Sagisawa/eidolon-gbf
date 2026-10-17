@@ -23,3 +23,12 @@
   - 前端：失败原因对应的文案。
 - [ ] **验收**：本地构建版上用 Playwright，生图走假服务，看各种失败说明。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。**
+
+- 后端已经在记失败原因：`photos.Photos._generate` 把 `ImageFailed`（`timeout` / `service_error` / `bad_image`，在 `image_generation.py` 里分类）、`asyncio.timeout(PHOTO_TIMEOUT)` 超时和意外异常都记成 `failed` 加原因。90 秒总时限已经包住排队（部署者一侧是一个 `asyncio.Semaphore(1)`），排队超时的请求不会发出去。这些路径都还没有测试。
+- 没做：启动时把「生成中」改成 `timeout`；历史里带 `status="failed"`（`engine._prompt` 里 `format_reply(message.segments, tag)`，`Message.photo.status` 现成）；系统说明那一句。
+- 回复没写进记录时丢掉已经做了（`engine.turn` 的 `finally` 调 `Photos.dropped`，对话被删时 `Store.finish_photo` 更新不到行就不存），也还没有测试。
+- 前端：`PhotoBlock.tsx` 对 `failed` 现在返回 null，失败说明加在那里；失败原因的文案进 `copy.conversation.photo`。图标别名还没有 `ImageOff`。

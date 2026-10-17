@@ -1,6 +1,6 @@
 """Relational storage (SQLite) for users, their sessions, producer profiles, conversations,
-their messages and events, and the calls in them; memories are kept by `memory`, recent
-usage by `usage`."""
+their messages and events, the photos she sent with her replies, and the calls in them;
+memories are kept by `memory`, recent usage by `usage`."""
 
 import hashlib
 import json
@@ -8,7 +8,7 @@ import secrets
 import sqlite3
 import threading
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
@@ -21,6 +21,8 @@ from eidolon.reply_format import Segment
 
 Role = Literal["user", "character"]
 EventKind = Literal["hung_up", "gift", "ended"]
+PhotoStatus = Literal["pending", "ready", "failed"]
+"""A photo being generated, sent, or not sent after all."""
 
 _SCHEMA = """
 -- `name` only tells users apart on the admin command line; it need not be unique.
@@ -97,6 +99,21 @@ CREATE TABLE IF NOT EXISTS conversation_events (
 );
 CREATE INDEX IF NOT EXISTS conversation_events_by_conversation
     ON conversation_events(conversation_id, created_at);
+-- A photo she sent with a reply (GLOSSARY.md「照片」, ADR-0024), one at most to a reply: the
+-- photo tag she wrote for it, as she wrote it; whether it is being generated, was sent or was
+-- not, and why not (`reason`); and once sent the picture itself, a WebP, read only on its own.
+CREATE TABLE IF NOT EXISTS photos (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id),
+    message_id INTEGER NOT NULL UNIQUE REFERENCES messages(id),
+    tag TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'failed')),
+    reason TEXT,
+    image BLOB,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS photos_by_conversation ON photos(conversation_id);
 -- Each call that connected in a conversation (GLOSSARY.md「接通」), for stats alone: when it
 -- connected and how long it lasted once it had, as its activity record says; nothing of what
 -- was said. Not in the conversation's record: she knows nothing of it (ADR-0021).
@@ -188,12 +205,37 @@ class Conversation:
 
 
 @dataclass(frozen=True)
+class Photo:
+    """The photo she sent with a reply (GLOSSARY.md「照片」): whether it is being generated, was
+    sent or was not, and why not; and the photo tag she wrote for it, which only her prompt
+    reads."""
+
+    id: str
+    status: PhotoStatus
+    reason: str | None
+    tag: str
+
+    def shown(self) -> dict:
+        """As the browser is told it: not the tag."""
+        return {"id": self.id, "status": self.status, "reason": self.reason}
+
+
+@dataclass(frozen=True)
+class NewPhoto:
+    """A photo she is sending with the reply being recorded, by its id, and the tag she
+    wrote for it."""
+
+    id: str
+    tag: str
+
+
+@dataclass(frozen=True)
 class Message:
     """A user's input (`text`) or a character's reply.
 
     A reply keeps its full Japanese text (`ja`) and Chinese subtitle (`zh`), plus
-    the segments that pair each Japanese line with its own subtitle, and how the turn
-    changed her affinity, if it did (`affinity`).
+    the segments that pair each Japanese line with its own subtitle, how the turn
+    changed her affinity, if it did (`affinity`), and the photo she sent with it, if any.
     """
 
     id: int
@@ -204,6 +246,7 @@ class Message:
     created_at: str
     segments: list[Segment] = field(default_factory=list)
     affinity: Change | None = None
+    photo: Photo | None = None
 
     def without_cues(self) -> "Message":
         """The message as people see it: a reply is kept as the model wrote it, delivery
@@ -217,7 +260,15 @@ class Message:
             self.created_at,
             [Segment(without_cues(s.ja), without_cues(s.zh)) for s in self.segments],
             self.affinity,
+            self.photo,
         )
+
+    def shown(self) -> dict:
+        """The message as the browser is told it: as people see it, with its photo's id,
+        status and reason if it has one, no key for it if not."""
+        shown = asdict(self.without_cues())
+        del shown["photo"]
+        return shown | ({"photo": self.photo.shown()} if self.photo else {})
 
 
 @dataclass(frozen=True)
@@ -733,8 +784,8 @@ class Store:
     def _last(self, conversation_id: str) -> Recorded | None:
         """The last thing in the record, but her ending it: the list shows her last line."""
         message = self._db.execute(
-            f"SELECT {_MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ?"
-            " ORDER BY id DESC LIMIT 1",
+            f"SELECT {_MESSAGE_COLUMNS} FROM messages m WHERE conversation_id = ?"
+            " ORDER BY m.id DESC LIMIT 1",
             (conversation_id,),
         ).fetchone()
         event = self._db.execute(
@@ -762,12 +813,14 @@ class Store:
         said_at: str | None = None,
         typed: Typed | None = None,
         ends: bool = False,
+        photo: NewPhoto | None = None,
     ) -> Message:
         """Record the user's input, said at `said_at` (as `timestamp` gives it; now by
         default), and the character's reply together, with how the turn changed her
         affinity, if it did, and for a typed turn what it came to (`typed`); returns the
-        reply. Should she end the conversation after it (`ends`), that is recorded with it,
-        after it (`ended`). Into a conversation she has ended already, nothing is recorded:
+        reply. The photo she sends with it, if any, is recorded being generated. Should she
+        end the conversation after it (`ends`), that is recorded with it, after it
+        (`ended`). Into a conversation she has ended already, nothing is recorded:
         `ConversationEnded`."""
         with self._lock, self._db:
             if self._ended(conversation_id) is not None:
@@ -778,9 +831,51 @@ class Store:
             replied = self._insert_message(
                 conversation_id, "character", segments=reply, affinity=affinity
             )
+            if photo is not None:
+                now = _now()
+                self._db.execute(
+                    "INSERT INTO photos (id, conversation_id, message_id, tag, status,"
+                    " created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+                    (photo.id, conversation_id, replied.id, photo.tag, now, now),
+                )
+                replied = replace(replied, photo=Photo(photo.id, "pending", None, photo.tag))
             if ends:
                 self._insert_event(conversation_id, "ended", _now())
             return replied
+
+    def finish_photo(self, photo_id: str, image: bytes | None, reason: str | None) -> bool:
+        """Keep how the photo being generated came out: sent, as `image`, or not, for
+        `reason`. False, keeping nothing, if it is no longer there, its conversation
+        deleted meanwhile, say, or no longer being generated."""
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "UPDATE photos SET status = ?, reason = ?, image = ?, updated_at = ?"
+                " WHERE id = ? AND status = 'pending'",
+                ("ready" if image is not None else "failed", reason, image, _now(), photo_id),
+            )
+        return cursor.rowcount > 0
+
+    def photo(self, photo_id: str, user_id: str) -> Photo | None:
+        """The photo, if it is in one of the user's conversations; None if not."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT p.id, p.status, p.reason, p.tag FROM photos p"
+                " JOIN conversations c ON c.id = p.conversation_id"
+                " WHERE p.id = ? AND c.user_id = ?",
+                (photo_id, user_id),
+            ).fetchone()
+        return Photo(**row) if row else None
+
+    def photo_image(self, photo_id: str, user_id: str) -> bytes | None:
+        """The picture of the photo, sent, in one of the user's conversations; None if there
+        is none such."""
+        with self._lock:
+            row = self._db.execute(
+                "SELECT p.image FROM photos p JOIN conversations c ON c.id = p.conversation_id"
+                " WHERE p.id = ? AND c.user_id = ? AND p.status = 'ready'",
+                (photo_id, user_id),
+            ).fetchone()
+        return row["image"] if row else None
 
     def add_gift(
         self,
@@ -840,12 +935,22 @@ class Store:
         return [Typed(row["hurt"], bool(row["out_of_line"])) for row in reversed(rows)]
 
     def list_messages(self, conversation_id: str) -> list[Message]:
+        """The conversation's messages, each reply with its photo, if any, but not its
+        picture."""
         with self._lock:
             rows = self._db.execute(
-                f"SELECT {_MESSAGE_COLUMNS} FROM messages WHERE conversation_id = ? ORDER BY id",
+                f"SELECT {_MESSAGE_COLUMNS}, p.id AS photo_id, p.status AS photo_status,"
+                " p.reason AS photo_reason, p.tag AS photo_tag"
+                " FROM messages m LEFT JOIN photos p ON p.message_id = m.id"
+                " WHERE m.conversation_id = ? ORDER BY m.id",
                 (conversation_id,),
             ).fetchall()
-        return [_message(row) for row in rows]
+        return [
+            replace(_message(row), photo=Photo(
+                row["photo_id"], row["photo_status"], row["photo_reason"], row["photo_tag"]
+            )) if row["photo_id"] is not None else _message(row)
+            for row in rows
+        ]
 
     def record(self, conversation_id: str) -> list[Recorded]:
         """The conversation's messages and events in the order things happened: a turn
@@ -947,7 +1052,9 @@ class Store:
 
 
 _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
-_MESSAGE_COLUMNS = "id, role, text, ja, zh, segments, created_at, affinity"
+_MESSAGE_COLUMNS = (
+    "m.id AS id, role, text, ja, zh, segments, m.created_at AS created_at, affinity"
+)
 _EVENT_COLUMNS = "id, kind, created_at, affinity, gift_id, liked"
 
 def _message(row: sqlite3.Row) -> Message:

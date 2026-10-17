@@ -840,24 +840,38 @@ class MeteredJudge:
         self._origin = origin
 
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> "tuple[Need, Judged | None]":
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> "tuple[Need, Judged | None, bool]":
         return await timed(
-            self._log, self._origin, self._judge.judge(character, history, text, affinity)
+            self._log, self._origin, self._judge.judge(character, history, text, affinity, photo)
         )
 
 
 class MeteredAffinityJudge:
-    """The judge model as a turn asks it about affinity alone, where retrieval is off, each
-    question recorded as a service call."""
+    """The judge model as a turn asks it about affinity or a photo apart, where retrieval is
+    off, each question recorded as a service call."""
 
     def __init__(self, judge: "AffinityJudge", log: ActivityLog, origin: Origin) -> None:
         self._judge = judge
         self._log = log
         self._origin = origin
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> "Judged":
-        return await timed(self._log, self._origin, self._judge.judge(character, history, text))
+    async def judge(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = True,
+        photo: bool = False,
+    ) -> "tuple[Judged | None, bool]":
+        return await timed(
+            self._log, self._origin, self._judge.judge(character, history, text, affinity, photo)
+        )
 
 
 class MeteredEmbedder:

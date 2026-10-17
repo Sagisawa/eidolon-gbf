@@ -26,3 +26,7 @@
   - 剥空补默认；外貌和画师 tag 被剥。
   - 运行记录里有剥掉的类别和个数，没有 tag 原文。
 - [ ] `uv run pytest`、`uv run pyright` 全部通过。
+
+## Comments
+
+**14 留下的（2026-10-17）。** 清洗在 `backend/src/eidolon/photo_prompt.py`：`_cleaned` 剥语法字符、转小写、下划线换空格，`_field` 去重、截断、剥空补默认，`read_tag` 读各栏。改写表和黑名单接在 `_field` 里（查表、剥掉、按类别计数）。照片说明在 `photos.py` 的 `CAN_SEND`，已经写了一句「不拍裸露、内衣、透视、走光、洗澡，也不拍性感的姿势、表情和镜头」，按这张票的黑名单类别再对一遍。验收时真的对话模型写了 `slight tilt of head`、`looking at camera` 这种不是 tag 的写法，改写表要能接住。
