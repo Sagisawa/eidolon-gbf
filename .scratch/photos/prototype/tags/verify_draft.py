@@ -28,7 +28,8 @@ HAIR = (
 )
 STYLE = (
     r"short hair|medium hair|long hair|twintails|low twintails|ponytail|high ponytail"
-    r"|braided ponytail|single braid|side braid|hair bun|double bun|drill hair|ringlets"
+    r"|braided ponytail|single braid|side braid|hair over shoulder|hair bun|single side bun"
+    r"|double bun|drill hair|ringlets"
     r"|wavy hair|curly hair|gradient hair|streaked hair|two-tone hair|multicolored hair"
     r"|ahoge|swept bangs|blunt bangs|parted bangs|diagonal bangs|hair between eyes|bob cut"
     r"|hime cut|sidelocks|hair intakes"

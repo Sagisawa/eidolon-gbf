@@ -36,7 +36,7 @@
 
 ```sh
 cd .scratch/photos/prototype/tags
-python verify_draft.py            # 联网核对全部 68 条 tag（每人角色 tag + 外貌 tag）
+python verify_draft.py            # 联网核对全部 70 条 tag（每人角色 tag + 外貌 tag）
 python verify_draft.py --offline  # 只查完整性、写法和分类
 python review_table.py            # 重出对照表
 python face_sheet.py              # 重出脸部对照图
