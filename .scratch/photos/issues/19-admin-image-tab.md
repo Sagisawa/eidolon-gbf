@@ -23,8 +23,8 @@
   - 保存检查：成功、key 错、尺寸不对时不保存。
   - 画风出现在提示词的位置；后台覆盖 `.env`；并发上限生效；代理开关。
   - 先例是 `test_live_config_services.py`、`test_proxy.py`；前端是 `adminConfig.test.ts`。
-- [ ] **验收**：本地构建版上用 Playwright 看生图标签页，保存检查走假服务。用户的中转真生成一张，放在验收清单里交给用户点（花用户的额度）。
-- [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+- [x] **验收**：本地构建版上用 Playwright 看生图标签页，保存检查走假服务。用户的中转真生成一张，放在验收清单里交给用户点（花用户的额度）。
+- [x] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
 
 ## Comments
 
@@ -43,3 +43,5 @@
 - 「同时生成几张」后台和 `NOVELAI_CONCURRENCY` 都限 1 到 10（`config.MAX_IMAGE_CONCURRENCY`）。数改了以后，新照片按 `(key, 数)` 另开一个队列，手上还没完的照完；改小的那一会儿可能比新数多几张同时在跑。
 - 模型的「下拉加手填」做成 Select 加最后一项「其他（手填）」，选了它下面出一个输入框，没用 Combobox。
 - 验收（Playwright）和完整的 `uv run pytest`、`npm test` 留给主会话合并后跑；这张只跑了单个测试文件和两边的类型检查。
+
+**第四波合并后（2026-10-18）。** 本地构建版验收走假服务通过：保存检查成功 / 尺寸不对 / key 错都对，原样再存不生成，OpenAI 格式路径是 `/v1/images/generations`，画风在作品 tag 后、外貌 tag 前。用户的中转真生成一张还没点，在人工验证清单里。自审改了 OpenAI 格式的计费口径（拿到图才记）和模型手填框半路跳走。
