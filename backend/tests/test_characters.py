@@ -525,6 +525,18 @@ def test_repository_gives_each_idol_her_other_names():
         assert re.fullmatch(r"[A-Z][a-z]+ [A-Z][a-z]+", c.name_romaji), c.id
 
 
+def test_repository_gives_each_idol_her_photo_tags():
+    """Her character tag in lower case, and her looks with one eye colour among them."""
+    loaded = load_characters(REPO_CHARACTERS / "characters.toml")
+
+    for c in loaded.values():
+        assert c.photo_tag and c.photo_appearance, c.id
+        assert c.photo_tag == c.photo_tag.lower(), c.id
+        looks = [tag.strip() for tag in c.photo_appearance.split(",")]
+        eye_colours = [t for t in looks if t.endswith(" eyes") and not t.startswith("hair ")]
+        assert len(eye_colours) == 1, c.id  # `hair between eyes` is how her bangs fall
+
+
 def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 

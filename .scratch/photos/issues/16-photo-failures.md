@@ -32,3 +32,4 @@
 - 没做：启动时把「生成中」改成 `timeout`；历史里带 `status="failed"`（`engine._prompt` 里 `format_reply(message.segments, tag)`，`Message.photo.status` 现成）；系统说明那一句。
 - 回复没写进记录时丢掉已经做了（`engine.turn` 的 `finally` 调 `Photos.dropped`，对话被删时 `Store.finish_photo` 更新不到行就不存），也还没有测试。
 - 前端：`PhotoBlock.tsx` 对 `failed` 现在返回 null，失败说明加在那里；失败原因的文案进 `copy.conversation.photo`。图标别名还没有 `ImageOff`。
+- **中转变慢了**：2026-10-17 晚上用中转出 5 张，单张 35–75 秒（夏葉那张 74.5 秒），票 03 测的是 5–9 秒。90 秒总时限包括排队，部署者一次一张时，排在第二张就很容易超时。定排队和超时前先再量一次。
