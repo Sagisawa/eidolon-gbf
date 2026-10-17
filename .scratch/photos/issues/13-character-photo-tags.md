@@ -19,7 +19,7 @@
 
 ## Comments
 
-**初稿已就绪，等用户校对。** 28 位齐，机器可读的初稿是 `draft.json`，缩略图拼版是 `contact_sheet.png`（编号和下面的表一致）。脚本和说明在 `.scratch/photos/prototype/tags/`（见那里的 `README.md`）。每条 tag 都用官方 tag 建议接口核对过是 V5 Curated 的已知 tag：28 个角色 tag + 40 个外貌 tag，共 68 条。
+**初稿已就绪，等用户校对。** 28 位齐，机器可读的初稿是 `draft.json`，缩略图拼版是 `contact_sheet.png`（编号和下面的表一致；原作立绘不进仓库，在 `tags/` 里跑 `python review_table.py` 生成）。脚本和说明在 `.scratch/photos/prototype/tags/`（见那里的 `README.md`）。每条 tag 都用官方 tag 建议接口核对过是 V5 Curated 的已知 tag：28 个角色 tag + 40 个外貌 tag，共 68 条。
 
 初稿不是凭记忆写的：`face_sheet.py` 按 alpha 通道裁出每位默认衣装缩略图的头，逐位看发色和发型；只看眼睛的放大图逐位确认瞳色；`danbooru_related.py` 的共现 tag 做交叉参考（不能直接用，团体图会混进别人的特征）；`verify_draft.py` 最后统一核对写法、去重、正好一条瞳色、没混进饰物和服装。
 

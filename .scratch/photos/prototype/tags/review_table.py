@@ -1,7 +1,7 @@
 """生成给用户校对的对照表：每人一行，缩略图 + 角色 tag + 外貌 tag。
 
 输出两样，都在这个目录里：
-- `contact_sheet.png`：28 位的缩略图拼版，编号对应下面的表，对照着看；
+- `contact_sheet.png`：28 位的缩略图拼版，编号对应下面的表，对照着看（原作立绘，不进仓库）；
 - 标准输出：Markdown 表格，贴进票 13 的 Comments 里给用户逐行校对。
 
     python review_table.py

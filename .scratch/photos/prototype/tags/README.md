@@ -6,7 +6,7 @@
 ## 交付
 
 - `draft.json`：28 位的 `photo_tag`（角色 tag）和 `photo_appearance`（外貌 tag）初稿，机器可读，校对和写进配置都用它。
-- `contact_sheet.png`：28 张默认衣装缩略图的拼版，编号和下面的对照表一致，校对时对照着看。
+- `contact_sheet.png`：28 张默认衣装缩略图的拼版，编号和下面的对照表一致，校对时对照着看。是原作立绘，不进仓库（ADR-0003），用 `python review_table.py` 在本地生成。
 - 票 13 的 Comments 里是给用户逐行校对的 Markdown 表。
 
 `photo_appearance` 只写发色、发型、瞳色，不写饰物、服装和身材——这些随衣装和情境变，照片说明里由她自己写。
@@ -44,7 +44,7 @@ python face_sheet.py              # 重出脸部对照图
 
 脚本之间互相 import（`verify_draft` 从 `verify` 取 `known`，几个拼图脚本从 `thumbnails` 取缩略图和配置），所以要在 `tags/` 目录里跑。输出按 UTF-8 打印，Windows 控制台默认的 GBK 不会把中文和 `✓` 打崩。
 
-`face_sheet.py` 的中间图写到 `.scratch/_faces/`，已在 `.gitignore` 里、不进仓库（跑完随手删掉即可，重跑脚本就会再生成）；`contact_sheet.png` 进仓库，校对要用。
+`face_sheet.py` 的中间图写到 `.scratch/_faces/`，已在 `.gitignore` 里、不进仓库（跑完随手删掉即可，重跑脚本就会再生成）；`contact_sheet.png` 也一样不进仓库。
 
 ## 校对要点
 
