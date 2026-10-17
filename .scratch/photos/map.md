@@ -28,12 +28,12 @@ Label: wayfinder:map
 
 ## Decisions so far
 
+- [调研：NovelAI 官方图像 API 现状](issues/01-novelai-api-research.md)：最新 V5（Curated/Full），V5 没有角色参考图；Opus 免费有条件且 V5 扣用量条；一个 token 同时一张；条款禁止公众共用订阅，自带 token 可以；官方不过滤内容；不用社区库，直接发 HTTP。
 - [调研：NovelAI 中转的常见协议](issues/02-relay-research.md)：四种形态（原样转发、OpenAI images、OpenAI chat、自定义），支持前两种就能覆盖绝大多数；参数常被静默忽略、200 也可能是错误图、超时不重试。
 
 ## Not yet specified
 
 - **照片在文字回合和通话里怎么呈现**：生成中的占位（她说「等一下」？气泡里的进度？）、照片在对话记录里的样子和点开放大、通话层上怎么显示、收起成通话条时怎么提示；通话中照片比她的话晚到十几秒，怎么记进那个回合。等「怎么触发、谁来写提示词」和「失败、限额与计费」定了再变成一张原型票。
-- **NovelAI 条款**：如果「NovelAI 官方图像 API 现状」查出不允许拿一个订阅给公开服务用，谁出钱要重议，部署者那一侧可能只剩中转。
 
 ## Out of scope
 
