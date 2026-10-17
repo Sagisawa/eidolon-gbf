@@ -744,18 +744,17 @@ class ConversationEngine:
                 told = narration.get(message.id, "")
                 prompt.append(ChatMessage("user", f"{told}{message.text or ''}"))
             else:
-                photo = message.photo
                 prompt.append(ChatMessage("assistant", format_reply(
                     message.segments,
-                    photo.tag if photo else None,
-                    photo is not None and photo.status == "failed",
+                    message.photo.tag if message.photo else None,
+                    message.photo_failed,
                 )))
         if history:  # what the next turn opens with too, for a service to cache
             prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
         context = [about_now]
         if about_photo:
             context.append(about_photo)
-        if any(m.photo is not None and m.photo.status == "failed" for m in history):
+        if any(m.photo_failed for m in history):
             context.append(NOT_RECEIVED)
         if retrieved.memories_prompt:
             context.append(retrieved.memories_prompt)

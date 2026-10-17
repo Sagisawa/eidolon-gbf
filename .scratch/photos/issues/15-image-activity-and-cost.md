@@ -4,7 +4,7 @@
 
 **Blocked by:** 14
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] **服务名**：运行记录加 `image`，中文「生图」，后端的服务名和前端看板、文案都要改。
 - [x] **调用**：每次真的发出去的生图请求都记一条调用，挂在那个回合的运行记录下面（同一个 `record_id`），回合已经结束也一样。
@@ -14,7 +14,7 @@
 - [x] **预设单价**：官方 `nai-diffusion-5-curated` 每张 0.036 美元，查价日期 2026-10-17。中转没有预设，没填就和现有没设单价的服务一样显示。
 - [x] 自带 key 的调用照现有规则只统计用量、不计价（自带生图在 20 接上以后自然生效）。
 - [x] **测试**：生图调用挂在回合下、张数和错误、预设单价算出的花费、看板上的服务名和单位。先例是 `test_activity_records.py`、`test_cost_estimate.py`、`test_service_call_models.py`，前端是 `dashboard` 相关的测试。
-- [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+- [x] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
 
 ## Comments
 
@@ -26,3 +26,5 @@
 - 错误原因用运行记录现有的那套：HTTP 报错按状态码（`server_error`、`unauthorized`、`rate_limited`……），连不上是 `connection`，超时是 `timeout`，图不对是 `unreadable`（看板上叫「返回无法解析」）。没有另加一种。
 - 超时：90 秒的总时限从标签写完算起，排队只在排队那一段受它限制；发出去以后由生图客户端自己按同一个截止时间收口，这样超时的调用记成 `timeout`，不会被当成中途放弃。
 - `ActivityLog.record` 改了：回合记录已经写进库，就直接挂到它的 id 下；还没写（通话里的回合等通话一起写）就先挂在它身上。原来这两种都单独记一条。
+
+**做完了（2026-10-17）。** 后端 `uv run pytest` 1686 个、`uv run pyright`、`uv run ruff check`，前端 `npm test` 942 个、`npm run typecheck`、`check-discipline.sh` 全部通过（和 15、16、22、23 一起，合在 `feat/photos` 上跑的）。本地构建版上接了一个假的 NovelAI 格式生图服务验收：两轮各造出 HTTP 500、尺寸不对、解不开、超时、正常五种，看板的生图一行是 10 次调用、8 次出错（服务报错 2、返回无法解析 4、超时 2），用量 4 张（正常和尺寸不对各算 1 张，解不开、报错、超时都是 0 张）。自审后改了一处：ZIP 里不是正好一个文件时，只要里面有文件就记 1 张（以前记 0 张），图照样按「生成的图不对」失败。

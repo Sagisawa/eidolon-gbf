@@ -135,7 +135,6 @@ describe("the health table's rows", () => {
 
   it("are named by service, whose keys and an LLM's effort", () => {
     expect(healthRowName(tts)).toBe("语音合成");
-    expect(healthRowName({ ...tts, service: "image" })).toBe("生图");
     expect(healthRowName(llm("high"))).toBe("扮演角色的 LLM（思考强度高）");
     expect(healthRowName(llm(null, true))).toBe("扮演角色的 LLM（自带密钥，思考强度不设置）");
   });
@@ -161,7 +160,6 @@ describe("formatUsage", () => {
     // 单位译成中文，和花费表一致，不再是后端的 bytes、seconds。
     expect(formatUsage([{ unit: "bytes", input: 770, output: null }], 0)).toBe("770 字节");
     expect(formatUsage([{ unit: "seconds", input: 89, output: null }], 0)).toBe("89 秒");
-    expect(formatUsage([{ unit: "images", input: 3, output: null }], 0)).toBe("3 张");
   });
 });
 

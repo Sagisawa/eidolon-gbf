@@ -4,7 +4,7 @@
 
 **Blocked by:** 14
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] **评测集**：加一类照片用例，要照片的和不算要照片的都有，带几句历史。
   - 算的：「发张照片」「自拍一张」「让我看看你今天的衣服」「拍给我看看」「拍一下你的便当」。
@@ -14,7 +14,7 @@
 - [x] **阈值**：用评测结果给三个模型族各定一个 `photo` 阈值，误判优先压到最低，结果和取舍写进本票 `## Comments`。
   - 跑评测要调用真的判断模型。哪个模型这台机器上调不了，就列进人工验证清单交给用户。
 - [x] 加载评测集的测试照旧通过（先例是 `test_judge_eval.py`、`test_judge_thresholds.py`）。
-- [ ] `uv run pytest`、`uv run pyright` 全部通过。
+- [x] `uv run pytest`、`uv run pyright` 全部通过。
 
 ## Comments
 
@@ -57,3 +57,5 @@ PYTHONIOENCODING=utf-8 uv run --env-file ../.env eidolon eval judge --provider c
 **改了的地方**：`judge.JUDGE_THRESHOLDS` 的 Jev `photo` 0.8 → 0.5 和上面的注释；跟着改了 `test_live_config_services.py` 的 `JEV_AFFINITY` 和 `test_affinity_dashboard.py` 的 `JEV`（这两处写的是 Jev 的出厂阈值）；`docs/deploy.md`「校准判断模型阈值」的表加了「要照片」一列，`eval judge` 的说明补上照片题和 `--only`。
 
 **留给人工验证**：用户审一遍 38 条照片用例的标注和 note（审完把 `reviewed` 改成 `true`）；审的时候有改动就重跑上面三条命令看阈值要不要动。
+
+**做完了（2026-10-17）。** 后端 `uv run pytest` 1686 个、`uv run pyright`、`uv run ruff check`，前端 `npm test` 942 个、`npm run typecheck`、`check-discipline.sh` 全部通过（和 15、16、22、23 一起，合在 `feat/photos` 上跑的）。**还要用户做的**：审一遍 `backend/eval/judge.toml` 的 38 条照片用例，审完把 `reviewed` 改成 `true`；Jev 的阈值降到了 0.5，和规格「阈值偏高」字面不同，理由见上，用户确认。

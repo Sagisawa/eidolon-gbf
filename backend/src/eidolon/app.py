@@ -247,14 +247,13 @@ def create_app(backend: Backend) -> FastAPI:
                 last
             )
         shown = last.without_cues()
-        sent = shown.photo is not None and shown.photo.status == "ready"
         return {
             "role": shown.role,
             "text": shown.text,
             "ja": shown.ja,
             "zh": shown.zh,
             "created_at": shown.created_at,
-        } | ({"photo": True} if sent else {})
+        } | ({"photo": True} if shown.photo_sent else {})
 
     def recorded(entry: Recorded) -> dict:
         """A message or conversation event as the browser reads it."""

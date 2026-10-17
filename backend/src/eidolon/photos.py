@@ -230,6 +230,8 @@ class Photos:
             async with asyncio.timeout_at(until):
                 await queue.room.acquire()
             try:
+                if asyncio.get_running_loop().time() >= until:  # its turn came too late to send
+                    raise TimeoutError
                 yield
             finally:
                 queue.room.release()

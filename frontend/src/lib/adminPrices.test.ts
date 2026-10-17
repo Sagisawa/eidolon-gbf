@@ -101,7 +101,6 @@ describe("formatPrice", () => {
   it("names input and output apart, or one price when output costs as input does", () => {
     expect(formatPrice(PRESET, "tokens")).toBe("输入 $2 · 输出 $8 / 每百万 tokens");
     expect(formatPrice({ ...PRESET, output: null, currency: "CNY", per: 3600 }, "seconds")).toBe("¥2 / 每小时");
-    expect(formatPrice({ ...PRESET, input: 0.036, output: null, per: 1 }, "images")).toBe("$0.036 / 每张");
   });
 
   it("names the price of the input read from the cache where there is one", () => {

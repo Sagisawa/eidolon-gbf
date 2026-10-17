@@ -104,7 +104,7 @@ class ImageGenerator:
     async def generate(self, prompt: ImagePrompt, until: float) -> GeneratedImage:
         """One picture for `prompt`, as kept, had by `until` (the running loop's time) at
         the latest. Raises ImageFailed saying why there is none. Tells what it is billed
-        for (`billing`): one picture once the service answered with one, none before."""
+        for (`billing`): one picture once the service answered with any, none before."""
         body = generation_request(
             self.settings.model, prompt, random.SystemRandom().randint(0, MAX_SEED)
         )
@@ -124,22 +124,22 @@ class ImageGenerator:
             raise ImageFailed(
                 "service_error", f"生图服务返回 {res.status_code}: {res.text[:300]}"
             )
-        picture = only_picture(res.content)
-        bill("images", 1)
-        return GeneratedImage(kept_as_webp(picture))
+        pictures = files_in(res.content)
+        if pictures:
+            bill("images", 1)
+        if len(pictures) != 1:
+            raise _bad_image(f"ZIP 里有 {len(pictures)} 个文件")
+        return GeneratedImage(kept_as_webp(pictures[0]))
 
     async def aclose(self) -> None:
         await self._client.aclose()
 
 
-def only_picture(archive: bytes) -> bytes:
-    """The one file in the ZIP `archive`. Raises ImageFailed if it is not a ZIP of one."""
+def files_in(archive: bytes) -> list[bytes]:
+    """The files in the ZIP `archive`. Raises ImageFailed if it is not a ZIP."""
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
-            names = [n for n in zipped.namelist() if not n.endswith("/")]
-            if len(names) != 1:
-                raise _bad_image(f"ZIP 里有 {len(names)} 个文件")
-            return zipped.read(names[0])
+            return [zipped.read(n) for n in zipped.namelist() if not n.endswith("/")]
     except (zipfile.BadZipFile, OSError) as e:
         raise _bad_image(f"不是 ZIP：{e}") from None
 

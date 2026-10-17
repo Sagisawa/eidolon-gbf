@@ -4,7 +4,7 @@
 
 **Blocked by:** 14
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [x] **失败原因**：照片表记下失败原因。这张做 `timeout`（包括排队超时）、`service_error`、`bad_image` 三种；`own_key_failed` 在 20 做，`used_up` 在 18 做。
   - 响应解不开、不是正好一张图、宽高不是 832×1216，都算 `bad_image`。
@@ -21,8 +21,8 @@
   - 对话删了以后生成完的不存；重启时「生成中」改成超时。
   - 之后回合的历史里带 `status="failed"`。
   - 前端：失败原因对应的文案。
-- [ ] **验收**：本地构建版上用 Playwright，生图走假服务，看各种失败说明。
-- [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+- [x] **验收**：本地构建版上用 Playwright，生图走假服务，看各种失败说明。
+- [x] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
 
 ## Comments
 
@@ -43,3 +43,5 @@
 - 前端：失败原因到文案在 `lib/photoFailure.ts` 的 `photoFailureNote`，不认识的原因按「生图服务出错了」说。说明照原型 A 的写法，链接用 `ShellLink`。
 
 **超时的风险留给用户（2026-10-17）。** 14 用中转出图时单张 35–75 秒，90 秒的总时限包括排队：部署者一次一张时，排在第二张的很容易按超时失败（钱没花，请求没发出去）。规格写死 90 秒，这里照做、没有去量；上线前建议用户再量一次中转的速度，必要时改 `image_generation.TIME_LIMIT`，或者在 19 里把「同时生成几张」调高。
+
+**做完了（2026-10-17）。** 后端 `uv run pytest` 1686 个、`uv run pyright`、`uv run ruff check`，前端 `npm test` 942 个、`npm run typecheck`、`check-discipline.sh` 全部通过（和 15、16、22、23 一起，合在 `feat/photos` 上跑的）。本地构建版上用 Playwright 验收（真的判断模型和对话模型，生图走假服务）：HTTP 500「生图服务出错了」、尺寸不对和解不开「生成的图不对」、一直不回 90 秒后「等太久了」，失败说明在对话页上都对，刷新后还在。自审后补了一处：排队轮到时已经过了 90 秒的，不再带着过期的时限把请求发出去（以前会记一条超时调用），按排队超时处理。`Message` 加了 `photo_sent`、`photo_failed`，历史里的 `status="failed"` 和列表的相机都用它。

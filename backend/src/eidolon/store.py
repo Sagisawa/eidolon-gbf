@@ -253,6 +253,16 @@ class Message:
     affinity: Change | None = None
     photo: Photo | None = None
 
+    @property
+    def photo_sent(self) -> bool:
+        """Whether she sent a photo with it, and it is out."""
+        return self.photo is not None and self.photo.status == "ready"
+
+    @property
+    def photo_failed(self) -> bool:
+        """Whether she sent a photo with it that was not sent after all."""
+        return self.photo is not None and self.photo.status == "failed"
+
     def without_cues(self) -> "Message":
         """The message as people see it: a reply is kept as the model wrote it, delivery
         cues and all (ADR-0007)."""
