@@ -15,15 +15,19 @@ photo dropped once generated (`dropped`), as does one whose conversation is dele
 meanwhile. Nothing stops a photo once begun, not the page closing: what it costs is spent.
 
 The deployer's image service generates one photo at a time, and none takes longer than
-`image_generation.TIME_LIMIT` from her tag on, waiting its turn included.
+`image_generation.TIME_LIMIT` from her tag on, waiting its turn included. Begun in a turn,
+a photo is generated in the turn's context: its request to the image service is a service
+call recorded under the turn (`activity`), however long after it the photo comes out.
 """
 
 import asyncio
 import logging
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 
+from eidolon.activity import ActivityLog, Recording, image_origin, recording, timed
 from eidolon.affinity import TIERS, Tier
 from eidolon.characters import Character
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
@@ -97,11 +101,17 @@ class _Generating:
 class Photos:
     """Every photo she sends, from her tag to the picture kept with her reply."""
 
-    def __init__(self, store: Store, generator: Callable[[], ImageGenerator | None]) -> None:
+    def __init__(
+        self,
+        store: Store,
+        generator: Callable[[], ImageGenerator | None],
+        activity: ActivityLog,
+    ) -> None:
         """`generator` says, whenever asked, the deployer's image generation in effect;
-        None while there is none."""
+        None while there is none. Its requests are recorded in `activity`."""
         self._store = store
         self._generator = generator
+        self._activity = activity
         self._one_at_a_time = asyncio.Semaphore(1)
         self._generating: dict[str, _Generating] = {}
         self._tasks: set[asyncio.Task[None]] = set()
@@ -112,10 +122,13 @@ class Photos:
         return character.photographed and self._generator() is not None
 
     def begin(self, character: Character, tag: str) -> str:
-        """Begin the photo her `tag` says, generating; its id."""
+        """Begin the photo her `tag` says, generating, in the turn it is begun in; its id."""
         photo_id = uuid.uuid4().hex
         self._generating[photo_id] = _Generating()
-        task = asyncio.create_task(self._generate(photo_id, character, tag))
+        until = asyncio.get_running_loop().time() + TIME_LIMIT
+        task = asyncio.create_task(
+            self._generate(photo_id, character, tag, until, recording())
+        )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return photo_id
@@ -136,15 +149,32 @@ class Photos:
         else:
             generating.dropped = True
 
-    async def _generate(self, photo_id: str, character: Character, tag: str) -> None:
+    async def _generate(
+        self,
+        photo_id: str,
+        character: Character,
+        tag: str,
+        until: float,
+        turn: Recording | None,
+    ) -> None:
+        """Generate the photo by `until` (the running loop's time), its request recorded
+        under `turn`."""
         outcome: tuple[bytes | None, str | None]
         try:
-            async with asyncio.timeout(TIME_LIMIT):
-                async with self._one_at_a_time:
-                    generator = self._generator()
-                    if generator is None:
-                        raise ImageFailed("service_error", "image generation is off")
-                    image = await generator.generate(image_prompt(character, read_tag(tag)))
+            async with asyncio.timeout_at(until):  # waiting its turn, not yet sent
+                await self._one_at_a_time.acquire()
+            try:
+                generator = self._generator()
+                if generator is None:
+                    raise ImageFailed("service_error", "image generation is off")
+                with turn.current() if turn is not None else nullcontext():
+                    image = await timed(
+                        self._activity,
+                        image_origin(generator.settings),
+                        generator.generate(image_prompt(character, read_tag(tag)), until),
+                    )
+            finally:
+                self._one_at_a_time.release()
             outcome = image.webp, None
         except ImageFailed as e:
             log.warning("photo %s was not generated: %s", photo_id, e)

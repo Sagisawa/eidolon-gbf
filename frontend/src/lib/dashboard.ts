@@ -32,7 +32,8 @@ export type ServiceName =
   | "stt"
   | "judge"
   | "embedding"
-  | "rerank";
+  | "rerank"
+  | "image";
 
 export type ErrorKind =
   | "timeout"

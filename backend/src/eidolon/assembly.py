@@ -290,7 +290,7 @@ def build(
             "%s have no photo_tag and photo_appearance in the character configuration, and"
             " send no photos", ", ".join(unphotographed),
         )
-    photos = Photos(store, lambda: generator)
+    photos = Photos(store, lambda: generator, activity)
     closers.append(photos.aclose)  # closed before the store, so no photo is still kept
     engine = ConversationEngine(
         store, characters, gift_catalog, memories, titles, clock, retrieval,

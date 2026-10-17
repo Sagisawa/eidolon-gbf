@@ -18,6 +18,12 @@ with how long it lasted and why it ended. The turns taken in it each have a reco
 their own under the call's (`Recording.turn`), written with it; its speech recognition,
 synthesis and emotion judging are recorded under the call (`Recording.add`), not a turn.
 
+A photo she sends (`photos`) is generated in the context of the turn it was begun in, and
+often comes out after the turn is over: its request to the image service is recorded under
+the turn all the same, with the turn's record if that is still to be written, under it once
+written (`ActivityLog.record`). It is billed one picture where the service answered with
+one, of the size asked for or not, and none where it failed or took too long.
+
 The services are timed by thin wrappers around their clients (`metered_llm`,
 `MeteredJudge`, `MeteredEmbedder`, `MeteredReranker`), which also open a `Billing` for
 the client to tell what the request is billed for. A call abandoned part-way, as when the
@@ -53,6 +59,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CloudflareJudgeSettings,
+    ImageSettings,
     JudgeSettings,
     LLMSettings,
     ReasoningEffort,
@@ -73,12 +80,13 @@ from eidolon.store import Message
 log = logging.getLogger(__name__)
 
 ServiceName = Literal[
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank"
+    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
 ]
 """The outside services: the LLM playing the characters and the one writing down memories,
-speech synthesis and recognition, the judge model, embedding and reranking."""
+speech synthesis and recognition, the judge model, embedding, reranking and image
+generation."""
 SERVICES: tuple[ServiceName, ...] = (
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank"
+    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
 )
 LLM_SERVICES: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
 """The LLMs among them (`llm_origin`): a user's own is recorded as `OWN`, and each call
@@ -301,6 +309,12 @@ def detached() -> Context:
     return context
 
 
+def recording() -> "Recording | None":
+    """The turn's or call's record that service calls made now, in this context, are
+    recorded under; None outside any."""
+    return _current.get()
+
+
 class Recording:
     """One turn's or call's activity record while it runs: the service calls made in it,
     and, for a turn, when the character began to speak (GLOSSARY.md「开口」); for a call,
@@ -443,12 +457,13 @@ class ActivityLog:
         self.record(call, _current.get())
 
     def record(self, call: ServiceCall, into: Recording | None) -> None:
-        """A service call, recorded under `into` while it is open, or else on its own."""
-        if into is not None and not into.finished:
+        """A service call, recorded under `into`: with it until it is written (a turn in a
+        call, with the call), under it once it is; on its own without one."""
+        if into is not None and into.row_id is None:
             into.calls.append(call)
         else:
             with self._lock, self._db:
-                self._insert_call(call, None)
+                self._insert_call(call, into.row_id if into is not None else None)
 
     def since(self, moment: datetime) -> tuple[list[RecordRow], list[CallRow]]:
         """Every record and service call after `moment`, oldest first."""
@@ -806,6 +821,12 @@ def metered_retrieval(
             reranker, log, Origin("rerank", host(r and r.base_url), r.model if r else "unknown")
         )
     return embedder, reranker
+
+
+def image_origin(settings: ImageSettings) -> Origin:
+    """The deployer's image generation `settings` describe, as its service calls are
+    recorded."""
+    return Origin("image", host(settings.base_url), settings.model)
 
 
 def judge_origin(settings: JudgeSettings | None) -> Origin:

@@ -101,6 +101,7 @@ describe("formatPrice", () => {
   it("names input and output apart, or one price when output costs as input does", () => {
     expect(formatPrice(PRESET, "tokens")).toBe("输入 $2 · 输出 $8 / 每百万 tokens");
     expect(formatPrice({ ...PRESET, output: null, currency: "CNY", per: 3600 }, "seconds")).toBe("¥2 / 每小时");
+    expect(formatPrice({ ...PRESET, input: 0.036, output: null, per: 1 }, "images")).toBe("$0.036 / 每张");
   });
 
   it("names the price of the input read from the cache where there is one", () => {
@@ -175,6 +176,11 @@ describe("price form", () => {
     expect(
       priceFormOf({ ...entry, catalog: LISTED, override: { ...PRESET, input: 4, output: null, currency: "CNY" } }),
     ).toMatchObject({ input: "4", output: "", currency: "CNY" });
+    // 生图按张计价，单位照原样留着，不退回 tokens。
+    expect(priceFormOf({ ...entry, unit: "images", preset: { ...PRESET, input: 0.036, output: null, per: 1 } })).toMatchObject({
+      unit: "images",
+      input: "0.036",
+    });
   });
 
   it("trims the names and prices output and cached input as input when left empty", () => {

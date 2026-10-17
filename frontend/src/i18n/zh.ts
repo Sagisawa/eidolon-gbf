@@ -729,11 +729,17 @@ export const zh = {
     breadcrumb: "当前位置",
     comingSoon: "这一页还在做。",
     usage: {
-      units: { tokens: "tokens", bytes: "字节", characters: "字符", seconds: "秒" } as Record<string, string>,
-      per: { tokens: "每百万 tokens", bytes: "每百万字节", characters: "每百万字符", seconds: "每小时" } as Record<
+      units: { tokens: "tokens", bytes: "字节", characters: "字符", seconds: "秒", images: "张" } as Record<
         string,
         string
       >,
+      per: {
+        tokens: "每百万 tokens",
+        bytes: "每百万字节",
+        characters: "每百万字符",
+        seconds: "每小时",
+        images: "每张",
+      } as Record<string, string>,
       perCount: (count: string, unit: string) => `每 ${count} ${unit}`,
       amount: (count: string, unit: string) => `${count} ${unit}`,
       inOut: (input: string, output: string, unit: string) => `输入 ${input} · 输出 ${output} ${unit}`,
@@ -867,6 +873,7 @@ export const zh = {
           judge: "判断模型",
           embedding: "向量化",
           rerank: "重排",
+          image: "生图",
         },
         errorKinds: {
           timeout: "超时",
@@ -1421,6 +1428,7 @@ export const zh = {
         bytes: "字节（每百万，UTF-8）",
         characters: "字符（每百万）",
         seconds: "秒（每小时）",
+        images: "张（每张）",
       } as Record<string, string>,
       currencies: { USD: "美元（USD）", CNY: "人民币（CNY）" } as Record<string, string>,
       problems: {

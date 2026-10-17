@@ -31,3 +31,7 @@
   - 先例是 `test_own_llm.py`、`test_own_speech_keys.py`、`test_exempting_keys.py`、`test_proxy.py`、`test_own_keys_in_logs.py`；前端是 `localOwnKeys.test.ts`、`api.test.ts`。
 - [ ] **验收**：本地构建版上用 Playwright：设置页填自带生图（检查走假服务）、要一张照片、自带 key 失败时的说明和链接。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**票 15 留下的（2026-10-17）。** 生图调用记在运行记录的 `image` 下，`Origin` 现在只有部署者的 `activity.image_origin(settings)`（地址的 host 加模型名，`own_key=False`）。自带生图要另给一个 `own_key=True` 的 `Origin`，`prices.cost` 才会只统计、不计价；服务商和模型记成什么要定：照 ADR-0017 自带 LLM 一律记 `OWN`，自带生图的地址也可能是用户自己的中转，建议同样记 `OWN`（`activity._forget_own_llms` 只管 LLM，别漏）。张数靠 `ImageGenerator.generate` 里的 `bill("images", …)`，自带的客户端沿用它就自然有。

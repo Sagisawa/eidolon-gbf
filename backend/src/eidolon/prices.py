@@ -35,10 +35,11 @@ from eidolon.database import connect
 from eidolon.price_catalog import Catalog
 
 PER: dict[str, int] = {
-    "tokens": 1_000_000, "bytes": 1_000_000, "characters": 1_000_000, "seconds": 3600
+    "tokens": 1_000_000, "bytes": 1_000_000, "characters": 1_000_000, "seconds": 3600,
+    "images": 1,
 }
 """How many units a price is for: a million tokens, a million bytes (of text spoken, in
-UTF-8) or characters (of it), an hour (of audio heard)."""
+UTF-8) or characters (of it), an hour (of audio heard), one picture (generated)."""
 
 PriceKey = tuple[str, str, str]
 """A provider, a model, a unit."""
@@ -127,6 +128,12 @@ PRESETS: dict[PriceKey, Price] = {
         "Qwen/Qwen3-Reranker-8B": (0.28, None),
     }, "CNY"),
     **_tokens("generativelanguage.googleapis.com", {"gemini-embedding-2": (0.2, None)}, "USD"),
+    # NovelAI, per picture of 832×1216 at 23 steps (`image_generation`): the 26 Anlas it
+    # costs beyond a subscription's free generations. Within them, as on Opus, it costs
+    # nothing; a relay has no preset.
+    ("image.novelai.net", "nai-diffusion-5-curated", "images"): Price(
+        0.036, None, "USD", date(2026, 10, 17)
+    ),
 }
 """The prices of the models supported, as their providers' price pages had them on
 `GATHERED` (`.scratch/admin-console/research.md`; the cache prices

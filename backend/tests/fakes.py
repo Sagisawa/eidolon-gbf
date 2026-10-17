@@ -553,13 +553,17 @@ class FakeImageService:
     records each request, with the key it came on (`requests`: `key`, `url`, `body`), and
     answers with a ZIP of one PNG of the size asked for, carrying the prompt in its metadata
     as NovelAI's pictures do (`METADATA` in it). With a `gate`, it answers only once the
-    gate is open, as a service taking its time."""
+    gate is open, as a service taking its time. It can answer amiss instead: with an HTTP
+    error (`status`), a picture of another `size`, or what is not a ZIP (`garbled`)."""
 
     METADATA = "fake NovelAI metadata"
 
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
         self.gate: asyncio.Event | None = None
+        self.status: int | None = None
+        self.size: tuple[int, int] | None = None
+        self.garbled = False
 
     def transport(self) -> httpx.AsyncBaseTransport:
         return httpx.MockTransport(self.handle)
@@ -574,8 +578,13 @@ class FakeImageService:
         })
         if self.gate is not None:
             await self.gate.wait()
+        if self.status is not None:
+            return httpx.Response(self.status, json={"error": "fake image service error"})
+        if self.garbled:
+            return httpx.Response(200, content=b"<html>not a ZIP</html>")
         parameters = body["parameters"]
-        picture = png(parameters["width"], parameters["height"], f"{self.METADATA}: {body['input']}")
+        width, height = self.size or (parameters["width"], parameters["height"])
+        picture = png(width, height, f"{self.METADATA}: {body['input']}")
         return httpx.Response(200, content=zipped({"image_0.png": picture}))
 
 

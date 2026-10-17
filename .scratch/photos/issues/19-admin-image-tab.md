@@ -29,3 +29,5 @@
 ## Comments
 
 **14 留下的（2026-10-17）。** `.env` 现在只认 `NOVELAI_API_KEY`、`NOVELAI_BASE_URL`、`NOVELAI_MODEL`（`config.ImageSettings`，`.env.example` 也写了）。部署者的生图客户端在 `assembly.build` 里直接用 `httpx.AsyncClient` 建（测试从 `image_transport` 注入假服务），没走 `ProxyRoutes`，`ProxiedService` 也还没有 `image`。`Photos` 拿生图客户端用的是一个函数（`lambda: generator`），换成跟着后台配置走的就行。后台阈值卡已经有「要照片」一项。
+
+**票 15 留下的（2026-10-17）。** `ImageGenerator.generate(prompt, until)` 现在要一个截止时间（事件循环的 `loop.time()`），里面会 `bill("images", …)`。保存检查别包 `activity.timed`，也别开 `Billing`，就不会进运行记录、不计用量；截止时间给 `loop.time() + TIME_LIMIT` 就行。运行记录里部署者生图的服务商和模型来自 `activity.image_origin(generator.settings)`（地址的 host 加模型名），后台换了地址或模型，看板上就是新的一行；OpenAI 图像格式下载 `url` 也要算在同一次调用、同一个截止时间里。单价表只预设了 `("image.novelai.net", "nai-diffusion-5-curated", "images")`，中转由管理者在单价页按「张」自己填。
