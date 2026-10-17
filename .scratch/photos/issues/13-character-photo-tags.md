@@ -11,7 +11,7 @@
 - [x] 28 位都有角色 tag：Danbooru 写法，比如 `sakuragi mano`，在 V5 Curated 的官方 tag 建议接口里是已知的角色 tag
 - [x] 28 位都有外貌 tag，只写发色、发型、瞳色，不写饰物和服装
   - [x] 初稿对着存储桶里默认衣装的缩略图写，参考 Danbooru 共现 tag，但不照搬（团体图里会混进别人的特征）
-  - [x] 每个 tag 都用官方 tag 建议接口核对过是已知的（70 条在 V5 Curated 和 V4.5 Curated 上都命中）
+  - [x] 每个 tag 都用官方 tag 建议接口核对过是已知的（68 条在 V5 Curated 和 V4.5 Curated 上都命中）
 - [x] 票 05 定稿的五位（真乃、あさひ、夏葉、智代子、はるき）照用那张票里的写法
 - [ ] **人工**：初稿以对照表的形式（角色、缩略图、角色 tag、外貌 tag）交给用户校对，校对后的结果写进 `characters.toml`
 - [ ] **可选，人工**：用户想看效果时，用 `.env.novelai` 里的中转按 14 的提示词结构出几张。出图花用户的额度，出之前先报张数、等用户点头
@@ -19,7 +19,7 @@
 
 ## Comments
 
-**初稿已就绪，等用户校对。** 28 位齐，机器可读的初稿是 `draft.json`，缩略图拼版是 `contact_sheet.png`（编号和下面的表一致；原作立绘不进仓库，在 `tags/` 里跑 `python review_table.py` 生成）。脚本和说明在 `.scratch/photos/prototype/tags/`（见那里的 `README.md`）。每条 tag 都用官方 tag 建议接口核对过是 V5 Curated 的已知 tag：28 个角色 tag + 42 个外貌 tag，共 70 条。
+**初稿已就绪，等用户校对。** 28 位齐，机器可读的初稿是 `draft.json`，缩略图拼版是 `contact_sheet.png`（编号和下面的表一致；原作立绘不进仓库，在 `tags/` 里跑 `python review_table.py` 生成）。脚本和说明在 `.scratch/photos/prototype/tags/`（见那里的 `README.md`）。每条 tag 都用官方 tag 建议接口核对过是 V5 Curated 的已知 tag：28 个角色 tag + 40 个外貌 tag，共 68 条。
 
 初稿不是凭记忆写的：`face_sheet.py` 按 alpha 通道裁出每位默认衣装缩略图的头，逐位看发色和发型；只看眼睛的放大图逐位确认瞳色；`danbooru_related.py` 的共现 tag 做交叉参考（不能直接用，团体图会混进别人的特征）；`verify_draft.py` 最后统一核对写法、去重、正好一条瞳色、没混进饰物和服装。
 
@@ -37,7 +37,7 @@
 | 01 | 櫻木真乃 | `stand/1030010010.png` | `sakuragi mano` | `brown hair, medium hair, brown eyes` | 票 05 定稿 |
 | 02 | 風野灯織 | `stand/1030020010.png` | `kazano hiori` | `black hair, long hair, ponytail, blue eyes` | 本次初稿 |
 | 03 | 八宮めぐる | `stand/1030030010.png` | `hachimiya meguru` | `blonde hair, long hair, ahoge, low twintails, blue eyes` | 本次初稿 |
-| 04 | 月岡恋鐘 | `stand/1030040010.png` | `tsukioka kogane` | `brown hair, long hair, wavy hair, ponytail, pink eyes` | 本次初稿 |
+| 04 | 月岡恋鐘 | `stand/1030040010.png` | `tsukioka kogane` | `brown hair, long hair, wavy hair, ponytail, brown eyes` | 本次初稿 |
 | 05 | 田中摩美々 | `stand/1030050010.png` | `tanaka mamimi` | `purple hair, long hair, twintails, diagonal bangs, purple eyes` | 本次初稿 |
 | 06 | 白瀬咲耶 | `stand/1030060010.png` | `shirase sakuya` | `black hair, long hair, high ponytail, yellow eyes` | 本次初稿 |
 | 07 | 三峰結華 | `stand/1030070010.png` | `mitsumine yuika` | `black hair, long hair, twintails, blue eyes` | 本次初稿 |
@@ -47,7 +47,7 @@
 | 11 | 福丸小糸 | `stand/1030220010.png` | `fukumaru koito` | `dark blue hair, long hair, twintails, purple eyes` | 本次初稿 |
 | 12 | 市川雛菜 | `stand/1030230010.png` | `ichikawa hinana` | `light brown hair, long hair, wavy hair, single side bun, brown eyes` | 本次初稿 |
 | 13 | 七草にちか | `stand/1030240010.png` | `nanakusa nichika` | `green hair, short hair, green eyes` | 本次初稿 |
-| 14 | 緋田美琴 | `stand/1030250010.png` | `aketa mikoto` | `brown hair, blonde hair, short hair, gradient hair, aqua eyes` | 本次初稿 |
+| 14 | 緋田美琴 | `stand/1030250010.png` | `aketa mikoto` | `brown hair, blonde hair, short hair, gradient hair, brown eyes` | 本次初稿 |
 | 15 | 芹沢あさひ | `stand/1030170010.png` | `serizawa asahi` | `grey hair, short hair, blue eyes` | 票 05 定稿 |
 | 16 | 黛冬優子 | `stand/1030180010.png` | `mayuzumi fuyuko` | `black hair, long hair, twintails, blunt bangs, red eyes` | 本次初稿 |
 | 17 | 和泉愛依 | `stand/1030190010.png` | `izumi mei` | `brown hair, blonde hair, long hair, gradient hair, black eyes` | 本次初稿 |
@@ -63,10 +63,7 @@
 | 27 | 鈴木羽那 | `stand/1030270010.png` | `suzuki hana` | `light blue hair, long hair, purple eyes` | 本次初稿 |
 | 28 | 郁田はるき | `stand/1030280010.png` | `ikuta haruki` | `brown hair, short hair, yellow eyes` | 票 05 定稿 |
 
-**要用户做的**：对着 `contact_sheet.png` 逐行看。复核以后还拿不准的只剩两处，立绘和 Danbooru 说法不一：
-
-- **恋鐘的瞳色**：立绘里是偏灰的粉色，现在写 `pink eyes`；Danbooru 多数标 `brown eyes`（0.48，pink 0.14）。
-- **美琴的瞳色**：立绘的眼球上半紫棕、下沿浅蓝，现在写 `aqua eyes`；Danbooru 最多的是 `brown eyes`（0.23），也有人标 `multicolored eyes`（0.15）。
+**要用户做的**：对着 `contact_sheet.png` 逐行看。立绘和 Danbooru 说法不一的两处用户已定（2026-10-17）：恋鐘、美琴的瞳色都照 Danbooru 多数写 `brown eyes`（立绘里分别是偏灰的粉色、上紫棕下浅蓝）。
 
 其余按 Danbooru 共现和立绘都对得上，包括最冷门的はるき（票 05 定稿）。改 `draft.json` 的 `photo_appearance` 后重跑 `python verify_draft.py` 就能确认新写的 tag 还是已知 tag。
 
