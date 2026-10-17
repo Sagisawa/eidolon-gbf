@@ -1,7 +1,7 @@
 # 09: 拍板：后台配置和自带密钥
 
 Type: grilling
-Status: open
+Status: resolved
 Blocked by: 01, 02, 10
 
 ## Question
@@ -23,3 +23,46 @@ Blocked by: 01, 02, 10
   - 「生图」不能选进免限额密钥，`exempting_*` 不要按 `SERVICES` 自动生成出 `exempting_image`。
   - 运行记录的服务名是 `image`；代理那一侧的 `ProxiedService` 怎么加（`image`、`own_image`）归这里。
   - 中转必须原样返回要求的尺寸，否则每张都被当成错误图；保存时的检查可以顺便验这一点。
+
+## Answer
+
+2026-10-17 的 grilling 定下：
+
+**接口形式和参数**
+- 只支持两种接口形式，由配置的人选，不自动探测（探测要多发请求，B 形态填错模型名时会卡 60 秒）：
+  - 「NovelAI 官方格式」（官方接入点和原样转发的中转）：接口地址填到域名根，默认 `https://image.novelai.net`，服务器拼 `/ai/generate-image`。
+  - 「OpenAI 图像格式」：接口地址照 OpenAI 的惯例填到 `/v1`（例如 `https://v2.ninijoker-api.com/v1`），服务器拼 `/images/generations`，和各个 LLM 的接口地址写法一致。请求带 `response_format: "b64_json"`；收 `b64_json`（带不带 `data:` 前缀都行），回 `url` 就立刻用同一个客户端下载（同样受公网检查和代理规则约束，耗时算进 90 秒）；chat 形状的返回不认。
+  - 切换接口形式时不自动改地址。OpenAI chat 兼容和各家自定义的中转不支持，`docs/configuration.md` 写明。
+- 尺寸 832×1216、23 步写死，后台和自带都不能配；以后要横图由「原型：照片怎么呈现」提出。
+- **模型可以配**，改了「拍板：全年龄怎么守」的「锁死 V5 Curated」：后台和自带都出「模型」一项，下拉里放 V4 以后的官方模型名（V5 Curated/Full、V4.5 Curated/Full、V4 Curated/Full），也可以手填，默认 `nai-diffusion-5-curated`，原样发给接口。中转的模型名常和官方不一样，所以要能手填。请求体统一按 V4 以后的格式（`v4_prompt`）；填了不兼容的旧模型时，保存检查那张图会失败，不另外拦。填成 Full、换了模型后外貌像不像，都由填的人负责。`rating:general`、写死的负面词和黑名单照样生效。ADR-0023 已改。
+
+**保存时的检查**
+- 真的生成一张图：固定的提示词，正式的尺寸，验 key、接口形式、返回能不能解开、宽高和要求的一致（会换尺寸的中转在这里就被拦下）。
+- 后台只在生图这一项的配置改了时发；自带的在浏览器存下之前发，花用户自己的钱。这张图不计用量、不进运行记录。
+- 部署没有判断模型时，自带生图的检查直接拒绝：「这个部署发不了照片」（照着现有的「这个部署没有语音服务」），不生成。
+
+**网络代理和 SSRF**
+- 新加 `ProxiedService` 的 `image`（部署者的）和 `own_image`（自带的），两边分开勾。
+- 部署者的勾上就全走代理，接入点不受限制，和部署者的 LLM 一样。
+- 自带的照 ADR-0022 的规则：只有 HTTPS 的 `image.novelai.net` 算已知服务商，勾上了才走代理；其他地址（各家中转）照旧直连。公开部署里自带的地址必须是 HTTPS 的公网地址，每次连接都查（复用 `PublicOnlyBackend`）。ADR-0022 的适用范围扩成「自带 LLM 和生图」，没有新开 ADR；术语表的「网络代理」「已知服务商」已改。
+
+**后台**
+- 新开一个「生图」标签页，放在「语音」后面，只有一张生图卡：接口形式、接口地址、key、模型、同时生成几张（默认 1，按 token 算）。
+- 照片次数（每小时默认 5 张，0 表示不限）放进「限额与玩法」页现有的限额卡。
+- 「生图」照旧不进免限额密钥：`Service` 加上 `image`，但 `exempting_*` 和 `EIDOLON_EXEMPTING_*` 还是 LLM、语音合成、语音识别三项。
+
+**只配了 `.env` 时的环境变量**
+- `NOVELAI_API_FORMAT`：`novelai` 或 `openai`，默认 `novelai`
+- `NOVELAI_BASE_URL`：默认 `https://image.novelai.net`
+- `NOVELAI_API_KEY`：没填就是部署者一侧没有生图
+- `NOVELAI_MODEL`：默认 `nai-diffusion-5-curated`
+- `NOVELAI_CONCURRENCY`：同时生成几张，默认 1
+- `EIDOLON_PHOTOS_PER_HOUR`：默认 5，0 表示不限，和现有的限额一样
+- `EIDOLON_PROXY_SERVICES` 新认 `image`、`own_image`
+
+**自带生图**
+- 设置页「自带密钥」加一项生图，填接口形式、接口地址、key、模型四项，默认值和后台一样，只存在浏览器里。
+- 不出「同时生成几张」，自带的 token 固定一次一张；尺寸、步数和后台一样写死。所以和部署者能不一样的只有接口形式、地址和模型。
+
+**前端要不要知道能不能发照片**
+- 不需要。对话页不加任何东西，没有生图时她本来就不知道自己能发。设置页的自带生图一项一直显示。
