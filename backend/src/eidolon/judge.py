@@ -84,15 +84,17 @@ JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
     # .scratch/affinity/issues/04-judge-eval-and-thresholds.md. Out of line is set high
     # where its yes and no come close, as a turn wrongly out of line costs her affinity
     # most: Jev finds a bare demand for affinity somewhat out of line, and Clef-flash a
-    # user telling her she is only a program. Asking for a photo is set high for every model
-    # until it is calibrated (.scratch/photos/issues/23-photo-judge-calibration.md): better
-    # a photo asked for and not sent than one sent unasked.
+    # user telling her she is only a program. Asking for a photo, chosen in
+    # .scratch/photos/issues/23-photo-judge-calibration.md, is set where no turn not asking
+    # is taken for asking, better a photo asked for and not sent than one sent unasked: Jev
+    # is sure of no, and not so sure of a request made by asking to see something.
     "jev": JudgeThresholds(
         needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5,
-        out_of_line=0.7, manipulation=0.4, photo=0.8,
+        out_of_line=0.7, manipulation=0.4, photo=0.5,
     ),
     # Clef and Clef-flash are surer of recall than they should be, less sure of the user's
-    # own life, and less sure of the emotion they hear.
+    # own life, and less sure of the emotion they hear. Clef-flash finds the user saying a
+    # photo came close to asking for one, so it misses some asking rather than take that.
     "clef": JudgeThresholds(
         needs_retrieval=0.5, recall=0.8, about_producer=0.1, emotion=0.4,
         out_of_line=0.5, manipulation=0.5, photo=0.8,

@@ -488,7 +488,7 @@ async def test_a_speech_recognition_override_that_fails_as_the_server_starts_fal
 
 JUDGE = "/api/admin/config/judge"
 JUDGE_THRESHOLDS = "/api/admin/config/judge_thresholds"
-JEV_AFFINITY = {"out_of_line": 0.7, "manipulation": 0.4, "photo": 0.8}
+JEV_AFFINITY = {"out_of_line": 0.7, "manipulation": 0.4, "photo": 0.5}
 """Jev's thresholds for affinity's two questions and the photo's, saved alongside as they are."""
 JEV_KEY = "env-jev-key-1111"
 CF_TOKEN = "cf-token-2222"

@@ -66,9 +66,10 @@
                                      the text in the database and the world setting
     eidolon eval rerank [--model M]  score the reranker on the calibration set, to set its
                                      thresholds
-    eidolon eval judge [--provider P] [--model M] [--json F]
+    eidolon eval judge [--provider P] [--model M] [--only K] [--json F]
                                      ask the judge model the judge eval set's turns and
-                                     segments, to set its thresholds and compare models
+                                     segments, or only those of kind K, to set its
+                                     thresholds and compare models
     eidolon eval memory [--json F]
                                      take the memory eval set's turns on the deployer's
                                      background model, embedder, reranker and judge
@@ -784,6 +785,7 @@ async def _eval_judge(args: argparse.Namespace) -> int:
         JudgeEvalError,
         evaluate,
         load_judge_eval,
+        only,
         report,
         summarize,
     )
@@ -791,6 +793,8 @@ async def _eval_judge(args: argparse.Namespace) -> int:
     try:
         characters = load_characters(args.characters or characters_path_from_env())
         judge_eval = load_judge_eval(args.file, characters)
+        if args.only:
+            judge_eval = only(judge_eval, args.only)
         emotion = EmotionSettings.from_env()
         judge = judge_from_env(args.provider)
         if judge is None:
@@ -1167,6 +1171,12 @@ def _parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("eval/judge.toml"),
         help="判断模型的 eval 集（默认 eval/judge.toml）",
+    )
+    judge.add_argument(
+        "--only",
+        choices=["retrieval", "emotion", "affinity", "photo"],
+        action="append",
+        help="只跑这一类用例（可以写几次，默认全跑），例如 --only photo",
     )
     judge.add_argument(
         "--characters",
