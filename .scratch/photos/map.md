@@ -30,6 +30,7 @@ Label: wayfinder:map
 
 - [调研：NovelAI 官方图像 API 现状](issues/01-novelai-api-research.md)：最新 V5（Curated/Full），V5 没有角色参考图；Opus 免费有条件且 V5 扣用量条；一个 token 同时一张；条款禁止公众共用订阅，自带 token 可以；官方不过滤内容；不用社区库，直接发 HTTP。
 - [调研：NovelAI 中转的常见协议](issues/02-relay-research.md)：四种形态（原样转发、OpenAI images、OpenAI chat、自定义），支持前两种就能覆盖绝大多数；参数常被静默忽略、200 也可能是错误图、超时不重试。
+- [准备测试用的中转地址和 key](issues/03-test-endpoint.md)：用户的中转 A、B 两种都开；A 参数全部生效、同种子可复现、回 ZIP；B 只认顶层负面词和尺寸，种子和步数被静默换掉；单张 5–9 秒，并发 3 张没有 429。
 
 ## Not yet specified
 
