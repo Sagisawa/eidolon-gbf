@@ -33,6 +33,7 @@ Label: wayfinder:map
 - [准备测试用的中转地址和 key](issues/03-test-endpoint.md)：用户的中转 A、B 两种都开；A 参数全部生效、同种子可复现、回 ZIP；B 只认顶层负面词和尺寸，种子和步数被静默换掉；单张 5–9 秒，并发 3 张没有 429。
 - [拍板：怎么触发、谁来写提示词](issues/04-trigger-and-prompt.md)：判断模型多答一道「是不是在要照片」，没生图就不问；她在回复最前面写一个分栏的 `<photo>` 标签（拍法和景别选枚举，地点、服装、动作写英文 tag），服务器拼上固定的前缀、清洗后再生成；冷淡这一档写死不发；她记得自己发过什么。
 - [原型：外貌一致性](issues/05-appearance-prototype.md)：V5 Curated，每位存角色 tag 加一串外貌 tag（只写发色、发型、瞳色），不用参考图；只写角色 tag 已经够像（冷门的はるき也是），外貌 tag 防止丢发型；28 位由代理对着缩略图写初稿、用户校对。
+- [拍板：全年龄怎么守](issues/06-all-ages-guard.md)：她推掉、服务器剥掉黑名单 tag 照常生成、写死 `rating:general` 和负面细项、锁死 V5 Curated，不查生成后的图（ADR-0023）；所有人一条线，泳装、睡衣、躺床放行；自带的一样受约束。
 
 ## Not yet specified
 
