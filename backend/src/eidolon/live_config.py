@@ -554,6 +554,7 @@ class _Rerank(_Item):
 LIMIT_LABELS = {
     "turns_per_hour": "每小时回合数",
     "calls_per_hour": "每小时通话次数",
+    "photos_per_hour": "每小时照片数",
     "call_minutes": "单次通话的时长上限（分钟）",
     "turns_per_call": "单次通话的回合上限",
     "history_turns": "带上的历史回合数",
@@ -587,6 +588,7 @@ class _Limits(_Item):
         return {
             "turns_per_hour": limits.turns_per_hour or 0,
             "calls_per_hour": limits.calls_per_hour or 0,
+            "photos_per_hour": limits.photos_per_hour or 0,
             "call_minutes": limits.call_minutes or 0,
             "turns_per_call": limits.turns_per_call or 0,
             "history_turns": self.c.settings.history_turns or 0,
@@ -862,6 +864,7 @@ class LiveConfig:
             values["calls_per_hour"] or None,
             values["call_minutes"] or None,
             values["turns_per_call"] or None,
+            values["photos_per_hour"] or None,
         )
 
     @property

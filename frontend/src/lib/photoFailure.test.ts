@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { photoFailureNote } from "@/lib/photoFailure";
+import { photoFailureNote, photosUsedUpText } from "@/lib/photoFailure";
 
 describe("photoFailureNote", () => {
   it("says why, with no link", () => {
@@ -13,5 +13,12 @@ describe("photoFailureNote", () => {
   // `toString` is on every object's prototype: a reason is looked up among the reasons' own keys only.
   it.each([null, "toString"])("says the service failed for a reason it does not know: %s", (reason) => {
     expect(photoFailureNote(reason)).toEqual({ reason: "生图服务出错了", toOwnKeys: false });
+  });
+});
+
+describe("photosUsedUpText", () => {
+  it("says from when the user may ask again, as the clock in their time zone reads", () => {
+    expect(photosUsedUpText("2026-09-28T01:05:00Z", "Asia/Shanghai")).toBe("这一小时的照片用完了，09:05 以后可以再要");
+    expect(photosUsedUpText("2026-09-28T15:30:00Z", "Asia/Tokyo")).toBe("这一小时的照片用完了，00:30 以后可以再要");
   });
 });

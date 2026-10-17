@@ -64,17 +64,20 @@ Limit = Annotated[int, Field(ge=0, le=100_000)] | Literal["unlimited"] | None
 
 class LimitsInput(BaseModel):
     """A user's own limits an hour: a number (0: on their own keys only), "unlimited", or
-    None, the deployment's; at least one of the two set."""
+    None, the deployment's; at least one of them set."""
 
     turns_per_hour: Limit = None
     calls_per_hour: Limit = None
+    photos_per_hour: Limit = None
     note: str | None = Field(None, max_length=500)
     """Why, for the admins only."""
 
     @model_validator(mode="after")
     def _any(self) -> "LimitsInput":
-        if self.turns_per_hour is None and self.calls_per_hour is None:
-            raise ValueError("至少要单独设定回合数或通话次数中的一项")
+        if self.turns_per_hour is None and self.calls_per_hour is None and (
+            self.photos_per_hour is None
+        ):
+            raise ValueError("至少要单独设定回合数、通话次数或照片数中的一项")
         return self
 
 
@@ -193,6 +196,7 @@ def add_admin_user_routes(app: FastAPI, backend: Backend) -> None:
         details(user_id)
         limiter.set_user_limits(user_id, UserLimits(
             body.turns_per_hour, body.calls_per_hour, (body.note or "").strip() or None,
+            photos_per_hour=body.photos_per_hour,
         ))
         return details(user_id)
 

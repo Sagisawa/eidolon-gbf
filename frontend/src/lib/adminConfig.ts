@@ -157,7 +157,14 @@ export type FieldKind =
   | "switch";
 
 /** The limits, in the order they are shown. */
-export const LIMIT_FIELDS = ["turns_per_hour", "calls_per_hour", "call_minutes", "turns_per_call", "history_turns"];
+export const LIMIT_FIELDS = [
+  "turns_per_hour",
+  "calls_per_hour",
+  "photos_per_hour",
+  "call_minutes",
+  "turns_per_call",
+  "history_turns",
+];
 
 /** Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md「免限额密钥」), in
  * the order of `OWN_SERVICES`; at least one stays on. */

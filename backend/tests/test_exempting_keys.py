@@ -32,7 +32,8 @@ from tests.test_text_turn import send_turn, start_conversation
 REPLY = ["<ja>はいっ</ja><zh>好的</zh>"]
 LIMITS = "/api/admin/config/limits"
 ENV_LIMITS = {
-    "turns_per_hour": 1, "calls_per_hour": 1, "call_minutes": 10, "turns_per_call": 40,
+    "turns_per_hour": 1, "calls_per_hour": 1, "photos_per_hour": 5, "call_minutes": 10,
+    "turns_per_call": 40,
     "history_turns": 20,
 }
 """The limits as `.env` has them in these tests, but for the exempting keys."""

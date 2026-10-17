@@ -247,6 +247,7 @@ describe("limits", () => {
   const form = {
     turns_per_hour: "2",
     calls_per_hour: UNLIMITED,
+    photos_per_hour: "5",
     call_minutes: "10",
     turns_per_call: "40",
     history_turns: "20",
@@ -265,6 +266,7 @@ describe("limits", () => {
       change: {
         turns_per_hour: 2,
         calls_per_hour: 0,
+        photos_per_hour: 5,
         call_minutes: 10,
         turns_per_call: 40,
         history_turns: 20,

@@ -85,8 +85,9 @@ export {
   Hourglass as CooldownIcon,
 } from "lucide-react";
 
-// 她发来的照片（GLOSSARY.md「照片」）：对话记录里照片生成中的占位、对话列表和历史对话面板里最后一句前的相机，和没发出来时的说明。
-export { Camera as PhotoIcon, ImageOff as PhotoFailedIcon } from "lucide-react";
+// 她发来的照片（GLOSSARY.md「照片」）：对话记录里照片生成中的占位、对话列表和历史对话面板里最后一句前的相机，
+// 没发出来时的说明，和这一小时的照片用完时她那条回复后面的胶囊。
+export { Camera as PhotoIcon, CameraOff as PhotosUsedUpIcon, ImageOff as PhotoFailedIcon } from "lucide-react";
 
 // 导航栏底部（电脑）的 GitHub 仓库链接；品牌标志 Lucide 不收，是 The Library Icon Rule 的例外。
 export { GitHubIcon } from "./GitHubIcon";

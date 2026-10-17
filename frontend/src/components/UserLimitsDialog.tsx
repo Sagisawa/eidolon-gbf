@@ -63,11 +63,12 @@ export function UserLimitsDialog({
 }) {
   const [turns, setTurns] = useState<LimitDraft>(limitDraft(null));
   const [calls, setCalls] = useState<LimitDraft>(limitDraft(null));
+  const [photos, setPhotos] = useState<LimitDraft>(limitDraft(null));
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
-  /** 全站现在的每小时回合数和通话次数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
-  const [site, setSite] = useState<{ turns: number; calls: number } | null>(null);
+  /** 全站现在的每小时回合数、通话次数和照片数（配置页「限额」一项当前生效的值）；读不到时选项只写「跟随全站」。 */
+  const [site, setSite] = useState<{ turns: number; calls: number; photos: number | null } | null>(null);
   /** 全站现在的免限额密钥（同一项里的三个开关）；读不到时「只能用自带密钥」的说明不点名。 */
   const [exemptingKeys, setExemptingKeys] = useState<OwnService[] | null>(null);
   const check = useSubmitCheck<HTMLFormElement>();
@@ -81,8 +82,10 @@ export function UserLimitsDialog({
         const limits = config.limits;
         if (!current || !isAvailable(limits)) return;
         setExemptingKeys(exemptingKeysOf(limits.effective));
-        const { turns_per_hour: turns, calls_per_hour: calls } = limits.effective;
-        if (typeof turns === "number" && typeof calls === "number") setSite({ turns, calls });
+        const { turns_per_hour: turns, calls_per_hour: calls, photos_per_hour: photos } = limits.effective;
+        if (typeof turns === "number" && typeof calls === "number") {
+          setSite({ turns, calls, photos: typeof photos === "number" ? photos : null });
+        }
       },
       () => {},
     );
@@ -96,12 +99,13 @@ export function UserLimitsDialog({
     if (!user) return;
     setTurns(limitDraft(user.limits?.turns_per_hour ?? null));
     setCalls(limitDraft(user.limits?.calls_per_hour ?? null));
+    setPhotos(limitDraft(user.limits?.photos_per_hour ?? null));
     setNote(user.limits?.note ?? "");
     setFailure(null);
     check.reset();
   }, [user]);
 
-  const result = limitsInput(turns, calls);
+  const result = limitsInput(turns, calls, photos);
   // 不先报错、保存键不变灰：点过一次保存才标出不对的项（见 useSubmitCheck）。
   const problemOf = (field: LimitProblem["field"]) =>
     check.shown && "problems" in result ? result.problems.filter((p) => p.field === field) : [];
@@ -156,6 +160,16 @@ export function UserLimitsDialog({
               }
               problems={problemOf("calls")}
             />
+            <LimitField
+              label={t.photos}
+              draft={photos}
+              onChange={setPhotos}
+              site={site?.photos ?? null}
+              siteCount={t.sitePhotos}
+              units={t.photoUnits}
+              ownKeysHint={t.photosOwnKeysHint}
+              problems={problemOf("photos")}
+            />
             <Field>
               <FieldLabel htmlFor={noteId}>{t.note}</FieldLabel>
               <Textarea id={noteId} value={note} onChange={(e) => setNote(e.target.value)} maxLength={NOTE_MAX} />
@@ -180,12 +194,15 @@ export function UserLimitsDialog({
 
 /**
  * 一项限额：先选种类，选了「设定次数」就在这一项底下填数字。四个选项竖排：手机宽度上横排放不下。
+ * 照片按张数说（`siteCount`、`units`），回合和通话按次。
  */
 function LimitField({
   label,
   draft,
   onChange,
   site,
+  siteCount = t.siteCount,
+  units = t.units,
   ownKeysHint,
   problems,
 }: {
@@ -194,6 +211,8 @@ function LimitField({
   onChange: (draft: LimitDraft) => void;
   /** 全站现在的数字，0 是不限；不知道时 null。 */
   site: number | null;
+  siteCount?: (n: number) => string;
+  units?: string;
   /** 「只能用自带密钥」放行的是哪些。 */
   ownKeysHint: string;
   /** 点过保存后这一项不对的地方。 */
@@ -203,7 +222,7 @@ function LimitField({
   const needsCount = problems.some((p) => p.reason === "count");
   const needsOne = problems.some((p) => p.reason === "needsOne");
   const choices: { value: LimitDraft["choice"]; label: string; description?: string }[] = [
-    { value: "default", label: site === null ? t.choices.default : t.defaultIs(t.siteCount(site)) },
+    { value: "default", label: site === null ? t.choices.default : t.defaultIs(siteCount(site)) },
     { value: "number", label: t.choices.number },
     { value: "unlimited", label: t.choices.unlimited },
     { value: "own_keys", label: t.choices.ownKeys, description: ownKeysHint },
@@ -234,7 +253,7 @@ function LimitField({
                       isIntegerOnly
                       isInvalid={needsCount}
                     />
-                    <span className="text-sm text-muted-foreground">{t.units}</span>
+                    <span className="text-sm text-muted-foreground">{units}</span>
                   </div>
                   {needsCount && <FieldError>{t.needsCount}</FieldError>}
                 </div>

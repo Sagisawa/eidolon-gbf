@@ -301,6 +301,7 @@ components:
   - **生成中**：同样大小的占位，`bg-foreground/8`，中间是 muted 的相机图标（`PhotoIcon`，24px，慢慢闪；`prefers-reduced-motion` 时不闪）加一个小转圈，不写字，读屏读「照片正在生成」。到了直接换上照片，位置不跳。生成中照样能发下一句；刷新以后从记录里还原，前端每 2 秒左右问一次，直到不再是生成中。
   - **没发出来**：换成同宽（192px）的一块矮说明，`bg-foreground/5`、`rounded-bubble`、`px-4 py-3`，整块 muted：左边 16px 的 `ImageOff`（`PhotoFailedIcon`），右边一行 0.875rem 的「照片没发出来」，下一行 Meta 字号写原因：等太久了、生图服务出错了、生成的图不对、你的生图密钥没能用、这一小时的照片用完了。自带的生图密钥没能用时再下一行是 Meta 字号的站内链接「去设置自带密钥」（独立成行的写法：前景色、medium，悬停画下划线）。没有重试按钮；刷新以后照样是这块说明。
   - **点开放大**：照片本身是按钮（读屏「放大照片」），点了整屏放大：压 85% 黑（`bg-black/85`，不模糊），照片按比例放到最大（四周留 16px，电脑上 40px，`rounded-lg`），右上角一个 44px 的白色 ✕（悬停 15% 白底）。点照片以外的地方、按 Esc、点 ✕ 都关掉。没有保存、分享按钮。这是 `DialogContent` 的 `viewer` 变体，中性色，不注入她的颜色。
+  - **次数用完的胶囊**：制作人要照片、而这一小时的照片已经用完时，她用自己的话推掉，她那条回复后面插一行居中的胶囊，样子和好感度的变化胶囊一样（`bg-foreground/10`、Meta 字号、muted）：muted 的 `CameraOff`（`PhotosUsedUpIcon`）加「这一小时的照片用完了，HH:MM 以后可以再要」，时刻按制作人的时区写，不写哪天。同一回合改变了好感度时排在变化胶囊后面。它也把前后分成两组。不存进库，刷新后就没了；界面上不显示还剩几张。
 
 **The Bubble Group Rule.** 同一个人连着发的几条成一组：头像和名字只出现在第一条，时间戳只出现在最后一条；组内相邻气泡靠内侧的角收成 `rounded-md`（第一条收下角、最后一条收上角、中间的上下都收）。
 
@@ -357,7 +358,7 @@ components:
 - 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），礼物是 `Gift`（`GiftIcon`），设置是 `Settings`（`SettingsIcon`）。
 - 礼物页：抽奖台的「抽一次」是 `Sparkles`（`DrawIcon`），抽到稀有礼物时插画角上的闪光也是 `Sparkles`（`RareIcon`）；重置卡确认框里「现在的档位 → 信任」的箭头是 `ArrowRight`（`BecomesIcon`）；类别筛选的吃的、饮品、花草、小物件是 `Cookie`（`FoodIcon`）、`CupSoda`（`DrinkIcon`）、`Flower2`（`FlowerIcon`）、`Gem`（`TrinketIcon`）；空状态、未开放和揭晓前跳的礼物盒用 `GiftIcon`，送礼记录的分隔线和对话列表的最后一句也是它；送礼面板里冷却中的沙漏是 `CooldownIcon`。
 - 她结束了对话：对话事件的分隔线和换掉输入栏的结束卡都是 `MessageCircleOff`（`EndedIcon`），历史对话面板里「她结束了」的标记也是它。
-- 她发来的照片：对话记录里照片生成中的占位是 `Camera`（`PhotoIcon`），对话列表和历史对话面板里最后一句前的相机也是它；没发出来时的说明是 `ImageOff`（`PhotoFailedIcon`）。
+- 她发来的照片：对话记录里照片生成中的占位是 `Camera`（`PhotoIcon`），对话列表和历史对话面板里最后一句前的相机也是它；没发出来时的说明是 `ImageOff`（`PhotoFailedIcon`）；这一小时的照片用完时的胶囊是 `CameraOff`（`PhotosUsedUpIcon`）。
 - 对话页更多菜单：新对话 `SquarePen`（`NewConversationIcon`）、历史对话 `History`（`PastConversationsIcon`，历史对话的只读卡也用它）、换衣装 `Shirt`（`OutfitIcon`）。对话列表行菜单：置顶 `Pin`（`PinIcon`）、取消置顶 `PinOff`（`UnpinIcon`）、在列表中隐藏 `EyeOff`（`HideIcon`）、在列表中显示 `Eye`（`ShowIcon`）。
 - 设置一级：档案 `CircleUser`（`ProfileIcon`）、记忆 `BookHeart`（`MemoriesIcon`）、通话 `PhoneIcon`、自带密钥 `KeyRound`（`OwnKeysIcon`）、登录与数据 `LogIn`（`SignInIcon`）、关于 `Info`（`AboutIcon`）。新标签页打开的链接行尾是 `ExternalLink`（`ExternalLinkIcon`）。
 - 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。

@@ -290,14 +290,14 @@ def build(
             "%s have no photo_tag and photo_appearance in the character configuration, and"
             " send no photos", ", ".join(unphotographed),
         )
-    photos = Photos(store, lambda: generator, activity)
-    closers.append(photos.aclose)  # closed before the store, so no photo is still kept
+    usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
+    closers.append(usage.close)
+    photos = Photos(store, lambda: generator, activity, usage)
+    closers.append(photos.aclose)  # closed before the store and usage, so no photo is still kept
     engine = ConversationEngine(
         store, characters, gift_catalog, memories, titles, clock, retrieval,
         lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
     )
-    usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
-    closers.append(usage.close)
     own_keys = OwnKeys(
         own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys
     )

@@ -44,6 +44,7 @@ import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { pastDay } from "@/lib/pastConversations";
+import { photosUsedUpText } from "@/lib/photoFailure";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import {
@@ -56,6 +57,7 @@ import {
   OutfitIcon,
   PastConversationsIcon,
   PhoneIcon,
+  PhotosUsedUpIcon,
   SendIcon,
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
@@ -340,6 +342,7 @@ export function ConversationView({
               hearing=""
               character={character}
               affinityOn={affinity !== null}
+              timeZone={timeZone}
             />
           ) : viewing.status === "failed" ? (
             <Empty className="h-full">
@@ -367,7 +370,13 @@ export function ConversationView({
             </EmptyHeader>
           </Empty>
         ) : (
-          <Messages entries={entries} hearing={hearing} character={character} affinityOn={affinity !== null} />
+          <Messages
+            entries={entries}
+            hearing={hearing}
+            character={character}
+            affinityOn={affinity !== null}
+            timeZone={timeZone}
+          />
         )}
       </div>
       {composer}
@@ -505,6 +514,7 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
  * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复和送礼记录后面是一行变化胶囊。
+ * 这一小时的照片用完时，她推掉的那条回复后面是一行同样的胶囊，几点以后可以再要按制作人的时区（`timeZone`）写。
  * 对话事件占一整行分隔线。
  */
 function Messages({
@@ -512,11 +522,13 @@ function Messages({
   hearing,
   character,
   affinityOn,
+  timeZone,
 }: {
   entries: Entry[];
   hearing: string;
   character: Character;
   affinityOn: boolean;
+  timeZone: string;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
   return (
@@ -537,6 +549,14 @@ function Messages({
                   <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
                     <CueArrowIcon up={line.change.up} className="size-3" />
                     {cueText(line.change, character.name)}
+                  </span>
+                </MessageScrollerItem>
+              ) : line.kind === "photos-used-up" ? (
+                <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
+                  {/* 照片用完的胶囊：样子和变化胶囊一样，不存进库，刷新后就没了 */}
+                  <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                    <PhotosUsedUpIcon aria-hidden className="size-3" />
+                    {photosUsedUpText(line.retryAt, timeZone)}
                   </span>
                 </MessageScrollerItem>
               ) : line.entry.kind === "event" ? (

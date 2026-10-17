@@ -170,12 +170,15 @@ export type ConversationEvent = {
 export type Recorded = Message | ConversationEvent;
 
 /** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
- * `delta`s, then `done` or `error`. `done` says too where the turn left her affinity, null while
- * affinity is off, and her ending the conversation after it, recorded after her reply, if she did. */
+ * `delta`s, then `photos-used-up` if the user asked for a photo with this hour's used up (when they
+ * may ask again, ISO), and `done`, or `error`. `done` says too where the turn left her affinity, null
+ * while affinity is off, and her ending the conversation after it, recorded after her reply, if she
+ * did. */
 export type TurnEvent =
   | { type: "user"; text: string }
   | { type: "photo"; id: string; status: "pending" }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
+  | { type: "photos-used-up"; retry_at: string }
   | { type: "done"; message: Message; affinity: AffinityStatus | null; ended?: ConversationEvent | null }
   | { type: "error"; message: string };
 

@@ -197,6 +197,22 @@ describe("conversationLog", () => {
     expect(pendingPhotos(log)).toEqual(["p2"]);
   });
 
+  it("keeps the photos used up, as told in the turn, on her reply once recorded, until the record is loaded again", () => {
+    const retryAt = "2026-09-28T09:30:00Z";
+    const asked = play([{ type: "submitted", text: "发张自拍", at: NOW }], history);
+    const told = conversationLog(asked, { type: "photos-used-up", retry_at: retryAt });
+    const done = conversationLog(told, { type: "done", message: message(4, "character", "今はだめ"), affinity: null });
+    const reloaded = conversationLog(done, {
+      type: "loaded",
+      messages: [message(1, "user", "早上好"), message(2, "character", "おはよう"), message(3, "user", "发张自拍"), message(4, "character", "今はだめ")],
+    });
+
+    expect(told.entries[3]).toMatchObject({ kind: "character", pending: true, photosUsedUp: retryAt });
+    expect(done.entries[3]).toMatchObject({ key: "m4", photosUsedUp: retryAt });
+    expect(reloaded.entries[3]).not.toHaveProperty("photosUsedUp");
+    expect(conversationLog(told, { type: "error", message: "失败" }).entries).toEqual(history.entries);
+  });
+
   it("takes the turn in progress back off the log on `error` and `interrupted`", () => {
     for (const end of [
       { type: "error", message: "角色暂时无法回复，请稍后再试。" },

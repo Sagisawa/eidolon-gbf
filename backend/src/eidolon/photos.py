@@ -1,11 +1,20 @@
 """The photos she sends with her replies (GLOSSARY.md「照片」): whether a turn could have one,
 what she is told of it, and each photo from her tag to the picture kept with her reply.
 
-A turn could have a photo where the deployer has image generation and she has her photo
-tags (`characters`); only then is the judge model asked whether the user asks for one, and
-only where it says so is she told she can send one, in the system message that changes from
-turn to turn (ADR-0020), or, in the coldest tier of her affinity, that she does not want to.
-A turn that could not have one is as it was before there were photos.
+A turn could have a photo where the deployer has image generation, she has her photo tags
+(`characters`) and the user's limit on photos is not 0 (`usage`); only then is the judge
+model asked whether the user asks for one, and only where it says so is she told she can
+send one, in the system message that changes from turn to turn (ADR-0020), or, in the
+coldest tier of her affinity, that she does not want to. A turn that could not have one is
+as it was before there were photos.
+
+The user's photos are limited an hour, text turns' and calls' alike. A turn only checks
+there is one left (`eligibility`), taking none; with none left, she is told she cannot send
+one now (`USED_UP`), and the user when they may ask again. A photo is counted as it begins
+generating, before it waits its turn; with none left by then, used elsewhere meanwhile, it
+is never sent (`used_up`). One not sent is given back; one that came out but is not kept,
+its reply gone, is not, nor one still being generated as the server stopped, whose use
+nothing tells any more.
 
 A photo begins as her tag closes (`begin`), generating while she goes on speaking; its id is
 the browser's to wait on. It is kept with her reply as the reply is recorded (`recorded`),
@@ -34,6 +43,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
+from datetime import datetime
 
 from eidolon.activity import ActivityLog, Recording, image_origin, recording, timed
 from eidolon.affinity import TIERS, Tier
@@ -41,6 +51,7 @@ from eidolon.characters import Character
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
 from eidolon.photo_prompt import image_prompt, read_tag
 from eidolon.store import PhotoFailure, Store
+from eidolon.usage import OverLimit, UsageLimiter
 
 log = logging.getLogger(__name__)
 
@@ -74,6 +85,12 @@ NOT_NOW = """\
 """What she is told in a turn the user asks for a photo in, her affinity in its coldest
 tier: she does not send one."""
 
+USED_UP = """\
+# 照片
+制作人在要你发一张照片，但你这会儿发不了。用你自己的话推掉，不要写照片标签。"""
+"""What she is told in a turn the user asks for a photo in, their photos this hour used up:
+she does not send one."""
+
 NOT_RECEIVED = """\
 # 没发出去的照片
 上文里标了 status="failed" 的照片没有发出去，制作人没收到。"""
@@ -87,19 +104,32 @@ COLDEST: Tier = TIERS[0][0]
 
 
 @dataclass(frozen=True)
+class Eligibility:
+    """What a turn that could have a photo may send: one, or, the user's photos this hour
+    used up, none until `used_up_until`."""
+
+    used_up_until: datetime | None = None
+
+
+@dataclass(frozen=True)
 class PhotoTurn:
     """What a turn the judge model says asks for a photo comes to: what she is told of it,
-    and whether a photo tag she writes is kept."""
+    whether a photo tag she writes is kept, and, the user's photos used up, when the user
+    may ask again."""
 
     prompt: str
     keeps_tag: bool
+    used_up_until: datetime | None = None
 
 
-def photo_turn(asked: bool, tier: Tier | None) -> PhotoTurn | None:
-    """What a turn that could have a photo comes to, the user having `asked` for one or not,
-    her affinity in `tier` (None where affinity is off); None if not asked."""
+def photo_turn(asked: bool, tier: Tier | None, eligibility: Eligibility) -> PhotoTurn | None:
+    """What a turn that could have a photo, as `eligibility` says, comes to, the user having
+    `asked` for one or not, her affinity in `tier` (None where affinity is off); None if not
+    asked. Used up, she cannot send one, whatever her affinity."""
     if not asked:
         return None
+    if eligibility.used_up_until is not None:
+        return PhotoTurn(USED_UP, keeps_tag=False, used_up_until=eligibility.used_up_until)
     if tier == COLDEST:
         return PhotoTurn(NOT_NOW, keeps_tag=False)
     return PhotoTurn(CAN_SEND, keeps_tag=True)
@@ -132,31 +162,42 @@ class Photos:
         store: Store,
         generator: Callable[[], ImageGenerator | None],
         activity: ActivityLog,
+        usage: UsageLimiter,
     ) -> None:
         """`generator` says, whenever asked, the deployer's image generation in effect;
-        None while there is none. Its requests are recorded in `activity`. The server
-        starting, any photo still being generated when it stopped took too long."""
+        None while there is none. Its requests are recorded in `activity`, each photo
+        counted in `usage`. The server starting, any photo still being generated when it
+        stopped took too long."""
         self._store = store
         self._generator = generator
         self._activity = activity
+        self._usage = usage
         self._queues: dict[str, _Queue] = {}
         self._generating: dict[str, _Generating] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         if given_up := store.give_up_photos("timeout"):
             log.info("%s photos were being generated as the server stopped; not sent", given_up)
 
-    def could_send(self, character: Character) -> bool:
-        """Whether a turn with her could have a photo: there is image generation, and she has
-        her photo tags."""
-        return character.photographed and self._generator() is not None
+    def eligibility(self, character: Character, user_id: str) -> Eligibility | None:
+        """What a turn of the user's with her may send; None if it could have no photo: there
+        is no image generation, she has no photo tags, or the user's limit is 0. Takes none
+        of the user's photos."""
+        if not character.photographed or self._generator() is None:
+            return None
+        try:
+            self._usage.check(user_id, "photo")
+        except OverLimit as e:
+            return None if e.retry_at is None else Eligibility(e.retry_at)
+        return Eligibility()
 
-    def begin(self, character: Character, tag: str) -> str:
-        """Begin the photo her `tag` says, generating, in the turn it is begun in; its id."""
+    def begin(self, character: Character, tag: str, user_id: str) -> str:
+        """Begin the photo her `tag` says, for the user, generating, in the turn it is begun
+        in; its id."""
         photo_id = uuid.uuid4().hex
         self._generating[photo_id] = _Generating()
         until = asyncio.get_running_loop().time() + TIME_LIMIT
         task = asyncio.create_task(
-            self._generate(photo_id, character, tag, until, recording())
+            self._generate(photo_id, character, tag, user_id, until, recording())
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -183,12 +224,39 @@ class Photos:
         photo_id: str,
         character: Character,
         tag: str,
+        user_id: str,
         until: float,
         turn: Recording | None,
     ) -> None:
-        """Generate the photo by `until` (the running loop's time), its request recorded
-        under `turn`."""
+        """Count the photo against the user's limit, and generate it by `until` (the running
+        loop's time), its request recorded under `turn`; given back if not sent."""
         outcome: tuple[bytes | None, PhotoFailure | None]
+        try:
+            use = self._usage.take(user_id, "photo")
+        except OverLimit:
+            log.info("photo %s: the user's photos this hour were used up meanwhile", photo_id)
+            outcome = None, "used_up"
+        else:
+            outcome = await self._generated(photo_id, character, tag, until, turn)
+            if outcome[0] is None:
+                use.give_back()
+        generating = self._generating[photo_id]
+        if generating.dropped:
+            del self._generating[photo_id]
+        elif generating.recorded:
+            self._keep(photo_id, *outcome)
+        else:
+            generating.outcome = outcome
+
+    async def _generated(
+        self,
+        photo_id: str,
+        character: Character,
+        tag: str,
+        until: float,
+        turn: Recording | None,
+    ) -> tuple[bytes | None, PhotoFailure | None]:
+        """The photo generated by `until`, or why it was not."""
         try:
             generator = self._generator()
             if generator is None:
@@ -203,23 +271,16 @@ class Photos:
                         generator.generate(image_prompt(character, read), until),
                         read.stripped,
                     )
-            outcome = image.webp, None
+            return image.webp, None
         except ImageFailed as e:
             log.warning("photo %s was not generated: %s", photo_id, e)
-            outcome = None, e.reason
+            return None, e.reason
         except TimeoutError:
             log.warning("photo %s waited its turn longer than it could; never sent", photo_id)
-            outcome = None, "timeout"
+            return None, "timeout"
         except Exception:  # never left being generated for good
             log.exception("generating photo %s failed", photo_id)
-            outcome = None, "service_error"
-        generating = self._generating[photo_id]
-        if generating.dropped:
-            del self._generating[photo_id]
-        elif generating.recorded:
-            self._keep(photo_id, *outcome)
-        else:
-            generating.outcome = outcome
+            return None, "service_error"
 
     @asynccontextmanager
     async def _turn_on(self, key: str, at_a_time: int, until: float) -> AsyncIterator[None]:

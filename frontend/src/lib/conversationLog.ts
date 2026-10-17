@@ -8,7 +8,8 @@ import type { ConversationEvent, EventKind, Photo, PhotoStatus, Recorded, Segmen
  * under way, when the user sent or said the words, which the reply shares until it is recorded.
  * Her reply keeps how the turn changed her affinity, once recorded, and a gift record how the
  * gift did; null where it did not. A gift record keeps the gift's name too. Her reply keeps the
- * photo she sent with it (GLOSSARY.md「照片」), null if none. */
+ * photo she sent with it (GLOSSARY.md「照片」), null if none; and, in a turn the user asked for a
+ * photo with this hour's used up, when they may ask again (ISO), which is never recorded. */
 export type Entry =
   | { kind: "user"; key: string; text: string; at: string }
   | {
@@ -27,6 +28,7 @@ export type Entry =
       at: string;
       affinity: AffinityChange | null;
       photo: Photo | null;
+      photosUsedUp?: string;
     };
 
 /** The exchange under way: the user's words and the reply, both the last entries shown.
@@ -75,12 +77,21 @@ export function conversationLog(log: ConversationLog, action: LogAction): Conver
       if (!turn) return log;
       return { ...log, entries: replaced(log.entries, turn.replyKey, (e) => withDelta(e, action)) };
     }
+    case "photos-used-up": {
+      const turn = log.turn;
+      if (!turn) return log;
+      const usedUp = (e: Entry): Entry => (e.kind === "character" ? { ...e, photosUsedUp: action.retry_at } : e);
+      return { ...log, entries: replaced(log.entries, turn.replyKey, usedUp) };
+    }
     case "done": {
       const turn = log.turn;
       if (!turn) return log;
       const reply = toEntry(action.message);
-      // A photo already asked about may have come out by now: it stays as it came out.
-      const entries = replaced(log.entries, turn.replyKey, (e) => withPhoto(reply, settledOf(e, reply)));
+      // A photo already asked about may have come out by now: it stays as it came out. The photos
+      // used up stay told of, as they are not recorded.
+      const entries = replaced(log.entries, turn.replyKey, (e) =>
+        withUsedUp(withPhoto(reply, settledOf(e, reply)), e),
+      );
       // She ended the conversation after her reply: that comes after it.
       return { entries: action.ended ? [...entries, toEntry(action.ended)] : entries, turn: null };
     }
@@ -143,6 +154,13 @@ function replaced(entries: Entry[], key: string, update: (entry: Entry) => Entry
 
 function withPhoto(entry: Entry, photo: Photo | null): Entry {
   return entry.kind === "character" ? { ...entry, photo } : entry;
+}
+
+/** The reply as recorded, with the photos used up as the one shown was told of, if it was. */
+function withUsedUp(recorded: Entry, shown: Entry): Entry {
+  return recorded.kind === "character" && shown.kind === "character" && shown.photosUsedUp
+    ? { ...recorded, photosUsedUp: shown.photosUsedUp }
+    : recorded;
 }
 
 /** The photo of the reply as recorded, unless the one shown is that photo, come out already. */

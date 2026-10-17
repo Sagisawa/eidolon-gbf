@@ -173,6 +173,7 @@ DEFAULT_CALLS_PER_HOUR = 5
 DEFAULT_CALL_MINUTES = 10
 DEFAULT_TURNS_PER_CALL = 40
 """About what ten minutes of talking takes; a cap on typing turns in quickly during a call."""
+DEFAULT_PHOTOS_PER_HOUR = 5
 DEFAULT_HISTORY_TURNS = 20
 """How many of a conversation's latest turns the chat model reads; memories carry the rest."""
 
@@ -906,14 +907,15 @@ time limit (`EIDOLON_CALL_MINUTES=0`)."""
 
 @dataclass(frozen=True)
 class UsageLimits:
-    """How many text turns and voice calls each user may start in any hour, counted
-    across all their devices and sign-in methods, and how long and how many turns one
-    call may last; None is no limit."""
+    """How many text turns and voice calls each user may start in any hour, and how many
+    photos she may send them (GLOSSARY.md「照片」), counted across all their devices and
+    sign-in methods, and how long and how many turns one call may last; None is no limit."""
 
     turns_per_hour: int | None = DEFAULT_TURNS_PER_HOUR
     calls_per_hour: int | None = DEFAULT_CALLS_PER_HOUR
     call_minutes: int | None = DEFAULT_CALL_MINUTES
     turns_per_call: int | None = DEFAULT_TURNS_PER_CALL
+    photos_per_hour: int | None = DEFAULT_PHOTOS_PER_HOUR
 
     @classmethod
     def from_env(cls) -> "UsageLimits":
@@ -922,6 +924,7 @@ class UsageLimits:
             calls_per_hour=_limit("EIDOLON_CALLS_PER_HOUR", DEFAULT_CALLS_PER_HOUR),
             call_minutes=_limit("EIDOLON_CALL_MINUTES", DEFAULT_CALL_MINUTES),
             turns_per_call=_limit("EIDOLON_TURNS_PER_CALL", DEFAULT_TURNS_PER_CALL),
+            photos_per_hour=_limit("EIDOLON_PHOTOS_PER_HOUR", DEFAULT_PHOTOS_PER_HOUR),
         )
 
 

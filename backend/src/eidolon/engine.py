@@ -72,11 +72,13 @@ user asks her for one, along with whatever else it is asked, or apart where it i
 nothing else; failing, the turn has none. Asked, she is told so in the system message that
 changes from turn to turn, and may write a photo tag at the front of her reply: unless her
 affinity is in its coldest tier, the photo begins the moment it closes, and `photo` tells
-the browser its id before her first words; any other turn's tag is dropped. Her reply is
-recorded with the photo, being generated; a reply not recorded drops it. From then on her
-prompt carries the tag before her reply, as she wrote it, so she knows what she sent; that
-of a photo not sent after all marked failed, and she is told what that means
-(`photos.NOT_RECEIVED`). Retrieval, memory and the judge model never read it.
+the browser its id before her first words; any other turn's tag is dropped. The user's
+photos this hour used up, she is told she cannot send one now, and `photos-used-up` tells
+the browser when the user may ask again, just before `done`. Her reply is recorded with the
+photo, being generated; a reply not recorded drops it. From then on her prompt carries the
+tag before her reply, as she wrote it, so she knows what she sent; that of a photo not sent
+after all marked failed, and she is told what that means (`photos.NOT_RECEIVED`).
+Retrieval, memory and the judge model never read it.
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -113,7 +115,7 @@ from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.photos import NOT_RECEIVED, Photos, photo_turn
+from eidolon.photos import NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
     format_instructions,
@@ -171,6 +173,15 @@ class PhotoPending:
     id: str
     status: Literal["pending"] = field(default="pending", init=False)
     type: Literal["photo"] = field(default="photo", init=False)
+
+
+@dataclass(frozen=True)
+class PhotosUsedUp:
+    """The user asked for a photo with their photos this hour used up: they may ask again
+    at `retry_at` (ISO). Comes just before `done`."""
+
+    retry_at: str
+    type: Literal["photos-used-up"] = field(default="photos-used-up", init=False)
 
 
 @dataclass(frozen=True)
@@ -248,13 +259,15 @@ TurnEvent = (
     | SegmentComplete
     | CallTurnRecorded
     | TurnJudged
+    | PhotosUsedUp
     | TurnDone
     | TurnFailed
     | TurnRejected
 )
-"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, then `done` or
-`error`. `shown(event)` is the event as it goes out to the browser, except `SpeechDelta`,
-`SegmentComplete`, `CallTurnRecorded` and `TurnJudged`, which do not."""
+"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, then
+`photos-used-up` if the user's photos are, and `done`, or `error`. `shown(event)` is the
+event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
+`CallTurnRecorded` and `TurnJudged`, which do not."""
 
 
 def shown(event: TurnEvent) -> dict:
@@ -501,7 +514,8 @@ class ConversationEngine:
         history = latest_turns(messages, turns)  # what all but the chat model read
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
-        asking_photo = self._could_send_photo(character, in_call)
+        eligibility = self._photo_eligibility(conversation, character, in_call)
+        asking_photo = eligibility is not None
         judged_apart = None
         if (judging or asking_photo) and self._retrieval is None and self._affinity_judge:
             judged_apart = asyncio.ensure_future(
@@ -552,7 +566,10 @@ class ConversationEngine:
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
-        photo_asked = photo_turn(asked_photo, affinity and affinity.tier) if asking_photo else None
+        photo_asked = (
+            photo_turn(asked_photo, affinity and affinity.tier, eligibility)
+            if eligibility is not None else None
+        )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, turns), narrations(record, self._gift_catalog),
@@ -588,7 +605,9 @@ class ConversationEngine:
                         for event in parser.feed(item):
                             if isinstance(event, PhotoTagged):
                                 if photo_asked and photo_asked.keeps_tag:
-                                    yield self._begin_photo(character, event.tag, photo)
+                                    yield self._begin_photo(
+                                        character, event.tag, conversation.user_id, photo
+                                    )
                                 continue
                             yield event
                 finally:
@@ -651,21 +670,26 @@ class ConversationEngine:
                 affinity and affinity.cooldown_until,
                 hurt(judged),
             )
+        if photo_asked and photo_asked.used_up_until is not None:
+            yield PhotosUsedUp(photo_asked.used_up_until.isoformat())
         yield TurnDone(reply.without_cues(), affinity and affinity.shown(), ended and ended.shown())
 
-    def _could_send_photo(self, character: Character, in_call: InCall | None) -> bool:
-        """Whether a turn with her could have a photo, and so the judge model is asked
-        whether it asks for one: a typed turn, there being the judge model to ask."""
+    def _photo_eligibility(
+        self, conversation: Conversation, character: Character, in_call: InCall | None
+    ) -> Eligibility | None:
+        """What a turn with her may send, if it could have a photo, and so the judge model is
+        asked whether it asks for one: a typed turn, there being the judge model to ask."""
         has_judge = self._retrieval is not None or self._affinity_judge is not None
-        return (
-            in_call is None and has_judge
-            and self._photos is not None and self._photos.could_send(character)
-        )
+        if in_call is not None or not has_judge or self._photos is None:
+            return None
+        return self._photos.eligibility(character, conversation.user_id)
 
-    def _begin_photo(self, character: Character, tag: str, photo: _Photo) -> PhotoPending:
-        """Begin the photo her `tag` says, the turn's one."""
+    def _begin_photo(
+        self, character: Character, tag: str, user_id: str, photo: _Photo
+    ) -> PhotoPending:
+        """Begin the photo her `tag` says, the turn's one, for the user."""
         assert self._photos is not None
-        photo.id, photo.tag = self._photos.begin(character, tag), tag
+        photo.id, photo.tag = self._photos.begin(character, tag, user_id), tag
         return PhotoPending(photo.id)
 
     def _affinity(self, conversation: Conversation) -> Status | None:
