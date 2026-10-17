@@ -9,6 +9,7 @@ Driven through the backend's external API, the judge model finding every turn as
 photo, the image service faked at its transport, and a clock the tests control."""
 
 import asyncio
+import sqlite3
 from dataclasses import replace
 from datetime import timedelta
 
@@ -16,6 +17,7 @@ import pytest
 
 from eidolon.config import Settings, UsageLimits
 from eidolon.photos import USED_UP
+from eidolon.usage import UsageKind, UsageLimiter
 from tests.conftest import ClientFactory
 from tests.fakes import (
     HANG,
@@ -173,6 +175,29 @@ async def test_one_whose_photos_are_used_up_elsewhere_meanwhile_is_not_sent_sayi
         {"status": "ready", "reason": None},
     ]
     assert len(image.requests) == 1
+
+
+async def test_one_whose_count_cannot_be_taken_is_not_left_being_generated(
+    make_client: ClientFactory, settings: Settings, monkeypatch: pytest.MonkeyPatch
+):
+    image = FakeImageService()
+    client = make_client(
+        FakeLLM(REPLY), clients=asking(), clock=FakeClock(), image_transport=image.transport()
+    )
+    conversation = await start_conversation(client)
+
+    take = UsageLimiter.take
+
+    def broken(self: UsageLimiter, user_id: str, kind: UsageKind, *args, **kwargs):
+        if kind == "photo":
+            raise sqlite3.OperationalError("database is locked")
+        return take(self, user_id, kind, *args, **kwargs)
+
+    monkeypatch.setattr(UsageLimiter, "take", broken)
+    [photo] = photo_events(await send_turn(client, conversation, ASKED))
+
+    assert await settled(client, photo["id"]) == {"status": "failed", "reason": "service_error"}
+    assert image.requests == []
 
 
 async def test_a_turn_on_the_users_own_llm_still_counts_her_photo(

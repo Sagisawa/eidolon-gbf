@@ -545,19 +545,19 @@ function Messages({
                 </MessageScrollerItem>
               ) : line.kind === "cue" ? (
                 <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
-                  {/* 好感度的变化胶囊：样子和日期条一样，一个升降小箭头加一句话，不用她的颜色 */}
-                  <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                  {/* 好感度的变化胶囊：一个升降小箭头加一句话 */}
+                  <Capsule>
                     <CueArrowIcon up={line.change.up} className="size-3" />
                     {cueText(line.change, character.name)}
-                  </span>
+                  </Capsule>
                 </MessageScrollerItem>
               ) : line.kind === "photos-used-up" ? (
                 <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
-                  {/* 照片用完的胶囊：样子和变化胶囊一样，不存进库，刷新后就没了 */}
-                  <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                  {/* 照片用完的胶囊：不存进库，刷新后就没了 */}
+                  <Capsule>
                     <PhotosUsedUpIcon aria-hidden className="size-3" />
                     {photosUsedUpText(line.retryAt, timeZone)}
-                  </span>
+                  </Capsule>
                 </MessageScrollerItem>
               ) : line.entry.kind === "event" ? (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className="my-3">
@@ -680,4 +680,13 @@ function failureText(failure: Failure): string {
   return [failure.message, failure.toOwnKeys && t.ownLLMExempts, failure.countsTowardLimit === false && t.notCounted]
     .filter(Boolean)
     .join(" ");
+}
+
+/** 对话记录里居中的一颗胶囊（好感度的变化、照片用完）：样子和日期条一样，一个小图标加一句话，不用她的颜色。 */
+function Capsule({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+      {children}
+    </span>
+  );
 }

@@ -74,7 +74,7 @@ BLOCKED: dict[str, dict[str, list[str]]] = {
         ],
         "words": [
             "underwear", "bra", "bras", "panties", "panty", "pantsu", "lingerie", "thong",
-            "g-string", "bunnysuit", "bunny suit", "playboy", "highleg", "garter", "fishnet",
+            "g-string", "bunnysuit", "bunny suit", "bunny girl", "playboy", "highleg", "garter", "fishnet",
             "fishnets", "negligee", "babydoll", "chemise", "bustier", "pasties", "maebari",
             "latex",
         ],

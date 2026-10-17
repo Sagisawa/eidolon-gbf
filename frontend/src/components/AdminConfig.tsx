@@ -685,10 +685,10 @@ function ModelChoiceField({
   error: string | null;
 }) {
   const items = [...options, { value: CUSTOM_MODEL, label: customLabel }];
-  const choice = modelChoice(
-    options.map((o) => o.value),
-    value,
-  );
+  const listed = options.map((o) => o.value);
+  // 选了「其他（手填）」就一直停在上面，手填时半路打出下拉里有的名字也不跳走
+  const [typing, setTyping] = useState(() => modelChoice(listed, value) === CUSTOM_MODEL);
+  const choice = typing ? CUSTOM_MODEL : modelChoice(listed, value);
   return (
     <Field data-invalid={error ? true : undefined}>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
@@ -697,6 +697,7 @@ function ModelChoiceField({
         value={choice}
         onValueChange={(next) => {
           if (!next || next === choice) return;
+          setTyping(next === CUSTOM_MODEL);
           onChange(next === CUSTOM_MODEL ? "" : String(next));
         }}
       >

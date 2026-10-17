@@ -51,3 +51,5 @@
 - 前端：`lib/localOwnKeys.ts` 已经有 `IMAGE_FORMATS`、`IMAGE_MODELS`（第一个是默认的 `nai-diffusion-5-curated`）。后台的模型字段是 `AdminConfig.tsx` 里的 `ModelChoiceField`（Select 加「其他（手填）」），设置页也要用的话按「两屏以上才抽」挪到 `components/app/`。文案 `copy.admin.config.imageFormats`、`imageModels`、`customModel` 可以共用或照抄。
 - **免限额**：后端 `live_config.EXEMPTING_FIELDS` 和 `config.exempting_keys_from_env` 都是从 `SERVICES` 推出来的，前端 `EXEMPTING_FIELDS` 从 `OWN_SERVICES` 推。`Service` 加 `image` 时这三处都要改成只列 LLM、语音合成、语音识别，不然会多出 `exempting_image`。
 - 代理：`PROXIED_SERVICES` 现在是 `…, "stt", "image", "own_llm", "own_tts", "own_stt"`，`own_image` 放在 `own_stt` 后面；后端 `ProxyInput`、`PROXY_LABELS`、前端 `PROXIED_SERVICES` 和 `itemFields.proxy` 各加一项。`test_proxy.py` 里 `before["unconfigured"]` 不会变（自带的不算）。
+
+**第四波自审留下的（2026-10-18）。** `usage.UsageKind` 现在多了 `photo`，类型上能传进 `OwnKeys.exempt(kind, services)`，但那里 `kind == "turn"` 以外一律按通话的免限额密钥判断，照片传进去会算错。自带生图不计次数照票 18 的交接走 `UsageLimiter.take(user_id, "photo", exempt=True)`，别经 `OwnKeys.exempt`；生图也不进免限额密钥的选项。

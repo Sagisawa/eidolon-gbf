@@ -1213,7 +1213,7 @@ export const zh = {
         },
         limits: {
           title: "限额、单次通话上限和历史回合数",
-          hint: "每小时的回合数和通话次数对每位用户分别计算。用了自带 LLM 的文字回合不计入；通话把下面打开的几项免限额密钥都自带了才不计入，没打开的由部署者承担。保存后下一个回合、下一次通话就按新的设置执行；进行中的通话仍按接通时的规则、时长和回合上限。",
+          hint: "每小时的回合数、通话次数和照片数对每位用户分别计算。用了自带 LLM 的文字回合不计入，照片照样计入；通话把下面打开的几项免限额密钥都自带了才不计入，没打开的由部署者承担。保存后下一个回合、下一次通话就按新的设置执行；进行中的通话仍按接通时的规则、时长和回合上限。",
         },
         affinity: {
           title: "好感度和礼物",
@@ -1306,7 +1306,6 @@ export const zh = {
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         image_base_url: "官方格式填到域名根，OpenAI 图像格式填到 /v1。",
-        concurrency: "NovelAI 官方的 token 同时只能生成一张。",
         probability: "0 到 1 之间。",
         exempting_llm: "打开：通话要自带 LLM 才可能不计入限额。关闭：通话的 LLM 由部署者承担，带不带都不影响计数。文字回合不看这里，用了自带 LLM 就不计入。",
         exempting_tts: "打开：通话要自带语音合成（Fish Audio）才可能不计入限额。关闭：语音合成由部署者承担，带不带都不影响计数。",

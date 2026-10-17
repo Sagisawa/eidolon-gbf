@@ -235,6 +235,9 @@ class Photos:
         except OverLimit:
             log.info("photo %s: the user's photos this hour were used up meanwhile", photo_id)
             outcome = None, "used_up"
+        except Exception:  # never left being generated for good
+            log.exception("counting photo %s failed", photo_id)
+            outcome = None, "service_error"
         else:
             outcome = await self._generated(photo_id, character, tag, until, turn)
             if outcome[0] is None:

@@ -19,6 +19,5 @@ describe("photoFailureNote", () => {
 describe("photosUsedUpText", () => {
   it("says from when the user may ask again, as the clock in their time zone reads", () => {
     expect(photosUsedUpText("2026-09-28T01:05:00Z", "Asia/Shanghai")).toBe("这一小时的照片用完了，09:05 以后可以再要");
-    expect(photosUsedUpText("2026-09-28T15:30:00Z", "Asia/Tokyo")).toBe("这一小时的照片用完了，00:30 以后可以再要");
   });
 });

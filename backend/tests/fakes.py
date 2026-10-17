@@ -549,10 +549,10 @@ class FakeBackgroundLLM:
         pass
 
 
-OpenAIAnswer = Literal["b64_json", "data_url", "url", "chat"]
+OpenAIAnswer = Literal["b64_json", "data_url", "url", "not_base64", "chat"]
 """How the fake image service answers in OpenAI's image format: the picture as bare
-base64, as a `data:` URL, as a URL to download it from, or in the shape of a chat
-completion, as a relay of the other kind would."""
+base64, as a `data:` URL, as a URL to download it from, as `b64_json` that is not base64,
+or in the shape of a chat completion, as a relay of the other kind would."""
 
 
 class FakeImageService:
@@ -561,7 +561,8 @@ class FakeImageService:
     came on (`requests`: `key`, `url`, `body`), and answers with one PNG of the size asked
     for, carrying the prompt in its metadata as NovelAI's pictures do (`METADATA` in it):
     in NovelAI's format in a ZIP, in OpenAI's as `openai_answer` has it, a URL to it
-    downloaded from `DOWNLOAD` (each download in `downloads`). With a `gate`, it answers
+    downloaded from `DOWNLOAD` (each download in `downloads`, failing with
+    `download_status` if set). With a `gate`, it answers
     only once the gate is open, as a service taking its time. It can answer amiss instead:
     with an HTTP error (`status`), a picture of another `size`, or what is not a ZIP
     (`garbled`)."""
@@ -574,6 +575,7 @@ class FakeImageService:
         self.downloads: list[str] = []
         self.gate: asyncio.Event | None = None
         self.status: int | None = None
+        self.download_status: int | None = None
         self.size: tuple[int, int] | None = None
         self.garbled = False
         self.openai_answer: OpenAIAnswer = "b64_json"
@@ -585,6 +587,8 @@ class FakeImageService:
     async def handle(self, request: httpx.Request) -> httpx.Response:
         if request.method == "GET" and str(request.url) == self.DOWNLOAD:
             self.downloads.append(str(request.url))
+            if self.download_status is not None:
+                return httpx.Response(self.download_status)
             return httpx.Response(200, content=self._pictures.pop(self.DOWNLOAD))
         openai = request.url.path.endswith("/images/generations")
         assert request.method == "POST" and (
@@ -619,6 +623,8 @@ class FakeImageService:
                 data = {"b64_json": encoded}
             case "data_url":
                 data = {"b64_json": f"data:image/png;base64,{encoded}"}
+            case "not_base64":
+                data = {"b64_json": "not base64!"}
             case "url":
                 self._pictures[self.DOWNLOAD] = picture
                 data = {"url": self.DOWNLOAD}

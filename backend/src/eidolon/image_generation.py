@@ -158,13 +158,20 @@ class ImageGenerator:
         data = answer.get("data") if isinstance(answer, dict) else None
         if not isinstance(data, list) or not all(isinstance(d, dict) for d in data):
             raise _bad_image("不是 OpenAI 图像格式的返回")
-        if data:
-            bill("images", 1)
+        if not data:
+            raise _bad_image("返回了 0 张图")
+        picture = await self._picture(data[0])
+        bill("images", 1)
         if len(data) != 1:
             raise _bad_image(f"返回了 {len(data)} 张图")
-        if isinstance(encoded := data[0].get("b64_json"), str):
+        return picture
+
+    async def _picture(self, item: dict) -> bytes:
+        """The picture one item of OpenAI's image format's `data` gives: decoded, or
+        downloaded on the same client."""
+        if isinstance(encoded := item.get("b64_json"), str):
             return _decoded(encoded)
-        if isinstance(url := data[0].get("url"), str):
+        if isinstance(url := item.get("url"), str):
             downloaded = await self._client.get(url)
             _check_status(downloaded)
             return downloaded.content

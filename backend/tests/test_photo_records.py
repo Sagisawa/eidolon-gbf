@@ -16,7 +16,14 @@ import pytest
 import eidolon.photos
 from eidolon.config import ImageSettings, Settings
 from tests.conftest import ClientFactory
-from tests.fakes import FAKE_JUDGE, FakeClock, FakeIdentityProvider, FakeImageService, FakeLLM
+from tests.fakes import (
+    FAKE_JUDGE,
+    FakeClock,
+    FakeIdentityProvider,
+    FakeImageService,
+    FakeLLM,
+    OpenAIAnswer,
+)
 from tests.test_activity_records import admin_client, dashboard, health
 from tests.test_cost_estimate import listed, row
 from tests.test_photos import IMAGE, REPLY, asking, photo_events, settled
@@ -120,6 +127,37 @@ async def test_a_failed_generation_is_a_call_saying_why_billed_only_a_picture_th
     assert image_row["errors_by_kind"] == {error: 1}
     assert image_row["usage"] == [{"unit": "images", "input": pictures, "output": None}]
     assert "fake image service error" not in str(board)
+
+
+@pytest.mark.parametrize("answer", ["not_base64", "url"])
+async def test_in_openais_image_format_a_picture_not_had_is_billed_none(
+    make_client: ClientFactory,
+    settings: Settings,
+    github: FakeIdentityProvider,
+    answer: OpenAIAnswer,
+):
+    clock = FakeClock()
+    relay = ImageSettings(
+        "relay-key", "https://relay.image.test/v1", "nai-diffusion-4-5-full",
+        api_format="openai",
+    )
+    image = FakeImageService()
+    image.openai_answer = answer
+    image.download_status = 502
+    client = make_client(
+        FakeLLM(REPLY), clients=asking(), settings=replace(settings, image=relay),
+        clock=clock, image_transport=image.transport(),
+    )
+    admin = await admin_client(make_client, github, clock)
+    conversation = await start_conversation(client)
+
+    [photo] = photo_events(await send_turn(client, conversation, "发张自拍给我看看"))
+    came_out = await settled(client, photo["id"])
+    image_row = health(await dashboard(admin), "image")
+
+    assert came_out["status"] == "failed", answer
+    assert image_row is not None
+    assert image_row["usage"] == [{"unit": "images", "input": 0, "output": None}], answer
 
 
 async def test_novelais_v5_curated_is_priced_at_its_preset_by_the_picture(

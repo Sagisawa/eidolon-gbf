@@ -29,13 +29,13 @@ shot: other
 framing: full body
 place: Bathroom, onsen, hot spring, rotenburo, beach, poolside, sparkly sand
 outfit: micro_bikini, {{see-through}}, see_through, nude, bathing suit, one-piece swimsuit, school swimsuit, Lingerie, pajamas
-action: lying, on bed, ahegao, spread legs, from below, blonde hair, twintails, large breasts, artist:rella, 1boy, v sign, looking at camera, rating:explicit
+action: lying, on bed, ahegao, spread legs, from below, blonde hair, twintails, large breasts, artist:someone, 1boy, v sign, looking at camera, rating:explicit
 """
 ALL_OF_IT = """
 shot: other
 framing: upper body
 place: shower
-outfit: lingerie, panties
+outfit: lingerie, panties, bunny_girl
 action: ahegao
 """
 
@@ -84,8 +84,8 @@ async def test_what_crosses_the_line_is_stripped_and_counted_never_named(
     assert image_row is not None
     assert image_row["stripped_photos"] == 2
     assert image_row["stripped"] == {
-        "nudity": 2, "underwear": 5, "exposure": 2, "bathing": 5, "pose": 2,
+        "nudity": 2, "underwear": 6, "exposure": 2, "bathing": 5, "pose": 2,
         "expression": 2, "appearance": 3, "style": 1, "people": 1,
     }
-    for written in ("bathroom", "micro", "lingerie", "ahegao", "blonde", "rella", "1boy"):
+    for written in ("bathroom", "micro", "lingerie", "ahegao", "blonde", "someone", "bunny", "1boy"):
         assert written not in str(board), written
