@@ -12,18 +12,11 @@
 退出码：0 没有问题；1 有问题。
 """
 
-import json
-import pathlib
 import re
 import sys
-import tomllib
 
+from thumbnails import load_characters, load_draft
 from verify import known
-
-HERE = pathlib.Path(__file__).parent
-REPO = HERE.parents[3]
-CONFIG = REPO / "characters" / "characters.toml"
-DRAFT = HERE / "draft.json"
 
 # 票 13 要求角色 tag 在 V5 Curated 已知；V4.5 Curated 是上一个还在用的模型，两个都核。
 MODELS = ("nai-diffusion-5-curated", "nai-diffusion-4-5-curated")
@@ -42,6 +35,7 @@ STYLE = (
 )
 EYES = r"(?:black|brown|grey|red|orange|pink|purple|blue|green|aqua|yellow) eyes"
 ALLOWED = re.compile(rf"^(?:{HAIR}|{STYLE}|{EYES})$")
+EYE_COLOR = re.compile(rf"^{EYES}$")
 TAG = re.compile(r"^[a-z0-9][a-z0-9:' ()-]*$")
 
 
@@ -54,12 +48,8 @@ def main() -> int:
     offline = "--offline" in sys.argv
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，符号会打不出来
 
-    draft = json.loads(DRAFT.read_text(encoding="utf-8"))
-    configured = {
-        character["id"]: character
-        for character in tomllib.loads(CONFIG.read_text(encoding="utf-8"))["characters"]
-    }
-    characters = draft["characters"]
+    configured = {character["id"]: character for character in load_characters()}
+    characters = load_draft()
     problems: list[str] = []
 
     ids = [character["id"] for character in characters]
@@ -79,6 +69,9 @@ def main() -> int:
         if character["enza"] != source["default_outfit"].split("/")[1]:
             problems.append(f"{label}: 默认衣装 {character['enza']} 和配置对不上")
 
+        if not TAG.match(character["photo_tag"]):
+            problems.append(f"{label}: 角色 tag {character['photo_tag']!r} 写法不合规")
+
         appearance = appearance_of(character)
         if not appearance:
             problems.append(f"{label}: 外貌 tag 是空的")
@@ -87,7 +80,7 @@ def main() -> int:
                 problems.append(f"{label}: {tag!r} 写法不合规")
             elif not ALLOWED.match(tag):
                 problems.append(f"{label}: {tag!r} 不是发色/发型/瞳色，混进了别的")
-        if len([tag for tag in appearance if tag.endswith(" eyes")]) != 1:
+        if len([tag for tag in appearance if EYE_COLOR.match(tag)]) != 1:
             problems.append(f"{label}: 瞳色应恰好一条")
         if len(set(appearance)) != len(appearance):
             problems.append(f"{label}: 外貌 tag 有重复")

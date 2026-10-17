@@ -3,19 +3,15 @@
     python dump_draft.py
 """
 
-import json
-import pathlib
 import sys
 
+from thumbnails import load_draft
 from verify_draft import appearance_of
-
-HERE = pathlib.Path(__file__).parent
-DRAFT = HERE / "draft.json"
 
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，中文会打不出来
-    for character in json.loads(DRAFT.read_text(encoding="utf-8"))["characters"]:
+    for character in load_draft():
         print(f"{character['id']:9} {character['photo_tag']:20} {' | '.join(appearance_of(character))}")
 
 

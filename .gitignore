@@ -28,3 +28,5 @@ deploy/event-names.toml
 /.scratch/bailian-stt/prototype/audio/
 # 识别热词实测用的合成录音（.scratch/retrieval-and-hotwords 票 04），不进仓库
 /.scratch/retrieval-and-hotwords/prototype/audio/
+# 照片 tag 校对时裁出的脸部对照图（.scratch/photos 票 13），是原作立绘，不进仓库
+/.scratch/_faces/

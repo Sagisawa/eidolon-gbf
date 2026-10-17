@@ -2,18 +2,17 @@
 
 缩略图是透明背景的 PNG，行内位置随人物宽窄而变（侧身、有帽子的会偏），
 所以先按 alpha 通道求出人物所在的矩形，再从矩形顶端取头部那一块。
-图在仓库外的 `.scratch/_faces/`，不进仓库。
+图写到 `.scratch/_faces/`（已在 `.gitignore` 里），不进仓库。
 
     python face_sheet.py            # 全部 28 位
     python face_sheet.py mamimi yuika
 """
 
-import pathlib
 import sys
 
 from PIL import Image, ImageDraw
 
-from thumbnails import REPO, THUMBS, load_characters, thumbnail
+from thumbnails import REPO, alpha_box, load_characters, thumbnail
 
 OUT = REPO / ".scratch" / "_faces"
 CELL = (440, 470)
@@ -24,19 +23,13 @@ ROWS_PER_SHEET = 4
 def head(character: dict) -> Image.Image:
     """人物缩略图里头顶往下约四成身高那一块（脸和头发）。"""
     full = thumbnail(character)
-    transparent = Image.open(THUMBS / _path_of(character)).convert("RGBA")
-    left, top, right, bottom = transparent.getchannel("A").getbbox() or (0, 0, *full.size)
+    left, top, right, bottom = alpha_box(character)
     width, height = right - left, bottom - top
     pad = int(width * 0.12)
     crop = full.crop(
         (max(left - pad, 0), top, min(right + pad, full.width), top + int(height * 0.42))
     )
     return crop.resize(CELL, Image.LANCZOS)
-
-
-def _path_of(character: dict) -> pathlib.Path:
-    kind, enza = character["default_outfit"].split("/")
-    return pathlib.Path(kind) / f"{enza}.png"
 
 
 def main() -> int:

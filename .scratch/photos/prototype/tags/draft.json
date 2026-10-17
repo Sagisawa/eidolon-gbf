@@ -1,6 +1,6 @@
 {
-  "_comment": "票 13「28 位偶像的照片 tag」的初稿。photo_tag 是角色 tag（Danbooru 写法），photo_appearance 只写发色、发型、瞳色，不写饰物和服装。初稿是对着 characters/characters.toml 里 default_outfit 指的那张缩略图写的（仓库外的对照图见 README.md），每条 tag 由 verify_draft.py 用官方 tag 建议接口核对过是 V5 Curated 的已知 tag。校对以后写进 characters.toml（由票 14 加字段）。",
-  "model": "nai-diffusion-5-curated",
+  "_comment": "票 13「28 位偶像的照片 tag」的初稿。photo_tag 是角色 tag（Danbooru 写法），photo_appearance 只写发色、发型、瞳色，不写饰物和服装。初稿是对着 characters/characters.toml 里 default_outfit 指的那张缩略图写的（对照的拼版是 contact_sheet.png），每条 tag 由 verify_draft.py 用官方 tag 建议接口核对过是 models 里每个模型的已知 tag。校对以后写进 characters.toml（由票 14 加字段）。",
+  "models": ["nai-diffusion-5-curated", "nai-diffusion-4-5-curated"],
   "verified_on": "2026-10-17",
   "characters": [
     {

@@ -7,16 +7,12 @@
     python review_table.py
 """
 
-import json
-import pathlib
 import sys
 
 from PIL import Image, ImageDraw
 
-from thumbnails import REPO, load_characters, thumbnail
+from thumbnails import HERE, load_characters, load_draft, thumbnail
 
-HERE = pathlib.Path(__file__).parent
-DRAFT = HERE / "draft.json"
 OUT = HERE / "contact_sheet.png"
 
 CELL = (300, 375)
@@ -25,9 +21,8 @@ COLUMNS = 7
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，中文会打不出来
-    draft = json.loads(DRAFT.read_text(encoding="utf-8"))
     by_id = {character["id"]: character for character in load_characters()}
-    characters = draft["characters"]
+    characters = load_draft()
 
     rows = (len(characters) + COLUMNS - 1) // COLUMNS
     sheet = Image.new("RGB", (COLUMNS * CELL[0], rows * (CELL[1] + 26)), (250, 250, 250))

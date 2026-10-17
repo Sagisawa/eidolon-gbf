@@ -13,7 +13,7 @@ import sys
 import urllib.parse
 import urllib.request
 
-from thumbnails import load_characters
+from thumbnails import load_draft
 
 APPEARANCE = re.compile(
     r"(hair|eyes|bangs|sidelocks|ahoge|twintails|ponytail|bun|braid|bob cut|curly|wavy|drill|ringlets)"
@@ -38,11 +38,10 @@ def related(tag: str) -> list[tuple[str, float]]:
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，中文会打不出来
     wanted = set(sys.argv[1:])
-    characters = load_characters()
-    for character in characters:
+    for character in load_draft():
         if wanted and character["id"] not in wanted:
             continue
-        tag = character["name_romaji"].lower()
+        tag = character["photo_tag"]
         try:
             rows = related(tag)
         except Exception as error:  # noqa: BLE001 - 查不到就跳过，不挡着别的
