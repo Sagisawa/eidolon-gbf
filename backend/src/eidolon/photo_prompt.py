@@ -18,7 +18,8 @@ empty gets its default. Swimsuits, pajamas, lying on a bed, a pool and the beach
 crossing it. Neither the deployer nor any user changes the table.
 
 The positive prompt is fixed around them: who she is (her character tag and the work's
-tag), her looks, the tags for how the photo is taken, `rating:general` and V5's standard
+tag), the deployment's art style, written in as the deployer wrote it (weights, artists
+and all; none if empty), her looks, the tags for how the photo is taken, `rating:general` and V5's standard
 quality tags, written out rather than left to the service's switch. The negative prompt is
 fixed altogether: `nsfw`, the Human Focus preset, and what no photo of hers shows
 (ADR-0023). Neither the deployer nor any user changes them.
@@ -126,18 +127,34 @@ def read_tag(text: str) -> PhotoTag:
     return PhotoTag(shot, framing, place, outfit, action, tuple(stripped))
 
 
-def image_prompt(character: Character, tag: PhotoTag) -> ImagePrompt:
+def image_prompt(character: Character, tag: PhotoTag, style: str = "") -> ImagePrompt:
     """The prompts a photo of `character` (who has her photo tags) is generated from, as
-    `tag` says it is taken."""
+    `tag` says it is taken, in the art style `style`."""
     assert character.photo_tag is not None and character.photo_appearance is not None
     action = tag.action
     if tag.shot == "other" and not any(g in t for t in action for g in _GAZES):
         action = (*action, LOOKING_AT_VIEWER)
     positive = (
-        "1girl", "solo", character.photo_tag, WORK_TAG, character.photo_appearance,
-        *_shot_tags(tag.shot), tag.framing, *tag.place, *tag.outfit, *action, *QUALITY_TAGS,
+        "1girl", "solo", character.photo_tag, WORK_TAG, *_styled(style),
+        character.photo_appearance, *_shot_tags(tag.shot), tag.framing, *tag.place,
+        *tag.outfit, *action, *QUALITY_TAGS,
     )
     return ImagePrompt(", ".join(positive), NEGATIVE_PROMPT)
+
+
+def check_prompt(style: str = "") -> ImagePrompt:
+    """The prompts a change to an image service is tried with: no one in particular, in the
+    art style `style`, otherwise as any photo is."""
+    positive = (
+        "1girl", "solo", *_styled(style), "upper body", "indoors", "smile", LOOKING_AT_VIEWER,
+        *QUALITY_TAGS,
+    )
+    return ImagePrompt(", ".join(positive), NEGATIVE_PROMPT)
+
+
+def _styled(style: str) -> tuple[str, ...]:
+    """The art style as it is written into a prompt: as it is, or not at all if empty."""
+    return (style.strip(),) if style.strip() else ()
 
 
 def _shot_tags(shot: Shot) -> tuple[str, ...]:

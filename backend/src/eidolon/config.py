@@ -45,13 +45,13 @@ Service = Literal["llm", "tts", "stt"]
 SERVICES: tuple[Service, ...] = get_args(Service)
 
 ProxiedService = Literal[
-    "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt",
+    "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt", "image",
     "own_llm", "own_tts", "own_stt",
 ]
 """What may reach its provider through the proxy (GLOSSARY.md「网络代理」): the deployer's
 services, the chat model, in text turns and calls alike; the memory model; the judge
 model, whichever; the embedding service and the reranker; Fish Audio; the speech
-recognition chosen. Then users' own keys, apart from the deployer's, their providers being
+recognition chosen; image generation, wherever it is. Then users' own keys, apart from the deployer's, their providers being
 their own: their LLMs, background models too, though only to a known provider's host
 (GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech recognition they chose."""
 PROXIED_SERVICES: tuple[ProxiedService, ...] = get_args(ProxiedService)
@@ -164,6 +164,14 @@ DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
 
 DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net"
 DEFAULT_NOVELAI_MODEL = "nai-diffusion-5-curated"
+
+ImageFormat = Literal["novelai", "openai"]
+"""How an image service is spoken to (`image_generation`): in NovelAI's own format, as
+NovelAI and the relays passing requests on as they are take it, or in OpenAI's image
+format, as other relays do. Chosen by whoever configures it, never found out."""
+IMAGE_FORMATS: tuple[ImageFormat, ...] = get_args(ImageFormat)
+MAX_IMAGE_CONCURRENCY = 10
+"""The most photos the deployer's image key may be set to generate at a time."""
 
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
@@ -752,25 +760,50 @@ class JevSettings:
 
 @dataclass(frozen=True)
 class ImageSettings:
-    """Image generation in NovelAI's own format (`/ai/generate-image`, answering with a ZIP),
-    at NovelAI or a relay that passes requests on as they are: `base_url` up to the host."""
+    """An image service (GLOSSARY.md「生图」): in NovelAI's own format, `base_url` up to the
+    host (`/ai/generate-image`, answering with a ZIP), at NovelAI or a relay passing
+    requests on as they are; or in OpenAI's image format, `base_url` up to `/v1`
+    (`/images/generations`). The deployer's generates `concurrency` photos at a time, in the
+    deployment's art style, `style`: tags written into every photo's prompt as they are,
+    weights, artists and all; none if empty."""
 
     api_key: str
     base_url: str = DEFAULT_NOVELAI_BASE_URL
     model: str = DEFAULT_NOVELAI_MODEL
+    api_format: ImageFormat = "novelai"
+    concurrency: int = 1
+    style: str = ""
 
     @classmethod
     def from_env(cls) -> "ImageSettings | None":
-        """`NOVELAI_API_KEY`, without which there is none, `NOVELAI_BASE_URL` and
-        `NOVELAI_MODEL`."""
+        """`NOVELAI_API_KEY`, without which there is none, `NOVELAI_API_FORMAT`,
+        `NOVELAI_BASE_URL`, `NOVELAI_MODEL`, `NOVELAI_CONCURRENCY` and `NOVELAI_STYLE`."""
         api_key = (os.environ.get("NOVELAI_API_KEY") or "").strip()
         if not api_key:
             return None
+        api_format = (os.environ.get("NOVELAI_API_FORMAT") or "").strip() or "novelai"
+        if api_format not in IMAGE_FORMATS:
+            raise RuntimeError(
+                f"环境变量 NOVELAI_API_FORMAT 只能是 {'、'.join(IMAGE_FORMATS)}，而不是 {api_format}"
+            )
+        concurrency = (os.environ.get("NOVELAI_CONCURRENCY") or "").strip() or "1"
+        if not (
+            concurrency.isascii()
+            and concurrency.isdigit()
+            and 1 <= int(concurrency) <= MAX_IMAGE_CONCURRENCY
+        ):
+            raise RuntimeError(
+                f"环境变量 NOVELAI_CONCURRENCY 需要是 1 到 {MAX_IMAGE_CONCURRENCY} 之间的整数，"
+                f"而不是 {concurrency}"
+            )
         return cls(
             api_key=api_key,
             base_url=(os.environ.get("NOVELAI_BASE_URL") or "").strip().rstrip("/")
             or DEFAULT_NOVELAI_BASE_URL,
             model=(os.environ.get("NOVELAI_MODEL") or "").strip() or DEFAULT_NOVELAI_MODEL,
+            api_format=api_format,  # pyright: ignore[reportArgumentType]  # checked above
+            concurrency=int(concurrency),
+            style=(os.environ.get("NOVELAI_STYLE") or "").strip(),
         )
 
 

@@ -1163,11 +1163,19 @@ export const zh = {
     },
     config: {
       intro:
-        "这里改的配置存进数据库，优先于 .env。LLM、语音和判断模型保存前会先试调一次，试不通不保存；保存后新的回合和新的通话立刻用上，进行中的通话不受影响，不用重启。没有标注状态的项用的是 .env 的值。",
+        "这里改的配置存进数据库，优先于 .env。LLM、语音、生图和判断模型保存前会先试调一次，试不通不保存；保存后新的回合和新的通话立刻用上，进行中的通话不受影响，不用重启。没有标注状态的项用的是 .env 的值。",
       loading: "正在读取…",
       /** 页首的分类标签（TabsList 的读屏名）和各个标签。 */
       nav: "配置分类",
-      tabs: { models: "模型", voice: "语音", network: "网络", limits: "限额与玩法", prices: "单价", read_only: "只读" },
+      tabs: {
+        models: "模型",
+        voice: "语音",
+        image: "生图",
+        network: "网络",
+        limits: "限额与玩法",
+        prices: "单价",
+        read_only: "只读",
+      },
       /** 标签里有覆盖没生效的项时，标签旁的琥珀色点念这一句。 */
       tabFailed: "有覆盖没有生效",
       items: {
@@ -1186,6 +1194,10 @@ export const zh = {
         stt: {
           title: "语音识别",
           hint: "选用哪一家，以及它的 key。保存前做一次不花钱的检查，选阿里云百炼时顺带探测 key 所在的地域。新配置只影响之后接通的通话；自带语音识别密钥的用户不受影响。",
+        },
+        image: {
+          title: "生图",
+          hint: "她发的照片由它生成。保存前用固定的提示词带上画风真生成一张来检查，这一张不计用量。",
         },
         judge: {
           title: "判断模型",
@@ -1254,6 +1266,9 @@ export const zh = {
         exempting_tts: "免限额密钥：语音合成",
         exempting_stt: "免限额密钥：语音识别",
         enabled: "好感度和礼物",
+        api_format: "接口形式",
+        concurrency: "同时生成几张",
+        style: "画风",
       } as Record<string, string>,
       /** 只在某一项里换个叫法的字段：对话模型的思考强度只管文字对话。 */
       itemFields: {
@@ -1269,6 +1284,7 @@ export const zh = {
           rerank: "重排走代理",
           tts: "语音合成走代理",
           stt: "语音识别走代理",
+          image: "生图走代理",
           own_llm: "自带的 LLM 走代理",
           own_tts: "自带的语音合成走代理",
           own_stt: "自带的语音识别走代理",
@@ -1289,6 +1305,8 @@ export const zh = {
         proxy_own_llm: "只有服务地址属于已知服务商（价格目录里有的）时才走代理，其余的照旧直连。",
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
+        image_base_url: "官方格式填到域名根，OpenAI 图像格式填到 /v1。",
+        concurrency: "NovelAI 官方的 token 同时只能生成一张。",
         probability: "0 到 1 之间。",
         exempting_llm: "打开：通话要自带 LLM 才可能不计入限额。关闭：通话的 LLM 由部署者承担，带不带都不影响计数。文字回合不看这里，用了自带 LLM 就不计入。",
         exempting_tts: "打开：通话要自带语音合成（Fish Audio）才可能不计入限额。关闭：语音合成由部署者承担，带不带都不影响计数。",
@@ -1303,6 +1321,7 @@ export const zh = {
         probability: (field: string) => `${field}需要是 0 到 1 之间的数。`,
         seconds: (field: string) => `${field}需要大于 0、不超过 30。`,
         limit: (field: string) => `${field}需要是 1 以上的整数；不想限制就选「不限」。`,
+        count: (field: string) => `${field}需要是 1 到 10 之间的整数。`,
       },
       unlimited: "不限",
       /** 开关类的值（免限额密钥、好感度和礼物）。 */
@@ -1317,6 +1336,17 @@ export const zh = {
         cloudflare: "Cloudflare Workers AI",
       } as Record<string, string>,
       regions: { beijing: "北京", singapore: "新加坡" } as Record<string, string>,
+      imageFormats: { novelai: "NovelAI 官方格式", openai: "OpenAI 图像格式" } as Record<string, string>,
+      imageModels: {
+        "nai-diffusion-5-curated": "V5 Curated",
+        "nai-diffusion-5-full": "V5 Full",
+        "nai-diffusion-4-5-curated": "V4.5 Curated",
+        "nai-diffusion-4-5-full": "V4.5 Full",
+        "nai-diffusion-4-curated-preview": "V4 Curated",
+        "nai-diffusion-4-full": "V4 Full",
+      } as Record<string, string>,
+      /** 模型下拉里的最后一项：选了它，下面出一个框手填模型名。 */
+      customModel: "其他（手填）",
       followsChat:
         "当前跟随扮演角色的 LLM：.env 里没有给它单独设置服务和模型，后台也没有覆盖，所以接口类型、地址、key 和模型名用的是扮演角色的 LLM 当前生效的值；max_tokens、思考强度和额外请求参数仍是它自己的（.env 的 BACKGROUND_LLM_*）。在这里保存后就单独设置。",
       forModel: (model: string) =>

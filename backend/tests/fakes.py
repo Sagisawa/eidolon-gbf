@@ -1,6 +1,7 @@
 """Test doubles for external services."""
 
 import asyncio
+import base64
 import html
 import hashlib
 import io
@@ -10,7 +11,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Se
 from dataclasses import dataclass, field, replace
 import re
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 import zipfile
 from http import HTTPStatus
 from urllib.parse import quote, unquote, urlencode
@@ -548,28 +549,47 @@ class FakeBackgroundLLM:
         pass
 
 
+OpenAIAnswer = Literal["b64_json", "data_url", "url", "chat"]
+"""How the fake image service answers in OpenAI's image format: the picture as bare
+base64, as a `data:` URL, as a URL to download it from, or in the shape of a chat
+completion, as a relay of the other kind would."""
+
+
 class FakeImageService:
-    """Stands in for image generation in NovelAI's own format (`POST /ai/generate-image`):
-    records each request, with the key it came on (`requests`: `key`, `url`, `body`), and
-    answers with a ZIP of one PNG of the size asked for, carrying the prompt in its metadata
-    as NovelAI's pictures do (`METADATA` in it). With a `gate`, it answers only once the
-    gate is open, as a service taking its time. It can answer amiss instead: with an HTTP
-    error (`status`), a picture of another `size`, or what is not a ZIP (`garbled`)."""
+    """Stands in for image generation in NovelAI's own format (`POST /ai/generate-image`)
+    and in OpenAI's (`POST /images/generations`): records each request, with the key it
+    came on (`requests`: `key`, `url`, `body`), and answers with one PNG of the size asked
+    for, carrying the prompt in its metadata as NovelAI's pictures do (`METADATA` in it):
+    in NovelAI's format in a ZIP, in OpenAI's as `openai_answer` has it, a URL to it
+    downloaded from `DOWNLOAD` (each download in `downloads`). With a `gate`, it answers
+    only once the gate is open, as a service taking its time. It can answer amiss instead:
+    with an HTTP error (`status`), a picture of another `size`, or what is not a ZIP
+    (`garbled`)."""
 
     METADATA = "fake NovelAI metadata"
+    DOWNLOAD = "https://files.image.test/picture.png"
 
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
+        self.downloads: list[str] = []
         self.gate: asyncio.Event | None = None
         self.status: int | None = None
         self.size: tuple[int, int] | None = None
         self.garbled = False
+        self.openai_answer: OpenAIAnswer = "b64_json"
+        self._pictures: dict[str, bytes] = {}
 
     def transport(self) -> httpx.AsyncBaseTransport:
         return httpx.MockTransport(self.handle)
 
     async def handle(self, request: httpx.Request) -> httpx.Response:
-        assert request.method == "POST" and request.url.path.endswith("/ai/generate-image")
+        if request.method == "GET" and str(request.url) == self.DOWNLOAD:
+            self.downloads.append(str(request.url))
+            return httpx.Response(200, content=self._pictures.pop(self.DOWNLOAD))
+        openai = request.url.path.endswith("/images/generations")
+        assert request.method == "POST" and (
+            openai or request.url.path.endswith("/ai/generate-image")
+        )
         body = json.loads(request.content)
         self.requests.append({
             "key": request.headers["authorization"].removeprefix("Bearer "),
@@ -582,10 +602,32 @@ class FakeImageService:
             return httpx.Response(self.status, json={"error": "fake image service error"})
         if self.garbled:
             return httpx.Response(200, content=b"<html>not a ZIP</html>")
+        if openai:
+            asked_width, asked_height = (int(n) for n in body["size"].split("x"))
+            width, height = self.size or (asked_width, asked_height)
+            picture = png(width, height, f"{self.METADATA}: {body['prompt']}")
+            return self._openai(picture)
         parameters = body["parameters"]
         width, height = self.size or (parameters["width"], parameters["height"])
         picture = png(width, height, f"{self.METADATA}: {body['input']}")
         return httpx.Response(200, content=zipped({"image_0.png": picture}))
+
+    def _openai(self, picture: bytes) -> httpx.Response:
+        encoded = base64.b64encode(picture).decode()
+        match self.openai_answer:
+            case "b64_json":
+                data = {"b64_json": encoded}
+            case "data_url":
+                data = {"b64_json": f"data:image/png;base64,{encoded}"}
+            case "url":
+                self._pictures[self.DOWNLOAD] = picture
+                data = {"url": self.DOWNLOAD}
+            case "chat":
+                content = f"![image](data:image/png;base64,{encoded})"
+                return httpx.Response(200, json={
+                    "choices": [{"message": {"role": "assistant", "content": content}}],
+                })
+        return httpx.Response(200, json={"created": 0, "data": [data]})
 
 
 def png(width: int, height: int, comment: str = "") -> bytes:

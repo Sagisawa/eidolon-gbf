@@ -1,19 +1,28 @@
 """Image generation (GLOSSARY.md「生图」): one picture from a prompt, checked and made into what
 a photo is kept as.
 
-The deployer's is reached in NovelAI's own format: `POST {base_url}/ai/generate-image` with a
-bearer token, answering with a ZIP of the picture, at NovelAI or a relay passing requests on
-as they are. Every request asks for one picture of 832×1216 at 23 steps, scale 7 with Euler
-Ancestral, from a random seed, in the shape of V4's prompts and later; none of it is anyone's
-to set. What comes back is checked: a ZIP holding exactly one picture, 832×1216. It is kept
-as WebP, its size as it is, every bit of metadata dropped, the prompt the PNG carries among
-it. Only the server calls the service; browsers never do.
+An image service is reached in the format whoever configured it chose (`ImageFormat`),
+never found out. In NovelAI's own: `POST {base_url}/ai/generate-image` with a bearer
+token, answering with a ZIP of the picture, at NovelAI or a relay passing requests on as
+they are; every request asks for one picture of 832×1216 at 23 steps, scale 7 with Euler
+Ancestral, from a random seed, in the shape of V4's prompts and later. In OpenAI's image
+format: `POST {base_url}/images/generations`, the address up to `/v1`, asking at the top
+level for one picture of that size with the negative prompt, as base64 (`b64_json`, with
+a `data:` prefix or without); one answered with a URL instead is downloaded on the same
+client, in the same time. An answer in any other shape, a chat completion's among them,
+is not a picture. None of it is anyone's to set. What comes back is checked: exactly one
+picture, 832×1216. It is kept as WebP, its size as it is, every bit of metadata dropped,
+the prompt the PNG carries among it. Only the server calls the service; browsers never do.
 
 A request is billed in pictures (`billing`): one where the service answered with a picture,
-of the size asked for or not, none where it answered with an error, or not in time.
+of the size asked for or not, none where it answered with an error, or not in time. A
+change to an image service is tried by generating one picture (`try_image_service`), which
+is billed for nothing and recorded nowhere.
 """
 
 import asyncio
+import base64
+import binascii
 import io
 import random
 import zipfile
@@ -25,7 +34,7 @@ from PIL import Image, UnidentifiedImageError
 
 from eidolon.billing import bill
 from eidolon.config import ImageSettings
-from eidolon.photo_prompt import ImagePrompt
+from eidolon.photo_prompt import ImagePrompt, check_prompt
 
 WIDTH, HEIGHT = 832, 1216
 STEPS = 23
@@ -48,6 +57,7 @@ class ImageFailed(Exception):
     def __init__(self, reason: Failure, detail: str) -> None:
         super().__init__(f"{reason}: {detail}")
         self.reason: Failure = reason
+        self.detail = detail
 
 
 def _bad_image(why: str) -> ImageFailed:
@@ -95,7 +105,8 @@ def generation_request(model: str, prompt: ImagePrompt, seed: int) -> dict:
 
 
 class ImageGenerator:
-    """Generates pictures at the image service `settings` name, over `client`."""
+    """Generates pictures at the image service `settings` name, over `client`; whoever
+    made the client closes it."""
 
     def __init__(self, settings: ImageSettings, client: httpx.AsyncClient) -> None:
         self.settings = settings
@@ -105,34 +116,99 @@ class ImageGenerator:
         """One picture for `prompt`, as kept, had by `until` (the running loop's time) at
         the latest. Raises ImageFailed saying why there is none. Tells what it is billed
         for (`billing`): one picture once the service answered with any, none before."""
-        body = generation_request(
-            self.settings.model, prompt, random.SystemRandom().randint(0, MAX_SEED)
-        )
         bill("images", 0)
         try:
             async with asyncio.timeout_at(until):
-                res = await self._client.post(
-                    f"{self.settings.base_url}/ai/generate-image",
-                    json=body,
-                    headers={"Authorization": f"Bearer {self.settings.api_key}"},
-                )
+                if self.settings.api_format == "openai":
+                    picture = await self._openai(prompt)
+                else:
+                    picture = await self._novelai(prompt)
         except (TimeoutError, httpx.TimeoutException) as e:
             raise ImageFailed("timeout", f"生图服务没有及时回应：{e!r}") from e
         except httpx.HTTPError as e:
             raise ImageFailed("service_error", f"无法连接生图服务：{e!r}") from e
-        if res.status_code >= 400:
-            raise ImageFailed(
-                "service_error", f"生图服务返回 {res.status_code}: {res.text[:300]}"
-            )
+        return GeneratedImage(kept_as_webp(picture))
+
+    async def _novelai(self, prompt: ImagePrompt) -> bytes:
+        body = generation_request(
+            self.settings.model, prompt, random.SystemRandom().randint(0, MAX_SEED)
+        )
+        res = await self._client.post(
+            f"{self.settings.base_url}/ai/generate-image", json=body, headers=self._auth()
+        )
+        _check_status(res)
         pictures = files_in(res.content)
         if pictures:
             bill("images", 1)
         if len(pictures) != 1:
             raise _bad_image(f"ZIP 里有 {len(pictures)} 个文件")
-        return GeneratedImage(kept_as_webp(pictures[0]))
+        return pictures[0]
 
-    async def aclose(self) -> None:
-        await self._client.aclose()
+    async def _openai(self, prompt: ImagePrompt) -> bytes:
+        res = await self._client.post(
+            f"{self.settings.base_url}/images/generations",
+            json=openai_request(self.settings.model, prompt),
+            headers=self._auth(),
+        )
+        _check_status(res)
+        try:
+            answer = res.json()
+        except ValueError:
+            raise _bad_image("不是 JSON") from None
+        data = answer.get("data") if isinstance(answer, dict) else None
+        if not isinstance(data, list) or not all(isinstance(d, dict) for d in data):
+            raise _bad_image("不是 OpenAI 图像格式的返回")
+        if data:
+            bill("images", 1)
+        if len(data) != 1:
+            raise _bad_image(f"返回了 {len(data)} 张图")
+        if isinstance(encoded := data[0].get("b64_json"), str):
+            return _decoded(encoded)
+        if isinstance(url := data[0].get("url"), str):
+            downloaded = await self._client.get(url)
+            _check_status(downloaded)
+            return downloaded.content
+        raise _bad_image("返回里没有 b64_json，也没有 url")
+
+    def _auth(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.settings.api_key}"}
+
+
+def openai_request(model: str, prompt: ImagePrompt) -> dict:
+    """The body OpenAI's image format, `/images/generations`, is sent for `prompt` with
+    `model`: what it asks for at the top level, as relays read it."""
+    return {
+        "model": model,
+        "prompt": prompt.positive,
+        "negative_prompt": prompt.negative,
+        "size": f"{WIDTH}x{HEIGHT}",
+        "n": 1,
+        "response_format": "b64_json",
+    }
+
+
+async def try_image_service(generator: ImageGenerator) -> None:
+    """Generate one picture, from a fixed prompt in the art style of `generator`'s settings,
+    as a change to an image service is tried; raises ImageFailed saying why there is none.
+    Billed for nothing and recorded nowhere: no `billing` is open for it, nor is it timed
+    into the activity log."""
+    until = asyncio.get_running_loop().time() + TIME_LIMIT
+    await generator.generate(check_prompt(generator.settings.style), until)
+
+
+def _check_status(res: httpx.Response) -> None:
+    if res.status_code >= 400:
+        raise ImageFailed("service_error", f"生图服务返回 {res.status_code}: {res.text[:300]}")
+
+
+def _decoded(encoded: str) -> bytes:
+    """The picture base64 `encoded`, with a `data:` URL's prefix or without."""
+    if encoded.startswith("data:"):
+        encoded = encoded.partition(",")[2]
+    try:
+        return base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise _bad_image("b64_json 不是 base64") from None
 
 
 def files_in(archive: bytes) -> list[bytes]:

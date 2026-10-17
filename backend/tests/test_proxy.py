@@ -18,6 +18,7 @@ from eidolon.call import ProxiedSoniox, SpeechServices
 from eidolon.config import (
     DEFAULT_BAILIAN_STT_MODEL,
     ChatModelSettings,
+    ImageSettings,
     LLMSettings,
     PROXIED_SERVICES,
     ProxiedService,
@@ -431,9 +432,9 @@ async def test_a_proxy_out_of_reach_is_said_so_its_password_masked(provider: Fak
 
 def test_env_sets_the_proxy_and_the_services_through_it(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EIDOLON_PROXY_URL", " socks5h://127.0.0.1:7891/ ")
-    monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "chat_llm, tts, own_llm")
+    monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "chat_llm, tts, image, own_llm")
     assert proxy_from_env() == ProxySettings(
-        "socks5h://127.0.0.1:7891", True, frozenset({"chat_llm", "tts", "own_llm"})
+        "socks5h://127.0.0.1:7891", True, frozenset({"chat_llm", "tts", "image", "own_llm"})
     )
     monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "all")
     assert proxy_from_env().services == frozenset(PROXIED_SERVICES)
@@ -525,7 +526,7 @@ async def test_a_saved_proxy_is_tried_on_the_services_it_reroutes_then_holds_unt
     assert restored.status_code == 200, restored.text
 
     assert before["status"] == "env" and before["effective"]["enabled"] is False
-    assert before["unconfigured"] == ["judge", "embedding", "rerank"]
+    assert before["unconfigured"] == ["judge", "embedding", "rerank", "image"]
     # The judge model is not configured, users' own keys are not here: neither is tried.
     # The password, kept apart, is not shown.
     proxy = "http://me:hunter2@127.0.0.1:7890"
@@ -540,6 +541,39 @@ async def test_a_saved_proxy_is_tried_on_the_services_it_reroutes_then_holds_unt
     )
     assert again.json()["proxy"]["effective"]["password_last4"] == "ter2"  # left out: kept
     assert routes_of(client) == ProxySettings(None, False, frozenset())
+
+
+async def test_the_deployers_image_generation_goes_through_the_proxy_ticked_for_it(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider,
+    proxy: FakeProxy, provider: FakeProvider,
+):
+    settings = replace(admins, proxy=through(proxy, "image"))
+    client = await admin_client(make_client, settings, github, FakeServiceClients(FakeLLM(REPLY)))
+
+    tried = await client.put("/api/admin/config/image", json={
+        "api_format": "novelai", "base_url": provider.url, "model": "nai-diffusion-5-curated",
+        "concurrency": 1, "api_key": "pst-key-1234",
+    })
+
+    assert tried.status_code == 422  # the provider here answers with no picture
+    assert proxy.went == [where(provider)]
+    assert provider.hits == 1
+
+
+async def test_a_proxy_ticked_for_image_generation_is_tried_on_its_address(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    tried = FakeReach()
+    settings = replace(admins, image=ImageSettings("pst-key", "https://relay.image.test"))
+    client = await proxy_admin(make_client, settings, github, tried)
+
+    saved = await client.put(
+        PROXY, json={"enabled": True, "url": "http://127.0.0.1:7890"} | ALL_OFF | {"image": True}
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert tried.reached == [("https://relay.image.test", "http://127.0.0.1:7890")]
+    assert "image" not in saved.json()["proxy"]["unconfigured"]
 
 
 async def test_a_proxy_some_service_cannot_reach_through_is_not_kept(

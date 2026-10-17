@@ -26,12 +26,14 @@ Nothing stops a photo once begun, not the page closing: what it costs is spent, 
 never asked for again either. A photo still being generated when the server stopped never
 will be: it is kept as having taken too long once the server starts again.
 
-Each key to an image service generates so many photos at a time (the deployer's, one), the
-others waiting their turn, first come first served, however many. None takes longer than
-`TIME_LIMIT` from her tag on, waiting its turn included; one that waited all of it was
-never sent, and one that comes back later is left. Begun in a turn, a photo is generated
-in the turn's context: its request to the image service is a service call recorded under
-the turn (`activity`), however long after it the photo comes out; one never sent is none.
+Each key to an image service generates so many photos at a time (the deployer's, as many
+as it is set to), the others waiting their turn, first come first served, however many; a
+key set to another number from then on generates as many apart from those it had under
+way. None takes longer than `TIME_LIMIT` from her tag on, waiting its turn included; one
+that waited all of it was never sent, and one that comes back later is left. Begun in a
+turn, a photo is generated in the turn's context: its request to the image service is a
+service call recorded under the turn (`activity`), however long after it the photo comes
+out; one never sent is none.
 
 Her later turns carry the tag of a photo not sent marked failed, and tell her what that
 means (`NOT_RECEIVED`), so that she knows the user never saw it.
@@ -97,9 +99,6 @@ NOT_RECEIVED = """\
 """What she is told in a turn whose history has a photo she sent that was not sent after
 all, its tag marked `status="failed"`."""
 
-DEPLOYERS_AT_A_TIME = 1
-"""How many photos the deployer's key generates at a time: NovelAI's own token, one."""
-
 COLDEST: Tier = TIERS[0][0]
 
 
@@ -147,7 +146,7 @@ class _Generating:
 
 @dataclass
 class _Queue:
-    """The photos generating on one key, at most so many at a time (`room`), and how many
+    """The photos generating on one key at most so many at a time (`room`), and how many
     are, or are waiting their turn."""
 
     room: asyncio.Semaphore
@@ -172,7 +171,7 @@ class Photos:
         self._generator = generator
         self._activity = activity
         self._usage = usage
-        self._queues: dict[str, _Queue] = {}
+        self._queues: dict[tuple[str, int], _Queue] = {}
         self._generating: dict[str, _Generating] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         if given_up := store.give_up_photos("timeout"):
@@ -263,12 +262,12 @@ class Photos:
                 raise ImageFailed("service_error", "image generation is off")
             settings = generator.settings
             read = read_tag(tag)
-            async with self._turn_on(settings.api_key, DEPLOYERS_AT_A_TIME, until):
+            async with self._turn_on(settings.api_key, settings.concurrency, until):
                 with turn.current() if turn is not None else nullcontext():
                     image = await timed(
                         self._activity,
                         image_origin(settings),
-                        generator.generate(image_prompt(character, read), until),
+                        generator.generate(image_prompt(character, read, settings.style), until),
                         read.stripped,
                     )
             return image.webp, None
@@ -286,8 +285,11 @@ class Photos:
     async def _turn_on(self, key: str, at_a_time: int, until: float) -> AsyncIterator[None]:
         """Wait, first come first served, for the image service to have room for one more
         photo on `key`, `at_a_time` generating at most; raises TimeoutError if there is
-        none by `until` (the running loop's time)."""
-        queue = self._queues.setdefault(key, _Queue(asyncio.Semaphore(at_a_time)))
+        none by `until` (the running loop's time). Those on the key at another number wait
+        apart."""
+        queue = self._queues.setdefault(
+            (key, at_a_time), _Queue(asyncio.Semaphore(at_a_time))
+        )
         queue.photos += 1
         try:
             async with asyncio.timeout_at(until):
@@ -301,7 +303,7 @@ class Photos:
         finally:
             queue.photos -= 1
             if not queue.photos:
-                del self._queues[key]
+                del self._queues[key, at_a_time]
 
     def _keep(self, photo_id: str, image: bytes | None, reason: PhotoFailure | None) -> None:
         del self._generating[photo_id]

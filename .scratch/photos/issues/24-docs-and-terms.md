@@ -32,3 +32,8 @@
 - 建议接口不返回露骨的 tag：写死的负面细项里 `nude`、`nipples`、`pantyshot`（还有 `nsfw`）核对不到，照样留着；其余七项都是已知 tag。
 
 **票 18 留下的（2026-10-17）。** `docs/configuration.md`（和英文、日文版）的限额表（「每小时语音通话 | 5 次 | `EIDOLON_CALLS_PER_HOUR`」那张）还没有照片一行：每小时照片数，默认 5 张，`EIDOLON_PHOTOS_PER_HOUR`，0 表示不限，文字回合和通话共用，没发出来的不算，自带生图的不算（票 20）。`.env.example` 已经写了。`GLOSSARY.md`「限额」也补了一句照片的张数。
+
+**票 19 留下的（2026-10-17）。** `.env.example` 的生图一段已经写了 `NOVELAI_API_FORMAT`、`NOVELAI_CONCURRENCY`（1 到 10，默认 1）、`NOVELAI_STYLE`，`EIDOLON_PROXY_SERVICES` 的说明加了 `image`，`docs/configuration.md` 照它写、和代码对齐。要写进文档的口径：
+- 后台「生图」标签保存时用固定的提示词（不带角色，带画风）按 832×1216 真生成一张，花一张的钱，不计用量、不进运行记录；只在这张卡的值变了时生成；服务器重启时不再生成。
+- OpenAI 图像格式只发顶层的 `model`、`prompt`、`negative_prompt`、`size`、`n`、`response_format: "b64_json"`，种子和步数不发，中转用自己的；回 `url` 时下载也算在 90 秒里。chat 形状的返回不认。
+- 切换接口形式不会改地址：官方格式填到域名根，OpenAI 图像格式填到 `/v1`。

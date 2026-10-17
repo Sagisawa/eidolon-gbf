@@ -11,10 +11,18 @@ from pydantic import BaseModel, Field, StrictBool, ValidationError, field_valida
 
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
-from eidolon.config import FishAudioModel, JudgeProvider, LLMProtocol, SttProvider
+from eidolon.config import (
+    MAX_IMAGE_CONCURRENCY,
+    FishAudioModel,
+    ImageFormat,
+    JudgeProvider,
+    LLMProtocol,
+    SttProvider,
+)
 from eidolon.live_config import (
     AFFINITY,
     CHAT_LLM,
+    IMAGE,
     JUDGE,
     JUDGE_THRESHOLDS,
     LIMITS,
@@ -72,6 +80,20 @@ class STTInput(BaseModel):
 
     provider: SttProvider
     api_key: str | None = ApiKey
+
+
+class ImageInput(BaseModel):
+    """Image generation; without `api_key`, its key stays as it is. An art style left out
+    or empty is none."""
+
+    api_format: ImageFormat
+    base_url: str = Field(min_length=1, max_length=500)
+    model: str = Field(min_length=1, max_length=200)
+    concurrency: int = Field(ge=1, le=MAX_IMAGE_CONCURRENCY)
+    style: str | None = Field(None, max_length=1000)
+    api_key: str | None = ApiKey
+
+    _trim = field_validator("base_url", "model")(_trimmed)
 
 
 class JudgeInput(BaseModel):
@@ -135,6 +157,7 @@ class ProxyInput(BaseModel):
     rerank: StrictBool
     tts: StrictBool
     stt: StrictBool
+    image: StrictBool
     own_llm: StrictBool
     own_tts: StrictBool
     own_stt: StrictBool
@@ -145,6 +168,7 @@ INPUTS: dict[str, type[BaseModel]] = {
     MEMORY_LLM: LLMInput,
     TTS: TTSInput,
     STT: STTInput,
+    IMAGE: ImageInput,
     JUDGE: JudgeInput,
     JUDGE_THRESHOLDS: JudgeThresholdsInput,
     RERANK: RerankInput,

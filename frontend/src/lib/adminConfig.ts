@@ -3,7 +3,15 @@
 // 各项的字段、表单的换算和校验都写在这里，页面只负责摆放。
 
 import { api, json } from "@/lib/api";
-import { FISH_AUDIO_MODELS, LLM_PROTOCOLS, OWN_SERVICES, STT_PROVIDERS, type OwnService } from "@/lib/localOwnKeys";
+import {
+  FISH_AUDIO_MODELS,
+  IMAGE_FORMATS,
+  IMAGE_MODELS,
+  LLM_PROTOCOLS,
+  OWN_SERVICES,
+  STT_PROVIDERS,
+  type OwnService,
+} from "@/lib/localOwnKeys";
 import { EFFORT_UNSET, effortOf, extraBodyText, parseExtraBody, type JsonObject } from "@/lib/reasoningEffort";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
@@ -13,6 +21,7 @@ export type ItemName =
   | "memory_llm"
   | "tts"
   | "stt"
+  | "image"
   | "judge"
   | "judge_thresholds"
   | "rerank"
@@ -59,7 +68,7 @@ export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigI
 }
 
 /** The page's tabs, in order. */
-export const CONFIG_TABS = ["models", "voice", "network", "limits", "prices", "read_only"] as const;
+export const CONFIG_TABS = ["models", "voice", "image", "network", "limits", "prices", "read_only"] as const;
 
 export type ConfigTab = (typeof CONFIG_TABS)[number];
 
@@ -69,6 +78,7 @@ export type ConfigTab = (typeof CONFIG_TABS)[number];
 export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
   models: ["chat_llm", "memory_llm", "judge", "judge_thresholds", "rerank"],
   voice: ["tts", "stt"],
+  image: ["image"],
   network: ["proxy"],
   limits: ["limits", "affinity"],
   prices: [],
@@ -130,6 +140,7 @@ export const PROXIED_SERVICES = [
   "rerank",
   "tts",
   "stt",
+  "image",
   "own_llm",
   "own_tts",
   "own_stt",
@@ -137,14 +148,17 @@ export const PROXIED_SERVICES = [
 
 export type ProxiedService = (typeof PROXIED_SERVICES)[number];
 
-/** How a field is typed in: a choice, text, text that may be emptied (sent as null), a key (left empty to keep it), max_tokens (a
+/** How a field is typed in: a choice, text, a model chosen from a list or typed in by hand (required either way), text
+ * that may be emptied (sent as null), a key (left empty to keep it), max_tokens (a
  * positive whole number, empty for the protocol's default), a reasoning effort (one the
  * model's protocol can write, or unset), an extra request body (a JSON object, or empty for
  * none), a probability or score from 0 to 1, a number of seconds, a limit (a whole number
- * from 1 up, or none: sent as 0), or a switch (on or off, in the form as "true" or "false"). */
+ * from 1 up, or none: sent as 0), how many at a time (a whole number from 1 to `MAX_COUNT`),
+ * or a switch (on or off, in the form as "true" or "false"). */
 export type FieldKind =
   | "select"
   | "text"
+  | "modelChoice"
   | "optionalText"
   | "clearableText"
   | "secret"
@@ -154,7 +168,19 @@ export type FieldKind =
   | "probability"
   | "seconds"
   | "limit"
+  | "count"
   | "switch";
+
+/** The most photos the deployer's image key may generate at a time: the backend's `MAX_IMAGE_CONCURRENCY`. */
+export const MAX_COUNT = 10;
+
+/** In a model's list, the choice of typing one in by hand. */
+export const CUSTOM_MODEL = "custom";
+
+/** What a model's list shows as chosen for `model`: the model itself if listed, else typing one in by hand. */
+export function modelChoice(options: readonly string[], model: string): string {
+  return options.includes(model) ? model : CUSTOM_MODEL;
+}
 
 /** The limits, in the order they are shown. */
 export const LIMIT_FIELDS = [
@@ -250,6 +276,20 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     ],
     tried: true,
   },
+  // 生图（GLOSSARY.md「生图」）：接口形式、地址、key、模型、同时几张、画风。保存前真生成一张来检查。
+  image: {
+    rows: ["api_format", "base_url", "model", "concurrency", "style", "api_key"],
+    secrets: ["api_key"],
+    form: [
+      { name: "api_format", kind: "select", options: IMAGE_FORMATS },
+      { name: "base_url", kind: "text" },
+      { name: "model", kind: "modelChoice", options: IMAGE_MODELS },
+      { name: "concurrency", kind: "count" },
+      { name: "style", kind: "clearableText" },
+      { name: "api_key", kind: "secret" },
+    ],
+    tried: true,
+  },
   judge_thresholds: THRESHOLD(["recall", "emotion", "out_of_line", "manipulation", "photo"]),
   rerank: THRESHOLD(["references", "memories"]),
   limits: {
@@ -339,7 +379,7 @@ export function lockedOn(form: Form, field: string): boolean {
 
 export type Problem = {
   field: string;
-  reason: "required" | "maxTokens" | "effort" | "json" | "jsonObject" | "probability" | "seconds" | "limit";
+  reason: "required" | "maxTokens" | "effort" | "json" | "jsonObject" | "probability" | "seconds" | "limit" | "count";
 };
 
 export type Change = Record<string, string | number | boolean | null | JsonObject>;
@@ -358,6 +398,7 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         change[name] = form[name];
         break;
       case "text":
+      case "modelChoice":
         if (!typed) refuse(name, "required");
         else change[name] = typed;
         break;
@@ -396,6 +437,10 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
       case "limit":
         if (typed === UNLIMITED) change[name] = 0;
         else if (!/^[1-9]\d*$/.test(typed)) refuse(name, "limit");
+        else change[name] = Number(typed);
+        break;
+      case "count":
+        if (!/^[1-9]\d*$/.test(typed) || Number(typed) > MAX_COUNT) refuse(name, "count");
         else change[name] = Number(typed);
         break;
       case "switch":

@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   changeOf,
   CONFIG_TABS,
+  CUSTOM_MODEL,
   formOf,
   exemptingKeysOf,
   ITEM_SPECS,
   lockedOn,
+  modelChoice,
   PROXIED_SERVICES,
   UNLIMITED,
   readOnlyValue,
@@ -327,7 +329,7 @@ describe("tried", () => {
     const tried = Object.entries(ITEM_SPECS)
       .filter(([, spec]) => spec.tried)
       .map(([name]) => name);
-    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge", "proxy"]);
+    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge", "image", "proxy"]);
   });
 });
 
@@ -365,14 +367,83 @@ describe("proxy", () => {
   });
 });
 
+describe("image", () => {
+  const image = ITEM_SPECS.image;
+  const effective: Shown = {
+    api_format: "novelai",
+    base_url: "https://image.novelai.net",
+    api_key_last4: "1234",
+    model: "nai-diffusion-5-curated",
+    concurrency: 1,
+    style: "",
+  };
+  const form = formOf(image, effective);
+
+  it("starts from the values in effect, the key left empty", () => {
+    expect(form).toEqual({
+      api_format: "novelai",
+      base_url: "https://image.novelai.net",
+      model: "nai-diffusion-5-curated",
+      concurrency: "1",
+      style: "",
+      api_key: "",
+    });
+  });
+
+  it("sends the format, the address, the model typed, how many at a time and the art style, an empty one as none", () => {
+    const typed = { ...form, api_format: "openai", base_url: " https://relay.example/v1 ", model: " relay-model ", concurrency: "3" };
+    expect(changeOf(image, { ...typed, style: " 0.7::artist:example:: ", api_key: "pst-new" }, true)).toEqual({
+      change: {
+        api_format: "openai",
+        base_url: "https://relay.example/v1",
+        model: "relay-model",
+        concurrency: 3,
+        style: "0.7::artist:example::",
+        api_key: "pst-new",
+      },
+    });
+    expect(changeOf(image, typed, true)).toMatchObject({ change: { style: null } });
+  });
+
+  it("takes from 1 to 10 at a time, and a model only if one is typed", () => {
+    for (const bad of ["0", "11", "1.5", "", "两"]) {
+      expect(changeOf(image, { ...form, concurrency: bad }, true), bad).toEqual({
+        problems: [{ field: "concurrency", reason: "count" }],
+      });
+    }
+    expect(changeOf(image, { ...form, model: " " }, true)).toEqual({ problems: [{ field: "model", reason: "required" }] });
+  });
+
+  it("chooses a listed model from the list, any other as typed in by hand", () => {
+    const listed = image.form.find((field) => field.name === "model")?.options ?? [];
+    expect(listed).toEqual([
+      "nai-diffusion-5-curated",
+      "nai-diffusion-5-full",
+      "nai-diffusion-4-5-curated",
+      "nai-diffusion-4-5-full",
+      "nai-diffusion-4-curated-preview",
+      "nai-diffusion-4-full",
+    ]);
+    expect(modelChoice(listed, "nai-diffusion-4-5-full")).toBe("nai-diffusion-4-5-full");
+    expect(modelChoice(listed, "relay-model")).toBe(CUSTOM_MODEL);
+    expect(modelChoice(listed, "")).toBe(CUSTOM_MODEL);
+  });
+});
+
 describe("tabs", () => {
   it("put every item under exactly one tab", () => {
     const placed = CONFIG_TABS.flatMap((tab) => TAB_ITEMS[tab]);
     expect([...placed].sort()).toEqual(Object.keys(ITEM_SPECS).sort());
   });
 
+  it("put image generation in a tab of its own, after the voice", () => {
+    expect(CONFIG_TABS.slice(CONFIG_TABS.indexOf("voice"), CONFIG_TABS.indexOf("voice") + 2)).toEqual(["voice", "image"]);
+    expect(TAB_ITEMS.image).toEqual(["image"]);
+  });
+
   it("take a tab from the address and fall back to the models", () => {
     expect(tabFromQuery("voice")).toBe("voice");
+    expect(tabFromQuery("image")).toBe("image");
     expect(tabFromQuery("network")).toBe("network");
     for (const value of [undefined, "nope"]) expect(tabFromQuery(value), String(value)).toBe("models");
   });
