@@ -1162,7 +1162,7 @@ export const zh = {
         },
         proxy: {
           title: "网络代理",
-          hint: "打开的服务经过这个代理连服务商，其余的直连；用户自带的密钥始终直连。保存前把换了路线的服务按新路线各连一次，有一项不通就不保存。保存后从下一次请求起生效，进行中的回合和通话也是；已经连上的语音连接不断。",
+          hint: "打开的服务经过这个代理连服务商，其余的直连；用户自带的密钥和部署者的分开选。保存前把换了路线的部署者服务按新路线各连一次，有一项不通就不保存。保存后从下一次请求起生效，进行中的回合和通话也是；已经连上的语音连接不断。",
         },
       },
       status: {
@@ -1220,6 +1220,9 @@ export const zh = {
           rerank: "重排走代理",
           tts: "语音合成走代理",
           stt: "语音识别走代理",
+          own_llm: "自带的 LLM 走代理",
+          own_tts: "自带的语音合成走代理",
+          own_stt: "自带的语音识别走代理",
         },
       } as Partial<Record<string, Record<string, string>>>,
       formHints: {
@@ -1234,6 +1237,7 @@ export const zh = {
           "http://、https://、socks5:// 或 socks5h:// 开头，写明主机和端口，比如 http://127.0.0.1:7890（生产环境的后端和宿主机共用网络，宿主机上的代理直接写 127.0.0.1）。地址里带的密码会单独加密保存。留空表示没有代理。",
         proxy_password: "代理要求认证时填写，地址里要写用户名（http://用户名@主机:端口）。留空则不改。",
         proxy_unconfigured: "这个部署没有配置这项服务，开关暂时不起作用。",
+        proxy_own_llm: "只有服务地址属于已知服务商（价格目录里有的）时才走代理，其余的照旧直连。",
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         probability: "0 到 1 之间。",

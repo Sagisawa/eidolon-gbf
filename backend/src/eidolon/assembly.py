@@ -175,8 +175,8 @@ def build(
         settings.bailian_stt_model if settings.stt_provider == "bailian"
         else DEFAULT_BAILIAN_STT_MODEL
     )
-    # Each of the deployer's services through the proxy or direct, as the configuration in
-    # effect has it at each request; their clients are made on these.
+    # Each of the deployer's services, and users' own keys, through the proxy or direct, as
+    # the configuration in effect has it at each request; their clients are made on these.
     routes = ProxyRoutes(settings.proxy)
     closers.append(routes.aclose)
     readings = load_readings(readings_path(settings.characters_path))
@@ -199,7 +199,10 @@ def build(
     )
     closers.append(config.aclose)
     if own_llm_service is None:  # users' own LLMs write down memories too
-        own_llm_service = ProviderLLMService(public_only=settings.domain is not None)
+        own_llm_service = ProviderLLMService(
+            public_only=settings.domain is not None, routes=routes,
+            known_provider=catalog.known_provider,
+        )
         closers.append(own_llm_service.aclose)
     if embedder is None and settings.embedding is not None:
         opened = open_embedder(

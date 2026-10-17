@@ -260,9 +260,9 @@ class Hearing:
 
 
 class Speech(Protocol):
-    """The outside services a call hears and speaks with, on whoever's key is given: on a
-    user's `own`, direct; on the deployer's, through the proxy or direct, as the proxy
-    settings have it (GLOSSARY.md「网络代理」)."""
+    """The outside services a call hears and speaks with, on whoever's key is given, a
+    user's `own` or the deployer's: through the proxy or direct, as the proxy settings have
+    it for each apart (GLOSSARY.md「网络代理」)."""
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         """Speech recognition for one call, in Chinese and Japanese, by the service `key`
@@ -658,8 +658,8 @@ class SpeechServices:
     object, as its models of context version 2 take), Alibaba Cloud Model Studio as the
     task's vocabulary. Fish Audio speaks as the character, with the model the call is
     given (the deployer's, as it connected), and the readings whoever's key it is on.
-    Users' own keys go direct; the deployer's through the proxy or direct, as `routes`
-    have it as each connection is opened (direct without them)."""
+    Users' own keys and the deployer's go through the proxy or direct, each as `routes`
+    have it for them as each connection is opened (direct without them)."""
 
     bailian_model: str = DEFAULT_BAILIAN_STT_MODEL
     readings: tuple[Reading, ...] = ()
@@ -731,13 +731,14 @@ class SpeechServices:
                 f"先去 Fish Audio 充值，或改用 {DEFAULT_FISH_AUDIO_MODEL}"
             )
 
-    def _proxy(self, service: ProxiedService, own: bool) -> Callable[[], str | None]:
+    def _proxy(self, service: Literal["tts", "stt"], own: bool) -> Callable[[], str | None]:
         """Where a connection of `service` on a user's `own` key or the deployer's goes
         through, asked as it is opened; None for direct."""
         routes = self.routes
-        if own or routes is None:
+        if routes is None:
             return lambda: None
-        return lambda: routes.proxy_for(service)
+        routed: ProxiedService = ("own_tts" if service == "tts" else "own_stt") if own else service
+        return lambda: routes.proxy_for(routed)
 
     @staticmethod
     async def _get(url: str, api_key: str, proxy: str | None) -> httpx.Response:

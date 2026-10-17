@@ -30,6 +30,8 @@ must stream and take tools. In a public deployment it must also be on the public
 so no one can point the backend at the machines next to it, and read their answers back in
 the errors they are shown. That is checked on every connection, not only when the key is
 tried: a name that resolved to a public address then can resolve to a private one later.
+The proxy, which would connect for us unchecked, is only for a known provider's host
+(GLOSSARY.md「已知服务商」, ADR-0022), as the proxy settings have users' LLMs go.
 """
 
 import asyncio
@@ -59,6 +61,7 @@ from eidolon.config import (
 from eidolon.emotion import EmotionJudging
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Streamed, Tool, TurnLLMs
 from eidolon.llm.providers import check_chat_models, open_chat_models, open_llm
+from eidolon.proxy import ProxyRoutes
 from eidolon.usage import UsageKind
 
 log = logging.getLogger(__name__)
@@ -136,16 +139,30 @@ class LLMService(Protocol):
 
 
 class ProviderLLMService:
-    """Whichever service the user names, over one HTTP client shared by all of them."""
+    """Whichever service the user names, over one HTTP client shared by all of them:
+    through the proxy, as `routes` have users' LLMs go, to a host `known_provider` knows
+    (GLOSSARY.md「已知服务商」); direct to every other one, and without `routes`."""
 
-    def __init__(self, *, public_only: bool) -> None:
-        """With `public_only`, a service must be on the public internet over HTTPS."""
+    def __init__(
+        self,
+        *,
+        public_only: bool,
+        routes: ProxyRoutes | None = None,
+        known_provider: Callable[[str], bool] = lambda host: False,
+    ) -> None:
+        """With `public_only`, a service it connects to direct must be on the public
+        internet over HTTPS."""
         self._public_only = public_only
-        transport = httpx.AsyncHTTPTransport()
+        self._routes = routes
+        self._known_provider = known_provider
+        direct = httpx.AsyncHTTPTransport()
         if public_only:
-            pool = transport._pool  # httpx takes no network backend of its own
+            pool = direct._pool  # httpx takes no network backend of its own
             assert isinstance(pool, httpcore.AsyncConnectionPool)
             pool._network_backend = PublicOnlyBackend(pool._network_backend)
+        transport = (
+            routes.own_llm_transport(known_provider, direct) if routes is not None else direct
+        )
         # Not from the environment: a proxy would connect for us, unchecked.
         self._client = httpx.AsyncClient(
             transport=transport, timeout=httpx.Timeout(60, connect=10), trust_env=False
@@ -155,9 +172,22 @@ class ProviderLLMService:
         return open_llm(settings, client=self._client)
 
     async def check(self, settings: ChatModelSettings) -> None:
-        if self._public_only:
+        if self._public_only and not self._proxied(settings.text.base_url):
+            # Not where the proxy resolves it: a name may not resolve here as it does there.
             await _check_public(settings.text.base_url)
         await check_chat_models(open_chat_models(settings, self._client), settings)
+
+    def _proxied(self, base_url: str) -> bool:
+        """Whether a request to `base_url` goes through the proxy now: HTTPS to a known
+        provider's host, users' LLMs going through it."""
+        parts = urlsplit(base_url)
+        return (
+            self._routes is not None
+            and parts.scheme == "https"
+            and parts.hostname is not None
+            and self._known_provider(parts.hostname)
+            and self._routes.proxy_for("own_llm") is not None
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -191,8 +221,8 @@ class BroughtKeys:
 
 
 class KeyCheck(Protocol):
-    """Trying a speech service's key before keeping it: a user's `own`, direct; the
-    deployer's, as the proxy settings have it (see `call.Speech`)."""
+    """Trying a speech service's key before keeping it, a user's `own` or the
+    deployer's, the way the proxy settings have it go (see `call.Speech`)."""
 
     async def check_stt(self, provider: SttProvider, api_key: str, *, own: bool) -> SttKey:
         """The key as calls are to use it, with the region a DashScope key works in. Raises

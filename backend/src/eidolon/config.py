@@ -44,11 +44,16 @@ Service = Literal["llm", "tts", "stt"]
 """A service users may bring their own key for (GLOSSARY.md「自带密钥」)."""
 SERVICES: tuple[Service, ...] = get_args(Service)
 
-ProxiedService = Literal["chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt"]
-"""The deployer's services, each of which may reach its provider through the proxy
-(GLOSSARY.md「网络代理」): the chat model, in text turns and calls alike; the memory
-model; the judge model, whichever; the embedding service and the reranker; Fish Audio;
-the speech recognition chosen."""
+ProxiedService = Literal[
+    "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt",
+    "own_llm", "own_tts", "own_stt",
+]
+"""What may reach its provider through the proxy (GLOSSARY.md「网络代理」): the deployer's
+services, the chat model, in text turns and calls alike; the memory model; the judge
+model, whichever; the embedding service and the reranker; Fish Audio; the speech
+recognition chosen. Then users' own keys, apart from the deployer's, their providers being
+their own: their LLMs, background models too, though only to a known provider's host
+(GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech recognition they chose."""
 PROXIED_SERVICES: tuple[ProxiedService, ...] = get_args(ProxiedService)
 
 PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
@@ -56,9 +61,9 @@ PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
 
 @dataclass(frozen=True)
 class ProxySettings:
-    """The proxy the deployer's services in `services` reach their providers through, if
-    it is `enabled`; every other one, and every one of users' own keys, goes direct
-    (GLOSSARY.md「网络代理」). `url` carries its password, if any."""
+    """The proxy what is in `services` reaches its providers through, if it is
+    `enabled`; everything else goes direct (GLOSSARY.md「网络代理」). `url` carries its
+    password, if any."""
 
     url: str | None = None
     enabled: bool = False

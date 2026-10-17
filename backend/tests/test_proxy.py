@@ -1,8 +1,10 @@
 """The proxy (GLOSSARY.md「网络代理」): each of the deployer's services the settings tick
-reaches its provider through it, the rest direct, and users' own keys always direct; the
+reaches its provider through it, the rest direct, and users' own keys likewise, ticked
+apart; their LLMs only to a known provider's host (GLOSSARY.md「已知服务商」). The
 environment's `HTTP_PROXY` and the like play no part. A change holds from the next request
-on. `.env` sets it; the admin console overrides it, trying each service it routes another
-way before keeping it. A proxy and a provider are faked on localhost, as is DashScope."""
+on. `.env` sets it; the admin console overrides it, trying each of the deployer's services
+it routes another way before keeping it. A proxy and a provider are faked on localhost, as
+are DashScope and the price catalogs."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -15,6 +17,8 @@ import pytest
 from eidolon.call import ProxiedSoniox, SpeechServices
 from eidolon.config import (
     DEFAULT_BAILIAN_STT_MODEL,
+    ChatModelSettings,
+    LLMSettings,
     PROXIED_SERVICES,
     ProxiedService,
     ProxySettings,
@@ -25,9 +29,19 @@ from eidolon.config import (
     split_proxy_password,
     with_proxy_password,
 )
+from eidolon.llm import ChatMessage, LLMError
+from eidolon.own_keys import ProviderLLMService
+from eidolon.price_catalog import Catalog
 from eidolon.proxy import ProxyRoutes, Unreachable, masked, reach
 from tests.conftest import ClientFactory
-from tests.fakes import FakeDashScope, FakeIdentityProvider, FakeLLM, FakeServiceClients
+from tests.fakes import (
+    FakeCatalog,
+    FakeClock,
+    FakeDashScope,
+    FakeIdentityProvider,
+    FakeLLM,
+    FakeServiceClients,
+)
 from tests.test_live_config import CONFIG, REPLY, admin_client, start
 
 PROXY = "/api/admin/config/proxy"
@@ -73,7 +87,13 @@ class FakeProxy:
             head = "\r\n".join([f"{method} {path or '/'} {version}", *headers]).encode()
         self.went.append(where)
         host, port = where.rsplit(":", 1)
-        up_reader, up_writer = await asyncio.open_connection(host, int(port))
+        try:
+            up_reader, up_writer = await asyncio.open_connection(host, int(port))
+        except OSError:  # a provider not found here, as no real one is
+            writer.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+            await writer.drain()
+            writer.close()
+            return
         if method == "CONNECT":
             writer.write(b"HTTP/1.1 200 Connection established\r\n\r\n")
         else:
@@ -263,6 +283,122 @@ async def test_each_speech_service_asks_for_the_proxy_as_it_connects(proxy: Fake
     assert after == [proxy.url, proxy.url, proxy.url, None]
 
 
+async def test_users_own_speech_keys_go_through_the_proxy_ticked_apart_from_the_deployers(
+    proxy: FakeProxy, dashscope: FakeDashScope
+):
+    dashscope.keys["users-key"] = "beijing"
+    routes = ProxyRoutes(through(proxy, "own_tts", "own_stt"))
+    speech = SpeechServices(DEFAULT_BAILIAN_STT_MODEL, routes=routes)
+    own = [
+        speech.tts("my-fish-key", "s2.1-pro-free", "mano-voice", 16000, own=True),
+        speech.stt(SttKey("soniox", "my-soniox-key"), own=True).stt,
+    ]
+    deployers = [
+        speech.tts("fish-key", "s2.1-pro-free", "mano-voice", 16000, own=False),
+        speech.stt(SttKey("soniox", "soniox-key"), own=False).stt,
+    ]
+
+    await speech.check_stt("bailian", "users-key", own=True)
+
+    assert [s._proxy() for s in own] == [proxy.url, proxy.url]  # pyright: ignore[reportAttributeAccessIssue]
+    assert [s._proxy() for s in deployers] == [None, None]  # pyright: ignore[reportAttributeAccessIssue]
+    assert proxy.went == [urlsplit(dashscope.urls["beijing"]).netloc]
+
+
+# Users' own LLMs: through the proxy only to a known provider's host; every other request
+# direct, and checked to be on the public internet, as in a public deployment.
+
+KNOWN = "https://llm.known.example/v1"
+
+
+@pytest.fixture
+def catalog(settings: Settings) -> Catalog:
+    """The price catalogs as fetched: a provider at `KNOWN`, and one run on this machine,
+    as models.dev lists LM Studio."""
+    fake = FakeCatalog({
+        "known": {"id": "known", "api": KNOWN, "models": {}},
+        "lmstudio": {"id": "lmstudio", "api": "http://127.0.0.1:1234/v1", "models": {}},
+    })
+    catalog = Catalog(settings.database_path, FakeClock(), fake.transport())
+    catalog.refresh()
+    return catalog
+
+
+async def own_llm_fails(service: ProviderLLMService, base_url: str) -> str:
+    """Why a turn on the user's own LLM at `base_url` failed: no provider answers here."""
+    llm = service.open(LLMSettings(base_url, "sk-mine", "m"))
+    with pytest.raises(LLMError) as failed:
+        async for _ in llm.stream([ChatMessage("user", "hi")]):
+            pass
+    return str(failed.value)
+
+
+async def test_a_users_own_llm_goes_through_the_proxy_only_to_a_known_providers_host(
+    proxy: FakeProxy, catalog: Catalog
+):
+    routes = ProxyRoutes(through(proxy, "own_llm"))
+    service = ProviderLLMService(
+        public_only=True, routes=routes, known_provider=catalog.known_provider
+    )
+    try:
+        await own_llm_fails(service, KNOWN)
+        not_through = [
+            await own_llm_fails(service, url)
+            for url in ("https://localhost:9/v1", "https://127.0.0.1:1234/v1",
+                        "http://llm.known.example/v1")
+        ]
+        routes.replace(through(proxy, "chat_llm"))
+        not_ticked = await own_llm_fails(service, KNOWN)
+    finally:
+        await service.aclose()
+        await routes.aclose()
+        catalog.close()
+
+    assert proxy.went == ["llm.known.example:443"]
+    for why in [*not_through, not_ticked]:
+        assert "公网地址" in why or "找不到" in why
+
+
+async def test_a_known_providers_llm_is_tried_through_the_proxy_not_looked_up_here(
+    proxy: FakeProxy, catalog: Catalog
+):
+    routes = ProxyRoutes(through(proxy, "own_llm"))
+    service = ProviderLLMService(
+        public_only=True, routes=routes, known_provider=catalog.known_provider
+    )
+    try:
+        with pytest.raises(LLMError) as through_proxy:
+            await service.check(ChatModelSettings(LLMSettings(KNOWN, "sk-mine", "m")))
+        routes.replace(ProxySettings())
+        with pytest.raises(LLMError, match="公网地址|找不到"):
+            await service.check(ChatModelSettings(LLMSettings(KNOWN, "sk-mine", "m")))
+    finally:
+        await service.aclose()
+        await routes.aclose()
+        catalog.close()
+
+    assert "公网地址" not in str(through_proxy.value) and "找不到" not in str(through_proxy.value)
+    assert proxy.went and set(proxy.went) == {"llm.known.example:443"}
+
+
+def test_known_providers_are_the_catalogs_hosts_and_those_written_down_by_name_only(
+    catalog: Catalog,
+):
+    known = [
+        host for host in (
+            "llm.known.example", "LLM.Known.Example", "generativelanguage.googleapis.com",
+            "openrouter.ai", "127.0.0.1", "llm.unknown.example", "localhost",
+        )
+        if catalog.known_provider(host)
+    ]
+    catalog.close()
+
+    assert known == [
+        "llm.known.example", "LLM.Known.Example", "generativelanguage.googleapis.com",
+        "openrouter.ai",
+    ]
+
+
 # Reaching a provider, as a change is tried before it is kept.
 
 
@@ -295,9 +431,9 @@ async def test_a_proxy_out_of_reach_is_said_so_its_password_masked(provider: Fak
 
 def test_env_sets_the_proxy_and_the_services_through_it(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EIDOLON_PROXY_URL", " socks5h://127.0.0.1:7891/ ")
-    monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "chat_llm, tts")
+    monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "chat_llm, tts, own_llm")
     assert proxy_from_env() == ProxySettings(
-        "socks5h://127.0.0.1:7891", True, frozenset({"chat_llm", "tts"})
+        "socks5h://127.0.0.1:7891", True, frozenset({"chat_llm", "tts", "own_llm"})
     )
     monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "all")
     assert proxy_from_env().services == frozenset(PROXIED_SERVICES)
@@ -378,7 +514,7 @@ async def test_a_saved_proxy_is_tried_on_the_services_it_reroutes_then_holds_unt
     before = (await client.get(CONFIG)).json()["proxy"]
 
     change = {"enabled": True, "url": "http://me:hunter2@127.0.0.1:7890"} | ALL_OFF | {
-        "chat_llm": True, "tts": True, "judge": True,
+        "chat_llm": True, "tts": True, "judge": True, "own_llm": True, "own_tts": True,
     }
     saved = await client.put(PROXY, json=change)
     assert saved.status_code == 200, saved.text
@@ -390,7 +526,8 @@ async def test_a_saved_proxy_is_tried_on_the_services_it_reroutes_then_holds_unt
 
     assert before["status"] == "env" and before["effective"]["enabled"] is False
     assert before["unconfigured"] == ["judge", "embedding", "rerank"]
-    # The judge model is not configured: not tried. The password, kept apart, is not shown.
+    # The judge model is not configured, users' own keys are not here: neither is tried.
+    # The password, kept apart, is not shown.
     proxy = "http://me:hunter2@127.0.0.1:7890"
     assert tried.reached == [("http://llm.invalid/v1", proxy), ("https://api.fish.audio", proxy)]
     shown = saved.json()["proxy"]
@@ -398,7 +535,9 @@ async def test_a_saved_proxy_is_tried_on_the_services_it_reroutes_then_holds_unt
     assert shown["effective"]["url"] == "http://me@127.0.0.1:7890"
     assert shown["effective"]["password_last4"] == "ter2"
     assert "hunter2" not in saved.text
-    assert in_effect == ProxySettings(proxy, True, frozenset({"chat_llm", "tts", "judge"}))
+    assert in_effect == ProxySettings(
+        proxy, True, frozenset({"chat_llm", "tts", "judge", "own_llm", "own_tts"})
+    )
     assert again.json()["proxy"]["effective"]["password_last4"] == "ter2"  # left out: kept
     assert routes_of(client) == ProxySettings(None, False, frozenset())
 
