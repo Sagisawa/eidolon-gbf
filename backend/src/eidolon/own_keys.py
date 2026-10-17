@@ -25,7 +25,7 @@ it starts, before a call is placed (`call_exempt`), and for the settings page.
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
 `check_memory_llm`, `check_tts`, `check_stt`, `check_image`, the last generating a picture
 at the user's expense). Whether a key fails its try or a turn, what
-the service said is shown to the user with the key masked (`_masked`), and logged no other
+the service said is shown to the user with the key masked (`masked_cause`), and logged no other
 way; a call's speech service on the user's key has it masked in its errors before Pipecat
 logs them (`call._masking`). An LLM is tried as the deployer's chat model is at startup: it
 must stream and take tools. In a public deployment it must also be on the public internet,
@@ -92,6 +92,9 @@ MAX_CAUSE_LENGTH = 300
 """How much of the service's own error message the user is shown."""
 
 HTTPS_ONLY = "接口地址需要以 https:// 开头"
+
+NO_PHOTOS = "这个部署发不了照片"
+"""Why a user's own image generation is refused untried: no turn here has a photo."""
 
 NOVELAI_HOST = urlsplit(DEFAULT_NOVELAI_BASE_URL).hostname
 """NovelAI's own image generation's host: the one known provider of image generation."""
@@ -181,24 +184,32 @@ class ProviderLLMService:
         return open_llm(settings, client=self._client)
 
     async def check(self, settings: ChatModelSettings) -> None:
-        if self._public_only and not self._proxied(settings.text.base_url):
+        if self._public_only and not _proxied(
+            self._routes, "own_llm", settings.text.base_url, self._known_provider
+        ):
             # Not where the proxy resolves it: a name may not resolve here as it does there.
             await _check_public(settings.text.base_url)
         await check_chat_models(open_chat_models(settings, self._client), settings)
 
-    def _proxied(self, base_url: str) -> bool:
-        """Whether a request to `base_url` goes through the proxy now."""
-        try:
-            url = httpx.URL(base_url)
-        except httpx.InvalidURL:  # said so by the check, as it is not proxied
-            return False
-        return self._routes is not None and (
-            self._routes.own_proxy("own_llm", url.scheme, url.host, self._known_provider)
-            is not None
-        )
-
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def _proxied(
+    routes: ProxyRoutes | None,
+    service: OwnAddressed,
+    base_url: str,
+    known_provider: Callable[[str], bool],
+) -> bool:
+    """Whether a request of users' own `service` to `base_url` goes through the proxy now,
+    as `routes` have it go to a host `known_provider` knows."""
+    try:
+        url = httpx.URL(base_url)
+    except httpx.InvalidURL:  # said so by the check, as it is not proxied
+        return False
+    return routes is not None and (
+        routes.own_proxy(service, url.scheme, url.host, known_provider) is not None
+    )
 
 
 def novelai_itself(host: str) -> bool:
@@ -249,23 +260,14 @@ class OwnImageService:
         (`image_generation.try_image_service`); raises ImageFailed saying why there is
         none. In a public deployment its address is checked first, unless the proxy is to
         look it up: a name may not resolve here as it does there."""
-        if self._public_only and not self._proxied(own.base_url):
+        if self._public_only and not _proxied(
+            self._routes, "own_image", own.base_url, novelai_itself
+        ):
             try:
                 await _require_public(own.base_url, self._resolver)
             except NotPublic as e:
                 raise ImageFailed("service_error", str(e)) from None
         await try_image_service(self.generator(own))
-
-    def _proxied(self, base_url: str) -> bool:
-        """Whether a request to `base_url` goes through the proxy now."""
-        try:
-            url = httpx.URL(base_url)
-        except httpx.InvalidURL:  # said so by the check, as it is not proxied
-            return False
-        return self._routes is not None and (
-            self._routes.own_proxy("own_image", url.scheme, url.host, novelai_itself)
-            is not None
-        )
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -550,11 +552,11 @@ class OwnKeys:
         expense and in the deployment's art style, keeping, counting and recording nothing.
         Raises OwnKeyRejected saying why it does not work."""
         if self._image_service is None:
-            raise OwnKeyRejected("这个部署发不了照片")
+            raise OwnKeyRejected(NO_PHOTOS)
         try:
             await self._image_service.check(own)
         except ImageFailed as e:
-            raise OwnKeyRejected(_masked(e.detail, own.api_key)) from None
+            raise OwnKeyRejected(masked_cause(e.detail, own.api_key)) from None
 
     def _llms(
         self, brought: BroughtKeys, deployer: DeployerKeys | None, *, call: bool = False
@@ -603,13 +605,13 @@ class _OwnLLM:
         except Exception as e:
             # Not from `e`, whose message may repeat the key, so no traceback logged shows
             # it; what kind of failure it was is still found in its context.
-            raise OwnKeyFailed("llm", _masked(str(e) or type(e).__name__, self._api_key)) from None
+            raise OwnKeyFailed("llm", masked_cause(str(e) or type(e).__name__, self._api_key)) from None
 
     async def aclose(self) -> None:
         pass  # the service's client is shared; see ProviderLLMService
 
 
-def _masked(message: str, api_key: str) -> str:
+def masked_cause(message: str, api_key: str) -> str:
     """What a service said about the user's `api_key`, as they are shown it: the key masked
     wherever it says it, then cut short, so that no part of the key is left."""
     return message.replace(api_key, "***")[:MAX_CAUSE_LENGTH]
@@ -622,7 +624,7 @@ def _rejecting(api_key: str, label: str = "") -> Iterator[None]:
     try:
         yield
     except (LLMError, OwnKeyRejected) as e:
-        raise OwnKeyRejected(label + _masked(str(e), api_key)) from None
+        raise OwnKeyRejected(label + masked_cause(str(e), api_key)) from None
 
 
 def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:

@@ -657,8 +657,8 @@ export const zh = {
       sttProvider: "服务商",
       /** 自带的生图：接口形式和模型的选项名用后台配置页那份（`copy.admin.config`）。 */
       imageTitle: "生图（她发来的照片）",
-      imageHint: "填了，她发来的照片改用你的额度生成，不计入每小时的照片数。保存前会真生成一张来试调，也花你的额度。",
-      imageNotSet: "未填写，使用部署者的生图",
+      imageHint: "填了，她发来的照片用你的额度生成，不计入每小时的照片数。保存前会真生成一张试调。",
+      imageNotSet: "未填写",
       imageFormat: "接口形式",
       sttProviders: { soniox: "Soniox", bailian: "阿里云百炼" },
       last4: (last4: string) => `密钥末 4 位 ${last4}`,

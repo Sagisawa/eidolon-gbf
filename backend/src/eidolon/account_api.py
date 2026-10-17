@@ -44,7 +44,7 @@ from eidolon.config import (
     effort_problem,
 )
 from eidolon.identity import PROVIDER_NAMES, IdentityError
-from eidolon.own_keys import BroughtKeys, OwnKeyRejected, named_services
+from eidolon.own_keys import NO_PHOTOS, BroughtKeys, OwnKeyRejected, named_services
 from eidolon.price_catalog import describe_thinking
 from eidolon.store import LastSignInMethod
 from eidolon.sessions import (
@@ -450,7 +450,7 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         where there is no judge model, without which no turn has a photo. Its address and
         model as the browser is to keep them."""
         if backend.config.judge_settings is None:
-            raise OwnKeyRejected("这个部署发不了照片")
+            raise OwnKeyRejected(NO_PHOTOS)
         own = body.settings()
         await own_keys.check_image(own)
         return {"base_url": own.base_url, "model": own.model}

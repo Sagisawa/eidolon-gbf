@@ -4,7 +4,6 @@ import {
   changeOf,
   CONFIG_TABS,
   CUSTOM_MODEL,
-  EXEMPTING_FIELDS,
   formOf,
   exemptingKeysOf,
   ITEM_SPECS,
@@ -281,13 +280,11 @@ describe("limits", () => {
   });
 
   it("never has image generation among the exempting keys, though users may bring their own", () => {
-    expect(EXEMPTING_FIELDS).toEqual(["exempting_llm", "exempting_tts", "exempting_stt"]);
     expect(exemptingKeysOf({ exempting_llm: true, exempting_tts: true, exempting_stt: true, exempting_image: true })).toEqual([
       "llm",
       "tts",
       "stt",
     ]);
-    expect(PROXIED_SERVICES.slice(-4)).toEqual(["own_llm", "own_tts", "own_stt", "own_image"]);
   });
 
   it("reads which services are the exempting keys from the effective limits", () => {

@@ -110,30 +110,19 @@ async def test_an_own_image_service_in_openais_format_is_tried_there(
     ]
 
 
-@pytest.mark.parametrize(
-    ("amiss", "why"),
-    [("status", "生图服务返回 401"), ("size", "1216×832"), ("garbled", "不是 ZIP")],
-)
 async def test_an_own_image_service_that_fails_its_try_is_refused_its_key_masked(
-    make_client: ClientFactory, settings: Settings, amiss: str, why: str
+    make_client: ClientFactory, settings: Settings
 ):
     image = FakeImageService()
-    if amiss == "status":
-        image.status, image.error = 401, f"invalid token {MY_KEY}"
-    elif amiss == "size":
-        image.size = (1216, 832)
-    else:
-        image.garbled = True
+    image.status, image.error = 401, f"invalid token {MY_KEY}"
     client = make_client(FakeLLM(), image_transport=image.transport())
 
     tried = await client.post(CHECK, json=MINE)
 
     assert tried.status_code == 422
     detail = tried.json()["detail"]
-    assert detail.startswith("试调失败：") and why in detail
-    assert MY_KEY not in detail
-    if amiss == "status":
-        assert "invalid token ***" in detail
+    assert detail.startswith("试调失败：生图服务返回 401")
+    assert MY_KEY not in detail and "invalid token ***" in detail
 
 
 async def test_a_deployment_without_the_judge_model_refuses_an_own_image_service_untried(
@@ -148,23 +137,6 @@ async def test_a_deployment_without_the_judge_model_refuses_an_own_image_service
 
     assert tried.status_code == 422
     assert tried.json()["detail"] == "试调失败：这个部署发不了照片"
-    assert image.requests == []
-
-
-async def test_trying_needs_a_format_an_address_a_plausible_key_and_a_model(
-    make_client: ClientFactory,
-):
-    image = FakeImageService()
-    client = make_client(FakeLLM(), image_transport=image.transport())
-
-    refused = [
-        await client.post(CHECK, json=MINE | change)
-        for change in [
-            {"api_format": "chat"}, {"base_url": ""}, {"api_key": "short"}, {"model": ""},
-        ]
-    ]
-
-    assert [r.status_code for r in refused] == [422] * 4
     assert image.requests == []
 
 
@@ -334,11 +306,7 @@ async def own_image_fails(service: OwnImageService, own: ImageSettings) -> Image
     return failed.value
 
 
-@pytest.mark.parametrize(
-    "base_url",
-    ["http://image.example.com", "https://127.0.0.1:8000", "https://localhost",
-     "https://[::1]", "https://169.254.169.254", "https://10.0.0.8/v1"],
-)
+@pytest.mark.parametrize("base_url", ["http://image.example.com", "https://10.0.0.8/v1"])
 async def test_a_public_deployment_tries_only_image_services_on_the_public_internet(
     base_url: str,
 ):

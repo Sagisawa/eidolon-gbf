@@ -52,11 +52,19 @@ from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 
-from eidolon.activity import ActivityLog, Recording, image_origin, recording, timed
+from eidolon.activity import (
+    OWN_IMAGE_ORIGIN,
+    ActivityLog,
+    Recording,
+    image_origin,
+    recording,
+    timed,
+)
 from eidolon.affinity import TIERS, Tier
 from eidolon.characters import Character
 from eidolon.config import ImageSettings
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
+from eidolon.own_keys import masked_cause
 from eidolon.photo_prompt import image_prompt, read_tag
 from eidolon.store import PhotoFailure, Store
 from eidolon.usage import OverLimit, UsageLimiter
@@ -293,7 +301,7 @@ class Photos:
                 with turn.current() if turn is not None else nullcontext():
                     image = await timed(
                         self._activity,
-                        image_origin(settings, own_key=own is not None),
+                        image_origin(settings) if own is None else OWN_IMAGE_ORIGIN,
                         generator.generate(image_prompt(character, read, settings.style), until),
                         read.stripped,
                     )
@@ -302,8 +310,10 @@ class Photos:
             if own is None:
                 log.warning("photo %s was not generated: %s", photo_id, e)
                 return None, e.reason
-            masked = str(e).replace(own.api_key, "***")
-            log.warning("photo %s was not generated on the user's own key: %s", photo_id, masked)
+            log.warning(
+                "photo %s was not generated on the user's own key: %s", photo_id,
+                masked_cause(str(e), own.api_key),
+            )
             return None, "timeout" if e.reason == "timeout" else "own_key_failed"
         except TimeoutError:
             log.warning("photo %s waited its turn longer than it could; never sent", photo_id)
