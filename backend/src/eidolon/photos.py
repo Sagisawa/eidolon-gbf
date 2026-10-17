@@ -51,7 +51,7 @@ CAN_SEND = """\
 <photo>
 shot: selfie
 framing: upper body
-place: cafe, indoors, afternoon, sunlight
+place: cafe, indoors, day, sunlight
 outfit: white shirt, cardigan
 action: peace sign, smile
 note: 在咖啡店给他拍的自拍
@@ -62,9 +62,9 @@ note: 在咖啡店给他拍的自拍
 - outfit：1–4 个英文 tag，写一套衣服，只写这个景别里看得见的。
 - action：2–4 个英文 tag，写一个动作、一两个表情；不看镜头时加一个视线。
 - note：一句中文，写这是一张什么样的照片，只给你自己回看。
-- place、outfit、action 合计不超过 12 个 tag。不写发色、瞳色、发型、身材，也不写画风或画师。
+- place、outfit、action 合计不超过 12 个 tag。照片里只有你一个人；不写发色、瞳色、发型、身材，也不写画风或画师。
 - 照着现在的时间和你们正在聊的事拍；他指定了地点或服装，在全年龄的范围内照办。
-- 不拍裸露、内衣、透视、走光、洗澡，也不拍性感的姿势、表情和镜头；他要这些时，你可以推掉，也可以换成全年龄的样子再拍。
+- 不拍裸露和半裸、内衣和情趣服装、透视、走光、洗澡，也不拍性感的姿势、表情和镜头；泳装、睡衣、躺在床上可以拍。他要这些时，你可以推掉，也可以换成全年龄的样子再拍。
 - 一次回复最多一张。标签后面照常用 <ja><zh> 说话。"""
 """What she is told in a turn the user asks for a photo in, and she can send one."""
 
@@ -194,12 +194,14 @@ class Photos:
             if generator is None:
                 raise ImageFailed("service_error", "image generation is off")
             settings = generator.settings
+            read = read_tag(tag)
             async with self._turn_on(settings.api_key, DEPLOYERS_AT_A_TIME, until):
                 with turn.current() if turn is not None else nullcontext():
                     image = await timed(
                         self._activity,
                         image_origin(settings),
-                        generator.generate(image_prompt(character, read_tag(tag)), until),
+                        generator.generate(image_prompt(character, read), until),
+                        read.stripped,
                     )
             outcome = image.webp, None
         except ImageFailed as e:

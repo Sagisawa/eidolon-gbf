@@ -37,3 +37,5 @@
 **票 15 留下的（2026-10-17）。** 生图调用记在运行记录的 `image` 下，`Origin` 现在只有部署者的 `activity.image_origin(settings)`（地址的 host 加模型名，`own_key=False`）。自带生图要另给一个 `own_key=True` 的 `Origin`，`prices.cost` 才会只统计、不计价；服务商和模型记成什么要定：照 ADR-0017 自带 LLM 一律记 `OWN`，自带生图的地址也可能是用户自己的中转，建议同样记 `OWN`（`activity._forget_own_llms` 只管 LLM，别漏）。张数靠 `ImageGenerator.generate` 里的 `bill("images", …)`，自带的客户端沿用它就自然有。
 
 **票 16 留下的（2026-10-17）。** 自带的照样走 `Photos._turn_on(自带 key, 1, 截止时间)` 排队，和部署者的分开排。`store.PhotoFailure` 已经有 `own_key_failed`；前端 `PhotoBlock` 对它会写「你的生图密钥没能用」，下面多一行「去设置自带密钥」的站内链接（`lib/photoFailure.ts`），后端只要把原因记成 `own_key_failed` 就行。生图客户端现在把 HTTP 错误、连不上记成 `service_error`，自带 key 的失败要在 `Photos` 里按「用的是自带的」改记成 `own_key_failed`，错误里的 key 打码。
+
+**票 17 留下的（2026-10-17）。** 照片的标签在 `Photos._generate` 里经 `read_tag` 清洗，剥掉的类别交给 `activity.timed(..., read.stripped)` 记在那次生图调用上（`service_calls.stripped_tags`）。自带生图沿用 `_generate` 就同样受黑名单约束、同样记下；看板按 `service == "image"` 给这一行加 `stripped_photos`、`stripped`，自带的那一行（`own_key=True`）也会有，前端服务名下面的小字（`lib/dashboard.ts` 的 `strippedText`）不用另做。

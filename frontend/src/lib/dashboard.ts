@@ -45,6 +45,18 @@ export type ErrorKind =
   | "unreadable"
   | "other";
 
+/** Which part of the line a tag stripped from her photo tag crossed (ADR-0023). */
+export type Crossing =
+  | "nudity"
+  | "underwear"
+  | "exposure"
+  | "bathing"
+  | "pose"
+  | "expression"
+  | "appearance"
+  | "style"
+  | "people";
+
 /**
  * The page head's one line on health: "ok" when every service that was called kept its errors
  * low, "idle" when nothing was called, else the troubled rows, the worst first (失败多的在前，
@@ -94,6 +106,10 @@ export type ServiceHealth = {
   /** An LLM's alone: of all its input, the share read from the prompt cache, a call that did not say counting
    * as none; null where no call said what its input was. */
   cache_hit_rate?: number | null;
+  /** Image generation's alone: from how many photos tags were stripped for crossing the line. */
+  stripped_photos?: number;
+  /** Image generation's alone: how many tags were stripped, by which part of the line each crossed. */
+  stripped?: Partial<Record<Crossing, number>>;
 };
 
 /** An LLM row's effort as a form's choice is, unset for none asked; null for other services. */
@@ -125,6 +141,16 @@ export function formatPercentiles(times: Percentiles | undefined): string {
 /** How much of an LLM's input hit the cache: 「72.3%」; 「—」 for other services, or where no call said. */
 export function formatCacheHitRate(row: Pick<ServiceHealth, "cache_hit_rate">): string {
   return row.cache_hit_rate == null ? NONE : formatPercent(row.cache_hit_rate);
+}
+
+/** 「2 张剥掉了 tag：裸露 2、外貌 1」; null where none were, and for services other than image generation. */
+export function strippedText(row: Pick<ServiceHealth, "stripped_photos" | "stripped">): string | null {
+  const words = copy.admin.dashboard.health;
+  if (!row.stripped_photos || !row.stripped) return null;
+  const kinds = Object.entries(row.stripped)
+    .map(([crossing, n]) => `${words.crossings[crossing as Crossing] ?? crossing} ${formatCount(n ?? 0)}`)
+    .join("、");
+  return words.stripped(formatCount(row.stripped_photos), kinds);
 }
 
 /** A health row named in a sentence: 「扮演角色的 LLM（自带密钥，思考强度高）」. */

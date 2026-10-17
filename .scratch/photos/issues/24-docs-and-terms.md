@@ -24,3 +24,9 @@
 ## Comments
 
 **票 23 留下的（2026-10-17）。** `docs/deploy.md`「校准判断模型阈值」的阈值表已经加了「要照片」一列（Jev 0.5、Clef 0.8、Clef-flash 0.8），`eval judge` 的说明补了照片题和 `--only`，这一段不用再动。`docs/configuration.md`（和英文、日文版）写费用时可以用这组量出来的数：「是不是在要照片」这道题并进检索和好感度的请求时，每次判断 Jev 多 316 个输入 token，Clef 和 Clef-flash 多 234 个；检索和好感度都关着、单独问这一道时，一次请求 Jev 621 个、Clef 和 Clef-flash 317 个。只在有照片资格的回合问（没有生图、没有判断模型、或限额为 0 又没带自带生图 key 时不问）。
+
+**票 17 留下的（2026-10-17）。**
+
+- 隐私政策：管理者在看板上只看到「几张照片剥掉了 tag、各属于黑名单哪一类」（生图那一行服务名下面的小字），看不到 tag 本身。
+- 部署文档：全年龄守卫写死，负面词、黑名单、tag 表都不能配。tag 表在 `backend/src/eidolon/photo_tags.json`，重新生成用 `cd backend && uv run python scripts/photo_tags.py`（`--review` 列出黑名单种子附近还没挡也没放行的建议），只按 V5 Curated 生成。她写的 tag 表里查不到时照样保留，服务器日志在 info 级别写出 tag 原文（`a photo tag the tag table does not know, kept`），部署者看日志补改写表；要不要在文档里提醒这条日志带她写的英文 tag，这张定。
+- 建议接口不返回露骨的 tag：写死的负面细项里 `nude`、`nipples`、`pantyshot`（还有 `nsfw`）核对不到，照样留着；其余七项都是已知 tag。

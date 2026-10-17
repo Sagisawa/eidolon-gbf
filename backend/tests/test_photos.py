@@ -178,7 +178,7 @@ action: sitting, smile
     )
     [first, second] = image.requests
     assert first["body"]["input"] == (
-        f"{head}, selfie, looking at viewer, upper body, cafe, indoors, sunlight, afternoon,"
+        f"{head}, selfie, looking at viewer, upper body, cafe, indoors, sunlight, day,"
         f" white shirt, cardigan, peace sign, smile, {tail}"
     )
     assert second["body"]["input"] == (

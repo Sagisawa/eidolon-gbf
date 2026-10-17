@@ -897,6 +897,18 @@ export const zh = {
           unreadable: "返回无法解析",
           other: "其他",
         },
+        stripped: (photos: string, kinds: string) => `${photos} 张剥掉了 tag：${kinds}`,
+        crossings: {
+          nudity: "裸露",
+          underwear: "内衣",
+          exposure: "透视走光",
+          bathing: "洗澡",
+          pose: "姿势镜头",
+          expression: "表情",
+          appearance: "外貌",
+          style: "画风画师",
+          people: "别人入镜",
+        },
       },
       backups: {
         title: "备份",

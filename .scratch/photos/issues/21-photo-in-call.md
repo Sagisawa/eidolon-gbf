@@ -37,3 +37,5 @@
 **票 16 留下的（2026-10-17）。** 失败原因是 `store.PhotoFailure`，通话层的「照片没发出来 · {原因}」可以用 `lib/photoFailure.ts` 的 `photoFailureNote(reason).reason` 拿那半句。
 
 **票 22 留下的（2026-10-17）。** 列表的最后一句（`Store._last`）现在连照片表，最后一条回复的照片是「发出来了」时，`/api/conversations/latest` 和 `/api/conversations` 的 `last_message` 带 `photo: true`，前端在最后一句前加相机。通话里的照片只要同样经 `add_turn` 的 `photo` 写进照片表、挂在她那条回复上，列表就会自己带上相机，不用另做；挂断后才到的照片也一样（落库以后列表下次读就有）。测试里造「发出来 / 生图服务报错 / 一直在生成」三种照片的小工具在 `tests/test_past_conversations.py`（`photographing`、`with_photo`、`in_turn`、`broken`、`taking_its_time`），要用可以照搬。
+
+**票 17 留下的（2026-10-17）。** 通话里的照片只要走 `Photos.begin`，清洗、改写表、黑名单和运行记录里剥掉的类别都自动有，不用另做。

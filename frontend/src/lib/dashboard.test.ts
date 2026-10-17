@@ -25,6 +25,7 @@ import {
   splitZeroRows,
   stretchLabel,
   stretchSpan,
+  strippedText,
 } from "@/lib/dashboard";
 
 /** An ISO time at a local hour, as the backend sends a stretch's start. */
@@ -137,6 +138,15 @@ describe("the health table's rows", () => {
     expect(healthRowName(tts)).toBe("语音合成");
     expect(healthRowName(llm("high"))).toBe("扮演角色的 LLM（思考强度高）");
     expect(healthRowName(llm(null, true))).toBe("扮演角色的 LLM（自带密钥，思考强度不设置）");
+  });
+
+  it("say from how many photos tags were stripped, by part of the line, for image generation alone", () => {
+    const image = { ...base, service: "image" } as Row;
+    expect(strippedText({ ...image, stripped_photos: 2, stripped: { nudity: 2, appearance: 1 } })).toBe(
+      "2 张剥掉了 tag：裸露 2、外貌 1",
+    );
+    expect(strippedText({ ...image, stripped_photos: 0, stripped: {} })).toBeNull();
+    expect(strippedText(tts)).toBeNull();
   });
 });
 

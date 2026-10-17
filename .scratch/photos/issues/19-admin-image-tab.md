@@ -33,3 +33,5 @@
 **票 15 留下的（2026-10-17）。** `ImageGenerator.generate(prompt, until)` 现在要一个截止时间（事件循环的 `loop.time()`），里面会 `bill("images", …)`。保存检查别包 `activity.timed`，也别开 `Billing`，就不会进运行记录、不计用量；截止时间给 `loop.time() + TIME_LIMIT` 就行。运行记录里部署者生图的服务商和模型来自 `activity.image_origin(generator.settings)`（地址的 host 加模型名），后台换了地址或模型，看板上就是新的一行；OpenAI 图像格式下载 `url` 也要算在同一次调用、同一个截止时间里。单价表只预设了 `("image.novelai.net", "nai-diffusion-5-curated", "images")`，中转由管理者在单价页按「张」自己填。
 
 **票 16 留下的（2026-10-17）。** 部署者「同时生成几张」现在是 `photos.DEPLOYERS_AT_A_TIME = 1`，在 `Photos._generate` 里传给 `_turn_on(key, 同时几张, 截止时间)`。队列按 key 建，建的时候定下 `Semaphore` 的大小，这个 key 的队列空了才删；后台改了并发数，要等这个 key 手上的照片都完了才生效（或者换 key）。改成配置时记得这一点，要么接受，要么在数变了时换一个队列。
+
+**票 17 留下的（2026-10-17）。** 负面词、黑名单和本地 tag 表写死在 `backend/src/eidolon/photo_prompt.py` 和 `photo_tags.json`，后台生图标签页不要出这几项（票 17 的清单里「部署者和用户都改不了」一条靠这个守）。tag 表是照 V5 Curated（`nai-diffusion-5-curated`）的建议接口生成的，部署者换了模型照样用这一份。清洗和黑名单在 `read_tag` 里做完，OpenAI 图像格式发的正面、负面提示词和官方格式是同一份，不用另做。保存检查直接调 `ImageGenerator.generate`，不经 `read_tag`、不包 `activity.timed`，所以不会记剥掉的 tag。

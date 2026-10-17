@@ -63,6 +63,7 @@ import {
   rangeHref,
   serviceName,
   splitZeroRows,
+  strippedText,
   TURN_RESULTS,
 } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
@@ -572,6 +573,7 @@ function HealthTable({ board }: { board: Dashboard }) {
                 <TableCell>
                   {serviceName(row)}
                   {row.own_key && <span className="block text-xs text-muted-foreground">{t.health.own}</span>}
+                  <StrippedNote row={row} />
                 </TableCell>
                 <TableCell>{healthEffort(row) ?? "—"}</TableCell>
                 <TableCell>
@@ -593,6 +595,7 @@ function HealthTable({ board }: { board: Dashboard }) {
         <RowList
           rows={rows.map(({ id, row }) => {
             const errors = errorsText(row);
+            const stripped = strippedText(row);
             return {
               id,
               label: healthRowName(row),
@@ -611,6 +614,7 @@ function HealthTable({ board }: { board: Dashboard }) {
                     </span>
                   )}
                   {errors !== "—" && <span>{`${t.health.errors} ${errors}`}</span>}
+                  {stripped && <span>{stripped}</span>}
                 </>
               ),
             };
@@ -634,6 +638,12 @@ function HealthStatusText({ status }: { status: HealthStatus }) {
       {label}
     </span>
   );
+}
+
+/** 生图一行服务名下面的小字：几张照片剥掉了 tag、各属于黑名单哪一类；没有时不出。 */
+function StrippedNote({ row }: { row: Dashboard["health"][number] }) {
+  const stripped = strippedText(row);
+  return stripped && <span className="block text-xs text-muted-foreground">{stripped}</span>;
 }
 
 /** 每类错误各几次，没有时是「—」。 */
