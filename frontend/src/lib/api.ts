@@ -5,6 +5,7 @@ import {
   turnOwnKeys,
   type BailianRegion,
   type FishAudioModel,
+  type LocalImage,
   type LocalLLM,
   type LocalModel,
   type OwnService,
@@ -457,6 +458,21 @@ export async function checkOwnSpeechKey(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ api_key: apiKey, provider, model }),
+    }),
+  );
+}
+
+/**
+ * Try the user's own image generation, which the server does not keep, by having it generate one
+ * picture at the user's expense; fails with what the service said if the try fails, or because the
+ * deployment cannot send photos. Its address and model as this browser is to keep them.
+ */
+export async function checkOwnImage(image: LocalImage): Promise<Pick<LocalImage, "base_url" | "model">> {
+  return json(
+    await api("/api/account/keys/image/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(image),
     }),
   );
 }

@@ -8,8 +8,12 @@ import { REASONING_EFFORTS, type JsonObject, type ReasoningEffort } from "@/lib/
 // 下面几份取值列表跟后端同步（不做代码生成）：后端改了，这里照着改。
 
 /** 能自带 key 的服务：后端 `config.Service`。 */
-export const OWN_SERVICES = ["llm", "tts", "stt"] as const;
+export const OWN_SERVICES = ["llm", "tts", "stt", "image"] as const;
 export type OwnService = (typeof OWN_SERVICES)[number];
+
+/** 能选作免限额密钥的服务（GLOSSARY.md「免限额密钥」）：后端 `config.EXEMPTING_SERVICES`。生图从来不算，
+ * 照片计不计入只看花的是谁的钱。 */
+export const EXEMPTING_SERVICES = ["llm", "tts", "stt"] as const satisfies readonly OwnService[];
 
 /** 自带的 LLM 能用的接口协议：后端 `config.LLM_PROTOCOLS`（`copy.settings.ownKeys.protocols` 给它们起名）。
  * 设置页和后台配置页的选项都从这里来。 */
@@ -41,6 +45,9 @@ export const IMAGE_MODELS = [
   "nai-diffusion-4-full",
 ] as const;
 
+/** 生图的默认接口地址：后端 `config.DEFAULT_NOVELAI_BASE_URL`，NovelAI 官方格式填到域名根。 */
+export const DEFAULT_IMAGE_BASE_URL = "https://image.novelai.net";
+
 /** 阿里云百炼的 key 能用的地域，校验时由服务器判断出来：后端 `config.BailianRegion`。 */
 const BAILIAN_REGIONS = ["beijing", "singapore"] as const;
 export type BailianRegion = (typeof BAILIAN_REGIONS)[number];
@@ -65,9 +72,18 @@ export type LocalTtsKey = { api_key: string; model?: FishAudioModel };
 /** 语音识别的 key，连同它所属的服务商；百炼的还有地域。 */
 export type LocalSttKey = { api_key: string; provider: SttProvider; region?: BailianRegion };
 
+/** 自带的生图（后端 `OwnImageInput`）：接口形式、地址、key、模型四项；同时生成几张和画风不归用户设。 */
+export type LocalImage = { api_format: ImageFormat; base_url: string; api_key: string; model: string };
+
 /** 一位用户在这个浏览器里存的自带密钥，每项都可以没有。原样就是请求里的 `own_keys`（后端 `OwnKeysInput`）。
  * `memory_llm` 是另配的后台模型：只跟着 `llm` 存在，不算一项服务（`ownServices` 不报它）。 */
-export type LocalOwnKeys = { llm?: LocalLLM; tts?: LocalTtsKey; stt?: LocalSttKey; memory_llm?: LocalModel };
+export type LocalOwnKeys = {
+  llm?: LocalLLM;
+  tts?: LocalTtsKey;
+  stt?: LocalSttKey;
+  memory_llm?: LocalModel;
+  image?: LocalImage;
+};
 
 /** 浏览器里存的一项：一项服务的 key，或者后台模型。 */
 export type OwnKeyItem = keyof LocalOwnKeys;
@@ -89,7 +105,7 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
   }
   if (!isRecord(stored)) return {};
   const keys: LocalOwnKeys = {};
-  const { llm, tts, stt, memory_llm } = stored;
+  const { llm, tts, stt, memory_llm, image } = stored;
   const model = localModel(llm);
   if (model) {
     keys.llm = model;
@@ -112,6 +128,15 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
   ) {
     keys.stt = { api_key: stt.api_key, provider: stt.provider };
     if (stt.region !== undefined) keys.stt.region = stt.region;
+  }
+  if (
+    isRecord(image) &&
+    isOneOf(image.api_format, IMAGE_FORMATS) &&
+    isString(image.base_url) &&
+    isString(image.api_key) &&
+    isString(image.model)
+  ) {
+    keys.image = { api_format: image.api_format, base_url: image.base_url, api_key: image.api_key, model: image.model };
   }
   return keys;
 }
@@ -162,11 +187,14 @@ export function forgetOwnKeys(userId: string): void {
   changed();
 }
 
-/** 一次文字回合要带的 `own_keys`：只有这位用户存的 LLM，连同后台模型（文字回合用不上语音 key，不带出去）；
- * 没存 LLM 就不带。 */
-export function turnOwnKeys(userId: string): { llm: LocalLLM; memory_llm?: LocalModel } | undefined {
-  const { llm, memory_llm } = localOwnKeys(userId);
-  return llm && { llm, ...(memory_llm && { memory_llm }) };
+/** 一次文字回合要带的 `own_keys`：这位用户存的 LLM（连同后台模型）和生图，文字回合用不上语音 key，不带出去；
+ * 两样都没存就不带。 */
+export function turnOwnKeys(
+  userId: string,
+): Pick<LocalOwnKeys, "llm" | "memory_llm" | "image"> | undefined {
+  const { llm, memory_llm, image } = localOwnKeys(userId);
+  if (!llm && !image) return undefined;
+  return { ...(llm && { llm, ...(memory_llm && { memory_llm }) }), ...(image && { image }) };
 }
 
 /** 存了 key 的那几项服务：通话预检时只报这些服务名，不带 key；也是判断计不计入限额的依据。 */

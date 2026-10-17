@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from eidolon.activity import OWN, ActivityLog
-from eidolon.config import ChatModelSettings, LLMSettings, SttKey
+from eidolon.config import EXEMPTING_SERVICES, ChatModelSettings, LLMSettings, SttKey
 from eidolon.llm import ChatLLM, ChatMessage
 from eidolon.own_keys import (
     BroughtKeys,
@@ -70,7 +70,7 @@ class Deployment:
         self.deployer = CountingDeployer(DeployerKeys(self.chat, self.memory, stt, tts))
         return OwnKeys(
             self.llm_service, self.deployer, self.activity, self.speech,
-            exempting=lambda: frozenset(SERVICES),
+            exempting=lambda: frozenset(EXEMPTING_SERVICES),
         )
 
 

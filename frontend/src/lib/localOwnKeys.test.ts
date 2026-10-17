@@ -75,7 +75,7 @@ describe("own keys kept in this browser", () => {
 
     items.set("eidolon.ownKeys.u1", JSON.stringify({ llm: { ...LLM, api_key: "sk-changed-elsewhere" } }));
 
-    expect(turnOwnKeys("u1")?.llm.api_key).toBe("sk-changed-elsewhere");
+    expect(turnOwnKeys("u1")?.llm?.api_key).toBe("sk-changed-elsewhere");
   });
 
   it("leave out what is stored wrongly, keeping what is right", () => {
@@ -209,6 +209,54 @@ describe("what a text turn brings", () => {
     keepOwnKey("u1", "stt", STT);
 
     expect(turnOwnKeys("u1")).toBeUndefined();
+  });
+
+  it("is the user's own image generation too, with their LLM or without", () => {
+    storage();
+    keepOwnKey("u1", "image", IMAGE);
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key" });
+    expect(turnOwnKeys("u1")).toEqual({ image: IMAGE });
+
+    keepOwnKey("u1", "llm", LLM);
+    expect(turnOwnKeys("u1")).toEqual({ llm: LLM, image: IMAGE });
+  });
+});
+
+/** The user's own image generation: a relay in OpenAI's image format. */
+const IMAGE = {
+  api_format: "openai",
+  base_url: "https://my-relay.image.example/v1",
+  api_key: "pst-my-own-image-key",
+  model: "nai-diffusion-4-5-full",
+} as const;
+
+describe("an own image generation", () => {
+  it("is kept with the rest, and goes with each call, named as a service", () => {
+    storage();
+    keepOwnKey("u1", "image", IMAGE);
+    keepOwnKey("u1", "stt", STT);
+
+    expect(localOwnKeys("u1")).toEqual({ image: IMAGE, stt: STT });
+    expect(callOwnKeys("u1")).toEqual({ ownKeys: { image: IMAGE, stt: STT }, services: ["stt", "image"] });
+  });
+
+  it("is left out where stored wrongly", () => {
+    storage({
+      "eidolon.ownKeys.u1": JSON.stringify({ llm: LLM, image: { ...IMAGE, api_format: "chat" } }),
+      "eidolon.ownKeys.u2": JSON.stringify({ image: { ...IMAGE, model: 5 } }),
+    });
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
+    expect(localOwnKeys("u2")).toEqual({});
+  });
+
+  it("is forgotten alone", () => {
+    storage();
+    keepOwnKey("u1", "llm", LLM);
+    keepOwnKey("u1", "image", IMAGE);
+    forgetOwnKey("u1", "image");
+
+    expect(localOwnKeys("u1")).toEqual({ llm: LLM });
   });
 });
 

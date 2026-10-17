@@ -33,6 +33,8 @@ from eidolon.config import (
     BailianRegion,
     ChatModelSettings,
     FishAudioModel,
+    ImageFormat,
+    ImageSettings,
     LLMProtocol,
     LLMSettings,
     ReasoningEffort,
@@ -158,6 +160,25 @@ class OwnSTTInput(BaseModel):
         return SttKey(self.provider, self.api_key.get_secret_value(), region)
 
 
+class OwnImageInput(BaseModel):
+    """The user's own image generation, as their browser keeps it: in which format, where,
+    with which key and model; how many at a time and the art style are not theirs to set."""
+
+    api_format: ImageFormat
+    base_url: str = Field(min_length=1, max_length=500)
+    api_key: ApiKey
+    model: str = Field(min_length=1, max_length=200)
+
+    def settings(self) -> ImageSettings:
+        """As her photos are generated on it: its address without surrounding spaces or a
+        trailing slash, as the admin console keeps the deployer's, and its model without
+        surrounding spaces."""
+        return ImageSettings(
+            self.api_key.get_secret_value(), self.base_url.strip().rstrip("/"),
+            self.model.strip(), self.api_format,
+        )
+
+
 class OwnKeysInput(BaseModel):
     """The user's own keys a turn or a call brings, by service; each may be left out. Their
     own model for memories (`memory_llm`) only with their own LLM."""
@@ -166,6 +187,7 @@ class OwnKeysInput(BaseModel):
     tts: OwnTTSInput | None = None
     stt: OwnSTTInput | None = None
     memory_llm: OwnLLMInput | None = None
+    image: OwnImageInput | None = None
 
     @model_validator(mode="after")
     def _memory_llm_with_llm(self) -> "OwnKeysInput":
@@ -180,6 +202,7 @@ class OwnKeysInput(BaseModel):
             self.stt.key() if self.stt else None,
             self.memory_llm.settings() if self.memory_llm else None,
             self.tts.model if self.tts else DEFAULT_FISH_AUDIO_MODEL,
+            self.image.settings() if self.image else None,
         )
 
 
@@ -418,6 +441,19 @@ def add_account_routes(app: FastAPI, backend: Backend) -> None:
         the browser to keep with it (None for Soniox)."""
         key = await own_keys.check_stt(body.provider, body.api_key.get_secret_value())
         return {"region": key.region}
+
+    @app.post("/api/account/keys/image/check")
+    async def check_own_image(body: OwnImageInput, user_id: UserId) -> dict:
+        """Try the user's own image generation before their browser keeps it, by generating
+        one picture at their expense in the deployment's art style, keeping, counting and
+        recording nothing; 422 with what the service said if the try failed, or untried
+        where there is no judge model, without which no turn has a photo. Its address and
+        model as the browser is to keep them."""
+        if backend.config.judge_settings is None:
+            raise OwnKeyRejected("这个部署发不了照片")
+        own = body.settings()
+        await own_keys.check_image(own)
+        return {"base_url": own.base_url, "model": own.model}
 
     @app.post("/api/account/consent", status_code=204)
     def consent(body: Consent, user: SignedIn) -> None:

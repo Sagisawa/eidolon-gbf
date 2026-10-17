@@ -51,7 +51,7 @@ from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
-from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
+from eidolon.own_keys import LLMService, OwnImageService, OwnKeys, ProviderLLMService
 from eidolon.photos import Photos
 from eidolon.proxy import ProxyRoutes
 from eidolon.readings import load_readings, readings_path
@@ -291,14 +291,22 @@ def build(
         )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
-    photos = Photos(store, config.image_generator, activity, usage)
+    # Users' own image generation, in the deployment's art style; in tests, on the same
+    # fake as the deployer's, told apart by its key.
+    own_images = OwnImageService(
+        public_only=settings.domain is not None, routes=routes,
+        style=lambda: config.image_style, transport=image_transport,
+    )
+    closers.append(own_images.aclose)
+    photos = Photos(store, config.image_generator, activity, usage, own_images.generator)
     closers.append(photos.aclose)  # closed before the store and usage, so no photo is still kept
     engine = ConversationEngine(
         store, characters, gift_catalog, memories, titles, clock, retrieval,
         lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
     )
     own_keys = OwnKeys(
-        own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys
+        own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys,
+        image_service=own_images,
     )
     admissions = Admissions(
         usage, activity, own_keys, cooldown_until=affinities.cooldown_until

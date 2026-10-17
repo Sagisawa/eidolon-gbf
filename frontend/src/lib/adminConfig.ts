@@ -7,8 +7,8 @@ import {
   FISH_AUDIO_MODELS,
   IMAGE_FORMATS,
   IMAGE_MODELS,
+  EXEMPTING_SERVICES,
   LLM_PROTOCOLS,
-  OWN_SERVICES,
   STT_PROVIDERS,
   type OwnService,
 } from "@/lib/localOwnKeys";
@@ -144,6 +144,7 @@ export const PROXIED_SERVICES = [
   "own_llm",
   "own_tts",
   "own_stt",
+  "own_image",
 ] as const;
 
 export type ProxiedService = (typeof PROXIED_SERVICES)[number];
@@ -193,12 +194,12 @@ export const LIMIT_FIELDS = [
 ];
 
 /** Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md「免限额密钥」), in
- * the order of `OWN_SERVICES`; at least one stays on. */
-export const EXEMPTING_FIELDS = OWN_SERVICES.map((service) => `exempting_${service}`);
+ * the order of `EXEMPTING_SERVICES`; at least one stays on. */
+export const EXEMPTING_FIELDS = EXEMPTING_SERVICES.map((service) => `exempting_${service}`);
 
-/** The services the limits item has on as exempting keys, in the order of `OWN_SERVICES`. */
+/** The services the limits item has on as exempting keys, in the order of `EXEMPTING_SERVICES`. */
 export function exemptingKeysOf(limits: Shown): OwnService[] {
-  return OWN_SERVICES.filter((service) => limits[`exempting_${service}`] === true);
+  return EXEMPTING_SERVICES.filter((service) => limits[`exempting_${service}`] === true);
 }
 
 export type FieldSpec = { name: string; kind: FieldKind; options?: readonly string[] };

@@ -3,6 +3,7 @@ import {
   agreeToTerms,
   ApiError,
   CONSENT_REQUIRED,
+  checkOwnImage,
   checkOwnSpeechKey,
   deleteAccount,
   getCallSetup,
@@ -228,6 +229,25 @@ describe("checkOwnSpeechKey", () => {
     expect(path).toBe("/api/account/keys/stt/check");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ api_key: "sk-my-dashscope-dddd", provider: "bailian" });
+  });
+
+  it("asks the server to try the user's own image generation, by generating one, keeping nothing", async () => {
+    const image = {
+      api_format: "novelai",
+      base_url: "https://image.novelai.net/",
+      api_key: "pst-my-own-image-key",
+      model: "nai-diffusion-5-curated",
+    } as const;
+    const fetch = vi.fn(async (_path: string, _init: RequestInit) =>
+      Response.json({ base_url: "https://image.novelai.net", model: "nai-diffusion-5-curated" }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    expect(await checkOwnImage(image)).toEqual({ base_url: "https://image.novelai.net", model: "nai-diffusion-5-curated" });
+    const [path, init] = fetch.mock.calls[0];
+    expect(path).toBe("/api/account/keys/image/check");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual(image);
   });
 
   it("asks the server to try a Fish Audio key with the model chosen", async () => {

@@ -31,7 +31,9 @@ from eidolon.config import (
     with_proxy_password,
 )
 from eidolon.llm import ChatMessage, LLMError
-from eidolon.own_keys import ProviderLLMService
+from eidolon.image_generation import ImageFailed
+from eidolon.own_keys import OwnImageService, ProviderLLMService
+from eidolon.photo_prompt import check_prompt
 from eidolon.price_catalog import Catalog
 from eidolon.proxy import ProxyRoutes, Unreachable, masked, reach
 from tests.conftest import ClientFactory
@@ -53,9 +55,11 @@ ALL_OFF = {s: False for s in PROXIED_SERVICES}
 class FakeProxy:
     """An HTTP proxy on localhost: tunnels CONNECT, forwards requests in absolute form,
     recording where each went (`went`: "host:port"); asks for credentials (407) unless
-    given `password`, if set."""
+    given `password`, if set. Without `upstream`, it answers 502 to each, connecting
+    nowhere, as for a real provider's host."""
 
     password: str | None = None
+    upstream: bool = True
     went: list[str] = field(default_factory=list)
     url: str = ""
 
@@ -89,6 +93,8 @@ class FakeProxy:
         self.went.append(where)
         host, port = where.rsplit(":", 1)
         try:
+            if not self.upstream:
+                raise OSError("not connecting upstream")
             up_reader, up_writer = await asyncio.open_connection(host, int(port))
         except OSError:  # a provider not found here, as no real one is
             writer.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
@@ -381,6 +387,50 @@ async def test_a_known_providers_llm_is_tried_through_the_proxy_not_looked_up_he
     assert proxy.went and set(proxy.went) == {"llm.known.example:443"}
 
 
+# Users' own image generation: through the proxy only to NovelAI's own address over HTTPS;
+# a relay's, whatever it is, direct, and checked to be on the public internet.
+
+NOVELAI = "https://image.novelai.net"
+
+
+async def everywhere_private(host: str, port: int) -> list[str]:
+    """Resolves every name to a private address, so nothing is reached direct."""
+    return ["10.0.0.8"]
+
+
+async def own_image_fails(service: OwnImageService, base_url: str) -> str:
+    """Why a photo on the user's own image service at `base_url` was not generated."""
+    generator = service.generator(ImageSettings("pst-mine", base_url))
+    with pytest.raises(ImageFailed) as failed:
+        await generator.generate(check_prompt(""), asyncio.get_running_loop().time() + 10)
+    return failed.value.detail
+
+
+async def test_a_users_own_image_generation_goes_through_the_proxy_only_to_novelais_own_address(
+    proxy: FakeProxy,
+):
+    proxy.upstream = False
+    routes = ProxyRoutes(through(proxy, "own_image"))
+    service = OwnImageService(public_only=True, routes=routes, resolver=everywhere_private)
+    try:
+        through_proxy = await own_image_fails(service, NOVELAI)
+        relay = await own_image_fails(service, "https://relay.image.example")
+        over_http = await own_image_fails(service, "http://image.novelai.net")
+        with pytest.raises(ImageFailed) as tried:
+            await service.check(ImageSettings("pst-mine", NOVELAI))
+        routes.replace(through(proxy, "image"))
+        not_ticked = await own_image_fails(service, NOVELAI)
+    finally:
+        await service.aclose()
+        await routes.aclose()
+
+    assert proxy.went == ["image.novelai.net:443"] * 2  # a turn's and a try's, not looked up here
+    for why in [through_proxy, tried.value.detail]:
+        assert "公网地址" not in why
+    assert "公网地址" in relay and "公网地址" in not_ticked
+    assert "https" in over_http
+
+
 def test_known_providers_are_the_catalogs_hosts_and_those_written_down_by_name_only(
     catalog: Catalog,
 ):
@@ -432,9 +482,10 @@ async def test_a_proxy_out_of_reach_is_said_so_its_password_masked(provider: Fak
 
 def test_env_sets_the_proxy_and_the_services_through_it(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("EIDOLON_PROXY_URL", " socks5h://127.0.0.1:7891/ ")
-    monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "chat_llm, tts, image, own_llm")
+    monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "chat_llm, tts, image, own_llm, own_image")
     assert proxy_from_env() == ProxySettings(
-        "socks5h://127.0.0.1:7891", True, frozenset({"chat_llm", "tts", "image", "own_llm"})
+        "socks5h://127.0.0.1:7891", True,
+        frozenset({"chat_llm", "tts", "image", "own_llm", "own_image"}),
     )
     monkeypatch.setenv("EIDOLON_PROXY_SERVICES", "all")
     assert proxy_from_env().services == frozenset(PROXIED_SERVICES)

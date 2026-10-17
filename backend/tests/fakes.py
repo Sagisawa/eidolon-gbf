@@ -564,8 +564,8 @@ class FakeImageService:
     downloaded from `DOWNLOAD` (each download in `downloads`, failing with
     `download_status` if set). With a `gate`, it answers
     only once the gate is open, as a service taking its time. It can answer amiss instead:
-    with an HTTP error (`status`), a picture of another `size`, or what is not a ZIP
-    (`garbled`)."""
+    with an HTTP error (`status`, saying `error`), a picture of another `size`, or what is
+    not a ZIP (`garbled`)."""
 
     METADATA = "fake NovelAI metadata"
     DOWNLOAD = "https://files.image.test/picture.png"
@@ -575,6 +575,7 @@ class FakeImageService:
         self.downloads: list[str] = []
         self.gate: asyncio.Event | None = None
         self.status: int | None = None
+        self.error = "fake image service error"
         self.download_status: int | None = None
         self.size: tuple[int, int] | None = None
         self.garbled = False
@@ -603,7 +604,7 @@ class FakeImageService:
         if self.gate is not None:
             await self.gate.wait()
         if self.status is not None:
-            return httpx.Response(self.status, json={"error": "fake image service error"})
+            return httpx.Response(self.status, json={"error": self.error})
         if self.garbled:
             return httpx.Response(200, content=b"<html>not a ZIP</html>")
         if openai:

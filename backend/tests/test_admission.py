@@ -15,7 +15,7 @@ import pytest
 
 from eidolon.activity import ActivityLog, Result
 from eidolon.admission import Admissions
-from eidolon.config import SERVICES, ChatModelSettings, LLMSettings, SttKey, UsageLimits
+from eidolon.config import EXEMPTING_SERVICES, ChatModelSettings, LLMSettings, SttKey, UsageLimits
 from eidolon.own_keys import (
     BroughtKeys,
     CallsUnavailable,
@@ -75,7 +75,7 @@ class Deployment:
     def own_keys(self) -> OwnKeys:
         return OwnKeys(
             self.llm_service, self.deployer, self.activity, self.speech,
-            exempting=lambda: frozenset(SERVICES),
+            exempting=lambda: frozenset(EXEMPTING_SERVICES),
         )
 
     def counted(self, kind: UsageKind = "turn") -> bool:

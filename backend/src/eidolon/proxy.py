@@ -7,18 +7,21 @@ transport of its own that, at each request, hands it on to a direct one or to on
 the proxy in effect, each kept for as long as the routes are; over a websocket, the
 connection asks for the proxy as it is opened (`ProxiedWebsocket`). Neither goes by the
 environment's `HTTPS_PROXY` and the like: whether a service goes through a proxy is the
-settings' alone. Users' own keys are routed apart from the deployer's; their LLMs go
-through the proxy only to a known provider's host (`own_llm_transport`, ADR-0022).
+settings' alone. Users' own keys are routed apart from the deployer's; their LLMs and image
+generation go through the proxy only to a known provider's host (`own_transport`, ADR-0022).
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from socksio import ProtocolError as SocksProtocolError
 from websockets.asyncio.client import ClientConnection
 
 from eidolon.config import ProxiedService, ProxySettings, split_proxy_password
+
+OwnAddressed = Literal["own_llm", "own_image"]
+"""Users' own services whose addresses are theirs to name."""
 
 REACH_TIMEOUT = httpx.Timeout(10)
 """How long trying whether a provider can be reached may take."""
@@ -35,7 +38,7 @@ class ProxyRoutes:
     def __init__(self, settings: ProxySettings) -> None:
         self._settings = settings
         self._transports: dict[ProxiedService, _RoutedTransport] = {}
-        self._own_llms: list[_RoutedTransport] = []
+        self._owns: list[_RoutedTransport] = []
 
     @property
     def settings(self) -> ProxySettings:
@@ -63,32 +66,39 @@ class ProxyRoutes:
             self._transports[service] = _RoutedTransport(lambda _: self.proxy_for(service))
         return self._transports[service]
 
-    def own_llm_transport(
-        self, known_provider: Callable[[str], bool], direct: httpx.AsyncHTTPTransport
+    def own_transport(
+        self,
+        service: OwnAddressed,
+        known_provider: Callable[[str], bool],
+        direct: httpx.AsyncHTTPTransport,
     ) -> httpx.AsyncBaseTransport:
-        """For users' own LLMs, whose addresses are theirs to name: a request over HTTPS
-        to a host `known_provider` knows (GLOSSARY.md「已知服务商」) goes through the proxy
-        if the settings in effect have users' LLMs go through it; every other one, to
+        """For users' own `service`, whose addresses are theirs to name: a request over
+        HTTPS to a host `known_provider` knows (GLOSSARY.md「已知服务商」) goes through the
+        proxy if the settings in effect have `service` go through it; every other one, to
         whatever host, goes on `direct`, which checks where it connects as it must. The
         proxy would connect for us unchecked (ADR-0022)."""
         def route(request: httpx.Request) -> str | None:
-            return self.own_llm_proxy(request.url.scheme, request.url.host, known_provider)
+            return self.own_proxy(service, request.url.scheme, request.url.host, known_provider)
 
         transport = _RoutedTransport(route, direct)
-        self._own_llms.append(transport)
+        self._owns.append(transport)
         return transport
 
-    def own_llm_proxy(
-        self, scheme: str, host: str, known_provider: Callable[[str], bool]
+    def own_proxy(
+        self,
+        service: OwnAddressed,
+        scheme: str,
+        host: str,
+        known_provider: Callable[[str], bool],
     ) -> str | None:
-        """Where a user's own LLM at `host` over `scheme` connects through now: the proxy
-        for HTTPS to a host `known_provider` knows, users' LLMs going through it; None,
+        """Where a user's own `service` at `host` over `scheme` connects through now: the
+        proxy for HTTPS to a host `known_provider` knows, `service` going through it; None,
         direct, for every other."""
         known = scheme == "https" and known_provider(host)
-        return self.proxy_for("own_llm") if known else None
+        return self.proxy_for(service) if known else None
 
     async def aclose(self) -> None:
-        for transport in [*self._transports.values(), *self._own_llms]:
+        for transport in [*self._transports.values(), *self._owns]:
             await transport.close_all()
 
 

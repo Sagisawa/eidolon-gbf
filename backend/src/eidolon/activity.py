@@ -863,9 +863,12 @@ def metered_retrieval(
     return embedder, reranker
 
 
-def image_origin(settings: ImageSettings) -> Origin:
-    """The deployer's image generation `settings` describe, as its service calls are
-    recorded."""
+def image_origin(settings: ImageSettings, own_key: bool = False) -> Origin:
+    """The image generation `settings` describe, as its service calls are recorded: a
+    user's own (with `own_key`) only as `OWN`, as their LLMs are, for its address may be a
+    relay of their own."""
+    if own_key:
+        return Origin("image", OWN, OWN, own_key=True)
     return Origin("image", host(settings.base_url), settings.model)
 
 

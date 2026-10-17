@@ -1,7 +1,8 @@
 """Users' own API keys: an LLM (which plays the characters, and writes down memories and
 names conversations unless they bring another model of their own for that), speech
-synthesis (Fish Audio) and speech recognition (Soniox or Alibaba Cloud Model Studio,
-阿里云百炼, whichever the user chose, whatever the deployer did).
+synthesis (Fish Audio), speech recognition (Soniox or Alibaba Cloud Model Studio,
+阿里云百炼, whichever the user chose, whatever the deployer did) and image generation (a
+NovelAI token or a relay's key, in either format; see `photos` for her photos on it).
 
 A user who brings their own key for a service has their turns and calls use it there,
 at their own expense. A call on their key that fails fails the turn, saying which of
@@ -22,7 +23,8 @@ the live configuration has then (GLOSSARY.md「免限额密钥」), touching no 
 it starts, before a call is placed (`call_exempt`), and for the settings page.
 
 Before the browser keeps an own key, it is tried once, keeping nothing (`check_llm`,
-`check_memory_llm`, `check_tts`, `check_stt`). Whether a key fails its try or a turn, what
+`check_memory_llm`, `check_tts`, `check_stt`, `check_image`, the last generating a picture
+at the user's expense). Whether a key fails its try or a turn, what
 the service said is shown to the user with the key masked (`_masked`), and logged no other
 way; a call's speech service on the user's key has it masked in its errors before Pipecat
 logs them (`call._masking`). An LLM is tried as the deployer's chat model is at startup: it
@@ -31,7 +33,9 @@ so no one can point the backend at the machines next to it, and read their answe
 the errors they are shown. That is checked on every connection, not only when the key is
 tried: a name that resolved to a public address then can resolve to a private one later.
 The proxy, which would connect for us unchecked, is only for a known provider's host
-(GLOSSARY.md「已知服务商」, ADR-0022), as the proxy settings have users' LLMs go.
+(GLOSSARY.md「已知服务商」, ADR-0022), as the proxy settings have users' LLMs go. An image
+service likewise, every request to it over HTTPS, a picture downloaded from where it says
+too; its only known provider is NovelAI's own address.
 """
 
 import asyncio
@@ -40,7 +44,7 @@ import logging
 import socket
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 from urllib.parse import urlsplit
 
@@ -50,18 +54,26 @@ import httpx
 from eidolon.activity import ActivityLog, ServiceName, llm_origin, metered_llm
 from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
+    DEFAULT_NOVELAI_BASE_URL,
     SERVICES,
     ChatModelSettings,
     FishAudioModel,
+    ImageSettings,
     LLMSettings,
     Service,
     SttKey,
     SttProvider,
 )
 from eidolon.emotion import EmotionJudging
+from eidolon.image_generation import (
+    GENERATION_TIMEOUT,
+    ImageFailed,
+    ImageGenerator,
+    try_image_service,
+)
 from eidolon.llm import ChatLLM, ChatMessage, LLMError, Streamed, Tool, TurnLLMs
 from eidolon.llm.providers import check_chat_models, open_chat_models, open_llm
-from eidolon.proxy import ProxyRoutes
+from eidolon.proxy import OwnAddressed, ProxyRoutes
 from eidolon.usage import UsageKind
 
 log = logging.getLogger(__name__)
@@ -78,6 +90,11 @@ BACKGROUND_LLM_LABEL = "后台模型："
 
 MAX_CAUSE_LENGTH = 300
 """How much of the service's own error message the user is shown."""
+
+HTTPS_ONLY = "接口地址需要以 https:// 开头"
+
+NOVELAI_HOST = urlsplit(DEFAULT_NOVELAI_BASE_URL).hostname
+"""NovelAI's own image generation's host: the one known provider of image generation."""
 
 
 class OwnKeyFailed(Exception):
@@ -155,17 +172,9 @@ class ProviderLLMService:
         self._public_only = public_only
         self._routes = routes
         self._known_provider = known_provider
-        direct = httpx.AsyncHTTPTransport()
-        if public_only:
-            pool = direct._pool  # httpx takes no network backend of its own
-            assert isinstance(pool, httpcore.AsyncConnectionPool)
-            pool._network_backend = PublicOnlyBackend(pool._network_backend)
-        transport = (
-            routes.own_llm_transport(known_provider, direct) if routes is not None else direct
-        )
-        # Not from the environment: a proxy would connect for us, unchecked.
-        self._client = httpx.AsyncClient(
-            transport=transport, timeout=httpx.Timeout(60, connect=10), trust_env=False
+        self._client = _own_client(
+            "own_llm", httpx.Timeout(60, connect=10), public_only=public_only, routes=routes,
+            known_provider=known_provider,
         )
 
     def open(self, settings: LLMSettings) -> ChatLLM:
@@ -184,11 +193,125 @@ class ProviderLLMService:
         except httpx.InvalidURL:  # said so by the check, as it is not proxied
             return False
         return self._routes is not None and (
-            self._routes.own_llm_proxy(url.scheme, url.host, self._known_provider) is not None
+            self._routes.own_proxy("own_llm", url.scheme, url.host, self._known_provider)
+            is not None
         )
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+def novelai_itself(host: str) -> bool:
+    """Whether `host` is NovelAI's own image generation's (GLOSSARY.md「已知服务商」)."""
+    return host == NOVELAI_HOST
+
+
+class OwnImageService:
+    """Users' own image services, whichever they name, over one HTTP client shared by all
+    of them, as `ProviderLLMService` reaches their LLMs: through the proxy, as `routes`
+    have users' image generation go, to NovelAI's own address alone, over HTTPS; direct to
+    every other one, and without `routes`. Pictures come in the deployment's art style
+    then (`style`), as the deployer's do."""
+
+    def __init__(
+        self,
+        *,
+        public_only: bool,
+        routes: ProxyRoutes | None = None,
+        style: Callable[[], str] = lambda: "",
+        transport: httpx.AsyncBaseTransport | None = None,
+        resolver: "Resolver | None" = None,
+    ) -> None:
+        """With `public_only`, every request goes over HTTPS, and a service it connects
+        to direct must be on the public internet, as `resolver` finds it. A `transport`
+        given is used as it is instead, for every request: for tests."""
+        self._public_only = public_only and transport is None
+        self._routes = routes
+        self._style = style
+        self._resolver = resolver or resolve
+        if transport is not None:
+            self._client = httpx.AsyncClient(
+                transport=transport, timeout=GENERATION_TIMEOUT, trust_env=False
+            )
+        else:
+            self._client = _own_client(
+                "own_image", GENERATION_TIMEOUT, public_only=public_only, routes=routes,
+                known_provider=novelai_itself, resolver=self._resolver, https_only=public_only,
+            )
+
+    def generator(self, own: ImageSettings) -> ImageGenerator:
+        """Generating on the user's own image service `own` names, one picture at a time,
+        in the deployment's art style now."""
+        return ImageGenerator(replace(own, concurrency=1, style=self._style()), self._client)
+
+    async def check(self, own: ImageSettings) -> None:
+        """Generate one picture on `own`, as a change to an image service is tried
+        (`image_generation.try_image_service`); raises ImageFailed saying why there is
+        none. In a public deployment its address is checked first, unless the proxy is to
+        look it up: a name may not resolve here as it does there."""
+        if self._public_only and not self._proxied(own.base_url):
+            try:
+                await _require_public(own.base_url, self._resolver)
+            except NotPublic as e:
+                raise ImageFailed("service_error", str(e)) from None
+        await try_image_service(self.generator(own))
+
+    def _proxied(self, base_url: str) -> bool:
+        """Whether a request to `base_url` goes through the proxy now."""
+        try:
+            url = httpx.URL(base_url)
+        except httpx.InvalidURL:  # said so by the check, as it is not proxied
+            return False
+        return self._routes is not None and (
+            self._routes.own_proxy("own_image", url.scheme, url.host, novelai_itself)
+            is not None
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+
+def _own_client(
+    service: OwnAddressed,
+    timeout: httpx.Timeout,
+    *,
+    public_only: bool,
+    routes: ProxyRoutes | None,
+    known_provider: Callable[[str], bool],
+    resolver: "Resolver | None" = None,
+    https_only: bool = False,
+) -> httpx.AsyncClient:
+    """A client for users' own `service`: through the proxy, as `routes` have it go, to a
+    host `known_provider` knows; direct to every other one, which with `public_only` must
+    be on the public internet, as `resolver` finds it. With `https_only`, every request
+    goes over HTTPS."""
+    direct = httpx.AsyncHTTPTransport()
+    if public_only:
+        pool = direct._pool  # httpx takes no network backend of its own
+        assert isinstance(pool, httpcore.AsyncConnectionPool)
+        pool._network_backend = PublicOnlyBackend(pool._network_backend, resolver or resolve)
+    transport: httpx.AsyncBaseTransport = (
+        routes.own_transport(service, known_provider, direct) if routes is not None else direct
+    )
+    if https_only:
+        transport = _HttpsOnly(transport)
+    # Not from the environment: a proxy would connect for us, unchecked.
+    return httpx.AsyncClient(transport=transport, timeout=timeout, trust_env=False)
+
+
+class _HttpsOnly(httpx.AsyncBaseTransport):
+    """Sends on requests over HTTPS alone."""
+
+    def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
+        self._inner = inner
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.url.scheme != "https":
+            raise httpx.UnsupportedProtocol(HTTPS_ONLY, request=request)
+        return await self._inner.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
 
 
 @dataclass(frozen=True)
@@ -208,6 +331,9 @@ class BroughtKeys:
     tts_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
     """The model the user chose to be voiced with on their own key for Fish Audio, at
     their own expense; not the deployer's."""
+    image: ImageSettings | None = None
+    """For the image service her photos are generated on, at the user's own expense and
+    counting towards nothing; in the deployment's art style, one at a time."""
 
     def __post_init__(self) -> None:
         assert self.memory_llm is None or self.llm is not None
@@ -326,15 +452,18 @@ class OwnKeys:
         speech_check: KeyCheck | None = None,
         *,
         exempting: Callable[[], frozenset[Service]],
+        image_service: OwnImageService | None = None,
     ) -> None:
         """Each request to a user's own LLM is recorded in `activity` as a service call
         on their own key; the deployer's models are recorded as `deployer` leases them.
-        `exempting` tells the exempting keys now (GLOSSARY.md「免限额密钥」)."""
+        `exempting` tells the exempting keys now (GLOSSARY.md「免限额密钥」). Users' own
+        image services are tried on `image_service`; without it, none is."""
         self._llm_service = llm_service
         self._deployer = deployer
         self._activity = activity
         self._speech_check = speech_check
         self._exempting = exempting
+        self._image_service = image_service
 
     def for_turn(self, brought: BroughtKeys) -> TurnKeys:
         """Whose keys a text turn bringing `brought` runs on: the user's own LLM, if it
@@ -360,7 +489,7 @@ class OwnKeys:
             tts = brought.tts if brought.tts is not None else deployer.tts
             tts_model = brought.tts_model if brought.tts is not None else deployer.tts_model
             assert stt and tts
-            own = brought.services - {"llm"}
+            own = brought.services & {"stt", "tts"}
             llms = self._llms(brought, deployer, call=True)
         except BaseException:
             lease.release()
@@ -415,6 +544,17 @@ class OwnKeys:
         OwnKeyRejected saying why it does not work."""
         with _rejecting(api_key):
             return await self._require_speech_check().check_stt(provider, api_key, own=True)
+
+    async def check_image(self, own: ImageSettings) -> None:
+        """Try the user's own image service by generating one picture on it, at their
+        expense and in the deployment's art style, keeping, counting and recording nothing.
+        Raises OwnKeyRejected saying why it does not work."""
+        if self._image_service is None:
+            raise OwnKeyRejected("这个部署发不了照片")
+        try:
+            await self._image_service.check(own)
+        except ImageFailed as e:
+            raise OwnKeyRejected(_masked(e.detail, own.api_key)) from None
 
     def _llms(
         self, brought: BroughtKeys, deployer: DeployerKeys | None, *, call: bool = False
@@ -494,13 +634,19 @@ def _require_speech(own: frozenset[Service], deployer: DeployerKeys) -> None:
 
 async def _check_public(base_url: str) -> None:
     """Raise LLMError unless `base_url` is HTTPS to a host on the public internet."""
-    parts = urlsplit(base_url)
-    if parts.scheme != "https" or not parts.hostname:
-        raise LLMError("接口地址需要以 https:// 开头")
     try:
-        await public_address(parts.hostname, parts.port or 443)
+        await _require_public(base_url)
     except NotPublic as e:
         raise LLMError(str(e)) from None
+
+
+async def _require_public(base_url: str, resolver: "Resolver | None" = None) -> None:
+    """Raise NotPublic unless `base_url` is HTTPS to a host on the public internet, as
+    `resolver` finds it."""
+    parts = urlsplit(base_url)
+    if parts.scheme != "https" or not parts.hostname:
+        raise NotPublic(HTTPS_ONLY)
+    await public_address(parts.hostname, parts.port or 443, resolver or resolve)
 
 
 class NotPublic(OSError):

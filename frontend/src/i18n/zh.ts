@@ -45,8 +45,8 @@ export const zh = {
     cancel: "取消",
     optional: "可选",
   },
-  /** 能自带密钥的三项服务（GLOSSARY.md「自带密钥」），列在一句话里时的名字。 */
-  ownServices: { llm: "LLM", tts: "语音合成", stt: "语音识别" },
+  /** 能自带密钥的几项服务（GLOSSARY.md「自带密钥」），列在一句话里时的名字。 */
+  ownServices: { llm: "LLM", tts: "语音合成", stt: "语音识别", image: "生图" },
   /** 把几项服务列成一句：「LLM」「LLM 和语音识别」「LLM、语音合成和语音识别」。 */
   serviceList: { separator: "、", last: "和" },
   /** 思考强度（GLOSSARY.md「思考强度」）的各档：下拉框里中文名后面括号写发给服务的原值。 */
@@ -655,6 +655,11 @@ export const zh = {
       },
       sttTitle: "语音识别",
       sttProvider: "服务商",
+      /** 自带的生图：接口形式和模型的选项名用后台配置页那份（`copy.admin.config`）。 */
+      imageTitle: "生图（她发来的照片）",
+      imageHint: "填了，她发来的照片改用你的额度生成，不计入每小时的照片数。保存前会真生成一张来试调，也花你的额度。",
+      imageNotSet: "未填写，使用部署者的生图",
+      imageFormat: "接口形式",
       sttProviders: { soniox: "Soniox", bailian: "阿里云百炼" },
       last4: (last4: string) => `密钥末 4 位 ${last4}`,
       llmCurrent: (model: string, baseUrl: string) => `${model} · ${baseUrl}`,
@@ -1288,6 +1293,7 @@ export const zh = {
           own_llm: "自带的 LLM 走代理",
           own_tts: "自带的语音合成走代理",
           own_stt: "自带的语音识别走代理",
+          own_image: "自带的生图走代理",
         },
       } as Partial<Record<string, Record<string, string>>>,
       formHints: {
@@ -1303,6 +1309,7 @@ export const zh = {
         proxy_password: "代理要求认证时填写，地址里要写用户名（http://用户名@主机:端口）。留空则不改。",
         proxy_unconfigured: "这个部署没有配置这项服务，开关暂时不起作用。",
         proxy_own_llm: "只有服务地址属于已知服务商（价格目录里有的）时才走代理，其余的照旧直连。",
+        proxy_own_image: "只有 NovelAI 官方地址（https://image.novelai.net）走代理，中转一律直连。",
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token；换服务时必填，留空则不改。",
         judge_model: "Cloudflare 只能是 clef 或 clef-flash。",
         image_base_url: "官方格式填到域名根，OpenAI 图像格式填到 /v1。",

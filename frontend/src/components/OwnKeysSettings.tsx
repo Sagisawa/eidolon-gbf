@@ -4,6 +4,7 @@ import { InfoIcon } from "lucide-react";
 import { FormEvent, useEffect, useId, useState, type ReactNode } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { ModelChoiceField } from "@/components/app/ModelChoiceField";
 import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -16,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
 import {
+  checkOwnImage,
   checkOwnLLM,
   checkOwnMemoryLLM,
   checkOwnSpeechKey,
@@ -28,8 +30,11 @@ import { toFailure, type Failure } from "@/lib/failure";
 import {
   canKeepOwnKeys,
   DEFAULT_FISH_AUDIO_MODEL,
+  DEFAULT_IMAGE_BASE_URL,
   FISH_AUDIO_MODELS,
   forgetOwnKey,
+  IMAGE_FORMATS,
+  IMAGE_MODELS,
   keepOwnKey,
   last4,
   localOwnKeys,
@@ -37,7 +42,9 @@ import {
   ownServices,
   STT_PROVIDERS,
   type FishAudioModel,
+  type ImageFormat,
   type LLMProtocol,
+  type LocalImage,
   type LocalLLM,
   type LocalOwnKeys,
   type LocalTtsKey,
@@ -50,7 +57,7 @@ import { cn } from "@/lib/utils";
 const t = copy.settings.ownKeys;
 
 /**
- * 用户自带、自己付费的密钥。三项都只存在这个浏览器里，按登录的用户分开存；填写时服务器只试调、
+ * 用户自带、自己付费的密钥。每项都只存在这个浏览器里，按登录的用户分开存；填写时服务器只试调、
  * 不保存。浏览器存不了时如实说，表单停用，不退而存在内存里。
  */
 export function OwnKeysSettings() {
@@ -184,6 +191,14 @@ export function OwnKeysSettings() {
             change(() => keepOwnKey(userId, "stt", { api_key: apiKey, provider, ...(region ? { region } : {}) }));
           }}
           onDelete={() => change(() => forgetOwnKey(userId, "stt"))}
+        />
+        <Separator />
+        {/* 生图一直显示：部署者没配生图时，自带的也能让她发照片。 */}
+        <OwnImageForm
+          current={kept.image}
+          disabled={!canKeep}
+          onChecked={(image) => change(() => keepOwnKey(userId, "image", image))}
+          onDelete={() => change(() => forgetOwnKey(userId, "image"))}
         />
       </div>
     </SettingsSection>
@@ -389,6 +404,143 @@ function OwnSpeechKeyForm({
           </Field>
           {failure && <FailureNotice failure={failure} />}
           <FormButtons busy={busy} canSubmit={!!keyToTry} onCancel={() => setEditing(false)} />
+        </FieldGroup>
+      </form>
+    </ServiceKey>
+  );
+}
+
+/**
+ * 自带的生图：接口形式、地址、key、模型四项，默认值和后台的一样。先让服务器真生成一张试调（花用户自己的额度，
+ * 服务器不保存），通过了才存进这个浏览器。修改时 key 留空就沿用存着的那把。
+ */
+function OwnImageForm({
+  current,
+  disabled,
+  onChecked,
+  onDelete,
+}: {
+  current: LocalImage | undefined;
+  disabled: boolean;
+  /** 试调通过的生图，地址和模型名按服务器规范化过的。 */
+  onChecked: (image: LocalImage) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [apiFormat, setApiFormat] = useState<ImageFormat>("novelai");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [model, setModel] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const id = useId();
+  const admin = copy.admin.config;
+
+  const keyToTry = apiKey.trim() || current?.api_key;
+  const toTry: LocalImage | null =
+    baseUrl.trim() && model.trim() && keyToTry
+      ? { api_format: apiFormat, base_url: baseUrl.trim(), api_key: keyToTry, model: model.trim() }
+      : null;
+
+  /** 打开表单，从存着的那份填起；没存过的从默认值填起。 */
+  function edit() {
+    setApiFormat(current?.api_format ?? "novelai");
+    setBaseUrl(current?.base_url ?? DEFAULT_IMAGE_BASE_URL);
+    setModel(current?.model ?? IMAGE_MODELS[0]);
+    setFailure(null);
+    setEditing(true);
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!toTry) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      onChecked({ ...toTry, ...(await checkOwnImage(toTry)) });
+      setApiKey("");
+      setEditing(false);
+    } catch (e) {
+      setFailure(toFailure(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const formats = IMAGE_FORMATS.map((f) => ({ value: f, label: admin.imageFormats[f] ?? f }));
+  const models = IMAGE_MODELS.map((m) => ({ value: m, label: admin.imageModels[m] ?? m }));
+  const summary = current
+    ? [
+        admin.imageFormats[current.api_format] ?? current.api_format,
+        t.llmCurrent(current.model, current.base_url),
+        t.last4(last4(current.api_key)),
+      ]
+    : [t.imageNotSet];
+
+  return (
+    <ServiceKey
+      title={t.imageTitle}
+      hint={t.imageHint}
+      summary={summary}
+      isSet={!!current}
+      editing={editing}
+      disabled={disabled}
+      onEdit={edit}
+      onDelete={onDelete}
+    >
+      <form onSubmit={submit}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor={`${id}-format`}>{t.imageFormat}</FieldLabel>
+            <Select
+              items={formats}
+              value={apiFormat}
+              onValueChange={(value) => value && setApiFormat(value as ImageFormat)}
+            >
+              <SelectTrigger id={`${id}-format`} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {formats.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-base-url`}>{t.baseUrl}</FieldLabel>
+            <Input
+              id={`${id}-base-url`}
+              value={baseUrl}
+              onChange={(event) => setBaseUrl(event.target.value)}
+              autoComplete="off"
+            />
+            <FieldDescription>{admin.formHints.image_base_url}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor={`${id}-key`}>{t.apiKey}</FieldLabel>
+            <Input
+              id={`${id}-key`}
+              type="password"
+              value={apiKey}
+              onChange={(event) => setApiKey(event.target.value)}
+              autoComplete="off"
+            />
+            {current && <FieldDescription>{t.keepApiKey}</FieldDescription>}
+          </Field>
+          <ModelChoiceField
+            id={`${id}-model`}
+            label={t.model}
+            options={models}
+            customLabel={admin.customModel}
+            value={model}
+            onChange={setModel}
+            error={null}
+          />
+          {failure && <FailureNotice failure={failure} />}
+          <FormButtons busy={busy} canSubmit={!!toTry} onCancel={() => setEditing(false)} />
         </FieldGroup>
       </form>
     </ServiceKey>

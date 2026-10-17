@@ -40,23 +40,27 @@ SttProvider = Literal["soniox", "bailian"]
 
 STT_PROVIDERS: tuple[SttProvider, ...] = get_args(SttProvider)
 
-Service = Literal["llm", "tts", "stt"]
+Service = Literal["llm", "tts", "stt", "image"]
 """A service users may bring their own key for (GLOSSARY.md「自带密钥」)."""
 SERVICES: tuple[Service, ...] = get_args(Service)
+EXEMPTING_SERVICES: tuple[Service, ...] = ("llm", "tts", "stt")
+"""The services that may be exempting keys (GLOSSARY.md「免限额密钥」): never image
+generation, whose photos count by whose they are on alone."""
 
 ProxiedService = Literal[
     "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt", "image",
-    "own_llm", "own_tts", "own_stt",
+    "own_llm", "own_tts", "own_stt", "own_image",
 ]
 """What may reach its provider through the proxy (GLOSSARY.md「网络代理」): the deployer's
 services, the chat model, in text turns and calls alike; the memory model; the judge
 model, whichever; the embedding service and the reranker; Fish Audio; the speech
-recognition chosen; image generation, wherever it is. Then users' own keys, apart from the deployer's, their providers being
-their own: their LLMs, background models too, though only to a known provider's host
-(GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech recognition they chose."""
+recognition chosen; image generation, wherever it is. Then users' own keys, apart from the
+deployer's, their providers being their own: their LLMs, background models too, though only
+to a known provider's host (GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech
+recognition they chose; image generation, though only to NovelAI's own address."""
 PROXIED_SERVICES: tuple[ProxiedService, ...] = get_args(ProxiedService)
 OWN_KEYS_PROXIED: dict[Service, ProxiedService] = {
-    "llm": "own_llm", "tts": "own_tts", "stt": "own_stt",
+    "llm": "own_llm", "tts": "own_tts", "stt": "own_stt", "image": "own_image",
 }
 """What users' own key for each service goes through the proxy as."""
 
@@ -364,7 +368,7 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
-    exempting_keys: frozenset[Service] = frozenset(SERVICES)
+    exempting_keys: frozenset[Service] = frozenset(EXEMPTING_SERVICES)
     """The services a call must bring the user's own keys for, all of them, to count
     towards no limit (GLOSSARY.md「免限额密钥」), at least one; all three unless `.env`
     turns some off, and the admin console may override it. Text turns go by the LLM alone."""
@@ -577,7 +581,7 @@ def history_turns_from_env() -> int | None:
 def exempting_keys_from_env() -> frozenset[Service]:
     """`EIDOLON_EXEMPTING_LLM`, `_TTS` and `_STT`, each on unless 0; never all off."""
     keys: frozenset[Service] = frozenset(
-        s for s in SERVICES if _switch(f"EIDOLON_EXEMPTING_{s.upper()}", default=True)
+        s for s in EXEMPTING_SERVICES if _switch(f"EIDOLON_EXEMPTING_{s.upper()}", default=True)
     )
     if not keys:
         raise RuntimeError(

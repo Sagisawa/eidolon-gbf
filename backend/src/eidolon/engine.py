@@ -109,7 +109,7 @@ from eidolon.affinity import (
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import FishAudioModel
+from eidolon.config import FishAudioModel, ImageSettings
 from eidolon.gift_catalog import Gift
 from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
@@ -342,9 +342,11 @@ async def _judged(
 
 @dataclass
 class _Photo:
-    """The photo a turn sends, once it begins one: its id and the tag she wrote for it, and
-    whether her reply is recorded with it."""
+    """The photo a turn sends, on the user's `own` image generation if the turn brings it:
+    once it begins one, its id and the tag she wrote for it, and whether her reply is
+    recorded with it."""
 
+    own: ImageSettings | None = None
     id: str | None = None
     tag: str = ""
     recorded: bool = False
@@ -462,18 +464,20 @@ class ConversationEngine:
         stop: asyncio.Event | None = None,
         in_call: InCall | None = None,
         voiced_by: FishAudioModel | None = None,
+        own_image: ImageSettings | None = None,
     ) -> AsyncIterator[TurnEvent]:
         """Take one turn on `llms`, `in_call` if it is taken in one, its reply voiced with
         `voiced_by` (None for a text turn's), which has her write delivery cues as it reads
-        them. `device_timezone` is the time zone the user's device reports, used unless the
-        producer profile sets one. Once `stop` is set, the turn goes no further and is
-        recorded with the segments complete by then."""
+        them, her photo on the user's `own_image` generation if it brings it. `device_timezone`
+        is the time zone the user's device reports, used unless the producer profile sets
+        one. Once `stop` is set, the turn goes no further and is recorded with the segments
+        complete by then."""
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
             yield TurnRejected(TOO_LONG if text else BLANK)
             return
-        photo = _Photo()
+        photo = _Photo(own_image)
         try:
             async for event in self._reply(
                 conversation, text, llms, device_timezone, stop, in_call, voiced_by, photo
@@ -514,7 +518,7 @@ class ConversationEngine:
         history = latest_turns(messages, turns)  # what all but the chat model read
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
-        eligibility = self._photo_eligibility(conversation, character, in_call)
+        eligibility = self._photo_eligibility(conversation, character, in_call, photo.own)
         asking_photo = eligibility is not None
         judged_apart = None
         if (judging or asking_photo) and self._retrieval is None and self._affinity_judge:
@@ -675,21 +679,26 @@ class ConversationEngine:
         yield TurnDone(reply.without_cues(), affinity and affinity.shown(), ended and ended.shown())
 
     def _photo_eligibility(
-        self, conversation: Conversation, character: Character, in_call: InCall | None
+        self,
+        conversation: Conversation,
+        character: Character,
+        in_call: InCall | None,
+        own: ImageSettings | None,
     ) -> Eligibility | None:
-        """What a turn with her may send, if it could have a photo, and so the judge model is
-        asked whether it asks for one: a typed turn, there being the judge model to ask."""
+        """What a turn with her may send, bringing the user's `own` image generation if any,
+        if it could have a photo, and so the judge model is asked whether it asks for one: a
+        typed turn, there being the judge model to ask."""
         has_judge = self._retrieval is not None or self._affinity_judge is not None
         if in_call is not None or not has_judge or self._photos is None:
             return None
-        return self._photos.eligibility(character, conversation.user_id)
+        return self._photos.eligibility(character, conversation.user_id, own)
 
     def _begin_photo(
         self, character: Character, tag: str, user_id: str, photo: _Photo
     ) -> PhotoPending:
         """Begin the photo her `tag` says, the turn's one, for the user."""
         assert self._photos is not None
-        photo.id, photo.tag = self._photos.begin(character, tag, user_id), tag
+        photo.id, photo.tag = self._photos.begin(character, tag, user_id, photo.own), tag
         return PhotoPending(photo.id)
 
     def _affinity(self, conversation: Conversation) -> Status | None:

@@ -85,7 +85,8 @@ class TurnInput(BaseModel):
     text: str
     own_keys: OwnKeysInput | None = None
     """The user's own keys, which their browser keeps, for the turn to run on; the shape
-    calls bring too. A turn uses only the LLMs, voice keys brought along go unused."""
+    calls bring too. A turn uses only the LLMs and image generation, voice keys brought
+    along go unused."""
     own_llm: object = None
     """Where pages from before brought their own LLM. Transitional, to be deleted once no
     such page is left open: a turn bringing it is refused, asking for a refresh, rather
@@ -543,7 +544,10 @@ def create_app(backend: Backend) -> FastAPI:
 
         async def events() -> AsyncIterator[str]:
             with outcome.running():
-                turn = engine.turn(conversation, body.text, admission.llms, device_timezone)
+                turn = engine.turn(
+                    conversation, body.text, admission.llms, device_timezone,
+                    own_image=brought.image,
+                )
                 async for event in turn:
                     outcome.see(event)
                     if isinstance(event, SegmentDelta):

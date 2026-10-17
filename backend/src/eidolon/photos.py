@@ -1,8 +1,9 @@
 """The photos she sends with her replies (GLOSSARY.md「照片」): whether a turn could have one,
 what she is told of it, and each photo from her tag to the picture kept with her reply.
 
-A turn could have a photo where the deployer has image generation, she has her photo tags
-(`characters`) and the user's limit on photos is not 0 (`usage`); only then is the judge
+A turn could have a photo where she has her photo tags (`characters`) and either it brings
+the user's own image generation, or the deployer has image generation and the user's limit
+on photos is not 0 (`usage`); only then is the judge
 model asked whether the user asks for one, and only where it says so is she told she can
 send one, in the system message that changes from turn to turn (ADR-0020), or, in the
 coldest tier of her affinity, that she does not want to. A turn that could not have one is
@@ -14,7 +15,11 @@ one now (`USED_UP`), and the user when they may ask again. A photo is counted as
 generating, before it waits its turn; with none left by then, used elsewhere meanwhile, it
 is never sent (`used_up`). One not sent is given back; one that came out but is not kept,
 its reply gone, is not, nor one still being generated as the server stopped, whose use
-nothing tells any more.
+nothing tells any more. A photo on the user's own image generation counts towards nothing,
+whatever their limit: its use is recorded as exempt, and a turn bringing it checks nothing.
+It is generated on theirs alone, in the deployment's art style; where it fails, it was their
+key that did (`own_key_failed`), told with the key masked, never then generated on the
+deployer's.
 
 A photo begins as her tag closes (`begin`), generating while she goes on speaking; its id is
 the browser's to wait on. It is kept with her reply as the reply is recorded (`recorded`),
@@ -29,7 +34,7 @@ will be: it is kept as having taken too long once the server starts again.
 Each key to an image service generates so many photos at a time (the deployer's, as many
 as it is set to), the others waiting their turn, first come first served, however many; a
 key set to another number from then on generates as many apart from those it had under
-way. None takes longer than `TIME_LIMIT` from her tag on, waiting its turn included; one
+way; a user's own, one at a time. None takes longer than `TIME_LIMIT` from her tag on, waiting its turn included; one
 that waited all of it was never sent, and one that comes back later is left. Begun in a
 turn, a photo is generated in the turn's context: its request to the image service is a
 service call recorded under the turn (`activity`), however long after it the photo comes
@@ -50,6 +55,7 @@ from datetime import datetime
 from eidolon.activity import ActivityLog, Recording, image_origin, recording, timed
 from eidolon.affinity import TIERS, Tier
 from eidolon.characters import Character
+from eidolon.config import ImageSettings
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
 from eidolon.photo_prompt import image_prompt, read_tag
 from eidolon.store import PhotoFailure, Store
@@ -162,13 +168,16 @@ class Photos:
         generator: Callable[[], ImageGenerator | None],
         activity: ActivityLog,
         usage: UsageLimiter,
+        own: Callable[[ImageSettings], ImageGenerator],
     ) -> None:
         """`generator` says, whenever asked, the deployer's image generation in effect;
-        None while there is none. Its requests are recorded in `activity`, each photo
-        counted in `usage`. The server starting, any photo still being generated when it
-        stopped took too long."""
+        None while there is none. `own` generates on the user's own image service its
+        settings name, in the deployment's art style. Their requests are recorded in
+        `activity`, each photo counted in `usage`. The server starting, any photo still
+        being generated when it stopped took too long."""
         self._store = store
         self._generator = generator
+        self._own = own
         self._activity = activity
         self._usage = usage
         self._queues: dict[tuple[str, int], _Queue] = {}
@@ -177,11 +186,18 @@ class Photos:
         if given_up := store.give_up_photos("timeout"):
             log.info("%s photos were being generated as the server stopped; not sent", given_up)
 
-    def eligibility(self, character: Character, user_id: str) -> Eligibility | None:
-        """What a turn of the user's with her may send; None if it could have no photo: there
-        is no image generation, she has no photo tags, or the user's limit is 0. Takes none
-        of the user's photos."""
-        if not character.photographed or self._generator() is None:
+    def eligibility(
+        self, character: Character, user_id: str, own: ImageSettings | None = None
+    ) -> Eligibility | None:
+        """What a turn of the user's with her may send, bringing their `own` image
+        generation if any; None if it could have no photo: she has no photo tags, or it
+        brings none and there is no image generation, or the user's limit is 0. Takes none
+        of the user's photos, nor checks any on their own."""
+        if not character.photographed:
+            return None
+        if own is not None:
+            return Eligibility()
+        if self._generator() is None:
             return None
         try:
             self._usage.check(user_id, "photo")
@@ -189,14 +205,17 @@ class Photos:
             return None if e.retry_at is None else Eligibility(e.retry_at)
         return Eligibility()
 
-    def begin(self, character: Character, tag: str, user_id: str) -> str:
-        """Begin the photo her `tag` says, for the user, generating, in the turn it is begun
+    def begin(
+        self, character: Character, tag: str, user_id: str, own: ImageSettings | None = None
+    ) -> str:
+        """Begin the photo her `tag` says, for the user, generating on their `own` image
+        generation if the turn brings it, else on the deployer's, in the turn it is begun
         in; its id."""
         photo_id = uuid.uuid4().hex
         self._generating[photo_id] = _Generating()
         until = asyncio.get_running_loop().time() + TIME_LIMIT
         task = asyncio.create_task(
-            self._generate(photo_id, character, tag, user_id, until, recording())
+            self._generate(photo_id, character, tag, user_id, own, until, recording())
         )
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -224,14 +243,16 @@ class Photos:
         character: Character,
         tag: str,
         user_id: str,
+        own: ImageSettings | None,
         until: float,
         turn: Recording | None,
     ) -> None:
-        """Count the photo against the user's limit, and generate it by `until` (the running
-        loop's time), its request recorded under `turn`; given back if not sent."""
+        """Count the photo against the user's limit, as exempt on their `own` image
+        generation, and generate it by `until` (the running loop's time), its request
+        recorded under `turn`; given back if not sent."""
         outcome: tuple[bytes | None, PhotoFailure | None]
         try:
-            use = self._usage.take(user_id, "photo")
+            use = self._usage.take(user_id, "photo", exempt=own is not None)
         except OverLimit:
             log.info("photo %s: the user's photos this hour were used up meanwhile", photo_id)
             outcome = None, "used_up"
@@ -239,7 +260,7 @@ class Photos:
             log.exception("counting photo %s failed", photo_id)
             outcome = None, "service_error"
         else:
-            outcome = await self._generated(photo_id, character, tag, until, turn)
+            outcome = await self._generated(photo_id, character, tag, own, until, turn)
             if outcome[0] is None:
                 use.give_back()
         generating = self._generating[photo_id]
@@ -255,12 +276,15 @@ class Photos:
         photo_id: str,
         character: Character,
         tag: str,
+        own: ImageSettings | None,
         until: float,
         turn: Recording | None,
     ) -> tuple[bytes | None, PhotoFailure | None]:
-        """The photo generated by `until`, or why it was not."""
+        """The photo generated by `until`, on the user's `own` image generation if any,
+        or why it was not: on their own, anything but taking too long is their key's
+        failing."""
         try:
-            generator = self._generator()
+            generator = self._generator() if own is None else self._own(own)
             if generator is None:
                 raise ImageFailed("service_error", "image generation is off")
             settings = generator.settings
@@ -269,20 +293,31 @@ class Photos:
                 with turn.current() if turn is not None else nullcontext():
                     image = await timed(
                         self._activity,
-                        image_origin(settings),
+                        image_origin(settings, own_key=own is not None),
                         generator.generate(image_prompt(character, read, settings.style), until),
                         read.stripped,
                     )
             return image.webp, None
         except ImageFailed as e:
-            log.warning("photo %s was not generated: %s", photo_id, e)
-            return None, e.reason
+            if own is None:
+                log.warning("photo %s was not generated: %s", photo_id, e)
+                return None, e.reason
+            masked = str(e).replace(own.api_key, "***")
+            log.warning("photo %s was not generated on the user's own key: %s", photo_id, masked)
+            return None, "timeout" if e.reason == "timeout" else "own_key_failed"
         except TimeoutError:
             log.warning("photo %s waited its turn longer than it could; never sent", photo_id)
             return None, "timeout"
-        except Exception:  # never left being generated for good
-            log.exception("generating photo %s failed", photo_id)
-            return None, "service_error"
+        except Exception as e:  # never left being generated for good
+            if own is None:
+                log.exception("generating photo %s failed", photo_id)
+                return None, "service_error"
+            # Not with its traceback, whose messages may repeat the user's key.
+            log.error(
+                "generating photo %s on the user's own key failed: %s", photo_id,
+                type(e).__name__,
+            )
+            return None, "own_key_failed"
 
     @asynccontextmanager
     async def _turn_on(self, key: str, at_a_time: int, until: float) -> AsyncIterator[None]:

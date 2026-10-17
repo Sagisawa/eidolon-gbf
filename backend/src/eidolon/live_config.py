@@ -67,7 +67,7 @@ from eidolon.config import (
     ImageSettings,
     JevSettings,
     JudgeSettings,
-    SERVICES,
+    EXEMPTING_SERVICES,
     LLMSettings,
     OWN_KEYS_PROXIED,
     PROXIED_SERVICES,
@@ -606,7 +606,7 @@ LIMIT_LABELS = {
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
-EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in SERVICES}
+EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in EXEMPTING_SERVICES}
 """Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md
 「免限额密钥」); true or false, never all false."""
 
@@ -701,6 +701,7 @@ PROXY_LABELS: dict[ProxiedService, str] = {
     "own_llm": "自带的 LLM",
     "own_tts": "自带的语音合成",
     "own_stt": "自带的语音识别",
+    "own_image": "自带的生图",
 }
 """What may go through the proxy, as the admin console names it."""
 
@@ -939,6 +940,12 @@ class LiveConfig:
         """The deployer's image generation in effect now; None without its key."""
         values = self.effective(IMAGE)
         return _image(values) if values["api_key"] else None
+
+    @property
+    def image_style(self) -> str:
+        """The deployment's art style in effect now, users' own image generation's too,
+        though the deployer has no key; empty for none."""
+        return self.effective(IMAGE)["style"]
 
     def image_generator(self) -> ImageGenerator | None:
         """The deployer's image generation in effect now, to generate on; None without it."""
