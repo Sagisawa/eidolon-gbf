@@ -38,6 +38,7 @@ Label: wayfinder:map
 - [拍板：条款之下谁出钱](issues/10-who-pays-under-tos.md)：照旧，部署者和自带两侧都能填官方 token 或中转，代码不拦；条款风险写进文档，使用条款加一条通用的「自带密钥」，界面不加 18 岁提示；术语表补了条款由谁负责，不记 ADR。
 - [拍板：失败、限额和计费](issues/08-failure-limits-cost.md)：照片失败时她的话照常记下，照片表留一行带原因的失败记录，她之后知道没发出去，不重试，总时限 90 秒；照片单独计次，每人每小时默认 5 张，失败还回去，用自带生图 key 的不计入，「生图」不进免限额密钥；按 token 排队；花费按张记，官方预设 0.036 美元一张。
 - [拍板：后台配置和自带密钥](issues/09-admin-and-own-keys.md)：只支持官方格式和 OpenAI 图像格式两种，人选；尺寸步数写死，模型可选可手填（默认 V5 Curated，改了 ADR-0023）；保存时真生成一张验尺寸；`image`/`own_image` 两项代理，自带的只有官方地址走代理、中转直连做公网检查（ADR-0022 扩到生图）；后台新开「生图」标签页，环境变量 `NOVELAI_*` 和 `EIDOLON_PHOTOS_PER_HOUR`；前端不需要知道能不能发。
+- [原型：画风](issues/11-art-style-prototype.md)：画风是部署者在后台生图卡上填的一段（`NOVELAI_STYLE`），仓库默认空、不写画师名，插在作品 tag 后面，整个部署共用、自带生图也生效；用户的部署填 `0.7::artist:rella::`；六个画师 tag 在 V5 Curated 上都有效、不改脸，不用换 Full；ADR-0003 不改。
 
 ## Not yet specified
 
