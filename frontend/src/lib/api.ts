@@ -93,10 +93,11 @@ export type Conversation = {
   created_at: string;
 };
 
-/** The last thing in a conversation as a list shows it, a message (without delivery cues) or
- * a conversation event other than her ending it; null while it has none. */
+/** The last thing in a conversation as a list shows it, a message (without delivery cues),
+ * marked `photo` when it is her reply with a photo she sent (not one being generated or not sent
+ * after all), or a conversation event other than her ending it; null while it has none. */
 export type LastMessage =
-  | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
+  | (Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> & { photo?: true })
   | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
   | null;
 

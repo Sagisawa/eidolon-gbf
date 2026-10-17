@@ -305,7 +305,7 @@ components:
 **The Bubble Group Rule.** 同一个人连着发的几条成一组：头像和名字只出现在第一条，时间戳只出现在最后一条；组内相邻气泡靠内侧的角收成 `rounded-md`（第一条收下角、最后一条收上角、中间的上下都收）。
 
 ### Conversation list
-- 行就是行，不用卡片包。每行：头像（56px，无描边）、名字、时间、最后一句（她的日语，或「你：…」；是一条对话事件时，14px muted 的图标加原文，如「{角色名}挂断了电话」、送礼记录是 `GiftIcon` 加「你送给{角色名}一份{礼物名}」，不加「你：」，时间写事件的时间，也按它排序；只有一条送礼记录的对话也这样显示）、未读数（`--her-button` 底、`--her-button-fg` 字的胶囊）。
+- 行就是行，不用卡片包。每行：头像（56px，无描边）、名字、时间、最后一句（她的日语，或「你：…」；是一条对话事件时，14px muted 的图标加原文，如「{角色名}挂断了电话」、送礼记录是 `GiftIcon` 加「你送给{角色名}一份{礼物名}」，不加「你：」，时间写事件的时间，也按它排序；只有一条送礼记录的对话也这样显示；她最后那条回复带着发出来了的照片时，她的话前面加一个 14px muted 的相机图标 `PhotoIcon`，写法同对话事件的图标，读屏读「照片：」，照片还在生成、没发出来的不加）、未读数（`--her-button` 底、`--her-button-fg` 字的胶囊）。
 - **Selected**：`bg-muted`；悬停 `bg-muted/60`。通话中该行描述换成「通话中 mm:ss」/「正在呼叫…」。
 - 底部没有免责声明（搬进了设置「关于」）。
 - **页首**：左边「对话」大标题，右边一个 ghost `icon-lg` 图标键：公告铃铛（`AnnouncementsBellIcon`，即 Lucide `Bell`），两种屏宽一样。没有更多菜单和 GitHub 键：设置在导航里，记忆从设置进，GitHub 在导航栏底部（电脑）和设置「关于」里。
@@ -357,7 +357,7 @@ components:
 - 导航栏和 dock：对话是 Lucide `MessageCircle`（`ConversationsIcon`），礼物是 `Gift`（`GiftIcon`），设置是 `Settings`（`SettingsIcon`）。
 - 礼物页：抽奖台的「抽一次」是 `Sparkles`（`DrawIcon`），抽到稀有礼物时插画角上的闪光也是 `Sparkles`（`RareIcon`）；重置卡确认框里「现在的档位 → 信任」的箭头是 `ArrowRight`（`BecomesIcon`）；类别筛选的吃的、饮品、花草、小物件是 `Cookie`（`FoodIcon`）、`CupSoda`（`DrinkIcon`）、`Flower2`（`FlowerIcon`）、`Gem`（`TrinketIcon`）；空状态、未开放和揭晓前跳的礼物盒用 `GiftIcon`，送礼记录的分隔线和对话列表的最后一句也是它；送礼面板里冷却中的沙漏是 `CooldownIcon`。
 - 她结束了对话：对话事件的分隔线和换掉输入栏的结束卡都是 `MessageCircleOff`（`EndedIcon`），历史对话面板里「她结束了」的标记也是它。
-- 她发来的照片：对话记录里照片生成中的占位是 `Camera`（`PhotoIcon`），没发出来时的说明是 `ImageOff`（`PhotoFailedIcon`）。
+- 她发来的照片：对话记录里照片生成中的占位是 `Camera`（`PhotoIcon`），对话列表和历史对话面板里最后一句前的相机也是它；没发出来时的说明是 `ImageOff`（`PhotoFailedIcon`）。
 - 对话页更多菜单：新对话 `SquarePen`（`NewConversationIcon`）、历史对话 `History`（`PastConversationsIcon`，历史对话的只读卡也用它）、换衣装 `Shirt`（`OutfitIcon`）。对话列表行菜单：置顶 `Pin`（`PinIcon`）、取消置顶 `PinOff`（`UnpinIcon`）、在列表中隐藏 `EyeOff`（`HideIcon`）、在列表中显示 `Eye`（`ShowIcon`）。
 - 设置一级：档案 `CircleUser`（`ProfileIcon`）、记忆 `BookHeart`（`MemoriesIcon`）、通话 `PhoneIcon`、自带密钥 `KeyRound`（`OwnKeysIcon`）、登录与数据 `LogIn`（`SignInIcon`）、关于 `Info`（`AboutIcon`）。新标签页打开的链接行尾是 `ExternalLink`（`ExternalLinkIcon`）。
 - 公告用两个图标：用户端的铃铛是 Lucide `Bell`（`AnnouncementsBellIcon`），后台侧栏是 `Megaphone`（`AnnouncementsIcon`），都照上一条导出，不是例外。

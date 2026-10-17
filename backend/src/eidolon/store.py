@@ -787,9 +787,10 @@ class Store:
         return [(c, last[c.id]) for c in newest.values()]
 
     def _last(self, conversation_id: str) -> Recorded | None:
-        """The last thing in the record, but her ending it: the list shows her last line."""
+        """The last thing in the record, but her ending it: the list shows her last line, and
+        whether she sent a photo with it."""
         message = self._db.execute(
-            f"SELECT {_MESSAGE_COLUMNS} FROM messages m WHERE conversation_id = ?"
+            f"SELECT {_MESSAGE_WITH_PHOTO} WHERE m.conversation_id = ?"
             " ORDER BY m.id DESC LIMIT 1",
             (conversation_id,),
         ).fetchone()
@@ -799,7 +800,7 @@ class Store:
             (conversation_id,),
         ).fetchone()
         if event is None or message is None:
-            return _event(event) if event else _message(message) if message else None
+            return _event(event) if event else _message_with_photo(message) if message else None
         said = self._db.execute(
             "SELECT created_at FROM messages WHERE conversation_id = ? AND role = 'user'"
             " ORDER BY id DESC LIMIT 1",
@@ -807,7 +808,7 @@ class Store:
         ).fetchone()
         last_turn_said = said["created_at"] if said else message["created_at"]
         after = _at(event["created_at"]) >= _at(last_turn_said)  # as `record` places it
-        return _event(event) if after else _message(message)
+        return _event(event) if after else _message_with_photo(message)
 
     def add_turn(
         self,
@@ -957,18 +958,10 @@ class Store:
         picture."""
         with self._lock:
             rows = self._db.execute(
-                f"SELECT {_MESSAGE_COLUMNS}, p.id AS photo_id, p.status AS photo_status,"
-                " p.reason AS photo_reason, p.tag AS photo_tag"
-                " FROM messages m LEFT JOIN photos p ON p.message_id = m.id"
-                " WHERE m.conversation_id = ? ORDER BY m.id",
+                f"SELECT {_MESSAGE_WITH_PHOTO} WHERE m.conversation_id = ? ORDER BY m.id",
                 (conversation_id,),
             ).fetchall()
-        return [
-            replace(_message(row), photo=Photo(
-                row["photo_id"], row["photo_status"], row["photo_reason"], row["photo_tag"]
-            )) if row["photo_id"] is not None else _message(row)
-            for row in rows
-        ]
+        return [_message_with_photo(row) for row in rows]
 
     def record(self, conversation_id: str) -> list[Recorded]:
         """The conversation's messages and events in the order things happened: a turn
@@ -1073,6 +1066,12 @@ _USER_COLUMNS = "id, name, created_at, consented_at, banned_at, ban_note"
 _MESSAGE_COLUMNS = (
     "m.id AS id, role, text, ja, zh, segments, m.created_at AS created_at, affinity"
 )
+_MESSAGE_WITH_PHOTO = (
+    f"{_MESSAGE_COLUMNS}, p.id AS photo_id, p.status AS photo_status,"
+    " p.reason AS photo_reason, p.tag AS photo_tag"
+    " FROM messages m LEFT JOIN photos p ON p.message_id = m.id"
+)
+"""A message with its photo, if any, but not its picture (`_message_with_photo`)."""
 _EVENT_COLUMNS = "id, kind, created_at, affinity, gift_id, liked"
 
 def _message(row: sqlite3.Row) -> Message:
@@ -1081,6 +1080,14 @@ def _message(row: sqlite3.Row) -> Message:
         [Segment(**s) for s in json.loads(row["segments"] or "[]")],
         Change(**json.loads(row["affinity"])) if row["affinity"] else None,
     )
+
+
+def _message_with_photo(row: sqlite3.Row) -> Message:
+    if row["photo_id"] is None:
+        return _message(row)
+    return replace(_message(row), photo=Photo(
+        row["photo_id"], row["photo_status"], row["photo_reason"], row["photo_tag"]
+    ))
 
 
 def _event(row: sqlite3.Row) -> ConversationEvent:

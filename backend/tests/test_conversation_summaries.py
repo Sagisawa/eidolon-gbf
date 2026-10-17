@@ -2,8 +2,10 @@
 
 import httpx
 
+from eidolon.config import Settings
 from tests.conftest import ClientFactory
 from tests.fakes import FakeLLM
+from tests.test_past_conversations import photographing, with_photo
 from tests.test_text_turn import send_turn, start_conversation
 
 
@@ -46,6 +48,25 @@ async def test_a_new_conversation_replaces_the_old_one_in_the_summary(make_clien
 
     assert mano["conversation_id"] == fresh
     assert mano["last_message"] is None
+
+
+async def test_her_last_reply_is_marked_when_the_photo_she_sent_with_it_is_out(
+    make_client: ClientFactory, settings: Settings
+):
+    client = photographing(make_client, settings)
+
+    await with_photo(client)
+    sent = (await latest(client))["mano"]["last_message"]
+    await with_photo(client)
+    failed = (await latest(client))["mano"]["last_message"]
+    await with_photo(client, settle=False)
+    pending = (await latest(client))["mano"]["last_message"]
+
+    # 发出来了的照片在最后一句上带标记；没发出来的、还在生成的不带。
+    assert sent["photo"] is True
+    assert (sent["ja"], sent["zh"]) == ("はい、どうぞ", "给，你看")
+    assert "photo" not in failed
+    assert "photo" not in pending
 
 
 async def test_other_users_conversations_are_not_shown(make_client: ClientFactory):

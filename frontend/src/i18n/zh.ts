@@ -81,6 +81,8 @@ export const zh = {
     noMatch: "没有找到这位偶像",
     /** 最后一句是制作人自己说的。 */
     you: (text: string) => `你：${text}`,
+    /** 最后一句前的相机图标（她最后发来了照片），给读屏读的。 */
+    photo: "照片：",
     neverTalked: "还没有对话",
     nothingSaidYet: "新的对话，还没有说话",
     yesterday: "昨天",

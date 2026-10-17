@@ -35,3 +35,5 @@
 **票 15 留下的（2026-10-17）。** 照片的生图调用记在开始它的那个回合下：`Photos.begin` 取当时的 `activity.recording()`，生成时在它下面计时。通话里的回合在 `call.py` 的 `with turn.current()` 里跑，`begin` 要在这个上下文里调，否则会记到通话或者单独一条。`ActivityLog.record` 已经改成：回合记录已经写进库就直接挂到它的 id 下，通话里结束了但还没随通话写进库的回合就先挂在它身上、随通话一起写；所以挂断以后才出来的照片也挂在那个回合下。
 
 **票 16 留下的（2026-10-17）。** 失败原因是 `store.PhotoFailure`，通话层的「照片没发出来 · {原因}」可以用 `lib/photoFailure.ts` 的 `photoFailureNote(reason).reason` 拿那半句。
+
+**票 22 留下的（2026-10-17）。** 列表的最后一句（`Store._last`）现在连照片表，最后一条回复的照片是「发出来了」时，`/api/conversations/latest` 和 `/api/conversations` 的 `last_message` 带 `photo: true`，前端在最后一句前加相机。通话里的照片只要同样经 `add_turn` 的 `photo` 写进照片表、挂在她那条回复上，列表就会自己带上相机，不用另做；挂断后才到的照片也一样（落库以后列表下次读就有）。测试里造「发出来 / 生图服务报错 / 一直在生成」三种照片的小工具在 `tests/test_past_conversations.py`（`photographing`、`with_photo`、`in_turn`、`broken`、`taking_its_time`），要用可以照搬。

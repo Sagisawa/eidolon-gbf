@@ -238,7 +238,8 @@ def create_app(backend: Backend) -> FastAPI:
 
     def last_shown(last: Recorded | None) -> dict | None:
         """The last thing in a conversation as a list shows it: a message without its
-        delivery cues, or a conversation event; None while it has none."""
+        delivery cues, marked `photo` if it is her reply with a photo she sent (not one being
+        generated or not sent after all), or a conversation event; None while it has none."""
         if last is None:
             return None
         if isinstance(last, ConversationEvent):
@@ -246,13 +247,14 @@ def create_app(backend: Backend) -> FastAPI:
                 last
             )
         shown = last.without_cues()
+        sent = shown.photo is not None and shown.photo.status == "ready"
         return {
             "role": shown.role,
             "text": shown.text,
             "ja": shown.ja,
             "zh": shown.zh,
             "created_at": shown.created_at,
-        }
+        } | ({"photo": True} if sent else {})
 
     def recorded(entry: Recorded) -> dict:
         """A message or conversation event as the browser reads it."""
