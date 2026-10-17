@@ -41,3 +41,6 @@
 **票 17 留下的（2026-10-17）。** 通话里的照片只要走 `Photos.begin`，清洗、改写表、黑名单和运行记录里剥掉的类别都自动有，不用另做。
 
 **票 18 留下的（2026-10-17）。** 次数和文字回合共用，按人计，不用另做：`Photos.eligibility(character, user_id)` 和 `Photos.begin(character, tag, user_id)` 都按 `conversation.user_id` 算。通话里照片资格还是 None（`engine._photo_eligibility` 里 `in_call is not None` 就返回 None），去掉这个条件就会开始查次数。用完时引擎在 `TurnDone` 之前产出 `PhotosUsedUp(retry_at)`（`type: "photos-used-up"`），文字回合经 SSE 发出去；通话要经 RTVI 发，前端 `onCallEvent` 现在会把它落到 `default`（只动立绘），要加一个 `case "photos-used-up"` 走 `applyTurnEvent(event, { stand })`，胶囊就会挂在这回合她那条回复后面（`conversationLog` 已经处理，`done` 时带到记录里的那条上）。规格说通话层上不另外提示。
+
+**票 20 留下的（2026-10-18）。** 通话的 offer 照旧带全部自带密钥，`OwnKeysInput.image` 已经解析成 `BroughtKeys.image`（`ImageSettings`，只有四项，同时数和画风由 `OwnImageService.generator` 补），但通话里的回合还没用它：文字回合是 `app.text_turn` 调 `engine.turn(..., own_image=brought.image)`，通话里 `call.py` 调 `self._engine.turn(...)` 时也要传进去（`Calls.start` 拿到的 `brought` 要存到通话上，或者放进 `CallKeys`）。传了以后 `Photos.eligibility` / `begin` 自然按自带的走：不查次数、`take(..., exempt=True)`、失败记 `own_key_failed`。测试照 `tests/test_own_image.py` 的 `MINE` 和 `photo_uses`。
+
