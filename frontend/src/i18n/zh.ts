@@ -296,6 +296,15 @@ export const zh = {
       unavailable: "没能打开这个麦克风，仍在用原来的",
       lost: "麦克风断开了，也没有别的麦克风可用",
     },
+    /** 通话里她发来的照片（spec「通话层」）：电脑上台词卡上方的小卡，手机上的一颗胶囊；收起时外壳顶上通话条的提示。 */
+    photo: {
+      taking: "正在拍照…",
+      sent: "发来一张照片 · 点开看",
+      open: "放大她发来的照片",
+      /** `reason` 是 `photoFailureNote(reason).reason`。 */
+      failed: (reason: string) => `照片没发出来 · ${reason}`,
+      newPhoto: "新照片",
+    },
     /** 消息列表里她那一行，也是收起后页首下面那条通话条上的字（呼叫中用 dialing）。 */
     listConnected: (clock: string) => `通话中 ${clock}`,
     ended: "通话已结束",
