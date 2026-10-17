@@ -20,3 +20,4 @@ Blocked by: 05
 ## Comments
 
 - 「调研：NovelAI 提示词写法」（`research/novelai-prompting` 分支的 `.scratch/photos/research/novelai-prompting.md`）建议不用 `photo (medium)`、`photo background`，因为它们会把画风拉向实拍或拼贴；对比真实感时注意这一点。
+- 「原型：外貌一致性」已定：模型用 V5 Curated，前缀是角色 tag 加外貌 tag（发色、发型、瞳色），五位的外貌 tag 写在那张票的 Answer 里。生成脚本可以照着改：`prototype/photos-appearance` 分支的 `.scratch/photos/prototype/appearance/gen.py`，同一个种子能和那次的图对照。**每张都扣用户中转的额度，开跑前先跟用户说要出几张、等他点头**；那次计划 100 张，用户嫌多，叫停在第 34 张。

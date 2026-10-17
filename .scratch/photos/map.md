@@ -32,6 +32,7 @@ Label: wayfinder:map
 - [调研：NovelAI 中转的常见协议](issues/02-relay-research.md)：四种形态（原样转发、OpenAI images、OpenAI chat、自定义），支持前两种就能覆盖绝大多数；参数常被静默忽略、200 也可能是错误图、超时不重试。
 - [准备测试用的中转地址和 key](issues/03-test-endpoint.md)：用户的中转 A、B 两种都开；A 参数全部生效、同种子可复现、回 ZIP；B 只认顶层负面词和尺寸，种子和步数被静默换掉；单张 5–9 秒，并发 3 张没有 429。
 - [拍板：怎么触发、谁来写提示词](issues/04-trigger-and-prompt.md)：判断模型多答一道「是不是在要照片」，没生图就不问；她在回复最前面写一个分栏的 `<photo>` 标签（拍法和景别选枚举，地点、服装、动作写英文 tag），服务器拼上固定的前缀、清洗后再生成；冷淡这一档写死不发；她记得自己发过什么。
+- [原型：外貌一致性](issues/05-appearance-prototype.md)：V5 Curated，每位存角色 tag 加一串外貌 tag（只写发色、发型、瞳色），不用参考图；只写角色 tag 已经够像（冷门的はるき也是），外貌 tag 防止丢发型；28 位由代理对着缩略图写初稿、用户校对。
 
 ## Not yet specified
 
