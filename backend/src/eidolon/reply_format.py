@@ -284,10 +284,14 @@ class ReplyParser:
         return events
 
 
-def format_reply(segments: list[Segment], photo_tag: str | None = None) -> str:
+def format_reply(
+    segments: list[Segment], photo_tag: str | None = None, photo_failed: bool = False
+) -> str:
     """Write segments back in the reply format, after the photo tag she sent with them if
-    any, e.g. for earlier replies in the prompt."""
-    photo = f"<{_PHOTO}>{photo_tag}</{_PHOTO}>" if photo_tag is not None else ""
+    any, e.g. for earlier replies in the prompt; that of a photo not sent after all marked
+    `status="failed"`."""
+    marked = ' status="failed"' if photo_failed else ""
+    photo = f"<{_PHOTO}{marked}>{photo_tag}</{_PHOTO}>" if photo_tag is not None else ""
     return photo + "".join(f"<ja>{s.ja}</ja><zh>{s.zh}</zh>" for s in segments)
 
 

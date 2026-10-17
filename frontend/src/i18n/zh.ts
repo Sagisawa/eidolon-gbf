@@ -175,12 +175,22 @@ export const zh = {
       removeDescription:
         "这段对话里的消息、通话记录和送礼记录都会彻底删除，无法恢复。她在这段对话里记下的事不受影响，可以在设置的「记忆」里删除。",
     },
-    /** 她发来的照片（GLOSSARY.md「照片」）：对话记录里的照片块和点开放大。 */
+    /** 她发来的照片（GLOSSARY.md「照片」）：对话记录里的照片块、点开放大，和没发出来时的说明。 */
     photo: {
       pending: "照片正在生成",
       sent: "她发来的照片",
       open: "放大照片",
       viewer: "照片",
+      failed: "照片没发出来",
+      /** 没发出来的原因，按后端的 `store.PhotoFailure`；不认识的原因按生图服务出错说。 */
+      reasons: {
+        timeout: "等太久了",
+        service_error: "生图服务出错了",
+        bad_image: "生成的图不对",
+        own_key_failed: "你的生图密钥没能用",
+        used_up: "这一小时的照片用完了",
+      },
+      toOwnKeys: "去设置自带密钥",
     },
     hearing: "正在听你说",
     loading: "正在打开对话",

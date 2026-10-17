@@ -33,3 +33,5 @@
 **14 留下的（2026-10-17）。** 通话里现在没有照片资格：`engine.ConversationEngine._could_send_photo` 要求 `in_call is None`。去掉这个条件以后，`PhotoPending` 会照 `asdict` 发到 RTVI（`call.py` 的 `_reply_events`），`done` 已经改用 `TurnDone.shown()`。前端 `CallEvent` 已经包含 `photo` 事件的类型（来自 `TurnEvent`），`onCallEvent` 现在落到 `default`。
 
 **票 15 留下的（2026-10-17）。** 照片的生图调用记在开始它的那个回合下：`Photos.begin` 取当时的 `activity.recording()`，生成时在它下面计时。通话里的回合在 `call.py` 的 `with turn.current()` 里跑，`begin` 要在这个上下文里调，否则会记到通话或者单独一条。`ActivityLog.record` 已经改成：回合记录已经写进库就直接挂到它的 id 下，通话里结束了但还没随通话写进库的回合就先挂在它身上、随通话一起写；所以挂断以后才出来的照片也挂在那个回合下。
+
+**票 16 留下的（2026-10-17）。** 失败原因是 `store.PhotoFailure`，通话层的「照片没发出来 · {原因}」可以用 `lib/photoFailure.ts` 的 `photoFailureNote(reason).reason` 拿那半句。

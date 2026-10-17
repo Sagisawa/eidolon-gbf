@@ -9,22 +9,30 @@ A turn that could not have one is as it was before there were photos.
 
 A photo begins as her tag closes (`begin`), generating while she goes on speaking; its id is
 the browser's to wait on. It is kept with her reply as the reply is recorded (`recorded`),
-being generated, and once generated its picture is, or why there is none; one generated
-before the reply is recorded is kept as it is. A reply that is never recorded has its
-photo dropped once generated (`dropped`), as does one whose conversation is deleted
-meanwhile. Nothing stops a photo once begun, not the page closing: what it costs is spent.
+being generated, and once generated its picture is, or why there is none (`PhotoFailure`);
+one generated before the reply is recorded is kept as it is. A reply that is never recorded
+has its photo dropped once generated (`dropped`), as does one whose conversation, or user,
+is deleted meanwhile; one whose conversation is merely no longer her current one is kept.
+Nothing stops a photo once begun, not the page closing: what it costs is spent, so it is
+never asked for again either. A photo still being generated when the server stopped never
+will be: it is kept as having taken too long once the server starts again.
 
-The deployer's image service generates one photo at a time, and none takes longer than
-`image_generation.TIME_LIMIT` from her tag on, waiting its turn included. Begun in a turn,
-a photo is generated in the turn's context: its request to the image service is a service
-call recorded under the turn (`activity`), however long after it the photo comes out.
+Each key to an image service generates so many photos at a time (the deployer's, one), the
+others waiting their turn, first come first served, however many. None takes longer than
+`TIME_LIMIT` from her tag on, waiting its turn included; one that waited all of it was
+never sent, and one that comes back later is left. Begun in a turn, a photo is generated
+in the turn's context: its request to the image service is a service call recorded under
+the turn (`activity`), however long after it the photo comes out; one never sent is none.
+
+Her later turns carry the tag of a photo not sent marked failed, and tell her what that
+means (`NOT_RECEIVED`), so that she knows the user never saw it.
 """
 
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable
-from contextlib import nullcontext
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 
 from eidolon.activity import ActivityLog, Recording, image_origin, recording, timed
@@ -32,7 +40,7 @@ from eidolon.affinity import TIERS, Tier
 from eidolon.characters import Character
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
 from eidolon.photo_prompt import image_prompt, read_tag
-from eidolon.store import Store
+from eidolon.store import PhotoFailure, Store
 
 log = logging.getLogger(__name__)
 
@@ -66,6 +74,15 @@ NOT_NOW = """\
 """What she is told in a turn the user asks for a photo in, her affinity in its coldest
 tier: she does not send one."""
 
+NOT_RECEIVED = """\
+# 没发出去的照片
+上文里标了 status="failed" 的照片没有发出去，制作人没收到。"""
+"""What she is told in a turn whose history has a photo she sent that was not sent after
+all, its tag marked `status="failed"`."""
+
+DEPLOYERS_AT_A_TIME = 1
+"""How many photos the deployer's key generates at a time: NovelAI's own token, one."""
+
 COLDEST: Tier = TIERS[0][0]
 
 
@@ -95,7 +112,16 @@ class _Generating:
 
     recorded: bool = False
     dropped: bool = False
-    outcome: tuple[bytes | None, str | None] | None = None
+    outcome: tuple[bytes | None, PhotoFailure | None] | None = None
+
+
+@dataclass
+class _Queue:
+    """The photos generating on one key, at most so many at a time (`room`), and how many
+    are, or are waiting their turn."""
+
+    room: asyncio.Semaphore
+    photos: int = 0
 
 
 class Photos:
@@ -108,13 +134,16 @@ class Photos:
         activity: ActivityLog,
     ) -> None:
         """`generator` says, whenever asked, the deployer's image generation in effect;
-        None while there is none. Its requests are recorded in `activity`."""
+        None while there is none. Its requests are recorded in `activity`. The server
+        starting, any photo still being generated when it stopped took too long."""
         self._store = store
         self._generator = generator
         self._activity = activity
-        self._one_at_a_time = asyncio.Semaphore(1)
+        self._queues: dict[str, _Queue] = {}
         self._generating: dict[str, _Generating] = {}
         self._tasks: set[asyncio.Task[None]] = set()
+        if given_up := store.give_up_photos("timeout"):
+            log.info("%s photos were being generated as the server stopped; not sent", given_up)
 
     def could_send(self, character: Character) -> bool:
         """Whether a turn with her could have a photo: there is image generation, and she has
@@ -159,28 +188,25 @@ class Photos:
     ) -> None:
         """Generate the photo by `until` (the running loop's time), its request recorded
         under `turn`."""
-        outcome: tuple[bytes | None, str | None]
+        outcome: tuple[bytes | None, PhotoFailure | None]
         try:
-            async with asyncio.timeout_at(until):  # waiting its turn, not yet sent
-                await self._one_at_a_time.acquire()
-            try:
-                generator = self._generator()
-                if generator is None:
-                    raise ImageFailed("service_error", "image generation is off")
+            generator = self._generator()
+            if generator is None:
+                raise ImageFailed("service_error", "image generation is off")
+            settings = generator.settings
+            async with self._turn_on(settings.api_key, DEPLOYERS_AT_A_TIME, until):
                 with turn.current() if turn is not None else nullcontext():
                     image = await timed(
                         self._activity,
-                        image_origin(generator.settings),
+                        image_origin(settings),
                         generator.generate(image_prompt(character, read_tag(tag)), until),
                     )
-            finally:
-                self._one_at_a_time.release()
             outcome = image.webp, None
         except ImageFailed as e:
             log.warning("photo %s was not generated: %s", photo_id, e)
             outcome = None, e.reason
         except TimeoutError:
-            log.warning("photo %s took longer than %ss", photo_id, TIME_LIMIT)
+            log.warning("photo %s waited its turn longer than it could; never sent", photo_id)
             outcome = None, "timeout"
         except Exception:  # never left being generated for good
             log.exception("generating photo %s failed", photo_id)
@@ -193,7 +219,26 @@ class Photos:
         else:
             generating.outcome = outcome
 
-    def _keep(self, photo_id: str, image: bytes | None, reason: str | None) -> None:
+    @asynccontextmanager
+    async def _turn_on(self, key: str, at_a_time: int, until: float) -> AsyncIterator[None]:
+        """Wait, first come first served, for the image service to have room for one more
+        photo on `key`, `at_a_time` generating at most; raises TimeoutError if there is
+        none by `until` (the running loop's time)."""
+        queue = self._queues.setdefault(key, _Queue(asyncio.Semaphore(at_a_time)))
+        queue.photos += 1
+        try:
+            async with asyncio.timeout_at(until):
+                await queue.room.acquire()
+            try:
+                yield
+            finally:
+                queue.room.release()
+        finally:
+            queue.photos -= 1
+            if not queue.photos:
+                del self._queues[key]
+
+    def _keep(self, photo_id: str, image: bytes | None, reason: PhotoFailure | None) -> None:
         del self._generating[photo_id]
         if not self._store.finish_photo(photo_id, image, reason):
             log.info("photo %s came out after its reply was deleted; not kept", photo_id)

@@ -23,6 +23,11 @@ Role = Literal["user", "character"]
 EventKind = Literal["hung_up", "gift", "ended"]
 PhotoStatus = Literal["pending", "ready", "failed"]
 """A photo being generated, sent, or not sent after all."""
+PhotoFailure = Literal["timeout", "service_error", "bad_image", "own_key_failed", "used_up"]
+"""Why a photo was not sent: the image service took too long, waiting its turn included;
+it failed, or could not be reached; it answered with what is not one picture of the size
+asked for; the user's own key to it failed; or the photos of the hour were used up as it
+was about to be generated."""
 
 _SCHEMA = """
 -- `name` only tells users apart on the admin command line; it need not be unique.
@@ -212,7 +217,7 @@ class Photo:
 
     id: str
     status: PhotoStatus
-    reason: str | None
+    reason: PhotoFailure | None
     tag: str
 
     def shown(self) -> dict:
@@ -843,7 +848,9 @@ class Store:
                 self._insert_event(conversation_id, "ended", _now())
             return replied
 
-    def finish_photo(self, photo_id: str, image: bytes | None, reason: str | None) -> bool:
+    def finish_photo(
+        self, photo_id: str, image: bytes | None, reason: PhotoFailure | None
+    ) -> bool:
         """Keep how the photo being generated came out: sent, as `image`, or not, for
         `reason`. False, keeping nothing, if it is no longer there, its conversation
         deleted meanwhile, say, or no longer being generated."""
@@ -854,6 +861,17 @@ class Store:
                 ("ready" if image is not None else "failed", reason, image, _now(), photo_id),
             )
         return cursor.rowcount > 0
+
+    def give_up_photos(self, reason: PhotoFailure) -> int:
+        """Keep every photo still being generated as not sent, for `reason`: nothing is
+        generating it any more, the server having stopped meanwhile. How many there were."""
+        with self._lock, self._db:
+            cursor = self._db.execute(
+                "UPDATE photos SET status = 'failed', reason = ?, updated_at = ?"
+                " WHERE status = 'pending'",
+                (reason, _now()),
+            )
+        return cursor.rowcount
 
     def photo(self, photo_id: str, user_id: str) -> Photo | None:
         """The photo, if it is in one of the user's conversations; None if not."""

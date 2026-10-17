@@ -74,8 +74,9 @@ changes from turn to turn, and may write a photo tag at the front of her reply: 
 affinity is in its coldest tier, the photo begins the moment it closes, and `photo` tells
 the browser its id before her first words; any other turn's tag is dropped. Her reply is
 recorded with the photo, being generated; a reply not recorded drops it. From then on her
-prompt carries the tag before her reply, as she wrote it, so she knows what she sent;
-retrieval, memory and the judge model never read it.
+prompt carries the tag before her reply, as she wrote it, so she knows what she sent; that
+of a photo not sent after all marked failed, and she is told what that means
+(`photos.NOT_RECEIVED`). Retrieval, memory and the judge model never read it.
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -112,7 +113,7 @@ from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.photos import Photos, photo_turn
+from eidolon.photos import NOT_RECEIVED, Photos, photo_turn
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
     format_instructions,
@@ -743,13 +744,19 @@ class ConversationEngine:
                 told = narration.get(message.id, "")
                 prompt.append(ChatMessage("user", f"{told}{message.text or ''}"))
             else:
-                tag = message.photo.tag if message.photo else None
-                prompt.append(ChatMessage("assistant", format_reply(message.segments, tag)))
+                photo = message.photo
+                prompt.append(ChatMessage("assistant", format_reply(
+                    message.segments,
+                    photo.tag if photo else None,
+                    photo is not None and photo.status == "failed",
+                )))
         if history:  # what the next turn opens with too, for a service to cache
             prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
         context = [about_now]
         if about_photo:
             context.append(about_photo)
+        if any(m.photo is not None and m.photo.status == "failed" for m in history):
+            context.append(NOT_RECEIVED)
         if retrieved.memories_prompt:
             context.append(retrieved.memories_prompt)
         if retrieved.prompt:

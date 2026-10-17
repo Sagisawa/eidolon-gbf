@@ -28,3 +28,7 @@
   - 前端：胶囊怎么插、怎么分组。
 - [ ] **验收**：本地构建版上用 Playwright，把限额调成 1，要两次照片看到胶囊。
 - [ ] `uv run pytest`、`uv run pyright`、`npm test`、`npm run typecheck` 全部通过。
+
+## Comments
+
+**票 16 留下的（2026-10-17）。** 失败原因的类型是 `store.PhotoFailure`，`used_up` 已经在里面，前端的说明文案（「这一小时的照片用完了」）也有了，只要把原因推进照片表。扣次数要放在 `photos.Photos._generate` 里真正排队、发请求之前（排队超时的没发出去，按规格要退还）。启动时 `Store.give_up_photos("timeout")` 把重启前还在生成的照片记成超时，这些照片的次数要不要退、怎么退（那时已经不知道是谁的哪一次），这张要定。
