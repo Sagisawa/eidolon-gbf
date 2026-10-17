@@ -120,8 +120,20 @@ export function statusDisplay(item: ConfigItem): StatusDisplay {
   }
 }
 
-/** The deployer's services that may each go through the proxy (GLOSSARY.md「网络代理」), in the order shown. */
-export const PROXIED_SERVICES = ["chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt"] as const;
+/** What may each go through the proxy (GLOSSARY.md「网络代理」), in the order shown: the deployer's services, then users'
+ * own keys, ticked apart. */
+export const PROXIED_SERVICES = [
+  "chat_llm",
+  "memory_llm",
+  "judge",
+  "embedding",
+  "rerank",
+  "tts",
+  "stt",
+  "own_llm",
+  "own_tts",
+  "own_stt",
+] as const;
 
 export type ProxiedService = (typeof PROXIED_SERVICES)[number];
 

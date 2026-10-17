@@ -119,9 +119,9 @@ class AffinityInput(BaseModel):
 
 class ProxyInput(BaseModel):
     """The proxy as the admin saves it: the switch, the address (a password typed into it
-    is kept apart, as a key is; empty for none), and a switch for each service; without
-    `password`, it stays as it is. The address is checked by the live configuration,
-    which says what is wrong in so many words."""
+    is kept apart, as a key is; empty for none), and a switch for each of the deployer's
+    services and of users' own keys; without `password`, it stays as it is. The address
+    is checked by the live configuration, which says what is wrong in so many words."""
 
     enabled: StrictBool
     url: str | None = Field(None, max_length=500)
@@ -133,6 +133,9 @@ class ProxyInput(BaseModel):
     rerank: StrictBool
     tts: StrictBool
     stt: StrictBool
+    own_llm: StrictBool
+    own_tts: StrictBool
+    own_stt: StrictBool
 
 
 INPUTS: dict[str, type[BaseModel]] = {

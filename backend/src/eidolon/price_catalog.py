@@ -11,13 +11,17 @@ one written down here, or OpenRouter), then the model's name, as it is and then 
 and looser. A model at a host no catalog knows (a relay, a proxy) is looked for among
 the providers that make models, and priced as its maker prices it. OpenRouter's catalog
 is its own API's, not models.dev's copy, which goes without the judge models' prices.
+The same hosts are the known providers', which alone users' own LLMs may reach through the
+proxy (`known_provider`, ADR-0022).
 
 models.dev's says how each model thinks, too (`Thinking`), found the same way (`thinking`):
 for the efforts beside a model's to note which it is listed taking, a hint only, never
 what is sent (ADR-0019). OpenRouter's says so in words of its own, not used."""
 
 import asyncio
+import ipaddress
 import logging
+import re
 import threading
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
@@ -49,8 +53,26 @@ HOSTS = {
     "xai": "api.x.ai",
     "mistral": "api.mistral.ai",
     "cohere": "api.cohere.com",
+    "groq": "api.groq.com",
+    "cerebras": "api.cerebras.ai",
+    "deepinfra": "api.deepinfra.com",
+    "togetherai": "api.together.xyz",
+    "perplexity": "api.perplexity.ai",
+    "venice": "api.venice.ai",
 }
-"""The hosts of the models.dev providers that do not say where they are served (`api`)."""
+"""The hosts of the models.dev providers that do not say where they are served (`api`),
+known providers whether or not the catalogs have been fetched (`Catalog.known_provider`)."""
+
+_DOMAIN = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
+"""A name with a dot in it: not `localhost`, nor a placeholder (`${DATABRICKS_HOST}`)."""
+
+
+def _is_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 MAKERS = [
     "openai", "anthropic", "google", "deepseek", "xai", "mistral", "moonshotai",
@@ -182,7 +204,10 @@ def parse_models_dev(
         if provider == OPENROUTER or not isinstance(entry, dict):
             continue
         api = entry.get("api")
-        host = urlsplit(api).hostname if isinstance(api, str) else HOSTS.get(provider)
+        if isinstance(api, str):  # not over HTTPS, it is on this machine or next to it
+            host = urlsplit(api).hostname if urlsplit(api).scheme == "https" else None
+        else:
+            host = HOSTS.get(provider)
         if host:
             hosts.append((host.lower(), provider))
         models = entry.get("models")
@@ -370,6 +395,16 @@ class Catalog:
         while True:
             self.refresh_soon()
             await asyncio.sleep(CHECK_EVERY)
+
+    def known_provider(self, host: str) -> bool:
+        """Whether `host` is where a provider the catalogs list serves its models over
+        HTTPS, or one of those written down here (GLOSSARY.md「已知服务商」): a name on the
+        internet, not an address, nor a name for this machine, nor a placeholder
+        (`https://${DATABRICKS_HOST}`)."""
+        host = host.lower().rstrip(".")
+        listed = host in self._hosts or host in HOSTS.values()
+        named = _DOMAIN.fullmatch(host) is not None and not host.endswith(".localhost")
+        return listed and named and not _is_address(host)
 
     def find(self, host: str, model: str) -> tuple[Listed, bool] | None:
         """The catalogs' price of `model` at `host`, if they have one, and whether it is

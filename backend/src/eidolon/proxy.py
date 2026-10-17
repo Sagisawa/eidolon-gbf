@@ -7,7 +7,8 @@ transport of its own that, at each request, hands it on to a direct one or to on
 the proxy in effect, each kept for as long as the routes are; over a websocket, the
 connection asks for the proxy as it is opened (`ProxiedWebsocket`). Neither goes by the
 environment's `HTTPS_PROXY` and the like: whether a service goes through a proxy is the
-settings' alone. Users' own keys go direct, never through the deployer's proxy.
+settings' alone. Users' own keys are routed apart from the deployer's; their LLMs go
+through the proxy only to a known provider's host (`own_llm_transport`, ADR-0022).
 """
 
 from collections.abc import Callable
@@ -34,6 +35,7 @@ class ProxyRoutes:
     def __init__(self, settings: ProxySettings) -> None:
         self._settings = settings
         self._transports: dict[ProxiedService, _RoutedTransport] = {}
+        self._own_llms: list[_RoutedTransport] = []
 
     @property
     def settings(self) -> ProxySettings:
@@ -58,24 +60,55 @@ class ProxyRoutes:
 
     def transport(self, service: ProxiedService) -> httpx.AsyncBaseTransport:
         if service not in self._transports:
-            self._transports[service] = _RoutedTransport(lambda: self.proxy_for(service))
+            self._transports[service] = _RoutedTransport(lambda _: self.proxy_for(service))
         return self._transports[service]
 
+    def own_llm_transport(
+        self, known_provider: Callable[[str], bool], direct: httpx.AsyncHTTPTransport
+    ) -> httpx.AsyncBaseTransport:
+        """For users' own LLMs, whose addresses are theirs to name: a request over HTTPS
+        to a host `known_provider` knows (GLOSSARY.md「已知服务商」) goes through the proxy
+        if the settings in effect have users' LLMs go through it; every other one, to
+        whatever host, goes on `direct`, which checks where it connects as it must. The
+        proxy would connect for us unchecked (ADR-0022)."""
+        def route(request: httpx.Request) -> str | None:
+            return self.own_llm_proxy(request.url.scheme, request.url.host, known_provider)
+
+        transport = _RoutedTransport(route, direct)
+        self._own_llms.append(transport)
+        return transport
+
+    def own_llm_proxy(
+        self, scheme: str, host: str, known_provider: Callable[[str], bool]
+    ) -> str | None:
+        """Where a user's own LLM at `host` over `scheme` connects through now: the proxy
+        for HTTPS to a host `known_provider` knows, users' LLMs going through it; None,
+        direct, for every other."""
+        known = scheme == "https" and known_provider(host)
+        return self.proxy_for("own_llm") if known else None
+
     async def aclose(self) -> None:
-        for transport in self._transports.values():
+        for transport in [*self._transports.values(), *self._own_llms]:
             await transport.close_all()
 
 
 class _RoutedTransport(httpx.AsyncBaseTransport):
-    """Hands each request on to a direct transport, or one through the proxy `route`
-    gives at the time; one of each kind is kept, for every address, until `close_all`."""
+    """Hands each request on to `direct` (by default httpx's own), or to one through the
+    proxy `route` gives for it at the time; one of each kind is kept, for every address,
+    until `close_all`."""
 
-    def __init__(self, route: Callable[[], str | None]) -> None:
+    def __init__(
+        self,
+        route: Callable[[httpx.Request], str | None],
+        direct: httpx.AsyncHTTPTransport | None = None,
+    ) -> None:
         self._route = route
-        self._transports: dict[str | None, httpx.AsyncHTTPTransport] = {}
+        self._transports: dict[str | None, httpx.AsyncHTTPTransport] = (
+            {None: direct} if direct is not None else {}
+        )
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        proxy = self._route()
+        proxy = self._route(request)
         if proxy not in self._transports:
             self._transports[proxy] = _transport(proxy)
         return await self._transports[proxy].handle_async_request(request)

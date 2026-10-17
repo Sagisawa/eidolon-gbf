@@ -415,10 +415,14 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 | `rerank` | Reranking |
 | `tts` | Speech synthesis (Fish Audio) |
 | `stt` | Speech recognition (Soniox or Alibaba Cloud Model Studio) |
+| `own_llm` | Users' own LLMs (with their own background models), only at a known provider's address |
+| `own_tts` | Users' own speech synthesis |
+| `own_stt` | Users' own speech recognition (whichever service they chose) |
 
 - **Only these two**: `HTTPS_PROXY`, `ALL_PROXY` and the like have no effect on the services above; other outgoing requests (sign-in, backups, story sync) still follow them.
-- **Own keys always go direct**: Keys users bring never go through the deployer's proxy.
-- **Changeable in the admin console**: The 「网络」 (Network) tab of the config page has 「网络代理」 (Proxy): switch it on or off, change the address and pick the services, with no restart. It holds from the next request on (in turns and calls under way too; voice connections already open stay up). Before saving, each service routed a new way is reached that way once, and nothing is saved if one cannot be; if one cannot be as the server restarts, `.env`'s value is used and the admin console says so. A password in the address is encrypted like a key; without `EIDOLON_SECRET_KEY`, an address with a password can only be set in `.env`.
+- **Own keys are picked apart**: Keys users bring are ticked apart from the deployer's services, as the two may be with different providers (the deployer's speech recognition on Model Studio, direct, and a user's own on Soniox, say). The requests are the server's, so a proxy or VPN the user runs has no part in them. Unticked, the default, they go direct; ticked, they go through the deployer's proxy, on its traffic.
+- **Own LLMs go through it only to known providers**: The address of a user's own LLM is theirs to type, and may point into the server's own network; through a proxy, the server cannot check where it really connects. So only an address whose host is a known provider's goes through it: the providers the price catalog (models.dev; see [Prices for cost estimates](deploy.md#花费估算用的单价) in the deploy guide) gives an address for, the few the code knows (OpenAI, Anthropic, Google Gemini, xAI, Mistral, Cohere, Groq, Cerebras, DeepInfra, Together, Perplexity, Venice) and OpenRouter; never an IP address or `localhost`. Any other goes direct, checked to be on the public internet ([ADR-0022](adr/0022-own-llms-through-the-proxy-only-to-known-providers.md)). While the catalog cannot be fetched, only the ones the code knows count.
+- **Changeable in the admin console**: The 「网络」 (Network) tab of the config page has 「网络代理」 (Proxy): switch it on or off, change the address and pick the services, with no restart. It holds from the next request on (in turns and calls under way too; voice connections already open stay up). Before saving, each of the deployer's services routed a new way is reached that way once (users' own keys are not: there are none here to try with), and nothing is saved if one cannot be; if one cannot be as the server restarts, `.env`'s value is used and the admin console says so. A password in the address is encrypted like a key; without `EIDOLON_SECRET_KEY`, an address with a password can only be set in `.env`.
 
 ## Admin console
 

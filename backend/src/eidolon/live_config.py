@@ -6,7 +6,7 @@ The configuration is in items, each a few fields saved and restored together: th
 and memory models, speech synthesis and recognition, the judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
 carries, with the exempting keys), whether affinity and gifts are on, and which of the
-deployer's services go through which proxy (GLOSSARY.md「网络代理」). Overrides are
+deployer's services and of users' own keys go through which proxy (GLOSSARY.md「网络代理」). Overrides are
 kept in the database, one row per field, a key encrypted with a key derived from
 `EIDOLON_SECRET_KEY` (without it, keys cannot be changed here, only seen). A change to a
 service is tried before it is kept, as the chat model is when the server starts; it then holds for every turn and call that starts after
@@ -66,6 +66,7 @@ from eidolon.config import (
     JudgeSettings,
     SERVICES,
     LLMSettings,
+    OWN_KEYS_PROXIED,
     PROXIED_SERVICES,
     ProxiedService,
     ProxySettings,
@@ -649,8 +650,11 @@ PROXY_LABELS: dict[ProxiedService, str] = {
     "rerank": "重排",
     "tts": "语音合成",
     "stt": "语音识别",
+    "own_llm": "自带的 LLM",
+    "own_tts": "自带的语音合成",
+    "own_stt": "自带的语音识别",
 }
-"""The services that may go through the proxy, as the admin console names them."""
+"""What may go through the proxy, as the admin console names it."""
 
 PROVIDER_URLS = {
     "tts": "https://api.fish.audio",
@@ -667,10 +671,11 @@ for None (`proxy.reach`)."""
 
 
 class _Proxy(_Item):
-    """Which of the deployer's services go through which proxy (GLOSSARY.md「网络代理」):
-    the switch, the address without its password, the password, and a switch for each
-    service. A change is tried by reaching each service configured that it routes another
-    way; it holds from the next request on, of turns and calls under way too."""
+    """Which of the deployer's services and of users' own keys go through which proxy
+    (GLOSSARY.md「网络代理」): the switch, the address without its password, the password,
+    and a switch for each. A change is tried by reaching each of the deployer's services
+    configured that it routes another way, users' own keys having none here to try; it
+    holds from the next request on, of turns and calls under way too."""
 
     name = PROXY
     fields = ("enabled", "url", "password", *PROXIED_SERVICES)
@@ -1015,7 +1020,10 @@ class LiveConfig:
                 entry["follows_chat"] = self._memory_follows()
             if name == PROXY:
                 targets = self._proxy_targets()
-                entry["unconfigured"] = [s for s in PROXIED_SERVICES if s not in targets]
+                own = OWN_KEYS_PROXIED.values()
+                entry["unconfigured"] = [
+                    s for s in PROXIED_SERVICES if s not in targets and s not in own
+                ]
             if item.bound_model() is not None:
                 entry["model"] = item.bound_model()
             described[name] = entry
@@ -1145,7 +1153,8 @@ class LiveConfig:
             raise ConfigRejected(str(e)[:MAX_REASON_LENGTH]) from None
 
     def _proxy_targets(self) -> dict[ProxiedService, str]:
-        """Where each of the deployer's services that is configured reaches its provider."""
+        """Where each of the deployer's services that is configured reaches its provider;
+        users' own keys, whatever their providers, are not among them."""
         targets: dict[ProxiedService, str] = {
             "chat_llm": self.chat_model.text.base_url,
             "memory_llm": self.memory_llm.base_url,
