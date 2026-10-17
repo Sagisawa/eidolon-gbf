@@ -182,10 +182,10 @@ describe("好感度分组", () => {
     expect(tierPreview(30)).toBe(5);
   });
 
-  it("只列有角色的档，从冷淡到亲密；档里照接口给的顺序（偶像顺序）", () => {
+  it("只列有角色的档，从亲密到冷淡；档里照接口给的顺序（偶像顺序）", () => {
     expect(affinityGroups(tiers({ intimate: ["kogane"], cold: ["meguru", "mano"] }))).toEqual([
-      { tier: "cold", characters: ["meguru", "mano"] },
       { tier: "intimate", characters: ["kogane"] },
+      { tier: "cold", characters: ["meguru", "mano"] },
     ]);
   });
 });

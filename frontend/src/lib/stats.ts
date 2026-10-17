@@ -157,9 +157,9 @@ export function heatmapMonths(weeks: HeatCell[][], apart: number): Map<number, s
   return months;
 }
 
-/** The tiers the affinity groups show, those with anyone in them, from cold to intimate; none while affinity is off. */
+/** The tiers the affinity groups show, those with anyone in them, from intimate down to cold; none while affinity is off. */
 export function affinityGroups(affinity: TierGroup[] | null): TierGroup[] {
-  return (affinity ?? []).filter((group) => group.characters.length > 0);
+  return (affinity ?? []).filter((group) => group.characters.length > 0).reverse();
 }
 
 /** How many of a tier the affinity groups show folded: the first five, in the idols' order. */
