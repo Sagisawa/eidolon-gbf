@@ -183,9 +183,6 @@ class TurnDone:
     ended: dict | None = None
     type: Literal["done"] = field(default="done", init=False)
 
-    def shown(self) -> dict:
-        """As the browser is told it: the reply as `Message.shown` has it."""
-        return asdict(self) | {"message": self.message.shown()}
 
 
 @dataclass(frozen=True)
@@ -255,9 +252,15 @@ TurnEvent = (
     | TurnRejected
 )
 """A turn's events: `user`, then `photo` if she sends one, any `delta`s, then `done` or
-`error`. `asdict(event)` is the event as it goes out to the browser, `TurnDone.shown()` for
-`done`, except `SpeechDelta`, `SegmentComplete`, `CallTurnRecorded` and `TurnJudged`, which
-do not."""
+`error`. `shown(event)` is the event as it goes out to the browser, except `SpeechDelta`,
+`SegmentComplete`, `CallTurnRecorded` and `TurnJudged`, which do not."""
+
+
+def shown(event: TurnEvent) -> dict:
+    """The event as it goes out to the browser: `done`'s reply as `Message.shown` has it."""
+    if isinstance(event, TurnDone):
+        return asdict(event) | {"message": event.message.shown()}
+    return asdict(event)
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""

@@ -35,10 +35,12 @@ from tests.fakes import (
     context_of,
     judge_key,
 )
+from tests.fakes import level
 from tests.test_affinity import keep
 from tests.test_conversation_events import hang_up
 from tests.test_delete_account import DELETE, rows_mentioning
 from tests.test_text_turn import send_turn, start_conversation
+from tests.test_turns import Turns
 
 IMAGE = ImageSettings("nai-key", "https://image.novelai.test")
 
@@ -256,6 +258,27 @@ async def test_her_tag_is_dropped_unless_asked_and_willing(
     assert record[-1]["ja"] == "はい、どうぞ"
 
 
+async def test_asked_apart_a_photo_answer_not_read_still_leaves_her_affinity_judged(
+    make_client: ClientFactory, settings: Settings
+):
+    clients = asking()
+    clients.judge.photo = "not a probability"  # pyright: ignore[reportAttributeAccessIssue]
+    clients.judge.judgings = [level(4)]
+    image = FakeImageService()
+    client = make_client(
+        FakeLLM(REPLY), clients=clients, settings=replace(settings, affinity_and_gifts=True),
+        clock=FakeClock(), image_transport=image.transport(),
+    )
+    conversation = await start_conversation(client)
+
+    events = await send_turn(client, conversation, "发张自拍给我看看")
+
+    assert [k for _, k in clients.judge.asked] == ["affinity"]
+    assert photo_events(events) == []
+    assert image.requests == []
+    assert events[-1]["message"]["affinity"]["up"] is True
+
+
 @pytest.mark.parametrize("asked_with", ["nothing else", "affinity", "retrieval"])
 async def test_whether_she_is_asked_for_one_is_judged_with_whatever_else_is(
     make_client: ClientFactory, settings: Settings, asked_with: str
@@ -280,6 +303,33 @@ async def test_whether_she_is_asked_for_one_is_judged_with_whatever_else_is(
     assert [k for _, k in clients.judge.asked] == [kind]
     assert clients.judge.photo_asked == ["发张自拍给我看看"]
     assert len(photo_events(events)) == 1
+
+
+async def test_her_tag_is_never_voiced_nor_one_written_in_the_middle_of_her_words(
+    settings: Settings,
+):
+    turns = Turns(settings)
+    try:
+        events = await turns.take(
+            FakeLLM([f"<photo>{SELFIE}</photo><ja>はい<photo>shot: other</photo>、どうぞ</ja>",
+                     "<zh>给，<photo>x</photo>你看</zh>"]),
+            "发张自拍给我看看",
+            in_house=True,
+            clients=asking(),
+            image_transport=FakeImageService().transport(),
+        )
+        record = turns.record()
+    finally:
+        turns.close()
+
+    def said(kind: str, lang: str | None = None) -> str:
+        return "".join(e["text"] for e in events if e["type"] == kind and e.get("lang") == lang)
+
+    assert said("speech-delta") == "はい、どうぞ"
+    assert said("delta", "ja") == "はい、どうぞ"
+    assert said("delta", "zh") == "给，你看"
+    assert len(photo_events(events)) == 1
+    assert record[-1] == ("character", None, "はい、どうぞ")
 
 
 async def test_only_a_first_tag_at_the_front_is_kept_and_any_other_left_out_of_her_words(

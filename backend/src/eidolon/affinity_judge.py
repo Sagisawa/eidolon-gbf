@@ -14,6 +14,7 @@ before them only tell what they answer. Unsure, the judge model leaves affinity 
 two levels as likely as each other are taken as no effect.
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -24,6 +25,8 @@ from eidolon.judge import SAID, JudgeError, JudgeModel, JudgeThresholds, turn_st
 from eidolon.photo_judge import QUESTIONS as PHOTO_QUESTIONS
 from eidolon.photo_judge import read_asked
 from eidolon.store import Message
+
+log = logging.getLogger(__name__)
 
 _SCENE = (
     "角色扮演对话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人对话。"
@@ -131,9 +134,10 @@ class AffinityJudge(Protocol):
         affinity: bool = True,
         photo: bool = False,
     ) -> tuple[Judged | None, bool]:
-        """Asked about `affinity`, what saying `text` does to her affinity (None if not);
-        asked about `photo`, whether it asks her for a photo (no if not). Raises JudgeError
-        if what it was asked cannot be told."""
+        """Asked about `affinity`, what saying `text` does to her affinity (None if not, or if
+        that alone cannot be told); asked about `photo`, whether it asks her for a photo (no
+        if not, or if that alone cannot be told). Raises JudgeError if the judge model
+        cannot be asked."""
         ...
 
 
@@ -155,7 +159,15 @@ class ModelAffinityJudge:
     ) -> tuple[Judged | None, bool]:
         questions = (QUESTIONS if affinity else {}) | (PHOTO_QUESTIONS if photo else {})
         answers = await self._judge_model.ask(turn_state(character, history, text), questions)
-        return (
-            read_judged(answers, self._thresholds) if affinity else None,
-            read_asked(answers, self._thresholds) if photo else False,
-        )
+        judged, asked = None, False
+        if affinity:
+            try:
+                judged = read_judged(answers, self._thresholds)
+            except JudgeError:
+                log.warning("affinity judge's answers could not be read", exc_info=True)
+        if photo:
+            try:
+                asked = read_asked(answers, self._thresholds)
+            except JudgeError:
+                log.warning("the photo question's answer could not be read", exc_info=True)
+        return judged, asked

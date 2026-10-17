@@ -50,7 +50,7 @@
 
 ## Comments
 
-**做完了（2026-10-17）。** 后端 `uv run pytest` 1659 个、`uv run pyright`，前端 `npm test` 937 个、`npm run typecheck` 全部通过。本地构建版上用 Playwright 验收过宽屏和手机：真的判断模型（Jev）认出「发张自拍给我看看嘛」、真的对话模型写了标签，假生图服务 12 秒出图；生成中的占位、刷新时还在生成、生成中照样发下一句、换上照片位置不跳（占位和照片都是 192×280.6）、点开放大，Esc、点外面、✕ 都能关，点照片本身不关。
+**做完了（2026-10-17）。** 后端 `uv run pytest` 1661 个、`uv run pyright`，前端 `npm test` 937 个、`npm run typecheck` 全部通过。本地构建版上用 Playwright 验收过宽屏和手机：真的判断模型（Jev）认出「发张自拍给我看看嘛」、真的对话模型写了标签，假生图服务 12 秒出图；生成中的占位、刷新时还在生成、生成中照样发下一句、换上照片位置不跳（占位和照片都是 192×280.6）、点开放大，Esc、点外面、✕ 都能关，点照片本身不关。
 
 几处和票面不完全一样的：
 
@@ -58,3 +58,11 @@
 - **后台阈值覆盖**：`judge_thresholds` 加了 `photo` 以后，后台的阈值卡（`admin_config_api.JudgeThresholdsInput`、前端 `adminConfig.ts`）也加了「要照片」一项，否则保存阈值会被 422。
 - **失败**：生成失败、超时时后端已经按原因记成 `failed`（`timeout` / `service_error` / `bad_image`），前端的照片块对 `failed` 先什么都不画，失败说明在 16。
 - **历史对话面板里打开的历史对话**不轮询，还在生成的照片停在占位，回到当前对话或刷新后才换上。
+
+**自审（code-review，固定点 `399f4ad`）修了的**：夹在一段话中间的 `<photo>…</photo>` 原先会被显示、合成语音、写进记录，现在和夹在两段之间的一样剥掉；单独判断时照片那道题答不出来不再连累好感度（两道题各自读，照着检索那条路）；启动时缺照片 tag 的警告只在配了生图时写；`done` 发给浏览器的写法收成 `engine.shown`；景别枚举用 `get_args`，90 秒总时限只留 `image_generation.TIME_LIMIT` 一处。
+
+**审查里没改、留作判断的**：
+- `affinity`、`photo` 两个开关和三元组的返回值贯穿判断模型的十来个签名，可以打包成一个具名结果类型。
+- `AffinityJudge` / `LiveAffinityJudge` 现在也会只问照片，名字不贴切。
+- 照片的失败原因在 `store` 和 `photos` 里是 `str`，没用 `image_generation.Failure`（16 做失败时一并定）。
+- `photo_tag` 和 `photo_appearance` 借用了 `characters._other_name` 来读。

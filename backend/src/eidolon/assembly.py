@@ -285,7 +285,7 @@ def build(
         )
         closers.append(generator.aclose)
     unphotographed = [c.id for c in characters.values() if not c.photographed]
-    if unphotographed:
+    if generator is not None and unphotographed:
         log.warning(
             "%s have no photo_tag and photo_appearance in the character configuration, and"
             " send no photos", ", ".join(unphotographed),

@@ -30,8 +30,9 @@ WEBP_QUALITY = 85
 MAX_SEED = 4294967295 - 7
 """The largest seed NovelAI takes."""
 
-GENERATION_TIMEOUT = httpx.Timeout(90, connect=10)
-"""No longer than a photo may take in all."""
+TIME_LIMIT = 90
+"""The longest a photo may take in all, in seconds, waiting its turn included."""
+GENERATION_TIMEOUT = httpx.Timeout(TIME_LIMIT, connect=10)
 
 Failure = Literal["timeout", "service_error", "bad_image"]
 """Why a picture could not be had: the service took too long, answered with an error or

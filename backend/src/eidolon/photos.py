@@ -15,7 +15,7 @@ photo dropped once generated (`dropped`), as does one whose conversation is dele
 meanwhile. Nothing stops a photo once begun, not the page closing: what it costs is spent.
 
 The deployer's image service generates one photo at a time, and none takes longer than
-`PHOTO_TIMEOUT` from her tag on, waiting its turn included.
+`image_generation.TIME_LIMIT` from her tag on, waiting its turn included.
 """
 
 import asyncio
@@ -24,16 +24,13 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from eidolon.affinity import Tier
+from eidolon.affinity import TIERS, Tier
 from eidolon.characters import Character
-from eidolon.image_generation import ImageFailed, ImageGenerator
+from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
 from eidolon.photo_prompt import image_prompt, read_tag
 from eidolon.store import Store
 
 log = logging.getLogger(__name__)
-
-PHOTO_TIMEOUT = 90
-"""The longest a photo may take, in seconds, from her tag on."""
 
 CAN_SEND = """\
 # 照片
@@ -65,7 +62,7 @@ NOT_NOW = """\
 """What she is told in a turn the user asks for a photo in, her affinity in its coldest
 tier: she does not send one."""
 
-COLDEST: Tier = "cold"
+COLDEST: Tier = TIERS[0][0]
 
 
 @dataclass(frozen=True)
@@ -142,7 +139,7 @@ class Photos:
     async def _generate(self, photo_id: str, character: Character, tag: str) -> None:
         outcome: tuple[bytes | None, str | None]
         try:
-            async with asyncio.timeout(PHOTO_TIMEOUT):
+            async with asyncio.timeout(TIME_LIMIT):
                 async with self._one_at_a_time:
                     generator = self._generator()
                     if generator is None:
@@ -153,7 +150,7 @@ class Photos:
             log.warning("photo %s was not generated: %s", photo_id, e)
             outcome = None, e.reason
         except TimeoutError:
-            log.warning("photo %s took longer than %ss", photo_id, PHOTO_TIMEOUT)
+            log.warning("photo %s took longer than %ss", photo_id, TIME_LIMIT)
             outcome = None, "timeout"
         except Exception:  # never left being generated for good
             log.exception("generating photo %s failed", photo_id)

@@ -25,7 +25,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine, in_idol_order
-from eidolon.engine import ENDED, TurnDone, TurnJudged
+from eidolon.engine import ENDED, TurnJudged, shown
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
     call_opener_path,
@@ -549,7 +549,7 @@ def create_app(backend: Backend) -> FastAPI:
                         outcome.began_speaking()  # the reply's first words have appeared
                     if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                         continue
-                    yield _sse(event.shown() if isinstance(event, TurnDone) else asdict(event))
+                    yield _sse(shown(event))
 
         return _TurnResponse(events(), lambda: outcome.over(cut_short_by_failure=False))
 

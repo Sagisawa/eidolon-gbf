@@ -15,7 +15,8 @@ wrote; the deltas show it without delivery cues, and the Japanese is voiced with
 Before her first segment, in a turn she may send a photo in, she can write a photo tag
 (GLOSSARY.md「照片」), `<photo>…</photo>`: the parser hands what it says over the moment it
 closes (`PhotoTagged`), apart from the segments, neither shown nor voiced. One written
-anywhere else, or after the first, is left out of the reply as if never written.
+anywhere else, between segments or in the middle of her words, or after the first, is left
+out of the reply as if never written.
 """
 
 from dataclasses import dataclass, field
@@ -137,6 +138,7 @@ class ReplyParser:
     _photo: str = ""  # the open photo tag's content
     _photo_kept: bool = False  # whether the open photo tag is the one at the front
     _photo_seen: bool = False
+    _resume: Lang | None = None  # the line the open photo tag was written in the middle of
     _stray: str = ""
     _said_complete: int = 0  # how many segments are known to be complete
     _line: CueFilter = field(default_factory=CueFilter)  # the open tag's content
@@ -156,9 +158,11 @@ class ReplyParser:
             elif self._inside == _PHOTO:
                 if not self._take_photo():
                     return self._hand_over()
-                self._inside = None
+                self._inside, self._resume = self._resume, None
             else:
                 closed = self._take_content(self._inside)
+                if self._inside == _PHOTO:  # written in the middle of her words
+                    continue
                 if not closed:
                     return self._hand_over()
                 self._end_line(self._inside)
@@ -172,6 +176,8 @@ class ReplyParser:
         Japanese segment; a photo tag left open is left out."""
         if self._inside == _PHOTO:
             self._photo = ""
+            if self._resume is not None:
+                self._end_line(self._resume)
         elif self._inside is not None:
             keep = _partial_suffix(self._buffer, (f"</{self._inside}>",))
             text = self._buffer[: len(self._buffer) - keep]
@@ -181,7 +187,7 @@ class ReplyParser:
         elif not self.segments and (self._stray + self._buffer).strip():
             self._append("ja", (self._stray + self._buffer).strip())
             self._end_line("ja")
-        self._buffer, self._inside, self._stray = "", None, ""
+        self._buffer, self._inside, self._stray, self._resume = "", None, "", None
         self._complete_up_to(len(self.segments))
         return self._hand_over()
 
@@ -211,12 +217,21 @@ class ReplyParser:
         return True
 
     def _take_content(self, lang: Lang) -> bool:
-        """Take what there is of the open tag's content; True if the tag closed."""
-        close = f"</{lang}>"
+        """Take what there is of the open tag's content, up to a photo tag written in it, if
+        one is, which it opens; True if the tag closed."""
+        close, photo = f"</{lang}>", f"<{_PHOTO}>"
         end = self._buffer.find(close)
+        opens = self._buffer.find(photo)
+        if opens >= 0 and (end < 0 or opens < end):
+            if text := self._buffer[:opens]:
+                self._append(lang, text)
+            self._buffer = self._buffer[opens + len(photo) :]
+            self._inside, self._photo, self._photo_kept = _PHOTO, "", False
+            self._photo_seen, self._resume = True, lang
+            return False
         closed = end >= 0
         if not closed:
-            end = len(self._buffer) - _partial_suffix(self._buffer, (close,))
+            end = len(self._buffer) - _partial_suffix(self._buffer, (close, photo))
         text = self._buffer[:end]
         self._buffer = self._buffer[end + len(close) :] if closed else self._buffer[end:]
         if text:

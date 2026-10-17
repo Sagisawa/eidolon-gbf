@@ -28,7 +28,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import nullcontext
 from contextvars import ContextVar
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Any, Literal, Protocol
@@ -128,6 +128,7 @@ from eidolon.engine import (
     TurnDone,
     TurnJudged,
     UserSaid,
+    shown,
 )
 from eidolon.llm import TurnLLMs
 from eidolon.own_keys import (
@@ -1666,7 +1667,7 @@ class CallTurns(FrameProcessor):
                 self._outcome.turn_recorded(recorded)
             if turn is not None:
                 turn.see(event)
-            message = event.shown() if isinstance(event, TurnDone) else asdict(event)
+            message = shown(event)
             if isinstance(event, UserSaid):
                 message["reply"] = number
             await self._send(message)

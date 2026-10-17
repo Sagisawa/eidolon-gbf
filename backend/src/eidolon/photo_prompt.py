@@ -18,7 +18,7 @@ fixed altogether: `nsfw`, the Human Focus preset, and what no photo of hers show
 
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 from eidolon.characters import Character
 
@@ -40,7 +40,7 @@ NEGATIVE_PROMPT = ", ".join((
 
 Shot = Literal["selfie", "other"]
 Framing = Literal["portrait", "upper body", "cowboy shot", "full body"]
-FRAMINGS: tuple[Framing, ...] = ("portrait", "upper body", "cowboy shot", "full body")
+FRAMINGS: tuple[Framing, ...] = get_args(Framing)
 SELFIE_FRAMINGS: tuple[Framing, ...] = ("portrait", "upper body")
 """How much of her a selfie can show: no more than an arm's length takes in."""
 

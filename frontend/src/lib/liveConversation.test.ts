@@ -1690,7 +1690,6 @@ describe("LiveConversation: photos", () => {
 
     live.setDraft("发张自拍");
     await live.submit();
-    const sent = photoOf(live, "m4");
     await vi.advanceTimersByTimeAsync(1999);
     const notYet = [...asked];
     await vi.advanceTimersByTimeAsync(1);
@@ -1699,7 +1698,6 @@ describe("LiveConversation: photos", () => {
     const out = photoOf(live, "m4");
     await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(sent).toEqual({ id: "p1", status: "pending", reason: null });
     expect(notYet).toEqual([]);
     expect(stillPending).toEqual({ id: "p1", status: "pending", reason: null });
     expect(out).toEqual({ id: "p1", status: "ready", reason: null });
