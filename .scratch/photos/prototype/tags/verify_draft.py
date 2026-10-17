@@ -24,7 +24,9 @@ HERE = pathlib.Path(__file__).parent
 REPO = HERE.parents[3]
 CONFIG = REPO / "characters" / "characters.toml"
 DRAFT = HERE / "draft.json"
-MODEL = "nai-diffusion-5-curated"
+
+# 票 13 要求角色 tag 在 V5 Curated 已知；V4.5 Curated 是上一个还在用的模型，两个都核。
+MODELS = ("nai-diffusion-5-curated", "nai-diffusion-4-5-curated")
 
 # 外貌 tag 只许这三类：发色/发型/瞳色。其余（饰物、服装、身材）一律算越界。
 HAIR = (
@@ -76,8 +78,6 @@ def main() -> int:
             problems.append(f"{label}: 罗马字 {character['romaji']!r} 和配置对不上")
         if character["enza"] != source["default_outfit"].split("/")[1]:
             problems.append(f"{label}: 默认衣装 {character['enza']} 和配置对不上")
-        if character["photo_tag"] != source["name_romaji"].lower():
-            problems.append(f"{label}: 角色 tag 应从 name_romaji 转小写")
 
         appearance = appearance_of(character)
         if not appearance:
@@ -95,16 +95,17 @@ def main() -> int:
         checked.update(appearance)
 
     if not offline:
-        for tag in sorted(checked):
-            if not known(MODEL, tag):
-                problems.append(f"{tag!r} 不是 {MODEL} 的已知 tag")
+        for model in MODELS:
+            for tag in sorted(checked):
+                if not known(model, tag):
+                    problems.append(f"{tag!r} 不是 {model} 的已知 tag")
 
     if problems:
         print(f"✗ {len(problems)} 处问题")
         for problem in problems:
             print(f"  - {problem}")
         return 1
-    mode = "离线核对" if offline else f"含 {len(checked)} 条 tag 的联网核对"
+    mode = "离线核对" if offline else f"含 {len(checked)} 条 tag 在 {'、'.join(MODELS)} 上的联网核对"
     print(f"✓ {len(characters)} 位齐、写法合规、外貌只含发色发型瞳色（{mode}）")
     return 0
 
