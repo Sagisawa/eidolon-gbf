@@ -4,6 +4,7 @@ import {
   forgetOwnKeys,
   turnOwnKeys,
   type BailianRegion,
+  type FishAudioModel,
   type LocalLLM,
   type LocalModel,
   type OwnService,
@@ -426,13 +427,13 @@ export async function getEffortHint(
 export async function checkOwnSpeechKey(
   service: "tts" | "stt",
   apiKey: string,
-  provider?: SttProvider,
+  { provider, model }: { provider?: SttProvider; model?: FishAudioModel } = {},
 ): Promise<{ region?: BailianRegion | null }> {
   return json(
     await api(`/api/account/keys/${service}/check`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey, provider }),
+      body: JSON.stringify({ api_key: apiKey, provider, model }),
     }),
   );
 }

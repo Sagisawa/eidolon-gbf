@@ -50,6 +50,7 @@ from eidolon.config import (
     DEFAULT_FISH_AUDIO_MODEL,
     SERVICES,
     ChatModelSettings,
+    FishAudioModel,
     LLMSettings,
     Service,
     SttKey,
@@ -170,12 +171,15 @@ class BroughtKeys:
     llm: ChatModelSettings | None = None
     """Text turns and memories on its text settings, calls' turns on its call ones."""
     tts: str | None = None
-    """For Fish Audio."""
+    """For Fish Audio, which speaks on it with `tts_model`."""
     stt: SttKey | None = None
     """For the speech recognition the user chose, with the region of a DashScope key."""
     memory_llm: LLMSettings | None = None
     """Memories on it instead of on `llm`, which it is only ever brought with: not a
     service of its own, whether a use counts is only ever asked of `llm`."""
+    tts_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
+    """The model the user chose to be voiced with on their own key for Fish Audio, at
+    their own expense; not the deployer's."""
 
     def __post_init__(self) -> None:
         assert self.memory_llm is None or self.llm is not None
@@ -195,8 +199,9 @@ class KeyCheck(Protocol):
         OwnKeyRejected saying why, unless `api_key` works for `provider`."""
         ...
 
-    async def check_tts(self, api_key: str, *, own: bool) -> None:
-        """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio."""
+    async def check_tts(self, api_key: str, model: FishAudioModel, *, own: bool) -> None:
+        """Raise OwnKeyRejected saying why, unless `api_key` works for Fish Audio with
+        `model`."""
         ...
 
 
@@ -214,8 +219,8 @@ class DeployerKeys:
     stt: SttKey | None = None
     """For whichever speech recognition the deployer chose (`STT_PROVIDER`)."""
     tts: str | None = None
-    tts_model: str = DEFAULT_FISH_AUDIO_MODEL
-    """What Fish Audio speaks with, on whoever's key."""
+    tts_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
+    """What Fish Audio speaks with on the deployer's key."""
     emotions: EmotionJudging | None = None
     """Judging her emotion during a call, on the deployer's judge model, whoever's keys
     the call is on; None if it is not judged here (see `call.Calls`)."""
@@ -273,7 +278,8 @@ class CallKeys:
     exempt: bool
     release: Callable[[], None] = field(default=_nothing, compare=False)
     """Called once the call has ended, to let go of the deployer's keys it ran on."""
-    tts_model: str = DEFAULT_FISH_AUDIO_MODEL
+    tts_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
+    """What Fish Audio speaks with on `tts`: the user's choice on their own key."""
     emotions: EmotionJudging | None = None
     """The deployer's, as the call connected (see `DeployerKeys.emotions`)."""
     own_llm: bool = False
@@ -316,13 +322,15 @@ class OwnKeys:
         """Whose keys a call bringing `brought` runs on: each of speech recognition and
         synthesis on the user's own key if it brings one, else the deployer's; raises
         CallsUnavailable if there is neither for either. A user's own key for speech
-        recognition is for the service they chose, whichever the deployer did."""
+        recognition is for the service they chose, whichever the deployer did; for speech
+        synthesis, it speaks with the model they chose."""
         lease = self._deployer.lease()
         try:
             deployer = lease.keys
             _require_speech(brought.services, deployer)
             stt = brought.stt if brought.stt is not None else deployer.stt
             tts = brought.tts if brought.tts is not None else deployer.tts
+            tts_model = brought.tts_model if brought.tts is not None else deployer.tts_model
             assert stt and tts
             own = brought.services - {"llm"}
             llms = self._llms(brought, deployer, call=True)
@@ -331,7 +339,7 @@ class OwnKeys:
             raise
         return CallKeys(
             llms, stt, tts, own, self.exempt("call", brought.services), lease.release,
-            deployer.tts_model, deployer.emotions, own_llm=brought.llm is not None,
+            tts_model, deployer.emotions, own_llm=brought.llm is not None,
         )
 
     def exempt(self, kind: UsageKind, services: Iterable[Service]) -> bool:
@@ -367,11 +375,11 @@ class OwnKeys:
         with _rejecting(own.api_key, BACKGROUND_LLM_LABEL):
             await self._llm_service.check(ChatModelSettings(own, own.reasoning_effort))
 
-    async def check_tts(self, api_key: str) -> None:
-        """Try the user's key for speech synthesis, keeping nothing. Raises OwnKeyRejected
-        saying why it does not work."""
+    async def check_tts(self, api_key: str, model: FishAudioModel) -> None:
+        """Try the user's key for speech synthesis with `model`, keeping nothing. Raises
+        OwnKeyRejected saying why it does not work."""
         with _rejecting(api_key):
-            await self._require_speech_check().check_tts(api_key, own=True)
+            await self._require_speech_check().check_tts(api_key, model, own=True)
 
     async def check_stt(self, provider: SttProvider, api_key: str) -> SttKey:
         """Try the user's key for speech recognition by `provider`, keeping nothing: the key

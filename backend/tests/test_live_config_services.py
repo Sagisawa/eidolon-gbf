@@ -7,6 +7,7 @@ are made by a fake `ServiceClients`, the speech services' keys tried on `FakeSpe
 
 import asyncio
 import logging
+import sqlite3
 from dataclasses import replace
 
 import httpx
@@ -385,7 +386,7 @@ async def test_speech_saved_during_a_call_holds_from_the_next_call(
     await browser.connect()
     assert browser.pc_id is not None
 
-    tts = await client.put(TTS, json={"api_key": NEW_FISH, "model": "s1"})
+    tts = await client.put(TTS, json={"api_key": NEW_FISH, "model": "drama-3"})
     stt = await client.put(STT, json={"provider": "bailian", "api_key": NEW_DASHSCOPE})
     assert tts.status_code == 200, tts.text
     assert stt.status_code == 200, stt.text
@@ -398,19 +399,38 @@ async def test_speech_saved_during_a_call_holds_from_the_next_call(
         await again.connect()
 
     assert [(t.api_key, t.model) for t in speech.ttss] == [
-        (DEPLOYER_FISH_KEY, DEFAULT_FISH_AUDIO_MODEL), (NEW_FISH, "s1")
+        (DEPLOYER_FISH_KEY, DEFAULT_FISH_AUDIO_MODEL), (NEW_FISH, "drama-3")
     ]
     assert [s.key for s in speech.stts] == [
         SttKey("soniox", DEPLOYER_SONIOX_KEY), SttKey("bailian", NEW_DASHSCOPE, "singapore")
     ]
     assert speech.checked == [("tts", NEW_FISH), ("bailian", NEW_DASHSCOPE)]
+    assert speech.tts_models == ["drama-3"]  # tried with the model it is to speak with
     shown = stt.json()
-    assert shown["tts"]["effective"] == {"api_key_last4": "0001", "model": "s1"}
+    assert shown["tts"]["effective"] == {"api_key_last4": "0001", "model": "drama-3"}
     assert shown["stt"]["effective"] == {
         "provider": "bailian", "soniox_api_key_last4": DEPLOYER_SONIOX_KEY[-4:],
         "dashscope_api_key_last4": "0002", "region": "singapore",
     }
     assert NEW_FISH not in stt.text and NEW_DASHSCOPE not in stt.text
+
+
+async def test_a_speech_override_kept_before_there_was_a_list_of_models_falls_back_to_env(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    first = await admin_client(make_client, admins, github, FakeServiceClients())
+    assert (await first.put(TTS, json={"api_key": NEW_FISH, "model": "drama-3"})).status_code == 200
+    with sqlite3.connect(admins.database_path) as db:  # as an admin once typed it in
+        db.execute("UPDATE config_overrides SET value = ? WHERE name = 'tts.model'", ('"speech-1.6"',))
+
+    restarted = await admin_client(make_client, admins, github, FakeServiceClients())
+    await start(restarted)
+    lease = backend_of(restarted).config.lease()
+    lease.release()
+
+    shown = (await restarted.get(CONFIG)).json()["tts"]
+    assert shown["status"] == "failed" and "speech-1.6" in shown["failure"]
+    assert (lease.keys.tts, lease.keys.tts_model) == (DEPLOYER_FISH_KEY, DEFAULT_FISH_AUDIO_MODEL)
 
 
 async def test_a_speech_key_that_fails_its_try_is_not_saved(

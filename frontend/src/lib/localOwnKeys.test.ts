@@ -95,6 +95,22 @@ describe("own keys kept in this browser", () => {
   });
 });
 
+describe("an own Fish Audio key's model", () => {
+  it("is kept with it, and goes with each call", () => {
+    storage();
+    keepOwnKey("u1", "tts", { api_key: "fish-my-own-key", model: "drama-3" });
+
+    expect(localOwnKeys("u1")).toEqual({ tts: { api_key: "fish-my-own-key", model: "drama-3" } });
+    expect(callOwnKeys("u1").ownKeys).toEqual({ tts: { api_key: "fish-my-own-key", model: "drama-3" } });
+  });
+
+  it("is left for the server to choose where stored wrongly, the key kept", () => {
+    storage({ "eidolon.ownKeys.u1": JSON.stringify({ tts: { api_key: "fish-my-own-key", model: "drama3" } }) });
+
+    expect(localOwnKeys("u1")).toEqual({ tts: { api_key: "fish-my-own-key" } });
+  });
+});
+
 describe("an own LLM's reasoning efforts and extra body", () => {
   it("are kept with it, for text turns and calls apart", () => {
     storage();

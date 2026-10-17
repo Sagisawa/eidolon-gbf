@@ -6,8 +6,8 @@ import { api, json } from "@/lib/api";
 import { copy } from "@/i18n";
 import { formatAmount, formatCount, type ServiceName, unitWord } from "@/lib/dashboard";
 
-export type Unit = "tokens" | "bytes" | "seconds";
-export const UNITS: Unit[] = ["tokens", "bytes", "seconds"];
+export type Unit = "tokens" | "bytes" | "characters" | "seconds";
+export const UNITS: Unit[] = ["tokens", "bytes", "characters", "seconds"];
 
 export type Currency = "USD" | "CNY";
 export const CURRENCIES: Currency[] = ["USD", "CNY"];

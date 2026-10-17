@@ -32,7 +32,7 @@ from websockets.protocol import State
 
 from eidolon.assembly import build
 from eidolon.call import FishTTS, SegmentCompleteFrame, SegmentTextFrame, SpeechServices
-from eidolon.config import Settings
+from eidolon.config import FishAudioModel, Settings
 from eidolon.readings import Reading
 from tests.conftest import CharacterConfig
 from tests.fakes import FakeServiceClients
@@ -185,11 +185,13 @@ class FishUnderTest(FishTTS):
     stops playing, so unless `pausing` it does not hold what follows a reply back until
     then."""
 
-    def __init__(self, fish: FakeFish, pausing: bool = False) -> None:
+    def __init__(
+        self, fish: FakeFish, pausing: bool = False, model: FishAudioModel = "s2.1-pro-free"
+    ) -> None:
         super().__init__(
             api_key="fish-key",
             sample_rate=16000,
-            settings=FishAudioTTSService.Settings(voice="mano-voice", model="s2.1-pro-free"),
+            settings=FishAudioTTSService.Settings(voice="mano-voice", model=model),
             readings=fish.readings,
             stop_frame_timeout_s=CONTEXT_IDLE,
         )
@@ -277,6 +279,17 @@ async def test_each_segment_is_voiced_in_a_session_of_its_own_announced_as_it_pl
     ]
     assert fish.log.index("2 connected") < fish.log.index("1 finished")
     assert fish.at["2 text 今日も。"] - fish.at["1 finished"] < CONNECTION / 2
+
+
+async def test_paired_tags_reach_only_a_model_that_reads_them():
+    line = reply(1, ["[softly] <whisper>内緒</whisper>だよ。"])
+    drama = FakeFish()
+
+    others = await run(*line)
+    await run(*line, fish=drama, tts=FishUnderTest(drama, model="drama-3"))
+
+    assert "text [softly] 内緒だよ。" in others.of(1)
+    assert "text [softly] <whisper>内緒</whisper>だよ。" in drama.of(1)
 
 
 async def test_a_segment_is_voiced_in_full_once_complete_without_waiting_for_the_next():

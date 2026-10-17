@@ -62,7 +62,7 @@ import {
   type ReadOnlyItem,
   UNLIMITED,
 } from "@/lib/adminConfig";
-import type { LLMProtocol } from "@/lib/localOwnKeys";
+import type { FishAudioModel, LLMProtocol } from "@/lib/localOwnKeys";
 import { EFFORT_UNSET, effortLabel } from "@/lib/reasoningEffort";
 import { toFailure, type Failure } from "@/lib/failure";
 import { FailureIcon } from "@/theme/icons";
@@ -199,7 +199,7 @@ function Values({ name, rows: fieldRows }: { name: ItemName; rows: FieldRow[] })
 
 /**
  * 一个值在表里的样子：key 只有末 4 位，max_tokens 没设时是接口类型的默认值，思考强度是「中文名（原值）」或「不设置」，
- * 额外请求参数是一行 JSON，服务和地域用中文名，限额的 0 是不限，开关是打开或关闭。
+ * 额外请求参数是一行 JSON，服务、地域和语音合成的模型用界面上的叫法，限额的 0 是不限，开关是打开或关闭。
  */
 function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (ITEM_SPECS[name].form.some((spec) => spec.name === field && spec.kind === "effort")) {
@@ -212,6 +212,7 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (field === "protocol") return t.protocols[value as LLMProtocol] ?? String(value);
   if (field === "provider") return t.providers[String(value)] ?? String(value);
   if (field === "region") return t.regions[String(value)] ?? String(value);
+  if (name === "tts" && field === "model") return optionLabel(field, String(value));
   if (name === "limits" && value === 0) return t.unlimited;
   return String(value);
 }
@@ -239,7 +240,10 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
 }
 
 function optionLabel(field: string, option: string): string {
-  return field === "protocol" ? (t.protocols[option as LLMProtocol] ?? option) : (t.providers[option] ?? option);
+  if (field === "protocol") return t.protocols[option as LLMProtocol] ?? option;
+  // 语音合成的模型，和设置页一个叫法。
+  if (field === "model") return copy.settings.ownKeys.ttsModels[option as FishAudioModel] ?? option;
+  return t.providers[option] ?? option;
 }
 
 /**

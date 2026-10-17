@@ -623,6 +623,15 @@ export const zh = {
       llmTitle: "LLM（扮演角色、记住你说的事）",
       llmHint: "小模型会降低角色扮演和记忆的质量。模型需要支持流式输出和工具调用，保存前会先试调一次。",
       ttsTitle: "语音合成（Fish Audio）",
+      ttsModel: "模型",
+      /** Fish Audio 的模型（`FISH_AUDIO_MODELS`），后台配置页的选项也用这份名字。 */
+      ttsModels: {
+        "s2.1-pro-free": "S2.1 Pro Free（免费）",
+        "s2.1-pro": "S2.1 Pro",
+        "drama-3": "Drama 3",
+        "s2-pro": "S2 Pro",
+        s1: "S1",
+      },
       sttTitle: "语音识别",
       sttProvider: "服务商",
       sttProviders: { soniox: "Soniox", bailian: "阿里云百炼" },
@@ -713,8 +722,11 @@ export const zh = {
     breadcrumb: "当前位置",
     comingSoon: "这一页还在做。",
     usage: {
-      units: { tokens: "tokens", bytes: "字节", seconds: "秒" } as Record<string, string>,
-      per: { tokens: "每百万 tokens", bytes: "每百万字节", seconds: "每小时" } as Record<string, string>,
+      units: { tokens: "tokens", bytes: "字节", characters: "字符", seconds: "秒" } as Record<string, string>,
+      per: { tokens: "每百万 tokens", bytes: "每百万字节", characters: "每百万字符", seconds: "每小时" } as Record<
+        string,
+        string
+      >,
       perCount: (count: string, unit: string) => `每 ${count} ${unit}`,
       amount: (count: string, unit: string) => `${count} ${unit}`,
       inOut: (input: string, output: string, unit: string) => `输入 ${input} · 输出 ${output} ${unit}`,
@@ -1392,7 +1404,12 @@ export const zh = {
         output: "只有 LLM 的输出单独计价；留空表示按输入单价算。",
         cacheRead: "只有 LLM 有：输入里命中服务商缓存的部分按这个价算；留空表示按输入单价算。",
       } as Record<string, string>,
-      units: { tokens: "tokens（每百万）", bytes: "字节（每百万，UTF-8）", seconds: "秒（每小时）" } as Record<string, string>,
+      units: {
+        tokens: "tokens（每百万）",
+        bytes: "字节（每百万，UTF-8）",
+        characters: "字符（每百万）",
+        seconds: "秒（每小时）",
+      } as Record<string, string>,
       currencies: { USD: "美元（USD）", CNY: "人民币（CNY）" } as Record<string, string>,
       problems: {
         required: (field: string) => `${field}不能为空。`,

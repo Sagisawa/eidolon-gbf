@@ -573,7 +573,7 @@ class FakeTTS(TTSService):
 
     def __init__(self, api_key: str, model: str, voice_id: str, sample_rate: int) -> None:
         super().__init__(
-            sample_rate=sample_rate, settings=TTSSettings(model=None, voice=None, language=None)
+            sample_rate=sample_rate, settings=TTSSettings(model=model, voice=None, language=None)
         )
         self.api_key = api_key
         self.model = model
@@ -595,7 +595,8 @@ class FakeSpeech:
     started, in order, each with the key it was made with, recognition waiting
     `follow_on_timeout` for follow-ons (Soniox's, unless set). Set `down` to have the
     services fail to be made at all. Records the keys tried before saving, by the service
-    they are for (`checked`: "tts", "soniox" or "bailian"); a key in `rejects` fails its
+    they are for (`checked`: "tts", "soniox" or "bailian"), and the model each key for
+    Fish Audio was tried with (`tts_models`); a key in `rejects` fails its
     try with that message. A DashScope key works in its region in `regions`, Beijing if
     not there. Records, for each service made or key tried, whether it was on a user's own
     key (`own`: ("stt" | "tts" | "check_stt" | "check_tts", own))."""
@@ -607,6 +608,7 @@ class FakeSpeech:
         self.ttss: list[FakeTTS] = []
         self.down = False
         self.checked: list[tuple[str, str]] = []
+        self.tts_models: list[str] = []
         self.rejects: dict[str, str] = {}
         self.regions: dict[str, BailianRegion] = {}
 
@@ -631,8 +633,9 @@ class FakeSpeech:
             return SttKey(provider, api_key, self.regions.get(api_key, "beijing"))
         return SttKey(provider, api_key)
 
-    async def check_tts(self, api_key: str, *, own: bool) -> None:
+    async def check_tts(self, api_key: str, model: str, *, own: bool) -> None:
         self.own.append(("check_tts", own))
+        self.tts_models.append(model)
         self._try("tts", api_key)
 
     def _try(self, service: str, api_key: str) -> None:

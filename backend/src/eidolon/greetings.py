@@ -32,8 +32,8 @@ from dataclasses import dataclass, field
 import httpx
 
 from eidolon.characters import Character, ScriptedLine
-from eidolon.config import DEFAULT_FISH_AUDIO_MODEL
-from eidolon.delivery_cues import voiced
+from eidolon.config import DEFAULT_FISH_AUDIO_MODEL, FishAudioModel, fish_audio_model_from_env
+from eidolon.delivery_cues import spoken_by, voiced
 from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.s3 import Bucket, S3Error, S3Settings
 
@@ -121,15 +121,14 @@ class FishAudioSettings:
     """The deployer's key for Fish Audio, and the model it voices with."""
 
     api_key: str
-    model: str = DEFAULT_FISH_AUDIO_MODEL
+    model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
 
     @classmethod
     def from_env(cls) -> "FishAudioSettings":
         api_key = (os.environ.get("FISH_AUDIO_API_KEY") or "").strip()
         if not api_key:
             raise RuntimeError("合成招呼和开场白要用部署者的语音合成 key，环境变量 FISH_AUDIO_API_KEY 未设置")
-        model = (os.environ.get("FISH_AUDIO_MODEL") or "").strip() or DEFAULT_FISH_AUDIO_MODEL
-        return cls(api_key, model)
+        return cls(api_key, fish_audio_model_from_env())
 
 
 class _Failed(RuntimeError):
@@ -228,7 +227,8 @@ async def _upload(
     if path in keys:
         report.unchanged += 1
     else:
-        audio = await _voice(client, fish, voiced(line.text), character.voice_id, dictionary)
+        said = spoken_by(voiced(line.text), fish.model)
+        audio = await _voice(client, fish, said, character.voice_id, dictionary)
         try:
             await storage.put(path, audio, "audio/mpeg", GREETING_CACHE)
         except S3Error as e:

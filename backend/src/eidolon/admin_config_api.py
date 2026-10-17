@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, StrictBool, ValidationError, field_valida
 
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
-from eidolon.config import JudgeProvider, LLMProtocol, SttProvider
+from eidolon.config import FishAudioModel, JudgeProvider, LLMProtocol, SttProvider
 from eidolon.live_config import (
     AFFINITY,
     CHAT_LLM,
@@ -63,10 +63,8 @@ class ChatLLMInput(LLMInput):
 
 
 class TTSInput(BaseModel):
-    model: str = Field(min_length=1, max_length=200)
+    model: FishAudioModel
     api_key: str | None = ApiKey
-
-    _trim = field_validator("model")(_trimmed)
 
 
 class STTInput(BaseModel):

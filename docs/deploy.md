@@ -407,7 +407,7 @@ uv run --env-file=../.env eidolon greeting upload
 用到的设置（没有 `.env` 时去掉 `--env-file`，把变量放进环境里）：
 
 - 存储桶：和立绘同一个，`EIDOLON_STAND_S3_*`（见「同步素材」）。密钥除了上传还要能删除对象：命令要删掉旧版本，下线时也要清空存储桶。只能上传的密钥（例如腾讯云 COS 的预设策略 QcloudCOSDataWriteOnly 不含删除）会让命令在删旧版本时失败、以退出码 3 结束；腾讯云 COS 给密钥所属的子用户加一条只允许 `name/cos:DeleteObject`、资源是这个存储桶的自定义策略即可。
-- 语音合成：`.env` 的 `FISH_AUDIO_API_KEY` 和 `FISH_AUDIO_MODEL`，也就是部署者的 key。命令只读 `.env`，后台里改过的语音合成设置对它不起作用。默认模型 `s2.1-pro-free` 不消耗 API 额度。
+- 语音合成：`.env` 的 `FISH_AUDIO_API_KEY` 和 `FISH_AUDIO_MODEL`，也就是部署者的 key。命令只读 `.env`，后台里改过的语音合成设置对它不起作用。默认模型 `s2.1-pro-free` 不消耗 API 额度。只换模型不会重新合成：地址只跟台词、音色和读音有关，已经上传过的招呼原样留着；想用新模型重念，先删掉存储桶里那几个 mp3 再运行。
 - 角色配置：默认是 `../characters/characters.toml`（相对于 `backend/`），可以用 `--characters` 或 `EIDOLON_CHARACTERS_PATH` 指定。读音文件取它旁边的 `readings.toml`。
 
 它做的事：

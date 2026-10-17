@@ -20,6 +20,13 @@ export type LLMProtocol = (typeof LLM_PROTOCOLS)[number];
 export const STT_PROVIDERS = ["soniox", "bailian"] as const;
 export type SttProvider = (typeof STT_PROVIDERS)[number];
 
+/** Fish Audio 的模型：后端 `config.FishAudioModel`。设置页和后台配置页的选项都从这里来。 */
+export const FISH_AUDIO_MODELS = ["s2.1-pro-free", "s2.1-pro", "drama-3", "s2-pro", "s1"] as const;
+export type FishAudioModel = (typeof FISH_AUDIO_MODELS)[number];
+
+/** 自带的 key 没选模型时用的免费模型：后端 `config.DEFAULT_FISH_AUDIO_MODEL`。 */
+export const DEFAULT_FISH_AUDIO_MODEL: FishAudioModel = "s2.1-pro-free";
+
 /** 阿里云百炼的 key 能用的地域，校验时由服务器判断出来：后端 `config.BailianRegion`。 */
 const BAILIAN_REGIONS = ["beijing", "singapore"] as const;
 export type BailianRegion = (typeof BAILIAN_REGIONS)[number];
@@ -38,8 +45,8 @@ export type LocalModel = {
  * 提炼记忆、起对话标题（没另配后台模型时），通话里的回合用 `call_reasoning_effort`。 */
 export type LocalLLM = LocalModel & { call_reasoning_effort?: ReasoningEffort };
 
-/** 语音合成（Fish Audio）的 key。 */
-export type LocalTtsKey = { api_key: string };
+/** 语音合成（Fish Audio）的 key，连同选的模型；没有模型的是能选模型以前存的，后端按免费的默认模型合成。 */
+export type LocalTtsKey = { api_key: string; model?: FishAudioModel };
 
 /** 语音识别的 key，连同它所属的服务商；百炼的还有地域。 */
 export type LocalSttKey = { api_key: string; provider: SttProvider; region?: BailianRegion };
@@ -79,7 +86,10 @@ export function localOwnKeys(userId: string): LocalOwnKeys {
     const memoryModel = localModel(memory_llm);
     if (memoryModel) keys.memory_llm = memoryModel;
   }
-  if (isRecord(tts) && isString(tts.api_key)) keys.tts = { api_key: tts.api_key };
+  if (isRecord(tts) && isString(tts.api_key)) {
+    keys.tts = { api_key: tts.api_key };
+    if (isOneOf(tts.model, FISH_AUDIO_MODELS)) keys.tts.model = tts.model;
+  }
   if (
     isRecord(stt) &&
     isString(stt.api_key) &&
