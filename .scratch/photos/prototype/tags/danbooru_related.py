@@ -8,15 +8,12 @@
 """
 
 import json
-import pathlib
 import re
 import sys
-import tomllib
 import urllib.parse
 import urllib.request
 
-REPO = pathlib.Path(__file__).parents[4]
-CONFIG = REPO / "characters" / "characters.toml"
+from thumbnails import load_characters
 
 APPEARANCE = re.compile(
     r"(hair|eyes|bangs|sidelocks|ahoge|twintails|ponytail|bun|braid|bob cut|curly|wavy|drill|ringlets)"
@@ -39,8 +36,9 @@ def related(tag: str) -> list[tuple[str, float]]:
 
 
 def main() -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # Windows 控制台默认 GBK，中文会打不出来
     wanted = set(sys.argv[1:])
-    characters = tomllib.loads(CONFIG.read_text(encoding="utf-8"))["characters"]
+    characters = load_characters()
     for character in characters:
         if wanted and character["id"] not in wanted:
             continue

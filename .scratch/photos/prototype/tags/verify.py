@@ -4,7 +4,8 @@
 接口不需要 token（实测），一次一个 tag，命中要求建议列表里有**完全相同**的 tag。
 
     python verify.py nai-diffusion-5-curated "brown hair" "twintails" ...
-    python verify.py --draft nai-diffusion-5-curated       # 核对下面的最终初稿
+
+退出码：0 全部命中；1 有没命中的；2 没给参数。
 """
 
 import json
@@ -28,22 +29,23 @@ def known(model: str, tag: str) -> bool:
     return any(candidate["tag"] == tag for candidate in suggest(model, tag))
 
 
+def report(model: str, tags: list[str]) -> int:
+    """逐条打印命中情况，返回退出码。"""
+    missing = [tag for tag in tags if not known(model, tag)]
+    for tag in tags:
+        print(f"{'NO ' if tag in missing else 'YES'}  {tag}")
+    print(f"\n{len(tags) - len(missing)}/{len(tags)} known on {model}")
+    if missing:
+        print("not known: " + ", ".join(missing))
+    return 1 if missing else 0
+
+
 def main() -> int:
     args = sys.argv[1:]
     if not args:
         print(__doc__)
         return 2
-    model, tags = args[0], args[1:]
-    missing = []
-    for tag in tags:
-        hit = known(model, tag)
-        print(f"{'YES' if hit else 'NO '}  {tag}")
-        if not hit:
-            missing.append(tag)
-    print(f"\n{len(tags) - len(missing)}/{len(tags)} known on {model}")
-    if missing:
-        print("not known: " + ", ".join(missing))
-    return 1 if missing else 0
+    return report(args[0], args[1:])
 
 
 if __name__ == "__main__":
