@@ -20,3 +20,4 @@ Blocked by: 01, 03
 ## Comments
 
 - 「准备测试用的中转地址和 key」已经测通（见那张票的 Answer）：用 `.env.novelai` 里的中转，走 A 形态 `{base}/ai/generate-image`，参数全部生效，同种子能复现，适合做对比；探测脚本 `E:/tmp/nai-probe/probe.py` 可以改着用。B 形态不认种子，别用来做对比。参考图支不支持还没试。
+- 「调研：NovelAI 提示词写法」（`research/novelai-prompting` 分支）实测：V5 Curated 上櫻木真乃只写角色 tag、不写外貌 tag，8 张的发色、瞳色、发型都对；社区也有人说版权角色再叠外貌 tag 会和角色名打架。对比时一定要包括「只写角色 tag」这一档。提示词的结构已由「拍板：怎么触发、谁来写提示词」定下（固定前缀 `1girl, solo, 角色 tag, idolmaster shiny colors, 外貌 tag`，加上她写的分栏），对比时按这个结构拼。画风不在这张票里比，交给「原型：画风」，所以这里都不加画风 tag。
