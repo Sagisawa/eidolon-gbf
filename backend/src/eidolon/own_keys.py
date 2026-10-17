@@ -178,15 +178,13 @@ class ProviderLLMService:
         await check_chat_models(open_chat_models(settings, self._client), settings)
 
     def _proxied(self, base_url: str) -> bool:
-        """Whether a request to `base_url` goes through the proxy now: HTTPS to a known
-        provider's host, users' LLMs going through it."""
-        parts = urlsplit(base_url)
-        return (
-            self._routes is not None
-            and parts.scheme == "https"
-            and parts.hostname is not None
-            and self._known_provider(parts.hostname)
-            and self._routes.proxy_for("own_llm") is not None
+        """Whether a request to `base_url` goes through the proxy now."""
+        try:
+            url = httpx.URL(base_url)
+        except httpx.InvalidURL:  # said so by the check, as it is not proxied
+            return False
+        return self._routes is not None and (
+            self._routes.own_llm_proxy(url.scheme, url.host, self._known_provider) is not None
         )
 
     async def aclose(self) -> None:

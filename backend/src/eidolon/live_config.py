@@ -66,6 +66,7 @@ from eidolon.config import (
     JudgeSettings,
     SERVICES,
     LLMSettings,
+    OWN_KEYS_PROXIED,
     PROXIED_SERVICES,
     ProxiedService,
     ProxySettings,
@@ -1019,8 +1020,9 @@ class LiveConfig:
                 entry["follows_chat"] = self._memory_follows()
             if name == PROXY:
                 targets = self._proxy_targets()
+                own = OWN_KEYS_PROXIED.values()
                 entry["unconfigured"] = [
-                    s for s in PROXIED_SERVICES if s not in targets and not s.startswith("own_")
+                    s for s in PROXIED_SERVICES if s not in targets and s not in own
                 ]
             if item.bound_model() is not None:
                 entry["model"] = item.bound_model()

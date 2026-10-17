@@ -55,6 +55,10 @@ recognition chosen. Then users' own keys, apart from the deployer's, their provi
 their own: their LLMs, background models too, though only to a known provider's host
 (GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech recognition they chose."""
 PROXIED_SERVICES: tuple[ProxiedService, ...] = get_args(ProxiedService)
+OWN_KEYS_PROXIED: dict[Service, ProxiedService] = {
+    "llm": "own_llm", "tts": "own_tts", "stt": "own_stt",
+}
+"""What users' own key for each service goes through the proxy as."""
 
 PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
 

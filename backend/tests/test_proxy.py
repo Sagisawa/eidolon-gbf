@@ -313,11 +313,14 @@ KNOWN = "https://llm.known.example/v1"
 
 @pytest.fixture
 def catalog(settings: Settings) -> Catalog:
-    """The price catalogs as fetched: a provider at `KNOWN`, and one run on this machine,
-    as models.dev lists LM Studio."""
+    """The price catalogs as fetched: a provider at `KNOWN`, and those that are not on the
+    internet by name: one run on this machine, as models.dev lists LM Studio, and others
+    at an address or a name for this machine."""
     fake = FakeCatalog({
         "known": {"id": "known", "api": KNOWN, "models": {}},
-        "lmstudio": {"id": "lmstudio", "api": "http://127.0.0.1:1234/v1", "models": {}},
+        "lmstudio": {"id": "lmstudio", "api": "http://lmstudio.example/v1", "models": {}},
+        "private": {"id": "private", "api": "https://10.0.0.8/v1", "models": {}},
+        "loopback": {"id": "loopback", "api": "https://llm.localhost/v1", "models": {}},
     })
     catalog = Catalog(settings.database_path, FakeClock(), fake.transport())
     catalog.refresh()
@@ -342,11 +345,7 @@ async def test_a_users_own_llm_goes_through_the_proxy_only_to_a_known_providers_
     )
     try:
         await own_llm_fails(service, KNOWN)
-        not_through = [
-            await own_llm_fails(service, url)
-            for url in ("https://localhost:9/v1", "https://127.0.0.1:1234/v1",
-                        "http://llm.known.example/v1")
-        ]
+        over_http = await own_llm_fails(service, "http://llm.known.example/v1")
         routes.replace(through(proxy, "chat_llm"))
         not_ticked = await own_llm_fails(service, KNOWN)
     finally:
@@ -355,7 +354,7 @@ async def test_a_users_own_llm_goes_through_the_proxy_only_to_a_known_providers_
         catalog.close()
 
     assert proxy.went == ["llm.known.example:443"]
-    for why in [*not_through, not_ticked]:
+    for why in [over_http, not_ticked]:
         assert "公网地址" in why or "找不到" in why
 
 
@@ -387,7 +386,8 @@ def test_known_providers_are_the_catalogs_hosts_and_those_written_down_by_name_o
     known = [
         host for host in (
             "llm.known.example", "LLM.Known.Example", "generativelanguage.googleapis.com",
-            "openrouter.ai", "127.0.0.1", "llm.unknown.example", "localhost",
+            "openrouter.ai", "lmstudio.example", "10.0.0.8", "llm.localhost",
+            "llm.unknown.example",
         )
         if catalog.known_provider(host)
     ]

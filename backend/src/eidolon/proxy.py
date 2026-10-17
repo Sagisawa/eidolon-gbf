@@ -72,12 +72,20 @@ class ProxyRoutes:
         whatever host, goes on `direct`, which checks where it connects as it must. The
         proxy would connect for us unchecked (ADR-0022)."""
         def route(request: httpx.Request) -> str | None:
-            known = request.url.scheme == "https" and known_provider(request.url.host)
-            return self.proxy_for("own_llm") if known else None
+            return self.own_llm_proxy(request.url.scheme, request.url.host, known_provider)
 
         transport = _RoutedTransport(route, direct)
         self._own_llms.append(transport)
         return transport
+
+    def own_llm_proxy(
+        self, scheme: str, host: str, known_provider: Callable[[str], bool]
+    ) -> str | None:
+        """Where a user's own LLM at `host` over `scheme` connects through now: the proxy
+        for HTTPS to a host `known_provider` knows, users' LLMs going through it; None,
+        direct, for every other."""
+        known = scheme == "https" and known_provider(host)
+        return self.proxy_for("own_llm") if known else None
 
     async def aclose(self) -> None:
         for transport in [*self._transports.values(), *self._own_llms]:

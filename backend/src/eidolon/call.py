@@ -114,7 +114,7 @@ from eidolon.config import (
     FREE_FISH_AUDIO_MODELS,
     FishAudioModel,
     IceServer,
-    ProxiedService,
+    OWN_KEYS_PROXIED,
     Settings,
     SttKey,
     SttProvider,
@@ -737,7 +737,7 @@ class SpeechServices:
         routes = self.routes
         if routes is None:
             return lambda: None
-        routed: ProxiedService = ("own_tts" if service == "tts" else "own_stt") if own else service
+        routed = OWN_KEYS_PROXIED[service] if own else service
         return lambda: routes.proxy_for(routed)
 
     @staticmethod

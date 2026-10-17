@@ -64,6 +64,15 @@ HOSTS = {
 known providers whether or not the catalogs have been fetched (`Catalog.known_provider`)."""
 
 _DOMAIN = re.compile(r"[a-z0-9-]+(\.[a-z0-9-]+)+")
+"""A name with a dot in it: not `localhost`, nor a placeholder (`${DATABRICKS_HOST}`)."""
+
+
+def _is_address(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 MAKERS = [
     "openai", "anthropic", "google", "deepseek", "xai", "mistral", "moonshotai",
@@ -195,7 +204,10 @@ def parse_models_dev(
         if provider == OPENROUTER or not isinstance(entry, dict):
             continue
         api = entry.get("api")
-        host = urlsplit(api).hostname if isinstance(api, str) else HOSTS.get(provider)
+        if isinstance(api, str):  # not over HTTPS, it is on this machine or next to it
+            host = urlsplit(api).hostname if urlsplit(api).scheme == "https" else None
+        else:
+            host = HOSTS.get(provider)
         if host:
             hosts.append((host.lower(), provider))
         models = entry.get("models")
@@ -385,20 +397,14 @@ class Catalog:
             await asyncio.sleep(CHECK_EVERY)
 
     def known_provider(self, host: str) -> bool:
-        """Whether `host` is where a provider the catalogs list serves its models, or one
-        of those written down here (GLOSSARY.md「已知服务商」): a name on the internet, not
-        an address, nor a name for this machine, as models.dev has for those run on it
-        (`http://127.0.0.1:1234/v1`), nor a placeholder (`https://${DATABRICKS_HOST}`)."""
+        """Whether `host` is where a provider the catalogs list serves its models over
+        HTTPS, or one of those written down here (GLOSSARY.md「已知服务商」): a name on the
+        internet, not an address, nor a name for this machine, nor a placeholder
+        (`https://${DATABRICKS_HOST}`)."""
         host = host.lower().rstrip(".")
-        if host not in self._hosts and host not in HOSTS.values():
-            return False
-        if not _DOMAIN.fullmatch(host) or host == "localhost" or host.endswith(".localhost"):
-            return False
-        try:
-            ipaddress.ip_address(host)
-        except ValueError:
-            return True
-        return False
+        listed = host in self._hosts or host in HOSTS.values()
+        named = _DOMAIN.fullmatch(host) is not None and not host.endswith(".localhost")
+        return listed and named and not _is_address(host)
 
     def find(self, host: str, model: str) -> tuple[Listed, bool] | None:
         """The catalogs' price of `model` at `host`, if they have one, and whether it is
