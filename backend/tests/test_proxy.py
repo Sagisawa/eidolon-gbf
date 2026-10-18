@@ -594,6 +594,19 @@ async def test_a_saved_proxy_is_tried_on_the_services_it_reroutes_then_holds_unt
     assert routes_of(client) == ProxySettings(None, False, frozenset())
 
 
+async def test_every_switch_of_a_saved_proxy_is_kept(
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+):
+    client = await proxy_admin(make_client, admins, github, FakeReach())
+    all_on = {s: True for s in PROXIED_SERVICES}
+
+    saved = await client.put(PROXY, json={"enabled": True, "url": "http://127.0.0.1:7890"} | all_on)
+
+    assert saved.status_code == 200, saved.text
+    assert routes_of(client).services == frozenset(PROXIED_SERVICES)
+    assert {s: saved.json()["proxy"]["effective"][s] for s in PROXIED_SERVICES} == all_on
+
+
 async def test_the_deployers_image_generation_goes_through_the_proxy_ticked_for_it(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider,
     proxy: FakeProxy, provider: FakeProvider,

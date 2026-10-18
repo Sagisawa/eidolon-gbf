@@ -161,6 +161,7 @@ class ProxyInput(BaseModel):
     own_llm: StrictBool
     own_tts: StrictBool
     own_stt: StrictBool
+    own_image: StrictBool
 
 
 INPUTS: dict[str, type[BaseModel]] = {
