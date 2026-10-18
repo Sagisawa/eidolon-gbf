@@ -9,7 +9,16 @@ import { Separator } from "@/components/ui/separator";
 import { copy } from "@/i18n";
 import { SETTINGS_GROUPS, settingsCategory, settingsHref, shownCategory } from "@/lib/settingsCategory";
 import { cn } from "@/lib/utils";
-import { AboutIcon, MemoriesIcon, OwnKeysIcon, PhoneIcon, ProfileIcon, SignInIcon, StatsIcon } from "@/theme/icons";
+import {
+  AboutIcon,
+  AppearanceIcon,
+  MemoriesIcon,
+  OwnKeysIcon,
+  PhoneIcon,
+  ProfileIcon,
+  SignInIcon,
+  StatsIcon,
+} from "@/theme/icons";
 
 const t = copy.settings;
 
@@ -18,13 +27,14 @@ const ICONS = {
   memories: MemoriesIcon,
   stats: StatsIcon,
   call: PhoneIcon,
+  appearance: AppearanceIcon,
   "own-keys": OwnKeysIcon,
   "sign-in": SignInIcon,
   about: AboutIcon,
 };
 
 /**
- * 设置（DESIGN.md「设置页」）：一级是七类的列表，分四组、组间一条分隔线；二级是一类的页面（`/settings/<类别>`），没有三级。
+ * 设置（DESIGN.md「设置页」）：一级是八类的列表，分四组、组间一条分隔线；二级是一类的页面（`/settings/<类别>`），没有三级。
  * - 电脑：导航栏右边第二栏 320px 的一级列表，顶上「设置」大标题，当前那一类铺中性底色、不带 ›（网址就是这一类时才标 `aria-current`）；右栏是这一类的二级页面。
  *   只打开 `/settings` 时右栏是档案，档案是当前项。
  * - 手机：`/settings` 只露一级列表，每行末尾一个 ›；`/settings/<类别>` 只露二级页面，页首返回键回到一级。

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { MarkedAvatar } from "@/components/app/MarkedAvatar";
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { SettingsPane } from "@/components/settings/SettingsPane";
 import { useSettingsValues } from "@/components/settings/SettingsValues";
 import {
@@ -27,9 +28,7 @@ import {
   ApiError,
   clearMemories,
   deleteMemory,
-  listCharacters,
   listMemories,
-  type Character,
   type Memory,
 } from "@/lib/api";
 import { toFailure, type Failure } from "@/lib/failure";
@@ -46,7 +45,6 @@ const t = copy.memories;
  */
 export function MemoriesSettings() {
   const [memories, setMemories] = useState<Memory[] | null>(null);
-  const [characters, setCharacters] = useState<Character[]>([]);
   const [failure, setFailure] = useState<Failure | null>(null);
   const [deleting, setDeleting] = useState<Set<number>>(new Set());
   // 要删的那条。确认框关上时只把 confirmingDelete 置成 false，pendingDelete 留着，关闭动画里的文字不会闪成空白。
@@ -57,11 +55,11 @@ export function MemoriesSettings() {
   // 只用最后一次重新取到的列表：连着删几条时，先发出的那次晚到，会把后删的又列出来。
   const refetches = useRef(0);
   const { memoryCountChanged } = useSettingsValues();
+  // 只用来给来源角色配头像；还没载入时照样列出记忆。
+  const characters = useDirectory().characters ?? [];
 
   useEffect(() => {
     listMemories().then(setMemories, (e) => setFailure(toFailure(e)));
-    // 只用来给来源角色配头像；取不到时照样列出记忆。
-    listCharacters().then(setCharacters, () => {});
   }, []);
 
   const count = memories?.length;

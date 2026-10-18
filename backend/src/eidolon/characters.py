@@ -2,7 +2,7 @@
 
 The configuration is a TOML file listing each character's identifier, display
 name, introduction, voice, image colour and the location of her character sheet
-(and, optionally, her character facts, avatar and call background), relative to
+(and, optionally, her character facts, avatars and call background), relative to
 the file, plus the speaker names her lines carry in the story corpus. Adding a
 character or replacing a voice is a configuration change. The sheets, facts,
 avatars and backgrounds are committed with the configuration (ADR-0003).
@@ -127,6 +127,9 @@ class Character:
     """Her image colour, the official one from the original, as lower-case `#rrggbb`."""
     background: Path | None = None
     """The picture behind her call screen; None shows a gradient of her image colour."""
+    scsp_avatar: Path | None = None
+    """Her avatar in SCSP's set, which users can switch to in settings; None, and they see
+    her usual avatar either way."""
     speakers: tuple[str, ...] = ()
     """Names her lines are credited to in story scripts, e.g. 真乃."""
     facts: tuple[Fact, ...] = ()
@@ -244,6 +247,7 @@ def _parse_character(
 
     avatar = _optional_file(entry, "avatar", base, label)
     background = _optional_file(entry, "background", base, label)
+    scsp_avatar = _optional_file(entry, "scsp_avatar", base, label)
 
     idol_id = entry.get("idol_id")
     # bool is an int in Python, but `idol_id = true` is a mistake all the same.
@@ -270,6 +274,7 @@ def _parse_character(
         avatar=avatar,
         color=entry["color"].lower(),
         background=background,
+        scsp_avatar=scsp_avatar,
         speakers=tuple(speakers),
         facts=facts,
         sheet_path=sheet_path,

@@ -7,6 +7,7 @@ const mano: Character = {
   name: "櫻木真乃",
   intro: "",
   avatar_url: "/api/characters/mano/avatar",
+  scsp_avatar_url: null,
   color: "#ffbad6",
   background_url: null,
   stand: null,

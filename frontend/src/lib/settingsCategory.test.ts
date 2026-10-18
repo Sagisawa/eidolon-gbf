@@ -55,6 +55,7 @@ describe("一级列表上的摘要", () => {
     memoryCount: null,
     daysKnown: null,
     call: null,
+    appearance: null,
     ownServices: null,
     signInMethods: null,
   };
@@ -91,6 +92,11 @@ describe("一级列表上的摘要", () => {
     const call = { micId: "", quality: "high", muted: false, phoneTexture: true } as const;
     expect(settingsSummaries({ ...loading, call }).call).toBe("高保真 · 电话质感开");
     expect(settingsSummaries({ ...loading, call: { ...call, phoneTexture: false } }).call).toBe("高保真 · 电话质感关");
+  });
+
+  it("外观是 SCSP 头像开／关", () => {
+    expect(settingsSummaries({ ...loading, appearance: { scspAvatars: true } }).appearance).toBe("SCSP 头像开");
+    expect(settingsSummaries({ ...loading, appearance: { scspAvatars: false } }).appearance).toBe("SCSP 头像关");
   });
 
   it("自带密钥按 LLM、语音合成、语音识别的顺序列出填了的，一项都没填时「全部用部署者的服务」", () => {

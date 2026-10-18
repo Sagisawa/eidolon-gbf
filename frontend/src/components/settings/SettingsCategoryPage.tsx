@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { AboutSettings } from "@/components/AboutSettings";
 import { AdminEntry } from "@/components/AdminEntry";
+import { AppearanceSettings } from "@/components/AppearanceSettings";
 import { CallSettings } from "@/components/CallSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
 import { MemoriesSettings } from "@/components/MemoriesSettings";
@@ -17,6 +18,7 @@ import type { SettingsCategory } from "@/lib/settingsCategory";
 const PANELS: Record<Exclude<SettingsCategory, "memories" | "stats">, ReactNode> = {
   profile: <ProducerProfileSettings />,
   call: <CallSettings />,
+  appearance: <AppearanceSettings />,
   "own-keys": <OwnKeysSettings />,
   "sign-in": (
     <>
