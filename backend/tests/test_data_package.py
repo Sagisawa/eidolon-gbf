@@ -2,26 +2,31 @@
 it into this deployment or another, under this account or another. Checked only through
 the API: what a package holds by unzipping it, what an import did by the read endpoints."""
 
+import asyncio
 import io
 import json
 import zipfile
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+import pytest
 
+from eidolon import data_package
 from eidolon.config import Settings
 from tests.conftest import ClientFactory
 from tests.fakes import (
     FakeBackgroundLLM,
+    FakeClock,
     FakeEmbedder,
     FakeJudge,
     FakeLLM,
     FakeReranker,
     context_of,
 )
+from tests.test_delete_account import rows_mentioning, user_id
 from tests.test_memories import KYOTO, OSAKA, TOKYO, superseding
 from tests.test_memory_management import memories
 from tests.test_shared_memory import CAT, REPLY, memories_section, memorized, turn
@@ -386,3 +391,145 @@ def _zip(entries: dict[str, str]) -> bytes:
         for name, content in entries.items():
             zipped.writestr(name, content)
     return buffer.getvalue()
+
+
+PROFILE_PACKAGE = package_of(MANIFEST, {"profile": PACKAGED_PROFILE})
+
+
+async def test_a_package_too_large_is_refused_at_once_and_nothing_is_imported(
+    make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(data_package, "MAX_PACKAGE_BYTES", len(PROFILE_PACKAGE) - 1)
+    client = make_client(FakeLLM())
+
+    res = await import_package(client, PROFILE_PACKAGE, "profile")
+
+    assert res.status_code == 413
+    assert res.json()["code"] == "too_large"
+    assert (await client.get("/api/profile")).json() == EMPTY_PROFILE
+
+
+async def test_a_package_too_large_is_refused_without_waiting_for_the_rest_of_it(
+    make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(data_package, "MAX_PACKAGE_BYTES", 1000)
+    client = make_client(FakeLLM())
+    sent = 0
+
+    async def endless() -> AsyncIterator[bytes]:  # sent without its length
+        nonlocal sent
+        for _ in range(1000):
+            sent += 1
+            yield b"\0" * 100
+
+    res = await client.post(
+        "/api/account/data-package", params={"include": "profile"}, content=endless(),
+        headers={"content-type": "application/zip"},
+    )
+
+    assert res.status_code == 413
+    assert res.json()["code"] == "too_large"
+    assert sent < 1000
+    assert (await client.get("/api/profile")).json() == EMPTY_PROFILE
+
+
+async def test_a_package_unzipping_too_large_is_refused_as_broken(
+    make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch
+):
+    client = make_client(FakeLLM())
+    data = json.dumps({"profile": PACKAGED_PROFILE})
+    padded = {"profile": PACKAGED_PROFILE, "memories": [packaged_memory(1, "猫" * 100)]}
+    monkeypatch.setattr(data_package, "MAX_DATA_BYTES", len(data.encode()))
+    monkeypatch.setattr(data_package, "MAX_MANIFEST_BYTES", len(json.dumps(MANIFEST)))
+
+    for case, package in {
+        "data": package_of({**MANIFEST, "categories": ["memories", "profile"]}, padded),
+        "manifest": _zip({"manifest.json": json.dumps(MANIFEST, indent=4), "data.json": data}),
+    }.items():
+        res = await import_package(client, package, "profile")
+
+        assert res.status_code == 422, case
+        assert res.json()["code"] == "broken", case
+    assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
+
+
+async def test_a_second_import_or_export_while_one_is_going_on_is_refused(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM())
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def slowly() -> AsyncIterator[bytes]:
+        yield PROFILE_PACKAGE[:10]
+        started.set()
+        await finish.wait()
+        yield PROFILE_PACKAGE[10:]
+
+    first = asyncio.create_task(client.post(
+        "/api/account/data-package", params={"include": "profile"}, content=slowly(),
+        headers={"content-type": "application/zip"},
+    ))
+    await started.wait()
+
+    second = await import_package(client, PROFILE_PACKAGE, "profile")
+    exporting = await client.get("/api/account/data-package", params={"include": "profile"})
+    someone_else = await import_package(make_client(FakeLLM(), "friend"), PROFILE_PACKAGE, "profile")
+    finish.set()
+
+    assert second.status_code == 409
+    assert second.json()["code"] == "busy"
+    assert exporting.status_code == 409
+    assert exporting.json()["code"] == "busy"
+    assert someone_else.status_code == 200
+    assert (await first).status_code == 200
+    assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
+
+
+async def test_a_user_imports_three_packages_a_day_in_beijing(make_client: ClientFactory):
+    clock = FakeClock(datetime(2026, 10, 19, 12, 0, tzinfo=UTC))  # 20:00 in Beijing
+    client = make_client(FakeLLM(), clock=clock)
+    friend = make_client(FakeLLM(), "friend", clock=clock)
+
+    for _ in range(3):  # the same each time: adding nothing counts all the same
+        assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
+    clock.advance(hours=3, minutes=59)
+    res = await import_package(client, PROFILE_PACKAGE, "profile")
+
+    assert res.status_code == 429
+    assert res.json()["code"] == "used_up"
+    assert res.json()["retry_at"] == "2026-10-19T16:00:00+00:00"  # midnight in Beijing
+    assert res.headers["retry-after"] == "60"
+    assert (await import_package(friend, PROFILE_PACKAGE, "profile")).status_code == 200
+    clock.advance(minutes=1)
+    assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
+
+
+async def test_imports_that_fail_do_not_count(
+    make_client: ClientFactory, monkeypatch: pytest.MonkeyPatch
+):
+    client = make_client(FakeLLM(), clock=FakeClock())
+    failing = [
+        package_of(MANIFEST, {}),  # broken: refused once it is read
+        PROFILE_PACKAGE + b"\0" * 1000,  # too large: refused as it is read
+    ]
+    monkeypatch.setattr(data_package, "MAX_PACKAGE_BYTES", len(PROFILE_PACKAGE))
+
+    for _ in range(3):
+        for package in failing:
+            assert (await import_package(client, package, "profile")).status_code in (413, 422)
+    for _ in range(3):
+        assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
+    assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 429
+
+
+async def test_deleting_the_user_deletes_the_imports_they_made(
+    make_client: ClientFactory, settings: Settings
+):
+    client = make_client(FakeLLM())
+    assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
+    producer = user_id(settings.database_path, "producer")
+    assert rows_mentioning(settings.database_path, producer).get("data_package_imports") == 1
+
+    assert (await client.post("/api/account/delete", json={"confirm": True})).status_code == 204
+
+    assert rows_mentioning(settings.database_path, producer) == {}

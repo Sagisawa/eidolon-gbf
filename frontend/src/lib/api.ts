@@ -278,8 +278,11 @@ export class ApiError extends Error {
    * them closed. */
   readonly giftsClosed: boolean;
   /** What the refusal was, where the backend says so beside its reason (a data package's
-   * `broken`, `too_new`); null where it does not. */
+   * `broken`, `too_new`, `used_up`…); null where it does not. */
   readonly code: string | null;
+  /** Refused for a limit used up until this time (ISO, the 429's `retry_at`); null for any
+   * other refusal, or one with no time to wait for. */
+  readonly retryAt: string | null;
 
   constructor(
     message: string,
@@ -288,12 +291,14 @@ export class ApiError extends Error {
       cooldownUntil = null,
       giftsClosed = false,
       code = null,
-    }: { cooldownUntil?: string | null; giftsClosed?: boolean; code?: string | null } = {},
+      retryAt = null,
+    }: { cooldownUntil?: string | null; giftsClosed?: boolean; code?: string | null; retryAt?: string | null } = {},
   ) {
     super(message);
     this.cooldownUntil = cooldownUntil;
     this.giftsClosed = giftsClosed;
     this.code = code;
+    this.retryAt = retryAt;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -336,7 +341,8 @@ export async function json<T>(res: Response): Promise<T> {
     const cooldownUntil = res.status === CONFLICT && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
     const giftsClosed = res.status === CONFLICT && body?.gifts_closed === true;
     const code = typeof body?.code === "string" ? body.code : null;
-    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed, code });
+    const retryAt = res.status === OVER_LIMIT && typeof body?.retry_at === "string" ? body.retry_at : null;
+    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed, code, retryAt });
   }
   return res.json();
 }

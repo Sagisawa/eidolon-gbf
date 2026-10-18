@@ -19,6 +19,9 @@ export const OFFERED: readonly Category[] = ["memories", "profile"];
 
 const MANIFEST = "manifest.json";
 
+/** 数据包最大多少字节，和后端的上限一样：超了选文件时就拦下，不用传上去。 */
+export const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
+
 /** manifest.json 最大多少字节，超了当坏包：它只有几行。 */
 const MAX_MANIFEST_BYTES = 64 * 1024;
 
@@ -53,16 +56,22 @@ export function exportHref(categories: readonly Category[]): string {
   return `/api/account/data-package?${new URLSearchParams({ include: categories.join(",") })}`;
 }
 
-/** 读了数据包开头以后知道的：能导入（包里有、这一页能导入的几类）、来自更新的版本，或者坏了。 */
-export type ManifestReading = { kind: "package"; categories: Category[] } | { kind: "too_new" } | { kind: "broken" };
+/** 读了数据包开头以后知道的：能导入（包里有、这一页能导入的几类）、来自更新的版本、太大，或者坏了。 */
+export type ManifestReading =
+  | { kind: "package"; categories: Category[] }
+  | { kind: "too_new" }
+  | { kind: "too_large" }
+  | { kind: "broken" };
 
 const BROKEN: ManifestReading = { kind: "broken" };
 
 /**
  * 流式读出数据包的第一个条目 manifest.json（它不压缩，读到就停），不把整个文件读进内存。
  * 第一个条目不是不压缩的 manifest.json、JSON 不对，都算坏包；格式比这一版新的是 too_new。
+ * 超过 MAX_PACKAGE_BYTES 的不读，是 too_large。
  */
 export async function readManifest(file: Blob): Promise<ManifestReading> {
+  if (file.size > MAX_PACKAGE_BYTES) return { kind: "too_large" };
   const start = new Uint8Array(await file.slice(0, 4).arrayBuffer());
   if (!isZip(start)) return BROKEN;
   const reader = file.stream().getReader();
@@ -141,13 +150,24 @@ export function importSummary(result: DataPackageImported): string {
   return imported + t.skipped(skipped, result.skipped.length > 1);
 }
 
-/** 导入失败时的一句：认得的错误码换成页面上的说法，其余照后端（或浏览器）说的。 */
-export function importFailureMessage(error: unknown): string {
+/**
+ * 导入失败时的一句：认得的错误码换成页面上的说法，今天的次数用完时带上几点以后能再导（按 `timeZone`，默认这台设备的时区，
+ * 写成 HH:MM：不到一天，不写哪天）；其余照后端（或浏览器）说的。
+ */
+export function importFailureMessage(error: unknown, timeZone?: string): string {
   if (error instanceof ApiError && isRefusal(error.code)) return copy.settings.dataPackage.failures[error.code];
+  // 反向代理先挡下的太大，回的 413 没有错误码。
+  if (error instanceof ApiError && error.status === 413) return copy.settings.dataPackage.failures.too_large;
+  if (error instanceof ApiError && error.code === "used_up" && error.retryAt) {
+    const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone }).format(
+      new Date(error.retryAt),
+    );
+    return copy.settings.dataPackage.usedUp(time);
+  }
   return (error as Error).message;
 }
 
-/** 后端拒绝一个数据包的错误码，也是读开头时就看得出的两种。 */
+/** 后端拒绝一个数据包、各有一句提示的错误码；前三种读开头时就看得出。 */
 export type Refusal = keyof typeof copy.settings.dataPackage.failures;
 
 function isRefusal(code: string | null): code is Refusal {

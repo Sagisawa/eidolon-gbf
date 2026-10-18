@@ -15,10 +15,12 @@ exporting nor importing is recorded: no activity record, nothing an admin sees."
 
 import asyncio
 import json
+import threading
 import zipfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal, get_args
 
@@ -32,6 +34,7 @@ from pydantic import (
     model_validator,
 )
 
+from eidolon.affinity import next_day
 from eidolon.database import connect
 from eidolon.memory import MAX_MEMORY_LENGTH, CarriedMemory, Memories, Memory, add_carried
 from eidolon.producer import (
@@ -55,9 +58,42 @@ conversations they were sent in, never without them."""
 MANIFEST = "manifest.json"
 DATA = "data.json"
 
+MAX_PACKAGE_BYTES = 200 * 1024 * 1024
+"""How large a package may be to import: a package with many photos is large, and one too
+large for this can be exported again without them."""
+
+MAX_MANIFEST_BYTES = 64 * 1024
+"""How large `manifest.json` may be unzipped: it is a few lines."""
+
+MAX_DATA_BYTES = 200 * 1024 * 1024
+"""How large `data.json` may be unzipped, so that a small zip cannot unzip to fill the
+memory."""
+
+IMPORTS_PER_DAY = 3
+"""How many imports a user may make a day (`affinity.day_of`): only those that succeed count,
+even one that added nothing."""
+
 
 class TooNew(Exception):
     """A package in a format newer than this version reads: the deployer should upgrade."""
+
+
+class Busy(Exception):
+    """The user is already importing or exporting a package: one at a time."""
+
+
+class ImportsUsedUp(Exception):
+    """The user has made today's imports (`IMPORTS_PER_DAY`); they can again at `retry_at`,
+    as the next day begins."""
+
+    def __init__(self, retry_at: datetime, now: datetime) -> None:
+        super().__init__(f"今天的导入次数已经用完了（每天 {IMPORTS_PER_DAY} 次）")
+        self.retry_at = retry_at
+        self.now = now
+
+
+class TooLarge(Exception):
+    """A package larger than `MAX_PACKAGE_BYTES`, refused before the rest of it is read."""
 
 
 class BrokenPackage(Exception):
@@ -226,6 +262,17 @@ def chosen(include: Iterable[Category]) -> list[Category]:
     return [c for c in CATEGORIES if c in asked]
 
 
+_SCHEMA = """
+-- One row per import a user made that succeeded, at when it did: how many they have made
+-- today. Those of earlier days are deleted as the next is made.
+CREATE TABLE IF NOT EXISTS data_package_imports (
+    user_id TEXT NOT NULL,
+    at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS data_package_imports_by_user ON data_package_imports (user_id, at);
+"""
+
+
 class DataPackages:
     """Exports a user's data package, and imports one into a user's data."""
 
@@ -240,6 +287,42 @@ class DataPackages:
         self._store = store
         self._memories = memories
         self._clock = clock
+        self._working: set[str] = set()
+        self._working_lock = threading.Lock()
+        db = connect(database_path)
+        try:
+            db.executescript(_SCHEMA)
+        finally:
+            db.close()
+
+    def check_imports_left(self, user_id: str) -> None:
+        """Raise `ImportsUsedUp` if the user has made today's imports."""
+        now = self._clock()
+        db = connect(self._database_path)
+        try:
+            (made,) = db.execute(
+                "SELECT COUNT(*) FROM data_package_imports WHERE user_id = ? AND at >= ?",
+                (user_id, _today_began(now)),
+            ).fetchone()
+        finally:
+            db.close()
+        if made >= IMPORTS_PER_DAY:
+            raise ImportsUsedUp(next_day(now), now)
+
+    @contextmanager
+    def one_at_a_time(self, user_id: str) -> Iterator[None]:
+        """Held while the user imports a package, from reading its first byte to the end, or
+        while their package is written to export; raises `Busy` while another of theirs is
+        held. In this process only: a deployment runs one."""
+        with self._working_lock:
+            if user_id in self._working:
+                raise Busy()
+            self._working.add(user_id)
+        try:
+            yield
+        finally:
+            with self._working_lock:
+                self._working.discard(user_id)
 
     def export(self, user_id: str, include: Iterable[Category], to: Path) -> None:
         """Write the user's package, with the categories in `include`, to the file `to`."""
@@ -270,8 +353,10 @@ class DataPackages:
 
     async def import_(self, user_id: str, package: Path, include: Iterable[Category]) -> Imported:
         """Import the categories of the package at `package` that `include` names into the
-        user's data, all in one transaction; raises `TooNew` or `BrokenPackage` having
-        written nothing. The memories it adds are embedded afterwards, in the background."""
+        user's data, all in one transaction, counted among today's imports; raises `TooNew`
+        or `BrokenPackage` having written nothing. The memories it adds are embedded
+        afterwards, in the background. Whether the user has imports left today is for the
+        caller to check first (`check_imports_left`), while it holds `one_at_a_time`."""
         imported = await asyncio.to_thread(self._import, user_id, package, include)
         if imported.memories:
             self._memories.embed_carried(user_id)
@@ -291,9 +376,23 @@ class DataPackages:
                     imported.memories = add_carried(
                         db, user_id, [m.carried() for m in data.memories]
                     )
+                now = self._clock()
+                db.execute(
+                    "DELETE FROM data_package_imports WHERE user_id = ? AND at < ?",
+                    (user_id, _today_began(now)),
+                )
+                db.execute(
+                    "INSERT INTO data_package_imports (user_id, at) VALUES (?, ?)",
+                    (user_id, _written(now)),
+                )
         finally:
             db.close()
         return imported
+
+
+def _today_began(now: datetime) -> str:
+    """When the day it is at `now` (`affinity.day_of`) began, as times are written."""
+    return _written(next_day(now) - timedelta(days=1))
 
 
 def _read(package: Path) -> tuple[Manifest, PackageData]:
@@ -306,11 +405,11 @@ def _read(package: Path) -> tuple[Manifest, PackageData]:
             first = entries[0]
             if first.filename != MANIFEST or first.compress_type != zipfile.ZIP_STORED:
                 raise BrokenPackage("its manifest not first, stored")
-            raw_manifest = json.loads(zipped.read(MANIFEST))
+            raw_manifest = json.loads(_unzipped(zipped, MANIFEST, MAX_MANIFEST_BYTES))
             if _Format.model_validate(raw_manifest).format > FORMAT:
                 raise TooNew()
             manifest = Manifest.model_validate(raw_manifest)
-            data = PackageData.model_validate_json(zipped.read(DATA))
+            data = PackageData.model_validate_json(_unzipped(zipped, DATA, MAX_DATA_BYTES))
     except (zipfile.BadZipFile, ValueError, ValidationError, KeyError) as e:
         # json.JSONDecodeError and UnicodeDecodeError are ValueErrors
         raise BrokenPackage(type(e).__name__) from None
@@ -318,6 +417,16 @@ def _read(package: Path) -> tuple[Manifest, PackageData]:
     if held != set(manifest.categories) - {"photos"}:
         raise BrokenPackage("categories not as the manifest lists them")
     return manifest, data
+
+
+def _unzipped(zipped: zipfile.ZipFile, name: str, limit: int) -> bytes:
+    """The entry `name` unzipped, refusing it as broken past `limit` bytes, whatever its
+    header says it unzips to."""
+    with zipped.open(name) as entry:
+        content = entry.read(limit + 1)
+    if len(content) > limit:
+        raise BrokenPackage(f"{name} too large")
+    return content
 
 
 def _json(value: object) -> str:

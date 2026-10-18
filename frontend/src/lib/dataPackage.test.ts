@@ -66,6 +66,13 @@ describe("读数据包开头的 manifest.json", () => {
     expect(await readManifest(file)).toEqual({ kind: "too_new" });
   });
 
+  it("超过 200 MB 时不读，直接是太大", async () => {
+    const file = zip({ "manifest.json": [JSON.stringify(MANIFEST), 0], "data.json": ["{}", 6] });
+    const large = { size: 200 * 1024 * 1024 + 1, slice: () => file.slice(), stream: () => file.stream() } as Blob;
+
+    expect(await readManifest(large)).toEqual({ kind: "too_large" });
+  });
+
   it("读不出来就是坏包", async () => {
     const cases: Record<string, Blob> = {
       "不是 zip": new Blob(["not a zip at all"]),
@@ -118,6 +125,19 @@ describe("导入失败的提示", () => {
     expect(importFailureMessage(new ApiError("x", 422, { code: "too_new" }))).toBe(
       "这个数据包来自更新的版本，请部署者升级后再导入",
     );
+  });
+
+  it("反向代理挡下的太大没有错误码，也提示不带照片重新导出", () => {
+    expect(importFailureMessage(new ApiError("请求失败（413）", 413))).toBe(
+      "数据包太大了（最大 200 MB），可以不带照片重新导出",
+    );
+  });
+
+  it("今天的次数用完时说几点以后能再导，按这台设备的时区", () => {
+    const usedUp = new ApiError("x", 429, { code: "used_up", retryAt: "2026-10-19T16:00:00+00:00" });
+
+    expect(importFailureMessage(usedUp, "Asia/Shanghai")).toBe("今天的导入次数用完了，00:00 以后可以再导入");
+    expect(importFailureMessage(usedUp, "Asia/Tokyo")).toBe("今天的导入次数用完了，01:00 以后可以再导入");
   });
 
   it("没有错误码时照后端说的", () => {

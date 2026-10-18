@@ -21,3 +21,9 @@
 - DESIGN.md 已补：一级九类分四组（数据包和登录与数据同组）、图标 `DataPackageIcon`（Lucide `Package`）、网址 `/settings/data-package`、二级「数据包（导出、导入两节）」、数据包没有摘要。还差这一页的版式。
 - GLOSSARY「数据包」写导入「不覆盖」，但制作人档案是整份覆盖的，收尾时看要不要补一句。
 - `docs/data-package-format.md` 现在只有 `manifest.json`、`profile`、时间和版本规则。
+
+### 票 05 交接
+
+- `deploy/Caddyfile` 加了导入地址的 `request_body`：部署时要让 Caddy 重新读配置（重启 caddy 容器），服务器上若有自己的 Caddyfile 叠加也要同步。
+- 格式说明已有「大小」一节（200 MB、解压上限）；核格式文档时一起看。
+- 验收时可以顺手试：设置里选一个超过 200 MB 的文件，选完马上提示太大；同一个用户一天第 4 次导入提示次数用完、带几点。
