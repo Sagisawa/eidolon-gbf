@@ -247,6 +247,7 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
 function optionLabel(name: ItemName, field: string, option: string): string {
   if (field === "protocol") return t.protocols[option as LLMProtocol] ?? option;
   if (field === "api_format") return t.imageFormats[option] ?? option;
+  if (field === "region") return t.regions[option] ?? option;
   // 生图的模型：下拉里是官方模型的短名，最后一项是手填。
   if (name === "image" && field === "model") return option === CUSTOM_MODEL ? t.customModel : (t.imageModels[option] ?? option);
   // 语音合成的模型，和设置页一个叫法。

@@ -4,6 +4,7 @@
 
 import { api, json } from "@/lib/api";
 import {
+  BAILIAN_REGIONS,
   FISH_AUDIO_MODELS,
   IMAGE_FORMATS,
   IMAGE_MODELS,
@@ -266,12 +267,14 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     tried: true,
   },
   judge: {
-    rows: ["provider", "model", "account_id", "emotion_timeout", "api_key"],
+    rows: ["provider", "model", "account_id", "workspace_id", "region", "emotion_timeout", "api_key"],
     secrets: ["api_key"],
     form: [
-      { name: "provider", kind: "select", options: ["jev", "cloudflare"] },
+      { name: "provider", kind: "select", options: ["jev", "cloudflare", "bailian"] },
       { name: "model", kind: "text" },
       { name: "account_id", kind: "optionalText" },
+      { name: "workspace_id", kind: "optionalText" },
+      { name: "region", kind: "select", options: BAILIAN_REGIONS },
       { name: "emotion_timeout", kind: "seconds" },
       { name: "api_key", kind: "secret" },
     ],
@@ -396,7 +399,8 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
     const typed = (form[name] ?? "").trim();
     switch (kind) {
       case "select":
-        change[name] = form[name];
+        // 判断模型的地域只有百炼用，别家时没有选过，不发。
+        if (form[name]) change[name] = form[name];
         break;
       case "text":
       case "modelChoice":
