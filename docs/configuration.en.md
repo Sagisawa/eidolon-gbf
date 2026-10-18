@@ -35,6 +35,7 @@ This guide explains how to turn on and tune each feature, and how the characters
 - [Sign-in, users and usage limits](#sign-in-users-and-usage-limits)
 - [Bring your own keys](#bring-your-own-keys)
 - [Proxy](#proxy)
+- [Service status](#service-status)
 - [Admin console](#admin-console)
 - [Command-line reference](#command-line-reference)
 
@@ -478,6 +479,21 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 - **Own LLMs go through it only to known providers**: The address of a user's own LLM is theirs to type, and may point into the server's own network; through a proxy, the server cannot check where it really connects. So only an address whose host is a known provider's goes through it: the providers the price catalog (models.dev; see [Prices for cost estimates](deploy.md#花费估算用的单价) in the deploy guide) gives an address for, the few the code knows (OpenAI, Anthropic, Google Gemini, xAI, Mistral, Cohere, Groq, Cerebras, DeepInfra, Together, Perplexity, Venice) and OpenRouter; never an IP address or `localhost`. Any other goes direct, checked to be on the public internet ([ADR-0022](adr/0022-own-llms-through-the-proxy-only-to-known-providers.md)). While the catalog cannot be fetched, only the ones the code knows count. Users' own image generation works the same way, with NovelAI itself as the one known provider.
 - **Changeable in the admin console**: The 「网络」 (Network) tab of the config page has 「网络代理」 (Proxy): switch it on or off, change the address and pick the services, with no restart. It holds from the next request on (in turns and calls under way too; voice connections already open stay up). Before saving, each of the deployer's services routed a new way is reached that way once (users' own keys are not: there are none here to try with), and nothing is saved if one cannot be; if one cannot be as the server restarts, `.env`'s value is used and the admin console says so. A password in the address is encrypted like a key; without `EIDOLON_SECRET_KEY`, an address with a password can only be set in `.env`.
 
+## Service status
+
+Beside the bell on the conversation list there is a "service status" button: signed-in users can open it to see whether each service works right now — working, unsteady, down, or no recent calls. When a service is not working, the button carries a red or amber dot.
+
+```sh
+EIDOLON_STATUS_SERVICES=chat_llm,tts,stt
+EIDOLON_STATUS_WINDOW_MINUTES=30
+```
+
+- **How it is judged**: by the share of calls on the deployer's keys that failed over the window (`EIDOLON_STATUS_WINDOW_MINUTES`: 10, 30 or 60 minutes, 30 by default): under 5% is working, 5% to 50% unsteady, 50% or more down. Calls on users' own keys are left out.
+- **Tried when idle**: a service with no calls over the window is tried with the least of real requests: one word from an LLM, a few words embedded or reranked, the judge tried as the admin console tries it, two characters voiced, and for speech recognition only a check that costs nothing. A failed try is repeated at once; failing twice, the service is down. Each service is tried at most twice per window, at next to no cost, and the tries are not activity records, so the dashboard's usage and costs leave them out. Image generation costs money per picture and is never tried: without calls it shows "no recent calls".
+- **Which services are shown**: `EIDOLON_STATUS_SERVICES`, comma-separated, named as the first eight in the proxy table; empty or `all` for every one, `none` for none (then there is no button). Services the deployment does not have are never shown.
+- **In the admin console**: the config page's "service status" tab chooses them one by one and the window; changes hold at once.
+- **Speech in calls**: a call's speech synthesis and recognition are recorded when the call ends, so a call under way shows in the status only after it hangs up.
+
 ## Admin console
 
 List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like `github:12345`; look them up with `eidolon user list`) and recreate the backend. Those users then find 「进入后台」 (Open admin console) on the settings page's 「登录与数据」 (Sign-in and data) tab ([ADR-0013](adr/0013-admin-console-overrides-env.md)). Without it there is no admin console, and anyone else gets a 404 at `/admin`.
@@ -485,7 +501,7 @@ List the admins' sign-in method identifiers in `EIDOLON_ADMINS` in `.env` (like 
 | Page | What it does |
 |---|---|
 | Dashboard (`/admin`) | Calls, error rate and latency per service; active users, the number and trend of turns and calls, usage per character, calls in progress; with affinity on, totals of judgements and cooldowns, plus per character the shares raised and lowered, cooldowns, and the calls she hung up or conversations she ended; the deployer's cost estimated from unit prices |
-| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, image generation, the judge, rerank thresholds, usage limits, exempting keys, per-call caps, history turns, the affinity and gifts switch (and granting every user a reset card), the proxy and unit prices |
+| Config (`/admin/config`) | Change the LLMs for playing the character and extracting memories, speech synthesis, speech recognition, image generation, the judge, rerank thresholds, usage limits, exempting keys, per-call caps, history turns, the affinity and gifts switch (and granting every user a reset card), the proxy, the service status and unit prices |
 | Users (`/admin/users`) | Search users, see their sign-in methods and recent usage; ban, unban, set an individual usage limit, delete |
 
 - **Overrides `.env`**: Items changed in the admin console are stored in the database and take precedence over `.env`, with no restart needed. Each change is tried before saving and not saved if the try fails. A call in progress finishes on the configuration it connected with.
