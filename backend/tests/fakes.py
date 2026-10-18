@@ -718,7 +718,9 @@ class FakeSpeech:
     Fish Audio was tried with (`tts_models`); a key in `rejects` fails its
     try with that message. A DashScope key works in its region in `regions`, Beijing if
     not there. Records, for each service made or key tried, whether it was on a user's own
-    key (`own`: ("stt" | "tts" | "check_stt" | "check_tts", own))."""
+    key (`own`: ("stt" | "tts" | "check_stt" | "check_tts", own)), and each word voiced as
+    the service status tries Fish Audio, by key, model and voice (`voiced`), failing on a
+    key in `rejects` as well."""
 
     def __init__(self) -> None:
         self.own: list[tuple[str, bool]] = []
@@ -730,6 +732,7 @@ class FakeSpeech:
         self.tts_models: list[str] = []
         self.rejects: dict[str, str] = {}
         self.regions: dict[str, BailianRegion] = {}
+        self.voiced: list[tuple[str, str, str]] = []
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         self.own.append(("stt", own))
@@ -756,6 +759,11 @@ class FakeSpeech:
         self.own.append(("check_tts", own))
         self.tts_models.append(model)
         self._try("tts", api_key)
+
+    async def voice_a_word(self, api_key: str, model: str, voice_id: str) -> None:
+        self.voiced.append((api_key, model, voice_id))
+        if api_key in self.rejects:
+            raise RuntimeError(self.rejects[api_key])
 
     def _try(self, service: str, api_key: str) -> None:
         self.checked.append((service, api_key))

@@ -66,7 +66,9 @@ from eidolon.config import (
     ImageSettings,
     JudgeSettings,
     LLMSettings,
+    SERVICE_NAMES,
     ReasoningEffort,
+    ServiceName,
     Settings,
 )
 from eidolon.database import connect
@@ -84,15 +86,7 @@ from eidolon.store import Message
 
 log = logging.getLogger(__name__)
 
-ServiceName = Literal[
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
-]
-"""The outside services: the LLM playing the characters and the one writing down memories,
-speech synthesis and recognition, the judge model, embedding, reranking and image
-generation."""
-SERVICES: tuple[ServiceName, ...] = (
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
-)
+SERVICES: tuple[ServiceName, ...] = SERVICE_NAMES
 LLM_SERVICES: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
 """The LLMs among them (`llm_origin`): a user's own is recorded as `OWN`, and each call
 says how soon its first word came and at which reasoning effort."""
@@ -523,6 +517,17 @@ class ActivityLog:
                 ) in calls
             ],
         )
+
+    def deployer_calls_since(self, moment: datetime) -> dict[ServiceName, tuple[int, int]]:
+        """How many calls to each service after `moment` were on the deployer's keys, and
+        how many of them failed; only those with any."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT service, COUNT(*), SUM(error IS NOT NULL) FROM service_calls"
+                " WHERE at > ? AND own_key = 0 GROUP BY service",
+                (moment.timestamp(),),
+            ).fetchall()
+        return {service: (calls, failed) for service, calls, failed in rows}
 
     def of_user(self, user_id: str, moment: datetime) -> list[RecordRow]:
         """The user's records of turns and calls after `moment`, oldest first; only how

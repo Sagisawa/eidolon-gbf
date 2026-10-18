@@ -55,6 +55,7 @@ from eidolon.gifts_api import add_gift_routes
 from eidolon.photos_api import add_photo_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stats import add_stats_routes
+from eidolon.service_status import add_service_status_routes
 from eidolon.stand_outfits import list_path, outfit_path
 from eidolon.store import Conversation, ConversationEvent, IsCurrent, Recorded
 from eidolon.turn_outcome import TurnOutcome
@@ -338,6 +339,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_gift_routes(app, backend)
     add_photo_routes(app, backend)
     add_stats_routes(app, backend)
+    add_service_status_routes(app, backend.service_status)
 
     @app.get("/api/ice-servers")
     def ice_servers(user_id: UserId, own: str = "", conversation: str | None = None) -> dict:

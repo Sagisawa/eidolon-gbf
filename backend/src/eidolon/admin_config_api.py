@@ -31,6 +31,7 @@ from eidolon.live_config import (
     PROXY,
     READ_ONLY,
     RERANK,
+    SERVICE_STATUS,
     STT,
     STT_KEY_FIELDS,
     TTS,
@@ -172,6 +173,21 @@ class ProxyInput(BaseModel):
     own_image: StrictBool
 
 
+class ServiceStatusInput(BaseModel):
+    """Which services users are shown the status of, a switch for each, and over how many
+    minutes, checked by the live configuration, which says what is wrong in so many words."""
+
+    window_minutes: Any
+    chat_llm: StrictBool
+    memory_llm: StrictBool
+    tts: StrictBool
+    stt: StrictBool
+    judge: StrictBool
+    embedding: StrictBool
+    rerank: StrictBool
+    image: StrictBool
+
+
 INPUTS: dict[str, type[BaseModel]] = {
     CHAT_LLM: ChatLLMInput,
     MEMORY_LLM: LLMInput,
@@ -184,6 +200,7 @@ INPUTS: dict[str, type[BaseModel]] = {
     LIMITS: LimitsInput,
     AFFINITY: AffinityInput,
     PROXY: ProxyInput,
+    SERVICE_STATUS: ServiceStatusInput,
 }
 
 

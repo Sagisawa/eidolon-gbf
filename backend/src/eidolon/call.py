@@ -290,6 +290,11 @@ class Speech(Protocol):
         `model`."""
         ...
 
+    async def voice_a_word(self, api_key: str, model: FishAudioModel, voice_id: str) -> None:
+        """Have Fish Audio voice a word with `model` in `voice_id`, on the deployer's
+        `api_key`, as the service status tries it; raises whatever says why it did not."""
+        ...
+
 
 @dataclass
 class SegmentTextFrame(TextFrame):
@@ -673,6 +678,8 @@ class SpeechServices:
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
+    FISH_TTS_HTTP_URL = "https://api.fish.audio/v1/tts"
+    A_WORD = "在吗"
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
         # Either decides where an utterance starts and ends; the turn processor turns its
@@ -735,6 +742,18 @@ class SpeechServices:
                 f"这个 key 的 API 余额是 0，用不了付费的 {model}："
                 f"先去 Fish Audio 充值，或改用 {DEFAULT_FISH_AUDIO_MODEL}"
             )
+
+    async def voice_a_word(self, api_key: str, model: FishAudioModel, voice_id: str) -> None:
+        """Over Fish Audio's HTTP API, as the greetings are voiced, in mp3."""
+        async with open_client(self._proxy("tts", False)(), httpx.Timeout(30, connect=10)) as client:
+            res = await client.post(
+                self.FISH_TTS_HTTP_URL,
+                headers={"Authorization": f"Bearer {api_key}", "model": model},
+                json={"text": self.A_WORD, "reference_id": voice_id, "format": "mp3"},
+            )
+        res.raise_for_status()
+        if not res.content:
+            raise RuntimeError("Fish Audio 没有返回音频")
 
     def _proxy(self, service: Literal["tts", "stt"], own: bool) -> Callable[[], str | None]:
         """Where a connection of `service` on a user's `own` key or the deployer's goes
