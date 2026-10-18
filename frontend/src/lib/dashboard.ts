@@ -19,9 +19,28 @@ export function rangeFromQuery(value: string | string[] | undefined): DashboardR
   return typeof value === "string" && isDashboardRange(value) ? value : "24h";
 }
 
-/** The address of the dashboard showing `range`: 24 hours, the default, needs no query. */
-export function rangeHref(pathname: string, range: DashboardRange): string {
-  return range === "24h" ? pathname : `${pathname}?range=${range}`;
+/** The dashboard's groups, one tab each: the overview (tiles, health, backup) first, the default. */
+export const DASHBOARD_TABS = ["overview", "usage", "affinity", "cost"] as const;
+
+export type DashboardTab = (typeof DASHBOARD_TABS)[number];
+
+export function isDashboardTab(value: string): value is DashboardTab {
+  return (DASHBOARD_TABS as readonly string[]).includes(value);
+}
+
+/** The tab a link asks for in `?tab=`; the overview when it asks for none or one not there. */
+export function tabFromQuery(value: string | string[] | undefined): DashboardTab {
+  return typeof value === "string" && isDashboardTab(value) ? value : "overview";
+}
+
+/** The address of the dashboard showing `range` under `tab`: the defaults, 24 hours and the
+ * overview, need no query. */
+export function dashboardHref(pathname: string, range: DashboardRange, tab: DashboardTab): string {
+  const query = new URLSearchParams();
+  if (range !== "24h") query.set("range", range);
+  if (tab !== "overview") query.set("tab", tab);
+  const search = query.toString();
+  return search ? `${pathname}?${search}` : pathname;
 }
 
 export type ServiceName =

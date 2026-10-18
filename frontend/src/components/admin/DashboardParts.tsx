@@ -70,14 +70,15 @@ export function DashboardCard({
   );
 }
 
-/** 看板上的一组（「用量」「花费」）：h2 和一句说明，下面是这一组的各张卡。 */
+/**
+ * 看板上的一组（「用量」「好感度」「花费」），各占一个分组标签：h2 只给读屏（标签上已经写着组名，再显示一遍是重复），
+ * 有说明时说明照常显示在最上面；下面是这一组的各张卡。
+ */
 export function DashboardGroup({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
-        {hint && <p className={cn(PROSE_WIDTH, "text-sm text-muted-foreground")}>{hint}</p>}
-      </header>
+      <h2 className="sr-only">{title}</h2>
+      {hint && <p className={cn(PROSE_WIDTH, "text-sm text-muted-foreground")}>{hint}</p>}
       {children}
     </section>
   );
