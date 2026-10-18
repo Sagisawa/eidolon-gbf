@@ -83,9 +83,9 @@ export function DashboardGroup({ title, hint, children }: { title: string; hint?
   );
 }
 
-/** 两张卡一排（宽屏），更窄时上下排。 */
+/** 两张卡一排（宽屏），同一排拉成等高、内容从顶上排；更窄时上下排。 */
 export function CardPair({ children }: { children: ReactNode }) {
-  return <div className="grid items-start gap-6 lg:grid-cols-2">{children}</div>;
+  return <div className="grid gap-6 lg:grid-cols-2">{children}</div>;
 }
 
 /**

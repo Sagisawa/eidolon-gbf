@@ -780,7 +780,7 @@ export const zh = {
       unknown: (n: string) => `${n} 次未知`,
     },
     dashboard: {
-      intro: "服务是否正常、用量和花费。不含任何对话内容。",
+      intro: "服务是否正常、用量和花费。",
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
       failed: (reason: string) => `看板加载失败：${reason}`,
@@ -815,7 +815,6 @@ export const zh = {
         now: "此刻",
         inRange: (range: string) => `${range}内`,
         callsInProgress: "进行中的通话",
-        callsInProgressNote: "含正在接通的",
         ownKeys: "用自带密钥的回合",
         ownKeysShare: (share: string) => `占 ${share}`,
         timeToSpeak: "到开口（中位数）",
@@ -932,7 +931,7 @@ export const zh = {
       },
       backups: {
         title: "备份",
-        hint: "每天加密备份一次整个数据库。设置在服务器的 .env 里。",
+        hint: "每天加密备份一次整个数据库。",
         /** 「备份」这一块的结论：正常只写 muted 字，异常带红点（DESIGN.md「Admin status & charts」）。 */
         states: {
           ok: "正常",
@@ -1014,7 +1013,7 @@ export const zh = {
         title: "花费",
         notes: "备注",
         hint: (catalogAsOf: string | null, presetAsOf: string | null) =>
-          `部署者的 key 按单价估算，不是账单。${catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""}${
+          `部署者的 key 按单价估算。${catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""}${
             presetAsOf ? `部分单价是 ${presetAsOf} 整理的预设。` : ""
           }`,
         total: "合计（估算）",

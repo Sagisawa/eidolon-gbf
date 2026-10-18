@@ -301,7 +301,6 @@ function DashboardBody({
           <StatTile
             label={t.tiles.callsInProgress}
             value={inProgress === null ? "—" : formatCount(inProgress)}
-            note={t.tiles.callsInProgressNote}
           />
         </TileGroup>
         <TileGroup caption={t.tiles.inRange(t.ranges[board.range])} className={fade}>
