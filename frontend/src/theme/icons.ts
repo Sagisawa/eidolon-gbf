@@ -16,6 +16,9 @@ export { MessageCircleOff as EndedIcon } from "lucide-react";
 // 记忆页、设置页用的图标（ticket 06）。
 export { Trash2 as TrashIcon } from "lucide-react";
 
+// 看板长列表底下的「展开全部」「收起」。
+export { ChevronDown as ShowMoreIcon, ChevronUp as ShowLessIcon } from "lucide-react";
+
 // 后台导航用的图标。
 export {
   LayoutDashboard as DashboardIcon,

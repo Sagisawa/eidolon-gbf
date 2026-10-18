@@ -780,7 +780,7 @@ export const zh = {
       unknown: (n: string) => `${n} 次未知`,
     },
     dashboard: {
-      intro: "各项服务是否正常、用的人多不多、部署者大约花了多少钱。数字来自运行记录，不含任何对话内容；运行记录保留 90 天。",
+      intro: "服务是否正常、用量和花费。",
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
       failed: (reason: string) => `看板加载失败：${reason}`,
@@ -793,7 +793,12 @@ export const zh = {
         shownFromRange: (time: string, range: string) => `下面仍是 ${time} 取到的 ${range}数据，每分钟会再试一次。`,
       },
       groups: {
-        usage: { title: "用量", hint: "回合和通话的走势、结果和时长，以及各位角色。" },
+        usage: { title: "用量" },
+      },
+      /** 长列表默认收起，底下一个展开键。 */
+      fold: {
+        more: (n: string) => `展开全部 ${n} 位`,
+        less: "收起",
       },
       zeroRows: {
         rest: (n: string) => `其余 ${n} 项为 0`,
@@ -806,12 +811,10 @@ export const zh = {
         /** 带齐了免限额密钥、不计入限额的通话（运行记录里通话的「用了自带密钥」，GLOSSARY.md「运行记录」）。 */
         callsExempt: (n: string) => `其中 ${n} 次不计入限额`,
         activeUsers: "活跃用户",
-        activeUsersNote: "这段时间有过回合或通话",
         /** 数字卡分两组的小标题：此刻的，和按时间范围统计的（「30 天内」）。 */
         now: "此刻",
         inRange: (range: string) => `${range}内`,
         callsInProgress: "进行中的通话",
-        callsInProgressNote: "含正在接通的；每分钟刷新",
         ownKeys: "用自带密钥的回合",
         ownKeysShare: (share: string) => `占 ${share}`,
         timeToSpeak: "到开口（中位数）",
@@ -837,7 +840,6 @@ export const zh = {
       },
       results: {
         title: "回合结果",
-        hint: "通话里的回合也在内。失败指服务出错；被拒绝多是撞上了限额；用户离开指角色说完前连接断开了。",
         result: "结果",
         turns: "回合数",
         share: "占比",
@@ -845,7 +847,6 @@ export const zh = {
       },
       callResults: {
         title: "通话结果",
-        hint: "没能接通指连上之前就断开，或语音服务在第一个回合前就出了故障；失败指接通后因故障中断；被拒绝多是撞上了限额。",
         result: "结果",
         calls: "通话数",
         share: "占比",
@@ -853,13 +854,12 @@ export const zh = {
       },
       durations: {
         title: "通话时长",
-        hint: (p50: string, p90: string) => `只算接通了的通话，从接通算起。中位数 ${p50}，九成在 ${p90} 内。`,
+        hint: (p50: string, p90: string) => `中位数 ${p50}，九成在 ${p90} 内`,
         range: "时长",
         calls: "通话数",
       },
       endReasons: {
         title: "结束原因",
-        hint: "没按挂断就关掉页面或断了网，算离开对话页。",
         reason: "原因",
         calls: "通话数",
         share: "占比",
@@ -877,17 +877,14 @@ export const zh = {
       },
       health: {
         title: "服务健康",
-        hint: "用户自带密钥的调用单独统计。判断模型和重排出错时回合照常进行，但出错会记在这里。",
         service: "服务",
         status: "状态",
         calls: "调用",
         errorRate: "出错率",
         errors: "出错类别",
         latency: "延迟 p50 / p95",
-        effort: "思考强度",
         firstToken: "首字 p50 / p95",
         cacheHitRate: "缓存命中率",
-        atEffort: (effort: string) => `思考强度${effort}`,
         usage: "计费用量",
         own: "自带密钥",
         empty: "这段时间没有服务调用。",
@@ -934,7 +931,7 @@ export const zh = {
       },
       backups: {
         title: "备份",
-        hint: "服务器每天由 cron 把整个数据库备份一次，加密后放进私有存储桶。设置只能在服务器的 .env 里改。",
+        hint: "每天加密备份一次整个数据库。",
         /** 「备份」这一块的结论：正常只写 muted 字，异常带红点（DESIGN.md「Admin status & charts」）。 */
         states: {
           ok: "正常",
@@ -977,18 +974,14 @@ export const zh = {
       },
       affinity: {
         title: "好感度",
-        hint: "判断模型怎样判断制作人说的话，以及冷却是不是太常发生。只算记入了对话的回合；判断失败、回合失败、被拒绝、用户离开的都不算。不落到任何一位用户。",
         tiles: {
           cooldowns: "进入冷却",
           cooledUsers: (n: string) => `涉及 ${n} 位用户`,
           outOfLine: "不该说的话",
-          outOfLineNote: "命中次数，这一回合按 −10 算",
           manipulation: "操纵",
-          manipulationNote: "命中次数，这一回合不加分",
         },
         levels: {
           title: "打分分布",
-          hint: "判断模型给每个回合的 5 级打分。级 0、级 1 减分，级 3、级 4 加分。",
           level: "打分",
           turns: "回合数",
           share: "占比",
@@ -996,22 +989,16 @@ export const zh = {
         },
         characters: {
           title: "按角色",
-          hint: "减分占比是判成级 0、级 1 的回合占判断过的多少，从高到低排；判断过的回合不到 20 的排在最后，占比写「—」。「角色挂断」是通话里她挂断的次数，「结束对话」是文字对话里她结束对话的次数，按原因分开。",
           character: "角色",
           judged: "判断过的回合",
+          raised: "加分占比",
           lowered: "减分占比",
           cooldowns: "进入冷却",
-          outOfLine: "不该说的话",
-          manipulation: "操纵",
-          hungUp: "角色挂断",
-          ended: "结束对话",
-          endsFor: { cooldown: "冷却", out_of_line: "不该说的话", fed_up: "接连不快" },
+          sheEnded: "挂断或结束对话",
           empty: "这段时间没有判断过的回合。",
-          end: (lowered: string, cooldowns: string) => `减分 ${lowered} · 冷却 ${cooldowns}`,
-          details: (judged: string, outOfLine: string, manipulation: string, hungUp: string, ended: string) =>
-            `判断过 ${judged} 个回合 · 不该说的话 ${outOfLine} · 操纵 ${manipulation} · 角色挂断 ${hungUp} · ${ended}`,
-          endedDetails: (cooldown: string, outOfLine: string, fedUp: string) =>
-            `结束对话：冷却 ${cooldown}、不该说的话 ${outOfLine}、接连不快 ${fedUp}`,
+          end: (raised: string, lowered: string) => `加分 ${raised} · 减分 ${lowered}`,
+          details: (judged: string, cooldowns: string, sheEnded: string) =>
+            `判断过 ${judged} 个回合 · 冷却 ${cooldowns} · 挂断或结束对话 ${sheEnded}`,
         },
       },
       characters: {
@@ -1026,10 +1013,8 @@ export const zh = {
         title: "花费",
         notes: "备注",
         hint: (catalogAsOf: string | null, presetAsOf: string | null) =>
-          `部署者的 key 大约花了多少钱：按单价估算，不扣免费额度，不是账单；不同币种分开合计，不做汇率换算。${
-            catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""
-          }${presetAsOf ? `部分单价是预设，整理于 ${presetAsOf}，可能已经过时。` : ""}${
-            catalogAsOf || presetAsOf ? "可以在「配置」页修改。" : ""
+          `部署者的 key 按单价估算。${catalogAsOf ? `目录价格更新于 ${catalogAsOf}。` : ""}${
+            presetAsOf ? `部分单价是 ${presetAsOf} 整理的预设。` : ""
           }`,
         total: "合计（估算）",
         totalNote: (unknown: string) => `另有 ${unknown} 次调用没说用量，没有算进去`,
@@ -1052,7 +1037,7 @@ export const zh = {
         unpricedModels: (n: string) => `${n} 个模型未设单价`,
         own: {
           title: "自带密钥的用量",
-          hint: "用户自带密钥的调用由用户自己付费，这里只列用量，不换算成钱。",
+          hint: "用户自己付费，只列用量。",
           calls: "调用",
         },
         sources: {

@@ -4,17 +4,17 @@ summed up for the admin, under `/api/admin/dashboard`.
 Everything is summed up here; the browser only shows it. For each service, on the
 deployer's keys and on users' own apart: how many calls, how many failed and how, how
 long they took, and what they were billed for; for image generation, from how many photos
-tags were stripped for crossing the line, and how many for each part of it; for an LLM, at
-each reasoning effort apart, how soon its first word came and how much of its input hit
-the provider's prompt cache.
+tags were stripped for crossing the line, and how many for each part of it; for an LLM, how
+soon its first word came and how much of its input hit the provider's prompt cache, at
+whatever reasoning effort.
 For turns (typed or in calls): how many, by how they turned out, how many on users' own
 keys, how soon the character began to speak. For calls: how many, by how they turned out, how many on users' own keys, how long
 they lasted and why they ended. How many users took any turn or call; how many turns and
 calls with each character, and in each stretch of the range (`trend`), in stretches
 beginning where the admin's clock (`X-Timezone`) has a round hour or day. Where affinity is
 on (GLOSSARY.md「好感度」), how the judge model judged the turns recorded, and the cooldowns
-they began, in all and for each character, with the calls she hung up and the conversations
-she ended (`affinity`). Nothing anyone said is in it, nor whose any of it was.
+they began, in all and for each character, with how often she hung up a call or ended a
+conversation (`affinity`). Nothing anyone said is in it, nor whose any of it was.
 
 How many calls are in progress now is not in the records but the calls themselves:
 `/api/admin/calls/live`, which the page asks every minute.
@@ -22,7 +22,7 @@ How many calls are in progress now is not in the records but the calls themselve
 
 import math
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
@@ -38,10 +38,9 @@ from eidolon.activity import (
     CallRow,
     RecordRow,
 )
-from eidolon.affinity import LEVEL_STEPS, EndsFor, Judged
+from eidolon.affinity import LEVEL_STEPS, Judged
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
-from eidolon.config import REASONING_EFFORTS, ReasoningEffort
 from eidolon.photo_prompt import CROSSINGS
 from eidolon.prices import cost
 
@@ -121,15 +120,12 @@ def percentile(values: Sequence[float], p: float) -> float | None:
 
 def health(calls: Iterable[CallRow]) -> list[dict]:
     """Each service's calls, on the deployer's keys and on users' own apart, in the order
-    of `SERVICES`; an LLM's also at each reasoning effort apart, none first, with its cache
-    hit rate."""
-    groups: dict[tuple[str, bool, ReasoningEffort | None], list[CallRow]] = defaultdict(list)
+    of `SERVICES`; an LLM's at every reasoning effort together, with its cache hit rate."""
+    groups: dict[tuple[str, bool], list[CallRow]] = defaultdict(list)
     for call in calls:
-        groups[(call.service, call.own_key, call.effort)].append(call)
+        groups[(call.service, call.own_key)].append(call)
     rows = []
-    for (service, own_key, effort), group in sorted(
-        groups.items(), key=lambda g: (_order(g[0][0]), g[0][1], _effort_order(g[0][2]))
-    ):
+    for (service, own_key), group in sorted(groups.items(), key=lambda g: (_order(g[0][0]), g[0][1])):
         failed = [c for c in group if c.error is not None]
         row = {
             "service": service,
@@ -146,7 +142,6 @@ def health(calls: Iterable[CallRow]) -> list[dict]:
             row["stripped_photos"] = sum(c.stripped is not None for c in group)
             row["stripped"] = _stripped(group)
         if service in LLM_SERVICES:
-            row["effort"] = effort
             row["first_token_ms"] = _percentiles(c.first_token_ms for c in group)
             row["cache_hit_rate"] = cache_hit_rate(group)
         rows.append(row)
@@ -175,14 +170,6 @@ def _percentiles(values: Iterable[float | None]) -> dict:
     """The p50 and p95 of the values known."""
     known = [v for v in values if v is not None]
     return {"p50": percentile(known, 50), "p95": percentile(known, 95)}
-
-
-def _effort_order(effort: ReasoningEffort | None) -> int:
-    """Where an LLM's row at `effort` goes among its others: none first, then as
-    `REASONING_EFFORTS` go, any other last."""
-    if effort is None:
-        return -1
-    return REASONING_EFFORTS.index(effort) if effort in REASONING_EFFORTS else len(REASONING_EFFORTS)
 
 
 def _order(service: str) -> int:
@@ -312,52 +299,42 @@ def characters(records: Sequence[RecordRow], names: dict[str, str]) -> list[dict
 
 
 JUDGED_TO_TELL_SHARE = 20
-"""How many judged turns a character needs for the share of them that lowered her affinity
-to be told: fewer, and she is ranked last, her share not told."""
+"""How many judged turns a character needs for the shares of them that raised and lowered
+her affinity to be told."""
 
-LOWERING = (0, 1)
-"""The levels that lower her affinity."""
-
-ENDS_FOR: tuple[EndsFor, ...] = ("cooldown", "out_of_line", "fed_up")
-"""Why she can end a conversation, in the order the dashboard tells them."""
 
 
 def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
     """How the judge model judged the turns recorded (only those, not those failed, refused
     or left), in all and for each character: how many began a cooldown, and for how many
     users; how many were out of line, how many tried to dictate her affinity; how many at
-    each level. For each character, how many were judged, the share that lowered it, how many
-    calls she hung up, and how many conversations she ended for each reason (`ENDS_FOR`), her
-    hanging up a call not among them; ranked by that share, highest first, those judged too
-    few times (`JUDGED_TO_TELL_SHARE`) last."""
+    each level. For each character, how many were judged, the shares that raised and lowered
+    it (not told for too few, `JUDGED_TO_TELL_SHARE`), how many began a cooldown, and how
+    often she hung up a call or ended a conversation, whatever for (`she_ended`); the most
+    judged first."""
     judged = [r for r in records if r.kind == "turn" and r.result == "success" and r.judged]
     by_character: dict[str, list[RecordRow]] = defaultdict(list)
     for record in judged:
         by_character[record.character_id].append(record)
-    hung_up = Counter(
+    she_ended = Counter(
         r.character_id for r in records
-        if r.kind == "call" and r.end_reason == "character_hung_up"
-    )
-    ended_by = Counter(
-        (r.character_id, r.ended_conversation) for r in records
-        if r.kind == "turn" and r.ended_conversation is not None
+        if (r.kind == "call" and r.end_reason == "character_hung_up")
+        or (r.kind == "turn" and r.ended_conversation is not None)
     )
     rows = []
-    for id in by_character.keys() | hung_up.keys() | {character for character, _ in ended_by}:
+    for id in by_character.keys() | she_ended.keys():
         turns = by_character.get(id, [])
-        lowered = sum(_judged(r).level in LOWERING for r in turns)
+        told = len(turns) >= JUDGED_TO_TELL_SHARE
         rows.append({
             "character_id": id,
             "name": names.get(id),
             "judged": len(turns),
-            "lowered_share": lowered / len(turns) if len(turns) >= JUDGED_TO_TELL_SHARE else None,
-            **_judgements(turns),
-            "hung_up": hung_up[id],
-            "ended": {why: ended_by[(id, why)] for why in ENDS_FOR},
+            "raised_share": _share(turns, lambda step: step > 0) if told else None,
+            "lowered_share": _share(turns, lambda step: step < 0) if told else None,
+            "cooldowns": sum(r.cooled for r in turns),
+            "she_ended": she_ended[id],
         })
-    rows.sort(key=lambda r: (
-        r["lowered_share"] is None, -(r["lowered_share"] or 0), -r["judged"], r["character_id"]
-    ))
+    rows.sort(key=lambda r: (-r["judged"], -r["she_ended"], r["character_id"]))
     levels = Counter(_judged(r).level for r in judged)
     return {
         **_judgements(judged),
@@ -365,6 +342,12 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
         "levels": [levels[level] for level in range(len(LEVEL_STEPS))],
         "characters": rows,
     }
+
+
+def _share(turns: Sequence[RecordRow], moved: Callable[[float], bool]) -> float:
+    """The share of the judged `turns` whose step (`Judged.step`: out of line lowers it
+    whatever the level, trying to dictate it raises it never) `moved` holds of."""
+    return sum(moved(_judged(r).step) for r in turns) / len(turns)
 
 
 def _judgements(records: Sequence[RecordRow]) -> dict[str, int]:
