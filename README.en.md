@@ -122,7 +122,7 @@ With only the chat model set, you can chat by text. Add other services' keys as 
 | Text chat | `CHAT_LLM_*` |
 | Voice calls | `FISH_AUDIO_API_KEY`, plus a speech recognition key: `SONIOX_API_KEY` (default) or Alibaba Cloud Model Studio's `DASHSCOPE_API_KEY` |
 | Story corpus | An embedding key: `SILICONFLOW_API_KEY` (default) or `GEMINI_API_KEY` |
-| Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default) or Cloudflare credentials |
+| Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or Cloudflare or Alibaba Cloud Model Studio credentials |
 | Stands and greetings | `EIDOLON_STAND_ASSETS_URL` and a bucket holding the assets |
 
 How to configure each one and what it does is in the **[Configuration guide](docs/configuration.en.md)**. Every environment variable is documented in [`.env.example`](.env.example).
@@ -254,7 +254,7 @@ The license covers only the code and documentation in the repository. The follow
 - [Soniox](https://soniox.com/), [Alibaba Cloud Model Studio](https://www.aliyun.com/product/bailian): speech recognition
 - [SiliconFlow](https://siliconflow.cn/): Qwen3 Embedding and Reranker
 - [Google Gemini API](https://ai.google.dev/): Gemini Embedding (an optional embedding service)
-- [TypeSafe Jev](https://docs.typesafe.ai/), [OpenRouter](https://openrouter.ai/), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/): the judge
+- [TypeSafe Jev](https://docs.typesafe.ai/), [OpenRouter](https://openrouter.ai/), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/), [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/): the judge
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes): playing the stands (spine-ts 3.6)
 - [im@sparql](https://sparql.crssnky.xyz/imas/), Lantis, ふじわらはじめ, imas-db, wikiwiki: the idols, releases and lives in the world setting
 

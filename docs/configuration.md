@@ -12,7 +12,7 @@
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认），或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY` |
 > | 剧情库（同步或导入） | 向量化的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
-> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` |
+> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，或 `JUDGE_PROVIDER=bailian` 加 `BAILIAN_JUDGE_API_KEY`、`BAILIAN_JUDGE_WORKSPACE_ID` |
 > | 好感度和礼物 | 判断模型（开关默认打开） |
 > | 照片 | 判断模型，加生图的 key：`NOVELAI_API_KEY` |
 > | 立绘与落地页的招呼 | `EIDOLON_STAND_ASSETS_URL`，以及存放素材的存储桶 |
@@ -461,7 +461,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | 扮演角色的 LLM（文字和通话） |
 | `memory_llm` | 后台模型（跟随扮演角色的 LLM 时也要单独列） |
-| `judge` | 判断模型（Jev 或 Cloudflare） |
+| `judge` | 判断模型（Jev、Cloudflare 或阿里云百炼） |
 | `embedding` | 向量化 |
 | `rerank` | 重排 |
 | `tts` | 语音合成（Fish Audio） |

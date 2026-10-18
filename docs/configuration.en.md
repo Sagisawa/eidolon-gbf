@@ -12,7 +12,7 @@ This guide explains how to turn on and tune each feature, and how the characters
 > | Text chat | `CHAT_LLM_*` |
 > | Voice calls | `FISH_AUDIO_API_KEY`, plus a speech recognition key: `SONIOX_API_KEY` (default), or `STT_PROVIDER=bailian` plus `DASHSCOPE_API_KEY` |
 > | Story corpus (sync or import) | An embedding key: `SILICONFLOW_API_KEY` (default), or `EMBEDDING_PROVIDER=gemini` plus `GEMINI_API_KEY` |
-> | Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or `JUDGE_PROVIDER=cloudflare` plus `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` |
+> | Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or `JUDGE_PROVIDER=cloudflare` plus `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, or `JUDGE_PROVIDER=bailian` plus `BAILIAN_JUDGE_API_KEY` and `BAILIAN_JUDGE_WORKSPACE_ID` |
 > | Affinity and gifts | A judge (the switch is on by default) |
 > | Photos | A judge, plus an image generation key: `NOVELAI_API_KEY` |
 > | Stands and the landing page's greetings | `EIDOLON_STAND_ASSETS_URL`, and a bucket holding the assets |
@@ -461,7 +461,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | The LLM playing the character (text and calls) |
 | `memory_llm` | The background model (list it even when it follows the chat model) |
-| `judge` | The judge (Jev or Cloudflare) |
+| `judge` | The judge (Jev, Cloudflare or Alibaba Cloud Model Studio) |
 | `embedding` | Embedding |
 | `rerank` | Reranking |
 | `tts` | Speech synthesis (Fish Audio) |

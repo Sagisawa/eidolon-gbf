@@ -12,7 +12,7 @@
 > | テキストチャット | `CHAT_LLM_*` |
 > | 音声通話 | `FISH_AUDIO_API_KEY` と音声認識のキー：`SONIOX_API_KEY`（デフォルト）、または `STT_PROVIDER=bailian` と `DASHSCOPE_API_KEY` |
 > | シナリオライブラリ（同期または取り込み） | ベクトル化のキー：`SILICONFLOW_API_KEY`（デフォルト）、または `EMBEDDING_PROVIDER=gemini` と `GEMINI_API_KEY` |
-> | 検索とメモリー | ベクトル化のキー、`SILICONFLOW_API_KEY`（並べ替え用）、判断モデル：`JEV_API_KEY`（デフォルト）、または `JUDGE_PROVIDER=cloudflare` と `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` |
+> | 検索とメモリー | ベクトル化のキー、`SILICONFLOW_API_KEY`（並べ替え用）、判断モデル：`JEV_API_KEY`（デフォルト）、または `JUDGE_PROVIDER=cloudflare` と `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID`、または `JUDGE_PROVIDER=bailian` と `BAILIAN_JUDGE_API_KEY`・`BAILIAN_JUDGE_WORKSPACE_ID` |
 > | 好感度とプレゼント | 判断モデル（スイッチは初期状態でオン） |
 > | 写真 | 判断モデルと画像生成のキー：`NOVELAI_API_KEY` |
 > | 立ち絵とランディングページのあいさつ | `EIDOLON_STAND_ASSETS_URL` と素材を置くストレージバケット |
@@ -461,7 +461,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | アイドルを演じる LLM（テキストと通話） |
 | `memory_llm` | バックグラウンドモデル（演じる LLM に従っている場合も個別に書く） |
-| `judge` | 判断モデル（Jev または Cloudflare） |
+| `judge` | 判断モデル（Jev、Cloudflare または Alibaba Cloud Model Studio） |
 | `embedding` | ベクトル化 |
 | `rerank` | 並べ替え |
 | `tts` | 音声合成（Fish Audio） |

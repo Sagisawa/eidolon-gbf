@@ -122,7 +122,7 @@ docker compose up --build
 | 文字对话 | `CHAT_LLM_*` |
 | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认）或阿里云百炼的 `DASHSCOPE_API_KEY` |
 | 剧情库 | 向量化的 key：`SILICONFLOW_API_KEY`（默认）或 `GEMINI_API_KEY` |
-| 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认）或 Cloudflare 的凭证 |
+| 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认）、Cloudflare 或阿里云百炼的凭证 |
 | 立绘与招呼 | `EIDOLON_STAND_ASSETS_URL` 和存放素材的存储桶 |
 
 每项怎么配、配了以后有什么效果，见 **[配置指南](docs/configuration.md)**；所有环境变量的说明见 [`.env.example`](.env.example)。
@@ -254,7 +254,7 @@ eidolon-sc/
 - [Soniox](https://soniox.com/)、[阿里云百炼](https://www.aliyun.com/product/bailian)：语音识别
 - [硅基流动](https://siliconflow.cn/)：Qwen3 Embedding 与 Reranker
 - [Google Gemini API](https://ai.google.dev/)：Gemini Embedding（可选的向量化服务）
-- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)：判断模型
+- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)、[阿里云百炼](https://help.aliyun.com/zh/model-studio/decision-model-api)：判断模型
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes)：立绘的播放（spine-ts 3.6）
 - [im@sparql](https://sparql.crssnky.xyz/imas/)、Lantis、ふじわらはじめ、imas-db、wikiwiki：世界设定里的偶像、唱片和演出资料
 
