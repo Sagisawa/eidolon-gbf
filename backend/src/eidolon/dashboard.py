@@ -22,7 +22,7 @@ How many calls are in progress now is not in the records but the calls themselve
 
 import math
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
@@ -302,11 +302,7 @@ JUDGED_TO_TELL_SHARE = 20
 """How many judged turns a character needs for the shares of them that raised and lowered
 her affinity to be told."""
 
-LOWERING = (0, 1)
-"""The levels that lower her affinity."""
 
-RAISING = (3, 4)
-"""The levels that raise her affinity."""
 
 def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
     """How the judge model judged the turns recorded (only those, not those failed, refused
@@ -333,8 +329,8 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
             "character_id": id,
             "name": names.get(id),
             "judged": len(turns),
-            "raised_share": _share(turns, RAISING) if told else None,
-            "lowered_share": _share(turns, LOWERING) if told else None,
+            "raised_share": _share(turns, lambda step: step > 0) if told else None,
+            "lowered_share": _share(turns, lambda step: step < 0) if told else None,
             "cooldowns": sum(r.cooled for r in turns),
             "she_ended": she_ended[id],
         })
@@ -348,9 +344,10 @@ def affinity(records: Sequence[RecordRow], names: dict[str, str]) -> dict:
     }
 
 
-def _share(turns: Sequence[RecordRow], levels: tuple[int, ...]) -> float:
-    """The share of the judged `turns` judged at one of `levels`."""
-    return sum(_judged(r).level in levels for r in turns) / len(turns)
+def _share(turns: Sequence[RecordRow], moved: Callable[[float], bool]) -> float:
+    """The share of the judged `turns` whose step (`Judged.step`: out of line lowers it
+    whatever the level, trying to dictate it raises it never) `moved` holds of."""
+    return sum(moved(_judged(r).step) for r in turns) / len(turns)
 
 
 def _judgements(records: Sequence[RecordRow]) -> dict[str, int]:

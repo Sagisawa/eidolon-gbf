@@ -71,9 +71,9 @@ async def test_the_section_sums_up_the_judged_turns_and_ranks_the_characters_by_
     clock = FakeClock()
     clients = FakeServiceClients()
     clients.judge.judgings = [
-        # Mano: 20 judged, 2 lowering (10%), 1 raising (5%); one judged but failed, one the
-        # judge failed on.
-        *[level(1)] * 2, level(3, manipulation=True), *[level(2)] * 17,
+        # Mano: 20 judged, 2 lowering (10%), 1 raising (5%), one that would have but tried to
+        # dictate it; one judged but failed, one the judge failed on.
+        *[level(1)] * 2, level(3, manipulation=True), level(4), *[level(2)] * 16,
         level(0), Judging(fails=True),
         # Kogane: 20 judged, 5 lowering (25%), the last out of line, cooling her and ending the
         # conversation.
@@ -102,7 +102,7 @@ async def test_the_section_sums_up_the_judged_turns_and_ranks_the_characters_by_
         "cooled_users": 1,
         "out_of_line": 1,
         "manipulation": 1,
-        "levels": [1, 7, 32, 1, 0],
+        "levels": [1, 7, 31, 1, 1],
         "characters": [
             # As many judged as Mano, but she ended a conversation.
             {

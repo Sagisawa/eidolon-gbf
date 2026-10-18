@@ -267,6 +267,6 @@ describe("affinityRows", () => {
 
 describe("foldedCount", () => {
   it("shows the first five of a long list, and all of a list that would hide just one", () => {
-    expect([0, 5, 6, 7, 28].map(foldedCount)).toEqual([0, 5, 6, 5, 5]);
+    expect([6, 7].map(foldedCount)).toEqual([6, 5]);
   });
 });

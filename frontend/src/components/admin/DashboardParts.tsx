@@ -90,7 +90,7 @@ export function CardPair({ children }: { children: ReactNode }) {
 
 /**
  * 表格和它窄屏上的行，按视口宽度用 CSS 切换（不靠 JS，服务端渲染出来就对）：`at="lg"`（默认，≥ 1024px）
- * 给三四列的小表；七列的宽表（服务健康、按模型的花费）用 `at="xl"`（≥ 1280px）。侧栏常驻时占去 16rem，
+ * 给六列以内的表；更宽的表（服务健康、按模型的花费）用 `at="xl"`（≥ 1280px）。侧栏常驻时占去 16rem，
  * 视口到这两档内容区才放得下（DESIGN.md「表格」）。
  */
 export function TableOrRows({ at = "lg", table, rows }: { at?: "lg" | "xl"; table: ReactNode; rows: ReactNode }) {
