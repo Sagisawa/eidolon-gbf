@@ -7,9 +7,9 @@ user's photos this hour, text turns' and calls' alike, used up, `photos-used-up`
 browser; a call bringing the user's own image generation has her photos generated on it,
 counting towards nothing.
 
-Through the backend's external API, with a browser calling in over a real WebRTC connection;
-what needs its timing held, at the Pipecat stage that wraps the conversation engine, as
-`test_call_turns.py` drives it. The judge model finds every turn asks for a photo, and the
+The user's own image generation, brought with the offer, through the backend's external
+API, with a browser calling in over a real WebRTC connection; the rest, its timing held, at
+the Pipecat stage that wraps the conversation engine, as `test_call_turns.py` drives it. The judge model finds every turn asks for a photo, and the
 image service is faked at its transport."""
 
 import asyncio
@@ -26,18 +26,17 @@ from pipecat.tests.utils import SleepFrame, run_test
 
 from eidolon.call import SONIOX_FOLLOW_ON_TIMEOUT, Call, CallTurns, SegmentTextFrame
 from eidolon.call_outcome import CallLimits, CallOutcome
-from eidolon.config import ImageSettings, Settings, UsageLimits
+from eidolon.config import Settings, UsageLimits
 from eidolon.own_keys import BroughtKeys
 from tests.browser import open_browser
 from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, FakeImageService, FakeLLM, FakeSpeech, build_faked
 from tests.test_call_turns import NOW, one_by_one, spoken
-from tests.test_own_image import MY_KEY, keys_of, photo_uses
-from tests.test_photos import IMAGE, REPLY, asking, settled
+from tests.test_own_image import MINE, MY_KEY, keys_of, photo_uses
+from tests.test_photos import IMAGE, REPLY, asking
 from tests.test_text_turn import start_conversation
 
 ASKED = "拍一张给我看"
-MINE = ImageSettings(MY_KEY, "https://my-relay.image.test", "nai-diffusion-4-5-full")
 
 
 @pytest.fixture
@@ -59,7 +58,6 @@ async def call(
     image: FakeImageService,
     frames: Sequence[Frame],
     *,
-    own_image: ImageSettings | None = None,
     after: asyncio.Event | None = None,
 ) -> tuple[list[str], list[dict]]:
     """Run the frames through a call into the conversation, connected; the text sent to
@@ -73,7 +71,7 @@ async def call(
         assert conversation is not None
         admission = backend.admissions.call(conversation.user_id, "mano", BroughtKeys())
         mano = backend.characters["mano"]
-        on = Call(conversation, mano, admission.llms, False, "standard", own_image=own_image)
+        on = Call(conversation, mano, admission.llms, False, "standard")
         outcome = CallOutcome(
             admission, CallLimits(), backend.clock,
             partial(backend.store.keep_call, conversation.id),
@@ -113,48 +111,26 @@ async def record_of(client: httpx.AsyncClient, conversation: str) -> list[dict]:
     return (await client.get(f"/api/conversations/{conversation}/messages")).json()
 
 
-async def test_a_browser_in_a_call_is_told_of_her_photo_as_it_is_generated_and_comes_out(
-    make_client: ClientFactory, speech: FakeSpeech
+async def test_a_call_bringing_the_users_own_image_generation_has_her_photo_on_it(
+    make_client: ClientFactory, speech: FakeSpeech, settings: Settings
 ):
     image = FakeImageService()
     client = make_client(FakeLLM(REPLY), clients=asking(), image_transport=image.transport())
     conversation_id = await start_conversation(client, "mano")
 
     async with open_browser() as browser:
-        await browser.call(client, conversation_id=conversation_id)
+        await browser.call(client, conversation_id=conversation_id, own_keys={"image": MINE})
         await browser.connect()
         await speech.stts[-1].hear(ASKED)
         turn = await browser.turn()
         ready = await browser.next_server_message("photo")
         await browser.hang_up()
-    record = await record_of(client, conversation_id)
 
     [pending] = photo_messages(turn)
     assert pending["status"] == "pending"
     assert ready == {"type": "photo", "reply": 1, "id": pending["id"], "status": "ready", "reason": None}
-    assert record[-1]["photo"]["status"] == "ready"
-
-
-async def test_one_out_after_the_browser_hangs_up_is_kept_with_her_reply(
-    make_client: ClientFactory, speech: FakeSpeech
-):
-    image = FakeImageService()
-    image.gate = asyncio.Event()
-    client = make_client(FakeLLM(REPLY), clients=asking(), image_transport=image.transport())
-    conversation_id = await start_conversation(client, "mano")
-
-    async with open_browser() as browser:
-        await browser.call(client, conversation_id=conversation_id)
-        await browser.connect()
-        await speech.stts[-1].hear(ASKED)
-        [pending] = photo_messages(await browser.turn())
-        await browser.hang_up()
-    image.gate.set()
-    out = await settled(client, pending["id"])
-    record = await record_of(client, conversation_id)
-
-    assert out["status"] == "ready"
-    assert record[-1]["photo"] == {"id": pending["id"], "status": "ready", "reason": None}
+    assert keys_of(image) == [MY_KEY]
+    assert photo_uses(settings.database_path) == [(1,)]
 
 
 async def test_asked_in_a_call_she_sends_one_told_as_it_is_generated_and_as_it_comes_out(
@@ -234,19 +210,3 @@ async def test_with_the_users_photos_used_up_the_call_tells_the_browser_before_d
     kinds = [m["type"] for m in messages if m["type"] != "emotion"]
     assert kinds[-2:] == ["photos-used-up", "done"]
     assert len(image.requests) == 1
-
-
-async def test_a_call_bringing_the_users_own_image_generation_has_her_photo_on_it(
-    settings: Settings, conversation: tuple[httpx.AsyncClient, str]
-):
-    _, conversation_id = conversation
-    image = FakeImageService()
-    _, messages = await call(
-        settings, conversation_id, FakeLLM(REPLY), image,
-        one_by_one(spoken(ASKED), SleepFrame(0.5)), own_image=MINE,
-    )
-
-    assert [m["status"] for m in photo_messages(messages)] == ["pending", "ready"]
-    assert keys_of(image) == [MY_KEY]
-    assert photo_uses(settings.database_path) == [(1,)]
-

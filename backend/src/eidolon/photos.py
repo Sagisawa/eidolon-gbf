@@ -378,3 +378,5 @@ class Photos:
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+        for generating in self._generating.values():  # none waits on them for good
+            generating.settled.set()

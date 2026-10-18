@@ -467,8 +467,8 @@ function LineCard({ line, previousLine, hearing, textOnly }: Props) {
  */
 function CallPhoto({ photo, isFullScreen }: { photo: Photo; isFullScreen: boolean }) {
   const [viewing, setViewing] = useState(false);
-  const failed = photo.status === "failed" && t.photo.failed(photoFailureNote(photo.reason).reason);
-  if (isFullScreen || failed) {
+  const failedNote = photo.status === "failed" && t.photo.failed(photoFailureNote(photo.reason).reason);
+  if (isFullScreen || failedNote) {
     const content =
       photo.status === "pending" ? (
         <>
@@ -483,7 +483,7 @@ function CallPhoto({ photo, isFullScreen }: { photo: Photo; isFullScreen: boolea
       ) : (
         <>
           <PhotoFailedIcon aria-hidden className="size-4" />
-          {failed}
+          {failedNote}
         </>
       );
     const pill = "flex items-center gap-2 rounded-full bg-white/12 px-4 py-2 text-sm backdrop-blur-md";

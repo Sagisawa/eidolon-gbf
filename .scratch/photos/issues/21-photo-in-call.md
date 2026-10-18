@@ -46,3 +46,5 @@
 
 
 **票 21 做完（2026-10-17）。** 通话里的照片和文字回合走同一个引擎：`engine._photo_eligibility` 不再看 `in_call`，`Call.own_image` 把自带生图带进通话。`photo` 的 `pending` 在回复开头推，`call.CallTurns._tell_photo` 等 `Photos.came_out`（照片生成完就放行）后再推 `ready`/`failed`；通话挂断时这个等待随 worker 取消，照片照常生成、落库。前端 `LiveConversation` 的快照多了 `callPhoto`（这通电话里最近一张，通话结束后为 null，结束卡不带）和 `newPhoto`（收起时 `ready` 了才亮，`expand()` 或 `photoSeen()` 灭；对话页 `ConversationView` 打开时调 `photoSeen`）。放大用的 `PhotoViewer` 从 `PhotoBlock` 抽出来了，两处共用。电脑上没发出来时也用胶囊，不留空卡（`DESIGN.md` 写了）。验收是在本地构建版上用假后端（页面里冒充 RTVI）跑的，没有立绘素材，所以立绘版的通话层没看过。
+
+**自审（2026-10-18，固定点 c03de02）。** 改了：经浏览器的两条测试和 Pipecat 那一层的重复，换成一条从 offer 带自带生图打进来的测试（原来自带生图绕过了 `Calls.start`）；`Photos.aclose()` 关停时把剩下的照片也放行，通话里不再一直等；`CallPhoto` 里装文案的 `failed` 改名 `failedNote`；隐私政策「登录状态和限额的计数」补上照片张数。没改、只报告：手机胶囊用原生 `button` 没走 `ui/` 的 variant；缩略图和 `PhotoBlock` 的写法重复；`Call(...)` 位置参数多。电脑上没发出来时改用胶囊（不留空卡）是自定的视觉偏离，待用户确认。
