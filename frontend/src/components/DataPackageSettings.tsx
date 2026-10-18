@@ -68,11 +68,10 @@ function ExportSection() {
     <SettingsSection title={t.exportTitle} description={t.exportHint}>
       {failure && <FailureNotice failure={failure} />}
       <Categories offered={CATEGORIES} choice={choice} onChange={setChoice} />
-      <div className="flex flex-col items-start gap-2">
+      <div className="flex flex-col items-start">
         <Button disabled={checking || categories.length === 0} onClick={start}>
           {t.export}
         </Button>
-        <p className="text-meta text-muted-foreground">{t.notIncluded}</p>
       </div>
     </SettingsSection>
   );
