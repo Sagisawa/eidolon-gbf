@@ -582,6 +582,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 `git pull` 不能省：人设、`deploy/` 下的脚本和 compose 配置本身都来自仓库，不在镜像里。
 
+`deploy/Caddyfile` 变了的那次升级（比如加了数据包导入地址的大小上限），`up -d` 不会让 Caddy 重新读它，要再执行一次 `docker compose -f docker-compose.prod.yml restart caddy`。服务器上另有叠加的 Caddyfile 的，同样改过去。
+
 CI 在 main 上的每次推送都发布 `:main`（默认用的就是它）和 `:sha-<7 位提交哈希>`，推送 `v1.2.3` 这样的标签时另外发布 `:1.2.3` 和 `:latest`。升级后出了问题，在 `.env` 里把 `EIDOLON_IMAGE_TAG` 设为上一版的 `sha-…`（在仓库的 Packages 页面或 `git log --oneline` 里找），再 `up -d` 即可回滚；之后删掉这一行，回到跟随 main。只回滚镜像不回滚数据库：新版本改过数据库结构时，旧版本不一定能用，回滚前看一眼这次升级的提交说明。
 
 ### 镜像的可见性

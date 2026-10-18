@@ -20,15 +20,15 @@
 {
   "format": 1,
   "exported_at": "2026-10-19T08:00:00.000000+00:00",
-  "categories": ["profile"],
-  "counts": { "profile": 1 }
+  "categories": ["conversations", "photos", "memories", "profile"],
+  "counts": { "conversations": 12, "photos": 3, "memories": 40, "profile": 1 }
 }
 ```
 
 - `format`：整数，这个包的格式版本。
 - `exported_at`：导出的时间。
 - `categories`：这个包里有哪几类，按 `conversations`、`photos`、`memories`、`profile` 的顺序。导出时没勾的类别不在这里。
-- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`conversations` 是对话的段数，`photos` 是照片的张数（没发出去的也算），`memories` 是记忆的条数。
+- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`conversations` 是对话的段数，`photos` 是发出来了的照片的张数（就是 `photos/` 里的文件数，没发出去的不算），`memories` 是记忆的条数。
 
 ## `data.json`
 
@@ -182,6 +182,7 @@
 - 改格式时 `format` 加一，旧版本的读法保留：新版本能导入所有老格式。
 - 坏包一律拒绝（错误码 `broken`）：zip 打不开，条目多了或少了，JSON 不合这份说明，时间解析不了，包内 ID 引用不上，`categories` 和 `data.json` 里的键对不上，照片文件解不开或和照片对不上。
 - 导入要么全部写进去，要么什么也不写。
+- 同一个包导入两次，第二次什么也不多出来：对话按开始时间、记忆按原文认出已经有了的。
 
 ## 大小
 

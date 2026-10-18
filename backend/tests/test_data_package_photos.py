@@ -99,7 +99,7 @@ async def test_photos_move_with_their_conversations_and_are_hers_alone_there(
     image.gate.set()
     entries, manifest, data = unzipped(package)
     assert manifest["categories"] == ["conversations", "photos"]
-    assert manifest["counts"] == {"conversations": 2, "photos": 3}
+    assert manifest["counts"] == {"conversations": 2, "photos": 1}  # those sent alone
     assert [e.filename for e in entries] == [
         "manifest.json", f"photos/{ready['id']}.webp", "data.json",
     ]
@@ -119,7 +119,7 @@ async def test_photos_move_with_their_conversations_and_are_hers_alone_there(
     res = await import_package(there, package, "conversations,photos")
 
     assert res.status_code == 200, res.text
-    assert res.json() == {**NOTHING_ELSE, "conversations": 2, "photos": 3, "profile": False}
+    assert res.json() == {**NOTHING_ELSE, "conversations": 2, "photos": 1, "profile": False}
     assert await photos_in(there) == [
         {"status": "ready", "reason": None, "size": (832, 1216)},
         {"status": "failed", "reason": "service_error"},
@@ -218,7 +218,7 @@ async def test_a_package_made_elsewhere_brings_its_photos_of_any_size(
     ), "conversations,photos")
 
     assert res.status_code == 200, res.text
-    assert res.json()["photos"] == 2
+    assert res.json()["photos"] == 1  # the one sent: the other is only that she did not
     assert await photos_in(client) == [
         {"status": "ready", "reason": None, "size": (64, 96)},
         {"status": "failed", "reason": "used_up"},

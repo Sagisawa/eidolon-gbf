@@ -269,6 +269,11 @@ class PackagedPhoto(_Strict):
         )
 
 
+def sent(photos: list[PackagedPhoto]) -> list[PackagedPhoto]:
+    """Those of `photos` she sent, whose pictures are in the package: what it counts as photos."""
+    return [p for p in photos if p.sent]
+
+
 class PackagedMessage(_Strict):
     role: Role
     text: str | None
@@ -502,6 +507,7 @@ class Imported:
 
     conversations: int = 0
     photos: int = 0
+    """Only those sent, with their pictures: one not sent says only that she did not send it."""
     memories: int = 0
     profile: bool = False
     skipped: list[Skipped] = field(default_factory=list)
@@ -596,7 +602,7 @@ class DataPackages:
             ]
             counts["conversations"] = len(data.conversations)
         if "photos" in categories:
-            counts["photos"] = len(data.photos())
+            counts["photos"] = len(sent(data.photos()))
         if "memories" in categories:
             data.memories = [
                 PackagedMemory.of(m, "conversations" in categories)
@@ -721,7 +727,7 @@ class DataPackages:
             )
             imported.conversations += new
             if new and with_photos:
-                imported.photos += len(conversation.photos())
+                imported.photos += len(sent(conversation.photos()))
         imported.skipped = [Skipped(name, count) for name, count in skipped.items()]
         return here
 
@@ -758,10 +764,9 @@ def _read(zipped: zipfile.ZipFile) -> tuple[Manifest, PackageData]:
             "photos" in listed and "conversations" not in listed
         ):
             raise BrokenPackage("categories not as the manifest lists them")
-        sent = [p for p in photos if p.sent]
-        if set(names) - {MANIFEST, DATA} != {_picture_entry(p.id) for p in sent}:
+        if set(names) - {MANIFEST, DATA} != {_picture_entry(p.id) for p in sent(photos)}:
             raise BrokenPackage("pictures not as its photos are")
-        for photo in sent:
+        for photo in sent(photos):
             _check_picture(_picture(zipped, photo.id))
     except (zipfile.BadZipFile, ValueError, ValidationError, KeyError) as e:
         # json.JSONDecodeError and UnicodeDecodeError are ValueErrors

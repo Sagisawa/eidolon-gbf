@@ -5,6 +5,7 @@ import { Unzip, UnzipPassThrough } from "fflate";
 
 import { copy } from "@/i18n";
 import { ApiError, type DataPackageImported } from "@/lib/api";
+import { toFailure, type Failure } from "@/lib/failure";
 
 /** 数据包里可能有的几类，按清单里的顺序。照片挂在对话下面，不带对话就不带照片。 */
 export const CATEGORIES = ["conversations", "photos", "memories", "profile"] as const;
@@ -151,10 +152,14 @@ export function importSummary(result: DataPackageImported): string {
 }
 
 /**
- * 导入失败时的一句：认得的错误码换成页面上的说法，今天的次数用完时带上几点以后能再导（按 `timeZone`，默认这台设备的时区，
- * 写成 HH:MM：不到一天，不写哪天）；其余照后端（或浏览器）说的。
+ * 导入失败时的提示：认得的错误码换成页面上的说法，今天的次数用完时带上几点以后能再导（按 `timeZone`，默认这台设备的时区，
+ * 写成 HH:MM：不到一天，不写哪天）；其余照后端（或浏览器）说的。次数用完是 429，但自带密钥绕不过它，不指去自带密钥。
  */
-export function importFailureMessage(error: unknown, timeZone?: string): string {
+export function importFailure(error: unknown, timeZone?: string): Failure {
+  return { ...toFailure(error), toOwnKeys: false, message: importFailureMessage(error, timeZone) };
+}
+
+function importFailureMessage(error: unknown, timeZone?: string): string {
   if (error instanceof ApiError && isRefusal(error.code)) return copy.settings.dataPackage.failures[error.code];
   // 反向代理先挡下的太大，回的 413 没有错误码。
   if (error instanceof ApiError && error.status === 413) return copy.settings.dataPackage.failures.too_large;

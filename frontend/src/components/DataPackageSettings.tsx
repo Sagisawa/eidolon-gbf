@@ -17,7 +17,7 @@ import {
   choose,
   chosenCategories,
   exportHref,
-  importFailureMessage,
+  importFailure,
   importSummary,
   isDisabled,
   readManifest,
@@ -25,7 +25,7 @@ import {
   type Category,
   type Choice,
 } from "@/lib/dataPackage";
-import { toFailure, type Failure } from "@/lib/failure";
+import { type Failure } from "@/lib/failure";
 import { toDraft } from "@/lib/producerProfile";
 import { cn } from "@/lib/utils";
 import { SuccessIcon } from "@/theme/icons";
@@ -112,7 +112,7 @@ function ImportSection() {
       if (result.profile) getProfile().then((saved) => profileSaved(toDraft(saved)), () => {});
       if (result.memories > 0) listMemories().then((list) => memoryCountChanged(list.length), () => {});
     } catch (e) {
-      setFailure({ ...toFailure(e), message: importFailureMessage(e) });
+      setFailure(importFailure(e));
     } finally {
       setImporting(false);
     }

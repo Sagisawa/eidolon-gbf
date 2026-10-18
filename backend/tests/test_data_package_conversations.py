@@ -41,7 +41,7 @@ from tests.test_data_package import (
 from tests.test_memory_management import memories
 from tests.test_past_conversations import hers
 from tests.test_she_ends_conversation import end
-from tests.test_stats import said_at, stats
+from tests.test_stats import registered_at, said_at, stats
 from tests.test_text_turn import send_turn, start_conversation
 
 REPLY = ["<ja>[小声で]はい</ja><zh>好的</zh>"]
@@ -124,6 +124,7 @@ async def test_conversations_move_to_another_deployment_as_they_were(
     ended = await start_conversation(here)
     await send_turn(here, ended, "我住在大阪")
     said_at(at_here, "我住在大阪", datetime.now(UTC) - timedelta(days=9))
+    registered_at(at_here, datetime.now(UTC) - timedelta(days=9))
     hang_up(at_here, ended)
     end(at_here, ended)
     given = await start_conversation(here)
@@ -162,6 +163,8 @@ async def test_conversations_move_to_another_deployment_as_they_were(
         assert await listed(there, character) == await listed(here, character)
         assert await records(there, character) == await records(here, character)
     assert (await stats(there))["range"] == (await stats(here))["range"]
+    # Known since they first met over there, not since signing up here.
+    assert (await stats(there))["days_known"] == (await stats(here))["days_known"] > 1
     assert packaged_conversations(await export(there, "conversations")) == (
         packaged_conversations(package)
     )
