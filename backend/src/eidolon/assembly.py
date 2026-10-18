@@ -65,6 +65,7 @@ from eidolon.rerank import (
 )
 from eidolon.retrieval import Retrieval, open_reference_sources
 from eidolon.service_clients import ProviderClients, ServiceClients
+from eidolon.service_status import ServiceStatus, probes
 from eidolon.store import Store
 from eidolon.titles import Titles
 from eidolon.usage import UsageLimiter
@@ -113,22 +114,28 @@ class Backend:
     """The database's backups, as the admin console runs them, and the record of each."""
     photos: Photos
     """The photos she sends with her replies, being generated."""
+    service_status: ServiceStatus
+    """Whether each of the deployer's services works now, as users are shown it."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
     _keeping_fresh: asyncio.Task[None] | None = field(default=None, repr=False)
+    _probing: asyncio.Task[None] | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """What is done as the server starts, on its event loop: try the overrides of the
         configuration, falling back to `.env` where one fails; keep the price catalogs
-        fresh from now on, fetching them in the background."""
+        fresh from now on, fetching them in the background, and try the services without
+        calls for their status."""
         await self.config.start()
         self._keeping_fresh = asyncio.create_task(self.prices.catalog.keep_fresh())
+        self._probing = asyncio.create_task(self.service_status.keep_probing())
 
     async def aclose(self) -> None:
         """Close what `build` opened, last opened first."""
-        if self._keeping_fresh is not None:
-            self._keeping_fresh.cancel()
+        for task in (self._keeping_fresh, self._probing):
+            if task is not None:
+                task.cancel()
         for close in reversed(self._closers):
             result = close()
             if result is not None:
@@ -249,6 +256,11 @@ def build(
                 r.api_key, r.model, r.base_url, routes.client("rerank", RERANK_TIMEOUT)
             )
             closers.append(reranker.aclose)
+    service_status = ServiceStatus(
+        activity, config,
+        probes(config, speech, next(iter(characters.values())).voice_id, embedder, reranker),
+        clock,
+    )
     embedder, reranker = metered_retrieval(activity, settings, embedder, reranker)
     # The judge model is the live configuration's: retrieval asks the one in effect at
     # each question, and each call judges her emotions on the one it connected with.
@@ -347,6 +359,7 @@ def build(
         gifts=gifts,
         backups=backups,
         photos=photos,
+        service_status=service_status,
         world=world,
         _closers=closers,
     )

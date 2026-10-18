@@ -7,7 +7,8 @@ and memory models, speech synthesis and recognition, image generation (`_Image`)
 judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
 carries, with the exempting keys), whether affinity and gifts are on, and which of the
-deployer's services and of users' own keys go through which proxy (GLOSSARY.md「网络代理」). Overrides are
+deployer's services and of users' own keys go through which proxy (GLOSSARY.md「网络代理」), and
+which services users are shown the status of, over how long (GLOSSARY.md「服务状态」). Overrides are
 kept in the database, one row per field, a key encrypted with a key derived from
 `EIDOLON_SECRET_KEY` (without it, keys cannot be changed here, only seen). A change to a
 service is tried before it is kept, as the chat model is when the server starts; it then holds for every turn and call that starts after
@@ -37,7 +38,8 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -73,9 +75,13 @@ from eidolon.config import (
     LLMSettings,
     OWN_KEYS_PROXIED,
     PROXIED_SERVICES,
+    SERVICE_NAMES,
+    STATUS_WINDOWS,
     ProxiedService,
     ProxySettings,
     Service,
+    ServiceName,
+    ServiceStatusSettings,
     Settings,
     SttKey,
     UsageLimits,
@@ -131,6 +137,7 @@ RERANK = "rerank"
 LIMITS = "limits"
 AFFINITY = "affinity"
 PROXY = "proxy"
+SERVICE_STATUS = "service_status"
 
 LLM_FIELDS = (
     "protocol", "base_url", "api_key", "model", "max_tokens", "reasoning_effort", "extra_body",
@@ -147,6 +154,9 @@ FOLLOWING = "记忆模型跟随对话模型，用它自己的思考强度和额�
 
 FOR_MODEL = "for_model"
 """Kept beside thresholds: the model they were set for."""
+
+TRIAL_MAX_TOKENS = 16
+"""The most an LLM tried cheaply may write (`trial_llm`): the least the Responses API takes."""
 
 MAX_REASON_LENGTH = 300
 """How much of the service's own error message the admin is shown."""
@@ -788,6 +798,32 @@ class _Proxy(_Item):
         return shown
 
 
+class _ServiceStatus(_Item):
+    """Which services users are shown the status of (GLOSSARY.md「服务状态」), a switch for
+    each, and how many of the latest minutes it goes by; not tried. A service the deployment
+    does not have is not shown, switched on or not."""
+
+    name = SERVICE_STATUS
+    fields = ("window_minutes", *SERVICE_NAMES)
+
+    def env(self) -> Values:
+        status = self.c.settings.service_status
+        return {"window_minutes": status.window_minutes} | {
+            s: s in status.services for s in SERVICE_NAMES
+        }
+
+    def candidate(self, current: Values, change: Values) -> Values:
+        for field, value in change.items():
+            if field == "window_minutes":
+                if isinstance(value, bool) or value not in STATUS_WINDOWS:
+                    raise ConfigInvalid(
+                        f"统计时段只能是 {'、'.join(map(str, STATUS_WINDOWS))} 分钟，而不是 {value!r}"
+                    )
+            elif not isinstance(value, bool):
+                raise ConfigInvalid(f"显示与否需要是 true 或 false，而不是 {value!r}")
+        return current | change
+
+
 def _proxy_settings(values: Values) -> ProxySettings:
     url = values["url"]
     return ProxySettings(
@@ -850,7 +886,7 @@ class LiveConfig:
                 # The proxy first: as the server starts, the services are tried through it.
                 _Proxy(self), _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
                 _Image(self), _Judge(self), _JudgeThresholds(self), _Rerank(self),
-                _Limits(self), _Affinity(self),
+                _Limits(self), _Affinity(self), _ServiceStatus(self),
             )
         }
         self._failures: dict[str, str] = {}
@@ -950,6 +986,60 @@ class LiveConfig:
         return _proxy_settings(self.effective(PROXY))
 
     @property
+    def service_status(self) -> ServiceStatusSettings:
+        """Which services users are shown the status of now, and over how long."""
+        values = self.effective(SERVICE_STATUS)
+        return ServiceStatusSettings(
+            frozenset(s for s in SERVICE_NAMES if values[s]), values["window_minutes"]
+        )
+
+    def has_service(self, service: ServiceName) -> bool:
+        """Whether the deployment has `service` on the deployer's keys now: the LLMs always;
+        the others with their keys in effect, embedding and reranking as `.env` has them."""
+        match service:
+            case "chat_llm" | "memory_llm":
+                return True
+            case "tts":
+                return bool(self.effective(TTS)["api_key"])
+            case "stt":
+                return self.stt_key is not None
+            case "judge":
+                return self._judge is not None
+            case "embedding":
+                return self.settings.embedding is not None
+            case "rerank":
+                return self.settings.rerank is not None
+            case "image":
+                return self.image_settings is not None
+
+    @asynccontextmanager
+    async def trial_llm(self, service: Literal["chat_llm", "memory_llm"]) -> AsyncIterator[ChatLLM]:
+        """The chat model in effect now, as text turns use it, or the memory model, on a
+        client of its own that asks for no reasoning effort and at most `TRIAL_MAX_TOKENS`:
+        to try it cheaply, its thinking cut short. What is asked of it is not recorded; it
+        is closed on leaving."""
+        def cheap(settings: LLMSettings) -> LLMSettings:
+            return replace(settings, max_tokens=TRIAL_MAX_TOKENS, reasoning_effort=None)
+
+        if service == "chat_llm":
+            models = self._clients.chat_models(ChatModelSettings(cheap(self.chat_model.text)))
+            try:
+                yield models.text
+            finally:
+                await models.aclose()
+            return
+        memory = self._clients.memory_llm(cheap(self.memory_llm))
+        try:
+            yield memory
+        finally:
+            await memory.aclose()
+
+    def lease_judge(self) -> Lease[JudgeModel, JudgeSettings] | None:
+        """A hold on the judge model in effect now, to try it: what is asked of it is not
+        recorded. None without one."""
+        return None if self._judge is None else self._judge.lease()
+
+    @property
     def image_settings(self) -> ImageSettings | None:
         """The deployer's image generation in effect now; None without its key."""
         values = self.effective(IMAGE)
@@ -1007,7 +1097,7 @@ class LiveConfig:
             metered_llm(
                 memory.client, self._activity, llm_origin("memory_llm", memory.settings)
             ),
-            self._stt_key(), tts["api_key"], tts["model"],
+            self.stt_key, tts["api_key"], tts["model"],
             emotions, hold_background=lambda: memory.again().release,
             call_llm=metered_llm(
                 chat.client.call, self._activity, llm_origin("chat_llm", chat.settings.call)
@@ -1102,6 +1192,8 @@ class LiveConfig:
             }
             if name == MEMORY_LLM:
                 entry["follows_chat"] = self._memory_follows()
+            if name == SERVICE_STATUS:
+                entry["unconfigured"] = [s for s in SERVICE_NAMES if not self.has_service(s)]
             if name == PROXY:
                 targets = self._proxy_targets()
                 own = OWN_KEYS_PROXIED.values()
@@ -1224,7 +1316,9 @@ class LiveConfig:
         elif prepared is not None:
             await prepared.aclose()
 
-    def _stt_key(self) -> SttKey | None:
+    @property
+    def stt_key(self) -> SttKey | None:
+        """The deployer's key for speech recognition in effect now; None without one."""
         values = self.effective(STT)
         api_key = values[STT_KEY_FIELDS[values["provider"]]]
         if not api_key:
@@ -1258,7 +1352,7 @@ class LiveConfig:
             targets["rerank"] = self.settings.rerank.base_url
         if self.effective(TTS)["api_key"]:
             targets["tts"] = PROVIDER_URLS["tts"]
-        if (key := self._stt_key()) is not None:
+        if (key := self.stt_key) is not None:
             where = (key.region or "beijing") if key.provider == "bailian" else "soniox"
             targets["stt"] = PROVIDER_URLS[where]
         if (image := self.image_settings) is not None:

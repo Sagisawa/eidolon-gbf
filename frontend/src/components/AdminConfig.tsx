@@ -6,7 +6,7 @@ import { AdminPage } from "@/components/app/admin/AdminPage";
 import { MetadataList, MetadataListItem } from "@/components/app/admin/MetadataList";
 import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
-import { StatusDot } from "@/components/app/admin/StatusDot";
+import { StatusDot } from "@/components/app/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
 import { ModelChoiceField } from "@/components/app/ModelChoiceField";
 import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
@@ -218,6 +218,7 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
   if (field === "api_format") return t.imageFormats[String(value)] ?? String(value);
   if (name === "tts" && field === "model") return optionLabel(name, field, String(value));
   if (name === "limits" && value === 0) return t.unlimited;
+  if (field === "window_minutes") return t.minutes(String(value));
   return String(value);
 }
 
@@ -233,8 +234,9 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
     if (name === "proxy") return t.formHints.proxy_password;
     return name === "stt" ? t.formHints.stt_api_key : name === "judge" ? t.formHints.judge_api_key : t.apiKeyHint;
   }
-  if (name === "proxy") {
-    if (item?.unconfigured?.some((service) => service === spec.name)) return t.formHints.proxy_unconfigured;
+  if (name === "proxy" || name === "service_status") {
+    if (item?.unconfigured?.some((service) => service === spec.name)) return t.formHints[`${name}_unconfigured`];
+    if (name === "service_status") return t.formHints[`service_status_${spec.name}`];
     return t.formHints[`proxy_${spec.name}`];
   }
   if (spec.kind === "maxTokens") return t.maxTokensHint;
@@ -248,6 +250,7 @@ function optionLabel(name: ItemName, field: string, option: string): string {
   if (field === "protocol") return t.protocols[option as LLMProtocol] ?? option;
   if (field === "api_format") return t.imageFormats[option] ?? option;
   if (field === "region") return t.regions[option] ?? option;
+  if (field === "window_minutes") return t.minutes(option);
   // 生图的模型：下拉里是官方模型的短名，最后一项是手填。
   if (name === "image" && field === "model") return option === CUSTOM_MODEL ? t.customModel : (t.imageModels[option] ?? option);
   // 语音合成的模型，和设置页一个叫法。
@@ -526,8 +529,9 @@ function AvailableItem({
                     </Field>
                   );
                 }
-                if (field.kind === "select") {
+                if (field.kind === "select" || field.kind === "minutes") {
                   const options = (field.options ?? []).map((o) => ({ value: o, label: optionLabel(name, field.name, o) }));
+                  const hint = fieldHint(name, field, keysEditable);
                   return (
                     <Field key={field.name}>
                       <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>
@@ -547,6 +551,7 @@ function AvailableItem({
                           ))}
                         </SelectContent>
                       </Select>
+                      {hint && <FieldDescription>{hint}</FieldDescription>}
                     </Field>
                   );
                 }

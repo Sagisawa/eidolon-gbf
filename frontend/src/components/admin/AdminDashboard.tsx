@@ -6,7 +6,7 @@ import { flushSync } from "react-dom";
 import { AppLink } from "@/components/app/AppLink";
 import { AdminPage } from "@/components/app/admin/AdminPage";
 import { StatTile } from "@/components/app/admin/StatTile";
-import { StatusDot } from "@/components/app/admin/StatusDot";
+import { StatusDot } from "@/components/app/StatusDot";
 import { BackupCard } from "@/components/admin/BackupCard";
 import { CostSection } from "@/components/admin/CostSection";
 import {

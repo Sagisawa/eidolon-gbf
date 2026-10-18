@@ -13,6 +13,7 @@ import {
   STT_PROVIDERS,
   type OwnService,
 } from "@/lib/localOwnKeys";
+import { STATUS_SERVICES } from "@/lib/serviceStatus";
 import { EFFORT_UNSET, effortOf, extraBodyText, parseExtraBody, type JsonObject } from "@/lib/reasoningEffort";
 
 export type ConfigStatus = "env" | "overridden" | "failed";
@@ -28,7 +29,8 @@ export type ItemName =
   | "rerank"
   | "limits"
   | "affinity"
-  | "proxy";
+  | "proxy"
+  | "service_status";
 
 /** A model's extra request body is a JSON object; every other value is plain. */
 type Value = string | number | boolean | null | JsonObject;
@@ -48,7 +50,7 @@ export type ConfigItem = {
   follows_chat?: boolean;
   /** Thresholds: the model they hold for. */
   model?: string;
-  /** The proxy: the services this deployment has not configured, whose switches do nothing. */
+  /** The proxy and the service status: the services this deployment has not configured, whose switches do nothing. */
   unconfigured?: ProxiedService[];
 };
 
@@ -69,7 +71,7 @@ export function isAvailable(item: ConfigItem | UnavailableItem): item is ConfigI
 }
 
 /** The page's tabs, in order. */
-export const CONFIG_TABS = ["models", "voice", "image", "network", "limits", "prices", "read_only"] as const;
+export const CONFIG_TABS = ["models", "voice", "image", "network", "status", "limits", "prices", "read_only"] as const;
 
 export type ConfigTab = (typeof CONFIG_TABS)[number];
 
@@ -81,6 +83,7 @@ export const TAB_ITEMS: Record<ConfigTab, ItemName[]> = {
   voice: ["tts", "stt"],
   image: ["image"],
   network: ["proxy"],
+  status: ["service_status"],
   limits: ["limits", "affinity"],
   prices: [],
   read_only: [],
@@ -156,7 +159,7 @@ export type ProxiedService = (typeof PROXIED_SERVICES)[number];
  * model's protocol can write, or unset), an extra request body (a JSON object, or empty for
  * none), a probability or score from 0 to 1, a number of seconds, a limit (a whole number
  * from 1 up, or none: sent as 0), how many at a time (a whole number from 1 to `MAX_COUNT`),
- * or a switch (on or off, in the form as "true" or "false"). */
+ * a switch (on or off, in the form as "true" or "false"), or minutes chosen from a list (sent as a number). */
 export type FieldKind =
   | "select"
   | "text"
@@ -171,7 +174,8 @@ export type FieldKind =
   | "seconds"
   | "limit"
   | "count"
-  | "switch";
+  | "switch"
+  | "minutes";
 
 /** The most photos the deployer's image key may generate at a time: the backend's `MAX_IMAGE_CONCURRENCY`. */
 export const MAX_COUNT = 10;
@@ -183,6 +187,9 @@ export const CUSTOM_MODEL = "custom";
 export function modelChoice(options: readonly string[], model: string): string {
   return options.includes(model) ? model : CUSTOM_MODEL;
 }
+
+/** How many of the latest minutes the service status may go by, as the backend takes them. */
+export const STATUS_WINDOWS = ["10", "30", "60"] as const;
 
 /** The limits, in the order they are shown. */
 export const LIMIT_FIELDS = [
@@ -324,6 +331,16 @@ export const ITEM_SPECS: Record<ItemName, ItemSpec> = {
     ],
     tried: true,
   },
+  // 服务状态（GLOSSARY.md「服务状态」）：统计时段，每项服务显不显示。不试调。
+  service_status: {
+    rows: ["window_minutes", ...STATUS_SERVICES],
+    secrets: [],
+    form: [
+      { name: "window_minutes", kind: "minutes", options: STATUS_WINDOWS },
+      ...STATUS_SERVICES.map((name): FieldSpec => ({ name, kind: "switch" })),
+    ],
+    tried: false,
+  },
 };
 
 /** One field of an item, as the table shows it: `.env`'s, the one in effect, and whether
@@ -450,6 +467,9 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
         break;
       case "switch":
         change[name] = form[name] === "true";
+        break;
+      case "minutes":
+        change[name] = Number(form[name]);
         break;
       case "seconds": {
         const value = Number(typed);

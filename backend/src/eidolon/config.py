@@ -66,6 +66,28 @@ OWN_KEYS_PROXIED: dict[Service, ProxiedService] = {
 
 PROXY_SCHEMES = ("http", "https", "socks5", "socks5h")
 
+ServiceName = Literal[
+    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
+]
+"""The outside services: the LLM playing the characters and the one writing down memories,
+speech synthesis and recognition, the judge model, embedding, reranking and image
+generation."""
+SERVICE_NAMES: tuple[ServiceName, ...] = get_args(ServiceName)
+
+STATUS_WINDOWS = (10, 30, 60)
+"""How many of the latest minutes the service status may go by (GLOSSARY.md「服务状态」)."""
+DEFAULT_STATUS_WINDOW = 30
+
+
+@dataclass(frozen=True)
+class ServiceStatusSettings:
+    """Which services users are shown the status of (GLOSSARY.md「服务状态」), of those the
+    deployment has, and how many of the latest minutes it goes by: every one, over half an
+    hour, unless `.env` says otherwise; the admin console may override it."""
+
+    services: frozenset[ServiceName] = frozenset(SERVICE_NAMES)
+    window_minutes: int = DEFAULT_STATUS_WINDOW
+
 
 @dataclass(frozen=True)
 class ProxySettings:
@@ -383,6 +405,7 @@ class Settings:
     proxy: ProxySettings = field(default_factory=ProxySettings)
     """Which of the deployer's services go through which proxy; none unless `.env` sets
     one, and the admin console may override it."""
+    service_status: ServiceStatusSettings = field(default_factory=ServiceStatusSettings)
     domain: str | None = None
     """The public deployment's domain (behind Caddy); None in development."""
     dev_login: bool = False
@@ -472,6 +495,7 @@ class Settings:
             exempting_keys=exempting_keys_from_env(),
             affinity_and_gifts=_switch("EIDOLON_AFFINITY_AND_GIFTS", default=True),
             proxy=proxy_from_env(),
+            service_status=service_status_from_env(),
             domain=os.environ.get("EIDOLON_DOMAIN", "").strip() or None,
             dev_login=os.environ.get("EIDOLON_DEV_LOGIN", "").strip() == "1",
             github=OAuthSettings.from_env("GITHUB"),
@@ -618,6 +642,32 @@ def proxy_from_env() -> ProxySettings:
     except ValueError as e:
         raise RuntimeError(f"环境变量 EIDOLON_PROXY_URL 不对：{e}") from None
     return ProxySettings(url, True, frozenset(services))
+
+
+def service_status_from_env() -> ServiceStatusSettings:
+    """`EIDOLON_STATUS_SERVICES`: comma-separated `SERVICE_NAMES`, `all` (unset is all) or
+    `none`; `EIDOLON_STATUS_WINDOW_MINUTES`: one of `STATUS_WINDOWS`."""
+    names = _comma_list(os.environ.get("EIDOLON_STATUS_SERVICES", "")) or ["all"]
+    services: set[ServiceName] = set()
+    for name in names:
+        if name == "all":
+            services.update(SERVICE_NAMES)
+        elif name in SERVICE_NAMES:
+            services.add(name)  # pyright: ignore[reportArgumentType]  # checked above
+        elif name != "none":
+            raise RuntimeError(
+                f"环境变量 EIDOLON_STATUS_SERVICES 里的 {name} 不对：每一项只能是"
+                f" {'、'.join(SERVICE_NAMES)}，或者写 all 表示全部、none 表示都不显示"
+            )
+    window = (os.environ.get("EIDOLON_STATUS_WINDOW_MINUTES") or "").strip()
+    if window and window not in {str(w) for w in STATUS_WINDOWS}:
+        raise RuntimeError(
+            "环境变量 EIDOLON_STATUS_WINDOW_MINUTES 只能是"
+            f" {'、'.join(map(str, STATUS_WINDOWS))}，而不是 {window}"
+        )
+    return ServiceStatusSettings(
+        frozenset(services), int(window) if window else DEFAULT_STATUS_WINDOW
+    )
 
 
 @dataclass(frozen=True)
