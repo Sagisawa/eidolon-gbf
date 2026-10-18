@@ -58,7 +58,8 @@ function DialogContent({
   const viewer = variant === "viewer"
   return (
     <DialogPortal container={container}>
-      <DialogOverlay className={cn(viewer && "bg-black/85 supports-backdrop-filter:backdrop-blur-none")} />
+      {/* eidolon: viewer 的底和照片一样淡 150ms。底先淡完会在照片卸掉前弹回不透明，关的时候整屏闪一下黑。 */}
+      <DialogOverlay className={cn(viewer && "bg-black/85 duration-150 supports-backdrop-filter:backdrop-blur-none")} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
