@@ -53,3 +53,5 @@
 - 代理：`PROXIED_SERVICES` 现在是 `…, "stt", "image", "own_llm", "own_tts", "own_stt"`，`own_image` 放在 `own_stt` 后面；后端 `ProxyInput`、`PROXY_LABELS`、前端 `PROXIED_SERVICES` 和 `itemFields.proxy` 各加一项。`test_proxy.py` 里 `before["unconfigured"]` 不会变（自带的不算）。
 
 **第四波自审留下的（2026-10-18）。** `usage.UsageKind` 现在多了 `photo`，类型上能传进 `OwnKeys.exempt(kind, services)`，但那里 `kind == "turn"` 以外一律按通话的免限额密钥判断，照片传进去会算错。自带生图不计次数照票 18 的交接走 `UsageLimiter.take(user_id, "photo", exempt=True)`，别经 `OwnKeys.exempt`；生图也不进免限额密钥的选项。
+
+**用户定了（2026-10-18）。** 自带生图失败除超时外都记 `own_key_failed`（包括尺寸不对），保留。

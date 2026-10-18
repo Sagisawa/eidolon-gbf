@@ -59,3 +59,5 @@ PYTHONIOENCODING=utf-8 uv run --env-file ../.env eidolon eval judge --provider c
 **留给人工验证**：用户审一遍 38 条照片用例的标注和 note（审完把 `reviewed` 改成 `true`）；审的时候有改动就重跑上面三条命令看阈值要不要动。
 
 **做完了（2026-10-17）。** 后端 `uv run pytest` 1686 个、`uv run pyright`、`uv run ruff check`，前端 `npm test` 942 个、`npm run typecheck`、`check-discipline.sh` 全部通过（和 15、16、22、23 一起，合在 `feat/photos` 上跑的）。**还要用户做的**：审一遍 `backend/eval/judge.toml` 的 38 条照片用例，审完把 `reviewed` 改成 `true`；Jev 的阈值降到了 0.5，和规格「阈值偏高」字面不同，理由见上，用户确认。
+
+**用户审过（2026-10-18）。** 38 条照片用例的标注和 note 没问题，`reviewed` 都改成了 `true`；Jev 阈值 0.5 用户认可。
