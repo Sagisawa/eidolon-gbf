@@ -14,8 +14,8 @@ export type Category = (typeof CATEGORIES)[number];
 /** 这一版能读的最新格式。 */
 export const FORMAT = 1;
 
-/** 这一版的页面上能导出、导入的几类；其余几类做好以后加进来。 */
-export const OFFERED: readonly Category[] = ["conversations", "memories", "profile"];
+/** 这一版的页面上能导出、导入的几类。 */
+export const OFFERED: readonly Category[] = CATEGORIES;
 
 const MANIFEST = "manifest.json";
 

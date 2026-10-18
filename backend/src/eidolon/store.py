@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -345,6 +346,19 @@ class KeptCall:
 
 
 @dataclass(frozen=True)
+class KeptPhoto:
+    """The photo she sent with a reply, as kept but for its picture, as a data package carries
+    it: `id` is its id where it was exported, a key in the package only."""
+
+    id: str
+    tag: str
+    status: PhotoStatus
+    reason: PhotoFailure | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class KeptMessage:
     """A message as kept, all of it, as a data package carries it (GLOSSARY.md「数据包」): her
     reply as the model wrote it, delivery cues and all (ADR-0007), and for the user's message
@@ -359,6 +373,8 @@ class KeptMessage:
     affinity: Change | None
     hurt: float | None
     out_of_line: bool | None
+    photo: KeptPhoto | None = None
+    """The photo she sent with the reply, if any."""
 
 
 @dataclass(frozen=True)
@@ -760,7 +776,8 @@ class Store:
 
     def whole_conversations(self, user_id: str) -> list[WholeConversation]:
         """Every one of the user's conversations, with every character, the oldest first, and
-        all that is kept under each, for a data package; not the pictures of photos."""
+        all that is kept under each, for a data package; not the pictures of photos, read
+        one at a time (`photo_image`)."""
         with self._lock:
             conversations = self._db.execute(
                 "SELECT * FROM conversations WHERE user_id = ? ORDER BY created_at, rowid",
@@ -775,9 +792,17 @@ class Store:
                             [Segment(**s) for s in json.loads(m["segments"] or "[]")],
                             m["created_at"], _change(m["affinity"]), m["hurt"],
                             None if m["out_of_line"] is None else bool(m["out_of_line"]),
+                            None if m["photo_id"] is None else KeptPhoto(
+                                m["photo_id"], m["photo_tag"], m["photo_status"],
+                                m["photo_reason"], m["photo_created_at"], m["photo_updated_at"],
+                            ),
                         )
                         for m in self._db.execute(
-                            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id",
+                            "SELECT m.*, p.id AS photo_id, p.tag AS photo_tag,"
+                            " p.status AS photo_status, p.reason AS photo_reason,"
+                            " p.created_at AS photo_created_at, p.updated_at AS photo_updated_at"
+                            " FROM messages m LEFT JOIN photos p ON p.message_id = m.id"
+                            " WHERE m.conversation_id = ? ORDER BY m.id",
                             (c["id"],),
                         )
                     ],
@@ -1186,13 +1211,17 @@ def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile
 
 
 def add_carried_conversation(
-    db: sqlite3.Connection, user_id: str, conversation: WholeConversation
+    db: sqlite3.Connection,
+    user_id: str,
+    conversation: WholeConversation,
+    picture_of: Callable[[str], bytes],
 ) -> tuple[str, bool]:
     """Add the conversation a data package carries to the user's through `db`, in the
     caller's transaction, under an id of its own, its messages in their order and its events
-    and calls as they were; its id here, and whether it is new. One the user already has with
-    her, begun at the same time, is taken for it and left as it is, nothing of it merged.
-    Which is her current one is as ever: the newest begun."""
+    and calls as they were, each photo under an id of its own with its picture, if sent, as
+    `picture_of` its id in the package reads it; its id here, and whether it is new. One the
+    user already has with her, begun at the same time, is taken for it and left as it is,
+    nothing of it merged. Which is her current one is as ever: the newest begun."""
     begun = _at(conversation.created_at)
     for row in db.execute(
         "SELECT id, created_at FROM conversations WHERE user_id = ? AND character_id = ?",
@@ -1207,19 +1236,28 @@ def add_carried_conversation(
         (conversation_id, user_id, conversation.character_id, conversation.created_at,
          conversation.title),
     )
-    db.executemany(
-        "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
-        " affinity, hurt, out_of_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
+    for m in conversation.messages:
+        message_id = db.execute(
+            "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
+            " affinity, hurt, out_of_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 conversation_id, m.role, m.text, m.ja, m.zh,
                 _stored_segments(m.segments if m.segments or m.role == "character" else None),
                 m.created_at, _stored_change(m.affinity), m.hurt,
                 None if m.out_of_line is None else int(m.out_of_line),
+            ),
+        ).lastrowid
+        if (photo := m.photo) is not None:
+            db.execute(
+                "INSERT INTO photos (id, conversation_id, message_id, tag, status, reason,"
+                " image, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex, conversation_id, message_id, photo.tag, photo.status,
+                    photo.reason,
+                    picture_of(photo.id) if photo.status == "ready" else None,
+                    photo.created_at, photo.updated_at,
+                ),
             )
-            for m in conversation.messages
-        ],
-    )
     db.executemany(
         "INSERT INTO conversation_events"
         " (conversation_id, kind, created_at, affinity, gift_id, liked)"

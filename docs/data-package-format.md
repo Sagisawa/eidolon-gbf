@@ -11,6 +11,7 @@
 | 条目 | 说明 |
 | --- | --- |
 | `manifest.json` | zip 里的**第一个**条目，不压缩（stored），页面只读文件开头就能拿到它。 |
+| `photos/<照片 id>.webp` | 每张发出来了的照片一个文件，就是这个部署存的 WebP 原样，解压就能打开。没带照片的包里没有。 |
 | `data.json` | 缩进排版、UTF-8、英文键名的数据。 |
 
 ## `manifest.json`
@@ -27,11 +28,11 @@
 - `format`：整数，这个包的格式版本。
 - `exported_at`：导出的时间。
 - `categories`：这个包里有哪几类，按 `conversations`、`photos`、`memories`、`profile` 的顺序。导出时没勾的类别不在这里。
-- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`conversations` 是对话的段数，`memories` 是记忆的条数。
+- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`conversations` 是对话的段数，`photos` 是照片的张数（没发出去的也算），`memories` 是记忆的条数。
 
 ## `data.json`
 
-`categories` 里的每一类在这里有一个键，没有的类别就没有这个键。
+`categories` 里的每一类在这里有一个键，没有的类别就没有这个键。照片没有自己的键，挂在对话里她的回复上（见下面的 `photo`）。
 
 ### `profile`：制作人档案
 
@@ -100,6 +101,31 @@
 - `events`：对话事件（`GLOSSARY.md`「对话事件」）。`kind` 是 `"hung_up"`（她挂断了电话）、`"gift"`（送了礼物，`gift_id` 是哪件、`liked` 是送的时候她喜不喜欢）或 `"ended"`（她结束了这段对话，之后只能看）。`gift_id` 只有送礼事件有，送礼事件也必须有。`affinity` 同上。
 - `calls`：这段对话里接通了的通话，只给统计用：`connected_at` 是接通的时间，`duration_s` 是接通后持续了几秒（不小于 0）。
 
+#### `photo`：她发的照片
+
+`categories` 里有 `photos` 时（只能和 `conversations` 一起），她发过照片的那条回复上多一个 `photo`（`GLOSSARY.md`「照片」）；没有照片的消息、没带照片的包，就没有这个键。
+
+```json
+{
+  "role": "character", "ja": "はい、どうぞ", "zh": "给，你看", "…": "…",
+  "photo": {
+    "id": "2451db2291f6484bb1887811cd197b74",
+    "tag": "shot: selfie\nframing: upper body\n…",
+    "status": "ready", "reason": null,
+    "created_at": "2026-09-25T12:00:03.000000+00:00",
+    "updated_at": "2026-09-25T12:00:20.000000+00:00"
+  }
+}
+```
+
+- `id`：包内 ID，字母、数字、`_`、`-`，最多 100 个字符；包里不能重复。发出来了的照片，图片就是 `photos/<id>.webp`。
+- `tag`：她给这张照片写的照片标签，照原样，只进她之后的提示词。
+- `status`：`"ready"`（发出来了，`photos/` 里有它的图）或 `"failed"`（没发出去）。导出时还在生成的，按 `"failed"`、原因 `"timeout"` 导出，和服务器重启时一样。
+- `reason`：没发出去的原因，`"ready"` 时是 `null`，`"failed"` 时必须有：`"timeout"`（生成太久）、`"service_error"`（生图服务出错或连不上）、`"bad_image"`（回来的不是一张对的图）、`"own_key_failed"`（自带的生图密钥不能用）、`"used_up"`（这一小时的照片用完了）。
+- `created_at`、`updated_at`：她发出这张照片的时间，和它最后一次变（发出来或没发出去）的时间。
+
+导入时，照片换新 id、挂到新加的那条回复上；整段跳过的对话（角色不在、已经有了），里面的照片也跳过。每个 `photos/` 里的文件都要能当 WebP 解开（尺寸不查，别的版本的照片尺寸可能不同），`"ready"` 的照片必须有文件，文件必须对得上一张 `"ready"` 的照片，否则整包当坏包。导入时没勾照片的，她的回复上就不带照片。
+
 导入时：
 
 - 角色不在这个部署的角色配置里的，整段跳过，连同通话记录，结果里的 `skipped` 带上包里的角色名（没有名字时是 `character_id`）和段数。
@@ -154,10 +180,10 @@
 
 - 导入时先看 `manifest.json` 的 `format`：比这个部署支持的新，就拒绝（错误码 `too_new`），请部署者升级；等于或更老的，按那一版的规则读。
 - 改格式时 `format` 加一，旧版本的读法保留：新版本能导入所有老格式。
-- 坏包一律拒绝（错误码 `broken`）：zip 打不开，条目多了或少了，JSON 不合这份说明，时间解析不了，包内 ID 引用不上，`categories` 和 `data.json` 里的键对不上。
+- 坏包一律拒绝（错误码 `broken`）：zip 打不开，条目多了或少了，JSON 不合这份说明，时间解析不了，包内 ID 引用不上，`categories` 和 `data.json` 里的键对不上，照片文件解不开或和照片对不上。
 - 导入要么全部写进去，要么什么也不写。
 
 ## 大小
 
 - 整个数据包最大 200 MB，超了不导入（错误码 `too_large`），可以不带照片重新导出。
-- 解压后 `manifest.json` 最大 64 KB，`data.json` 最大 200 MB，超了当坏包。
+- 解压后 `manifest.json` 最大 64 KB，`data.json` 最大 200 MB，每张照片的文件最大 20 MB，超了当坏包。

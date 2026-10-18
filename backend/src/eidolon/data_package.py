@@ -3,17 +3,18 @@ exported here and imported into this deployment or another, under this account o
 The format is described for people in `docs/data-package-format.md`.
 
 A package holds `manifest.json` first, stored uncompressed so that a browser can read it
-from the start of the file alone; then `data.json`, indented, in English keys; and nothing
-else. The manifest says which format the package is in (`FORMAT`), when it was exported,
-which categories it holds and how many of each. A deployment imports packages of its own
-format and older ones, and refuses newer ones (`TooNew`) rather than drop what it cannot
-read. Anything else wrong with a package refuses it as broken (`BrokenPackage`).
+from the start of the file alone; then the picture of each photo sent, a WebP of its own in
+`photos/`; then `data.json`, indented, in English keys; and nothing else. The manifest
+says which format the package is in (`FORMAT`), when it was exported, which categories it
+holds and how many of each. A deployment imports packages of its own format and older ones,
+and refuses newer ones (`TooNew`) rather than drop what it cannot read. Anything else wrong with a package refuses it as broken (`BrokenPackage`).
 
 Importing writes everything in one transaction of its own, through a connection of its own
 to the database, so that a package fails as a whole and leaves nothing behind. Neither
 exporting nor importing is recorded: no activity record, nothing an admin sees."""
 
 import asyncio
+import io
 import json
 import sqlite3
 import threading
@@ -21,10 +22,12 @@ import zipfile
 from collections.abc import Callable, Container, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal, get_args
 
+from PIL import Image
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -60,6 +63,8 @@ from eidolon.store import (
     EventKind,
     KeptEvent,
     KeptMessage,
+    KeptPhoto,
+    PhotoFailure,
     Role,
     Store,
     WholeConversation,
@@ -78,6 +83,8 @@ conversations they were sent in, never without them."""
 
 MANIFEST = "manifest.json"
 DATA = "data.json"
+PHOTOS = "photos/"
+"""Where in a package the picture of each photo sent is: `photos/<its id>.webp`."""
 
 MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 """How large a package may be to import: a package with many photos is large, and one too
@@ -89,6 +96,9 @@ MAX_MANIFEST_BYTES = 64 * 1024
 MAX_DATA_BYTES = 200 * 1024 * 1024
 """How large `data.json` may be unzipped, so that a small zip cannot unzip to fill the
 memory."""
+
+MAX_PHOTO_BYTES = 20 * 1024 * 1024
+"""How large the picture of a photo may be unzipped: one is some hundred KB."""
 
 IMPORTS_PER_DAY = 3
 """How many imports a user may make a day (`affinity.day_of`): only those that succeed count,
@@ -210,6 +220,55 @@ class PackagedSegment(_Strict):
     zh: str
 
 
+PhotoId = Annotated[str, Field(pattern=r"^[0-9A-Za-z_-]{1,100}$")]
+"""What a package calls one of its photos, the name of its picture in it."""
+
+
+class PackagedPhoto(_Strict):
+    """The photo she sent with a reply: sent (`ready`), its picture in the package, or not
+    sent after all (`failed`), and why not."""
+
+    id: PhotoId
+    tag: str
+    status: Literal["ready", "failed"]
+    reason: PhotoFailure | None
+    created_at: Time
+    updated_at: Time
+
+    @property
+    def sent(self) -> bool:
+        return self.status == "ready"
+
+    @model_validator(mode="after")
+    def _why_not_if_not(self) -> "PackagedPhoto":
+        if self.sent == (self.reason is not None):
+            raise ValueError("a photo not sent without why, or why for one sent")
+        return self
+
+    @classmethod
+    def of(cls, photo: KeptPhoto) -> "PackagedPhoto":
+        """The photo; one still being generated as not sent for taking too long, as when the
+        server restarts."""
+        if photo.status == "pending":
+            status, reason = "failed", "timeout"
+        else:
+            status, reason = photo.status, photo.reason
+        return cls(
+            id=photo.id, tag=photo.tag, status=status, reason=reason,
+            created_at=photo.created_at, updated_at=photo.updated_at,
+        )
+
+    def not_sent(self) -> "PackagedPhoto":
+        """The photo, sent but its picture gone as the package was written: as not sent."""
+        return self.model_copy(update={"status": "failed", "reason": "timeout"})
+
+    def kept(self) -> KeptPhoto:
+        """The photo to add, its id still the package's."""
+        return KeptPhoto(
+            self.id, self.tag, self.status, self.reason, self.created_at, self.updated_at
+        )
+
+
 class PackagedMessage(_Strict):
     role: Role
     text: str | None
@@ -220,21 +279,36 @@ class PackagedMessage(_Strict):
     affinity: PackagedChange | None
     hurt: float | None
     out_of_line: bool | None
+    photo: PackagedPhoto | None = None
+    """The photo she sent with her reply; no key for a message without one, or in a package
+    without photos."""
+
+    @model_validator(mode="after")
+    def _photos_hers(self) -> "PackagedMessage":
+        if self.photo is not None and self.role != "character":
+            raise ValueError("a photo the user sent")
+        return self
 
     @classmethod
-    def of(cls, message: KeptMessage) -> "PackagedMessage":
-        return cls(
+    def of(cls, message: KeptMessage, with_photos: bool) -> "PackagedMessage":
+        """The message, with its photo, if any, if `with_photos`."""
+        packaged = cls(
             role=message.role, text=message.text, ja=message.ja, zh=message.zh,
             segments=[PackagedSegment(ja=s.ja, zh=s.zh) for s in message.segments],
             created_at=message.created_at, affinity=PackagedChange.of(message.affinity),
             hurt=message.hurt, out_of_line=message.out_of_line,
         )
+        if with_photos and message.photo is not None:
+            packaged.photo = PackagedPhoto.of(message.photo)
+        return packaged
 
-    def kept(self) -> KeptMessage:
+    def kept(self, with_photos: bool) -> KeptMessage:
+        """The message to add, with its photo, if any, if `with_photos`."""
         return KeptMessage(
             self.role, self.text, self.ja, self.zh,
             [Segment(s.ja, s.zh) for s in self.segments], self.created_at,
             self.affinity and self.affinity.change(), self.hurt, self.out_of_line,
+            self.photo.kept() if with_photos and self.photo is not None else None,
         )
 
 
@@ -285,14 +359,17 @@ class PackagedConversation(_Strict):
     calls: list[PackagedCall]
 
     @classmethod
-    def of(cls, conversation: WholeConversation, name: str | None) -> "PackagedConversation":
+    def of(
+        cls, conversation: WholeConversation, name: str | None, with_photos: bool
+    ) -> "PackagedConversation":
+        """The conversation, with the photos she sent in it if `with_photos`."""
         return cls(
             id=conversation.id,
             character_id=conversation.character_id,
             character_name=name,
             created_at=conversation.created_at,
             title=conversation.title,
-            messages=[PackagedMessage.of(m) for m in conversation.messages],
+            messages=[PackagedMessage.of(m, with_photos) for m in conversation.messages],
             events=[PackagedEvent.of(e) for e in conversation.events],
             calls=[
                 PackagedCall(connected_at=k.connected_at, duration_s=k.duration_s)
@@ -300,12 +377,17 @@ class PackagedConversation(_Strict):
             ],
         )
 
-    def whole(self, gifts: Container[str]) -> WholeConversation:
-        """The conversation to add, but the gifts given in it that are not among `gifts`:
-        her prompt names what she was given by the gift catalog."""
+    def photos(self) -> list[PackagedPhoto]:
+        """The photos she sent in it, in their order."""
+        return [m.photo for m in self.messages if m.photo is not None]
+
+    def whole(self, gifts: Container[str], with_photos: bool) -> WholeConversation:
+        """The conversation to add, with its photos if `with_photos`, but the gifts given in
+        it that are not among `gifts`: her prompt names what she was given by the gift
+        catalog."""
         return WholeConversation(
             self.id, self.character_id, self.created_at, self.title,
-            [m.kept() for m in self.messages],
+            [m.kept(with_photos) for m in self.messages],
             [e.kept() for e in self.events if e.gift_id is None or e.gift_id in gifts],
             [ConnectedCall(k.connected_at, k.duration_s) for k in self.calls],
         )
@@ -367,6 +449,17 @@ class PackageData(_Strict):
             if m.conversation is not None and m.conversation not in ids:
                 raise ValueError("a memory told in no conversation of the package")
         return self
+
+    @model_validator(mode="after")
+    def _photos_one_by_one(self) -> "PackageData":
+        ids = [p.id for p in self.photos()]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two photos under one id")
+        return self
+
+    def photos(self) -> list[PackagedPhoto]:
+        """The photos she sent in all its conversations."""
+        return [p for c in self.conversations or [] for p in c.photos()]
 
     @model_validator(mode="after")
     def _memories_superseded_by_memories(self) -> "PackageData":
@@ -498,10 +591,12 @@ class DataPackages:
             counts["profile"] = 1
         if "conversations" in categories:
             data.conversations = [
-                PackagedConversation.of(c, self._name(c.character_id))
+                PackagedConversation.of(c, self._name(c.character_id), "photos" in categories)
                 for c in self._store.whole_conversations(user_id)
             ]
             counts["conversations"] = len(data.conversations)
+        if "photos" in categories:
+            counts["photos"] = len(data.photos())
         if "memories" in categories:
             data.memories = [
                 PackagedMemory.of(m, "conversations" in categories)
@@ -518,11 +613,33 @@ class DataPackages:
                 _json(manifest.model_dump()),
                 compress_type=zipfile.ZIP_STORED,
             )
+            self._write_pictures(user_id, data, package, now)
             package.writestr(
                 zipfile.ZipInfo(DATA, _zip_time(now)),
                 _json(data.model_dump(exclude_unset=True)),
                 compress_type=zipfile.ZIP_DEFLATED,
             )
+
+    def _write_pictures(
+        self, user_id: str, data: PackageData, package: zipfile.ZipFile, now: datetime
+    ) -> None:
+        """Write into `package` the picture of each photo sent in `data`, read one at a time;
+        one whose picture is gone by then, its conversation deleted as the package is
+        written, goes as not sent."""
+        for conversation in data.conversations or []:
+            for message in conversation.messages:
+                photo = message.photo
+                if photo is None or not photo.sent:
+                    continue
+                picture = self._store.photo_image(photo.id, user_id)
+                if picture is None:
+                    message.photo = photo.not_sent()
+                    continue
+                package.writestr(
+                    zipfile.ZipInfo(_picture_entry(photo.id), _zip_time(now)),
+                    picture,
+                    compress_type=zipfile.ZIP_STORED,  # a WebP is compressed already
+                )
 
     async def import_(self, user_id: str, package: Path, include: Iterable[Category]) -> Imported:
         """Import the categories of the package at `package` that `include` names into the
@@ -536,7 +653,17 @@ class DataPackages:
         return imported
 
     def _import(self, user_id: str, package: Path, include: Iterable[Category]) -> Imported:
-        manifest, data = _read(package)
+        try:
+            zipped = zipfile.ZipFile(package)
+        except (zipfile.BadZipFile, ValueError) as e:
+            raise BrokenPackage(type(e).__name__) from None
+        with zipped:
+            return self._import_from(user_id, zipped, include)
+
+    def _import_from(
+        self, user_id: str, zipped: zipfile.ZipFile, include: Iterable[Category]
+    ) -> Imported:
+        manifest, data = _read(zipped)
         categories = set(chosen(include)) & set(manifest.categories)
         imported = Imported()
         db = connect(self._database_path)
@@ -548,7 +675,8 @@ class DataPackages:
                 conversations: dict[PackageKey, str] = {}
                 if "conversations" in categories and data.conversations is not None:
                     conversations = self._add_conversations(
-                        db, user_id, data.conversations, imported
+                        db, user_id, data.conversations, imported, zipped,
+                        with_photos="photos" in categories,
                     )
                 if "memories" in categories and data.memories is not None:
                     imported.memories = add_carried(
@@ -573,10 +701,13 @@ class DataPackages:
         user_id: str,
         packaged: list[PackagedConversation],
         imported: Imported,
+        package: zipfile.ZipFile,
+        with_photos: bool,
     ) -> dict[PackageKey, str]:
-        """Add the package's conversations to the user's through `db`, counting those added
-        and those skipped, she not being here, into `imported`; what each is here, new or
-        already here, by its id in the package."""
+        """Add the package's conversations to the user's through `db`, with their photos if
+        `with_photos`, the pictures of those sent read one at a time from `package`; counting
+        those added, their photos, and those skipped, she not being here, into `imported`;
+        what each is here, new or already here, by its id in the package."""
         here: dict[PackageKey, str] = {}
         skipped: dict[str, int] = {}
         for conversation in packaged:
@@ -585,9 +716,12 @@ class DataPackages:
                 skipped[name] = skipped.get(name, 0) + 1
                 continue
             here[conversation.id], new = add_carried_conversation(
-                db, user_id, conversation.whole(self._gift_catalog)
+                db, user_id, conversation.whole(self._gift_catalog, with_photos),
+                partial(_picture, package),
             )
             imported.conversations += new
+            if new and with_photos:
+                imported.photos += len(conversation.photos())
         imported.skipped = [Skipped(name, count) for name, count in skipped.items()]
         return here
 
@@ -601,28 +735,58 @@ def _today_began(now: datetime) -> str:
     return _written(next_day(now) - timedelta(days=1))
 
 
-def _read(package: Path) -> tuple[Manifest, PackageData]:
-    """The manifest and data of the package at `package`, checked."""
+def _read(zipped: zipfile.ZipFile) -> tuple[Manifest, PackageData]:
+    """The manifest and data of the package `zipped`, checked, and the pictures of its
+    photos with them, one at a time."""
     try:
-        with zipfile.ZipFile(package) as zipped:
-            entries = zipped.infolist()
-            if sorted(e.filename for e in entries) != sorted([MANIFEST, DATA]):
-                raise BrokenPackage("entries it should not have")
-            first = entries[0]
-            if first.filename != MANIFEST or first.compress_type != zipfile.ZIP_STORED:
-                raise BrokenPackage("its manifest not first, stored")
-            raw_manifest = json.loads(_unzipped(zipped, MANIFEST, MAX_MANIFEST_BYTES))
-            if _Format.model_validate(raw_manifest).format > FORMAT:
-                raise TooNew()
-            manifest = Manifest.model_validate(raw_manifest)
-            data = PackageData.model_validate_json(_unzipped(zipped, DATA, MAX_DATA_BYTES))
+        entries = zipped.infolist()
+        names = [e.filename for e in entries]
+        if len(set(names)) != len(names) or not {MANIFEST, DATA} <= set(names):
+            raise BrokenPackage("entries it should not have")
+        first = entries[0]
+        if first.filename != MANIFEST or first.compress_type != zipfile.ZIP_STORED:
+            raise BrokenPackage("its manifest not first, stored")
+        raw_manifest = json.loads(_unzipped(zipped, MANIFEST, MAX_MANIFEST_BYTES))
+        if _Format.model_validate(raw_manifest).format > FORMAT:
+            raise TooNew()
+        manifest = Manifest.model_validate(raw_manifest)
+        data = PackageData.model_validate_json(_unzipped(zipped, DATA, MAX_DATA_BYTES))
+        listed = set(manifest.categories)
+        held = {c for c in CATEGORIES if c != "photos" and getattr(data, c) is not None}
+        photos = data.photos()
+        if held != listed - {"photos"} or (photos and "photos" not in listed) or (
+            "photos" in listed and "conversations" not in listed
+        ):
+            raise BrokenPackage("categories not as the manifest lists them")
+        sent = [p for p in photos if p.sent]
+        if set(names) - {MANIFEST, DATA} != {_picture_entry(p.id) for p in sent}:
+            raise BrokenPackage("pictures not as its photos are")
+        for photo in sent:
+            _check_picture(_picture(zipped, photo.id))
     except (zipfile.BadZipFile, ValueError, ValidationError, KeyError) as e:
         # json.JSONDecodeError and UnicodeDecodeError are ValueErrors
         raise BrokenPackage(type(e).__name__) from None
-    held = {c for c in CATEGORIES if getattr(data, c, None) is not None}
-    if held != set(manifest.categories) - {"photos"}:
-        raise BrokenPackage("categories not as the manifest lists them")
     return manifest, data
+
+
+def _picture_entry(photo_id: str) -> str:
+    """Where in a package the picture of its photo is."""
+    return f"{PHOTOS}{photo_id}.webp"
+
+
+def _picture(zipped: zipfile.ZipFile, photo_id: str) -> bytes:
+    """The picture of the package's photo, unzipped."""
+    return _unzipped(zipped, _picture_entry(photo_id), MAX_PHOTO_BYTES)
+
+
+def _check_picture(picture: bytes) -> None:
+    """Refuse the package as broken unless `picture` opens as a WebP, of whatever size: but
+    one of so many pixels that Pillow takes it for a decompression bomb, it refuses."""
+    try:
+        with Image.open(io.BytesIO(picture), formats=["WEBP"]) as opened:
+            opened.load()
+    except Exception as e:  # whatever Pillow raises for what is not a WebP
+        raise BrokenPackage(type(e).__name__) from None
 
 
 def _unzipped(zipped: zipfile.ZipFile, name: str, limit: int) -> bytes:
