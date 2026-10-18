@@ -39,6 +39,9 @@ ODD = JudgeThresholds(
         ("Cloudflare/Clef-Flash", "clef-flash"),
         ("clef", "clef"),
         ("cloudflare/clef-2", None),  # a new Clef is not judged by the old one's thresholds
+        ("decision-model-preview", "decision-model"),
+        ("decision-model", "decision-model"),  # out of preview, judged alike until shown not to
+        ("decision-modeller", None),
     ],
 )
 def test_a_models_name_falls_in_its_group(model: str, family: str | None):
@@ -73,6 +76,8 @@ def test_only_an_unknown_model_is_warned_of(caplog: pytest.LogCaptureFixture):
     [
         ("typesafe/jev-1.13", "jev-1.14", True),
         ("typesafe/jev-1.13", "clef", False),
+        ("decision-model-preview", "decision-model", True),
+        ("decision-model-preview", "jev-1.13", False),
         ("someone/new-judge", "someone/new-judge", True),
         ("someone/new-judge", "jev-1.13", False),
     ],

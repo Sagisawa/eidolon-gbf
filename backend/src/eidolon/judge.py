@@ -80,7 +80,7 @@ class JudgeThresholds:
     """Whether the user asks her for a photo (`photo_judge`)."""
 
 
-JudgeFamily = Literal["jev", "clef", "clef-flash"]
+JudgeFamily = Literal["jev", "clef", "clef-flash", "decision-model"]
 """The judge models with thresholds of their own, by whatever name and service they are
 reached: Clef-flash through OpenRouter judges as it does on Workers AI."""
 
@@ -110,6 +110,15 @@ JUDGE_THRESHOLDS: dict[JudgeFamily, JudgeThresholds] = {
         needs_retrieval=0.5, recall=0.7, about_producer=0.3, emotion=0.4,
         out_of_line=0.6, manipulation=0.6, photo=0.8,
     ),
+    # Model Studio's decision model, chosen in .scratch/bailian-judge/thresholds.md, answers
+    # the same every time, so each sits mid-gap. It is sure a turn needs nothing looked up,
+    # and seldom sure one does, so a little is enough; it finds most turns somewhat about a
+    # past episode. Asking for a photo it cannot tell from talk of photos: only 0.92 takes
+    # no turn not asking for asking, and misses half the asking.
+    "decision-model": JudgeThresholds(
+        needs_retrieval=0.06, recall=0.8, about_producer=0.1, emotion=0.4,
+        out_of_line=0.3, manipulation=0.4, photo=0.92,
+    ),
 }
 FALLBACK_FAMILY: JudgeFamily = "jev"
 """Whose thresholds a model not in `JUDGE_THRESHOLDS` gets."""
@@ -123,6 +132,8 @@ def judge_family(model: str) -> JudgeFamily | None:
         return name  # pyright: ignore[reportReturnType]  # checked above
     if name == "jev" or name.startswith("jev-"):  # Jev is named by version, or as latest
         return "jev"
+    if name == "decision-model" or name.startswith("decision-model-"):  # as preview, or not
+        return "decision-model"
     return None
 
 

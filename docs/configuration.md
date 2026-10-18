@@ -294,14 +294,15 @@ docker compose exec backend eidolon reembed
 
 判断模型每个回合判断要不要检索、检索什么，打开了[好感度](#好感度和礼物)时还判断这句话让好感度怎样变化；通话中还判断每段回复的情绪。用 `JUDGE_PROVIDER` 选一家，一家出错时不会换用另一家。
 
-| | Jev（默认） | Clef-flash | Clef |
-|---|---|---|---|
-| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` |
-| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 |
-| 每天的免费额度 | 无 | 约 2,000 次判断（好感度开着时约 860 次） | 约 750 次判断（好感度开着时约 320 次） |
+| | Jev（默认） | Clef-flash | Clef | 百炼决策模型 |
+|---|---|---|---|---|
+| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` | `JUDGE_PROVIDER=bailian` |
+| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 | 预览版限时免费 |
+| 每天的免费额度 | 无 | 约 2,000 次判断（好感度开着时约 860 次） | 约 750 次判断（好感度开着时约 320 次） | 未公布 |
 
 - **Jev**：默认经 [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 调用，`JEV_API_KEY` 填 OpenRouter 的 key。也可以把 `JEV_BASE_URL` 换成 Vercel AI Gateway 或 TypeSafe 直连，写法见 `.env.example`。
 - **Clef 和 Clef-flash**：Cloudflare 的判断模型，直连 Workers AI。Clef 的检索判断更准（在仓库的评测集上 94% 对 87%），但贵将近 3 倍。公开部署应开 Workers Paid：免费额度用完后，当天的判断都按失败处理。凭证怎么取见 `.env.example`。
+- **百炼决策模型**：阿里云百炼的 `decision-model-preview`，经业务空间的专属地址调用，延迟最低。检索判断和 Clef-flash 相当（89%），但好感度的判断偏高、分不清聊照片和要照片，所以只适合关了[好感度](#好感度和礼物)的部署；开着好感度时用 Jev。业务空间 ID 和 key 怎么取见 `.env.example`。
 - **阈值**：判断的阈值按模型写在代码里，用 `eidolon eval judge` 在仓库的评测集上定出（见 [`deploy.md`](deploy.md) 的「校准判断模型阈值」）。
 
 ```mermaid

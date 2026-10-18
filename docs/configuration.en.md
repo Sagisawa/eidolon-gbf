@@ -294,14 +294,15 @@ Once the embedding key and `SILICONFLOW_API_KEY` (reranking) are set and a judge
 
 Every turn, the judge decides whether to look anything up and what, and, with [affinity](#affinity-and-gifts) on, how the line changes her affinity. In calls, it also judges the emotion of each segment of a reply. Choose one provider with `JUDGE_PROVIDER`; if it errs, the other is never used in its place.
 
-| | Jev (default) | Clef-flash | Clef |
-|---|---|---|---|
-| Settings | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | Additionally `CLOUDFLARE_JUDGE_MODEL=clef` |
-| Price (per million input tokens; output is free) | $0.042 | $0.09 | $0.24 |
-| Free allocation per day | None | About 2,000 judgements (about 860 with affinity on) | About 750 judgements (about 320 with affinity on) |
+| | Jev (default) | Clef-flash | Clef | Model Studio decision model |
+|---|---|---|---|---|
+| Settings | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | Additionally `CLOUDFLARE_JUDGE_MODEL=clef` | `JUDGE_PROVIDER=bailian` |
+| Price (per million input tokens; output is free) | $0.042 | $0.09 | $0.24 | Free for a limited time in preview |
+| Free allocation per day | None | About 2,000 judgements (about 860 with affinity on) | About 750 judgements (about 320 with affinity on) | Not published |
 
 - **Jev**: Called through [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) by default; `JEV_API_KEY` takes an OpenRouter key. You can also point `JEV_BASE_URL` at Vercel AI Gateway or TypeSafe directly; see `.env.example` for how.
 - **Clef and Clef-flash**: Cloudflare's judge models, called directly on Workers AI. Clef judges retrieval more accurately (94% against 87% on the repo's eval set), but costs nearly 3× as much. A public deployment should be on Workers Paid: once the free allocation is used up, every judgement fails for the rest of the day. How to get the credentials is in `.env.example`.
+- **Model Studio decision model**: Alibaba Cloud Model Studio's `decision-model-preview`, called at the workspace's own endpoint, with the lowest latency. It judges retrieval about as well as Clef-flash (89%), but rates affinity too high and cannot tell talk of photos from asking for one, so it suits only deployments with [affinity](#affinity-and-gifts) off; with affinity on, use Jev. How to get the workspace ID and key is in `.env.example`.
 - **Thresholds**: The judgement thresholds are set per model in code, determined with `eidolon eval judge` on the repo's eval set (see "校准判断模型阈值" in [`deploy.md`](deploy.md) (Chinese)).
 
 ```mermaid

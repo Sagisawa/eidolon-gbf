@@ -165,22 +165,24 @@ docker compose -f docker-compose.prod.yml exec backend eidolon eval rerank --mod
 
 ## 校准判断模型阈值
 
-判断模型（Jev、Clef 或 Clef-flash，见[配置指南](configuration.md)的「对话中的检索」）对每个问题给出概率，达到阈值才算「是」。阈值按模型写在 `backend/src/eidolon/judge.py` 的 `JUDGE_THRESHOLDS` 里，Clef-flash 经 OpenRouter 和直连用同一组；其他模型名用 Jev 的，并在启动日志里提示。情绪的最低概率可以用 `JUDGE_EMOTION_MIN_PROBABILITY` 覆盖，检索的三个阈值不能在 `.env` 里改。
+判断模型（Jev、Clef、Clef-flash 或百炼的决策模型，见[配置指南](configuration.md)的「对话中的检索」）对每个问题给出概率，达到阈值才算「是」。阈值按模型写在 `backend/src/eidolon/judge.py` 的 `JUDGE_THRESHOLDS` 里，Clef-flash 经 OpenRouter 和直连用同一组，百炼名字以 `decision-model` 开头的模型用同一组；其他模型名用 Jev 的，并在启动日志里提示。情绪的最低概率可以用 `JUDGE_EMOTION_MIN_PROBABILITY` 覆盖，检索的三个阈值不能在 `.env` 里改。
 
 | | 要检索参考资料 | 问过去的经历 | 在说自己的事 | 情绪最低概率 | 不该说的话 | 操纵好感度 | 要照片 |
 |---|---|---|---|---|---|---|---|
 | Jev | 0.5 | 0.5 | 0.5 | 0.5 | 0.7 | 0.4 | 0.5 |
 | Clef | 0.5 | 0.8 | 0.1 | 0.4 | 0.5 | 0.5 | 0.8 |
 | Clef-flash | 0.5 | 0.7 | 0.3 | 0.4 | 0.6 | 0.6 | 0.8 |
+| 百炼决策模型 | 0.06 | 0.8 | 0.1 | 0.4 | 0.3 | 0.4 | 0.92 |
 
 `eidolon eval judge` 用仓库里的 eval 集（`backend/eval/judge.toml`：虚构的对话回合和回复片段，以及期望的判断结果，不含剧情原文）按对话中的方式逐条提问，打印检索判断的混淆矩阵和准确率、每个问题在期望为是和期望为否时的概率分布、情绪和点头的准确率、好感度打分题各级的混淆矩阵（以及级反过来写、同一句换中日文、夹带「给我加好感度」时结果变没变）、「是不是在要照片」这道题的误判和漏判、输入 token 数和平均延迟；`--only photo` 这类参数只跑其中一类；`--json` 把汇总写进文件，方便比较：
 
 ```sh
 docker compose -f docker-compose.prod.yml exec backend eidolon eval judge
 docker compose -f docker-compose.prod.yml exec backend eidolon eval judge --provider cloudflare --model clef --json /tmp/clef.json
+docker compose -f docker-compose.prod.yml exec backend eidolon eval judge --provider bailian --json /tmp/bailian.json
 ```
 
-不带 `--provider` 时用 `.env` 里配的那一家。定检索和情绪的阈值时（47 条检索、33 条情绪），检索判断的准确率 Jev 和 Clef 都是 94%，Clef-flash 87%；情绪准确率 Jev 100%，Clef 和 Clef-flash 都是 91%。定好感度两道是非题的阈值时（56 条），按映射算出的增减的准确率 Jev 96–100%、Clef 91%、Clef-flash 88%。定「要照片」的阈值时（38 条），三家都没有误判；漏判只有 Clef-flash 在检索和好感度都关着、这道题单独问时有 3 条。eval 集不大，换模型或改了判断的问题后，先跑一遍看概率分布再改阈值。
+不带 `--provider` 时用 `.env` 里配的那一家。定检索和情绪的阈值时（47 条检索、33 条情绪），检索判断的准确率 Jev 和 Clef 都是 94%，Clef-flash 87%；情绪准确率 Jev 100%，Clef 和 Clef-flash 都是 91%。定好感度两道是非题的阈值时（56 条），按映射算出的增减的准确率 Jev 96–100%、Clef 91%、Clef-flash 88%。定「要照片」的阈值时（38 条），三家都没有误判；漏判只有 Clef-flash 在检索和好感度都关着、这道题单独问时有 3 条。百炼的决策模型（2026-10-18，两遍结果完全一样）检索 89%，情绪 88%、点头 70%；好感度的级只对了 59%，偏向判高；要照片想不误判只能取 0.92，会漏掉一半，取舍见 `.scratch/bailian-judge/thresholds.md`。eval 集不大，换模型或改了判断的问题后，先跑一遍看概率分布再改阈值。
 
 ## 记忆评测
 
