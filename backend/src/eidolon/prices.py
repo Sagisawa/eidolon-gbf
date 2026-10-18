@@ -118,6 +118,10 @@ PRESETS: dict[PriceKey, Price] = {
         "cloudflare/clef-flash": (0.09, 0),
     }, "USD"),
     **_tokens("api.cloudflare.com", {"clef": (0.24, None), "clef-flash": (0.09, None)}, "USD"),
+    # Model Studio's decision model, free for a limited time while in preview, with no
+    # price yet for after.
+    **_tokens("cn-beijing.maas.aliyuncs.com", {"decision-model-preview": (0, None)}, "CNY"),
+    **_tokens("ap-southeast-1.maas.aliyuncs.com", {"decision-model-preview": (0, None)}, "USD"),
     # Embedding and reranking, per million input tokens.
     **_tokens("api.siliconflow.cn", {
         "Qwen/Qwen3-Embedding-0.6B": (0.07, None),

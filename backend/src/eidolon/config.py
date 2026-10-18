@@ -155,9 +155,9 @@ DEFAULT_JEV_MODEL = "typesafe/jev-1.13"
 """Pinned: a new Jev changes which turns retrieve, so moving to one is a choice, checked
 in a real conversation."""
 
-JudgeProvider = Literal["jev", "cloudflare"]
-"""The services the judge model may be: Jev through a System One endpoint, or Cloudflare's
-Clef on Workers AI."""
+JudgeProvider = Literal["jev", "cloudflare", "bailian"]
+"""The services the judge model may be: Jev through a System One endpoint, Cloudflare's
+Clef on Workers AI, or Alibaba Cloud Model Studio's decision model."""
 
 JUDGE_PROVIDERS: tuple[JudgeProvider, ...] = get_args(JudgeProvider)
 
@@ -165,6 +165,11 @@ CloudflareJudgeModel = Literal["clef", "clef-flash"]
 CLOUDFLARE_JUDGE_MODELS: tuple[CloudflareJudgeModel, ...] = get_args(CloudflareJudgeModel)
 DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
 """For now: the judge eval (ticket cloudflare-judge 03) decides."""
+
+DEFAULT_BAILIAN_JUDGE_MODEL = "decision-model-preview"
+DEFAULT_BAILIAN_JUDGE_REGION: BailianRegion = "beijing"
+BAILIAN_REGION_CODES: dict[BailianRegion, str] = {"beijing": "cn-beijing", "singapore": "ap-southeast-1"}
+"""Alibaba Cloud's names for the regions the decision model is served in."""
 
 DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net"
 DEFAULT_NOVELAI_MODEL = "nai-diffusion-5-curated"
@@ -875,14 +880,48 @@ class CloudflareJudgeSettings:
         )
 
 
-JudgeSettings = JevSettings | CloudflareJudgeSettings
+@dataclass(frozen=True)
+class BailianJudgeSettings:
+    """Alibaba Cloud Model Studio's decision model, served over System One as Jev is, but
+    only at a workspace's own endpoint, with a key of that workspace."""
+
+    api_key: str
+    workspace_id: str
+    region: BailianRegion = DEFAULT_BAILIAN_JUDGE_REGION
+    model: str = DEFAULT_BAILIAN_JUDGE_MODEL
+
+    @property
+    def host(self) -> str:
+        """The region's host, the provider whichever workspace is in it."""
+        return f"{BAILIAN_REGION_CODES[self.region]}.maas.aliyuncs.com"
+
+    @property
+    def base_url(self) -> str:
+        return f"https://{self.workspace_id}.{self.host}/compatible-mode/v1"
+
+    @classmethod
+    def from_env(cls) -> "BailianJudgeSettings":
+        region = os.environ.get("BAILIAN_JUDGE_REGION") or DEFAULT_BAILIAN_JUDGE_REGION
+        if region not in BAILIAN_REGION_CODES:
+            raise RuntimeError(
+                f"环境变量 BAILIAN_JUDGE_REGION 只能是 {'、'.join(BAILIAN_REGION_CODES)}，而不是 {region}"
+            )
+        return cls(
+            api_key=_required("BAILIAN_JUDGE_API_KEY"),
+            workspace_id=_required("BAILIAN_JUDGE_WORKSPACE_ID"),
+            region=region,  # pyright: ignore[reportArgumentType]  # checked above
+            model=os.environ.get("BAILIAN_JUDGE_MODEL") or DEFAULT_BAILIAN_JUDGE_MODEL,
+        )
+
+
+JudgeSettings = JevSettings | CloudflareJudgeSettings | BailianJudgeSettings
 """The judge model chosen, and how to reach it."""
 
 
 def judge_from_env(provider: str | None = None) -> JudgeSettings | None:
-    """The judge model `provider`, or else `JUDGE_PROVIDER`, chooses: Cloudflare's needs
-    both its settings, and the `JEV_*` ones are then ignored; Jev, the default, is off
-    without its key."""
+    """The judge model `provider`, or else `JUDGE_PROVIDER`, chooses: Cloudflare's and
+    Model Studio's need their settings, and the `JEV_*` ones are then ignored; Jev, the
+    default, is off without its key."""
     provider = provider or os.environ.get("JUDGE_PROVIDER") or "jev"
     if provider not in JUDGE_PROVIDERS:
         raise RuntimeError(
@@ -890,6 +929,8 @@ def judge_from_env(provider: str | None = None) -> JudgeSettings | None:
         )
     if provider == "cloudflare":
         return CloudflareJudgeSettings.from_env()
+    if provider == "bailian":
+        return BailianJudgeSettings.from_env()
     return _jev_from_env()
 
 

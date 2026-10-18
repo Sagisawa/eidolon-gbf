@@ -60,9 +60,11 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CLOUDFLARE_JUDGE_MODELS,
+    DEFAULT_BAILIAN_JUDGE_REGION,
     ChatModelSettings,
     DEFAULT_JEV_BASE_URL,
     FISH_AUDIO_MODELS,
+    BailianJudgeSettings,
     CloudflareJudgeSettings,
     ImageSettings,
     JevSettings,
@@ -491,8 +493,10 @@ class _Image(_Item):
 
 class _Judge(_Item):
     name = JUDGE
-    fields = ("provider", "api_key", "model", "account_id", "emotion_timeout")
+    fields = ("provider", "api_key", "model", "account_id", "workspace_id", "region", "emotion_timeout")
     secrets = frozenset({"api_key"})
+    _per_service = ("api_key", "account_id", "workspace_id", "region")
+    """What each service has of its own, and another cannot use."""
     unavailable_reason = (
         ".env 里没有配置判断模型，检索、记忆和通话中的情绪判断在启动时就关掉了；"
         "要启用，请在 .env 里配置后重启"
@@ -503,25 +507,33 @@ class _Judge(_Item):
 
     def env(self) -> Values:
         judge = self.c.settings.judge
-        timeout = self.c.settings.emotion.timeout
+        values: Values = {field: None for field in self._per_service} | {
+            "emotion_timeout": self.c.settings.emotion.timeout
+        }
         if isinstance(judge, CloudflareJudgeSettings):
-            return {"provider": "cloudflare", "api_key": judge.api_token, "model": judge.model,
-                    "account_id": judge.account_id, "emotion_timeout": timeout}
+            return values | {"provider": "cloudflare", "api_key": judge.api_token,
+                             "model": judge.model, "account_id": judge.account_id}
+        if isinstance(judge, BailianJudgeSettings):
+            return values | {"provider": "bailian", "api_key": judge.api_key, "model": judge.model,
+                             "workspace_id": judge.workspace_id, "region": judge.region}
         assert judge is not None
-        return {"provider": "jev", "api_key": judge.api_key, "model": judge.model,
-                "account_id": None, "emotion_timeout": timeout}
+        return values | {"provider": "jev", "api_key": judge.api_key, "model": judge.model}
 
     def candidate(self, current: Values, change: Values) -> Values:
         env = self.env()
         values = current | change
         provider = values["provider"]
         if provider != current["provider"]:
-            # Another service's key and account cannot be the one in effect.
-            for field in ("api_key", "account_id"):
+            # Another service's key, account and workspace cannot be the ones in effect.
+            for field in self._per_service:
                 if field not in change:
                     values[field] = env[field] if env["provider"] == provider else None
             if "api_key" not in change and values["api_key"] is None:
                 raise ConfigInvalid("换了判断模型的服务，需要填写它的 key")
+        if provider != "cloudflare":
+            values["account_id"] = None
+        if provider != "bailian":
+            values["workspace_id"] = values["region"] = None
         if provider == "cloudflare":
             if not values["account_id"]:
                 raise ConfigInvalid("Cloudflare 需要填写账号 ID（account_id）")
@@ -529,8 +541,10 @@ class _Judge(_Item):
                 raise ConfigInvalid(
                     f"Cloudflare 的判断模型只能是 {'、'.join(CLOUDFLARE_JUDGE_MODELS)}"
                 )
-        else:
-            values["account_id"] = None
+        if provider == "bailian":
+            if not values["workspace_id"]:
+                raise ConfigInvalid("阿里云百炼需要填写业务空间 ID（workspace_id）")
+            values["region"] = values["region"] or DEFAULT_BAILIAN_JUDGE_REGION
         return values
 
     async def tried(self, values: Values) -> tuple[Values, Any]:
@@ -1168,6 +1182,10 @@ class LiveConfig:
     def _judge_settings(self, values: Values) -> JudgeSettings:
         if values["provider"] == "cloudflare":
             return CloudflareJudgeSettings(values["api_key"], values["account_id"], values["model"])
+        if values["provider"] == "bailian":
+            return BailianJudgeSettings(
+                values["api_key"], values["workspace_id"], values["region"], values["model"]
+            )
         env = self.settings.judge
         base_url = env.base_url if isinstance(env, JevSettings) else DEFAULT_JEV_BASE_URL
         return JevSettings(values["api_key"], values["model"], base_url)

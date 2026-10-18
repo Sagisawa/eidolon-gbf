@@ -12,7 +12,7 @@
 > | 文字对话 | `CHAT_LLM_*` |
 > | 语音通话 | `FISH_AUDIO_API_KEY`，加语音识别的 key：`SONIOX_API_KEY`（默认），或 `STT_PROVIDER=bailian` 加 `DASHSCOPE_API_KEY` |
 > | 剧情库（同步或导入） | 向量化的 key：`SILICONFLOW_API_KEY`（默认），或 `EMBEDDING_PROVIDER=gemini` 加 `GEMINI_API_KEY` |
-> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID` |
+> | 检索与记忆 | 向量化的 key、`SILICONFLOW_API_KEY`（重排），加判断模型：`JEV_API_KEY`（默认），或 `JUDGE_PROVIDER=cloudflare` 加 `CLOUDFLARE_API_TOKEN`、`CLOUDFLARE_ACCOUNT_ID`，或 `JUDGE_PROVIDER=bailian` 加 `BAILIAN_JUDGE_API_KEY`、`BAILIAN_JUDGE_WORKSPACE_ID` |
 > | 好感度和礼物 | 判断模型（开关默认打开） |
 > | 照片 | 判断模型，加生图的 key：`NOVELAI_API_KEY` |
 > | 立绘与落地页的招呼 | `EIDOLON_STAND_ASSETS_URL`，以及存放素材的存储桶 |
@@ -294,14 +294,15 @@ docker compose exec backend eidolon reembed
 
 判断模型每个回合判断要不要检索、检索什么，打开了[好感度](#好感度和礼物)时还判断这句话让好感度怎样变化；通话中还判断每段回复的情绪。用 `JUDGE_PROVIDER` 选一家，一家出错时不会换用另一家。
 
-| | Jev（默认） | Clef-flash | Clef |
-|---|---|---|---|
-| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` |
-| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 |
-| 每天的免费额度 | 无 | 约 2,000 次判断（好感度开着时约 860 次） | 约 750 次判断（好感度开着时约 320 次） |
+| | Jev（默认） | Clef-flash | Clef | 百炼决策模型 |
+|---|---|---|---|---|
+| 设置 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | 再加 `CLOUDFLARE_JUDGE_MODEL=clef` | `JUDGE_PROVIDER=bailian` |
+| 价格（每百万输入 token，输出不收费） | $0.042 | $0.09 | $0.24 | 预览版限时免费 |
+| 每天的免费额度 | 无 | 约 2,000 次判断（好感度开着时约 860 次） | 约 750 次判断（好感度开着时约 320 次） | 未公布 |
 
 - **Jev**：默认经 [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 调用，`JEV_API_KEY` 填 OpenRouter 的 key。也可以把 `JEV_BASE_URL` 换成 Vercel AI Gateway 或 TypeSafe 直连，写法见 `.env.example`。
 - **Clef 和 Clef-flash**：Cloudflare 的判断模型，直连 Workers AI。Clef 的检索判断更准（在仓库的评测集上 94% 对 87%），但贵将近 3 倍。公开部署应开 Workers Paid：免费额度用完后，当天的判断都按失败处理。凭证怎么取见 `.env.example`。
+- **百炼决策模型**：阿里云百炼的 `decision-model-preview`，经业务空间的专属地址调用，延迟最低。检索判断和 Clef-flash 相当（89%），但好感度的判断偏高、分不清聊照片和要照片，所以只适合关了[好感度](#好感度和礼物)的部署；开着好感度时用 Jev。业务空间 ID 和 key 怎么取见 `.env.example`。
 - **阈值**：判断的阈值按模型写在代码里，用 `eidolon eval judge` 在仓库的评测集上定出（见 [`deploy.md`](deploy.md) 的「校准判断模型阈值」）。
 
 ```mermaid
@@ -461,7 +462,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | 扮演角色的 LLM（文字和通话） |
 | `memory_llm` | 后台模型（跟随扮演角色的 LLM 时也要单独列） |
-| `judge` | 判断模型（Jev 或 Cloudflare） |
+| `judge` | 判断模型（Jev、Cloudflare 或阿里云百炼） |
 | `embedding` | 向量化 |
 | `rerank` | 重排 |
 | `tts` | 语音合成（Fish Audio） |

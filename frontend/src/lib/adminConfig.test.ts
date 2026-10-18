@@ -241,6 +241,16 @@ describe("formOf and changeOf", () => {
     expect(changeOf(ITEM_SPECS.judge, { ...judge, emotion_timeout: "1.5" }, true)).toEqual({
       change: { provider: "jev", model: "typesafe/jev-1.13", emotion_timeout: 1.5 },
     });
+    // 百炼的业务空间和地域：没填、没选的不发，由服务器沿用或取默认的北京。
+    const bailian = { ...judge, provider: "bailian", model: "decision-model-preview", emotion_timeout: "1.5" };
+    expect(changeOf(ITEM_SPECS.judge, { ...bailian, workspace_id: " llm-ws1 ", region: "singapore" }, true)).toEqual({
+      change: {
+        provider: "bailian", model: "decision-model-preview", workspace_id: "llm-ws1", region: "singapore", emotion_timeout: 1.5,
+      },
+    });
+    expect(changeOf(ITEM_SPECS.judge, { ...bailian, workspace_id: "", region: "" }, true)).toEqual({
+      change: { provider: "bailian", model: "decision-model-preview", emotion_timeout: 1.5 },
+    });
   });
 });
 

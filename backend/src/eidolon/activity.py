@@ -61,6 +61,7 @@ from eidolon.billing import Billing, billing
 from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
+    BailianJudgeSettings,
     CloudflareJudgeSettings,
     ImageSettings,
     JudgeSettings,
@@ -878,6 +879,8 @@ def judge_origin(settings: JudgeSettings | None) -> Origin:
     """The judge model `settings` choose, as its service calls are recorded."""
     if isinstance(settings, CloudflareJudgeSettings):
         return Origin("judge", host(CLOUDFLARE_API_URL), settings.model)
+    if isinstance(settings, BailianJudgeSettings):  # the region's, not the workspace's
+        return Origin("judge", settings.host, settings.model)
     return Origin(
         "judge", host(settings and settings.base_url), settings.model if settings else "unknown"
     )

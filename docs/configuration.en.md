@@ -12,7 +12,7 @@ This guide explains how to turn on and tune each feature, and how the characters
 > | Text chat | `CHAT_LLM_*` |
 > | Voice calls | `FISH_AUDIO_API_KEY`, plus a speech recognition key: `SONIOX_API_KEY` (default), or `STT_PROVIDER=bailian` plus `DASHSCOPE_API_KEY` |
 > | Story corpus (sync or import) | An embedding key: `SILICONFLOW_API_KEY` (default), or `EMBEDDING_PROVIDER=gemini` plus `GEMINI_API_KEY` |
-> | Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or `JUDGE_PROVIDER=cloudflare` plus `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` |
+> | Retrieval and memory | An embedding key, `SILICONFLOW_API_KEY` (reranking), plus a judge: `JEV_API_KEY` (default), or `JUDGE_PROVIDER=cloudflare` plus `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, or `JUDGE_PROVIDER=bailian` plus `BAILIAN_JUDGE_API_KEY` and `BAILIAN_JUDGE_WORKSPACE_ID` |
 > | Affinity and gifts | A judge (the switch is on by default) |
 > | Photos | A judge, plus an image generation key: `NOVELAI_API_KEY` |
 > | Stands and the landing page's greetings | `EIDOLON_STAND_ASSETS_URL`, and a bucket holding the assets |
@@ -294,14 +294,15 @@ Once the embedding key and `SILICONFLOW_API_KEY` (reranking) are set and a judge
 
 Every turn, the judge decides whether to look anything up and what, and, with [affinity](#affinity-and-gifts) on, how the line changes her affinity. In calls, it also judges the emotion of each segment of a reply. Choose one provider with `JUDGE_PROVIDER`; if it errs, the other is never used in its place.
 
-| | Jev (default) | Clef-flash | Clef |
-|---|---|---|---|
-| Settings | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | Additionally `CLOUDFLARE_JUDGE_MODEL=clef` |
-| Price (per million input tokens; output is free) | $0.042 | $0.09 | $0.24 |
-| Free allocation per day | None | About 2,000 judgements (about 860 with affinity on) | About 750 judgements (about 320 with affinity on) |
+| | Jev (default) | Clef-flash | Clef | Model Studio decision model |
+|---|---|---|---|---|
+| Settings | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | Additionally `CLOUDFLARE_JUDGE_MODEL=clef` | `JUDGE_PROVIDER=bailian` |
+| Price (per million input tokens; output is free) | $0.042 | $0.09 | $0.24 | Free for a limited time in preview |
+| Free allocation per day | None | About 2,000 judgements (about 860 with affinity on) | About 750 judgements (about 320 with affinity on) | Not published |
 
 - **Jev**: Called through [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) by default; `JEV_API_KEY` takes an OpenRouter key. You can also point `JEV_BASE_URL` at Vercel AI Gateway or TypeSafe directly; see `.env.example` for how.
 - **Clef and Clef-flash**: Cloudflare's judge models, called directly on Workers AI. Clef judges retrieval more accurately (94% against 87% on the repo's eval set), but costs nearly 3× as much. A public deployment should be on Workers Paid: once the free allocation is used up, every judgement fails for the rest of the day. How to get the credentials is in `.env.example`.
+- **Model Studio decision model**: Alibaba Cloud Model Studio's `decision-model-preview`, called at the workspace's own endpoint, with the lowest latency. It judges retrieval about as well as Clef-flash (89%), but rates affinity too high and cannot tell talk of photos from asking for one, so it suits only deployments with [affinity](#affinity-and-gifts) off; with affinity on, use Jev. How to get the workspace ID and key is in `.env.example`.
 - **Thresholds**: The judgement thresholds are set per model in code, determined with `eidolon eval judge` on the repo's eval set (see "校准判断模型阈值" in [`deploy.md`](deploy.md) (Chinese)).
 
 ```mermaid
@@ -461,7 +462,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | The LLM playing the character (text and calls) |
 | `memory_llm` | The background model (list it even when it follows the chat model) |
-| `judge` | The judge (Jev or Cloudflare) |
+| `judge` | The judge (Jev, Cloudflare or Alibaba Cloud Model Studio) |
 | `embedding` | Embedding |
 | `rerank` | Reranking |
 | `tts` | Speech synthesis (Fish Audio) |

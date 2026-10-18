@@ -12,7 +12,7 @@
 > | テキストチャット | `CHAT_LLM_*` |
 > | 音声通話 | `FISH_AUDIO_API_KEY` と音声認識のキー：`SONIOX_API_KEY`（デフォルト）、または `STT_PROVIDER=bailian` と `DASHSCOPE_API_KEY` |
 > | シナリオライブラリ（同期または取り込み） | ベクトル化のキー：`SILICONFLOW_API_KEY`（デフォルト）、または `EMBEDDING_PROVIDER=gemini` と `GEMINI_API_KEY` |
-> | 検索とメモリー | ベクトル化のキー、`SILICONFLOW_API_KEY`（並べ替え用）、判断モデル：`JEV_API_KEY`（デフォルト）、または `JUDGE_PROVIDER=cloudflare` と `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID` |
+> | 検索とメモリー | ベクトル化のキー、`SILICONFLOW_API_KEY`（並べ替え用）、判断モデル：`JEV_API_KEY`（デフォルト）、または `JUDGE_PROVIDER=cloudflare` と `CLOUDFLARE_API_TOKEN`・`CLOUDFLARE_ACCOUNT_ID`、または `JUDGE_PROVIDER=bailian` と `BAILIAN_JUDGE_API_KEY`・`BAILIAN_JUDGE_WORKSPACE_ID` |
 > | 好感度とプレゼント | 判断モデル（スイッチは初期状態でオン） |
 > | 写真 | 判断モデルと画像生成のキー：`NOVELAI_API_KEY` |
 > | 立ち絵とランディングページのあいさつ | `EIDOLON_STAND_ASSETS_URL` と素材を置くストレージバケット |
@@ -294,14 +294,15 @@ docker compose exec backend eidolon reembed
 
 判断モデルはターンごとに検索が必要か、何を検索するかを判断し、[好感度](#好感度とプレゼント)がオンならその発言で好感度がどう変わるかも判断します。通話中は返事のひとまとまりごとの感情も判断します。`JUDGE_PROVIDER` で 1 社を選び、エラーになってももう一方に切り替えることはしません。
 
-| | Jev（デフォルト） | Clef-flash | Clef |
-|---|---|---|---|
-| 設定 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | さらに `CLOUDFLARE_JUDGE_MODEL=clef` |
-| 料金（入力 100 万トークンあたり、出力は無料） | $0.042 | $0.09 | $0.24 |
-| 1 日の無料枠 | なし | 約 2,000 回の判断（好感度がオンなら約 860 回） | 約 750 回の判断（好感度がオンなら約 320 回） |
+| | Jev（デフォルト） | Clef-flash | Clef | Model Studio の判断モデル |
+|---|---|---|---|---|
+| 設定 | `JEV_API_KEY` | `JUDGE_PROVIDER=cloudflare` | さらに `CLOUDFLARE_JUDGE_MODEL=clef` | `JUDGE_PROVIDER=bailian` |
+| 料金（入力 100 万トークンあたり、出力は無料） | $0.042 | $0.09 | $0.24 | プレビュー版は期間限定で無料 |
+| 1 日の無料枠 | なし | 約 2,000 回の判断（好感度がオンなら約 860 回） | 約 750 回の判断（好感度がオンなら約 320 回） | 未公表 |
 
 - **Jev**：デフォルトでは [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) 経由で呼び出し、`JEV_API_KEY` には OpenRouter のキーを設定します。`JEV_BASE_URL` を Vercel AI Gateway や TypeSafe への直接接続に変えることもでき、書き方は `.env.example` にあります。
 - **Clef と Clef-flash**：Cloudflare の判断モデルで、Workers AI に直接つなぎます。Clef は検索の判断がより正確です（リポジトリの評価用データセットで 94% 対 87%）が、料金は 3 倍近くです。公開デプロイでは Workers Paid にしてください。無料枠を使い切ると、その日の判断はすべて失敗扱いになります。認証情報の取得方法は `.env.example` にあります。
+- **Model Studio の判断モデル**：Alibaba Cloud Model Studio の `decision-model-preview` で、ワークスペース専用のエンドポイントで呼び出し、遅延がいちばん小さいです。検索の判断は Clef-flash と同程度（89%）ですが、好感度を高めに判断し、写真の話と写真をねだる発言を区別できないため、[好感度](#好感度とプレゼント)をオフにしたデプロイにだけ向いています。好感度がオンなら Jev を使ってください。ワークスペース ID とキーの取得方法は `.env.example` にあります。
 - **しきい値**：判断のしきい値はモデルごとにコードで決めていて、リポジトリの評価用データセットに対して `eidolon eval judge` で定めたものです（[`deploy.md`](deploy.md)（中国語）の「校准判断模型阈值」を参照）。
 
 ```mermaid
@@ -461,7 +462,7 @@ EIDOLON_PROXY_SERVICES=chat_llm,tts,stt
 |---|---|
 | `chat_llm` | アイドルを演じる LLM（テキストと通話） |
 | `memory_llm` | バックグラウンドモデル（演じる LLM に従っている場合も個別に書く） |
-| `judge` | 判断モデル（Jev または Cloudflare） |
+| `judge` | 判断モデル（Jev、Cloudflare または Alibaba Cloud Model Studio） |
 | `embedding` | ベクトル化 |
 | `rerank` | 並べ替え |
 | `tts` | 音声合成（Fish Audio） |
