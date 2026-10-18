@@ -47,6 +47,7 @@ from eidolon.account_api import OwnKeysInput, add_account_routes
 from eidolon.admin_api import add_admin_routes
 from eidolon.admin_backup_api import add_admin_backup_routes
 from eidolon.dashboard import add_dashboard_routes
+from eidolon.data_package_api import add_data_package_routes
 from eidolon.admin_users_api import add_admin_user_routes
 from eidolon.admin_config_api import add_admin_config_routes
 from eidolon.admin_prices_api import add_admin_price_routes
@@ -338,6 +339,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_announcement_routes(app, backend)
     add_gift_routes(app, backend)
     add_photo_routes(app, backend)
+    add_data_package_routes(app, backend)
     add_stats_routes(app, backend)
     add_service_status_routes(app, backend.service_status)
 

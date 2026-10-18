@@ -1,0 +1,127 @@
+import { strToU8, zipSync } from "fflate";
+import { describe, expect, it } from "vitest";
+
+import { ApiError } from "@/lib/api";
+import {
+  choose,
+  chosenCategories,
+  exportHref,
+  importFailureMessage,
+  importSummary,
+  isDisabled,
+  readManifest,
+  selectAll,
+} from "@/lib/dataPackage";
+
+describe("勾选框", () => {
+  it("默认全选给出的几类", () => {
+    expect(chosenCategories(selectAll(["conversations", "photos", "memories", "profile"]))).toEqual([
+      "conversations",
+      "photos",
+      "memories",
+      "profile",
+    ]);
+    expect(chosenCategories(selectAll(["profile"]))).toEqual(["profile"]);
+  });
+
+  it("不勾对话时照片既不能勾、也算没勾；再勾上对话，照片仍是没勾", () => {
+    const all = selectAll(["conversations", "photos", "memories", "profile"]);
+
+    const noConversations = choose(all, "conversations", false);
+    expect(isDisabled(noConversations, "photos")).toBe(true);
+    expect(chosenCategories(noConversations)).toEqual(["memories", "profile"]);
+    expect(chosenCategories(choose(noConversations, "photos", true))).toEqual(["memories", "profile"]);
+
+    const back = choose(noConversations, "conversations", true);
+    expect(isDisabled(back, "photos")).toBe(false);
+    expect(chosenCategories(back)).toEqual(["conversations", "memories", "profile"]);
+  });
+
+  it("导出地址按顺序列出勾了的几类", () => {
+    const choice = choose(selectAll(["conversations", "photos", "memories", "profile"]), "memories", false);
+    expect(exportHref(chosenCategories(choice))).toBe("/api/account/data-package?include=conversations%2Cphotos%2Cprofile");
+  });
+});
+
+function zip(entries: Record<string, [string, number]>): Blob {
+  const files = Object.fromEntries(
+    Object.entries(entries).map(([name, [text, level]]) => [name, [strToU8(text), { level }]]),
+  );
+  return new Blob([zipSync(files as Parameters<typeof zipSync>[0])]);
+}
+
+const MANIFEST = { format: 1, exported_at: "2026-10-19T08:00:00.000000+00:00", categories: ["profile"], counts: { profile: 1 } };
+
+describe("读数据包开头的 manifest.json", () => {
+  it("列出包里有、这里能导入的几类", async () => {
+    const manifest = { ...MANIFEST, categories: ["profile", "albums"] };
+    const file = zip({ "manifest.json": [JSON.stringify(manifest), 0], "data.json": ["{}", 6] });
+
+    expect(await readManifest(file)).toEqual({ kind: "package", categories: ["profile"] });
+  });
+
+  it("格式比这里新时是 too_new", async () => {
+    const file = zip({ "manifest.json": [JSON.stringify({ ...MANIFEST, format: 2 }), 0], "data.json": ["{}", 6] });
+
+    expect(await readManifest(file)).toEqual({ kind: "too_new" });
+  });
+
+  it("读不出来就是坏包", async () => {
+    const cases: Record<string, Blob> = {
+      "不是 zip": new Blob(["not a zip at all"]),
+      "第一个条目不是 manifest.json": zip({ "data.json": ["{}", 6], "manifest.json": [JSON.stringify(MANIFEST), 0] }),
+      "不是 JSON": zip({ "manifest.json": ["{", 0] }),
+      "没有格式号": zip({ "manifest.json": [JSON.stringify({ categories: ["profile"] }), 0] }),
+      "类别不是列表": zip({ "manifest.json": [JSON.stringify({ ...MANIFEST, categories: "profile" }), 0] }),
+    };
+    for (const [name, file] of Object.entries(cases)) {
+      expect(await readManifest(file), name).toEqual({ kind: "broken" });
+    }
+  });
+});
+
+describe("导入结果的一句话", () => {
+  const nothing = { conversations: 0, photos: 0, memories: 0, profile: false, skipped: [] };
+
+  it("说导入了什么", () => {
+    expect(importSummary({ ...nothing, profile: true })).toBe("导入了制作人档案。");
+    expect(importSummary({ ...nothing, conversations: 3, photos: 2, memories: 12, profile: true })).toBe(
+      "导入了 3 段对话、2 张照片、12 条记忆和制作人档案。",
+    );
+    expect(importSummary({ ...nothing, memories: 1 })).toBe("导入了 1 条记忆。");
+  });
+
+  it("什么也没新加时照实说", () => {
+    expect(importSummary(nothing)).toBe("没有新的内容要导入。");
+  });
+
+  it("带上跳过的角色", () => {
+    expect(
+      importSummary({
+        ...nothing,
+        conversations: 1,
+        skipped: [
+          { character_name: "月岡恋鐘", conversations: 2 },
+          { character_name: "櫻木真乃", conversations: 1 },
+        ],
+      }),
+    ).toBe("导入了 1 段对话。跳过了和月岡恋鐘的 2 段、櫻木真乃的 1 段对话，这里没有她们。");
+    expect(importSummary({ ...nothing, skipped: [{ character_name: "月岡恋鐘", conversations: 2 }] })).toBe(
+      "没有新的内容要导入。跳过了和月岡恋鐘的 2 段对话，这里没有她。",
+    );
+  });
+});
+
+describe("导入失败的提示", () => {
+  it("按错误码给一句", () => {
+    expect(importFailureMessage(new ApiError("x", 422, { code: "broken" }))).toBe("这不是一个能用的数据包");
+    expect(importFailureMessage(new ApiError("x", 422, { code: "too_new" }))).toBe(
+      "这个数据包来自更新的版本，请部署者升级后再导入",
+    );
+  });
+
+  it("没有错误码时照后端说的", () => {
+    expect(importFailureMessage(new ApiError("请先登录", 401))).toBe("请先登录");
+    expect(importFailureMessage(new TypeError("Failed to fetch"))).toBe("Failed to fetch");
+  });
+});

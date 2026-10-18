@@ -16,3 +16,12 @@
 - [ ] 格式说明文档补上 `memories`
 - [ ] 后端测试（走对外接口）：A 上用现有的记忆提炼造出几条记忆，有取代关系、来源角色各不相同，导出后导入 B，B 的记忆页条目、「已被取代」、来源角色名都和 A 一致；B 上已有同样原文的那条不重复，指向它的取代关系对应到已有的那条；来源角色不在 B 的角色配置里时显示成已不在的角色；导入后她在下一个回合能想起导入的记忆（用测试替身的向量化验证）；导入同一份两次，第二次 `memories` 是 0
 - [ ] 受影响的测试和类型检查通过（`scripts/affected-tests.sh`），CI 绿
+
+## Comments
+
+### 票 01 交接
+
+- 往 `data_package.py` 的 `PackageData` 加 `memories` 字段（模型是 `extra="forbid"`、`strict=True`），导出时在 `DataPackages.export` 里填并记 `counts`；`_read` 里「`data.json` 的键要和 `categories` 一致」的检查按字段自动生效。
+- 导入的写入必须走 `import_` 里那条自己开的连接 `db`、在同一个 `with db:` 里：记忆模块的写法照 `store.write_profile` 抽成接收 `db` 的函数。补算向量放在事务提交之后。
+- 时间字段用 `data_package.Time`（解析后按库里的写法写回）。
+- 前端 `lib/dataPackage.ts` 的 `OFFERED` 加 `"memories"`；导入成功后在 `DataPackageSettings.tsx` 的 `submit` 里像档案那样刷新记忆条数（`useSettingsValues().memoryCountChanged`），`importSummary` 已经会写「n 条记忆」。

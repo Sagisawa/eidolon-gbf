@@ -15,3 +15,11 @@
 - [ ] 前端：太大（前端选文件时就能按文件大小先拦一次）、`busy`、次数用完（带几点）各一句提示，放进票 01 的纯函数模块，有 vitest
 - [ ] 后端测试（走对外接口，上限在测试里调小，不造真的 200 MB）：超过上限回 413 且什么也没写；第二个并发导入回 409；第 4 次成功导入回 429 并带下一个北京时间 0 点，过了 0 点又能导；失败的导入不占次数；删用户后导入次数表里没有他的行
 - [ ] 受影响的测试和类型检查通过（`scripts/affected-tests.sh`），CI 绿
+
+## Comments
+
+### 票 01 交接
+
+- 导入路由（`data_package_api.import_data_package`）现在边读 `request.stream()` 边写临时文件，没有计数：在那个循环里数字节、超了回 413；`Content-Length` 先查一次。
+- 失败文案在 `zh.ts` 的 `copy.settings.dataPackage.failures`，按后端回的 `code` 取（`ApiError.code`，`importFailureMessage`）；`busy`、太大、次数用完照这个加。429 的 `retry_at` 已由 `api.ts` 的 `json()` 拼进 message，但 `importFailureMessage` 认得 `code` 时会换掉它，次数用完那句要自己带时刻。
+- 导出目前不限并发；锁加在 `DataPackages` 外面还是里面自己定。

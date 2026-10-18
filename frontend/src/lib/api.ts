@@ -277,15 +277,23 @@ export class ApiError extends Error {
   /** Refused because affinity and gifts are not open (GLOSSARY.md「礼物」): the gifts page shows
    * them closed. */
   readonly giftsClosed: boolean;
+  /** What the refusal was, where the backend says so beside its reason (a data package's
+   * `broken`, `too_new`); null where it does not. */
+  readonly code: string | null;
 
   constructor(
     message: string,
     readonly status: number,
-    { cooldownUntil = null, giftsClosed = false }: { cooldownUntil?: string | null; giftsClosed?: boolean } = {},
+    {
+      cooldownUntil = null,
+      giftsClosed = false,
+      code = null,
+    }: { cooldownUntil?: string | null; giftsClosed?: boolean; code?: string | null } = {},
   ) {
     super(message);
     this.cooldownUntil = cooldownUntil;
     this.giftsClosed = giftsClosed;
+    this.code = code;
   }
 
   /** The browser is not signed in, or its session has expired. */
@@ -327,7 +335,8 @@ export async function json<T>(res: Response): Promise<T> {
     // Refused while she is in a cooldown, told apart from the limit's 429.
     const cooldownUntil = res.status === CONFLICT && typeof body?.cooldown_until === "string" ? body.cooldown_until : null;
     const giftsClosed = res.status === CONFLICT && body?.gifts_closed === true;
-    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed });
+    const code = typeof body?.code === "string" ? body.code : null;
+    throw new ApiError(message, res.status, { cooldownUntil, giftsClosed, code });
   }
   return res.json();
 }
@@ -540,6 +549,30 @@ export async function logout(userId?: string): Promise<void> {
  * `range` (all of it unless given). */
 export async function getStats(range: StatsRange = "all"): Promise<Stats> {
   return json(await api(`/api/stats?range=${range}`));
+}
+
+/** What importing a data package added (`data_package.Imported`). */
+export type DataPackageImported = {
+  conversations: number;
+  photos: number;
+  memories: number;
+  /** Whether the producer profile was overwritten. */
+  profile: boolean;
+  /** Her conversations not imported: she is not on this deployment. */
+  skipped: { character_name: string; conversations: number }[];
+};
+
+/** Import a data package, the file itself as the body, streamed: the categories `include` names
+ * and the package holds. Refusals carry the backend's `code` (`ApiError.code`). */
+export async function importDataPackage(file: Blob, include: readonly string[]): Promise<DataPackageImported> {
+  const query = new URLSearchParams({ include: include.join(",") });
+  return json(
+    await api(`/api/account/data-package?${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/zip" },
+      body: file,
+    }),
+  );
 }
 
 export async function getProfile(): Promise<ProducerProfile> {

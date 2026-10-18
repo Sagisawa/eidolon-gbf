@@ -4,6 +4,7 @@ import { AboutSettings } from "@/components/AboutSettings";
 import { AdminEntry } from "@/components/AdminEntry";
 import { AppearanceSettings } from "@/components/AppearanceSettings";
 import { CallSettings } from "@/components/CallSettings";
+import { DataPackageSettings } from "@/components/DataPackageSettings";
 import { DeleteAccount } from "@/components/DeleteAccount";
 import { MemoriesSettings } from "@/components/MemoriesSettings";
 import { OwnKeysSettings } from "@/components/OwnKeysSettings";
@@ -28,6 +29,7 @@ const PANELS: Record<Exclude<SettingsCategory, "memories" | "stats">, ReactNode>
       <DeleteAccount />
     </>
   ),
+  "data-package": <DataPackageSettings />,
   about: <AboutSettings />,
 };
 

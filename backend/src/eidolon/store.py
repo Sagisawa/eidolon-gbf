@@ -659,26 +659,8 @@ class Store:
         return ProducerProfile(row["form_of_address"], row["gender"], row["timezone"], birthday)
 
     def save_profile(self, user_id: str, profile: ProducerProfile) -> None:
-        birthday = profile.birthday
         with self._lock, self._db:
-            self._db.execute(
-                "INSERT INTO producer_profiles"
-                " (user_id, form_of_address, gender, timezone, birthday_month, birthday_day,"
-                " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
-                " ON CONFLICT (user_id) DO UPDATE SET form_of_address = excluded.form_of_address,"
-                " gender = excluded.gender, timezone = excluded.timezone,"
-                " birthday_month = excluded.birthday_month, birthday_day = excluded.birthday_day,"
-                " updated_at = excluded.updated_at",
-                (
-                    user_id,
-                    profile.form_of_address,
-                    profile.gender,
-                    profile.timezone,
-                    birthday and birthday.month,
-                    birthday and birthday.day,
-                    _now(),
-                ),
-            )
+            write_profile(self._db, user_id, profile)
 
     def create_conversation(self, user_id: str, character_id: str) -> Conversation:
         conversation = Conversation(uuid.uuid4().hex, user_id, character_id, _now())
@@ -1083,6 +1065,30 @@ _MESSAGE_WITH_PHOTO = (
 )
 """A message with its photo, if any, but not its picture (`_message_with_photo`)."""
 _EVENT_COLUMNS = "id, kind, created_at, affinity, gift_id, liked"
+
+def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile) -> None:
+    """Save the user's whole producer profile through `db`, in the caller's transaction: what
+    `Store.save_profile` does, and importing a data package in a transaction of its own."""
+    birthday = profile.birthday
+    db.execute(
+        "INSERT INTO producer_profiles"
+        " (user_id, form_of_address, gender, timezone, birthday_month, birthday_day,"
+        " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT (user_id) DO UPDATE SET form_of_address = excluded.form_of_address,"
+        " gender = excluded.gender, timezone = excluded.timezone,"
+        " birthday_month = excluded.birthday_month, birthday_day = excluded.birthday_day,"
+        " updated_at = excluded.updated_at",
+        (
+            user_id,
+            profile.form_of_address,
+            profile.gender,
+            profile.timezone,
+            birthday and birthday.month,
+            birthday and birthday.day,
+            _now(),
+        ),
+    )
+
 
 def _message(row: sqlite3.Row) -> Message:
     return Message(

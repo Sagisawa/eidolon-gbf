@@ -13,3 +13,11 @@
 - [ ] 格式说明文档对照最终实现再核一遍，四类都齐
 - [ ] 本地构建版 Playwright 验收（照 `docs/agents/local-acceptance.md`，宽屏和手机）：导出全选的数据包，换一个开发用户导入，看对话列表、历史对话、已结束的对话、照片放大、记忆页的「已被取代」、制作人档案、导入结果那句话；同一份再导一次，什么也没多；删除账号确认框里的链接能跳过去；隐私政策里有那一句
 - [ ] 前端纪律检查通过；受影响的测试和类型检查通过（`scripts/affected-tests.sh`），CI 绿
+
+## Comments
+
+### 票 01 交接
+
+- DESIGN.md 已补：一级九类分四组（数据包和登录与数据同组）、图标 `DataPackageIcon`（Lucide `Package`）、网址 `/settings/data-package`、二级「数据包（导出、导入两节）」、数据包没有摘要。还差这一页的版式。
+- GLOSSARY「数据包」写导入「不覆盖」，但制作人档案是整份覆盖的，收尾时看要不要补一句。
+- `docs/data-package-format.md` 现在只有 `manifest.json`、`profile`、时间和版本规则。

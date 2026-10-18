@@ -43,6 +43,7 @@ from eidolon.hot_words import hot_words
 from eidolon.randomness import Random, secure_random
 from eidolon.clock import Clock, utc_now
 from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
+from eidolon.data_package import DataPackages
 from eidolon.embedding import EMBEDDING_TIMEOUT, Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
@@ -116,6 +117,8 @@ class Backend:
     """The photos she sends with her replies, being generated."""
     service_status: ServiceStatus
     """Whether each of the deployer's services works now, as users are shown it."""
+    data_packages: DataPackages
+    """Exports users' data packages, and imports them."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -360,6 +363,7 @@ def build(
         backups=backups,
         photos=photos,
         service_status=service_status,
+        data_packages=DataPackages(settings.database_path, store, clock),
         world=world,
         _closers=closers,
     )

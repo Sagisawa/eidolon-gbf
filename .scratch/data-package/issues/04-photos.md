@@ -15,3 +15,10 @@
 - [ ] 格式说明文档补上照片
 - [ ] 后端测试（走对外接口）：A 上用现有的照片测试替身造一张发出来了的、一张没发出去的、一张还在生成的，导出后解开 zip 能读到那张 webp，还在生成的那张是 `timeout`；导入 B 后，照片接口能读到图、状态和原因一致；不勾照片时 B 的那条回复上没有照片；照片文件解不开、缺文件、多文件都回 422 且什么也没写进去；B 上的照片别的用户读不到
 - [ ] 受影响的测试和类型检查通过（`scripts/affected-tests.sh`），CI 绿
+
+## Comments
+
+### 票 01 交接
+
+- `data_package._read` 现在只认 `manifest.json`、`data.json` 两个条目（而且 `manifest.json` 必须是第一个、不压缩），要放开 `photos/<id>.webp`。
+- 前端 `OFFERED` 加 `"photos"`；勾选框已经按 `choose`/`isDisabled` 把照片挂在对话下面、缩进显示。
