@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { AppLink } from "@/components/app/AppLink";
 import { AdminPage } from "@/components/app/admin/AdminPage";
@@ -26,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import {
@@ -39,8 +40,11 @@ import {
   countTicks,
   DASHBOARD_RANGES,
   DASHBOARD_REFRESH_MS,
+  DASHBOARD_TABS,
   type Dashboard,
+  dashboardHref,
   type DashboardRange,
+  type DashboardTab,
   durationRange,
   type ErrorKind,
   formatCacheHitRate,
@@ -60,7 +64,7 @@ import {
   healthStatus,
   healthSummary,
   isDashboardRange,
-  rangeHref,
+  isDashboardTab,
   serviceName,
   splitZeroRows,
   strippedText,
@@ -71,7 +75,7 @@ import { FailureIcon } from "@/theme/icons";
 
 const t = copy.admin.dashboard;
 
-/** 页首健康摘要的锚点：链到「服务健康」那张卡。 */
+/** 页首健康摘要的锚点：链到「概览」里「服务健康」那张卡。 */
 const HEALTH_ANCHOR = "health";
 /** 摘要里最多点名几项有问题的服务，再多写「等 N 项」。 */
 const SUMMARY_NAMES = 3;
@@ -87,18 +91,19 @@ const FADE = "transition-opacity duration-200";
 const STALE = "opacity-45";
 
 /**
- * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数；回合和通话的趋势；回合结果；
- * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开，LLM 各档思考强度合在一起）；
- * 按角色的回合数和通话数（默认收起）；好感度生效时，判断的结果和冷却。
- * 数字全由后端汇总，这里只负责排版和格式化。
+ * 看板（后台默认页）：时间范围切换；页首下面一排分组标签，一次只看一组——「概览」（回合和通话的几个数字、
+ * 进行中的通话数、服务健康、备份）、「用量」（趋势、各种结果、通话时长、按角色）、「好感度」（好感度生效时才有）、
+ * 「花费」。数字全由后端汇总，这里只负责排版和格式化。
  *
  * 数字要看得出新旧：页首下面写「数据截至 16:25」，旁边可以手动刷新；页面看得见时每分钟自动重新取一次
  * （切到别的标签页就停，切回来时过了一分钟就马上取），自动刷新不闪、不变淡。切换时间范围或手动刷新时，
  * 新数字到之前旧的整体变淡并标 aria-busy，不让人把上一个范围的数字当成这个范围的。取不到时旧数字留着，
- * 提示写明下面是几点的数据。时间范围记在地址里（`?range=7d`），可以收藏、刷新不丢。
+ * 提示写明下面是几点的数据。时间范围和分组记在地址里（`?range=7d&tab=cost`），可以收藏、刷新不丢。
+ * 切走的分组不卸，展开过的长列表切回来还开着。
  */
-export function AdminDashboard({ initialRange }: { initialRange: DashboardRange }) {
+export function AdminDashboard({ initialRange, initialTab }: { initialRange: DashboardRange; initialTab: DashboardTab }) {
   const [range, setRange] = useState<DashboardRange>(initialRange);
+  const [tab, setTab] = useState<DashboardTab>(initialTab);
   const [board, setBoard] = useState<Dashboard | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
   /** 切换范围或手动刷新、新数字还没到：旧的变淡。自动刷新不算。 */
@@ -149,7 +154,18 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
   function chooseRange(value: string) {
     if (!isDashboardRange(value)) return;
     setRange(value);
-    window.history.replaceState(null, "", rangeHref(window.location.pathname, value));
+    window.history.replaceState(null, "", dashboardHref(window.location.pathname, value, tab));
+  }
+
+  function chooseTab(value: string) {
+    if (!isDashboardTab(value)) return;
+    setTab(value);
+    window.history.replaceState(null, "", dashboardHref(window.location.pathname, range, value));
+  }
+
+  /** 点了页首的「看服务健康」：先同步切回「概览」，让那张卡露出来，链接再照常滚过去。 */
+  function showHealth() {
+    if (tab !== "overview") flushSync(() => chooseTab("overview"));
   }
 
   function refresh() {
@@ -184,7 +200,7 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
         {/* 健康结论也是上一个范围的，和下面的数字一起变淡。 */}
         {board && (
           <div className={cn(FADE, faded && STALE)}>
-            <HealthSummary board={board} />
+            <HealthSummary board={board} onShow={showHealth} />
           </div>
         )}
         <Freshness stamp={stamp} loading={loading} onRefresh={refresh} />
@@ -203,7 +219,15 @@ export function AdminDashboard({ initialRange }: { initialRange: DashboardRange 
       {board === null ? (
         error === null && <Skeleton className="h-80" />
       ) : (
-        <DashboardBody board={board} inProgress={inProgress} loading={loading} faded={faded} refreshes={refreshes} />
+        <DashboardBody
+          board={board}
+          tab={tab}
+          onTab={chooseTab}
+          inProgress={inProgress}
+          loading={loading}
+          faded={faded}
+          refreshes={refreshes}
+        />
       )}
     </AdminPage>
   );
@@ -235,9 +259,9 @@ function Freshness({ stamp, loading, onRefresh }: { stamp: string | null; loadin
 
 /**
  * 页首下面的一句健康结论：都正常、没有调用（只写 muted 字），或者点名出问题的服务（最糟的在前，带琥珀或红点），
- * 链到「服务健康」那张卡。只占一行，首屏的主体仍是下面回答「用了多少」的数字卡。
+ * 链到「概览」里「服务健康」那张卡（在别的分组时先切回「概览」）。只占一行。
  */
-function HealthSummary({ board }: { board: Dashboard }) {
+function HealthSummary({ board, onShow }: { board: Dashboard; onShow: () => void }) {
   const summary = healthSummary(board.health);
   const words = t.health.summary;
   let text: string;
@@ -264,7 +288,7 @@ function HealthSummary({ board }: { board: Dashboard }) {
       ) : (
         <span className="text-muted-foreground">{text}</span>
       )}
-      <AppLink href={`#${HEALTH_ANCHOR}`} className="inline-flex items-center max-md:min-h-11">
+      <AppLink href={`#${HEALTH_ANCHOR}`} onClick={onShow} className="inline-flex items-center max-md:min-h-11">
         {words.link}
       </AppLink>
     </p>
@@ -272,18 +296,24 @@ function HealthSummary({ board }: { board: Dashboard }) {
 }
 
 /**
- * 先回答「用了多少」：两组数字卡（「此刻」一张，「{范围}内」五张，手机上只留回合、通话、活跃用户三张）；
- * 紧接着是服务健康（出事时第一眼要看到，页首已有一句结论）和备份；然后是「用量」一组，各张卡宽屏两张一排；
- * 好感度生效时是「好感度」一组；最后是「花费」一组。
+ * 分组标签（下划线样式，和页首胶囊样式的时间范围分开）和各组的内容：
+ * - 「概览」：两组数字卡（「此刻」一张，「{范围}内」五张，手机上只留回合、通话、活跃用户三张）、服务健康、备份。
+ * - 「用量」：趋势、结果、通话时长、结束原因各一张卡，宽屏两张一排；下面是按角色。
+ * - 「好感度」：好感度生效时才有这个标签；地址里要了它而好感度没开时，显示「概览」。
+ * - 「花费」。
  */
 function DashboardBody({
   board,
+  tab,
+  onTab,
   inProgress,
   loading,
   faded,
   refreshes,
 }: {
   board: Dashboard;
+  tab: DashboardTab;
+  onTab: (value: string) => void;
   inProgress: number | null;
   loading: boolean;
   /** 眼前是上一个范围的数字，或者新数字还在路上：按范围统计的部分变淡，「此刻」那张和备份不变。 */
@@ -292,57 +322,69 @@ function DashboardBody({
 }) {
   const { turns, calls } = board;
   const fade = cn(FADE, faded && STALE);
+  const tabs = DASHBOARD_TABS.filter((name) => name !== "affinity" || board.affinity !== null);
+  const shown = tabs.includes(tab) ? tab : "overview";
   return (
-    <div aria-busy={loading} className="flex flex-col gap-6">
-      {/* 「进行中的通话」是此刻的数，不随时间范围变：单独一组放在前面，和按范围统计的几张隔开。
-          宽屏（≥ 1280px）左右排，此刻一张占一份、范围五张占五份；更窄时上下排，此刻那张仍按同样的格子只占一格。 */}
-      <div className="grid gap-6 xl:grid-cols-[1fr_5fr]">
-        <TileGroup caption={t.tiles.now} grid="grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-1">
-          <StatTile
-            label={t.tiles.callsInProgress}
-            value={inProgress === null ? "—" : formatCount(inProgress)}
-          />
-        </TileGroup>
-        <TileGroup caption={t.tiles.inRange(t.ranges[board.range])} className={fade}>
-          <StatTile
-            label={t.tiles.turns}
-            value={formatCount(turns.total)}
-            note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
-          />
-          <StatTile
-            label={t.tiles.calls}
-            value={formatCount(calls.total)}
-            note={t.tiles.callsExempt(formatCount(calls.own_keys))}
-          />
-          <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} />
-          {/* 这两张手机上不显示。外面包一层 grid，卡片仍撑满格子的高。 */}
-          <div className="grid max-md:hidden">
+    <Tabs value={shown} onValueChange={(value) => onTab(String(value))} aria-busy={loading} className="gap-6">
+      <TabsList variant="line" aria-label={t.tabsLabel}>
+        {tabs.map((name) => (
+          <TabsTrigger key={name} value={name}>
+            {t.tabs[name]}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+
+      <TabsContent value="overview" keepMounted className="flex flex-col gap-6">
+        {/* 「进行中的通话」是此刻的数，不随时间范围变：单独一组放在前面，和按范围统计的几张隔开。
+            宽屏（≥ 1280px）左右排，此刻一张占一份、范围五张占五份；更窄时上下排，此刻那张仍按同样的格子只占一格。 */}
+        <div className="grid gap-6 xl:grid-cols-[1fr_5fr]">
+          <TileGroup caption={t.tiles.now} grid="grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-1">
             <StatTile
-              label={t.tiles.ownKeys}
-              value={formatCount(turns.own_keys)}
-              note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
+              label={t.tiles.callsInProgress}
+              value={inProgress === null ? "—" : formatCount(inProgress)}
             />
-          </div>
-          <div className="grid max-md:hidden">
+          </TileGroup>
+          <TileGroup caption={t.tiles.inRange(t.ranges[board.range])} className={fade}>
             <StatTile
-              label={t.tiles.timeToSpeak}
-              value={formatMs(turns.time_to_speak_ms.p50)}
-              note={
-                turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))
-              }
+              label={t.tiles.turns}
+              value={formatCount(turns.total)}
+              note={t.tiles.turnsInCalls(formatCount(turns.in_calls))}
             />
-          </div>
-        </TileGroup>
-      </div>
+            <StatTile
+              label={t.tiles.calls}
+              value={formatCount(calls.total)}
+              note={t.tiles.callsExempt(formatCount(calls.own_keys))}
+            />
+            <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} />
+            {/* 这两张手机上不显示。外面包一层 grid，卡片仍撑满格子的高。 */}
+            <div className="grid max-md:hidden">
+              <StatTile
+                label={t.tiles.ownKeys}
+                value={formatCount(turns.own_keys)}
+                note={t.tiles.ownKeysShare(formatShare(turns.own_keys, turns.total))}
+              />
+            </div>
+            <div className="grid max-md:hidden">
+              <StatTile
+                label={t.tiles.timeToSpeak}
+                value={formatMs(turns.time_to_speak_ms.p50)}
+                note={
+                  turns.time_to_speak_ms.p90 === null ? undefined : t.tiles.timeToSpeakP90(formatMs(turns.time_to_speak_ms.p90))
+                }
+              />
+            </div>
+          </TileGroup>
+        </div>
 
-      <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} level={2} className={cn("scroll-mt-16", fade)}>
-        <HealthTable board={board} />
-      </DashboardCard>
+        <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} level={2} className={cn("scroll-mt-16", fade)}>
+          <HealthTable board={board} />
+        </DashboardCard>
 
-      {/* 备份是此刻的状态，不随时间范围变，也不变淡。 */}
-      <BackupCard refreshKey={refreshes} />
+        {/* 备份是此刻的状态，不随时间范围变，也不变淡。 */}
+        <BackupCard refreshKey={refreshes} />
+      </TabsContent>
 
-      <div className={cn("flex flex-col gap-6", fade)}>
+      <TabsContent value="usage" keepMounted className={fade}>
         <DashboardGroup title={t.groups.usage.title}>
           <CardPair>
             <DashboardCard title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
@@ -389,12 +431,18 @@ function DashboardBody({
             <CharactersTable board={board} />
           </DashboardCard>
         </DashboardGroup>
+      </TabsContent>
 
-        {board.affinity !== null && <AffinityGroup section={board.affinity} />}
+      {board.affinity !== null && (
+        <TabsContent value="affinity" keepMounted className={fade}>
+          <AffinityGroup section={board.affinity} />
+        </TabsContent>
+      )}
 
+      <TabsContent value="cost" keepMounted className={fade}>
         <CostSection board={board} />
-      </div>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 

@@ -783,6 +783,8 @@ export const zh = {
       intro: "服务是否正常、用量和花费。",
       rangeLabel: "时间范围",
       ranges: { "24h": "24 小时", "7d": "7 天", "30d": "30 天", "90d": "90 天" },
+      tabsLabel: "看板分组",
+      tabs: { overview: "概览", usage: "用量", affinity: "好感度", cost: "花费" },
       failed: (reason: string) => `看板加载失败：${reason}`,
       freshness: {
         at: (time: string) => `数据截至 ${time}`,

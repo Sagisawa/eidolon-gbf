@@ -19,13 +19,14 @@ import {
   healthSummary,
   isDashboardRange,
   axisLabels,
+  dashboardHref,
   labelledStretches,
   rangeFromQuery,
-  rangeHref,
   splitZeroRows,
   stretchLabel,
   stretchSpan,
   strippedText,
+  tabFromQuery,
 } from "@/lib/dashboard";
 
 /** An ISO time at a local hour, as the backend sends a stretch's start. */
@@ -39,15 +40,22 @@ describe("isDashboardRange", () => {
   });
 });
 
-describe("rangeFromQuery and rangeHref", () => {
+describe("rangeFromQuery, tabFromQuery and dashboardHref", () => {
   it("takes a served range from the address and falls back to 24 hours", () => {
     expect(rangeFromQuery("7d")).toBe("7d");
     for (const value of [undefined, "1y", ["7d", "30d"]]) expect(rangeFromQuery(value), String(value)).toBe("24h");
   });
 
-  it("leaves the default range out of the address", () => {
-    expect(rangeHref("/admin", "24h")).toBe("/admin");
-    expect(rangeHref("/admin", "90d")).toBe("/admin?range=90d");
+  it("takes a tab from the address and falls back to the overview", () => {
+    expect(tabFromQuery("cost")).toBe("cost");
+    for (const value of [undefined, "health", ["usage", "cost"]]) expect(tabFromQuery(value), String(value)).toBe("overview");
+  });
+
+  it("leaves the default range and tab out of the address", () => {
+    expect(dashboardHref("/admin", "24h", "overview")).toBe("/admin");
+    expect(dashboardHref("/admin", "90d", "overview")).toBe("/admin?range=90d");
+    expect(dashboardHref("/admin", "24h", "usage")).toBe("/admin?tab=usage");
+    expect(dashboardHref("/admin", "7d", "cost")).toBe("/admin?range=7d&tab=cost");
   });
 });
 
