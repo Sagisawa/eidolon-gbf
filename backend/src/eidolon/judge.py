@@ -4,11 +4,13 @@ and calls ask it how she feels in each segment of a reply; what is asked is thei
 is asked is here.
 
 The deployer chooses one service for the whole deployment (`JUDGE_PROVIDER`): Jev through
-any endpoint that serves TypeSafe's System One API, OpenRouter's by default; or Cloudflare's
-Clef or Clef-flash on Workers AI, which take the same questions. Neither stands in for the
-other when it fails.
+any endpoint that serves TypeSafe's System One API, OpenRouter's by default; Cloudflare's
+Clef or Clef-flash on Workers AI, which take the same questions; or Alibaba Cloud Model
+Studio's decision model, served over System One itself. None stands in for another when it
+fails.
 """
 
+import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -18,7 +20,12 @@ import httpx
 
 from eidolon.billing import bill
 from eidolon.characters import Character
-from eidolon.config import CloudflareJudgeSettings, EmotionSettings, JudgeSettings
+from eidolon.config import (
+    BailianJudgeSettings,
+    CloudflareJudgeSettings,
+    EmotionSettings,
+    JudgeSettings,
+)
 from eidolon.store import Message
 
 log = logging.getLogger(__name__)
@@ -160,6 +167,15 @@ class JudgeError(RuntimeError):
     pass
 
 
+class JudgeRefused(JudgeError):
+    """A System One endpoint answered with an error: its HTTP status, and its body."""
+
+    def __init__(self, message: str, status: int, body: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+
 @dataclass(frozen=True)
 class JudgeReply:
     """The judge model's answers, and how many tokens of input it read, if it said."""
@@ -197,6 +213,9 @@ class JevJudge:
     typed questions about a state with probabilities, and is not served by the Chat
     Completions endpoint."""
 
+    service = "Jev"
+    """The service, as its failures name it."""
+
     def __init__(
         self, api_key: str, model: str, base_url: str, client: httpx.AsyncClient | None = None
     ) -> None:
@@ -211,25 +230,66 @@ class JevJudge:
         return reply.answers
 
     async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
-        """As `ask`, with the input tokens Jev read."""
+        """As `ask`, with the input tokens the model read."""
         body = {"model": self._model, "state": state, "questions": questions}
         try:
             res = await self._client.post(
                 self._url, json=body, headers={"Authorization": f"Bearer {self._api_key}"}
             )
         except httpx.HTTPError as e:
-            raise JudgeError(f"无法连接 Jev：{e!r}") from e
+            raise JudgeError(f"无法连接 {self.service}：{e!r}") from e
         if res.status_code >= 400:
-            raise JudgeError(f"Jev 返回 {res.status_code}: {res.text[:500]}")
+            raise JudgeRefused(
+                f"{self.service} 返回 {res.status_code}: {res.text[:500]}", res.status_code, res.text
+            )
         try:
             body = res.json()
             answers = body["answers"]
         except (ValueError, KeyError, TypeError) as e:
-            raise JudgeError(f"Jev 的返回无法解析（{len(res.text)} 字）") from e
-        return _reply(answers, body.get("usage"), "Jev", res)
+            raise JudgeError(f"{self.service} 的返回无法解析（{len(res.text)} 字）") from e
+        return _reply(answers, body.get("usage"), self.service, res)
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+
+class BailianJudge(JevJudge):
+    """Model Studio's decision model at the workspace's endpoint (`BailianJudgeSettings`):
+    asked and answering as Jev does, refusing in OpenAI's way (`{error: {code, message}}`)."""
+
+    service = "阿里云百炼"
+
+    async def check(self) -> None:
+        """Tries the key, the workspace id and the model with the least of requests. Raises
+        RuntimeError naming the setting that is wrong if Model Studio refuses one; only
+        warns if it cannot be told, say on a timeout, an outage or being throttled."""
+        try:
+            await self.ask({"测试": "启动检查"}, {"check": _CHECK_QUESTION})
+        except JudgeRefused as e:
+            code, message = _bailian_error(e.body)
+            if e.status in (401, 403):
+                raise RuntimeError(
+                    "BAILIAN_JUDGE_API_KEY 无效，或者它不属于 BAILIAN_JUDGE_WORKSPACE_ID 这个业务空间"
+                    f"（key 和业务空间都要在 BAILIAN_JUDGE_REGION 这个地域）：{e}"
+                ) from None
+            if "workspace" in message.lower():
+                raise RuntimeError(
+                    f"BAILIAN_JUDGE_WORKSPACE_ID 不对，百炼找不到这个业务空间：{e}"
+                ) from None
+            if code == "model_not_found":
+                raise RuntimeError(f"BAILIAN_JUDGE_MODEL 不对，百炼没有这个模型：{e}") from None
+            log.warning("could not check the Bailian judge model; starting anyway: %s", e)
+        except JudgeError as e:
+            log.warning("could not check the Bailian judge model; starting anyway: %s", e)
+
+
+def _bailian_error(body: str) -> tuple[str, str]:
+    """The code and message of Model Studio's refusal; empty if it said neither."""
+    try:
+        error = json.loads(body)["error"]
+        return str(error.get("code") or ""), str(error.get("message") or "")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return "", ""
 
 
 class CloudflareRefused(JudgeError):
@@ -349,14 +409,16 @@ def open_judge(
     """The judge model `settings` choose."""
     if isinstance(settings, CloudflareJudgeSettings):
         return CloudflareJudge(settings.api_token, settings.account_id, settings.model, client)
+    if isinstance(settings, BailianJudgeSettings):
+        return BailianJudge(settings.api_key, settings.model, settings.base_url, client)
     return JevJudge(settings.api_key, settings.model, settings.base_url, client)
 
 
 async def try_judge_model(model: JudgeModel) -> None:
-    """Try the judge model before the admin console keeps it: Cloudflare's credentials as
-    the server starts tries them (`CloudflareJudge.check`), any other by asking it the
-    least of questions. Raises JudgeError saying why it does not work."""
-    if isinstance(model, CloudflareJudge):
+    """Try the judge model before the admin console keeps it: Cloudflare's and Model
+    Studio's credentials as the server starts tries them (their `check`), any other by
+    asking it the least of questions. Raises JudgeError saying why it does not work."""
+    if isinstance(model, CloudflareJudge | BailianJudge):
         try:
             await model.check()
         except RuntimeError as e:
@@ -368,11 +430,12 @@ async def try_judge_model(model: JudgeModel) -> None:
 async def check_judge(
     settings: JudgeSettings | None, client: httpx.AsyncClient | None = None
 ) -> None:
-    """Tries Cloudflare's credentials as the server starts (see `CloudflareJudge.check`);
-    Jev is not tried."""
-    if not isinstance(settings, CloudflareJudgeSettings):
+    """Tries Cloudflare's or Model Studio's credentials as the server starts (see their
+    `check`); Jev is not tried."""
+    if not isinstance(settings, CloudflareJudgeSettings | BailianJudgeSettings):
         return
-    judge = CloudflareJudge(settings.api_token, settings.account_id, settings.model, client)
+    judge = open_judge(settings, client)
+    assert isinstance(judge, CloudflareJudge | BailianJudge)
     try:
         await judge.check()
     finally:

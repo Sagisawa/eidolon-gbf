@@ -13,6 +13,7 @@ from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.config import (
     MAX_IMAGE_CONCURRENCY,
+    BailianRegion,
     FishAudioModel,
     ImageFormat,
     JudgeProvider,
@@ -47,6 +48,10 @@ def _trimmed(value: str) -> str:
     if not value:
         raise ValueError("不能为空")
     return value
+
+
+def _trimmed_if_given(value: str | None) -> str | None:
+    return None if value is None else _trimmed(value)
 
 
 class LLMInput(BaseModel):
@@ -100,10 +105,13 @@ class JudgeInput(BaseModel):
     provider: JudgeProvider
     model: str = Field(min_length=1, max_length=200)
     account_id: str | None = Field(None, min_length=1, max_length=100)
+    workspace_id: str | None = Field(None, min_length=1, max_length=100)
+    region: BailianRegion | None = None
     emotion_timeout: float = Field(gt=0, le=30)
     api_key: str | None = ApiKey
 
     _trim = field_validator("model")(_trimmed)
+    _trim_workspace = field_validator("workspace_id")(_trimmed_if_given)
 
 
 class JudgeThresholdsInput(BaseModel):
@@ -181,11 +189,12 @@ INPUTS: dict[str, type[BaseModel]] = {
 
 def _change(item: str, body: BaseModel) -> dict[str, Any]:
     """What the input changes of the item: every field given (a model slot's max_tokens
-    may be None, its protocol's default), a key, an account id and a proxy's password
-    only if given."""
+    may be None, its protocol's default), a key, the judge model's account, workspace
+    and region and a proxy's password only if given."""
     change = body.model_dump()
-    if change.get("account_id", "") is None:
-        del change["account_id"]
+    for field in ("account_id", "workspace_id", "region"):
+        if change.get(field, "") is None:
+            del change[field]
     if change.get("password", "") is None:
         del change["password"]
     if key := change.pop("api_key", None):
