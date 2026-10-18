@@ -1,12 +1,16 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { PROSE_WIDTH } from "@/components/app/SettingsSection";
+import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { copy } from "@/i18n";
+import { foldedCount, formatCount } from "@/lib/dashboard";
 import { cn } from "@/lib/utils";
+import { ShowLessIcon, ShowMoreIcon } from "@/theme/icons";
 
-// 看板各块共用的零件：一组数字卡、装一块内容的 Card、比例条，以及窄屏上代替表格的 divide-y 行。
+// 看板各块共用的零件：一组数字卡、装一块内容的 Card、比例条、收起的长列表，以及窄屏上代替表格的 divide-y 行。
 
 /**
  * 一组数字卡，上面一行 Caption 写这组数字是什么时候的（「此刻」「30 天内」）。卡片排成格子：
@@ -143,5 +147,26 @@ export function RowList({ rows }: { rows: Row[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * 长列表（按角色的两张表）默认只露前几行（`foldedCount`），底下一个 ghost 的「展开全部 N 位」，展开后变成「收起」。
+ * `children` 拿到眼前该显示的行，表格和窄屏的行用同一份。
+ */
+export function Folded<T>({ rows, children }: { rows: T[]; children: (shown: T[]) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const folded = foldedCount(rows.length);
+  const words = copy.admin.dashboard.fold;
+  if (folded === rows.length) return children(rows);
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <div className="self-stretch">{children(open ? rows : rows.slice(0, folded))}</div>
+      {/* 手机上撑到 44px 的触控区。 */}
+      <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)} className="max-md:min-h-11">
+        {open ? <ShowLessIcon data-icon="inline-start" /> : <ShowMoreIcon data-icon="inline-start" />}
+        {open ? words.less : words.more(formatCount(rows.length))}
+      </Button>
+    </div>
   );
 }

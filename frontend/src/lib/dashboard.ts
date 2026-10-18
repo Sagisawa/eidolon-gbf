@@ -5,7 +5,6 @@
 import { copy } from "@/i18n";
 import type { Cost } from "@/lib/adminPrices";
 import { api, json } from "@/lib/api";
-import { EFFORT_UNSET, type ReasoningEffort, effortLabel, effortName } from "@/lib/reasoningEffort";
 
 export const DASHBOARD_RANGES = ["24h", "7d", "30d", "90d"] as const;
 
@@ -85,8 +84,8 @@ export type Usage = { unit: string; input: number | null; output: number | null;
 export type Percentiles = { p50: number | null; p95: number | null };
 
 /**
- * One service's calls, on the deployer's keys or on users' own (`own_key`); an LLM's, at one
- * reasoning effort (`effort`, null for none asked), with how soon the first word came.
+ * One service's calls, on the deployer's keys or on users' own (`own_key`); an LLM's, at
+ * whatever reasoning effort, with how soon the first word came.
  */
 export type ServiceHealth = {
   service: ServiceName;
@@ -99,8 +98,6 @@ export type ServiceHealth = {
   usage: Usage[];
   /** Calls the service did not say what it billed for. */
   usage_unknown: number;
-  /** An LLM's alone. */
-  effort?: ReasoningEffort | null;
   /** An LLM's alone: from the request to its first text or tool call; thinking is neither. */
   first_token_ms?: Percentiles;
   /** An LLM's alone: of all its input, the share read from the prompt cache, a call that did not say counting
@@ -112,20 +109,9 @@ export type ServiceHealth = {
   stripped?: Partial<Record<Crossing, number>>;
 };
 
-/** An LLM row's effort as a form's choice is, unset for none asked; null for other services. */
-function rowEffort(row: ServiceHealth): string | null {
-  return row.effort === undefined ? null : (row.effort ?? EFFORT_UNSET);
-}
-
-/** A health row's key: an LLM has a row for each effort. */
+/** A health row's key: a service has a row for the deployer's keys and one for users' own. */
 export function healthRowId(row: ServiceHealth): string {
-  return `${row.service}:${row.own_key}:${rowEffort(row) ?? ""}`;
-}
-
-/** An LLM row's effort as the table shows it, 「高（high）」 or 「不设置」; null for other services. */
-export function healthEffort(row: ServiceHealth): string | null {
-  const effort = rowEffort(row);
-  return effort === null ? null : effortLabel(effort);
+  return `${row.service}:${row.own_key}`;
 }
 
 /** A service's name: 「扮演角色的 LLM」. */
@@ -153,12 +139,9 @@ export function strippedText(row: Pick<ServiceHealth, "stripped_photos" | "strip
   return words.stripped(formatCount(row.stripped_photos), kinds);
 }
 
-/** A health row named in a sentence: 「扮演角色的 LLM（自带密钥，思考强度高）」. */
+/** A health row named in a sentence: 「扮演角色的 LLM（自带密钥）」. */
 export function healthRowName(row: ServiceHealth): string {
-  const words = copy.admin.dashboard.health;
-  const effort = rowEffort(row);
-  const notes = [...(row.own_key ? [words.own] : []), ...(effort === null ? [] : [words.atEffort(effortName(effort))])];
-  return notes.length > 0 ? `${serviceName(row)}（${notes.join("，")}）` : serviceName(row);
+  return row.own_key ? `${serviceName(row)}（${copy.admin.dashboard.health.own}）` : serviceName(row);
 }
 
 export type TurnResult = "success" | "failed" | "rejected" | "left";
@@ -238,29 +221,22 @@ export type Dashboard = {
 /** The levels the judge model judges a turn at, from hurting her (0) to making her very happy (4). */
 export const AFFINITY_LEVELS = [0, 1, 2, 3, 4] as const;
 
-/** Why she ended a conversation (GLOSSARY「已结束的对话」), in the order the dashboard tells them. */
-export const ENDS_FOR = ["cooldown", "out_of_line", "fed_up"] as const;
-
-export type EndsFor = (typeof ENDS_FOR)[number];
-
-/** One character's judged turns: only those recorded count (`judged`), and the share of them
- * that lowered her affinity is null for too few of them; the calls she hung up, and the
- * conversations she ended for each reason (`ended`), her hanging up a call not among them.
+/** One character's judged turns: only those recorded count (`judged`), and the shares of them
+ * that raised and lowered her affinity are null for too few of them; the cooldowns they began,
+ * and how often she hung up a call or ended a conversation, whatever for (`she_ended`).
  * `name` is null for a character since removed from the configuration. */
 export type AffinityCharacter = {
   character_id: string;
   name: string | null;
   judged: number;
+  raised_share: number | null;
   lowered_share: number | null;
   cooldowns: number;
-  out_of_line: number;
-  manipulation: number;
-  hung_up: number;
-  ended: Record<EndsFor, number>;
+  she_ended: number;
 };
 
 /** The dashboard's「好感度」section: the cooldowns begun and for how many users, the turns out
- * of line and manipulative, how many at each level, and each character, most lowering first. */
+ * of line and manipulative, how many at each level, and each character, most judged first. */
 export type AffinitySection = {
   cooldowns: number;
   cooled_users: number;
@@ -272,57 +248,47 @@ export type AffinitySection = {
 };
 
 /** A character's row of the section's table, as the page shows it: in the backend's order,
- * the share lowered a dash for too few; on a phone, the row ends on the share and the
- * cooldowns (`end`), the rest beneath (`details`). */
+ * the shares a dash for too few; on a phone, the row ends on the shares (`end`), the rest
+ * beneath (`details`). */
 export type AffinityRow = {
   id: string;
   name: string | null;
   judged: string;
+  raised: string;
   lowered: string;
   cooldowns: string;
-  out_of_line: string;
-  manipulation: string;
-  hung_up: string;
-  ended: Record<EndsFor, string>;
+  she_ended: string;
   end: string;
   details: string;
 };
 
 export function affinityRows(characters: AffinityCharacter[]): AffinityRow[] {
   const words = copy.admin.dashboard.affinity.characters;
+  const share = (rate: number | null) => (rate === null ? NONE : formatPercent(rate));
   return characters.map((c) => {
-    const lowered = c.lowered_share === null ? NONE : formatPercent(c.lowered_share);
-    const [judged, cooldowns, outOfLine, manipulation, hungUp] = [
-      c.judged,
-      c.cooldowns,
-      c.out_of_line,
-      c.manipulation,
-      c.hung_up,
-    ].map(formatCount);
-    const ended = Object.fromEntries(ENDS_FOR.map((why) => [why, formatCount(c.ended[why])])) as Record<
-      EndsFor,
-      string
-    >;
+    const [raised, lowered] = [share(c.raised_share), share(c.lowered_share)];
+    const [judged, cooldowns, sheEnded] = [c.judged, c.cooldowns, c.she_ended].map(formatCount);
     return {
       id: c.character_id,
       name: c.name,
       judged,
+      raised,
       lowered,
       cooldowns,
-      out_of_line: outOfLine,
-      manipulation,
-      hung_up: hungUp,
-      ended,
-      end: words.end(lowered, cooldowns),
-      details: words.details(
-        judged,
-        outOfLine,
-        manipulation,
-        hungUp,
-        words.endedDetails(ended.cooldown, ended.out_of_line, ended.fed_up),
-      ),
+      she_ended: sheEnded,
+      end: words.end(raised, lowered),
+      details: words.details(judged, cooldowns, sheEnded),
     };
   });
+}
+
+/** How many of a list's rows the dashboard shows while it is folded. */
+export const FOLDED_ROWS = 5;
+
+/** How many of `count` rows are shown while folded: all of them when no more than one would be
+ * left out (a button to show one more would take the place of the row it hides). */
+export function foldedCount(count: number): number {
+  return count <= FOLDED_ROWS + 1 ? count : FOLDED_ROWS;
 }
 
 export async function getDashboard(range: DashboardRange): Promise<Dashboard> {

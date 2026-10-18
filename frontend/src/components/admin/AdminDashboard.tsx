@@ -14,6 +14,7 @@ import {
   CardPair,
   DashboardCard,
   DashboardGroup,
+  Folded,
   RowList,
   ShareBar,
   TableOrRows,
@@ -30,12 +31,12 @@ import { useWhileVisible } from "@/hooks/useWhileVisible";
 import { copy } from "@/i18n";
 import {
   AFFINITY_LEVELS,
+  type AffinityRow,
   type AffinitySection,
   affinityRows,
   CALL_END_REASONS,
   CALL_RESULTS,
   countTicks,
-  ENDS_FOR,
   DASHBOARD_RANGES,
   DASHBOARD_REFRESH_MS,
   type Dashboard,
@@ -54,7 +55,6 @@ import {
   getCallsInProgress,
   getDashboard,
   type HealthStatus,
-  healthEffort,
   healthRowId,
   healthRowName,
   healthStatus,
@@ -88,8 +88,8 @@ const STALE = "opacity-45";
 
 /**
  * 看板（后台默认页）：时间范围切换；回合和通话的几个数字，进行中的通话数；回合和通话的趋势；回合结果；
- * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开）；按角色的回合数和通话数；
- * 好感度生效时，判断的结果和冷却。
+ * 通话结果、时长和结束原因；服务健康（每项服务一行，部署者和自带密钥分开，LLM 各档思考强度合在一起）；
+ * 按角色的回合数和通话数（默认收起）；好感度生效时，判断的结果和冷却。
  * 数字全由后端汇总，这里只负责排版和格式化。
  *
  * 数字要看得出新旧：页首下面写「数据截至 16:25」，旁边可以手动刷新；页面看得见时每分钟自动重新取一次
@@ -315,7 +315,7 @@ function DashboardBody({
             value={formatCount(calls.total)}
             note={t.tiles.callsExempt(formatCount(calls.own_keys))}
           />
-          <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} note={t.tiles.activeUsersNote} />
+          <StatTile label={t.tiles.activeUsers} value={formatCount(board.active_users)} />
           {/* 这两张手机上不显示。外面包一层 grid，卡片仍撑满格子的高。 */}
           <div className="grid max-md:hidden">
             <StatTile
@@ -336,13 +336,7 @@ function DashboardBody({
         </TileGroup>
       </div>
 
-      <DashboardCard
-        id={HEALTH_ANCHOR}
-        title={t.health.title}
-        hint={t.health.hint}
-        level={2}
-        className={cn("scroll-mt-16", fade)}
-      >
+      <DashboardCard id={HEALTH_ANCHOR} title={t.health.title} level={2} className={cn("scroll-mt-16", fade)}>
         <HealthTable board={board} />
       </DashboardCard>
 
@@ -350,7 +344,7 @@ function DashboardBody({
       <BackupCard refreshKey={refreshes} />
 
       <div className={cn("flex flex-col gap-6", fade)}>
-        <DashboardGroup title={t.groups.usage.title} hint={t.groups.usage.hint}>
+        <DashboardGroup title={t.groups.usage.title}>
           <CardPair>
             <DashboardCard title={t.trend.turns.title} hint={t.trend.turns.hint[board.bucket]}>
               <CountTrend board={board} series="turns" />
@@ -358,7 +352,7 @@ function DashboardBody({
             <DashboardCard title={t.trend.calls.title} hint={t.trend.calls.hint[board.bucket]}>
               <CountTrend board={board} series="calls" />
             </DashboardCard>
-            <DashboardCard title={t.results.title} hint={t.results.hint}>
+            <DashboardCard title={t.results.title}>
               <CountsTable
                 rows={TURN_RESULTS.map((result) => ({ id: result, label: t.results.names[result], count: turns.by_result[result] }))}
                 total={turns.total}
@@ -367,7 +361,7 @@ function DashboardBody({
                 shareHeader={t.results.share}
               />
             </DashboardCard>
-            <DashboardCard title={t.callResults.title} hint={t.callResults.hint}>
+            <DashboardCard title={t.callResults.title}>
               <CountsTable
                 rows={CALL_RESULTS.map((result) => ({ id: result, label: t.callResults.names[result], count: calls.by_result[result] }))}
                 total={calls.total}
@@ -382,7 +376,7 @@ function DashboardBody({
             >
               <DurationsTable board={board} />
             </DashboardCard>
-            <DashboardCard title={t.endReasons.title} hint={t.endReasons.hint}>
+            <DashboardCard title={t.endReasons.title}>
               <CountsTable
                 rows={CALL_END_REASONS.map((reason) => ({ id: reason, label: t.endReasons.names[reason], count: calls.end_reasons[reason] }))}
                 total={CALL_END_REASONS.reduce((sum, reason) => sum + calls.end_reasons[reason], 0)}
@@ -556,7 +550,6 @@ function HealthTable({ board }: { board: Dashboard }) {
           <TableHeader>
             <TableRow>
               <TableHead>{t.health.service}</TableHead>
-              <TableHead>{t.health.effort}</TableHead>
               <TableHead>{t.health.status}</TableHead>
               <TableHead className="text-right">{t.health.calls}</TableHead>
               <TableHead className="text-right">{t.health.errorRate}</TableHead>
@@ -575,7 +568,6 @@ function HealthTable({ board }: { board: Dashboard }) {
                   {row.own_key && <span className="block text-xs text-muted-foreground">{t.health.own}</span>}
                   <StrippedNote row={row} />
                 </TableCell>
-                <TableCell>{healthEffort(row) ?? "—"}</TableCell>
                 <TableCell>
                   <HealthStatusText status={healthStatus(row)} />
                 </TableCell>
@@ -661,41 +653,45 @@ function CharactersTable({ board }: { board: Dashboard }) {
   const name = (c: Dashboard["characters"][number]) =>
     c.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
   return (
-    <TableOrRows
-      table={
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t.characters.character}</TableHead>
-              <TableHead className="w-2/5" />
-              <TableHead className="text-right">{t.characters.turns}</TableHead>
-              <TableHead className="text-right">{t.characters.calls}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody className={BAR_BODY}>
-            {board.characters.map((c) => (
-              <TableRow key={c.character_id} className={BAR_ROW}>
-                <TableCell>{name(c)}</TableCell>
-                <TableCell>
-                  <ShareBar part={c.turns} whole={most} />
-                </TableCell>
-                <TableCell className="text-right tabular-nums">{formatCount(c.turns)}</TableCell>
-                <TableCell className="text-right tabular-nums">{formatCount(c.calls)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      }
-      rows={
-        <RowList
-          rows={board.characters.map((c) => ({
-            id: c.character_id,
-            label: name(c),
-            end: `${t.characters.turns} ${formatCount(c.turns)} · ${t.characters.calls} ${formatCount(c.calls)}`,
-          }))}
+    <Folded rows={board.characters}>
+      {(shown) => (
+        <TableOrRows
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t.characters.character}</TableHead>
+                  <TableHead className="w-2/5" />
+                  <TableHead className="text-right">{t.characters.turns}</TableHead>
+                  <TableHead className="text-right">{t.characters.calls}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody className={BAR_BODY}>
+                {shown.map((c) => (
+                  <TableRow key={c.character_id} className={BAR_ROW}>
+                    <TableCell>{name(c)}</TableCell>
+                    <TableCell>
+                      <ShareBar part={c.turns} whole={most} />
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCount(c.turns)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{formatCount(c.calls)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          }
+          rows={
+            <RowList
+              rows={shown.map((c) => ({
+                id: c.character_id,
+                label: name(c),
+                end: `${t.characters.turns} ${formatCount(c.turns)} · ${t.characters.calls} ${formatCount(c.calls)}`,
+              }))}
+            />
+          }
         />
-      }
-    />
+      )}
+    </Folded>
   );
 }
 
@@ -707,22 +703,18 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
   const words = t.affinity;
   const judged = section.levels.reduce((sum, n) => sum + n, 0);
   return (
-    <DashboardGroup title={words.title} hint={words.hint}>
+    <DashboardGroup title={words.title}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatTile
           label={words.tiles.cooldowns}
           value={formatCount(section.cooldowns)}
           note={words.tiles.cooledUsers(formatCount(section.cooled_users))}
         />
-        <StatTile label={words.tiles.outOfLine} value={formatCount(section.out_of_line)} note={words.tiles.outOfLineNote} />
-        <StatTile
-          label={words.tiles.manipulation}
-          value={formatCount(section.manipulation)}
-          note={words.tiles.manipulationNote}
-        />
+        <StatTile label={words.tiles.outOfLine} value={formatCount(section.out_of_line)} />
+        <StatTile label={words.tiles.manipulation} value={formatCount(section.manipulation)} />
       </div>
       <CardPair>
-        <DashboardCard title={words.levels.title} hint={words.levels.hint}>
+        <DashboardCard title={words.levels.title}>
           <CountsTable
             rows={AFFINITY_LEVELS.map((level) => ({
               id: String(level),
@@ -736,7 +728,7 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
           />
         </DashboardCard>
       </CardPair>
-      <DashboardCard title={words.characters.title} hint={words.characters.hint}>
+      <DashboardCard title={words.characters.title}>
         <AffinityCharactersTable section={section} />
       </DashboardCard>
     </DashboardGroup>
@@ -744,65 +736,55 @@ function AffinityGroup({ section }: { section: AffinitySection }) {
 }
 
 /**
- * 按角色的好感度表：顺序是后端排好的；宽屏十列，「角色挂断」旁边是「结束对话」按三种原因分开的三列，
- * 表头两行；更窄时每行末尾「减分 {x}% · 冷却 {n}」，其余放副行。
+ * 按角色的好感度表：顺序是后端排好的（判断过的回合多的在前），默认收起；宽屏六列，加分和减分占比并排；
+ * 更窄时每行末尾「加分 {x}% · 减分 {y}%」，其余放副行。
  */
 function AffinityCharactersTable({ section }: { section: AffinitySection }) {
   const words = t.affinity.characters;
   if (section.characters.length === 0) return <p className="text-sm text-muted-foreground">{words.empty}</p>;
-  const rows = affinityRows(section.characters);
-  const name = (row: (typeof rows)[number]) =>
-    row.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
+  const name = (row: AffinityRow) => row.name ?? <span className="text-muted-foreground">{t.characters.removed}</span>;
   return (
-    <TableOrRows
-      at="xl"
-      table={
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead rowSpan={2}>{words.character}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.judged}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.lowered}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.cooldowns}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.outOfLine}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.manipulation}</TableHead>
-              <TableHead rowSpan={2} className="text-right">{words.hungUp}</TableHead>
-              <TableHead colSpan={ENDS_FOR.length} className="text-center">{words.ended}</TableHead>
-            </TableRow>
-            <TableRow>
-              {ENDS_FOR.map((why) => (
-                <TableHead key={why} className="text-right">{words.endsFor[why]}</TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>{name(row)}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.judged}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.lowered}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.cooldowns}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.out_of_line}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.manipulation}</TableCell>
-                <TableCell className="text-right tabular-nums">{row.hung_up}</TableCell>
-                {ENDS_FOR.map((why) => (
-                  <TableCell key={why} className="text-right tabular-nums">{row.ended[why]}</TableCell>
+    <Folded rows={affinityRows(section.characters)}>
+      {(shown) => (
+        <TableOrRows
+          table={
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{words.character}</TableHead>
+                  <TableHead className="text-right">{words.judged}</TableHead>
+                  <TableHead className="text-right">{words.raised}</TableHead>
+                  <TableHead className="text-right">{words.lowered}</TableHead>
+                  <TableHead className="text-right">{words.cooldowns}</TableHead>
+                  <TableHead className="text-right">{words.sheEnded}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shown.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>{name(row)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.judged}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.raised}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.lowered}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.cooldowns}</TableCell>
+                    <TableCell className="text-right tabular-nums">{row.she_ended}</TableCell>
+                  </TableRow>
                 ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      }
-      rows={
-        <RowList
-          rows={rows.map((row) => ({
-            id: row.id,
-            label: name(row),
-            end: row.end,
-            description: <span className="tabular-nums">{row.details}</span>,
-          }))}
+              </TableBody>
+            </Table>
+          }
+          rows={
+            <RowList
+              rows={shown.map((row) => ({
+                id: row.id,
+                label: name(row),
+                end: row.end,
+                description: <span className="tabular-nums">{row.details}</span>,
+              }))}
+            />
+          }
         />
-      }
-    />
+      )}
+    </Folded>
   );
 }

@@ -12,7 +12,7 @@ import {
   formatPercentiles,
   formatShare,
   formatUsage,
-  healthEffort,
+  foldedCount,
   healthRowId,
   healthRowName,
   healthStatus,
@@ -112,32 +112,31 @@ describe("healthSummary", () => {
 describe("the health table's rows", () => {
   type Row = Parameters<typeof healthRowId>[0];
   const base = { own_key: false, calls: 3, errors: 0, error_rate: 0, errors_by_kind: {}, latency_ms: { p50: 900, p95: 1500 }, usage: [], usage_unknown: 0 };
-  const llm = (effort: Row["effort"], own_key = false): Row =>
-    ({ ...base, service: "chat_llm", own_key, effort, first_token_ms: { p50: 842.4, p95: 1250 } }) as Row;
+  const llm = (own_key = false): Row =>
+    ({ ...base, service: "chat_llm", own_key, first_token_ms: { p50: 842.4, p95: 1250 } }) as Row;
   const tts = { ...base, service: "tts" } as Row;
 
-  it("an LLM's are one for each effort, no effort one of its own", () => {
-    const rows = [llm(null), llm("high"), llm(null, true), tts];
+  it("are one for each service on the deployer's keys and one on users' own", () => {
+    const rows = [llm(), llm(true), tts];
     expect(new Set(rows.map(healthRowId)).size).toBe(rows.length);
-    expect(rows.map(healthEffort)).toEqual(["不设置", "高（high）", "不设置", null]);
   });
 
   it("say how soon an LLM's first word came, and nothing of it for other services", () => {
-    expect(formatPercentiles(llm("high").first_token_ms)).toBe("842 ms / 1.3 s");
+    expect(formatPercentiles(llm().first_token_ms)).toBe("842 ms / 1.3 s");
     expect(formatPercentiles(tts.first_token_ms)).toBe("—");
   });
 
   it("say how much of an LLM's input hit the cache, and nothing of it for other services", () => {
-    expect(formatCacheHitRate({ ...llm("high"), cache_hit_rate: 0.7234 })).toBe("72.3%");
-    expect(formatCacheHitRate({ ...llm("high"), cache_hit_rate: 0 })).toBe("0%");
-    expect(formatCacheHitRate({ ...llm("high"), cache_hit_rate: null })).toBe("—");
+    expect(formatCacheHitRate({ ...llm(), cache_hit_rate: 0.7234 })).toBe("72.3%");
+    expect(formatCacheHitRate({ ...llm(), cache_hit_rate: 0 })).toBe("0%");
+    expect(formatCacheHitRate({ ...llm(), cache_hit_rate: null })).toBe("—");
     expect(formatCacheHitRate(tts)).toBe("—");
   });
 
-  it("are named by service, whose keys and an LLM's effort", () => {
+  it("are named by service and whose keys", () => {
     expect(healthRowName(tts)).toBe("语音合成");
-    expect(healthRowName(llm("high"))).toBe("扮演角色的 LLM（思考强度高）");
-    expect(healthRowName(llm(null, true))).toBe("扮演角色的 LLM（自带密钥，思考强度不设置）");
+    expect(healthRowName(llm())).toBe("扮演角色的 LLM");
+    expect(healthRowName(llm(true))).toBe("扮演角色的 LLM（自带密钥）");
   });
 
   it("say from how many photos tags were stripped, by part of the line, for image generation alone", () => {
@@ -239,30 +238,35 @@ describe("call durations", () => {
 });
 
 describe("affinityRows", () => {
-  const row = (id: string, judged: number, lowered_share: number | null) => ({
+  const row = (id: string, judged: number, raised_share: number | null, lowered_share: number | null) => ({
     character_id: id,
     name: id,
     judged,
+    raised_share,
     lowered_share,
     cooldowns: 2,
-    out_of_line: 1,
-    manipulation: 0,
-    hung_up: 3,
-    ended: { cooldown: 2, out_of_line: 0, fed_up: 1 },
+    she_ended: 3,
   });
 
-  it("tells the share lowered as a percentage, a dash for too few, and on a phone ends the row on it", () => {
-    const [many, few, none] = affinityRows([row("mano", 1200, 0.125), row("meguru", 3, null), row("rinze", 20, 0)]);
-    expect(many.lowered).toBe("12.5%");
-    expect(few.lowered).toBe("—");
-    expect(none.lowered).toBe("0%");
+  it("tells the shares raised and lowered as percentages, dashes for too few, and on a phone ends the row on them", () => {
+    const [many, few, none] = affinityRows([
+      row("mano", 1200, 0.4, 0.125),
+      row("meguru", 3, null, null),
+      row("rinze", 20, 0, 0),
+    ]);
+    expect([many.raised, many.lowered]).toEqual(["40%", "12.5%"]);
+    expect([few.raised, few.lowered]).toEqual(["—", "—"]);
+    expect([none.raised, none.lowered]).toEqual(["0%", "0%"]);
     expect(many.judged).toBe("1,200");
-    // On a phone, each row ends on the share lowered and the cooldowns, the rest beneath.
-    expect(many.end).toBe("减分 12.5% · 冷却 2");
-    expect(few.end).toBe("减分 — · 冷却 2");
-    expect(many.ended).toEqual({ cooldown: "2", out_of_line: "0", fed_up: "1" });
-    expect(many.details).toBe(
-      "判断过 1,200 个回合 · 不该说的话 1 · 操纵 0 · 角色挂断 3 · 结束对话：冷却 2、不该说的话 0、接连不快 1",
-    );
+    // On a phone, each row ends on the two shares, the rest beneath.
+    expect(many.end).toBe("加分 40% · 减分 12.5%");
+    expect(few.end).toBe("加分 — · 减分 —");
+    expect(many.details).toBe("判断过 1,200 个回合 · 冷却 2 · 挂断或结束对话 3");
+  });
+});
+
+describe("foldedCount", () => {
+  it("shows the first five of a long list, and all of a list that would hide just one", () => {
+    expect([0, 5, 6, 7, 28].map(foldedCount)).toEqual([0, 5, 6, 5, 5]);
   });
 });
