@@ -399,7 +399,7 @@ export function changeOf(spec: ItemSpec, form: Form, keysEditable: boolean): { c
     const typed = (form[name] ?? "").trim();
     switch (kind) {
       case "select":
-        // 判断模型的地域只有百炼用，别家时没有选过，不发。
+        // 没选过的不发（判断模型的地域只有百炼用）。
         if (form[name]) change[name] = form[name];
         break;
       case "text":

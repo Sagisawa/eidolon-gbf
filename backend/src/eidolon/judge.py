@@ -276,21 +276,20 @@ class BailianJudge(JevJudge):
         warns if it cannot be told, say on a timeout, an outage or being throttled."""
         try:
             await self.ask({"测试": "启动检查"}, {"check": _CHECK_QUESTION})
-        except JudgeRefused as e:
-            code, message = _bailian_error(e.body)
-            if e.status in (401, 403):
-                raise RuntimeError(
-                    "BAILIAN_JUDGE_API_KEY 无效，或者它不属于 BAILIAN_JUDGE_WORKSPACE_ID 这个业务空间"
-                    f"（key 和业务空间都要在 BAILIAN_JUDGE_REGION 这个地域）：{e}"
-                ) from None
-            if "workspace" in message.lower():
-                raise RuntimeError(
-                    f"BAILIAN_JUDGE_WORKSPACE_ID 不对，百炼找不到这个业务空间：{e}"
-                ) from None
-            if code == "model_not_found":
-                raise RuntimeError(f"BAILIAN_JUDGE_MODEL 不对，百炼没有这个模型：{e}") from None
-            log.warning("could not check the Bailian judge model; starting anyway: %s", e)
         except JudgeError as e:
+            if isinstance(e, JudgeRefused):
+                code, message = _bailian_error(e.body)
+                # A workspace id malformed is invalid (400); one well formed but not the
+                # key's, or not in the region, is denied (403).
+                if "workspace" in message.lower():
+                    raise RuntimeError(
+                        "BAILIAN_JUDGE_WORKSPACE_ID 不对，或者 BAILIAN_JUDGE_API_KEY 不属于这个业务空间"
+                        f"（两者都要在 BAILIAN_JUDGE_REGION 这个地域）：{e}"
+                    ) from None
+                if e.status in (401, 403):
+                    raise RuntimeError(f"BAILIAN_JUDGE_API_KEY 无效：{e}") from None
+                if code == "model_not_found":
+                    raise RuntimeError(f"BAILIAN_JUDGE_MODEL 不对，百炼没有这个模型：{e}") from None
             log.warning("could not check the Bailian judge model; starting anyway: %s", e)
 
 

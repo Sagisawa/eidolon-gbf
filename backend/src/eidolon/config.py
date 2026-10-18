@@ -167,6 +167,7 @@ DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
 """For now: the judge eval (ticket cloudflare-judge 03) decides."""
 
 DEFAULT_BAILIAN_JUDGE_MODEL = "decision-model-preview"
+DEFAULT_BAILIAN_JUDGE_REGION: BailianRegion = "beijing"
 BAILIAN_REGION_CODES: dict[BailianRegion, str] = {"beijing": "cn-beijing", "singapore": "ap-southeast-1"}
 """Alibaba Cloud's names for the regions the decision model is served in."""
 
@@ -886,7 +887,7 @@ class BailianJudgeSettings:
 
     api_key: str
     workspace_id: str
-    region: BailianRegion = "beijing"
+    region: BailianRegion = DEFAULT_BAILIAN_JUDGE_REGION
     model: str = DEFAULT_BAILIAN_JUDGE_MODEL
 
     @property
@@ -900,7 +901,7 @@ class BailianJudgeSettings:
 
     @classmethod
     def from_env(cls) -> "BailianJudgeSettings":
-        region = os.environ.get("BAILIAN_JUDGE_REGION") or "beijing"
+        region = os.environ.get("BAILIAN_JUDGE_REGION") or DEFAULT_BAILIAN_JUDGE_REGION
         if region not in BAILIAN_REGION_CODES:
             raise RuntimeError(
                 f"环境变量 BAILIAN_JUDGE_REGION 只能是 {'、'.join(BAILIAN_REGION_CODES)}，而不是 {region}"

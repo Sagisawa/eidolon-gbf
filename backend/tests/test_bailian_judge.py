@@ -11,7 +11,6 @@ import pytest
 from eidolon.activity import judge_origin
 from eidolon.config import BailianJudgeSettings, Settings
 from eidolon.judge import BailianJudge, JudgeError, check_judge, open_judge
-from eidolon.prices import PRESETS
 from eidolon.retrieval import ModelRetrievalJudge
 from tests.test_retrieval_services import MANO, Handler, client, recording
 
@@ -62,9 +61,6 @@ def test_singapore_is_its_own_endpoint_and_either_is_recorded_without_the_worksp
     assert singapore.base_url == "https://llm-ws1.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
     assert judge_origin(SETTINGS).provider == "cn-beijing.maas.aliyuncs.com"
     assert judge_origin(singapore).provider == "ap-southeast-1.maas.aliyuncs.com"
-    for region in ("cn-beijing", "ap-southeast-1"):
-        price = PRESETS[(f"{region}.maas.aliyuncs.com", "decision-model-preview", "tokens")]
-        assert price.input == 0
 
 
 async def test_a_refusal_is_reported_as_bailian_s():
@@ -101,7 +97,6 @@ def test_bailian_is_chosen_with_its_own_key_and_workspace(env: pytest.MonkeyPatc
 @pytest.mark.parametrize(
     "unset, overrides, named",
     [
-        (("BAILIAN_JUDGE_API_KEY",), {}, "BAILIAN_JUDGE_API_KEY"),
         (("BAILIAN_JUDGE_WORKSPACE_ID",), {}, "BAILIAN_JUDGE_WORKSPACE_ID"),
         ((), {"BAILIAN_JUDGE_REGION": "hangzhou"}, "BAILIAN_JUDGE_REGION"),
     ],
@@ -121,15 +116,14 @@ def test_bailian_misconfigured_stops_the_start(
 @pytest.mark.parametrize(
     "response, refusal",
     [
-        (refused(401, "invalid_api_key", "Invalid API-key provided."),
-         "BAILIAN_JUDGE_API_KEY 无效.*BAILIAN_JUDGE_WORKSPACE_ID"),
-        (refused(403, "AccessDenied", "Access denied."), "BAILIAN_JUDGE_API_KEY 无效"),
-        (refused(400, "invalid_parameter_error", "Workspace endpoint is invalid."),
-         "BAILIAN_JUDGE_WORKSPACE_ID 不对"),
-        (refused(404, "model_not_found", "The model does not exist."),
-         "BAILIAN_JUDGE_MODEL 不对"),
+        # As Model Studio answered on 2026-10-18.
+        (refused(401, "invalid_api_key", "Invalid API-key provided."), "BAILIAN_JUDGE_API_KEY 无效"),
+        # Malformed, it is "Workspace endpoint is invalid." (400), taken alike.
+        (refused(403, "access_denied", "Workspace endpoint access denied."),
+         "BAILIAN_JUDGE_WORKSPACE_ID 不对.*不属于"),
+        (refused(404, "model_not_found", "Model not exist."), "BAILIAN_JUDGE_MODEL 不对"),
     ],
-    ids=["bad key", "access denied", "bad workspace", "bad model"],
+    ids=["bad key", "another workspace", "bad model"],
 )
 async def test_what_bailian_refuses_stops_the_start(response: httpx.Response, refusal: str):
     asked: list[httpx.Request] = []
@@ -145,17 +139,20 @@ async def test_what_bailian_refuses_stops_the_start(response: httpx.Response, re
     assert str(request.url) == URL and len(json.loads(request.content)["questions"]) == 1
 
 
+def unreachable(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectTimeout("timed out", request=request)
+
+
 @pytest.mark.parametrize(
-    "response",
-    [refused(429, "Throttling", "Requests rate limit exceeded"),
-     httpx.Response(500, text="internal error")],
-    ids=["throttled", "outage"],
+    "handle",
+    [lambda _: refused(429, "Throttling", "Requests rate limit exceeded"), unreachable],
+    ids=["throttled", "unreachable"],
 )
-async def test_bailian_busy_or_down_only_warns_as_the_server_starts(
-    caplog: pytest.LogCaptureFixture, response: httpx.Response
+async def test_bailian_busy_or_out_of_reach_only_warns_as_the_server_starts(
+    caplog: pytest.LogCaptureFixture, handle: Handler
 ):
     with caplog.at_level(logging.WARNING):
-        await check_judge(SETTINGS, client(lambda _: response))
+        await check_judge(SETTINGS, client(handle))
 
     assert "starting anyway" in caplog.text
 

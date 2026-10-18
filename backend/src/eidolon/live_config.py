@@ -60,6 +60,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CLOUDFLARE_JUDGE_MODELS,
+    DEFAULT_BAILIAN_JUDGE_REGION,
     ChatModelSettings,
     DEFAULT_JEV_BASE_URL,
     FISH_AUDIO_MODELS,
@@ -494,7 +495,7 @@ class _Judge(_Item):
     name = JUDGE
     fields = ("provider", "api_key", "model", "account_id", "workspace_id", "region", "emotion_timeout")
     secrets = frozenset({"api_key"})
-    _apart = ("api_key", "account_id", "workspace_id", "region")
+    _per_service = ("api_key", "account_id", "workspace_id", "region")
     """What each service has of its own, and another cannot use."""
     unavailable_reason = (
         ".env 里没有配置判断模型，检索、记忆和通话中的情绪判断在启动时就关掉了；"
@@ -506,7 +507,7 @@ class _Judge(_Item):
 
     def env(self) -> Values:
         judge = self.c.settings.judge
-        values: Values = {field: None for field in self._apart} | {
+        values: Values = {field: None for field in self._per_service} | {
             "emotion_timeout": self.c.settings.emotion.timeout
         }
         if isinstance(judge, CloudflareJudgeSettings):
@@ -524,7 +525,7 @@ class _Judge(_Item):
         provider = values["provider"]
         if provider != current["provider"]:
             # Another service's key, account and workspace cannot be the ones in effect.
-            for field in self._apart:
+            for field in self._per_service:
                 if field not in change:
                     values[field] = env[field] if env["provider"] == provider else None
             if "api_key" not in change and values["api_key"] is None:
@@ -543,7 +544,7 @@ class _Judge(_Item):
         if provider == "bailian":
             if not values["workspace_id"]:
                 raise ConfigInvalid("阿里云百炼需要填写业务空间 ID（workspace_id）")
-            values["region"] = values["region"] or "beijing"
+            values["region"] = values["region"] or DEFAULT_BAILIAN_JUDGE_REGION
         return values
 
     async def tried(self, values: Values) -> tuple[Values, Any]:

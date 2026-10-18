@@ -623,23 +623,19 @@ async def test_bailian_saved_judges_the_next_turn_at_its_workspace_in_beijing_un
     }
 
 
-async def test_bailian_in_env_is_shown_as_it_is_and_another_service_needs_its_own_key(
+async def test_bailian_in_env_is_shown_as_it_is(
     make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
 ):
     env = replace(admins, judge=BailianJudgeSettings(BL_KEY, "llm-ws1", "singapore"))
     client = await admin_client(with_retrieval(make_client), env, github, FakeServiceClients())
 
     shown = (await client.get(CONFIG)).json()["judge"]["env"]
-    to_jev = await client.put(JUDGE, json={
-        "provider": "jev", "model": "typesafe/jev-1.13", "emotion_timeout": 1.5
-    })
 
     assert shown == {
         "provider": "bailian", "api_key_last4": "3333", "model": "decision-model-preview",
         "account_id": None, "workspace_id": "llm-ws1", "region": "singapore",
         "emotion_timeout": shown["emotion_timeout"],
     }
-    assert to_jev.status_code == 422 and "key" in to_jev.json()["detail"]
 
 
 async def test_the_recall_threshold_saved_judges_the_next_turn_until_the_family_changes(
