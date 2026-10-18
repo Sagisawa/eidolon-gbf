@@ -363,7 +363,9 @@ def build(
         backups=backups,
         photos=photos,
         service_status=service_status,
-        data_packages=DataPackages(settings.database_path, store, memories, clock),
+        data_packages=DataPackages(
+            settings.database_path, store, memories, characters, gift_catalog, clock
+        ),
         world=world,
         _closers=closers,
     )

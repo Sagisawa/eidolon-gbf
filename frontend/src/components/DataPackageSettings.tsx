@@ -3,6 +3,7 @@
 import { useId, useRef, useState, type ChangeEvent } from "react";
 
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { useDirectory } from "@/components/conversations/ConversationDirectory";
 import { SettingsSection } from "@/components/app/SettingsSection";
 import { useSettingsValues } from "@/components/settings/SettingsValues";
 import { Alert, AlertTitle } from "@/components/ui/alert";
@@ -73,6 +74,7 @@ type Picked =
 
 function ImportSection() {
   const { profileSaved, memoryCountChanged } = useSettingsValues();
+  const { refresh } = useDirectory();
   const input = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<Picked>({ kind: "none" });
   const [choice, setChoice] = useState<Choice>({});
@@ -105,7 +107,8 @@ function ImportSection() {
       const result = await importDataPackage(picked.file, chosenCategories(choice));
       setSummary(importSummary(result));
       setPicked({ kind: "none" });
-      // 导入已经成功了：没刷新到档案、记忆条数也不报失败，那两页打开时自己会再读。
+      // 导入已经成功了：没刷新到档案、记忆条数、对话列表也不报失败，那几处打开时自己会再读。
+      if (result.conversations > 0) refresh();
       if (result.profile) getProfile().then((saved) => profileSaved(toDraft(saved)), () => {});
       if (result.memories > 0) listMemories().then((list) => memoryCountChanged(list.length), () => {});
     } catch (e) {

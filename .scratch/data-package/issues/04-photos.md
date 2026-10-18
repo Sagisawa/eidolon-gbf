@@ -22,3 +22,11 @@
 
 - `data_package._read` 现在只认 `manifest.json`、`data.json` 两个条目（而且 `manifest.json` 必须是第一个、不压缩），要放开 `photos/<id>.webp`。
 - 前端 `OFFERED` 加 `"photos"`；勾选框已经按 `choose`/`isDisabled` 把照片挂在对话下面、缩进显示。
+
+### 票 03 交接
+
+- `PackagedMessage`（`data_package.py`）要加可选的 `photo`；`KeptMessage`/`Store.whole_conversations`（`store.py`）现在不读照片，要按消息带上照片（不带图片本身，图片导出时一张一张读）。
+- `add_carried_conversation` 现在用 `executemany` 插消息，拿不到每条的新 id；挂照片要改成逐条插、用 `lastrowid`。去重跳过的那段照片也跟着跳过。
+- `Imported.photos` 在 `_add_conversations` 里数；结果里 `photos` 只算这次真正新加的。
+- 导出时 `include` 有 `photos` 的判断在 `chosen` 里已经做了；`PackagedConversation.of` 那里按 `"photos" in categories` 决定带不带。
+

@@ -27,7 +27,7 @@
 - `format`：整数，这个包的格式版本。
 - `exported_at`：导出的时间。
 - `categories`：这个包里有哪几类，按 `conversations`、`photos`、`memories`、`profile` 的顺序。导出时没勾的类别不在这里。
-- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`memories` 是记忆的条数。
+- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`conversations` 是对话的段数，`memories` 是记忆的条数。
 
 ## `data.json`
 
@@ -53,6 +53,60 @@
 - `birthday_month`、`birthday_day`：生日的月和日，没有年；要么都有、要么都是 `null`。2 月 29 日可以。
 
 导入时勾了「制作人档案」就整份覆盖：包里是 `null` 的项，这里也清空、沿用默认。
+
+### `conversations`：对话
+
+和每位角色的每段对话（`GLOSSARY.md`「对话」），按开始的先后排，里面的东西照库里原样：
+
+```json
+{
+  "conversations": [
+    {
+      "id": "3f2a…",
+      "character_id": "mano",
+      "character_name": "櫻木真乃",
+      "created_at": "2026-09-25T12:00:00.000000+00:00",
+      "title": "商量周末去看海",
+      "messages": [
+        {
+          "role": "user", "text": "周末去看海吧", "ja": null, "zh": null, "segments": [],
+          "created_at": "2026-09-25T12:00:01.000000+00:00", "affinity": null,
+          "hurt": 0.0, "out_of_line": false
+        },
+        {
+          "role": "character", "text": null, "ja": "[嬉しそうに]いいですね", "zh": "好啊",
+          "segments": [{ "ja": "[嬉しそうに]いいですね", "zh": "好啊" }],
+          "created_at": "2026-09-25T12:00:03.000000+00:00",
+          "affinity": { "up": true, "tier_changed": false, "tier": "trust", "cooldown": false, "thawed": false },
+          "hurt": null, "out_of_line": null
+        }
+      ],
+      "events": [
+        {
+          "kind": "gift", "created_at": "2026-09-25T12:05:00.000000+00:00",
+          "affinity": null, "gift_id": "pudding", "liked": true
+        }
+      ],
+      "calls": [{ "connected_at": "2026-09-25T13:00:00.000000+00:00", "duration_s": 75.5 }]
+    }
+  ]
+}
+```
+
+- `id`：包内 ID，整数或字符串，只在这个包里当键用（导出时是它原来的 id），记忆的 `conversation` 引用它；包里不能重复。
+- `character_id`、`character_name`：和谁的对话。名字给人看，也用在「跳过了和谁的几段对话」里；导出的部署上已经没有她时是 `null`。
+- `created_at`：对话开始的时间。`title`：对话标题，还没起时是 `null`。
+- `messages`：按原来的先后排（导入时照这个顺序插入）。`role` 是 `"user"`（制作人说的，在 `text` 里）或 `"character"`（她的回复：`ja` 是日文原文，`zh` 是中文字幕，`segments` 是一句句对上的日文和字幕）。她的回复照模型写的原样，带着语气提示（ADR-0007）。`affinity` 是这个回合让好感度怎么变了，`null` 是没变；`hurt`、`out_of_line` 是打字的回合让她多不高兴、是不是说了不该说的话，通话里的回合和更早的记录是 `null`。
+- `events`：对话事件（`GLOSSARY.md`「对话事件」）。`kind` 是 `"hung_up"`（她挂断了电话）、`"gift"`（送了礼物，`gift_id` 是哪件、`liked` 是送的时候她喜不喜欢）或 `"ended"`（她结束了这段对话，之后只能看）。`gift_id` 只有送礼事件有，送礼事件也必须有。`affinity` 同上。
+- `calls`：这段对话里接通了的通话，只给统计用：`connected_at` 是接通的时间，`duration_s` 是接通后持续了几秒（不小于 0）。
+
+导入时：
+
+- 角色不在这个部署的角色配置里的，整段跳过，连同通话记录，结果里的 `skipped` 带上包里的角色名（没有名字时是 `character_id`）和段数。
+- 这位用户和同一位角色、开始时间相同的对话已经有了，就当成同一段，整段跳过，不逐条合并；包里的记忆引用它时，改成引用已有的那段。
+- 其余的换新 id 加进去。当前对话照旧是最新开始的那段：在这个部署上新聊的仍是当前对话，导入的进历史对话；被她结束的仍是已结束。
+- 送礼事件里的礼物不在这个部署的礼物表里的，这一条跳过。
+- 好感度、抽奖次数、重置卡、礼物背包都不在数据包里，导入不碰（ADR-0025）。
 
 ### `memories`：记忆
 
@@ -85,7 +139,7 @@
 
 - `id`：包内 ID，整数或字符串，只在这个包里当键用（导出时是它原来的 id）；包里不能重复。
 - `source_character_id`、`source_character_name`：来源角色，记忆是告诉谁的。名字只给人看，导入时不用；导出的部署上已经没有她时是 `null`。
-- `conversation`：在包里哪段对话里说的（包内对话 ID）；`null` 是不知道或不在包里。
+- `conversation`：在包里哪段对话里说的（包内对话 ID），必须引用得上 `conversations` 里的一段；`null` 是不知道或不在包里（导出时没带对话就一律是 `null`）。导入时对应到这里的那段，那段被跳过或没导入对话时存成空。
 - `text`：记忆的原文，1 到 200 个字。
 - `created_at`：记下的时间。
 - `superseded_by`：取代它的那条记忆的包内 ID，必须是包里的另一条；`null` 是它还作数（ADR-0014）。

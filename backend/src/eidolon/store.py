@@ -344,6 +344,57 @@ class KeptCall:
     duration_s: float
 
 
+@dataclass(frozen=True)
+class KeptMessage:
+    """A message as kept, all of it, as a data package carries it (GLOSSARY.md「数据包」): her
+    reply as the model wrote it, delivery cues and all (ADR-0007), and for the user's message
+    of a typed turn what it came to (`hurt`, `out_of_line`; None as for `Typed`)."""
+
+    role: Role
+    text: str | None
+    ja: str | None
+    zh: str | None
+    segments: list[Segment]
+    created_at: str
+    affinity: Change | None
+    hurt: float | None
+    out_of_line: bool | None
+
+
+@dataclass(frozen=True)
+class KeptEvent:
+    """A conversation event as kept, as a data package carries it."""
+
+    kind: EventKind
+    created_at: str
+    affinity: Change | None
+    gift_id: str | None
+    liked: bool
+
+
+@dataclass(frozen=True)
+class ConnectedCall:
+    """A call kept in a conversation (`keep_call`), as a data package carries it."""
+
+    connected_at: str
+    duration_s: float
+
+
+@dataclass(frozen=True)
+class WholeConversation:
+    """A conversation and everything kept under it, as a data package carries it: its
+    messages in their order, its events and the calls kept in it. `id` is its id where it was
+    exported, a key in the package only."""
+
+    id: int | str
+    character_id: str
+    created_at: str
+    title: str | None
+    messages: list[KeptMessage]
+    events: list[KeptEvent]
+    calls: list[ConnectedCall]
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         self._db = connect(path)
@@ -707,6 +758,52 @@ class Store:
                 raise IsCurrent()
             delete_conversation_data(self._db, conversation.id)
 
+    def whole_conversations(self, user_id: str) -> list[WholeConversation]:
+        """Every one of the user's conversations, with every character, the oldest first, and
+        all that is kept under each, for a data package; not the pictures of photos."""
+        with self._lock:
+            conversations = self._db.execute(
+                "SELECT * FROM conversations WHERE user_id = ? ORDER BY created_at, rowid",
+                (user_id,),
+            ).fetchall()
+            return [
+                WholeConversation(
+                    c["id"], c["character_id"], c["created_at"], c["title"],
+                    [
+                        KeptMessage(
+                            m["role"], m["text"], m["ja"], m["zh"],
+                            [Segment(**s) for s in json.loads(m["segments"] or "[]")],
+                            m["created_at"], _change(m["affinity"]), m["hurt"],
+                            None if m["out_of_line"] is None else bool(m["out_of_line"]),
+                        )
+                        for m in self._db.execute(
+                            "SELECT * FROM messages WHERE conversation_id = ? ORDER BY id",
+                            (c["id"],),
+                        )
+                    ],
+                    [
+                        KeptEvent(
+                            e["kind"], e["created_at"], _change(e["affinity"]), e["gift_id"],
+                            bool(e["liked"]),
+                        )
+                        for e in self._db.execute(
+                            f"SELECT {_EVENT_COLUMNS} FROM conversation_events"
+                            " WHERE conversation_id = ? ORDER BY id",
+                            (c["id"],),
+                        )
+                    ],
+                    [
+                        ConnectedCall(k["connected_at"], k["duration_s"])
+                        for k in self._db.execute(
+                            "SELECT connected_at, duration_s FROM calls"
+                            " WHERE conversation_id = ? ORDER BY id",
+                            (c["id"],),
+                        )
+                    ],
+                )
+                for c in conversations
+            ]
+
     def contacts(self, user_id: str) -> list[Contact]:
         """Every turn the user took and gift they gave, in what is left of their
         conversations, as stats count them (GLOSSARY.md「统计」); in no order."""
@@ -997,17 +1094,16 @@ class Store:
         typed: Typed | None = None,
     ) -> Message:
         created_at = created_at or _now()
-        ja = zh = stored_segments = None
+        ja = zh = None
         if segments is not None:
             ja = "".join(s.ja for s in segments)
             zh = "".join(s.zh for s in segments)
-            stored_segments = json.dumps([asdict(s) for s in segments], ensure_ascii=False)
         cursor = self._db.execute(
             "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
             " affinity, hurt, out_of_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                conversation_id, role, text, ja, zh, stored_segments, created_at,
-                affinity and json.dumps(asdict(affinity)),
+                conversation_id, role, text, ja, zh, _stored_segments(segments), created_at,
+                _stored_change(affinity),
                 typed and typed.hurt, typed and int(typed.out_of_line),
             ),
         )
@@ -1044,8 +1140,7 @@ class Store:
             " (conversation_id, kind, created_at, affinity, gift_id, liked)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             (
-                conversation_id, kind, created_at,
-                affinity and json.dumps(asdict(affinity)), gift_id, int(liked),
+                conversation_id, kind, created_at, _stored_change(affinity), gift_id, int(liked),
             ),
         )
         assert cursor.lastrowid is not None
@@ -1090,11 +1185,78 @@ def write_profile(db: sqlite3.Connection, user_id: str, profile: ProducerProfile
     )
 
 
+def add_carried_conversation(
+    db: sqlite3.Connection, user_id: str, conversation: WholeConversation
+) -> tuple[str, bool]:
+    """Add the conversation a data package carries to the user's through `db`, in the
+    caller's transaction, under an id of its own, its messages in their order and its events
+    and calls as they were; its id here, and whether it is new. One the user already has with
+    her, begun at the same time, is taken for it and left as it is, nothing of it merged.
+    Which is her current one is as ever: the newest begun."""
+    begun = _at(conversation.created_at)
+    for row in db.execute(
+        "SELECT id, created_at FROM conversations WHERE user_id = ? AND character_id = ?",
+        (user_id, conversation.character_id),
+    ).fetchall():
+        if _at(row[1]) == begun:
+            return row[0], False
+    conversation_id = uuid.uuid4().hex
+    db.execute(
+        "INSERT INTO conversations (id, user_id, character_id, created_at, title)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (conversation_id, user_id, conversation.character_id, conversation.created_at,
+         conversation.title),
+    )
+    db.executemany(
+        "INSERT INTO messages (conversation_id, role, text, ja, zh, segments, created_at,"
+        " affinity, hurt, out_of_line) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                conversation_id, m.role, m.text, m.ja, m.zh,
+                _stored_segments(m.segments if m.segments or m.role == "character" else None),
+                m.created_at, _stored_change(m.affinity), m.hurt,
+                None if m.out_of_line is None else int(m.out_of_line),
+            )
+            for m in conversation.messages
+        ],
+    )
+    db.executemany(
+        "INSERT INTO conversation_events"
+        " (conversation_id, kind, created_at, affinity, gift_id, liked)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (conversation_id, e.kind, e.created_at, _stored_change(e.affinity), e.gift_id,
+             int(e.liked))
+            for e in conversation.events
+        ],
+    )
+    db.executemany(
+        "INSERT INTO calls (conversation_id, connected_at, duration_s) VALUES (?, ?, ?)",
+        [(conversation_id, k.connected_at, k.duration_s) for k in conversation.calls],
+    )
+    return conversation_id, True
+
+
+def _change(stored: str | None) -> Change | None:
+    return Change(**json.loads(stored)) if stored else None
+
+
+def _stored_change(change: Change | None) -> str | None:
+    return change and json.dumps(asdict(change))
+
+
+def _stored_segments(segments: list[Segment] | None) -> str | None:
+    """A reply's segments as kept; None for the user's message, which has none."""
+    if segments is None:
+        return None
+    return json.dumps([asdict(s) for s in segments], ensure_ascii=False)
+
+
 def _message(row: sqlite3.Row) -> Message:
     return Message(
         row["id"], row["role"], row["text"], row["ja"], row["zh"], row["created_at"],
         [Segment(**s) for s in json.loads(row["segments"] or "[]")],
-        Change(**json.loads(row["affinity"])) if row["affinity"] else None,
+        _change(row["affinity"]),
     )
 
 
@@ -1108,8 +1270,7 @@ def _message_with_photo(row: sqlite3.Row) -> Message:
 
 def _event(row: sqlite3.Row) -> ConversationEvent:
     return ConversationEvent(
-        row["id"], row["kind"], row["created_at"],
-        Change(**json.loads(row["affinity"])) if row["affinity"] else None,
+        row["id"], row["kind"], row["created_at"], _change(row["affinity"]),
         row["gift_id"], bool(row["liked"]),
     )
 

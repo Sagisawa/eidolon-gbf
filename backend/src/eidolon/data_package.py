@@ -15,11 +15,12 @@ exporting nor importing is recorded: no activity record, nothing an admin sees."
 
 import asyncio
 import json
+import sqlite3
 import threading
 import zipfile
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Container, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal, get_args
@@ -34,9 +35,18 @@ from pydantic import (
     model_validator,
 )
 
-from eidolon.affinity import next_day
+from eidolon.affinity import Change, Tier, next_day
+from eidolon.characters import Character
 from eidolon.database import connect
-from eidolon.memory import MAX_MEMORY_LENGTH, CarriedMemory, Memories, Memory, add_carried
+from eidolon.gift_catalog import Gift
+from eidolon.memory import (
+    MAX_MEMORY_LENGTH,
+    CarriedMemory,
+    Memories,
+    Memory,
+    PackageKey,
+    add_carried,
+)
 from eidolon.producer import (
     MAX_FORM_OF_ADDRESS_LENGTH,
     Birthday,
@@ -44,7 +54,18 @@ from eidolon.producer import (
     ProducerProfile,
     is_day_of_the_year,
 )
-from eidolon.store import Store, write_profile
+from eidolon.reply_format import Segment
+from eidolon.store import (
+    ConnectedCall,
+    EventKind,
+    KeptEvent,
+    KeptMessage,
+    Role,
+    Store,
+    WholeConversation,
+    add_carried_conversation,
+    write_profile,
+)
 
 FORMAT = 1
 """The newest format this version reads, and the one it exports. Changing the format adds
@@ -167,6 +188,129 @@ PackageId = StrictInt | Annotated[str, Field(min_length=1, max_length=100)]
 only, the id it had where it was exported."""
 
 
+class PackagedChange(_Strict):
+    """How a turn or a gift changed her affinity, as kept with it (`affinity.Change`)."""
+
+    up: bool
+    tier_changed: bool
+    tier: Tier
+    cooldown: bool
+    thawed: bool = False
+
+    @classmethod
+    def of(cls, change: Change | None) -> "PackagedChange | None":
+        return change and cls(**asdict(change))
+
+    def change(self) -> Change:
+        return Change(**self.model_dump())
+
+
+class PackagedSegment(_Strict):
+    ja: str
+    zh: str
+
+
+class PackagedMessage(_Strict):
+    role: Role
+    text: str | None
+    ja: str | None
+    zh: str | None
+    segments: list[PackagedSegment]
+    created_at: Time
+    affinity: PackagedChange | None
+    hurt: float | None
+    out_of_line: bool | None
+
+    @classmethod
+    def of(cls, message: KeptMessage) -> "PackagedMessage":
+        return cls(
+            role=message.role, text=message.text, ja=message.ja, zh=message.zh,
+            segments=[PackagedSegment(ja=s.ja, zh=s.zh) for s in message.segments],
+            created_at=message.created_at, affinity=PackagedChange.of(message.affinity),
+            hurt=message.hurt, out_of_line=message.out_of_line,
+        )
+
+    def kept(self) -> KeptMessage:
+        return KeptMessage(
+            self.role, self.text, self.ja, self.zh,
+            [Segment(s.ja, s.zh) for s in self.segments], self.created_at,
+            self.affinity and self.affinity.change(), self.hurt, self.out_of_line,
+        )
+
+
+class PackagedEvent(_Strict):
+    kind: EventKind
+    created_at: Time
+    affinity: PackagedChange | None
+    gift_id: Annotated[str, Field(min_length=1, max_length=100)] | None
+    """Which gift, for a gift's alone."""
+    liked: bool
+
+    @model_validator(mode="after")
+    def _gift_for_a_gift(self) -> "PackagedEvent":
+        if (self.kind == "gift") != (self.gift_id is not None):
+            raise ValueError("a gift without which, or which gift for no gift")
+        return self
+
+    @classmethod
+    def of(cls, event: KeptEvent) -> "PackagedEvent":
+        return cls(
+            kind=event.kind, created_at=event.created_at,
+            affinity=PackagedChange.of(event.affinity), gift_id=event.gift_id, liked=event.liked,
+        )
+
+    def kept(self) -> KeptEvent:
+        return KeptEvent(
+            self.kind, self.created_at, self.affinity and self.affinity.change(), self.gift_id,
+            self.liked,
+        )
+
+
+class PackagedCall(_Strict):
+    connected_at: Time
+    duration_s: Annotated[float, Field(ge=0)]
+
+
+class PackagedConversation(_Strict):
+    id: PackageId
+    character_id: Annotated[str, Field(min_length=1, max_length=100)]
+    character_name: Annotated[str, Field(max_length=100)] | None
+    """Her name where it was exported, for whoever reads the package, and for telling the
+    user whose were skipped; None if she was no longer there."""
+    created_at: Time
+    title: str | None
+    messages: list[PackagedMessage]
+    """In the order they were recorded."""
+    events: list[PackagedEvent]
+    calls: list[PackagedCall]
+
+    @classmethod
+    def of(cls, conversation: WholeConversation, name: str | None) -> "PackagedConversation":
+        return cls(
+            id=conversation.id,
+            character_id=conversation.character_id,
+            character_name=name,
+            created_at=conversation.created_at,
+            title=conversation.title,
+            messages=[PackagedMessage.of(m) for m in conversation.messages],
+            events=[PackagedEvent.of(e) for e in conversation.events],
+            calls=[
+                PackagedCall(connected_at=k.connected_at, duration_s=k.duration_s)
+                for k in conversation.calls
+            ],
+        )
+
+    def whole(self, gifts: Container[str]) -> WholeConversation:
+        """The conversation to add, but the gifts given in it that are not among `gifts`:
+        her prompt names what she was given by the gift catalog."""
+        return WholeConversation(
+            self.id, self.character_id, self.created_at, self.title,
+            [m.kept() for m in self.messages],
+            [e.kept() for e in self.events if e.gift_id is None or e.gift_id in gifts],
+            [ConnectedCall(k.connected_at, k.duration_s) for k in self.calls],
+        )
+
+
 class PackagedMemory(_Strict):
     id: PackageId
     source_character_id: Annotated[str, Field(min_length=1, max_length=100)]
@@ -180,25 +324,30 @@ class PackagedMemory(_Strict):
     superseded_by: PackageId | None
 
     @classmethod
-    def of(cls, memory: Memory) -> "PackagedMemory":
+    def of(cls, memory: Memory, with_conversations: bool) -> "PackagedMemory":
+        """The memory, saying which conversation it was told in if `with_conversations`, the
+        package carrying them."""
         return cls(
             id=memory.id,
             source_character_id=memory.source_character_id,
             source_character_name=memory.source_character_name,
-            conversation=None,
+            conversation=memory.conversation_id if with_conversations else None,
             text=memory.text,
             created_at=_stored_time(memory.created_at),
             superseded_by=memory.superseded_by,
         )
 
-    def carried(self) -> CarriedMemory:
+    def carried(self, conversations: Mapping[PackageKey, str]) -> CarriedMemory:
+        """The memory to add, told in the conversation here that `conversations` has for the
+        package's; none if it has none, the package's not imported."""
         return CarriedMemory(
             key=self.id,
             source_character_id=self.source_character_id,
             text=self.text,
             created_at=self.created_at,
             superseded_by=self.superseded_by,
-            conversation_id=None,  # conversations are not carried yet
+            conversation_id=None if self.conversation is None
+            else conversations.get(self.conversation),
         )
 
 
@@ -206,7 +355,18 @@ class PackageData(_Strict):
     """`data.json`: a key for each category the package holds, none for the others."""
 
     profile: PackagedProfile | None = None
+    conversations: list[PackagedConversation] | None = None
     memories: list[PackagedMemory] | None = None
+
+    @model_validator(mode="after")
+    def _memories_told_in_conversations(self) -> "PackageData":
+        ids = [c.id for c in self.conversations or []]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two conversations under one id")
+        for m in self.memories or []:
+            if m.conversation is not None and m.conversation not in ids:
+                raise ValueError("a memory told in no conversation of the package")
+        return self
 
     @model_validator(mode="after")
     def _memories_superseded_by_memories(self) -> "PackageData":
@@ -281,11 +441,15 @@ class DataPackages:
         database_path: Path,
         store: Store,
         memories: Memories,
+        characters: Mapping[str, Character],
+        gift_catalog: Mapping[str, Gift],
         clock: Callable[[], datetime],
     ) -> None:
         self._database_path = database_path
         self._store = store
         self._memories = memories
+        self._characters = characters
+        self._gift_catalog = gift_catalog
         self._clock = clock
         self._working: set[str] = set()
         self._working_lock = threading.Lock()
@@ -332,8 +496,17 @@ class DataPackages:
         if "profile" in categories:
             data.profile = PackagedProfile.of(self._store.get_profile(user_id))
             counts["profile"] = 1
+        if "conversations" in categories:
+            data.conversations = [
+                PackagedConversation.of(c, self._name(c.character_id))
+                for c in self._store.whole_conversations(user_id)
+            ]
+            counts["conversations"] = len(data.conversations)
         if "memories" in categories:
-            data.memories = [PackagedMemory.of(m) for m in self._memories.kept(user_id)]
+            data.memories = [
+                PackagedMemory.of(m, "conversations" in categories)
+                for m in self._memories.kept(user_id)
+            ]
             counts["memories"] = len(data.memories)
         now = self._clock()
         manifest = Manifest(
@@ -372,9 +545,14 @@ class DataPackages:
                 if "profile" in categories and data.profile is not None:
                     write_profile(db, user_id, data.profile.profile())
                     imported.profile = True
+                conversations: dict[PackageKey, str] = {}
+                if "conversations" in categories and data.conversations is not None:
+                    conversations = self._add_conversations(
+                        db, user_id, data.conversations, imported
+                    )
                 if "memories" in categories and data.memories is not None:
                     imported.memories = add_carried(
-                        db, user_id, [m.carried() for m in data.memories]
+                        db, user_id, [m.carried(conversations) for m in data.memories]
                     )
                 now = self._clock()
                 db.execute(
@@ -388,6 +566,34 @@ class DataPackages:
         finally:
             db.close()
         return imported
+
+    def _add_conversations(
+        self,
+        db: sqlite3.Connection,
+        user_id: str,
+        packaged: list[PackagedConversation],
+        imported: Imported,
+    ) -> dict[PackageKey, str]:
+        """Add the package's conversations to the user's through `db`, counting those added
+        and those skipped, she not being here, into `imported`; what each is here, new or
+        already here, by its id in the package."""
+        here: dict[PackageKey, str] = {}
+        skipped: dict[str, int] = {}
+        for conversation in packaged:
+            if conversation.character_id not in self._characters:
+                name = conversation.character_name or conversation.character_id
+                skipped[name] = skipped.get(name, 0) + 1
+                continue
+            here[conversation.id], new = add_carried_conversation(
+                db, user_id, conversation.whole(self._gift_catalog)
+            )
+            imported.conversations += new
+        imported.skipped = [Skipped(name, count) for name, count in skipped.items()]
+        return here
+
+    def _name(self, character_id: str) -> str | None:
+        character = self._characters.get(character_id)
+        return character.name if character else None
 
 
 def _today_began(now: datetime) -> str:

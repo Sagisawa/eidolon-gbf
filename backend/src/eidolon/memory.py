@@ -116,6 +116,8 @@ class Memory:
     """When it was told, as an ISO timestamp in UTC."""
     superseded_by: int | None = None
     """The memory that superseded it, None while it holds (ADR-0014)."""
+    conversation_id: str | None = None
+    """The conversation it was told in; None if that is not known or no longer there."""
 
 
 PackageKey = int | str
@@ -497,20 +499,20 @@ class Memories:
         is being written down (`entries` does)."""
         with self._lock:
             rows = self._db.execute(
-                "SELECT id, user_id, source_character_id, text, created_at, superseded_by"
-                " FROM memories WHERE user_id = ? ORDER BY id",
+                "SELECT id, user_id, source_character_id, text, created_at, superseded_by,"
+                " conversation_id FROM memories WHERE user_id = ? ORDER BY id",
                 (user_id,),
             ).fetchall()
         return [self._memory(*row) for row in rows]
 
     def _memory(
         self, id: int, user_id: str, source_character_id: str, text: str, created_at: str,
-        superseded_by: int | None = None,
+        superseded_by: int | None = None, conversation_id: str | None = None,
     ) -> Memory:
         source = self._characters.get(source_character_id)
         return Memory(
             id, user_id, source_character_id, source.name if source else None, text,
-            created_at, superseded_by,
+            created_at, superseded_by, conversation_id,
         )
 
     def _add(
