@@ -120,6 +120,21 @@ export const zh = {
     /** 没读过的那条公告，日期后面的标记。 */
     unreadAnnouncement: "新",
     markAnnouncementsRead: "已读",
+    /** 铃铛旁边的服务状态和它打开的小窗口（GLOSSARY.md「服务状态」）；有服务不正常时按钮念后一句。 */
+    serviceStatus: "服务状态",
+    serviceStatusFailing: "服务状态，有服务不正常",
+    serviceStatusNames: {
+      chat_llm: "对话",
+      memory_llm: "记忆",
+      tts: "语音合成",
+      stt: "语音识别",
+      judge: "判断",
+      embedding: "检索",
+      rerank: "重排",
+      image: "照片",
+    },
+    serviceStatuses: { ok: "正常", unsteady: "不稳定", down: "故障", idle: "最近没有调用" },
+    serviceStatusWindow: (minutes: number) => `最近 ${minutes} 分钟`,
   },
   conversation: {
     back: "返回对话列表",
@@ -1179,6 +1194,7 @@ export const zh = {
         voice: "语音",
         image: "生图",
         network: "网络",
+        status: "服务状态",
         limits: "限额与玩法",
         prices: "单价",
         read_only: "只读",
@@ -1229,6 +1245,10 @@ export const zh = {
         proxy: {
           title: "网络代理",
           hint: "打开的服务经过这个代理连服务商，其余的直连；用户自带的密钥和部署者的分开选。保存前把换了路线的部署者服务按新路线各连一次，有一项不通就不保存。保存后从下一次请求起生效，进行中的回合和通话也是；已经连上的语音连接不断。",
+        },
+        service_status: {
+          title: "服务状态",
+          hint: "对话列表铃铛旁边给用户看各项服务正不正常：按统计时段里用部署者 key 的调用算出错率，时段里没有调用的，后台用最小的真实请求试一下（生图不试）。一项都不显示时用户那边没有按钮。保存后立刻生效。",
         },
       },
       status: {
@@ -1298,6 +1318,17 @@ export const zh = {
           own_stt: "自带的语音识别走代理",
           own_image: "自带的生图走代理",
         },
+        service_status: {
+          window_minutes: "统计时段",
+          chat_llm: "显示「对话」（扮演角色的 LLM）",
+          memory_llm: "显示「记忆」（后台模型）",
+          tts: "显示「语音合成」",
+          stt: "显示「语音识别」",
+          judge: "显示「判断」（判断模型）",
+          embedding: "显示「检索」（向量化）",
+          rerank: "显示「重排」",
+          image: "显示「照片」（生图）",
+        },
       } as Partial<Record<string, Record<string, string>>>,
       formHints: {
         reasoning_effort: `${reasoningEffortHints.effort}选「高」及以上时，max_tokens 留空或设宽裕一些，思考也算在上限里。`,
@@ -1312,6 +1343,9 @@ export const zh = {
           "http://、https://、socks5:// 或 socks5h:// 开头，写明主机和端口，比如 http://127.0.0.1:7890（生产环境的后端和宿主机共用网络，宿主机上的代理直接写 127.0.0.1）。地址里带的密码会单独加密保存。留空表示没有代理。",
         proxy_password: "代理要求认证时填写，地址里要写用户名（http://用户名@主机:端口）。留空则不改。",
         proxy_unconfigured: "这个部署没有配置这项服务，开关暂时不起作用。",
+        service_status_unconfigured: "这个部署没有配置这项服务，打开了也不显示。",
+        status_window_minutes: "按最近这么久里的调用算；也是空闲的服务多久试一次。",
+        status_image: "生图每张都要花钱，不会去试，没有调用时显示「最近没有调用」。",
         proxy_own_llm: "只有服务地址属于已知服务商（价格目录里有的）时才走代理，其余的照旧直连。",
         proxy_own_image: "只有 NovelAI 官方地址（https://image.novelai.net）走代理，中转一律直连。",
         judge_api_key: "Jev 填 OpenRouter 等的 key，Cloudflare 填 API token，阿里云百炼填这个业务空间的 key；换服务时必填，留空则不改。",
@@ -1334,6 +1368,7 @@ export const zh = {
         count: (field: string) => `${field}需要是 1 到 10 之间的整数。`,
       },
       unlimited: "不限",
+      minutes: (n: string) => `${n} 分钟`,
       /** 开关类的值（免限额密钥、好感度和礼物）。 */
       switchOn: "打开",
       switchOff: "关闭",
