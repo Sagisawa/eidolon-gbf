@@ -7,7 +7,12 @@ to the same address. Only the signed-in user's own, never anyone else's, admins'
 a `code` beside the `detail`, for the page to tell them apart: `too_new` (422) for a package
 from a newer version, `broken` (422) for anything else wrong with it, `too_large` (413) for
 one past `data_package.MAX_PACKAGE_BYTES`, `busy` (409) while the user is already importing
-or exporting one, and `used_up` (429, with `retry_at`) once they have made today's imports."""
+or exporting one, and `used_up` (429, with `retry_at`) once they have made today's imports.
+
+The settings page downloads a package by sending the browser to it, so that it is never held
+in the page's memory: a refusal there would be a page of JSON. It asks
+`GET /api/account/data-package/export-check?include=…` first, refused as the export would be
+but for what happens while the package is written, and shows a refusal itself."""
 
 import logging
 import math
@@ -69,6 +74,13 @@ def _temporary_file() -> Path:
 
 def add_data_package_routes(app: FastAPI, backend: Backend) -> None:
     packages, clock = backend.data_packages, backend.clock
+
+    @app.get("/api/account/data-package/export-check", status_code=204)
+    async def check_data_package_export(user_id: UserId, include: str = "") -> None:
+        """Whether the user could export a package with the categories `include` names now:
+        204 if so, refused as the export would be if not."""
+        _categories(include)
+        packages.check_not_busy(user_id)
 
     @app.get("/api/account/data-package")
     async def export_data_package(user_id: UserId, include: str = "") -> FileResponse:

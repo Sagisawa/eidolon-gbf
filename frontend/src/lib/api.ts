@@ -581,6 +581,15 @@ export async function importDataPackage(file: Blob, include: readonly string[]):
   );
 }
 
+/** Ask before downloading a data package whether the user could export one now, refused as the
+ * export would be (signed out, `busy`), so the page can say so: a refused download shows the browser
+ * only JSON. Not refused here, the download can still fail in the browser, beaten to it in between or
+ * failing as the package is written. */
+export async function checkDataPackageExport(include: readonly string[]): Promise<void> {
+  const query = new URLSearchParams({ include: include.join(",") });
+  await expectNoContent(await api(`/api/account/data-package/export-check?${query}`));
+}
+
 export async function getProfile(): Promise<ProducerProfile> {
   return json(await api("/api/profile"));
 }

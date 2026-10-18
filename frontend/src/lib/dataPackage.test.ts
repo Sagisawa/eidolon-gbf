@@ -6,7 +6,7 @@ import {
   choose,
   chosenCategories,
   exportHref,
-  importFailure,
+  packageFailure,
   importSummary,
   isDisabled,
   readManifest,
@@ -119,16 +119,17 @@ describe("导入结果的一句话", () => {
   });
 });
 
-describe("导入失败的提示", () => {
+describe("导入、导出被拒时的提示", () => {
   it("按错误码给一句", () => {
-    expect(importFailure(new ApiError("x", 422, { code: "broken" })).message).toBe("这不是一个能用的数据包");
-    expect(importFailure(new ApiError("x", 422, { code: "too_new" })).message).toBe(
+    expect(packageFailure(new ApiError("x", 409, { code: "busy" })).message).toBe("已经有一个数据包在导入或导出");
+    expect(packageFailure(new ApiError("x", 422, { code: "broken" })).message).toBe("这不是一个能用的数据包");
+    expect(packageFailure(new ApiError("x", 422, { code: "too_new" })).message).toBe(
       "这个数据包来自更新的版本，请部署者升级后再导入",
     );
   });
 
   it("反向代理挡下的太大没有错误码，也提示不带照片重新导出", () => {
-    expect(importFailure(new ApiError("请求失败（413）", 413)).message).toBe(
+    expect(packageFailure(new ApiError("请求失败（413）", 413)).message).toBe(
       "数据包太大了（最大 200 MB），可以不带照片重新导出",
     );
   });
@@ -136,16 +137,16 @@ describe("导入失败的提示", () => {
   it("今天的次数用完时说几点以后能再导，按这台设备的时区；不指去自带密钥，自带密钥绕不过导入的次数", () => {
     const usedUp = new ApiError("x", 429, { code: "used_up", retryAt: "2026-10-19T16:00:00+00:00" });
 
-    expect(importFailure(usedUp, "Asia/Shanghai").message).toBe("今天的导入次数用完了，00:00 以后可以再导入");
-    expect(importFailure(usedUp, "Asia/Tokyo").message).toBe("今天的导入次数用完了，01:00 以后可以再导入");
-    expect(importFailure(usedUp).toOwnKeys).toBeFalsy();
+    expect(packageFailure(usedUp, "Asia/Shanghai").message).toBe("今天的导入次数用完了，00:00 以后可以再导入");
+    expect(packageFailure(usedUp, "Asia/Tokyo").message).toBe("今天的导入次数用完了，01:00 以后可以再导入");
+    expect(packageFailure(usedUp).toOwnKeys).toBeFalsy();
   });
 
   it("没有错误码时照后端说的；没登录时带上去登录的链接", () => {
-    const signedOut = importFailure(new ApiError("请先登录", 401));
+    const signedOut = packageFailure(new ApiError("请先登录", 401));
 
     expect(signedOut.message).toBe("请先登录");
     expect(signedOut.signedOut).toBe(true);
-    expect(importFailure(new TypeError("Failed to fetch")).message).toBe("Failed to fetch");
+    expect(packageFailure(new TypeError("Failed to fetch")).message).toBe("Failed to fetch");
   });
 });

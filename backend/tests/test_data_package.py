@@ -111,7 +111,8 @@ async def test_the_producer_profile_moves_to_another_deployment(
     disposition = res.headers["content-disposition"]
     assert disposition.startswith("attachment")
     assert "eidolon-data-package-" in disposition and disposition.endswith('.zip"')
-    entries, manifest, data = unzipped(res.content)
+    package = res.content
+    entries, manifest, data = unzipped(package)
     assert [e.filename for e in entries] == ["manifest.json", "data.json"]
     assert entries[0].compress_type == zipfile.ZIP_STORED
     assert manifest["format"] == 1
@@ -122,10 +123,13 @@ async def test_the_producer_profile_moves_to_another_deployment(
         "birthday_month": 2, "birthday_day": 29,
     }}
 
-    res = await import_package(there, res.content, "profile")
+    res = await import_package(there, package, "profile")
 
     assert res.status_code == 200, res.text
     assert res.json() == {**NOTHING_ELSE, "profile": True}
+    assert (await there.get("/api/profile")).json() == PROFILE
+    again = await import_package(there, package, "profile")
+    assert again.json() == {**NOTHING_ELSE, "profile": False}  # the same as it was: nothing new
     assert (await there.get("/api/profile")).json() == PROFILE
 
 
@@ -177,22 +181,30 @@ async def test_a_user_exports_only_their_own_profile(make_client: ClientFactory)
 async def test_signing_in_is_needed_to_export_or_import(make_client: ClientFactory):
     stranger = make_client(FakeLLM(), None)
 
-    assert (await stranger.get(
-        "/api/account/data-package", params={"include": "profile"}
-    )).status_code == 401
+    for path in ("/api/account/data-package", EXPORT_CHECK):
+        assert (await stranger.get(path, params={"include": "profile"})).status_code == 401
     res = await import_package(stranger, package_of(MANIFEST, {"profile": PACKAGED_PROFILE}), "profile")
     assert res.status_code == 401
 
 
-async def test_a_package_from_a_newer_version_is_refused(make_client: ClientFactory):
+async def test_a_package_from_a_newer_version_is_refused_whatever_its_entries(
+    make_client: ClientFactory,
+):
     client = make_client(FakeLLM())
+    newer = json.dumps({**MANIFEST, "format": 2, "categories": ["albums"]})
+    packages = {
+        "entries as now": package_of({**MANIFEST, "format": 2, "categories": ["albums"]}, {}),
+        "no data.json, entries of its own": _zip(
+            {"manifest.json": newer, "albums.json": "{}", "albums/1.json": "{}"}
+        ),
+        "its manifest not first": _zip({"data.json": "{}", "manifest.json": newer}),
+    }
 
-    res = await import_package(
-        client, package_of({**MANIFEST, "format": 2, "categories": ["albums"]}, {}), "profile"
-    )
+    for case, package in packages.items():
+        res = await import_package(client, package, "profile")
 
-    assert res.status_code == 422
-    assert res.json()["code"] == "too_new"
+        assert res.status_code == 422, case
+        assert res.json()["code"] == "too_new", case
     assert (await client.get("/api/profile")).json() == EMPTY_PROFILE
 
 
@@ -295,6 +307,7 @@ def packaged_memory(id: int, text: str, superseded_by: int | None = None, *,
 async def test_a_memory_already_here_is_not_added_again_and_stands_in_for_it(
     make_client: ClientFactory,
 ):
+    """Also importing the same package twice: the second time, every memory is here."""
     client = remembering(make_client, memorized(TOKYO))
     await turn(client, await start_conversation(client, "kogane"), "我搬到东京了")
     package = memories_package(
@@ -311,28 +324,15 @@ async def test_a_memory_already_here_is_not_added_again_and_stands_in_for_it(
     assert [(m["text"], m["superseded"]) for m in listed] == [
         (KYOTO, False), (OSAKA, True), (TOKYO, False),
     ]
+    again = await import_package(client, package, "memories")
+    assert again.json() == {**NOTHING_ELSE, "profile": False}
+    assert await memories(client) == listed
     # Osaka is superseded by Tokyo here: with Tokyo gone, it holds again.
     tokyo = next(m for m in listed if m["text"] == TOKYO)
     assert (await client.delete(f"/api/memories/{tokyo['id']}")).status_code == 204
     assert [(m["text"], m["superseded"]) for m in await memories(client)] == [
         (KYOTO, False), (OSAKA, False),
     ]
-
-
-async def test_importing_the_same_memories_twice_adds_nothing_the_second_time(
-    make_client: ClientFactory, settings: Settings, tmp_path: Path
-):
-    here = remembering(make_client, memorized(OSAKA), superseding(TOKYO, OSAKA))
-    await turn(here, await start_conversation(here, "mano"), "我住在大阪")
-    await turn(here, await start_conversation(here, "kogane"), "我搬到东京了")
-    there = other_deployment(make_client, settings, tmp_path)
-    package = await export(here, "memories")
-
-    assert (await import_package(there, package, "memories")).json()["memories"] == 2
-    res = await import_package(there, package, "memories")
-
-    assert res.json() == {**NOTHING_ELSE, "profile": False}
-    assert await remembered(there) == await remembered(here)
 
 
 async def test_memories_told_to_someone_not_here_are_imported_all_the_same(
@@ -453,6 +453,10 @@ async def test_a_package_unzipping_too_large_is_refused_as_broken(
     assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
 
 
+EXPORT_CHECK = "/api/account/data-package/export-check"
+"""Asked by the settings page before it downloads a package, to show a refusal on the page."""
+
+
 async def test_a_second_import_or_export_while_one_is_going_on_is_refused(
     make_client: ClientFactory,
 ):
@@ -473,6 +477,7 @@ async def test_a_second_import_or_export_while_one_is_going_on_is_refused(
 
     second = await import_package(client, PROFILE_PACKAGE, "profile")
     exporting = await client.get("/api/account/data-package", params={"include": "profile"})
+    asking = await client.get(EXPORT_CHECK, params={"include": "profile"})
     someone_else = await import_package(make_client(FakeLLM(), "friend"), PROFILE_PACKAGE, "profile")
     finish.set()
 
@@ -480,8 +485,11 @@ async def test_a_second_import_or_export_while_one_is_going_on_is_refused(
     assert second.json()["code"] == "busy"
     assert exporting.status_code == 409
     assert exporting.json()["code"] == "busy"
+    assert asking.status_code == 409
+    assert asking.json()["code"] == "busy"
     assert someone_else.status_code == 200
     assert (await first).status_code == 200
+    assert (await client.get(EXPORT_CHECK, params={"include": "profile"})).status_code == 204
     assert (await import_package(client, PROFILE_PACKAGE, "profile")).status_code == 200
 
 

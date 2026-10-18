@@ -503,7 +503,8 @@ class Skipped:
 @dataclass
 class Imported:
     """What an import added: only what is new, so importing the same package twice adds
-    nothing the second time. `profile` is whether the producer profile was overwritten."""
+    nothing the second time. `profile` is whether the producer profile was overwritten with
+    one other than it was."""
 
     conversations: int = 0
     photos: int = 0
@@ -571,6 +572,12 @@ class DataPackages:
             db.close()
         if made >= IMPORTS_PER_DAY:
             raise ImportsUsedUp(next_day(now), now)
+
+    def check_not_busy(self, user_id: str) -> None:
+        """Raise `Busy` while the user is importing or exporting a package (`one_at_a_time`)."""
+        with self._working_lock:
+            if user_id in self._working:
+                raise Busy()
 
     @contextmanager
     def one_at_a_time(self, user_id: str) -> Iterator[None]:
@@ -676,8 +683,10 @@ class DataPackages:
         try:
             with db:
                 if "profile" in categories and data.profile is not None:
-                    write_profile(db, user_id, data.profile.profile())
-                    imported.profile = True
+                    profile = data.profile.profile()
+                    if profile != self._store.get_profile(user_id):
+                        write_profile(db, user_id, profile)
+                        imported.profile = True
                 conversations: dict[PackageKey, str] = {}
                 if "conversations" in categories and data.conversations is not None:
                     conversations = self._add_conversations(
@@ -743,18 +752,21 @@ def _today_began(now: datetime) -> str:
 
 def _read(zipped: zipfile.ZipFile) -> tuple[Manifest, PackageData]:
     """The manifest and data of the package `zipped`, checked, and the pictures of its
-    photos with them, one at a time."""
+    photos with them, one at a time. Its format first, as soon as its manifest is read: a
+    newer format may hold other entries, in another order."""
     try:
         entries = zipped.infolist()
         names = [e.filename for e in entries]
-        if len(set(names)) != len(names) or not {MANIFEST, DATA} <= set(names):
+        if MANIFEST not in names:
+            raise BrokenPackage("no manifest")
+        raw_manifest = json.loads(_unzipped(zipped, MANIFEST, MAX_MANIFEST_BYTES))
+        if _Format.model_validate(raw_manifest).format > FORMAT:
+            raise TooNew()
+        if len(set(names)) != len(names) or DATA not in names:
             raise BrokenPackage("entries it should not have")
         first = entries[0]
         if first.filename != MANIFEST or first.compress_type != zipfile.ZIP_STORED:
             raise BrokenPackage("its manifest not first, stored")
-        raw_manifest = json.loads(_unzipped(zipped, MANIFEST, MAX_MANIFEST_BYTES))
-        if _Format.model_validate(raw_manifest).format > FORMAT:
-            raise TooNew()
         manifest = Manifest.model_validate(raw_manifest)
         data = PackageData.model_validate_json(_unzipped(zipped, DATA, MAX_DATA_BYTES))
         listed = set(manifest.categories)

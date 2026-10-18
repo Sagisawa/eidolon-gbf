@@ -11,15 +11,15 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { getProfile, importDataPackage, listMemories } from "@/lib/api";
+import { checkDataPackageExport, getProfile, importDataPackage, listMemories } from "@/lib/api";
 import {
-  OFFERED,
+  CATEGORIES,
   choose,
   chosenCategories,
   exportHref,
-  importFailure,
   importSummary,
   isDisabled,
+  packageFailure,
   readManifest,
   selectAll,
   type Category,
@@ -33,7 +33,7 @@ import { SuccessIcon } from "@/theme/icons";
 const t = copy.settings.dataPackage;
 
 /**
- * 数据包（GLOSSARY.md「数据包」）：上半导出，勾要带的几类、点「导出」浏览器直接下载；下半导入，选了文件先读开头的
+ * 数据包（GLOSSARY.md「数据包」）：上半导出，勾要带的几类、点「导出」先问后端能不能导，能导就让浏览器直接下载、被拒就在这里说一句；下半导入，选了文件先读开头的
  * manifest.json，按包里有的几类列勾选框，点「导入」把文件原样传上去，完了说一句结果，并刷新受影响的数据。
  */
 export function DataPackageSettings() {
@@ -46,24 +46,44 @@ export function DataPackageSettings() {
 }
 
 function ExportSection() {
-  const [choice, setChoice] = useState<Choice>(() => selectAll(OFFERED));
+  const [choice, setChoice] = useState<Choice>(() => selectAll(CATEGORIES));
+  const [checking, setChecking] = useState(false);
+  const [failure, setFailure] = useState<Failure | null>(null);
   const categories = chosenCategories(choice);
+
+  async function start() {
+    setChecking(true);
+    setFailure(null);
+    try {
+      await checkDataPackageExport(categories);
+      download(exportHref(categories));
+    } catch (e) {
+      setFailure(packageFailure(e));
+    } finally {
+      setChecking(false);
+    }
+  }
 
   return (
     <SettingsSection title={t.exportTitle} description={t.exportHint}>
-      <Categories offered={OFFERED} choice={choice} onChange={setChoice} />
+      {failure && <FailureNotice failure={failure} />}
+      <Categories offered={CATEGORIES} choice={choice} onChange={setChoice} />
       <div className="flex flex-col items-start gap-2">
-        {categories.length > 0 ? (
-          <Button nativeButton={false} render={<a href={exportHref(categories)} download />}>
-            {t.export}
-          </Button>
-        ) : (
-          <Button disabled>{t.export}</Button>
-        )}
+        <Button disabled={checking || categories.length === 0} onClick={start}>
+          {t.export}
+        </Button>
         <p className="text-meta text-muted-foreground">{t.notIncluded}</p>
       </div>
     </SettingsSection>
   );
+}
+
+/** 让浏览器把 `href` 下载下来，页面不动，也不经过 JS 的内存。 */
+function download(href: string) {
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = "";
+  link.click();
 }
 
 type Picked =
@@ -112,7 +132,7 @@ function ImportSection() {
       if (result.profile) getProfile().then((saved) => profileSaved(toDraft(saved)), () => {});
       if (result.memories > 0) listMemories().then((list) => memoryCountChanged(list.length), () => {});
     } catch (e) {
-      setFailure(importFailure(e));
+      setFailure(packageFailure(e));
     } finally {
       setImporting(false);
     }

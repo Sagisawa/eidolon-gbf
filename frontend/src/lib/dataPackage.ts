@@ -15,9 +15,6 @@ export type Category = (typeof CATEGORIES)[number];
 /** 这一版能读的最新格式。 */
 export const FORMAT = 1;
 
-/** 这一版的页面上能导出、导入的几类。 */
-export const OFFERED: readonly Category[] = CATEGORIES;
-
 const MANIFEST = "manifest.json";
 
 /** 数据包最大多少字节，和后端的上限一样：超了选文件时就拦下，不用传上去。 */
@@ -52,7 +49,7 @@ export function chosenCategories(choice: Choice): Category[] {
   return CATEGORIES.filter((category) => choice[category] && !isDisabled(choice, category));
 }
 
-/** 导出的地址：浏览器直接跳过去下载，不经过 JS 的内存。 */
+/** 导出的地址：浏览器直接跳过去下载，不经过 JS 的内存。被拒时浏览器只拿到一页 JSON，所以先用 `checkDataPackageExport` 问一次。 */
 export function exportHref(categories: readonly Category[]): string {
   return `/api/account/data-package?${new URLSearchParams({ include: categories.join(",") })}`;
 }
@@ -130,36 +127,35 @@ function fromManifest(decoder: TextDecoder, chunks: Uint8Array[]): ManifestReadi
   if (typeof format !== "number" || !Number.isInteger(format)) return BROKEN;
   if (format > FORMAT) return { kind: "too_new" };
   if (!Array.isArray(categories)) return BROKEN;
-  return { kind: "package", categories: OFFERED.filter((category) => categories.includes(category)) };
+  return { kind: "package", categories: CATEGORIES.filter((category) => categories.includes(category)) };
 }
 
 /** 导入完的一句话：导入了什么（只算这次新加的），跳过了和谁的几段对话。 */
 export function importSummary(result: DataPackageImported): string {
   const t = copy.settings.dataPackage;
-  const parts = [
+  const counts = [
     result.conversations > 0 && t.count.conversations(result.conversations),
     result.photos > 0 && t.count.photos(result.photos),
     result.memories > 0 && t.count.memories(result.memories),
-  ].filter((part): part is string => Boolean(part));
+  ].filter((count): count is string => Boolean(count));
   let imported: string;
-  if (parts.length === 0 && !result.profile) imported = t.nothingNew;
-  else if (!result.profile) imported = t.imported(` ${parts.join(t.separator)}`);
-  else if (parts.length === 0) imported = t.imported(t.categories.profile);
-  else imported = t.imported(` ${parts.join(t.separator)}${t.and}${t.categories.profile}`);
+  if (counts.length === 0) imported = result.profile ? t.importedProfile : t.nothingNew;
+  else if (result.profile) imported = t.importedWithProfile(counts.join(t.separator));
+  else imported = t.imported(counts.join(t.separator));
   if (result.skipped.length === 0) return imported;
   const skipped = result.skipped.map((s) => t.skippedPart(s.character_name, s.conversations)).join(t.separator);
   return imported + t.skipped(skipped, result.skipped.length > 1);
 }
 
 /**
- * 导入失败时的提示：认得的错误码换成页面上的说法，今天的次数用完时带上几点以后能再导（按 `timeZone`，默认这台设备的时区，
+ * 导入失败、导出前一问被拒时的提示：认得的错误码换成页面上的说法，今天的次数用完时带上几点以后能再导（按 `timeZone`，默认这台设备的时区，
  * 写成 HH:MM：不到一天，不写哪天）；其余照后端（或浏览器）说的。次数用完是 429，但自带密钥绕不过它，不指去自带密钥。
  */
-export function importFailure(error: unknown, timeZone?: string): Failure {
-  return { ...toFailure(error), toOwnKeys: false, message: importFailureMessage(error, timeZone) };
+export function packageFailure(error: unknown, timeZone?: string): Failure {
+  return { ...toFailure(error), toOwnKeys: false, message: failureMessage(error, timeZone) };
 }
 
-function importFailureMessage(error: unknown, timeZone?: string): string {
+function failureMessage(error: unknown, timeZone?: string): string {
   if (error instanceof ApiError && isRefusal(error.code)) return copy.settings.dataPackage.failures[error.code];
   // 反向代理先挡下的太大，回的 413 没有错误码。
   if (error instanceof ApiError && error.status === 413) return copy.settings.dataPackage.failures.too_large;

@@ -59,3 +59,17 @@
 - **隐私政策多加的那句管理者看不到导出、导入**、**条款里的那句**：规格只要求「怎么删除」后面那一句；觉得多可以删。
 - 导入的对话原样带着 `hurt`/`out_of_line`（票 03 交接）：没写进 GLOSSARY 或公告，规格 Further Notes 已说明是有意的；要不要在发公告时提一句由你定。
 - 本地库里还留着别的开发用户 `tester`、`ticket04`、`landing-check`、`promo-producer`，不是这张票造的，没动。
+
+### 整分支审查后的修复
+
+对 `192800e...9920a88` 的整分支 code-review 之后：
+
+- **重复导入不是全 0**（上面判断题第一条随之解决）：档案和导入前一模一样时不写、`profile` 回 false，同一份再导时页面说「没有新的内容要导入。」。格式文档「制作人档案」和版本规则各补半句。测试：档案往返那条末尾再导一次，全 0。
+- **版本号先查**：`_read` 只要包里有 `manifest.json` 就先读出来判 `format`，比这一版新就回 `too_new`，之后才查条目重复、少 `data.json`、manifest 不在第一个或被压缩这些结构。格式文档版本规则写明「不管包里别的条目长什么样」。测试：太新的包分三种条目（同现在、没有 `data.json` 而有自己的条目、manifest 不在第一个）都回 `too_new`。
+- **补测试**：另一个用户（`friend`）有对话、照片（发出来的一张）和记忆时，制作人导出的包里对话、记忆都是空的、没有 `photos/`（`test_data_package_photos.py`）。
+- **导出被拒时页面有提示**：选了「先预检」。新增 `GET /api/account/data-package/export-check?include=…`，拒法和导出一样（没登录 401、`busy` 409、未知类别 422），能导回 204；设置页点「导出」先问它（问时按钮禁用），能导再用一个临时 `<a download>` 让浏览器下载（仍不经过 JS 内存），被拒就在导出节标题下面出失败提示（`packageFailure`，原 `importFailure` 改名，导入导出共用）；没登录时照全站惯例跳回首页。没选的两种：出错时重定向回设置页——整页跳转会打断同一页上正在上传的导入；fetch 下载——要么整份读进内存，要么靠只有 Chromium 有的保存文件接口。剩下的缺口：问完到真正下载之间被另一个导入抢先、或写数据包时后端出错，只在浏览器的下载列表里显示失败。测试：并发那条加了预检回 409 `busy`、完后回 204；没登录那条加了预检 401；`packageFailure` 的 `busy` 一句。
+- **小清理**：两条记忆去重测试并成一条（已有的那条末尾再导一次、全 0、记忆页不变），删掉 `test_importing_the_same_memories_twice…`；去掉 `OFFERED`，直接用 `CATEGORIES`；`importSummary` 不再在参数前拼空格，文案拆成 `imported`、`importedWithProfile`、`importedProfile` 三句，去掉 `and`。
+- **`ApiError.code` 没换成 `Refusal`**：`Refusal` 只有 `broken`、`too_new`、`too_large`、`busy`，不含 `used_up`；而且 `code` 是 `json()` 从任何接口的回答里原样取的字符串，没校验过，标成 `Refusal` 是假的类型，还要让 `api.ts` 反过来依赖 `dataPackage.ts`。保留 `string | null`，由 `isRefusal` 收窄。
+- **Playwright**（本地构建版，宽屏 1280，临时开发用户 `dp-accept`，验完已删）：点「导出」下载到 `eidolon-data-package-2026-10-19.zip`（602 字节，以 `PK` 开头），页面没动；拦下预检换成 409 `busy`，导出节标题下出「已经有一个数据包在导入或导出」，没有下载；清掉登录态再点，跳回首页、没有下载。服务已停，脚本和截图已删。
+
+没改的判断题（只报告）：导出导入共用一把锁；`DataPackages` 类的拆分；照片依附对话的规则分在前后端几处；200 MB 常量前后端各一份；前后端提示语重复；`include` 里未知类别回 422；隐私政策和条款多出的句子。

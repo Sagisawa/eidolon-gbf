@@ -770,14 +770,16 @@ export const zh = {
       importing: "正在导入…",
       reading: "正在读取…",
       nothingToChoose: "这个数据包里没有能导入的内容。",
-      imported: (parts: string) => `导入了${parts}。`,
+      /** 「导入了 3 段对话、2 张照片。」 */
+      imported: (counts: string) => `导入了 ${counts}。`,
+      importedWithProfile: (counts: string) => `导入了 ${counts}和制作人档案。`,
+      importedProfile: "导入了制作人档案。",
       count: {
         conversations: (n: number) => `${n} 段对话`,
         photos: (n: number) => `${n} 张照片`,
         memories: (n: number) => `${n} 条记忆`,
       },
       separator: "、",
-      and: "和",
       nothingNew: "没有新的内容要导入。",
       /** 「跳过了和月岡恋鐘的 2 段、櫻木真乃的 1 段对话，这里没有她们。」 */
       skipped: (parts: string, many: boolean) => `跳过了和${parts}对话，这里没有${many ? "她们" : "她"}。`,

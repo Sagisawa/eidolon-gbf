@@ -22,7 +22,15 @@ from eidolon.config import Settings
 from tests.conftest import ClientFactory
 from tests.fakes import FAKE_JUDGE, FakeImageService, FakeLLM
 from tests.test_conversation_events import record
-from tests.test_data_package import MANIFEST, NOTHING_ELSE, export, import_package, unzipped
+from tests.test_data_package import (
+    MANIFEST,
+    NOTHING_ELSE,
+    export,
+    import_package,
+    memories_package,
+    packaged_memory,
+    unzipped,
+)
 from tests.test_data_package_conversations import packaged_conversation, replied
 from tests.test_past_conversations import hers
 from tests.test_photos import IMAGE, REPLY, asking, photo_events, settled
@@ -136,18 +144,33 @@ async def test_photos_move_with_their_conversations_and_are_hers_alone_there(
     assert again.json() == {**NOTHING_ELSE, "profile": False}
 
 
-async def sent_one(make_client: ClientFactory, settings: Settings, tmp_path: Path
-                   ) -> httpx.AsyncClient:
+async def sent_one(make_client: ClientFactory, settings: Settings, tmp_path: Path,
+                   user: str = "producer") -> httpx.AsyncClient:
     """A deployment where she has sent the user a photo."""
     image = FakeImageService()
     here = deployment(
         make_client, settings, tmp_path, "here", REPLY, clients=asking(),
-        image_transport=image.transport(),
+        image_transport=image.transport(), user=user,
     )
     conversation = await start_conversation(here)
     [photo] = photo_events(await send_turn(here, conversation, "发张自拍给我看看"))
     await settled(here, photo["id"])
     return here
+
+
+async def test_no_one_elses_conversations_memories_or_photos_are_in_a_users_package(
+    make_client: ClientFactory, settings: Settings, tmp_path: Path
+):
+    friend = await sent_one(make_client, settings, tmp_path, user="friend")
+    remembered = await import_package(friend, memories_package(packaged_memory(1, "我住在大阪")), "memories")
+    assert remembered.json()["memories"] == 1
+    me = deployment(make_client, settings, tmp_path, "here")
+
+    entries, manifest, data = unzipped(await export(me, "conversations,photos,memories"))
+
+    assert [e.filename for e in entries] == ["manifest.json", "data.json"]
+    assert manifest["counts"] == {"conversations": 0, "photos": 0, "memories": 0}
+    assert data == {"conversations": [], "memories": []}
 
 
 async def test_without_photos_her_replies_carry_none(
