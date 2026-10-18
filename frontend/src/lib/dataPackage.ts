@@ -15,7 +15,7 @@ export type Category = (typeof CATEGORIES)[number];
 export const FORMAT = 1;
 
 /** 这一版的页面上能导出、导入的几类；其余几类做好以后加进来。 */
-export const OFFERED: readonly Category[] = ["profile"];
+export const OFFERED: readonly Category[] = ["memories", "profile"];
 
 const MANIFEST = "manifest.json";
 

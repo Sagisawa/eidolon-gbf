@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
 import { copy } from "@/i18n";
-import { getProfile, importDataPackage } from "@/lib/api";
+import { getProfile, importDataPackage, listMemories } from "@/lib/api";
 import {
   OFFERED,
   choose,
@@ -72,7 +72,7 @@ type Picked =
   | { kind: "refused"; file: File; message: string };
 
 function ImportSection() {
-  const { profileSaved } = useSettingsValues();
+  const { profileSaved, memoryCountChanged } = useSettingsValues();
   const input = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<Picked>({ kind: "none" });
   const [choice, setChoice] = useState<Choice>({});
@@ -105,8 +105,9 @@ function ImportSection() {
       const result = await importDataPackage(picked.file, chosenCategories(choice));
       setSummary(importSummary(result));
       setPicked({ kind: "none" });
-      // 导入已经成功了：没刷新到档案也不报失败，档案页打开时自己会再读。
+      // 导入已经成功了：没刷新到档案、记忆条数也不报失败，那两页打开时自己会再读。
       if (result.profile) getProfile().then((saved) => profileSaved(toDraft(saved)), () => {});
+      if (result.memories > 0) listMemories().then((list) => memoryCountChanged(list.length), () => {});
     } catch (e) {
       setFailure({ ...toFailure(e), message: importFailureMessage(e) });
     } finally {

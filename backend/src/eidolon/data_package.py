@@ -13,6 +13,7 @@ Importing writes everything in one transaction of its own, through a connection 
 to the database, so that a package fails as a whole and leaves nothing behind. Neither
 exporting nor importing is recorded: no activity record, nothing an admin sees."""
 
+import asyncio
 import json
 import zipfile
 from collections.abc import Callable, Iterable
@@ -32,6 +33,7 @@ from pydantic import (
 )
 
 from eidolon.database import connect
+from eidolon.memory import MAX_MEMORY_LENGTH, CarriedMemory, Memories, Memory, add_carried
 from eidolon.producer import (
     MAX_FORM_OF_ADDRESS_LENGTH,
     Birthday,
@@ -124,10 +126,63 @@ class PackagedProfile(_Strict):
         )
 
 
+PackageId = StrictInt | Annotated[str, Field(min_length=1, max_length=100)]
+"""What a package calls one of its memories or conversations: a key within the package
+only, the id it had where it was exported."""
+
+
+class PackagedMemory(_Strict):
+    id: PackageId
+    source_character_id: Annotated[str, Field(min_length=1, max_length=100)]
+    source_character_name: Annotated[str, Field(max_length=100)] | None
+    """Her name where it was exported, for whoever reads the package; None if she was no
+    longer there."""
+    conversation: PackageId | None
+    """The package's conversation it was told in; None without it."""
+    text: Annotated[str, Field(min_length=1, max_length=MAX_MEMORY_LENGTH)]
+    created_at: Time
+    superseded_by: PackageId | None
+
+    @classmethod
+    def of(cls, memory: Memory) -> "PackagedMemory":
+        return cls(
+            id=memory.id,
+            source_character_id=memory.source_character_id,
+            source_character_name=memory.source_character_name,
+            conversation=None,
+            text=memory.text,
+            created_at=_stored_time(memory.created_at),
+            superseded_by=memory.superseded_by,
+        )
+
+    def carried(self) -> CarriedMemory:
+        return CarriedMemory(
+            key=self.id,
+            source_character_id=self.source_character_id,
+            text=self.text,
+            created_at=self.created_at,
+            superseded_by=self.superseded_by,
+            conversation_id=None,  # conversations are not carried yet
+        )
+
+
 class PackageData(_Strict):
     """`data.json`: a key for each category the package holds, none for the others."""
 
     profile: PackagedProfile | None = None
+    memories: list[PackagedMemory] | None = None
+
+    @model_validator(mode="after")
+    def _memories_superseded_by_memories(self) -> "PackageData":
+        ids = [m.id for m in self.memories or []]
+        if len(set(ids)) != len(ids):
+            raise ValueError("two memories under one id")
+        for m in self.memories or []:
+            if m.superseded_by is not None and (
+                m.superseded_by == m.id or m.superseded_by not in ids
+            ):
+                raise ValueError("a memory superseded by no other memory of the package")
+        return self
 
 
 class Manifest(_Strict):
@@ -174,9 +229,16 @@ def chosen(include: Iterable[Category]) -> list[Category]:
 class DataPackages:
     """Exports a user's data package, and imports one into a user's data."""
 
-    def __init__(self, database_path: Path, store: Store, clock: Callable[[], datetime]) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        store: Store,
+        memories: Memories,
+        clock: Callable[[], datetime],
+    ) -> None:
         self._database_path = database_path
         self._store = store
+        self._memories = memories
         self._clock = clock
 
     def export(self, user_id: str, include: Iterable[Category], to: Path) -> None:
@@ -187,6 +249,9 @@ class DataPackages:
         if "profile" in categories:
             data.profile = PackagedProfile.of(self._store.get_profile(user_id))
             counts["profile"] = 1
+        if "memories" in categories:
+            data.memories = [PackagedMemory.of(m) for m in self._memories.kept(user_id)]
+            counts["memories"] = len(data.memories)
         now = self._clock()
         manifest = Manifest(
             format=FORMAT, exported_at=_written(now), categories=categories, counts=counts
@@ -203,10 +268,16 @@ class DataPackages:
                 compress_type=zipfile.ZIP_DEFLATED,
             )
 
-    def import_(self, user_id: str, package: Path, include: Iterable[Category]) -> Imported:
+    async def import_(self, user_id: str, package: Path, include: Iterable[Category]) -> Imported:
         """Import the categories of the package at `package` that `include` names into the
         user's data, all in one transaction; raises `TooNew` or `BrokenPackage` having
-        written nothing."""
+        written nothing. The memories it adds are embedded afterwards, in the background."""
+        imported = await asyncio.to_thread(self._import, user_id, package, include)
+        if imported.memories:
+            self._memories.embed_carried(user_id)
+        return imported
+
+    def _import(self, user_id: str, package: Path, include: Iterable[Category]) -> Imported:
         manifest, data = _read(package)
         categories = set(chosen(include)) & set(manifest.categories)
         imported = Imported()
@@ -216,6 +287,10 @@ class DataPackages:
                 if "profile" in categories and data.profile is not None:
                     write_profile(db, user_id, data.profile.profile())
                     imported.profile = True
+                if "memories" in categories and data.memories is not None:
+                    imported.memories = add_carried(
+                        db, user_id, [m.carried() for m in data.memories]
+                    )
         finally:
             db.close()
         return imported

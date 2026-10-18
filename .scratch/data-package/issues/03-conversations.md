@@ -27,3 +27,10 @@
 - `data_package.chosen` 已经做到不勾对话就去掉照片；`Imported.skipped` 和前端 `importSummary` 的跳过那句话（「跳过了和月岡恋鐘的 2 段、櫻木真乃的 1 段对话，这里没有她们。」）都已写好，有 vitest。
 - 写入走 `import_` 里自己开的连接 `db`、同一个事务；这张票有多张表，记得补一条「中途出错全部回滚」的测试（票 01 只有一次写，没测）。
 - 前端 `OFFERED` 加 `"conversations"`；导入后刷新对话列表的数据（`useDirectory()` 里的对话目录）。
+
+### 票 02 交接
+
+- 记忆的 `conversation` 现在导出一律 `null`，导入一律存空：`PackagedMemory.of` 要填包内对话 ID（就是原来的 `conversation_id`；没勾对话时仍是 `null`），`PackagedMemory.carried()` 里 `conversation_id=None` 那行要换成「包内对话 ID → 新对话 id 或已有那段的 id，跳过的、没勾的为空」。`Memory` 现在不带 `conversation_id`，`Memories.kept` 的查询要一起加上。
+- `PackageData` 上的校验 `_memories_superseded_by_memories` 旁边再加一条：记忆的 `conversation` 不为空时，必须引用得上包里的对话，否则坏包（格式说明里「包内 ID 引用不上」已经写了）。
+- 写对话要在 `_import` 里写记忆之前，记忆才拿得到新对话 id。
+

@@ -79,7 +79,7 @@ def add_data_package_routes(app: FastAPI, backend: Backend) -> None:
             with path.open("wb") as file:
                 async for chunk in request.stream():
                     file.write(chunk)
-            imported = await run_in_threadpool(packages.import_, user_id, path, categories)
+            imported = await packages.import_(user_id, path, categories)
         except (TooNew, BrokenPackage):
             raise
         except Exception:

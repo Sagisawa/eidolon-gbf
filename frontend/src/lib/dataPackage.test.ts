@@ -54,10 +54,10 @@ const MANIFEST = { format: 1, exported_at: "2026-10-19T08:00:00.000000+00:00", c
 
 describe("读数据包开头的 manifest.json", () => {
   it("列出包里有、这里能导入的几类", async () => {
-    const manifest = { ...MANIFEST, categories: ["profile", "albums"] };
+    const manifest = { ...MANIFEST, categories: ["memories", "profile", "albums"] };
     const file = zip({ "manifest.json": [JSON.stringify(manifest), 0], "data.json": ["{}", 6] });
 
-    expect(await readManifest(file)).toEqual({ kind: "package", categories: ["profile"] });
+    expect(await readManifest(file)).toEqual({ kind: "package", categories: ["memories", "profile"] });
   });
 
   it("格式比这里新时是 too_new", async () => {

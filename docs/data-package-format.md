@@ -27,7 +27,7 @@
 - `format`：整数，这个包的格式版本。
 - `exported_at`：导出的时间。
 - `categories`：这个包里有哪几类，按 `conversations`、`photos`、`memories`、`profile` 的顺序。导出时没勾的类别不在这里。
-- `counts`：每类的条数，键同 `categories`。`profile` 是 1。
+- `counts`：每类的条数，键同 `categories`。`profile` 是 1，`memories` 是记忆的条数。
 
 ## `data.json`
 
@@ -54,6 +54,44 @@
 
 导入时勾了「制作人档案」就整份覆盖：包里是 `null` 的项，这里也清空、沿用默认。
 
+### `memories`：记忆
+
+制作人告诉过她们的事（`GLOSSARY.md`「记忆」），被取代的也在，按记下的先后排：
+
+```json
+{
+  "memories": [
+    {
+      "id": 41,
+      "source_character_id": "mano",
+      "source_character_name": "櫻木真乃",
+      "conversation": null,
+      "text": "制作人住在大阪",
+      "created_at": "2026-09-25T12:00:00.000000+00:00",
+      "superseded_by": 42
+    },
+    {
+      "id": 42,
+      "source_character_id": "kogane",
+      "source_character_name": "月岡恋鐘",
+      "conversation": null,
+      "text": "制作人从大阪搬到了东京",
+      "created_at": "2026-09-26T12:00:00.000000+00:00",
+      "superseded_by": null
+    }
+  ]
+}
+```
+
+- `id`：包内 ID，整数或字符串，只在这个包里当键用（导出时是它原来的 id）；包里不能重复。
+- `source_character_id`、`source_character_name`：来源角色，记忆是告诉谁的。名字只给人看，导入时不用；导出的部署上已经没有她时是 `null`。
+- `conversation`：在包里哪段对话里说的（包内对话 ID）；`null` 是不知道或不在包里。
+- `text`：记忆的原文，1 到 200 个字。
+- `created_at`：记下的时间。
+- `superseded_by`：取代它的那条记忆的包内 ID，必须是包里的另一条；`null` 是它还作数（ADR-0014）。
+
+导入时按原文去重：这位用户已经有同样原文的记忆，就不新加，包里指向它的取代关系对应到已有的那条；已有的记忆一律不改，包括它们的取代关系。来源角色照原样存，这个部署上没有她也照样导入。导入后服务器在后台给新加的记忆算向量。
+
 ## 时间
 
 所有时间都是带时区的 ISO 8601。导出成库里的写法：UTC、带微秒，比如 `2026-10-19T08:00:00.000000+00:00`。导入时先解析，再按同一种写法写回；不带时区或解析不了的，整包当坏包。
@@ -62,5 +100,5 @@
 
 - 导入时先看 `manifest.json` 的 `format`：比这个部署支持的新，就拒绝（错误码 `too_new`），请部署者升级；等于或更老的，按那一版的规则读。
 - 改格式时 `format` 加一，旧版本的读法保留：新版本能导入所有老格式。
-- 坏包一律拒绝（错误码 `broken`）：zip 打不开，条目多了或少了，JSON 不合这份说明，时间解析不了，`categories` 和 `data.json` 里的键对不上。
+- 坏包一律拒绝（错误码 `broken`）：zip 打不开，条目多了或少了，JSON 不合这份说明，时间解析不了，包内 ID 引用不上，`categories` 和 `data.json` 里的键对不上。
 - 导入要么全部写进去，要么什么也不写。
