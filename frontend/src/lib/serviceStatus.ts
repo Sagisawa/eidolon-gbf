@@ -27,6 +27,6 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
 
 /** What the button is marked with: down if any is, else unsteady if any is, else nothing. */
 export function worst(status: ServiceStatus): "down" | "unsteady" | null {
-  const of = new Set(status.services.map((s) => s.status));
-  return of.has("down") ? "down" : of.has("unsteady") ? "unsteady" : null;
+  const statuses = new Set(status.services.map((s) => s.status));
+  return statuses.has("down") ? "down" : statuses.has("unsteady") ? "unsteady" : null;
 }

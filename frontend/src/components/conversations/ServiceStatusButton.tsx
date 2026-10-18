@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { StatusDot } from "@/components/app/StatusDot";
 import { Button } from "@/components/ui/button";
@@ -22,14 +22,17 @@ const t = copy.conversationList;
 export function ServiceStatusButton() {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [isOpen, setOpen] = useState(false);
+  // 卸载以后回来的结果不再写进状态。
+  const mounted = useRef(true);
+  const load = useCallback(() => {
+    getServiceStatus().then(
+      (got) => mounted.current && setStatus(got),
+      () => {}, // 服务状态不是要紧的事，不报错，保持上一次的
+    );
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    const load = () =>
-      getServiceStatus().then(
-        (got) => !cancelled && setStatus(got),
-        () => {}, // 服务状态不是要紧的事，不报错，保持上一次的
-      );
+    mounted.current = true;
     const onVisible = () => {
       if (document.visibilityState === "visible") load();
     };
@@ -37,46 +40,39 @@ export function ServiceStatusButton() {
     const timer = window.setInterval(load, STATUS_REFRESH_MS);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      cancelled = true;
+      mounted.current = false;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [load]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    let cancelled = false;
-    getServiceStatus().then(
-      (got) => !cancelled && setStatus(got),
-      () => {},
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen]);
+  const openChange = (open: boolean) => {
+    if (open) load();
+    setOpen(open);
+  };
 
   if (!status || status.services.length === 0) return null;
-  const mark = worst(status);
+  const worstStatus = worst(status);
 
   return (
-    <Popover open={isOpen} onOpenChange={setOpen}>
+    <Popover open={isOpen} onOpenChange={openChange}>
       <PopoverTrigger
         render={
           <Button
             variant="ghost"
             size="icon-lg"
-            aria-label={mark ? t.serviceStatusFailing : t.serviceStatus}
+            aria-label={worstStatus ? t.serviceStatusFailing : t.serviceStatus}
             className="relative"
           />
         }
       >
         <ServiceStatusIcon />
-        {mark && (
+        {worstStatus && (
           <span
             aria-hidden
             className={cn(
               "absolute top-1.5 right-1.5 size-1.5 rounded-full",
-              mark === "down" ? "bg-destructive" : "bg-warning",
+              worstStatus === "down" ? "bg-destructive" : "bg-warning",
             )}
           />
         )}
@@ -86,14 +82,14 @@ export function ServiceStatusButton() {
           <PopoverTitle>{t.serviceStatus}</PopoverTitle>
         </PopoverHeader>
         <ul className="flex flex-col gap-1.5">
-          {status.services.map(({ service, status: of }) => {
-            const failing = of === "down" || of === "unsteady";
+          {status.services.map(({ service, status: state }) => {
+            const failing = state === "down" || state === "unsteady";
             return (
               <li key={service} className="flex items-center justify-between gap-3">
                 <span>{t.serviceStatusNames[service]}</span>
                 <span className={cn("flex items-center gap-1.5", failing ? "font-medium" : "text-muted-foreground")}>
-                  {failing && <StatusDot variant={of === "down" ? "error" : "warning"} />}
-                  {t.serviceStatuses[of]}
+                  {failing && <StatusDot variant={state === "down" ? "error" : "warning"} />}
+                  {t.serviceStatuses[state]}
                 </span>
               </li>
             );

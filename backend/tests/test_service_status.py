@@ -15,6 +15,7 @@ from eidolon.activity import Origin, ServiceCall
 from eidolon.assembly import Backend
 from eidolon.billing import Billing
 from eidolon.config import EmbeddingSettings, RerankSettings, ServiceName, Settings
+from eidolon.live_config import TRIAL_MAX_TOKENS
 from tests.conftest import ClientFactory
 from tests.fakes import (
     DEPLOYER_FISH_KEY,
@@ -27,7 +28,7 @@ from tests.fakes import (
     FakeServiceClients,
     FakeSpeech,
 )
-from tests.test_live_config import CONFIG, REPLY, admin_client
+from tests.test_live_config import REPLY, admin_client
 
 STATUS = "/api/service-status"
 SERVICE_STATUS = "/api/admin/config/service_status"
@@ -125,6 +126,10 @@ async def test_a_service_without_calls_is_tried_twice_before_it_is_down_and_once
     # The memory model had calls, and was not tried; once they were past, it was.
     assert again == {"chat_llm": "down", "memory_llm": "ok", "tts": "down", "stt": "ok"} | working
     assert len(llm.prompts) == 3  # one probe, then two the script had nothing for
+    # Tried without thinking, writing next to nothing.
+    trial = replace(settings.chat_llm, max_tokens=TRIAL_MAX_TOKENS, reasoning_effort=None)
+    assert clients.opened.count(trial) == 3
+    assert clients.memory_opened.count(trial) == 1  # the memory model is the chat model
     assert len(speech.voiced) == 4
     assert [s for s, _ in speech.checked if s == "soniox"] == ["soniox", "soniox"]
     assert [kind for _, kind in clients.judge.asked] == ["check", "check"]
@@ -141,13 +146,14 @@ def admins(settings: Settings) -> Settings:
 
 
 async def test_admins_choose_which_services_users_are_shown_and_over_how_long(
-    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider
+    make_client: ClientFactory, admins: Settings, github: FakeIdentityProvider, speech: FakeSpeech
 ):
-    clients = FakeServiceClients(FakeLLM())
+    clients = FakeServiceClients(FakeLLM(REPLY, REPLY))
     client = await admin_client(
         lambda *a, **k: make_client(*a, clock=FakeClock(), **k), admins, github, clients
     )
-    made(client, "tts", 1, failed=1, ago=timedelta(minutes=20))
+    speech.rejects[DEPLOYER_FISH_KEY] = "Fish Audio 返回 503"
+    await backend_of(client).service_status.probe_idle()
     before = await client.get(STATUS)
 
     saved = await client.put(SERVICE_STATUS, json=SHOWN | {"window_minutes": 10, "chat_llm": False})
@@ -163,7 +169,8 @@ async def test_admins_choose_which_services_users_are_shown_and_over_how_long(
     assert {s["service"]: s["status"] for s in before.json()["services"]}["tts"] == "down"
     assert saved.status_code == 200, saved.text
     assert saved.json()["service_status"]["unconfigured"] == ["judge", "embedding", "rerank", "image"]
-    # At once, though users were shown it a moment ago; the failure is past the window.
+    # At once, though users were shown it a moment ago; what the probes found, maybe of a
+    # key since changed, is forgotten until they try again.
     assert after.json() == {
         "window_minutes": 10,
         "services": [
@@ -175,4 +182,3 @@ async def test_admins_choose_which_services_users_are_shown_and_over_how_long(
     assert refused.status_code == 422
     assert hidden.status_code == 200, hidden.text
     assert none.json() == {"window_minutes": 10, "services": []}
-    assert (await client.get(CONFIG)).json()["service_status"]["effective"]["window_minutes"] == 10

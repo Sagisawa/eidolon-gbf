@@ -140,6 +140,7 @@ from eidolon.own_keys import (
     OwnKeys,
     Service,
 )
+from eidolon.greetings import FISH_TTS_HTTP_URL
 from eidolon.proxy import ProxiedWebsocket, ProxyRoutes, masked, open_client
 from eidolon.readings import Reading, pronunciation_dictionary
 from eidolon.reply_format import SegmentComplete, SegmentDelta, SpeechDelta
@@ -678,7 +679,6 @@ class SpeechServices:
 
     SONIOX_MODELS_URL = "https://api.soniox.com/v1/models"
     FISH_CREDIT_URL = "https://api.fish.audio/wallet/self/api-credit"
-    FISH_TTS_HTTP_URL = "https://api.fish.audio/v1/tts"
     A_WORD = "在吗"
 
     def stt(self, key: SttKey, *, own: bool) -> Hearing:
@@ -747,7 +747,7 @@ class SpeechServices:
         """Over Fish Audio's HTTP API, as the greetings are voiced, in mp3."""
         async with open_client(self._proxy("tts", False)(), httpx.Timeout(30, connect=10)) as client:
             res = await client.post(
-                self.FISH_TTS_HTTP_URL,
+                FISH_TTS_HTTP_URL,
                 headers={"Authorization": f"Bearer {api_key}", "model": model},
                 json={"text": self.A_WORD, "reference_id": voice_id, "format": "mp3"},
             )

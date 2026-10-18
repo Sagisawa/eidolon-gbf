@@ -236,7 +236,7 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
   }
   if (name === "proxy" || name === "service_status") {
     if (item?.unconfigured?.some((service) => service === spec.name)) return t.formHints[`${name}_unconfigured`];
-    if (name === "service_status") return t.formHints[`status_${spec.name}`];
+    if (name === "service_status") return t.formHints[`service_status_${spec.name}`];
     return t.formHints[`proxy_${spec.name}`];
   }
   if (spec.kind === "maxTokens") return t.maxTokensHint;

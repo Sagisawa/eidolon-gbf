@@ -6,7 +6,8 @@ configuration has (`ServiceStatusSettings.window_minutes`): by the share that fa
 way (`UNSTEADY_AT`, `DOWN_AT`). Users' own keys are left out: a key of theirs failing says
 nothing of the deployment. Where a service had no such call, it is tried (`keep_probing`)
 with the least of real requests, apart from any turn and recorded nowhere, so neither the
-dashboard's usage nor its costs count it: the LLMs asked for a word, embedding and
+dashboard's usage nor its costs count it: the LLMs asked for a word, without reasoning
+effort and cut short (`LiveConfig.trial_llm`), embedding and
 reranking a few words, the judge model as the admin console tries it, speech synthesis
 voicing one, speech recognition only checked for what costs nothing (it hears a stream, which
 it has none of to hear). A probe that fails is made once again at once; failing twice, the
@@ -15,7 +16,8 @@ calls it has nothing to go by, as any service has before its first probe.
 
 Only the services the configuration shows are listed and tried, of those the deployment
 has; none shown, users see nothing of it. What is shown is summed up at most once a
-minute (`CACHED_FOR`), or again as the configuration changes.
+minute (`CACHED_FOR`), or again as the configuration changes, which also forgets what the
+probes found: a key changed is tried again at the next tick.
 
 A call's speech recognition and synthesis are recorded when the call ends, under when they
 were made: a service is judged on them only then, and may be tried meanwhile.
@@ -93,7 +95,10 @@ class ServiceStatus:
         self._probed: dict[ServiceName, _Probed] = {}
         self._lock = threading.Lock()  # users ask from the API's thread pool
         self._cached: tuple[datetime, dict] | None = None
-        config.on_change(self._forget)
+        self._generation = 0
+        """Counts what made what is cached stale, so that a status summed up meanwhile is
+        not cached."""
+        config.on_change(self._changed)
 
     def shown(self) -> list[ServiceName]:
         """The services the configuration shows that the deployment has, in the order of
@@ -107,17 +112,20 @@ class ServiceStatus:
         with self._lock:
             if self._cached is not None and now - self._cached[0] < CACHED_FOR:
                 return self._cached[1]
-        window = timedelta(minutes=self._config.service_status.window_minutes)
-        calls = self._activity.deployer_calls_since(now - window)
+            generation = self._generation
+        minutes = self._config.service_status.window_minutes
+        since = now - timedelta(minutes=minutes)
+        calls = self._activity.deployer_calls_since(since)
         status = {
-            "window_minutes": self._config.service_status.window_minutes,
+            "window_minutes": minutes,
             "services": [
-                {"service": s, "status": self._status(s, calls.get(s), now - window)}
+                {"service": s, "status": self._status(s, calls.get(s), since)}
                 for s in self.shown()
             ],
         }
         with self._lock:
-            self._cached = (now, status)
+            if generation == self._generation:
+                self._cached = (now, status)
         return status
 
     def _status(self, service: ServiceName, calls: tuple[int, int] | None, since: datetime) -> Status:
@@ -171,6 +179,13 @@ class ServiceStatus:
     def _forget(self) -> None:
         with self._lock:
             self._cached = None
+            self._generation += 1
+
+    def _changed(self) -> None:
+        """The configuration changed, maybe a service's key: what was found of it by trying
+        it no longer holds, and it is tried again at the next tick."""
+        self._probed.clear()
+        self._forget()
 
 
 def probes(
@@ -185,18 +200,12 @@ def probes(
     metered; speech synthesis voicing in `voice_id`, any character's."""
 
     async def chat_llm() -> None:
-        lease = config.lease_chat()
-        try:
-            await _first_word(lease.client.text)
-        finally:
-            lease.release()
+        async with config.trial_llm("chat_llm") as llm:
+            await _first_word(llm)
 
     async def memory_llm() -> None:
-        lease = config.lease_memory()
-        try:
-            await _first_word(lease.client)
-        finally:
-            lease.release()
+        async with config.trial_llm("memory_llm") as llm:
+            await _first_word(llm)
 
     async def judge() -> None:
         lease = config.lease_judge()
@@ -228,7 +237,8 @@ def probes(
 
 
 async def _first_word(llm: ChatLLM) -> None:
-    """Ask `llm` for a word, and stop at the first it streams, of text or thought."""
+    """Ask `llm` for a word, and stop at the first part of its reply: a model that thinks
+    first ends its reply when it has written all it may, its thinking or not."""
     stream = llm.stream(PROBE_MESSAGES)
     try:
         async for _ in stream:

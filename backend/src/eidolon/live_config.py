@@ -38,7 +38,8 @@ import json
 import logging
 import os
 import threading
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -153,6 +154,9 @@ FOLLOWING = "记忆模型跟随对话模型，用它自己的思考强度和额�
 
 FOR_MODEL = "for_model"
 """Kept beside thresholds: the model they were set for."""
+
+TRIAL_MAX_TOKENS = 16
+"""The most an LLM tried cheaply may write (`trial_llm`): the least the Responses API takes."""
 
 MAX_REASON_LENGTH = 300
 """How much of the service's own error message the admin is shown."""
@@ -1008,18 +1012,31 @@ class LiveConfig:
             case "image":
                 return self.image_settings is not None
 
-    def lease_chat(self) -> Lease[ChatModels, ChatModelSettings]:
-        """A hold on the chat model in effect now, to try it: what is asked of it is not
-        recorded."""
-        return self._chat.lease()
+    @asynccontextmanager
+    async def trial_llm(self, service: Literal["chat_llm", "memory_llm"]) -> AsyncIterator[ChatLLM]:
+        """The chat model in effect now, as text turns use it, or the memory model, on a
+        client of its own that asks for no reasoning effort and at most `TRIAL_MAX_TOKENS`:
+        to try it cheaply, its thinking cut short. What is asked of it is not recorded; it
+        is closed on leaving."""
+        def cheap(settings: LLMSettings) -> LLMSettings:
+            return replace(settings, max_tokens=TRIAL_MAX_TOKENS, reasoning_effort=None)
 
-    def lease_memory(self) -> Lease[ChatLLM, LLMSettings]:
-        """A hold on the memory model in effect now, to try it, as `lease_chat`."""
-        return self._memory.lease()
+        if service == "chat_llm":
+            models = self._clients.chat_models(ChatModelSettings(cheap(self.chat_model.text)))
+            try:
+                yield models.text
+            finally:
+                await models.aclose()
+            return
+        memory = self._clients.memory_llm(cheap(self.memory_llm))
+        try:
+            yield memory
+        finally:
+            await memory.aclose()
 
     def lease_judge(self) -> Lease[JudgeModel, JudgeSettings] | None:
-        """A hold on the judge model in effect now, to try it, as `lease_chat`; None
-        without one."""
+        """A hold on the judge model in effect now, to try it: what is asked of it is not
+        recorded. None without one."""
         return None if self._judge is None else self._judge.lease()
 
     @property
