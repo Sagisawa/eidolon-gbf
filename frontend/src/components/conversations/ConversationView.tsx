@@ -327,7 +327,15 @@ export function ConversationView({
           disabled={!isOpen}
           className="flex-1"
         />
-        <Button type="submit" variant="her" size="icon-lg" aria-label={t.send} disabled={!canSend}>
+        {/* 按下时不抢输入框的焦点：手机上一失焦键盘就收、dock 冒出来，输入栏跟着跳走，这一下点击落空 */}
+        <Button
+          type="submit"
+          variant="her"
+          size="icon-lg"
+          aria-label={t.send}
+          disabled={!canSend}
+          onMouseDown={(e) => e.preventDefault()}
+        >
           <SendIcon className="size-5" />
         </Button>
       </div>
