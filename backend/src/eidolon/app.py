@@ -406,6 +406,7 @@ def create_app(backend: Backend) -> FastAPI:
                 "name": c.name,
                 "intro": c.intro,
                 "avatar_url": f"/api/characters/{c.id}/avatar" if c.avatar else None,
+                "scsp_avatar_url": f"/api/characters/{c.id}/scsp-avatar" if c.scsp_avatar else None,
                 "color": c.color,
                 "background_url": f"/api/characters/{c.id}/background" if c.background else None,
                 "stand": _stand(c, backend.settings.stand_assets_url),
@@ -437,6 +438,14 @@ def create_app(backend: Backend) -> FastAPI:
         if character is None or character.avatar is None:
             raise HTTPException(404, "没有这位角色的头像")
         return _picture(character.avatar, request)
+
+    @app.get("/api/characters/{character_id}/scsp-avatar")
+    def character_scsp_avatar(character_id: str, request: Request) -> Response:
+        """Her avatar in SCSP's set, for users who switched to it in settings."""
+        character = characters.get(character_id)
+        if character is None or character.scsp_avatar is None:
+            raise HTTPException(404, "没有这位角色的 SCSP 头像")
+        return _picture(character.scsp_avatar, request)
 
     @app.get("/api/characters/{character_id}/background")
     def character_background(character_id: str, request: Request) -> Response:

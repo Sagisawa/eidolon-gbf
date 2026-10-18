@@ -11,7 +11,9 @@ import pytest
 
 from eidolon.characters import CharacterConfigError, Fact, load_characters, parse_facts
 from eidolon.config import Settings, stand_assets_url_from_env
-from tests.conftest import AVATAR, BACKGROUND, KOGANE_SHEET, MANO_SHEET, CharacterConfig, ClientFactory
+from tests.conftest import (
+    AVATAR, BACKGROUND, KOGANE_SHEET, MANO_SHEET, SCSP_AVATAR, CharacterConfig, ClientFactory,
+)
 from tests.fakes import FakeLLM
 from tests.test_text_turn import send_turn, start_conversation
 
@@ -33,6 +35,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "name": "櫻木真乃",
             "intro": "illumination STARS 的中心",
             "avatar_url": "/api/characters/mano/avatar",
+            "scsp_avatar_url": "/api/characters/mano/scsp-avatar",
             "color": "#ffbad6",
             "background_url": "/api/characters/mano/background",
             "stand": None,  # no stand assets URL is configured
@@ -53,6 +56,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "name": "月岡恋鐘",
             "intro": "L'Antica 的偶像",
             "avatar_url": None,
+            "scsp_avatar_url": None,
             "color": "#f84cad",
             "background_url": None,
             "stand": None,
@@ -114,6 +118,19 @@ async def test_avatar_is_served_without_a_session_so_img_tags_can_load_it(
     assert (await client.get("/api/characters/nobody/avatar")).status_code == 404
 
 
+async def test_scsp_avatar_is_served_without_a_session_like_the_avatar(
+    make_client: ClientFactory,
+):
+    client = make_client(FakeLLM(), user=None)
+
+    res = await client.get("/api/characters/mano/scsp-avatar")
+
+    assert res.status_code == 200
+    assert res.content == SCSP_AVATAR
+    assert (await client.get("/api/characters/kogane/scsp-avatar")).status_code == 404
+    assert (await client.get("/api/characters/nobody/scsp-avatar")).status_code == 404
+
+
 async def test_call_background_is_served_without_a_session_like_the_avatar(
     make_client: ClientFactory,
 ):
@@ -127,7 +144,7 @@ async def test_call_background_is_served_without_a_session_like_the_avatar(
     assert (await client.get("/api/characters/nobody/background")).status_code == 404
 
 
-@pytest.mark.parametrize("picture", ["avatar", "background"])
+@pytest.mark.parametrize("picture", ["avatar", "scsp-avatar", "background"])
 async def test_avatar_and_background_are_cached_by_the_browser_and_revalidated_by_etag(
     make_client: ClientFactory, picture: str
 ):
@@ -287,7 +304,7 @@ def test_repository_configures_its_idols_with_their_voices():
         "hana": ("羽那",),
         "haruki": ("はるき",),
     }
-    assert all(c.sheet and c.facts and c.avatar for c in loaded.values())  # committed (ADR-0003)
+    assert all(c.sheet and c.facts and c.avatar and c.scsp_avatar for c in loaded.values())  # committed (ADR-0003)
     assert {id: c.color for id, c in loaded.items()} == {
         "mano": "#ffbad6",
         "hiori": "#144384",
@@ -592,12 +609,13 @@ def test_repository_avatars_are_shrunk_to_what_the_screens_show():
 
     too_big = {}
     for id, c in loaded.items():
-        if c.avatar is None:
-            continue
-        width, height = _jpeg_size(c.avatar)
-        size = c.avatar.stat().st_size
-        if width > 224 or height > 224 or size > 32 * 1024:
-            too_big[id] = (width, height, size)
+        for field, avatar in (("avatar", c.avatar), ("scsp_avatar", c.scsp_avatar)):
+            if avatar is None:
+                continue
+            width, height = _jpeg_size(avatar)
+            size = avatar.stat().st_size
+            if width > 224 or height > 224 or size > 32 * 1024:
+                too_big[id, field] = (width, height, size)
     assert too_big == {}
 
 
