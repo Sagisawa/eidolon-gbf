@@ -22,6 +22,7 @@ from pathlib import Path
 USER_DATA = [
     ("memory_vectors", "user_id = ?"),
     ("memories", "user_id = ?"),
+    ("photos", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("messages", "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
     ("conversation_events",
      "conversation_id IN (SELECT id FROM conversations WHERE user_id = ?)"),
@@ -41,6 +42,7 @@ USER_DATA = [
 what refers to a row before the row."""
 
 CONVERSATION_DATA = [
+    ("photos", "conversation_id = ?"),
     ("messages", "conversation_id = ?"),
     ("conversation_events", "conversation_id = ?"),
     ("calls", "conversation_id = ?"),

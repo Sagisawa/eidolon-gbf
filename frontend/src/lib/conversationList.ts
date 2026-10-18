@@ -5,10 +5,11 @@ import type { EventKind, LatestConversation } from "@/lib/api";
 import { matchesSearch, type Searchable } from "@/lib/characterSearch";
 import { NO_PREFERENCES, type ListPreferences } from "@/lib/listPreferences";
 
-/** 列表里的一行预览。`from` 为 null 表示对话已经开了但还没有话；`event` 是一条对话事件，原文由界面拼，
- * 送礼记录带礼物名（`gift`）。 */
+/** 列表里的一行预览。`from` 为 null 表示对话已经开了但还没有话；她的话带着发出来了的照片时 `photo`
+ * 为 true，界面在前面加相机；`event` 是一条对话事件，原文由界面拼，送礼记录带礼物名（`gift`）。 */
 export type Preview =
-  | { from: "her" | "you" | null; text: string; at: string }
+  | { from: "her"; text: string; at: string; photo: boolean }
+  | { from: "you" | null; text: string; at: string }
   | { from: "event"; event: EventKind; gift: string | null; at: string };
 
 /** 她最新一次对话的预览（`previewOf` 一段对话）；从没聊过的角色没有预览。 */
@@ -16,14 +17,14 @@ export function previewOf(latest: LatestConversation | undefined): Preview | nul
   return latest ? previewOfOne(latest) : null;
 }
 
-/** 一段对话的预览：她说的显示字幕（没有字幕时退回日语原文），自己说的原样，对话事件是这件事；
- * 还没有话时是对话开始的时间。对话列表和历史对话面板的每一行都这么写。 */
+/** 一段对话的预览：她说的显示字幕（没有字幕时退回日语原文），那条回复带着发出来了的照片时标上照片；
+ * 自己说的原样，对话事件是这件事；还没有话时是对话开始的时间。对话列表和历史对话面板的每一行都这么写。 */
 export function previewOfOne(conversation: Pick<LatestConversation, "created_at" | "last_message">): Preview {
   const last = conversation.last_message;
   if (!last) return { from: null, text: "", at: conversation.created_at };
   if ("type" in last) return { from: "event", event: last.kind, gift: last.gift_name ?? null, at: last.created_at };
   if (last.role === "user") return { from: "you", text: last.text ?? "", at: last.created_at };
-  return { from: "her", text: last.zh || last.ja || "", at: last.created_at };
+  return { from: "her", text: last.zh || last.ja || "", at: last.created_at, photo: last.photo === true };
 }
 
 /** 列表里的一行：哪位角色，她是不是置顶的、是不是隐藏的（行菜单和图钉据此显示）。 */

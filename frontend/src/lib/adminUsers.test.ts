@@ -51,46 +51,65 @@ describe("describeLimit", () => {
 });
 
 describe("limitDraft and limitsInput", () => {
+  const followed = limitDraft(null);
+
   it("round-trips each kind of limit through the editor", () => {
     for (const limit of [null, "unlimited", 0, 5] as const) {
-      expect(limitsInput(limitDraft(limit), limitDraft(5)), String(limit)).toEqual({
-        input: { turns_per_hour: limit, calls_per_hour: 5 },
+      expect(limitsInput(limitDraft(limit), limitDraft(5), limitDraft(limit)), String(limit)).toEqual({
+        input: { turns_per_hour: limit, calls_per_hour: 5, photos_per_hour: limit },
       });
     }
   });
 
   it("keeps own keys only apart from a number: 0 is never typed in", () => {
     expect(limitDraft(0)).toEqual({ choice: "own_keys", count: null });
-    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5))).toEqual({
+    expect(limitsInput({ choice: "number", count: 0 }, limitDraft(5), followed)).toEqual({
       problems: [{ field: "turns", reason: "count" }],
     });
   });
 
-  it("names why there is nothing to save: both follow the deployment, or a number is chosen but not given", () => {
-    expect(limitsInput(limitDraft(null), limitDraft(null))).toEqual({
+  it("saves the photos alone, the turns and calls following the deployment", () => {
+    expect(limitsInput(followed, followed, limitDraft(0))).toEqual({
+      input: { turns_per_hour: null, calls_per_hour: null, photos_per_hour: 0 },
+    });
+  });
+
+  it("names why there is nothing to save: all follow the deployment, or a number is chosen but not given", () => {
+    expect(limitsInput(followed, followed, followed)).toEqual({
       problems: [{ field: "turns", reason: "needsOne" }],
     });
-    expect(limitsInput({ choice: "number", count: null }, limitDraft(null))).toEqual({
+    expect(limitsInput({ choice: "number", count: null }, followed, followed)).toEqual({
       problems: [{ field: "turns", reason: "count" }],
     });
-    expect(limitsInput({ choice: "number", count: null }, { choice: "number", count: null })).toEqual({
+    const none = { choice: "number", count: null } as const;
+    expect(limitsInput(none, none, none)).toEqual({
       problems: [
         { field: "turns", reason: "count" },
         { field: "calls", reason: "count" },
+        { field: "photos", reason: "count" },
       ],
     });
   });
 });
 
 describe("describeLimits", () => {
+  const limits: AdminUserLimits = {
+    turns_per_hour: 5,
+    calls_per_hour: null,
+    photos_per_hour: null,
+    note: null,
+    updated_at: "2026-10-11T00:00:00+00:00",
+  };
+
   it("puts turns and calls in a line, with nothing about using the deployer's LLM", () => {
-    const limits: AdminUserLimits = {
-      turns_per_hour: 5,
-      calls_per_hour: null,
-      note: null,
-      updated_at: "2026-10-11T00:00:00+00:00",
-    };
     expect(describeLimits(limits)).toBe("回合 每小时 5 次 · 通话 跟随全站");
+  });
+
+  it("adds the photos where they are set apart", () => {
+    expect(describeLimits({ ...limits, photos_per_hour: 2 })).toBe("回合 每小时 5 次 · 通话 跟随全站 · 照片 每小时 2 张");
+    expect(describeLimits({ ...limits, photos_per_hour: 0 })).toBe(
+      "回合 每小时 5 次 · 通话 跟随全站 · 照片 只能用自带密钥",
+    );
   });
 });
 

@@ -10,6 +10,7 @@ dependencies = [
     "httpx[socks]>=0.28.1",
     "loguru>=0.7.3",
     "numpy>=2.4.6",
+    "pillow>=12.3.0",
     "pipecat-ai[fish,soniox,webrtc]>=1.12.0",
     "pyrage>=1.4.0",
     "python-socks[asyncio]>=3.1.1",

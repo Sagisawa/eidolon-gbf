@@ -30,6 +30,12 @@ visitor answers her call in the landing page's demo: `call_opener` and
 `call_opener_subtitle`, configured, voiced and put in the bucket as greetings are, at
 addresses of their own. Only she who calls there needs one.
 
+Optionally, she has what her photos are prompted with (GLOSSARY.md「照片」): her character tag
+as Danbooru writes it (`photo_tag`, e.g. `sakuragi mano`), kept apart rather than made from
+her romaji, which is not how Danbooru writes every name; and her looks as tags
+(`photo_appearance`): hair colour, hairstyle, eye colour, no accessories nor clothes. She
+sends no photos without both.
+
 She likes one to three gifts in the gift catalog (`liked_gifts`, by gift identifier),
 each with her sources behind it in her facts' sources file (「喜欢的礼物」). Whether they
 are in the catalog is checked once both are loaded (`gift_catalog.check_liked_gifts`).
@@ -145,6 +151,15 @@ class Character:
     liked_gifts: tuple[str, ...] = ()
     """The gifts she likes, by identifier in the gift catalog; giving her one raises
     affinity more. Never told to the user."""
+    photo_tag: str | None = None
+    """Her character tag as Danbooru writes it, e.g. `sakuragi mano`, for her photos."""
+    photo_appearance: str | None = None
+    """Her looks as tags, e.g. `brown hair, medium hair, brown eyes`, for her photos."""
+
+    @property
+    def photographed(self) -> bool:
+        """Whether she can send photos: she has both her character tag and her looks."""
+        return self.photo_tag is not None and self.photo_appearance is not None
 
 
 def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Character]:
@@ -266,11 +281,14 @@ def _parse_character(
         name_kana=_other_name(entry, "name_kana", label),
         name_romaji=_other_name(entry, "name_romaji", label),
         liked_gifts=tuple(liked_gifts),
+        photo_tag=_other_name(entry, "photo_tag", label),
+        photo_appearance=_other_name(entry, "photo_appearance", label),
     )
 
 
 def _other_name(entry: dict, field: str, label: str) -> str | None:
-    """One of the other names the conversation list searches her by, if given: a line of text."""
+    """One of the other names the conversation list searches her by, or what her photos are
+    prompted with, if given: a line of text."""
     value = entry.get(field)
     if value is None:
         return None

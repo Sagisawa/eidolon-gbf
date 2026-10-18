@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AffinityStatus } from "@/lib/affinity";
-import { ApiError, type CallEvent, type Conversation, type ConversationEvent, type Message, type Recorded, type TurnEvent } from "@/lib/api";
+import {
+  ApiError,
+  type CallEvent,
+  type Conversation,
+  type ConversationEvent,
+  type Message,
+  type PhotoStatus,
+  type Recorded,
+  type TurnEvent,
+} from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { LiveConversation, type Ports } from "@/lib/liveConversation";
@@ -118,6 +127,7 @@ function opening(options: Options = {}) {
     },
     listMessages: async (conversationId) => (conversationId === "c1" ? (options.messages ?? []) : []),
     getAffinity: async () => options.affinity ?? null,
+    getPhoto: async () => ({ status: "pending", reason: null }),
     onListChanged: () => listChanged++,
     startCall: (conversationId, preferences, handlers) => {
       sentTo.push(conversationId);
@@ -1497,6 +1507,7 @@ describe("LiveConversation: typing", () => {
       pending: false,
       at: "2026-09-27T00:00:00Z",
       affinity: null,
+      photo: null,
     });
   });
 
@@ -1636,6 +1647,222 @@ describe("LiveConversation: typing", () => {
 
     expect(finished).toBe(true);
     expect(published()).toBe(before);
+  });
+});
+
+describe("LiveConversation: photos", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const photoOf = (live: LiveConversation, key: string) => {
+    const entry = live.snapshot().entries.find((e) => e.key === key);
+    return entry?.kind === "character" ? entry.photo : undefined;
+  };
+
+  it("asks after a photo sent in a text turn every 2s until it comes out, then no more", async () => {
+    vi.useFakeTimers();
+    const asked: string[] = [];
+    const answers: PhotoStatus[] = [
+      { status: "pending", reason: null },
+      { status: "ready", reason: null },
+    ];
+    const opened = opening({
+      turns: scripted([
+        { type: "user", text: "发张自拍" },
+        { type: "photo", id: "p1", status: "pending" },
+        { type: "delta", segment: 0, lang: "ja", text: "はい" },
+        {
+          type: "done",
+          message: { ...message(4, "character", "はい"), photo: { id: "p1", status: "pending", reason: null } },
+          affinity: null,
+        },
+      ]),
+      ports: {
+        getPhoto: async (id) => {
+          asked.push(id);
+          return answers.shift() ?? { status: "ready", reason: null };
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const { live } = opened;
+
+    live.setDraft("发张自拍");
+    await live.submit();
+    await vi.advanceTimersByTimeAsync(1999);
+    const notYet = [...asked];
+    await vi.advanceTimersByTimeAsync(1);
+    const stillPending = photoOf(live, "m4");
+    await vi.advanceTimersByTimeAsync(2000);
+    const out = photoOf(live, "m4");
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(notYet).toEqual([]);
+    expect(stillPending).toEqual({ id: "p1", status: "pending", reason: null });
+    expect(out).toEqual({ id: "p1", status: "ready", reason: null });
+    expect(asked).toEqual(["p1", "p1"]);
+  });
+
+  it("asks after one still being generated as the conversation opens, again if it cannot be asked", async () => {
+    vi.useFakeTimers();
+    const answers: (PhotoStatus | Error)[] = [new Error("offline"), { status: "failed", reason: "timeout" }];
+    const opened = opening({
+      messages: [
+        message(1, "user", "发张自拍"),
+        { ...message(2, "character", "はい"), photo: { id: "p1", status: "pending", reason: null } },
+      ],
+      ports: {
+        getPhoto: async () => {
+          const answer = answers.shift();
+          if (!answer || answer instanceof Error) throw answer ?? new Error("asked once too often");
+          return answer;
+        },
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    const afterFailing = photoOf(opened.live, "m2");
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(afterFailing).toEqual({ id: "p1", status: "pending", reason: null });
+    expect(photoOf(opened.live, "m2")).toEqual({ id: "p1", status: "failed", reason: "timeout" });
+    expect(answers).toEqual([]);
+  });
+});
+
+describe("LiveConversation: photos in a call", () => {
+  const pending = { id: "p1", status: "pending", reason: null } as const;
+
+  /** A call in "c1", connected; `emit` sends the call under way events. */
+  async function inCall() {
+    const opened = await conversation({ messages: history });
+    await connected(opened.live, opened.attempts);
+    const emit = (...events: CallEvent[]) =>
+      events.forEach((event) => opened.attempts.at(-1)!.handlers.onEvent(event));
+    return { ...opened, emit };
+  }
+
+  /** The user's words taken up, then her reply 1 with a photo begun and recorded. */
+  const withPhoto: CallEvent[] = [
+    { type: "user", text: "拍一张给我看", reply: 1 },
+    { type: "photo", reply: 1, id: "p1", status: "pending" },
+    { type: "delta", segment: 0, lang: "ja", text: "はい" },
+    { type: "done", message: { ...message(4, "character", "はい"), photo: pending }, affinity: null },
+  ];
+  const ready: CallEvent = { type: "photo", reply: 1, id: "p1", status: "ready", reason: null };
+
+  const reply = (live: LiveConversation) => live.snapshot().entries.find((e) => e.key === "m4");
+
+  it("shows the photo on the call layer and in the log as it is generated and as it comes out", async () => {
+    const { live, emit } = await inCall();
+
+    emit(...withPhoto);
+    const generating = live.snapshot().callPhoto;
+    emit(ready);
+
+    expect(generating).toEqual(pending);
+    expect(live.snapshot().callPhoto).toEqual({ id: "p1", status: "ready", reason: null });
+    expect(reply(live)).toMatchObject({ photo: { id: "p1", status: "ready" } });
+    // Out with the call layer unfolded: the user saw it come.
+    expect(live.snapshot().newPhoto).toBe(false);
+  });
+
+  it("tells why one was not sent", async () => {
+    const { live, emit } = await inCall();
+
+    emit(...withPhoto, { type: "photo", reply: 1, id: "p1", status: "failed", reason: "timeout" });
+
+    expect(live.snapshot().callPhoto).toEqual({ id: "p1", status: "failed", reason: "timeout" });
+  });
+
+  it("shows the next photo in the call in place of the last", async () => {
+    const { live, emit } = await inCall();
+    emit(...withPhoto, ready);
+
+    emit(
+      { type: "user", text: "再来一张", reply: 2 },
+      { type: "photo", reply: 2, id: "p2", status: "pending" },
+    );
+
+    expect(live.snapshot().callPhoto).toEqual({ id: "p2", status: "pending", reason: null });
+  });
+
+  it("has the call bar tell of a photo out while the layer is folded away, until it is unfolded", async () => {
+    const { live, emit } = await inCall();
+    emit(...withPhoto);
+    live.collapse();
+
+    emit(ready);
+    const folded = live.snapshot().newPhoto;
+    live.expand();
+
+    expect(folded).toBe(true);
+    expect(live.snapshot().newPhoto).toBe(false);
+  });
+
+  it("has it seen once her conversation page is open", async () => {
+    const { live, emit } = await inCall();
+    emit(...withPhoto);
+    live.collapse();
+    emit(ready);
+
+    live.photoSeen();
+
+    expect(live.snapshot()).toMatchObject({ newPhoto: false, layer: { collapsed: true } });
+  });
+
+  it("tells of none not sent while the layer is folded away", async () => {
+    const { live, emit } = await inCall();
+    emit(...withPhoto);
+    live.collapse();
+
+    emit({ type: "photo", reply: 1, id: "p1", status: "failed", reason: "service_error" });
+
+    expect(live.snapshot().newPhoto).toBe(false);
+  });
+
+  it("carries no photo on the end card, the one out after the call shown in the log as asked after", async () => {
+    vi.useFakeTimers();
+    try {
+      const opened = opening({
+        messages: history,
+        ports: { getPhoto: async () => ({ status: "ready", reason: null }) },
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const { live, attempts } = opened;
+      const calling = live.startCall();
+      attempts[0].connect(new FakeCall());
+      await calling;
+      withPhoto.forEach((event) => attempts[0].handlers.onEvent(event));
+      const hungUp = { type: "event", id: 7, kind: "hung_up", created_at: "2026-10-13T03:00:00Z", affinity: null } as const;
+      attempts[0].handlers.onEvent({ type: "ended", reason: "she_hung_up", message: "她挂断了电话。", counts: true, event: hungUp });
+      attempts[0].handlers.onDropped();
+
+      const ended = live.snapshot();
+      await vi.advanceTimersByTimeAsync(2000);
+
+      expect(ended).toMatchObject({ call: { phase: "ended" }, callPhoto: null });
+      expect(reply(live)).toMatchObject({ photo: { id: "p1", status: "ready" } });
+      expect(live.snapshot().newPhoto).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("has the photos used up told after her reply in the log", async () => {
+    const { live, emit } = await inCall();
+
+    emit(
+      { type: "user", text: "拍一张给我看", reply: 1 },
+      { type: "delta", segment: 0, lang: "ja", text: "また後でね" },
+      { type: "photos-used-up", retry_at: "2026-09-27T01:00:00Z" },
+      { type: "done", message: message(4, "character", "また後でね"), affinity: null },
+    );
+
+    expect(reply(live)).toMatchObject({ photo: null, photosUsedUp: "2026-09-27T01:00:00Z" });
+    expect(live.snapshot().callPhoto).toBeNull();
   });
 });
 

@@ -8,6 +8,7 @@ import { Notice } from "@/components/app/admin/Notice";
 import { NumberInput } from "@/components/app/admin/NumberInput";
 import { StatusDot } from "@/components/app/admin/StatusDot";
 import { FailureNotice } from "@/components/app/FailureNotice";
+import { ModelChoiceField } from "@/components/app/ModelChoiceField";
 import { EffortField, ExtraBodyField, useEffortHint } from "@/components/app/ReasoningEffortFields";
 import { OpenFormProvider, useOpenForm } from "@/components/admin/OpenForm";
 import { ResetCardGrants } from "@/components/admin/ResetCardGrants";
@@ -38,12 +39,14 @@ import { copy } from "@/i18n";
 import {
   changeOf,
   CONFIG_TABS,
+  CUSTOM_MODEL,
   formOf,
   getAdminConfig,
   isAvailable,
   isConfigTab,
   ITEM_SPECS,
   lockedOn,
+  MAX_COUNT,
   readOnlyValue,
   restoreItem,
   rows,
@@ -206,13 +209,14 @@ function shown(name: ItemName, field: string, value: FieldRow["env"]): string {
     return effortLabel(value === null ? EFFORT_UNSET : String(value));
   }
   if (field === "extra_body" && value !== null) return JSON.stringify(value);
-  if (value === null) return field === "max_tokens" ? t.defaultMaxTokens : t.none;
+  if (value === null || value === "") return field === "max_tokens" ? t.defaultMaxTokens : t.none;
   if (typeof value === "boolean") return value ? t.switchOn : t.switchOff;
   if (ITEM_SPECS[name].secrets.includes(field)) return t.last4(String(value));
   if (field === "protocol") return t.protocols[value as LLMProtocol] ?? String(value);
   if (field === "provider") return t.providers[String(value)] ?? String(value);
   if (field === "region") return t.regions[String(value)] ?? String(value);
-  if (name === "tts" && field === "model") return optionLabel(field, String(value));
+  if (field === "api_format") return t.imageFormats[String(value)] ?? String(value);
+  if (name === "tts" && field === "model") return optionLabel(name, field, String(value));
   if (name === "limits" && value === 0) return t.unlimited;
   return String(value);
 }
@@ -236,11 +240,15 @@ function fieldHint(name: ItemName, spec: FieldSpec, keysEditable: boolean, item?
   if (spec.kind === "maxTokens") return t.maxTokensHint;
   if (spec.kind === "probability") return t.formHints.probability;
   if (name === "judge" && spec.name === "model") return t.formHints.judge_model;
+  if (name === "image" && spec.name === "base_url") return t.formHints.image_base_url;
   return t.formHints[spec.name];
 }
 
-function optionLabel(field: string, option: string): string {
+function optionLabel(name: ItemName, field: string, option: string): string {
   if (field === "protocol") return t.protocols[option as LLMProtocol] ?? option;
+  if (field === "api_format") return t.imageFormats[option] ?? option;
+  // 生图的模型：下拉里是官方模型的短名，最后一项是手填。
+  if (name === "image" && field === "model") return option === CUSTOM_MODEL ? t.customModel : (t.imageModels[option] ?? option);
   // 语音合成的模型，和设置页一个叫法。
   if (field === "model") return copy.settings.ownKeys.ttsModels[option as FishAudioModel] ?? option;
   return t.providers[option] ?? option;
@@ -483,8 +491,42 @@ function AvailableItem({
                     />
                   );
                 }
+                if (field.kind === "modelChoice") {
+                  return (
+                    <ModelChoiceField
+                      key={field.name}
+                      id={fieldId}
+                      label={label}
+                      options={(field.options ?? []).map((o) => ({ value: o, label: optionLabel(name, field.name, o) }))}
+                      customLabel={optionLabel(name, field.name, CUSTOM_MODEL)}
+                      value={form[field.name]}
+                      onChange={set(field.name)}
+                      error={problem ? t.problems[problem.reason](label) : null}
+                    />
+                  );
+                }
+                if (field.kind === "count") {
+                  const hint = fieldHint(name, field, keysEditable);
+                  return (
+                    <Field key={field.name} data-invalid={problem ? true : undefined}>
+                      {/* NumberInput 自己带读屏名，没有能指的 id：标题用 FieldTitle，和限额一样。 */}
+                      <FieldTitle>{label}</FieldTitle>
+                      <NumberInput
+                        label={label}
+                        value={form[field.name] === "" ? null : Number(form[field.name])}
+                        onChange={(count) => set(field.name)(count === null ? "" : String(count))}
+                        min={1}
+                        max={MAX_COUNT}
+                        isIntegerOnly
+                        isInvalid={problem !== null}
+                      />
+                      {hint && <FieldDescription>{hint}</FieldDescription>}
+                      {problem && <FieldError>{t.problems[problem.reason](label)}</FieldError>}
+                    </Field>
+                  );
+                }
                 if (field.kind === "select") {
-                  const options = (field.options ?? []).map((o) => ({ value: o, label: optionLabel(field.name, o) }));
+                  const options = (field.options ?? []).map((o) => ({ value: o, label: optionLabel(name, field.name, o) }));
                   return (
                     <Field key={field.name}>
                       <FieldLabel htmlFor={fieldId}>{label}</FieldLabel>

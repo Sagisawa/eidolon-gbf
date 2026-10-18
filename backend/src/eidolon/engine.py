@@ -67,6 +67,20 @@ activity record keeps, and those `on_ended` has are told then, for her to hang u
 it. A turn in a conversation she has ended is rejected, as is one that finds it ended,
 elsewhere, as it is recorded.
 
+In a turn that could have a photo (`photos`), typed or in a call, the judge model is asked whether the
+user asks her for one, along with whatever else it is asked, or apart where it is asked
+nothing else; failing, the turn has none. Asked, she is told so in the system message that
+changes from turn to turn, and may write a photo tag at the front of her reply: unless her
+affinity is in its coldest tier, the photo begins the moment it closes, and `photo` tells
+the browser its id before her first words; any other turn's tag is dropped. The user's
+photos this hour used up, she is told she cannot send one now, and `photos-used-up` tells
+the browser when the user may ask again, just before `done`. Her reply is recorded with the
+photo, being generated; a reply not recorded drops it. From then on her prompt carries the
+tag before her reply, as she wrote it, so she knows what she sent; that of a photo not sent
+after all marked failed, and she is told what that means (`photos.NOT_RECEIVED`).
+Retrieval, memory and the judge model never read it. How the photo comes out is not the
+turn's to wait for: `photo_came_out` tells, once it has.
+
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
 her prompt with those words. Until she has replied after a gift, she is also told to respond
@@ -76,7 +90,7 @@ to it, once, however many came. Retrieval, memory and the judge model read only 
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Literal, ParamSpec, TypeVar
 
@@ -96,15 +110,17 @@ from eidolon.affinity import (
 from eidolon.affinity_judge import AffinityJudge
 from eidolon.characters import Character
 from eidolon.clock import Clock
-from eidolon.config import FishAudioModel
+from eidolon.config import FishAudioModel, ImageSettings
 from eidolon.gift_catalog import Gift
 from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
+from eidolon.photos import NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
     format_instructions,
+    PhotoTagged,
     ReplyParser,
     Segment,
     SegmentComplete,
@@ -118,6 +134,8 @@ from eidolon.store import (
     ConversationEnded,
     ConversationEvent,
     Message,
+    NewPhoto,
+    Photo,
     Recorded,
     Store,
     Typed,
@@ -150,6 +168,25 @@ class UserSaid:
 
 
 @dataclass(frozen=True)
+class PhotoPending:
+    """She is sending a photo with her reply, being generated (GLOSSARY.md「照片」): its id,
+    to wait on. Comes before her first words."""
+
+    id: str
+    status: Literal["pending"] = field(default="pending", init=False)
+    type: Literal["photo"] = field(default="photo", init=False)
+
+
+@dataclass(frozen=True)
+class PhotosUsedUp:
+    """The user asked for a photo with their photos this hour used up: they may ask again
+    at `retry_at` (ISO). Comes just before `done`."""
+
+    retry_at: str
+    type: Literal["photos-used-up"] = field(default="photos-used-up", init=False)
+
+
+@dataclass(frozen=True)
 class TurnDone:
     """The recorded reply, with how the turn changed her affinity if it did; her affinity
     after it (`Status.shown`), None where affinity is off; and her ending the conversation
@@ -159,6 +196,7 @@ class TurnDone:
     affinity: dict[str, str | None] | None = None
     ended: dict | None = None
     type: Literal["done"] = field(default="done", init=False)
+
 
 
 @dataclass(frozen=True)
@@ -217,18 +255,28 @@ class TurnRejected:
 
 TurnEvent = (
     UserSaid
+    | PhotoPending
     | SegmentDelta
     | SpeechDelta
     | SegmentComplete
     | CallTurnRecorded
     | TurnJudged
+    | PhotosUsedUp
     | TurnDone
     | TurnFailed
     | TurnRejected
 )
-"""A turn's events: `user`, then any `delta`s, then `done` or `error`. `asdict(event)` is
-the event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
+"""A turn's events: `user`, then `photo` if she sends one, any `delta`s, then
+`photos-used-up` if the user's photos are, and `done`, or `error`. `shown(event)` is the
+event as it goes out to the browser, except `SpeechDelta`, `SegmentComplete`,
 `CallTurnRecorded` and `TurnJudged`, which do not."""
+
+
+def shown(event: TurnEvent) -> dict:
+    """The event as it goes out to the browser: `done`'s reply as `Message.shown` has it."""
+    if isinstance(event, TurnDone):
+        return asdict(event) | {"message": event.message.shown()}
+    return asdict(event)
 
 FAILED = "角色暂时无法回复，请稍后再试。"
 """What the user reads when a turn fails; the details stay in the server log."""
@@ -277,14 +325,33 @@ async def _unless_stopped(
 
 
 async def _judged(
-    judge: AffinityJudge, character: Character, history: list[Message], text: str
-) -> Judged | None:
-    """What saying `text` does to her affinity; None if it cannot be told."""
+    judge: AffinityJudge,
+    character: Character,
+    history: list[Message],
+    text: str,
+    affinity: bool,
+    photo: bool,
+) -> tuple[Judged | None, bool]:
+    """Asked about `affinity`, what saying `text` does to her affinity (None if not, or if it
+    cannot be told); asked about `photo`, whether it asks her for one (no if not, or if it
+    cannot be told)."""
     try:
-        return await judge.judge(character, history, text)
+        return await judge.judge(character, history, text, affinity, photo)
     except JudgeError:
-        log.warning("affinity judge failed; affinity stays as it is", exc_info=True)
-        return None
+        log.warning("judging apart failed; affinity stays as it is, and no photo", exc_info=True)
+        return None, False
+
+
+@dataclass
+class _Photo:
+    """The photo a turn sends, on the user's `own` image generation if the turn brings it:
+    once it begins one, its id and the tag she wrote for it, and whether her reply is
+    recorded with it."""
+
+    own: ImageSettings | None = None
+    id: str | None = None
+    tag: str = ""
+    recorded: bool = False
 
 
 def latest_turns(messages: list[Message], turns: int | None) -> list[Message]:
@@ -361,6 +428,7 @@ class ConversationEngine:
         world: World | None = None,
         affinities: Affinities | None = None,
         affinity_judge: AffinityJudge | None = None,
+        photos: Photos | None = None,
     ) -> None:
         """Without `retrieval`, turns carry no story or character facts and find no
         memories. Each turn reads only the conversation's latest turns, as many as
@@ -368,7 +436,8 @@ class ConversationEngine:
         at least as many (`chat_history`). Without `world`, turns
         carry no world setting. Without `affinities`, turns change no affinity; with them,
         retrieval's judge judges what turns do to it, or without retrieval
-        `affinity_judge`."""
+        `affinity_judge`, which judges whether turns ask for a photo too. Without `photos`,
+        or without the judge model, no turn has a photo."""
         self._store = store
         self._characters = characters
         self._gift_catalog = gift_catalog
@@ -380,6 +449,7 @@ class ConversationEngine:
         self._world = world
         self._affinities = affinities
         self._affinity_judge = affinity_judge
+        self._photos = photos
         self._ended_listeners: list[Callable[[str, EndsFor], None]] = []
 
     def on_ended(self, listener: Callable[[str, EndsFor], None]) -> None:
@@ -396,20 +466,23 @@ class ConversationEngine:
         stop: asyncio.Event | None = None,
         in_call: InCall | None = None,
         voiced_by: FishAudioModel | None = None,
+        own_image: ImageSettings | None = None,
     ) -> AsyncIterator[TurnEvent]:
         """Take one turn on `llms`, `in_call` if it is taken in one, its reply voiced with
         `voiced_by` (None for a text turn's), which has her write delivery cues as it reads
-        them. `device_timezone` is the time zone the user's device reports, used unless the
-        producer profile sets one. Once `stop` is set, the turn goes no further and is
-        recorded with the segments complete by then."""
+        them, her photo on the user's `own_image` generation if it brings it. `device_timezone`
+        is the time zone the user's device reports, used unless the producer profile sets
+        one. Once `stop` is set, the turn goes no further and is recorded with the segments
+        complete by then."""
         text = text.strip()
         yield UserSaid(text)
         if not text or len(text) > MAX_INPUT_LENGTH:
             yield TurnRejected(TOO_LONG if text else BLANK)
             return
+        photo = _Photo(own_image)
         try:
             async for event in self._reply(
-                conversation, text, llms, device_timezone, stop, in_call, voiced_by
+                conversation, text, llms, device_timezone, stop, in_call, voiced_by, photo
             ):
                 yield event
         except OwnKeyFailed as e:  # theirs to fix, so they are told what went wrong
@@ -419,6 +492,9 @@ class ConversationEngine:
         except Exception:  # the turn has started; report instead of dropping it
             log.exception("turn failed in conversation %s", conversation.id)
             yield TurnFailed(FAILED)
+        finally:
+            if photo.id is not None and not photo.recorded and self._photos is not None:
+                self._photos.dropped(photo.id)
 
     async def _reply(
         self,
@@ -429,6 +505,7 @@ class ConversationEngine:
         stop: asyncio.Event | None,
         in_call: InCall | None,
         voiced_by: FishAudioModel | None,
+        photo: _Photo,
     ) -> AsyncIterator[TurnEvent]:
         if self._store.ended(conversation.id) is not None:
             yield TurnRejected(ENDED)
@@ -443,10 +520,12 @@ class ConversationEngine:
         history = latest_turns(messages, turns)  # what all but the chat model read
         affinity = self._affinity(conversation)
         judging = affinity is not None and not affinity.cooling
+        eligibility = self._photo_eligibility(conversation, character, photo.own)
+        asking_photo = eligibility is not None
         judged_apart = None
-        if judging and self._retrieval is None and self._affinity_judge is not None:
+        if (judging or asking_photo) and self._retrieval is None and self._affinity_judge:
             judged_apart = asyncio.ensure_future(
-                _judged(self._affinity_judge, character, history, text)
+                _judged(self._affinity_judge, character, history, text, judging, asking_photo)
             )
         try:
             profile = self._store.get_profile(conversation.user_id)
@@ -455,11 +534,16 @@ class ConversationEngine:
                 conversation, timezone, llms.background, llms.hold_background
             )
             retrieved = (
-                await self._retrieval.retrieve(character, history, text, memory, judging)
+                await self._retrieval.retrieve(
+                    character, history, text, memory, judging, asking_photo
+                )
                 if self._retrieval
                 else Retrieved(None)
             )
-            judged = await judged_apart if judged_apart is not None else retrieved.judged
+            judged, asked_photo = (
+                await judged_apart if judged_apart is not None
+                else (retrieved.judged, retrieved.photo)
+            )
         finally:
             if judged_apart is not None and not judged_apart.done():
                 judged_apart.cancel()
@@ -488,13 +572,17 @@ class ConversationEngine:
         world_prompt = (
             self._world.prompt(character.name, local_date(now, timezone)) if self._world else None
         )
+        photo_asked = (
+            photo_turn(asked_photo, affinity and affinity.tier, eligibility)
+            if eligibility is not None else None
+        )
         prompt = self._prompt(
             character, world_prompt, producer_prompt(profile),
             chat_history(messages, turns), narrations(record, self._gift_catalog),
             now_prompt(
                 profile, now, timezone, in_call=in_call is not None, affinity_lines=affinity_lines
             ),
-            retrieved, text, voiced_by,
+            retrieved, text, voiced_by, photo_asked and photo_asked.prompt,
         )
 
         # Offered on every turn, so that what goes before the history (the tools, with
@@ -521,12 +609,19 @@ class ConversationEngine:
                             continue
                         said += item
                         for event in parser.feed(item):
+                            if isinstance(event, PhotoTagged):
+                                if photo_asked and photo_asked.keeps_tag:
+                                    yield self._begin_photo(
+                                        character, event.tag, conversation.user_id, photo
+                                    )
+                                continue
                             yield event
                 finally:
                     if (close := getattr(stream, "aclose", None)) is not None:
                         await close()  # a stream left part-way lets go of its connection
                 for event in parser.finish():
-                    yield event
+                    if not isinstance(event, PhotoTagged):  # never: a tag closes as it is fed
+                        yield event
                 # A call to a tool not offered, or made when forbidden, goes unanswered.
                 if not calls or not tools or forbidden:
                     break
@@ -553,11 +648,14 @@ class ConversationEngine:
         try:
             reply, affinity = self._record(
                 conversation, text, said_at, parser.complete, judged, affinity, typed,
-                ends_conversation,
+                ends_conversation, NewPhoto(photo.id, photo.tag) if photo.id else None,
             )
         except ConversationEnded:  # elsewhere, as the turn was under way
             yield TurnRejected(ENDED)
             return
+        if photo.id is not None and self._photos is not None:
+            photo.recorded = True
+            self._photos.recorded(photo.id)
         memory.write_down(history, text, reply, retrieved.query_vector)
         turn = sum(m.role == "user" for m in messages) + 1
         self._titles.after_turn(conversation, turn, llms.background, llms.hold_background)
@@ -578,7 +676,38 @@ class ConversationEngine:
                 affinity and affinity.cooldown_until,
                 hurt(judged),
             )
+        if photo_asked and photo_asked.used_up_until is not None:
+            yield PhotosUsedUp(photo_asked.used_up_until.isoformat())
         yield TurnDone(reply.without_cues(), affinity and affinity.shown(), ended and ended.shown())
+
+    def _photo_eligibility(
+        self,
+        conversation: Conversation,
+        character: Character,
+        own: ImageSettings | None,
+    ) -> Eligibility | None:
+        """What a turn with her may send, bringing the user's `own` image generation if any,
+        if it could have a photo, and so the judge model is asked whether it asks for one:
+        there being the judge model to ask, typed or in a call alike."""
+        has_judge = self._retrieval is not None or self._affinity_judge is not None
+        if not has_judge or self._photos is None:
+            return None
+        return self._photos.eligibility(character, conversation.user_id, own)
+
+    async def photo_came_out(self, photo_id: str, user_id: str) -> Photo | None:
+        """The photo a turn of the user's sent (`photo`), once it has come out, sent or not,
+        and is kept with her reply; None if it is not kept, its reply never recorded."""
+        if self._photos is None:
+            return None
+        return await self._photos.came_out(photo_id, user_id)
+
+    def _begin_photo(
+        self, character: Character, tag: str, user_id: str, photo: _Photo
+    ) -> PhotoPending:
+        """Begin the photo her `tag` says, the turn's one, for the user."""
+        assert self._photos is not None
+        photo.id, photo.tag = self._photos.begin(character, tag, user_id, photo.own), tag
+        return PhotoPending(photo.id)
 
     def _affinity(self, conversation: Conversation) -> Status | None:
         """Her affinity with the user as the turn begins; None where affinity is off."""
@@ -602,15 +731,16 @@ class ConversationEngine:
         affinity: Status | None,
         typed: Typed | None,
         ends_conversation: bool,
+        photo: NewPhoto | None,
     ) -> tuple[Message, Status | None]:
         """Record the turn, as said at `said_at`, changing her affinity as `judged` says, if
-        judged, with what a typed turn came to and her ending the conversation after it if
-        she does: the reply, and her affinity after it (`affinity`, as the turn began, if not
-        judged)."""
+        judged, with what a typed turn came to, her ending the conversation after it if she
+        does, and the photo she sends with it if any: the reply, and her affinity after it
+        (`affinity`, as the turn began, if not judged)."""
 
         def add_turn(change: Change | None) -> Message:
             return self._store.add_turn(
-                conversation.id, text, reply, change, said_at, typed, ends_conversation
+                conversation.id, text, reply, change, said_at, typed, ends_conversation, photo
             )
 
         if judged is None or self._affinities is None:
@@ -639,6 +769,7 @@ class ConversationEngine:
         retrieved: Retrieved,
         text: str,
         voiced_by: FishAudioModel | None,
+        about_photo: str | None,
     ) -> list[ChatMessage]:
         # What every user's turns with her that day open with, apart, for a service to cache.
         shared = [character.sheet]
@@ -654,10 +785,18 @@ class ConversationEngine:
                 told = narration.get(message.id, "")
                 prompt.append(ChatMessage("user", f"{told}{message.text or ''}"))
             else:
-                prompt.append(ChatMessage("assistant", format_reply(message.segments)))
+                prompt.append(ChatMessage("assistant", format_reply(
+                    message.segments,
+                    message.photo.tag if message.photo else None,
+                    message.photo_failed,
+                )))
         if history:  # what the next turn opens with too, for a service to cache
             prompt[-1] = replace(prompt[-1], cache_breakpoint=True)
         context = [about_now]
+        if about_photo:
+            context.append(about_photo)
+        if any(m.photo_failed for m in history):
+            context.append(NOT_RECEIVED)
         if retrieved.memories_prompt:
             context.append(retrieved.memories_prompt)
         if retrieved.prompt:

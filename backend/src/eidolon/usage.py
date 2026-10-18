@@ -1,4 +1,5 @@
-"""Per-user rate limits, so one user cannot use up the API credit everyone shares.
+"""Per-user rate limits, so one user cannot use up the API credit everyone shares: on text
+turns, voice calls, and the photos she sends (GLOSSARY.md「照片」), each apart.
 
 A turn or call exempt on the user's own keys (GLOSSARY.md「免限额密钥」) is recorded all the
 same, for the admin to see, but does not count towards the limit. An admin may set a user's
@@ -19,7 +20,7 @@ from eidolon.clock import Clock
 from eidolon.config import UsageLimits
 from eidolon.database import connect
 
-UsageKind = Literal["turn", "call"]
+UsageKind = Literal["turn", "call", "photo"]
 
 UserLimit = int | Literal["unlimited"] | None
 """A user's own limit on a kind of use an hour: a number (0: on their own keys only),
@@ -30,7 +31,7 @@ WINDOW = timedelta(hours=1)
 KEPT = timedelta(hours=24)
 """How long each use is kept: an hour for the limits, a day for the admin to look over."""
 
-_NAMES: dict[UsageKind, str] = {"turn": "文字对话", "call": "语音通话"}
+_NAMES: dict[UsageKind, str] = {"turn": "文字对话", "call": "语音通话", "photo": "照片"}
 
 _SCHEMA = """
 -- `at` is epoch seconds rather than ISO text, so that the window is a plain range query.
@@ -51,12 +52,15 @@ CREATE TABLE IF NOT EXISTS user_limits (
     turns_per_hour INTEGER,
     calls_per_hour INTEGER,
     note TEXT,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    photos_per_hour INTEGER
 );
 """
 
 _UNLIMITED_ROW = -1
-_COLUMNS: dict[UsageKind, str] = {"turn": "turns_per_hour", "call": "calls_per_hour"}
+_COLUMNS: dict[UsageKind, str] = {
+    "turn": "turns_per_hour", "call": "calls_per_hour", "photo": "photos_per_hour",
+}
 
 
 class OverLimit(Exception):
@@ -83,6 +87,7 @@ class UserLimits:
     calls_per_hour: UserLimit
     note: str | None = None
     updated_at: str = ""
+    photos_per_hour: UserLimit = None
 
 
 @dataclass(frozen=True)
@@ -117,8 +122,8 @@ class Use:
 
 
 class UsageLimiter:
-    """Counts each user's text turns and voice calls over the last hour, whichever device
-    or sign-in method they come with."""
+    """Counts each user's text turns, voice calls and photos over the last hour, whichever
+    device or sign-in method they come with."""
 
     def __init__(
         self, path: Path, limits: UsageLimits | Callable[[], UsageLimits], clock: Clock
@@ -140,6 +145,8 @@ class UsageLimiter:
             # their own, which no longer is a rule.
             if "deployer_llm_allowed" in columns:
                 self._db.execute("ALTER TABLE user_limits DROP COLUMN deployer_llm_allowed")
+            if "photos_per_hour" not in columns:
+                self._db.execute("ALTER TABLE user_limits ADD COLUMN photos_per_hour INTEGER")
         self._limits = limits if callable(limits) else lambda: limits
         self._clock = clock
 
@@ -153,29 +160,12 @@ class UsageLimiter:
         `exempt`; raises OverLimit, recording nothing, when they have none left this hour,
         that is, when the last hour already holds as many counting uses as the limit: the
         user's own, if an admin set one, else the deployment's."""
-        limits = self._limits()
-        deployment = limits.turns_per_hour if kind == "turn" else limits.calls_per_hour
         now = self._clock()
         with self._lock, self._db:
             # Everyone's, so that a user who does not come back leaves none behind.
             self._db.execute("DELETE FROM usage WHERE at <= ?", ((now - KEPT).timestamp(),))
-            own = self._own_limit(user_id, kind)
-            limit = deployment if own is None else None if own == "unlimited" else own
-            if limit == 0 and not exempt:
-                raise OverLimit(kind, 0, None, now)
-            if limit is not None and not exempt:
-                recent = [
-                    at
-                    for (at,) in self._db.execute(
-                        "SELECT at FROM usage WHERE user_id = ? AND kind = ? AND NOT exempt"
-                        " AND at > ? ORDER BY at",
-                        (user_id, kind, (now - WINDOW).timestamp()),
-                    )
-                ]
-                if len(recent) >= limit:
-                    blocking = recent[len(recent) - limit]  # this one must age out first
-                    retry_at = datetime.fromtimestamp(blocking, UTC) + WINDOW
-                    raise OverLimit(kind, limit, retry_at, now)
+            if not exempt:
+                self._refuse_over(user_id, kind, now)
             cursor = self._db.execute(
                 "INSERT INTO usage (user_id, kind, at, exempt) VALUES (?, ?, ?, ?)",
                 (user_id, kind, now.timestamp(), int(exempt)),
@@ -183,18 +173,26 @@ class UsageLimiter:
         assert cursor.lastrowid is not None
         return Use(self, cursor.lastrowid)
 
+    def check(self, user_id: str, kind: UsageKind) -> None:
+        """Raise OverLimit, as `take` would, if the user has no `kind` left this hour that
+        counts; take nothing."""
+        with self._lock:
+            self._refuse_over(user_id, kind, self._clock())
+
     def user_limits(self, user_id: str) -> UserLimits | None:
         """The user's own limits; None if an admin set none."""
         with self._lock:
             row = self._db.execute(
-                "SELECT turns_per_hour, calls_per_hour, note, updated_at FROM user_limits"
-                " WHERE user_id = ?",
+                "SELECT turns_per_hour, calls_per_hour, photos_per_hour, note, updated_at"
+                " FROM user_limits WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
         if row is None:
             return None
-        turns, calls, note, updated_at = row
-        return UserLimits(_from_row(turns), _from_row(calls), note, updated_at)
+        turns, calls, photos, note, updated_at = row
+        return UserLimits(
+            _from_row(turns), _from_row(calls), note, updated_at, photos_per_hour=_from_row(photos)
+        )
 
     def set_user_limits(self, user_id: str, limits: UserLimits | None) -> None:
         """Set the user's own limits, as of now, replacing those they had; None takes them
@@ -205,10 +203,10 @@ class UsageLimiter:
                 return
             self._db.execute(
                 "INSERT OR REPLACE INTO user_limits"
-                " (user_id, turns_per_hour, calls_per_hour, note, updated_at)"
-                " VALUES (?, ?, ?, ?, ?)",
+                " (user_id, turns_per_hour, calls_per_hour, photos_per_hour, note, updated_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 (user_id, _to_row(limits.turns_per_hour), _to_row(limits.calls_per_hour),
-                 limits.note, self._clock().isoformat()),
+                 _to_row(limits.photos_per_hour), limits.note, self._clock().isoformat()),
             )
 
     def last_day(self, user_id: str) -> DayOfUse:
@@ -229,6 +227,34 @@ class UsageLimiter:
 
     def close(self) -> None:
         self._db.close()
+
+    def _refuse_over(self, user_id: str, kind: UsageKind, now: datetime) -> None:
+        """Raise OverLimit if the last hour already holds as many of the user's counting
+        `kind` as their limit; under the lock."""
+        limits = self._limits()
+        deployment = {
+            "turn": limits.turns_per_hour,
+            "call": limits.calls_per_hour,
+            "photo": limits.photos_per_hour,
+        }[kind]
+        own = self._own_limit(user_id, kind)
+        limit = deployment if own is None else None if own == "unlimited" else own
+        if limit == 0:
+            raise OverLimit(kind, 0, None, now)
+        if limit is None:
+            return
+        recent = [
+            at
+            for (at,) in self._db.execute(
+                "SELECT at FROM usage WHERE user_id = ? AND kind = ? AND NOT exempt"
+                " AND at > ? ORDER BY at",
+                (user_id, kind, (now - WINDOW).timestamp()),
+            )
+        ]
+        if len(recent) >= limit:
+            blocking = recent[len(recent) - limit]  # this one must age out first
+            retry_at = datetime.fromtimestamp(blocking, UTC) + WINDOW
+            raise OverLimit(kind, limit, retry_at, now)
 
     def _own_limit(self, user_id: str, kind: UsageKind) -> UserLimit:
         row = self._db.execute(

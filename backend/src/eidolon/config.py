@@ -40,23 +40,27 @@ SttProvider = Literal["soniox", "bailian"]
 
 STT_PROVIDERS: tuple[SttProvider, ...] = get_args(SttProvider)
 
-Service = Literal["llm", "tts", "stt"]
+Service = Literal["llm", "tts", "stt", "image"]
 """A service users may bring their own key for (GLOSSARY.md「自带密钥」)."""
 SERVICES: tuple[Service, ...] = get_args(Service)
+EXEMPTING_SERVICES: tuple[Service, ...] = ("llm", "tts", "stt")
+"""The services that may be exempting keys (GLOSSARY.md「免限额密钥」): never image
+generation, whose photos count by whose they are on alone."""
 
 ProxiedService = Literal[
-    "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt",
-    "own_llm", "own_tts", "own_stt",
+    "chat_llm", "memory_llm", "judge", "embedding", "rerank", "tts", "stt", "image",
+    "own_llm", "own_tts", "own_stt", "own_image",
 ]
 """What may reach its provider through the proxy (GLOSSARY.md「网络代理」): the deployer's
 services, the chat model, in text turns and calls alike; the memory model; the judge
 model, whichever; the embedding service and the reranker; Fish Audio; the speech
-recognition chosen. Then users' own keys, apart from the deployer's, their providers being
-their own: their LLMs, background models too, though only to a known provider's host
-(GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech recognition they chose."""
+recognition chosen; image generation, wherever it is. Then users' own keys, apart from the
+deployer's, their providers being their own: their LLMs, background models too, though only
+to a known provider's host (GLOSSARY.md「已知服务商」, ADR-0022); Fish Audio; the speech
+recognition they chose; image generation, though only to NovelAI's own address."""
 PROXIED_SERVICES: tuple[ProxiedService, ...] = get_args(ProxiedService)
 OWN_KEYS_PROXIED: dict[Service, ProxiedService] = {
-    "llm": "own_llm", "tts": "own_tts", "stt": "own_stt",
+    "llm": "own_llm", "tts": "own_tts", "stt": "own_stt", "image": "own_image",
 }
 """What users' own key for each service goes through the proxy as."""
 
@@ -162,6 +166,17 @@ CLOUDFLARE_JUDGE_MODELS: tuple[CloudflareJudgeModel, ...] = get_args(CloudflareJ
 DEFAULT_CLOUDFLARE_JUDGE_MODEL: CloudflareJudgeModel = "clef-flash"
 """For now: the judge eval (ticket cloudflare-judge 03) decides."""
 
+DEFAULT_NOVELAI_BASE_URL = "https://image.novelai.net"
+DEFAULT_NOVELAI_MODEL = "nai-diffusion-5-curated"
+
+ImageFormat = Literal["novelai", "openai"]
+"""How an image service is spoken to (`image_generation`): in NovelAI's own format, as
+NovelAI and the relays passing requests on as they are take it, or in OpenAI's image
+format, as other relays do. Chosen by whoever configures it, never found out."""
+IMAGE_FORMATS: tuple[ImageFormat, ...] = get_args(ImageFormat)
+MAX_IMAGE_CONCURRENCY = 10
+"""The most photos the deployer's image key may be set to generate at a time."""
+
 DEFAULT_ICE_SERVERS: list[IceServer] = [{"urls": ["stun:stun.l.google.com:19302"]}]
 
 DEFAULT_TURNS_PER_HOUR = 60
@@ -170,6 +185,7 @@ DEFAULT_CALLS_PER_HOUR = 5
 DEFAULT_CALL_MINUTES = 10
 DEFAULT_TURNS_PER_CALL = 40
 """About what ten minutes of talking takes; a cap on typing turns in quickly during a call."""
+DEFAULT_PHOTOS_PER_HOUR = 5
 DEFAULT_HISTORY_TURNS = 20
 """How many of a conversation's latest turns the chat model reads; memories carry the rest."""
 
@@ -342,6 +358,8 @@ class Settings:
     fish_audio_model: FishAudioModel = DEFAULT_FISH_AUDIO_MODEL
     embedding: "EmbeddingSettings | None" = None
     rerank: "RerankSettings | None" = None
+    image: "ImageSettings | None" = None
+    """The deployer's image generation (GLOSSARY.md「生图」), for photos; None without it."""
     judge: "JudgeSettings | None" = None
     """The judge model (`JUDGE_PROVIDER`). Retrieval needs the embedding service, the
     reranker and the judge model; without any of them, turns go unretrieved. Without the
@@ -350,7 +368,7 @@ class Settings:
     usage_limits: "UsageLimits" = field(default_factory=lambda: UsageLimits())
     history_turns: int | None = DEFAULT_HISTORY_TURNS
     """How many of the conversation's latest turns each prompt carries; None is all of them."""
-    exempting_keys: frozenset[Service] = frozenset(SERVICES)
+    exempting_keys: frozenset[Service] = frozenset(EXEMPTING_SERVICES)
     """The services a call must bring the user's own keys for, all of them, to count
     towards no limit (GLOSSARY.md「免限额密钥」), at least one; all three unless `.env`
     turns some off, and the admin console may override it. Text turns go by the LLM alone."""
@@ -441,6 +459,7 @@ class Settings:
             fish_audio_model=fish_audio_model_from_env(),
             embedding=EmbeddingSettings.from_env(),
             rerank=RerankSettings.from_env(),
+            image=ImageSettings.from_env(),
             judge=judge_from_env(),
             emotion=EmotionSettings.from_env(),
             usage_limits=UsageLimits.from_env(),
@@ -562,7 +581,7 @@ def history_turns_from_env() -> int | None:
 def exempting_keys_from_env() -> frozenset[Service]:
     """`EIDOLON_EXEMPTING_LLM`, `_TTS` and `_STT`, each on unless 0; never all off."""
     keys: frozenset[Service] = frozenset(
-        s for s in SERVICES if _switch(f"EIDOLON_EXEMPTING_{s.upper()}", default=True)
+        s for s in EXEMPTING_SERVICES if _switch(f"EIDOLON_EXEMPTING_{s.upper()}", default=True)
     )
     if not keys:
         raise RuntimeError(
@@ -744,6 +763,55 @@ class JevSettings:
 
 
 @dataclass(frozen=True)
+class ImageSettings:
+    """An image service (GLOSSARY.md「生图」): in NovelAI's own format, `base_url` up to the
+    host (`/ai/generate-image`, answering with a ZIP), at NovelAI or a relay passing
+    requests on as they are; or in OpenAI's image format, `base_url` up to `/v1`
+    (`/images/generations`). The deployer's generates `concurrency` photos at a time, in the
+    deployment's art style, `style`: tags written into every photo's prompt as they are,
+    weights, artists and all; none if empty."""
+
+    api_key: str
+    base_url: str = DEFAULT_NOVELAI_BASE_URL
+    model: str = DEFAULT_NOVELAI_MODEL
+    api_format: ImageFormat = "novelai"
+    concurrency: int = 1
+    style: str = ""
+
+    @classmethod
+    def from_env(cls) -> "ImageSettings | None":
+        """`NOVELAI_API_KEY`, without which there is none, `NOVELAI_API_FORMAT`,
+        `NOVELAI_BASE_URL`, `NOVELAI_MODEL`, `NOVELAI_CONCURRENCY` and `NOVELAI_STYLE`."""
+        api_key = (os.environ.get("NOVELAI_API_KEY") or "").strip()
+        if not api_key:
+            return None
+        api_format = (os.environ.get("NOVELAI_API_FORMAT") or "").strip() or "novelai"
+        if api_format not in IMAGE_FORMATS:
+            raise RuntimeError(
+                f"环境变量 NOVELAI_API_FORMAT 只能是 {'、'.join(IMAGE_FORMATS)}，而不是 {api_format}"
+            )
+        concurrency = (os.environ.get("NOVELAI_CONCURRENCY") or "").strip() or "1"
+        if not (
+            concurrency.isascii()
+            and concurrency.isdigit()
+            and 1 <= int(concurrency) <= MAX_IMAGE_CONCURRENCY
+        ):
+            raise RuntimeError(
+                f"环境变量 NOVELAI_CONCURRENCY 需要是 1 到 {MAX_IMAGE_CONCURRENCY} 之间的整数，"
+                f"而不是 {concurrency}"
+            )
+        return cls(
+            api_key=api_key,
+            base_url=(os.environ.get("NOVELAI_BASE_URL") or "").strip().rstrip("/")
+            or DEFAULT_NOVELAI_BASE_URL,
+            model=(os.environ.get("NOVELAI_MODEL") or "").strip() or DEFAULT_NOVELAI_MODEL,
+            api_format=api_format,  # pyright: ignore[reportArgumentType]  # checked above
+            concurrency=int(concurrency),
+            style=(os.environ.get("NOVELAI_STYLE") or "").strip(),
+        )
+
+
+@dataclass(frozen=True)
 class EmotionSettings:
     """How the judge model's judging of each segment's emotion during calls is taken (see
     `emotion`): the likeliest answer's probability below which she is calm and does not
@@ -876,14 +944,15 @@ time limit (`EIDOLON_CALL_MINUTES=0`)."""
 
 @dataclass(frozen=True)
 class UsageLimits:
-    """How many text turns and voice calls each user may start in any hour, counted
-    across all their devices and sign-in methods, and how long and how many turns one
-    call may last; None is no limit."""
+    """How many text turns and voice calls each user may start in any hour, and how many
+    photos she may send them (GLOSSARY.md「照片」), counted across all their devices and
+    sign-in methods, and how long and how many turns one call may last; None is no limit."""
 
     turns_per_hour: int | None = DEFAULT_TURNS_PER_HOUR
     calls_per_hour: int | None = DEFAULT_CALLS_PER_HOUR
     call_minutes: int | None = DEFAULT_CALL_MINUTES
     turns_per_call: int | None = DEFAULT_TURNS_PER_CALL
+    photos_per_hour: int | None = DEFAULT_PHOTOS_PER_HOUR
 
     @classmethod
     def from_env(cls) -> "UsageLimits":
@@ -892,6 +961,7 @@ class UsageLimits:
             calls_per_hour=_limit("EIDOLON_CALLS_PER_HOUR", DEFAULT_CALLS_PER_HOUR),
             call_minutes=_limit("EIDOLON_CALL_MINUTES", DEFAULT_CALL_MINUTES),
             turns_per_call=_limit("EIDOLON_TURNS_PER_CALL", DEFAULT_TURNS_PER_CALL),
+            photos_per_hour=_limit("EIDOLON_PHOTOS_PER_HOUR", DEFAULT_PHOTOS_PER_HOUR),
         )
 
 

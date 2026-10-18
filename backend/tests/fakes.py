@@ -1,19 +1,24 @@
 """Test doubles for external services."""
 
 import asyncio
+import base64
 import html
 import hashlib
+import io
 import json
 import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 import re
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast, get_args
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
+import zipfile
 from http import HTTPStatus
 from urllib.parse import quote, unquote, urlencode
 
 import httpx
+from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
@@ -64,6 +69,7 @@ from eidolon.own_keys import OwnKeyRejected
 from eidolon.affinity_judge import LEVEL as AFFINITY_LEVEL
 from eidolon.affinity_judge import MANIPULATION, OUT_OF_LINE
 from eidolon.judge import SAID, JudgeError
+from eidolon.photo_judge import PHOTO
 
 if TYPE_CHECKING:
     from eidolon.judge import JudgeModel
@@ -399,9 +405,11 @@ class FakeJudgeModel:
     questions with the probabilities in `retrieval`, her emotion with those in `emotion`
     and the nod with neither. Answers each turn's affinity questions as the next of
     `judgings` says, as having no effect once they run out, recording what the user said
-    (`affinity_asked`). Records the key each request came with and what it asked (`asked`:
-    "turn", with or without affinity's questions, "affinity" for those alone, "emotion" or
-    "check"), and everything it was told of each (`states`)."""
+    (`affinity_asked`); and whether the user asks for a photo with the probability `photo`,
+    recording what they said (`photo_asked`). Records the key each request came with and what
+    it asked (`asked`: "turn", with or without affinity's questions and the photo's,
+    "affinity" for those alone, with or without the photo's, "photo" for that alone,
+    "emotion" or "check"), and everything it was told of each (`states`)."""
 
     def __init__(self) -> None:
         self.needs: FakeJudge | None = None
@@ -411,6 +419,8 @@ class FakeJudgeModel:
         self.judgings: list[Judging] = []
         self.asked: list[tuple[str, str]] = []
         self.affinity_asked: list[str] = []
+        self.photo = 0.0
+        self.photo_asked: list[str] = []
         self.states: list[dict[str, Any]] = []
 
     async def answer(
@@ -419,20 +429,24 @@ class FakeJudgeModel:
         kind = (
             "turn" if "recall" in questions
             else "affinity" if AFFINITY_LEVEL in questions
+            else "photo" if PHOTO in questions
             else "emotion" if "emotion" in questions
             else "check"
         )
         self.asked.append((key, kind))
         self.states.append(state)
-        affinity = {}
+        scripted: dict[str, Any] = {}
         if AFFINITY_LEVEL in questions:
             self.affinity_asked.append(state[SAID])
             judging = self.judgings.pop(0) if self.judgings else Judging()
             if judging.fails:
                 raise JudgeError("fake judge model is down")
-            affinity = judging.answers()
+            scripted = judging.answers()
+        if PHOTO in questions:
+            self.photo_asked.append(state[SAID])
+            scripted |= {PHOTO: {"noul": self.photo}}
         if kind == "turn" and self.needs is not None:
-            return await self.needs.need(state) | affinity
+            return await self.needs.need(state) | scripted
         if kind == "emotion" and self.feels is not None:
             return await self.feels.feel(state)
         return {
@@ -440,8 +454,8 @@ class FakeJudgeModel:
             if q.get("type") == "noul"
             else {"probabilities": self.emotion if name == "emotion" else {"都不是": 1.0}}
             for name, q in questions.items()
-            if name not in affinity
-        } | affinity
+            if name not in scripted
+        } | scripted
 
 
 class _ConfiguredJudge:
@@ -533,6 +547,111 @@ class FakeBackgroundLLM:
 
     async def aclose(self) -> None:
         pass
+
+
+OpenAIAnswer = Literal["b64_json", "data_url", "url", "not_base64", "chat"]
+"""How the fake image service answers in OpenAI's image format: the picture as bare
+base64, as a `data:` URL, as a URL to download it from, as `b64_json` that is not base64,
+or in the shape of a chat completion, as a relay of the other kind would."""
+
+
+class FakeImageService:
+    """Stands in for image generation in NovelAI's own format (`POST /ai/generate-image`)
+    and in OpenAI's (`POST /images/generations`): records each request, with the key it
+    came on (`requests`: `key`, `url`, `body`), and answers with one PNG of the size asked
+    for, carrying the prompt in its metadata as NovelAI's pictures do (`METADATA` in it):
+    in NovelAI's format in a ZIP, in OpenAI's as `openai_answer` has it, a URL to it
+    downloaded from `DOWNLOAD` (each download in `downloads`, failing with
+    `download_status` if set). With a `gate`, it answers
+    only once the gate is open, as a service taking its time. It can answer amiss instead:
+    with an HTTP error (`status`, saying `error`), a picture of another `size`, or what is
+    not a ZIP (`garbled`)."""
+
+    METADATA = "fake NovelAI metadata"
+    DOWNLOAD = "https://files.image.test/picture.png"
+
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+        self.downloads: list[str] = []
+        self.gate: asyncio.Event | None = None
+        self.status: int | None = None
+        self.error = "fake image service error"
+        self.download_status: int | None = None
+        self.size: tuple[int, int] | None = None
+        self.garbled = False
+        self.openai_answer: OpenAIAnswer = "b64_json"
+        self._pictures: dict[str, bytes] = {}
+
+    def transport(self) -> httpx.AsyncBaseTransport:
+        return httpx.MockTransport(self.handle)
+
+    async def handle(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and str(request.url) == self.DOWNLOAD:
+            self.downloads.append(str(request.url))
+            if self.download_status is not None:
+                return httpx.Response(self.download_status)
+            return httpx.Response(200, content=self._pictures.pop(self.DOWNLOAD))
+        openai = request.url.path.endswith("/images/generations")
+        assert request.method == "POST" and (
+            openai or request.url.path.endswith("/ai/generate-image")
+        )
+        body = json.loads(request.content)
+        self.requests.append({
+            "key": request.headers["authorization"].removeprefix("Bearer "),
+            "url": str(request.url),
+            "body": body,
+        })
+        if self.gate is not None:
+            await self.gate.wait()
+        if self.status is not None:
+            return httpx.Response(self.status, json={"error": self.error})
+        if self.garbled:
+            return httpx.Response(200, content=b"<html>not a ZIP</html>")
+        if openai:
+            asked_width, asked_height = (int(n) for n in body["size"].split("x"))
+            width, height = self.size or (asked_width, asked_height)
+            picture = png(width, height, f"{self.METADATA}: {body['prompt']}")
+            return self._openai(picture)
+        parameters = body["parameters"]
+        width, height = self.size or (parameters["width"], parameters["height"])
+        picture = png(width, height, f"{self.METADATA}: {body['input']}")
+        return httpx.Response(200, content=zipped({"image_0.png": picture}))
+
+    def _openai(self, picture: bytes) -> httpx.Response:
+        encoded = base64.b64encode(picture).decode()
+        match self.openai_answer:
+            case "b64_json":
+                data = {"b64_json": encoded}
+            case "data_url":
+                data = {"b64_json": f"data:image/png;base64,{encoded}"}
+            case "not_base64":
+                data = {"b64_json": "not base64!"}
+            case "url":
+                self._pictures[self.DOWNLOAD] = picture
+                data = {"url": self.DOWNLOAD}
+            case "chat":
+                content = f"![image](data:image/png;base64,{encoded})"
+                return httpx.Response(200, json={
+                    "choices": [{"message": {"role": "assistant", "content": content}}],
+                })
+        return httpx.Response(200, json={"created": 0, "data": [data]})
+
+
+def png(width: int, height: int, comment: str = "") -> bytes:
+    """A PNG of that size, carrying `comment` in its metadata."""
+    info = PngInfo()
+    info.add_text("Comment", comment)
+    out = io.BytesIO()
+    Image.new("RGB", (width, height), (250, 200, 210)).save(out, "PNG", pnginfo=info)
+    return out.getvalue()
+
+
+def zipped(files: dict[str, bytes]) -> bytes:
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return out.getvalue()
 
 
 DEPLOYER_SONIOX_KEY = "deployer-soniox-key"

@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   changeOf,
   CONFIG_TABS,
+  CUSTOM_MODEL,
   formOf,
   exemptingKeysOf,
   ITEM_SPECS,
   lockedOn,
+  modelChoice,
   PROXIED_SERVICES,
   UNLIMITED,
   readOnlyValue,
@@ -222,12 +224,13 @@ describe("formOf and changeOf", () => {
 
   it("takes thresholds from 0 to 1 and seconds above 0", () => {
     const thresholds = ITEM_SPECS.judge_thresholds;
-    const affinity = { out_of_line: "0.7", manipulation: "1" };
+    const affinity = { out_of_line: "0.7", manipulation: "1", photo: "0.8" };
     expect(changeOf(thresholds, { recall: "0.7", emotion: "0", ...affinity }, true)).toEqual({
-      change: { recall: 0.7, emotion: 0, out_of_line: 0.7, manipulation: 1 },
+      change: { recall: 0.7, emotion: 0, out_of_line: 0.7, manipulation: 1, photo: 0.8 },
     });
     for (const bad of ["1.1", "-0.1", "", "high"]) {
-      expect(changeOf(thresholds, { recall: "0.5", emotion: "0.5", out_of_line: bad, manipulation: "0.5" }, true), bad).toEqual({
+      const others = { recall: "0.5", emotion: "0.5", manipulation: "0.5", photo: "0.5" };
+      expect(changeOf(thresholds, { ...others, out_of_line: bad }, true), bad).toEqual({
         problems: [{ field: "out_of_line", reason: "probability" }],
       });
     }
@@ -246,6 +249,7 @@ describe("limits", () => {
   const form = {
     turns_per_hour: "2",
     calls_per_hour: UNLIMITED,
+    photos_per_hour: "5",
     call_minutes: "10",
     turns_per_call: "40",
     history_turns: "20",
@@ -264,6 +268,7 @@ describe("limits", () => {
       change: {
         turns_per_hour: 2,
         calls_per_hour: 0,
+        photos_per_hour: 5,
         call_minutes: 10,
         turns_per_call: 40,
         history_turns: 20,
@@ -272,6 +277,14 @@ describe("limits", () => {
         exempting_stt: true,
       },
     });
+  });
+
+  it("never has image generation among the exempting keys, though users may bring their own", () => {
+    expect(exemptingKeysOf({ exempting_llm: true, exempting_tts: true, exempting_stt: true, exempting_image: true })).toEqual([
+      "llm",
+      "tts",
+      "stt",
+    ]);
   });
 
   it("reads which services are the exempting keys from the effective limits", () => {
@@ -324,7 +337,7 @@ describe("tried", () => {
     const tried = Object.entries(ITEM_SPECS)
       .filter(([, spec]) => spec.tried)
       .map(([name]) => name);
-    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge", "proxy"]);
+    expect(tried).toEqual(["chat_llm", "memory_llm", "tts", "stt", "judge", "image", "proxy"]);
   });
 });
 
@@ -359,6 +372,60 @@ describe("proxy", () => {
     const shown = rows({ status: "env", env: effective, effective, override: null, failure: null }, proxy);
     expect(shown.map((row) => row.field)).toEqual(["enabled", "url", "password", ...PROXIED_SERVICES]);
     expect(shown.find((row) => row.field === "password")?.effective).toBe("cret");
+  });
+});
+
+describe("image", () => {
+  const image = ITEM_SPECS.image;
+  const effective: Shown = {
+    api_format: "novelai",
+    base_url: "https://image.novelai.net",
+    api_key_last4: "1234",
+    model: "nai-diffusion-5-curated",
+    concurrency: 1,
+    style: "",
+  };
+  const form = formOf(image, effective);
+
+  it("starts from the values in effect, the key left empty", () => {
+    expect(form).toEqual({
+      api_format: "novelai",
+      base_url: "https://image.novelai.net",
+      model: "nai-diffusion-5-curated",
+      concurrency: "1",
+      style: "",
+      api_key: "",
+    });
+  });
+
+  it("sends the format, the address, the model typed, how many at a time and the art style, an empty one as none", () => {
+    const typed = { ...form, api_format: "openai", base_url: " https://relay.example/v1 ", model: " relay-model ", concurrency: "3" };
+    expect(changeOf(image, { ...typed, style: " 0.7::artist:example:: ", api_key: "pst-new" }, true)).toEqual({
+      change: {
+        api_format: "openai",
+        base_url: "https://relay.example/v1",
+        model: "relay-model",
+        concurrency: 3,
+        style: "0.7::artist:example::",
+        api_key: "pst-new",
+      },
+    });
+    expect(changeOf(image, typed, true)).toMatchObject({ change: { style: null } });
+  });
+
+  it("takes from 1 to 10 at a time, and a model only if one is typed", () => {
+    for (const bad of ["0", "11"]) {
+      expect(changeOf(image, { ...form, concurrency: bad }, true), bad).toEqual({
+        problems: [{ field: "concurrency", reason: "count" }],
+      });
+    }
+    expect(changeOf(image, { ...form, model: " " }, true)).toEqual({ problems: [{ field: "model", reason: "required" }] });
+  });
+
+  it("chooses a listed model from the list, any other as typed in by hand", () => {
+    const listed = image.form.find((field) => field.name === "model")?.options ?? [];
+    expect(modelChoice(listed, "nai-diffusion-4-5-full")).toBe("nai-diffusion-4-5-full");
+    expect(modelChoice(listed, "relay-model")).toBe(CUSTOM_MODEL);
   });
 });
 

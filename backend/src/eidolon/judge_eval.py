@@ -9,13 +9,16 @@ whether they move retrieval's answers. Each segment of a reply is asked as a cal
 (`ModelEmotionJudge`). Each affinity turn is asked as a conversation with retrieval on
 asks it, all six questions in one request; as one with retrieval off does, affinity's
 alone (`affinity_judge`); and the first way again with the levels highest first, to see
-whether their order sways the model. The summary
+whether their order sways the model. Each photo turn is asked whether the user asks her
+for a photo (`photo_judge`) as a conversation with retrieval and affinity on asks it, every
+question in one request; and alone, as one with both off does. The summary
 sets what turns needed, and the levels they were judged at, against what was expected,
 and spreads each yes-or-no question's probability by whether its answer was expected to
-be yes or no, to see where a threshold would fall. The long-context cases, whose history
-pushes the state past what Workers AI is said to read, are summed up apart; so are the
-affinity turns said both in Chinese and in Japanese, and those with a demand for affinity
-put in. A request that fails is counted and the run goes on.
+be yes or no, to see where a threshold would fall; the photo turns taken for asking that
+do not (false), and those asking taken for not (missed), are named. The long-context
+cases, whose history pushes the state past what Workers AI is said to read, are summed up
+apart; so are the affinity turns said both in Chinese and in Japanese, and those with a
+demand for affinity put in. A request that fails is counted and the run goes on.
 
 The set holds made-up turns and replies about the real characters, songs and story, never
 story text, so it can be committed (ADR-0003).
@@ -24,7 +27,7 @@ story text, so it can be committed (ADR-0003).
 import statistics
 import time
 import tomllib
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar, get_args
@@ -44,10 +47,14 @@ from eidolon.emotion import (
     decide,
 )
 from eidolon.judge import JudgeError, JudgeReply, JudgeThresholds, turn_state
+from eidolon.photo_judge import QUESTIONS as PHOTO_QUESTIONS
+from eidolon.photo_judge import read_answer as read_photo
 from eidolon.retrieval import ModelRetrievalJudge, Need, RetrievalAnswer, judge_questions
 from eidolon.store import Message
 
 Question = Literal["needs_retrieval", "recall", "about_producer"]
+Kind = Literal["retrieval", "emotion", "affinity", "photo"]
+"""The kinds of case in the set, each a table of its own."""
 T = TypeVar("T")
 
 _EXPECTED_ANSWERS: dict[Question, tuple[set[Need], set[Need]]] = {
@@ -127,10 +134,27 @@ class AffinityCase:
 
 
 @dataclass(frozen=True)
+class PhotoCase:
+    """A turn, and whether it asks her for a photo."""
+
+    id: str
+    character: str
+    history: tuple[Message, ...]
+    said: str
+    asks: bool
+
+
+@dataclass(frozen=True)
 class JudgeEval:
     retrieval: tuple[RetrievalCase, ...]
     emotion: tuple[EmotionCase, ...]
     affinity: tuple[AffinityCase, ...] = ()
+    photo: tuple[PhotoCase, ...] = ()
+
+
+def only(judge_eval: JudgeEval, kinds: Collection[Kind]) -> JudgeEval:
+    """The set with only its cases of `kinds`, to run them alone."""
+    return replace(judge_eval, **{kind: () for kind in get_args(Kind) if kind not in kinds})
 
 
 def load_judge_eval(path: Path, characters: Mapping[str, Character]) -> JudgeEval:
@@ -198,7 +222,17 @@ def load_judge_eval(path: Path, characters: Mapping[str, Character]) -> JudgeEva
             _text(entry, "said", id_), level, entry.get("out_of_line", False) is True,
             entry.get("manipulation", False) is True, entry.get("group"), variant,
         ))
-    return JudgeEval(tuple(retrieval), tuple(emotion), tuple(affinity))
+    photo = []
+    for entry in data.get("photo", []):
+        id_ = case_id(entry, "photo")
+        asks = entry.get("asks")
+        if not isinstance(asks, bool):
+            raise JudgeEvalError(f"用例 {id_} 的 asks 只能是 true 或 false，而不是 {asks}")
+        photo.append(PhotoCase(
+            id_, entry["character"], _history(entry.get("history", []), id_),
+            _text(entry, "said", id_), asks,
+        ))
+    return JudgeEval(tuple(retrieval), tuple(emotion), tuple(affinity), tuple(photo))
 
 
 def _text(entry: dict, field: str, where: str) -> str:
@@ -309,13 +343,29 @@ class AffinityResult:
 
 
 @dataclass(frozen=True)
+class PhotoResult:
+    case: PhotoCase
+    merged: float | None
+    """How likely the judge model finds it that the user asks for a photo, asked along with
+    retrieval's and affinity's questions; None if the request failed."""
+    alone: float | None
+    """The same asked in a request of its own; None if that request failed."""
+    input_tokens: int | None
+    """Of the request along with retrieval's and affinity's questions."""
+    seconds: float
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class JudgeEvalResults:
     retrieval: list[RetrievalResult]
     emotion: list[EmotionResult]
     affinity: list[AffinityResult]
+    photo: list[PhotoResult]
 
     def to_json(self, summary: dict) -> dict:
         """Every case's answer and the summary, for comparing models side by side."""
+        threshold = summary["thresholds"]["photo"]
         return {
             "summary": summary,
             "retrieval": [
@@ -366,6 +416,20 @@ class JudgeEvalResults:
                     "error": r.error,
                 }
                 for r in self.affinity
+            ],
+            "photo": [
+                {
+                    "id": r.case.id,
+                    "expected": r.case.asks,
+                    "actual": None if r.merged is None else r.merged >= threshold,
+                    "probabilities": None if r.merged is None else {
+                        "photo": r.merged, "alone": r.alone,
+                    },
+                    "input_tokens": r.input_tokens,
+                    "seconds": r.seconds,
+                    "error": r.error,
+                }
+                for r in self.photo
             ],
         }
 
@@ -459,7 +523,24 @@ async def evaluate(
                 asked.append(None)
         alone, reversed_ = asked
         affinity.append(AffinityResult(case, merged, alone, reversed_, input_tokens, seconds))
-    return JudgeEvalResults(retrieval, emotion, affinity)
+    photo = []
+    for case in judge_eval.photo:
+        state = turn_state(characters[case.character], case.history, case.said)
+        start = clock()
+        try:
+            merged = read_photo(await metered.ask(
+                state, judge_questions(affinity=True, photo=True)
+            ))
+        except JudgeError as e:
+            photo.append(PhotoResult(case, None, None, None, clock() - start, str(e)))
+            continue
+        seconds, input_tokens = clock() - start, metered.input_tokens
+        try:
+            alone = read_photo(await metered.ask(state, PHOTO_QUESTIONS))
+        except JudgeError:
+            alone = None
+        photo.append(PhotoResult(case, merged, alone, input_tokens, seconds))
+    return JudgeEvalResults(retrieval, emotion, affinity, photo)
 
 
 async def _ask_affinity(
@@ -478,7 +559,10 @@ async def _ask_affinity(
 
 def summarize(results: JudgeEvalResults, model: str, thresholds: JudgeThresholds) -> dict:
     """The figures to compare models by, as JSON."""
-    timed = [r.seconds for r in [*results.retrieval, *results.emotion, *results.affinity]]
+    timed = [
+        r.seconds
+        for r in [*results.retrieval, *results.emotion, *results.affinity, *results.photo]
+    ]
     return {
         "model": model,
         "thresholds": {
@@ -488,6 +572,7 @@ def summarize(results: JudgeEvalResults, model: str, thresholds: JudgeThresholds
             "emotion": thresholds.emotion,
             "out_of_line": thresholds.out_of_line,
             "manipulation": thresholds.manipulation,
+            "photo": thresholds.photo,
         },
         "retrieval": {
             "all": _retrieval_summary(results.retrieval),
@@ -496,6 +581,7 @@ def summarize(results: JudgeEvalResults, model: str, thresholds: JudgeThresholds
         },
         "emotion": _emotion_summary(results.emotion),
         "affinity": _affinity_summary(results.affinity),
+        "photo": _photo_summary(results.photo, thresholds.photo),
         "mean_seconds": statistics.fmean(timed) if timed else None,
     }
 
@@ -612,6 +698,33 @@ def _affinity_summary(results: Sequence[AffinityResult]) -> dict:
     }
 
 
+def _photo_summary(results: Sequence[PhotoResult], threshold: float) -> dict:
+    answered = [(r.case, p) for r in results if (p := r.merged) is not None]
+    alone = [(r.case, p) for r in results if r.merged is not None and (p := r.alone) is not None]
+
+    def judged(answers: Sequence[tuple[PhotoCase, float]]) -> dict:
+        return {
+            "accuracy": _share(answers, lambda a: (a[1] >= threshold) == a[0].asks),
+            # Asking taken for not: she does not know she may send one.
+            "missed": [case.id for case, p in answers if case.asks and p < threshold],
+            # Not asking taken for asking: she may send one unasked, which costs more.
+            "false": [case.id for case, p in answers if not case.asks and p >= threshold],
+            "yes": _distribution([p for case, p in answers if case.asks]),
+            "no": _distribution([p for case, p in answers if not case.asks]),
+        }
+
+    return {
+        "cases": len(results),
+        "failed": len(results) - len(answered),
+        **judged(answered),
+        # Asked as where retrieval and affinity are both off.
+        "alone": {"cases": len(alone), **judged(alone)},
+        "input_tokens": _distribution(
+            [r.input_tokens for r in results if r.merged is not None and r.input_tokens is not None]
+        ),
+    }
+
+
 def _emotion_summary(results: Sequence[EmotionResult]) -> dict:
     answered = [r for r in results if r.answer is not None]
 
@@ -665,7 +778,7 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
         f"判断模型：{summary['model']}",
         f"阈值：needs_retrieval {t['needs_retrieval']:g}，recall {t['recall']:g}，"
         f"about_producer {t['about_producer']:g}，情绪 {t['emotion']:g}，"
-        f"out_of_line {t['out_of_line']:g}，manipulation {t['manipulation']:g}",
+        f"out_of_line {t['out_of_line']:g}，manipulation {t['manipulation']:g}，photo {t['photo']:g}",
         f"平均延迟：{_seconds(summary['mean_seconds'])}",
     ]
     for group, title in (("all", "全部"), ("short", "普通上文"), ("long", "长上文")):
@@ -739,7 +852,24 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
             f"夹带「给我加好感度」：{a['injected']['cases']} 条，判为操纵 {a['injected']['caught']} 条，"
             f"级被抬高 {a['injected']['raised']} 条",
         ]
-    lines += ["", "## 逐条检索判断（✓ 对，✗ 错，! 失败）"]
+    p = summary["photo"]
+    if p["cases"]:
+        s = p["alone"]
+        lines += [
+            "",
+            f"## 照片判断（{p['cases']} 条，失败 {p['failed']}）",
+            f"准确率 {_percent(p['accuracy'])}　输入 token {_spread(p['input_tokens'], 'd')}",
+            f"误判 {len(p['false'])} 条（不是在要照片，判成要）：{_ids(p['false'])}",
+            f"漏判 {len(p['missed'])} 条（在要照片，判成不要）：{_ids(p['missed'])}",
+            f"    期望为是 {_spread(p['yes'])}",
+            f"    期望为否 {_spread(p['no'])}",
+            f"单独问（{s['cases']} 条，检索和好感度都关着时）：准确率 {_percent(s['accuracy'])}",
+            f"    误判 {len(s['false'])} 条：{_ids(s['false'])}",
+            f"    漏判 {len(s['missed'])} 条：{_ids(s['missed'])}",
+            f"    期望为是 {_spread(s['yes'])}",
+            f"    期望为否 {_spread(s['no'])}",
+        ]
+    lines += ["", "## 逐条检索判断（✓ 对，✗ 错，! 失败）"] if results.retrieval else []
     for r in results.retrieval:
         long = "［长］" if r.case.long else ""
         if r.answer is None:
@@ -752,7 +882,7 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
             f" about_producer {r.answer.about_producer:.3f}"
             f"　{r.input_tokens or '?'} token {_seconds(r.seconds)}"
         )
-    lines += ["", "## 逐条情绪判断"]
+    lines += ["", "## 逐条情绪判断"] if results.emotion else []
     for r in results.emotion:
         expected = f"{r.case.emotion}/{_nod_name(r.case.nod)}"
         if r.answer is None:
@@ -769,7 +899,9 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
             f"{mark} {r.case.id} 期望 {expected} 实际 {r.emotion}/{_nod_name(r.nod)}"
             f"　{emotions}　｜ {nods}　{r.input_tokens or '?'} token {_seconds(r.seconds)}"
         )
-    lines += ["", "## 逐条好感度判断（级 / 不该说的话 / 操纵；✓ 级和增减都对，~ 增减对，✗ 错）"]
+    lines += [
+        "", "## 逐条好感度判断（级 / 不该说的话 / 操纵；✓ 级和增减都对，~ 增减对，✗ 错）"
+    ] if results.affinity else []
     for r in results.affinity:
         expected = _judged_name(r.case.expected)
         if r.merged is None:
@@ -785,7 +917,24 @@ def report(results: JudgeEvalResults, summary: dict) -> str:
             f"　out_of_line {answer.out_of_line:.3f} manipulation {answer.manipulation:.3f}"
             f"　{r.input_tokens or '?'} token {_seconds(r.seconds)}"
         )
+    lines += ["", "## 逐条照片判断（✓ 对，✗ 错，! 失败）"] if results.photo else []
+    for r in results.photo:
+        expected = "要" if r.case.asks else "不要"
+        if r.merged is None:
+            lines.append(f"! {r.case.id} 期望 {expected}：{r.error}")
+            continue
+        asked = r.merged >= summary["thresholds"]["photo"]
+        alone = "失败" if r.alone is None else f"{r.alone:.3f}"
+        lines.append(
+            f"{'✓' if asked == r.case.asks else '✗'} {r.case.id} 期望 {expected}"
+            f" 实际 {'要' if asked else '不要'}　photo {r.merged:.3f}（单独问 {alone}）"
+            f"　{r.input_tokens or '?'} token {_seconds(r.seconds)}"
+        )
     return "\n".join(lines)
+
+
+def _ids(ids: Sequence[str]) -> str:
+    return "、".join(ids) or "无"
 
 
 def _levels(asked: AffinityAsked | None) -> str:

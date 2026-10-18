@@ -11,7 +11,7 @@ function user(key: string, at = "2026-09-28T01:00:00Z"): Entry {
 }
 
 function her(key: string, affinity: AffinityChange | null = null, at = "2026-09-28T01:00:01Z"): Entry {
-  return { kind: "character", key, segments: [{ ja: "はい", zh: "好的" }], pending: false, at, affinity };
+  return { kind: "character", key, segments: [{ ja: "はい", zh: "好的" }], pending: false, at, affinity, photo: null };
 }
 
 function hungUp(key: string, at: string): Entry {
@@ -59,6 +59,24 @@ describe("linesOf", () => {
       "cue",
       "m2",
     ]);
+  });
+
+  it("照片用完的胶囊挂在她推掉的那条回复后面（在变化胶囊之后），也把前后分成两组", () => {
+    const usedUp = (key: string, affinity: AffinityChange | null = null): Entry => {
+      const entry = her(key, affinity);
+      return entry.kind === "character" ? { ...entry, photosUsedUp: "2026-09-28T02:00:00Z" } : entry;
+    };
+    const lines = linesOf([user("m1"), usedUp("m2"), her("m3"), usedUp("m4", UP), her("m5")], NOW, true);
+
+    const groups = lines.flatMap((line) =>
+      line.kind === "entry" ? [`${line.entry.key}${line.first ? "<" : ""}${line.last ? ">" : ""}`] : [line.kind],
+    );
+    expect(groups).toEqual(["day", "m1<>", "m2<>", "photos-used-up", "m3<", "m4>", "cue", "photos-used-up", "m5<>"]);
+    expect(lines.find((line) => line.kind === "photos-used-up")).toEqual({
+      kind: "photos-used-up",
+      key: "photos-used-up-m2",
+      retryAt: "2026-09-28T02:00:00Z",
+    });
   });
 
   it("对话事件把前后分成两组，按它的时间参加跨天判断", () => {

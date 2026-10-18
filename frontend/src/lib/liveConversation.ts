@@ -1,17 +1,27 @@
 // The conversation page for one character: opening her conversation (or starting a new
 // one), its log, the text turn under way, the call and how the call layer is shown, her
 // stand as the call moves it on (by the rules in `standDirection.ts`), and her affinity as
-// each turn leaves it, kept outside React so the page only renders a snapshot and passes on
-// clicks.
+// each turn leaves it, and the photos she sent as they come out, kept outside React so the page
+// only renders a snapshot and passes on clicks.
 
 import type { AffinityChange, AffinityStatus } from "@/lib/affinity";
-import { ApiError, type CallEvent, type Conversation, type Recorded, type Segment, type TurnEvent } from "@/lib/api";
+import {
+  ApiError,
+  type CallEvent,
+  type Conversation,
+  type Photo,
+  type PhotoStatus,
+  type Recorded,
+  type Segment,
+  type TurnEvent,
+} from "@/lib/api";
 import type { Call, CallHandlers, MicInUse } from "@/lib/call";
 import { droppedEnd, backendEnd, startFailedEnd, type CallEnd } from "@/lib/callEnd";
 import type { CallPreferences } from "@/lib/callPreferences";
 import {
   conversationLog,
   emptyLog,
+  pendingPhotos,
   replySoFar,
   type ConversationLog,
   type Entry,
@@ -55,6 +65,9 @@ export type CallState =
 /** How long a change of her affinity is shown, on the header's heart and the call screen's
  * status line (spec「页首标识」「变化胶囊和通话里的提示」). */
 export const CUE_MS = 2600;
+
+/** How often a photo she sent that is still being generated is asked after (GLOSSARY.md「照片」). */
+export const PHOTO_POLL_MS = 2000;
 
 /** A change of her affinity just recorded, shown for `CUE_MS`; `key` tells one from the next. */
 export type AffinityCue = { change: AffinityChange; key: number };
@@ -149,13 +162,23 @@ export type Snapshot = {
    * or its record has it: it can only be read, no text turns, no calls. A new conversation can
    * still be started. */
   ended: boolean;
+  /** The photo she sent last in the call under way (GLOSSARY.md「照片」), as the log has it: the
+   * call layer shows it until the next. Null until she sends one in it, and once the call is over:
+   * the end card carries none. */
+  callPhoto: Photo | null;
+  /** A photo she sent in the call under way came out while the call layer was folded away: the
+   * call bar atop the shell says so, until the layer is unfolded or her conversation page opened
+   * (`photoSeen`). */
+  newPhoto: boolean;
 };
 
 type State = Omit<
   Snapshot,
-  "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew" | "cooling" | "ended"
+  "entries" | "line" | "previousLine" | "stand" | "canDial" | "canStartNew" | "cooling" | "ended" | "callPhoto"
 > & {
   log: ConversationLog;
+  /** The photo she sent last in the call under way or the last one, by its id. */
+  callPhotoId: string | null;
   /** The call screen's line card, in the call under way or the last one. */
   card: LineCard;
   /** Which of this page's calls is under way or last shown, from 0 before the first. */
@@ -164,7 +187,7 @@ type State = Omit<
   stand: StandState;
 };
 
-const IDLE: Omit<State, "log" | "card" | "stand" | "dial"> = {
+const IDLE: Omit<State, "log" | "card" | "stand" | "dial" | "callPhotoId"> = {
   conversation: { status: "opening" },
   call: { phase: "idle" },
   layer: null,
@@ -179,11 +202,13 @@ const IDLE: Omit<State, "log" | "card" | "stand" | "dial"> = {
   failure: null,
   affinity: null,
   affinityCue: null,
+  newPhoto: false,
 };
 
 /** What the page shows before a conversation is open. */
 export const NOT_OPEN: Snapshot = {
   ...IDLE,
+  callPhoto: null,
   entries: [],
   line: null,
   previousLine: null,
@@ -239,6 +264,8 @@ export type Ports = {
     handlers: CallHandlers,
   ) => Promise<Call>;
   sendTurn: (conversationId: string, text: string) => AsyncIterable<TurnEvent>;
+  /** How a photo she sent is coming along. */
+  getPhoto: (id: string) => Promise<PhotoStatus>;
   /** Her affinity with the user now; null while affinity is off. */
   getAffinity: (characterId: string) => Promise<AffinityStatus | null>;
   preferences: {
@@ -270,6 +297,9 @@ export class LiveConversation {
   private cueing: ReturnType<typeof setTimeout> | null = null;
   /** Ends the cooldown she is in as it is due to; null while she is in none. */
   private thawing: ReturnType<typeof setTimeout> | null = null;
+  /** Asks after the photos in the log still being generated when next due to; null while it
+   * is not due to, none being generated or the asking under way. */
+  private polling: ReturnType<typeof setTimeout> | null = null;
 
   /** Opens her newest conversation, or starts one if she has none. `characterId` says whose
    * conversation it is, for the page and the conversation list beside it. */
@@ -279,7 +309,15 @@ export class LiveConversation {
   ) {
     const textOnly = ports.preferences.load().muted;
     ports.voice.setTextOnly(textOnly);
-    this.state = { ...IDLE, log: emptyLog, card: BLANK_CARD, dial: 0, textOnly, stand: startingStand(textOnly) };
+    this.state = {
+      ...IDLE,
+      log: emptyLog,
+      card: BLANK_CARD,
+      dial: 0,
+      textOnly,
+      stand: startingStand(textOnly),
+      callPhotoId: null,
+    };
     this.published = toSnapshot(this.state);
     void this.open();
     void this.readAffinity();
@@ -301,6 +339,7 @@ export class LiveConversation {
     if (this.pacing !== null) clearTimeout(this.pacing);
     if (this.cueing !== null) clearTimeout(this.cueing);
     if (this.thawing !== null) clearTimeout(this.thawing);
+    if (this.polling !== null) clearTimeout(this.polling);
     this.attempt = null;
     this.holding?.();
     this.call?.leave().catch(() => {});
@@ -399,7 +438,14 @@ export class LiveConversation {
     this.attempt = attempt;
     this.endedBy = null;
     const dial = this.state.dial + 1;
-    this.update({ call: { phase: "dialing", dial }, dial, micMuted: false, failure: null });
+    this.update({
+      call: { phase: "dialing", dial },
+      dial,
+      micMuted: false,
+      failure: null,
+      callPhotoId: null,
+      newPhoto: false,
+    });
     const current = () => this.attempt === attempt;
     let held = false;
     // The gate: what the call sends once it is over changes nothing.
@@ -493,10 +539,19 @@ export class LiveConversation {
     if (isLive(this.state.call) && layer && !layer.collapsed) this.update({ layer: { ...layer, collapsed: true } });
   }
 
-  /** Unfold the call layer, while the call is under way: once it is over it cannot open again. */
+  /** Unfold the call layer, while the call is under way: once it is over it cannot open again.
+   * A new photo is seen there. */
   expand(): void {
     const layer = this.state.layer;
-    if (isLive(this.state.call) && layer?.collapsed) this.update({ layer: { ...layer, collapsed: false } });
+    if (isLive(this.state.call) && layer?.collapsed) {
+      this.update({ layer: { ...layer, collapsed: false }, newPhoto: false });
+    }
+  }
+
+  /** Her conversation page is open: a photo that came out while the call layer was folded away
+   * is in the log there, no longer new. */
+  photoSeen(): void {
+    if (this.state.newPhoto) this.update({ newPhoto: false });
   }
 
   /** Open the list of microphones to switch to; only while the call is connected. */
@@ -564,6 +619,14 @@ export class LiveConversation {
         return this.applyTurnEvent(event, { stand }, (log) => ({ type: "text", segments: replySoFar(log) }));
       case "done":
         return this.applyTurnEvent(event, { stand }, () => ({ type: "recorded", segments: event.message.segments }));
+      case "photo":
+        if (event.status === "pending") {
+          const { reply: _, ...photo } = event;
+          return this.applyTurnEvent(photo, { stand, callPhotoId: event.id });
+        }
+        return this.photoCameOut(event.id, { status: event.status, reason: event.reason }, { stand });
+      case "photos-used-up":
+        return this.applyTurnEvent(event, { stand });
       case "segment-playing":
         return this.moveCard(event, { stand });
       case "bot-started-speaking":
@@ -741,6 +804,7 @@ export class LiveConversation {
         micMuted: false,
         micId: "",
         micNotice: null,
+        newPhoto: false,
         stand: this.directed({ type: "call-over" }),
       },
     );
@@ -760,6 +824,44 @@ export class LiveConversation {
     this.state = withCallScreenRules(this.state, { ...this.state, ...change });
     this.published = toSnapshot(this.state);
     for (const listener of this.listeners) listener();
+    if (change.log) this.watchPhotos();
+  }
+
+  /** Has the photos in the log still being generated asked after every `PHOTO_POLL_MS`, until
+   * none is: one sent in this turn, or found being generated as the conversation opens. */
+  private watchPhotos(): void {
+    if (this.polling !== null || this.disposed || pendingPhotos(this.state.log).length === 0) return;
+    this.polling = setTimeout(() => void this.askAfterPhotos(), PHOTO_POLL_MS);
+  }
+
+  /** Asks after each photo still being generated, showing those that came out; one that cannot
+   * be asked after now is asked again next time. */
+  private async askAfterPhotos(): Promise<void> {
+    const asked = await Promise.all(
+      pendingPhotos(this.state.log).map(async (id) => {
+        try {
+          return { id, status: await this.ports.getPhoto(id) };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    this.polling = null;
+    for (const photo of asked) if (photo) this.photoCameOut(photo.id, photo.status);
+    this.watchPhotos();
+  }
+
+  /** Shows how a photo still being generated is coming along, told by the call or asked after,
+   * along with any other change. The call's, out while the call layer is folded away, is new. */
+  private photoCameOut(id: string, status: PhotoStatus, change: Partial<State> = {}): void {
+    const layer = this.state.layer;
+    const isNew =
+      status.status === "ready" &&
+      id === this.state.callPhotoId &&
+      isLive(this.state.call) &&
+      layer?.collapsed === true &&
+      pendingPhotos(this.state.log).includes(id);
+    this.apply({ type: "photo-status", id, status }, isNew ? { ...change, newPhoto: true } : change);
   }
 }
 
@@ -818,7 +920,7 @@ function micInUse(mic: MicInUse): Pick<State, "micId" | "micNotice"> {
 }
 
 function toSnapshot(state: State): Snapshot {
-  const { log, card, dial, stand, ...rest } = state;
+  const { log, card, dial, stand, callPhotoId, ...rest } = state;
   const free = isFree(state);
   return {
     ...rest,
@@ -830,5 +932,13 @@ function toSnapshot(state: State): Snapshot {
     canStartNew: canStartNew(state),
     cooling: isCooling(state),
     ended: isEnded(state),
+    callPhoto: isLive(state.call) ? photoOf(log, callPhotoId) : null,
   };
+}
+
+/** The photo by this id in the log, as it has it; null if none. */
+function photoOf(log: ConversationLog, id: string | null): Photo | null {
+  if (id === null) return null;
+  for (const entry of log.entries) if (entry.kind === "character" && entry.photo?.id === id) return entry.photo;
+  return null;
 }

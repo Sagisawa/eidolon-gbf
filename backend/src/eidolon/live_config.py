@@ -3,7 +3,8 @@ what admins change in the admin console (ADR-0013). It is the admin console's on
 read and change the configuration.
 
 The configuration is in items, each a few fields saved and restored together: the chat
-and memory models, speech synthesis and recognition, the judge model and its thresholds,
+and memory models, speech synthesis and recognition, image generation (`_Image`), the
+judge model and its thresholds,
 the reranker's thresholds, and the limits (per hour, per call, and the turns each prompt
 carries, with the exempting keys), whether affinity and gifts are on, and which of the
 deployer's services and of users' own keys go through which proxy (GLOSSARY.md「网络代理」). Overrides are
@@ -41,6 +42,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -62,9 +64,10 @@ from eidolon.config import (
     DEFAULT_JEV_BASE_URL,
     FISH_AUDIO_MODELS,
     CloudflareJudgeSettings,
+    ImageSettings,
     JevSettings,
     JudgeSettings,
-    SERVICES,
+    EXEMPTING_SERVICES,
     LLMSettings,
     OWN_KEYS_PROXIED,
     PROXIED_SERVICES,
@@ -84,6 +87,12 @@ from eidolon.database import connect
 from eidolon.affinity import Judged
 from eidolon.affinity_judge import ModelAffinityJudge
 from eidolon.emotion import EmotionJudging, ModelEmotionJudge
+from eidolon.image_generation import (
+    GENERATION_TIMEOUT,
+    ImageFailed,
+    ImageGenerator,
+    try_image_service,
+)
 from eidolon.judge import (
     CLOUDFLARE_API_URL,
     JudgeError,
@@ -113,6 +122,7 @@ CHAT_LLM = "chat_llm"
 MEMORY_LLM = "memory_llm"
 TTS = "tts"
 STT = "stt"
+IMAGE = "image"
 JUDGE = "judge"
 JUDGE_THRESHOLDS = "judge_thresholds"
 RERANK = "rerank"
@@ -444,6 +454,41 @@ class _STT(_Item):
         return (await self.tried(values))[0]
 
 
+class _Image(_Item):
+    """The deployer's image generation (GLOSSARY.md「生图」): where, in which format, with
+    which key and model, how many at a time, in which art style; off without a key. A
+    change is tried by generating one picture, billed for nothing and recorded nowhere,
+    unless it changes nothing; it is not tried again as the server starts, each try being
+    a picture paid for."""
+
+    name = IMAGE
+    fields = ("api_format", "base_url", "api_key", "model", "concurrency", "style")
+    secrets = frozenset({"api_key"})
+
+    def env(self) -> Values:
+        image = self.c.settings.image
+        values = asdict(image or ImageSettings(""))
+        return values | {"api_key": image.api_key if image else None}
+
+    def normalized(self, change: Values) -> Values:
+        """An address without its trailing slash; an art style left out or empty is none."""
+        change = change | {"style": (change.get("style") or "").strip()}
+        if "base_url" in change:
+            change["base_url"] = change["base_url"].rstrip("/")
+        return change
+
+    async def tried(self, values: Values) -> tuple[Values, Any]:
+        if values == self.c.effective(self.name):
+            return values, None
+        if not values["api_key"]:
+            raise ConfigRejected("还没有生图的 key，请填写")
+        try:
+            await try_image_service(ImageGenerator(_image(values), self.c._images))
+        except ImageFailed as e:
+            raise ConfigRejected(e.detail[:MAX_REASON_LENGTH]) from None
+        return values, None
+
+
 class _Judge(_Item):
     name = JUDGE
     fields = ("provider", "api_key", "model", "account_id", "emotion_timeout")
@@ -517,7 +562,7 @@ class _Judge(_Item):
 
 class _JudgeThresholds(_Item):
     name = JUDGE_THRESHOLDS
-    fields = ("recall", "emotion", "out_of_line", "manipulation")
+    fields = ("recall", "emotion", "out_of_line", "manipulation", "photo")
     stored = (FOR_MODEL,)
     unavailable_reason = _Judge.unavailable_reason
 
@@ -554,13 +599,14 @@ class _Rerank(_Item):
 LIMIT_LABELS = {
     "turns_per_hour": "每小时回合数",
     "calls_per_hour": "每小时通话次数",
+    "photos_per_hour": "每小时照片数",
     "call_minutes": "单次通话的时长上限（分钟）",
     "turns_per_call": "单次通话的回合上限",
     "history_turns": "带上的历史回合数",
 }
 """The limits, as the admin console names them; each a whole number, 0 for no limit."""
 
-EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in SERVICES}
+EXEMPTING_FIELDS: dict[Service, str] = {s: f"exempting_{s}" for s in EXEMPTING_SERVICES}
 """Beside the limits: whether each service is one of the exempting keys (GLOSSARY.md
 「免限额密钥」); true or false, never all false."""
 
@@ -587,6 +633,7 @@ class _Limits(_Item):
         return {
             "turns_per_hour": limits.turns_per_hour or 0,
             "calls_per_hour": limits.calls_per_hour or 0,
+            "photos_per_hour": limits.photos_per_hour or 0,
             "call_minutes": limits.call_minutes or 0,
             "turns_per_call": limits.turns_per_call or 0,
             "history_turns": self.c.settings.history_turns or 0,
@@ -650,9 +697,11 @@ PROXY_LABELS: dict[ProxiedService, str] = {
     "rerank": "重排",
     "tts": "语音合成",
     "stt": "语音识别",
+    "image": "生图",
     "own_llm": "自带的 LLM",
     "own_tts": "自带的语音合成",
     "own_stt": "自带的语音识别",
+    "own_image": "自带的生图",
 }
 """What may go through the proxy, as the admin console names it."""
 
@@ -751,14 +800,17 @@ class LiveConfig:
         speech: KeyCheck | None = None,
         routes: ProxyRoutes | None = None,
         reach: Reach = reach_provider,
+        image_client: httpx.AsyncClient | None = None,
     ) -> None:
         """The chat, memory and judge models are made by `clients`, each question to the
         judge model recorded in `activity`; `speech` tries the keys for speech synthesis
         and recognition. Each service goes through the proxy or direct as `routes` have
-        it, kept to the proxy settings in effect; a change to them is tried by `reach`."""
+        it, kept to the proxy settings in effect; a change to them is tried by `reach`.
+        Image generation is on `image_client`, by default the routes' for it."""
         self.settings = settings
         self._clients = clients
         self._routes = routes or ProxyRoutes(settings.proxy)
+        self._images = image_client or self._routes.client("image", GENERATION_TIMEOUT)
         self._reach = reach
         self._clock = clock
         self._speech = speech
@@ -783,8 +835,8 @@ class LiveConfig:
             for item in (
                 # The proxy first: as the server starts, the services are tried through it.
                 _Proxy(self), _ChatLLM(self), _MemoryLLM(self), _TTS(self), _STT(self),
-                _Judge(self), _JudgeThresholds(self), _Rerank(self), _Limits(self),
-                _Affinity(self),
+                _Image(self), _Judge(self), _JudgeThresholds(self), _Rerank(self),
+                _Limits(self), _Affinity(self),
             )
         }
         self._failures: dict[str, str] = {}
@@ -862,6 +914,7 @@ class LiveConfig:
             values["calls_per_hour"] or None,
             values["call_minutes"] or None,
             values["turns_per_call"] or None,
+            values["photos_per_hour"] or None,
         )
 
     @property
@@ -881,6 +934,23 @@ class LiveConfig:
     def proxy_settings(self) -> ProxySettings:
         """Which of the deployer's services go through which proxy now."""
         return _proxy_settings(self.effective(PROXY))
+
+    @property
+    def image_settings(self) -> ImageSettings | None:
+        """The deployer's image generation in effect now; None without its key."""
+        values = self.effective(IMAGE)
+        return _image(values) if values["api_key"] else None
+
+    @property
+    def image_style(self) -> str:
+        """The deployment's art style in effect now, users' own image generation's too,
+        though the deployer has no key; empty for none."""
+        return self.effective(IMAGE)["style"]
+
+    def image_generator(self) -> ImageGenerator | None:
+        """The deployer's image generation in effect now, to generate on; None without it."""
+        settings = self.image_settings
+        return None if settings is None else ImageGenerator(settings, self._images)
 
     @property
     def history_turns(self) -> int | None:
@@ -939,9 +1009,9 @@ class LiveConfig:
         return LiveRetrievalJudge(self, self._judge, self._activity)
 
     def affinity_judge(self) -> "LiveAffinityJudge | None":
-        """The judge model as a turn asks it about affinity alone, where retrieval is off:
-        the one in effect at each question, each recorded as a service call; None without
-        one."""
+        """The judge model as a turn asks it about affinity or a photo apart, where retrieval
+        is off: the one in effect at each question, each recorded as a service call; None
+        without one."""
         if self._judge is None:
             return None
         return LiveAffinityJudge(self, self._judge, self._activity)
@@ -1173,6 +1243,8 @@ class LiveConfig:
         if (key := self._stt_key()) is not None:
             where = (key.region or "beijing") if key.provider == "bailian" else "soniox"
             targets["stt"] = PROVIDER_URLS[where]
+        if (image := self.image_settings) is not None:
+            targets["image"] = image.base_url
         return targets
 
     async def _reach_changed(self, before: ProxySettings, after: ProxySettings) -> None:
@@ -1330,8 +1402,13 @@ class LiveRetrievalJudge:
         self._activity = activity
 
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> tuple[Need, Judged | None]:
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> tuple[Need, Judged | None, bool]:
         lease = self._judge.lease()
         try:
             judge = MeteredJudge(
@@ -1339,14 +1416,15 @@ class LiveRetrievalJudge:
                 self._activity,
                 judge_origin(lease.settings),
             )
-            return await judge.judge(character, history, text, affinity)
+            return await judge.judge(character, history, text, affinity, photo)
         finally:
             lease.release()
 
 
 class LiveAffinityJudge:
-    """The judge model as a turn asks it about affinity alone: at each question, the one in
-    effect then, held while it answers, by its own thresholds, recorded as the model it is."""
+    """The judge model as a turn asks it about affinity or a photo apart, where retrieval is
+    off: at each question, the one in effect then, held while it answers, by its own
+    thresholds, recorded as the model it is."""
 
     def __init__(
         self,
@@ -1358,7 +1436,14 @@ class LiveAffinityJudge:
         self._judge = judge
         self._activity = activity
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Judged:
+    async def judge(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = True,
+        photo: bool = False,
+    ) -> tuple[Judged | None, bool]:
         lease = self._judge.lease()
         try:
             judge = MeteredAffinityJudge(
@@ -1366,7 +1451,7 @@ class LiveAffinityJudge:
                 self._activity,
                 judge_origin(lease.settings),
             )
-            return await judge.judge(character, history, text)
+            return await judge.judge(character, history, text, affinity, photo)
         finally:
             lease.release()
 
@@ -1410,6 +1495,10 @@ def _llm(values: Values) -> LLMSettings:
         values["base_url"], values["api_key"], values["model"], values["protocol"],
         values["max_tokens"], values["reasoning_effort"], values["extra_body"],
     )
+
+
+def _image(values: Values) -> ImageSettings:
+    return ImageSettings(**{field: values[field] for field in _Image.fields})
 
 
 def _chat_model(values: Values) -> ChatModelSettings:

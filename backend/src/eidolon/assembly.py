@@ -13,11 +13,12 @@ The deployer's chat and memory models and judge model are made by `ServiceClient
 the live configuration (`live_config`): `.env`'s settings as overridden in the admin
 console, replaced while the backend runs as admins change them; the speech keys, the
 thresholds, the limits, the exempting keys and whether affinity is on are read from it as
-each turn or call starts. `Backend.start` tries the overrides as the server starts.
+each turn or call starts, and the image generation as each photo is. `Backend.start`
+tries the overrides as the server starts.
 
 The outside services can be passed in instead of made from the settings, as tests do
 with fakes; the deployer's chat, memory and judge models only ever by passing in the
-`ServiceClients` that make them. Whoever passes one in closes it; `Backend.aclose`
+`ServiceClients` that make them; the image service by its transport. Whoever passes one in closes it; `Backend.aclose`
 closes only what `build` made, in the order that lets what is still running finish.
 """
 
@@ -45,11 +46,13 @@ from eidolon.config import DEFAULT_BAILIAN_STT_MODEL, Settings
 from eidolon.embedding import EMBEDDING_TIMEOUT, Embedder, open_embedder
 from eidolon.engine import ConversationEngine
 from eidolon.identity import IdentityProvider, ProviderName, open_identity_providers
+from eidolon.image_generation import GENERATION_TIMEOUT
 from eidolon.live_config import LiveConfig, Reach
 from eidolon.memory import Memories
 from eidolon.price_catalog import Catalog
 from eidolon.prices import Prices
-from eidolon.own_keys import LLMService, OwnKeys, ProviderLLMService
+from eidolon.own_keys import LLMService, OwnImageService, OwnKeys, ProviderLLMService
+from eidolon.photos import Photos
 from eidolon.proxy import ProxyRoutes
 from eidolon.readings import load_readings, readings_path
 from eidolon.rerank import (
@@ -108,6 +111,8 @@ class Backend:
     """Every user's draw chances, backpack and reset cards, where gifts are open."""
     backups: Backups
     """The database's backups, as the admin console runs them, and the record of each."""
+    photos: Photos
+    """The photos she sends with her replies, being generated."""
     world: World | None = None
     """The world setting; None without its data file."""
     _closers: list[Closer] = field(default_factory=list, repr=False)
@@ -142,6 +147,7 @@ def build(
     clients: ServiceClients | None = None,
     catalog_transport: httpx.BaseTransport | None = None,
     backup_transport: httpx.AsyncBaseTransport | None = None,
+    image_transport: httpx.AsyncBaseTransport | None = None,
     random: Random | None = None,
     reach: Reach | None = None,
 ) -> Backend:
@@ -193,9 +199,16 @@ def build(
     closers.append(announcements.close)
     backups = Backups(settings.database_path, clock, transport=backup_transport)
     closers.append(backups.aclose)
+    image_client = None
+    if image_transport is not None:
+        image_client = httpx.AsyncClient(
+            transport=image_transport, timeout=GENERATION_TIMEOUT, trust_env=False
+        )
+        closers.append(image_client.aclose)
     config = LiveConfig(
         settings, clients or ProviderClients(routes), clock, activity=activity, speech=speech,
-        routes=routes, **({"reach": reach} if reach is not None else {}),
+        routes=routes, image_client=image_client,
+        **({"reach": reach} if reach is not None else {}),
     )
     closers.append(config.aclose)
     if own_llm_service is None:  # users' own LLMs write down memories too
@@ -270,14 +283,30 @@ def build(
 
     affinities = Affinities(settings.database_path, clock, lambda: config.affinity_on)
     closers.append(affinities.close)
-    engine = ConversationEngine(
-        store, characters, gift_catalog, memories, titles, clock, retrieval,
-        lambda: config.history_turns, world, affinities, config.affinity_judge(),
-    )
+    unphotographed = [c.id for c in characters.values() if not c.photographed]
+    if config.image_settings is not None and unphotographed:
+        log.warning(
+            "%s have no photo_tag and photo_appearance in the character configuration, and"
+            " send no photos", ", ".join(unphotographed),
+        )
     usage = UsageLimiter(settings.database_path, lambda: config.usage_limits, clock)
     closers.append(usage.close)
+    # Users' own image generation, in the deployment's art style; in tests, on the same
+    # fake as the deployer's, told apart by its key.
+    own_images = OwnImageService(
+        public_only=settings.domain is not None, routes=routes,
+        style=lambda: config.image_style, transport=image_transport,
+    )
+    closers.append(own_images.aclose)
+    photos = Photos(store, config.image_generator, activity, usage, own_images.generator)
+    closers.append(photos.aclose)  # closed before the store and usage, so no photo is still kept
+    engine = ConversationEngine(
+        store, characters, gift_catalog, memories, titles, clock, retrieval,
+        lambda: config.history_turns, world, affinities, config.affinity_judge(), photos,
+    )
     own_keys = OwnKeys(
-        own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys
+        own_llm_service, config, activity, speech, exempting=lambda: config.exempting_keys,
+        image_service=own_images,
     )
     admissions = Admissions(
         usage, activity, own_keys, cooldown_until=affinities.cooldown_until
@@ -317,6 +346,7 @@ def build(
         affinities=affinities,
         gifts=gifts,
         backups=backups,
+        photos=photos,
         world=world,
         _closers=closers,
     )

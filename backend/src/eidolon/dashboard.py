@@ -3,8 +3,10 @@ summed up for the admin, under `/api/admin/dashboard`.
 
 Everything is summed up here; the browser only shows it. For each service, on the
 deployer's keys and on users' own apart: how many calls, how many failed and how, how
-long they took, and what they were billed for; for an LLM, at each reasoning effort apart,
-how soon its first word came and how much of its input hit the provider's prompt cache.
+long they took, and what they were billed for; for image generation, from how many photos
+tags were stripped for crossing the line, and how many for each part of it; for an LLM, at
+each reasoning effort apart, how soon its first word came and how much of its input hit
+the provider's prompt cache.
 For turns (typed or in calls): how many, by how they turned out, how many on users' own
 keys, how soon the character began to speak. For calls: how many, by how they turned out, how many on users' own keys, how long
 they lasted and why they ended. How many users took any turn or call; how many turns and
@@ -40,6 +42,7 @@ from eidolon.affinity import LEVEL_STEPS, EndsFor, Judged
 from eidolon.admin_api import Admin
 from eidolon.assembly import Backend
 from eidolon.config import REASONING_EFFORTS, ReasoningEffort
+from eidolon.photo_prompt import CROSSINGS
 from eidolon.prices import cost
 
 Range = Literal["24h", "7d", "30d", "90d"]
@@ -139,12 +142,24 @@ def health(calls: Iterable[CallRow]) -> list[dict]:
             "usage": _usage(group, llm=service in LLM_SERVICES),
             "usage_unknown": sum(c.usage_unit is None for c in group),
         }
+        if service == "image":
+            row["stripped_photos"] = sum(c.stripped is not None for c in group)
+            row["stripped"] = _stripped(group)
         if service in LLM_SERVICES:
             row["effort"] = effort
             row["first_token_ms"] = _percentiles(c.first_token_ms for c in group)
             row["cache_hit_rate"] = cache_hit_rate(group)
         rows.append(row)
     return rows
+
+
+def _stripped(calls: Sequence[CallRow]) -> dict[str, int]:
+    """How many tags were stripped from her photo tags, by which part of the line each
+    crossed, in the order of `CROSSINGS`; only those any crossed."""
+    stripped: Counter[str] = Counter()
+    for call in calls:
+        stripped.update(call.stripped or {})
+    return {c: stripped[c] for c in CROSSINGS if stripped[c]}
 
 
 def cache_hit_rate(calls: Sequence[CallRow]) -> float | None:

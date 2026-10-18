@@ -18,6 +18,14 @@ with how long it lasted and why it ended. The turns taken in it each have a reco
 their own under the call's (`Recording.turn`), written with it; its speech recognition,
 synthesis and emotion judging are recorded under the call (`Recording.add`), not a turn.
 
+A photo she sends (`photos`) is generated in the context of the turn it was begun in, and
+often comes out after the turn is over: its request to the image service is recorded under
+the turn all the same, with the turn's record if that is still to be written, under it once
+written (`ActivityLog.record`). It is billed one picture where the service answered with
+one, of the size asked for or not, and none where it failed or took too long. It says how
+many tags were stripped from her photo tag for crossing the line, and which part of it each
+crossed (`photo_prompt.Crossing`); never the tags.
+
 The services are timed by thin wrappers around their clients (`metered_llm`,
 `MeteredJudge`, `MeteredEmbedder`, `MeteredReranker`), which also open a `Billing` for
 the client to tell what the request is billed for. A call abandoned part-way, as when the
@@ -30,6 +38,7 @@ no longer say whose they were (`database.ANONYMIZED_USER_DATA`).
 """
 
 import asyncio
+import json
 import logging
 import re
 import secrets
@@ -53,6 +62,7 @@ from eidolon.characters import Character
 from eidolon.clock import Clock
 from eidolon.config import (
     CloudflareJudgeSettings,
+    ImageSettings,
     JudgeSettings,
     LLMSettings,
     ReasoningEffort,
@@ -62,6 +72,7 @@ from eidolon.database import connect
 from eidolon.embedding import Document, Embedder
 from eidolon.judge import CLOUDFLARE_API_URL
 from eidolon.llm import ChatLLM, ChatMessage, Reasoning, Streamed, Tool
+from eidolon.photo_prompt import CROSSINGS, Crossing
 from eidolon.rerank import Reranker
 from eidolon.retry import ServiceError, on_retry
 if TYPE_CHECKING:  # retrieval finds memories, which write down detached from turns
@@ -73,12 +84,13 @@ from eidolon.store import Message
 log = logging.getLogger(__name__)
 
 ServiceName = Literal[
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank"
+    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
 ]
 """The outside services: the LLM playing the characters and the one writing down memories,
-speech synthesis and recognition, the judge model, embedding and reranking."""
+speech synthesis and recognition, the judge model, embedding, reranking and image
+generation."""
 SERVICES: tuple[ServiceName, ...] = (
-    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank"
+    "chat_llm", "memory_llm", "tts", "stt", "judge", "embedding", "rerank", "image"
 )
 LLM_SERVICES: tuple[ServiceName, ...] = ("chat_llm", "memory_llm")
 """The LLMs among them (`llm_origin`): a user's own is recorded as `OWN`, and each call
@@ -148,7 +160,9 @@ CREATE INDEX IF NOT EXISTS activity_records_by_user ON activity_records(user_id,
 -- `reasoning_effort` and `usage_cached` are an LLM's alone: how soon its first text or tool
 -- call came (NULL if none did), the effort it was asked to think at (NULL for none asked),
 -- and how much of `usage_input` the provider read from its prompt cache (NULL if it did
--- not say).
+-- not say). `stripped_tags` is image generation's alone: how many tags were stripped from
+-- her photo tag for crossing the line, by which part of it, as a JSON object
+-- (`{"nudity": 1}`); NULL where none were.
 CREATE TABLE IF NOT EXISTS service_calls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id INTEGER,
@@ -164,7 +178,8 @@ CREATE TABLE IF NOT EXISTS service_calls (
     usage_output REAL,
     first_token_ms REAL,
     reasoning_effort TEXT,
-    usage_cached REAL
+    usage_cached REAL,
+    stripped_tags TEXT
 );
 CREATE INDEX IF NOT EXISTS service_calls_by_time ON service_calls(at);
 CREATE INDEX IF NOT EXISTS service_calls_by_record ON service_calls(record_id);
@@ -212,6 +227,9 @@ class ServiceCall:
     billed: Billing
     first_token_ms: float | None = None
     """For an LLM, how soon its first text or tool call came; None if none did."""
+    stripped: dict[Crossing, int] | None = None
+    """For image generation, how many tags were stripped from her photo tag, by which part
+    of the line each crossed; None if none were."""
 
 
 CallEndReason = Literal[
@@ -288,6 +306,9 @@ class CallRow:
     usage_cached: float | None = None
     """For an LLM, how much of its input the provider read from its prompt cache; None if
     it did not say."""
+    stripped: dict[Crossing, int] | None = None
+    """For image generation, how many tags were stripped from her photo tag, by which part
+    of the line each crossed; None if none were."""
 
 
 _current: ContextVar["Recording | None"] = ContextVar("activity_record", default=None)
@@ -299,6 +320,12 @@ def detached() -> Context:
     context = copy_context()
     context.run(_current.set, None)
     return context
+
+
+def recording() -> "Recording | None":
+    """The turn's or call's record that service calls made now, in this context, are
+    recorded under; None outside any."""
+    return _current.get()
 
 
 class Recording:
@@ -407,6 +434,7 @@ class ActivityLog:
             self._db.executescript(_SCHEMA)
             _let_latency_be_unknown(self._db)
             _add_llm_columns(self._db)
+            _add_stripped_tags_column(self._db)
             _add_judgement_columns(self._db)
             _forget_own_llms(self._db)
         self._clock = clock
@@ -432,23 +460,28 @@ class ActivityLog:
         error: ErrorKind | None,
         billed: Billing,
         first_token_at: float | None = None,
+        stripped: Sequence[Crossing] = (),
     ) -> None:
         """A service call, begun at `started` (`perf_counter`), has ended: recorded under
         the turn it was made in, if it is still open, or on its own. An LLM's says when its
-        first text or tool call came (`first_token_at`, also `perf_counter`), if one did."""
+        first text or tool call came (`first_token_at`, also `perf_counter`), if one did;
+        image generation's, which part of the line each tag stripped from her photo tag
+        crossed."""
         call = ServiceCall(
             origin, self._clock(), error, (perf_counter() - started) * 1000, billed,
             (first_token_at - started) * 1000 if first_token_at is not None else None,
+            _counted(stripped),
         )
         self.record(call, _current.get())
 
     def record(self, call: ServiceCall, into: Recording | None) -> None:
-        """A service call, recorded under `into` while it is open, or else on its own."""
-        if into is not None and not into.finished:
+        """A service call, recorded under `into`: with it until it is written (a turn in a
+        call, with the call), under it once it is; on its own without one."""
+        if into is not None and into.row_id is None:
             into.calls.append(call)
         else:
             with self._lock, self._db:
-                self._insert_call(call, None)
+                self._insert_call(call, into.row_id if into is not None else None)
 
     def since(self, moment: datetime) -> tuple[list[RecordRow], list[CallRow]]:
         """Every record and service call after `moment`, oldest first."""
@@ -463,8 +496,8 @@ class ActivityLog:
             ).fetchall()
             calls = self._db.execute(
                 "SELECT service, provider, model, own_key, at, error, latency_ms, usage_unit,"
-                " usage_input, usage_output, first_token_ms, reasoning_effort, usage_cached"
-                " FROM service_calls WHERE at > ? ORDER BY at",
+                " usage_input, usage_output, first_token_ms, reasoning_effort, usage_cached,"
+                " stripped_tags FROM service_calls WHERE at > ? ORDER BY at",
                 (at,),
             ).fetchall()
         return (
@@ -481,10 +514,11 @@ class ActivityLog:
             ],
             [
                 CallRow(service, provider, model, bool(own), _time(at), error, latency,
-                        unit, used_in, used_out, first, effort, cached)
+                        unit, used_in, used_out, first, effort, cached,
+                        json.loads(stripped) if stripped is not None else None)
                 for (
                     service, provider, model, own, at, error, latency, unit, used_in, used_out,
-                    first, effort, cached,
+                    first, effort, cached, stripped,
                 ) in calls
             ],
         )
@@ -574,11 +608,13 @@ class ActivityLog:
         self._db.execute(
             "INSERT INTO service_calls (record_id, at, service, provider, model, own_key,"
             " error, latency_ms, usage_unit, usage_input, usage_output, first_token_ms,"
-            " reasoning_effort, usage_cached) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " reasoning_effort, usage_cached, stripped_tags)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 record_id, call.at.timestamp(), origin.service, origin.provider, origin.model,
                 int(origin.own_key), call.error, call.latency_ms, billed.unit, billed.input,
                 billed.output, call.first_token_ms, origin.effort, billed.cached,
+                json.dumps(call.stripped) if call.stripped is not None else None,
             ),
         )
 
@@ -650,6 +686,21 @@ def _add_llm_columns(db: sqlite3.Connection) -> None:
             db.execute(f"ALTER TABLE service_calls ADD COLUMN {column} {kind}")
 
 
+def _add_stripped_tags_column(db: sqlite3.Connection) -> None:
+    """Service calls written before tags were stripped from her photo tags have no column
+    for it: none were."""
+    columns = {name for _, name, *_ in db.execute("PRAGMA table_info(service_calls)")}
+    if "stripped_tags" not in columns:
+        db.execute("ALTER TABLE service_calls ADD COLUMN stripped_tags TEXT")
+
+
+def _counted(stripped: Sequence[Crossing]) -> dict[Crossing, int] | None:
+    """How many of `stripped` crossed each part of the line, in the order of `CROSSINGS`;
+    None for none."""
+    counted: dict[Crossing, int] = {c: n for c in CROSSINGS if (n := stripped.count(c))}
+    return counted or None
+
+
 def _let_latency_be_unknown(db: sqlite3.Connection) -> None:
     """Service calls written before calls were recorded always had a latency; a database
     of theirs is copied into the table as it is now."""
@@ -714,9 +765,13 @@ def _statuses(message: str) -> list[int]:
 T = TypeVar("T")
 
 
-async def timed(log: ActivityLog, origin: Origin, work: Awaitable[T]) -> T:
+async def timed(
+    log: ActivityLog, origin: Origin, work: Awaitable[T], stripped: Sequence[Crossing] = ()
+) -> T:
     """What `work`, a request to the service `origin` names, comes to, recorded as a
-    service call; each attempt of it that failed and was made again, as one of its own."""
+    service call; each attempt of it that failed and was made again, as one of its own. A
+    photo's says which part of the line each tag `stripped` from her photo tag crossed (its
+    last attempt alone, for them to be counted once)."""
     started = perf_counter()
     billed = Billing()
     error: ErrorKind | None = None
@@ -735,7 +790,7 @@ async def timed(log: ActivityLog, origin: Origin, work: Awaitable[T]) -> T:
         error = error_kind(e)
         raise
     finally:
-        log.call(origin, started, error, billed)
+        log.call(origin, started, error, billed, stripped=stripped)
 
 
 class _MeteredLLM:
@@ -808,6 +863,17 @@ def metered_retrieval(
     return embedder, reranker
 
 
+def image_origin(settings: ImageSettings) -> Origin:
+    """The deployer's image generation `settings` describe, as its service calls are
+    recorded."""
+    return Origin("image", host(settings.base_url), settings.model)
+
+
+OWN_IMAGE_ORIGIN = Origin("image", OWN, OWN, own_key=True)
+"""A user's own image generation, as its service calls are recorded: only as `OWN`, as
+their LLMs are, for its address may be a relay of their own."""
+
+
 def judge_origin(settings: JudgeSettings | None) -> Origin:
     """The judge model `settings` choose, as its service calls are recorded."""
     if isinstance(settings, CloudflareJudgeSettings):
@@ -840,24 +906,38 @@ class MeteredJudge:
         self._origin = origin
 
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> "tuple[Need, Judged | None]":
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> "tuple[Need, Judged | None, bool]":
         return await timed(
-            self._log, self._origin, self._judge.judge(character, history, text, affinity)
+            self._log, self._origin, self._judge.judge(character, history, text, affinity, photo)
         )
 
 
 class MeteredAffinityJudge:
-    """The judge model as a turn asks it about affinity alone, where retrieval is off, each
-    question recorded as a service call."""
+    """The judge model as a turn asks it about affinity or a photo apart, where retrieval is
+    off, each question recorded as a service call."""
 
     def __init__(self, judge: "AffinityJudge", log: ActivityLog, origin: Origin) -> None:
         self._judge = judge
         self._log = log
         self._origin = origin
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> "Judged":
-        return await timed(self._log, self._origin, self._judge.judge(character, history, text))
+    async def judge(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = True,
+        photo: bool = False,
+    ) -> "tuple[Judged | None, bool]":
+        return await timed(
+            self._log, self._origin, self._judge.judge(character, history, text, affinity, photo)
+        )
 
 
 class MeteredEmbedder:

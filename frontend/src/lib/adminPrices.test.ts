@@ -175,6 +175,11 @@ describe("price form", () => {
     expect(
       priceFormOf({ ...entry, catalog: LISTED, override: { ...PRESET, input: 4, output: null, currency: "CNY" } }),
     ).toMatchObject({ input: "4", output: "", currency: "CNY" });
+    // 生图按张计价，单位照原样留着，不退回 tokens。
+    expect(priceFormOf({ ...entry, unit: "images", preset: { ...PRESET, input: 0.036, output: null, per: 1 } })).toMatchObject({
+      unit: "images",
+      input: "0.036",
+    });
   });
 
   it("trims the names and prices output and cached input as input when left empty", () => {

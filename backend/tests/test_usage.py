@@ -11,7 +11,7 @@ import pytest
 
 from eidolon.config import UsageLimits
 from eidolon.store import Store
-from eidolon.usage import OverLimit, Tally, UsageLimiter
+from eidolon.usage import OverLimit, Tally, UsageLimiter, UserLimits
 from tests.fakes import START, FakeClock
 
 
@@ -124,6 +124,24 @@ def test_uses_kept_before_own_keys_existed_still_count(deployment: Deployment):
             usage.take(deployment.user, "call")
         usage.take(deployment.user, "call", exempt=True)
         assert usage.last_day(deployment.user).total == Tally(calls=2, exempt_calls=1)
+    finally:
+        usage.close()
+
+
+def test_a_users_own_limits_kept_before_photos_were_limited_follow_the_deployments_photos(
+    deployment: Deployment,
+):
+    with sqlite3.connect(deployment.path) as db:  # a database from before photos
+        db.execute("CREATE TABLE user_limits (user_id TEXT PRIMARY KEY, turns_per_hour INTEGER,"
+                   " calls_per_hour INTEGER, note TEXT, updated_at TEXT NOT NULL)")
+        db.execute("INSERT INTO user_limits VALUES (?, 3, -1, '老数据', ?)",
+                   (deployment.user, START.isoformat()))
+    db.close()
+    usage = deployment.limiter()
+    try:
+        assert usage.user_limits(deployment.user) == UserLimits(
+            3, "unlimited", "老数据", START.isoformat(), photos_per_hour=None
+        )
     finally:
         usage.close()
 

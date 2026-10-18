@@ -10,6 +10,9 @@
 # - [[affinity]]：按检索开着时对话中相同的方式，好感度的三道题（5 级打分、不该说的话、操纵）和三道
 #   检索题在同一个请求里问，按当前阈值得出级和两道是非题的结论，和 level、out_of_line、
 #   manipulation 比较；再把打分题的级反过来写（从高到低）单独问一遍，看最可能的级变不变。
+# - [[photo]]：按检索和好感度都开着时对话中相同的方式，「是不是在要照片」这道题和检索、好感度的
+#   六道题在同一个请求里问，按当前阈值得出要不要，和 asks 比较，列出误判（不是在要、判成要）和
+#   漏判（在要、判成不要）；再按两者都关着时的方式单独问一遍。`--only photo` 只跑这一类。
 #
 # 格式：
 #
@@ -51,6 +54,15 @@
 #   note = "…"
 #   reviewed = false
 #
+#   [[photo]]
+#   id = "mano-photo-send-one"
+#   character = "mano"
+#   history = []                        # 同 [[retrieval]]
+#   said = "发张照片"                    # 制作人这一回合说的话
+#   asks = true                         # 是不是在要她发一张照片或图片（拍她自己或别的东西都算）
+#   note = "…"
+#   reviewed = false
+#
 # 标注规则：
 # - expected 按代码的判断顺序标：recall 优先 → references → memories → nothing。
 #   - recall：问角色过去某一次具体经历的来龙去脉（「那次……是怎么回事」「还记得……那次吗」）。
@@ -69,6 +81,10 @@
 #   操纵的级按话里除去要求之后的部分标：只有要求、冒充系统或旁白的标 2；加上操纵后级 2–4 都是
 #   不加分，所以汇总里另有「增减的准确率」（按映射算出的增减对不对）。injected 和同组不夹带的
 #   那条级相同，用来看夹带的要求有没有把级抬高。
+# - 照片：只有明确要她现在发一张图过来、只有发图才能回应的，asks 标 true（拍她自己、拍她说起的
+#   东西都算；带条件、夹在别的话里也算）。只问她在做什么、穿什么、在哪，说想见她，聊到照片却没有
+#   要她发（夸她发过的照片、问她拍照的习惯、工作上的拍摄、制作人自己要发照片），要她用话描述，
+#   或者说的是以后当面看，标 false。宁可漏判、不要误判：阈值按误判压到最低来定。
 # - 期望结果有歧义的条目不放；收进来的边界情况在 note 里写清楚为什么这样认定。
 # - 用到的角色、歌曲、唱片、演出和剧情事件都是真实的（作品资料出自 characters/world.json，
 #   角色设定出自 characters/sheets、characters/facts），但只概述性地提到事件，不含剧情原文
@@ -1674,4 +1690,430 @@ level = 0
 out_of_line = true
 manipulation = true
 note = "辱骂加要求：不该说的话盖过一切，−10。"
+reviewed = true
+
+# ===========================================================================
+# 照片判断：在要照片（asks = true）
+# ===========================================================================
+
+[[photo]]
+id = "mano-photo-send-one"
+character = "mano"
+history = [
+  { user = "今天好累啊" },
+  { character = "[softly]お疲れさまです、プロデューサーさん……わたしも今、レッスンが終わったところです" },
+]
+said = "发张照片"
+asks = true
+note = "最直接的说法：没说拍什么，就是要她发一张图过来。"
+reviewed = true
+
+[[photo]]
+id = "meguru-photo-selfie"
+character = "meguru"
+history = [
+  { character = "[happily]今ね、灯織と真乃とカフェに来てるんだ！" },
+]
+said = "自拍一张"
+asks = true
+note = "明确要自拍。"
+reviewed = true
+
+[[photo]]
+id = "kogane-photo-todays-outfit"
+character = "kogane"
+history = [
+  { user = "今天休息吧？" },
+  { character = "[happily]そうばい！今日は新しか服ば着て、お出かけしとるとよ！" },
+]
+said = "让我看看你今天的衣服"
+asks = true
+note = "隔着屏幕「让我看看」只能靠发一张图回应，看的是衣服、照片里有她。和「你今天穿什么」只差在「让我看看」，那条标否。"
+reviewed = true
+
+[[photo]]
+id = "hiori-photo-show-me-sunset"
+character = "hiori"
+history = [
+  { character = "[softly]帰り道で、すごく綺麗な夕焼けが見えて……少し、立ち止まってしまいました" },
+]
+said = "拍给我看看"
+asks = true
+note = "拍她说起的夕阳，拍别的东西也算；只有四个字，拍什么要看上文。"
+reviewed = true
+
+[[photo]]
+id = "chiyoko-photo-bento"
+character = "chiyoko"
+history = [
+  { character = "[happily]今日のお昼はお弁当なんです！デザートにチョコも入れてきちゃいました" },
+]
+said = "拍一下你的便当"
+asks = true
+note = "要拍别的东西（便当），规格写明算。和「晚饭吃了什么？」对照，那条标否。"
+reviewed = true
+
+[[photo]]
+id = "toru-photo-selfie-after-asking"
+character = "toru"
+history = [
+  { user = "在干嘛" },
+  { character = "んー……ベランダ。ぼーっとしてた" },
+]
+said = "现在的你是什么样子？发张自拍过来"
+asks = true
+note = "上一句「在干嘛」不算，这一句明确要自拍。"
+reviewed = true
+
+[[photo]]
+id = "kaho-photo-pajamas"
+character = "kaho"
+history = [
+  { character = "[happily]もうすぐ寝ます！今日はヒーローのパジャマなんです！" },
+]
+said = "穿着睡衣拍一张给我"
+asks = true
+note = "指定服装的请求（用户故事 5），在要照片。"
+reviewed = true
+
+[[photo]]
+id = "mano-photo-ja-send-it"
+character = "mano"
+history = [
+  { character = "[happily]今日、公園でお花の写真を撮ったんです" },
+]
+said = "その写真、送ってよ"
+asks = true
+note = "日文。她说拍了花，他要她把那张发过来：拍的是花，照样是要一张图。"
+reviewed = true
+
+[[photo]]
+id = "hiori-photo-ja-new-hairstyle"
+character = "hiori"
+history = [
+  { character = "[shyly]実は今日、少しだけ髪を切ったんです" },
+]
+said = "新しい髪型、自撮りで見せて"
+asks = true
+note = "日文，要自拍看新发型。和「下周见面的时候让我看看你的新发型」对照，那条是当面看，标否。"
+reviewed = true
+
+[[photo]]
+id = "meguru-photo-in-passing"
+character = "meguru"
+history = [
+  { character = "[happily]レッスン終わったよー！今日もいっぱい踊った！" },
+]
+said = "辛苦啦！对了，发张练习室的照片给我呗"
+asks = true
+note = "要求夹在寒暄后面，照样是在要照片。"
+reviewed = true
+
+[[photo]]
+id = "sakuya-photo-another-one"
+character = "sakuya"
+history = [
+  { user = "照片收到了！好好看" },
+  { character = "[softly]ふふ、気に入ってもらえて嬉しいよ" },
+]
+said = "再发一张吧，这次换个角度"
+asks = true
+note = "已经发过一张，再要一张。和「上次那张照片好可爱」不同，这句明确要她再发。"
+reviewed = true
+
+[[photo]]
+id = "juri-photo-call-short"
+character = "juri"
+history = [
+  { character = "今、ジムで筋トレ中。きついけど、まあまあいい感じ" },
+]
+said = "拍一张给我看"
+asks = true
+note = "通话里常见的短说法（用户故事 20）。"
+reviewed = true
+
+[[photo]]
+id = "mamimi-photo-nails"
+character = "mamimi"
+history = [
+  { character = "ふふー、今日ネイル変えたんですよー。紫にしましたー" },
+]
+said = "你说的新美甲，拍下来给我看看"
+asks = true
+note = "拍她说起的东西（美甲），在要照片。"
+reviewed = true
+
+[[photo]]
+id = "amana-photo-can-i-see-dress"
+character = "amana"
+history = [
+  { character = "[happily]甜花ちゃんと買い物に行って、新しいワンピース買っちゃった！" },
+]
+said = "能不能让我看看你新买的那条裙子？"
+asks = true
+note = "用「能不能」问的语气，仍是在请她现在发一张图。"
+reviewed = true
+
+[[photo]]
+id = "kiriko-photo-if-in-bloom"
+character = "kiriko"
+history = [
+  { character = "[softly]病院の裏の花壇……もうすぐ、咲きそう……です……" },
+]
+said = "开了的话拍张照片给我吧"
+asks = true
+note = "带条件的请求，仍是在要照片；开没开由她按情境回应。"
+reviewed = true
+
+[[photo]]
+id = "natsuha-photo-ja-after-training"
+character = "natsuha"
+history = [
+  { character = "今日のトレーニングは自己ベストだったわ" },
+]
+said = "トレーニング後の写真、一枚撮って送ってくれない？"
+asks = true
+note = "日文，用「くれない？」请她拍一张发来。"
+reviewed = true
+
+[[photo]]
+id = "kogane-photo-miss-you-then-selfie"
+character = "kogane"
+history = [
+  { user = "这周一直在出差" },
+  { character = "[sadly]プロデューサー、全然事務所におらんけん寂しかよ〜" },
+]
+said = "好想见你……见不到的话，至少发张自拍给我吧"
+asks = true
+note = "前半句「好想见你」单独不算（那条标否），后半句明确要自拍，所以算。"
+reviewed = true
+
+[[photo]]
+id = "mano-photo-snow"
+character = "mano"
+history = [
+  { character = "[happily]わぁ……プロデューサーさん、窓の外、雪が降ってきました！" },
+]
+said = "你那边下雪了？拍张照片我看看"
+asks = true
+note = "拍她那边的雪景，在要照片。"
+reviewed = true
+
+# ===========================================================================
+# 照片判断：不是在要照片（asks = false）
+# ===========================================================================
+
+[[photo]]
+id = "meguru-photo-no-what-doing"
+character = "meguru"
+history = []
+said = "你在干嘛"
+asks = false
+note = "只问她在做什么，用话就能回答（规格写明不算）。"
+reviewed = true
+
+[[photo]]
+id = "kogane-photo-no-what-wearing"
+character = "kogane"
+history = [
+  { character = "[happily]今日はオフやけん、ショッピングに行くとよ！" },
+]
+said = "你今天穿什么"
+asks = false
+note = "问穿什么，用话回答（规格写明不算）；和「让我看看你今天的衣服」对照。"
+reviewed = true
+
+[[photo]]
+id = "mano-photo-no-miss-you"
+character = "mano"
+history = [
+  { user = "这周太忙了" },
+  { character = "[softly]プロデューサーさん、無理しないでくださいね……" },
+]
+said = "好想见你"
+asks = false
+note = "想见她不是要照片（规格写明不算）。"
+reviewed = true
+
+[[photo]]
+id = "sakuya-photo-no-last-photo"
+character = "sakuya"
+history = [
+  { character = "[happily]今日はいい天気だね、プロデューサー" },
+]
+said = "上次那张照片好可爱"
+asks = false
+note = "聊到她发过的照片，是在夸，没有要她再发。"
+reviewed = true
+
+[[photo]]
+id = "hiori-photo-no-received"
+character = "hiori"
+history = [
+  { character = "[shyly]……ちゃんと届きましたか？" },
+]
+said = "照片收到啦，背景是事务所吧？"
+asks = false
+note = "回应已经收到的照片、问里面拍的是哪儿，没有再要。"
+reviewed = true
+
+[[photo]]
+id = "chiyuki-photo-no-likes-taking"
+character = "chiyuki"
+history = [
+  { character = "[softly]今日は雑貨屋さんで、かわいいマグカップを見つけたの" },
+]
+said = "你平时喜欢拍照吗？"
+asks = false
+note = "问她拍照的爱好，不是要她拍。"
+reviewed = true
+
+[[photo]]
+id = "yuika-photo-no-selfie-habit"
+character = "yuika"
+history = [
+  { character = "[happily]今日はメガネ新しくしたんだー" },
+]
+said = "结华平时经常自拍吗？"
+asks = false
+note = "话里有「自拍」，问的是习惯，不是要她现在自拍；容易被字面带偏。"
+reviewed = true
+
+[[photo]]
+id = "fuyuko-photo-no-photoshoot-work"
+character = "fuyuko"
+history = [
+  { character = "明日は朝から雑誌の撮影なの" },
+]
+said = "明天的杂志拍摄要加油哦"
+asks = false
+note = "说的是工作上的拍摄，不是要她发照片。"
+reviewed = true
+
+[[photo]]
+id = "madoka-photo-no-user-sends"
+character = "madoka"
+history = [
+  { user = "在吗" },
+  { character = "……何ですか" },
+]
+said = "我拍了张我家猫的照片，发给你看"
+asks = false
+note = "是制作人要发照片给她，方向反了。"
+reviewed = true
+
+[[photo]]
+id = "luca-photo-no-promo-shot"
+character = "luca"
+history = []
+said = "你那张宣传照拍得真好"
+asks = false
+note = "聊官方宣传照，没有要她发。"
+reviewed = true
+
+[[photo]]
+id = "asahi-photo-no-want-to-see-live"
+character = "asahi"
+history = [
+  { character = "次のライブ、新しいダンスやるっす！" },
+]
+said = "好想看你下次的演出"
+asks = false
+note = "想看的是演出，照片回应不了。"
+reviewed = true
+
+[[photo]]
+id = "mano-photo-no-see-in-person"
+character = "mano"
+history = [
+  { character = "[shyly]実は、少しだけ髪を切ったんです" },
+]
+said = "下周见面的时候让我看看你的新发型"
+asks = false
+note = "也是「让我看看」，但说的是下周当面看，不是现在发图；和「新しい髪型、自撮りで見せて」对照。"
+reviewed = true
+
+[[photo]]
+id = "koito-photo-no-just-talk"
+character = "koito"
+history = [
+  { user = "今天好累" },
+  { character = "[softly]だ、大丈夫ですか……？" },
+]
+said = "不用发照片啦，陪我聊聊天就好"
+asks = false
+note = "明说不要照片。"
+reviewed = true
+
+[[photo]]
+id = "hinana-photo-no-dinner"
+character = "hinana"
+history = [
+  { character = "[happily]雛菜ね〜、今帰ってきたとこ〜" },
+]
+said = "晚饭吃了什么？"
+asks = false
+note = "问吃了什么，用话回答；和「拍一下你的便当」对照。"
+reviewed = true
+
+[[photo]]
+id = "rinze-photo-no-describe"
+character = "rinze"
+history = [
+  { character = "[softly]今、旅館の窓から……海が見えております" },
+]
+said = "你那边的风景是什么样的？说给我听听"
+asks = false
+note = "要她用话描述，不是要图。"
+reviewed = true
+
+[[photo]]
+id = "nichika-photo-no-wallpaper"
+character = "nichika"
+history = []
+said = "把你的照片设成手机壁纸了"
+asks = false
+note = "说他用了她的照片，没有在要。"
+reviewed = true
+
+[[photo]]
+id = "tenka-photo-no-ja-wallpaper"
+character = "tenka"
+history = [
+  { character = "[shyly]て、甜花……今日はゲームしてた……" },
+]
+said = "この前の写真、待ち受けにしたよ"
+asks = false
+note = "日文，同上：说用了她以前的照片。"
+reviewed = true
+
+[[photo]]
+id = "mei-photo-no-my-sunset"
+character = "mei"
+history = [
+  { character = "[happily]プロデューサー、今なにしてんのー？" },
+]
+said = "我这边晚霞好漂亮，可惜你看不到"
+asks = false
+note = "制作人在说自己看到的景色，没有要她拍。"
+reviewed = true
+
+[[photo]]
+id = "kaho-photo-no-ja-where"
+character = "kaho"
+history = []
+said = "今どこにいるの？"
+asks = false
+note = "日文的问在哪，用话回答。"
+reviewed = true
+
+[[photo]]
+id = "hana-photo-no-first-photo"
+character = "hana"
+history = [
+  { character = "……ふふ。プロデューサーさん、今日はなんだか楽しそう" },
+]
+said = "还记得你第一次给我发照片那天吗？"
+asks = false
+note = "回忆发过照片的事，是在聊天，不是在要。"
 reviewed = true

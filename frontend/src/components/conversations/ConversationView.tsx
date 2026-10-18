@@ -44,6 +44,7 @@ import { giftsHref } from "@/lib/gifts";
 import { isLive, NOT_OPEN, type LiveConversation } from "@/lib/liveConversation";
 import { linesOf, type Line } from "@/lib/messageLines";
 import { pastDay } from "@/lib/pastConversations";
+import { photosUsedUpText } from "@/lib/photoFailure";
 import { cn } from "@/lib/utils";
 import { herVars } from "@/theme/herVars";
 import {
@@ -56,6 +57,7 @@ import {
   OutfitIcon,
   PastConversationsIcon,
   PhoneIcon,
+  PhotosUsedUpIcon,
   SendIcon,
 } from "@/theme/icons";
 import { Ja } from "@/theme/Ja";
@@ -66,6 +68,7 @@ import { EVENT_ICONS, eventText } from "./EventIcon";
 import { LiveCallLayer } from "./CallLayer";
 import { OutfitPicker } from "./OutfitPicker";
 import { PastConversations } from "./PastConversations";
+import { PhotoBlock } from "./PhotoBlock";
 import { useDirectory, useWide } from "./ConversationDirectory";
 import { useFocusBack } from "./useFocusBack";
 import { usePastConversation, type Viewing } from "./usePastConversation";
@@ -130,6 +133,11 @@ export function ConversationView({
     setLive(conversation);
     return () => close(conversation);
   }, [character.id, userId, open, close]);
+
+  // 收起时到的照片就在这页的对话记录里：外壳顶上通话条的「新照片」到这里就算看过了。
+  useEffect(() => {
+    if (snapshot.newPhoto) live?.photoSeen();
+  }, [snapshot.newPhoto, live]);
 
   const isOpen = conversation.status === "open";
   // 送礼入口去的礼物页：只带她，礼物一律记进当前对话（历史对话里点的也一样）。
@@ -339,6 +347,7 @@ export function ConversationView({
               hearing=""
               character={character}
               affinityOn={affinity !== null}
+              timeZone={timeZone}
             />
           ) : viewing.status === "failed" ? (
             <Empty className="h-full">
@@ -366,7 +375,13 @@ export function ConversationView({
             </EmptyHeader>
           </Empty>
         ) : (
-          <Messages entries={entries} hearing={hearing} character={character} affinityOn={affinity !== null} />
+          <Messages
+            entries={entries}
+            hearing={hearing}
+            character={character}
+            affinityOn={affinity !== null}
+            timeZone={timeZone}
+          />
         )}
       </div>
       {composer}
@@ -504,6 +519,7 @@ function HeaderTip({ label, children }: { label: string; children: ReactElement 
 /**
  * 消息区：官方 Message Scroller，打开时停在最底，新消息和她正在说的话跟着往下滚（制作人往上翻时不抢）。
  * 消息从顶部开始排；气泡之间 4px，换人时多 8px。好感度可用时，改变了好感度的回复和送礼记录后面是一行变化胶囊。
+ * 这一小时的照片用完时，她推掉的那条回复后面是一行同样的胶囊，几点以后可以再要按制作人的时区（`timeZone`）写。
  * 对话事件占一整行分隔线。
  */
 function Messages({
@@ -511,11 +527,13 @@ function Messages({
   hearing,
   character,
   affinityOn,
+  timeZone,
 }: {
   entries: Entry[];
   hearing: string;
   character: Character;
   affinityOn: boolean;
+  timeZone: string;
 }) {
   const lines = linesOf(entries, new Date(), affinityOn);
   return (
@@ -532,11 +550,19 @@ function Messages({
                 </MessageScrollerItem>
               ) : line.kind === "cue" ? (
                 <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
-                  {/* 好感度的变化胶囊：样子和日期条一样，一个升降小箭头加一句话，不用她的颜色 */}
-                  <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+                  {/* 好感度的变化胶囊：一个升降小箭头加一句话 */}
+                  <Capsule>
                     <CueArrowIcon up={line.change.up} className="size-3" />
                     {cueText(line.change, character.name)}
-                  </span>
+                  </Capsule>
+                </MessageScrollerItem>
+              ) : line.kind === "photos-used-up" ? (
+                <MessageScrollerItem key={line.key} className="mt-2 flex justify-center">
+                  {/* 照片用完的胶囊：不存进库，刷新后就没了 */}
+                  <Capsule>
+                    <PhotosUsedUpIcon aria-hidden className="size-3" />
+                    {photosUsedUpText(line.retryAt, timeZone)}
+                  </Capsule>
                 </MessageScrollerItem>
               ) : line.entry.kind === "event" ? (
                 <MessageScrollerItem key={line.entry.key} messageId={line.entry.key} className="my-3">
@@ -620,6 +646,7 @@ function Bubbled({
       )}
       <MessageContent className="gap-1">
         {first && <MessageHeader className="px-1">{character.name}</MessageHeader>}
+        {entry.photo && <PhotoBlock photo={entry.photo} />}
         <div className="flex min-w-0 items-end gap-1.5">
           <Bubble variant="her" joinsPrevious={!first} joinsNext={!last}>
             <BubbleContent>
@@ -658,4 +685,13 @@ function failureText(failure: Failure): string {
   return [failure.message, failure.toOwnKeys && t.ownLLMExempts, failure.countsTowardLimit === false && t.notCounted]
     .filter(Boolean)
     .join(" ");
+}
+
+/** 对话记录里居中的一颗胶囊（好感度的变化、照片用完）：样子和日期条一样，一个小图标加一句话，不用她的颜色。 */
+function Capsule({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-1 rounded-full bg-foreground/10 px-3 py-1 text-meta text-muted-foreground">
+      {children}
+    </span>
+  );
 }

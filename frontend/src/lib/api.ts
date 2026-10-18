@@ -5,6 +5,7 @@ import {
   turnOwnKeys,
   type BailianRegion,
   type FishAudioModel,
+  type LocalImage,
   type LocalLLM,
   type LocalModel,
   type OwnService,
@@ -93,10 +94,11 @@ export type Conversation = {
   created_at: string;
 };
 
-/** The last thing in a conversation as a list shows it, a message (without delivery cues) or
- * a conversation event other than her ending it; null while it has none. */
+/** The last thing in a conversation as a list shows it, a message (without delivery cues),
+ * marked `photo` when it is her reply with a photo she sent (not one being generated or not sent
+ * after all), or a conversation event other than her ending it; null while it has none. */
 export type LastMessage =
-  | Pick<Message, "role" | "text" | "ja" | "zh" | "created_at">
+  | (Pick<Message, "role" | "text" | "ja" | "zh" | "created_at"> & { photo?: true })
   | Pick<ConversationEvent, "type" | "kind" | "created_at" | "gift_name">
   | null;
 
@@ -129,7 +131,25 @@ export type Message = {
   created_at: string;
   /** How the turn changed her affinity, on her reply; null where it did not (and always on the user's). */
   affinity: AffinityChange | null;
+  /** The photo she sent with her reply (GLOSSARY.md「照片」); none on a reply without one. */
+  photo?: Photo;
 };
+
+/** How a photo she sent is coming along: being generated, sent, or not sent after all, and why not. */
+export type PhotoStatus = { status: "pending" | "ready" | "failed"; reason: string | null };
+
+/** A photo she sent with a reply. */
+export type Photo = PhotoStatus & { id: string };
+
+/** Where the picture of a photo she sent is read, once it is sent: only by the user it was sent to. */
+export function photoImageUrl(id: string): string {
+  return `/api/photos/${encodeURIComponent(id)}/image`;
+}
+
+/** How the photo is coming along now, for waiting on one being generated. */
+export async function getPhoto(id: string): Promise<PhotoStatus> {
+  return json(await api(`/api/photos/${encodeURIComponent(id)}`));
+}
 
 /** The kinds of conversation event (GLOSSARY.md「对话事件」): she hung up on the user; the user
  * gave her a gift; she ended the conversation, which can then only be read (GLOSSARY.md「已结束的对话」). */
@@ -150,12 +170,16 @@ export type ConversationEvent = {
 /** What a conversation's record holds, in order. */
 export type Recorded = Message | ConversationEvent;
 
-/** A turn's events: `user`, then any `delta`s, then `done` or `error`. `done` says too where
- * the turn left her affinity, null while affinity is off, and her ending the conversation after
- * it, recorded after her reply, if she did. */
+/** A turn's events: `user`, then `photo` if she sends one (its id, before her first words), any
+ * `delta`s, then `photos-used-up` if the user asked for a photo with this hour's used up (when they
+ * may ask again, ISO), and `done`, or `error`. `done` says too where the turn left her affinity, null
+ * while affinity is off, and her ending the conversation after it, recorded after her reply, if she
+ * did. */
 export type TurnEvent =
   | { type: "user"; text: string }
+  | { type: "photo"; id: string; status: "pending" }
   | { type: "delta"; segment: number; lang: "ja" | "zh"; text: string }
+  | { type: "photos-used-up"; retry_at: string }
   | { type: "done"; message: Message; affinity: AffinityStatus | null; ended?: ConversationEvent | null }
   | { type: "error"; message: string };
 
@@ -191,8 +215,9 @@ export type Memory = {
  * limit. She hanging up, it gives the event that she did, just recorded in the conversation,
  * and for a cooldown when it ends. */
 export type CallEvent =
-  | Exclude<TurnEvent, { type: "user" }>
+  | Exclude<TurnEvent, { type: "user" | "photo" }>
   | CallUserEvent
+  | CallPhotoEvent
   | SegmentPlaying
   | SegmentEmotion
   | Speaking
@@ -208,6 +233,13 @@ export type CallEvent =
 /** A call's turn opens with `user` as any turn does, saying too which of her replies in the call
  * it opens, numbered from 1 (a turn replied to afresh opens again, with the next number). */
 type CallUserEvent = Extract<TurnEvent, { type: "user" }> & { reply: number };
+
+/** A photo she sends in reply `reply` of the call (GLOSSARY.md「照片」): `pending` as her tag closes,
+ * before her first words, as in a typed turn; then, if it comes out while the call is on, once
+ * more saying how. One that comes out after the call is over is told of no more: the record has it. */
+export type CallPhotoEvent =
+  | (Extract<TurnEvent, { type: "photo" }> & { reply: number })
+  | { type: "photo"; reply: number; id: string; status: "ready" | "failed"; reason: string | null };
 
 /** Her voice has started playing segment `segment` of reply `reply`, replies being numbered
  * from 1 within the call. Sent as the segment's first audio goes out, so it arrives a little
@@ -434,6 +466,21 @@ export async function checkOwnSpeechKey(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ api_key: apiKey, provider, model }),
+    }),
+  );
+}
+
+/**
+ * Try the user's own image generation, which the server does not keep, by having it generate one
+ * picture at the user's expense; fails with what the service said if the try fails, or because the
+ * deployment cannot send photos. Its address and model as this browser is to keep them.
+ */
+export async function checkOwnImage(image: LocalImage): Promise<Pick<LocalImage, "base_url" | "model">> {
+  return json(
+    await api("/api/account/keys/image/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(image),
     }),
   );
 }

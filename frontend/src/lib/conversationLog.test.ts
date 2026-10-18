@@ -3,6 +3,7 @@ import type { Message } from "@/lib/api";
 import {
   conversationLog,
   emptyLog,
+  pendingPhotos,
   type ConversationLog,
   type LogAction,
 } from "@/lib/conversationLog";
@@ -49,6 +50,7 @@ describe("conversationLog", () => {
         pending: false,
         at: "2026-09-26T00:00:00Z",
         affinity: null,
+        photo: null,
       },
     ]);
   });
@@ -73,7 +75,7 @@ describe("conversationLog", () => {
     // Dated when it was typed; the backend taking it up does not change that.
     expect(log.entries.slice(2)).toEqual([
       { kind: "user", key: log.turn?.userKey, text: "你好", at: NOW },
-      { kind: "character", key: log.turn?.replyKey, segments: [], pending: true, at: NOW, affinity: null },
+      { kind: "character", key: log.turn?.replyKey, segments: [], pending: true, at: NOW, affinity: null, photo: null },
     ]);
   });
 
@@ -129,7 +131,86 @@ describe("conversationLog", () => {
       pending: false,
       at: "2026-09-28T08:49:30Z",
       affinity,
+      photo: null,
     });
+  });
+
+  it("puts the photo she sends on the reply under way, as recorded once done, and shows it once out", () => {
+    const pending = { id: "p1", status: "pending", reason: null } as const;
+    const recorded = { ...message(4, "character", "はい"), photo: pending };
+    const sending = play(
+      [
+        { type: "submitted", text: "发张自拍", at: NOW },
+        { type: "photo", id: "p1", status: "pending" },
+      ],
+      history,
+    );
+    const done = conversationLog(sending, { type: "done", message: recorded, affinity: null });
+    const stillPending = conversationLog(done, {
+      type: "photo-status",
+      id: "p1",
+      status: { status: "pending", reason: null },
+    });
+    const out = conversationLog(done, { type: "photo-status", id: "p1", status: { status: "ready", reason: null } });
+
+    expect(sending.entries[3]).toMatchObject({ kind: "character", pending: true, photo: pending });
+    expect(done.entries[3]).toMatchObject({ key: "m4", photo: pending });
+    expect(pendingPhotos(done)).toEqual(["p1"]);
+    expect(stillPending).toBe(done);
+    expect(out.entries[3]).toMatchObject({ key: "m4", photo: { id: "p1", status: "ready", reason: null } });
+    expect(pendingPhotos(out)).toEqual([]);
+  });
+
+  it("keeps a photo that came out before her reply was recorded as it came out", () => {
+    const sending = play(
+      [
+        { type: "submitted", text: "发张自拍", at: NOW },
+        { type: "photo", id: "p1", status: "pending" },
+        { type: "photo-status", id: "p1", status: { status: "ready", reason: null } },
+      ],
+      history,
+    );
+    const recorded = { ...message(4, "character", "はい"), photo: { id: "p1", status: "pending", reason: null } } as const;
+
+    const done = conversationLog(sending, { type: "done", message: recorded, affinity: null });
+
+    expect(done.entries[3]).toMatchObject({ key: "m4", photo: { id: "p1", status: "ready", reason: null } });
+  });
+
+  it("shows the photos in the record it is loaded with as they were, still being generated or not", () => {
+    const log = play([
+      {
+        type: "loaded",
+        messages: [
+          { ...message(1, "character", "はい"), photo: { id: "p1", status: "ready", reason: null } },
+          { ...message(2, "character", "どうぞ"), photo: { id: "p2", status: "pending", reason: null } },
+          message(3, "character", "ううん"),
+        ],
+      },
+    ]);
+
+    expect(log.entries.map((e) => (e.kind === "character" ? e.photo?.id ?? null : undefined))).toEqual([
+      "p1",
+      "p2",
+      null,
+    ]);
+    expect(pendingPhotos(log)).toEqual(["p2"]);
+  });
+
+  it("keeps the photos used up, as told in the turn, on her reply once recorded, until the record is loaded again", () => {
+    const retryAt = "2026-09-28T09:30:00Z";
+    const asked = play([{ type: "submitted", text: "发张自拍", at: NOW }], history);
+    const told = conversationLog(asked, { type: "photos-used-up", retry_at: retryAt });
+    const done = conversationLog(told, { type: "done", message: message(4, "character", "今はだめ"), affinity: null });
+    const reloaded = conversationLog(done, {
+      type: "loaded",
+      messages: [message(1, "user", "早上好"), message(2, "character", "おはよう"), message(3, "user", "发张自拍"), message(4, "character", "今はだめ")],
+    });
+
+    expect(told.entries[3]).toMatchObject({ kind: "character", pending: true, photosUsedUp: retryAt });
+    expect(done.entries[3]).toMatchObject({ key: "m4", photosUsedUp: retryAt });
+    expect(reloaded.entries[3]).not.toHaveProperty("photosUsedUp");
+    expect(conversationLog(told, { type: "error", message: "失败" }).entries).toEqual(history.entries);
   });
 
   it("takes the turn in progress back off the log on `error` and `interrupted`", () => {

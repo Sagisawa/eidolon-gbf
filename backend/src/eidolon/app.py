@@ -25,7 +25,7 @@ from eidolon.call import (
     SessionDescription,
 )
 from eidolon.characters import Character, ScriptedLine, in_idol_order
-from eidolon.engine import ENDED, TurnJudged
+from eidolon.engine import ENDED, TurnJudged, shown
 from eidolon.greetings import (
     LANDING_MEMORY_STILL_PATH,
     call_opener_path,
@@ -52,6 +52,7 @@ from eidolon.admin_config_api import add_admin_config_routes
 from eidolon.admin_prices_api import add_admin_price_routes
 from eidolon.announcements_api import add_announcement_routes
 from eidolon.gifts_api import add_gift_routes
+from eidolon.photos_api import add_photo_routes
 from eidolon.sessions import UserId, session_middleware
 from eidolon.stats import add_stats_routes
 from eidolon.stand_outfits import list_path, outfit_path
@@ -84,7 +85,8 @@ class TurnInput(BaseModel):
     text: str
     own_keys: OwnKeysInput | None = None
     """The user's own keys, which their browser keeps, for the turn to run on; the shape
-    calls bring too. A turn uses only the LLMs, voice keys brought along go unused."""
+    calls bring too. A turn uses only the LLMs and image generation, voice keys brought
+    along go unused."""
     own_llm: object = None
     """Where pages from before brought their own LLM. Transitional, to be deleted once no
     such page is left open: a turn bringing it is refused, asking for a refresh, rather
@@ -237,7 +239,8 @@ def create_app(backend: Backend) -> FastAPI:
 
     def last_shown(last: Recorded | None) -> dict | None:
         """The last thing in a conversation as a list shows it: a message without its
-        delivery cues, or a conversation event; None while it has none."""
+        delivery cues, marked `photo` if it is her reply with a photo she sent (not one being
+        generated or not sent after all), or a conversation event; None while it has none."""
         if last is None:
             return None
         if isinstance(last, ConversationEvent):
@@ -251,13 +254,13 @@ def create_app(backend: Backend) -> FastAPI:
             "ja": shown.ja,
             "zh": shown.zh,
             "created_at": shown.created_at,
-        }
+        } | ({"photo": True} if shown.photo_sent else {})
 
     def recorded(entry: Recorded) -> dict:
         """A message or conversation event as the browser reads it."""
         if isinstance(entry, ConversationEvent):
             return entry.shown() | gift_of(entry)
-        return asdict(entry.without_cues())
+        return entry.shown()
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -333,6 +336,7 @@ def create_app(backend: Backend) -> FastAPI:
     add_admin_price_routes(app, backend)
     add_announcement_routes(app, backend)
     add_gift_routes(app, backend)
+    add_photo_routes(app, backend)
     add_stats_routes(app, backend)
 
     @app.get("/api/ice-servers")
@@ -540,14 +544,17 @@ def create_app(backend: Backend) -> FastAPI:
 
         async def events() -> AsyncIterator[str]:
             with outcome.running():
-                turn = engine.turn(conversation, body.text, admission.llms, device_timezone)
+                turn = engine.turn(
+                    conversation, body.text, admission.llms, device_timezone,
+                    own_image=brought.image,
+                )
                 async for event in turn:
                     outcome.see(event)
                     if isinstance(event, SegmentDelta):
                         outcome.began_speaking()  # the reply's first words have appeared
                     if isinstance(event, SegmentComplete | SpeechDelta | TurnJudged):
                         continue
-                    yield _sse(asdict(event))
+                    yield _sse(shown(event))
 
         return _TurnResponse(events(), lambda: outcome.over(cut_short_by_failure=False))
 

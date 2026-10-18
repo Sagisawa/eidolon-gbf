@@ -66,6 +66,8 @@ ClientFactory = Callable[..., httpx.AsyncClient]
 
 MANO_SHEET = "# 人设\n你是櫻木真乃。口癖是「ほわっ」。"
 KOGANE_SHEET = "# 人设\n你是月岡恋鐘。说长崎方言。"
+MANO_PHOTO = ("sakuragi mano", "brown hair, medium hair, brown eyes")
+"""Mano's `photo_tag` and `photo_appearance`."""
 AVATAR = b"\x89PNG\r\n\x1a\n fake avatar"
 BACKGROUND = b"\xff\xd8\xff fake background"
 REPO_GIFTS = Path(__file__).parents[2] / "characters" / GIFTS_FILE
@@ -99,11 +101,13 @@ class CharacterConfig:
         call_opener: tuple[str, str] | None = None,
         other_names: tuple[str, str, str] | None = None,
         liked_gifts: tuple[str, ...] | None = ("cake",),
+        photo: tuple[str, str] | None = None,
     ) -> "CharacterConfig":
         """`greeting` is her greeting in Japanese, delivery cues and all, and its subtitle;
         `call_opener` her call opener, likewise; `other_names` her `name_zh`, `name_kana`
         and `name_romaji`; `liked_gifts` her liked gifts (None leaves them out), cake by
-        default as every catalog the tests write has it."""
+        default as every catalog the tests write has it; `photo` her `photo_tag` and
+        `photo_appearance`."""
         entry = f'[[characters]]\nid = "{id}"\nname = "{name}"\nintro = "{intro}"\n'
         entry += f'voice_id = "{voice_id}"\nsheet = "sheets/{id}.md"\n'
         if sheet is not None:
@@ -138,6 +142,9 @@ class CharacterConfig:
                 entry += f"{field} = {json.dumps(value, ensure_ascii=False)}\n"
         if liked_gifts is not None:
             entry += f"liked_gifts = {json.dumps(list(liked_gifts))}\n"
+        if photo is not None:
+            entry += f"photo_tag = {json.dumps(photo[0])}\n"
+            entry += f"photo_appearance = {json.dumps(photo[1])}\n"
         self._entries.append(entry)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path.write_text("\n".join(self._entries), encoding="utf-8")
@@ -156,13 +163,14 @@ class CharacterConfig:
 
 @pytest.fixture
 def characters(tmp_path: Path) -> CharacterConfig:
-    """Mano (with an avatar, a background and a stand) and Kogane (with none of them)."""
+    """Mano (with an avatar, a background, a stand and her photo tags) and Kogane (with none
+    of them)."""
     return (
         CharacterConfig(tmp_path / "characters")
         .add(
             "mano", "櫻木真乃", MANO_SHEET, intro="illumination STARS 的中心", avatar=AVATAR,
             color="#ffbad6", background=BACKGROUND, speakers=["真乃"], voice_id="mano-voice",
-            idol_id=1, default_outfit="stand/1030010010",
+            idol_id=1, default_outfit="stand/1030010010", photo=MANO_PHOTO,
         )
         .add(
             "kogane", "月岡恋鐘", KOGANE_SHEET, intro="L'Antica 的偶像", color="#f84cad",

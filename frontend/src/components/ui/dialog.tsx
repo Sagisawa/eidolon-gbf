@@ -44,21 +44,29 @@ function DialogContent({
   children,
   showCloseButton = true,
   container,
+  variant = "default",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
   // eidolon: container 透传给 Portal。浮层默认渲染到 body，拿不到对话子树上她的颜色（herVars）和 .dark；
   // 需要时把它指到子树里（DESIGN.md「The Scoped Colour Rule」）。
   container?: DialogPrimitive.Portal.Props["container"]
+  // eidolon: viewer 是点开放大的照片（DESIGN.md「Chat bubbles · 照片」）：整屏压 85% 黑，内容居中放到最大，
+  // 右上角白色 ✕。内容以外不接点击，点在压暗的底上就是点了外面，照常关掉。
+  variant?: "default" | "viewer"
 }) {
+  const viewer = variant === "viewer"
   return (
     <DialogPortal container={container}>
-      <DialogOverlay />
+      {/* eidolon: viewer 的底和照片一样淡 150ms。底先淡完会在照片卸掉前弹回不透明，关的时候整屏闪一下黑。 */}
+      <DialogOverlay className={cn(viewer && "bg-black/85 duration-150 supports-backdrop-filter:backdrop-blur-none")} />
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          // eidolon: dark:ring-overlay-edge，深色模式下浮层带一条边线（DESIGN.md「The Night Edge Rule」）。
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 dark:ring-overlay-edge duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          viewer
+            ? "pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4 outline-none duration-150 md:p-10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 *:pointer-events-auto"
+            // eidolon: dark:ring-overlay-edge，深色模式下浮层带一条边线（DESIGN.md「The Night Edge Rule」）。
+            : "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 dark:ring-overlay-edge duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -70,8 +78,11 @@ function DialogContent({
             render={
               <Button
                 variant="ghost"
-                className="absolute top-2 right-2"
-                size="icon-sm"
+                className={cn(
+                  "absolute top-2 right-2",
+                  viewer && "top-3 right-3 size-11 rounded-full text-white hover:bg-white/15 hover:text-white [&_svg:not([class*='size-'])]:size-6"
+                )}
+                size={viewer ? "icon-lg" : "icon-sm"}
               />
             }
           >

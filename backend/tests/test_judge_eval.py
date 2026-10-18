@@ -1,9 +1,11 @@
 """`eidolon eval judge`: the judge eval set's turns and segments are asked of the judge
 model as a conversation would ask them, and what it answers is summed up against what was
 expected: the confusion of what turns need, how sure it is of each question's yes and no,
-the long-context cases apart, how right its emotions and nods are, and how long it took."""
+the long-context cases apart, how right its emotions and nods are, which turns it takes for
+asking for a photo wrongly either way, and how long it took."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from eidolon.judge_eval import (
     JudgeEvalError,
     evaluate,
     load_judge_eval,
+    only,
     report,
     summarize,
 )
@@ -21,7 +24,7 @@ from tests.test_retrieval_services import MANO
 
 HALF = JudgeThresholds(
     needs_retrieval=0.5, recall=0.5, about_producer=0.5, emotion=0.5, out_of_line=0.5,
-    manipulation=0.5,
+    manipulation=0.5, photo=0.5,
 )
 
 EVAL = """
@@ -228,6 +231,7 @@ def test_the_committed_set_loads(tmp_path: Path):
 
     assert judge_eval.retrieval and judge_eval.emotion and judge_eval.affinity
     assert any(case.long for case in judge_eval.retrieval)
+    assert {case.asks for case in judge_eval.photo} == {True, False}
 
 
 AFFINITY_EVAL = """
@@ -385,3 +389,133 @@ async def test_affinity_is_asked_with_retrieval_and_with_its_levels_reversed(tmp
     }
     assert insult["actual"]["probabilities"]["out_of_line"] == 0.8
     assert insult["reversed"]["level"] == 3
+
+
+PHOTO_EVAL = """
+[[photo]]
+id = "selfie"
+character = "mano"
+history = [{ character = "[happily]今、事務所に着きました！" }]
+said = "自拍一张给我看看"
+asks = true
+
+[[photo]]
+id = "bento"
+character = "mano"
+history = [{ character = "お昼はお弁当なんです" }]
+said = "拍一下你的便当"
+asks = true
+
+[[photo]]
+id = "doing"
+character = "mano"
+history = []
+said = "你在干嘛"
+asks = false
+
+[[photo]]
+id = "last-photo"
+character = "mano"
+history = [{ user = "照片收到了" }, { character = "[shyly]えへへ……" }]
+said = "上次那张照片好可爱"
+asks = false
+
+[[photo]]
+id = "broken"
+character = "mano"
+history = []
+said = "发张照片"
+asks = true
+"""
+
+PHOTO_ANSWERS: dict[str, tuple[float, float]] = {
+    # (asked with retrieval's and affinity's questions, asked alone)
+    "自拍一张给我看看": (0.95, 0.9),  # yes, as expected
+    "拍一下你的便当": (0.6, 0.85),  # missed at 0.7; caught asked alone
+    "你在干嘛": (0.05, 0.1),  # no, as expected
+    "上次那张照片好可爱": (0.75, 0.4),  # taken for asking at 0.7; not asked alone
+}
+
+
+class FakePhotoJudgeModel:
+    """Answers whether what was just said asks for a photo, a little differently asked alone;
+    fails one turn."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[str, set[str]]] = []
+
+    async def reply(self, state: dict[str, Any], questions: dict[str, dict]) -> JudgeReply:
+        said = state["制作人最新的一句话"]
+        self.asked.append((said, set(questions)))
+        if said == "发张照片":
+            raise JudgeError("Workers AI 返回 500")
+        merged, alone = PHOTO_ANSWERS[said]
+        answers: dict[str, Any] = {
+            "photo": {"type": "noul", "noul": alone if questions.keys() == {"photo"} else merged}
+        }
+        return JudgeReply(answers, input_tokens=400)
+
+    async def ask(self, state: dict[str, Any], questions: dict[str, dict]) -> dict[str, Any]:
+        return (await self.reply(state, questions)).answers
+
+    async def aclose(self) -> None:
+        pass
+
+
+async def test_a_photo_turn_is_asked_with_the_others_and_alone_and_its_misses_counted(
+    tmp_path: Path,
+):
+    judge_eval = load_judge_eval(write(tmp_path, PHOTO_EVAL), {"mano": MANO})
+    model = FakePhotoJudgeModel()
+    thresholds = replace(HALF, photo=0.7)
+    results = await evaluate(judge_eval, {"mano": MANO}, model, thresholds, clock=lambda: 0)
+    summary = summarize(results, "jev-1.13", thresholds)
+
+    # A turn is asked as a conversation with retrieval and affinity on asks it, every
+    # question in one request; then as one with both off does, the photo's alone.
+    retrieval = {"needs_retrieval", "recall", "about_producer"}
+    affinity = {"affinity", "out_of_line", "manipulation"}
+    assert model.asked[:2] == [
+        ("自拍一张给我看看", retrieval | affinity | {"photo"}),
+        ("自拍一张给我看看", {"photo"}),
+    ]
+
+    # Asking taken for not (missed), and not asking taken for asking (false), by id; the
+    # failed request counted apart.
+    s = summary["photo"]
+    assert (s["cases"], s["failed"]) == (5, 1)
+    assert s["accuracy"] == 0.5
+    assert s["missed"] == ["bento"]
+    assert s["false"] == ["last-photo"]
+    assert s["yes"] == {"n": 2, "min": 0.6, "median": pytest.approx(0.775), "max": 0.95}
+    assert s["no"] == {"n": 2, "min": 0.05, "median": 0.4, "max": 0.75}
+    assert summary["thresholds"]["photo"] == 0.7
+
+    # Asked alone, the same counted by the same threshold.
+    assert s["alone"]["cases"] == 4
+    assert s["alone"]["accuracy"] == 1
+    assert (s["alone"]["missed"], s["alone"]["false"]) == ([], [])
+
+    text = report(results, summary)
+    assert "照片" in text and "漏判" in text and "误判" in text
+    assert "bento" in text and "last-photo" in text and "500" in text
+    dumped = json.loads(json.dumps(results.to_json(summary), ensure_ascii=False))
+    [last] = [c for c in dumped["photo"] if c["id"] == "last-photo"]
+    assert last["expected"] is False and last["actual"] is True
+    assert last["probabilities"] == {"photo": 0.75, "alone": 0.4}
+
+
+async def test_a_run_may_be_kept_to_some_kinds_of_case(tmp_path: Path):
+    judge_eval = load_judge_eval(write(tmp_path, EVAL + PHOTO_EVAL), {"mano": MANO})
+
+    kept = only(judge_eval, ["photo"])
+
+    assert (kept.retrieval, kept.emotion, kept.affinity) == ((), (), ())
+    assert kept.photo == judge_eval.photo and len(kept.photo) == 5
+
+
+def test_a_photo_case_must_say_whether_it_asks(tmp_path: Path):
+    text = '[[photo]]\nid = "a"\ncharacter = "mano"\nsaid = "x"\nasks = "yes"'
+
+    with pytest.raises(JudgeEvalError, match="asks"):
+        load_judge_eval(write(tmp_path, text), {"mano": MANO})

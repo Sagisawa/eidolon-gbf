@@ -38,7 +38,8 @@ async def test_a_database_from_then_forgets_the_switch_and_the_letting_and_keeps
             "ALTER TABLE user_limits ADD COLUMN deployer_llm_allowed INTEGER NOT NULL DEFAULT 0"
         )
         db.execute(
-            "INSERT INTO user_limits VALUES (?, -1, NULL, '老数据', ?, 1)",
+            "INSERT INTO user_limits (user_id, turns_per_hour, calls_per_hour, note,"
+            " updated_at, deployer_llm_allowed) VALUES (?, -1, NULL, '老数据', ?, 1)",
             (producer_id, START.isoformat()),
         )
         db.executemany(
@@ -61,7 +62,7 @@ async def test_a_database_from_then_forgets_the_switch_and_the_letting_and_keeps
         assert overrides == ["limits.turns_per_hour"], start
         assert (await details(upgraded, producer_id))["limits"] == {
             "turns_per_hour": "unlimited", "calls_per_hour": None, "note": "老数据",
-            "updated_at": START.isoformat(),
+            "updated_at": START.isoformat(), "photos_per_hour": None,
         }, start
         limits = (await upgraded.get("/api/admin/config")).json()["limits"]
         assert limits["override"] == {"turns_per_hour": 3}, start

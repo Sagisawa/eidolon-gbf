@@ -36,7 +36,8 @@ prompt instead, unthresholded, as do the nearest episode (and live or release) f
 memories do not, as one the reranker never judged might be what the user never said.
 
 Where affinity is on, the judge model is asked what the turn does to it in the same
-request (`affinity_judge.QUESTIONS`); failing, it fails both.
+request (`affinity_judge.QUESTIONS`); failing, it fails both. So too, in a turn that could
+have a photo, whether the user asks her for one (`photo_judge`), no if it fails.
 
 The chat model can also look an episode up itself with the recall-story tool, for
 general questions like "what happened that time with the photo book" that the judge
@@ -69,6 +70,8 @@ from eidolon.judge import (
 )
 from eidolon.llm import Tool
 from eidolon.memory import Memory, MemoryTurn, memory_query
+from eidolon.photo_judge import QUESTIONS as PHOTO_QUESTIONS
+from eidolon.photo_judge import read_asked
 from eidolon.references import Reference, ReferenceKind, ReferenceSource
 from eidolon.rerank import Reranker, RerankError
 from eidolon.store import Message
@@ -130,10 +133,16 @@ reference sources along with the user's memories, or the recall of a past episod
 
 class RetrievalJudge(Protocol):
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> tuple[Need, Judged | None]:
-        """What answering `text` needs looked up, and, asked about `affinity` too, what
-        saying it does to her affinity (None if that alone cannot be told)."""
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> tuple[Need, Judged | None, bool]:
+        """What answering `text` needs looked up; asked about `affinity` too, what saying it
+        does to her affinity (None if that alone cannot be told); and asked about `photo`,
+        whether it asks her for a photo (no if that alone cannot be told)."""
         ...
 
 
@@ -290,6 +299,8 @@ class Retrieved:
     judged: Judged | None = None
     """What the turn does to her affinity, asked about it; None if not or if it could not
     be told."""
+    photo: bool = False
+    """Whether the user asks her for a photo, asked about it; no if it could not be told."""
     query_vector: list[float] | None = None
     """The turn's query embedded, for writing down (`MemoryTurn.write_down`); None if it
     was not by the time the turn knew what it needed, or could not be."""
@@ -329,17 +340,21 @@ class Retrieval:
         text: str,
         memory: MemoryTurn | None = None,
         affinity: bool = False,
+        photo: bool = False,
     ) -> Retrieved:
         """Look up what this turn needs, finding the user's memories through `memory`; and
-        judge what it does to her affinity, if asked to."""
+        judge what it does to her affinity, and whether it asks her for a photo, if asked
+        to."""
         query = memory_query(history, text)
         embedding = asyncio.ensure_future(self._embed(query))
         finding = asyncio.ensure_future(self._find(character, embedding, memory))
         looked_up = False
         try:
-            judged = None
+            judged, asked = None, False
             try:
-                need, judged = await self._judge.judge(character, history, text, affinity)
+                need, judged, asked = await self._judge.judge(
+                    character, history, text, affinity, photo
+                )
             except JudgeError:
                 log.warning("retrieval judge failed; retrieving anyway", exc_info=True)
                 need = "references"
@@ -353,7 +368,9 @@ class Retrieval:
                 task.cancel()
                 if not looked_up:  # nor will anyone else see what it failed with
                     task.add_done_callback(_log_failure)
-        return replace(retrieved, judged=judged, query_vector=_query_vector(embedding))
+        return replace(
+            retrieved, judged=judged, photo=asked, query_vector=_query_vector(embedding)
+        )
 
     async def _embed(self, query: str) -> list[float] | None:
         """The turn's query embedded; None if it cannot be."""
@@ -627,10 +644,14 @@ _QUESTIONS = {
 }
 
 
-def judge_questions(affinity: bool = False) -> dict[str, dict]:
-    """What the judge model is asked of a turn: retrieval's three questions, and affinity's
-    in the same request if `affinity`."""
-    return _QUESTIONS | AFFINITY_QUESTIONS if affinity else _QUESTIONS
+def judge_questions(affinity: bool = False, photo: bool = False) -> dict[str, dict]:
+    """What the judge model is asked of a turn: retrieval's three questions, affinity's in
+    the same request if `affinity`, and whether it asks for a photo if `photo`."""
+    return (
+        _QUESTIONS
+        | (AFFINITY_QUESTIONS if affinity else {})
+        | (PHOTO_QUESTIONS if photo else {})
+    )
 
 
 @dataclass(frozen=True)
@@ -657,20 +678,32 @@ class ModelRetrievalJudge:
         self.thresholds = thresholds
 
     async def judge(
-        self, character: Character, history: Sequence[Message], text: str, affinity: bool = False
-    ) -> tuple[Need, Judged | None]:
-        """As `RetrievalJudge.judge`, affinity's questions asked in the same request."""
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = False,
+        photo: bool = False,
+    ) -> tuple[Need, Judged | None, bool]:
+        """As `RetrievalJudge.judge`, affinity's questions and the photo's asked in the same
+        request."""
         answers = await self._judge_model.ask(
-            turn_state(character, history, text), judge_questions(affinity)
+            turn_state(character, history, text), judge_questions(affinity, photo)
         )
         need = self.decide(_answer(answers))
-        if not affinity:
-            return need, None
-        try:
-            return need, read_judged(answers, self.thresholds)
-        except JudgeError:
-            log.warning("affinity judge's answers could not be read", exc_info=True)
-            return need, None
+        judged = None
+        if affinity:
+            try:
+                judged = read_judged(answers, self.thresholds)
+            except JudgeError:
+                log.warning("affinity judge's answers could not be read", exc_info=True)
+        asked = False
+        if photo:
+            try:
+                asked = read_asked(answers, self.thresholds)
+            except JudgeError:
+                log.warning("the photo question's answer could not be read", exc_info=True)
+        return need, judged, asked
 
     async def ask(
         self, character: Character, history: Sequence[Message], text: str, affinity: bool = False

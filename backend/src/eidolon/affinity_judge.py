@@ -6,12 +6,15 @@ was out of line (GLOSSARY.md「不该说的话」) and whether it tried to dicta
 posed as the system, each yes at or above the model's threshold for it.
 
 Where retrieval is on, they are asked in the same request as retrieval's questions
-(`retrieval.ModelRetrievalJudge`); otherwise in one of their own (`ModelAffinityJudge`).
+(`retrieval.ModelRetrievalJudge`); otherwise in one of their own (`ModelAffinityJudge`),
+which asks whether the user asks her for a photo too, in a turn that could have one, or
+asks only that where affinity is off (`photo_judge`).
 The user's words are what is judged, never instructions to the judge model; the messages
 before them only tell what they answer. Unsure, the judge model leaves affinity as it is:
 two levels as likely as each other are taken as no effect.
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -19,7 +22,11 @@ from typing import Any, Protocol
 from eidolon.affinity import LEVEL_STEPS, NO_EFFECT, Judged
 from eidolon.characters import Character
 from eidolon.judge import SAID, JudgeError, JudgeModel, JudgeThresholds, turn_state
+from eidolon.photo_judge import QUESTIONS as PHOTO_QUESTIONS
+from eidolon.photo_judge import read_asked
 from eidolon.store import Message
+
+log = logging.getLogger(__name__)
 
 _SCENE = (
     "角色扮演对话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人对话。"
@@ -119,19 +126,48 @@ def read_judged(answers: dict[str, Any], thresholds: JudgeThresholds) -> Judged:
 
 
 class AffinityJudge(Protocol):
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Judged:
-        """What saying `text` does to her affinity. Raises JudgeError if it cannot be told."""
+    async def judge(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = True,
+        photo: bool = False,
+    ) -> tuple[Judged | None, bool]:
+        """Asked about `affinity`, what saying `text` does to her affinity (None if not, or if
+        that alone cannot be told); asked about `photo`, whether it asks her for a photo (no
+        if not, or if that alone cannot be told). Raises JudgeError if the judge model
+        cannot be asked."""
         ...
 
 
 class ModelAffinityJudge:
-    """The judge model, asked the three questions in a request of their own, as it is
-    where retrieval is off."""
+    """The judge model, asked the three questions, the photo's, or both, in a request of
+    their own, as it is where retrieval is off."""
 
     def __init__(self, judge_model: JudgeModel, thresholds: JudgeThresholds) -> None:
         self._judge_model = judge_model
         self._thresholds = thresholds
 
-    async def judge(self, character: Character, history: Sequence[Message], text: str) -> Judged:
-        answers = await self._judge_model.ask(turn_state(character, history, text), QUESTIONS)
-        return read_judged(answers, self._thresholds)
+    async def judge(
+        self,
+        character: Character,
+        history: Sequence[Message],
+        text: str,
+        affinity: bool = True,
+        photo: bool = False,
+    ) -> tuple[Judged | None, bool]:
+        questions = (QUESTIONS if affinity else {}) | (PHOTO_QUESTIONS if photo else {})
+        answers = await self._judge_model.ask(turn_state(character, history, text), questions)
+        judged, asked = None, False
+        if affinity:
+            try:
+                judged = read_judged(answers, self._thresholds)
+            except JudgeError:
+                log.warning("affinity judge's answers could not be read", exc_info=True)
+        if photo:
+            try:
+                asked = read_asked(answers, self._thresholds)
+            except JudgeError:
+                log.warning("the photo question's answer could not be read", exc_info=True)
+        return judged, asked
