@@ -73,7 +73,8 @@ import { FailureIcon } from "@/theme/icons";
 const t = copy.admin.config;
 
 /**
- * 后台的「配置」页：页首下面一排分类标签（模型 / 语音 / 限额与玩法 / 单价 / 只读），一次只看一类。
+ * 后台的「配置」页：页首下面一排分类标签（模型 / 语音 / 限额与玩法 / 单价 / 只读），一次只看一类；
+ * 内容列窄的时候标签换成下拉（`TabSelect`）。
  * 每一项一张卡，标题旁用 Badge 标出覆盖的状态，列出当前生效的值（有后台覆盖时对照 .env 的值），
  * 可以在卡里展开表单修改、恢复成 .env 的值（DESIGN.md「Layout · 后台 · 配置」）。
  *
@@ -106,8 +107,9 @@ export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
           </p>
         )}
         {config && (
-          <Tabs value={tab} onValueChange={(value) => chooseTab(String(value))} className="gap-6">
-            <TabsList aria-label={t.nav}>
+          <Tabs value={tab} onValueChange={(value) => chooseTab(String(value))} className="@container gap-6">
+            <TabSelect tab={tab} config={config} onChoose={chooseTab} />
+            <TabsList aria-label={t.nav} className="hidden @lg:inline-flex">
               {CONFIG_TABS.map((name) => (
                 <TabsTrigger key={name} value={name}>
                   {t.tabs[name]}
@@ -130,6 +132,39 @@ export function AdminConfig({ initialTab }: { initialTab: ConfigTab }) {
         )}
       </OpenFormProvider>
     </AdminPage>
+  );
+}
+
+/**
+ * 内容列窄（< 32rem，手机上）时代替那排标签的下拉：一排放不下八个标签，滚动又会把琥珀色点藏到屏外。
+ * 选项后面照样跟琥珀色点；收起时只要有一类有覆盖没生效，框里也跟一个点，提醒点开看。
+ */
+function TabSelect({ tab, config, onChoose }: { tab: ConfigTab; config: Config; onChoose: (value: string) => void }) {
+  const items = CONFIG_TABS.map((name) => ({ value: name, label: t.tabs[name] }));
+  const someFailed = CONFIG_TABS.some((name) => tabHasFailure(config, name));
+  return (
+    <Select items={items} value={tab} onValueChange={(value) => value && onChoose(String(value))}>
+      <SelectTrigger aria-label={t.nav} className="w-full @lg:hidden">
+        <SelectValue>
+          {(value: ConfigTab) => (
+            <>
+              {t.tabs[value]}
+              {someFailed && <StatusDot variant="warning" label={t.someTabFailed} />}
+            </>
+          )}
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {CONFIG_TABS.map((name) => (
+          <SelectItem key={name} value={name}>
+            <span className="flex items-center gap-1.5">
+              {t.tabs[name]}
+              {tabHasFailure(config, name) && <StatusDot variant="warning" label={t.tabFailed} />}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
