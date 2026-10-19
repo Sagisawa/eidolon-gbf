@@ -72,9 +72,9 @@ describe("分享图的内容", () => {
     expect(card(stats, "  𠮷野さん ").address).toBe("𠮷野さん");
   });
 
-  it("没设称呼时写「制作人」", () => {
-    expect(card(stats, null).address).toBe("制作人");
-    expect(card(stats, "   ").address).toBe("制作人");
+  it("没设称呼时写「团长」", () => {
+    expect(card(stats, null).address).toBe("团长");
+    expect(card(stats, "   ").address).toBe("团长");
   });
 
   it("跨度标签写当前的跨度", () => {

@@ -10,14 +10,17 @@
 export function contentSecurityPolicy(standAssetsUrl: string | undefined): string {
   const stands = origin(standAssetsUrl);
   const standsSource = stands ? ` ${stands}` : "";
+  const isDev = process.env.NODE_ENV === "development";
+  const scriptSrc = isDev ? "'self' 'unsafe-inline' 'unsafe-eval'" : "'self' 'unsafe-inline'";
+  const connectSrc = isDev ? `'self' ws: http:${standsSource}` : `'self'${standsSource}`;
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob:${standsSource}`,
     `media-src 'self'${standsSource}`,
     "font-src 'self'",
-    `connect-src 'self'${standsSource}`,
+    `connect-src ${connectSrc}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

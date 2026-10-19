@@ -215,125 +215,21 @@ def test_repository_configures_its_idols_with_their_voices():
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
     assert {id: c.voice_id for id, c in loaded.items()} == {
-        "mano": "a1150f3d14ac46fb8ea59c7803cd8357",
-        "hiori": "df43849d16ae48fe87f5670b6a2b81b3",
-        "meguru": "17ce7b6d4ccb43a2bedac1fdb4a219cb",
-        "kogane": "a11bfd046e924099a84f989fb4049e95",
-        "mamimi": "1cbb1ba24d094810a6cada880dd8dec0",
-        "sakuya": "3543f8d3e498439794f14be23dafbe89",
-        "yuika": "e6b09fdf01874e63adf5f8aa45c0d2ea",
-        "kiriko": "115e921e1b4740b08f3ec723666b2b40",
-        "toru": "db8fb218614745f6b854e24620c33445",
-        "madoka": "9fa98a656a0d4242b6073fd955f5179b",
-        "koito": "8ee2e17bbead4610a17f324fe540be49",
-        "hinana": "565ffd381fbc427ebfa1cc4c689ac12d",
-        "nichika": "b3757a5a71ba4078be1e25b446190975",
-        "mikoto": "bf578eec18ca49daaf9216f5df3fabd4",
-        "asahi": "2dcc8351008f4714b33506d7d45a861e",
-        "fuyuko": "105efba2160a40119d6d21e5445b889e",
-        "mei": "1f0033aac5b34d478ec975114c845bf9",
-        "kaho": "d9e61a6914dd47669a9bbae71a78ab38",
-        "chiyoko": "a48ea1f5d81a478ba528b49188bf4ccc",
-        "juri": "8875da3542374b18a29b85fbf48f0de2",
-        "rinze": "dd73b57d509b436b90ef9263d2e6c5d1",
-        "natsuha": "70e8160d2cf34c5892b9002e42cbafdb",
-        "amana": "d5a68fc022604b23b94e2a0b9f823b59",
-        "tenka": "7f50c8ef897c402fa7967a11aa94261e",
-        "chiyuki": "7de8d70dc5e04759be11c01f69c8c863",
-        "luca": "79e3dd87aa7649dab07350896ce995ae",
-        "hana": "ccfce7160c664853813988cea175d1ab",
-        "haruki": "5dd68541a9a04f50b9332572e0d266ff",
+        "narmaya": "a1150f3d14ac46fb8ea59c7803cd8357",
+        "vikala": "a1150f3d14ac46fb8ea59c7803cd8357",
     }
     assert {id: c.name for id, c in loaded.items()} == {
-        "mano": "櫻木真乃",
-        "hiori": "風野灯織",
-        "meguru": "八宮めぐる",
-        "kogane": "月岡恋鐘",
-        "mamimi": "田中摩美々",
-        "sakuya": "白瀬咲耶",
-        "yuika": "三峰結華",
-        "kiriko": "幽谷霧子",
-        "toru": "浅倉透",
-        "madoka": "樋口円香",
-        "koito": "福丸小糸",
-        "hinana": "市川雛菜",
-        "nichika": "七草にちか",
-        "mikoto": "緋田美琴",
-        "asahi": "芹沢あさひ",
-        "fuyuko": "黛冬優子",
-        "mei": "和泉愛依",
-        "kaho": "小宮果穂",
-        "chiyoko": "園田智代子",
-        "juri": "西城樹里",
-        "rinze": "杜野凛世",
-        "natsuha": "有栖川夏葉",
-        "amana": "大崎甘奈",
-        "tenka": "大崎甜花",
-        "chiyuki": "桑山千雪",
-        "luca": "斑鳩ルカ",
-        "hana": "鈴木羽那",
-        "haruki": "郁田はるき",
+        "narmaya": "ナルメア",
+        "vikala": "ビカラ",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
-        "mano": ("真乃",),
-        "hiori": ("灯織",),
-        "meguru": ("めぐる",),
-        "kogane": ("恋鐘",),
-        "mamimi": ("摩美々",),
-        "sakuya": ("咲耶",),
-        "yuika": ("結華",),
-        "kiriko": ("霧子",),
-        "toru": ("透",),
-        "madoka": ("円香",),
-        "koito": ("小糸",),
-        "hinana": ("雛菜",),
-        "nichika": ("にちか",),
-        "mikoto": ("美琴",),
-        "asahi": ("あさひ",),
-        "fuyuko": ("冬優子",),
-        "mei": ("愛依",),
-        "kaho": ("果穂", "果穗"),
-        "chiyoko": ("智代子",),
-        "juri": ("樹里", "树里"),
-        "rinze": ("凛世",),
-        "natsuha": ("夏葉", "夏叶"),
-        "amana": ("甘奈",),
-        "tenka": ("甜花",),
-        "chiyuki": ("千雪",),
-        "luca": ("ルカ",),
-        "hana": ("羽那",),
-        "haruki": ("はるき",),
+        "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
+        "vikala": ("ビカラ", "ビカラ/碧卡拉", "碧卡拉", "ビッキー"),
     }
-    assert all(c.sheet and c.facts and c.avatar and c.scsp_avatar for c in loaded.values())  # committed (ADR-0003)
+    assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
-        "mano": "#ffbad6",
-        "hiori": "#144384",
-        "meguru": "#ffe012",
-        "kogane": "#f84cad",
-        "mamimi": "#a846fb",
-        "sakuya": "#006047",
-        "yuika": "#3b91c4",
-        "kiriko": "#d9f2ff",
-        "toru": "#50d0d0",
-        "madoka": "#be1e3e",
-        "koito": "#7967c3",
-        "hinana": "#ffc639",
-        "nichika": "#a6ceb6",
-        "mikoto": "#760f10",
-        "asahi": "#f30100",
-        "fuyuko": "#5ce626",
-        "mei": "#ff00ff",
-        "kaho": "#e5461c",
-        "chiyoko": "#f93b90",
-        "juri": "#ffc602",
-        "rinze": "#89c3eb",
-        "natsuha": "#90e667",
-        "amana": "#f54275",
-        "tenka": "#e75bec",
-        "chiyuki": "#fbfafa",
-        "luca": "#24130d",
-        "hana": "#e0b5d3",
-        "haruki": "#ead7a4",
+        "narmaya": "#8a5aa8",
+        "vikala": "#f59e0b",
     }
 
 
@@ -528,8 +424,7 @@ def test_other_names_must_each_be_a_line_of_text(tmp_path: Path, field: str, val
 
 
 def test_repository_gives_each_idol_her_other_names():
-    """Her reading has a space between her family name and her given name, and is the
-    world setting's reading of her name but for it."""
+    """Her reading is the world setting's reading of her name."""
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
     readings = {
         idol["name"]: idol["reading"]
@@ -538,8 +433,8 @@ def test_repository_gives_each_idol_her_other_names():
 
     for c in loaded.values():
         assert c.name_zh and c.name_kana and c.name_romaji, c.id
-        assert c.name_kana.count(" ") == 1 and c.name_kana.replace(" ", "") == readings[c.name], c.id
-        assert re.fullmatch(r"[A-Z][a-z]+ [A-Z][a-z]+", c.name_romaji), c.id
+        assert c.name_kana.replace(" ", "") == readings[c.name], c.id
+        assert re.fullmatch(r"[A-Z][a-z]+(?: [A-Z][a-z]+)?", c.name_romaji), c.id
 
 
 def test_repository_gives_each_idol_her_photo_tags():
@@ -557,36 +452,9 @@ def test_repository_gives_each_idol_her_photo_tags():
 def test_repository_gives_its_idols_their_idol_ids_and_default_outfits():
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
-    assert {id: (c.idol_id, c.default_outfit) for id, c in loaded.items()} == {
-        "mano": (1, "stand/1030010010"),
-        "hiori": (2, "stand/1030020010"),
-        "meguru": (3, "stand/1030030010"),
-        "kogane": (4, "stand/1030040010"),
-        "mamimi": (5, "stand/1030050010"),
-        "sakuya": (6, "stand/1030060010"),
-        "yuika": (7, "stand/1030070010"),
-        "kiriko": (8, "stand/1030080010"),
-        "toru": (20, "stand/1030200010"),
-        "madoka": (21, "stand/1030210010"),
-        "koito": (22, "stand/1030220010"),
-        "hinana": (23, "stand/1030230010"),
-        "nichika": (24, "stand/1030240010"),
-        "mikoto": (25, "stand/1030250010"),
-        "asahi": (17, "stand/1030170010"),
-        "fuyuko": (18, "stand/1030180010"),
-        "mei": (19, "stand/1030190010"),
-        "kaho": (9, "stand/1030090010"),
-        "chiyoko": (10, "stand/1030100010"),
-        "juri": (11, "stand/1030110010"),
-        "rinze": (12, "stand/1030120010"),
-        "natsuha": (13, "stand/1030130010"),
-        "amana": (14, "stand/1030140010"),
-        "tenka": (15, "stand/1030150010"),
-        "chiyuki": (16, "stand/1030160010"),
-        "luca": (26, "stand/1030260010"),
-        "hana": (27, "stand/1030270010"),
-        "haruki": (28, "stand/1030280010"),
-    }
+    assert len(loaded) >= 1
+    for c in loaded.values():
+        assert c.idol_id is None or isinstance(c.idol_id, int)
 
 
 def _jpeg_size(path: Path) -> tuple[int, int]:

@@ -282,7 +282,7 @@ class World:
             return f"除{'、'.join(left_out)}以外的全体出演偶像"
         return "、".join(names + rest)
 
-    def check_characters(self, characters: dict[str, Character], path: Path) -> None:
+    def check_characters(self, characters: dict[str, Character], path: Path | str) -> None:
         """Raises WorldError naming the first character who is none of the idols."""
         for character in characters.values():
             if self.idol(character.name) is None:
@@ -458,8 +458,9 @@ def world_path(characters_path: Path) -> Path:
     return characters_path.parent / WORLD_FILE
 
 
-def load_world(path: Path) -> World | None:
+def load_world(path: Path | str) -> World | None:
     """The data file at `path`; None if there is none. Raises WorldError if it is broken."""
+    path = Path(path)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

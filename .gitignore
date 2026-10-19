@@ -4,6 +4,17 @@
 !.env.example
 .claude/settings.local.json
 
+# 本地虚拟环境与临时脚本
+/.venv/
+/scratch/
+*.bak
+
+# 数据与音频采样
+/data/har_extracted/
+/data/voice_samples/
+/data/*.db-shm
+/data/*.db-wal
+
 # impeccable 的平台二进制按需下载（启动脚本会自动取对应平台的版本）；.claude/skills/ 下的技能都是指向 .agents/skills/ 的链接
 .agents/skills/impeccable/scripts/bin/
 

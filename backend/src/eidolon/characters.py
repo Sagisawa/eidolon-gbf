@@ -165,12 +165,12 @@ class Character:
         return self.photo_tag is not None and self.photo_appearance is not None
 
 
-def load_characters(path: Path, require_sheets: bool = True) -> dict[str, Character]:
+def load_characters(path: Path | str, require_sheets: bool = True) -> dict[str, Character]:
     """Read the character configuration at `path`, keyed by identifier in file order.
 
     Without `require_sheets`, a character whose sheet file is missing is loaded with an
     empty sheet, as when drafting it."""
-    path = path.resolve()
+    path = Path(path).resolve()
     try:
         config = tomllib.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

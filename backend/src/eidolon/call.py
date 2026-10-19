@@ -494,7 +494,13 @@ class FishTTS(InterruptsFirst, ProxiedWebsocket, FishAudioTTSService):
         """Send what the sentence aggregator holds back, waiting for what follows."""
         held = await self._text_aggregator.flush()
         if held:
-            await self._push_tts_frames(AggregatedTextFrame(held.text, held.type, raw_text=held.text))
+            frame = AggregatedTextFrame(held.text, held.type, raw_text=held.text)
+            if hasattr(self, "_handle_aggregated_text"):
+                await self._handle_aggregated_text(frame)
+            elif hasattr(self, "_push_tts_frames"):
+                await self._push_tts_frames(frame)
+            else:
+                await self.process_frame(frame, FrameDirection.DOWNSTREAM)
 
     async def _end_segment(self) -> None:
         """Have the segment being voiced finish, once all its audio is in; if it takes

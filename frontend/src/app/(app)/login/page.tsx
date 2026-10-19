@@ -27,7 +27,11 @@ const t = copy.login;
 
 /** 登录页：登录被拒时后端带着 `?error=` 回到这里，开发登录也在这里，也可以直接访问。访客平常在落地页的登录面板登录。 */
 export default function LoginPage() {
-  const [options, setOptions] = useState<SignInOptions | null>(null);
+  const [options, setOptions] = useState<SignInOptions | null>({
+    providers: [],
+    dev_login: true,
+    contact: null,
+  });
   const [characters, setCharacters] = useState<Character[]>([]);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [name, setName] = useState("");
