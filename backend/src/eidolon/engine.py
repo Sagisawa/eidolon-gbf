@@ -79,7 +79,9 @@ photo, being generated; a reply not recorded drops it. From then on her prompt c
 tag before her reply, as she wrote it, so she knows what she sent; that of a photo not sent
 after all marked failed, and she is told what that means (`photos.NOT_RECEIVED`).
 Retrieval, memory and the judge model never read it. How the photo comes out is not the
-turn's to wait for: `photo_came_out` tells, once it has.
+turn's to wait for: `photo_came_out` tells, once it has. In a turn that could have no photo,
+she is told in that system message that she cannot send photos (`photos.CANNOT_SEND`), the
+judge model not asked.
 
 She learns of the conversation's events (GLOSSARY.md「对话事件」) from a line of narration
 before the user's words that came next, or before what the user is saying now; it leaves
@@ -116,7 +118,7 @@ from eidolon.judge import JudgeError
 from eidolon.llm import ChatMessage, Reasoning, Tool, ToolCall, TurnLLMs
 from eidolon.memory import Memories
 from eidolon.own_keys import OwnKeyFailed
-from eidolon.photos import NOT_RECEIVED, Eligibility, Photos, photo_turn
+from eidolon.photos import CANNOT_SEND, NOT_RECEIVED, Eligibility, Photos, photo_turn
 from eidolon.producer import effective_timezone, local_date, now_prompt, producer_prompt
 from eidolon.reply_format import (
     format_instructions,
@@ -582,7 +584,8 @@ class ConversationEngine:
             now_prompt(
                 profile, now, timezone, in_call=in_call is not None, affinity_lines=affinity_lines
             ),
-            retrieved, text, voiced_by, photo_asked and photo_asked.prompt,
+            retrieved, text, voiced_by,
+            CANNOT_SEND if eligibility is None else photo_asked and photo_asked.prompt,
         )
 
         # Offered on every turn, so that what goes before the history (the tools, with
