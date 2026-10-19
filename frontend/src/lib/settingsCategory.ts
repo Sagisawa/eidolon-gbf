@@ -16,7 +16,7 @@ import { PROVIDER_LABELS, type Provider } from "@/lib/signIn";
 export const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
   ["call", "appearance", "own-keys"],
-  ["sign-in"],
+  ["sign-in", "data-package"],
   ["about"],
 ] as const;
 

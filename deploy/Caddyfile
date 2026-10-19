@@ -2,6 +2,11 @@
 # 浏览器只有在 HTTPS 下才允许使用麦克风。
 
 {$EIDOLON_DOMAIN} {
+	# 导入数据包是一个最大 200 MiB 的请求体，后端自己会拒绝更大的、说清楚为什么；这里比它
+	# 略宽，只挡远远超出的。只卡这一个地址，别的不动
+	request_body /api/account/data-package {
+		max_size 201MiB
+	}
 	# 对话回复是流式的（SSE），Caddy 会随到随发，这里不加压缩
 	reverse_proxy 127.0.0.1:3000
 }

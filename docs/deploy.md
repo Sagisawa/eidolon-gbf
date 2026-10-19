@@ -67,6 +67,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 第一次启动时 Caddy 会申请证书，稍等片刻后用浏览器打开 `https://你的域名`。后端启动失败时（缺少人设文件、对话模型检查不通过等），用 `docker compose -f docker-compose.prod.yml logs backend` 查看原因。
 
+不用自带的 Caddy、自己配反向代理（nginx 等）的，要给 `/api/account/data-package` 这一个地址放开请求体的大小上限到 200 MiB：用户导入的数据包就是这个地址的请求体，nginx 默认只放 1 MB（`client_max_body_size 200m;`）。后端自己也会拒绝超过 200 MiB 的数据包。
+
 下面的命令都要带上 `-f docker-compose.prod.yml`。嫌麻烦的话，在这台服务器上执行一次 `export COMPOSE_FILE=docker-compose.prod.yml`（或者写进 shell 的配置文件），之后 README 和配置指南里的 `docker compose ...` 命令就能原样使用。
 
 ## 同步剧情库
@@ -579,6 +581,8 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 `git pull` 不能省：人设、`deploy/` 下的脚本和 compose 配置本身都来自仓库，不在镜像里。
+
+`deploy/Caddyfile` 变了的那次升级（比如加了数据包导入地址的大小上限），`up -d` 不会让 Caddy 重新读它，要再执行一次 `docker compose -f docker-compose.prod.yml restart caddy`。服务器上另有叠加的 Caddyfile 的，同样改过去。
 
 CI 在 main 上的每次推送都发布 `:main`（默认用的就是它）和 `:sha-<7 位提交哈希>`，推送 `v1.2.3` 这样的标签时另外发布 `:1.2.3` 和 `:latest`。升级后出了问题，在 `.env` 里把 `EIDOLON_IMAGE_TAG` 设为上一版的 `sha-…`（在仓库的 Packages 页面或 `git log --oneline` 里找），再 `up -d` 即可回滚；之后删掉这一行，回到跟随 main。只回滚镜像不回滚数据库：新版本改过数据库结构时，旧版本不一定能用，回滚前看一眼这次升级的提交说明。
 
