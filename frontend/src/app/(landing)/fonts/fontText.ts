@@ -33,6 +33,15 @@ function configured(key: string): string[] {
 /** 每位角色的显示名。 */
 const characterNames = () => configured("name");
 
+/** 每位角色的中文名。 */
+const characterNamesZh = () => configured("name_zh");
+
+/** 每位角色的假名。 */
+const characterNamesKana = () => configured("name_kana");
+
+/** 每位角色的简介。 */
+const characterIntros = () => configured("intro");
+
 /** 语气提示：方括号里的英文（`[softly]`），照抄后端 delivery_cues.py 的 `_CUE`。只给语音合成听，页面上不显示。
  * 后端还会去掉括号里的旁白（`（笑）`），这里不去：收的字只多不少，子集不会缺字。 */
 const DELIVERY_CUE = /\[[A-Za-z][A-Za-z ,'\-]*\]/g;
@@ -73,6 +82,9 @@ export function landingText(): string {
     ...strings(copy.login),
     ...Object.values(PROVIDER_LABELS),
     ...characterNames(),
+    ...characterNamesZh(),
+    ...characterNamesKana(),
+    ...characterIntros(),
     ...greetingJapanese(),
     ...greetingSubtitles(),
     ...callOpenerJapanese(),

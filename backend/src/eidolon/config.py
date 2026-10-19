@@ -463,6 +463,14 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        try:
+            import dotenv
+
+            env_file = dotenv.find_dotenv(usecwd=True)
+            if env_file:
+                dotenv.load_dotenv(env_file)
+        except ImportError:
+            pass
         if "EIDOLON_OWN_LLM_REQUIRED" in os.environ:  # users once had to bring their own LLM
             log.warning(
                 "EIDOLON_OWN_LLM_REQUIRED no longer does anything: users need not bring their"
@@ -537,11 +545,19 @@ def _bailian_stt_model() -> str:
 
 
 def database_path_from_env() -> Path:
-    return Path(os.environ.get("EIDOLON_DATABASE_PATH", "data/eidolon.db"))
+    if "EIDOLON_DATABASE_PATH" in os.environ:
+        return Path(os.environ["EIDOLON_DATABASE_PATH"])
+    if Path("data/eidolon.db").exists():
+        return Path("data/eidolon.db")
+    return Path("../data/eidolon.db")
 
 
 def characters_path_from_env() -> Path:
-    return Path(os.environ.get("EIDOLON_CHARACTERS_PATH", "../characters/characters.toml"))
+    if "EIDOLON_CHARACTERS_PATH" in os.environ:
+        return Path(os.environ["EIDOLON_CHARACTERS_PATH"])
+    if Path("characters/characters.toml").exists():
+        return Path("characters/characters.toml")
+    return Path("../characters/characters.toml")
 
 
 def story_path_from_env() -> Path:
@@ -635,6 +651,17 @@ def proxy_from_env() -> ProxySettings:
                 f" {'、'.join(PROXIED_SERVICES)}，或者写 all 表示全部"
             )
     url = os.environ.get("EIDOLON_PROXY_URL", "").strip()
+    if not url:
+        try:
+            import urllib.request
+            sys_proxies = urllib.request.getproxies()
+            sys_url = sys_proxies.get("https") or sys_proxies.get("http")
+            if sys_url:
+                url = sys_url
+                if not services:
+                    services.update({"tts", "own_tts"})
+        except Exception:
+            pass
     if not url:
         return ProxySettings(None, False, frozenset(services))
     try:

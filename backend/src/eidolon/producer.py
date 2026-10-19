@@ -93,30 +93,30 @@ def local_date(now: datetime, timezone: str) -> date:
 
 def producer_prompt(profile: ProducerProfile) -> str:
     """The prompt section about the user: who they are, the same from turn to turn."""
-    lines = ["# 制作人", "和你对话的是你的制作人，也就是 283 事务所的制作人。"]
+    lines = ["# 团长", "和你对话的是你的骑空团团长（格兰/姬塔），你们乘坐格兰赛法号一同在空之世界旅行。"]
     if profile.form_of_address:
         lines.append(
-            f"制作人希望你称呼对方为「{profile.form_of_address}」。这只是叫法，"
-            "对方仍然是你的制作人；请按你自己的性格和习惯，在合适的时候这样称呼。"
+            f"团长希望你称呼对方为「{profile.form_of_address}」。这只是叫法，"
+            "对方仍然是你的团长；请按你自己的性格和习惯，在合适的时候这样称呼。"
         )
     if profile.gender:
         lines.append(
-            f"制作人是{_GENDER_NAMES[profile.gender]}。这只影响你现在怎么对待对方；"
+            f"团长是{_GENDER_NAMES[profile.gender]}。这只影响你现在怎么对待对方；"
             "回忆原作剧情时，剧情中发生过的事保持原样，不要改写。"
         )
     else:
-        lines.append("制作人是男性，和原作一致。")
+        lines.append("团长是男性或女性，和原作一致。")
     if profile.birthday:
         lines.append(
-            f"制作人的生日是{profile.birthday.month}月{profile.birthday.day}日，"
-            "这是制作人自己在档案里填的；记忆里如果有不一样的说法，以这里为准。"
+            f"团长的生日是{profile.birthday.month}月{profile.birthday.day}日，"
+            "这是团长自己在档案里填的；记忆里如果有不一样的说法，以这里为准。"
             "被问起时可以回答，平时不要主动提起。"
         )
     return "\n".join(lines)
 
 
-_TYPING = "制作人正在用文字和你聊天，你们没有在打电话；不想聊的时候就说不想聊，不要说挂电话或挂断。"
-_IN_A_CALL = "制作人正在和你打电话。"
+_TYPING = "团长正在用文字和你聊天，你们没有在打电话；不想聊的时候就说不想聊，不要说挂电话或挂断。"
+_IN_A_CALL = "团长正在和你打电话。"
 
 
 def now_prompt(
@@ -133,13 +133,13 @@ def now_prompt(
     lines = [
         "# 此刻",
         f"现在是 {local.year}年{local.month}月{local.day}日"
-        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（制作人所在时区 {timezone}）。",
+        f"（星期{_WEEKDAYS[local.weekday()]}）{local:%H:%M}（团长所在时区 {timezone}）。",
         _IN_A_CALL if in_call else _TYPING,
     ]
     if profile.birthday and is_birthday(profile.birthday, local.date()):
         lines.append(
-            "今天是制作人的生日。请在合适的时候用你自己的方式祝福一次："
-            "先回应制作人说的话，不要每句都提。"
+            "今天是团长的生日。请在合适的时候用你自己的方式祝福一次："
+            "先回应团长说的话，不要每句都提。"
         )
     lines += affinity_lines
     return "\n".join(lines)

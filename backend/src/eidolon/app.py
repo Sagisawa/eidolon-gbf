@@ -197,9 +197,12 @@ def _call_opener(character: Character, assets_url: str | None) -> dict | None:
 
 def _call_poster(character: Character, assets_url: str | None) -> str | None:
     """Her card on the landing page's incoming call (ADR-0003, 2026-10-12), at
-    `call_poster_path`, listed without asking the bucket whether it is there (the page shows
-    her colour instead when it is not). None unless the stand assets are served."""
-    return f"{assets_url}/{call_poster_path(character)}" if assets_url else None
+    `call_poster_path`, or fallback to local character background."""
+    if assets_url:
+        return f"{assets_url}/{call_poster_path(character)}"
+    if character.background:
+        return f"/api/characters/{character.id}/background"
+    return None
 
 
 def _voxels(character: Character, assets_url: str | None) -> str | None:
@@ -595,3 +598,12 @@ class _TurnResponse(StreamingResponse):
 
 def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def __getattr__(name: str):
+    if name == "app":
+        from eidolon.assembly import build
+        from eidolon.config import Settings
+
+        return create_app(build(Settings.from_env()))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

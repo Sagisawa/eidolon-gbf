@@ -74,6 +74,9 @@ export function Landing({
               {copy.app.name}
             </h1>
             <p className="lp-lede">{copy.app.description}</p>
+            <div style={{ marginTop: "2.5rem" }}>
+              <LandingEntry isSignedIn={isSignedIn} label={entryLabel} className={buttonVariants({ size: "lg" })} />
+            </div>
           </div>
           <p className="lp-disclaimer">{t.disclaimer}</p>
         </section>
