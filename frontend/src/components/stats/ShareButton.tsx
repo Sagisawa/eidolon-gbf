@@ -103,15 +103,20 @@ export function ShareButton({
 }
 
 /** The card as a PNG, once its pictures are in and the fonts for every character on it are
- * loaded, in each weight it is set in. */
+ * loaded, in each weight it is set in. Each family is loaded by itself, and one that cannot be
+ * is left to the browser's fallback: next/font's metric fallback is `local("Arial")`, which
+ * Android does not have, and it would fail the load of the whole font list. */
 async function draw(node: HTMLElement): Promise<Blob> {
   await Promise.all([...node.querySelectorAll("img")].map((img) => img.decode().catch(() => {})));
-  const family = getComputedStyle(node).fontFamily;
   const text = `${node.textContent ?? ""}…`; // and the ellipsis of a name cut short
   const styles = [node, ...node.querySelectorAll("*")].map((el) => getComputedStyle(el));
   const weights = new Set(styles.map((style) => style.fontWeight));
-  await Promise.all([...weights].map((weight) => document.fonts.load(`${weight} 16px ${family}`, text)));
   const families = new Set(styles.flatMap((style) => style.fontFamily.split(",").map(unquote)));
+  await Promise.all(
+    [...weights].flatMap((weight) =>
+      [...families].map((family) => document.fonts.load(`${weight} 16px "${family}"`, text).catch(() => {})),
+    ),
+  );
   const cssText = await fontFaces(families, text);
   return domToBlob(node, {
     width: SHARE_WIDTH,
