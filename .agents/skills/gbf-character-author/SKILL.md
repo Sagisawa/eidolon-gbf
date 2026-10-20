@@ -1,0 +1,224 @@
+---
+name: gbf-character-author
+description: Author and integrate a new Granblue Fantasy character into eidolon-gbf. Use when adding, authoring, configuring, or expanding a GBF character (sheets, facts, world.json, characters.toml, scenarios, audio, verification).
+---
+
+# GBF Character Authoring & Integration
+
+Standardised, end-to-end discipline for bringing a Granblue Fantasy companion onto the Grandcypher in `eidolon-gbf`. This workflow guarantees *canon-grounded* dialogue, zero lore contamination (*airtight* isolation against idol agency terminology), and 100% automated test compliance.
+
+Consult supporting references as needed:
+- Canonical factions and anti-pollution vocabulary: [`references/factions-and-terms.md`](references/factions-and-terms.md)
+- In-character prompt template: [`references/sheet-template.md`](references/sheet-template.md)
+- High-density facts and sources template: [`references/facts-template.md`](references/facts-template.md)
+
+---
+
+## The Eight-Phase Execution Pipeline
+
+Execute the following phases in sequence. Do NOT skip steps or mark completion prematurely.
+
+```mermaid
+flowchart TD
+    P1["Phase 1: Canonical Research"] --> P2["Phase 2: Config & Asset Scaffolding"]
+    P2 --> P3["Phase 3: Character Sheet Authoring"]
+    P3 --> P4["Phase 4: High-Density Facts & Sources"]
+    P4 --> P5["Phase 5: World Lore Registration"]
+    P5 --> P6["Phase 6: Scenario DB Ingestion"]
+    P6 --> P7["Phase 7: Readings & Font Coverage"]
+    P7 --> P8["Phase 8: Automated Verification & QA"]
+```
+
+---
+
+### Phase 1: Canonical Research & Profile Definition
+
+Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate Episodes):
+
+1. **Identity & Heritage**:
+   - Official Japanese Name (e.g. `ヴァジラ`), Hiragana Reading (e.g. `ゔぁじら`), Romanized/English Name (e.g. `Vajra`), Chinese Translation (e.g. `瓦吉拉` / `狗神将`).
+   - Race: Human, Draph (牛族), Erune (狐耳族), Harvin (矮人族), or Primal Beast / Archangel.
+   - Elemental affinity and proficient weapon types.
+2. **Faction / Crew Alignment**:
+   - Determine target faction in `world.json`: `グランサイファー` (Core Crew), `十二神将` (Divine Generals), `十天衆` (Eternals), `四騎士` (Dragon Knights), `組織` (Society), or others.
+3. **The Dancho Bond & Specific Honorifics**:
+   - Determine how the character addresses the Captain:
+     - `団長ちゃん` (Narmaya / spoiled elder sister mode)
+     - `団長っち` (Vicky / hyperactive mouse-ear mode)
+     - `団長殿` (Vajra, Siegfried / samurai / formal warrior mode)
+     - `団長さん` (Vikala plain, Lyria, Katalina / polite mode)
+     - `団長` (Lancelot, Zeta / equal comrade mode)
+4. **Theme Color**:
+   - Extract primary hex code representing the character's eye/hair/attire (e.g. `#8a5aa8` for Narmaya, `#5b7fa4` for Vikala).
+
+*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, and theme color.
+
+---
+
+### Phase 2: Metadata & Asset Scaffolding
+
+1. **Register in `characters/characters.toml`**:
+   Append a `[[characters]]` block to `characters/characters.toml`:
+   ```toml
+   [[characters]]
+   id = "{character_id}"
+   name = "{Official Japanese Name}"
+   name_zh = "{Chinese Translation}"
+   name_kana = "{Hiragana Reading}"
+   name_romaji = "{English Name}"
+   intro = "{1~2 sentence introductory summary for character picker}"
+   voice_id = "{Fish Audio Voice ID or placeholder}"
+   sheet = "sheets/{character_id}.md"
+   avatar = "avatars/{character_id}.jpg"
+   color = "{#HEX_COLOR}"
+   background = "backgrounds/{character_id}.jpg"
+   facts = "facts/{character_id}.md"
+   liked_gifts = ["{gift_id_1}", "{gift_id_2}"]
+   speakers = ["{Official Japanese Name}", "{Chinese Translation}"]
+   greeting = "[softly] {In-character Japanese greeting spoken when tapped}"
+   greeting_subtitle = "{Chinese translation of the greeting}"
+   call_opener = "[softly] {In-character phone opening greeting}"
+   call_opener_subtitle = "{Chinese translation of call opener}"
+   photo_tag = "{Danbooru character tag}"
+   photo_appearance = "{Comma-separated visual tags for image gen}"
+   ```
+2. **Visual Assets**:
+   - Place square portrait at `characters/avatars/{character_id}.jpg` (recommended 512x512).
+   - Place background / standing art at `characters/backgrounds/{character_id}.jpg` (recommended 1080x1920 or vertical crop).
+3. **Audio Greeting**:
+   - Place introductory voice snippet at `frontend/public/sounds/gbf/{character_id}.mp3`.
+
+*Completion Criterion*: `characters.toml` contains the block, and avatar/background files exist on disk.
+
+---
+
+### Phase 3: Character Sheet Authoring (`characters/sheets/{character_id}.md`)
+
+Follow [`references/sheet-template.md`](references/sheet-template.md) to author the core prompt.
+
+#### Critical Anti-Pollution Rules
+1. **Prompt the Positive**: Always state the Skyfarer / Grandcypher reality ("你所在的是空之世界的格兰赛法号骑空团，同伴们是共同在空之世界冒险航行的伙伴").
+2. **Zero Forbidden Words**: Do NOT write words like "事务所", "283", or "制作人" even in negations.
+3. **Captain Priority**: Clarify that Dancho is the emotional pillar, most trusted companion, or commander.
+4. **Tone Duality**: If the character has a persona switch (e.g. Vikala's ears, Narmaya's sword stances vs spoiled sister mode), specify clear transition triggers.
+
+*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, and passes zero-forbidden-word scan.
+
+---
+
+### Phase 4: High-Density Facts & Sources Authoring
+
+Follow [`references/facts-template.md`](references/facts-template.md):
+
+1. **Facts File (`characters/facts/{character_id}.md`)**:
+   - Author **150 ~ 250 lines** of structured facts.
+   - Must cover:
+     - Basic origin, race, elemental affinities, battle style.
+     - Signature Ougi (奥义) and skill names in Japanese with descriptions.
+     - All version variants (SSR initial, Summer/Yukata, Valentine, Grand, 5-star uncap).
+     - Major story arcs and Fate Episodes.
+     - **10 years of seasonal lines**: Valentine chocolate, White Day return gifts, New Year visits, Birthday wishes to Dancho.
+     - Food preferences, quirks, and off-duty relationships with other skyfarers.
+2. **Sources File (`characters/facts/{character_id}.sources.md`)**:
+   - Cite official Fate Episodes, event dates, CD single catalogs, and Grandcypher Channel broadcasts.
+
+*Completion Criterion*: Facts file contains >= 150 lines of grounded lore, and `.sources.md` exists.
+
+---
+
+### Phase 5: World Lore Registration (`characters/world.json`)
+
+Integrate the character into the sky realm knowledge graph:
+
+1. **Register Member**:
+   - Add `{ "name": "{Official Japanese Name}", "reading": "{Hiragana}" }` into `idols` array in `characters/world.json`.
+2. **Assign Faction**:
+   - In `units`, locate or add the character's faction (e.g. `グランサイファー`, `十二神将`, `四騎士`).
+   - Add `{Official Japanese Name}` to `members` list.
+3. **Register Character Songs & CDs** (if applicable):
+   - Add song entries in `songs` with title, singers, and catalog number.
+   - Add release records in `releases` with release date and Aniplex/Cygames catalog ID (e.g. `SVWC-70520`).
+4. **Register Live Performances** (if applicable):
+   - Add appearances at *Granblue Fantasy Fes* (グラブルフェス キャラクターライブ) in `lives` with venue and setlist.
+
+*Completion Criterion*: `World.check_characters` succeeds without raising `WorldError`.
+
+---
+
+### Phase 6: Scenario Data & Dialogue Ingestion (`data/eidolon.db`)
+
+To enable semantic recall (RAG) during live conversations:
+
+1. Prepare dialogue records in CSV (`speaker,ja,zh`) or JSON format.
+   - Include core Fate Episode dialogues (recruitment cutscenes).
+   - Include seasonal cutscene dialogues (Valentine, Birthday, New Year).
+2. Run the ingestion script:
+   ```bash
+   python .agents/skills/gbf-character-author/scripts/ingest_episodes.py \
+       --character-id {character_id} \
+       --category fate \
+       --title "{Official Japanese Name} 招募与命运剧情" \
+       --input-file path/to/dialogues.csv
+   ```
+3. Verify that `episode_lines` and `episode_fts` index the character's lines.
+
+*Completion Criterion*: Querying `SELECT COUNT(*) FROM episode_lines WHERE speaker = '{Official Japanese Name}'` returns > 0 lines.
+
+---
+
+### Phase 7: Pronunciation & Font Subsetting
+
+1. **Kana Readings (`characters/readings.toml`)**:
+   - If the character's name, weapon, or Ougi contains rare Kanji or unusual Katakana readings, add explicit pronunciation mappings so TTS engines pronounce them correctly:
+     ```toml
+     [[readings]]
+     surface = "泡沫夢幻"
+     reading = "ほうまつむげん"
+     ```
+2. **Frontend Font Subsetting (`frontend/src/app/(landing)/fonts/fontText.ts`)**:
+   - Check if the character's name or catchphrase contains uncommon CJK ideographs not already in `fontText.ts`. Add them if necessary to prevent font flicker on the landing page.
+
+*Completion Criterion*: Readings dictionary updated and verified.
+
+---
+
+### Phase 8: Automated Verification & Smoke Testing
+
+Run the full automated verification suite to guarantee quality:
+
+1. **Run Dedicated Character Validator**:
+   ```bash
+   python .agents/skills/gbf-character-author/scripts/validate_character.py {character_id}
+   ```
+   *Must report*: `[PASS] Character '{character_id}' passed all validation gates.`
+
+2. **Run Pytest Suite**:
+   ```bash
+   .\.venv\Scripts\python.exe -m pytest \
+       backend/tests/test_characters.py \
+       backend/tests/test_world_setting.py \
+       backend/tests/test_producer_profile.py
+   ```
+   *Must report*: `122 passed` (or 100% pass rate).
+
+3. **Render System Prompt Audit**:
+   Execute Python one-liner to inspect generated prompt:
+   ```bash
+   .\.venv\Scripts\python.exe -c "
+   import json, sys
+   from datetime import date
+   from eidolon.world import World
+   sys.stdout.reconfigure(encoding='utf-8')
+   w = World.from_json(json.loads(open('characters/world.json', encoding='utf-8').read()))
+   prompt = w.prompt('{Official Japanese Name}', date.today())
+   assert '事务所' not in prompt and '制作人' not in prompt
+   print('Prompt audit clean!')
+   "
+   ```
+
+4. **Frontend Typecheck**:
+   ```bash
+   npm run typecheck --prefix frontend
+   ```
+
+*Completion Criterion*: All automated tests pass, zero forbidden words detected, prompt renders cleanly.
