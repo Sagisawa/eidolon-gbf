@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-10-19",
+  "as_of": "2026-10-20",
   "office": {
     "name": "グランサイファー騎空団",
     "staff": [
@@ -34,6 +34,38 @@
         "sources": [
           "https://gbf.wiki/Rackam"
         ]
+      },
+      {
+        "name": "イオ",
+        "reading": "いお",
+        "position": "魔導士",
+        "sources": [
+          "https://gbf.wiki/Io"
+        ]
+      },
+      {
+        "name": "オイゲン",
+        "reading": "おいげん",
+        "position": "歴戦の兵士",
+        "sources": [
+          "https://gbf.wiki/Eugen"
+        ]
+      },
+      {
+        "name": "ロゼッタ",
+        "reading": "ろぜった",
+        "position": "魔導士",
+        "sources": [
+          "https://gbf.wiki/Rosetta"
+        ]
+      },
+      {
+        "name": "シェロカルテ",
+        "reading": "しぇろかるて",
+        "position": "よろず屋",
+        "sources": [
+          "https://gbf.wiki/Sierokarte"
+        ]
       }
     ]
   },
@@ -55,6 +87,87 @@
       "sources": [
         "https://gbf.wiki/Vikala"
       ]
+    },
+    {
+      "name": "ルリア",
+      "reading": "るりあ",
+      "unit": "グランサイファー",
+      "cv": "東山奈央",
+      "sources": [
+        "https://gbf.wiki/Lyria"
+      ]
+    },
+    {
+      "name": "カタリナ",
+      "reading": "かたりな",
+      "unit": "グランサイファー",
+      "cv": "沢城みゆき",
+      "sources": [
+        "https://gbf.wiki/Katalina"
+      ]
+    },
+    {
+      "name": "オクトー",
+      "reading": "おくとー",
+      "unit": "十天衆",
+      "cv": "銀河万丈",
+      "sources": [
+        "https://gbf.wiki/Eahta"
+      ]
+    },
+    {
+      "name": "フュンフ",
+      "reading": "ふゅんふ",
+      "unit": "十天衆",
+      "cv": "水田わさび",
+      "sources": [
+        "https://gbf.wiki/Funf"
+      ]
+    },
+    {
+      "name": "シエテ",
+      "reading": "しえて",
+      "unit": "十天衆",
+      "cv": "諏訪部順一",
+      "sources": [
+        "https://gbf.wiki/Seofon"
+      ]
+    },
+    {
+      "name": "ランスロット",
+      "reading": "らんすろっと",
+      "unit": "四騎士",
+      "cv": "小野友樹",
+      "sources": [
+        "https://gbf.wiki/Lancelot"
+      ]
+    },
+    {
+      "name": "サンダルフォン",
+      "reading": "さんだるふぉん",
+      "unit": "グランサイファー",
+      "cv": "鈴村健一",
+      "sources": [
+        "https://gbf.wiki/Sandalphon"
+      ]
+    },
+    {
+      "name": "ゼタ",
+      "reading": "ぜた",
+      "unit": "組織",
+      "cv": "花澤香菜",
+      "sources": [
+        "https://gbf.wiki/Zeta"
+      ]
+    },
+    {
+      "name": "バザラガ",
+      "reading": "ばざらが",
+      "unit": "組織",
+      "cv": "立木文彦",
+      "sources": [
+        "https://gbf.wiki/Vaseraga"
+      ]
     }
   ],
   "units": [
@@ -62,7 +175,10 @@
       "name": "グランサイファー",
       "reading": "ぐらんさいふぁー",
       "members": [
-        "ナルメア"
+        "ナルメア",
+        "ルリア",
+        "カタリナ",
+        "サンダルフォン"
       ],
       "sources": [
         "https://gbf.wiki/Grandcypher"
@@ -77,9 +193,545 @@
       "sources": [
         "https://gbf.wiki/Twelve_Divine_Generals"
       ]
+    },
+    {
+      "name": "十天衆",
+      "reading": "じゅってんしゅう",
+      "members": [
+        "オクトー",
+        "フュンフ",
+        "シエテ"
+      ],
+      "sources": [
+        "https://gbf.wiki/Eternals"
+      ]
+    },
+    {
+      "name": "四騎士",
+      "reading": "よんきし",
+      "members": [
+        "ランスロット"
+      ],
+      "sources": [
+        "https://gbf.wiki/Dragon_Knights"
+      ]
+    },
+    {
+      "name": "組織",
+      "reading": "そしき",
+      "members": [
+        "ゼタ",
+        "バザラガ"
+      ],
+      "sources": [
+        "https://gbf.wiki/Society"
+      ]
     }
   ],
-  "songs": [],
-  "releases": [],
-  "lives": []
+  "songs": [
+    {
+      "id": "泡沫夢幻・胡蝶刃",
+      "title": "泡沫夢幻・胡蝶刃",
+      "singers": [
+        "ナルメア"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70220"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/08/"
+      ]
+    },
+    {
+      "id": "Welcome to the PARADE",
+      "title": "Welcome to the PARADE",
+      "singers": [
+        "ビカラ"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70520"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/24/"
+      ]
+    },
+    {
+      "id": "はっするぴょん！",
+      "title": "はっするぴょん！",
+      "singers": [
+        "ビカラ"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70520"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/24/"
+      ]
+    },
+    {
+      "id": "年年歳歳・神将音頭",
+      "title": "年年歳歳・神将音頭",
+      "singers": [
+        "ビカラ"
+      ],
+      "special_unit": "十二神将",
+      "releases": [
+        "SVWC-70520"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/"
+      ]
+    },
+    {
+      "id": "キミとボクのミライ",
+      "title": "キミとボクのミライ",
+      "singers": [
+        "ルリア",
+        "カタリナ"
+      ],
+      "special_unit": "グランサイファー",
+      "releases": [
+        "SVWC-70089"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/01/"
+      ]
+    },
+    {
+      "id": "The Dragon Knights",
+      "title": "The Dragon Knights",
+      "singers": [
+        "ランスロット"
+      ],
+      "special_unit": "四騎士",
+      "releases": [
+        "SVWC-70149"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/05/"
+      ]
+    },
+    {
+      "id": "Ain Soph Aur",
+      "title": "Ain Soph Aur",
+      "singers": [
+        "サンダルフォン"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70490"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/19/"
+      ]
+    },
+    {
+      "id": "マホウのノート",
+      "title": "マホウのノート",
+      "singers": [
+        "ルリア"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70198"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/07/"
+      ]
+    },
+    {
+      "id": "OVER THE SKY",
+      "title": "OVER THE SKY",
+      "singers": [
+        "ルリア"
+      ],
+      "special_unit": "グランサイファー",
+      "releases": [
+        "SVWC-70248"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/09/"
+      ]
+    },
+    {
+      "id": "アナザースカイ",
+      "title": "アナザースカイ",
+      "singers": [
+        "カタリナ"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70388"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/14/"
+      ]
+    }
+  ],
+  "releases": [
+    {
+      "catalog": "SVWC-70220",
+      "title": "泡沫夢幻・胡蝶刃 〜GRANBLUE FANTASY〜",
+      "date": "2016-11-23",
+      "tracks": [
+        {
+          "title": "泡沫夢幻・胡蝶刃",
+          "song": "泡沫夢幻・胡蝶刃"
+        },
+        {
+          "title": "泡沫夢幻・胡蝶刃(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/08/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70520",
+      "title": "Welcome to the PARADE 〜GRANBLUE FANTASY〜",
+      "date": "2021-03-31",
+      "tracks": [
+        {
+          "title": "Welcome to the PARADE",
+          "song": "Welcome to the PARADE"
+        },
+        {
+          "title": "はっするぴょん！",
+          "song": "はっするぴょん！"
+        },
+        {
+          "title": "Welcome to the PARADE(instrumental)",
+          "song": null
+        },
+        {
+          "title": "はっするぴょん！(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/24/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70089",
+      "title": "キミとボクのミライ 〜GRANBLUE FANTASY〜",
+      "date": "2015-06-24",
+      "tracks": [
+        {
+          "title": "キミとボクのミライ",
+          "song": "キミとボクのミライ"
+        },
+        {
+          "title": "キミとボクのミライ(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/01/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70149",
+      "title": "The Dragon Knights 〜GRANBLUE FANTASY〜",
+      "date": "2016-04-27",
+      "tracks": [
+        {
+          "title": "The Dragon Knights",
+          "song": "The Dragon Knights"
+        },
+        {
+          "title": "The Dragon Knights(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/05/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70490",
+      "title": "Ain Soph Aur 〜GRANBLUE FANTASY〜",
+      "date": "2020-04-01",
+      "tracks": [
+        {
+          "title": "Ain Soph Aur",
+          "song": "Ain Soph Aur"
+        },
+        {
+          "title": "Ain Soph Aur(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/19/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70198",
+      "title": "マホウのノート 〜GRANBLUE FANTASY〜",
+      "date": "2016-08-10",
+      "tracks": [
+        {
+          "title": "マホウのノート",
+          "song": "マホウのノート"
+        },
+        {
+          "title": "マホウのノート(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/07/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70248",
+      "title": "OVER THE SKY 〜GRANBLUE FANTASY〜",
+      "date": "2017-01-25",
+      "tracks": [
+        {
+          "title": "OVER THE SKY",
+          "song": "OVER THE SKY"
+        },
+        {
+          "title": "OVER THE SKY(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/09/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70388",
+      "title": "アナザースカイ 〜GRANBLUE FANTASY〜",
+      "date": "2018-12-14",
+      "tracks": [
+        {
+          "title": "アナザースカイ",
+          "song": "アナザースカイ"
+        },
+        {
+          "title": "アナザースカイ(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/14/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    }
+  ],
+  "lives": [
+    {
+      "name": "グラブルフェス 2020 キャラクターライブ",
+      "days": [
+        {
+          "date": "2020-12-12",
+          "venue": "幕張メッセ",
+          "performers": [
+            "ナルメア",
+            "ビカラ"
+          ],
+          "absent": [],
+          "sources": [
+            "https://fes.granbluefantasy.jp/2020/"
+          ],
+          "setlist": [
+            {
+              "title": "Welcome to the PARADE",
+              "singers": [
+                "ビカラ"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "泡沫夢幻・胡蝶刃",
+              "singers": [
+                "ナルメア"
+              ],
+              "dancers": [],
+              "brand": null
+            }
+          ]
+        }
+      ],
+      "sources": [
+        "https://fes.granbluefantasy.jp/2020/"
+      ]
+    },
+    {
+      "name": "グラブルフェス 2021 ナイトパーティー",
+      "days": [
+        {
+          "date": "2021-12-11",
+          "venue": "幕張メッセ",
+          "performers": [
+            "ビカラ",
+            "サンダルフォン"
+          ],
+          "absent": [],
+          "sources": [
+            "https://fes.granbluefantasy.jp/2021/"
+          ],
+          "setlist": [
+            {
+              "title": "Welcome to the PARADE",
+              "singers": [
+                "ビカラ"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "Ain Soph Aur",
+              "singers": [
+                "サンダルフォン"
+              ],
+              "dancers": [],
+              "brand": null
+            }
+          ]
+        }
+      ],
+      "sources": [
+        "https://fes.granbluefantasy.jp/2021/"
+      ]
+    },
+    {
+      "name": "グラブルフェス 2022-2023 スペシャルステージ",
+      "days": [
+        {
+          "date": "2023-01-21",
+          "venue": "東京ビッグサイト",
+          "performers": [
+            "ナルメア",
+            "ビカラ"
+          ],
+          "absent": [],
+          "sources": [
+            "https://fes.granbluefantasy.jp/2022-2023/"
+          ],
+          "setlist": [
+            {
+              "title": "泡沫夢幻・胡蝶刃",
+              "singers": [
+                "ナルメア"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "はっするぴょん！",
+              "singers": [
+                "ビカラ"
+              ],
+              "dancers": [],
+              "brand": null
+            }
+          ]
+        }
+      ],
+      "sources": [
+        "https://fes.granbluefantasy.jp/2022-2023/"
+      ]
+    },
+    {
+      "name": "グラブルフェス 2023-2024 キャラクターライブ",
+      "days": [
+        {
+          "date": "2023-12-23",
+          "venue": "東京ビッグサイト",
+          "performers": [
+            "ナルメア",
+            "ビカラ",
+            "ランスロット"
+          ],
+          "absent": [],
+          "sources": [
+            "https://fes.granbluefantasy.jp/2023-2024/"
+          ],
+          "setlist": [
+            {
+              "title": "泡沫夢幻・胡蝶刃",
+              "singers": [
+                "ナルメア"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "Welcome to the PARADE",
+              "singers": [
+                "ビカラ"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "The Dragon Knights",
+              "singers": [
+                "ランスロット"
+              ],
+              "dancers": [],
+              "brand": null
+            }
+          ]
+        }
+      ],
+      "sources": [
+        "https://fes.granbluefantasy.jp/2023-2024/"
+      ]
+    },
+    {
+      "name": "グラブルフェス 2024 スペシャルライブ",
+      "days": [
+        {
+          "date": "2024-12-21",
+          "venue": "東京ビッグサイト",
+          "performers": [
+            "ナルメア",
+            "ビカラ"
+          ],
+          "absent": [],
+          "sources": [
+            "https://fes.granbluefantasy.jp/2024/"
+          ],
+          "setlist": [
+            {
+              "title": "泡沫夢幻・胡蝶刃",
+              "singers": [
+                "ナルメア"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "Welcome to the PARADE",
+              "singers": [
+                "ビカラ"
+              ],
+              "dancers": [],
+              "brand": null
+            }
+          ]
+        }
+      ],
+      "sources": [
+        "https://fes.granbluefantasy.jp/2024/"
+      ]
+    }
+  ]
 }
