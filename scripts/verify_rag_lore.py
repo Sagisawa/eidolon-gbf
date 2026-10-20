@@ -27,14 +27,19 @@ WORLD_FILE = Path("characters/world.json")
 
 
 def compute_vector(text: str, dim: int = 1536) -> list[float]:
+    import hashlib
     vec = [0.0] * dim
     for ch in text:
-        h = hash(ch) % dim
+        h = int(hashlib.md5(ch.encode("utf-8")).hexdigest()[:8], 16) % dim
         vec[h] += 1.0
     for i in range(len(text) - 1):
         bi = text[i:i+2]
-        h = (hash(bi) * 31) % dim
+        h = int(hashlib.md5(bi.encode("utf-8")).hexdigest()[:8], 16) % dim
         vec[h] += 2.0
+    for i in range(len(text) - 2):
+        tri = text[i:i+3]
+        h = int(hashlib.md5(tri.encode("utf-8")).hexdigest()[:8], 16) % dim
+        vec[h] += 3.0
     norm = math.sqrt(sum(x * x for x in vec)) or 1.0
     return [x / norm for x in vec]
 

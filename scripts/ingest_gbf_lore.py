@@ -157,17 +157,23 @@ def clean_text(s: str) -> str:
 
 
 def compute_vector(text: str, dim: int = 1536) -> bytes:
-    """Generate a deterministic normalized vector for text based on character 1-gram and 2-grams."""
+    """Generate a deterministic normalized vector for text based on character 1-gram, 2-grams, and 3-grams."""
+    import hashlib
     import math
     import struct
+
     vec = [0.0] * dim
     for ch in text:
-        h = hash(ch) % dim
+        h = int(hashlib.md5(ch.encode("utf-8")).hexdigest()[:8], 16) % dim
         vec[h] += 1.0
     for i in range(len(text) - 1):
         bi = text[i:i+2]
-        h = (hash(bi) * 31) % dim
+        h = int(hashlib.md5(bi.encode("utf-8")).hexdigest()[:8], 16) % dim
         vec[h] += 2.0
+    for i in range(len(text) - 2):
+        tri = text[i:i+3]
+        h = int(hashlib.md5(tri.encode("utf-8")).hexdigest()[:8], 16) % dim
+        vec[h] += 3.0
     norm = math.sqrt(sum(x * x for x in vec)) or 1.0
     vec = [x / norm for x in vec]
     return struct.pack(f"<{dim}f", *vec)
