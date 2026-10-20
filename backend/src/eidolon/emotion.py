@@ -115,12 +115,12 @@ _EMOTION_OPTIONS: dict[str, tuple[Emotion, str]] = {
     "思考": ("thinking", "在想、犹豫、斟酌措辞"),
 }
 _NOD_OPTIONS: dict[str, tuple[Nod | None, str]] = {
-    "同意": ("yes", "肯定、答应、附和制作人的话，会点头"),
-    "否定": ("no", "否认、拒绝、不同意制作人的话，会摇头"),
+    "同意": ("yes", "肯定、答应、附和团长的话，会点头"),
+    "否定": ("no", "否认、拒绝、不同意团长的话，会摇头"),
     "都不是": (None, "既不是同意也不是否定，例如陈述、提问、打招呼、说自己的事"),
 }
 _SCENE = (
-    "角色扮演的通话中，角色是《偶像大师 闪耀色彩》的偶像，正在和她的制作人通话。"
+    "角色扮演的通话中，角色是《碧蓝幻想》格兰赛法号骑空团的同伴，正在和她的团长通话。"
     "`这一段台词` 是她此刻说出口的日语，方括号里的英文和 <whisper> 这类成对的标签是给配音的语气提示；"
     "`这一段的中文字幕` 是这段台词的意思。"
 )
@@ -131,7 +131,7 @@ _EMOTION_QUESTION = {
 }
 _NOD_QUESTION = {
     "type": "choice",
-    "instructions": _SCENE + "说这一段时，她是在对制作人的话表示同意，表示否定，还是都不是？",
+    "instructions": _SCENE + "说这一段时，她是在对团长的话表示同意，表示否定，还是都不是？",
     "criteria": {name: description for name, (_, description) in _NOD_OPTIONS.items()},
 }
 

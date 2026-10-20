@@ -48,7 +48,7 @@ async def test_character_list_shows_name_intro_avatar_colour_and_background_but_
             "unit_order": None,
             "greeting": None,  # none configured
             "call_opener": None,
-            "call_poster_url": None,  # no stand assets URL is configured
+            "call_poster_url": "/api/characters/mano/background",
             "voxels_url": None,
         },
         {
@@ -215,8 +215,8 @@ def test_repository_configures_its_idols_with_their_voices():
     loaded = load_characters(REPO_CHARACTERS / "characters.toml")
 
     assert {id: c.voice_id for id, c in loaded.items()} == {
-        "narmaya": "a1150f3d14ac46fb8ea59c7803cd8357",
-        "vikala": "a1150f3d14ac46fb8ea59c7803cd8357",
+        "narmaya": "d2f31010862d449eb0896dd7358f3531",
+        "vikala": "e20d009971a343f4bc04eba1191f03b7",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",

@@ -202,7 +202,7 @@ async def test_every_turn_carries_her_songs_with_their_releases(
     await turns.take(llm, "真乃のソロ曲って何があったっけ")
 
     system = system_prompt(llm)
-    assert system.index("# 世界设定") < system.index("# 你的歌") < system.index("# 制作人")
+    assert system.index("# 世界设定") < system.index("# 你的歌") < system.index("# 团长")
     songs = her_songs(system)
     assert "- ありったけの輝きで：" in songs  # sung by her alone
     assert "- ヒカリのdestination：" in songs  # sung by her whole unit
@@ -313,7 +313,7 @@ async def test_every_turn_carries_the_lives_she_stood_on_and_is_to_stand_on(
     await turns.take(llm, "今までどんなステージに立ってきたっけ")
 
     system = system_prompt(llm)
-    assert system.index("# 你的歌") < system.index("# 你上过的演出") < system.index("# 制作人")
+    assert system.index("# 你的歌") < system.index("# 你上过的演出") < system.index("# 团长")
     lives = section(system, "# 你上过的演出")
     assert "- THE IDOLM@STER SHINY COLORS 6thLIVE：2024年3月2日（ベルーナドーム）" in lives
     assert "- THE IDOLM@STER M@STERS OF IDOL WORLD!!!!! 2023：2023年2月11日（東京ドーム）" in lives

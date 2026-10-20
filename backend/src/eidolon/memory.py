@@ -74,7 +74,7 @@ CANDIDATES = 12
 """How many of the user's memories nearest the turn the reranker is offered."""
 MAX_FOUND = 3
 """The most memories one turn's prompt carries, after reranking."""
-ANOTHER_IDOL = "事务所的另一位偶像"
+ANOTHER_IDOL = "骑空团的另一位同伴"
 """Who a memory was told to, when that character has been removed from the configuration."""
 
 # `memories` predates this module and keeps the columns and constraints it had in the
@@ -681,25 +681,25 @@ class MemoryTurn:
 
 
 _INSTRUCTIONS = """\
-你负责替《偶像大师 闪耀色彩》283 事务所的偶像们记住关于制作人的事。制作人就是正在和偶像对话的用户。
-读下面的对话，从制作人最新的一句话里找出值得长期记住的、关于制作人本人的信息。
+你负责帮《碧蓝幻想》格兰赛法号骑空团的同伴们记下与团长经历的事情。团长就是正在和同伴对话的用户。
+读下面的对话，从团长最新的一句话里找出值得长期记住的、关于团长本人的信息。
 
 只记过后仍有意义的事。
-要记的：制作人自己透露的个人情况、喜好、经历、计划、身边的人和宠物、希望偶像记住的事；\
+要记的：团长自己透露的个人情况、喜好、经历、计划、身边的人和宠物、希望同伴记住的事；\
 会持续几天、朋友过后会问起的近况，例如生病、考试、面试、搬家、出差。
 不要记的：当天就会过去的状态（例如累、困、饿、无聊、心情不好）和一时的情绪，\
-同一句话里还说了值得记的事时只记那件事、不记这种状态；寒暄；偶像说的话；原作剧情和偶像的设定；制作人向偶像提的问题。
+同一句话里还说了值得记的事时只记那件事、不记这种状态；寒暄；同伴说的话；原作剧情和角色的设定；团长向同伴提的问题。
 
-每条记忆是一句能单独看懂的中文陈述，以「制作人」开头，例如「制作人养了一只叫小白的猫」。
+每条记忆是一句能单独看懂的中文陈述，以「团长」开头，例如「团长养了一只叫小白的猫」。
 提到「明天」「下周六」这样的相对时间时，换算成具体日期写下来。
 
 「已经记住的事」按编号列出了和这轮对话最相关的记忆，写之前先对照：
 - 和已经记住的一样的，不要再写。
 - 更新或修正了已经记住的事（例如搬了家、换了工作），写一条单独看也完整的新记忆，写清从什么变成了什么，\
-例如「制作人从大阪搬到了东京」，并在 supersedes 里写上被它取代的记忆的编号，可以写多个。
+例如「团长从大阪搬到了东京」，并在 supersedes 里写上被它取代的记忆的编号，可以写多个。
 - 补充了已经记住的事的细节（例如说出了猫的名字），写一条把细节合进去的完整记忆，取代原来那条。
 - 一件事只变了一部分的，新记忆要把仍然成立的部分也写进去，例如原来记着养了一只猫和一只狗、\
-现在狗去世了，就写「制作人的狗去世了，现在还养着那只猫」，取代原来那条。
+现在狗去世了，就写「团长的狗去世了，现在还养着那只猫」，取代原来那条。
 - 两件事可以同时成立的（例如喜欢喝咖啡，最近也开始喝茶），新的照常写，不取代旧的。
 
 只输出 JSON，格式为 {"memories": [{"text": "……", "supersedes": [编号]}]}，不取代任何记忆时 \
@@ -714,15 +714,15 @@ def _extraction_prompt(
     shown: Sequence[Memory],
     now: datetime,
 ) -> list[ChatMessage]:
-    lines = [f"今天是 {_date(now)}（制作人所在时区）。", "", "# 已经记住的事"]
+    lines = [f"今天是 {_date(now)}（团长所在时区）。", "", "# 已经记住的事"]
     lines += [f"{n}. {m.text}" for n, m in enumerate(shown, 1)] or ["（还没有）"]
-    lines += ["", f"# 制作人和{character.name}的对话"]
+    lines += ["", f"# 团长和{character.name}的对话"]
     for message in history[-EXCHANGE_HISTORY:]:
         if message.role == "user":
-            lines.append(f"制作人：{message.text}")
+            lines.append(f"团长：{message.text}")
         else:
             lines.append(f"{character.name}：{_said(message)}")
-    lines += [f"制作人（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
+    lines += [f"团长（最新的一句话）：{text}", f"{character.name}：{_said(reply)}"]
     return [ChatMessage("system", _INSTRUCTIONS), ChatMessage("user", "\n".join(lines))]
 
 

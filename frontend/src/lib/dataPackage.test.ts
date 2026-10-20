@@ -91,9 +91,9 @@ describe("导入结果的一句话", () => {
   const nothing = { conversations: 0, photos: 0, memories: 0, profile: false, skipped: [] };
 
   it("说导入了什么", () => {
-    expect(importSummary({ ...nothing, profile: true })).toBe("导入了制作人档案。");
+    expect(importSummary({ ...nothing, profile: true })).toBe("导入了团长档案。");
     expect(importSummary({ ...nothing, conversations: 3, photos: 2, memories: 12, profile: true })).toBe(
-      "导入了 3 段对话、2 张照片、12 条记忆和制作人档案。",
+      "导入了 3 段对话、2 张照片、12 条记忆和团长档案。",
     );
     expect(importSummary({ ...nothing, memories: 1 })).toBe("导入了 1 条记忆。");
   });
