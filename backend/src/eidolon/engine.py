@@ -152,7 +152,7 @@ input is rejected, not cut short."""
 MAX_TOOL_ROUNDS = 1
 """How many rounds of tool calls the chat model gets in one turn; after that it has to answer."""
 LAST_ROUND_NOTE = (
-    "（这一轮不能再调用任何工具了，请现在就回答制作人。上面想起来的内容如果答不上他的问题，"
+    "（这一轮不能再调用任何工具了，请现在就回答团长。上面想起来的内容如果答不上他的问题，"
     "就像一时记不清那样自然地说，不要提到查找、工具、记录或剧情库。）"
 )
 """Added to each tool result the model reads just before the round that forbids tool calls.
@@ -376,7 +376,7 @@ def chat_history(messages: list[Message], turns: int | None) -> list[Message]:
 
 
 RESPOND_TO_GIFTS = (
-    "（先回应制作人说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。）"
+    "（先回应团长说的话，再在合适的时候用你自己的方式回应收到的礼物，一次就够。）"
 )
 """Told her after the gifts she has not replied since, once however many there are."""
 
@@ -384,12 +384,12 @@ RESPOND_TO_GIFTS = (
 def _narration(event: ConversationEvent, gift_catalog: Mapping[str, Gift]) -> str:
     """What she is told of `event`, as it was."""
     if event.kind == "hung_up":
-        return "（你挂断了制作人的电话。）"
+        return "（你挂断了团长的电话。）"
     if event.kind == "ended":  # only read by a turn it will reject
-        return "（你结束了和制作人的对话。）"
+        return "（你结束了和团长的对话。）"
     assert event.gift_id is not None
     liked = "这是你喜欢的东西。" if event.liked else ""
-    return f"（制作人送给你一份{gift_catalog[event.gift_id].name}。{liked}）"
+    return f"（团长送给你一份{gift_catalog[event.gift_id].name}。{liked}）"
 
 
 def narrations(

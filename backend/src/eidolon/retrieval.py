@@ -101,14 +101,14 @@ RECALL_EPISODE_CHARS = 3000
 RECALL_STORY_TOOL = Tool(
     name="recall_story",
     description="回顾剧情：在你亲身经历过的原作剧情中查找和某件事有关的剧情，返回它在你的剧情目录中的位置"
-    "（哪张卡或哪个活动）和剧情内容。当制作人问起「那次……是怎么回事」这类过去的事、"
+    "（哪个章节或哪个活动）和剧情内容。当团长问起「那次……是怎么回事」这类过去的事、"
     "而你想不起具体经过时使用；闲聊时不需要。",
     parameters={
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "要回顾的事，写成一句概括，例如「拍写真集的那次」「W.I.N.G. 决赛」",
+                "description": "要回顾的事，写成一句概括，例如「除夜之钟的那次」「初次见面的那天」",
             }
         },
         "required": ["query"],
@@ -117,7 +117,7 @@ RECALL_STORY_TOOL = Tool(
 
 
 _CANON_RULE = (
-    "剧情里没有记录制作人当时选了哪个选项，不要断言制作人当时说了什么或选了什么。"
+    "剧情里没有记录团长当时选了哪个选项，不要断言团长当时说了什么或选了什么。"
 )
 _NOT_IN_STORY = (
     "剧情库里没有记录这段经过，但这不等于这件事没有发生过。"
@@ -243,7 +243,7 @@ class ReferenceSources:
         headings = {s.kind: s.heading for s in self._sources}
         lines = [
             "# 回忆与资料",
-            "下面是和制作人这句话可能有关的内容，按相关程度排列，和话题无关的可以忽略。",
+            "下面是和团长这句话可能有关的内容，按相关程度排列，和话题无关的可以忽略。",
             *(f"- {s.guide}" for s in self._sources),
         ]
         for reference in references:
@@ -497,7 +497,7 @@ class Retrieval:
         corpus = self._sources.corpus
         episodes = await asyncio.to_thread(_episodes, corpus, episode_ids) if episode_ids else []
         if not episodes and not found:
-            return f"没有想起和「{asked}」有关的剧情：{_NOT_IN_STORY}，或者问问制作人。"
+            return f"没有想起和「{asked}」有关的剧情：{_NOT_IN_STORY}，或者问问团长。"
         catalog = await asyncio.to_thread(corpus.catalog, character.id) if episodes else []
         return recall_prompt(asked, episodes, catalog, found)
 

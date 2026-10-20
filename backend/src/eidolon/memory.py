@@ -782,19 +782,19 @@ def parse_memories(answer: str) -> list[NewMemory] | None:
 
 def _memories_prompt(memories: Sequence[Memory], character: Character, timezone: str) -> str:
     lines = [
-        "# 关于制作人的记忆",
-        "下面是制作人以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
+        "# 关于团长的记忆",
+        "下面是团长以前说过的、和这句话可能有关的事，按相关程度排列，和话题无关的可以忽略。"
         "像平时记得这些事一样自然地提起，不要逐条复述。",
     ]
     for memory in memories:
         when = _date(datetime.fromisoformat(memory.created_at).astimezone(ZoneInfo(timezone)))
         if memory.source_character_id == character.id:
-            lines.append(f"- {memory.text}（{when}，制作人对你说的）")
+            lines.append(f"- {memory.text}（{when}，团长对你说的）")
         else:
             name = memory.source_character_name or ANOTHER_IDOL
             lines.append(
-                f"- {memory.text}（{when}，制作人对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
-                f"例如「听{name}说……」，不要说成是制作人亲口告诉你的）"
+                f"- {memory.text}（{when}，团长对{name}说的，你是听{name}说的：提起时要用转述的口吻，"
+                f"例如「听{name}说……」，不要说成是团长亲口告诉你的）"
             )
     return "\n".join(lines)
 

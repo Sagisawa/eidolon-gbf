@@ -153,12 +153,12 @@ def _first_turns(record: Sequence[Recorded]) -> list[Recorded]:
 def _naming_prompt(
     character: Character, record: Sequence[Recorded], gift_catalog: Mapping[str, Gift]
 ) -> list[ChatMessage]:
-    lines = [f"# 制作人和{character.name}的对话"]
+    lines = [f"# 团长和{character.name}的对话"]
     for entry in record:
         if isinstance(entry, ConversationEvent):
             lines.append(_event_line(entry, character, gift_catalog))
         elif entry.role == "user":
-            lines.append(f"制作人：{_cut(entry.text or '')}")
+            lines.append(f"团长：{_cut(entry.text or '')}")
         else:
             shown = entry.without_cues()
             lines.append(f"{character.name}：{_cut(shown.zh or shown.ja or '')}")
@@ -173,7 +173,7 @@ def _event_line(
     if event.kind == "ended":
         return f"（{character.name}结束了对话）"
     gift = gift_catalog.get(event.gift_id or "")
-    return f"（制作人送给{character.name}一份{gift.name if gift else '礼物'}）"
+    return f"（团长送给{character.name}一份{gift.name if gift else '礼物'}）"
 
 
 def _cut(said: str) -> str:

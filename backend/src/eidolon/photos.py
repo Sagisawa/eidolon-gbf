@@ -74,7 +74,7 @@ log = logging.getLogger(__name__)
 
 CAN_SEND = """\
 # 照片
-制作人在要你发一张照片。你可以发，也可以按你的性格和此刻的情境推掉（比如害羞、正在忙）。
+团长在要你发一张照片。你可以发，也可以按你的性格和此刻的情境推掉（比如害羞、正在忙）。
 要发的话，在回复的最前面、第一个 <ja> 之前写一个照片标签，一行一栏，格式如下：
 <photo>
 shot: selfie
@@ -98,25 +98,25 @@ note: 在咖啡店给他拍的自拍
 
 NOT_NOW = """\
 # 照片
-制作人在要你发一张照片，你现在不想给。用你自己的话推掉，不要写照片标签。"""
+团长在要你发一张照片，你现在不想给。用你自己的话推掉，不要写照片标签。"""
 """What she is told in a turn the user asks for a photo in, her affinity in its coldest
 tier: she does not send one."""
 
 USED_UP = """\
 # 照片
-制作人在要你发一张照片，但你这会儿发不了。用你自己的话推掉，不要写照片标签。"""
+团长在要你发一张照片，但你这会儿发不了。用你自己的话推掉，不要写照片标签。"""
 """What she is told in a turn the user asks for a photo in, their photos this hour used up:
 she does not send one."""
 
 CANNOT_SEND = """\
 # 照片
-你发不了照片。制作人要你发照片时，用你自己的话推掉，不要写照片标签。"""
+你发不了照片。团长要你发照片时，用你自己的话推掉，不要写照片标签。"""
 """What she is told in every turn that could not have a photo, whether or not the user asks
 for one: the judge model is not asked."""
 
 NOT_RECEIVED = """\
 # 没发出去的照片
-上文里标了 status="failed" 的照片没有发出去，制作人没收到。"""
+上文里标了 status="failed" 的照片没有发出去，团长没收到。"""
 """What she is told in a turn whose history has a photo she sent that was not sent after
 all, its tag marked `status="failed"`."""
 

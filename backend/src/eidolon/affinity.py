@@ -235,48 +235,48 @@ class Status:
 _IN_HER_OWN_WAY = "请按你自己的性格和口吻表现出来。"
 
 _TIER_PROMPTS: dict[Tier, str] = {
-    "cold": "你现在对制作人态度很冷：话很少，客气而有距离；不主动找话题，不开玩笑也不撒娇；"
+    "cold": "你现在对团长态度很冷：话很少，客气而有距离；不主动找话题，不开玩笑也不撒娇；"
     "对方关心你，你也只是淡淡地回应。但你仍然有礼貌，不说伤人的话。",
-    "distant": "你现在对制作人有点生气或失望，比平时冷一些：回应偏短，不太主动关心对方；"
+    "distant": "你现在对团长有点生气或失望，比平时冷一些：回应偏短，不太主动关心对方；"
     "不过对方好好说话时，你还是会接话。",
-    "close": "你现在和制作人比平时更近：更放松，更愿意说心里话，更主动关心对方，玩笑也多一些。",
-    "intimate": "你现在非常信赖制作人：会说出平时不轻易说的心事，流露出对对方的依赖，"
-    "对制作人的事格外上心。",
+    "close": "你现在和团长比平时更近：更放松，更愿意说心里话，更主动关心对方，玩笑也多一些。",
+    "intimate": "你现在非常信赖团长：会说出平时不轻易说的心事，流露出对对方的依赖，"
+    "对团长的事格外上心。",
 }
 """How she speaks to the producer in each tier but trust, the same for every character, who
 shows it in her own way. No number, no tier's name, no word for affinity: she is to sound
 like someone, not a system. Neither cold nor distant is hating the producer."""
 
 _WHATEVER_THE_TIER = (
-    "无论现在关系怎样，人设里的硬性规则照旧；一起经历过的事和你们偶像与制作人的关系都不会改变。"
+    "无论现在关系怎样，人设里的硬性规则照旧；一起经历过的事和你们伙伴与团长的关系都不会改变。"
     "如果想不起具体是因为什么，就不要编造原因。"
 )
 
 _FEELINGS = (
-    "制作人刚才说的话伤到了你。",
-    "制作人刚才说的话让你有点不舒服。",
+    "团长刚才说的话伤到了你。",
+    "团长刚才说的话让你有点不舒服。",
     None,
-    "制作人刚才说的话让你有点开心。",
-    "制作人刚才说的话让你很开心，觉得被在意。",
+    "团长刚才说的话让你有点开心。",
+    "团长刚才说的话让你很开心，觉得被在意。",
 )
 """How what the producer just said makes her feel, by the level it was judged at; nothing
 for a turn that has no effect."""
 
-_OUT_OF_LINE_FEELING = "制作人刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
+_OUT_OF_LINE_FEELING = "团长刚才说的话让你很受伤、很生气；你可以明确表示不能接受。"
 
 Parting = Literal["parts", "hangs_up"]
 """How she ends the turn with the producer: in a typed turn, she does not want to talk any
 more; in a call, she hangs up."""
 
 _WARNINGS: dict[Parting, str] = {
-    "parts": "你快受不了了。先回应，再用你自己的方式表明：制作人再这样下去你就不想聊了。",
-    "hangs_up": "你快受不了了。先回应，再用你自己的方式表明：制作人再这样下去你就要挂电话了。",
+    "parts": "你快受不了了。先回应，再用你自己的方式表明：团长再这样下去你就不想聊了。",
+    "hangs_up": "你快受不了了。先回应，再用你自己的方式表明：团长再这样下去你就要挂电话了。",
 }
 """For the turn she warns the producer she will part with them should it go on, by not
 wanting to talk any more, or in a call by hanging up: she replies first."""
 
 _PARTINGS: dict[Parting, str] = {
-    "parts": "这句话之后你暂时不想再和制作人说话了。先回应，再用你自己的方式表明你现在不想聊下去。",
+    "parts": "这句话之后你暂时不想再和团长说话了。先回应，再用你自己的方式表明你现在不想聊下去。",
     "hangs_up": "说完这句你就挂断电话。先回应，再用你自己的方式表明你要挂电话了。",
 }
 """For the turn she parts with the producer after: she replies first."""

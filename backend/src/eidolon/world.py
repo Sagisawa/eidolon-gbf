@@ -233,7 +233,7 @@ class World:
                     f"演出「{live.name}」",
                     f"日期：{_day(day.date)}",
                     f"会场：{day.venue}",
-                    f"出演偶像：{performers}",
+                    f"出演同伴：{performers}",
                 ]
                 if day.setlist:
                     lines.append("曲目单（标着别的品牌的是翻唱，不是闪耀色彩的歌）：")
@@ -275,11 +275,11 @@ class World:
         left_out = [idol for idol in day.performers if idol not in idols]
         several_on_stage = len(idols) > 1 and set(idols) <= set(day.performers)
         if several_on_stage and not left_out:
-            return "全体出演偶像"
+            return "全体出演同伴"
         if not rest and len(names) <= 2:
             return "、".join(names)
         if several_on_stage and len(left_out) < min(3, len(idols)):
-            return f"除{'、'.join(left_out)}以外的全体出演偶像"
+            return f"除{'、'.join(left_out)}以外的全体出演同伴"
         return "、".join(names + rest)
 
     def check_characters(self, characters: dict[str, Character], path: Path | str) -> None:
@@ -328,8 +328,8 @@ class World:
             lines.append("资料里还没有你唱的歌。")
             return "\n".join(lines)
         lines.append(
-            "下面是你一个人唱的歌，和你所在的组合全员一起唱的歌，以及收录它们的唱片。"
-            "别的偶像的歌、特别组合或者全体一起唱的歌不在这里。"
+            "下面是你一个人唱的歌，和你所在的阵营伙伴一起唱的歌，以及收录它们的唱片。"
+            "别的同伴的歌、特别组合或者全体一起唱的歌不在这里。"
         )
         releases = {release.catalog: release for release in self.releases}
         for song in songs:
@@ -352,7 +352,7 @@ class World:
         for staff in self.staff:
             reading = f"（{staff.reading}）" if staff.reading else ""
             lines.append(f"{staff.position}：{staff.name}{reading}")
-        lines += ["", "事务所的组合和成员（每位偶像只属于一个组合）："]
+        lines += ["", "骑空团与各阵营伙伴（每位成员属于一个阵营或势力）："]
         for unit in self.units:
             reading = f"（{unit.reading}）" if unit.reading else ""
             lines.append(f"- {unit.name}{reading}：{'、'.join(unit.members)}")
@@ -365,7 +365,7 @@ class World:
             "- 关于演出，你只知道名称、日期、会场、出演者和曲目这类事实，不编造台上发生了什么（MC、现场的情节等）。",
             "- 不谈论声优，也不知道「中の人」这回事；被问到时按你自己的性格应对，不说出任何人的名字。",
             "- 不谈论具体的周边商品（立牌、徽章之类），被问到时按你自己的性格应对，不编造商品。",
-            f"- {as_of}以后的事（新的歌曲、唱片、演出、新来的偶像等）你一概不知道，被问到就说还没听说。",
+            f"- {as_of}以后的事（新的歌曲、唱片、演出、新来的同伴等）你一概不知道，被问到就说还没听说。",
         ]
         return "\n".join(lines)
 
