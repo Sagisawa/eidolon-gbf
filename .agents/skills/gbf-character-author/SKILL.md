@@ -73,7 +73,20 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
      - If non-verbal, mechanical, or primal (e.g. Yggdrasil, Joy, Colossus, Proto Bahamut): **how does the official game text actually represent their sound?** (e.g. musical resonance `ﾋｭｰｰｰﾝ…`, `ﾌｨｨｰｰｰｰﾝ…`, or silence markers `――――！`, NOT anime animal cries).
    - **Strict Ban on Fandom Inventions**: Never invent verbal tics or repetitive pet sounds that do not exist in the official in-game audio transcript.
 
-*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, theme color, verified official voice/sound pattern, and a full checklist of released gacha variants.
+7. **Iconic Catchphrase, Running Gag & Gap Moe Audit (Pixiv / Nico 百科官方名梗与招牌口癖捕获规范)**:
+   - *Lesson from Grimnir Audit (防“戒备二创”走向“平庸死板”的过矫陷阱)*:
+     - In previous batches, the strict ban on fandom doujin memes caused LLMs to become overly timid—avoiding community encyclopedias (Pixiv 百科, Nico 百科, Gamewith 杂感) and reducing vibrant characters to bland, solemn knights.
+     - **Distinguish Fandom Doujin Brainrot vs. Official Canon-Certified Memes (二创降智 vs 官方认证真名梗)**:
+       - ❌ *Fandom Doujin Brainrot (严禁采纳)*: 玩家二创恶搞梗、无中生有的宠物叫声（如给尤古多拉希尔脑补“ゆぐゆぐ〜♪”）、违背原典心智的降智段子。
+       - ✅ *Official Canon-Certified Memes (必须完整捕获)*: 官方在创世召唤石、主界面、战斗语音中真实实装的招牌台词、官方认证名梗与标志性反差萌（如格里姆尼尔的「我が右腕が戒めより……（盛大に噛む）」、「……～ッ！決まった……ッ！」、「もうエモぉぉぉぉぉい！」、「ちょっとタンマ……っ！」）。这些被 Pixiv 百科事典高频记录的核心特征，恰恰是角色的灵魂所在！
+   - **Mandatory 5-Point Catchphrase & Verbal Quirks Registry (五维招牌口癖与反差萌登记表)**:
+     - 1. **Signature Battle / Intro Catchphrase (登场与必杀台词)**: 专属中二/豪气口号（如「我こそは軍神、踊り狂う暴風……！」、「さぁ…その胸に刻むがいい…」）。
+     - 2. **Post-Line Reaction Tic (台词完成后的自满/习惯性口癖)**: 凹完造型后的下意识反应（如「……～ッ！決まった……ッ！」、「フッ……決まったな」）。
+     - 3. **Iconic Gap Moe / Fumble (标志性反差萌/吃螺丝/认怂)**: 官方专属出糗或慌乱台词（如盛大咬舌忘词「噛んじゃったぞぉぉぉッ！」、痛感求暂停「ちょっとタンマ！」）。
+     - 4. **Signature Slang / Modern Verbal Tic (时代语/特征口癖)**: 区别于古风模板的少年/个人词汇（如「エモい」「メカメカしい」「〜っち」「〜なのじゃ」）。
+     - 5. **Secret Food / Hobby Quirk (隐藏饮食/喜好反差)**: 强硬外表下的纯情喜好（如军神鲜奶油控 Cream-nir、做巧克力手抖破防）。
+
+*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, theme color, verified official voice/sound pattern, a full checklist of released gacha variants, and the 5-point Catchphrase & Verbal Quirks Registry.
 
 ---
 
@@ -324,6 +337,19 @@ To enable high-precision semantic recall (RAG) during live conversations:
    - Ingest through `scripts/ingest_gbf_lore.py` to ensure vector passage embeddings and FTS5 keywords (`小悪魔`, `水着`, `浴衣`, `オルゴール`, `スーパーシンダラ`) are immediately searchable.
 
 *Completion Criterion*: Querying `SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = '{character_id}'` returns >= 15 modular episodes (recommend >= 30 for Gold Standard tier covering Years 1~5 seasonal progression) across both `命运篇章` and `特别剧情`.
+
+#### Phase 6.4: Anti-Template Generator Trap & Cliché Ban (严禁脚本模板化批量套用与机械括号残留铁律)
+*Lesson from Grimnir, Brodia, and Six Dragons Batch (彻底杜绝一键刷剧本与占位符污染)*:
+1. **The Boilerplate Generator Disaster (模板脚本一键生成的惨痛教训)**:
+   - In past batch additions, developers used generic Python scripts that stamped identical seasonal and fate dialogues across 14 characters by doing simple string interpolation:
+     `f"{captain_term}（団長）……汝と共に歩んできた日々が、私に新たな感情を教えてくれた。"`
+     `"ささやかだが祝福の品を用意した。汝のこれからの航路に、幸多からんことを！"`
+     `"青い海と白い砂浜……たまにはこうして羽を伸ばすのも素晴らしいな、団長！"`
+   - This caused multiple distinct companions (Brodia, Grimnir, Galleon, Lu Woh, Ewiyar) to deliver the exact same butler-like lines, contaminated dialogue text with ugly parenthetical artifacts like `（団長）`, and completely stripped the companions of their authentic personalities.
+2. **Absolute Prohibitions (铁规死线)**:
+   - **Strict Ban on Batch Template Scripts**: Strictly forbid writing or executing scripts that generate dialogue lines by slotting `{name}` or `{captain}` into a shared template sentence. Every character's scenario must be individually researched and authored based on their specific voice tables and Fate lore.
+   - **Strict Ban on Parenthetical Clichés in Dialogue**: Spoken dialogue (`text` in CSV) MUST NEVER contain raw template substitution brackets like `（団長）`, `（主人公）`, or `（プロデューサー）`. If a character calls the captain `特異点`, the Japanese text must be `特異点`, NOT `特異点（団長）`.
+   - **Strict Ban on Generic Summer Vacation Clichés**: Never write generic "beach vacation and relaxing under the blue sky" lines (`羽を伸ばすのも素晴らしいな`, `最高の夏にしようぜ`) for characters who lack a summer card. If a summer scene is written, it must reflect the character's genuine personality (e.g. Grimnir burning his feet on the hot sand, yelling for sunscreen and pausing for a break).
 
 ---
 

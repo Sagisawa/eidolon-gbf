@@ -225,6 +225,41 @@ def validate_character(
                 errors.append(
                     f"Vector passages missing in episode_passages ({passages_count} passages < {ep_count} episodes) for '{char_id}'"
                 )
+
+            # 7e. Check for template generator contamination & parenthetical artifacts (Phase 6.4)
+            cursor.execute(
+                """SELECT l.ja
+                   FROM episode_lines l
+                   JOIN episode_cast c ON l.episode_id = c.episode_id
+                   WHERE c.character_id = ? AND (l.ja LIKE '%（団長）%' OR l.ja LIKE '%（主人公）%' OR l.ja LIKE '%（プロデューサー）%')""",
+                (char_id,),
+            )
+            bad_bracket_lines = cursor.fetchall()
+            if bad_bracket_lines:
+                errors.append(
+                    f"Template bracket contamination detected in {len(bad_bracket_lines)} lines for '{char_id}' (e.g. '{bad_bracket_lines[0][0]}'). Spoken dialogue must never contain raw template brackets like '（団長）'."
+                )
+
+            # Check for generic boilerplate template cliches
+            TEMPLATE_CLICHES = [
+                "ささやかだが祝福の品を用意した",
+                "青い海と白い砂浜……たまにはこうして羽を伸ばすのも",
+                "最高の夏にしようぜ",
+                "私に新たな感情を教えてくれた",
+            ]
+            for cliche in TEMPLATE_CLICHES:
+                cursor.execute(
+                    """SELECT l.ja
+                       FROM episode_lines l
+                       JOIN episode_cast c ON l.episode_id = c.episode_id
+                       WHERE c.character_id = ? AND l.ja LIKE ?""",
+                    (char_id, f"%{cliche}%"),
+                )
+                cliche_hits = cursor.fetchall()
+                if cliche_hits:
+                    errors.append(
+                        f"Generic boilerplate template cliche '{cliche}' detected in dialogue for '{char_id}'. Dialogues must be authentic and canon-grounded, not stamped from generic scripts."
+                    )
         except Exception as e:
             errors.append(f"Database query error for '{char_name}': {e}")
 
