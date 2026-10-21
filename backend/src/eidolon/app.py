@@ -66,6 +66,8 @@ from eidolon.world import World
 _PICTURE_CACHE = {"Cache-Control": "public, max-age=86400"}
 """Avatars and call backgrounds change only with a deploy (ADR-0003): browsers keep them a
 day, then revalidate by ETag, so lists showing every avatar don't download them each visit."""
+_AUDIO_CACHE = {"Cache-Control": "public, max-age=86400"}
+_SOUNDS_DIR = Path(__file__).resolve().parents[3] / "frontend" / "public" / "sounds" / "gbf"
 
 
 def _picture(path: Path, request: Request) -> Response:
@@ -76,6 +78,16 @@ def _picture(path: Path, request: Request) -> Response:
     cached_etags = request.headers.get("if-none-match", "")
     if etag in (tag.strip() for tag in cached_etags.split(",")):
         return Response(status_code=304, headers={"ETag": etag, **_PICTURE_CACHE})
+    return response
+
+
+def _audio(path: Path, request: Request) -> Response:
+    """A character greeting or call opener audio file, served with ETag and Cache-Control."""
+    response = FileResponse(path, media_type="audio/mpeg", headers=_AUDIO_CACHE, stat_result=path.stat())
+    etag = response.headers["etag"]
+    cached_etags = request.headers.get("if-none-match", "")
+    if etag in (tag.strip() for tag in cached_etags.split(",")):
+        return Response(status_code=304, headers={"ETag": etag, **_AUDIO_CACHE})
     return response
 
 
@@ -185,14 +197,24 @@ def _greeting(character: Character, assets_url: str | None) -> dict | None:
     """Her greeting on the landing page: what she says as people see it, its subtitle, and
     where `eidolon greeting upload` puts its audio (`greeting_path`), without asking the
     bucket whether it is there; no audio unless the stand assets and her voice are
-    configured. None without a greeting."""
-    return _scripted(character.greeting, greeting_path(character), assets_url)
+    configured. Fallback to local sound file if present. None without a greeting."""
+    fallback = (
+        f"/sounds/gbf/{character.id}_greeting.mp3"
+        if (_SOUNDS_DIR / f"{character.id}_greeting.mp3").is_file()
+        else None
+    )
+    return _scripted(character.greeting, greeting_path(character), assets_url, fallback)
 
 
 def _call_opener(character: Character, assets_url: str | None) -> dict | None:
     """Her call opener on the landing page, as her greeting is (`call_opener_path`); None
     without one."""
-    return _scripted(character.call_opener, call_opener_path(character), assets_url)
+    fallback = (
+        f"/sounds/gbf/{character.id}_call_opener.mp3"
+        if (_SOUNDS_DIR / f"{character.id}_call_opener.mp3").is_file()
+        else None
+    )
+    return _scripted(character.call_opener, call_opener_path(character), assets_url, fallback)
 
 
 def _call_poster(character: Character, assets_url: str | None) -> str | None:
@@ -211,13 +233,19 @@ def _voxels(character: Character, assets_url: str | None) -> str | None:
     return f"{assets_url}/{voxels_path(character)}" if assets_url else None
 
 
-def _scripted(line: ScriptedLine | None, path: str | None, assets_url: str | None) -> dict | None:
+def _scripted(
+    line: ScriptedLine | None,
+    path: str | None,
+    assets_url: str | None,
+    fallback: str | None = None,
+) -> dict | None:
     if line is None:
         return None
+    audio_url = f"{assets_url}/{path}" if assets_url and path else fallback
     return {
         "ja": line.ja,
         "subtitle": line.subtitle,
-        "audio_url": f"{assets_url}/{path}" if assets_url and path else None,
+        "audio_url": audio_url,
     }
 
 
@@ -461,6 +489,14 @@ def create_app(backend: Backend) -> FastAPI:
         if character is None or character.background is None:
             raise HTTPException(404, "没有这位角色的通话背景图")
         return _picture(character.background, request)
+
+    @app.api_route("/sounds/gbf/{filename}", methods=["GET", "HEAD"])
+    def local_gbf_sound(filename: str, request: Request) -> Response:
+        """Serve local character voice snippets and greetings when accessed directly on backend."""
+        file_path = (_SOUNDS_DIR / filename).resolve()
+        if not file_path.is_file() or not str(file_path).startswith(str(_SOUNDS_DIR)):
+            raise HTTPException(404, "没有该音频文件")
+        return _audio(file_path, request)
 
     @app.get("/api/characters/{character_id}/affinity")
     def affinity(character_id: str, user_id: UserId) -> dict | None:

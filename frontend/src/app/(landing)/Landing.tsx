@@ -134,7 +134,13 @@ export function Landing({
 /** 名牌要的那一份：名字、编号、颜色、她在光谱里的位置、默认衣装和招呼，都在服务端算好。 */
 function unitsOf(spectrum: SpectrumModel, characters: Character[]): SpectrumUnit[] {
   const outfitOf = new Map(characters.map((c) => [c.id, c.stand?.default_outfit ?? null]));
-  const greetingOf = new Map(characters.map((c) => [c.id, c.greeting]));
+  const greetingOf = new Map(
+    characters.map((c) => {
+      if (!c.greeting) return [c.id, null];
+      const audio_url = c.greeting.audio_url ?? `/sounds/gbf/${c.id}_greeting.mp3`;
+      return [c.id, { ...c.greeting, audio_url }];
+    })
+  );
   return spectrum.units.map((unit, u) => ({
     name: unit.name,
     plates: unit.idols.map((idol, slot) => ({
@@ -160,7 +166,13 @@ function speakerOf(units: SpectrumUnit[], characters: Character[]): (Speaker & {
   const her = plates.find((p) => p.id === t.act3.speaker) ?? plates[0];
   if (!her) return null;
   const character = characters.find((c) => c.id === her.id);
-  return { ...her, opener: character?.call_opener ?? null, poster: character?.call_poster_url ?? null };
+  const opener = character?.call_opener
+    ? {
+        ...character.call_opener,
+        audio_url: character.call_opener.audio_url ?? `/sounds/gbf/${character.id}_call_opener.mp3`,
+      }
+    : null;
+  return { ...her, opener, poster: character?.call_poster_url ?? null };
 }
 
 /** 第 5 幕的演员：文案指定的几位里在名单上的，连同她站的岛、印象色和体素文件。 */
