@@ -839,13 +839,13 @@ async def test_landing_memory_still_is_where_the_bucket_keeps_it(make_client: Cl
 async def test_local_sound_endpoint_and_greeting_fallback(make_client: ClientFactory, characters: CharacterConfig):
     """When a character has a local sound file, her greeting falls back to it when no bucket is configured."""
     CharacterConfig(characters.directory).add(
-        "narmaya", "ナルメア", MANO_SHEET, voice_id="narmaya-voice", greeting=MANO_GREETING
+        "vikala", "ビカラ", MANO_SHEET, voice_id="vikala-voice", greeting=MANO_GREETING
     )
     client = make_client(FakeLLM(), user=None)
     listed = {c["id"]: c for c in (await client.get("/api/characters")).json()}
-    # narmaya has frontend/public/sounds/gbf/narmaya_greeting.mp3
-    assert listed["narmaya"]["greeting"]["audio_url"] == "/sounds/gbf/narmaya_greeting.mp3"
+    # vikala has frontend/public/sounds/gbf/vikala_greeting.mp3
+    assert listed["vikala"]["greeting"]["audio_url"] == "/sounds/gbf/vikala_greeting.mp3"
 
-    res = await client.get("/sounds/gbf/narmaya_greeting.mp3")
+    res = await client.get("/sounds/gbf/vikala_greeting.mp3")
     assert res.status_code == 200
     assert res.headers["content-type"] == "audio/mpeg"
