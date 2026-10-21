@@ -420,6 +420,132 @@
       "sources": [
         "https://gbf.wiki/Katzelia"
       ]
+    },
+    {
+      "name": "チチリ",
+      "reading": "ちちり",
+      "unit": "四聖",
+      "sources": [
+        "https://gbf.wiki/Chichiri"
+      ],
+      "cv": "高田憂希"
+    },
+    {
+      "name": "ウルキ",
+      "reading": "うるき",
+      "unit": "四聖",
+      "sources": [
+        "https://gbf.wiki/Uruki"
+      ],
+      "cv": "三浦千幸"
+    },
+    {
+      "name": "シュシュク",
+      "reading": "しゅしゅく",
+      "unit": "四聖",
+      "sources": [
+        "https://gbf.wiki/Shushuku"
+      ],
+      "cv": "河野ひより"
+    },
+    {
+      "name": "アミ",
+      "reading": "あみ",
+      "unit": "四聖",
+      "sources": [
+        "https://gbf.wiki/Ami"
+      ],
+      "cv": "長谷川育美"
+    },
+    {
+      "name": "ウィルナス",
+      "reading": "うぃるなす",
+      "unit": "六竜",
+      "sources": [
+        "https://gbf.wiki/Wilnas"
+      ],
+      "cv": "水中雅章"
+    },
+    {
+      "name": "ワムデュス",
+      "reading": "わむでゅす",
+      "unit": "六竜",
+      "sources": [
+        "https://gbf.wiki/Wamdus"
+      ],
+      "cv": "長縄まりあ"
+    },
+    {
+      "name": "ガレヲン",
+      "reading": "がれをん",
+      "unit": "六竜",
+      "sources": [
+        "https://gbf.wiki/Galleon"
+      ],
+      "cv": "三森すずこ"
+    },
+    {
+      "name": "イーウィヤ",
+      "reading": "いーうぃや",
+      "unit": "六竜",
+      "sources": [
+        "https://gbf.wiki/Ewiyar"
+      ],
+      "cv": "引坂理絵"
+    },
+    {
+      "name": "ル・オー",
+      "reading": "る・おー",
+      "unit": "六竜",
+      "sources": [
+        "https://gbf.wiki/Lu Woh"
+      ],
+      "cv": "佐藤拓也"
+    },
+    {
+      "name": "フェディエル",
+      "reading": "ふぇでぃえる",
+      "unit": "六竜",
+      "sources": [
+        "https://gbf.wiki/Fediel"
+      ],
+      "cv": "田野アサミ"
+    },
+    {
+      "name": "ユグドラシル",
+      "reading": "ゆぐどらしる",
+      "unit": "星晶獣",
+      "sources": [
+        "https://gbf.wiki/Yggdrasil"
+      ],
+      "cv": "???"
+    },
+    {
+      "name": "エウロペ",
+      "reading": "えうろぺ",
+      "unit": "星晶獣",
+      "sources": [
+        "https://gbf.wiki/Europa"
+      ],
+      "cv": "中原麻衣"
+    },
+    {
+      "name": "ブローディア",
+      "reading": "ぶろーでぃあ",
+      "unit": "星晶獣",
+      "sources": [
+        "https://gbf.wiki/Brodia"
+      ],
+      "cv": "平野綾"
+    },
+    {
+      "name": "グリームニル",
+      "reading": "ぐりーむにる",
+      "unit": "星晶獣",
+      "sources": [
+        "https://gbf.wiki/Grimnir"
+      ],
+      "cv": "緒方恵美"
     }
   ],
   "units": [
@@ -514,6 +640,47 @@
       ],
       "sources": [
         "https://gbf.wiki/Society"
+      ]
+    },
+    {
+      "name": "四聖",
+      "reading": "しせい",
+      "members": [
+        "チチリ",
+        "ウルキ",
+        "シュシュク",
+        "アミ"
+      ],
+      "sources": [
+        "https://gbf.wiki/"
+      ]
+    },
+    {
+      "name": "六竜",
+      "reading": "ろくりゅう",
+      "members": [
+        "ウィルナス",
+        "ワムデュス",
+        "ガレヲン",
+        "イーウィヤ",
+        "ル・オー",
+        "フェディエル"
+      ],
+      "sources": [
+        "https://gbf.wiki/"
+      ]
+    },
+    {
+      "name": "星晶獣",
+      "reading": "せいしょうじゅう",
+      "members": [
+        "ユグドラシル",
+        "エウロペ",
+        "ブローディア",
+        "グリームニル"
+      ],
+      "sources": [
+        "https://gbf.wiki/"
       ]
     }
   ],

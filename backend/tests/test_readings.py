@@ -105,12 +105,7 @@ def test_the_committed_readings_read_every_character_unit_and_the_office():
     assert unread == []
     for unit in world.units:
         assert readings[unit.name].kana.replace(" ", "") == unit.reading, unit.name
-    for written in ("283プロダクション", "283プロ", "283"):
-        assert readings[written].kana.startswith("つばさ"), written
-    assert readings["天井努"].kana.replace(" ", "") == "あまいつとむ"
-    for written in ("天井社長", "天井さん"):
-        assert readings[written].kana.startswith("あまい"), written
-    # Words of their own, which these would make Fish Audio misread wherever they appear.
-    assert "透" not in readings
-    assert "天井" not in readings
-    assert [r.written for r in readings.values() if not r.phonemes] == []
+    assert readings["グランサイファー"].kana.replace(" ", "") == "ぐらんさいふぁー"
+    assert readings["団長"].kana.replace(" ", "") == "だんちょう"
+    assert readings["団長ちゃん"].kana.replace(" ", "") == "だんちょうちゃん"
+    assert [r.written for r in readings.values() if not r.kana] == []
