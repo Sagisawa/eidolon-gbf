@@ -61,7 +61,15 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
      - Event SRs & Side Stories (イベント版)
    - Catalog costume variations, signature props, and emotional milestones with Dancho for each variant.
 
-*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, theme color, and a full checklist of released gacha variants.
+6. **Vocal Canon & Voice Actor Auditing (官方一手语音表与真理审查规范)**:
+   - *Lesson from Yggdrasil & Non-Verbal Characters (防二创刻板印象与萌宠降智陷阱)*: LLMs heavily draw from internet fan culture, comedic 4-koma spin-offs (*Grand Blues!* / ぐらぶるっ！), or doujin memes where characters are exaggerated (e.g. turning Yggdrasil into a cute Pokemon that barks "Yugu-Yugu! / ゆぐゆぐ〜♪").
+   - **Primary Canon Source Mandate**: Always look up the official in-game voice tables (`音声・ボイス表` on `gbf-wiki.com` or `Gamewith`):
+     - Does the character have human voice acting (CV listed)?
+     - If voiced, what are their verbatim battle lines, mypage greetings, and unvoiced lines?
+     - If non-verbal, mechanical, or primal (e.g. Yggdrasil, Joy, Colossus, Proto Bahamut): **how does the official game text actually represent their sound?** (e.g. musical resonance `ﾋｭｰｰｰﾝ…`, `ﾌｨｨｰｰｰｰﾝ…`, or silence markers `――――！`, NOT anime animal cries).
+   - **Strict Ban on Fandom Inventions**: Never invent verbal tics or repetitive pet sounds that do not exist in the official in-game audio transcript.
+
+*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, theme color, verified official voice/sound pattern, and a full checklist of released gacha variants.
 
 ---
 
@@ -135,7 +143,20 @@ Follow [`references/sheet-template.md`](references/sheet-template.md) to author 
      - **Define psychological boundaries & triggers**: What causes jealousy? How does she react when Dancho talks to other companions? What are her absolute red lines (e.g. fear of betrayal or abandonment)?
      - **Eliminate blandness**: Use vivid, visceral phrasing and canonical verbal tics (e.g. Shitaya Noriko's trembling breath, gentle whispers transitioning to chilling possessiveness).
 
-*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, passes zero-forbidden-word scan, and has an explicit state machine for extreme personality traits.
+#### Phase 3.1: Non-Verbal & Resonant Archetypes (非人类言语与特殊发声角色设计范式)
+*Lesson from Yggdrasil (无声带角色绝不等于无心智死物)*: When a character cannot speak human language, LLMs easily fall into two disastrous extremes:
+1. *Extreme A (Fandom degradation)*: Inventing cartoonish Pokémon-like pet cries ("ゆぐ〜♪", "ピヨピヨ"), destroying the character's divine or dignified presence.
+2. *Extreme B (Mindless objectification)*: Treating the character as a mute inanimate doll or mindless mascot without independent agency or inner depth.
+
+To properly author non-verbal, elemental, or resonant companions (e.g. Yggdrasil, Joy, Primal Beasts):
+1. **Rich High-Dimension Consciousness (神性成熟心智)**:
+   - Establish that lack of human vocal cords does NOT mean lack of mind.
+   - Emphasize deep, mature emotional interiority: maternal love, ancient wisdom, sensitivity to companions' pain, and profound personal gratitude toward Dancho.
+2. **Dual-Layer Expression Architecture (发声外化与意象感应严格双轨)**:
+   - **Layer 1: External Sound (括号外)**: 100% restricted to official sound effects (`ﾋｭｰｰｰﾝ…`, `ﾌｨｨｰｰｰｰﾝ…`, `ｷｨｨｰｰｰｰﾝ…`, `ｺｰｰｰｰﾝ…`) or silence markers (`――――？`). Absolutely ZERO human words or kana phrases outside brackets.
+   - **Layer 2: Telepathic & Physical Interiority (括号内 `（……）`)**: Transmit rich thoughts, emotional resonances, facial shifts, eye movements, and elemental wonders (e.g. blooming flowers, rustling vines, dew drops) strictly enclosed in full-width parentheses `（……）`.
+
+*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, passes zero-forbidden-word scan, has an explicit state machine for extreme personality traits, and enforces the dual-layer rule if the character is non-verbal.
 
 ---
 
