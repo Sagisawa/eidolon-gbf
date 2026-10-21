@@ -376,7 +376,7 @@ export const zh = {
     disclaimer: "非官方的粉丝作品，与版权方无关。角色由 AI 扮演。",
     privacy: "隐私政策",
     terms: "使用条款",
-    pageTitle: (page: string) => `${page} · Eidolon-SC`,
+    pageTitle: (page: string) => `${page} · Eidolon-GBF`,
   },
   failure: {
     signIn: "去登录",
@@ -517,7 +517,6 @@ export const zh = {
       memories: "记忆",
       stats: "统计",
       call: "通话",
-      appearance: "外观",
       "own-keys": "自带密钥",
       "sign-in": "登录与数据",
       "data-package": "数据包",
@@ -532,8 +531,6 @@ export const zh = {
       daysKnown: (days: number) => `已认识 ${days} 天`,
       phoneTextureOn: "电话质感开",
       phoneTextureOff: "电话质感关",
-      scspAvatarsOn: "SCSP 头像开",
-      scspAvatarsOff: "SCSP 头像关",
       ownKeysNone: "全部用部署者的服务",
       ownKeys: (services: string) => `已填 ${services}`,
     },
@@ -626,9 +623,6 @@ export const zh = {
       saving: "正在保存…",
       unsaved: "尚未保存",
       saved: "已保存，所有设备共用这份档案",
-    },
-    appearance: {
-      scspAvatars: "SCSP 头像",
     },
     call: {
       mic: "默认麦克风",

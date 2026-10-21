@@ -6,7 +6,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -27,7 +26,6 @@ import {
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { copy } from "@/i18n";
 import { getAffinity } from "@/lib/affinity";
-import { DEFAULT_APPEARANCE, keepAppearance, loadAppearance, withAppearance, type Appearance } from "@/lib/appearance";
 import {
   createConversation,
   getAccount,
@@ -62,7 +60,7 @@ export type Directory = {
   account: Account | null;
   /** 别处重新取到了登录的用户（例如设置里解绑了一种登录方式之后），换上它。 */
   accountChanged: (account: Account) => void;
-  /** 还在载入时为 null。头像已经按外观换好（打开 SCSP 头像时是她的 SCSP 头像）。 */
+  /** 还在载入时为 null。 */
   characters: Character[] | null;
   latest: Record<string, LatestConversation>;
   failure: Failure | null;
@@ -74,10 +72,6 @@ export type Directory = {
   preferences: ListPreferences;
   /** 整理列表（隐藏、显示、置顶…），立即生效并存下；存不进去时只在这次页面里生效。 */
   tidy: (change: (preferences: ListPreferences) => ListPreferences) => void;
-  /** 这台设备上的外观；和角色一起读出。 */
-  appearance: Appearance;
-  /** 改外观，立即生效（`characters` 的头像跟着换）并存下；存不进去时只在这次页面里生效。 */
-  changeAppearance: (appearance: Appearance) => void;
   call: CallInList;
   /**
    * 外壳持有的那段对话的实时状态（ADR-0018「通话属于外壳」）：她的对话页开着时就是那一页的；
@@ -144,8 +138,7 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
   const [configured, setConfigured] = useState<Character[] | null>(null);
   const [latest, setLatest] = useState<Record<string, LatestConversation>>({});
   const [preferences, setPreferences] = useState<ListPreferences>(NO_PREFERENCES);
-  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
-  const characters = useMemo(() => configured && withAppearance(configured, appearance), [configured, appearance]);
+  const characters = configured;
   const [failure, setFailure] = useState<Failure | null>(null);
   const [attempt, setAttempt] = useState(0);
   // 外壳持有的那段对话：状态给渲染，ref 给回调在点击、卸下这一刻读。
@@ -181,7 +174,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
           setAccount(account);
           setConfigured(all);
           setPreferences(listPreferences(account.id, all.map((c) => c.id)));
-          setAppearance(loadAppearance(account.id));
           setLatest(Object.fromEntries(summaries.map((c) => [c.character_id, c])));
         },
         (e) => !cancelled && setFailure(toFailure(e)),
@@ -204,14 +196,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         if (userId) keepListPreferences(userId, next); // 写同样的值，重复执行也无妨
         return next;
       });
-    },
-    [userId],
-  );
-
-  const changeAppearance = useCallback(
-    (next: Appearance) => {
-      setAppearance(next);
-      if (userId) keepAppearance(userId, next);
     },
     [userId],
   );
@@ -322,8 +306,6 @@ export function DirectoryProvider({ children }: { children: ReactNode }) {
         latest,
         preferences,
         tidy,
-        appearance,
-        changeAppearance,
         failure,
         refresh,
         reload,

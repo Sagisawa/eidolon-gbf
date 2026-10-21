@@ -11,7 +11,6 @@ import { SETTINGS_GROUPS, settingsCategory, settingsHref, shownCategory } from "
 import { cn } from "@/lib/utils";
 import {
   AboutIcon,
-  AppearanceIcon,
   DataPackageIcon,
   MemoriesIcon,
   OwnKeysIcon,
@@ -28,7 +27,6 @@ const ICONS = {
   memories: MemoriesIcon,
   stats: StatsIcon,
   call: PhoneIcon,
-  appearance: AppearanceIcon,
   "own-keys": OwnKeysIcon,
   "sign-in": SignInIcon,
   "data-package": DataPackageIcon,

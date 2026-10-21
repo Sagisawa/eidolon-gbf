@@ -6,7 +6,6 @@
 // category's current value under its name (「设置：一级」).
 
 import { copy } from "@/i18n";
-import type { Appearance } from "@/lib/appearance";
 import type { CallPreferences } from "@/lib/callPreferences";
 import { OWN_SERVICES, type OwnService } from "@/lib/localOwnKeys";
 import { sameDraft, type Draft } from "@/lib/producerProfile";
@@ -15,7 +14,7 @@ import { PROVIDER_LABELS, type Provider } from "@/lib/signIn";
 /** The first level's groups, top to bottom, with a separator between each two. */
 export const SETTINGS_GROUPS = [
   ["profile", "memories", "stats"],
-  ["call", "appearance", "own-keys"],
+  ["call", "own-keys"],
   ["sign-in", "data-package"],
   ["about"],
 ] as const;
@@ -76,7 +75,6 @@ export type SettingsValues = {
   /** The days since the user signed up (`/api/stats`). */
   daysKnown: number | null;
   call: CallPreferences | null;
-  appearance: Appearance | null;
   /** The services this browser keeps the user's own key for. */
   ownServices: OwnService[] | null;
   signInMethods: Provider[] | null;
@@ -86,7 +84,7 @@ export type SettingsValues = {
  * or「关于」) shows its name alone. */
 export function settingsSummaries(values: SettingsValues): Partial<Record<SettingsCategory, string>> {
   const t = copy.settings.summaries;
-  const { profile, memoryCount, daysKnown, call, appearance, ownServices, signInMethods } = values;
+  const { profile, memoryCount, daysKnown, call, ownServices, signInMethods } = values;
   const summaries: Partial<Record<SettingsCategory, string>> = {};
   if (profile) {
     const { saved, draft } = profile;
@@ -98,7 +96,6 @@ export function settingsSummaries(values: SettingsValues): Partial<Record<Settin
   if (memoryCount !== null) summaries.memories = memoryCount === 0 ? t.noMemories : t.memories(memoryCount);
   if (daysKnown !== null) summaries.stats = t.daysKnown(daysKnown);
   if (call) summaries.call = `${copy.settings.call.qualities[call.quality]} · ${call.phoneTexture ? t.phoneTextureOn : t.phoneTextureOff}`;
-  if (appearance) summaries.appearance = appearance.scspAvatars ? t.scspAvatarsOn : t.scspAvatarsOff;
   if (ownServices) {
     const owned = OWN_SERVICES.filter((service) => ownServices.includes(service));
     summaries["own-keys"] =

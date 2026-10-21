@@ -22,7 +22,7 @@ export type Character = {
   name: string;
   intro: string;
   avatar_url: string | null;
-  /** Her avatar in SCSP's set, which settings can switch the app's avatars to (lib/appearance); null when not configured. */
+  /** Legacy SCSP avatar URL; null when not configured. */
   scsp_avatar_url: string | null;
   /** Her image colour, `#rrggbb`; the interface only uses what `herVars()` derives from it. */
   color: string;
