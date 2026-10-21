@@ -19,7 +19,7 @@ HEADERS = {
 ZODIACS = [
     {
         "id": "anila",
-        "asset_id": "3040040000",
+        "asset_id": "3040027000",
         "bg_color": (48, 18, 18),
     },
     {
@@ -39,17 +39,17 @@ ZODIACS = [
     },
     {
         "id": "kumbhira",
-        "asset_id": "3040198000",
+        "asset_id": "3040197000",
         "bg_color": (46, 28, 14),
     },
     {
         "id": "catura",
-        "asset_id": "3040312000",
+        "asset_id": "3040313000",
         "bg_color": (18, 34, 48),
     },
     {
         "id": "cindhara",
-        "asset_id": "3040378000",
+        "asset_id": "3040377000",
         "bg_color": (48, 22, 10),
     },
     {
@@ -59,7 +59,7 @@ ZODIACS = [
     },
     {
         "id": "haira",
-        "asset_id": "3040503000",
+        "asset_id": "3040502000",
         "bg_color": (12, 32, 45),
     },
     {
