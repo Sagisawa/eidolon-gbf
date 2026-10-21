@@ -326,6 +326,18 @@ def main():
                 source = "节日特别剧情"
                 title = rel.stem
             cast.add(char_prefix)
+        elif "zodiacs" in rel.stem or "twelve_generals" in str(rel):
+            category = "特别剧情"
+            source = "十二神将同盟"
+            if "deck_festival" in rel.stem:
+                title = "十二神将新春演艺大会「甲板除夕大祝宴」"
+            elif "onsen_vacation" in rel.stem:
+                title = "十二神将初诣温泉旅行「湯けむり大騒動と星空の誓い」"
+            else:
+                title = f"十二神将集结特别篇「{rel.stem}」"
+            ALL_ZODIACS = ["vikala", "anila", "andira", "mahira", "vajra", "kumbhira", "catura", "cindhara", "makora", "haira", "indara", "sanchira"]
+            for zid in ALL_ZODIACS:
+                cast.add(zid)
         elif NIER_EPISODE_TITLES.get(rel.stem):
             title = NIER_EPISODE_TITLES[rel.stem]
             if "特别剧情" in title or "舰上日常" in title or "战斗誓言" in title or "角色独白" in title:
