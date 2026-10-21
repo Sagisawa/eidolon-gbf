@@ -104,23 +104,38 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
    photo_tag = "{Danbooru character tag}"
    photo_appearance = "{Comma-separated visual tags for image gen}"
    ```
+   - **Liked Gifts Constraints (礼物目录强约束)**:
+     - `liked_gifts` MUST be drawn strictly from existing items in `characters/gifts.toml` (e.g. `cake`, `meat-bun`, `ancient-book`, `black-tea`).
+     - Must contain 1 to 3 items (`MAX_LIKED = 3`), no duplicates. Never invent non-existent gift IDs (e.g. `apple`, `fruit-tart`), as this immediately triggers `CharacterConfigError` in `test_gift_catalog.py`.
+   - **Appearance Eye Color Constraint**:
+     - `photo_appearance` MUST contain exactly ONE tag ending with ` eyes` (e.g. `blue eyes`, `yellow eyes`, `red eyes`), strictly avoiding conflict tags like `hair between eyes`.
+
 2. **Visual Assets**:
    - Place square portrait at `characters/avatars/{character_id}.jpg` (strictly `<= 224x224`, file size `< 32KB` enforced by `test_repository_avatars_are_shrunk_to_what_the_screens_show`).
    - Place background / standing art at `characters/backgrounds/{character_id}.jpg` (recommended 1200x800 high-res canvas with theme backdrop, file size `< 150KB`).
 
 #### Phase 2.1: Canonical Visual Asset Sourcing Protocol (官方正版立绘编号与防错位规范)
-*Lesson from Zodiac Batch*: Blindly guessing or incrementing internal IDs by 1 can cause catastrophic character misidentification (e.g. mistaking Lucio for Kumbhira, Jamil for Catura, Ewiyar for Cidala, or Fiorito for Payila).
-1. **Mandatory Canonical ID Verification**:
-   - Always look up the exact playable SSR Base ID on `gbf.wiki` (e.g. search `site:gbf.wiki "{English Name}"` -> find `Npc_m_3040XXXXXX` or character ID `3040XXXXXX`).
-   - **Never extrapolate** or assume contiguous IDs for consecutive banner releases.
+*Lesson from Zodiac & Zeta Batches*:
+1. **The Zeta Asset Misidentification Trap (严禁仅凭网页零散文本猜数字 ID)**:
+   - In past batches, searching for "Zeta SSR asset ID" mistakenly picked up `3040008000` (which belongs to Altair!), causing male scholar assets to be assigned to the female spear knight.
+   - **Mandatory Canonical ID Verification Workflow**:
+     - Always navigate to the character's dedicated page on `gbf.wiki` (e.g. `https://gbf.wiki/Zeta`).
+     - Open the character's infobox image details, inspect image filenames (`Npc_zoom_3040028000_01.png`), or query the MediaWiki API directly:
+       `https://gbf.wiki/api.php?action=query&prop=images&titles={Wiki_Title}&format=json`
+     - Extract the asset ID directly embedded in the official artwork filename (`3040028000`), never extrapolate or trust generic search engine snippets.
 2. **Visual Trait Consistency Checklist**:
    - **Draph (牛族)**: Prominent horns (large curved horns, distinct horn rings/ribbons), dramatic stature difference.
    - **Erune (狐耳/兽耳族)**: Backless outfit, canine/feline/fox animal ears atop head.
    - **Harvin (矮人族)**: Childlike compact proportions, large expressive eyes.
    - **Human (人类)**: Standard ear shape, realistic proportions.
-   - Check hair color, weapon, and companion animal (e.g. Vajra's white dog Garujana, Kumbhira's golden pig Popo, Catura's cow vehicle Mo-chan).
-3. **Download & Processing Discipline**:
-   - Avatars (`npc/s/{asset_id}_01.jpg`): Resize with high-quality Lanczos downsampling to 224×224, save JPEG quality 85 (`< 32KB`).
+   - Check hair color, weapon, and companion animal (e.g. Zeta's fiery red twin tails and Spear of Arvess, Vajra's white dog Garujana).
+3. **Non-Playable / Mascot Archetypes (NPC 伴随角色寻源规范，如碧 / Vyrn)**:
+   - For companion NPCs that lack standard playable gacha SSR sheets:
+     - Search under NPC category IDs (`3050xxxxxx` or `3990xxxxxx`, e.g. Vyrn is `3050001000`).
+     - Fetch standing assets via `npc/m/` or `npc/zoom/` endpoints.
+     - For combat skills, extract support summon calls (`Summon: Vyrn`), event battle interventions, or narrative true-form power (e.g. Dragon of Destruction).
+4. **Download & Processing Discipline**:
+   - Avatars (`npc/s/{asset_id}_01.jpg` or cropped from zoom): Resize with high-quality Lanczos downsampling to 224×224, save JPEG quality 85 (`< 32KB`).
    - Full Artwork (`npc/zoom/{asset_id}_01.png`): Paste transparent character art onto 1200×800 canvas tinted with the character's theme background color.
 
 3. **Audio Greeting & Opener (Verbatim Alignment)**:
@@ -167,7 +182,21 @@ To properly author non-verbal, elemental, or resonant companions (e.g. Yggdrasil
      - **Direct descriptive text without brackets**: Since the UI already renders `<zh>` in dedicated subtitle styling (`text-subtitle`), and the streaming parser strips `（...）` under ADR-0007, `<zh>` MUST be written as direct third-person sensory and psychological narration WITHOUT parentheses.
    - **Few-Shot Structure**: Provide complete `<ja>神鸣</ja><zh>心象与神态</zh>` examples in the sheet for greetings, headpats/hugs, questions ("Can you understand me?"), and battle commands.
 
-*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, passes zero-forbidden-word scan, has an explicit state machine for extreme personality traits, and enforces the dual-layer rule if the character is non-verbal.
+#### Phase 3.2: Mandatory Interpersonal Call & Address Matrix (骑空团全员称谓与人际关系强规范)
+*Lesson from 70-Companion Full-Ship Audit*: Without a concrete and comprehensive address table, characters easily fall into generic anime dialogue habits, confuse Dancho's honorific, or misaddress ship veterans (e.g. calling Vyrn a generic monster or using stiff polite forms).
+1. **Mandatory Section Gate**:
+   - `characters/sheets/{character_id}.md` MUST contain a dedicated section headed `## 对他人的称呼` (strictly validated by `validate_character.py`).
+2. **The Three-Tier Address Hierarchy**:
+   - **Tier 1: To Dancho / Captain (对团长)**:
+     - Record the exact canon honorific: `団長さん` (Lyria, Meg), `団長殿` (Vira, Vajra), `一番の眷属 / きみ` (Vampy), `団長ちゃん` (Narmaya), `団長っち` (Marippe, Vikala), `特異点` (Zooey, Grimnir, Six Dragons), `貴様 / ヒヨコ野郎` (Ilsa), `アンタ` (Cagliostro), `相棒 / オイラ` (Vyrn).
+     - Explicitly define the emotional positioning (e.g. romantic fixation, spoiled older sister, stern drillmaster, childhood partner).
+   - **Tier 2: To Ship Founders & Veterans (对格兰赛法核心元老)**:
+     - Distinguish who calls Vyrn `ビィくん` (Narmaya, Tikoh, Cupitan), who calls him `赤いトカゲ / トカゲ` (Vira, Vampy, Cagliostro, Sandalphon, Sarasa), and how Vyrn reacts.
+     - Specify addresses to Lyria (`ルリア` vs `ルリアちゃん` vs `蒼の少女`) and Katalina (`カタリナお姉様` vs `カタリナさん`).
+   - **Tier 3: To Faction & Bond Companions (对所属阵营与关键羁绊)**:
+     - Explicitly list nicknames for faction peers (e.g. Zeta: `ベア`, `バザラガ`, `イルザ教官`; Cagliostro: `ポンコツ末裔 / クラリス`, `幽霊娘 / フェリ`; Ilsa: `新兵ども`, `ゼタ`, `バザラガ`).
+
+*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, passes zero-forbidden-word scan, contains `## 对他人的称呼`, has an explicit state machine for extreme personality traits, and enforces the dual-layer rule if the character is non-verbal.
 
 ---
 
@@ -253,6 +282,21 @@ To enable high-precision semantic recall (RAG) during live conversations:
 4. **SQLite WAL Checkpoint Discipline**:
    - Always execute `PRAGMA wal_checkpoint(TRUNCATE)` after ingestion so the updated pages are committed into the main `data/eidolon.db` file before committing to Git.
 
+#### Phase 6.1: Tier-Based Scenario Delivery Standards (分级交付与剧本扩充黄金配比)
+*Lesson from 14-Companion & Vyrn Batch (拒绝及格线，按档位饱和扩充)*: Automated tests set a physical floor (`episodes >= 15`), but real chat immersion demands deep conversational coverage. In live usage, users notice immediately if seasonal greetings or alternate variants cannot be recalled.
+1. **The Three Delivery Tiers**:
+   - **Physical Floor (构建防崩底线)**: `episodes >= 15` (Automated CI only, DO NOT deliver to user at this level).
+   - **Standard Crew Delivery (标准同伴交付档，52+ 段)**:
+     - All general recruit companions must reach $\ge 52$ modular episodes in `data/eidolon.db`.
+   - **Heavyweight / Core Lead Delivery (核心主力与主角档，65+ 段)**:
+     - Top popular heroines (Lyria, Vira, Cagliostro, Zeta, Vampy, Zooey, Ilsa) and founding trio (Dancho, Vyrn, Lyria) must reach $\ge 65$ modular episodes.
+2. **The 52~65 Episode Golden Distribution Matrix**:
+   - **Recruitment & Core Fate (招募与主线命运篇章)**: 6~8 episodes (Origin, Recruitment, 5★ FLB uncap, signature bond revelation).
+   - **Years 1~5 Seasonal Holidays (五大节日心境递进)**: 20~25 episodes (5 years $\times$ [Valentine, White Day, Halloween, Christmas, Dancho's Birthday, New Year]).
+   - **Battle & Ougi Vows (战场誓言与极限奥义)**: 5~8 episodes (verbatim battle quotes, danger mode rescue, victory celebration).
+   - **Gacha Variant Memories (全卡池异格专属回忆)**: 12~16 episodes (dedicated scenes for Summer swimsuit, Yukata, Halloween, Holiday, Valentine, Style Swap).
+   - **Deck Life & Ensemble Camaderie (甲板日常与同伴联动)**: 6~10 episodes (training, galley cooking, airship maintenance, pet teasing).
+
 #### Phase 6.2: Ensemble & Faction Group Scenarios (阵营群体联动剧情规范)
 *Lesson from Zodiac Batch*: When adding characters who belong to a coherent faction (e.g. Twelve Divine Generals, Dragon Knights, Eternals, Society), individual isolated episodes are not enough. Characters must share living memories together on the Grandcypher.
 1. **Mandatory Group Scenarios (2~3 shared episodes)**:
@@ -309,21 +353,31 @@ Run the full automated verification suite to guarantee quality:
    ```
    *Must report*: `[PASS] Character '{character_id}' passed all validation gates.`
    *Validation Gates Enforced*:
-   - `characters.toml` fields & visual asset existence (< 32KB avatar, < 120KB background)
-   - Character sheet length (>= 20 lines) and anti-pollution terms check
-   - Facts line count (>= 50 lines, recommend >= 150)
-   - World graph registration in `world.json` (`idols` and `units`)
-   - **Modular Scenario Ingestion Gate**: >= 15 distinct episodes in `episode_cast`, covering both `命运篇章` and `特别剧情`, with 100% vector passage parity in `episode_passages`
+   - `characters.toml` fields & visual asset existence (< 32KB avatar, < 150KB background)
+   - `liked_gifts` cross-validation against `characters/gifts.toml` (1~3 items, no non-catalog items)
+   - `photo_appearance` eye color constraint (exactly one `* eyes` tag)
+   - Character sheet length (>= 20 lines), zero forbidden terms, and mandatory `## 对他人的称呼` section
+   - Facts line count (>= 50 lines, recommend >= 150) and `# 版本心境与成长历程` presence
+   - World graph registration in `world.json` (`idols` list and `units` membership)
+   - **Modular Scenario Ingestion Gate**: >= 15 distinct episodes in `episode_cast` (recommend >= 52 for standard delivery), covering both `命运篇章` and `特别剧情`, with 100% vector passage parity in `episode_passages`
    - Automated WAL checkpoint execution
 
-2. **Run Pytest Suite**:
-   ```bash
-   .\.venv\Scripts\python.exe -m pytest \
-       backend/tests/test_characters.py \
-       backend/tests/test_world_setting.py \
-       backend/tests/test_producer_profile.py
-   ```
-   *Must report*: `122 passed` (or 100% pass rate).
+2. **Sync Backend Test Mappings & Run Pytest**:
+   - *Test Synchronisation Rule*: If adding a brand new character ID, update the 4 mapping tables in `backend/tests/test_characters.py`:
+     1. `EXPECTED_VOICES`: map `"{char_id}": "{voice_id}"`
+     2. `EXPECTED_NAMES`: map `"{char_id}": "{Official Japanese Name}"`
+     3. `EXPECTED_SPEAKERS`: map `"{char_id}": ("{Japanese}", "{Japanese}、{Chinese}", "{Chinese}")`
+     4. `EXPECTED_COLORS`: map `"{char_id}": "{#HEX_COLOR}"`
+   - Run the comprehensive character test suite:
+     ```bash
+     .\.venv\Scripts\python.exe -m pytest \
+         backend/tests/test_characters.py \
+         backend/tests/test_readings.py \
+         backend/tests/test_gift_catalog.py \
+         backend/tests/test_world_setting.py \
+         backend/tests/test_producer_profile.py
+     ```
+     *Must report*: 100% pass rate (e.g. 155 passed).
 
 3. **Render System Prompt Audit**:
    Execute Python one-liner to inspect generated prompt:

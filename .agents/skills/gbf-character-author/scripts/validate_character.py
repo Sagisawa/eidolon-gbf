@@ -58,12 +58,46 @@ def validate_character(
         "color",
         "background",
         "facts",
+        "liked_gifts",
+        "photo_appearance",
         "greeting",
         "greeting_subtitle",
     ]
     for field in required_fields:
         if field not in char_conf or not char_conf[field]:
             errors.append(f"characters.toml [{char_id}] missing required field '{field}'")
+
+    # 1b. Check liked_gifts validity against characters/gifts.toml
+    gifts_path = ROOT / "characters" / "gifts.toml"
+    if gifts_path.exists():
+        try:
+            gifts_catalog = tomllib.loads(gifts_path.read_text(encoding="utf-8")).get("gifts", [])
+            valid_gift_ids = {g["id"] for g in gifts_catalog}
+            liked = char_conf.get("liked_gifts", [])
+            if not isinstance(liked, list) or not liked:
+                errors.append(f"characters.toml [{char_id}] liked_gifts must be a non-empty list")
+            else:
+                if len(liked) > 3:
+                    errors.append(f"characters.toml [{char_id}] liked_gifts has {len(liked)} items (maximum allowed is 3)")
+                if len(set(liked)) < len(liked):
+                    errors.append(f"characters.toml [{char_id}] liked_gifts contains duplicates")
+                bad_gifts = [g for g in liked if g not in valid_gift_ids]
+                if bad_gifts:
+                    errors.append(
+                        f"characters.toml [{char_id}] liked_gifts contains invalid item(s) {bad_gifts} not in characters/gifts.toml"
+                    )
+        except Exception as e:
+            errors.append(f"Failed to validate liked_gifts for [{char_id}]: {e}")
+
+    # 1c. Check photo_appearance has exactly one eye color tag ending with ' eyes'
+    appearance = char_conf.get("photo_appearance", "")
+    if appearance:
+        looks = [tag.strip() for tag in appearance.split(",")]
+        eye_colours = [t for t in looks if t.endswith(" eyes") and not t.startswith("hair ")]
+        if len(eye_colours) != 1:
+            errors.append(
+                f"characters.toml [{char_id}] photo_appearance must contain exactly one eye colour tag ending with ' eyes' (found {eye_colours})"
+            )
 
     char_name = char_conf.get("name", "")
 
@@ -95,6 +129,10 @@ def validate_character(
         sheet_text = sheet_path.read_text(encoding="utf-8")
         if len(sheet_text.splitlines()) < 20:
             errors.append(f"Character sheet too short (< 20 lines): {sheet_path.relative_to(ROOT)}")
+        if "对他人的称呼" not in sheet_text and "对他人的称谓" not in sheet_text:
+            errors.append(
+                f"Character sheet missing mandatory section '## 对他人的称呼': {sheet_path.relative_to(ROOT)}"
+            )
         for bad in FORBIDDEN_PROMPT_TERMS:
             if bad in sheet_text:
                 errors.append(f"Character sheet contains forbidden term '{bad}': {sheet_path.relative_to(ROOT)}")
