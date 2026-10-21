@@ -54,6 +54,23 @@ NIER_EPISODE_TITLES = {
     "scene_nier_morning_call": "舰上日常「朝の目覚め（朝露と紅茶）」",
 }
 
+VARIANT_EPISODE_TITLES = {
+    "scene_vajra_halloween_ep": ("特别剧情", "万圣特别剧情", "ヴァジラ 万圣限定篇「夜行百鬼・小悪魔忠犬とお菓子の誓い」 [season:halloween]"),
+    "scene_vajra_summer_ep": ("特别剧情", "夏日特别剧情", "ヴァジラ 泳装限定篇「波打ち際のじゃれあいと水飛沫」 [season:summer]"),
+    "scene_anila_summer_ep": ("特别剧情", "夏日特别剧情", "アニラ 泳装限定篇「潮風と羊の浮き輪・静かな夏の夜」 [season:summer]"),
+    "scene_anila_yukata_ep": ("特别剧情", "夏日祭典特别剧情", "アニラ 浴衣限定篇「宵闇の縁日・林檎飴と花火の約束」 [season:summer]"),
+    "scene_andira_summer_ep": ("特别剧情", "夏日特别剧情", "アンチラ 泳装限定篇「真夏の水鉄砲大乱闘とヤシの実」 [season:summer]"),
+    "scene_mahira_holiday_ep": ("特别剧情", "圣诞特别剧情", "マキラ 圣诞限定篇「聖夜のからくりトナカイ橇とオルゴール」 [season:christmas]"),
+    "scene_mahira_summer_ep": ("特别剧情", "夏日特别剧情", "マキラ 泳装限定篇「全自動砂城マシンと夏の海」 [season:summer]"),
+    "scene_kumbhira_summer_ep": ("特别剧情", "夏日特别剧情", "クビラ 泳装限定篇「黄金ビキニとポポのビーチバレー」 [season:summer]"),
+    "scene_catura_summer_ep": ("特别剧情", "夏日特别剧情", "シャトラ 泳装限定篇「水陸両用モーちゃん海辺のデート」 [season:summer]"),
+    "scene_catura_holiday_ep": ("特别剧情", "圣诞特别剧情", "シャトラ 圣诞限定篇「雪夜のホットミルクと小さな願い」 [season:christmas]"),
+    "scene_cindhara_super_ep": ("命运篇章", "十二神将浪漫奇谭", "シンダラ 战斗风格解放篇「スーパーシンダラ合体・猛虎の咆哮」"),
+    "scene_cindhara_valentine_ep": ("特别剧情", "情人节特别剧情", "シンダラ 情人节限定篇「双子虎の苺チョコ大合戦」 [season:valentine]"),
+    "scene_makora_valentine_ep": ("特别剧情", "情人节特别剧情", "マコラ 情人节限定篇「扇の向こうの紅潮・秘めたる本命チョコ」 [season:valentine]"),
+    "scene_haira_summer_ep": ("特别剧情", "夏日特别剧情", "ハイラ 泳装限定篇「パラソルの下の堕落龍と冷たいかき氷」 [season:summer]"),
+}
+
 # Seasonal lines expansion data (Years 6-10 for Narmaya, Years 2-5 for Vikala)
 NARMAYA_EXTRA_BIRTHDAY = [
     (6, "ナルメア 生日祝贺 第6年 [season:birthday]", [
@@ -338,6 +355,9 @@ def main():
             ALL_ZODIACS = ["vikala", "anila", "andira", "mahira", "vajra", "kumbhira", "catura", "cindhara", "makora", "haira", "indara", "sanchira"]
             for zid in ALL_ZODIACS:
                 cast.add(zid)
+        elif VARIANT_EPISODE_TITLES.get(rel.stem):
+            category, source, title = VARIANT_EPISODE_TITLES[rel.stem]
+            cast.add(char_prefix)
         elif NIER_EPISODE_TITLES.get(rel.stem):
             title = NIER_EPISODE_TITLES[rel.stem]
             if "特别剧情" in title or "舰上日常" in title or "战斗誓言" in title or "角色独白" in title:
