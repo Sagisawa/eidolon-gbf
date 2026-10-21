@@ -370,6 +370,18 @@ def main():
             ALL_ETERNALS = ["uno", "song", "sarasa", "quatre", "funf", "seox", "seofon", "eahta", "niyon", "tien"]
             for eid in ALL_ETERNALS:
                 cast.add(eid)
+        elif "evokers" in rel.stem or "evokers" in str(rel):
+            category = "特别剧情"
+            source = "十賢者盟约"
+            if "arcarum_covenant" in rel.stem:
+                title = "十賢者星幽集结「タロットの導きと盟約」"
+            elif "deck_banquet" in rel.stem:
+                title = "十賢者甲板夜話「星の島への道標」"
+            else:
+                title = f"十賢者特别篇「{rel.stem}」"
+            ALL_EVOKERS = ["maria", "fraux", "geisenborger", "estarriola", "caim", "lobelia", "katzelia", "alanaan", "haaselia", "nier"]
+            for vid in ALL_EVOKERS:
+                cast.add(vid)
         elif VARIANT_EPISODE_TITLES.get(rel.stem):
             category, source, title = VARIANT_EPISODE_TITLES[rel.stem]
             cast.add(char_prefix)
@@ -390,21 +402,23 @@ def main():
             else:
                 title = f"{char_name} 战斗誓言「十天の誓いと出陣」"
             cast.add(char_prefix)
-        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem or "_transcendence_" in rel.stem):
+        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem or "_transcendence_" in rel.stem or "_domain_" in rel.stem):
             category = "命运篇章"
             source = f"{char_name} 命运篇章"
-            if "_transcendence_" in rel.stem:
+            if "_domain_" in rel.stem:
+                title = f"{char_name} 命运篇章 贤者领域「契約の深化」"
+            elif "_transcendence_" in rel.stem:
                 title = f"{char_name} 命运篇章 限界超越「苍穹の極致」"
             elif "_flb_" in rel.stem:
-                title = f"{char_name} 命运篇章 最终上限解放「真・天星覚醒」"
+                title = f"{char_name} 命运篇章 最终上限解放「真・覚醒の光」"
             elif "_fate_" in rel.stem:
-                title = f"{char_name} 命运篇章 招募入团「大空への旅立ち」"
+                title = f"{char_name} 命运篇章 招募入团「大空への合流」"
             elif "_q1_" in rel.stem:
-                title = f"{char_name} 命运篇章 前篇「天星器の導きと風」"
+                title = f"{char_name} 命运篇章 前篇「星晶獣との邂逅」"
             elif "_q2_" in rel.stem:
-                title = f"{char_name} 命运篇章 第1话「強者への問いかけ」"
+                title = f"{char_name} 命运篇章 第1话「過酷なる試練」"
             elif "_q3_" in rel.stem:
-                title = f"{char_name} 命运篇章 第2话「団長との絆」"
+                title = f"{char_name} 命运篇章 第2话「契約の真実」"
             else:
                 title = f"{char_name} 命运篇章「{rel.stem}」"
             cast.add(char_prefix)

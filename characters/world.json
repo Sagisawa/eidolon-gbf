@@ -339,6 +339,87 @@
       "sources": [
         "https://gbf.wiki/Tien"
       ]
+    },
+    {
+      "name": "マリア・テレサ",
+      "reading": "まりあ・てれさ",
+      "unit": "十賢者",
+      "cv": "高垣彩陽",
+      "sources": [
+        "https://gbf.wiki/Maria_Theresa"
+      ]
+    },
+    {
+      "name": "カイム",
+      "reading": "かいむ",
+      "unit": "十賢者",
+      "cv": "國立幸",
+      "sources": [
+        "https://gbf.wiki/Caim"
+      ]
+    },
+    {
+      "name": "エスタリオラ",
+      "reading": "えすたりおら",
+      "unit": "十賢者",
+      "cv": "チョー",
+      "sources": [
+        "https://gbf.wiki/Estarriola"
+      ]
+    },
+    {
+      "name": "フラウ",
+      "reading": "ふらう",
+      "unit": "十賢者",
+      "cv": "浅川悠",
+      "sources": [
+        "https://gbf.wiki/Fraux"
+      ]
+    },
+    {
+      "name": "ロベリア",
+      "reading": "ろべりあ",
+      "unit": "十賢者",
+      "cv": "野島健児",
+      "sources": [
+        "https://gbf.wiki/Lobelia"
+      ]
+    },
+    {
+      "name": "ガイゼンボーガー",
+      "reading": "がいぜんぼーがー",
+      "unit": "十賢者",
+      "cv": "てらそままさき",
+      "sources": [
+        "https://gbf.wiki/Geisenborger"
+      ]
+    },
+    {
+      "name": "ハーゼリーラ",
+      "reading": "はーぜりーら",
+      "unit": "十賢者",
+      "cv": "藤井ゆきよ",
+      "sources": [
+        "https://gbf.wiki/Haaselia"
+      ]
+    },
+    {
+      "name": "アラナン",
+      "reading": "あらなん",
+      "unit": "十賢者",
+      "cv": "大友龍三郎",
+      "sources": [
+        "https://gbf.wiki/Alanaan"
+      ]
+    },
+    {
+      "name": "カッツェリーラ",
+      "reading": "かっつぇりーら",
+      "unit": "十賢者",
+      "cv": "代永翼",
+      "sources": [
+        "https://gbf.wiki/Katzelia"
+      ]
     }
   ],
   "units": [
@@ -346,7 +427,16 @@
       "name": "十賢者",
       "reading": "じゅっけんじゃ",
       "members": [
-        "ニーア"
+        "マリア・テレサ",
+        "カイム",
+        "ニーア",
+        "エスタリオラ",
+        "フラウ",
+        "ロベリア",
+        "ガイゼンボーガー",
+        "ハーゼリーラ",
+        "アラナン",
+        "カッツェリーラ"
       ],
       "sources": [
         "https://gbf.wiki/Arcarum_Evokers"

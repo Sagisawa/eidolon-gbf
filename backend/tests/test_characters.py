@@ -239,6 +239,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "eahta": "08080808080808080808080808080808",
         "niyon": "09090909090909090909090909090909",
         "tien": "10101010101010101010101010101010",
+        "maria": "11111111111111111111111111111111",
+        "fraux": "12121212121212121212121212121212",
+        "geisenborger": "13131313131313131313131313131313",
+        "estarriola": "14141414141414141414141414141414",
+        "caim": "15151515151515151515151515151515",
+        "lobelia": "16161616161616161616161616161616",
+        "katzelia": "17171717171717171717171717171717",
+        "alanaan": "18181818181818181818181818181818",
+        "haaselia": "19191919191919191919191919191919",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
@@ -265,6 +274,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "eahta": "オクトー",
         "niyon": "ニオ",
         "tien": "エッセル",
+        "maria": "マリア・テレサ",
+        "fraux": "フラウ",
+        "geisenborger": "ガイゼンボーガー",
+        "estarriola": "エスタリオラ",
+        "caim": "カイム",
+        "lobelia": "ロベリア",
+        "katzelia": "カッツェリーラ",
+        "alanaan": "アラナン",
+        "haaselia": "ハーゼリーラ",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
@@ -291,6 +309,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "eahta": ("オクトー", "オクトー/奥克托", "奥克托"),
         "niyon": ("ニオ", "ニオ/妮欧", "妮欧"),
         "tien": ("エッセル", "エッセル/艾瑟尔", "艾瑟尔"),
+        "maria": ("マリア・テレサ", "マリア・テレサ/玛利亚・泰蕾莎", "マリア", "玛利亚"),
+        "fraux": ("フラウ", "フラウ/芙劳", "芙劳"),
+        "geisenborger": ("ガイゼンボーガー", "ガイゼンボーガー/盖森博加", "盖森博加"),
+        "estarriola": ("エスタリオラ", "エスタリオラ/艾斯塔利奥拉", "艾斯塔利奥拉"),
+        "caim": ("カイム", "カイム/凯姆", "凯姆"),
+        "lobelia": ("ロベリア", "ロベリア/罗贝利亚", "罗贝利亚"),
+        "katzelia": ("カッツェリーラ", "カッツェリーラ/卡杰莉拉", "卡杰莉拉"),
+        "alanaan": ("アラナン", "アラナン/阿拉南", "阿拉南"),
+        "haaselia": ("ハーゼリーラ", "ハーゼリーラ/哈洁莉拉", "ハーゼ", "哈洁莉拉"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
@@ -318,6 +345,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "eahta": "#8c6838",
         "niyon": "#38b090",
         "tien": "#c83828",
+        "maria": "#1d4ed8",
+        "fraux": "#b91c1c",
+        "geisenborger": "#475569",
+        "estarriola": "#059669",
+        "caim": "#b45309",
+        "lobelia": "#701a75",
+        "katzelia": "#0f766e",
+        "alanaan": "#ea580c",
+        "haaselia": "#1e3a8a",
     }
 
 
