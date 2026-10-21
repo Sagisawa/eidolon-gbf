@@ -67,10 +67,21 @@ def validate_character(
 
     char_name = char_conf.get("name", "")
 
-    # 2. Check avatars and backgrounds
+    # 2. Check avatars and backgrounds (strict <= 224x224 and <= 32KB gate)
     avatar_path = ROOT / "characters" / "avatars" / f"{char_id}.jpg"
     if not avatar_path.exists():
         errors.append(f"Avatar missing: {avatar_path.relative_to(ROOT)}")
+    else:
+        av_size = avatar_path.stat().st_size
+        if av_size > 32768:
+            errors.append(f"Avatar {avatar_path.name} exceeds 32KB limit ({av_size} bytes > 32768 bytes)")
+        try:
+            from PIL import Image
+            with Image.open(avatar_path) as im:
+                if im.width > 224 or im.height > 224:
+                    errors.append(f"Avatar {avatar_path.name} dimensions ({im.width}x{im.height}) exceed maximum 224x224")
+        except ImportError:
+            pass
 
     bg_path = ROOT / "characters" / "backgrounds" / f"{char_id}.jpg"
     if not bg_path.exists():

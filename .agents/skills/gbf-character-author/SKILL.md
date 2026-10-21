@@ -83,8 +83,24 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
    photo_appearance = "{Comma-separated visual tags for image gen}"
    ```
 2. **Visual Assets**:
-   - Place square portrait at `characters/avatars/{character_id}.jpg` (recommended 512x512, file size < 32KB).
-   - Place background / standing art at `characters/backgrounds/{character_id}.jpg` (recommended 1200x800 or vertical crop, file size < 120KB).
+   - Place square portrait at `characters/avatars/{character_id}.jpg` (strictly `<= 224x224`, file size `< 32KB` enforced by `test_repository_avatars_are_shrunk_to_what_the_screens_show`).
+   - Place background / standing art at `characters/backgrounds/{character_id}.jpg` (recommended 1200x800 high-res canvas with theme backdrop, file size `< 150KB`).
+
+#### Phase 2.1: Canonical Visual Asset Sourcing Protocol (官方正版立绘编号与防错位规范)
+*Lesson from Zodiac Batch*: Blindly guessing or incrementing internal IDs by 1 can cause catastrophic character misidentification (e.g. mistaking Lucio for Kumbhira, Jamil for Catura, Ewiyar for Cidala, or Fiorito for Payila).
+1. **Mandatory Canonical ID Verification**:
+   - Always look up the exact playable SSR Base ID on `gbf.wiki` (e.g. search `site:gbf.wiki "{English Name}"` -> find `Npc_m_3040XXXXXX` or character ID `3040XXXXXX`).
+   - **Never extrapolate** or assume contiguous IDs for consecutive banner releases.
+2. **Visual Trait Consistency Checklist**:
+   - **Draph (牛族)**: Prominent horns (large curved horns, distinct horn rings/ribbons), dramatic stature difference.
+   - **Erune (狐耳/兽耳族)**: Backless outfit, canine/feline/fox animal ears atop head.
+   - **Harvin (矮人族)**: Childlike compact proportions, large expressive eyes.
+   - **Human (人类)**: Standard ear shape, realistic proportions.
+   - Check hair color, weapon, and companion animal (e.g. Vajra's white dog Garujana, Kumbhira's golden pig Popo, Catura's cow vehicle Mo-chan).
+3. **Download & Processing Discipline**:
+   - Avatars (`npc/s/{asset_id}_01.jpg`): Resize with high-quality Lanczos downsampling to 224×224, save JPEG quality 85 (`< 32KB`).
+   - Full Artwork (`npc/zoom/{asset_id}_01.png`): Paste transparent character art onto 1200×800 canvas tinted with the character's theme background color.
+
 3. **Audio Greeting & Opener (Verbatim Alignment)**:
    - Place introductory voice snippet at `frontend/public/sounds/gbf/{character_id}.mp3`.
    - Place greeting audio at `frontend/public/sounds/gbf/{character_id}_greeting.mp3`.
@@ -174,6 +190,19 @@ To enable high-precision semantic recall (RAG) during live conversations:
 4. **SQLite WAL Checkpoint Discipline**:
    - Always execute `PRAGMA wal_checkpoint(TRUNCATE)` after ingestion so the updated pages are committed into the main `data/eidolon.db` file before committing to Git.
 
+#### Phase 6.2: Ensemble & Faction Group Scenarios (阵营群体联动剧情规范)
+*Lesson from Zodiac Batch*: When adding characters who belong to a coherent faction (e.g. Twelve Divine Generals, Dragon Knights, Eternals, Society), individual isolated episodes are not enough. Characters must share living memories together on the Grandcypher.
+1. **Mandatory Group Scenarios (2~3 shared episodes)**:
+   - Create multi-character ensemble episodes (e.g. `scene_zodiacs_deck_festival.csv`, `scene_zodiacs_onsen_vacation.csv`).
+   - Group themes: Grandcypher deck celebrations, joint training sessions, festival gatherings, hot spring vacations, banquet cooking.
+2. **Multi-Cast Binding**:
+   - Ingest the single episode once into `episodes`.
+   - In `episode_cast`, create a record for **every participating character**:
+     ```sql
+     INSERT INTO episode_cast (episode_id, character_id) VALUES (?, ?);
+     ```
+   - *Impact*: In live chat, whenever Dancho chats with *any* of the faction members about other members or shared memories, the RAG semantic search smoothly retrieves the shared event, creating a deeply connected, living world.
+
 *Completion Criterion*: Querying `SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = '{character_id}'` returns >= 15 modular episodes covering both `命运篇章` and `特别剧情`.
 
 ---
@@ -240,4 +269,13 @@ Run the full automated verification suite to guarantee quality:
    npm run typecheck --prefix frontend
    ```
 
-*Completion Criterion*: All automated tests pass, zero forbidden words detected, prompt renders cleanly.
+#### Phase 8.2: Concurrency Throttling & Test Metric Protection (批量测试限流与监控防污染纪律)
+*Lesson from Zodiac Batch*: High-frequency bursting during automated validation or dialogue testing can trigger 429 `rate_limited` responses from local or upstream LLM proxies. Because `ServiceStatus` calculates deployer failure rates over the latest window (default: 30 minutes), a sudden burst of 30+ rate limit errors will flag `chat_llm` or `memory_llm` as 🔴 "故障" (down) on user screens, despite the service recovering moments later.
+1. **Rate Limit Throttling**:
+   - Any script performing batch LLM probes, turn simulations, or embedding generation MUST incorporate client-side pacing (`time.sleep(0.25)` or `asyncio.sleep(0.25)`) and bound concurrency (`semaphore = asyncio.Semaphore(2)`).
+2. **Clean Test Isolation**:
+   - When running unit/integration tests (`pytest`), ensure test runs execute against mock clients or isolated database instances so that temporary test failures never write spurious error records into the production `service_calls` table in `data/eidolon.db`.
+3. **Stale Error Rectification**:
+   - If rate-limiting occurred during development tests and poisoned the 30-minute status window, purge the development test artifacts from `service_calls` or wait for the sliding window to elapse before presenting the system to the user.
+
+*Completion Criterion*: All automated tests pass, zero forbidden words detected, prompt renders cleanly, and service status monitors remain 100% green.
