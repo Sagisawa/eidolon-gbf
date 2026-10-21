@@ -50,16 +50,20 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
      - `団長` (Lancelot, Zeta / equal comrade mode)
 4. **Theme Color**:
    - Extract primary hex code representing the character's eye/hair/attire (e.g. `#8a5aa8` for Narmaya, `#5b7fa4` for Vikala).
-5. **Multi-Version & Seasonal Variant Inventory (全卡池版本与变体审计)**:
-   - *Lesson from Zodiac Batch*: Characters in a long-running live-service game like GBF almost never have just their base SSR. Overlooking seasonal releases (e.g. Halloween Vajra, Summer Kumbhira, Super Cidala) leads to "single-version amnesia" in live chat.
-   - Query `site:gbf.wiki "Other Versions" "{English Name}"` or inspect the "Character Versions" box on `gbf.wiki`.
-   - Exhaustively enumerate all released playable variants across the character's lifespan:
-     - Base SSR & 5★ FLB Uncap (最终上限解放)
-     - Seasonal SSRs: Summer (水着/サマー), Yukata (浴衣), Halloween (ハロウィン), Holiday/Christmas (クリスマス), Valentine (バレンタイン)
-     - Grand / Flash Gala Series (リミテッド)
-     - Style Swaps (スタイルチェンジ, e.g. Super Cidala)
-     - Event SRs & Side Stories (イベント版)
-   - Catalog costume variations, signature props, and emotional milestones with Dancho for each variant.
+5. **Multi-Version & Seasonal Variant Inventory (全卡池版本与变体审计与防脑补铁律)**:
+   - *Lesson from Six Dragons & Zodiac Audits (严禁套用季节模板凭空捏造版本)*: LLMs heavily suffer from "seasonal template bias" (assuming every character automatically has a Summer/Yukata variant). This previously caused non-existent "Yukata versions" to be hallucinated for Ewiyar, Wilnas, and Lu Woh, and a fake "Summer version" for Wamdus, while ignoring real Halloween, Valentine, and Christmas releases.
+   - **Exhaustive Ground-Truth Audit**:
+     - Query `site:gbf.wiki "Character Versions"` or examine `gbf-wiki.com` to list EVERY canonically released variant across the character's lifespan:
+       - Base SSR & 5★ FLB Uncap (最终上限解放)
+       - Seasonal SSRs: Summer (水着/サマー), Yukata (浴衣), Halloween (ハロウィン), Holiday/Christmas (クリスマス), Valentine (バレンタイン)
+       - Grand / Flash Gala Series (リミテッド)
+       - Style Swaps (スタイルチェンジ, e.g. Super Cidala)
+       - Event SRs & Side Stories (イベント版)
+     - **Strict Ban on Invented Variants**: ONLY variants genuinely released by Cygames may receive an H2 entry in `# 版本心境与成长历程`. If Cygames never released a Yukata or Summer card, NEVER write one into the facts.
+   - **Verbatim Battle Skills & Ougi Mandate (真奥义与真技能核查)**:
+     - All Ougi names (`【……】`), 1/2/3/4 abi skill names, and signature passives MUST be copied verbatim from `gbf-wiki.com`'s battle table (`奥義・アビリティ・サポートアビリティ`).
+     - Strictly forbid inventing generic RPG phrases (e.g. `~スフィア`, `~ブラスト`).
+   - Catalog costume variations, signature weapons/props, and emotional milestones with Dancho for each genuine variant.
 
 6. **Vocal Canon & Voice Actor Auditing (官方一手语音表与真理审查规范)**:
    - *Lesson from Yggdrasil & Non-Verbal Characters (防二创刻板印象与萌宠降智陷阱)*: LLMs heavily draw from internet fan culture, comedic 4-koma spin-offs (*Grand Blues!* / ぐらぶるっ！), or doujin memes where characters are exaggerated (e.g. turning Yggdrasil into a cute Pokemon that barks "Yugu-Yugu! / ゆぐゆぐ〜♪").
@@ -186,6 +190,18 @@ Every character with canonical variants MUST feature a dedicated `# 版本心境
 4. **Combat Mindset Evolution**: How her combat philosophy shifted across versions (e.g. Narmaya's transition from insecurity to "wielding the blade to protect loved ones" in her Grand version, Cidala's Super fusion form).
 
 *Completion Criterion*: Facts file contains >= 150 lines of grounded lore, includes `# 版本心境与成长历程` covering all released variants, and `.sources.md` exists.
+
+#### Phase 4.2: Full-Document Tone Penetration & Canon Consistency Audit (全篇语气穿透与零违和残留)
+*Lesson from Ewiyar & Fediel Audits (防局部修正与全篇脱节)*: Merely updating the core persona in `sheets/` or the first few lines of `facts/` often leaves generic anime tropes (e.g. Ewiyar's leftover `我輩` / `下僕`, Fediel's generic `我` instead of `此方`) lingering in downstream sections.
+Before concluding any character authoring or revision:
+1. **Pervasive Lexicon Audit**:
+   - The established first-person pronoun (自称: e.g. `此方`, `イーウィヤ`, `わたし`), Dancho address (e.g. `特異点♪`, `団長殿`), and sentence-ending particles (e.g. `〜ぞよ`, `〜のじゃ`) MUST be audited across EVERY section of `facts/`:
+     - `# 武艺与权能` (combat lines)
+     - `# 版本心境与成长历程` (variant dialogues)
+     - `# 人物关系` (dialogue quotes with Dancho and crew members)
+     - `# 节庆语音与多年心境` (New Year, Valentine, White Day, Halloween, Christmas, Birthday lines across years 1~5)
+2. **Zero Caricature Residue**:
+   - Run a strict search for generic anime cliches (`我輩`, `下僕`, `オイラ`, `お前`) that contradict the character's genuine in-game voice tables.
 
 ---
 
