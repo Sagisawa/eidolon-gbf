@@ -223,6 +223,10 @@ def test_repository_configures_its_idols_with_their_voices():
         "mahira": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7",
         "vajra": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8",
         "kumbhira": "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9",
+        "catura": "e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+        "cindhara": "f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1",
+        "makora": "a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2",
+        "haira": "b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
@@ -233,6 +237,10 @@ def test_repository_configures_its_idols_with_their_voices():
         "mahira": "マキラ",
         "vajra": "ヴァジラ",
         "kumbhira": "クビラ",
+        "catura": "シャトラ",
+        "cindhara": "シンダラ",
+        "makora": "マコラ",
+        "haira": "ハイラ",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
@@ -243,6 +251,10 @@ def test_repository_configures_its_idols_with_their_voices():
         "mahira": ("マキラ", "マキラ/玛琪拉", "玛琪拉"),
         "vajra": ("ヴァジラ", "ヴァジラ/瓦吉拉", "瓦吉拉"),
         "kumbhira": ("クビラ", "クビラ/久碧拉", "久碧拉"),
+        "catura": ("シャトラ", "シャトラ/夏朵拉", "夏朵拉"),
+        "cindhara": ("シンダラ", "シンダラ/辛达拉", "辛达拉", "フアン", "シン"),
+        "makora": ("マコラ", "マコラ/玛蔻拉", "玛蔻拉"),
+        "haira": ("ハイラ", "ハイラ/海菈", "海菈"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
@@ -254,6 +266,10 @@ def test_repository_configures_its_idols_with_their_voices():
         "mahira": "#d99726",
         "vajra": "#2a78c5",
         "kumbhira": "#d97724",
+        "catura": "#38bdf8",
+        "cindhara": "#ea580c",
+        "makora": "#ec4899",
+        "haira": "#0284c7",
     }
 
 

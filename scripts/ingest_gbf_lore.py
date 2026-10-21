@@ -273,26 +273,15 @@ def main():
         is_joya = "除夜の終わりに響く鐘" in str(rel)
         is_seasonal = "scene_s" in rel.stem
 
-        ALL_CHAR_IDS = ["narmaya", "vikala", "nier", "anila", "andira", "mahira", "vajra", "kumbhira"]
         char_prefix = None
-        for cid in ALL_CHAR_IDS:
+        for cid in chars.keys():
             if cid in str(rel):
                 char_prefix = cid
                 break
         if not char_prefix:
             char_prefix = "narmaya"
 
-        CHAR_NAMES = {
-            "narmaya": "ナルメア",
-            "vikala": "ビカラ",
-            "nier": "ニーア",
-            "anila": "アニラ",
-            "andira": "アンチラ",
-            "mahira": "マキラ",
-            "vajra": "ヴァジラ",
-            "kumbhira": "クビラ",
-        }
-        char_name = CHAR_NAMES.get(char_prefix, char_prefix)
+        char_name = chars[char_prefix].name if char_prefix in chars else char_prefix
 
         if is_joya:
             category = "活动剧情"

@@ -222,6 +222,42 @@
       "sources": [
         "https://gbf.wiki/Kumbhira"
       ]
+    },
+    {
+      "name": "シャトラ",
+      "reading": "しゃとら",
+      "unit": "十二神将",
+      "cv": "日高里菜",
+      "sources": [
+        "https://gbf.wiki/Catura"
+      ]
+    },
+    {
+      "name": "シンダラ",
+      "reading": "しんだら",
+      "unit": "十二神将",
+      "cv": "長谷川育美/伊藤彩沙",
+      "sources": [
+        "https://gbf.wiki/Cindhara"
+      ]
+    },
+    {
+      "name": "マコラ",
+      "reading": "まこら",
+      "unit": "十二神将",
+      "cv": "芳野由奈",
+      "sources": [
+        "https://gbf.wiki/Makora"
+      ]
+    },
+    {
+      "name": "ハイラ",
+      "reading": "はいら",
+      "unit": "十二神将",
+      "cv": "高田憂希",
+      "sources": [
+        "https://gbf.wiki/Haira"
+      ]
     }
   ],
   "units": [
@@ -257,7 +293,11 @@
         "アンチラ",
         "マキラ",
         "ヴァジラ",
-        "クビラ"
+        "クビラ",
+        "シャトラ",
+        "シンダラ",
+        "マコラ",
+        "ハイラ"
       ],
       "sources": [
         "https://gbf.wiki/Twelve_Divine_Generals"
