@@ -284,6 +284,7 @@ def test_repository_configures_its_idols_with_their_voices():
         "vira": "ab5df814e522f40bda413b8da1929412",
         "vampy": "75f2a8032c5599be5578f0ea0c4c40e3",
         "lyria": "d294288c1e1fb85dbbcfd14af4a0f06a",
+        "vyrn": "cee2d4cc44223ea9c34fd1f9e8125cdf",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
@@ -355,6 +356,7 @@ def test_repository_configures_its_idols_with_their_voices():
         "vira": "ヴィーラ",
         "vampy": "ヴァンピィ",
         "lyria": "ルリア",
+        "vyrn": "ビィ",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
@@ -426,6 +428,7 @@ def test_repository_configures_its_idols_with_their_voices():
         "vira": ("ヴィーラ", "ヴィーラ/维拉", "维拉"),
         "vampy": ("ヴァンピィ", "ヴァンピィ/斑比", "斑比"),
         "lyria": ("ルリア", "ルリア/露莉亚", "露莉亚"),
+        "vyrn": ("ビィ", "ビィ/碧", "碧", "相棒"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
@@ -498,6 +501,7 @@ def test_repository_configures_its_idols_with_their_voices():
         "vira": "#7a3272",
         "vampy": "#b82e56",
         "lyria": "#3a9fd8",
+        "vyrn": "#d93829",
     }
 
 

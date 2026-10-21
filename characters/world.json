@@ -717,6 +717,15 @@
       "sources": [
         "https://gbf.wiki/Vania"
       ]
+    },
+    {
+      "name": "ビィ",
+      "reading": "びぃ",
+      "unit": "グランサイファー",
+      "cv": "釘宮理恵",
+      "sources": [
+        "https://gbf.wiki/Vyrn_(NPC)"
+      ]
     }
   ],
   "units": [
@@ -755,7 +764,8 @@
         "ティコ",
         "クピタン",
         "カリオストロ",
-        "ヴァンピィ"
+        "ヴァンピィ",
+        "ビィ"
       ],
       "sources": [
         "https://gbf.wiki/Grandcypher"
