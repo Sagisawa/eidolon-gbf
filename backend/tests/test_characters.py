@@ -229,6 +229,16 @@ def test_repository_configures_its_idols_with_their_voices():
         "haira": "b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3",
         "indara": "c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4",
         "sanchira": "d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5",
+        "uno": "01010101010101010101010101010101",
+        "song": "02020202020202020202020202020202",
+        "sarasa": "03030303030303030303030303030303",
+        "quatre": "04040404040404040404040404040404",
+        "funf": "05050505050505050505050505050505",
+        "seox": "06060606060606060606060606060606",
+        "seofon": "07070707070707070707070707070707",
+        "eahta": "08080808080808080808080808080808",
+        "niyon": "09090909090909090909090909090909",
+        "tien": "10101010101010101010101010101010",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
@@ -245,6 +255,16 @@ def test_repository_configures_its_idols_with_their_voices():
         "haira": "ハイラ",
         "indara": "インダラ",
         "sanchira": "サンチラ",
+        "uno": "ウーノ",
+        "song": "ソーン",
+        "sarasa": "サラーサ",
+        "quatre": "カトル",
+        "funf": "フュンフ",
+        "seox": "シス",
+        "seofon": "シエテ",
+        "eahta": "オクトー",
+        "niyon": "ニオ",
+        "tien": "エッセル",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
@@ -261,6 +281,16 @@ def test_repository_configures_its_idols_with_their_voices():
         "haira": ("ハイラ", "ハイラ/海菈", "海菈"),
         "indara": ("インダラ", "インダラ/因达拉", "因达拉"),
         "sanchira": ("サンチラ", "サンチラ/桑琪拉", "桑琪拉"),
+        "uno": ("ウーノ", "ウーノ/乌诺", "乌诺"),
+        "song": ("ソーン", "ソーン/索恩", "索恩"),
+        "sarasa": ("サラーサ", "サラーサ/萨拉萨", "萨拉萨"),
+        "quatre": ("カトル", "カトル/卡托尔", "卡托尔"),
+        "funf": ("フュンフ", "フュンフ/芬芙", "芬芙"),
+        "seox": ("シス", "シス/希斯", "希斯"),
+        "seofon": ("シエテ", "シエテ/西埃特", "西埃特"),
+        "eahta": ("オクトー", "オクトー/奥克托", "奥克托"),
+        "niyon": ("ニオ", "ニオ/妮欧", "妮欧"),
+        "tien": ("エッセル", "エッセル/艾瑟尔", "艾瑟尔"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
@@ -278,6 +308,16 @@ def test_repository_configures_its_idols_with_their_voices():
         "haira": "#0284c7",
         "indara": "#7e22ce",
         "sanchira": "#dc2626",
+        "uno": "#4a78a6",
+        "song": "#d8b846",
+        "sarasa": "#c85828",
+        "quatre": "#2a6890",
+        "funf": "#f0c030",
+        "seox": "#583868",
+        "seofon": "#2ea878",
+        "eahta": "#8c6838",
+        "niyon": "#38b090",
+        "tien": "#c83828",
     }
 
 

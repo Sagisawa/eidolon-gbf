@@ -69,6 +69,9 @@ VARIANT_EPISODE_TITLES = {
     "scene_cindhara_valentine_ep": ("特别剧情", "情人节特别剧情", "シンダラ 情人节限定篇「双子虎の苺チョコ大合戦」 [season:valentine]"),
     "scene_makora_valentine_ep": ("特别剧情", "情人节特别剧情", "マコラ 情人节限定篇「扇の向こうの紅潮・秘めたる本命チョコ」 [season:valentine]"),
     "scene_haira_summer_ep": ("特别剧情", "夏日特别剧情", "ハイラ 泳装限定篇「パラソルの下の堕落龍と冷たいかき氷」 [season:summer]"),
+    "scene_song_yukata_ep": ("特别剧情", "夏日特别剧情", "ソーン 浴衣限定篇「夏夜の縁日・花火と紫陽花の約束」 [season:summer]"),
+    "scene_seofon_summer_ep": ("特别剧情", "夏日特别剧情", "シエテ 泳装限定篇「灼熱のビーチボーイと飛剣フィッシング」 [season:summer]"),
+    "scene_niyon_yukata_ep": ("特别剧情", "夏日特别剧情", "ニオ 浴衣限定篇「宵闇の微風・二人きりの風鈴」 [season:summer]"),
 }
 
 # Seasonal lines expansion data (Years 6-10 for Narmaya, Years 2-5 for Vikala)
@@ -355,6 +358,18 @@ def main():
             ALL_ZODIACS = ["vikala", "anila", "andira", "mahira", "vajra", "kumbhira", "catura", "cindhara", "makora", "haira", "indara", "sanchira"]
             for zid in ALL_ZODIACS:
                 cast.add(zid)
+        elif "eternals" in rel.stem or "eternals" in str(rel):
+            category = "特别剧情"
+            source = "十天衆同盟"
+            if "grand_tournament" in rel.stem:
+                title = "十天衆巅峰演武「全空最強の模擬戦」"
+            elif "deck_banquet" in rel.stem:
+                title = "十天衆甲板大祝宴「星空の下の誓杯」"
+            else:
+                title = f"十天衆特别篇「{rel.stem}」"
+            ALL_ETERNALS = ["uno", "song", "sarasa", "quatre", "funf", "seox", "seofon", "eahta", "niyon", "tien"]
+            for eid in ALL_ETERNALS:
+                cast.add(eid)
         elif VARIANT_EPISODE_TITLES.get(rel.stem):
             category, source, title = VARIANT_EPISODE_TITLES[rel.stem]
             cast.add(char_prefix)
@@ -373,19 +388,21 @@ def main():
             if "daily" in rel.stem:
                 title = f"{char_name} 舰上日常「青空と甲板のひととき」"
             else:
-                title = f"{char_name} 战斗誓言「神将の加護と出陣の誓い」"
+                title = f"{char_name} 战斗誓言「十天の誓いと出陣」"
             cast.add(char_prefix)
-        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem):
+        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem or "_transcendence_" in rel.stem):
             category = "命运篇章"
             source = f"{char_name} 命运篇章"
-            if "_flb_" in rel.stem:
-                title = f"{char_name} 命运篇章 最终上限解放「真・神将覚醒」"
+            if "_transcendence_" in rel.stem:
+                title = f"{char_name} 命运篇章 限界超越「苍穹の極致」"
+            elif "_flb_" in rel.stem:
+                title = f"{char_name} 命运篇章 最终上限解放「真・天星覚醒」"
             elif "_fate_" in rel.stem:
                 title = f"{char_name} 命运篇章 招募入团「大空への旅立ち」"
             elif "_q1_" in rel.stem:
-                title = f"{char_name} 命运篇章 前篇「神宮の使命と風」"
+                title = f"{char_name} 命运篇章 前篇「天星器の導きと風」"
             elif "_q2_" in rel.stem:
-                title = f"{char_name} 命运篇章 第1话「民を護る戦い」"
+                title = f"{char_name} 命运篇章 第1话「強者への問いかけ」"
             elif "_q3_" in rel.stem:
                 title = f"{char_name} 命运篇章 第2话「団長との絆」"
             else:
@@ -514,6 +531,10 @@ def main():
     print("\n剧情分类统计:")
     for cat, count in cur.fetchall():
         print(f"  - {cat}: {count} 段")
+
+    # SQLite WAL Checkpoint discipline
+    db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    print("WAL checkpoint TRUNCATE completed successfully.")
 
 
 if __name__ == "__main__":

@@ -276,6 +276,69 @@
       "sources": [
         "https://gbf.wiki/Sanchira"
       ]
+    },
+    {
+      "name": "ウーノ",
+      "reading": "うーの",
+      "unit": "十天衆",
+      "cv": "中尾隆聖",
+      "sources": [
+        "https://gbf.wiki/Anre"
+      ]
+    },
+    {
+      "name": "ソーン",
+      "reading": "そーん",
+      "unit": "十天衆",
+      "cv": "皆口裕子",
+      "sources": [
+        "https://gbf.wiki/Tweyen"
+      ]
+    },
+    {
+      "name": "サラーサ",
+      "reading": "さらーさ",
+      "unit": "十天衆",
+      "cv": "高山みなみ",
+      "sources": [
+        "https://gbf.wiki/Threo"
+      ]
+    },
+    {
+      "name": "カトル",
+      "reading": "かとる",
+      "unit": "十天衆",
+      "cv": "福山潤",
+      "sources": [
+        "https://gbf.wiki/Feower"
+      ]
+    },
+    {
+      "name": "シス",
+      "reading": "しす",
+      "unit": "十天衆",
+      "cv": "檜山修之",
+      "sources": [
+        "https://gbf.wiki/Seox"
+      ]
+    },
+    {
+      "name": "ニオ",
+      "reading": "にお",
+      "unit": "十天衆",
+      "cv": "ゆかな",
+      "sources": [
+        "https://gbf.wiki/Niyon"
+      ]
+    },
+    {
+      "name": "エッセル",
+      "reading": "えっせる",
+      "unit": "十天衆",
+      "cv": "佐藤利奈",
+      "sources": [
+        "https://gbf.wiki/Tien"
+      ]
     }
   ],
   "units": [
@@ -327,9 +390,16 @@
       "name": "十天衆",
       "reading": "じゅってんしゅう",
       "members": [
-        "オクトー",
+        "ウーノ",
+        "ソーン",
+        "サラーサ",
+        "カトル",
         "フュンフ",
-        "シエテ"
+        "シス",
+        "シエテ",
+        "オクトー",
+        "ニオ",
+        "エッセル"
       ],
       "sources": [
         "https://gbf.wiki/Eternals"
