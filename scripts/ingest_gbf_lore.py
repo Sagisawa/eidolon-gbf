@@ -32,6 +32,18 @@ CORPUS_DIR = Path("corpus/gbf")
 CHARS_FILE = Path("characters/characters.toml")
 WORLD_FILE = Path("characters/world.json")
 
+NIER_EPISODE_TITLES = {
+    "scene_nier_q1_s10": "命运篇章 前篇「家族の望みと孤独な少女」",
+    "scene_nier_q2_s10": "命运篇章 第1话「死神との邂逅と甘美な契約」",
+    "scene_nier_q3_s10": "命运篇章 第2话「契約の代償（歪んだ救済）」",
+    "scene_fate_nier_ep1": "命运篇章 第3话「旅立ち（終焉の先へ）」",
+    "scene_nier_flb_ep1": "命运篇章 最终上限解放「生と死の狭間」",
+    "scene_nier_flb_ep2": "命运篇章 最终上限解放「死ニ至ル恋」",
+    "scene_nier_daily_tea": "舰上日常「甲板とお茶の時間」",
+    "scene_nier_battle_vow": "战斗誓言「死神の断罪と守護」",
+    "scene_nier_monologue": "角色独白「愛の告白と執着の深淵」",
+}
+
 # Seasonal lines expansion data (Years 6-10 for Narmaya, Years 2-5 for Vikala)
 NARMAYA_EXTRA_BIRTHDAY = [
     (6, "ナルメア 生日祝贺 第6年 [season:birthday]", [
@@ -210,8 +222,12 @@ def main():
     sp_idx = _speaker_index(chars.values())
     report = ImportReport()
 
-    # Clear old FTS data to rebuild cleanly
+    # Clear old data to rebuild cleanly
     with db:
+        db.execute("DELETE FROM episodes")
+        db.execute("DELETE FROM episode_cast")
+        db.execute("DELETE FROM episode_lines")
+        db.execute("DELETE FROM episode_passages")
         db.execute("DELETE FROM episode_fts")
         db.execute("DELETE FROM world_fts")
 
@@ -246,7 +262,7 @@ def main():
         cast = set(_cast(cleaned_lines, sp_idx))
         is_joya = "除夜の終わりに響く鐘" in str(rel)
         is_seasonal = "scene_s" in rel.stem
-        char_prefix = "vikala" if "vikala" in str(rel) else "narmaya"
+        char_prefix = "vikala" if "vikala" in str(rel) else ("nier" if "nier" in str(rel) else "narmaya")
 
         if is_joya:
             category = "活动剧情"
@@ -257,44 +273,56 @@ def main():
             cast.add("vikala")
         elif is_seasonal:
             category = "特别剧情"
+            if char_prefix == "narmaya":
+                char_name = "ナルメア"
+            elif char_prefix == "vikala":
+                char_name = "ビカラ"
+            else:
+                char_name = "ニーア"
+
             if "birthday" in rel.stem:
                 source = "节日特别剧情 / 生日"
                 num = re.search(r"scene_s(\d+)_birthday", rel.stem)
                 year_n = num.group(1) if num else "1"
-                char_name = "ナルメア" if char_prefix == "narmaya" else "ビカラ"
                 title = f"{char_name} 生日祝贺 第{year_n}年 [season:birthday]"
             elif "valentine" in rel.stem:
                 source = "节日特别剧情 / 情人节"
                 num = re.search(r"scene_s(\d+)_valentine", rel.stem)
                 year_n = num.group(1) if num else "1"
-                char_name = "ナルメア" if char_prefix == "narmaya" else "ビカラ"
                 title = f"{char_name} 情人节赠礼 第{year_n}年 [season:valentine]"
             elif "newyear" in rel.stem:
                 source = "节日特别剧情 / 新春除夜"
                 num = re.search(r"scene_s(\d+)_newyear", rel.stem)
                 year_n = num.group(1) if num else "1"
-                char_name = "ナルメア" if char_prefix == "narmaya" else "ビカラ"
                 title = f"{char_name} 新年祝词 第{year_n}年 [season:newyear]"
             elif "white" in rel.stem:
                 source = "节日特别剧情 / 白色情人节"
                 num = re.search(r"scene_s(\d+)_white", rel.stem)
                 year_n = num.group(1) if num else "1"
-                char_name = "ナルメア" if char_prefix == "narmaya" else "ビカラ"
                 title = f"{char_name} 白色情人节回礼 第{year_n}年 [season:whiteday]"
             elif "halloween" in rel.stem:
                 source = "节日特别剧情 / 万圣节"
                 num = re.search(r"scene_s(\d+)_halloween", rel.stem)
                 year_n = num.group(1) if num else "1"
-                char_name = "ナルメア" if char_prefix == "narmaya" else "ビカラ"
                 title = f"{char_name} 万圣节特别对话 第{year_n}年 [season:halloween]"
+            elif "christmas" in rel.stem:
+                source = "节日特别剧情 / 圣诞节"
+                num = re.search(r"scene_s(\d+)_christmas", rel.stem)
+                year_n = num.group(1) if num else "1"
+                title = f"{char_name} 圣诞特别对话 第{year_n}年 [season:christmas]"
             else:
                 source = "节日特别剧情"
                 title = rel.stem
             cast.add(char_prefix)
+        elif "daily" in rel.stem or "battle" in rel.stem or "monologue" in rel.stem:
+            category = "特别剧情"
+            source = "舰上日常与羁绊"
+            title = NIER_EPISODE_TITLES.get(rel.stem, rel.stem)
+            cast.add(char_prefix)
         else:
             category = "命运篇章"
             source = parent_dir
-            title = rel.stem
+            title = NIER_EPISODE_TITLES.get(rel.stem, rel.stem)
             if not cast:
                 cast.add(char_prefix)
 
