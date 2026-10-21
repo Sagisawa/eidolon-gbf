@@ -42,6 +42,16 @@ NIER_EPISODE_TITLES = {
     "scene_nier_daily_tea": "舰上日常「甲板とお茶の時間」",
     "scene_nier_battle_vow": "战斗誓言「死神の断罪と守護」",
     "scene_nier_monologue": "角色独白「愛の告白と執着の深淵」",
+    "scene_nier_jealousy_deck": "舰上日常「甲板の影法師（嫉妬の疼き）」",
+    "scene_nier_jealousy_gift": "舰上日常「贈り物の真意（独占の誓い）」",
+    "scene_nier_crew_protect": "舰上日常「夜の巡回（団長室の守護者）」",
+    "scene_nier_evoker_lobelia": "命运篇章「相容れぬ狂気（ロベリアとの対峙）」",
+    "scene_nier_evoker_fate": "命运篇章「十賢者の宿命（救済の光）」",
+    "scene_nier_arcarum_the_world": "命运篇章「世界の裁定者（ザ・ワールドとの対峙）」",
+    "scene_nier_domain_awakening": "命运篇章「賢者の領域（愛の深化）」",
+    "scene_nier_vow_ring": "特别剧情「久遠の指輪（魂の契り）」",
+    "scene_nier_night_deck": "舰上日常「静寂の夜（二人の約束）」",
+    "scene_nier_morning_call": "舰上日常「朝の目覚め（朝露と紅茶）」",
 }
 
 # Seasonal lines expansion data (Years 6-10 for Narmaya, Years 2-5 for Vikala)
@@ -314,15 +324,19 @@ def main():
                 source = "节日特别剧情"
                 title = rel.stem
             cast.add(char_prefix)
-        elif "daily" in rel.stem or "battle" in rel.stem or "monologue" in rel.stem:
-            category = "特别剧情"
-            source = "舰上日常与羁绊"
-            title = NIER_EPISODE_TITLES.get(rel.stem, rel.stem)
+        elif NIER_EPISODE_TITLES.get(rel.stem):
+            title = NIER_EPISODE_TITLES[rel.stem]
+            if "特别剧情" in title or "舰上日常" in title or "战斗誓言" in title or "角色独白" in title:
+                category = "特别剧情"
+                source = "舰上日常与羁绊"
+            else:
+                category = "命运篇章"
+                source = "暗-妮亚"
             cast.add(char_prefix)
         else:
             category = "命运篇章"
             source = parent_dir
-            title = NIER_EPISODE_TITLES.get(rel.stem, rel.stem)
+            title = rel.stem
             if not cast:
                 cast.add(char_prefix)
 
