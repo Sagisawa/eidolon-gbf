@@ -618,6 +618,105 @@
       "sources": [
         "https://gbf.wiki/Olivia"
       ]
+    },
+    {
+      "name": "アズサ",
+      "reading": "あずさ",
+      "unit": "グランサイファー",
+      "cv": "茅野愛衣",
+      "sources": [
+        "https://gbf.wiki/Azusa"
+      ]
+    },
+    {
+      "name": "オーキス",
+      "reading": "おーきす",
+      "unit": "グランサイファー",
+      "cv": "茅野愛衣",
+      "sources": [
+        "https://gbf.wiki/Orchid"
+      ]
+    },
+    {
+      "name": "メグ",
+      "reading": "めぐ",
+      "unit": "グランサイファー",
+      "cv": "黒沢ともよ",
+      "sources": [
+        "https://gbf.wiki/Meg"
+      ]
+    },
+    {
+      "name": "まりっぺ",
+      "reading": "まりっぺ",
+      "unit": "グランサイファー",
+      "cv": "悠木碧",
+      "sources": [
+        "https://gbf.wiki/Mari"
+      ]
+    },
+    {
+      "name": "ゾーイ",
+      "reading": "ぞーい",
+      "unit": "グランサイファー",
+      "cv": "小清水亜美",
+      "sources": [
+        "https://gbf.wiki/Zooey"
+      ]
+    },
+    {
+      "name": "イルザ",
+      "reading": "いるざ",
+      "unit": "組織",
+      "cv": "園崎未恵",
+      "sources": [
+        "https://gbf.wiki/Ilsa"
+      ]
+    },
+    {
+      "name": "ティコ",
+      "reading": "てぃこ",
+      "unit": "グランサイファー",
+      "cv": "南條愛乃",
+      "sources": [
+        "https://gbf.wiki/Tikoh"
+      ]
+    },
+    {
+      "name": "クピタン",
+      "reading": "くぴたん",
+      "unit": "グランサイファー",
+      "cv": "本渡楓",
+      "sources": [
+        "https://gbf.wiki/Cupitan"
+      ]
+    },
+    {
+      "name": "カリオストロ",
+      "reading": "かりおすとろ",
+      "unit": "グランサイファー",
+      "cv": "丹下桜",
+      "sources": [
+        "https://gbf.wiki/Cagliostro"
+      ]
+    },
+    {
+      "name": "ヴィーラ",
+      "reading": "ゔぃーら",
+      "unit": "アルビオン",
+      "cv": "今井麻美",
+      "sources": [
+        "https://gbf.wiki/Vira"
+      ]
+    },
+    {
+      "name": "ヴァンピィ",
+      "reading": "ゔぁんぴぃ",
+      "unit": "グランサイファー",
+      "cv": "釘宮理恵",
+      "sources": [
+        "https://gbf.wiki/Vania"
+      ]
     }
   ],
   "units": [
@@ -647,7 +746,16 @@
         "ナルメア",
         "ルリア",
         "カタリナ",
-        "サンダルフォン"
+        "サンダルフォン",
+        "アズサ",
+        "オーキス",
+        "メグ",
+        "まりっぺ",
+        "ゾーイ",
+        "ティコ",
+        "クピタン",
+        "カリオストロ",
+        "ヴァンピィ"
       ],
       "sources": [
         "https://gbf.wiki/Grandcypher"
@@ -708,7 +816,8 @@
       "reading": "そしき",
       "members": [
         "ゼタ",
-        "バザラガ"
+        "バザラガ",
+        "イルザ"
       ],
       "sources": [
         "https://gbf.wiki/Society"
@@ -770,6 +879,16 @@
       ],
       "sources": [
         "https://gbf.wiki/Primarch"
+      ]
+    },
+    {
+      "name": "アルビオン",
+      "reading": "あるびおん",
+      "members": [
+        "ヴィーラ"
+      ],
+      "sources": [
+        "https://gbf.wiki/Albion_Citadel"
       ]
     }
   ],
