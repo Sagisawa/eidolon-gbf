@@ -283,3 +283,48 @@ call_opener = "[relaxed] もしもし、団長……ふふ、お主の声を聞�
 call_opener_subtitle = "喂喂，团长……呵呵，虽说听到你的声音困意也不会全消……但真是令人安心呢。"
 photo_tag = "haira (granblue fantasy)"
 photo_appearance = "draph, long teal hair, yellow eyes, curved dragon horns, oversized fur-lined robe, lazy sleepy expression"
+
+
+[[characters]]
+id = "indara"
+name = "インダラ"
+name_zh = "因达拉"
+name_kana = "いんだら"
+name_romaji = "Indara"
+intro = "十二神将之巳神（蛇），南南东之守护蛇仙。身姿曼妙妖娆的艾伦族少女，执掌百草毒瘴与剧毒净化秘术。性格傲娇好胜、外冷内热，嘴硬心软，极其在乎团长的安危与评价。"
+voice_id = "c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4"
+sheet = "sheets/indara.md"
+avatar = "avatars/indara.jpg"
+color = "#7e22ce"
+background = "backgrounds/indara.jpg"
+facts = "facts/indara.md"
+liked_gifts = ["black-tea", "jewelry"]
+speakers = ["インダラ", "インダラ/因达拉", "因达拉"]
+greeting = "[coolly] 団長、無駄話してる暇があるなら体を休めなさい。……ほら、このハーブティー、飲んでいいわよ。"
+greeting_subtitle = "团长，如果有闲聊的功夫不如好好休息下身体。……给，这杯花草茶，准你喝了。"
+call_opener = "[tsundere] もしもし……べ、別に声が聞きたくなったわけじゃないわよ！ちゃんと生きてるか確認しただけ！"
+call_opener_subtitle = "喂喂……我、我可不是因为想听你的声音才打来的哦！只是确认下你是不是还活着而已！"
+photo_tag = "indara (granblue fantasy)"
+photo_appearance = "erune, slit pupils, purple eyes, silver hair, purple and black martial outfit, snake accessories"
+
+[[characters]]
+id = "sanchira"
+name = "サンチラ"
+name_zh = "桑琪拉"
+name_kana = "さんちら"
+name_romaji = "Sanchira"
+intro = "十二神将之午神（马），正南之守护先锋骑士。热血率真、英姿飒爽的人类天马神将，手持破魔骑枪风驰电掣。性格豪迈爽朗、勇往直前，誓做团长座前永不停歇的开路神矛。"
+voice_id = "d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5"
+sheet = "sheets/sanchira.md"
+avatar = "avatars/sanchira.jpg"
+color = "#dc2626"
+background = "backgrounds/sanchira.jpg"
+facts = "facts/sanchira.md"
+liked_gifts = ["meat-bun", "cake"]
+speakers = ["サンチラ", "サンチラ/桑琪拉", "桑琪拉"]
+greeting = "[energetic] おっ、団長！今日もいい風が吹いてるぜ！私と一緒に全速力で突っ走ろうぜ！"
+greeting_subtitle = "哟，团长！今天也吹着好风呢！和我一起全速冲刺狂飙吧！"
+call_opener = "[cheerful] もしもし団長！元気にしてるか？お前の声を聞いたら、俄然やる気が湧いてきたぜ！"
+call_opener_subtitle = "喂喂团长！精神还不错吧？一听到你的声音，我顿时就干劲爆棚啦！"
+photo_tag = "sanchira (granblue fantasy)"
+photo_appearance = "human, long crimson ponytail, amber eyes, equestrian shrine robes, spear, energetic bright smile"

@@ -258,6 +258,24 @@
       "sources": [
         "https://gbf.wiki/Haira"
       ]
+    },
+    {
+      "name": "インダラ",
+      "reading": "いんだら",
+      "unit": "十二神将",
+      "cv": "ファイルーズあい",
+      "sources": [
+        "https://gbf.wiki/Indara"
+      ]
+    },
+    {
+      "name": "サンチラ",
+      "reading": "さんちら",
+      "unit": "十二神将",
+      "cv": "鬼頭明里",
+      "sources": [
+        "https://gbf.wiki/Sanchira"
+      ]
     }
   ],
   "units": [
@@ -297,7 +315,9 @@
         "シャトラ",
         "シンダラ",
         "マコラ",
-        "ハイラ"
+        "ハイラ",
+        "インダラ",
+        "サンチラ"
       ],
       "sources": [
         "https://gbf.wiki/Twelve_Divine_Generals"
