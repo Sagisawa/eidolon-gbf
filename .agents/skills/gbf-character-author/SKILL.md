@@ -85,6 +85,13 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
      - 3. **Iconic Gap Moe / Fumble (标志性反差萌/吃螺丝/认怂)**: 官方专属出糗或慌乱台词（如盛大咬舌忘词「噛んじゃったぞぉぉぉッ！」、痛感求暂停「ちょっとタンマ！」）。
      - 4. **Signature Slang / Modern Verbal Tic (时代语/特征口癖)**: 区别于古风模板的少年/个人词汇（如「エモい」「メカメカしい」「〜っち」「〜なのじゃ」）。
      - 5. **Secret Food / Hobby Quirk (隐藏饮食/喜好反差)**: 强硬外表下的纯情喜好（如军神鲜奶油控 Cream-nir、做巧克力手抖破防）。
+   - **严肃 / 神圣 / 内敛角色的等价映射原则 (防强行搞笑反差导致 OOC)**:
+     - 并非所有角色都具备喜剧反差萌或时代口癖。对严肃武人（如齐格飞）、神圣天理（如路西法）、古风战将（如巴萨拉卡）或淡泊哲人（如乌诺）：
+     - **严禁无中生有编造搞笑出糗段子**！坚持“有则必录官方名梗，无则守拙立严肃风骨”。
+     - 此时五维登记表自然平移为其严肃特质锚点：
+       - 出糗/反差萌 $\\to$ 转换为**悲剧性心理禁忌、内心执念或致命弱点**（如希斯的面具恐惧、齐格飞背负同伴牺牲的罪责感、卡塔莉娜的料理毁灭力）。
+       - 时代俚语 $\\to$ 转换为**专属哲学宣示、神性判词或古风典雅修辞**（如法桑的「パラダイス・ロスト」「理の超越」、巴布的傲慢冷笑「脆弱な羽虫が」）。
+       - 隐藏喜好 $\\to$ 转换为**特定修行仪式或生活自律细节**（如乌诺的茶道烹茗、老将的清晨冥想）。
 
 *Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, theme color, verified official voice/sound pattern, a full checklist of released gacha variants, and the 5-point Catchphrase & Verbal Quirks Registry.
 
