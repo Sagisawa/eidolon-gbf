@@ -23,3 +23,11 @@ Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agen
 ### Local acceptance
 
 票里要求「本地构建版上用 Playwright 验收」时（尤其改了通话、对话页或导航外壳），先读 `docs/agents/local-acceptance.md`：服务怎么起、怎么停，开发登录，假麦克风，怎么拦下 `/api/offer` 造出各种结束卡。
+
+### Character authoring
+
+添加或扩充骑空团伙伴（调用 `gbf-character-author` 技能）时，严格对标娜露梅/维卡拉的黄金标准，严禁「卡及格线交付」：
+- **拒绝最低门槛交差**：自动化门禁（`validate_character.py` 的 facts $\ge 50$ 行、episodes $\ge 15$ 段）是防构建破损的物理底线，不是交付标准。正式交付必须达到 **120~150+ 行高密事实**与 **30+ 段模块化切片**。
+- **批量新增不降质**：多人同时入团时严禁套用泛化模版敷衍。每位角色必须独立考据：官方角色歌（同步 `world.json`）、全卡池异格（泳装/浴衣/万圣/圣诞）、1~5 年期节日语音心境递进、技能与奥义全台词，以及与团长的深层羁绊。
+- **RAG 切片细粒度**：剧本必须按场景独立切片（每段 3~5 句对话带 `[season:*]` 标签），严禁大包单篇混杂，确保重排器（Reranker）语义召回精准。
+

@@ -157,6 +157,7 @@ Follow [`references/facts-template.md`](references/facts-template.md):
 
 #### Phase 4.1: Mandatory Multi-Version Mindset Section (版本心境与成长历程强结构规范)
 *Lesson from Zodiac Batch*: If alternate gacha versions are merely mentioned in passing, the character will suffer from "single-version amnesia" in live chat (unable to recall what happened in her Summer swimsuit trip, Halloween trick-or-treating, or Grand uncap).
+*Lesson from 14-Companion Batch (Anti-Pass-The-Minimum Trap / 严禁及格线交付)*: When authoring characters in multi-character batches, never compress facts or truncate content just to barely cross the automated test floor (`lines >= 50`). The test threshold is a physical crash-prevention floor, NOT a delivery standard. Always deliver at the 120~150+ line Gold Standard tier (complete skill/ougi battle voicelines, 1~5 year seasonal progression, official CD singles registered in `world.json`, and deep Dancho relationship dynamics).
 Every character with canonical variants MUST feature a dedicated `# 版本心境与成长历程` section with an H2 sub-entry for EACH version:
 1. **Attribute & Title**: e.g. `## 水属性（泳装版）：蔚蓝盛夏与海边回忆` / `## 暗属性（万圣版）：夜行百鬼・小恶魔忠犬与南瓜糖果`
 2. **Visual & Costume Details**: Specific swimsuit, yukata, Halloween devil horns, Christmas cloaks, or armor shifts.
@@ -234,7 +235,7 @@ To enable high-precision semantic recall (RAG) during live conversations:
    - Every variant episode must feature 5~8 dialogue turns detailing the specific costume, Dancho's reaction, a shared activity (e.g. eating shaved ice, trick-or-treating with pets, exchanging handcrafted gifts), and an intimate emotional confession.
    - Ingest through `scripts/ingest_gbf_lore.py` to ensure vector passage embeddings and FTS5 keywords (`小悪魔`, `水着`, `浴衣`, `オルゴール`, `スーパーシンダラ`) are immediately searchable.
 
-*Completion Criterion*: Querying `SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = '{character_id}'` returns >= 15 modular episodes covering both `命运篇章` and `特别剧情`.
+*Completion Criterion*: Querying `SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = '{character_id}'` returns >= 15 modular episodes (recommend >= 30 for Gold Standard tier covering Years 1~5 seasonal progression) across both `命运篇章` and `特别剧情`.
 
 ---
 
