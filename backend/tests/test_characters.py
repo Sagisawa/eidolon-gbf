@@ -262,6 +262,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "europa": "e68361c3a220cece385cb83a553b9250",
         "brodia": "ede4a32d558ba1abab48eb4fe0cb1b6a",
         "grimnir": "cfdb75a0fbe35a1fccef7bb9df20a76f",
+        "sandalphon": "4a26b45da83b7689c3589976ffd221b3",
+        "lucifer": "51d6a5df7a34716a046efd4f3773caae",
+        "lucilius": "0b32839c47d2eb804d70424c0e108ed7",
+        "lucio": "a96e8b271fff3376192fd88b30c8a490",
+        "beelzebub": "74723d35ae166d8918809c35a89e7a4c",
+        "belial": "644a0ca2266db3fbffaf1e1ea8afefdb",
+        "shalem": "167b903ec4a501cecd4f564dd4ef0031",
+        "raziel": "cab01d568ff6c229c71b221001beb9c4",
+        "olivia": "327ba4398988e45cf50bf936b1620dc6",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
@@ -311,6 +320,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "europa": "エウロペ",
         "brodia": "ブローディア",
         "grimnir": "グリームニル",
+        "sandalphon": "サンダルフォン",
+        "lucifer": "ルシフェル",
+        "lucilius": "ルシファー",
+        "lucio": "ルシオ",
+        "beelzebub": "ベルゼバブ",
+        "belial": "ベリアル",
+        "shalem": "ヘレム・ベン・シャレム",
+        "raziel": "ラジエル",
+        "olivia": "オリヴィエ",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
@@ -360,6 +378,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "europa": ("エウロペ", "エウロペ/欧罗巴", "欧罗巴"),
         "brodia": ("ブローディア", "ブローディア/布罗迪亚", "布罗迪亚", "神立之剑"),
         "grimnir": ("グリームニル", "グリームニル/格里姆尼尔", "格里姆尼尔", "军神"),
+        "sandalphon": ("サンダルフォン", "サンダルフォン/圣德芬", "圣德芬", "天司长"),
+        "lucifer": ("ルシフェル", "ルシフェル/路西菲尔", "路西菲尔", "最高天司"),
+        "lucilius": ("ルシファー", "ルシファー/路西法", "路西法", "星之民路西法"),
+        "lucio": ("ルシオ", "ルシオ/路西欧", "路西欧", "サハル"),
+        "beelzebub": ("ベルゼバブ", "ベルゼバブ/别西卜", "别西卜", "黒衣の男", "巴布"),
+        "belial": ("ベリアル", "ベリアル/贝利尔", "贝利尔", "狡知"),
+        "shalem": ("ヘレム・ベン・シャレム", "ヘレム・ベン・シャレム/赫列尔·本·沙利姆", "シャレム", "沙利姆"),
+        "raziel": ("ラジエル", "ラジエル/拉结尔", "拉结尔", "睿智天司"),
+        "olivia": ("オリヴィエ", "オリヴィエ/奥利维尔", "奥利维尔", "堕天司"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
@@ -410,6 +437,15 @@ def test_repository_configures_its_idols_with_their_voices():
         "europa": "#38bdf8",
         "brodia": "#78350f",
         "grimnir": "#0284c7",
+        "sandalphon": "#4a6b82",
+        "lucifer": "#60a5fa",
+        "lucilius": "#1e1b4b",
+        "lucio": "#f59e0b",
+        "beelzebub": "#831843",
+        "belial": "#991b1b",
+        "shalem": "#4c1d95",
+        "raziel": "#16a34a",
+        "olivia": "#581c87",
     }
 
 

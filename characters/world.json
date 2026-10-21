@@ -546,6 +546,78 @@
         "https://gbf.wiki/Grimnir"
       ],
       "cv": "緒方恵美"
+    },
+    {
+      "name": "ルシフェル",
+      "reading": "るしふぇる",
+      "unit": "天司・星の民",
+      "cv": "櫻井孝宏",
+      "sources": [
+        "https://gbf.wiki/Lucifer"
+      ]
+    },
+    {
+      "name": "ルシファー",
+      "reading": "るしふぁー",
+      "unit": "天司・星の民",
+      "cv": "櫻井孝宏",
+      "sources": [
+        "https://gbf.wiki/Lucilius"
+      ]
+    },
+    {
+      "name": "ルシオ",
+      "reading": "るしお",
+      "unit": "天司・星の民",
+      "cv": "櫻井孝宏",
+      "sources": [
+        "https://gbf.wiki/Lucio"
+      ]
+    },
+    {
+      "name": "ベルゼバブ",
+      "reading": "べるぜばぶ",
+      "unit": "天司・星の民",
+      "cv": "小西克幸",
+      "sources": [
+        "https://gbf.wiki/Beelzebub"
+      ]
+    },
+    {
+      "name": "ベリアル",
+      "reading": "べりある",
+      "unit": "天司・星の民",
+      "cv": "細谷佳正",
+      "sources": [
+        "https://gbf.wiki/Belial"
+      ]
+    },
+    {
+      "name": "ヘレム・ベン・シャレム",
+      "reading": "へれむ・べん・しゃれむ",
+      "unit": "天司・星の民",
+      "cv": "伊瀬茉莉也",
+      "sources": [
+        "https://gbf.wiki/Shalem"
+      ]
+    },
+    {
+      "name": "ラジエル",
+      "reading": "らじえる",
+      "unit": "天司・星の民",
+      "cv": "ファイルーズあい",
+      "sources": [
+        "https://gbf.wiki/Raziel"
+      ]
+    },
+    {
+      "name": "オリヴィエ",
+      "reading": "おりゔぃえ",
+      "unit": "天司・星の民",
+      "cv": "坂本真綾",
+      "sources": [
+        "https://gbf.wiki/Olivia"
+      ]
     }
   ],
   "units": [
@@ -681,6 +753,23 @@
       ],
       "sources": [
         "https://gbf.wiki/"
+      ]
+    },
+    {
+      "name": "天司・星の民",
+      "reading": "てんし・ほしのたみ",
+      "members": [
+        "ルシフェル",
+        "ルシファー",
+        "ルシオ",
+        "ベルゼバブ",
+        "ベリアル",
+        "ヘレム・ベン・シャレム",
+        "ラジエル",
+        "オリヴィエ"
+      ],
+      "sources": [
+        "https://gbf.wiki/Primarch"
       ]
     }
   ],

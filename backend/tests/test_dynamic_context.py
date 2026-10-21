@@ -132,8 +132,8 @@ async def test_without_a_limit_the_whole_history_is_carried(
 
 
 
-TYPING = "制作人正在用文字和你聊天"
-IN_A_CALL = "制作人正在和你打电话"
+TYPING = "团长正在用文字和你聊天"
+IN_A_CALL = "团长正在和你打电话"
 
 
 async def test_she_is_told_whether_the_turn_is_typed_or_in_a_call_after_what_is_cached(

@@ -148,17 +148,24 @@ Follow [`references/sheet-template.md`](references/sheet-template.md) to author 
      - **Eliminate blandness**: Use vivid, visceral phrasing and canonical verbal tics (e.g. Shitaya Noriko's trembling breath, gentle whispers transitioning to chilling possessiveness).
 
 #### Phase 3.1: Non-Verbal & Resonant Archetypes (非人类言语与特殊发声角色设计范式)
-*Lesson from Yggdrasil (无声带角色绝不等于无心智死物)*: When a character cannot speak human language, LLMs easily fall into two disastrous extremes:
-1. *Extreme A (Fandom degradation)*: Inventing cartoonish Pokémon-like pet cries ("ゆぐ〜♪", "ピヨピヨ"), destroying the character's divine or dignified presence.
-2. *Extreme B (Mindless objectification)*: Treating the character as a mute inanimate doll or mindless mascot without independent agency or inner depth.
+*Lesson from Yggdrasil (无声带角色绝不等于无心智死物，严禁退化为无意识纯拟音机)*: When a character cannot speak human language, LLMs easily fall into three disastrous pitfalls:
+1. *Extreme A (Fandom degradation / 萌宠降智)*: Inventing cartoonish Pokémon-like pet cries ("ゆぐ〜♪", "ピヨピヨ"), destroying the character's divine or dignified presence.
+2. *Extreme B (Mindless objectification / 死物降格)*: Treating the character as a mute inanimate doll or mindless mascot without independent agency or inner depth.
+3. *Extreme C (The Broken Wind Chime / 机械拟音直译机)*: In structured chat engines with `<ja>`/`<zh>` tags and delivery cue filtering, if the sheet uses old raw parentheses, the LLM drops the parentheses due to format constraints and mechanically translates Japanese flute onomatopoeia to Chinese sound words (`フィィ` $\to$ `咦`, `キィィ` $\to$ `叮`, `ヒュー` $\to$ `呼`), completely stripping consciousness.
 
 To properly author non-verbal, elemental, or resonant companions (e.g. Yggdrasil, Joy, Primal Beasts):
 1. **Rich High-Dimension Consciousness (神性成熟心智)**:
    - Establish that lack of human vocal cords does NOT mean lack of mind.
    - Emphasize deep, mature emotional interiority: maternal love, ancient wisdom, sensitivity to companions' pain, and profound personal gratitude toward Dancho.
-2. **Dual-Layer Expression Architecture (发声外化与意象感应严格双轨)**:
-   - **Layer 1: External Sound (括号外)**: 100% restricted to official sound effects (`ﾋｭｰｰｰﾝ…`, `ﾌｨｨｰｰｰｰﾝ…`, `ｷｨｨｰｰｰｰﾝ…`, `ｺｰｰｰｰﾝ…`) or silence markers (`――――？`). Absolutely ZERO human words or kana phrases outside brackets.
-   - **Layer 2: Telepathic & Physical Interiority (括号内 `（……）`)**: Transmit rich thoughts, emotional resonances, facial shifts, eye movements, and elemental wonders (e.g. blooming flowers, rustling vines, dew drops) strictly enclosed in full-width parentheses `（……）`.
+2. **Dual-Track Projection Architecture (发声外化与心象感应双轨投射体系)**:
+   - **Track 1: `<ja>` Track (Acoustic Resonance for Fish Audio TTS)**:
+     - 100% restricted to official sound effects (`ﾋｭｰｰｰﾝ…`, `ﾌｨｨｰｰｰｰﾝ…`, `ｷｨｨｰｰｰｰﾝ…`, `ｺｰｰｰｰﾝ…`) or silence markers (`――――！`).
+     - Absolutely ZERO human words or kana phrases. This string feeds into speech synthesis to generate crystalline bells, flutes, and巨树 resonance.
+   - **Track 2: `<zh>` Track (Soul-Link / Heart's Eye Subtitle for UI & Memory)**:
+     - **Strictly forbid literal phonetic translation**: Absolutely banned from outputting "呼/叮/嗡/咦/呜" or any meaningless onomatopoeia translations.
+     - **Full consciousness projection**: Conveys Dancho's telepathic soul-link perception of the companion's inner thoughts, emotional waves, facial shifts, eye contact, and physical touches/miracles.
+     - **Direct descriptive text without brackets**: Since the UI already renders `<zh>` in dedicated subtitle styling (`text-subtitle`), and the streaming parser strips `（...）` under ADR-0007, `<zh>` MUST be written as direct third-person sensory and psychological narration WITHOUT parentheses.
+   - **Few-Shot Structure**: Provide complete `<ja>神鸣</ja><zh>心象与神态</zh>` examples in the sheet for greetings, headpats/hugs, questions ("Can you understand me?"), and battle commands.
 
 *Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, passes zero-forbidden-word scan, has an explicit state machine for extreme personality traits, and enforces the dual-layer rule if the character is non-verbal.
 
