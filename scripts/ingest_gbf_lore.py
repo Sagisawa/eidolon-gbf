@@ -370,6 +370,24 @@ def main():
             ALL_ETERNALS = ["uno", "song", "sarasa", "quatre", "funf", "seox", "seofon", "eahta", "niyon", "tien"]
             for eid in ALL_ETERNALS:
                 cast.add(eid)
+        elif "shisei" in rel.stem or "shisei" in str(rel):
+            category = "特别剧情"
+            source = "四聖降臨"
+            title = "四聖聚首「四象降臨と新たな守護」"
+            for sid in ["chichiri", "uruki", "shushuku", "ami"]:
+                cast.add(sid)
+        elif "rokuryu" in rel.stem or "rokuryu" in str(rel):
+            category = "特别剧情"
+            source = "六竜合議"
+            title = "六竜会議「特異点の観測と大空の調和」"
+            for rid in ["wilnas", "wamdus", "galleon", "ewiyar", "luwoh", "fediel"]:
+                cast.add(rid)
+        elif "primals" in rel.stem or "primals" in str(rel):
+            category = "特别剧情"
+            source = "聖境眷属"
+            title = "聖境之主「天司眷属と創樹の盟約」"
+            for pid in ["yggdrasil", "europa", "brodia", "grimnir"]:
+                cast.add(pid)
         elif "evokers" in rel.stem or "evokers" in str(rel):
             category = "特别剧情"
             source = "十賢者盟约"
@@ -400,12 +418,14 @@ def main():
             if "daily" in rel.stem:
                 title = f"{char_name} 舰上日常「青空と甲板のひととき」"
             else:
-                title = f"{char_name} 战斗誓言「十天の誓いと出陣」"
+                title = f"{char_name} 战斗誓言「守護の誓いと出陣」"
             cast.add(char_prefix)
-        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem or "_transcendence_" in rel.stem or "_domain_" in rel.stem):
+        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem or "_transcendence_" in rel.stem or "_domain_" in rel.stem or "_awakening_" in rel.stem):
             category = "命运篇章"
             source = f"{char_name} 命运篇章"
-            if "_domain_" in rel.stem:
+            if "_awakening_" in rel.stem:
+                title = f"{char_name} 命运篇章 领域觉醒「契約の深化」"
+            elif "_domain_" in rel.stem:
                 title = f"{char_name} 命运篇章 贤者领域「契約の深化」"
             elif "_transcendence_" in rel.stem:
                 title = f"{char_name} 命运篇章 限界超越「苍穹の極致」"
@@ -414,11 +434,11 @@ def main():
             elif "_fate_" in rel.stem:
                 title = f"{char_name} 命运篇章 招募入团「大空への合流」"
             elif "_q1_" in rel.stem:
-                title = f"{char_name} 命运篇章 前篇「星晶獣との邂逅」"
+                title = f"{char_name} 命运篇章 前篇「邂逅と覚悟」"
             elif "_q2_" in rel.stem:
-                title = f"{char_name} 命运篇章 第1话「過酷なる試練」"
+                title = f"{char_name} 命运篇章 第1话「試練の風」"
             elif "_q3_" in rel.stem:
-                title = f"{char_name} 命运篇章 第2话「契約の真実」"
+                title = f"{char_name} 命运篇章 第2话「契約の証」"
             else:
                 title = f"{char_name} 命运篇章「{rel.stem}」"
             cast.add(char_prefix)
