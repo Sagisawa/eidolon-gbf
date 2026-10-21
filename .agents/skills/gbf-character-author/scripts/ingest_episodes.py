@@ -20,8 +20,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
+import math
 import sqlite3
+import struct
 import sys
 import uuid
 from datetime import datetime
@@ -29,6 +32,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 DB_PATH = ROOT / "data" / "eidolon.db"
+
+
+def compute_vector(text: str, dim: int = 1536) -> bytes:
+    """Generate a deterministic normalized vector for text based on character 1/2/3-grams."""
+    vec = [0.0] * dim
+    for ch in text:
+        h = int(hashlib.md5(ch.encode("utf-8")).hexdigest()[:8], 16) % dim
+        vec[h] += 1.0
+    for i in range(len(text) - 1):
+        bi = text[i:i+2]
+        h = int(hashlib.md5(bi.encode("utf-8")).hexdigest()[:8], 16) % dim
+        vec[h] += 2.0
+    for i in range(len(text) - 2):
+        tri = text[i:i+3]
+        h = int(hashlib.md5(tri.encode("utf-8")).hexdigest()[:8], 16) % dim
+        vec[h] += 3.0
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    vec = [x / norm for x in vec]
+    return struct.pack(f"<{dim}f", *vec)
 
 
 def ingest_file(
@@ -113,7 +135,26 @@ def ingest_file(
                 (episode_id, character_id, title, full_text),
             )
 
+        # 5. Insert passage embedding if episode_passages table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='episode_passages'")
+        if cursor.fetchone():
+            passage_text = f"{title}\n" + "\n".join(f"{spk}：{ja}（{zh}）" for spk, ja, zh in lines)
+            vec_blob = compute_vector(passage_text)
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO episode_passages (episode_id, seq, text, model, embedding)
+                VALUES (?, 0, ?, 'builtin-bm25-vector', ?)
+                """,
+                (episode_id, passage_text, vec_blob),
+            )
+
         conn.commit()
+        # Truncate WAL to ensure immediate SQLite file synchronization
+        try:
+            cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
+
         print(f"Successfully ingested {len(lines)} lines into episode '{episode_id}' ({title}).")
         return len(lines)
     except Exception as e:

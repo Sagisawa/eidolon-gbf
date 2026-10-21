@@ -83,12 +83,15 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
    photo_appearance = "{Comma-separated visual tags for image gen}"
    ```
 2. **Visual Assets**:
-   - Place square portrait at `characters/avatars/{character_id}.jpg` (recommended 512x512).
-   - Place background / standing art at `characters/backgrounds/{character_id}.jpg` (recommended 1080x1920 or vertical crop).
-3. **Audio Greeting**:
+   - Place square portrait at `characters/avatars/{character_id}.jpg` (recommended 512x512, file size < 32KB).
+   - Place background / standing art at `characters/backgrounds/{character_id}.jpg` (recommended 1200x800 or vertical crop, file size < 120KB).
+3. **Audio Greeting & Opener (Verbatim Alignment)**:
    - Place introductory voice snippet at `frontend/public/sounds/gbf/{character_id}.mp3`.
+   - Place greeting audio at `frontend/public/sounds/gbf/{character_id}_greeting.mp3`.
+   - Place call opener audio at `frontend/public/sounds/gbf/{character_id}_call_opener.mp3`.
+   - **CRITICAL AUDIO RULE**: The text in `greeting` and `call_opener` within `characters.toml` MUST match the verbatim Japanese audio transcription of the `.mp3` files. Do NOT invent, paraphrase, or hallucinate text not spoken in the audio.
 
-*Completion Criterion*: `characters.toml` contains the block, and avatar/background files exist on disk.
+*Completion Criterion*: `characters.toml` contains the block, avatar/background files exist on disk, and audio transcripts exactly match the `.mp3` clips.
 
 ---
 
@@ -96,13 +99,17 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
 
 Follow [`references/sheet-template.md`](references/sheet-template.md) to author the core prompt.
 
-#### Critical Anti-Pollution Rules
+#### Critical Anti-Pollution & Tone Rules
 1. **Prompt the Positive**: Always state the Skyfarer / Grandcypher reality ("你所在的是空之世界的格兰赛法号骑空团，同伴们是共同在空之世界冒险航行的伙伴").
 2. **Zero Forbidden Words**: Do NOT write words like "事务所", "283", or "制作人" even in negations.
 3. **Captain Priority**: Clarify that Dancho is the emotional pillar, most trusted companion, or commander.
-4. **Tone Duality**: If the character has a persona switch (e.g. Vikala's ears, Narmaya's sword stances vs spoiled sister mode), specify clear transition triggers.
+4. **Tone Duality & Archetype Calibration (Avoid Bland AI Bias)**:
+   - LLMs default to generic, polite, assistant-like responses. If the character has a strong canon archetype (e.g. **Yandere / 病娇**, **Tsundere / 傲娇**, **Kuudere / 无口**, **Chuunibyou / 狂气**):
+     - **Mandate a 3-tier behavioral state machine**: Codify explicit triggers for base state, heightened affection, and extreme emotion (e.g. Nier's: Mild Insecurity ➔ Ecstatic Devotion ➔ Dark Jealousy & Elimination Threats).
+     - **Define psychological boundaries & triggers**: What causes jealousy? How does she react when Dancho talks to other companions? What are her absolute red lines (e.g. fear of betrayal or abandonment)?
+     - **Eliminate blandness**: Use vivid, visceral phrasing and canonical verbal tics (e.g. Shitaya Noriko's trembling breath, gentle whispers transitioning to chilling possessiveness).
 
-*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, and passes zero-forbidden-word scan.
+*Completion Criterion*: `characters/sheets/{character_id}.md` is written, exceeds 25 lines, passes zero-forbidden-word scan, and has an explicit state machine for extreme personality traits.
 
 ---
 
@@ -145,24 +152,29 @@ Integrate the character into the sky realm knowledge graph:
 
 ---
 
-### Phase 6: Scenario Data & Dialogue Ingestion (`data/eidolon.db`)
+### Phase 6: Modular Scenario Data & Dialogue Ingestion (`data/eidolon.db`)
 
-To enable semantic recall (RAG) during live conversations:
+To enable high-precision semantic recall (RAG) during live conversations:
 
-1. Prepare dialogue records in CSV (`speaker,ja,zh`) or JSON format.
-   - Include core Fate Episode dialogues (recruitment cutscenes).
-   - Include seasonal cutscene dialogues (Valentine, Birthday, New Year).
-2. Run the ingestion script:
-   ```bash
-   python .agents/skills/gbf-character-author/scripts/ingest_episodes.py \
-       --character-id {character_id} \
-       --category fate \
-       --title "{Official Japanese Name} 招募与命运剧情" \
-       --input-file path/to/dialogues.csv
-   ```
-3. Verify that `episode_lines` and `episode_fts` index the character's lines.
+#### Critical Ingestion Rules (Avoid the "Monolithic Single Episode" Trap)
+1. **Never Bundle All Dialogues into One Episode**:
+   - Bundling 30~50 lines into a single CSV titled "{Name} 招募与命运剧情" breaks RAG retrieval. The reranker cannot isolate specific events and will retrieve irrelevant text.
+2. **Mandatory Modular Episode Breakdown (Minimum 15~35 episodes)**:
+   - **Core Fate Episodes (命运篇章)**: 3~6 chapters (Prologue/Origin, Chapter 1, Chapter 2, Recruitment into Crew, 5-Star Uncap / Transcendence).
+   - **Seasonal Special Cutscenes (特别剧情)**: 2~3 years across major seasons with standard tags:
+     - `[season:valentine]` (Valentine's chocolate)
+     - `[season:whiteday]` (White Day return gift)
+     - `[season:halloween]` (Halloween tricks/treats)
+     - `[season:christmas]` (Christmas / Holy Night)
+     - `[season:birthday]` (Dancho's birthday wishes)
+     - `[season:newyear]` (New Year shrine visits & omikuji)
+   - **Ship & Bond Episodes (舰上日常与羁绊)**: Daily crew interactions, battle vows, and unique archetype scenes (e.g. jealousy, weapon care, confessions).
+3. **Dual Indexing**:
+   - Ingest into `episodes`, `episode_cast`, `episode_lines`, `episode_passages` (1536-dim vector embeddings), and `episode_fts` (FTS5 BM25 index).
+4. **SQLite WAL Checkpoint Discipline**:
+   - Always execute `PRAGMA wal_checkpoint(TRUNCATE)` after ingestion so the updated pages are committed into the main `data/eidolon.db` file before committing to Git.
 
-*Completion Criterion*: Querying `SELECT COUNT(*) FROM episode_lines WHERE speaker = '{Official Japanese Name}'` returns > 0 lines.
+*Completion Criterion*: Querying `SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = '{character_id}'` returns >= 15 modular episodes covering both `命运篇章` and `特别剧情`.
 
 ---
 
@@ -191,6 +203,13 @@ Run the full automated verification suite to guarantee quality:
    python .agents/skills/gbf-character-author/scripts/validate_character.py {character_id}
    ```
    *Must report*: `[PASS] Character '{character_id}' passed all validation gates.`
+   *Validation Gates Enforced*:
+   - `characters.toml` fields & visual asset existence (< 32KB avatar, < 120KB background)
+   - Character sheet length (>= 20 lines) and anti-pollution terms check
+   - Facts line count (>= 50 lines, recommend >= 150)
+   - World graph registration in `world.json` (`idols` and `units`)
+   - **Modular Scenario Ingestion Gate**: >= 15 distinct episodes in `episode_cast`, covering both `命运篇章` and `特别剧情`, with 100% vector passage parity in `episode_passages`
+   - Automated WAL checkpoint execution
 
 2. **Run Pytest Suite**:
    ```bash

@@ -120,10 +120,11 @@ def validate_character(
         except Exception as e:
             errors.append(f"Failed to render world prompt for '{char_name}': {e}")
 
-    # 7. Check database dialogues
+    # 7. Check database dialogues, modular episode granularity, and RAG index health
     if db_conn and char_name:
         try:
             cursor = db_conn.cursor()
+            # 7a. Check dialogue lines
             cursor.execute(
                 "SELECT COUNT(*) FROM episode_lines WHERE speaker = ? OR ja LIKE ? OR zh LIKE ?",
                 (char_name, f"%{char_name}%", f"%{char_name}%"),
@@ -131,6 +132,47 @@ def validate_character(
             count = cursor.fetchone()[0]
             if count == 0:
                 errors.append(f"No dialogue lines found in data/eidolon.db for speaker '{char_name}'")
+            elif count < 15:
+                errors.append(f"Dialogue lines in data/eidolon.db too few ({count} lines, recommend >= 30) for '{char_name}'")
+
+            # 7b. Check episode granularity (must be modular, not monolithic single episode)
+            cursor.execute(
+                "SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = ?",
+                (char_id,),
+            )
+            ep_count = cursor.fetchone()[0]
+            if ep_count < 15:
+                errors.append(
+                    f"Episode count for '{char_id}' is only {ep_count} (must be >= 15 modular episodes; do NOT bundle all lines into a single episode)"
+                )
+
+            # 7c. Check category coverage (must cover core fate and seasonal cutscenes)
+            cursor.execute(
+                """SELECT DISTINCT e.category
+                   FROM episodes e
+                   JOIN episode_cast c ON e.id = c.episode_id
+                   WHERE c.character_id = ?""",
+                (char_id,),
+            )
+            categories = {row[0] for row in cursor.fetchall()}
+            if "命运篇章" not in categories and "fate" not in categories:
+                errors.append(f"Missing core Fate episodes (category '命运篇章') for '{char_id}'")
+            if "特别剧情" not in categories and "seasonal" not in categories:
+                errors.append(f"Missing seasonal episodes (category '特别剧情') for '{char_id}'")
+
+            # 7d. Check vector passages parity
+            cursor.execute(
+                """SELECT COUNT(*)
+                   FROM episode_passages p
+                   JOIN episode_cast c ON p.episode_id = c.episode_id
+                   WHERE c.character_id = ?""",
+                (char_id,),
+            )
+            passages_count = cursor.fetchone()[0]
+            if passages_count < ep_count:
+                errors.append(
+                    f"Vector passages missing in episode_passages ({passages_count} passages < {ep_count} episodes) for '{char_id}'"
+                )
         except Exception as e:
             errors.append(f"Database query error for '{char_name}': {e}")
 
@@ -192,6 +234,10 @@ def main() -> int:
             total_errors += len(errs)
 
     if db_conn:
+        try:
+            db_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except Exception:
+            pass
         db_conn.close()
 
     print("\n" + "=" * 50)
