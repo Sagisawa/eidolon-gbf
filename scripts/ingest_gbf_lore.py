@@ -291,7 +291,7 @@ def main():
         # Determine category, source, title, cast
         cast = set(_cast(cleaned_lines, sp_idx))
         is_joya = "除夜の終わりに響く鐘" in str(rel)
-        is_seasonal = "scene_s" in rel.stem
+        is_seasonal = bool(re.search(r"[_\b]s\d+_", rel.stem)) or "scene_s" in rel.stem
 
         char_prefix = None
         for cid in chars.keys():
@@ -314,32 +314,32 @@ def main():
             category = "特别剧情"
             if "birthday" in rel.stem:
                 source = "节日特别剧情 / 生日"
-                num = re.search(r"scene_s(\d+)_birthday", rel.stem)
+                num = re.search(r"[_\b]s(\d+)_birthday", rel.stem)
                 year_n = num.group(1) if num else "1"
                 title = f"{char_name} 生日祝贺 第{year_n}年 [season:birthday]"
             elif "valentine" in rel.stem:
                 source = "节日特别剧情 / 情人节"
-                num = re.search(r"scene_s(\d+)_valentine", rel.stem)
+                num = re.search(r"[_\b]s(\d+)_valentine", rel.stem)
                 year_n = num.group(1) if num else "1"
                 title = f"{char_name} 情人节赠礼 第{year_n}年 [season:valentine]"
             elif "newyear" in rel.stem:
                 source = "节日特别剧情 / 新春除夜"
-                num = re.search(r"scene_s(\d+)_newyear", rel.stem)
+                num = re.search(r"[_\b]s(\d+)_newyear", rel.stem)
                 year_n = num.group(1) if num else "1"
                 title = f"{char_name} 新年祝词 第{year_n}年 [season:newyear]"
             elif "white" in rel.stem:
                 source = "节日特别剧情 / 白色情人节"
-                num = re.search(r"scene_s(\d+)_white", rel.stem)
+                num = re.search(r"[_\b]s(\d+)_white", rel.stem)
                 year_n = num.group(1) if num else "1"
                 title = f"{char_name} 白色情人节回礼 第{year_n}年 [season:whiteday]"
             elif "halloween" in rel.stem:
                 source = "节日特别剧情 / 万圣节"
-                num = re.search(r"scene_s(\d+)_halloween", rel.stem)
+                num = re.search(r"[_\b]s(\d+)_halloween", rel.stem)
                 year_n = num.group(1) if num else "1"
                 title = f"{char_name} 万圣节特别对话 第{year_n}年 [season:halloween]"
             elif "christmas" in rel.stem:
                 source = "节日特别剧情 / 圣诞节"
-                num = re.search(r"scene_s(\d+)_christmas", rel.stem)
+                num = re.search(r"[_\b]s(\d+)_christmas", rel.stem)
                 year_n = num.group(1) if num else "1"
                 title = f"{char_name} 圣诞特别对话 第{year_n}年 [season:christmas]"
             else:

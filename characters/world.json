@@ -839,6 +839,36 @@
       "sources": [
         "https://character-song.granbluefantasy.jp/21/"
       ]
+    },
+    {
+      "id": "颶風ノ宣誓",
+      "title": "颶風ノ宣誓",
+      "singers": [
+        "グリームニル"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70619"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/27/",
+        "https://granbluefantasy.jp/pages/?p=45731"
+      ]
+    },
+    {
+      "id": "星花～hoshihana～",
+      "title": "星花～hoshihana～",
+      "singers": [
+        "エウロペ"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70665"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/31/",
+        "https://granbluefantasy.jp/pages/?p=53591"
+      ]
     }
   ],
   "releases": [
@@ -1019,6 +1049,44 @@
       "sources": [
         "https://character-song.granbluefantasy.jp/14/",
         "https://gbf.wiki/Character_Songs"
+      ]
+    },
+    {
+      "catalog": "SVWC-70619",
+      "title": "颶風ノ宣誓 〜GRANBLUE FANTASY〜",
+      "date": "2023-03-01",
+      "tracks": [
+        {
+          "title": "颶風ノ宣誓",
+          "song": "颶風ノ宣誓"
+        },
+        {
+          "title": "颶風ノ宣誓(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/27/",
+        "https://granbluefantasy.jp/pages/?p=45731"
+      ]
+    },
+    {
+      "catalog": "SVWC-70665",
+      "title": "星花～hoshihana～ 〜GRANBLUE FANTASY〜",
+      "date": "2024-07-10",
+      "tracks": [
+        {
+          "title": "星花～hoshihana～",
+          "song": "星花～hoshihana～"
+        },
+        {
+          "title": "星花～hoshihana～(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/31/",
+        "https://granbluefantasy.jp/pages/?p=53591"
       ]
     }
   ],
