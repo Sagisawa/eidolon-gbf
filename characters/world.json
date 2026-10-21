@@ -168,9 +168,28 @@
       "sources": [
         "https://gbf.wiki/Vaseraga"
       ]
+    },
+    {
+      "name": "ニーア",
+      "reading": "にーあ",
+      "unit": "十賢者",
+      "cv": "下屋則子",
+      "sources": [
+        "https://gbf.wiki/Nier"
+      ]
     }
   ],
   "units": [
+    {
+      "name": "十賢者",
+      "reading": "じゅっけんじゃ",
+      "members": [
+        "ニーア"
+      ],
+      "sources": [
+        "https://gbf.wiki/Arcarum_Evokers"
+      ]
+    },
     {
       "name": "グランサイファー",
       "reading": "ぐらんさいふぁー",
@@ -369,9 +388,42 @@
       "sources": [
         "https://character-song.granbluefantasy.jp/14/"
       ]
+    },
+    {
+      "id": "死ニ至ル恋",
+      "title": "死ニ至ル恋",
+      "singers": [
+        "ニーア"
+      ],
+      "special_unit": null,
+      "releases": [
+        "SVWC-70542"
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/21/"
+      ]
     }
   ],
   "releases": [
+    {
+      "catalog": "SVWC-70542",
+      "title": "死ニ至ル恋 〜GRANBLUE FANTASY〜",
+      "date": "2021-07-21",
+      "tracks": [
+        {
+          "title": "死ニ至ル恋",
+          "song": "死ニ至ル恋"
+        },
+        {
+          "title": "死ニ至ル恋(instrumental)",
+          "song": null
+        }
+      ],
+      "sources": [
+        "https://character-song.granbluefantasy.jp/21/",
+        "https://gbf.wiki/Character_Songs"
+      ]
+    },
     {
       "catalog": "SVWC-70220",
       "title": "泡沫夢幻・胡蝶刃 〜GRANBLUE FANTASY〜",
@@ -580,7 +632,8 @@
           "venue": "幕張メッセ",
           "performers": [
             "ビカラ",
-            "サンダルフォン"
+            "サンダルフォン",
+            "ニーア"
           ],
           "absent": [],
           "sources": [
@@ -599,6 +652,14 @@
               "title": "Ain Soph Aur",
               "singers": [
                 "サンダルフォン"
+              ],
+              "dancers": [],
+              "brand": null
+            },
+            {
+              "title": "死ニ至ル恋",
+              "singers": [
+                "ニーア"
               ],
               "dancers": [],
               "brand": null

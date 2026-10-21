@@ -217,19 +217,23 @@ def test_repository_configures_its_idols_with_their_voices():
     assert {id: c.voice_id for id, c in loaded.items()} == {
         "narmaya": "d2f31010862d449eb0896dd7358f3531",
         "vikala": "e20d009971a343f4bc04eba1191f03b7",
+        "nier": "c31f409581a84f3e8b7d9b0a1f2c3d4e",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
         "vikala": "ビカラ",
+        "nier": "ニーア",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
         "vikala": ("ビカラ", "ビカラ/碧卡拉", "碧卡拉", "ビッキー"),
+        "nier": ("ニーア", "ニーア/妮亚", "妮亚", "デス", "デス/死亡"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
         "narmaya": "#8a5aa8",
         "vikala": "#f59e0b",
+        "nier": "#7c2d58",
     }
 
 

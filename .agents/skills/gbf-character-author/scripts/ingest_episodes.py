@@ -107,10 +107,10 @@ def ingest_file(
             full_text = " ".join(f"{spk} {ja} {zh}" for spk, ja, zh in lines)
             cursor.execute(
                 """
-                INSERT INTO episode_fts (rowid, title, content)
-                SELECT rowid, title, ? FROM episodes WHERE id = ?
+                INSERT INTO episode_fts (episode_id, character_id, title, text)
+                VALUES (?, ?, ?, ?)
                 """,
-                (full_text, episode_id),
+                (episode_id, character_id, title, full_text),
             )
 
         conn.commit()

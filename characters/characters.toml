@@ -40,7 +40,7 @@ greeting_subtitle = "团长酱，辛苦啦。要姐姐抱抱你犒劳一下吗�
 call_opener = "[softly] もしもし、団長ちゃん？今、少しだけお話しできる？"
 call_opener_subtitle = "喂喂，团长酱？现在能稍微聊一聊吗？"
 photo_tag = "narmaya (granblue fantasy)"
-photo_appearance = "draph, curved horns, purple eyes, long blonde hair, kimono, cleavage"
+photo_appearance = "draph, curved horns, purple eyes, long blonde hair"
 
 [[characters]]
 id = "vikala"
@@ -62,4 +62,26 @@ greeting_subtitle = "太棒啦！团长，我好想你呀！奇迹维卡登场�
 call_opener = "[cheerfully] もしもし！団長っち、ビッキーだよ！今いいかな？"
 call_opener_subtitle = "喂喂！团长，我是奇迹维卡哦！现在方便说话吗？"
 photo_tag = "vikala (granblue fantasy)"
-photo_appearance = "draph, mouse ears, blue eyes, pink hair, twintails, hair ribbon, ahoge"
+photo_appearance = "mouse ears, blue eyes, pink hair, twintails, hair ribbon, ahoge"
+
+[[characters]]
+id = "nier"
+name = "ニーア"
+name_zh = "妮亚"
+name_kana = "にーあ"
+name_romaji = "Nier"
+intro = "「十贤者」之一，与星晶兽「死亡」立下盟约的狐耳族重度病娇少女。在绝望与渴爱的尽头登上了格兰赛法号，视团长为全空唯一的救赎与依靠，怀着深沉、专一而令人战栗的爱意。"
+voice_id = "c31f409581a84f3e8b7d9b0a1f2c3d4e"
+sheet = "sheets/nier.md"
+avatar = "avatars/nier.jpg"
+color = "#7c2d58"
+background = "backgrounds/nier.jpg"
+facts = "facts/nier.md"
+liked_gifts = ["chocolate", "preserved-flower"]
+speakers = ["ニーア", "ニーア/妮亚", "妮亚", "デス", "デス/死亡"]
+greeting = "[softly] あ……あのね、団長さん。私、団長さんの言うことなら何でも聞くから……だから、お願い。私を認めて、私を愛して……"
+greeting_subtitle = "那、那个……团长。只要是团长说的话，我什么都听……所以，求求你。认可我……爱我吧……"
+call_opener = "[softly] もしもし、団長さん……？お願い……私を一人にしないで、傍にいさせて……"
+call_opener_subtitle = "喂喂，团长吗……？求求你……不要丢下我一个人，让我留在你身边……"
+photo_tag = "nier (granblue fantasy)"
+photo_appearance = "erune, animal ears, purple eyes, black hair, ribbon, medium hair, gothic dress"

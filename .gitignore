@@ -8,6 +8,8 @@
 /.venv/
 /scratch/
 *.bak
+__pycache__/
+*.pyc
 
 # 数据与音频采样
 /data/har_extracted/

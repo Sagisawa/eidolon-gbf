@@ -167,7 +167,7 @@ action: sitting, smile
         [photo] = photo_events(await send_turn(client, conversation, asked))
         await settled(client, photo["id"])
 
-    head = "1girl, solo, sakuragi mano, idolmaster shiny colors, brown hair, medium hair, brown eyes"
+    head = "1girl, solo, sakuragi mano, granblue fantasy, brown hair, medium hair, brown eyes"
     tail = "rating:general, very aesthetic, masterpiece, no text"
     negative = (
         "nsfw, lowres, artistic error, film grain, scan artifacts, worst quality, bad quality,"
