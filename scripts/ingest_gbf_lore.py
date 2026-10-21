@@ -272,7 +272,27 @@ def main():
         cast = set(_cast(cleaned_lines, sp_idx))
         is_joya = "除夜の終わりに響く鐘" in str(rel)
         is_seasonal = "scene_s" in rel.stem
-        char_prefix = "vikala" if "vikala" in str(rel) else ("nier" if "nier" in str(rel) else "narmaya")
+
+        ALL_CHAR_IDS = ["narmaya", "vikala", "nier", "anila", "andira", "mahira", "vajra", "kumbhira"]
+        char_prefix = None
+        for cid in ALL_CHAR_IDS:
+            if cid in str(rel):
+                char_prefix = cid
+                break
+        if not char_prefix:
+            char_prefix = "narmaya"
+
+        CHAR_NAMES = {
+            "narmaya": "ナルメア",
+            "vikala": "ビカラ",
+            "nier": "ニーア",
+            "anila": "アニラ",
+            "andira": "アンチラ",
+            "mahira": "マキラ",
+            "vajra": "ヴァジラ",
+            "kumbhira": "クビラ",
+        }
+        char_name = CHAR_NAMES.get(char_prefix, char_prefix)
 
         if is_joya:
             category = "活动剧情"
@@ -283,13 +303,6 @@ def main():
             cast.add("vikala")
         elif is_seasonal:
             category = "特别剧情"
-            if char_prefix == "narmaya":
-                char_name = "ナルメア"
-            elif char_prefix == "vikala":
-                char_name = "ビカラ"
-            else:
-                char_name = "ニーア"
-
             if "birthday" in rel.stem:
                 source = "节日特别剧情 / 生日"
                 num = re.search(r"scene_s(\d+)_birthday", rel.stem)
@@ -332,6 +345,30 @@ def main():
             else:
                 category = "命运篇章"
                 source = "暗-妮亚"
+            cast.add(char_prefix)
+        elif "daily" in rel.stem or "battle" in rel.stem:
+            category = "特别剧情"
+            source = "舰上日常与羁绊"
+            if "daily" in rel.stem:
+                title = f"{char_name} 舰上日常「青空と甲板のひととき」"
+            else:
+                title = f"{char_name} 战斗誓言「神将の加護と出陣の誓い」"
+            cast.add(char_prefix)
+        elif rel.stem.startswith("scene_") and ("_q" in rel.stem or "_fate_" in rel.stem or "_flb_" in rel.stem):
+            category = "命运篇章"
+            source = f"{char_name} 命运篇章"
+            if "_flb_" in rel.stem:
+                title = f"{char_name} 命运篇章 最终上限解放「真・神将覚醒」"
+            elif "_fate_" in rel.stem:
+                title = f"{char_name} 命运篇章 招募入团「大空への旅立ち」"
+            elif "_q1_" in rel.stem:
+                title = f"{char_name} 命运篇章 前篇「神宮の使命と風」"
+            elif "_q2_" in rel.stem:
+                title = f"{char_name} 命运篇章 第1话「民を護る戦い」"
+            elif "_q3_" in rel.stem:
+                title = f"{char_name} 命运篇章 第2话「団長との絆」"
+            else:
+                title = f"{char_name} 命运篇章「{rel.stem}」"
             cast.add(char_prefix)
         else:
             category = "命运篇章"

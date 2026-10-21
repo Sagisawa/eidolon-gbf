@@ -177,6 +177,51 @@
       "sources": [
         "https://gbf.wiki/Nier"
       ]
+    },
+    {
+      "name": "アニラ",
+      "reading": "あにら",
+      "unit": "十二神将",
+      "cv": "悠木碧",
+      "sources": [
+        "https://gbf.wiki/Anila"
+      ]
+    },
+    {
+      "name": "アンチラ",
+      "reading": "あんちら",
+      "unit": "十二神将",
+      "cv": "内田彩",
+      "sources": [
+        "https://gbf.wiki/Andira"
+      ]
+    },
+    {
+      "name": "マキラ",
+      "reading": "まきら",
+      "unit": "十二神将",
+      "cv": "門脇舞以",
+      "sources": [
+        "https://gbf.wiki/Mahira"
+      ]
+    },
+    {
+      "name": "ヴァジラ",
+      "reading": "ゔぁじら",
+      "unit": "十二神将",
+      "cv": "芹澤優",
+      "sources": [
+        "https://gbf.wiki/Vajra"
+      ]
+    },
+    {
+      "name": "クビラ",
+      "reading": "くびら",
+      "unit": "十二神将",
+      "cv": "堀江由衣",
+      "sources": [
+        "https://gbf.wiki/Kumbhira"
+      ]
     }
   ],
   "units": [
@@ -207,7 +252,12 @@
       "name": "十二神将",
       "reading": "じゅうにしんしょう",
       "members": [
-        "ビカラ"
+        "ビカラ",
+        "アニラ",
+        "アンチラ",
+        "マキラ",
+        "ヴァジラ",
+        "クビラ"
       ],
       "sources": [
         "https://gbf.wiki/Twelve_Divine_Generals"

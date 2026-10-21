@@ -218,22 +218,42 @@ def test_repository_configures_its_idols_with_their_voices():
         "narmaya": "d2f31010862d449eb0896dd7358f3531",
         "vikala": "e20d009971a343f4bc04eba1191f03b7",
         "nier": "c31f409581a84f3e8b7d9b0a1f2c3d4e",
+        "anila": "f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5",
+        "andira": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+        "mahira": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7",
+        "vajra": "c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8",
+        "kumbhira": "d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9",
     }
     assert {id: c.name for id, c in loaded.items()} == {
         "narmaya": "ナルメア",
         "vikala": "ビカラ",
         "nier": "ニーア",
+        "anila": "アニラ",
+        "andira": "アンチラ",
+        "mahira": "マキラ",
+        "vajra": "ヴァジラ",
+        "kumbhira": "クビラ",
     }
     assert {id: c.speakers for id, c in loaded.items()} == {
         "narmaya": ("ナルメア", "ナルメア/娜尔梅亚", "娜尔梅亚", "娜尔梅娅"),
         "vikala": ("ビカラ", "ビカラ/碧卡拉", "碧卡拉", "ビッキー"),
         "nier": ("ニーア", "ニーア/妮亚", "妮亚", "デス", "デス/死亡"),
+        "anila": ("アニラ", "アニラ/阿妮拉", "阿妮拉"),
+        "andira": ("アンチラ", "アンチラ/安琪拉", "安琪拉"),
+        "mahira": ("マキラ", "マキラ/玛琪拉", "玛琪拉"),
+        "vajra": ("ヴァジラ", "ヴァジラ/瓦吉拉", "瓦吉拉"),
+        "kumbhira": ("クビラ", "クビラ/久碧拉", "久碧拉"),
     }
     assert all(c.sheet and c.facts and c.avatar for c in loaded.values())
     assert {id: c.color for id, c in loaded.items()} == {
         "narmaya": "#8a5aa8",
         "vikala": "#f59e0b",
         "nier": "#7c2d58",
+        "anila": "#c83232",
+        "andira": "#2ea865",
+        "mahira": "#d99726",
+        "vajra": "#2a78c5",
+        "kumbhira": "#d97724",
     }
 
 
