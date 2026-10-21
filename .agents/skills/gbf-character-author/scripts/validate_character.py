@@ -104,9 +104,12 @@ def validate_character(
     if not facts_path.exists():
         errors.append(f"Facts file missing: {facts_path.relative_to(ROOT)}")
     else:
-        lines = len(facts_path.read_text(encoding="utf-8").splitlines())
+        facts_text = facts_path.read_text(encoding="utf-8")
+        lines = len(facts_text.splitlines())
         if lines < 50:
             errors.append(f"Facts file has only {lines} lines (recommend >= 80 for rich recall): {facts_path.relative_to(ROOT)}")
+        if "版本心境" not in facts_text and "版本与" not in facts_text:
+            print(f"  [WARN] Facts for '{char_id}' lacks '# 版本心境与成长历程'. Consider auditing gbf.wiki for seasonal/gacha variants (Summer, Halloween, Valentine, etc.).")
 
     sources_path = ROOT / "characters" / "facts" / f"{char_id}.sources.md"
     if not sources_path.exists():

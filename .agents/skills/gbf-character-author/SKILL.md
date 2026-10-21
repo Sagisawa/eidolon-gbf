@@ -50,8 +50,18 @@ Collect primary canon facts from official GBF sources (Gamewith, GBF Wiki, Fate 
      - `団長` (Lancelot, Zeta / equal comrade mode)
 4. **Theme Color**:
    - Extract primary hex code representing the character's eye/hair/attire (e.g. `#8a5aa8` for Narmaya, `#5b7fa4` for Vikala).
+5. **Multi-Version & Seasonal Variant Inventory (全卡池版本与变体审计)**:
+   - *Lesson from Zodiac Batch*: Characters in a long-running live-service game like GBF almost never have just their base SSR. Overlooking seasonal releases (e.g. Halloween Vajra, Summer Kumbhira, Super Cidala) leads to "single-version amnesia" in live chat.
+   - Query `site:gbf.wiki "Other Versions" "{English Name}"` or inspect the "Character Versions" box on `gbf.wiki`.
+   - Exhaustively enumerate all released playable variants across the character's lifespan:
+     - Base SSR & 5★ FLB Uncap (最终上限解放)
+     - Seasonal SSRs: Summer (水着/サマー), Yukata (浴衣), Halloween (ハロウィン), Holiday/Christmas (クリスマス), Valentine (バレンタイン)
+     - Grand / Flash Gala Series (リミテッド)
+     - Style Swaps (スタイルチェンジ, e.g. Super Cidala)
+     - Event SRs & Side Stories (イベント版)
+   - Catalog costume variations, signature props, and emotional milestones with Dancho for each variant.
 
-*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, and theme color.
+*Completion Criterion*: A completed profile card with Japanese name, reading, English ID, race, weapon, faction, captain honorific, theme color, and a full checklist of released gacha variants.
 
 ---
 
@@ -145,7 +155,15 @@ Follow [`references/facts-template.md`](references/facts-template.md):
 2. **Sources File (`characters/facts/{character_id}.sources.md`)**:
    - Cite official Fate Episodes, event dates, CD single catalogs, and Grandcypher Channel broadcasts.
 
-*Completion Criterion*: Facts file contains >= 150 lines of grounded lore, and `.sources.md` exists.
+#### Phase 4.1: Mandatory Multi-Version Mindset Section (版本心境与成长历程强结构规范)
+*Lesson from Zodiac Batch*: If alternate gacha versions are merely mentioned in passing, the character will suffer from "single-version amnesia" in live chat (unable to recall what happened in her Summer swimsuit trip, Halloween trick-or-treating, or Grand uncap).
+Every character with canonical variants MUST feature a dedicated `# 版本心境与成长历程` section with an H2 sub-entry for EACH version:
+1. **Attribute & Title**: e.g. `## 水属性（泳装版）：蔚蓝盛夏与海边回忆` / `## 暗属性（万圣版）：夜行百鬼・小恶魔忠犬与南瓜糖果`
+2. **Visual & Costume Details**: Specific swimsuit, yukata, Halloween devil horns, Christmas cloaks, or armor shifts.
+3. **Emotional Milestones & Canon Scenarios**: Key shared memories with Dancho (e.g. sharing shaved ice, sunblock application, feeding strawberry chocolates, fireworks festival).
+4. **Combat Mindset Evolution**: How her combat philosophy shifted across versions (e.g. Narmaya's transition from insecurity to "wielding the blade to protect loved ones" in her Grand version, Cidala's Super fusion form).
+
+*Completion Criterion*: Facts file contains >= 150 lines of grounded lore, includes `# 版本心境与成长历程` covering all released variants, and `.sources.md` exists.
 
 ---
 
@@ -202,6 +220,19 @@ To enable high-precision semantic recall (RAG) during live conversations:
      INSERT INTO episode_cast (episode_id, character_id) VALUES (?, ?);
      ```
    - *Impact*: In live chat, whenever Dancho chats with *any* of the faction members about other members or shared memories, the RAG semantic search smoothly retrieves the shared event, creating a deeply connected, living world.
+
+#### Phase 6.3: Seasonal & Gacha Variant Scenario Coverage (各卡池版本专属篇章录入标准)
+*Lesson from Zodiac Batch*: When Dancho asks "Do you remember when you wore that Halloween costume?" or "What happened during our summer beach trip?", relying on general text isn't enough. The RAG vector database needs actual dialogue lines tagged with the appropriate seasons and variant markers.
+1. **Dedicated Variant Episodes (1~2 episodes per major variant)**:
+   - For every major playable variant identified in Phase 1 (e.g. Summer/Swimsuit, Yukata, Halloween, Holiday/Christmas, Valentine, Style Swap), author a dedicated modular cutscene:
+     - e.g. `scene_{char_id}_halloween_ep.csv` (tagged with `[season:halloween]`)
+     - e.g. `scene_{char_id}_summer_ep.csv` (tagged with `[season:summer]`)
+     - e.g. `scene_{char_id}_holiday_ep.csv` (tagged with `[season:christmas]`)
+     - e.g. `scene_{char_id}_valentine_ep.csv` (tagged with `[season:valentine]`)
+     - e.g. `scene_{char_id}_super_ep.csv` (tagged with style change keywords)
+2. **Dialogue Density & Specificity**:
+   - Every variant episode must feature 5~8 dialogue turns detailing the specific costume, Dancho's reaction, a shared activity (e.g. eating shaved ice, trick-or-treating with pets, exchanging handcrafted gifts), and an intimate emotional confession.
+   - Ingest through `scripts/ingest_gbf_lore.py` to ensure vector passage embeddings and FTS5 keywords (`小悪魔`, `水着`, `浴衣`, `オルゴール`, `スーパーシンダラ`) are immediately searchable.
 
 *Completion Criterion*: Querying `SELECT COUNT(DISTINCT episode_id) FROM episode_cast WHERE character_id = '{character_id}'` returns >= 15 modular episodes covering both `命运篇章` and `特别剧情`.
 
