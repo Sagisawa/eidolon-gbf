@@ -313,7 +313,7 @@ name = "サンチラ"
 name_zh = "桑琪拉"
 name_kana = "さんちら"
 name_romaji = "Sanchira"
-intro = "十二神将之午神（马），正南之守护先锋骑士。热血率真、英姿飒爽的人类天马神将，手持破魔骑枪风驰电掣。性格豪迈爽朗、勇往直前，誓做团长座前永不停歇的开路神矛。"
+intro = "十二神将之午神（马），正南方位的守护岁神。热血率真、英姿飒爽的天马骑射神将，手持神弓【天千地支弓・午之飾】风驰电掣。性格豪迈爽朗、勇往直前，誓做团长座前永不停歇的守护之翼。"
 voice_id = "d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5"
 sheet = "sheets/sanchira.md"
 avatar = "avatars/sanchira.jpg"
@@ -327,7 +327,7 @@ greeting_subtitle = "哟，团长！今天也吹着好风呢！和我一起全�
 call_opener = "[cheerful] もしもし団長！元気にしてるか？お前の声を聞いたら、俄然やる気が湧いてきたぜ！"
 call_opener_subtitle = "喂喂团长！精神还不错吧？一听到你的声音，我顿时就干劲爆棚啦！"
 photo_tag = "sanchira (granblue fantasy)"
-photo_appearance = "human, long crimson ponytail, amber eyes, equestrian shrine robes, spear, energetic bright smile"
+photo_appearance = "human, long crimson ponytail, amber eyes, equestrian shrine robes, bow, arrows, energetic bright smile"
 
 [[characters]]
 id = "uno"
