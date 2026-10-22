@@ -142,6 +142,31 @@ def image_prompt(character: Character, tag: PhotoTag, style: str = "") -> ImageP
     return ImagePrompt(", ".join(positive), NEGATIVE_PROMPT)
 
 
+def reference_image_prompt(character: Character, tag: PhotoTag, style: str = "") -> ImagePrompt:
+    """The prompts a photo of `character` is generated from when reference images are provided
+    (for image-to-image / editing with models such as GPT-Image-2.5). Combines reference fidelity
+    instructions with scene, outfit, and action descriptors."""
+    action = tag.action
+    if tag.shot == "other" and not any(g in t for t in action for g in _GAZES):
+        action = (*action, LOOKING_AT_VIEWER)
+    shot_desc = "selfie" if tag.shot == "selfie" else "photo"
+
+    char_name = character.name_romaji or character.name
+    parts = [
+        f"A {shot_desc} of {char_name}.",
+        "Strictly preserve the character's facial features, identity, hair, horns/ears, and distinct physical traits from the reference image.",
+        f"Framing: {tag.framing}.",
+        f"Setting: {', '.join(tag.place)}." if tag.place else "",
+        f"Outfit: {', '.join(tag.outfit)}." if tag.outfit else "",
+        f"Action: {', '.join(action)}." if action else "",
+        f"Art style: {style.strip()}." if style.strip() else "",
+        f"Character tags: {character.photo_tag}, {WORK_TAG}.",
+        "High quality anime illustration, masterpiece, detailed.",
+    ]
+    positive = " ".join(p for p in parts if p)
+    return ImagePrompt(positive, NEGATIVE_PROMPT)
+
+
 def check_prompt(style: str = "") -> ImagePrompt:
     """The prompts a change to an image service is tried with: no one in particular, in the
     art style `style`, otherwise as any photo is."""

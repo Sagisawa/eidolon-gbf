@@ -579,6 +579,7 @@ class FakeImageService:
         self.download_status: int | None = None
         self.size: tuple[int, int] | None = None
         self.garbled = False
+        self.corrupted_image = False
         self.openai_answer: OpenAIAnswer = "b64_json"
         self._pictures: dict[str, bytes] = {}
 
@@ -591,11 +592,24 @@ class FakeImageService:
             if self.download_status is not None:
                 return httpx.Response(self.download_status)
             return httpx.Response(200, content=self._pictures.pop(self.DOWNLOAD))
-        openai = request.url.path.endswith("/images/generations")
+        openai_edit = request.url.path.endswith("/images/edits")
+        openai = request.url.path.endswith("/images/generations") or openai_edit
         assert request.method == "POST" and (
             openai or request.url.path.endswith("/ai/generate-image")
         )
-        body = json.loads(request.content)
+        if openai_edit:
+            body = {"size": "832x1216", "prompt": ""}
+            if b'name="prompt"\r\n\r\n' in request.content:
+                part = request.content.split(b'name="prompt"\r\n\r\n', 1)[1]
+                body["prompt"] = part.split(b"\r\n--", 1)[0].decode("utf-8", errors="replace")
+            if b'name="size"\r\n\r\n' in request.content:
+                part = request.content.split(b'name="size"\r\n\r\n', 1)[1]
+                body["size"] = part.split(b"\r\n--", 1)[0].decode("utf-8", errors="replace")
+            if b'name="model"\r\n\r\n' in request.content:
+                part = request.content.split(b'name="model"\r\n\r\n', 1)[1]
+                body["model"] = part.split(b"\r\n--", 1)[0].decode("utf-8", errors="replace")
+        else:
+            body = json.loads(request.content)
         self.requests.append({
             "key": request.headers["authorization"].removeprefix("Bearer "),
             "url": str(request.url),
@@ -607,6 +621,8 @@ class FakeImageService:
             return httpx.Response(self.status, json={"error": self.error})
         if self.garbled:
             return httpx.Response(200, content=b"<html>not a ZIP</html>")
+        if self.corrupted_image:
+            return httpx.Response(200, content=zipped({"image_0.png": b"corrupted image bytes"}))
         if openai:
             asked_width, asked_height = (int(n) for n in body["size"].split("x"))
             width, height = self.size or (asked_width, asked_height)

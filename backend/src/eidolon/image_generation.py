@@ -24,6 +24,7 @@ import asyncio
 import base64
 import binascii
 import io
+import logging
 import random
 import zipfile
 from dataclasses import dataclass
@@ -35,6 +36,8 @@ from PIL import Image, UnidentifiedImageError
 from eidolon.billing import bill
 from eidolon.config import ImageSettings
 from eidolon.photo_prompt import ImagePrompt, check_prompt
+
+log = logging.getLogger(__name__)
 
 WIDTH, HEIGHT = 832, 1216
 STEPS = 23
@@ -112,7 +115,12 @@ class ImageGenerator:
         self.settings = settings
         self._client = client
 
-    async def generate(self, prompt: ImagePrompt, until: float) -> GeneratedImage:
+    async def generate(
+        self,
+        prompt: ImagePrompt,
+        until: float,
+        reference_images: tuple[bytes, ...] = (),
+    ) -> GeneratedImage:
         """One picture for `prompt`, as kept, had by `until` (the running loop's time) at
         the latest. Raises ImageFailed saying why there is none. Tells what it is billed
         for (`billing`): one picture once the service answered with any, none before."""
@@ -120,7 +128,10 @@ class ImageGenerator:
         try:
             async with asyncio.timeout_at(until):
                 if self.settings.api_format == "openai":
-                    picture = await self._openai(prompt)
+                    if reference_images:
+                        picture = await self._openai_edit(prompt, reference_images)
+                    else:
+                        picture = await self._openai(prompt)
                 else:
                     picture = await self._novelai(prompt)
         except (TimeoutError, httpx.TimeoutException) as e:
@@ -143,6 +154,52 @@ class ImageGenerator:
         if len(pictures) != 1:
             raise _bad_image(f"ZIP 里有 {len(pictures)} 个文件")
         return pictures[0]
+
+    async def _openai_edit(
+        self, prompt: ImagePrompt, reference_images: tuple[bytes, ...]
+    ) -> bytes:
+        """Generate a picture from reference images and prompt using OpenAI's /images/edits endpoint."""
+        files: list[tuple[str, tuple[str, bytes, str]]] = [
+            ("image", ("reference.png", to_png_bytes(reference_images[0]), "image/png"))
+        ]
+        for idx, extra in enumerate(reference_images[1:], start=2):
+            files.append(("image", (f"reference{idx}.png", to_png_bytes(extra), "image/png")))
+
+        data = {
+            "model": self.settings.model,
+            "prompt": prompt.positive,
+            "negative_prompt": prompt.negative,
+            "size": f"{WIDTH}x{HEIGHT}",
+            "n": "1",
+            "response_format": "b64_json",
+        }
+        res = await self._client.post(
+            f"{self.settings.base_url}/images/edits",
+            data=data,
+            files=files,
+            headers=self._auth(),
+        )
+        if res.status_code in (404, 405):
+            log.warning(
+                "images/edits returned %d; falling back to images/generations",
+                res.status_code,
+            )
+            return await self._openai(prompt)
+        _check_status(res)
+        try:
+            answer = res.json()
+        except ValueError:
+            raise _bad_image("不是 JSON") from None
+        data_field = answer.get("data") if isinstance(answer, dict) else None
+        if not isinstance(data_field, list) or not all(isinstance(d, dict) for d in data_field):
+            raise _bad_image("不是 OpenAI 图像格式的返回")
+        if not data_field:
+            raise _bad_image("返回了 0 张图")
+        picture = await self._picture(data_field[0])
+        bill("images", 1)
+        if len(data_field) != 1:
+            raise _bad_image(f"返回了 {len(data_field)} 张图")
+        return picture
 
     async def _openai(self, prompt: ImagePrompt) -> bytes:
         res = await self._client.post(
@@ -225,6 +282,17 @@ def files_in(archive: bytes) -> list[bytes]:
             return [zipped.read(n) for n in zipped.namelist() if not n.endswith("/")]
     except (zipfile.BadZipFile, OSError) as e:
         raise _bad_image(f"不是 ZIP：{e}") from None
+
+
+def to_png_bytes(picture: bytes) -> bytes:
+    """The bytes of `picture` in PNG format for API reference image upload."""
+    try:
+        with Image.open(io.BytesIO(picture)) as opened:
+            out = io.BytesIO()
+            opened.save(out, format="PNG")
+            return out.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return picture
 
 
 def kept_as_webp(picture: bytes) -> bytes:

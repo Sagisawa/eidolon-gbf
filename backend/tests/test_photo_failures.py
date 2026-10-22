@@ -64,7 +64,7 @@ async def record_of(client: httpx.AsyncClient, conversation: str) -> list[dict]:
     [
         ("too slow", "timeout"),
         ("HTTP 503", "service_error"),
-        ("the wrong size", "bad_image"),
+        ("not an image", "bad_image"),
         ("not a ZIP", "bad_image"),
     ],
 )
@@ -77,8 +77,8 @@ async def test_a_photo_not_had_is_kept_as_not_sent_saying_why_beside_her_words(
         image.gate = asyncio.Event()
     if answered == "HTTP 503":
         image.status = 503
-    if answered == "the wrong size":
-        image.size = (1216, 832)
+    if answered == "not an image":
+        image.corrupted_image = True
     if answered == "not a ZIP":
         image.garbled = True
     client = make_client(FakeLLM(REPLY), clients=asking(), image_transport=image.transport())

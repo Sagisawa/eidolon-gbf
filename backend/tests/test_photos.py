@@ -418,6 +418,7 @@ async def test_it_goes_with_a_deleted_past_conversation_and_with_the_user(
 
 
 def test_the_deployers_image_generation_is_novelai_with_its_key(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("dotenv.load_dotenv", lambda *args, **kwargs: None)
     for name in ("NOVELAI_API_KEY", "NOVELAI_BASE_URL", "NOVELAI_MODEL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("CHAT_LLM_BASE_URL", "http://llm.invalid/v1")

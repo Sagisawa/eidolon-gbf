@@ -66,7 +66,7 @@ from eidolon.characters import Character
 from eidolon.config import ImageSettings
 from eidolon.image_generation import TIME_LIMIT, ImageFailed, ImageGenerator
 from eidolon.own_keys import masked_cause
-from eidolon.photo_prompt import image_prompt, read_tag
+from eidolon.photo_prompt import image_prompt, read_tag, reference_image_prompt
 from eidolon.store import Photo, PhotoFailure, Store
 from eidolon.usage import OverLimit, UsageLimiter
 
@@ -315,12 +315,27 @@ class Photos:
                 raise ImageFailed("service_error", "image generation is off")
             settings = generator.settings
             read = read_tag(tag)
+            ref_images: list[bytes] = []
+            for img_path in (character.background, character.avatar):
+                if img_path is not None and img_path.is_file():
+                    try:
+                        ref_images.append(img_path.read_bytes())
+                    except OSError:
+                        pass
+
+            if settings.api_format == "openai" and ref_images:
+                prompt = reference_image_prompt(character, read, settings.style)
+            else:
+                prompt = image_prompt(character, read, settings.style)
+
             async with self._turn_on(settings.api_key, settings.concurrency, until):
                 with turn.current() if turn is not None else nullcontext():
                     image = await timed(
                         self._activity,
                         image_origin(settings) if own is None else OWN_IMAGE_ORIGIN,
-                        generator.generate(image_prompt(character, read, settings.style), until),
+                        generator.generate(
+                            prompt, until, reference_images=tuple(ref_images)
+                        ),
                         read.stripped,
                     )
             return image.webp, None

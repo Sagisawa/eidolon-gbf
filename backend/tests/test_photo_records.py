@@ -91,7 +91,7 @@ async def test_a_photo_is_a_call_under_its_turn_billed_one_picture_though_the_tu
         ("HTTP 500", "server_error", 0),
         ("HTTP 401", "unauthorized", 0),
         ("too slow", "timeout", 0),
-        ("the wrong size", "unreadable", 1),
+        ("not an image", "unreadable", 1),
     ],
 )
 async def test_a_failed_generation_is_a_call_saying_why_billed_only_a_picture_that_came(
@@ -109,8 +109,8 @@ async def test_a_failed_generation_is_a_call_saying_why_billed_only_a_picture_th
     if answered == "too slow":
         monkeypatch.setattr(eidolon.photos, "TIME_LIMIT", 0.2)
         image.gate = asyncio.Event()  # never opened
-    if answered == "the wrong size":
-        image.size = (1024, 1024)
+    if answered == "not an image":
+        image.corrupted_image = True
     client = make_client(
         FakeLLM(REPLY), clients=asking(), clock=clock, image_transport=image.transport()
     )
