@@ -391,7 +391,6 @@ export const zh = {
     agreement: "登录即表示你已阅读{privacy}和{terms}。第一次登录时会请你确认一次。",
     refusedTitle: "没能登录",
     devTitle: "输入昵称登录",
-    devHint: "",
     devName: "输入你的昵称",
     devSubmit: "进入",
     castTitle: "可以说话的伙伴",

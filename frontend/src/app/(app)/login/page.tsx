@@ -80,7 +80,6 @@ export default function LoginPage() {
           <form onSubmit={submit} className="flex max-w-90 flex-col gap-3">
             <div className="flex flex-col gap-1">
               <SectionHeading>{t.devTitle}</SectionHeading>
-              {t.devHint && <p className="text-body text-muted-foreground">{t.devHint}</p>}
             </div>
             <div className="flex items-center gap-2">
               <Input
