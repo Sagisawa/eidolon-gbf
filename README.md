@@ -33,11 +33,27 @@ Eidolon-GBF 让你以**骑空团团长**的身份，和格兰赛法号上的伙�
 > [!IMPORTANT]
 > 本项目是非官方的粉丝作品，与 Cygames 及《碧蓝幻想》（Granblue Fantasy）的版权方无关，角色由 AI 扮演。剧情数据**不随仓库分发**，需要自行准备（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）；角色会通过回复间接地把剧情内容提供给登录的用户，这一风险见 [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)。
 
+> [!WARNING]
+> **开发状态说明（积极开发中 / Work in Progress）**：
+> - 整个项目仍在积极开发与完善中。
+> - 目前收录的 **70 位骑空团伙伴全部支持文字对话、原典剧情回忆（RAG）与专属照片生成**。
+> - **实时语音通话（TTS 音色模型）目前仅配置了「娜露梅 (ナルメア)」与「维卡拉 (ビカラ)」**，其他角色的专属音色正在陆续训练与适配中，欢迎社区共同贡献！
+
+## 📸 界面预览
+
+<p align="center">
+  <img src="docs/images/preview-call.png" alt="实时语音通话（娜露梅）" width="32%">
+  <img src="docs/images/preview-chat.png" alt="文字对话与原典剧情（尤古多拉希尔）" width="32%">
+  <img src="docs/images/preview-photo.png" alt="自拍照片发送（妮亚）" width="32%">
+  <br>
+  <sub>从左至右：娜露梅实时语音通话 · 尤古多拉希尔文字交互 · 妮亚自拍摄影</sub>
+</p>
+
 ## ✨ 特性
 
 **和伙伴说话**
 
-- 🎙️ **实时语音通话**：基于 WebRTC 的全双工通话，中文、日语都能说，随时可以插话打断对方。
+- 🎙️ **实时语音通话**：基于 WebRTC 的全双工通话，中文、日语都能说，随时可以插话打断对方（*当前版本已配置娜露梅与维卡拉音色*）。
 - 🇯🇵 **日语原声 + 中文字幕**：伙伴用日语回答，保留招牌口癖与性格声线，每句附中文字幕（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）；专有名词按读音表念对。
 - 🎭 **会动的立绘**：通话时叠上原作的 Spine 立绘，会呼吸、眨眼、动嘴，随情绪换表情。原作出了新卡池异格与衣装，同步后即可切换。
 - 📷 **伙伴发照片**：你开口要，伙伴按自己的模样和当时的情境拍一张发来，只有全年龄的内容（[配置指南](docs/configuration.md#照片)）。

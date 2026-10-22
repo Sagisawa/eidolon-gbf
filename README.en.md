@@ -31,14 +31,22 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 > This project is a derivative adaptation of [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) by [@Sallyn0225](https://github.com/Sallyn0225), migrating and expanding the architecture to the *Granblue Fantasy* universe.
 
 > [!IMPORTANT]
-> This is an unofficial fan project, not affiliated with Bandai Namco or the rights holders of *THE iDOLM@STER* series; the characters are played by AI. Story data is **not distributed with this repository**; you must prepare it yourself ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)). Through their replies, the characters indirectly pass story content on to signed-in users; for this risk, see [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md).
+> This is an unofficial fan project, not affiliated with Cygames or the rights holders of *Granblue Fantasy*; the characters are played by AI. Story data is **not distributed with this repository**; you must prepare it yourself ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)). Through their replies, the characters indirectly pass story content on to signed-in users; for this risk, see [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md).
+
+> [!WARNING]
+> **Project Status (Work in Progress)**:
+> - This project is currently under active development.
+> - All 70 crew companions support text chat, canon lore memory retrieval (RAG), and customized photo generation.
+> - **Real-time voice calls (TTS voice models) are currently only configured for Narmaya (ナルメア) and Vikala (ビカラ)**; other crew members' voices are being trained and integrated progressively!
 
 ## 📸 Preview
 
 <p align="center">
-  <img src="docs/images/call-demo.webp" alt="Calling Mano: she understands Chinese, answers in her own Japanese voice, and her stand changes expression with her emotion" width="100%">
+  <img src="docs/images/preview-call.png" alt="Real-time Voice Call (Narmaya)" width="32%">
+  <img src="docs/images/preview-chat.png" alt="Text Chat & Canon Lore (Yggdrasil)" width="32%">
+  <img src="docs/images/preview-photo.png" alt="Photo Generation (Nier)" width="32%">
   <br>
-  <sub>Calling Mano (櫻木真乃): you speak Chinese, she answers in her own Japanese voice, the subtitles keep in sync, and her stand changes expression with the emotion of each segment</sub>
+  <sub>From left to right: Real-time voice call with Narmaya · Text chat with Yggdrasil · Photo generation with Nier</sub>
 </p>
 
 <table>
