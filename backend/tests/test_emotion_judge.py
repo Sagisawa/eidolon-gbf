@@ -42,7 +42,7 @@ async def test_jev_is_asked_both_questions_of_the_segment_at_once():
     assert request["auth"] == "Bearer jev-key"
     assert request["state"] == {
         "角色": "櫻木真乃",
-        "制作人这句话": "你今天很可爱",
+        "团长这句话": "你今天很可爱",
         "这条回复前面几段": ["[shyly]ほわっ……（哇……）"],
         "这一段台词": "ありがとうございます！",
         "这一段的中文字幕": "谢谢！",

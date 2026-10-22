@@ -9,20 +9,19 @@ syntax NovelAI reads (emphasis, weights, alternation, comments, quotes, `Text:`)
 stripped, the tags put in lower case with spaces for underscores, and those the model
 does not know as tags put as it does, by the local tag table (`photo_tags.json`, made by
 `scripts/photo_tags.py` from NovelAI's tag suggestions); one it has no word on is kept as it
-is, and logged. A tag crossing the line (ADR-0023: nudity, underwear, see-through, bathing,
-a sexual pose or look) is stripped, as is one of her looks, an art style or an artist, or
-anyone else in the picture: only that tag, the photo taken all the same of the rest
-(`PhotoTag.stripped` says which part of the line each stripped crossed, for the activity
-records, never the tag). Each is written once, and each field cut to its most; a field left
-empty gets its default. Swimsuits, pajamas, lying on a bed, a pool and the beach are not
-crossing it. Neither the deployer nor any user changes the table.
+is, and logged. A tag that is never hers to write is stripped (ADR-0026): one of her looks,
+an art style or an artist, or anyone else in the picture. Only that tag goes, the photo
+taken all the same of the rest (`PhotoTag.stripped` says which of the three each stripped
+crossed, for the activity records, never the tag). Each is written once, and each
+field cut to its most; a field left empty gets its default. What she photographs, how much
+she wears and how, is hers to write: no tag of it is stripped, and no rating is put in for
+her. Neither the deployer nor any user changes the table.
 
 The positive prompt is fixed around them: who she is (her character tag and the work's
 tag), the deployment's art style, written in as the deployer wrote it (weights, artists
-and all; none if empty), her looks, the tags for how the photo is taken, `rating:general` and V5's standard
+and all; none if empty), her looks, the tags for how the photo is taken, and V5's standard
 quality tags, written out rather than left to the service's switch. The negative prompt is
-fixed altogether: `nsfw`, the Human Focus preset, and what no photo of hers shows
-(ADR-0023). Neither the deployer nor any user changes them.
+fixed altogether: the Human Focus preset. Neither the deployer nor any user changes them.
 """
 
 import json
@@ -37,19 +36,16 @@ from eidolon.characters import Character
 log = logging.getLogger(__name__)
 
 WORK_TAG = "granblue fantasy"
-QUALITY_TAGS = ("rating:general", "very aesthetic", "masterpiece", "no text")
-"""What every positive prompt ends with: all ages, then V5's standard quality tags."""
+QUALITY_TAGS = ("very aesthetic", "masterpiece", "no text")
+"""What every positive prompt ends with: V5's standard quality tags. No rating: the rating,
+if she writes one, is one of her tags and goes in with them (ADR-0026)."""
 
 NEGATIVE_PROMPT = ", ".join((
-    "nsfw",
     # The Human Focus preset: the Heavy one, with what goes wrong with faces.
     "lowres", "artistic error", "film grain", "scan artifacts", "worst quality", "bad quality",
     "jpeg artifacts", "very displeasing", "chromatic aberration", "dithering", "halftone",
     "screentone", "multiple views", "logo", "too many watermarks", "negative space",
     "blank page", "@_@", "mismatched pupils", "glowing eyes", "bad anatomy",
-    # All ages (ADR-0023).
-    "nude", "nipples", "underwear", "bra", "panties", "bra strap", "strap slip", "see-through",
-    "pantyshot", "cleavage",
 ))
 
 Shot = Literal["selfie", "other"]
@@ -68,14 +64,10 @@ _GAZES = ("looking", "eyes closed", "closed eyes")
 """What in her action says where she looks; without any, a photo someone else takes has her
 looking at the camera."""
 
-Crossing = Literal[
-    "nudity", "underwear", "exposure", "bathing", "pose", "expression", "appearance", "style",
-    "people",
-]
-"""Which part of the line a tag stripped from her photo crosses (ADR-0023): nudity or half of
-it, underwear and costumes made to be sexy, see-through clothes and what shows by accident,
-bathing, a sexual angle or pose, a sexual look; or what is never hers to write: her looks
-(her hair, eyes and body), an art style or an artist, anyone else in the picture."""
+Crossing = Literal["appearance", "style", "people"]
+"""Which part of the line a tag stripped from her photo crosses (ADR-0026): what is never
+hers to write: her looks (her hair, eyes and body), an art style or an artist, anyone else
+in the picture. What she photographs and wears is not a line."""
 CROSSINGS: tuple[Crossing, ...] = get_args(Crossing)
 
 _WEIGHT = re.compile(r"-?\d+(\.\d+)?::|::|:-?\d+(\.\d+)?\b")
@@ -190,9 +182,9 @@ def _field(
     value: str, name: str, seen: set[str], stripped: list[Crossing]
 ) -> tuple[str, ...]:
     """The tags of one of her fields, cleaned and put as the model knows them, those already
-    written elsewhere left out (and added to `seen`), those crossing the line stripped (and
-    which part of it added to `stripped`), cut to `FIELD_TAGS`; its default if none are
-    left."""
+    written elsewhere left out (and added to `seen`), those that are never hers to write
+    stripped (and which kind added to `stripped`), cut to `FIELD_TAGS`; its default if none
+    are left."""
     tags: list[str] = []
     for raw in re.split(r"[,，、]", value):
         written = _cleaned(raw)
@@ -219,8 +211,8 @@ def _cleaned(tag: str) -> str:
 
 class _TagTable:
     """The local tag table: the tags the model knows, what she may write for one, what is
-    never stripped, and what crosses the line, tag by tag (`tags`) or as a word anywhere in
-    one (`words`)."""
+    never stripped, and what is never hers to write, tag by tag (`tags`) or as a word
+    anywhere in one (`words`)."""
 
     def __init__(self, path: Path) -> None:
         table = json.loads(path.read_text(encoding="utf-8"))

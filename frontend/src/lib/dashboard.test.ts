@@ -149,8 +149,8 @@ describe("the health table's rows", () => {
 
   it("say from how many photos tags were stripped, by part of the line, for image generation alone", () => {
     const image = { ...base, service: "image" } as Row;
-    expect(strippedText({ ...image, stripped_photos: 2, stripped: { nudity: 2, appearance: 1 } })).toBe(
-      "2 张剥掉了 tag：裸露 2、外貌 1",
+    expect(strippedText({ ...image, stripped_photos: 2, stripped: { style: 2, appearance: 1 } })).toBe(
+      "2 张剥掉了 tag：画风画师 2、外貌 1",
     );
     expect(strippedText({ ...image, stripped_photos: 0, stripped: {} })).toBeNull();
     expect(strippedText(tts)).toBeNull();

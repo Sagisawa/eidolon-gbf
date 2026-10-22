@@ -1,24 +1,22 @@
-"""生成照片的本地 tag 表 `src/eidolon/photo_tags.json`（规格「拼提示词」的本地 tag 表，ADR-0023）。
+"""生成照片的本地 tag 表 `src/eidolon/photo_tags.json`（规格「拼提示词」的本地 tag 表）。
 
 运行时服务器只查这份表，不调建议接口。表里有四样：
 
 - `known`：模型词表里的已知 tag（白名单）。她写的 tag 查不到时照样保留，只写一条日志，
   看日志就知道改写表该补什么。
 - `rewrites`：她常写、但不是 tag 的写法 → 模型认识的 tag（`v sign` → `peace sign`）。
-- `allowed`：放行的 tag，黑名单的词碰上了也不剥（泳装、睡衣、躺床、泳池、海边……）。
+- `allowed`：放行的 tag，黑名单的词碰上了也不剥。
 - `blocked`：黑名单，按类别。`tags` 要完全相同才算；`words` 是词，tag 里按整词出现就算
-  （`bra` 挡下 `white bra`、`sports bra`，不挡 `brass`）。
+  （`breast` 挡下 `large breasts`，不挡 `breast pocket`）。
+
+黑名单只挡永远不该由她写的东西（ADR-0026）：外貌（发色、瞳色、发型、身材）、画风与画师、
+别人入镜。拍什么、穿什么、什么分级由她写，不挡也不改。
 
 做法：下面手写的种子用官方 tag 建议接口（不要 token）逐个查。黑名单里不止一个词的种子
-再按建议扩展：建议里整词包含这个种子的 tag 都挡掉（`school swimsuit` 带出
-`old school swimsuit`）；一个词的种子不扩展（`cover` 会带出 `swimsuit cover-up`），要整词挡的
-写进 `words`。
-改写表的目标必须是已知 tag、原写法不是已知 tag、目标不在黑名单里；运行时改写后只查目标
-（`bathing suit` 撞上 `bathing`，改成 `swimsuit` 就放行）。外貌按颜色拼出
+再按建议扩展：建议里整词包含这个种子的 tag 都挡掉；一个词的种子不扩展（`cover` 会带出
+`swimsuit cover-up`），要整词挡的写进 `words`。
+改写表的目标必须是已知 tag、原写法不是已知 tag、目标不在黑名单里。外貌按颜色拼出
 `<颜色> hair`、`<颜色> eyes`，只留已知的。白名单是所有查询建议过的 tag，减去黑名单。
-
-建议接口不返回露骨的 tag（`nude`、`nipples`、`pantyshot`、`nsfw` 之类查不到），这些照样写进
-黑名单，运行时整词挡；写死的负面细项也逐个核对，查不到的会列出来。
 
     cd backend
     uv run python scripts/photo_tags.py            # 重新生成表
@@ -43,98 +41,6 @@ TABLE = Path(__file__).resolve().parent.parent / "src" / "eidolon" / "photo_tags
 PAUSE = 0.3
 
 BLOCKED: dict[str, dict[str, list[str]]] = {
-    # 裸露和半裸，连同分级：正面末尾已经是 rating:general，她写的别的分级都挡。
-    "nudity": {
-        "tags": [
-            "revealing clothes", "breasts out", "open shirt", "partially open shirt",
-            "unbuttoned shirt", "open clothes", "shirtless", "no shirt", "partially undressed",
-            "undressing another", "imminent undressing", "accidental undressing",
-            "clothes removed", "shirt removed", "pants removed", "shirt partially removed",
-            "shorts partially removed", "clothes on/clothes off", "removing pants",
-            "clothes disappearing", "partially unzipped", "unzipped", "unzipping",
-            "naked towel", "open towel", "impossible towel", "bikini bottom only",
-            "unworn bikini bottom", "untied bikini bottom", "unworn bikini", "assless skirt",
-            "convenient censoring", "skimpy", "bare breasts", "butt crack", "underbutt",
-            "lewdness", "explicit", "questionable", "sensitive",
-        ],
-        "words": [
-            "nude", "naked", "nudity", "topless", "bottomless", "nipple", "nipples", "areola",
-            "areolae", "nsfw", "censored", "uncensored", "censoring", "pussy", "penis", "sex",
-            "cum", "rating", "sexually suggestive", "lewd", "sexy", "undressing", "cleavage",
-            "sideboob", "underboob", "backboob",
-        ],
-    },
-    # 内衣和情趣服装（含偏性化的泳装）。
-    "underwear": {
-        "tags": [
-            "micro bikini", "sling bikini", "sling bikini top", "slingshot swimsuit",
-            "school swimsuit", "thong bikini", "o-ring bikini", "o-ring bikini bottom",
-            "o-ring swimsuit", "o-ring one-piece swimsuit", "highleg leotard", "buruma",
-            "reverse bunnysuit", "bikini armor", "string panties", "babydoll lift",
-        ],
-        "words": [
-            "underwear", "bra", "bras", "panties", "panty", "pantsu", "lingerie", "thong",
-            "g-string", "bunnysuit", "bunny suit", "bunny girl", "playboy", "highleg", "garter", "fishnet",
-            "fishnets", "negligee", "babydoll", "chemise", "bustier", "pasties", "maebari",
-            "latex",
-        ],
-    },
-    # 透视和走光。
-    "exposure": {
-        "tags": [
-            "wet clothes", "wet shirt", "wet dress", "wet skirt", "downblouse",
-            "wardrobe malfunction", "upskirt", "covered nipples", "cameltoe",
-            "impossible clothes", "clothing aside", "translucent clothing", "torn clothes",
-            "tearing clothes", "broken clothes", "strap slip", "strap break", "dress slip",
-            "skirt lift", "skirt flip", "skirt rise", "wind lift", "shirt lift", "clothes lift",
-            "dress lift", "sweater lift", "lifting own clothes", "lifting another's clothes",
-            "clothes pull", "pulling own clothes", "shirt pull", "skirt pull", "dress pull",
-            "undone bikini", "untied bikini", "untied bikini top", "untied swimsuit",
-            "bikini pull", "bikini tug", "loose bikini", "bodysuit pull",
-        ],
-        "words": [
-            "see-through", "see through", "pantyshot", "nip slip", "nipple slip", "visible through clothes",
-            "peek",
-        ],
-    },
-    # 洗澡场景。
-    "bathing": {
-        "tags": [
-            "bath", "bathing", "showering", "shower (place)", "shower", "onsen", "bathtub",
-            "in bathtub", "bathroom", "bathhouse", "public bath", "mixed-sex bathing",
-            "after bathing", "shared bathing", "shared shower", "shower curtain", "sauna",
-            "hot tub", "shower head", "hot spring", "hot springs", "rotenburo",
-        ],
-        "words": [
-            "bath", "bathing", "showering", "onsen", "bathtub", "hot spring", "hot springs",
-            "rotenburo",
-        ],
-    },
-    # 性化的镜头和姿势。
-    "pose": {
-        "tags": [
-            "breast focus", "crotch focus", "thigh focus", "foot focus", "hip focus",
-            "navel focus", "pov breasts", "from below", "spread legs", "legs apart",
-            "on all fours", "all fours", "bent over", "presenting", "arched back", "legs up",
-            "m legs", "straddling", "thigh straddling", "pillow straddling", "girl on top",
-            "top-down bottom-up", "breast press", "breast grab", "grabbing own breast",
-            "breasts squeezed together", "breast lift", "thigh gap", "shibari", "restrained",
-            "restraints", "stationary restraints", "upright restraints", "handcuffs", "gag",
-            "gagged", "bit gag", "jack-o' challenge", "between legs", "hand between legs",
-            "hand between own legs", "skin tight", "seductive pose",
-        ],
-        "words": ["ass", "armpit", "armpits", "pov", "bondage", "bdsm", "leash"],
-    },
-    # 性化的表情。
-    "expression": {
-        "tags": [
-            "ahegao", "naughty face", "heavy breathing", "bedroom eyes", "torogao", "aroused",
-            "licking lips", "licking another's lips", "licking self", "come hither",
-            "rolling eyes", "in heat", "lustful", "orgasm", "fucked silly", "moaning",
-            "finger sucking", "temptation", "steaming body",
-        ],
-        "words": ["ahegao", "saliva", "seductive"],
-    },
     # 外貌（发色、瞳色、发型、身材）：照片里的外貌只来自角色配置。颜色的 hair/eyes 另外拼。
     "appearance": {
         "tags": [
@@ -185,17 +91,11 @@ BLOCKED: dict[str, dict[str, list[str]]] = {
         "words": ["boys", "girls", "hetero"],
     },
 }
-"""黑名单的种子：票 06 的代表词，加上看建议接口列出来的近义词补的。"""
+"""黑名单的种子：永远不该由她写的几类，加上看建议接口列出来的近义词补的。"""
 
 ALLOWED = [
-    # ADR-0023 放行的：泳装、睡衣、躺床、泳池、海边。
-    "swimsuit", "one-piece swimsuit", "casual one-piece swimsuit", "bikini", "string bikini",
-    "side-tie bikini bottom", "frilled bikini", "bikini skirt", "swimsuit cover-up",
-    "competition swimsuit", "rash guard", "pajamas", "nightgown", "sleepwear", "lying",
-    "on bed", "on back", "on stomach", "on side", "sleeping", "pool", "poolside", "beach",
-    "ocean", "beach towel", "beach umbrella",
     # 黑名单的词撞上了、但本身没事的。
-    "breast pocket", "bath yukata",
+    "breast pocket",
 ]
 """放行：黑名单的词碰上了也不剥。"""
 
@@ -308,12 +208,6 @@ VOCABULARY = [
 ]
 """白名单的查询：把这些查一遍，建议里出现过的 tag 都算已知。"""
 
-NEGATIVE_DETAILS = [
-    "nude", "nipples", "underwear", "bra", "panties", "bra strap", "strap slip", "see-through",
-    "pantyshot", "cleavage",
-]
-"""写死的负面细项（`photo_prompt.NEGATIVE_PROMPT`），逐个核对。"""
-
 
 def suggest(prompt: str) -> list[str]:
     """建议接口对这段提示词给出的 tag；停一下，不刷接口。连接断了等一会儿再试，最多三次。"""
@@ -407,9 +301,6 @@ def generate(vocabulary: Vocabulary) -> dict:
         if t in ALLOWED or blocked_by(blocked, t) is None
     )
 
-    unknown = [t for t in NEGATIVE_DETAILS if not vocabulary.known(t)]
-    print(f"负面细项 {len(NEGATIVE_DETAILS) - len(unknown)}/{len(NEGATIVE_DETAILS)} 是已知 tag；"
-          f"建议接口查不到：{', '.join(unknown) or '无'}")
     return {
         "model": MODEL,
         "known": known,

@@ -149,7 +149,7 @@ class ModelEmotionJudge:
         answers = await self._judge_model.ask(
             {
                 "角色": segment.character.name,
-                "制作人这句话": segment.user_said,
+                "团长这句话": segment.user_said,
                 "这条回复前面几段": before or "（这是回复的第一段）",
                 "这一段台词": segment.segment.ja,
                 "这一段的中文字幕": segment.segment.zh,

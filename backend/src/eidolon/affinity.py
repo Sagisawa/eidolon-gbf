@@ -240,16 +240,16 @@ _TIER_PROMPTS: dict[Tier, str] = {
     "distant": "你现在对团长有点生气或失望，比平时冷一些：回应偏短，不太主动关心对方；"
     "不过对方好好说话时，你还是会接话。",
     "close": "你现在和团长比平时更近：更放松，更愿意说心里话，更主动关心对方，玩笑也多一些。",
-    "intimate": "你现在非常信赖团长：会说出平时不轻易说的心事，流露出对对方的依赖，"
-    "对团长的事格外上心。",
+    "intimate": "你现在与团长建立了最深厚的特殊羁绊：完全卸下防备，流露出对团长最真实、最深层的情感与依赖。"
+    "无论这种情感是生死相托的战友情、温暖治愈的依恋、还是独特的浪漫爱慕与誓约，请完全按照你的人设核心自然流露。",
 }
-"""How she speaks to the producer in each tier but trust, the same for every character, who
+"""How she speaks to the captain in each tier but trust, the same for every character, who
 shows it in her own way. No number, no tier's name, no word for affinity: she is to sound
-like someone, not a system. Neither cold nor distant is hating the producer."""
+like someone, not a system. Neither cold nor distant is hating the captain."""
 
 _WHATEVER_THE_TIER = (
-    "无论现在关系怎样，人设里的硬性规则照旧；一起经历过的事和你们伙伴与团长的关系都不会改变。"
-    "如果想不起具体是因为什么，就不要编造原因。"
+    "无论现在关系怎样，人设里的核心性格与硬性规则照旧；"
+    "如果想不起具体是因为什么，就不要编造未经发生的原因。"
 )
 
 _FEELINGS = (

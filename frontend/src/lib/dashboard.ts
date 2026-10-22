@@ -63,17 +63,9 @@ export type ErrorKind =
   | "unreadable"
   | "other";
 
-/** Which part of the line a tag stripped from her photo tag crossed (ADR-0023). */
-export type Crossing =
-  | "nudity"
-  | "underwear"
-  | "exposure"
-  | "bathing"
-  | "pose"
-  | "expression"
-  | "appearance"
-  | "style"
-  | "people";
+/** Which part of the line a tag stripped from her photo tag crossed (ADR-0026): what is never
+ * hers to write. */
+export type Crossing = "appearance" | "style" | "people";
 
 /**
  * The page head's one line on health: "ok" when every service that was called kept its errors

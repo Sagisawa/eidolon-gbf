@@ -1061,8 +1061,9 @@ class FakeJudge:
         }
 
     async def feel(self, state: dict[str, Any]) -> dict[str, Any]:
+        user_said = state.get("团长这句话") or state.get("制作人这句话")
         self.segments.append(AskedSegment(
-            state["角色"], state["制作人这句话"], state["这条回复前面几段"], state["这一段台词"],
+            state["角色"], user_said, state["这条回复前面几段"], state["这一段台词"],
             state["这一段的中文字幕"],
         ))
         answer = self.emotions.pop(0) if self.emotions else feeling("calm")

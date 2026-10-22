@@ -12,10 +12,8 @@ Verifies:
 
 import io
 from dataclasses import replace
-from pathlib import Path
 
 import httpx
-import pytest
 from PIL import Image
 
 from eidolon.characters import Character
