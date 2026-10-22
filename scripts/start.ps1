@@ -1,4 +1,4 @@
-$Host.UI.RawUI.WindowTitle = "Eidolon-GBF 启动器"
+﻿$Host.UI.RawUI.WindowTitle = "Eidolon-GBF 启动器"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 Write-Host "===================================================" -ForegroundColor Cyan
@@ -78,8 +78,21 @@ if (-not (Test-Path $nodeModules)) {
     Pop-Location
 }
 
-if (-not (Test-Path $nextBuild)) {
-    Write-Host "[提示] 前端尚未构建，正在执行构建 (npm run build)..." -ForegroundColor Yellow
+$needsBuild = -not (Test-Path $nextBuild)
+if (-not $needsBuild) {
+    $buildTime = (Get-Item $nextBuild).LastWriteTime
+    $srcDir = Join-Path $frontendDir "src"
+    if (Test-Path $srcDir) {
+        $newer = Get-ChildItem -Path $srcDir -Recurse -File | Where-Object { $_.LastWriteTime -gt $buildTime } | Select-Object -First 1
+        if ($newer) {
+            Write-Host "[提示] 检测到前端代码有更新，正在重新构建 (npm run build)..." -ForegroundColor Yellow
+            $needsBuild = $true
+        }
+    }
+}
+
+if ($needsBuild) {
+    Write-Host "[提示] 正在执行前端构建 (npm run build)..." -ForegroundColor Yellow
     Push-Location $frontendDir
     npm run build
     Pop-Location
