@@ -27,6 +27,9 @@ Eidolon-GBF 让你以**骑空团团长**的身份，和格兰赛法号上的伙�
 
 已收录包括十天众、十贤者、十二神将、六龙、天司等 **70 位骑空团伙伴**，可以直接对话。部署到公网后，任何人都能用 Google 或 GitHub 登录使用。
 
+> [!NOTE]
+> 本项目基于 [@Sallyn0225](https://github.com/Sallyn0225) 的开源项目 [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) 二次开发与移植，将原本《偶像大师 闪耀色彩》的 AI 分身系统深度重构并迁移至《碧蓝幻想》（Granblue Fantasy）骑空团世界观。
+
 > [!IMPORTANT]
 > 本项目是非官方的粉丝作品，与 Cygames 及《碧蓝幻想》（Granblue Fantasy）的版权方无关，角色由 AI 扮演。剧情数据**不随仓库分发**，需要自行准备（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）；角色会通过回复间接地把剧情内容提供给登录的用户，这一风险见 [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md)。
 
@@ -204,6 +207,7 @@ eidolon-gbf/
 
 ## 🙏 致谢
 
+- [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc)：由 [@Sallyn0225](https://github.com/Sallyn0225) 创造的原版偶像大师闪耀色彩 AI 分身系统，本项目底层架构的核心原型基础
 - [LAPLACE Eidolon](https://laplace.live/eidolon)：为虚拟主播明前奶绿打造的实时语音 AI 分身，本项目的架构参考（未复用其代码）
 - [BLHXFY 汉化项目](https://github.com/BLHXFY-Group/BLHXFY)：碧蓝幻想文本与中文翻译参考
 - [Granblue Fantasy Wiki](https://gbf.wiki/)：角色设定、台词与资料考据

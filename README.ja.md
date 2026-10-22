@@ -27,6 +27,9 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 
 原作の 8 ユニット・**28 人のアイドル**がすべて設定済みで、すぐに話せます。公開サーバーにデプロイすれば、誰でも Google または GitHub でログインして使えます。
 
+> [!NOTE]
+> 本プロジェクトは、[@Sallyn0225](https://github.com/Sallyn0225) 氏によるオープンソースプロジェクト [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) をベースに二次創作・移植したものです。元となった『アイドルマスター シャイニーカラーズ』のAI分身システムを『グランブルーファンタジー』（Granblue Fantasy）の騎空団世界観へと移行・拡張しています。
+
 > [!IMPORTANT]
 > 本プロジェクトは非公式のファンメイド作品であり、バンダイナムコおよび『アイドルマスター』シリーズの権利者とは一切関係ありません。アイドルは AI が演じています。シナリオデータは**リポジトリに含まれていない**ため、各自で用意してください（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。アイドルの返事を通じてコミュの内容が間接的にログインユーザーへ提供されるリスクについては [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md) を参照してください。
 
@@ -261,6 +264,7 @@ eidolon-sc/
 
 ## 🙏 謝辞
 
+- [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc)：[@Sallyn0225](https://github.com/Sallyn0225) 氏による原版『シャイニーカラーズ』AIシステム。本プロジェクトの基盤プロトタイプ
 - [LAPLACE Eidolon](https://laplace.live/eidolon)：VTuber・明前奶绿のために作られたリアルタイム音声 AI 分身。本プロジェクトのアーキテクチャの参考（コードは流用していません）
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData)：シナリオテキストと中国語訳
 - [ShinyColorsDB](https://github.com/ShinyColorsDB)：原文コミュのミラーと立ち絵素材

@@ -27,6 +27,9 @@ Eidolon-SC lets you, as **a producer at 283 Production**, text or call the idols
 
 All **28 idols** from the game's eight units are already set up and ready to talk. Once deployed publicly, anyone can sign in with Google or GitHub and use it.
 
+> [!NOTE]
+> This project is a derivative adaptation of [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) by [@Sallyn0225](https://github.com/Sallyn0225), migrating and expanding the architecture to the *Granblue Fantasy* universe.
+
 > [!IMPORTANT]
 > This is an unofficial fan project, not affiliated with Bandai Namco or the rights holders of *THE iDOLM@STER* series; the characters are played by AI. Story data is **not distributed with this repository**; you must prepare it yourself ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)). Through their replies, the characters indirectly pass story content on to signed-in users; for this risk, see [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md).
 
@@ -261,6 +264,7 @@ The license covers only the code and documentation in the repository. The follow
 
 ## 🙏 Acknowledgements
 
+- [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc): The original *Shiny Colors* AI companion system created by [@Sallyn0225](https://github.com/Sallyn0225), serving as the foundational prototype for this project
 - [LAPLACE Eidolon](https://laplace.live/eidolon): a real-time voice AI companion built for the VTuber Mingqian Nailü (明前奶绿); this project's architectural reference (none of its code is reused)
 - [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData): story text and Chinese translations
 - [ShinyColorsDB](https://github.com/ShinyColorsDB): the mirror of the original scripts, and the stand assets
