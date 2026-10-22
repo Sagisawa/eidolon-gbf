@@ -1,4 +1,4 @@
-﻿$Host.UI.RawUI.WindowTitle = "Eidolon-GBF 启动器"
+$Host.UI.RawUI.WindowTitle = "Eidolon-GBF 启动器"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 Write-Host "===================================================" -ForegroundColor Cyan
@@ -21,8 +21,24 @@ $envExample = Join-Path $rootDir ".env.example"
 if (-not (Test-Path $envFile)) {
     if (Test-Path $envExample) {
         Write-Host "[提示] 未检测到 .env 配置文件，已为您自动从 .env.example 复制创建。" -ForegroundColor Yellow
-        Copy-Item $envExample $envFile
+        $exampleContent = Get-Content $envExample -Raw -Encoding UTF8
+        # 本地启动默认开启开发登录，方便无需配置第三方 OAuth 即可直接点击开发登录体验
+        $exampleContent = $exampleContent -replace '(?m)^EIDOLON_DEV_LOGIN=.*$', 'EIDOLON_DEV_LOGIN=1'
+        Set-Content -Path $envFile -Value $exampleContent -Encoding UTF8
+        Write-Host "[提示] 已为您默认启用 EIDOLON_DEV_LOGIN=1（本地快速登录模式）。" -ForegroundColor Green
         Write-Host "[注意] 请在启动后打开 .env 填写您的对话模型 API Key (如 CHAT_LLM_*)！" -ForegroundColor Magenta
+        Write-Host ""
+    }
+}
+
+if (Test-Path $envFile) {
+    $currentEnv = Get-Content $envFile -Raw -Encoding UTF8
+    if ($currentEnv -match "(?m)^CHAT_LLM_API_KEY=\s*$" -or -not ($currentEnv -match "(?m)^CHAT_LLM_API_KEY=\S+")) {
+        Write-Host "=========================================================" -ForegroundColor Yellow
+        Write-Host "[提醒] 检测到 .env 中的 CHAT_LLM_API_KEY 尚未填写！" -ForegroundColor Yellow
+        Write-Host "系统可启动前端界面，但对话需要有效的模型密钥才能响应。" -ForegroundColor Gray
+        Write-Host "请用记事本或编辑器打开 .env 填写您的 CHAT_LLM_API_KEY 与 CHAT_LLM_MODEL。" -ForegroundColor Gray
+        Write-Host "=========================================================" -ForegroundColor Yellow
         Write-Host ""
     }
 }

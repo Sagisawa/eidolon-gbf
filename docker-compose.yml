@@ -1,9 +1,13 @@
 services:
   backend:
     build: ./backend
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8000:8000"
     volumes:
-      - eidolon-data:/data
+      - ./data:/data
       - ./characters:/characters:ro
       - ./corpus:/corpus:ro
       - ./deploy:/deploy:ro # 活动名对照表 event-names.toml（同步时读取）
@@ -19,6 +23,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-
-volumes:
-  eidolon-data:

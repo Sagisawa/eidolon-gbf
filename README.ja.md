@@ -129,15 +129,38 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
 
 ## 🚀 クイックスタート
 
-Docker と Docker Compose、そしてストリーミング出力とツール呼び出しに対応した会話モデルが必要です。
+Eidolon-GBF は **Windows ネイティブワンクリック起動** と **Docker Compose コンテナデプロイ** の両方に対応しています。
+
+### 方法 1：Windows ネイティブワンクリック起動（デスクトップ推奨）
+
+> 💡 **利点**：Docker 仮想マシンのオーバーヘッドがなく軽量で、WebRTC 音声通話もローカルループバックで直結します（TURN リレーサーバーの追加設定が不要）。
+
+1. **事前準備**：[Python (>= 3.11)](https://www.python.org/)（PATH への追加にチェック）と [Node.js (>= 20)](https://nodejs.org/) をインストール。
+2. **クローンして起動**：
+   ```cmd
+   git clone https://github.com/Sagisawa/eidolon-gbf.git
+   cd eidolon-gbf
+   start.bat
+   ```
+   *起動スクリプトが自動で `.venv` 仮想環境の作成、依存関係のインストール、フロントエンドのビルドを行い、ブラウザで <http://127.0.0.1:3000> を開きます。*
+3. **API キーの設定**：初回起動時に `.env.example` から `.env` が自動生成され、開発ログイン（`EIDOLON_DEV_LOGIN=1`）が有効になります。`.env` をメモ帳などで開き、会話モデルの認証情報（`CHAT_LLM_BASE_URL`・`CHAT_LLM_API_KEY`・`CHAT_LLM_MODEL`）を記入してください。
+4. **停止方法**：`stop.bat` をダブルクリックするだけでポートを解放して終了します。
+
+---
+
+### 方法 2：Docker Compose デプロイ（Linux / サーバー）
+
+Docker と Docker Compose が必要です：
 
 ```sh
 git clone https://github.com/Sagisawa/eidolon-gbf.git && cd eidolon-gbf
-cp .env.example .env    # CHAT_LLM_BASE_URL・CHAT_LLM_API_KEY・CHAT_LLM_MODEL を記入し、EIDOLON_DEV_LOGIN=1 の 1 行も追加
+cp .env.example .env    # CHAT_LLM_* を記入し、EIDOLON_DEV_LOGIN=1 を設定
 docker compose up --build
 ```
 
-<http://localhost:3000> を開くとランディングページです。右上の「登录」（ログイン）を押し、ログインパネルで「开发登录」（開発ログイン）を選んで好きな名前を入れ、プライバシーポリシーと利用規約に同意し、13 歳以上であることを申告すると会話一覧に入ります。アイドルを選べば会話が始まります。
+> ⚠️ **音声通話のネットワークに関する注意**：Linux ではコンテナが直接 WebRTC UDP 通信を行えますが、Windows / macOS の Docker Desktop 仮想環境内ではサブネット分離のため TURN サーバーの設定が必要となります。デスクトップでの利用には**方法 1（`start.bat`）**を推奨します。
+
+<http://localhost:3000> を開くとランディングページです。右上の「登录」（ログイン）を押し、ログインパネルで「开发登录」（開発ログイン）を選んで好きな名前を入れ、プライバシーポリシーと利用規約に同意し、13 歳以上であることを申告すると会話一覧に入ります。仲間を選べば会話が始まります。
 
 会話モデルだけを設定した状態ではテキストチャットができます。必要に応じてほかのサービスのキーを追加すれば、音声通話・コミュの記憶・メモリー・立ち絵が段階的に有効になります：
 

@@ -81,13 +81,36 @@ Eidolon-GBF 让你以**骑空团团长**的身份，和格兰赛法号上的伙�
 
 ## 🚀 快速开始
 
-需要 Docker 与 Docker Compose，以及一个支持流式输出和工具调用的对话模型。
+本项目支持 **Windows 原生一键启动** 与 **Docker Compose 容器部署** 两种方式。
+
+### 方式一：Windows 原生一键启动（推荐桌面用户）
+
+> 💡 **优势**：轻量无需 Docker 虚拟机，WebRTC 语音通话天然走本机回环（无需额外配置复杂的 TURN 中继服务器）。
+
+1. **前置环境**：安装 [Python (>= 3.11)](https://www.python.org/) 并勾选加入 PATH，安装 [Node.js (>= 20)](https://nodejs.org/)。
+2. **克隆仓库并双击启动**：
+   ```cmd
+   git clone https://github.com/Sagisawa/eidolon-gbf.git
+   cd eidolon-gbf
+   start.bat
+   ```
+   *启动脚本会自动检测并创建 `.venv` 虚拟环境、安装后端依赖、构建前端，并自动在浏览器中打开 <http://127.0.0.1:3000>。*
+3. **填写模型 API Key**：首次运行会自动复制创建 `.env` 并默认开启本地快速登录模式（`EIDOLON_DEV_LOGIN=1`）。用记事本或编辑器打开 `.env` 填写您的模型配置（`CHAT_LLM_BASE_URL`、`CHAT_LLM_API_KEY`、`CHAT_LLM_MODEL`）即可开始聊天！
+4. **一键停止**：双击运行 `stop.bat` 即可释放端口退出服务。
+
+---
+
+### 方式二：Docker Compose 容器部署（Linux / 服务器）
+
+需要安装 Docker 与 Docker Compose：
 
 ```sh
 git clone https://github.com/Sagisawa/eidolon-gbf.git && cd eidolon-gbf
-cp .env.example .env    # 填写 CHAT_LLM_BASE_URL、CHAT_LLM_API_KEY、CHAT_LLM_MODEL，再加一行 EIDOLON_DEV_LOGIN=1
+cp .env.example .env    # 填写 CHAT_LLM_* 密钥，再将 EIDOLON_DEV_LOGIN 设为 1
 docker compose up --build
 ```
+
+> ⚠️ **关于语音通话网络**：在 Linux 服务器中可直接收发 WebRTC UDP 媒体流；若在 Windows / macOS 的 Docker Desktop 虚拟机中运行 Docker，由于跨虚拟子网限制，语音通话需要另外配置 TURN 中继服务器。因此本地桌面体验强烈推荐使用**方式一原生启动**。
 
 打开 <http://localhost:3000> 是落地页。点右上角的「登录」，在登录面板里选「开发登录」，随便填一个名字，同意隐私政策和使用条款、声明年满 13 岁后就进入对话列表，点一位伙伴开始对话。
 

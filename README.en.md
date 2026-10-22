@@ -129,15 +129,38 @@ All **28 idols** from the game's eight units are already set up and ready to tal
 
 ## 🚀 Quick start
 
-You need Docker with Docker Compose, and a chat model that supports streaming and tool calling.
+Eidolon-GBF supports both **Windows Native One-Click Launch** and **Docker Compose Deployment**.
+
+### Option 1: Windows Native One-Click Launch (Recommended for Desktop)
+
+> 💡 **Advantage**: Lightweight without Docker VM overhead, and WebRTC audio calls connect directly over localhost (no external TURN relay setup required).
+
+1. **Prerequisites**: Install [Python (>= 3.11)](https://www.python.org/) with PATH enabled, and [Node.js (>= 20)](https://nodejs.org/).
+2. **Clone and Launch**:
+   ```cmd
+   git clone https://github.com/Sagisawa/eidolon-gbf.git
+   cd eidolon-gbf
+   start.bat
+   ```
+   *The launcher will automatically configure `.venv`, install dependencies, build the frontend, and open <http://127.0.0.1:3000> in your browser.*
+3. **Configure API Key**: On first launch, `.env` is automatically created with local dev login enabled (`EIDOLON_DEV_LOGIN=1`). Open `.env` and fill in your chat model credentials (`CHAT_LLM_BASE_URL`, `CHAT_LLM_API_KEY`, `CHAT_LLM_MODEL`).
+4. **Shutdown**: Double-click `stop.bat` to terminate all services and free ports.
+
+---
+
+### Option 2: Docker Compose (Linux / Server)
+
+Requires Docker and Docker Compose:
 
 ```sh
 git clone https://github.com/Sagisawa/eidolon-gbf.git && cd eidolon-gbf
-cp .env.example .env    # fill in CHAT_LLM_BASE_URL, CHAT_LLM_API_KEY and CHAT_LLM_MODEL, then add the line EIDOLON_DEV_LOGIN=1
+cp .env.example .env    # fill in CHAT_LLM_* credentials and set EIDOLON_DEV_LOGIN=1
 docker compose up --build
 ```
 
-Open <http://localhost:3000> to see the landing page. Click 「登录」 (Sign in) at the top right, choose 「开发登录」 (Dev login) in the sign-in panel, and enter any name. After you agree to the privacy policy and terms of use and confirm you are 13 or older, you land on the conversation list. Pick an idol to start a conversation.
+> ⚠️ **Note on Voice Calls in Docker**: Linux hosts can route WebRTC UDP traffic directly. When running inside Docker Desktop on Windows/macOS, WebRTC media calls require a configured TURN server due to VM subnet isolation. Desktop users are strongly advised to use **Option 1 (`start.bat`)** natively.
+
+Open <http://localhost:3000> to see the landing page. Click 「登录」 (Sign in) at the top right, choose 「开发登录」 (Dev login) in the sign-in panel, and enter any name. After you agree to the privacy policy and terms of use and confirm you are 13 or older, you land on the conversation list. Pick a companion to start a conversation.
 
 With only the chat model set, you can chat by text. Add other services' keys as you need them to turn on voice calls, story recall, memory and stands step by step:
 
