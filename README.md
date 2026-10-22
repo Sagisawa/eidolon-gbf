@@ -43,10 +43,10 @@ Eidolon-GBF 让你以**骑空团团长**的身份，和格兰赛法号上的伙�
 
 <p align="center">
   <img src="docs/images/preview-call.png" alt="实时语音通话（娜露梅）" width="32%">
-  <img src="docs/images/preview-chat.png" alt="文字对话与原典剧情（尤古多拉希尔）" width="32%">
+  <img src="docs/images/preview-chat.png" alt="文字对话与原典剧情（土妹）" width="32%">
   <img src="docs/images/preview-photo.png" alt="自拍照片发送（妮亚）" width="32%">
   <br>
-  <sub>从左至右：娜露梅实时语音通话 · 尤古多拉希尔文字交互 · 妮亚自拍摄影</sub>
+  <sub>从左至右：娜露梅实时语音通话 · 土妹文字交互 · 妮亚自拍摄影</sub>
 </p>
 
 ## ✨ 特性
