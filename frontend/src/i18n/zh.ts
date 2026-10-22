@@ -390,10 +390,10 @@ export const zh = {
     noProviders: "部署者还没有配置登录方式。",
     agreement: "登录即表示你已阅读{privacy}和{terms}。第一次登录时会请你确认一次。",
     refusedTitle: "没能登录",
-    devTitle: "开发登录",
-    devHint: "后端打开了 EIDOLON_DEV_LOGIN，可以直接以这个名字的用户登录。",
-    devName: "用户名",
-    devSubmit: "登录",
+    devTitle: "输入昵称登录",
+    devHint: "",
+    devName: "输入你的昵称",
+    devSubmit: "进入",
     castTitle: "可以说话的伙伴",
   },
   /** 落地页（ADR-0016）。各幕的文案由后续的 ticket 补上，都要交用户审。 */
@@ -402,7 +402,7 @@ export const zh = {
     signIn: "登录",
     continue: "继续",
     panelTitle: "登录",
-    devSignIn: "开发登录",
+    devSignIn: "输入昵称登录",
     /**
      * 第 1 幕「プリズム」：白光射进棱镜，散成她们的颜色（画面上仍是分光，文字只说这是什么）。name 是竖排的
      * 日文幕名，纯装饰，和幕名轨那一格同步改。title 的人数按名单算。

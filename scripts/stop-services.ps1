@@ -1,4 +1,13 @@
-﻿# Stop processes listening on port 3000 and 8000
+﻿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# 停止 cloudflared 隧道进程
+$cf = Get-Process cloudflared -ErrorAction SilentlyContinue
+if ($cf) {
+    Write-Host "[已停止] Cloudflare Tunnel 进程 (PID: $($cf.Id -join ', '))" -ForegroundColor Yellow
+    $cf | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+
+# 停止监听端口 3000 和 8000 的进程
 $ports = @(3000, 8000)
 foreach ($port in $ports) {
     $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue

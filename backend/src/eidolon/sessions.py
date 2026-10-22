@@ -7,6 +7,7 @@ from the site's own origin (`origin_allowed`). A session lasts `SESSION_LIFETIME
 was last used; each renewal renews the cookie too.
 """
 
+import ipaddress
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Annotated
 from urllib.parse import urlsplit
@@ -54,7 +55,17 @@ def origin_allowed(origin: str | None, signed_in: bool, settings: Settings) -> b
     if settings.domain is not None:
         return origin == settings.public_origin
     parts = urlsplit(origin)
-    return parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS
+    if parts.scheme == "http" and parts.hostname in _LOCAL_HOSTS:
+        return True
+    if parts.hostname:
+        if parts.hostname.endswith(".trycloudflare.com") or parts.hostname.endswith(".cloudflare.com"):
+            return True
+        try:
+            if ipaddress.ip_address(parts.hostname).is_private:
+                return True
+        except ValueError:
+            pass
+    return False
 
 
 def session_middleware(

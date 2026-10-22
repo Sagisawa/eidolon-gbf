@@ -80,10 +80,16 @@ export default function LoginPage() {
           <form onSubmit={submit} className="flex max-w-90 flex-col gap-3">
             <div className="flex flex-col gap-1">
               <SectionHeading>{t.devTitle}</SectionHeading>
-              <p className="text-body text-muted-foreground">{t.devHint}</p>
+              {t.devHint && <p className="text-body text-muted-foreground">{t.devHint}</p>}
             </div>
             <div className="flex items-center gap-2">
-              <Input aria-label={t.devName} value={name} onChange={(e) => setName(e.target.value)} className="flex-1" />
+              <Input
+                aria-label={t.devName}
+                placeholder={t.devName}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="flex-1"
+              />
               <Button type="submit" disabled={!name.trim()}>
                 {t.devSubmit}
               </Button>

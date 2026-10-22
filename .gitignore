@@ -7,6 +7,7 @@
 # 本地虚拟环境与临时脚本
 /.venv/
 /scratch/
+/tools/
 *.bak
 __pycache__/
 *.pyc
