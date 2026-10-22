@@ -14,6 +14,7 @@ __pycache__/
 # 数据与音频采样
 /data/har_extracted/
 /data/voice_samples/
+/data/*.db
 /data/*.db-shm
 /data/*.db-wal
 
