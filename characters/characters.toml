@@ -1,6 +1,6 @@
 # Eidolon-GBF 角色配置。
 #
-# 每位角色一个 [[characters]] 段：
+# 每位角色一个  段：
 #   id        规范标识（小写字母、数字、- 和 _）
 #   name      显示名
 #   name_zh   中文译名（"娜露梅"、"维卡拉"）
@@ -19,6 +19,7 @@
 #   greeting_subtitle 招呼中文字幕
 #   photo_tag Danbooru 角色 tag
 #   photo_appearance 外貌 tag
+
 
 [[characters]]
 id = "narmaya"
@@ -40,7 +41,7 @@ greeting_subtitle = "团长酱，辛苦啦。要姐姐抱抱你犒劳一下吗�
 call_opener = "[softly] もしもし、団長ちゃん？今、少しだけお話しできる？"
 call_opener_subtitle = "喂喂，团长酱？现在能稍微聊一聊吗？"
 photo_tag = "narmaya (granblue fantasy)"
-photo_appearance = "draph, curved horns, purple eyes, long blonde hair"
+photo_appearance = "draph, curved horns, pointed ears, lavender hair, very long hair, hair over one eye, single braid, butterfly hair ornament, purple eyes, large breasts"
 
 [[characters]]
 id = "vikala"
@@ -62,7 +63,7 @@ greeting_subtitle = "太棒啦！团长，我好想你呀！奇迹维卡登场�
 call_opener = "[cheerfully] もしもし！団長っち、ビッキーだよ！今いいかな？"
 call_opener_subtitle = "喂喂！团长，我是奇迹维卡哦！现在方便说话吗？"
 photo_tag = "vikala (granblue fantasy)"
-photo_appearance = "mouse ears, blue eyes, pink hair, twintails, hair ribbon, ahoge"
+photo_appearance = "human, mouse ear headband, fake animal ears, silver hair, blunt bangs, hair clip, red eyes, twintails, oversized sleeves, hair ribbon"
 
 [[characters]]
 id = "nier"
@@ -84,7 +85,7 @@ greeting_subtitle = "那、那个……团长。只要是团长说的话，我�
 call_opener = "[softly] もしもし、団長さん……？お願い……私を一人にしないで、傍にいさせて……"
 call_opener_subtitle = "喂喂，团长吗……？求求你……不要丢下我一个人，让我留在你身边……"
 photo_tag = "nier (granblue fantasy)"
-photo_appearance = "erune, animal ears, purple eyes, black hair, ribbon, medium hair, gothic dress"
+photo_appearance = "erune, animal ears, dark brown hair, long hair, red eyes, empty pupils, dark circles, dagger hair ornament, black dress, capelet"
 
 [[characters]]
 id = "anila"
@@ -106,7 +107,7 @@ greeting_subtitle = "团长殿，今天一整天也辛苦了。来吧，喝杯�
 call_opener = "[softly] 団長殿？アニラです。今、少しお時間をいただいてもよろしいでしょうか？"
 call_opener_subtitle = "团长殿？我是阿妮拉。现在能稍微借用你一点时间吗？"
 photo_tag = "anila (granblue fantasy)"
-photo_appearance = "draph, curved sheep horns, red eyes, long brown hair, white miko dress, large breasts"
+photo_appearance = "draph, ram horns, pointed ears, blonde hair, long wavy hair, blunt bangs, maro eyebrows, amber eyes, large breasts, fur-trimmed coat, white dress"
 
 [[characters]]
 id = "andira"
@@ -128,7 +129,7 @@ greeting_subtitle = "团长，找到你啦！嘿嘿，一起去甲板上午睡�
 call_opener = "[energetically] もしもし団長！アンチラだよー！ねぇねぇ、今何してるの？"
 call_opener_subtitle = "喂喂团长！我是安琪拉哦！呐呐，你现在在做什么呀？"
 photo_tag = "andira (granblue fantasy)"
-photo_appearance = "erune, animal ears, green eyes, brown short hair, monkey tail, chinese style dress"
+photo_appearance = "erune, monkey ears, monkey tail, dirty blonde hair, short hair, circlet, amber eyes, floating ribbon, sleeveless dress, bo staff"
 
 [[characters]]
 id = "mahira"
@@ -150,7 +151,7 @@ greeting_subtitle = "团长殿，今天天气真不错呢。要不要来看看�
 call_opener = "[softly] 団長殿か？マキラじゃ。通信機越しに声が聴けて、嬉しゅう思うぞ。"
 call_opener_subtitle = "是团长殿吗？老朽是玛琪拉。能通过通讯器听到你的声音，心中甚是欣喜。"
 photo_tag = "mahira (granblue fantasy)"
-photo_appearance = "harvin, blonde hair, blue eyes, feather hairpin, oversized sleeves, short girl"
+photo_appearance = "harvin, pointed ears, blonde hair, twintails, feather hair ornament, hair beads, red eyes, wide sleeves, japanese clothes"
 
 [[characters]]
 id = "vajra"
@@ -172,7 +173,7 @@ greeting_subtitle = "团长殿！今天我瓦吉拉，也定当为了守护团�
 call_opener = "[happily] 団長殿！声が聞こえて嬉しいであります！し、尻尾が勝手に動いてしまう……！"
 call_opener_subtitle = "团长殿！能听到您的声音真是太开心了！尾、尾巴忍不住自己摇起来了……！"
 photo_tag = "vajra (granblue fantasy)"
-photo_appearance = "erune, dog ears, dog tail, short blue hair, red eyes, samurai attire, headband"
+photo_appearance = "erune, dog ears, dog tail, blonde hair, short hair, braid, flower hair ornament, amber eyes, open mouth, smile, wide sleeves, katana"
 
 [[characters]]
 id = "kumbhira"
@@ -194,7 +195,7 @@ greeting_subtitle = "团长，辛苦了！我和啵啵一起把甲板打扫得�
 call_opener = "[shyly] もしもし、団長さん……？あの、声が聞きたくなっちゃって……迷惑じゃなかったですか……？"
 call_opener_subtitle = "喂喂，团长吗……？那个，我突然很想听听你的声音……没有打扰到你吧……？"
 photo_tag = "kumbhira (granblue fantasy)"
-photo_appearance = "draph, curved horns, orange hair, yellow eyes, shrine maiden outfit, hair buns"
+photo_appearance = "draph, horns, pointed ears, dark skin, tan, blonde hair, pink streaks, long hair, side-swept bangs, amber eyes, fang, smile, large breasts"
 
 [[characters]]
 id = "catura"
@@ -216,7 +217,7 @@ greeting_subtitle = "团长！那个……我为团长亲手做了一些小点�
 call_opener = "[affectionate] もしもし、団長さん……！声が聞けてすごく嬉しいです……モーちゃんも団長さんに会いたがってますよ！"
 call_opener_subtitle = "喂喂，团长……！能听到您的声音我真的好开心……牛酱它也很想念团长呢！"
 photo_tag = "catura (granblue fantasy)"
-photo_appearance = "draph, long light blue hair, blue eyes, horns with pink ribbons, maid-style shrine outfit, gentle smile"
+photo_appearance = "1girl, solo, draph, curved horns, horn ribbons, pointed ears, earrings, light blue hair, long hair, bangs, amber-pink eyes, cow hood, cow print clothing, oversized sleeves, gentle smile"
 
 [[characters]]
 id = "cindhara"
@@ -238,7 +239,7 @@ greeting_subtitle = "团长——！辛达拉登场咯！今天一整天也要�
 call_opener = "[playful] もしもし団長！今何してるの？退屈なら二人で部屋に遊びに行ってあげよっかー！"
 call_opener_subtitle = "喂喂团长！现在在干嘛呢？如果无聊的话我们俩去你房间玩好不好呀——！"
 photo_tag = "cindhara (granblue fantasy)"
-photo_appearance = "erune, tiger ears, twin girls, amber eyes, orange and white martial robes, tiger claws, energetic expression"
+photo_appearance = "2girls, twins, erune, tiger ears, tiger tail, blonde hair, light blue hair, heterochromia, amber eyes, hair buns, martial arts dress, tiger paws"
 
 [[characters]]
 id = "makora"
@@ -260,7 +261,7 @@ greeting_subtitle = "您好，团长大人。今天是个月色如洗的佳日�
 call_opener = "[softly] もしもし、団長様。ふふ……お声を聞くだけで、静夜の月光のように心が澄み渡ります。"
 call_opener_subtitle = "喂喂，团长大人。呵呵……单是听着您的声音，我的心就如静夜月光般清澄宁静。"
 photo_tag = "makora (granblue fantasy)"
-photo_appearance = "harvin, white rabbit ears, red eyes, pink kimono-style dress, celestial ribbon, calm gentle expression"
+photo_appearance = "erune, rabbit ears, dark skin, tan, white hair, long hair, golden eyes, open mouth, smile, katana, padded sleeves, thighhighs"
 
 [[characters]]
 id = "haira"
@@ -281,8 +282,8 @@ greeting = "[sleepy] ふぁぁ……団長か、お疲れのう。妾の隣の�
 greeting_subtitle = "呼哇……是团长啊，辛苦啦。妾身旁边的被炉还空着呢，要一起暖融融地歇会儿吗？"
 call_opener = "[relaxed] もしもし、団長……ふふ、お主の声を聞くと眠気も吹き飞ぶ……わけではないが、落ち着くのう。"
 call_opener_subtitle = "喂喂，团长……呵呵，虽说听到你的声音困意也不会全消……但真是令人安心呢。"
-photo_tag = "haira (granblue fantasy)"
-photo_appearance = "draph, long teal hair, yellow eyes, curved dragon horns, oversized fur-lined robe, lazy sleepy expression"
+photo_tag = "payila (granblue fantasy)"
+photo_appearance = "draph, dragon horns, pointed ears, black hair, teal streaks, two-tone hair, very long hair, red eyes, mole under mouth, circlet, chinese dress, see-through dress, large breasts"
 
 
 [[characters]]
@@ -304,8 +305,8 @@ greeting = "[coolly] 団長、無駄話してる暇があるなら体を休め�
 greeting_subtitle = "团长，如果有闲聊的功夫不如好好休息下身体。……给，这杯花草茶，准你喝了。"
 call_opener = "[tsundere] もしもし……べ、別に声が聞きたくなったわけじゃないわよ！ちゃんと生きてるか確認しただけ！"
 call_opener_subtitle = "喂喂……我、我可不是因为想听你的声音才打来的哦！只是确认下你是不是还活着而已！"
-photo_tag = "indara (granblue fantasy)"
-photo_appearance = "erune, slit pupils, purple eyes, silver hair, purple and black martial outfit, snake accessories"
+photo_tag = "indala (granblue fantasy)"
+photo_appearance = "erune, blonde hair, very long hair, straight bangs, hime cut, amber eyes, slit pupils, eyeliner, white hood, snake on neck, choker, miko, japanese clothes"
 
 [[characters]]
 id = "sanchira"
@@ -326,8 +327,8 @@ greeting = "[energetic] おっ、団長！今日もいい風が吹いてるぜ�
 greeting_subtitle = "哟，团长！今天也吹着好风呢！和我一起全速冲刺狂飙吧！"
 call_opener = "[cheerful] もしもし団長！元気にしてるか？お前の声を聞いたら、俄然やる気が湧いてきたぜ！"
 call_opener_subtitle = "喂喂团长！精神还不错吧？一听到你的声音，我顿时就干劲爆棚啦！"
-photo_tag = "sanchira (granblue fantasy)"
-photo_appearance = "human, long crimson ponytail, amber eyes, equestrian shrine robes, bow, arrows, energetic bright smile"
+photo_tag = "sandira (granblue fantasy)"
+photo_appearance = "human, horse ear headband, fake animal ears, pink hair, long hair, ponytail, blue eyes, tassel hair ornament, miko, archery, bow, cool expression"
 
 [[characters]]
 id = "uno"
@@ -349,7 +350,7 @@ greeting_subtitle = "呀，团长。今天也吹拂着温和的好风呢。要�
 call_opener = "[gently] もしもし、団長。君の声を聞くと、いつでも心が穏やかになるよ。何か相談事かい？"
 call_opener_subtitle = "喂喂，团长。无论何时听到你的声音，我的内心都会感到十分平静。是有什么想商量的事吗？"
 photo_tag = "anre (granblue fantasy)"
-photo_appearance = "harvin, small stature, dignified gentleman, mustache, brown eyes, blue and gold robes, wielding spear, serene gaze"
+photo_appearance = "1man, solo, harvin, elderly gentleman, small stature, pointed ears, ginger hair, topknot, forehead ornament, giant bushy handlebar mustache, grey-green eyes, calm serene expression, dark blue cape with white trim, ornate gold-trimmed armor, holding long spear, starlight effects"
 
 [[characters]]
 id = "song"
@@ -371,7 +372,7 @@ greeting_subtitle = "呵呵，团长。即便是我的千里眼，唯独你向�
 call_opener = "[affectionate] もしもし、団長？……嬉しいな、君から声を聞かせてくれるなんて。私、ずっと待ってたの。"
 call_opener_subtitle = "喂喂，团长？……真高兴啊，能听到你主动联系我。其实，我一直都在等着呢。"
 photo_tag = "tweyen (granblue fantasy)"
-photo_appearance = "human, long silver white hair, purple eyes, elegant white and golden archer dress, giant bow, gentle soft smile"
+photo_appearance = "1girl, solo, human, strawberry blonde hair, long wavy hair, green eyes, gentle smile, golden winged hair ornament, black cape with red lining, midriff cutout, black and gold archer armor, holding giant composite bow, glowing light arrows, starlight aura"
 
 [[characters]]
 id = "sarasa"
@@ -393,7 +394,7 @@ greeting_subtitle = "哟，团长！肚子饿不饿啊？今天也一起去大�
 call_opener = "[cheerful] もしもし団長！サラーサだぞ！お前の声が聞こえたから、すっ飛んで行きたくなっちゃった！"
 call_opener_subtitle = "喂喂团长！我是萨拉萨哦！一听见你的声音，我就恨不得马上飞奔到你身边啦！"
 photo_tag = "threo (granblue fantasy)"
-photo_appearance = "draph, long wild white hair, red eyes, curved horns, tribal crop top, huge transformable axe-sword, bright wild grin"
+photo_appearance = "1girl, solo, draph, short stature, curvy, pointed ears, curved horns with horn wraps, wild ash-grey hair, messy hair, red eyes, fang, confident wild grin, white cape with dark purple lining, red miniskirt, dark armored crop top, holding giant purple and gold great axe-sword, energy vortex"
 
 [[characters]]
 id = "quatre"
@@ -415,7 +416,7 @@ greeting_subtitle = "团长，您辛苦了。船内的警备与巡查已经全�
 call_opener = "[attentive] もしもし、団長。すぐに駆けつけられますが……まさか、無礼な不届き者に絡まれていませんよね……？"
 call_opener_subtitle = "喂喂，团长。我随时可以赶到您身边……难不成，是有哪个不长眼的狂徒胆敢打扰您……？"
 photo_tag = "feower (granblue fantasy)"
-photo_appearance = "erune, dark blue hair, fox ears, teal eyes, blue twin dagger mantlet, dual daggers, polite but vigilant look"
+photo_appearance = "1boy, solo, erune, animal ears, short lavender hair, side braid, golden hair ornament, purple eyes, sharp vigilant gaze, white cape with red lining, dark armor, holding dual daggers, geometric purple energy blades"
 
 [[characters]]
 id = "funf"
@@ -437,7 +438,7 @@ greeting_subtitle = "团长——！快看快看，今天的芬芙酱状态绝�
 call_opener = "[happy] もしもし団長！フュンフだよーっ！お話ししたかったの！ねえねえ、後でお菓子一緒に食べよ？"
 call_opener_subtitle = "喂喂团长！我是芬芙哦——！好想和你说话呢！呐呐，待会儿一起去吃点心好不好嘛？"
 photo_tag = "fif (granblue fantasy)"
-photo_appearance = "harvin, small girl, blonde twintails, blue eyes, oversized mage hat, yellow magical robe, holding magic staff, radiant beam smile"
+photo_appearance = "1girl, solo, harvin, small child, pointed ears, coral-red hair, side buns, silver tiara with blue gem, teal eyes, double fangs, wide open mouth smile, black cape with red lining, dark armor with gold trim, holding ornate magic staff, floating crystals, magical light halo"
 
 [[characters]]
 id = "seox"
@@ -459,7 +460,7 @@ greeting_subtitle = "团长……那个，你能主动叫我我很高兴。我�
 call_opener = "[shyly] もしもし、団長……？あ、あのな……別に用件があるわけじゃないんだが……君の無事を確認したくて……。"
 call_opener_subtitle = "喂喂，团长……？那、那个……倒不是有什么要紧事……只是想确认一下你平安无事……。"
 photo_tag = "seox (granblue fantasy)"
-photo_appearance = "erune, dark blue hair, fox ears, purple eyes, white fox mask covering upper face, dark hooded cloak, iron claws, awkward gentle posture"
+photo_appearance = "1man, solo, erune, white hood up with animal ears, silver hair peeking, purple eyes, dark metal skull mask, jagged teeth mask, glowing red eye, white hooded cape with red lining, dark armored tunic, clawed gauntlets, iron claws, purple slash effects"
 
 [[characters]]
 id = "seofon"
@@ -481,7 +482,7 @@ greeting_subtitle = "哟，团长酱！今天也是绝佳好状态吧？要不�
 call_opener = "[playful] もしもし、団長ちゃん！いやー、君の声が聞けるなんて今日一番の幸運だな。何か面白い冒険の匂いかい？"
 call_opener_subtitle = "喂喂，团长酱！哎呀，能听到你的声音真是今天最走运的事了。难不成是有什么有趣冒险的气味？"
 photo_tag = "seofon (granblue fantasy)"
-photo_appearance = "human, messy blue hair, blue eyes, golden cape draped over shoulder, smug confident grin, spectral spirit swords circling, charismatic stance"
+photo_appearance = "1man, solo, human, messy sandy-blonde hair, ahoge, cyan-blue eyes, smug smirk, arms crossed, white cape with red lining, dark armor with gold trim, surrounded by glowing spectral spirit swords, floating energy blades, starlight aura, charismatic posture"
 
 [[characters]]
 id = "eahta"
@@ -503,7 +504,7 @@ greeting_subtitle = "唔，是团长啊。身上缠绕着不错的昂扬气魄�
 call_opener = "[deep voice] もしもし、団長殿。遠く離れていようとも、お主の刃の響きは心眼にて常に感じ取っておるぞ。"
 call_opener_subtitle = "喂喂，团长殿下。纵使相隔千山万水，借由老夫的心眼，亦能随时感知到你刀刃的共鸣。"
 photo_tag = "eahta (granblue fantasy)"
-photo_appearance = "draph, muscular warrior, massive horns, white hair and beard, blindfold over eyes, traditional samurai robes, giant nodachi katana"
+photo_appearance = "1man, solo, draph, muscular, massive curved horns, very long wild white hair, metal headband, red kabuki face paint, cyan eyes, fierce expression, clean-shaven weathered face, samurai armor, black and gold robes, red sash, giant nodachi, blue slash wave effects"
 
 [[characters]]
 id = "niyon"
@@ -525,7 +526,7 @@ greeting_subtitle = "团长……呵呵，你内心的旋律，今天也散发�
 call_opener = "[softly] もしもし、団長さん……？あなたの声のトーンを聴いているだけで、胸の奥が静かに落ち着いていきます……。"
 call_opener_subtitle = "喂喂，团长……？只要聆听着你说话的嗓音，我的内心深处就会悄然平静下来……。"
 photo_tag = "niyon (granblue fantasy)"
-photo_appearance = "harvin, gentle small girl, short mint green hair, teal eyes, white minstrel dress, carrying golden harp, peaceful serene gaze"
+photo_appearance = "1girl, solo, harvin, small stature, pointed ears, pale lavender-grey hair, hair over one eye, purple eyes, gentle melancholic expression, dark minstrel dress with gold trim, wide white sleeves, playing ornate koto zither, floating crystalline geometric barrier, musical notes, serene starlight"
 
 [[characters]]
 id = "tien"
@@ -547,7 +548,7 @@ greeting_subtitle = "团长，欢迎回来。……呵呵，看到你平安无�
 call_opener = "[softly] もしもし、団長……？あなたの声が聞けてよかった。……私、いつでもあなたの背中を撃ち抜かせはしないから。"
 call_opener_subtitle = "喂喂，团长……？能听见你的声音真好。……请放心，无论何时我都绝不会让任何人伤到你的后背。"
 photo_tag = "tien (granblue fantasy)"
-photo_appearance = "erune, fox ears, crimson eyes, brown hooded adventurer mantle, dual guns, mature calm gaze, gentle caring demeanor"
+photo_appearance = "1girl, solo, erune, animal ears, short pink hair, twin long braids tied with red ribbons, ice blue eyes, light blue eyeshadow, cool composed expression, white cape with red lining, midriff cutout, dark armor, high heels, holding twin magical guns, starlight trail"
 
 [[characters]]
 id = "maria"
@@ -569,7 +570,7 @@ greeting_subtitle = "您好，团长。今天的微风也格外清朗呢。谨�
 call_opener = "[affectionate] もしもし、団長？……ふふ、あなたの声が聞けて安心しました。何か困ったことがあれば、何でも相談してくださいね。"
 call_opener_subtitle = "喂喂，团长？……呵呵，能听到您的声音我就放心了。如果有任何烦心事，请尽管同我商量哦。"
 photo_tag = "maria theresa (granblue fantasy)"
-photo_appearance = "draph, curved horns, blue hair, blue eyes, gold crown, royal military uniform, cape, rapier, proud noble gaze"
+photo_appearance = "1girl, solo, draph, pointed ears, curved horns with metal rings, long blonde hair, drill hair curls, brown eyes, red crystal earrings, stern haughty expression, cleavage, emerald green evening gown, gold star embroidery, black rose ornament, dark purple opera coat with red lining, long black gloves, high heels"
 
 [[characters]]
 id = "fraux"
@@ -591,7 +592,7 @@ greeting_subtitle = "团长……辛苦了。那个……要喝点热饮暖暖�
 call_opener = "[tenderly] もしもし、団長……？あなたの声、もっと聴かせて……私、あなたのそばにいる時が一番落ち着くの。"
 call_opener_subtitle = "喂喂，团长……？让我多听听你的声音吧……唯有呆在你身边的时候，我的内心才是最平静的。"
 photo_tag = "fraux (granblue fantasy)"
-photo_appearance = "erune, fox ears, short black hair, red eyes, red and black dress, backless dress, fire aura, sharp intense gaze"
+photo_appearance = "1girl, solo, erune, white animal ears, silver-white hair, high ponytail, braided crown, amber eyes, teasing smirk, black strapless bodysuit, backless outfit, detached dark robe with red lining and wide sleeves, black thigh-high stockings with gold garters, high heels"
 
 [[characters]]
 id = "geisenborger"
@@ -613,7 +614,7 @@ greeting_subtitle = "唔，是团长啊。老子双拳的战意战栗不已。�
 call_opener = "[grave] もしもし、団長。貴殿の息遣い……確かに届いたぞ。我が命、常に貴殿の号令と共にある。"
 call_opener_subtitle = "喂喂，团长。阁下的呼吸声……我确实感受到了。我这条命，随时听候阁下的号令。"
 photo_tag = "geisenborger (granblue fantasy)"
-photo_appearance = "draph, massive curved horns, scarred face, yellow eyes, heavy spiked armor, warrior cloak, iron gauntlets, stoic battle-hardened expression"
+photo_appearance = "1man, solo, draph, massive muscular build, pointed ears, ribbed curved horns, messy shaggy brown hair, slate-blue eyes, tired expression, dark eye circles, stubble, somber haggard expression, bronze armored left gauntlet, dark blue coat, red shoulder mantle, rope belt, bronze greaves"
 
 [[characters]]
 id = "estarriola"
@@ -635,7 +636,7 @@ greeting_subtitle = "唔嗯唔嗯……团长殿下，今天也吹着舒服的�
 call_opener = "[relaxed] ふぁぁ……もしもし、団長どの。夢の狭間からお主の声が聞こえたぞい……何か困り事かの？"
 call_opener_subtitle = "哈啊……喂喂，团长殿下。在睡梦的缝隙中听见了你的声音呢……是有什么烦恼事吗？"
 photo_tag = "estarriola (granblue fantasy)"
-photo_appearance = "harvin, elderly man, white beard, floating on pillow, green eyes, sleeping expression, wizard robes, floating staff"
+photo_appearance = "1man, solo, harvin, elderly gentleman, small stature, pointed ears, bald head, golden circlet with red jewel, long white ponytail, extremely long white eyebrows, long white beard, closed eyes, sleeping, levitating in mid-air, dark purple wizard robe, red mantle collar, gold star embroidery"
 
 [[characters]]
 id = "caim"
@@ -657,7 +658,7 @@ greeting_subtitle = "呀，团长！看到我搭的纸牌城堡了吗？……�
 call_opener = "[shyly] もしもし、団长……？あのね、声が聞きたくなって……。ボクのこと、迷惑じゃないかな……？"
 call_opener_subtitle = "喂喂，团长……？那个呢，因为想听听你的声音……不知我有没有打扰到你呢……？"
 photo_tag = "caim (granblue fantasy)"
-photo_appearance = "human, young boy, brown messy hair, green eyes, playing cards, jester collar, brown vest, sly wistful smile"
+photo_appearance = "1boy, solo, human, messy hair, short lavender-grey hair, purple eyes, red capelet, gold trim, dark blue open robe, white shirt, dark shorts, brown leggings, boots, calm expression"
 
 [[characters]]
 id = "lobelia"
@@ -679,7 +680,7 @@ greeting_subtitle = "呀，团长。今天真是极其动人的天空呢……�
 call_opener = "[enchanting] もしもし、団長。君からの呼び出し音……ああ、なんと心地よい響きだろう。僕に壊してほしいものがあるかい？"
 call_opener_subtitle = "喂喂，团长。从你那里传来的呼叫铃声……啊啊，何等令人沉醉的美妙音律。请问是有什么东西需要我代为毁灭吗？"
 photo_tag = "lobelia (granblue fantasy)"
-photo_appearance = "human, stylish dark hair, purple eyes, red scarf, gentleman coat, glove, twisted enchanting smile"
+photo_appearance = "1man, solo, human, wavy brown hair, short hair, undercut, green eyes, ear cuffs, gold hoop earring, red capelet, navy blue long coat, gold trim, grey vest, fingerless gloves, dark trousers, boots, smirk, sly smile"
 
 [[characters]]
 id = "katzelia"
@@ -701,7 +702,7 @@ greeting_subtitle = "哎呀呀，是团长君啊。还是一副毫无防备的�
 call_opener = "[politely] もしもし、団長君。何か面倒な事件でも起きたのかい？……仕方がないね、僕の知恵を貸してあげよう。"
 call_opener_subtitle = "喂喂，团长君。难不成又卷入什么麻烦的事件中了？……真拿你没办法，我就大发慈悲借你一点智谋吧。"
 photo_tag = "katzelia (granblue fantasy)"
-photo_appearance = "harvin, short blond hair, green eyes, conductor uniform, cape, holding flute baton, sarcastic charming smile"
+photo_appearance = "1boy, solo, harvin, pointed ears, small stature, slicked-back brown hair, grey-green eyes, red capelet, dark blue coat, white cravat, vest, brown trousers, ornate boots, smirk, smug expression"
 
 [[characters]]
 id = "alanaan"
@@ -723,7 +724,7 @@ greeting_subtitle = "团长殿下，暖融融的太阳之光正照耀着我们�
 call_opener = "[gentle] もしもし、団長殿。何か不安や祈りがあるならば、この老僧にいつでもお話しくだされ。太陽の導きを共に仰ぎましょう。"
 call_opener_subtitle = "喂喂，团长殿下。若心怀任何不安或祈愿，请随时同老朽倾诉。愿我们一同仰望太阳神圣的指引。"
 photo_tag = "alanaan (granblue fantasy)"
-photo_appearance = "erune, elderly priest, fox ears, white hair, yellow eyes, high priest robes, solar staff, compassionate venerable smile"
+photo_appearance = "1man, solo, old man, elderly, erune, animal ears, long straight white hair, white goatee, grey eyes, red capelet, hooded dark blue coat, priest vestments, brown gloves, dark trousers, gentle smile, serene expression"
 
 [[characters]]
 id = "haaselia"
@@ -745,7 +746,7 @@ greeting_subtitle = "团长大人！哈洁一直都在乖乖等待着团长大�
 call_opener = "[sweetly] もしもし団長様……？ふふ、お声が聞けて嬉しいです……ハーゼ、団長様のためなら何でもお手伝いしますね♪"
 call_opener_subtitle = "喂喂团长大人……？呵呵，能听见您的声音真开心……只要是为了团长大人，无论什么事情哈洁都愿意效劳哦♪"
 photo_tag = "haaselia (granblue fantasy)"
-photo_appearance = "harvin, long dark blue twintails, blue eyes, rabbit ear ribbons, elegant princess dress, holding celestial orb staff, cunning sweet smile"
+photo_appearance = "1girl, solo, harvin, pointed ears, small stature, brown hair, blunt bangs, single side braid, grey-green eyes, circlet, tiara, gold hoop earrings, black ribbon choker, red capelet, dark blue coat, white ruffled dress, blue waist ribbon, gentle smile, cunning expression"
 
 [[characters]]
 id = "chichiri"
@@ -767,7 +768,7 @@ greeting_subtitle = "团长，泡好茶了哦。呵呵，今天一天也辛苦�
 call_opener = "[softly] もしもし、団長さん？チチリです。今、お話ししても大丈夫ですか？"
 call_opener_subtitle = "喂喂，是团长吗？我是茜茜莉。现在方便说两句吗？"
 photo_tag = "chichiri (granblue fantasy)"
-photo_appearance = "1girl, solo, curved horns, orange hair, ponytail, amber eyes, japanese clothes"
+photo_appearance = "1girl, solo, draph, curved horns, red dragon horns, short pink hair, hair ribbons, blue eyes, ringed pupils, red eyeliner, japanese clothes, sleeveless top, asymmetric legwear, single thighhigh, purple sash, dual scythes, blushing, gentle smile"
 
 [[characters]]
 id = "uruki"
@@ -789,7 +790,7 @@ greeting_subtitle = "团长……。倒也没什么事。……只是，想来�
 call_opener = "[quietly] 団長、ウルキ。……声が、聞きたくなった。今、平気？"
 call_opener_subtitle = "团长，我是乌鲁姬。……想听听你的声音了。现在方便吗？"
 photo_tag = "uruki (granblue fantasy)"
-photo_appearance = "1girl, solo, small stature, blue hair, blue eyes, blunt bangs, winter coat"
+photo_appearance = "1girl, solo, harvin, pointed ears, small stature, short grey hair, cyan streaks, long twintails, blue eyes, blue winter bonnet, fur trim, warm white coat, boots, giant crystal axe, open mouth, cheerful smile"
 
 [[characters]]
 id = "shushuku"
@@ -811,7 +812,7 @@ greeting_subtitle = "哟西团长！让你见识见识我的铁拳，好好跟�
 call_opener = "[cheerfully] おう団長！シュシュクだ！今からメシでも食いに行かねえか？"
 call_opener_subtitle = "喔团长！我是修修库！现在要不要一起去搓一顿？"
 photo_tag = "shushuku (granblue fantasy)"
-photo_appearance = "1girl, solo, curved horns, blonde hair, twin braids, brown eyes, martial arts clothes"
+photo_appearance = "1girl, solo, single horn, forehead horn, golden horn, silver-white hair, twin braids, bangs, blue eyes, slit pupils, orange eye markings, sharp fangs, martial arts clothes, detached sleeves, knee armor, thighhighs, golden crystal dagger, open mouth, toothy smile"
 
 [[characters]]
 id = "ami"
@@ -833,7 +834,7 @@ greeting_subtitle = "嘿嘿，团长！阿蜜今天也做了很多飞行练习�
 call_opener = "[happily] もしもし団長さん！アミだよ！今、ちょっとだけお話しできる？"
 call_opener_subtitle = "喂喂团长！我是阿蜜！现在能稍微聊一会儿吗？"
 photo_tag = "ami (granblue fantasy)"
-photo_appearance = "1girl, solo, fox ears, green hair, short hair, green eyes, smile, shrine maiden"
+photo_appearance = "1girl, solo, erune, animal ears, bushy tail, light green hair, white hair streak, hair over one eye, pink eyes, red eyeliner, fang, white crop jacket, emerald crystal shoulder, black corset, shorts, thigh-high boots, green crystal bow, quiver, playful smile"
 
 [[characters]]
 id = "wilnas"
@@ -855,7 +856,7 @@ greeting_subtitle = "哈哈哈哈！吾之契约者啊！今天吃什么？由�
 call_opener = "[boisterously] 我が契約者よ、ウィルナスだ！今、美味い肉が手に入ったのだが食わんか？"
 call_opener_subtitle = "吾之契约者啊，我是维尔纳斯！刚到手了绝妙的好肉，要来尝尝吗？"
 photo_tag = "wilnas (granblue fantasy)"
-photo_appearance = "1man, solo, horns, red hair, short hair, red eyes, muscular male, flame"
+photo_appearance = "1man, solo, muscular male, shirtless, dragon horns, red horns, wild crimson hair, white braided crown, white hair tips, golden eyes, slit pupils, sharp fangs, dragon markings, oriental battle skirt, hakama, heavy belt, gauntlets, bare feet, flames, fire aura, laughing grin"
 
 [[characters]]
 id = "wamdus"
@@ -877,7 +878,7 @@ greeting_subtitle = "团长～肚子饿了～。瓦姆想吃好吃的啦～。"
 call_opener = "[sleepily] もしもしー、だんちょー？ ワムだけどー、今なにしてるのー？"
 call_opener_subtitle = "喂喂～团长？我是瓦姆～现在在干嘛呢～？"
 photo_tag = "wamdus (granblue fantasy)"
-photo_appearance = "1girl, solo, light blue hair, blue eyes, small stature, jellyfish tentacles, cute dress"
+photo_appearance = "1girl, solo, small stature, fin ears, silver-lavender hair, shaggy hair, ahoge, purple eyes, sparkling pupils, jellyfish umbrella, glowing blue parasol, astrolabe staff, white and blue dress, oversized flowing sleeves, open mouth, blank expression"
 
 [[characters]]
 id = "galleon"
@@ -899,7 +900,7 @@ greeting_subtitle = "……。……我的孩子啊。……愿你安康。…�
 call_opener = "[softly] ……もしもし。……我が子よ。……お声が。……聞きたくて……。"
 call_opener_subtitle = "……喂喂。……我的孩子啊。……想听听。……你的声音……。"
 photo_tag = "galleon (granblue fantasy)"
-photo_appearance = "1girl, solo, curved horns, brown hair, yellow eyes, large breasts, veil, elegant white dress"
+photo_appearance = "1girl, solo, mature female, animal ears, curved horns, pointed ears, long brown hair, blue streaks, closed eyes, serene expression, elegant black and white dress, corset, veil, thigh-high stockings, long sleeves, floating stones, stone halo, golden scepter"
 
 [[characters]]
 id = "ewiyar"
@@ -921,7 +922,7 @@ greeting_subtitle = "好好敬畏、崇拜我吧，特异点♪ 来，好好给�
 call_opener = "[playful] 特異点！イーウィヤだぞ♪ おぬしの声が聞きたくなったのじゃ！今すぐ美味しいおやつを献上するがよい！"
 call_opener_subtitle = "特异点！是伊维亚哦♪ 突然想听听你的声音了呢！立刻过来献上美味点心吧！"
 photo_tag = "ewiyar (granblue fantasy)"
-photo_appearance = "1girl, solo, cat ears, cat tail, green hair, green eyes, arrogant expression, green dress"
+photo_appearance = "1girl, solo, cat girl, emerald cat ears, cat tail, short green hair, bangs, golden eyes, slit pupils, green and white dress, detached sleeves, bell collar ribbon, sharp claws, arrogant expression, smug smile"
 
 [[characters]]
 id = "luwoh"
@@ -943,7 +944,7 @@ greeting_subtitle = "特异点啊，你的抉择将在这片天空中引发何�
 call_opener = "[calmly] ル・オーだ。特異点、今少しばかり時間を貰えるだろうか。"
 call_opener_subtitle = "我是鲁欧。特异点，不知现在能否占用你片刻时间。"
 photo_tag = "lu woh (granblue fantasy)"
-photo_appearance = "1man, solo, fox ears, white hair, yellow eyes, glasses, elegant suit, white coat"
+photo_appearance = "1man, solo, erune, animal ears, platinum blonde hair, blunt bangs, long braided ponytail, golden eyes, slit pupils, asymmetric glasses, monocle, white scholar coat, yellow lining, brown waistcoat, yellow cravat, white trousers, boots, holding book, floating white feathers, holy light particles, intellectual expression"
 
 [[characters]]
 id = "fediel"
@@ -965,7 +966,7 @@ greeting_subtitle = "喀喀喀！特异点，来和本座一同尽情享受假�
 call_opener = "[laughing] もしもし特異点！フェディエルだぞよ！声が聞きたくなってな、此方の隣に来るが良かろう！"
 call_opener_subtitle = "喂喂特异点！是菲迪艾尔哦！突然想听听你的声音了，快到本座身边来吧！"
 photo_tag = "fediel (granblue fantasy)"
-photo_appearance = "1girl, solo, dragon horns, tail, black hair, purple eyes, dark skin, black dress"
+photo_appearance = "1girl, solo, dark skin, tan, very long silver hair, messy voluminous hair, dragon horns, bone headpiece, pointed ears, magenta eyes, fangs, open mouth, smug smile, revealing white dress, cleavage cutout, bare midriff, gold waist ornament, detached white sleeves, wide sleeves, teal inner lining, single black stocking, heeled sandals, purple flames, floating dark fire wisps"
 
 [[characters]]
 id = "yggdrasil"
@@ -987,7 +988,7 @@ greeting_subtitle = "咻————…… 清脆的空灵共振鸣响。（如�
 call_opener = "[softly] ﾌｨｨｰｰｰｰﾝ…？ ﾋｭｰｰｰﾝ… （遠く静かな森のざわめきのように響く微かな音色。団長からの通信に耳を澄ませ、そっと花びらを揺らす）"
 call_opener_subtitle = "菲————……？ 咻————……（宛如远方静谧森林回荡的空灵乐音。侧耳倾听着来自团长的声音，轻轻摇曳着指尖的花瓣）"
 photo_tag = "yggdrasil (granblue fantasy)"
-photo_appearance = "1girl, solo, very long hair, blonde hair, green eyes, flower in hair, nature dress, barefoot"
+photo_appearance = "1girl, solo, primal beast, pointed ears, dusty pink hair, very long hair, low twintails, hair between eyes, ahoge, sprout hair ornament, golden leaf headpiece, small white flowers in hair, amber eyes, gentle smile, strapless nature dress, white petal bodice, layered blue and cream leaf petal skirt, ribbons, bare shoulders, barefoot, sitting on tree branch, levitating, floating flower petals"
 
 [[characters]]
 id = "europa"
@@ -1009,7 +1010,7 @@ greeting_subtitle = "团长大人，您感到疲惫了吗？请让我以清澄�
 call_opener = "[softly] もしもし、団長様。エウロペでございます。今、少しお話しできますでしょうか？"
 call_opener_subtitle = "喂喂，团长大人。我是欧罗巴。现在能稍同我说说话吗？"
 photo_tag = "europa (granblue fantasy)"
-photo_appearance = "1girl, solo, blonde hair, blue eyes, tiara, long dress, flowing fabrics, water effects"
+photo_appearance = "1girl, solo, primal beast, light blue hair, cyan hair, long wavy hair, low side ponytail, crystal tiara, white floral hair ornament, blue eyes, serene gentle smile, elegant white and blue dress, strapless gown, gold trim, translucent flowing water fabrics, detached long sleeves, floating water droplets, water roses, holy aquatic aura"
 
 [[characters]]
 id = "brodia"
@@ -1031,7 +1032,7 @@ greeting_subtitle = "团长，吾之刃锋常伴汝侧。无论何等强敌，�
 call_opener = "[solemnly] 団長、ブローディアだ。状況の確認と……汝の声を聞きたく連絡した。"
 call_opener_subtitle = "团长，我是布罗迪亚。前来确认战况……兼想听听汝之声音。"
 photo_tag = "alexiel (granblue fantasy)"
-photo_appearance = "1girl, solo, black hair, long hair, amber eyes, armor, floating swords, noble expression"
+photo_appearance = "1girl, solo, primal beast, long dark blue hair, straight bangs, sidelocks, red spiked tiara, blue eyes, serious noble expression, white knight plate armor, gold trim, red breastplate accents, white pleated skirt, armored gauntlets, armored greaves, floating mirror blades, glowing crystal sword shards, spiraling earth barrier"
 
 [[characters]]
 id = "grimnir"
@@ -1053,7 +1054,7 @@ greeting_subtitle = "来吧……给我在心中牢牢铭记……！吾乃军�
 call_opener = "[proudly] 我が右腕が戒めより解放されし時…天地は震え、闇は……えっと、あのー…とにかく特異点！オレだ、グリームニルだ！"
 call_opener_subtitle = "当吾之右臂从封印中解放之时……天地颤抖，暗影将……呃，那个、总之特异点！是我，格里姆尼尔！"
 photo_tag = "grimnir (granblue fantasy)"
-photo_appearance = "1boy, solo, blue hair, green eyes, eyepatch, wind effects, white coat, charismatic"
+photo_appearance = "1boy, solo, primal beast, pointed ears, messy teal hair, green hair, green eyes, glowing eye, dark ornate eyepatch over left eye, chuunibyou, confident smirk, bandages on arm, ornate white military coat, gold epaulets, green sash, dark trousers, armored gauntlets, holding divine wind lance, swirling wind cyclone effects, floating green feathers"
 
 [[characters]]
 id = "sandalphon"
@@ -1075,7 +1076,7 @@ greeting_subtitle = "喂，团长。咖啡泡好了。……趁热喝吧。"
 call_opener = "[calmly] 俺だ、サンダルフォンだ。……あんたが無茶ばかりするから様子を見に来たんだ。"
 call_opener_subtitle = "是我，圣德芬。……因为你老爱胡来，我才来确认下你的情况。"
 photo_tag = "sandalphon (granblue fantasy)"
-photo_appearance = "1boy, solo, brown hair, brown eyes, archangel wings, white coat"
+photo_appearance = "1man, solo, archangel, messy brown hair, layered bangs, reddish-brown eyes, subtle confident smirk, dark breastplate armor, white hooded coat, hood down, red waist sash, blue ribbon, tattered coat hem, black trousers, armored boots, fingerless gloves, glowing purple crystal wings, floating purple energy swords, seraphic light aura"
 
 [[characters]]
 id = "lucifer"
@@ -1097,7 +1098,7 @@ greeting_subtitle = "特异点，你来了。愿你们翱翔的这片天空，�
 call_opener = "[gently] もしもし、特異点。ルシフェルだ。君の声が聞けて安心したよ。"
 call_opener_subtitle = "喂喂，特异点。我是路西菲尔。听到你的声音我就放心了。"
 photo_tag = "lucifer (granblue fantasy)"
-photo_appearance = "1man, solo, silver hair, blue eyes, six wings, white robes, holy aura"
+photo_appearance = "1man, solo, supreme primarch, short messy silver hair, calm blue eyes, serene expression, six wings, large white feathered wings, dark ornate breastplate armor, gold filigree, crossed red chest ribbons, white flowing tattered lower robes, blue waist sash, dark armored boots, holding archangel katana, divine holy radiance, floating glowing light particles"
 
 [[characters]]
 id = "lucilius"
@@ -1119,7 +1120,7 @@ greeting_subtitle = "渺小的特异点啊。立于我面前究竟意味着什�
 call_opener = "[coldly] 特異点か。……何の用だ？ 私の時間を無為に浪費させるな。"
 call_opener_subtitle = "是特异点吗。……找我何事？别白白浪费我的时间。"
 photo_tag = "lucilius (granblue fantasy)"
-photo_appearance = "1man, solo, silver hair, red eyes, black robes, dark aura, haughty"
+photo_appearance = "1man, solo, short messy silver hair, pale violet-red eyes, cold arrogant smirk, haughty condescending expression, bare chest, shirtless, muscular build, black biomechanical corruption markings on torso, dark spiked gauntlets, demonic clawed left hand, tattered crimson waistcloth, spiky dark metallic greaves, floating dark red energy, ominous malevolent aura"
 
 [[characters]]
 id = "lucio"
@@ -1141,7 +1142,7 @@ greeting_subtitle = "呀团长！今天也是绝佳的蔚蓝晴空呢。可愿�
 call_opener = "[cheerfully] もしもし団長さん！ルシオですよ！今、あなたとお話ししたくなって連絡しました。"
 call_opener_subtitle = "喂喂团长！我是路西欧哦！现在正想和你说说话，就联系你啦。"
 photo_tag = "lucio (granblue fantasy)"
-photo_appearance = "1man, solo, blonde hair, blue eyes, white cape, theatrical attire"
+photo_appearance = "1man, solo, speaker of the stars, messy layered silver hair, bright blue eyes, gentle serene smile, small white feathered angel wings, dark ornate breastplate armor, gold inlay, crossed red chest sashes, blue waist ribbon, white flowing lower robe, holding glowing golden light orb, sunburst rays, floating white feathers, holy divine aura"
 
 [[characters]]
 id = "beelzebub"
@@ -1163,7 +1164,7 @@ greeting_subtitle = "哼，特异点吗。见了我居然不跪拜，真是失�
 call_opener = "[proudly] 我だ、ベルゼバブだ！我が名を呼びつけたのだ、相応の覚悟はあるのだろうな？"
 call_opener_subtitle = "是我，别西卜！既然敢呼唤吾之威名，你自然做好了相应的觉悟吧？"
 photo_tag = "beelzebub (granblue fantasy)"
-photo_appearance = "1man, solo, long black hair, red eyes, horns, dark armor"
+photo_appearance = "1man, solo, astral, black hooded cloak, hood covering face, shadowed face, red eyes, ornate gold circlet on hood, long golden braided sidelock on chest, sinister smirk, black and gold ornate tunic, open chest cutout, muscular chest, long flowing black cape with pale lining, buckled dark boots, dark chaos aura, purple lightning"
 
 [[characters]]
 id = "belial"
@@ -1185,7 +1186,7 @@ greeting_subtitle = "哟团长酱。被你用这么热烈的眼神注视着，�
 call_opener = "[seductively] もしもしキミ？俺ちゃんだよ。夜更けに二人きりで、熱いオハナシでもシようか。"
 call_opener_subtitle = "喂喂，是你吗？是我哟。趁着深夜就我们两人，要不要来点刺激的秘密话题？"
 photo_tag = "belial (granblue fantasy)"
-photo_appearance = "1man, solo, messy brown hair, amber eyes, open leather jacket, smirk"
+photo_appearance = "1man, solo, fallen angel, messy short dark brown hair, layered fringe, amber eyes, seductive smirk, open black leather jacket, plunging neckline, bare chest, defined muscular abs, black leather pants, ornate belt with gold chains, dark purple feathered wing drape on shoulder, black demon tail with gold tip, charismatic pose, dark seductive aura"
 
 [[characters]]
 id = "shalem"
@@ -1207,7 +1208,7 @@ greeting_subtitle = "团长，我可爱的学生啊！来到妾身面前了吗�
 call_opener = "[haughtily] おい我が生徒！シャレムじゃ！妾の喉が渇いたぞ、美味い菓子とジュースを用意せぬか！"
 call_opener_subtitle = "喂我的好学生！是沙利姆哦！妾身口渴了，还不快去准备好吃的甜点和果汁！"
 photo_tag = "helel ben shalem"
-photo_appearance = "1girl, solo, dark skin, white hair, yellow eyes, horns, gothic dress"
+photo_appearance = "1girl, solo, dark skin, tan, very long pale blonde hair, straight bangs, thick side braid, winged black feather hair ornament, red eyes, holding golden pacifier in mouth, baby pacifier with purple ribbon, black halterneck dress, high leg slit, bare shoulders, bare back, detached floating black ribbons with gold trim, gold armlet, barefoot, gold anklets, dark magical ribbons"
 
 [[characters]]
 id = "raziel"
@@ -1229,7 +1230,7 @@ greeting_subtitle = "团长！等你好久了！今天的航海记录快给我�
 call_opener = "[excitedly] もしもし団長さん！ラジエルだよ！今ね、すっごく面白い古文書の解読に成功したの！聞いて聞いて！"
 call_opener_subtitle = "喂喂团长！我是拉结尔哦！我现在刚刚成功解读了一份超级有趣的古文书！快听我说听我说！"
 photo_tag = "raziel (granblue fantasy)"
-photo_appearance = "1girl, solo, blonde hair, green eyes, glasses, feather hair ornament"
+photo_appearance = "1girl, solo, archangel, medium wavy brown hair, soft curled bangs, flower hair clip, blue eyes, slight blush, shy smile, large black floppy sun hat with white ribbon and flower, white ruffled bikini, white lace swimsuit, dark cropped bolero jacket with sheer puffy sleeves, leg garter, holding white parasol, grimoire book strapped to waist, platform sandals, summer beach atmosphere"
 
 [[characters]]
 id = "olivia"
@@ -1250,8 +1251,8 @@ greeting = "[quietly] 団長、我が剣は汝と共にある。この黒き翼�
 greeting_subtitle = "团长，我的剑与你同在。你未曾畏惧这黑翼带来的阴影并将我接纳，我深表感激。"
 call_opener = "[quietly] 団長、オリヴィエだ。……汝の無事を確認したく連絡した。側にいなくとも、心は共にある。"
 call_opener_subtitle = "团长，我是奥利维尔。……我想确认你是否安好。纵然不在身侧，心亦与你同在。"
-photo_tag = "olivia (granblue fantasy)"
-photo_appearance = "1girl, solo, long black hair, purple eyes, dark angel wings, gothic armor"
+photo_tag = "dark angel olivia"
+photo_appearance = "1girl, solo, fallen angel, primal beast, curved black horns, black lace heart hair clip, very long blonde hair, strawberry blonde hair, flowing bangs, sidelocks, red eyes, confident slight smile, fallen angel wings, large feathered wings, black and purple gradient wings with gold feather tips, white corset breastplate, gold filigree, black off-the-shoulder straps, dark purple pleated miniskirt, ornate purple and gold armored thigh-high boots, holding dual swords, dark holy aura"
 
 [[characters]]
 id = "azusa"
@@ -1273,7 +1274,7 @@ greeting_subtitle = "……凭脚步声便能认出。是团长啊。今日风�
 call_opener = "[gentle] もしもし団長。アズサだ。……そなたの息づかいが聞きたくなってな。"
 call_opener_subtitle = "喂喂团长。是阿梓。……突然想听听你的呼吸声了呢。"
 photo_tag = "azusa (granblue fantasy)"
-photo_appearance = "1girl, solo, draph horns, blindfold, purple hair, purple eyes, katana, kimono, cleavage"
+photo_appearance = "1girl, solo, draph, curved horns, long white hair, high ponytail, hair ribbon, pink eyes, kimono, hakama skirt, shoulder armor, holding katana"
 
 [[characters]]
 id = "orchid"
@@ -1294,8 +1295,8 @@ greeting = "[quietly] ……団長。わたしの胸のここ、あたたかい�
 greeting_subtitle = "……团长。我胸口的这里，好温暖。和团长在一起的话……就会变得更加温暖。"
 call_opener = "[quietly] もしもし……団長？ オーキスだよ。……声、聞かせて？"
 call_opener_subtitle = "喂喂……是团长吗？是欧契斯哦。……能让我听听你的声音吗？"
-photo_tag = "orchid (granblue fantasy)"
-photo_appearance = "1girl, solo, purple hair, blue eyes, ribbon, gothic dress, doll joints, golem threads"
+photo_tag = "orchis (granblue fantasy)"
+photo_appearance = "1girl, solo, pale blue hair, side ponytail, mini top hat, magenta eyes, black gothic dress, ruffled trim, doll joints, holding plush toy, puppet strings"
 
 [[characters]]
 id = "zeta"
@@ -1317,7 +1318,7 @@ greeting_subtitle = "哟，团长！今天也干劲十足吗？可别被我的�
 call_opener = "[playful] もしもし団長！ ゼタよ！ 今何してるの？ アタシとひと暴れしに行かない？"
 call_opener_subtitle = "喂喂团长！我是泽塔！在忙什么呢？要不要跟我一起去大闹一场？"
 photo_tag = "zeta (granblue fantasy)"
-photo_appearance = "1girl, solo, blonde twin tails, red eyes, red armor, spear, confident smile"
+photo_appearance = "1girl, solo, wavy blonde hair, twintails, black headband, blue eyes, red knight armor, gold trim, purple skirt, holding spear, confident smile"
 
 [[characters]]
 id = "meg"
@@ -1339,7 +1340,7 @@ greeting_subtitle = "团长！附近有鲨鱼的气息吗！？今天我和乌�
 call_opener = "[panicked] もしもし団長さん！？ メグです！ 変なサメやウナギに襲われてませんか！？ 大丈夫ですか！？"
 call_opener_subtitle = "喂喂是团长吗！？我是梅格！没有被奇怪的鲨鱼或鳗鱼袭击吧！？你没事吧！？"
 photo_tag = "meg (granblue fantasy)"
-photo_appearance = "1girl, solo, black hair, blue eyes, shark plush, denim jacket, swimsuit"
+photo_appearance = "1girl, solo, reddish brown hair, black streak, side ponytail, floral hair ornament, pink eyes, white ruffled top, open shirt, yellow shorts, leg holster, confident smile"
 
 [[characters]]
 id = "marippe"
@@ -1361,7 +1362,7 @@ greeting_subtitle = "团长亲～呀吼～♪ 今天天气超棒的对吧！把�
 call_opener = "[brightly] もしもし団長っち！？ まりっぺだよ〜ん！ 今ヒマ？ 超ウケる話あるんだけど聞いてよ〜！"
 call_opener_subtitle = "喂喂团长亲！？是玛莉沛哦～！现在有空吗？有超搞笑的事想跟你讲，快听我说嘛～！"
 photo_tag = "mari (granblue fantasy)"
-photo_appearance = "1girl, solo, blonde hair, brown eyes, tan skin, visor hat, bikini top, gyaru fashion, bright smile"
+photo_appearance = "1girl, solo, erune, animal ears, blonde hair, green eyes, sunglasses on head, floral crop top, denim shorts, gyaru, bright smile"
 
 [[characters]]
 id = "zooey"
@@ -1383,7 +1384,7 @@ greeting_subtitle = "团长，天空的调和正维持着。……但我有些�
 call_opener = "[gentle] もしもし、特異点……団長。ゾーイだ。世界の均衡に異常はない……そなたの声を聞きたくなっただけだ。"
 call_opener_subtitle = "喂喂，特异点……团长。是佐伊。世界的均衡并无异常……只是突然想听听你的声音了。"
 photo_tag = "zooey (granblue fantasy)"
-photo_appearance = "1girl, solo, dark skin, white hair, blue eyes, cosmic sword, twin dragons, ribbon dress"
+photo_appearance = "1girl, solo, dark skin, long white hair, ahoge, flower hair ornament, brown eyes, white summer top, blue pleated skirt, twin mini dragons, gentle smile"
 
 [[characters]]
 id = "ilsa"
@@ -1405,7 +1406,7 @@ greeting_subtitle = "喂菜鸟团长！站姿都歪了！……哼，早餐好�
 call_opener = "[commanding] もしもし団長！ イルザ教官だ！ 貴様、今日の演習スケジュールを忘れてはおるまいな！？"
 call_opener_subtitle = "喂喂团长！是艾尔莎教官！你这小兔崽子，没忘记今天的演习日程吧！？"
 photo_tag = "ilsa (granblue fantasy)"
-photo_appearance = "1girl, solo, erune ears, red hair, brown eyes, military uniform, beret, dual pistols"
+photo_appearance = "1girl, solo, erune, animal ears, short black hair, red eyes, white military cap, peaked cap, white military uniform, gold trim, red cape, holding dual pistols, serious expression"
 
 [[characters]]
 id = "tikoh"
@@ -1427,7 +1428,7 @@ greeting_subtitle = "团长先生，辛苦了。脸色看着不太好呢。…�
 call_opener = "[gentle] もしもし団長さん？ ティコです。怪我はされていませんか？ お薬はちゃんと飲んでいますか？"
 call_opener_subtitle = "喂喂是团长先生吗？我是蒂子。没有受伤吧？药都有好好喝下吗？"
 photo_tag = "tikoh (granblue fantasy)"
-photo_appearance = "1girl, solo, erune ears, white hair, green eyes, prosthetic arms, doctor coat, stethoscope"
+photo_appearance = "1girl, solo, erune, animal ears, light purple hair, bangs, violet eyes, winged hair clip, white tunic dress, gold trim, loose black sleeves, thighhighs, caduceus staff"
 
 [[characters]]
 id = "cupitan"
@@ -1449,7 +1450,7 @@ greeting_subtitle = "团、团长先生～！呜哇～看到团长先生的脸�
 call_opener = "[sniffling] もしもし団長さんっ！？ クピタンですぅ！ 声が聞けて嬉しくて……また泣いちゃいそうですっ！"
 call_opener_subtitle = "喂喂团长先生！？是库皮坦呀！听到你的声音太开心了……感觉又要哭出来了！"
 photo_tag = "cupitan (granblue fantasy)"
-photo_appearance = "1girl, solo, blue hair, blue eyes, crying smile, rainbow bow, colorful dress, beret"
+photo_appearance = "1girl, solo, multicolored hair, pastel rainbow hair, twintails, hair clip, green eyes, tearful smile, crying with joy, beige jacket, harness belts, pouches, bow case"
 
 [[characters]]
 id = "cagliostro"
@@ -1471,7 +1472,7 @@ greeting_subtitle = "团长酱，早上好呀～♪ 看着世界第一可爱的�
 call_opener = "[smug] もしもし団長ちゃん？ カリオストロ様直々のコールよ！ 光栄すぎて震え上がっちゃった？"
 call_opener_subtitle = "喂喂团长酱？这可是卡莉奥丝特罗大人亲自打给你的电话哦！是不是光荣得直发抖啦？"
 photo_tag = "cagliostro (granblue fantasy)"
-photo_appearance = "1girl, solo, blonde hair, twin drills, red eyes, cute smile, alchemy book, pink gothic dress"
+photo_appearance = "1girl, solo, blonde hair, twintails, spiked headband, purple eyes, cute smile, crimson dress, black capelet, gold trim, holding grimoire, alchemy book, ouroboros"
 
 [[characters]]
 id = "vira"
@@ -1493,7 +1494,7 @@ greeting_subtitle = "问候您，团长。若是为了守护姐姐大人的安�
 call_opener = "[serious] もしもし団長。ヴィーラです。……お姉様の身に何かありましたか！？ いえ、無事ならいいのです……。"
 call_opener_subtitle = "喂喂团长。是维拉。……姐姐大人身边发生什么事了吗！？不，平安无事就好……"
 photo_tag = "vira (granblue fantasy)"
-photo_appearance = "1girl, solo, purple hair, red eyes, rapier, luminiera light, elegant dress, serious gaze"
+photo_appearance = "1girl, solo, long blonde hair, hair ribbon, red eyes, white and red knight armor, gold filigree, holding glowing spear, floating bits, light particles, intense gaze"
 
 [[characters]]
 id = "vampy"
@@ -1514,8 +1515,8 @@ greeting = "[excited] 団長、けんぞくぅ〜！ ヴァンピィちゃんの
 greeting_subtitle = "团长，我的眷属～！快点到斑比身边来！要和贝斯一起吃点心啦！"
 call_opener = "[playfully] もしもしけんぞくぅ！ ヴァンピィちゃんだよ！ けんぞくぅの声が聞きたくなっちゃったの！"
 call_opener_subtitle = "喂喂眷属！是斑比酱哦！突然想听听眷属的声音了呢！"
-photo_tag = "vania (granblue fantasy)"
-photo_appearance = "1girl, solo, bat wings, vampire fangs, blonde twin tails, red eyes, frilled dress"
+photo_tag = "vampy (granblue fantasy)"
+photo_appearance = "1girl, solo, vampire, pointy ears, bat wings on head, long blonde hair, red eyes, fang, gothic lolita dress, black corset, ruffled skirt, rose brooch, mischievous smile"
 
 [[characters]]
 id = "lyria"
@@ -1537,7 +1538,7 @@ greeting_subtitle = "团长！今天天气也特别好呢！和碧他们一起�
 call_opener = "[warmly] もしもし団長さん！ ルリアです！ えへへ、団長さんの声を聞くと、とっても心が温かくなります！"
 call_opener_subtitle = "喂喂团长！我是露莉亚！嘿嘿，一听到团长的声音，心里就变得好温暖好温暖！"
 photo_tag = "lyria (granblue fantasy)"
-photo_appearance = "1girl, solo, blue hair, blue eyes, white sundress, green gem necklace, gentle smile"
+photo_appearance = "1girl, solo, very long light blue hair, blue eyes, freckles, happy smile, white sundress, sleeveless dress, blue gem necklace, gold choker, gold bracelets"
 [[characters]]
 id = "vyrn"
 name = "ビィ"
@@ -1558,4 +1559,4 @@ greeting_subtitle = "哟，搭档！今天也是绝佳的冒险好天气啊！�
 call_opener = "[cheerful] もしもし、団長か？ オイラだ、ビィだぞ！ なにか面白いことあったか？"
 call_opener_subtitle = "喂喂，是团长吗？是我，碧啦！有什么好玩的事情发生吗？"
 photo_tag = "vyrn (granblue fantasy)"
-photo_appearance = "small red dragon, red wings, golden horns, white belly, yellow eyes, flying, smiling"
+photo_appearance = "no humans, small red dragon, dark red horns, pointed ears, dark brown eyes, cream belly, maroon wings, blue collar, purple pendant, flying, smiling"

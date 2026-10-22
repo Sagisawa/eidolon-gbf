@@ -235,7 +235,8 @@ def kept_as_webp(picture: bytes) -> bytes:
             opened.load()
             size = opened.size
             if size != (WIDTH, HEIGHT):
-                raise _bad_image(f"{size[0]}×{size[1]}，不是 {WIDTH}×{HEIGHT}")
+                opened = opened.resize((WIDTH, HEIGHT), Image.Resampling.LANCZOS)
+                size = (WIDTH, HEIGHT)
             # Made anew from its pixels alone, so nothing of what came with it is written.
             pixels = opened.convert("RGB")
             bare = Image.frombytes("RGB", size, pixels.tobytes())
