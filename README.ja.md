@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="docs/images/landing.webp" alt="Eidolon-SC：283プロのアイドルとおしゃべりしよう" width="100%">
+# Eidolon-GBF
 
-**『アイドルマスター シャイニーカラーズ』のアイドルとリアルタイムで話せる AI 分身**
+**『グランブルーファンタジー』（Granblue Fantasy）の騎空団メンバーとリアルタイムで話せる AI 分身**
 
-音声 · テキスト · コミュの記憶 · キャラクター間で共有されるメモリー
+音声 · テキスト · シナリオの記憶 · キャラクター間で共有されるメモリー
 
 [简体中文](README.md) · [English](README.en.md) · **日本語**
 
@@ -17,27 +17,27 @@
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
 
-[プレビュー](#-プレビュー) · [特長](#-特長) · [クイックスタート](#-クイックスタート) · [設定ガイド](docs/configuration.ja.md) · [デプロイ](docs/deploy.md) · [設計判断](docs/adr/)
+[特長](#-特長) · [クイックスタート](#-クイックスタート) · [設定ガイド](docs/configuration.ja.md) · [デプロイ](docs/deploy.md) · [設計判断](docs/adr/)
 
 </div>
 
 ---
 
-Eidolon-SC では、**283プロのプロデューサー**として原作のアイドルとチャットしたり、そのまま電話したりできます。アイドルは日本語の声で答え、中国語字幕が付きます。原作で自分が経験したコミュを思い出せるうえ、あなたが話したことも覚えていて、アイドルたちのあいだで「伝わって」いきます。
+Eidolon-GBF では、**騎空団の団長**としてグランサイファーの仲間たちとテキストでチャットしたり、そのまま通話したりできます。仲間たちはオリジナルの日本語音声で応答し、中国語字幕が付きます。原作で自身が経験した物語を思い出すことができ、団長が話したことも覚えていて、仲間たちのあいだで「伝わって」いきます。
 
-原作の 8 ユニット・**28 人のアイドル**がすべて設定済みで、すぐに話せます。公開サーバーにデプロイすれば、誰でも Google または GitHub でログインして使えます。
+十天衆・十賢者・十二神将・六竜・天司などを含む **70 名の騎空団メンバー** が収録済みで、すぐに会話できます。公開サーバーにデプロイすれば、誰でも Google または GitHub でログインして利用できます。
 
 > [!NOTE]
-> 本プロジェクトは、[@Sallyn0225](https://github.com/Sallyn0225) 氏によるオープンソースプロジェクト [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) をベースに二次創作・移植したものです。元となった『アイドルマスター シャイニーカラーズ』のAI分身システムを『グランブルーファンタジー』（Granblue Fantasy）の騎空団世界観へと移行・拡張しています。
+> 本プロジェクトは、[@Sallyn0225](https://github.com/Sallyn0225) 氏によるオープンソースプロジェクト [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) をベースに二次創作・移植したものです。元となった『アイドルマスター シャイニーカラーズ』の AI 分身システムを大幅にリファクタリングし、『グランブルーファンタジー』（Granblue Fantasy）の騎空団世界観へと移行・拡張しています。
 
 > [!IMPORTANT]
-> 本プロジェクトは非公式のファンメイド作品であり、Cygames および『グランブルーファンタジー』（Granblue Fantasy）の権利者とは一切関係ありません。キャラクターは AI が演じています。シナリオデータは**リポジトリに含まれていない**ため、各自で用意してください（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。キャラクターの返事を通じてコミュの内容が間接的にログインユーザーへ提供されるリスクについては [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md) を参照してください。
+> 本プロジェクトは非公式のファンメイド作品であり、Cygames および『グランブルーファンタジー』（Granblue Fantasy）の権利者とは一切関係ありません。キャラクターは AI が演じています。シナリオデータは**リポジトリに含まれていない**ため、各自で用意してください（[ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)）。キャラクターの返事を通じてシナリオ内容が間接的にログインユーザーへ提供されるリスクについては [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md) を参照してください。
 
 > [!WARNING]
-> **開発状況について（開発中 / Work in Progress）**：
+> **開発状況について（積極開発中 / Work in Progress）**：
 > - 本プロジェクトは現在も積極的な開発・機能拡張を継続しています。
-> - 収録されている **70 名の騎空団メンバー全員がテキスト対話、原作シナリオの想起（RAG）、および写真生成に対応**しています。
-> - **リアルタイム音声通話（音声モデル）は、現時点では「ナルメア」および「ビカラ」のみ設定済み**です。他のキャラクターの音声は順次学習・実装を予定しています。
+> - 収録されている **70 名の騎空団メンバー全員がテキスト対話、原作シナリオの想起（RAG）、および自撮り写真生成に対応**しています。
+> - **リアルタイム音声通話（TTS 音声モデル）は、現時点では「ナルメア」および「ビカラ」のみ設定済み**です。他のキャラクターの専用音声は順次学習・実装を進めています。コミュニティからの貢献も大歓迎です！
 
 ## 📸 プレビュー
 
@@ -49,83 +49,35 @@ Eidolon-SC では、**283プロのプロデューサー**として原作のア�
   <sub>左から：ナルメアとのリアルタイム通話 · ユグドラシルとのテキスト対話 · ニーアからの写真送信</sub>
 </p>
 
-<table>
-  <tr>
-    <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.webp">
-        <img src="docs/images/app-light.webp" alt="会話画面：灯織に話した猫のことを恋鐘が思い出す">
-      </picture>
-      <p align="center"><sub><b>キャラクター間で共有されるメモリー</b>：猫を飼っていると話したのは灯織だけなのに、恋鐘が「灯織から聞いたばい」</sub></p>
-    </td>
-    <td width="50%">
-      <img src="docs/images/outfits.webp" alt="着替えパネル">
-      <p align="center"><sub><b>着替え</b>：原作のどのカードの衣装も着られ、私服とステージ衣装を切り替えられます</sub></p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/images/photo.webp" alt="会話画面：めぐるが写真を送ってくる">
-      <p align="center"><sub><b>写真</b>：頼めば、その場の自分を一枚撮って送ってくれます</sub></p>
-    </td>
-    <td width="50%">
-      <img src="docs/images/gifts.webp" alt="プレゼント画面：抽選台、リセットカード、バックパックのプレゼント">
-      <p align="center"><sub><b>プレゼント</b>：毎日抽選して、好きなものを贈れます</sub></p>
-    </td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td width="33%"><img src="docs/images/phone-list.webp" alt="スマートフォンの会話一覧"></td>
-    <td width="33%"><img src="docs/images/phone-chat.webp" alt="スマートフォンでの会話"></td>
-    <td width="33%"><img src="docs/images/phone-call.webp" alt="スマートフォンの通話画面"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>会話一覧：最近やり取りした順に並び、中国語訳名・かな・ローマ字・ユニット名で検索できます</sub></td>
-    <td align="center"><sub>日本語のセリフにはすべて中国語字幕が付きます</sub></td>
-    <td align="center"><sub>スマートフォンでは通話画面が全画面になります</sub></td>
-  </tr>
-</table>
-
-<details>
-<summary><b>ランディングページ</b>：一筋の白い光が 28 色のイメージカラーに分かれ、その一本一本がひとりのアイドル</summary>
-
-<br>
-
-<img src="docs/images/landing-tour.webp" alt="ランディングページのスクロール演出" width="100%">
-
-</details>
-
 ## ✨ 特長
 
-**彼女と話す**
+**仲間と話す**
 
-- 🎙️ **リアルタイム音声通話**：WebRTC による全二重通話で、中国語でも日本語でも話せます。いつでも割り込めます。
-- 🇯🇵 **日本語の声 + 中国語字幕**：アイドルは日本語で答え、口癖もそのまま、一文ごとに中国語字幕が付きます（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）。固有名詞は読み表どおりに読みます。
-- 🎭 **動く立ち絵**：通話中は原作の Spine 立ち絵が呼吸し、まばたきし、口を動かし、感情に合わせて表情を変えます。新しいカードも週 1 回の同期で着られます。
-- 📷 **写真を送ってくれる**：頼めば、自分の姿とその場の状況に合わせて一枚撮って送ってくれます。何を撮るかは彼女が決めます（[設定ガイド](docs/configuration.ja.md#写真)）。
-- 💗 **好感度とプレゼント**：あなたの言葉しだいで心を開いたり距離を置いたりします。傷つけすぎると電話を切られ、会話も終わらせられます。毎日の抽選で手に入れたプレゼントを贈ると、応えてくれます。
+- 🎙️ **リアルタイム音声通話**：WebRTC による全二重通話で、中国語でも日本語でも話せます。いつでも割り込めます（*現バージョンではナルメアとビカラの音声を実装済み*）。
+- 🇯🇵 **日本語音声 + 中国語字幕**：仲間たちは日本語で答え、おなじみの口癖や声質をそのままに、一文ごとに中国語字幕が付きます（[ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)）。固有名詞は読み表どおり正しく発音します。
+- 🎭 **動く立ち絵**：通話中は原作の Spine 立ち絵が呼吸し、まばたきし、口を動かし、感情に合わせて表情を変えます。原作の新ガチャ異格や衣装も同期すれば着せ替えられます。
+- 📷 **仲間が写真を送ってくれる**：頼めば、自分の姿とその場のシチュエーションに合わせて写真を撮って送ってくれます。どんな写真を撮るかは彼女自身が決めます（[設定ガイド](docs/configuration.ja.md#写真)）。
+- 💗 **好感度とプレゼント**：団長の言葉しだいで心を開いたり距離を置いたりします。失礼な言動が続くと通話を切られ、会話を終了させられることも。毎日の抽選で手に入れたプレゼントを贈ると、特別なリアクションを返してくれます。
 
-**彼女が覚えていること**
+**仲間が覚えていること**
 
-- 📖 **コミュの記憶**：シナリオライブラリを取り込むと、**自分が登場した**正規ルートのコミュだけを思い出します。
-- 🔄 **原作との同期**：ファン翻訳と日本語原文をコマンド 1 つで同期し、新しいカードやイベントも 1 週間以内に思い出せます。楽曲やライブも世界設定に入っています。
-- 🧠 **キャラクター間で共有されるメモリー**：灯織に話したことは恋鐘も知っていて、「灯織から聞いたんだけど……」という口ぶりで持ち出します（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。覚えていることはすべて確認・削除できます。
-- 🗂️ **過去の会話**：いつでも新しい会話を始められ、前の会話は読み返せます。要らなければ削除もできます。
-- 🪪 **プロデューサープロフィール**：呼び方・性別・タイムゾーン・誕生日を設定画面で変えられます。誕生日当日にはお祝いしてくれます。
-- 📊 **統計**：アイドルたちとのやりとりの回数、通話時間、贈ったプレゼントを確認でき、シェア画像も書き出せます。
-- ⚡ **必要なときだけ検索**：発言ごとに検索が必要かを先に判断するので、雑談では余計な遅延がありません。
+- 📖 **原作シナリオの想起**：シナリオライブラリを取り込むと、**自分が登場した**正規の出来事やフェイトエピソードだけを思い出します。
+- 🔄 **原作との同期**：中国語翻訳と日本語原文をコマンド 1 つで同期し、新シナリオや新イベントもタイムリーに想起できます。キャラクターソングや世界観設定も深く融合しています。
+- 🧠 **キャラクター間で共有されるメモリー**：ルリアに話したことはビカラやナルメアも知っており、「ルリアから聞いたんだけど……」という口ぶりで話題にします（[ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)）。仲間が覚えていることはすべて確認・削除できます。
+- 🗂️ **会話履歴**：いつでも新しい会話を始められ、過去の会話はいつでも読み返せます。不要になれば削除も可能です。
+- 🪪 **団長プロフィール**：呼び方（例：「団長ちゃん」「団長っち」）、性別、タイムゾーン、誕生日を設定画面で変更できます。誕生日当日は仲間から専用の祝福メッセージが贈られます。
+- 📊 **統計**：仲間たちとの会話ターン数、通話時間、贈ったプレゼントの数を確認でき、シェア画像を書き出せます。
+- ⚡ **必要なときだけ検索**：発言ごとに検索が必要かどうかを先に判定するため、日常の雑談で余計な遅延が発生しません。
 
 **デプロイと運用**
 
-- 👥 **一般公開**：Google または GitHub でログイン。ユーザーごとに利用上限があり、メモリーは分離されています。ユーザーは自分のデータを完全に削除でき、データベースは毎日暗号化して別の場所にバックアップします。
-- 📦 **データパッケージ**：会話・写真・メモリー・プロデューサープロフィールを zip 一つに書き出し、別のデプロイで続きから使えます。好感度とプレゼントは持ち出せません（[ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)）。
-- 🔑 **自前の API キー**：ユーザーは自分の LLM・音声合成・音声認識・画像生成のキーで自分のクレジットを使え、条件を満たせば利用上限に数えられません（[設定ガイド](docs/configuration.ja.md#自前の-api-キー)）。キーはブラウザーにだけ保存されます（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
-- 🛠️ **管理画面**：利用量・費用・進行中の通話の確認、モデルや利用上限の変更（再起動不要）、ユーザーの利用停止、お知らせの配信ができます。誰の会話もメモリーも見られません。
-- 🚦 **サービス状況**：各サービスが正常かどうか、ユーザーは会話一覧から確認できます。
-- 🔌 **サービスは差し替え可能**：モデルは OpenAI Chat Completions・Responses・Anthropic Messages の 3 方式に対応。音声認識とベクトル化は 2 社、判断モデルは 3 社から選べ、サービスごとにプロキシ経由にもできます。
-- 🚀 **ワンコマンドでデプロイ**：Caddy（HTTPS 自動化）と coturn（TURN 中継）入りの Docker Compose 本番構成を同梱。CI がイメージをビルドして GHCR に公開します。
+- 👥 **一般公開**：Google または GitHub でログイン。ユーザーごとに利用枠を制限し、メモリーは相互に隔離されます。ユーザーは自身のデータを完全に削除でき、データベースは毎日暗号化してオフサイトへバックアップされます。
+- 📦 **データパッケージ**：会話・写真・メモリー・団長プロフィールを 1 つの zip に書き出し、別のデプロイ先にインポートして続きから利用できます。好感度とプレゼントは引き継がれません（[ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)）。
+- 🔑 **自前の API キー**：ユーザーは自分の LLM・音声合成・音声認識・画像生成のキーで利用でき、条件を満たせばシステム利用上限を消費しません（[設定ガイド](docs/configuration.ja.md#自前の-api-キー)）。キーはブラウザ内にのみ保持されます（[ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)）。
+- 🛠️ **管理画面**：利用量・費用・進行中の通話の監視、モデルや制限の無停止変更、ユーザーの凍結、お知らせの配信が可能。管理者が一般ユーザーの会話やメモリーを閲覧することはできません。
+- 🚦 **サービス状況**：各サービスが正常に稼働しているか、ユーザーが会話一覧から確認できます。
+- 🔌 **サービスの差し替え**：モデルは OpenAI Chat Completions、Responses、Anthropic Messages の 3 種類に対応。音声認識・ベクトル化は各 2 社、判定モデルは 3 社から選択可能で、サービスごとに個別のプロキシ設定も可能です。
+- 🚀 **ワンコマンド本番デプロイ**：Caddy（HTTPS 自動化）と coturn（TURN 中継）を含む Docker Compose 本番構成を同梱。CI がイメージをビルドして GHCR へ公開します。
 
 ## 🚀 クイックスタート
 
@@ -162,7 +114,7 @@ docker compose up --build
 
 <http://localhost:3000> を開くとランディングページです。右上の「登录」（ログイン）を押し、ログインパネルで「开发登录」（開発ログイン）を選んで好きな名前を入れ、プライバシーポリシーと利用規約に同意し、13 歳以上であることを申告すると会話一覧に入ります。仲間を選べば会話が始まります。
 
-会話モデルだけを設定した状態ではテキストチャットができます。必要に応じてほかのサービスのキーを追加すれば、音声通話・コミュの記憶・メモリー・立ち絵が段階的に有効になります：
+会話モデルだけを設定した状態ではテキストチャットができます。必要に応じてほかのサービスのキーを追加すれば、音声通話・シナリオの記憶・メモリー・立ち絵が段階的に有効になります：
 
 | 機能 | 必要な設定 |
 |---|---|
@@ -260,15 +212,14 @@ npm run typecheck && npm test && sh scripts/check-discipline.sh
 npm run build && BACKEND_URL=http://localhost:8000 npm run start   # :3000 で起動し、/api/* をバックエンドへ転送
 ```
 
-- **画面**：控えめな LINE 風のデザインで、彼女に属する場所には彼女のイメージカラーを使います。ランディングページは常にダークの、独立したビジュアルの世界です（[ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)）。ビジュアル仕様は [`DESIGN.md`](DESIGN.md)、コンポーネントの書き方の決まりは [`frontend/AGENTS.md`](frontend/AGENTS.md) にあります。
-- **立ち絵**：立ち絵を見るときは、フロントエンドにも `.env` と同じ `EIDOLON_STAND_ASSETS_URL` を渡します。
-- **README のスクリーンショット**：フロントエンドとバックエンドを両方起動したあと、`frontend/` で `npm run readme-media` を実行すると、`docs/images/` のスクリーンショットとアニメーションを撮り直します。
+- **画面**：控えめな LINE 風のデザインで、キャラクターに属する場所にはそれぞれのイメージカラーを使います。ランディングページは常にダークの、独立したビジュアルの世界です（[ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)）。ビジュアル仕様は [`DESIGN.md`](DESIGN.md)、コンポーネントの書き方の決まりは [`frontend/AGENTS.md`](frontend/AGENTS.md) にあります。
+- **立ち絵**：立ち絵を表示するときは、フロントエンドにも `.env` と同じ `EIDOLON_STAND_ASSETS_URL` を渡します。
 - **CI**：PR と main へのプッシュごとに、GitHub Actions が上記のチェックと shellcheck を実行し、2 つのイメージをビルドします。main と `v*` タグへのプッシュでは GHCR に公開します。Dependabot が毎週月曜に依存関係の更新を提案します。
 
 ## 📁 ディレクトリ構成
 
 ```text
-eidolon-sc/
+eidolon-gbf/
 ├── backend/          # Python バックエンド：FastAPI + Pipecat。会話エンジン、通話、検索、メモリー、同期とコマンドライン（eidolon）
 │   ├── src/eidolon/
 │   ├── eval/         #   並べ替え・判断モデル・メモリーの評価用データセット（質問とラベルのみ、シナリオ本文は含まない）
@@ -278,7 +229,7 @@ eidolon-sc/
 ├── corpus/           # シナリオデータとミラーのキャッシュ（リポジトリ外）
 ├── deploy/           # Caddyfile、シナリオライブラリと立ち絵の同期スクリプト、データベースのバックアップスクリプト
 ├── scripts/          # OAuth アプリ設定のウィザード（setup-oauth.sh）
-├── docs/             # 設定ガイド、デプロイガイド、アーキテクチャ決定記録、README の画像
+├── docs/             # 設定ガイド、デプロイガイド、アーキテクチャ決定記録
 ├── docker-compose.yml          # ローカル開発用
 └── docker-compose.prod.yml     # 本番デプロイ用
 ```
@@ -289,29 +240,29 @@ eidolon-sc/
 
 ライセンスの対象はリポジトリ内のコードとドキュメントだけで、次のものは対象外です：
 
-- **原作のコンテンツ**：シナリオデータ、キャラクター音声、立ち絵素材はリポジトリに含まれておらず、利用時はそれぞれの提供元の条件に従う必要があります（ADR-0003）。リポジトリ内のキャラクターシート・キャラクター資料・アイコンと README のスクリーンショットについても、キャラクターと設定は原作の権利者に帰属します。
+- **原作のコンテンツ**：シナリオデータ、キャラクター音声、立ち絵素材はリポジトリに含まれておらず、利用時はそれぞれの提供元の条件に従う必要があります（ADR-0003）。リポジトリ内のキャラクター設定・キャラクター資料・アイコンについても、キャラクターと設定は原作の権利者に帰属します。
 - **Spine Runtimes**：通話画面の立ち絵に使う [`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md) は無改変で収録しており、それ自身の Spine Runtimes ライセンスが適用されます（[ADR-0009](docs/adr/0009-spine-runtime-without-editor-license.md)）。[`LICENSING.md`](LICENSING.md) に AGPL 第 7 条の追加許可があり、両者を組み合わせて頒布することを認めています。
 - **フォントと効果音**：ランディングページのフォントサブセットには SIL Open Font License が適用されます（`frontend/src/app/(landing)/fonts/` を参照）。通話の効果音の出典とライセンスは [`CREDITS.md`](frontend/public/sounds/CREDITS.md) を参照してください。
 
 ## 🙏 謝辞
 
-- [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc)：[@Sallyn0225](https://github.com/Sallyn0225) 氏による原版『シャイニーカラーズ』AIシステム。本プロジェクトの基盤プロトタイプ
+- [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc)：[@Sallyn0225](https://github.com/Sallyn0225) 氏による原版『シャイニーカラーズ』AI システム。本プロジェクトの基盤プロトタイプ
 - [LAPLACE Eidolon](https://laplace.live/eidolon)：VTuber・明前奶绿のために作られたリアルタイム音声 AI 分身。本プロジェクトのアーキテクチャの参考（コードは流用していません）
-- [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData)：シナリオテキストと中国語訳
-- [ShinyColorsDB](https://github.com/ShinyColorsDB)：原文コミュのミラーと立ち絵素材
+- [BLHXFY 翻訳プロジェクト](https://github.com/BLHXFY-Group/BLHXFY)：『グランブルーファンタジー』テキストおよび中国語訳リファレンス
+- [Granblue Fantasy Wiki](https://gbf.wiki/)：キャラクター設定、セリフ、設定考証
 - [Pipecat](https://github.com/pipecat-ai/pipecat)：リアルタイム音声パイプラインと WebRTC 通信
 - [Fish Audio](https://fish.audio/)：音声合成
 - [Soniox](https://soniox.com/)、[Alibaba Cloud Model Studio](https://www.aliyun.com/product/bailian)：音声認識
 - [SiliconFlow](https://siliconflow.cn/)：Qwen3 Embedding と Reranker
-- [Google Gemini API](https://ai.google.dev/)：Gemini Embedding（選択できるベクトル化サービス）
-- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)、[Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/)：判断モデル
+- [Google Gemini API](https://ai.google.dev/)：Gemini Embedding（選択可能なベクトル化サービス）
+- [TypeSafe Jev](https://docs.typesafe.ai/)、[OpenRouter](https://openrouter.ai/)、[Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/)、[Alibaba Cloud Model Studio](https://help.aliyun.com/zh/model-studio/decision-model-api)：判断モデル
 - [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes)：立ち絵の再生（spine-ts 3.6）
-- [im@sparql](https://sparql.crssnky.xyz/imas/)、Lantis、ふじわらはじめ、imas-db、wikiwiki：世界設定のアイドル・CD・ライブのデータ
+- [Cygames](https://cygames.co.jp/)：『グランブルーファンタジー』（Granblue Fantasy）原作ゲームの開発・運営元
 
 <div align="center">
 
 ---
 
-<sub>『アイドルマスター シャイニーカラーズ』およびそのキャラクターの著作権は ©Bandai Namco Entertainment Inc. に帰属します。本プロジェクトは非公式のファンメイド作品であり、権利者とは関係ありません。アイドルは AI が演じています。</sub>
+<sub>『グランブルーファンタジー』（Granblue Fantasy）およびそのキャラクターの著作権は ©Cygames, Inc. に帰属します。本プロジェクトは非公式のファンメイド作品であり、権利者とは関係ありません。キャラクターは AI が演じています。</sub>
 
 </div>

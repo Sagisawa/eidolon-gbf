@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/images/landing.webp" alt="Eidolon-SC: talk with the idols of 283 Production" width="100%">
+# Eidolon-GBF
 
-**AI companions for real-time conversations with the idols of *THE iDOLM@STER SHINY COLORS***
+**AI companions for real-time conversations with your Granblue Fantasy crew members**
 
 Voice · Text · Story recall · Memory shared across characters
 
@@ -17,27 +17,27 @@ Voice · Text · Story recall · Memory shared across characters
 [![Docker Compose](https://img.shields.io/badge/Docker_Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](docker-compose.yml)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/License-AGPL--3.0--or--later-A42E2B?style=flat-square&logo=gnu&logoColor=white)](LICENSE)
 
-[Preview](#-preview) · [Features](#-features) · [Quick start](#-quick-start) · [Configuration guide](docs/configuration.en.md) · [Deployment](docs/deploy.md) · [Architecture decisions](docs/adr/)
+[Features](#-features) · [Quick start](#-quick-start) · [Configuration guide](docs/configuration.en.md) · [Deployment](docs/deploy.md) · [Architecture decisions](docs/adr/)
 
 </div>
 
 ---
 
-Eidolon-SC lets you, as **a producer at 283 Production**, text or call the idols from the game. She answers in her own Japanese voice, with Chinese subtitles. She can recall the episodes she lived through in the game. She also remembers what you tell her, and word "gets around" among the idols.
+Eidolon-GBF lets you, as **the Captain of the crew**, text or call your companions on board the Grandcypher. They answer in their original Japanese voices with Chinese subtitles; they can recall the canon story events they experienced in the original game; and they remember what you tell them, letting word "get around" among crew members.
 
-All **28 idols** from the game's eight units are already set up and ready to talk. Once deployed publicly, anyone can sign in with Google or GitHub and use it.
+Over **70 crew companions** are already available for direct conversation, including Eternals, Arcarum Evokers, Twelve Divine Generals, Six Dragons, and Archangels. Once deployed publicly, anyone can sign in with Google or GitHub and use it.
 
 > [!NOTE]
-> This project is a derivative adaptation of [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) by [@Sallyn0225](https://github.com/Sallyn0225), migrating and expanding the architecture to the *Granblue Fantasy* universe.
+> This project is a derivative adaptation and port based on [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc) by [@Sallyn0225](https://github.com/Sallyn0225), heavily refactoring and migrating the original *THE iDOLM@STER SHINY COLORS* AI companion system to the *Granblue Fantasy* universe.
 
 > [!IMPORTANT]
-> This is an unofficial fan project, not affiliated with Cygames or the rights holders of *Granblue Fantasy*; the characters are played by AI. Story data is **not distributed with this repository**; you must prepare it yourself ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)). Through their replies, the characters indirectly pass story content on to signed-in users; for this risk, see [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md).
+> This is an unofficial fan project, not affiliated with Cygames or the rights holders of *Granblue Fantasy*; the characters are played by AI. Story data is **not distributed with this repository**; you must prepare it yourself ([ADR-0003](docs/adr/0003-corpus-and-voices-stay-private.md)). Through their replies, characters indirectly pass story content on to signed-in users; for this risk, see [ADR-0006](docs/adr/0006-open-to-the-public-with-oauth.md).
 
 > [!WARNING]
 > **Project Status (Work in Progress)**:
 > - This project is currently under active development.
-> - All 70 crew companions support text chat, canon lore memory retrieval (RAG), and customized photo generation.
-> - **Real-time voice calls (TTS voice models) are currently only configured for Narmaya (ナルメア) and Vikala (ビカラ)**; other crew members' voices are being trained and integrated progressively!
+> - All **70 crew companions support text chat, canon lore memory retrieval (RAG), and customized photo generation**.
+> - **Real-time voice calls (TTS voice models) are currently only configured for Narmaya (ナルメア) and Vikala (ビカラ)**; other crew members' bespoke voice models are being trained and integrated progressively. Community contributions are very welcome!
 
 ## 📸 Preview
 
@@ -49,83 +49,35 @@ All **28 idols** from the game's eight units are already set up and ready to tal
   <sub>From left to right: Real-time voice call with Narmaya · Text chat with Yggdrasil · Photo generation with Nier</sub>
 </p>
 
-<table>
-  <tr>
-    <td width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/images/app-dark.webp">
-        <img src="docs/images/app-light.webp" alt="Conversation page: Kogane remembers the cat you told Hiori about">
-      </picture>
-      <p align="center"><sub><b>Memory shared across characters</b>: you only told Hiori (灯織) about your cat, yet Kogane (恋鐘) says 「灯織から聞いたばい」 ("Hiori told me!")</sub></p>
-    </td>
-    <td width="50%">
-      <img src="docs/images/outfits.webp" alt="Outfit panel">
-      <p align="center"><sub><b>Outfits</b>: every card from the game is wearable, switchable between everyday clothes and stage costume</sub></p>
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <img src="docs/images/photo.webp" alt="Conversation: Meguru sends a photo">
-      <p align="center"><sub><b>Photos</b>: ask, and she takes one of herself in the moment</sub></p>
-    </td>
-    <td width="50%">
-      <img src="docs/images/gifts.webp" alt="Gifts page: the draw counter, a reset card and the gifts in the backpack">
-      <p align="center"><sub><b>Gifts</b>: draw every day, give her the ones she likes</sub></p>
-    </td>
-  </tr>
-</table>
-
-<table>
-  <tr>
-    <td width="33%"><img src="docs/images/phone-list.webp" alt="Conversation list on a phone"></td>
-    <td width="33%"><img src="docs/images/phone-chat.webp" alt="A conversation on a phone"></td>
-    <td width="33%"><img src="docs/images/phone-call.webp" alt="Call screen on a phone"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Conversation list: sorted by most recent contact; search by Chinese name, kana, romaji or unit name</sub></td>
-    <td align="center"><sub>Every Japanese line comes with a Chinese subtitle</sub></td>
-    <td align="center"><sub>On a phone, the call screen fills the whole screen</sub></td>
-  </tr>
-</table>
-
-<details>
-<summary><b>Landing page</b>: a beam of white light splits into 28 image colors, one for each idol</summary>
-
-<br>
-
-<img src="docs/images/landing-tour.webp" alt="The landing page's scrolling story" width="100%">
-
-</details>
-
 ## ✨ Features
 
-**Talk with her**
+**Talk with companions**
 
-- 🎙️ **Real-time voice calls**: Full-duplex calls over WebRTC, in Chinese or Japanese. You can interrupt her at any time.
-- 🇯🇵 **Japanese voice + Chinese subtitles**: She answers in Japanese, keeping her verbal tics, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)). Proper names are pronounced from a readings table.
-- 🎭 **A living stand**: During a call her Spine stand from the game breathes, blinks, moves her lips and changes expression with her emotion. When the game releases new cards, the weekly sync makes them wearable.
-- 📷 **She sends photos**: Ask, and she takes one of herself in the moment and sends it. What she shoots is hers to decide ([configuration guide](docs/configuration.en.md#photos)).
-- 💗 **Affinity and gifts**: What you say draws her closer or pushes her away; offend her too much and she hangs up, or ends the conversation. Draw gifts every day and give them to her; she responds.
+- 🎙️ **Real-time voice calls**: Full-duplex calls over WebRTC, in Chinese or Japanese. You can interrupt at any time (*currently configured with Narmaya and Vikala voices*).
+- 🇯🇵 **Japanese voice + Chinese subtitles**: Companions answer in Japanese, keeping signature verbal tics and personality tones, with a Chinese subtitle for every line ([ADR-0001](docs/adr/0001-japanese-replies-with-chinese-subtitles.md)). Proper names are pronounced accurately using a readings table.
+- 🎭 **Living dynamic portraits**: During a call, original Spine portraits breathe, blink, lip-sync, and express changing emotions. When new gacha variants or outfits are added, sync them to switch outfits.
+- 📷 **Companions send photos**: Ask, and your companion takes a photo of herself in the current situation and sends it; what she shoots is hers to decide ([configuration guide](docs/configuration.en.md#photos)).
+- 💗 **Affinity and gifts**: What you say draws her closer or pushes her away; too many offensive remarks will cause her to hang up and end the conversation. Draw gifts every day and give them to your companions for bespoke responses.
 
-**What she remembers**
+**What companions remember**
 
-- 📖 **Story recall**: Once the story corpus is imported, she recalls only the canon episodes **she appears in**.
-- 🔄 **Kept in step with the game**: One command syncs the fan translations and the Japanese originals, so new cards and events can be recalled within a week. Songs and lives are in her world setting too.
-- 🧠 **Memory shared across characters**: Tell Hiori something and Kogane will know too, and bring it up as "Hiori told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). You can see and delete everything she remembers.
-- 🗂️ **Past conversations**: Start a new conversation any time; the old ones stay to read back, or to delete.
-- 🪪 **Producer profile**: How she addresses you, your gender, time zone and birthday are all in settings; on your birthday she wishes you a happy one.
-- 📊 **Stats**: See how many turns, call minutes and gifts you've shared with them, and export a share image.
-- ⚡ **On-demand retrieval**: Each line is first checked for whether it needs a lookup, so small talk adds no latency.
+- 📖 **Story recall**: Once the story corpus is imported, companions recall only the canon episodes and Fate Episodes **they actually appeared in**.
+- 🔄 **In step with the game**: One command syncs fan translations and Japanese originals, so new stories and events can be promptly recalled. Character songs and world lore are deeply integrated.
+- 🧠 **Memory shared across characters**: Tell Lyria something and Vikala or Narmaya will also know, bringing it up as "Lyria told me…" ([ADR-0002](docs/adr/0002-shared-memory-with-source-character.md)). You can inspect and delete everything remembered.
+- 🗂️ **Past conversations**: Start a new conversation any time; past chats remain for browsing or deletion.
+- 🪪 **Captain profile**: Form of address (e.g., "団長ちゃん", "団長っち"), gender, time zone, and birthday can all be changed in settings; companions offer bespoke birthday wishes on your birthday.
+- 📊 **Stats**: See how many turns, call minutes, and gifts you've shared with companions, and export a share image.
+- ⚡ **On-demand retrieval**: Each turn is first evaluated to check whether a lookup is needed, so casual small talk adds no extra latency.
 
 **Deployment and operations**
 
-- 👥 **Open to the public**: Sign in with Google or GitHub. Usage is limited per user and memories are isolated; users can delete all their data for good, and the database is backed up offsite, encrypted, every day.
-- 📦 **Data packages**: Export conversations, photos, memories and producer profile as one zip, and carry on on another deployment. Affinity and gifts stay behind ([ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)).
-- 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis, speech recognition and image generation keys to use their own credits, and under some conditions not count toward their limits ([configuration guide](docs/configuration.en.md#bring-your-own-keys)). The keys stay in the browser ([ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)).
-- 🛠️ **Admin console**: See usage, cost and live calls, change models and limits without a restart, ban users and post announcements. No one's conversations or memories are visible there.
-- 🚦 **Service status**: Users can see from the conversation list whether each service is working.
-- 🔌 **Swappable services**: Models can use OpenAI Chat Completions, Responses or Anthropic Messages. Speech recognition and embedding each offer two providers, the judge three; each service can go through a proxy on its own.
-- 🚀 **One-command deployment**: A Docker Compose production config, with Caddy (automatic HTTPS) and coturn (TURN relay) built in. CI builds the images and publishes them to GHCR.
+- 👥 **Open to the public**: Sign in with Google or GitHub. Usage is rate-limited per user and memories are isolated; users can delete all their data for good, and the database is backed up offsite, encrypted, every day.
+- 📦 **Data packages**: Export conversations, photos, memories, and Captain profile as a single zip, and carry on in another deployment. Affinity and gifts stay behind ([ADR-0025](docs/adr/0025-data-packages-leave-affinity-and-gifts-behind.md)).
+- 🔑 **Bring your own keys**: Users can enter their own LLM, speech synthesis, speech recognition, and image generation keys to use their own quotas, without counting toward system limits when conditions are met ([configuration guide](docs/configuration.en.md#bring-your-own-keys)). Keys stay strictly in the browser ([ADR-0017](docs/adr/0017-own-api-keys-stay-in-the-browser.md)).
+- 🛠️ **Admin console**: See usage, cost, and active calls; adjust models and limits without a restart; ban users and post announcements. No user conversations or memories are visible there.
+- 🚦 **Service status**: Users can check directly from the conversation list whether each service is healthy.
+- 🔌 **Swappable services**: Models support OpenAI Chat Completions, Responses, and Anthropic Messages interfaces; speech recognition and vector embeddings offer two providers each, and judge models offer three; every service can independently route through a network proxy.
+- 🚀 **One-command deployment**: A Docker Compose production configuration with built-in Caddy (automatic HTTPS) and coturn (TURN relay). CI builds images and publishes them to GHCR.
 
 ## 🚀 Quick start
 
@@ -260,25 +212,24 @@ npm run typecheck && npm test && sh scripts/check-discipline.sh
 npm run build && BACKEND_URL=http://localhost:8000 npm run start   # serves on :3000, forwards /api/* to the backend
 ```
 
-- **Interface**: A restrained LINE-like style, with her image color in the places that belong to her. The landing page is a visual world of its own, always dark ([ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)). The visual design system is in [`DESIGN.md`](DESIGN.md); component conventions are in [`frontend/AGENTS.md`](frontend/AGENTS.md).
-- **Stands**: To see stands, give the frontend the same `EIDOLON_STAND_ASSETS_URL` as in `.env`.
-- **README screenshots**: With the frontend and backend both running, run `npm run readme-media` in `frontend/`. It recaptures the screenshots and animations in `docs/images/`.
-- **CI**: For every PR and every push to main, GitHub Actions runs the checks above and shellcheck, then builds both images. Pushes to main and `v*` tags publish them to GHCR. Dependabot opens dependency updates every Monday.
+- **Interface**: A restrained LINE-like style, with character image colors in the places that belong to them. The landing page is a visual world of its own, always dark ([ADR-0016](docs/adr/0016-landing-page-is-its-own-visual-world.md)). The visual design system is in [`DESIGN.md`](DESIGN.md); component conventions are in [`frontend/AGENTS.md`](frontend/AGENTS.md).
+- **Stands**: To display stands, give the frontend the same `EIDOLON_STAND_ASSETS_URL` as in `.env`.
+- **CI**: For every PR and push to main, GitHub Actions runs the checks above and shellcheck, then builds both images. Pushes to main and `v*` tags publish them to GHCR. Dependabot opens dependency updates every Monday.
 
 ## 📁 Project layout
 
 ```text
-eidolon-sc/
+eidolon-gbf/
 ├── backend/          # Python backend: FastAPI + Pipecat; conversation engine, calls, retrieval, memory, sync and the CLI (eidolon)
 │   ├── src/eidolon/
 │   ├── eval/         #   eval sets for reranking, the judge and memory (questions and labels only, no story text)
 │   └── tests/
 ├── frontend/         # Next.js frontend: landing page, conversations, call screen, settings, admin console
 ├── characters/       # character config, character sheets, character facts, avatars, readings table, world setting
-├── corpus/           # story data and the mirror cache (not committed)
+├── corpus/           # story data and mirror cache (not committed)
 ├── deploy/           # Caddyfile, story corpus and stand sync scripts, database backup script
-├── scripts/          # wizard for setting up the OAuth apps (setup-oauth.sh)
-├── docs/             # configuration guide, deployment guide, architecture decision records, README images
+├── scripts/          # wizard for setting up OAuth apps (setup-oauth.sh)
+├── docs/             # configuration guide, deployment guide, architecture decision records
 ├── docker-compose.yml          # local development
 └── docker-compose.prod.yml     # production deployment
 ```
@@ -289,29 +240,29 @@ The code in this project is released under the [GNU Affero General Public Licens
 
 The license covers only the code and documentation in the repository. The following are outside its scope:
 
-- **Content from the game**: Story data, character voices and stand assets are not in the repository; when using them, follow the terms of their respective sources (ADR-0003). In the character sheets, character facts, avatars and README screenshots in the repository, the characters and settings belong to the game's rights holders.
-- **Spine Runtimes**: [`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md), used for the call-screen stand, is included unmodified and is under its own Spine Runtimes license ([ADR-0009](docs/adr/0009-spine-runtime-without-editor-license.md)). [`LICENSING.md`](LICENSING.md) grants an additional permission under section 7 of the AGPL that allows the two to be distributed combined.
-- **Fonts and sound effects**: The landing page's font subsets are under the SIL Open Font License (see `frontend/src/app/(landing)/fonts/`). For the sources and licenses of the call sound effects, see [`CREDITS.md`](frontend/public/sounds/CREDITS.md).
+- **Content from the original game**: Story data, character voices, and stand assets are not in the repository; when using them, follow the terms of their respective sources (ADR-0003). In the character sheets, character facts, and avatars in the repository, the characters and settings belong to the original rights holders.
+- **Spine Runtimes**: [`frontend/public/vendor/spine-3.6/`](frontend/public/vendor/spine-3.6/README.md), used for call-screen dynamic portraits, is included unmodified and is under its own Spine Runtimes license ([ADR-0009](docs/adr/0009-spine-runtime-without-editor-license.md)). [`LICENSING.md`](LICENSING.md) grants an additional permission under section 7 of the AGPL allowing the two to be distributed combined.
+- **Fonts and sound effects**: Font subsets for the landing page are under the SIL Open Font License (see `frontend/src/app/(landing)/fonts/`). For the sources and licenses of call sound effects, see [`CREDITS.md`](frontend/public/sounds/CREDITS.md).
 
 ## 🙏 Acknowledgements
 
 - [Eidolon-SC](https://github.com/Sallyn0225/eidolon-sc): The original *Shiny Colors* AI companion system created by [@Sallyn0225](https://github.com/Sallyn0225), serving as the foundational prototype for this project
-- [LAPLACE Eidolon](https://laplace.live/eidolon): a real-time voice AI companion built for the VTuber Mingqian Nailü (明前奶绿); this project's architectural reference (none of its code is reused)
-- [SCTranslationData](https://github.com/ShinyGroup/SCTranslationData): story text and Chinese translations
-- [ShinyColorsDB](https://github.com/ShinyColorsDB): the mirror of the original scripts, and the stand assets
-- [Pipecat](https://github.com/pipecat-ai/pipecat): real-time voice pipeline and WebRTC transport
-- [Fish Audio](https://fish.audio/): speech synthesis
-- [Soniox](https://soniox.com/), [Alibaba Cloud Model Studio](https://www.aliyun.com/product/bailian): speech recognition
+- [LAPLACE Eidolon](https://laplace.live/eidolon): A real-time voice AI companion built for the VTuber Mingqian Nailü (明前奶绿); architectural reference for this project (no code reused)
+- [BLHXFY Translation Project](https://github.com/BLHXFY-Group/BLHXFY): Granblue Fantasy Chinese translations and text references
+- [Granblue Fantasy Wiki](https://gbf.wiki/): Character lore, dialogues, and references
+- [Pipecat](https://github.com/pipecat-ai/pipecat): Real-time voice pipeline and WebRTC transport
+- [Fish Audio](https://fish.audio/): Speech synthesis
+- [Soniox](https://soniox.com/), [Alibaba Cloud Model Studio](https://www.aliyun.com/product/bailian): Speech recognition
 - [SiliconFlow](https://siliconflow.cn/): Qwen3 Embedding and Reranker
-- [Google Gemini API](https://ai.google.dev/): Gemini Embedding (an optional embedding service)
-- [TypeSafe Jev](https://docs.typesafe.ai/), [OpenRouter](https://openrouter.ai/), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/), [Alibaba Cloud Model Studio](https://www.alibabacloud.com/help/en/model-studio/): the judge
-- [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes): playing the stands (spine-ts 3.6)
-- [im@sparql](https://sparql.crssnky.xyz/imas/), Lantis, ふじわらはじめ, imas-db, wikiwiki: the idols, releases and lives in the world setting
+- [Google Gemini API](https://ai.google.dev/): Gemini Embedding (optional embedding service)
+- [TypeSafe Jev](https://docs.typesafe.ai/), [OpenRouter](https://openrouter.ai/), [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/), [Alibaba Cloud Model Studio](https://help.aliyun.com/zh/model-studio/decision-model-api): Judge models
+- [Spine Runtimes](https://github.com/EsotericSoftware/spine-runtimes): Rendering dynamic portraits (spine-ts 3.6)
+- [Cygames](https://cygames.co.jp/): Creators of the original game *Granblue Fantasy*
 
 <div align="center">
 
 ---
 
-<sub>*THE iDOLM@STER SHINY COLORS* and its characters are ©Bandai Namco Entertainment Inc. This is an unofficial fan project, not affiliated with the rights holders; the characters are played by AI.</sub>
+<sub>*Granblue Fantasy* and its characters are ©Cygames, Inc. This is an unofficial fan project, not affiliated with the rights holders; characters are played by AI.</sub>
 
 </div>
