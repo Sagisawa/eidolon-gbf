@@ -32,17 +32,51 @@ if (-not (Test-Path $cloudflaredExe)) {
     exit 1
 }
 
-# 3. 启动后端 (FastAPI :8000)
-Write-Host "[2/5] 正在启动后端服务 (FastAPI :8000)..." -ForegroundColor Green
+# 3. 检查前端依赖与构建状态
+$frontendDir = Join-Path $rootDir "frontend"
+$nodeModules = Join-Path $frontendDir "node_modules"
+$nextBuild = Join-Path $frontendDir ".next"
+$buildMarker = Join-Path $frontendDir ".next\server\preview-props.json"
+
+if (-not (Test-Path $nodeModules)) {
+    Write-Host "[2/5] 正在安装前端依赖 (npm install)..." -ForegroundColor Yellow
+    Push-Location $frontendDir
+    npm install
+    Pop-Location
+} else {
+    Write-Host "[2/5] 前端依赖检查通过。" -ForegroundColor Gray
+}
+
+$needsBuild = (-not (Test-Path $nextBuild)) -or (-not (Test-Path $buildMarker))
+if (-not $needsBuild) {
+    $buildTime = (Get-Item $buildMarker).LastWriteTime
+    $srcDir = Join-Path $frontendDir "src"
+    if (Test-Path $srcDir) {
+        $newer = Get-ChildItem -Path $srcDir -Recurse -File | Where-Object { $_.LastWriteTime -gt $buildTime } | Select-Object -First 1
+        if ($newer) {
+            Write-Host "[提示] 检测到前端源码变动，正在重新构建 (npm run build)..." -ForegroundColor Yellow
+            $needsBuild = $true
+        }
+    }
+}
+
+if ($needsBuild) {
+    Write-Host "[提示] 正在执行前端生产构建 (npm run build)..." -ForegroundColor Yellow
+    Push-Location $frontendDir
+    npm run build
+    Pop-Location
+}
+
+# 4. 启动后端 (FastAPI :8000)
+Write-Host "[3/5] 正在启动后端服务 (FastAPI :8000)..." -ForegroundColor Green
 Start-Process cmd.exe -ArgumentList "/k", "`"$backendExe`" serve" -WorkingDirectory $rootDir
 
-# 4. 启动前端 (Next.js :3000)
-$frontendDir = Join-Path $rootDir "frontend"
-Write-Host "[3/5] 正在启动前端服务 (Next.js :3000)..." -ForegroundColor Green
+# 5. 启动前端 (Next.js :3000)
+Write-Host "[4/5] 正在启动前端服务 (Next.js :3000)..." -ForegroundColor Green
 Start-Process cmd.exe -ArgumentList "/k", "npm run start" -WorkingDirectory $frontendDir
 
-# 5. 等待前端与后端就绪
-Write-Host "[4/5] 等待本地服务就绪..." -ForegroundColor Gray
+# 6. 等待前端与后端就绪
+Write-Host "[5/5] 等待本地服务就绪..." -ForegroundColor Gray
 $ready = $false
 for ($i = 0; $i -lt 15; $i++) {
     Start-Sleep -Seconds 1
@@ -54,13 +88,13 @@ for ($i = 0; $i -lt 15; $i++) {
 }
 
 if (-not $ready) {
-    Write-Host "[警告] 前端启动耗时稍长，继续启动 Cloudflare 隧道..." -ForegroundColor Yellow
+    Write-Host "[警告] 前端 3000 端口尚未就绪，请检查前端窗口的报错信息..." -ForegroundColor Yellow
 } else {
     Write-Host "[成功] 本地服务已就绪！" -ForegroundColor Green
 }
 
-# 6. 启动 Cloudflare 免费临时隧道
-Write-Host "[5/5] 正在启动 Cloudflare 临时隧道 (Quick Tunnel)..." -ForegroundColor Cyan
+# 7. 启动 Cloudflare 免费临时隧道
+Write-Host "正在启动 Cloudflare 临时隧道 (Quick Tunnel)..." -ForegroundColor Cyan
 Write-Host ""
 Write-Host "=================================================================" -ForegroundColor Yellow
 Write-Host "提示：Cloudflare 会在弹出的专门窗口中打印您的公网专属临时链接：" -ForegroundColor Yellow
