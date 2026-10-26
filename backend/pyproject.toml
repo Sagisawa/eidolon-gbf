@@ -6,14 +6,14 @@ requires-python = ">=3.11"
 license = "AGPL-3.0-or-later"
 dependencies = [
     "cryptography>=50.0.2",
-    "fastapi>=0.142.2",
+    "fastapi>=0.148.0",
     "httpx[socks]>=0.28.1",
     "loguru>=0.7.3",
     "numpy>=2.4.6",
     "pillow>=12.3.0",
     "pipecat-ai[fish,soniox,webrtc]>=1.12.0",
     "pyrage>=1.4.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.4",
     "python-socks[asyncio]>=3.1.1",
     "tzdata>=2026.5",
     "uvicorn[standard]>=0.54.0",
@@ -33,7 +33,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-timeout>=2.4.0",
-    "ruff>=0.16.10",
+    "ruff>=0.17.1",
 ]
 
 [tool.pytest.ini_options]
